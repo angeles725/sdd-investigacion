@@ -197,7 +197,7 @@ _run_issue_seeding() {
     # SENTINEL-SEEDER-RC-END
   # SENTINEL-FIND-STDERR-START
   # stderr not suppressed — traversal errors (permission denied, missing dir) are §7 signals
-  done < <(find "$target" -maxdepth 4 -path '*/retros/*.md' \
+  done < <(find -H "$target" -maxdepth 4 -path '*/retros/*.md' \
            -not -path '*/.git/*' -not -iname '*index*.md')
   # SENTINEL-FIND-STDERR-END
 
@@ -333,11 +333,15 @@ fi
 
 # Part B: uncommitted research files newer than the session-start state file. Same scope as
 # Part A above — _has_changed only.
+# Every `find` over $TARGET in this script is `find -H` (kit issue #1301): TARGET is the LOGICAL path
+# the hook was registered with, so a symlinked target must be followed — plain `find <symlink>`
+# lists only the link itself and the scan sees an empty tree (false ALLOW: branch=no-change).
+# -H follows symlinks given on the command line only, never ones met while descending.
 if [ -f "$_session_file" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     _is_research_file "$f" && _has_changed=1
-  done < <(find "$TARGET" -newer "$_session_file" -type f -name '*.md' \
+  done < <(find -H "$TARGET" -newer "$_session_file" -type f -name '*.md' \
            -not -path '*/.git/*' 2>/dev/null)
 fi
 
@@ -366,7 +370,7 @@ if [ "$_degraded" -eq 1 ]; then
     # SENTINEL-GENERATED-CATALOG-END
     m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nb_mtime" ] && _nb_mtime="$m"
-  done < <(find "$TARGET" -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null)
+  done < <(find -H "$TARGET" -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null)
 fi
 
 # ── Find newest qualifying retro (session-sha scope or mtime fallback) ────────
@@ -456,7 +460,7 @@ else
     retro_is_excluded "$rf" && continue
     m="$(stat -c %Y "$rf" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$rf"; }
-  done < <(find "$TARGET" -maxdepth 4 -path '*/retros/*.md' \
+  done < <(find -H "$TARGET" -maxdepth 4 -path '*/retros/*.md' \
            -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 fi
 # SENTINEL-RETRO-SESSION-END

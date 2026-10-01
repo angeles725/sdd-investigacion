@@ -1513,6 +1513,89 @@ else
   ok "#1167-2 ESC3: no inline nested-quote replacement operand in _json_escape_reason"
 fi
 
+# ─── #1301 item 1: a target registered through a SYMLINK is scanned, not skipped ──
+# `find <symlink>` without -H lists the link itself and descends into nothing, so every scan of
+# $TARGET silently saw an EMPTY tree: Part B found no uncommitted research file and the gate said
+# `state=allow branch=no-change` (a false ALLOW, no retro demanded). The scans now use `find -H`.
+# Each case has a CONTROL on the real directory so the fixture is proven to be a changed corpus.
+
+# L1 (Part B, plain file): uncommitted block under a symlinked target → BLOCK.
+T_l1="$ROOT/t-l1"; mkgit "$T_l1"; SID_l1="l1-sess"
+mksessionfile "$T_l1" "$SID_l1" "202609050800"
+mkdir -p "$T_l1/research"; printf '# Block\n' > "$T_l1/research/niagara-block1.md"
+ln -s "$T_l1" "$ROOT/t-l1-link"
+run_gate "$T_l1" "$(mkjson "$SID_l1" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "PRECOND(#1301 L1): real-path target with an uncommitted block → blocks (fixture is a changed corpus)" \
+  || no "PRECOND(#1301 L1): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
+rm -f "$T_l1/.claude/.rsdd-retro-blocked-$SID_l1"
+run_gate "$ROOT/t-l1-link" "$(mkjson "$SID_l1" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 L1: the same corpus via a symlinked target → blocks (no false ALLOW)" \
+  || no "#1301 L1: symlinked target false ALLOW: OUT=$OUT ERR=$ERR"
+printf '%s' "$ERR" | grep -q 'branch=no-change' \
+  && no "#1301 L1: symlinked target reported branch=no-change: $ERR" \
+  || ok "#1301 L1: symlinked target does not report branch=no-change"
+
+# L2 (Part B inside a SUBMODULE): block changed only inside a submodule of a symlinked target.
+L2_SRC="$ROOT/l2-subsrc"; L2_MAIN="$ROOT/l2-main"; SID_l2="l2-sess"
+mkdir -p "$L2_SRC" "$L2_MAIN"
+_w9g -C "$L2_SRC" init -q; : > "$L2_SRC/f"; _w9g -C "$L2_SRC" add f; _w9g -C "$L2_SRC" commit -q -m i
+_w9g -C "$L2_MAIN" init -q; : > "$L2_MAIN/.keep"; _w9g -C "$L2_MAIN" add .keep; _w9g -C "$L2_MAIN" commit -q -m i
+_w9g -C "$L2_MAIN" submodule add "file://$L2_SRC" notes; _w9g -C "$L2_MAIN" commit -q -m sub
+mksessionfile "$L2_MAIN" "$SID_l2" "202609050800"
+printf '# Block\n' > "$L2_MAIN/notes/niagara-block1.md"
+ln -s "$L2_MAIN" "$ROOT/l2-link"
+run_gate "$L2_MAIN" "$(mkjson "$SID_l2" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "PRECOND(#1301 L2): real-path target, block changed inside a submodule → blocks" \
+  || no "PRECOND(#1301 L2): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
+rm -f "$L2_MAIN/.claude/.rsdd-retro-blocked-$SID_l2"
+run_gate "$ROOT/l2-link" "$(mkjson "$SID_l2" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 L2: submodule block via a symlinked target → blocks" \
+  || no "#1301 L2: symlinked target + submodule false ALLOW: OUT=$OUT ERR=$ERR"
+
+# L3 (DEGRADED mtime scans): conforming retro newer than the block, target via symlink → ALLOW.
+# Without -H both degraded scans saw nothing, so the gate claimed "no retro at all" (false BLOCK).
+T_l3="$ROOT/t-l3"; mkdir -p "$T_l3/retros"
+printf '# Block\n\nContent.\n' > "$T_l3/niagara-block1.md"; touch -d '-3 hours' "$T_l3/niagara-block1.md"
+mkretro "$T_l3" "2026-09-05-l3.md" 1;                       touch -d '-1 hour'  "$T_l3/retros/2026-09-05-l3.md"
+ln -s "$T_l3" "$ROOT/t-l3-link"
+run_gate "$T_l3" "$(mkjson "l3-sess" false)"
+[ -z "$OUT" ] \
+  && ok "PRECOND(#1301 L3): real-path degraded target with a newer conforming retro → allows" \
+  || no "PRECOND(#1301 L3): control did not allow — fixture broken: OUT=$OUT"
+run_gate "$ROOT/t-l3-link" "$(mkjson "l3-sess" false)"
+[ -z "$OUT" ] \
+  && ok "#1301 L3: degraded scans follow a symlinked target → allows" \
+  || no "#1301 L3: degraded scans skipped the symlinked target (false BLOCK): OUT=$OUT"
+
+# L5 (DEGRADED, block NEWER than the retro): via a symlink the stale retro must still BLOCK.
+# Both degraded scans were blind pre-fix, so the "no retro at all" branch blocked by accident;
+# this case pins the STALE branch itself and is what bites a mutant that blinds only the
+# degraded block-mtime scan (see TOOTH l-degraded-block-scan).
+T_l5="$ROOT/t-l5"; mkdir -p "$T_l5/retros"
+printf '# Block\n\nContent.\n' > "$T_l5/niagara-block1.md"; touch -d '-1 hour'  "$T_l5/niagara-block1.md"
+mkretro "$T_l5" "2026-09-05-l5.md" 1;                       touch -d '-3 hours' "$T_l5/retros/2026-09-05-l5.md"
+ln -s "$T_l5" "$ROOT/t-l5-link"
+run_gate "$ROOT/t-l5-link" "$(mkjson "l5-sess" false)"
+printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'   && ok "#1301 L5: degraded stale retro via a symlinked target → blocks as OLDER than the block"   || no "#1301 L5: stale-retro branch not reached via the symlinked target: OUT=$OUT ERR=$ERR"
+
+# L4 (issue seeding): the retro scan of _run_issue_seeding must also follow the symlink.
+T_l4="$ROOT/t-l4"; mkgit "$T_l4"; SID_l4="l4-sess"
+mksessionfile "$T_l4" "$SID_l4" "202609050800"
+mkblock "$T_l4" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_l4/niagara-block1.md"
+mkretro "$T_l4" "2026-09-05-l4real.md" 1
+touch -t 202609051200 "$T_l4/retros/2026-09-05-l4real.md"
+ln -s "$T_l4" "$ROOT/t-l4-link"
+: > "$SEED_LOG_EN3"
+run_fkit_gate "$ROOT/t-l4-link" "$(mkjson "$SID_l4" false)"
+grep -q 'l4real' "$SEED_LOG_EN3" \
+  && ok "#1301 L4: the retro under a symlinked target is seeded" \
+  || no "#1301 L4: seeding scan skipped the symlinked target (retro never seeded): ERR=$ERR"
+
 # ─── #1161: hermetic bin builder — skip glob, first-wins, no per-file fork ───
 # hb_checks <function-source>: eval the builder text in a subshell and run it against a fixture
 # PATH of three dirs: a/ (alpha, jq), skipme/ (beta), b/ (alpha dup, gamma). Prints one
@@ -2568,6 +2651,40 @@ hb_mutant "hb-jq-visible (excluded name no longer skipped)" \
   's/\[ "\$_n" = "jq" \] && continue/:/' "jq-must-be-hidden"
 hb_mutant "hb-batch-dropped (no ln after a dir)" \
   's/if \[ "\${#_batch\[@\]}" -gt 0 \]; then ln -s -t "\$out_dir" -- "\${_batch\[@\]}"; fi/:/' "alpha-reachable"
+
+# ── #1301 teeth: one mutant PER `find -H` site (list edges: each site is an independent scan).
+# Built with the shared helper (lib/mutant.sh): a mutant that did not apply, is empty, is invalid
+# bash, or would land in the live tree is REFUSED, so a green tooth cannot be a no-op.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+FMUT="$ROOT/fmutkit"; mkdir -p "$FMUT"; cp -R "$FKIT/toolbelt" "$FMUT/toolbelt"
+# l_tooth <name> <sed-expr> <case-fn>: build the mutant into the stub kit, then <case-fn> <mutant>
+# must return 0 when the mutant misbehaves (its L-case assertion would FAIL).
+l_tooth() {
+  local name="$1" expr="$2" fn="$3" m="$FMUT/toolbelt/retro-gate.sh" mrc
+  mutant_sed "$SUT" "$m" "$expr"; mrc=$?
+  if [ "$mrc" -ne 0 ]; then no "TOOTH $name: mutant refused by lib/mutant.sh (rc=$mrc) — tooth not built"; return; fi
+  if "$fn" "$m"; then ok "TOOTH $name: mutant misbehaves (RED as expected)"; else no "TOOTH $name: mutant behaved like the real SUT — no teeth"; fi
+}
+# l_run <mutant> <target> <sid>: run the mutant kit's gate, clearing block-once state first.
+l_run() {
+  local errf="$ROOT/lmut_err.$$"
+  rm -f "$2"/.claude/.rsdd-retro-blocked-"$3" 2>/dev/null
+  OUT="$(printf '%s' "$(mkjson "$3" false)" | SEED_LOG="$SEED_LOG_EN3" PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$1" "$2" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+lc_partb()   { l_run "$1" "$ROOT/t-l1-link" "$SID_l1"; [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'branch=no-change'; }
+lc_deg_blk() { l_run "$1" "$ROOT/t-l5-link" "l5-sess"; ! printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'; }
+lc_deg_rtr() { l_run "$1" "$ROOT/t-l3-link" "l3-sess"; printf '%s' "$OUT" | grep -qF '"decision":"block"'; }
+lc_seed()    { : > "$SEED_LOG_EN3"; l_run "$1" "$ROOT/t-l4-link" "$SID_l4"; ! grep -q 'l4real' "$SEED_LOG_EN3"; }
+l_tooth "l-partb-scan (find -H dropped from the Part B scan)" \
+  's/find -H "\$TARGET" -newer/find "$TARGET" -newer/' lc_partb
+l_tooth "l-degraded-block-scan (find -H dropped from the degraded block-mtime scan)" \
+  's/find -H "\$TARGET" -type f -name/find "$TARGET" -type f -name/' lc_deg_blk
+l_tooth "l-degraded-retro-scan (find -H dropped from the degraded retro scan)" \
+  's/find -H "\$TARGET" -maxdepth 4/find "$TARGET" -maxdepth 4/' lc_deg_rtr
+l_tooth "l-seeding-scan (find -H dropped from the issue-seeding scan)" \
+  's/find -H "\$target" -maxdepth 4/find "$target" -maxdepth 4/' lc_seed
 
 # ESC mutants: build from the SUT text in bash (no sed-escaping of quote characters).
 _esc_orig='s=${s//$_dq/"$_esc_dq"}'
