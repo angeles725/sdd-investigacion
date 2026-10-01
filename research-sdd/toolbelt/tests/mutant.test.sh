@@ -71,6 +71,13 @@ expect_rc "absent original: refused (rc 2, says not a readable file)" 2 "not a r
 expect_rc "empty original: refused (rc 3, says original is empty)" 3 "original is empty" \
   mutant_sed "$TMP/src/empty-orig.sh" "$out" 's/a/b/'
 
+# 5b — mutant_verify has its OWN rc-2 paths (absent original; mutant never produced), distinct from
+#      mutant_sed's: each names its specific refusal.
+expect_rc "verify: absent original is refused (rc 2, says not a readable file)" 2 "not a readable file" \
+  mutant_verify "$TMP/does-not-exist.sh" "$TMP/m5b.sh"
+expect_rc "verify: mutant that was never produced is refused (rc 2, says was not produced)" 2 "was not produced" \
+  mutant_verify "$ORIG" "$TMP/m5b-never-built.sh"
+
 # 6 — sed itself fails (unterminated s command).
 out="$TMP/m6.sh"
 expect_rc "sed failure: refused (rc 6, says sed failed)" 6 "sed failed" \
@@ -227,6 +234,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "placement: OUT outside MUTANT_TMPROOT is refused"
   teeth_case symlink '/SENTINEL-SYMLINK-CHECK/,+3s/return 9/:/' \
     "placement: OUT that is a symlink to another file is refused"
+  teeth_case sedorig '/SENTINEL-SED-ORIG-CHECK/,+3s/return 2/:/' \
+    "absent original: refused (rc 2, says not a readable file)"
+  teeth_case verifyorig '/SENTINEL-VERIFY-ORIG-CHECK/,+3s/return 2/:/' \
+    "verify: absent original is refused (rc 2, says not a readable file)"
+  teeth_case notproduced '/SENTINEL-NOT-PRODUCED-CHECK/,+3s/return 2/:/' \
+    "verify: mutant that was never produced is refused (rc 2, says was not produced)"
+  teeth_case sedfail '/SENTINEL-SED-FAIL-CHECK/,+3s/return 6/:/' \
+    "sed failure: refused (rc 6, says sed failed)"
   teeth_case selfoverwrite '/SENTINEL-SELF-CHECK/,+3s/return 7/:/' \
     "self-overwrite: OUT equal to the original path is refused"
 fi
