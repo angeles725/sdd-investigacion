@@ -24,6 +24,47 @@ TARGET="$(cd "$1" 2>/dev/null && pwd)" || {
   printf 'retro-gate: ERROR: target not found: %s\n' "$1" >&2; exit 0
 }
 
+# SENTINEL-STOP-LOG-START
+# ── Stop-branch log (kit issue #1258) ─────────────────────────────────────────
+# Every Stop appends ONE line (UTC timestamp, target, session, branch taken, seeding evidence) to
+# $TARGET/.claude/.rsdd-retro-gate-stops.log — the state dir this gate already owns, never the
+# corpus content — so an operator can answer "what did the hook do?" without reading transcripts.
+# The name follows the `.rsdd-*` state-file convention so a target's existing `.claude/.rsdd-*`
+# ignore rule covers it: a tracked .claude/ must not turn dirty on every Stop.
+# Written from an EXIT trap installed as soon as TARGET resolves, so every exit path after it is
+# covered (a helper-load failure is logged as branch=error-helper); the trap never calls `exit`, so
+# the verdict and exit code are untouched. Bounded: past _STOP_LOG_MAX lines the file is cut to its
+# last _STOP_LOG_KEEP through a per-process temp name (concurrent Stops must not share one).
+# A failed write is a typed stderr WARN (§7), never a changed verdict.
+_STOP_BRANCH="error-helper"  # until the helper libs load; each exit site then sets its own branch
+_STOP_SEED=""     # seeding evidence: skip reason, per-retro summary: lines, aggregate counters
+_STOP_LOG_MAX=400
+_STOP_LOG_KEEP=200
+_seed_note() { _STOP_SEED="${_STOP_SEED:+$_STOP_SEED; }$1"; }
+_stop_log_write() {
+  local _mode=""
+  [ "${_degraded:-0}" -eq 1 ] && _mode=" mode=degraded"
+  local d="$TARGET/.claude" f line n
+  f="$d/.rsdd-retro-gate-stops.log"
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) target=${TARGET##*/} session=${_session_id//[^A-Za-z0-9._-]/_} branch=${_STOP_BRANCH:-unclassified}$_mode"
+  [ -z "$_STOP_SEED" ] || line="$line seeding=$_STOP_SEED"
+  line="${line//$'\n'/ }"
+  if mkdir -p "$d" 2>/dev/null && printf '%s\n' "$line" >> "$f" 2>/dev/null; then
+    n="$(wc -l < "$f" 2>/dev/null)" || n=0
+    if [ "${n:-0}" -gt "$_STOP_LOG_MAX" ]; then
+      if tail -n "$_STOP_LOG_KEEP" "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null; then :; else
+        rm -f "$f.tmp.$$" 2>/dev/null
+        printf 'retro-gate: WARN: stop-log rotation failed (%s) — log may grow; verdict unaffected\n' "$f" >&2
+      fi
+    fi
+  else
+    printf 'retro-gate: WARN: stop-log write failed (%s) — Stop not recorded; verdict unaffected\n' "$f" >&2
+  fi
+}
+_session_id=""
+trap _stop_log_write EXIT
+# SENTINEL-STOP-LOG-END
+
 # ── Load helpers ──────────────────────────────────────────────────────────────
 _bf_lib="$SELF_DIR/lib/block-files.sh"
 _rs_lib="$SELF_DIR/lib/retro-status.sh"
@@ -48,41 +89,7 @@ declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: re
 # early loop-safety / block-once exits, so those cheap paths never pay for the find). A path under
 # one of them is a copy of the corpus, never a research file or a retro of this target.
 _nw_roots=""
-# SENTINEL-STOP-LOG-START
-# ── Stop-branch log (kit issue #1258) ─────────────────────────────────────────
-# Every Stop appends ONE line (UTC timestamp, target, session, branch taken, seeding evidence) to
-# $TARGET/.claude/retro-gate-stops.log — the state dir this gate already owns, never the corpus
-# content — so an operator can answer "what did the hook do?" without reading transcripts. Written
-# from an EXIT trap so every exit path is covered; the trap never calls `exit`, so the gate's
-# verdict and exit code are untouched. Bounded: past _STOP_LOG_MAX lines the file is cut to its
-# last _STOP_LOG_KEEP. A failed write is a typed stderr WARN (§7), never a changed verdict.
-_STOP_BRANCH=""   # set at each exit site; empty at exit -> typed 'unclassified' (never silent)
-_STOP_SEED=""     # seeding evidence: skip reason, per-retro summary: lines, aggregate counters
-_STOP_LOG_MAX=400
-_STOP_LOG_KEEP=200
-_seed_note() { _STOP_SEED="${_STOP_SEED:+$_STOP_SEED; }$1"; }
-_stop_log_write() {
-  local d="$TARGET/.claude" f line n
-  f="$d/retro-gate-stops.log"
-  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) target=${TARGET##*/} session=${_session_id//[^A-Za-z0-9._-]/_} branch=${_STOP_BRANCH:-unclassified}"
-  [ -z "$_STOP_SEED" ] || line="$line seeding=$_STOP_SEED"
-  line="${line//$'\n'/ }"
-  if mkdir -p "$d" 2>/dev/null && printf '%s\n' "$line" >> "$f" 2>/dev/null; then
-    n="$(wc -l < "$f" 2>/dev/null)" || n=0
-    if [ "${n:-0}" -gt "$_STOP_LOG_MAX" ]; then
-      if tail -n "$_STOP_LOG_KEEP" "$f" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" 2>/dev/null; then :; else
-        rm -f "$f.tmp" 2>/dev/null
-        printf 'retro-gate: WARN: stop-log rotation failed (%s) — log may grow; verdict unaffected\n' "$f" >&2
-      fi
-    fi
-  else
-    printf 'retro-gate: WARN: stop-log write failed (%s) — Stop not recorded; verdict unaffected\n' "$f" >&2
-  fi
-}
-_session_id=""
-trap _stop_log_write EXIT
-# SENTINEL-STOP-LOG-END
-
+_STOP_BRANCH=""   # helpers loaded: from here an exit with no branch set is typed 'unclassified'
 _in_nested_worktree() { block_files_path_in_nested_worktree "$1" "$_nw_roots"; }
 
 # ── §18-EN3: auto issue-seeding on session close ──────────────────────────────

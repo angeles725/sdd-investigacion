@@ -1874,11 +1874,11 @@ case "$HB_SRC" in
   *) ok "#1161 HB3: no basename fork per executable (\${_exe##*/})" ;;
 esac
 
-# ─── #1258: Stop-branch log (.claude/retro-gate-stops.log) + seeding evidence ─
+# ─── #1258: Stop-branch log (.claude/.rsdd-retro-gate-stops.log) + seeding evidence ─
 # Every Stop appends ONE line (UTC timestamp, target, branch, seeding evidence) to a log under the
 # target's .claude/ state dir — never in the corpus content. Bounded; a write failure is a typed
 # WARN and never changes the verdict or the exit code.
-SL_NAME="retro-gate-stops.log"
+SL_NAME=".rsdd-retro-gate-stops.log"
 sl_lines() { if [ -f "$1/.claude/$SL_NAME" ]; then wc -l < "$1/.claude/$SL_NAME" | tr -d ' '; else echo 0; fi; }
 sl_last() { tail -n 1 "$1/.claude/$SL_NAME" 2>/dev/null; }
 mk_sl_conforming() {  # <target> <sid> → conforming retro newer than the block
@@ -1973,6 +1973,60 @@ TSL9="$ROOT/sl9"; mkgit "$TSL9"
 run_gate_nojq "$TSL9" "$(mkjson sl9 false)"
 sl_last "$TSL9" | grep -qF 'branch=degraded' && ok "#1258 SL9: jq-missing degraded Stop is logged" \
   || no "#1258 SL9: $(sl_last "$TSL9")"
+
+# SL10 (B1): the log must be covered by the `.claude/.rsdd-*` ignore rule real targets already carry
+# (they track .claude/ and ignore only the .rsdd-* state files) — else every Stop dirties the tree.
+TSL10="$ROOT/sl10"; mkgit "$TSL10"; mksessionfile "$TSL10" "sl10" "202609050800"
+printf '.claude/.rsdd-*\n' > "$TSL10/.gitignore"; printf 'k\n' > "$TSL10/.claude/tracked.txt"
+git -C "$TSL10" add .gitignore .claude/tracked.txt; git -C "$TSL10" commit -q -m "ignore rule"
+run_gate "$TSL10" "$(mkjson sl10 false)"
+if [ -f "$TSL10/.claude/$SL_NAME" ] && git -C "$TSL10" check-ignore -q ".claude/$SL_NAME" \
+   && [ -z "$(git -C "$TSL10" status --porcelain)" ]; then
+  ok "#1258 SL10: log is ignored by '.claude/.rsdd-*' — the target's git tree stays clean after a Stop"
+else no "#1258 SL10: log missing or not ignored; status=$(git -C "$TSL10" status --porcelain)"; fi
+
+# SL11 (N1): rotation uses a per-process temp name. Structural pin + a concurrent-Stop stress.
+if grep -qF '"$f.tmp.$$"' "$SUT" && ! grep -qF '"$f.tmp"' "$SUT"; then
+  ok "#1258 SL11a: rotation temp file is per-process (no shared \$f.tmp)"
+else no "#1258 SL11a: rotation still uses a shared temp name"; fi
+sl_race() {  # <gate-path> <target> → prints the number of rounds whose log ended up empty
+  local g="$1" t="$2" bad=0 r k
+  for r in 1 2 3 4 5 6 7 8; do
+    for k in $(seq 1 450); do printf 'old %s\n' "$k"; done > "$t/.claude/$SL_NAME"
+    for k in 1 2 3 4; do printf '%s' "$(mkjson slr false)" | "$BASH_BIN" "$g" "$t" >/dev/null 2>&1 & done
+    wait
+    [ -s "$t/.claude/$SL_NAME" ] || bad=$((bad+1))
+  done
+  echo "$bad"
+}
+TSL11="$ROOT/sl11"; mkgit "$TSL11"; mksessionfile "$TSL11" "slr" "202609050800"
+[ "$(sl_race "$SUT" "$TSL11")" = "0" ] && ok "#1258 SL11b: concurrent Stops never leave the log empty" \
+  || no "#1258 SL11b: a concurrent rotation emptied the log"
+
+# SL12 (N2): a helper-load failure (TARGET already resolved) is logged as branch=error-helper
+FKIT_NH="$ROOT/fkitnh"; mkdir -p "$FKIT_NH/toolbelt"; cp "$SUT" "$FKIT_NH/toolbelt/retro-gate.sh"
+TSL12="$ROOT/sl12"; mkgit "$TSL12"
+OUT="$(printf '%s' "$(mkjson sl12 false)" | "$BASH_BIN" "$FKIT_NH/toolbelt/retro-gate.sh" "$TSL12" 2>/dev/null)"; RC=$?
+if [ "$RC" -eq 0 ] && sl_last "$TSL12" | grep -qF 'branch=error-helper'; then
+  ok "#1258 SL12: missing helper → exit 0 and a branch=error-helper line"
+else no "#1258 SL12: rc=$RC log=$(sl_last "$TSL12")"; fi
+
+# SL13 (N3): a degraded check (no session-start sha) is marked on the line
+TSL13="$ROOT/sl13"; mkgit "$TSL13"
+run_gate "$TSL13" "$(mkjson sl13 false)"
+sl_last "$TSL13" | grep -qF 'mode=degraded' && ok "#1258 SL13a: no session sha → line carries mode=degraded" \
+  || no "#1258 SL13a: $(sl_last "$TSL13")"
+sl_last "$TSL1" | grep -qF 'mode=degraded' && no "#1258 SL13b: a healthy Stop must not be marked degraded: $(sl_last "$TSL1")" \
+  || ok "#1258 SL13b: a session-sha Stop is not marked degraded"
+
+# SL14 (N5): the REAL stage-retro-issues.sh on an unregistered target → exit 1 'degraded:' reaches the log
+TSL14="$ROOT/sl14"; mk_sl_conforming "$TSL14" sl14
+mkdir -p "$ROOT/sl14bin"   # gh stub: auth ok, dedup search → empty JSON array, everything else exit 0
+printf '#!/usr/bin/env bash\ncase "${1:-} ${2:-}" in "issue list") echo "[]";; esac\nexit 0\n' > "$ROOT/sl14bin/gh"; chmod +x "$ROOT/sl14bin/gh"
+OUT="$(printf '%s' "$(mkjson sl14 false)" | RESEARCH_SDD_ISSUE_REPO=o/r PATH="$ROOT/sl14bin:$PATH" "$BASH_BIN" "$SUT" "$TSL14" 2>"$ROOT/sl14.err")"; RC=$?
+if [ "$RC" -eq 0 ] && sl_last "$TSL14" | grep -qF 'seeder-degraded:2026-09-05-sl.md:degraded: target'; then
+  ok "#1258 SL14: real seeder's unregistered-target degraded is logged typed; exit 0"
+else no "#1258 SL14: rc=$RC log=$(sl_last "$TSL14") err=$(cat "$ROOT/sl14.err")"; fi
 
 # ─── #1167 item 7 / case-count stability ─────────────────────────────────────
 # The suite's case count must not silently differ between hosts. Conditional cases are:
@@ -3211,6 +3265,7 @@ fi
 if slmut skip-note-dropped '/_seed_note "skipped:gh-not-authenticated"/d'; then
   _t="$ROOT/slt3"; mk_sl_conforming "$_t" slt3
   OUT="$(printf '%s' "$(mkjson slt3 false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$SLM" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-skip-note-dropped: positive control — mutant did not reach retro-conforming"
   sl_last "$_t" | grep -qF 'skipped:gh-not-authenticated' \
     && no "TOOTH sl-skip-note-dropped: skip reason still logged — no teeth" \
     || ok "TOOTH sl-skip-note-dropped: dropping the note makes the skip silent (SL5 goes RED)"
@@ -3220,6 +3275,7 @@ if slmut summary-dropped '/_seed_note "\$(basename "\$rf") \$_summary"/d'; then
   _t="$ROOT/slt4"; mk_sl_conforming "$_t" slt4
   mkdir -p "$ROOT/slt4kit"; cp -r "$FKIT/toolbelt" "$ROOT/slt4kit/"; cp "$SLM" "$ROOT/slt4kit/toolbelt/retro-gate.sh"
   OUT="$(printf '%s' "$(mkjson slt4 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt4kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-summary-dropped: positive control — mutant did not reach retro-conforming"
   sl_last "$_t" | grep -qF 'summary: created=' \
     && no "TOOTH sl-summary-dropped: summary still logged — no teeth" \
     || ok "TOOTH sl-summary-dropped: dropping the note loses the seeder summary (SL4b goes RED)"
@@ -3229,9 +3285,32 @@ if slmut degraded-untyped 's/_seed_note "seeder-degraded:/_seed_note "seeder-x:/
   _t="$ROOT/slt5"; mk_sl_conforming "$_t" slt5
   mkdir -p "$ROOT/slt5kit"; cp -r "$FKIT_DEG/toolbelt" "$ROOT/slt5kit/"; cp "$SLM" "$ROOT/slt5kit/toolbelt/retro-gate.sh"
   OUT="$(printf '%s' "$(mkjson slt5 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt5kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-degraded-untyped: positive control — mutant did not reach retro-conforming"
   sl_last "$_t" | grep -qF 'seeder-degraded' \
     && no "TOOTH sl-degraded-untyped: typed note still present — no teeth" \
     || ok "TOOTH sl-degraded-untyped: renaming the note loses the typed degraded reason (SL6 goes RED)"
+fi
+# shared rotation temp name restored → the SL11a pin goes RED
+if slmut tmp-shared 's/"\$f\.tmp\.\$\$"/"$f.tmp"/g'; then
+  grep -qF '"$f.tmp.$$"' "$SLM" && no "TOOTH sl-tmp-shared: per-process temp still present — mutant not effective" \
+    || ok "TOOTH sl-tmp-shared: shared temp name restored loses the per-process pin (SL11a goes RED)"
+fi
+# error-helper branch dropped → helper-load failures are unlogged again
+if slmut helper-unlogged 's/^_STOP_BRANCH="error-helper"/_STOP_BRANCH=""/'; then
+  mkdir -p "$ROOT/slt8kit/toolbelt"; cp "$SLM" "$ROOT/slt8kit/toolbelt/retro-gate.sh"
+  _t="$ROOT/slt8"; mkgit "$_t"
+  printf '%s' "$(mkjson slt8 false)" | "$BASH_BIN" "$ROOT/slt8kit/toolbelt/retro-gate.sh" "$_t" >/dev/null 2>&1
+  [ -n "$(sl_last "$_t")" ] || no "TOOTH sl-helper-unlogged: positive control — no log line written"
+  sl_last "$_t" | grep -qF 'branch=error-helper' && no "TOOTH sl-helper-unlogged: still error-helper — no teeth" \
+    || ok "TOOTH sl-helper-unlogged: dropping the branch name leaves helper failures unclassified (SL12 goes RED)"
+fi
+# mode=degraded dropped
+if slmut mode-dropped 's/ mode=degraded//'; then
+  _t="$ROOT/slt7"; mkgit "$_t"
+  run_mutant "$SLM" "$_t" "$(mkjson slt7 false)"
+  sl_last "$_t" | grep -qF 'branch=' || no "TOOTH sl-mode-dropped: positive control — no log line written"
+  sl_last "$_t" | grep -qF 'mode=degraded' && no "TOOTH sl-mode-dropped: still marked degraded — no teeth" \
+    || ok "TOOTH sl-mode-dropped: dropping the marker hides a degraded check (SL13a goes RED)"
 fi
 # write failure leaks into the exit code
 if slmut rc-leak "s/^\\(    printf 'retro-gate: WARN: stop-log write failed.*>&2\\)\$/\\1; exit 1/"; then
