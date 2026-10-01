@@ -22,7 +22,9 @@
 #       ok = fallback output in place · marked = the fallback output itself carries a failure marker ·
 #       kept-primary = the marked primary output was kept (no usable fallback) · failed = NO output for the unit.
 #   Isolation (jars): per package, then per unit (top-level class or orphan '$' class), then a coverage sweep;
-#   an isolation time budget (RSDD_DECOMPILE_ISOLATE_BUDGET, default 1800 s, 0 = unlimited) falls back whole.
+#   an isolation time budget (RSDD_DECOMPILE_ISOLATE_BUDGET, default 1800 s, 0 = unlimited) falls back whole;
+#   every engine run during isolation (units and the coverage sweep) is capped at the REMAINING budget, and a
+#   budget discard also removes the directories it created.
 #   The coverage sweep also runs after a whole-jar SUCCESS (a class the engine silently omitted is a UNIT
 #   reason=missing, never a bare OK; when it cannot run the status carries reason=coverage-sweep-unavailable),
 #   and a file already sitting in a reused out-dir is never coverage (it must be newer than this run's start).
@@ -143,8 +145,16 @@ run_engine() {
       fi ;;
   esac
   mkdir -p "$out"
-  if [ "$TIMEOUT" -gt 0 ]; then
-    "$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$TIMEOUT" "${cmd[@]}" || rc=$?
+  # During isolation the run is also capped at the REMAINING isolation budget (kit issue #1320 item 6): the
+  # budget bounds a unit's engine run and the sweep, not just the gaps between units.
+  local t="$TIMEOUT"
+  if [ -n "$ISOLATING" ] && [ "$ISOLATE_BUDGET" -gt 0 ] && command -v "$TIMEOUT_BIN" >/dev/null 2>&1; then
+    local rem=$((ISOLATE_BUDGET - (SECONDS - ISOLATE_T0)))
+    [ "$rem" -ge 1 ] || rem=1
+    if [ "$t" -eq 0 ] || [ "$rem" -lt "$t" ]; then t="$rem"; fi
+  fi
+  if [ "$t" -gt 0 ]; then
+    "$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$t" "${cmd[@]}" || rc=$?
   else
     "${cmd[@]}" || rc=$?
   fi
@@ -177,6 +187,13 @@ layout_key() {
     META-INF/versions/*/*) p="${p#META-INF/versions/*/}" ;;
   esac
   printf '%s\n' "$p"
+}
+
+# discard_run_output — drop what THIS run wrote: its files, then the directories that became empty
+# (kit issue #1320 item 6: a budget discard used to leave empty package directories behind).
+discard_run_output() {
+  find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
+  find "$OUT" -mindepth 1 -type d -empty -newer "$STAMP" -delete 2>/dev/null || true
 }
 
 UNITS=()        # one line per affected unit: "<unit>|<reason>|<fallback>|<result>"
@@ -225,6 +242,7 @@ reason_of() { if [ "$1" -eq 124 ]; then echo timeout; elif [ "$1" -eq 137 ]; the
 
 # Isolation time budget (typed total_budget_exhausted → whole-artifact fallback).
 ISOLATE_T0=0
+ISOLATING="" # non-empty only while isolate_jar runs (run_engine clamps each run to the remaining budget)
 BUDGET_HIT=""
 budget_exhausted() { [ "$ISOLATE_BUDGET" -gt 0 ] && [ $((SECONDS - ISOLATE_T0)) -ge "$ISOLATE_BUDGET" ]; }
 
@@ -287,6 +305,7 @@ isolate_jar() {
   local d pkg pin pout prc n=0 f unit
   ISOLATION_LEVEL=package
   ISOLATE_T0=$SECONDS
+  ISOLATING=1
   while IFS= read -r d; do
     if budget_exhausted; then return 2; fi
     pkg="${d#"$EXT"}"; pkg="${pkg#/}"; [ -n "$pkg" ] || pkg=.
@@ -364,15 +383,16 @@ if [ "$rc" -ne 0 ]; then
   reason="$(reason_of "$rc")"
   PRIMARY_STATE="$reason"
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
-  find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
+  discard_run_output
   if [[ "${IN,,}" == *.jar ]]; then
     irc=0; isolate_jar || irc=$?
+    ISOLATING="" # later runs (whole-artifact fallback, marker scan) are not budget-clamped
     if [ "$irc" -eq 1 ]; then
       NO_SCAN=1; fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"
     elif [ "$irc" -eq 2 ]; then
       # Budget exhausted: discard the half-isolated state; the whole artifact falls back, typed.
       NO_SCAN=1; ISOLATION_LEVEL=""; UNITS=(); PARTIAL_UNITS=0; DEGRADED_UNITS=0; HANDLED=()
-      find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
+      discard_run_output
       fallback_unit "$(unit_name)" total_budget_exhausted "$IN"
     fi
   else

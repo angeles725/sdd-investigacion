@@ -202,7 +202,8 @@ fi
 #   STUB_EMPTY_MIN       N: vineflower exits 0 writing nothing when a DIR input holds >= N classes
 #   STUB_OMIT_CLASSES    space list of class basenames vineflower silently leaves out of its output
 #   STUB_IGNORE_TERM     non-empty: a "sleeping" vineflower ignores SIGTERM (only SIGKILL stops it → rc 137)
-#   STUB_STRIP_LAYOUT    non-empty: every engine writes output paths that follow the PACKAGE (BOOT-INF/classes/,
+#   STUB_CFR_SLEEP       N: cfr sleeps N seconds (a slow fallback / coverage-sweep run)
+#   STUB_STRIP_LAYOUT   non-empty: every engine writes output paths that follow the PACKAGE (BOOT-INF/classes/,
 #                        WEB-INF/classes/ and META-INF/versions/N/ prefixes dropped), like real CFR/Procyon
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
@@ -225,6 +226,7 @@ else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; 
 [ "$eng" = vineflower ] && [ -n "${STUB_VF_RC:-}" ] && exit "$STUB_VF_RC"
 [ "$eng" = vineflower ] && [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
 ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && sleep "$STUB_CFR_SLEEP"
 [ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && exec sleep "${STUB_SLEEP:-3}"
 [ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
@@ -583,6 +585,34 @@ if [ "$RC" -eq 4 ] && [ "$(units_of)" = "BOOT-INF/classes/b/B" ] && grep -q 'rea
   ok "I5 prefix-layout fallback output not re-scanned → exactly one unit"
 else no "I5 prefix-layout handled-set uses the package-relative key" "rc=$RC so=[$SO]"; fi
 
+# ── Issue #1320 item 6: the isolation budget bounds engine runs, the sweep and the discard ──
+# J1: a package rerun that would hang for 15 s (per-run timeout 60) is cut at the REMAINING budget (2 s),
+#     not run to its own timeout: the budget is enforced inside a unit, not only between units.
+t0=$SECONDS
+rt J1 "$JAR3" STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="A" STUB_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=2 -- --engine vineflower
+el=$((SECONDS - t0))
+if [ "$el" -lt 12 ] && [ "$RC" -eq 4 ] && grep -q 'reason=total_budget_exhausted' <<<"$SO"; then
+  ok "J1 package rerun clamped to the remaining budget (${el}s < 12s) → total_budget_exhausted"
+else no "J1 budget enforced inside a unit" "elapsed=${el}s rc=$RC so=[$SO]"; fi
+# J2: the coverage sweep's own fallback run is bounded by the same budget (slow cfr on an omitted class).
+t0=$SECONDS
+rt J2 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" STUB_CFR_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=3 -- --engine vineflower
+el=$((SECONDS - t0))
+if [ "$el" -lt 12 ] && grep -q 'a/A2 reason=missing' <<<"$SO"; then
+  ok "J2 coverage-sweep fallback bounded by the budget (${el}s < 12s)"
+else no "J2 sweep is budgeted" "elapsed=${el}s rc=$RC so=[$SO]"; fi
+# J3: a budget discard leaves no empty directories behind (package a was written, then discarded).
+rt J3 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower --fallback-engine none
+if grep -q 'reason=total_budget_exhausted' <<<"$SO" && [ -z "$(find "$ROOT/o-J3" -mindepth 1 -type d -empty 2>/dev/null)" ]; then
+  ok "J3 budget discard removes the directories it created (no empty dirs left)"
+else no "J3 empty dirs left after a budget discard" "empty=[$(find "$ROOT/o-J3" -mindepth 1 -type d -empty 2>/dev/null | tr '\n' ' ')] so=[$SO]"; fi
+# J4: once the budget is exhausted the whole-artifact fallback is NOT clamped to the (spent) budget: a slow
+#     but healthy cfr (3 s) still completes (result=ok), under the ordinary 60 s per-run timeout.
+rt J4 "$JAR3" STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="A" STUB_SLEEP=15 STUB_CFR_SLEEP=3 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+if grep -q '^UNIT: <whole-artifact> reason=total_budget_exhausted fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of J4 b/B.java)" = cfr ]; then
+  ok "J4 whole-artifact fallback after budget exhaustion is not clamped to the spent budget"
+else no "J4 post-budget fallback runs under the ordinary timeout" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -807,6 +837,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" rt mI3 "$JARB" STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
     if [ "$(units_of)" != "BOOT-INF/classes/b/B" ]; then ok "teeth-mI3: raw-key mutant double-handles the unit → I5 bites"
     else no "teeth-mI3: mutant still reported one unit — I5 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: issue #1320 item 6 (budget scope, discard) --"
+  # mJ1: no clamp to the remaining budget → J1 runs the hanging package to its own timeout/sleep.
+  if build_mut mJ1 's/^    if \[ "\$t" -eq 0 \] || \[ "\$rem" -lt "\$t" \]; then t="\$rem"; fi$/    :/'; then
+    t0=$SECONDS
+    RT_SUT="$MUT" rt mJ1 "$JAR3" STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="A" STUB_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=2 -- --engine vineflower
+    if [ $((SECONDS - t0)) -ge 12 ]; then ok "teeth-mJ1: no-clamp mutant runs the unit past the budget → J1 bites"
+    else no "teeth-mJ1: mutant still stopped at the budget — J1 has no teeth" "elapsed=$((SECONDS - t0))s"; fi
+  fi
+  # mJ2: discard leaves directories → J3 finds an empty dir.
+  if build_mut mJ2 's/^  find "\$OUT" -mindepth 1 -type d -empty -newer "\$STAMP" -delete .*$/  :/'; then
+    RT_SUT="$MUT" rt mJ2 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower --fallback-engine none
+    if [ -n "$(find "$ROOT/o-mJ2" -mindepth 1 -type d -empty 2>/dev/null)" ]; then ok "teeth-mJ2: files-only discard leaves empty dirs → J3 bites"
+    else no "teeth-mJ2: mutant left no empty dirs — J3 has no teeth" "so=[$SO]"; fi
+  fi
+  # mJ3: ISOLATING never cleared → the post-budget whole-artifact fallback is clamped to the spent budget (J4).
+  if build_mut mJ3 's/^    ISOLATING="" # later runs.*$/    :/'; then
+    RT_SUT="$MUT" rt mJ3 "$JAR3" STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="A" STUB_SLEEP=15 STUB_CFR_SLEEP=3 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+    if ! grep -q 'fallback=cfr result=ok' <<<"$SO"; then ok "teeth-mJ3: flag-never-cleared mutant clamps the whole fallback → J4 bites"
+    else no "teeth-mJ3: mutant still let the fallback finish — J4 has no teeth" "so=[$SO]"; fi
   fi
 fi
 
