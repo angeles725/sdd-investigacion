@@ -24,6 +24,47 @@ TARGET="$(cd "$1" 2>/dev/null && pwd)" || {
   printf 'retro-gate: ERROR: target not found: %s\n' "$1" >&2; exit 0
 }
 
+# SENTINEL-STOP-LOG-START
+# ── Stop-branch log (kit issue #1258) ─────────────────────────────────────────
+# Every Stop appends ONE line (UTC timestamp, target, session, branch taken, seeding evidence) to
+# $TARGET/.claude/.rsdd-retro-gate-stops.log — the state dir this gate already owns, never the
+# corpus content — so an operator can answer "what did the hook do?" without reading transcripts.
+# The name follows the `.rsdd-*` state-file convention so a target's existing `.claude/.rsdd-*`
+# ignore rule covers it: a tracked .claude/ must not turn dirty on every Stop.
+# Written from an EXIT trap installed as soon as TARGET resolves, so every exit path after it is
+# covered (a helper-load failure is logged as branch=error-helper); the trap never calls `exit`, so
+# the verdict and exit code are untouched. Bounded: past _STOP_LOG_MAX lines the file is cut to its
+# last _STOP_LOG_KEEP through a per-process temp name (concurrent Stops must not share one).
+# A failed write is a typed stderr WARN (§7), never a changed verdict.
+_STOP_BRANCH="error-helper"  # until the helper libs load; each exit site then sets its own branch
+_STOP_SEED=""     # seeding evidence: skip reason, per-retro summary: lines, aggregate counters
+_STOP_LOG_MAX=400
+_STOP_LOG_KEEP=200
+_seed_note() { _STOP_SEED="${_STOP_SEED:+$_STOP_SEED; }$1"; }
+_stop_log_write() {
+  local _mode=""
+  [ "${_degraded:-0}" -eq 1 ] && _mode=" mode=degraded"
+  local d="$TARGET/.claude" f line n
+  f="$d/.rsdd-retro-gate-stops.log"
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) target=${TARGET##*/} session=${_session_id//[^A-Za-z0-9._-]/_} branch=${_STOP_BRANCH:-unclassified}$_mode"
+  [ -z "$_STOP_SEED" ] || line="$line seeding=$_STOP_SEED"
+  line="${line//$'\n'/ }"
+  if mkdir -p "$d" 2>/dev/null && printf '%s\n' "$line" >> "$f" 2>/dev/null; then
+    n="$(wc -l < "$f" 2>/dev/null)" || n=0
+    if [ "${n:-0}" -gt "$_STOP_LOG_MAX" ]; then
+      if tail -n "$_STOP_LOG_KEEP" "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null; then :; else
+        rm -f "$f.tmp.$$" 2>/dev/null
+        printf 'retro-gate: WARN: stop-log rotation failed (%s) — log may grow; verdict unaffected\n' "$f" >&2
+      fi
+    fi
+  else
+    printf 'retro-gate: WARN: stop-log write failed (%s) — Stop not recorded; verdict unaffected\n' "$f" >&2
+  fi
+}
+_session_id=""
+trap _stop_log_write EXIT
+# SENTINEL-STOP-LOG-END
+
 # ── Load helpers ──────────────────────────────────────────────────────────────
 _bf_lib="$SELF_DIR/lib/block-files.sh"
 _rs_lib="$SELF_DIR/lib/retro-status.sh"
@@ -48,6 +89,7 @@ declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: re
 # early loop-safety / block-once exits, so those cheap paths never pay for the find). A path under
 # one of them is a copy of the corpus, never a research file or a retro of this target.
 _nw_roots=""
+_STOP_BRANCH=""   # helpers loaded: from here an exit with no branch set is typed 'unclassified'
 _in_nested_worktree() { block_files_path_in_nested_worktree "$1" "$_nw_roots"; }
 
 # ── §18-EN3: auto issue-seeding on session close ──────────────────────────────
@@ -102,17 +144,20 @@ _run_issue_seeding() {
   if ! command -v gh >/dev/null 2>&1; then
     printf 'retro-gate: WARN: gh not found — issue-seeding skipped (run %s <retro> --apply manually)\n' \
       "$seeder" >&2
+    _seed_note "skipped:gh-absent"
     return 0
   fi
   if ! gh auth status >/dev/null 2>&1; then
     printf 'retro-gate: WARN: gh not authenticated — issue-seeding skipped (run gh auth login, then %s <retro> --apply manually)\n' \
       "$seeder" >&2
+    _seed_note "skipped:gh-not-authenticated"
     return 0
   fi
   # SENTINEL-GH-PROBE-END
 
   if [ ! -f "$seeder" ]; then
     printf 'retro-gate: WARN: stage-retro-issues.sh not found at %s — seeding skipped\n' "$seeder" >&2
+    _seed_note "skipped:seeder-missing"
     return 0
   fi
 
@@ -135,6 +180,9 @@ _run_issue_seeding() {
     # Parse counts from the authoritative summary: line emitted by the seeder at end of --apply
     _summary="$(printf '%s' "$seed_out" | grep '^summary:' | tail -1)"
     if [ -n "$_summary" ]; then
+      # Surface the seeder's own evidence line on the hook output and in the Stop log (#1258).
+      printf 'retro-gate: seeder %s: %s\n' "$(basename "$rf")" "$_summary" >&2
+      _seed_note "$(basename "$rf") $_summary"
       _c="$(printf '%s' "$_summary" | grep -oE 'created=[0-9]+' | cut -d= -f2)"
       _s="$(printf '%s' "$_summary" | grep -oE 'skipped-duplicate=[0-9]+' | cut -d= -f2)"
       _f="$(printf '%s' "$_summary" | grep -oE 'failed=[0-9]+' | cut -d= -f2)"
@@ -192,6 +240,10 @@ _run_issue_seeding() {
       if [ -z "$_seed_reason" ]; then _seed_reason="(no output)"; fi
       printf 'retro-gate: WARN: seeder failed (exit %d) for %s: %s\n' \
         "$seed_rc" "$(basename "$rf")" "$_seed_reason" >&2
+      case $'\n'"$seed_out" in
+        *$'\n'degraded:*) _seed_note "seeder-degraded:$(basename "$rf"):$_seed_reason" ;;
+        *) _seed_note "seeder-failed:rc=$seed_rc:$(basename "$rf"):$_seed_reason" ;;
+      esac
     fi
     # SENTINEL-ABSENT-NOT-FAILED-END
     # SENTINEL-SEEDER-RC-END
@@ -209,6 +261,7 @@ _run_issue_seeding() {
   # SENTINEL-AGGREGATE-WARN-END
   printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%d target=%s\n' \
     "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues" "$(basename "$target")" >&2
+  _seed_note "ran=$ran created=$created skipped-dedup=$skipped empty=$empty unclassifiable=$unclassifiable absent=$absent failed=$failed"
 }
 # SENTINEL-SEEDING-FUNC-END
 
@@ -250,6 +303,7 @@ _json_escape_reason() {
 # SENTINEL-JQ-PROBE-START
 # ── Probe: jq required for JSON parsing ──────────────────────────────────────
 if ! command -v jq >/dev/null 2>&1; then
+  _STOP_BRANCH="degraded"
   printf 'retro-gate: state=allow branch=degraded (jq missing — cannot read hook JSON) target=%s\n' \
     "$(basename "$TARGET")" >&2
   exit 0
@@ -264,6 +318,7 @@ _stop_hook_active=$(printf '%s' "$_json" | jq -r '.stop_hook_active // false' 2>
 # SENTINEL-STOP-HOOK-ACTIVE-START
 # ── (1) Loop-safety: check stop_hook_active FIRST ────────────────────────────
 if [ "$_stop_hook_active" = "true" ]; then
+  _STOP_BRANCH="loop-safety"
   printf 'retro-gate: state=allow branch=loop-safety stop_hook_active=true target=%s\n' \
     "$(basename "$TARGET")" >&2
   exit 0
@@ -276,6 +331,7 @@ _blocked_file="$_state_dir/.rsdd-retro-blocked-${_session_id}"
 # SENTINEL-BLOCK-ONCE-START
 # ── (2) Block-once: allow if already blocked this session ─────────────────────
 if [ -n "$_session_id" ] && [ -f "$_blocked_file" ]; then
+  _STOP_BRANCH="block-once"
   printf 'retro-gate: state=allow branch=block-once session=%s target=%s\n' \
     "$_session_id" "$(basename "$TARGET")" >&2
   exit 0
@@ -460,6 +516,7 @@ fi
 # SENTINEL-ALLOW-NO-CHANGE-START
 # ── (3) No changed research files and not degraded → allow ───────────────────
 if [ "$_degraded" -eq 0 ] && [ "$_has_changed" -eq 0 ]; then
+  _STOP_BRANCH="no-change"
   printf 'retro-gate: state=allow branch=no-change target=%s\n' "$(basename "$TARGET")" >&2
   exit 0
 fi
@@ -608,6 +665,7 @@ else
     _vr_out="$(bash "$VERIFY_RETRO" "$_newest_retro" 2>/dev/null)"
     _vr_rc=$?
     if [ "$_vr_rc" -eq 0 ]; then
+      _STOP_BRANCH="retro-conforming"
       printf 'retro-gate: state=allow branch=retro-conforming retro=%s target=%s\n' \
         "$(basename "$_newest_retro")" "$(basename "$TARGET")" >&2
       # SENTINEL-SEEDING-CALL-START
@@ -619,6 +677,7 @@ else
     _block_reason="§18 retro pending for $(basename "$TARGET"): $(basename "$_newest_retro") is non-conforming. Fix it (from $KIT/templates/retro.template.md) — missing elements: $_vr_out"
   else
     # verify-retro.sh absent → allow (cannot verify; log degraded)
+    _STOP_BRANCH="no-verifier"
     printf 'retro-gate: state=allow branch=no-verifier (verify-retro.sh absent) target=%s\n' \
       "$(basename "$TARGET")" >&2
     exit 0
@@ -632,6 +691,7 @@ if [ -n "$_block_reason" ]; then
     mkdir -p "$_state_dir" 2>/dev/null || true
     printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_blocked_file" 2>/dev/null || true
   fi
+  _STOP_BRANCH="retro-pending"
   printf 'retro-gate: state=block branch=retro-pending changed=%s retro=%s target=%s\n' \
     "$_n_changed" "$(basename "$_retro_label")" "$(basename "$TARGET")" >&2
   # SENTINEL-PURE-BASH-EMITTER-START
