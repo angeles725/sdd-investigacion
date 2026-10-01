@@ -233,7 +233,12 @@ mkdir -p "$ROOT/wrapper-java/bin" "$ROOT/out"
 mkexec "$ROOT/wrapper-java/bin/java" \
   'if [ "${1:-}" = -version ]; then echo '\''openjdk version "21.0.1"'\'' >&2; else _o="${!#}"; printf '\''%s\n'\'' "$*" > "$RSDD_CALLS"; mkdir -p "$_o" 2>/dev/null; printf '\''class X{}\n'\'' > "$_o/Decompiled.java"; fi; exit 0'
 mkexec "$ROOT/wrapper-java/bin/javap" 'exit 0'
-: > "$ROOT/vineflower.jar"; : > "$ROOT/input.jar"
+# input.jar must be a REAL archive: decompile-java sweeps coverage after a whole-jar success (kit issue
+# #1320), so the stub's Decompiled.java has to match a Decompiled.class entry. (An unlistable jar is the
+# typed coverage-sweep-unavailable state, covered by decompile-java.test.sh H3.)
+: > "$ROOT/vineflower.jar"
+mkdir -p "$ROOT/jarsrc" && printf 'x' > "$ROOT/jarsrc/Decompiled.class"
+(cd "$ROOT/jarsrc" && zip -q "$ROOT/input.jar" Decompiled.class)
 RSDD_CALLS="$ROOT/calls" JAVA_HOME="$ROOT/wrapper-java" VINEFLOWER="$ROOT/vineflower.jar" \
   bash "$JAVA_WRAPPER" "$ROOT/input.jar" "$ROOT/out" --engine vineflower >/dev/null 2>&1; RC=$?
 if [ "$RC" = 0 ] && grep -Fq -- "-jar $ROOT/vineflower.jar $ROOT/input.jar $ROOT/out" "$ROOT/calls"; then
