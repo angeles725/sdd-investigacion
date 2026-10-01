@@ -86,7 +86,8 @@ for p in "${paths[@]}"; do
     fi
     # Prune by BASENAME below the root (never by absolute-path substring: a corpus that itself
     # lives under a `.claude/` ancestor, e.g. a harness worktree, must not be skipped wholesale).
-    find "$p" -mindepth 1 \( -name node_modules -o -name .git -o -name .claude \) -prune \
+    find "$p" -mindepth 1 \( -name node_modules -o -name .git -o -name .claude -o -name .venv -o -name venv \
+      -o -name site-packages -o -name .atl \) -prune \
       -o -type f -name '*.md' -print \
       2>"$tmp/find.err" | LC_ALL=C sort > "$tmp/all"
     ps=("${PIPESTATUS[@]}")

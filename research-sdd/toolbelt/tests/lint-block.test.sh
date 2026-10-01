@@ -230,6 +230,17 @@ if [ "$RC" -eq 1 ] && [ "$(reported R0 "$OUT" "$FX/waiver-reserved-bad.md")" = "
    && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R99' && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R10'; then
   ok "15b unknown ids (R99, R10), a reason-less reserved waiver and a lower-case reserved id all stay R0 (4 findings, inactive-waivers=0)"
 else no "15b reserved-bad (rc=$RC want=[$want] out=[$OUT])"; fi
+run "$FX/r6-code.md"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'r6-trigger-clauses=0' && ok "16a R6: 'never references/referenced' (code sense: constant, API) is NOT a comparison claim" || no "16a R6 code sense (rc=$RC out=[$OUT])"
+run "$FX/r3-words.md"; want="$(lines_of ROW-BAD "$FX/r3-words.md")"; got="$(reported R3 "$OUT" "$FX/r3-words.md")"
+[ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "16b R3: read/write/execute, N4.14/N5.0 (digit-only extension) and runs/3.14 do not clear a row ($want)" || no "16b word tokens (rc=$RC want=[$want] got=[$got])"
+run "$FX/r3-fence-short.md"
+[ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -qF 'WARN' && ok "16c a closing fence SHORTER than its opener does not close it (4-backtick fence holds a 3-backtick line)" || no "16c short closer (rc=$RC out=[$OUT])"
+mkdir -p "$TMP/pruned2/.venv" "$TMP/pruned2/venv" "$TMP/pruned2/lib/site-packages" "$TMP/pruned2/.atl"
+for d in .venv venv lib/site-packages .atl; do cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned2/$d/vendored-block1.md"; printf '# n\n' > "$TMP/pruned2/$d/notes.md"; done
+cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned2/real-block2.md"
+run --audit "$TMP/pruned2"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=1 ' && ! printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED' && ok "16d .venv, venv, site-packages and .atl subtrees are pruned: not scanned and not counted as UNCLASSIFIED" || no "16d tool-dir prune (rc=$RC out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -280,7 +291,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$MRC" -eq 0 ] && ok "teeth C: evidence cells = before-marker -> row FALSE-PASSES -> evidence-column logic has teeth" || no "teeth C: mutant still flagged (rc=$MRC) — THEATER"
   fi
   # D: R3 durable alternatives dropped -> the mixed row in r3-clean false-flags
-  if tooth_build D lint_block.py 's#^    return bool(R3_EXT_RE.search(segs\[-1\])) or len(segs) >= 3#    return False#'; then
+  if tooth_build D lint_block.py 's#^    return any(R3_EXT_RE.search(x) for x in segs)#    return False#'; then
     mrun "$FX/r3-clean.md"
     [ "$MRC" -eq 1 ] && ok "teeth D: durable detection removed -> clean fixture FALSE-FLAGS -> negative cases have teeth" || no "teeth D: mutant still clean (rc=$MRC) — THEATER"
   fi
@@ -398,7 +409,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth $name: mutant still reports the asserted set [$want] — THEATER"; fi
   }
   tooth_set V1 lint_block.py 's#if R3_BLOCKFILE_RE.search(tok):#if re.search(r"(?:block|bloque|B)[- ]?[0-9]+", tok, re.I):#' "$FX/r3-slashtokens.md" R3
-  tooth_set V2 lint_block.py 's#or len(segs) >= 3$#or len(segs) >= 2#' "$FX/r3-slashtokens.md" R3
+  tooth_set V2 lint_block.py 's#^    return any(R3_EXT_RE.search(x) for x in segs)#    return len(segs) >= 2#' "$FX/r3-slashtokens.md" R3
   tooth_set V3 lint_block.py 's#^    if len(segs) < 2:#    if len(segs) < 1:#' "$FX/r3-slashtokens.md" R3
   if tooth_build V4 lint_block.py 's#^    if tok.endswith("/") and segs:#    if False:#'; then
     mrun "$FX/r3-durable2.md"
@@ -434,7 +445,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R99' && no "teeth Z3: mutant still reports the unknown rule — THEATER" || ok "teeth Z3: unknown-rule check removed -> R99 waiver accepted silently -> case 14l has teeth"
   fi
   tooth_set Z4 lint_block.py 's#^                if raw_id != rule:#                if False:#' "$FX/waiver-unknown.md" R3 LOW-BAD
-  tooth_set Q1 lint_block.py 's#|cite|reference)#)#' "$FX/r6-verbs.md" R6 -BAD
+  tooth_set Q1 lint_block.py 's#|cite)#)#' "$FX/r6-verbs.md" R6 -BAD
   tooth_set Q2 lint_block.py 's#(?:s|ed|d)?\\b",#s?\\b",#' "$FX/r6-verbs.md" R6 -BAD
   if tooth_build B2 lint-block.sh '/failed to define block_file_filter/{n;s/exit 2/exit 1/}'; then
     rm -rf "$TMP/mt/B2/lib"
@@ -461,6 +472,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun "$FX/waiver-reserved-bad.md"
     [ "$(reported R0 "$MOUT" "$FX/waiver-reserved-bad.md")" = "$(lines_of BAD "$FX/waiver-reserved-bad.md")" ] && no "teeth R3: mutant still flags the reason-less reserved waiver — THEATER" || ok "teeth R3: reason check dropped -> reason-less reserved waiver accepted -> case 15b has teeth"
   fi
+  if tooth_build K1 lint_block.py 's#|cite)(?:s|ed|d)?#|cite|reference)(?:s|ed|d)?#'; then
+    mrun "$FX/r6-code.md"
+    [ "$MRC" -eq 1 ] && ok "teeth K1: 'reference' re-added to the verbs -> code-sense hits FALSE-FLAG (niagara5 block39:419) -> case 16a has teeth" || no "teeth K1: mutant still clean (rc=$MRC) — THEATER"
+  fi
+  tooth_set K2 lint_block.py 's#^    return any(R3_EXT_RE.search(x) for x in segs)#    return len(segs) >= 2#' "$FX/r3-words.md" R3
+  tooth_set K3 lint_block.py 's#^R3_EXT_RE = .*#R3_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,6}(?::\d+(?:-\d+)?)?$")#' "$FX/r3-words.md" R3
+  if tooth_build K4 lint_block.py 's#len(st) >= open_len#len(st) >= 1#'; then
+    mrun "$FX/r3-fence-short.md"
+    [ "$MRC" -eq 1 ] && ok "teeth K4: closer length ignored -> short fence line closes the block early -> case 16c has teeth" || no "teeth K4: mutant still clean (rc=$MRC) — THEATER"
+  fi
+  for _n in .venv venv site-packages .atl; do
+    if tooth_build "K5$_n" lint-block.sh "s#-o -name $_n##"; then
+      mrun --audit "$TMP/pruned2"
+      printf '%s' "$MOUT" | grep -qF 'SUMMARY AUDIT files=1 ' && no "teeth K5 $_n: mutant still prunes it — THEATER" || ok "teeth K5 $_n: prune name removed -> vendored tree scanned/counted -> case 16d has teeth"
+    fi
+  done
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
     mrun --audit "$FX/corpus-empty"

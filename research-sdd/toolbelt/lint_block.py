@@ -15,7 +15,7 @@ Core rules
       SCOPE: Self-verify sections only. An inline `[CERT-hw] (/tmp/...)` outside a Self-verify
       section is NOT covered (known fleet gap, deferred).
   R6  cross-block comparison: a clause of the form "[Block N] ... does not mention/show/contain/
-      include/cite/reference ..." in a paragraph or table row that cites no raw artifact path.
+      include/cite ..." in a paragraph or table row that cites no raw artifact path.
 
 Rule ids R3/R6 keep the numbering of the reference implementation so waivers stay stable when the
 per-target packs (slice 2) add the remaining ids. Extension point: RULES (a registry of
@@ -284,10 +284,11 @@ R3_TOKEN_RE = re.compile(r"[^\s`\"'()]+")
 # A durable citation is PATH-SHAPED (never a bare word that merely contains a slash: `binary/sha256`,
 # `3/3`, `N/A`, `and/or`) or the canonical block FILE name (`<target>-block12.md`, never `[Block 12]`
 # or `B12`, which any prose can say). Path-shaped = a trailing `/` after a segment (`evidence/`), or
-# two or more non-empty segments with a file extension on the last (optionally `:LINE[-LINE]`), or
-# at least three segments (two directories). A bare `out.txt:12` is not durable: nobody can
-# tell which file it is.
-R3_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,6}(?::\d+(?:-\d+)?)?$")
+# two or more non-empty segments of which at least one carries a file extension (a dot followed by
+# 1-6 alphanumerics with at least one LETTER, optionally `:LINE[-LINE]`): `N4.14/N5.0` and
+# `read/write/execute` are not paths. A bare `out.txt:12` is not durable: nobody can tell which
+# file it is.
+R3_EXT_RE = re.compile(r"\.[A-Za-z0-9]{0,5}[A-Za-z][A-Za-z0-9]{0,5}(?::\d+(?:-\d+)?)?$")
 R3_BLOCKFILE_RE = re.compile(r"[\w.+-]+-(?:block|bloque)\d+(?:-[\w-]+)?\.md\b")
 
 
@@ -302,7 +303,7 @@ def _is_durable_token(tok):
         return True                      # `evidence/` — a directory reference
     if len(segs) < 2:
         return False
-    return bool(R3_EXT_RE.search(segs[-1])) or len(segs) >= 3
+    return any(R3_EXT_RE.search(x) for x in segs)
 
 
 def rule_r3(doc):
@@ -339,7 +340,7 @@ def rule_r3(doc):
 # R6 — cross-block comparison without the other block's raw artifact
 # ---------------------------------------------------------------------------
 # The verdict must be ABOUT the block: `[Block N]` is the (near) subject of "does not mention/show/
-# contain/include/cite/reference" (any of does/do/did not, doesn't, didn't, never; any of -s/-ed/-d).
+# contain/include/cite" (not `reference`: "never referenced" is the code sense in the fleet) (any of does/do/did not, doesn't, didn't, never; any of -s/-ed/-d).
 # At most 80 characters, with no sentence/clause boundary or dash between them (— em dash,
 # – en dash; a `.` inside a token such as `§55.2` is not a boundary) — a block reference
 # merely sitting in the same sentence as an unrelated "never shows" is not a comparison claim
@@ -347,7 +348,7 @@ def rule_r3(doc):
 R6_CLAIM_RE = re.compile(
     r"\[Block\s*\d+\](?:[^.;—–\n]|\.(?=\S)){0,80}?\b"
     r"(?:(?:does|do|did)\s+not|doesn't|didn't|never)\s+"
-    r"(?:mention|show|contain|include|cite|reference)(?:s|ed|d)?\b",
+    r"(?:mention|show|contain|include|cite)(?:s|ed|d)?\b",
     re.IGNORECASE)
 R6_RAW_PATH_RE = re.compile(r"evidence/|[\w./-]*/[\w.-]+\.\w{1,6}")
 

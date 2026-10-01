@@ -4,7 +4,7 @@
 
 [Block 4] did not cite the flag. V2-BAD
 
-[Block 5] never references the retry path. V3-BAD
+[Block 5] never cites the retry path. V3-BAD
 
 [Block 6] do not include the header. V4-BAD
 
