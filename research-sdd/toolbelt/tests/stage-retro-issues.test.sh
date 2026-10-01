@@ -1494,7 +1494,7 @@ RETROEOF
 
   # Tooth H2: the surviving unclassifiable echo itself — silence it, case 63 must go quiet.
   echo "-- teeth H2: silence the unclassifiable echo; case 63 must go quiet (no unclassifiable line) --"
-  anchor_h2='echo "unclassifiable: delta section found but not in row-table form in $retro — needs manual review, no issue auto-staged" >&2'
+  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries in $retro — needs manual review, no issue auto-staged" >&2'
   if [[ "$sut_content" == *"$anchor_h2"* ]]; then
     box_h2="$(mkbox teeth-h2)"
     retro_h2="$box_h2/rh/target-foo/retros/r-h2.md"
@@ -1956,6 +1956,17 @@ RETROEOF
     if ! grep -q '^WARN: .*1 of 2' <<<"$OUT"; then ok "T1332-k teeth: gap WARN removed → silent (78f has teeth)" "()"
     else no "T1332-k teeth: removed WARN must flip 78f" "78f is THEATER: out=[$OUT]"; fi
   fi
+
+  # NB1 mutant: the unregistered guard disabled → the basename fallback creates a label + issues (79a has teeth)
+  mbox79="$(mkbox teeth-unregistered)"; mk_gh_stub "$mbox79" nomatch "" missing
+  mkdir -p "$mbox79/rh/other-kit/retros"
+  if mutant_sed "$SUT" "$mbox79/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  if \[ "\$_target_registered" -ne 1 \]; then$/  if false; then/'; then
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a | CLAUDE.md | B1 | fix | HIGH |\n' > "$mbox79/rh/other-kit/retros/r.md"
+    run "$mbox79" "$mbox79/rh/other-kit/retros/r.md" --apply
+    if grep -q 'gh label create' "$mbox79/bin/gh.log" && grep -q 'gh issue create' "$mbox79/bin/gh.log"; then
+      ok "T1332-l teeth: guard disabled → unregistered target gets a label and issues (79a has teeth)" "()"
+    else no "T1332-l teeth: disabled guard must flip 79a" "79a is THEATER: out=[$OUT]"; fi
+  else no "T1332-l: build mutant" "mutant_sed refused"; fi
 
 fi  # --prove-teeth
 
@@ -3498,6 +3509,40 @@ if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q 
   ok "78f entry with an unusable ID token: WARN names the gap (1 of 2), the usable entry still seeds" "(exit $RC)"
 else
   no "78f entry ID gap WARN" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 79 — UNREGISTERED TARGET (kit issue #1332 NB1): the basename fallback (no TARGETS.md row for the
+#      retro's directory — e.g. ANOTHER kit's retro) must never auto-create a `target:<basename>`
+#      label and its issues in this repo. --apply: ONE typed degraded line naming the unregistered
+#      target, exit 1, no label create, no issue create. Dry-run still plans (no gh call).
+box79="$(mkbox case-unregistered)"; mk_gh_stub "$box79" nomatch "" missing
+mkdir -p "$box79/rh/other-kit/retros"
+r79="$box79/rh/other-kit/retros/r79.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a | CLAUDE.md | B1 | fix | HIGH |\n| 2 | b | CLAUDE.md | B2 | fix | HIGH |\n' > "$r79"
+run "$box79" "$r79" --apply
+LOG79="$(cat "$box79/bin/gh.log" 2>/dev/null)"
+if [ "$RC" = 1 ] && [ "$(grep -c '^degraded:' <<<"$OUT")" = 1 ] && grep -q "^degraded:.*unregistered.*other-kit" <<<"$OUT" \
+   && ! grep -q 'gh label create' <<<"$LOG79" && ! grep -q 'gh issue create' <<<"$LOG79"; then
+  ok "79a --apply, unregistered target: ONE degraded line naming it, exit 1, no label/issue create" "(exit $RC)"
+else
+  no "79a unregistered target --apply" "exit=$RC out=[$OUT] log=[$LOG79]"
+fi
+run "$box79" "$r79"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ]; then
+  ok "79b dry-run on an unregistered target still plans its issues" "(exit $RC)"
+else
+  no "79b dry-run unregistered" "exit=$RC out=[$OUT]"
+fi
+
+# 79c (NB3) — stage's unclassifiable wording matches reconcile's: names both accepted forms.
+box79c="$(mkbox case-unclass-wording)"; mk_gh_stub "$box79c" nomatch
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\nProse only, no table, no entries.\n' > "$box79c/rh/target-foo/retros/r79c.md"
+run "$box79c" "$box79c/rh/target-foo/retros/r79c.md"
+if [ "$RC" = 0 ] && grep -q "^unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries" <<<"$OUT"; then
+  ok "79c stage unclassifiable message names both accepted forms (same wording as reconcile)" "(exit $RC)"
+else
+  no "79c unclassifiable wording" "exit=$RC out=[$OUT]"
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -431,6 +431,7 @@ if [ "$_tnr_rc" -eq 1 ]; then
   exit 1
 fi
 
+_target_registered=1
 if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
   target_name="$(basename "$_target_dir")"
   # A structural directory name is never a registered target label: fail up front rather than
@@ -440,6 +441,7 @@ if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
       echo "stage-retro-issues: cannot resolve target for '$retro' — no ancestor directory is registered in $TARGETS_MD (basename '$target_name' is a structural directory, not a target)" >&2
       exit 1 ;;
   esac
+  _target_registered=0
   echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$target_name'" >&2
 fi
 # Pre-#1286 issues carry the legacy `<path basename>/retros/<file>` signature; remember it so the
@@ -608,7 +610,7 @@ if [ -z "$_rows" ]; then
   # (e.g. numbered-list entries under ### sub-headings, per the Spanish-alias real fleet
   # form), and it is not a declared honest zero either. Typed distinctly from the found=0
   # empty-input case above.
-  echo "unclassifiable: delta section found but not in row-table form in $retro — needs manual review, no issue auto-staged" >&2
+  echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro — needs manual review, no issue auto-staged" >&2
   exit 0
 fi
 
@@ -781,6 +783,14 @@ _label_present() {
 ensure_target_label() {
   [ "$_label_ready" -eq 1 ] && return 0
   local _lname="target:${target_name}" _cout
+  # STAGE_RETRO_ISSUES_UNREGISTERED_GUARD (kit issue #1332 NB1): only a target registered in
+  # TARGETS.md may have its label auto-created. The basename fallback (no row for this retro's
+  # directory — possibly ANOTHER kit's retro) must not mint a `target:<dir>` label and its issues
+  # in this repo: refuse loudly, once, before any create.
+  if [ "$_target_registered" -ne 1 ]; then
+    echo "degraded: target '${target_name}' is unregistered in $TARGETS_MD (basename fallback) — refusing to create label '$_lname' or any issue on $KIT_ISSUE_REPO; register the target or run from the owning kit" >&2
+    exit 1
+  fi
   if ! _label_present "$_lname"; then
     if ! _cout="$(gh label create "$_lname" --repo "$KIT_ISSUE_REPO" \
         --description "Fleet target: ${target_name}" --color d4c5f9 2>&1)"; then
