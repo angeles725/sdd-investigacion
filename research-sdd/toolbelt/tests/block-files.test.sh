@@ -115,11 +115,35 @@ nw_fixture() {
   : > "$d/.fakegit/worktrees/self/commondir"
   printf 'gitdir: %s/.fakegit/worktrees/side-wt\n' "$d" > "$d/side-wt/.git"
   printf 'gitdir: %s/.fakegit/worktrees/wt2\n' "$d" > "$d/deep/er/wt2/.git"
+  # git also writes the BACK-POINTER <gitdir>/gitdir (absolute path of the worktree's .git file) for
+  # every linked worktree; a worktree is only proven when it points back at the .git file naming it.
+  printf '%s/side-wt/.git\n' "$d" > "$d/.fakegit/worktrees/side-wt/gitdir"
+  printf '%s/deep/er/wt2/.git\n' "$d" > "$d/.fakegit/worktrees/wt2/gitdir"
+  # contrived (#1301 item 2): `gitdir: .` + a stray commondir in the SAME dir passes the commondir
+  # test, but nothing points back at it → not a worktree
+  mkdir -p "$d/contrived"; : > "$d/contrived/commondir"
+  printf 'gitdir: .\n' > "$d/contrived/.git"
+  # commondir present but NO back-pointer file → unprovable → not a root
+  mkdir -p "$d/nobp" "$d/.fakegit/worktrees/nobp"; : > "$d/.fakegit/worktrees/nobp/commondir"
+  printf 'gitdir: %s/.fakegit/worktrees/nobp\n' "$d" > "$d/nobp/.git"
+  # back-pointer names ANOTHER worktree's .git file → this one is not proven
+  mkdir -p "$d/wrongbp" "$d/.fakegit/worktrees/wrongbp"; : > "$d/.fakegit/worktrees/wrongbp/commondir"
+  printf 'gitdir: %s/.fakegit/worktrees/wrongbp\n' "$d" > "$d/wrongbp/.git"
+  printf '%s/side-wt/.git\n' "$d" > "$d/.fakegit/worktrees/wrongbp/gitdir"
+  # relative back-pointer (git >= 2.48 worktree.useRelativePaths) is resolved against the gitdir
+  mkdir -p "$d/relbp" "$d/.fakegit/worktrees/relbp"; : > "$d/.fakegit/worktrees/relbp/commondir"
+  printf 'gitdir: %s/.fakegit/worktrees/relbp\n' "$d" > "$d/relbp/.git"
+  printf '../../../relbp/.git\n' > "$d/.fakegit/worktrees/relbp/gitdir"
   printf 'gitdir: ../.git/modules/sub\n' > "$d/sub/.git"
   # look-alike: gitdir text contains /worktrees/ but there is no commondir (submodule of a worktree)
   mkdir -p "$d/sub2" "$d/.fakegit/worktrees/wtx/modules/notes"
   printf 'gitdir: %s/.fakegit/worktrees/wtx/modules/notes\n' "$d" > "$d/sub2/.git"
+  # …even with a (forged) back-pointer, only the commondir proof rejects it (isolates TOOTH-5)
+  printf '%s/sub2/.git\n' "$d" > "$d/.fakegit/worktrees/wtx/modules/notes/gitdir"
   printf 'gitdir: %s/.fakegit/worktrees/self\n' "$d" > "$d/.git"   # the root's own .git FILE
+  # its gitdir carries commondir AND a back-pointer to the root, so only the own-.git skip rejects
+  # it (isolates TOOTH-7)
+  printf '%s/.git\n' "$d" > "$d/.fakegit/worktrees/self/gitdir"
 }
 
 # nw_checks <helper-file>: source <helper-file> in a subshell and run every #1223 assertion;
@@ -141,6 +165,10 @@ nw_checks() {
     printf '%s\n' "$roots" | grep -qxF "$d/deep/er/wt2" || echo "FAIL:deep-linked-worktree-root"
     printf '%s\n' "$roots" | grep -qxF "$d/sub" && echo "FAIL:submodule-must-not-be-root"
     printf '%s\n' "$roots" | grep -qxF "$d/sub2" && echo "FAIL:worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/contrived" && echo "FAIL:contrived-gitdir-dot-with-stray-commondir-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/nobp" && echo "FAIL:commondir-without-backpointer-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/wrongbp" && echo "FAIL:backpointer-naming-another-worktree-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/relbp" || echo "FAIL:relative-backpointer-worktree-must-be-root"
     printf '%s\n' "$roots" | grep -qxF "$d/clone" && echo "FAIL:nested-clone-must-not-be-root"
     printf '%s\n' "$roots" | grep -qxF "$d" && echo "FAIL:own-git-file-must-not-make-root-a-root"
     # predicate: root itself, under it, FIRST / MIDDLE / LAST / ONLY roots, sibling-prefix trap
@@ -290,8 +318,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   || tno "TOOTH-3: guard-absent fragment did NOT exit 0 (tooth logic error)"
   rm -f "$BROKEN_LIB" "$GUARD_STRIPPED"
 
-  # TOOTH-4..7 (#1223): sed mutants of the REAL helper file. Each must (a) differ from the
-  # original (a no-op sed is theater) and (b) make nw_checks report the named failure.
+  # TOOTH-4..11 (#1223, #1301): sed mutants of the REAL helper file. Each must (a) differ from the
+  # original (a no-op sed is theater) and (b) make its checker (nw_checks, or nw_real_checks when named) report the named failure.
   nw_tooth() { # <label> <sed-expr> <expected FAIL: token> [checker: nw_checks|nw_real_checks]
     local label="$1" expr="$2" want="$3" chk="${4:-nw_checks}" mf out
     mf="$(mktemp /tmp/block-files-nwmut.XXXXXX.sh)"
@@ -301,7 +329,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
     out="$("$chk" "$mf")"
     if printf '%s\n' "$out" | grep -qF "FAIL:$want"; then
-      tok "$label: mutant makes nw_checks report FAIL:$want"
+      tok "$label: mutant makes $chk report FAIL:$want"
     else
       tno "$label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$out" | tr '\n' ' ')]"
     fi
@@ -311,8 +339,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     's#"\$_r"|"\$_r"/\*) return 0#"$_r"*) return 0#' "sibling-prefix-trap(side-wt-old)"
   nw_tooth "TOOTH-5 commondir proof dropped (look-alike gitdir counted as worktree)" \
     '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
-  nw_tooth "TOOTH-9 commondir proof dropped (real submodule of a linked-worktree target)" \
-    '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "a-submodule-in-linked-worktree-target-must-not-be-root" nw_real_checks
+  # A real submodule has no back-pointer either, so BOTH proofs must go for it to be miscounted.
+  nw_tooth "TOOTH-9 commondir AND back-pointer proofs dropped (real submodule of a linked-worktree target)" \
+    '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d;/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "a-submodule-in-linked-worktree-target-must-not-be-root" nw_real_checks
+  nw_tooth "TOOTH-11a back-pointer proof dropped (gitdir: . + stray commondir counted as worktree)" \
+    '/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "contrived-gitdir-dot-with-stray-commondir-must-not-be-root"
+  nw_tooth "TOOTH-11b back-pointer proof dropped (commondir without a back-pointer counted)" \
+    '/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "commondir-without-backpointer-must-not-be-root"
+  nw_tooth "TOOTH-11c back-pointer proof dropped (back-pointer naming another worktree counted)" \
+    '/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "backpointer-naming-another-worktree-must-not-be-root"
+  nw_tooth "TOOTH-11d back-pointer compared as TEXT only (relative back-pointer no longer a root)" \
+    's/\[ "\$_bp" -ef "\$_gf" \] || continue/[ "$_bp" = "$_gf" ] || continue/' "relative-backpointer-worktree-must-be-root"
   nw_tooth "TOOTH-10 symlinked target not followed (find -H dropped)" \
     's/find -H "\$_root"/find "$_root"/' "symlinked-target-sees-worktrees" nw_real_checks
   nw_tooth "TOOTH-6 fixed .claude/worktrees root dropped" \

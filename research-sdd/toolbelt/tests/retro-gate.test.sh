@@ -12,7 +12,9 @@
 #   nojq-path-dirname-leak  old dirname logic leaks jq via /bin→/usr/bin duplicate
 #   nw-* / catalog-not-excluded  (#1223, #1229) nested-worktree guards and the CATALOG.md skip
 #   hb-*                  (#1161) hermetic-bin builder: skip glob, first-wins, excluded name, batch ln
-#   esc-*                 (#1167 item 2) _json_escape_reason replacement operand
+#   esc-*                 (#1167 item 2) _json_escape_reason replacement operand; esc-ctrl* (#1301-6)
+#   l-*                   (#1301) one mutant per `find -H` scan site (symlinked target)
+#   nw-backpointer-dropped, p-*  (#1301) worktree back-pointer proof; probe-failure fail-safe
 #
 # Usage: retro-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
 
@@ -1260,7 +1262,8 @@ fi
 # like a candidate retro). Evidence (niagara-research, kit issue #1223): the Stop hook blocked
 # on .claude/worktrees/agent-*/niagara-mental-model-bloque*.md copies although no real block of
 # the target changed. Real nested `git worktree add` checkouts elsewhere under the target
-# (gitdir: .../worktrees/<name>) are excluded the same way.
+# (proven by the gitdir's commondir file AND its back-pointer to the .git file, never by the gitdir
+# text — see lib/block-files.sh) are excluded the same way.
 
 # mkwtcopy <target> <reldir> <fname>: untracked block file inside a nested worktree dir.
 mkwtcopy() {
@@ -1381,6 +1384,7 @@ T_w7="$ROOT/t-w7"
 mkdir -p "$T_w7/side-wt"
 mkdir -p "$T_w7/.fakegit/worktrees/side-wt"; : > "$T_w7/.fakegit/worktrees/side-wt/commondir"   # a linked worktree's gitdir has commondir
 printf 'gitdir: %s/.fakegit/worktrees/side-wt\n' "$T_w7" > "$T_w7/side-wt/.git"
+printf '%s/side-wt/.git\n' "$T_w7" > "$T_w7/.fakegit/worktrees/side-wt/gitdir"   # the back-pointer (#1301)
 printf '# Block\n' > "$T_w7/niagara-block1.md"; touch -d '-3 hours' "$T_w7/niagara-block1.md"
 mkretro "$T_w7/side-wt" "2026-09-05-w7.md" 1;     touch -d '-1 hour' "$T_w7/side-wt/retros/2026-09-05-w7.md"
 run_gate "$T_w7" "$(mkjson "w7-sess" false)"
@@ -1425,6 +1429,77 @@ run_gate "$T_w9" "$(mkjson "$SID_w9" false)"
 printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#1223 W9: block changed inside a submodule of a linked-worktree target → still blocks" \
   || no "#1223 W9: submodule treated as a nested worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+
+# W10 (#1301 item 2): a `.git` FILE reading `gitdir: .` plus a stray `commondir` in the same dir
+# passed the commondir proof, so the block beside it was dropped as a "worktree copy" (false
+# ALLOW). git writes a back-pointer <gitdir>/gitdir for every linked worktree; with none, the
+# directory is not a proven worktree and its research files count → BLOCK.
+T_w10="$ROOT/t-w10"; mkgit "$T_w10"; SID_w10="w10-sess"
+mksessionfile "$T_w10" "$SID_w10" "202609050800"
+mkdir -p "$T_w10/fake"; : > "$T_w10/fake/commondir"; printf 'gitdir: .\n' > "$T_w10/fake/.git"
+printf '# Block\n' > "$T_w10/fake/niagara-block1.md"
+run_gate "$T_w10" "$(mkjson "$SID_w10" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 W10: 'gitdir: .' + stray commondir is not a worktree → block beside it still counts" \
+  || no "#1301 W10: contrived gitdir treated as a linked worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+# W10b: commondir present, back-pointer file ABSENT (e.g. a half-pruned worktree) → still counts.
+T_w10b="$ROOT/t-w10b"; mkgit "$T_w10b"; SID_w10b="w10b-sess"
+mksessionfile "$T_w10b" "$SID_w10b" "202609050800"
+mkdir -p "$T_w10b/side" "$T_w10b/.fakegit/wt"; : > "$T_w10b/.fakegit/wt/commondir"
+printf 'gitdir: %s/.fakegit/wt\n' "$T_w10b" > "$T_w10b/side/.git"
+printf '# Block\n' > "$T_w10b/side/niagara-block1.md"
+run_gate "$T_w10b" "$(mkjson "$SID_w10b" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 W10b: worktree gitdir without a back-pointer is unprovable → its block still counts" \
+  || no "#1301 W10b: back-pointer-less gitdir treated as a worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+
+# ─── #1301 item 3: the gate when the nested-worktree PROBE itself fails ───────
+# The lib returns 2 (not a directory) or 3 (incomplete traversal); anything else is a defect. The
+# gate must FAIL SAFE: keep scanning (worktree copies may then be counted → a recoverable false
+# BLOCK) and say so — never turn a failed probe into an allow. PFKIT is a stub kit whose probe
+# returns $PF_RC after printing the fixed .claude/worktrees root.
+PFKIT="$ROOT/pfkit"; mkdir -p "$PFKIT"; cp -R "$FKIT/toolbelt" "$PFKIT/toolbelt"
+cat >> "$PFKIT/toolbelt/lib/block-files.sh" << 'PFEOF'
+unset -f block_files_nested_worktree_roots
+block_files_nested_worktree_roots() { printf '%s\n' "${1%/}/.claude/worktrees"; return "${PF_RC:-5}"; }
+PFEOF
+# run_pf <rc> <target> <sid> [gate-file] → sets OUT RC ERR (clears block-once state first)
+run_pf() {
+  local rc="$1" tgt="$2" sid="$3" gate="${4:-$PFKIT/toolbelt/retro-gate.sh}" errf="$ROOT/pf_err.$$"
+  rm -f "$tgt/.claude/.rsdd-retro-blocked-$sid"
+  OUT="$(printf '%s' "$(mkjson "$sid" false)" | PF_RC="$rc" SEED_LOG="$SEED_LOG_EN3" \
+    PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$gate" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+cp "$SUT" "$PFKIT/toolbelt/retro-gate.sh"
+T_p1="$ROOT/t-p1"; mkgit "$T_p1"; SID_p1="p1-sess"
+mksessionfile "$T_p1" "$SID_p1" "202609050800"
+printf '# Block\n' > "$T_p1/niagara-block1.md"
+for _pfrc in 2 5 127; do
+  run_pf "$_pfrc" "$T_p1" "$SID_p1"
+  printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+    && ok "#1301 P1(rc=$_pfrc): probe failure → the gate still BLOCKS the changed block (fail safe)" \
+    || no "#1301 P1(rc=$_pfrc): probe failure must not allow: OUT=$OUT ERR=$ERR"
+  printf '%s' "$ERR" | grep -qF "WARN: nested-worktree probe failed (rc=$_pfrc)" \
+    && ok "#1301 P1(rc=$_pfrc): typed WARN names the failed probe and its rc" \
+    || no "#1301 P1(rc=$_pfrc): no typed probe-failure WARN: $ERR"
+  printf '%s' "$ERR" | grep -q 'state=allow' \
+    && no "#1301 P1(rc=$_pfrc): stderr claims state=allow: $ERR" \
+    || ok "#1301 P1(rc=$_pfrc): stderr never claims state=allow"
+done
+# P2: rc 3 (incomplete traversal) is the lib's own typed WARN — the gate must not repeat it.
+run_pf 3 "$T_p1" "$SID_p1"
+printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed' \
+  && no "#1301 P2: rc=3 warned twice (the lib already warned): $ERR" \
+  || ok "#1301 P2: rc=3 adds no duplicate gate-level WARN"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 P2: rc=3 still blocks the changed block" \
+  || no "#1301 P2: rc=3 must not allow: OUT=$OUT ERR=$ERR"
+# P3: rc 0 control — no failure WARN.
+run_pf 0 "$T_p1" "$SID_p1"
+printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed' \
+  && no "#1301 P3: rc=0 emitted a probe-failure WARN: $ERR" \
+  || ok "#1301 P3: rc=0 control emits no probe-failure WARN"
 
 # ─── #1229: generated CATALOG.md is not a block (degraded mtime scan) ────────
 # gen-catalog.py rewrites CATALOG.md seconds AFTER the retro is written; in degraded mode the
@@ -1489,6 +1564,16 @@ esc_checks() {
     chk plain             'plain text' 'plain text'
     chk empty             ''           ''
     chk newline           $'a\nb'      'a\nb'
+    # #1301 item 6: raw control characters are illegal inside a JSON string — escape them all.
+    chk tab               $'a\tb'      'a\tb'
+    chk carriage-return   $'a\rb'      'a\rb'
+    chk ctrl-first        $'\x01z'     '\u0001z'
+    chk ctrl-last         $'z\x1f'     'z\u001f'
+    chk ctrl-backspace    $'a\x08b'    'a\u0008b'
+    chk ctrl-formfeed     $'a\x0cb'    'a\u000cb'
+    chk ansi-escape       $'\x1b[0m'   '\u001b[0m'
+    chk ctrl-and-quote    $'"\x02"'    '\"\u0002\"'
+    chk del-untouched     $'a\x7fb'    $'a\x7fb'
   )
 }
 esc_out="$(esc_checks "$SUT")"
@@ -1504,6 +1589,17 @@ if command -v jq >/dev/null 2>&1; then
 else
   printf '  SKIP  #1167-2 ESC2: jq not available — round-trip case not run\n'
 fi
+# ESC2b (#1301 item 6): a reason carrying tab, CR and other C0 bytes still parses as JSON and
+# round-trips (the raw bytes made the whole decision unparseable for the hook runner).
+if command -v jq >/dev/null 2>&1; then
+  _esc_cc=$'t\tc\rx\x01y\x1bz'
+  _esc_probe2="$(eval "$(sed -n '/^_json_escape_reason() {/,/^}/p' "$SUT")"; printf '{"reason":"%s"}' "$(_json_escape_reason "$_esc_cc")")"
+  [ "$(printf '%s' "$_esc_probe2" | jq -r .reason 2>/dev/null)" = "$_esc_cc" ] \
+    && ok "#1301-6 ESC2b: reason with control characters round-trips through jq" \
+    || no "#1301-6 ESC2b: control characters broke the JSON: $(printf '%s' "$_esc_probe2" | od -c | head -3)"
+else
+  printf '  SKIP  #1301-6 ESC2b: jq not available — round-trip case not run\n'
+fi
 # ESC3 (structural pin): no nested-quote replacement operand inside ${s//…/…}.
 # esc_pin_ok <sut-file>: 0 when the inline nested-quote operand is absent.
 esc_pin_ok() { ! grep -qF '"\\$_dq"' "$1"; }
@@ -1512,6 +1608,89 @@ if ! esc_pin_ok "$SUT"; then
 else
   ok "#1167-2 ESC3: no inline nested-quote replacement operand in _json_escape_reason"
 fi
+
+# ─── #1301 item 1: a target registered through a SYMLINK is scanned, not skipped ──
+# `find <symlink>` without -H lists the link itself and descends into nothing, so every scan of
+# $TARGET silently saw an EMPTY tree: Part B found no uncommitted research file and the gate said
+# `state=allow branch=no-change` (a false ALLOW, no retro demanded). The scans now use `find -H`.
+# Each case has a CONTROL on the real directory so the fixture is proven to be a changed corpus.
+
+# L1 (Part B, plain file): uncommitted block under a symlinked target → BLOCK.
+T_l1="$ROOT/t-l1"; mkgit "$T_l1"; SID_l1="l1-sess"
+mksessionfile "$T_l1" "$SID_l1" "202609050800"
+mkdir -p "$T_l1/research"; printf '# Block\n' > "$T_l1/research/niagara-block1.md"
+ln -s "$T_l1" "$ROOT/t-l1-link"
+run_gate "$T_l1" "$(mkjson "$SID_l1" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "PRECOND(#1301 L1): real-path target with an uncommitted block → blocks (fixture is a changed corpus)" \
+  || no "PRECOND(#1301 L1): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
+rm -f "$T_l1/.claude/.rsdd-retro-blocked-$SID_l1"
+run_gate "$ROOT/t-l1-link" "$(mkjson "$SID_l1" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 L1: the same corpus via a symlinked target → blocks (no false ALLOW)" \
+  || no "#1301 L1: symlinked target false ALLOW: OUT=$OUT ERR=$ERR"
+printf '%s' "$ERR" | grep -q 'branch=no-change' \
+  && no "#1301 L1: symlinked target reported branch=no-change: $ERR" \
+  || ok "#1301 L1: symlinked target does not report branch=no-change"
+
+# L2 (Part B inside a SUBMODULE): block changed only inside a submodule of a symlinked target.
+L2_SRC="$ROOT/l2-subsrc"; L2_MAIN="$ROOT/l2-main"; SID_l2="l2-sess"
+mkdir -p "$L2_SRC" "$L2_MAIN"
+_w9g -C "$L2_SRC" init -q; : > "$L2_SRC/f"; _w9g -C "$L2_SRC" add f; _w9g -C "$L2_SRC" commit -q -m i
+_w9g -C "$L2_MAIN" init -q; : > "$L2_MAIN/.keep"; _w9g -C "$L2_MAIN" add .keep; _w9g -C "$L2_MAIN" commit -q -m i
+_w9g -C "$L2_MAIN" submodule add "file://$L2_SRC" notes; _w9g -C "$L2_MAIN" commit -q -m sub
+mksessionfile "$L2_MAIN" "$SID_l2" "202609050800"
+printf '# Block\n' > "$L2_MAIN/notes/niagara-block1.md"
+ln -s "$L2_MAIN" "$ROOT/l2-link"
+run_gate "$L2_MAIN" "$(mkjson "$SID_l2" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "PRECOND(#1301 L2): real-path target, block changed inside a submodule → blocks" \
+  || no "PRECOND(#1301 L2): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
+rm -f "$L2_MAIN/.claude/.rsdd-retro-blocked-$SID_l2"
+run_gate "$ROOT/l2-link" "$(mkjson "$SID_l2" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 L2: submodule block via a symlinked target → blocks" \
+  || no "#1301 L2: symlinked target + submodule false ALLOW: OUT=$OUT ERR=$ERR"
+
+# L3 (DEGRADED mtime scans): conforming retro newer than the block, target via symlink → ALLOW.
+# Without -H both degraded scans saw nothing, so the gate claimed "no retro at all" (false BLOCK).
+T_l3="$ROOT/t-l3"; mkdir -p "$T_l3/retros"
+printf '# Block\n\nContent.\n' > "$T_l3/niagara-block1.md"; touch -d '-3 hours' "$T_l3/niagara-block1.md"
+mkretro "$T_l3" "2026-09-05-l3.md" 1;                       touch -d '-1 hour'  "$T_l3/retros/2026-09-05-l3.md"
+ln -s "$T_l3" "$ROOT/t-l3-link"
+run_gate "$T_l3" "$(mkjson "l3-sess" false)"
+[ -z "$OUT" ] \
+  && ok "PRECOND(#1301 L3): real-path degraded target with a newer conforming retro → allows" \
+  || no "PRECOND(#1301 L3): control did not allow — fixture broken: OUT=$OUT"
+run_gate "$ROOT/t-l3-link" "$(mkjson "l3-sess" false)"
+[ -z "$OUT" ] \
+  && ok "#1301 L3: degraded scans follow a symlinked target → allows" \
+  || no "#1301 L3: degraded scans skipped the symlinked target (false BLOCK): OUT=$OUT"
+
+# L5 (DEGRADED, block NEWER than the retro): via a symlink the stale retro must still BLOCK.
+# Both degraded scans were blind pre-fix, so the "no retro at all" branch blocked by accident;
+# this case pins the STALE branch itself and is what bites a mutant that blinds only the
+# degraded block-mtime scan (see TOOTH l-degraded-block-scan).
+T_l5="$ROOT/t-l5"; mkdir -p "$T_l5/retros"
+printf '# Block\n\nContent.\n' > "$T_l5/niagara-block1.md"; touch -d '-1 hour'  "$T_l5/niagara-block1.md"
+mkretro "$T_l5" "2026-09-05-l5.md" 1;                       touch -d '-3 hours' "$T_l5/retros/2026-09-05-l5.md"
+ln -s "$T_l5" "$ROOT/t-l5-link"
+run_gate "$ROOT/t-l5-link" "$(mkjson "l5-sess" false)"
+printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'   && ok "#1301 L5: degraded stale retro via a symlinked target → blocks as OLDER than the block"   || no "#1301 L5: stale-retro branch not reached via the symlinked target: OUT=$OUT ERR=$ERR"
+
+# L4 (issue seeding): the retro scan of _run_issue_seeding must also follow the symlink.
+T_l4="$ROOT/t-l4"; mkgit "$T_l4"; SID_l4="l4-sess"
+mksessionfile "$T_l4" "$SID_l4" "202609050800"
+mkblock "$T_l4" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_l4/niagara-block1.md"
+mkretro "$T_l4" "2026-09-05-l4real.md" 1
+touch -t 202609051200 "$T_l4/retros/2026-09-05-l4real.md"
+ln -s "$T_l4" "$ROOT/t-l4-link"
+: > "$SEED_LOG_EN3"
+run_fkit_gate "$ROOT/t-l4-link" "$(mkjson "$SID_l4" false)"
+grep -q 'l4real' "$SEED_LOG_EN3" \
+  && ok "#1301 L4: the retro under a symlinked target is seeded" \
+  || no "#1301 L4: seeding scan skipped the symlinked target (retro never seeded): ERR=$ERR"
 
 # ─── #1161: hermetic bin builder — skip glob, first-wins, no per-file fork ───
 # hb_checks <function-source>: eval the builder text in a subshell and run it against a fixture
@@ -2521,12 +2700,13 @@ if nwmutant 'nw-retro-seed' '/NW-RETRO-GUARD-SEED/d'; then M_NW6="$NWM"
     && ok "TOOTH nw-retro-seed: mutant seeds the nested-worktree retro — RED" \
     || no "TOOTH nw-retro-seed: mutant did not seed the worktree retro — guard not load-bearing"
 fi
-# NW7 (review of PR #1300, B1): the lib's commondir proof dropped → a submodule of a
-# linked-worktree target is excluded again → W9 stops blocking (false ALLOW). The mutant is the
+# NW7 (review of PR #1300, B1): the lib's worktree proofs dropped (commondir AND, since #1301, the
+# back-pointer — a real submodule fails both, so one alone is no longer load-bearing for W9) → a
+# submodule of a linked-worktree target is excluded again → W9 stops blocking (false ALLOW). The mutant is the
 # LIB (the SUT is unchanged), so mutate MUT_KIT's lib copy for this one run and restore it.
 cp "$SUT" "$MUT_KIT/toolbelt/mutant-commondir.sh"; chmod +x "$MUT_KIT/toolbelt/mutant-commondir.sh"
 _lib_mk="$MUT_KIT/toolbelt/lib/block-files.sh"; cp "$_lib_mk" "$_lib_mk.orig"
-sed '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "$_lib_mk.orig" > "$_lib_mk"
+sed '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d;/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "$_lib_mk.orig" > "$_lib_mk"
 if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
   no "TOOTH nw-commondir-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
 else
@@ -2534,6 +2714,23 @@ else
   blocks_json "$OUT" \
     && no "TOOTH nw-commondir-dropped: mutant still blocks W9 — commondir proof not load-bearing" \
     || ok "TOOTH nw-commondir-dropped: mutant excludes the submodule (false ALLOW) — RED as expected"
+fi
+mv "$_lib_mk.orig" "$_lib_mk"
+# NW8 (#1301 item 2): only the back-pointer proof dropped → W10 (gitdir: . + stray commondir) and
+# W10b (commondir, no back-pointer) are excluded as worktrees again → both stop blocking.
+cp "$_lib_mk" "$_lib_mk.orig"
+sed '/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "$_lib_mk.orig" > "$_lib_mk"
+if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
+  no "TOOTH nw-backpointer-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
+else
+  _nw8=""
+  rmblocked "$T_w10" "$SID_w10"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w10" "$(mkjson "$SID_w10" false)"
+  blocks_json "$OUT" || _nw8="${_nw8}W10 "
+  rmblocked "$T_w10b" "$SID_w10b"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w10b" "$(mkjson "$SID_w10b" false)"
+  blocks_json "$OUT" || _nw8="${_nw8}W10b "
+  [ "$_nw8" = "W10 W10b " ] \
+    && ok "TOOTH nw-backpointer-dropped: mutant allows both contrived fixtures (false ALLOW) — RED as expected" \
+    || no "TOOTH nw-backpointer-dropped: expected W10 and W10b to stop blocking, only [$_nw8] did"
 fi
 mv "$_lib_mk.orig" "$_lib_mk"
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
@@ -2569,6 +2766,59 @@ hb_mutant "hb-jq-visible (excluded name no longer skipped)" \
 hb_mutant "hb-batch-dropped (no ln after a dir)" \
   's/if \[ "\${#_batch\[@\]}" -gt 0 \]; then ln -s -t "\$out_dir" -- "\${_batch\[@\]}"; fi/:/' "alpha-reachable"
 
+# ── #1301 teeth: one mutant PER `find -H` site (list edges: each site is an independent scan).
+# Built with the shared helper (lib/mutant.sh): a mutant that did not apply, is empty, is invalid
+# bash, or would land in the live tree is REFUSED, so a green tooth cannot be a no-op.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+FMUT="$ROOT/fmutkit"; mkdir -p "$FMUT"; cp -R "$FKIT/toolbelt" "$FMUT/toolbelt"
+# l_tooth <name> <sed-expr> <case-fn>: build the mutant into the stub kit, then <case-fn> <mutant>
+# must return 0 when the mutant misbehaves (its L-case assertion would FAIL).
+l_tooth() {
+  local name="$1" expr="$2" fn="$3" m="$FMUT/toolbelt/retro-gate.sh" mrc
+  mutant_sed "$SUT" "$m" "$expr"; mrc=$?
+  if [ "$mrc" -ne 0 ]; then no "TOOTH $name: mutant refused by lib/mutant.sh (rc=$mrc) — tooth not built"; return; fi
+  if "$fn" "$m"; then ok "TOOTH $name: mutant misbehaves (RED as expected)"; else no "TOOTH $name: mutant behaved like the real SUT — no teeth"; fi
+}
+# l_run <mutant> <target> <sid>: run the mutant kit's gate, clearing block-once state first.
+l_run() {
+  local errf="$ROOT/lmut_err.$$"
+  rm -f "$2"/.claude/.rsdd-retro-blocked-"$3" 2>/dev/null
+  OUT="$(printf '%s' "$(mkjson "$3" false)" | SEED_LOG="$SEED_LOG_EN3" PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$1" "$2" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+lc_partb()   { l_run "$1" "$ROOT/t-l1-link" "$SID_l1"; [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'branch=no-change'; }
+lc_deg_blk() { l_run "$1" "$ROOT/t-l5-link" "l5-sess"; ! printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'; }
+lc_deg_rtr() { l_run "$1" "$ROOT/t-l3-link" "l3-sess"; printf '%s' "$OUT" | grep -qF '"decision":"block"'; }
+lc_seed()    { : > "$SEED_LOG_EN3"; l_run "$1" "$ROOT/t-l4-link" "$SID_l4"; ! grep -q 'l4real' "$SEED_LOG_EN3"; }
+l_tooth "l-partb-scan (find -H dropped from the Part B scan)" \
+  's/find -H "\$TARGET" -newer/find "$TARGET" -newer/' lc_partb
+l_tooth "l-degraded-block-scan (find -H dropped from the degraded block-mtime scan)" \
+  's/find -H "\$TARGET" -type f -name/find "$TARGET" -type f -name/' lc_deg_blk
+l_tooth "l-degraded-retro-scan (find -H dropped from the degraded retro scan)" \
+  's/find -H "\$TARGET" -maxdepth 4/find "$TARGET" -maxdepth 4/' lc_deg_rtr
+l_tooth "l-seeding-scan (find -H dropped from the issue-seeding scan)" \
+  's/find -H "\$target" -maxdepth 4/find "$target" -maxdepth 4/' lc_seed
+
+# ── #1301 item 3 teeth: the probe-failure handling. The mutant replaces the gate inside PFKIT
+# (the stub kit whose probe returns $PF_RC), so P1/P2 run against exactly the mutated bytes.
+# p_tooth <name> <sed-expr> <case-fn> — <case-fn> returns 0 when the mutant misbehaves.
+p_tooth() {
+  local name="$1" expr="$2" fn="$3" m="$PFKIT/toolbelt/retro-gate.sh" mrc
+  mutant_sed "$SUT" "$m" "$expr"; mrc=$?
+  if [ "$mrc" -ne 0 ]; then no "TOOTH $name: mutant refused by lib/mutant.sh (rc=$mrc) — tooth not built"; return; fi
+  if "$fn"; then ok "TOOTH $name: mutant misbehaves (RED as expected)"; else no "TOOTH $name: mutant behaved like the real SUT — no teeth"; fi
+}
+pc_allows()  { run_pf 5 "$T_p1" "$SID_p1"; [ -z "$OUT" ]; }
+pc_nowarn()  { run_pf 5 "$T_p1" "$SID_p1"; ! printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed (rc=5)'; }
+pc_rc3warn() { run_pf 3 "$T_p1" "$SID_p1"; printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed'; }
+p_tooth "p-failopen (a failed probe exits 0 → false ALLOW)" \
+  's/^if \[ "\$_nw_rc" -ne 0 \] && \[ "\$_nw_rc" -ne 3 \]; then$/&\n  exit 0/' pc_allows
+p_tooth "p-warn-dropped (probe failure is silent)" \
+  '/SENTINEL-NW-PROBE-FAIL-START/,/SENTINEL-NW-PROBE-FAIL-END/d' pc_nowarn
+p_tooth "p-rc3-double-warn (rc 3 no longer exempt from the gate-level WARN)" \
+  's/"\$_nw_rc" -ne 3 \]/"$_nw_rc" -ne 99 ]/' pc_rc3warn
+
 # ESC mutants: build from the SUT text in bash (no sed-escaping of quote characters).
 _esc_orig='s=${s//$_dq/"$_esc_dq"}'
 _sut_text="$(cat "$SUT")"
@@ -2595,6 +2845,24 @@ elif [ -n "$(esc_checks "$MUT_KIT/toolbelt/mutant-esc-drop.sh")" ]; then
   ok "TOOTH esc-drop: removing the quote escape breaks esc_checks (RED as expected)"
 else
   no "TOOTH esc-drop: esc_checks stayed green with the quote escape removed — no teeth"
+fi
+# ESC-D (#1301 item 6): the control-character block removed → the new ESC1 cases go red. And a
+# partial mutant — the LAST code point (31) dropped from the loop list — proves the edge is checked.
+mutant_sed "$SUT" "$MUT_KIT/toolbelt/mutant-esc-ctrl.sh" '/SENTINEL-ESC-CTRL-START/,/SENTINEL-ESC-CTRL-END/d'; _escd_rc=$?
+if [ "$_escd_rc" -ne 0 ]; then
+  no "TOOTH esc-ctrl: mutant refused by lib/mutant.sh (rc=$_escd_rc) — tooth not built"
+elif [ -n "$(esc_checks "$MUT_KIT/toolbelt/mutant-esc-ctrl.sh")" ]; then
+  ok "TOOTH esc-ctrl: removing the control-character escape breaks esc_checks (RED as expected)"
+else
+  no "TOOTH esc-ctrl: esc_checks stayed green without the control-character escape — no teeth"
+fi
+mutant_sed "$SUT" "$MUT_KIT/toolbelt/mutant-esc-ctrl31.sh" 's/ 30 31; do/ 30; do/'; _escd_rc=$?
+if [ "$_escd_rc" -ne 0 ]; then
+  no "TOOTH esc-ctrl-last: mutant refused by lib/mutant.sh (rc=$_escd_rc) — tooth not built"
+elif esc_checks "$MUT_KIT/toolbelt/mutant-esc-ctrl31.sh" | grep -qF 'FAIL:ctrl-last'; then
+  ok "TOOTH esc-ctrl-last: dropping 0x1f from the loop trips the ctrl-last edge (RED as expected)"
+else
+  no "TOOTH esc-ctrl-last: ctrl-last edge stayed green with 0x1f unescaped — no teeth"
 fi
 # ESC-C: the pre-#1167 inline nested-quote operand restored → the structural pin (ESC3) goes red.
 _esc_c='s="${s//$_dq/"\\$_dq"}"'
