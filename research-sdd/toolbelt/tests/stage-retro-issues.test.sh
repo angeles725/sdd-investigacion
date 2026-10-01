@@ -170,6 +170,12 @@ mk_gh_stub() {
           printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n' "$sigpat"
           printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
           ;;
+        matchsigclosed)
+          # Like matchsig, but the matching list call returns a CLOSED issue — the live case for
+          # the legacy signature (every pre-#1286 issue is closed today).
+          printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n' "$sigpat"
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
+          ;;
         failsig)
           # Like matchsig, but the matching list call FAILS (exit 1) — a failed lookup for ONE of
           # the signatures must still count as failed, never fall through to create.
@@ -1628,6 +1634,31 @@ RETROEOF
     fi
   fi
 
+  echo "-- teeth T1287f: legacy CLOSED-match branch deleted --"
+  box_f="$(legacy_box teeth-legacy-closed matchsigclosed 'Source retro: target-foo/retros/r-legacy.md')"
+  if tooth_swap "$box_f" stage-retro-issues.sh "if grep -q '\"state\":[[:space:]]*\"CLOSED\"' <<<\"\$_legacy_existing\"; then" 'if false; then'; then
+    run_box "$box_f" "$box_f/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_f/bin/gh.log" 2>/dev/null; then
+      ok "T1287f teeth: legacy CLOSED branch deleted → duplicate created (case 75e has teeth)" "()"
+    else
+      no "T1287f teeth: legacy CLOSED branch deleted" "case 75e is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1287g: structural legacy-name skip removed --"
+  box_g2="$(mkbox teeth-legacy-structural)"
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_g2" \
+    > "$box_g2/research-sdd/TARGETS.md"
+  mk_gh_stub "$box_g2" nomatch
+  retro_g2="$(mk_nested_retro "$box_g2" corpus/retros r-g2.md)"
+  if tooth_swap "$box_g2" stage-retro-issues.sh '  corpus|retros) _legacy_target_name="$target_name" ;;' '  __never_matches__) _legacy_target_name="$target_name" ;;'; then
+    run_box "$box_g2" "$retro_g2" --apply
+    if grep -qF 'Source retro: corpus/retros/' "$box_g2/bin/gh.log" 2>/dev/null; then
+      ok "T1287g teeth: structural skip removed → pointless corpus/retros lookup (case 75f has teeth)" "()"
+    else
+      no "T1287g teeth: structural skip removed" "case 75f is THEATER: out=[$MOUT]"
+    fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -2882,6 +2913,37 @@ if [ "$RC" = 0 ] && [ "$lists75d" = 1 ]; then
   ok "75d --apply: name == basename → exactly one dedup list call" "(lists=$lists75d)"
 else
   no "75d --apply: name == basename → expected exactly one list call" "exit=$RC lists=$lists75d out=[$OUT]"
+fi
+
+# 75e — a CLOSED legacy-signature match suppresses create too. This is the LIVE case: every
+#       pre-#1286 issue (cloudflare #702-708, Pancaddia #720-722) is CLOSED today.
+box75e="$(mkbox case-legacy-dedup-closed)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75e" \
+  > "$box75e/research-sdd/TARGETS.md"
+mk_gh_stub "$box75e" matchsigclosed 'Source retro: target-foo/retros/r-legacy-closed.md'
+retro75e="$(mk_retro "$box75e" target-foo r-legacy-closed.md "<!-- review-status: pending -->" \
+  "| 1 | legacy closed delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75e" "$retro75e" --apply
+create75e=0; [ -f "$box75e/bin/gh.log" ] && grep -q 'issue create' "$box75e/bin/gh.log" && create75e=1
+if [ "$RC" = 0 ] && [ "$create75e" = 0 ] && grep -q 'skipped-duplicate.*closed; legacy signature' <<<"$OUT"; then
+  ok "75e --apply: CLOSED legacy-signature match suppresses create, names it closed" "(exit $RC)"
+else
+  no "75e --apply: CLOSED legacy-signature match must suppress create" "exit=$RC create=$create75e out=[$OUT]"
+fi
+
+# 75f — a retro under <target>/corpus/retros has the legacy name `corpus`: that signature
+#       ("corpus/retros/<file> · <id>") cannot exist, so no pointless gh call is made for it.
+box75f="$(mkbox case-legacy-dedup-structural)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75f" \
+  > "$box75f/research-sdd/TARGETS.md"
+mk_gh_stub "$box75f" nomatch
+retro75f="$(mk_nested_retro "$box75f" corpus/retros r75f.md)"
+run "$box75f" "$retro75f" --apply
+lists75f="$(grep -c 'issue list' "$box75f/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$lists75f" = 1 ] && ! grep -qF 'Source retro: corpus/retros/' "$box75f/bin/gh.log"; then
+  ok "75f --apply: nested corpus/retros → no legacy 'corpus/retros/...' lookup (one list call)" "(lists=$lists75f)"
+else
+  no "75f --apply: nested corpus/retros → expected one list call, no 'corpus/retros' signature" "exit=$RC lists=$lists75f log=[$(cat "$box75f/bin/gh.log")]"
 fi
 
 

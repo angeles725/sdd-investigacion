@@ -441,6 +441,11 @@ fi
 # Pre-#1286 issues carry the legacy `<path basename>/retros/<file>` signature; remember it so the
 # --apply dedup can search it too when the registered name differs from the basename (#1287).
 _legacy_target_name="$(basename "$_target_dir")"
+# A structural old name (<t>/corpus/retros -> `corpus`) never matched a real signature — the old code
+# refused it up front — so a lookup for it is a pointless gh call. Treat it as "no legacy name".
+case "$_legacy_target_name" in
+  corpus|retros) _legacy_target_name="$target_name" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Parse review-status and detect PARTIAL applied markers.
