@@ -613,8 +613,14 @@ if [ "$el" -lt 12 ] && grep -q '^UNIT: <whole-artifact> reason=total_budget_exha
   ok "J2 coverage sweep stops at the budget with total_budget_exhausted, not N x missing (${el}s < 12s)"
 else no "J2 sweep is budgeted" "elapsed=${el}s rc=$RC so=[$SO]"; fi
 # J3: a budget discard leaves no empty directories behind (package a was written, then discarded).
-rt J3 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower --fallback-engine none
-if grep -q 'reason=total_budget_exhausted' <<<"$SO" && [ -z "$(find "$ROOT/o-J3" -mindepth 1 -type d -empty 2>/dev/null)" ]; then
+#     Deterministic: the whole jar fails fast, package a (pin/1) decompiles, package b hangs and is clamped to
+#     the remaining 2 s budget (so the budget is spent, whatever the $SECONDS tick). The PRECONDITION — package a
+#     really ran — is asserted: without it the test FAILS instead of passing vacuously.
+J3_ENV=(STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="B" STUB_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=2)
+rt J3 "$JAR3" "${J3_ENV[@]}" -- --engine vineflower --fallback-engine none
+if ! grep -q '^vineflower .*/pin/1 ' "$ROOT/log-J3" 2>/dev/null; then
+  no "J3 precondition: package a was never decompiled (test cannot judge the discard)" "log=[$(cat "$ROOT/log-J3" 2>/dev/null | tr '\n' '|')]"
+elif grep -q 'reason=total_budget_exhausted' <<<"$SO" && [ -z "$(find "$ROOT/o-J3" -mindepth 1 -type d -empty 2>/dev/null)" ]; then
   ok "J3 budget discard removes the directories it created (no empty dirs left)"
 else no "J3 empty dirs left after a budget discard" "empty=[$(find "$ROOT/o-J3" -mindepth 1 -type d -empty 2>/dev/null | tr '\n' ' ')] so=[$SO]"; fi
 # J4: once the budget is exhausted the whole-artifact fallback is NOT clamped to the (spent) budget: a slow
@@ -953,8 +959,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # mJ2: discard leaves directories → J3 finds an empty dir.
   if build_mut mJ2 's/^  find "\$OUT" -mindepth 1 -type d -empty -newer "\$STAMP" -delete .*$/  :/'; then
-    RT_SUT="$MUT" rt mJ2 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower --fallback-engine none
-    if [ -n "$(find "$ROOT/o-mJ2" -mindepth 1 -type d -empty 2>/dev/null)" ]; then ok "teeth-mJ2: files-only discard leaves empty dirs → J3 bites"
+    RT_SUT="$MUT" rt mJ2 "$JAR3" "${J3_ENV[@]}" -- --engine vineflower --fallback-engine none
+    if ! grep -q '^vineflower .*/pin/1 ' "$ROOT/log-mJ2" 2>/dev/null; then
+      no "teeth-mJ2 precondition: package a was never decompiled (control cannot judge the discard)" "so=[$SO]"
+    elif [ -n "$(find "$ROOT/o-mJ2" -mindepth 1 -type d -empty 2>/dev/null)" ]; then ok "teeth-mJ2: files-only discard leaves empty dirs → J3 bites"
     else no "teeth-mJ2: mutant left no empty dirs — J3 has no teeth" "so=[$SO]"; fi
   fi
   # mJ3: ISOLATING never cleared → the post-budget whole-artifact fallback is clamped to the spent budget (J4).

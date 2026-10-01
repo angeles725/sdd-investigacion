@@ -19,7 +19,8 @@
 #               sweep was unavailable). reason= tokens (comma-joined when several): timeout-unavailable,
 #               coverage-sweep-unavailable, no-class-entries (a sources jar: nothing to sweep),
 #               total_budget_exhausted (the success-path sweep spent the isolation budget; primary output kept).
-#               isolation= is ABSENT when the whole-artifact fallback ran without isolation (primary=... only).
+#               isolation= is ABSENT when the whole-artifact fallback ran without isolation, and for .class input
+#               (primary=... only).
 #     PARTIAL:  ... units=N                                       rc 4  (some unit has NO output at all)
 #     UNIT: <unit> reason=timeout|killed|error|empty|missing|marker|marker-scan-error|total_budget_exhausted
 #                  fallback=<engine>|unavailable|none  result=ok|marked|kept-primary|failed [note]
@@ -319,12 +320,13 @@ ensure_ext() {
 # $Gson$Types although '$Gson' itself has no class — kit issue #1320 B1); inner classes are emitted inside their
 # outer's source. Everything else is a unit (Scala Foo$, package$, obfuscated names, orphan inner classes).
 is_unit_class() {
-  local b pre k
+  local b pre k d
   b="$(basename "$1" .class)"
+  d="$(dirname "$1")"
   for ((k = 1; k < ${#b}; k++)); do
     [ "${b:k:1}" = '$' ] || continue
     pre="${b:0:k}"
-    [ -f "$(dirname "$1")/$pre.class" ] && return 1
+    [ -f "$d/$pre.class" ] && return 1
   done
   return 0
 }
