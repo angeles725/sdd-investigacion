@@ -256,7 +256,8 @@ engine_of() { sed -n '1s|^// engine=||p' "$ROOT/o-$1/$2" 2>/dev/null; }
 mkjar() { # mkjar <jar> <class-path>...  (fake .class entries; stubs never parse them)
   local jar="$1"; shift; local d="$ROOT/mk.$$"; rm -rf "$d"; mkdir -p "$d"
   local c; for c in "$@"; do mkdir -p "$d/$(dirname "$c")"; echo "x" > "$d/$c"; done
-  rm -f "$jar"; (cd "$d" && zip -qr "$jar" .)
+  [ -z "${MKJAR_SYMLINK:-}" ] || ln -s /nonexistent-target "$d/$MKJAR_SYMLINK"
+  rm -f "$jar"; (cd "$d" && zip -qry "$jar" .)
 }
 
 # ── Slice A: bounded timeout + automatic fallback (kit issue #1190) ──────────
@@ -310,6 +311,62 @@ if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && ! grep -q '^cfr ' "$ROOT/log-A6"
 else
   no "A6 healthy primary → OK, fallback never invoked" "rc=$RC so=[$SO]"
 fi
+
+# ── Slice B: unit isolation for jars (kit issue #1224 semantics governing #1190) ──
+# A timeout on a jar must degrade ONLY the offending unit (package bisect, then class bisect);
+# every other class keeps primary-engine output and the summary is never a bare OK.
+units_of() { grep '^UNIT: ' <<<"$SO" | sed -E 's/^UNIT: ([^ ]+) .*/\1/' | sort | tr '\n' ' ' | sed 's/ $//'; }
+JAR3="$ROOT/three.jar"
+mkjar "$JAR3" a/A.class 'a/A$1.class' b/B.class c/C.class
+# iso <tag> <slow-classes> <expected-units> <expected-primary-java...>
+iso() {
+  local tag="$1" slow="$2" want="$3"; shift 3
+  rt "$tag" "$JAR3" STUB_SLEEP_CLASSES="$slow" -- --engine vineflower
+  local good=1 f
+  [ "$RC" -eq 4 ] || good=0
+  grep -q '^OK' <<<"$SO" && good=0
+  grep -q '^DEGRADED' <<<"$SO" || good=0
+  [ "$(units_of)" = "$want" ] || good=0
+  for f in a/A b/B c/C; do
+    if [[ " $want " == *" $f "* ]]; then [ "$(engine_of "$tag" "$f.java")" = cfr ] || good=0
+    else [ "$(engine_of "$tag" "$f.java")" = vineflower ] || good=0; fi
+  done
+  if [ "$good" -eq 1 ]; then ok "$tag slow=[$slow] → only [$want] degraded, rest vineflower, DEGRADED rc=4"
+  else no "$tag slow=[$slow] → only [$want] degraded" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+}
+iso B1 "A" "a/A"
+iso B2 "B" "b/B"
+iso B3 "C" "c/C"
+iso B4 "A C" "a/A c/C"
+iso B5 "A B C" "a/A b/B c/C"
+
+# B6: single-unit jar — the only class times out → one unit, cfr output, DEGRADED.
+JAR1="$ROOT/one.jar"; mkjar "$JAR1" a/A.class
+rt B6 "$JAR1" STUB_SLEEP_CLASSES="A" -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A" ] && [ "$(engine_of B6 a/A.java)" = cfr ] && ! grep -q '^OK' <<<"$SO"; then
+  ok "B6 single-unit jar timing out → unit a/A degraded, DEGRADED rc=4"
+else no "B6 single-unit jar timing out" "rc=$RC so=[$SO]"; fi
+
+# B7: several classes in ONE package, the middle one hangs → class-level bisect inside the package.
+JARP="$ROOT/pkg.jar"; mkjar "$JARP" a/A1.class a/A2.class a/A3.class
+rt B7 "$JARP" STUB_SLEEP_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A2" ] && [ "$(engine_of B7 a/A2.java)" = cfr ] \
+  && [ "$(engine_of B7 a/A1.java)" = vineflower ] && [ "$(engine_of B7 a/A3.java)" = vineflower ]; then
+  ok "B7 hang inside a multi-class package → class-level isolation, siblings stay vineflower"
+else no "B7 class-level isolation inside a package" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+
+# B9: a jar carrying a symlink entry is refused for isolation (typed), never extracted into use.
+JARL="$ROOT/link.jar"; MKJAR_SYMLINK=b/L.class mkjar "$JARL" a/A.class b/B.class
+rt B9 "$JARL" STUB_SLEEP_CLASSES="B" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: <whole-artifact> reason=timeout.*isolation=unavailable' <<<"$SO"; then
+  ok "B9 symlink entry in jar → isolation refused (typed), whole-artifact fallback"
+else no "B9 symlink entry in jar → isolation refused" "rc=$RC so=[$SO]"; fi
+
+# B8: unzip absent → isolation impossible: whole-artifact fallback, typed, never OK.
+rt B8 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: <whole-artifact> reason=timeout.*isolation=unavailable' <<<"$SO" && ! grep -q '^OK' <<<"$SO"; then
+  ok "B8 unzip absent → <whole-artifact> unit, isolation=unavailable, DEGRADED rc=4"
+else no "B8 unzip absent → typed whole-artifact fallback" "rc=$RC so=[$SO]"; fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
@@ -374,7 +431,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   echo "-- teeth: slice A (timeout + fallback) --"
   # mA1: never fall back → A1 loses the cfr output and the UNIT line.
-  if build_mut mA1 's/^  fallback_unit "\$(unit_name)" "\$reason" "\$IN"$/  :/'; then
+  if build_mut mA1 's/^    fallback_unit "\$(unit_name)" "\$reason" "\$IN"$/    :/'; then
     RT_SUT="$MUT" rt mA1 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
     if [ "$(engine_of mA1 Test.java)" != cfr ] && ! grep -q '^UNIT:' <<<"$SO"; then
       ok "teeth-mA1: no-fallback mutant produces no cfr output/UNIT → A1 bites"
@@ -388,7 +445,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mA2: always-OK mutant did not print OK — A1 has no teeth" "rc=$RC so=[$SO]"; fi
   fi
   # mA3: timeout indistinguishable from error → reason=timeout lost.
-  if build_mut mA3 's/^  \[ "\$rc" -eq 124 \] || \[ "\$rc" -eq 137 \] && reason=timeout$/  :/'; then
+  if build_mut mA3 's/^reason_of() .*$/reason_of() { echo error; }/'; then
     RT_SUT="$MUT" rt mA3 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
     if ! grep -q 'reason=timeout' <<<"$SO"; then
       ok "teeth-mA3: classification-removed mutant loses reason=timeout → A1 bites"
@@ -400,6 +457,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q 'reason=timeout-unavailable' <<<"$SO"; then
       ok "teeth-mA4: probe-removed mutant loses reason=timeout-unavailable → A4 bites"
     else no "teeth-mA4: mutant still typed the missing binary — A4 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: slice B (unit isolation) --"
+  # mB1: isolation never runs → B1 degrades the whole artifact instead of one unit.
+  if build_mut mB1 's/^    isolate_jar || fallback_unit/    false || fallback_unit/'; then
+    RT_SUT="$MUT" rt mB1 "$JAR3" STUB_SLEEP_CLASSES="A" -- --engine vineflower
+    if grep -q '^UNIT: <whole-artifact>' <<<"$SO" && [ "$(engine_of mB1 b/B.java)" = cfr ]; then
+      ok "teeth-mB1: no-isolation mutant degrades the whole artifact → B1 bites"
+    else no "teeth-mB1: no-isolation mutant still isolated — B1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mB2: class-level bisect removed → every class in the failing package falls back (B7).
+  if build_mut mB2 's/^    if \[ "\${#outer\[@\]}" -eq 1 \]; then fallback_unit/    if true; then fallback_unit/'; then
+    RT_SUT="$MUT" rt mB2 "$JARP" STUB_SLEEP_CLASSES="A2" -- --engine vineflower
+    if [ "$(engine_of mB2 a/A1.java)" = cfr ]; then
+      ok "teeth-mB2: no-class-bisect mutant degrades sibling classes → B7 bites"
+    else no "teeth-mB2: mutant kept siblings on vineflower — B7 has no teeth" "so=[$SO]"; fi
+  fi
+  # mB3: symlink guard removed → B9 no longer refuses isolation.
+  if build_mut mB3 's/^  if \[ -n "\$(find "\$EXT" -type l -print -quit)" \]; then rm -rf/  if false; then rm -rf/'; then
+    RT_SUT="$MUT" rt mB3 "$JARL" STUB_SLEEP_CLASSES="B" -- --engine vineflower
+    if ! grep -q 'isolation=unavailable' <<<"$SO"; then
+      ok "teeth-mB3: guard-removed mutant extracts a symlinked jar → B9 bites"
+    else no "teeth-mB3: mutant still refused the symlinked jar — B9 has no teeth" "so=[$SO]"; fi
   fi
 fi
 

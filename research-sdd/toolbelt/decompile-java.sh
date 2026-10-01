@@ -150,25 +150,25 @@ UNITS=()        # one line per affected unit: "<unit>|<reason>|<fallback>|<resul
 PARTIAL_UNITS=0 # units that ended with NO output
 DEGRADED_UNITS=0
 
-# record_unit <unit> <reason> <fallback> <result>
+# record_unit <unit> <reason> <fallback> <result> [note]
 record_unit() {
-  UNITS+=("$1|$2|$3|$4")
+  UNITS+=("$1|$2|$3|$4|${5:-}")
   if [ "$4" = ok ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
 }
 
-# fallback_unit <unit> <reason> <input> — decompile <input> with the fallback engine into $OUT.
+# fallback_unit <unit> <reason> <input> [note] — decompile <input> with the fallback engine into $OUT.
 fallback_unit() {
-  local unit="$1" reason="$2" input="$3" tmp rc=0
-  if [ "$FALLBACK" = none ]; then record_unit "$unit" "$reason" none failed; return 0; fi
+  local unit="$1" reason="$2" input="$3" note="${4:-}" tmp rc=0
+  if [ "$FALLBACK" = none ]; then record_unit "$unit" "$reason" none failed "$note"; return 0; fi
   tmp="$(mktemp -d -p "$WORK")"
   run_engine "$FALLBACK" "$input" "$tmp" || rc=$?
   if [ "$rc" -eq 3 ]; then
-    record_unit "$unit" "$reason" unavailable failed
+    record_unit "$unit" "$reason" unavailable failed "$note"
   elif [ "$rc" -eq 0 ] && has_java "$tmp"; then
     cp -a "$tmp"/. "$OUT"/
-    record_unit "$unit" "$reason" "$FALLBACK" ok
+    record_unit "$unit" "$reason" "$FALLBACK" ok "$note"
   else
-    record_unit "$unit" "$reason" "$FALLBACK" failed
+    record_unit "$unit" "$reason" "$FALLBACK" failed "$note"
   fi
 }
 
@@ -178,14 +178,71 @@ unit_name() {
   case "${base,,}" in *.class) printf '%s\n' "${base%.[cC][lL][aA][sS][sS]}" ;; *) printf '%s\n' '<whole-artifact>' ;; esac
 }
 
+# reason_of <rc> — typed cause of a non-zero engine exit.
+reason_of() { if [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; then echo timeout; else echo error; fi; }
+
+# ── Unit isolation for jars (kit issue #1224) ────────────────────────────────
+# A whole-jar failure must degrade ONLY the offending unit: re-run per package with the primary
+# engine, and inside a failing package per top-level class; only a class that still fails falls back.
+UNZIP_BIN="${RSDD_UNZIP_BIN:-unzip}"
+EXT="$WORK/ext"
+ISOLATION_WHY="" # set when isolation could not run (typed, reported on the unit)
+
+# ensure_ext — extract the jar's classes once; fail (typed) when unzip is absent or the jar is unsafe.
+ensure_ext() {
+  [ -d "$EXT" ] && return 0
+  if ! command -v "$UNZIP_BIN" >/dev/null 2>&1; then ISOLATION_WHY="isolation=unavailable"; return 1; fi
+  mkdir -p "$EXT"
+  "$UNZIP_BIN" -q -o "$IN" '*.class' -d "$EXT" >/dev/null 2>&1 || { rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; return 1; }
+  # A jar must not smuggle symlinks into the scratch tree.
+  if [ -n "$(find "$EXT" -type l -print -quit)" ]; then rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; return 1; fi
+}
+
+# bisect_package <pkg> <idx> <reason> — per-class primary runs for one failing package.
+bisect_package() {
+  local pkg="$1" idx="$2" reason="$3" f name cin cout crc k=0 unit
+  local -a outer=()
+  while IFS= read -r f; do outer+=("$f"); done < <(find "$EXT/$pkg" -maxdepth 1 -name '*.class' ! -name '*$*' | sort)
+  for f in "${outer[@]+"${outer[@]}"}"; do
+    name="$(basename "$f" .class)"; k=$((k + 1))
+    unit="$name"; [ "$pkg" = . ] || unit="$pkg/$name"
+    if [ "${#outer[@]}" -eq 1 ]; then fallback_unit "$unit" "$reason" "$f"; continue; fi
+    cin="$WORK/cin/$idx-$k"; cout="$WORK/cout/$idx-$k"; mkdir -p "$cin/$pkg"
+    find "$EXT/$pkg" -maxdepth 1 \( -name "$name.class" -o -name "$name"'$*.class' \) -exec cp -p {} "$cin/$pkg/" \;
+    crc=0; run_engine "$ENGINE" "$cin" "$cout" || crc=$?
+    if [ "$crc" -eq 0 ] && has_java "$cout"; then cp -a "$cout"/. "$OUT"/
+    else fallback_unit "$unit" "$(reason_of "$crc")" "$f"; fi
+  done
+}
+
+# isolate_jar — package-level then class-level isolation. Returns 1 when isolation is unavailable.
+isolate_jar() {
+  ensure_ext || return 1
+  local d pkg pin pout prc n=0
+  while IFS= read -r d; do
+    pkg="${d#"$EXT"}"; pkg="${pkg#/}"; [ -n "$pkg" ] || pkg=.
+    n=$((n + 1)); pin="$WORK/pin/$n"; pout="$WORK/pout/$n"; mkdir -p "$pin/$pkg"
+    find "$EXT/$pkg" -maxdepth 1 -name '*.class' -exec cp -p {} "$pin/$pkg/" \;
+    prc=0; run_engine "$ENGINE" "$pin" "$pout" || prc=$?
+    if [ "$prc" -eq 0 ]; then
+      if has_java "$pout"; then cp -a "$pout"/. "$OUT"/; fi
+    else
+      bisect_package "$pkg" "$n" "$(reason_of "$prc")"
+    fi
+  done < <(find "$EXT" -name '*.class' -printf '%h\n' | sort -u)
+}
+
 rc=0
 run_engine "$ENGINE" "$IN" "$OUT" || rc=$?
 if [ "$rc" -ne 0 ]; then
-  reason=error
-  [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ] && reason=timeout
+  reason="$(reason_of "$rc")"
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
   find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
-  fallback_unit "$(unit_name)" "$reason" "$IN"
+  if [[ "${IN,,}" == *.jar ]]; then
+    isolate_jar || fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"
+  else
+    fallback_unit "$(unit_name)" "$reason" "$IN"
+  fi
 elif ! has_java "$OUT"; then
   # Verify the decompiler actually produced source: at least one .java file must exist in $OUT.
   # All three engines return 0 for obfuscated/empty/unsupported input without writing any source.
@@ -204,8 +261,8 @@ detail="units=${#UNITS[@]}"
 [ -z "$PROBE_DEGRADED" ] || detail="$detail reason=$PROBE_DEGRADED"
 echo "$status: $IN -> $OUT  (engine=$ENGINE $detail)"
 for u in "${UNITS[@]+"${UNITS[@]}"}"; do
-  IFS='|' read -r uname ureason ufb ures <<<"$u"
-  echo "UNIT: $uname reason=$ureason fallback=$ufb result=$ures"
+  IFS='|' read -r uname ureason ufb ures unote <<<"$u"
+  echo "UNIT: $uname reason=$ureason fallback=$ufb result=$ures${unote:+ $unote}"
 done
 has_java "$OUT" || { echo "WARN: no .java files produced in $OUT" >&2; exit 1; }
 exit 4
