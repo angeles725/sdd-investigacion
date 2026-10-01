@@ -2019,13 +2019,21 @@ sl_last "$TSL13" | grep -qF 'mode=degraded' && ok "#1258 SL13a: no session sha �
 sl_last "$TSL1" | grep -qF 'mode=degraded' && no "#1258 SL13b: a healthy Stop must not be marked degraded: $(sl_last "$TSL1")" \
   || ok "#1258 SL13b: a session-sha Stop is not marked degraded"
 
-# SL14 (N5): the REAL stage-retro-issues.sh on an unregistered target → exit 1 'degraded:' reaches the log
+# SL14 (N5): the REAL stage-retro-issues.sh on an unregistered target -> exit 1 'degraded:' reaches
+# the log. HERMETIC (§7): the seeder reads TARGETS.md from ITS OWN kit root, so run a copy of the real
+# seeder + libs inside a fixture kit whose TARGETS.md has one row (resolving to a temp dir) and does
+# NOT register the sl14 target — independent of $HOME / $RESEARCH_HOME and of the real registry.
+SL14KIT="$ROOT/sl14kit"; mkdir -p "$SL14KIT/research-sdd/toolbelt" "$ROOT/sl14reg"
+cp -r "$HERE/../lib" "$SL14KIT/research-sdd/toolbelt/lib"
+cp "$HERE/../stage-retro-issues.sh" "$HERE/../verify-retro.sh" "$SL14KIT/research-sdd/toolbelt/"
+cp "$SUT" "$SL14KIT/research-sdd/toolbelt/retro-gate.sh"
+printf '| # | Target | Path |\n|---|---|---|\n| 1 | fixture-target | `%s` |\n' "$ROOT/sl14reg" > "$SL14KIT/research-sdd/TARGETS.md"
 TSL14="$ROOT/sl14"; mk_sl_conforming "$TSL14" sl14
-mkdir -p "$ROOT/sl14bin"   # gh stub: auth ok, dedup search → empty JSON array, everything else exit 0
+mkdir -p "$ROOT/sl14bin"   # gh stub: auth ok, dedup search -> empty JSON array, everything else exit 0
 printf '#!/usr/bin/env bash\ncase "${1:-} ${2:-}" in "issue list") echo "[]";; esac\nexit 0\n' > "$ROOT/sl14bin/gh"; chmod +x "$ROOT/sl14bin/gh"
-OUT="$(printf '%s' "$(mkjson sl14 false)" | RESEARCH_SDD_ISSUE_REPO=o/r PATH="$ROOT/sl14bin:$PATH" "$BASH_BIN" "$SUT" "$TSL14" 2>"$ROOT/sl14.err")"; RC=$?
+OUT="$(printf '%s' "$(mkjson sl14 false)" | env -u RESEARCH_HOME HOME="$ROOT/sl14home" RESEARCH_SDD_ISSUE_REPO=o/r PATH="$ROOT/sl14bin:$PATH" "$BASH_BIN" "$SL14KIT/research-sdd/toolbelt/retro-gate.sh" "$TSL14" 2>"$ROOT/sl14.err")"; RC=$?
 if [ "$RC" -eq 0 ] && sl_last "$TSL14" | grep -qF 'seeder-degraded:2026-09-05-sl.md:degraded: target'; then
-  ok "#1258 SL14: real seeder's unregistered-target degraded is logged typed; exit 0"
+  ok "#1258 SL14: real seeder's unregistered-target degraded is logged typed; exit 0 (hermetic kit, no HOME)"
 else no "#1258 SL14: rc=$RC log=$(sl_last "$TSL14") err=$(cat "$ROOT/sl14.err")"; fi
 
 # ─── #1167 item 7 / case-count stability ─────────────────────────────────────
