@@ -45,6 +45,7 @@ while [ $# -gt 0 ]; do
     --root) root_flag=1; shift ;;
     --only)
       only_list="${2-}"; only_set=1
+      case "$only_list" in *[[:space:]]*) echo "usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)" >&2; exit 2 ;; esac
       case "$only_list" in ''|,*|*,|*,,*) echo "usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)" >&2; exit 2 ;; esac
       _oi="${only_list//,/ }"
       for _of in $_oi; do
@@ -66,12 +67,32 @@ while [ $# -gt 0 ]; do
     *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
   esac
 done
+# only_has <counter>: true when this counter WILL be written (no --only, or named in it).
+only_has() { [ "$only_set" = 0 ] && return 0; case ",$only_list," in *",$1,"*) return 0 ;; esac; return 1; }
 [ "$only_set" = 1 ] && [ "$mode" != "--sync-state" ] && { echo "usage: --only requires --sync-state" >&2; exit 2; }
 [ "$root_flag" = 1 ] && [ -n "$focus_slug" ] && { echo "usage: --root and --focus are mutually exclusive" >&2; exit 2; }
 
 if [ "$root_flag" = 1 ]; then
   # --root: select exactly the un-suffixed RESEARCH-STATE.md, ignoring every RESEARCH-STATE-<focus>.md.
-  state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  # A root is the TOP-LEVEL file, or the sole nested one that sits beside RESEARCH-STATE-<focus>.md
+  # siblings. A lone nested file with no siblings (archive/, backup/) or several candidates is refused.
+  state=""; _root_cands="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE.md' -not -path '*/.git/*' 2>/dev/null | sort)"
+  if [ -f "$target/RESEARCH-STATE.md" ]; then
+    state="$target/RESEARCH-STATE.md"
+  elif [ -n "$_root_cands" ]; then
+    _root_sib=""; _root_nsib=0
+    while IFS= read -r _rc; do
+      if find "$(dirname "$_rc")" -maxdepth 1 -name 'RESEARCH-STATE-*.md' -not -name '*.template.md' 2>/dev/null | grep -q .; then  # ROOT-PICK-SIBLINGS
+        _root_sib="$_rc"; _root_nsib=$((_root_nsib+1))
+      fi
+    done <<<"$_root_cands"
+    if [ "$_root_nsib" = 1 ]; then state="$_root_sib"
+    else
+      printf 'root-select: ERROR: --root is ambiguous or unsupported under %s: no top-level RESEARCH-STATE.md and %s root candidate(s) beside focus siblings; candidates:\n%s\n' \
+        "$target" "$_root_nsib" "$(printf '%s\n' "$_root_cands" | sed 's/^/  /')" >&2
+      exit 1
+    fi
+  fi
   if [ ! -f "$state" ]; then
     [ "$mode" = "--sync-state" ] && { printf 'sync-state: no RESEARCH-STATE.md under %s\n' "$target" >&2; exit 1; }
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE.md under $target" || echo "no RESEARCH-STATE.md under $target — run research-sdd-init.sh"
@@ -486,13 +507,13 @@ count_attributed_sg() {
 req_prose() { stopctl | sed -E 's/\([^)]*\)//g' | grep -ioE 'requires-execution[^0-9]*[0-9]+' | head -1 | grep -oE '[0-9]+$'; }
 # read a field from the CURRENT envelope (for carry-forward of declared-only fields we cannot parse fresh).
 env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{v=$2; sub(/\r$/,"",v); print v; exit}' "$state"; }  # strip trailing CR (CRLF-safe)
-# pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
-# 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 # env_raw <key> — full declared value (everything after "key:", trimmed, CR-stripped) from the CURRENT
 # envelope; exit 1 when the key is ABSENT (absent != empty). Whitespace/indent tolerant like the UF probe.
 env_raw() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0}
   b { l=$0; sub(/^[[:space:]]+/,"",l); if (index(l,k":")==1) { v=substr(l,length(k)+2); sub(/^[[:space:]]+/,"",v); sub(/[[:space:]\r]+$/,"",v); print v; f=1; exit } }
   END { exit f?0:1 }' "$state"; }  # ENV-RAW
+# pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
+# 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
 
 # _read_focuses_tok — read and validate the leading status token for a focus from FOCUSES.md.
@@ -654,7 +675,8 @@ if [ "$mode" = "--sync-state" ]; then
   mapfile -t _states < <(list_state_files "$target")
   # When --focus is given, restrict the sync to that single file only (avoids seeding siblings).
   if [ -n "$focus_slug" ] || [ "$root_flag" = 1 ]; then
-    _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE${focus_slug:+-$focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"  # ROOT-SYNC-SELECT
+    if [ "$root_flag" = 1 ]; then _focused="$state"  # ROOT-SYNC-SELECT: the root already resolved (and vetted) at startup
+    else _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"; fi
     if [ ! -f "$_focused" ]; then
       printf 'sync-state: no RESEARCH-STATE%s.md under %s\n' "${focus_slug:+-$focus_slug}" "$target" >&2; exit 1
     fi
@@ -742,13 +764,12 @@ if [ "$mode" = "--sync-state" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter | wc -l | tr -d ' ')"
     fi
-    # kit #906: the un-suffixed root of a MULTI-focus corpus with no block prefix in FOCUSES.md gets the
-    # corpus-wide block count — not its own scope. Say so instead of presenting it as a verified number.
+    # kit #906: the un-suffixed root of a MULTI-focus corpus with no block prefix in FOCUSES.md would get the
+    # corpus-wide block count — not its own scope. Flag it; the reconciliation below KEEPS a declared value
+    # unless covered_blocks is named in --only, and says so.
+    _cw=0
     if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ "$_e_bs" != "shared-global" ] \
-       && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then  # ROOT-CORPUS-WIDE-WARN
-      printf 'sync-state: WARN: %s: covered_blocks=%s is the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md) — it is not scoped to this focus; verify it, or leave it untouched with --only.\n' \
-        "$(basename "$state")" "$cb" >&2
-    fi
+       && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then _cw=1; fi  # ROOT-CORPUS-WIDE
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
     def="$(count_deferred)"
@@ -781,9 +802,10 @@ if [ "$mode" = "--sync-state" ]; then
       _gc_backlog=$(( _dkg_total - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} ))
       gc="${_gc_backlog}"  # KG-BACKLOG-GC
       if [ "$gc" -lt 0 ]; then  # GC-CLAMP (kit #983): open buckets can overlap (a requires-execution row also listed blocked)
-        printf 'sync-state: WARN: %s: derived gaps_closed=%d is negative (known_gaps %d < open buckets io+req+bo+def = %d; a row is probably counted in two buckets) — clamped to 0; reconcile the backlog by hand.\n' \
+        # Never write an invented 0 over a DECLARED value: keep the declared gaps_closed (as pick() does); 0 only when none was declared.
+        only_has gaps_closed && printf 'sync-state: WARN: %s: derived gaps_closed=%d is negative (known_gaps %d < open buckets io+req+bo+def = %d; a row is probably counted in two buckets) — clamp: NOT written, keeping the declared value (0 when none); reconcile the backlog by hand.\n' \
           "$(basename "$state")" "$gc" "${_dkg_total}" "$(( ${io:-0} + ${req:-0} + ${bo:-0} + ${def:-0} ))" >&2
-        gc=0  # GC-CLAMP-ZERO
+        gc="$(pick "" "$(env_get gaps_closed)")"  # GC-CLAMP-KEEP
       fi
       printf 'WARN: Coverage prose denominator is stale (coverage metric %s/%s, backlog has %d known gaps) — update Coverage metric to %d/%d\n' \
         "${cov%%/*}" "${_cm_kg:-?}" "${_dkg_total}" "${gc}" "${kg}" >&2
@@ -792,7 +814,8 @@ if [ "$mode" = "--sync-state" ]; then
       gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
     fi
     # undocumented_findings: distinguish the three cases that pick("","...") collapses into one silent 0.
-    # ABSENT       → seed 0 (METHODOLOGY §7 seeding contract; no warning — documented legacy path).
+    # ABSENT       → FIRST seed (no fence): seed 0 (METHODOLOGY §7 seeding contract). Existing fence: the field is
+    #                left absent (UF-NO-INVENT, reconciliation block below) — never an invented 0.
     # VALID        → carry the integer forward unchanged.
     # UNPARSEABLE  → warn loudly and carry the raw value forward; NOT replaced with 0 because that
     #                would erase real debt silently (the exact silent-loss channel BLOCKER 1B closes).
@@ -822,7 +845,7 @@ if [ "$mode" = "--sync-state" ]; then
     # Only meaningful when a fence already exists (a first seed declares nothing to compare/preserve).
     # --only keeps every NON-named counter at its DECLARED value (an absent one cannot be preserved, so it
     # is derived); every counter whose final value differs from the declared one is REPORTED, never silent.
-    _uf_omit=0
+    _uf_omit=0; _cw_kept=""
     if grep -q '<!-- research-state.v1 -->' "$state"; then
       _changed_lines=''
       for _cf in $_OWNED_COUNTERS; do
@@ -836,6 +859,9 @@ if [ "$mode" = "--sync-state" ]; then
         if [ "$only_set" = 1 ] && [ "$_have" = 1 ]; then
           case ",$only_list," in *",$_cf,"*) ;; *) _nv="$_ov" ;; esac   # ONLY-KEEP-DECLARED not named → keep declared value
         fi
+        if [ "$_cf" = covered_blocks ] && [ "$_cw" = 1 ] && [ "$_have" = 1 ] && [ "$only_set" = 0 ]; then  # CW-KEEP-DECLARED
+          _cw_kept="$_nv"; _nv="$_ov"   # corpus-wide count is not this focus's number: keep what is declared
+        fi
         if [ "$_have" = 0 ]; then _ov="(absent)"; fi
         [ "$_ov" = "$_nv" ] || _changed_lines="${_changed_lines}sync-state: CHANGED $(basename "$state") ${_cf}: ${_ov} -> ${_nv}"$'\n'
         case "$_cf" in
@@ -846,6 +872,15 @@ if [ "$mode" = "--sync-state" ]; then
       done
       [ -n "$_changed_lines" ] && printf '%s' "$_changed_lines"
     fi
+    if [ "$_cw" = 1 ] && only_has covered_blocks; then  # ROOT-CORPUS-WIDE-WARN
+      if [ -n "$_cw_kept" ]; then
+        printf 'sync-state: WARN: %s: covered_blocks would be %s, the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md), not this focus'"'"'s number — KEPT the declared %s; name covered_blocks in --only to write it.\n' \
+          "$(basename "$state")" "$_cw_kept" "$cb" >&2
+      else
+        printf 'sync-state: WARN: %s: covered_blocks=%s written is the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md) — not scoped to this focus; verify it.\n' \
+          "$(basename "$state")" "$cb" >&2
+      fi
+    fi
     repl="$(render_envelope)"
     tmp="$(mktemp "$(dirname "$state")/.rsdd-sync.XXXXXX")"
     if grep -q '<!-- research-state.v1 -->' "$state"; then
@@ -854,7 +889,7 @@ if [ "$mode" = "--sync-state" ]; then
         $0 ~ /<!-- research-state.v1 -->/ { print repl; skip=1; next }
         skip && $0 ~ /<!-- \/research-state.v1 -->/ { skip=0; next }
         skip { next }
-        { print }' "$state" > "$tmp"
+        { print }' "$state" > "$tmp" || { rm -f "$tmp"; printf 'sync-state: ERROR: %s: rewriting the envelope failed (awk exit) — file NOT modified.\n' "$state" >&2; exit 1; }  # AWK-CHECK
     else
       # fence ABSENT → insert right after the top intro blockquote (the first contiguous run of `>` lines);
       # if there is no blockquote, append at EOF. Either way a SECOND run finds the fence → byte-identical.
@@ -865,9 +900,10 @@ if [ "$mode" = "--sync-state" ]; then
             else if (inbq) { print repl; print ""; done=1 }
           }
           print line }
-        END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
+        END { if (!done) { print ""; print repl } }' "$state" > "$tmp" || { rm -f "$tmp"; printf 'sync-state: ERROR: %s: rewriting the envelope failed (awk exit) — file NOT modified.\n' "$state" >&2; exit 1; }  # AWK-CHECK
     fi
     mv "$tmp" "$state"
+    echo "sync-state: wrote $state"
     echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo deferred_open=$def undocumented_findings=$([ "$_uf_omit" = 1 ] && echo - || echo "$uf")"
   done
   exit 0
