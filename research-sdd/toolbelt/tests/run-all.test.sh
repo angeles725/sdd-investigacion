@@ -768,6 +768,30 @@ if [ "$rc" -eq 1 ] \
   ok "kit-tree hermeticity: identical-bytes rewrite and __pycache__ are ignored; a same-size content change is caught"
 else no "kit-tree hermeticity noise failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
 
+# 35e — symlinks (kit issue #1299 item 7): the guard used `-type f`, so a symlink a suite created,
+#       retargeted or removed under research-sdd/ was invisible. Links are tracked by path + target
+#       (never followed), dangling ones included; an untouched link is not blamed.
+w="$(newdir c35e)"; _c35ekit="${w%/toolbelt/tests}"
+mkdir -p "$_c35ekit/install"; printf 'k\n' > "$_c35ekit/install/keep.sh"
+ln -s keep.sh "$_c35ekit/install/stable.lnk"; ln -s keep.sh "$_c35ekit/install/retarget.lnk"; ln -s keep.sh "$_c35ekit/install/doomed.lnk"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'ln -s nowhere-dangling "$k/install/new.lnk"\n'
+  printf 'ln -sfn elsewhere.sh "$k/install/retarget.lnk"\n'
+  printf 'rm -f "$k/install/doomed.lnk"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/a-linky.test.sh"
+mkfix_sh "$w/b-clean.test.sh" 1 0 0
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'files under research-sdd/): 3' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/new.lnk (new)' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/retarget.lnk (modified)' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/doomed.lnk (removed)' <<<"$out" \
+   && ! grep -qF 'stable.lnk' <<<"$out" && ! grep -qF 'b-clean.test.sh leaked' <<<"$out"; then
+  ok "kit-tree hermeticity: a new, retargeted (dangling too) and removed symlink under research-sdd/ is named; an untouched link is not"
+else no "kit-tree symlink case failed: rc=$rc :: $(grep -iE 'kit-tree|leaked|lnk' <<<"$out" | tr '\n' '|')"; fi
+
 # 35c — DEGRADED, never a confident 0: a scanner that fails ONLY on the kit-tree scan (the cwd scan
 #       still works) must fail the run and say so with the kit-tree reason.
 _c35realfind="$(command -v find)"
@@ -1186,6 +1210,28 @@ REPL12
       ok "teeth-kit-tree: neutered guard FALSE-PASSES a confirmed leak under research-sdd/ → kit-tree guard has real teeth"
     else
       no "teeth-kit-tree: mutant still caught the leak (rc=$mrc) — mutation not exercised (THEATER)"
+    fi
+  fi
+  # Mutation (kit issue #1299 item 7): make the symlink listing see nothing; a symlink created under
+  # research-sdd/ must then FALSE-PASS. The leak is confirmed to have happened.
+  echo "-- teeth: blind SENTINEL-KIT-TREE-SYMLINKS; a symlink created under research-sdd/ must FALSE-PASS --"
+  w="$(mut_workdir teeth-kit-tree-symlink)"; _ktl="${w%/toolbelt/tests}"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" "/SENTINEL-KIT-TREE-SYMLINKS/,+2s/-type l /-type l -name __never__ /" 2>"$w/mutant.err"; then
+    no "teeth-kit-tree-symlink: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    { printf '#!/usr/bin/env bash\n'
+      printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+      printf 'ln -s nowhere "$k/install/stray.lnk" && : > "%s"\n' "$TMP/teeth-kit-tree-symlink.leaked"
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    } > "$w/linky.test.sh"
+    mkdir -p "$_ktl/install"
+    mout="$(bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    if [ ! -e "$TMP/teeth-kit-tree-symlink.leaked" ]; then
+      no "teeth-kit-tree-symlink: fixture never leaked — FALSE-PASS would prove nothing"
+    elif [ "$mrc" -eq 0 ] && grep -qF 'violations (new/modified/removed files under research-sdd/): 0' <<<"$mout"; then
+      ok "teeth-kit-tree-symlink: symlink-blind guard FALSE-PASSES a confirmed symlink leak → symlink tracking has real teeth"
+    else
+      no "teeth-kit-tree-symlink: mutant still caught the symlink (rc=$mrc) — mutation not exercised (THEATER)"
     fi
   fi
 fi
