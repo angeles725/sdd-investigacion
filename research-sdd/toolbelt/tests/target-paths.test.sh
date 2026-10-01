@@ -240,11 +240,11 @@ if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qF 'cannot read' <<<"$TNR_ERR
 else no "19a absent TARGETS.md → rc 1, typed 'cannot read'" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
 TN19b="${N}/t19b.md"; : > "$TN19b"
 tnr "$TN19b" "$(mkretro "$N/middle")"
-if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qi 'no registered target' <<<"$TNR_ERR"; then ok "19b empty TARGETS.md → rc 1, typed 'no registered target paths'"
+if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qi 'no registered target paths parsed' <<<"$TNR_ERR"; then ok "19b empty TARGETS.md → rc 1, typed 'no registered target paths'"
 else no "19b empty TARGETS.md → rc 1, typed 'no registered target paths'" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
 TN19c="${N}/t19c.md"; printf '# t\n\n| # | Target | Path |\n|---|---|---|\n' > "$TN19c"
 tnr "$TN19c" "$(mkretro "$N/middle")"
-if [ "$TNR_RC" = 1 ] && grep -qi 'no registered target' <<<"$TNR_ERR"; then ok "19c header-only TARGETS.md (zero rows) → rc 1"
+if [ "$TNR_RC" = 1 ] && grep -qi 'no registered target paths parsed' <<<"$TNR_ERR"; then ok "19c header-only TARGETS.md (zero rows) → rc 1"
 else no "19c header-only TARGETS.md (zero rows) → rc 1" "rc=$TNR_RC err=[$TNR_ERR]"; fi
 TN19d="${N}/t19d.md"; cp "$TN1" "$TN19d"; chmod 000 "$TN19d"
 if [ ! -r "$TN19d" ]; then
@@ -266,6 +266,62 @@ printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | ghost | `%s/ghost-dir
 tnr "$TN20" "$(mkretro "$N/middle")"
 if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "real-after-ghost" ]; then ok "20 nonexistent registered path is skipped, later row resolves"
 else no "20 nonexistent registered path is skipped, later row resolves" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
+# 21 — WRONG RESEARCH_HOME (kit issue #1304 item 3): when NO parsed registered path resolves to a
+#      directory (every row is a $RESEARCH_HOME row and RESEARCH_HOME points nowhere), the helper
+#      must report an operational failure (rc 1, typed message) — NOT the "no ancestor registered"
+#      rc 2, which callers read as "this target is simply not registered" and answer with a quiet
+#      basename fallback. §7: absent-input must stay distinguishable from no-match.
+tnr "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
+if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qi 'no registered target path' <<<"$TNR_ERR" && grep -qi 'director' <<<"$TNR_ERR"; then
+  ok "21a RESEARCH_HOME points nowhere (no row resolves) → rc 1, typed message"
+else no "21a RESEARCH_HOME points nowhere (no row resolves) → rc 1, typed message" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# 21b — LIST EDGE: ONE resolving row among ghosts (ghost first AND ghost last) is enough: case 20
+#       already pins ghost-first; here the ghost is LAST and the retro sits under the first row.
+TN21b="${N}/t21b.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | solid | `%s/middle` |\n| 2 | ghost-last | `%s/ghost-dir-2` |\n' "$N" "$N" > "$TN21b"
+tnr "$TN21b" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "solid" ]; then ok "21b one resolving row among ghosts (ghost LAST) → still resolves"
+else no "21b one resolving row among ghosts (ghost LAST) → still resolves" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# 21c — SINGLE-row registry whose only path is a ghost → rc 1 (not rc 2).
+TN21c="${N}/t21c.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | only-ghost | `%s/ghost-dir-3` |\n' "$N" > "$TN21c"
+tnr "$TN21c" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 1 ] && grep -qi 'no registered target path' <<<"$TNR_ERR"; then ok "21c single ghost-only row → rc 1, typed message"
+else no "21c single ghost-only row → rc 1, typed message" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
+# 22 — ROW LOOKUP MATCHES THE PATH CELL ONLY (kit issue #1304 item 4): a registered path quoted in
+#      ANOTHER row's non-path cell (a Notes column) must not make that earlier row's name win.
+TN22="${N}/t22.md"
+{
+  printf '# t\n\n| # | Target | Path | Notes |\n|---|---|---|---|\n'
+  printf '| 1 | decoy-first | `%s/first` | superseded by `%s/last` |\n' "$N" "$N"
+  printf '| 2 | the-real-last | `%s/last` | none |\n' "$N"
+} > "$TN22"
+tnr "$TN22" "$(mkretro "$N/last")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "the-real-last" ]; then ok "22a path quoted in another row's Notes cell → the Path-cell row's name wins"
+else no "22a path quoted in another row's Notes cell → the Path-cell row's name wins" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# 22b — LIST EDGE: the quoted decoy sits in the LAST row's cell, the real row is FIRST.
+TN22b="${N}/t22b.md"
+{
+  printf '# t\n\n| # | Target | Path | Notes |\n|---|---|---|---|\n'
+  printf '| 1 | the-real-first | `%s/first` | none |\n' "$N"
+  printf '| 2 | decoy-last | `%s/last` | see `%s/first` |\n' "$N" "$N"
+} > "$TN22b"
+tnr "$TN22b" "$(mkretro "$N/first")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "the-real-first" ]; then ok "22b real row FIRST, decoy quote in the LAST row → real name"
+else no "22b real row FIRST, decoy quote in the LAST row → real name" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# 22c — a path that is only a PREFIX of another row's path must not match it (backtick-delimited).
+TN22c="${N}/t22c.md"
+mkdir -p "$N/pfx" "$N/pfxlong"
+{
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n'
+  printf '| 1 | long-one | `%s/pfxlong` |\n' "$N"
+  printf '| 2 | short-one | `%s/pfx` |\n' "$N"
+} > "$TN22c"
+tnr "$TN22c" "$(mkretro "$N/pfx")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "short-one" ]; then ok "22c path that prefixes another row's path → exact cell match"
+else no "22c path that prefixes another row's path → exact cell match" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
 
 # --- summary ---
 echo ""
@@ -456,11 +512,11 @@ fi
 # TNR-4: drop the empty-pairs guard -> a registry with zero rows reads as a quiet no-match (19b/19c).
 if tnr_mutant 4 '/if \[ -z "\$pairs" \]; then/,/^    fi$/d'; then
   LIB="$MUT_TNR"; tnr "$TN19c" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
-  if [ "$TNR_RC" != 1 ]; then ok "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)"
+  if ! grep -qi 'no registered target paths parsed' <<<"$TNR_ERR"; then ok "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)"
   else no "teeth TNR-4: empty-pairs-guard mutant must flip case 19c" "rc=$TNR_RC err=[$TNR_ERR]"; fi
 fi
 # TNR-5: ignore the name cell, always use the basename (cases 15 / 16c).
-if tnr_mutant 5 's#^      name="\$(awk -F.*#      name=""#'; then
+if tnr_mutant 5 's#^    name="\$(_TP_RAW=.*#    name=""; arc=0#'; then
   LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "$N"; m_p="$TNR_OUT"; LIB="$LIB_ORIG"
   if [ "$m_p" = rhp ]; then ok "teeth TNR-5: basename-only mutant flips case 15 (has teeth)"
   else no "teeth TNR-5: basename-only mutant must flip case 15" "resolved to [$m_p]"; fi
@@ -476,6 +532,26 @@ if tnr_mutant 7 's/\[ "\$hit" -ge 0 \] || return 2/[ "$hit" -ge 0 ] || return 0/
   LIB="$MUT_TNR"; tnr "$TN1" "$(mkretro "$N/stranger")"; LIB="$LIB_ORIG"
   if [ "$TNR_RC" != 2 ]; then ok "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)"
   else no "teeth TNR-7: no-match-rc mutant must flip case 18" "rc=$TNR_RC"; fi
+fi
+
+# TNR-8: drop the no-resolving-path guard -> a wrong RESEARCH_HOME reads as rc 2 no-match (21a/21c).
+if tnr_mutant 8 '/SENTINEL-TNR-NODIR-START/,/SENTINEL-TNR-NODIR-END/d'; then
+  LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"; m_rc="$TNR_RC"
+  tnr "$TN21c" "$(mkretro "$N/middle")"; m_rc2="$TNR_RC"; LIB="$LIB_ORIG"
+  if [ "$m_rc" = 2 ] && [ "$m_rc2" = 2 ]; then ok "teeth TNR-8: no-dir-guard mutant flips cases 21a and 21c to rc 2 (has teeth)"
+  else no "teeth TNR-8: no-dir-guard mutant must flip cases 21a/21c" "21a rc=$m_rc 21c rc=$m_rc2"; fi
+fi
+# TNR-9: select the row from the WHOLE line instead of the Path cell (case 22a).
+if tnr_mutant 9 's/index(\$4, want)/index($0, want)/'; then
+  LIB="$MUT_TNR"; tnr "$TN22" "$(mkretro "$N/last")"; m_n="$TNR_OUT"; LIB="$LIB_ORIG"
+  if [ "$m_n" = decoy-first ]; then ok "teeth TNR-9: whole-row-match mutant flips case 22a (has teeth)"
+  else no "teeth TNR-9: whole-row-match mutant must flip case 22a" "resolved to [$m_n]"; fi
+fi
+# TNR-10: drop the backtick delimiters -> a path that prefixes another row's path matches it (22c).
+if tnr_mutant 10 's/want = "`" ENVIRON\["_TP_RAW"\] "`"/want = ENVIRON["_TP_RAW"]/'; then
+  LIB="$MUT_TNR"; tnr "$TN22c" "$(mkretro "$N/pfx")"; m_n="$TNR_OUT"; LIB="$LIB_ORIG"
+  if [ "$m_n" = long-one ]; then ok "teeth TNR-10: undelimited-match mutant flips case 22c (has teeth)"
+  else no "teeth TNR-10: undelimited-match mutant must flip case 22c" "resolved to [$m_n]"; fi
 fi
 
 echo ""
