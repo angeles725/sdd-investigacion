@@ -57,3 +57,69 @@ if ! declare -F block_file_filter >/dev/null 2>&1; then
   }
 
 fi
+
+# ── Nested worktree exclusion (kit issue #1223) ─────────────────────────────
+# A Claude Code agent worktree (<root>/.claude/worktrees/<name>/) or any other nested
+# `git worktree add` checkout carries a full copy of the corpus; scanning <root> with find
+# therefore lists every block/retro twice. Two helpers let a scanner drop those copies:
+#
+# block_files_nested_worktree_roots <root>
+#   stdout: one absolute directory per line — always "<root>/.claude/worktrees" (excluded whether
+#           or not it exists or holds real checkouts) plus the dirname of every nested ".git" FILE
+#           whose first line is "gitdir: …/worktrees/…" (a linked worktree).
+#           Deliberately NOT excluded: a nested clone (".git" is a directory) and a submodule
+#           (".git" file → …/modules/…) — their research files are the corpus's own business.
+#   exit  : 0 ok · 2 <root> is not a directory · 3 the traversal was INCOMPLETE (find exited
+#           non-zero, e.g. an unreadable directory): the roots found so far are still printed, and
+#           a one-line typed WARN names the gap on stderr (§7: an incomplete probe is not "none").
+#           Incomplete-probe detection needs bash >= 4.4 (see the `wait` note below).
+#   Paths are judged relative to <root>: <root>'s OWN ".git" (a target that is itself a worktree)
+#   is never a nested root, and a corpus that happens to live under .claude/worktrees/ itself is
+#   not excluded wholesale.
+#
+# block_files_path_in_nested_worktree <path> <roots>
+#   <roots>: the newline-separated output of block_files_nested_worktree_roots.
+#   exit  : 0 <path> is a root or lies under one · 1 it does not (including an empty <roots>).
+#           Pure bash, no fork — safe to call once per path in a hot loop.
+if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
+
+  block_files_nested_worktree_roots() {
+    local _root="${1:-}" _gf _line _fpid _frc=0
+    if [ ! -d "$_root" ]; then
+      echo "block-files: nested_worktree_roots: not a directory: $_root" >&2
+      return 2
+    fi
+    _root="${_root%/}"
+    printf '%s\n' "$_root/.claude/worktrees"
+    while IFS= read -r -d '' _gf; do
+      [ "${_gf%/.git}" = "$_root" ] && continue
+      _line=""
+      IFS= read -r _line < "$_gf" 2>/dev/null || [ -n "$_line" ] || continue
+      case "$_line" in
+        gitdir:*/worktrees/*) printf '%s\n' "${_gf%/.git}" ;;
+      esac
+    done < <(find "$_root" -mindepth 1 \( -type d -name .git -prune \) -o \( -type f -name .git -print0 \) 2>/dev/null)
+    # find's status (lost by process substitution) comes back through `wait` on bash >= 4.4; on
+    # older shells $! is not the substitution's pid and the probe can only report "complete".
+    _fpid=$!
+    wait "$_fpid" 2>/dev/null || _frc=$?
+    if [ "$_frc" -ne 0 ] && [ "$_frc" -ne 127 ]; then
+      echo "block-files: nested_worktree_roots: find exited $_frc under $_root — worktrees under unreadable directories may be missing" >&2
+      return 3
+    fi
+    return 0
+  }
+
+  block_files_path_in_nested_worktree() {
+    local _p="${1:-}" _roots="${2:-}" _r
+    [ -n "$_roots" ] || return 1
+    while IFS= read -r _r; do
+      [ -n "$_r" ] || continue
+      case "$_p" in
+        "$_r"|"$_r"/*) return 0 ;;
+      esac
+    done <<< "$_roots"
+    return 1
+  }
+
+fi

@@ -103,6 +103,90 @@ printf '%s\n' "/x/blocked-notes.md" | block_file_filter >/dev/null 2>&1; rc=$?
 declare -F block_file_filter >/dev/null 2>&1 \
   && ok "8 idempotent double-source" || no "8 idempotent double-source"
 
+# --- 9. Nested worktree helpers (kit issue #1223) ---
+# nw_fixture <dir>: .claude/worktrees/<name>, a linked-worktree .git file, a submodule-style .git
+# file, a nested clone (.git dir) and a corpus root with its OWN .git file.
+nw_fixture() {
+  local d="$1"
+  mkdir -p "$d/.claude/worktrees/agent-1" "$d/side-wt" "$d/sub" "$d/clone/.git" "$d/deep/er/wt2"
+  printf 'gitdir: %s/.git/worktrees/side-wt\n' "$d" > "$d/side-wt/.git"
+  printf 'gitdir: %s/.git/worktrees/wt2\n' "$d" > "$d/deep/er/wt2/.git"
+  printf 'gitdir: ../.git/modules/sub\n' > "$d/sub/.git"
+  printf 'gitdir: %s/.git/worktrees/self\n' "$d" > "$d/.git"   # the root's own .git FILE
+}
+
+# nw_checks <helper-file>: source <helper-file> in a subshell and run every #1223 assertion;
+# prints one "FAIL:<name>" line per broken assertion (empty output = all held). Used for the
+# real helper AND for each mutant, so a mutant that leaves the output empty has no teeth.
+nw_checks() {
+  (
+    # The helper is idempotent (declare -F guard): the copy sourced at the top of this suite
+    # would shadow a mutant, so drop it first — otherwise every mutant silently tests the original.
+    unset -f block_file_filter block_files_nested_worktree_roots block_files_path_in_nested_worktree
+    # shellcheck disable=SC1090
+    . "$1"
+    d="$(mktemp -d)"; trap 'rm -rf "$d"' EXIT
+    nw_fixture "$d"
+    roots="$(block_files_nested_worktree_roots "$d")"; rc=$?
+    [ "$rc" -eq 0 ] || echo "FAIL:roots-rc($rc)"
+    printf '%s\n' "$roots" | grep -qxF "$d/.claude/worktrees" || echo "FAIL:fixed-claude-worktrees-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/side-wt" || echo "FAIL:linked-worktree-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/deep/er/wt2" || echo "FAIL:deep-linked-worktree-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/sub" && echo "FAIL:submodule-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/clone" && echo "FAIL:nested-clone-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d" && echo "FAIL:own-git-file-must-not-make-root-a-root"
+    # predicate: root itself, under it, FIRST / MIDDLE / LAST / ONLY roots, sibling-prefix trap
+    block_files_path_in_nested_worktree "$d/side-wt/x-block1.md" "$roots" || echo "FAIL:under-linked-worktree"
+    block_files_path_in_nested_worktree "$d/.claude/worktrees/agent-1/x-block1.md" "$roots" || echo "FAIL:under-claude-worktrees"
+    block_files_path_in_nested_worktree "$d/deep/er/wt2/a/b/x-block1.md" "$roots" || echo "FAIL:under-deep-worktree"
+    block_files_path_in_nested_worktree "$d/side-wt" "$roots" || echo "FAIL:root-itself-counts"
+    block_files_path_in_nested_worktree "$d/x-block1.md" "$roots" && echo "FAIL:corpus-file-not-under"
+    block_files_path_in_nested_worktree "$d/side-wt-old/x-block1.md" "$roots" && echo "FAIL:sibling-prefix-trap(side-wt-old)"
+    block_files_path_in_nested_worktree "$d/.claude/worktrees-old/x-block1.md" "$roots" && echo "FAIL:sibling-prefix-trap(worktrees-old)"
+    block_files_path_in_nested_worktree "$d/sub/x-block1.md" "$roots" && echo "FAIL:submodule-file-not-under"
+    block_files_path_in_nested_worktree "$d/x-block1.md" "" && echo "FAIL:empty-roots-means-not-under"
+    block_files_path_in_nested_worktree "$d/side-wt/x" "$d/side-wt" || echo "FAIL:single-root-only-entry"
+    block_files_path_in_nested_worktree "$d/b/x" "$d/a
+$d/b
+$d/c" || echo "FAIL:middle-root"
+    block_files_path_in_nested_worktree "$d/c/x" "$d/a
+$d/b
+$d/c" || echo "FAIL:last-root"
+    block_files_path_in_nested_worktree "$d/a/x" "$d/a
+$d/b
+$d/c" || echo "FAIL:first-root"
+    # a corpus that itself lives under .claude/worktrees/ is NOT excluded wholesale
+    mkdir -p "$d/.claude/worktrees/agent-9/corpus"
+    r2="$(block_files_nested_worktree_roots "$d/.claude/worktrees/agent-9/corpus")"
+    block_files_path_in_nested_worktree "$d/.claude/worktrees/agent-9/corpus/x-block1.md" "$r2" \
+      && echo "FAIL:corpus-inside-a-worktree-is-not-excluded"
+    # absent root: typed failure, not an empty-success
+    block_files_nested_worktree_roots "$d/does-not-exist" >/dev/null 2>&1; [ "$?" -eq 2 ] || echo "FAIL:absent-root-rc2"
+    # incomplete traversal (unreadable dir): rc 3 + typed WARN, roots found so far still printed.
+    # chmod 000 does not stop root, so the case is a counted SKIP there. Needs bash >= 4.4.
+    if [ "$(id -u)" -eq 0 ]; then
+      echo "SKIP:incomplete-traversal (running as root)"
+    elif [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+      echo "SKIP:incomplete-traversal (bash < 4.4 cannot recover find's status)"
+    else
+      mkdir -p "$d/locked"; chmod 000 "$d/locked"
+      r3="$(block_files_nested_worktree_roots "$d" 2>"$d/r3.err")"; rc3=$?
+      chmod 755 "$d/locked"
+      [ "$rc3" -eq 3 ] || echo "FAIL:incomplete-traversal-rc3(rc=$rc3)"
+      grep -q 'find exited' "$d/r3.err" || echo "FAIL:incomplete-traversal-typed-warn"
+      printf '%s\n' "$r3" | grep -qxF "$d/side-wt" || echo "FAIL:incomplete-traversal-keeps-partial-roots"
+    fi
+  )
+}
+nw_out="$(nw_checks "$HELPER")"
+nw_fails="$(printf '%s\n' "$nw_out" | grep '^FAIL:' | tr '\n' ' ')"
+[ -z "$nw_fails" ] \
+  && ok "9 nested-worktree helpers: roots + predicate hold (edges, traps, absent root, incomplete traversal)" \
+  || no "9 nested-worktree helpers" "$nw_fails"
+printf '%s\n' "$nw_out" | grep '^SKIP:' | while IFS= read -r _s; do
+  printf '  SKIP  9 nested-worktree helpers: %s\n' "${_s#SKIP:}"
+done
+
 echo ""
 echo "== $pass passed · $fail failed =="
 
@@ -143,6 +227,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ "$rc" -eq 0 ] && tok "TOOTH-3: guard-absent fragment exits 0 (proves guard is load-bearing)" \
                   || tno "TOOTH-3: guard-absent fragment did NOT exit 0 (tooth logic error)"
   rm -f "$BROKEN_LIB" "$GUARD_STRIPPED"
+
+  # TOOTH-4..7 (#1223): sed mutants of the REAL helper file. Each must (a) differ from the
+  # original (a no-op sed is theater) and (b) make nw_checks report the named failure.
+  nw_tooth() { # <label> <sed-expr> <expected FAIL: token>
+    local label="$1" expr="$2" want="$3" mf out
+    mf="$(mktemp /tmp/block-files-nwmut.XXXXXX.sh)"
+    sed "$expr" "$HELPER" > "$mf"
+    if cmp -s "$HELPER" "$mf"; then
+      tno "$label: mutant identical to helper — sed did not match (TOOTH NOT BUILT)"; rm -f "$mf"; return
+    fi
+    out="$(nw_checks "$mf")"
+    if printf '%s\n' "$out" | grep -qF "FAIL:$want"; then
+      tok "$label: mutant makes nw_checks report FAIL:$want"
+    else
+      tno "$label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$out" | tr '\n' ' ')]"
+    fi
+    rm -f "$mf"
+  }
+  nw_tooth "TOOTH-4 sibling-prefix (case \"\$_r\"* instead of \"\$_r\"/*)" \
+    's#"\$_r"|"\$_r"/\*) return 0#"$_r"*) return 0#' "sibling-prefix-trap(side-wt-old)"
+  nw_tooth "TOOTH-5 any-gitdir (submodule counted as worktree)" \
+    's#gitdir:\*/worktrees/\*)#gitdir:*)#' "submodule-must-not-be-root"
+  nw_tooth "TOOTH-6 fixed .claude/worktrees root dropped" \
+    '/printf .%s\\n. "\$_root\/.claude\/worktrees"/d' "fixed-claude-worktrees-root"
+  nw_tooth "TOOTH-7 own .git file not skipped" \
+    '/\[ "\${_gf%\/.git}" = "\$_root" \] && continue/d' "own-git-file-must-not-make-root-a-root"
+  if [ "$(id -u)" -eq 0 ]; then
+    printf '  SKIP  TOOTH-8 incomplete-traversal rc3 (running as root — chmod 000 does not protect)\n'
+  else
+    nw_tooth "TOOTH-8 incomplete traversal reported as success (return 3 → return 0)" \
+      's/return 3$/return 0/' "incomplete-traversal-rc3(rc=0)"
+  fi
 
   echo ""
   echo "  teeth passed: $t_pass  teeth failed: $t_fail"
