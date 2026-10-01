@@ -196,6 +196,7 @@ fi
 #   STUB_VF_RC           non-zero: vineflower exits with this code, writing nothing
 #   STUB_MARKER_CLASSES  space list of class basenames whose vineflower output carries the
 #                        marker given by STUB_MARKER_TEXT (default: indented $VF: line)
+#   STUB_CFR_MARKER      non-empty: cfr output carries the markers too (final fallback output must not be re-scanned)
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
 mkdir -p "$T_JAVA_HOME/bin"
@@ -225,7 +226,7 @@ for c in $classes; do
   case "$b" in *\$*) continue ;; esac
   mkdir -p "$OUT/$(dirname "$c")"
   { echo "// engine=$eng"; echo "class $b {"
-    if [ "$eng" = vineflower ]; then
+    if [ "$eng" = vineflower ] || [ -n "${STUB_CFR_MARKER:-}" ]; then
       def="$(printf '    // $VF: Couldn%st be decompiled' "'")"
       for m in ${STUB_MARKER_CLASSES:-}; do
         [ "$b" = "$m" ] && printf '%s\n' "${STUB_MARKER_TEXT:-$def}"
@@ -368,6 +369,53 @@ if [ "$RC" -eq 4 ] && grep -q '^UNIT: <whole-artifact> reason=timeout.*isolation
   ok "B8 unzip absent → <whole-artifact> unit, isolation=unavailable, DEGRADED rc=4"
 else no "B8 unzip absent → typed whole-artifact fallback" "rc=$RC so=[$SO]"; fi
 
+# ── Slice C: decompiler-failure marker scan (kit issue #1194) ────────────────
+# Vineflower writes "// $VF: Couldn't be decompiled" INDENTED inside the method body; a column-0
+# anchored scan misses it and no per-class fallback fires.  The scan must allow leading whitespace,
+# and only a comment-leading line counts (a trailing "// $VF:" after code is not a marker).
+mk_marker_case() { # <tag> <marker-text> <expected-rc> <expected-units> <label> [extra env...]
+  local tag="$1" text="$2" wantrc="$3" want="$4" label="$5"; shift 5
+  rt "$tag" "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT="$text" "$@" -- --engine vineflower
+  if [ "$RC" -eq "$wantrc" ] && [ "$(units_of)" = "$want" ]; then ok "$tag $label"
+  else no "$tag $label" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+}
+mk_marker_case C1 "$(printf '    // $VF: Couldn%st be decompiled' "'")" 4 "b/B" "indented marker → per-class fallback fires (unit b/B)"
+if [ "$(engine_of C1 b/B.java)" = cfr ] && [ "$(engine_of C1 a/A.java)" = vineflower ] && [ "$(engine_of C1 c/C.java)" = vineflower ] \
+  && grep -q '^UNIT: b/B reason=marker fallback=cfr result=ok' <<<"$SO" && ! grep -q '^OK' <<<"$SO"; then
+  ok "C1b marker unit replaced by cfr, siblings keep vineflower, never OK"
+else no "C1b marker unit replaced by cfr, siblings keep vineflower" "so=[$SO]"; fi
+
+mk_marker_case C2 "$(printf '// $VF: Couldn%st be decompiled' "'")" 4 "b/B" "column-0 marker still detected"
+mk_marker_case C3 "$(printf '\t\t// $VF: Couldn%st be decompiled' "'")" 4 "b/B" "tab-indented marker detected"
+mk_marker_case C4 '    int x = 1; // $VF: just a trailing comment' 0 "" "trailing '// \$VF:' after code is NOT a marker → OK"
+# C5: .class input carrying a marker → fallback on that class.
+rt C5 "$FAKE_CLASS" STUB_MARKER_CLASSES="Test" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test reason=marker fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of C5 Test.java)" = cfr ]; then
+  ok "C5 marker on a .class input → cfr fallback, DEGRADED rc=4"
+else no "C5 marker on a .class input → cfr fallback" "rc=$RC so=[$SO]"; fi
+
+# C6: timeout unit and marker unit in one jar → both reported, each with its own reason.
+rt C6 "$JAR3" STUB_SLEEP_CLASSES="A" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A b/B" ] && grep -q '^UNIT: a/A reason=timeout' <<<"$SO" \
+  && grep -q '^UNIT: b/B reason=marker' <<<"$SO" && [ "$(engine_of C6 c/C.java)" = vineflower ]; then
+  ok "C6 timeout unit + marker unit both named with their own reason"
+else no "C6 timeout unit + marker unit" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+
+# C8: whole-artifact fallback output is final — a marker in the FALLBACK engine's files must not
+#     trigger a second per-class pass (here unzip is absent, so the whole jar fell back to cfr).
+rt C8 "$JAR3" STUB_SLEEP_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "<whole-artifact>" ]; then
+  ok "C8 marker in whole-artifact fallback output is not re-scanned"
+else no "C8 marker in whole-artifact fallback output is not re-scanned" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+
+# C7: marker found but the fallback engine is unavailable → the marked primary output is KEPT:
+#     DEGRADED (not PARTIAL), unit typed fallback=unavailable result=kept-primary.
+rt C7 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' CFR_JAR="$ROOT/absent-cfr.jar" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && grep -q '^UNIT: b/B reason=marker fallback=unavailable result=kept-primary' <<<"$SO" \
+  && [ "$(engine_of C7 b/B.java)" = vineflower ]; then
+  ok "C7 marker + fallback absent → DEGRADED, unit kept-primary (output not lost)"
+else no "C7 marker + fallback absent → DEGRADED kept-primary" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -458,9 +506,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-mA4: probe-removed mutant loses reason=timeout-unavailable → A4 bites"
     else no "teeth-mA4: mutant still typed the missing binary — A4 has no teeth" "so=[$SO]"; fi
   fi
+  echo "-- teeth: slice C (marker scan) --"
+  # mC1: column-0 anchor (the #1194 bug) → indented marker missed.
+  if build_mut mC1 's/^MARKER_RE=.\^\[\[:space:\]\]\*\/\/ /MARKER_RE=\x27^\/\/ /'; then
+    RT_SUT="$MUT" rt mC1 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mC1: column-0 anchor misses the indented marker → C1 bites"
+    else no "teeth-mC1: mutant still detected the indented marker — C1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mC2: any '// $VF:' anywhere counts → trailing comment (C4) becomes a false marker.
+  if build_mut mC2 's/^MARKER_RE=.*$/MARKER_RE=\x27\/\/ \\$VF: \x27/'; then
+    RT_SUT="$MUT" rt mC2 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    int x = 1; // $VF: just a trailing comment' -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mC2: unanchored mutant flags a trailing comment → C4 bites"
+    else no "teeth-mC2: unanchored mutant still printed OK — C4 has no teeth" "so=[$SO]"; fi
+  fi
+  # mC3: re-scan fallback output → C8 gains a spurious marker unit.
+  if build_mut mC3 's/^\[ -n "\$NO_SCAN" \] || scan_markers$/scan_markers/'; then
+    RT_SUT="$MUT" rt mC3 "$JAR3" STUB_SLEEP_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+    if [ "$(units_of)" != "<whole-artifact>" ]; then ok "teeth-mC3: no-guard mutant re-scans fallback output → C8 bites"
+    else no "teeth-mC3: mutant did not re-scan — C8 has no teeth" "so=[$SO]"; fi
+  fi
   echo "-- teeth: slice B (unit isolation) --"
   # mB1: isolation never runs → B1 degrades the whole artifact instead of one unit.
-  if build_mut mB1 's/^    isolate_jar || fallback_unit/    false || fallback_unit/'; then
+  if build_mut mB1 's/^    isolate_jar || {/    false || {/'; then
     RT_SUT="$MUT" rt mB1 "$JAR3" STUB_SLEEP_CLASSES="A" -- --engine vineflower
     if grep -q '^UNIT: <whole-artifact>' <<<"$SO" && [ "$(engine_of mB1 b/B.java)" = cfr ]; then
       ok "teeth-mB1: no-isolation mutant degrades the whole artifact → B1 bites"

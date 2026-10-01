@@ -149,26 +149,31 @@ trap cleanup EXIT
 UNITS=()        # one line per affected unit: "<unit>|<reason>|<fallback>|<result>"
 PARTIAL_UNITS=0 # units that ended with NO output
 DEGRADED_UNITS=0
+declare -A HANDLED=() # units already recorded (the marker scan must not re-handle them)
 
 # record_unit <unit> <reason> <fallback> <result> [note]
+# result: ok (fallback output in place) · kept-primary (marked primary output kept, no usable fallback)
+#         · failed (the unit has NO output).
 record_unit() {
   UNITS+=("$1|$2|$3|$4|${5:-}")
-  if [ "$4" = ok ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
+  HANDLED["$1"]=1
+  if [ "$4" = ok ] || [ "$4" = kept-primary ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
 }
 
 # fallback_unit <unit> <reason> <input> [note] — decompile <input> with the fallback engine into $OUT.
 fallback_unit() {
-  local unit="$1" reason="$2" input="$3" note="${4:-}" tmp rc=0
-  if [ "$FALLBACK" = none ]; then record_unit "$unit" "$reason" none failed "$note"; return 0; fi
+  local unit="$1" reason="$2" input="$3" note="${4:-}" tmp rc=0 failres=failed
+  [ "$reason" != marker ] || failres=kept-primary
+  if [ "$FALLBACK" = none ]; then record_unit "$unit" "$reason" none "$failres" "$note"; return 0; fi
   tmp="$(mktemp -d -p "$WORK")"
   run_engine "$FALLBACK" "$input" "$tmp" || rc=$?
   if [ "$rc" -eq 3 ]; then
-    record_unit "$unit" "$reason" unavailable failed "$note"
+    record_unit "$unit" "$reason" unavailable "$failres" "$note"
   elif [ "$rc" -eq 0 ] && has_java "$tmp"; then
     cp -a "$tmp"/. "$OUT"/
     record_unit "$unit" "$reason" "$FALLBACK" ok "$note"
   else
-    record_unit "$unit" "$reason" "$FALLBACK" failed "$note"
+    record_unit "$unit" "$reason" "$FALLBACK" "$failres" "$note"
   fi
 }
 
@@ -186,6 +191,7 @@ reason_of() { if [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; then echo timeout; else e
 # engine, and inside a failing package per top-level class; only a class that still fails falls back.
 UNZIP_BIN="${RSDD_UNZIP_BIN:-unzip}"
 EXT="$WORK/ext"
+NO_SCAN=""
 ISOLATION_WHY="" # set when isolation could not run (typed, reported on the unit)
 
 # ensure_ext — extract the jar's classes once; fail (typed) when unzip is absent or the jar is unsafe.
@@ -232,6 +238,27 @@ isolate_jar() {
   done < <(find "$EXT" -name '*.class' -printf '%h\n' | sort -u)
 }
 
+# ── Failure-marker scan (kit issue #1194) ────────────────────────────────────
+# Vineflower writes "// $VF: Couldn't be decompiled" INDENTED inside the method body, so the pattern
+# allows leading whitespace; only a comment-LEADING line counts (a trailing comment after code does not).
+MARKER_RE='^[[:space:]]*// \$VF: |Unable to fully decompile class|COULD NOT DECOMPILE'
+
+# scan_markers — per-class fallback for every freshly written .java that carries a failure marker.
+scan_markers() {
+  local f rel unit input m
+  while IFS= read -r -d '' f; do
+    m=0; grep -qE "$MARKER_RE" "$f" 2>/dev/null || m=$?
+    [ "$m" -ne 1 ] || continue
+    rel="${f#"$OUT"/}"; unit="${rel%.java}"
+    [ -z "${HANDLED[$unit]:-}" ] || continue
+    if [ "$m" -ne 0 ]; then record_unit "$unit" marker-scan-error none kept-primary; continue; fi
+    if [[ "${IN,,}" == *.class ]]; then input="$IN"
+    elif ensure_ext && [ -f "$EXT/$unit.class" ]; then input="$EXT/$unit.class"
+    else record_unit "$unit" marker none kept-primary "${ISOLATION_WHY:-no-class-entry}"; continue; fi
+    fallback_unit "$unit" marker "$input"
+  done < <(find "$OUT" -type f -name '*.java' -newer "$STAMP" -print0)
+}
+
 rc=0
 run_engine "$ENGINE" "$IN" "$OUT" || rc=$?
 if [ "$rc" -ne 0 ]; then
@@ -239,8 +266,9 @@ if [ "$rc" -ne 0 ]; then
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
   find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
   if [[ "${IN,,}" == *.jar ]]; then
-    isolate_jar || fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"
+    isolate_jar || { NO_SCAN=1; fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"; }
   else
+    NO_SCAN=1 # whole-input fallback output is final: never re-scan (and re-fall-back) the fallback engine's files
     fallback_unit "$(unit_name)" "$reason" "$IN"
   fi
 elif ! has_java "$OUT"; then
@@ -249,6 +277,7 @@ elif ! has_java "$OUT"; then
   echo "WARN: $ENGINE decompiler exited 0 but produced no .java files in $OUT (input may be obfuscated or unsupported)" >&2
   exit 1
 fi
+[ -n "$NO_SCAN" ] || scan_markers
 
 # Typed result. OK only when no unit fell back and no probe was degraded.
 if [ "${#UNITS[@]}" -eq 0 ] && [ -z "$PROBE_DEGRADED" ]; then
