@@ -298,6 +298,11 @@ if [ "${STUB_WGET_FAIL:-0}" = "1" ]; then
   echo "wget: (stub) simulated wget failure" >&2
   exit 4
 fi
+if [ "${STUB_WGET_EMPTY:-0}" = "1" ]; then
+  # An "empty 200": wget exits 0 but wrote ZERO bytes (#1285 review B1).
+  [ -n "$out" ] && : > "$out"
+  exit 0
+fi
 [ -n "$out" ] && printf 'stub wget body\n' >"$out"
 exit 0
 STUBEOF
@@ -795,6 +800,76 @@ unset STUB_DOWNLOAD_EMPTY
 if [ "$_rc43" -ne 0 ] && [ "$(sum_of "$f43")" = "$EVID_SUM" ] && grep -qi 'empty body' "$TMP/runchain.err"; then
   ok "doc: #1285 — an empty-body re-fetch fails loudly and leaves the registered file intact"
 else no "R43: rc=$_rc43 sum=$(sum_of "$f43") err='$(cat "$TMP/runchain.err")'"; fi
+
+# 43w — #1285 review B1: curl FAILS and wget returns an EMPTY 200 on a re-fetch. The registered file
+#      must survive byte-identical, no row may be written, and the message must say "empty body"
+#      (not the misleading "wget fallback ALSO failed").
+d43w="$TMP/rr-43w/target"; f43w="$(mkexisting "$d43w" r43w.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+_rc43w=0; runchain doc "$d43w" "http://s43w.example/a" datasheets "r43w.pdf" || _rc43w=$?
+unset STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+_row43w=false; [ -f "$d43w/sources/SOURCES.md" ] && grep -q 'r43w\.pdf' "$d43w/sources/SOURCES.md" && _row43w=true
+if [ "$_rc43w" -ne 0 ] && [ "$(sum_of "$f43w")" = "$EVID_SUM" ] && ! $_row43w \
+   && grep -qi 'empty body' "$TMP/runchain.err" && ! grep -qi 'ALSO failed' "$TMP/runchain.err"; then
+  ok "doc: #1285 B1 — curl fail + wget empty 200 leaves the registered file intact, no row, says 'empty body'"
+else no "R43w: rc=$_rc43w sum=$(sum_of "$f43w") row=$_row43w err='$(cat "$TMP/runchain.err")'"; fi
+
+# 43x — message: curl fails and wget is NOT INSTALLED -> say so, not "wget fallback ALSO failed".
+curlonly="$TMP/curlonly-bin"; mkdir -p "$curlonly"
+for _t in bash env mkdir basename sed cut date awk mktemp mv rm sha256sum file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$curlonly/$_t"
+done
+ln -sf "$stubbin/curl" "$curlonly/curl"
+d43x="$TMP/rr-43x/target"; f43x="$(mkexisting "$d43x" r43x.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL
+_rc43x=0; PATH="$curlonly" "$curlonly/bash" "$SUT" doc "http://s43x.example/a" "$d43x" datasheets "r43x.pdf" >/dev/null 2>"$TMP/err43x.txt" || _rc43x=$?
+unset STUB_DOWNLOAD_FAIL
+if [ "$_rc43x" -ne 0 ] && [ "$(sum_of "$f43x")" = "$EVID_SUM" ] && grep -qi 'wget is not installed' "$TMP/err43x.txt" \
+   && ! grep -qi 'ALSO failed' "$TMP/err43x.txt"; then
+  ok "doc: #1285 — curl fails and wget is absent: message says 'wget is not installed', file intact"
+else no "R43x: rc=$_rc43x sum=$(sum_of "$f43x") err='$(cat "$TMP/err43x.txt")'"; fi
+
+# 43y — wget-ONLY path (curl absent): redirect resolution is skipped (no curl probe noise) and the
+#      typed URL is registered with the "effective URL unknown" notice.
+wgetonly="$TMP/wgetonly-bin"; mkdir -p "$wgetonly"
+for _t in bash env mkdir basename sed cut date awk mktemp mv rm sha256sum file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$wgetonly/$_t"
+done
+ln -sf "$stubbin/wget" "$wgetonly/wget"
+d43y="$TMP/rr-43y/target"; mkdir -p "$d43y"
+_rc43y=0; PATH="$wgetonly" "$wgetonly/bash" "$SUT" doc "http://s43y.example/a.pdf" "$d43y" datasheets "r43y.pdf" >/dev/null 2>"$TMP/err43y.txt" || _rc43y=$?
+if [ "$_rc43y" -eq 0 ] && [ "$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')" = "http://s43y.example/a.pdf" ] \
+   && grep -qi 'effective URL unknown' "$TMP/err43y.txt" && ! grep -qi 'redirect probe failed' "$TMP/err43y.txt" \
+   && ! grep -qi 'command not found' "$TMP/err43y.txt"; then
+  ok "doc: #1285 — wget-only path skips redirect resolution and registers the requested URL (effective URL unknown)"
+else no "R43y: rc=$_rc43y origin='$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')' err='$(cat "$TMP/err43y.txt")'"; fi
+
+# 44w — #1285 review: web mode writes the snapshot ATOMICALLY. A pandoc that dies mid-write and a cp
+#      that dies mid-write must leave an EXISTING snapshot byte-identical, with no part-file debris.
+wfail="$TMP/webfail-bin"; mkdir -p "$wfail"
+cat > "$wfail/pandoc" <<'STUBEOF'
+#!/usr/bin/env bash
+out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+[ -n "$out" ] && printf 'PARTIAL-PANDOC' > "$out"
+exit 1
+STUBEOF
+cat > "$wfail/cp" <<'STUBEOF'
+#!/usr/bin/env bash
+for a in "$@"; do last="$a"; done
+printf 'PARTIAL-CP' > "$last"
+exit 1
+STUBEOF
+chmod +x "$wfail/pandoc" "$wfail/cp"
+d44w="$TMP/rr-44w/target"; mkdir -p "$d44w/sources/web-snapshots"
+slug44w="$(echo "http://s44w.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+f44w="$d44w/sources/web-snapshots/$slug44w.md"; printf 'REGISTERED-EVIDENCE\n' > "$f44w"
+STUB_ROUTES=""; export STUB_ROUTES
+_rc44w=0; PATH="$wfail:$stubbin:$PATH" bash "$SUT" web "http://s44w.example/a" "$d44w" >/dev/null 2>"$TMP/err44w.txt" || _rc44w=$?
+_debris44w="$(find "$d44w/sources/web-snapshots" -type f ! -name "$slug44w.md" | wc -l | tr -d ' ')"
+if [ "$_rc44w" -ne 0 ] && [ "$(sum_of "$f44w")" = "$EVID_SUM" ] && [ "$_debris44w" = "0" ]; then
+  ok "web: #1285 — a failing pandoc+cp leaves an existing snapshot byte-identical, no part-file debris"
+else no "R44w: rc=$_rc44w sum=$(sum_of "$f44w") debris=$_debris44w"; fi
+unset STUB_ROUTES
 
 # 44 — positive control: a SUCCESSFUL re-fetch replaces the file with the new bytes (the part-file
 #      move actually happens) and leaves no part file behind.
@@ -1467,8 +1542,8 @@ SED
   # wget fallback even when wget itself had failed (errexit does not propagate into this
   # command-substitution-invoked function by default — see the errexit note above the function).
   wgetignoremutant="$(mkmut wget-ignore-status <<'SED'
-/^    if have_cmd wget && wget -q "\$url" -O "\$dest" && \[ -s "\$dest" \]; then$/,/^    fi$/c\
-    wget -q "$url" -O "$dest"  # MUTANT: wget status ignored\
+/^    if \[ "\$wget_rc" -eq 0 \] && \[ -s "\$dest" \]; then$/,/^    fi$/c\
+    : # MUTANT: wget status ignored\
     echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2\
     printf '%s' "$url"
 SED
@@ -1549,7 +1624,7 @@ SED
       ok "teeth-trap-doc: mutant leaves the partial file behind after SIGTERM → R45 has teeth"
     else no "teeth-trap-doc: mutant still left no debris — R45 does NOT depend on the EXIT trap (THEATER)"; fi
   fi
-  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'rm -f \"\$HTML\" \"\$HTML\.part\.\$\$\"' EXIT; /: /"; then
+  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'rm -f \"\$HTML\" \"\$HTML\.part\.\$\$\" \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
     no "teeth-trap-web: could not build mutant (web EXIT trap not found, or refused by lib/mutant.sh)"
   else
     dtw="$TMP/teeth-trap-web/target"; mkdir -p "$dtw/sources/web-snapshots"; chmod 555 "$dtw/sources/web-snapshots"
@@ -1576,6 +1651,45 @@ SED
     if [ "$_rcpr" -ne 3 ] || ! grep -qi 'DEGRADED' "$TMP/err-probe.txt"; then
       ok "teeth-probe: mutant without the probe loses the typed DEGRADED error (rc=$_rcpr) → R47 has teeth"
     else no "teeth-probe: mutant still emitted the DEGRADED error — R47 does NOT depend on the probe (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WGET-EMPTY-GUARD (#1285 review B1) — strip the wget non-empty clause --"
+  if ! mutant_sed "$SUT" "$TMP/wget-empty.MUT.sh" 's/if \[ "\$wget_rc" -eq 0 \] \&\& \[ -s "\$dest" \]; then/if [ "$wget_rc" -eq 0 ]; then  # MUTANT: wget empty guard removed/'; then
+    no "teeth-wget-empty: could not build mutant (wget empty-guard clause not found, or refused by lib/mutant.sh)"
+  else
+    dwe="$TMP/teeth-wget-empty/target"; fwe="$(mkexisting "$dwe" twe.pdf)"
+    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+    PATH="$stubbin:$PATH" bash "$TMP/wget-empty.MUT.sh" doc "http://swe.example/a" "$dwe" datasheets "twe.pdf" >/dev/null 2>&1
+    unset STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+    if [ "$(sum_of "$fwe")" != "$EVID_SUM" ]; then
+      ok "teeth-wget-empty: mutant lets an empty wget 200 clobber the registered file → R43w has teeth"
+    else no "teeth-wget-empty: mutant left the registered file intact — R43w does NOT depend on the wget non-empty clause (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WEB-ATOMIC (#1285 review) — write the snapshot straight into the destination --"
+  if ! mutant_sed "$SUT" "$TMP/web-atomic.MUT.sh" '/SENTINEL-WEB-ATOMIC/,/^    rm -f "\$HTML"/ s/WPART="\$DEST\.part\.\$\$"/WPART="$DEST"  # MUTANT: web atomic write removed/'; then
+    no "teeth-web-atomic: could not build mutant (WPART assignment not found, or refused by lib/mutant.sh)"
+  else
+    dwa="$TMP/teeth-web-atomic/target"; mkdir -p "$dwa/sources/web-snapshots"
+    swa="$(echo "http://swa.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    fwa="$dwa/sources/web-snapshots/$swa.md"; printf 'REGISTERED-EVIDENCE\n' > "$fwa"
+    STUB_ROUTES=""; export STUB_ROUTES
+    PATH="$wfail:$stubbin:$PATH" bash "$TMP/web-atomic.MUT.sh" web "http://swa.example/a" "$dwa" >/dev/null 2>&1
+    unset STUB_ROUTES
+    if [ "$(sum_of "$fwa")" != "$EVID_SUM" ]; then
+      ok "teeth-web-atomic: mutant lets a failing pandoc/cp clobber the existing snapshot → R44w has teeth"
+    else no "teeth-web-atomic: mutant left the snapshot intact — R44w does NOT depend on the part file (THEATER)"; fi
+  fi
+
+  echo "-- teeth: wget-only path (#1285 review) — resolve_permanent_redirect called unconditionally --"
+  if ! mutant_sed "$SUT" "$TMP/wget-only.MUT.sh" 's/if have_cmd curl; then effective="\$(resolve_permanent_redirect "\$url")"; else effective="\$url"; fi/effective="$(resolve_permanent_redirect "$url")"  # MUTANT: resolve unconditional/'; then
+    no "teeth-wget-only: could not build mutant (conditional resolve line not found, or refused by lib/mutant.sh)"
+  else
+    dwo="$TMP/teeth-wget-only/target"; mkdir -p "$dwo"
+    PATH="$wgetonly" "$wgetonly/bash" "$TMP/wget-only.MUT.sh" doc "http://swo.example/a.pdf" "$dwo" datasheets "two.pdf" >/dev/null 2>"$TMP/err-wo.txt"
+    if grep -qi 'redirect probe failed\|command not found' "$TMP/err-wo.txt"; then
+      ok "teeth-wget-only: mutant probes with a missing curl (noise on stderr) → R43y has teeth"
+    else no "teeth-wget-only: mutant stderr was clean — R43y does NOT depend on skipping resolution when curl is absent (THEATER)"; fi
   fi
 
   echo "-- teeth: time_connect edges (#1285 item 5) — bare 0, empty, always-retry-on-28 --"

@@ -234,7 +234,11 @@ fetch_and_register() {
     # `EFFECTIVE_URL="$(fetch_and_register ...)"` assignment (running under REAL `set -e`, since
     # that call site is not itself inside another command substitution) turns into an immediate
     # script abort, exactly like any other failed command substitution assignment.
-    if have_cmd wget && wget -q "$url" -O "$dest" && [ -s "$dest" ]; then
+    local wget_rc=-1  # -1 = wget was not run (not installed)
+    if have_cmd wget; then wget -q "$url" -O "$dest" && wget_rc=0 || wget_rc=$?; fi
+    # SENTINEL-WGET-EMPTY-GUARD (#1285 review B1): wget can exit 0 with an EMPTY body; that must
+    # never replace a registered file (the part file is moved only when non-empty).
+    if [ "$wget_rc" -eq 0 ] && [ -s "$dest" ]; then
       mv -f "$dest" "$final" || { rm -f "$dest"; echo "fetch-doc: could not move download into place: $final" >&2; exit 1; }
       echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2
       printf '%s' "$url"
@@ -244,7 +248,14 @@ fetch_and_register() {
       # registered <dest-file> is never touched; this removes the part file so no debris is left
       # in the target's evidence tree (this `exit 1` also skips every caller-side cleanup).
       rm -f "$dest"
-      echo "fetch-doc: wget fallback ALSO failed for $url; nothing registered" >&2
+      # Say what actually happened (#1285 review): not installed / empty 200 / wget itself failed.
+      if [ "$wget_rc" -eq -1 ]; then
+        echo "fetch-doc: curl failed and wget is not installed for $url; nothing registered" >&2
+      elif [ "$wget_rc" -eq 0 ]; then
+        echo "fetch-doc: empty body: $url (wget fallback); nothing registered" >&2
+      else
+        echo "fetch-doc: wget fallback ALSO failed for $url; nothing registered" >&2
+      fi
       exit 1
     fi
   fi
@@ -311,15 +322,19 @@ case "$MODE" in
     HTML="$(mktemp)"
     # SENTINEL-TRAP (#1285 item 2): the mktemp HTML (and its part file) must not leak when a later
     # cp/pandoc/sha256sum/reg step fails or the run is interrupted.
-    trap 'rm -f "$HTML" "$HTML.part.$$"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
+    trap 'rm -f "$HTML" "$HTML.part.$$" "$DEST.part.$$"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
     # SENTINEL-WEB-RESOLVE (round-1 R1): web mode registers URLs exactly the same way doc mode
     # does — the D4 evidence (cloudflare/retros/2026-08-28-ztna-focus-close.md) is 4 redirected
     # Cloudflare DOC URLs, and every one of those rows is type web-snapshot (fetched via THIS
     # mode, not doc). Round 3: now the SAME shared call as doc mode, not a parallel copy.
     EFFECTIVE_URL="$(fetch_and_register "$URL" "$HTML")"
+    # SENTINEL-WEB-ATOMIC (#1285 review): write the snapshot to a part file and move it into place,
+    # so a pandoc/cp that dies mid-write cannot truncate an already-registered snapshot.
+    WPART="$DEST.part.$$"
     if command -v pandoc >/dev/null; then
-      pandoc -f html -t gfm "$HTML" -o "$DEST" 2>/dev/null || cp "$HTML" "$DEST"
-    else cp "$HTML" "$DEST"; fi
+      pandoc -f html -t gfm "$HTML" -o "$WPART" 2>/dev/null || cp "$HTML" "$WPART"
+    else cp "$HTML" "$WPART"; fi
+    mv -f "$WPART" "$DEST"
     rm -f "$HTML"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     reg "$SDIR" "$DEST" "web-snapshot" "$EFFECTIVE_URL" "$SHA"
