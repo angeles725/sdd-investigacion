@@ -192,6 +192,8 @@ reason_of() { if [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; then echo timeout; else e
 UNZIP_BIN="${RSDD_UNZIP_BIN:-unzip}"
 EXT="$WORK/ext"
 NO_SCAN=""
+ISOLATION_LEVEL=""
+PRIMARY_STATE=""
 ISOLATION_WHY="" # set when isolation could not run (typed, reported on the unit)
 
 # ensure_ext — extract the jar's classes once; fail (typed) when unzip is absent or the jar is unsafe.
@@ -204,38 +206,62 @@ ensure_ext() {
   if [ -n "$(find "$EXT" -type l -print -quit)" ]; then rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; return 1; fi
 }
 
-# bisect_package <pkg> <idx> <reason> — per-class primary runs for one failing package.
+# is_unit_class <class-file> — a decompilation unit is a top-level class OR an orphan: a '$' class whose
+# outer partner (the name up to its first '$') has no .class beside it (Scala Foo$, package$, obfuscated
+# names, orphan inner classes). Every other '$' class is an inner class, emitted inside its outer's source.
+is_unit_class() {
+  local b o
+  b="$(basename "$1" .class)"
+  case "$b" in
+    *'$'*) o="${b%%\$*}"; [ -n "$o" ] && [ -f "$(dirname "$1")/$o.class" ] && return 1 ;;
+  esac
+  return 0
+}
+
+# bisect_package <pkg> <idx> <reason> — per-unit primary runs for one failing package.
 bisect_package() {
   local pkg="$1" idx="$2" reason="$3" f name cin cout crc k=0 unit
   local -a outer=()
-  while IFS= read -r f; do outer+=("$f"); done < <(find "$EXT/$pkg" -maxdepth 1 -name '*.class' ! -name '*$*' | sort)
+  ISOLATION_LEVEL=class
+  while IFS= read -r f; do is_unit_class "$f" && outer+=("$f"); done < <(find "$EXT/$pkg" -maxdepth 1 -name '*.class' | sort)
   for f in "${outer[@]+"${outer[@]}"}"; do
     name="$(basename "$f" .class)"; k=$((k + 1))
     unit="$name"; [ "$pkg" = . ] || unit="$pkg/$name"
-    if [ "${#outer[@]}" -eq 1 ]; then fallback_unit "$unit" "$reason" "$f"; continue; fi
+    if [ "${#outer[@]}" -eq 1 ] && [ "$reason" != empty ]; then fallback_unit "$unit" "$reason" "$f"; continue; fi
     cin="$WORK/cin/$idx-$k"; cout="$WORK/cout/$idx-$k"; mkdir -p "$cin/$pkg"
     find "$EXT/$pkg" -maxdepth 1 \( -name "$name.class" -o -name "$name"'$*.class' \) -exec cp -p {} "$cin/$pkg/" \;
     crc=0; run_engine "$ENGINE" "$cin" "$cout" || crc=$?
     if [ "$crc" -eq 0 ] && has_java "$cout"; then cp -a "$cout"/. "$OUT"/
+    elif [ "$crc" -eq 0 ]; then fallback_unit "$unit" empty "$f"
     else fallback_unit "$unit" "$(reason_of "$crc")" "$f"; fi
   done
 }
 
-# isolate_jar — package-level then class-level isolation. Returns 1 when isolation is unavailable.
+# isolate_jar — package-level then class-level isolation, then a coverage sweep. Returns 1 when isolation is
+# unavailable. ISOLATION_LEVEL records how deep isolation had to go (it is part of the typed summary).
 isolate_jar() {
   ensure_ext || return 1
-  local d pkg pin pout prc n=0
+  local d pkg pin pout prc n=0 f unit
+  ISOLATION_LEVEL=package
   while IFS= read -r d; do
     pkg="${d#"$EXT"}"; pkg="${pkg#/}"; [ -n "$pkg" ] || pkg=.
     n=$((n + 1)); pin="$WORK/pin/$n"; pout="$WORK/pout/$n"; mkdir -p "$pin/$pkg"
     find "$EXT/$pkg" -maxdepth 1 -name '*.class' -exec cp -p {} "$pin/$pkg/" \;
     prc=0; run_engine "$ENGINE" "$pin" "$pout" || prc=$?
-    if [ "$prc" -eq 0 ]; then
-      if has_java "$pout"; then cp -a "$pout"/. "$OUT"/; fi
+    if [ "$prc" -eq 0 ] && has_java "$pout"; then
+      cp -a "$pout"/. "$OUT"/
+    elif [ "$prc" -eq 0 ]; then
+      bisect_package "$pkg" "$n" empty # exit 0 with no source is never silently dropped
     else
       bisect_package "$pkg" "$n" "$(reason_of "$prc")"
     fi
   done < <(find "$EXT" -name '*.class' -printf '%h\n' | sort -u)
+  # Coverage sweep: every unit class must be covered by output or by a UNIT line.
+  while IFS= read -r f; do
+    is_unit_class "$f" || continue
+    unit="${f#"$EXT"/}"; unit="${unit%.class}"
+    [ -f "$OUT/$unit.java" ] || [ -n "${HANDLED[$unit]:-}" ] || fallback_unit "$unit" missing "$f"
+  done < <(find "$EXT" -name '*.class' | sort)
 }
 
 # ── Failure-marker scan (kit issue #1194) ────────────────────────────────────
@@ -263,6 +289,7 @@ rc=0
 run_engine "$ENGINE" "$IN" "$OUT" || rc=$?
 if [ "$rc" -ne 0 ]; then
   reason="$(reason_of "$rc")"
+  PRIMARY_STATE="$reason"
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
   find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
   if [[ "${IN,,}" == *.jar ]]; then
@@ -280,13 +307,14 @@ fi
 [ -n "$NO_SCAN" ] || scan_markers
 
 # Typed result. OK only when no unit fell back and no probe was degraded.
-if [ "${#UNITS[@]}" -eq 0 ] && [ -z "$PROBE_DEGRADED" ]; then
+if [ "${#UNITS[@]}" -eq 0 ] && [ -z "$PROBE_DEGRADED" ] && [ -z "$PRIMARY_STATE" ]; then
   echo "OK: $IN -> $OUT  (engine=$ENGINE)"
   exit 0
 fi
 status=DEGRADED
 [ "$PARTIAL_UNITS" -eq 0 ] || status=PARTIAL
 detail="units=${#UNITS[@]}"
+[ -z "$PRIMARY_STATE" ] || detail="$detail primary=$PRIMARY_STATE${ISOLATION_LEVEL:+ isolation=$ISOLATION_LEVEL}"
 [ -z "$PROBE_DEGRADED" ] || detail="$detail reason=$PROBE_DEGRADED"
 echo "$status: $IN -> $OUT  (engine=$ENGINE $detail)"
 for u in "${UNITS[@]+"${UNITS[@]}"}"; do

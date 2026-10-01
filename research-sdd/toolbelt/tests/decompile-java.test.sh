@@ -197,6 +197,10 @@ fi
 #   STUB_MARKER_CLASSES  space list of class basenames whose vineflower output carries the
 #                        marker given by STUB_MARKER_TEXT (default: indented $VF: line)
 #   STUB_CFR_MARKER      non-empty: cfr output carries the markers too (final fallback output must not be re-scanned)
+#   STUB_FAIL_WHOLE      non-empty: vineflower exits 1 when given the .jar itself (whole-jar run only)
+#   STUB_SLEEP_MIN       N: vineflower sleeps when the input holds >= N top-level classes
+#   STUB_EMPTY_MIN       N: vineflower exits 0 writing nothing when a DIR input holds >= N classes
+#   STUB_OMIT_CLASSES    space list of class basenames vineflower silently leaves out of its output
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
 mkdir -p "$T_JAVA_HOME/bin"
@@ -216,6 +220,10 @@ if [ -d "$IN" ]; then classes="$(cd "$IN" && find . -name '*.class' | sed 's|^\.
 elif [[ "$IN" == *.jar ]]; then classes="$(unzip -Z1 "$IN" | grep '\.class$' | sort)"
 else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; fi
 [ "$eng" = vineflower ] && [ -n "${STUB_VF_RC:-}" ] && exit "$STUB_VF_RC"
+[ "$eng" = vineflower ] && [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
+ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
+[ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && exec sleep "${STUB_SLEEP:-3}"
+[ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
   for c in $classes; do b="$(basename "$c" .class)"
     for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && exec sleep "${STUB_SLEEP:-3}"; done
@@ -223,7 +231,9 @@ if [ "$eng" = vineflower ]; then
 fi
 for c in $classes; do
   b="$(basename "$c" .class)"
-  case "$b" in *\$*) continue ;; esac
+  case "$b" in *\$*) o="${b%%\$*}"; grep -qx "$(dirname "$c")/$o.class\|$o.class" <<<"$classes" && continue ;; esac
+  omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
+  [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
   mkdir -p "$OUT/$(dirname "$c")"
   { echo "// engine=$eng"; echo "class $b {"
     if [ "$eng" = vineflower ] || [ -n "${STUB_CFR_MARKER:-}" ]; then
@@ -416,6 +426,56 @@ if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && grep -q '^UNIT: b/B reason
   ok "C7 marker + fallback absent → DEGRADED, unit kept-primary (output not lost)"
 else no "C7 marker + fallback absent → DEGRADED kept-primary" "rc=$RC so=[$SO]"; fi
 
+# ── Review round 1: primary state, orphan/empty coverage (B1, B2) ───────────
+# E1/E2: the whole-jar run fails but every package succeeds alone → no UNIT, yet the summary
+#        must still carry the degraded PRIMARY status (never a bare OK).
+rt E1 "$JAR3" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=error isolation=package' <<<"$SO" && ! grep -q '^OK' <<<"$SO" \
+  && [ -z "$(units_of)" ] && [ "$(engine_of E1 b/B.java)" = vineflower ]; then
+  ok "E1 whole-jar error, all packages fine alone → DEGRADED primary=error isolation=package, no units"
+else no "E1 whole-jar error recovered per package → typed primary state" "rc=$RC so=[$SO]"; fi
+rt E2 "$JAR3" STUB_SLEEP_MIN=3 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=timeout isolation=package' <<<"$SO" && [ -z "$(units_of)" ]; then
+  ok "E2 whole-jar timeout, all packages fine alone → DEGRADED primary=timeout isolation=package"
+else no "E2 whole-jar timeout recovered per package → typed primary state" "rc=$RC so=[$SO]"; fi
+# E3: package AND jar time out, every class fine alone → class-level isolation, still degraded.
+rt E3 "$JARP" STUB_SLEEP_MIN=2 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=timeout isolation=class' <<<"$SO" && [ -z "$(units_of)" ] \
+  && [ "$(engine_of E3 a/A2.java)" = vineflower ]; then
+  ok "E3 hang only at package level, classes fine alone → DEGRADED isolation=class, no units"
+else no "E3 class-level recovery → typed primary state" "rc=$RC so=[$SO]"; fi
+
+# E4: a package rerun exiting 0 with NO output is not dropped: bisected; a lone empty class → reason=empty.
+rt E4 "$JARP" STUB_FAIL_WHOLE=1 STUB_EMPTY_MIN=2 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*isolation=class' <<<"$SO" && [ "$(engine_of E4 a/A1.java)" = vineflower ]; then
+  ok "E4 package rerun exit 0 + no output → bisected, classes recovered, never silently dropped"
+else no "E4 empty package rerun is bisected" "rc=$RC so=[$SO]"; fi
+JARE="$ROOT/empty1.jar"; mkjar "$JARE" a/A.class
+rt E5 "$JARE" STUB_FAIL_WHOLE=1 STUB_EMPTY_MIN=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A reason=empty fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of E5 a/A.java)" = cfr ]; then
+  ok "E5 lone class rerun exit 0 + no output → UNIT reason=empty, cfr fallback"
+else no "E5 lone empty class → reason=empty" "rc=$RC so=[$SO]"; fi
+
+# E6: orphan '$' classes (Scala Foo$, package$, orphan inner) are units of their own, never skipped.
+JARZ="$ROOT/orphan.jar"; mkjar "$JARZ" 'z/Z$.class' 'z/Z$1.class' y/Y.class
+rt E6 "$JARZ" STUB_SLEEP_CLASSES='Z$' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'z/Z$' ] && [ "$(engine_of E6 'z/Z$.java')" = cfr ] \
+  && [ "$(engine_of E6 'z/Z$1.java')" = vineflower ] && [ "$(engine_of E6 y/Y.java)" = vineflower ]; then
+  ok "E6 orphan Z\$ + Z\$1 (no outer Z) → each its own unit; only the hanging Z\$ degraded"
+else no "E6 orphan \$ classes are units" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+JARO="$ROOT/onlyorphan.jar"; mkjar "$JARO" 'z/Z$.class' 'z/Z$1.class'
+rt E7 "$JARO" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ -f "$ROOT/o-E7/z/Z\$.java" ] && [ -f "$ROOT/o-E7/z/Z\$1.java" ]; then
+  ok "E7 package of only '\$' classes → both decompiled and present in output"
+else no "E7 package of only \$ classes" "rc=$RC so=[$SO]"; fi
+
+# E8: coverage sweep — an engine that silently omits a class from an otherwise fine rerun → reason=missing.
+rt E8 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of E8 a/A2.java)" = cfr ] \
+  && [ "$(engine_of E8 a/A1.java)" = vineflower ]; then
+  ok "E8 class silently omitted by the primary → UNIT reason=missing, cfr fallback"
+else no "E8 omitted class is covered by a UNIT" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -486,7 +546,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mA1: no-fallback mutant still fell back — A1 has no teeth" "so=[$SO]"; fi
   fi
   # mA2: always print OK even with degraded units → A1/A2 lose DEGRADED.
-  if build_mut mA2 's/^if \[ "\${#UNITS\[@\]}" -eq 0 \] && \[ -z "\$PROBE_DEGRADED" \]; then$/if true; then/'; then
+  if build_mut mA2 's/^if \[ "\${#UNITS\[@\]}" -eq 0 \] && .*; then$/if true; then/'; then
     RT_SUT="$MUT" rt mA2 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
     if grep -q '^OK' <<<"$SO" && [ "$RC" -eq 0 ]; then
       ok "teeth-mA2: always-OK mutant reports OK for a fallen-back unit → A1 bites"
@@ -505,6 +565,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q 'reason=timeout-unavailable' <<<"$SO"; then
       ok "teeth-mA4: probe-removed mutant loses reason=timeout-unavailable → A4 bites"
     else no "teeth-mA4: mutant still typed the missing binary — A4 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: review round 1 (primary state, orphans, empty, coverage) --"
+  # mE1: primary state ignored → E1/E2/E3 print a bare OK again (B1).
+  if build_mut mE1 's/ \&\& \[ -z "\$PRIMARY_STATE" \]; then$/; then/'; then
+    RT_SUT="$MUT" rt mE1 "$JAR3" STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mE1: primary-state-ignored mutant prints bare OK → E1 bites"
+    else no "teeth-mE1: mutant still degraded — E1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mE2: '$' classes never units → E6/E7 (B2a).
+  if build_mut mE2 's/^    \*.\$.\*) o=.*$/    *"\$"*) return 1 ;;/'; then
+    RT_SUT="$MUT" rt mE2 "$JARZ" STUB_SLEEP_CLASSES='Z$' -- --engine vineflower
+    if [ -z "$(units_of)" ]; then ok "teeth-mE2: orphans-skipped mutant loses the Z\$ unit → E6 bites"
+    else no "teeth-mE2: mutant still reported the orphan unit — E6 has no teeth" "so=[$SO]"; fi
+  fi
+  # mE3: empty package rerun dropped → E4/E5 (B2b).
+  if build_mut mE3 's/^      bisect_package "\$pkg" "\$n" empty .*$/      :/'; then
+    RT_SUT="$MUT" rt mE3 "$JARE" STUB_FAIL_WHOLE=1 STUB_EMPTY_MIN=1 -- --engine vineflower
+    if ! grep -q 'reason=empty' <<<"$SO"; then ok "teeth-mE3: empty-dropped mutant loses reason=empty → E5 bites"
+    else no "teeth-mE3: mutant still typed reason=empty — E5 has no teeth" "so=[$SO]"; fi
+  fi
+  # mE4: coverage sweep removed → E8.
+  if build_mut mE4 's/ || fallback_unit "\$unit" missing "\$f"$/ || :/'; then
+    RT_SUT="$MUT" rt mE4 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
+    if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mE4: sweep-removed mutant loses reason=missing → E8 bites"
+    else no "teeth-mE4: mutant still reported the omitted class — E8 has no teeth" "so=[$SO]"; fi
   fi
   echo "-- teeth: slice C (marker scan) --"
   # mC1: column-0 anchor (the #1194 bug) → indented marker missed.
@@ -534,7 +619,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mB1: no-isolation mutant still isolated — B1 has no teeth" "so=[$SO]"; fi
   fi
   # mB2: class-level bisect removed → every class in the failing package falls back (B7).
-  if build_mut mB2 's/^    if \[ "\${#outer\[@\]}" -eq 1 \]; then fallback_unit/    if true; then fallback_unit/'; then
+  if build_mut mB2 's/^    if \[ "\${#outer\[@\]}" -eq 1 \] \&\& \[ "\$reason" != empty \]; then fallback_unit/    if true; then fallback_unit/'; then
     RT_SUT="$MUT" rt mB2 "$JARP" STUB_SLEEP_CLASSES="A2" -- --engine vineflower
     if [ "$(engine_of mB2 a/A1.java)" = cfr ]; then
       ok "teeth-mB2: no-class-bisect mutant degrades sibling classes → B7 bites"
