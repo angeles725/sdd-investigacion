@@ -511,6 +511,13 @@ rt F6b "$JAR3" STUB_SLEEP_CLASSES="A B C" RSDD_DECOMPILE_ISOLATE_BUDGET=0 -- --e
 if [ "$(units_of)" = "a/A b/B c/C" ]; then ok "F6b budget 0 = unlimited → per-unit isolation as before"
 else no "F6b budget 0 = unlimited" "so=[$SO]"; fi
 
+# G: Vineflower comments that say the output is WRONG or will not compile are failures (fall back);
+#    'Could not handle exception ranges with multiple entries' stays informational (decision).
+mk_marker_case G1 '    // $VF: Accidentally destroyed if statement, the decompiled code is not correct!' 4 "b/B" "'decompiled code is not correct' → per-class fallback"
+mk_marker_case G2 '    // $VF: Invalid label' 4 "b/B" "'Invalid label' → per-class fallback"
+mk_marker_case G3 '    // $VF: Made invalid labels' 4 "b/B" "'Made invalid labels' → per-class fallback"
+mk_marker_case G4 '    // $VF: Could not handle exception ranges with multiple entries' 0 "" "'exception ranges with multiple entries' stays primary (informational)"
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -650,6 +657,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" rt mF4 "$JAR3" STUB_SLEEP_CLASSES="A B C" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
     if ! grep -q 'total_budget_exhausted' <<<"$SO"; then ok "teeth-mF4: budget-ignored mutant never exhausts → F6 bites"
     else no "teeth-mF4: mutant still hit the budget — F6 has no teeth" "so=[$SO]"; fi
+  fi
+  # mG1: drop the 'decompiled code is not correct' alternative → G1 prints a bare OK again.
+  if build_mut mG1 's/|\[^!\]\*decompiled code is not correct//'; then
+    RT_SUT="$MUT" rt mG1 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: Accidentally destroyed if statement, the decompiled code is not correct!' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mG1: alternative-dropped mutant prints bare OK for wrong code → G1 bites"
+    else no "teeth-mG1: mutant still flagged the wrong-code comment — G1 has no teeth" "so=[$SO]"; fi
   fi
   echo "-- teeth: slice C (marker scan) --"
   # mC1: column-0 anchor (the #1194 bug) → indented marker missed.

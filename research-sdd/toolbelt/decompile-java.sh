@@ -24,7 +24,9 @@
 #   Isolation (jars): per package, then per unit (top-level class or orphan '$' class), then a coverage sweep;
 #   an isolation time budget (RSDD_DECOMPILE_ISOLATE_BUDGET, default 1800 s, 0 = unlimited) falls back whole.
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
-#   class, Extended synchronized range, finally-block / variable-type quality notes) keep the primary file.
+#   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
+#   notes) keep the primary file; comments saying the output is WRONG or will not compile ("decompiled code is
+#   not correct", Invalid label, Made invalid labels) are failures.
 #   Absent tool / timeout / error / empty output are distinct: exit 3 = required tool missing, exit 1 = no .java
 #   produced at all, exit 4 = typed degraded/partial result, reason= names the cause per unit.
 set -euo pipefail
@@ -292,7 +294,7 @@ isolate_jar() {
 # ── Failure-marker scan (kit issue #1194) ────────────────────────────────────
 # Vineflower writes "// $VF: Couldn't be decompiled" INDENTED inside the method body, so the pattern
 # allows leading whitespace; only a comment-LEADING line counts (a trailing comment after code does not).
-MARKER_RE='^[[:space:]]*(//|/\*+|\*)[[:space:]]*(\$VF: (Couldn.t be decompiled|Could not decompile|Unable to decompile|Failed to decompile)|Unable to fully decompile class|Unable to fully structure code|This method has failed to decompile|This method could not be decompiled|Exception decompiling|COULD NOT DECOMPILE)'
+MARKER_RE='^[[:space:]]*(//|/\*+|\*)[[:space:]]*(\$VF: (Couldn.t be decompiled|Could not decompile|Unable to decompile|Failed to decompile|[^!]*decompiled code is not correct|Invalid label|Made invalid labels)|Unable to fully decompile class|Unable to fully structure code|This method has failed to decompile|This method could not be decompiled|Exception decompiling|COULD NOT DECOMPILE)'
 
 # file_has_marker <file> — 0 when the file carries a failure marker; 1 none; 2 grep error.
 file_has_marker() { local m=0; grep -qE "$MARKER_RE" "$1" 2>/dev/null || m=$?; return "$m"; }
