@@ -35,7 +35,13 @@ echo "== lint-substitution.test.sh =="
 # kit issue #1142 review round 3 (nit): this used to be a hand-maintained literal list
 # ("3 4 5 6 7 8 9 10") that silently fell behind as cases were added past 10 — built from the
 # actual case count instead so a new case is automatically covered by the early-bail path too.
-LAST_CASE_NUM=15
+# Derived from this file's own "# <N>. " case headings (kit issue #1167 item 3: the literal 15 here
+# contradicted the comment above it). Fails closed — harness error — if no heading is found.
+LAST_CASE_NUM="$(grep -oE '^# [0-9]+\. ' "$0" | tr -dc '0-9\n' | sort -n | tail -1)"
+if [ -z "$LAST_CASE_NUM" ]; then
+  echo "harness error: no '# <N>. ' case headings found in $0" >&2
+  exit 2
+fi
 if [ ! -f "$SUT" ]; then
   for n in $(seq 3 "$LAST_CASE_NUM"); do no "$n (skipped: SUT missing)"; done
   echo "== $pass passed · $fail failed =="; exit 2
@@ -249,7 +255,8 @@ printf %s "OPENs/OPENdqCLOSE/BSBSDOLLARdqCLOSE"
 printf %s "OPENs/y/QaQDOLLARyCLOSE"
 printf %s "OPEN1/y/DOLLARyCLOSE"
 printf %s "OPENATSIGN/y/DOLLARyCLOSE"
-printf %s "OPENBANGref/y/DOLLARyCLOSE"'
+printf %s "OPENBANGref/y/DOLLARyCLOSE"
+printf %s "OPENs//ESCBR/DOLLARyCLOSE"'
 _fa3_body="${_fa3_tpl//OPEN/\$\{}"
 _fa3_body="${_fa3_body//CLOSE/\}}"
 _fa3_body="${_fa3_body//DOLLAR/\$}"
@@ -257,6 +264,10 @@ _fa3_body="${_fa3_body//BSBS/\\\\}"
 _fa3_body="${_fa3_body//Q/\"}"
 _fa3_body="${_fa3_body//ATSIGN/@}"
 _fa3_body="${_fa3_body//BANG/!}"
+# kit issue #1167 item 5: escaped-brace pattern (an escaped closing brace inside the pattern segment) — the \X escaped-pair alternative in
+# the pattern segment is what keeps the '}' from closing the expansion early. Substituted LAST so
+# the emitted backslash-brace is never re-scanned by the placeholder replacements above.
+_fa3_body="${_fa3_body//ESCBR/\\\}}"
 {
   printf '#!/usr/bin/env bash\n'
   printf '%s\n' "$_fa3_body"
@@ -267,8 +278,8 @@ _fa3_body="${_fa3_body//BANG/!}"
 unset _fa3_tpl _fa3_body
 OUT="$(bash "$SUT" "$TMP/formA-anywhere" 2>&1)"; RC=$?
 _fa3_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-A')"
-if [ "$RC" -eq 1 ] && [ "$_fa3_count" -eq 6 ]; then
-  ok "14 FORM-A trigger-anywhere: retro-gate.sh:210 shape (escaped backslash then bare \$), mixed quoted-prefix, positional param (\$1), special param (\$@), indirect ref (\$!ref), bare backtick pair — all 6 detected"
+if [ "$RC" -eq 1 ] && [ "$_fa3_count" -eq 7 ]; then
+  ok "14 FORM-A trigger-anywhere: retro-gate.sh:210 shape (escaped backslash then bare \$), mixed quoted-prefix, positional param (\$1), special param (\$@), indirect ref (\$!ref), bare backtick pair, escaped-brace pattern — all 7 detected"
 else
   no "14 FORM-A trigger-anywhere failed (exit=$RC count=$_fa3_count out=[$OUT])"
 fi
@@ -291,6 +302,49 @@ else
   else
     no "15 fail-closed-on-unreadable-file failed (exit=$RC out=[$OUT])"
   fi
+fi
+
+# 16. 'find' stderr must NOT leak into the file list (kit issue #1167 item 1): the traversal used
+#     to capture 'find ... 2>&1', so a diagnostic line on stderr with exit 0 became a bogus "file"
+#     path (fail-closed only by accident, via the per-file grep). A stub 'find' on PATH emits one
+#     real listing on stdout, a warning on stderr, and exits 0.
+_c16_real_find="$(command -v find)"
+mkdir -p "$TMP/fakebin16" "$TMP/c16root"
+printf '#!/usr/bin/env bash\nx=ok\n' > "$TMP/c16root/clean.sh"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s "$@"\n' "$_c16_real_find"
+  printf 'echo "find: warning: bogus-stderr-diagnostic" >&2\n'
+  printf 'exit 0\n'
+} > "$TMP/fakebin16/find"
+chmod +x "$TMP/fakebin16/find"
+OUT="$(PATH="$TMP/fakebin16:$PATH" bash "$SUT" "$TMP/c16root" 2>"$TMP/c16.err")"; RC=$?
+_c16_err="$(cat "$TMP/c16.err")"
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'scanned 1 file(s)' \
+   && ! printf '%s\n' "$OUT" | grep -qF 'bogus-stderr-diagnostic' \
+   && printf '%s\n' "$_c16_err" | grep -qF 'bogus-stderr-diagnostic'; then
+  ok "16 find stderr kept out of the file list: stderr line + exit 0 -> scanned 1 real file, diagnostic surfaced on stderr (not scanned as a path)"
+else
+  no "16 find stderr leaked into the file list (exit=$RC out=[$OUT] err=[$_c16_err])"
+fi
+
+# 17. FAIL-CLOSED on a 'find' traversal failure (kit issue #1167 item 1, §7): the find-failure
+#     branch had no test (disabling it stayed green). A stub 'find' prints a real path then fails
+#     (exit 1, as a partial traversal would) -> the scan must exit 2 with DEGRADED, never certify
+#     the partial list.
+mkdir -p "$TMP/fakebin17"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s "$@"\n' "$_c16_real_find"
+  printf 'echo "find: permission denied: sub" >&2\n'
+  printf 'exit 1\n'
+} > "$TMP/fakebin17/find"
+chmod +x "$TMP/fakebin17/find"
+OUT="$(PATH="$TMP/fakebin17:$PATH" bash "$SUT" "$TMP/c16root" 2>&1)"; RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'DEGRADED' && printf '%s\n' "$OUT" | grep -qF "'find' failed"; then
+  ok "17 fail-closed-on-find-failure: partial listing + find exit 1 -> exit 2, DEGRADED reported (not a confident 0)"
+else
+  no "17 fail-closed-on-find-failure failed (exit=$RC out=[$OUT])"
 fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
@@ -369,7 +423,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # back to trigger-at-position-0-only, by capping the prefix repetition at {0}. Case 14's
   # retro-gate.sh:210 shape and its mixed-quoted-prefix shape (the two sub-forms that specifically
   # NEED a nonzero prefix before the trigger) must then FALSE-PASS, proving the widening itself
-  # has real teeth — the other 4 sub-forms in case 14 already start with the trigger at position
+  # has real teeth — the other 5 sub-forms in case 14 already start with the trigger at position
   # 0 and are expected to still be caught either way, so this asserts a COUNT DROP, not zero.
   sed 's/replplain_re})\*\${_lint_repltrigger_re}/replplain_re}){0}\${_lint_repltrigger_re}/' "$SUT" > "$TMP/mutant-anywhere.sh"
   chmod +x "$TMP/mutant-anywhere.sh"
@@ -383,10 +437,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # (positional/special/indirect param, bare backtick pair) already have the trigger at
     # position 0 and are unaffected by this specific mutation — asserting the EXACT drop (6->4)
     # is a stronger check than a bare "< 6".
-    if [ "$MRC" -eq 1 ] && [ "$_me_count" -eq 4 ]; then
-      ok "teeth E: trigger capped to position-0-only -> retro-gate.sh:210 shape and the mixed-quote shape no longer detected (count 6 -> $_me_count) -> trigger-anywhere widening has real teeth"
+    if [ "$MRC" -eq 1 ] && [ "$_me_count" -eq 5 ]; then
+      ok "teeth E: trigger capped to position-0-only -> retro-gate.sh:210 shape and the mixed-quote shape no longer detected (count 7 -> $_me_count) -> trigger-anywhere widening has real teeth"
     else
-      no "teeth E: mutant did not drop to the expected 4 sub-forms (count=$_me_count, exit=$MRC) — mutation not exercised (THEATER)"
+      no "teeth E: mutant did not drop to the expected 5 sub-forms (count=$_me_count, exit=$MRC) — mutation not exercised (THEATER)"
     fi
   fi
 
@@ -448,6 +502,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth G: mutant's scanned count did not drop as expected (scanned=$_mg_scanned, exit=$MRC) — mutation not exercised (THEATER)"
       fi
+    fi
+  fi
+
+  # Tooth H (kit issue #1167 item 1): disable the find-failure branch. Case 17's partial-listing
+  # + exit-1 stub must then FALSE-PASS (confident NO-MATCH, exit 0), proving case 17 has teeth.
+  # Built with lib/mutant.sh (kit #943): refuses an empty/identical/live-tree mutant.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$SUT" "$TMP/mutant-find.sh" 's/\[\[ "\$_find_rc" -ne 0 \]\]/[[ "$_find_rc" -gt 99 ]]/'; then
+    no "teeth H: could not build mutant (find-rc check not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(PATH="$TMP/fakebin17:$PATH" bash "$TMP/mutant-find.sh" "$TMP/c16root" 2>&1)"; MRC=$?
+    if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+      ok "teeth H: find-failure branch disabled -> partial listing FALSE-PASSES as a confident 0 -> case 17 has real teeth"
+    else
+      no "teeth H: mutant still failed closed (exit=$MRC) — mutation not exercised (THEATER) :: out=[$MOUT]"
+    fi
+  fi
+
+  # Tooth I (kit issue #1167 item 1): revert to 'find ... 2>&1' (stderr merged into the file
+  # list). Case 16 must then go red: the bogus diagnostic becomes a scanned "file".
+  if ! mutant_sed "$SUT" "$TMP/mutant-find2.sh" 's/2>"\$_find_errf"/2>\&1/'; then
+    no "teeth I: could not build mutant (find stderr redirect not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(PATH="$TMP/fakebin16:$PATH" bash "$TMP/mutant-find2.sh" "$TMP/c16root" 2>&1)"; MRC=$?
+    if ! printf '%s\n' "$MOUT" | grep -qF 'scanned 1 file(s)'; then
+      ok "teeth I: find stderr merged into stdout -> bogus path breaks the clean 1-file scan -> case 16 has real teeth"
+    else
+      no "teeth I: mutant did not leak the stderr line into the file list — case 16 does not pin the separation (THEATER) :: out=[$MOUT]"
+    fi
+  fi
+
+  # Tooth J (kit issue #1167 item 5): drop the \X escaped-pair alternative from the pattern
+  # segment. The escaped-brace sub-form in case 14 must then go undetected (count 7 -> 6),
+  # proving the case-14 addition pins escaped-brace handling and is not decorative.
+  if ! mutant_sed "$SUT" "$TMP/mutant-esc.sh" "s/^_lint_pattern_re=.*/_lint_pattern_re='(\\{[^{}]*\\}|[^\/{}])+'/"; then
+    no "teeth J: could not build mutant (_lint_pattern_re not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(bash "$TMP/mutant-esc.sh" "$TMP/formA-anywhere" 2>&1)"; MRC=$?
+    _mj_count="$(printf '%s\n' "$MOUT" | grep -cF 'FORM-A')"
+    if [ "$MRC" -eq 1 ] && [ "$_mj_count" -eq 6 ]; then
+      ok "teeth J: escaped-pair alternative dropped -> escaped-brace sub-form undetected (count 7 -> $_mj_count) -> case 14's escaped-brace probe has real teeth"
+    else
+      no "teeth J: mutant did not drop to 6 sub-forms (count=$_mj_count, exit=$MRC) — mutation not exercised (THEATER)"
     fi
   fi
 fi

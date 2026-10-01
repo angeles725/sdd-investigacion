@@ -367,10 +367,61 @@ if [[ "$OUT_24BAD" =~ WARN.*does-not-exist-anchor ]]; then
 else
   no "24b CHECK 5: expected an anchor WARN naming 'does-not-exist-anchor' (out=[$OUT_24BAD])"
 fi
-if [[ "$OUT_24BAD" == *'broken appendix-anchor citation(s)'* ]] && [[ "$OUT_24BAD" == *'Findings: 0 stale-count · 0 orphan section(s) · 0 broken citation(s) · 0 readme-range · 1 broken appendix-anchor'* ]]; then
+# 24c/24d (kit issue #1166 items 3+6): assert the Findings count AND the verdict line by field,
+# not by one exact whole-line string (fragile to any reordering of the other counters). The
+# verdict must NOT read "clean" when the ONLY finding is a broken appendix anchor — pinned
+# separately so removing the anchor_count term from the clean condition goes red.
+_f24c="$(printf '%s\n' "$OUT_24BAD" | grep -oE '[0-9]+ broken appendix-anchor citation\(s\)' | head -1 | grep -oE '^[0-9]+')"
+if [ "$_f24c" = "1" ]; then
   ok "24c CHECK 5: summary Findings line counts exactly 1 broken appendix-anchor citation"
 else
-  no "24c CHECK 5: summary Findings line did not report exactly 1 broken appendix-anchor citation (out=[$OUT_24BAD])"
+  no "24c CHECK 5: summary Findings line did not report exactly 1 broken appendix-anchor citation (count=[$_f24c] out=[$OUT_24BAD])"
+fi
+if [[ "$OUT_24BAD" != *'Doc consistency: clean.'* ]] && [[ "$OUT_24BAD" == *'Doc consistency: 0 stale-count finding(s); 0 orphan section(s); 0 broken citation(s); 0 readme-range finding(s); 1 broken appendix-anchor citation(s)'* ]]; then
+  ok "24d CHECK 5: verdict line is NOT 'clean' when the only finding is a broken appendix anchor"
+else
+  no "24d CHECK 5: verdict line wrongly clean (or malformed) with a broken appendix anchor (out=[$OUT_24BAD])"
+fi
+
+# 24e (kit issue #1166 item 4): the summary must print how many anchors were CITED as well as how
+# many were broken, so a zero-citation run is distinguishable from a clean N-citation run (§7).
+if [[ "$OUT_24OK" == *'Appendix anchors: 1 cited · 0 broken'* ]] && [[ "$OUT_24BAD" == *'Appendix anchors: 1 cited · 1 broken'* ]]; then
+  ok "24e CHECK 5: summary prints 'N cited · M broken' (1 cited · 0 broken clean; 1 cited · 1 broken bad)"
+else
+  no "24e CHECK 5: 'Appendix anchors: N cited · M broken' line missing/wrong (ok=[$OUT_24OK] bad=[$OUT_24BAD])"
+fi
+OUT_24ZERO=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+             RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+             RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+             bash "$SUT" 2>&1)
+[ -n "$OUT_24ZERO" ] || no "OUT_24ZERO: SUT produced no output (capture fork-fail?)"
+if [[ "$OUT_24ZERO" == *'Appendix anchors: 0 cited · 0 broken'* ]]; then
+  ok "24f CHECK 5: a zero-citation run reports '0 cited · 0 broken' (looked, found none) — not silent"
+else
+  no "24f CHECK 5: zero-citation run does not report '0 cited · 0 broken' (out=[$OUT_24ZERO])"
+fi
+OUT_24ABS=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+            RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_OK" RSDD_PROMPTLOOP_APPENDIX="$FIXTURES/does-not-exist-appendix.md" \
+            RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+            bash "$SUT" 2>&1)
+[ -n "$OUT_24ABS" ] || no "OUT_24ABS: SUT produced no output (capture fork-fail?)"
+if [[ "$OUT_24ABS" == *'Appendix anchors: not checked'* ]]; then
+  ok "24g CHECK 5: appendix absent -> 'not checked' (skipped state distinct from '0 cited')"
+else
+  no "24g CHECK 5: absent appendix does not report 'not checked' (out=[$OUT_24ABS])"
+fi
+
+# 24h (kit issue #1166 item 5): a citation of an appendix anchor from a kit file OTHER than
+# PROMPT-LOOP.md (here SKILL.md) must be checked too, and the WARN must name the citing file.
+OUT_24SK=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$FIXTURES/skill-anchor-bad.md" \
+           RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+           RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+           bash "$SUT" 2>&1)
+[ -n "$OUT_24SK" ] || no "OUT_24SK: SUT produced no output (capture fork-fail?)"
+if [[ "$OUT_24SK" =~ WARN.*skill-anchor-bad\.md.*skill-side-missing-anchor ]] && [[ "$OUT_24SK" == *'Appendix anchors: 1 cited · 1 broken'* ]]; then
+  ok "24h CHECK 5: a broken appendix anchor cited from SKILL.md is WARNed, naming the citing file"
+else
+  no "24h CHECK 5: SKILL.md-side broken appendix anchor not detected/named (out=[$OUT_24SK])"
 fi
 
 # =============================================================================
@@ -593,11 +644,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # ---- CHECK 5 teeth: neuter the anchor-citation loop; a broken anchor must stop WARNing --------
   echo "-- teeth CHECK 5: anchor-loop mutant must break test 24b (nonexistent-anchor WARN) --"
-  # Mutate: force the CHECK 5 file-presence guard to false, so the anchor-citation loop never runs
-  # even when both PROMPT-LOOP.md and the appendix exist.
-  sed 's/if \[ -f "\$RSDD_PROMPTLOOP" \] \&\& \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then/if false; then/' "$SUT" > "$mutant9"
-  if grep -q 'if \[ -f "\$RSDD_PROMPTLOOP" \] \&\& \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then' "$mutant9"; then
-    no "teeth CHECK 5: could not build mutant (CHECK 5 guard still present — did the guard change?)"
+  # Mutate: empty the CHECK 5 citing-file list, so the anchor-citation loop never runs even when
+  # the cited-from files and the appendix all exist.
+  sed 's/for _cf in "\$RSDD_PROMPTLOOP" "\$RSDD_SKILL" "\$RSDD_METHODOLOGY" "\$RSDD_README"; do/for _cf in; do/' "$SUT" > "$mutant9"
+  if grep -q 'for _cf in "\$RSDD_PROMPTLOOP"' "$mutant9"; then
+    no "teeth CHECK 5: could not build mutant (CHECK 5 file loop still present — did the loop change?)"
   else
     MUTANT9_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
                   RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_BAD" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
@@ -610,6 +661,57 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth CHECK 5: neutered anchor-citation guard silently drops the broken-anchor WARN → test 24b would go RED"
     fi
   fi
+
+  # ---- #1166 teeth (built with lib/mutant.sh, kit #943: refuses an empty/identical/live-tree mutant) ----
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  _tdir_1166="$(mktemp -d)"
+
+  echo "-- teeth #1166-3: dropping anchor_count from the clean verdict must break test 24d --"
+  if ! mutant_sed "$SUT" "$_tdir_1166/verdict.MUT.sh" 's/ \&\& \[ "\$anchor_count" -eq 0 \]; then/; then/'; then
+    no "teeth #1166-3: could not build mutant (anchor_count verdict term not found, or refused by lib/mutant.sh)"
+  else
+    _o="$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+          RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_BAD" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+          RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+          bash "$_tdir_1166/verdict.MUT.sh" 2>&1)"
+    if [[ "$_o" == *'Doc consistency: clean.'* ]]; then
+      ok "teeth #1166-3: verdict without the anchor_count term reads 'clean' on a broken anchor → test 24d would go RED"
+    else
+      no "teeth #1166-3: mutant still not clean — 24d does not pin the anchor_count term (THEATER) (out=[$_o])"
+    fi
+  fi
+
+  echo "-- teeth #1166-4: not counting citations must break test 24e/24f --"
+  if ! mutant_sed "$SUT" "$_tdir_1166/cited.MUT.sh" 's/anchor_cited=\$((anchor_cited + 1))/:/'; then
+    no "teeth #1166-4: could not build mutant (anchor_cited increment not found, or refused by lib/mutant.sh)"
+  else
+    _o="$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+          RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_OK" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+          RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+          bash "$_tdir_1166/cited.MUT.sh" 2>&1)"
+    if [[ "$_o" == *'Appendix anchors: 1 cited · 0 broken'* ]]; then
+      no "teeth #1166-4: mutant still reports '1 cited' — citation count not load-bearing (THEATER)"
+    else
+      ok "teeth #1166-4: citation counter neutered → '1 cited · 0 broken' disappears → test 24e would go RED"
+    fi
+  fi
+
+  echo "-- teeth #1166-5: restricting CHECK 5 to PROMPT-LOOP.md only must break test 24h --"
+  if ! mutant_sed "$SUT" "$_tdir_1166/files.MUT.sh" 's/for _cf in "\$RSDD_PROMPTLOOP" "\$RSDD_SKILL" "\$RSDD_METHODOLOGY" "\$RSDD_README"; do/for _cf in "$RSDD_PROMPTLOOP"; do/'; then
+    no "teeth #1166-5: could not build mutant (CHECK 5 file list not found, or refused by lib/mutant.sh)"
+  else
+    _o="$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$FIXTURES/skill-anchor-bad.md" \
+          RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+          RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+          bash "$_tdir_1166/files.MUT.sh" 2>&1)"
+    if [[ "$_o" =~ WARN.*skill-side-missing-anchor ]]; then
+      no "teeth #1166-5: mutant still WARNs on the SKILL.md-side anchor — no effect (THEATER)"
+    else
+      ok "teeth #1166-5: PROMPT-LOOP-only scan silently misses the SKILL.md-side broken anchor → test 24h would go RED"
+    fi
+  fi
+  rm -rf "$_tdir_1166"
 
   # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
   # CRITICAL: never write a mutant "into a render dir's toolbelt/" — a real render's toolbelt/ IS

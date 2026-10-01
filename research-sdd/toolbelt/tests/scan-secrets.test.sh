@@ -1405,12 +1405,23 @@ else
   printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha64" "$_t71_sha64" > "$_t71_in_ok64"
   _t71_in_bad="$TMP/t71-bad.bin"
   printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha39" "$_t71_sha40" > "$_t71_in_bad"
+  # kit issue #1167 item 5: pin the 64-char UPPER bound of BOTH hex fields (a 65-char sha is not a
+  # valid SHA-1/SHA-256 object id and must be rejected; the lower-bound probe above is 39).
+  _t71_sha65="$(printf 'b%.0s' $(seq 1 65))"
+  _t71_in_bad65_3="$TMP/t71-bad65-3.bin"
+  printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha65" "$_t71_sha40" > "$_t71_in_bad65_3"
+  _t71_in_bad65_4="$TMP/t71-bad65-4.bin"
+  printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha40" "$_t71_sha65" > "$_t71_in_bad65_4"
+  _t71_out_b3="$(awk -f "$_t71_prog" "$_t71_in_bad65_3" 2>&1)"; _t71_rc_b3=$?
+  _t71_out_b4="$(awk -f "$_t71_prog" "$_t71_in_bad65_4" 2>&1)"; _t71_rc_b4=$?
   _t71_out_ok="$(awk -f "$_t71_prog" "$_t71_in_ok" 2>&1)"; _t71_rc_ok=$?
   _t71_out_ok64="$(awk -f "$_t71_prog" "$_t71_in_ok64" 2>&1)"; _t71_rc_ok64=$?
   _t71_out_bad="$(awk -f "$_t71_prog" "$_t71_in_bad" 2>&1)"; _t71_rc_bad=$?
   if [ "$_t71_rc_ok" -eq 0 ] && [ "$_t71_rc_ok64" -eq 0 ] \
-     && [ "$_t71_rc_bad" -ne 0 ] && printf '%s' "$_t71_out_bad" | grep -qi 'malformed diff-tree header'; then
-    ok "71: Rule 2 header validation — 40-char and 64-char shas accepted, 39-char (too short) rejected with DEGRADED"
+     && [ "$_t71_rc_bad" -ne 0 ] && printf '%s' "$_t71_out_bad" | grep -qi 'malformed diff-tree header' \
+     && [ "$_t71_rc_b3" -ne 0 ] && printf '%s' "$_t71_out_b3" | grep -qi 'malformed diff-tree header' \
+     && [ "$_t71_rc_b4" -ne 0 ] && printf '%s' "$_t71_out_b4" | grep -qi 'malformed diff-tree header'; then
+    ok "71: Rule 2 header validation — 40-char and 64-char shas accepted, 39-char (too short) and 65-char (too long, either field) rejected with DEGRADED"
   else
     no "71: Rule 2 header validation failed :: ok40=rc$_t71_rc_ok ok64=rc$_t71_rc_ok64 bad=rc$_t71_rc_bad out=[$_t71_out_bad]"
   fi
@@ -1431,7 +1442,7 @@ else
       no "72: mawk-pinned header validation failed :: ok64=rc$_t72_rc_ok64 bad=rc$_t72_rc_bad out=[$_t72_out_bad]"
     fi
   else
-    ok "72: SKIP — mawk not installed on this host, cannot exercise the mawk-specific case"
+    skip "72: mawk not installed on this host, cannot exercise the mawk-specific case (kit issue #1167 item 4: counted SKIP, not a PASS)"
   fi
 
   # 73 — restored full strictness (kit issue #1142 review round 3, nit): the NF/length rewrite's
@@ -1790,6 +1801,28 @@ PYEOF_TR70
         else
           no "teeth-71: mutant still rejected the malformed header (rc=$_t71_mrc) — mutation not exercised (THEATER)"
         fi
+      fi
+    fi
+  fi
+
+  # teeth-71b (kit issue #1167 item 5): widen each upper bound (64 -> 65); test 71's 65-char probes
+  # must then FALSE-PASS (rc=0) instead of being rejected, proving the upper bound is pinned.
+  echo "-- teeth-71b: widen the 64-char sha upper bounds; the 65-char probes must FALSE-PASS --"
+  if [ -z "${_t71_prog:-}" ] || [ -z "${_t71_in_bad65_3:-}" ]; then
+    no "teeth-71b: precondition failed — test 71 could not locate the awk program block"
+  else
+    _t71b_p3="$TMP/t71b-3.awk"; _t71b_p4="$TMP/t71b-4.awk"
+    sed 's/length(\$3) <= 64/length($3) <= 65/' "$_t71_prog" > "$_t71b_p3"
+    sed 's/length(\$4) <= 64/length($4) <= 65/' "$_t71_prog" > "$_t71b_p4"
+    if cmp -s "$_t71_prog" "$_t71b_p3" || cmp -s "$_t71_prog" "$_t71b_p4"; then
+      no "teeth-71b: mutation was a byte-identical no-op — upper-bound text not found in extracted program"
+    else
+      awk -f "$_t71b_p3" "$_t71_in_bad65_3" >/dev/null 2>&1; _t71b_rc3=$?
+      awk -f "$_t71b_p4" "$_t71_in_bad65_4" >/dev/null 2>&1; _t71b_rc4=$?
+      if [ "$_t71b_rc3" -eq 0 ] && [ "$_t71b_rc4" -eq 0 ]; then
+        ok "teeth-71b: upper bounds widened -> 65-char shas FALSE-PASS in both fields -> test 71's 64-char upper bound has real teeth"
+      else
+        no "teeth-71b: mutant still rejected a 65-char sha (field3=rc$_t71b_rc3 field4=rc$_t71b_rc4) — mutation not exercised (THEATER)"
       fi
     fi
   fi

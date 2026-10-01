@@ -153,10 +153,21 @@ for _root in "${ROOTS[@]}"; do
   # certified whatever partial file list find managed to print before failing. Capture find's
   # OWN exit status first (sorting is a separate step specifically so this doesn't become sort's
   # exit status instead) and fail closed on any nonzero.
-  _find_out="$(find "$_root" -type f -name '*.sh' 2>&1)"; _find_rc=$?
-  if [[ "$_find_rc" -ne 0 ]]; then
-    echo "lint-substitution: DEGRADED — 'find' failed under root '$_root' (exit $_find_rc), scan invalid: $_find_out" >&2
+  # kit issue #1167 item 1: stderr is captured SEPARATELY (never '2>&1' into the file list — a
+  # stderr diagnostic with exit 0 used to become a bogus "file" path, caught only by accident via
+  # the per-file grep). A stderr line with exit 0 is surfaced as a WARNING, never scanned.
+  _find_errf="$(mktemp)" || {
+    echo "lint-substitution: DEGRADED — mktemp failed, cannot capture 'find' stderr; scan invalid" >&2
     exit 2
+  }
+  _find_out="$(find "$_root" -type f -name '*.sh' 2>"$_find_errf")"; _find_rc=$?
+  _find_err="$(cat "$_find_errf")"; rm -f "$_find_errf"
+  if [[ "$_find_rc" -ne 0 ]]; then
+    echo "lint-substitution: DEGRADED — 'find' failed under root '$_root' (exit $_find_rc), scan invalid: $_find_err" >&2
+    exit 2
+  fi
+  if [[ -n "$_find_err" ]]; then
+    echo "lint-substitution: WARNING — 'find' wrote to stderr under root '$_root' (exit 0): $_find_err" >&2
   fi
   while IFS= read -r _f; do
     [[ -n "$_f" ]] || continue
