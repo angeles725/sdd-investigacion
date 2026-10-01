@@ -811,6 +811,7 @@ unset STUB_ROUTES
 #      both fail it must clean up its OWN part file (in-function cleanup, independent of the trap).
 d44b="$TMP/rr-44b"; mkdir -p "$d44b"
 STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+# shellcheck source=../fetch-doc.sh
 ( set +e; PATH="$stubbin:$PATH"; export PATH; source "$SUT" >/dev/null 2>&1
   fetch_and_register "http://s44b.example/a" "$d44b/out.html" >/dev/null 2>&1 )
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL STUB_ROUTES
@@ -1504,6 +1505,7 @@ SED
     export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
     # Call fetch_and_register DIRECTLY (sourced): the main dispatch's EXIT trap is a second line of
     # defence that would mask a missing in-function rm, so the in-function cleanup is tested alone.
+    # shellcheck disable=SC1090
     ( set +e; PATH="$stubbin:$PATH"; export PATH; source "$wgetcleanupmutant" >/dev/null 2>&1
       fetch_and_register "http://s37.example/a" "$d37c/datasheets/r37c.html" >/dev/null 2>&1 )
     unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
@@ -1535,7 +1537,7 @@ SED
   elif ! mutant_sed "$SUT" "$TMP/trap-doc.MUT.sh" "s/trap 'rm -f \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
     no "teeth-trap-doc: could not build mutant (doc EXIT trap not found, or refused by lib/mutant.sh)"
   else
-    dtd="$TMP/teeth-trap-doc/target"; ftd="$(mkexisting "$dtd" ttd.pdf)"
+    dtd="$TMP/teeth-trap-doc/target"; mkexisting "$dtd" ttd.pdf >/dev/null
     STUB_ROUTES=""; STUB_DOWNLOAD_HANG=1; STUB_HANG_MARKER="$TMP/hang-ttd.marker"; rm -f "$STUB_HANG_MARKER"
     export STUB_ROUTES STUB_DOWNLOAD_HANG STUB_HANG_MARKER
     PATH="$stubbin:$PATH" setsid bash "$TMP/trap-doc.MUT.sh" doc "http://std.example/a" "$dtd" datasheets "ttd.pdf" >/dev/null 2>&1 &
