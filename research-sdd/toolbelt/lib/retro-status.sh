@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # retro-status.sh — shared helper: read a §18 retro's review-status marker (METHODOLOGY §18).
-# Sourced by sweep-retros.sh and stage-retro-issues.sh so both gate on IDENTICAL logic — the two
-# scripts used to carry hand-copied awk pipelines that drifted (R1-003 / R3-004); this file is the
-# single source of truth for the marker grammar.
+# Sourced by every script that reads a retro's marker, so they all gate on IDENTICAL logic — they
+# used to carry hand-copied awk pipelines that drifted (R1-003 / R3-004); this file is the single
+# source of truth for the marker grammar. The consumer list is NOT enumerated here (it was already
+# stale at 2 names when there were 8; kit issue #949 item 5): `grep -rl retro-status.sh
+# research-sdd/toolbelt` is the authoritative list, and an edit here must be checked against every
+# consumer's real-fleet output (kit CLAUDE.md §12.7).
 #
 #   retro_review_status <file>
 #     Echoes the lowercased status word (applied/dismissed/pending/…) found in the retro's LEADING

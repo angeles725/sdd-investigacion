@@ -161,6 +161,7 @@ fuzzy_other() { printf '[{"body":"Other delta\\n\\n---\\nSource retro: niagara-%
 fuzzy_longid() { printf '[{"body":"Other row\\n\\n---\\n%s0\\nPart of backlog-first rollout #557","state":"%s"}]\n' "$_sig" "$1"; }
 fuzzy_plus_exact() { printf '[{"body":"Other\\n---\\nSource retro: niagara-%s","state":"OPEN"},{"body":"x\\n---\\n%s\\ntail","state":"OPEN"}]\n' "${_sig#Source retro: }" "$_sig"; }
 crlf_reply() { printf '[{"body":"x\\n---\\n%s\\r\\ntail","state":"OPEN"}]\n' "$_sig"; }
+create_alt() { local n; n="$(cat "$0.cnt" 2>/dev/null || echo 0)"; n=$((n+1)); echo "$n" > "$0.cnt"; if [ "$n" -ge 2 ]; then printf 'ERROR: GraphQL request failed\n'; return 1; fi; printf 'https://github.com/r/issues/%s\n' "$n"; }
 sigonly_reply() { printf '[{"state":"OPEN","body":"%s"}]\n' "$_sig"; }
 STUBHELP
       printf 'case " $* " in\n'
@@ -246,6 +247,10 @@ STUBHELP
       if [ "$mode" = "createfail" ]; then
         # createfail: gh issue create exits 1 to simulate an API error
         printf '  *" issue create "*) printf "ERROR: GraphQL request failed\\n"; exit 1 ;;\n'
+      elif [ "$mode" = "createfailsecond" ]; then
+        # createfailsecond (kit issue #949 item 4): the FIRST create succeeds, every later one fails
+        # — a mixed success/failure run (created=1 failed=1), not all-or-nothing.
+        printf '  *" issue create "*) create_alt; exit $? ;;\n'
       else
         printf '  *" issue create "*) printf "https://github.com/r/issues/99\\n"; exit 0 ;;\n'
       fi
@@ -1801,6 +1806,47 @@ RETROEOF
     fi
   fi
 
+  # TOOTH #949-4 (kit issue #949 item 4): the failure counter and the exit-2 gate each need a
+  # single-failure / mixed case to bite. Both mutants are built on a COPY via tooth_swap-style sed.
+  echo "-- teeth T949-4a: failure counter adds 2 instead of 1 (case 16b has teeth) --"
+  box_f2="$(mkbox teeth-failed-plus2)"
+  mk_gh_stub "$box_f2" createfail
+  retro_f2="$(mk_retro "$box_f2" target-foo r.md "<!-- review-status: pending -->" \
+    "| 1 | fail delta | CLAUDE.md | B1 | new | HIGH |")"
+  sed 's/failed=\$((failed+1)); continue/failed=$((failed+2)); continue/' "$SUT" > "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh"
+  if cmp -s "$SUT" "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh"; then
+    no "T949-4a teeth: build +2 mutant" "mutant identical — sed substitution failed"
+  elif ! "$BASH_BIN" -n "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh" 2>/dev/null; then
+    no "T949-4a teeth: build +2 mutant" "syntax error — crash-based theater"
+  else
+    out_f2="$(PATH="$box_f2/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
+      "$BASH_BIN" "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_f2" --apply 2>&1)"
+    if grep -qE 'failed=2$' <<<"$(grep '^summary:' <<<"$out_f2")"; then
+      ok "T949-4a teeth: +2 counter → failed=2 for one failure (case 16b has teeth)" "()"
+    else
+      no "T949-4a teeth: +2 counter must read failed=2" "case 16b is THEATER: out=[$out_f2]"
+    fi
+  fi
+  echo "-- teeth T949-4b: exit-2 gate fires only above one failure (case 16b has teeth) --"
+  box_g1="$(mkbox teeth-failed-gt1)"
+  mk_gh_stub "$box_g1" createfail
+  retro_g1="$(mk_retro "$box_g1" target-foo r.md "<!-- review-status: pending -->" \
+    "| 1 | fail delta | CLAUDE.md | B1 | new | HIGH |")"
+  sed 's/\[ "\$failed" -gt 0 \] && exit 2/[ "$failed" -gt 1 ] \&\& exit 2/' "$SUT" > "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh"
+  if cmp -s "$SUT" "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh"; then
+    no "T949-4b teeth: build -gt 1 mutant" "mutant identical — sed substitution failed"
+  elif ! "$BASH_BIN" -n "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh" 2>/dev/null; then
+    no "T949-4b teeth: build -gt 1 mutant" "syntax error — crash-based theater"
+  else
+    PATH="$box_g1/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
+      "$BASH_BIN" "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_g1" --apply >/dev/null 2>&1; rc_g1=$?
+    if [ "$rc_g1" -eq 0 ]; then
+      ok "T949-4b teeth: -gt 1 gate → one failure exits 0 (case 16b has teeth)" "(rc=$rc_g1)"
+    else
+      no "T949-4b teeth: -gt 1 gate must exit 0 on one failure" "case 16b is THEATER: rc=$rc_g1"
+    fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -1822,6 +1868,36 @@ if [ "$rc_nonzero" = 1 ] && [ "$has_failed_field" = 1 ] && [ "$failed_count_nonz
 else
   no "16 --apply createfail: failed= in summary, non-zero exit" \
     "exit=$RC rc_nonzero=$rc_nonzero has_failed=$has_failed_field nonzero_count=$failed_count_nonzero summary=[$summary_line16]"
+fi
+
+# 16b — SINGLE failure (kit issue #949 item 4): exactly one open row whose create fails must report
+#       failed=1 (not 2) AND exit 2. Case 16 uses two failing rows, so a counter that adds 2 or a
+#       gate that fires only above one failure survived it.
+box="$(mkbox case-createfail-single)"
+mk_gh_stub "$box" createfail
+retro="$(mk_retro "$box" target-foo r-createfail1.md "<!-- review-status: pending -->" \
+  "| 1 | only delta | CLAUDE.md | B1 | new | HIGH |")"
+run "$box" "$retro" --apply
+summary_line16b="$(grep '^summary:' <<<"$OUT")"
+if [ "$RC" = 2 ] && grep -qF 'created=0 ' <<<"$summary_line16b" && grep -qE 'failed=1$' <<<"$summary_line16b"; then
+  ok "16b --apply single create failure: failed=1 exactly, exit 2" "(summary=[$summary_line16b])"
+else
+  no "16b --apply single create failure: expected failed=1 and exit 2" "exit=$RC summary=[$summary_line16b]"
+fi
+
+# 16c — MIXED run: the first create succeeds, the second fails → created=1 AND failed=1, exit 2
+#       (partial failure must not look like success, nor swallow the row that did get created).
+box="$(mkbox case-createfail-mixed)"
+mk_gh_stub "$box" createfailsecond
+retro="$(mk_retro "$box" target-foo r-createfail-mixed.md "<!-- review-status: pending -->" \
+  "$(printf '| 1 | first delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
+run "$box" "$retro" --apply
+summary_line16c="$(grep '^summary:' <<<"$OUT")"
+if [ "$RC" = 2 ] && grep -qF 'created=1 ' <<<"$summary_line16c" && grep -qE 'failed=1$' <<<"$summary_line16c" \
+  && grep -q '^created: ' <<<"$OUT"; then
+  ok "16c --apply mixed run: created=1 failed=1, exit 2" "(summary=[$summary_line16c])"
+else
+  no "16c --apply mixed run: expected created=1 failed=1 and exit 2" "exit=$RC summary=[$summary_line16c]"
 fi
 
 # ---------------------------------------------------------------------------
