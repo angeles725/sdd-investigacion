@@ -512,7 +512,7 @@ Always read first, in this order:
          operator's data package, check whether the package already carries a pre-existing human
          classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
          label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B61 vs Dep_Ductos_crudos.)
+         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B76 §76.5.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -534,7 +534,7 @@ Always read first, in this order:
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B6/B8, commit `d7fd595`.)
+         (Evidence: COB-IM2 B6/B8; the originally cited commit no longer exists after that corpus's re-bootstrap.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -662,6 +662,8 @@ Always read first, in this order:
          Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
          or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+       - RESOURCE-BUDGETS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#resource-budgets` in full
+         before starting a heavy run or delegating one (CPU/RAM budget, queue, record the load).
        - LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`
          in full for a §19 build/PoC iteration delegated to an implementation agent (spec-file
          handoff, mid-flight correction delivery). Not applicable to a non-build gap.
@@ -1462,7 +1464,7 @@ HARD RULES:
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
-    LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B70). The worked example with the actual hex values
+    LIVE from the real system. Never cite them from a prior note/block (lesson: the logosoft bench program B66-B70 — TARGETS row #8; corpus not present on every machine, so qualify before citing). The worked example with the actual hex values
     lives in METHODOLOGY §12 — single source; don't restate the values here.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit

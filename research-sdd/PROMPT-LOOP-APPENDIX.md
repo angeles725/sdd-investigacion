@@ -310,3 +310,20 @@ wrapper exists, and none is implied. The operator or driver follows the order be
          PR LABELS. When the repo's pr-check requires exactly one `type:*` label, attach exactly
          one before expecting the check to pass; zero or two fail it.
 ```
+
+---
+
+## resource-budgets
+
+Trigger: read this section in full before starting a heavy run (a long decompile/bake-off, a
+fleet sweep, a fidelity grading run, a multi-JVM job) or before launching a delegated agent that
+will start one. (Kit issue #1253.)
+
+```text
+         CPU BUDGET BEFORE LAUNCH. Read load, core count and free RAM first. Keep total jobs at or
+         below the physical thread count ACROSS ALL concurrent heavy runs, agents included, and
+         never launch a second heavy run while one is active — queue it. Record the observed load
+         in the run log so a slow run can be attributed. (Observed: a 10.6 h run at load 23-30 with
+         25 JVMs on 16 threads.) Delegation multiplies this risk: every writer you add can start
+         its own heavy job, so the brief states the job ceiling the writer may use.
+```
