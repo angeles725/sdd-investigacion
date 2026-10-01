@@ -13,10 +13,18 @@
 #   the primary is cfr). A top-level OK is printed ONLY when every unit was decompiled by the primary engine.
 #   Otherwise one typed status line is printed, followed by one UNIT line per affected unit:
 #     OK:       <in> -> <out>  (engine=<e>)                       rc 0
-#     DEGRADED: ... units=N                                       rc 4  (all output present; some units fell back,
-#                                                                       or the timeout bound was unavailable)
+#     DEGRADED: ... units=N [primary=timeout|error|killed isolation=package|class]   rc 4  (all output present; some
+#               units fell back, OR the whole-artifact primary run failed and isolation recovered it, OR the
+#               timeout bound was unavailable)
 #     PARTIAL:  ... units=N                                       rc 4  (some unit has NO output at all)
-#     UNIT: <unit> reason=timeout|error|marker fallback=<engine>|unavailable result=ok|failed
+#     UNIT: <unit> reason=timeout|killed|error|empty|missing|marker|total_budget_exhausted
+#                  fallback=<engine>|unavailable|none  result=ok|marked|kept-primary|failed
+#       ok = fallback output in place · marked = the fallback output itself carries a failure marker ·
+#       kept-primary = the marked primary output was kept (no usable fallback) · failed = NO output for the unit.
+#   Isolation (jars): per package, then per unit (top-level class or orphan '$' class), then a coverage sweep;
+#   an isolation time budget (RSDD_DECOMPILE_ISOLATE_BUDGET, default 1800 s, 0 = unlimited) falls back whole.
+#   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
+#   class, Extended synchronized range, finally-block / variable-type quality notes) keep the primary file.
 #   Absent tool / timeout / error / empty output are distinct: exit 3 = required tool missing, exit 1 = no .java
 #   produced at all, exit 4 = typed degraded/partial result, reason= names the cause per unit.
 set -euo pipefail
@@ -57,6 +65,8 @@ ENGINE="vineflower"
 JAR_OVERRIDE=""
 THREAD_COUNT=""
 TIMEOUT="${RSDD_DECOMPILE_TIMEOUT:-240}"
+ISOLATE_BUDGET="${RSDD_DECOMPILE_ISOLATE_BUDGET:-1800}"
+KILL_AFTER="${RSDD_KILL_AFTER:-5}"
 FALLBACK=""
 shift 2
 while [ "$#" -gt 0 ]; do
@@ -74,6 +84,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 [[ "$TIMEOUT" =~ ^[0-9]{1,6}$ ]] || { echo "invalid timeout (seconds, 0 = unbounded)" >&2; exit 2; }
+[[ "$ISOLATE_BUDGET" =~ ^[0-9]{1,6}$ ]] || { echo "invalid RSDD_DECOMPILE_ISOLATE_BUDGET (seconds, 0 = unlimited)" >&2; exit 2; }
+[[ "$KILL_AFTER" =~ ^[1-9][0-9]{0,3}$ ]] || { echo "invalid RSDD_KILL_AFTER" >&2; exit 2; }
 case "$ENGINE" in vineflower | cfr | procyon) ;; *) echo "unknown engine: $ENGINE (use vineflower|cfr|procyon)" >&2; exit 2 ;; esac
 if [ -z "$FALLBACK" ]; then
   if [ "$ENGINE" = cfr ]; then FALLBACK=procyon; else FALLBACK=cfr; fi
@@ -125,7 +137,7 @@ run_engine() {
   esac
   mkdir -p "$out"
   if [ "$TIMEOUT" -gt 0 ]; then
-    "$TIMEOUT_BIN" --kill-after=5 "$TIMEOUT" "${cmd[@]}" || rc=$?
+    "$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$TIMEOUT" "${cmd[@]}" || rc=$?
   else
     "${cmd[@]}" || rc=$?
   fi
@@ -157,12 +169,12 @@ declare -A HANDLED=() # units already recorded (the marker scan must not re-hand
 record_unit() {
   UNITS+=("$1|$2|$3|$4|${5:-}")
   HANDLED["$1"]=1
-  if [ "$4" = ok ] || [ "$4" = kept-primary ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
+  if [ "$4" = ok ] || [ "$4" = kept-primary ] || [ "$4" = marked ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
 }
 
 # fallback_unit <unit> <reason> <input> [note] — decompile <input> with the fallback engine into $OUT.
 fallback_unit() {
-  local unit="$1" reason="$2" input="$3" note="${4:-}" tmp rc=0 failres=failed
+  local unit="$1" reason="$2" input="$3" note="${4:-}" tmp rc=0 failres=failed res mf
   [ "$reason" != marker ] || failres=kept-primary
   if [ "$FALLBACK" = none ]; then record_unit "$unit" "$reason" none "$failres" "$note"; return 0; fi
   tmp="$(mktemp -d -p "$WORK")"
@@ -171,7 +183,11 @@ fallback_unit() {
     record_unit "$unit" "$reason" unavailable "$failres" "$note"
   elif [ "$rc" -eq 0 ] && has_java "$tmp"; then
     cp -a "$tmp"/. "$OUT"/
-    record_unit "$unit" "$reason" "$FALLBACK" ok "$note"
+    res=ok # a fallback whose OWN output carries a failure marker is not a success
+    while IFS= read -r -d '' mf; do
+      if file_has_marker "$mf"; then res=marked; break; fi
+    done < <(find "$tmp" -type f -name '*.java' -print0)
+    record_unit "$unit" "$reason" "$FALLBACK" "$res" "$note"
   else
     record_unit "$unit" "$reason" "$FALLBACK" "$failres" "$note"
   fi
@@ -184,7 +200,12 @@ unit_name() {
 }
 
 # reason_of <rc> — typed cause of a non-zero engine exit.
-reason_of() { if [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; then echo timeout; else echo error; fi; }
+reason_of() { if [ "$1" -eq 124 ]; then echo timeout; elif [ "$1" -eq 137 ]; then echo killed; else echo error; fi; }
+
+# Isolation time budget (typed total_budget_exhausted → whole-artifact fallback).
+ISOLATE_T0=0
+BUDGET_HIT=""
+budget_exhausted() { [ "$ISOLATE_BUDGET" -gt 0 ] && [ $((SECONDS - ISOLATE_T0)) -ge "$ISOLATE_BUDGET" ]; }
 
 # ── Unit isolation for jars (kit issue #1224) ────────────────────────────────
 # A whole-jar failure must degrade ONLY the offending unit: re-run per package with the primary
@@ -225,6 +246,7 @@ bisect_package() {
   ISOLATION_LEVEL=class
   while IFS= read -r f; do is_unit_class "$f" && outer+=("$f"); done < <(find "$EXT/$pkg" -maxdepth 1 -name '*.class' | sort)
   for f in "${outer[@]+"${outer[@]}"}"; do
+    if budget_exhausted; then BUDGET_HIT=1; return 0; fi
     name="$(basename "$f" .class)"; k=$((k + 1))
     unit="$name"; [ "$pkg" = . ] || unit="$pkg/$name"
     if [ "${#outer[@]}" -eq 1 ] && [ "$reason" != empty ]; then fallback_unit "$unit" "$reason" "$f"; continue; fi
@@ -243,7 +265,9 @@ isolate_jar() {
   ensure_ext || return 1
   local d pkg pin pout prc n=0 f unit
   ISOLATION_LEVEL=package
+  ISOLATE_T0=$SECONDS
   while IFS= read -r d; do
+    if budget_exhausted; then return 2; fi
     pkg="${d#"$EXT"}"; pkg="${pkg#/}"; [ -n "$pkg" ] || pkg=.
     n=$((n + 1)); pin="$WORK/pin/$n"; pout="$WORK/pout/$n"; mkdir -p "$pin/$pkg"
     find "$EXT/$pkg" -maxdepth 1 -name '*.class' -exec cp -p {} "$pin/$pkg/" \;
@@ -255,6 +279,7 @@ isolate_jar() {
     else
       bisect_package "$pkg" "$n" "$(reason_of "$prc")"
     fi
+    [ -z "$BUDGET_HIT" ] || return 2
   done < <(find "$EXT" -name '*.class' -printf '%h\n' | sort -u)
   # Coverage sweep: every unit class must be covered by output or by a UNIT line.
   while IFS= read -r f; do
@@ -267,13 +292,16 @@ isolate_jar() {
 # ── Failure-marker scan (kit issue #1194) ────────────────────────────────────
 # Vineflower writes "// $VF: Couldn't be decompiled" INDENTED inside the method body, so the pattern
 # allows leading whitespace; only a comment-LEADING line counts (a trailing comment after code does not).
-MARKER_RE='^[[:space:]]*// \$VF: |Unable to fully decompile class|COULD NOT DECOMPILE'
+MARKER_RE='^[[:space:]]*(//|/\*+|\*)[[:space:]]*(\$VF: (Couldn.t be decompiled|Could not decompile|Unable to decompile|Failed to decompile)|Unable to fully decompile class|Unable to fully structure code|This method has failed to decompile|This method could not be decompiled|Exception decompiling|COULD NOT DECOMPILE)'
+
+# file_has_marker <file> — 0 when the file carries a failure marker; 1 none; 2 grep error.
+file_has_marker() { local m=0; grep -qE "$MARKER_RE" "$1" 2>/dev/null || m=$?; return "$m"; }
 
 # scan_markers — per-class fallback for every freshly written .java that carries a failure marker.
 scan_markers() {
   local f rel unit input m
   while IFS= read -r -d '' f; do
-    m=0; grep -qE "$MARKER_RE" "$f" 2>/dev/null || m=$?
+    m=0; file_has_marker "$f" || m=$?
     [ "$m" -ne 1 ] || continue
     rel="${f#"$OUT"/}"; unit="${rel%.java}"
     [ -z "${HANDLED[$unit]:-}" ] || continue
@@ -293,7 +321,15 @@ if [ "$rc" -ne 0 ]; then
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
   find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
   if [[ "${IN,,}" == *.jar ]]; then
-    isolate_jar || { NO_SCAN=1; fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"; }
+    irc=0; isolate_jar || irc=$?
+    if [ "$irc" -eq 1 ]; then
+      NO_SCAN=1; fallback_unit "$(unit_name)" "$reason" "$IN" "$ISOLATION_WHY"
+    elif [ "$irc" -eq 2 ]; then
+      # Budget exhausted: discard the half-isolated state; the whole artifact falls back, typed.
+      NO_SCAN=1; ISOLATION_LEVEL=""; UNITS=(); PARTIAL_UNITS=0; DEGRADED_UNITS=0; HANDLED=()
+      find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
+      fallback_unit "$(unit_name)" total_budget_exhausted "$IN"
+    fi
   else
     NO_SCAN=1 # whole-input fallback output is final: never re-scan (and re-fall-back) the fallback engine's files
     fallback_unit "$(unit_name)" "$reason" "$IN"

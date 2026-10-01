@@ -201,6 +201,7 @@ fi
 #   STUB_SLEEP_MIN       N: vineflower sleeps when the input holds >= N top-level classes
 #   STUB_EMPTY_MIN       N: vineflower exits 0 writing nothing when a DIR input holds >= N classes
 #   STUB_OMIT_CLASSES    space list of class basenames vineflower silently leaves out of its output
+#   STUB_IGNORE_TERM     non-empty: a "sleeping" vineflower ignores SIGTERM (only SIGKILL stops it → rc 137)
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
 mkdir -p "$T_JAVA_HOME/bin"
@@ -226,7 +227,7 @@ ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
 [ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
   for c in $classes; do b="$(basename "$c" .class)"
-    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && exec sleep "${STUB_SLEEP:-3}"; done
+    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && { [ -n "${STUB_IGNORE_TERM:-}" ] && { trap '' TERM; for _ in $(seq 1 100); do sleep 0.2; done; exit 0; }; exec sleep "${STUB_SLEEP:-3}"; }; done
   done
 fi
 for c in $classes; do
@@ -405,7 +406,7 @@ if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test reason=marker fallback=cfr result=ok'
 else no "C5 marker on a .class input → cfr fallback" "rc=$RC so=[$SO]"; fi
 
 # C6: timeout unit and marker unit in one jar → both reported, each with its own reason.
-rt C6 "$JAR3" STUB_SLEEP_CLASSES="A" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' -- --engine vineflower
+rt C6 "$JAR3" STUB_SLEEP_CLASSES="A" STUB_MARKER_CLASSES="B" -- --engine vineflower
 if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A b/B" ] && grep -q '^UNIT: a/A reason=timeout' <<<"$SO" \
   && grep -q '^UNIT: b/B reason=marker' <<<"$SO" && [ "$(engine_of C6 c/C.java)" = vineflower ]; then
   ok "C6 timeout unit + marker unit both named with their own reason"
@@ -420,7 +421,7 @@ else no "C8 marker in whole-artifact fallback output is not re-scanned" "rc=$RC 
 
 # C7: marker found but the fallback engine is unavailable → the marked primary output is KEPT:
 #     DEGRADED (not PARTIAL), unit typed fallback=unavailable result=kept-primary.
-rt C7 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' CFR_JAR="$ROOT/absent-cfr.jar" -- --engine vineflower
+rt C7 "$JAR3" STUB_MARKER_CLASSES="B" CFR_JAR="$ROOT/absent-cfr.jar" -- --engine vineflower
 if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && grep -q '^UNIT: b/B reason=marker fallback=unavailable result=kept-primary' <<<"$SO" \
   && [ "$(engine_of C7 b/B.java)" = vineflower ]; then
   ok "C7 marker + fallback absent → DEGRADED, unit kept-primary (output not lost)"
@@ -475,6 +476,40 @@ if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing fallback=cfr result=ok
   && [ "$(engine_of E8 a/A1.java)" = vineflower ]; then
   ok "E8 class silently omitted by the primary → UNIT reason=missing, cfr fallback"
 else no "E8 omitted class is covered by a UNIT" "rc=$RC so=[$SO]"; fi
+
+# ── Review round 1: marker precision, killed, marked fallback, total budget ─
+# F1: informational '$VF:' comments (real niagara5 corpus: 68 'synthetic class', 2 'Extended synchronized
+#     range', hundreds of 'Could not verify finally blocks') are NOT failures → file stays primary, OK.
+mk_marker_case F1a '    // $VF: synthetic class' 0 "" "informational 'synthetic class' stays primary (OK)"
+mk_marker_case F1b '    // $VF: Extended synchronized range to monitorexit' 0 "" "informational 'Extended synchronized range' stays primary (OK)"
+mk_marker_case F1c '    // $VF: Could not verify finally blocks. A semaphore variable has been added to preserve control flow.' 0 "" "quality warning 'finally blocks' stays primary (OK)"
+mk_marker_case F1d '    // $VF: Could not properly define all variable types!' 0 "" "quality warning 'variable types' stays primary (OK)"
+# F2: a string literal mentioning the failure text is not a comment.
+mk_marker_case F2 '    String s = "// $VF: Couldn'"'"'t be decompiled";' 0 "" "failure text inside a string literal is NOT a marker (OK)"
+# F3: other engines' failure comments are detected (anchored as comments).
+mk_marker_case F3a ' * Unable to fully structure code' 4 "b/B" "CFR block-comment failure text detected"
+mk_marker_case F3b '    // This method has failed to decompile.  When submitting a bug report, please provide this class file' 4 "b/B" "CFR line-comment failure text detected"
+
+# F4: a fallback whose OWN output is marked never reports result=ok.
+rt F4 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" STUB_MARKER_CLASSES="Test" STUB_CFR_MARKER=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test reason=timeout fallback=cfr result=marked' <<<"$SO" && ! grep -q 'result=ok' <<<"$SO"; then
+  ok "F4 fallback output itself marked → result=marked (not ok), still DEGRADED"
+else no "F4 marked fallback output must not be result=ok" "rc=$RC so=[$SO]"; fi
+
+# F5: SIGKILL (timeout --kill-after, rc 137) is reason=killed, distinct from a plain timeout.
+rt F5 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" STUB_IGNORE_TERM=1 RSDD_KILL_AFTER=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test reason=killed' <<<"$SO"; then ok "F5 SIGTERM-ignoring engine killed (137) → reason=killed"
+else no "F5 rc 137 → reason=killed" "rc=$RC so=[$SO]"; fi
+
+# F6: total isolation budget exhausted → whole-artifact fallback with a typed reason.
+rt F6 "$JAR3" STUB_SLEEP_CLASSES="A B C" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "<whole-artifact>" ] && grep -q '^UNIT: <whole-artifact> reason=total_budget_exhausted fallback=cfr result=ok' <<<"$SO" \
+  && [ "$(engine_of F6 a/A.java)" = cfr ] && [ "$(engine_of F6 c/C.java)" = cfr ]; then
+  ok "F6 isolation budget exhausted → <whole-artifact> reason=total_budget_exhausted, cfr"
+else no "F6 budget exhaustion is typed and falls back whole-artifact" "rc=$RC so=[$SO]"; fi
+rt F6b "$JAR3" STUB_SLEEP_CLASSES="A B C" RSDD_DECOMPILE_ISOLATE_BUDGET=0 -- --engine vineflower
+if [ "$(units_of)" = "a/A b/B c/C" ]; then ok "F6b budget 0 = unlimited → per-unit isolation as before"
+else no "F6b budget 0 = unlimited" "so=[$SO]"; fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
@@ -591,10 +626,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mE4: sweep-removed mutant loses reason=missing → E8 bites"
     else no "teeth-mE4: mutant still reported the omitted class — E8 has no teeth" "so=[$SO]"; fi
   fi
+  echo "-- teeth: review round 1 (marker precision, killed, marked fallback, budget) --"
+  # mF1: broad '$VF:' anchor (pre-review behaviour) → informational comments flagged (F1).
+  if build_mut mF1 's/^MARKER_RE=.*$/MARKER_RE=\x27^[[:space:]]*\/\/ \\$VF: \x27/'; then
+    RT_SUT="$MUT" rt mF1 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: synthetic class' -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mF1: broad-anchor mutant flags 'synthetic class' → F1 bites"
+    else no "teeth-mF1: mutant did not flag the informational comment — F1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mF2: marked fallback output reported ok (F4).
+  if build_mut mF2 's/if file_has_marker "\$mf"; then/if false; then/'; then
+    RT_SUT="$MUT" rt mF2 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" STUB_MARKER_CLASSES="Test" STUB_CFR_MARKER=1 -- --engine vineflower
+    if grep -q 'result=ok' <<<"$SO"; then ok "teeth-mF2: no-marker-check mutant reports a marked fallback as ok → F4 bites"
+    else no "teeth-mF2: mutant still said result=marked — F4 has no teeth" "so=[$SO]"; fi
+  fi
+  # mF3: 137 conflated with timeout (F5).
+  if build_mut mF3 's/\[ "\$1" -eq 137 \]; then echo killed/[ "$1" -eq 0 ]; then echo killed/'; then
+    RT_SUT="$MUT" rt mF3 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" STUB_IGNORE_TERM=1 RSDD_KILL_AFTER=1 -- --engine vineflower
+    if ! grep -q 'reason=killed' <<<"$SO"; then ok "teeth-mF3: killed-removed mutant loses reason=killed → F5 bites"
+    else no "teeth-mF3: mutant still typed killed — F5 has no teeth" "so=[$SO]"; fi
+  fi
+  # mF4: budget never checked (F6).
+  if build_mut mF4 's/^budget_exhausted() .*$/budget_exhausted() { return 1; }/'; then
+    RT_SUT="$MUT" rt mF4 "$JAR3" STUB_SLEEP_CLASSES="A B C" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+    if ! grep -q 'total_budget_exhausted' <<<"$SO"; then ok "teeth-mF4: budget-ignored mutant never exhausts → F6 bites"
+    else no "teeth-mF4: mutant still hit the budget — F6 has no teeth" "so=[$SO]"; fi
+  fi
   echo "-- teeth: slice C (marker scan) --"
   # mC1: column-0 anchor (the #1194 bug) → indented marker missed.
-  if build_mut mC1 's/^MARKER_RE=.\^\[\[:space:\]\]\*\/\/ /MARKER_RE=\x27^\/\/ /'; then
-    RT_SUT="$MUT" rt mC1 "$JAR3" STUB_MARKER_CLASSES="B" STUB_MARKER_TEXT='    // $VF: marker' -- --engine vineflower
+  if build_mut mC1 's/^MARKER_RE=.\^\[\[:space:\]\]\*/MARKER_RE=\x27^/'; then
+    RT_SUT="$MUT" rt mC1 "$JAR3" STUB_MARKER_CLASSES="B" -- --engine vineflower
     if grep -q '^OK' <<<"$SO"; then ok "teeth-mC1: column-0 anchor misses the indented marker → C1 bites"
     else no "teeth-mC1: mutant still detected the indented marker — C1 has no teeth" "so=[$SO]"; fi
   fi
@@ -612,7 +672,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth: slice B (unit isolation) --"
   # mB1: isolation never runs → B1 degrades the whole artifact instead of one unit.
-  if build_mut mB1 's/^    isolate_jar || {/    false || {/'; then
+  if build_mut mB1 's/^    irc=0; isolate_jar .. irc=\$?$/    irc=1/'; then
     RT_SUT="$MUT" rt mB1 "$JAR3" STUB_SLEEP_CLASSES="A" -- --engine vineflower
     if grep -q '^UNIT: <whole-artifact>' <<<"$SO" && [ "$(engine_of mB1 b/B.java)" = cfr ]; then
       ok "teeth-mB1: no-isolation mutant degrades the whole artifact → B1 bites"
