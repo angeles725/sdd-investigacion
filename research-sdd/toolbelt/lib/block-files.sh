@@ -68,7 +68,8 @@ fi
 #           or not it exists or holds real checkouts) plus the dirname of every nested ".git" FILE
 #           whose "gitdir:" target (resolved against the file's directory when relative) is a
 #           directory CONTAINING A `commondir` FILE — git writes that file for linked worktrees
-#           only. The gitdir TEXT is never trusted: a submodule of a linked-worktree target has
+#           only — AND whose back-pointer file `<gitdir>/gitdir` names that same ".git" file
+#           (same inode; kit issue #1301: commondir alone is forgeable). The gitdir TEXT is never trusted: a submodule of a linked-worktree target has
 #           gitdir …/.git/worktrees/<wt>/modules/<name> and a submodule can sit at a path that
 #           contains "worktrees", yet neither is a worktree (review of PR #1300, B1).
 #           Deliberately NOT excluded: a nested clone (".git" is a directory), a submodule, and a
@@ -92,7 +93,7 @@ fi
 if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
 
   block_files_nested_worktree_roots() {
-    local _root="${1:-}" _gf _line _gd _fpid _frc=0
+    local _root="${1:-}" _gf _line _gd _bp _fpid _frc=0
     if [ ! -d "$_root" ]; then
       echo "block-files: nested_worktree_roots: not a directory: $_root" >&2
       return 2
@@ -112,6 +113,18 @@ if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
       # SENTINEL-COMMONDIR-START
       [ -f "$_gd/commondir" ] || continue
       # SENTINEL-COMMONDIR-END
+      # SENTINEL-BACKPOINTER-START
+      # commondir alone is forgeable (`gitdir: .` plus a stray commondir in the same directory
+      # satisfies it): the VCS also writes <gitdir>/gitdir, the path of the worktree's .git
+      # file, and that must name THIS file (kit issue #1301). Compared with -ef (same inode) so
+      # a symlinked path or a relative back-pointer still matches; a missing or mismatching one
+      # means "cannot be proven a worktree" → not excluded (a false BLOCK is recoverable, a
+      # false ALLOW is not).
+      _bp=""
+      IFS= read -r _bp < "$_gd/gitdir" 2>/dev/null || [ -n "$_bp" ] || continue
+      case "$_bp" in /*) ;; *) _bp="$_gd/$_bp" ;; esac
+      [ "$_bp" -ef "$_gf" ] || continue
+      # SENTINEL-BACKPOINTER-END
       printf '%s\n' "${_gf%/.git}"
     done < <(find -H "$_root" -mindepth 1 \( -path "$_root/.claude/worktrees" -prune \) -o \( -type d -name .git -prune \) -o \( -type f -name .git -print0 \) 2>/dev/null)
     # find's status (lost by process substitution) comes back through `wait` on bash >= 4.4; on

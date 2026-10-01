@@ -1381,6 +1381,7 @@ T_w7="$ROOT/t-w7"
 mkdir -p "$T_w7/side-wt"
 mkdir -p "$T_w7/.fakegit/worktrees/side-wt"; : > "$T_w7/.fakegit/worktrees/side-wt/commondir"   # a linked worktree's gitdir has commondir
 printf 'gitdir: %s/.fakegit/worktrees/side-wt\n' "$T_w7" > "$T_w7/side-wt/.git"
+printf '%s/side-wt/.git\n' "$T_w7" > "$T_w7/.fakegit/worktrees/side-wt/gitdir"   # the back-pointer (#1301)
 printf '# Block\n' > "$T_w7/niagara-block1.md"; touch -d '-3 hours' "$T_w7/niagara-block1.md"
 mkretro "$T_w7/side-wt" "2026-09-05-w7.md" 1;     touch -d '-1 hour' "$T_w7/side-wt/retros/2026-09-05-w7.md"
 run_gate "$T_w7" "$(mkjson "w7-sess" false)"
@@ -1425,6 +1426,29 @@ run_gate "$T_w9" "$(mkjson "$SID_w9" false)"
 printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#1223 W9: block changed inside a submodule of a linked-worktree target → still blocks" \
   || no "#1223 W9: submodule treated as a nested worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+
+# W10 (#1301 item 2): a `.git` FILE reading `gitdir: .` plus a stray `commondir` in the same dir
+# passed the commondir proof, so the block beside it was dropped as a "worktree copy" (false
+# ALLOW). git writes a back-pointer <gitdir>/gitdir for every linked worktree; with none, the
+# directory is not a proven worktree and its research files count → BLOCK.
+T_w10="$ROOT/t-w10"; mkgit "$T_w10"; SID_w10="w10-sess"
+mksessionfile "$T_w10" "$SID_w10" "202609050800"
+mkdir -p "$T_w10/fake"; : > "$T_w10/fake/commondir"; printf 'gitdir: .\n' > "$T_w10/fake/.git"
+printf '# Block\n' > "$T_w10/fake/niagara-block1.md"
+run_gate "$T_w10" "$(mkjson "$SID_w10" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 W10: 'gitdir: .' + stray commondir is not a worktree → block beside it still counts" \
+  || no "#1301 W10: contrived gitdir treated as a linked worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+# W10b: commondir present, back-pointer file ABSENT (e.g. a half-pruned worktree) → still counts.
+T_w10b="$ROOT/t-w10b"; mkgit "$T_w10b"; SID_w10b="w10b-sess"
+mksessionfile "$T_w10b" "$SID_w10b" "202609050800"
+mkdir -p "$T_w10b/side" "$T_w10b/.fakegit/wt"; : > "$T_w10b/.fakegit/wt/commondir"
+printf 'gitdir: %s/.fakegit/wt\n' "$T_w10b" > "$T_w10b/side/.git"
+printf '# Block\n' > "$T_w10b/side/niagara-block1.md"
+run_gate "$T_w10b" "$(mkjson "$SID_w10b" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1301 W10b: worktree gitdir without a back-pointer is unprovable → its block still counts" \
+  || no "#1301 W10b: back-pointer-less gitdir treated as a worktree (false ALLOW): OUT=$OUT ERR=$ERR"
 
 # ─── #1229: generated CATALOG.md is not a block (degraded mtime scan) ────────
 # gen-catalog.py rewrites CATALOG.md seconds AFTER the retro is written; in degraded mode the
