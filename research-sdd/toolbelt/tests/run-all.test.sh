@@ -224,13 +224,14 @@ else no "empty-arg regressed: rc=$rc :: $(grep -E 'Test cases passed|unknown fla
 #     garbage is NOT forwarded to suites (the .test.sh recorder must see exactly "--prove-teeth").
 w="$(newdir c9)"
 { printf '#!/usr/bin/env bash\n'
-  printf 'h="$(cd "$(dirname "$0")" && pwd)"\n'
-  printf 'printf "%%s" "${1:-NONE}" > "$h/arg-sh.txt"\n'
+  # The recorder writes OUTSIDE the fixture's kit tree (kit issue #1156: run-all now fails any
+  # suite that writes under research-sdd/, and this fixture's tree is a real kit-shaped one).
+  printf 'printf "%%s" "${1:-NONE}" > "%s"\n' "$TMP/c9-arg-sh.txt"
   printf 'echo "== 3 passed %s 0 failed =="\n' "$MID"
   printf 'exit 0\n'
 } > "$w/rec.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth extra-garbage 2>&1)"; rc=$?
-argsh="$(cat "$w/arg-sh.txt" 2>/dev/null || true)"
+argsh="$(cat "$TMP/c9-arg-sh.txt" 2>/dev/null || true)"
 if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && grep -qF 'Test cases passed: 3' <<<"$out"; then
   ok "trailing-args: '--prove-teeth extra-garbage' runs normally, only \$1 inspected (suite got --prove-teeth, not the garbage)"
 else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
@@ -696,6 +697,81 @@ out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
 if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then ok "teeth-helper lint: explicit zero when every teeth suite uses the helper"
 else no "teeth-helper lint zero-state failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
 
+# 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
+#      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
+#      The runner also snapshots research-sdd/ (resolved from its own location, never the cwd)
+#      around each suite: a new, modified or removed file is a violation, attributed to the suite
+#      that was running, and fails the run even though the suite itself passed.
+w="$(newdir c35)"; _c35kit="${w%/toolbelt/tests}"
+mkdir -p "$_c35kit/install"; printf 'original\n' > "$_c35kit/install/keep.sh"; printf 'doomed\n' > "$_c35kit/install/doomed.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+  printf 'printf changed-content > "$k/install/keep.sh"\n'
+  printf 'rm -f "$k/install/doomed.sh"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/a-leaky.test.sh"
+mkfix_sh "$w/b-clean.test.sh" 1 0 0
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): 3' <<<"$out" \
+   && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
+   && grep -qF 'a-leaky.test.sh leaked: install/keep.sh (modified)' <<<"$out" \
+   && grep -qF 'a-leaky.test.sh leaked: install/doomed.sh (removed)' <<<"$out" \
+   && ! grep -qF 'b-clean.test.sh leaked' <<<"$out"; then
+  ok "kit-tree hermeticity: new/modified/removed files under research-sdd/ named per suite, clean suite not blamed, run fails"
+else no "kit-tree hermeticity failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
+
+# 35b — a clean batch reports an explicit zero (absent != zero) and exits 0.
+w="$(newdir c35b)"; mkfix_sh "$w/a.test.sh" 1 0 0
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): 0' <<<"$out"; then
+  ok "kit-tree hermeticity: clean batch reports 0 violations, run exits 0"
+else no "kit-tree hermeticity clean failed: rc=$rc :: $(grep -iF 'kit-tree' <<<"$out" | tr '\n' '|')"; fi
+
+# 35d — noise that must NOT count (measured on the real tree): rewriting a file with IDENTICAL
+#       bytes (new mtime) and python bytecode under __pycache__ are not violations; a same-length
+#       change in content IS (hash, not size/mtime).
+w="$(newdir c35d)"; _c35dkit="${w%/toolbelt/tests}"
+mkdir -p "$_c35dkit/install"; printf 'same\n' > "$_c35dkit/install/fixture.bog"; printf 'aaaa\n' > "$_c35dkit/install/flip.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'printf "same\\n" > "$k/install/fixture.bog"\n'
+  printf 'mkdir -p "$k/install/__pycache__" && printf x > "$k/install/__pycache__/m.cpython-314.pyc"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/a-noise.test.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'printf "bbbb\\n" > "$k/install/flip.sh"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/b-flip.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'files under research-sdd/): 1' <<<"$out" \
+   && grep -qF 'b-flip.test.sh leaked: install/flip.sh (modified)' <<<"$out" \
+   && ! grep -qF 'a-noise.test.sh leaked' <<<"$out"; then
+  ok "kit-tree hermeticity: identical-bytes rewrite and __pycache__ are ignored; a same-size content change is caught"
+else no "kit-tree hermeticity noise failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
+
+# 35c — DEGRADED, never a confident 0: a scanner that fails ONLY on the kit-tree scan (the cwd scan
+#       still works) must fail the run and say so with the kit-tree reason.
+_c35realfind="$(command -v find)"
+if [ -z "$_c35realfind" ]; then
+  ok "kit-tree hermeticity degraded: SKIP — no real 'find' on PATH to build the stub from"
+else
+  w="$(newdir c35c)"; mkfix_sh "$w/a.test.sh" 1 0 0
+  _c35bin="$TMP/c35c-bin"; mkdir -p "$_c35bin"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'case "$*" in *research-sdd*) echo "find: simulated failure" >&2; exit 1;; esac\n'
+    printf 'exec %s "$@"\n' "$_c35realfind"
+  } > "$_c35bin/find"; chmod +x "$_c35bin/find"
+  _c35cwd="$TMP/c35c-cwd"; mkdir -p "$_c35cwd"
+  out="$(cd "$_c35cwd" && PATH="$_c35bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'Kit-tree hermeticity: DEGRADED' <<<"$out"; then
+    ok "kit-tree hermeticity degraded: a failing kit-tree scan is DEGRADED and fails the run (not a confident 0)"
+  else no "kit-tree hermeticity degraded failed: rc=$rc :: $(grep -iE 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -939,7 +1015,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-scanner-rc: no real 'find' on PATH to build the stub from"
     else
       mkfix_sh "$w/a.test.sh" 1 0 0
+      # The stub fails the CWD scan only: the kit-tree scan (kit issue #1156, its path contains
+      # "research-sdd") runs for real, so this tooth isolates the cwd scanner's rc check.
       { printf '#!/usr/bin/env bash\n'
+        printf 'case "$*" in *research-sdd*) exec %s "$@";; esac\n' "$_teeth_src_realfind"
         printf 'for _a in "$@"; do\n'
         printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
         printf 'done\n'
@@ -1053,6 +1132,29 @@ REPL12
       ok "teeth-helper-lint: neutered lint reports 0 for a hand-rolled teeth suite → lint has real teeth"
     else
       no "teeth-helper-lint: mutant still named the hand-rolled suite — lint mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
+    fi
+  fi
+  # Mutation (kit issue #1156): neuter the change test in SENTINEL-KIT-TREE-CHECK; a suite that
+  # writes a stray file under research-sdd/ must then FALSE-PASS. The leak is confirmed to have
+  # happened (the fixture records it OUTSIDE the tree) so a silent no-leak fixture cannot read as a bite.
+  echo "-- teeth: neuter SENTINEL-KIT-TREE-CHECK; a file written under research-sdd/ must FALSE-PASS --"
+  w="$(mut_workdir teeth-kit-tree)"; _ktk="${w%/toolbelt/tests}"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-KIT-TREE-CHECK/,+8s/elif \[\[ "\$_kit_tree_cur" != "\$_kit_tree_prev" \]\]; then/elif false; then/' 2>"$w/mutant.err"; then
+    no "teeth-kit-tree: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    { printf '#!/usr/bin/env bash\n'
+      printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+      printf 'printf x > "$k/install/stray-kit-tree.sh" && : > "%s"\n' "$TMP/teeth-kit-tree.leaked"
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    } > "$w/leaky.test.sh"
+    mkdir -p "$_ktk/install"
+    mout="$(bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    if [ ! -e "$TMP/teeth-kit-tree.leaked" ]; then
+      no "teeth-kit-tree: fixture never leaked — FALSE-PASS would prove nothing"
+    elif [ "$mrc" -eq 0 ] && grep -qF 'violations (new/modified/removed files under research-sdd/): 0' <<<"$mout"; then
+      ok "teeth-kit-tree: neutered guard FALSE-PASSES a confirmed leak under research-sdd/ → kit-tree guard has real teeth"
+    else
+      no "teeth-kit-tree: mutant still caught the leak (rc=$mrc) — mutation not exercised (THEATER)"
     fi
   fi
 fi
