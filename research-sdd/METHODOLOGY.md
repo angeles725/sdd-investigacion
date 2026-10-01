@@ -344,6 +344,7 @@ URL — see below — not necessarily the one first typed) and the hash. The wra
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
+A registered source is never overwritten in place: re-fetching an existing name is refused unless `--replace` is passed, in which case the previous bytes are preserved under a sha-versioned name and their registry row is retargeted to it, so every row's sha256 keeps describing a file that still exists.
 
 **Register the PERMANENT-redirect-resolved URL — never a temporary one.** A canonical doc URL may
 301/308-redirect (a docs reorg, a slug change); the origin cell in `SOURCES.md` should hold the URL a
