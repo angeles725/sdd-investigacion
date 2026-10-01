@@ -135,7 +135,7 @@ mkbox() {
 #   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
 #   (except createfail).
 mk_gh_stub() {
-  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}"
+  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}" labelmode="${4:-exists}"
   {
     printf '#!%s\n' "$BASH_BIN"
     # Log all calls for inspection
@@ -166,6 +166,27 @@ sigonly_reply() { printf '[{"state":"OPEN","body":"%s"}]\n' "$_sig"; }
 STUBHELP
       printf 'case " $* " in\n'
       printf '  *" auth status "*) exit 0 ;;\n'
+      # Kit issue #1332 item 1: the `target:<name>` label probe. labelmode (4th arg):
+      #   exists (default) : `gh label list` replies with the label the --search asked for
+      #   missing          : `gh label list` replies [] and `gh label create` succeeds
+      #   listfail         : `gh label list` exits 1
+      #   listempty        : `gh label list` exits 0 with EMPTY stdout (not a JSON array)
+      #   createfail       : `gh label list` replies [] and `gh label create` exits 1
+      #   failjson         : `gh label list` prints a valid '[]' but exits 1 (rc must win over the reply)
+      #   fuzzyonly        : `gh label list` replies ONLY a longer, different label (a fuzzy hit)
+      case "$labelmode" in
+        exists)     printf '  *" label list "*) _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; printf "[{\\"name\\":\\"%%s\\"}]\\n" "$_s"; exit 0 ;;\n' ;;
+        fuzzyonly)  printf '  *" label list "*) _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; printf "[{\\"name\\":\\"%%s-extra\\"}]\\n" "$_s"; exit 0 ;;\n' ;;
+        listfail)   printf '  *" label list "*) printf "gh: label list failed\\n" >&2; exit 1 ;;\n' ;;
+        listempty)  printf '  *" label list "*) exit 0 ;;\n' ;;
+        failjson)   printf '  *" label list "*) printf "[]\\n"; exit 1 ;;\n' ;;   # exit 1 BUT a parseable array
+        *)          printf '  *" label list "*) printf "[]\\n"; exit 0 ;;\n' ;;
+      esac
+      if [ "$labelmode" = "createfail" ]; then
+        printf '  *" label create "*) printf "gh: label create failed\\n" >&2; exit 1 ;;\n'
+      else
+        printf '  *" label create "*) exit 0 ;;\n'
+      fi
       case "$mode" in
         match)
           printf '  *" issue list "*) reply OPEN; exit 0 ;;\n'
@@ -697,6 +718,9 @@ fi
 # ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
+# Two open rows (kit issue #1332): used by the label-probe cases (76*) and their teeth.
+TWO_ROWS='| 1 | first delta | CLAUDE.md | B1 | fix | HIGH |
+| 2 | second delta | CLAUDE.md | B2 | fix | HIGH |'
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
 
@@ -1845,6 +1869,56 @@ RETROEOF
     else
       no "T949-4b teeth: -gt 1 gate must exit 0 on one failure" "case 16b is THEATER: rc=$rc_g1"
     fi
+  fi
+
+  # ---- kit issue #1332 item 1 teeth (label probe) — mutants built with tests/lib/mutant.sh ----
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # lbl_mutant <tag> <issue-mode> <label-mode> <sed-expr>: run a 2-row --apply against a mutant of
+  # the SUT; sets LOG/OUT/RC and the N_* counters exactly as lbl_case does. mutant_sed REFUSES a
+  # vacuous, identical, syntax-broken or live-tree mutant, so a refusal is a FAIL, never a pass.
+  lbl_mutant() {
+    local tag="$1" im="$2" lm="$3" expr="$4" mbox mfile
+    mbox="$(mkbox "teeth-label-$tag")"; mk_gh_stub "$mbox" "$im" "" "$lm"
+    mfile="$mbox/research-sdd/toolbelt/stage-retro-issues.sh"
+    if ! mutant_sed "$SUT" "$mfile" -e "$expr"; then
+      no "T1332-$tag: build mutant" "mutant_sed refused (vacuous/identical/broken)"; return 1
+    fi
+    local r; r="$(mk_retro "$mbox" target-foo "r-$tag.md" "<!-- review-status: pending -->" "$TWO_ROWS")"
+    run "$mbox" "$r" --apply
+    LOG="$(cat "$mbox/bin/gh.log" 2>/dev/null)"
+    N_LLIST="$(grep -c 'gh label list' <<<"$LOG")"; N_LCREATE="$(grep -c 'gh label create' <<<"$LOG")"
+    N_ICREATE="$(grep -c 'gh issue create' <<<"$LOG")"; N_DEGR="$(grep -c '^degraded:' <<<"$OUT")"
+    return 0
+  }
+  echo "-- teeth T1332: label probe --"
+  if lbl_mutant skipcall nomatch missing 's/^    ensure_target_label .*/    :/'; then
+    if [ "$N_LLIST" = 0 ] && [ "$N_LCREATE" = 0 ]; then ok "T1332-a teeth: probe call removed → no label traffic (76a/76b have teeth)" "()"
+    else no "T1332-a teeth: probe removed must flip 76a" "76a is THEATER: list=$N_LLIST lcreate=$N_LCREATE"; fi
+  fi
+  if lbl_mutant nocache nomatch exists 's/^  \[ "\$_label_ready" -eq 1 \] && return 0/  :/'; then
+    if [ "$N_LLIST" = 2 ]; then ok "T1332-b teeth: no once-guard → probe per row, 2 lists (76b has teeth)" "()"
+    else no "T1332-b teeth: per-row probe must flip 76b" "76b is THEATER: list=$N_LLIST"; fi
+  fi
+  if lbl_mutant probecont nomatch failjson 's/if \[ "\$_lrc" -ne 0 \]; then/if false; then/'; then
+    if [ "$N_LCREATE" = 1 ] && [ "$N_ICREATE" = 2 ]; then ok "T1332-c teeth: probe exit code ignored → failed probe read as 'missing' (76c2 has teeth)" "()"
+    else no "T1332-c teeth: ignored probe rc must flip 76c2" "76c2 is THEATER: lcreate=$N_LCREATE icreate=$N_ICREATE"; fi
+  fi
+  if lbl_mutant createcont nomatch createfail '/could not be created/{n;s/exit 1/:/;}'; then
+    if [ "$N_ICREATE" = 2 ]; then ok "T1332-d teeth: label-create failure no longer exits → issues created (76d has teeth)" "()"
+    else no "T1332-d teeth: swallowed create failure must flip 76d" "76d is THEATER: icreate=$N_ICREATE"; fi
+  fi
+  if lbl_mutant fuzzy nomatch fuzzyonly 's/tr -d .\[:space:\]. | grep -qF "\\"name\\":\\"\${_lname}\\""/grep -qF "${_lname}"/'; then
+    if [ "$N_LCREATE" = 0 ]; then ok "T1332-e teeth: substring match → fuzzy hit read as 'exists', no create (76f has teeth)" "()"
+    else no "T1332-e teeth: fuzzy match must flip 76f" "76f is THEATER: lcreate=$N_LCREATE"; fi
+  fi
+  if lbl_mutant emptyok nomatch listempty '/printf .%s. "\$_lout" | grep -q/s/if !/if false \&\& !/'; then
+    if [ "$N_ICREATE" = 2 ] || [ "$N_LCREATE" = 1 ]; then ok "T1332-f teeth: empty-reply guard removed → empty reply read as 'missing' (76e has teeth)" "()"
+    else no "T1332-f teeth: removed guard must flip 76e" "76e is THEATER: icreate=$N_ICREATE lcreate=$N_LCREATE"; fi
+  fi
+  if lbl_mutant color nomatch missing 's/--color d4c5f9/--color ededed/'; then
+    if ! grep -qF -- '--color d4c5f9' <<<"$LOG"; then ok "T1332-g teeth: wrong color → convention assertion fails (76a has teeth)" "()"
+    else no "T1332-g teeth: wrong color must flip 76a" "76a is THEATER"; fi
   fi
 
 fi  # --prove-teeth
@@ -3210,6 +3284,93 @@ if [ "$RC" = 0 ] && [ "$lists75f" = 1 ] && ! grep -qF 'Source retro: corpus/retr
   ok "75f --apply: nested corpus/retros → no legacy 'corpus/retros/...' lookup (one list call)" "(lists=$lists75f)"
 else
   no "75f --apply: nested corpus/retros → expected one list call, no 'corpus/retros' signature" "exit=$RC lists=$lists75f log=[$(cat "$box75f/bin/gh.log")]"
+fi
+
+
+# ---------------------------------------------------------------------------
+# 76 — TARGET LABEL PROBE (kit issue #1332 item 1): --apply probes the `target:<name>` label ONCE,
+#      before the first create. Missing -> created with the fleet convention (description
+#      `Fleet target: <name>`, color d4c5f9). A probe or label-create failure -> ONE typed
+#      `degraded:` line + exit 1 before ANY issue create — never N per-row create failures.
+lbl_case() {   # lbl_case <name> <issue-mode> <label-mode> [extra args]
+  local n="$1" im="$2" lm="$3"; shift 3
+  LBOX="$(mkbox "case-label-$n")"
+  mk_gh_stub "$LBOX" "$im" "" "$lm"
+  LRETRO="$(mk_retro "$LBOX" target-foo "r-$n.md" "<!-- review-status: pending -->" "$TWO_ROWS")"
+  run "$LBOX" "$LRETRO" --apply "$@"
+  LOG="$(cat "$LBOX/bin/gh.log" 2>/dev/null)"
+  N_LLIST="$(grep -c 'gh label list' <<<"$LOG")"; N_LCREATE="$(grep -c 'gh label create' <<<"$LOG")"
+  N_ICREATE="$(grep -c 'gh issue create' <<<"$LOG")"; N_DEGR="$(grep -c '^degraded:' <<<"$OUT")"
+}
+
+lbl_case missing nomatch missing
+if [ "$RC" = 0 ] && [ "$N_LLIST" = 1 ] && [ "$N_LCREATE" = 1 ] && [ "$N_ICREATE" = 2 ] \
+   && grep -qF 'gh label create target:target-foo' <<<"$LOG" \
+   && grep -qF -- '--description Fleet target: target-foo' <<<"$LOG" \
+   && grep -qF -- '--color d4c5f9' <<<"$LOG" \
+   && grep -q 'summary: created=2 .*failed=0' <<<"$OUT"; then
+  ok "76a --apply, label missing: ONE probe, ONE label create (convention), then both issues created" "(exit $RC)"
+else
+  no "76a --apply, label missing" "exit=$RC list=$N_LLIST lcreate=$N_LCREATE icreate=$N_ICREATE log=[$LOG] out=[$OUT]"
+fi
+
+lbl_case exists nomatch exists
+if [ "$RC" = 0 ] && [ "$N_LLIST" = 1 ] && [ "$N_LCREATE" = 0 ] && [ "$N_ICREATE" = 2 ]; then
+  ok "76b --apply, label exists: ONE probe for two rows, no label create" "(exit $RC)"
+else
+  no "76b --apply, label exists" "exit=$RC list=$N_LLIST lcreate=$N_LCREATE icreate=$N_ICREATE log=[$LOG]"
+fi
+
+lbl_case listfail nomatch listfail
+if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 0 ] \
+   && grep -q "^degraded:.*target:target-foo" <<<"$OUT" && ! grep -q 'ERROR: gh issue create' <<<"$OUT"; then
+  ok "76c label probe fails: ONE degraded line, exit 1, zero issue creates (never N per-row failures)" "(exit $RC)"
+else
+  no "76c label probe fails" "exit=$RC degr=$N_DEGR icreate=$N_ICREATE lcreate=$N_LCREATE out=[$OUT]"
+fi
+
+lbl_case failjson nomatch failjson
+if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 0 ]; then
+  ok "76c2 label probe exit 1 with a parseable '[]' reply: exit code wins → degraded, no label/issue create" "(exit $RC)"
+else
+  no "76c2 label probe rc must win over the reply" "exit=$RC degr=$N_DEGR icreate=$N_ICREATE lcreate=$N_LCREATE out=[$OUT]"
+fi
+
+lbl_case createfail nomatch createfail
+if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 1 ]; then
+  ok "76d label create fails: ONE degraded line, exit 1, zero issue creates" "(exit $RC)"
+else
+  no "76d label create fails" "exit=$RC degr=$N_DEGR icreate=$N_ICREATE lcreate=$N_LCREATE out=[$OUT]"
+fi
+
+lbl_case listempty nomatch listempty
+if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 0 ]; then
+  ok "76e label probe exit 0 + EMPTY reply: degraded (not read as 'missing' or 'exists'), no creates" "(exit $RC)"
+else
+  no "76e label probe empty reply" "exit=$RC degr=$N_DEGR icreate=$N_ICREATE lcreate=$N_LCREATE out=[$OUT]"
+fi
+
+lbl_case fuzzy nomatch fuzzyonly
+if [ "$RC" = 0 ] && [ "$N_LCREATE" = 1 ] && [ "$N_ICREATE" = 2 ]; then
+  ok "76f fuzzy label hit (target:target-foo-extra) is NOT the label: exact name required, label created" "(exit $RC)"
+else
+  no "76f fuzzy label hit" "exit=$RC lcreate=$N_LCREATE icreate=$N_ICREATE log=[$LOG]"
+fi
+
+LBOX="$(mkbox case-label-dry)"; mk_gh_stub "$LBOX" nomatch "" missing
+LRETRO="$(mk_retro "$LBOX" target-foo r-dry.md "<!-- review-status: pending -->" "$TWO_ROWS")"
+run "$LBOX" "$LRETRO"
+if [ "$RC" = 0 ] && ! grep -q 'gh ' "$LBOX/bin/gh.log" 2>/dev/null; then
+  ok "76g dry-run: no gh call at all (no label probe)" "(exit $RC)"
+else
+  no "76g dry-run must not touch gh" "exit=$RC log=[$(cat "$LBOX/bin/gh.log" 2>/dev/null)]"
+fi
+
+lbl_case alldup match missing
+if [ "$RC" = 0 ] && [ "$N_LLIST" = 0 ] && [ "$N_LCREATE" = 0 ] && [ "$N_ICREATE" = 0 ]; then
+  ok "76h every row already deduped: no label probe (probe is lazy, right before the first create)" "(exit $RC)"
+else
+  no "76h all-duplicate run" "exit=$RC list=$N_LLIST lcreate=$N_LCREATE icreate=$N_ICREATE"
 fi
 
 

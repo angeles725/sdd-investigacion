@@ -735,6 +735,43 @@ _exact_sig_matches() {
 }
 
 # ---------------------------------------------------------------------------
+# STAGE_RETRO_ISSUES_LABEL_PROBE (kit issue #1332 item 1): every issue is created with a
+# `target:<name>` label, and `gh issue create` REJECTS a label that does not exist on the repo.
+# A registered target whose label was never created therefore failed once PER ROW (N identical
+# errors, failed=N). Probe it ONCE, lazily right before the first create:
+#   exists  -> proceed
+#   missing -> create it with the fleet convention (description `Fleet target: <name>`, color
+#              d4c5f9 — the shape of every existing target:* label), then proceed
+#   probe/create failure, or an unusable probe reply -> ONE typed `degraded:` line, exit 1,
+#              before any issue create (an instrument that cannot tell whether the label exists
+#              must not guess it does — anti-silent-zero, CLAUDE.md §7).
+# `gh label list --search` is a fuzzy word match, so the reply is checked for the EXACT name.
+_label_ready=0
+ensure_target_label() {
+  [ "$_label_ready" -eq 1 ] && return 0
+  local _lname="target:${target_name}" _lout _lrc
+  _lout="$(gh label list --repo "$KIT_ISSUE_REPO" --search "$_lname" --limit 100 --json name 2>&1)"
+  _lrc=$?
+  if [ "$_lrc" -ne 0 ]; then
+    echo "degraded: could not probe label '$_lname' on $KIT_ISSUE_REPO (gh label list exit $_lrc): $_lout — no issue was created" >&2
+    exit 1
+  fi
+  if ! printf '%s' "$_lout" | grep -q '^[[:space:]]*\['; then
+    echo "degraded: gh label list returned an unexpected reply for '$_lname' on $KIT_ISSUE_REPO (expected a JSON array): $_lout — no issue was created" >&2
+    exit 1
+  fi
+  if ! printf '%s' "$_lout" | tr -d '[:space:]' | grep -qF "\"name\":\"${_lname}\""; then
+    local _cout
+    if ! _cout="$(gh label create "$_lname" --repo "$KIT_ISSUE_REPO" \
+        --description "Fleet target: ${target_name}" --color d4c5f9 2>&1)"; then
+      echo "degraded: label '$_lname' is missing on $KIT_ISSUE_REPO and could not be created: $_cout — no issue was created" >&2
+      exit 1
+    fi
+  fi
+  _label_ready=1
+}
+
+# ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0
@@ -867,6 +904,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       fi
     fi
 
+    ensure_target_label   # STAGE_RETRO_ISSUES_LABEL_PROBE_CALL: once, before the first create
     _label_flags=""
     IFS=',' read -ra _lbl_arr <<< "$_labels"
     for _lbl in "${_lbl_arr[@]}"; do
