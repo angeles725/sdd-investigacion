@@ -13,11 +13,46 @@ SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; MUTANT26=""; MUTANT27=""; DRIVER58=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$MUTANT26" ] && rm -f "$MUTANT26"; [ -n "$MUTANT27" ] && rm -f "$MUTANT27"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# Mutants and drivers are built in a TEMP COPY of the install dir, never beside the live SUT
+# (kit issue #1156): the copy keeps the relative layout (SELF-based adapters.sh lookup, KIT=SELF/..),
+# every other kit entry is symlinked read-only from the live kit. Everything dies with $TMP, so no
+# per-mutant cleanup list is needed and a SIGKILL leaves nothing in the working tree.
+# shellcheck source=../../toolbelt/tests/lib/mutant.sh
+. "$HERE/../../toolbelt/tests/lib/mutant.sh" || { echo "FATAL: mutant helper missing" >&2; exit 2; }
+MK="$TMP/mkkit"; MKI="$MK/install"
+mkdir -p "$MKI" || { echo "FATAL: cannot create $MKI" >&2; exit 2; }
+for _f in "$KITROOT/install"/*; do
+  [ "$_f" = "$KITROOT/install/tests" ] && continue
+  cp -R "$_f" "$MKI/" || { echo "FATAL: cannot copy $_f into the temp install copy" >&2; exit 2; }
+done
+for _f in "$KITROOT"/*; do
+  [ "$_f" = "$KITROOT/install" ] && continue
+  ln -s "$_f" "$MK/$(basename "$_f")" || { echo "FATAL: cannot link $_f into the temp kit copy" >&2; exit 2; }
+done
+[ -f "$MKI/research-sdd-install.sh" ] && [ -f "$MKI/adapters.sh" ] \
+  || { echo "FATAL: temp install copy is incomplete: $MKI" >&2; exit 2; }
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+
+# --- Live-tree hermeticity (kit issue #1156) ---------------------------------------------------
+# This suite used to write its mutants and drivers INTO research-sdd/install/ (beside the SUT),
+# so a concurrent shellcheck of install/**/*.sh saw transient files and a SIGKILL left them behind.
+# Every mutant and driver now lives in a temp copy of the install dir. The snapshot below is taken
+# before anything runs and compared at the END of the suite, before the EXIT trap removes anything
+# — so a file the suite wrote into the live tree and has not yet cleaned is still seen.
+# Tracked: path + size + mtime of every entry under research-sdd/install (tests/ included).
+# Absent-input guard: a snapshot that is empty or whose find failed would read as "unchanged".
+_install_tree_snapshot() {
+  local out root="${1:-$KITROOT/install}"
+  out="$(find "$root" -mindepth 1 -printf '%P\t%y\t%s\t%T@\n')" || return 1
+  [ -n "$out" ] || return 1
+  # Directories by existence only: a directory's mtime moves on any entry change inside it.
+  printf '%s\n' "$out" | awk -F'\t' '{ if ($2 == "d") print $1 "\td"; else print $1 "\t" $3 ":" $4 }' | LC_ALL=C sort
+}
+INSTALL_SNAP_BEFORE="$(_install_tree_snapshot)" \
+  || { echo "FATAL: cannot snapshot $KITROOT/install (find failed or tree empty)" >&2; exit 2; }
 
 # Normalise a per-run tmp home to a stable placeholder so goldens are machine-independent.
 norm(){ sed "s|$1|{HOME}|g"; }
@@ -32,7 +67,7 @@ normkit(){ sed "s|$KITROOT|{KIT}|g"; }
 # "RC=<n>" plus any stderr from the call; the caller greps the result.
 _direct_clean_profile_dir() {
   local dir="$1" config_root="$2" driver
-  driver="$HERE/../research-sdd-install-direct-clean.$$.sh"
+  driver="$MKI/research-sdd-install-direct-clean.$$.sh"
   printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "$1" "$2"\necho "RC=$?"\n' > "$driver"
   bash "$driver" "$dir" "$config_root" 2>&1
   rm -f "$driver"
@@ -45,7 +80,7 @@ _direct_clean_profile_dir() {
 # not care about the profile-switch WARN.
 _direct_dry_skill_plan() {
   local src="$1" dest="$2" force="$3" label="$4" marker="$5" profile="${6:-}" driver
-  driver="$HERE/../research-sdd-install-direct-plan.$$.sh"
+  driver="$MKI/research-sdd-install-direct-plan.$$.sh"
   printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5" "$6"\n' > "$driver"
   bash "$driver" "$src" "$dest" "$force" "$label" "$marker" "$profile" 2>&1
   rm -f "$driver"
@@ -657,9 +692,10 @@ else no "reasonix orphan warning wrong (got: '$(printf '%s' "$err_51rx" | head -
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the marker-aware splice, expect duplicate sections on re-apply --"
   # Live beside the real SUT so the mutant still resolves adapters.sh + the kit's source SKILL.md.
-  MUTANT="$HERE/../research-sdd-install.MUTANT.$$.sh"
+  MUTANT="$MKI/research-sdd-install.MUTANT.$$.sh"
   # Break the "does the file already carry our marker?" guard so splice always appends.
-  sed 's/grep -Fq -- "\$start" "\$file"/false/' "$SUT" > "$MUTANT"
+  mutant_sed "$SUT" "$MUTANT" 's/grep -Fq -- "\$start" "\$file"/false/' \
+    || no "teeth: MUTANT could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT" 2>/dev/null \
     && ok "teeth: MUTANT1 parses (bash -n)" \
     || no "teeth: MUTANT1 is a syntax error — mutation is theater"
@@ -673,8 +709,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the TOML duplicate-table guard, expect a duplicate [mcp_servers.engram] --"
   # Break the "does preserved content already define an MCP table?" conflict guard so the block is
   # appended even when the user already has [mcp_servers.engram] — producing an invalid duplicate table.
-  MUTANT2="$HERE/../research-sdd-install.MUTANT2.$$.sh"
-  sed 's/grep -Eq "\$conflict"/false/' "$SUT" > "$MUTANT2"
+  MUTANT2="$MKI/research-sdd-install.MUTANT2.$$.sh"
+  mutant_sed "$SUT" "$MUTANT2" 's/grep -Eq "\$conflict"/false/' \
+    || no "teeth: MUTANT2 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT2" 2>/dev/null \
     && ok "teeth: MUTANT2 parses (bash -n)" \
     || no "teeth: MUTANT2 is a syntax error — mutation is theater"
@@ -689,8 +726,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Disable the orphan-skip guard on the TOML path so an orphaned '# research-sdd:start' carrying our own
   # [mcp_servers.*] tables falls through to the append path — producing TWO [mcp_servers.engram] tables
   # (illegal duplicate-table TOML). Proves the skip (not merely the warning) is what prevents corruption.
-  MUTANT3="$HERE/../research-sdd-install.MUTANT3.$$.sh"
-  sed 's/\[ "\$on_orphan" = skip \]/false/' "$SUT" > "$MUTANT3"
+  MUTANT3="$MKI/research-sdd-install.MUTANT3.$$.sh"
+  mutant_sed "$SUT" "$MUTANT3" 's/\[ "\$on_orphan" = skip \]/false/' \
+    || no "teeth: MUTANT3 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT3" 2>/dev/null \
     && ok "teeth: MUTANT3 parses (bash -n)" \
     || no "teeth: MUTANT3 is a syntax error — mutation is theater"
@@ -705,8 +743,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: collapse dry-run diverged label, expect test 32 [SKIP+--force-skill] check to fail --"
   # Break the diverged dry-run branch by replacing the [SKIP label with a neutral string, so the
   # grep for 'INSTALL.*SKIP.*--force-skill' no longer matches — test 32 goes red.
-  MUTANT4="$HERE/../research-sdd-install.MUTANT4.$$.sh"
-  sed 's/SKIP — diverged; use --force-skill to overwrite/up-to-date/' "$SUT" > "$MUTANT4"
+  MUTANT4="$MKI/research-sdd-install.MUTANT4.$$.sh"
+  mutant_sed "$SUT" "$MUTANT4" 's/SKIP — diverged; use --force-skill to overwrite/up-to-date/' \
+    || no "teeth: MUTANT4 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT4" 2>/dev/null \
     && ok "teeth: MUTANT4 parses (bash -n)" \
     || no "teeth: MUTANT4 is a syntax error — mutation is theater"
@@ -723,8 +762,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Replace the backup cp condition with false so the backup step always skips, but the rest of
   # the elif chain is syntactically intact. The SUT still parses; the overwrite runs but no backup
   # is created. Test 34's "backup contains original content" check then fails — proving it bites.
-  MUTANT5="$HERE/../research-sdd-install.MUTANT5.$$.sh"
-  sed 's/elif ! cp "\$dest" "\$bak"; then/elif false; then/' "$SUT" > "$MUTANT5"
+  MUTANT5="$MKI/research-sdd-install.MUTANT5.$$.sh"
+  mutant_sed "$SUT" "$MUTANT5" 's/elif ! cp "\$dest" "\$bak"; then/elif false; then/' \
+    || no "teeth: MUTANT5 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT5" 2>/dev/null \
     && ok "teeth: MUTANT5 parses (bash -n)" \
     || no "teeth: MUTANT5 is a syntax error — mutation is theater"
@@ -741,8 +781,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: disable B1 backup-exists guard, expect test 38 refuse check to fail --"
   # Replace the backup-exists guard with false so --force-skill runs even when backup exists.
   # Test 38's "rc≠0" assertion then fails — proving the guard is what makes the test bite.
-  MUTANT6="$HERE/../research-sdd-install.MUTANT6.$$.sh"
-  sed 's/if \[ -e "\$bak" \]; then/if false; then/' "$SUT" > "$MUTANT6"
+  MUTANT6="$MKI/research-sdd-install.MUTANT6.$$.sh"
+  mutant_sed "$SUT" "$MUTANT6" 's/if \[ -e "\$bak" \]; then/if false; then/' \
+    || no "teeth: MUTANT6 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT6" 2>/dev/null \
     && ok "teeth: MUTANT6 parses (bash -n)" \
     || no "teeth: MUTANT6 is a syntax error — mutation is theater"
@@ -761,8 +802,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT7 parse check skipped (root — chmod 000 is a no-op)"
     ok "teeth: MUTANT7 B3 check skipped (root)"
   else
-    MUTANT7="$HERE/../research-sdd-install.MUTANT7.$$.sh"
-    sed 's/elif \[ ! -r "\$src" \]; then/elif false; then/g' "$SUT" > "$MUTANT7"
+    MUTANT7="$MKI/research-sdd-install.MUTANT7.$$.sh"
+    mutant_sed "$SUT" "$MUTANT7" 's/elif \[ ! -r "\$src" \]; then/elif false; then/g' \
+      || no "teeth: MUTANT7 could not be built (refused by the mutant helper — see above)"
     bash -n "$MUTANT7" 2>/dev/null \
       && ok "teeth: MUTANT7 parses (bash -n)" \
       || no "teeth: MUTANT7 is a syntax error — mutation is theater"
@@ -788,8 +830,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Kill the grep conflict check so the installer appends its managed block even when the user
   # already has name="engram". Because reasonix LAST-WINS silently, the user's entry is then
   # shadowed with no warning — proves the conflict guard is what prevents silent data loss.
-  MUTANT8="$HERE/../research-sdd-install.MUTANT8.$$.sh"
-  sed 's/grep -Eq "\$conflict" "\$scan"/false/' "$SUT" > "$MUTANT8"
+  MUTANT8="$MKI/research-sdd-install.MUTANT8.$$.sh"
+  mutant_sed "$SUT" "$MUTANT8" 's/grep -Eq "\$conflict" "\$scan"/false/' \
+    || no "teeth: MUTANT8 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT8" 2>/dev/null \
     && ok "teeth: MUTANT8 parses (bash -n)" \
     || no "teeth: MUTANT8 is a syntax error — mutation is theater"
@@ -806,8 +849,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Replace the shape argument so the installer always requests the mcp-servers-table form.
   # For reasonix, this emits [mcp_servers.engram] instead of [[plugins]] — the wrong form, proving
   # the shape dispatch is what selects the correct TOML structure.
-  MUTANT9="$HERE/../research-sdd-install.MUTANT9.$$.sh"
-  sed 's/rsdd_render_mcp_toml "\$shape"/rsdd_render_mcp_toml "mcp-servers-table"/' "$SUT" > "$MUTANT9"
+  MUTANT9="$MKI/research-sdd-install.MUTANT9.$$.sh"
+  mutant_sed "$SUT" "$MUTANT9" 's/rsdd_render_mcp_toml "\$shape"/rsdd_render_mcp_toml "mcp-servers-table"/' \
+    || no "teeth: MUTANT9 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT9" 2>/dev/null \
     && ok "teeth: MUTANT9 parses (bash -n)" \
     || no "teeth: MUTANT9 is a syntax error — mutation is theater"
@@ -824,9 +868,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter else fail-loud in rsdd_render_section; expect T-b silent-failure check to fail --"
   # Remove the return 2 in the else branch so an unknown mcp_toml_shape exits 0 (silent) — the
   # pre-fix behaviour. T-b's non-zero exit assertion then fails, proving the else is what makes it bite.
-  MUTANT10="$HERE/../adapters.MUTANT10.$$.sh"
-  sed '/rsdd_render_section: unknown mcp_toml_shape/{n; s/return 2/: # mutated/}' \
-    "$HERE/../adapters.sh" > "$MUTANT10"
+  MUTANT10="$MKI/adapters.MUTANT10.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT10" '/rsdd_render_section: unknown mcp_toml_shape/{n; s/return 2/: # mutated/}' \
+    || no "teeth: MUTANT10 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT10" 2>/dev/null \
     && ok "teeth: MUTANT10 parses (bash -n)" \
     || no "teeth: MUTANT10 is a syntax error — mutation is theater"
@@ -846,8 +890,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: revert orphan-skip reason to wrong wording; expect T-c reasonix check to fail --"
   # Replace the shape-correct plugins-array reason with the old one-size wording ("duplicate TOML
   # table"). Reasonix orphan then warns with the wrong text — T-c's last-wins/shadowing grep fails.
-  MUTANT11="$HERE/../research-sdd-install.MUTANT11.$$.sh"
-  sed 's/last-wins shadowing/a duplicate TOML table/' "$SUT" > "$MUTANT11"
+  MUTANT11="$MKI/research-sdd-install.MUTANT11.$$.sh"
+  mutant_sed "$SUT" "$MUTANT11" 's/last-wins shadowing/a duplicate TOML table/' \
+    || no "teeth: MUTANT11 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT11" 2>/dev/null \
     && ok "teeth: MUTANT11 parses (bash -n)" \
     || no "teeth: MUTANT11 is a syntax error — mutation is theater"
@@ -864,8 +909,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove 'Kit path:' from adapters.sh; expect test-52 'Kit path:' check to fail --"
   # Strip the Kit path: printf line from adapters.sh so the rendered section no longer carries the
   # fast-path anchor. Test 52's 'Kit path:' grep must then fail — proving the emit is what bites.
-  MUTANT12="$HERE/../adapters.MUTANT12.$$.sh"
-  sed '/printf.*Kit path:/d' "$HERE/../adapters.sh" > "$MUTANT12"
+  MUTANT12="$MKI/adapters.MUTANT12.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT12" '/printf.*Kit path:/d' \
+    || no "teeth: MUTANT12 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT12" 2>/dev/null \
     && ok "teeth: MUTANT12 parses (bash -n)" \
     || no "teeth: MUTANT12 is a syntax error — mutation is theater"
@@ -1053,7 +1099,7 @@ bash "$SUT" --home "$home_57" --harness reasonix >/dev/null 2>&1
 #      SUT's functions directly (never a mutant) via a throwaway driver placed BESIDE the real
 #      SUT — SELF-based adapters.sh lookup inside research-sdd-install.sh needs $0 to resolve to
 #      that directory (same technique the MUTANT12 kit-path test above already relies on).
-DRIVER58="$HERE/../research-sdd-install-driver58.$$.sh"
+DRIVER58="$MKI/research-sdd-install-driver58.$$.sh"
 printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "$1" "$2"\necho "RC=$?"\n' > "$DRIVER58"
 mkdir -p "$TMP/outside-guard58"; echo "keepme" > "$TMP/outside-guard58/keepme.txt"
 out_58="$(bash "$DRIVER58" "$TMP/outside-guard58" "$TMP/some-other-config-root" 2>&1)"
@@ -1124,8 +1170,9 @@ else no "62: dry-run identical (rendered profile): missing [up-to-date] (got: $(
 # ── TEETH for the profile feature (kit issue #993 WU2) ────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the unknown-profile guard in main(); expect test 54 to fail --"
-  MUTANT13="$HERE/../research-sdd-install.MUTANT13.$$.sh"
-  sed 's/if ! rsdd_valid_profile "\$resolved" "\$KIT"; then/if false; then/' "$SUT" > "$MUTANT13"
+  MUTANT13="$MKI/research-sdd-install.MUTANT13.$$.sh"
+  mutant_sed "$SUT" "$MUTANT13" 's/if ! rsdd_valid_profile "\$resolved" "\$KIT"; then/if false; then/' \
+    || no "teeth: MUTANT13 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT13" 2>/dev/null \
     && ok "teeth: MUTANT13 parses (bash -n)" \
     || no "teeth: MUTANT13 is a syntax error — mutation is theater"
@@ -1137,8 +1184,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter --profile flag precedence in rsdd_resolve_profile; expect test 53a to fail --"
-  MUTANT14="$HERE/../adapters.MUTANT14.$$.sh"
-  sed 's/if \[ -n "\$flag" \]; then/if false; then/' "$HERE/../adapters.sh" > "$MUTANT14"
+  MUTANT14="$MKI/adapters.MUTANT14.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT14" 's/if \[ -n "\$flag" \]; then/if false; then/' \
+    || no "teeth: MUTANT14 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT14" 2>/dev/null \
     && ok "teeth: MUTANT14 parses (bash -n)" \
     || no "teeth: MUTANT14 is a syntax error — mutation is theater"
@@ -1156,8 +1204,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: force the launcher to always use \$KIT (ignore kit_for_section); expect test 56 to fail --"
-  MUTANT15="$HERE/../research-sdd-install.MUTANT15.$$.sh"
-  sed 's/"\$dispatch" "\$h" "\$home" "\$prompt_file" "\$dry" "\$kit_for_section"/"$dispatch" "$h" "$home" "$prompt_file" "$dry" "$KIT"/' "$SUT" > "$MUTANT15"
+  MUTANT15="$MKI/research-sdd-install.MUTANT15.$$.sh"
+  mutant_sed "$SUT" "$MUTANT15" 's/"\$dispatch" "\$h" "\$home" "\$prompt_file" "\$dry" "\$kit_for_section"/"$dispatch" "$h" "$home" "$prompt_file" "$dry" "$KIT"/' \
+    || no "teeth: MUTANT15 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT15" 2>/dev/null \
     && ok "teeth: MUTANT15 parses (bash -n)" \
     || no "teeth: MUTANT15 is a syntax error — mutation is theater"
@@ -1171,8 +1220,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: skip the render-dir clean call; expect test 57 (stale-render cleanup) to fail --"
-  MUTANT16="$HERE/../research-sdd-install.MUTANT16.$$.sh"
-  sed 's/! _rsdd_clean_profile_dir "\$render_dir" "\$config_root"/! true/' "$SUT" > "$MUTANT16"
+  MUTANT16="$MKI/research-sdd-install.MUTANT16.$$.sh"
+  mutant_sed "$SUT" "$MUTANT16" 's/! _rsdd_clean_profile_dir "\$render_dir" "\$config_root"/! true/' \
+    || no "teeth: MUTANT16 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT16" 2>/dev/null \
     && ok "teeth: MUTANT16 parses (bash -n)" \
     || no "teeth: MUTANT16 is a syntax error — mutation is theater"
@@ -1193,10 +1243,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # catches it, proven by MUTANT18/19 below), so this combined mutant proves what removing BOTH
   # layers together does: the scenario this test always used (two textually-and-really unrelated
   # tmp dirs) needs both neutered to bypass, matching the pre-F2-fix single-layer behaviour.
-  MUTANT17="$HERE/../research-sdd-install.MUTANT17.$$.sh"
-  sed -e 's|"\$config_root"/research-sdd/profile/?\*) ;;|*) ;;|' \
+  MUTANT17="$MKI/research-sdd-install.MUTANT17.$$.sh"
+  mutant_sed "$SUT" "$MUTANT17" -e 's|"\$config_root"/research-sdd/profile/?\*) ;;|*) ;;|' \
       -e 's|"\$prefix_real"/?\*) ;;|*) ;;|' \
-      "$SUT" > "$MUTANT17"
+    || no "teeth: MUTANT17 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT17" 2>/dev/null \
     && ok "teeth: MUTANT17 parses (bash -n)" \
     || no "teeth: MUTANT17 is a syntax error — mutation is theater"
@@ -1221,8 +1271,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # #1 alone never blocks it in the real (unmutated) code either — only the realpath-resolved
   # check (#3) does. Neutering ONLY that check therefore surgically isolates its contribution,
   # independent of MUTANT17 above.
-  MUTANT18="$HERE/../research-sdd-install.MUTANT18.$$.sh"
-  sed 's|"\$prefix_real"/?\*) ;;|*) ;;|' "$SUT" > "$MUTANT18"
+  MUTANT18="$MKI/research-sdd-install.MUTANT18.$$.sh"
+  mutant_sed "$SUT" "$MUTANT18" 's|"\$prefix_real"/?\*) ;;|*) ;;|' \
+    || no "teeth: MUTANT18 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT18" 2>/dev/null \
     && ok "teeth: MUTANT18 parses (bash -n)" \
     || no "teeth: MUTANT18 is a syntax error — mutation is theater"
@@ -1238,8 +1289,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter ONLY the symlink-chain check (F2 review); expect F2e to fail --"
-  MUTANT19="$HERE/../research-sdd-install.MUTANT19.$$.sh"
-  sed 's@\[ -L "\$config_root/research-sdd" \] || \[ -L "\$config_root/research-sdd/profile" \]@false@' "$SUT" > "$MUTANT19"
+  MUTANT19="$MKI/research-sdd-install.MUTANT19.$$.sh"
+  mutant_sed "$SUT" "$MUTANT19" 's@\[ -L "\$config_root/research-sdd" \] || \[ -L "\$config_root/research-sdd/profile" \]@false@' \
+    || no "teeth: MUTANT19 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT19" 2>/dev/null \
     && ok "teeth: MUTANT19 parses (bash -n)" \
     || no "teeth: MUTANT19 is a syntax error — mutation is theater"
@@ -1643,8 +1695,9 @@ fi
 # ── kit issue #1024 review round 2, F1 teeth: skip the linking step ──────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: skip _rsdd_complete_profile_render's linking step; expect F1a/F1b to fail --"
-  MUTANT20="$HERE/../research-sdd-install.MUTANT20.$$.sh"
-  sed 's/elif ! _rsdd_complete_profile_render "\$render_dir" "\$KIT"; then/elif false; then/' "$SUT" > "$MUTANT20"
+  MUTANT20="$MKI/research-sdd-install.MUTANT20.$$.sh"
+  mutant_sed "$SUT" "$MUTANT20" 's/elif ! _rsdd_complete_profile_render "\$render_dir" "\$KIT"; then/elif false; then/' \
+    || no "teeth: MUTANT20 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT20" 2>/dev/null \
     && ok "teeth: MUTANT20 parses (bash -n)" \
     || no "teeth: MUTANT20 is a syntax error — mutation is theater"
@@ -1704,8 +1757,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rm -f "$mutant_recon_f1e"
 
   echo "-- teeth: neuter _rsdd_marker_matches_deployed; expect F4a to fail --"
-  MUTANT21="$HERE/../research-sdd-install.MUTANT21.$$.sh"
-  sed 's/_rsdd_marker_matches_deployed "\$marker" "\$dest"/false/' "$SUT" > "$MUTANT21"
+  MUTANT21="$MKI/research-sdd-install.MUTANT21.$$.sh"
+  mutant_sed "$SUT" "$MUTANT21" 's/_rsdd_marker_matches_deployed "\$marker" "\$dest"/false/' \
+    || no "teeth: MUTANT21 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT21" 2>/dev/null \
     && ok "teeth: MUTANT21 parses (bash -n)" \
     || no "teeth: MUTANT21 is a syntax error — mutation is theater"
@@ -1725,8 +1779,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter the orphaned-render cleanup; expect F4b to fail --"
-  MUTANT22="$HERE/../research-sdd-install.MUTANT22.$$.sh"
-  sed 's/! _rsdd_clean_profile_dir "\$config_root\/research-sdd\/profile\/\$old_profile" "\$config_root"/false/' "$SUT" > "$MUTANT22"
+  MUTANT22="$MKI/research-sdd-install.MUTANT22.$$.sh"
+  mutant_sed "$SUT" "$MUTANT22" 's/! _rsdd_clean_profile_dir "\$config_root\/research-sdd\/profile\/\$old_profile" "\$config_root"/false/' \
+    || no "teeth: MUTANT22 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT22" 2>/dev/null \
     && ok "teeth: MUTANT22 parses (bash -n)" \
     || no "teeth: MUTANT22 is a syntax error — mutation is theater"
@@ -1745,8 +1800,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: revert the item2 relabel; expect item2 to fail --"
-  MUTANT23="$HERE/../research-sdd-install.MUTANT23.$$.sh"
-  sed "s/managed content (matches last install)/managed content from a profile switch/" "$SUT" > "$MUTANT23"
+  MUTANT23="$MKI/research-sdd-install.MUTANT23.$$.sh"
+  mutant_sed "$SUT" "$MUTANT23" "s/managed content (matches last install)/managed content from a profile switch/" \
+    || no "teeth: MUTANT23 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT23" 2>/dev/null \
     && ok "teeth: MUTANT23 parses (bash -n)" \
     || no "teeth: MUTANT23 is a syntax error — mutation is theater"
@@ -1755,7 +1811,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     ok "teeth: MUTANT23 pre-check: mutant differs (relabel reverted)"
   fi
-  driver_m23="$HERE/../research-sdd-install-driver-m23.$$.sh"
+  driver_m23="$MKI/research-sdd-install-driver-m23.$$.sh"
   printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.MUTANT23.'"$$"'.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5"\n' > "$driver_m23"
   out_m23="$(bash "$driver_m23" "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker" 2>&1)"
   rm -f "$driver_m23"
@@ -1766,8 +1822,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter the item3 mixed-state guard; expect item3 to fail --"
-  MUTANT24="$HERE/../research-sdd-install.MUTANT24.$$.sh"
-  sed 's/if \[ -n "\$_deployed_old_profile" \] \&\& \[ "\$_deployed_old_profile" != "\$profile" \]; then/if false; then/' "$SUT" > "$MUTANT24"
+  MUTANT24="$MKI/research-sdd-install.MUTANT24.$$.sh"
+  mutant_sed "$SUT" "$MUTANT24" 's/if \[ -n "\$_deployed_old_profile" \] \&\& \[ "\$_deployed_old_profile" != "\$profile" \]; then/if false; then/' \
+    || no "teeth: MUTANT24 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT24" 2>/dev/null \
     && ok "teeth: MUTANT24 parses (bash -n)" \
     || no "teeth: MUTANT24 is a syntax error — mutation is theater"
@@ -1788,8 +1845,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter the marker-profile validation; expect marker-validate to fail --"
-  MUTANT25="$HERE/../research-sdd-install.MUTANT25.$$.sh"
-  sed 's/if ! rsdd_valid_profile "\$old_profile" "\$KIT"; then/if false; then/' "$SUT" > "$MUTANT25"
+  MUTANT25="$MKI/research-sdd-install.MUTANT25.$$.sh"
+  mutant_sed "$SUT" "$MUTANT25" 's/if ! rsdd_valid_profile "\$old_profile" "\$KIT"; then/if false; then/' \
+    || no "teeth: MUTANT25 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT25" 2>/dev/null \
     && ok "teeth: MUTANT25 parses (bash -n)" \
     || no "teeth: MUTANT25 is a syntax error — mutation is theater"
@@ -1811,8 +1869,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter the item4 launcher-skip check; expect item4 to fail --"
-  MUTANT26="$HERE/../research-sdd-install.MUTANT26.$$.sh"
-  sed 's/if \[ "\$_RSDD_SKILL_BLOCKED_MIXED" = 1 \]; then/if false; then/' "$SUT" > "$MUTANT26"
+  MUTANT26="$MKI/research-sdd-install.MUTANT26.$$.sh"
+  mutant_sed "$SUT" "$MUTANT26" 's/if \[ "\$_RSDD_SKILL_BLOCKED_MIXED" = 1 \]; then/if false; then/' \
+    || no "teeth: MUTANT26 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT26" 2>/dev/null \
     && ok "teeth: MUTANT26 parses (bash -n)" \
     || no "teeth: MUTANT26 is a syntax error — mutation is theater"
@@ -1836,7 +1895,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: neuter the RDD R4-001 dry-run return; expect R3-dry-run-switch-warn to fail --"
-  MUTANT27="$HERE/../research-sdd-install.MUTANT27.$$.sh"
+  MUTANT27="$MKI/research-sdd-install.MUTANT27.$$.sh"
   # A single, well-defined mutation: the dry-run WARN branch stops signalling BLOCKED_MIXED and
   # stops returning failure (both lines immediately after the WARN printf are dropped).
   awk '
@@ -1845,6 +1904,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     in_warn && /return 1/ { in_warn=0; next }
     { print }
   ' "$SUT" > "$MUTANT27"
+  # Built with awk, not mutant_sed: run the same refusals (placement, empty, identical, syntax).
+  mutant_verify "$SUT" "$MUTANT27" \
+    || no "teeth: MUTANT27 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT27" 2>/dev/null \
     && ok "teeth: MUTANT27 parses (bash -n)" \
     || no "teeth: MUTANT27 is a syntax error — mutation is theater"
@@ -1863,6 +1925,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth: MUTANT27 still refused correctly — R3-dry-run-switch-warn check is THEATER (rc=$rc_m27 out=$out_m27)"
   fi
+fi
+
+# Teeth for the hermeticity check itself: the snapshot must register a NEW, a MODIFIED and a
+# REMOVED file (first / middle / last positions), proven on a temp copy — never on the live tree.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: hermeticity snapshot must see a new, a modified and a removed file (temp copy) --"
+  probe="$TMP/hermetic-probe"; mkdir -p "$probe"
+  printf 'a\n' > "$probe/a-first.sh"; printf 'm\n' > "$probe/m-middle.sh"; printf 'z\n' > "$probe/z-last.sh"
+  snap0="$(_install_tree_snapshot "$probe")" || snap0="<failed>"
+  printf 'new\n' > "$probe/n-new.MUTANT.sh"
+  snap1="$(_install_tree_snapshot "$probe")" || snap1="<failed>"
+  if [ "$snap0" != "<failed>" ] && [ "$snap1" != "$snap0" ]; then ok "teeth: a NEW file is registered by the hermeticity snapshot"
+  else no "teeth: a NEW file went unnoticed — hermeticity check is THEATER"; fi
+  printf 'longer content\n' > "$probe/m-middle.sh"
+  snap2="$(_install_tree_snapshot "$probe")" || snap2="<failed>"
+  if [ "$snap2" != "$snap1" ]; then ok "teeth: a MODIFIED file is registered by the hermeticity snapshot"
+  else no "teeth: a MODIFIED file went unnoticed — hermeticity check is THEATER"; fi
+  rm -f "$probe/z-last.sh"
+  snap3="$(_install_tree_snapshot "$probe")" || snap3="<failed>"
+  if [ "$snap3" != "$snap2" ]; then ok "teeth: a REMOVED file is registered by the hermeticity snapshot"
+  else no "teeth: a REMOVED file went unnoticed — hermeticity check is THEATER"; fi
+  if _install_tree_snapshot "$TMP/does-not-exist" >/dev/null 2>&1; then
+    no "teeth: snapshot of an ABSENT root returned success — absent would read as unchanged"
+  else ok "teeth: snapshot of an ABSENT root fails loudly (absent-input is not 'unchanged')"; fi
+fi
+
+# Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
+INSTALL_SNAP_AFTER="$(_install_tree_snapshot)" || INSTALL_SNAP_AFTER="<snapshot failed>"
+if [ "$INSTALL_SNAP_AFTER" = "$INSTALL_SNAP_BEFORE" ]; then
+  ok "hermetic: no path under research-sdd/install was created, modified or removed during the suite"
+else
+  no "hermetic: the suite changed the live install tree: $(diff <(printf '%s\n' "$INSTALL_SNAP_BEFORE") <(printf '%s\n' "$INSTALL_SNAP_AFTER") | grep '^[<>]' | cut -f1 | tr '\n' ' ')"
 fi
 
 echo "== $pass passed · $fail failed =="

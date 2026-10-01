@@ -36,7 +36,7 @@
 #   0 if no suite failed AND at least one suite passed (skipped ≠ passed) AND the
 #     research-sdd/install/tests corpus was actually found (see below).
 #   1 if any suite failed, all suites were skipped (no real coverage), a hermeticity
-#     violation was detected, OR the install-tests corpus is ABSENT-INPUT (kit issue
+#     violation was detected (caller-cwd top level, or any file under research-sdd/ — #1156), OR the install-tests corpus is ABSENT-INPUT (kit issue
 #     #1144: a moved/renamed research-sdd/install/tests must fail the gate loudly, not
 #     silently pass on the toolbelt corpus alone — an EMPTY install/tests dir, by
 #     contrast, is not a failure by itself; it is reported as "= 0 suite(s)").
@@ -130,6 +130,48 @@ if [[ "$HERMETICITY_DEGRADED" -eq 0 ]] && ! _refresh_cwd_entries _prev_entries; 
   echo "run-all.sh: WARNING: hermeticity guard DEGRADED — the cwd scanner ('find -printf', a GNU extension) failed or is unsupported on this platform; cannot verify suites stay hermetic" >&2
 fi
 
+# --- Kit-tree hermeticity guard (kit issue #1156) ---------------------------------------------
+# The cwd guard above only sees top-level entries of the CALLER's cwd. It cannot see a suite that
+# writes INTO the repo tree — the install suite wrote research-sdd-install.MUTANT*.sh beside its
+# SUT, so a concurrent shellcheck of install/ read transient files and a SIGKILL left them behind.
+# This guard snapshots research-sdd/ (resolved from THIS script's location, never the cwd) around
+# every suite; a new, modified or removed entry is attributed to the suite that was running.
+# Files are tracked by path + CONTENT HASH (sha1sum), never mtime: measured on the real tree, ~20
+# suites rewrite committed fixtures with identical bytes (new mtime, no change) and python suites
+# drop __pycache__/*.pyc — flagging either would fail the gate on every run for noise. A file that
+# appears, disappears or changes bytes IS a violation. Directories are not tracked (an empty one is
+# invisible to the repo) and `__pycache__` bytecode is excluded as interpreter residue. Limits: only
+# research-sdd/ is scanned (a leak elsewhere in the repo is outside this enumerator); a suite that
+# rewrites a file and restores the original bytes before exiting is invisible. Like the cwd guard, a scan
+# that cannot run is DEGRADED and fails the run — never a confident 0 (§7).
+KIT_TREE="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)"
+kit_tree_violations=()   # "<suite basename> leaked: <relpath> (new|modified|removed)"
+KIT_TREE_DEGRADED=0
+KIT_TREE_DEGRADED_REASON=""
+_kit_tree_prev=""
+_kit_tree_cur=""
+_scan_kit_tree() {
+  # Sets _kit_tree_cur to a sorted "relpath<TAB>identity" listing. Returns 1 (listing untouched)
+  # when the scan cannot run. STDOUT only: stderr noise from a successful find is never parsed.
+  local _out _rc
+  _out="$(find "$KIT_TREE" -type f -not -path '*/__pycache__/*' -exec sha1sum {} +)"
+  _rc=$?
+  [[ $_rc -eq 0 ]] || return 1
+  _kit_tree_cur="$(printf '%s\n' "$_out" | awk -v pre="$KIT_TREE/" 'NF >= 2 { h = $1; sub(/^[^ ]+  /, ""); if (index($0, pre) == 1) $0 = substr($0, length(pre) + 1); print $0 "\t" h }' | LC_ALL=C sort)"
+  return 0
+}
+if [[ -z "$KIT_TREE" ]]; then
+  KIT_TREE_DEGRADED=1
+  KIT_TREE_DEGRADED_REASON="the kit tree (research-sdd/) could not be resolved from $SCRIPT_DIR"
+  echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED — $KIT_TREE_DEGRADED_REASON" >&2
+elif ! _scan_kit_tree; then
+  KIT_TREE_DEGRADED=1
+  KIT_TREE_DEGRADED_REASON="the kit-tree scanner ('find' + 'sha1sum') failed or is unavailable on this platform"
+  echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED — $KIT_TREE_DEGRADED_REASON" >&2
+else
+  _kit_tree_prev="$_kit_tree_cur"
+fi
+
 # --- Optional flags -------------------------------------------------------
 # No arg = fine; a valid flag = enable that mode; anything else is rejected so
 # a typo (e.g. --prove-teath) can't silently disable teeth while reporting green.
@@ -210,6 +252,7 @@ suites_skipped=()   # basenames of suites that emitted a SKIP: line and exited 0
 # Teeth-tracking (populated only under --prove-teeth; empty under plain run).
 sh_no_teeth=()         # stripped basenames: 0 banners, no flag handling in source
 sh_teeth_nobanner=()   # stripped basenames: handles flag in source, 0 banners at runtime
+sh_teeth_nohelper=()   # stripped basenames: HAS teeth (banner or flag) but never sources lib/mutant.sh (#943)
 
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
@@ -267,6 +310,38 @@ for suite in "${all_suites[@]}"; do
     fi
   fi
 
+  # --- Kit-tree hermeticity check (kit issue #1156): did THIS suite touch research-sdd/? ---
+  # SENTINEL-KIT-TREE-CHECK
+  if [[ "$KIT_TREE_DEGRADED" -eq 0 ]]; then
+    if ! _scan_kit_tree; then
+      KIT_TREE_DEGRADED=1
+      KIT_TREE_DEGRADED_REASON="the kit-tree scanner failed mid-run (after $base)"
+      echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED mid-run (after $base) — the scanner failed; cannot verify remaining suites stay hermetic" >&2
+    elif [[ "$_kit_tree_cur" != "$_kit_tree_prev" ]]; then
+      declare -A _kt_prev_map=() _kt_cur_map=()
+      while IFS=$'\t' read -r _kt_path _kt_id; do
+        [[ -n "$_kt_path" ]] && _kt_prev_map["$_kt_path"]="$_kt_id"
+      done <<< "$_kit_tree_prev"
+      while IFS=$'\t' read -r _kt_path _kt_id; do
+        [[ -n "$_kt_path" ]] && _kt_cur_map["$_kt_path"]="$_kt_id"
+      done <<< "$_kit_tree_cur"
+      for _kt_path in "${!_kt_cur_map[@]}"; do
+        if [[ "${_kt_prev_map[$_kt_path]+set}" != "set" ]]; then
+          kit_tree_violations+=("$base leaked: $_kt_path (new)")
+        elif [[ "${_kt_prev_map[$_kt_path]}" != "${_kt_cur_map[$_kt_path]}" ]]; then
+          kit_tree_violations+=("$base leaked: $_kt_path (modified)")
+        fi
+      done
+      for _kt_path in "${!_kt_prev_map[@]}"; do
+        if [[ "${_kt_cur_map[$_kt_path]+set}" != "set" ]]; then
+          kit_tree_violations+=("$base leaked: $_kt_path (removed)")
+        fi
+      done
+      unset _kt_prev_map _kt_cur_map
+      _kit_tree_prev="$_kit_tree_cur"   # roll forward, or a later suite is re-blamed
+    fi
+  fi
+
   # Parse the LAST matching summary line from the captured output.
   # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
   parsed_line=""
@@ -290,12 +365,20 @@ for suite in "${all_suites[@]}"; do
   # Static: grep suite source for flag-handling keyword to classify no-banner suites.
   if [[ -n "$PROVE_TEETH" && "$base" == *.test.sh ]]; then
     base_noext="${base%.test.sh}"
+    _has_teeth=0
     if grep -qEi '^[[:space:]]*(--|==)[[:space:]]*teeth\b' "$tmp_out" 2>/dev/null; then
-      : # has teeth banners — no tracking needed
+      _has_teeth=1 # has teeth banners — no banner tracking needed
     elif grep -qE '(--prove-teeth|PROVE_TEETH)' "$suite" 2>/dev/null; then
       sh_teeth_nobanner+=("$base_noext")
+      _has_teeth=1
     else
       sh_no_teeth+=("$base_noext")
+    fi
+    # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
+    # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
+    # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
+    if [[ "$_has_teeth" -eq 1 ]] && ! grep -qF 'lib/mutant.sh' "$suite" 2>/dev/null; then
+      sh_teeth_nohelper+=("$base_noext")
     fi
   fi
 
@@ -383,6 +466,19 @@ else
     done
   fi
 fi
+if [[ "$KIT_TREE_DEGRADED" -eq 1 ]]; then
+  echo "Kit-tree hermeticity: DEGRADED — ${KIT_TREE_DEGRADED_REASON:-cause not recorded}; could not verify"
+else
+  echo "Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): ${#kit_tree_violations[@]}"
+  if [[ ${#kit_tree_violations[@]} -gt 0 ]]; then
+    echo "  (a suite must not write into the repo tree — build mutants/fixtures in a temp dir — kit issue #1156)"
+    _kt_sorted=()
+    mapfile -t _kt_sorted < <(printf '%s\n' "${kit_tree_violations[@]}" | LC_ALL=C sort)
+    for kv in "${_kt_sorted[@]}"; do
+      echo "  - $kv"
+    done
+  fi
+fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
   # Sort the tracked lists.
@@ -402,6 +498,12 @@ if [[ -n "$PROVE_TEETH" ]]; then
   if [[ ${#_nb_sorted[@]} -gt 0 ]]; then
     echo "Suites with teeth but no banner: ${#_nb_sorted[@]} — [$_nb_names]"
   fi
+  _nh_sorted=(); if [[ ${#sh_teeth_nohelper[@]} -gt 0 ]]; then
+    mapfile -t _nh_sorted < <(printf '%s\n' "${sh_teeth_nohelper[@]}" | sort)
+  fi
+  _nh_names=""; for _n in "${_nh_sorted[@]}"; do _nh_names="${_nh_names:+$_nh_names, }$_n"; done
+  # SENTINEL-TEETH-HELPER-REPORT
+  echo "Suites with teeth not using lib/mutant.sh: ${#_nh_sorted[@]} — [$_nh_names]"
 fi
 echo "==============================================================="
 
@@ -409,6 +511,7 @@ echo "==============================================================="
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
 if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]] \
+   && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
