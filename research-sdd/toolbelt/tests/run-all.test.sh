@@ -17,6 +17,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/run-all.sh"   # the runner lives NEXT TO this test, not one dir up
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 MID='·'   # literal U+00B7 MIDDLE DOT — the summary-line separator (NOT an ascii period)
 pass=0; fail=0
@@ -667,6 +669,33 @@ else
   else no "hermeticity-scanner-stderr-noise failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
+# 34 — teeth-helper lint (kit issue #943): under --prove-teeth the aggregate names the suites that
+#      HAVE teeth (banner or flag handling) but do not source tests/lib/mutant.sh, so hand-rolled
+#      mutants cannot hide. A suite that mentions the helper, and a suite without teeth at all,
+#      are NOT in that list; the line is informational and never changes the exit code.
+w="$(newdir c34)"
+mkfix_sh    "$w/nt.test.sh" 3 0 0            # no teeth at all -> own category, not this one
+mkfix_teeth "$w/hand.test.sh"                # teeth, hand-rolled mutants
+mkfix_teeth_nobanner "$w/handnb.test.sh"     # teeth without banner, hand-rolled
+mkfix_teeth "$w/helped.test.sh"
+printf '# uses the shared helper: . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"; rc=$?
+_c34line="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
+if [ "$rc" -eq 0 ] && [ "$_c34line" = 'Suites with teeth not using lib/mutant.sh: 2 — [hand, handnb]' ]; then
+  ok "teeth-helper lint: hand-rolled teeth suites named; helper users and no-teeth suites excluded; exit code unchanged"
+else no "teeth-helper lint failed: rc=$rc :: line=[$_c34line]"; fi
+# 34b — plain run (no --prove-teeth) prints no such line (teeth are not evaluated).
+out="$(bash "$w/run-all.sh" 2>&1)"
+if ! grep -qF 'not using lib/mutant.sh' <<<"$out"; then ok "teeth-helper lint: absent from a plain run"
+else no "teeth-helper lint: line present without --prove-teeth"; fi
+# 34c — all teeth suites use the helper -> explicit zero, not a missing line (absent != zero).
+w="$(newdir c34c)"
+mkfix_teeth "$w/helped.test.sh"
+printf '# . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then ok "teeth-helper lint: explicit zero when every teeth suite uses the helper"
+else no "teeth-helper lint zero-state failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1008,6 +1037,22 @@ REPL12
       else
         no "teeth-scanner-stdout-only: mutant still reported 0 violations (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
       fi
+    fi
+  fi
+  # Mutation (kit issue #943): neuter the helper-usage test in SENTINEL-TEETH-HELPER-LINT; a
+  # hand-rolled teeth suite must then vanish from the "not using lib/mutant.sh" line. The mutant
+  # is built through the shared helper, which refuses an empty / identical / syntax-broken one.
+  echo "-- teeth: neuter SENTINEL-TEETH-HELPER-LINT; hand-rolled teeth suite must vanish from the list --"
+  w="$(mut_workdir teeth-helper-lint)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" "/SENTINEL-TEETH-HELPER-LINT/,+8s/&& ! grep -qF 'lib\\/mutant.sh' \"\$suite\" 2>\\/dev\\/null/\\&\\& false/" 2>"$w/mutant.err"; then
+    no "teeth-helper-lint: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/hand.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$mout"; then
+      ok "teeth-helper-lint: neutered lint reports 0 for a hand-rolled teeth suite → lint has real teeth"
+    else
+      no "teeth-helper-lint: mutant still named the hand-rolled suite — lint mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
     fi
   fi
 fi

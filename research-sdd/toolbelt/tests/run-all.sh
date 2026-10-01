@@ -210,6 +210,7 @@ suites_skipped=()   # basenames of suites that emitted a SKIP: line and exited 0
 # Teeth-tracking (populated only under --prove-teeth; empty under plain run).
 sh_no_teeth=()         # stripped basenames: 0 banners, no flag handling in source
 sh_teeth_nobanner=()   # stripped basenames: handles flag in source, 0 banners at runtime
+sh_teeth_nohelper=()   # stripped basenames: HAS teeth (banner or flag) but never sources lib/mutant.sh (#943)
 
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
@@ -290,12 +291,20 @@ for suite in "${all_suites[@]}"; do
   # Static: grep suite source for flag-handling keyword to classify no-banner suites.
   if [[ -n "$PROVE_TEETH" && "$base" == *.test.sh ]]; then
     base_noext="${base%.test.sh}"
+    _has_teeth=0
     if grep -qEi '^[[:space:]]*(--|==)[[:space:]]*teeth\b' "$tmp_out" 2>/dev/null; then
-      : # has teeth banners — no tracking needed
+      _has_teeth=1 # has teeth banners — no banner tracking needed
     elif grep -qE '(--prove-teeth|PROVE_TEETH)' "$suite" 2>/dev/null; then
       sh_teeth_nobanner+=("$base_noext")
+      _has_teeth=1
     else
       sh_no_teeth+=("$base_noext")
+    fi
+    # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
+    # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
+    # byte-identical, syntax-broken, live-tree). Reported, never failed: migration is incremental.
+    if [[ "$_has_teeth" -eq 1 ]] && ! grep -qF 'lib/mutant.sh' "$suite" 2>/dev/null; then
+      sh_teeth_nohelper+=("$base_noext")
     fi
   fi
 
@@ -402,6 +411,12 @@ if [[ -n "$PROVE_TEETH" ]]; then
   if [[ ${#_nb_sorted[@]} -gt 0 ]]; then
     echo "Suites with teeth but no banner: ${#_nb_sorted[@]} — [$_nb_names]"
   fi
+  _nh_sorted=(); if [[ ${#sh_teeth_nohelper[@]} -gt 0 ]]; then
+    mapfile -t _nh_sorted < <(printf '%s\n' "${sh_teeth_nohelper[@]}" | sort)
+  fi
+  _nh_names=""; for _n in "${_nh_sorted[@]}"; do _nh_names="${_nh_names:+$_nh_names, }$_n"; done
+  # SENTINEL-TEETH-HELPER-REPORT
+  echo "Suites with teeth not using lib/mutant.sh: ${#_nh_sorted[@]} — [$_nh_names]"
 fi
 echo "==============================================================="
 
