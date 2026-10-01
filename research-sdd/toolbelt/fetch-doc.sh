@@ -196,23 +196,37 @@ resolve_permanent_redirect() {
 # SENTINEL-HEAD-GUARD above for the same discipline inside resolve_permanent_redirect().
 # curl's own -S diagnostics are never redirected away (round-2 S3).
 fetch_and_register() {
-  local url="$1" dest="$2" effective
-  effective="$(resolve_permanent_redirect "$url")"
+  local url="$1" final="$2" effective
+  # SENTINEL-PART-FILE (kit issue #1285 item 1): NEVER download straight into <dest-file> — a
+  # failed or partial transfer (curl mid-transfer error, wget -O truncation, an empty 200) would
+  # destroy an ALREADY-REGISTERED file whose SOURCES.md row then points at evidence that is gone
+  # ("URLs die; evidence does not"). Every download lands in a SIBLING part file ($dest below) and
+  # is moved over <dest-file> only once it is confirmed non-empty. `$$` is the SCRIPT's pid even
+  # inside this command-substitution subshell, so the main dispatch's trap removes the same name.
+  local dest="$final.part.$$"
+  # Only curl can resolve permanent redirects (the HEAD/GET probe is curl-only); without it the
+  # typed url is used as-is and wget is the sole downloader.
+  if have_cmd curl; then effective="$(resolve_permanent_redirect "$url")"; else effective="$url"; fi
   # SENTINEL-DOWNLOAD: the single shared download call — `-L` is load-bearing (round-3 RS2): the
   # PERMANENT-resolved url may still sit behind one more (temporary) hop to reach the bytes, and
   # without `-L` curl saves the REDIRECT RESPONSE itself as the "document", not the real content.
-  if curl -fsS -L "$effective" -o "$dest"; then
-    # SENTINEL-EMPTY-BEFORE-NOTICE (round-4 N4): a 200 response can still carry an EMPTY body —
-    # print the success notice only once the destination is confirmed non-empty. Printing it
-    # unconditionally right after curl exits 0 would announce a "registered" URL for a fetch
-    # that is about to be rejected by the caller's own `[ -s "$dest" ]` empty-body check, with
-    # nothing actually registered in SOURCES.md — the exact false-success shape round-2 N1 fixed
-    # on the wget-fallback path, reappearing here on the success path.
-    if [ -s "$dest" ] && [ "$effective" != "$url" ]; then
+  if have_cmd curl && curl -fsS -L "$effective" -o "$dest"; then
+    # SENTINEL-EMPTY-GUARD (round-4 N4, moved here by #1285): a 200 response can still carry an
+    # EMPTY body. Reject it BEFORE the move, so it can never replace an existing registered file
+    # and the success notice below is never printed for a fetch that registers nothing — the
+    # false-success shape round-2 N1 fixed on the wget path, reappearing on the success path.
+    if [ ! -s "$dest" ]; then
+      rm -f "$dest"
+      echo "fetch-doc: empty body: $url" >&2
+      exit 1
+    fi
+    mv -f "$dest" "$final" || { rm -f "$dest"; echo "fetch-doc: could not move download into place: $final" >&2; exit 1; }
+    if [ "$effective" != "$url" ]; then
       printf 'fetch-doc: registered %s (permanent redirect from %s)\n' "$effective" "$url" >&2
     fi
     printf '%s' "$effective"
   else
+    rm -f "$dest"  # a curl failure may have left a partial part file; wget starts from scratch
     # SENTINEL-WGET-GUARD (round-4 RDD): wget's own exit status is checked EXPLICITLY (see the
     # errexit note above) — a failing wget must never be treated as a successful fallback. On
     # failure, NOTHING is registered: no "registered ..." line of any kind, a typed failure
@@ -220,21 +234,32 @@ fetch_and_register() {
     # `EFFECTIVE_URL="$(fetch_and_register ...)"` assignment (running under REAL `set -e`, since
     # that call site is not itself inside another command substitution) turns into an immediate
     # script abort, exactly like any other failed command substitution assignment.
-    if wget -q "$url" -O "$dest"; then
+    if have_cmd wget && wget -q "$url" -O "$dest" && [ -s "$dest" ]; then
+      mv -f "$dest" "$final" || { rm -f "$dest"; echo "fetch-doc: could not move download into place: $final" >&2; exit 1; }
       echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2
       printf '%s' "$url"
     else
-      # SENTINEL-WGET-CLEANUP (round-5 R1): real `wget -O` CREATES or TRUNCATES $dest even when
-      # the request itself fails — this `exit 1` aborts the caller's own `EFFECTIVE_URL="$(...)"`
-      # assignment under set -e, which skips the caller's `[ -s "$dest" ] || { rm -f "$dest"; ...
-      # }` empty-body cleanup entirely (that cleanup never runs — the script already exited).
-      # Without this line, a wget failure leaves a 0-byte, unregistered file behind in the
-      # target's evidence tree (doc mode: sources/datasheets/<name>; web mode: the leaked mktemp
-      # HTML, since $dest IS that temp file there).
+      # SENTINEL-WGET-CLEANUP (round-5 R1, reworked by #1285): real `wget -O` CREATES or TRUNCATES
+      # its target even when the request itself fails. That target is now the PART file, so the
+      # registered <dest-file> is never touched; this removes the part file so no debris is left
+      # in the target's evidence tree (this `exit 1` also skips every caller-side cleanup).
       rm -f "$dest"
       echo "fetch-doc: wget fallback ALSO failed for $url; nothing registered" >&2
       exit 1
     fi
+  fi
+}
+
+# have_cmd <name> — true when <name> resolves on PATH.
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+# probe_downloaders — runtime-dependency probe (kit CLAUDE.md §7, issue #1285 item 3). With NEITHER
+# curl nor wget the run can only fail, and "wget fallback ALSO failed" would hide the real cause:
+# emit a typed DEGRADED error naming the missing tools instead. Exit 3 matches the tesseract probe.
+probe_downloaders() {
+  if ! have_cmd curl && ! have_cmd wget; then
+    echo "fetch-doc: DEGRADED: neither curl nor wget is installed — cannot download; nothing registered" >&2
+    exit 3
   fi
 }
 
@@ -249,18 +274,21 @@ case "$MODE" in
     PDF="${2:?pdf required}"
     command -v tesseract >/dev/null || { echo "tesseract not installed" >&2; exit 3; }
     OCR_DIR="$(mktemp -d)"; trap 'rm -rf "$OCR_DIR"' EXIT
-    pdftoppm -r 300 -png "$PDF" "$OCR_DIR/ocr" >/dev/null 2>&1 || { echo "pdftoppm falló" >&2; exit 3; }
+    pdftoppm -r 300 -png "$PDF" "$OCR_DIR/ocr" >/dev/null 2>&1 || { echo "pdftoppm failed" >&2; exit 3; }
     for img in "$OCR_DIR"/ocr-*.png; do tesseract "$img" stdout 2>/dev/null; done
     ;;
   doc)
     URL="${2:?url}"; TDIR="${3:?target-dir}"; SUB="${4:-datasheets}"
+    probe_downloaders
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB"
     NAME="${5:-$(basename "${URL%%\?*}")}"; DEST="$SDIR/$SUB/$NAME"
+    # SENTINEL-TRAP (#1285 item 2): Ctrl-C/TERM mid-download must not leave a partial file. Only
+    # the PART file is removed — $DEST may be an already-registered file and is never touched.
+    trap 'rm -f "$DEST.part.$$"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
     # SENTINEL-DOC-RESOLVE (round-3 RR1): doc mode's own call into the shared resolve+download+
     # register-value pipeline — this is the specific wiring a doc-mode-only mutant must prove
     # matters, mirroring SENTINEL-WEB-RESOLVE below.
     EFFECTIVE_URL="$(fetch_and_register "$URL" "$DEST")"
-    [ -s "$DEST" ] || { echo "fetch-doc: empty body: $URL" >&2; rm -f "$DEST"; exit 1; }
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
     # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
@@ -276,16 +304,19 @@ case "$MODE" in
     ;;
   web)
     URL="${2:?url}"; TDIR="${3:?target-dir}"
+    probe_downloaders
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/web-snapshots"
     SLUG="$(echo "$URL" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
     DEST="$SDIR/web-snapshots/$SLUG.md"
     HTML="$(mktemp)"
+    # SENTINEL-TRAP (#1285 item 2): the mktemp HTML (and its part file) must not leak when a later
+    # cp/pandoc/sha256sum/reg step fails or the run is interrupted.
+    trap 'rm -f "$HTML" "$HTML.part.$$"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM
     # SENTINEL-WEB-RESOLVE (round-1 R1): web mode registers URLs exactly the same way doc mode
     # does — the D4 evidence (cloudflare/retros/2026-08-28-ztna-focus-close.md) is 4 redirected
     # Cloudflare DOC URLs, and every one of those rows is type web-snapshot (fetched via THIS
     # mode, not doc). Round 3: now the SAME shared call as doc mode, not a parallel copy.
     EFFECTIVE_URL="$(fetch_and_register "$URL" "$HTML")"
-    [ -s "$HTML" ] || { echo "fetch-doc: empty body: $URL" >&2; rm -f "$HTML"; exit 1; }
     if command -v pandoc >/dev/null; then
       pandoc -f html -t gfm "$HTML" -o "$DEST" 2>/dev/null || cp "$HTML" "$DEST"
     else cp "$HTML" "$DEST"; fi
