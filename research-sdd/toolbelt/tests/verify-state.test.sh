@@ -2561,6 +2561,32 @@ else
   no "VS-N3-MALFORMED-SCOPE: malformed WARN fired outside Gap-backlog — scope fix missing: [$(echo "$_vsn3m_warn" | grep -i malformed | head -1)]"
 fi
 
+# VS-OOB-5COL (kit #983): a 5-col table OUTSIDE ## Gap-backlog is counted by the backlog exactly like a
+# 4-col OOB table is (mirrors research-sdd-status.sh). Declared io=3 = 1 canonical + 2 OOB 5-col rows.
+vs_oob5() {  # <dir> <investigable_open-declared>
+  local dd="$1" io="$2"; mkdir -p "$dd"
+  { echo '# T'; echo
+    env9 0 0 3 "$io" 0 0 0; echo
+    echo '## Gap-backlog (prioritized)'; echo
+    printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+    echo '| high | g1 | web | pending |'; echo
+    echo '## Extra gaps'; echo
+    printf '| Priority | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n'
+    echo '| high | X1 | one | art | pending |'
+    echo '| medium | X2 | two | art | pending |'; echo
+    echo '## Blocked gaps'; echo '## Stop control'
+    echo '- **Open gaps — read-only investigable**: 3'; } > "$dd/RESEARCH-STATE.md"
+}
+vs_oob5 "$TMP/vs-oob5-ok" 3
+if [ "$(code "$TMP/vs-oob5-ok")" = 0 ]; then
+  ok "VS-OOB-5COL: 5-col OOB rows counted (declared io=3 = 1 canonical + 2 OOB) → exit 0"
+else no "VS-OOB-5COL: exit non-zero — 5-col OOB rows dropped from derive_investigable (derived io=1 != declared 3)"; fi
+vs_oob5 "$TMP/vs-oob5-bad" 1
+_vso5_rev="$(run "$TMP/vs-oob5-bad")"
+if [ "$(code "$TMP/vs-oob5-bad")" = 1 ] && grep -q 'envelope investigable_open=1 != 3 NEXT-eligible' <<<"$_vso5_rev"; then
+  ok "VS-OOB-5COL-REV: declaring io=1 FAILs on investigable_open (derived 3: the OOB 5-col rows are load-bearing)"
+else no "VS-OOB-5COL-REV: want exit 1 naming 'investigable_open=1 != 3' — got [$(grep -i 'FAIL' <<<"$_vso5_rev" | head -2)]"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -3690,7 +3716,7 @@ PYEOF
   if grep -q 'BP-SEP-IN-BACKLOG' "$HERE/../verify-state.sh"; then
     mutantSIB="$TMP/verify-state.SIB.MUTANT.sh"
     cp "$HERE/../verify-state.sh" "$mutantSIB"
-    sed -i 's/in_data=1; if (!in_backlog) next; expected_cols/in_data=1; expected_cols/' "$mutantSIB"
+    sed -i 's/in_data=1; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/in_data=1; expected_cols/' "$mutantSIB"
     if cmp -s "$mutantSIB" "$HERE/../verify-state.sh"; then
       no "teeth-VS-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not remove the guard"
     elif ! bash -n "$mutantSIB" 2>/dev/null; then
@@ -5291,6 +5317,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     's/\[ "\$_n" = "\$excluded" \] && continue/:/' "excluded-name-must-be-hidden"
   hb_mutant "hb-batch-dropped (no ln after a dir)" \
     's/if \[ "\${#_batch\[@\]}" -gt 0 \]; then ln -s -t "\$out_dir" -- "\${_batch\[@\]}"; fi/:/' "alpha-reachable"
+fi
+
+# teeth for kit #983: the OOB-separator width record in the verify-state mirror of the backlog awk.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-VS-OOB5: restore the OOB-separator early return → VS-OOB-5COL goes RED --"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
+  _vo_mut="$TMP/verify-state.OOB5.MUTANT.sh"
+  cp "$SUT" "$_vo_mut"
+  sed -i 's/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next };/if (!in_backlog) next;/' "$_vo_mut"
+  if cmp -s "$_vo_mut" "$SUT"; then
+    no "teeth-VS-OOB5: mutant identical to SUT — sed did not apply"
+  elif ! bash -n "$_vo_mut" 2>/dev/null; then
+    no "teeth-VS-OOB5: mutant has a syntax error"
+  elif bash "$_vo_mut" "$TMP/vs-oob5-ok" >/dev/null 2>&1; then
+    no "teeth-VS-OOB5: mutant still accepts the 5-col OOB fixture — THEATER"
+  else
+    ok "teeth-VS-OOB5: mutant drops the OOB 5-col rows (exit non-zero on the ok fixture) → VS-OOB-5COL RED"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -2576,6 +2576,15 @@ if [ "${_tt_kg:-0}" -ge 2 ]; then
 else
   no "T-TWO-TABLE-SYNC: --sync-state derived known_gaps=${_tt_kg:-0}, want ≥2 (second table not counted)"
 fi
+# Both labeled tables are recognised AS backlog sections: no near-miss / outside-section WARN. (Since #983
+# a 5-col table outside a backlog heading is counted too, so known_gaps alone no longer proves the heading
+# was recognised — the absence of the OOB/near-miss WARN does.)
+_tt_warn="$(bash "$SUT" "$d_tt" --sync-state 2>&1 >/dev/null)"
+if ! grep -qiE 'near-miss|outside ## Gap-backlog' <<<"$_tt_warn"; then
+  ok "T-TWO-TABLE-SYNC-NOWARN: labeled ## Gap-backlog (...) headings recognised (no near-miss/outside WARN)"
+else
+  no "T-TWO-TABLE-SYNC-NOWARN: labeled heading treated as non-backlog — [$(head -1 <<<"$_tt_warn")]"
+fi
 
 # T-OOB-WARN: a backlog-format row outside ## Gap-backlog must emit OOB-WARN to stderr so the
 # author knows to migrate it per METHODOLOGY §8b. Use --sync-state so backlog_rows runs directly
@@ -2948,6 +2957,282 @@ if grep -qi 'malformed' <<<"$_n3m_warn"; then
 else
   no "T-N3-MALFORMED-SCOPE: expected malformed WARN inside Gap-backlog — got: [$(echo "$_n3m_warn" | head -2)]"
 fi
+
+# ==================== kit #911 / #906 / #983 — --sync-state hardening ====================
+# sx_fixture <dir> <stale|none> [file]: one backlog (g1 pending, g2 covered), derived envelope is
+# covered_blocks=0 gaps_closed=1 known_gaps=2 investigable_open=1 (rest 0). "stale" writes a fence with
+# deliberately WRONG counters and NO undocumented_findings line; "none" writes no fence (first seed).
+sx_fixture() {
+  local dir="$1" mode="$2" f="${3:-RESEARCH-STATE.md}"; mkdir -p "$dir"
+  { echo "# T"; echo; echo "> intro"
+    if [ "$mode" = stale ]; then
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 7\ngaps_closed: 9\nknown_gaps: 9\ninvestigable_open: 5\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n'
+    fi
+    echo; echo "## Gap-backlog (prioritized)"; echo
+    echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+    echo "| high | g1 | web | pending |"
+    echo "| medium | g2 | web | covered -> B1 |"; echo
+    echo "## Blocked gaps"; echo
+    echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"
+  } > "$dir/$f"
+}
+sx_env() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&$1==k":"{print $2;exit}' "$1"; }
+sx_md5() { md5sum "$1" | cut -d' ' -f1; }
+
+# SX-1 (#911 ask 3): an EXISTING fence that lacks undocumented_findings must not gain an invented 0.
+d="$TMP/sx1"; sx_fixture "$d" stale
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+if ! grep -q '^undocumented_findings:' "$d/RESEARCH-STATE.md"; then
+  ok "SX-1: existing fence without undocumented_findings is NOT seeded with an invented 0"
+else
+  no "SX-1: sync-state invented undocumented_findings=$(sx_env "$d/RESEARCH-STATE.md" undocumented_findings) in an existing fence that lacked it"
+fi
+# SX-1b: first seed (no fence at all) keeps the METHODOLOGY §7 seeding contract (undocumented_findings: 0).
+d="$TMP/sx1b"; sx_fixture "$d" none
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+[ "$(sx_env "$d/RESEARCH-STATE.md" undocumented_findings)" = "0" ] \
+  && ok "SX-1b: first seed (no fence) still seeds undocumented_findings: 0" \
+  || no "SX-1b: first seed did not seed undocumented_findings: 0 (got [$(sx_env "$d/RESEARCH-STATE.md" undocumented_findings)])"
+
+# SX-2 (#911 ask 2): every counter change vs the declared envelope is REPORTED, never silent.
+d="$TMP/sx2"; sx_fixture "$d" stale
+_sx2_out="$(bash "$SUT" "$d" --sync-state 2>/dev/null)"
+_sx2_ok=1
+for want in 'covered_blocks: 7 -> 0' 'gaps_closed: 9 -> 1' 'known_gaps: 9 -> 2' 'investigable_open: 5 -> 1'; do
+  grep -qE "^sync-state: CHANGED RESEARCH-STATE\.md ${want}\$" <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing CHANGED line for [$want]"; }
+done
+# unchanged counters must NOT be reported (requires_execution_open/blocked_open/deferred_open stayed 0)
+grep -E '^sync-state: CHANGED .* (requires_execution_open|blocked_open|deferred_open):' <<<"$_sx2_out" >/dev/null && { _sx2_ok=0; echo "    unchanged counter reported"; }
+[ "$_sx2_ok" = 1 ] && ok "SX-2: sync-state reports each changed counter (old -> new), and only the changed ones" \
+  || no "SX-2: CHANGED report wrong — stdout=[$_sx2_out]"
+# SX-2b: a second run is a no-op → zero CHANGED lines (list edge: empty change set).
+_sx2b_out="$(bash "$SUT" "$d" --sync-state 2>/dev/null)"
+grep -q 'CHANGED' <<<"$_sx2b_out" && no "SX-2b: idempotent re-run still reports CHANGED: [$_sx2b_out]" \
+  || ok "SX-2b: idempotent re-run reports no CHANGED lines"
+# SX-2c: a counter ABSENT from the fence is reported as (absent) -> value, not silently added.
+d="$TMP/sx2c"; sx_fixture "$d" stale
+sed -i '/^deferred_open:/d' "$d/RESEARCH-STATE.md"
+_sx2c_out="$(bash "$SUT" "$d" --sync-state 2>/dev/null)"
+grep -qE '^sync-state: CHANGED RESEARCH-STATE\.md deferred_open: \(absent\) -> 0$' <<<"$_sx2c_out" \
+  && ok "SX-2c: counter absent from the fence is reported as (absent) -> 0" \
+  || no "SX-2c: absent->0 not reported: [$_sx2c_out]"
+
+# SX-3 (#911 ask 2): --only <field[,field...]> rewrites ONLY the named counters; the rest stay as declared.
+d="$TMP/sx3a"; sx_fixture "$d" stale
+bash "$SUT" "$d" --sync-state --only investigable_open >/dev/null 2>&1; _f="$d/RESEARCH-STATE.md"
+if [ "$(sx_env "$_f" investigable_open)" = 1 ] && [ "$(sx_env "$_f" gaps_closed)" = 9 ] \
+   && [ "$(sx_env "$_f" known_gaps)" = 9 ] && [ "$(sx_env "$_f" covered_blocks)" = 7 ]; then
+  ok "SX-3a: --only investigable_open updates it (5->1) and preserves gaps_closed/known_gaps/covered_blocks"
+else
+  no "SX-3a: io=$(sx_env "$_f" investigable_open) gc=$(sx_env "$_f" gaps_closed) kg=$(sx_env "$_f" known_gaps) cb=$(sx_env "$_f" covered_blocks) (want 1/9/9/7)"
+fi
+# first / middle / last positions of a multi-element list are all honoured
+d="$TMP/sx3b"; sx_fixture "$d" stale
+bash "$SUT" "$d" --sync-state --only covered_blocks,investigable_open,known_gaps >/dev/null 2>&1; _f="$d/RESEARCH-STATE.md"
+if [ "$(sx_env "$_f" covered_blocks)" = 0 ] && [ "$(sx_env "$_f" investigable_open)" = 1 ] \
+   && [ "$(sx_env "$_f" known_gaps)" = 2 ] && [ "$(sx_env "$_f" gaps_closed)" = 9 ]; then
+  ok "SX-3b: --only a,b,c honours first/middle/last (cb->0, io->1, kg->2) and preserves gaps_closed=9"
+else
+  no "SX-3b: cb=$(sx_env "$_f" covered_blocks) io=$(sx_env "$_f" investigable_open) kg=$(sx_env "$_f" known_gaps) gc=$(sx_env "$_f" gaps_closed) (want 0/1/2/9)"
+fi
+# single element that is NOT the investigable counter → investigable_open keeps its stale declared value
+d="$TMP/sx3c"; sx_fixture "$d" stale
+bash "$SUT" "$d" --sync-state --only deferred_open >/dev/null 2>&1; _rc=$?; _f="$d/RESEARCH-STATE.md"
+{ [ "$_rc" = 0 ] && [ "$(sx_env "$_f" investigable_open)" = 5 ] && [ "$(sx_env "$_f" deferred_open)" = 0 ]; } \
+  && ok "SX-3c: --only deferred_open succeeds (rc 0) and leaves investigable_open at its declared value (5)" \
+  || no "SX-3c: rc=$_rc investigable_open=$(sx_env "$_f" investigable_open) — --only did not restrict the rewrite"
+# --only on a first seed (no fence): nothing declared to preserve → full derivation, fence created.
+d="$TMP/sx3d"; sx_fixture "$d" none
+bash "$SUT" "$d" --sync-state --only covered_blocks >/dev/null 2>&1; _f="$d/RESEARCH-STATE.md"
+{ grep -q 'research-state.v1' "$_f" && [ "$(sx_env "$_f" investigable_open)" = 1 ]; } \
+  && ok "SX-3d: --only on a first seed still derives every field (nothing declared to preserve)" \
+  || no "SX-3d: first-seed --only left an incomplete fence (io=[$(sx_env "$_f" investigable_open)])"
+# usage errors → exit 2, a message naming the actual problem (wrong-reason exits do not count), file untouched
+d="$TMP/sx3e"; sx_fixture "$d" stale; _h0="$(sx_md5 "$d/RESEARCH-STATE.md")"
+sx3e_case() {  # <expected-stderr-pattern> <args...>
+  local pat="$1" _e _rc; shift
+  _e="$(bash "$SUT" "$d" "$@" 2>&1 >/dev/null)"; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qE -- "$pat" <<<"$_e" && [ "$(sx_md5 "$d/RESEARCH-STATE.md")" = "$_h0" ]; } \
+    && ok "SX-3e: [$*] → exit 2 + message /$pat/, file untouched" \
+    || no "SX-3e: [$*] rc=$_rc (want 2) stderr=[$_e] want /$pat/ or file modified"
+}
+sx3e_case "unknown counter 'bogus'"            --sync-state --only bogus
+sx3e_case "--only requires a counter list"     --sync-state --only
+sx3e_case "--only requires a counter list"     --sync-state --only ""
+sx3e_case "--only requires a counter list"     --sync-state --only investigable_open,
+sx3e_case "--only requires a counter list"     --sync-state --only ,investigable_open
+sx3e_case "--only requires --sync-state"       --next --only investigable_open
+sx3e_case "--only requires --sync-state"       --only investigable_open
+
+# SX-4 (#983 R3/R4): derived gaps_closed is clamped at 0 with a WARN when the open buckets overlap and
+# exceed known_gaps (a requires-execution row that is ALSO listed blocked is counted in both buckets).
+d="$TMP/sx4"; mkdir -p "$d"
+{ echo "# T"; echo; echo "> intro"; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | rx1 | web | requires-execution |"
+  echo "| high | rx2 | web | requires-execution |"; echo
+  echo "## Blocked gaps"; echo
+  echo "- rx1 — needs: hardware"; echo "- rx2 — needs: hardware"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"
+} > "$d/RESEARCH-STATE.md"
+_sx4_err="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"
+_sx4_gc="$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)"
+if [ "$_sx4_gc" = 0 ] && grep -qi 'clamp' <<<"$_sx4_err"; then
+  ok "SX-4: negative derived gaps_closed clamped to 0 with a WARN naming the clamp"
+else
+  no "SX-4: gaps_closed=[$_sx4_gc] (want 0) clamp-warn=$(grep -qi clamp <<<"$_sx4_err" && echo yes || echo no) err=[$_sx4_err]"
+fi
+
+# SX-5 (#983 R3): a 5-col table OUTSIDE a Gap-backlog heading is counted by the backlog (as 4-col OOB
+# tables already are), not only by the OOB WARN count.
+d="$TMP/sx5"; mkdir -p "$d"
+{ echo "# T"; echo; echo "> intro"; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g1 | web | pending |"; echo
+  echo "## Extra gaps"; echo
+  echo "| Priority | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | X1 | one | art | pending |"
+  echo "| medium | X2 | two | art | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 3"
+} > "$d/RESEARCH-STATE.md"
+_sx5_line="$(bash "$SUT" "$d" 2>/dev/null | grep 'pending backlog')"
+if grep -q 'high=2' <<<"$_sx5_line" && grep -q 'medium=1' <<<"$_sx5_line"; then
+  ok "SX-5: 5-col rows outside ## Gap-backlog are counted by the backlog (high=2 medium=1)"
+else
+  no "SX-5: OOB 5-col rows dropped from the backlog — got [$_sx5_line] want high=2 medium=1"
+fi
+
+# SX-6 (#983 R3): unsupported-width backlog rows must really be EXCLUDED, not just warned about —
+# asserted on the counter the sync writes (T-WIDTH-3/-6 only checked that a WARN was printed).
+for _w in 3 6; do
+  _wd="$TMP/width-$_w"; _wkg="$(bash "$SUT" "$_wd" --sync-state >/dev/null 2>&1; sx_env "$_wd/RESEARCH-STATE.md" known_gaps)"
+  _wio="$(sx_env "$_wd/RESEARCH-STATE.md" investigable_open)"
+  { [ "$_wkg" = 0 ] && [ "$_wio" = 0 ]; } \
+    && ok "SX-6: ${_w}-col backlog rows excluded from counters (known_gaps=0 investigable_open=0)" \
+    || no "SX-6: ${_w}-col rows leaked into counters: kg=[$_wkg] io=[$_wio] (want 0/0)"
+done
+
+# SX-7 (#906): --root targets the un-suffixed RESEARCH-STATE.md of a multi-focus corpus.
+d="$TMP/sx7"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+_ha="$(sx_md5 "$d/RESEARCH-STATE-alpha.md")"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1; _rc=$?
+[ "$_rc" != 0 ] && ok "SX-7a: multi-focus sync without --focus/--root still refuses (SYNC-SCOPE-GUARD intact)" \
+  || no "SX-7a: scope guard no longer refuses (rc=$_rc)"
+bash "$SUT" "$d" --sync-state --root >/dev/null 2>&1; _rc=$?
+if [ "$_rc" = 0 ] && [ "$(sx_env "$d/RESEARCH-STATE.md" investigable_open)" = 1 ] \
+   && [ "$(sx_md5 "$d/RESEARCH-STATE-alpha.md")" = "$_ha" ]; then
+  ok "SX-7b: --sync-state --root re-seeds ONLY the root RESEARCH-STATE.md (sibling focus byte-identical)"
+else
+  no "SX-7b: rc=$_rc root.io=$(sx_env "$d/RESEARCH-STATE.md" investigable_open)(want 1) alpha_changed=$([ "$(sx_md5 "$d/RESEARCH-STATE-alpha.md")" != "$_ha" ] && echo YES || echo no)"
+fi
+bash "$SUT" "$d" --sync-state --root --focus alpha >/dev/null 2>&1; _rc=$?
+[ "$_rc" = 2 ] && ok "SX-7c: --root together with --focus is a usage error (exit 2)" || no "SX-7c: --root --focus rc=$_rc (want 2)"
+d="$TMP/sx7d"; sx_fixture "$d" stale RESEARCH-STATE-alpha.md; _ha="$(sx_md5 "$d/RESEARCH-STATE-alpha.md")"
+_sx7d_err="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"; _rc=$?
+{ [ "$_rc" = 1 ] && grep -q 'no RESEARCH-STATE.md' <<<"$_sx7d_err" && [ "$(sx_md5 "$d/RESEARCH-STATE-alpha.md")" = "$_ha" ]; } \
+  && ok "SX-7d: --root with no root file → exit 1 + named message, nothing written" \
+  || no "SX-7d: rc=$_rc err=[$_sx7d_err]"
+# --next --root reads the root file even though a sibling focus sorts first/also exists
+d="$TMP/sx7e"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+bash "$SUT" "$d" --sync-state --root >/dev/null 2>&1
+bash "$SUT" "$d" --sync-state --focus alpha >/dev/null 2>&1   # verify-state lints EVERY state file, so seed the sibling too
+_sx7e_out="$(bash "$SUT" "$d" --next --root 2>/dev/null)"
+case "$_sx7e_out" in NEXT*g1*) ok "SX-7e: --next --root resolves the root backlog (g1)";; *) no "SX-7e: --next --root out=[$_sx7e_out]";; esac
+# SX-7f: root of a multi-focus corpus whose FOCUSES.md gives no block prefix → covered_blocks is the
+# CORPUS-WIDE count; the operator must be told (issue #906 part 2: the number is not root-scoped).
+d="$TMP/sx7f"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+_sx7f_err="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"
+grep -qi 'corpus-wide' <<<"$_sx7f_err" \
+  && ok "SX-7f: root re-seed in a multi-focus corpus WARNs that covered_blocks is corpus-wide" \
+  || no "SX-7f: no corpus-wide WARN for an unscoped root covered_blocks: [$_sx7f_err]"
+
+# ---- review fixes on #1306 (S1/S2 + clamp/root/awk hardening) ------------------------------------
+# SX-8 (S2, fail-open): whitespace inside --only must be rejected, not silently match nothing.
+d="$TMP/sx8"; sx_fixture "$d" stale; _h0="$(sx_md5 "$d/RESEARCH-STATE.md")"
+sx3e_case "no whitespace" --sync-state --only "known_gaps gaps_closed"
+sx3e_case "no whitespace" --sync-state --only $'known_gaps\tgaps_closed'
+sx3e_case "no whitespace" --sync-state --only "known_gaps "
+
+# SX-9 (S1): the root's corpus-wide covered_blocks is NOT written over a declared value unless named in --only.
+d="$TMP/sx9"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+_sx9_out="$(bash "$SUT" "$d" --sync-state --root 2>"$TMP/sx9.err")"; _sx9_err="$(cat "$TMP/sx9.err")"; _f="$d/RESEARCH-STATE.md"
+if [ "$(sx_env "$_f" covered_blocks)" = 7 ] && [ "$(sx_env "$_f" investigable_open)" = 1 ] \
+   && ! grep -q 'CHANGED RESEARCH-STATE.md covered_blocks' <<<"$_sx9_out" && grep -qi 'corpus-wide' <<<"$_sx9_err" && grep -qi 'kept' <<<"$_sx9_err"; then
+  ok "SX-9a: --root keeps declared covered_blocks=7 (WARN says kept), other counters still re-seeded"
+else
+  no "SX-9a: cb=$(sx_env "$_f" covered_blocks)(want 7) io=$(sx_env "$_f" investigable_open)(want 1) err=[$_sx9_err]"
+fi
+d="$TMP/sx9b"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+bash "$SUT" "$d" --sync-state --root --only covered_blocks >/dev/null 2>&1
+[ "$(sx_env "$d/RESEARCH-STATE.md" covered_blocks)" = 0 ] \
+  && ok "SX-9b: --root --only covered_blocks explicitly writes the corpus-wide count (7 -> 0)" \
+  || no "SX-9b: cb=$(sx_env "$d/RESEARCH-STATE.md" covered_blocks) (want 0 when explicitly named)"
+d="$TMP/sx9c"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+_sx9c_err="$(bash "$SUT" "$d" --sync-state --root --only investigable_open 2>&1 >/dev/null)"
+{ [ "$(sx_env "$d/RESEARCH-STATE.md" covered_blocks)" = 7 ] && ! grep -qi 'corpus-wide' <<<"$_sx9c_err"; } \
+  && ok "SX-9c: --root --only investigable_open: covered_blocks kept and NO corpus-wide WARN (field excluded)" \
+  || no "SX-9c: cb=$(sx_env "$d/RESEARCH-STATE.md" covered_blocks) err=[$_sx9c_err]"
+d="$TMP/sx9d"; sx_fixture "$d" none; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+_sx9d_err="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"
+{ [ "$(sx_env "$d/RESEARCH-STATE.md" covered_blocks)" = 0 ] && grep -qi 'corpus-wide' <<<"$_sx9d_err"; } \
+  && ok "SX-9d: root first seed (nothing declared to keep) writes the derived count and WARNs corpus-wide" \
+  || no "SX-9d: cb=$(sx_env "$d/RESEARCH-STATE.md" covered_blocks) err=[$_sx9d_err]"
+
+# SX-4b (clamp): never overwrite a DECLARED gaps_closed with an invented 0; WARN only when gaps_closed is written.
+sx4b_mk() {
+  mkdir -p "$1"
+  { echo "# T"; echo; echo "> intro"
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 5\nknown_gaps: 5\ninvestigable_open: 0\nrequires_execution_open: 2\nblocked_open: 2\ndeferred_open: 0\n<!-- /research-state.v1 -->\n'; echo
+    sed -n '/^## Gap-backlog/,$p' "$TMP/sx4/RESEARCH-STATE.md" | sed '/^<!-- research-state.v1 -->/,/^<!-- \/research-state.v1 -->/d'
+  } > "$1/RESEARCH-STATE.md"
+}
+d="$TMP/sx4b"; sx4b_mk "$d"
+_sx4b_err="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"
+{ [ "$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)" = 5 ] && grep -qi 'clamp' <<<"$_sx4b_err"; } \
+  && ok "SX-4b: negative derived gaps_closed keeps the DECLARED 5 (no invented 0) + WARN" \
+  || no "SX-4b: gc=$(sx_env "$d/RESEARCH-STATE.md" gaps_closed) (want declared 5) err=[$_sx4b_err]"
+d="$TMP/sx4c"; sx4b_mk "$d"
+_sx4c_err="$(bash "$SUT" "$d" --sync-state --only investigable_open 2>&1 >/dev/null)"
+grep -qi 'clamp' <<<"$_sx4c_err" && no "SX-4c: clamp WARN printed although --only excludes gaps_closed: [$_sx4c_err]" \
+  || ok "SX-4c: no clamp WARN when --only excludes gaps_closed"
+
+# SX-10 (--root ambiguity): only a top-level un-suffixed file, or the sole nested one that sits beside
+# RESEARCH-STATE-<focus>.md siblings, is a root; anything else is refused (exit 1) and nothing is written.
+d="$TMP/sx10a"; sx_fixture "$d" stale RESEARCH-STATE-alpha.md; sx_fixture "$d/archive" stale
+_h="$(sx_md5 "$d/archive/RESEARCH-STATE.md")"
+_e="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"; _rc=$?
+{ [ "$_rc" = 1 ] && [ "$(sx_md5 "$d/archive/RESEARCH-STATE.md")" = "$_h" ] && grep -q 'archive/RESEARCH-STATE.md' <<<"$_e"; } \
+  && ok "SX-10a: --root refuses a lone archive/RESEARCH-STATE.md with no top-level root (exit 1, file untouched, path named)" \
+  || no "SX-10a: rc=$_rc err=[$_e] archive_changed=$([ "$(sx_md5 "$d/archive/RESEARCH-STATE.md")" != "$_h" ] && echo YES || echo no)"
+d="$TMP/sx10b"; sx_fixture "$d" stale; sx_fixture "$d/archive" stale
+_ha="$(sx_md5 "$d/archive/RESEARCH-STATE.md")"; _o="$(bash "$SUT" "$d" --sync-state --root 2>/dev/null)"
+{ [ "$(sx_md5 "$d/archive/RESEARCH-STATE.md")" = "$_ha" ] && grep -qE "^sync-state: wrote /.*/sx10b/RESEARCH-STATE\.md\$" <<<"$_o"; } \
+  && ok "SX-10b: top-level root wins over archive/RESEARCH-STATE.md; FULL written path printed" \
+  || no "SX-10b: out=[$_o]"
+d="$TMP/sx10c"; sx_fixture "$d/corpus" stale; sx_fixture "$d/corpus" stale RESEARCH-STATE-alpha.md
+bash "$SUT" "$d" --sync-state --root >/dev/null 2>&1; _rc=$?
+{ [ "$_rc" = 0 ] && [ "$(sx_env "$d/corpus/RESEARCH-STATE.md" investigable_open)" = 1 ]; } \
+  && ok "SX-10c: nested corpus/ root beside its focus siblings is accepted (COB-IM2 shape)" \
+  || no "SX-10c: rc=$_rc io=$(sx_env "$d/corpus/RESEARCH-STATE.md" investigable_open)"
+d="$TMP/sx10d"; sx_fixture "$d/c1" stale; sx_fixture "$d/c1" stale RESEARCH-STATE-a.md; sx_fixture "$d/c2" stale; sx_fixture "$d/c2" stale RESEARCH-STATE-b.md
+_e="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"; _rc=$?
+{ [ "$_rc" = 1 ] && grep -q 'c1/RESEARCH-STATE.md' <<<"$_e" && grep -q 'c2/RESEARCH-STATE.md' <<<"$_e"; } \
+  && ok "SX-10d: two nested candidate roots → refused (exit 1) listing both" \
+  || no "SX-10d: rc=$_rc err=[$_e]"
+_e="$(bash "$SUT" "$d" --next --root 2>&1)"; _rc=$?
+[ "$_rc" = 1 ] && ok "SX-10e: --next --root with ambiguous roots also refuses (exit 1)" || no "SX-10e: --next --root rc=$_rc out=[$_e]"
+
+# SX-11: a failing awk while rewriting the state must NOT be followed by mv (would truncate the file).
+d="$TMP/sx11"; sx_fixture "$d" stale; _h="$(sx_md5 "$d/RESEARCH-STATE.md")"
+mkdir -p "$TMP/sx11bin"; _realawk="$(command -v awk)"
+printf '#!/bin/sh\ncase "$*" in *repl=*) exit 2;; esac\nexec %s "$@"\n' "$_realawk" > "$TMP/sx11bin/awk"; chmod +x "$TMP/sx11bin/awk"
+_e="$(PATH="$TMP/sx11bin:$PATH" bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"; _rc=$?
+_left="$(find "$d" -name '.rsdd-sync.*' | wc -l | tr -d ' ')"
+{ [ "$_rc" = 1 ] && [ "$(sx_md5 "$d/RESEARCH-STATE.md")" = "$_h" ] && [ "$_left" = 0 ]; } \
+  && ok "SX-11: failing awk → exit 1, state file byte-identical, no temp file left" \
+  || no "SX-11: rc=$_rc changed=$([ "$(sx_md5 "$d/RESEARCH-STATE.md")" != "$_h" ] && echo YES || echo no) tmpleft=$_left err=[$_e]"
 
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -4848,7 +5133,7 @@ BLTGHEOF
   _bpsib_mutant="$TMP/status.BPSIB.MUTANT.sh"
   if grep -q 'BP-SEP-IN-BACKLOG' "$SUT"; then
     cp "$SUT" "$_bpsib_mutant"
-    sed -i 's/in_data=1; if (!in_backlog) next; expected_cols/if (!in_backlog) next; in_data=1; expected_cols/' "$_bpsib_mutant"
+    sed -i 's/in_data=1; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; in_data=1; expected_cols/' "$_bpsib_mutant"
     if cmp -s "$_bpsib_mutant" "$SUT"; then
       no "teeth-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not swap order"
     elif ! bash -n "$_bpsib_mutant" 2>/dev/null; then
@@ -4896,12 +5181,11 @@ open(sys.argv[2], 'w').write(out)
         echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
         echo "| low | N1 | second-table covered gap | bin2.dll | covered -> B2 |"; echo
         echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_tt_m/RESEARCH-STATE.md"
-      bash "$_tt_mutant" "$d_tt_m" --sync-state >/dev/null 2>&1
-      _tt_mut_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_tt_m/RESEARCH-STATE.md")"
-      if [ "${_tt_mut_kg:-0}" -lt 2 ]; then
-        ok "teeth-T-TWO-TABLE-SYNC: mutant (no label group) → labeled section not backlog → known_gaps=${_tt_mut_kg} < 2 → T-TWO-TABLE-SYNC goes RED → labeled-Gap-backlog support is load-bearing"
+      _tt_mut_warn="$(bash "$_tt_mutant" "$d_tt_m" --sync-state 2>&1 >/dev/null)"
+      if grep -qiE 'near-miss|outside ## Gap-backlog' <<<"$_tt_mut_warn"; then
+        ok "teeth-T-TWO-TABLE-SYNC: mutant (no label group) → labeled section not backlog → near-miss/outside WARN fires → T-TWO-TABLE-SYNC-NOWARN goes RED → labeled-Gap-backlog support is load-bearing"
       else
-        no "teeth-T-TWO-TABLE-SYNC: mutant still derived known_gaps=${_tt_mut_kg} ≥ 2 — labeled-heading support not exercised (THEATER)"
+        no "teeth-T-TWO-TABLE-SYNC: mutant emitted no near-miss/outside WARN — labeled-heading support not exercised (THEATER)"
       fi
     fi
   else
@@ -6063,6 +6347,120 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth-STOP-HOOK-STATE: always-wired lib mutant false-reports wired for absent-settings target — has teeth"
   else
     no "teeth-STOP-HOOK-STATE: always-wired lib mutant must false-report wired — THEATER" "out=[$_sh2_out]"
+  fi
+fi
+
+# ----- teeth for kit #911 / #906 / #983 (--sync-state hardening) -----------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"   # mutants resolve $here to $TMP
+  # sx_mutant <name> <sed-script>: build a non-empty, syntactically valid mutant; prints its path.
+  sx_mutant() {
+    local m="$TMP/status.$1.MUTANT.sh"
+    cp "$SUT" "$m"; sed -i "$2" "$m"
+    if cmp -s "$m" "$SUT"; then no "teeth-$1: mutant identical to SUT — sed did not apply" >&2; return 1; fi
+    bash -n "$m" 2>/dev/null || { no "teeth-$1: mutant has a syntax error" >&2; return 1; }
+    printf '%s' "$m"
+  }
+  echo "-- teeth-SX-UF: let the fence-absent undocumented_findings be seeded again → SX-1 goes RED --"
+  if m="$(sx_mutant SX-UF 's/_uf_omit=1; continue; fi  # UF-NO-INVENT/: ; fi  # UF-NO-INVENT/')"; then
+    d="$TMP/teeth-sx-uf"; sx_fixture "$d" stale; bash "$m" "$d" --sync-state >/dev/null 2>&1
+    grep -q '^undocumented_findings:' "$d/RESEARCH-STATE.md" \
+      && ok "teeth-SX-UF: mutant seeds undocumented_findings again → SX-1 RED → the omit branch is load-bearing" \
+      || no "teeth-SX-UF: mutant still omits the field — THEATER"
+  fi
+  echo "-- teeth-SX-CHANGED: drop the CHANGED report → SX-2 goes RED --"
+  if m="$(sx_mutant SX-CHANGED "s/\[ -n \"\$_changed_lines\" \] && printf '%s' \"\$_changed_lines\"/:/")"; then
+    d="$TMP/teeth-sx-changed"; sx_fixture "$d" stale
+    _o="$(bash "$m" "$d" --sync-state 2>/dev/null)"
+    grep -q 'CHANGED' <<<"$_o" && no "teeth-SX-CHANGED: mutant still reports CHANGED — THEATER" \
+      || ok "teeth-SX-CHANGED: mutant prints no CHANGED line → SX-2 RED → the report is load-bearing"
+  fi
+  echo "-- teeth-SX-ONLY: --only stops preserving the declared values → SX-3a/3b go RED --"
+  if m="$(sx_mutant SX-ONLY 's/\*) _nv="\$_ov" ;; esac   # ONLY-KEEP-DECLARED/*) ;; esac   # ONLY-KEEP-DECLARED/')"; then
+    d="$TMP/teeth-sx-only"; sx_fixture "$d" stale; bash "$m" "$d" --sync-state --only investigable_open >/dev/null 2>&1
+    [ "$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)" != 9 ] \
+      && ok "teeth-SX-ONLY: mutant rewrites gaps_closed (9 -> $(sx_env "$d/RESEARCH-STATE.md" gaps_closed)) despite --only investigable_open → SX-3a RED" \
+      || no "teeth-SX-ONLY: mutant still preserves gaps_closed — THEATER"
+  fi
+  echo "-- teeth-SX-ONLY-VALID: drop the unknown-counter rejection → SX-3e (bogus) goes RED --"
+  if m="$(sx_mutant SX-ONLY-VALID '/unknown counter/s/; exit 2 ;; esac/ ;; esac/')"; then
+    d="$TMP/teeth-sx-onlyv"; sx_fixture "$d" stale; bash "$m" "$d" --sync-state --only bogus >/dev/null 2>&1; _rc=$?
+    [ "$_rc" != 2 ] && ok "teeth-SX-ONLY-VALID: mutant accepts --only bogus (rc=$_rc, not 2) → SX-3e RED" \
+      || no "teeth-SX-ONLY-VALID: mutant still exits 2 on --only bogus — THEATER"
+  fi
+  echo "-- teeth-SX-CLAMP: remove the gaps_closed clamp entirely → SX-4 goes RED --"
+  if m="$(sx_mutant SX-CLAMP 's/^        gc="$(pick "" "$(env_get gaps_closed)")"  # GC-CLAMP-KEEP/        :  # GC-CLAMP-KEEP/')"; then
+    d="$TMP/teeth-sx-clamp"; mkdir -p "$d"; cp "$TMP/sx4/RESEARCH-STATE.md" "$d/RESEARCH-STATE.md"
+    sed -i '/<!-- research-state.v1 -->/,/<!-- \/research-state.v1 -->/d' "$d/RESEARCH-STATE.md"
+    bash "$m" "$d" --sync-state >/dev/null 2>&1
+    [ "$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)" != 0 ] \
+      && ok "teeth-SX-CLAMP: mutant writes gaps_closed=$(sx_env "$d/RESEARCH-STATE.md" gaps_closed) (negative) → SX-4 RED" \
+      || no "teeth-SX-CLAMP: mutant still writes 0 — THEATER (fixture may not reach the negative branch)"
+  fi
+  echo "-- teeth-SX-CLAMP-KEEP: clamp to an invented 0 over a declared value → SX-4b goes RED --"
+  if m="$(sx_mutant SX-CLAMP-KEEP 's/^        gc="$(pick "" "$(env_get gaps_closed)")"  # GC-CLAMP-KEEP/        gc=0  # GC-CLAMP-KEEP/')"; then
+    d="$TMP/teeth-sx-clampkeep"; sx4b_mk "$d"; bash "$m" "$d" --sync-state >/dev/null 2>&1
+    [ "$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)" = 0 ] \
+      && ok "teeth-SX-CLAMP-KEEP: mutant overwrites the declared gaps_closed=5 with 0 → SX-4b RED" \
+      || no "teeth-SX-CLAMP-KEEP: mutant still keeps the declared value — THEATER"
+  fi
+  echo "-- teeth-SX-OOB5: restore the OOB-separator early return → SX-5 goes RED --"
+  if m="$(sx_mutant SX-OOB5 's/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next };/if (!in_backlog) next;/')"; then
+    _l="$(bash "$m" "$TMP/sx5" 2>/dev/null | grep 'pending backlog')"
+    grep -q 'high=2' <<<"$_l" && no "teeth-SX-OOB5: mutant still counts the OOB 5-col rows — THEATER" \
+      || ok "teeth-SX-OOB5: mutant drops OOB 5-col rows ([$_l]) → SX-5 RED"
+  fi
+  echo "-- teeth-SX-WIDTH: accept any backlog table width → unsupported-width rows leak into counters → SX-6 goes RED --"
+  if m="$(sx_mutant SX-WIDTH 's/expected_cols=(n==4||n==5)?n:-1;/expected_cols=n;/')"; then
+    _wd="$TMP/teeth-sx-width"; mkdir -p "$_wd"; cp "$TMP/width-6/RESEARCH-STATE.md" "$_wd/RESEARCH-STATE.md"
+    _wkg="$(bash "$m" "$_wd" --sync-state >/dev/null 2>&1; sx_env "$_wd/RESEARCH-STATE.md" known_gaps)"
+    [ "${_wkg:-0}" != 0 ] && ok "teeth-SX-WIDTH: mutant counts the 6-col rows (known_gaps=$_wkg) → SX-6 RED" \
+      || no "teeth-SX-WIDTH: mutant still excludes the 6-col rows — THEATER"
+  fi
+  echo "-- teeth-SX-ROOT: sync ignores the vetted root and globs a sibling focus → SX-7b goes RED --"
+  if m="$(sx_mutant SX-ROOT 's/_focused="$state"  # ROOT-SYNC-SELECT/_focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE*.md" | sort | head -1)"  # ROOT-SYNC-SELECT/')"; then
+    d="$TMP/teeth-sx-root"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+    _ha="$(sx_md5 "$d/RESEARCH-STATE-alpha.md")"
+    bash "$m" "$d" --sync-state --root >/dev/null 2>&1
+    { [ "$(sx_md5 "$d/RESEARCH-STATE-alpha.md")" != "$_ha" ] || [ "$(sx_env "$d/RESEARCH-STATE.md" investigable_open)" != 1 ]; } \
+      && ok "teeth-SX-ROOT: mutant re-seeds the wrong file under --root → SX-7b RED" \
+      || no "teeth-SX-ROOT: mutant still targets only the root — THEATER"
+  fi
+  echo "-- teeth-SX-ROOTWARN: silence the corpus-wide covered_blocks WARN → SX-7f/SX-9a go RED --"
+  if m="$(sx_mutant SX-ROOTWARN '/ROOT-CORPUS-WIDE-WARN/s/\[ "$_cw" = 1 \]/[ "$_cw" = 99 ]/')"; then
+    d="$TMP/teeth-sx-rootwarn"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+    _e="$(bash "$m" "$d" --sync-state --root 2>&1 >/dev/null)"
+    grep -qi 'corpus-wide' <<<"$_e" && no "teeth-SX-ROOTWARN: mutant still warns — THEATER" \
+      || ok "teeth-SX-ROOTWARN: mutant emits no corpus-wide WARN → SX-7f RED"
+  fi
+  echo "-- teeth-SX-WS: drop the whitespace rejection → SX-8 goes RED --"
+  if m="$(sx_mutant SX-WS '/no whitespace/d')"; then
+    d="$TMP/teeth-sx-ws"; sx_fixture "$d" stale; bash "$m" "$d" --sync-state --only "known_gaps gaps_closed" >/dev/null 2>&1; _rc=$?
+    [ "$_rc" != 2 ] && ok "teeth-SX-WS: mutant accepts a space-separated --only (rc=$_rc, nothing rewritten) → SX-8 RED" \
+      || no "teeth-SX-WS: mutant still exits 2 — THEATER"
+  fi
+  echo "-- teeth-SX-CWKEEP: write the corpus-wide count over the declared covered_blocks → SX-9a goes RED --"
+  if m="$(sx_mutant SX-CWKEEP '/CW-KEEP-DECLARED/s/\[ "$_cw" = 1 \]/[ "$_cw" = 99 ]/')"; then
+    d="$TMP/teeth-sx-cwkeep"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+    bash "$m" "$d" --sync-state --root >/dev/null 2>&1
+    [ "$(sx_env "$d/RESEARCH-STATE.md" covered_blocks)" != 7 ] \
+      && ok "teeth-SX-CWKEEP: mutant overwrites declared covered_blocks 7 -> $(sx_env "$d/RESEARCH-STATE.md" covered_blocks) → SX-9a RED" \
+      || no "teeth-SX-CWKEEP: mutant still keeps covered_blocks=7 — THEATER"
+  fi
+  echo "-- teeth-SX-ROOTPICK: accept a lone nested file with no focus siblings as the root → SX-10a goes RED --"
+  if m="$(sx_mutant SX-ROOTPICK '/ROOT-PICK-SIBLINGS/s/| grep -q \.; then/| cat >\/dev\/null; then/')"; then
+    d="$TMP/teeth-sx-rootpick"; sx_fixture "$d" stale RESEARCH-STATE-alpha.md; sx_fixture "$d/archive" stale
+    bash "$m" "$d" --sync-state --root >/dev/null 2>&1; _rc=$?
+    [ "$_rc" = 0 ] && ok "teeth-SX-ROOTPICK: mutant writes archive/RESEARCH-STATE.md as the root (rc 0) → SX-10a RED" \
+      || no "teeth-SX-ROOTPICK: mutant still refuses the archive file — THEATER"
+  fi
+  echo "-- teeth-SX-AWK: drop the awk exit check before mv → SX-11 goes RED --"
+  if m="$(sx_mutant SX-AWK '/AWK-CHECK/s/ || { rm -f "$tmp".*$//')"; then
+    d="$TMP/teeth-sx-awk"; sx_fixture "$d" stale; _h="$(sx_md5 "$d/RESEARCH-STATE.md")"
+    PATH="$TMP/sx11bin:$PATH" bash "$m" "$d" --sync-state >/dev/null 2>&1
+    [ "$(sx_md5 "$d/RESEARCH-STATE.md")" != "$_h" ] \
+      && ok "teeth-SX-AWK: mutant lets a failed awk clobber the state file → SX-11 RED" \
+      || no "teeth-SX-AWK: mutant still preserves the file — THEATER"
   fi
 fi
 
