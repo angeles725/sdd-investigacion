@@ -376,7 +376,7 @@ for suite in "${all_suites[@]}"; do
     fi
     # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
     # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
-    # byte-identical, syntax-broken, live-tree). Reported, never failed: migration is incremental.
+    # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
     if [[ "$_has_teeth" -eq 1 ]] && ! grep -qF 'lib/mutant.sh' "$suite" 2>/dev/null; then
       sh_teeth_nohelper+=("$base_noext")
     fi

@@ -132,6 +132,36 @@ expect_rc "placement: OUT that is a dangling symlink is refused (rc 9)" 9 "symli
 if [ ! -e "$TMP/never-created.txt" ]; then ok "placement: dangling symlink target was not created"
 else no "placement: dangling symlink target was created"; fi
 
+# 8f — TMPDIR inside a git repo (e.g. <repo>/.tmp, git-ignored): a legitimate temp OUT lies under
+#      the repo's top level. A git-IGNORED OUT is accepted (it can neither be committed nor is it
+#      the tracked tree); an un-ignored path in the same repo is still refused.
+if command -v git >/dev/null 2>&1; then
+  rep="$TMP/repo-f"; mkdir -p "$rep/.tmp/out" "$rep/other" && git init -q "$rep" 2>/dev/null
+  printf '.tmp/\n' > "$rep/.gitignore"
+  printf '#!/usr/bin/env bash\necho hello\n' > "$rep/sut.sh"; git -C "$rep" add sut.sh .gitignore 2>/dev/null
+  MUTANT_TMPROOT="$rep/.tmp" mutant_sed "$rep/sut.sh" "$rep/.tmp/out/ok.sh" 's/hello/x/' 2>/dev/null; rc=$?
+  if [ "$rc" -eq 0 ]; then ok "placement: TMPDIR inside a repo — git-ignored OUT is accepted"
+  else no "placement: TMPDIR inside a repo — git-ignored OUT was refused (rc=$rc)"; fi
+  expect_rc "placement: TMPDIR inside a repo — un-ignored OUT in the same repo is still refused (rc 8, live tree)" 8 "live tree" \
+    env MUTANT_TMPROOT="$rep" "$BASH" -c ". '$LIB'; mutant_sed '$rep/sut.sh' '$rep/other/y.sh' 's/hello/x/'"
+fi
+
+# 8g — inherited GIT_DIR / GIT_WORK_TREE must not redirect the live-tree lookup to another repo
+#      (with GIT_DIR pointing elsewhere the old lookup resolved the wrong "live tree" and wrote into
+#      the real one, rc 0).
+if command -v git >/dev/null 2>&1; then
+  git init -q "$TMP/decoy-repo" 2>/dev/null
+  expect_rc "placement: inherited GIT_DIR/GIT_WORK_TREE are ignored (rc 8, live tree)" 8 "live tree" \
+    env GIT_DIR="$TMP/decoy-repo/.git" GIT_WORK_TREE="$TMP/decoy-repo" MUTANT_TMPROOT="$TMP/root-d" \
+    "$BASH" -c ". '$LIB'; mutant_sed '$TMP/root-d/repo/sut.sh' '$TMP/root-d/repo/z.sh' 's/hello/x/'"
+fi
+
+# 8h — OUT whose parent directory does not exist: refused, but NOT mislabelled as "live tree".
+nd_err="$(mutant_sed "$ORIG" "$TMP/no-such-dir/x.sh" 's/hello/x/' 2>&1 >/dev/null)"; nd_rc=$?
+if [ "$nd_rc" -eq 8 ] && [[ "$nd_err" == *"does not exist"* ]] && [[ "$nd_err" != *"live tree"* ]]; then
+  ok "placement: OUT in a missing directory is refused as missing (rc 8), not as live tree"
+else no "placement: OUT in a missing directory (rc=$nd_rc; stderr=[$nd_err])"; fi
+
 # 9 — mutant_verify on an externally built mutant (non-sed construction).
 ext="$TMP/ext.sh"; cp "$ORIG" "$ext"
 expect_rc "verify: externally built identical copy is refused (rc 4)" 4 "identical" \
@@ -185,8 +215,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "empty: a mutant that deletes everything is refused"
   teeth_case syntax '/SENTINEL-SYNTAX-CHECK/,+6s/return 5/:/' \
     "syntax: mutant that is not valid bash is refused"
-  teeth_case livetree '/SENTINEL-LIVE-TREE-CHECK/,+1s/ || _mutant_under "\$real_out" "\$live"//' \
+  teeth_case livetree '/SENTINEL-LIVE-TREE-CHECK/,+5s/_mutant_under "\$real_out" "\$live"/false/' \
     "placement: OUT at live-repo/LIVE.MUTANT.sh is refused"
+  teeth_case ignoreexempt '/SENTINEL-LIVE-TREE-CHECK/,+5s/&& ! _mutant_git "\$live" check-ignore -q -- "\$real_out\/\$(basename -- "\$out")" 2>\/dev\/null;/\&\& true;/' \
+    "placement: TMPDIR inside a repo — git-ignored OUT was refused"
+  teeth_case ignoreall '/SENTINEL-LIVE-TREE-CHECK/,+5s/&& ! _mutant_git "\$live" check-ignore -q -- "\$real_out\/\$(basename -- "\$out")" 2>\/dev\/null;/\&\& false;/' \
+    "placement: TMPDIR inside a repo — un-ignored OUT in the same repo is still refused"
+  teeth_case gitenv 's/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git/git/' \
+    "placement: inherited GIT_DIR/GIT_WORK_TREE are ignored"
   teeth_case tmproot '/SENTINEL-TMPROOT-CHECK/,+1s/! _mutant_under "\$real_out" "\$real_root"/false/' \
     "placement: OUT outside MUTANT_TMPROOT is refused"
   teeth_case symlink '/SENTINEL-SYMLINK-CHECK/,+3s/return 9/:/' \

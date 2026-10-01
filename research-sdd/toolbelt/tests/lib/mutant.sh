@@ -22,8 +22,9 @@
 #   · 9 OUT is a symlink (a write would go THROUGH it to another file)
 #
 # "The live tree" is the git work tree containing ORIG (`git rev-parse --show-toplevel`), or ORIG's
-# own physical directory when git is absent or ORIG is not in a work tree. Placement is TWO
-# independent conditions: OUT must NOT be at or under the live tree, AND must be under the temp
+# own physical directory when git is absent or ORIG is not in a work tree (git is run with
+# GIT_DIR / GIT_WORK_TREE / GIT_COMMON_DIR removed). A git-ignored OUT is exempt from the live-tree
+# test. Placement is TWO independent conditions: OUT must NOT be at or under the live tree, AND must be under the temp
 # root. The second alone is not enough — a clone under /tmp, or a TMPDIR that is an ancestor of the
 # kit, puts the live tree under the temp root.
 #
@@ -42,6 +43,11 @@ _mutant_realdir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 # _mutant_under <path> <root> — true when path equals root or lies below it (both physical).
 _mutant_under() { [ "$1" = "$2" ] || [ "${1#"$2"/}" != "$1" ]; }
 
+# _mutant_git <dir> <git-args...> — git in <dir> with the repository-selecting environment removed:
+# an inherited GIT_DIR / GIT_WORK_TREE would otherwise redirect the lookup to a DIFFERENT repo and
+# the "live tree" would silently be the wrong one.
+_mutant_git() { local d="$1"; shift; env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$d" "$@"; }
+
 # _mutant_live_root <orig> — physical root of the tree ORIG lives in; fails (no output) when ORIG's
 # directory cannot be resolved.
 _mutant_live_root() {
@@ -49,7 +55,7 @@ _mutant_live_root() {
   odir="$(_mutant_realdir "$(dirname -- "$1")")" || return 1
   [ -n "$odir" ] || return 1
   if command -v git >/dev/null 2>&1; then
-    top="$(git -C "$odir" rev-parse --show-toplevel 2>/dev/null)" || top=""
+    top="$(_mutant_git "$odir" rev-parse --show-toplevel 2>/dev/null)" || top=""
     [ -n "$top" ] && top="$(_mutant_realdir "$top")"
   fi
   printf '%s' "${top:-$odir}"
@@ -64,8 +70,14 @@ _mutant_check_out() {
   fi
   real_out="$(_mutant_realdir "$(dirname -- "$out")")"
   live="$(_mutant_live_root "$orig")"
+  if [ -z "$real_out" ]; then
+    _mutant_refuse "OUT directory '$(dirname -- "$out")' does not exist"; return 8
+  fi
   # SENTINEL-LIVE-TREE-CHECK
-  if [ -z "$real_out" ] || [ -z "$live" ] || _mutant_under "$real_out" "$live"; then
+  # A git-IGNORED OUT is exempt: it is not part of the tracked tree and cannot be committed, which is
+  # what makes TMPDIR=<repo>/.tmp (ignored) usable. An un-ignored path in the same repo is refused.
+  if [ -z "$live" ] || { _mutant_under "$real_out" "$live" \
+       && ! _mutant_git "$live" check-ignore -q -- "$real_out/$(basename -- "$out")" 2>/dev/null; }; then
     _mutant_refuse "OUT '$out' is in the live tree (${live:-unresolved}) — a mutant must be built in a temp copy, never beside the SUT"; return 8
   fi
   root="${MUTANT_TMPROOT:-${TMPDIR:-/tmp}}"
