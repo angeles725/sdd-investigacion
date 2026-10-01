@@ -679,7 +679,7 @@ mkfix_sh    "$w/nt.test.sh" 3 0 0            # no teeth at all -> own category, 
 mkfix_teeth "$w/hand.test.sh"                # teeth, hand-rolled mutants
 mkfix_teeth_nobanner "$w/handnb.test.sh"     # teeth without banner, hand-rolled
 mkfix_teeth "$w/helped.test.sh"
-printf '# uses the shared helper: . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"; rc=$?
 _c34line="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
 if [ "$rc" -eq 0 ] && [ "$_c34line" = 'Suites with teeth not using lib/mutant.sh: 2 — [hand, handnb]' ]; then
@@ -692,10 +692,25 @@ else no "teeth-helper lint: line present without --prove-teeth"; fi
 # 34c — all teeth suites use the helper -> explicit zero, not a missing line (absent != zero).
 w="$(newdir c34c)"
 mkfix_teeth "$w/helped.test.sh"
-printf '# . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
 if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then ok "teeth-helper lint: explicit zero when every teeth suite uses the helper"
 else no "teeth-helper lint zero-state failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
+
+# 34d — lint precision (kit issue #1299 item 5): a COMMENT that merely mentions the helper must not
+#       satisfy the lint; only a real `.`/`source` line does. Indented and `source` forms count;
+#       a comment that happens to contain `; . lib/mutant.sh` does not.
+w="$(newdir c34d)"
+mkfix_teeth "$w/cmt-only.test.sh"
+printf '# shellcheck source=lib/mutant.sh\n# . "$HERE/lib/mutant.sh"\n# a; . "$HERE/lib/mutant.sh"\n' >> "$w/cmt-only.test.sh"
+mkfix_teeth "$w/src-dot.test.sh";    printf '  . "$HERE/lib/mutant.sh"\n'      >> "$w/src-dot.test.sh"
+mkfix_teeth "$w/src-word.test.sh";   printf 'source "$HERE/lib/mutant.sh"\n'   >> "$w/src-word.test.sh"
+mkfix_teeth "$w/src-guard.test.sh";  printf '. "$HERE/lib/mutant.sh" || exit 2\n' >> "$w/src-guard.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+_c34dline="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
+if [ "$_c34dline" = 'Suites with teeth not using lib/mutant.sh: 1 — [cmt-only]' ]; then
+  ok "teeth-helper lint precision: a comment mentioning the helper is NOT use; indented/source/guarded source lines are"
+else no "teeth-helper lint precision failed: line=[$_c34dline]"; fi
 
 # 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
 #      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
@@ -1118,12 +1133,12 @@ REPL12
       fi
     fi
   fi
-  # Mutation (kit issue #943): neuter the helper-usage test in SENTINEL-TEETH-HELPER-LINT; a
+  # Mutation (kit issue #943): neuter the helper-usage test in SENTINEL-HELPER-USE-TEST; a
   # hand-rolled teeth suite must then vanish from the "not using lib/mutant.sh" line. The mutant
   # is built through the shared helper, which refuses an empty / identical / syntax-broken one.
-  echo "-- teeth: neuter SENTINEL-TEETH-HELPER-LINT; hand-rolled teeth suite must vanish from the list --"
+  echo "-- teeth: neuter SENTINEL-HELPER-USE-TEST; hand-rolled teeth suite must vanish from the list --"
   w="$(mut_workdir teeth-helper-lint)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" "/SENTINEL-TEETH-HELPER-LINT/,+8s/&& ! grep -qF 'lib\\/mutant.sh' \"\$suite\" 2>\\/dev\\/null/\\&\\& false/" 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/&& ! {/\&\& false \&\& ! {/' 2>"$w/mutant.err"; then
     no "teeth-helper-lint: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/hand.test.sh"
@@ -1132,6 +1147,22 @@ REPL12
       ok "teeth-helper-lint: neutered lint reports 0 for a hand-rolled teeth suite → lint has real teeth"
     else
       no "teeth-helper-lint: mutant still named the hand-rolled suite — lint mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
+    fi
+  fi
+  # Mutation (kit issue #1299 item 5): drop the comment filter; a suite that only MENTIONS the
+  # helper in a comment must then be counted as a helper user (vanish from the list).
+  echo "-- teeth: drop the comment filter; a comment-only mention must vanish from the list (case 34d) --"
+  w="$(mut_workdir teeth-helper-comment)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/grep -vE [^|]*|/cat "$suite" |/' 2>"$w/mutant.err"; then
+    no "teeth-helper-comment: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/cmt-only.test.sh"
+    printf '# a; . "$HERE/lib/mutant.sh"\n' >> "$w/cmt-only.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$mout"; then
+      ok "teeth-helper-comment: without the comment filter a comment-only mention passes the lint → filter has real teeth"
+    else
+      no "teeth-helper-comment: mutant still named the comment-only suite — mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
     fi
   fi
   # Mutation (kit issue #1156): neuter the change test in SENTINEL-KIT-TREE-CHECK; a suite that

@@ -377,7 +377,10 @@ for suite in "${all_suites[@]}"; do
     # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
     # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
     # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
-    if [[ "$_has_teeth" -eq 1 ]] && ! grep -qF 'lib/mutant.sh' "$suite" 2>/dev/null; then
+    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use. Comment lines are dropped
+    # first, then an actual `.`/`source` of lib/mutant.sh must remain (line start or after ; & | { ( ).
+    # SENTINEL-HELPER-USE-TEST
+    if [[ "$_has_teeth" -eq 1 ]] && ! { grep -vE '^[[:space:]]*#' "$suite" 2>/dev/null | grep -qE '(^|[;&|{(])[[:space:]]*(\.|source)[[:space:]]+[^#]*lib/mutant\.sh'; }; then
       sh_teeth_nohelper+=("$base_noext")
     fi
   fi
