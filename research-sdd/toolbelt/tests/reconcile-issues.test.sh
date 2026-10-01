@@ -163,6 +163,27 @@ run() {
     "$@" 2>&1)"; RC=$?
 }
 
+# mk_open_retro <path>: a pending retro with ONE open row; creates parent dirs; echoes the path.
+mk_open_retro() {
+  mkdir -p "$(dirname "$1")"
+  {
+    printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+    printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+    printf '| 1 | a delta | CLAUDE.md | B1 | fix | HIGH |\n'
+  } > "$1"
+  printf '%s' "$1"
+}
+# mk_targets <box> <name> <path-token> [<name2> <path-token2>]: rewrite the box's TARGETS.md.
+mk_targets() {
+  local box="$1"
+  {
+    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
+    printf '| 1 | %s | `%s` |\n' "$2" "$3"
+    [ -z "${4:-}" ] || printf '| 2 | %s | `%s` |\n' "$4" "$5"
+  } > "$box/research-sdd/TARGETS.md"
+}
+# cache_for <file> <name> <retro-basename> [<row>]: a cache holding exactly one signature line.
+cache_for() { printf 'Source retro: %s/retros/%s · %s\n' "$2" "$3" "${4:-1}" > "$1"; }
 echo "== reconcile-issues.test.sh =="
 
 # ---------------------------------------------------------------------------
@@ -1176,6 +1197,88 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "T-OOS teeth: locate out-of-scope-marker guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
+  # ---- kit issue #1287 teeth -------------------------------------------------------------------
+  # tooth_swap <box> <anchor> <replacement>: overwrite the box's reconcile-issues.sh with the
+  # mutant; refuses a vacuous (anchor missing / byte-identical) or syntactically broken mutant.
+  tooth_swap() {
+    local box="$1" anchor="$2" repl="$3"
+    local file="$box/research-sdd/toolbelt/reconcile-issues.sh" content
+    content="$(cat "$file")"
+    if [[ "$content" != *"$anchor"* ]]; then
+      no "tooth_swap: locate anchor" "anchor not found in SUT — drifted? anchor=[$anchor]"; return 1
+    fi
+    printf '%s\n' "${content/"$anchor"/"$repl"}" > "$file"
+    if cmp -s "$file" "$SUT"; then no "tooth_swap: mutant" "identical to the SUT — vacuous"; return 1; fi
+    if ! "$BASH_BIN" -n "$file" 2>/dev/null; then no "tooth_swap: mutant passes bash -n" "syntax error — crash-based theater"; return 1; fi
+    return 0
+  }
+
+  # T1287a: single mode ignores the helper → falls back to basename → case 27 flips to untracked.
+  echo "-- teeth T1287a: single mode uses the basename, not the registered name --"
+  box_ta="$(mkbox teeth-sig-name)"; mk_gh_stub "$box_ta" nomatch
+  mk_targets "$box_ta" reg-name "$box_ta/rh/target-foo"
+  retro_ta="$(mk_open_retro "$box_ta/rh/target-foo/retros/r.md")"; cache_for "$ROOT/cache-ta.txt" reg-name r.md
+  if tooth_swap "$box_ta" '_tgt_name="$(target_name_for_retro "$TARGETS_MD" "$retro")"' '_tgt_name=""'; then
+    run "$box_ta" --issues-cache "$ROOT/cache-ta.txt" "$retro_ta"
+    if grep -q '^untracked:' <<<"$OUT"; then ok "T1287a teeth: basename signature → untracked (case 27 has teeth)" "()"
+    else no "T1287a teeth: basename signature must flip case 27" "case 27 is THEATER: out=[$OUT]"; fi
+  fi
+
+  # T1287b: --all stops scanning corpus/retros → case 29 loses the retro (retros=0).
+  echo "-- teeth T1287b: --all drops <target>/corpus/retros --"
+  box_tb="$(mkbox teeth-all-corpus)"; mk_gh_stub "$box_tb" nomatch
+  mk_targets "$box_tb" reg-name "$box_tb/rh/target-foo"; rm -rf "$box_tb/rh/target-foo/retros"
+  mk_open_retro "$box_tb/rh/target-foo/corpus/retros/r.md" >/dev/null; cache_for "$ROOT/cache-tb.txt" reg-name r.md
+  if tooth_swap "$box_tb" 'for _retros_dir in "$_tgt_path/retros" "$_tgt_path/corpus/retros"; do' 'for _retros_dir in "$_tgt_path/retros"; do'; then
+    run "$box_tb" --all --issues-cache "$ROOT/cache-tb.txt"
+    if grep -q 'retros=0' <<<"$OUT"; then ok "T1287b teeth: corpus/retros dropped → retros=0 (case 29 has teeth)" "()"
+    else no "T1287b teeth: corpus/retros dropped must flip case 29" "case 29 is THEATER: out=[$OUT]"; fi
+  fi
+
+  # T1287c: --all labels every retro with the target's basename, not the per-retro helper name.
+  echo "-- teeth T1287c: --all uses the basename instead of the per-retro registered name --"
+  box_tc="$(mkbox teeth-all-name)"; mk_gh_stub "$box_tc" nomatch
+  mk_targets "$box_tc" reg-name "$box_tc/rh/target-foo"
+  mk_open_retro "$box_tc/rh/target-foo/retros/r.md" >/dev/null; cache_for "$ROOT/cache-tc.txt" reg-name r.md
+  if tooth_swap "$box_tc" '_rf_name="$(target_name_for_retro "$TARGETS_MD" "$_rfile")"' '_rf_name="$_tgt_nm"'; then
+    run "$box_tc" --all --issues-cache "$ROOT/cache-tc.txt"
+    if grep -q 'untracked=1' <<<"$OUT"; then ok "T1287c teeth: basename in --all → untracked=1 (case 30 has teeth)" "()"
+    else no "T1287c teeth: basename in --all must flip case 30" "case 30 is THEATER: out=[$OUT]"; fi
+  fi
+
+  # T1287d: swallow the operational failure → WARN + guess again (case 34).
+  echo "-- teeth T1287d: neuter the TARGETS.md operational-failure exit --"
+  box_td="$(mkbox teeth-opfail)"; mk_gh_stub "$box_td" nomatch
+  retro_td="$(mk_open_retro "$box_td/rh/target-foo/retros/r.md")"; : > "$ROOT/cache-td.txt"
+  rm -f "$box_td/research-sdd/TARGETS.md"
+  if tooth_swap "$box_td" 'if [ "$_tnr_rc" -eq 1 ]; then' 'if false; then'; then
+    run "$box_td" --issues-cache "$ROOT/cache-td.txt" "$retro_td"
+    if grep -q '^untracked:' <<<"$OUT"; then ok "T1287d teeth: failure exit neutered → verdict on a guessed name (case 34 has teeth)" "()"
+    else no "T1287d teeth: failure exit neutered must flip case 34" "case 34 is THEATER: out=[$OUT]"; fi
+  fi
+
+  # T1287e: structural-name guard removed → nested unregistered retro audited under 'corpus' (case 35).
+  echo "-- teeth T1287e: neuter the structural-name guard --"
+  box_te="$(mkbox teeth-structural)"; mk_gh_stub "$box_te" nomatch
+  mk_targets "$box_te" other "$box_te/rh/other"; mkdir -p "$box_te/rh/other"
+  retro_te="$(mk_open_retro "$box_te/rh/target-foo/corpus/retros/r.md")"; : > "$ROOT/cache-te.txt"
+  if tooth_swap "$box_te" '      corpus|retros)' '      __never_matches__)'; then
+    run "$box_te" --issues-cache "$ROOT/cache-te.txt" "$retro_te"
+    if grep -q '^untracked:' <<<"$OUT"; then ok "T1287e teeth: guard neutered → audited under 'corpus' (case 35 has teeth)" "()"
+    else no "T1287e teeth: guard neutered must flip case 35" "case 35 is THEATER: out=[$OUT]"; fi
+  fi
+
+  # T1287f: the empty-dir WARN ignores sibling layouts (always WARN) → case 36 flips.
+  echo "-- teeth T1287f: empty-dir WARN regardless of the sibling layout --"
+  box_tf="$(mkbox teeth-empty-flat)"; mk_gh_stub "$box_tf" nomatch
+  mk_targets "$box_tf" reg-name "$box_tf/rh/target-foo"
+  mk_open_retro "$box_tf/rh/target-foo/corpus/retros/r.md" >/dev/null; cache_for "$ROOT/cache-tf.txt" reg-name r.md
+  if tooth_swap "$box_tf" 'if [ "$_tgt_found" -eq 0 ] && [ -n "$_empty_dirs" ]; then' 'if [ -n "$_empty_dirs" ]; then'; then
+    run "$box_tf" --all --issues-cache "$ROOT/cache-tf.txt"
+    if grep -q 'no retro files' <<<"$OUT"; then ok "T1287f teeth: unconditional WARN → misleading 'no retro files' (case 36 has teeth)" "()"
+    else no "T1287f teeth: unconditional WARN must flip case 36" "case 36 is THEATER: out=[$OUT]"; fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -1265,6 +1368,168 @@ if [ "$RC" = 0 ] && grep -qi '^unclassifiable:' <<<"$OUT" \
   ok "26 canonical section, no rows, NOT honest → unclassifiable" "(exit $RC)"
 else
   no "26 canonical section, no rows, NOT honest → expected unclassifiable" "exit=$RC out=[$OUT]"
+fi
+
+
+# ---------------------------------------------------------------------------
+# kit issue #1287 item 1: stage-retro-issues.sh stamps `Source retro: <TARGETS name>/retros/<file>`
+# (name from the nearest registered ancestor — lib/target-paths.sh target_name_for_retro), so
+# reconcile (single AND --all) must search the SAME signature and --all must also reach
+# <target>/corpus/retros. Before the fix a target whose registered name differs from its path
+# basename reported every newly seeded issue as `untracked` forever (inviting manual duplicates).
+# Assertions use here-strings, not `printf | grep -q` (SIGPIPE-prone under pipefail, #1162).
+
+# 27 — SINGLE, flat layout, registered name != basename: the name-based signature is TRACKED
+#      (RED pre-fix: reconcile searched `target-foo/retros/...` and reported untracked).
+box27="$(mkbox case-sig-name-flat)"
+mk_gh_stub "$box27" nomatch
+mk_targets "$box27" reg-name "$box27/rh/target-foo"
+retro27="$(mk_open_retro "$box27/rh/target-foo/retros/r27.md")"
+cache_for "$ROOT/cache27.txt" reg-name r27.md
+run "$box27" --issues-cache "$ROOT/cache27.txt" "$retro27"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && ! grep -q '^untracked:' <<<"$OUT"; then
+  ok "27 single flat: registered name != basename → tracked by the name signature" "(exit $RC)"
+else
+  no "27 single flat: registered name != basename → expected tracked" "exit=$RC out=[$OUT]"
+fi
+
+# 28 — SINGLE, nested corpus layout (<target>/corpus/retros), name != basename → tracked.
+box28="$(mkbox case-sig-name-nested)"
+mk_gh_stub "$box28" nomatch
+mk_targets "$box28" reg-name "$box28/rh/target-foo"
+retro28="$(mk_open_retro "$box28/rh/target-foo/corpus/retros/r28.md")"
+cache_for "$ROOT/cache28.txt" reg-name r28.md
+run "$box28" --issues-cache "$ROOT/cache28.txt" "$retro28"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && ! grep -qi 'not found in' <<<"$OUT"; then
+  ok "28 single nested corpus/retros → tracked by the name signature, no basename WARN" "(exit $RC)"
+else
+  no "28 single nested corpus/retros → expected tracked" "exit=$RC out=[$OUT]"
+fi
+
+# 29 — --all reaches <target>/corpus/retros (RED pre-fix: retros=0, empty-input) and uses the name.
+box29="$(mkbox case-all-corpus)"
+mk_gh_stub "$box29" nomatch
+mk_targets "$box29" reg-name "$box29/rh/target-foo"
+rm -rf "$box29/rh/target-foo/retros"
+mk_open_retro "$box29/rh/target-foo/corpus/retros/r29.md" >/dev/null
+cache_for "$ROOT/cache29.txt" reg-name r29.md
+run "$box29" --all --issues-cache "$ROOT/cache29.txt"
+if [ "$RC" = 0 ] && grep -q 'fleet-summary: tracked=1 untracked=0 .*retros=1' <<<"$OUT"; then
+  ok "29 --all finds <target>/corpus/retros and tracks it by the registered name" "(exit $RC)"
+else
+  no "29 --all finds <target>/corpus/retros and tracks it by the registered name" "exit=$RC out=[$OUT]"
+fi
+
+# 30 — --all, flat layout, name != basename → tracked by the name; flat + corpus together → both.
+box30="$(mkbox case-all-flat-and-corpus)"
+mk_gh_stub "$box30" nomatch
+mk_targets "$box30" reg-name "$box30/rh/target-foo"
+mk_open_retro "$box30/rh/target-foo/retros/r30a.md" >/dev/null
+mk_open_retro "$box30/rh/target-foo/corpus/retros/r30b.md" >/dev/null
+{ printf 'Source retro: reg-name/retros/r30a.md · 1\n'; printf 'Source retro: reg-name/retros/r30b.md · 1\n'; } > "$ROOT/cache30.txt"
+run "$box30" --all --issues-cache "$ROOT/cache30.txt"
+if [ "$RC" = 0 ] && grep -q 'fleet-summary: tracked=2 untracked=0 .*retros=2' <<<"$OUT"; then
+  ok "30 --all flat + corpus/retros of one target → both audited under the name" "(exit $RC)"
+else
+  no "30 --all flat + corpus/retros of one target → expected tracked=2 retros=2" "exit=$RC out=[$OUT]"
+fi
+
+# 31 — --all, TWO targets, one retros dir each at a different depth: first / last positions both
+#      resolve (list edges), and a target with NEITHER retros nor corpus/retros still WARNs (the
+#      anti-silent-zero message survives) without hiding the others.
+box31="$(mkbox_all case-all-edges)"
+mk_gh_stub "$box31" nomatch
+rm -rf "$box31/rh/beta-target/retros"
+mk_open_retro "$box31/rh/alpha-target/retros/r31a.md" >/dev/null
+mk_open_retro "$box31/rh/beta-target/corpus/retros/r31b.md" >/dev/null
+{ printf 'Source retro: alpha-target/retros/r31a.md · 1\n'; printf 'Source retro: beta-target/retros/r31b.md · 1\n'; } > "$ROOT/cache31.txt"
+run "$box31" --all --issues-cache "$ROOT/cache31.txt"; out31a="$OUT"; rc31a=$RC
+rm -rf "$box31/rh/beta-target/corpus"
+run "$box31" --all --issues-cache "$ROOT/cache31.txt"; out31b="$OUT"; rc31b=$RC
+if [ "$rc31a" = 0 ] && grep -q 'fleet-summary: tracked=2 untracked=0 .*retros=2' <<<"$out31a" \
+  && [ "$rc31b" = 0 ] && grep -q 'fleet-summary: tracked=1 untracked=0 .*retros=1' <<<"$out31b" \
+  && grep -q "WARN: no retros/ directory for target 'beta-target'" <<<"$out31b"; then
+  ok "31 --all two targets (flat / corpus): both resolve; retro-less target still WARNs" "(rc=$rc31a/$rc31b)"
+else
+  no "31 --all two targets (flat / corpus)" "with-both=[$out31a] without-beta=[$out31b]"
+fi
+
+# 32 — SINGLE with NESTED REGISTERED targets: the NEAREST ancestor's name is the signature.
+box32="$(mkbox case-sig-nested-registered)"
+mk_gh_stub "$box32" nomatch
+mk_targets "$box32" outer-name "$box32/rh/target-foo" inner-name "$box32/rh/target-foo/inner-t"
+retro32="$(mk_open_retro "$box32/rh/target-foo/inner-t/retros/r32.md")"
+cache_for "$ROOT/cache32.txt" inner-name r32.md
+run "$box32" --issues-cache "$ROOT/cache32.txt" "$retro32"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT"; then
+  ok "32 single, nested registered targets → nearest (inner) name is the signature" "(exit $RC)"
+else
+  no "32 single, nested registered targets → expected tracked via inner-name" "exit=$RC out=[$OUT]"
+fi
+
+# 33 — SINGLE with a raw `$RESEARCH_HOME/...` row token (the form every real row uses).
+box33="$(mkbox case-sig-raw-rh)"
+mk_gh_stub "$box33" nomatch
+mk_targets "$box33" rh-name '$RESEARCH_HOME/rh/target-foo'
+retro33="$(mk_open_retro "$box33/rh/target-foo/corpus/retros/r33.md")"
+cache_for "$ROOT/cache33.txt" rh-name r33.md
+RESEARCH_HOME="$box33" run "$box33" --issues-cache "$ROOT/cache33.txt" "$retro33"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT"; then
+  ok "33 single, raw \$RESEARCH_HOME row token → registered name is the signature" "(exit $RC)"
+else
+  no "33 single, raw \$RESEARCH_HOME row token → expected tracked via rh-name" "exit=$RC out=[$OUT]"
+fi
+
+# 34 — OPERATIONAL failures (kit issue #1287 item 3): TARGETS.md absent / zero rows → exit 1 with a
+#      typed message in SINGLE mode (was a WARN + basename guess that then reported untracked).
+box34="$(mkbox case-targets-absent)"
+mk_gh_stub "$box34" nomatch
+retro34="$(mk_open_retro "$box34/rh/target-foo/retros/r34.md")"
+: > "$ROOT/cache34.txt"
+rm -f "$box34/research-sdd/TARGETS.md"
+run "$box34" --issues-cache "$ROOT/cache34.txt" "$retro34"; out34a="$OUT"; rc34a=$RC
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box34/research-sdd/TARGETS.md"
+run "$box34" --issues-cache "$ROOT/cache34.txt" "$retro34"; out34b="$OUT"; rc34b=$RC
+if [ "$rc34a" = 1 ] && grep -qi 'cannot read' <<<"$out34a" && ! grep -q '^untracked:' <<<"$out34a" \
+  && [ "$rc34b" = 1 ] && grep -qi 'no registered target' <<<"$out34b" && ! grep -q '^untracked:' <<<"$out34b"; then
+  ok "34 single: TARGETS.md absent / zero-row → exit 1, typed message, no verdict" "(rc=$rc34a/$rc34b)"
+else
+  no "34 single: TARGETS.md absent / zero-row → expected exit 1 + typed message" "absent=[$out34a] empty=[$out34b]"
+fi
+
+# 35 — UNREGISTERED: flat keeps the WARN + basename fallback; nested (structural basename) is refused.
+box35="$(mkbox case-unregistered)"
+mk_gh_stub "$box35" nomatch
+mk_targets "$box35" other "$box35/rh/other"
+mkdir -p "$box35/rh/other"
+: > "$ROOT/cache35.txt"
+retro35f="$(mk_open_retro "$box35/rh/target-foo/retros/r35f.md")"
+retro35n="$(mk_open_retro "$box35/rh/target-foo/corpus/retros/r35n.md")"
+run "$box35" --issues-cache "$ROOT/cache35.txt" "$retro35f"; out35f="$OUT"; rc35f=$RC
+run "$box35" --issues-cache "$ROOT/cache35.txt" "$retro35n"; out35n="$OUT"; rc35n=$RC
+if [ "$rc35f" = 0 ] && grep -qi "using basename 'target-foo'" <<<"$out35f" \
+  && [ "$rc35n" = 1 ] && grep -qi 'cannot resolve target' <<<"$out35n" && ! grep -q '^untracked:' <<<"$out35n"; then
+  ok "35 single: flat unregistered → WARN + basename; nested unregistered → exit 1" "(rc=$rc35f/$rc35n)"
+else
+  no "35 single: unregistered handling" "flat=[$out35f] nested=[$out35n]"
+fi
+
+# 36 — --all, an EMPTY flat retros/ next to a populated corpus/retros: no "no retro files" WARN (it
+#      would claim the opposite of what was audited); an empty flat retros/ with NOTHING else still
+#      WARNs (anti-silent-zero preserved).
+box36="$(mkbox case-all-empty-flat)"
+mk_gh_stub "$box36" nomatch
+mk_targets "$box36" reg-name "$box36/rh/target-foo"
+mk_open_retro "$box36/rh/target-foo/corpus/retros/r36.md" >/dev/null
+cache_for "$ROOT/cache36.txt" reg-name r36.md
+run "$box36" --all --issues-cache "$ROOT/cache36.txt"; out36a="$OUT"; rc36a=$RC
+rm -rf "$box36/rh/target-foo/corpus"
+run "$box36" --all --issues-cache "$ROOT/cache36.txt"; out36b="$OUT"; rc36b=$RC
+if [ "$rc36a" = 0 ] && ! grep -q 'no retro files' <<<"$out36a" && grep -q 'retros=1' <<<"$out36a" \
+  && [ "$rc36b" = 0 ] && grep -q "WARN: no retro files (\*.md) found in '.*/target-foo/retros'" <<<"$out36b"; then
+  ok "36 --all: empty flat retros/ is quiet when corpus/retros has files, WARNs when nothing exists" "(rc=$rc36a/$rc36b)"
+else
+  no "36 --all: empty-flat WARN handling" "with-corpus=[$out36a] nothing=[$out36b]"
 fi
 
 echo "== $pass passed · $fail failed =="
