@@ -35,11 +35,20 @@ done
 # shellcheck source=lib/retro-status.sh
 . "$_rs_lib"
 declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit 0; }
+declare -F block_files_nested_worktree_roots >/dev/null 2>&1 || { printf 'retro-gate: block_files_nested_worktree_roots not defined\n' >&2; exit 0; }
+declare -F block_files_path_in_nested_worktree >/dev/null 2>&1 || { printf 'retro-gate: block_files_path_in_nested_worktree not defined\n' >&2; exit 0; }
 declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit 0; }
 declare -F retro_marker_scope_line >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_scope_line not defined\n' >&2; exit 0; }
 declare -F retro_status_from_marker_line >/dev/null 2>&1 || { printf 'retro-gate: retro_status_from_marker_line not defined\n' >&2; exit 0; }
 declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_is_partial not defined\n' >&2; exit 0; }
 declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_out_of_scope not defined\n' >&2; exit 0; }
+
+# ── Nested worktree copies (kit issue #1223) ──────────────────────────────────
+# _nw_roots: newline-separated nested-worktree roots under $TARGET, probed ONCE below (after the
+# early loop-safety / block-once exits, so those cheap paths never pay for the find). A path under
+# one of them is a copy of the corpus, never a research file or a retro of this target.
+_nw_roots=""
+_in_nested_worktree() { block_files_path_in_nested_worktree "$1" "$_nw_roots"; }
 
 # ── §18-EN3: auto issue-seeding on session close ──────────────────────────────
 
@@ -112,6 +121,7 @@ _run_issue_seeding() {
   local failed_list=""
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
+    _in_nested_worktree "$rf" && continue   # NW-RETRO-GUARD-SEED
     retro_is_excluded "$rf" && continue
     _retro_is_seedable "$rf" || continue
     ran=$((ran + 1))
@@ -206,12 +216,17 @@ _run_issue_seeding() {
 _json_escape_reason() {
   local s="$1"
   local _dq='"'
+  local _esc_dq='\"'         # the two characters \ and " — assigned once, single-quoted
   s="${s//\\/\\\\}"          # \ → \\  (must be first)
-  s="${s//$_dq/"\\$_dq"}"   # " → \"  (kit issue #1142 review round 3: the replacement operand
-                             # must be quoted — an unescaped '&' in it would otherwise expand to
-                             # the matched text regardless of the outer quoting; verified
-                             # byte-identical output before/after, since $_dq is the fixed
-                             # constant '"' and never contains '&')
+  s=${s//$_dq/"$_esc_dq"}   # " → \"  (kit issue #1167 item 2: the replacement comes from a
+                             # variable, and the substitution sits in an UNQUOTED assignment
+                             # (no word splitting there) with the operand itself quoted — the
+                             # lint-substitution rule. That previous inline form inside an
+                             # outer "${…}" kept the operand's quotes literal on bash < 4.3;
+                             # outside outer double quotes they are removed on every bash.
+                             # $_esc_dq is a fixed constant with no '&', so bash 5.2's
+                             # patsub_replacement has nothing to expand; output is
+                             # byte-identical to the previous form on bash 5.)
   s="${s//$'\n'/\\n}"       # newline → \n
   printf '%s' "$s"
 }
@@ -251,9 +266,26 @@ if [ -n "$_session_id" ] && [ -f "$_blocked_file" ]; then
 fi
 # SENTINEL-BLOCK-ONCE-END
 
+# SENTINEL-NESTED-WORKTREE-PROBE-START
+# ── Probe nested worktree roots once (kit issue #1223) ───────────────────────
+# A failed or incomplete probe must not hide the gate and must not be silent (§7): the roots
+# found so far are kept (rc 3 still prints them) and one WARN names the gap.
+_nw_roots="$(block_files_nested_worktree_roots "$TARGET")"
+_nw_rc=$?
+# rc 3 (incomplete traversal) already printed its own typed WARN from the lib — say nothing twice.
+if [ "$_nw_rc" -ne 0 ] && [ "$_nw_rc" -ne 3 ]; then
+  printf 'retro-gate: WARN: nested-worktree probe failed (rc=%s) for %s — worktree copies may be counted\n' \
+    "$_nw_rc" "$(basename "$TARGET")" >&2
+fi
+# SENTINEL-NESTED-WORKTREE-PROBE-END
+
 # ── Helper: check if a path is a research file (block/state/catalog/index) ───
 _is_research_file() {
   local p="$1" base
+  # SENTINEL-NESTED-WORKTREE-GUARD-START
+  # A copy inside a nested worktree is not a change to THIS target (kit issue #1223).
+  if _in_nested_worktree "$p"; then return 1; fi
+  # SENTINEL-NESTED-WORKTREE-GUARD-END
   # block file (uses block_file_filter regex)
   if printf '%s\n' "$p" | block_file_filter >/dev/null 2>&1; then return 0; fi
   base="$(basename "$p")"
@@ -325,6 +357,13 @@ if [ "$_degraded" -eq 1 ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     _is_research_file "$f" || continue
+    # SENTINEL-GENERATED-CATALOG-START
+    # CATALOG.md is GENERATED (gen-catalog.py rewrites it seconds after the retro): counting it
+    # as the newest "block" made every fresh retro look stale (kit issue #1229). Matched by
+    # BASENAME anywhere under the target (not just $TARGET/CATALOG.md) on purpose: gen-catalog
+    # writes at the corpus root, which may be a subdirectory of the target (e.g. corpus/).
+    [ "$(basename "$f")" = "CATALOG.md" ] && continue
+    # SENTINEL-GENERATED-CATALOG-END
     m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nb_mtime" ] && _nb_mtime="$m"
   done < <(find "$TARGET" -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null)
@@ -377,6 +416,7 @@ if [ "$_degraded" -eq 0 ]; then
     case "$(basename "$_rpath")" in *[Ii][Nn][Dd][Ee][Xx]*) continue ;; esac
     _rfull="$TARGET/$_rpath"
     [ -f "$_rfull" ] || continue
+    _in_nested_worktree "$_rfull" && continue   # NW-RETRO-GUARD-COMMITTED
     retro_is_excluded "$_rfull" && continue
     m="$(stat -c %Y "$_rfull" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$_rfull"; }
@@ -401,6 +441,7 @@ if [ "$_degraded" -eq 0 ]; then
       _rfull="$TARGET/$_rpath"
       [ -f "$_rfull" ] || continue
       [ "$_rfull" -nt "$_session_file" ] || continue
+      _in_nested_worktree "$_rfull" && continue   # NW-RETRO-GUARD-UNTRACKED
       retro_is_excluded "$_rfull" && continue
       m="$(stat -c %Y "$_rfull" 2>/dev/null || echo 0)"
       [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$_rfull"; }
@@ -411,6 +452,7 @@ else
   # Degraded WARN already emitted above.
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
+    _in_nested_worktree "$rf" && continue   # NW-RETRO-GUARD-DEGRADED
     retro_is_excluded "$rf" && continue
     m="$(stat -c %Y "$rf" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$rf"; }
