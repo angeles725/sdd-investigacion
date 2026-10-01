@@ -164,3 +164,60 @@ Trigger: read this section in full only when the delegating agent is ITSELF a su
          directly for the mechanical sweep (haiku-tier work), or route deterministic fan-out through the Workflow
          engine. Record the fallback as `inline (constraint: nested-tier-unavailable)` in the tier column.
 ```
+
+---
+
+## concurrent-writers
+
+Trigger: read this section in full before launching more than one writer, background fork, or
+chain against the same repository or corpus, and before delegating a writer when the research
+target repo differs from the session's working directory. None of this applies to a single
+writer on a quiet tree. (Kit issues #891, #892, #1177, #1188, #1199, #1222; the existing
+CONCURRENT-SWEEP DISJOINT FILE SETS rule in PROMPT-LOOP.md HARD RULES is the base rule and still
+applies in full.)
+
+```text
+         WRITE SETS ARE DISJOINT AND NAMED. Launch parallel writers only when every writer owns an
+         exclusive, non-overlapping set of files for the whole run. Each brief lists the files that
+         writer owns, lists every file the OTHER writers own, and says: "Do not touch those files;
+         report any needed change instead." Read the FULL scope of every delegated task before
+         launching a second writer — two writers on one shared file is luck, not design.
+         AT MOST TWO CONCURRENT WRITERS per repository. A third writer buys little (merge/review
+         throughput is the bottleneck, not authoring) and multiplies shared-state risk.
+         ONE COMMITTING CHAIN PER GIT REPO AT A TIME. Two chains that regenerate CATALOG.md and
+         `git add/commit/push` the same repo race on the catalog and on non-fast-forward pushes.
+         Serialize committing chains per repo, or broaden one chain's backlog, instead of running
+         parallel chains on one corpus.
+         DIRECTORY OWNERSHIP. Each parallel agent writes only inside a path it exclusively owns for
+         the run. A shared path (a common `tools/<x>/` download directory, a shared cache) has ONE
+         designated owner agent; any other agent that needs a file placed there hands off to the
+         owner instead of writing directly. A direct write into a path another agent owns can be
+         denied by the runtime ("Modify Shared Resources") and wastes the run.
+         SINGLE STATE-OWNER. When parallel block writers are told "touch no other file", a SEPARATE
+         step run by the orchestrator (never by a writer) recomputes the RESEARCH-STATE counters and
+         regenerates INDEX.md / CATALOG.md from the corpus. No writer edits shared state directly;
+         state commits follow the block commits they describe.
+         WRITE-SCOPE ADHERENCE IS A VERIFICATION DIMENSION, DISTINCT FROM CONTENT CORRECTNESS. For a
+         multi-file deliverable drafted by cooperating forks (e.g. a block plus a companion doc),
+         each fork is told which single file(s) it owns, and at least one OTHER verification pass
+         checks which files were actually touched (a `git diff --stat` class of check), not only
+         whether the drafted content is right. A scope violation and a content gap are different
+         failure classes; a content-only review does not reliably catch both.
+         HARNESS WORKTREE ISOLATION, WITH ITS LIMIT. Two actors sharing one checkout share the
+         branch and the index, and `git checkout` is a whole-tree operation: a concurrent branch
+         switch can discard another actor's uncommitted work. Isolate each concurrent writer in
+         its own worktree and read back the returned worktree path before the first edit. Base each
+         branch explicitly on `origin/main` (`git fetch` first), never on a stale local HEAD.
+         WHEN THE TARGET REPO DIFFERS FROM THE SESSION CWD, never rely on the harness
+         `isolation: worktree` option: it creates the worktree from the session cwd's repo (the
+         wrong repo). Create the worktree explicitly with
+         `git -C <target> worktree add <target>-worktrees/<name> <branch>` and pass that path to
+         the writer. A worktree needs its OWN index/derived caches; never copy another checkout's.
+         QUIET-TREE GATE PER WORKTREE. Writers run concurrently; the gate run (tests, linters,
+         mutation controls) runs ONCE per worktree after that worktree's last writer finished. A
+         gate that ran while a writer was still editing proves nothing, and "failed under load,
+         passes standalone" is only a valid explanation while writers are actually editing.
+         A FINISHED WRITER THAT KEEPS NOTIFYING IS STOPPED. Once a writer has delivered its report,
+         stop it; a lingering agent that keeps emitting notifications or edits is a concurrent
+         writer you did not plan for.
+```

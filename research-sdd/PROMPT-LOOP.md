@@ -596,6 +596,10 @@ Always read first, in this order:
          independent small gaps on different subsystems, a sibling gap while a sweep is already in
          flight, a recursive multi-level fan-out, or you are advancing other work while a delegated
          sweep executes. None of these apply to a plain inline gap.
+       - CONCURRENT-WRITERS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#concurrent-writers` in
+         full before launching more than one writer/fork/chain on one repo or corpus, or when the
+         target repo differs from the session cwd (disjoint ownership, at most two writers, one
+         committing chain per repo, worktree isolation, quiet-tree gate).
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
