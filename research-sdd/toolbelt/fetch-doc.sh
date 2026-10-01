@@ -61,7 +61,7 @@ reg() { # registers a row in SOURCES.md
 # on `2>/dev/null` — to stay silent-zero-safe (kit CLAUDE.md §7): an empty or malformed probe
 # output must fall back to the last known-good URL, never register "".
 resolve_permanent_redirect() {
-  local cur="$1" hop=0 probe code loc head_rc
+  local cur="$1" hop=0 probe code loc head_rc head_time_connect skip_fallback rest
   local max_hops=10  # SENTINEL-MAXHOPS-VALUE (bounded hop loop — kit review PR #1155 round 2/3)
   local max_time=20  # SENTINEL-MAX-TIME (curl --max-time per hop, round 3 RS1 — bound a hanging probe)
   local connect_timeout=10  # SENTINEL-CONNECT-TIMEOUT (round-4 N3 — bounds the connect/TLS phase
@@ -71,45 +71,64 @@ resolve_permanent_redirect() {
   # (round-3 RS3: a genuine A<->B redirect LOOP never satisfies any other break condition, so
   # this bound is the ONLY thing that terminates it).
   while [ "$hop" -lt "$max_hops" ]; do
-    # SENTINEL-PROBE-METHOD (round-3 RS1, round-4 N2/N3): HEAD first, not GET — a GET probe
-    # downloads and discards the full response body on every hop, doubling transfer cost for a
-    # large manual or PDF. HEAD is treated as a DEFINITIVE answer only for a redirect code
-    # (301/302/303/307/308) or a real 2xx; anything else — 4xx, 5xx, 000/malformed, or empty —
-    # is retried via a GET probe capped to a zero-byte range (`-r 0-0`), since some CDN/S3 fronts
-    # answer HEAD with e.g. 403 while GET on the SAME url is a genuine redirect (N2). The retry is
-    # skipped when the HEAD probe itself failed at the CONNECT stage (curl exit 6/7/28: could not
-    # resolve host / could not connect / operation timed out) — retrying an unreachable host would
-    # just double the wait for nothing (N3); that case falls straight through to the probe-failure
-    # notice below.
-    # SENTINEL-HEAD-GUARD: the assignment is the CONDITION of this if (exempt from `set -e`
-    # regardless of whether the caller's errexit propagates into this function's call context —
-    # see fetch_and_register's own doc comment on inherit_errexit), so a HEAD probe that fails
-    # outright can never abort the script; it is captured as a normal (non-2xx/3xx) head_rc below.
-    if probe="$(curl -sS -I -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -w '%{http_code} %{redirect_url}' "$cur")"; then
-      head_rc=0
-    else
-      head_rc=$?; probe=""
+    # SENTINEL-PROBE-METHOD (round-3 RS1, round-4 N2/N3, round-5 N2'/N3'): HEAD first, not GET —
+    # a GET probe downloads and discards the full response body on every hop, doubling transfer
+    # cost for a large manual or PDF. HEAD is treated as a DEFINITIVE answer only for a redirect
+    # code (301/302/303/307/308) or a real 2xx; anything else — 4xx, 5xx, 000/malformed, or empty
+    # — is retried via a GET probe capped to a zero-byte range (`-r 0-0`), since some CDN/S3
+    # fronts answer HEAD with e.g. 403 while GET on the SAME url is a genuine redirect (N2). The
+    # retry is skipped only when the HEAD probe demonstrably never reached a live host: curl exit
+    # 6 (could not resolve host) or 7 (could not connect) are unambiguous; exit 28 ("Operation
+    # timed out") is NOT — it also fires when the connect succeeded and the RESPONSE then hung
+    # past --max-time, where the host IS reachable and the retry is worth it. `%{time_connect}`
+    # disambiguates the two: a connect phase that never completed reports 0 (round-5 N2'/N3' —
+    # round-4 treated ALL of 6/7/28 as connect-stage, which wrongly skipped the retry for a slow
+    # but reachable server).
+    # SENTINEL-HEAD-GUARD: `&&`/`||` on the assignment (not an if/then/else) so that whatever
+    # curl DID manage to write to stdout before failing (e.g. %{time_connect} on a mid-response
+    # timeout) is PRESERVED rather than discarded — this is also exempt from `set -e` regardless
+    # of whether the caller's errexit propagates into this function's call context (see
+    # fetch_and_register's own doc comment on inherit_errexit), so a HEAD probe that fails
+    # outright can never abort the script.
+    probe="$(curl -sS -I -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -w '%{http_code} %{time_connect} %{redirect_url}' "$cur")" && head_rc=0 || head_rc=$?
+    head_time_connect="0"
+    if [ -n "$probe" ]; then
+      code="${probe%% *}"; rest="${probe#* }"
+      head_time_connect="${rest%% *}"
+      loc="${rest#* }"
+      probe="$code $loc"
     fi
     code="${probe%% *}"
     case "$code" in
       301|302|303|307|308|2??) : ;;  # HEAD gave a definitive answer — use it as-is
       *)
+        skip_fallback=0
         case "$head_rc" in
-          6|7|28) : ;;  # SENTINEL-CONNECT-SKIP: connect-stage failure — do not retry via GET
-          *)
-            # SENTINEL-PROBE-FALLBACK-GET
-            probe="$(curl -sS -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -r 0-0 -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
+          6|7) skip_fallback=1 ;;  # SENTINEL-CONNECT-SKIP: DNS/connect failure — never reached the host
+          28)
+            case "$head_time_connect" in
+              0|0.000000|0.000000000|"") skip_fallback=1 ;;  # never connected — skip the retry
+            esac  # else: connected, then the RESPONSE hung — the retry is worth it
             ;;
         esac
+        if [ "$skip_fallback" -eq 0 ]; then
+          # SENTINEL-PROBE-FALLBACK-GET
+          probe="$(curl -sS -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -r 0-0 -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
+        else
+          probe=""
+        fi
         ;;
     esac
     code="${probe%% *}"; loc="${probe#* }"
     if [ -z "$code" ]; then
-      # SENTINEL-PROBE-FAIL-NOTICE: BOTH the HEAD probe and its GET fallback failed outright
-      # (network error, timeout, malformed URL) — not a real HTTP response, just no transfer at
-      # all. `cur` (the last successfully resolved PERMANENT url — the ORIGINAL typed url on the
-      # very first hop) is kept; this is a probe-level failure, distinct from a non-redirect
-      # terminal response (200/404/...), which needs no notice at all — it is simply "done".
+      # SENTINEL-PROBE-FAIL-NOTICE: the redirect probe produced no usable HTTP response — either
+      # BOTH the HEAD probe and its GET fallback failed outright (network error, timeout,
+      # malformed URL), OR (round-5 N3') the HEAD probe failed at the CONNECT stage (exit 6/7, or
+      # 28 with a zero `%{time_connect}`) and the GET fallback was skipped entirely — ONLY the
+      # HEAD probe was actually attempted in that case. Either way, `cur` (the last successfully
+      # resolved PERMANENT url — the ORIGINAL typed url on the very first hop) is kept; this is a
+      # probe-level failure, distinct from a non-redirect terminal response (200/404/...), which
+      # needs no notice at all — it is simply "done".
       printf 'fetch-doc: redirect probe failed for %s; keeping %s\n' "$cur" "$cur" >&2
       break
     fi
@@ -205,6 +224,14 @@ fetch_and_register() {
       echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2
       printf '%s' "$url"
     else
+      # SENTINEL-WGET-CLEANUP (round-5 R1): real `wget -O` CREATES or TRUNCATES $dest even when
+      # the request itself fails — this `exit 1` aborts the caller's own `EFFECTIVE_URL="$(...)"`
+      # assignment under set -e, which skips the caller's `[ -s "$dest" ] || { rm -f "$dest"; ...
+      # }` empty-body cleanup entirely (that cleanup never runs — the script already exited).
+      # Without this line, a wget failure leaves a 0-byte, unregistered file behind in the
+      # target's evidence tree (doc mode: sources/datasheets/<name>; web mode: the leaked mktemp
+      # HTML, since $dest IS that temp file there).
+      rm -f "$dest"
       echo "fetch-doc: wget fallback ALSO failed for $url; nothing registered" >&2
       exit 1
     fi

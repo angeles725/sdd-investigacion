@@ -135,9 +135,16 @@ else no "backslash corrupted: row=$(grep -F 'datasheets/x.pdf' "$d/SOURCES.md" |
 #                            would answer 301" — a divergence real CDN/S3 fronts exhibit).
 #   $STUB_HEAD_CONNECT_FAIL_URL — the HEAD probe for this exact URL fails at the CONNECT stage
 #                            (round-4 N3), exiting with $STUB_HEAD_CONNECT_FAIL_RC (default 7 —
-#                            "couldn't connect"; 6 and 28 are the other connect-class codes the
-#                            SUT recognizes) and printing NOTHING — never a GET-fallback retry
-#                            should follow for this url (see $STUB_PROBE_COUNT_FILE below).
+#                            "couldn't connect") and printing NOTHING — unambiguous, so no
+#                            GET-fallback retry should follow (see $STUB_PROBE_COUNT_FILE below).
+#   $STUB_HEAD_BLACKHOLE_URL — the HEAD probe for this exact URL exits 28 ("Operation timed
+#                            out") with %{time_connect}=0 (round-5 N2'/N3': the connect phase
+#                            itself never completed) — ambiguous rc, but the zero time_connect
+#                            disambiguates it as connect-class too; no GET-fallback retry.
+#   $STUB_HEAD_HANG_URL   — the HEAD probe for this exact URL exits 28 with a NONZERO
+#                            %{time_connect} (default 1.234000, override via
+#                            $STUB_HEAD_HANG_TIME_CONNECT) — "connected, then the response hung"
+#                            — the GET-fallback retry SHOULD still be attempted.
 #   $STUB_PROBE_COUNT_FILE — when set, EVERY probe call (HEAD or GET-fallback) appends the
 #                            requested url to this file — lets a test count how many probe
 #                            ATTEMPTS a single hop actually cost (N3: exactly one on a connect
@@ -186,7 +193,12 @@ head_routes_has(){ printf '%s\n' "${STUB_HEAD_ROUTES:-}" | grep -qF "$1 "; }
 if [ "$is_probe" -eq 1 ]; then
   if [ -n "${STUB_PROBE_FAIL_URL:-}" ] && [ "$url" = "$STUB_PROBE_FAIL_URL" ]; then
     echo "curl: (stub) simulated probe network failure" >&2
-    exit 6
+    # Defaults to a NON-connect-class exit code (round-5 N1'): exit 6 is now unambiguously
+    # "connect-stage failure" (SENTINEL-CONNECT-SKIP), which would skip the GET-fallback probe
+    # entirely and starve any plain-suite (non-teeth) assertion that expects the GET-fallback
+    # path to actually run. $STUB_PROBE_FAIL_RC lets a test opt back into a connect-class code
+    # (6/7/28) when THAT is specifically what it wants to exercise.
+    exit "${STUB_PROBE_FAIL_RC:-22}"
   fi
   if [ "$is_head" -eq 0 ] && [ -n "${STUB_GET_FALLBACK_FAIL_URL:-}" ] && [ "$url" = "$STUB_GET_FALLBACK_FAIL_URL" ]; then
     echo "curl: (stub) simulated GET-fallback probe failure" >&2
@@ -198,15 +210,28 @@ if [ "$is_probe" -eq 1 ]; then
       echo "curl: (stub) simulated connect-stage failure" >&2
       exit "${STUB_HEAD_CONNECT_FAIL_RC:-7}"
     fi
+    if [ -n "${STUB_HEAD_BLACKHOLE_URL:-}" ] && [ "$url" = "$STUB_HEAD_BLACKHOLE_URL" ]; then
+      # curl exit 28 ("Operation timed out") with %{time_connect}=0 — the connect phase itself
+      # never completed (round-5 N2'/N3': ambiguous rc, disambiguated by time_connect).
+      printf '000 0.000000 '
+      exit 28
+    fi
+    if [ -n "${STUB_HEAD_HANG_URL:-}" ] && [ "$url" = "$STUB_HEAD_HANG_URL" ]; then
+      # curl exit 28 with a NONZERO %{time_connect} — connected fine, then the RESPONSE hung
+      # past --max-time. The host IS reachable; the GET-fallback retry is worth attempting.
+      printf '000 %s ' "${STUB_HEAD_HANG_TIME_CONNECT:-1.234000}"
+      exit 28
+    fi
     if [ -n "${STUB_HEAD_FAIL_URL:-}" ] && [ "$url" = "$STUB_HEAD_FAIL_URL" ]; then
-      printf '405 '
+      printf '405 0.010000 '
       exit 0
     fi
     if head_routes_has "$url"; then
-      route "$url" "${STUB_HEAD_ROUTES:-}"
+      r="$(route "$url" "${STUB_HEAD_ROUTES:-}")"
     else
-      route "$url" "${STUB_ROUTES:-}"
+      r="$(route "$url" "${STUB_ROUTES:-}")"
     fi
+    printf '%s 0.020000 %s' "${r%% *}" "${r#* }"
     exit 0
   fi
   route "$url" "${STUB_ROUTES:-}"
@@ -248,12 +273,16 @@ STUBEOF
 chmod +x "$stubbin/curl"
 cat > "$stubbin/wget" <<'STUBEOF'
 #!/usr/bin/env bash
+out=""; prev=""
+for arg in "$@"; do [ "$prev" = "-O" ] && out="$arg"; prev="$arg"; done
 if [ "${STUB_WGET_FAIL:-0}" = "1" ]; then
+  # Real `wget -O` CREATES/TRUNCATES its target file even when the request fails (round-5 R1) —
+  # mirror that here so a test relying only on the stub cannot miss a caller that forgets to
+  # clean up $dest on wget failure.
+  [ -n "$out" ] && : > "$out"
   echo "wget: (stub) simulated wget failure" >&2
   exit 4
 fi
-out=""; prev=""
-for arg in "$@"; do [ "$prev" = "-O" ] && out="$arg"; prev="$arg"; done
 [ -n "$out" ] && printf 'stub wget body\n' >"$out"
 exit 0
 STUBEOF
@@ -632,10 +661,11 @@ if [ "$_rc36" -ne 0 ] && ! $_row36 && ! grep -qi 'permanent redirect from' "$TMP
   ok "doc: N4 — empty body after a successful resolve prints NO premature 'registered' notice"
 else no "R36: rc=$_rc36 row=$_row36 err='$(cat "$TMP/runchain.err")'"; fi
 
-# 37 — CORE (round-4 RDD): the primary download fails AND wget ALSO fails — NOTHING is
-#      registered, a typed failure notice is printed, and the run exits non-zero. Neither the
-#      success notice NOR the ordinary wget-fallback notice may appear (both would misleadingly
-#      claim a registration that never happened).
+# 37 — CORE (round-4 RDD, round-5 R1): the primary download fails AND wget ALSO fails —
+#      NOTHING is registered, a typed failure notice is printed, the run exits non-zero, and NO
+#      debris is left behind: real `wget -O` creates/truncates its target even on failure, and
+#      the caller's own empty-body cleanup never runs on this exit path (R1) — so the destination
+#      file itself must be gone, not merely absent from SOURCES.md.
 d37="$TMP/rr-37/target"; mkdir -p "$d37"
 STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
 export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
@@ -645,26 +675,60 @@ unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 _row37=false
 [ -f "$d37/sources/SOURCES.md" ] && grep -q 'r37\.html' "$d37/sources/SOURCES.md" && _row37=true
 if [ "$_rc37" -ne 0 ] && ! $_row37 \
+   && [ ! -e "$d37/sources/datasheets/r37.html" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
-  ok "doc: RDD — wget ALSO failing registers nothing, with its own typed failure notice"
-else no "R37: rc=$_rc37 row=$_row37 err='$(cat "$TMP/runchain.err")'"; fi
+  ok "doc: RDD/R1 — wget ALSO failing registers nothing and leaves NO file behind"
+else no "R37: rc=$_rc37 row=$_row37 file-exists=$([ -e "$d37/sources/datasheets/r37.html" ] && echo yes || echo no) err='$(cat "$TMP/runchain.err")'"; fi
 
-# 37b — RDD (web): same contract in web mode.
+# 37b — RDD/R1 (web): same contract in web mode — $dest there is fetch_and_register's mktemp
+#      HTML file, whose name is not known outside the process, so this scopes $TMPDIR to a
+#      fresh, otherwise-empty directory and asserts it is EMPTY afterward (no leaked temp file).
 d37b="$TMP/rr-37b/target"; mkdir -p "$d37b"
+d37b_tmpdir="$TMP/rr-37b-tmpdir"; mkdir -p "$d37b_tmpdir"
 STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
 export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 _rc37b=0
-runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
+TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 slug37b="$(echo "http://s37b.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
 _row37b=false
 [ -f "$d37b/sources/SOURCES.md" ] && grep -q "$slug37b" "$d37b/sources/SOURCES.md" && _row37b=true
-if [ "$_rc37b" -ne 0 ] && ! $_row37b \
+_leaked37b="$(find "$d37b_tmpdir" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_leaked37b" = "0" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
-  ok "web: RDD — wget ALSO failing registers nothing, with its own typed failure notice"
-else no "R37b: rc=$_rc37b row=$_row37b err='$(cat "$TMP/runchain.err")'"; fi
+  ok "web: RDD/R1 — wget ALSO failing registers nothing and leaks NO temp HTML file"
+else no "R37b: rc=$_rc37b row=$_row37b leaked=$_leaked37b err='$(cat "$TMP/runchain.err")'"; fi
+unset STUB_ROUTES
+
+# 39 — CORE (round-5 N2'/N3'): curl exit 28 with %{time_connect}=0 (the connect phase never
+#      completed — a "blackhole"/unreachable host) is STILL treated as connect-class: no
+#      GET-fallback retry, exactly like exit 6/7.
+STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL='http://s39.example/a'
+_pcf39="$TMP/probe-count-39.txt"; : > "$_pcf39"
+STUB_PROBE_COUNT_FILE="$_pcf39"
+export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
+got39="$(runresolve "$SUT" "http://s39.example/a")"
+unset STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
+n39="$(grep -c '^http://s39\.example/a$' "$_pcf39")"
+if [ "$got39" = "http://s39.example/a" ] && [ "$n39" = "1" ]; then
+  ok "resolve: N2'/N3' — exit 28 with time_connect=0 (blackhole) still skips the GET-fallback retry"
+else no "R39: expected typed URL + 1 probe attempt, got '$got39' attempts=$n39"; fi
+
+# 40 — CORE (round-5 N2'/N3'): curl exit 28 with a NONZERO %{time_connect} (connected, then the
+#      RESPONSE hung past --max-time) is NOT treated as connect-class — the host IS reachable,
+#      so the GET-fallback retry IS attempted, and correctly resolves the real redirect.
+STUB_ROUTES='http://s40.example/a 301 http://s40.example/moved'; STUB_HEAD_HANG_URL='http://s40.example/a'
+_pcf40="$TMP/probe-count-40.txt"; : > "$_pcf40"
+STUB_PROBE_COUNT_FILE="$_pcf40"
+export STUB_ROUTES STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
+got40="$(runresolve "$SUT" "http://s40.example/a")"
+unset STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
+n40="$(grep -c '^http://s40\.example/a$' "$_pcf40")"
+if [ "$got40" = "http://s40.example/moved" ] && [ "$n40" = "2" ]; then
+  ok "resolve: N2'/N3' — exit 28 with a nonzero time_connect (hung, not blackhole) DOES retry via GET"
+else no "R40: expected http://s40.example/moved + 2 probe attempts, got '$got40' attempts=$n40"; fi
 unset STUB_ROUTES
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
@@ -805,8 +869,71 @@ EOF
       printf 'mkmut: FATAL — mutant "%s" is not valid bash (bash -n): %s\n' "$1" "$(cat "$synerr")" >&2
       return 1
     fi
+    # SENTINEL-MKMUT-GUARD (round-5 S1): an EMPTY mutant, or one byte-identical to the SUT (the sed
+    # script matched nothing), cannot be a kill — refuse it so the caller's own "could not build
+    # mutant" branch fires instead of scoring a no-op as a mutation control.
+    if [ ! -s "$out" ]; then
+      printf 'mkmut: FATAL — mutant "%s" is empty (sed script produced no output)\n' "$1" >&2
+      return 1
+    fi
+    if cmp -s "$out" "$SUT"; then
+      printf 'mkmut: FATAL — mutant "%s" is identical to the SUT (sed script matched nothing)\n' "$1" >&2
+      return 1
+    fi
     printf '%s' "$out"
   }
+
+  # ── mkmut self-tests (round-5 S1) — the mutation helper itself must never hand back a mutant
+  # that cannot be a kill: an EMPTY file (sed script that deletes everything) or one BYTE-IDENTICAL
+  # to the SUT (sed script that matched nothing). Several callers guard with `grep -q <text that
+  # also occurs in the original>`, so an identical/empty mutant sailed through that guard and was
+  # scored as a kill — a mutation control that silently tests nothing (kit CLAUDE.md §4/§7).
+  echo "-- mkmut self-test (round-5 S1): no-op sed script must be refused --"
+  _noop_out="$(mkmut s1-noop <<'SED' 2>"$TMP/s1-noop.err"
+s/THIS-TEXT-NEVER-OCCURS-IN-THE-SUT-9f3a/x/
+SED
+)" && _noop_rc=0 || _noop_rc=$?
+  if [ "$_noop_rc" -ne 0 ] && [ -z "$_noop_out" ] && grep -qi 'identical' "$TMP/s1-noop.err"; then
+    ok "mkmut S1: a sed script that changes nothing (mutant == original) is refused, not returned"
+  else no "mkmut S1: no-op mutant not refused (rc=$_noop_rc out='$_noop_out' err='$(cat "$TMP/s1-noop.err")')"; fi
+
+  echo "-- mkmut self-test (round-5 S1): empty-output sed script must be refused --"
+  _empty_out="$(mkmut s1-empty <<'SED' 2>"$TMP/s1-empty.err"
+d
+SED
+)" && _empty_rc=0 || _empty_rc=$?
+  if [ "$_empty_rc" -ne 0 ] && [ -z "$_empty_out" ] && grep -qi 'empty' "$TMP/s1-empty.err"; then
+    ok "mkmut S1: a sed script that produces an EMPTY mutant is refused, not returned"
+  else no "mkmut S1: empty mutant not refused (rc=$_empty_rc out='$_empty_out' err='$(cat "$TMP/s1-empty.err")')"; fi
+
+  echo "-- mkmut self-test (round-5 S1): a real, changing mutant is still returned --"
+  _good_out="$(mkmut s1-good <<'SED' 2>"$TMP/s1-good.err"
+1s/^/# MUTANT: s1-good first-line marker\n/
+SED
+)" && _good_rc=0 || _good_rc=$?
+  if [ "$_good_rc" -eq 0 ] && [ -s "$_good_out" ] && ! cmp -s "$_good_out" "$SUT"; then
+    ok "mkmut S1: a non-empty mutant that differs from the SUT is returned unchanged"
+  else no "mkmut S1: good mutant rejected or mangled (rc=$_good_rc out='$_good_out' err='$(cat "$TMP/s1-good.err")')"; fi
+
+  echo "-- teeth: SENTINEL-MKMUT-GUARD (round-5 S1) — strip the empty/identical guard from mkmut --"
+  # Re-define mkmut from THIS file's own text with the guard line deleted, then prove the no-op
+  # case would have been wrongly accepted — i.e. the three assertions above bite.
+  _mk_src="$(sed -n '/^  mkmut(){/,/^  }$/p' "$0")"
+  _mk_mut="$(printf '%s\n' "$_mk_src" | sed '/SENTINEL-MKMUT-GUARD/,/^    printf /{/^    printf /!d;}')"
+  if [ -z "$_mk_src" ] || [ "$_mk_src" = "$_mk_mut" ]; then
+    no "teeth-mkmut-guard: could not build mutant of mkmut (SENTINEL-MKMUT-GUARD block not found — did mkmut change?)"
+  else
+    _saved_mkmut="$(declare -f mkmut)"
+    eval "$_mk_mut"
+    _m_out="$(mkmut s1-teeth-noop <<'SED' 2>/dev/null
+s/THIS-TEXT-NEVER-OCCURS-IN-THE-SUT-9f3a/x/
+SED
+)" || _m_out=""
+    eval "$_saved_mkmut"
+    if [ -n "$_m_out" ] && cmp -s "$_m_out" "$SUT"; then
+      ok "teeth-mkmut-guard: guard-less mkmut returns an identical-to-SUT mutant → mkmut S1 assertions have teeth"
+    else no "teeth-mkmut-guard: guard-less mkmut still refused the no-op mutant (out='$_m_out') — S1 does NOT depend on the guard (THEATER)"; fi
+  fi
 
   echo "-- teeth: SENTINEL-PERMANENT-ONLY — widen 301|308 to also treat 302/303/307 as permanent --"
   pmutant="$(mkmut permanent-only <<'SED'
@@ -875,12 +1002,16 @@ SED
   fi
 
   echo "-- teeth: nit — remove the percent-encoding of a literal | in the Location --"
+  # CORE (round-5 S1): the MUTANT-marker guard form (positive check for the inserted marker) is
+  # used here rather than "is the ORIGINAL text still present?" — the inverted form scores an
+  # EMPTY $mutant (mkmut's own bash -n rejection, or any other build failure) as "original text
+  # absent" → "mutant built successfully", which is a silent false kill (kit CLAUDE.md §7).
   pipemutant="$(mkmut pipe-encode <<'SED'
-/loc="\${loc\/\/|\/%7C}"/d
+s/loc="\${loc\/\/|\/%7C}"/:  # MUTANT: percent-encoding removed/
 SED
 )"
-  if grep -q 'loc="${loc//|/%7C}"' "$pipemutant"; then
-    no "teeth-pipe-encode: could not build mutant (encoding line still present — did the SUT change?)"
+  if ! grep -q 'MUTANT: percent-encoding removed' "$pipemutant"; then
+    no "teeth-pipe-encode: could not build mutant (encoding line not found, or bash -n rejected it — did the SUT change?)"
   else
     STUB_ROUTES='http://s30.example/a 301 http://s30.example/a|b'; export STUB_ROUTES
     got30m="$(runresolve "$pipemutant" "http://s30.example/a")"
@@ -889,20 +1020,18 @@ SED
     else no "teeth-pipe-encode: mutant produced '$got30m' — R30 does NOT depend on the encoding line (THEATER)"; fi
   fi
 
-  echo "-- teeth: SENTINEL-HEAD-GUARD — remove the HEAD probe's own if/else failure protection --"
-  # The HEAD probe's crash-guard is now an if/then/else (round-4), not a trailing `|| probe=""`
-  # — a bare `s///` cannot remove a multi-line if/else, so this uses sed's range `c\` (change)
-  # command to replace the WHOLE `if probe="$(curl ...)"; then head_rc=0; else head_rc=$?;
-  # probe=""; fi` block with an UNPROTECTED assignment, reproducing exactly the crash risk the
-  # if/else exists to prevent.
+  echo "-- teeth: SENTINEL-HEAD-GUARD — remove the HEAD probe's own && / || failure protection --"
+  # The HEAD probe's crash-guard is `&& head_rc=0 || head_rc=$?` on the assignment itself
+  # (round-5: rewritten from round-4's if/then/else so a PARTIAL curl output, e.g.
+  # %{time_connect} on a mid-response timeout, is preserved rather than discarded). Stripping the
+  # trailing `&& .../|| ...` leaves a BARE assignment, reproducing exactly the crash risk that
+  # construct exists to prevent.
   headguardmutant="$(mkmut head-guard <<'SED'
-/^    if probe="\$(curl -sS -I/,/^    fi$/c\
-    probe="$(curl -sS -I -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -w '%{http_code} %{redirect_url}' "$cur")"  # MUTANT: head-guard removed\
-    head_rc=$?
+s/" && head_rc=0 || head_rc=\$?$/"  # MUTANT: head-guard removed/
 SED
 )"
   if ! grep -q 'MUTANT: head-guard removed' "$headguardmutant"; then
-    no "teeth-head-guard: could not build mutant (HEAD-probe if/else block not found, or bash -n rejected it — did the SUT change?)"
+    no "teeth-head-guard: could not build mutant (HEAD-probe guard line not found, or bash -n rejected it — did the SUT change?)"
   else
     STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"; export STUB_ROUTES STUB_PROBE_FAIL_URL
     got16m="$(runresolve "$headguardmutant" "http://s16.example/a")"
@@ -913,12 +1042,14 @@ SED
   fi
 
   echo "-- teeth: SENTINEL-PROBE-FALLBACK-GET — remove the GET-fallback probe's own failure guard --"
+  # CORE (round-5 S1): MUTANT-marker form, not "is the original ' || probe=\"\"' still present?"
+  # (see the pipe-encode comment above for why the inverted form is unsafe).
   getguardmutant="$(mkmut get-guard <<'SED'
-/SENTINEL-PROBE-FALLBACK-GET/,+1 s/ || probe=""$//
+/SENTINEL-PROBE-FALLBACK-GET/,+1 s/ || probe=""$/  # MUTANT: get-guard removed/
 SED
 )"
-  if grep -A2 'SENTINEL-PROBE-FALLBACK-GET' "$getguardmutant" | grep -q ' || probe=""$'; then
-    no "teeth-get-guard: could not build mutant (GET-fallback guard line unchanged — did the SUT change?)"
+  if ! grep -q 'MUTANT: get-guard removed' "$getguardmutant"; then
+    no "teeth-get-guard: could not build mutant (GET-fallback guard line not found, or bash -n rejected it — did the SUT change?)"
   else
     # HEAD returns 405 for this url (forcing the GET fallback), AND the GET-fallback probe for
     # the SAME url fails outright — the real SUT catches this via the mutated-away guard.
@@ -955,13 +1086,13 @@ SED
     else no "teeth-no-405-fallback: mutant still resolved via GET fallback — RS1/R27 does NOT depend on the 405 branch (THEATER)"; fi
   fi
 
-  echo "-- teeth: SENTINEL-CONNECT-SKIP (round-4 N3) — always retry via GET, even on a connect-stage failure --"
+  echo "-- teeth: SENTINEL-CONNECT-SKIP (round-4 N3) — always retry via GET, even on a connect-stage (6/7) failure --"
   connectskipmutant="$(mkmut connect-skip <<'SED'
-s/6|7|28) : ;;/999) : ;;  # MUTANT: connect-skip removed/
+s/6|7) skip_fallback=1 ;;/999) skip_fallback=1 ;;  # MUTANT: connect-skip removed/
 SED
 )"
   if ! grep -q 'MUTANT: connect-skip removed' "$connectskipmutant"; then
-    no "teeth-connect-skip: could not build mutant (6|7|28 case arm not found, or bash -n rejected it — did the SUT change?)"
+    no "teeth-connect-skip: could not build mutant (6|7 case arm not found, or bash -n rejected it — did the SUT change?)"
   else
     STUB_ROUTES=""; STUB_HEAD_CONNECT_FAIL_URL='http://s34.example/a'
     _pcf34m="$TMP/probe-count-34m.txt"; : > "$_pcf34m"
@@ -975,15 +1106,37 @@ SED
     else no "teeth-connect-skip: mutant still made only 1 attempt — N3/R34 does NOT depend on the connect-skip check (THEATER)"; fi
   fi
 
-  echo "-- teeth: SENTINEL-PROBE-FAIL-NOTICE — delete the probe-failure stderr notice (keep the break) --"
+  echo "-- teeth: exit-28 disambiguation (round-5 N2'/N3') — always skip on exit 28, ignoring time_connect --"
+  connect28mutant="$(mkmut connect28-disambig <<'SED'
+/^          28)$/,/^            ;;$/c\
+          28) skip_fallback=1 ;;  # MUTANT: 28-disambiguation removed
+SED
+)"
+  if ! grep -q 'MUTANT: 28-disambiguation removed' "$connect28mutant"; then
+    no "teeth-connect28: could not build mutant (28 case arm not found, or bash -n rejected it — did the SUT change?)"
+  else
+    STUB_ROUTES='http://s40.example/a 301 http://s40.example/moved'; STUB_HEAD_HANG_URL='http://s40.example/a'
+    _pcf40m="$TMP/probe-count-40m.txt"; : > "$_pcf40m"
+    STUB_PROBE_COUNT_FILE="$_pcf40m"
+    export STUB_ROUTES STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
+    got40m="$(runresolve "$connect28mutant" "http://s40.example/a")"
+    unset STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
+    n40m="$(grep -c '^http://s40\.example/a$' "$_pcf40m")"
+    if [ "$got40m" != "http://s40.example/moved" ] && [ "$n40m" = "1" ]; then
+      ok "teeth-connect28: mutant wrongly skips the retry for a hung-but-reachable host too → N2'/N3'/R40 has teeth"
+    else no "teeth-connect28: mutant got='$got40m' attempts=$n40m — N2'/N3'/R40 does NOT depend on the time_connect check (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-PROBE-FAIL-NOTICE — neuter the probe-failure stderr notice (keep the break) --"
+  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
   failnoticemutant="$(mkmut fail-notice <<'SED'
 /SENTINEL-PROBE-FAIL-NOTICE/,/^      break$/ {
-  /printf 'fetch-doc: redirect probe failed/d
+  s/printf 'fetch-doc: redirect probe failed.*/:  # MUTANT: fail-notice removed/
 }
 SED
 )"
-  if grep -q "redirect probe failed for %s" "$failnoticemutant"; then
-    no "teeth-fail-notice: could not build mutant (notice printf still present — did the SUT change?)"
+  if ! grep -q 'MUTANT: fail-notice removed' "$failnoticemutant"; then
+    no "teeth-fail-notice: could not build mutant (notice printf not found, or bash -n rejected it — did the SUT change?)"
   else
     STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"; export STUB_ROUTES STUB_PROBE_FAIL_URL
     got16nm="$(runresolve_err "$failnoticemutant" "http://s16.example/a" "$TMP/teeth-failnotice.err")"
@@ -993,13 +1146,14 @@ SED
     else no "teeth-fail-notice: mutant behavior unexpected (got='$got16nm' err='$(cat "$TMP/teeth-failnotice.err")') — THEATER"; fi
   fi
 
-  echo "-- teeth: SENTINEL-HOPCAP-NOTICE — delete the hop-cap-reached stderr notice --"
+  echo "-- teeth: SENTINEL-HOPCAP-NOTICE — neuter the hop-cap-reached stderr notice --"
+  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
   hopcapmutant="$(mkmut hopcap-notice <<'SED'
 s/printf 'fetch-doc: hop cap.*/:  # MUTANT: hopcap notice removed/
 SED
 )"
-  if grep -q "hop cap (%s) reached" "$hopcapmutant"; then
-    no "teeth-hopcap-notice: could not build mutant (notice printf still present — did the SUT change?)"
+  if ! grep -q 'MUTANT: hopcap notice removed' "$hopcapmutant"; then
+    no "teeth-hopcap-notice: could not build mutant (notice printf not found, or bash -n rejected it — did the SUT change?)"
   else
     STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
     export STUB_ROUTES
@@ -1177,13 +1331,32 @@ SED
     else no "teeth-wget-ignore-status: mutant rc=$_rc37m err='$(cat "$TMP/teeth-wget-ignore.err")' — RDD/R37 does NOT depend on checking wget's status (THEATER)"; fi
   fi
 
-  echo "-- teeth: SENTINEL-DOWNLOAD — delete the wget-fallback stderr notice --"
-  nmutant="$(mkmut wget-notice <<'SED'
-/echo "fetch-doc: registered requested URL (wget fallback/d
+  echo "-- teeth: SENTINEL-WGET-CLEANUP (round-5 R1) — drop the rm -f \$dest cleanup before exit 1 --"
+  wgetcleanupmutant="$(mkmut wget-cleanup <<'SED'
+s/rm -f "\$dest"/:  # MUTANT: wget-failure cleanup removed/
 SED
 )"
-  if grep -q 'registered requested URL (wget fallback' "$nmutant"; then
-    no "teeth-wget-notice: could not build mutant (notice echo still present — did the SUT change?)"
+  if ! grep -q 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant"; then
+    no "teeth-wget-cleanup: could not build mutant (rm -f \"\$dest\" line not found, or bash -n rejected it — did the SUT change?)"
+  else
+    d37c="$TMP/teeth-wget-cleanup/target"; mkdir -p "$d37c"
+    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
+    export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+    PATH="$stubbin:$PATH" bash "$wgetcleanupmutant" doc "http://s37.example/a" "$d37c" datasheets "r37c.html" >/dev/null 2>/dev/null
+    unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+    if [ -e "$d37c/sources/datasheets/r37c.html" ]; then
+      ok "teeth-wget-cleanup: mutant leaves the 0-byte debris file behind → R1/R37 has teeth"
+    else no "teeth-wget-cleanup: mutant still cleaned up the file — R1/R37 does NOT depend on this rm -f (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-DOWNLOAD — neuter the wget-fallback stderr notice --"
+  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
+  nmutant="$(mkmut wget-notice <<'SED'
+s/echo "fetch-doc: registered requested URL (wget fallback.*/:  # MUTANT: wget notice removed/
+SED
+)"
+  if ! grep -q 'MUTANT: wget notice removed' "$nmutant"; then
+    no "teeth-wget-notice: could not build mutant (notice echo not found, or bash -n rejected it — did the SUT change?)"
   else
     d18n="$TMP/teeth-wget-notice/target"; mkdir -p "$d18n"
     STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1

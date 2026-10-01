@@ -334,8 +334,10 @@ redirect is how a short-lived, signed CDN/S3/GitHub-asset URL is served, and reg
 would put an expiring, credential-bearing link in SOURCES.md instead of a stable, re-fetchable one. A
 stale pre-redirect URL in the origin cell makes re-fetching the source harder than it needs to be, but
 an ephemeral signed URL is worse — it stops working entirely once it expires. When curl's own probe
-cannot confirm the NEXT hop (a HEAD probe and its GET-range fallback both fail outright, or a Location
-header names a non-http(s) scheme and is refused), `fetch-doc.sh` keeps the LAST successfully resolved
+cannot confirm the NEXT hop — a HEAD probe and its GET-range fallback both fail outright, OR the HEAD
+probe fails at the CONNECT stage and the fallback is skipped entirely (only HEAD was attempted, never a
+GET, since retrying an unreachable host would just double the wait), OR a Location header names a
+non-http(s) scheme and is refused — `fetch-doc.sh` keeps the LAST successfully resolved
 PERMANENT URL — the originally typed URL only when the failure happens on the very first hop, not
 necessarily otherwise — and announces the abnormal stop on stderr, never silently. Resolution stopping
 abnormally does NOT skip the download step that follows: `fetch-doc.sh` still attempts to fetch whatever
