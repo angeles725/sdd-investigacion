@@ -58,8 +58,14 @@ cat > "$STUBS/gh" <<'STUB'
 echo "gh $* cwd:$PWD" >> "${STUB_LOG:-/dev/null}"
 case "$1 $2" in
   "pr view")
-    [ -n "${STUB_PR_VIEW_FAIL:-}" ] && exit 1
-    printf '{"headRefOid":"%s","baseRefName":"main","baseRefOid":"%s"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
+    # mimic gh 2.45: baseRefOid is NOT a pr-view JSON field -> field drift must show up
+    for f in $(printf '%s' "$*" | sed -n 's/.*--json \([^ ]*\).*/\1/p' | tr ',' ' '); do
+      case "$f" in headRefOid|baseRefName|number|state|title|url) ;; *) echo "Unknown JSON field: \"$f\"" >&2; exit 1 ;; esac
+    done
+    printf '{"headRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}"; exit 0 ;;
+  "api repos/{owner}/{repo}/pulls/"*|api\ repos/*)
+    [ -n "${STUB_API_FAIL:-}" ] && exit 1
+    printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
   "pr merge") [ -n "${STUB_MERGE_ERR:-}" ] && echo "$STUB_MERGE_ERR" >&2; exit "${STUB_MERGE_RC:-0}" ;;
 esac
 exit 9
@@ -189,7 +195,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   expect "degraded when PR base unreadable" 3 '^merge-gate: degraded: cannot read PR #7 base'
   # N1: gh is bound to --cwd
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  if grep -q "^gh pr view .* cwd:$REPO\$" "$ROOT/log" && grep -q "^gh pr merge .* cwd:$REPO\$" "$ROOT/log"; then ok "N1 gh runs inside --cwd"; else no "N1 gh cwd ($(cat "$ROOT/log"))"; fi
+  if grep -q "^gh api repos/.* cwd:$REPO\$" "$ROOT/log" && grep -q "^gh pr merge .* cwd:$REPO\$" "$ROOT/log"; then ok "N1 gh runs inside --cwd"; else no "N1 gh cwd ($(cat "$ROOT/log"))"; fi
   case "$OUT" in *"cwd=$REPO"*) ok "N1 merged line names the repo dir";; *) no "N1 merged line ($OUT)";; esac
   # N2: HEAD moving during assess
   rm -rf "$ROOT/r4"; git clone -q "$REPO" "$ROOT/r4"
@@ -209,8 +215,8 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   mkminimal "$ROOT/nogh" git jq bash env cat dirname mktemp rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nogh/"
   OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
   expect "degraded --merge without gh" 3 '^merge-gate: degraded: gh not found'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_VIEW_FAIL=1 bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "degraded when gh pr view fails" 3 '^merge-gate: degraded: cannot read PR #7 \(gh pr view failed\)'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_API_FAIL=1 bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "degraded when gh api fails" 3 '^merge-gate: degraded: cannot read PR #7 \(gh api failed\)'
   run "$S" "$ROOT/j/passive.json" --cwd "$R0" --base-ref HEAD; expect "degraded unborn HEAD" 3 '^merge-gate: degraded: cannot resolve HEAD'
   mkminimal "$ROOT/nomktemp" git jq bash env cat dirname rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nomktemp/"
   OUT="$(PATH="$ROOT/nomktemp" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
@@ -218,6 +224,33 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   # --squash must be part of the merge call
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
   if grep -q '^gh pr merge 7 --squash ' "$ROOT/log"; then ok "merge uses --squash"; else no "merge lacks --squash ($(cat "$ROOT/log"))"; fi
+  # --- round 3: F1 (REST read), F2 (--pr check-only, range-only wording), N-a ---
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
+  if grep -q '^gh api repos/{owner}/{repo}/pulls/7 ' "$ROOT/log" && ! grep -q '^gh pr view' "$ROOT/log"; then ok "F1 PR head/base read via gh api REST, not gh pr view"; else no "F1 gh calls ($(cat "$ROOT/log"))"; fi
+  # F2: pure run states its scope; --pr binds without merging
+  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"
+  expect "F2 pure run says range-only / not bound to a PR" 0 'allow: passive .*\(range-only; not bound to a PR — use --pr N or --merge N\)'
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
+  expect "F2 --pr allow is PR-bound" 0 'allow: passive .*\(bound to PR #7'
+  if ! printf '%s' "$OUT" | grep -q 'range-only'; then ok "F2 --pr allow does not claim range-only"; else no "F2 --pr line still range-only ($OUT)"; fi
+  if grep -q '^gh api ' "$ROOT/log" && ! grep -q 'pr merge' "$ROOT/log"; then ok "F2 --pr reads the PR but never merges"; else no "F2 --pr gh calls ($(cat "$ROOT/log"))"; fi
+  case "$OUT" in *merged:*) no "F2 --pr printed merged";; *) ok "F2 --pr prints no merged line";; esac
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --pr 7
+  expect "F2 --pr refuses a PR head mismatch" 1 '^merge-gate: refuse: head_mismatch \(PR #7'
+  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --pr 7; PRB="$BASE_SHA"
+  expect "F2 --pr refuses a narrow base (base_excludes_pr_commits)" 1 '^merge-gate: refuse: base_excludes_pr_commits'
+  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --pr abc; expect "usage: --pr needs a number" 2 '^merge-gate: usage'
+  OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --pr 7 2>/dev/null)"; RC=$?
+  expect "degraded --pr without gh" 3 '^merge-gate: degraded: gh not found'
+  # stub self-check: an unknown pr-view field is rejected (so field drift is visible)
+  if ! PATH="$STUBS:$PATH" gh pr view 1 --json headRefOid,baseRefOid >/dev/null 2>&1; then ok "stub rejects unknown gh pr view --json field baseRefOid"; else no "stub accepts baseRefOid"; fi
+  # N-a: deprecation noise must not replace the real merge error; head rejection found anywhere
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience\nX Pull request is not mergeable')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "N-a deprecation line skipped when picking gh's error" 3 'gh pr merge failed for PR #7: X Pull request is not mergeable'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'GraphQL: Projects (classic) is being deprecated\nHead branch was modified. Review and try the merge again.')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "N-a head rejection matched even behind a deprecation line" 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed before merge: Head branch was modified'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'X Merge failed\nHead branch was modified. Review and try the merge again.')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "N-a head rejection matched on a later line of gh output" 1 '^merge-gate: refuse: head_mismatch'
 }
 
 echo "-- merge-gate behavioural suite --"
@@ -280,6 +313,12 @@ mutate M32-no-ancestor-unchecked  's/^mb="\$(git -C "\$cwd" merge-base HEAD "\$b
 mutate M33-mktemp-unchecked       's/^err_file="\$(mktemp 2>\/dev\/null)" || degraded.*/err_file="$(mktemp 2>\/dev\/null)"/'
 mutate M34-unborn-head-ok         's/^head="\$(git -C "\$cwd" rev-parse --verify HEAD 2>\/dev\/null)" || degraded.*/head="$(git -C "$cwd" rev-parse --verify HEAD 2>\/dev\/null)"/'
 mutate M35-gh-probe-removed       's/^if \[ -n "\$pr" \]; then command -v gh.*/:/'
+mutate M36-rest-read-reverted     's/ghr api "repos\/{owner}\/{repo}\/pulls\/\$pr" --jq .{headRefOid:.head.sha, baseRefOid:.base.sha, baseRefName:.base.ref}./ghr pr view "$pr" --json headRefOid,baseRefName,baseRefOid/'
+mutate M37-always-range-only      's/^if \[ -z "\$pr" \]; then/if true; then/'
+mutate M38-pr-implies-merge       's/^\[ -n "\$do_merge" \] || exit 0/:/'
+mutate M39-pr-flag-ignored        's/^    --pr) .*/    --pr) shift 2 ;;/'
+mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
+mutate M41-head-reject-first-line-only 's/printf .%s. "\$merge_out" | grep -Eqi/printf "%s" "$merge_line" | grep -Eqi/'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
 mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
 echo "== $pass passed · $fail failed · mutants $MUT_PASS detected · $MUT_FAIL missed =="
