@@ -21,6 +21,7 @@
 # Typed states (CLAUDE.md §7 — a bare "0" must say which zero it is):
 #   ABSENT-INPUT  a given path does not exist                    -> exit 2 (reported, rest still linted)
 #   EMPTY-INPUT   an empty file, or a directory with no block files -> reported, not a finding
+#   UNCLASSIFIED  --audit: N non-canonical .md files under a corpus were not linted (count + first 3)
 #   NO-MATCH      files read and inspected, no rule fired          -> exit 0
 #   DEGRADED      python3 or the helper is unavailable / a listing failed -> exit 2, NOTHING linted
 #                 is never reported as clean
@@ -66,8 +67,8 @@ fi
 # shellcheck source=lib/block-files.sh
 . "$_bflib" 2>/dev/null
 if ! declare -F block_file_filter >/dev/null 2>&1; then
-  echo "lint-block: helper lib/block-files.sh failed to define block_file_filter" >&2
-  exit 1
+  echo "lint-block: DEGRADED: lib/block-files.sh failed to define block_file_filter — nothing was linted (this is NOT a clean result)" >&2
+  exit 2
 fi
 
 tmp="$(mktemp -d)" || { echo "lint-block: DEGRADED: cannot create temp dir" >&2; exit 2; }
@@ -87,16 +88,24 @@ for p in "${paths[@]}"; do
     # lives under a `.claude/` ancestor, e.g. a harness worktree, must not be skipped wholesale).
     find "$p" -mindepth 1 \( -name node_modules -o -name .git -o -name .claude \) -prune \
       -o -type f -name '*.md' -print \
-      2>"$tmp/find.err" | LC_ALL=C sort | block_file_filter > "$tmp/found"
+      2>"$tmp/find.err" | LC_ALL=C sort > "$tmp/all"
     ps=("${PIPESTATUS[@]}")
-    if [ "${ps[0]}" -ne 0 ] || [ "${ps[1]}" -ne 0 ] || [ "${ps[2]}" -ge 2 ]; then
-      echo "lint-block: DEGRADED: listing of $p failed (find=${ps[0]} sort=${ps[1]} filter=${ps[2]}); result below is partial" >&2
+    block_file_filter < "$tmp/all" > "$tmp/found"; fst=$?
+    block_file_filter -v < "$tmp/all" > "$tmp/unclass"; ust=$?
+    if [ "${ps[0]}" -ne 0 ] || [ "${ps[1]}" -ne 0 ] || [ "$fst" -ge 2 ] || [ "$ust" -ge 2 ]; then
+      echo "lint-block: DEGRADED: listing of $p failed (find=${ps[0]} sort=${ps[1]} filter=$fst/$ust); result below is partial" >&2
       rc_ops=2
     fi
     if [ -s "$tmp/found" ]; then
       cat "$tmp/found" >> "$list"
-    elif [ "${ps[2]}" -lt 2 ]; then
+    elif [ "$fst" -lt 2 ]; then
       echo "EMPTY-INPUT: $p has no canonical block files"
+    fi
+    # Non-canonical .md files are NOT linted; say how many and which (first 3), never drop silently.
+    if [ -s "$tmp/unclass" ]; then
+      n_un="$(wc -l < "$tmp/unclass" | tr -d ' ')"
+      first_un="$(head -n 3 "$tmp/unclass" | tr '\n' ' ')"
+      echo "UNCLASSIFIED: $n_un non-canonical .md file(s) under $p were NOT linted (first: ${first_un% })"
     fi
   elif [ -f "$p" ]; then
     printf '%s\n' "$p" >> "$list"
