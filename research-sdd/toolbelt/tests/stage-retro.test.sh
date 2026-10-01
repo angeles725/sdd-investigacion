@@ -28,6 +28,8 @@ SUT="$HERE/../stage-retro.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT sources
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
+TP_LIB_SRC="$HERE/../lib/target-paths.sh"    # shared registered-name helper the SUT sources
+[ -f "$TP_LIB_SRC" ] || { echo "FATAL: helper not found: $TP_LIB_SRC" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "FATAL: git not on PATH" >&2; exit 2; }
 
@@ -45,6 +47,7 @@ mkrepo() {
   local repo="$ROOT/$1" mode="$2"
   mkdir -p "$repo/research-sdd/toolbelt/lib"
   cp "$SUT" "$repo/research-sdd/toolbelt/stage-retro.sh"
+  cp "$TP_LIB_SRC" "$repo/research-sdd/toolbelt/lib/target-paths.sh"   # registered-name lookup (kit issue #1287)
   if [ "$mode" = broken ]; then
     printf '#!/usr/bin/env bash\n# broken helper: sources cleanly but defines no retro_review_status\n' \
       > "$repo/research-sdd/toolbelt/lib/retro-status.sh"
@@ -546,6 +549,111 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# kit issue #1287 item 8: the branch name, the printed `target:` and the `Retro:` trailer use the
+# REGISTERED Target name (nearest registered ancestor, lib/target-paths.sh) — the same label
+# stage-retro-issues.sh / reconcile-issues.sh use — not dirname(dirname(retro))'s basename.
+
+# mk_targets_md <repo> <name> <path> [<name2> <path2>]: write research-sdd/TARGETS.md in the sandbox
+# kit repo (the SUT reads $KIT_REPO/research-sdd/TARGETS.md). Call BEFORE mkretro (which commits).
+mk_targets_md() {
+  local repo="$1"
+  {
+    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
+    printf '| 1 | %s | `%s` |\n' "$2" "$3"
+    [ -z "${4:-}" ] || printf '| 2 | %s | `%s` |\n' "$4" "$5"
+  } > "$repo/research-sdd/TARGETS.md"
+}
+
+# 20 — registered name != path basename (flat): branch, banner and trailer all use the NAME
+#      (RED pre-fix: retro/targetA-r1, `target: targetA`, `Retro: targetA/retros/...`).
+repo="$(mkrepo regname real)"
+mk_targets_md "$repo" reg-name "$repo/targetA"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/reg-name-r1" ] \
+   && grep -q '^   target: reg-name$' <<<"$OUT" \
+   && grep -qE 'Retro: reg-name/retros/r1\.md@[0-9a-f]+' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "20 registered name != basename → branch/banner/trailer use the registered name" "(exit $RC)"
+else
+  no "20 registered name != basename → expected retro/reg-name-r1 + trailer" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
+# 21 — NESTED corpus layout (<target>/corpus/retros): labelled with the target, never `corpus`.
+repo="$(mkrepo regnested real)"
+mk_targets_md "$repo" reg-name "$repo/targetA"
+mkretro "$repo" "targetA/corpus" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/corpus/retros/r1.md"
+if [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/reg-name-r1" ] \
+   && grep -qE 'Retro: reg-name/retros/r1\.md@[0-9a-f]+' <<<"$OUT"; then
+  ok "21 nested <target>/corpus/retros → registered name (not 'corpus')" "(exit $RC)"
+else
+  no "21 nested <target>/corpus/retros → expected retro/reg-name-r1" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
+# 22 — NESTED REGISTERED targets: the NEAREST ancestor labels the retro (both row orders).
+repo="$(mkrepo regnearest real)"
+mk_targets_md "$repo" outer-name "$repo/targetA" inner-name "$repo/targetA/inner-t"
+mkretro "$repo" "targetA/inner-t" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/inner-t/retros/r1.md"
+b22a="$(branches "$repo")"; rc22a=$RC
+repo="$(mkrepo regnearest2 real)"
+mk_targets_md "$repo" inner-name "$repo/targetA/inner-t" outer-name "$repo/targetA"
+mkretro "$repo" "targetA/inner-t" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/inner-t/retros/r1.md"
+if [ "$rc22a" = 0 ] && [ "$b22a" = "retro/inner-name-r1" ] && [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/inner-name-r1" ]; then
+  ok "22 nested registered targets → nearest ancestor name (both row orders)" "()"
+else
+  no "22 nested registered targets → expected retro/inner-name-r1" "a=[$b22a/$rc22a] b=[$(branches "$repo")/$RC]"
+fi
+
+# 23 — UNREGISTERED retro (TARGETS.md fine, directory absent from it): LOUD WARN + basename label,
+#      staging still proceeds (the label only names a branch and a trailer).
+repo="$(mkrepo unreg real)"
+mk_targets_md "$repo" other "$repo/other"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/targetA-r1" ] \
+   && grep -q "WARN: no registered target name.*basename 'targetA'" <<<"$OUT"; then
+  ok "23 unregistered retro → WARN + basename label, staging proceeds" "(exit $RC)"
+else
+  no "23 unregistered retro → expected WARN + retro/targetA-r1" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
+# 24 — NO TARGETS.md at all (and an empty one): the same loud WARN + basename fallback (a sandbox
+#      kit without a registry must still stage), never a silent guess.
+repo="$(mkrepo noregistry real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+rc24a=$RC; out24a="$OUT"; b24a="$(branches "$repo")"
+repo="$(mkrepo emptyregistry real)"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$repo/research-sdd/TARGETS.md"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$rc24a" = 0 ] && [ "$b24a" = "retro/targetA-r1" ] && grep -qi 'WARN: no registered target name' <<<"$out24a" \
+   && grep -qi 'cannot read' <<<"$out24a" \
+   && [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/targetA-r1" ] && grep -qi 'no registered target' <<<"$OUT"; then
+  ok "24 absent / zero-row TARGETS.md → typed reason + WARN + basename label" "(rc=$rc24a/$RC)"
+else
+  no "24 absent / zero-row TARGETS.md → expected typed reason + WARN + basename" "absent=[$out24a] empty=[$OUT]"
+fi
+
+# 25 — the helper lib is MISSING: fail CLOSED before any git mutation (no retro/* branch), like a
+#      missing retro-status helper.
+repo="$(mkrepo nolib real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+rm -f "$repo/research-sdd/toolbelt/lib/target-paths.sh"
+# Commit the removal so the clean-tree precondition (exit 3) cannot mask the result: only the
+# helper guard may stop this run.
+git -C "$repo" add -A; git -C "$repo" commit -qm "drop target-paths helper"; git -C "$repo" push -q origin main 2>/dev/null
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 1 ] && grep -q 'cannot find helper' <<<"$OUT" && [ -z "$(branches "$repo")" ]; then
+  ok "25 missing target-paths helper → exit 1, no retro/* branch (fail-closed)" "(exit $RC)"
+else
+  no "25 missing target-paths helper → expected exit 1 and no branch" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
 # check can never fail (force it always-true), pair it with the broken helper + an APPLIED retro, and
@@ -1000,6 +1108,63 @@ fi'
     else
       no "teeth: exit-8 switch-back removed → 'branch -D' remediation should have failed but succeeded" \
          "rc=$_swb_branch_d_rc"
+    fi
+  fi
+
+  # ---- kit issue #1287 item 8 teeth -------------------------------------------------------------
+  # tooth_swap <repo> <anchor> <replacement>: overwrite the sandbox repo's SUT copy with the mutant
+  # and commit it (the SUT's clean-tree precondition); refuses a vacuous or syntactically broken one.
+  tooth_swap() {
+    local repo="$1" anchor="$2" repl="$3"
+    local file="$repo/research-sdd/toolbelt/stage-retro.sh" body
+    body="$(cat "$file")"
+    if [[ "$body" != *"$anchor"* ]]; then
+      no "tooth_swap: locate anchor" "anchor not found in SUT — drifted? anchor=[$anchor]"; return 1
+    fi
+    printf '%s\n' "${body/"$anchor"/"$repl"}" > "$file"
+    if cmp -s "$file" "$SUT"; then no "tooth_swap: mutant" "identical to the SUT — vacuous"; return 1; fi
+    if ! "$BASH_BIN" -n "$file" 2>/dev/null; then no "tooth_swap: mutant passes bash -n" "syntax error — crash-based theater"; return 1; fi
+    git -C "$repo" add -A; git -C "$repo" commit -qm "mutant"; git -C "$repo" push -q origin main 2>/dev/null
+    return 0
+  }
+
+  echo "-- teeth T1287a: ignore the registered name, keep the basename label --"
+  repo="$(mkrepo teeth-regname real)"
+  mk_targets_md "$repo" reg-name "$repo/targetA"
+  mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+  if tooth_swap "$repo" '  target="$_reg_name"' '  :'; then
+    run "$repo" "targetA/retros/r1.md"
+    if [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
+      ok "T1287a teeth: registered name ignored → basename branch (case 20 has teeth)" "()"
+    else
+      no "T1287a teeth: registered name ignored must flip case 20" "case 20 is THEATER: branches=[$(branches "$repo")] out=[$OUT]"
+    fi
+  fi
+
+  echo "-- teeth T1287b: drop the fallback WARN --"
+  repo="$(mkrepo teeth-warn real)"
+  mk_targets_md "$repo" other "$repo/other"
+  mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+  if tooth_swap "$repo" 'echo "WARN: no registered target name for' ': "WARN: no registered target name for'; then
+    run "$repo" "targetA/retros/r1.md"
+    if ! grep -q 'WARN: no registered target name' <<<"$OUT"; then
+      ok "T1287b teeth: WARN dropped → silent basename guess (case 23 has teeth)" "()"
+    else
+      no "T1287b teeth: WARN dropped must flip case 23" "case 23 is THEATER: out=[$OUT]"
+    fi
+  fi
+
+  echo "-- teeth T1287c: neuter BOTH helper-presence guards --"
+  repo="$(mkrepo teeth-nolib real)"
+  mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+  rm -f "$repo/research-sdd/toolbelt/lib/target-paths.sh"
+  if tooth_swap "$repo" 'if [ ! -f "$TP_LIB" ]; then' 'if false; then' \
+     && tooth_swap "$repo" 'declare -F target_name_for_retro >/dev/null 2>&1 ||' 'true ||'; then
+    run "$repo" "targetA/retros/r1.md"
+    if [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
+      ok "T1287c teeth: helper guards neutered → stages anyway (case 25 has teeth)" "()"
+    else
+      no "T1287c teeth: helper guards neutered must flip case 25" "case 25 is THEATER: rc=$RC branches=[$(branches "$repo")] out=[$OUT]"
     fi
   fi
 fi

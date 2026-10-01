@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # target-paths.sh — shared target-path derivation for research-sdd sweeps.
-# Sourced (never executed); exports: target_paths_all, target_paths_pairs.
+# Sourced (never executed); exports: target_paths_all, target_paths_pairs, target_name_for_retro.
+#
+# Consumers (kit issue #949 item 5: the header used to name 2; `grep -rl target-paths.sh
+# research-sdd/toolbelt` is the authoritative list — an edit here must be checked against every one):
+#   sweep-retros.sh, sweep-audits.sh, sweep-breakthroughs.sh, sweep-tools.sh, verify-registry.sh,
+#   reconcile-issues.sh, stage-retro-issues.sh, stage-retro.sh (target_name_for_retro).
 #
 # Scans only markdown table rows (lines starting with optional whitespace then |).
 # Handles `/abs/path`, `$RESEARCH_HOME/rest`, and `${RESEARCH_HOME}/rest` forms.
@@ -89,6 +94,92 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
               print raw "\t" xp
             }'
     } | sort -u
+  }
+
+  # target_name_for_retro <targets_md> <retro>   (kit issue #1287)
+  #   The ONE walk-up + name lookup shared by stage-retro-issues.sh, reconcile-issues.sh and
+  #   stage-retro.sh, so the `Source retro: <name>/retros/<file>` signature a writer stamps is
+  #   the signature a reader searches for (a per-script copy drifted once already).
+  #   Walks UP from the directory that holds the retro's retros/ dir and prints the Target NAME
+  #   (TARGETS.md row cell 2 — what the `target:<name>` labels are named after, NOT the path
+  #   basename) of the NEAREST registered ancestor. That covers the flat layout
+  #   (<target>/retros/), the nested one (<target>/corpus/retros/, METHODOLOGY §3b) and any
+  #   deeper one; with nested registered targets the innermost wins, in any row order.
+  #   A retro under an UNREGISTERED subdirectory of a registered target takes the registered
+  #   parent's name (the subdirectory has no label of its own to claim).
+  #   Both sides compare PHYSICAL paths (cd -P / pwd -P), so a symlinked retro directory or a
+  #   registered path written through a symlink still matches.
+  #   A name cell that is empty, or contains whitespace, falls back to the path basename; the
+  #   whitespace case also prints a WARN (a name that cannot be a label must not vanish quietly).
+  #   Returns: 0 + name on stdout            — nearest registered ancestor found
+  #            2 + empty stdout              — TARGETS.md read fine, no ancestor registered
+  #                                            (no-match; the caller picks its own fallback)
+  #            1 + typed message on stderr   — operational failure: bad arguments, TARGETS.md
+  #                                            absent/unreadable, no registered path parsed from
+  #                                            it, or the retro's directory does not exist
+  target_name_for_retro() {
+    local f="${1:-}" retro="${2:-}"
+    if [ -z "$f" ] || [ -z "$retro" ]; then
+      echo "target-paths: target_name_for_retro needs <targets_md> <retro>" >&2
+      return 1
+    fi
+    if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+      echo "target-paths: cannot read ${f}" >&2
+      return 1
+    fi
+    local rdir
+    rdir="$(cd -P "$(dirname "$retro")" 2>/dev/null && pwd -P)" || {
+      echo "target-paths: retro directory not found for ${retro}" >&2
+      return 1
+    }
+    # The exit status of target_paths_pairs is deliberately NOT consulted: under `set -o pipefail`
+    # (every consumer sets it) its last pipeline — the $RESEARCH_HOME form — exits 1 whenever a
+    # registry has no such rows, even though Form 1 rows were emitted. The two real failure modes
+    # (absent / unreadable file) were rejected above, so an EMPTY result is the signal.
+    local pairs
+    pairs="$(target_paths_pairs "$f" 2>/dev/null)"
+    if [ -z "$pairs" ]; then
+      echo "target-paths: no registered target paths parsed from ${f}" >&2
+      return 1
+    fi
+    local rows
+    rows="$(grep -E '^\s*\|' "$f")"
+    local -a _tnr_raw=() _tnr_exp=() _tnr_path=()
+    local _raw _path _exp
+    while IFS=$'\t' read -r _raw _path; do
+      _exp="$(cd -P "$_path" 2>/dev/null && pwd -P)" || continue
+      _tnr_raw+=("$_raw"); _tnr_exp+=("$_exp"); _tnr_path+=("$_path")
+    done <<<"$pairs"
+    local anc i hit=-1
+    anc="$(dirname "$rdir")"
+    while :; do
+      for i in "${!_tnr_exp[@]}"; do
+        if [ "${_tnr_exp[$i]}" = "$anc" ]; then
+          hit="$i"
+          break 2   # SENTINEL-TNR-NEAREST: first (innermost) ancestor wins
+        fi
+      done
+      [ "$anc" = "/" ] && break
+      anc="$(dirname "$anc")"
+    done
+    [ "$hit" -ge 0 ] || return 2
+    local rowline name grc
+    rowline="$(grep -F -m 1 -- "\`${_tnr_raw[$hit]}\`" <<<"$rows")"; grc=$?
+    if [ "$grc" -gt 1 ]; then
+      echo "target-paths: grep failed (exit ${grc}) reading the row for ${_tnr_raw[$hit]}" >&2
+      return 1
+    fi
+    name=""
+    if [ "$grc" -eq 0 ]; then
+      name="$(awk -F'|' '{ n = $3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n }' <<<"$rowline")"
+    fi
+    case "$name" in
+      '') name="$(basename "${_tnr_path[$hit]}")" ;;
+      *[[:space:]]*)
+        echo "WARN: target name cell '${name}' for ${_tnr_raw[$hit]} contains whitespace and cannot be a label — using basename" >&2
+        name="$(basename "${_tnr_path[$hit]}")" ;;
+    esac
+    printf '%s\n' "$name"
   }
 
 fi

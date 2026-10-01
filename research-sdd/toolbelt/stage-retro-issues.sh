@@ -405,44 +405,29 @@ fi
 . "$_TP_LIB"
 declare -F target_paths_pairs >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_paths_pairs" >&2; exit 1; }
+declare -F target_name_for_retro >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_name_for_retro" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Derive target name from the retro's directory hierarchy (kit issue #1169).
-# Walk UP from the retro's directory and take the NEAREST ancestor registered in TARGETS.md.
-# That covers the flat layout (<target>/retros/), the nested layout (<target>/corpus/retros/,
-# METHODOLOGY §3b) and any deeper one (<target>/<sub>/retros/). Taking only dirname(dirname())
-# resolved a nested corpus to '<target>/corpus', which never matches a row, so the basename
-# fallback yielded the generic label `target:corpus` (nonexistent -> every gh create failed).
+# Derive target name from the retro's directory hierarchy (kit issues #1169, #1287).
+# The walk-up + name lookup lives in lib/target-paths.sh (target_name_for_retro) so that this
+# writer, reconcile-issues.sh and stage-retro.sh cannot drift apart: the `Source retro:` signature
+# stamped below is the one reconcile searches for. It takes the NEAREST registered ancestor
+# (flat <target>/retros, nested <target>/corpus/retros, deeper <target>/<sub>/retros) and returns
+# the registered Target NAME (row cell 2, what the `target:<name>` labels are named after).
+#   rc 1 -> operational failure (TARGETS.md absent/unreadable/zero rows): exit 1, never a guess
+#   rc 2 -> TARGETS.md fine but no ancestor registered: legacy WARN + basename fallback for the
+#           flat layout; a structural dir (corpus|retros) is refused up front.
 _retro_dir="$(cd "$(dirname "$retro")" && pwd)"
-_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"   # legacy flat-layout guess (fallback only)
-target_name=""
-
-if [ -f "$TARGETS_MD" ]; then
-  _registered=()
-  # The label value is the registered Target NAME (row cell 2, e.g. `pancaddia-leon-tunnel`),
-  # which is what the `target:<name>` GitHub labels are named after — NOT the path basename
-  # (`Pancaddia`). Fall back to the basename only when the row has no usable name cell.
-  while IFS=$'\t' read -r _raw _path; do
-    _exp="$(cd "$_path" 2>/dev/null && pwd)" || continue
-    _rname="$(grep -E '^[[:space:]]*\|' "$TARGETS_MD" | grep -F "\`$_raw\`" | head -n 1 \
-      | awk -F'|' '{ n=$3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n }')"
-    case "$_rname" in ''|*[[:space:]]*) _rname="$(basename "$_path")" ;; esac
-    _registered+=("$_exp"$'\t'"$_rname")
-  done < <(target_paths_pairs "$TARGETS_MD" 2>/dev/null)
-  _anc="$(dirname "$_retro_dir")"
-  while :; do
-    for _entry in ${_registered[@]+"${_registered[@]}"}; do
-      if [ "${_entry%%$'\t'*}" = "$_anc" ]; then
-        target_name="${_entry#*$'\t'}"
-        break 2
-      fi
-    done
-    [ "$_anc" = "/" ] && break
-    _anc="$(dirname "$_anc")"
-  done
+_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"   # legacy flat-layout guess (fallback + legacy dedup signature)
+target_name="$(target_name_for_retro "$TARGETS_MD" "$retro")"
+_tnr_rc=$?
+if [ "$_tnr_rc" -eq 1 ]; then
+  echo "stage-retro-issues: cannot resolve target for '$retro' — operational failure reading $TARGETS_MD (see message above)" >&2
+  exit 1
 fi
 
-if [ -z "$target_name" ]; then
+if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
   target_name="$(basename "$_target_dir")"
   # A structural directory name is never a registered target label: fail up front rather than
   # plan issues whose `target:<name>` label cannot exist (anti-silent-zero).
@@ -453,6 +438,14 @@ if [ -z "$target_name" ]; then
   esac
   echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$target_name'" >&2
 fi
+# Pre-#1286 issues carry the legacy `<path basename>/retros/<file>` signature; remember it so the
+# --apply dedup can search it too when the registered name differs from the basename (#1287).
+_legacy_target_name="$(basename "$_target_dir")"
+# A structural old name (<t>/corpus/retros -> `corpus`) never matched a real signature — the old code
+# refused it up front — so a lookup for it is a pointless gh call. Treat it as "no legacy name".
+case "$_legacy_target_name" in
+  corpus|retros) _legacy_target_name="$target_name" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Parse review-status and detect PARTIAL applied markers.
@@ -740,6 +733,34 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"CLOSED"'; then
       echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
+    fi
+    # STAGE_RETRO_ISSUES_DEDUP_LEGACY_SIG (kit issue #1287 item 2): issues created before #1286
+    # carry the legacy `<path basename>/retros/<file>` signature (e.g. `cloudflare/retros/...`,
+    # today's key is `cloudflare-tunnels/retros/...`). When the registered name differs from the
+    # basename, search that signature too (all states, same failure guards as above) so a
+    # re-marked pending retro cannot duplicate on --apply. Skipped when they are equal: one
+    # lookup, no extra gh traffic for the common case.
+    if [ "$_legacy_target_name" != "$target_name" ]; then
+      _legacy_sig="Source retro: ${_legacy_target_name}/retros/${retro_basename} · ${_rid}"
+      _legacy_existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
+        --search "\"$_legacy_sig\"" --json state 2>&1)"
+      _legacy_rc=$?
+      if [ "$_legacy_rc" -ne 0 ]; then
+        echo "ERROR: gh issue list (legacy-signature dedup) failed for row $_rid: $_legacy_existing" >&2
+        failed=$((failed+1)); continue
+      fi
+      if ! grep -q '^[[:space:]]*\[' <<<"$_legacy_existing"; then
+        echo "ERROR: gh issue list (legacy-signature dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_legacy_existing" >&2
+        failed=$((failed+1)); continue
+      fi
+      if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
+        echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
+        skipped_dedup=$((skipped_dedup+1)); continue
+      fi
+      if grep -q '"state":[[:space:]]*"CLOSED"' <<<"$_legacy_existing"; then
+        echo "skipped-duplicate: issue for row $_rid already exists (closed; legacy signature matched '$_legacy_sig')"
+        skipped_dedup=$((skipped_dedup+1)); continue
+      fi
     fi
 
     _label_flags=""

@@ -146,6 +146,12 @@ mk_kit_real_reconcile() {
   cp "$HERE/../lib/hook-wiring.sh" "$kdir/lib/hook-wiring.sh"
   cp "$HERE/../lib/retro-grammar.sh" "$kdir/lib/retro-grammar.sh"
   cp "$HERE/../lib/target-paths.sh" "$kdir/lib/target-paths.sh"
+  # kit issue #1287 item 3: reconcile treats an absent/zero-row TARGETS.md as an OPERATIONAL failure
+  # (exit 1), so the fixture kit needs a registry. Callers pass a kdir of the form
+  # <root>/research-sdd/toolbelt, making <root> the KIT_ROOT reconcile derives. One dummy row (a path
+  # that does not exist) keeps every fixture retro "unregistered" → the legacy WARN + basename path.
+  printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | fixture-dummy | `/nonexistent-kit-fixture-target` |\n' \
+    > "$kdir/../TARGETS.md"
   # Stub gh: auth status→ exit 0; issue list → empty (no issues → delta is untracked)
   mkdir -p "$ghdir"
   printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) printf "" ; exit 0 ;; *) exit 1 ;; esac\n' \
@@ -2026,7 +2032,7 @@ fi
 # R3-STUB-ONLY: runs REAL reconcile (not a stub); gh is stubbed (auth→exit 0, issue list→empty).
 # Empty issue list → delta has no matching open issue → reconcile classifies it as untracked.
 # Gate's awk '/^untracked:/' must match reconcile's real output format → ISSUES-DUE.
-_kit_ctr="$TMP/kit-idg-contract"
+_kit_ctr="$TMP/kit-idg-contract/research-sdd/toolbelt"
 _gh_stub_ctr="$TMP/gh-stub-contract"
 mk_kit_real_reconcile "$_kit_ctr" "$_gh_stub_ctr"
 _tc_ctr="$TMP/target-idg-contract"; mkstate "$_tc_ctr" 0 "high|done gap|covered"
@@ -2330,7 +2336,7 @@ fi
 # Without batch (current SUT): 0 batch call + 2 per-retro calls = 2 gh calls → RED before implementation.
 # Fixture: 2 retros, each with 1 row; gh stub returns tracked bodies for both → no early-exit → all probed.
 # The gh stub returns a body for each retro so real reconcile classifies them as tracked (no ISSUES-DUE).
-_kit_b1gh="$TMP/kit-idg-batch1gh"
+_kit_b1gh="$TMP/kit-idg-batch1gh/research-sdd/toolbelt"
 _gh_b1gh_dir="$TMP/gh-batch1gh-dir"
 mk_kit_real_reconcile "$_kit_b1gh" "$_gh_b1gh_dir"
 _gh_b1gh_log="$TMP/gh-batch1gh.log"; : > "$_gh_b1gh_log"
@@ -4023,7 +4029,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if grep -q '/\^untracked:/' "$idg_ctr_mutant"; then
       no "teeth-IDG-contract: could not build mutant (sed did not corrupt awk pattern)"
     else
-      _ctr_mut_kit="$TMP/kit-teeth-ctr"
+      _ctr_mut_kit="$TMP/kit-teeth-ctr/research-sdd/toolbelt"   # <root>/research-sdd/toolbelt: root = KIT_ROOT (#1287)
       _ctr_mut_gh="$TMP/gh-stub-teeth-ctr"
       mkdir -p "$_ctr_mut_kit/lib" "$_ctr_mut_gh"
       cp "$idg_ctr_mutant" "$_ctr_mut_kit/research-sdd-status.sh"
@@ -4036,6 +4042,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       cp "$HERE/../lib/hook-wiring.sh" "$_ctr_mut_kit/lib/hook-wiring.sh"
       cp "$HERE/../lib/retro-grammar.sh" "$_ctr_mut_kit/lib/retro-grammar.sh"
       cp "$HERE/../lib/target-paths.sh" "$_ctr_mut_kit/lib/target-paths.sh"
+      # Registry (kit issue #1287 item 3): without it real reconcile exits 1 and the mutant's STOP
+      # would be for the WRONG reason (an operational failure, not the corrupted awk pattern).
+      printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | fixture-dummy | `/nonexistent-kit-fixture-target` |\n' \
+        > "$_ctr_mut_kit/../TARGETS.md"
       printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) printf "" ; exit 0 ;; *) exit 1 ;; esac\n' \
         > "$_ctr_mut_gh/gh"
       chmod +x "$_ctr_mut_gh/gh"
@@ -4456,7 +4466,7 @@ CTR_TEETH_EOF
     if grep -q 'IDG-BATCH-PASS-CACHE' "$_b1t_mut" && \
        ! grep -q -- '--issues-cache "\$_idg_cache_file"' "$_b1t_mut"; then
       # Tooth kit: real reconcile + all its libs + recording gh stub
-      _b1t_kdir="$TMP/kit-b1tooth"
+      _b1t_kdir="$TMP/kit-b1tooth/research-sdd/toolbelt"   # <root>/research-sdd/toolbelt: root = KIT_ROOT (#1287)
       mkdir -p "$_b1t_kdir/lib"
       cp "$_b1t_mut" "$_b1t_kdir/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_b1t_kdir/verify-state.sh"
@@ -4468,6 +4478,8 @@ CTR_TEETH_EOF
       cp "$HERE/../lib/hook-wiring.sh" "$_b1t_kdir/lib/hook-wiring.sh"
       cp "$HERE/../lib/retro-grammar.sh" "$_b1t_kdir/lib/retro-grammar.sh"
       cp "$HERE/../lib/target-paths.sh" "$_b1t_kdir/lib/target-paths.sh"
+      printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | fixture-dummy | `/nonexistent-kit-fixture-target` |\n' \
+        > "$_b1t_kdir/../TARGETS.md"
       _b1t_ghdir="$TMP/gh-batch1-tooth"
       mkdir -p "$_b1t_ghdir"
       _b1t_ghlog="$TMP/gh-batch1-tooth.log"; : > "$_b1t_ghlog"
