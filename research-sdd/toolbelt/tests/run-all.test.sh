@@ -762,7 +762,7 @@ else
   w="$(newdir c35c)"; mkfix_sh "$w/a.test.sh" 1 0 0
   _c35bin="$TMP/c35c-bin"; mkdir -p "$_c35bin"
   { printf '#!/usr/bin/env bash\n'
-    printf 'case "$*" in *research-sdd*) echo "find: simulated failure" >&2; exit 1;; esac\n'
+    printf 'case "$*" in *sha1sum*) echo "find: simulated failure" >&2; exit 1;; esac\n'
     printf 'exec %s "$@"\n' "$_c35realfind"
   } > "$_c35bin/find"; chmod +x "$_c35bin/find"
   _c35cwd="$TMP/c35c-cwd"; mkdir -p "$_c35cwd"
@@ -1015,10 +1015,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-scanner-rc: no real 'find' on PATH to build the stub from"
     else
       mkfix_sh "$w/a.test.sh" 1 0 0
-      # The stub fails the CWD scan only: the kit-tree scan (kit issue #1156, its path contains
-      # "research-sdd") runs for real, so this tooth isolates the cwd scanner's rc check.
+      # The stub rejects -printf, which only the CALLER-CWD scan uses; the kit-tree scan (kit issue
+      # #1156) runs `find -type f -exec sha1sum` and never passes -printf, so it is unaffected and
+      # this tooth isolates the cwd scanner's rc check — independent of any path (TMPDIR) naming.
       { printf '#!/usr/bin/env bash\n'
-        printf 'case "$*" in *research-sdd*) exec %s "$@";; esac\n' "$_teeth_src_realfind"
         printf 'for _a in "$@"; do\n'
         printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
         printf 'done\n'

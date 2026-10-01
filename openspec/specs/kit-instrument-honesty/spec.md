@@ -62,6 +62,17 @@ cross-checking teeth-banner lines (`^\s*(--|==)\s*teeth\b`, case-insensitive) ag
 that handle the flag. (Spec amended after design validation: the earlier "forward the flag to node" MUST was
 withdrawn on evidence — there is nothing to forward.)
 
+A fourth line follows under every `--prove-teeth` run, after the optional `Suites with teeth but no banner`
+line and always present (an explicit `0 — []` when nothing qualifies; kit issue #943):
+
+```
+Suites with teeth not using lib/mutant.sh: M — [suite-a, suite-b, …]
+```
+
+It names the `*.test.sh` suites that have teeth (a teeth banner, or flag handling in source) and never
+reference `tests/lib/mutant.sh`. It is informational: it MUST NOT change the exit code and MUST NOT appear in a
+plain (non-`--prove-teeth`) run.
+
 When invoked with `--require-teeth`, `run-all.sh` MUST exit non-zero when N > 0. The default run
 (without `--require-teeth`) MUST remain green regardless of N; only the count is reported.
 
@@ -84,6 +95,34 @@ When invoked with `--require-teeth`, `run-all.sh` MUST exit non-zero when N > 0.
 - WHEN both runs complete
 - THEN the patched branch names every suite that exits 0 under `--prove-teeth` silently
 - AND the patched branch introduces no new test failures beyond the teeth-accounting line
+
+### Requirement: Kit-Tree Hermeticity in run-all.sh
+
+`run-all.sh` MUST snapshot the kit tree (`research-sdd/`, resolved from the script's own location, never the
+cwd) before the first suite and after every suite, tracking files by path and content hash. A file that appears,
+disappears or changes bytes during a suite MUST be reported as `<suite> leaked: <relpath> (new|modified|removed)`
+and MUST fail the run even when every suite passed (kit issue #1156). `__pycache__` bytecode, directories and
+identical-bytes rewrites are not violations. The aggregate MUST print exactly one of:
+
+```
+Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): N
+Kit-tree hermeticity: DEGRADED — <reason>; could not verify
+```
+
+A scan that cannot run (the `find`/`sha1sum` scanner failing, or the kit tree unresolvable) MUST report
+DEGRADED and fail the run; it MUST NOT read as `N = 0` (absent-input is not zero).
+
+#### Scenario: A suite writes under research-sdd/
+
+- GIVEN a suite that creates, rewrites with different bytes, and deletes files under `research-sdd/install/`
+- WHEN `run-all.sh` is invoked
+- THEN each change is named against that suite, a following clean suite is not blamed, and the exit code is 1
+
+#### Scenario: Scanner failure is not a confident zero
+
+- GIVEN a `find` that fails on the kit-tree scan only
+- WHEN `run-all.sh` is invoked
+- THEN stdout includes `Kit-tree hermeticity: DEGRADED` and the exit code is 1
 
 ### Requirement: Saturation Parser Enumerates All Fleet Forms
 

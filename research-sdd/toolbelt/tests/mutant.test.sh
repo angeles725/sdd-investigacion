@@ -16,7 +16,10 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-ORIG="$TMP/orig.sh"
+# Originals live in $TMP/src and mutants in $TMP: with no git, "the tree ORIG lives in" is its own
+# physical dir, and an OUT beside the SUT is exactly what the helper refuses.
+mkdir -p "$TMP/src"
+ORIG="$TMP/src/orig.sh"
 printf '#!/usr/bin/env bash\nif true; then\n  echo hello\nfi\n' > "$ORIG"
 
 # expect_rc <label> <want-rc> <want-stderr-substring> <cmd...> — runs cmd, checks the exact rc and
@@ -64,9 +67,9 @@ else no "syntax opt-out: rc=$rc"; fi
 out="$TMP/m5.sh"
 expect_rc "absent original: refused (rc 2, says not a readable file)" 2 "not a readable file" \
   mutant_sed "$TMP/does-not-exist.sh" "$out" 's/a/b/'
-: > "$TMP/empty-orig.sh"
+: > "$TMP/src/empty-orig.sh"
 expect_rc "empty original: refused (rc 3, says original is empty)" 3 "original is empty" \
-  mutant_sed "$TMP/empty-orig.sh" "$out" 's/a/b/'
+  mutant_sed "$TMP/src/empty-orig.sh" "$out" 's/a/b/'
 
 # 6 — sed itself fails (unterminated s command).
 out="$TMP/m6.sh"
@@ -79,13 +82,55 @@ expect_rc "self-overwrite: OUT equal to the original path is refused (rc 7)" 7 "
 if grep -q hello "$ORIG"; then ok "self-overwrite: original bytes intact"
 else no "self-overwrite: original was modified"; fi
 
-# 8 — placement: an OUT outside the temp root (e.g. beside the SUT in the live tree) is refused
-# BEFORE anything is written (kit issue #1156).
-live_out="$HERE/mutant-live-tree-probe.$$.sh"
-expect_rc "placement: OUT under the live tests dir is refused (rc 8, says temp root)" 8 "temp root" \
-  mutant_sed "$ORIG" "$live_out" 's/hello/x/'
-if [ ! -e "$live_out" ]; then ok "placement: nothing was written to the live tree"
-else no "placement: refused mutant was written to the live tree"; rm -f "$live_out"; fi
+# 8 — placement (kit issue #1156). The "live tree" here is ALWAYS a fake under $TMP — never $HERE:
+# a probe written into the real toolbelt/tests would itself be the #1156 pattern.
+# 8a — OUT inside the tree ORIG lives in (a git work tree) is refused BEFORE anything is written,
+#      even though that tree sits UNDER the temp root (the old check only tested the temp root).
+if command -v git >/dev/null 2>&1; then
+  live="$TMP/live-repo"; mkdir -p "$live/sub" && git init -q "$live" 2>/dev/null
+  printf '#!/usr/bin/env bash\necho hello\n' > "$live/sut.sh"
+  for rel in LIVE.MUTANT.sh sub/NESTED.MUTANT.sh; do
+    expect_rc "placement: OUT at live-repo/$rel is refused (rc 8, says live tree)" 8 "live tree" \
+      mutant_sed "$live/sut.sh" "$live/$rel" 's/hello/x/'
+    if [ ! -e "$live/$rel" ]; then ok "placement: nothing written at live-repo/$rel"
+    else no "placement: refused mutant was written at live-repo/$rel"; fi
+  done
+else
+  ok "placement: SKIP git cases — no git on PATH (the non-git fallback below still runs)"
+fi
+# 8b — no git: the tree ORIG lives in is its own physical dir; OUT beside the SUT is refused.
+plain="$TMP/plain-tree"; mkdir -p "$plain" "$TMP/nogit-bin"; printf '#!/bin/sh\nexit 127\n' > "$TMP/nogit-bin/git"; chmod +x "$TMP/nogit-bin/git"; printf 'echo hello\n' > "$plain/sut.sh"
+expect_rc "placement (no git): OUT beside the SUT is refused (rc 8, says live tree)" 8 "live tree" \
+  env PATH="$TMP/nogit-bin:$PATH" "$BASH" -c ". '$LIB'; mutant_sed '$plain/sut.sh' '$plain/x.MUTANT.sh' 's/hello/x/'"
+# 8c — OUT outside MUTANT_TMPROOT is refused with its own message (second, independent condition).
+mkdir -p "$TMP/root-c" "$TMP/elsewhere"
+expect_rc "placement: OUT outside MUTANT_TMPROOT is refused (rc 8, says temp root)" 8 "temp root" \
+  env MUTANT_TMPROOT="$TMP/root-c" "$BASH" -c ". '$LIB'; mutant_sed '$ORIG' '$TMP/elsewhere/x.sh' 's/hello/x/'"
+# 8d — the kit itself under the temp root (the case that broke the first version): with
+#      MUTANT_TMPROOT holding a fake repo, a legitimate sibling OUT is accepted and an OUT inside the
+#      repo is still refused as live tree.
+if command -v git >/dev/null 2>&1; then
+  mkdir -p "$TMP/root-d/out"; git init -q "$TMP/root-d/repo" 2>/dev/null
+  printf '#!/usr/bin/env bash\necho hello\n' > "$TMP/root-d/repo/sut.sh"
+  MUTANT_TMPROOT="$TMP/root-d" mutant_sed "$TMP/root-d/repo/sut.sh" "$TMP/root-d/out/ok.sh" 's/hello/x/' 2>/dev/null; rc=$?
+  if [ "$rc" -eq 0 ]; then ok "placement: kit under the temp root — sibling OUT dir is accepted"
+  else no "placement: kit under the temp root — sibling OUT was refused (rc=$rc)"; fi
+  expect_rc "placement: kit under the temp root — OUT inside the repo is refused (rc 8, live tree)" 8 "live tree" \
+    env MUTANT_TMPROOT="$TMP/root-d" "$BASH" -c ". '$LIB'; mutant_sed '$TMP/root-d/repo/sut.sh' '$TMP/root-d/repo/y.sh' 's/hello/x/'"
+fi
+# 8e — a symlink at OUT would be written THROUGH to its target (not just a link back to ORIG,
+#      which -ef catches): refused with its own code, target untouched, dangling links too.
+mkdir -p "$TMP/linkdir"; printf 'VICTIM\n' > "$TMP/victim.txt"
+ln -s "$TMP/victim.txt" "$TMP/linkdir/out.sh"
+expect_rc "placement: OUT that is a symlink to another file is refused (rc 9, says symlink)" 9 "symlink" \
+  mutant_sed "$ORIG" "$TMP/linkdir/out.sh" 's/hello/x/'
+if [ "$(cat "$TMP/victim.txt")" = "VICTIM" ]; then ok "placement: symlink target was not written through"
+else no "placement: symlink target was overwritten"; fi
+ln -s "$TMP/never-created.txt" "$TMP/linkdir/dangling.sh"
+expect_rc "placement: OUT that is a dangling symlink is refused (rc 9)" 9 "symlink" \
+  mutant_sed "$ORIG" "$TMP/linkdir/dangling.sh" 's/hello/x/'
+if [ ! -e "$TMP/never-created.txt" ]; then ok "placement: dangling symlink target was not created"
+else no "placement: dangling symlink target was created"; fi
 
 # 9 — mutant_verify on an externally built mutant (non-sed construction).
 ext="$TMP/ext.sh"; cp "$ORIG" "$ext"
@@ -96,15 +141,26 @@ mutant_verify "$ORIG" "$ext" 2>/dev/null; rc=$?
 if [ "$rc" -eq 0 ]; then ok "verify: externally built differing mutant is accepted"
 else no "verify: rc=$rc"; fi
 
+# 9b — mutant_verify enforces placement too (an externally built mutant dropped in the live tree).
+if command -v git >/dev/null 2>&1; then
+  printf '#!/usr/bin/env bash\necho changed\n' > "$live/EXT.MUTANT.sh"
+  expect_rc "verify: externally built mutant inside the live tree is refused (rc 8, says live tree)" 8 "live tree" \
+    mutant_verify "$live/sut.sh" "$live/EXT.MUTANT.sh"
+  rm -f "$live/EXT.MUTANT.sh"
+fi
+ln -s "$TMP/victim.txt" "$TMP/linkdir/ext-link.sh"
+expect_rc "verify: OUT that is a symlink is refused (rc 9)" 9 "symlink" \
+  mutant_verify "$ORIG" "$TMP/linkdir/ext-link.sh"
+
 # 10 — list edges: the anchor on the FIRST line, LAST line (no trailing newline) and a
 # single-line original all register as applied mutations.
-printf 'first\nmiddle\nlast' > "$TMP/edge.sh"
+printf 'first\nmiddle\nlast' > "$TMP/src/edge.sh"
 for pair in 's/^first$/FIRST/' 's/^last$/LAST/' 's/^middle$/MIDDLE/'; do
-  MUTANT_SYNTAX=none mutant_sed "$TMP/edge.sh" "$TMP/edge.out" "$pair" 2>/dev/null; rc=$?
+  MUTANT_SYNTAX=none mutant_sed "$TMP/src/edge.sh" "$TMP/edge.out" "$pair" 2>/dev/null; rc=$?
   if [ "$rc" -eq 0 ]; then ok "edge: $pair applies"; else no "edge: $pair refused (rc=$rc)"; fi
 done
-printf 'solo\n' > "$TMP/solo.sh"
-MUTANT_SYNTAX=none mutant_sed "$TMP/solo.sh" "$TMP/solo.out" 's/solo/duo/' 2>/dev/null; rc=$?
+printf 'solo\n' > "$TMP/src/solo.sh"
+MUTANT_SYNTAX=none mutant_sed "$TMP/src/solo.sh" "$TMP/solo.out" 's/solo/duo/' 2>/dev/null; rc=$?
 if [ "$rc" -eq 0 ]; then ok "edge: single-line original mutates"
 else no "edge: single-line original refused (rc=$rc)"; fi
 
@@ -129,8 +185,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "empty: a mutant that deletes everything is refused"
   teeth_case syntax '/SENTINEL-SYNTAX-CHECK/,+6s/return 5/:/' \
     "syntax: mutant that is not valid bash is refused"
-  teeth_case placement '/SENTINEL-PLACEMENT-CHECK/,+6s/return 8/:/' \
-    "placement: OUT under the live tests dir is refused"
+  teeth_case livetree '/SENTINEL-LIVE-TREE-CHECK/,+1s/ || _mutant_under "\$real_out" "\$live"//' \
+    "placement: OUT at live-repo/LIVE.MUTANT.sh is refused"
+  teeth_case tmproot '/SENTINEL-TMPROOT-CHECK/,+1s/! _mutant_under "\$real_out" "\$real_root"/false/' \
+    "placement: OUT outside MUTANT_TMPROOT is refused"
+  teeth_case symlink '/SENTINEL-SYMLINK-CHECK/,+3s/return 9/:/' \
+    "placement: OUT that is a symlink to another file is refused"
   teeth_case selfoverwrite '/SENTINEL-SELF-CHECK/,+3s/return 7/:/' \
     "self-overwrite: OUT equal to the original path is refused"
 fi

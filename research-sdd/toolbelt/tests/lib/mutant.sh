@@ -4,17 +4,28 @@
 # Root class: a tooth reports ok when the mutated run merely DIFFERS from the good run, so a
 # mutant that never applied, was empty, crashed on a syntax error, or was written into the live
 # tree all "bite" for the wrong reason. This helper builds a mutant as a COPY of the real SUT in a
-# temp dir and REFUSES to hand back one that cannot be a real mutation. A refused mutant file is
-# removed, so a caller that ignores the return code finds nothing to run.
+# temp dir and REFUSES to hand back one that cannot be a real mutation. A mutant refused for being
+# empty, identical, not valid bash, or for a failed sed is removed, so a caller that ignores the
+# return code finds nothing to run. A placement/symlink refusal (8, 9) never deletes anything: the
+# path is not known to be the helper's own file.
 #
-#   mutant_sed    ORIG OUT SED_ARGS...   sed SED_ARGS... ORIG > OUT, then mutant_verify
-#   mutant_verify ORIG OUT               the same checks for a mutant built some other way
+#   mutant_sed    ORIG OUT SED_ARGS...   placement checks, then sed SED_ARGS... ORIG > OUT, then
+#                                        the content checks of mutant_verify
+#   mutant_verify ORIG OUT               the SAME checks (placement, symlink, content) for a
+#                                        mutant built some other way (awk, a heredoc, a copy)
 #
 # Return codes (distinct, so a test can assert the SPECIFIC refusal, not "any failure"):
 #   0 ok · 2 original absent/unreadable · 3 original or mutant empty · 4 mutant byte-identical to
 #   the original (the mutation never applied) · 5 mutant is not valid bash (bash -n) · 6 sed failed
-#   · 7 OUT is the same path as ORIG · 8 OUT is not under the temp root (kit issue #1156: a mutant
-#   written beside the SUT lands in the live tree)
+#   · 7 OUT is the same path as ORIG · 8 OUT is in the live tree (the tree ORIG lives in) or not
+#   under the temp root (kit issue #1156: a mutant written beside the SUT lands in the live tree)
+#   · 9 OUT is a symlink (a write would go THROUGH it to another file)
+#
+# "The live tree" is the git work tree containing ORIG (`git rev-parse --show-toplevel`), or ORIG's
+# own physical directory when git is absent or ORIG is not in a work tree. Placement is TWO
+# independent conditions: OUT must NOT be at or under the live tree, AND must be under the temp
+# root. The second alone is not enough — a clone under /tmp, or a TMPDIR that is an ancestor of the
+# kit, puts the live tree under the temp root.
 #
 # Environment:
 #   MUTANT_SYNTAX=none   skip the `bash -n` check (mutants of non-bash files). Default: bash.
@@ -28,18 +39,58 @@ _mutant_refuse() { printf 'mutant: REFUSED — %s\n' "$1" >&2; }
 # _mutant_realdir <dir> — physical path of an existing directory; fails (no output) otherwise.
 _mutant_realdir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
+# _mutant_under <path> <root> — true when path equals root or lies below it (both physical).
+_mutant_under() { [ "$1" = "$2" ] || [ "${1#"$2"/}" != "$1" ]; }
+
+# _mutant_live_root <orig> — physical root of the tree ORIG lives in; fails (no output) when ORIG's
+# directory cannot be resolved.
+_mutant_live_root() {
+  local odir top=""
+  odir="$(_mutant_realdir "$(dirname -- "$1")")" || return 1
+  [ -n "$odir" ] || return 1
+  if command -v git >/dev/null 2>&1; then
+    top="$(git -C "$odir" rev-parse --show-toplevel 2>/dev/null)" || top=""
+    [ -n "$top" ] && top="$(_mutant_realdir "$top")"
+  fi
+  printf '%s' "${top:-$odir}"
+}
+
+# _mutant_check_out <orig> <out> — symlink + placement. Returns 0, 8 or 9.
+_mutant_check_out() {
+  local orig="$1" out="$2" root real_out real_root live
+  # SENTINEL-SYMLINK-CHECK
+  if [ -L "$out" ]; then
+    _mutant_refuse "OUT '$out' is a symlink — a write would go through it to another file"; return 9
+  fi
+  real_out="$(_mutant_realdir "$(dirname -- "$out")")"
+  live="$(_mutant_live_root "$orig")"
+  # SENTINEL-LIVE-TREE-CHECK
+  if [ -z "$real_out" ] || [ -z "$live" ] || _mutant_under "$real_out" "$live"; then
+    _mutant_refuse "OUT '$out' is in the live tree (${live:-unresolved}) — a mutant must be built in a temp copy, never beside the SUT"; return 8
+  fi
+  root="${MUTANT_TMPROOT:-${TMPDIR:-/tmp}}"
+  real_root="$(_mutant_realdir "$root")"
+  # SENTINEL-TMPROOT-CHECK
+  if [ -z "$real_root" ] || ! _mutant_under "$real_out" "$real_root"; then
+    _mutant_refuse "OUT '$out' is not under the temp root '$root'"; return 8
+  fi
+  return 0
+}
+
 mutant_verify() {
-  local orig="$1" out="$2"
+  local orig="$1" out="$2" rc
   if [ ! -f "$orig" ] || [ ! -r "$orig" ]; then
     _mutant_refuse "original '$orig' is not a readable file"; return 2
   fi
   if [ ! -s "$orig" ]; then
-    _mutant_refuse "original is empty: '$orig'"; rm -f -- "$out"; return 3
+    _mutant_refuse "original is empty: '$orig'"; return 3
   fi
   # SENTINEL-SELF-CHECK
   if [ "$orig" -ef "$out" ]; then
     _mutant_refuse "OUT and ORIG are the same path ('$out'); never overwrite the SUT"; return 7
   fi
+  _mutant_check_out "$orig" "$out"; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
   if [ ! -f "$out" ]; then
     _mutant_refuse "mutant '$out' was not produced"; return 2
   fi
@@ -62,7 +113,7 @@ mutant_verify() {
 }
 
 mutant_sed() {
-  local orig="$1" out="$2" odir root real_out real_root
+  local orig="$1" out="$2" rc
   shift 2
   if [ ! -f "$orig" ] || [ ! -r "$orig" ]; then
     _mutant_refuse "original '$orig' is not a readable file"; return 2
@@ -74,14 +125,9 @@ mutant_sed() {
   if [ "$orig" -ef "$out" ]; then
     _mutant_refuse "OUT and ORIG are the same path ('$out'); never overwrite the SUT"; return 7
   fi
-  # SENTINEL-PLACEMENT-CHECK
-  odir="$(dirname -- "$out")"
-  root="${MUTANT_TMPROOT:-${TMPDIR:-/tmp}}"
-  real_out="$(_mutant_realdir "$odir")"
-  real_root="$(_mutant_realdir "$root")"
-  if [ -z "$real_out" ] || [ -z "$real_root" ] || { [ "$real_out" != "$real_root" ] && [ "${real_out#"$real_root"/}" = "$real_out" ]; }; then
-    _mutant_refuse "OUT '$out' is not under the temp root '$root' — a mutant must be built in a temp copy, never in the live tree"; return 8
-  fi
+  # Placement BEFORE anything is written (mutant_verify repeats it; this one guards the sed write).
+  _mutant_check_out "$orig" "$out"; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
   if ! sed "$@" "$orig" > "$out"; then
     _mutant_refuse "sed failed building '$out'"; rm -f -- "$out"; return 6
   fi

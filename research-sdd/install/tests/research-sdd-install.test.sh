@@ -1904,6 +1904,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     in_warn && /return 1/ { in_warn=0; next }
     { print }
   ' "$SUT" > "$MUTANT27"
+  # Built with awk, not mutant_sed: run the same refusals (placement, empty, identical, syntax).
+  mutant_verify "$SUT" "$MUTANT27" \
+    || no "teeth: MUTANT27 could not be built (refused by the mutant helper — see above)"
   bash -n "$MUTANT27" 2>/dev/null \
     && ok "teeth: MUTANT27 parses (bash -n)" \
     || no "teeth: MUTANT27 is a syntax error — mutation is theater"
