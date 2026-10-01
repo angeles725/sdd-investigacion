@@ -141,7 +141,7 @@ while [ "$n" -le "$real_count" ]; do
 done
 
 # Appendix scan status for the summary (kit issue #1003 round 3, N3/RDD-WARNING): derived from
-# the ACTUAL _check_files array _check_files just built above, not a separate hardcoded flag — a
+# the ACTUAL array just built above, not a separate hardcoded flag — a
 # mutant that stops the appendix from landing in _check_files (however it does so: neutering the
 # `-f` guard, deleting the `_check_files+=` line, or any other route) is thereby ALSO reflected
 # here, because this reads the same array the orphan scan itself just consumed. Anti-silent-zero:
@@ -152,25 +152,6 @@ for _f in "${_check_files[@]}"; do
     _appendix_scan_status="checked"
   fi
 done
-
-# =============================================================================
-# CHECK 5 — appendix anchor citations resolve
-# Every `PROMPT-LOOP-APPENDIX.md#<anchor>` reference in PROMPT-LOOP.md must name an anchor that
-# actually exists as a `## <anchor>` heading in PROMPT-LOOP-APPENDIX.md — otherwise a core pointer
-# sends the driver to a situational section that was renamed or removed (kit issue #1003 round 3,
-# RDD suggestion). Advisory (propose-never-apply): WARN only, never fails the run. Skipped
-# (degraded, not a false pass) when either file is absent — already WARNed above.
-# =============================================================================
-anchor_count=0
-if [ -f "$RSDD_PROMPTLOOP" ] && [ -f "$RSDD_PROMPTLOOP_APPENDIX" ]; then
-  while IFS= read -r _anchor; do
-    [ -n "$_anchor" ] || continue
-    if ! grep -qE "^## ${_anchor}([^A-Za-z0-9_-]|$)" "$RSDD_PROMPTLOOP_APPENDIX"; then
-      echo "WARN  PROMPT-LOOP.md cites PROMPT-LOOP-APPENDIX.md#${_anchor} but no '## ${_anchor}' heading exists there — fix the pointer or the anchor."
-      anchor_count=$((anchor_count + 1))
-    fi
-  done < <(grep -ohE 'PROMPT-LOOP-APPENDIX\.md#[A-Za-z0-9_-]+' "$RSDD_PROMPTLOOP" 2>/dev/null | sed 's/^.*#//' | sort -u)
-fi
 
 # =============================================================================
 # CHECK 3 — citations resolve
@@ -219,6 +200,36 @@ else
 fi
 
 # =============================================================================
+# CHECK 5 — appendix anchor citations resolve
+# Every `PROMPT-LOOP-APPENDIX.md#<anchor>` citation, in ANY scanned kit doc (PROMPT-LOOP.md,
+# SKILL.md, METHODOLOGY.md, README.md — kit issue #1166 item 5: citations from files other than
+# PROMPT-LOOP.md used to go unchecked), must name an anchor that actually exists as a
+# `## <anchor>` heading in PROMPT-LOOP-APPENDIX.md — otherwise a pointer sends the driver to a
+# situational section that was renamed or removed (kit issue #1003 round 3, RDD suggestion).
+# Advisory (propose-never-apply): WARN only, never fails the run. Skipped (degraded, not a false
+# pass) when the appendix is absent — already WARNed above — and the summary says "not checked"
+# so a skipped run is distinguishable from "0 cited" (kit issue #1166 item 4, §7 no-match).
+# =============================================================================
+anchor_count=0
+anchor_cited=0
+anchor_status="checked"
+if [ -f "$RSDD_PROMPTLOOP_APPENDIX" ]; then
+  for _cf in "$RSDD_PROMPTLOOP" "$RSDD_SKILL" "$RSDD_METHODOLOGY" "$RSDD_README"; do
+    [ -f "$_cf" ] || continue
+    while IFS= read -r _anchor; do
+      [ -n "$_anchor" ] || continue
+      anchor_cited=$((anchor_cited + 1))
+      if ! grep -qE "^## ${_anchor}([^A-Za-z0-9_-]|$)" "$RSDD_PROMPTLOOP_APPENDIX"; then
+        echo "WARN  $(basename "$_cf") cites PROMPT-LOOP-APPENDIX.md#${_anchor} but no '## ${_anchor}' heading exists there — fix the pointer or the anchor."
+        anchor_count=$((anchor_count + 1))
+      fi
+    done < <(grep -ohE 'PROMPT-LOOP-APPENDIX\.md#[A-Za-z0-9_-]+' "$_cf" 2>/dev/null | sed 's/^.*#//' | sort -u)
+  done
+else
+  anchor_status="not checked"
+fi
+
+# =============================================================================
 # Summary — anti-silent-zero (§7): always print what was checked and how many
 # findings so a zero count is never ambiguous (absent/empty/no-match are distinct).
 # Printing real_count proves the instrument actually traversed METHODOLOGY.md.
@@ -230,6 +241,11 @@ fi
 # =============================================================================
 echo ""
 echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · PROMPT-LOOP-APPENDIX.md (${_appendix_scan_status}) · README.md (§-range upper: ${readme_declared_upper:-N/A})"
+if [ "$anchor_status" = "checked" ]; then
+  echo "  Appendix anchors: ${anchor_cited} cited · ${anchor_count} broken"
+else
+  echo "  Appendix anchors: not checked (PROMPT-LOOP-APPENDIX.md absent)"
+fi
 echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s) · ${readme_range_count} readme-range · ${anchor_count} broken appendix-anchor citation(s)"
 if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ] && [ "$readme_range_count" -eq 0 ] && [ "$anchor_count" -eq 0 ]; then
   echo "Doc consistency: clean."
