@@ -263,3 +263,50 @@ DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (K
          is actually there; without this step a page-number error or a dropped table qualifier
          survives until a manual re-read.
 ```
+
+---
+
+## review-and-delivery
+
+Trigger: read this section in full when a repo under receipt-driven development (RDD) is about to
+commit or merge, when a change set is large enough that a review lens budget could refuse it, when
+a tooling bootstrap lands many tools at once, or when the target repo cannot enforce required
+checks. (Kit issues #895, #1176, #1217, #1272, #1276.) These are DOCTRINE: no toolbelt merge
+wrapper exists, and none is implied. The operator or driver follows the order below by hand.
+
+```text
+         BULK AUTONOMOUS COMMITS VS RDD. When a chain commits per block under RDD, every commit
+         trips the review stop-hook (non-blocking but noisy; races produce `unrelated target
+         status is inconsistent`). For bulk autonomous research commits the OPERATOR disables RDD
+         clone-local for that repo (`gentle-ai review mode disable --scope clone`) and re-enables
+         it for deliberate work. The driver never toggles the mode itself.
+         REVIEW SLICES ARE CHAINED COMMITS OF AT MOST ~400 AUTHORED LINES, REVIEWED PER COMMIT.
+         A review lens has a context budget: one oversized candidate is refused
+         (`lens_context_budget_exceeded`, observed on a ~3,400-line slice and a ~7,200-line tooling
+         commit) and the recovery is a post-refusal split. Make the split the DEFAULT. Pre-split a
+         large tooling-bootstrap (one commit per ported/created tool) BEFORE the first review
+         attempt; cut slices at commit boundaries with real parents, never a squashed blob.
+         RDD BASE-REF IS THE BRANCH MERGE-BASE. Assess and review a slice against the commit where
+         the branch left the default branch (or the last reviewed boundary), never against a moving
+         `origin/main`, whose drift changes the candidate under review.
+         PIPELINE REVIEW, DON'T SERIALIZE IT. Plan the slices up front (a script that cuts at commit
+         boundaries and keeps each under the lens budget is the mechanical form), then review slice
+         N while the next writer works on slice N+1: review is read-only on immutable commits, so
+         the two do not collide. A serial "review, then start the next task" order wastes the
+         review time (observed ~40-90 s per slice) behind the writer. Reviewing is still per
+         commit; pipelining changes only the ordering.
+         NEVER MERGE A DUE CANDIDATE BEFORE ITS REVIEW. When `gentle-ai review assess` reports
+         `review_due=true`, the merge waits for the ACKNOWLEDGED review of that exact head. Today
+         this is an ordering the operator/driver must keep by hand (the observed failure: a PR merged
+         before review, reviewed post-merge); a mechanical check in the merge path is a possible
+         future instrument, not an existing one.
+         MERGE WAITS FOR GREEN CI WHEN BRANCH PROTECTION IS UNAVAILABLE. If the target repo cannot
+         enforce required checks (e.g. a private repo on a free plan), the driver's merge step
+         MUST wait for green CI (`gh pr checks <n> --watch`) and record the result in the PR or
+         run log. The in-repo pre-commit hook is the local backstop, not a substitute.
+         FORCE-PUSH BLOCKED, SO PUBLISH A SUPERSEDING BRANCH. Never force-push to repair a review
+         round or a rebase. Publish the corrected work as a superseding branch/PR that links the
+         one it replaces, and let the old one be closed.
+         PR LABELS. When the repo's pr-check requires exactly one `type:*` label, attach exactly
+         one before expecting the check to pass; zero or two fail it.
+```

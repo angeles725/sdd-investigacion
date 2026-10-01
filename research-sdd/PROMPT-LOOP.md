@@ -603,6 +603,9 @@ Always read first, in this order:
        - DELEGATION-BRIEFS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs` in full
          when writing a delegate's brief or receiving its result (executing-delegate contract,
          environment facts, truncated brief, blocker-scoped focus, PDF-citation spot-check).
+       - REVIEW-AND-DELIVERY — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#review-and-delivery` in
+         full before committing/merging on an RDD repo or landing a large change set (bulk-commit vs
+         RDD, <=~400-line chained slices, never merge a due candidate before review, CI wait).
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -948,7 +951,9 @@ Always read first, in this order:
          the final backstop. A linter that FAILS may still report a true finding in a different
          check — read every line of its output before dismissing any of it.
        - Regenerate CATALOG.md: python3 $KIT/templates/gen-catalog.py $CORPUS (the kit generator over the corpus
-         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress).
+         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress). If the
+         MCP `mem_save` fails under concurrent sessions (`multiple active runtime sessions match`), use the engram
+         CLI (`engram save ... --project ... --topic ...`) as the fallback — never drop the mirror.
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
          INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
          bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
