@@ -1242,7 +1242,7 @@ ref, note, date).
 **Deprecated aliases.** `open` and `queued` are non-conforming aliases of `pending`. Migrate to `pending`.
 
 **Em-dash means closed and nothing else.** An open row must carry a real tier (`high`, `medium`, `low`,
-or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell. An em-dash row with an open Status (`pending`, `requires-execution`, `open`, `queued`, `blocked*`) is non-conforming: `--sync-state` WARNs and does NOT count it as closed (#1307).
+or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell. An em-dash row with an open Status (`pending`, `requires-execution`, `open`, `queued`, `blocked*`) is non-conforming: `--sync-state` WARNs and does NOT count it as closed; a `—` row whose Gap cell is not a gap id (a note) is not counted either (#1307).
 
 **Wall rows end with `unblock:` (#1269), after `needs:`/`tried:`:** §21.1.
 

@@ -6544,7 +6544,7 @@ b13_run "$d" >/dev/null
 if grep -q 'unknown priority' <<<"$(b13_err "$d")"; then no "T-1307-NEARMISS-NOHDR: WARN noise on a header-less classification table — [$(b13_err "$d")]"; else ok "T-1307-NEARMISS-NOHDR: no unknown-tier WARN for a table without a Priority header"; fi
 # table at EOF with NO trailing newline (list edge): the last row is still read.
 d="$TMP/b13-eof"; mkdir -p "$d"
-{ echo "# T"; echo; printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n\n## Backlog\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n| high | g1 | web | pending |\n'; printf '| — | e-last | web | closed |'; } > "$d/RESEARCH-STATE.md"
+{ echo "# T"; echo; printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n\n## Backlog\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n| high | g1 | web | pending |\n'; printf '| — | e-1 | web | closed |'; } > "$d/RESEARCH-STATE.md"
 b13_expect "T-1307-EOF near-miss table at EOF without trailing newline" "$(b13_run "$d")" "2 1 1 0"
 
 # T-1307-FINDINGS: a non-backlog table whose first column merely holds high/medium/low (a Severity column) is NOT a backlog:
@@ -6594,9 +6594,43 @@ b13_lb_fix() { # <dir> <declared kg> <declared gc>
 }
 d="$TMP/b13-lb-keep"; b13_lb_fix "$d" 9 5
 b13_expect "T-1307-LOWERBOUND declared 9/5 kept (derived undercount is 2)" "$(b13_run "$d")" "9 5 1 0"
-if grep -q 'only a lower bound' <<<"$(b13_err "$d")"; then ok "T-1307-LOWERBOUND: the keep is explained on stderr"; else no "T-1307-LOWERBOUND: silent keep — [$(b13_err "$d")]"; fi
+if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1307-LOWERBOUND: the keep is explained on stderr"; else no "T-1307-LOWERBOUND: silent keep — [$(b13_err "$d")]"; fi
 d="$TMP/b13-lb-grow"; b13_lb_fix "$d" 1 0
 b13_expect "T-1307-LOWERBOUND derived 2 >= declared 1 still wins" "$(b13_run "$d")" "2 1 1 0"
+
+# ---- kit #1307 review round (FIX-FIRST): B1 / B2 and four follow-ups ----
+b13_decl() { sed -i -e "s/^known_gaps: .*/known_gaps: $2/" -e "s/^gaps_closed: .*/gaps_closed: $3/" "$1/RESEARCH-STATE.md"; }
+# B1: a file whose ONLY backlog rows are closed-class (a document-cycle placeholder, or a lone closed row) has no prose
+# coverage metric: the derived count is NOT evidence that the declared 15/15 shrank. Keep declared + WARN (never invent).
+d="$TMP/b13-b1-placeholder"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | (document-cycle: sin gaps abiertos) | — | ✅ outline 11/11 |'; b13_decl "$d" 15 15
+b13_expect "T-1307-B1 placeholder em-dash row does not shrink a declared 15/15" "$(b13_run "$d")" "15 15 0 0"
+d="$TMP/b13-b1-lone"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | E1 | web | closed |'; b13_decl "$d" 15 15
+b13_expect "T-1307-B1 lone closed-class row, no prose metric: declared 15/15 kept" "$(b13_run "$d")" "15 15 0 0"
+if grep -q 'only closed-class rows' <<<"$(b13_err "$d")"; then ok "T-1307-B1: the keep is explained on stderr"; else no "T-1307-B1: silent keep — [$(b13_err "$d")]"; fi
+d="$TMP/b13-b1-grow"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | E1 | web | closed |' '| — | E2 | web | closed |'; b13_decl "$d" 0 0
+b13_expect "T-1307-B1 declared 0/0 with 2 closed rows: derived 2/2 still wins" "$(b13_run "$d")" "2 2 0 0"
+# B2: lower-bound branch must assign the DECLARED pair, not let a (stale) prose Y win. Prose 3/4, declared 20/10, derived 5.
+b13_b2_fix() { # <dir> <declared kg> <declared gc>
+  b13_fix "$1" "## Gap backlog" "$B13H4" '| 4 | X-G | closed | x |' '| — | e1 | web | closed |' '| — | e2 | web | closed |' '| — | e3 | web | closed |' '| — | e4 | web | closed |' '| high | g1 | web | pending |'
+  printf '\n## Coverage\n\n- **Coverage metric**: 3 / 4 closed\n' >> "$1/RESEARCH-STATE.md"; b13_decl "$1" "$2" "$3"
+}
+d="$TMP/b13-b2"; b13_b2_fix "$d" 20 10
+b13_expect "T-1307-B2 declared 20/10 beats prose 3/4 under the lower-bound keep" "$(b13_run "$d")" "20 10 1 0"
+# follow-up 3: the keep must not freeze gaps_closed: a real closure (derived gc 4 > declared 2) is not hidden.
+d="$TMP/b13-b2-gc"; b13_b2_fix "$d" 20 2
+b13_expect "T-1307-GCMAX gaps_closed = max(declared 2, derived 4), known_gaps declared 20" "$(b13_run "$d")" "20 4 1 0"
+# follow-up 1: an em-dash row whose Gap cell is not a gap id is a note, not a gap: WARN + not counted.
+d="$TMP/b13-note"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | §14 B24 correction (2026-09-09) | web | ✅ B24 |' '| — | **E1** — real closed gap | web | ✅ B1 |' '| high | g1 | web | pending |'
+b13_expect "T-1307-NOTE correction-note em-dash row not counted" "$(b13_run "$d")" "2 1 1 0"
+if grep -q 'em-dash row whose Gap cell is not a gap id' <<<"$(b13_err "$d")"; then ok "T-1307-NOTE: note row named on stderr"; else no "T-1307-NOTE: silent — [$(b13_err "$d")]"; fi
+# follow-up 2: closed-class / tier rows in a header-less table under a near-miss backlog heading are UNCOUNTED, loudly.
+d="$TMP/b13-grupo"; b13_fix "$d" "## Reapertura 2026-07-12 — backlog A→B→C" "| Grupo | ID | Gap | Estado |" '| — | BG24 | closed one | ✅ B9 |' '| **A** | BG20 | open one | pending |'
+b13_run "$d" >/dev/null
+if grep -qi 'lower bound' <<<"$(b13_err "$d")" && grep -q 'has no Priority header' <<<"$(b13_err "$d")"; then ok "T-1307-GRUPO: header-less near-miss table is named and flagged as a lower bound"; else no "T-1307-GRUPO: silent — [$(b13_err "$d")]"; fi
+# follow-up 4: a bold header cell is still priority-shaped.
+d="$TMP/b13-boldhdr"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'
+printf '\n## Gaps\n\n| **Priority** | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n| medium | G2 | oob gap | y | covered |\n' >> "$d/RESEARCH-STATE.md"
+b13_expect "T-1307-BOLDHDR **Priority** header counts" "$(b13_run "$d")" "2 1 1 0"
 
 # ----- teeth for kit #1307: every mutant is a COPY of the SUT built by lib/mutant.sh (refuses no-op / invalid-bash mutants) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -6632,7 +6666,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     '| ~~high~~ | g-struck | web | pending |' '| high | g1 | web | pending |'
   b13_tooth COUNT-ARG 's/backlog_rows 1 2>"\$_kg_err"/backlog_rows 2>"$_kg_err"/' "## Gap-backlog" "$B13H4" "3 2 1 0" \
     '| — | e1 | web | closed |' '| high | g1 | web | pending |' '| deferred | d1 | web | ✅ |'
-  b13_tooth ERR-SURFACED "s/grep -E 'em-dash priority on an OPEN row|malformed closed-class backlog row' \"\\\$_kg_err\" >&2/:/" "## Gap-backlog" "$B13H4" "ERR:em-dash priority on an OPEN row [pending]" \
+  b13_tooth ERR-SURFACED '/grep -E .em-dash priority on an OPEN row/s/>&2$/>\/dev\/null/' "## Gap-backlog" "$B13H4" "ERR:em-dash priority on an OPEN row [pending]" \
     '| — | b2 | web | pending |' '| high | g1 | web | pending |'
   b13_tooth NM-UNKNOWN '/NM-UNKNOWN-WARN/s/else if (_nm_was_last [&][&] in_data [&][&] tbl_ok)/else if (0)/' "## Gap backlog" "$B13H4" "ERR:unknown priority [4] in near-miss backlog row" \
     '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
@@ -6642,10 +6676,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
   else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
+  if mutant_sed "$SUT" "$m" -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
     dd="$TMP/b13-teeth-nmnohdr"; b13_fix "$dd" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |'; B13_SUT="$m" b13_run "$dd" >/dev/null
     grep -q 'unknown priority' <<<"$(b13_err "$dd")" && ok "teeth-B13-NM-NOHDR: mutant WARNs on the header-less table → T-1307-NEARMISS-NOHDR RED" || no "teeth-B13-NM-NOHDR: mutant still silent — THEATER"
   else no "teeth-B13-NM-NOHDR: mutant refused by mutant.sh"; fi
+  # ---- teeth for the #1307 review round (B1, B2, GCMAX, NOTE, GRUPO, BOLDHDR) ----
+  # b13_tooth2 <name> <want-good or ERR:pattern> <builder-fn> <mutant sed -e args...> : builder-fn <dir> builds the fixture.
+  b13_tooth2() {
+    local name="$1" want="$2" builder="$3" m dd got; shift 3
+    m="$TMP/status.B13-$name.MUTANT.sh"
+    if ! mutant_sed "$SUT" "$m" "$@"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    dd="$TMP/b13-teeth-$name"; "$builder" "$dd"; got="$(B13_SUT="$m" b13_run "$dd")"
+    if [[ "$want" == ERR:* ]]; then
+      if grep -qiF -- "${want#ERR:}" <<<"$(b13_err "$dd")"; then no "teeth-B13-$name: mutant still emits [${want#ERR:}] — THEATER"; else ok "teeth-B13-$name: mutant loses [${want#ERR:}] → its test goes RED"; fi
+    elif [ "$got" = "$want" ]; then no "teeth-B13-$name: mutant still derives [$got] — THEATER"
+    else ok "teeth-B13-$name: mutant derives [$got] instead of [$want] → its test goes RED"; fi
+  }
+  b13_fx_b1()    { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | E1 | web | closed |'; b13_decl "$1" 15 15; }
+  b13_fx_note()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | §14 B24 correction (2026-09-09) | web | ✅ B24 |' '| — | **E1** — real closed gap | web | ✅ B1 |' '| high | g1 | web | pending |'; }
+  b13_fx_grupo() { b13_fix "$1" "## Reapertura 2026-07-12 — backlog A→B→C" "| Grupo | ID | Gap | Estado |" '| — | BG24 | closed one | ✅ B9 |' '| **A** | BG20 | open one | pending |'; }
+  b13_fx_bold()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'; printf '\n## Gaps\n\n| **Priority** | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n| medium | G2 | oob gap | y | covered |\n' >> "$1/RESEARCH-STATE.md"; }
+  b13_b2_fix_20() { b13_b2_fix "$1" 20 10; }; b13_b2_fix_2() { b13_b2_fix "$1" 20 2; }
+  b13_tooth2 B1-KEEP "15 15 0 0" b13_fx_b1 -e 's/elif \[ -z "\${_cm_kg}" \]/elif false/'
+  b13_tooth2 B2-DECLARED "20 10 1 0" b13_b2_fix_20 -e 's/^      kg="\${_decl_kg}"$/      kg=1/'
+  b13_tooth2 GCMAX "20 4 1 0" b13_b2_fix_2 -e 's/\[ "\$_gc_d" -gt "\$gc" \] \&\& gc="\$_gc_d"/:/'
+  b13_tooth2 NOTE "2 1 1 0" b13_fx_note -e '/CC-EMDASH-NOTE/s/if (g !~ [^{]*{/if (0) {/'
+  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/print "UNCOUNTED\\t" p/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) print "UNCOUNTED\\t" p/x=1/'
+  b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
   # OOB guard: the Findings fixture is two tables, so build it by hand.
   m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
   if mutant_sed "$SUT" "$m" -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then

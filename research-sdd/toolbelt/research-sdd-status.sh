@@ -363,18 +363,19 @@ backlog_rows() {
       if (line !~ /\|/) { prev_p=""; next }
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
-      p=tolower(a[1]); pp=prev_p; prev_p=p
+      p=tolower(a[1]); pp=prev_p; prev_p=p; gsub(/\*\*/,"",pp)
       if (p~/^-+$/) { in_data=1; tbl_ok=(pp ~ /^(priority|pr\.?|p|prioridad)$/); tbl_warned=0; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width; BP-SEP-IN-BACKLOG: separator outside a Gap-backlog section sets in_data and the 4/5 width (so OOB rows parse per their own width, #983) but does not WARN
       if (p~/^-/) { next }    # BP-LIST-ITEM-GUARD: prose list items (markdown dash marker with pipes in text) are not table rows; safe after all-dashes check above
       if (p=="" || p=="priority" || p=="p") { next }
       if (p=="deferred" || p~/^~~.*~~$/ || p~/^—/) {  # CLOSED-CLASS: closed/parked rows are COUNTED in known_gaps (never routable); only emitted when want_closed=1 (#1307)
         if (!want_closed) next
-        if (expected_cols<0 || (!in_backlog && !tbl_ok)) next
+        if (expected_cols<0) next
+        if (!in_backlog && !tbl_ok) { if (_nm_was_last && in_data) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; print "UNCOUNTED\t" p }; next }  # CC-NOHDR-UNCOUNTED
         sc = (expected_cols > 0) ? expected_cols : 4
         if (n!=sc) { if (in_backlog && in_data) print "WARN: malformed closed-class backlog row (" n " cells, expected " sc "): " $0 > "/dev/stderr"; next }  # CC-MALFORMED-WARN
         st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st); split(st,tk," "); tok=tk[1]
         if (p=="deferred") { if (!(index(a[2],"~~") || index(st,"~~") || index(st,"✅"))) next; cp="deferred" }  # CC-DEFERRED-CLOSED: open deferred rows are counted by count_deferred/derive_deferred, not here
-        else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN
+        else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; g=a[2]; gsub(/^(\*\*|~~|`|\[)+/,"",g); sub(/[ \t·:—(].*$/,"",g); gsub(/[*~`\]]+$/,"",g); if (g !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ || g !~ /[0-9]/) { print "WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN CC-EMDASH-NOTE
         else cp="~~"
         if (!in_backlog && in_data) { _oob_count++ }
         print cp "\t" a[2] "\t" st; next }
@@ -391,10 +392,11 @@ backlog_rows() {
         if (in_backlog && in_data) {
           print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
           print "INVALID_PRIORITY\t" p
-        } else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
+        } else if (_nm_was_last && in_data && !tbl_ok) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; if (want_closed) print "UNCOUNTED\t" p }  # NM-NOHDR-UNCOUNTED
+        else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
         next
       }
-      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; next }  # OOB-NO-PRIORITY-HEADER
+      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; if (_nm_was_last && in_data && want_closed) print "UNCOUNTED\t" p; next }  # OOB-NO-PRIORITY-HEADER
       if (!in_backlog && in_data) { _oob_count++ }  # OOB-ACCUM: accumulate per-section; flushed at ## heading or EOF
       if (expected_cols < 0) { next }  # BP-WIDTH-SKIP: unsupported table width; WARN already emitted on separator
       sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen yet
@@ -496,7 +498,7 @@ count_all_known_gaps() {
   # on this call's path and must reach the operator; the structural WARNs were already printed by the parse check.
   local _kg_err _kg_rows; _kg_err="$(mktemp)" || { echo "sync-state: ERROR: mktemp failed" >&2; echo 0; return; }
   _kg_rows="$(backlog_rows 1 2>"$_kg_err")"  # KG-ALL-BACKLOG (arg 1 = ALSO closed-class rows, #1307)
-  grep -E 'em-dash priority on an OPEN row|malformed closed-class backlog row' "$_kg_err" >&2
+  grep -E 'em-dash priority on an OPEN row|malformed closed-class backlog row|em-dash row whose Gap cell is not a gap id|near-miss backlog heading has no Priority header' "$_kg_err" >&2
   rm -f "$_kg_err"
   printf '%s\n' "$_kg_rows" | grep -v -e '^INVALID_PRIORITY' -e '^UNCOUNTED' | grep -c . | tr -d ' '  # KG-COUNT-NONEMPTY
 }
@@ -825,11 +827,24 @@ if [ "$mode" = "--sync-state" ]; then
     _cm_kg="${cov##*/}"
     # KG-LOWER-BOUND (#1307): rows excluded for an undeclared tier make the derived total a LOWER bound. If the
     # envelope already declares a LARGER known_gaps, keep the declared pair instead of clobbering it with the undercount.
-    _kg_lb=0; _unc="$(count_uncounted_rows)"; _decl_kg="$(env_get known_gaps)"
-    if [ "${_unc:-0}" -gt 0 ] && printf '%s' "${_decl_kg}" | grep -qE '^[0-9]+$' && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
-      _kg_lb=1
-      printf 'sync-state: WARN: %s: %d backlog row(s) have an undeclared tier and are NOT counted — derived known_gaps=%d is only a lower bound; keeping the declared known_gaps/gaps_closed (fix the tier cells to let sync derive them).\n' \
-        "$(basename "$state")" "${_unc}" "${_dkg_total}" >&2
+    _kg_lb=0; _unc="$(count_uncounted_rows)"; _decl_kg="$(env_get known_gaps)"; _decl_gc="$(env_get gaps_closed)"
+    _plain="$(backlog_rows 2>/dev/null | grep -v '^INVALID_PRIORITY' | grep -c . | tr -d ' ')"  # rows the pre-#1307 derivation saw
+    [ "${_unc:-0}" -gt 0 ] && printf 'sync-state: WARN: %s: %d backlog row(s) are NOT counted (undeclared tier / table without a Priority header) — known_gaps and gaps_closed are LOWER bounds, verify against the prose.\n' \
+      "$(basename "$state")" "${_unc}" >&2
+    if printf '%s' "${_decl_kg}" | grep -qE '^[0-9]+$' && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
+      if [ "${_unc:-0}" -gt 0 ]; then _kg_lb=1; printf 'sync-state: WARN: %s: keeping the declared known_gaps=%s (derived %d is below it); gaps_closed = max(declared, derived).\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" >&2
+      elif [ -z "${_cm_kg}" ] && [ "$(( ${_plain:-0} + ${def:-0} ))" -eq 0 ]; then  # B1: only closed-class rows, no prose metric: nothing proves the declared total shrank
+        _kg_lb=1
+        printf 'sync-state: WARN: %s: the backlog has only closed-class rows and there is no Coverage metric N/M — derived known_gaps=%d is not evidence the declared total shrank; keeping the declared known_gaps/gaps_closed.\n' \
+          "$(basename "$state")" "${_dkg_total}" >&2
+      fi
+    fi
+    if [ "$_kg_lb" = 1 ]; then  # KG-LB-KEEP: assign the DECLARED total explicitly (a stale prose Y must not win); gaps_closed = max(declared, derived) so a real closure is not hidden
+      kg="${_decl_kg}"
+      _gc_d=$(( ${_dkg_total} - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} )); [ "$_gc_d" -lt 0 ] && _gc_d=0
+      gc="${_decl_gc}"; printf '%s' "$gc" | grep -qE '^[0-9]+$' || gc=0
+      [ "$_gc_d" -gt "$gc" ] && gc="$_gc_d"
+      [ "$gc" -gt "$kg" ] && gc="$kg"
     fi
     if [ "$_kg_lb" = 0 ] \
        && printf '%s' "${_dkg_total}" | grep -qE '^[0-9]+$' \
@@ -848,6 +863,8 @@ if [ "$mode" = "--sync-state" ]; then
       fi
       printf 'WARN: Coverage prose denominator is stale (coverage metric %s/%s, backlog has %d known gaps) — update Coverage metric to %d/%d\n' \
         "${cov%%/*}" "${_cm_kg:-?}" "${_dkg_total}" "${gc}" "${kg}" >&2
+    elif [ "$_kg_lb" = 1 ]; then
+      :  # KG-LB-KEEP above already assigned the declared kg and max(declared, derived) gc
     else
       kg="$(pick "${_cm_kg}" "$(env_get known_gaps)")"
       gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"

@@ -119,18 +119,19 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
       if (line !~ /\|/) { prev_p=""; next }
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
-      p=tolower(a[1]); pp=prev_p; prev_p=p
+      p=tolower(a[1]); pp=prev_p; prev_p=p; gsub(/\*\*/,"",pp)
       if (p~/^-+$/) { in_data=1; tbl_ok=(pp ~ /^(priority|pr\.?|p|prioridad)$/); tbl_warned=0; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width; BP-SEP-IN-BACKLOG: separator outside a Gap-backlog section sets in_data and the 4/5 width (so OOB rows parse per their own width, #983) but does not WARN
       if (p~/^-/) { next }    # BP-LIST-ITEM-GUARD: prose list items (markdown dash marker with pipes in text) are not table rows; safe after all-dashes check above
       if (p=="" || p=="priority" || p=="p") { next }
       if (p=="deferred" || p~/^~~.*~~$/ || p~/^—/) {  # CLOSED-CLASS: closed/parked rows are COUNTED in known_gaps (never routable); only emitted when want_closed=1 (#1307)
         if (!want_closed) next
-        if (expected_cols<0 || (!in_backlog && !tbl_ok)) next
+        if (expected_cols<0) next
+        if (!in_backlog && !tbl_ok) { if (_nm_was_last && in_data) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; print "UNCOUNTED\t" p }; next }  # CC-NOHDR-UNCOUNTED
         sc = (expected_cols > 0) ? expected_cols : 4
         if (n!=sc) { if (in_backlog && in_data) print "WARN: malformed closed-class backlog row (" n " cells, expected " sc "): " $0 > "/dev/stderr"; next }  # CC-MALFORMED-WARN
         st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st); split(st,tk," "); tok=tk[1]
         if (p=="deferred") { if (!(index(a[2],"~~") || index(st,"~~") || index(st,"✅"))) next; cp="deferred" }  # CC-DEFERRED-CLOSED: open deferred rows are counted by count_deferred/derive_deferred, not here
-        else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN
+        else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; g=a[2]; gsub(/^(\*\*|~~|`|\[)+/,"",g); sub(/[ \t·:—(].*$/,"",g); gsub(/[*~`\]]+$/,"",g); if (g !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ || g !~ /[0-9]/) { print "WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN CC-EMDASH-NOTE
         else cp="~~"
         if (!in_backlog && in_data) { _oob_count++ }
         print cp "\t" a[2] "\t" st; next }
@@ -147,10 +148,11 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
         if (in_backlog && in_data) {
           print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
           print "INVALID_PRIORITY\t" p
-        } else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
+        } else if (_nm_was_last && in_data && !tbl_ok) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; if (want_closed) print "UNCOUNTED\t" p }  # NM-NOHDR-UNCOUNTED
+        else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
         next
       }
-      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; next }  # OOB-NO-PRIORITY-HEADER
+      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; if (_nm_was_last && in_data && want_closed) print "UNCOUNTED\t" p; next }  # OOB-NO-PRIORITY-HEADER
       if (!in_backlog && in_data) { _oob_count++ }  # OOB-ACCUM: accumulate per-section; flushed at ## heading or EOF
       if (expected_cols < 0) { next }  # BP-WIDTH-SKIP: unsupported table width; WARN already emitted on separator
       sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen yet
