@@ -202,6 +202,8 @@ fi
 #   STUB_EMPTY_MIN       N: vineflower exits 0 writing nothing when a DIR input holds >= N classes
 #   STUB_OMIT_CLASSES    space list of class basenames vineflower silently leaves out of its output
 #   STUB_IGNORE_TERM     non-empty: a "sleeping" vineflower ignores SIGTERM (only SIGKILL stops it → rc 137)
+#   STUB_STRIP_LAYOUT    non-empty: every engine writes output paths that follow the PACKAGE (BOOT-INF/classes/,
+#                        WEB-INF/classes/ and META-INF/versions/N/ prefixes dropped), like real CFR/Procyon
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
 mkdir -p "$T_JAVA_HOME/bin"
@@ -235,7 +237,8 @@ for c in $classes; do
   case "$b" in *\$*) o="${b%%\$*}"; grep -qx "$(dirname "$c")/$o.class\|$o.class" <<<"$classes" && continue ;; esac
   omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
   [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
-  mkdir -p "$OUT/$(dirname "$c")"
+  oc="$c"; [ -z "${STUB_STRIP_LAYOUT:-}" ] || { oc="${oc#BOOT-INF/classes/}"; oc="${oc#WEB-INF/classes/}"; oc="${oc#META-INF/versions/*/}"; }
+  mkdir -p "$OUT/$(dirname "$oc")"
   { echo "// engine=$eng"; echo "class $b {"
     if [ "$eng" = vineflower ] || [ -n "${STUB_CFR_MARKER:-}" ]; then
       def="$(printf '    // $VF: Couldn%st be decompiled' "'")"
@@ -243,7 +246,7 @@ for c in $classes; do
         [ "$b" = "$m" ] && printf '%s\n' "${STUB_MARKER_TEXT:-$def}"
       done
     fi
-    echo "}"; } > "$OUT/${c%.class}.java"
+    echo "}"; } > "$OUT/${oc%.class}.java"
 done
 exit 0
 STUB
@@ -551,6 +554,35 @@ if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing' <<<"$SO" && [ "$(engi
   ok "H4b stale file in reused out-dir does not hide an omitted class (success path)"
 else no "H4b stale file counted as coverage (success path)" "rc=$RC so=[$SO]"; fi
 
+# ── Issue #1320 item 5: prefix-layout jars (output paths follow the package) ──
+JARB="$ROOT/prefix.jar"; mkjar "$JARB" BOOT-INF/classes/a/A.class BOOT-INF/classes/b/B.class META-INF/versions/9/c/C.class
+# I1: whole-jar success with package-relative output paths is full coverage, not three missing units.
+rt I1 "$JARB" STUB_STRIP_LAYOUT=1 -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "I1 prefix-layout jar, package-relative output → OK (no false missing)"
+else no "I1 prefix-layout whole-jar success" "rc=$RC so=[$SO]"; fi
+# I2: failure path: every class recovered per package → no UNIT, never reason=missing.
+rt I2 "$JARB" STUB_STRIP_LAYOUT=1 STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=error isolation=package' <<<"$SO" && [ -z "$(units_of)" ] \
+  && [ "$(engine_of I2 a/A.java)" = vineflower ] && [ "$(engine_of I2 c/C.java)" = vineflower ]; then
+  ok "I2 prefix-layout jar, failure path → classes recovered, no reason=missing units"
+else no "I2 prefix-layout failure path" "rc=$RC so=[$SO]"; fi
+# I3: a failure marker on a prefix-layout class still reaches the per-class fallback (class entry resolved).
+rt I3 "$JARB" STUB_STRIP_LAYOUT=1 STUB_MARKER_CLASSES="B" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: b/B reason=marker fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of I3 b/B.java)" = cfr ]; then
+  ok "I3 prefix-layout marker → class entry found, cfr fallback"
+else no "I3 prefix-layout marker fallback" "rc=$RC so=[$SO]"; fi
+# I4: a class genuinely omitted from a prefix-layout jar is still caught (the normalization has no blind spot).
+rt I4 "$JARB" STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="B" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: BOOT-INF/classes/b/B reason=missing fallback=cfr result=ok' <<<"$SO" && [ "$(engine_of I4 b/B.java)" = cfr ] \
+  && [ "$(units_of)" = "BOOT-INF/classes/b/B" ]; then
+  ok "I4 prefix-layout omitted class → UNIT reason=missing (only that one)"
+else no "I4 prefix-layout omission is typed" "rc=$RC so=[$SO]"; fi
+# I5: the fallback output of a missing prefix-layout unit is not re-handled by the marker scan (one unit, not two).
+rt I5 "$JARB" STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "BOOT-INF/classes/b/B" ] && grep -q 'reason=missing fallback=cfr result=marked' <<<"$SO"; then
+  ok "I5 prefix-layout fallback output not re-scanned → exactly one unit"
+else no "I5 prefix-layout handled-set uses the package-relative key" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -752,10 +784,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mH2: mutant still typed the missing sweep — H3 has no teeth" "so=[$SO]"; fi
   fi
   # mH3: any present file counts as coverage (pre-#1320 behaviour) → H4 stale file hides the omission.
-  if build_mut mH3 's/^unit_covered() .*$/unit_covered() { [ -f "$OUT\/$1.java" ]; }/'; then
+  if build_mut mH3 's/ -nt "\$STAMP" \]/ -nt "$STAMP" -o 1 -eq 1 ]/g'; then
     RT_SUT="$MUT" RT_PRESEED="a/A2.java" rt mH3 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
     if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mH3: freshness-dropped mutant treats a stale file as coverage → H4 bites"
     else no "teeth-mH3: mutant still saw the stale file as missing — H4 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: issue #1320 item 5 (prefix-layout jars) --"
+  # mI1: no layout normalization → I1 reports three false missing units.
+  if build_mut mI1 's/^layout_key() {$/layout_key() { printf "%s\\n" "$1"; return 0/'; then
+    RT_SUT="$MUT" rt mI1 "$JARB" STUB_STRIP_LAYOUT=1 -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mI1: identity-key mutant reports false missing units → I1 bites"
+    else no "teeth-mI1: mutant still printed OK — I1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mI2: class lookup without prefix candidates → I3 loses the per-class marker fallback.
+  if build_mut mI2 's/ "\$EXT\/BOOT-INF\/classes\/\$u.class" "\$EXT\/WEB-INF\/classes\/\$u.class" "\$EXT"\/META-INF\/versions\/\*\/"\$u.class"//'; then
+    RT_SUT="$MUT" rt mI2 "$JARB" STUB_STRIP_LAYOUT=1 STUB_MARKER_CLASSES="B" -- --engine vineflower
+    if ! grep -q 'reason=marker fallback=cfr' <<<"$SO"; then ok "teeth-mI2: prefix-blind class lookup loses the marker fallback → I3 bites"
+    else no "teeth-mI2: mutant still resolved the prefixed class — I3 has no teeth" "so=[$SO]"; fi
+  fi
+  # mI3: handled-set keyed on the raw unit name → I5 re-scans the fallback output as a second unit.
+  if build_mut mI3 's/^  HANDLED\[.*\]=1$/  HANDLED["$1"]=1/'; then
+    RT_SUT="$MUT" rt mI3 "$JARB" STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+    if [ "$(units_of)" != "BOOT-INF/classes/b/B" ]; then ok "teeth-mI3: raw-key mutant double-handles the unit → I5 bites"
+    else no "teeth-mI3: mutant still reported one unit — I5 has no teeth" "so=[$SO]"; fi
   fi
 fi
 

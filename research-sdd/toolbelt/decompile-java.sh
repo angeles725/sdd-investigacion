@@ -26,6 +26,8 @@
 #   The coverage sweep also runs after a whole-jar SUCCESS (a class the engine silently omitted is a UNIT
 #   reason=missing, never a bare OK; when it cannot run the status carries reason=coverage-sweep-unavailable),
 #   and a file already sitting in a reused out-dir is never coverage (it must be newer than this run's start).
+#   Prefix-layout jars (BOOT-INF/classes/, WEB-INF/classes/, META-INF/versions/N/): CFR/Procyon write output paths
+#   that follow the package, so coverage and marker lookups also match the prefix-stripped path.
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
 #   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
 #   notes) keep the primary file; comments saying the output is WRONG or will not compile ("decompiled code is
@@ -163,6 +165,20 @@ WORK="$(mktemp -d)"
 cleanup() { rm -rf "$STAMP" "$WORK"; }
 trap cleanup EXIT
 
+# layout_key <unit> — the unit's package-relative path. CFR/Procyon write output paths that follow the package, so a
+# class stored under BOOT-INF/classes/, WEB-INF/classes/ or META-INF/versions/N/ is emitted WITHOUT that prefix
+# (kit issue #1320 item 5). Coverage and the handled-set are keyed on this form. (A multi-release jar's versioned
+# copies share one key: the first covered one counts.)
+layout_key() {
+  local p="$1"
+  case "$p" in
+    BOOT-INF/classes/*) p="${p#BOOT-INF/classes/}" ;;
+    WEB-INF/classes/*) p="${p#WEB-INF/classes/}" ;;
+    META-INF/versions/*/*) p="${p#META-INF/versions/*/}" ;;
+  esac
+  printf '%s\n' "$p"
+}
+
 UNITS=()        # one line per affected unit: "<unit>|<reason>|<fallback>|<result>"
 PARTIAL_UNITS=0 # units that ended with NO output
 DEGRADED_UNITS=0
@@ -173,7 +189,7 @@ declare -A HANDLED=() # units already recorded (the marker scan must not re-hand
 #         · failed (the unit has NO output).
 record_unit() {
   UNITS+=("$1|$2|$3|$4|${5:-}")
-  HANDLED["$1"]=1
+  HANDLED["$(layout_key "$1")"]=1
   if [ "$4" = ok ] || [ "$4" = kept-primary ] || [ "$4" = marked ]; then DEGRADED_UNITS=$((DEGRADED_UNITS + 1)); else PARTIAL_UNITS=$((PARTIAL_UNITS + 1)); fi
 }
 
@@ -291,7 +307,20 @@ isolate_jar() {
 
 # unit_covered <unit> — this run produced source for the unit. A file merely PRESENT in a reused out-dir
 # is stale, not coverage (kit issue #1320 item 4): it must be newer than this run's stamp.
-unit_covered() { [ -f "$OUT/$1.java" ] && [ "$OUT/$1.java" -nt "$STAMP" ]; }
+unit_covered() {
+  local k
+  k="$(layout_key "$1")"
+  { [ -f "$OUT/$1.java" ] && [ "$OUT/$1.java" -nt "$STAMP" ]; } || { [ -f "$OUT/$k.java" ] && [ "$OUT/$k.java" -nt "$STAMP" ]; }
+}
+
+# find_class <unit> — the extracted .class of a unit named by its OUTPUT path (prefix-layout aware).
+find_class() {
+  local u="$1" c
+  for c in "$EXT/$u.class" "$EXT/BOOT-INF/classes/$u.class" "$EXT/WEB-INF/classes/$u.class" "$EXT"/META-INF/versions/*/"$u.class"; do
+    [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
 
 # sweep_coverage — every unit class of the extracted jar must be covered by fresh output or by a UNIT line.
 # Runs after the isolation path AND after a whole-jar success (kit issue #1320 item 3): an engine that exits 0
@@ -301,7 +330,7 @@ sweep_coverage() {
   while IFS= read -r f; do
     is_unit_class "$f" || continue
     unit="${f#"$EXT"/}"; unit="${unit%.class}"
-    unit_covered "$unit" || [ -n "${HANDLED[$unit]:-}" ] || fallback_unit "$unit" missing "$f"
+    unit_covered "$unit" || [ -n "${HANDLED[$(layout_key "$unit")]:-}" ] || fallback_unit "$unit" missing "$f"
   done < <(find "$EXT" -name '*.class' | sort)
 }
 
@@ -323,7 +352,7 @@ scan_markers() {
     [ -z "${HANDLED[$unit]:-}" ] || continue
     if [ "$m" -ne 0 ]; then record_unit "$unit" marker-scan-error none kept-primary; continue; fi
     if [[ "${IN,,}" == *.class ]]; then input="$IN"
-    elif ensure_ext && [ -f "$EXT/$unit.class" ]; then input="$EXT/$unit.class"
+    elif ensure_ext && input="$(find_class "$unit")"; then :
     else record_unit "$unit" marker none kept-primary "${ISOLATION_WHY:-no-class-entry}"; continue; fi
     fallback_unit "$unit" marker "$input"
   done < <(find "$OUT" -type f -name '*.java' -newer "$STAMP" -print0)
