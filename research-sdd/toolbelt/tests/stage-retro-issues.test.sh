@@ -1747,6 +1747,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 17fence — FENCE EDGE CASES (kit issues #949 item 3 / #1304 item 6): an applied retro must never plan
+# issues because the whole-file marker scan was fooled by a fence. Both repros below were read as
+# "no marker at all" before the CommonMark-style fence tracking, so every row was seeded.
+# 17fence-1: a '~~~' fence holding a ``` line, the (out-of-scope) marker AFTER it → refuses to seed.
+box="$(mkbox case-fence-tilde)"
+retro_fence_tilde="$box/rh/target-foo/retros/r-fence-tilde.md"
+{
+  printf '# §18 Retro — focus: apis\n\n## Notes\n\n~~~\n```\n~~~\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n'
+  printf '## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n'
+} > "$retro_fence_tilde"
+run "$box" "$retro_fence_tilde"
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" && ! grep -q 'planned-issue:' <<<"$OUT" \
+  && ok "17fence-1 ~~~ fence containing a \`\`\` line, marker after it → refuses to seed" "(exit $RC)" \
+  || no "17fence-1 ~~~ fence containing a \`\`\` line, marker after it → refuses to seed" "exit=$RC out=[$OUT]"
+
+# 17fence-2: an UNCLOSED fence before the marker → fails closed (refuses), never reads as markerless.
+box="$(mkbox case-fence-unclosed)"
+retro_fence_unclosed="$box/rh/target-foo/retros/r-fence-unclosed.md"
+{
+  printf '# §18 Retro — focus: apis\n\n## Notes\n\n```\nstray opener, never closed\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n'
+  printf '## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n'
+} > "$retro_fence_unclosed"
+run "$box" "$retro_fence_unclosed"
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" && ! grep -q 'planned-issue:' <<<"$OUT" \
+  && ok "17fence-2 unclosed fence before the marker → fails closed, refuses to seed" "(exit $RC)" \
+  || no "17fence-2 unclosed fence before the marker → fails closed, refuses to seed" "exit=$RC out=[$OUT]"
+
+# ---------------------------------------------------------------------------
 # 17c — OUT-OF-SCOPE MARKER, LIST EDGES (kit issue #1099, §7 "test the list edges"): the
 # whole-file scan (retro_marker_line) that detects an out-of-scope marker reads the file
 # line-by-line; prove it is not blind at any structural position — EARLY, MIDDLE, LATE (no
