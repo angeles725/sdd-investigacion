@@ -35,7 +35,13 @@ echo "== lint-substitution.test.sh =="
 # kit issue #1142 review round 3 (nit): this used to be a hand-maintained literal list
 # ("3 4 5 6 7 8 9 10") that silently fell behind as cases were added past 10 — built from the
 # actual case count instead so a new case is automatically covered by the early-bail path too.
-LAST_CASE_NUM=15
+# Derived from this file's own "# <N>. " case headings (kit issue #1167 item 3: the literal 15 here
+# contradicted the comment above it). Fails closed — harness error — if no heading is found.
+LAST_CASE_NUM="$(grep -oE '^# [0-9]+\. ' "$0" | tr -dc '0-9\n' | sort -n | tail -1)"
+if [ -z "$LAST_CASE_NUM" ]; then
+  echo "harness error: no '# <N>. ' case headings found in $0" >&2
+  exit 2
+fi
 if [ ! -f "$SUT" ]; then
   for n in $(seq 3 "$LAST_CASE_NUM"); do no "$n (skipped: SUT missing)"; done
   echo "== $pass passed · $fail failed =="; exit 2
@@ -293,6 +299,49 @@ else
   fi
 fi
 
+# 16. 'find' stderr must NOT leak into the file list (kit issue #1167 item 1): the traversal used
+#     to capture 'find ... 2>&1', so a diagnostic line on stderr with exit 0 became a bogus "file"
+#     path (fail-closed only by accident, via the per-file grep). A stub 'find' on PATH emits one
+#     real listing on stdout, a warning on stderr, and exits 0.
+_c16_real_find="$(command -v find)"
+mkdir -p "$TMP/fakebin16" "$TMP/c16root"
+printf '#!/usr/bin/env bash\nx=ok\n' > "$TMP/c16root/clean.sh"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s "$@"\n' "$_c16_real_find"
+  printf 'echo "find: warning: bogus-stderr-diagnostic" >&2\n'
+  printf 'exit 0\n'
+} > "$TMP/fakebin16/find"
+chmod +x "$TMP/fakebin16/find"
+OUT="$(PATH="$TMP/fakebin16:$PATH" bash "$SUT" "$TMP/c16root" 2>"$TMP/c16.err")"; RC=$?
+_c16_err="$(cat "$TMP/c16.err")"
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'scanned 1 file(s)' \
+   && ! printf '%s\n' "$OUT" | grep -qF 'bogus-stderr-diagnostic' \
+   && printf '%s\n' "$_c16_err" | grep -qF 'bogus-stderr-diagnostic'; then
+  ok "16 find stderr kept out of the file list: stderr line + exit 0 -> scanned 1 real file, diagnostic surfaced on stderr (not scanned as a path)"
+else
+  no "16 find stderr leaked into the file list (exit=$RC out=[$OUT] err=[$_c16_err])"
+fi
+
+# 17. FAIL-CLOSED on a 'find' traversal failure (kit issue #1167 item 1, §7): the find-failure
+#     branch had no test (disabling it stayed green). A stub 'find' prints a real path then fails
+#     (exit 1, as a partial traversal would) -> the scan must exit 2 with DEGRADED, never certify
+#     the partial list.
+mkdir -p "$TMP/fakebin17"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s "$@"\n' "$_c16_real_find"
+  printf 'echo "find: permission denied: sub" >&2\n'
+  printf 'exit 1\n'
+} > "$TMP/fakebin17/find"
+chmod +x "$TMP/fakebin17/find"
+OUT="$(PATH="$TMP/fakebin17:$PATH" bash "$SUT" "$TMP/c16root" 2>&1)"; RC=$?
+if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'DEGRADED' && printf '%s\n' "$OUT" | grep -qF "'find' failed"; then
+  ok "17 fail-closed-on-find-failure: partial listing + find exit 1 -> exit 2, DEGRADED reported (not a confident 0)"
+else
+  no "17 fail-closed-on-find-failure failed (exit=$RC out=[$OUT])"
+fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-substitution.sh --"
@@ -448,6 +497,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth G: mutant's scanned count did not drop as expected (scanned=$_mg_scanned, exit=$MRC) — mutation not exercised (THEATER)"
       fi
+    fi
+  fi
+
+  # Tooth H (kit issue #1167 item 1): disable the find-failure branch. Case 17's partial-listing
+  # + exit-1 stub must then FALSE-PASS (confident NO-MATCH, exit 0), proving case 17 has teeth.
+  # Built with lib/mutant.sh (kit #943): refuses an empty/identical/live-tree mutant.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$SUT" "$TMP/mutant-find.sh" 's/\[\[ "\$_find_rc" -ne 0 \]\]/[[ "$_find_rc" -gt 99 ]]/'; then
+    no "teeth H: could not build mutant (find-rc check not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(PATH="$TMP/fakebin17:$PATH" bash "$TMP/mutant-find.sh" "$TMP/c16root" 2>&1)"; MRC=$?
+    if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+      ok "teeth H: find-failure branch disabled -> partial listing FALSE-PASSES as a confident 0 -> case 17 has real teeth"
+    else
+      no "teeth H: mutant still failed closed (exit=$MRC) — mutation not exercised (THEATER) :: out=[$MOUT]"
+    fi
+  fi
+
+  # Tooth I (kit issue #1167 item 1): revert to 'find ... 2>&1' (stderr merged into the file
+  # list). Case 16 must then go red: the bogus diagnostic becomes a scanned "file".
+  if ! mutant_sed "$SUT" "$TMP/mutant-find2.sh" 's/2>"\$_find_errf"/2>\&1/'; then
+    no "teeth I: could not build mutant (find stderr redirect not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(PATH="$TMP/fakebin16:$PATH" bash "$TMP/mutant-find2.sh" "$TMP/c16root" 2>&1)"; MRC=$?
+    if ! printf '%s\n' "$MOUT" | grep -qF 'scanned 1 file(s)'; then
+      ok "teeth I: find stderr merged into stdout -> bogus path breaks the clean 1-file scan -> case 16 has real teeth"
+    else
+      no "teeth I: mutant did not leak the stderr line into the file list — case 16 does not pin the separation (THEATER) :: out=[$MOUT]"
     fi
   fi
 fi
