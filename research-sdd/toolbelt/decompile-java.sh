@@ -13,12 +13,19 @@
 #   the primary is cfr). A top-level OK is printed ONLY when every unit was decompiled by the primary engine.
 #   Otherwise one typed status line is printed, followed by one UNIT line per affected unit:
 #     OK:       <in> -> <out>  (engine=<e>)                       rc 0
-#     DEGRADED: ... units=N [primary=timeout|error|killed isolation=package|class]   rc 4  (all output present; some
-#               units fell back, OR the whole-artifact primary run failed and isolation recovered it, OR the
-#               timeout bound was unavailable)
+#     DEGRADED: ... units=N [primary=timeout|error|killed isolation=package|class] [resources_not_copied=N|unknown]
+#               [reason=<token>[,<token>...]]                       rc 4  (all output present; some units fell back,
+#               OR the whole-artifact primary run failed and isolation recovered it, OR a runtime dependency/
+#               sweep was unavailable). reason= tokens (comma-joined when several): timeout-unavailable,
+#               coverage-sweep-unavailable, no-class-entries (a sources jar: nothing to sweep),
+#               total_budget_exhausted (the success-path sweep spent the isolation budget; primary output kept).
+#               isolation= is ABSENT when the whole-artifact fallback ran without isolation (primary=... only).
 #     PARTIAL:  ... units=N                                       rc 4  (some unit has NO output at all)
-#     UNIT: <unit> reason=timeout|killed|error|empty|missing|marker|total_budget_exhausted
-#                  fallback=<engine>|unavailable|none  result=ok|marked|kept-primary|failed
+#     UNIT: <unit> reason=timeout|killed|error|empty|missing|marker|marker-scan-error|total_budget_exhausted
+#                  fallback=<engine>|unavailable|none  result=ok|marked|kept-primary|failed [note]
+#       trailing note (optional): isolation=unavailable | isolation=no-class-entries (isolation could not run)
+#       or no-class-entry (a marked file whose .class entry could not be found). marker-scan-error = the marker
+#       grep itself failed for that file (the primary output is kept, never silently passed).
 #       ok = fallback output in place · marked = the fallback output itself carries a failure marker ·
 #       kept-primary = the marked primary output was kept (no usable fallback) · failed = NO output for the unit.
 #   Isolation (jars): per package, then per unit (top-level class or orphan '$' class), then a coverage sweep;
@@ -26,13 +33,21 @@
 #   every engine run during isolation (units and the coverage sweep) is capped at the REMAINING budget, and a
 #   budget discard also removes the directories it created.
 #   The coverage sweep also runs after a whole-jar SUCCESS (a class the engine silently omitted is a UNIT
-#   reason=missing, never a bare OK; when it cannot run the status carries reason=coverage-sweep-unavailable),
-#   and a file already sitting in a reused out-dir is never coverage (it must be newer than this run's start).
+#   reason=missing, never a bare OK; when it cannot run the status carries reason=coverage-sweep-unavailable or
+#   reason=no-class-entries), and a file already sitting in a reused out-dir is never coverage (it must be newer
+#   than this run's start; the stamp is backdated 2 s for coarse-mtime filesystems). The sweep does NOT run when
+#   isolation is unavailable (no unzip / unsafe jar / no class entries: whole-artifact fallback instead) or when
+#   the isolation budget is exhausted (whole-artifact fallback, reason=total_budget_exhausted). Inner classes are
+#   recognised by ANY non-empty prefix before a '$' (so $Gson$Types$X is inner of $Gson$Types); when a jar
+#   carries both a base entry and META-INF/versions/N for one class, the base entry is the unit. Vineflower
+#   ignores META-INF/versions/*: a multi-release jar whose classes (or module-info) exist ONLY as versioned
+#   entries therefore exits 4 with reason=missing — a true omission, not a false positive.
 #   Prefix-layout jars (BOOT-INF/classes/, WEB-INF/classes/, META-INF/versions/N/): CFR/Procyon write output paths
 #   that follow the package, so coverage and marker lookups also match the prefix-stripped path.
 #   Failure path limits (reported or documented, not hidden): the per-package / whole-artifact re-runs decompile
 #   .class entries only, so non-class jar entries (META-INF/*, .lexicon, ...) are NOT copied — the status line
-#   carries resources_not_copied=N (or =unknown when the listing cannot be taken); and each per-package rerun
+#   carries resources_not_copied=N (or =unknown when the listing cannot be taken; N can OVERSTATE the loss when
+#   the whole-artifact fallback engine is Vineflower, which copies resources itself); and each per-package rerun
 #   sees only its own package, so cross-package library context is lost for that rerun (not reported per unit).
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
 #   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
@@ -175,6 +190,9 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
 }
 
 STAMP="$(mktemp)"
+# Backdate the run stamp 2 s: a coarse-mtime filesystem (FAT 2 s, ext3 1 s) can stamp this run's own output
+# a moment BEFORE the stamp, and a strictly-newer test would then call fresh output stale (kit issue #1320 N4).
+touch -d '2 seconds ago' "$STAMP"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$STAMP" "$WORK"; }
 trap cleanup EXIT
@@ -273,26 +291,41 @@ NO_SCAN=""
 ISOLATION_LEVEL=""
 PRIMARY_STATE=""
 ISOLATION_WHY="" # set when isolation could not run (typed, reported on the unit)
+SWEEP_WHY=""     # why the coverage sweep could not run: coverage-sweep-unavailable | no-class-entries
 
-# ensure_ext — extract the jar's classes once; fail (typed) when unzip is absent or the jar is unsafe.
+# ensure_ext — extract the jar's classes once; fail (typed) when unzip is absent, the jar is unsafe, or it holds
+# no class entries (a sources jar: SWEEP_WHY=no-class-entries). unzip exit 1 means WARNINGS only (executable or
+# prefixed jars) and is accepted; 11 = no matching entries; anything else is a real failure.
 ensure_ext() {
+  local urc=0
   [ -d "$EXT" ] && return 0
-  if ! command -v "$UNZIP_BIN" >/dev/null 2>&1; then ISOLATION_WHY="isolation=unavailable"; return 1; fi
+  if ! command -v "$UNZIP_BIN" >/dev/null 2>&1; then ISOLATION_WHY="isolation=unavailable"; SWEEP_WHY=coverage-sweep-unavailable; return 1; fi
   mkdir -p "$EXT"
-  "$UNZIP_BIN" -q -o "$IN" '*.class' -d "$EXT" >/dev/null 2>&1 || { rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; return 1; }
+  "$UNZIP_BIN" -q -o "$IN" '*.class' -d "$EXT" >/dev/null 2>&1 || urc=$?
+  case "$urc" in
+    0 | 1) ;;
+    11) rm -rf "$EXT"; ISOLATION_WHY="isolation=no-class-entries"; SWEEP_WHY=no-class-entries; return 1 ;;
+    *) rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; SWEEP_WHY=coverage-sweep-unavailable; return 1 ;;
+  esac
+  if [ -z "$(find "$EXT" -name '*.class' -print -quit)" ]; then
+    rm -rf "$EXT"; ISOLATION_WHY="isolation=no-class-entries"; SWEEP_WHY=no-class-entries; return 1
+  fi
   # A jar must not smuggle symlinks into the scratch tree.
-  if [ -n "$(find "$EXT" -type l -print -quit)" ]; then rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; return 1; fi
+  if [ -n "$(find "$EXT" -type l -print -quit)" ]; then rm -rf "$EXT"; ISOLATION_WHY="isolation=unavailable"; SWEEP_WHY=coverage-sweep-unavailable; return 1; fi
 }
 
-# is_unit_class <class-file> — a decompilation unit is a top-level class OR an orphan: a '$' class whose
-# outer partner (the name up to its first '$') has no .class beside it (Scala Foo$, package$, obfuscated
-# names, orphan inner classes). Every other '$' class is an inner class, emitted inside its outer's source.
+# is_unit_class <class-file> — a decompilation unit is a top-level class OR an orphan. A '$' class is INNER when any
+# non-empty prefix ending just before one of its '$' has a .class beside it ($Gson$Types$X is inner of
+# $Gson$Types although '$Gson' itself has no class — kit issue #1320 B1); inner classes are emitted inside their
+# outer's source. Everything else is a unit (Scala Foo$, package$, obfuscated names, orphan inner classes).
 is_unit_class() {
-  local b o
+  local b pre k
   b="$(basename "$1" .class)"
-  case "$b" in
-    *'$'*) o="${b%%\$*}"; [ -n "$o" ] && [ -f "$(dirname "$1")/$o.class" ] && return 1 ;;
-  esac
+  for ((k = 1; k < ${#b}; k++)); do
+    [ "${b:k:1}" = '$' ] || continue
+    pre="${b:0:k}"
+    [ -f "$(dirname "$1")/$pre.class" ] && return 1
+  done
   return 0
 }
 
@@ -359,16 +392,26 @@ find_class() {
   return 1
 }
 
+# has_base_class <layout-key> — the jar also carries the unit as a plain/BOOT-INF/WEB-INF entry (not versioned).
+has_base_class() {
+  [ -f "$EXT/$1.class" ] || [ -f "$EXT/BOOT-INF/classes/$1.class" ] || [ -f "$EXT/WEB-INF/classes/$1.class" ]
+}
+
 # sweep_coverage — every unit class of the extracted jar must be covered by fresh output or by a UNIT line.
 # Runs after the isolation path AND after a whole-jar success (kit issue #1320 item 3): an engine that exits 0
-# but silently omits a class is never a bare OK.
+# but silently omits a class is never a bare OK. Returns 2 when the isolation budget is spent before a needed
+# fallback (the caller types it total_budget_exhausted). A multi-release versioned entry whose base entry
+# exists is skipped: the base entry is the unit (N5).
 sweep_coverage() {
   local f unit
   while IFS= read -r f; do
     is_unit_class "$f" || continue
     unit="${f#"$EXT"/}"; unit="${unit%.class}"
-    unit_covered "$unit" || [ -n "${HANDLED[$(layout_key "$unit")]:-}" ] || fallback_unit "$unit" missing "$f"
-  done < <(find "$EXT" -name '*.class' | sort)
+    case "$unit" in META-INF/versions/*/*) has_base_class "$(layout_key "$unit")" && continue ;; esac
+    if unit_covered "$unit" || [ -n "${HANDLED[$(layout_key "$unit")]:-}" ]; then continue; fi
+    if [ -n "$ISOLATING" ] && budget_exhausted; then BUDGET_HIT=1; return 2; fi
+    fallback_unit "$unit" missing "$f"
+  done < <(find "$EXT" -name '*.class' | LC_ALL=C sort)
 }
 
 # ── Failure-marker scan (kit issue #1194) ────────────────────────────────────
@@ -426,8 +469,13 @@ elif ! has_java "$OUT"; then
 elif [[ "${IN,,}" == *.jar ]]; then
   # Whole-jar success: still prove every unit class has output. When the sweep cannot run (no unzip, unsafe
   # jar) that is a typed degraded state, never a silent OK.
-  if ensure_ext; then sweep_coverage
-  else PROBE_DEGRADED="${PROBE_DEGRADED:+$PROBE_DEGRADED,}coverage-sweep-unavailable"; fi
+  if ensure_ext; then
+    # The sweep's fallback runs obey the isolation budget too; a spent budget is typed, the good primary output is kept.
+    ISOLATE_T0=$SECONDS; ISOLATING=1; src=0
+    sweep_coverage || src=$?
+    ISOLATING=""
+    [ "$src" -ne 2 ] || PROBE_DEGRADED="${PROBE_DEGRADED:+$PROBE_DEGRADED,}total_budget_exhausted"
+  else PROBE_DEGRADED="${PROBE_DEGRADED:+$PROBE_DEGRADED,}${SWEEP_WHY:-coverage-sweep-unavailable}"; fi
 fi
 [ -n "$NO_SCAN" ] || scan_markers
 

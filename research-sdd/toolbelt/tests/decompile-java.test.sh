@@ -203,6 +203,9 @@ fi
 #   STUB_OMIT_CLASSES    space list of class basenames vineflower silently leaves out of its output
 #   STUB_IGNORE_TERM     non-empty: a "sleeping" vineflower ignores SIGTERM (only SIGKILL stops it → rc 137)
 #   STUB_CFR_SLEEP       N: cfr sleeps N seconds (a slow fallback / coverage-sweep run)
+#   STUB_CFR_UNIT_SLEEP  N: cfr sleeps N seconds only for a single-.class input (a sweep/marker fallback, not the whole jar)
+#   STUB_BACKDATE_OUT    non-empty: every written .java gets an mtime 1 s in the past (a coarse-timestamp filesystem)
+#   STUB_FORCE_JAVA      non-empty: the engine always also writes Forced.java (success without any class entry)
 #   STUB_STRIP_LAYOUT   non-empty: every engine writes output paths that follow the PACKAGE (BOOT-INF/classes/,
 #                        WEB-INF/classes/ and META-INF/versions/N/ prefixes dropped), like real CFR/Procyon
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
@@ -227,6 +230,7 @@ else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; 
 [ "$eng" = vineflower ] && [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
 ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
 [ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && sleep "$STUB_CFR_SLEEP"
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_UNIT_SLEEP:-}" ] && [[ "$IN" != *.jar ]] && sleep "$STUB_CFR_UNIT_SLEEP"
 [ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && exec sleep "${STUB_SLEEP:-3}"
 [ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
@@ -236,7 +240,12 @@ if [ "$eng" = vineflower ]; then
 fi
 for c in $classes; do
   b="$(basename "$c" .class)"
-  case "$b" in *\$*) o="${b%%\$*}"; grep -qx "$(dirname "$c")/$o.class\|$o.class" <<<"$classes" && continue ;; esac
+  inner=""  # like the real engines: a '$' class is inner when ANY non-empty prefix before one of its '$' has a .class beside it
+  for ((k = 1; k < ${#b}; k++)); do
+    [ "${b:k:1}" = '$' ] || continue
+    pre="${b:0:k}"; grep -qx "$(dirname "$c")/$pre.class\|$pre.class" <<<"$classes" && inner=1
+  done
+  [ -z "$inner" ] || continue
   omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
   [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
   oc="$c"; [ -z "${STUB_STRIP_LAYOUT:-}" ] || { oc="${oc#BOOT-INF/classes/}"; oc="${oc#WEB-INF/classes/}"; oc="${oc#META-INF/versions/*/}"; }
@@ -249,7 +258,9 @@ for c in $classes; do
       done
     fi
     echo "}"; } > "$OUT/${oc%.class}.java"
+  [ -z "${STUB_BACKDATE_OUT:-}" ] || touch -d '1 second ago' "$OUT/${oc%.class}.java"
 done
+if [ -n "${STUB_FORCE_JAVA:-}" ]; then mkdir -p "$OUT"; echo "class Forced {}" > "$OUT/Forced.java"; fi
 exit 0
 STUB
 chmod +x "$T_JAVA_HOME/bin/java"
@@ -596,10 +607,10 @@ if [ "$el" -lt 12 ] && [ "$RC" -eq 4 ] && grep -q 'reason=total_budget_exhausted
 else no "J1 budget enforced inside a unit" "elapsed=${el}s rc=$RC so=[$SO]"; fi
 # J2: the coverage sweep's own fallback run is bounded by the same budget (slow cfr on an omitted class).
 t0=$SECONDS
-rt J2 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" STUB_CFR_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=3 -- --engine vineflower
+rt J2 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2 A3" STUB_CFR_UNIT_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=3 -- --engine vineflower
 el=$((SECONDS - t0))
-if [ "$el" -lt 12 ] && grep -q 'a/A2 reason=missing' <<<"$SO"; then
-  ok "J2 coverage-sweep fallback bounded by the budget (${el}s < 12s)"
+if [ "$el" -lt 12 ] && grep -q '^UNIT: <whole-artifact> reason=total_budget_exhausted' <<<"$SO" && ! grep -q 'reason=missing' <<<"$SO"; then
+  ok "J2 coverage sweep stops at the budget with total_budget_exhausted, not N x missing (${el}s < 12s)"
 else no "J2 sweep is budgeted" "elapsed=${el}s rc=$RC so=[$SO]"; fi
 # J3: a budget discard leaves no empty directories behind (package a was written, then discarded).
 rt J3 "$JAR3" STUB_SLEEP_CLASSES="B" RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower --fallback-engine none
@@ -629,6 +640,64 @@ else no "K2 no field when nothing was dropped" "rc=$RC so=[$SO]"; fi
 rt K3 "$JARR" STUB_FAIL_WHOLE=1 RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
 if [ "$RC" -eq 4 ] && grep -q 'resources_not_copied=unknown' <<<"$SO"; then ok "K3 unzip absent → resources_not_copied=unknown (typed)"
 else no "K3 uncountable resources are typed unknown" "rc=$RC so=[$SO]"; fi
+
+# ── #1320 FIX-FIRST round: review findings B1, N1-N5 ─────────────────────────
+# B1: '$'-leading names. A '$' class is INNER when any non-empty prefix before one of its '$' has a .class
+#     beside it ($Gson$Types$X is inner of $Gson$Types though '$Gson'/'' has no class) — never a false unit.
+JARG="$ROOT/gson.jar"
+mkjar "$JARG" 'g/$Gson$Types.class' 'g/$Gson$Types$X.class' 'g/Foo$Bar.class' 'g/Foo$Bar$Baz.class' 'x/$Outer.class' 'x/$Outer$Inner.class'
+rt L1 "$JARG" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && [ ! -e "$ROOT/o-L1/"'g/$Gson$Types$X.java' ]; then
+  ok "L1 shaded-gson names (\$Gson\$Types\$X, Foo\$Bar\$Baz, \$Outer\$Inner) → inner classes, OK, no duplicate unit"
+else no "L1 inner classes of \$-leading names are not units" "rc=$RC so=[$SO]"; fi
+rt L2 "$JARG" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=error isolation=package' <<<"$SO" && [ -z "$(units_of)" ]; then
+  ok "L2 failure path on \$-leading names → no false missing units"
+else no "L2 failure-path inner classes" "rc=$RC so=[$SO]"; fi
+rt L3 "$JARG" STUB_OMIT_CLASSES='$Gson$Types' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'g/$Gson$Types' ] && grep -q 'reason=missing' <<<"$SO"; then
+  ok "L3 a genuinely omitted \$Gson\$Types is the ONE missing unit (its inner X is not)"
+else no "L3 only the real unit is reported" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+
+# N1: unzip rc 1 (warnings: executable / prefixed jar) is not a failure; a jar with no class entries (sources
+#     jar) has its OWN reason, not coverage-sweep-unavailable.
+JARX="$ROOT/exec.jar"; mkjar "$JARX" a/A.class
+{ printf '#!/bin/sh\nexit 0\n'; cat "$JARX"; } > "$JARX.tmp" && mv "$JARX.tmp" "$JARX"
+unzip -qq -o -d "$ROOT/xprobe" "$JARX" '*.class' >/dev/null 2>&1; xrc=$?
+[ "$xrc" -eq 1 ] && ok "M0 harness: prefixed jar makes unzip exit 1 (warnings)" || no "M0 harness: expected unzip rc 1" "rc=$xrc"
+rt M1 "$JARX" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "M1 prefixed/executable jar (unzip rc 1) → sweep runs, OK"
+else no "M1 unzip rc 1 is accepted" "rc=$RC so=[$SO]"; fi
+JARS="$ROOT/src.jar"; mkjar "$JARS" a/A.java b/B.java
+rt M2 "$JARS" STUB_FORCE_JAVA=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*reason=no-class-entries' <<<"$SO" && ! grep -q 'coverage-sweep-unavailable' <<<"$SO"; then
+  ok "M2 sources jar (no class entries) → reason=no-class-entries, not coverage-sweep-unavailable"
+else no "M2 no-class-entries has its own reason" "rc=$RC so=[$SO]"; fi
+rt M3 "$JARS" STUB_FORCE_JAVA=1 STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q 'isolation=no-class-entries' <<<"$SO"; then ok "M3 failure path on a sources jar → note isolation=no-class-entries"
+else no "M3 failure-path note names no-class-entries" "rc=$RC so=[$SO]"; fi
+
+# N3: the success-path sweep is bounded by the isolation budget too; a spent budget is typed, the good primary
+#     output is kept (no whole-artifact fallback on the success path).
+t0=$SECONDS
+rt P1 "$JARP" STUB_OMIT_CLASSES="A1 A2" STUB_CFR_UNIT_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+el=$((SECONDS - t0))
+if [ "$el" -lt 12 ] && [ "$RC" -eq 4 ] && grep -q '^\(DEGRADED\|PARTIAL\).*reason=total_budget_exhausted' <<<"$SO" \
+  && ! grep -q '<whole-artifact>' <<<"$SO" && [ "$(engine_of P1 a/A3.java)" = vineflower ]; then
+  ok "P1 success-path sweep bounded by the budget → reason=total_budget_exhausted, primary output kept (${el}s < 12s)"
+else no "P1 success-path sweep is budgeted" "elapsed=${el}s rc=$RC so=[$SO]"; fi
+
+# N4: output stamped slightly BEFORE the run stamp (coarse-mtime filesystem) is still this run's output.
+rt Q1 "$JARP" STUB_BACKDATE_OUT=1 -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "Q1 output with a 1 s older mtime (coarse filesystem) is not stale → OK"
+else no "Q1 run stamp is backdated against coarse mtimes" "rc=$RC so=[$SO]"; fi
+
+# N5: multi-release jar — when the base entry and META-INF/versions/N map to one layout key, the BASE entry is
+#     the unit (deterministic under LC_ALL=C, where META-INF sorts first).
+JARV="$ROOT/mr.jar"; mkjar "$JARV" a/A.class a/B.class META-INF/versions/9/a/A.class
+rt R1 "$JARV" LC_ALL=C STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="A" -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A" ]; then ok "R1 multi-release: base a/A is the unit (not META-INF/versions/9/a/A)"
+else no "R1 base entry preferred over META-INF/versions" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
@@ -728,7 +797,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mE1: mutant still degraded — E1 has no teeth" "so=[$SO]"; fi
   fi
   # mE2: '$' classes never units → E6/E7 (B2a).
-  if build_mut mE2 's/^    \*.\$.\*) o=.*$/    *"\$"*) return 1 ;;/'; then
+  if build_mut mE2 's/^    pre="\${b:0:k}"$/    return 1/'; then
     RT_SUT="$MUT" rt mE2 "$JARZ" STUB_SLEEP_CLASSES='Z$' -- --engine vineflower
     if [ -z "$(units_of)" ]; then ok "teeth-mE2: orphans-skipped mutant loses the Z\$ unit → E6 bites"
     else no "teeth-mE2: mutant still reported the orphan unit — E6 has no teeth" "so=[$SO]"; fi
@@ -740,7 +809,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mE3: mutant still typed reason=empty — E5 has no teeth" "so=[$SO]"; fi
   fi
   # mE4: coverage sweep removed → E8.
-  if build_mut mE4 's/ || fallback_unit "\$unit" missing "\$f"$/ || :/'; then
+  if build_mut mE4 's/^    fallback_unit "\$unit" missing "\$f"$/    :/'; then
     RT_SUT="$MUT" rt mE4 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
     if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mE4: sweep-removed mutant loses reason=missing → E8 bites"
     else no "teeth-mE4: mutant still reported the omitted class — E8 has no teeth" "so=[$SO]"; fi
@@ -819,13 +888,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth: issue #1320 items 3-4 (success-path sweep, stale files) --"
   # mH1: no sweep after a whole-jar success → H1 prints a bare OK again (item 3).
-  if build_mut mH1 's/^  if ensure_ext; then sweep_coverage$/  if ensure_ext; then :/'; then
+  if build_mut mH1 's/^    sweep_coverage .. src=\$?$/    :/'; then
     RT_SUT="$MUT" rt mH1 "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
     if grep -q '^OK' <<<"$SO"; then ok "teeth-mH1: no-success-sweep mutant prints bare OK for an omitted class → H1 bites"
     else no "teeth-mH1: mutant still swept — H1 has no teeth" "so=[$SO]"; fi
   fi
   # mH2: sweep-unavailable probe dropped → H3 goes back to a silent OK.
-  if build_mut mH2 's/^  else PROBE_DEGRADED=.*coverage-sweep-unavailable"; fi$/  else :; fi/'; then
+  if build_mut mH2 's/^  else PROBE_DEGRADED=.*; fi$/  else :; fi/'; then
     RT_SUT="$MUT" rt mH2 "$JARP" RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
     if grep -q '^OK' <<<"$SO"; then ok "teeth-mH2: probe-dropped mutant prints OK without a sweep → H3 bites"
     else no "teeth-mH2: mutant still typed the missing sweep — H3 has no teeth" "so=[$SO]"; fi
@@ -893,6 +962,62 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" rt mJ3 "$JAR3" STUB_FAIL_WHOLE=1 STUB_SLEEP_CLASSES="A" STUB_SLEEP=15 STUB_CFR_SLEEP=3 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
     if ! grep -q 'fallback=cfr result=ok' <<<"$SO"; then ok "teeth-mJ3: flag-never-cleared mutant clamps the whole fallback → J4 bites"
     else no "teeth-mJ3: mutant still let the fallback finish — J4 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: #1320 fix-first round (B1, N1-N5) --"
+  # mL1: inner test on the FIRST-'$' prefix only (the pre-fix rule) → L1/L3 see false units.
+  if build_mut mL1 's/^    pre="\${b:0:k}"$/    pre="${b%%\\$*}"/'; then
+    RT_SUT="$MUT" rt mL1 "$JARG" -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mL1: first-\$-prefix mutant reports false units for \$Gson\$Types\$X → L1 bites"
+    else no "teeth-mL1: mutant still printed OK — L1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mM1: unzip warnings (rc 1) treated as failure → M1 loses the sweep.
+  if build_mut mM1 's/^    0 | 1) ;;$/    0) ;;/'; then
+    RT_SUT="$MUT" rt mM1 "$JARX" -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mM1: rc-1-is-failure mutant degrades a prefixed jar → M1 bites"
+    else no "teeth-mM1: mutant still accepted unzip rc 1 — M1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mM2: no-class-entries folded back into coverage-sweep-unavailable → M2.
+  if build_mut mM2 's/SWEEP_WHY=no-class-entries/SWEEP_WHY=coverage-sweep-unavailable/g'; then
+    RT_SUT="$MUT" rt mM2 "$JARS" STUB_FORCE_JAVA=1 -- --engine vineflower
+    if grep -q 'coverage-sweep-unavailable' <<<"$SO"; then ok "teeth-mM2: reason-folded mutant says coverage-sweep-unavailable for a sources jar → M2 bites"
+    else no "teeth-mM2: mutant still said no-class-entries — M2 has no teeth" "so=[$SO]"; fi
+  fi
+  # mM3: failure-path note says unavailable → M3.
+  if build_mut mM3 's/isolation=no-class-entries/isolation=unavailable/g'; then
+    RT_SUT="$MUT" rt mM3 "$JARS" STUB_FORCE_JAVA=1 STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if ! grep -q 'isolation=no-class-entries' <<<"$SO"; then ok "teeth-mM3: note-folded mutant loses isolation=no-class-entries → M3 bites"
+    else no "teeth-mM3: mutant still named no-class-entries — M3 has no teeth" "so=[$SO]"; fi
+  fi
+  # mN2: no budget check inside the sweep loop → J2 reports N x missing instead of total_budget_exhausted.
+  if build_mut mN2 's/^    if \[ -n "\$ISOLATING" \] \&\& budget_exhausted; then BUDGET_HIT=1; return 2; fi$/    :/'; then
+    RT_SUT="$MUT" rt mN2 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2 A3" STUB_CFR_UNIT_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=3 -- --engine vineflower
+    if ! grep -q 'reason=total_budget_exhausted' <<<"$SO"; then ok "teeth-mN2: loop-check-removed mutant never types the spent budget → J2 bites"
+    else no "teeth-mN2: mutant still typed total_budget_exhausted — J2 has no teeth" "so=[$SO]"; fi
+  fi
+  # mN3a: success-path sweep unbounded → P1 runs the slow fallback to its own timeout.
+  if build_mut mN3a 's/^    ISOLATE_T0=\$SECONDS; ISOLATING=1; src=0$/    src=0/'; then
+    t0=$SECONDS
+    RT_SUT="$MUT" rt mN3a "$JARP" STUB_OMIT_CLASSES="A1 A2" STUB_CFR_UNIT_SLEEP=6 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+    if [ $((SECONDS - t0)) -ge 6 ]; then ok "teeth-mN3a: unbounded-sweep mutant runs past the budget → P1 bites"
+    else no "teeth-mN3a: mutant still stopped at the budget — P1 has no teeth" "elapsed=$((SECONDS - t0))s"; fi
+  fi
+  # mN3b: spent budget not reported on the success path → P1 loses the reason.
+  if build_mut mN3b 's/^    \[ "\$src" -ne 2 \] || PROBE_DEGRADED=.*$/    :/'; then
+    RT_SUT="$MUT" rt mN3b "$JARP" STUB_OMIT_CLASSES="A1 A2" STUB_CFR_UNIT_SLEEP=15 RSDD_DECOMPILE_TIMEOUT=60 RSDD_DECOMPILE_ISOLATE_BUDGET=1 -- --engine vineflower
+    if ! grep -q 'reason=total_budget_exhausted' <<<"$SO"; then ok "teeth-mN3b: unreported-budget mutant loses reason=total_budget_exhausted → P1 bites"
+    else no "teeth-mN3b: mutant still reported the spent budget — P1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mN4: run stamp not backdated → Q1 sees fresh-but-1s-old output as stale.
+  if build_mut mN4 's/^touch -d .2 seconds ago. "\$STAMP"$/:/'; then
+    RT_SUT="$MUT" rt mN4 "$JARP" STUB_BACKDATE_OUT=1 -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mN4: no-backdate mutant calls coarse-mtime output stale → Q1 bites"
+    else no "teeth-mN4: mutant still printed OK — Q1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mN5: base entry not preferred → R1 names the META-INF/versions entry as the unit.
+  if build_mut mN5 's/^    case "\$unit" in META-INF\/versions\/\*\/\*) has_base_class .*$/    :/'; then
+    RT_SUT="$MUT" rt mN5 "$JARV" LC_ALL=C STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="A" -- --engine vineflower
+    if [ "$(units_of)" != "a/A" ]; then ok "teeth-mN5: base-not-preferred mutant names the versioned entry → R1 bites"
+    else no "teeth-mN5: mutant still named a/A — R1 has no teeth" "so=[$SO]"; fi
   fi
 fi
 
