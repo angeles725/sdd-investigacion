@@ -1111,6 +1111,13 @@ Always read first, in this order:
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
          `retro: pending`. Enforcement: once wired (kit issue #479), `$KIT/toolbelt/retro-gate.sh` runs as the
          target's Stop hook and blocks the session ONCE with the exact missing element until this holds.
+         SEED AS THE RUN'S OWN FINAL STEP (#1258): the Stop hook's `retro-conforming` seeding is only a
+         backstop, so after the retro is committed run `bash $KIT/toolbelt/stage-retro-issues.sh <retro> --apply`
+         yourself and include its final `summary:` line in the return; if it exits 1 with `degraded:` (e.g. `gh`
+         absent or unauthenticated, kit issue repo unresolved) or exits 2 (some issue creations failed), say so —
+         never omit the line. The hook also appends one line per
+         Stop to `<target>/.claude/.rsdd-retro-gate-stops.log` (branch taken plus seeding evidence: the
+         seeder's `summary:` line, or a typed skip or degraded reason); check it when seeding looks missing.
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
          triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
          project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for codex or
