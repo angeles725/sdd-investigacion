@@ -221,3 +221,45 @@ applies in full.)
          stop it; a lingering agent that keeps emitting notifications or edits is a concurrent
          writer you did not plan for.
 ```
+
+---
+
+## delegation-briefs
+
+Trigger: read this section in full when you write a brief for a delegated writer or sweep agent,
+when a delegate's result comes back, when a build hits a framework/tooling wall, or when a
+DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (Kit issues #894,
+#897, #1095, #1202, #1246.)
+
+```text
+         EXECUTING-DELEGATE CONTRACT. A delegated worker can return a narrated plan with ZERO tool
+         calls — it reads as done and changed nothing. Brief workers to EXECUTE with real tool
+         calls, and treat a result with `tool_uses == 0` as a FAILED run: relaunch as an executing
+         agent, do not accept the narrative.
+         PER-TARGET ENVIRONMENT FACTS, QUOTED VERBATIM IN EVERY WRITER BRIEF. Keep one block (in
+         the target's RESEARCH-STATE or its TARGETS.md detail section) holding: the test-runner
+         command, the tools known to be ABSENT, and the runtime load path. Paste it into every
+         writer brief; a writer must not name a runner, tool, or classpath that is not in that
+         block. (Writers repeatedly named `pytest` where it was not installed and the runner was
+         `python3 -m unittest`.) This is a convention for the brief, not a schema the registry
+         tooling enforces.
+         TRUNCATED INBOUND BRIEF. When a delegated block-writer's task brief arrives truncated or
+         incomplete (distinct from the OUTBOUND report failing to reach the orchestrator): (a) ask
+         the orchestrator ONCE for the full brief; (b) if no reply arrives within the session's
+         bounded wait, proceed strictly from the visible gap labels/scope that DID arrive — never
+         invent or guess the missing scope; (c) name in the block's own "Does not cover" note
+         and/or its child-gaps section exactly what the truncation prevented it from attempting or
+         resolving, instead of delivering a narrower block as if it were the briefed one. Advance
+         rather than close a gap you could not fully attempt, with a named follow-up child gap.
+         BLOCKER-SCOPED FOCUS FIRST. In a combined build+research session, when the build hits a
+         WB/framework wall, spin a focused research block on that exact wall BEFORE hand-coding a
+         workaround, and hand the finding to the in-flight build via a teammate message. A focus
+         scoped to an ACTIVE bug in the module under construction unblocks the build fastest.
+         PDF-CITATION SPOT-CHECK (DOCUMENT CYCLE LARGE-SCALE, after the driver writes each block
+         from per-section agent findings). For at least the load-bearing citations each agent
+         supplied, confirm the quoted text appears on the stated page:
+         `pdftotext -f N -l N <pdf> - | grep -F "<quote>"` (or the promoted toolbelt script).
+         `verify-block.sh` resolves `file:line` references but does not check that the quoted text
+         is actually there; without this step a page-number error or a dropped table qualifier
+         survives until a manual re-read.
+```

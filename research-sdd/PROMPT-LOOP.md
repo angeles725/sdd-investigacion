@@ -600,6 +600,9 @@ Always read first, in this order:
          full before launching more than one writer/fork/chain on one repo or corpus, or when the
          target repo differs from the session cwd (disjoint ownership, at most two writers, one
          committing chain per repo, worktree isolation, quiet-tree gate).
+       - DELEGATION-BRIEFS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs` in full
+         when writing a delegate's brief or receiving its result (executing-delegate contract,
+         environment facts, truncated brief, blocker-scoped focus, PDF-citation spot-check).
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
