@@ -1209,12 +1209,12 @@ Routing-class table:
 |---|---|---|
 | `high`, `medium`, `low` | routable | counted in `investigable_open`; `NEXT` walks high → medium → low |
 | `deferred` | parked | counted in `deferred_open`; never yields `NEXT` |
-| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | not counted anywhere |
+| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | never routable and not in `investigable_open`; counted as a CLOSED gap in `known_gaps` and `gaps_closed` by `--sync-state` (kit #1307) |
 
 **`deferred` is normative.** It is a parked routing class with its own envelope field (`deferred_open`)
 and two dedicated readers (`count_deferred()` in `research-sdd-status.sh`, `derive_deferred()` in
 `verify-state.sh`). Use it for a gap explicitly set aside — not as a synonym for `low` or for an
-unknown priority. A `deferred` row never yields `NEXT` and never enters `investigable_open`.
+unknown priority. A `deferred` row never yields `NEXT` and never enters `investigable_open`. A closed `deferred` row (`✅`/`~~`) counts in `known_gaps`/`gaps_closed`, not `deferred_open` (#1307).
 
 **Qualifiers are forbidden** in the Priority cell. Forms such as `high (cross-vibra)`,
 `medium (pending-scout)`, and `low (deferred)` are non-conforming: the parser drops the entire row
@@ -1242,7 +1242,7 @@ ref, note, date).
 **Deprecated aliases.** `open` and `queued` are non-conforming aliases of `pending`. Migrate to `pending`.
 
 **Em-dash means closed and nothing else.** An open row must carry a real tier (`high`, `medium`, `low`,
-or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell.
+or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell. An em-dash row with an open Status (`pending`, `requires-execution`, `open`, `queued`, `blocked*`) is non-conforming: `--sync-state` WARNs and does NOT count it as closed; a `—` row whose Gap cell is not a gap id (a note) is not counted either (#1307).
 
 **Wall rows end with `unblock:` (#1269), after `needs:`/`tried:`:** §21.1.
 
@@ -1258,6 +1258,8 @@ emits a provisional WARN naming the canonical forms. The table must be 4 or 5 co
 `| Pr. | ID | Gap | Artifact | Status |` (2 files in the fleet). A literal `|` inside a cell MUST be
 written `&#124;` — the Markdown parser does not honour `\|`. One physical line per row. A file may
 contain multiple `## Gap-backlog (…)` tables; all are counted together.
+
+**Out-of-backlog tables (#1307).** Near-miss headings (`## Gap backlog`, `## Backlog`) are still read, with a WARN. Under any non-canonical heading a table counts only if its header's first cell is priority-shaped (`Priority`, `Pr.`, `P`, `Prioridad`), so a `Severity` table is never gaps. Tiers outside §8b (`4`, `**HIGH**`, `MED`, `low-med`) are excluded with a WARN and make derived `known_gaps` a lower bound.
 
 **Migration (propose-never-apply).** Corpus edits are always the human's; tooling WARNs and never
 auto-applies. Migration classes to address:
