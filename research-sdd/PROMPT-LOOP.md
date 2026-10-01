@@ -512,7 +512,7 @@ Always read first, in this order:
          operator's data package, check whether the package already carries a pre-existing human
          classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
          label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B61 vs Dep_Ductos_crudos.)
+         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B76 §76.5.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -534,7 +534,7 @@ Always read first, in this order:
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B6/B8, commit `d7fd595`.)
+         (Evidence: COB-IM2 B8, ANNOTATION-BEFORE-DERIVATION only; the originally cited commit no longer exists after that corpus's re-bootstrap.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -596,6 +596,17 @@ Always read first, in this order:
          independent small gaps on different subsystems, a sibling gap while a sweep is already in
          flight, a recursive multi-level fan-out, or you are advancing other work while a delegated
          sweep executes. None of these apply to a plain inline gap.
+       - CONCURRENT-WRITERS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#concurrent-writers` in
+         full before launching more than one writer/fork/chain on one repo or corpus, or when the
+         target repo differs from the session cwd (disjoint ownership, at most two writers, one
+         committing chain per repo, worktree isolation, quiet-tree gate).
+       - DELEGATION-BRIEFS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs` in full
+         when writing a delegate's brief or receiving its result, or when the build hits a WB/framework
+         wall (executing-delegate contract, environment facts, truncated brief, blocker-scoped focus,
+         PDF-citation spot-check).
+       - REVIEW-AND-DELIVERY — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#review-and-delivery` in
+         full before committing/merging on an RDD repo or landing a large change set (bulk-commit vs
+         RDD, <=~400-line chained slices, never merge a due candidate before review, CI wait).
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -652,6 +663,8 @@ Always read first, in this order:
          Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
          or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+       - RESOURCE-BUDGETS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#resource-budgets` in full
+         before starting a heavy run or delegating one (CPU/RAM budget, queue, record the load).
        - LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`
          in full for a §19 build/PoC iteration delegated to an implementation agent (spec-file
          handoff, mid-flight correction delivery). Not applicable to a non-build gap.
@@ -941,7 +954,9 @@ Always read first, in this order:
          the final backstop. A linter that FAILS may still report a true finding in a different
          check — read every line of its output before dismissing any of it.
        - Regenerate CATALOG.md: python3 $KIT/templates/gen-catalog.py $CORPUS (the kit generator over the corpus
-         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress).
+         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress). If the
+         MCP `mem_save` fails under concurrent sessions (`multiple active runtime sessions match`), use the engram
+         CLI (`engram save ... --project ... --topic ...`) as the fallback — never drop the mirror.
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
          INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
          bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
@@ -1140,7 +1155,7 @@ Always read first, in this order:
      at slice level (each slice confirmed readable); (b) dispatch ONE agent per outline item, each
      receiving its pre-extracted slice + the outline structure, returning ONLY cited findings
      (file:line + load-bearing snippets), NOT raw dumps; (c) the driver writes the blocks from those
-     findings and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
+     findings, then the PDF-citation spot-check (`$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs`), and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
      step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
      This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
      changes is that N agents run in one dispatch round rather than N sequential iterations.
@@ -1450,7 +1465,7 @@ HARD RULES:
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
-    LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B70). The worked example with the actual hex values
+    LIVE from the real system. Never cite them from a prior note/block (lesson: the logosoft bench program B66-B70 — TARGETS row #8; corpus not present on every machine, so qualify before citing). The worked example with the actual hex values
     lives in METHODOLOGY §12 — single source; don't restate the values here.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit

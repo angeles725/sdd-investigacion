@@ -164,3 +164,175 @@ Trigger: read this section in full only when the delegating agent is ITSELF a su
          directly for the mechanical sweep (haiku-tier work), or route deterministic fan-out through the Workflow
          engine. Record the fallback as `inline (constraint: nested-tier-unavailable)` in the tier column.
 ```
+
+---
+
+## concurrent-writers
+
+Trigger: read this section in full before launching more than one writer, background fork, or
+chain against the same repository or corpus, and before delegating a writer when the research
+target repo differs from the session's working directory. None of this applies to a single
+writer on a quiet tree. (Kit issues #891, #892, #1177, #1188, #1199, #1222; the existing
+CONCURRENT-SWEEP DISJOINT FILE SETS rule in PROMPT-LOOP.md HARD RULES is the base rule and still
+applies in full.)
+
+```text
+         WRITE SETS ARE DISJOINT AND NAMED. Launch parallel writers only when every writer owns an
+         exclusive, non-overlapping set of files for the whole run. Each brief lists the files that
+         writer owns, lists every file the OTHER writers own, and says: "Do not touch those files;
+         report any needed change instead." Read the FULL scope of every delegated task before
+         launching a second writer — two writers on one shared file is luck, not design.
+         DEFAULT TO TWO CONCURRENT WRITERS; add more only with disjoint file sets in harness
+         worktrees and while the orchestrator stays lean (METHODOLOGY section 16: concurrency is a
+         context-budget decision; kit CLAUDE.md section 3). Each extra writer multiplies
+         shared-state and review-throughput risk.
+         ONE COMMITTING CHAIN PER CHECKOUT/BRANCH AT A TIME. This applies to chains committing to the
+         same checkout and branch; separate section 16 worktree lanes follow the section 16
+         barrier instead. Two chains that regenerate CATALOG.md and
+         `git add/commit/push` the same repo race on the catalog and on non-fast-forward pushes.
+         Serialize committing chains per repo, or broaden one chain's backlog, instead of running
+         parallel chains on one corpus.
+         DIRECTORY OWNERSHIP. Each parallel agent writes only inside a path it exclusively owns for
+         the run. A shared path (a common `tools/<x>/` download directory, a shared cache) has ONE
+         designated owner agent; any other agent that needs a file placed there hands off to the
+         owner instead of writing directly. A direct write into a path another agent owns can be
+         denied by the runtime ("Modify Shared Resources") and wastes the run.
+         SINGLE STATE-OWNER. When parallel block writers are told "touch no other file", a SEPARATE
+         step run by the orchestrator (never by a writer) recomputes the RESEARCH-STATE counters and
+         regenerates INDEX.md / CATALOG.md from the corpus. No writer edits shared state directly;
+         state commits follow the block commits they describe.
+         WRITE-SCOPE ADHERENCE IS A VERIFICATION DIMENSION, DISTINCT FROM CONTENT CORRECTNESS. For a
+         multi-file deliverable drafted by cooperating forks (e.g. a block plus a companion doc),
+         each fork is told which single file(s) it owns, and at least one OTHER verification pass
+         checks which files were actually touched (a `git diff --stat` class of check), not only
+         whether the drafted content is right. A scope violation and a content gap are different
+         failure classes; a content-only review does not reliably catch both.
+         HARNESS WORKTREE ISOLATION, WITH ITS LIMIT. Two actors sharing one checkout share the
+         branch and the index, and `git checkout` is a whole-tree operation: a concurrent branch
+         switch can discard another actor's uncommitted work. Isolate each concurrent writer in
+         its own worktree and read back the returned worktree path before the first edit. Base each
+         branch explicitly on `origin/main` (`git fetch` first), never on a stale local HEAD.
+         WHEN THE TARGET REPO DIFFERS FROM THE SESSION CWD, never rely on the harness
+         `isolation: worktree` option: it creates the worktree from the session cwd's repo (the
+         wrong repo). Create the worktree explicitly with
+         `git -C <target> worktree add <target>-worktrees/<name> <branch>` and pass that path to
+         the writer. The harness resets shell cwd between commands, so the writer must use absolute
+         paths or `git -C <worktree>` on every command (kit CLAUDE.md section 3).
+         A worktree needs its OWN index/derived caches; never copy another checkout's.
+         QUIET-TREE GATE PER WORKTREE. Writers run concurrently; the gate run (tests, linters,
+         mutation controls) runs ONCE per worktree after that worktree's last writer finished. A
+         gate that ran while a writer was still editing proves nothing, and "failed under load,
+         passes standalone" is only a valid explanation while writers are actually editing.
+         A FINISHED WRITER THAT KEEPS NOTIFYING IS STOPPED. Once a writer has delivered its report,
+         stop it; a lingering agent that keeps emitting notifications or edits is a concurrent
+         writer you did not plan for.
+```
+
+---
+
+## delegation-briefs
+
+Trigger: read this section in full when you write a brief for a delegated writer or sweep agent,
+when a delegate's result comes back, when a build hits a framework/tooling wall, or when a
+DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (Kit issues #894,
+#897, #1095, #1202, #1246.)
+
+```text
+         EXECUTING-DELEGATE CONTRACT. A delegated worker can return a narrated plan with ZERO tool
+         calls — it reads as done and changed nothing. Brief workers to EXECUTE with real tool
+         calls, and treat a result with `tool_uses == 0` as a FAILED run: relaunch as an executing
+         agent, do not accept the narrative.
+         PER-TARGET ENVIRONMENT FACTS, QUOTED VERBATIM IN EVERY WRITER BRIEF. Keep one block (in
+         the target's RESEARCH-STATE or its TARGETS.md detail section) holding: the test-runner
+         command, the tools known to be ABSENT, and the runtime load path. Paste it into every
+         writer brief; a writer must not name a runner, tool, or classpath that is not in that
+         block. (Writers repeatedly named `pytest` where it was not installed and the runner was
+         `python3 -m unittest`.) This is a convention for the brief, not a schema the registry
+         tooling enforces.
+         TRUNCATED INBOUND BRIEF. When a delegated block-writer's task brief arrives truncated or
+         incomplete (distinct from the OUTBOUND report failing to reach the orchestrator): (a) ask
+         the orchestrator ONCE for the full brief; (b) if no reply arrives within the session's
+         bounded wait, proceed strictly from the visible gap labels/scope that DID arrive — never
+         invent or guess the missing scope; (c) name in the block's own "Does not cover" note
+         and/or its child-gaps section exactly what the truncation prevented it from attempting or
+         resolving, instead of delivering a narrower block as if it were the briefed one. Advance
+         rather than close a gap you could not fully attempt, with a named follow-up child gap.
+         BLOCKER-SCOPED FOCUS FIRST. In a combined build+research session, when the build hits a
+         WB/framework wall, spin a focused research block on that exact wall BEFORE hand-coding a
+         workaround, and hand the finding to the in-flight build via a teammate message. A focus
+         scoped to an ACTIVE bug in the module under construction unblocks the build fastest.
+         PDF-CITATION SPOT-CHECK (DOCUMENT CYCLE LARGE-SCALE, after the driver writes each block
+         from per-section agent findings). For at least the load-bearing citations each agent
+         supplied, confirm the quoted text appears on the stated page:
+         `pdftotext -f N -l N <pdf> - | grep -F "<quote>"` (no toolbelt script exists yet).
+         `verify-block.sh` resolves `file:line` references but does not check that the quoted text
+         is actually there; without this step a page-number error or a dropped table qualifier
+         survives until a manual re-read.
+```
+
+---
+
+## review-and-delivery
+
+Trigger: read this section in full when a repo under receipt-driven development (RDD) is about to
+commit or merge, when a change set is large enough that a review lens budget could refuse it, when
+a tooling bootstrap lands many tools at once, or when the target repo cannot enforce required
+checks. (Kit issues #895, #1176, #1217, #1272, #1276.) These are DOCTRINE: no toolbelt merge
+wrapper exists, and none is implied. The operator or driver follows the order below by hand.
+
+```text
+         BULK AUTONOMOUS COMMITS VS RDD. When a chain commits per block under RDD, every commit
+         trips the review stop-hook (non-blocking but noisy; races produce `unrelated target
+         status is inconsistent`). For bulk autonomous research commits the OPERATOR disables RDD
+         clone-local for that repo (`gentle-ai review mode disable --scope clone`) and re-enables
+         it for deliberate work. The driver never toggles the mode itself.
+         REVIEW SLICES ARE CHAINED COMMITS OF AT MOST ~400 AUTHORED LINES, REVIEWED PER COMMIT.
+         A review lens has a context budget: one oversized candidate is refused
+         (`lens_context_budget_exceeded`, observed on a ~3,400-line slice and a ~7,200-line tooling
+         commit) and the recovery is a post-refusal split. Make the split the DEFAULT. Pre-split a
+         large tooling-bootstrap (one commit per ported/created tool) BEFORE the first review
+         attempt; cut slices at commit boundaries with real parents, never a squashed blob.
+         RDD BASE-REF IS THE LAST REVIEWED BOUNDARY. For the first slice that is the branch
+         merge-base (where the branch left the default branch); each reviewed commit/slice then
+         becomes the next base. Never use a moving `origin/main`: a base ahead of the branch shows
+         later main merges as reverts and changes the candidate under review.
+         PIPELINE REVIEW, DON'T SERIALIZE IT. Plan the slices up front (a script that cuts at commit
+         boundaries and keeps each under the lens budget would be the mechanical form; none exists
+         today, #1276), then review slice
+         N while the next writer works on slice N+1: review is read-only on immutable commits, so
+         the two do not collide. A serial "review, then start the next task" order wastes the
+         review time (observed ~40-90 s per slice) behind the writer. Reviewing is still per
+         commit; pipelining changes only the ordering.
+         NEVER MERGE A DUE CANDIDATE BEFORE ITS REVIEW. When `gentle-ai review assess` reports
+         `review_due=true`, the merge waits for the ACKNOWLEDGED review of that exact head. Today
+         this is an ordering the operator/driver must keep by hand (the observed failure: a PR merged
+         before review, reviewed post-merge); a mechanical check in the merge path is a possible
+         future instrument, not an existing one.
+         MERGE WAITS FOR GREEN CI WHEN BRANCH PROTECTION IS UNAVAILABLE. If the target repo cannot
+         enforce required checks (e.g. a private repo on a free plan), the driver's merge step
+         MUST wait for green CI (`gh pr checks <n> --watch`) and record the result in the PR or
+         run log. The in-repo pre-commit hook is the local backstop, not a substitute.
+         WHEN FORCE-PUSH IS BLOCKED, PUBLISH A SUPERSEDING BRANCH. When the runtime or repository
+         blocks force-push, publish the reviewed commits on a new branch and open a superseding PR
+         that links the one it replaces, instead of rewriting; otherwise follow kit CLAUDE.md
+         section 12.2 (rebase --onto and retarget).
+         PR LABELS. When the repo's pr-check requires exactly one `type:*` label, attach exactly
+         one before expecting the check to pass; zero or two fail it.
+```
+
+---
+
+## resource-budgets
+
+Trigger: read this section in full before starting a heavy run (a long decompile/bake-off, a
+fleet sweep, a fidelity grading run, a multi-JVM job) or before launching a delegated agent that
+will start one. (Kit issue #1253.)
+
+```text
+         CPU BUDGET BEFORE LAUNCH. Read load, core count and free RAM first. Keep total jobs at or
+         below the physical thread count ACROSS ALL concurrent heavy runs, agents included, and
+         never launch a second heavy run while one is active — queue it. Record the observed load
+         in the run log so a slow run can be attributed. (Observed: a 10.6 h run at load 23-30 with
+         25 JVMs on 16 threads.) Delegation multiplies this risk: every writer you add can start
+         its own heavy job, so the brief states the job ceiling the writer may use.
+```
