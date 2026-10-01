@@ -187,6 +187,130 @@ else
   no "NJ0: engine creates .java file → must exit 0 and print OK (got rc=$_nj0rc)"
 fi
 
+# ── Scenario stub (timeout / fallback / isolation / marker contract) ─────────
+# A programmable fake `java`: identifies the engine from the jar after -jar, derives
+# <in>/<out> per engine CLI shape, and writes one .java per top-level .class it is
+# given.  Behaviour is driven by env:
+#   STUB_SLEEP_CLASSES   space list of class basenames; vineflower given any of them sleeps
+#   STUB_SLEEP           seconds to sleep (default 3; the SUT runs with timeout 1)
+#   STUB_VF_RC           non-zero: vineflower exits with this code, writing nothing
+#   STUB_MARKER_CLASSES  space list of class basenames whose vineflower output carries the
+#                        marker given by STUB_MARKER_TEXT (default: indented $VF: line)
+#   STUB_LOG             append "<engine> <in> <out>" per decompile call
+T_JAVA_HOME="$ROOT/java-scn"
+mkdir -p "$T_JAVA_HOME/bin"
+cat > "$T_JAVA_HOME/bin/java" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-version" ]; then echo 'openjdk version "21.0.1" 2023-10-17'; exit 0; fi
+args=("$@"); n=${#args[@]}; jar=""
+for ((i = 0; i < n; i++)); do [ "${args[i]}" = "-jar" ] && jar="${args[i+1]}"; done
+case "$jar" in *vineflower*) eng=vineflower ;; *cfr*) eng=cfr ;; *procyon*) eng=procyon ;; *) eng=unknown ;; esac
+case "$eng" in
+  vineflower) IN="${args[n-2]}"; OUT="${args[n-1]}" ;;
+  cfr) IN="${args[n-3]}"; OUT="${args[n-1]}" ;;
+  *) IN="${args[n-1]}"; OUT="${args[n-1]}" ;;
+esac
+[ -n "${STUB_LOG:-}" ] && printf '%s %s %s\n' "$eng" "$IN" "$OUT" >> "$STUB_LOG"
+if [ -d "$IN" ]; then classes="$(cd "$IN" && find . -name '*.class' | sed 's|^\./||' | sort)"
+elif [[ "$IN" == *.jar ]]; then classes="$(unzip -Z1 "$IN" | grep '\.class$' | sort)"
+else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; fi
+[ "$eng" = vineflower ] && [ -n "${STUB_VF_RC:-}" ] && exit "$STUB_VF_RC"
+if [ "$eng" = vineflower ]; then
+  for c in $classes; do b="$(basename "$c" .class)"
+    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && exec sleep "${STUB_SLEEP:-3}"; done
+  done
+fi
+for c in $classes; do
+  b="$(basename "$c" .class)"
+  case "$b" in *\$*) continue ;; esac
+  mkdir -p "$OUT/$(dirname "$c")"
+  { echo "// engine=$eng"; echo "class $b {"
+    if [ "$eng" = vineflower ]; then
+      def="$(printf '    // $VF: Couldn%st be decompiled' "'")"
+      for m in ${STUB_MARKER_CLASSES:-}; do
+        [ "$b" = "$m" ] && printf '%s\n' "${STUB_MARKER_TEXT:-$def}"
+      done
+    fi
+    echo "}"; } > "$OUT/${c%.class}.java"
+done
+exit 0
+STUB
+chmod +x "$T_JAVA_HOME/bin/java"
+cp "$T_JAVA_HOME/bin/java" "$T_JAVA_HOME/bin/javap"
+
+# rt <tag> <input> [ENV=val ...] -- [sut options]   (output dir: $ROOT/o-<tag>)
+# Sets RC, SO (stdout), SE (stderr).  RT_SUT overrides the script under test.
+rt() {
+  local tag="$1" in="$2"; shift 2
+  local -a ev=()
+  while [ "${1:-}" != "--" ]; do ev+=("$1"); shift; done
+  shift
+  rm -rf "$ROOT/o-$tag"
+  env JAVA_HOME="$T_JAVA_HOME" VINEFLOWER_JAR="$FAKE_VINEFLOWER" CFR_JAR="$FAKE_CFR" \
+    PROCYON_JAR="$FAKE_PROCYON" RSDD_DECOMPILE_TIMEOUT=1 STUB_LOG="$ROOT/log-$tag" \
+    "${ev[@]}" bash "${RT_SUT:-$SUT}" "$in" "$ROOT/o-$tag" "$@" \
+    >"$ROOT/so-$tag" 2>"$ROOT/se-$tag"
+  RC=$?; SO="$(cat "$ROOT/so-$tag")"; SE="$(cat "$ROOT/se-$tag")"
+}
+engine_of() { sed -n '1s|^// engine=||p' "$ROOT/o-$1/$2" 2>/dev/null; }
+mkjar() { # mkjar <jar> <class-path>...  (fake .class entries; stubs never parse them)
+  local jar="$1"; shift; local d="$ROOT/mk.$$"; rm -rf "$d"; mkdir -p "$d"
+  local c; for c in "$@"; do mkdir -p "$d/$(dirname "$c")"; echo "x" > "$d/$c"; done
+  rm -f "$jar"; (cd "$d" && zip -qr "$jar" .)
+}
+
+# ── Slice A: bounded timeout + automatic fallback (kit issue #1190) ──────────
+# A1: primary (vineflower) times out on a .class input → CFR fallback for that unit,
+#     typed DEGRADED (never a bare OK), the unit named with reason=timeout.
+rt A1 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && ! grep -q '^OK' <<<"$SO" \
+  && grep -q '^UNIT: Test.*reason=timeout.*fallback=cfr.*result=ok' <<<"$SO" \
+  && [ "$(engine_of A1 Test.java)" = cfr ]; then
+  ok "A1 timeout → cfr fallback, DEGRADED rc=4, unit named reason=timeout"
+else
+  no "A1 timeout → cfr fallback, DEGRADED rc=4, unit named reason=timeout" "rc=$RC so=[$SO] se=[$SE]"
+fi
+
+# A2: non-zero exit (not a timeout) also falls back; reason distinguishes the two.
+rt A2 "$FAKE_CLASS" STUB_VF_RC=7 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test.*reason=error' <<<"$SO" && [ "$(engine_of A2 Test.java)" = cfr ]; then
+  ok "A2 non-zero exit → cfr fallback, reason=error (distinct from timeout)"
+else
+  no "A2 non-zero exit → cfr fallback, reason=error" "rc=$RC so=[$SO]"
+fi
+
+# A3: fallback engine unavailable → no output at all: typed PARTIAL naming the unit,
+#     wrapper exits non-zero, never OK.
+rt A3 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" CFR_JAR="$ROOT/absent-cfr.jar" -- --engine vineflower
+if [ "$RC" -ne 0 ] && ! grep -q '^OK' <<<"$SO" && grep -q '^PARTIAL' <<<"$SO" \
+  && grep -q '^UNIT: Test.*reason=timeout.*fallback=unavailable' <<<"$SO"; then
+  ok "A3 fallback engine absent → PARTIAL, fallback=unavailable, non-zero, no OK"
+else
+  no "A3 fallback engine absent → PARTIAL, fallback=unavailable" "rc=$RC so=[$SO]"
+fi
+
+# A4: `timeout` binary absent → typed degraded probe result, engine still runs unbounded.
+rt A4 "$FAKE_CLASS" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*reason=timeout-unavailable' <<<"$SO" && ! grep -q '^OK' <<<"$SO"; then
+  ok "A4 timeout binary absent → DEGRADED reason=timeout-unavailable, not OK"
+else
+  no "A4 timeout binary absent → DEGRADED reason=timeout-unavailable" "rc=$RC so=[$SO]"
+fi
+
+# A5: invalid timeout value is a usage error (exit 2); 0 disables the bound.
+rt A5 "$FAKE_CLASS" -- --engine vineflower --timeout abc
+[ "$RC" -eq 2 ] && ok "A5 --timeout abc → exit 2" || no "A5 --timeout abc → exit 2" "rc=$RC"
+rt A5b "$FAKE_CLASS" -- --engine vineflower --timeout 0
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "A5b --timeout 0 → unbounded, OK"; else no "A5b --timeout 0 → unbounded, OK" "rc=$RC so=[$SO]"; fi
+
+# A6: healthy primary never touches the fallback engine.
+rt A6 "$FAKE_CLASS" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && ! grep -q '^cfr ' "$ROOT/log-A6"; then
+  ok "A6 healthy primary → OK, fallback engine never invoked"
+else
+  no "A6 healthy primary → OK, fallback never invoked" "rc=$RC so=[$SO]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -223,11 +347,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant strips 'find ... *.java ... exit 1' so the engine's empty output passes to OK.
   echo "-- MNJ1 mutation: remove .java non-empty guard; NJ1 must go RED --"
   MNJ1="$MUTANT_DIR/decompile-java.mnj1.sh"
-  sed '/find.*\.java.*exit 1/d' "$SUT" > "$MNJ1"
-  chmod +x "$MNJ1"
-  if grep -q "find.*\.java.*exit 1" "$MNJ1"; then
-    no "MNJ1 setup: guard line still in mutant — sed did not match (did the guard change?)" ""
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! MUTANT_TMPROOT="$ROOT" mutant_sed "$SUT" "$MNJ1" 's/^elif ! has_java "\$OUT"; then$/elif false; then/'; then
+    no "MNJ1 setup: could not build mutant (guard line not found, or refused by lib/mutant.sh)" ""
   else
+    chmod +x "$MNJ1"
     _mnj1_out="$ROOT/mnj1-out"
     JAVA_HOME="$FAKE_JAVA_HOME" \
       VINEFLOWER_JAR="$FAKE_VINEFLOWER" \
@@ -239,6 +364,42 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "MNJ1-killed: guard-removed mutant must print OK on no .java (got rc=$_mnj1rc) — NJ1 has no teeth" ""
     fi
+  fi
+
+  # Slice-A mutants: each must flip the matching A-case.  build_mut <name> <sed-expr>; sets MUT.
+  build_mut() {
+    MUT="$MUTANT_DIR/decompile-java.$1.sh"
+    if MUTANT_TMPROOT="$ROOT" mutant_sed "$SUT" "$MUT" "$2"; then chmod +x "$MUT"; return 0; fi
+    no "teeth-$1 setup: could not build mutant (anchor not found, or refused by lib/mutant.sh)" ""; return 1
+  }
+  echo "-- teeth: slice A (timeout + fallback) --"
+  # mA1: never fall back → A1 loses the cfr output and the UNIT line.
+  if build_mut mA1 's/^  fallback_unit "\$(unit_name)" "\$reason" "\$IN"$/  :/'; then
+    RT_SUT="$MUT" rt mA1 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
+    if [ "$(engine_of mA1 Test.java)" != cfr ] && ! grep -q '^UNIT:' <<<"$SO"; then
+      ok "teeth-mA1: no-fallback mutant produces no cfr output/UNIT → A1 bites"
+    else no "teeth-mA1: no-fallback mutant still fell back — A1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mA2: always print OK even with degraded units → A1/A2 lose DEGRADED.
+  if build_mut mA2 's/^if \[ "\${#UNITS\[@\]}" -eq 0 \] && \[ -z "\$PROBE_DEGRADED" \]; then$/if true; then/'; then
+    RT_SUT="$MUT" rt mA2 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
+    if grep -q '^OK' <<<"$SO" && [ "$RC" -eq 0 ]; then
+      ok "teeth-mA2: always-OK mutant reports OK for a fallen-back unit → A1 bites"
+    else no "teeth-mA2: always-OK mutant did not print OK — A1 has no teeth" "rc=$RC so=[$SO]"; fi
+  fi
+  # mA3: timeout indistinguishable from error → reason=timeout lost.
+  if build_mut mA3 's/^  \[ "\$rc" -eq 124 \] || \[ "\$rc" -eq 137 \] && reason=timeout$/  :/'; then
+    RT_SUT="$MUT" rt mA3 "$FAKE_CLASS" STUB_SLEEP_CLASSES="Test" -- --engine vineflower
+    if ! grep -q 'reason=timeout' <<<"$SO"; then
+      ok "teeth-mA3: classification-removed mutant loses reason=timeout → A1 bites"
+    else no "teeth-mA3: mutant still says reason=timeout — A1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mA4: timeout probe removed → absent binary is no longer typed.
+  if build_mut mA4 's/^  PROBE_DEGRADED="timeout-unavailable"$/  :/'; then
+    RT_SUT="$MUT" rt mA4 "$FAKE_CLASS" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+    if ! grep -q 'reason=timeout-unavailable' <<<"$SO"; then
+      ok "teeth-mA4: probe-removed mutant loses reason=timeout-unavailable → A4 bites"
+    else no "teeth-mA4: mutant still typed the missing binary — A4 has no teeth" "so=[$SO]"; fi
   fi
 fi
 
