@@ -48,3 +48,13 @@
 | latex | `apt (present); TeX Live 2023/Debian pdflatex/xelatex/lualatex/latexmk` | already | kit | 2026-08-25T19:47:14Z | external/manual |
 | circuitikz | `apt/texlive (present); circuitikz.sty` | already | kit | 2026-08-25T19:47:14Z | external/manual |
 | diec | `apt (present); /usr/bin/diec Detect-It-Easy CLI` | already | kit | 2026-08-25T19:58:59Z | external/manual |
+| maven | `brew install maven (3.9.16, homebrew-core bottle)` | installed | ? | 2026-09-28T06:38:05Z | external/manual |
+| osslsigncode | `brew install osslsigncode (generic)` | installed | ? | 2026-09-28T07:36:58Z |  |
+| joern | `GitHub release joernio/joern v4.0.639 joern-cli-linux-x86_64.zip sha256 f79709c1...dd677 (= release digest), scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| codeql | `GitHub release github/codeql-action codeql-bundle-v2.27.1 codeql-bundle-java-linux64.tar.zst sha256 7b6bde03...b6db (= release digest), scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| sootup | `Maven Central org.soot-oss sootup 3.0.1 (ASM 9.10.1) via mvn dependency:copy-dependencies, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| jacoco | `Maven Central org.jacoco 0.8.15 agent+cli (sha1-verified), scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| japicmp | `Maven Central com.github.siom79.japicmp 0.26.2 jar-with-dependencies (sha1-verified), scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| jqwik | `Maven Central net.jqwik 1.10.1 + junit-platform-console-standalone 1.14.4, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| cfr-master | `git leibnitz27/cfr @c4145259 (2026-06-04) mvn package JDK8 -> cfr-0.153-SNAPSHOT.jar sha256 e49a52a6...b6, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| fernflower | `git JetBrains/fernflower @5ab777bf (2026-09-24) gradlew jar JDK21 -> fernflower.jar sha256 b8c4dc8b...b46, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
