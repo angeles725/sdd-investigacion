@@ -135,7 +135,7 @@ mkbox() {
 #   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
 #   (except createfail).
 mk_gh_stub() {
-  local box="$1" mode="${2:-nomatch}"
+  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}"
   {
     printf '#!%s\n' "$BASH_BIN"
     # Log all calls for inspection
@@ -162,6 +162,19 @@ mk_gh_stub() {
           # very regression the tooth exists to prove.
           printf '  *" --state open "*) printf "[]\\n"; exit 0 ;;\n'
           printf '  *" issue list "*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n'
+          ;;
+        matchsig)
+          # kit issue #1287 item 2: an OPEN match ONLY for a `gh issue list` whose --search text
+          # contains $sigpat (the 3rd arg); every other list call sees an empty array. Lets a test
+          # prove WHICH signature (new vs legacy) a dedup lookup carried.
+          printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n' "$sigpat"
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
+          ;;
+        failsig)
+          # Like matchsig, but the matching list call FAILS (exit 1) — a failed lookup for ONE of
+          # the signatures must still count as failed, never fall through to create.
+          printf '  *" issue list "*"%s"*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n' "$sigpat"
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
           ;;
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
@@ -270,7 +283,7 @@ echo "== stage-retro-issues.test.sh =="
 # 1 — ABSENT-INPUT: retro file not found → typed absent-input message, exit 1
 box="$(mkbox case-absent)"
 run "$box" "$box/rh/target-foo/retros/does-not-exist.md"
-if [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -qi 'absent-input'; then
+if [ "$RC" = 1 ] && grep -qi 'absent-input' <<<"$OUT"; then
   ok "1 absent-input: missing retro → exit 1 + absent-input message" "(exit $RC)"
 else
   no "1 absent-input: missing retro → exit 1 + absent-input message" "exit=$RC out=[$OUT]"
@@ -281,7 +294,7 @@ fi
 box="$(mkbox case-empty)"
 retro="$(mk_retro "$box" target-foo r-empty.md "<!-- review-status: pending -->" "-")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'empty-input' <<<"$OUT"; then
   ok "2 empty-input: no delta section → exit 0 + empty-input message" "(exit $RC)"
 else
   no "2 empty-input: no delta section → exit 0 + empty-input message" "exit=$RC out=[$OUT]"
@@ -294,7 +307,7 @@ retro="$(mk_retro "$box" target-foo r-applied.md \
   "<!-- review-status: applied 2026-01-01 · kit abc1234 -->" \
   "| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'no-match\|all.*shipped\|no open'; then
+if [ "$RC" = 0 ] && grep -qi 'no-match\|all.*shipped\|no open' <<<"$OUT"; then
   ok "3 no-match: applied retro → exit 0 + no-match message" "(exit $RC)"
 else
   no "3 no-match: applied retro → exit 0 + no-match message" "exit=$RC out=[$OUT]"
@@ -307,12 +320,12 @@ retro="$(mk_retro "$box" target-foo r-pending.md \
   "<!-- review-status: pending -->" \
   "$(printf '| 1 | Add session cost instrument | CLAUDE.md §5 | B10 | new | HIGH |\n| 2 | Fix anti-silent-zero in sweep | sweep-retros.sh | B20 | fix | LOW |')")"
 run "$box" "$retro"
-issue_count="$(printf '%s\n' "$OUT" | grep -c 'planned-issue:' || true)"
+issue_count="$(grep -c 'planned-issue:' <<<"$OUT" || true)"
 if [ "$RC" = 0 ] \
    && [ "$issue_count" -ge 2 ] \
-   && printf '%s' "$OUT" | grep -q 'status:needs-review' \
-   && printf '%s' "$OUT" | grep -q 'target:target-foo' \
-   && printf '%s' "$OUT" | grep -q 'Source retro:.*r-pending\.md.*·.*1'; then
+   && grep -q 'status:needs-review' <<<"$OUT" \
+   && grep -q 'target:target-foo' <<<"$OUT" \
+   && grep -q 'Source retro:.*r-pending\.md.*·.*1' <<<"$OUT"; then
   ok "4 pending retro dry-run → 2 planned issues, correct labels + source line" "(exit $RC)"
 else
   no "4 pending retro dry-run → 2 planned issues, correct labels + source line" \
@@ -329,8 +342,8 @@ retro="$(mk_retro "$box" target-foo r-partial.md \
   "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | MEDIUM |')")"
 run "$box" "$retro"
 row2_found=0; row1_found=0
-printf '%s\n' "$OUT" | grep -q '· 2' && row2_found=1
-printf '%s\n' "$OUT" | grep -q '· 1' && row1_found=1
+grep -q '· 2' <<<"$OUT" && row2_found=1
+grep -q '· 1' <<<"$OUT" && row1_found=1
 if [ "$RC" = 0 ] && [ "$row2_found" = 1 ] && [ "$row1_found" = 0 ]; then
   ok "5 partial marker: only deferred row 2 emitted, shipped row 1 skipped" "(exit $RC)"
 else
@@ -346,8 +359,8 @@ retro="$(mk_retro "$box" target-foo r-wrongkit.md \
   "$(printf '| 1 | normal delta | CLAUDE.md §7 | B1 | new | HIGH |\n| 2 | wrong kit delta | build-n4-module-kit: METHODOLOGY.md §3 | B2 | new | LOW |')")"
 run "$box" "$retro"
 wrong_skipped=0; normal_found=0
-printf '%s\n' "$OUT" | grep -qi 'skipped-wrong-kit\|wrong.kit' && wrong_skipped=1
-printf '%s\n' "$OUT" | grep -q '· 1' && normal_found=1
+grep -qi 'skipped-wrong-kit\|wrong.kit' <<<"$OUT" && wrong_skipped=1
+grep -q '· 1' <<<"$OUT" && normal_found=1
 if [ "$RC" = 0 ] && [ "$wrong_skipped" = 1 ] && [ "$normal_found" = 1 ]; then
   ok "6 wrong-kit row: skipped with report, normal row still planned" "(exit $RC)"
 else
@@ -363,8 +376,8 @@ retro="$(mk_retro "$box" target-foo r-noprio.md \
   "| 1 | delta with no priority | METHODOLOGY.md | B1 | new | — |")"
 run "$box" "$retro"
 has_label=0; has_noprio_signal=0
-printf '%s\n' "$OUT" | grep -q 'priority:' && has_label=1
-printf '%s\n' "$OUT" | grep -q 'status:needs-review' && has_noprio_signal=1
+grep -q 'priority:' <<<"$OUT" && has_label=1
+grep -q 'status:needs-review' <<<"$OUT" && has_noprio_signal=1
 if [ "$RC" = 0 ] && [ "$has_label" = 0 ] && [ "$has_noprio_signal" = 1 ]; then
   ok "7 no-priority row: priority label omitted, other labels present" "(exit $RC)"
 else
@@ -401,7 +414,7 @@ run "$box" "$retro" --apply
 create_called=0
 [ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
 dup_reported=0
-printf '%s\n' "$OUT" | grep -qi 'skipped-duplicate\|already.*exists\|dedup' && dup_reported=1
+grep -qi 'skipped-duplicate\|already.*exists\|dedup' <<<"$OUT" && dup_reported=1
 if [ "$RC" = 0 ] && [ "$create_called" = 0 ] && [ "$dup_reported" = 1 ]; then
   ok "9 --apply match: dedup skips create, reports skipped-duplicate" "(exit $RC)"
 else
@@ -422,7 +435,7 @@ run "$box" "$retro" --apply
 create_called=0
 [ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
 closed_reported=0
-printf '%s\n' "$OUT" | grep -qi 'skipped-duplicate.*closed' && closed_reported=1
+grep -qi 'skipped-duplicate.*closed' <<<"$OUT" && closed_reported=1
 if [ "$RC" = 0 ] && [ "$create_called" = 0 ] && [ "$closed_reported" = 1 ]; then
   ok "9b --apply matchclosed: dedup skips create on a CLOSED match, names it closed" "(exit $RC)"
 else
@@ -443,8 +456,8 @@ run "$box" "$retro" --apply
 create_called=0
 [ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
 if [ "$RC" = 2 ] && [ "$create_called" = 0 ] \
-   && printf '%s' "$OUT" | grep -qi 'ERROR.*issue list' \
-   && printf '%s' "$OUT" | grep -q 'summary:.*failed=1'; then
+   && grep -qi 'ERROR.*issue list' <<<"$OUT" \
+   && grep -q 'summary:.*failed=1' <<<"$OUT"; then
   ok "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" "(exit $RC)"
 else
   no "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" \
@@ -466,8 +479,8 @@ run "$box" "$retro" --apply
 create_called=0
 [ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
 if [ "$RC" = 2 ] && [ "$create_called" = 0 ] \
-   && printf '%s' "$OUT" | grep -qi 'ERROR.*issue list' \
-   && printf '%s' "$OUT" | grep -q 'summary:.*failed=1'; then
+   && grep -qi 'ERROR.*issue list' <<<"$OUT" \
+   && grep -q 'summary:.*failed=1' <<<"$OUT"; then
   ok "9d --apply listempty: empty gh reply counts as failed, never creates, exit 2 (#1093 item 1)" "(exit $RC)"
 else
   no "9d --apply listempty: empty gh reply counts as failed, never creates, exit 2 (#1093 item 1)" \
@@ -484,7 +497,7 @@ _deg_retro="$(mk_retro "$box" target-foo r-deg.md "<!-- review-status: pending -
 OUT10="$(PATH="$box/bin" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" \
   "$_deg_retro" --apply 2>&1)"; RC10=$?
-if [ "$RC10" != 0 ] && printf '%s' "$OUT10" | grep -qi 'degraded'; then
+if [ "$RC10" != 0 ] && grep -qi 'degraded' <<<"$OUT10"; then
   ok "10 degraded: missing gh under --apply → non-zero + degraded message" "(exit $RC10)"
 else
   no "10 degraded: missing gh under --apply → non-zero + degraded message" \
@@ -499,8 +512,8 @@ retro="$(mk_retro "$box" target-foo r-src.md \
   "| 1 | delta text | CLAUDE.md §7 | B1 | new | MEDIUM |")"
 run "$box" "$retro"
 has_src=0; has_rollout=0
-printf '%s\n' "$OUT" | grep -q 'Source retro:.*r-src\.md.*·.*1' && has_src=1
-printf '%s\n' "$OUT" | grep -q 'rollout #557' && has_rollout=1
+grep -q 'Source retro:.*r-src\.md.*·.*1' <<<"$OUT" && has_src=1
+grep -q 'rollout #557' <<<"$OUT" && has_rollout=1
 if [ "$RC" = 0 ] && [ "$has_src" = 1 ] && [ "$has_rollout" = 1 ]; then
   ok "11 source retro line: body has Source retro + rollout #557" "(exit $RC)"
 else
@@ -516,9 +529,9 @@ retro="$(mk_retro "$box" target-foo r-types.md \
   "$(printf '| 1 | feature delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | bug delta | CLAUDE.md | B2 | fix | HIGH |\n| 3 | doc delta | CLAUDE.md | B3 | docs | HIGH |')")"
 run "$box" "$retro"
 feat_found=0; bug_found=0; docs_found=0
-printf '%s\n' "$OUT" | grep -q 'type:feature' && feat_found=1
-printf '%s\n' "$OUT" | grep -q 'type:bug'     && bug_found=1
-printf '%s\n' "$OUT" | grep -q 'type:docs'    && docs_found=1
+grep -q 'type:feature' <<<"$OUT" && feat_found=1
+grep -q 'type:bug' <<<"$OUT"     && bug_found=1
+grep -q 'type:docs' <<<"$OUT"    && docs_found=1
 if [ "$RC" = 0 ] && [ "$feat_found" = 1 ] && [ "$bug_found" = 1 ] && [ "$docs_found" = 1 ]; then
   ok "12 type label mapping: new→feature, fix→bug, docs→docs" "(exit $RC)"
 else
@@ -541,7 +554,7 @@ cat > "$box/rh/target-foo/retros/r-depr.md" <<'EOF'
 | 1 | delta from deprecated heading | CLAUDE.md §3 | B1 | new | LOW |
 EOF
 run "$box" "$box/rh/target-foo/retros/r-depr.md"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q 'planned-issue:'; then
+if [ "$RC" = 0 ] && grep -q 'planned-issue:' <<<"$OUT"; then
   ok "13 deprecated alias heading: rows extracted from Summary of proposed deltas" "(exit $RC)"
 else
   no "13 deprecated alias heading: rows extracted from Summary of proposed deltas" "exit=$RC out=[$OUT]"
@@ -557,10 +570,10 @@ retro="$(mk_retro "$box" target-foo r-bold.md \
   "<!-- review-status: pending -->" \
   "| 1 | **Bold summary sentence.** Detail text explaining the change. | CLAUDE.md | B1 | new | HIGH |")"
 run "$box" "$retro"
-title_line14="$(printf '%s\n' "$OUT" | grep '^planned-issue:')"
+title_line14="$(grep '^planned-issue:' <<<"$OUT")"
 bold_title_ok=0
-if printf '%s\n' "$title_line14" | grep -q 'Bold summary sentence\.' \
-   && ! printf '%s\n' "$title_line14" | grep -q '\*\*'; then
+if grep -q 'Bold summary sentence\.' <<<"$title_line14" \
+   && ! grep -q '\*\*' <<<"$title_line14"; then
   bold_title_ok=1
 fi
 if [ "$RC" = 0 ] && [ "$bold_title_ok" = 1 ]; then
@@ -578,9 +591,9 @@ retro="$(mk_retro "$box" target-foo r-plain.md \
   "<!-- review-status: pending -->" \
   "| 1 | Plain text delta without bold markers here. | CLAUDE.md | B1 | new | HIGH |")"
 run "$box" "$retro"
-title_line15="$(printf '%s\n' "$OUT" | grep '^planned-issue:')"
+title_line15="$(grep '^planned-issue:' <<<"$OUT")"
 plain_title_ok=0
-if printf '%s\n' "$title_line15" | grep -q 'Plain text delta without bold markers here\.'; then
+if grep -q 'Plain text delta without bold markers here\.' <<<"$title_line15"; then
   plain_title_ok=1
 fi
 if [ "$RC" = 0 ] && [ "$plain_title_ok" = 1 ]; then
@@ -614,7 +627,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${sut_content/"$anchor_t1"/: # teeth-t1-nomatch-guard-removed}" > "$mutant_t1"
     out_t1="$(PATH="$box_t1/bin:$PATH" \
       "$BASH_BIN" "$mutant_t1" "$retro_t1" 2>&1)"; rc_t1=$?
-    if printf '%s\n' "$out_t1" | grep -q 'planned-issue:'; then
+    if grep -q 'planned-issue:' <<<"$out_t1"; then
       ok "T1 teeth: no-match guard neutered → rows appear for applied retro (case 3 has teeth)" "()"
     else
       no "T1 teeth: no-match guard neutered → rows appear for applied retro" \
@@ -638,7 +651,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${sut_content/"$anchor_t2"/  false}" > "$mutant_t2"
     out_t2="$(PATH="$box_t2/bin:$PATH" \
       "$BASH_BIN" "$mutant_t2" "$retro_t2" 2>&1)"; rc_t2=$?
-    if printf '%s\n' "$out_t2" | grep -q 'planned-issue:'; then
+    if grep -q 'planned-issue:' <<<"$out_t2"; then
       ok "T2 teeth: is_wrong_kit neutered → wrong-kit row planned (case 6 has teeth)" "()"
     else
       no "T2 teeth: is_wrong_kit neutered → wrong-kit row planned" \
@@ -694,8 +707,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       > "$mutant_t4"
     out_t4="$(PATH="$box_t4/bin:$PATH" \
       "$BASH_BIN" "$mutant_t4" "$retro_t4" 2>&1)"; rc_t4=$?
-    title_t4="$(printf '%s\n' "$out_t4" | grep '^planned-issue:')"
-    if printf '%s\n' "$title_t4" | grep -q '\*\*'; then
+    title_t4="$(grep '^planned-issue:' <<<"$out_t4")"
+    if grep -q '\*\*' <<<"$title_t4"; then
       ok "T4 teeth: strip_md_bold skipped → raw ** in title (cases 14+15 have teeth)" "()"
     else
       no "T4 teeth: strip_md_bold skipped → raw ** expected in title" \
@@ -724,9 +737,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t5" 2>/dev/null || { no "T5 teeth: mutant_t5 failed bash -n syntax check" ""; }
     out_t5="$(PATH="$box_t5/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t5" "$retro_t5" --apply 2>&1)"; rc_t5=$?
-    sum_t5="$(printf '%s\n' "$out_t5" | grep '^summary:')"
+    sum_t5="$(grep '^summary:' <<<"$out_t5")"
     # With the counter removed: failed=0, exit 0 → case 16's assertion (rc_nonzero=1, failed>0) goes RED
-    if [ "$rc_t5" -eq 0 ] || printf '%s' "$sum_t5" | grep -qE 'failed=0\b'; then
+    if [ "$rc_t5" -eq 0 ] || grep -qE 'failed=0\b' <<<"$sum_t5"; then
       ok "T5 teeth: failed counter removed → failed=0 / exit 0 (case 16 has teeth)" "(rc=$rc_t5 sum=[$sum_t5])"
     else
       no "T5 teeth: failed counter removed → should give failed=0 or exit 0" \
@@ -760,7 +773,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t6" 2>/dev/null || { no "T6 teeth: mutant_t6 failed bash -n" ""; }
     out_t6="$(PATH="$box_t6/bin:$PATH" \
       "$BASH_BIN" "$mutant_t6" "$retro_t6" 2>&1)"; rc_t6=$?
-    if printf '%s\n' "$out_t6" | grep -q 'planned-issue:'; then
+    if grep -q 'planned-issue:' <<<"$out_t6"; then
       ok "T6 teeth: dismissed-wins guard neutered → dismissed+PARTIAL reopens rows (case 50/51 have teeth)" "()"
     else
       no "T6 teeth: dismissed-wins guard neutered → should reopen rows" \
@@ -787,7 +800,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ln -s "$box_tsym/research-sdd/toolbelt" "$box_tsym/research-sdd/profile/general/toolbelt"
   out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
     "$box_tsym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_tsym" 2>&1)"
-  if printf '%s' "$out_tsym" | grep -qi 'target directory.*not found'; then
+  # Since kit issue #1287 an unreadable TARGETS.md is an operational exit 1 ("cannot read" / "cannot
+  # resolve target"), no longer the old WARN + basename guess — either signal proves the break.
+  if grep -qiE 'target directory.*not found|cannot read|cannot resolve target' <<<"$out_tsym"; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
@@ -811,7 +826,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     out_t7="$(PATH="$box_t7/bin:$PATH" \
       "$BASH_BIN" "$mutant_t7" "$retro_t7" --apply 2>&1)"; rc_t7=$?
     create_line_t7="$(grep 'issue create' "$box_t7/bin/gh.log" 2>/dev/null || true)"
-    if [ -n "$create_line_t7" ] && ! printf '%s' "$create_line_t7" | grep -q -- '--repo'; then
+    if [ -n "$create_line_t7" ] && ! grep -q -- '--repo' <<<"$create_line_t7"; then
       ok "T7 teeth: --repo dropped from create call → flag missing (case 19/20 have teeth)" "()"
     else
       no "T7 teeth: --repo dropped from create call → flag should be missing" \
@@ -837,7 +852,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     out_t8="$(PATH="$box_t8/bin:$PATH" \
       "$BASH_BIN" "$mutant_t8" "$retro_t8" --apply 2>&1)"; rc_t8=$?
     list_line_t8="$(grep 'issue list' "$box_t8/bin/gh.log" 2>/dev/null || true)"
-    if [ -n "$list_line_t8" ] && ! printf '%s' "$list_line_t8" | grep -q -- '--repo'; then
+    if [ -n "$list_line_t8" ] && ! grep -q -- '--repo' <<<"$list_line_t8"; then
       ok "T8 teeth: --repo dropped from list call → flag missing (case 19 has teeth)" "()"
     else
       no "T8 teeth: --repo dropped from list call → flag should be missing" \
@@ -893,7 +908,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t10" 2>/dev/null || { no "T10 teeth: mutant_t10 failed bash -n syntax check" ""; }
     out_t10="$(PATH="$box_t10/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
       "$BASH_BIN" "$mutant_t10" "$retro_t10" 2>&1)"; rc_t10=$?
-    if printf '%s\n' "$out_t10" | grep -q '^kit-issue-repo: t10-enclosing-owner/t10-enclosing-repo$'; then
+    if grep -q '^kit-issue-repo: t10-enclosing-owner/t10-enclosing-repo$' <<<"$out_t10"; then
       ok "T10 teeth: F1 toplevel check dropped → enclosing repo leaks through (case 24/25 have teeth)" "()"
     else
       no "T10 teeth: F1 toplevel check dropped → enclosing repo should leak through" \
@@ -917,7 +932,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t11" 2>/dev/null || { no "T11 teeth: mutant_t11 failed bash -n syntax check" ""; }
     out_t11="$(PATH="$box_t11/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
       "$BASH_BIN" "$mutant_t11" "$retro_t11" 2>&1)"; rc_t11=$?
-    if printf '%s\n' "$out_t11" | grep -q '^kit-issue-repo: foo$'; then
+    if grep -q '^kit-issue-repo: foo$' <<<"$out_t11"; then
       ok "T11 teeth: shape validation neutered → invalid override 'foo' leaks through (case 26/27 have teeth)" "()"
     else
       no "T11 teeth: shape validation neutered → invalid override should leak through" \
@@ -943,7 +958,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t12" 2>/dev/null || { no "T12 teeth: mutant_t12 failed bash -n syntax check" ""; }
     out_t12="$(PATH="$box_t12/bin:$PATH" \
       "$BASH_BIN" "$mutant_t12" "$retro_t12" 2>&1)"; rc_t12=$?
-    if printf '%s\n' "$out_t12" | grep -q '^kit-issue-repo: o/n\.git$'; then
+    if grep -q '^kit-issue-repo: o/n\.git$' <<<"$out_t12"; then
       ok "T12 teeth: slash-before-.git order reverted → stray 'o/n.git' reappears (case 28 has teeth)" "()"
     else
       no "T12 teeth: slash-before-.git order reverted → stray '.git' should reappear" \
@@ -969,7 +984,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t13" 2>/dev/null || { no "T13 teeth: mutant_t13 failed bash -n syntax check" ""; }
     out_t13="$(PATH="$box_t13/bin:$PATH" \
       "$BASH_BIN" "$mutant_t13" "$retro_t13" 2>&1)"; rc_t13=$?
-    if printf '%s\n' "$out_t13" | grep -q '^kit-issue-repo: ghe-owner/ghe-kit$'; then
+    if grep -q '^kit-issue-repo: ghe-owner/ghe-kit$' <<<"$out_t13"; then
       ok "T13 teeth: GHE host retention dropped → host lost again (case 30/39/42 have teeth)" "()"
     else
       no "T13 teeth: GHE host retention dropped → host should be lost" \
@@ -995,7 +1010,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t14" 2>/dev/null || { no "T14 teeth: mutant_t14 failed bash -n syntax check" ""; }
     out_t14="$(PATH="$box_t14/bin:$PATH" \
       "$BASH_BIN" "$mutant_t14" "$retro_t14" 2>&1)"; rc_t14=$?
-    if printf '%s\n' "$out_t14" | grep -q '^kit-issue-repo: github.com-alias/o/n$'; then
+    if grep -q '^kit-issue-repo: github.com-alias/o/n$' <<<"$out_t14"; then
       ok "T14 teeth: alias check neutered → alias host leaks through (case 34/35/38 have teeth)" "()"
     else
       no "T14 teeth: alias check neutered → alias host should leak through" \
@@ -1020,7 +1035,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t15" 2>/dev/null || { no "T15 teeth: mutant_t15 failed bash -n syntax check" ""; }
     out_t15="$(PATH="$box_t15/bin:$PATH" \
       "$BASH_BIN" "$mutant_t15" "$retro_t15" 2>&1)"; rc_t15=$?
-    if ! printf '%s\n' "$out_t15" | grep -q '^kit-issue-repo: o/n$'; then
+    if ! grep -q '^kit-issue-repo: o/n$' <<<"$out_t15"; then
       ok "T15 teeth: port strip removed → 'o/n' no longer resolved (case 36/37/38/39 have teeth)" "(rc=$rc_t15)"
     else
       no "T15 teeth: port strip removed → 'o/n' should NOT resolve cleanly" \
@@ -1055,7 +1070,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t16" 2>/dev/null || { no "T16 teeth: mutant_t16 failed bash -n syntax check" ""; }
     out_t16="$(PATH="$box_t16/bin:$PATH" \
       "$BASH_BIN" "$mutant_t16" "$retro_t16" 2>&1)"; rc_t16=$?
-    if printf '%s\n' "$out_t16" | grep -q '^kit-issue-repo: o/n$'; then
+    if grep -q '^kit-issue-repo: o/n$' <<<"$out_t16"; then
       ok "T16 teeth: scp alias check forced true → untrusted host silently drops (case 52/53 have teeth)" "()"
     else
       no "T16 teeth: scp alias check forced true → untrusted host should silently drop to 'o/n'" \
@@ -1082,7 +1097,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t20" 2>/dev/null || { no "T20 teeth: mutant_t20 failed bash -n syntax check" ""; }
     out_t20="$(PATH="$box_t20/bin:$PATH" \
       "$BASH_BIN" "$mutant_t20" "$retro_t20" 2>&1)"; rc_t20=$?
-    if printf '%s\n' "$out_t20" | grep -q '^kit-issue-repo: o/n$'; then
+    if grep -q '^kit-issue-repo: o/n$' <<<"$out_t20"; then
       ok "T20 teeth: alias-suffix regex widened → spoofed host collapses to github.com (case 55/56 have teeth)" "()"
     else
       no "T20 teeth: alias-suffix regex widened → spoofed host should collapse to 'o/n'" \
@@ -1107,7 +1122,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t21" 2>/dev/null || { no "T21 teeth: mutant_t21 failed bash -n syntax check" ""; }
     out_t21="$(PATH="$box_t21/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="myorg/myrepo/subpath" \
       "$BASH_BIN" "$mutant_t21" "$retro_t21" 2>&1)"; rc_t21=$?
-    if printf '%s\n' "$out_t21" | grep -q '^kit-issue-repo: myorg/myrepo/subpath$'; then
+    if grep -q '^kit-issue-repo: myorg/myrepo/subpath$' <<<"$out_t21"; then
       ok "T21 teeth: dotted-host requirement dropped → non-dotted 3-segment wrongly accepted (case 57 has teeth)" "()"
     else
       no "T21 teeth: dotted-host requirement dropped → non-dotted 3-segment should be wrongly accepted" \
@@ -1225,7 +1240,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t17" 2>/dev/null || { no "T17 teeth: mutant_t17 failed bash -n syntax check" ""; }
     out_t17="$(PATH="$box_t17/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="-o/n" \
       "$BASH_BIN" "$mutant_t17" "$retro_t17" 2>&1)"; rc_t17=$?
-    if printf '%s\n' "$out_t17" | grep -q '^kit-issue-repo: -o/n$'; then
+    if grep -q '^kit-issue-repo: -o/n$' <<<"$out_t17"; then
       ok "T17 teeth: shape regex reverted → '-o/n' wrongly accepted (case 43.2 has teeth)" "()"
     else
       no "T17 teeth: shape regex reverted → '-o/n' should be wrongly accepted" \
@@ -1251,7 +1266,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t18" 2>/dev/null || { no "T18 teeth: mutant_t18 failed bash -n syntax check" ""; }
     out_t18="$(PATH="$box_t18/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
       "$BASH_BIN" "$mutant_t18" "$retro_t18" 2>&1)"; rc_t18=$?
-    if printf '%s\n' "$out_t18" | grep -q "invalid repo shape ''"; then
+    if grep -q "invalid repo shape ''" <<<"$out_t18"; then
       ok "T18 teeth: resolve call re-subshelled → bad value lost again (case 45 has teeth)" "()"
     else
       no "T18 teeth: resolve call re-subshelled → bad value should be lost ('')" \
@@ -1281,7 +1296,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t19" 2>/dev/null || { no "T19 teeth: mutant_t19 failed bash -n syntax check" ""; }
     out_t19="$(PATH="$box_t19/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
       "$BASH_BIN" "$mutant_t19" "$retro_t19" 2>&1)"; rc_t19=$?
-    if ! printf '%s\n' "$out_t19" | grep -qi 'toplevel'; then
+    if ! grep -qi 'toplevel' <<<"$out_t19"; then
       ok "T19 teeth: F1 reason wording reverted → 'toplevel' no longer present (case 46 has teeth)" "()"
     else
       no "T19 teeth: F1 reason wording reverted → 'toplevel' should be gone" \
@@ -1318,7 +1333,7 @@ RETROEOF
     "$BASH_BIN" -n "$mutant_toos" 2>/dev/null || no "T-OOS teeth: mutant syntax check" "bash -n failed"
     out_toos="$(PATH="$box_toos/bin:$PATH" \
       "$BASH_BIN" "$mutant_toos" "$retro_toos" 2>&1)"; rc_toos=$?
-    if printf '%s\n' "$out_toos" | grep -q 'planned-issue:'; then
+    if grep -q 'planned-issue:' <<<"$out_toos"; then
       ok "T-OOS teeth: guard neutered → row planned again, fails open (case 17b has teeth)" "()"
     else
       no "T-OOS teeth: guard neutered → row should be planned (fail open)" \
@@ -1349,7 +1364,7 @@ RETROEOF
     printf '%s\n' "${sut_content/"$anchor_h1"/}" > "$mutant_h1"
     "$BASH_BIN" -n "$mutant_h1" 2>/dev/null || no "teeth H1: mutant syntax check" "bash -n failed"
     out_h1="$(PATH="$box_h1/bin:$PATH" "$BASH_BIN" "$mutant_h1" "$retro_h1" 2>&1)"
-    if printf '%s\n' "$out_h1" | grep -qi '^unclassifiable:'; then
+    if grep -qi '^unclassifiable:' <<<"$out_h1"; then
       ok "teeth H1: honesty check removed → case 62 flips to unclassifiable (has teeth)" "()"
     else
       no "teeth H1: honesty check removed → should flip to unclassifiable" "case 62 is THEATER: out=[$out_h1]"
@@ -1371,7 +1386,7 @@ RETROEOF
     printf '%s\n' "${sut_content/"$anchor_h2"/:}" > "$mutant_h2"
     "$BASH_BIN" -n "$mutant_h2" 2>/dev/null || no "teeth H2: mutant syntax check" "bash -n failed"
     out_h2="$(PATH="$box_h2/bin:$PATH" "$BASH_BIN" "$mutant_h2" "$retro_h2" 2>&1)"
-    if ! printf '%s\n' "$out_h2" | grep -qi 'unclassifiable'; then
+    if ! grep -qi 'unclassifiable' <<<"$out_h2"; then
       ok "teeth H2: unclassifiable echo silenced → case 63's typed message gone (has teeth)" "()"
     else
       no "teeth H2: unclassifiable echo silenced → message should be gone" "case 63 is THEATER: out=[$out_h2]"
@@ -1397,7 +1412,7 @@ RETROEOF
     "$BASH_BIN" -n "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR1: mutant lib syntax check" "bash -n failed"
     out_gr1="$(PATH="$box_gr1/bin:$PATH" "$BASH_BIN" "$box_gr1/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_gr1" 2>&1)"
-    if printf '%s\n' "$out_gr1" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr1"; then
       ok "teeth GR1: Spanish alias removed from lib → case 59 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR1: Spanish alias removed from lib → should revert to empty-input" "case 59 is THEATER: out=[$out_gr1]"
@@ -1421,7 +1436,7 @@ RETROEOF
     "$BASH_BIN" -n "$box_gr2/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR2: mutant lib syntax check" "bash -n failed"
     out_gr2="$(PATH="$box_gr2/bin:$PATH" "$BASH_BIN" "$box_gr2/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_gr2" 2>&1)"
-    if printf '%s\n' "$out_gr2" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr2"; then
       ok "teeth GR2: Rule 2 hyphen widening reverted → case 60 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR2: Rule 2 hyphen widening reverted → should revert to empty-input" "case 60 is THEATER: out=[$out_gr2]"
@@ -1449,7 +1464,7 @@ RETROEOF
     "$BASH_BIN" -n "$box_gr3/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR3: mutant lib syntax check" "bash -n failed"
     out_gr3="$(PATH="$box_gr3/bin:$PATH" "$BASH_BIN" "$box_gr3/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_gr3" 2>&1)"
-    if printf '%s\n' "$out_gr3" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr3"; then
       ok "teeth GR3: Rule 4 disabled → case 61 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR3: Rule 4 disabled → should revert to empty-input" "case 61 is THEATER: out=[$out_gr3]"
@@ -1458,79 +1473,159 @@ RETROEOF
     no "teeth GR3: locate Rule 4 (standalone H3 Proposals) in lib/retro-grammar.sh" "anchor not found — lib drifted?"
   fi
 
+  # kit issue #1287: the walk-up + name lookup moved into lib/target-paths.sh, so the #1169 teeth
+  # mutate the LIB copy inside the box (the SUT is unchanged). tooth_swap <box> <relfile> <anchor>
+  # <replacement> writes the mutant over the box's copy of <relfile> and refuses a vacuous (anchor
+  # missing / byte-identical) or syntactically broken mutant — a crash is not a tooth.
+  tooth_swap() {
+    local box="$1" rel="$2" anchor="$3" repl="$4"
+    local file="$box/research-sdd/toolbelt/$rel" content
+    content="$(cat "$file")"
+    if [[ "$content" != *"$anchor"* ]]; then
+      no "tooth_swap: locate anchor in $rel" "anchor not found — file drifted? anchor=[$anchor]"; return 1
+    fi
+    printf '%s\n' "${content/"$anchor"/"$repl"}" > "$file"
+    if cmp -s "$file" "$HERE/../$rel"; then
+      no "tooth_swap: mutant of $rel" "mutant is identical to the original — vacuous"; return 1
+    fi
+    if ! "$BASH_BIN" -n "$file" 2>/dev/null; then
+      no "tooth_swap: mutant of $rel passes bash -n" "syntax error — crash-based theater"; return 1
+    fi
+    return 0
+  }
+  # run_box <box> <retro> [args]: run the box's (possibly mutated) SUT copy; sets MOUT (stdout+stderr).
+  run_box() {
+    local box="$1" retro="$2"; shift 2
+    MOUT="$(PATH="$box/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
+      "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" "$@" 2>&1)"
+  }
+
   # TOOTH #1169-a: remove the walk-up (stop after the first ancestor = old dirname(dirname())
   # behaviour). A nested corpus must then fall back to the structural basename again.
-  echo "-- teeth T1169a: neuter walk-up --"
-  anchor_w='    [ "$_anc" = "/" ] && break'
-  if [[ "$sut_content" == *"$anchor_w"* ]]; then
-    box_w="$(mkbox teeth-walkup)"
-    retro_w="$(mk_nested_retro "$box_w" corpus/retros r-w.md)"
-    mutant_w="$box_w/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_w"/    break}" > "$mutant_w"
-    if cmp -s "$SUT" "$mutant_w"; then
-      no "T1169a teeth: walk-up mutant" "mutant is identical to SUT — vacuous"
+  echo "-- teeth T1169a: neuter walk-up (lib) --"
+  box_w="$(mkbox teeth-walkup)"
+  retro_w="$(mk_nested_retro "$box_w" corpus/retros r-w.md)"
+  if tooth_swap "$box_w" lib/target-paths.sh '      [ "$anc" = "/" ] && break' '      break'; then
+    run_box "$box_w" "$retro_w"
+    if ! grep -q 'labels: .*target:target-foo,' <<<"$MOUT"; then
+      ok "T1169a teeth: walk-up neutered → nested corpus no longer resolves (case 64 has teeth)" "()"
     else
-      out_w="$(PATH="$box_w/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_w" "$retro_w" 2>&1)"
-      if ! printf '%s\n' "$out_w" | grep -q 'labels: .*target:target-foo,'; then
-        ok "T1169a teeth: walk-up neutered → nested corpus no longer resolves (case 64 has teeth)" "()"
-      else
-        no "T1169a teeth: walk-up neutered" "case 64 is THEATER: out=[$out_w]"
-      fi
+      no "T1169a teeth: walk-up neutered" "case 64 is THEATER: out=[$MOUT]"
     fi
-  else
-    no "T1169a teeth: locate walk-up anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
   # TOOTH #1169-b: remove the structural-name guard. An unregistered nested corpus must then
   # plan `target:corpus` again instead of failing up front.
   echo "-- teeth T1169b: neuter structural-name guard --"
-  anchor_g='    corpus|retros)'
-  if [[ "$sut_content" == *"$anchor_g"* ]]; then
-    box_g="$(mkbox teeth-structural)"
-    retro_g="$(mk_nested_retro "$box_g" corpus/retros r-g.md)"
-    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box_g/research-sdd/TARGETS.md"
-    mutant_g="$box_g/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_g"/    __never_matches__)}" > "$mutant_g"
-    if cmp -s "$SUT" "$mutant_g"; then
-      no "T1169b teeth: guard mutant" "mutant is identical to SUT — vacuous"
+  box_g="$(mkbox teeth-structural)"
+  retro_g="$(mk_nested_retro "$box_g" corpus/retros r-g.md)"
+  printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%s/rh/other` |\n' "$box_g" \
+    > "$box_g/research-sdd/TARGETS.md"
+  mkdir -p "$box_g/rh/other"
+  if tooth_swap "$box_g" stage-retro-issues.sh '    corpus|retros)' '    __never_matches__)'; then
+    run_box "$box_g" "$retro_g"
+    if grep -q 'target:corpus' <<<"$MOUT"; then
+      ok "T1169b teeth: guard neutered → target:corpus planned (case 67 has teeth)" "()"
     else
-      out_g="$(PATH="$box_g/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_g" "$retro_g" 2>&1)"
-      if printf '%s\n' "$out_g" | grep -q 'target:corpus'; then
-        ok "T1169b teeth: guard neutered → target:corpus planned (case 67 has teeth)" "()"
-      else
-        no "T1169b teeth: guard neutered" "case 67 is THEATER: out=[$out_g]"
-      fi
+      no "T1169b teeth: guard neutered" "case 67 is THEATER: out=[$MOUT]"
     fi
-  else
-    no "T1169b teeth: locate structural guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
-  # TOOTH #1169-c: use the path basename instead of the registered Target name. Case 69 must
+  # TOOTH #1169-c: use the path basename instead of the registered Target name (lib). Case 69 must
   # then yield the basename label (target-foo), not the registered name (reg-name).
-  echo "-- teeth T1169c: neuter registered-name lookup --"
-  anchor_n='_registered+=("$_exp"$'"'"'\t'"'"'"$_rname")'
-  if [[ "$sut_content" == *"$anchor_n"* ]]; then
-    box_n="$(mkbox teeth-regname)"
-    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_n" \
-      > "$box_n/research-sdd/TARGETS.md"
-    retro_n="$(mk_nested_retro "$box_n" corpus/retros r-n.md)"
-    mutant_n="$box_n/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_n"/_registered+=(\"\$_exp\"\$'\\t'\"\$(basename \"\$_path\")\")}" > "$mutant_n"
-    if cmp -s "$SUT" "$mutant_n"; then
-      no "T1169c teeth: name-lookup mutant" "mutant is identical to SUT — vacuous"
+  echo "-- teeth T1169c: neuter registered-name lookup (lib) --"
+  box_n="$(mkbox teeth-regname)"
+  printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_n" \
+    > "$box_n/research-sdd/TARGETS.md"
+  retro_n="$(mk_nested_retro "$box_n" corpus/retros r-n.md)"
+  anchor_n="$(grep -m 1 '^      name="\$(awk -F' "$TARGET_PATHS_LIB")"
+  if [ -n "$anchor_n" ] && tooth_swap "$box_n" lib/target-paths.sh "$anchor_n" '      name=""'; then
+    run_box "$box_n" "$retro_n"
+    if ! grep -q 'target:reg-name,' <<<"$MOUT"; then
+      ok "T1169c teeth: name lookup neutered → basename label (case 69 has teeth)" "()"
     else
-      out_n="$(PATH="$box_n/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_n" "$retro_n" 2>&1)"
-      if ! printf '%s\n' "$out_n" | grep -q 'target:reg-name,'; then
-        ok "T1169c teeth: name lookup neutered → basename label (case 69 has teeth)" "()"
-      else
-        no "T1169c teeth: name lookup neutered" "case 69 is THEATER: out=[$out_n]"
-      fi
+      no "T1169c teeth: name lookup neutered" "case 69 is THEATER: out=[$MOUT]"
     fi
   else
-    no "T1169c teeth: locate registered-name anchor" "anchor not found in SUT — SUT drifted?"
+    no "T1169c teeth: locate registered-name anchor in lib" "anchor not found — lib drifted?"
+  fi
+
+  # TOOTH #1287-a: outermost-ancestor match (lib: drop the first-match break). Case 72 must flip:
+  # the inner target's retro would be labelled with the OUTER name.
+  echo "-- teeth T1287a: nearest ancestor → outermost (lib) --"
+  box_a="$(mkbox teeth-nearest)"
+  mkdir -p "$box_a/rh/target-foo/inner-t/retros"
+  retro_a="$(mk_retro "$box_a" target-foo r-a.md "<!-- review-status: pending -->" \
+    "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+  cp "$retro_a" "$box_a/rh/target-foo/inner-t/retros/r-a.md"
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box_a" "$box_a" \
+    > "$box_a/research-sdd/TARGETS.md"
+  anchor_a="$(grep -m 1 'SENTINEL-TNR-NEAREST' "$TARGET_PATHS_LIB")"
+  if [ -n "$anchor_a" ] && tooth_swap "$box_a" lib/target-paths.sh "$anchor_a" '          :'; then
+    run_box "$box_a" "$box_a/rh/target-foo/inner-t/retros/r-a.md"
+    if grep -q 'labels: .*target:outer-name,' <<<"$MOUT"; then
+      ok "T1287a teeth: outermost-ancestor mutant → inner retro labelled outer (case 72 has teeth)" "()"
+    else
+      no "T1287a teeth: outermost-ancestor mutant" "case 72 is THEATER: out=[$MOUT]"
+    fi
+  fi
+
+  # TOOTH #1287-b: swallow the operational failure (rc 1 from the helper) → back to WARN + guess.
+  echo "-- teeth T1287b: neuter the TARGETS.md operational-failure exit --"
+  box_b="$(mkbox teeth-opfail)"
+  retro_b="$(mk_retro "$box_b" target-foo r-b.md "<!-- review-status: pending -->" \
+    "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  rm -f "$box_b/research-sdd/TARGETS.md"
+  if tooth_swap "$box_b" stage-retro-issues.sh 'if [ "$_tnr_rc" -eq 1 ]; then' 'if false; then'; then
+    run_box "$box_b" "$retro_b"
+    if grep -q 'planned-issue:' <<<"$MOUT"; then
+      ok "T1287b teeth: failure exit neutered → plans on a guessed basename (case 70 has teeth)" "()"
+    else
+      no "T1287b teeth: failure exit neutered" "case 70 is THEATER: out=[$MOUT]"
+    fi
+  fi
+
+  # TOOTH #1287-c/d/e: the legacy-signature dedup. Each mutant must make its case create a duplicate.
+  legacy_box() {  # <name> <stub-mode> <stub-pattern> → echoes box; retro at $box/rh/target-foo/retros/r-legacy.md
+    local b
+    b="$(mkbox "$1")"
+    printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$b" \
+      > "$b/research-sdd/TARGETS.md"
+    mk_gh_stub "$b" "$2" "$3"
+    mk_retro "$b" target-foo r-legacy.md "<!-- review-status: pending -->" \
+      "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |" >/dev/null
+    printf '%s' "$b"
+  }
+  echo "-- teeth T1287c: disable the legacy-signature search --"
+  box_c="$(legacy_box teeth-legacy-off matchsig 'Source retro: target-foo/retros/r-legacy.md')"
+  if tooth_swap "$box_c" stage-retro-issues.sh 'if [ "$_legacy_target_name" != "$target_name" ]; then' 'if false; then'; then
+    run_box "$box_c" "$box_c/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_c/bin/gh.log" 2>/dev/null; then
+      ok "T1287c teeth: legacy search disabled → duplicate created (case 75 has teeth)" "()"
+    else
+      no "T1287c teeth: legacy search disabled" "case 75 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1287d: legacy lookup failure guards neutered --"
+  box_d="$(legacy_box teeth-legacy-failguard failsig 'Source retro: target-foo/retros/')"
+  if tooth_swap "$box_d" stage-retro-issues.sh 'if [ "$_legacy_rc" -ne 0 ]; then' 'if false; then' \
+     && tooth_swap "$box_d" stage-retro-issues.sh "if ! grep -q '^[[:space:]]*\\[' <<<\"\$_legacy_existing\"; then" 'if false; then'; then
+    run_box "$box_d" "$box_d/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_d/bin/gh.log" 2>/dev/null; then
+      ok "T1287d teeth: legacy failure guards neutered → falls through to create (case 75c has teeth)" "()"
+    else
+      no "T1287d teeth: legacy failure guards neutered" "case 75c is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1287e: legacy OPEN-match check neutered --"
+  box_e="$(legacy_box teeth-legacy-open matchsig 'Source retro: target-foo/retros/r-legacy.md')"
+  if tooth_swap "$box_e" stage-retro-issues.sh "if grep -q '\"state\":[[:space:]]*\"OPEN\"' <<<\"\$_legacy_existing\"; then" 'if false; then'; then
+    run_box "$box_e" "$box_e/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_e/bin/gh.log" 2>/dev/null; then
+      ok "T1287e teeth: legacy OPEN check neutered → duplicate created (case 75 has teeth)" "()"
+    else
+      no "T1287e teeth: legacy OPEN check neutered" "case 75 is THEATER: out=[$MOUT]"
+    fi
   fi
 
 fi  # --prove-teeth
@@ -1544,10 +1639,10 @@ retro="$(mk_retro "$box" target-foo r-createfail.md \
   "<!-- review-status: pending -->" \
   "$(printf '| 1 | first delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
 run "$box" "$retro" --apply
-summary_line16="$(printf '%s\n' "$OUT" | grep '^summary:')"
+summary_line16="$(grep '^summary:' <<<"$OUT")"
 has_failed_field=0; failed_count_nonzero=0; rc_nonzero=0
-printf '%s' "$summary_line16" | grep -qE 'failed=[0-9]' && has_failed_field=1
-printf '%s' "$summary_line16" | grep -qE 'failed=[1-9]' && failed_count_nonzero=1
+grep -qE 'failed=[0-9]' <<<"$summary_line16" && has_failed_field=1
+grep -qE 'failed=[1-9]' <<<"$summary_line16" && failed_count_nonzero=1
 [ "$RC" -ne 0 ] && rc_nonzero=1
 if [ "$rc_nonzero" = 1 ] && [ "$has_failed_field" = 1 ] && [ "$failed_count_nonzero" = 1 ]; then
   ok "16 --apply createfail: failed= in summary, non-zero exit" "(exit $RC summary=[$summary_line16])"
@@ -1576,8 +1671,8 @@ cat > "$retro_after_h1" <<'RETROEOF'
 RETROEOF
 run "$box" "$retro_after_h1"
 after_h1_nomatch=0; after_h1_planned=0
-printf '%s\n' "$OUT" | grep -qi 'no-match\|all.*shipped\|applied' && after_h1_nomatch=1
-printf '%s\n' "$OUT" | grep -q 'planned-issue:' && after_h1_planned=1
+grep -qi 'no-match\|all.*shipped\|applied' <<<"$OUT" && after_h1_nomatch=1
+grep -q 'planned-issue:' <<<"$OUT" && after_h1_planned=1
 if [ "$RC" = 0 ] && [ "$after_h1_nomatch" = 1 ] && [ "$after_h1_planned" = 0 ]; then
   ok "17 marker after H1: applied retro not seeded → no-match" "(exit $RC)"
 else
@@ -1611,8 +1706,8 @@ cat > "$retro_two_headings" <<'RETROEOF'
 RETROEOF
 run "$box" "$retro_two_headings"
 two_headings_planned=0; two_headings_oos=0
-printf '%s\n' "$OUT" | grep -q 'planned-issue:' && two_headings_planned=1
-printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' && two_headings_oos=1
+grep -q 'planned-issue:' <<<"$OUT" && two_headings_planned=1
+grep -q '^out-of-scope-marker:' <<<"$OUT" && two_headings_oos=1
 if [ "$RC" = 0 ] && [ "$two_headings_planned" = 0 ] && [ "$two_headings_oos" = 1 ]; then
   ok "17b marker after a SECOND heading → out-of-scope-marker, refuses to seed (#945, #1099)" "(exit $RC)"
 else
@@ -1633,8 +1728,8 @@ retro_oos_early="$box/rh/target-foo/retros/r-oos-early.md"
 printf -- '---\ntitle: x\n---\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n' \
   > "$retro_oos_early"
 run "$box" "$retro_oos_early"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
-  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" \
+  && ! grep -q 'planned-issue:' <<<"$OUT" \
   && ok "17c-1 out-of-scope marker EARLY (YAML frontmatter) → refuses to seed" "(exit $RC)" \
   || no "17c-1 out-of-scope marker EARLY (YAML frontmatter) → refuses to seed" "exit=$RC out=[$OUT]"
 
@@ -1648,8 +1743,8 @@ retro_oos_middle="$box/rh/target-foo/retros/r-oos-middle.md"
   printf '## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n'
 } > "$retro_oos_middle"
 run "$box" "$retro_oos_middle"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
-  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" \
+  && ! grep -q 'planned-issue:' <<<"$OUT" \
   && ok "17c-2 out-of-scope marker MIDDLE (narrative before+after) → refuses to seed" "(exit $RC)" \
   || no "17c-2 out-of-scope marker MIDDLE (narrative before+after) → refuses to seed" "exit=$RC out=[$OUT]"
 
@@ -1660,7 +1755,7 @@ retro_oos_last="$box/rh/target-foo/retros/r-oos-last.md"
 printf '# §18 Retro — focus: apis\n\n## Notes\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->' \
   > "$retro_oos_last"
 run "$box" "$retro_oos_last"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" \
   && ok "17c-3 out-of-scope marker LAST line, no trailing newline → still detected" "(exit $RC)" \
   || no "17c-3 out-of-scope marker LAST line, no trailing newline → still detected" "exit=$RC out=[$OUT]"
 
@@ -1670,7 +1765,7 @@ box="$(mkbox case-oos-single-row)"
 retro_oos_single="$box/rh/target-foo/retros/r-oos-single.md"
 printf '## Notes\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n' > "$retro_oos_single"
 run "$box" "$retro_oos_single"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+[ "$RC" = 0 ] && grep -q '^out-of-scope-marker:' <<<"$OUT" \
   && ok "17c-4 out-of-scope marker, single-row minimal shape → still detected" "(exit $RC)" \
   || no "17c-4 out-of-scope marker, single-row minimal shape → still detected" "exit=$RC out=[$OUT]"
 
@@ -1681,8 +1776,8 @@ box="$(mkbox case-oos-genuinely-absent)"
 retro_absent="$(mk_retro "$box" target-foo r-no-marker-at-all.md "-" \
   "$(printf '| 1 | fix the thing | METHODOLOGY.md | B1 | new | HIGH |')")"
 run "$box" "$retro_absent"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
-  && ! printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+[ "$RC" = 0 ] && grep -q 'planned-issue:' <<<"$OUT" \
+  && ! grep -q '^out-of-scope-marker:' <<<"$OUT" \
   && ok "17d genuinely markerless retro → still planned as open, NOT out-of-scope-marker" "(exit $RC)" \
   || no "17d genuinely markerless retro → still planned as open, NOT out-of-scope-marker" "exit=$RC out=[$OUT]"
 
@@ -1694,9 +1789,9 @@ retro_bom="$box/rh/target-foo/retros/r-bom-inscope.md"
 printf '\xef\xbb\xbf# §18 Retro — focus: apis\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n' \
   > "$retro_bom"
 run "$box" "$retro_bom"
-[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -qi 'no-match\|all.*shipped\|applied' \
-  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
-  && ! printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+[ "$RC" = 0 ] && grep -qi 'no-match\|all.*shipped\|applied' <<<"$OUT" \
+  && ! grep -q 'planned-issue:' <<<"$OUT" \
+  && ! grep -q '^out-of-scope-marker:' <<<"$OUT" \
   && ok "17e BOM + otherwise in-scope marker → honored normally (no-match), not out-of-scope" "(exit $RC)" \
   || no "17e BOM + otherwise in-scope marker → honored normally (no-match), not out-of-scope" "exit=$RC out=[$OUT]"
 
@@ -1721,8 +1816,8 @@ RETROEOF
 run "$box" "$retro_dpp"
 dpp_nomatch=0; dpp_planned=0
 # grep for the explicit no-match: message, NOT for the word "dismissed" (which would match the filename)
-printf '%s\n' "$OUT" | grep -qi '^no-match:' && dpp_nomatch=1
-printf '%s\n' "$OUT" | grep -q 'planned-issue:' && dpp_planned=1
+grep -qi '^no-match:' <<<"$OUT" && dpp_nomatch=1
+grep -q 'planned-issue:' <<<"$OUT" && dpp_planned=1
 if [ "$RC" = 0 ] && [ "$dpp_nomatch" = 1 ] && [ "$dpp_planned" = 0 ]; then
   ok "18 dismissed with prose 'partial': not seeded → no-match" "(exit $RC)"
 else
@@ -1745,7 +1840,7 @@ OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
   "$box_sym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_sym" 2>&1)"; RC_SYM=$?
 # kit issue #1024 round 4, item 5: assert the exit code explicitly, not just the absence of the
 # negative-signal text — a wrong-reason nonzero exit would otherwise slip through this check.
-if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'target directory.*not found'; then
+if [ "$RC_SYM" -eq 0 ] && ! grep -qi 'target directory.*not found' <<<"$OUT_SYM"; then
   ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, TARGETS.md target lookup still resolves (exit 0)" \
      "(rc=$RC_SYM)"
 else
@@ -1819,7 +1914,7 @@ retro="$(mk_retro "$box" target-foo r-derive-https.md \
   "| 1 | derive https delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT21="$(PATH="$box/bin:$PATH" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC21=$?
-if [ "$RC21" = 0 ] && printf '%s\n' "$OUT21" | grep -q '^kit-issue-repo: deriv-owner/deriv-kit$'; then
+if [ "$RC21" = 0 ] && grep -q '^kit-issue-repo: deriv-owner/deriv-kit$' <<<"$OUT21"; then
   ok "21 derive from git remote (https): kit-issue-repo printed in dry-run" "(exit $RC21)"
 else
   no "21 derive from git remote (https): kit-issue-repo printed in dry-run" "exit=$RC21 out=[$OUT21]"
@@ -1834,7 +1929,7 @@ retro="$(mk_retro "$box" target-foo r-derive-ssh.md \
   "| 1 | derive ssh delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT22="$(PATH="$box/bin:$PATH" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC22=$?
-if [ "$RC22" = 0 ] && printf '%s\n' "$OUT22" | grep -q '^kit-issue-repo: ssh-owner/ssh-kit$'; then
+if [ "$RC22" = 0 ] && grep -q '^kit-issue-repo: ssh-owner/ssh-kit$' <<<"$OUT22"; then
   ok "22 derive from git remote (scp-like ssh): kit-issue-repo printed in dry-run" "(exit $RC22)"
 else
   no "22 derive from git remote (scp-like ssh): kit-issue-repo printed in dry-run" "exit=$RC22 out=[$OUT22]"
@@ -1855,8 +1950,8 @@ OUT23="$( (cd "$foreign_cwd_23" && PATH="$box/bin:$PATH" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" --apply) 2>&1)"; RC23=$?
 gh_called=0
 [ -f "$box/bin/gh.log" ] && grep -q 'issue' "$box/bin/gh.log" && gh_called=1
-if [ "$RC23" != 0 ] && printf '%s' "$OUT23" | grep -qi 'degraded' \
-   && printf '%s' "$OUT23" | grep -qi 'cannot resolve' \
+if [ "$RC23" != 0 ] && grep -qi 'degraded' <<<"$OUT23" \
+   && grep -qi 'cannot resolve' <<<"$OUT23" \
    && [ "$gh_called" = 0 ]; then
   ok "23 unresolvable repo under --apply: degraded, non-zero exit, zero gh issue calls" "(exit $RC23)"
 else
@@ -1886,8 +1981,8 @@ OUT24="$(PATH="$box24/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box24/research-sdd/toolbelt/stage-retro-issues.sh" "$retro24" 2>&1)"; RC24=$?
 # The reason text is allowed to explain that an enclosing repo was found; what
 # must never leak is the enclosing repo's OWNER/NAME being used as the value.
-if [ "$RC24" = 0 ] && printf '%s\n' "$OUT24" | grep -q '^kit-issue-repo: unresolved' \
-   && ! printf '%s\n' "$OUT24" | grep -q '^kit-issue-repo: enclosing-owner/enclosing-repo$'; then
+if [ "$RC24" = 0 ] && grep -q '^kit-issue-repo: unresolved' <<<"$OUT24" \
+   && ! grep -q '^kit-issue-repo: enclosing-owner/enclosing-repo$' <<<"$OUT24"; then
   ok "24 F1 enclosing-repo walk (dry-run): unresolved, enclosing origin never surfaces" "(exit $RC24)"
 else
   no "24 F1 enclosing-repo walk (dry-run): unresolved, enclosing origin never surfaces" \
@@ -1908,8 +2003,8 @@ gh_called_25=0
 [ -f "$box25/bin/gh.log" ] && grep -q 'issue' "$box25/bin/gh.log" && gh_called_25=1
 # The reason text is allowed to explain that an enclosing repo was found; what
 # must never leak is the enclosing repo's OWNER/NAME being used as the value.
-if [ "$RC25" != 0 ] && printf '%s' "$OUT25" | grep -qi 'degraded' \
-   && ! printf '%s' "$OUT25" | grep -q 'enclosing-owner/enclosing-repo' \
+if [ "$RC25" != 0 ] && grep -qi 'degraded' <<<"$OUT25" \
+   && ! grep -q 'enclosing-owner/enclosing-repo' <<<"$OUT25" \
    && [ "$gh_called_25" = 0 ]; then
   ok "25 F1 enclosing-repo walk (--apply): degraded before any gh call, no leak" "(exit $RC25)"
 else
@@ -1942,8 +2037,8 @@ for f2_bad in "${f2_bad_values[@]}"; do
     "$BASH_BIN" "$box26/research-sdd/toolbelt/stage-retro-issues.sh" "$retro26" --apply 2>&1)"; f2_rc_apply=$?
   f2_gh_called=0
   [ -f "$box26/bin/gh.log" ] && grep -q 'issue' "$box26/bin/gh.log" && f2_gh_called=1
-  if [ "$f2_rc_dry" = 0 ] && printf '%s\n' "$f2_out_dry" | grep -q '^kit-issue-repo: unresolved' \
-     && [ "$f2_rc_apply" != 0 ] && printf '%s' "$f2_out_apply" | grep -qi 'degraded' \
+  if [ "$f2_rc_dry" = 0 ] && grep -q '^kit-issue-repo: unresolved' <<<"$f2_out_dry" \
+     && [ "$f2_rc_apply" != 0 ] && grep -qi 'degraded' <<<"$f2_out_apply" \
      && [ "$f2_gh_called" = 0 ]; then
     ok "26.$f2_idx F2 shape-invalid override '$f2_bad' → unresolved/degraded, zero gh calls" \
       "(dry=$f2_rc_dry apply=$f2_rc_apply)"
@@ -1970,8 +2065,8 @@ OUT27B="$(PATH="$box27/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box27/research-sdd/toolbelt/stage-retro-issues.sh" "$retro27" --apply 2>&1)"; RC27B=$?
 gh_called_27=0
 [ -f "$box27/bin/gh.log" ] && grep -q 'issue' "$box27/bin/gh.log" && gh_called_27=1
-if [ "$RC27" = 0 ] && printf '%s\n' "$OUT27" | grep -q '^kit-issue-repo: unresolved' \
-   && [ "$RC27B" != 0 ] && printf '%s' "$OUT27B" | grep -qi 'degraded' \
+if [ "$RC27" = 0 ] && grep -q '^kit-issue-repo: unresolved' <<<"$OUT27" \
+   && [ "$RC27B" != 0 ] && grep -qi 'degraded' <<<"$OUT27B" \
    && [ "$gh_called_27" = 0 ]; then
   ok "27 F2 shape-invalid derived (file:// origin) → unresolved/degraded, zero gh calls" \
     "(dry=$RC27 apply=$RC27B)"
@@ -1991,7 +2086,7 @@ retro28="$(mk_retro "$box28" target-foo r-f3-slash.md \
   "| 1 | f3 slash delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT28="$(PATH="$box28/bin:$PATH" \
   "$BASH_BIN" "$box28/research-sdd/toolbelt/stage-retro-issues.sh" "$retro28" 2>&1)"; RC28=$?
-if [ "$RC28" = 0 ] && printf '%s\n' "$OUT28" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC28" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT28"; then
   ok "28 F3 trailing slash before .git: 'o/n.git/' -> 'o/n'" "(exit $RC28)"
 else
   no "28 F3 trailing slash before .git: 'o/n.git/' -> 'o/n'" "exit=$RC28 out=[$OUT28]"
@@ -2005,7 +2100,7 @@ retro29="$(mk_retro "$box29" target-foo r-f3-scp.md \
   "| 1 | f3 scp delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT29="$(PATH="$box29/bin:$PATH" \
   "$BASH_BIN" "$box29/research-sdd/toolbelt/stage-retro-issues.sh" "$retro29" 2>&1)"; RC29=$?
-if [ "$RC29" = 0 ] && printf '%s\n' "$OUT29" | grep -q '^kit-issue-repo: scp-owner/scp-kit$'; then
+if [ "$RC29" = 0 ] && grep -q '^kit-issue-repo: scp-owner/scp-kit$' <<<"$OUT29"; then
   ok "29 F3 scp form without user@: 'github.com:o/n' -> 'o/n'" "(exit $RC29)"
 else
   no "29 F3 scp form without user@: 'github.com:o/n' -> 'o/n'" "exit=$RC29 out=[$OUT29]"
@@ -2020,7 +2115,7 @@ retro30="$(mk_retro "$box30" target-foo r-f3-ghe.md \
   "| 1 | f3 ghe delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT30="$(PATH="$box30/bin:$PATH" \
   "$BASH_BIN" "$box30/research-sdd/toolbelt/stage-retro-issues.sh" "$retro30" 2>&1)"; RC30=$?
-if [ "$RC30" = 0 ] && printf '%s\n' "$OUT30" | grep -q '^kit-issue-repo: ghe.corp.example.com/ghe-owner/ghe-kit$'; then
+if [ "$RC30" = 0 ] && grep -q '^kit-issue-repo: ghe.corp.example.com/ghe-owner/ghe-kit$' <<<"$OUT30"; then
   ok "30 F3 non-github.com host kept: 'HOST/o/n' preserved for GHE" "(exit $RC30)"
 else
   no "30 F3 non-github.com host kept: 'HOST/o/n' preserved for GHE" "exit=$RC30 out=[$OUT30]"
@@ -2039,8 +2134,8 @@ OUT31="$(PATH="$box31/bin" RESEARCH_SDD_ISSUE_REPO="" \
 # Isolate the kit-issue-repo LINE specifically — the row body/title text is
 # attacker-controlled fixture prose and must not be able to false-positive
 # this assertion by coincidentally containing the word "git".
-kir_line31="$(printf '%s\n' "$OUT31" | grep '^kit-issue-repo: unresolved')"
-if [ "$RC31" = 0 ] && [ -n "$kir_line31" ] && printf '%s' "$kir_line31" | grep -qi 'git not found'; then
+kir_line31="$(grep '^kit-issue-repo: unresolved' <<<"$OUT31")"
+if [ "$RC31" = 0 ] && [ -n "$kir_line31" ] && grep -qi 'git not found' <<<"$kir_line31"; then
   ok "31 git missing (dry-run): unresolved reason names git" "(exit $RC31)"
 else
   no "31 git missing (dry-run): unresolved reason names git" "exit=$RC31 line=[$kir_line31] out=[$OUT31]"
@@ -2058,8 +2153,8 @@ OUT32="$(PATH="$box32/nogit-bin" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box32/research-sdd/toolbelt/stage-retro-issues.sh" "$retro32" --apply 2>&1)"; RC32=$?
 gh_called_32=0
 [ -f "$box32/bin/gh.log" ] && grep -q 'issue' "$box32/bin/gh.log" && gh_called_32=1
-if [ "$RC32" != 0 ] && printf '%s' "$OUT32" | grep -qi 'degraded' \
-   && printf '%s' "$OUT32" | grep -qi 'git not found' && [ "$gh_called_32" = 0 ]; then
+if [ "$RC32" != 0 ] && grep -qi 'degraded' <<<"$OUT32" \
+   && grep -qi 'git not found' <<<"$OUT32" && [ "$gh_called_32" = 0 ]; then
   ok "32 git missing (--apply): degraded names git, exit 1, zero gh calls" "(exit $RC32)"
 else
   no "32 git missing (--apply): degraded names git, exit 1, zero gh calls" \
@@ -2089,7 +2184,7 @@ derive_dry() {
 # dropped for scp form, regardless of whether it looks like a github alias.
 box33="$(mkbox case-scp-alias)"
 derive_dry "$box33" "git@github.com-alias:o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "33 ITEM1 scp alias host dropped: 'git@github.com-alias:o/n.git' -> 'o/n'" "(exit $RC)"
 else
   no "33 ITEM1 scp alias host dropped: 'git@github.com-alias:o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2098,7 +2193,7 @@ fi
 # 34 — ITEM 1: URL-scheme, "www." alias prefix → dropped.
 box34="$(mkbox case-https-www-alias)"
 derive_dry "$box34" "https://www.github.com/o/n"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "34 ITEM1 https www. alias dropped: 'https://www.github.com/o/n' -> 'o/n'" "(exit $RC)"
 else
   no "34 ITEM1 https www. alias dropped: 'https://www.github.com/o/n' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2107,7 +2202,7 @@ fi
 # 35 — ITEM 1: URL-scheme, SSH config Host alias suffix → dropped.
 box35="$(mkbox case-https-alias-suffix)"
 derive_dry "$box35" "https://github.com-alias/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "35 ITEM1 https alias-suffix host dropped: 'github.com-alias' -> 'o/n'" "(exit $RC)"
 else
   no "35 ITEM1 https alias-suffix host dropped: 'github.com-alias' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2116,7 +2211,7 @@ fi
 # 36 — ITEM 2: ssh:// scp-style with :port → port stripped, github.com dropped.
 box36="$(mkbox case-ssh-port)"
 derive_dry "$box36" "ssh://git@github.com:22/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "36 ITEM2 ssh:// with :port: 'ssh://git@github.com:22/o/n.git' -> 'o/n'" "(exit $RC)"
 else
   no "36 ITEM2 ssh:// with :port: 'ssh://git@github.com:22/o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2125,7 +2220,7 @@ fi
 # 37 — ITEM 2: https:// with :port → port stripped, github.com dropped.
 box37="$(mkbox case-https-port)"
 derive_dry "$box37" "https://github.com:443/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "37 ITEM2 https:// with :port: 'https://github.com:443/o/n.git' -> 'o/n'" "(exit $RC)"
 else
   no "37 ITEM2 https:// with :port: 'https://github.com:443/o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2135,7 +2230,7 @@ fi
 # port-strip and the alias check must fire together.
 box38="$(mkbox case-ssh-alias-port)"
 derive_dry "$box38" "ssh://git@ssh.github.com:443/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "38 ITEM2 ssh alias host with :port: 'ssh.github.com:443' -> 'o/n'" "(exit $RC)"
 else
   no "38 ITEM2 ssh alias host with :port: 'ssh.github.com:443' -> 'o/n'" "exit=$RC out=[$OUT]"
@@ -2146,7 +2241,7 @@ fi
 # github-specific.
 box39="$(mkbox case-ghe-port)"
 derive_dry "$box39" "https://ghe.corp.com:8443/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: ghe.corp.com/o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: ghe.corp.com/o/n$' <<<"$OUT"; then
   ok "39 ITEM2 GHE host with :port: 'ghe.corp.com:8443' -> 'ghe.corp.com/o/n'" "(exit $RC)"
 else
   no "39 ITEM2 GHE host with :port: 'ghe.corp.com:8443' -> 'ghe.corp.com/o/n'" "exit=$RC out=[$OUT]"
@@ -2157,7 +2252,7 @@ fi
 # 40 — real origin, scp form, user@.
 box40="$(mkbox case-keep-real-origin)"
 derive_dry "$box40" "git@github.com:angeles725/sdd-investigacion.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: angeles725/sdd-investigacion$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: angeles725/sdd-investigacion$' <<<"$OUT"; then
   ok "40 KEEP real origin scp: 'git@github.com:angeles725/sdd-investigacion.git' unchanged" "(exit $RC)"
 else
   no "40 KEEP real origin scp: 'git@github.com:angeles725/sdd-investigacion.git' unchanged" "exit=$RC out=[$OUT]"
@@ -2166,7 +2261,7 @@ fi
 # 41 — mixed-case host, underscore/dot in owner/repo.
 box41="$(mkbox case-keep-mixedcase)"
 derive_dry "$box41" "https://GitHub.com/My_Org/Repo.Name.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: My_Org/Repo.Name$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: My_Org/Repo.Name$' <<<"$OUT"; then
   ok "41 KEEP mixed-case host + owner/repo: 'GitHub.com/My_Org/Repo.Name.git' -> 'My_Org/Repo.Name'" "(exit $RC)"
 else
   no "41 KEEP mixed-case host + owner/repo: 'GitHub.com/My_Org/Repo.Name.git' -> 'My_Org/Repo.Name'" "exit=$RC out=[$OUT]"
@@ -2175,7 +2270,7 @@ fi
 # 42 — GHE https, no port, host kept verbatim.
 box42="$(mkbox case-keep-ghe)"
 derive_dry "$box42" "https://ghe.corp.com/o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: ghe.corp.com/o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: ghe.corp.com/o/n$' <<<"$OUT"; then
   ok "42 KEEP GHE https: 'https://ghe.corp.com/o/n.git' -> 'ghe.corp.com/o/n'" "(exit $RC)"
 else
   no "42 KEEP GHE https: 'https://ghe.corp.com/o/n.git' -> 'ghe.corp.com/o/n'" "exit=$RC out=[$OUT]"
@@ -2204,8 +2299,8 @@ for shape_bad in "${shape_bad_values[@]}"; do
     "$BASH_BIN" "$box_shape/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_shape" --apply 2>&1)"; shape_rc_apply=$?
   shape_gh_called=0
   [ -f "$box_shape/bin/gh.log" ] && grep -q 'issue' "$box_shape/bin/gh.log" && shape_gh_called=1
-  if [ "$shape_rc_dry" = 0 ] && printf '%s\n' "$shape_out_dry" | grep -q "^kit-issue-repo: unresolved (invalid repo shape '${shape_bad}'" \
-     && [ "$shape_rc_apply" != 0 ] && printf '%s' "$shape_out_apply" | grep -qi 'degraded' \
+  if [ "$shape_rc_dry" = 0 ] && grep -q "^kit-issue-repo: unresolved (invalid repo shape '${shape_bad}'" <<<"$shape_out_dry" \
+     && [ "$shape_rc_apply" != 0 ] && grep -qi 'degraded' <<<"$shape_out_apply" \
      && [ "$shape_gh_called" = 0 ]; then
     ok "43.$shape_idx ITEM4 shape-tightening rejects '$shape_bad'" "(dry=$shape_rc_dry apply=$shape_rc_apply)"
   else
@@ -2219,7 +2314,7 @@ done
 # underscores in general.
 OUT44="$(PATH="$box_shape/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="My_Org/Repo.Name" \
   "$BASH_BIN" "$box_shape/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_shape" 2>&1)"; RC44=$?
-if [ "$RC44" = 0 ] && printf '%s\n' "$OUT44" | grep -q '^kit-issue-repo: My_Org/Repo.Name$'; then
+if [ "$RC44" = 0 ] && grep -q '^kit-issue-repo: My_Org/Repo.Name$' <<<"$OUT44"; then
   ok "44 ITEM4 positive control: 'My_Org/Repo.Name' still accepted" "(exit $RC44)"
 else
   no "44 ITEM4 positive control: 'My_Org/Repo.Name' still accepted" "exit=$RC44 out=[$OUT44]"
@@ -2235,7 +2330,7 @@ retro45="$(mk_retro "$box45" target-foo r-item3.md \
   "| 1 | item3 delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT45="$(PATH="$box45/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
   "$BASH_BIN" "$box45/research-sdd/toolbelt/stage-retro-issues.sh" "$retro45" 2>&1)"; RC45=$?
-if [ "$RC45" = 0 ] && printf '%s\n' "$OUT45" | grep -q "^kit-issue-repo: unresolved (invalid repo shape 'foo' — expected \[HOST/\]OWNER/REPO)$"; then
+if [ "$RC45" = 0 ] && grep -q "^kit-issue-repo: unresolved (invalid repo shape 'foo' — expected \[HOST/\]OWNER/REPO)$" <<<"$OUT45"; then
   ok "45 ITEM3 bad value survives the call: message names 'foo', not ''" "(exit $RC45)"
 else
   no "45 ITEM3 bad value survives the call: message names 'foo', not ''" "exit=$RC45 out=[$OUT45]"
@@ -2256,8 +2351,8 @@ retro46="$(mk_retro "$box46" target-foo r-item5.md \
   "| 1 | item5 delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT46="$(PATH="$box46/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box46/research-sdd/toolbelt/stage-retro-issues.sh" "$retro46" 2>&1)"; RC46=$?
-if [ "$RC46" = 0 ] && printf '%s\n' "$OUT46" | grep -qi 'toplevel' \
-   && printf '%s\n' "$OUT46" | grep -q "$enclosing_parent_46"; then
+if [ "$RC46" = 0 ] && grep -qi 'toplevel' <<<"$OUT46" \
+   && grep -q "$enclosing_parent_46" <<<"$OUT46"; then
   ok "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "(exit $RC46)"
 else
   no "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "exit=$RC46 out=[$OUT46]"
@@ -2276,9 +2371,9 @@ retro47="$(mk_retro "$box47" target-foo r-hash-shipped.md \
   "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| 3 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
 run "$box47" "$retro47"
 row3_47=0; row1_47=0; row2_47=0
-printf '%s\n' "$OUT" | grep -q '· 3' && row3_47=1
-printf '%s\n' "$OUT" | grep -q '· 1' && row1_47=1
-printf '%s\n' "$OUT" | grep -q '· 2' && row2_47=1
+grep -q '· 3' <<<"$OUT" && row3_47=1
+grep -q '· 1' <<<"$OUT" && row1_47=1
+grep -q '· 2' <<<"$OUT" && row2_47=1
 if [ "$RC" = 0 ] && [ "$row3_47" = 1 ] && [ "$row1_47" = 0 ] && [ "$row2_47" = 0 ]; then
   ok "47 hash-shipped: '#N (desc)' → rows 1,2 shipped (# stripped), only row 3 open" "(exit $RC)"
 else
@@ -2294,9 +2389,9 @@ retro48="$(mk_retro "$box48" target-foo r-annotation-shipped.md \
   "$(printf '| Δ1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| D1 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| D2 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
 run "$box48" "$retro48"
 d2_48=0; delta1_48=0; d1_48=0
-printf '%s\n' "$OUT" | grep -q '· D2' && d2_48=1
-printf '%s\n' "$OUT" | grep -q '· Δ1' && delta1_48=1
-printf '%s\n' "$OUT" | grep -q '· D1' && d1_48=1
+grep -q '· D2' <<<"$OUT" && d2_48=1
+grep -q '· Δ1' <<<"$OUT" && delta1_48=1
+grep -q '· D1' <<<"$OUT" && d1_48=1
 if [ "$RC" = 0 ] && [ "$d2_48" = 1 ] && [ "$delta1_48" = 0 ] && [ "$d1_48" = 0 ]; then
   ok "48 trailing-annotation-shipped: 'Δ1 (#549), D1 (§20)' → Δ1,D1 shipped; only D2 open" "(exit $RC)"
 else
@@ -2317,8 +2412,8 @@ retro49="$(mk_retro "$box49" target-foo r-freetext-partial.md \
   "<!-- review-status: applied 2026-01-01 · kit abc1234 — historical note: this used to be PARTIAL but is now fully resolved -->" \
   "| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |")"
 run "$box49" "$retro49"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'no-match' \
-   && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+if [ "$RC" = 0 ] && grep -qi 'no-match' <<<"$OUT" \
+   && ! grep -q 'planned-issue:' <<<"$OUT"; then
   ok "49 free-text PARTIAL (applied): structured segment has no token → no-match" "(exit $RC)"
 else
   no "49 free-text PARTIAL (applied): structured segment has no token → no-match" \
@@ -2333,7 +2428,7 @@ retro50="$(mk_retro "$box50" target-foo r-1090-repro.md \
   "<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->" \
   "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |')")"
 run "$box50" "$retro50"
-if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+if [ "$RC" = 0 ] && ! grep -q 'planned-issue:' <<<"$OUT"; then
   ok "50 #1090 real repro marker: dismissed + prose 'partial' → zero open rows" "(exit $RC)"
 else
   no "50 #1090 real repro marker: dismissed + prose 'partial' → zero open rows" \
@@ -2353,7 +2448,7 @@ for pos in first middle last; do
     "<!-- review-status: dismissed 2026-09-20 · kit deadbeef — ${_prose} -->" \
     "| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |")"
   run "$box51" "$retro51"
-  if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+  if [ "$RC" = 0 ] && ! grep -q 'planned-issue:' <<<"$OUT"; then
     ok "51 #1090 dismissed + prose 'partial' at $pos → zero open rows" "(exit $RC)"
   else
     no "51 #1090 dismissed + prose 'partial' at $pos → zero open rows" "exit=$RC out=[$OUT]"
@@ -2369,9 +2464,9 @@ done
 # → unresolved, NOT silently collapsed to 'o/n'.
 box52="$(mkbox case-scp-nongithub-userat)"
 derive_dry "$box52" "git@ghe.corp.com:o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: unresolved' \
-   && printf '%s\n' "$OUT" | grep -qi 'ghe.corp.com' \
-   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: unresolved' <<<"$OUT" \
+   && grep -qi 'ghe.corp.com' <<<"$OUT" \
+   && ! grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "52 ITEMa scp non-github host (user@) → unresolved, names the host" "(exit $RC)"
 else
   no "52 ITEMa scp non-github host (user@) → unresolved, names the host" "exit=$RC out=[$OUT]"
@@ -2381,9 +2476,9 @@ fi
 # personal "work" Host alias) → unresolved, never silently treated as github.com.
 box53="$(mkbox case-scp-nongithub-bare)"
 derive_dry "$box53" "work:o/n.git"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: unresolved' \
-   && printf '%s\n' "$OUT" | grep -qi 'work' \
-   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: unresolved' <<<"$OUT" \
+   && grep -qi 'work' <<<"$OUT" \
+   && ! grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "53 ITEMa scp non-github bare alias 'work:o/n.git' → unresolved" "(exit $RC)"
 else
   no "53 ITEMa scp non-github bare alias 'work:o/n.git' → unresolved" "exit=$RC out=[$OUT]"
@@ -2402,7 +2497,7 @@ OUT54="$(PATH="$box54/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box54/research-sdd/toolbelt/stage-retro-issues.sh" "$retro54" --apply 2>&1)"; RC54=$?
 gh_called_54=0
 [ -f "$box54/bin/gh.log" ] && grep -q 'issue' "$box54/bin/gh.log" && gh_called_54=1
-if [ "$RC54" != 0 ] && printf '%s' "$OUT54" | grep -qi 'degraded' && [ "$gh_called_54" = 0 ]; then
+if [ "$RC54" != 0 ] && grep -qi 'degraded' <<<"$OUT54" && [ "$gh_called_54" = 0 ]; then
   ok "54 ITEMa --apply: untrusted scp host refuses before any gh call" "(exit $RC54)"
 else
   no "54 ITEMa --apply: untrusted scp host refuses before any gh call" \
@@ -2414,7 +2509,7 @@ fi
 # own distinct host, exactly like any other non-alias HOST/owner/repo.
 box55="$(mkbox case-alias-suffix-dot)"
 derive_dry "$box55" "https://github.com-x.corp/o/n"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: github.com-x.corp/o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: github.com-x.corp/o/n$' <<<"$OUT"; then
   ok "55 ITEMb dotted alias-suffix host kept verbatim: 'github.com-x.corp' NOT collapsed to github.com" "(exit $RC)"
 else
   no "55 ITEMb dotted alias-suffix host kept verbatim: 'github.com-x.corp' NOT collapsed to github.com" \
@@ -2425,8 +2520,8 @@ fi
 # domain must NEVER resolve to plain 'o/n' (which would make gh operate against github.com).
 box56="$(mkbox case-alias-spoof)"
 derive_dry "$box56" "https://user@github.com-evil.attacker.com/o/n"
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: github.com-evil.attacker.com/o/n$' \
-   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+if [ "$RC" = 0 ] && grep -q '^kit-issue-repo: github.com-evil.attacker.com/o/n$' <<<"$OUT" \
+   && ! grep -q '^kit-issue-repo: o/n$' <<<"$OUT"; then
   ok "56 ITEMb spoofed 'github.com-evil.attacker.com' host never resolves to github.com" "(exit $RC)"
 else
   no "56 ITEMb spoofed 'github.com-evil.attacker.com' host never resolves to github.com" \
@@ -2442,7 +2537,7 @@ retro57="$(mk_retro "$box57" target-foo r-item-c.md \
   "| 1 | item c delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT57="$(PATH="$box57/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="myorg/myrepo/subpath" \
   "$BASH_BIN" "$box57/research-sdd/toolbelt/stage-retro-issues.sh" "$retro57" 2>&1)"; RC57=$?
-if [ "$RC57" = 0 ] && printf '%s\n' "$OUT57" | grep -q "^kit-issue-repo: unresolved (invalid repo shape 'myorg/myrepo/subpath'"; then
+if [ "$RC57" = 0 ] && grep -q "^kit-issue-repo: unresolved (invalid repo shape 'myorg/myrepo/subpath'" <<<"$OUT57"; then
   ok "57 ITEMc 3-segment override with non-dotted first segment → unresolved" "(exit $RC57)"
 else
   no "57 ITEMc 3-segment override with non-dotted first segment → unresolved" "exit=$RC57 out=[$OUT57]"
@@ -2456,7 +2551,7 @@ retro58="$(mk_retro "$box58" target-foo r-item-c-ok.md \
   "| 1 | item c delta | CLAUDE.md | B1 | new | HIGH |")"
 OUT58="$(PATH="$box58/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="ghe.example.com/myorg/myrepo" \
   "$BASH_BIN" "$box58/research-sdd/toolbelt/stage-retro-issues.sh" "$retro58" 2>&1)"; RC58=$?
-if [ "$RC58" = 0 ] && printf '%s\n' "$OUT58" | grep -q '^kit-issue-repo: ghe.example.com/myorg/myrepo$'; then
+if [ "$RC58" = 0 ] && grep -q '^kit-issue-repo: ghe.example.com/myorg/myrepo$' <<<"$OUT58"; then
   ok "58 ITEMc positive control: dotted host 'ghe.example.com/myorg/myrepo' still accepted" "(exit $RC58)"
 else
   no "58 ITEMc positive control: dotted host 'ghe.example.com/myorg/myrepo' still accepted" "exit=$RC58 out=[$OUT58]"
@@ -2472,7 +2567,7 @@ retro59="$box59/rh/target-foo/retros/r-spanish.md"
   printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
 } > "$retro59"
 run "$box59" "$retro59"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^planned-issue:' && ! printf '%s' "$OUT" | grep -qi 'empty-input\|unclassifiable'; then
+if [ "$RC" = 0 ] && grep -q '^planned-issue:' <<<"$OUT" && ! grep -qi 'empty-input\|unclassifiable' <<<"$OUT"; then
   ok "59 Spanish canonical alias 'PROPUESTA de deltas al kit' → row staged, not empty/unclassifiable" "(exit $RC)"
 else
   no "59 Spanish canonical alias → expected row staged" "exit=$RC out=[$OUT]"
@@ -2488,7 +2583,7 @@ retro60="$box60/rh/target-foo/retros/r-hyphen.md"
   printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
 } > "$retro60"
 run "$box60" "$retro60"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'unclassifiable' <<<"$OUT" && ! grep -qF 'empty-input' <<<"$OUT"; then
   ok "60 hyphenated 'kit-delta' mid-heading → unclassifiable, never empty-input" "(exit $RC)"
 else
   no "60 hyphenated 'kit-delta' mid-heading → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
@@ -2504,7 +2599,7 @@ retro61="$box61/rh/target-foo/retros/r-h3proposals.md"
   printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
 } > "$retro61"
 run "$box61" "$retro61"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'unclassifiable' <<<"$OUT" && ! grep -qF 'empty-input' <<<"$OUT"; then
   ok "61 standalone H3 '### Proposals' outside section → unclassifiable, never empty-input" "(exit $RC)"
 else
   no "61 standalone H3 '### Proposals' outside section → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
@@ -2522,8 +2617,8 @@ retro62="$box62/rh/target-foo/retros/r-honest-empty.md"
   printf 'no new deltas; the kit already covers this run.\n'
 } > "$retro62"
 run "$box62" "$retro62"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^empty-input:' \
-  && ! printf '%s' "$OUT" | grep -qi 'unclassifiable'; then
+if [ "$RC" = 0 ] && grep -qi '^empty-input:' <<<"$OUT" \
+  && ! grep -qi 'unclassifiable' <<<"$OUT"; then
   ok "62 honest empty (§18 honesty line, no rows) → empty-input, not unclassifiable" "(exit $RC)"
 else
   no "62 honest empty (§18 honesty line, no rows) → expected empty-input, not unclassifiable" "exit=$RC out=[$OUT]"
@@ -2539,8 +2634,8 @@ retro63="$box63/rh/target-foo/retros/r-not-honest.md"
   printf '### ABSORB → some ordinary sub-heading with prose, no table, no honesty phrase\n\nprose here\n'
 } > "$retro63"
 run "$box63" "$retro63"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^unclassifiable:' \
-  && ! printf '%s' "$OUT" | grep -qi '^empty-input:'; then
+if [ "$RC" = 0 ] && grep -qi '^unclassifiable:' <<<"$OUT" \
+  && ! grep -qi '^empty-input:' <<<"$OUT"; then
   ok "63 canonical section, no rows, NOT honest → unclassifiable" "(exit $RC)"
 else
   no "63 canonical section, no rows, NOT honest → expected unclassifiable" "exit=$RC out=[$OUT]"
@@ -2550,14 +2645,16 @@ fi
 # kit issue #1169: target-name derivation must walk UP from the retro to the nearest ancestor
 # registered in TARGETS.md — flat (<target>/retros), nested (<target>/corpus/retros) and deeper
 # (<target>/<sub>/retros) layouts — and must never emit a structural `target:corpus|retros` label.
+# kit issue #1287: the walk lives in lib/target-paths.sh (target_name_for_retro); assertions below
+# use here-strings, not `printf | grep -q` (a SIGPIPE-prone shape under pipefail, #1162).
 
 # 64 — NESTED corpus resolves to the registered target name (RED pre-fix: target:corpus + WARN)
 box64="$(mkbox case-nested-corpus)"
 retro64="$(mk_nested_retro "$box64" corpus/retros r-nested.md)"
 run "$box64" "$retro64"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'labels: .*target:target-foo,' \
-  && ! printf '%s' "$OUT" | grep -q 'target:corpus' \
-  && ! printf '%s' "$OUT" | grep -qi 'target directory.*not found'; then
+if [ "$RC" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$OUT" \
+  && ! grep -q 'target:corpus' <<<"$OUT" \
+  && ! grep -qi 'target directory.*not found' <<<"$OUT"; then
   ok "64 nested <target>/corpus/retros → target:target-foo, no basename WARN" "(exit $RC)"
 else
   no "64 nested <target>/corpus/retros → expected target:target-foo" "exit=$RC out=[$OUT]"
@@ -2568,8 +2665,8 @@ box65="$(mkbox case-flat-walkup)"
 retro65="$(mk_retro "$box65" target-foo r-flat.md "<!-- review-status: pending -->" \
   "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box65" "$retro65"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'labels: .*target:target-foo,' \
-  && ! printf '%s' "$OUT" | grep -qi 'not found'; then
+if [ "$RC" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$OUT" \
+  && ! grep -qi 'not found' <<<"$OUT"; then
   ok "65 flat <target>/retros → target:target-foo" "(exit $RC)"
 else
   no "65 flat <target>/retros → expected target:target-foo" "exit=$RC out=[$OUT]"
@@ -2579,8 +2676,8 @@ fi
 box66="$(mkbox case-deeper-layout)"
 retro66="$(mk_nested_retro "$box66" examinacion-x/retros r-deep.md)"
 run "$box66" "$retro66"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'labels: .*target:target-foo,' \
-  && ! printf '%s' "$OUT" | grep -q 'target:examinacion-x'; then
+if [ "$RC" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$OUT" \
+  && ! grep -q 'target:examinacion-x' <<<"$OUT"; then
   ok "66 deeper <target>/examinacion-x/retros → target:target-foo" "(exit $RC)"
 else
   no "66 deeper <target>/examinacion-x/retros → expected target:target-foo" "exit=$RC out=[$OUT]"
@@ -2593,22 +2690,26 @@ printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%
   > "$box67/research-sdd/TARGETS.md"
 mkdir -p "$box67/rh/other"
 run "$box67" "$retro67"
-if [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -qi 'cannot resolve target' \
-  && ! printf '%s' "$OUT" | grep -q 'target:corpus' \
-  && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+if [ "$RC" = 1 ] && grep -qi 'cannot resolve target' <<<"$OUT" \
+  && ! grep -q 'target:corpus' <<<"$OUT" \
+  && ! grep -q 'planned-issue:' <<<"$OUT"; then
   ok "67 nested + unregistered → exit 1, 'cannot resolve target', no target:corpus" "(exit $RC)"
 else
   no "67 nested + unregistered → expected exit 1 and no target:corpus label" "exit=$RC out=[$OUT]"
 fi
 
-# 68 — FLAT but unregistered keeps the legacy WARN + basename fallback (not a regression)
+# 68 — FLAT but unregistered (TARGETS.md read fine, this dir just isn't in it) keeps the legacy
+#      WARN + basename fallback (not a regression). The registry needs at least one OTHER row: a
+#      registry with zero rows is an operational failure (case 71), not a no-match.
 box68="$(mkbox case-flat-unregistered)"
 retro68="$(mk_retro "$box68" target-foo r-flat-unreg.md "<!-- review-status: pending -->" \
   "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
-printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box68/research-sdd/TARGETS.md"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%s/rh/other` |\n' "$box68" \
+  > "$box68/research-sdd/TARGETS.md"
+mkdir -p "$box68/rh/other"
 run "$box68" "$retro68"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi "using basename 'target-foo'" \
-  && printf '%s' "$OUT" | grep -q 'target:target-foo,'; then
+if [ "$RC" = 0 ] && grep -qi "using basename 'target-foo'" <<<"$OUT" \
+  && grep -q 'target:target-foo,' <<<"$OUT"; then
   ok "68 flat + unregistered → WARN + basename fallback preserved" "(exit $RC)"
 else
   no "68 flat + unregistered → expected WARN + basename fallback" "exit=$RC out=[$OUT]"
@@ -2624,12 +2725,165 @@ retro69f="$(mk_nested_retro "$box69" retros r-f.md)"
 run "$box69" "$retro69n"; out69n="$OUT"; rc69n=$RC
 run "$box69" "$retro69f"; out69f="$OUT"; rc69f=$RC
 if [ "$rc69n" = 0 ] && [ "$rc69f" = 0 ] \
-  && printf '%s' "$out69n" | grep -q 'labels: .*target:reg-name,' \
-  && printf '%s' "$out69f" | grep -q 'labels: .*target:reg-name,'; then
+  && grep -q 'labels: .*target:reg-name,' <<<"$out69n" \
+  && grep -q 'labels: .*target:reg-name,' <<<"$out69f"; then
   ok "69 registered name differs from path basename → target:reg-name (nested + flat)" "(rc=$rc69n/$rc69f)"
 else
   no "69 registered name differs from path basename → expected target:reg-name" "nested=[$out69n] flat=[$out69f]"
 fi
+
+# 70 — TARGETS.md ABSENT is an OPERATIONAL failure (kit issue #1287 item 3, CLAUDE.md §7/§8):
+#      exit 1 with a typed message — never a WARN + basename guess that plans issues anyway.
+box70="$(mkbox case-targets-absent)"
+retro70="$(mk_retro "$box70" target-foo r-noreg.md "<!-- review-status: pending -->" \
+  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+rm -f "$box70/research-sdd/TARGETS.md"
+run "$box70" "$retro70"
+if [ "$RC" = 1 ] && grep -qi 'cannot read' <<<"$OUT" && ! grep -q 'planned-issue:' <<<"$OUT"; then
+  ok "70 TARGETS.md absent → exit 1, typed 'cannot read', nothing planned" "(exit $RC)"
+else
+  no "70 TARGETS.md absent → expected exit 1 + typed message + no plan" "exit=$RC out=[$OUT]"
+fi
+
+# 71 — TARGETS.md with ZERO parsed rows is also operational (an empty pairs list must not read as
+#      "this retro is simply unregistered") — flat AND nested.
+box71="$(mkbox case-targets-empty)"
+retro71f="$(mk_retro "$box71" target-foo r-empty-f.md "<!-- review-status: pending -->" \
+  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+retro71n="$(mk_nested_retro "$box71" corpus/retros r-empty-n.md)"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box71/research-sdd/TARGETS.md"
+run "$box71" "$retro71f"; out71f="$OUT"; rc71f=$RC
+run "$box71" "$retro71n"; out71n="$OUT"; rc71n=$RC
+if [ "$rc71f" = 1 ] && [ "$rc71n" = 1 ] \
+  && grep -qi 'no registered target' <<<"$out71f" && grep -qi 'no registered target' <<<"$out71n" \
+  && ! grep -q 'planned-issue:' <<<"$out71f$out71n"; then
+  ok "71 zero-row TARGETS.md → exit 1, typed 'no registered target paths' (flat + nested)" "(rc=$rc71f/$rc71n)"
+else
+  no "71 zero-row TARGETS.md → expected exit 1 + typed message" "flat=[$out71f] nested=[$out71n]"
+fi
+
+# 72 — NESTED REGISTERED TARGETS: the NEAREST ancestor labels the retro, in both row orders (a
+#      mutant matching the OUTERMOST ancestor must not survive).
+box72="$(mkbox case-nested-registered)"
+mkdir -p "$box72/rh/target-foo/inner-t/retros"
+retro72i="$box72/rh/target-foo/inner-t/retros/r-in.md"
+retro72o="$(mk_retro "$box72" target-foo r-out.md "<!-- review-status: pending -->" \
+  "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+cp "$retro72o" "$retro72i"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box72" "$box72" \
+  > "$box72/research-sdd/TARGETS.md"
+run "$box72" "$retro72i"; a_i="$OUT"; run "$box72" "$retro72o"; a_o="$OUT"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | inner-name | `%s/rh/target-foo/inner-t` |\n| 2 | outer-name | `%s/rh/target-foo` |\n' "$box72" "$box72" \
+  > "$box72/research-sdd/TARGETS.md"
+run "$box72" "$retro72i"; b_i="$OUT"; run "$box72" "$retro72o"; b_o="$OUT"
+if grep -q 'labels: .*target:inner-name,' <<<"$a_i" && grep -q 'labels: .*target:outer-name,' <<<"$a_o" \
+  && grep -q 'labels: .*target:inner-name,' <<<"$b_i" && grep -q 'labels: .*target:outer-name,' <<<"$b_o"; then
+  ok "72 nested registered targets → nearest ancestor labels the retro (both row orders)" "()"
+else
+  no "72 nested registered targets → nearest ancestor must win" "a_in=[$a_i] a_out=[$a_o] b_in=[$b_i] b_out=[$b_o]"
+fi
+
+# 73 — RAW `$RESEARCH_HOME/...` token (the form every real TARGETS.md row uses), plain and braced.
+box73="$(mkbox case-raw-rh-token)"
+retro73="$(mk_nested_retro "$box73" corpus/retros r-rh.md)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | rh-name | `$RESEARCH_HOME/rh/target-foo` |\n' \
+  > "$box73/research-sdd/TARGETS.md"
+RESEARCH_HOME="$box73" run "$box73" "$retro73"; out73p="$OUT"; rc73p=$RC
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | rh-name | `${RESEARCH_HOME}/rh/target-foo` |\n' \
+  > "$box73/research-sdd/TARGETS.md"
+RESEARCH_HOME="$box73" run "$box73" "$retro73"; out73b="$OUT"; rc73b=$RC
+if [ "$rc73p" = 0 ] && [ "$rc73b" = 0 ] \
+  && grep -q 'labels: .*target:rh-name,' <<<"$out73p" && grep -q 'labels: .*target:rh-name,' <<<"$out73b"; then
+  ok "73 raw \$RESEARCH_HOME / \${RESEARCH_HOME} row token → registered name label" "(rc=$rc73p/$rc73b)"
+else
+  no "73 raw \$RESEARCH_HOME row token → expected target:rh-name" "plain=[$out73p] braced=[$out73b]"
+fi
+
+# 74 — NAME FALLBACK: an empty name cell labels by the path basename; a whitespace name falls
+#      back too, and the WARN reaches the operator instead of vanishing (R2-whitespace-fallback).
+box74="$(mkbox case-name-fallback)"
+retro74="$(mk_retro "$box74" target-foo r-fb.md "<!-- review-status: pending -->" \
+  "| 1 | fb delta | CLAUDE.md | B1 | fix | HIGH |")"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 |  | `%s/rh/target-foo` |\n' "$box74" \
+  > "$box74/research-sdd/TARGETS.md"
+run "$box74" "$retro74"; out74a="$OUT"; rc74a=$RC
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | two words | `%s/rh/target-foo` |\n' "$box74" \
+  > "$box74/research-sdd/TARGETS.md"
+run "$box74" "$retro74"; out74b="$OUT"; rc74b=$RC
+if [ "$rc74a" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$out74a" \
+  && [ "$rc74b" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$out74b" \
+  && grep -qi 'WARN.*two words' <<<"$out74b"; then
+  ok "74 empty / whitespace name cell → basename label (whitespace case WARNs)" "(rc=$rc74a/$rc74b)"
+else
+  no "74 name fallback → expected basename label, WARN on whitespace" "empty=[$out74a] space=[$out74b]"
+fi
+
+# 75 — LEGACY SIGNATURE DEDUP (kit issue #1287 item 2): issues created before #1286 carry
+#      `<path basename>/retros/<file>`; a target whose registered NAME differs from its basename
+#      must ALSO search that legacy signature, or a re-marked pending retro would duplicate on
+#      --apply. Control: the new signature alone matches nothing here, so only the legacy search
+#      can produce the skip.
+box75="$(mkbox case-legacy-dedup)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75" \
+  > "$box75/research-sdd/TARGETS.md"
+mk_gh_stub "$box75" matchsig 'Source retro: target-foo/retros/r-legacy.md'
+retro75="$(mk_retro "$box75" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75" "$retro75" --apply
+create75=0; [ -f "$box75/bin/gh.log" ] && grep -q 'issue create' "$box75/bin/gh.log" && create75=1
+if [ "$RC" = 0 ] && [ "$create75" = 0 ] && grep -q 'skipped-duplicate' <<<"$OUT" \
+  && grep -qF 'Source retro: target-foo/retros/r-legacy.md' <<<"$(cat "$box75/bin/gh.log")" \
+  && grep -qF 'Source retro: reg-name/retros/r-legacy.md' <<<"$(cat "$box75/bin/gh.log")"; then
+  ok "75 --apply: legacy basename signature match suppresses create (new + legacy both searched)" "(exit $RC)"
+else
+  no "75 --apply: legacy basename signature match must suppress create" "exit=$RC create=$create75 out=[$OUT]"
+fi
+
+# 75b — control: neither signature matches → the create goes through.
+box75b="$(mkbox case-legacy-dedup-nomatch)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75b" \
+  > "$box75b/research-sdd/TARGETS.md"
+mk_gh_stub "$box75b" matchsig 'Source retro: unrelated/retros/'
+retro75b="$(mk_retro "$box75b" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75b" "$retro75b" --apply
+create75b=0; [ -f "$box75b/bin/gh.log" ] && grep -q 'issue create' "$box75b/bin/gh.log" && create75b=1
+if [ "$RC" = 0 ] && [ "$create75b" = 1 ] && grep -q 'summary: created=1 ' <<<"$OUT"; then
+  ok "75b --apply: no signature matches → create called (control)" "(exit $RC)"
+else
+  no "75b --apply: no signature matches → expected a create" "exit=$RC create=$create75b out=[$OUT]"
+fi
+
+# 75c — a FAILED legacy lookup must not fall through to create either (anti-silent-zero): count it
+#       as failed, exit 2, exactly like a failed primary lookup.
+box75c="$(mkbox case-legacy-dedup-listfail)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75c" \
+  > "$box75c/research-sdd/TARGETS.md"
+mk_gh_stub "$box75c" failsig 'Source retro: target-foo/retros/'
+retro75c="$(mk_retro "$box75c" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75c" "$retro75c" --apply
+create75c=0; [ -f "$box75c/bin/gh.log" ] && grep -q 'issue create' "$box75c/bin/gh.log" && create75c=1
+if [ "$RC" = 2 ] && [ "$create75c" = 0 ] && grep -qi 'ERROR.*issue list' <<<"$OUT" \
+  && grep -q 'summary:.*failed=1' <<<"$OUT"; then
+  ok "75c --apply: failed legacy lookup counts as failed, never creates, exit 2" "(exit $RC)"
+else
+  no "75c --apply: failed legacy lookup must not fall through to create" "exit=$RC create=$create75c out=[$OUT]"
+fi
+
+# 75d — name == basename: NO second (legacy) list call — the legacy search is only for drift.
+box75d="$(mkbox case-legacy-dedup-same)"
+mk_gh_stub "$box75d" nomatch
+retro75d="$(mk_retro "$box75d" target-foo r-same.md "<!-- review-status: pending -->" \
+  "| 1 | same delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75d" "$retro75d" --apply
+lists75d="$(grep -c 'issue list' "$box75d/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$lists75d" = 1 ]; then
+  ok "75d --apply: name == basename → exactly one dedup list call" "(lists=$lists75d)"
+else
+  no "75d --apply: name == basename → expected exactly one list call" "exit=$RC lists=$lists75d out=[$OUT]"
+fi
+
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
