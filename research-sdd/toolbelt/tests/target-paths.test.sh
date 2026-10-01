@@ -283,12 +283,20 @@ printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | solid | `%s/middle` |
 tnr "$TN21b" "$(mkretro "$N/middle")"
 if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "solid" ]; then ok "21b one resolving row among ghosts (ghost LAST) → still resolves"
 else no "21b one resolving row among ghosts (ghost LAST) → still resolves" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
-# 21c — SINGLE-row registry whose only path is a ghost → rc 1 (not rc 2).
+# 21c — an ABSOLUTE-only registry whose only path is a ghost stays rc 2 (no-match): RESEARCH_HOME
+#       cannot be the cause, and the consumers' fixture kits rely on a dummy absolute row (rc 2 →
+#       legacy WARN + basename fallback; research-sdd-status.test.sh mk_kit_real_reconcile).
 TN21c="${N}/t21c.md"
 printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | only-ghost | `%s/ghost-dir-3` |\n' "$N" > "$TN21c"
 tnr "$TN21c" "$(mkretro "$N/middle")"
-if [ "$TNR_RC" = 1 ] && grep -qi 'no registered target path' <<<"$TNR_ERR"; then ok "21c single ghost-only row → rc 1, typed message"
-else no "21c single ghost-only row → rc 1, typed message" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+if [ "$TNR_RC" = 2 ] && [ -z "$TNR_OUT" ] && [ -z "$TNR_ERR" ]; then ok "21c absolute-only ghost registry → rc 2 (unchanged no-match)"
+else no "21c absolute-only ghost registry → rc 2 (unchanged no-match)" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# 21d — MIXED registry: an absolute ghost row AND $RESEARCH_HOME rows, nothing resolves → rc 1.
+TN21d="${N}/t21d.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | abs-ghost | `%s/ghost-dir-4` |\n| 2 | rh-row | `$RESEARCH_HOME/rhp` |\n' "$N" > "$TN21d"
+tnr "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
+if [ "$TNR_RC" = 1 ] && grep -qi 'RESEARCH_HOME' <<<"$TNR_ERR"; then ok "21d mixed abs-ghost + \$RESEARCH_HOME rows, none resolves → rc 1"
+else no "21d mixed abs-ghost + \$RESEARCH_HOME rows, none resolves → rc 1" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
 
 # 22 — ROW LOOKUP MATCHES THE PATH CELL ONLY (kit issue #1304 item 4): a registered path quoted in
 #      ANOTHER row's non-path cell (a Notes column) must not make that earlier row's name win.
@@ -537,9 +545,15 @@ fi
 # TNR-8: drop the no-resolving-path guard -> a wrong RESEARCH_HOME reads as rc 2 no-match (21a/21c).
 if tnr_mutant 8 '/SENTINEL-TNR-NODIR-START/,/SENTINEL-TNR-NODIR-END/d'; then
   LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"; m_rc="$TNR_RC"
-  tnr "$TN21c" "$(mkretro "$N/middle")"; m_rc2="$TNR_RC"; LIB="$LIB_ORIG"
-  if [ "$m_rc" = 2 ] && [ "$m_rc2" = 2 ]; then ok "teeth TNR-8: no-dir-guard mutant flips cases 21a and 21c to rc 2 (has teeth)"
-  else no "teeth TNR-8: no-dir-guard mutant must flip cases 21a/21c" "21a rc=$m_rc 21c rc=$m_rc2"; fi
+  tnr "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"; m_rc2="$TNR_RC"; LIB="$LIB_ORIG"
+  if [ "$m_rc" = 2 ] && [ "$m_rc2" = 2 ]; then ok "teeth TNR-8: no-dir-guard mutant flips cases 21a and 21d to rc 2 (has teeth)"
+  else no "teeth TNR-8: no-dir-guard mutant must flip cases 21a/21d" "21a rc=$m_rc 21d rc=$m_rc2"; fi
+fi
+# TNR-8b: drop the "$RESEARCH_HOME rows exist" scope -> an absolute-only ghost registry becomes rc 1 (21c).
+if tnr_mutant 8b 's/ && \[ "\$_tnr_has_rh" -eq 1 \]//'; then
+  LIB="$MUT_TNR"; tnr "$TN21c" "$(mkretro "$N/middle")"; m_rc3="$TNR_RC"; LIB="$LIB_ORIG"
+  if [ "$m_rc3" = 1 ]; then ok "teeth TNR-8b: unscoped no-dir guard flips case 21c to rc 1 (has teeth)"
+  else no "teeth TNR-8b: unscoped guard must flip case 21c" "rc=$m_rc3"; fi
 fi
 # TNR-9: select the row from the WHOLE line instead of the Path cell (case 22a).
 if tnr_mutant 9 's/index(\$4, want)/index($0, want)/'; then
