@@ -272,8 +272,9 @@ fi
 # found so far are kept (rc 3 still prints them) and one WARN names the gap.
 _nw_roots="$(block_files_nested_worktree_roots "$TARGET")"
 _nw_rc=$?
-if [ "$_nw_rc" -ne 0 ]; then
-  printf 'retro-gate: WARN: nested-worktree probe incomplete (rc=%s) for %s — worktree copies may be counted\n' \
+# rc 3 (incomplete traversal) already printed its own typed WARN from the lib — say nothing twice.
+if [ "$_nw_rc" -ne 0 ] && [ "$_nw_rc" -ne 3 ]; then
+  printf 'retro-gate: WARN: nested-worktree probe failed (rc=%s) for %s — worktree copies may be counted\n' \
     "$_nw_rc" "$(basename "$TARGET")" >&2
 fi
 # SENTINEL-NESTED-WORKTREE-PROBE-END
@@ -358,7 +359,9 @@ if [ "$_degraded" -eq 1 ]; then
     _is_research_file "$f" || continue
     # SENTINEL-GENERATED-CATALOG-START
     # CATALOG.md is GENERATED (gen-catalog.py rewrites it seconds after the retro): counting it
-    # as the newest "block" made every fresh retro look stale (kit issue #1229).
+    # as the newest "block" made every fresh retro look stale (kit issue #1229). Matched by
+    # BASENAME anywhere under the target (not just $TARGET/CATALOG.md) on purpose: gen-catalog
+    # writes at the corpus root, which may be a subdirectory of the target (e.g. corpus/).
     [ "$(basename "$f")" = "CATALOG.md" ] && continue
     # SENTINEL-GENERATED-CATALOG-END
     m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"

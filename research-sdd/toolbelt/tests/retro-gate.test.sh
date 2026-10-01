@@ -1379,7 +1379,8 @@ fi
 # the maxdepth-4 retro scan reaches it) → treated as "no retro" → BLOCK.
 T_w7="$ROOT/t-w7"
 mkdir -p "$T_w7/side-wt"
-printf 'gitdir: %s/.git/worktrees/side-wt\n' "$T_w7" > "$T_w7/side-wt/.git"
+mkdir -p "$T_w7/.fakegit/worktrees/side-wt"; : > "$T_w7/.fakegit/worktrees/side-wt/commondir"   # a linked worktree's gitdir has commondir
+printf 'gitdir: %s/.fakegit/worktrees/side-wt\n' "$T_w7" > "$T_w7/side-wt/.git"
 printf '# Block\n' > "$T_w7/niagara-block1.md"; touch -d '-3 hours' "$T_w7/niagara-block1.md"
 mkretro "$T_w7/side-wt" "2026-09-05-w7.md" 1;     touch -d '-1 hour' "$T_w7/side-wt/retros/2026-09-05-w7.md"
 run_gate "$T_w7" "$(mkjson "w7-sess" false)"
@@ -1400,6 +1401,30 @@ run_gate "$T_w8" "$(mkjson "$SID_w8" false)"
 printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#1223 W8: a committed retro under .claude/worktrees does not qualify → blocks" \
   || no "#1223 W8: committed worktree retro was accepted: OUT=$OUT ERR=$ERR"
+
+# W9 (review of PR #1300, B1): the target is ITSELF a linked worktree (the kit's normal agent
+# layout) and carries a submodule whose gitdir is <main>/.git/worktrees/<wt>/modules/notes. That
+# text contains "/worktrees/" but it is a submodule, not a worktree: a block changed only inside
+# it must still BLOCK (a false ALLOW silently skips the retro).
+W9_SRC="$ROOT/w9-subsrc"; W9_MAIN="$ROOT/w9-main"; T_w9="$ROOT/w9-wt"; SID_w9="w9-sess"
+_w9g() { git -c protocol.file.allow=always -c user.email=t@e.com -c user.name=t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+mkdir -p "$W9_SRC" "$W9_MAIN"
+_w9g -C "$W9_SRC" init -q; : > "$W9_SRC/f"; _w9g -C "$W9_SRC" add f; _w9g -C "$W9_SRC" commit -q -m i
+_w9g -C "$W9_MAIN" init -q; : > "$W9_MAIN/.keep"; _w9g -C "$W9_MAIN" add .keep; _w9g -C "$W9_MAIN" commit -q -m i
+_w9g -C "$W9_MAIN" submodule add "file://$W9_SRC" notes; _w9g -C "$W9_MAIN" commit -q -m sub
+_w9g -C "$W9_MAIN" worktree add "$T_w9" -b w9b
+_w9g -C "$T_w9" submodule update --init
+mksessionfile "$T_w9" "$SID_w9" "202609050800"
+printf '# Block\n' > "$T_w9/notes/niagara-block1.md"
+if [ -f "$T_w9/notes/.git" ] && grep -q '/worktrees/' "$T_w9/notes/.git"; then
+  ok "PRECOND(#1223 W9): fixture submodule gitdir contains /worktrees/ (the look-alike shape)"
+else
+  no "PRECOND(#1223 W9): fixture lacks the /worktrees/ look-alike submodule gitdir: $(cat "$T_w9/notes/.git" 2>&1)"
+fi
+run_gate "$T_w9" "$(mkjson "$SID_w9" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1223 W9: block changed inside a submodule of a linked-worktree target → still blocks" \
+  || no "#1223 W9: submodule treated as a nested worktree (false ALLOW): OUT=$OUT ERR=$ERR"
 
 # ─── #1229: generated CATALOG.md is not a block (degraded mtime scan) ────────
 # gen-catalog.py rewrites CATALOG.md seconds AFTER the retro is written; in degraded mode the
@@ -2496,6 +2521,21 @@ if nwmutant 'nw-retro-seed' '/NW-RETRO-GUARD-SEED/d'; then M_NW6="$NWM"
     && ok "TOOTH nw-retro-seed: mutant seeds the nested-worktree retro — RED" \
     || no "TOOTH nw-retro-seed: mutant did not seed the worktree retro — guard not load-bearing"
 fi
+# NW7 (review of PR #1300, B1): the lib's commondir proof dropped → a submodule of a
+# linked-worktree target is excluded again → W9 stops blocking (false ALLOW). The mutant is the
+# LIB (the SUT is unchanged), so mutate MUT_KIT's lib copy for this one run and restore it.
+cp "$SUT" "$MUT_KIT/toolbelt/mutant-commondir.sh"; chmod +x "$MUT_KIT/toolbelt/mutant-commondir.sh"
+_lib_mk="$MUT_KIT/toolbelt/lib/block-files.sh"; cp "$_lib_mk" "$_lib_mk.orig"
+sed '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "$_lib_mk.orig" > "$_lib_mk"
+if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
+  no "TOOTH nw-commondir-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
+else
+  rmblocked "$T_w9" "$SID_w9"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w9" "$(mkjson "$SID_w9" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH nw-commondir-dropped: mutant still blocks W9 — commondir proof not load-bearing" \
+    || ok "TOOTH nw-commondir-dropped: mutant excludes the submodule (false ALLOW) — RED as expected"
+fi
+mv "$_lib_mk.orig" "$_lib_mk"
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
 if nwmutant 'catalog-not-excluded' '/SENTINEL-GENERATED-CATALOG-START/,/SENTINEL-GENERATED-CATALOG-END/d'; then M_CAT1="$NWM"
   rmblocked "$T_c1" "c1-sess"; run_mutant "$M_CAT1" "$T_c1" "$(mkjson "c1-sess" false)"

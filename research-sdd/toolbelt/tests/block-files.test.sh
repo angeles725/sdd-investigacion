@@ -109,10 +109,17 @@ declare -F block_file_filter >/dev/null 2>&1 \
 nw_fixture() {
   local d="$1"
   mkdir -p "$d/.claude/worktrees/agent-1" "$d/side-wt" "$d/sub" "$d/clone/.git" "$d/deep/er/wt2"
-  printf 'gitdir: %s/.git/worktrees/side-wt\n' "$d" > "$d/side-wt/.git"
-  printf 'gitdir: %s/.git/worktrees/wt2\n' "$d" > "$d/deep/er/wt2/.git"
+  # A linked worktree is recognised by its gitdir's `commondir` file, so the fake gitdirs carry one.
+  mkdir -p "$d/.fakegit/worktrees/side-wt" "$d/.fakegit/worktrees/wt2" "$d/.fakegit/worktrees/self"
+  : > "$d/.fakegit/worktrees/side-wt/commondir"; : > "$d/.fakegit/worktrees/wt2/commondir"
+  : > "$d/.fakegit/worktrees/self/commondir"
+  printf 'gitdir: %s/.fakegit/worktrees/side-wt\n' "$d" > "$d/side-wt/.git"
+  printf 'gitdir: %s/.fakegit/worktrees/wt2\n' "$d" > "$d/deep/er/wt2/.git"
   printf 'gitdir: ../.git/modules/sub\n' > "$d/sub/.git"
-  printf 'gitdir: %s/.git/worktrees/self\n' "$d" > "$d/.git"   # the root's own .git FILE
+  # look-alike: gitdir text contains /worktrees/ but there is no commondir (submodule of a worktree)
+  mkdir -p "$d/sub2" "$d/.fakegit/worktrees/wtx/modules/notes"
+  printf 'gitdir: %s/.fakegit/worktrees/wtx/modules/notes\n' "$d" > "$d/sub2/.git"
+  printf 'gitdir: %s/.fakegit/worktrees/self\n' "$d" > "$d/.git"   # the root's own .git FILE
 }
 
 # nw_checks <helper-file>: source <helper-file> in a subshell and run every #1223 assertion;
@@ -133,6 +140,7 @@ nw_checks() {
     printf '%s\n' "$roots" | grep -qxF "$d/side-wt" || echo "FAIL:linked-worktree-root"
     printf '%s\n' "$roots" | grep -qxF "$d/deep/er/wt2" || echo "FAIL:deep-linked-worktree-root"
     printf '%s\n' "$roots" | grep -qxF "$d/sub" && echo "FAIL:submodule-must-not-be-root"
+    printf '%s\n' "$roots" | grep -qxF "$d/sub2" && echo "FAIL:worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
     printf '%s\n' "$roots" | grep -qxF "$d/clone" && echo "FAIL:nested-clone-must-not-be-root"
     printf '%s\n' "$roots" | grep -qxF "$d" && echo "FAIL:own-git-file-must-not-make-root-a-root"
     # predicate: root itself, under it, FIRST / MIDDLE / LAST / ONLY roots, sibling-prefix trap
@@ -178,6 +186,60 @@ $d/c" || echo "FAIL:first-root"
     fi
   )
 }
+# nw_real_checks <helper-file>: REAL git fixtures (review of PR #1300, B1). A linked worktree is
+# told apart from a submodule by the gitdir's `commondir` file, never by the path text:
+#  (a) target is itself a linked worktree and carries a submodule whose gitdir is
+#      <main>/.git/worktrees/<wt>/modules/notes — contains "/worktrees/" but is NOT a worktree;
+#  (b) a submodule checked out at a path containing "worktrees" (research/worktrees/x);
+#  (c) a real nested linked worktree IS a root; (d) a stale one (gitdir gone) is NOT excluded.
+nw_real_checks() {
+  (
+    unset -f block_file_filter block_files_nested_worktree_roots block_files_path_in_nested_worktree
+    # shellcheck disable=SC1090
+    . "$1"
+    d="$(mktemp -d)"; trap 'rm -rf "$d"' EXIT
+    g() { git -c protocol.file.allow=always -c user.email=t@e.com -c user.name=t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+    # sub: a repo to use as a submodule source
+    mkdir "$d/subsrc"; g -C "$d/subsrc" init -q; : > "$d/subsrc/f"; g -C "$d/subsrc" add f; g -C "$d/subsrc" commit -q -m i
+    # main repo with submodule `notes` and a submodule at research/worktrees/x
+    mkdir "$d/main"; g -C "$d/main" init -q; : > "$d/main/.keep"; g -C "$d/main" add .keep; g -C "$d/main" commit -q -m i
+    g -C "$d/main" submodule add "file://$d/subsrc" notes
+    g -C "$d/main" submodule add "file://$d/subsrc" research/worktrees/x
+    g -C "$d/main" commit -q -m subs
+    # (a) the target is a linked worktree of main; init its submodules
+    g -C "$d/main" worktree add "$d/wt" -b wtb
+    g -C "$d/wt" submodule update --init
+    [ -f "$d/wt/notes/.git" ] || echo "FAIL:fixture-a-submodule-missing"
+    ra="$(block_files_nested_worktree_roots "$d/wt" 2>/dev/null)"
+    printf '%s\n' "$ra" | grep -qxF "$d/wt/notes" && echo "FAIL:a-submodule-in-linked-worktree-target-must-not-be-root"
+    block_files_path_in_nested_worktree "$d/wt/notes/x-block1.md" "$ra" && echo "FAIL:a-submodule-file-must-not-be-excluded"
+    # (b) submodule at a path containing "worktrees", target = main
+    g -C "$d/main" submodule update --init
+    rb="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
+    printf '%s\n' "$rb" | grep -qxF "$d/main/research/worktrees/x" && echo "FAIL:b-submodule-under-worktrees-path-must-not-be-root"
+    printf '%s\n' "$rb" | grep -qxF "$d/main/notes" && echo "FAIL:b-plain-submodule-must-not-be-root"
+    # (c) a real nested linked worktree under the target IS a root
+    g -C "$d/main" worktree add "$d/main/side" -b sideb
+    rc="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
+    printf '%s\n' "$rc" | grep -qxF "$d/main/side" || echo "FAIL:c-real-linked-worktree-must-be-root"
+    # (d) stale: gitdir removed → cannot be proven a worktree → NOT excluded (blocking-safe)
+    rm -rf "$d/main/.git/worktrees/side"
+    rd="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
+    printf '%s\n' "$rd" | grep -qxF "$d/main/side" && echo "FAIL:d-stale-worktree-must-not-be-excluded"
+    # symlinked target: probe must still see the tree (find -H)
+    g -C "$d/main" worktree add "$d/main/side2" -b side2b
+    ln -s "$d/main" "$d/link"
+    rl="$(block_files_nested_worktree_roots "$d/link" 2>/dev/null)"; rcl=$?
+    [ "$rcl" -eq 0 ] || echo "FAIL:symlinked-target-rc($rcl)"
+    printf '%s\n' "$rl" | grep -qxF "$d/link/side2" || echo "FAIL:symlinked-target-sees-worktrees"
+  )
+}
+nwr_out="$(nw_real_checks "$HELPER")"
+nwr_fails="$(printf '%s\n' "$nwr_out" | grep '^FAIL:' | tr '\n' ' ')"
+[ -z "$nwr_fails" ] \
+  && ok "9b nested-worktree roots on REAL git fixtures (linked-worktree target + submodule, submodule under worktrees/ path, stale, symlinked target)" \
+  || no "9b nested-worktree roots on real git fixtures" "$nwr_fails"
+
 nw_out="$(nw_checks "$HELPER")"
 nw_fails="$(printf '%s\n' "$nw_out" | grep '^FAIL:' | tr '\n' ' ')"
 [ -z "$nw_fails" ] \
@@ -230,14 +292,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # TOOTH-4..7 (#1223): sed mutants of the REAL helper file. Each must (a) differ from the
   # original (a no-op sed is theater) and (b) make nw_checks report the named failure.
-  nw_tooth() { # <label> <sed-expr> <expected FAIL: token>
-    local label="$1" expr="$2" want="$3" mf out
+  nw_tooth() { # <label> <sed-expr> <expected FAIL: token> [checker: nw_checks|nw_real_checks]
+    local label="$1" expr="$2" want="$3" chk="${4:-nw_checks}" mf out
     mf="$(mktemp /tmp/block-files-nwmut.XXXXXX.sh)"
     sed "$expr" "$HELPER" > "$mf"
     if cmp -s "$HELPER" "$mf"; then
       tno "$label: mutant identical to helper — sed did not match (TOOTH NOT BUILT)"; rm -f "$mf"; return
     fi
-    out="$(nw_checks "$mf")"
+    out="$("$chk" "$mf")"
     if printf '%s\n' "$out" | grep -qF "FAIL:$want"; then
       tok "$label: mutant makes nw_checks report FAIL:$want"
     else
@@ -247,8 +309,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   nw_tooth "TOOTH-4 sibling-prefix (case \"\$_r\"* instead of \"\$_r\"/*)" \
     's#"\$_r"|"\$_r"/\*) return 0#"$_r"*) return 0#' "sibling-prefix-trap(side-wt-old)"
-  nw_tooth "TOOTH-5 any-gitdir (submodule counted as worktree)" \
-    's#gitdir:\*/worktrees/\*)#gitdir:*)#' "submodule-must-not-be-root"
+  nw_tooth "TOOTH-5 commondir proof dropped (look-alike gitdir counted as worktree)" \
+    '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
+  nw_tooth "TOOTH-9 commondir proof dropped (real submodule of a linked-worktree target)" \
+    '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d' "a-submodule-in-linked-worktree-target-must-not-be-root" nw_real_checks
+  nw_tooth "TOOTH-10 symlinked target not followed (find -H dropped)" \
+    's/find -H "\$_root"/find "$_root"/' "symlinked-target-sees-worktrees" nw_real_checks
   nw_tooth "TOOTH-6 fixed .claude/worktrees root dropped" \
     '/printf .%s\\n. "\$_root\/.claude\/worktrees"/d' "fixed-claude-worktrees-root"
   nw_tooth "TOOTH-7 own .git file not skipped" \
