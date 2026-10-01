@@ -2109,11 +2109,31 @@ run_grandchild(){
   for _ in $(seq 1 100); do [ -s "$TMP/sleep61.pid" ] && break; sleep 0.1; done
   kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; sleep 0.3
   sp="$(cat "$TMP/sleep61.pid" 2>/dev/null)"
-  if [ -n "$sp" ] && [ -d "/proc/$sp" ]; then echo alive; kill "$sp" 2>/dev/null; else echo dead; fi
+  # An empty pidfile means the stub never started: that is "unknown", never a pass.
+  if [ -z "$sp" ]; then echo unknown; elif [ -d "/proc/$sp" ]; then echo alive; kill "$sp" 2>/dev/null; else echo dead; fi
 }
 d61="$TMP/rr-61/target"; mkdir -p "$d61"; _sp61="$(run_grandchild "$SUT" "$d61")"
 if [ "$_sp61" = "dead" ]; then ok "doc: #1313 N4 — TERM to the script kills the download's whole process group (grandchild gone)"
-else no "R61: grandchild sleep still alive"; fi
+else no "R61: grandchild state '$_sp61' (want dead; 'unknown' = the stub never wrote its pidfile)"; fi
+
+# R64 — W1: web mode: a TERM during the pandoc conversion must NOT be ignored (ignored signals are inherited by the
+#       child). The cancel takes effect before anything is installed: exit 143, no snapshot, no row, no part file.
+slowpandoc="$TMP/slowpandoc-bin"; mkdir -p "$slowpandoc"
+printf '#!/usr/bin/env bash\n[ -n "${PANDOC_MARK:-}" ] && : > "$PANDOC_MARK"\nsleep 3\nout=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done\n[ -n "$out" ] && echo converted > "$out"\nexit 0\n' > "$slowpandoc/pandoc"; chmod +x "$slowpandoc/pandoc"
+# run_pandoc_term <script> <dir> — echoes the exit code after TERM-to-pid during a slow pandoc.
+run_pandoc_term(){
+  local script="$1" dir="$2" pid rc=0; rm -f "$TMP/pandoc64.mark"
+  STUB_ROUTES="" PANDOC_MARK="$TMP/pandoc64.mark" PATH="$slowpandoc:$stubbin:$PATH" bash "$script" web "http://s64.example/page" "$dir" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -e "$TMP/pandoc64.mark" ] && break; sleep 0.1; done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || rc=$?
+  echo "$rc"
+}
+d64="$TMP/rr-64/target"; mkdir -p "$d64"; _rc64="$(run_pandoc_term "$SUT" "$d64")"
+_snap64="$(find "$d64/sources/web-snapshots" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [ -e "$TMP/pandoc64.mark" ] && [ "$_rc64" = "143" ] && [ "$_snap64" = "0" ] && [ ! -e "$d64/sources/SOURCES.md" ]; then
+  ok "web: #1313 W1 — TERM during the pandoc conversion cancels the run (exit 143, no snapshot, no row, no part file)"
+else no "R64: rc=$_rc64 files=$_snap64 sources-md=$([ -e "$d64/sources/SOURCES.md" ] && echo y || echo n)"; fi
 
 # R62 — N7: the versioned name is already taken by DIFFERENT bytes (or a dangling symlink): refuse, current bytes intact.
 d62="$TMP/rr-62/target"; mkdir -p "$d62"; seed51 "$d62" r62.pdf "http://s62.example/old"
@@ -2323,6 +2343,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$TMP/probe-lateprefl.txt" PATH="$stubbin:$PATH" bash "$m" doc "http://s51.example/new" "$d" datasheets r51.pdf >/dev/null 2>&1 || rc=$?
     if [ "$rc" = "4" ] && [ -s "$TMP/probe-lateprefl.txt" ]; then ok "teeth-lateprefl: late preflight still refuses (exit 4) but only after probing the network -> R51's no-probe assertion has teeth"
     else no "teeth-lateprefl: rc=$rc probes=$(wc -l < "$TMP/probe-lateprefl.txt") — R51 does NOT pin the preflight-before-download order (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 W1: web signal block moved ABOVE the pandoc conversion -> pandoc runs uncancellable --"
+  m="$(tm13 sigabovepandoc 's/^    mv -f "\$HTML.fetchdoc-part.\$\$" "\$HTML"$/&\n    trap '"''"' INT TERM/' 's/^    trap '"''"' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode$/    :/')"
+  if [ -z "$m" ]; then no "teeth-sigabovepandoc: could not build mutant (web signal-block / HTML move not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-sigabovepandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_term "$m" "$d")"
+    if [ "$rc" != "143" ]; then ok "teeth-sigabovepandoc: with the block above pandoc the TERM is swallowed (rc=$rc) -> R64 has teeth"
+    else no "teeth-sigabovepandoc: still cancelled (rc=143) — R64 does NOT pin the block's position (THEATER)"; fi
   fi
 fi
 

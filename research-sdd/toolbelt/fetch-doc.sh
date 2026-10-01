@@ -29,7 +29,12 @@
 # killed) and exit 130/143. The downloaded part file is moved into place by the MAIN shell only after the
 # download succeeded, and INT/TERM are ignored from that point on until the row is written, so a cancelled
 # run can never replace a registered file nor leave a row that disagrees with it (a signal that arrives in
-# that last window is deliberately dropped: the run finishes in milliseconds and completes consistently).
+# that last window is deliberately dropped: the window is only the install + sha256 + row write, never a
+# download or a pandoc conversion, so the run completes consistently; in web mode a signal during the
+# conversion is acted on when pandoc returns, before anything is installed).
+# A SIGKILL of the script's own process group (e.g. `timeout -k`) no longer reaches the download child, which
+# runs in its own process group: the orphan can install nothing (only the main shell moves the part file) and
+# its "<dest>.fetchdoc-part.<pid>" file is swept by a later run once its pid is dead.
 # --replace row retargeting is sha-scoped: only a row whose File cell AND sha256 match the archived bytes is
 # rewritten; other rows for the same File (legacy corpora) are left untouched with a stderr warning. If the
 # versioned name is already taken by different bytes, or is a symlink, the run REFUSES (exit 1) and keeps
@@ -519,13 +524,16 @@ case "$MODE" in
     # mode, not doc). Round 3: now the SAME shared call as doc mode, not a parallel copy.
     download_into "$URL" "$HTML"   # sets EFFECTIVE_URL
     mv -f "$HTML.fetchdoc-part.$$" "$HTML"
-    trap '' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode
     # SENTINEL-WEB-ATOMIC (#1285 review): write the snapshot to a part file and move it into place,
     # so a pandoc/cp that dies mid-write cannot truncate an already-registered snapshot.
     WPART="$DEST.fetchdoc-part.$$"
     if command -v pandoc >/dev/null; then
       pandoc -f html -t gfm "$HTML" -o "$WPART" 2>/dev/null || cp "$HTML" "$WPART"
     else cp "$HTML" "$WPART"; fi
+    # Block signals only NOW, after the conversion (#1313 W1): ignored signals are inherited across exec, so
+    # blocking before pandoc would make it uncancellable. A TERM that arrives during pandoc is handled as soon as
+    # pandoc returns (bash defers the trap past a foreground child) and the EXIT trap removes $WPART.
+    trap '' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode
     install_file "$WPART" "$DEST"
     rm -f "$HTML"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
