@@ -5,7 +5,10 @@
 # For each OPEN delta in a §18 retro file, checks whether there is an open issue
 # on angeles725/sdd-investigacion carrying the exact
 #   "Source retro: <target>/retros/<file> · <row-id>"
-# body signature produced by stage-retro-issues.sh.
+# body signature produced by stage-retro-issues.sh. The pre-#1286 LEGACY signature
+# (<path basename> instead of the registered target name) is read too, exactly as the seeder's
+# dedup does (kit issue #1304 item 2), and only lines carrying THIS retro's signature count — a
+# fuzzy GitHub search hit on another target's issue never does (kit issue #1304 item 1).
 #
 # Usage:
 #   reconcile-issues.sh <retro.md>  — audit one retro file
@@ -312,6 +315,18 @@ ${_rln}"
   # §7 contract: query failure → typed degraded + return 1, never false untracked.
   # gh requires --json when --jq is used; --template also requires --json.
   local _sig_prefix="${target_nm}/retros/${retro_basename}"
+  # RECONCILE_ISSUES_LEGACY_SIG (kit issue #1304 item 2): the seeder also dedups against the
+  # LEGACY `<path basename>/retros/<file>` signature that issues created before #1286 carry
+  # (stage-retro-issues.sh, kit issue #1287). Without the same lookup here an OPEN legacy-signed
+  # issue was reported `untracked` — an actionable gap that does not exist. The legacy name is the
+  # basename of the directory holding retros/; it is skipped when it equals the registered name or
+  # is a structural directory (`corpus`, `retros`), exactly as the seeder does.
+  local _legacy_nm _legacy_prefix=""
+  _legacy_nm="$(basename "$(dirname "$(dirname "$retro_path")")")"
+  case "$_legacy_nm" in
+    corpus|retros|''|"$target_nm") ;;
+    *) _legacy_prefix="${_legacy_nm}/retros/${retro_basename}" ;;
+  esac
   local _all_bodies=""
   # RECONCILE_ISSUES_CACHE_BRANCH: anchor for T-CACHE-NO-GH tooth — read from cache when supplied
   if [ -n "$_issues_cache" ]; then
@@ -321,45 +336,49 @@ ${_rln}"
       return 1
     }
   else
-    _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
-    # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
-    _all_bodies="$(gh issue list \
-        --repo "$_REPO" \
-        --state open \
-        --search "\"Source retro: ${_sig_prefix} ·\"" \
-        --json body \
-        --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
-    if [ "$_gh_rc" -ne 0 ]; then
-      if [ -n "$_gh_stderr_file" ]; then
-        _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
-        rm -f "$_gh_stderr_file"
-      else
-        _gh_err_msg=""
+    local _qpfx _qbodies
+    for _qpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+      _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
+      # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
+      _qbodies="$(gh issue list \
+          --repo "$_REPO" \
+          --state open \
+          --search "\"Source retro: ${_qpfx} ·\"" \
+          --json body \
+          --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
+      if [ "$_gh_rc" -ne 0 ]; then
+        if [ -n "$_gh_stderr_file" ]; then
+          _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
+          rm -f "$_gh_stderr_file"
+        else
+          _gh_err_msg=""
+        fi
+        echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
+        # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
+        return 1
       fi
-      echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
-      # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
-      return 1
-    fi
-    [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
+      [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
+      _all_bodies="${_all_bodies}${_qbodies}"$'\n'
+    done
   fi
 
-  # Extract row-ids referenced in open issues for this retro.
-  # Cache path: _all_bodies holds ALL open issues — filter by _sig_prefix to avoid cross-retro collision.
-  # gh path: bodies are already pre-filtered by the --search flag; generic extraction is safe.
-  local _issue_row_ids=""
+  # Extract row-ids referenced in open issues for this retro. BOTH paths use the same exact
+  # `Source retro: <prefix> · ` filter (kit issue #1304): the gh query is a fuzzy WORD search, so
+  # its bodies may belong to another target's issue (a `*-research` target's issue for the same
+  # file and row id); extracting `Source retro: .+ · <id>` from them reported rows that this retro
+  # does not have as tracked/orphaned. The cache path always carried ALL open issues' bodies.
+  local _issue_row_ids="" _pfx _pfx_ids
   if [ -n "$_all_bodies" ]; then
-    if [ -n "$_issues_cache" ]; then
+    for _pfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
       # RECONCILE_ISSUES_CACHE_SIGPREFIX_MATCH: fixed-string filter avoids regex metachar issues
-      # (_sig_prefix contains '/', '.', etc. from retro paths — must not be treated as regex).
-      _issue_row_ids="$(printf '%s\n' "$_all_bodies" \
-        | grep -F "Source retro: ${_sig_prefix} · " \
+      # (the prefix contains '/', '.', etc. from retro paths — must not be treated as regex).
+      _pfx_ids="$(printf '%s\n' "$_all_bodies" \
+        | grep -F "Source retro: ${_pfx} · " \
         | sed -E 's/.* · //' \
         | grep -oE '^[A-Za-z0-9_-]+')"
-    else
-      _issue_row_ids="$(printf '%s\n' "$_all_bodies" \
-        | grep -oE 'Source retro: .+ · [A-Za-z0-9_-]+' \
-        | sed -E 's/.* · //')"
-    fi
+      [ -z "$_pfx_ids" ] || _issue_row_ids="${_issue_row_ids:+${_issue_row_ids}
+}${_pfx_ids}"
+    done
   fi
 
   # --- Classify open deltas: tracked or untracked
