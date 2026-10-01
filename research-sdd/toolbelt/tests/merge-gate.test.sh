@@ -29,6 +29,20 @@ git init -q "$REPO" \
 HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
 BASE_SHA="$(git -C "$REPO" rev-parse base)"
 
+gc() { git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$2"; }
+# R2: main moved ahead of the branch point (unrelated work); feat is checked out
+R2="$ROOT/r2"
+{ git init -q -b main "$R2" && gc "$R2" c0 && C0_R2="$(git -C "$R2" rev-parse HEAD)" \
+  && git -C "$R2" checkout -q -b feat && gc "$R2" f1 && git -C "$R2" checkout -q main && gc "$R2" m1 \
+  && git -C "$R2" checkout -q feat; } || { echo "FATAL: cannot build R2" >&2; exit 2; }
+# R3: dangerous commit d1 then a harmless d2 on top of c0 (narrow-base repro)
+R3="$ROOT/r3"
+{ git init -q -b main "$R3" && gc "$R3" c0 && C0_R3="$(git -C "$R3" rev-parse HEAD)" \
+  && gc "$R3" d1-danger && gc "$R3" d2-docs; } || { echo "FATAL: cannot build R3" >&2; exit 2; }
+HEAD_R3="$(git -C "$R3" rev-parse HEAD)"
+# R0: unborn HEAD
+R0="$ROOT/r0"; git init -q "$R0" || { echo "FATAL: cannot build R0" >&2; exit 2; }
+
 # --- stub bin dir: gentle-ai and gh ------------------------------------------------------------
 STUBS="$ROOT/stubs"; mkdir -p "$STUBS"
 cat > "$STUBS/gentle-ai" <<'STUB'
@@ -36,14 +50,17 @@ cat > "$STUBS/gentle-ai" <<'STUB'
 echo "$*" >> "${STUB_LOG:-/dev/null}"
 [ -n "${STUB_JSON:-}" ] && cat "$STUB_JSON"
 [ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
+[ -n "${STUB_MOVE:-}" ] && git -C "$STUB_MOVE" -c user.email=t@t -c user.name=t commit -q --allow-empty -m moved
 exit "${STUB_RC:-0}"
 STUB
 cat > "$STUBS/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "gh $*" >> "${STUB_LOG:-/dev/null}"
+echo "gh $* cwd:$PWD" >> "${STUB_LOG:-/dev/null}"
 case "$1 $2" in
-  "pr view") echo "${STUB_PR_HEAD:-}"; exit 0 ;;
-  "pr merge") exit "${STUB_MERGE_RC:-0}" ;;
+  "pr view")
+    [ -n "${STUB_PR_VIEW_FAIL:-}" ] && exit 1
+    printf '{"headRefOid":"%s","baseRefName":"main","baseRefOid":"%s"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
+  "pr merge") [ -n "${STUB_MERGE_ERR:-}" ] && echo "$STUB_MERGE_ERR" >&2; exit "${STUB_MERGE_RC:-0}" ;;
 esac
 exit 9
 STUB
@@ -70,7 +87,7 @@ printf '{"schema":"other/v9","review_due":false,"review_due_reason":"passive"}\n
 printf '{"schema":"gentle-ai.review-assessment/v1","review_due":"no","review_due_reason":"passive"}\n' > "$ROOT/j/badbool.json"
 printf '{"schema":"gentle-ai.review-assessment/v1","review_due":false}\n' > "$ROOT/j/noreason.json"
 
-OUT=""; RC=0
+OUT=""; RC=0; PRB="$BASE_SHA"
 # run <sut> <json> [sut args...]   (stubs first on PATH)
 run() {
   local sut="$1" json="$2"; shift 2
@@ -79,7 +96,7 @@ run() {
 # runenv <sut> <json> <pr-head> <merge-rc> [sut args...]   (for --merge cases)
 runenv() {
   local sut="$1" json="$2" prh="$3" mrc="$4"; shift 4
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$json" STUB_PR_HEAD="$prh" STUB_MERGE_RC="$mrc" STUB_LOG="$ROOT/log" bash "$sut" "$@" 2>"$ROOT/err")"; RC=$?
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$json" STUB_PR_HEAD="$prh" STUB_PR_BASE="$PRB" STUB_MERGE_RC="$mrc" STUB_LOG="$ROOT/log" bash "$sut" "$@" 2>"$ROOT/err")"; RC=$?
 }
 expect() { # expect <label> <rc> <regex-on-stdout>
   if [ "$RC" -eq "$2" ] && printf '%s' "$OUT" | grep -Eq "$3"; then ok "$1"
@@ -150,6 +167,57 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   expect "degraded when PR head unreadable" 3 '^merge-gate: degraded: cannot read PR #7 head'
   runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 1 "${ARGS[@]}" --merge 7
   expect "degraded when gh pr merge fails" 3 '^merge-gate: degraded: gh pr merge failed'
+  # --- fix-first round (B1/B2/N1-N5) ---
+  # B2: assessed from the merge-base, never the moving ref
+  : > "$ROOT/log"; run "$S" "$ROOT/j/passive.json" --cwd "$R2" --base-ref main
+  expect "B2 allow when main moved ahead (assessed from merge-base)" 0 "^merge-gate: allow: passive .*merge_base=$C0_R2"
+  if grep -q -- "--base-ref $C0_R2 " "$ROOT/log" && ! grep -q -- "--base-ref main" "$ROOT/log"; then ok "B2 assess is invoked with the merge-base sha, not the moving ref"; else no "B2 assess base ($(cat "$ROOT/log"))"; fi
+  run "$S" "$ROOT/j/passive.json" --cwd "$R2" --base-ref feat; expect "N4 degraded on empty range (base == HEAD)" 3 '^merge-gate: degraded: empty range'
+  rm -rf "$ROOT/orphan"; git init -q "$ROOT/orphan" && gc "$ROOT/orphan" o0 && git -C "$ROOT/orphan" fetch -q "$R2" feat:other 2>/dev/null
+  run "$S" "$ROOT/j/passive.json" --cwd "$ROOT/orphan" --base-ref other; expect "degraded when no common ancestor" 3 '^merge-gate: degraded: no common ancestor'
+  # B1: narrow --base-ref cannot hide earlier PR commits when merging
+  PRB="$C0_R3"; : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --merge 7; PRB="$BASE_SHA"
+  expect "B1 refuse base_excludes_pr_commits (dangerous commit + narrow base + --merge)" 1 '^merge-gate: refuse: base_excludes_pr_commits'
+  if ! grep -q 'pr merge' "$ROOT/log"; then ok "B1 refuse never calls gh pr merge"; else no "B1 merged despite narrow base"; fi
+  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
+  expect "B1 allow+merge when base is the PR branch point" 0 '^merge-gate: merged: PR #7'
+  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1; PRB="$BASE_SHA"
+  expect "B1 narrow base without --merge stays a pure check (allow)" 0 '^merge-gate: allow'
+  PRB="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
+  expect "degraded when PR base commit is absent locally" 3 '^merge-gate: degraded: PR #7 base .* not present locally'
+  PRB=""; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
+  expect "degraded when PR base unreadable" 3 '^merge-gate: degraded: cannot read PR #7 base'
+  # N1: gh is bound to --cwd
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
+  if grep -q "^gh pr view .* cwd:$REPO\$" "$ROOT/log" && grep -q "^gh pr merge .* cwd:$REPO\$" "$ROOT/log"; then ok "N1 gh runs inside --cwd"; else no "N1 gh cwd ($(cat "$ROOT/log"))"; fi
+  case "$OUT" in *"cwd=$REPO"*) ok "N1 merged line names the repo dir";; *) no "N1 merged line ($OUT)";; esac
+  # N2: HEAD moving during assess
+  rm -rf "$ROOT/r4"; git clone -q "$REPO" "$ROOT/r4"
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_MOVE="$ROOT/r4" bash "$S" --cwd "$ROOT/r4" --base-ref "$BASE_SHA" 2>/dev/null)"; RC=$?
+  expect "N2 degraded when HEAD moves during assess" 3 '^merge-gate: degraded: HEAD moved during assess'
+  # N3: gh pr merge failure surfaces gh's line; head rejection is a refuse
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="X Pull request is not mergeable" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "N3 degraded surfaces gh's own first line" 3 'gh pr merge failed for PR #7: X Pull request is not mergeable'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="Head branch was modified. Review and try the merge again." bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "N3 --match-head-commit rejection is refuse head_mismatch" 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed before merge'
+  # N5: own hint for untracked files
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: untracked files require an explicit declaration" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
+  expect "N5 own hint to clean or ignore untracked files" 3 'clean or ignore untracked files'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: something else" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
+  if [ "$RC" -eq 3 ] && ! printf '%s' "$OUT" | grep -q 'untracked'; then ok "N5 no untracked hint on unrelated assess errors"; else no "N5 hint leaked ($OUT)"; fi
+  # teeth gaps: --merge without gh, gh pr view failing, unborn HEAD, mktemp failure
+  mkminimal "$ROOT/nogh" git jq bash env cat dirname mktemp rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nogh/"
+  OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "degraded --merge without gh" 3 '^merge-gate: degraded: gh not found'
+  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_VIEW_FAIL=1 bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
+  expect "degraded when gh pr view fails" 3 '^merge-gate: degraded: cannot read PR #7 \(gh pr view failed\)'
+  run "$S" "$ROOT/j/passive.json" --cwd "$R0" --base-ref HEAD; expect "degraded unborn HEAD" 3 '^merge-gate: degraded: cannot resolve HEAD'
+  mkminimal "$ROOT/nomktemp" git jq bash env cat dirname rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nomktemp/"
+  OUT="$(PATH="$ROOT/nomktemp" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
+  expect "degraded mktemp missing" 3 '^merge-gate: degraded: mktemp failed'
+  # --squash must be part of the merge call
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
+  if grep -q '^gh pr merge 7 --squash ' "$ROOT/log"; then ok "merge uses --squash"; else no "merge lacks --squash ($(cat "$ROOT/log"))"; fi
 }
 
 echo "-- merge-gate behavioural suite --"
@@ -190,12 +258,28 @@ mutate M08-merge-unpinned         's/--match-head-commit "\$head"/--auto/'
 mutate M09-jq-probe-removed       's/^command -v jq .*/:/'
 mutate M10-gentle-probe-removed   's/^command -v gentle-ai .*/:/'
 mutate M11-git-probe-removed      's/^command -v git .*/:/'
-mutate M12-pr-head-read-unchecked 's/^\[ -n "\$pr_head" \] || degraded.*/:/'
+mutate M12-pr-head-read-unchecked 's/^  \[ -n "\$pr_head" \] || degraded.*/  :/'
 mutate M13-bool-unchecked         's/^case "\$due" in true|false) ;; \*) degraded.*/:/'
 mutate M14-reason-missing-ok      's/^\[ -n "\$reason" \] || degraded.*/:/'
-mutate M15-merge-failure-ignored  's/ || degraded "gh pr merge failed.*/ || true/'
+mutate M15-merge-failure-ignored  's/^  degraded "gh pr merge failed.*/  :/'
 mutate M16-pr-number-unchecked    's/^case "\$pr" in .*/:/'
 mutate M17-committed-only-dropped 's/ --committed-only//'
+mutate M20-base-unresolvable-ok   's/^git -C "\$cwd" rev-parse --verify --quiet "\${base}\^{commit}".*/:/'
+mutate M21-assess-from-moving-ref 's/--base-ref "\$mb"/--base-ref "\$base"/'
+mutate M22-narrow-base-allowed    's/^  if ! git -C "\$cwd" merge-base --is-ancestor.*/  if false; then/'
+mutate M23-empty-range-ok         's/^\[ "\$ahead" -gt 0 \] || degraded.*/:/'
+mutate M24-head-move-ignored      's/^\[ "\$head_after" = "\$head" \] || degraded.*/:/'
+mutate M25-gh-not-bound-to-cwd    's/(cd "\$cwd" \&\& gh "\$@")/gh "\$@"/'
+mutate M26-no-squash              's/ --squash//'
+mutate M27-merge-reject-degraded  's/grep -Eqi .head branch was modified|match-head-commit|head sha./grep -Eqi "NEVER-MATCHES-XYZ"/'
+mutate M28-untracked-hint-dropped 's/^  if grep -qi .untracked. "\$err_file".*/  if false; then hint=""; fi/'
+mutate M29-merge-err-dropped      's/\${merge_line:+: \$merge_line}//'
+mutate M30-pr-view-unchecked      's/^  \[ -n "\$pr_json" \] || degraded.*/  :/'
+mutate M31-pr-base-presence       's/^  git -C "\$cwd" cat-file -e .*/  :/'
+mutate M32-no-ancestor-unchecked  's/^mb="\$(git -C "\$cwd" merge-base HEAD "\$base" 2>\/dev\/null)" || degraded.*/mb="$(git -C "$cwd" merge-base HEAD "$base" 2>\/dev\/null)"/;s/^\[ -n "\$mb" \] || degraded.*/:/'
+mutate M33-mktemp-unchecked       's/^err_file="\$(mktemp 2>\/dev\/null)" || degraded.*/err_file="$(mktemp 2>\/dev\/null)"/'
+mutate M34-unborn-head-ok         's/^head="\$(git -C "\$cwd" rev-parse --verify HEAD 2>\/dev\/null)" || degraded.*/head="$(git -C "$cwd" rev-parse --verify HEAD 2>\/dev\/null)"/'
+mutate M35-gh-probe-removed       's/^if \[ -n "\$pr" \]; then command -v gh.*/:/'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
 mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
 echo "== $pass passed · $fail failed · mutants $MUT_PASS detected · $MUT_FAIL missed =="

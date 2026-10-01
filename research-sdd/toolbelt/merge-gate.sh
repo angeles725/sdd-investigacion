@@ -2,7 +2,7 @@
 # merge-gate.sh — pre-merge check: never merge a review-due candidate before its review (kit issue #1272).
 #
 # Reads gentle-ai's OWN answer (`gentle-ai review assess --committed-only --json`) for the range
-# <base-ref>..HEAD of a worktree and refuses when `review_due` is true. gentle-ai already folds
+# <merge-base(HEAD, base-ref)>..HEAD of a worktree (assessed from the merge-base, never a moving ref) and refuses when `review_due` is true. gentle-ai already folds
 # "this exact range was acknowledged" into its answer (`review_due=false`,
 # `review_due_reason=already_reviewed`), so this script re-implements none of that logic.
 #
@@ -13,6 +13,7 @@
 #   merge-gate: allow: <passive|already_reviewed|under_budget> (head=<sha> base=<ref>)   exit 0
 #   merge-gate: refuse: review_due (<reason>) ...                                        exit 1
 #   merge-gate: refuse: head_mismatch ...                                                exit 1
+#   merge-gate: refuse: base_excludes_pr_commits ... (--merge only)                      exit 1
 #   merge-gate: degraded: <why>                                                          exit 3
 #   merge-gate: usage: <why>                                                             exit 2
 #   merge-gate: merged: PR #N (head=<sha>)                                               exit 0
@@ -50,6 +51,8 @@ command -v jq >/dev/null 2>&1 || degraded "jq not found on PATH"
 command -v gentle-ai >/dev/null 2>&1 || degraded "gentle-ai not found on PATH"
 if [ -n "$pr" ]; then command -v gh >/dev/null 2>&1 || degraded "gh not found on PATH (needed for --merge)"; fi
 
+ghr() { (cd "$cwd" && gh "$@"); }   # gh bound to the repo under test, never the caller's cwd
+
 git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1 || degraded "--cwd is not a git repo/worktree: $cwd"
 head="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || degraded "cannot resolve HEAD in $cwd"
 git -C "$cwd" rev-parse --verify --quiet "${base}^{commit}" >/dev/null || degraded "base-ref does not resolve to a commit: $base"
@@ -62,17 +65,50 @@ if [ -n "$want_head" ]; then
   fi
 fi
 
+# Assess from the MERGE-BASE, never a moving ref: base-ref may have advanced past the branch point
+# with unrelated changes, which would make the assessed range include commits that are not ours.
+mb="$(git -C "$cwd" merge-base HEAD "$base" 2>/dev/null)" || degraded "no common ancestor between HEAD and base-ref: $base"
+[ -n "$mb" ] || degraded "no common ancestor between HEAD and base-ref: $base"
+ahead="$(git -C "$cwd" rev-list --count "$mb..HEAD" 2>/dev/null)" || degraded "cannot count commits in $mb..HEAD"
+case "$ahead" in ''|*[!0-9]*) degraded "cannot count commits in $mb..HEAD" ;; esac
+[ "$ahead" -gt 0 ] || degraded "empty range (nothing to merge): $mb..HEAD has 0 commits"
+
+# --merge: bind the assessed range to the PR. The caller-chosen base must start at or before the
+# PR's branch point, otherwise a narrow base would hide unreviewed commits of the same PR.
+if [ -n "$pr" ]; then
+  pr_json="$(ghr pr view "$pr" --json headRefOid,baseRefName,baseRefOid 2>/dev/null)" || pr_json=""
+  [ -n "$pr_json" ] || degraded "cannot read PR #$pr (gh pr view failed)"
+  pr_head="$(printf '%s' "$pr_json" | jq -r '.headRefOid // empty' 2>/dev/null)"
+  [ -n "$pr_head" ] || degraded "cannot read PR #$pr head (no headRefOid)"
+  if [ "$pr_head" != "$head" ]; then
+    say "refuse: head_mismatch (PR #$pr head $pr_head != checked HEAD $head)"
+    exit 1
+  fi
+  pr_base="$(printf '%s' "$pr_json" | jq -r '.baseRefOid // empty' 2>/dev/null)"
+  [ -n "$pr_base" ] || degraded "cannot read PR #$pr base (no baseRefOid)"
+  git -C "$cwd" cat-file -e "${pr_base}^{commit}" 2>/dev/null || degraded "PR #$pr base $pr_base is not present locally (git fetch first)"
+  pr_mb="$(git -C "$cwd" merge-base HEAD "$pr_base" 2>/dev/null)" || degraded "no common ancestor between HEAD and PR #$pr base"
+  if ! git -C "$cwd" merge-base --is-ancestor "$mb" "$pr_mb"; then
+    say "refuse: base_excludes_pr_commits (assessed range starts at $mb, after the PR branch point $pr_mb) — use the PR base as --base-ref"
+    exit 1
+  fi
+fi
+
 # Ask gentle-ai. Capture stdout and the exit status separately; a non-zero assess is degraded
 # even when its stdout happens to look like an allow.
 err_file="$(mktemp 2>/dev/null)" || degraded "mktemp failed"
 trap 'rm -f "$err_file"' EXIT
-assess_out="$(gentle-ai review assess --cwd "$cwd" --base-ref "$base" --committed-only --json 2>"$err_file")"
+assess_out="$(gentle-ai review assess --cwd "$cwd" --base-ref "$mb" --committed-only --json 2>"$err_file")"
 assess_rc=$?
 if [ "$assess_rc" -ne 0 ]; then
-  # Surface gentle-ai's own first error line (e.g. untracked files need an explicit declaration).
+  # Surface gentle-ai's own first error line, plus our own hint for the common untracked-files cause.
   err_line="$(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)"
-  degraded "gentle-ai review assess failed (exit $assess_rc)${err_line:+: $err_line}"
+  hint=""
+  if grep -qi 'untracked' "$err_file" 2>/dev/null; then hint=" — clean or ignore untracked files in $cwd and retry"; fi
+  degraded "gentle-ai review assess failed (exit $assess_rc)${err_line:+: $err_line}$hint"
 fi
+head_after="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || head_after=""
+[ "$head_after" = "$head" ] || degraded "HEAD moved during assess ($head -> ${head_after:-unknown}); rerun"
 
 printf '%s' "$assess_out" | jq -e . >/dev/null 2>&1 || degraded "assess output is unparseable JSON"
 schema="$(printf '%s' "$assess_out" | jq -r '.schema // empty')"
@@ -83,24 +119,26 @@ reason="$(printf '%s' "$assess_out" | jq -r '.review_due_reason // empty')"
 [ -n "$reason" ] || degraded "assess review_due_reason is missing"
 
 if [ "$due" = "true" ]; then
-  say "refuse: review_due ($reason) (head=$head base=$base) — review this exact head before merging"
+  say "refuse: review_due ($reason) (head=$head base=$base merge_base=$mb) — review this exact head before merging"
   exit 1
 fi
 case "$reason" in
   passive|already_reviewed|under_budget) ;;
   *) degraded "unknown not-due reason from gentle-ai: $reason (refusing to guess)" ;;
 esac
-say "allow: $reason (head=$head base=$base)"
+say "allow: $reason (head=$head base=$base merge_base=$mb)"
 
 [ -n "$pr" ] || exit 0
 
-# --merge: the PR's current head must be the head we just checked, and the merge itself pins it.
-pr_head="$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null)" || pr_head=""
-[ -n "$pr_head" ] || degraded "cannot read PR #$pr head (gh pr view failed)"
-if [ "$pr_head" != "$head" ]; then
-  say "refuse: head_mismatch (PR #$pr head $pr_head != checked HEAD $head)"
-  exit 1
+merge_out="$(ghr pr merge "$pr" --squash --match-head-commit "$head" 2>&1)"
+merge_rc=$?
+if [ "$merge_rc" -ne 0 ]; then
+  merge_line="$(printf '%s' "$merge_out" | head -n 1 | cut -c1-200)"
+  if printf '%s' "$merge_line" | grep -Eqi 'head branch was modified|match-head-commit|head sha'; then
+    say "refuse: head_mismatch (PR #$pr head changed before merge: $merge_line)"
+    exit 1
+  fi
+  degraded "gh pr merge failed for PR #$pr${merge_line:+: $merge_line}"
 fi
-gh pr merge "$pr" --squash --match-head-commit "$head" >/dev/null 2>&1 || degraded "gh pr merge failed for PR #$pr"
-say "merged: PR #$pr (head=$head)"
+say "merged: PR #$pr (head=$head cwd=$cwd)"
 exit 0
