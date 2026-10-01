@@ -1420,8 +1420,8 @@ self-provisioning route is NOT parkable — it is pursued and the STOP does not 
 seeded as `requires-execution` and listed in the STOP declaration as a §19 hand-off, exactly as §8 criterion 1
 already lets the static loop stop while `requires-execution` gaps remain; an operator-owned item is a typed
 `blocked-on-<reason>` row carrying its `unblock:` plan (§21.1); (3) STOP is honored only when the list is empty, or
-every remaining item is parked by the operator, handed off in the STOP declaration (unattended run), or is a
-`not-buildable` wall stating that every instrument class was tried. Operator parking follows the §8 D4 rule
+every remaining item is parked by the operator, is a §19 hand-off listed in the STOP declaration, is an
+operator-owned item handed off in the STOP declaration (unattended run only), or is a `not-buildable` wall stating that every instrument class was tried. Operator parking follows the §8 D4 rule
 (search `deferred-by-policy`): Priority `deferred`, a typed `blocked-on-<reason>` Status, and `parked by operator
 <date>` in the Status DECORATION — never in the Gap cell (`is_blocked` matches the Gap name). In an unattended run no
 operator can answer: list the operator-owned and §19 items with their `unblock:` plans in the STOP declaration as
