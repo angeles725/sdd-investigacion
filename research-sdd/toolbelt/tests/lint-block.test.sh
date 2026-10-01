@@ -204,7 +204,7 @@ run "$FX/waiver-alias.md"; want="$(lines_of ROW-BAD "$FX/waiver-alias.md")"
 [ "$RC" -eq 1 ] && [ "$(reported R3 "$OUT" "$FX/waiver-alias.md")" = "$want" ] && [ "$(reported R0 "$OUT" "$FX/waiver-alias.md")" = "$want" ] \
   && ok "14k reference alias <!-- lint-ok: R3 reason --> waives with a reason; without one: R0 + R3 still fires" || no "14k alias (rc=$RC out=[$OUT])"
 run "$FX/waiver-unknown.md"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R9' && printf '%s' "$OUT" | grep -qE '^R0 .*upper-case' \
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R99' && printf '%s' "$OUT" | grep -qE '^R0 .*upper-case' \
    && [ "$(reported R3 "$OUT" "$FX/waiver-unknown.md")" = "$(lines_of LOW-BAD "$FX/waiver-unknown.md")" ]; then
   ok "14l waiver for an unknown rule id -> R0; lower-case id -> R0 'upper-case' and does not waive"
 else no "14l unknown/lower waiver (rc=$RC out=[$OUT])"; fi
@@ -220,6 +220,16 @@ run --audit "$FX/corpus-empty"
 printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED: 1' && printf '%s' "$OUT" | grep -qF 'has no canonical block files' && ok "14p block-less dir: EMPTY-INPUT plus UNCLASSIFIED: 1" || no "14p empty+unclassified (rc=$RC out=[$OUT])"
 run "$FX/r3-prose.md"
 [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'cert-hw-live-items=1' && ok "14q prose paragraph that merely MENTIONS a marker and a /tmp path is not an item (only table rows / list items are); the real bullet is counted" || no "14q prose (rc=$RC out=[$OUT])"
+run "$FX/waiver-reserved.md"
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | grep -cE '^INFO .*waiver for inactive pack rule R(9|1) \(not enforced by the generic core\)')" = "2" ] \
+   && printf '%s' "$OUT" | grep -qF 'inactive-waivers=2' && printf '%s' "$OUT" | grep -qF 'findings=0'; then
+  ok "15a waivers naming RESERVED pack rule ids (R9, R1 alias) are INFO, not R0: exit 0, inactive-waivers=2"
+else no "15a reserved waivers (rc=$RC out=[$OUT])"; fi
+run "$FX/waiver-reserved-bad.md"; want="$(lines_of BAD "$FX/waiver-reserved-bad.md")"
+if [ "$RC" -eq 1 ] && [ "$(reported R0 "$OUT" "$FX/waiver-reserved-bad.md")" = "$want" ] && printf '%s' "$OUT" | grep -qF 'inactive-waivers=0' \
+   && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R99' && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R10'; then
+  ok "15b unknown ids (R99, R10), a reason-less reserved waiver and a lower-case reserved id all stay R0 (4 findings, inactive-waivers=0)"
+else no "15b reserved-bad (rc=$RC want=[$want] out=[$OUT])"; fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -419,9 +429,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$MRC" -eq 1 ] && ok "teeth Z1: fence check dropped in waiver parsing -> quoted tokens become R0 -> case 14j has teeth" || no "teeth Z1: mutant still clean (rc=$MRC) — THEATER"
   fi
   tooth_set Z2 lint_block.py 's#alias = m.group(1).lower() == "ok"#alias = False#' "$FX/waiver-alias.md" R3
-  if tooth_build Z3 lint_block.py 's#^                if rule not in RULE_IDS:#                if False:#'; then
+  if tooth_build Z3 lint_block.py 's#^                if rule not in RULE_IDS and not inactive:#                if False:#'; then
     mrun "$FX/waiver-unknown.md"
-    printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R9' && no "teeth Z3: mutant still reports the unknown rule — THEATER" || ok "teeth Z3: unknown-rule check removed -> R9 waiver accepted silently -> case 14l has teeth"
+    printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R99' && no "teeth Z3: mutant still reports the unknown rule — THEATER" || ok "teeth Z3: unknown-rule check removed -> R99 waiver accepted silently -> case 14l has teeth"
   fi
   tooth_set Z4 lint_block.py 's#^                if raw_id != rule:#                if False:#' "$FX/waiver-unknown.md" R3 LOW-BAD
   tooth_set Q1 lint_block.py 's#|cite|reference)#)#' "$FX/r6-verbs.md" R6 -BAD
@@ -438,6 +448,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth_build P2 lint_block.py 's#if u.kind not in ("row", "item") or u.line not in sv:#if u.kind not in ("row", "item", "para") or u.line not in sv:#'; then
     mrun "$FX/r3-prose.md"
     [ "$MRC" -eq 1 ] && ok "teeth P2: prose paragraphs inspected -> explanatory text FALSE-FLAGS (measured: niagara5 block26:359) -> case 14q has teeth" || no "teeth P2: mutant still clean (rc=$MRC) — THEATER"
+  fi
+  if tooth_build R1 lint_block.py 's#^RESERVED_PACK_RULE_IDS = .*#RESERVED_PACK_RULE_IDS = ()#'; then
+    mrun "$FX/waiver-reserved.md"
+    [ "$MRC" -eq 1 ] && ok "teeth R1: reserved set emptied -> pack-rule waivers become R0 (block123 shape fails FAIL mode) -> case 15a has teeth" || no "teeth R1: mutant still exits $MRC — THEATER"
+  fi
+  if tooth_build R2 lint_block.py 's#^RESERVED_PACK_RULE_IDS = .*#RESERVED_PACK_RULE_IDS = tuple("R%d" % n for n in range(1, 200))#'; then
+    mrun "$FX/waiver-reserved-bad.md"
+    printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R99' && no "teeth R2: mutant still reports R99 unknown — THEATER" || ok "teeth R2: reserved set widened to R1..R199 -> R99 silently accepted -> case 15b has teeth"
+  fi
+  if tooth_build R3 lint_block.py 's#^                if not reason:#                if False:#'; then
+    mrun "$FX/waiver-reserved-bad.md"
+    [ "$(reported R0 "$MOUT" "$FX/waiver-reserved-bad.md")" = "$(lines_of BAD "$FX/waiver-reserved-bad.md")" ] && no "teeth R3: mutant still flags the reason-less reserved waiver — THEATER" || ok "teeth R3: reason check dropped -> reason-less reserved waiver accepted -> case 15b has teeth"
   fi
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then

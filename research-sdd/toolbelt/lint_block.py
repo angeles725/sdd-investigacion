@@ -28,6 +28,8 @@ Waiver (per unit)
   implementation's spelling `<!-- lint-ok: R3 free text reason -->` is accepted as an alias.
   Waiver-shaped text inside a code fence is quoted material and is not parsed.
 
+Waivers for reserved pack rule ids (R1 R2 R4 R5 R7 R8 R9) are INFO, counted as `inactive-waivers=`.
+
 Warnings (never change the exit code, counted as `warn=` in SUMMARY)
   WARN path:LINE: unclosed code fence — everything after it is hidden from the rules.
 
@@ -214,6 +216,7 @@ class Doc:
         self.cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0}
         self.valid_waivers = []   # [(line, rule)]
         self.r0 = []              # [(line, "R0", msg)]
+        self.infos = []           # [(line, msg)] — inactive-pack-rule waivers
         self.warns = [(ln, f"unclosed code fence: {hidden} following line(s) were NOT linted")
                       for ln, hidden in self.unclosed]
         self._parse_waivers()
@@ -234,13 +237,17 @@ class Doc:
                 if raw_id != rule:
                     self.r0.append((i, "R0", f"waiver rule id must be upper-case ({rule}, not {raw_id}); it does NOT waive"))
                     continue
-                if rule not in RULE_IDS:
+                inactive = rule in RESERVED_PACK_RULE_IDS and rule not in RULE_IDS
+                if rule not in RULE_IDS and not inactive:
                     self.r0.append((i, "R0", f"waiver names unknown rule {rule} (active: {', '.join(RULE_IDS)}); it does NOT waive"))
                     continue
                 rm = WAIVER_REASON_RE.match(rest)
                 reason = rm.group(1).strip() if rm else (rest if alias else "")
                 if not reason:
                     self.r0.append((i, "R0", f"waiver for {rule} has no reason text; it does NOT waive"))
+                    continue
+                if inactive:
+                    self.infos.append((i, f"waiver for inactive pack rule {rule} (not enforced by the generic core)"))
                     continue
                 self.valid_waivers.append((i, rule))
 
@@ -370,19 +377,24 @@ def rule_r6(doc):
 # Extension point (slice 2): per-target rule packs append `(rule_id, fn)` here.
 RULES = [("R3", rule_r3), ("R6", rule_r6)]
 RULE_IDS = [r for r, _ in RULES]
+# Ids of the reference linter's per-target pack rules, reserved for slice 2. A waiver naming one is
+# valid in a block (it is not R0) but nothing enforces it here: it is reported as INFO and counted
+# as `inactive-waivers`. A pack that registers a rule in RULES activates its id automatically.
+RESERVED_PACK_RULE_IDS = ("R1", "R2", "R4", "R5", "R7", "R8", "R9")
 
 
 def lint_text(text):
-    """Return (findings, warnings, coverage) for one document.
+    """Return (findings, warnings, infos, coverage) for one document.
 
-    findings = sorted [(line, rule, message)]; warnings = [(line, message)] (never affect the exit).
+    findings = sorted [(line, rule, message)]; warnings and infos = [(line, message)] (neither
+    affects the exit code).
     """
     doc = Doc(text)
     findings = list(doc.r0)
     for _rid, fn in RULES:
         findings.extend(fn(doc))
     findings.sort(key=lambda f: (f[0], f[1]))
-    return findings, doc.warns, doc.cov
+    return findings, doc.warns, doc.infos, doc.cov
 
 
 def main(argv):
@@ -414,7 +426,7 @@ def main(argv):
 
     counts = {r: 0 for r in ["R0"] + RULE_IDS}
     cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0}
-    read = empty = unreadable = total = warn = 0
+    read = empty = unreadable = total = warn = inactive = 0
     for path in files:
         try:
             with open(path, "r", encoding="utf-8") as fh:
@@ -428,9 +440,12 @@ def main(argv):
             empty += 1
             print(f"EMPTY-INPUT {path}")
             continue
-        findings, warns, c = lint_text(text)
+        findings, warns, infos, c = lint_text(text)
         for k in cov:
             cov[k] += c[k]
+        for line, msg in infos:
+            print(f"INFO {path}:{line}: {msg}")
+            inactive += 1
         for line, msg in warns:
             print(f"WARN {path}:{line}: {msg}")
             warn += 1
@@ -441,7 +456,7 @@ def main(argv):
 
     mode = "AUDIT" if audit else "LINT"
     per_rule = " ".join(f"{r}={counts.get(r, 0)}" for r in ["R0"] + RULE_IDS)
-    print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} {per_rule} "
+    print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} inactive-waivers={inactive} {per_rule} "
           f"| inspected: selfverify-sections={cov['selfverify_sections']} "
           f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']}")
     if unreadable:
