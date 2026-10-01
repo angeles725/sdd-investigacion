@@ -613,6 +613,23 @@ if grep -q '^UNIT: <whole-artifact> reason=total_budget_exhausted fallback=cfr r
   ok "J4 whole-artifact fallback after budget exhaustion is not clamped to the spent budget"
 else no "J4 post-budget fallback runs under the ordinary timeout" "rc=$RC so=[$SO]"; fi
 
+# ── Issue #1320 item 7: resources dropped on the failure path are reported, never silent ──
+# The per-package / whole-artifact fallback decompiles .class entries only; every non-class entry
+# (META-INF/*, .lexicon, ...) of the jar is NOT copied. The status line must say how many.
+JARR="$ROOT/res.jar"; mkjar "$JARR" a/A.class b/B.class META-INF/MANIFEST.MF a/x.lexicon
+rt K1 "$JARR" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*primary=error isolation=package resources_not_copied=2' <<<"$SO"; then
+  ok "K1 failure path on a jar with 2 resources → resources_not_copied=2 in the status line"
+else no "K1 dropped resources are counted" "rc=$RC so=[$SO]"; fi
+# K2: nothing dropped → the field is absent (a count of 0 is not noise on every line).
+rt K2 "$JAR3" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && ! grep -q 'resources_not_copied' <<<"$SO"; then ok "K2 jar without resources → no resources_not_copied field"
+else no "K2 no field when nothing was dropped" "rc=$RC so=[$SO]"; fi
+# K3: the count cannot be taken (unzip absent) → typed unknown, never a silent absence.
+rt K3 "$JARR" STUB_FAIL_WHOLE=1 RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q 'resources_not_copied=unknown' <<<"$SO"; then ok "K3 unzip absent → resources_not_copied=unknown (typed)"
+else no "K3 uncountable resources are typed unknown" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -837,6 +854,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" rt mI3 "$JARB" STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
     if [ "$(units_of)" != "BOOT-INF/classes/b/B" ]; then ok "teeth-mI3: raw-key mutant double-handles the unit → I5 bites"
     else no "teeth-mI3: mutant still reported one unit — I5 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: issue #1320 item 7 (dropped resources) --"
+  # mK1: resources never reported → K1 loses the field.
+  if build_mut mK1 's/^\[ "\$RESOURCES_DROPPED" = 0 \] || detail=.*$/:/'; then
+    RT_SUT="$MUT" rt mK1 "$JARR" STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if ! grep -q 'resources_not_copied' <<<"$SO"; then ok "teeth-mK1: report-removed mutant drops the resources silently → K1 bites"
+    else no "teeth-mK1: mutant still reported — K1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mK2: an uncountable listing reads as 0 (silent) → K3 loses the typed unknown.
+  if build_mut mK2 's/RESOURCES_DROPPED=unknown; return 0/RESOURCES_DROPPED=0; return 0/'; then
+    RT_SUT="$MUT" rt mK2 "$JARR" STUB_FAIL_WHOLE=1 RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+    if ! grep -q 'resources_not_copied=unknown' <<<"$SO"; then ok "teeth-mK2: unknown-as-zero mutant reads an unlisted jar as clean → K3 bites"
+    else no "teeth-mK2: mutant still typed unknown — K3 has no teeth" "so=[$SO]"; fi
+  fi
+  # mK3: always report (even 0) → K2 sees the field on a jar with no resources.
+  if build_mut mK3 's/^\[ "\$RESOURCES_DROPPED" = 0 \] || detail=/false || detail=/'; then
+    RT_SUT="$MUT" rt mK3 "$JAR3" STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if grep -q 'resources_not_copied=0' <<<"$SO"; then ok "teeth-mK3: always-report mutant adds a zero field → K2 bites"
+    else no "teeth-mK3: mutant did not add the zero field — K2 has no teeth" "so=[$SO]"; fi
   fi
   echo "-- teeth: issue #1320 item 6 (budget scope, discard) --"
   # mJ1: no clamp to the remaining budget → J1 runs the hanging package to its own timeout/sleep.

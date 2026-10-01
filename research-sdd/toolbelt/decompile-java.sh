@@ -30,6 +30,10 @@
 #   and a file already sitting in a reused out-dir is never coverage (it must be newer than this run's start).
 #   Prefix-layout jars (BOOT-INF/classes/, WEB-INF/classes/, META-INF/versions/N/): CFR/Procyon write output paths
 #   that follow the package, so coverage and marker lookups also match the prefix-stripped path.
+#   Failure path limits (reported or documented, not hidden): the per-package / whole-artifact re-runs decompile
+#   .class entries only, so non-class jar entries (META-INF/*, .lexicon, ...) are NOT copied — the status line
+#   carries resources_not_copied=N (or =unknown when the listing cannot be taken); and each per-package rerun
+#   sees only its own package, so cross-package library context is lost for that rerun (not reported per unit).
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
 #   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
 #   notes) keep the primary file; comments saying the output is WRONG or will not compile ("decompiled code is
@@ -194,6 +198,20 @@ layout_key() {
 discard_run_output() {
   find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
   find "$OUT" -mindepth 1 -type d -empty -newer "$STAMP" -delete 2>/dev/null || true
+}
+
+# count_resources — failure path only (kit issue #1320 item 7): the per-package / whole-artifact re-runs decompile
+# .class entries only, so every other jar entry (META-INF/*, .lexicon, ...) is NOT copied to $OUT. Count them so the
+# status line reports the loss; RESOURCES_DROPPED = N, or "unknown" when the listing cannot be taken.
+RESOURCES_DROPPED=0
+count_resources() {
+  local n
+  if ! command -v "$UNZIP_BIN" >/dev/null 2>&1; then RESOURCES_DROPPED=unknown; return 0; fi
+  if n="$("$UNZIP_BIN" -Z1 "$IN" 2>/dev/null | awk '!/\/$/ && !/\.class$/ { n++ } END { print n + 0 }')" && [[ "$n" =~ ^[0-9]+$ ]]; then
+    RESOURCES_DROPPED="$n"
+  else
+    RESOURCES_DROPPED=unknown
+  fi
 }
 
 UNITS=()        # one line per affected unit: "<unit>|<reason>|<fallback>|<result>"
@@ -385,6 +403,7 @@ if [ "$rc" -ne 0 ]; then
   # A killed/failed run's partial output is untrustworthy: drop what this run wrote.
   discard_run_output
   if [[ "${IN,,}" == *.jar ]]; then
+    count_resources
     irc=0; isolate_jar || irc=$?
     ISOLATING="" # later runs (whole-artifact fallback, marker scan) are not budget-clamped
     if [ "$irc" -eq 1 ]; then
@@ -421,6 +440,7 @@ status=DEGRADED
 [ "$PARTIAL_UNITS" -eq 0 ] || status=PARTIAL
 detail="units=${#UNITS[@]}"
 [ -z "$PRIMARY_STATE" ] || detail="$detail primary=$PRIMARY_STATE${ISOLATION_LEVEL:+ isolation=$ISOLATION_LEVEL}"
+[ "$RESOURCES_DROPPED" = 0 ] || detail="$detail resources_not_copied=$RESOURCES_DROPPED"
 [ -z "$PROBE_DEGRADED" ] || detail="$detail reason=$PROBE_DEGRADED"
 echo "$status: $IN -> $OUT  (engine=$ENGINE $detail)"
 for u in "${UNITS[@]+"${UNITS[@]}"}"; do
