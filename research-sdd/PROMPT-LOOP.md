@@ -534,7 +534,7 @@ Always read first, in this order:
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B6/B8; the originally cited commit no longer exists after that corpus's re-bootstrap.)
+         (Evidence: COB-IM2 B8, ANNOTATION-BEFORE-DERIVATION only; the originally cited commit no longer exists after that corpus's re-bootstrap.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -601,8 +601,9 @@ Always read first, in this order:
          target repo differs from the session cwd (disjoint ownership, at most two writers, one
          committing chain per repo, worktree isolation, quiet-tree gate).
        - DELEGATION-BRIEFS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs` in full
-         when writing a delegate's brief or receiving its result (executing-delegate contract,
-         environment facts, truncated brief, blocker-scoped focus, PDF-citation spot-check).
+         when writing a delegate's brief or receiving its result, or when the build hits a WB/framework
+         wall (executing-delegate contract, environment facts, truncated brief, blocker-scoped focus,
+         PDF-citation spot-check).
        - REVIEW-AND-DELIVERY — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#review-and-delivery` in
          full before committing/merging on an RDD repo or landing a large change set (bulk-commit vs
          RDD, <=~400-line chained slices, never merge a due candidate before review, CI wait).
@@ -1154,7 +1155,7 @@ Always read first, in this order:
      at slice level (each slice confirmed readable); (b) dispatch ONE agent per outline item, each
      receiving its pre-extracted slice + the outline structure, returning ONLY cited findings
      (file:line + load-bearing snippets), NOT raw dumps; (c) the driver writes the blocks from those
-     findings and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
+     findings, then the PDF-citation spot-check (`$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs`), and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
      step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
      This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
      changes is that N agents run in one dispatch round rather than N sequential iterations.

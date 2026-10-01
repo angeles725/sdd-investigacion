@@ -182,9 +182,13 @@ applies in full.)
          writer owns, lists every file the OTHER writers own, and says: "Do not touch those files;
          report any needed change instead." Read the FULL scope of every delegated task before
          launching a second writer — two writers on one shared file is luck, not design.
-         AT MOST TWO CONCURRENT WRITERS per repository. A third writer buys little (merge/review
-         throughput is the bottleneck, not authoring) and multiplies shared-state risk.
-         ONE COMMITTING CHAIN PER GIT REPO AT A TIME. Two chains that regenerate CATALOG.md and
+         DEFAULT TO TWO CONCURRENT WRITERS; add more only with disjoint file sets in harness
+         worktrees and while the orchestrator stays lean (METHODOLOGY section 16: concurrency is a
+         context-budget decision; kit CLAUDE.md section 3). Each extra writer multiplies
+         shared-state and review-throughput risk.
+         ONE COMMITTING CHAIN PER CHECKOUT/BRANCH AT A TIME. This applies to chains committing to the
+         same checkout and branch; separate section 16 worktree lanes follow the section 16
+         barrier instead. Two chains that regenerate CATALOG.md and
          `git add/commit/push` the same repo race on the catalog and on non-fast-forward pushes.
          Serialize committing chains per repo, or broaden one chain's backlog, instead of running
          parallel chains on one corpus.
@@ -212,7 +216,9 @@ applies in full.)
          `isolation: worktree` option: it creates the worktree from the session cwd's repo (the
          wrong repo). Create the worktree explicitly with
          `git -C <target> worktree add <target>-worktrees/<name> <branch>` and pass that path to
-         the writer. A worktree needs its OWN index/derived caches; never copy another checkout's.
+         the writer. The harness resets shell cwd between commands, so the writer must use absolute
+         paths or `git -C <worktree>` on every command (kit CLAUDE.md section 3).
+         A worktree needs its OWN index/derived caches; never copy another checkout's.
          QUIET-TREE GATE PER WORKTREE. Writers run concurrently; the gate run (tests, linters,
          mutation controls) runs ONCE per worktree after that worktree's last writer finished. A
          gate that ran while a writer was still editing proves nothing, and "failed under load,
@@ -258,7 +264,7 @@ DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (K
          PDF-CITATION SPOT-CHECK (DOCUMENT CYCLE LARGE-SCALE, after the driver writes each block
          from per-section agent findings). For at least the load-bearing citations each agent
          supplied, confirm the quoted text appears on the stated page:
-         `pdftotext -f N -l N <pdf> - | grep -F "<quote>"` (or the promoted toolbelt script).
+         `pdftotext -f N -l N <pdf> - | grep -F "<quote>"` (no toolbelt script exists yet).
          `verify-block.sh` resolves `file:line` references but does not check that the quoted text
          is actually there; without this step a page-number error or a dropped table qualifier
          survives until a manual re-read.
@@ -286,11 +292,13 @@ wrapper exists, and none is implied. The operator or driver follows the order be
          commit) and the recovery is a post-refusal split. Make the split the DEFAULT. Pre-split a
          large tooling-bootstrap (one commit per ported/created tool) BEFORE the first review
          attempt; cut slices at commit boundaries with real parents, never a squashed blob.
-         RDD BASE-REF IS THE BRANCH MERGE-BASE. Assess and review a slice against the commit where
-         the branch left the default branch (or the last reviewed boundary), never against a moving
-         `origin/main`, whose drift changes the candidate under review.
+         RDD BASE-REF IS THE LAST REVIEWED BOUNDARY. For the first slice that is the branch
+         merge-base (where the branch left the default branch); each reviewed commit/slice then
+         becomes the next base. Never use a moving `origin/main`: a base ahead of the branch shows
+         later main merges as reverts and changes the candidate under review.
          PIPELINE REVIEW, DON'T SERIALIZE IT. Plan the slices up front (a script that cuts at commit
-         boundaries and keeps each under the lens budget is the mechanical form), then review slice
+         boundaries and keeps each under the lens budget would be the mechanical form; none exists
+         today, #1276), then review slice
          N while the next writer works on slice N+1: review is read-only on immutable commits, so
          the two do not collide. A serial "review, then start the next task" order wastes the
          review time (observed ~40-90 s per slice) behind the writer. Reviewing is still per
@@ -304,9 +312,10 @@ wrapper exists, and none is implied. The operator or driver follows the order be
          enforce required checks (e.g. a private repo on a free plan), the driver's merge step
          MUST wait for green CI (`gh pr checks <n> --watch`) and record the result in the PR or
          run log. The in-repo pre-commit hook is the local backstop, not a substitute.
-         FORCE-PUSH BLOCKED, SO PUBLISH A SUPERSEDING BRANCH. Never force-push to repair a review
-         round or a rebase. Publish the corrected work as a superseding branch/PR that links the
-         one it replaces, and let the old one be closed.
+         WHEN FORCE-PUSH IS BLOCKED, PUBLISH A SUPERSEDING BRANCH. When the runtime or repository
+         blocks force-push, publish the reviewed commits on a new branch and open a superseding PR
+         that links the one it replaces, instead of rewriting; otherwise follow kit CLAUDE.md
+         section 12.2 (rebase --onto and retarget).
          PR LABELS. When the repo's pr-check requires exactly one `type:*` label, attach exactly
          one before expecting the check to pass; zero or two fail it.
 ```
