@@ -1117,8 +1117,8 @@ Always read first, in this order:
          SEED AS THE RUN'S OWN FINAL STEP (#1258): the Stop hook's `retro-conforming` seeding is only a
          backstop, so after the retro is committed run `bash $KIT/toolbelt/stage-retro-issues.sh <retro> --apply`
          yourself and include its final `summary:` line in the return; if it exits 1 with `degraded:` (e.g. `gh`
-         absent or unauthenticated, kit issue repo unresolved) or exits 2 (some issue creations failed), say so —
-         never omit the line. The hook also appends one line per
+         absent or unauthenticated, kit issue repo unresolved, target not registered in TARGETS.md) or
+         exits 2 (some issue creations failed), say so — never omit the line. The hook also appends one line per
          Stop to `<target>/.claude/.rsdd-retro-gate-stops.log` (branch taken plus seeding evidence: the
          seeder's `summary:` line, or a typed skip or degraded reason); check it when seeding looks missing.
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
