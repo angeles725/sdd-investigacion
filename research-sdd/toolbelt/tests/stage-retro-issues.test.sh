@@ -3374,5 +3374,31 @@ else
 fi
 
 
+# ---------------------------------------------------------------------------
+# 77 — ENTRY-FORM AGREEMENT (kit issue #1332 item 2): the seeder's answer for a retro in the
+#      doctrine-valid `### D<N> —` entry form. APPLIED -> `no-match` (reconcile-issues.sh now says
+#      `no-match: no open deltas` for the same file — never `unclassifiable`). PENDING -> typed
+#      `unclassifiable` (entries carry no row cells to build an issue from; reconcile lists the
+#      same entries as untracked, i.e. both surface the work, neither silently reads it as zero).
+ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
+[ -f "$ENTRY_FIX" ] || { echo "FATAL: fixture missing: $ENTRY_FIX" >&2; exit 2; }
+box77="$(mkbox case-entry-form)"; mk_gh_stub "$box77" nomatch
+cp "$ENTRY_FIX" "$box77/rh/target-foo/retros/r77a.md"
+run "$box77" "$box77/rh/target-foo/retros/r77a.md"
+if [ "$RC" = 0 ] && grep -q "^no-match: retro is 'applied'" <<<"$OUT" && ! grep -q 'unclassifiable' <<<"$OUT"; then
+  ok "77a applied entry-form retro → no-match (same file reconcile reports as no open deltas)" "(exit $RC)"
+else
+  no "77a applied entry-form retro" "exit=$RC out=[$OUT]"
+fi
+sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$ENTRY_FIX" > "$box77/rh/target-foo/retros/r77b.md"
+run "$box77" "$box77/rh/target-foo/retros/r77b.md" --apply
+if [ "$RC" = 0 ] && grep -q '^unclassifiable: delta section found but not in row-table form' <<<"$OUT" \
+   && ! grep -q 'gh issue create' "$box77/bin/gh.log" 2>/dev/null; then
+  ok "77b pending entry-form retro → typed unclassifiable, nothing created" "(exit $RC)"
+else
+  no "77b pending entry-form retro" "exit=$RC out=[$OUT]"
+fi
+
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

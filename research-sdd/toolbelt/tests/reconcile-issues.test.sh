@@ -1340,6 +1340,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1304-R6 teeth: equal-name skip removed must flip case 38c" "case 38c is THEATER: lists=$(grep -c 'issue list' "$box_r6/bin/gh.log")"; fi
   fi
 
+  # ---- kit issue #1332 item 2 teeth (entry form) — mutant built with tests/lib/mutant.sh ----
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
+  echo "-- teeth T1332-R1: entry-form fallback removed (cases 39a/39b/39c must flip) --"
+  box_e1="$(mkbox teeth-entry)"; mk_gh_stub "$box_e1" nomatch
+  if mutant_sed "$SUT" "$box_e1/research-sdd/toolbelt/reconcile-issues.sh" \
+       -e 's/^    _all_row_ids="\$(retro_grammar_entry_ids "\$retro_path")"/    :/'; then
+    cp "$ENTRY_FIX" "$box_e1/rh/target-foo/retros/r.md"
+    run "$box_e1" --issues-cache /dev/null "$box_e1/rh/target-foo/retros/r.md"
+    if grep -q '^unclassifiable:' <<<"$OUT"; then ok "T1332-R1 teeth: no entry fallback → unclassifiable again (39a has teeth)" "()"
+    else no "T1332-R1 teeth: removed fallback must flip 39a" "39a is THEATER: out=[$OUT]"; fi
+  else no "T1332-R1: build mutant" "mutant_sed refused"; fi
+  echo "-- teeth T1332-R2: entry IDs ignored when classifying (every entry untracked despite a cache hit) --"
+  box_e2="$(mkbox teeth-entry-ids)"; mk_gh_stub "$box_e2" nomatch
+  if mutant_sed "$SUT" "$box_e2/research-sdd/toolbelt/reconcile-issues.sh" \
+       -e 's/if printf .%s\\n. "\$_issue_row_ids" | grep -qxF "\$_rid"; then/if false; then/'; then
+    sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$ENTRY_FIX" > "$box_e2/rh/target-foo/retros/r.md"
+    cache_for "$ROOT/cache-e2.txt" target-foo r.md D2
+    run "$box_e2" --issues-cache "$ROOT/cache-e2.txt" "$box_e2/rh/target-foo/retros/r.md"
+    if ! grep -q '^tracked: row D2 ' <<<"$OUT"; then ok "T1332-R2 teeth: tracked check disabled → D2 no longer tracked (39b has teeth)" "()"
+    else no "T1332-R2 teeth: disabled tracked check must flip 39b" "39b is THEATER: out=[$OUT]"; fi
+  else no "T1332-R2: build mutant" "mutant_sed refused"; fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -1708,6 +1732,56 @@ if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && grep -q '^tracked: ro
 else
   no "38f cache path: expected rows 1 and 2 tracked" "exit=$RC out=[$OUT]"
 fi
+
+# ---------------------------------------------------------------------------
+# 39 — ENTRY FORM (kit issue #1332 item 2): the doctrine-valid `### D<N> —` entries under the
+#      canonical heading are COUNTABLE (sweep-retros form 2). reconcile used to read only table
+#      rows, so an applied retro in this form was reported `unclassifiable` while the seeder said
+#      `no-match: retro is 'applied'` — two instruments, two answers for one input.
+ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
+[ -f "$ENTRY_FIX" ] || { echo "FATAL: fixture missing: $ENTRY_FIX" >&2; exit 2; }
+box39a="$(mkbox case-entry-applied)"; mk_gh_stub "$box39a" nomatch
+cp "$ENTRY_FIX" "$box39a/rh/target-foo/retros/r39a.md"
+run "$box39a" --issues-cache /dev/null "$box39a/rh/target-foo/retros/r39a.md"
+if [ "$RC" = 0 ] && ! grep -q 'unclassifiable' <<<"$OUT" && grep -q '^no-match: no open deltas' <<<"$OUT" && ! grep -q '^untracked:' <<<"$OUT"; then
+  ok "39a applied retro in ### D<N> entry form → no-match (not unclassifiable, not untracked)" "(exit $RC)"
+else
+  no "39a applied entry-form retro" "exit=$RC out=[$OUT]"
+fi
+
+# 39b — PENDING entry-form retro: every entry is an open row; a cache holding D2 only → D2 tracked,
+#       D1 and D3 untracked (first / middle / last positions all enumerated).
+box39b="$(mkbox case-entry-pending)"; mk_gh_stub "$box39b" nomatch
+sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$ENTRY_FIX" > "$box39b/rh/target-foo/retros/r39b.md"
+cache_for "$ROOT/cache39b.txt" target-foo r39b.md D2
+run "$box39b" --issues-cache "$ROOT/cache39b.txt" "$box39b/rh/target-foo/retros/r39b.md"
+if [ "$RC" = 0 ] && grep -q '^untracked: row D1 ' <<<"$OUT" && grep -q '^tracked: row D2 ' <<<"$OUT" \
+   && grep -q '^untracked: row D3 ' <<<"$OUT" && ! grep -q 'unclassifiable' <<<"$OUT"; then
+  ok "39b pending entry-form retro: D1 untracked / D2 tracked / D3 untracked (list edges)" "(exit $RC)"
+else
+  no "39b pending entry-form retro" "exit=$RC out=[$OUT]"
+fi
+
+# 39c — ORPHAN: an open issue for D9 (no such entry in the retro) is orphaned in entry form too.
+printf 'Source retro: target-foo/retros/r39b.md · D9\n' > "$ROOT/cache39c.txt"
+run "$box39b" --issues-cache "$ROOT/cache39c.txt" "$box39b/rh/target-foo/retros/r39b.md"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row D9' <<<"$OUT"; then
+  ok "39c entry-form retro: issue for an absent entry D9 → orphaned" "(exit $RC)"
+else
+  no "39c entry-form orphan" "exit=$RC out=[$OUT]"
+fi
+
+# 39d — a canonical section with NEITHER table rows NOR entries still reports unclassifiable
+#       (the entry fallback must not turn the typed finding into a silent pass).
+box39d="$(mkbox case-entry-none)"; mk_gh_stub "$box39d" nomatch
+printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\nSome prose about a delta, no table, no entries.\n' > "$box39d/rh/target-foo/retros/r39d.md"
+run "$box39d" --issues-cache /dev/null "$box39d/rh/target-foo/retros/r39d.md"
+if [ "$RC" = 0 ] && grep -q '^unclassifiable: delta section found but not in row-table form' <<<"$OUT"; then
+  ok "39d canonical section, no rows, no entries → still unclassifiable" "(exit $RC)"
+else
+  no "39d no rows/no entries must stay unclassifiable" "exit=$RC out=[$OUT]"
+fi
+
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

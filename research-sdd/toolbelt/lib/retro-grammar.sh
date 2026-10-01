@@ -172,6 +172,40 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
 
 fi
 
+# ─── retro_grammar_entry_ids ──────────────────────────────────────────────────
+# retro_grammar_entry_ids <file>
+#   One ID per line for every delta-ENTRY heading in the canonical section — the form-2 shape
+#   retro_grammar_delta_info counts: a `###` heading carrying an em-dash, e.g. `### D1 — title`
+#   (the doctrine-valid `### D<N> —` entry form, METHODOLOGY §18). The ID is the first token of
+#   the heading text before the dash, minus trailing `.`/`:` (`### D2. — x` -> `D2`). A `###`
+#   heading without an em-dash (`### Rationale`) and any heading outside the canonical section
+#   are not entries. Same heading aliases as delta_info (is_canonical_heading), so the count of
+#   IDs equals the form-2 count whenever every entry's token is a usable ID (kit issue #1332
+#   item 2: reconcile-issues.sh read only table rows and called an applied entry-form retro
+#   `unclassifiable` while the seeder correctly said `no-match`).
+#   Returns 1 (no output) when the file is absent/unreadable — never an empty success.
+if ! typeset -f retro_grammar_entry_ids >/dev/null 2>&1; then
+  retro_grammar_entry_ids() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    awk "$_RG_AWK_CANONICAL_FN"'
+      BEGIN { in_sec=0 }
+      { low=tolower($0) }
+      is_canonical_heading(low) { in_sec=1; next }
+      /^##[^#]/                 { in_sec=0; next }
+      in_sec && /^###[^#]/ && /—/ {
+        t=$0; sub(/^###[[:space:]]*/, "", t)
+        d=index(t, "—"); if (d == 0) next
+        t=substr(t, 1, d-1)
+        sub(/[[:space:]]+$/, "", t)
+        split(t, w, /[[:space:]]+/)
+        id=w[1]; sub(/[.:]+$/, "", id)
+        if (id ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) print id
+      }
+    ' "$f"
+  }
+fi
+
 # ─── retro_grammar_has_honesty ────────────────────────────────────────────────
 # Predicate: does file $1 carry a §18 honesty line in a PURE accepted location?
 #

@@ -122,6 +122,8 @@ _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 . "$_RG_LIB"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_entry_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_ids" >&2; exit 1; }
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 
@@ -273,6 +275,13 @@ audit_retro() {
       }
     }
   ' "$retro_path")"
+
+  # RECONCILE_ISSUES_ENTRY_FORM (kit issue #1332 item 2): no table rows -> the doctrine-valid
+  # `### D<N> —` entry form (sweep-retros form 2). The IDs come from the SHARED grammar lib so
+  # this instrument counts the same entries sweep-retros.sh and verify-retro.sh count.
+  if [ -z "$_all_row_ids" ]; then
+    _all_row_ids="$(retro_grammar_entry_ids "$retro_path")"
+  fi
 
   if [ -z "$_all_row_ids" ]; then
     # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST — same reasoning as

@@ -242,6 +242,47 @@ else
   no "RETRO-TRAP: research-sdd/retros/ EXISTS — move retros to top-level retros/" ""
 fi
 
+# ── retro_grammar_entry_ids (kit issue #1332 item 2) ───────────────────────────
+# The ID of every `### <id> — …` entry heading under the canonical section (sweep-retros form 2).
+echo "-- retro_grammar_entry_ids: ### D<N> — entry IDs (form 2) --"
+if ! declare -F retro_grammar_entry_ids >/dev/null 2>&1; then
+  no "T20 retro_grammar_entry_ids is defined" "function missing after sourcing the lib"
+else
+  _e="$ROOT/entries.md"
+  printf '# r\n\n## Proposed Kit Deltas\n\n### D1 — first\nbody\n\n### Rationale\nnot an entry (no dash)\n\n### D2. — second\n\n### PN-A — third\n\n### (misc) — token is not an ID\n\n## Other\n\n### D9 — outside the section\n' > "$_e"
+  _got="$(retro_grammar_entry_ids "$_e" | tr '\n' ',')"
+  [ "$_got" = "D1,D2,PN-A," ] \
+    && ok "T20 entry IDs: first/middle/last positions, no-dash and out-of-section headings skipped" "($_got)" \
+    || no "T20 entry IDs" "got=[$_got] want=[D1,D2,PN-A,]"
+
+  # LIST EDGE: a single entry as the LAST line, no trailing newline.
+  printf '## Proposed kit deltas\n\n### D7 — only' > "$ROOT/entries-one.md"
+  _got="$(retro_grammar_entry_ids "$ROOT/entries-one.md" | tr '\n' ',')"
+  [ "$_got" = "D7," ] && ok "T21 single entry on the last line (no trailing newline)" "($_got)" \
+    || no "T21 single last-line entry" "got=[$_got]"
+
+  # Table form: no ### entries -> nothing (the table path owns it).
+  mkfix_canonical "$ROOT/entries-table.md" 2
+  _got="$(retro_grammar_entry_ids "$ROOT/entries-table.md" | tr '\n' ',')"
+  [ -z "$_got" ] && ok "T22 table-form retro yields no entry IDs" "()" \
+    || no "T22 table-form retro" "got=[$_got]"
+
+  # Absent input: typed non-zero, never an empty success.
+  retro_grammar_entry_ids "$ROOT/does-not-exist.md" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -ne 0 ] && ok "T23 absent file → non-zero (not a silent empty)" "(rc=$_rc)" \
+    || no "T23 absent file must fail" "rc=$_rc"
+
+  # Agreement with the shared counter: the number of IDs equals delta_info's form-2 count.
+  # (T20's file also carries one heading whose token is not an ID — skipped by design — so the
+  # agreement check uses its own file where every entry has a usable ID.)
+  printf '## Proposed kit deltas\n\n### D1 — a\n\n### D2 — b\n\n### D3 — c\n' > "$ROOT/entries-clean.md"
+  _e="$ROOT/entries-clean.md"
+  _cnt="$(rgi_first "$_e")"; _n="$(retro_grammar_entry_ids "$_e" | wc -l | tr -d ' ')"
+  [ "$_cnt" = "1:2:3" ] && [ "$_n" = 3 ] && ok "T24 ID count agrees with delta_info form 2 (1:2:3)" "($_cnt vs $_n)" \
+    || no "T24 count agreement" "delta_info=[$_cnt] ids=$_n"
+fi
+
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -501,6 +542,25 @@ if [ "$_trap_rc" != 0 ] && grep -q "RETRO-TRAP" <<<"$_trap_err"; then
 else
   no "RETRO-TRAP teeth: guard should reject trap dir" "rc=$_trap_rc err=[$_trap_err]"
 fi
+
+# ── retro_grammar_entry_ids teeth (kit issue #1332 item 2) — mutants via tests/lib/mutant.sh ────
+echo "-- teeth T1332-L: retro_grammar_entry_ids mutants (T20-T24 must flip) --"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+_el_e="$ROOT/el-entries.md"
+printf '# r\n\n## Proposed Kit Deltas\n\n### D1 — first\n\n### Rationale\n\n### D2. — second\n\n### PN-A — third\n\n### (misc) — token is not an ID\n\n## Other\n\n### D9 — outside the section\n' > "$_el_e"
+# el_mutant <tag> <sed-expr> <want-ids-after-mutation, comma-terminated>
+el_mutant() {
+  local tag="$1" expr="$2" want="$3" mlib="$ROOT/el-mut-$1.sh" got
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1332-L$tag: build mutant" "mutant_sed refused"; return; fi
+  got="$("$BASH_BIN" -c '. "$1"; retro_grammar_entry_ids "$2"' _ "$mlib" "$_el_e" 2>/dev/null | tr '\n' ',')"
+  if [ "$got" != "D1,D2,PN-A," ]; then ok "T1332-L$tag teeth: mutant changes the ID list → T20 has teeth" "(got $got)"
+  else no "T1332-L$tag teeth: mutant must change the ID list" "T20 is THEATER: got=[$got]"; fi
+}
+el_mutant 1 '/retro_grammar_entry_ids() {/,/^  }/s/\/\^##\[^#\]\/                 { in_sec=0; next }/\/^##[^#]\/ { next }/' x
+el_mutant 2 's/sub(\/\[.:\]+\$\/, "", id)/id=id/' x
+el_mutant 3 's/if (id ~ \/\^\[A-Za-z0-9\]\[A-Za-z0-9_-\]\*\$\/) print id/print id/' x
+el_mutant 4 's/^      is_canonical_heading(low) { in_sec=1; next }$/      is_canonical_heading(low) { next }/' x
 
 echo ""
 echo "== $pass passed · $fail failed =="
