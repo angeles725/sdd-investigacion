@@ -1373,6 +1373,12 @@ HARD RULES:
     documentation and methodology gaps cluster on the same shared files, so serial dispatch is
     often the correct choice and not a performance issue. Parallelism is safe only when each agent
     owns an exclusive, non-overlapping set of output files.
+  - NEVER MERGE A DUE CANDIDATE BEFORE ITS REVIEW (#1272). Before any merge run
+    `$KIT/toolbelt/merge-gate.sh --cwd <worktree at the PR head> --base-ref <PR base> --pr <PR#>` (or
+    `--merge <PR#>` to let it merge) and merge only on a PR-bound `allow` (line ends `bound to PR #N`);
+    a run without `--pr`/`--merge` is range-only and trusts your `--base-ref`. `refuse: review_due` = review
+    and acknowledge that exact head first; `refuse: base_excludes_pr_commits` = your base hides PR commits;
+    `degraded` (exit 3) is never an allow. Details: `PROMPT-LOOP-APPENDIX.md#review-and-delivery`.
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
