@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # retro-status.sh — shared helper: read a §18 retro's review-status marker (METHODOLOGY §18).
-# Sourced by sweep-retros.sh and stage-retro-issues.sh so both gate on IDENTICAL logic — the two
-# scripts used to carry hand-copied awk pipelines that drifted (R1-003 / R3-004); this file is the
-# single source of truth for the marker grammar.
+# Sourced by every script that reads a retro's marker, so they all gate on IDENTICAL logic — they
+# used to carry hand-copied awk pipelines that drifted (R1-003 / R3-004); this file is the single
+# source of truth for the marker grammar. The consumer list is NOT enumerated here (it was already
+# stale at 2 names when there were 8; kit issue #949 item 5): `grep -rl retro-status.sh
+# research-sdd/toolbelt` is the authoritative list, and an edit here must be checked against every
+# consumer's real-fleet output (kit CLAUDE.md §12.7).
 #
 #   retro_review_status <file>
 #     Echoes the lowercased status word (applied/dismissed/pending/…) found in the retro's LEADING
@@ -132,7 +135,10 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   line from anywhere in the file, provided it appears at line start (optional leading
   #   whitespace before '<!--').  Markers quoted mid-line (e.g. inside a table cell or inline
   #   code) are NOT matched.  Lines inside fenced code blocks (``` or ~~~) are skipped so that
-  #   documented examples of marker syntax are not mistaken for real markers.
+  #   documented examples of marker syntax are not mistaken for real markers. Fences follow the
+  #   CommonMark rule (closer = same char, >= opener length, nothing after it) and a fence that
+  #   never closes FAILS CLOSED: its first marker-shaped line is returned, so
+  #   retro_marker_out_of_scope refuses the retro (kit issues #949 item 3 / #1304 item 6).
   #
   #   Unlike retro_review_status (leading-block-only), this function finds markers placed after
   #   the H1 heading — the real-corpus layout in *-closure.md retros.
@@ -170,10 +176,49 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # always reports false, and an out-of-scope marker silently reads as "no marker" — pending
     # and seedable, the exact #1048-#1089 flood direction. 'up to 3 optional spaces' is written
     # as three chained '?' (basic ERE, no interval support required) instead.
+    # RETRO_MARKER_LINE_FENCE (kit issues #949 item 3 / #1304 item 6): CommonMark-style fence
+    # tracking instead of the former bare toggle. A fence OPENS on 3+ backticks or tildes (after
+    # optional indentation; a backtick opener whose info string contains a backtick is inline
+    # code, not a fence) and CLOSES only on a line of the SAME character, at LEAST as long as the
+    # opener, with nothing but whitespace after it. A bare toggle misread a '~~~' fence holding a
+    # ``` line and a longer fence wrapping a shorter example, so the marker AFTER such a fence
+    # was hidden and an applied retro read as markerless (seedable).
+    # RETRO_MARKER_LINE_FENCE_UNCLOSED: a fence still open at EOF fails CLOSED — the first
+    # marker-shaped line seen inside it is returned, so retro_marker_out_of_scope refuses the
+    # retro instead of treating it as genuinely markerless. A marker inside a fence that DID
+    # close stays documentation and is skipped.
+    # No POSIX interval expressions and no gawk extensions (mawk portability, #1130 finding 2):
+    # run lengths are counted with a plain loop.
     _retro_status_strip_bom "$f" | awk '
-      /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
-      fence { next }
-      { if (tolower($0) ~ /^ ? ? ?<!--[[:space:]]*review-status:/) { print; exit } }
+      function runlen(s, c,    n) { n = 0; while (substr(s, n + 1, 1) == c) n++; return n }
+      {
+        s = $0
+        sub(/^[ \t]+/, "", s)
+        lc = tolower($0)
+        ismark = (lc ~ /^ ? ? ?<!--[[:space:]]*review-status:/)
+        if (!infence) {
+          c = substr(s, 1, 1)
+          if (c == "`" || c == "~") {
+            n = runlen(s, c)
+            rest = substr(s, n + 1)
+            if (n >= 3 && !(c == "`" && index(rest, "`") > 0)) {
+              infence = 1; fch = c; flen = n; held = ""
+              next
+            }
+          }
+          if (ismark) { print; found = 1; exit }
+          next
+        }
+        # inside a fence: only a same-char run >= opener length with trailing whitespace closes it
+        c = substr(s, 1, 1)
+        if (c == fch) {
+          n = runlen(s, c)
+          rest = substr(s, n + 1)
+          if (n >= flen && rest ~ /^[ \t]*$/) { infence = 0; held = ""; next }
+        }
+        if (ismark && held == "") held = $0
+      }
+      END { if (!found && infence && held != "") print held }
     '
     return 0
   }

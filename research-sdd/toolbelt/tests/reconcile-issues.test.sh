@@ -120,6 +120,13 @@ mk_gh_stub() {
       orphaned-row1)
         printf '  *" issue list "*) printf "Source retro: target-foo/retros/r-orphaned.md · 1\\n"; exit 0 ;;\n'
         ;;
+      lines)
+        # kit issue #1304: `lines` replies with the text in $3 ONLY to a `gh issue list` whose
+        # --search text contains $4 (empty = every call), so a test can prove WHICH signature
+        # (new vs legacy) a query carried. Any other list call sees an empty result.
+        printf '  *" issue list "*"%s"*) printf "%%s\\n" "%s"; exit 0 ;;\n' "${4:-}" "${3:-}"
+        printf '  *" issue list "*) exit 0 ;;\n'
+        ;;
       fail-query)
         printf '  *" issue list "*) printf "gh: error: use --json when using --jq\\n" >&2; exit 1 ;;\n'
         ;;
@@ -1279,6 +1286,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1287f teeth: unconditional WARN must flip case 36" "case 36 is THEATER: out=[$OUT]"; fi
   fi
 
+  # ---- kit issue #1304 teeth (reconcile side: exact prefix filter + legacy-signature symmetry) ----
+  LEG_BASE="Source retro: target-foo/retros"
+  rbox() {  # <name> <gh-mode> [text] [pattern] → a box with reg-name registered over target-foo
+    local b
+    b="$(mkbox "$1")"
+    mk_targets "$b" reg-name "$b/rh/target-foo"
+    mk_gh_stub "$b" "$2" "${3:-}" "${4:-}"
+    mk_open_retro "$b/rh/target-foo/${5:-retros}/r.md" >/dev/null
+    printf '%s' "$b"
+  }
+  echo "-- teeth T1304-R1: legacy prefix never computed --"
+  box_r1="$(rbox teeth-r1 nomatch)"; printf '%s/r.md · 1\n' "$LEG_BASE" > "$ROOT/cache-r1.txt"
+  if tooth_swap "$box_r1" '*) _legacy_prefix="${_legacy_nm}/retros/${retro_basename}" ;;' '*) _legacy_prefix="" ;;'; then
+    run "$box_r1" --issues-cache "$ROOT/cache-r1.txt" "$box_r1/rh/target-foo/retros/r.md"
+    if grep -q '^untracked: row 1' <<<"$OUT"; then ok "T1304-R1 teeth: no legacy prefix → open legacy issue reads untracked (case 38 has teeth)" "()"
+    else no "T1304-R1 teeth: legacy prefix removed must flip case 38" "case 38 is THEATER: out=[$OUT]"; fi
+  fi
+  echo "-- teeth T1304-R2: gh path queries only the registered-name signature --"
+  box_r2="$(rbox teeth-r2 lines "$LEG_BASE/r.md · 1" "Source retro: target-foo/retros/r.md")"
+  if tooth_swap "$box_r2" 'for _qpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do' 'for _qpfx in "$_sig_prefix"; do'; then
+    run "$box_r2" "$box_r2/rh/target-foo/retros/r.md"
+    if grep -q '^untracked: row 1' <<<"$OUT"; then ok "T1304-R2 teeth: legacy query dropped → untracked (case 38b has teeth)" "()"
+    else no "T1304-R2 teeth: legacy query dropped must flip case 38b" "case 38b is THEATER: out=[$OUT]"; fi
+  fi
+  echo "-- teeth T1304-R3: row-id extraction no longer filtered to this retro's signature --"
+  box_r3="$(rbox teeth-r3 lines "Source retro: niagara-reg-name/retros/r.md · 1")"
+  if tooth_swap "$box_r3" '| grep -F "Source retro: ${_pfx} · " \' '| grep -F "Source retro: " \'; then
+    run "$box_r3" "$box_r3/rh/target-foo/retros/r.md"
+    if grep -q '^tracked: row 1' <<<"$OUT"; then ok "T1304-R3 teeth: unfiltered extraction → another target's issue reads tracked (case 37 has teeth)" "()"
+    else no "T1304-R3 teeth: unfiltered extraction must flip case 37" "case 37 is THEATER: out=[$OUT]"; fi
+  fi
+  echo "-- teeth T1304-R4: extraction loop reads only the registered-name signature --"
+  box_r4="$(rbox teeth-r4 nomatch)"; printf '%s/r.md · 1\n' "$LEG_BASE" > "$ROOT/cache-r4.txt"
+  if tooth_swap "$box_r4" 'for _pfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do' 'for _pfx in "$_sig_prefix"; do'; then
+    run "$box_r4" --issues-cache "$ROOT/cache-r4.txt" "$box_r4/rh/target-foo/retros/r.md"
+    if grep -q '^untracked: row 1' <<<"$OUT"; then ok "T1304-R4 teeth: legacy extraction dropped → untracked (cases 38/38f have teeth)" "()"
+    else no "T1304-R4 teeth: legacy extraction dropped must flip case 38" "case 38 is THEATER: out=[$OUT]"; fi
+  fi
+  echo "-- teeth T1304-R5: structural legacy name no longer skipped --"
+  box_r5="$(rbox teeth-r5 nomatch "" "" corpus/retros)"
+  if tooth_swap "$box_r5" "corpus|retros|''|\"\$target_nm\") ;;" "''|\"\$target_nm\") ;;"; then
+    run "$box_r5" "$box_r5/rh/target-foo/corpus/retros/r.md"
+    if grep -qF 'Source retro: corpus/retros' "$box_r5/bin/gh.log" 2>/dev/null; then ok "T1304-R5 teeth: structural skip removed → pointless corpus/retros query (case 38d has teeth)" "()"
+    else no "T1304-R5 teeth: structural skip removed must flip case 38d" "case 38d is THEATER: log=[$(cat "$box_r5/bin/gh.log" 2>/dev/null)]"; fi
+  fi
+  echo "-- teeth T1304-R6: equal-name skip removed (extra list call for the common case) --"
+  box_r6="$(mkbox teeth-r6)"; mk_targets "$box_r6" target-foo "$box_r6/rh/target-foo"; mk_gh_stub "$box_r6" nomatch
+  mk_open_retro "$box_r6/rh/target-foo/retros/r.md" >/dev/null
+  if tooth_swap "$box_r6" "corpus|retros|''|\"\$target_nm\") ;;" "corpus|retros|'') ;;"; then
+    run "$box_r6" "$box_r6/rh/target-foo/retros/r.md"
+    if [ "$(grep -c 'issue list' "$box_r6/bin/gh.log")" = 2 ]; then ok "T1304-R6 teeth: equal-name skip removed → second list call (case 38c has teeth)" "()"
+    else no "T1304-R6 teeth: equal-name skip removed must flip case 38c" "case 38c is THEATER: lists=$(grep -c 'issue list' "$box_r6/bin/gh.log")"; fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -1530,6 +1591,122 @@ if [ "$rc36a" = 0 ] && ! grep -q 'no retro files' <<<"$out36a" && grep -q 'retro
   ok "36 --all: empty flat retros/ is quiet when corpus/retros has files, WARNs when nothing exists" "(rc=$rc36a/$rc36b)"
 else
   no "36 --all: empty-flat WARN handling" "with-corpus=[$out36a] nothing=[$out36b]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1304 items 1+2 (reconcile side). The gh query is a fuzzy WORD search, so (1) its
+# bodies may belong to ANOTHER target's issue — reading them with `Source retro: .+ · <id>` marked
+# rows this retro does not have as tracked — and (2) the seeder also dedups the LEGACY
+# `<path basename>/retros/<file>` signature, so reconcile must look for it too or an open
+# legacy-signed issue reads as `untracked`.
+LEG_BASE="Source retro: target-foo/retros"
+
+# 37 — gh path: a hit that is ANOTHER target's issue (same file, same row id) is not this retro's.
+box37="$(mkbox case-gh-fuzzy-other)"
+mk_targets "$box37" reg-name "$box37/rh/target-foo"
+mk_gh_stub "$box37" lines "Source retro: niagara-reg-name/retros/r37.md · 1"
+retro37="$(mk_open_retro "$box37/rh/target-foo/retros/r37.md")"
+run "$box37" "$retro37"
+if [ "$RC" = 0 ] && grep -q '^untracked: row 1' <<<"$OUT" && ! grep -q '^tracked:' <<<"$OUT" && ! grep -q '^orphaned:' <<<"$OUT"; then
+  ok "37 gh path: another target's issue for the same row is NOT tracked (and not orphaned)" "(exit $RC)"
+else
+  no "37 gh path: another target's issue must not count" "exit=$RC out=[$OUT]"
+fi
+
+# 37b — control: the same query returning THIS retro's signature IS tracked.
+box37b="$(mkbox case-gh-exact)"
+mk_targets "$box37b" reg-name "$box37b/rh/target-foo"
+mk_gh_stub "$box37b" lines "Source retro: reg-name/retros/r37b.md · 1"
+retro37b="$(mk_open_retro "$box37b/rh/target-foo/retros/r37b.md")"
+run "$box37b" "$retro37b"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && ! grep -q '^untracked:' <<<"$OUT"; then
+  ok "37b gh path control: this retro's own signature → tracked" "(exit $RC)"
+else
+  no "37b gh path control: expected tracked" "exit=$RC out=[$OUT]"
+fi
+
+# 38 — cache path: an OPEN legacy-signed issue (registered name != basename) is tracked.
+#      RED pre-fix: only the registered-name signature was read, so row 1 was `untracked`.
+box38="$(mkbox case-legacy-cache)"
+mk_targets "$box38" reg-name "$box38/rh/target-foo"
+mk_gh_stub "$box38" nomatch
+retro38="$(mk_open_retro "$box38/rh/target-foo/retros/r38.md")"
+printf '%s/r38.md · 1\n' "$LEG_BASE" > "$ROOT/cache38.txt"
+run "$box38" --issues-cache "$ROOT/cache38.txt" "$retro38"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && ! grep -q '^untracked:' <<<"$OUT"; then
+  ok "38 cache path: open legacy-signature issue → tracked" "(exit $RC)"
+else
+  no "38 cache path: open legacy-signature issue → expected tracked" "exit=$RC out=[$OUT]"
+fi
+
+# 38b — gh path: the legacy signature is QUERIED (two list calls, one per signature) and found.
+box38b="$(mkbox case-legacy-gh)"
+mk_targets "$box38b" reg-name "$box38b/rh/target-foo"
+mk_gh_stub "$box38b" lines "$LEG_BASE/r38b.md · 1" "Source retro: target-foo/retros/r38b.md"
+retro38b="$(mk_open_retro "$box38b/rh/target-foo/retros/r38b.md")"
+run "$box38b" "$retro38b"
+lists38b="$(grep -c 'issue list' "$box38b/bin/gh.log")"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && [ "$lists38b" = 2 ] \
+  && grep -qF 'Source retro: reg-name/retros/r38b.md' "$box38b/bin/gh.log"; then
+  ok "38b gh path: legacy signature queried (2 list calls) and an open legacy issue → tracked" "(exit $RC lists=$lists38b)"
+else
+  no "38b gh path: expected both signatures queried and tracked" "exit=$RC lists=$lists38b out=[$OUT]"
+fi
+
+# 38c — name == basename: exactly ONE list call (no legacy lookup for the common case).
+box38c="$(mkbox case-legacy-same)"
+mk_targets "$box38c" target-foo "$box38c/rh/target-foo"
+mk_gh_stub "$box38c" nomatch
+retro38c="$(mk_open_retro "$box38c/rh/target-foo/retros/r38c.md")"
+run "$box38c" "$retro38c"
+lists38c="$(grep -c 'issue list' "$box38c/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$lists38c" = 1 ]; then ok "38c name == basename → exactly one list call" "(lists=$lists38c)"
+else no "38c name == basename → expected one list call" "exit=$RC lists=$lists38c out=[$OUT]"; fi
+
+# 38d — nested <target>/corpus/retros: the legacy name would be `corpus` (structural) → no legacy
+#       lookup, one list call, and a cache line signed `corpus/retros/...` is never read.
+box38d="$(mkbox case-legacy-structural)"
+mk_targets "$box38d" reg-name "$box38d/rh/target-foo"
+mk_gh_stub "$box38d" nomatch
+retro38d="$(mk_open_retro "$box38d/rh/target-foo/corpus/retros/r38d.md")"
+run "$box38d" "$retro38d"
+lists38d="$(grep -c 'issue list' "$box38d/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$lists38d" = 1 ] && ! grep -qF 'Source retro: corpus/retros' "$box38d/bin/gh.log"; then
+  ok "38d nested corpus/retros → structural legacy name skipped (one list call)" "(lists=$lists38d)"
+else
+  no "38d nested corpus/retros → expected no legacy lookup" "exit=$RC lists=$lists38d log=[$(cat "$box38d/bin/gh.log")]"
+fi
+
+# 38e — orphan symmetry: an open legacy-signed issue for a row that is no longer open is orphaned.
+box38e="$(mkbox case-legacy-orphan)"
+mk_targets "$box38e" reg-name "$box38e/rh/target-foo"
+mk_gh_stub "$box38e" nomatch
+retro38e="$(mk_open_retro "$box38e/rh/target-foo/retros/r38e.md")"
+printf '%s/r38e.md · 7\n' "$LEG_BASE" > "$ROOT/cache38e.txt"
+run "$box38e" --issues-cache "$ROOT/cache38e.txt" "$retro38e"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 7' <<<"$OUT" && grep -q '^untracked: row 1' <<<"$OUT"; then
+  ok "38e cache path: legacy-signed issue for a no-longer-open row → orphaned; row 1 still untracked" "(exit $RC)"
+else
+  no "38e cache path: expected orphaned row 7 + untracked row 1" "exit=$RC out=[$OUT]"
+fi
+
+# 38f — LIST EDGE: BOTH signatures present in one cache, different rows → both rows are seen.
+box38f="$(mkbox case-legacy-both)"
+mk_targets "$box38f" reg-name "$box38f/rh/target-foo"
+mk_gh_stub "$box38f" nomatch
+retro38f="$box38f/rh/target-foo/retros/r38f.md"
+mkdir -p "$(dirname "$retro38f")"
+{
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 1 | first | CLAUDE.md | B1 | fix | HIGH |\n| 2 | second | CLAUDE.md | B2 | fix | HIGH |\n'
+} > "$retro38f"
+printf 'Source retro: reg-name/retros/r38f.md · 1\n%s/r38f.md · 2\n' "$LEG_BASE" > "$ROOT/cache38f.txt"
+run "$box38f" --issues-cache "$ROOT/cache38f.txt" "$retro38f"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && grep -q '^tracked: row 2' <<<"$OUT" && ! grep -q '^untracked:' <<<"$OUT"; then
+  ok "38f cache path: new-signature row 1 + legacy-signature row 2 → both tracked" "(exit $RC)"
+else
+  no "38f cache path: expected rows 1 and 2 tracked" "exit=$RC out=[$OUT]"
 fi
 
 echo "== $pass passed · $fail failed =="

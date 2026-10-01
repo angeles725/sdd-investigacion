@@ -645,6 +645,95 @@ strip_md_bold() {
   printf '%s' "$1" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//'
 }
 
+# _exact_sig_matches <signature>   (reads a `gh issue list --json state,body` reply on stdin)
+#   Kit issue #1304 item 1. GitHub's search is a fuzzy WORD match: searching the phrase
+#   "Source retro: research/retros/f.md · 3" also returned a different target's issue
+#   (niagara-research) and an issue for row 30 when asked for row 3, so "the search returned
+#   something" is NOT "this row already has an issue" — treating it so skipped genuinely new rows
+#   (a silent loss, the opposite direction of a duplicate). This keeps only the issues whose BODY
+#   carries the signature as one WHOLE LINE (the seeder stamps it on its own line), after trimming
+#   trailing whitespace/CR, and prints the kept issues as a compact array of {"state":"…"} objects
+#   so the OPEN/CLOSED checks downstream read it exactly like a plain state-only reply.
+#   Pure awk (no jq dependency, no gawk extension): a small JSON reader that tracks strings,
+#   escapes and brace depth, so a '},{' or a quoted '"state":"OPEN"' INSIDE a body can never be
+#   mistaken for structure. Exit 3 (and no output) on a reply it cannot parse to the end (an
+#   unterminated string, unbalanced brackets) — the caller counts that as a failed lookup, never as
+#   "no match". STAGE_RETRO_ISSUES_EXACT_SIG: anchor for the exact-match teeth proofs.
+_exact_sig_matches() {
+  _XSIG="$1" awk '
+    function hexval(h,   k, v, d) {
+      v = 0
+      for (k = 1; k <= length(h); k++) {
+        d = index("0123456789abcdef", tolower(substr(h, k, 1)))
+        if (d == 0) return -1
+        v = v * 16 + d - 1
+      }
+      return v
+    }
+    function process_object(   nl, lines, j, ln, hit) {
+      hit = 0
+      nl = split(body, lines, "\n")
+      for (j = 1; j <= nl; j++) {
+        ln = lines[j]
+        sub(/[ \t\r]+$/, "", ln)
+        if (ln == sig) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
+      }
+      if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
+    }
+    BEGIN { sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; out = ""; s = "" }
+    { s = s $0 "\n" }
+    END {
+      n = length(s); i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "\"") {
+          str = ""; i++; closed = 0
+          while (i <= n) {
+            c = substr(s, i, 1)
+            if (c == "\\") {
+              e = substr(s, i + 1, 1)
+              if (e == "n") str = str "\n"
+              else if (e == "r") str = str "\r"
+              else if (e == "t") str = str "\t"
+              else if (e == "u") {
+                cp = hexval(substr(s, i + 2, 4))
+                if (cp >= 0 && cp < 128) str = str sprintf("%c", cp)
+                else if (cp == 183) str = str "·"
+                else str = str "?"
+                i += 4
+              } else str = str e
+              i += 2; continue
+            }
+            if (c == "\"") { closed = 1; break }
+            str = str c; i++
+          }
+          if (!closed) exit 3
+          i++
+          if (depth == 2) {
+            if (vmode) {
+              if (key == "body") body = str
+              else if (key == "state") state = str
+              vmode = 0
+            } else key = str
+          }
+          continue
+        }
+        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { body = ""; state = ""; key = ""; vmode = 0 } }
+        else if (c == "}" || c == "]") {
+          if (c == "}" && depth == 2) process_object()
+          depth--
+          if (depth < 0) exit 3
+        }
+        else if (c == ":" && depth == 2) vmode = 1
+        else if (c == "," && depth == 2) vmode = 0
+        i++
+      }
+      if (depth != 0) exit 3
+      printf "[%s]\n", out
+    }
+  '
+}
+
 # ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
@@ -704,7 +793,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # STAGE_RETRO_ISSUES_DEDUP_STATE_ALL: anchor for the state=all teeth proof.
     _search_sig="${_source_line}"
     _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
-      --search "\"$_search_sig\"" --json state 2>&1)"
+      --search "\"$_search_sig\"" --json state,body 2>&1)"
     _dedup_rc=$?
     # STAGE_RETRO_ISSUES_DEDUP_LIST_FAILURE_GUARD (kit issue #949 item 2): a failed list call
     # (non-zero exit — network error, bad gh invocation, rate limit, …) must NOT fall through to
@@ -725,6 +814,13 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "ERROR: gh issue list (dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_existing" >&2
       failed=$((failed+1)); continue
     fi
+    # STAGE_RETRO_ISSUES_DEDUP_EXACT (kit issue #1304 item 1): keep only the hits whose body
+    # carries THIS exact signature line — the search itself is a fuzzy word match.
+    _raw_existing="$_existing"
+    _existing="$(printf '%s' "$_raw_existing" | _exact_sig_matches "$_search_sig")" || {
+      echo "ERROR: gh issue list (dedup) reply could not be parsed for row $_rid: $_raw_existing" >&2
+      failed=$((failed+1)); continue
+    }
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
@@ -743,7 +839,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     if [ "$_legacy_target_name" != "$target_name" ]; then
       _legacy_sig="Source retro: ${_legacy_target_name}/retros/${retro_basename} · ${_rid}"
       _legacy_existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
-        --search "\"$_legacy_sig\"" --json state 2>&1)"
+        --search "\"$_legacy_sig\"" --json state,body 2>&1)"
       _legacy_rc=$?
       if [ "$_legacy_rc" -ne 0 ]; then
         echo "ERROR: gh issue list (legacy-signature dedup) failed for row $_rid: $_legacy_existing" >&2
@@ -753,6 +849,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         echo "ERROR: gh issue list (legacy-signature dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_legacy_existing" >&2
         failed=$((failed+1)); continue
       fi
+      # Same exact-signature filter as the primary lookup (kit issue #1304 item 1): the legacy
+      # signature is the one whose fuzzy search can hit ANOTHER target's issue (three.js's legacy
+      # name `research` matches every `*-research` target's issue for the same file and row).
+      _legacy_raw="$_legacy_existing"
+      _legacy_existing="$(printf '%s' "$_legacy_raw" | _exact_sig_matches "$_legacy_sig")" || {
+        echo "ERROR: gh issue list (legacy-signature dedup) reply could not be parsed for row $_rid: $_legacy_raw" >&2
+        failed=$((failed+1)); continue
+      }
       if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
         echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
         skipped_dedup=$((skipped_dedup+1)); continue

@@ -308,7 +308,7 @@ EOF
   if ! grep -qF "RETRO_MARKER_LINE_AWK" "$HELPER"; then
     no "teeth M8: locate RETRO_MARKER_LINE_AWK anchor" "anchor not found — helper drifted?"
   else
-    m8_linenum="$(awk '/RETRO_MARKER_LINE_AWK/{found=1} found && /tolower/{print NR; exit}' "$HELPER")"
+    m8_linenum="$(awk '/RETRO_MARKER_LINE_AWK/{found=1} found && /ismark = /{print NR; exit}' "$HELPER")"
     if [ -z "$m8_linenum" ]; then
       no "teeth M8: find tolower line after RETRO_MARKER_LINE_AWK" "not found — helper drifted?"
     else
@@ -1079,6 +1079,242 @@ sl68="$(retro_marker_scope_line "$f")"
   || no "68 LIST-EDGE: retro_marker_scope_line, 4-space-indented marker (boundary) → expected not found" "got [$sl68]"
 
 # ---------------------------------------------------------------------------
+# CommonMark-style fence tracking in retro_marker_line (kit issues #949 item 3 / #1304 item 6).
+# A fence opens with 3+ backticks or tildes (info string allowed), closes ONLY on a line of the
+# SAME character, at least as long as the opener, with nothing but whitespace after it. A fence
+# that never closes fails CLOSED: a marker-shaped line inside it is returned (so
+# retro_marker_out_of_scope refuses) instead of vanishing and letting an applied retro read as
+# genuinely markerless (the #1048-#1089 flood direction).
+M69="<!-- review-status: applied 2026-01-01 · kit abc1234 -->"
+
+# 69 — a '~~~' fence containing a ``` line: the ``` is CONTENT, the fence closes at the second
+#      '~~~', so the marker after it is a real (out-of-scope) marker and must be found.
+f="$(mkretro fence-tilde-with-backtick <<EOF
+# retro
+
+~~~
+\`\`\`
+~~~
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "69 ~~~ fence containing a \`\`\` line → marker after it found" "()" \
+                    || no "69 ~~~ fence containing a \`\`\` line → marker after it found" "got [$got]"
+
+# 70 — a four-backtick fence wrapping a three-backtick example: the inner ``` is content.
+f="$(mkretro fence-4tick-wrapping-3tick <<EOF
+# retro
+
+\`\`\`\`
+\`\`\`
+example
+\`\`\`
+\`\`\`\`
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "70 4-backtick fence wrapping a 3-backtick example → marker after found" "()" \
+                    || no "70 4-backtick fence wrapping a 3-backtick example → marker after found" "got [$got]"
+
+# 71 — UNCLOSED fence with a marker-shaped line inside: fail closed — the line is returned, so
+#      the out-of-scope check refuses the retro rather than reading it as markerless.
+f="$(mkretro fence-unclosed-with-marker <<EOF
+# retro
+
+\`\`\`
+stray opener never closed
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+oos=1; retro_marker_out_of_scope "$f" && oos=0
+[ "$got" = "$M69" ] && [ "$oos" = 0 ] \
+  && ok "71 unclosed fence before the marker → fails closed (returned, out-of-scope)" "()" \
+  || no "71 unclosed fence before the marker → fails closed" "got [$got] oos_rc=$oos"
+
+# 72 — LIST-EDGE: unclosed fence with NO marker-shaped line inside → empty, NOT out-of-scope (no
+#      false refusal of a genuinely markerless retro).
+f="$(mkretro fence-unclosed-no-marker <<'EOF'
+# retro
+
+```
+stray opener never closed, nothing marker-shaped in it
+EOF
+)"
+got="$(retro_marker_line "$f")"
+oos=1; retro_marker_out_of_scope "$f" && oos=0
+[ -z "$got" ] && [ "$oos" = 1 ] \
+  && ok "72 unclosed fence with no marker inside → empty, not out-of-scope" "()" \
+  || no "72 unclosed fence with no marker inside → empty, not out-of-scope" "got [$got] oos_rc=$oos"
+
+# 73 — a marker inside a CLOSED fence is documentation; the real one after the fence wins.
+f="$(mkretro fence-closed-then-real <<EOF
+# retro
+
+\`\`\`
+<!-- review-status: pending -->
+\`\`\`
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "73 marker inside a closed fence skipped; real marker after it returned" "()" \
+                    || no "73 marker inside a closed fence skipped; real marker after it returned" "got [$got]"
+
+# 74 — a closer LONGER than the opener is a valid close (info string on the opener too).
+f="$(mkretro fence-longer-closer <<EOF
+# retro
+
+\`\`\`bash
+echo hi
+\`\`\`\`\`
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "74 info-string opener + longer closer closes the fence → marker after found" "()" \
+                    || no "74 info-string opener + longer closer closes the fence → marker after found" "got [$got]"
+
+# 75 — a closer with trailing text is NOT a closer (CommonMark): the fence stays open to EOF and
+#      the marker-shaped line inside it fails closed.
+f="$(mkretro fence-closer-trailing-text <<EOF
+# retro
+
+\`\`\`
+content
+\`\`\` not a closer
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "75 closer with trailing text does not close; unclosed → fails closed" "()" \
+                    || no "75 closer with trailing text does not close; unclosed → fails closed" "got [$got]"
+
+# 76 — inline triple-backtick code on one line is NOT a fence opener (backtick info strings may
+#      not contain backticks): the marker after it must still be found.
+f="$(mkretro fence-inline-code <<EOF
+# retro
+
+use \`\`\`code\`\`\` inline
+\`\`\`code\`\`\`
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "76 inline \`\`\`code\`\`\` line is not a fence → marker after found" "()" \
+                    || no "76 inline \`\`\`code\`\`\` line is not a fence → marker after found" "got [$got]"
+
+# 77 — LIST-EDGE: opener as the very last line (nothing inside) → empty, not out-of-scope.
+f="$ROOT/retro-fence-last-line.md"
+printf '# retro\n\nbody\n\n```' > "$f"
+got="$(retro_marker_line "$f")"
+oos=1; retro_marker_out_of_scope "$f" && oos=0
+[ -z "$got" ] && [ "$oos" = 1 ] \
+  && ok "77 fence opener as the last line (no trailing newline) → empty, not out-of-scope" "()" \
+  || no "77 fence opener as the last line → empty, not out-of-scope" "got [$got] oos_rc=$oos"
+
+# 78 — LIST-EDGE: a closed fence FIRST, an unclosed one LAST; only the unclosed one holds a marker.
+f="$(mkretro fence-closed-first-unclosed-last <<EOF
+# retro
+
+~~~
+closed
+~~~
+
+~~~
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "78 closed fence first, unclosed fence last holding a marker → fails closed" "()" \
+                    || no "78 closed fence first, unclosed fence last holding a marker → fails closed" "got [$got]"
+
+# 79 — a marker-shaped line inside a 4-backtick fence AFTER an inner ``` line is still inside the
+#      fence (the shorter ``` cannot close it) → skipped; nothing outside → empty.
+f="$(mkretro fence-4tick-decoy <<EOF
+# retro
+
+\`\`\`\`
+\`\`\`
+$M69
+\`\`\`\`
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ -z "$got" ] && ok "79 decoy inside a 4-backtick fence after an inner \`\`\` line → skipped" "()" \
+              || no "79 decoy inside a 4-backtick fence after an inner \`\`\` line → skipped" "got [$got]"
+
+# 80 — a decoy after a would-be closer with trailing text, then the real closer → still inside.
+f="$(mkretro fence-trailing-text-decoy <<EOF
+# retro
+
+\`\`\`
+\`\`\` not a closer
+$M69
+\`\`\`
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ -z "$got" ] && ok "80 decoy after a trailing-text pseudo-closer, real closer later → skipped" "()" \
+              || no "80 decoy after a trailing-text pseudo-closer, real closer later → skipped" "got [$got]"
+
+# 81 — a decoy inside a '~~~' fence after a ``` line (different character, not a closer).
+f="$(mkretro fence-tilde-decoy <<EOF
+# retro
+
+~~~
+\`\`\`
+$M69
+~~~
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ -z "$got" ] && ok "81 decoy inside a ~~~ fence after a \`\`\` line → skipped" "()" \
+              || no "81 decoy inside a ~~~ fence after a \`\`\` line → skipped" "got [$got]"
+
+# 82 — an inline \`\`\`code\`\`\` line must not open a fence: the later closed fence holds a decoy
+#      ('pending'), the real marker ('applied') follows it; the real one must be returned.
+f="$(mkretro fence-inline-then-decoy <<EOF
+# retro
+
+\`\`\`code\`\`\`
+
+\`\`\`
+<!-- review-status: pending -->
+\`\`\`
+
+$M69
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "$M69" ] && ok "82 inline \`\`\`code\`\`\` does not open a fence; decoy skipped, real marker returned" "()" \
+                    || no "82 inline \`\`\`code\`\`\` does not open a fence; decoy skipped, real marker returned" "got [$got]"
+
+# 83 — case-insensitive match (kit issue #949 item 4): an UPPERCASE '<!-- REVIEW-STATUS:' marker
+#      outside any fence is still a marker.
+f="$(mkretro upper-case-marker <<'EOF'
+# retro
+
+body
+
+<!-- REVIEW-STATUS: applied 2026-01-01 · kit abc1234 -->
+EOF
+)"
+got="$(retro_marker_line "$f")"
+[ "$got" = "<!-- REVIEW-STATUS: applied 2026-01-01 · kit abc1234 -->" ] \
+  && ok "83 uppercase REVIEW-STATUS marker → found (case-insensitive)" "()" \
+  || no "83 uppercase REVIEW-STATUS marker → found (case-insensitive)" "got [$got]"
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
@@ -1363,6 +1599,58 @@ EOF
       fi
     fi
   fi
+
+  # ── Fence-tracking teeth (kit issues #949 item 3 / #1304 item 6). One mutant per clause of the
+  # CommonMark fence rule in retro_marker_line, each built with the shared tests/lib/mutant.sh
+  # (a mutant that never applied, is empty or does not parse is refused, never run). Each mutant
+  # is run against a fixture whose EXPECTED output differs from what the mutant produces, so a
+  # mutant that merely differs from the good run for the wrong reason cannot pass.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  FM="$(printf '<!-- review-status: applied 2026-01-01 · kit abc1234 -->')"
+  FX="$ROOT/fence-teeth"; mkdir -p "$FX"
+  printf '# r\n\n````\n```\n%s\n````\n' "$FM" > "$FX/len.md"            # F1 expect: empty
+  printf '# r\n\n```\n``` not a closer\n%s\n```\n' "$FM" > "$FX/trail.md" # F2 expect: empty
+  printf '# r\n\n~~~\n```\n%s\n~~~\n' "$FM" > "$FX/char.md"             # F3/F6 expect: empty
+  printf '# r\n\n```\nopen forever\n%s\n' "$FM" > "$FX/unclosed.md"       # F4 expect: marker
+  printf '# r\n\n```code```\n\n```\n<!-- review-status: pending -->\n```\n\n%s\n' "$FM" > "$FX/inline.md"  # F5 expect: marker
+  # fence_tooth <id> <label> <fixture> <expected> <sed-expr>
+  fence_tooth() {
+    local id="$1" label="$2" fx="$3" want="$4" expr="$5" mut="$ROOT/retro-status.fence-$1.sh" got good
+    echo "-- teeth $id: $label --"
+    good="$(retro_marker_line "$fx")"
+    if [ "$good" != "$want" ]; then
+      no "teeth $id: real helper returns the expected output on the fixture" "got [$good] want [$want]"
+      return
+    fi
+    local mrc=0
+    mutant_sed "$HELPER" "$mut" "$expr" || mrc=$?
+    if [ "$mrc" -ne 0 ]; then
+      no "teeth $id: build mutant" "mutant_sed refused (rc $mrc) — sed expression drifted?"
+      return
+    fi
+    got="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$mut" "$fx" 2>&1)"
+    if [ "$got" != "$want" ]; then
+      ok "teeth $id: $label → mutant output differs (cases have teeth)" "(got [$got])"
+    else
+      no "teeth $id: mutant should differ from the good output" "got [$got] — fence cases are THEATER"
+    fi
+  }
+  fence_tooth F1 "closer-length check dropped (shorter run closes the fence)" "$FX/len.md" "" \
+    's/n >= flen && //'
+  fence_tooth F2 "closer trailing-text check dropped (closer with text closes)" "$FX/trail.md" "" \
+    's/n >= flen && rest ~ [^)]*)/n >= flen)/'
+  fence_tooth F3 "closer same-char check dropped (any fence char closes)" "$FX/char.md" "" \
+    's/if (c == fch) {/if (1) {/'
+  fence_tooth F4 "END fail-closed dropped (unclosed fence reads as markerless)" "$FX/unclosed.md" "$FM" \
+    's/END { if (!found && infence && held != "") print held }/END { }/'
+  fence_tooth F5 "inline-backtick guard dropped (inline code opens a fence)" "$FX/inline.md" "$FM" \
+    's/ && !(c == "`" && index(rest, "`") > 0)//'
+  fence_tooth F6 "tilde opener dropped (~~~ never opens a fence)" "$FX/char.md" "" \
+    's/if (c == "`" || c == "~") {/if (c == "`") {/'
+  printf '# r\n\nbody\n\n<!-- REVIEW-STATUS: applied 2026-01-01 -->\n' > "$FX/upper.md"   # F7 expect: marker
+  fence_tooth F7 "tolower dropped (uppercase REVIEW-STATUS no longer matches)" "$FX/upper.md" \
+    "<!-- REVIEW-STATUS: applied 2026-01-01 -->" 's/lc = tolower(\$0)/lc = \$0/'
 
   # ── Structural guard (kit issue #1130 finding 2): no POSIX interval expression ({m,n}) may
   # reappear inside retro_marker_line's or retro_marker_scope_line's awk match regex — that is

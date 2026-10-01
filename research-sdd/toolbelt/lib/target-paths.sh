@@ -116,7 +116,15 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   #                                            (no-match; the caller picks its own fallback)
   #            1 + typed message on stderr   — operational failure: bad arguments, TARGETS.md
   #                                            absent/unreadable, no registered path parsed from
-  #                                            it, or the retro's directory does not exist
+  #                                            it, the registry has $RESEARCH_HOME rows and NONE of
+  #                                            its parsed paths resolves to a directory (a wrong
+  #                                            RESEARCH_HOME — kit issue #1304 item 3), or the
+  #                                            retro's directory does not exist
+  #   A registry of ABSOLUTE paths only, none of which exists, stays rc 2: RESEARCH_HOME cannot be
+  #   the cause there, and the consumers' fixture kits rely on a dummy absolute row to keep their
+  #   retros "unregistered" (legacy WARN + basename fallback).
+  #   The row is selected by its PATH cell only (kit issue #1304 item 4): a path merely quoted in
+  #   another row's other cells never wins.
   target_name_for_retro() {
     local f="${1:-}" retro="${2:-}"
     if [ -z "$f" ] || [ -z "$retro" ]; then
@@ -145,11 +153,23 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
     local rows
     rows="$(grep -E '^\s*\|' "$f")"
     local -a _tnr_raw=() _tnr_exp=() _tnr_path=()
-    local _raw _path _exp
+    local _raw _path _exp _tnr_has_rh=0
     while IFS=$'\t' read -r _raw _path; do
+      case "$_raw" in '$RESEARCH_HOME'*|'${RESEARCH_HOME}'*) _tnr_has_rh=1 ;; esac
       _exp="$(cd -P "$_path" 2>/dev/null && pwd -P)" || continue
       _tnr_raw+=("$_raw"); _tnr_exp+=("$_exp"); _tnr_path+=("$_path")
     done <<<"$pairs"
+    # kit issue #1304 item 3: $RESEARCH_HOME rows were parsed (the check above) but NO path of the
+    # registry is a directory — a wrong RESEARCH_HOME, a moved corpus root. That is an absent-input
+    # failure, never the quiet "no ancestor registered" rc 2 (callers answer rc 2 with a basename
+    # fallback and one WARN). Scoped to registries that HAVE a $RESEARCH_HOME row: an absolute-only
+    # registry cannot be mis-resolved by RESEARCH_HOME (see the Returns note above).
+    # SENTINEL-TNR-NODIR-START
+    if [ "${#_tnr_exp[@]}" -eq 0 ] && [ "$_tnr_has_rh" -eq 1 ]; then
+      echo "target-paths: no registered target path in ${f} resolves to a directory — it has \$RESEARCH_HOME rows, so RESEARCH_HOME (${RESEARCH_HOME:-$HOME}) is probably wrong" >&2
+      return 1
+    fi
+    # SENTINEL-TNR-NODIR-END
     local anc i hit=-1
     anc="$(dirname "$rdir")"
     while :; do
@@ -163,15 +183,16 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
       anc="$(dirname "$anc")"
     done
     [ "$hit" -ge 0 ] || return 2
-    local rowline name grc
-    rowline="$(grep -F -m 1 -- "\`${_tnr_raw[$hit]}\`" <<<"$rows")"; grc=$?
-    if [ "$grc" -gt 1 ]; then
-      echo "target-paths: grep failed (exit ${grc}) reading the row for ${_tnr_raw[$hit]}" >&2
+    # kit issue #1304 item 4: match the PATH cell ($4 of a '| # | name | path |' row) only. The
+    # former `grep -F -m1` over the whole row returned the FIRST row that merely QUOTED the path
+    # anywhere (a Notes cell, an earlier row's evidence), i.e. the wrong row's name. The
+    # backtick-delimited token keeps a path that prefixes another row's path from matching it.
+    # SENTINEL-TNR-PATHCELL: the one place the row is selected.
+    local name arc
+    name="$(_TP_RAW="${_tnr_raw[$hit]}" awk -F'|' 'BEGIN { want = "`" ENVIRON["_TP_RAW"] "`" } index($4, want) { n = $3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n; exit }' <<<"$rows")"; arc=$?
+    if [ "$arc" -ne 0 ]; then
+      echo "target-paths: awk failed (exit ${arc}) reading the row for ${_tnr_raw[$hit]}" >&2
       return 1
-    fi
-    name=""
-    if [ "$grc" -eq 0 ]; then
-      name="$(awk -F'|' '{ n = $3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n }' <<<"$rowline")"
     fi
     case "$name" in
       '') name="$(basename "${_tnr_path[$hit]}")" ;;
