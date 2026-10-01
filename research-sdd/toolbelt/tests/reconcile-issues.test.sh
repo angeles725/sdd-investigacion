@@ -170,7 +170,7 @@ echo "== reconcile-issues.test.sh =="
 box="$(mkbox case-absent)"
 mk_gh_stub "$box" nomatch
 run "$box" "$box/rh/target-foo/retros/does-not-exist.md"
-if [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -qi 'absent-input'; then
+if [ "$RC" = 1 ] && grep -qi 'absent-input' <<<"$OUT"; then
   ok "1 absent-input: missing retro → exit 1 + absent-input message" "(exit $RC)"
 else
   no "1 absent-input: missing retro → exit 1 + absent-input message" "exit=$RC out=[$OUT]"
@@ -182,7 +182,7 @@ box="$(mkbox case-empty)"
 mk_gh_stub "$box" nomatch
 retro="$(mk_retro "$box" target-foo r-empty.md "<!-- review-status: pending -->" "-")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'empty-input' <<<"$OUT"; then
   ok "2 empty-input: no delta section → exit 0 + empty-input message" "(exit $RC)"
 else
   no "2 empty-input: no delta section → exit 0 + empty-input message" "exit=$RC out=[$OUT]"
@@ -196,7 +196,7 @@ retro="$(mk_retro "$box" target-foo r-nomatch.md \
   "<!-- review-status: applied 2026-01-01 · kit abc1234 -->" \
   "| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'no-match'; then
+if [ "$RC" = 0 ] && grep -qi 'no-match' <<<"$OUT"; then
   ok "3 no-match: applied retro + no issues → exit 0 + no-match message" "(exit $RC)"
 else
   no "3 no-match: applied retro + no issues → exit 0 + no-match message" "exit=$RC out=[$OUT]"
@@ -210,7 +210,7 @@ retro="$(mk_retro "$box" target-foo r-tracked.md \
   "<!-- review-status: pending -->" \
   "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'tracked:'; then
+if [ "$RC" = 0 ] && grep -qi 'tracked:' <<<"$OUT"; then
   ok "4 tracked: open row with matching issue → tracked: in output" "(exit $RC)"
 else
   no "4 tracked: open row with matching issue → tracked: in output" "exit=$RC out=[$OUT]"
@@ -224,7 +224,7 @@ retro="$(mk_retro "$box" target-foo r-untracked.md \
   "<!-- review-status: pending -->" \
   "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'untracked:'; then
+if [ "$RC" = 0 ] && grep -qi 'untracked:' <<<"$OUT"; then
   ok "5 untracked: open row with no issue → untracked: in output" "(exit $RC)"
 else
   no "5 untracked: open row with no issue → untracked: in output" "exit=$RC out=[$OUT]"
@@ -238,7 +238,7 @@ retro="$(mk_retro "$box" target-foo r-orphaned.md \
   "<!-- review-status: applied 2026-06-01 · kit deadbeef -->" \
   "| 1 | old shipped delta | METHODOLOGY.md | B1 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'orphaned:'; then
+if [ "$RC" = 0 ] && grep -qi 'orphaned:' <<<"$OUT"; then
   ok "6 orphaned: shipped row still has open issue → orphaned: in output" "(exit $RC)"
 else
   no "6 orphaned: shipped row still has open issue → orphaned: in output" "exit=$RC out=[$OUT]"
@@ -254,7 +254,7 @@ _deg_retro="$(mk_retro "$box" target-foo r-deg.md \
 OUT7="$(PATH="$box/bin" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/reconcile-issues.sh" \
   "$_deg_retro" 2>&1)"; RC7=$?
-if [ "$RC7" != 0 ] && printf '%s' "$OUT7" | grep -qi 'degraded'; then
+if [ "$RC7" != 0 ] && grep -qi 'degraded' <<<"$OUT7"; then
   ok "7 degraded: missing gh → non-zero + degraded message" "(exit $RC7)"
 else
   no "7 degraded: missing gh → non-zero + degraded message" "exit=$RC7 out=[$OUT7]"
@@ -272,7 +272,7 @@ mk_retro "$box" beta-target r-beta.md \
   "| 1 | beta delta | CLAUDE.md §7 | B2 | new | LOW |" > /dev/null
 run "$box" --all
 fleet_ok=0
-printf '%s\n' "$OUT" | grep -qE 'fleet-summary:.*untracked=2' && fleet_ok=1
+grep -qE 'fleet-summary:.*untracked=2' <<<"$OUT" && fleet_ok=1
 if [ "$RC" = 0 ] && [ "$fleet_ok" = 1 ]; then
   ok "8 --all: 2 targets, 2 untracked → fleet-summary with untracked=2" "(exit $RC)"
 else
@@ -309,7 +309,7 @@ retro="$(mk_retro "$box" target-foo r-ghfail.md \
   "<!-- review-status: pending -->" \
   "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
 run "$box" "$retro"
-if [ "$RC" != 0 ] && printf '%s' "$OUT" | grep -qi 'degraded:'; then
+if [ "$RC" != 0 ] && grep -qi 'degraded:' <<<"$OUT"; then
   ok "10 gh-fail-degraded: gh query failure → non-zero + degraded message" "(exit $RC)"
 else
   no "10 gh-fail-degraded: gh query failure → non-zero + degraded message" \
@@ -338,8 +338,8 @@ retro_oos="$box/rh/target-foo/retros/r-oos.md"
   printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
 } > "$retro_oos"
 run "$box" "$retro_oos"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:' \
-  && ! printf '%s' "$OUT" | grep -qi 'untracked:\|tracked:\|orphaned:'; then
+if [ "$RC" = 0 ] && grep -qi '^out-of-scope-marker:' <<<"$OUT" \
+  && ! grep -qi 'untracked:\|tracked:\|orphaned:' <<<"$OUT"; then
   ok "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify, exit 0 (finding, not failure — #1099/#1125)" "(exit $RC)"
 else
   no "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify, exit 0 (finding, not failure — #1099/#1125)" \
@@ -361,7 +361,7 @@ retro_oos_all="$box/rh/target-foo/retros/r-oos.md"
   printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
 } > "$retro_oos_all"
 run "$box" "--all"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qE 'fleet-summary:.*degraded=0.*out-of-scope=1'; then
+if [ "$RC" = 0 ] && grep -qE 'fleet-summary:.*degraded=0.*out-of-scope=1' <<<"$OUT"; then
   ok "10d --all: out-of-scope-marker counted separately, degraded stays 0, exit 0" "(exit $RC)"
 else
   no "10d --all: out-of-scope-marker counted separately, degraded stays 0, exit 0" "exit=$RC out=[$OUT]"
@@ -375,8 +375,8 @@ mk_gh_stub "$box" nomatch
 retro_absent="$(mk_retro "$box" target-foo r-no-marker.md "-" \
   "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
 run "$box" "$retro_absent"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'untracked:' \
-  && ! printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:'; then
+if [ "$RC" = 0 ] && grep -qi 'untracked:' <<<"$OUT" \
+  && ! grep -qi '^out-of-scope-marker:' <<<"$OUT"; then
   ok "10c genuinely markerless retro → still untracked, NOT out-of-scope-marker" "(exit $RC)"
 else
   no "10c genuinely markerless retro → still untracked, NOT out-of-scope-marker" "exit=$RC out=[$OUT]"
@@ -410,9 +410,9 @@ mk_gh_stub "$box" nomatch
 _hash_marker='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1 (§11 consumer-absence), #2 (§5 slot-vs-derived) -->'
 mk_retro3 "$box" target-foo r-hash-shipped.md "$_hash_marker" > /dev/null
 run "$box" "$box/rh/target-foo/retros/r-hash-shipped.md"
-_untracked_11=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+_untracked_11=$(grep -c 'untracked: row' <<<"$OUT" 2>/dev/null || true)
 if [ "$RC" = 0 ] && [ "$_untracked_11" = "1" ] \
-   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 3'; then
+   && grep -qi 'untracked:.*row 3' <<<"$OUT"; then
   ok "11 hash-shipped: #N(desc) → rows 1,2 shipped; only row 3 untracked" \
      "(exit $RC untracked=$_untracked_11)"
 else
@@ -427,9 +427,9 @@ mk_gh_stub "$box" nomatch
 _bare_marker='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: 1, 2 -->'
 mk_retro3 "$box" target-foo r-bare-shipped.md "$_bare_marker" > /dev/null
 run "$box" "$box/rh/target-foo/retros/r-bare-shipped.md"
-_untracked_12=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+_untracked_12=$(grep -c 'untracked: row' <<<"$OUT" 2>/dev/null || true)
 if [ "$RC" = 0 ] && [ "$_untracked_12" = "1" ] \
-   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 3'; then
+   && grep -qi 'untracked:.*row 3' <<<"$OUT"; then
   ok "12 bare-shipped: '1, 2' format → rows 1,2 shipped; only row 3 untracked" \
      "(exit $RC untracked=$_untracked_12)"
 else
@@ -451,9 +451,9 @@ mk_gh_stub "$box" nomatch
   printf '| D3 | delta three | METHODOLOGY.md | B3 | new | HIGH |\n'
 } > "$box/rh/target-foo/retros/r-prefix-shipped.md"
 run "$box" "$box/rh/target-foo/retros/r-prefix-shipped.md"
-_untracked_13=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+_untracked_13=$(grep -c 'untracked: row' <<<"$OUT" 2>/dev/null || true)
 if [ "$RC" = 0 ] && [ "$_untracked_13" = "1" ] \
-   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*D3'; then
+   && grep -qi 'untracked:.*D3' <<<"$OUT"; then
   ok "13 prefix-shipped: 'D1, D2' format → D1,D2 shipped; only D3 untracked" \
      "(exit $RC untracked=$_untracked_13)"
 else
@@ -474,9 +474,9 @@ mk_gh_stub "$box" nomatch
   printf '| 6 | delta six  | METHODOLOGY.md | B6 | new | HIGH |\n'
 } > "$box/rh/target-foo/retros/r-single-hash.md"
 run "$box" "$box/rh/target-foo/retros/r-single-hash.md"
-_untracked_14=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+_untracked_14=$(grep -c 'untracked: row' <<<"$OUT" 2>/dev/null || true)
 if [ "$RC" = 0 ] && [ "$_untracked_14" = "1" ] \
-   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 6'; then
+   && grep -qi 'untracked:.*row 6' <<<"$OUT"; then
   ok "14 single-hash: '#5 (desc)' format → row 5 shipped; only row 6 untracked" \
      "(exit $RC untracked=$_untracked_14)"
 else
@@ -503,7 +503,7 @@ retro15="$(mk_retro "$box15" target-foo r-cache-untracked.md \
 run "$box15" --issues-cache "$_cache15" "$retro15"
 _gh_calls_15="$(wc -l < "$box15/bin/gh.log" 2>/dev/null | tr -d ' ')"
 _gh_calls_15="${_gh_calls_15:-0}"  # missing log → 0 calls (gh was never invoked)
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'untracked:' \
+if [ "$RC" = 0 ] && grep -q 'untracked:' <<<"$OUT" \
    && [ "$_gh_calls_15" = "0" ]; then
   ok "15 cache-untracked: cache with no matching sig → untracked, exit 0, no gh call" \
      "(exit $RC gh_calls=${_gh_calls_15})"
@@ -532,7 +532,7 @@ retro16="$(mk_retro "$box16" target-foo r-cache-tracked.md \
 run "$box16" --issues-cache "$_cache16" "$retro16"
 _gh_calls_16="$(wc -l < "$box16/bin/gh.log" 2>/dev/null | tr -d ' ')"
 _gh_calls_16="${_gh_calls_16:-0}"  # missing log → 0 calls (gh was never invoked)
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^tracked:' \
+if [ "$RC" = 0 ] && grep -q '^tracked:' <<<"$OUT" \
    && [ "$_gh_calls_16" = "0" ]; then
   ok "16 cache-tracked: cache with matching sig → tracked, exit 0, no gh call" \
      "(exit $RC gh_calls=${_gh_calls_16})"
@@ -564,8 +564,8 @@ retro17="$(mk_retro "$box17" "target-v2.foo" "r-meta.md" \
   "| 1 | delta-a | CLAUDE.md | B1 | new | HIGH |
 | 2 | delta-b | CLAUDE.md | B2 | new | HIGH |")"
 run "$box17" --issues-cache "$_cache17" "$retro17"
-_meta_untracked="$(printf '%s\n' "$OUT" | grep -c '^untracked:' 2>/dev/null || echo 0)"
-_meta_tracked="$(printf '%s\n' "$OUT" | grep -c '^tracked:' 2>/dev/null || echo 0)"
+_meta_untracked="$(grep -c '^untracked:' <<<"$OUT" 2>/dev/null || echo 0)"
+_meta_tracked="$(grep -c '^tracked:' <<<"$OUT" 2>/dev/null || echo 0)"
 # row 1 must be untracked (no literal-dot match); row 2 must be tracked (exact match).
 if [ "$RC" = 0 ] && [ "${_meta_untracked:-0}" = "1" ] && [ "${_meta_tracked:-0}" = "1" ]; then
   ok "17 T-CACHE-METACHAR: metachar prefix → row 1 untracked (no false match), row 2 tracked (exact match)" \
@@ -587,7 +587,7 @@ retro18="$(mk_retro "$box18" target-foo r-1090-repro.md \
   "<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->" \
   "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |')")"
 run "$box18" "$retro18"
-if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:'; then
+if [ "$RC" = 0 ] && ! grep -q '^untracked:' <<<"$OUT"; then
   ok "18 #1090 real repro marker: dismissed + prose 'partial' → zero untracked rows" "(exit $RC)"
 else
   no "18 #1090 real repro marker: dismissed + prose 'partial' → zero untracked rows" "exit=$RC out=[$OUT]"
@@ -609,7 +609,7 @@ for pos in first middle last; do
     "<!-- review-status: dismissed 2026-09-20 · kit deadbeef — ${_prose19} -->" \
     "| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |")"
   run "$box19" "$retro19"
-  if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:'; then
+  if [ "$RC" = 0 ] && ! grep -q '^untracked:' <<<"$OUT"; then
     ok "19.$_pos19 #1090 dismissed + prose 'partial' at $pos → zero untracked rows" "(exit $RC)"
   else
     no "19.$_pos19 #1090 dismissed + prose 'partial' at $pos → zero untracked rows" "exit=$RC out=[$OUT]"
@@ -624,8 +624,8 @@ retro20="$(mk_retro "$box20" target-foo r-structured-partial.md \
   "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
   "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | MEDIUM |')")"
 run "$box20" "$retro20"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'untracked: row 2' \
-   && ! printf '%s' "$OUT" | grep -q 'untracked: row 1'; then
+if [ "$RC" = 0 ] && grep -q 'untracked: row 2' <<<"$OUT" \
+   && ! grep -q 'untracked: row 1' <<<"$OUT"; then
   ok "20 structured PARTIAL token: only deferred row 2 untracked, shipped row 1 skipped" "(exit $RC)"
 else
   no "20 structured PARTIAL token: only deferred row 2 untracked, shipped row 1 skipped" "exit=$RC out=[$OUT]"
@@ -650,8 +650,8 @@ mkdir -p "$(dirname "$retro21")"
   printf '| 1 | already handled elsewhere | METHODOLOGY.md | B1 | new | LOW |\n'
 } > "$retro21"
 run "$box21" "$retro21"
-if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:' \
-   && printf '%s' "$OUT" | grep -qi 'no-match'; then
+if [ "$RC" = 0 ] && ! grep -q '^untracked:' <<<"$OUT" \
+   && grep -qi 'no-match' <<<"$OUT"; then
   ok "21 H1 + blank + marker (dismissed): row NOT reported untracked (#945 real-corpus shape)" "(exit $RC)"
 else
   no "21 H1 + blank + marker (dismissed): row NOT reported untracked (#945 real-corpus shape)" \
@@ -677,7 +677,7 @@ ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/to
 cache_sym="$box_sym/empty-issues-cache"; : > "$cache_sym"
 OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
   "$box_sym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_sym" 2>&1)"; RC_SYM=$?
-if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'absent-input.*TARGETS\.md'; then
+if [ "$RC_SYM" -eq 0 ] && ! grep -qi 'absent-input.*TARGETS\.md' <<<"$OUT_SYM"; then
   ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, still resolves the real TARGETS.md" \
      "(rc=$RC_SYM)"
 else
@@ -711,8 +711,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     sed "/${anchor_t1}/{ n; s/.*/      if false; then/ }" "$SUT" > "$mutant_t1"
     out_t1="$(PATH="$box_t1/bin:$PATH" \
       "$BASH_BIN" "$mutant_t1" "$retro_t1" 2>&1)"; rc_t1=$?
-    if ! printf '%s\n' "$out_t1" | grep -qi '^tracked:' \
-       && printf '%s\n' "$out_t1" | grep -qi 'untracked:'; then
+    if ! grep -qi '^tracked:' <<<"$out_t1" \
+       && grep -qi 'untracked:' <<<"$out_t1"; then
       ok "T1 teeth: tracked condition neutered → row shows as untracked (case 4 has teeth)" "()"
     else
       no "T1 teeth: tracked condition neutered → row should show as untracked" \
@@ -739,7 +739,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "$SUT" > "$mutant_t2"
     out_t2="$(PATH="$box_t2/bin:$PATH" \
       "$BASH_BIN" "$mutant_t2" "$retro_t2" 2>&1)"; rc_t2=$?
-    if ! printf '%s\n' "$out_t2" | grep -qi 'untracked:'; then
+    if ! grep -qi 'untracked:' <<<"$out_t2"; then
       ok "T2 teeth: untracked emit neutered → no untracked: output (case 5 has teeth)" "()"
     else
       no "T2 teeth: untracked emit neutered → should not see untracked:" \
@@ -764,7 +764,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     sed "/${anchor_t3}/{ n; s/.*/      if false; then/ }" "$SUT" > "$mutant_t3"
     out_t3="$(PATH="$box_t3/bin:$PATH" \
       "$BASH_BIN" "$mutant_t3" "$retro_t3" 2>&1)"; rc_t3=$?
-    if ! printf '%s\n' "$out_t3" | grep -qi 'orphaned:'; then
+    if ! grep -qi 'orphaned:' <<<"$out_t3"; then
       ok "T3 teeth: orphaned condition neutered → no orphaned: output (case 6 has teeth)" "()"
     else
       no "T3 teeth: orphaned condition neutered → should not see orphaned:" \
@@ -850,7 +850,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     out_t6="$(PATH="$box_t6/bin:$PATH" \
       "$BASH_BIN" "$box_t6/research-sdd/toolbelt/reconcile-issues.sh" \
       "$box_t6/rh/target-foo/retros/r-t6.md" 2>&1)"; rc_t6=$?
-    _ut6=$(printf '%s\n' "$out_t6" | grep -c 'untracked: row' 2>/dev/null || true)
+    _ut6=$(grep -c 'untracked: row' <<<"$out_t6" 2>/dev/null || true)
     # Fix: untracked=1 (only row 3). Mutant: untracked=3 (all rows, # not stripped).
     if [ "$_ut6" -gt 1 ]; then
       ok "T6 teeth: hash-strip neutered (shared lib) → untracked>1 (case 11 has teeth)" \
@@ -933,8 +933,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        ! grep -q 'grep -F "Source retro:' "$mutant_tmc"; then
       out_tmc="$(PATH="$box_tmc/bin:$PATH" \
         "$BASH_BIN" "$mutant_tmc" --issues-cache "$_cache_tmc" "$retro_tmc" 2>&1)" || true
-      _tmc_tracked="$(printf '%s\n' "$out_tmc" | grep -c '^tracked:' 2>/dev/null)"
-      _tmc_untracked="$(printf '%s\n' "$out_tmc" | grep -c '^untracked:' 2>/dev/null)"
+      _tmc_tracked="$(grep -c '^tracked:' <<<"$out_tmc" 2>/dev/null)"
+      _tmc_untracked="$(grep -c '^untracked:' <<<"$out_tmc" 2>/dev/null)"
       # With -E mutant: row 1 is false-matched as tracked (dot matches X) → tracked≥2, untracked=0.
       # T-CACHE-METACHAR assertion "row 1 untracked" would fail → RED.
       if [ "${_tmc_tracked:-0}" -ge 2 ] && [ "${_tmc_untracked:-0}" -eq 0 ]; then
@@ -970,7 +970,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cache_tsym="$box_tsym/empty-issues-cache"; : > "$cache_tsym"
   out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
     "$box_tsym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_tsym" 2>&1)"; rc_tsym=$?
-  if [ "$rc_tsym" -ne 0 ] && printf '%s' "$out_tsym" | grep -qi 'absent-input.*TARGETS\.md'; then
+  if [ "$rc_tsym" -ne 0 ] && grep -qi 'absent-input.*TARGETS\.md' <<<"$out_tsym"; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
@@ -997,7 +997,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash -n "$mutant_t7" 2>/dev/null || { no "T7 teeth: mutant_t7 failed bash -n" ""; }
     out_t7="$(PATH="$box_t7/bin:$PATH" \
       "$BASH_BIN" "$mutant_t7" "$box_t7/rh/target-foo/retros/r-t7.md" 2>&1)"; rc_t7=$?
-    if printf '%s\n' "$out_t7" | grep -q '^untracked:'; then
+    if grep -q '^untracked:' <<<"$out_t7"; then
       ok "T7 teeth: dismissed-wins guard neutered → dismissed+PARTIAL reports untracked (case 18/19 have teeth)" "()"
     else
       no "T7 teeth: dismissed-wins guard neutered → should report untracked" \
@@ -1030,7 +1030,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${sut_content_h1/"$anchor_h1"/}" > "$mutant_h1"
     "$BASH_BIN" -n "$mutant_h1" 2>/dev/null || no "teeth H1: mutant syntax check" "bash -n failed"
     out_h1="$(PATH="$box_h1/bin:$PATH" "$BASH_BIN" "$mutant_h1" "$retro_h1" 2>&1)"
-    if printf '%s\n' "$out_h1" | grep -qi '^unclassifiable:'; then
+    if grep -qi '^unclassifiable:' <<<"$out_h1"; then
       ok "teeth H1: honesty check removed → case 25 flips to unclassifiable (has teeth)" "()"
     else
       no "teeth H1: honesty check removed → should flip to unclassifiable" "case 25 is THEATER: out=[$out_h1]"
@@ -1053,7 +1053,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${sut_content_h1/"$anchor_h2"/:}" > "$mutant_h2"
     "$BASH_BIN" -n "$mutant_h2" 2>/dev/null || no "teeth H2: mutant syntax check" "bash -n failed"
     out_h2="$(PATH="$box_h2/bin:$PATH" "$BASH_BIN" "$mutant_h2" "$retro_h2" 2>&1)"
-    if ! printf '%s\n' "$out_h2" | grep -qi 'unclassifiable'; then
+    if ! grep -qi 'unclassifiable' <<<"$out_h2"; then
       ok "teeth H2: unclassifiable echo silenced → case 26's typed message gone (has teeth)" "()"
     else
       no "teeth H2: unclassifiable echo silenced → message should be gone" "case 26 is THEATER: out=[$out_h2]"
@@ -1080,7 +1080,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$BASH_BIN" -n "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR1: mutant lib syntax check" "bash -n failed"
     out_gr1="$(PATH="$box_gr1/bin:$PATH" "$BASH_BIN" "$box_gr1/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr1" 2>&1)"
-    if printf '%s\n' "$out_gr1" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr1"; then
       ok "teeth GR1: Spanish alias removed from lib → case 22 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR1: Spanish alias removed from lib → should revert to empty-input" "case 22 is THEATER: out=[$out_gr1]"
@@ -1105,7 +1105,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$BASH_BIN" -n "$box_gr2/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR2: mutant lib syntax check" "bash -n failed"
     out_gr2="$(PATH="$box_gr2/bin:$PATH" "$BASH_BIN" "$box_gr2/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr2" 2>&1)"
-    if printf '%s\n' "$out_gr2" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr2"; then
       ok "teeth GR2: Rule 2 hyphen widening reverted → case 23 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR2: Rule 2 hyphen widening reverted → should revert to empty-input" "case 23 is THEATER: out=[$out_gr2]"
@@ -1134,7 +1134,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$BASH_BIN" -n "$box_gr3/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
       || no "teeth GR3: mutant lib syntax check" "bash -n failed"
     out_gr3="$(PATH="$box_gr3/bin:$PATH" "$BASH_BIN" "$box_gr3/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr3" 2>&1)"
-    if printf '%s\n' "$out_gr3" | grep -qi '^empty-input:'; then
+    if grep -qi '^empty-input:' <<<"$out_gr3"; then
       ok "teeth GR3: Rule 4 disabled → case 24 reverts to empty-input (has teeth)" "()"
     else
       no "teeth GR3: Rule 4 disabled → should revert to empty-input" "case 24 is THEATER: out=[$out_gr3]"
@@ -1166,7 +1166,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${sut_content_toos/"$anchor_toos"/if false; then}" > "$mutant_toos"
     "$BASH_BIN" -n "$mutant_toos" 2>/dev/null || no "T-OOS teeth: mutant syntax check" "bash -n failed"
     out_toos="$(PATH="$box_toos/bin:$PATH" "$BASH_BIN" "$mutant_toos" "$retro_toos" 2>&1)"; rc_toos=$?
-    if printf '%s\n' "$out_toos" | grep -q '^untracked:'; then
+    if grep -q '^untracked:' <<<"$out_toos"; then
       ok "T-OOS teeth: guard neutered → row untracked again, fails open (case 10b has teeth)" "()"
     else
       no "T-OOS teeth: guard neutered → row should be untracked (fail open)" \
@@ -1189,7 +1189,7 @@ retro="$box/rh/target-foo/retros/r-spanish.md"
   printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
 } > "$retro"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^untracked:' && ! printf '%s' "$OUT" | grep -qi 'empty-input\|unclassifiable'; then
+if [ "$RC" = 0 ] && grep -q '^untracked:' <<<"$OUT" && ! grep -qi 'empty-input\|unclassifiable' <<<"$OUT"; then
   ok "22 Spanish canonical alias 'PROPUESTA de deltas al kit' → row audited, not empty/unclassifiable" "(exit $RC)"
 else
   no "22 Spanish canonical alias → expected row audited (untracked)" "exit=$RC out=[$OUT]"
@@ -1206,7 +1206,7 @@ retro="$box/rh/target-foo/retros/r-hyphen.md"
   printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
 } > "$retro"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'unclassifiable' <<<"$OUT" && ! grep -qF 'empty-input' <<<"$OUT"; then
   ok "23 hyphenated 'kit-delta' mid-heading → unclassifiable, never empty-input" "(exit $RC)"
 else
   no "23 hyphenated 'kit-delta' mid-heading → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
@@ -1223,7 +1223,7 @@ retro="$box/rh/target-foo/retros/r-h3proposals.md"
   printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
 } > "$retro"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+if [ "$RC" = 0 ] && grep -qi 'unclassifiable' <<<"$OUT" && ! grep -qF 'empty-input' <<<"$OUT"; then
   ok "24 standalone H3 '### Proposals' outside section → unclassifiable, never empty-input" "(exit $RC)"
 else
   no "24 standalone H3 '### Proposals' outside section → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
@@ -1242,8 +1242,8 @@ retro="$box/rh/target-foo/retros/r-honest-empty.md"
   printf 'no new deltas; the kit already covers this run.\n'
 } > "$retro"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^empty-input:' \
-  && ! printf '%s' "$OUT" | grep -qi 'unclassifiable'; then
+if [ "$RC" = 0 ] && grep -qi '^empty-input:' <<<"$OUT" \
+  && ! grep -qi 'unclassifiable' <<<"$OUT"; then
   ok "25 honest empty (§18 honesty line, no rows) → empty-input, not unclassifiable" "(exit $RC)"
 else
   no "25 honest empty (§18 honesty line, no rows) → expected empty-input, not unclassifiable" "exit=$RC out=[$OUT]"
@@ -1260,8 +1260,8 @@ retro="$box/rh/target-foo/retros/r-not-honest.md"
   printf '### ABSORB → some ordinary sub-heading with prose, no table, no honesty phrase\n\nprose here\n'
 } > "$retro"
 run "$box" "$retro"
-if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^unclassifiable:' \
-  && ! printf '%s' "$OUT" | grep -qi '^empty-input:'; then
+if [ "$RC" = 0 ] && grep -qi '^unclassifiable:' <<<"$OUT" \
+  && ! grep -qi '^empty-input:' <<<"$OUT"; then
   ok "26 canonical section, no rows, NOT honest → unclassifiable" "(exit $RC)"
 else
   no "26 canonical section, no rows, NOT honest → expected unclassifiable" "exit=$RC out=[$OUT]"
