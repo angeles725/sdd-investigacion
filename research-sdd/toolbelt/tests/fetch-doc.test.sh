@@ -255,7 +255,7 @@ if [ "${STUB_DOWNLOAD_HANG:-0}" = "1" ]; then
   # Interruptible hang (#1285 item 2): partial bytes on disk, then block until signalled.
   [ -n "$out" ] && printf 'PARTIAL-BODY' > "$out"
   [ -n "${STUB_HANG_MARKER:-}" ] && : > "$STUB_HANG_MARKER"
-  sleep "${STUB_HANG_SECS:-30}" & wait $!
+  sleep "${STUB_HANG_SECS:-30}" & _sp=$!; [ -n "${STUB_HANG_PIDFILE:-}" ] && echo "$_sp" > "$STUB_HANG_PIDFILE"; wait $_sp
   # Reached only when NOT signalled (#1313): the download "completes" with NEW bytes and says so.
   [ -n "${STUB_HANG_DONE_MARKER:-}" ] && : > "$STUB_HANG_DONE_MARKER"
   [ -n "$out" ] && printf 'NEW-BYTES-AFTER-HANG\n' > "$out"
@@ -285,7 +285,7 @@ else
     3??) [ -n "$out" ] && printf 'stub REDIRECT body (no -L) for %s\n' "$target" >"$out"; exit 0 ;;
   esac
 fi
-[ -n "$out" ] && printf 'stub body for %s\n' "$target" >"$out"
+[ -n "$out" ] && printf '%s\n' "${STUB_BODY:-stub body for $target}" >"$out"
 exit 0
 STUBEOF
 chmod +x "$stubbin/curl"
@@ -879,7 +879,7 @@ unset STUB_ROUTES
 d44="$TMP/rr-44/target"; f44="$(mkexisting "$d44" r44.pdf)"
 STUB_ROUTES=""; export STUB_ROUTES
 _rc44=0; RC_REPLACE=1 runchain doc "$d44" "http://s44.example/a" datasheets "r44.pdf" || _rc44=$?
-_debris44="$(find "$d44/sources/datasheets" -name "*.part.*" | wc -l | tr -d ' ')"
+_debris44="$(find "$d44/sources/datasheets" -name "*.fetchdoc-part.*" | wc -l | tr -d ' ')"
 if [ "$_rc44" -eq 0 ] && grep -qF 'stub body for http://s44.example/a' "$f44" && [ "$_debris44" = "0" ]; then
   ok "doc: #1285 — a successful re-fetch replaces the file and leaves no part file"
 else no "R44: rc=$_rc44 body='$(cat "$f44" 2>/dev/null)' debris=$_debris44"; fi
@@ -1436,7 +1436,7 @@ SED
   echo "-- teeth: SENTINEL-DOC-RESOLVE (round-3 RR1) — doc mode skips redirect resolution entirely --"
   docresolvemutant="$(mkmut doc-resolve <<'SED'
 /SENTINEL-DOC-RESOLVE/,/download_into "\$URL" "\$DEST"/ {
-  s%^    download_into "\$URL" "\$DEST".*%    curl -fsSL "$URL" -o "$DEST.part.$$" 2>/dev/null || wget -q "$URL" -O "$DEST.part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: doc resolve skipped%
+  s%^    download_into "\$URL" "\$DEST".*%    curl -fsSL "$URL" -o "$DEST.fetchdoc-part.$$" 2>/dev/null || wget -q "$URL" -O "$DEST.fetchdoc-part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: doc resolve skipped%
 }
 SED
 )"
@@ -1472,7 +1472,7 @@ SED
   echo "-- teeth: SENTINEL-WEB-RESOLVE — web mode skips redirect resolution (registers \$URL directly) --"
   wmutant="$(mkmut web-resolve <<'SED'
 /SENTINEL-WEB-RESOLVE/,/download_into "\$URL" "\$HTML"/ {
-  s%^    download_into "\$URL" "\$HTML".*%    curl -fsSL "$URL" -o "$HTML.part.$$" 2>/dev/null || wget -q "$URL" -O "$HTML.part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: web resolve skipped%
+  s%^    download_into "\$URL" "\$HTML".*%    curl -fsSL "$URL" -o "$HTML.fetchdoc-part.$$" 2>/dev/null || wget -q "$URL" -O "$HTML.fetchdoc-part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: web resolve skipped%
 }
 SED
 )"
@@ -1597,7 +1597,7 @@ SED
   . "$HERE/lib/mutant.sh"
 
   echo "-- teeth: SENTINEL-PART-FILE (#1285 item 1) — download straight into the destination --"
-  if ! mutant_sed "$SUT" "$TMP/part-file.MUT.sh" 's/local dest="\$final\.part\.\$\$"/local dest="$final"  # MUTANT: part file removed/'; then
+  if ! mutant_sed "$SUT" "$TMP/part-file.MUT.sh" 's/local dest="\$final\.fetchdoc-part\.\$\$"/local dest="$final"  # MUTANT: part file removed/'; then
     no "teeth-part-file: could not build mutant (part-file assignment not found, or refused by lib/mutant.sh)"
   else
     dpm="$TMP/teeth-part-file/target"; fpm="$(mkexisting "$dpm" tpm.pdf)"
@@ -1612,7 +1612,7 @@ SED
   echo "-- teeth: SENTINEL-TRAP (#1285 item 2) — drop the EXIT cleanup trap (doc and web) --"
   if ! command -v setsid >/dev/null 2>&1; then
     printf '  SKIP  teeth-trap-doc: setsid not available\n'
-  elif ! mutant_sed "$SUT" "$TMP/trap-doc.MUT.sh" "s/trap 'cancel_download; rm -f \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
+  elif ! mutant_sed "$SUT" "$TMP/trap-doc.MUT.sh" "s/trap 'cancel_download; rm -f \"\$DEST\.fetchdoc-part\.\$\$\"' EXIT; /: /"; then
     no "teeth-trap-doc: could not build mutant (doc EXIT trap not found, or refused by lib/mutant.sh)"
   else
     dtd="$TMP/teeth-trap-doc/target"; mkexisting "$dtd" ttd.pdf >/dev/null
@@ -1627,7 +1627,7 @@ SED
       ok "teeth-trap-doc: mutant leaves the partial file behind after SIGTERM → R45 has teeth"
     else no "teeth-trap-doc: mutant still left no debris — R45 does NOT depend on the EXIT trap (THEATER)"; fi
   fi
-  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'cancel_download; rm -f \"\$HTML\" \"\$HTML\.part\.\$\$\" \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
+  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'cancel_download; rm -f \"\$HTML\" \"\$HTML\.fetchdoc-part\.\$\$\" \"\$DEST\.fetchdoc-part\.\$\$\"' EXIT; /: /"; then
     no "teeth-trap-web: could not build mutant (web EXIT trap not found, or refused by lib/mutant.sh)"
   else
     dtw="$TMP/teeth-trap-web/target"; mkdir -p "$dtw/sources/web-snapshots"; chmod 555 "$dtw/sources/web-snapshots"
@@ -1670,7 +1670,7 @@ SED
   fi
 
   echo "-- teeth: SENTINEL-WEB-ATOMIC (#1285 review) — write the snapshot straight into the destination --"
-  if ! mutant_sed "$SUT" "$TMP/web-atomic.MUT.sh" '/SENTINEL-WEB-ATOMIC/,/^    rm -f "\$HTML"/ s/WPART="\$DEST\.part\.\$\$"/WPART="$DEST"  # MUTANT: web atomic write removed/'; then
+  if ! mutant_sed "$SUT" "$TMP/web-atomic.MUT.sh" '/SENTINEL-WEB-ATOMIC/,/^    rm -f "\$HTML"/ s/WPART="\$DEST\.fetchdoc-part\.\$\$"/WPART="$DEST"  # MUTANT: web atomic write removed/'; then
     no "teeth-web-atomic: could not build mutant (WPART assignment not found, or refused by lib/mutant.sh)"
   else
     dwa="$TMP/teeth-web-atomic/target"; mkdir -p "$dwa/sources/web-snapshots"
@@ -1975,7 +1975,7 @@ run_term_to_pid_only(){
 }
 d50="$TMP/rr-50/target"; f50="$(mkexisting "$d50" r50.pdf)"
 rc50="$(run_term_to_pid_only "$SUT" "$d50" "$TMP/done50.marker" "$TMP/start50.marker")"
-_part50="$(find "$d50/sources" -name '*.part.*' | wc -l | tr -d ' ')"
+_part50="$(find "$d50/sources" -name '*.fetchdoc-part.*' | wc -l | tr -d ' ')"
 if [ -e "$TMP/start50.marker" ] && [ "$rc50" = "143" ] && [ "$(sum_of "$f50")" = "$EVID_SUM" ] \
    && [ ! -e "$TMP/done50.marker" ] && [ "$_part50" = "0" ] && [ ! -e "$d50/sources/SOURCES.md" ]; then
   ok "doc: #1313 — TERM to the script pid only kills the download; registered file intact, no part file, no row, exit 143"
@@ -2011,8 +2011,8 @@ else no "R52: rc=$_rc52 versioned=$([ -e "$v52" ] && echo y || echo n) rows='$(g
 
 # R53 — --replace with IDENTICAL bytes archives nothing (the old row is still right).
 d53="$TMP/rr-53/target"; mkdir -p "$d53"; seed51 "$d53" r53.pdf "http://s53.example/same"
-_rc53=0; STUB_ROUTES="" sut --replace doc "http://s53.example/same" "$d53" datasheets r53.pdf >/dev/null 2>&1 || _rc53=$?
-if [ "$_rc53" = "0" ] && [ "$(find "$d53/sources/datasheets" -type f | wc -l | tr -d ' ')" = "1" ]; then
+_rc53=0; STUB_ROUTES="" sut --replace doc "http://s53.example/same" "$d53" datasheets r53.pdf >/dev/null 2>"$TMP/err53.txt" || _rc53=$?
+if [ "$_rc53" = "0" ] && [ "$(find "$d53/sources/datasheets" -type f | wc -l | tr -d ' ')" = "1" ] && [ "$(grep -c r53 "$d53/sources/SOURCES.md")" = "1" ] && grep -qi identical "$TMP/err53.txt"; then
   ok "doc: #1313 — --replace with identical bytes keeps a single file (no versioned copy)"
 else no "R53: rc=$_rc53 files=$(find "$d53/sources/datasheets" -type f | tr '\n' ' ')"; fi
 
@@ -2029,13 +2029,13 @@ else no "R54: rc=$_rc54/$_rc54r err='$(cat "$TMP/err54.txt")'"; fi
 # R55 — stale part files of DEAD pids are swept (with a notice); a part file of a LIVE pid is left alone.
 d55="$TMP/rr-55/target"; mkdir -p "$d55/sources/datasheets"
 _dead55=2999999; while kill -0 "$_dead55" 2>/dev/null; do _dead55=$((_dead55 + 1)); done
-: > "$d55/sources/datasheets/old.pdf.part.$_dead55"; : > "$d55/sources/datasheets/live.pdf.part.$$"
+: > "$d55/sources/datasheets/old.pdf.fetchdoc-part.$_dead55"; : > "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$"
 _rc55=0; STUB_ROUTES="" sut doc "http://s55.example/a" "$d55" datasheets r55.pdf >/dev/null 2>"$TMP/err55.txt" || _rc55=$?
-if [ "$_rc55" = "0" ] && [ ! -e "$d55/sources/datasheets/old.pdf.part.$_dead55" ] && [ -e "$d55/sources/datasheets/live.pdf.part.$$" ] \
+if [ "$_rc55" = "0" ] && [ ! -e "$d55/sources/datasheets/old.pdf.fetchdoc-part.$_dead55" ] && [ -e "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$" ] \
    && grep -q "stale part file from dead pid $_dead55" "$TMP/err55.txt"; then
   ok "doc: #1313 — a dead pid's stale .part file is swept with a notice; a live pid's is kept"
-else no "R55: rc=$_rc55 dead-left=$([ -e "$d55/sources/datasheets/old.pdf.part.$_dead55" ] && echo y || echo n) live-left=$([ -e "$d55/sources/datasheets/live.pdf.part.$$" ] && echo y || echo n)"; fi
-rm -f "$d55/sources/datasheets/live.pdf.part.$$"
+else no "R55: rc=$_rc55 dead-left=$([ -e "$d55/sources/datasheets/old.pdf.fetchdoc-part.$_dead55" ] && echo y || echo n) live-left=$([ -e "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$" ] && echo y || echo n)"; fi
+rm -f "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$"
 
 # R56 — web mode follows the same policy: refuse without --replace (exit 4), keep old bytes with it.
 d56="$TMP/rr-56/target"; mkdir -p "$d56"
@@ -2048,15 +2048,105 @@ if [ "$_rc56" = "4" ] && [ "$_rc56s" != "0" ] && [ "$(sha12 "$f56")" = "$old12_5
   ok "web: #1313 — an existing snapshot is refused without --replace (exit 4) and survives a failed --replace"
 else no "R56: rc=$_rc56 / failed-replace rc=$_rc56s sum-changed=$([ "$(sha12 "$f56")" = "$old12_56" ] && echo n || echo y)"; fi
 
+# ─── #1313 fix-first round (Opus review): B1 sweep safety, B2 sha-scoped row retarget, N1/N2/N4/N7/N8 ───
+# R57 — B1: a REGISTERED doc whose name happens to look like a part file (spec.part.<digits>, or the marker form)
+#       must survive the sweep; its SOURCES.md row must not dangle.
+d57="$TMP/rr-57/target"; mkdir -p "$d57"
+seed51 "$d57" "spec.part.2999998" "http://s57.example/a"; seed51 "$d57" "spec.fetchdoc-part.2999998" "http://s57.example/b"
+_rc57=0; STUB_ROUTES="" sut doc "http://s57.example/c" "$d57" datasheets r57.pdf >/dev/null 2>"$TMP/err57.txt" || _rc57=$?
+if [ "$_rc57" = "0" ] && [ -e "$d57/sources/datasheets/spec.part.2999998" ] && [ -e "$d57/sources/datasheets/spec.fetchdoc-part.2999998" ]; then
+  ok "doc: #1313 B1 — registered files named like part files survive the stale sweep"
+else no "R57: rc=$_rc57 plain=$([ -e "$d57/sources/datasheets/spec.part.2999998" ] && echo y || echo n) marker=$([ -e "$d57/sources/datasheets/spec.fetchdoc-part.2999998" ] && echo y || echo n)"; fi
+
+# R58 — B1: a pid we may not signal (pid 1, EPERM for non-root) is ALIVE, never "dead"; an old-style .part.<digits> name is not ours.
+d58="$TMP/rr-58/target"; mkdir -p "$d58/sources/datasheets"
+: > "$d58/sources/datasheets/x.pdf.part.1"; : > "$d58/sources/datasheets/y.pdf.fetchdoc-part.1"
+_rc58=0; STUB_ROUTES="" sut doc "http://s58.example/a" "$d58" datasheets r58.pdf >/dev/null 2>&1 || _rc58=$?
+if [ "$_rc58" = "0" ] && [ -e "$d58/sources/datasheets/x.pdf.part.1" ] && [ -e "$d58/sources/datasheets/y.pdf.fetchdoc-part.1" ]; then
+  ok "doc: #1313 B1 — a part file of pid 1 (EPERM) and a non-marker .part.N name are never swept"
+else no "R58: rc=$_rc58 old-style=$([ -e "$d58/sources/datasheets/x.pdf.part.1" ] && echo y || echo n) pid1=$([ -e "$d58/sources/datasheets/y.pdf.fetchdoc-part.1" ] && echo y || echo n)"; fi
+
+# R59 — B2: legacy multi-row corpus (rows A and B both name r59.pdf; the file holds B). --replace C retargets ONLY the
+#       row whose sha matches the archived bytes (B); the A row stays untouched and a warning names it.
+d59="$TMP/rr-59/target"; mkdir -p "$d59/sources/datasheets"
+printf 'B-BYTES\n' > "$d59/sources/datasheets/r59.pdf"; shaB59="$(sum_of "$d59/sources/datasheets/r59.pdf")"; shaA59="$(printf 'A-BYTES\n' | sha256sum | cut -d' ' -f1)"
+printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n| datasheets/r59.pdf | datasheets | http://s59.example/A | 2026-01-01T00:00:00Z | %s | |\n| datasheets/r59.pdf | datasheets | http://s59.example/B | 2026-02-01T00:00:00Z | %s | |\n' "$shaA59" "$shaB59" > "$d59/sources/SOURCES.md"
+_rc59=0; STUB_ROUTES="" sut --replace doc "http://s59.example/C" "$d59" datasheets r59.pdf >/dev/null 2>"$TMP/err59.txt" || _rc59=$?
+md59="$d59/sources/SOURCES.md"
+if [ "$_rc59" = "0" ] && grep -F 'http://s59.example/B' "$md59" | grep -qF "datasheets/r59.${shaB59:0:12}.pdf" \
+   && grep -F 'http://s59.example/A' "$md59" | grep -qF '| datasheets/r59.pdf |' && grep -qi 'different sha' "$TMP/err59.txt"; then
+  ok "doc: #1313 B2 — --replace retargets only the row whose sha matches the archived bytes and warns about the other"
+else no "R59: rc=$_rc59 rows='$(grep 'r59' "$md59" | cut -d'|' -f2,4 | tr '\n' '/')' err='$(cat "$TMP/err59.txt")'"; fi
+
+# R60 — N2: INT/TERM arriving while the file is installed and registered is deferred, so the run completes WITH its row
+#       (no new bytes without a row). A slow sha256sum stub widens the install window deterministically.
+slowsha="$TMP/slowsha-bin"; mkdir -p "$slowsha"; _realsha="$(command -v sha256sum)"
+printf '#!/usr/bin/env bash\n[ -n "${SLOWSHA_MARK:-}" ] && : > "$SLOWSHA_MARK"\nsleep 1\nexec %s "$@"\n' "$_realsha" > "$slowsha/sha256sum"; chmod +x "$slowsha/sha256sum"
+# run_slow_term <script> <dir> — runs a fresh doc fetch with the slow sha256sum, sends TERM to the script pid once it is
+# in the install window, echoes its exit code.
+run_slow_term(){
+  local script="$1" dir="$2" pid rc=0; rm -f "$TMP/slow60.mark"
+  STUB_ROUTES="" SLOWSHA_MARK="$TMP/slow60.mark" PATH="$slowsha:$stubbin:$PATH" bash "$script" doc "http://s60.example/a" "$dir" datasheets r60.pdf >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -e "$TMP/slow60.mark" ] && break; sleep 0.1; done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || rc=$?
+  echo "$rc"
+}
+d60="$TMP/rr-60/target"; mkdir -p "$d60"; _rc60="$(run_slow_term "$SUT" "$d60")"
+if [ -e "$TMP/slow60.mark" ] && [ "$_rc60" = "0" ] && [ -e "$d60/sources/datasheets/r60.pdf" ] && grep -q 'r60.pdf' "$d60/sources/SOURCES.md" 2>/dev/null; then
+  ok "doc: #1313 N2 — a TERM during install+register is deferred: the run completes with file AND row"
+else no "R60: rc=$_rc60 file=$([ -e "$d60/sources/datasheets/r60.pdf" ] && echo y || echo n) row=$(grep -c r60 "$d60/sources/SOURCES.md" 2>/dev/null)"; fi
+
+# R61 — N4: the download child runs in its own process group and the whole GROUP is killed, so the grandchild
+#       (the stub's sleep, standing in for a curl/wget helper) dies too — pkill -P of the direct child is not enough.
+# run_grandchild <script> <dir> — TERM to the script pid mid-download; echoes the stub's grandchild sleep pid (killed
+# afterwards if it is still alive, so a failing run leaves nothing behind) and "alive"/"dead" on the next line.
+run_grandchild(){
+  local script="$1" dir="$2" pid sp; rm -f "$TMP/sleep61.pid"
+  STUB_ROUTES="" STUB_DOWNLOAD_HANG=1 STUB_HANG_SECS=30 STUB_HANG_MARKER="$TMP/start61.marker" STUB_HANG_PIDFILE="$TMP/sleep61.pid" \
+    PATH="$stubbin:$PATH" bash "$script" doc "http://s61.example/a" "$dir" datasheets r61.pdf >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -s "$TMP/sleep61.pid" ] && break; sleep 0.1; done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; sleep 0.3
+  sp="$(cat "$TMP/sleep61.pid" 2>/dev/null)"
+  if [ -n "$sp" ] && [ -d "/proc/$sp" ]; then echo alive; kill "$sp" 2>/dev/null; else echo dead; fi
+}
+d61="$TMP/rr-61/target"; mkdir -p "$d61"; _sp61="$(run_grandchild "$SUT" "$d61")"
+if [ "$_sp61" = "dead" ]; then ok "doc: #1313 N4 — TERM to the script kills the download's whole process group (grandchild gone)"
+else no "R61: grandchild sleep still alive"; fi
+
+# R62 — N7: the versioned name is already taken by DIFFERENT bytes (or a dangling symlink): refuse, current bytes intact.
+d62="$TMP/rr-62/target"; mkdir -p "$d62"; seed51 "$d62" r62.pdf "http://s62.example/old"
+f62="$d62/sources/datasheets/r62.pdf"; o12_62="$(sha12 "$f62")"; sum62="$(sum_of "$f62")"
+printf 'SOMETHING-ELSE\n' > "$d62/sources/datasheets/r62.$o12_62.pdf"
+_rc62=0; STUB_ROUTES="" sut --replace doc "http://s62.example/new" "$d62" datasheets r62.pdf >/dev/null 2>"$TMP/err62.txt" || _rc62=$?
+d62l="$TMP/rr-62l/target"; mkdir -p "$d62l"; seed51 "$d62l" r62.pdf "http://s62.example/old"; ln -s /nonexistent-target "$d62l/sources/datasheets/r62.$o12_62.pdf"
+_rc62l=0; STUB_ROUTES="" sut --replace doc "http://s62.example/new" "$d62l" datasheets r62.pdf >/dev/null 2>&1 || _rc62l=$?
+if [ "$_rc62" != "0" ] && [ "$_rc62l" != "0" ] && [ "$(sum_of "$f62")" = "$sum62" ] && [ "$(sum_of "$d62l/sources/datasheets/r62.pdf")" = "$sum62" ] && grep -qi 'refus' "$TMP/err62.txt"; then
+  ok "doc: #1313 N7 — a taken versioned name (different bytes / dangling symlink) is refused, current bytes intact"
+else no "R62: rc=$_rc62/$_rc62l err='$(cat "$TMP/err62.txt")'"; fi
+
+# R63 — N8: web --replace SUCCEEDS: old snapshot kept under a versioned name, new content registered, rows consistent.
+d63="$TMP/rr-63/target"; mkdir -p "$d63"
+STUB_ROUTES="" sut web "http://s63.example/page" "$d63" >/dev/null 2>&1
+slug63="$(echo "http://s63.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+f63="$d63/sources/web-snapshots/$slug63.md"; o12_63="$(sha12 "$f63")"; osum63="$(sum_of "$f63")"
+_rc63=0; STUB_ROUTES="" STUB_BODY='<p>changed upstream</p>' sut --replace web "http://s63.example/page" "$d63" >/dev/null 2>"$TMP/err63.txt" || _rc63=$?
+md63="$d63/sources/SOURCES.md"
+if [ "$_rc63" = "0" ] && [ -e "$d63/sources/web-snapshots/$slug63.$o12_63.md" ] && [ "$(sum_of "$f63")" != "$osum63" ] \
+   && [ "$(row_cell "$md63" "web-snapshots/$slug63.$o12_63.md" 5)" = "$osum63" ] && [ "$(row_cell "$md63" "web-snapshots/$slug63.md" 5)" = "$(sum_of "$f63")" ]; then
+  ok "web: #1313 N8 — --replace keeps the old snapshot under a versioned name and registers the new one"
+else no "R63: rc=$_rc63 err='$(cat "$TMP/err63.txt")' files=$(ls "$d63/sources/web-snapshots" | tr '\n' ' ')"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  # tm13 <name> <sed-expr>... — build a #1313 mutant of the SUT into $TMP; echoes its path, or "" when refused.
+  # tm13<name> <sed-expr>... — build a #1313 mutant of the SUT into $TMP; echoes its path, or "" when refused.
   tm13(){ local n="$1" out="$TMP/m1313-$1.sh" a=(); shift; for e in "$@"; do a+=(-e "$e"); done
     mutant_sed "$SUT" "$out" "${a[@]}" 2>/dev/null && printf '%s' "$out"; }
 
   echo "-- teeth #1313: cancel_download kills nothing -> the download finishes (R50 must see it) --"
-  m="$(tm13 nokill 's/^    if have_cmd pkill; then pkill.*$/    :/' 's/^    kill -TERM "\$DL_PID" 2>\/dev\/null || true$/    :/')"
+  m="$(tm13 nokill 's/^      if ! kill -TERM -- "-\$DL_PID" 2>\/dev\/null; then$/      if false; then/')"
   if [ -z "$m" ]; then no "teeth-nokill: could not build mutant (cancel_download kill lines not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-nokill/target"; mkexisting "$d" r50.pdf >/dev/null
@@ -2066,7 +2156,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth #1313: no kill AND the move back inside the download subshell -> registered file overwritten --"
-  m="$(tm13 mvsub 's/^    if have_cmd pkill; then pkill.*$/    :/' 's/^    kill -TERM "\$DL_PID" 2>\/dev\/null || true$/    :/' 's/if \[ "\$keep_part" != "--keep-part" \]; then/if true; then/')"
+  m="$(tm13 mvsub 's/^      if ! kill -TERM -- "-\$DL_PID" 2>\/dev\/null; then$/      if false; then/' 's/if \[ "\$keep_part" != "--keep-part" \]; then/if true; then/')"
   if [ -z "$m" ]; then no "teeth-mvsub: could not build mutant (keep-part guards not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-mvsub/target"; f="$(mkexisting "$d" r50.pdf)"
@@ -2101,22 +2191,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   m="$(tm13 nosweep 's/^      rm -f "\$f"$/      :/')"
   if [ -z "$m" ]; then no "teeth-nosweep: could not build mutant (sweep rm not found, or refused by lib/mutant.sh)"
   else
-    d="$TMP/t-nosweep/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/old.pdf.part.$_dead55"
+    d="$TMP/t-nosweep/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/old.pdf.fetchdoc-part.$_dead55"
     STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s55.example/a" "$d" datasheets r55.pdf >/dev/null 2>&1
-    if [ -e "$d/sources/datasheets/old.pdf.part.$_dead55" ]; then ok "teeth-nosweep: mutant leaves the dead pid's part file -> R55 has teeth"
+    if [ -e "$d/sources/datasheets/old.pdf.fetchdoc-part.$_dead55" ]; then ok "teeth-nosweep: mutant leaves the dead pid's part file -> R55 has teeth"
     else no "teeth-nosweep: the part file was still removed — R55 does NOT depend on the sweep (THEATER)"; fi
   fi
-  m="$(tm13 sweeplive 's/^    if ! kill -0 "\$pid" 2>\/dev\/null; then$/    if true; then/')"
+  m="$(tm13 sweeplive 's/^    if ! pid_alive "\$pid"; then$/    if true; then/')"
   if [ -z "$m" ]; then no "teeth-sweeplive: could not build mutant (liveness test not found, or refused by lib/mutant.sh)"
   else
-    d="$TMP/t-sweeplive/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/live.pdf.part.$$"
+    d="$TMP/t-sweeplive/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/live.pdf.fetchdoc-part.$$"
     STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s55.example/a" "$d" datasheets r55.pdf >/dev/null 2>&1
-    if [ ! -e "$d/sources/datasheets/live.pdf.part.$$" ]; then ok "teeth-sweeplive: without the liveness test a LIVE pid's part file is deleted -> R55 has teeth"
+    if [ ! -e "$d/sources/datasheets/live.pdf.fetchdoc-part.$$" ]; then ok "teeth-sweeplive: without the liveness test a LIVE pid's part file is deleted -> R55 has teeth"
     else no "teeth-sweeplive: live part file survived the mutant — R55's live-pid assertion does NOT bite (THEATER)"; fi
   fi
 
   echo "-- teeth #1313: --replace drops the old bytes / leaves the old row stale / always archives --"
-  m="$(tm13 dropold 's/else mv -f "\$dest" "\${dest%\/\*}\/\$vname"; fi/else rm -f "$dest"; fi/')"
+  m="$(tm13 dropold 's/^        mv -f "\$dest" "\$vpath"$/        rm -f "$dest"/')"
   if [ -z "$m" ]; then no "teeth-dropold: could not build mutant (archive mv not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-dropold/target"; mkdir -p "$d"; seed51 "$d" r52.pdf "http://s52.example/old"; o12="$(sha12 "$d/sources/datasheets/r52.pdf")"
@@ -2124,7 +2214,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ ! -e "$d/sources/datasheets/r52.$o12.pdf" ]; then ok "teeth-dropold: mutant loses the old bytes -> R52's evidence-kept assertion has teeth"
     else no "teeth-dropold: versioned copy still exists — R52 does NOT depend on the archive move (THEATER)"; fi
   fi
-  m="$(tm13 stalerow 's/^\(  .\) "\$md" > "\$tmp" \&\& mv "\$tmp" "\$md"$/\1 "$md" > "$tmp" \&\& rm -f "$tmp"/')"
+  m="$(tm13 stalerow 's/mv "\$tmp" "\$md"  # SENTINEL-RENAME-ROW-WRITE/rm -f "$tmp"  # MUTANT: row retarget dropped/')"
   if [ -z "$m" ]; then no "teeth-stalerow: could not build mutant (rename_row write-back not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-stalerow/target"; mkdir -p "$d"; seed51 "$d" r52.pdf "http://s52.example/old"; o12="$(sha12 "$d/sources/datasheets/r52.pdf")"
@@ -2132,13 +2222,107 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ -z "$(row_cell "$d/sources/SOURCES.md" "datasheets/r52.$o12.pdf" 5)" ]; then ok "teeth-stalerow: mutant leaves the old row on NAME (stale sha) -> R52's row assertion has teeth"
     else no "teeth-stalerow: old row was retargeted anyway — R52 does NOT depend on rename_row (THEATER)"; fi
   fi
-  m="$(tm13 alwaysarchive 's/if \[ "\$oldsha" != "\$newsha" \]; then/if true; then/')"
+  m="$(tm13 alwaysarchive 's/if \[ "\$oldsha" = "\$newsha" \]; then/if false; then/')"
   if [ -z "$m" ]; then no "teeth-alwaysarchive: could not build mutant (sha comparison not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-alwaysarchive/target"; mkdir -p "$d"; seed51 "$d" r53.pdf "http://s53.example/same"
     STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s53.example/same" "$d" datasheets r53.pdf >/dev/null 2>&1
     if [ "$(find "$d/sources/datasheets" -type f | wc -l | tr -d ' ')" != "1" ]; then ok "teeth-alwaysarchive: mutant archives identical bytes too -> R53 has teeth"
     else no "teeth-alwaysarchive: still one file — R53 does NOT depend on the sha comparison (THEATER)"; fi
+  fi
+
+  # ── fix-first round (Opus review) teeth ──
+  echo "-- teeth #1313 B1: registration guard removed -> a registered part-named file is swept --"
+  m="$(tm13 sweepreg 's/^    has_row "\${f#"\$SDIR"\/}" \&\& continue.*$/    :/')"
+  if [ -z "$m" ]; then no "teeth-sweepreg: could not build mutant (registered guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-sweepreg/target"; mkdir -p "$d"; seed51 "$d" "spec.fetchdoc-part.2999998" "http://s57.example/b"
+    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s57.example/c" "$d" datasheets r57.pdf >/dev/null 2>&1
+    if [ ! -e "$d/sources/datasheets/spec.fetchdoc-part.2999998" ]; then ok "teeth-sweepreg: mutant deletes registered evidence (row dangling) -> R57 has teeth"
+    else no "teeth-sweepreg: registered file survived the mutant — R57 does NOT depend on the registration guard (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 B1: liveness by kill -0 -> a pid we cannot signal (pid 1) reads as dead --"
+  if [ "$(id -u)" = "0" ]; then printf '  SKIP  teeth-pidalive: running as root (kill -0 1 succeeds, EPERM not reproducible)\n'
+  else
+    m="$(tm13 pidalive 's/^  if \[ -d \/proc\/self \]; then \[ -d "\/proc\/\$1" \]$/  if true; then kill -0 "$1" 2>\/dev\/null/')"
+    if [ -z "$m" ]; then no "teeth-pidalive: could not build mutant (pid_alive /proc branch not found, or refused by lib/mutant.sh)"
+    else
+      d="$TMP/t-pidalive/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/y.pdf.fetchdoc-part.1"
+      STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s58.example/a" "$d" datasheets r58.pdf >/dev/null 2>&1
+      if [ ! -e "$d/sources/datasheets/y.pdf.fetchdoc-part.1" ]; then ok "teeth-pidalive: kill -0 treats pid 1 (EPERM) as dead and deletes its part file -> R58 has teeth"
+      else no "teeth-pidalive: pid 1's part file survived the kill -0 mutant — R58 does NOT depend on the liveness probe (THEATER)"; fi
+    fi
+  fi
+
+  echo "-- teeth #1313 B2: sha condition removed from rename_row -> every row for the file is retargeted --"
+  m="$(tm13 shascope 's/if (s==ENVIRON\["SHA"\]) \$2=/if (1) $2=/')"
+  if [ -z "$m" ]; then no "teeth-shascope: could not build mutant (sha comparison not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-shascope/target"; mkdir -p "$d/sources/datasheets"
+    printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n| datasheets/r59.pdf | datasheets | http://s59.example/A | 2026-01-01T00:00:00Z | %s | |\n| datasheets/r59.pdf | datasheets | http://s59.example/B | 2026-02-01T00:00:00Z | %s | |\n' "$shaA59" "$shaB59" > "$d/sources/SOURCES.md"
+    printf 'B-BYTES\n' > "$d/sources/datasheets/r59.pdf"
+    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s59.example/C" "$d" datasheets r59.pdf >/dev/null 2>&1
+    if grep -F 'http://s59.example/A' "$d/sources/SOURCES.md" | grep -qF "r59.${shaB59:0:12}.pdf"; then ok "teeth-shascope: mutant also retargets the other sha's row (wrong archive) -> R59 has teeth"
+    else no "teeth-shascope: the A row was not retargeted by the mutant — R59 does NOT depend on the sha condition (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 N2: INT/TERM block removed -> TERM during install leaves bytes without a row --"
+  m="$(tm13 nosigblock "s/^\( *\)trap '' INT TERM.*\$/\1:/")"
+  if [ -z "$m" ]; then no "teeth-nosigblock: could not build mutant (signal-block trap not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-nosigblock/target"; mkdir -p "$d"; rc="$(run_slow_term "$m" "$d")"
+    if [ "$rc" != "0" ] && ! grep -q 'r60.pdf' "$d/sources/SOURCES.md" 2>/dev/null; then ok "teeth-nosigblock: without the block TERM aborts the install window (rc=$rc, no row) -> R60 has teeth"
+    else no "teeth-nosigblock: run still completed with a row (rc=$rc) — R60 does NOT depend on the signal block (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 N4: kill the child pid only, not the group -> the grandchild survives --"
+  m="$(tm13 nogroup 's/kill -TERM -- "-\$DL_PID"/kill -TERM -- "$DL_PID"/')"
+  if [ -z "$m" ]; then no "teeth-nogroup: could not build mutant (group kill not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-nogroup/target"; mkdir -p "$d"; r="$(run_grandchild "$m" "$d")"
+    if [ "$r" = "alive" ]; then ok "teeth-nogroup: killing only the child pid leaves the grandchild running -> R61 has teeth"
+    else no "teeth-nogroup: grandchild died anyway — R61 does NOT depend on the group kill (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 N7: versioned-name sha compare removed / symlink check removed --"
+  m="$(tm13 novcompare 's/!= "\$oldsha" \]; then  # SENTINEL-VNAME-COMPARE/= "never" ]; then/')"
+  if [ -z "$m" ]; then no "teeth-novcompare: could not build mutant (sentinel not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-novcompare/target"; mkdir -p "$d"; seed51 "$d" r62.pdf "http://s62.example/old"; o12="$(sha12 "$d/sources/datasheets/r62.pdf")"
+    printf 'SOMETHING-ELSE\n' > "$d/sources/datasheets/r62.$o12.pdf"; rc=0
+    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s62.example/new" "$d" datasheets r62.pdf >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "0" ]; then ok "teeth-novcompare: mutant proceeds over different bytes at the versioned name -> R62 has teeth"
+    else no "teeth-novcompare: mutant still refused (rc=$rc) — R62 does NOT depend on the compare (THEATER)"; fi
+  fi
+  m="$(tm13 novlink 's/if \[ -L "\$vpath" \]; then/if false; then/')"
+  if [ -z "$m" ]; then no "teeth-novlink: could not build mutant (symlink test not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-novlink/target"; mkdir -p "$d"; seed51 "$d" r62.pdf "http://s62.example/old"; o12="$(sha12 "$d/sources/datasheets/r62.pdf")"
+    ln -s /nonexistent-target "$d/sources/datasheets/r62.$o12.pdf"; rc=0
+    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s62.example/new" "$d" datasheets r62.pdf >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "0" ]; then ok "teeth-novlink: mutant proceeds over a dangling symlink at the versioned name -> R62 has teeth"
+    else no "teeth-novlink: mutant still refused (rc=$rc) — R62 does NOT depend on the symlink test (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 N1: identical-bytes shortcut removed -> a duplicate row is appended --"
+  m="$(tm13 noidentical 's/^      if has_row "\$rel" "\$newsha"; then$/      if false; then/')"
+  if [ -z "$m" ]; then no "teeth-noidentical: could not build mutant (identical-bytes guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-noidentical/target"; mkdir -p "$d"; seed51 "$d" r53.pdf "http://s53.example/same"
+    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s53.example/same" "$d" datasheets r53.pdf >/dev/null 2>&1
+    if [ "$(grep -c r53 "$d/sources/SOURCES.md")" = "2" ]; then ok "teeth-noidentical: mutant appends a duplicate row for identical bytes -> R53 has teeth"
+    else no "teeth-noidentical: no duplicate row — R53 does NOT depend on the identical-bytes shortcut (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1313 N8: preflight moved AFTER the download -> a refused run still hits the network --"
+  m="$(tm13 lateprefl 's/preflight_dest "\$DEST"; sweep_stale_parts/sweep_stale_parts/' 's/^\(    download_into "\$URL" "\$DEST".*\)$/\1\n    preflight_dest "$DEST"/')"
+  if [ -z "$m" ]; then no "teeth-lateprefl: could not build mutant (preflight/download lines not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-lateprefl/target"; mkdir -p "$d"; seed51 "$d" r51.pdf "http://s51.example/old"; : > "$TMP/probe-lateprefl.txt"; rc=0
+    STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$TMP/probe-lateprefl.txt" PATH="$stubbin:$PATH" bash "$m" doc "http://s51.example/new" "$d" datasheets r51.pdf >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "4" ] && [ -s "$TMP/probe-lateprefl.txt" ]; then ok "teeth-lateprefl: late preflight still refuses (exit 4) but only after probing the network -> R51's no-probe assertion has teeth"
+    else no "teeth-lateprefl: rc=$rc probes=$(wc -l < "$TMP/probe-lateprefl.txt") — R51 does NOT pin the preflight-before-download order (THEATER)"; fi
   fi
 fi
 

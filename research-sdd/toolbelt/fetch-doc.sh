@@ -7,7 +7,7 @@
 # Usage:
 #   fetch-doc.sh doc <url> <target-dir> [datasheets|manuals] [name]
 #   fetch-doc.sh web <url> <target-dir>          # page/forum -> markdown (pandoc)
-#   fetch-doc.sh ocr <pdf>                        # OCR of a scanned PDF (tesseract)
+#   fetch-doc.sh ocr <pdf>                        # OCR of a scanned PDF (tesseract); --replace is ignored
 #   fetch-doc.sh --replace doc|web ...            # --replace may appear anywhere in the argument list
 #
 # Overwrite policy (kit issue #1313 item 2 — "evidence does not die"): doc and web mode REFUSE (exit 4,
@@ -19,12 +19,22 @@
 # under NAME with a new row. Re-fetching IDENTICAL bytes archives nothing (the old row is still right).
 # A symlinked destination is REFUSED (exit 5, typed): the old behaviour wrote THROUGH the link, the
 # current one would silently replace the link with a regular file; neither is evidence-safe.
-# Stale "<dest>.part.<pid>" files left by SIGKILL are swept at start: a part file in the destination
-# directory whose pid is no longer alive is removed with a stderr notice (alive pids are left alone).
-# Cancellation (#1313 item 1): the download runs as a tracked background child and the script waits on it;
-# INT/TERM delivered to the script pid alone kill that child (and its curl/wget) and exit 130/143. The
-# downloaded part file is moved into place by the MAIN shell only after the download succeeded, so a
-# cancelled run can never replace a registered file nor leave a row that disagrees with it.
+# Part files are named "<dest>.fetchdoc-part.<pid>" (an unambiguous marker: a registered document may
+# legitimately be called "spec.part.123"). Part files left by SIGKILL are swept at start, but ONLY that
+# marker pattern, never a file that is a File cell in SOURCES.md, and only when the pid is positively dead
+# (/proc/<pid> absent, or `ps -p` finds nothing): a pid we may not signal (EPERM) is ALIVE.
+# Cancellation (#1313 item 1): the download runs as a tracked background child in its OWN process group
+# (`set -m`) and the script waits on it; INT/TERM delivered to the script pid alone kill that whole group
+# (curl/wget included; a stderr notice is printed if the group cannot be signalled and only the child pid is
+# killed) and exit 130/143. The downloaded part file is moved into place by the MAIN shell only after the
+# download succeeded, and INT/TERM are ignored from that point on until the row is written, so a cancelled
+# run can never replace a registered file nor leave a row that disagrees with it (a signal that arrives in
+# that last window is deliberately dropped: the run finishes in milliseconds and completes consistently).
+# --replace row retargeting is sha-scoped: only a row whose File cell AND sha256 match the archived bytes is
+# rewritten; other rows for the same File (legacy corpora) are left untouched with a stderr warning. If the
+# versioned name is already taken by different bytes, or is a symlink, the run REFUSES (exit 1) and keeps
+# the current bytes. --replace with byte-identical content registered already adds no duplicate row.
+# `ocr` takes no --replace (the flag is accepted anywhere and ignored for ocr).
 # Exit codes: 1 failure, 2 usage, 3 missing dependency, 4 destination exists (no --replace),
 # 5 symlinked destination.
 set -euo pipefail
@@ -222,7 +232,7 @@ fetch_and_register() {
   # ("URLs die; evidence does not"). Every download lands in a SIBLING part file ($dest below) and
   # is moved over <dest-file> only once it is confirmed non-empty. `$$` is the SCRIPT's pid even
   # inside this command-substitution subshell, so the main dispatch's trap removes the same name.
-  local dest="$final.part.$$"
+  local dest="$final.fetchdoc-part.$$"
   # Only curl can resolve permanent redirects (the HEAD/GET probe is curl-only); without it the
   # typed url is used as-is and wget is the sole downloader.
   if have_cmd curl; then effective="$(resolve_permanent_redirect "$url")"; else effective="$url"; fi
@@ -299,16 +309,36 @@ probe_downloaders() {
   fi
 }
 
-# sweep_stale_parts <dir> — removes "*.part.<pid>" files in <dir> whose pid is no longer alive (#1313 item 4:
-# a SIGKILLed run cannot run its EXIT trap, and verify-sources would keep reporting the debris as
-# "unregistered on disk"). A part file of a LIVE pid (a concurrent fetch) is never touched.
+# pid_alive <pid> — positive liveness: /proc/<pid> exists (Linux) or `ps -p` finds it. NEVER `kill -0`: that
+# fails with EPERM for another user's pid, which would read as "dead". With neither /proc nor ps, assume alive.
+pid_alive() {
+  if [ -d /proc/self ]; then [ -d "/proc/$1" ]
+  elif have_cmd ps; then ps -p "$1" >/dev/null 2>&1
+  else return 0; fi
+}
+
+# has_row <file-cell> [<sha256>] — true when SOURCES.md has a row whose File cell equals <file-cell> (and, when
+# given, whose sha256 cell equals <sha256>). ENVIRON, not `awk -v`, so a backslash survives (see reg()).
+has_row() {
+  local md="$SDIR/SOURCES.md"
+  [ -f "$md" ] || return 1
+  F="$1" S="${2:-}" awk -F'|' '
+    /^[[:space:]]*\|/ { c=$2; s=$6; gsub(/^[ \t]+|[ \t]+$/,"",c); gsub(/^[ \t]+|[ \t]+$/,"",s)
+      if (c==ENVIRON["F"] && (ENVIRON["S"]=="" || s==ENVIRON["S"])) found=1 }
+    END { exit !found }' "$md"
+}
+
+# sweep_stale_parts <dir> — removes "*.fetchdoc-part.<pid>" files in <dir> whose pid is positively dead (#1313
+# item 4: a SIGKILLed run cannot run its EXIT trap, and verify-sources would keep reporting the debris as
+# "unregistered on disk"). Never touches a file registered in SOURCES.md, nor a part file of a live pid.
 sweep_stale_parts() {
   local f pid
-  for f in "$1"/*.part.*; do
+  for f in "$1"/*.fetchdoc-part.*; do
     [ -e "$f" ] || continue
-    pid="${f##*.part.}"
+    pid="${f##*.fetchdoc-part.}"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
-    if ! kill -0 "$pid" 2>/dev/null; then
+    has_row "${f#"$SDIR"/}" && continue  # SENTINEL-SWEEP-REGISTERED-GUARD: registered evidence is never debris
+    if ! pid_alive "$pid"; then
       rm -f "$f"
       echo "fetch-doc: removed stale part file from dead pid $pid: ${f##*/}" >&2
     fi
@@ -329,48 +359,79 @@ preflight_dest() {
   fi
 }
 
-# rename_row <sources-md> <old-file-cell> <new-file-cell> — rewrites the File cell of the row(s) whose first
-# cell equals <old-file-cell>. ENVIRON, not `awk -v`, so a backslash survives (see reg()).
+# rename_row <sources-md> <old-file-cell> <new-file-cell> <old-sha> — rewrites the File cell of the row whose
+# File cell equals <old-file-cell> AND whose sha256 cell equals <old-sha>. Other rows for the same File (legacy
+# corpora) are left untouched and counted in a stderr warning. ENVIRON, not `awk -v` (see reg()).
 rename_row() {
   local md="$1" tmp
   [ -f "$md" ] || return 0
   tmp="$(mktemp)"
-  OLD="$2" NEW="$3" awk 'BEGIN{FS=OFS="|"}
-    { if ($0 ~ /^[[:space:]]*\|/) { c=$2; gsub(/^[ \t]+|[ \t]+$/,"",c); if (c==ENVIRON["OLD"]) $2=" " ENVIRON["NEW"] " " } print }
-  ' "$md" > "$tmp" && mv "$tmp" "$md"
+  OLD="$2" NEW="$3" SHA="$4" awk 'BEGIN{FS=OFS="|"}
+    { if ($0 ~ /^[[:space:]]*\|/) { c=$2; s=$6; gsub(/^[ \t]+|[ \t]+$/,"",c); gsub(/^[ \t]+|[ \t]+$/,"",s)
+        if (c==ENVIRON["OLD"]) { if (s==ENVIRON["SHA"]) $2=" " ENVIRON["NEW"] " "; else other++ } } print }
+    END { if (other>0) printf "fetch-doc: WARNING: %d other row(s) for %s carry a different sha256 than the archived bytes and were left untouched\n", other, ENVIRON["OLD"] > "/dev/stderr" }
+  ' "$md" > "$tmp" && mv "$tmp" "$md"  # SENTINEL-RENAME-ROW-WRITE
 }
 
 # install_file <part> <dest> — moves <part> over <dest>. When <dest> exists (only reachable with --replace)
 # and its bytes differ, the old bytes are first kept under a versioned name and their row retargeted.
+# Sets INSTALL_SAME=1 (and drops <part>) when the bytes are identical AND already registered: no new row.
+INSTALL_SAME=0
 install_file() {
-  local part="$1" dest="$2" oldsha newsha base stem ext vname rel
+  local part="$1" dest="$2" oldsha newsha base stem ext vname vpath rel
+  INSTALL_SAME=0
+  rel="${dest#"$SDIR"/}"
   if [ -e "$dest" ]; then
     oldsha="$(sha256sum "$dest" | cut -d' ' -f1)"; newsha="$(sha256sum "$part" | cut -d' ' -f1)"
-    if [ "$oldsha" != "$newsha" ]; then
+    if [ "$oldsha" = "$newsha" ]; then
+      if has_row "$rel" "$newsha"; then
+        rm -f "$part"; INSTALL_SAME=1
+        echo "fetch-doc: identical bytes already registered for $rel; nothing replaced, no new row" >&2
+        return 0
+      fi
+    else
       base="${dest##*/}"
       case "$base" in
         *.*) stem="${base%.*}"; ext=".${base##*.}" ;;
         *)   stem="$base"; ext="" ;;
       esac
-      vname="$stem.${oldsha:0:12}$ext"
-      # Same-sha versioned name already present (A->B->A->B): identical bytes, keep that copy.
-      if [ -e "${dest%/*}/$vname" ]; then rm -f "$dest"; else mv -f "$dest" "${dest%/*}/$vname"; fi
-      rel="${dest#"$SDIR"/}"
-      rename_row "$SDIR/SOURCES.md" "$rel" "${rel%/*}/$vname"
+      vname="$stem.${oldsha:0:12}$ext"; vpath="${dest%/*}/$vname"
+      if [ -L "$vpath" ]; then
+        echo "fetch-doc: REFUSED: versioned name is a symlink: $vpath — the current bytes are kept; remove it and re-run" >&2
+        exit 1
+      fi
+      if [ -e "$vpath" ]; then
+        # A->B->A->B: the same bytes may already be archived there; anything else must NOT be destroyed or merged.
+        if [ "$(sha256sum "$vpath" | cut -d' ' -f1)" != "$oldsha" ]; then  # SENTINEL-VNAME-COMPARE
+          echo "fetch-doc: REFUSED: versioned name already holds DIFFERENT bytes: $vpath — the current bytes are kept" >&2
+          exit 1
+        fi
+        rm -f "$dest"
+      else
+        mv -f "$dest" "$vpath"
+      fi
+      rename_row "$SDIR/SOURCES.md" "$rel" "${rel%/*}/$vname" "$oldsha"
       echo "fetch-doc: replaced $dest; old bytes kept as $vname" >&2
     fi
   fi
   mv -f "$part" "$dest" || { rm -f "$part"; echo "fetch-doc: could not move download into place: $dest" >&2; exit 1; }
 }
 
-# download_into <url> <final> — runs fetch_and_register as a TRACKED background child and waits, so INT/TERM
-# to this script's pid alone can cancel it (cancel_download). Leaves the verified part file at
-# <final>.part.$$ (NOT moved: the caller moves it from this shell) and sets EFFECTIVE_URL.
+# download_into <url> <final> — runs fetch_and_register as a TRACKED background child in its own process group
+# and waits, so INT/TERM to this script's pid alone can cancel it (cancel_download kills the GROUP). Leaves the
+# verified part file at <final>.fetchdoc-part.$$ (NOT moved: the caller moves it from this shell) and sets
+# EFFECTIVE_URL.
 DL_PID=""; DL_OUT=""
 cancel_download() {
   if [ -n "$DL_PID" ]; then
-    if have_cmd pkill; then pkill -TERM -P "$DL_PID" 2>/dev/null || true; fi  # curl/wget child first
-    kill -TERM "$DL_PID" 2>/dev/null || true
+    if kill -0 "$DL_PID" 2>/dev/null; then
+      # SENTINEL-KILL-GROUP: `set -m` made the child a process-group leader, so -PID is its whole group.
+      if ! kill -TERM -- "-$DL_PID" 2>/dev/null; then
+        echo "fetch-doc: could not signal the download's process group; falling back to the child pid only" >&2
+        if have_cmd pkill; then pkill -TERM -P "$DL_PID" 2>/dev/null || true; fi
+        kill -TERM "$DL_PID" 2>/dev/null || true
+      fi
+    fi
     wait "$DL_PID" 2>/dev/null || true
     DL_PID=""
   fi
@@ -379,8 +440,10 @@ cancel_download() {
 download_into() {
   local rc=0
   DL_OUT="$(mktemp)"
-  fetch_and_register "$1" "$2" --keep-part >"$DL_OUT" &
+  set -m
+  fetch_and_register "$1" "$2" --keep-part >"$DL_OUT" </dev/null &
   DL_PID=$!
+  set +m
   wait "$DL_PID" || rc=$?
   DL_PID=""
   if [ "$rc" -ne 0 ]; then rm -f "$DL_OUT"; exit "$rc"; fi
@@ -412,13 +475,15 @@ case "$MODE" in
     # SENTINEL-TRAP (#1285 item 2): Ctrl-C/TERM mid-download must not leave a partial file. Only
     # the PART file is removed — $DEST may be an already-registered file and is never touched.
     # #1313: INT/TERM also cancel the tracked download child (cancel_download) before exiting.
-    trap 'cancel_download; rm -f "$DEST.part.$$"' EXIT; trap 'cancel_download; exit 130' INT; trap 'cancel_download; exit 143' TERM
+    trap 'cancel_download; rm -f "$DEST.fetchdoc-part.$$"' EXIT; trap 'cancel_download; exit 130' INT; trap 'cancel_download; exit 143' TERM
     preflight_dest "$DEST"; sweep_stale_parts "$SDIR/$SUB"
     # SENTINEL-DOC-RESOLVE (round-3 RR1): doc mode's own call into the shared resolve+download+
     # register-value pipeline — this is the specific wiring a doc-mode-only mutant must prove
     # matters, mirroring SENTINEL-WEB-RESOLVE below.
     download_into "$URL" "$DEST"   # sets EFFECTIVE_URL
-    install_file "$DEST.part.$$" "$DEST"
+    # SENTINEL-SIGNAL-BLOCK (#1313 N2): from here to the written row a signal must not leave new bytes without a row.
+    trap '' INT TERM
+    install_file "$DEST.fetchdoc-part.$$" "$DEST"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
     # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
@@ -429,8 +494,12 @@ case "$MODE" in
     if file -b "$DEST" | grep -qi pdf; then
       printf 'hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh "%s"  (a flat pdftotext dump has no page anchors and must not be cited).\n' "$DEST" >&2
     fi
-    reg "$SDIR" "$DEST" "$SUB" "$EFFECTIVE_URL" "$SHA"
-    echo "OK: $URL -> $DEST  (sha256 ${SHA:0:16}…, registered in SOURCES.md)"
+    if [ "$INSTALL_SAME" -eq 1 ]; then
+      echo "OK: $URL -> $DEST  (identical bytes already registered; no new row)"
+    else
+      reg "$SDIR" "$DEST" "$SUB" "$EFFECTIVE_URL" "$SHA"
+      echo "OK: $URL -> $DEST  (sha256 ${SHA:0:16}…, registered in SOURCES.md)"
+    fi
     ;;
   web)
     URL="${2:?url}"; TDIR="${3:?target-dir}"
@@ -443,24 +512,29 @@ case "$MODE" in
     HTML="$(mktemp)"
     # SENTINEL-TRAP (#1285 item 2): the mktemp HTML (and its part file) must not leak when a later
     # cp/pandoc/sha256sum/reg step fails or the run is interrupted. #1313: INT/TERM also cancel the download.
-    trap 'cancel_download; rm -f "$HTML" "$HTML.part.$$" "$DEST.part.$$"' EXIT; trap 'cancel_download; exit 130' INT; trap 'cancel_download; exit 143' TERM
+    trap 'cancel_download; rm -f "$HTML" "$HTML.fetchdoc-part.$$" "$DEST.fetchdoc-part.$$"' EXIT; trap 'cancel_download; exit 130' INT; trap 'cancel_download; exit 143' TERM
     # SENTINEL-WEB-RESOLVE (round-1 R1): web mode registers URLs exactly the same way doc mode
     # does — the D4 evidence (cloudflare/retros/2026-08-28-ztna-focus-close.md) is 4 redirected
     # Cloudflare DOC URLs, and every one of those rows is type web-snapshot (fetched via THIS
     # mode, not doc). Round 3: now the SAME shared call as doc mode, not a parallel copy.
     download_into "$URL" "$HTML"   # sets EFFECTIVE_URL
-    mv -f "$HTML.part.$$" "$HTML"
+    mv -f "$HTML.fetchdoc-part.$$" "$HTML"
+    trap '' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode
     # SENTINEL-WEB-ATOMIC (#1285 review): write the snapshot to a part file and move it into place,
     # so a pandoc/cp that dies mid-write cannot truncate an already-registered snapshot.
-    WPART="$DEST.part.$$"
+    WPART="$DEST.fetchdoc-part.$$"
     if command -v pandoc >/dev/null; then
       pandoc -f html -t gfm "$HTML" -o "$WPART" 2>/dev/null || cp "$HTML" "$WPART"
     else cp "$HTML" "$WPART"; fi
     install_file "$WPART" "$DEST"
     rm -f "$HTML"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
-    reg "$SDIR" "$DEST" "web-snapshot" "$EFFECTIVE_URL" "$SHA"
-    echo "OK: $URL -> $DEST  (snapshot markdown, registered)"
+    if [ "$INSTALL_SAME" -eq 1 ]; then
+      echo "OK: $URL -> $DEST  (identical snapshot already registered; no new row)"
+    else
+      reg "$SDIR" "$DEST" "web-snapshot" "$EFFECTIVE_URL" "$SHA"
+      echo "OK: $URL -> $DEST  (snapshot markdown, registered)"
+    fi
     ;;
   *) echo "unknown mode: $MODE (doc|web|ocr)" >&2; exit 2 ;;
 esac

@@ -105,9 +105,9 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 
 | Script | Usage | Purpose |
 |---|---|---|
-| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `doc <url> <target-dir> [datasheets\|manuals] [name]` | Download a datasheet/manual into `sources/` and register it in `SOURCES.md`. |
-| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `web <url> <target-dir>` | Page/forum → Markdown (pandoc) into `sources/`, registered in `SOURCES.md`. |
-| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `ocr <pdf>` | OCR a scanned PDF (tesseract) and print to **stdout** — does not touch `sources/` or register. |
+| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `[--replace] doc <url> <target-dir> [datasheets\|manuals] [name]` | Download a datasheet/manual into `sources/` and register it in `SOURCES.md`. Refuses an existing destination (exit 4) unless `--replace`, which keeps the old bytes as `<stem>.<sha12>.<ext>` and retargets the old row; a symlinked destination is refused (exit 5). |
+| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `[--replace] web <url> <target-dir>` | Page/forum → Markdown (pandoc) into `sources/`, registered in `SOURCES.md`. Same overwrite policy as `doc` (exit 4 without `--replace`, exit 5 on a symlinked destination). |
+| [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `ocr <pdf>` | OCR a scanned PDF (tesseract) and print to **stdout** — does not touch `sources/` or register (`--replace` is ignored). |
 | [`extract-pdf.sh`](toolbelt/extract-pdf.sh) | `[options] <input.pdf>` | PDF → page-anchored Markdown (text-layer tier, OCR fallback). |
 | [`probe.sh`](toolbelt/probe.sh) | `check <ip> <port…>` · `run <target-dir> <probe-cmd> [args…]` | Dynamic phase (§12): read-only probe of a live system, preserving raw output as evidence. |
 | [`scan-firmware.sh`](toolbelt/scan-firmware.sh) | `scan\|evidence\|carve\|yara <file> …` | Static firmware triage/evidence plus validated uImage/SquashFS byte carving; no general extraction. |
