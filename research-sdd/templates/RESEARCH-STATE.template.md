@@ -61,6 +61,15 @@ last_iteration_ts:
 - **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. an all-closed ratio, then a larger denominator declared later): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. NOTE: the placeholder above carries no digits ON PURPOSE — keep it that way until you record a real ratio, so the machine envelope seeds gaps_closed/known_gaps=0 (nothing closed yet) instead of mis-parsing an example number. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator numerator drift is on you to reconcile.)
 - **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below). Human-readable summary of the most recent iteration; the machine-parseable timestamp lives in the `last_iteration_ts` field of the research-state.v1 envelope.
 
+## Stretch goal
+
+<!-- Written at BOOTSTRAP (PROMPT-LOOP BOOTSTRAP, STRETCH GOAL; kit issue #1268). Two lines. Seed gaps BACKWARD from
+     the stretch so coverage is judged against it, not only against what looked reachable. An ambition record, not
+     evidence: routes toward it stay [INFER]/proposed until executed. Also the reference for the pre-STOP
+     possibility audit (METHODOLOGY §8c). verify-state.sh does not parse this section. -->
+- **realistic:** <the scope that looks reachable with the tools and access in hand>
+- **stretch:** <the most ambitious version — what would full mastery of this system look like>
+
 ## Gap-backlog
 
 <!-- Cell grammar declared in METHODOLOGY §8b. Priority: high | medium | low | deferred | — | ~~tier~~.
@@ -82,8 +91,8 @@ last_iteration_ts:
 | low | <...> | <...> | pending |
 | deferred | <gap set aside — revisit when unblocking condition is met> | <...> | pending (parked; never NEXT — §8b) |
 | high | <build/PoC gap — answerable only by compiling/running something> | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |
-| medium | <gap blocked pending a specific resource or tool — e.g. signing-pki-dynamic: full PKI chain without live device access> | <native/doc/live-system> | blocked-on-dual-use (cannot ship a complete PoC that re-uses the vendor signing key) |
-| low | <gap blocked because a required tool is absent or unavailable> | <native/tool> | blocked-on-tool (e.g. no Dart-AOT decompiler available; no live JACE accessible) |
+| medium | <gap blocked pending a specific resource or tool — e.g. signing-pki-dynamic: full PKI chain without live device access> | <native/doc/live-system> | blocked-on-dual-use (cannot ship a complete PoC that re-uses the vendor signing key) · unblock: <cheapest route · owner: operator · cost: <estimate>> |
+| low | <gap blocked because a required tool is absent or unavailable> | <native/tool> | blocked-on-tool (e.g. no Dart-AOT decompiler available; no live JACE accessible) · unblock: <install/provision route · owner: loop · cost: <estimate>> |
 
 ## Iteration history
 
@@ -105,13 +114,15 @@ last_iteration_ts:
      `needs:` names the missing resource. `tried:` lists the alternatives enumerated and the
      measurement that ruled each out. A gap with `tried:` only listing "nothing" is unfinished.
      verify-state.sh checks for the literal token `tried:` the same way it checks `needs:`.
+     Each entry also ends with `unblock: <route> · owner: <loop|operator> · cost: <estimate>` (METHODOLOGY §21.1,
+     kit issue #1269) — a wall is a waypoint; verify-state.sh does not check this line.
      A gap may not be declared `blocked` or `absent` without both clauses present.
      When a gap closes by proven absence, its `- name — needs:` entry transforms to a prose
      note or is removed from this section; `derive_blocked` no longer counts it, and it is
      credited to `gaps_closed`. The closing evidence block — citing scope, method, and count
      — is the durable closure record; the `needs:`/`tried:` requirement above governs only
      pre-closure entries. -->
-- <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>> · tried: <alt1 (measured: X) | alt2 (measured: Y) | none enumerated yet→ gap still open>
+- <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>> · tried: <alt1 (measured: X) | alt2 (measured: Y) | none enumerated yet→ gap still open> · unblock: <route · owner · cost>
 
 ## Stop control (primary = read-only-investigable exhaustion, METHODOLOGY §8)
 

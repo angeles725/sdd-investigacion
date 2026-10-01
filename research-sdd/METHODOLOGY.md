@@ -932,6 +932,11 @@ and silently vanishes when the loop advances. A typed gap row is recall-findable
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
 
+**Possibility audit before STOP (kit issue #1270; full rule §8c).** Before honoring a focus or campaign STOP —
+never a PAUSE (the budget-cap and operator-directed pauses below are exempt) — list what going further would
+need (tool, access, live system, build, operator data) and seed each item as a gap with a route. A listed
+route is a proposal (`[INFER]`/proposed), never a finding.
+
 **Apply the stopping criterion to sub-lines too — terminate with a measured bound, not a pause.**
 When several consecutive attempts at the SAME gap or sub-question all fail, do not pause and revisit
 later: run explicit falsification attempts against "the answer is there and I am mis-reading it". If all
@@ -1242,6 +1247,10 @@ ref, note, date).
 **Em-dash means closed and nothing else.** An open row must carry a real tier (`high`, `medium`, `low`,
 or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell.
 
+**Unblock plan on a wall row (kit issue #1269; doctrine only — no instrument parses it).** A `blocked-on-<reason>`
+row ends its Status decoration with `· unblock: <route> · owner: <who> · cost: <estimate>` (`·`, never `|`); its
+`## Blocked gaps` entry carries the same line beside `needs:`/`tried:`. Rule and exemption: §21.1.
+
 **Table shape.** The backlog heading grammar is closed: the exact base form `## Gap-backlog`
 (ASCII U+002D hyphen-minus), optionally followed by a single parenthetical descriptor on the same
 line — `## Gap-backlog (<descriptor>)`. Grammar: `^## Gap-backlog( \([^)]+\))?$`. Valid:
@@ -1392,6 +1401,27 @@ declare the check out of scope for a single-focus corpus in the corpus-close ret
 multi-focus corpora are this check's actual target). This does not change the `## Campaign queue` row
 schema declared above — it is a precondition on when condition (1) may be honored, not a new field.
 (Source: §13 D1 for the underlying evidence; this §8c rule from kit issues #1105/#1106/#1123.)
+
+**Possibility audit before a focus or campaign STOP (kit issue #1270).** The STOP criteria count open gaps, not
+unexplored routes, so a focus can reach `investigable_open=0` while its stretch goal (PROMPT-LOOP BOOTSTRAP,
+STRETCH GOAL) is still far off. After the FRONTIER-REOPEN and campaign-close partition checks (which it
+complements, not replaces) and before honoring a focus STOP (§8 criteria 1-2) or the campaign STOP above:
+(1) list what would be needed to go further toward the stretch goal — tools, access, a live system, a build/PoC,
+operator-supplied data or authorization — one line per item; (2) give each item a route, owner and cost (§1
+ladder, cheapest step first) and seed it as a gap: a route the loop can run itself (read-only → `pending`;
+provisioning §21.4 or build/PoC §19 → `requires-execution`) is NOT parkable — it is pursued and the STOP does not
+fire; an operator-owned item is a typed `blocked-on-<reason>` row carrying its `unblock:` plan (§21.1);
+(3) STOP is honored only when the list is empty or every remaining item is parked by the operator (an explicit
+operator instruction, recorded as a `deferred` row whose Gap cell says `parked by operator <date>`) or is a
+`not-buildable` wall stating that every instrument class was tried. In an unattended run no operator can answer:
+list the operator-owned items with their `unblock:` plans in the STOP declaration as the hand-off and word the
+close `STOPPED (possibility audit: N operator-owned items listed)`, never a bare "exhausted".
+**Exemptions and guards.** (a) PAUSED states are exempt: a budget-cap pause or `PAUSED (operator-directed)` (§8) is
+not a STOP, so the audit neither gates nor delays it (the pause report MAY carry the list as the resume point).
+(b) The audit never weakens `[INFER]` discipline: an audit item is a need and a proposed route, never a finding,
+and closing it needs an executed route with a cited result (§3). (c) `not-buildable` (§21.1) remains the only
+"stop asking" wall state; the audit does not reclassify any other state into it. Name the outcome in the §18 retro
+(template section "Every 'no' said in this run"). No instrument checks the audit yet (doctrine first).
 
 **Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
 
@@ -3810,6 +3840,19 @@ no-match distinction still applies — never a bare zero):
 **Possibility-first cross-reference.** Every wall state above blocks a CAPABILITY, never the goal: the §1
 possibility-first rule applies — express the way forward as a route ladder (>=3 routes of different classes,
 cost and needs each, cheapest next step; unexecuted routes are `[INFER]`/proposed), not as "not possible".
+
+**Every recorded wall ends with an unblock plan (kit issue #1269).** A wall is a waypoint, never an end state:
+each wall recorded in a backlog row, a `## Blocked gaps` entry or a block carries ONE line,
+`unblock: <route> · owner: <who> · cost: <estimate>` — the cheapest route past the wall (a ladder's step one,
+§1), who must act (`loop` when provisioning §21.4 / a build §19 / a different instrument can do it;
+`operator` for access, credentials, hardware, authorization), and what it costs. The wall's Status keeps its
+typed state; the plan is decoration beside `needs:`/`tried:` (§8b), so no parser contract changes and `needs:`/`tried:`
+still gate as before. A `loop`-owned first step is re-queued as its own gap (`pending`, or `requires-execution`
+for a build), so the wall does not sit as a dead row. The plan is a proposal: `[INFER]`/proposed until the route
+is executed and its measured result cited (§3). `refused` is never laundered: its owner is whoever holds the
+authorization. `not-buildable` stays the ONLY state that means *stop asking*: its plan names a different
+instrument class that could still answer, or reads `unblock: none — every instrument class tried (<list>)`.
+`verify-state.sh` does not check for the `unblock:` line (doctrine first; no instrument yet).
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
