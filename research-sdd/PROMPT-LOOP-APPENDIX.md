@@ -11,12 +11,14 @@ exact trigger and this file's section, so a driver reads a section here only whe
 live, and reads it IN FULL when it does.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
+Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
+original relative order and the note in their section says which rule stayed behind.
 
-(kit issue #1003 round 3, F1: WEB-RESEARCH DISCOVERY-ONLY and the two FALSIFY BEFORE REPORTING
+(WEB-RESEARCH DISCOVERY-ONLY and the two FALSIFY BEFORE REPORTING
 delegated-sweep subcases — DELEGATED SWEEP OPERATIONAL CLAIMS and the DECOMMISSIONED/BROKEN
 ENDPOINT SUBCASE — moved back to PROMPT-LOOP.md core: each fires on inline work too, so neither
 satisfied this file's own admission rule above. See `verify-edge-cases` below for the same
-correction applied to PHYSICAL-ACTION FACTS and HIDDEN-FLAG CROSS-CHECK.)
+treatment of PHYSICAL-ACTION FACTS and HIDDEN-FLAG CROSS-CHECK.)
 
 ---
 
@@ -27,12 +29,10 @@ operator question, ≥2 independent small gaps on different subsystems, a siblin
 is already in flight, a recursive multi-level fan-out, or you are advancing other work while a
 delegated sweep executes. None of these apply to a plain inline gap.
 
-(N2, kit issue #1003 round 3 review: the QUICK-MODE DELEGATION rule below is currently unreachable
-from PROMPT-LOOP.md — quick mode never enters the loop at all; it short-circuits in SKILL.md before
-BOOTSTRAP/NORMAL CYCLE ever starts, per `skills/research-sdd/SKILL.md`'s "quick and light modes
-short-circuit: answer directly (quick)... do not bootstrap or loop." This predates this PR and is
-left as-is — not this PR's defect to fix — but is worth a follow-up issue to either wire quick mode
-into a delegation path that can reach this rule, or delete the rule as dead text.)
+Note: the QUICK-MODE DELEGATION rule below is not reachable from PROMPT-LOOP.md today. Quick mode
+never enters the loop; it short-circuits in `skills/research-sdd/SKILL.md` ("quick and light modes
+short-circuit: answer directly (quick)... do not bootstrap or loop") before BOOTSTRAP / NORMAL CYCLE
+start. The rule stays as written until quick mode is wired to a delegation path or the rule is removed.
 
 ```text
          CONFIG-ARTIFACT DELEGATION VARIANT. For a focus targeting a single large config artifact (BOG/
@@ -73,8 +73,11 @@ concatenated dump or a decompiled-context file, a sub-agent asserted an absence 
 widening, a scout returned absence from a narrow file set in an external repo, or a delegated sweep
 contradicts something the driver already said inline. VERIFY BEFORE ACTING's core (a)/(b)/(c) recipe
 in PROMPT-LOOP.md always applies; these are its narrower edge cases. (PHYSICAL-ACTION FACTS and
-HIDDEN-FLAG CROSS-CHECK, formerly listed here, moved back to PROMPT-LOOP.md core — both fire on
-inline work too, not only on verifying a delegated sub-agent's report; kit issue #1003 round 3 F1.)
+HIDDEN-FLAG CROSS-CHECK, formerly listed here, live in PROMPT-LOOP.md core — both fire on inline
+work too, not only on verifying a delegated sub-agent's report. HIDDEN-FLAG CROSS-CHECK originally sat
+between SYSTEMATIC-OFFSET CAVEAT and SCOPE below; in core it now precedes SYSTEMATIC-OFFSET CAVEAT.
+The two bullets are independent, so the order carries no meaning; the remaining rules below keep
+their original relative order.)
 
 ```text
        - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
