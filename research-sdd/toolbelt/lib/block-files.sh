@@ -103,7 +103,7 @@ if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
     while IFS= read -r -d '' _gf; do
       [ "${_gf%/.git}" = "$_root" ] && continue
       _line=""
-      IFS= read -r _line < "$_gf" 2>/dev/null || [ -n "$_line" ] || continue
+      { IFS= read -r _line < "$_gf"; } 2>/dev/null || [ -n "$_line" ] || continue
       case "$_line" in
         gitdir:*) ;;
         *) continue ;;
@@ -121,7 +121,9 @@ if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
       # means "cannot be proven a worktree" → not excluded (a false BLOCK is recoverable, a
       # false ALLOW is not).
       _bp=""
-      IFS= read -r _bp < "$_gd/gitdir" 2>/dev/null || [ -n "$_bp" ] || continue
+      # Braces, not a bare `read < f 2>/dev/null`: the input redirect fails BEFORE the trailing 2>/dev/null
+      # applies, so the shell's "No such file" would leak into a Stop hook's stderr (kit issue #1311).
+      { IFS= read -r _bp < "$_gd/gitdir"; } 2>/dev/null || [ -n "$_bp" ] || continue
       case "$_bp" in /*) ;; *) _bp="$_gd/$_bp" ;; esac
       [ "$_bp" -ef "$_gf" ] || continue
       # SENTINEL-BACKPOINTER-END

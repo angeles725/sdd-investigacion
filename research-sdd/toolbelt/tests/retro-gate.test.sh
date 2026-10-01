@@ -14,6 +14,7 @@
 #   hb-*                  (#1161) hermetic-bin builder: skip glob, first-wins, excluded name, batch ln
 #   esc-*                 (#1167 item 2) _json_escape_reason replacement operand; esc-ctrl* (#1301-6)
 #   l-*                   (#1301) one mutant per `find -H` scan site (symlinked target)
+#   dirlink-*, bp-read-unbraced  (#1311) directory-symlink scan; back-pointer read stderr
 #   nw-backpointer-dropped, p-*  (#1301) worktree back-pointer proof; probe-failure fail-safe
 #
 # Usage: retro-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
@@ -1452,6 +1453,56 @@ run_gate "$T_w10b" "$(mkjson "$SID_w10b" false)"
 printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#1301 W10b: worktree gitdir without a back-pointer is unprovable → its block still counts" \
   || no "#1301 W10b: back-pointer-less gitdir treated as a worktree (false ALLOW): OUT=$OUT ERR=$ERR"
+# #1311 item 1: the back-pointer read of a commondir-without-gitdir directory is a decision, not an
+# error — the shell's own "No such file or directory" must not leak into the Stop hook's stderr.
+printf '%s' "$ERR" | grep -qi 'no such file' \
+  && no "#1311 W10b-stderr: back-pointer read leaked to stderr: $ERR" \
+  || ok "#1311 W10b-stderr: missing <gitdir>/gitdir emits nothing to stderr"
+
+# ─── #1311 item 3: a DIRECTORY SYMLINK inside the target (session mode) ──────
+# git tracks `corpus -> ../ext` as a blob (no .md suffix) and `find -H` never descends into a link
+# met while walking, so research changed THROUGH the link was invisible → false ALLOW. The gate now
+# scans each directory symlink under the target one hop deep (no -L: no loops, no double walks).
+# S1: block changed through a directory symlink → BLOCK. Control: the same block in-tree blocks.
+S1_EXT="$ROOT/s1-ext"; mkdir -p "$S1_EXT"; printf '# Block\n' > "$S1_EXT/niagara-block1.md"
+T_s1="$ROOT/t-s1"; mkgit "$T_s1"; SID_s1="s1-sess"
+mksessionfile "$T_s1" "$SID_s1" "202609050800"
+ln -s "$S1_EXT" "$T_s1/corpus"
+run_gate "$T_s1" "$(mkjson "$SID_s1" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1311 S1: block changed through a directory symlink → blocks (no false ALLOW)" \
+  || no "#1311 S1: symlinked research dir false ALLOW: OUT=$OUT ERR=$ERR"
+# S2: the link target holds only research OLDER than the session start → nothing changed → ALLOW.
+S2_EXT="$ROOT/s2-ext"; mkdir -p "$S2_EXT"; printf '# Block\n' > "$S2_EXT/niagara-block1.md"
+touch -t 202609040800 "$S2_EXT/niagara-block1.md"
+T_s2="$ROOT/t-s2"; mkgit "$T_s2"; SID_s2="s2-sess"
+mksessionfile "$T_s2" "$SID_s2" "202609050800"
+ln -s "$S2_EXT" "$T_s2/corpus"
+run_gate "$T_s2" "$(mkjson "$SID_s2" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && no "#1311 S2: unchanged symlinked research blocked (over-block): OUT=$OUT" \
+  || ok "#1311 S2: unchanged research behind a directory symlink does not block"
+# S3: a symlink back to its own ancestor (a loop) terminates and, with nothing changed, allows.
+T_s3="$ROOT/t-s3"; mkgit "$T_s3"; SID_s3="s3-sess"
+mksessionfile "$T_s3" "$SID_s3" "202609050800"
+ln -s "$T_s3" "$T_s3/loop"
+run_gate "$T_s3" "$(mkjson "$SID_s3" false)"
+{ [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -qF '"decision":"block"'; } \
+  && ok "#1311 S3: a self-referential directory symlink terminates and allows" \
+  || no "#1311 S3: loop symlink mishandled RC=$RC OUT=$OUT ERR=$ERR"
+# S4: a directory symlink ADDED since the session sha (committed link) is itself a change → BLOCK
+# even when the link target is unreadable/old (fail toward BLOCK: the new link may expose research).
+S4_EXT="$ROOT/s4-ext"; mkdir -p "$S4_EXT"; printf '# Block\n' > "$S4_EXT/niagara-block1.md"
+touch -t 202609040800 "$S4_EXT/niagara-block1.md"
+T_s4="$ROOT/t-s4"; mkgit "$T_s4"; SID_s4="s4-sess"
+mksessionfile "$T_s4" "$SID_s4" "202609050800"
+ln -s "$S4_EXT" "$T_s4/corpus"; git -C "$T_s4" add corpus
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_s4" commit -q -m "add corpus link"
+run_gate "$T_s4" "$(mkjson "$SID_s4" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1311 S4: a directory symlink added since the session start counts as a change → blocks" \
+  || no "#1311 S4: newly added directory symlink false ALLOW: OUT=$OUT ERR=$ERR"
 
 # ─── #1301 item 3: the gate when the nested-worktree PROBE itself fails ───────
 # The lib returns 2 (not a directory) or 3 (incomplete traversal); anything else is a defect. The
@@ -2704,16 +2755,16 @@ fi
 # back-pointer — a real submodule fails both, so one alone is no longer load-bearing for W9) → a
 # submodule of a linked-worktree target is excluded again → W9 stops blocking (false ALLOW). The mutant is the
 # LIB (the SUT is unchanged), so mutate MUT_KIT's lib copy for this one run and restore it.
-cp "$SUT" "$MUT_KIT/toolbelt/mutant-commondir.sh"; chmod +x "$MUT_KIT/toolbelt/mutant-commondir.sh"
+cp "$SUT" "$MUT_KIT/toolbelt/mutant-proofs.sh"; chmod +x "$MUT_KIT/toolbelt/mutant-proofs.sh"
 _lib_mk="$MUT_KIT/toolbelt/lib/block-files.sh"; cp "$_lib_mk" "$_lib_mk.orig"
 sed '/SENTINEL-COMMONDIR-START/,/SENTINEL-COMMONDIR-END/d;/SENTINEL-BACKPOINTER-START/,/SENTINEL-BACKPOINTER-END/d' "$_lib_mk.orig" > "$_lib_mk"
 if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
-  no "TOOTH nw-commondir-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
+  no "TOOTH nw-proofs-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
 else
-  rmblocked "$T_w9" "$SID_w9"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w9" "$(mkjson "$SID_w9" false)"
+  rmblocked "$T_w9" "$SID_w9"; run_mutant "$MUT_KIT/toolbelt/mutant-proofs.sh" "$T_w9" "$(mkjson "$SID_w9" false)"
   blocks_json "$OUT" \
-    && no "TOOTH nw-commondir-dropped: mutant still blocks W9 — commondir proof not load-bearing" \
-    || ok "TOOTH nw-commondir-dropped: mutant excludes the submodule (false ALLOW) — RED as expected"
+    && no "TOOTH nw-proofs-dropped: mutant still blocks W9 — worktree proofs (commondir + back-pointer) not load-bearing" \
+    || ok "TOOTH nw-proofs-dropped: mutant excludes the submodule (false ALLOW) — RED as expected"
 fi
 mv "$_lib_mk.orig" "$_lib_mk"
 # NW8 (#1301 item 2): only the back-pointer proof dropped → W10 (gitdir: . + stray commondir) and
@@ -2724,15 +2775,50 @@ if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
   no "TOOTH nw-backpointer-dropped: lib mutant identical to original — sentinel missing (tooth not built)"
 else
   _nw8=""
-  rmblocked "$T_w10" "$SID_w10"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w10" "$(mkjson "$SID_w10" false)"
+  rmblocked "$T_w10" "$SID_w10"; run_mutant "$MUT_KIT/toolbelt/mutant-proofs.sh" "$T_w10" "$(mkjson "$SID_w10" false)"
   blocks_json "$OUT" || _nw8="${_nw8}W10 "
-  rmblocked "$T_w10b" "$SID_w10b"; run_mutant "$MUT_KIT/toolbelt/mutant-commondir.sh" "$T_w10b" "$(mkjson "$SID_w10b" false)"
+  rmblocked "$T_w10b" "$SID_w10b"; run_mutant "$MUT_KIT/toolbelt/mutant-proofs.sh" "$T_w10b" "$(mkjson "$SID_w10b" false)"
   blocks_json "$OUT" || _nw8="${_nw8}W10b "
   [ "$_nw8" = "W10 W10b " ] \
     && ok "TOOTH nw-backpointer-dropped: mutant allows both contrived fixtures (false ALLOW) — RED as expected" \
     || no "TOOTH nw-backpointer-dropped: expected W10 and W10b to stop blocking, only [$_nw8] did"
 fi
 mv "$_lib_mk.orig" "$_lib_mk"
+# NW9 (#1311 item 1): the back-pointer read without the braces → the shell's own "No such file"
+# leaks to stderr again on W10b (a commondir-only directory).
+cp "$_lib_mk" "$_lib_mk.orig"
+sed 's|{ IFS= read -r _bp < "$_gd/gitdir"; } 2>/dev/null|IFS= read -r _bp < "$_gd/gitdir" 2>/dev/null|' "$_lib_mk.orig" > "$_lib_mk"
+if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
+  no "TOOTH bp-read-unbraced: lib mutant identical to original — sed matched nothing (tooth not built)"
+else
+  rmblocked "$T_w10b" "$SID_w10b"; run_mutant "$MUT_KIT/toolbelt/mutant-proofs.sh" "$T_w10b" "$(mkjson "$SID_w10b" false)"
+  printf '%s' "$ERR" | grep -qi 'no such file' \
+    && ok "TOOTH bp-read-unbraced: mutant leaks 'No such file' to stderr — RED as expected" \
+    || no "TOOTH bp-read-unbraced: mutant stayed quiet — braces not load-bearing: ERR=$ERR"
+fi
+mv "$_lib_mk.orig" "$_lib_mk"
+# DL1 (#1311 item 3): Part C removed → S1 (block changed through a directory symlink) allows.
+if nwmutant 'dirlink-scan-removed' '/SENTINEL-DIRLINK-SCAN-START/,/SENTINEL-DIRLINK-SCAN-END/d'; then M_DL1="$NWM"
+  rmblocked "$T_s1" "$SID_s1"; run_mutant "$M_DL1" "$T_s1" "$(mkjson "$SID_s1" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-scan-removed: mutant still blocks S1 — Part C not load-bearing" \
+    || ok "TOOTH dirlink-scan-removed: mutant allows the symlinked block (false ALLOW) — RED as expected"
+fi
+# DL2: the added-link rule removed → S4 (committed directory symlink) allows.
+if nwmutant 'dirlink-added-removed' '/SENTINEL-DIRLINK-ADDED-START/,/SENTINEL-DIRLINK-ADDED-END/d'; then M_DL2="$NWM"
+  rmblocked "$T_s4" "$SID_s4"; run_mutant "$M_DL2" "$T_s4" "$(mkjson "$SID_s4" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-added-removed: mutant still blocks S4 — added-link rule not load-bearing" \
+    || ok "TOOTH dirlink-added-removed: mutant allows the added link (false ALLOW) — RED as expected"
+fi
+# DL3: Part C over-scoped to ignore the session mtime (every research file under the link counts) →
+# S2 (old research behind a link) blocks → over-block caught.
+if nwmutant 'dirlink-ignores-mtime' '/SENTINEL-DIRLINK-SCAN-START/,/SENTINEL-DIRLINK-SCAN-END/s/-newer "\$_session_file" //'; then M_DL3="$NWM"
+  rmblocked "$T_s2" "$SID_s2"; run_mutant "$M_DL3" "$T_s2" "$(mkjson "$SID_s2" false)"
+  blocks_json "$OUT" \
+    && ok "TOOTH dirlink-ignores-mtime: mutant over-blocks unchanged symlinked research — RED as expected" \
+    || no "TOOTH dirlink-ignores-mtime: mutant did not over-block S2 — mtime filter not load-bearing"
+fi
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
 if nwmutant 'catalog-not-excluded' '/SENTINEL-GENERATED-CATALOG-START/,/SENTINEL-GENERATED-CATALOG-END/d'; then M_CAT1="$NWM"
   rmblocked "$T_c1" "c1-sess"; run_mutant "$M_CAT1" "$T_c1" "$(mkjson "c1-sess" false)"

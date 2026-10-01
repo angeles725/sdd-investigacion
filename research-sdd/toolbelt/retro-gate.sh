@@ -349,6 +349,12 @@ if [ "$_degraded" -eq 0 ]; then
     [ -n "$f" ] || continue
     full="$TARGET/$f"
     _is_research_file "$full" && _has_changed=1
+    # SENTINEL-DIRLINK-ADDED-START
+    # A directory symlink changed since the session start (kit issue #1311): git tracks it as a
+    # blob with no .md suffix, so it can never look like research — but it may expose a research
+    # tree. Count it as a change (a false BLOCK is recoverable, a false ALLOW is not).
+    if [ -L "$full" ] && [ -d "$full" ] && ! _in_nested_worktree "$full"; then _has_changed=1; fi
+    # SENTINEL-DIRLINK-ADDED-END
   done < <(git -C "$TARGET" diff --cached --relative --name-only "$_session_sha" 2>/dev/null)
 fi
 
@@ -365,6 +371,24 @@ if [ -f "$_session_file" ]; then
   done < <(find -H "$TARGET" -newer "$_session_file" -type f -name '*.md' \
            -not -path '*/.git/*' 2>/dev/null)
 fi
+
+# SENTINEL-DIRLINK-SCAN-START
+# Part C (kit issue #1311): a research directory that is a SYMLINK inside the target is invisible
+# to Part A (git tracks the link as a blob) and to Part B (`find -H` follows only command-line
+# links). Follow each such link ONE hop — `find -H <link>` never descends into links met while
+# walking, so a link loop terminates and nothing is walked twice per link — and apply Part B's rule.
+if [ -f "$_session_file" ]; then
+  while IFS= read -r _lnk; do
+    [ -n "$_lnk" ] || continue
+    _in_nested_worktree "$_lnk" && continue
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      _is_research_file "$f" && _has_changed=1
+    done < <(find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' \
+             -not -path '*/.git/*' 2>/dev/null)
+  done < <(find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print 2>/dev/null)
+fi
+# SENTINEL-DIRLINK-SCAN-END
 
 # SENTINEL-ALLOW-NO-CHANGE-START
 # ── (3) No changed research files and not degraded → allow ───────────────────
