@@ -23,6 +23,9 @@
 #       kept-primary = the marked primary output was kept (no usable fallback) · failed = NO output for the unit.
 #   Isolation (jars): per package, then per unit (top-level class or orphan '$' class), then a coverage sweep;
 #   an isolation time budget (RSDD_DECOMPILE_ISOLATE_BUDGET, default 1800 s, 0 = unlimited) falls back whole.
+#   The coverage sweep also runs after a whole-jar SUCCESS (a class the engine silently omitted is a UNIT
+#   reason=missing, never a bare OK; when it cannot run the status carries reason=coverage-sweep-unavailable),
+#   and a file already sitting in a reused out-dir is never coverage (it must be newer than this run's start).
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
 #   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
 #   notes) keep the primary file; comments saying the output is WRONG or will not compile ("decompiled code is
@@ -283,11 +286,22 @@ isolate_jar() {
     fi
     [ -z "$BUDGET_HIT" ] || return 2
   done < <(find "$EXT" -name '*.class' -printf '%h\n' | sort -u)
-  # Coverage sweep: every unit class must be covered by output or by a UNIT line.
+  sweep_coverage
+}
+
+# unit_covered <unit> — this run produced source for the unit. A file merely PRESENT in a reused out-dir
+# is stale, not coverage (kit issue #1320 item 4): it must be newer than this run's stamp.
+unit_covered() { [ -f "$OUT/$1.java" ] && [ "$OUT/$1.java" -nt "$STAMP" ]; }
+
+# sweep_coverage — every unit class of the extracted jar must be covered by fresh output or by a UNIT line.
+# Runs after the isolation path AND after a whole-jar success (kit issue #1320 item 3): an engine that exits 0
+# but silently omits a class is never a bare OK.
+sweep_coverage() {
+  local f unit
   while IFS= read -r f; do
     is_unit_class "$f" || continue
     unit="${f#"$EXT"/}"; unit="${unit%.class}"
-    [ -f "$OUT/$unit.java" ] || [ -n "${HANDLED[$unit]:-}" ] || fallback_unit "$unit" missing "$f"
+    unit_covered "$unit" || [ -n "${HANDLED[$unit]:-}" ] || fallback_unit "$unit" missing "$f"
   done < <(find "$EXT" -name '*.class' | sort)
 }
 
@@ -341,6 +355,11 @@ elif ! has_java "$OUT"; then
   # All three engines return 0 for obfuscated/empty/unsupported input without writing any source.
   echo "WARN: $ENGINE decompiler exited 0 but produced no .java files in $OUT (input may be obfuscated or unsupported)" >&2
   exit 1
+elif [[ "${IN,,}" == *.jar ]]; then
+  # Whole-jar success: still prove every unit class has output. When the sweep cannot run (no unzip, unsafe
+  # jar) that is a typed degraded state, never a silent OK.
+  if ensure_ext; then sweep_coverage
+  else PROBE_DEGRADED="${PROBE_DEGRADED:+$PROBE_DEGRADED,}coverage-sweep-unavailable"; fi
 fi
 [ -n "$NO_SCAN" ] || scan_markers
 

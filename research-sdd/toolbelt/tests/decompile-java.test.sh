@@ -258,6 +258,12 @@ rt() {
   while [ "${1:-}" != "--" ]; do ev+=("$1"); shift; done
   shift
   rm -rf "$ROOT/o-$tag"
+  if [ -n "${RT_PRESEED:-}" ]; then # stale files (older than the run) already sitting in a REUSED out-dir
+    local pf; for pf in $RT_PRESEED; do
+      mkdir -p "$ROOT/o-$tag/$(dirname "$pf")"; echo "// engine=stale" > "$ROOT/o-$tag/$pf"
+      touch -d '2 days ago' "$ROOT/o-$tag/$pf"
+    done
+  fi
   env JAVA_HOME="$T_JAVA_HOME" VINEFLOWER_JAR="$FAKE_VINEFLOWER" CFR_JAR="$FAKE_CFR" \
     PROCYON_JAR="$FAKE_PROCYON" RSDD_DECOMPILE_TIMEOUT=1 STUB_LOG="$ROOT/log-$tag" \
     "${ev[@]}" bash "${RT_SUT:-$SUT}" "$in" "$ROOT/o-$tag" "$@" \
@@ -518,6 +524,33 @@ mk_marker_case G2 '    // $VF: Invalid label' 4 "b/B" "'Invalid label' → per-c
 mk_marker_case G3 '    // $VF: Made invalid labels' 4 "b/B" "'Made invalid labels' → per-class fallback"
 mk_marker_case G4 '    // $VF: Could not handle exception ranges with multiple entries' 0 "" "'exception ranges with multiple entries' stays primary (informational)"
 
+# ── Issue #1320 items 3-4: coverage sweep on the success path, freshness of covered files ──
+# H1: whole-jar run exits 0 but silently omits a class → never a bare OK (item 3).
+rt H1 "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && ! grep -q '^OK' <<<"$SO" \
+  && grep -q '^UNIT: a/A2 reason=missing fallback=cfr result=ok' <<<"$SO" \
+  && [ "$(engine_of H1 a/A2.java)" = cfr ] && [ "$(engine_of H1 a/A1.java)" = vineflower ]; then
+  ok "H1 whole-jar success omitting a class → UNIT reason=missing, DEGRADED rc=4, never OK"
+else no "H1 whole-jar success omitting a class → typed missing unit" "rc=$RC so=[$SO]"; fi
+# H2: whole-jar run covering every unit class stays a bare OK (the sweep has no false positive).
+rt H2 "$JARO" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "H2 whole-jar success covering every unit (orphans incl.) → OK"
+else no "H2 full coverage stays OK" "rc=$RC so=[$SO]"; fi
+# H3: coverage sweep impossible (unzip absent) → typed degraded probe, never a silent OK.
+rt H3 "$JARP" RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^DEGRADED.*reason=coverage-sweep-unavailable' <<<"$SO" && ! grep -q '^OK' <<<"$SO"; then
+  ok "H3 unzip absent on a whole-jar success → DEGRADED reason=coverage-sweep-unavailable"
+else no "H3 sweep unavailable is typed" "rc=$RC so=[$SO]"; fi
+# H4: a STALE a/A2.java in a reused out-dir is not coverage (item 4) — failure path and success path.
+RT_PRESEED="a/A2.java" rt H4a "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing' <<<"$SO" && [ "$(engine_of H4a a/A2.java)" = cfr ]; then
+  ok "H4a stale file in reused out-dir does not hide an omitted class (failure path)"
+else no "H4a stale file counted as coverage (failure path)" "rc=$RC so=[$SO]"; fi
+RT_PRESEED="a/A2.java" rt H4b "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing' <<<"$SO" && [ "$(engine_of H4b a/A2.java)" = cfr ]; then
+  ok "H4b stale file in reused out-dir does not hide an omitted class (success path)"
+else no "H4b stale file counted as coverage (success path)" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -704,6 +737,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q 'isolation=unavailable' <<<"$SO"; then
       ok "teeth-mB3: guard-removed mutant extracts a symlinked jar → B9 bites"
     else no "teeth-mB3: mutant still refused the symlinked jar — B9 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: issue #1320 items 3-4 (success-path sweep, stale files) --"
+  # mH1: no sweep after a whole-jar success → H1 prints a bare OK again (item 3).
+  if build_mut mH1 's/^  if ensure_ext; then sweep_coverage$/  if ensure_ext; then :/'; then
+    RT_SUT="$MUT" rt mH1 "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mH1: no-success-sweep mutant prints bare OK for an omitted class → H1 bites"
+    else no "teeth-mH1: mutant still swept — H1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mH2: sweep-unavailable probe dropped → H3 goes back to a silent OK.
+  if build_mut mH2 's/^  else PROBE_DEGRADED=.*coverage-sweep-unavailable"; fi$/  else :; fi/'; then
+    RT_SUT="$MUT" rt mH2 "$JARP" RSDD_UNZIP_BIN="$ROOT/no-such-unzip" -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mH2: probe-dropped mutant prints OK without a sweep → H3 bites"
+    else no "teeth-mH2: mutant still typed the missing sweep — H3 has no teeth" "so=[$SO]"; fi
+  fi
+  # mH3: any present file counts as coverage (pre-#1320 behaviour) → H4 stale file hides the omission.
+  if build_mut mH3 's/^unit_covered() .*$/unit_covered() { [ -f "$OUT\/$1.java" ]; }/'; then
+    RT_SUT="$MUT" RT_PRESEED="a/A2.java" rt mH3 "$JARP" STUB_FAIL_WHOLE=1 STUB_OMIT_CLASSES="A2" -- --engine vineflower
+    if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mH3: freshness-dropped mutant treats a stale file as coverage → H4 bites"
+    else no "teeth-mH3: mutant still saw the stale file as missing — H4 has no teeth" "so=[$SO]"; fi
   fi
 fi
 
