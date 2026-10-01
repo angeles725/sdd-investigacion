@@ -1990,8 +1990,8 @@ if grep -qF '"$f.tmp.$$"' "$SUT" && ! grep -qF '"$f.tmp"' "$SUT"; then
   ok "#1258 SL11a: rotation temp file is per-process (no shared \$f.tmp)"
 else no "#1258 SL11a: rotation still uses a shared temp name"; fi
 sl_race() {  # <gate-path> <target> → prints the number of rounds whose log ended up empty
-  local g="$1" t="$2" bad=0 r k
-  for r in 1 2 3 4 5 6 7 8; do
+  local g="$1" t="$2" bad=0 k
+  for _ in 1 2 3 4 5 6 7 8; do
     for k in $(seq 1 450); do printf 'old %s\n' "$k"; done > "$t/.claude/$SL_NAME"
     for k in 1 2 3 4; do printf '%s' "$(mkjson slr false)" | "$BASH_BIN" "$g" "$t" >/dev/null 2>&1 & done
     wait
