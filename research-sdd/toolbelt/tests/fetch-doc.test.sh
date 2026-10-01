@@ -213,7 +213,9 @@ if [ "$is_probe" -eq 1 ]; then
     if [ -n "${STUB_HEAD_BLACKHOLE_URL:-}" ] && [ "$url" = "$STUB_HEAD_BLACKHOLE_URL" ]; then
       # curl exit 28 ("Operation timed out") with %{time_connect}=0 — the connect phase itself
       # never completed (round-5 N2'/N3': ambiguous rc, disambiguated by time_connect).
-      printf '000 0.000000 '
+      # $STUB_HEAD_BLACKHOLE_TIME_CONNECT overrides the reported value (#1285 item 5: the bare
+      # `0` and EMPTY spellings); `-` not `:-` so an explicitly EMPTY override stays empty.
+      printf '000 %s ' "${STUB_HEAD_BLACKHOLE_TIME_CONNECT-0.000000}"
       exit 28
     fi
     if [ -n "${STUB_HEAD_HANG_URL:-}" ] && [ "$url" = "$STUB_HEAD_HANG_URL" ]; then
@@ -242,6 +244,19 @@ fi
 if [ "${STUB_DOWNLOAD_FAIL:-0}" = "1" ]; then
   echo "curl: (stub) simulated download transfer failure" >&2
   exit 7
+fi
+if [ "${STUB_DOWNLOAD_PARTIAL:-0}" = "1" ]; then
+  # Mid-transfer failure (#1285): curl has already written PART of the body to -o when it dies.
+  [ -n "$out" ] && printf 'PARTIAL-BODY' > "$out"
+  echo "curl: (stub) simulated mid-transfer failure" >&2
+  exit 18
+fi
+if [ "${STUB_DOWNLOAD_HANG:-0}" = "1" ]; then
+  # Interruptible hang (#1285 item 2): partial bytes on disk, then block until signalled.
+  [ -n "$out" ] && printf 'PARTIAL-BODY' > "$out"
+  [ -n "${STUB_HANG_MARKER:-}" ] && : > "$STUB_HANG_MARKER"
+  sleep 30 & wait $!
+  exit 0
 fi
 if [ "${STUB_DOWNLOAD_EMPTY:-0}" = "1" ]; then
   [ -n "$out" ] && : > "$out"
@@ -282,6 +297,11 @@ if [ "${STUB_WGET_FAIL:-0}" = "1" ]; then
   [ -n "$out" ] && : > "$out"
   echo "wget: (stub) simulated wget failure" >&2
   exit 4
+fi
+if [ "${STUB_WGET_EMPTY:-0}" = "1" ]; then
+  # An "empty 200": wget exits 0 but wrote ZERO bytes (#1285 review B1).
+  [ -n "$out" ] && : > "$out"
+  exit 0
 fi
 [ -n "$out" ] && printf 'stub wget body\n' >"$out"
 exit 0
@@ -675,7 +695,7 @@ unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 _row37=false
 [ -f "$d37/sources/SOURCES.md" ] && grep -q 'r37\.html' "$d37/sources/SOURCES.md" && _row37=true
 if [ "$_rc37" -ne 0 ] && ! $_row37 \
-   && [ ! -e "$d37/sources/datasheets/r37.html" ] \
+   && [ -z "$(find "$d37/sources/datasheets" -type f)" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
   ok "doc: RDD/R1 — wget ALSO failing registers nothing and leaves NO file behind"
@@ -730,6 +750,217 @@ if [ "$got40" = "http://s40.example/moved" ] && [ "$n40" = "2" ]; then
   ok "resolve: N2'/N3' — exit 28 with a nonzero time_connect (hung, not blackhole) DOES retry via GET"
 else no "R40: expected http://s40.example/moved + 2 probe attempts, got '$got40' attempts=$n40"; fi
 unset STUB_ROUTES
+
+# 40b/40c — #1285 item 5: the OTHER spellings of "the connect phase never completed" — a bare `0`
+#      and an EMPTY time_connect — must also skip the GET-fallback retry (exactly 1 probe attempt).
+for _tc in "0" ""; do
+  _lbl="${_tc:-empty}"
+  STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL="http://s40-$_lbl.example/a"; STUB_HEAD_BLACKHOLE_TIME_CONNECT="$_tc"
+  _pcf40x="$TMP/probe-count-40-$_lbl.txt"; : > "$_pcf40x"; STUB_PROBE_COUNT_FILE="$_pcf40x"
+  export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
+  got40x="$(runresolve "$SUT" "http://s40-$_lbl.example/a")"
+  unset STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
+  n40x="$(grep -c "^http://s40-$_lbl\.example/a\$" "$_pcf40x")"
+  if [ "$got40x" = "http://s40-$_lbl.example/a" ] && [ "$n40x" = "1" ]; then
+    ok "resolve: #1285 — exit 28 with time_connect='${_tc}' ($_lbl) skips the GET-fallback retry"
+  else no "R40x[$_lbl]: expected typed URL + 1 probe attempt, got '$got40x' attempts=$n40x"; fi
+done
+unset STUB_ROUTES
+
+# ─── #1285 item 1: a failed re-fetch must leave an already-registered file byte-identical ───
+# mkexisting <dir> <name> — seed sources/datasheets/<name> with known evidence; echo its path.
+mkexisting(){ mkdir -p "$1/sources/datasheets"; printf 'REGISTERED-EVIDENCE\n' > "$1/sources/datasheets/$2"; printf '%s' "$1/sources/datasheets/$2"; }
+EVID_SUM="$(printf 'REGISTERED-EVIDENCE\n' | sha256sum | cut -d' ' -f1)"
+sum_of(){ sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
+# 41 — curl AND wget both fail outright on a re-fetch: the existing file survives, byte-identical.
+d41="$TMP/rr-41/target"; f41="$(mkexisting "$d41" r41.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+_rc41=0; runchain doc "$d41" "http://s41.example/a" datasheets "r41.pdf" || _rc41=$?
+unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+if [ "$_rc41" -ne 0 ] && [ "$(sum_of "$f41")" = "$EVID_SUM" ]; then
+  ok "doc: #1285 — re-fetch with curl AND wget failing leaves the registered file byte-identical"
+else no "R41: rc=$_rc41 sum=$(sum_of "$f41") exists=$([ -e "$f41" ] && echo yes || echo no)"; fi
+
+# 42 — curl dies MID-TRANSFER (partial bytes written) and wget fails: still byte-identical, no debris.
+d42="$TMP/rr-42/target"; f42="$(mkexisting "$d42" r42.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_PARTIAL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
+_rc42=0; runchain doc "$d42" "http://s42.example/a" datasheets "r42.pdf" || _rc42=$?
+unset STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
+_debris42="$(find "$d42/sources/datasheets" -type f ! -name r42.pdf | wc -l | tr -d ' ')"
+if [ "$_rc42" -ne 0 ] && [ "$(sum_of "$f42")" = "$EVID_SUM" ] && [ "$_debris42" = "0" ]; then
+  ok "doc: #1285 — a partial curl transfer never overwrites the registered file; no part-file debris"
+else no "R42: rc=$_rc42 sum=$(sum_of "$f42") debris=$_debris42"; fi
+
+# 43 — a 200 with an EMPTY body on a re-fetch must not delete or truncate the registered file.
+d43="$TMP/rr-43/target"; f43="$(mkexisting "$d43" r43.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_EMPTY
+_rc43=0; runchain doc "$d43" "http://s43.example/a" datasheets "r43.pdf" || _rc43=$?
+unset STUB_DOWNLOAD_EMPTY
+if [ "$_rc43" -ne 0 ] && [ "$(sum_of "$f43")" = "$EVID_SUM" ] && grep -qi 'empty body' "$TMP/runchain.err"; then
+  ok "doc: #1285 — an empty-body re-fetch fails loudly and leaves the registered file intact"
+else no "R43: rc=$_rc43 sum=$(sum_of "$f43") err='$(cat "$TMP/runchain.err")'"; fi
+
+# 43w — #1285 review B1: curl FAILS and wget returns an EMPTY 200 on a re-fetch. The registered file
+#      must survive byte-identical, no row may be written, and the message must say "empty body"
+#      (not the misleading "wget fallback ALSO failed").
+d43w="$TMP/rr-43w/target"; f43w="$(mkexisting "$d43w" r43w.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+_rc43w=0; runchain doc "$d43w" "http://s43w.example/a" datasheets "r43w.pdf" || _rc43w=$?
+unset STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+_row43w=false; [ -f "$d43w/sources/SOURCES.md" ] && grep -q 'r43w\.pdf' "$d43w/sources/SOURCES.md" && _row43w=true
+if [ "$_rc43w" -ne 0 ] && [ "$(sum_of "$f43w")" = "$EVID_SUM" ] && ! $_row43w \
+   && grep -qi 'empty body' "$TMP/runchain.err" && ! grep -qi 'ALSO failed' "$TMP/runchain.err"; then
+  ok "doc: #1285 B1 — curl fail + wget empty 200 leaves the registered file intact, no row, says 'empty body'"
+else no "R43w: rc=$_rc43w sum=$(sum_of "$f43w") row=$_row43w err='$(cat "$TMP/runchain.err")'"; fi
+
+# 43x — message: curl fails and wget is NOT INSTALLED -> say so, not "wget fallback ALSO failed".
+curlonly="$TMP/curlonly-bin"; mkdir -p "$curlonly"
+for _t in bash env mkdir basename sed cut date awk mktemp mv rm sha256sum file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$curlonly/$_t"
+done
+ln -sf "$stubbin/curl" "$curlonly/curl"
+d43x="$TMP/rr-43x/target"; f43x="$(mkexisting "$d43x" r43x.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL
+_rc43x=0; PATH="$curlonly" "$curlonly/bash" "$SUT" doc "http://s43x.example/a" "$d43x" datasheets "r43x.pdf" >/dev/null 2>"$TMP/err43x.txt" || _rc43x=$?
+unset STUB_DOWNLOAD_FAIL
+if [ "$_rc43x" -ne 0 ] && [ "$(sum_of "$f43x")" = "$EVID_SUM" ] && grep -qi 'wget is not installed' "$TMP/err43x.txt" \
+   && ! grep -qi 'ALSO failed' "$TMP/err43x.txt"; then
+  ok "doc: #1285 — curl fails and wget is absent: message says 'wget is not installed', file intact"
+else no "R43x: rc=$_rc43x sum=$(sum_of "$f43x") err='$(cat "$TMP/err43x.txt")'"; fi
+
+# 43y — wget-ONLY path (curl absent): redirect resolution is skipped (no curl probe noise) and the
+#      typed URL is registered with the "effective URL unknown" notice.
+wgetonly="$TMP/wgetonly-bin"; mkdir -p "$wgetonly"
+for _t in bash env mkdir basename sed cut date awk mktemp mv rm sha256sum file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$wgetonly/$_t"
+done
+ln -sf "$stubbin/wget" "$wgetonly/wget"
+d43y="$TMP/rr-43y/target"; mkdir -p "$d43y"
+_rc43y=0; PATH="$wgetonly" "$wgetonly/bash" "$SUT" doc "http://s43y.example/a.pdf" "$d43y" datasheets "r43y.pdf" >/dev/null 2>"$TMP/err43y.txt" || _rc43y=$?
+if [ "$_rc43y" -eq 0 ] && [ "$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')" = "http://s43y.example/a.pdf" ] \
+   && grep -qi 'effective URL unknown' "$TMP/err43y.txt" && ! grep -qi 'redirect probe failed' "$TMP/err43y.txt" \
+   && ! grep -qi 'command not found' "$TMP/err43y.txt"; then
+  ok "doc: #1285 — wget-only path skips redirect resolution and registers the requested URL (effective URL unknown)"
+else no "R43y: rc=$_rc43y origin='$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')' err='$(cat "$TMP/err43y.txt")'"; fi
+
+# 44w — #1285 review: web mode writes the snapshot ATOMICALLY. A pandoc that dies mid-write and a cp
+#      that dies mid-write must leave an EXISTING snapshot byte-identical, with no part-file debris.
+wfail="$TMP/webfail-bin"; mkdir -p "$wfail"
+cat > "$wfail/pandoc" <<'STUBEOF'
+#!/usr/bin/env bash
+out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+[ -n "$out" ] && printf 'PARTIAL-PANDOC' > "$out"
+exit 1
+STUBEOF
+cat > "$wfail/cp" <<'STUBEOF'
+#!/usr/bin/env bash
+for a in "$@"; do last="$a"; done
+printf 'PARTIAL-CP' > "$last"
+exit 1
+STUBEOF
+chmod +x "$wfail/pandoc" "$wfail/cp"
+d44w="$TMP/rr-44w/target"; mkdir -p "$d44w/sources/web-snapshots"
+slug44w="$(echo "http://s44w.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+f44w="$d44w/sources/web-snapshots/$slug44w.md"; printf 'REGISTERED-EVIDENCE\n' > "$f44w"
+STUB_ROUTES=""; export STUB_ROUTES
+_rc44w=0; PATH="$wfail:$stubbin:$PATH" bash "$SUT" web "http://s44w.example/a" "$d44w" >/dev/null 2>"$TMP/err44w.txt" || _rc44w=$?
+_debris44w="$(find "$d44w/sources/web-snapshots" -type f ! -name "$slug44w.md" | wc -l | tr -d ' ')"
+if [ "$_rc44w" -ne 0 ] && [ "$(sum_of "$f44w")" = "$EVID_SUM" ] && [ "$_debris44w" = "0" ]; then
+  ok "web: #1285 — a failing pandoc+cp leaves an existing snapshot byte-identical, no part-file debris"
+else no "R44w: rc=$_rc44w sum=$(sum_of "$f44w") debris=$_debris44w"; fi
+unset STUB_ROUTES
+
+# 44 — positive control: a SUCCESSFUL re-fetch replaces the file with the new bytes (the part-file
+#      move actually happens) and leaves no part file behind.
+d44="$TMP/rr-44/target"; f44="$(mkexisting "$d44" r44.pdf)"
+STUB_ROUTES=""; export STUB_ROUTES
+_rc44=0; runchain doc "$d44" "http://s44.example/a" datasheets "r44.pdf" || _rc44=$?
+_debris44="$(find "$d44/sources/datasheets" -type f ! -name r44.pdf | wc -l | tr -d ' ')"
+if [ "$_rc44" -eq 0 ] && grep -qF 'stub body for http://s44.example/a' "$f44" && [ "$_debris44" = "0" ]; then
+  ok "doc: #1285 — a successful re-fetch replaces the file and leaves no part file"
+else no "R44: rc=$_rc44 body='$(cat "$f44" 2>/dev/null)' debris=$_debris44"; fi
+unset STUB_ROUTES
+
+# 44b — fetch_and_register called DIRECTLY (no main dispatch, so no EXIT trap): when curl and wget
+#      both fail it must clean up its OWN part file (in-function cleanup, independent of the trap).
+d44b="$TMP/rr-44b"; mkdir -p "$d44b"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
+# shellcheck source=../fetch-doc.sh
+( set +e; PATH="$stubbin:$PATH"; export PATH; source "$SUT" >/dev/null 2>&1
+  fetch_and_register "http://s44b.example/a" "$d44b/out.html" >/dev/null 2>&1 )
+unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL STUB_ROUTES
+if [ -z "$(find "$d44b" -type f)" ]; then
+  ok "fetch_and_register: curl+wget failure leaves no part file even without the main-dispatch trap"
+else no "R44b: debris: $(find "$d44b" -type f | tr '\n' ' ')"; fi
+
+# ─── #1285 item 2: trap cleanup ───
+# 45 — SIGTERM mid-download (doc): the partial bytes are removed and the registered file survives.
+d45="$TMP/rr-45/target"; f45="$(mkexisting "$d45" r45.pdf)"
+STUB_ROUTES=""; STUB_DOWNLOAD_HANG=1; STUB_HANG_MARKER="$TMP/hang45.marker"; rm -f "$STUB_HANG_MARKER"
+export STUB_ROUTES STUB_DOWNLOAD_HANG STUB_HANG_MARKER
+# setsid gives the run its own process GROUP, so the TERM below reaches the script AND its download
+# subshell/curl exactly as a terminal's Ctrl-C does (killing only the script would leave bash
+# deferring its trap until the 30 s stub returns, which proves nothing about the cleanup).
+if ! command -v setsid >/dev/null 2>&1; then
+  printf '  SKIP  R45: setsid not available (cannot signal a whole process group)\n'
+else
+PATH="$stubbin:$PATH" setsid bash "$SUT" doc "http://s45.example/a" "$d45" datasheets "r45.pdf" >/dev/null 2>&1 &
+_pid45=$!
+for _ in $(seq 1 100); do [ -e "$STUB_HANG_MARKER" ] && break; sleep 0.1; done
+kill -TERM -- "-$_pid45" 2>/dev/null; wait "$_pid45" 2>/dev/null
+unset STUB_DOWNLOAD_HANG STUB_HANG_MARKER
+_debris45="$(find "$d45/sources/datasheets" -type f ! -name r45.pdf | wc -l | tr -d ' ')"
+if [ -e "$TMP/hang45.marker" ] && [ "$_debris45" = "0" ] && [ "$(sum_of "$f45")" = "$EVID_SUM" ]; then
+  ok "doc: #1285 — SIGTERM mid-download leaves no partial file and the registered file intact"
+else no "R45: marker=$([ -e "$TMP/hang45.marker" ] && echo y || echo n) debris=$_debris45 sum=$(sum_of "$f45")"; fi
+fi
+unset STUB_ROUTES STUB_DOWNLOAD_HANG STUB_HANG_MARKER
+
+# 46 — web: a failing post-download step (cp into an unwritable web-snapshots dir) must not leak the
+#      mktemp HTML. (The HTML is rm'd right after the cp, so ONLY a failing cp/pandoc step leaks it.)
+d46="$TMP/rr-46/target"; mkdir -p "$d46/sources/web-snapshots"; chmod 555 "$d46/sources/web-snapshots"
+d46_tmpdir="$TMP/rr-46-tmpdir"; mkdir -p "$d46_tmpdir"
+if { : > "$d46/sources/web-snapshots/.probe"; } 2>/dev/null; then
+  printf '  SKIP  R46: cannot make the snapshot dir unwritable here (root?)\n'
+else
+  STUB_ROUTES=""; export STUB_ROUTES
+  _rc46=0; TMPDIR="$d46_tmpdir" runchain web "$d46" "http://s46.example/a" || _rc46=$?
+  _leak46="$(find "$d46_tmpdir" -mindepth 1 | wc -l | tr -d ' ')"
+  if [ "$_rc46" -ne 0 ] && [ "$_leak46" = "0" ]; then
+    ok "web: #1285 — a failing post-download step leaks NO mktemp HTML"
+  else no "R46: rc=$_rc46 leaked=$_leak46 ($(ls "$d46_tmpdir" | tr '\n' ' '))"; fi
+  unset STUB_ROUTES
+fi
+chmod 755 "$d46/sources/web-snapshots"
+
+# ─── #1285 item 3: runtime-dependency probe ───
+# 47 — neither curl nor wget on PATH: a typed DEGRADED error naming BOTH tools, exit 3, nothing
+#      registered — not the misleading "wget fallback ALSO failed".
+nodl="$TMP/nodl-bin"; mkdir -p "$nodl"
+for _t in bash mkdir basename sed cut date awk mktemp mv rm sha256sum file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$nodl/$_t"
+done
+d47="$TMP/rr-47/target"; mkdir -p "$d47"
+_rc47=0; PATH="$nodl" "$nodl/bash" "$SUT" doc "http://s47.example/a.pdf" "$d47" datasheets "r47.pdf" >/dev/null 2>"$TMP/err47.txt" || _rc47=$?
+if [ "$_rc47" -eq 3 ] && grep -qi 'DEGRADED' "$TMP/err47.txt" && grep -q 'curl' "$TMP/err47.txt" \
+   && grep -q 'wget' "$TMP/err47.txt" && ! grep -qi 'ALSO failed' "$TMP/err47.txt" \
+   && [ ! -e "$d47/sources/SOURCES.md" ]; then
+  ok "doc: #1285 — neither curl nor wget → typed DEGRADED error naming both tools, exit 3"
+else no "R47: rc=$_rc47 err='$(cat "$TMP/err47.txt")'"; fi
+d47w="$TMP/rr-47w/target"; mkdir -p "$d47w"
+_rc47w=0; PATH="$nodl" "$nodl/bash" "$SUT" web "http://s47.example/a" "$d47w" >/dev/null 2>"$TMP/err47w.txt" || _rc47w=$?
+if [ "$_rc47w" -eq 3 ] && grep -qi 'DEGRADED' "$TMP/err47w.txt"; then
+  ok "web: #1285 — neither curl nor wget → typed DEGRADED error, exit 3"
+else no "R47w: rc=$_rc47w err='$(cat "$TMP/err47w.txt")'"; fi
+
+# ─── #1285 item 6: kit CLAUDE.md §9 — artifacts are English ───
+if ! grep -q 'falló' "$SUT"; then
+  ok "language: no Spanish 'falló' message left in fetch-doc.sh (§9)"
+else no "R48: fetch-doc.sh still contains the Spanish pdftoppm message"; fi
+if grep -q 'pdftoppm failed' "$SUT"; then
+  ok "language: the pdftoppm failure message is English"
+else no "R48b: English pdftoppm failure message not found"; fi
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
@@ -1311,8 +1542,8 @@ SED
   # wget fallback even when wget itself had failed (errexit does not propagate into this
   # command-substitution-invoked function by default — see the errexit note above the function).
   wgetignoremutant="$(mkmut wget-ignore-status <<'SED'
-/^    if wget -q "\$url" -O "\$dest"; then$/,/^    fi$/c\
-    wget -q "$url" -O "$dest"  # MUTANT: wget status ignored\
+/^    if \[ "\$wget_rc" -eq 0 \] && \[ -s "\$dest" \]; then$/,/^    fi$/c\
+    : # MUTANT: wget status ignored\
     echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2\
     printf '%s' "$url"
 SED
@@ -1333,21 +1564,153 @@ SED
 
   echo "-- teeth: SENTINEL-WGET-CLEANUP (round-5 R1) — drop the rm -f \$dest cleanup before exit 1 --"
   wgetcleanupmutant="$(mkmut wget-cleanup <<'SED'
-s/rm -f "\$dest"/:  # MUTANT: wget-failure cleanup removed/
+/SENTINEL-WGET-CLEANUP/,/ALSO failed/ {
+  s/rm -f "\$dest"/:  # MUTANT: wget-failure cleanup removed/
+}
 SED
 )"
-  if ! grep -q 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant"; then
-    no "teeth-wget-cleanup: could not build mutant (rm -f \"\$dest\" line not found, or bash -n rejected it — did the SUT change?)"
+  # R3-wget-cleanup-mutant-overbroad (#1285): the range above confines the mutation to the ONE
+  # `rm -f` inside the SENTINEL-WGET-CLEANUP block; the other `rm -f "$dest"` sites stay intact.
+  if ! grep -q 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant" \
+     || [ "$(grep -c 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant")" != "1" ]; then
+    no "teeth-wget-cleanup: could not build a single-site mutant (rm -f \"\$dest\" in the WGET-CLEANUP block not found exactly once, or bash -n rejected it — did the SUT change?)"
   else
-    d37c="$TMP/teeth-wget-cleanup/target"; mkdir -p "$d37c"
+    d37c="$TMP/teeth-wget-cleanup"; mkdir -p "$d37c/datasheets"
     STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
     export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    PATH="$stubbin:$PATH" bash "$wgetcleanupmutant" doc "http://s37.example/a" "$d37c" datasheets "r37c.html" >/dev/null 2>/dev/null
+    # Call fetch_and_register DIRECTLY (sourced): the main dispatch's EXIT trap is a second line of
+    # defence that would mask a missing in-function rm, so the in-function cleanup is tested alone.
+    # shellcheck disable=SC1090
+    ( set +e; PATH="$stubbin:$PATH"; export PATH; source "$wgetcleanupmutant" >/dev/null 2>&1
+      fetch_and_register "http://s37.example/a" "$d37c/datasheets/r37c.html" >/dev/null 2>&1 )
     unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    if [ -e "$d37c/sources/datasheets/r37c.html" ]; then
+    if [ -n "$(find "$d37c/datasheets" -type f)" ]; then
       ok "teeth-wget-cleanup: mutant leaves the 0-byte debris file behind → R1/R37 has teeth"
     else no "teeth-wget-cleanup: mutant still cleaned up the file — R1/R37 does NOT depend on this rm -f (THEATER)"; fi
   fi
+
+  # ── #1285 teeth (built with lib/mutant.sh, kit #943: refuses an empty/identical/live-tree mutant) ──
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+
+  echo "-- teeth: SENTINEL-PART-FILE (#1285 item 1) — download straight into the destination --"
+  if ! mutant_sed "$SUT" "$TMP/part-file.MUT.sh" 's/local dest="\$final\.part\.\$\$"/local dest="$final"  # MUTANT: part file removed/'; then
+    no "teeth-part-file: could not build mutant (part-file assignment not found, or refused by lib/mutant.sh)"
+  else
+    dpm="$TMP/teeth-part-file/target"; fpm="$(mkexisting "$dpm" tpm.pdf)"
+    STUB_ROUTES=""; STUB_DOWNLOAD_PARTIAL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
+    PATH="$stubbin:$PATH" bash "$TMP/part-file.MUT.sh" doc "http://spm.example/a" "$dpm" datasheets "tpm.pdf" >/dev/null 2>&1
+    unset STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
+    if [ "$(sum_of "$fpm")" != "$EVID_SUM" ]; then
+      ok "teeth-part-file: mutant lets a failed re-fetch destroy the registered file → R41/R42 have teeth"
+    else no "teeth-part-file: mutant left the registered file intact — R41/R42 do NOT depend on the part file (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-TRAP (#1285 item 2) — drop the EXIT cleanup trap (doc and web) --"
+  if ! command -v setsid >/dev/null 2>&1; then
+    printf '  SKIP  teeth-trap-doc: setsid not available\n'
+  elif ! mutant_sed "$SUT" "$TMP/trap-doc.MUT.sh" "s/trap 'rm -f \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
+    no "teeth-trap-doc: could not build mutant (doc EXIT trap not found, or refused by lib/mutant.sh)"
+  else
+    dtd="$TMP/teeth-trap-doc/target"; mkexisting "$dtd" ttd.pdf >/dev/null
+    STUB_ROUTES=""; STUB_DOWNLOAD_HANG=1; STUB_HANG_MARKER="$TMP/hang-ttd.marker"; rm -f "$STUB_HANG_MARKER"
+    export STUB_ROUTES STUB_DOWNLOAD_HANG STUB_HANG_MARKER
+    PATH="$stubbin:$PATH" setsid bash "$TMP/trap-doc.MUT.sh" doc "http://std.example/a" "$dtd" datasheets "ttd.pdf" >/dev/null 2>&1 &
+    _ptd=$!
+    for _ in $(seq 1 100); do [ -e "$STUB_HANG_MARKER" ] && break; sleep 0.1; done
+    kill -TERM -- "-$_ptd" 2>/dev/null; wait "$_ptd" 2>/dev/null
+    unset STUB_DOWNLOAD_HANG STUB_HANG_MARKER STUB_ROUTES
+    if [ -n "$(find "$dtd/sources/datasheets" -type f ! -name ttd.pdf)" ]; then
+      ok "teeth-trap-doc: mutant leaves the partial file behind after SIGTERM → R45 has teeth"
+    else no "teeth-trap-doc: mutant still left no debris — R45 does NOT depend on the EXIT trap (THEATER)"; fi
+  fi
+  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'rm -f \"\$HTML\" \"\$HTML\.part\.\$\$\" \"\$DEST\.part\.\$\$\"' EXIT; /: /"; then
+    no "teeth-trap-web: could not build mutant (web EXIT trap not found, or refused by lib/mutant.sh)"
+  else
+    dtw="$TMP/teeth-trap-web/target"; mkdir -p "$dtw/sources/web-snapshots"; chmod 555 "$dtw/sources/web-snapshots"
+    dtw_tmp="$TMP/teeth-trap-web-tmp"; mkdir -p "$dtw_tmp"
+    if { : > "$dtw/sources/web-snapshots/.probe"; } 2>/dev/null; then
+      printf '  SKIP  teeth-trap-web: cannot make the snapshot dir unwritable here (root?)\n'
+    else
+      STUB_ROUTES=""; export STUB_ROUTES
+      TMPDIR="$dtw_tmp" PATH="$stubbin:$PATH" bash "$TMP/trap-web.MUT.sh" web "http://stw.example/a" "$dtw" >/dev/null 2>&1
+      unset STUB_ROUTES
+      if [ -n "$(find "$dtw_tmp" -mindepth 1)" ]; then
+        ok "teeth-trap-web: mutant leaks the mktemp HTML when a post-download step fails → R46 has teeth"
+      else no "teeth-trap-web: mutant leaked nothing — R46 does NOT depend on the web EXIT trap (THEATER)"; fi
+    fi
+    chmod 755 "$dtw/sources/web-snapshots"
+  fi
+
+  echo "-- teeth: probe_downloaders (#1285 item 3) — remove the startup dependency probe --"
+  if ! mutant_sed "$SUT" "$TMP/probe.MUT.sh" 's/^    probe_downloaders$/    :  # MUTANT: probe removed/'; then
+    no "teeth-probe: could not build mutant (probe_downloaders calls not found, or refused by lib/mutant.sh)"
+  else
+    dpr="$TMP/teeth-probe/target"; mkdir -p "$dpr"
+    _rcpr=0; PATH="$nodl" "$nodl/bash" "$TMP/probe.MUT.sh" doc "http://spr.example/a.pdf" "$dpr" datasheets "tpr.pdf" >/dev/null 2>"$TMP/err-probe.txt" || _rcpr=$?
+    if [ "$_rcpr" -ne 3 ] || ! grep -qi 'DEGRADED' "$TMP/err-probe.txt"; then
+      ok "teeth-probe: mutant without the probe loses the typed DEGRADED error (rc=$_rcpr) → R47 has teeth"
+    else no "teeth-probe: mutant still emitted the DEGRADED error — R47 does NOT depend on the probe (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WGET-EMPTY-GUARD (#1285 review B1) — strip the wget non-empty clause --"
+  if ! mutant_sed "$SUT" "$TMP/wget-empty.MUT.sh" 's/if \[ "\$wget_rc" -eq 0 \] \&\& \[ -s "\$dest" \]; then/if [ "$wget_rc" -eq 0 ]; then  # MUTANT: wget empty guard removed/'; then
+    no "teeth-wget-empty: could not build mutant (wget empty-guard clause not found, or refused by lib/mutant.sh)"
+  else
+    dwe="$TMP/teeth-wget-empty/target"; fwe="$(mkexisting "$dwe" twe.pdf)"
+    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+    PATH="$stubbin:$PATH" bash "$TMP/wget-empty.MUT.sh" doc "http://swe.example/a" "$dwe" datasheets "twe.pdf" >/dev/null 2>&1
+    unset STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
+    if [ "$(sum_of "$fwe")" != "$EVID_SUM" ]; then
+      ok "teeth-wget-empty: mutant lets an empty wget 200 clobber the registered file → R43w has teeth"
+    else no "teeth-wget-empty: mutant left the registered file intact — R43w does NOT depend on the wget non-empty clause (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WEB-ATOMIC (#1285 review) — write the snapshot straight into the destination --"
+  if ! mutant_sed "$SUT" "$TMP/web-atomic.MUT.sh" '/SENTINEL-WEB-ATOMIC/,/^    rm -f "\$HTML"/ s/WPART="\$DEST\.part\.\$\$"/WPART="$DEST"  # MUTANT: web atomic write removed/'; then
+    no "teeth-web-atomic: could not build mutant (WPART assignment not found, or refused by lib/mutant.sh)"
+  else
+    dwa="$TMP/teeth-web-atomic/target"; mkdir -p "$dwa/sources/web-snapshots"
+    swa="$(echo "http://swa.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    fwa="$dwa/sources/web-snapshots/$swa.md"; printf 'REGISTERED-EVIDENCE\n' > "$fwa"
+    STUB_ROUTES=""; export STUB_ROUTES
+    PATH="$wfail:$stubbin:$PATH" bash "$TMP/web-atomic.MUT.sh" web "http://swa.example/a" "$dwa" >/dev/null 2>&1
+    unset STUB_ROUTES
+    if [ "$(sum_of "$fwa")" != "$EVID_SUM" ]; then
+      ok "teeth-web-atomic: mutant lets a failing pandoc/cp clobber the existing snapshot → R44w has teeth"
+    else no "teeth-web-atomic: mutant left the snapshot intact — R44w does NOT depend on the part file (THEATER)"; fi
+  fi
+
+  echo "-- teeth: wget-only path (#1285 review) — resolve_permanent_redirect called unconditionally --"
+  if ! mutant_sed "$SUT" "$TMP/wget-only.MUT.sh" 's/if have_cmd curl; then effective="\$(resolve_permanent_redirect "\$url")"; else effective="\$url"; fi/effective="$(resolve_permanent_redirect "$url")"  # MUTANT: resolve unconditional/'; then
+    no "teeth-wget-only: could not build mutant (conditional resolve line not found, or refused by lib/mutant.sh)"
+  else
+    dwo="$TMP/teeth-wget-only/target"; mkdir -p "$dwo"
+    PATH="$wgetonly" "$wgetonly/bash" "$TMP/wget-only.MUT.sh" doc "http://swo.example/a.pdf" "$dwo" datasheets "two.pdf" >/dev/null 2>"$TMP/err-wo.txt"
+    if grep -qi 'redirect probe failed\|command not found' "$TMP/err-wo.txt"; then
+      ok "teeth-wget-only: mutant probes with a missing curl (noise on stderr) → R43y has teeth"
+    else no "teeth-wget-only: mutant stderr was clean — R43y does NOT depend on skipping resolution when curl is absent (THEATER)"; fi
+  fi
+
+  echo "-- teeth: time_connect edges (#1285 item 5) — bare 0, empty, always-retry-on-28 --"
+  # tc_mutant <name> <sed-expr> <time_connect-value> <label> <test-ids> — the mutant must RETRY (2 attempts)
+  # where the real SUT makes 1.
+  tc_mutant(){ local name="$1" expr="$2" tcv="$3" lbl="$4" ids="$5" m="$TMP/$1.MUT.sh" n
+    if ! mutant_sed "$SUT" "$m" "$expr"; then
+      no "teeth-$name: could not build mutant (case alternative not found, or refused by lib/mutant.sh)"; return
+    fi
+    STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL="http://s-$name.example/a"; STUB_HEAD_BLACKHOLE_TIME_CONNECT="$tcv"
+    local pcf="$TMP/probe-count-$name.txt"; : > "$pcf"; STUB_PROBE_COUNT_FILE="$pcf"
+    export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
+    runresolve "$m" "http://s-$name.example/a" >/dev/null
+    unset STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE STUB_ROUTES
+    n="$(grep -c "^http://s-$name\.example/a\$" "$pcf")"
+    if [ "$n" -gt 1 ]; then ok "teeth-$name: mutant retries via GET ($n attempts, real SUT makes 1) for $lbl → $ids has teeth"
+    else no "teeth-$name: mutant still made $n attempt(s) — $ids does NOT depend on $lbl (THEATER)"; fi
+  }
+  tc_mutant tc-bare-zero 's/^\( *\)0|0\.000000|/\10.000000|/' "0" "a bare 0 time_connect" "R40b"
+  tc_mutant tc-empty 's/0\.000000000|"") skip_fallback=1/0.000000000) skip_fallback=1/' "" "an empty time_connect" "R40c"
+  tc_mutant tc-always-retry-28 's/0|0\.000000|0\.000000000|"") skip_fallback=1/0|0.000000|0.000000000|"") skip_fallback=0/' "0.000000" "a zero time_connect (always-retry-on-28)" "R39"
 
   echo "-- teeth: SENTINEL-DOWNLOAD — neuter the wget-fallback stderr notice --"
   # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
@@ -1370,7 +1733,7 @@ SED
 
   echo "-- teeth: SENTINEL-DOWNLOAD — restore 2>/dev/null on the shared download call (swallows curl -S diagnostics) --"
   smutant="$(mkmut download-stderr <<'SED'
-s/if curl -fsS -L "\$effective" -o "\$dest"; then/if curl -fsS -L "$effective" -o "$dest" 2>\/dev\/null; then/
+s/curl -fsS -L "\$effective" -o "\$dest"; then/curl -fsS -L "$effective" -o "$dest" 2>\/dev\/null; then/
 SED
 )"
   if ! grep -q 'curl -fsS -L "\$effective" -o "\$dest" 2>/dev/null; then' "$smutant"; then
@@ -1390,7 +1753,7 @@ SED
 
   echo "-- teeth: SENTINEL-DOWNLOAD (RS2) — drop -L on the shared download call --"
   noLmutant="$(mkmut no-L <<'SED'
-s/if curl -fsS -L "\$effective" -o "\$dest"; then/if curl -fsS "$effective" -o "$dest"; then  # MUTANT: -L dropped/
+s/curl -fsS -L "\$effective" -o "\$dest"; then/curl -fsS "$effective" -o "$dest"; then  # MUTANT: -L dropped/
 SED
 )"
   if ! grep -q 'MUTANT: -L dropped' "$noLmutant"; then
@@ -1540,12 +1903,14 @@ else
 
   # ── Teeth for doc empty-body guard ───────────────────────────────────────────
   if [ "${1:-}" = "--prove-teeth" ]; then
-    echo "-- teeth: remove doc [ -s \"\$DEST\" ] guard; empty body must then register + OK --"
+    echo "-- teeth: neuter SENTINEL-EMPTY-GUARD (doc mode); empty body must then register + OK --"
+    # The empty-body guard lives in fetch_and_register (#1285 moved it before the part-file move).
+    # lib/mutant.sh (kit #943) refuses an empty/identical/live-tree mutant.
+    # shellcheck source=lib/mutant.sh
+    . "$HERE/lib/mutant.sh"
     gmutant="$TMP/fetch-doc.GMUTANT.sh"
-    # Remove the empty-body guard line in doc mode (the [ -s "$DEST" ] line we added).
-    sed '/\[ -s "\$DEST" \] || { echo "fetch-doc: empty body/d' "$SUT" > "$gmutant"
-    if grep -q '\[ -s "\$DEST" \]' "$gmutant"; then
-      no "teeth-doc-empty: could not build guard mutant ([ -s \"\$DEST\" ] line still present)"
+    if ! mutant_sed "$SUT" "$gmutant" 's/if \[ ! -s "\$dest" \]; then/if false; then  # MUTANT: empty guard removed/'; then
+      no "teeth-doc-empty: could not build guard mutant (empty-guard line not found, or refused by lib/mutant.sh)"
     else
       d9m="$TMP/teeth-doc-empty/target"; mkdir -p "$d9m"
       _rc9m=0
@@ -1560,12 +1925,11 @@ else
       fi
     fi
 
-    echo "-- teeth: remove web [ -s \"\$HTML\" ] guard; empty HTML must then register + OK --"
+    echo "-- teeth: neuter SENTINEL-EMPTY-GUARD (web mode); empty HTML must then register + OK --"
     gwmutant="$TMP/fetch-doc.GWMUTANT.sh"
-    # Remove the [ -s "$HTML" ] guard line in web mode (checks raw download before pandoc).
-    sed '/\[ -s "\$HTML" \] || { echo "fetch-doc: empty body/d' "$SUT" > "$gwmutant"
-    if grep -q '"fetch-doc: empty body.*\$HTML' "$gwmutant"; then
-      no "teeth-web-empty: could not build guard mutant (guard line still present)"
+    # Same single shared guard serves web mode (the HTML snapshot goes through fetch_and_register).
+    if ! mutant_sed "$SUT" "$gwmutant" 's/if \[ ! -s "\$dest" \]; then/if false; then  # MUTANT: empty guard removed/'; then
+      no "teeth-web-empty: could not build guard mutant (empty-guard line not found, or refused by lib/mutant.sh)"
     else
       d10m="$TMP/teeth-web-empty/target"; mkdir -p "$d10m"
       _rc10m=0
