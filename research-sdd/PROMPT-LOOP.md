@@ -223,6 +223,14 @@ Always read first, in this order:
      specified campaign limits (max-depth, iterations, wall-clock). Absent line = no bounds; do not
      pre-fill if no bounds were requested. (Grammar: see METHODOLOGY §8c. Example:
      `campaign_bounds: max-depth=3 iterations=50 wall-clock=8h`.)
+     STRETCH GOAL (every new focus, kit issue #1268): next to the realistic scope, record the most ambitious
+     version of the goal ("what would full mastery of this system look like") in RESEARCH-STATE `## Stretch goal`
+     (template: `realistic:` / `stretch:` lines), then seed gaps BACKWARD from the stretch so coverage is judged
+     against it, not only against what looked reachable. A stretch gap that is read-only investigable is a normal
+     `pending` row; one that needs a tool/access/build is a typed `blocked-on-<reason>`/`requires-execution` row
+     with an `unblock:` plan (METHODOLOGY §21.1), never silently dropped. The stretch is an ambition record, not
+     evidence or a coverage claim: unexecuted routes toward it stay [INFER]/proposed (§3). It is the reference
+     for the pre-STOP POSSIBILITY AUDIT (step 7; METHODOLOGY §8c). `verify-state.sh` does not parse the section.
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (or `deferred` for a parked gap; not
      translated); Status must start with `pending` for a gap to be treated as investigable. The awk
@@ -979,6 +987,13 @@ Always read first, in this order:
      NOT honored until that dump's content is either captured as a block or explicitly dismissed.
      `verify-sources.sh` and `verify-state.sh` do NOT perform this sweep; it is an operator/agent
      obligation at every STOP gate. (Evidence: platform-native reopen.)
+     POSSIBILITY AUDIT before honoring a focus/campaign STOP (METHODOLOGY §8c; NOT on a PAUSE — budget-cap,
+     operator-directed — nor a `campaign-bound-reached` stop): list what going further toward the stretch goal
+     would need (tools, access, live system, build, operator data) that is not already in the backlog or `tried:`;
+     seed each as a gap with route + owner + cost. Read-only and §21.4 self-provisioning routes are pursued, so
+     STOP does not fire; a build/PoC (§19) item is seeded `requires-execution` and listed in the STOP declaration
+     as a §19 hand-off; operator items are typed blocked rows. STOP when the list is empty or each item is
+     operator-parked or handed off in the declaration. Routes are [INFER]/proposed, never findings.
      TERMINAL-TIER CONVERGENCE: when a focus runs a second investigation tier over first-tier child
      gaps (revisiting sub-gaps surfaced by a prior block), record residues as in-block sub-sections
      rather than seeding new grandchild backlog rows. Grandchild rows re-inflate the investigable
@@ -1192,7 +1207,8 @@ HARD RULES:
     never findings. A bare "no" you find in your own draft or inherited from an earlier block/RESEARCH-STATE is
     rewritten as a ladder and, if inherited, reopened as a child gap B<n>-G<m> with the cheapest route as NEXT
     (§14 back-pointer). verify-block.sh WARNs on bare verdicts; `--possibility-sweep <corpus>` lists inherited ones
-    (METHODOLOGY §1).
+    (METHODOLOGY §1). Every wall you record ends with `unblock: <route> · owner: <who> · cost: <estimate>`
+    (§21.1); `not-buildable` stays the only "stop asking" state.
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - SOURCE BEFORE AGENT — a gap counts as investigable ONLY once its source is confirmed reachable
     (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an

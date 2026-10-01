@@ -61,6 +61,17 @@ For each delta above, one line of rationale (WHY it matters, what it costs, expe
 
 - <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
 
+## Every 'no' said in this run → its route ladder and whether it was reopened
+
+> Optional (kit issue #1270; possibility-first, METHODOLOGY §1 and §8c). One row per feasibility "no" said or
+> inherited in the run (find them with `verify-block.sh --possibility-sweep <corpus>`): where it was said, the
+> route ladder it should have been (>=3 routes of different classes), and whether it was reopened as a child
+> gap. A run with none writes `none — no feasibility "no" said`. Routes here are proposals, never findings.
+
+| # | "No" said (block / gap) | Route ladder (>=3 classes · cheapest next step) | Reopened? (child gap / block / not yet) |
+|---|---|---|---|
+| N1 | `<B### / G##>` · "<the verdict as worded>" | <own-surface · other instrument class · provisioning · live · build · operator> → `<cheapest step>` | `B<n>-G<m>` / `no — <why>` |
+
 ## Tools built, adapted, or outgrown
 
 > A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
