@@ -770,6 +770,9 @@ Always read first, in this order:
          marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
          remembered (it exits non-zero on a cited file:line whose line is out of range). It is your own
          calculator, not an orchestrator gate.
+       - Before committing the block, run `$KIT/toolbelt/lint-block.sh <block.md>` next to `verify-block.sh`
+         (METHODOLOGY §11 "Block lint"): a non-zero exit is a defect to fix or to waive with a reasoned
+         `lint-waive` token; `lint-block.sh --audit <corpus>` is the report-only form for legacy corpora.
          VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
          all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
          etc.), verify-block classifies them as `extern` — it prints `resolved 0 of M` and a graded WARN

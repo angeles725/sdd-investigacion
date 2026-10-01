@@ -1666,6 +1666,10 @@ runs and reports these checks:
   `filename:line` self-verify anchor*). For `[CERT-doc]` citations over an HTML or doc source, the
   anchor uses the **full HTML basename** from the `SOURCES.md` row (e.g. `JsonSchemaTypes-Json-70BA9870.html`)
   — never a doc-title shorthand — so `verify-sources.sh` can resolve it.
+- **Block lint** — run `lint-block.sh <block.md>` (#1206) and paste its `SUMMARY` line. It fails mechanically
+  what prose already failed to hold: `[CERT-hw]`/`[CERT-live]` Self-verify evidence citing only a session-local
+  `/tmp` or scratchpad path, and a `[Block N] does not mention ...` comparison with no raw artifact path. A
+  deliberate exception is a per-row `<!-- lint-waive: R<n> reason=... -->`; a waiver without a reason is a finding.
 - **Marker tally** — counts of `[CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER]`, plus the **`[INFER]`/
   `[CERT]` ratio** AND the **block type**. For an **evidence block** (decompilation/reading) a high ratio
   (>~0.5) is the automatic signal that the investigable evidence for this gap is nearly exhausted — say so;
