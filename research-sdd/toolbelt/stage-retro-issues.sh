@@ -403,28 +403,54 @@ if [ ! -f "$_TP_LIB" ]; then
 fi
 # shellcheck source=lib/target-paths.sh
 . "$_TP_LIB"
-declare -F target_paths_all >/dev/null 2>&1 \
-  || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_paths_all" >&2; exit 1; }
+declare -F target_paths_pairs >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_paths_pairs" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Derive target name from the retro's directory hierarchy
-# Retro is at <target_dir>/retros/<file>; target_dir = dirname(dirname(retro))
-_retro_dir="$(dirname "$retro")"
-_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"
+# Derive target name from the retro's directory hierarchy (kit issue #1169).
+# Walk UP from the retro's directory and take the NEAREST ancestor registered in TARGETS.md.
+# That covers the flat layout (<target>/retros/), the nested layout (<target>/corpus/retros/,
+# METHODOLOGY §3b) and any deeper one (<target>/<sub>/retros/). Taking only dirname(dirname())
+# resolved a nested corpus to '<target>/corpus', which never matches a row, so the basename
+# fallback yielded the generic label `target:corpus` (nonexistent -> every gh create failed).
+_retro_dir="$(cd "$(dirname "$retro")" && pwd)"
+_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"   # legacy flat-layout guess (fallback only)
 target_name=""
 
 if [ -f "$TARGETS_MD" ]; then
-  while IFS= read -r _path; do
+  _registered=()
+  # The label value is the registered Target NAME (row cell 2, e.g. `pancaddia-leon-tunnel`),
+  # which is what the `target:<name>` GitHub labels are named after — NOT the path basename
+  # (`Pancaddia`). Fall back to the basename only when the row has no usable name cell.
+  while IFS=$'\t' read -r _raw _path; do
     _exp="$(cd "$_path" 2>/dev/null && pwd)" || continue
-    if [ "$_exp" = "$_target_dir" ]; then
-      target_name="$(basename "$_path")"
-      break
-    fi
-  done < <(target_paths_all "$TARGETS_MD" 2>/dev/null)
+    _rname="$(grep -E '^[[:space:]]*\|' "$TARGETS_MD" | grep -F "\`$_raw\`" | head -n 1 \
+      | awk -F'|' '{ n=$3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n }')"
+    case "$_rname" in ''|*[[:space:]]*) _rname="$(basename "$_path")" ;; esac
+    _registered+=("$_exp"$'\t'"$_rname")
+  done < <(target_paths_pairs "$TARGETS_MD" 2>/dev/null)
+  _anc="$(dirname "$_retro_dir")"
+  while :; do
+    for _entry in ${_registered[@]+"${_registered[@]}"}; do
+      if [ "${_entry%%$'\t'*}" = "$_anc" ]; then
+        target_name="${_entry#*$'\t'}"
+        break 2
+      fi
+    done
+    [ "$_anc" = "/" ] && break
+    _anc="$(dirname "$_anc")"
+  done
 fi
 
 if [ -z "$target_name" ]; then
   target_name="$(basename "$_target_dir")"
+  # A structural directory name is never a registered target label: fail up front rather than
+  # plan issues whose `target:<name>` label cannot exist (anti-silent-zero).
+  case "$target_name" in
+    corpus|retros)
+      echo "stage-retro-issues: cannot resolve target for '$retro' — no ancestor directory is registered in $TARGETS_MD (basename '$target_name' is a structural directory, not a target)" >&2
+      exit 1 ;;
+  esac
   echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$target_name'" >&2
 fi
 
