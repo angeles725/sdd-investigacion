@@ -4040,21 +4040,77 @@ mk_local_cmds() { local d="$1"; shift; mk_settings_file "$d" "settings.local.jso
 # parameter instead of duplicating the whole function per excluded tool). First-wins across dirs
 # keeps a duplicate-dir copy, e.g. /bin -> /usr/bin, from leaking the excluded tool back in through
 # a second PATH entry.
+#
+# #1161 — cost: on WSL the ambient PATH carries the Windows PATH (63 /mnt/c/... entries, and
+# /mnt/c/WINDOWS/system32 alone has ~5,300 entries on a 9P mount), and the old body forked
+# `basename` plus `ln` once per executable. Now (a) source dirs matching HERMETIC_BIN_SKIP_GLOB
+# (default '/mnt/*' = WSL Windows drive mounts; nothing the SUT or this suite runs lives there)
+# are never walked, (b) the name comes from ${_exe##*/} (no fork), (c) links are created with ONE
+# `ln -s -t` per source dir. First-wins semantics are unchanged.
 build_hermetic_bin_excluding() {
-  local src_path="$1" out_dir="$2" excluded="$3" _oifs _pd _exe _n
+  local src_path="$1" out_dir="$2" excluded="$3" _oifs _pd _exe _n _batch _skip="${HERMETIC_BIN_SKIP_GLOB:-/mnt/*}"
   _oifs="$IFS"; IFS=':'
   for _pd in $src_path; do
     IFS="$_oifs"
     [ -d "$_pd" ] || continue
+    # SENTINEL-HB-SKIP-START
+    # shellcheck disable=SC2254
+    case "$_pd" in $_skip) continue ;; esac
+    # SENTINEL-HB-SKIP-END
+    _batch=()
     while IFS= read -r -d '' _exe; do
-      _n="$(basename "$_exe")"
+      _n="${_exe##*/}"
       [ "$_n" = "$excluded" ] && continue
-      [ -e "$out_dir/$_n" ] && continue
-      ln -s "$_exe" "$out_dir/$_n"
+      [ -e "$out_dir/$_n" ] && continue   # SENTINEL-HB-FIRSTWINS
+      _batch+=("$_exe")
     done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
+    if [ "${#_batch[@]}" -gt 0 ]; then ln -s -t "$out_dir" -- "${_batch[@]}"; fi
   done
   IFS="$_oifs"
 }
+
+# #1161 builder checks (same fixture shape as retro-gate.test.sh's HB cases, but this builder takes
+# the excluded name as a parameter). hb_checks <function-source>: eval it in a subshell and print one
+# "FAIL:<name>" per broken assertion, so the same function checks the real builder and each mutant.
+hb_checks() {
+  (
+    eval "$1"
+    declare -F build_hermetic_bin_excluding >/dev/null 2>&1 || { echo "FAIL:function-not-defined"; exit 0; }
+    h="$(mktemp -d)"; trap 'rm -rf "$h"' EXIT
+    mkdir -p "$h/a" "$h/skipme" "$h/b" "$h/out"
+    for t in a/alpha a/realpath skipme/beta b/alpha b/gamma; do
+      printf '#!/bin/sh\necho %s\n' "$t" > "$h/$t"; chmod +x "$h/$t"
+    done
+    HERMETIC_BIN_SKIP_GLOB="$h/skipme*" build_hermetic_bin_excluding "$h/a:$h/skipme:$h/b:$h/nonexistent" "$h/out" "realpath" 2>"$h/builder.err"
+    [ -s "$h/builder.err" ] && echo "FAIL:builder-stderr-must-be-empty"
+    [ -x "$h/out/alpha" ] || echo "FAIL:alpha-reachable"
+    [ -x "$h/out/gamma" ] || echo "FAIL:gamma-reachable-from-later-dir"
+    [ -e "$h/out/realpath" ] && echo "FAIL:excluded-name-must-be-hidden"
+    [ -e "$h/out/beta" ] && echo "FAIL:skipped-dir-must-not-be-mirrored"
+    [ "$(readlink "$h/out/alpha" 2>/dev/null)" = "$h/a/alpha" ] || echo "FAIL:first-wins(alpha→a/)"
+    rm -rf "$h/out2"; mkdir -p "$h/out2"
+    HERMETIC_BIN_SKIP_GLOB="/nonexistent-prefix/*" build_hermetic_bin_excluding "$h/skipme" "$h/out2" "realpath"
+    [ -x "$h/out2/beta" ] || echo "FAIL:non-matching-glob-still-mirrors"
+    rm -rf "$h/out3"; mkdir -p "$h/out3" "$h/empty"
+    build_hermetic_bin_excluding "$h/empty" "$h/out3" "realpath" 2>/dev/null || echo "FAIL:empty-dir-rc"
+    build_hermetic_bin_excluding "" "$h/out3" "realpath" 2>/dev/null || echo "FAIL:empty-path-rc"
+    [ -z "$(ls -A "$h/out3")" ] || echo "FAIL:empty-dir-no-links"
+  )
+}
+HB_SRC="$(sed -n '/^build_hermetic_bin_excluding() {/,/^}/p' "${BASH_SOURCE[0]}")"
+[ -n "$HB_SRC" ] || no "#1161 HB0: could not extract build_hermetic_bin_excluding from this file"
+hb_out="$(hb_checks "$HB_SRC")"
+[ -z "$hb_out" ] \
+  && ok "#1161 HB1: builder — skip glob, first-wins, excluded name hidden, edge dirs (empty / absent / later-dir-only)" \
+  || no "#1161 HB1: builder — $(printf '%s' "$hb_out" | tr '\n' ' ')"
+case "$HB_SRC" in
+  *'HERMETIC_BIN_SKIP_GLOB:-/mnt/*'*) ok "#1161 HB2: default skip glob is /mnt/* (WSL Windows mounts)" ;;
+  *) no "#1161 HB2: default skip glob is not /mnt/*" ;;
+esac
+case "$HB_SRC" in
+  *'basename'*) no "#1161 HB3: builder still forks basename per executable" ;;
+  *) ok "#1161 HB3: no basename fork per executable (\${_exe##*/})" ;;
+esac
 # build_hermetic_nojq_bin <src_path> <out_dir> — convenience wrapper: excludes "jq".
 build_hermetic_nojq_bin() { build_hermetic_bin_excluding "$1" "$2" "jq"; }
 # build_hermetic_norealpath_bin <src_path> <out_dir> — convenience wrapper: excludes "realpath".
@@ -5208,6 +5264,33 @@ HOOKEOF
   else
     no "P8-M teeth: <KIT> hook should WARN but did not — old-form detection broken"
   fi
+fi
+
+# #1161 HB mutants: the builder lives in THIS file, so mutate its extracted text. Each mutant must
+# differ from the builder (a no-op sed is theater) and trip the named assertion.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- #1161 hermetic builder: mutation controls --"
+  hb_mutant() { # <label> <sed-script> <expected FAIL: token>
+    local label="$1" script="$2" want="$3" mtxt mout
+    mtxt="$(printf '%s\n' "$HB_SRC" | sed "$script")"
+    if [ "$mtxt" = "$HB_SRC" ]; then
+      no "TOOTH $label: mutant identical to the builder — sed matched nothing (tooth not built)"; return
+    fi
+    mout="$(hb_checks "$mtxt" 2>/dev/null)"
+    if printf '%s\n' "$mout" | grep -qF "FAIL:$want"; then
+      ok "TOOTH $label: mutant trips FAIL:$want (RED as expected)"
+    else
+      no "TOOTH $label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$mout" | tr '\n' ' ')]"
+    fi
+  }
+  hb_mutant "hb-skip-removed (skip glob ignored)" \
+    '/SENTINEL-HB-SKIP-START/,/SENTINEL-HB-SKIP-END/d' "skipped-dir-must-not-be-mirrored"
+  hb_mutant "hb-firstwins-removed (re-link of a mirrored name)" \
+    '/SENTINEL-HB-FIRSTWINS/d' "builder-stderr-must-be-empty"
+  hb_mutant "hb-excluded-visible (excluded name no longer skipped)" \
+    's/\[ "\$_n" = "\$excluded" \] && continue/:/' "excluded-name-must-be-hidden"
+  hb_mutant "hb-batch-dropped (no ln after a dir)" \
+    's/if \[ "\${#_batch\[@\]}" -gt 0 \]; then ln -s -t "\$out_dir" -- "\${_batch\[@\]}"; fi/:/' "alpha-reachable"
 fi
 
 echo "== $pass passed · $fail failed =="

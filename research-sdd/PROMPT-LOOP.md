@@ -713,7 +713,8 @@ Always read first, in this order:
          its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. DO NOT NEST
          sub-agents: include this as a STANDING INSTRUCTION in every delegation prompt by default (word it
          explicitly: "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). This is boilerplate, not
-         optional guidance — include it in every prompt regardless of whether nesting seems likely. A sub-agent
+         optional guidance — include it in every prompt regardless of whether nesting seems likely. Also include,
+         as a STANDING one-line stance in every delegation prompt: "Everything is possible; the question is HOW, at what cost, and what is needed." (possibility-first, METHODOLOGY §1). A sub-agent
          that nests silently hides its findings from the driver; recovery requires SendMessage and risks losing
          partial results (evidence: WB02 B428; niagara workbench-focus retro). The specialized agents
          (Explore/Plan) cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use
@@ -1183,6 +1184,15 @@ HARD RULES:
     it; a future agent reading the blocks will not see it. Rule: when you call mem_save for a finding
     of type project or decision, increment `undocumented_findings` in RESEARCH-STATE immediately. When
     you write the block, decrement it. A finding that lives only in memory is missing from the record.
+  - POSSIBILITY-FIRST — never close a gap, answer an operator proposal, or write a block on a bare "not possible /
+    cannot / no way / out of reach / not determinable / no se puede". Write a ROUTE LADDER instead: >=3 routes
+    from different classes (own-surface §21.2, another instrument/source class, provisioning §21.4, dynamic §12,
+    build/PoC §19, operator-supplied access, decomposition), each with cost + what it needs, ending with the
+    cheapest next step; "no" is legal only as "not with <route>, measured". Unexecuted routes are [INFER]/proposed,
+    never findings. A bare "no" you find in your own draft or inherited from an earlier block/RESEARCH-STATE is
+    rewritten as a ladder and, if inherited, reopened as a child gap B<n>-G<m> with the cheapest route as NEXT
+    (§14 back-pointer). verify-block.sh WARNs on bare verdicts; `--possibility-sweep <corpus>` lists inherited ones
+    (METHODOLOGY §1).
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - SOURCE BEFORE AGENT — a gap counts as investigable ONLY once its source is confirmed reachable
     (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an
