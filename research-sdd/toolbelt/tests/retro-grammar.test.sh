@@ -242,6 +242,77 @@ else
   no "RETRO-TRAP: research-sdd/retros/ EXISTS — move retros to top-level retros/" ""
 fi
 
+# ── retro_grammar_entry_ids (kit issue #1332 item 2) ───────────────────────────
+# The ID of every `### <id> — …` entry heading under the canonical section (sweep-retros form 2).
+echo "-- retro_grammar_entry_ids: ### D<N> — entry IDs (form 2) --"
+if ! declare -F retro_grammar_entry_ids >/dev/null 2>&1; then
+  no "T20 retro_grammar_entry_ids is defined" "function missing after sourcing the lib"
+else
+  _e="$ROOT/entries.md"
+  printf '# r\n\n## Proposed Kit Deltas\n\n### D1 — first\nbody\n\n### Rationale\nnot an entry (no dash)\n\n### D2. — second\n\n### PN-A — third\n\n### (misc) — token is not an ID\n\n## Other\n\n### D9 — outside the section\n' > "$_e"
+  _got="$(retro_grammar_entry_ids "$_e" | tr '\n' ',')"
+  [ "$_got" = "D1,D2,PN-A," ] \
+    && ok "T20 entry IDs: first/middle/last positions, no-dash and out-of-section headings skipped" "($_got)" \
+    || no "T20 entry IDs" "got=[$_got] want=[D1,D2,PN-A,]"
+
+  # LIST EDGE: a single entry as the LAST line, no trailing newline.
+  printf '## Proposed kit deltas\n\n### D7 — only' > "$ROOT/entries-one.md"
+  _got="$(retro_grammar_entry_ids "$ROOT/entries-one.md" | tr '\n' ',')"
+  [ "$_got" = "D7," ] && ok "T21 single entry on the last line (no trailing newline)" "($_got)" \
+    || no "T21 single last-line entry" "got=[$_got]"
+
+  # Table form: no ### entries -> nothing (the table path owns it).
+  mkfix_canonical "$ROOT/entries-table.md" 2
+  _got="$(retro_grammar_entry_ids "$ROOT/entries-table.md" | tr '\n' ',')"
+  [ -z "$_got" ] && ok "T22 table-form retro yields no entry IDs" "()" \
+    || no "T22 table-form retro" "got=[$_got]"
+
+  # Absent input: typed non-zero, never an empty success.
+  retro_grammar_entry_ids "$ROOT/does-not-exist.md" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -ne 0 ] && ok "T23 absent file → non-zero (not a silent empty)" "(rc=$_rc)" \
+    || no "T23 absent file must fail" "rc=$_rc"
+
+  # Agreement with the shared counter: the number of IDs equals delta_info's form-2 count.
+  # (T20's file also carries one heading whose token is not an ID — skipped by design — so the
+  # agreement check uses its own file where every entry has a usable ID.)
+  printf '## Proposed kit deltas\n\n### D1 — a\n\n### D2 — b\n\n### D3 — c\n' > "$ROOT/entries-clean.md"
+  _e="$ROOT/entries-clean.md"
+  _cnt="$(rgi_first "$_e")"; _n="$(retro_grammar_entry_ids "$_e" | wc -l | tr -d ' ')"
+  [ "$_cnt" = "1:2:3" ] && [ "$_n" = 3 ] && ok "T24 ID count agrees with delta_info form 2 (1:2:3)" "($_cnt vs $_n)" \
+    || no "T24 count agreement" "delta_info=[$_cnt] ids=$_n"
+fi
+
+
+# ── retro_grammar_entry_rows / retro_grammar_entry_warn (kit issue #1332 N1, N6) ──
+echo "-- retro_grammar_entry_rows: seedable fields per entry; entry_warn: ID gap --"
+if ! declare -F retro_grammar_entry_rows >/dev/null 2>&1 || ! declare -F retro_grammar_entry_warn >/dev/null 2>&1; then
+  no "T25 retro_grammar_entry_rows / retro_grammar_entry_warn defined" "function missing after sourcing the lib"
+else
+  _er="$ROOT/entry-rows.md"
+  printf '## Proposed kit deltas\n\n### D1 — Pin versions\n**Priority**: MEDIUM — fires often\n**Kit file / section**: METHODOLOGY §5\n**Evidence**: ops-B2\n\n### D2 — second one\n**What**: x\n\n### Rationale\n**Priority**: HIGH\n' > "$_er"
+  _rows="$(retro_grammar_entry_rows "$_er")"
+  IFS=$'\037' read -r _i _t _g _e _y _p <<<"$(sed -n 1p <<<"$_rows")"
+  [ "$_i|$_t|$_g|$_e|$_y|$_p" = "D1|Pin versions|METHODOLOGY §5|ops-B2||MEDIUM" ] \
+    && ok "T25 entry row D1: id, title after the dash, target, evidence, empty type, priority first word" "()" \
+    || no "T25 entry row D1" "got=[$_i|$_t|$_g|$_e|$_y|$_p]"
+  IFS=$'\037' read -r _i _t _g _e _y _p <<<"$(sed -n 2p <<<"$_rows")"
+  [ "$_i|$_t|$_p" = "D2|second one|" ] && [ "$(wc -l <<<"$_rows" | tr -d ' ')" = 2 ] \
+    && ok "T26 LAST entry has no fields; a later non-entry ### heading's **Priority** does not bleed into it" "()" \
+    || no "T26 last entry / bleed" "got=[$_i|$_t|$_p] rows=[$_rows]"
+  # ids are exactly the first column of the rows (one parser)
+  [ "$(retro_grammar_entry_ids "$_er" | tr '\n' ',')" = "D1,D2," ] \
+    && ok "T27 retro_grammar_entry_ids == first column of retro_grammar_entry_rows" "()" \
+    || no "T27 ids vs rows" "ids=[$(retro_grammar_entry_ids "$_er" | tr '\n' ',')]"
+  # N6 warn: 1 usable id of 2 form-2 entries
+  printf '## Proposed kit deltas\n\n### **D1** — bold\n\n### D2 — plain\n' > "$ROOT/entry-gap.md"
+  _w="$(retro_grammar_entry_warn "$ROOT/entry-gap.md")"
+  [[ "$_w" == WARN:*"1 of 2"* ]] && ok "T28 entry_warn: ID gap → WARN naming 1 of 2" "($_w)" || no "T28 entry_warn gap" "got=[$_w]"
+  _w="$(retro_grammar_entry_warn "$_er")"
+  [ -z "$_w" ] && ok "T29 entry_warn: no gap → silent" "()" || no "T29 entry_warn clean" "got=[$_w]"
+  _w="$(retro_grammar_entry_warn "$ROOT/entries-table.md")"
+  [ -z "$_w" ] && ok "T30 entry_warn: table-form retro → silent" "()" || no "T30 entry_warn table" "got=[$_w]"
+fi
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -501,6 +572,43 @@ if [ "$_trap_rc" != 0 ] && grep -q "RETRO-TRAP" <<<"$_trap_err"; then
 else
   no "RETRO-TRAP teeth: guard should reject trap dir" "rc=$_trap_rc err=[$_trap_err]"
 fi
+
+# ── retro_grammar_entry_ids teeth (kit issue #1332 item 2) — mutants via tests/lib/mutant.sh ────
+echo "-- teeth T1332-L: retro_grammar_entry_ids mutants (T20-T24 must flip) --"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+_el_e="$ROOT/el-entries.md"
+printf '# r\n\n## Proposed Kit Deltas\n\n### D1 — first\n\n### Rationale\n\n### D2. — second\n\n### PN-A — third\n\n### (misc) — token is not an ID\n\n## Other\n\n### D9 — outside the section\n' > "$_el_e"
+# el_mutant <tag> <sed-expr>: the mutant must change the ID list produced for T20's file
+el_mutant() {
+  local tag="$1" expr="$2" mlib="$ROOT/el-mut-$1.sh" got
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1332-L$tag: build mutant" "mutant_sed refused"; return; fi
+  got="$("$BASH_BIN" -c '. "$1"; retro_grammar_entry_ids "$2"' _ "$mlib" "$_el_e" 2>/dev/null | tr '\n' ',')"
+  if [ "$got" != "D1,D2,PN-A," ]; then ok "T1332-L$tag teeth: mutant changes the ID list → T20 has teeth" "(got $got)"
+  else no "T1332-L$tag teeth: mutant must change the ID list" "T20 is THEATER: got=[$got]"; fi
+}
+el_mutant 1 's/^      \/\^##\[^#\]\/                 { flush(); in_sec=0; next }$/      \/^##[^#]\/ { flush(); next }/'
+el_mutant 2 's/sub(\/\[.:\]+\$\/, "", id)/id=id/'
+el_mutant 3 's/if (id ~ \/\^\[A-Za-z0-9\]\[A-Za-z0-9_-\]\*\$\/) { have=1;/if (1) { have=1;/'
+el_mutant 4 's/^      is_canonical_heading(low) { flush(); in_sec=1; next }$/      is_canonical_heading(low) { next }/'
+
+# lib_mutant <tag> <sed-expr> <good-output> <function> <file>: the mutant lib must change what the
+# function prints for the file (cases T25-T30 compare exactly that output). mutant_sed refuses a
+# vacuous / identical / broken mutant, so a refusal is a FAIL.
+lib_mutant() {
+  local tag="$1" expr="$2" good="$3" fn="$4" file="$5" mlib="$ROOT/lm-$1.sh" got
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1332-$tag: build mutant" "mutant_sed refused"; return; fi
+  got="$("$BASH_BIN" -c '. "$1"; "$2" "$3"' _ "$mlib" "$fn" "$file" 2>/dev/null | tr '\n\037' ',|')"
+  if [ "$got" != "$good" ]; then ok "T1332-$tag teeth: mutant changes $fn output → cases have teeth" "(got $got)"
+  else no "T1332-$tag teeth: mutant must change $fn output" "THEATER: got=[$got]"; fi
+}
+_er_good="D1|Pin versions|METHODOLOGY §5|ops-B2||MEDIUM,D2|second one||||,"
+lib_mutant R1 's/title=substr(t, d + length("—"));/title=t;/' "$_er_good" retro_grammar_entry_rows "$ROOT/entry-rows.md"
+lib_mutant R2 's/^        flush()$/        have=have/' "$_er_good" retro_grammar_entry_rows "$ROOT/entry-rows.md"
+lib_mutant R3 's/pr=pw\[1\]; gsub(\/\[^A-Za-z\]\/, "", pr)/pr=rest/' "$_er_good" retro_grammar_entry_rows "$ROOT/entry-rows.md"
+_warn_good="WARN: entry-gap.md: only 1 of 2 '### … —' entries have a usable ID token (a '**D1**' or '[D1]' token is not trackable) — count by hand,"
+lib_mutant W1 's/\[ "\$n" -lt "\$cnt" \]/[ "$n" -lt 0 ]/' "$_warn_good" retro_grammar_entry_warn "$ROOT/entry-gap.md"
+lib_mutant W2 's/\[ "\$form" = "2" \] || return 0/:/' "" retro_grammar_entry_warn "$ROOT/entries-table.md"
 
 echo ""
 echo "== $pass passed · $fail failed =="

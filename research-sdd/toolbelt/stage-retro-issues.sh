@@ -396,6 +396,10 @@ declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
+declare -F retro_grammar_entry_rows >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 if [ ! -f "$_TP_LIB" ]; then
@@ -427,6 +431,7 @@ if [ "$_tnr_rc" -eq 1 ]; then
   exit 1
 fi
 
+_target_registered=1
 if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
   target_name="$(basename "$_target_dir")"
   # A structural directory name is never a registered target label: fail up front rather than
@@ -436,6 +441,7 @@ if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
       echo "stage-retro-issues: cannot resolve target for '$retro' — no ancestor directory is registered in $TARGETS_MD (basename '$target_name' is a structural directory, not a target)" >&2
       exit 1 ;;
   esac
+  _target_registered=0
   echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$target_name'" >&2
 fi
 # Pre-#1286 issues carry the legacy `<path basename>/retros/<file>` signature; remember it so the
@@ -577,6 +583,16 @@ _rows="$(awk '
   }
 ' "$retro_file")"
 
+# STAGE_RETRO_ISSUES_ENTRY_FORM (kit issue #1332 N1): no table rows -> the doctrine-valid
+# `### D<N> —` entry form. retro_grammar_entry_rows (the shared grammar lib — the parser
+# reconcile-issues.sh takes its IDs from) yields records in the table-row shape, so the loop below
+# is unchanged and the issue signature carries the same `· D<N>` row id reconcile matches.
+if [ -z "$_rows" ]; then
+  _rows="$(retro_grammar_entry_rows "$retro_file")"
+  # STAGE_RETRO_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
+  [ -z "$_rows" ] || retro_grammar_entry_warn "$retro_file" >&2
+fi
+
 if [ -z "$_rows" ]; then
   # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose
   # only body content is the accepted honesty phrase (retro_grammar_has_honesty — the same
@@ -594,7 +610,7 @@ if [ -z "$_rows" ]; then
   # (e.g. numbered-list entries under ### sub-headings, per the Spanish-alias real fleet
   # form), and it is not a declared honest zero either. Typed distinctly from the found=0
   # empty-input case above.
-  echo "unclassifiable: delta section found but not in row-table form in $retro — needs manual review, no issue auto-staged" >&2
+  echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro — needs manual review, no issue auto-staged" >&2
   exit 0
 fi
 
@@ -735,6 +751,61 @@ _exact_sig_matches() {
 }
 
 # ---------------------------------------------------------------------------
+# STAGE_RETRO_ISSUES_LABEL_PROBE (kit issue #1332 item 1): every issue is created with a
+# `target:<name>` label, and `gh issue create` REJECTS a label that does not exist on the repo.
+# A registered target whose label was never created therefore failed once PER ROW (N identical
+# errors, failed=N). Probe it ONCE, lazily right before the first create:
+#   exists  -> proceed
+#   missing -> create it with the fleet convention (description `Fleet target: <name>`, color
+#              d4c5f9 — the shape of every existing target:* label), then proceed
+#   probe/create failure, or an unusable probe reply -> ONE typed `degraded:` line, exit 1,
+#              before any issue create (an instrument that cannot tell whether the label exists
+#              must not guess it does — anti-silent-zero, CLAUDE.md §7).
+# `gh label list --search` is a fuzzy word match, so the reply is checked for the EXACT name.
+_label_ready=0
+# _label_present <name>: 0 = present, 1 = absent; a probe that cannot answer exits degraded (the
+# caller never guesses). Names compare CASE-INSENSITIVELY — GitHub label names are (kit issue #1332 N2).
+_label_present() {
+  local _lname="$1" _lout _lrc _lname_lc
+  _lout="$(gh label list --repo "$KIT_ISSUE_REPO" --search "$_lname" --limit 100 --json name 2>&1)"
+  _lrc=$?
+  if [ "$_lrc" -ne 0 ]; then
+    echo "degraded: could not probe label '$_lname' on $KIT_ISSUE_REPO (gh label list exit $_lrc): $_lout — no issue was created" >&2
+    exit 1
+  fi
+  if ! printf '%s' "$_lout" | grep -q '^[[:space:]]*\['; then
+    echo "degraded: gh label list returned an unexpected reply for '$_lname' on $KIT_ISSUE_REPO (expected a JSON array): $_lout — no issue was created" >&2
+    exit 1
+  fi
+  _lname_lc="$(printf '%s' "$_lname" | tr 'A-Z' 'a-z')"
+  printf '%s' "$_lout" | tr -d '[:space:]' | tr 'A-Z' 'a-z' | grep -qF "\"name\":\"${_lname_lc}\""
+}
+ensure_target_label() {
+  [ "$_label_ready" -eq 1 ] && return 0
+  local _lname="target:${target_name}" _cout
+  # STAGE_RETRO_ISSUES_UNREGISTERED_GUARD (kit issue #1332 NB1): only a target registered in
+  # TARGETS.md may have its label auto-created. The basename fallback (no row for this retro's
+  # directory — possibly ANOTHER kit's retro) must not mint a `target:<dir>` label and its issues
+  # in this repo: refuse loudly, once, before any create.
+  if [ "$_target_registered" -ne 1 ]; then
+    echo "degraded: target '${target_name}' is unregistered in $TARGETS_MD (basename fallback) — refusing to create label '$_lname' or any issue on $KIT_ISSUE_REPO; register the target or run from the owning kit" >&2
+    exit 1
+  fi
+  if ! _label_present "$_lname"; then
+    if ! _cout="$(gh label create "$_lname" --repo "$KIT_ISSUE_REPO" \
+        --description "Fleet target: ${target_name}" --color d4c5f9 2>&1)"; then
+      # STAGE_RETRO_ISSUES_LABEL_REPROBE (kit issue #1332 N3): a concurrent run may have created
+      # the label between our probe and our create — look once more before declaring degraded.
+      if ! _label_present "$_lname"; then
+        echo "degraded: label '$_lname' is missing on $KIT_ISSUE_REPO and could not be created: $_cout — no issue was created" >&2
+        exit 1
+      fi
+    fi
+  fi
+  _label_ready=1
+}
+
+# ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0
@@ -867,6 +938,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       fi
     fi
 
+    ensure_target_label   # STAGE_RETRO_ISSUES_LABEL_PROBE_CALL: once, before the first create
     _label_flags=""
     IFS=',' read -ra _lbl_arr <<< "$_labels"
     for _lbl in "${_lbl_arr[@]}"; do

@@ -122,6 +122,10 @@ _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 . "$_RG_LIB"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_entry_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_ids" >&2; exit 1; }
+declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 
@@ -274,6 +278,15 @@ audit_retro() {
     }
   ' "$retro_path")"
 
+  # RECONCILE_ISSUES_ENTRY_FORM (kit issue #1332 item 2): no table rows -> the doctrine-valid
+  # `### D<N> —` entry form (sweep-retros form 2). The IDs come from the SHARED grammar lib so
+  # this instrument counts the same entries sweep-retros.sh and verify-retro.sh count.
+  if [ -z "$_all_row_ids" ]; then
+    _all_row_ids="$(retro_grammar_entry_ids "$retro_path")"
+    # RECONCILE_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
+    [ -z "$_all_row_ids" ] || retro_grammar_entry_warn "$retro_path" >&2
+  fi
+
   if [ -z "$_all_row_ids" ]; then
     # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST — same reasoning as
     # stage-retro-issues.sh's matching guard (see its comment). Real fleet counterexample:
@@ -285,7 +298,7 @@ audit_retro() {
     # A canonical/deprecated section WAS found — not "empty" (kit issue #1111), and not a
     # declared honest zero either: typed distinctly from the found=0 empty-input case above
     # (see its comment).
-    echo "unclassifiable: delta section found but not in row-table form in $retro_path — needs manual review" >&2
+    echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro_path — needs manual review" >&2
     return 0
   fi
 
