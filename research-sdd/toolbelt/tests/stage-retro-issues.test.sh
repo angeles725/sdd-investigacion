@@ -787,7 +787,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ln -s "$box_tsym/research-sdd/toolbelt" "$box_tsym/research-sdd/profile/general/toolbelt"
   out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
     "$box_tsym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_tsym" 2>&1)"
-  if grep -qi 'target directory.*not found' <<<"$out_tsym"; then
+  # Since kit issue #1287 an unreadable TARGETS.md is an operational exit 1 ("cannot read" / "cannot
+  # resolve target"), no longer the old WARN + basename guess — either signal proves the break.
+  if grep -qiE 'target directory.*not found|cannot read|cannot resolve target' <<<"$out_tsym"; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
@@ -1458,79 +1460,116 @@ RETROEOF
     no "teeth GR3: locate Rule 4 (standalone H3 Proposals) in lib/retro-grammar.sh" "anchor not found — lib drifted?"
   fi
 
+  # kit issue #1287: the walk-up + name lookup moved into lib/target-paths.sh, so the #1169 teeth
+  # mutate the LIB copy inside the box (the SUT is unchanged). tooth_swap <box> <relfile> <anchor>
+  # <replacement> writes the mutant over the box's copy of <relfile> and refuses a vacuous (anchor
+  # missing / byte-identical) or syntactically broken mutant — a crash is not a tooth.
+  tooth_swap() {
+    local box="$1" rel="$2" anchor="$3" repl="$4"
+    local file="$box/research-sdd/toolbelt/$rel" content
+    content="$(cat "$file")"
+    if [[ "$content" != *"$anchor"* ]]; then
+      no "tooth_swap: locate anchor in $rel" "anchor not found — file drifted? anchor=[$anchor]"; return 1
+    fi
+    printf '%s\n' "${content/"$anchor"/"$repl"}" > "$file"
+    if cmp -s "$file" "$HERE/../$rel"; then
+      no "tooth_swap: mutant of $rel" "mutant is identical to the original — vacuous"; return 1
+    fi
+    if ! "$BASH_BIN" -n "$file" 2>/dev/null; then
+      no "tooth_swap: mutant of $rel passes bash -n" "syntax error — crash-based theater"; return 1
+    fi
+    return 0
+  }
+  # run_box <box> <retro> [args]: run the box's (possibly mutated) SUT copy; sets MOUT (stdout+stderr).
+  run_box() {
+    local box="$1" retro="$2"; shift 2
+    MOUT="$(PATH="$box/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
+      "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" "$@" 2>&1)"
+  }
+
   # TOOTH #1169-a: remove the walk-up (stop after the first ancestor = old dirname(dirname())
   # behaviour). A nested corpus must then fall back to the structural basename again.
-  echo "-- teeth T1169a: neuter walk-up --"
-  anchor_w='    [ "$_anc" = "/" ] && break'
-  if [[ "$sut_content" == *"$anchor_w"* ]]; then
-    box_w="$(mkbox teeth-walkup)"
-    retro_w="$(mk_nested_retro "$box_w" corpus/retros r-w.md)"
-    mutant_w="$box_w/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_w"/    break}" > "$mutant_w"
-    if cmp -s "$SUT" "$mutant_w"; then
-      no "T1169a teeth: walk-up mutant" "mutant is identical to SUT — vacuous"
+  echo "-- teeth T1169a: neuter walk-up (lib) --"
+  box_w="$(mkbox teeth-walkup)"
+  retro_w="$(mk_nested_retro "$box_w" corpus/retros r-w.md)"
+  if tooth_swap "$box_w" lib/target-paths.sh '      [ "$anc" = "/" ] && break' '      break'; then
+    run_box "$box_w" "$retro_w"
+    if ! grep -q 'labels: .*target:target-foo,' <<<"$MOUT"; then
+      ok "T1169a teeth: walk-up neutered → nested corpus no longer resolves (case 64 has teeth)" "()"
     else
-      out_w="$(PATH="$box_w/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_w" "$retro_w" 2>&1)"
-      if ! grep -q 'labels: .*target:target-foo,' <<<"$out_w"; then
-        ok "T1169a teeth: walk-up neutered → nested corpus no longer resolves (case 64 has teeth)" "()"
-      else
-        no "T1169a teeth: walk-up neutered" "case 64 is THEATER: out=[$out_w]"
-      fi
+      no "T1169a teeth: walk-up neutered" "case 64 is THEATER: out=[$MOUT]"
     fi
-  else
-    no "T1169a teeth: locate walk-up anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
   # TOOTH #1169-b: remove the structural-name guard. An unregistered nested corpus must then
   # plan `target:corpus` again instead of failing up front.
   echo "-- teeth T1169b: neuter structural-name guard --"
-  anchor_g='    corpus|retros)'
-  if [[ "$sut_content" == *"$anchor_g"* ]]; then
-    box_g="$(mkbox teeth-structural)"
-    retro_g="$(mk_nested_retro "$box_g" corpus/retros r-g.md)"
-    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box_g/research-sdd/TARGETS.md"
-    mutant_g="$box_g/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_g"/    __never_matches__)}" > "$mutant_g"
-    if cmp -s "$SUT" "$mutant_g"; then
-      no "T1169b teeth: guard mutant" "mutant is identical to SUT — vacuous"
+  box_g="$(mkbox teeth-structural)"
+  retro_g="$(mk_nested_retro "$box_g" corpus/retros r-g.md)"
+  printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%s/rh/other` |\n' "$box_g" \
+    > "$box_g/research-sdd/TARGETS.md"
+  mkdir -p "$box_g/rh/other"
+  if tooth_swap "$box_g" stage-retro-issues.sh '    corpus|retros)' '    __never_matches__)'; then
+    run_box "$box_g" "$retro_g"
+    if grep -q 'target:corpus' <<<"$MOUT"; then
+      ok "T1169b teeth: guard neutered → target:corpus planned (case 67 has teeth)" "()"
     else
-      out_g="$(PATH="$box_g/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_g" "$retro_g" 2>&1)"
-      if grep -q 'target:corpus' <<<"$out_g"; then
-        ok "T1169b teeth: guard neutered → target:corpus planned (case 67 has teeth)" "()"
-      else
-        no "T1169b teeth: guard neutered" "case 67 is THEATER: out=[$out_g]"
-      fi
+      no "T1169b teeth: guard neutered" "case 67 is THEATER: out=[$MOUT]"
     fi
-  else
-    no "T1169b teeth: locate structural guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
-  # TOOTH #1169-c: use the path basename instead of the registered Target name. Case 69 must
+  # TOOTH #1169-c: use the path basename instead of the registered Target name (lib). Case 69 must
   # then yield the basename label (target-foo), not the registered name (reg-name).
-  echo "-- teeth T1169c: neuter registered-name lookup --"
-  anchor_n='_registered+=("$_exp"$'"'"'\t'"'"'"$_rname")'
-  if [[ "$sut_content" == *"$anchor_n"* ]]; then
-    box_n="$(mkbox teeth-regname)"
-    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_n" \
-      > "$box_n/research-sdd/TARGETS.md"
-    retro_n="$(mk_nested_retro "$box_n" corpus/retros r-n.md)"
-    mutant_n="$box_n/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_n"/_registered+=(\"\$_exp\"\$'\\t'\"\$(basename \"\$_path\")\")}" > "$mutant_n"
-    if cmp -s "$SUT" "$mutant_n"; then
-      no "T1169c teeth: name-lookup mutant" "mutant is identical to SUT — vacuous"
+  echo "-- teeth T1169c: neuter registered-name lookup (lib) --"
+  box_n="$(mkbox teeth-regname)"
+  printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_n" \
+    > "$box_n/research-sdd/TARGETS.md"
+  retro_n="$(mk_nested_retro "$box_n" corpus/retros r-n.md)"
+  anchor_n="$(grep -m 1 '^      name="\$(awk -F' "$TARGET_PATHS_LIB")"
+  if [ -n "$anchor_n" ] && tooth_swap "$box_n" lib/target-paths.sh "$anchor_n" '      name=""'; then
+    run_box "$box_n" "$retro_n"
+    if ! grep -q 'target:reg-name,' <<<"$MOUT"; then
+      ok "T1169c teeth: name lookup neutered → basename label (case 69 has teeth)" "()"
     else
-      out_n="$(PATH="$box_n/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit \
-        "$BASH_BIN" "$mutant_n" "$retro_n" 2>&1)"
-      if ! grep -q 'target:reg-name,' <<<"$out_n"; then
-        ok "T1169c teeth: name lookup neutered → basename label (case 69 has teeth)" "()"
-      else
-        no "T1169c teeth: name lookup neutered" "case 69 is THEATER: out=[$out_n]"
-      fi
+      no "T1169c teeth: name lookup neutered" "case 69 is THEATER: out=[$MOUT]"
     fi
   else
-    no "T1169c teeth: locate registered-name anchor" "anchor not found in SUT — SUT drifted?"
+    no "T1169c teeth: locate registered-name anchor in lib" "anchor not found — lib drifted?"
+  fi
+
+  # TOOTH #1287-a: outermost-ancestor match (lib: drop the first-match break). Case 72 must flip:
+  # the inner target's retro would be labelled with the OUTER name.
+  echo "-- teeth T1287a: nearest ancestor → outermost (lib) --"
+  box_a="$(mkbox teeth-nearest)"
+  mkdir -p "$box_a/rh/target-foo/inner-t/retros"
+  retro_a="$(mk_retro "$box_a" target-foo r-a.md "<!-- review-status: pending -->" \
+    "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+  cp "$retro_a" "$box_a/rh/target-foo/inner-t/retros/r-a.md"
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box_a" "$box_a" \
+    > "$box_a/research-sdd/TARGETS.md"
+  anchor_a="$(grep -m 1 'SENTINEL-TNR-NEAREST' "$TARGET_PATHS_LIB")"
+  if [ -n "$anchor_a" ] && tooth_swap "$box_a" lib/target-paths.sh "$anchor_a" '          :'; then
+    run_box "$box_a" "$box_a/rh/target-foo/inner-t/retros/r-a.md"
+    if grep -q 'labels: .*target:outer-name,' <<<"$MOUT"; then
+      ok "T1287a teeth: outermost-ancestor mutant → inner retro labelled outer (case 72 has teeth)" "()"
+    else
+      no "T1287a teeth: outermost-ancestor mutant" "case 72 is THEATER: out=[$MOUT]"
+    fi
+  fi
+
+  # TOOTH #1287-b: swallow the operational failure (rc 1 from the helper) → back to WARN + guess.
+  echo "-- teeth T1287b: neuter the TARGETS.md operational-failure exit --"
+  box_b="$(mkbox teeth-opfail)"
+  retro_b="$(mk_retro "$box_b" target-foo r-b.md "<!-- review-status: pending -->" \
+    "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  rm -f "$box_b/research-sdd/TARGETS.md"
+  if tooth_swap "$box_b" stage-retro-issues.sh 'if [ "$_tnr_rc" -eq 1 ]; then' 'if false; then'; then
+    run_box "$box_b" "$retro_b"
+    if grep -q 'planned-issue:' <<<"$MOUT"; then
+      ok "T1287b teeth: failure exit neutered → plans on a guessed basename (case 70 has teeth)" "()"
+    else
+      no "T1287b teeth: failure exit neutered" "case 70 is THEATER: out=[$MOUT]"
+    fi
   fi
 
 fi  # --prove-teeth
@@ -2550,6 +2589,8 @@ fi
 # kit issue #1169: target-name derivation must walk UP from the retro to the nearest ancestor
 # registered in TARGETS.md — flat (<target>/retros), nested (<target>/corpus/retros) and deeper
 # (<target>/<sub>/retros) layouts — and must never emit a structural `target:corpus|retros` label.
+# kit issue #1287: the walk lives in lib/target-paths.sh (target_name_for_retro); assertions below
+# use here-strings, not `printf | grep -q` (a SIGPIPE-prone shape under pipefail, #1162).
 
 # 64 — NESTED corpus resolves to the registered target name (RED pre-fix: target:corpus + WARN)
 box64="$(mkbox case-nested-corpus)"
@@ -2601,11 +2642,15 @@ else
   no "67 nested + unregistered → expected exit 1 and no target:corpus label" "exit=$RC out=[$OUT]"
 fi
 
-# 68 — FLAT but unregistered keeps the legacy WARN + basename fallback (not a regression)
+# 68 — FLAT but unregistered (TARGETS.md read fine, this dir just isn't in it) keeps the legacy
+#      WARN + basename fallback (not a regression). The registry needs at least one OTHER row: a
+#      registry with zero rows is an operational failure (case 71), not a no-match.
 box68="$(mkbox case-flat-unregistered)"
 retro68="$(mk_retro "$box68" target-foo r-flat-unreg.md "<!-- review-status: pending -->" \
   "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
-printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box68/research-sdd/TARGETS.md"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%s/rh/other` |\n' "$box68" \
+  > "$box68/research-sdd/TARGETS.md"
+mkdir -p "$box68/rh/other"
 run "$box68" "$retro68"
 if [ "$RC" = 0 ] && grep -qi "using basename 'target-foo'" <<<"$OUT" \
   && grep -q 'target:target-foo,' <<<"$OUT"; then
@@ -2629,6 +2674,92 @@ if [ "$rc69n" = 0 ] && [ "$rc69f" = 0 ] \
   ok "69 registered name differs from path basename → target:reg-name (nested + flat)" "(rc=$rc69n/$rc69f)"
 else
   no "69 registered name differs from path basename → expected target:reg-name" "nested=[$out69n] flat=[$out69f]"
+fi
+
+# 70 — TARGETS.md ABSENT is an OPERATIONAL failure (kit issue #1287 item 3, CLAUDE.md §7/§8):
+#      exit 1 with a typed message — never a WARN + basename guess that plans issues anyway.
+box70="$(mkbox case-targets-absent)"
+retro70="$(mk_retro "$box70" target-foo r-noreg.md "<!-- review-status: pending -->" \
+  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+rm -f "$box70/research-sdd/TARGETS.md"
+run "$box70" "$retro70"
+if [ "$RC" = 1 ] && grep -qi 'cannot read' <<<"$OUT" && ! grep -q 'planned-issue:' <<<"$OUT"; then
+  ok "70 TARGETS.md absent → exit 1, typed 'cannot read', nothing planned" "(exit $RC)"
+else
+  no "70 TARGETS.md absent → expected exit 1 + typed message + no plan" "exit=$RC out=[$OUT]"
+fi
+
+# 71 — TARGETS.md with ZERO parsed rows is also operational (an empty pairs list must not read as
+#      "this retro is simply unregistered") — flat AND nested.
+box71="$(mkbox case-targets-empty)"
+retro71f="$(mk_retro "$box71" target-foo r-empty-f.md "<!-- review-status: pending -->" \
+  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+retro71n="$(mk_nested_retro "$box71" corpus/retros r-empty-n.md)"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box71/research-sdd/TARGETS.md"
+run "$box71" "$retro71f"; out71f="$OUT"; rc71f=$RC
+run "$box71" "$retro71n"; out71n="$OUT"; rc71n=$RC
+if [ "$rc71f" = 1 ] && [ "$rc71n" = 1 ] \
+  && grep -qi 'no registered target' <<<"$out71f" && grep -qi 'no registered target' <<<"$out71n" \
+  && ! grep -q 'planned-issue:' <<<"$out71f$out71n"; then
+  ok "71 zero-row TARGETS.md → exit 1, typed 'no registered target paths' (flat + nested)" "(rc=$rc71f/$rc71n)"
+else
+  no "71 zero-row TARGETS.md → expected exit 1 + typed message" "flat=[$out71f] nested=[$out71n]"
+fi
+
+# 72 — NESTED REGISTERED TARGETS: the NEAREST ancestor labels the retro, in both row orders (a
+#      mutant matching the OUTERMOST ancestor must not survive).
+box72="$(mkbox case-nested-registered)"
+mkdir -p "$box72/rh/target-foo/inner-t/retros"
+retro72i="$box72/rh/target-foo/inner-t/retros/r-in.md"
+retro72o="$(mk_retro "$box72" target-foo r-out.md "<!-- review-status: pending -->" \
+  "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+cp "$retro72o" "$retro72i"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box72" "$box72" \
+  > "$box72/research-sdd/TARGETS.md"
+run "$box72" "$retro72i"; a_i="$OUT"; run "$box72" "$retro72o"; a_o="$OUT"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | inner-name | `%s/rh/target-foo/inner-t` |\n| 2 | outer-name | `%s/rh/target-foo` |\n' "$box72" "$box72" \
+  > "$box72/research-sdd/TARGETS.md"
+run "$box72" "$retro72i"; b_i="$OUT"; run "$box72" "$retro72o"; b_o="$OUT"
+if grep -q 'labels: .*target:inner-name,' <<<"$a_i" && grep -q 'labels: .*target:outer-name,' <<<"$a_o" \
+  && grep -q 'labels: .*target:inner-name,' <<<"$b_i" && grep -q 'labels: .*target:outer-name,' <<<"$b_o"; then
+  ok "72 nested registered targets → nearest ancestor labels the retro (both row orders)" "()"
+else
+  no "72 nested registered targets → nearest ancestor must win" "a_in=[$a_i] a_out=[$a_o] b_in=[$b_i] b_out=[$b_o]"
+fi
+
+# 73 — RAW `$RESEARCH_HOME/...` token (the form every real TARGETS.md row uses), plain and braced.
+box73="$(mkbox case-raw-rh-token)"
+retro73="$(mk_nested_retro "$box73" corpus/retros r-rh.md)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | rh-name | `$RESEARCH_HOME/rh/target-foo` |\n' \
+  > "$box73/research-sdd/TARGETS.md"
+RESEARCH_HOME="$box73" run "$box73" "$retro73"; out73p="$OUT"; rc73p=$RC
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | rh-name | `${RESEARCH_HOME}/rh/target-foo` |\n' \
+  > "$box73/research-sdd/TARGETS.md"
+RESEARCH_HOME="$box73" run "$box73" "$retro73"; out73b="$OUT"; rc73b=$RC
+if [ "$rc73p" = 0 ] && [ "$rc73b" = 0 ] \
+  && grep -q 'labels: .*target:rh-name,' <<<"$out73p" && grep -q 'labels: .*target:rh-name,' <<<"$out73b"; then
+  ok "73 raw \$RESEARCH_HOME / \${RESEARCH_HOME} row token → registered name label" "(rc=$rc73p/$rc73b)"
+else
+  no "73 raw \$RESEARCH_HOME row token → expected target:rh-name" "plain=[$out73p] braced=[$out73b]"
+fi
+
+# 74 — NAME FALLBACK: an empty name cell labels by the path basename; a whitespace name falls
+#      back too, and the WARN reaches the operator instead of vanishing (R2-whitespace-fallback).
+box74="$(mkbox case-name-fallback)"
+retro74="$(mk_retro "$box74" target-foo r-fb.md "<!-- review-status: pending -->" \
+  "| 1 | fb delta | CLAUDE.md | B1 | fix | HIGH |")"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 |  | `%s/rh/target-foo` |\n' "$box74" \
+  > "$box74/research-sdd/TARGETS.md"
+run "$box74" "$retro74"; out74a="$OUT"; rc74a=$RC
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | two words | `%s/rh/target-foo` |\n' "$box74" \
+  > "$box74/research-sdd/TARGETS.md"
+run "$box74" "$retro74"; out74b="$OUT"; rc74b=$RC
+if [ "$rc74a" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$out74a" \
+  && [ "$rc74b" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$out74b" \
+  && grep -qi 'WARN.*two words' <<<"$out74b"; then
+  ok "74 empty / whitespace name cell → basename label (whitespace case WARNs)" "(rc=$rc74a/$rc74b)"
+else
+  no "74 name fallback → expected basename label, WARN on whitespace" "empty=[$out74a] space=[$out74b]"
 fi
 
 echo "== $pass passed · $fail failed =="

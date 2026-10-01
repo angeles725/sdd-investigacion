@@ -405,44 +405,29 @@ fi
 . "$_TP_LIB"
 declare -F target_paths_pairs >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_paths_pairs" >&2; exit 1; }
+declare -F target_name_for_retro >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/target-paths.sh failed to define target_name_for_retro" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Derive target name from the retro's directory hierarchy (kit issue #1169).
-# Walk UP from the retro's directory and take the NEAREST ancestor registered in TARGETS.md.
-# That covers the flat layout (<target>/retros/), the nested layout (<target>/corpus/retros/,
-# METHODOLOGY §3b) and any deeper one (<target>/<sub>/retros/). Taking only dirname(dirname())
-# resolved a nested corpus to '<target>/corpus', which never matches a row, so the basename
-# fallback yielded the generic label `target:corpus` (nonexistent -> every gh create failed).
+# Derive target name from the retro's directory hierarchy (kit issues #1169, #1287).
+# The walk-up + name lookup lives in lib/target-paths.sh (target_name_for_retro) so that this
+# writer, reconcile-issues.sh and stage-retro.sh cannot drift apart: the `Source retro:` signature
+# stamped below is the one reconcile searches for. It takes the NEAREST registered ancestor
+# (flat <target>/retros, nested <target>/corpus/retros, deeper <target>/<sub>/retros) and returns
+# the registered Target NAME (row cell 2, what the `target:<name>` labels are named after).
+#   rc 1 -> operational failure (TARGETS.md absent/unreadable/zero rows): exit 1, never a guess
+#   rc 2 -> TARGETS.md fine but no ancestor registered: legacy WARN + basename fallback for the
+#           flat layout; a structural dir (corpus|retros) is refused up front.
 _retro_dir="$(cd "$(dirname "$retro")" && pwd)"
-_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"   # legacy flat-layout guess (fallback only)
-target_name=""
-
-if [ -f "$TARGETS_MD" ]; then
-  _registered=()
-  # The label value is the registered Target NAME (row cell 2, e.g. `pancaddia-leon-tunnel`),
-  # which is what the `target:<name>` GitHub labels are named after — NOT the path basename
-  # (`Pancaddia`). Fall back to the basename only when the row has no usable name cell.
-  while IFS=$'\t' read -r _raw _path; do
-    _exp="$(cd "$_path" 2>/dev/null && pwd)" || continue
-    _rname="$(grep -E '^[[:space:]]*\|' "$TARGETS_MD" | grep -F "\`$_raw\`" | head -n 1 \
-      | awk -F'|' '{ n=$3; gsub(/[`*]/, "", n); gsub(/^[[:space:]]+|[[:space:]]+$/, "", n); print n }')"
-    case "$_rname" in ''|*[[:space:]]*) _rname="$(basename "$_path")" ;; esac
-    _registered+=("$_exp"$'\t'"$_rname")
-  done < <(target_paths_pairs "$TARGETS_MD" 2>/dev/null)
-  _anc="$(dirname "$_retro_dir")"
-  while :; do
-    for _entry in ${_registered[@]+"${_registered[@]}"}; do
-      if [ "${_entry%%$'\t'*}" = "$_anc" ]; then
-        target_name="${_entry#*$'\t'}"
-        break 2
-      fi
-    done
-    [ "$_anc" = "/" ] && break
-    _anc="$(dirname "$_anc")"
-  done
+_target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"   # legacy flat-layout guess (fallback + legacy dedup signature)
+target_name="$(target_name_for_retro "$TARGETS_MD" "$retro")"
+_tnr_rc=$?
+if [ "$_tnr_rc" -eq 1 ]; then
+  echo "stage-retro-issues: cannot resolve target for '$retro' — operational failure reading $TARGETS_MD (see message above)" >&2
+  exit 1
 fi
 
-if [ -z "$target_name" ]; then
+if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
   target_name="$(basename "$_target_dir")"
   # A structural directory name is never a registered target label: fail up front rather than
   # plan issues whose `target:<name>` label cannot exist (anti-silent-zero).
@@ -741,7 +726,6 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
     fi
-
     _label_flags=""
     IFS=',' read -ra _lbl_arr <<< "$_labels"
     for _lbl in "${_lbl_arr[@]}"; do
