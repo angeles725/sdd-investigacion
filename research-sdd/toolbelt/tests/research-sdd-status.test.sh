@@ -2560,13 +2560,17 @@ fi
 # NG* rows live in ## Gap-backlog (sub-pass) and N* rows in ## Gap-backlog (prioritized); both
 # must be counted. Before the fix: reader re-entered in_backlog=1 only for the first matching
 # heading; the second table was silently skipped → total=1, not 2.
+# RE-SCOPED (kit #1307): the tables use a `Tier` header (NOT priority-shaped). Since #983 an out-of-backlog
+# 5-col table was counted anyway, so known_gaps stopped proving the heading was recognised; now an
+# out-of-backlog table needs a Priority-shaped header, so only a RECOGNISED backlog heading can count these
+# rows and known_gaps >= 2 bites again (teeth-T-TWO-TABLE-SYNC strips the label group → kg drops to 1).
 d_tt="$TMP/two-table"; mkdir -p "$d_tt"
 { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
   echo "## Gap-backlog (sub-pass)"; echo
-  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| Tier | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
   echo "| high | NG1 | first-table covered gap | bin.dll | covered -> B1 |"; echo
   echo "## Gap-backlog (prioritized)"; echo
-  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| Tier | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
   echo "| low | N1 | second-table covered gap | bin2.dll | covered -> B2 |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_tt/RESEARCH-STATE.md"
 bash "$SUT" "$d_tt" --sync-state >/dev/null 2>&1
@@ -3633,7 +3637,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$got_r" = "$expect_rc" ] && ok "${label}-red: neutered exits ${expect_rc} — guard load-bearing" \
       || no "${label}-red: mutant exits $got_r (want ${expect_rc}) — THEATER"
   }
-  chk_sut_bpskip_tooth "teeth-T59" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/'    "$TMP/bp-strikethrough-status" 1
+  chk_sut_bpskip_tooth "teeth-T59" "# CLOSED-CLASS:" '/# CLOSED-CLASS:/s#p~/^~~\.\*~~\$/#0#'    "$TMP/bp-strikethrough-status" 1
   chk_sut_bpskip_tooth "teeth-T60" "BPSKIP-QUALIFIER"     '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier-status"     1
   # teeth-T60-warn: remove BP-QUALIFIER-WARN line → T60-warn must go red (no WARN emitted).
   echo "-- teeth-T60-warn: remove WARN print; qualifier fixture must emit no WARN --"
@@ -3646,7 +3650,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-T60-warn: mutant still emitted WARN — THEATER"
   fi
-  chk_sut_bpskip_tooth "teeth-T61" "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'           "$TMP/bp-em-dash-status"       1
+  chk_sut_bpskip_tooth "teeth-T61" "# CLOSED-CLASS:"      '/# CLOSED-CLASS:/s#p~/^—/#0#'               "$TMP/bp-em-dash-status"       1
   # teeth-T62: accept-all-bases in SUT::backlog_rows; hight(x) fixture must allow --sync-state (exit 0).
   chk_sut_bpskip_tooth "teeth-T62" "BPSKIP-QUALIFIER" \
     '/# BP-QUALIFIER-WARN/s/if (base=="high" || base=="medium" || base=="low" || base=="deferred") {/if (1) {/' \
@@ -5133,7 +5137,7 @@ BLTGHEOF
   _bpsib_mutant="$TMP/status.BPSIB.MUTANT.sh"
   if grep -q 'BP-SEP-IN-BACKLOG' "$SUT"; then
     cp "$SUT" "$_bpsib_mutant"
-    sed -i 's/in_data=1; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; in_data=1; expected_cols/' "$_bpsib_mutant"
+    sed -i 's/in_data=1; \(tbl_ok=[^;]*;[^;]*; \)if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/\1if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; in_data=1; expected_cols/' "$_bpsib_mutant"
     if cmp -s "$_bpsib_mutant" "$SUT"; then
       no "teeth-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not swap order"
     elif ! bash -n "$_bpsib_mutant" 2>/dev/null; then
@@ -5175,10 +5179,10 @@ open(sys.argv[2], 'w').write(out)
       d_tt_m="$TMP/two-table-mutant"; mkdir -p "$d_tt_m"
       { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
         echo "## Gap-backlog (sub-pass)"; echo
-        echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+        echo "| Tier | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
         echo "| high | NG1 | first-table covered gap | bin.dll | covered -> B1 |"; echo
         echo "## Gap-backlog (prioritized)"; echo
-        echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+        echo "| Tier | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
         echo "| low | N1 | second-table covered gap | bin2.dll | covered -> B2 |"; echo
         echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_tt_m/RESEARCH-STATE.md"
       _tt_mut_warn="$(bash "$_tt_mutant" "$d_tt_m" --sync-state 2>&1 >/dev/null)"
@@ -6462,6 +6466,206 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       && ok "teeth-SX-AWK: mutant lets a failed awk clobber the state file → SX-11 RED" \
       || no "teeth-SX-AWK: mutant still preserves the file — THEATER"
   fi
+fi
+
+# ==================== kit #1307 — sync-state derivations: closed-class rows / near-miss headings / non-backlog tables ====================
+# Closed-class = deferred / em-dash / struck priority rows: COUNTED in known_gaps (and gaps_closed when closed), never routable.
+# b13_fix <dir> <heading> <header-row> <rows...>: stale 0-counter fence + ONE backlog table under <heading>.
+b13_fix() {
+  local dir="$1" heading="$2" hdr="$3" r cols; shift 3; mkdir -p "$dir"
+  cols="$(awk -F'|' '{print NF-2}' <<<"$hdr")"
+  { echo "# T"; echo
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n'
+    echo; echo "$heading"; echo; echo "$hdr"
+    printf '|'; for _ in $(seq "$cols"); do printf -- '---|'; done; echo
+    for r in "$@"; do echo "$r"; done
+    echo; echo "## Blocked gaps"
+  } > "$dir/RESEARCH-STATE.md"
+}
+# b13_run <dir>: run --sync-state (stderr kept in <dir>/.b13err, read with b13_err) and echo "kg gc io def".
+b13_run() {
+  bash "${B13_SUT:-$SUT}" "$1" --sync-state >/dev/null 2>"$1/.b13err"
+  local f="$1/RESEARCH-STATE.md"
+  echo "$(sx_env "$f" known_gaps) $(sx_env "$f" gaps_closed) $(sx_env "$f" investigable_open) $(sx_env "$f" deferred_open)"
+}
+B13H4='| Priority | Gap | type | Status |'
+b13_err() { cat "$1/.b13err"; }
+b13_expect() { # <label> <got "kg gc io def"> <want>
+  [ "$2" = "$3" ] && ok "$1: kg/gc/io/def = [$2]" || no "$1: got [$2] want [$3]"
+}
+
+# T-1307-DEFERRED: a CLOSED deferred row (✅ / ~~) is a gap: counted in known_gaps AND gaps_closed. An OPEN deferred row
+# stays in deferred_open (count_deferred) and is counted in known_gaps exactly once. Edges: first / last / single / struck.
+d="$TMP/b13-def-first"; b13_fix "$d" "## Gap-backlog (prioritized)" "$B13H4" \
+  '| deferred | d-closed | web | ✅ B3 |' '| high | g1 | web | pending |' '| deferred | d-open | web | pending |' '| low | g2 | web | ✅ B2 |'
+b13_expect "T-1307-DEFERRED first row closed-deferred" "$(b13_run "$d")" "4 2 1 1"
+d="$TMP/b13-def-last"; b13_fix "$d" "## Gap-backlog (prioritized)" "$B13H4" \
+  '| high | g1 | web | pending |' '| low | g2 | web | ✅ B2 |' '| deferred | d-closed | web | ✅ B3 |'
+b13_expect "T-1307-DEFERRED last row closed-deferred" "$(b13_run "$d")" "3 2 1 0"
+d="$TMP/b13-def-single"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| deferred | only | web | ✅ B3 |'
+b13_expect "T-1307-DEFERRED single closed-deferred row" "$(b13_run "$d")" "1 1 0 0"
+d="$TMP/b13-def-strike"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| deferred | ~~struck~~ | web | ~~done~~ |' '| high | g1 | web | pending |'
+b13_expect "T-1307-DEFERRED struck deferred row counted closed" "$(b13_run "$d")" "2 1 1 0"
+
+# T-1307-EMDASH: em-dash priority = closed row (METHODOLOGY §8b): counted in known_gaps + gaps_closed, never routable.
+d="$TMP/b13-em"; b13_fix "$d" "## Gap-backlog (prioritized)" "$B13H4" \
+  '| — | e1 | web | closed B1 |' '| high | g1 | web | pending |' '| — | e2 | web | ✅ B2 |' '| — | e3 | web | cerrado |'
+b13_expect "T-1307-EMDASH em-dash closed rows counted (first/middle/last)" "$(b13_run "$d")" "4 3 1 0"
+d="$TMP/b13-em5"; b13_fix "$d" "## Gap-backlog (prioritized)" "| Pr. | ID | Gap | Artifact | Status |" \
+  '| — | E1 | closed gap | x | ✅ B1 |' '| medium | G1 | open gap | y | pending |'
+b13_expect "T-1307-EMDASH 5-col em-dash row counted" "$(b13_run "$d")" "2 1 1 0"
+d="$TMP/b13-strike"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| ~~high~~ | ~~s1~~ | web | ~~✅~~ |' '| low | g1 | web | pending |'
+b13_expect "T-1307-STRIKE struck-tier row counted closed" "$(b13_run "$d")" "2 1 1 0"
+# An em-dash row whose Status is OPEN contradicts §8b ("blocked-ness belongs in Status, not in a — priority"): it must NOT be
+# counted as closed (that would hide an open gap inside gaps_closed) and must be NAMED on stderr (anti-silent-zero).
+d="$TMP/b13-em-open"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | b1 | web | blocked-on-source |' '| — | b2 | web | pending |' '| high | g1 | web | pending |'
+b13_expect "T-1307-EMDASH-OPEN open em-dash rows not counted" "$(b13_run "$d")" "1 0 1 0"
+if grep -q 'em-dash priority on an OPEN row \[blocked-on-source\]' <<<"$(b13_err "$d")" && grep -q 'em-dash priority on an OPEN row \[pending\]' <<<"$(b13_err "$d")"; then
+  ok "T-1307-EMDASH-OPEN: both open em-dash rows are named on stderr"; else no "T-1307-EMDASH-OPEN: no WARN naming the open em-dash rows — [$(b13_err "$d")]"; fi
+# A closed-class row must never become routable / investigable even if its Status says pending.
+d="$TMP/b13-gate"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| ~~high~~ | g-struck | web | pending |' '| high | g1 | web | pending |'
+b13_expect "T-1307-GATE struck row with pending status is not investigable" "$(b13_run "$d")" "2 1 1 0"
+_nx="$(bash "$SUT" "$d" --next 2>/dev/null)"; [ "$_nx" = "NEXT | high | g1" ] && ok "T-1307-GATE: --next still routes only the real gap" || no "T-1307-GATE: --next got [$_nx]"
+
+# T-1307-NEARMISS: tables under near-miss backlog headings are READ (rows counted) and the heading is NAMED (WARN).
+for h in "## Gap backlog" "## Gap Backlog" "## Backlog" "## Backlog (investigable)" "## Prioritized gap backlog" "## Gap backlog (prioritized)"; do
+  d="$TMP/b13-nm-${h//[^A-Za-z]/_}"; b13_fix "$d" "$h" "$B13H4" '| — | e1 | web | closed |' '| high | g1 | web | pending |' '| deferred | d1 | web | ✅ |'
+  b13_expect "T-1307-NEARMISS [$h] closed-class + open rows counted" "$(b13_run "$d")" "3 2 1 0"
+  if grep -q 'near-miss gap-backlog heading' <<<"$(b13_err "$d")"; then ok "T-1307-NEARMISS [$h]: heading named (WARN)"; else no "T-1307-NEARMISS [$h]: no near-miss WARN"; fi
+done
+# numeric / undeclared tier tokens in a near-miss backlog table are excluded LOUDLY (not silently, not INVALID_PRIORITY).
+d="$TMP/b13-nm-num"; b13_fix "$d" "## Gap backlog" "$B13H4" '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
+b13_expect "T-1307-NEARMISS numeric tier excluded" "$(b13_run "$d")" "1 0 1 0"
+if grep -q 'unknown priority \[4\] in near-miss backlog row' <<<"$(b13_err "$d")"; then ok "T-1307-NEARMISS: numeric tier named on stderr"; else no "T-1307-NEARMISS: numeric tier silent — [$(b13_err "$d")]"; fi
+# ...but a table under a backlog-ish heading that has NO Priority header (a classification / summary table) is not a tier column:
+# no per-row WARN noise (fleet: 171 spurious WARNs in one RESEARCH-STATE.md before this guard).
+d="$TMP/b13-nm-noprio"; b13_fix "$d" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |' '| bold | 2 | dos |'
+b13_run "$d" >/dev/null
+if grep -q 'unknown priority' <<<"$(b13_err "$d")"; then no "T-1307-NEARMISS-NOHDR: WARN noise on a header-less classification table — [$(b13_err "$d")]"; else ok "T-1307-NEARMISS-NOHDR: no unknown-tier WARN for a table without a Priority header"; fi
+# table at EOF with NO trailing newline (list edge): the last row is still read.
+d="$TMP/b13-eof"; mkdir -p "$d"
+{ echo "# T"; echo; printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n\n## Backlog\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n| high | g1 | web | pending |\n'; printf '| — | e-last | web | closed |'; } > "$d/RESEARCH-STATE.md"
+b13_expect "T-1307-EOF near-miss table at EOF without trailing newline" "$(b13_run "$d")" "2 1 1 0"
+
+# T-1307-FINDINGS: a non-backlog table whose first column merely holds high/medium/low (a Severity column) is NOT a backlog:
+# an out-of-backlog table needs a priority-shaped header. A real out-of-backlog priority table (#983) keeps counting.
+d="$TMP/b13-findings"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'
+cat >> "$d/RESEARCH-STATE.md" <<'EOT'
+
+## Findings
+
+| Severity | ID | Finding | Evidence | Status |
+|---|---|---|---|---|
+| high | F1 | a finding | x.java:1 | pending |
+| medium | F2 | b finding | x.java:2 | covered |
+| low | F3 | c finding | x.java:3 | covered |
+EOT
+b13_expect "T-1307-FINDINGS Severity table not counted as gaps" "$(b13_run "$d")" "1 0 1 0"
+if grep -q 'has no Priority header' <<<"$(b13_err "$d")"; then ok "T-1307-FINDINGS: ignored table is named on stderr"; else no "T-1307-FINDINGS: silent — [$(b13_err "$d")]"; fi
+d="$TMP/b13-oob-prio"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'
+cat >> "$d/RESEARCH-STATE.md" <<'EOT'
+
+## Gaps
+
+| Pr. | ID | Gap | Artifact | Status |
+|---|---|---|---|---|
+| medium | G2 | oob gap | y | covered |
+EOT
+b13_expect "T-1307-FINDINGS out-of-backlog table WITH a Priority header still counted (#983)" "$(b13_run "$d")" "2 1 1 0"
+
+# T-1307-PRIORIDAD: the Priority-shaped header set includes the Spanish `Prioridad` and the `Pr.` abbreviation.
+d="$TMP/b13-prioridad"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'
+cat >> "$d/RESEARCH-STATE.md" <<'EOT'
+
+## Gaps abiertos
+
+| Prioridad | Gap | Tipo | Estado |
+|---|---|---|---|
+| medium | G2 | oob gap | covered |
+EOT
+b13_expect "T-1307-PRIORIDAD out-of-backlog table with a Prioridad header counted" "$(b13_run "$d")" "2 1 1 0"
+
+# T-1307-LOWERBOUND: rows excluded for an undeclared tier (numeric / bold) make the derived known_gaps only a LOWER bound.
+# --sync-state must NOT clobber a LARGER declared known_gaps/gaps_closed with that undercount (fleet: signing-pki declared 15/11,
+# derived 6 because 9 rows carry numeric tiers) — it keeps the declared pair and says why. A derived value >= declared still wins.
+b13_lb_fix() { # <dir> <declared kg> <declared gc>
+  b13_fix "$1" "## Gap backlog" "$B13H4" '| 4 | SA-G2 | closed | x |' '| 5 | SA-G3 | closed | x |' '| — | e1 | web | closed |' '| high | g1 | web | pending |'
+  sed -i -e "s/^known_gaps: .*/known_gaps: $2/" -e "s/^gaps_closed: .*/gaps_closed: $3/" "$1/RESEARCH-STATE.md"
+}
+d="$TMP/b13-lb-keep"; b13_lb_fix "$d" 9 5
+b13_expect "T-1307-LOWERBOUND declared 9/5 kept (derived undercount is 2)" "$(b13_run "$d")" "9 5 1 0"
+if grep -q 'only a lower bound' <<<"$(b13_err "$d")"; then ok "T-1307-LOWERBOUND: the keep is explained on stderr"; else no "T-1307-LOWERBOUND: silent keep — [$(b13_err "$d")]"; fi
+d="$TMP/b13-lb-grow"; b13_lb_fix "$d" 1 0
+b13_expect "T-1307-LOWERBOUND derived 2 >= declared 1 still wins" "$(b13_run "$d")" "2 1 1 0"
+
+# ----- teeth for kit #1307: every mutant is a COPY of the SUT built by lib/mutant.sh (refuses no-op / invalid-bash mutants) -----
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
+  # b13_tooth <name> <sed-script> <fixture-builder: heading> <hdr> <want-good> <rows...> — OR stderr mode when want-good is "ERR:<pattern>"
+  # The mutant must make the fixture's observable (counters, or the named stderr line) DIFFER from the good run.
+  b13_tooth() {
+    local name="$1" script="$2" heading="$3" hdr="$4" want="$5" m dd got; shift 5
+    m="$TMP/status.B13-$name.MUTANT.sh"
+    if ! mutant_sed "$SUT" "$m" -e "$script"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    dd="$TMP/b13-teeth-$name"; b13_fix "$dd" "$heading" "$hdr" "$@"
+    got="$(B13_SUT="$m" b13_run "$dd")"
+    if [[ "$want" == ERR:* ]]; then
+      if grep -qF -- "${want#ERR:}" <<<"$(b13_err "$dd")"; then no "teeth-B13-$name: mutant still emits [${want#ERR:}] — THEATER"
+      else ok "teeth-B13-$name: mutant loses the stderr line [${want#ERR:}] → its test goes RED"; fi
+    else
+      if [ "$got" = "$want" ]; then no "teeth-B13-$name: mutant still derives [$got] — THEATER"
+      else ok "teeth-B13-$name: mutant derives [$got] instead of [$want] → its test goes RED"; fi
+    fi
+  }
+  b13_tooth DEFERRED-CLOSED '/CC-DEFERRED-CLOSED/s/index(st,"✅")/index(st,"ZZZ")/' "## Gap-backlog" "$B13H4" "4 2 1 1" \
+    '| deferred | d-closed | web | ✅ B3 |' '| high | g1 | web | pending |' '| deferred | d-open | web | pending |' '| low | g2 | web | ✅ B2 |'
+  b13_tooth EMDASH-EMIT '/CC-EMDASH-OPEN-WARN/s/cp="—" }/next }/' "## Gap-backlog" "$B13H4" "4 3 1 0" \
+    '| — | e1 | web | closed B1 |' '| high | g1 | web | pending |' '| — | e2 | web | ✅ B2 |' '| — | e3 | web | cerrado |'
+  b13_tooth EMDASH-OPEN '/CC-EMDASH-OPEN-WARN/s/(pending|requires-execution|open|queued|blocked)/(zzz)/' "## Gap-backlog" "$B13H4" "1 0 1 0" \
+    '| — | b1 | web | blocked-on-source |' '| — | b2 | web | pending |' '| high | g1 | web | pending |'
+  b13_tooth STRIKE-EMIT 's/else cp="~~"/else next/' "## Gap-backlog" "$B13H4" "2 1 1 0" \
+    '| ~~high~~ | ~~s1~~ | web | ~~✅~~ |' '| low | g1 | web | pending |'
+  b13_tooth WANT-CLOSED-GATE 's/if (!want_closed) next/if (0) next/' "## Gap-backlog" "$B13H4" "2 1 1 0" \
+    '| ~~high~~ | g-struck | web | pending |' '| high | g1 | web | pending |'
+  b13_tooth COUNT-ARG 's/backlog_rows 1 2>"\$_kg_err"/backlog_rows 2>"$_kg_err"/' "## Gap-backlog" "$B13H4" "3 2 1 0" \
+    '| — | e1 | web | closed |' '| high | g1 | web | pending |' '| deferred | d1 | web | ✅ |'
+  b13_tooth ERR-SURFACED "s/grep -E 'em-dash priority on an OPEN row|malformed closed-class backlog row' \"\\\$_kg_err\" >&2/:/" "## Gap-backlog" "$B13H4" "ERR:em-dash priority on an OPEN row [pending]" \
+    '| — | b2 | web | pending |' '| high | g1 | web | pending |'
+  b13_tooth NM-UNKNOWN '/NM-UNKNOWN-WARN/s/else if (_nm_was_last [&][&] in_data [&][&] tbl_ok)/else if (0)/' "## Gap backlog" "$B13H4" "ERR:unknown priority [4] in near-miss backlog row" \
+    '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
+  m="$TMP/status.B13-LOWERBOUND.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
+    dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 9 5; got="$(B13_SUT="$m" b13_run "$dd")"
+    [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
+  else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
+  m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
+    dd="$TMP/b13-teeth-nmnohdr"; b13_fix "$dd" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |'; B13_SUT="$m" b13_run "$dd" >/dev/null
+    grep -q 'unknown priority' <<<"$(b13_err "$dd")" && ok "teeth-B13-NM-NOHDR: mutant WARNs on the header-less table → T-1307-NEARMISS-NOHDR RED" || no "teeth-B13-NM-NOHDR: mutant still silent — THEATER"
+  else no "teeth-B13-NM-NOHDR: mutant refused by mutant.sh"; fi
+  # OOB guard: the Findings fixture is two tables, so build it by hand.
+  m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
+    dd="$TMP/b13-teeth-oobguard"; cp -r "$TMP/b13-findings" "$dd"; sed -i -e 's/^known_gaps:.*/known_gaps: 0/' "$dd/RESEARCH-STATE.md"
+    got="$(B13_SUT="$m" b13_run "$dd")"
+    [ "$got" != "1 0 1 0" ] && ok "teeth-B13-OOB-GUARD: mutant counts the Severity rows [$got] → T-1307-FINDINGS RED" || no "teeth-B13-OOB-GUARD: mutant still derives [$got] — THEATER"
+  else no "teeth-B13-OOB-GUARD: mutant refused by mutant.sh"; fi
+  # Header vocabulary: dropping `prioridad` (Spanish) / `pr.` from the priority-shaped set must break T-1307-PRIORIDAD / T-1307-FINDINGS' positive control.
+  m="$TMP/status.B13-HDR-PRIORIDAD.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e 's/|p|prioridad)\$\//|p)$\//'; then
+    dd="$TMP/b13-teeth-prioridad"; cp -r "$TMP/b13-prioridad" "$dd"
+    got="$(B13_SUT="$m" b13_run "$dd")"
+    [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PRIORIDAD: mutant ignores a Prioridad header [$got] → T-1307-PRIORIDAD RED" || no "teeth-B13-HDR-PRIORIDAD: mutant still derives [$got] — THEATER"
+  else no "teeth-B13-HDR-PRIORIDAD: mutant refused by mutant.sh"; fi
+  m="$TMP/status.B13-HDR-PR.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
+    dd="$TMP/b13-teeth-oobprio"; cp -r "$TMP/b13-oob-prio" "$dd"
+    got="$(B13_SUT="$m" b13_run "$dd")"
+    [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PR: mutant ignores a Pr. header [$got] → T-1307-FINDINGS positive control RED" || no "teeth-B13-HDR-PR: mutant still derives [$got] — THEATER"
+  else no "teeth-B13-HDR-PR: mutant refused by mutant.sh"; fi
 fi
 
 if [ "$skips" -gt 0 ]; then

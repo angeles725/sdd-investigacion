@@ -2587,6 +2587,42 @@ if [ "$(code "$TMP/vs-oob5-bad")" = 1 ] && grep -q 'envelope investigable_open=1
   ok "VS-OOB-5COL-REV: declaring io=1 FAILs on investigable_open (derived 3: the OOB 5-col rows are load-bearing)"
 else no "VS-OOB-5COL-REV: want exit 1 naming 'investigable_open=1 != 3' — got [$(grep -i 'FAIL' <<<"$_vso5_rev" | head -2)]"; fi
 
+# VS-FINDINGS (kit #1307): a non-backlog table whose first column merely holds high/medium/low (a Severity
+# column) is NOT a backlog — an out-of-backlog table needs a priority-shaped header. Declared io=1 (the one
+# canonical row); the 3 Findings rows must not inflate the derived count.
+vs_findings() {  # <dir>
+  local dd="$1"; mkdir -p "$dd"
+  { echo '# T'; echo
+    env9 0 0 1 1 0 0 0; echo
+    echo '## Gap-backlog (prioritized)'; echo
+    printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+    echo '| high | g1 | web | pending |'; echo
+    echo '## Findings'; echo
+    printf '| Severity | ID | Finding | Evidence | Status |\n|---|---|---|---|---|\n'
+    echo '| high | F1 | one | x.java:1 | pending |'
+    echo '| medium | F2 | two | x.java:2 | pending |'
+    echo '| low | F3 | three | x.java:3 | pending |'; echo
+    echo '## Blocked gaps'; echo '## Stop control'
+    echo '- **Open gaps — read-only investigable**: 1'; } > "$dd/RESEARCH-STATE.md"
+}
+vs_findings "$TMP/vs-findings"
+if [ "$(code "$TMP/vs-findings")" = 0 ]; then
+  ok "VS-FINDINGS: Severity-table rows are not backlog gaps (declared io=1 == derived 1) → exit 0"
+else no "VS-FINDINGS: exit non-zero — a Findings table inflated derive_investigable: [$(run "$TMP/vs-findings" | grep -i 'FAIL' | head -2)]"; fi
+# Header-less out-of-backlog pipe rows (no separator, no header) are not a table either.
+_vsf2="$TMP/vs-findings-noheader"; mkdir -p "$_vsf2"
+{ echo '# T'; echo; env9 0 0 1 1 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  echo '| high | g1 | web | pending |'; echo
+  echo '## Notes'; echo
+  echo '| high | stray | prose | pending |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 1'; } > "$_vsf2/RESEARCH-STATE.md"
+if [ "$(code "$_vsf2")" = 0 ]; then
+  ok "VS-FINDINGS-NOHDR: a header-less out-of-backlog pipe row is ignored (declared io=1 == derived 1) → exit 0"
+else no "VS-FINDINGS-NOHDR: exit non-zero — stray pipe row counted: [$(run "$_vsf2" | grep -i 'FAIL' | head -2)]"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -3178,8 +3214,8 @@ PYEOF
     "$TMP/bp-fail" 0
 
   # Corpus vocabulary teeth: removing a skip makes fixture exit 1; invalid-base tested in reverse.
-  chk_bpskip_tooth "strikethrough" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/' "$TMP/bp-strikethrough" 1
-  chk_bpskip_tooth "em-dash"       "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'        "$TMP/bp-em-dash"       1
+  chk_bpskip_tooth "strikethrough" "# CLOSED-CLASS:" '/# CLOSED-CLASS:/s#p~/^~~\.\*~~\$/#0#' "$TMP/bp-strikethrough" 1
+  chk_bpskip_tooth "em-dash"       "# CLOSED-CLASS:"      '/# CLOSED-CLASS:/s#p~/^—/#0#'            "$TMP/bp-em-dash"       1
   chk_bpskip_tooth "qualifier"     "BPSKIP-QUALIFIER"      '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier" 1
   # teeth-BP-qualifier-warn: remove BP-QUALIFIER-WARN line → BP-qualifier-warn must go red (no WARN emitted).
   echo "-- teeth-BP-qualifier-warn: remove WARN print; qualifier fixture must emit no WARN --"
@@ -3716,7 +3752,7 @@ PYEOF
   if grep -q 'BP-SEP-IN-BACKLOG' "$HERE/../verify-state.sh"; then
     mutantSIB="$TMP/verify-state.SIB.MUTANT.sh"
     cp "$HERE/../verify-state.sh" "$mutantSIB"
-    sed -i 's/in_data=1; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/in_data=1; expected_cols/' "$mutantSIB"
+    sed -i 's/in_data=1; tbl_ok=[^;]*; tbl_warned=0; if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next }; expected_cols/in_data=1; expected_cols/' "$mutantSIB"
     if cmp -s "$mutantSIB" "$HERE/../verify-state.sh"; then
       no "teeth-VS-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not remove the guard"
     elif ! bash -n "$mutantSIB" 2>/dev/null; then
@@ -5334,6 +5370,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-VS-OOB5: mutant still accepts the 5-col OOB fixture — THEATER"
   else
     ok "teeth-VS-OOB5: mutant drops the OOB 5-col rows (exit non-zero on the ok fixture) → VS-OOB-5COL RED"
+  fi
+fi
+
+# teeth for kit #1307: the out-of-backlog Priority-header guard in the verify-state mirror of the backlog awk.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-VS-FINDINGS: disable the OOB-NO-PRIORITY-HEADER guard → VS-FINDINGS goes RED --"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
+  _vf_mut="$TMP/verify-state.FINDINGS.MUTANT.sh"
+  cp "$SUT" "$_vf_mut"
+  sed -i '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog \&\& !tbl_ok)/if (0)/' "$_vf_mut"
+  if cmp -s "$_vf_mut" "$SUT"; then
+    no "teeth-VS-FINDINGS: mutant identical to SUT — sed did not apply"
+  elif ! bash -n "$_vf_mut" 2>/dev/null; then
+    no "teeth-VS-FINDINGS: mutant has a syntax error"
+  elif bash "$_vf_mut" "$TMP/vs-findings" >/dev/null 2>&1; then
+    no "teeth-VS-FINDINGS: mutant still accepts the Findings fixture — THEATER"
+  else
+    ok "teeth-VS-FINDINGS: mutant counts the Severity rows (exit non-zero on the ok fixture) → VS-FINDINGS RED"
   fi
 fi
 
