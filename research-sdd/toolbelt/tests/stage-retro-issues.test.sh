@@ -146,11 +146,58 @@ mk_gh_stub() {
       printf '  *) exit 0 ;;\n'
       printf 'esac\n'
     else
+      # Kit issue #1304 item 1: the dedup now fetches --json state,body and keeps only hits whose
+      # BODY carries the exact signature line, so a matching stub must reply the way real GitHub
+      # does — with a body. The signature is read back from the --search argument the SUT sent, so
+      # one stub serves every target/file/row. reply <STATE> = an exact-signature hit;
+      # fuzzy_other <STATE> = a different TARGET's issue (GitHub fuzzy word match);
+      # fuzzy_longid <STATE> = the same retro but row id <id>0 (a prefix-id fuzzy hit).
+      cat <<'STUBHELP'
+_sig=""; _prev=""
+for _a in "$@"; do [ "$_prev" = "--search" ] && _sig="$_a"; _prev="$_a"; done
+_sig="${_sig#\"}"; _sig="${_sig%\"}"
+reply() { printf '[{"body":"Delta text\\n\\n**Target:** x\\n\\n---\\n%s\\nPart of backlog-first rollout #557","state":"%s"}]\n' "$_sig" "$1"; }
+fuzzy_other() { printf '[{"body":"Other delta\\n\\n---\\nSource retro: niagara-%s\\nPart of backlog-first rollout #557","state":"%s"}]\n' "${_sig#Source retro: }" "$1"; }
+fuzzy_longid() { printf '[{"body":"Other row\\n\\n---\\n%s0\\nPart of backlog-first rollout #557","state":"%s"}]\n' "$_sig" "$1"; }
+fuzzy_plus_exact() { printf '[{"body":"Other\\n---\\nSource retro: niagara-%s","state":"OPEN"},{"body":"x\\n---\\n%s\\ntail","state":"OPEN"}]\n' "${_sig#Source retro: }" "$_sig"; }
+crlf_reply() { printf '[{"body":"x\\n---\\n%s\\r\\ntail","state":"OPEN"}]\n' "$_sig"; }
+sigonly_reply() { printf '[{"state":"OPEN","body":"%s"}]\n' "$_sig"; }
+STUBHELP
       printf 'case " $* " in\n'
       printf '  *" auth status "*) exit 0 ;;\n'
       case "$mode" in
         match)
-          printf '  *" issue list "*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n'
+          printf '  *" issue list "*) reply OPEN; exit 0 ;;\n'
+          ;;
+        fuzzyother)
+          # Fuzzy-search false hit: another TARGET's issue (open). Must NOT count as a duplicate.
+          printf '  *" issue list "*) fuzzy_other OPEN; exit 0 ;;\n'
+          ;;
+        fuzzyotherclosed)
+          printf '  *" issue list "*) fuzzy_other CLOSED; exit 0 ;;\n'
+          ;;
+        fuzzylongid)
+          # Fuzzy-search false hit: the same retro, row id with an extra digit (row 3 vs row 30).
+          printf '  *" issue list "*) fuzzy_longid OPEN; exit 0 ;;\n'
+          ;;
+        fuzzyplusexact)
+          # A fuzzy false hit AND the genuine exact hit in one reply: the exact one must win.
+          printf '  *" issue list "*) fuzzy_plus_exact; exit 0 ;;\n'
+          ;;
+        crlfsig)
+          # The exact signature line carries a trailing CR (a body edited in the web UI).
+          printf '  *" issue list "*) crlf_reply; exit 0 ;;\n'
+          ;;
+        sigonly)
+          # LIST EDGE: the body IS the signature (first AND last line), state key BEFORE body.
+          printf '  *" issue list "*) sigonly_reply; exit 0 ;;\n'
+          ;;
+        nullbody)
+          printf '  *" issue list "*) printf "[{\\"body\\":null,\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n'
+          ;;
+        badjson)
+          # Exit 0 and starts with '[' but is cut off mid-string: unparseable, must count as failed.
+          printf '  *" issue list "*) printf "[{\\"body\\":\\"cut off here\\n"; exit 0 ;;\n'
           ;;
         matchclosed)
           # A real `gh issue list --state open` never returns a CLOSED issue at all — the
@@ -161,19 +208,19 @@ mk_gh_stub() {
           # which --state flag the mutant sent, and the code's own JSON parsing would mask the
           # very regression the tooth exists to prove.
           printf '  *" --state open "*) printf "[]\\n"; exit 0 ;;\n'
-          printf '  *" issue list "*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n'
+          printf '  *" issue list "*) reply CLOSED; exit 0 ;;\n'
           ;;
         matchsig)
           # kit issue #1287 item 2: an OPEN match ONLY for a `gh issue list` whose --search text
           # contains $sigpat (the 3rd arg); every other list call sees an empty array. Lets a test
           # prove WHICH signature (new vs legacy) a dedup lookup carried.
-          printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n' "$sigpat"
+          printf '  *" issue list "*"%s"*) reply OPEN; exit 0 ;;\n' "$sigpat"
           printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
           ;;
         matchsigclosed)
           # Like matchsig, but the matching list call returns a CLOSED issue — the live case for
           # the legacy signature (every pre-#1286 issue is closed today).
-          printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n' "$sigpat"
+          printf '  *" issue list "*"%s"*) reply CLOSED; exit 0 ;;\n' "$sigpat"
           printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
           ;;
         failsig)
@@ -494,6 +541,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 9e — EXACT-SIGNATURE DEDUP (kit issue #1304 item 1). GitHub's phrase search is a fuzzy WORD
+# match: it returns other targets' issues and other rows' issues for the same signature text. A
+# hit only counts as a duplicate when its BODY carries the exact `Source retro: … · <id>` line.
+#   created = a `gh issue create` was issued; skipped = reported skipped-duplicate, no create;
+#   failed  = no create, failed=1 in the summary, exit 2.
+# dedup_case <label> <stub-mode> <expect>
+dedup_case() {
+  local label="$1" mode="$2" expect="$3" b r created=0 skipped=0 failed1=0 got=none
+  b="$(mkbox "case-exact-$mode")"
+  mk_gh_stub "$b" "$mode"
+  r="$(mk_retro "$b" target-foo "r-exact-$mode.md" "<!-- review-status: pending -->" \
+    "| 3 | exact dedup delta | CLAUDE.md §7 | B1 | new | HIGH |")"
+  run "$b" "$r" --apply
+  [ -f "$b/bin/gh.log" ] && grep -q 'issue create' "$b/bin/gh.log" && created=1
+  grep -q '^skipped-duplicate:' <<<"$OUT" && skipped=1
+  grep -q 'failed=1' <<<"$OUT" && failed1=1
+  if [ "$created" = 1 ]; then got=created
+  elif [ "$skipped" = 1 ]; then got=skipped
+  elif [ "$failed1" = 1 ]; then got=failed; fi
+  if [ "$got" = "$expect" ]; then ok "$label" "(exit $RC, $got)"
+  else no "$label" "expected $expect, got $got (exit $RC) out=[$OUT]"; fi
+}
+dedup_case "9e-1 fuzzy hit on ANOTHER target's OPEN issue → not a duplicate, row is created" fuzzyother created
+dedup_case "9e-2 fuzzy hit on another target's CLOSED issue → not a duplicate, row is created" fuzzyotherclosed created
+dedup_case "9e-3 fuzzy hit on the same retro's row 30 when asked for row 3 → created" fuzzylongid created
+dedup_case "9e-4 fuzzy false hit AND the exact hit in one reply (exact last) → skipped" fuzzyplusexact skipped
+dedup_case "9e-5 exact signature line with a trailing CR → still the exact match, skipped" crlfsig skipped
+dedup_case "9e-6 LIST EDGE: body is the signature alone, state key before body → skipped" sigonly skipped
+dedup_case "9e-7 hit with a null body can never be an exact match → created" nullbody created
+dedup_case "9e-8 reply cut off mid-string (unparseable) → failed, never created" badjson failed
+dedup_case "9e-9 exact hit, OPEN (regression pin for the exact path) → skipped" match skipped
+
 # 10 — DEGRADED on missing gh under --apply (hermetic PATH: no gh available)
 box="$(mkbox case-degraded)"
 mk_hermetic_bin "$box"   # essentials only, NO gh
@@ -1544,8 +1624,8 @@ RETROEOF
   printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box_n" \
     > "$box_n/research-sdd/TARGETS.md"
   retro_n="$(mk_nested_retro "$box_n" corpus/retros r-n.md)"
-  anchor_n="$(grep -m 1 '^      name="\$(awk -F' "$TARGET_PATHS_LIB")"
-  if [ -n "$anchor_n" ] && tooth_swap "$box_n" lib/target-paths.sh "$anchor_n" '      name=""'; then
+  anchor_n="$(grep -m 1 '^    name="\$(_TP_RAW=' "$TARGET_PATHS_LIB")"
+  if [ -n "$anchor_n" ] && tooth_swap "$box_n" lib/target-paths.sh "$anchor_n" '    name=""; arc=0'; then
     run_box "$box_n" "$retro_n"
     if ! grep -q 'target:reg-name,' <<<"$MOUT"; then
       ok "T1169c teeth: name lookup neutered → basename label (case 69 has teeth)" "()"
@@ -1656,6 +1736,68 @@ RETROEOF
       ok "T1287g teeth: structural skip removed → pointless corpus/retros lookup (case 75f has teeth)" "()"
     else
       no "T1287g teeth: structural skip removed" "case 75f is THEATER: out=[$MOUT]"
+    fi
+  fi
+
+  # TOOTH #1304-1: the exact-signature filter (kit issue #1304 item 1). Each mutant must make its
+  # case misclassify a fuzzy/garbled reply, proving cases 9e / 75g bite.
+  xbox() {  # <name> <stub-mode> → echoes a box with a pending 1-row retro and the stub in <mode>
+    local b
+    b="$(mkbox "$1")"
+    mk_gh_stub "$b" "$2"
+    mk_retro "$b" target-foo r-x.md "<!-- review-status: pending -->" \
+      "| 3 | exact dedup delta | CLAUDE.md | B1 | new | HIGH |" >/dev/null
+    printf '%s' "$b"
+  }
+  echo "-- teeth T1304-1: any search hit counts as a duplicate (equality check removed) --"
+  box_x1="$(xbox teeth-exact-any fuzzyother)"
+  if tooth_swap "$box_x1" stage-retro-issues.sh 'if (ln == sig)' 'if (1)'; then
+    run_box "$box_x1" "$box_x1/rh/target-foo/retros/r-x.md" --apply
+    if ! grep -q 'issue create' "$box_x1/bin/gh.log" 2>/dev/null; then
+      ok "T1304-1 teeth: equality removed → another target's issue suppresses the create (case 9e-1 has teeth)" "()"
+    else
+      no "T1304-1 teeth: equality removed" "case 9e-1 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1304-2: signature compared as a PREFIX (row 3 matches row 30) --"
+  box_x2="$(xbox teeth-exact-prefix fuzzylongid)"
+  if tooth_swap "$box_x2" stage-retro-issues.sh 'if (ln == sig)' 'if (index(ln, sig) == 1)'; then
+    run_box "$box_x2" "$box_x2/rh/target-foo/retros/r-x.md" --apply
+    if ! grep -q 'issue create' "$box_x2/bin/gh.log" 2>/dev/null; then
+      ok "T1304-2 teeth: prefix match → row 30 suppresses row 3 (case 9e-3 has teeth)" "()"
+    else
+      no "T1304-2 teeth: prefix match" "case 9e-3 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1304-3: trailing CR/whitespace no longer trimmed --"
+  box_x3="$(xbox teeth-exact-crlf crlfsig)"
+  if tooth_swap "$box_x3" stage-retro-issues.sh 'sub(/[ \t\r]+$/, "", ln)' 'ln = ln'; then
+    run_box "$box_x3" "$box_x3/rh/target-foo/retros/r-x.md" --apply
+    if grep -q 'issue create' "$box_x3/bin/gh.log" 2>/dev/null; then
+      ok "T1304-3 teeth: no trim → a CRLF body is missed and the row duplicated (case 9e-5 has teeth)" "()"
+    else
+      no "T1304-3 teeth: no trim" "case 9e-5 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1304-4: unparseable reply no longer rejected --"
+  box_x4="$(xbox teeth-exact-badjson badjson)"
+  if tooth_swap "$box_x4" stage-retro-issues.sh 'if (!closed) exit 3' 'if (!closed) { }' \
+     && tooth_swap "$box_x4" stage-retro-issues.sh 'if (depth != 0) exit 3' 'if (0) exit 3'; then
+    run_box "$box_x4" "$box_x4/rh/target-foo/retros/r-x.md" --apply
+    if grep -q 'issue create' "$box_x4/bin/gh.log" 2>/dev/null; then
+      ok "T1304-4 teeth: parse guards removed → garbled reply read as no-match, create called (case 9e-8 has teeth)" "()"
+    else
+      no "T1304-4 teeth: parse guards removed" "case 9e-8 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1304-5: legacy lookup left unfiltered --"
+  box_x5="$(legacy_box teeth-exact-legacy fuzzyother '')"
+  if tooth_swap "$box_x5" stage-retro-issues.sh '_exact_sig_matches "$_legacy_sig")" || {' 'cat)" || {'; then
+    run_box "$box_x5" "$box_x5/rh/target-foo/retros/r-legacy.md" --apply
+    if ! grep -q 'issue create' "$box_x5/bin/gh.log" 2>/dev/null; then
+      ok "T1304-5 teeth: legacy filter removed → another target's issue suppresses the create (case 75g has teeth)" "()"
+    else
+      no "T1304-5 teeth: legacy filter removed" "case 75g is THEATER: out=[$MOUT]"
     fi
   fi
 
@@ -2957,6 +3099,26 @@ if [ "$RC" = 0 ] && [ "$create75e" = 0 ] && grep -q 'skipped-duplicate.*closed; 
   ok "75e --apply: CLOSED legacy-signature match suppresses create, names it closed" "(exit $RC)"
 else
   no "75e --apply: CLOSED legacy-signature match must suppress create" "exit=$RC create=$create75e out=[$OUT]"
+fi
+
+# 75g — the LEGACY lookup is exact too (kit issue #1304 item 1): three.js's legacy name is
+#       `research`, and GitHub's fuzzy search for `research/retros/<file> · <id>` also returns every
+#       `*-research` target's issue for the same file and row. Both lookups here get such a
+#       false hit (another target's issue): neither is a duplicate, so the create goes through
+#       after exactly TWO list calls (new signature + legacy signature).
+box75g="$(mkbox case-legacy-dedup-fuzzy)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75g" \
+  > "$box75g/research-sdd/TARGETS.md"
+mk_gh_stub "$box75g" fuzzyother
+retro75g="$(mk_retro "$box75g" target-foo r-legacy-fuzzy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy fuzzy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75g" "$retro75g" --apply
+create75g=0; [ -f "$box75g/bin/gh.log" ] && grep -q 'issue create' "$box75g/bin/gh.log" && create75g=1
+lists75g="$(grep -c 'issue list' "$box75g/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$create75g" = 1 ] && [ "$lists75g" = 2 ] && grep -q 'summary: created=1 ' <<<"$OUT"; then
+  ok "75g --apply: fuzzy hit on another target's issue in BOTH lookups → created after 2 list calls" "(exit $RC)"
+else
+  no "75g --apply: fuzzy hits must not suppress the create" "exit=$RC create=$create75g lists=$lists75g out=[$OUT]"
 fi
 
 # 75f — a retro under <target>/corpus/retros has the legacy name `corpus`: that signature
