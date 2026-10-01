@@ -6632,6 +6632,43 @@ d="$TMP/b13-boldhdr"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web 
 printf '\n## Gaps\n\n| **Priority** | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n| medium | G2 | oob gap | y | covered |\n' >> "$d/RESEARCH-STATE.md"
 b13_expect "T-1307-BOLDHDR **Priority** header counts" "$(b13_run "$d")" "2 1 1 0"
 
+# ==================== kit #1319 — malformed rows are a LOWER BOUND; escaped `\|` is a literal pipe ====================
+# Item 1: a row with the wrong cell count is WARNed and NOT counted. That makes the derived total a LOWER bound exactly like an
+# uncounted tier row: a LARGER declared known_gaps/gaps_closed must be kept (fleet: niagara-research kitControl declared 18/18,
+# derived 16/16 because KC8/KC13 have 6 cells).
+MAL6='| high | KC8 | web | pending | x | y |'
+b19_decl() { sed -i -e "s/^known_gaps: .*/known_gaps: $2/" -e "s/^gaps_closed: .*/gaps_closed: $3/" "$1/RESEARCH-STATE.md"; }
+b19_fx_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" "$MAL6" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 5 3; }
+b19_fx_mid()    { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6" '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 5 3; }
+b19_fx_last()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" 5 3; }
+b19_fx_single() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6"; b19_decl "$1" 3 2; }
+b19_fx_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| — | e1 | web | closed | x | y |'; b19_decl "$1" 3 2; }
+for _pos in first:"5 3 1 0" mid:"5 3 1 0" last:"5 3 1 0" single:"3 2 1 0" closed:"3 2 1 0"; do
+  d="$TMP/b19-mal-${_pos%%:*}"; "b19_fx_${_pos%%:*}" "$d"
+  b13_expect "T-1319-MALFORMED ${_pos%%:*}: declared pair kept (malformed row = lower bound)" "$(b13_run "$d")" "${_pos#*:}"
+  if grep -qi 'lower bound' <<<"$(b13_err "$d")" && grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1319-MALFORMED ${_pos%%:*}: keep + lower-bound stated on stderr"; else no "T-1319-MALFORMED ${_pos%%:*}: silent — [$(b13_err "$d")]"; fi
+done
+# Control: derived >= declared still wins even with a malformed row present (the keep is never a floor-lock).
+d="$TMP/b19-mal-grow"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$d" 1 0
+b13_expect "T-1319-MALFORMED derived 2 >= declared 1 still wins" "$(b13_run "$d")" "2 1 1 0"
+# Control: a well-formed table never triggers the keep (declared 9 > derived 2 is overwritten as before).
+d="$TMP/b19-mal-none"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$d" 9 5
+b13_expect "T-1319-MALFORMED no malformed row: stale declared 9/5 is still corrected" "$(b13_run "$d")" "2 1 1 0"
+# Item 2: `\|` inside a cell is a LITERAL pipe, not a column separator — the row keeps its cell count and is counted.
+d="$TMP/b19-esc-4"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'
+b13_expect "T-1319-ESCPIPE 4-col rows with \\| in the gap cell are counted" "$(b13_run "$d")" "3 2 1 0"
+if grep -q 'malformed' <<<"$(b13_err "$d")"; then no "T-1319-ESCPIPE: still WARNs malformed — [$(b13_err "$d")]"; else ok "T-1319-ESCPIPE: no malformed WARN for an escaped pipe"; fi
+d="$TMP/b19-esc-5"; b13_fix "$d" "## Gap-backlog" '| Priority | ID | Gap | Artifact | Status |' '| high | G1 | uses a\|b | x | pending |' '| low | G2 | ok | x | covered \| B1 |'
+b13_expect "T-1319-ESCPIPE 5-col: \\| in gap cell and in status cell" "$(b13_run "$d")" "2 1 1 0"
+# An UNescaped extra pipe is still malformed (the escape must not weaken the width check).
+d="$TMP/b19-esc-raw"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a|b | web | pending |' '| high | g2 | web | pending |'; b19_decl "$d" 0 0
+b13_expect "T-1319-ESCPIPE raw unescaped pipe stays malformed (not counted)" "$(b13_run "$d")" "1 0 1 0"
+# Lockstep: verify-state derives the same investigable_open from the row --sync-state just wrote.
+d="$TMP/b19-esc-vs"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| high | g2 | web | pending |'
+b13_run "$d" >/dev/null
+if bash "$HERE/../verify-state.sh" "$d" 2>&1 | grep -q 'FAIL   envelope investigable_open='; then no "T-1319-ESCPIPE lockstep: verify-state derives a different investigable_open"; else ok "T-1319-ESCPIPE lockstep: verify-state agrees on investigable_open"; fi
+
+
 # ----- teeth for kit #1307: every mutant is a COPY of the SUT built by lib/mutant.sh (refuses no-op / invalid-bash mutants) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -6723,6 +6760,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PR: mutant ignores a Pr. header [$got] → T-1307-FINDINGS positive control RED" || no "teeth-B13-HDR-PR: mutant still derives [$got] — THEATER"
   else no "teeth-B13-HDR-PR: mutant refused by mutant.sh"; fi
+  # ---- teeth for kit #1319 (malformed row = lower bound; escaped pipe) ----
+  b19_fx_esc4() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'; }
+  b19_fx_esc5() { b13_fix "$1" "## Gap-backlog" '| Priority | ID | Gap | Artifact | Status |' '| high | G1 | uses a\|b | x | pending |' '| low | G2 | ok | x | covered \| B1 |'; }
+  b13_tooth2 B19-MALFORMED-TIER "5 3 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) print "UNCOUNTED\\t" p//'
+  b13_tooth2 B19-MALFORMED-CLOSED "3 2 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; if (want_closed) print "UNCOUNTED\\t" p//'
+  b13_tooth2 B19-ESCPIPE-4 "3 2 1 0" b19_fx_esc4 -e '/BP-ESCAPED-PIPE/d'
+  b13_tooth2 B19-ESCPIPE-5 "2 1 1 0" b19_fx_esc5 -e '/BP-ESCAPED-PIPE/d'
 fi
 
 if [ "$skips" -gt 0 ]; then
