@@ -3,8 +3,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../qnx6-read.sh"
-FIXTURES="$HERE/fixtures/qnx6-read"
-mkdir -p "$FIXTURES"
 
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
@@ -14,6 +12,11 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+: > "$ROOT/.start-marker"
+# Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1299
+# item 6, CLAUDE.md section 8): the kit-tree guard only tolerates identical-byte rewrites.
+FIXTURES="$ROOT/fixtures/qnx6-read"
+mkdir -p "$FIXTURES" || { echo "FATAL: cannot create $FIXTURES" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # Build QNX6 fixture images programmatically (never inside a live target dir)
@@ -542,6 +545,12 @@ fi
 # ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
+# Hermetic (kit issue #1299 item 6): the suite must not (re)write anything under the live
+# tests/fixtures/qnx6-read; an identical-bytes rewrite still moves mtime, so look for files newer
+# than the marker taken at start (the kit-tree guard alone tolerates identical-byte rewrites).
+if [ ! -d "$HERE/fixtures/qnx6-read" ] || [ -z "$(find "$HERE/fixtures/qnx6-read" -newer "$ROOT/.start-marker" 2>/dev/null)" ]; then
+  ok "hermetic: suite did not rewrite tests/fixtures/qnx6-read in the live tree"
+else no "hermetic: suite rewrote tests/fixtures/qnx6-read in the live tree"; fi
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
   exit $?

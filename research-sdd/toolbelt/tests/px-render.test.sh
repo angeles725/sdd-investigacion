@@ -4,8 +4,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../px-render.sh"
-FIXTURES="$HERE/fixtures/px-render"
-mkdir -p "$FIXTURES"
 
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
@@ -16,6 +14,11 @@ no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
+: > "$ROOT/.start-marker"
+# Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1299
+# item 6, CLAUDE.md section 8): the kit-tree guard only tolerates identical-byte rewrites.
+FIXTURES="$ROOT/fixtures/px-render"
+mkdir -p "$FIXTURES" || { echo "FATAL: cannot create $FIXTURES" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # Build committed fixtures (idempotent for images; always rewrite XML).
@@ -752,6 +755,12 @@ fi
 # ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
+# Hermetic (kit issue #1299 item 6): the suite must not (re)write anything under the live
+# tests/fixtures/px-render; an identical-bytes rewrite still moves mtime, so look for files newer
+# than the marker taken at start (the kit-tree guard alone tolerates identical-byte rewrites).
+if [ ! -d "$HERE/fixtures/px-render" ] || [ -z "$(find "$HERE/fixtures/px-render" -newer "$ROOT/.start-marker" 2>/dev/null)" ]; then
+  ok "hermetic: suite did not rewrite tests/fixtures/px-render in the live tree"
+else no "hermetic: suite rewrote tests/fixtures/px-render in the live tree"; fi
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
   exit $?
