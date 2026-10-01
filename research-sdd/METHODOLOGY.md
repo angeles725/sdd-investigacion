@@ -344,6 +344,7 @@ URL — see below — not necessarily the one first typed) and the hash. The wra
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
+A registered source is never overwritten in place: re-fetching an existing name is refused unless `--replace` is passed, in which case the previous bytes are preserved under a sha-versioned name and their registry row is retargeted to it, so every row's sha256 keeps describing a file that still exists.
 
 **Register the PERMANENT-redirect-resolved URL — never a temporary one.** A canonical doc URL may
 301/308-redirect (a docs reorg, a slug change); the origin cell in `SOURCES.md` should hold the URL a
@@ -1419,8 +1420,8 @@ self-provisioning route is NOT parkable — it is pursued and the STOP does not 
 seeded as `requires-execution` and listed in the STOP declaration as a §19 hand-off, exactly as §8 criterion 1
 already lets the static loop stop while `requires-execution` gaps remain; an operator-owned item is a typed
 `blocked-on-<reason>` row carrying its `unblock:` plan (§21.1); (3) STOP is honored only when the list is empty, or
-every remaining item is parked by the operator, handed off in the STOP declaration (unattended run), or is a
-`not-buildable` wall stating that every instrument class was tried. Operator parking follows the §8 D4 rule
+every remaining item is parked by the operator, is a §19 hand-off listed in the STOP declaration, is an
+operator-owned item handed off in the STOP declaration (unattended run only), or is a `not-buildable` wall stating that every instrument class was tried. Operator parking follows the §8 D4 rule
 (search `deferred-by-policy`): Priority `deferred`, a typed `blocked-on-<reason>` Status, and `parked by operator
 <date>` in the Status DECORATION — never in the Gap cell (`is_blocked` matches the Gap name). In an unattended run no
 operator can answer: list the operator-owned and §19 items with their `unblock:` plans in the STOP declaration as
