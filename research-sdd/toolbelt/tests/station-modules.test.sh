@@ -4,8 +4,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../station-modules.sh"
-FIXTURES="$HERE/fixtures/station-modules"
-mkdir -p "$FIXTURES"
 
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
@@ -15,6 +13,11 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1156,
+# CLAUDE.md §8): zlib output differs across versions, so regenerating the committed copies changed
+# their bytes on the CI runner and the run-all kit-tree guard rightly flagged it.
+FIXTURES="$ROOT/fixtures/station-modules"
+mkdir -p "$FIXTURES" || { echo "FATAL: cannot create $FIXTURES" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # Build hermetic fixtures (under tests/fixtures/, never inside a live target)
@@ -673,6 +676,10 @@ fi
 # ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
+# Hermetic (kit issue #1156): fixtures live in the temp root; the live tests/fixtures dir must not
+# be (re)created by this suite.
+if [ ! -e "$HERE/fixtures/station-modules" ]; then ok "hermetic: suite did not create tests/fixtures/station-modules in the live tree"
+else no "hermetic: suite (re)created tests/fixtures/station-modules in the live tree"; fi
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
   exit $?

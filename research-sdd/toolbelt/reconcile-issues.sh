@@ -128,6 +128,8 @@ _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 . "$_TP_LIB"
 declare -F target_paths_all >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/target-paths.sh failed to define target_paths_all" >&2; exit 1; }
+declare -F target_name_for_retro >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/target-paths.sh failed to define target_name_for_retro" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Fleet accumulators (used under --all to build the final summary line)
@@ -417,23 +419,29 @@ if [ "$_mode" = "single" ]; then
   fi
   retro="$(cd "$(dirname "$retro")" && pwd)/$(basename "$retro")"
 
-  # Derive target name from path hierarchy: retro lives at <target>/retros/<file>
+  # Derive the target NAME exactly as stage-retro-issues.sh does (kit issue #1287): the shared
+  # lib/target-paths.sh helper walks UP to the nearest registered ancestor (flat <target>/retros,
+  # nested <target>/corpus/retros, deeper layouts) and returns the TARGETS.md Target-column name,
+  # so the signature searched here is the `Source retro: <name>/retros/<file>` the writer stamped.
+  #   rc 1 -> operational failure (TARGETS.md absent/unreadable/zero rows): exit 1, never a guess
+  #   rc 2 -> no registered ancestor: flat layout keeps the WARN + basename fallback; a structural
+  #           dir (corpus|retros) is refused (the writer refuses it too, so no issue can exist).
   _retro_dir="$(dirname "$retro")"
   _target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"
-  _tgt_name=""
-
-  if [ -f "$TARGETS_MD" ]; then
-    while IFS= read -r _tgt_path; do
-      _exp="$(cd "$_tgt_path" 2>/dev/null && pwd)" || continue
-      if [ "$_exp" = "$_target_dir" ]; then
-        _tgt_name="$(basename "$_tgt_path")"
-        break
-      fi
-    done < <(target_paths_all "$TARGETS_MD" 2>/dev/null)
+  _tgt_name="$(target_name_for_retro "$TARGETS_MD" "$retro")"
+  _tnr_rc=$?
+  if [ "$_tnr_rc" -eq 1 ]; then
+    echo "reconcile-issues: cannot resolve target for '$retro' — operational failure reading $TARGETS_MD (see message above)" >&2
+    exit 1
   fi
 
-  if [ -z "$_tgt_name" ]; then
+  if [ "$_tnr_rc" -ne 0 ] || [ -z "$_tgt_name" ]; then
     _tgt_name="$(basename "$_target_dir")"
+    case "$_tgt_name" in
+      corpus|retros)
+        echo "reconcile-issues: cannot resolve target for '$retro' — no ancestor directory is registered in $TARGETS_MD (basename '$_tgt_name' is a structural directory, not a target)" >&2
+        exit 1 ;;
+    esac
     echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$_tgt_name'" >&2
   fi
 
@@ -451,23 +459,49 @@ elif [ "$_mode" = "all" ]; then
   while IFS= read -r _tgt_path; do
     [ -d "$_tgt_path" ] || continue
     _tgt_nm="$(basename "$_tgt_path")"
-    _retros_dir="$_tgt_path/retros"
 
-    if [ ! -d "$_retros_dir" ]; then
-      echo "WARN: no retros/ directory for target '$_tgt_nm'" >&2
-      continue
+    # Both layouts hold a target's retros (METHODOLOGY §3b): flat <target>/retros and nested
+    # <target>/corpus/retros (kit issue #1287 — --all used to scan only the flat one).
+    _have_retros_dir=0; _tgt_found=0; _empty_dirs=""
+    for _retros_dir in "$_tgt_path/retros" "$_tgt_path/corpus/retros"; do
+      [ -d "$_retros_dir" ] || continue
+      _have_retros_dir=1
+      _found_retros=0
+      while IFS= read -r _rfile; do
+        [ -f "$_rfile" ] || continue
+        _found_retros=1
+        _found_any_retro=1
+        # Name per retro file via the SAME helper as single mode, so a nested registered target's
+        # own retros are never labelled with this (outer) target's name.
+        _rf_name="$(target_name_for_retro "$TARGETS_MD" "$_rfile")"
+        _rf_rc=$?
+        if [ "$_rf_rc" -ne 0 ] || [ -z "$_rf_name" ]; then
+          echo "degraded: cannot resolve a registered target name for $_rfile (target_name_for_retro rc=$_rf_rc)" >&2
+          _fleet_degraded=$((_fleet_degraded+1))
+          continue
+        fi
+        audit_retro "$_rfile" "$_rf_name" || _fleet_degraded=$((_fleet_degraded+1))
+      done < <(find "$_retros_dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
+
+      if [ "$_found_retros" -eq 0 ]; then
+        _empty_dirs="${_empty_dirs}${_retros_dir}"$'\n'
+      else
+        _tgt_found=1
+      fi
+    done
+
+    # An empty retros dir only WARNs when the target has no retros in ANY of its layouts: a
+    # target keeping them under corpus/retros (e.g. ford) must not also be reported as "no retro
+    # files" for its empty flat retros/ sibling — that would claim the opposite of what was audited.
+    if [ "$_tgt_found" -eq 0 ] && [ -n "$_empty_dirs" ]; then
+      while IFS= read -r _ed; do
+        [ -n "$_ed" ] || continue
+        echo "WARN: no retro files (*.md) found in '$_ed'" >&2
+      done <<<"$_empty_dirs"
     fi
 
-    _found_retros=0
-    while IFS= read -r _rfile; do
-      [ -f "$_rfile" ] || continue
-      _found_retros=1
-      _found_any_retro=1
-      audit_retro "$_rfile" "$_tgt_nm" || _fleet_degraded=$((_fleet_degraded+1))
-    done < <(find "$_retros_dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
-
-    if [ "$_found_retros" -eq 0 ]; then
-      echo "WARN: no retro files (*.md) found in '$_retros_dir'" >&2
+    if [ "$_have_retros_dir" -eq 0 ]; then
+      echo "WARN: no retros/ directory for target '$_tgt_nm'" >&2
     fi
   done < <(target_paths_all "$TARGETS_MD" 2>/dev/null)
 

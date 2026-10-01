@@ -60,7 +60,29 @@ esac
 
 # Derive target (dir holding retros/) and a slug from the filename.
 target_root="$(cd "$(dirname "$(dirname "$retro")")" 2>/dev/null && pwd)" || target_root="$(dirname "$(dirname "$retro")")"
-target=$(basename "$target_root")
+target=$(basename "$target_root")   # fallback label only (see the registered-name lookup below)
+# Label the branch / `Retro:` trailer with the SAME registered Target name stage-retro-issues.sh and
+# reconcile-issues.sh use (kit issue #1287 item 8): nearest registered ancestor via the shared lib
+# helper, so a nested <target>/corpus/retros retro is not labelled `corpus` and a target whose
+# registered name differs from its path basename is not labelled with the basename. The label only
+# names a branch and a commit trailer, so an unreadable / empty registry or an unregistered retro is
+# a loud WARN + basename fallback here (not the hard exit the issue-seeding scripts take): nothing
+# keyed on the name has been written yet. Resolved BEFORE any git mutation.
+TP_LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+if [ ! -f "$TP_LIB" ]; then
+  echo "stage-retro: cannot find helper $TP_LIB" >&2
+  exit 1
+fi
+# shellcheck source=lib/target-paths.sh
+. "$TP_LIB"
+declare -F target_name_for_retro >/dev/null 2>&1 || { echo "stage-retro: helper $TP_LIB failed to define target_name_for_retro" >&2; exit 1; }
+_reg_name="$(target_name_for_retro "$KIT_REPO/research-sdd/TARGETS.md" "$retro")"
+_reg_rc=$?
+if [ "$_reg_rc" -eq 0 ] && [ -n "$_reg_name" ]; then
+  target="$_reg_name"
+else
+  echo "WARN: no registered target name for '$retro' (target_name_for_retro rc=$_reg_rc) — labelling with directory basename '$target'" >&2
+fi
 slug=$(basename "$retro" .md | tr -c 'a-zA-Z0-9._-' '-' | sed 's/-\{2,\}/-/g;s/^-//;s/-$//')
 branch="retro/${target}-${slug}"
 
