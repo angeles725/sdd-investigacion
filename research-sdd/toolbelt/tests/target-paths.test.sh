@@ -14,6 +14,7 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+skip() { printf '  SKIP  %-58s %s\n' "$1" "${2:-}"; }  # a skipped check is neither pass nor fail (run-all counts SKIP lines)
 # call <lib> <fn> <targets_md>: source lib in a subprocess, invoke fn with targets_md as $1.
 call() { "$BASH_BIN" --norc -c "source '$1'; $2 \"\$1\"" -- "$3"; }
 
@@ -250,7 +251,7 @@ if [ ! -r "$TN19d" ]; then
   tnr "$TN19d" "$(mkretro "$N/middle")"
   if [ "$TNR_RC" = 1 ] && grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "19d unreadable TARGETS.md → rc 1, typed 'cannot read'"
   else no "19d unreadable TARGETS.md → rc 1, typed 'cannot read'" "rc=$TNR_RC err=[$TNR_ERR]"; fi
-else ok "19d unreadable TARGETS.md (skipped: chmod 000 still readable, running as root?)"; fi
+else skip "19d unreadable TARGETS.md" "chmod 000 still readable (running as root?) — premise unavailable, NOT a pass"; fi
 chmod 600 "$TN19d"
 tnr "$TN1" "${N}/no-such-dir/retros/r.md"
 if [ "$TNR_RC" = 1 ] && grep -qi 'retro' <<<"$TNR_ERR"; then ok "19e retro directory that does not exist → rc 1, typed message"
@@ -448,7 +449,7 @@ if tnr_mutant 3 '/if \[ ! -f "\$f" \] || \[ ! -r "\$f" \]; then/,/^    fi$/d'; t
       LIB="$MUT_TNR"; tnr "$TN19d" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
       if ! grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "teeth TNR-3: guard-less mutant flips case 19d (has teeth)"
       else no "teeth TNR-3: guard-less mutant must flip case 19d" "rc=$TNR_RC err=[$TNR_ERR]"; fi
-    else ok "teeth TNR-3: skipped (chmod 000 still readable, running as root?)"; fi
+    else skip "teeth TNR-3: guard-less mutant vs case 19d" "chmod 000 still readable (running as root?) — mutant not exercised, NOT a pass"; fi
     chmod 600 "$TN19d"
   fi
 fi
