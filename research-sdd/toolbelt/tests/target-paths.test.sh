@@ -118,6 +118,154 @@ if grep -qF '/rh&amp/path/tgt' <<<"$out9"; then
   ok "9 RESEARCH_HOME with '&' → literal path returned (ENVIRON-based awk, no & expansion)"
 else no "9 RESEARCH_HOME with '&' → expected literal /rh&amp/path/tgt" "out=[$out9]"; fi
 
+# ---------------------------------------------------------------------------
+# target_name_for_retro <targets_md> <retro> (kit issue #1287 item 1): the ONE walk-up + name
+# lookup shared by stage-retro-issues / reconcile-issues / stage-retro. Contract:
+#   rc 0 + name on stdout  -> nearest registered ancestor of the retro's retros/ directory
+#   rc 2 + empty stdout    -> TARGETS.md read fine, but no ancestor is registered (no-match)
+#   rc 1 + typed stderr    -> operational failure (TARGETS.md absent/unreadable/no rows parsed)
+# tnr <targets_md> <retro> [RESEARCH_HOME]: sets TNR_OUT / TNR_ERR / TNR_RC.
+tnr() {
+  local errf="${ROOT}/tnr.err"
+  TNR_OUT="$(RESEARCH_HOME="${3:-$ROOT}" "$BASH_BIN" --norc -c \
+    "set -uo pipefail; source '$LIB'; target_name_for_retro \"\$1\" \"\$2\"" -- "$1" "$2" 2>"$errf")"; TNR_RC=$?
+  TNR_ERR="$(cat "$errf")"
+}
+# mkretro <dir>: create <dir>/retros/r.md and echo its path.
+mkretro() { mkdir -p "$1/retros"; : > "$1/retros/r.md"; printf '%s' "$1/retros/r.md"; }
+
+N="${ROOT}/tn"; mkdir -p "$N"
+TN1="${N}/t1.md"
+{
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n'
+  printf '| 1 | reg-first | `%s/first` |\n' "$N"
+  printf '| 2 | reg-middle | `%s/middle` |\n' "$N"
+  printf '| 3 | reg-last | `%s/last` |\n' "$N"
+} > "$TN1"
+
+# 10 — flat layout resolves to the registered NAME (cell 2), not the path basename
+tnr "$TN1" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "reg-middle" ]; then ok "10 flat <target>/retros → registered name"
+else no "10 flat <target>/retros → registered name" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
+# 11 — list edges: FIRST / LAST rows resolve too (a loop that skips an edge row must be caught)
+tnr "$TN1" "$(mkretro "$N/first")";  r1="$TNR_OUT/$TNR_RC"
+tnr "$TN1" "$(mkretro "$N/last")";   r3="$TNR_OUT/$TNR_RC"
+if [ "$r1" = "reg-first/0" ] && [ "$r3" = "reg-last/0" ]; then ok "11 first and last table rows resolve (list edges)"
+else no "11 first and last table rows resolve (list edges)" "first=[$r1] last=[$r3]"; fi
+
+# 12 — single-row table
+TN12="${N}/t12.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | only-one | `%s/solo` |\n' "$N" > "$TN12"
+tnr "$TN12" "$(mkretro "$N/solo")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "only-one" ]; then ok "12 single-row table resolves"
+else no "12 single-row table resolves" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
+# 13 — nested corpus layout (<target>/corpus/retros) and a deeper one both resolve
+tnr "$TN1" "$(mkretro "$N/middle/corpus")"; n1="$TNR_OUT/$TNR_RC"
+tnr "$TN1" "$(mkretro "$N/middle/sub/deeper")"; n2="$TNR_OUT/$TNR_RC"
+if [ "$n1" = "reg-middle/0" ] && [ "$n2" = "reg-middle/0" ]; then ok "13 nested corpus/retros and deeper layouts resolve"
+else no "13 nested corpus/retros and deeper layouts resolve" "corpus=[$n1] deeper=[$n2]"; fi
+
+# 14 — NESTED REGISTERED TARGETS: the NEAREST ancestor wins, in BOTH row orders (a mutant that
+#      matches the OUTERMOST ancestor, or depends on row order, must not survive).
+mkdir -p "$N/outer/inner"
+TN14a="${N}/t14a.md"; TN14b="${N}/t14b.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-t | `%s/outer` |\n| 2 | inner-t | `%s/outer/inner` |\n' "$N" "$N" > "$TN14a"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | inner-t | `%s/outer/inner` |\n| 2 | outer-t | `%s/outer` |\n' "$N" "$N" > "$TN14b"
+ri="$(mkretro "$N/outer/inner")"; ro="$(mkretro "$N/outer")"
+tnr "$TN14a" "$ri"; a_in="$TNR_OUT"; tnr "$TN14a" "$ro"; a_out="$TNR_OUT"
+tnr "$TN14b" "$ri"; b_in="$TNR_OUT"; tnr "$TN14b" "$ro"; b_out="$TNR_OUT"
+if [ "$a_in" = inner-t ] && [ "$a_out" = outer-t ] && [ "$b_in" = inner-t ] && [ "$b_out" = outer-t ]; then
+  ok "14 nested registered targets: nearest ancestor wins in both row orders"
+else no "14 nested registered targets: nearest ancestor wins in both row orders" \
+  "a_in=$a_in a_out=$a_out b_in=$b_in b_out=$b_out"; fi
+
+# 15 — RAW $RESEARCH_HOME token (the form every real row uses), both $X and ${X} spellings
+TN15="${N}/t15.md"
+{
+  printf '# t\n\n| # | Target | Path |\n|---|---|---|\n'
+  printf '| 1 | rh-plain | `$RESEARCH_HOME/rhp` |\n'
+  printf '| 2 | rh-braced | `${RESEARCH_HOME}/rhb` |\n'
+} > "$TN15"
+tnr "$TN15" "$(mkretro "$N/rhp")" "$N"; p1="$TNR_OUT/$TNR_RC"
+tnr "$TN15" "$(mkretro "$N/rhb/corpus")" "$N"; p2="$TNR_OUT/$TNR_RC"
+if [ "$p1" = "rh-plain/0" ] && [ "$p2" = "rh-braced/0" ]; then ok "15 raw \$RESEARCH_HOME and \${RESEARCH_HOME} tokens resolve to the row name"
+else no "15 raw \$RESEARCH_HOME and \${RESEARCH_HOME} tokens resolve to the row name" "plain=[$p1] braced=[$p2]"; fi
+
+# 16 — NAME FALLBACK: an empty name cell falls back to the path basename (quietly: no usable name
+#      is a registry-shape fact, not a lookup failure) …
+TN16="${N}/t16.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 |  | `%s/blankname` |\n' "$N" > "$TN16"
+tnr "$TN16" "$(mkretro "$N/blankname")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "blankname" ]; then ok "16a empty name cell → path basename fallback"
+else no "16a empty name cell → path basename fallback" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# … and a name containing whitespace falls back WITH a WARN (it was silent before: R2-whitespace-fallback)
+TN16b="${N}/t16b.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | two words | `%s/spacename` |\n' "$N" > "$TN16b"
+tnr "$TN16b" "$(mkretro "$N/spacename")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "spacename" ] && grep -qi 'WARN' <<<"$TNR_ERR" && grep -qF 'two words' <<<"$TNR_ERR"; then
+  ok "16b whitespace name → basename fallback with a WARN naming the cell"
+else no "16b whitespace name → basename fallback with a WARN naming the cell" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+# markdown decoration (**bold**/backticks) is stripped from the name cell
+TN16c="${N}/t16c.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | **bold-name** | `%s/boldt` |\n' "$N" > "$TN16c"
+tnr "$TN16c" "$(mkretro "$N/boldt")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "bold-name" ]; then ok "16c markdown decoration stripped from the name cell"
+else no "16c markdown decoration stripped from the name cell" "rc=$TNR_RC out=[$TNR_OUT]"; fi
+
+# 17 — SYMLINKS: physical resolution on BOTH sides (retro reached via a symlink to a registered
+#      dir; registered path itself written through a symlink).
+mkdir -p "$N/real-t/retros"; : > "$N/real-t/retros/r.md"
+ln -sfn "$N/real-t" "$N/link-t"
+TN17="${N}/t17.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | sym-t | `%s/real-t` |\n' "$N" > "$TN17"
+tnr "$TN17" "$N/link-t/retros/r.md"; s1="$TNR_OUT/$TNR_RC"           # retro via symlink
+TN17b="${N}/t17b.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | sym-t | `%s/link-t` |\n' "$N" > "$TN17b"
+tnr "$TN17b" "$N/real-t/retros/r.md"; s2="$TNR_OUT/$TNR_RC"          # registered via symlink
+if [ "$s1" = "sym-t/0" ] && [ "$s2" = "sym-t/0" ]; then ok "17 symlinked retro dir / symlinked registered path both resolve physically"
+else no "17 symlinked retro dir / symlinked registered path both resolve physically" "retro-via-link=[$s1] reg-via-link=[$s2]"; fi
+
+# 18 — no registered ancestor: rc 2, EMPTY stdout (no-match is distinct from operational failure)
+mkdir -p "$N/stranger"
+tnr "$TN1" "$(mkretro "$N/stranger")"
+if [ "$TNR_RC" = 2 ] && [ -z "$TNR_OUT" ]; then ok "18 unregistered retro → rc 2, empty stdout (no-match)"
+else no "18 unregistered retro → rc 2, empty stdout (no-match)" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
+# 19 — OPERATIONAL failures are rc 1 with typed stderr, never a quiet no-match:
+tnr "${N}/does-not-exist.md" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "19a absent TARGETS.md → rc 1, typed 'cannot read'"
+else no "19a absent TARGETS.md → rc 1, typed 'cannot read'" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+TN19b="${N}/t19b.md"; : > "$TN19b"
+tnr "$TN19b" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 1 ] && [ -z "$TNR_OUT" ] && grep -qi 'no registered target' <<<"$TNR_ERR"; then ok "19b empty TARGETS.md → rc 1, typed 'no registered target paths'"
+else no "19b empty TARGETS.md → rc 1, typed 'no registered target paths'" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+TN19c="${N}/t19c.md"; printf '# t\n\n| # | Target | Path |\n|---|---|---|\n' > "$TN19c"
+tnr "$TN19c" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 1 ] && grep -qi 'no registered target' <<<"$TNR_ERR"; then ok "19c header-only TARGETS.md (zero rows) → rc 1"
+else no "19c header-only TARGETS.md (zero rows) → rc 1" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+TN19d="${N}/t19d.md"; cp "$TN1" "$TN19d"; chmod 000 "$TN19d"
+if [ ! -r "$TN19d" ]; then
+  tnr "$TN19d" "$(mkretro "$N/middle")"
+  if [ "$TNR_RC" = 1 ] && grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "19d unreadable TARGETS.md → rc 1, typed 'cannot read'"
+  else no "19d unreadable TARGETS.md → rc 1, typed 'cannot read'" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+else ok "19d unreadable TARGETS.md (skipped: chmod 000 still readable, running as root?)"; fi
+chmod 600 "$TN19d"
+tnr "$TN1" "${N}/no-such-dir/retros/r.md"
+if [ "$TNR_RC" = 1 ] && grep -qi 'retro' <<<"$TNR_ERR"; then ok "19e retro directory that does not exist → rc 1, typed message"
+else no "19e retro directory that does not exist → rc 1, typed message" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+out19f="$("$BASH_BIN" --norc -c "source '$LIB'; target_name_for_retro" 2>&1)"; rc19f=$?
+if [ "$rc19f" = 1 ] && grep -qi 'target_name_for_retro' <<<"$out19f"; then ok "19f no arguments → rc 1, typed usage message"
+else no "19f no arguments → rc 1, typed usage message" "rc=$rc19f out=[$out19f]"; fi
+
+# 20 — a registered row whose path does not exist is skipped, later rows still resolve
+TN20="${N}/t20.md"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | ghost | `%s/ghost-dir` |\n| 2 | real-after-ghost | `%s/middle` |\n' "$N" "$N" > "$TN20"
+tnr "$TN20" "$(mkretro "$N/middle")"
+if [ "$TNR_RC" = 0 ] && [ "$TNR_OUT" = "real-after-ghost" ]; then ok "20 nonexistent registered path is skipped, later row resolves"
+else no "20 nonexistent registered path is skipped, later row resolves" "rc=$TNR_RC out=[$TNR_OUT] err=[$TNR_ERR]"; fi
+
 # --- summary ---
 echo ""
 total=$((pass+fail))
@@ -261,6 +409,73 @@ echo '' | awk 'BEGIN { rh="" }
 if [ "$_sab9_rc" -ne 0 ]; then
   ok "teeth 9 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
 else no "teeth 9 sabotage: old broken awk parsed — sabotage detection ineffective"; fi
+
+# Teeth for target_name_for_retro (kit issue #1287): each mutant must (a) differ from the SUT,
+# (b) pass bash -n (no crash-based theater), and (c) flip the specific case that guards the
+# behavior it removes. tnr() reads $LIB, so the mutant is swapped in for one scenario at a time.
+echo "-- teeth TNR: target_name_for_retro mutants --"
+LIB_ORIG="$LIB"
+# tnr_mutant <id> <sed-expr>: writes the mutant to $MUT_TNR (empty on a vacuous/invalid mutant).
+tnr_mutant() {
+  MUT_TNR="${ROOT}/tnr-mutant-$1.sh"
+  sed "$2" "$LIB_ORIG" > "$MUT_TNR"
+  if cmp -s "$LIB_ORIG" "$MUT_TNR"; then
+    no "teeth TNR-$1 (a): mutant differs from SUT" "sed changed nothing — vacuous mutant"; MUT_TNR=""; return 1
+  fi
+  if ! bash -n "$MUT_TNR" 2>/dev/null; then
+    no "teeth TNR-$1 (b): mutant passes bash -n" "syntax error — crash-based theater"; MUT_TNR=""; return 1
+  fi
+  ok "teeth TNR-$1 (a,b): mutant differs and parses"
+}
+
+# TNR-1: keep walking after the first match -> OUTERMOST registered ancestor wins (case 14).
+if tnr_mutant 1 's|break 2   # SENTINEL-TNR-NEAREST.*|:|'; then
+  LIB="$MUT_TNR"; tnr "$TN14a" "$ri"; m_in="$TNR_OUT"; LIB="$LIB_ORIG"
+  if [ "$m_in" = outer-t ]; then ok "teeth TNR-1: outermost-ancestor mutant flips case 14 (has teeth)"
+  else no "teeth TNR-1: outermost-ancestor mutant must flip case 14" "inner retro resolved to [$m_in]"; fi
+fi
+# TNR-2: logical instead of physical paths (case 17).
+if tnr_mutant 2 's/cd -P/cd/g; s/pwd -P/pwd/g'; then
+  LIB="$MUT_TNR"; tnr "$TN17" "$N/link-t/retros/r.md"; m_s1="$TNR_OUT/$TNR_RC"; LIB="$LIB_ORIG"
+  if [ "$m_s1" != "sym-t/0" ]; then ok "teeth TNR-2: logical-path mutant flips case 17 (has teeth)"
+  else no "teeth TNR-2: logical-path mutant must flip case 17" "still resolved: [$m_s1]"; fi
+fi
+# TNR-3: drop the absent/unreadable guard (case 19d: unreadable file keeps the 'cannot read' message).
+if tnr_mutant 3 '/if \[ ! -f "\$f" \] || \[ ! -r "\$f" \]; then/,/^    fi$/d'; then
+  if [ ! -r "$TN19d" ] || chmod 000 "$TN19d"; then
+    chmod 000 "$TN19d"
+    if [ ! -r "$TN19d" ]; then
+      LIB="$MUT_TNR"; tnr "$TN19d" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
+      if ! grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "teeth TNR-3: guard-less mutant flips case 19d (has teeth)"
+      else no "teeth TNR-3: guard-less mutant must flip case 19d" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+    else ok "teeth TNR-3: skipped (chmod 000 still readable, running as root?)"; fi
+    chmod 600 "$TN19d"
+  fi
+fi
+# TNR-4: drop the empty-pairs guard -> a registry with zero rows reads as a quiet no-match (19b/19c).
+if tnr_mutant 4 '/if \[ -z "\$pairs" \]; then/,/^    fi$/d'; then
+  LIB="$MUT_TNR"; tnr "$TN19c" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
+  if [ "$TNR_RC" != 1 ]; then ok "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)"
+  else no "teeth TNR-4: empty-pairs-guard mutant must flip case 19c" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+fi
+# TNR-5: ignore the name cell, always use the basename (cases 15 / 16c).
+if tnr_mutant 5 's#^      name="\$(awk -F.*#      name=""#'; then
+  LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "$N"; m_p="$TNR_OUT"; LIB="$LIB_ORIG"
+  if [ "$m_p" = rhp ]; then ok "teeth TNR-5: basename-only mutant flips case 15 (has teeth)"
+  else no "teeth TNR-5: basename-only mutant must flip case 15" "resolved to [$m_p]"; fi
+fi
+# TNR-6: drop the whitespace WARN (case 16b).
+if tnr_mutant 6 '/contains whitespace and cannot be a label/d'; then
+  LIB="$MUT_TNR"; tnr "$TN16b" "$(mkretro "$N/spacename")"; LIB="$LIB_ORIG"
+  if ! grep -qi 'WARN' <<<"$TNR_ERR"; then ok "teeth TNR-6: WARN-less mutant flips case 16b (has teeth)"
+  else no "teeth TNR-6: WARN-less mutant must flip case 16b" "err=[$TNR_ERR]"; fi
+fi
+# TNR-7: no-match returns 0 instead of 2 (case 18).
+if tnr_mutant 7 's/\[ "\$hit" -ge 0 \] || return 2/[ "$hit" -ge 0 ] || return 0/'; then
+  LIB="$MUT_TNR"; tnr "$TN1" "$(mkretro "$N/stranger")"; LIB="$LIB_ORIG"
+  if [ "$TNR_RC" != 2 ]; then ok "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)"
+  else no "teeth TNR-7: no-match-rc mutant must flip case 18" "rc=$TNR_RC"; fi
+fi
 
 echo ""
 if [ "$fail" -gt 0 ]; then
