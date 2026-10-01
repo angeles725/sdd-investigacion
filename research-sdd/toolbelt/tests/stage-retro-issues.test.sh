@@ -135,7 +135,7 @@ mkbox() {
 #   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
 #   (except createfail).
 mk_gh_stub() {
-  local box="$1" mode="${2:-nomatch}"
+  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}"
   {
     printf '#!%s\n' "$BASH_BIN"
     # Log all calls for inspection
@@ -162,6 +162,19 @@ mk_gh_stub() {
           # very regression the tooth exists to prove.
           printf '  *" --state open "*) printf "[]\\n"; exit 0 ;;\n'
           printf '  *" issue list "*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n'
+          ;;
+        matchsig)
+          # kit issue #1287 item 2: an OPEN match ONLY for a `gh issue list` whose --search text
+          # contains $sigpat (the 3rd arg); every other list call sees an empty array. Lets a test
+          # prove WHICH signature (new vs legacy) a dedup lookup carried.
+          printf '  *" issue list "*"%s"*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n' "$sigpat"
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
+          ;;
+        failsig)
+          # Like matchsig, but the matching list call FAILS (exit 1) — a failed lookup for ONE of
+          # the signatures must still count as failed, never fall through to create.
+          printf '  *" issue list "*"%s"*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n' "$sigpat"
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
           ;;
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
@@ -1572,6 +1585,49 @@ RETROEOF
     fi
   fi
 
+  # TOOTH #1287-c/d/e: the legacy-signature dedup. Each mutant must make its case create a duplicate.
+  legacy_box() {  # <name> <stub-mode> <stub-pattern> → echoes box; retro at $box/rh/target-foo/retros/r-legacy.md
+    local b
+    b="$(mkbox "$1")"
+    printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$b" \
+      > "$b/research-sdd/TARGETS.md"
+    mk_gh_stub "$b" "$2" "$3"
+    mk_retro "$b" target-foo r-legacy.md "<!-- review-status: pending -->" \
+      "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |" >/dev/null
+    printf '%s' "$b"
+  }
+  echo "-- teeth T1287c: disable the legacy-signature search --"
+  box_c="$(legacy_box teeth-legacy-off matchsig 'Source retro: target-foo/retros/r-legacy.md')"
+  if tooth_swap "$box_c" stage-retro-issues.sh 'if [ "$_legacy_target_name" != "$target_name" ]; then' 'if false; then'; then
+    run_box "$box_c" "$box_c/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_c/bin/gh.log" 2>/dev/null; then
+      ok "T1287c teeth: legacy search disabled → duplicate created (case 75 has teeth)" "()"
+    else
+      no "T1287c teeth: legacy search disabled" "case 75 is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1287d: legacy lookup failure guards neutered --"
+  box_d="$(legacy_box teeth-legacy-failguard failsig 'Source retro: target-foo/retros/')"
+  if tooth_swap "$box_d" stage-retro-issues.sh 'if [ "$_legacy_rc" -ne 0 ]; then' 'if false; then' \
+     && tooth_swap "$box_d" stage-retro-issues.sh "if ! grep -q '^[[:space:]]*\\[' <<<\"\$_legacy_existing\"; then" 'if false; then'; then
+    run_box "$box_d" "$box_d/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_d/bin/gh.log" 2>/dev/null; then
+      ok "T1287d teeth: legacy failure guards neutered → falls through to create (case 75c has teeth)" "()"
+    else
+      no "T1287d teeth: legacy failure guards neutered" "case 75c is THEATER: out=[$MOUT]"
+    fi
+  fi
+  echo "-- teeth T1287e: legacy OPEN-match check neutered --"
+  box_e="$(legacy_box teeth-legacy-open matchsig 'Source retro: target-foo/retros/r-legacy.md')"
+  if tooth_swap "$box_e" stage-retro-issues.sh "if grep -q '\"state\":[[:space:]]*\"OPEN\"' <<<\"\$_legacy_existing\"; then" 'if false; then'; then
+    run_box "$box_e" "$box_e/rh/target-foo/retros/r-legacy.md" --apply
+    if grep -q 'issue create' "$box_e/bin/gh.log" 2>/dev/null; then
+      ok "T1287e teeth: legacy OPEN check neutered → duplicate created (case 75 has teeth)" "()"
+    else
+      no "T1287e teeth: legacy OPEN check neutered" "case 75 is THEATER: out=[$MOUT]"
+    fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -2761,6 +2817,73 @@ if [ "$rc74a" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$out74a" \
 else
   no "74 name fallback → expected basename label, WARN on whitespace" "empty=[$out74a] space=[$out74b]"
 fi
+
+# 75 — LEGACY SIGNATURE DEDUP (kit issue #1287 item 2): issues created before #1286 carry
+#      `<path basename>/retros/<file>`; a target whose registered NAME differs from its basename
+#      must ALSO search that legacy signature, or a re-marked pending retro would duplicate on
+#      --apply. Control: the new signature alone matches nothing here, so only the legacy search
+#      can produce the skip.
+box75="$(mkbox case-legacy-dedup)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75" \
+  > "$box75/research-sdd/TARGETS.md"
+mk_gh_stub "$box75" matchsig 'Source retro: target-foo/retros/r-legacy.md'
+retro75="$(mk_retro "$box75" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75" "$retro75" --apply
+create75=0; [ -f "$box75/bin/gh.log" ] && grep -q 'issue create' "$box75/bin/gh.log" && create75=1
+if [ "$RC" = 0 ] && [ "$create75" = 0 ] && grep -q 'skipped-duplicate' <<<"$OUT" \
+  && grep -qF 'Source retro: target-foo/retros/r-legacy.md' <<<"$(cat "$box75/bin/gh.log")" \
+  && grep -qF 'Source retro: reg-name/retros/r-legacy.md' <<<"$(cat "$box75/bin/gh.log")"; then
+  ok "75 --apply: legacy basename signature match suppresses create (new + legacy both searched)" "(exit $RC)"
+else
+  no "75 --apply: legacy basename signature match must suppress create" "exit=$RC create=$create75 out=[$OUT]"
+fi
+
+# 75b — control: neither signature matches → the create goes through.
+box75b="$(mkbox case-legacy-dedup-nomatch)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75b" \
+  > "$box75b/research-sdd/TARGETS.md"
+mk_gh_stub "$box75b" matchsig 'Source retro: unrelated/retros/'
+retro75b="$(mk_retro "$box75b" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75b" "$retro75b" --apply
+create75b=0; [ -f "$box75b/bin/gh.log" ] && grep -q 'issue create' "$box75b/bin/gh.log" && create75b=1
+if [ "$RC" = 0 ] && [ "$create75b" = 1 ] && grep -q 'summary: created=1 ' <<<"$OUT"; then
+  ok "75b --apply: no signature matches → create called (control)" "(exit $RC)"
+else
+  no "75b --apply: no signature matches → expected a create" "exit=$RC create=$create75b out=[$OUT]"
+fi
+
+# 75c — a FAILED legacy lookup must not fall through to create either (anti-silent-zero): count it
+#       as failed, exit 2, exactly like a failed primary lookup.
+box75c="$(mkbox case-legacy-dedup-listfail)"
+printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s/rh/target-foo` |\n' "$box75c" \
+  > "$box75c/research-sdd/TARGETS.md"
+mk_gh_stub "$box75c" failsig 'Source retro: target-foo/retros/'
+retro75c="$(mk_retro "$box75c" target-foo r-legacy.md "<!-- review-status: pending -->" \
+  "| 1 | legacy delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75c" "$retro75c" --apply
+create75c=0; [ -f "$box75c/bin/gh.log" ] && grep -q 'issue create' "$box75c/bin/gh.log" && create75c=1
+if [ "$RC" = 2 ] && [ "$create75c" = 0 ] && grep -qi 'ERROR.*issue list' <<<"$OUT" \
+  && grep -q 'summary:.*failed=1' <<<"$OUT"; then
+  ok "75c --apply: failed legacy lookup counts as failed, never creates, exit 2" "(exit $RC)"
+else
+  no "75c --apply: failed legacy lookup must not fall through to create" "exit=$RC create=$create75c out=[$OUT]"
+fi
+
+# 75d — name == basename: NO second (legacy) list call — the legacy search is only for drift.
+box75d="$(mkbox case-legacy-dedup-same)"
+mk_gh_stub "$box75d" nomatch
+retro75d="$(mk_retro "$box75d" target-foo r-same.md "<!-- review-status: pending -->" \
+  "| 1 | same delta | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box75d" "$retro75d" --apply
+lists75d="$(grep -c 'issue list' "$box75d/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$lists75d" = 1 ]; then
+  ok "75d --apply: name == basename → exactly one dedup list call" "(lists=$lists75d)"
+else
+  no "75d --apply: name == basename → expected exactly one list call" "exit=$RC lists=$lists75d out=[$OUT]"
+fi
+
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

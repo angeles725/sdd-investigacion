@@ -438,6 +438,9 @@ if [ "$_tnr_rc" -ne 0 ] || [ -z "$target_name" ]; then
   esac
   echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$target_name'" >&2
 fi
+# Pre-#1286 issues carry the legacy `<path basename>/retros/<file>` signature; remember it so the
+# --apply dedup can search it too when the registered name differs from the basename (#1287).
+_legacy_target_name="$(basename "$_target_dir")"
 
 # ---------------------------------------------------------------------------
 # Parse review-status and detect PARTIAL applied markers.
@@ -726,6 +729,35 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
     fi
+    # STAGE_RETRO_ISSUES_DEDUP_LEGACY_SIG (kit issue #1287 item 2): issues created before #1286
+    # carry the legacy `<path basename>/retros/<file>` signature (e.g. `cloudflare/retros/...`,
+    # today's key is `cloudflare-tunnels/retros/...`). When the registered name differs from the
+    # basename, search that signature too (all states, same failure guards as above) so a
+    # re-marked pending retro cannot duplicate on --apply. Skipped when they are equal: one
+    # lookup, no extra gh traffic for the common case.
+    if [ "$_legacy_target_name" != "$target_name" ]; then
+      _legacy_sig="Source retro: ${_legacy_target_name}/retros/${retro_basename} · ${_rid}"
+      _legacy_existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
+        --search "\"$_legacy_sig\"" --json state 2>&1)"
+      _legacy_rc=$?
+      if [ "$_legacy_rc" -ne 0 ]; then
+        echo "ERROR: gh issue list (legacy-signature dedup) failed for row $_rid: $_legacy_existing" >&2
+        failed=$((failed+1)); continue
+      fi
+      if ! grep -q '^[[:space:]]*\[' <<<"$_legacy_existing"; then
+        echo "ERROR: gh issue list (legacy-signature dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_legacy_existing" >&2
+        failed=$((failed+1)); continue
+      fi
+      if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
+        echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
+        skipped_dedup=$((skipped_dedup+1)); continue
+      fi
+      if grep -q '"state":[[:space:]]*"CLOSED"' <<<"$_legacy_existing"; then
+        echo "skipped-duplicate: issue for row $_rid already exists (closed; legacy signature matched '$_legacy_sig')"
+        skipped_dedup=$((skipped_dedup+1)); continue
+      fi
+    fi
+
     _label_flags=""
     IFS=',' read -ra _lbl_arr <<< "$_labels"
     for _lbl in "${_lbl_arr[@]}"; do
