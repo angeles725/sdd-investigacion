@@ -173,16 +173,20 @@ STUBHELP
       #   listempty        : `gh label list` exits 0 with EMPTY stdout (not a JSON array)
       #   createfail       : `gh label list` replies [] and `gh label create` exits 1
       #   failjson         : `gh label list` prints a valid '[]' but exits 1 (rc must win over the reply)
+      #   existsupper      : the label exists but with UPPER-CASE letters (GitHub label names are case-insensitive)
+      #   racewin          : first `label list` -> [], `label create` exits 1, SECOND `label list` -> exists (a concurrent run created it)
       #   fuzzyonly        : `gh label list` replies ONLY a longer, different label (a fuzzy hit)
       case "$labelmode" in
         exists)     printf '  *" label list "*) _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; printf "[{\\"name\\":\\"%%s\\"}]\\n" "$_s"; exit 0 ;;\n' ;;
+        existsupper) printf '  *" label list "*) _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; _u="$(printf "%%s" "$_s" | tr a-z A-Z)"; printf "[{\\"name\\":\\"%%s\\"}]\\n" "$_u"; exit 0 ;;\n' ;;
+        racewin)    printf '  *" label list "*) _c="$(cat "$0.lcnt" 2>/dev/null || echo 0)"; _c=$((_c+1)); echo "$_c" > "$0.lcnt"; _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; if [ "$_c" -ge 2 ]; then printf "[{\\"name\\":\\"%%s\\"}]\\n" "$_s"; else printf "[]\\n"; fi; exit 0 ;;\n' ;;
         fuzzyonly)  printf '  *" label list "*) _s=""; _p=""; for _a in "$@"; do [ "$_p" = "--search" ] && _s="$_a"; _p="$_a"; done; printf "[{\\"name\\":\\"%%s-extra\\"}]\\n" "$_s"; exit 0 ;;\n' ;;
         listfail)   printf '  *" label list "*) printf "gh: label list failed\\n" >&2; exit 1 ;;\n' ;;
         listempty)  printf '  *" label list "*) exit 0 ;;\n' ;;
         failjson)   printf '  *" label list "*) printf "[]\\n"; exit 1 ;;\n' ;;   # exit 1 BUT a parseable array
         *)          printf '  *" label list "*) printf "[]\\n"; exit 0 ;;\n' ;;
       esac
-      if [ "$labelmode" = "createfail" ]; then
+      if [ "$labelmode" = "createfail" ] || [ "$labelmode" = "racewin" ]; then
         printf '  *" label create "*) printf "gh: label create failed\\n" >&2; exit 1 ;;\n'
       else
         printf '  *" label create "*) exit 0 ;;\n'
@@ -1908,7 +1912,7 @@ RETROEOF
     if [ "$N_ICREATE" = 2 ]; then ok "T1332-d teeth: label-create failure no longer exits → issues created (76d has teeth)" "()"
     else no "T1332-d teeth: swallowed create failure must flip 76d" "76d is THEATER: icreate=$N_ICREATE"; fi
   fi
-  if lbl_mutant fuzzy nomatch fuzzyonly 's/tr -d .\[:space:\]. | grep -qF "\\"name\\":\\"\${_lname}\\""/grep -qF "${_lname}"/'; then
+  if lbl_mutant fuzzy nomatch fuzzyonly 's/tr -d .\[:space:\]. | tr .A-Z. .a-z. | grep -qF "\\"name\\":\\"\${_lname_lc}\\""/grep -qF "${_lname_lc}"/'; then
     if [ "$N_LCREATE" = 0 ]; then ok "T1332-e teeth: substring match → fuzzy hit read as 'exists', no create (76f has teeth)" "()"
     else no "T1332-e teeth: fuzzy match must flip 76f" "76f is THEATER: lcreate=$N_LCREATE"; fi
   fi
@@ -1919,6 +1923,38 @@ RETROEOF
   if lbl_mutant color nomatch missing 's/--color d4c5f9/--color ededed/'; then
     if ! grep -qF -- '--color d4c5f9' <<<"$LOG"; then ok "T1332-g teeth: wrong color → convention assertion fails (76a has teeth)" "()"
     else no "T1332-g teeth: wrong color must flip 76a" "76a is THEATER"; fi
+  fi
+
+  if lbl_mutant nocase nomatch existsupper 's/ | tr .A-Z. .a-z. | grep -qF/ | grep -qF/'; then
+    if [ "$N_LCREATE" = 1 ]; then ok "T1332-h teeth: case-sensitive compare → upper-case label read as missing (76i has teeth)" "()"
+    else no "T1332-h teeth: case-sensitive compare must flip 76i" "76i is THEATER: lcreate=$N_LCREATE"; fi
+  fi
+  if lbl_mutant noreprobe nomatch racewin 's/^      if ! _label_present "\$_lname"; then$/      if true; then/'; then
+    if [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ]; then ok "T1332-i teeth: no re-probe after a failed create → degraded despite the race winner (76j has teeth)" "()"
+    else no "T1332-i teeth: removed re-probe must flip 76j" "76j is THEATER: degr=$N_DEGR icreate=$N_ICREATE"; fi
+  fi
+  # entry-form seeding (N1/N6) mutants
+  ent_mutant() {   # ent_mutant <tag> <sed-expr> <retro-fixture-writer-arg: plain|gap>
+    local tag="$1" expr="$2" kind="$3" mbox mfile r
+    mbox="$(mkbox "teeth-entry-$tag")"; mk_gh_stub "$mbox" nomatch
+    mfile="$mbox/research-sdd/toolbelt/stage-retro-issues.sh"
+    if ! mutant_sed "$SUT" "$mfile" -e "$expr"; then no "T1332-$tag: build mutant" "mutant_sed refused"; return 1; fi
+    r="$mbox/rh/target-foo/retros/r.md"
+    if [ "$kind" = gap ]; then
+      printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$r"
+    else
+      sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$HERE/fixtures/retro-entry-form-applied-3.md" > "$r"
+    fi
+    run "$mbox" "$r"
+    return 0
+  }
+  if ent_mutant seedoff 's/^  _rows="\$(retro_grammar_entry_rows "\$retro_file")"/  _rows=""/' plain; then
+    if grep -q '^unclassifiable:' <<<"$OUT"; then ok "T1332-j teeth: entry fallback removed → unclassifiable again (78a has teeth)" "()"
+    else no "T1332-j teeth: removed entry fallback must flip 78a" "78a is THEATER: out=[$OUT]"; fi
+  fi
+  if ent_mutant warnoff 's/^  \[ -z "\$_rows" \] || retro_grammar_entry_warn "\$retro_file" >&2/  :/' gap; then
+    if ! grep -q '^WARN: .*1 of 2' <<<"$OUT"; then ok "T1332-k teeth: gap WARN removed → silent (78f has teeth)" "()"
+    else no "T1332-k teeth: removed WARN must flip 78f" "78f is THEATER: out=[$OUT]"; fi
   fi
 
 fi  # --prove-teeth
@@ -3337,8 +3373,8 @@ else
 fi
 
 lbl_case createfail nomatch createfail
-if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 1 ]; then
-  ok "76d label create fails: ONE degraded line, exit 1, zero issue creates" "(exit $RC)"
+if [ "$RC" = 1 ] && [ "$N_DEGR" = 1 ] && [ "$N_ICREATE" = 0 ] && [ "$N_LCREATE" = 1 ] && [ "$N_LLIST" = 2 ]; then
+  ok "76d label create fails and the re-probe still finds nothing: ONE degraded line, exit 1, zero issue creates" "(exit $RC)"
 else
   no "76d label create fails" "exit=$RC degr=$N_DEGR icreate=$N_ICREATE lcreate=$N_LCREATE out=[$OUT]"
 fi
@@ -3366,6 +3402,22 @@ else
   no "76g dry-run must not touch gh" "exit=$RC log=[$(cat "$LBOX/bin/gh.log" 2>/dev/null)]"
 fi
 
+# 76i (kit issue #1332 N2) — GitHub label names are case-insensitive: `TARGET:TARGET-FOO` IS the label.
+lbl_case upper nomatch existsupper
+if [ "$RC" = 0 ] && [ "$N_LCREATE" = 0 ] && [ "$N_ICREATE" = 2 ]; then
+  ok "76i label exists with different letter case → treated as present (no create)" "(exit $RC)"
+else
+  no "76i case-insensitive label match" "exit=$RC lcreate=$N_LCREATE icreate=$N_ICREATE out=[$OUT]"
+fi
+
+# 76j (kit issue #1332 N3) — a failed label create is re-probed ONCE (a concurrent run may have won).
+lbl_case race nomatch racewin
+if [ "$RC" = 0 ] && [ "$N_LCREATE" = 1 ] && [ "$N_LLIST" = 2 ] && [ "$N_DEGR" = 0 ] && [ "$N_ICREATE" = 2 ]; then
+  ok "76j label create fails but the re-probe finds it (concurrent create) → proceed, issues created" "(exit $RC)"
+else
+  no "76j create-failure re-probe" "exit=$RC lcreate=$N_LCREATE list=$N_LLIST degr=$N_DEGR icreate=$N_ICREATE out=[$OUT]"
+fi
+
 lbl_case alldup match missing
 if [ "$RC" = 0 ] && [ "$N_LLIST" = 0 ] && [ "$N_LCREATE" = 0 ] && [ "$N_ICREATE" = 0 ]; then
   ok "76h every row already deduped: no label probe (probe is lazy, right before the first create)" "(exit $RC)"
@@ -3375,11 +3427,9 @@ fi
 
 
 # ---------------------------------------------------------------------------
-# 77 — ENTRY-FORM AGREEMENT (kit issue #1332 item 2): the seeder's answer for a retro in the
-#      doctrine-valid `### D<N> —` entry form. APPLIED -> `no-match` (reconcile-issues.sh now says
-#      `no-match: no open deltas` for the same file — never `unclassifiable`). PENDING -> typed
-#      `unclassifiable` (entries carry no row cells to build an issue from; reconcile lists the
-#      same entries as untracked, i.e. both surface the work, neither silently reads it as zero).
+# 77 — ENTRY-FORM (kit issue #1332): an APPLIED retro in the `### D<N> —` entry form → `no-match`
+#      (reconcile-issues.sh says `no-match: no open deltas` for the same file). A PENDING one is
+#      SEEDED (cases 78*): the same IDs reconcile matches.
 ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
 [ -f "$ENTRY_FIX" ] || { echo "FATAL: fixture missing: $ENTRY_FIX" >&2; exit 2; }
 box77="$(mkbox case-entry-form)"; mk_gh_stub "$box77" nomatch
@@ -3390,15 +3440,65 @@ if [ "$RC" = 0 ] && grep -q "^no-match: retro is 'applied'" <<<"$OUT" && ! grep 
 else
   no "77a applied entry-form retro" "exit=$RC out=[$OUT]"
 fi
-sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$ENTRY_FIX" > "$box77/rh/target-foo/retros/r77b.md"
-run "$box77" "$box77/rh/target-foo/retros/r77b.md" --apply
-if [ "$RC" = 0 ] && grep -q '^unclassifiable: delta section found but not in row-table form' <<<"$OUT" \
-   && ! grep -q 'gh issue create' "$box77/bin/gh.log" 2>/dev/null; then
-  ok "77b pending entry-form retro → typed unclassifiable, nothing created" "(exit $RC)"
-else
-  no "77b pending entry-form retro" "exit=$RC out=[$OUT]"
-fi
 
+# 78 — SEED THE ENTRY FORM (kit issue #1332 N1). Fixture priorities: D1 high, D2 high, D3 medium.
+mk_entry_retro() {   # mk_entry_retro <box> <fname> <marker-line>
+  sed "s/^<!-- review-status: applied.*-->\$/$3/" "$ENTRY_FIX" > "$1/rh/target-foo/retros/$2"
+  printf '%s' "$1/rh/target-foo/retros/$2"
+}
+box78="$(mkbox case-entry-seed)"; mk_gh_stub "$box78" nomatch
+r78="$(mk_entry_retro "$box78" r78.md '<!-- review-status: pending -->')"
+run "$box78" "$r78"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 3 ] \
+   && grep -q '^planned-issue: A tool ships no export script; a bridge script covers it$' <<<"$OUT" \
+   && grep -q 'Source retro: target-foo/retros/r78.md · D1$' <<<"$OUT" \
+   && grep -q 'Source retro: target-foo/retros/r78.md · D3$' <<<"$OUT" \
+   && ! grep -q 'unclassifiable' <<<"$OUT"; then
+  ok "78a dry-run pending entry-form retro: 3 planned issues, title after the dash, signature · D<N>" "(exit $RC)"
+else
+  no "78a dry-run entry-form" "exit=$RC out=[$OUT]"
+fi
+# priority from the **Priority** line: D1 high, D3 medium (labels line follows its title line)
+if grep -A1 '^planned-issue: A tool ships' <<<"$OUT" | grep -q 'priority:high' \
+   && grep -A1 '^planned-issue: Verify the numerical claim' <<<"$OUT" | grep -q 'priority:medium'; then
+  ok "78b entry priority read from the **Priority** line (D1 high, D3 medium)" "()"
+else
+  no "78b entry priority" "out=[$OUT]"
+fi
+run "$box78" "$r78" --apply
+if [ "$RC" = 0 ] && grep -q 'summary: created=3 ' <<<"$OUT" \
+   && grep -qF 'Source retro: target-foo/retros/r78.md · D2' "$box78/bin/gh.log"; then
+  ok "78c --apply: 3 issues created; dedup searched the · D<N> signature" "(exit $RC)"
+else
+  no "78c --apply entry-form" "exit=$RC out=[$OUT] log=[$(cat "$box78/bin/gh.log")]"
+fi
+box78d="$(mkbox case-entry-seed-dup)"; mk_gh_stub "$box78d" match
+r78d="$(mk_entry_retro "$box78d" r78d.md '<!-- review-status: pending -->')"
+run "$box78d" "$r78d" --apply
+if [ "$RC" = 0 ] && grep -q 'summary: created=0 skipped-duplicate=3 ' <<<"$OUT"; then
+  ok "78d --apply, every entry already filed → 3 skipped-duplicate, 0 created" "(exit $RC)"
+else
+  no "78d entry-form dedup" "exit=$RC out=[$OUT]"
+fi
+# PARTIAL: shipped D1, D2 → only D3 is open (list edge: LAST entry is the survivor)
+box78e="$(mkbox case-entry-seed-partial)"; mk_gh_stub "$box78e" nomatch
+r78e="$(mk_entry_retro "$box78e" r78e.md '<!-- review-status: applied 2026-07-31 · kit abc · PARTIAL — shipped: D1, D2 -->')"
+run "$box78e" "$r78e"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q '· D3$' <<<"$OUT"; then
+  ok "78e PARTIAL entry-form retro (shipped D1, D2) → only D3 planned" "(exit $RC)"
+else
+  no "78e PARTIAL entry-form" "exit=$RC out=[$OUT]"
+fi
+# Entries WITHOUT a matching shape for the id (a **D1** heading) are not seedable: WARN, rest still seeds.
+box78f="$(mkbox case-entry-seed-gap)"; mk_gh_stub "$box78f" nomatch
+r78f="$box78f/rh/target-foo/retros/r78f.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$r78f"
+run "$box78f" "$r78f"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q '^WARN: .*1 of 2' <<<"$OUT"; then
+  ok "78f entry with an unusable ID token: WARN names the gap (1 of 2), the usable entry still seeds" "(exit $RC)"
+else
+  no "78f entry ID gap WARN" "exit=$RC out=[$OUT]"
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

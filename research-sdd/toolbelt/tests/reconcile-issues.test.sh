@@ -1069,7 +1069,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth H2: the surviving unclassifiable echo itself — silence it, case 26 must go quiet.
   echo "-- teeth H2: silence the unclassifiable echo; case 26 must go quiet (no unclassifiable line) --"
-  anchor_h2='echo "unclassifiable: delta section found but not in row-table form in $retro_path — needs manual review" >&2'
+  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries in $retro_path — needs manual review" >&2'
   if [[ "$sut_content_h1" == *"$anchor_h2"* ]]; then
     box_h2="$(mkbox teeth-h2)"
     mk_gh_stub "$box_h2" nomatch
@@ -1363,6 +1363,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q '^tracked: row D2 ' <<<"$OUT"; then ok "T1332-R2 teeth: tracked check disabled → D2 no longer tracked (39b has teeth)" "()"
     else no "T1332-R2 teeth: disabled tracked check must flip 39b" "39b is THEATER: out=[$OUT]"; fi
   else no "T1332-R2: build mutant" "mutant_sed refused"; fi
+
+  echo "-- teeth T1332-R3: entry-gap WARN removed (case 39e must flip) --"
+  box_e3="$(mkbox teeth-entry-warn)"; mk_gh_stub "$box_e3" nomatch
+  if mutant_sed "$SUT" "$box_e3/research-sdd/toolbelt/reconcile-issues.sh" \
+       -e 's/^    \[ -z "\$_all_row_ids" \] || retro_grammar_entry_warn "\$retro_path" >&2/    :/'; then
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$box_e3/rh/target-foo/retros/r.md"
+    run "$box_e3" --issues-cache /dev/null "$box_e3/rh/target-foo/retros/r.md"
+    if ! grep -q '^WARN: .*1 of 2' <<<"$OUT"; then ok "T1332-R3 teeth: WARN removed → silent (39e has teeth)" "()"
+    else no "T1332-R3 teeth: removed WARN must flip 39e" "39e is THEATER: out=[$OUT]"; fi
+  else no "T1332-R3: build mutant" "mutant_sed refused"; fi
 
 fi  # --prove-teeth
 
@@ -1776,12 +1786,23 @@ fi
 box39d="$(mkbox case-entry-none)"; mk_gh_stub "$box39d" nomatch
 printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\nSome prose about a delta, no table, no entries.\n' > "$box39d/rh/target-foo/retros/r39d.md"
 run "$box39d" --issues-cache /dev/null "$box39d/rh/target-foo/retros/r39d.md"
-if [ "$RC" = 0 ] && grep -q '^unclassifiable: delta section found but not in row-table form' <<<"$OUT"; then
+if [ "$RC" = 0 ] && grep -q "^unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries" <<<"$OUT"; then
   ok "39d canonical section, no rows, no entries → still unclassifiable" "(exit $RC)"
 else
   no "39d no rows/no entries must stay unclassifiable" "exit=$RC out=[$OUT]"
 fi
 
+
+# 39e (kit issue #1332 N6) — an entry whose heading token is not a usable ID (`### **D1** —`) is a
+#      latent false negative: WARN that fewer IDs than form-2 entries were found.
+box39e="$(mkbox case-entry-gap)"; mk_gh_stub "$box39e" nomatch
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$box39e/rh/target-foo/retros/r39e.md"
+run "$box39e" --issues-cache /dev/null "$box39e/rh/target-foo/retros/r39e.md"
+if [ "$RC" = 0 ] && grep -q '^WARN: .*1 of 2' <<<"$OUT" && grep -q '^untracked: row D2 ' <<<"$OUT"; then
+  ok "39e entry with an unusable ID token → WARN '1 of 2', usable entry still reported" "(exit $RC)"
+else
+  no "39e entry ID gap WARN" "exit=$RC out=[$OUT]"
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

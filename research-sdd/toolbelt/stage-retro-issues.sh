@@ -396,6 +396,10 @@ declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
+declare -F retro_grammar_entry_rows >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 if [ ! -f "$_TP_LIB" ]; then
@@ -577,6 +581,16 @@ _rows="$(awk '
   }
 ' "$retro_file")"
 
+# STAGE_RETRO_ISSUES_ENTRY_FORM (kit issue #1332 N1): no table rows -> the doctrine-valid
+# `### D<N> —` entry form. retro_grammar_entry_rows (the shared grammar lib — the parser
+# reconcile-issues.sh takes its IDs from) yields records in the table-row shape, so the loop below
+# is unchanged and the issue signature carries the same `· D<N>` row id reconcile matches.
+if [ -z "$_rows" ]; then
+  _rows="$(retro_grammar_entry_rows "$retro_file")"
+  # STAGE_RETRO_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
+  [ -z "$_rows" ] || retro_grammar_entry_warn "$retro_file" >&2
+fi
+
 if [ -z "$_rows" ]; then
   # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose
   # only body content is the accepted honesty phrase (retro_grammar_has_honesty — the same
@@ -747,9 +761,10 @@ _exact_sig_matches() {
 #              must not guess it does — anti-silent-zero, CLAUDE.md §7).
 # `gh label list --search` is a fuzzy word match, so the reply is checked for the EXACT name.
 _label_ready=0
-ensure_target_label() {
-  [ "$_label_ready" -eq 1 ] && return 0
-  local _lname="target:${target_name}" _lout _lrc
+# _label_present <name>: 0 = present, 1 = absent; a probe that cannot answer exits degraded (the
+# caller never guesses). Names compare CASE-INSENSITIVELY — GitHub label names are (kit issue #1332 N2).
+_label_present() {
+  local _lname="$1" _lout _lrc _lname_lc
   _lout="$(gh label list --repo "$KIT_ISSUE_REPO" --search "$_lname" --limit 100 --json name 2>&1)"
   _lrc=$?
   if [ "$_lrc" -ne 0 ]; then
@@ -760,12 +775,21 @@ ensure_target_label() {
     echo "degraded: gh label list returned an unexpected reply for '$_lname' on $KIT_ISSUE_REPO (expected a JSON array): $_lout — no issue was created" >&2
     exit 1
   fi
-  if ! printf '%s' "$_lout" | tr -d '[:space:]' | grep -qF "\"name\":\"${_lname}\""; then
-    local _cout
+  _lname_lc="$(printf '%s' "$_lname" | tr 'A-Z' 'a-z')"
+  printf '%s' "$_lout" | tr -d '[:space:]' | tr 'A-Z' 'a-z' | grep -qF "\"name\":\"${_lname_lc}\""
+}
+ensure_target_label() {
+  [ "$_label_ready" -eq 1 ] && return 0
+  local _lname="target:${target_name}" _cout
+  if ! _label_present "$_lname"; then
     if ! _cout="$(gh label create "$_lname" --repo "$KIT_ISSUE_REPO" \
         --description "Fleet target: ${target_name}" --color d4c5f9 2>&1)"; then
-      echo "degraded: label '$_lname' is missing on $KIT_ISSUE_REPO and could not be created: $_cout — no issue was created" >&2
-      exit 1
+      # STAGE_RETRO_ISSUES_LABEL_REPROBE (kit issue #1332 N3): a concurrent run may have created
+      # the label between our probe and our create — look once more before declaring degraded.
+      if ! _label_present "$_lname"; then
+        echo "degraded: label '$_lname' is missing on $KIT_ISSUE_REPO and could not be created: $_cout — no issue was created" >&2
+        exit 1
+      fi
     fi
   fi
   _label_ready=1

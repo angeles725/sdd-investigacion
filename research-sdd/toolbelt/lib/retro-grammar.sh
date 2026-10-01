@@ -172,37 +172,94 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
 
 fi
 
-# ─── retro_grammar_entry_ids ──────────────────────────────────────────────────
-# retro_grammar_entry_ids <file>
-#   One ID per line for every delta-ENTRY heading in the canonical section — the form-2 shape
-#   retro_grammar_delta_info counts: a `###` heading carrying an em-dash, e.g. `### D1 — title`
-#   (the doctrine-valid `### D<N> —` entry form, METHODOLOGY §18). The ID is the first token of
-#   the heading text before the dash, minus trailing `.`/`:` (`### D2. — x` -> `D2`). A `###`
-#   heading without an em-dash (`### Rationale`) and any heading outside the canonical section
-#   are not entries. Same heading aliases as delta_info (is_canonical_heading), so the count of
-#   IDs equals the form-2 count whenever every entry's token is a usable ID (kit issue #1332
-#   item 2: reconcile-issues.sh read only table rows and called an applied entry-form retro
-#   `unclassifiable` while the seeder correctly said `no-match`).
+# ─── retro_grammar_entry_rows / _ids / _warn ──────────────────────────────────
+# The delta-ENTRY form (sweep-retros form 2, METHODOLOGY §18): under the canonical section, a
+# `###` heading carrying an em-dash — `### D1 — title` — is one delta; its `**Label**: value`
+# lines (same line only) are its fields. ONE parser (retro_grammar_entry_rows) feeds both
+# consumers: reconcile-issues.sh (IDs) and stage-retro-issues.sh (seeding), kit issue #1332.
+#
+# retro_grammar_entry_rows <file>
+#   One record per entry, fields separated by \037 in the SAME order as a canonical table row
+#   (id, change, target, evidence, type, priority) so stage-retro-issues.sh can feed it straight
+#   to its row loop:
+#     id        first token of the heading text before the dash, minus trailing `.`/`:`
+#               (`### D2. — x` -> `D2`); an entry whose token is not [A-Za-z0-9][A-Za-z0-9_-]*
+#               (`**D1**`, `[D1]`) is NOT emitted (see retro_grammar_entry_warn)
+#     change    the heading text after the dash (the title)
+#     target    first of `**Where in kit**` / `**Kit file …**` / `**Target…**` (else empty)
+#     evidence  first `**…Evidence…**` line (else empty)
+#     type      always empty (entries carry none)
+#     priority  first word of the `**Priority**` line (e.g. `MEDIUM — fires…` -> `MEDIUM`)
+#   Field lines end at the next `###`/`##` heading, so a later heading's `**Priority**` never
+#   bleeds into the previous entry. Same heading aliases as delta_info (is_canonical_heading).
 #   Returns 1 (no output) when the file is absent/unreadable — never an empty success.
-if ! typeset -f retro_grammar_entry_ids >/dev/null 2>&1; then
-  retro_grammar_entry_ids() {
+if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
+  retro_grammar_entry_rows() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
     awk "$_RG_AWK_CANONICAL_FN"'
-      BEGIN { in_sec=0 }
+      function flush() {
+        if (have) printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
+        have=0
+      }
+      BEGIN { in_sec=0; have=0 }
       { low=tolower($0) }
-      is_canonical_heading(low) { in_sec=1; next }
-      /^##[^#]/                 { in_sec=0; next }
-      in_sec && /^###[^#]/ && /—/ {
+      is_canonical_heading(low) { flush(); in_sec=1; next }
+      /^##[^#]/                 { flush(); in_sec=0; next }
+      in_sec && /^###[^#]/ {
+        flush()
+        if ($0 !~ /—/) next
         t=$0; sub(/^###[[:space:]]*/, "", t)
         d=index(t, "—"); if (d == 0) next
+        title=substr(t, d + length("—")); sub(/^[[:space:]]+/, "", title); sub(/[[:space:]]+$/, "", title)
         t=substr(t, 1, d-1)
         sub(/[[:space:]]+$/, "", t)
         split(t, w, /[[:space:]]+/)
         id=w[1]; sub(/[.:]+$/, "", id)
-        if (id ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) print id
+        if (id ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) { have=1; if (title == "") title=id; tg=""; ev=""; pr="" }
+        next
       }
+      in_sec && have && match($0, /^\*\*[^*]+\*\*/) {
+        nm=tolower(substr($0, 3, RLENGTH - 4)); sub(/[:.[:space:]]+$/, "", nm)
+        rest=substr($0, RLENGTH + 1); sub(/^[[:space:]]*:?[[:space:]]*/, "", rest); sub(/[[:space:]]+$/, "", rest)
+        if (nm ~ /^priority/ && pr == "") { split(rest, pw, /[[:space:]]+/); pr=pw[1]; gsub(/[^A-Za-z]/, "", pr) }
+        else if (nm ~ /^(where in kit|kit file|target)/ && tg == "") tg=rest
+        else if (nm ~ /evidence/ && ev == "") ev=rest
+      }
+      END { flush() }
     ' "$f"
+  }
+fi
+
+# retro_grammar_entry_ids <file> — the first column of retro_grammar_entry_rows, one ID per line
+# (kit issue #1332 item 2: reconcile-issues.sh read only table rows and called an applied
+# entry-form retro `unclassifiable` while the seeder said `no-match`).
+if ! typeset -f retro_grammar_entry_ids >/dev/null 2>&1; then
+  retro_grammar_entry_ids() {
+    local out
+    out="$(retro_grammar_entry_rows "${1:-}")" || return 1
+    [ -n "$out" ] && printf '%s\n' "$out" | cut -d $'\037' -f1
+    return 0
+  }
+fi
+
+# retro_grammar_entry_warn <file> — kit issue #1332 N6. Prints ONE `WARN:` line (nothing otherwise)
+# when delta_info counts more form-2 entries than retro_grammar_entry_rows yields IDs for: an entry
+# headed `### **D1** —` or `### [D1] —` is counted by sweep-retros but cannot be tracked or seeded
+# here — a latent false negative the consumers must surface, not hide.
+if ! typeset -f retro_grammar_entry_warn >/dev/null 2>&1; then
+  retro_grammar_entry_warn() {
+    local f="${1:-}" info form cnt n rest
+    info="$(retro_grammar_delta_info "$f")"
+    info="${info%%$'\001'*}"                 # found:form:count
+    rest="${info#*:}"; form="${rest%%:*}"; cnt="${rest##*:}"
+    [ "$form" = "2" ] || return 0
+    n="$(retro_grammar_entry_ids "$f" | wc -l | tr -d ' ')"
+    if [ "$n" -lt "$cnt" ]; then
+      printf "WARN: %s: only %s of %s '### … —' entries have a usable ID token (a '**D1**' or '[D1]' token is not trackable) — count by hand\n" \
+        "$(basename "$f")" "$n" "$cnt"
+    fi
+    return 0
   }
 fi
 
