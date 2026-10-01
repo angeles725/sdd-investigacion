@@ -318,8 +318,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   || tno "TOOTH-3: guard-absent fragment did NOT exit 0 (tooth logic error)"
   rm -f "$BROKEN_LIB" "$GUARD_STRIPPED"
 
-  # TOOTH-4..7 (#1223): sed mutants of the REAL helper file. Each must (a) differ from the
-  # original (a no-op sed is theater) and (b) make nw_checks report the named failure.
+  # TOOTH-4..11 (#1223, #1301): sed mutants of the REAL helper file. Each must (a) differ from the
+  # original (a no-op sed is theater) and (b) make its checker (nw_checks, or nw_real_checks when named) report the named failure.
   nw_tooth() { # <label> <sed-expr> <expected FAIL: token> [checker: nw_checks|nw_real_checks]
     local label="$1" expr="$2" want="$3" chk="${4:-nw_checks}" mf out
     mf="$(mktemp /tmp/block-files-nwmut.XXXXXX.sh)"
@@ -329,7 +329,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
     out="$("$chk" "$mf")"
     if printf '%s\n' "$out" | grep -qF "FAIL:$want"; then
-      tok "$label: mutant makes nw_checks report FAIL:$want"
+      tok "$label: mutant makes $chk report FAIL:$want"
     else
       tno "$label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$out" | tr '\n' ' ')]"
     fi

@@ -129,6 +129,9 @@ if ! declare -F block_files_nested_worktree_roots >/dev/null 2>&1; then
     done < <(find -H "$_root" -mindepth 1 \( -path "$_root/.claude/worktrees" -prune \) -o \( -type d -name .git -prune \) -o \( -type f -name .git -print0 \) 2>/dev/null)
     # find's status (lost by process substitution) comes back through `wait` on bash >= 4.4; on
     # older shells $! is not the substitution's pid and the probe can only report "complete".
+    # 127 is bash's own `wait` status for "no such child" (pid not a child of this shell, or its
+    # status already collected) — not find's exit code (find uses 0/1/2) — so it means "no status
+    # to read", NOT "traversal incomplete", and is deliberately treated like 0.
     _fpid=$!
     wait "$_fpid" 2>/dev/null || _frc=$?
     if [ "$_frc" -ne 0 ] && [ "$_frc" -ne 127 ]; then

@@ -228,6 +228,22 @@ _json_escape_reason() {
                              # patsub_replacement has nothing to expand; output is
                              # byte-identical to the previous form on bash 5.)
   s="${s//$'\n'/\\n}"       # newline → \n
+  # SENTINEL-ESC-CTRL-START
+  # kit issue #1301 item 6: RFC 8259 forbids any raw C0 control (0x00-0x1f) inside a JSON string;
+  # a retro finding with a tab, CR or ESC byte made the whole decision unparseable. \t and \r get
+  # their short forms, every other one (except the \n handled above) becomes \u00XX. The
+  # replacement comes from a variable for the same reason as the quote above (#1167 item 2).
+  local _i _ch _rep
+  for _i in 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
+    printf -v _ch "\\x$(printf '%02x' "$_i")"
+    case "$_i" in
+      9)  _rep='\t' ;;
+      13) _rep='\r' ;;
+      *)  printf -v _rep '\\u%04x' "$_i" ;;
+    esac
+    s=${s//"$_ch"/"$_rep"}
+  done
+  # SENTINEL-ESC-CTRL-END
   printf '%s' "$s"
 }
 
@@ -273,10 +289,15 @@ fi
 _nw_roots="$(block_files_nested_worktree_roots "$TARGET")"
 _nw_rc=$?
 # rc 3 (incomplete traversal) already printed its own typed WARN from the lib — say nothing twice.
+# FAIL SAFE (kit issue #1301 item 3): any other rc keeps the gate running with whatever roots were
+# printed (possibly none), so worktree copies may be COUNTED — a false BLOCK, recoverable — and
+# never skipped; the probe's failure can never turn into an allow.
+# SENTINEL-NW-PROBE-FAIL-START
 if [ "$_nw_rc" -ne 0 ] && [ "$_nw_rc" -ne 3 ]; then
   printf 'retro-gate: WARN: nested-worktree probe failed (rc=%s) for %s — worktree copies may be counted\n' \
     "$_nw_rc" "$(basename "$TARGET")" >&2
 fi
+# SENTINEL-NW-PROBE-FAIL-END
 # SENTINEL-NESTED-WORKTREE-PROBE-END
 
 # ── Helper: check if a path is a research file (block/state/catalog/index) ───
