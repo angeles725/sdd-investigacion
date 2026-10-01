@@ -255,7 +255,8 @@ printf %s "OPENs/OPENdqCLOSE/BSBSDOLLARdqCLOSE"
 printf %s "OPENs/y/QaQDOLLARyCLOSE"
 printf %s "OPEN1/y/DOLLARyCLOSE"
 printf %s "OPENATSIGN/y/DOLLARyCLOSE"
-printf %s "OPENBANGref/y/DOLLARyCLOSE"'
+printf %s "OPENBANGref/y/DOLLARyCLOSE"
+printf %s "OPENs//ESCBR/DOLLARyCLOSE"'
 _fa3_body="${_fa3_tpl//OPEN/\$\{}"
 _fa3_body="${_fa3_body//CLOSE/\}}"
 _fa3_body="${_fa3_body//DOLLAR/\$}"
@@ -263,6 +264,10 @@ _fa3_body="${_fa3_body//BSBS/\\\\}"
 _fa3_body="${_fa3_body//Q/\"}"
 _fa3_body="${_fa3_body//ATSIGN/@}"
 _fa3_body="${_fa3_body//BANG/!}"
+# kit issue #1167 item 5: escaped-brace pattern (an escaped closing brace inside the pattern segment) — the \X escaped-pair alternative in
+# the pattern segment is what keeps the '}' from closing the expansion early. Substituted LAST so
+# the emitted backslash-brace is never re-scanned by the placeholder replacements above.
+_fa3_body="${_fa3_body//ESCBR/\\\}}"
 {
   printf '#!/usr/bin/env bash\n'
   printf '%s\n' "$_fa3_body"
@@ -273,8 +278,8 @@ _fa3_body="${_fa3_body//BANG/!}"
 unset _fa3_tpl _fa3_body
 OUT="$(bash "$SUT" "$TMP/formA-anywhere" 2>&1)"; RC=$?
 _fa3_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-A')"
-if [ "$RC" -eq 1 ] && [ "$_fa3_count" -eq 6 ]; then
-  ok "14 FORM-A trigger-anywhere: retro-gate.sh:210 shape (escaped backslash then bare \$), mixed quoted-prefix, positional param (\$1), special param (\$@), indirect ref (\$!ref), bare backtick pair — all 6 detected"
+if [ "$RC" -eq 1 ] && [ "$_fa3_count" -eq 7 ]; then
+  ok "14 FORM-A trigger-anywhere: retro-gate.sh:210 shape (escaped backslash then bare \$), mixed quoted-prefix, positional param (\$1), special param (\$@), indirect ref (\$!ref), bare backtick pair, escaped-brace pattern — all 7 detected"
 else
   no "14 FORM-A trigger-anywhere failed (exit=$RC count=$_fa3_count out=[$OUT])"
 fi
@@ -418,7 +423,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # back to trigger-at-position-0-only, by capping the prefix repetition at {0}. Case 14's
   # retro-gate.sh:210 shape and its mixed-quoted-prefix shape (the two sub-forms that specifically
   # NEED a nonzero prefix before the trigger) must then FALSE-PASS, proving the widening itself
-  # has real teeth — the other 4 sub-forms in case 14 already start with the trigger at position
+  # has real teeth — the other 5 sub-forms in case 14 already start with the trigger at position
   # 0 and are expected to still be caught either way, so this asserts a COUNT DROP, not zero.
   sed 's/replplain_re})\*\${_lint_repltrigger_re}/replplain_re}){0}\${_lint_repltrigger_re}/' "$SUT" > "$TMP/mutant-anywhere.sh"
   chmod +x "$TMP/mutant-anywhere.sh"
@@ -432,10 +437,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # (positional/special/indirect param, bare backtick pair) already have the trigger at
     # position 0 and are unaffected by this specific mutation — asserting the EXACT drop (6->4)
     # is a stronger check than a bare "< 6".
-    if [ "$MRC" -eq 1 ] && [ "$_me_count" -eq 4 ]; then
-      ok "teeth E: trigger capped to position-0-only -> retro-gate.sh:210 shape and the mixed-quote shape no longer detected (count 6 -> $_me_count) -> trigger-anywhere widening has real teeth"
+    if [ "$MRC" -eq 1 ] && [ "$_me_count" -eq 5 ]; then
+      ok "teeth E: trigger capped to position-0-only -> retro-gate.sh:210 shape and the mixed-quote shape no longer detected (count 7 -> $_me_count) -> trigger-anywhere widening has real teeth"
     else
-      no "teeth E: mutant did not drop to the expected 4 sub-forms (count=$_me_count, exit=$MRC) — mutation not exercised (THEATER)"
+      no "teeth E: mutant did not drop to the expected 5 sub-forms (count=$_me_count, exit=$MRC) — mutation not exercised (THEATER)"
     fi
   fi
 
@@ -526,6 +531,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth I: find stderr merged into stdout -> bogus path breaks the clean 1-file scan -> case 16 has real teeth"
     else
       no "teeth I: mutant did not leak the stderr line into the file list — case 16 does not pin the separation (THEATER) :: out=[$MOUT]"
+    fi
+  fi
+
+  # Tooth J (kit issue #1167 item 5): drop the \X escaped-pair alternative from the pattern
+  # segment. The escaped-brace sub-form in case 14 must then go undetected (count 7 -> 6),
+  # proving the case-14 addition pins escaped-brace handling and is not decorative.
+  if ! mutant_sed "$SUT" "$TMP/mutant-esc.sh" "s/^_lint_pattern_re=.*/_lint_pattern_re='(\\{[^{}]*\\}|[^\/{}])+'/"; then
+    no "teeth J: could not build mutant (_lint_pattern_re not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(bash "$TMP/mutant-esc.sh" "$TMP/formA-anywhere" 2>&1)"; MRC=$?
+    _mj_count="$(printf '%s\n' "$MOUT" | grep -cF 'FORM-A')"
+    if [ "$MRC" -eq 1 ] && [ "$_mj_count" -eq 6 ]; then
+      ok "teeth J: escaped-pair alternative dropped -> escaped-brace sub-form undetected (count 7 -> $_mj_count) -> case 14's escaped-brace probe has real teeth"
+    else
+      no "teeth J: mutant did not drop to 6 sub-forms (count=$_mj_count, exit=$MRC) — mutation not exercised (THEATER)"
     fi
   fi
 fi

@@ -197,8 +197,10 @@ expect_path && length($0) > 0 {
 # single-space-delimited regex — anchored at both ends — rejected both. git never emits either
 # shape, so the practical risk is nil, but the three explicit checks below restore the full
 # strictness of the ORIGINAL regex (no tab anywhere, no trailing space, no double space) while staying
-# interval-expression-free — verified equivalent across 13 real/malformed probe lines including
-# both of these two additional cases (see PR body).
+# interval-expression-free. Pinned by tests 71 (40/64-char accepted; 39- and 65-char rejected, each
+# hex field), 72 (the same probes through mawk) and 73 (tab / trailing space); each has a mutation
+# control in scan-secrets.test.sh --prove-teeth. (The earlier "13 probe lines" equivalence claim lived
+# only in a historical PR body — kit issue #1167 item 6 — so it is not restated here.)
 /^:/ {
   _sm_ok = (NF == 5) \
     && ($1 ~ /^:[0-7][0-7][0-7][0-7][0-7][0-7]$/) \
