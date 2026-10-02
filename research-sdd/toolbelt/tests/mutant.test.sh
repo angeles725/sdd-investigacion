@@ -269,7 +269,7 @@ if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t2"* ]] && [[ "$msg" == *"THEATER"* 
 else no "tooth: crash (rc=$rc msg=[$msg])"; fi
 
 # T3 — a wrong GOOD rc on the original fails even when the mutant matches.
-msg="$(mutant_tooth t3 1 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>&1)"; rc=$?
+msg="$(mutant_tooth t3 1 1 "$TMP/mut-inv.sh" --bad-has 'all clear' -- bash @SUT@ 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && [[ "$msg" == *"original rc=0 (want 1)"* ]]; then ok "tooth: wrong original rc fails and says so"
 else no "tooth: original rc (rc=$rc msg=[$msg])"; fi
 
@@ -284,10 +284,10 @@ tp(){ # tp <label> <want-rc> <mutant> <opts...>
   local m r; m="$(mutant_tooth "$label" 0 0 "$mut" "$@" -- bash @SUT@ 2>&1)"; r=$?
   if [ "$r" -eq "$want" ]; then ok "tooth opt: $label"; else no "tooth opt: $label (rc=$r want=$want msg=[$m])"; fi
 }
-tp good-has-true  0 "$TMP/mut-same.sh" --good-has 'all clear'
-tp good-has-false 1 "$TMP/mut-same.sh" --good-has 'NEVERSEEN'
-tp good-lacks-true  0 "$TMP/mut-same.sh" --good-lacks 'BADTHING'
-tp good-lacks-false 1 "$TMP/mut-same.sh" --good-lacks 'all clear'
+tp good-has-true  0 "$TMP/mut-same.sh" --good-has 'all clear' --bad-has 'all quiet'
+tp good-has-false 1 "$TMP/mut-same.sh" --good-has 'NEVERSEEN' --bad-has 'all quiet'
+tp good-lacks-true  0 "$TMP/mut-same.sh" --good-lacks 'BADTHING' --bad-has 'all quiet'
+tp good-lacks-false 1 "$TMP/mut-same.sh" --good-lacks 'all clear' --bad-has 'all quiet'
 tp bad-has-true  0 "$TMP/mut-same.sh" --bad-has 'all quiet'
 tp bad-has-false 1 "$TMP/mut-same.sh" --bad-has 'all clear'
 tp bad-lacks-true  0 "$TMP/mut-same.sh" --bad-lacks 'all clear'
@@ -342,6 +342,19 @@ cp "$ORIG" "$TMP/b2.sh"
 msg="$(mutant_built b2 "$ORIG" "$TMP/b2.sh" 2>&1)"; rc=$?
 if [ "$rc" -eq 4 ] && [[ "$msg" == "  FAIL  b2"* ]] && [[ "$msg" == *"rc=4"* ]]; then ok "built: identical copy fails with the helper's rc named"
 else no "built: identical (rc=$rc msg=[$msg])"; fi
+
+# T12 — GOOD_RC == BAD_RC with no bad-side pattern cannot discriminate: refused loudly (rc 1, says so,
+# not a PASS line), even when only good-side patterns are supplied; a bad-side pattern lifts the refusal.
+msg="$(mutant_tooth t12 0 0 "$TMP/mut-same.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t12"* ]] && [[ "$msg" == *"cannot discriminate"* ]] && [[ "$msg" != *PASS* ]]; then
+  ok "tooth: equal rcs with no pattern are refused (non-discriminating)"
+else no "tooth: non-discriminating (rc=$rc msg=[$msg])"; fi
+msg="$(mutant_tooth t12b 0 0 "$TMP/mut-same.sh" --good-has 'all clear' --good-lacks NOPE -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == *"cannot discriminate"* ]]; then ok "tooth: good-side patterns alone do not lift the refusal"
+else no "tooth: good-only patterns (rc=$rc msg=[$msg])"; fi
+msg="$(mutant_tooth t12c 0 0 "$TMP/mut-same.sh" --bad-lacks 'all clear' -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$msg" == "  PASS  t12c"* ]]; then ok "tooth: equal rcs with --bad-lacks discriminate and pass"
+else no "tooth: bad-lacks lifts refusal (rc=$rc msg=[$msg])"; fi
 
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -411,6 +424,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "tooth opt: bad-lacks-false"
   teeth_case toothicase 's/gi="-i"/gi=""/' \
     "tooth: icase has"
+  teeth_case toothnondisc '/SENTINEL-TOOTH-NONDISCRIMINATING/,+3s/return 1/:/' \
+    "tooth: non-discriminating"
   teeth_case toothoption '/bad option/s/return 1 ;;/: ;;/' \
     "tooth: unknown option"
   teeth_case toothnodash '/missing the "--"/s/return 1 ;;/: ;;/' \

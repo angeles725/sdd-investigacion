@@ -30,6 +30,8 @@
 #                                        BAD_RC (and matches --bad-has / not --bad-lacks): a crashing
 #                                        mutant (any other rc) is THEATER, not teeth. Patterns are grep
 #                                        -E, case-sensitive unless MUTANT_TOOTH_ICASE is non-empty.
+#                                        GOOD_RC == BAD_RC with neither --bad-has nor --bad-lacks is
+#                                        REFUSED (FAIL, rc 1): such a tooth cannot tell mutant from original.
 #
 # Counting contract (chain / built / tooth): they NEVER touch the caller's counters. Each prints its
 # own `  FAIL  <label>...` line to stdout on failure (mutant_tooth also `  PASS  <label> [...]`) and
@@ -231,6 +233,10 @@ mutant_tooth() {
   if [ "$#" -eq 0 ]; then printf '  FAIL  %s: mutant_tooth has no ARGV after "--"\n' "$label"; return 1; fi
   if [ -z "$orig" ]; then printf '  FAIL  %s: mutant_tooth has no original (pass --orig or set $SUT)\n' "$label"; return 1; fi
   if [ ! -f "$mut" ]; then printf '  FAIL  %s: mutant file absent [%s] — the builder failed\n' "$label" "$mut"; return 1; fi
+  # SENTINEL-TOOTH-NONDISCRIMINATING
+  if [ "$grc" = "$brc" ] && [ -z "$bhas" ] && [ -z "$black" ]; then
+    printf '  FAIL  %s: mutant_tooth cannot discriminate — GOOD_RC == BAD_RC (%s) and no --bad-has/--bad-lacks pattern supplied\n' "$label" "$grc"; return 1
+  fi
   local -a gc=() mc=()
   for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
   gout="$("${gc[@]}" 2>&1)"; grc_a=$?
