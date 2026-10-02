@@ -23,6 +23,8 @@ SUT="$HERE/../verify-sources.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 
 . "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed ($HERE/lib/mutant.sh)" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
@@ -914,7 +916,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local out rc; out="$(PATH="$_stub_vs49:$PATH" bash "$1" "$2" 2>&1)"; rc=$?
     echo "rc=$rc match=$(grep -qiE 'row scan FAILED|row count unavailable' <<<"$out" && echo yes || echo no)"
   }
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+  # Local tooth() (verdict-function form). TODO(#1299): move into a shared lib/mutant.sh helper.
   # tooth <id> <label> <fixture> <verdict-fn> <good-verdict> <mutant-verdict> <sed-args...>
   tooth() {
     local id="$1" label="$2" fx="$3" vfn="$4" want_good="$5" want_bad="$6" mut mrc=0 good bad
