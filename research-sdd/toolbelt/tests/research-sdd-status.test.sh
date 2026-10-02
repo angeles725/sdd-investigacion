@@ -6732,6 +6732,55 @@ b13_run "$d" >/dev/null
 if bash "$HERE/../verify-state.sh" "$d" 2>&1 | grep -q 'FAIL   envelope investigable_open='; then no "T-1319-ESCPIPE lockstep: verify-state derives a different investigable_open"; else ok "T-1319-ESCPIPE lockstep: verify-state agrees on investigable_open"; fi
 
 
+# ==================== kit #1350 — a prose line must not trigger the keep; the keep has an upper bound ====================
+# Item 1: only a line that STARTS with `|` is a table row. A prose line (even one containing pipes, after a blank line that ended
+# the table) must never be reported UNCOUNTED, so it cannot trigger the lower-bound keep. Edges: closed-class branch, tier branch.
+PROSE_C='— note: rows use the a | b convention'
+PROSE_T='low | prose with | several | pipes | inside'
+b50_fx_prose_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | e1 | web | ✅ B1 |' '| — | e2 | web | ✅ B2 |' '| high | g1 | web | pending |' '' "$PROSE_C"; b19_decl "$1" 4 3; }
+b50_fx_prose_tier()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' "$PROSE_T"; b19_decl "$1" 3 2; }
+b50_fx_prose_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '' "$PROSE_T" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
+d="$TMP/b50-prose-closed"; b50_fx_prose_closed "$d"
+b13_expect "T-1350-PROSE closed-class: prose line does not keep declared 4/3 (derived 3, prose would add 1)" "$(b13_run "$d")" "3 2 1 0"
+if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE closed-class: spurious keep message — [$(b13_err "$d")]"; else ok "T-1350-PROSE closed-class: no keep message"; fi
+d="$TMP/b50-prose-tier"; b50_fx_prose_tier "$d"
+b13_expect "T-1350-PROSE tier: prose line does not keep declared 3/2 (derived 2, prose would add 1)" "$(b13_run "$d")" "2 1 1 0"
+d="$TMP/b50-prose-first"; b50_fx_prose_first "$d"
+b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 corrected" "$(b13_run "$d")" "2 1 1 0"
+# Control: a real `|` row with the same malformed shape still keeps (the guard is the leading pipe, not the cell count).
+d="$TMP/b50-prose-ctl"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' '| low | real | malformed | row | here |'; b19_decl "$d" 3 2
+b13_expect "T-1350-PROSE control: a leading-pipe malformed row still keeps (3/2 = derived 2 + 1 uncounted)" "$(b13_run "$d")" "3 2 1 0"
+# Control: an INDENTED table row (leading whitespace before the pipe) is still a row, so its malformed shape still keeps.
+b50_fx_indented() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '   | low | real | malformed | row | here |'; b19_decl "$1" 3 2; }
+d="$TMP/b50-indented"; b50_fx_indented "$d"
+b13_expect "T-1350-PROSE control: an indented malformed table row still keeps (3/2)" "$(b13_run "$d")" "3 2 1 0"
+# Item 2: an UNBOUNDED keep must be LOUD, never destructive. When declared > derived + uncounted the excess cannot be explained by
+# the uncounted rows, but it is NOT provably stale (it may include closed gaps tracked in prose or under another heading), so the
+# declared value is still kept and the excess is WARNed. Within the bound the keep stays as before, with no excess WARN.
+EXCESS_WARN='exceeds what the parser can count'
+b50_fx_ub() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" "$2" "$3"; }
+b50_fx_ub_over()  { b50_fx_ub "$1" 9 5; }
+b50_fx_ub_edge()  { b50_fx_ub "$1" 3 2; }
+b50_fx_ub_under() { b50_fx_ub "$1" 2 1; }
+# Reviewer repro: ONE valid open row + one malformed row, no Coverage metric; declared 9 includes closed gaps tracked only in prose.
+b50_fx_ub_rev() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6"; b19_decl "$1" 9 8; }
+d="$TMP/b50-ub-rev"; b50_fx_ub_rev "$d"
+b13_expect "T-1350-UPPER reviewer repro: declared 9/8 > derived 1 + 1 uncounted is KEPT (never data loss)" "$(b13_run "$d")" "9 8 1 0"
+if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")" && grep -q 'verify by hand' <<<"$(b13_err "$d")"; then ok "T-1350-UPPER reviewer repro: the excess is WARNed"; else no "T-1350-UPPER reviewer repro: silent — [$(b13_err "$d")]"; fi
+d="$TMP/b50-ub-over"; b50_fx_ub_over "$d"
+b13_expect "T-1350-UPPER declared 9/5 > derived 2 + uncounted 1: kept" "$(b13_run "$d")" "9 5 1 0"
+if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")" && grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1350-UPPER over: keep + excess WARN on stderr"; else no "T-1350-UPPER over: [$(b13_err "$d")]"; fi
+d="$TMP/b50-ub-edge"; b50_fx_ub_edge "$d"
+b13_expect "T-1350-UPPER declared 3 == derived 2 + uncounted 1: kept" "$(b13_run "$d")" "3 2 1 0"
+if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")"; then no "T-1350-UPPER edge: spurious excess WARN at the inclusive bound — [$(b13_err "$d")]"; else ok "T-1350-UPPER edge: no excess WARN at the inclusive bound"; fi
+d="$TMP/b50-ub-under"; b50_fx_ub_under "$d"
+b13_expect "T-1350-UPPER declared 2 within [derived 2, bound 3]: kept" "$(b13_run "$d")" "2 1 1 0"
+if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")"; then no "T-1350-UPPER under: spurious excess WARN — [$(b13_err "$d")]"; else ok "T-1350-UPPER under: no excess WARN"; fi
+# B1 (closed-class rows only, no Coverage metric) keeps WITHOUT an upper bound on purpose: there is no counted evidence to bound it.
+d="$TMP/b50-b1-nobound"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | E1 | web | closed |'; b19_decl "$d" 50 50
+b13_expect "T-1350-B1 closed-class only: declared 50/50 kept with no upper bound" "$(b13_run "$d")" "50 50 0 0"
+if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")"; then no "T-1350-B1: B1 must not emit the uncounted-excess WARN"; else ok "T-1350-B1: no excess WARN on the B1 branch"; fi
+
 # ----- teeth for kit #1307: every mutant is a COPY of the SUT built by lib/mutant.sh (refuses no-op / invalid-bash mutants) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -6801,7 +6850,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2 B2-DECLARED "20 10 1 0" b13_b2_fix_20 -e 's/^      kg="\${_decl_kg}"$/      kg=1/'
   b13_tooth2 GCMAX "20 4 1 0" b13_b2_fix_2 -e 's/\[ "\$_gc_d" -gt "\$gc" \] \&\& gc="\$_gc_d"/:/'
   b13_tooth2 NOTE "2 1 1 0" b13_fx_note -e '/CC-EMDASH-NOTE/s/if (g !~ [^{]*{/if (0) {/'
-  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/print "UNCOUNTED\\t" p/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) print "UNCOUNTED\\t" p/x=1/'
+  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/unc(p)/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) unc(p)/x=1/'
   b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
   # OOB guard: the Findings fixture is two tables, so build it by hand.
   m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
@@ -6826,10 +6875,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # ---- teeth for kit #1319 (malformed row = lower bound; escaped pipe) ----
   b19_fx_esc4() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'; }
   b19_fx_esc5() { b13_fix "$1" "## Gap-backlog" '| Priority | ID | Gap | Artifact | Status |' '| high | G1 | uses a\|b | x | pending |' '| low | G2 | ok | x | covered \| B1 |'; }
-  b13_tooth2 B19-MALFORMED-TIER "5 3 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) print "UNCOUNTED\\t" p//'
-  b13_tooth2 B19-MALFORMED-CLOSED "3 2 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; if (want_closed) print "UNCOUNTED\\t" p//'
+  b13_tooth2 B19-MALFORMED-TIER "5 3 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) unc(p)//'
+  b13_tooth2 B19-MALFORMED-CLOSED "3 2 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; unc(p)//'
   b13_tooth2 B19-ESCPIPE-4 "3 2 1 0" b19_fx_esc4 -e '/BP-ESCAPED-PIPE/d'
   b13_tooth2 B19-ESCPIPE-5 "2 1 1 0" b19_fx_esc5 -e '/BP-ESCAPED-PIPE/d'
+  # ---- teeth for kit #1350 (prose line must not trigger the keep; the keep is bounded) ----
+  b13_tooth2 B50-PROSE-CLOSED "3 2 1 0" b50_fx_prose_closed -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-TIER "2 1 1 0" b50_fx_prose_tier -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-FIRST "2 1 1 0" b50_fx_prose_first -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-INDENTED-ROW "3 2 1 0" b50_fx_indented -e 's/isrow = (\$0 ~ \/\^\[ \\t\]\*\\|\/)/isrow = ($0 ~ \/^\\|\/)/'
+  b13_tooth2 B50-UPPER-NOWARN "ERR:$EXCESS_WARN" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/false \&\& printf/'
+  b13_tooth2 B50-UPPER-REWRITE "9 5 1 0" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] \&\& _kg_lb=0 \&\& printf/'
+  # inclusive bound: a mutant using -ge would WARN at declared == derived + uncounted, where the good run is silent
+  if mutant_sed "$SUT" "$TMP/status.B50-INCL.MUTANT.sh" -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
+    dd="$TMP/b13-teeth-b50incl"; b50_fx_ub_edge "$dd"; B13_SUT="$TMP/status.B50-INCL.MUTANT.sh" b13_run "$dd" >/dev/null
+    grep -q "$EXCESS_WARN" <<<"$(b13_err "$dd")" && ok "teeth-B13-B50-UPPER-INCLUSIVE: -ge mutant WARNs at the bound → T-1350-UPPER edge RED" || no "teeth-B13-B50-UPPER-INCLUSIVE: mutant still silent — THEATER"
+  else no "teeth-B13-B50-UPPER-INCLUSIVE: mutant refused by mutant.sh"; fi
 fi
 
 if [ "$skips" -gt 0 ]; then

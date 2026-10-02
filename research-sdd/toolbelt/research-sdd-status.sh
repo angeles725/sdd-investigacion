@@ -356,10 +356,13 @@ count_deferred() {
 backlog_rows() {
   LC_ALL=C awk -v want_closed="${1:-0}" '
     # BACKLOG-ROWS-AWK-START
+    # UNC-FN (#1350): UNCOUNTED marks the derived count a LOWER BOUND, so it is emitted only for a real table row (a line that
+    # starts with a pipe); a prose line that merely contains pipes must never trigger the sync-state keep.
+    function unc(tier) { if (isrow) print "UNCOUNTED\t" tier }
     /^## Gap-backlog( \([^)]+\))?$/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0; in_backlog=1; in_data=0; expected_cols=0; tbl_ok=0; prev_p=""; next }  # OOB-WARN-FLUSH
     /^## / && tolower($0) ~ /backlog/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _this_line_nm=1; print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { if (!_this_line_nm) { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0 }; _nm_was_last=_this_line_nm; _this_line_nm=0; in_backlog=0; in_data=0; expected_cols=0; tbl_ok=0; prev_p=""; next }
-    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
+    { isrow = ($0 ~ /^[ \t]*\|/); line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) { prev_p=""; next }
       gsub(/\\\|/,"\001",line)  # BP-ESCAPED-PIPE (#1319): `\|` inside a cell is a literal pipe, not a separator; restored after the split
       sub(/^\|/,"",line); sub(/\|$/,"",line)
@@ -371,9 +374,9 @@ backlog_rows() {
       if (p=="deferred" || p~/^~~.*~~$/ || p~/^—/) {  # CLOSED-CLASS: closed/parked rows are COUNTED in known_gaps (never routable); only emitted when want_closed=1 (#1307)
         if (!want_closed) next
         if (expected_cols<0) next
-        if (!in_backlog && !tbl_ok) { if (_nm_was_last && in_data) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; print "UNCOUNTED\t" p }; next }  # CC-NOHDR-UNCOUNTED
+        if (!in_backlog && !tbl_ok) { if (_nm_was_last && in_data) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; unc(p) }; next }  # CC-NOHDR-UNCOUNTED
         sc = (expected_cols > 0) ? expected_cols : 4
-        if (n!=sc) { if (in_backlog && in_data) { print "WARN: malformed closed-class backlog row (" n " cells, expected " sc "): " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }; next }  # CC-MALFORMED-UNCOUNTED (#1319): a malformed row makes the derived count a LOWER BOUND 
+        if (n!=sc) { if (in_backlog && in_data) { print "WARN: malformed closed-class backlog row (" n " cells, expected " sc "): " $0 > "/dev/stderr"; unc(p) }; next }  # CC-MALFORMED-UNCOUNTED (#1319): a malformed row makes the derived count a LOWER BOUND (sync-state only)
         st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st); split(st,tk," "); tok=tk[1]
         if (p=="deferred") { if (!(index(a[2],"~~") || index(st,"~~") || index(st,"✅"))) next; cp="deferred" }  # CC-DEFERRED-CLOSED: open deferred rows are counted by count_deferred/derive_deferred, not here
         else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; g=a[2]; gsub(/^(\*\*|~~|`|\[)+/,"",g); sub(/[ \t·:—(].*$/,"",g); gsub(/[*~`\]]+$/,"",g); if (g !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ || g !~ /[0-9]/) { print "WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN CC-EMDASH-NOTE
@@ -393,11 +396,11 @@ backlog_rows() {
         if (in_backlog && in_data) {
           print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
           print "INVALID_PRIORITY\t" p
-        } else if (_nm_was_last && in_data && !tbl_ok) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; if (want_closed) print "UNCOUNTED\t" p }  # NM-NOHDR-UNCOUNTED
-        else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
+        } else if (_nm_was_last && in_data && !tbl_ok) { if (!tbl_warned) { print "WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)" > "/dev/stderr"; tbl_warned=1 }; if (want_closed) unc(p) }  # NM-NOHDR-UNCOUNTED
+        else if (_nm_was_last && in_data && tbl_ok) { print "WARN: unknown priority [" p "] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: " $0 > "/dev/stderr"; if (want_closed) unc(p) }  # NM-UNKNOWN-WARN: UNCOUNTED marks the derived known_gaps as a LOWER BOUND (sync-state only)
         next
       }
-      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; if (_nm_was_last && in_data && want_closed) print "UNCOUNTED\t" p; next }  # OOB-NO-PRIORITY-HEADER
+      if (!in_backlog && !tbl_ok) { if (!tbl_warned) { print "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)" > "/dev/stderr"; tbl_warned=1 }; if (_nm_was_last && in_data && want_closed) unc(p); next }  # OOB-NO-PRIORITY-HEADER
       if (!in_backlog && in_data) { _oob_count++ }  # OOB-ACCUM: accumulate per-section; flushed at ## heading or EOF
       if (expected_cols < 0) { next }  # BP-WIDTH-SKIP: unsupported table width; WARN already emitted on separator
       sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen yet
@@ -405,7 +408,7 @@ backlog_rows() {
       if (n!=sc) {
         if (sc==5 && n>sc && tolower(a[5]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 5-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # SS-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
         if (sc==4 && n>sc && tolower(a[4]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 4-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # SS-567-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
-        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc_msg " — a cell may contain a pipe): " $0 > "/dev/stderr"; if (want_closed) print "UNCOUNTED\t" p }  # SS-MALFORMED-WARN CC-MALFORMED-UNCOUNTED (#1319): scoped to in_backlog only (N3)
+        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc_msg " — a cell may contain a pipe): " $0 > "/dev/stderr"; if (want_closed) unc(p) }  # SS-MALFORMED-WARN CC-MALFORMED-UNCOUNTED (#1319): scoped to in_backlog only (N3)
         next }
       { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # SS-634-BOLD-STRIP: strip leading/trailing ** from status field (a[4] for 4-col, a[5] for 5-col)
       print p "\t" a[2] "\t" st }
@@ -833,7 +836,15 @@ if [ "$mode" = "--sync-state" ]; then
     [ "${_unc:-0}" -gt 0 ] && printf 'sync-state: WARN: %s: %d backlog row(s) are NOT counted (undeclared tier / malformed row / table without a Priority header) — known_gaps and gaps_closed are LOWER bounds, verify against the prose.\n' \
       "$(basename "$state")" "${_unc}" >&2
     if printf '%s' "${_decl_kg}" | grep -qE '^[0-9]+$' && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
-      if [ "${_unc:-0}" -gt 0 ]; then _kg_lb=1; printf 'sync-state: WARN: %s: keeping the declared known_gaps=%s (derived %d is below it); gaps_closed = max(declared, derived).\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" >&2
+      if [ "${_unc:-0}" -gt 0 ]; then
+        # KG-LB-UPPER (#1350): the keep is LOUD, never destructive. A declared total above derived + uncounted cannot be explained by the
+        # uncounted rows alone, but it is NOT provably stale: it may include closed gaps tracked outside the backlog table (prose, another
+        # heading). So it is still kept (propose-never-apply) and the unexplained excess is WARNed for a hand check.
+        _kg_lb=1; printf 'sync-state: WARN: %s: keeping the declared known_gaps=%s (derived %d is below it); gaps_closed = max(declared, derived).\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" >&2
+        [ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] && printf 'sync-state: WARN: %s: declared known_gaps=%s exceeds what the parser can count (derived %d + %d uncounted) — NOT rewritten; it may include gaps tracked outside the backlog table (prose, other headings) — verify by hand.\n' \
+          "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" "${_unc}" >&2
+      # B1-NO-UPPER (#1350): this branch keeps WITHOUT an upper bound on purpose: with only closed-class rows and no Coverage metric there is no
+      # counted evidence to bound the declared total against, so any declared value is kept (and WARNed below).
       elif [ -z "${_cm_kg}" ] && [ "$(( ${_plain:-0} + ${def:-0} ))" -eq 0 ]; then  # B1: only closed-class rows, no prose metric: nothing proves the declared total shrank
         _kg_lb=1
         printf 'sync-state: WARN: %s: the backlog has only closed-class rows and there is no Coverage metric N/M — derived known_gaps=%d is not evidence the declared total shrank; keeping the declared known_gaps/gaps_closed.\n' \
