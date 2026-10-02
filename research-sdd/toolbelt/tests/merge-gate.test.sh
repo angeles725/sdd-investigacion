@@ -321,5 +321,6 @@ mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
 mutate M41-head-reject-first-line-only 's/printf .%s. "\$merge_out" | grep -Eqi/printf "%s" "$merge_line" | grep -Eqi/'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
 mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
-echo "== $pass passed · $fail failed · mutants $MUT_PASS detected · $MUT_FAIL missed =="
+echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
+echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]
