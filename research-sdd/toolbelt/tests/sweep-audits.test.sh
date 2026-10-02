@@ -305,6 +305,47 @@ else
   no "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
 fi
 
+# 14b — diff.renames=true must give the SAME answer as case 14 (kit issue #1401, defence in depth).
+#       NOTE: on git 2.55 the per-file pathspec stops rename pairing, so this behaviour pin cannot go
+#       RED for a flag-less call today; the structural guard 14c is the assertion that bites.
+kit="$(mkkit c14b-rename-true)"; tgt="$kit/targetA"
+mkdir -p "$tgt/audits"
+printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
+  > "$tgt/audits/orig.md"
+git -C "$tgt" init -q -b main
+git -C "$tgt" config user.email t@example.com
+git -C "$tgt" config user.name tester
+git -C "$tgt" config diff.renames true
+git -C "$tgt" add -A
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "add orig.md"
+git -C "$tgt" mv audits/orig.md audits/renamed.md
+GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
+  git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && ! grep -q 'ESCALATED (aged' <<<"$OUT"; then
+  ok "14b renamed audit dated from rename commit under diff.renames=true (same as case 14)" "(exit $RC)"
+else
+  no "14b renamed audit dated from rename commit under diff.renames=true (same as case 14)" "exit=$RC out=[$OUT]"
+fi
+
+# 14c — STRUCTURAL guard: every `git -C "$p" log ... --diff-filter=A` CODE line in the SUT carries
+#       --no-renames (comments stripped first, so a comment cannot satisfy it). Kit issue #1401.
+c14c_counts() {   # $1 = SUT path → "<total> <with --no-renames>"
+  local t o code
+  code="$(sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$1")"
+  t="$(grep -c 'git -C "\$p" log .*--diff-filter=A' <<<"$code")"
+  o="$(grep 'git -C "\$p" log .*--diff-filter=A' <<<"$code" | grep -c -- '--no-renames')"
+  printf '%s %s' "$t" "$o"
+}
+read -r _c14c_total _c14c_ok <<<"$(c14c_counts "$SUT")"
+if [ "$_c14c_total" -ge 1 ] && [ "$_c14c_total" = "$_c14c_ok" ]; then
+  ok "14c every 'git log --diff-filter=A' call in SUT passes --no-renames" "($_c14c_ok/$_c14c_total)"
+else
+  no "14c every 'git log --diff-filter=A' call in SUT must pass --no-renames" "total=$_c14c_total with-flag=$_c14c_ok"
+fi
+
 # 15 — skipped_count>0 (truncated '...' path) → "Nothing to review." ABSENT even when pending=0.
 #      RED before fix: current gate is `pending==0` only; a PARTIAL with no pending still prints
 #      "Nothing to review." which is false because the sweep did not inspect the skipped target.
@@ -479,7 +520,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth(rename-tradeoff): reintroduce --follow to added= lookup; renamed-after-creation audit must ESCALATE --"
-  follow_anchor='git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f"'
+  follow_anchor='git -C "$p" log --no-renames --diff-filter=A --format=%aI -1 -- "$f"'
   if [[ "$content" != *"$follow_anchor"* ]]; then
     no "teeth(rename-tradeoff): locate added= git-log line" "anchor not found — SUT drifted?"
   else
@@ -497,7 +538,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
       git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
     write_targets "$kit" "$tgt"
-    follow_replacement='git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f"'
+    follow_replacement='git -C "$p" log --follow --no-renames --diff-filter=A --format=%aI -1 -- "$f"'
     mutant="$kit/toolbelt/sweep-audits.sh"
     printf '%s\n' "${content/"$follow_anchor"/"$follow_replacement"}" > "$mutant"
     outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
@@ -505,6 +546,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth(rename-tradeoff): --follow mutant ESCALATES renamed-after-creation audit → case 14 has teeth"
     else
       no "teeth(rename-tradeoff): --follow mutant did not ESCALATE — case 14 is THEATER: [$outm]"
+    fi
+  fi
+fi
+
+# Teeth NR (kit issue #1401): drop --no-renames from the add-date call; structural case 14c must go RED.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth(no-renames): drop --no-renames from the add-date call; structural case 14c must go RED --"
+  _nr="$ROOT/teeth-nr.sh"; _nrc=0
+  mutant_sed "$SUT" "$_nr" 's/log --no-renames --diff-filter=A --format=%aI/log --diff-filter=A --format=%aI/' || _nrc=$?
+  if [ "$_nrc" != 0 ]; then
+    no "teeth(no-renames): build mutant" "mutant_sed refused (rc $_nrc) — anchor drifted?"
+  else
+    read -r _nr_t _nr_o <<<"$(c14c_counts "$_nr")"
+    if [ "$_nr_t" -ge 1 ] && [ "$_nr_t" != "$_nr_o" ]; then
+      ok "teeth(no-renames): flag-less add-date call breaks the structural guard (case 14c has teeth)" "($_nr_o/$_nr_t)"
+    else
+      no "teeth(no-renames): flag-less add-date call not detected — case 14c is THEATER" "total=$_nr_t with-flag=$_nr_o"
+    fi
+  fi
+  # A trailing comment mentioning the flag must NOT satisfy the guard (comment stripping has teeth).
+  _nrc2="$ROOT/teeth-nr-comment.sh"; _nrc3=0
+  mutant_sed "$SUT" "$_nrc2" 's/^\(.*log \)--no-renames \(--diff-filter=A --format=%aI.*\)$/\1\2  # --no-renames/' || _nrc3=$?
+  if [ "$_nrc3" != 0 ]; then
+    no "teeth(no-renames-comment): build mutant" "mutant_sed refused (rc $_nrc3) — anchor drifted?"
+  else
+    read -r _nc_t _nc_o <<<"$(c14c_counts "$_nrc2")"
+    if [ "$_nc_t" -ge 1 ] && [ "$_nc_t" != "$_nc_o" ]; then
+      ok "teeth(no-renames-comment): trailing comment naming the flag does not satisfy 14c" "($_nc_o/$_nc_t)"
+    else
+      no "teeth(no-renames-comment): comment satisfied the guard — comment stripping is THEATER" "total=$_nc_t with-flag=$_nc_o"
     fi
   fi
 fi
