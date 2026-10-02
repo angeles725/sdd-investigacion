@@ -12,7 +12,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../scan-secrets.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" "$MUT"' EXIT
+MUT=""
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -27,6 +28,8 @@ runout(){ bash "$SUT" "$1" 2>&1; }
 # control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
 MUT="$(mktemp -d)"
 # mk_sed LABEL OUT EXPR...  build $OUT from $MK_ORIG (default $SUT) with one sed stage per EXPR.
 # Each stage must change the original ON ITS OWN: a chain whose first stage applies would otherwise
@@ -49,15 +52,15 @@ mk_verify(){
   err="$(mutant_verify "${MK_ORIG:-$SUT}" "$out" 2>&1)"; rc=$?
   [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
 }
-# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] -- ARGV...
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
 # Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
 # returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
-# (and its output no longer matches --bad-lacks): a crashing mutant is not teeth.
+# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
 tooth(){
-  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
+  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
   while [ "${1:-}" != -- ]; do
     case "${1:-}" in
-      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;;
+      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
       *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
     esac; shift 2
   done; shift
@@ -69,6 +72,7 @@ tooth(){
   if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
   [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
   if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
+  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
   if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
   else no "$label — THEATER:$why"; fi
 }
@@ -920,7 +924,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # and the scan runs normally → finds the token → exits 1 (not 3). Test 47 must go red.
   mk_sed "teeth-b3-47" "$mutant_b3_47" 's/\$(mktemp)/$(TMPDIR=\/tmp mktemp)/g' \
     && tooth "teeth-b3-47: mktemp-check-removed mutant scans despite unusable tmpdir (finds the token) → test 47 has teeth" 3 1 "$mutant_b3_47" \
-         --good-has 'degraded' --bad-lacks 'degraded' \
+         --good-has 'degraded' --bad-lacks 'degraded' --bad-has 'LEAK!' \
          -- env TMPDIR="$TMP/nonexistent-tmpdir-$$" bash @SUT@ --committed "$d_t47"
 
   # Teeth for T48 (B3 awk missing): remove awk probe → awk absence not detected.
