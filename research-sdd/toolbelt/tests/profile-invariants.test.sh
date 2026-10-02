@@ -103,6 +103,11 @@ done
 command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 # shellcheck source=lib/prompt-invariants.sh
 source "$LIB"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+export MUTANT_SYNTAX=none
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -562,6 +567,53 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     done
   }
 
+  # --- mutation-control helpers (kit issues #943, #1299) ----------------------------------------
+  # Every mutant is built FROM the real source file INTO a copied kit under $TMP (a temp dir outside
+  # the live tree) by lib/mutant.sh, which REFUSES an empty, byte-identical or live-tree mutant
+  # (MUTANT_SYNTAX=none: the targets are markdown, not bash). A sed stage that matches nothing is
+  # recorded as a FAIL instead of a silently unmutated kit.
+  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+  # mk_sed_from ORIG LABEL OUT EXPR  build OUT from ORIG with one sed EXPR; false (and a FAIL) when refused.
+  mk_sed_from() {
+    local orig="$1" label="$2" out="$3" e="$4" rc err
+    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
+      no "$label: sed stage matches nothing in the original (silent no-op) :: [${e:0:80}]"; return 1
+    fi
+    err="$(mutant_sed "$orig" "$out" -e "$e" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  }
+  # mk_verify_from ORIG LABEL OUT  validate a mutant built another way (python3, append) with the same refusals.
+  mk_verify_from() {
+    local orig="$1" label="$2" out="$3" rc err
+    err="$(mutant_verify "$orig" "$out" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  }
+
+  # GOOD verdicts: the exact assertion each tooth below flips, run on the UNMUTATED renders. A tooth only
+  # proves something if its check passes on the original (a check that is red everywhere also "goes RED").
+  good_rc() {  # LABEL WANT_RC CMD... — the original must return EXACTLY WANT_RC
+    local label="$1" want="$2" rc; shift 2
+    "$@" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq "$want" ]; then ok "teeth-good/$label: rc=$rc on the unmutated original"
+    else no "teeth-good/$label: rc=$rc on the unmutated original (want $want) — its tooth would prove nothing"; fi
+  }
+  good_rc "assert_A1"      0 assert_A1 "${OUTDIR[claude]}/skills/research-sdd/SKILL.md"
+  good_rc "assert_C16"     0 assert_C16 "$GENERAL_SKILL"
+  good_rc "assert_A14_neg" 0 assert_A14_neg "$GENERAL_LOOP"
+  good_rc "assert_C19"     0 assert_C19 "$GENERAL_SKILL"
+  good_rc "scan_profile_file" 1 scan_profile_file "$PROFILES_DIR/general.slots.md"
+  good_rc "scan_source_file"  1 scan_source_file "$SKILL"
+  good_rc "z1_check"       0 z1_check "${OUTDIR[claude]}" "${OUTDIR[general]}"
+  good_rc "p1_holds"       0 p1_holds "$GENERAL_SKILL"
+  good_rc "p2_holds"       0 p2_holds "$GENERAL_SKILL"
+  good_rc "forbidden_present/N1" 1 forbidden_present 'fine to ask the operator'
+  good_rc "forbidden_present/N2" 1 forbidden_present 'end your turn and wait'
+  good_rc "q2_holds"       0 q2_holds "$GENERAL_SKILL"
+  good_rc "q3_holds"       0 q3_holds "$GENERAL_SKILL"
+  good_rc "q4_holds"       0 q4_holds "$GENERAL_LOOP"
+  good_rc "q1_line parity" 0 test "$(q1_line "${OUTDIR[claude]}/skills/research-sdd/SKILL.md")" = "$(q1_line "$GENERAL_SKILL")"
+  good_rc "R1 general render" 0 env RSDD_KIT_DIR="$KIT" "$RENDERER" general "$TMP/outGoodR1"
+
   # require_anchor FILE OLD — fails loudly (prints to stderr, returns 1) if
   # OLD is not found in FILE, so a vanished anchor is a recorded FAIL, never
   # a silently skipped tooth.
@@ -576,7 +628,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitDrop="$TMP/kitDrop"
   make_kit "$kitDrop"
   if require_anchor "$kitDrop/skills/research-sdd/SKILL.md" 'the 7 markers'; then
-    sed -i 's/the 7 markers/the N markers/g' "$kitDrop/skills/research-sdd/SKILL.md"
+    mk_sed_from "$SKILL" "teeth-drop-invariant-phrase" "$kitDrop/skills/research-sdd/SKILL.md" 's/the 7 markers/the N markers/g'
     outDrop="$TMP/outDrop"
     if RSDD_KIT_DIR="$kitDrop" "$RENDERER" claude "$outDrop" >/dev/null 2>&1; then
       if assert_A1 "$outDrop/skills/research-sdd/SKILL.md"; then
@@ -596,7 +648,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitAbsSkill"
   profileAbsSkill="$kitAbsSkill/profiles/general.slots.md"
   if [ -f "$profileAbsSkill" ] && require_anchor "$profileAbsSkill" 'read IN FULL once per context'; then
-    sed -i 's/read IN FULL once per context/read IN FULL once per context. an autonomous run must stop at convergence/' "$profileAbsSkill"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-absence-phrase-in-skill-slot" "$profileAbsSkill" 's/read IN FULL once per context/read IN FULL once per context. an autonomous run must stop at convergence/'
     outAbsSkill="$TMP/outAbsSkill"
     if RSDD_KIT_DIR="$kitAbsSkill" "$RENDERER" general "$outAbsSkill" >/dev/null 2>&1; then
       if assert_C16 "$outAbsSkill/skills/research-sdd/SKILL.md"; then
@@ -616,7 +668,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitAbsLoop"
   profileAbsLoop="$kitAbsLoop/profiles/general.slots.md"
   if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read IN FULL once per context)'; then
-    sed -i 's/(read IN FULL once per context)/(read IN FULL once per context — guarantees the cadence)/' "$profileAbsLoop"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-absence-phrase-in-loop-slot" "$profileAbsLoop" 's/(read IN FULL once per context)/(read IN FULL once per context — guarantees the cadence)/'
     outAbsLoop="$TMP/outAbsLoop"
     if RSDD_KIT_DIR="$kitAbsLoop" "$RENDERER" general "$outAbsLoop" >/dev/null 2>&1; then
       if assert_A14_neg "$outAbsLoop/PROMPT-LOOP.md"; then
@@ -636,7 +688,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitAbsC19"
   profileAbsC19="$kitAbsC19/profiles/general.slots.md"
   if [ -f "$profileAbsC19" ] && require_anchor "$profileAbsC19" 'A return without one is a silently stopped iteration.'; then
-    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. Do not simply signal "continue"./' "$profileAbsC19"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-absence-phrase-c19-in-slot" "$profileAbsC19" 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. Do not simply signal "continue"./'
     outAbsC19="$TMP/outAbsC19"
     if RSDD_KIT_DIR="$kitAbsC19" "$RENDERER" general "$outAbsC19" >/dev/null 2>&1; then
       if assert_C19 "$outAbsC19/skills/research-sdd/SKILL.md"; then
@@ -656,7 +708,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitToken"
   profileCopy="$kitToken/profiles/general.slots.md"
   if [ -f "$profileCopy" ] && require_anchor "$profileCopy" 'once per context (session start'; then
-    sed -i 's/once per context (session start/once per context (see §8c) (session start/' "$profileCopy"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-doctrine-token-in-profile-body" "$profileCopy" 's/once per context (session start/once per context (see §8c) (session start/'
     hits="$(scan_profile_file "$profileCopy")"; scan_rc=$?
     if [ "$scan_rc" -eq 0 ]; then
       ok "teeth-doctrine-token-in-profile-body: T1's scan catches the injected §8c token on the mutant — $hits"
@@ -672,7 +724,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitSourceToken"
   skillCopy="$kitSourceToken/skills/research-sdd/SKILL.md"
   if require_anchor "$skillCopy" '<!-- slot:hotcore-cadence -->read once per context'; then
-    sed -i 's/<!-- slot:hotcore-cadence -->read once per context/<!-- slot:hotcore-cadence -->read once per context (see §8c)/' "$skillCopy"
+    mk_sed_from "$SKILL" "teeth-doctrine-token-in-source-span" "$skillCopy" 's/<!-- slot:hotcore-cadence -->read once per context/<!-- slot:hotcore-cadence -->read once per context (see §8c)/'
     hits="$(scan_source_file "$skillCopy")"; scan_rc=$?
     if [ "$scan_rc" -eq 0 ]; then
       ok "teeth-doctrine-token-in-source-span: T2's scan catches the injected §8c token on the mutant source — $hits"
@@ -689,7 +741,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   profileInflate="$kitInflate/profiles/general.slots.md"
   if [ -f "$profileInflate" ] && require_anchor "$profileInflate" 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not'; then
     padding="$(printf 'x%.0s' $(seq 1 20000))"
-    sed -i "s/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not ${padding}/" "$profileInflate"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-inflate-slot-past-budget" "$profileInflate" "s/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not ${padding}/"
     outInflateClaude="$TMP/outInflateClaude"; outInflateGeneral="$TMP/outInflateGeneral"
     if RSDD_KIT_DIR="$kitInflate" "$RENDERER" claude "$outInflateClaude" >/dev/null 2>&1 \
        && RSDD_KIT_DIR="$kitInflate" "$RENDERER" general "$outInflateGeneral" >/dev/null 2>&1; then
@@ -711,13 +763,13 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitRemove"
   profileRemove="$kitRemove/profiles/general.slots.md"
   if [ -f "$profileRemove" ] && require_anchor "$profileRemove" '## slot:hotcore-loop-cadence'; then
-    python3 - "$profileRemove" <<'PYEOF'
+    python3 - "$PROFILES_DIR/general.slots.md" "$profileRemove" <<'PYEOF'
 import re, sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
+s = open(sys.argv[1], encoding='utf-8').read()
 s = re.sub(r'## slot:hotcore-loop-cadence\n.*?(?=\n## slot:|\Z)', '', s, flags=re.DOTALL)
-open(p, 'w', encoding='utf-8').write(s)
+open(sys.argv[2], 'w', encoding='utf-8').write(s)
 PYEOF
+    mk_verify_from "$PROFILES_DIR/general.slots.md" "teeth-remove-slot-body" "$profileRemove"
     outRemove="$TMP/outRemove"
     remove_out="$(RSDD_KIT_DIR="$kitRemove" "$RENDERER" general "$outRemove" 2>&1)"; remove_rc=$?
     if [ "$remove_rc" -eq 2 ] && grep -qi 'missing' <<<"$remove_out"; then
@@ -734,13 +786,13 @@ PYEOF
   make_kit "$kitRemoveNew"
   profileRemoveNew="$kitRemoveNew/profiles/general.slots.md"
   if [ -f "$profileRemoveNew" ] && require_anchor "$profileRemoveNew" '## slot:loop-return-contract-explicit'; then
-    python3 - "$profileRemoveNew" <<'PYEOF'
+    python3 - "$PROFILES_DIR/general.slots.md" "$profileRemoveNew" <<'PYEOF'
 import re, sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
+s = open(sys.argv[1], encoding='utf-8').read()
 s = re.sub(r'## slot:loop-return-contract-explicit\n.*?(?=\n## slot:|\Z)', '', s, flags=re.DOTALL)
-open(p, 'w', encoding='utf-8').write(s)
+open(sys.argv[2], 'w', encoding='utf-8').write(s)
 PYEOF
+    mk_verify_from "$PROFILES_DIR/general.slots.md" "teeth-remove-new-slot-body" "$profileRemoveNew"
     outRemoveNew="$TMP/outRemoveNew"
     removeNew_out="$(RSDD_KIT_DIR="$kitRemoveNew" "$RENDERER" general "$outRemoveNew" 2>&1)"; removeNew_rc=$?
     if [ "$removeNew_rc" -eq 2 ] && grep -qi 'missing' <<<"$removeNew_out"; then
@@ -761,7 +813,7 @@ PYEOF
     # round-4 LOW finding: a multi-line body renders at column 0 inside an
     # indented list item), so a plain single-line sed replace is enough —
     # no more cross-line python3 replace needed.
-    sed -i 's/the no-question rule from the triage section is a HARD rule inside the loop\./the no-question rule applies./' "$profileP1Drop"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-p1-drop" "$profileP1Drop" 's/the no-question rule from the triage section is a HARD rule inside the loop\./the no-question rule applies./'
     outP1Drop="$TMP/outP1Drop"
     if RSDD_KIT_DIR="$kitP1Drop" "$RENDERER" general "$outP1Drop" >/dev/null 2>&1; then
       if p1_holds "$outP1Drop/skills/research-sdd/SKILL.md"; then
@@ -781,7 +833,7 @@ PYEOF
   make_kit "$kitP2Drop"
   profileP2Drop="$kitP2Drop/profiles/general.slots.md"
   if [ -f "$profileP2Drop" ] && require_anchor "$profileP2Drop" '`next: <gap-id>` when the loop continues within the current focus.'; then
-    sed -i 's/`next: <gap-id>` when the loop continues within the current focus\./a continuation token./' "$profileP2Drop"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-p2-drop" "$profileP2Drop" 's/`next: <gap-id>` when the loop continues within the current focus\./a continuation token./'
     outP2Drop="$TMP/outP2Drop"
     if RSDD_KIT_DIR="$kitP2Drop" "$RENDERER" general "$outP2Drop" >/dev/null 2>&1; then
       if p2_holds "$outP2Drop/skills/research-sdd/SKILL.md"; then
@@ -801,7 +853,7 @@ PYEOF
   make_kit "$kitN1M1"
   profileN1M1="$kitN1M1/profiles/general.slots.md"
   if [ -f "$profileN1M1" ] && require_anchor "$profileN1M1" 'A return without one is a silently stopped iteration.'; then
-    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. When unsure, it is fine to ask the operator "shall I continue?"./' "$profileN1M1"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-n1-opus-m1" "$profileN1M1" 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. When unsure, it is fine to ask the operator "shall I continue?"./'
     outN1M1="$TMP/outN1M1"
     if RSDD_KIT_DIR="$kitN1M1" "$RENDERER" general "$outN1M1" >/dev/null 2>&1; then
       # RDD round-4 finding: save/restore the global GENERAL_FILES around
@@ -828,7 +880,7 @@ PYEOF
   make_kit "$kitN2M2"
   profileN2M2="$kitN2M2/profiles/general.slots.md"
   if [ -f "$profileN2M2" ] && require_anchor "$profileN2M2" 'A return without one is a silently stopped iteration.'; then
-    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. If genuinely uncertain, then end your turn and wait for the operator./' "$profileN2M2"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-n2-opus-m2" "$profileN2M2" 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. If genuinely uncertain, then end your turn and wait for the operator./'
     outN2M2="$TMP/outN2M2"
     if RSDD_KIT_DIR="$kitN2M2" "$RENDERER" general "$outN2M2" >/dev/null 2>&1; then
       saved_general_files=("${GENERAL_FILES[@]}")
@@ -852,13 +904,14 @@ PYEOF
   skillQ1="$kitQ1/skills/research-sdd/SKILL.md"
   profileQ1="$kitQ1/profiles/general.slots.md"
   if require_anchor "$skillQ1" 'Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.'; then
-    sed -i 's/Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog\./<!-- slot:hotcore-reread-scope-div -->Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.<!-- \/slot -->/' "$skillQ1"
+    mk_sed_from "$SKILL" "teeth-q1-divergence-regression" "$skillQ1" 's/Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog\./<!-- slot:hotcore-reread-scope-div -->Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.<!-- \/slot -->/'
     {
       echo ""
       echo "## slot:hotcore-reread-scope-div"
       echo ""
       echo "Each iteration also re-reads RESEARCH-STATE, INDEX, and \`--next\` from the live backlog."
     } >> "$profileQ1"
+    mk_verify_from "$PROFILES_DIR/general.slots.md" "teeth-q1-divergence-regression" "$profileQ1"
     outQ1Claude="$TMP/outQ1Claude"; outQ1General="$TMP/outQ1General"
     if RSDD_KIT_DIR="$kitQ1" "$RENDERER" claude "$outQ1Claude" >/dev/null 2>&1 \
        && RSDD_KIT_DIR="$kitQ1" "$RENDERER" general "$outQ1General" >/dev/null 2>&1; then
@@ -881,7 +934,7 @@ PYEOF
   make_kit "$kitQ2"
   profileQ2="$kitQ2/profiles/general.slots.md"
   if [ -f "$profileQ2" ] && require_anchor "$profileQ2" 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not'; then
-    sed -i 's/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL every iteration — never/' "$profileQ2"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-q2-cadence-regression" "$profileQ2" 's/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL every iteration — never/'
     outQ2="$TMP/outQ2"
     if RSDD_KIT_DIR="$kitQ2" "$RENDERER" general "$outQ2" >/dev/null 2>&1; then
       if q2_holds "$outQ2/skills/research-sdd/SKILL.md"; then
@@ -901,7 +954,7 @@ PYEOF
   make_kit "$kitQ3"
   profileQ3="$kitQ3/profiles/general.slots.md"
   if [ -f "$profileQ3" ] && require_anchor "$profileQ3" '`next: <gap-id>` when the loop continues within the current focus.'; then
-    sed -i 's/`next: <gap-id>` when the loop continues within the current focus\./`next: <gap-id> · rescheduled via <mechanism>` when the loop continues within the current focus./' "$profileQ3"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-q3-stale-token-regression" "$profileQ3" 's/`next: <gap-id>` when the loop continues within the current focus\./`next: <gap-id> · rescheduled via <mechanism>` when the loop continues within the current focus./'
     outQ3="$TMP/outQ3"
     if RSDD_KIT_DIR="$kitQ3" "$RENDERER" general "$outQ3" >/dev/null 2>&1; then
       if q3_holds "$outQ3/skills/research-sdd/SKILL.md"; then
@@ -921,7 +974,7 @@ PYEOF
   make_kit "$kitQ3NS"
   profileQ3NS="$kitQ3NS/profiles/general.slots.md"
   if [ -f "$profileQ3NS" ] && require_anchor "$profileQ3NS" 'every return MUST end with exactly one'; then
-    sed -i 's/every return MUST end with exactly one/every non-STOP return MUST end with/' "$profileQ3NS"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-q3-nonstop-regression" "$profileQ3NS" 's/every return MUST end with exactly one/every non-STOP return MUST end with/'
     outQ3NS="$TMP/outQ3NS"
     if RSDD_KIT_DIR="$kitQ3NS" "$RENDERER" general "$outQ3NS" >/dev/null 2>&1; then
       if q3_holds "$outQ3NS/skills/research-sdd/SKILL.md"; then
@@ -941,7 +994,7 @@ PYEOF
   make_kit "$kitQ4"
   profileQ4="$kitQ4/profiles/general.slots.md"
   if [ -f "$profileQ4" ] && require_anchor "$profileQ4" '(read IN FULL once per context)'; then
-    sed -i 's/(read IN FULL once per context)/(read IN FULL every iteration)/' "$profileQ4"
+    mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-q4-cadence-regression" "$profileQ4" 's/(read IN FULL once per context)/(read IN FULL every iteration)/'
     outQ4="$TMP/outQ4"
     if RSDD_KIT_DIR="$kitQ4" "$RENDERER" general "$outQ4" >/dev/null 2>&1; then
       if q4_holds "$outQ4/PROMPT-LOOP.md"; then

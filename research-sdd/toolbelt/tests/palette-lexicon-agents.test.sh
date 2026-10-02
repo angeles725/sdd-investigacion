@@ -953,470 +953,166 @@ if [ ! -f "$ORIG_PY" ]; then
   exit 1
 fi
 
-# --- M1: Remove symlink guard on input ---
-# Mutation: S_ISLNK → S_ISBLK so symlink input is not rejected.
-# Expected: T2 symlink input now exits 0 instead of 2 → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if _stat\.S_ISLNK(lstat_in\.st_mode):/if _stat.S_ISBLK(lstat_in.st_mode):  # MUTANT-M1/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M1 symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M1 symlink guard: sed had no effect (pattern not found)"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$ROOT/sym-module" --output "$ROOT/m1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -ne 2 ]; then
-    mut_ok "M1 symlink guard removal detected (exit $_m1_exit, not 2)"
-  else
-    mut_no "M1 symlink guard: mutation NOT detected (still exits 2)"
-  fi
-fi
-rm -rf "$MUTDIR"
 
-# --- M2: Break duplicate key detection (dup dict always empty) ---
-# Mutation: dups = {k: v ...} → dups = {}
-# Expected: T6 sees duplicate_bare_keys_count=0 even though alarm.displayName appears twice → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/dups = {k: v for k, v in counts\.items() if v > 1}/dups = {}  # MUTANT-M2/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M2 dup detection: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M2 dup detection: sed had no effect (pattern not found)"
-else
-  _m2_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/valid-module" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
-  _m2_dup=""
-  if [ -f "$ROOT/m2.json" ]; then
-    _m2_dup="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m2.json')); art=d['artifacts'][0]; print(art.get('duplicate_bare_keys_count','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m2_dup" != "1" ]; then
-    mut_ok "M2 dup detection broken: duplicate_bare_keys_count='$_m2_dup' not 1 — DETECTED"
-  else
-    mut_no "M2 dup detection: mutation NOT detected (still 1)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
+# Every mutant is a COPY of the SUT directory under a mktemp dir (outside the live tree) whose
+# palette_lexicon_agents.py is built FROM the original by lib/mutant.sh (MUTANT_SYNTAX=none: the
+# bash syntax check does not apply to Python; py_compile below replaces it). lib/mutant.sh REFUSES an
+# empty, byte-identical or live-tree mutant. Each tooth then asserts the EXACT GOOD verdict on the
+# original AND the EXACT BAD verdict on the mutant: a mutant that merely crashes (no JSON, odd exit)
+# is NOT teeth — the old `!= <good value>` verdicts counted a crash as "DETECTED".
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+MUTDIR=""
+trap '
+  chmod 755 "$ROOT/unreadable-subdir-module/art-x/extracted/secret-dir" 2>/dev/null || true
+  chmod 644 "$ROOT/unreadable-lexicon-module/art-y/extracted/locked.lexicon" 2>/dev/null || true
+  rm -rf "$ROOT" ${MUTDIR:+"$MUTDIR"}
+' EXIT
 
-# --- M3: Break keys_examined counter (always 0) ---
-# Mutation: keys_examined += 1 → pass  # MUTANT-M3
-# Expected: T12 sees keys_examined=0 even for a lexicon with real keys → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/        keys_examined += 1$/        pass  # MUTANT-M3/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M3 keys_examined counter: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M3 keys_examined counter: sed had no effect (pattern not found)"
-else
-  _m3_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/valid-module" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
-  _m3_kex=""
-  if [ -f "$ROOT/m3.json" ]; then
-    _m3_kex="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m3.json')); art=d['artifacts'][0]; print(art.get('keys_examined','absent'))" \
-      2>/dev/null || echo "")"
+# mk_mutant LABEL EXPR...  build $MUTDIR/palette_lexicon_agents.py from $ORIG_PY, one sed stage per EXPR.
+# Each stage must change the original ON ITS OWN. Returns 1 (after recording a FAIL) when refused.
+mk_mutant() {
+  local label="$1" e rc err; shift
+  local -a args=()
+  MUTDIR="$(mktemp -d)"; cp -a "$SUT_DIR/." "$MUTDIR/"
+  for e in "$@"; do
+    if sed -e "$e" "$ORIG_PY" | cmp -s - "$ORIG_PY"; then
+      mut_no "$label: sed stage matches nothing in the original (silent no-op) :: [${e:0:70}]"; rm -rf "$MUTDIR"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  err="$(MUTANT_SYNTAX=none mutant_sed "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py" "${args[@]}" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then mut_no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; rm -rf "$MUTDIR"; return 1; fi
+  if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
+    mut_no "$label: mutant failed py_compile"; rm -rf "$MUTDIR"; return 1
   fi
-  if [ "$_m3_kex" = "0" ] || [ "$_m3_kex" = "0.0" ]; then
-    mut_ok "M3 keys_examined broken: keys_examined='$_m3_kex' (zero) — DETECTED"
-  else
-    mut_no "M3 keys_examined: mutation NOT detected (keys_examined=$_m3_kex)"
-  fi
-fi
-rm -rf "$MUTDIR"
+}
 
-# --- M4: Break palette entry accumulation (entries never appended) ---
-# Mutation: entries.append(entry) → pass  # MUTANT-M4
-# Expected: T6 sees palette_count=0 for a module with 3 palette entries → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/        entries\.append(entry)$/        pass  # MUTANT-M4/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M4 palette accumulation: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M4 palette accumulation: sed had no effect (pattern not found)"
-else
-  _m4_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/valid-module" --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
-  _m4_pal=""
-  if [ -f "$ROOT/m4.json" ]; then
-    _m4_pal="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m4.json')); art=d['artifacts'][0]; print(art.get('palette_count','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m4_pal" != "3" ]; then
-    mut_ok "M4 palette accumulation broken: palette_count='$_m4_pal' not 3 — DETECTED"
-  else
-    mut_no "M4 palette accumulation: mutation NOT detected (still 3)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# art_field JSON FIELD  print one value of the output document. FIELD forms: <artifact field> ·
+# top:<key> · len:top:<key> · xfile:<bare key flagged as duplicated in any file> · lim:<substring of limitations>.
+art_field() {
+  python3 - "$1" "$2" 2>/dev/null <<'PY' || echo "pyerr"
+import json, sys
+d = json.load(open(sys.argv[1])); f = sys.argv[2]
+art = d['artifacts'][0] if d.get('artifacts') else {}
+if f.startswith('top:'): print(d.get(f[4:], 'absent'))
+elif f.startswith('len:top:'): print(len(d.get(f[8:], [])))
+elif f.startswith('xfile:'):
+    dups = art.get('duplicate_bare_keys', {})
+    print('yes' if any(f[6:] in fd for fd in dups.values() if isinstance(fd, dict)) else 'no')
+elif f.startswith('lim:'): print('yes' if f[4:] in ' '.join(d.get('limitations', [])) else 'no')
+else: print(art.get(f, 'absent'))
+PY
+}
 
-# --- M5: Break multi-lexicon discovery (revert to single <artifact>.lexicon) ---
-# Mutation: _find_lexicon_files(...) → single-file list  (MUTANT-M5)
-# Expected: T15 sees lexicon_files_seen != 2 (only one file returned) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/    lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=_walk_onerror)/    lexicon_files = [os.path.join(ext_dir, artifact_name + ".lexicon")]  # MUTANT-M5/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M5 multi-lexicon: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M5 multi-lexicon: sed had no effect (pattern not found)"
-else
-  _m5_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/multi-lexicon-module" --output "$ROOT/m5.json" 2>/dev/null || _m5_exit=$?
-  _m5_lex_seen=""
-  if [ -f "$ROOT/m5.json" ]; then
-    _m5_lex_seen="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m5.json')); art=d['artifacts'][0]; print(art.get('lexicon_files_seen','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m5_lex_seen" != "2" ]; then
-    mut_ok "M5 multi-lexicon broken: lexicon_files_seen='$_m5_lex_seen' not 2 — DETECTED"
-  else
-    mut_no "M5 multi-lexicon: mutation NOT detected (still 2)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# art_run PY INPUT OUT FIELD  run PY on INPUT, set RA_RC (exit code) and RA_VAL (FIELD, or 'nojson').
+art_run() {
+  rm -f "$3"; RA_RC=0
+  python3 "$1" --input "$2" --output "$3" 2>/dev/null || RA_RC=$?
+  if [ -f "$3" ]; then RA_VAL="$(art_field "$3" "$4")"; else RA_VAL="nojson"; fi
+}
 
-# --- M6: Break presence signals (lexicon_files_seen always 0) ---
-# Mutation: lexicon_files_seen = len(lexicon_files) → lexicon_files_seen = 0  (MUTANT-M6)
-# Expected: T16b sees lexicon_files_seen=0 for valid-module (should be 1) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/    lexicon_files_seen = len(lexicon_files)/    lexicon_files_seen = 0  # MUTANT-M6/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M6 presence signals: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M6 presence signals: sed had no effect (pattern not found)"
-else
-  _m6_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/valid-module" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
-  _m6_lfs=""
-  if [ -f "$ROOT/m6.json" ]; then
-    _m6_lfs="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m6.json')); art=d['artifacts'][0]; print(art.get('lexicon_files_seen','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m6_lfs" != "1" ]; then
-    mut_ok "M6 presence signals broken: lexicon_files_seen='$_m6_lfs' not 1 — DETECTED"
+# mut_verdict LABEL G_RC G_VAL WANT_G_RC WANT_G_VAL B_RC B_VAL WANT_B_RC WANT_B_VAL  exact GOOD + exact BAD.
+mut_verdict() {
+  local label="$1"
+  if [ "$2" = "$4" ] && [ "$3" = "$5" ] && [ "$6" = "$8" ] && [ "$7" = "$9" ]; then
+    mut_ok "$label: original rc=$2 value='$3' → mutant rc=$6 value='$7' — DETECTED"
   else
-    mut_no "M6 presence signals: mutation NOT detected (still 1)"
+    mut_no "$label — THEATER: original rc=$2 value='$3' (want rc=$4 '$5'); mutant rc=$6 value='$7' (want rc=$8 '$9')"
   fi
-fi
-rm -rf "$MUTDIR"
+}
 
-# --- M7: Break BOM stripping (revert to plain utf-8 decode) ---
-# Mutation: decode("utf-8-sig",...) → decode("utf-8",...)  (MUTANT-M7)
-# Expected: T17 sees BOM residue in key names (﻿ prefix) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/text = raw\.decode("utf-8-sig", errors="replace")/text = raw.decode("utf-8", errors="replace")  # MUTANT-M7/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M7 BOM stripping: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M7 BOM stripping: sed had no effect (pattern not found)"
-else
-  _m7_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/bom-lexicon-module" --output "$ROOT/m7.json" 2>/dev/null || _m7_exit=$?
-  _m7_dup=""
-  if [ -f "$ROOT/m7.json" ]; then
-    _m7_dup="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m7.json')); art=d['artifacts'][0]; print(art.get('duplicate_bare_keys_count','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  # Without BOM stripping: '﻿title' and 'title' are different keys -> no dup (count 0)
-  # With BOM stripping (correct): both become 'title' -> dup detected (count 1)
-  if [ "$_m7_dup" != "1" ]; then
-    mut_ok "M7 BOM stripping broken: duplicate_bare_keys_count='$_m7_dup' not 1 — DETECTED"
-  else
-    mut_no "M7 BOM stripping: mutation NOT detected (duplicate_bare_keys_count still 1)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# mut_field_tooth LABEL INPUT FIELD GOOD_VAL BAD_VAL EXPR...  exact exit code (MF_GRC/MF_BRC, default 0) and exact value on both runs.
+mut_field_tooth() {
+  local label="$1" input="$2" field="$3" good="$4" bad="$5" grc gval; shift 5
+  mk_mutant "$label" "$@" || return 1
+  art_run "$ORIG_PY" "$input" "$ROOT/good.json" "$field"; grc=$RA_RC; gval=$RA_VAL
+  art_run "$MUTDIR/palette_lexicon_agents.py" "$input" "$ROOT/bad.json" "$field"
+  mut_verdict "$label" "$grc" "$gval" "${MF_GRC:-0}" "$good" "$RA_RC" "$RA_VAL" "${MF_BRC:-0}" "$bad"
+  rm -rf "$MUTDIR"
+}
 
-# --- M8: Revert palette cap to old 4 MiB (large palette truncated again) ---
-# Mutation: _MAX_PALETTE_BYTES = 16 * 1024 * 1024 → 4 * 1024 * 1024  (MUTANT-M8)
-# Expected: T14 large palette exits 1 (parse error from truncated XML) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/_MAX_PALETTE_BYTES    = 16 \* 1024 \* 1024/_MAX_PALETTE_BYTES    = 4 * 1024 * 1024  # MUTANT-M8/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M8 palette cap: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M8 palette cap: sed had no effect (pattern not found)"
-else
-  # Use the large palette module created for T14
-  _m8_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$_T14_MOD" --output "$ROOT/m8.json" 2>/dev/null || _m8_exit=$?
-  _m8_status=""
-  if [ -f "$ROOT/m8.json" ]; then
-    _m8_status="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m8.json')); print(d.get('status','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m8_exit" -ne 0 ] || [ "$_m8_status" != "complete" ]; then
-    mut_ok "M8 palette cap reverted: exit=$_m8_exit status='$_m8_status' — DETECTED"
-  else
-    mut_no "M8 palette cap: mutation NOT detected (still complete)"
-  fi
+# --- M1: S_ISLNK → S_ISBLK so a symlink INPUT is no longer rejected (original exit 2 + no document).
+if mk_mutant "M1 symlink guard" 's/if _stat\.S_ISLNK(lstat_in\.st_mode):/if _stat.S_ISBLK(lstat_in.st_mode):  # MUTANT-M1/'; then
+  art_run "$ORIG_PY" "$ROOT/sym-module" "$ROOT/m1g.json" top:status; _m1g_rc=$RA_RC; _m1g_val=$RA_VAL
+  art_run "$MUTDIR/palette_lexicon_agents.py" "$ROOT/sym-module" "$ROOT/m1.json" top:status
+  mut_verdict "M1 symlink guard" "$_m1g_rc" "$_m1g_val" 2 nojson "$RA_RC" "$RA_VAL" 0 complete
+  rm -rf "$MUTDIR"
 fi
-rm -rf "$MUTDIR"
 
-# --- M9: Revert per-file dup detection to concatenation ---
-# Mutation (3 sed steps):
-#   1. Add _m9_concat accumulator before the per-file loop.
-#   2. Accumulate text across iterations.
-#   3. Parse accumulated text instead of single-file text.
-# Expected: T15 cross-file 'shared.key' is wrongly flagged as a dup -> DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-# Step 1: insert _m9_concat = "" after per_file_dups = {}
-sed -i 's/    per_file_dups = {}/    per_file_dups = {}\n    _m9_concat = ""  # MUTANT-M9/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-# Step 2: accumulate text on the decode line (inline extension)
-sed -i 's/        text = raw\.decode("utf-8-sig", errors="replace")/        text = raw.decode("utf-8-sig", errors="replace"); _m9_concat += text + "\\n"/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-# Step 3: parse accumulated text instead of single-file text
-sed -i 's/        fkex, fdups, ferr = parse_lexicon(text)$/        fkex, fdups, ferr = parse_lexicon(_m9_concat)  # MUTANT-M9/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M9 per-file dup: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M9 per-file dup: sed had no effect (pattern not found)"
-else
-  _m9_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/multi-lexicon-module" --output "$ROOT/m9.json" 2>/dev/null || _m9_exit=$?
-  _m9_cross_flagged=""
-  if [ -f "$ROOT/m9.json" ]; then
-    _m9_cross_flagged="$(python3 -c "
-import json
-d = json.load(open('$ROOT/m9.json'))
-art = d['artifacts'][0]
-dups = art.get('duplicate_bare_keys', {})
-found = any('shared.key' in fdups for fdups in dups.values() if isinstance(fdups, dict))
-print('yes' if found else 'no')
-" 2>/dev/null || echo "")"
-  fi
-  if [ "$_m9_cross_flagged" = "yes" ]; then
-    mut_ok "M9 per-file dup reverted: cross-file 'shared.key' wrongly flagged — DETECTED"
-  else
-    mut_no "M9 per-file dup: mutation NOT detected (shared.key not flagged or JSON missing)"
-  fi
+# --- M2 dup dict always empty · M3 keys_examined never counted · M4 entries never appended
+mut_field_tooth "M2 dup detection" "$FIXTURES/valid-module" duplicate_bare_keys_count 1 0 \
+  's/dups = {k: v for k, v in counts\.items() if v > 1}/dups = {}  # MUTANT-M2/'
+mut_field_tooth "M3 keys_examined counter" "$FIXTURES/valid-module" keys_examined 5 0 \
+  's/        keys_examined += 1$/        pass  # MUTANT-M3/'
+mut_field_tooth "M4 palette accumulation" "$FIXTURES/valid-module" palette_count 3 0 \
+  's/        entries\.append(entry)$/        pass  # MUTANT-M4/'
+# --- M5 single <artifact>.lexicon discovery · M6 presence signal zeroed · M7 BOM stripping reverted
+MF_BRC=1 mut_field_tooth "M5 multi-lexicon" "$FIXTURES/multi-lexicon-module" lexicon_files_seen 2 1 \
+  's/    lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=_walk_onerror)/    lexicon_files = [os.path.join(ext_dir, artifact_name + ".lexicon")]  # MUTANT-M5/'
+mut_field_tooth "M6 presence signals" "$FIXTURES/valid-module" lexicon_files_seen 1 0 \
+  's/    lexicon_files_seen = len(lexicon_files)/    lexicon_files_seen = 0  # MUTANT-M6/'
+mut_field_tooth "M7 BOM stripping" "$FIXTURES/bom-lexicon-module" duplicate_bare_keys_count 1 0 \
+  's/text = raw\.decode("utf-8-sig", errors="replace")/text = raw.decode("utf-8", errors="replace")  # MUTANT-M7/'
+
+# --- M8: palette cap reverted to 4 MiB: the large palette (original: complete, exit 0) is truncated again.
+if mk_mutant "M8 palette cap" 's/_MAX_PALETTE_BYTES    = 16 \* 1024 \* 1024/_MAX_PALETTE_BYTES    = 4 * 1024 * 1024  # MUTANT-M8/'; then
+  art_run "$ORIG_PY" "$_T14_MOD" "$ROOT/m8g.json" top:status; _m8g_rc=$RA_RC; _m8g_val=$RA_VAL
+  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T14_MOD" "$ROOT/m8.json" top:status
+  mut_verdict "M8 palette cap" "$_m8g_rc" "$_m8g_val" 0 complete "$RA_RC" "$RA_VAL" 1 failed
+  rm -rf "$MUTDIR"
 fi
-rm -rf "$MUTDIR"
 
-# --- M10: Revert per-file dup key from relpath to basename (Fix 1 / BLOCKER) ---
-# Mutation: os.path.relpath(lex_path, ext_dir) → os.path.basename(lex_path)
-# Expected: T19 same-basename count drops from 2 to 1 (fr_CA overwrites fr) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/lex_relpath = os\.path\.relpath(lex_path, ext_dir)/lex_relpath = os.path.basename(lex_path)  # MUTANT-M10/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M10 relpath→basename: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M10 relpath→basename: sed had no effect (pattern not found)"
-else
-  _m10_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/same-basename-module" --output "$ROOT/m10.json" 2>/dev/null || _m10_exit=$?
-  _m10_cnt=""
-  if [ -f "$ROOT/m10.json" ]; then
-    _m10_cnt="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m10.json')); art=d['artifacts'][0]; print(art.get('duplicate_bare_keys_count','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m10_cnt" != "2" ]; then
-    mut_ok "M10 relpath→basename: duplicate_bare_keys_count='$_m10_cnt' not 2 — DETECTED"
-  else
-    mut_no "M10 relpath→basename: mutation NOT detected (still 2)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# --- M9: per-file dup detection reverted to concatenation: the cross-file key 'shared.key' is wrongly flagged.
+mut_field_tooth "M9 per-file dup" "$FIXTURES/multi-lexicon-module" xfile:shared.key no yes \
+  's/    per_file_dups = {}/    per_file_dups = {}\n    _m9_concat = ""  # MUTANT-M9/' \
+  's/        text = raw\.decode("utf-8-sig", errors="replace")/        text = raw.decode("utf-8-sig", errors="replace"); _m9_concat += text + "\\n"/' \
+  's/        fkex, fdups, ferr = parse_lexicon(text)$/        fkex, fdups, ferr = parse_lexicon(_m9_concat)  # MUTANT-M9/'
 
-# --- M11: Flatten recursive walk to top-level only (Fix 2 / MAJOR) ---
-# Mutation: clear dirnames inside the walk loop so subdirs are never visited.
-# Expected: T20a sees lexicon_files_seen < 3 (nested files missed) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/        dirnames\.sort()  # deterministic traversal order/        dirnames[:] = []  # MUTANT-M11/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M11 flat walk: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M11 flat walk: sed had no effect (pattern not found)"
-else
-  _m11_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/nested-lexicon-module" --output "$ROOT/m11.json" 2>/dev/null || _m11_exit=$?
-  _m11_lfs=""
-  if [ -f "$ROOT/m11.json" ]; then
-    _m11_lfs="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m11.json')); art=d['artifacts'][0]; print(art.get('lexicon_files_seen','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m11_lfs" != "3" ]; then
-    mut_ok "M11 flat walk: lexicon_files_seen='$_m11_lfs' not 3 — DETECTED"
-  else
-    mut_no "M11 flat walk: mutation NOT detected (still 3)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# --- M10 relpath → basename · M11 recursive walk flattened · M12 symlink/regular-file guard dropped
+mut_field_tooth "M10 relpath→basename" "$FIXTURES/same-basename-module" duplicate_bare_keys_count 2 1 \
+  's/lex_relpath = os\.path\.relpath(lex_path, ext_dir)/lex_relpath = os.path.basename(lex_path)  # MUTANT-M10/'
+mut_field_tooth "M11 flat walk" "$FIXTURES/nested-lexicon-module" lexicon_files_seen 3 1 \
+  's/        dirnames\.sort()  # deterministic traversal order/        dirnames[:] = []  # MUTANT-M11/'
+MF_BRC=1 mut_field_tooth "M12 symlink guard dropped" "$_T20b_MOD" lexicon_files_seen 1 2 \
+  's/            if _stat\.S_ISLNK(lstat\.st_mode) or not _stat\.S_ISREG(lstat\.st_mode):/            if False:  # MUTANT-M12/'
 
-# --- M12: Drop S_ISLNK/S_ISREG guard so symlink .lexicon is counted (Fix 2 / MAJOR) ---
-# Mutation: replace lstat guard with if False: so symlinks pass into results.
-# Expected: T20b sees lexicon_files_seen=2 (symlink wrongly counted) → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/            if _stat\.S_ISLNK(lstat\.st_mode) or not _stat\.S_ISREG(lstat\.st_mode):/            if False:  # MUTANT-M12/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M12 drop symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M12 drop symlink guard: sed had no effect (pattern not found)"
-else
-  _m12_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$_T20b_MOD" --output "$ROOT/m12.json" 2>/dev/null || _m12_exit=$?
-  _m12_lfs=""
-  if [ -f "$ROOT/m12.json" ]; then
-    _m12_lfs="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m12.json')); art=d['artifacts'][0]; print(art.get('lexicon_files_seen','absent'))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m12_lfs" != "1" ]; then
-    mut_ok "M12 symlink guard dropped: lexicon_files_seen='$_m12_lfs' not 1 — DETECTED"
-  else
-    mut_no "M12 symlink guard: mutation NOT detected (still 1)"
-  fi
-fi
-rm -rf "$MUTDIR"
-
-# --- M13: Revert onerror to None — unreadable subdir silently dropped (Fix 3 / MINOR) ---
-# Mutation: onerror=_walk_onerror → onerror=None
-# Expected: T21 errors empty (unreadable dir silently skipped) → DETECTED.
-# Skip when running as root (chmod 000 ineffective).
+# --- M13: onerror=None: the unreadable subdir (original: 1 error recorded) is silently dropped (0 errors).
 if [ "$_IS_ROOT" -eq 1 ]; then
   mut_ok "M13 onerror=None: SKIP (running as root)"
-else
-  MUTDIR="$(mktemp -d)"
-  cp -a "$SUT_DIR/." "$MUTDIR/"
-  sed -i 's/lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=_walk_onerror)/lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=None)  # MUTANT-M13/' \
-    "$MUTDIR/palette_lexicon_agents.py"
-  if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-    mut_no "M13 onerror=None: mutant failed py_compile"
-  elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-    mut_no "M13 onerror=None: sed had no effect (pattern not found)"
-  else
-    # Recreate the chmod-000 dir (it was restored after T21)
-    mkdir -p "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
-    printf 'hidden=secret\n' > "$_T21_MOD/art-x/extracted/secret-dir/hidden.lexicon" 2>/dev/null || true
-    chmod 000 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
-    _m13_exit=0
-    python3 "$MUTDIR/palette_lexicon_agents.py" \
-      --input "$_T21_MOD" --output "$ROOT/m13.json" 2>/dev/null || _m13_exit=$?
-    chmod 755 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
-    _m13_errs=""
-    if [ -f "$ROOT/m13.json" ]; then
-      _m13_errs="$(python3 -c \
-        "import json; d=json.load(open('$ROOT/m13.json')); print(len(d.get('errors',[])))" \
-        2>/dev/null || echo "")"
-    fi
-    if [ "$_m13_errs" = "0" ] || [ -z "$_m13_errs" ]; then
-      mut_ok "M13 onerror=None: errors empty (unreadable dir silently dropped) — DETECTED"
-    else
-      mut_no "M13 onerror=None: mutation NOT detected (errors still non-empty: $_m13_errs)"
-    fi
-  fi
+elif mk_mutant "M13 onerror=None" 's/lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=_walk_onerror)/lexicon_files = _find_lexicon_files(ext_dir, module_root, onerror=None)  # MUTANT-M13/'; then
+  # Recreate the chmod-000 dir (it was restored after T21)
+  mkdir -p "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
+  printf 'hidden=secret\n' > "$_T21_MOD/art-x/extracted/secret-dir/hidden.lexicon" 2>/dev/null || true
+  chmod 000 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
+  art_run "$ORIG_PY" "$_T21_MOD" "$ROOT/m13g.json" len:top:errors; _m13g_rc=$RA_RC; _m13g_val=$RA_VAL
+  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T21_MOD" "$ROOT/m13.json" len:top:errors
+  chmod 755 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
+  mut_verdict "M13 onerror=None" "$_m13g_rc" "$_m13g_val" 1 1 "$RA_RC" "$RA_VAL" 0 0
   rm -rf "$MUTDIR"
 fi
 
-# --- M14: Remove unreadable-file error append (Fix 4 / MINOR) ---
-# Mutation: delete the errors.append for lexicon file unreadable
-# Expected: T22 errors empty (unreadable file silently skipped) → DETECTED.
-# Skip when running as root.
+# --- M14: the unreadable-file error append deleted: the chmod-000 lexicon (original: 1 error) is silently skipped.
 if [ "$_IS_ROOT" -eq 1 ]; then
   mut_ok "M14 unreadable-file error removed: SKIP (running as root)"
-else
-  MUTDIR="$(mktemp -d)"
-  cp -a "$SUT_DIR/." "$MUTDIR/"
-  sed -i '/: lexicon file unreadable/d' "$MUTDIR/palette_lexicon_agents.py"
-  if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-    mut_no "M14 unreadable-file error: mutant failed py_compile"
-  elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-    mut_no "M14 unreadable-file error: sed had no effect (pattern not found)"
-  else
-    # Recreate the chmod-000 file (restored after T22)
-    printf 'key2=v2\n' > "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
-    chmod 000 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
-    _m14_exit=0
-    python3 "$MUTDIR/palette_lexicon_agents.py" \
-      --input "$_T22_MOD" --output "$ROOT/m14.json" 2>/dev/null || _m14_exit=$?
-    chmod 644 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
-    _m14_errs=""
-    if [ -f "$ROOT/m14.json" ]; then
-      _m14_errs="$(python3 -c \
-        "import json; d=json.load(open('$ROOT/m14.json')); print(len(d.get('errors',[])))" \
-        2>/dev/null || echo "")"
-    fi
-    if [ "$_m14_errs" = "0" ] || [ -z "$_m14_errs" ]; then
-      mut_ok "M14 unreadable-file error removed: errors empty (file silently skipped) — DETECTED"
-    else
-      mut_no "M14 unreadable-file error: mutation NOT detected (errors still non-empty: $_m14_errs)"
-    fi
-  fi
+elif mk_mutant "M14 unreadable-file error" '/: lexicon file unreadable/d'; then
+  # Recreate the chmod-000 file (restored after T22)
+  printf 'key2=v2\n' > "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
+  chmod 000 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
+  art_run "$ORIG_PY" "$_T22_MOD" "$ROOT/m14g.json" len:top:errors; _m14g_rc=$RA_RC; _m14g_val=$RA_VAL
+  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T22_MOD" "$ROOT/m14.json" len:top:errors
+  chmod 644 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
+  mut_verdict "M14 unreadable-file error" "$_m14g_rc" "$_m14g_val" 1 1 "$RA_RC" "$RA_VAL" 0 0
   rm -rf "$MUTDIR"
 fi
 
-# --- M15: Reintroduce ~22x unmeasured claim into limitations (Fix 5 / MINOR) ---
-# Mutation: revert the measurement-agnostic limitation string back to one containing '~22x'.
-# Expected: T23 sees '~22x' in limitations → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/a pathological XML tree can still exceed available memory during parse/ET amplifies ~22x — a ~14.7 MiB palette can exhaust memory  # MUTANT-M15/' \
-  "$MUTDIR/palette_lexicon_agents.py"
-if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
-  mut_no "M15 ~22x reintroduced: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py"; then
-  mut_no "M15 ~22x reintroduced: sed had no effect (pattern not found)"
-else
-  _m15_exit=0
-  python3 "$MUTDIR/palette_lexicon_agents.py" \
-    --input "$FIXTURES/valid-module" --output "$ROOT/m15.json" 2>/dev/null || _m15_exit=$?
-  _m15_has22x=""
-  if [ -f "$ROOT/m15.json" ]; then
-    _m15_has22x="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m15.json')); lims=' '.join(d.get('limitations',[])); print('yes' if '~22x' in lims else 'no')" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m15_has22x" = "yes" ]; then
-    mut_ok "M15 ~22x reintroduced: limitations contains '~22x' — DETECTED"
-  else
-    mut_no "M15 ~22x: mutation NOT detected (still no '~22x' in limitations)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# --- M15: the unmeasured '~22x' claim is reintroduced into limitations (original: absent).
+mut_field_tooth "M15 ~22x reintroduced" "$FIXTURES/valid-module" lim:~22x no yes \
+  's/a pathological XML tree can still exceed available memory during parse/ET amplifies ~22x — a ~14.7 MiB palette can exhaust memory  # MUTANT-M15/'
 
 pass=$((pass + MUT_PASS))
 fail=$((fail + MUT_FAIL))

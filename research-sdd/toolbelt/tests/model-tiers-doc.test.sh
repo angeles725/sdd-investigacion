@@ -66,48 +66,41 @@ _has_haiku_45_200k "$DOC" \
 # Teeth — mutation proof (mutant COPY in temp dir, never the live doc)
 # =============================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
-  m2="$(mktemp)"; m3="$(mktemp)"; m4="$(mktemp)"; m5="$(mktemp)"
-  trap 'rm -f "$m2" "$m3" "$m4" "$m5"' EXIT
+  TT="$(mktemp -d)"
+  trap 'rm -rf "$TT"' EXIT
+  # Every mutant is a COPY of the doc under $TT built by lib/mutant.sh (MUTANT_SYNTAX=none: markdown),
+  # which REFUSES an empty, byte-identical or live-tree mutant — a dead sed is a FAIL, not a silent no-op
+  # (kit issues #943, #1299). Each tooth asserts the GOOD verdict (the REAL predicate holds on the
+  # original) AND the BAD verdict (it fails on the mutant).
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  export MUTANT_SYNTAX=none
+  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+  # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant; PREDICATE must
+  # hold on the original and must NOT hold on the mutant.
+  tooth() {
+    local label="$1" pred="$2" expr="$3" out="$TT/$1.md" rc err
+    err="$(mutant_sed "$DOC" "$out" -e "$expr" 2>&1)"; rc=$?
+    if [ "$rc" -ne 0 ]; then no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; fi
+    if ! "$pred" "$DOC"; then
+      no "$label: $pred does NOT hold on the original — the tooth has no GOOD verdict to flip"
+    elif "$pred" "$out"; then
+      no "$label: $pred still holds on the mutant — no teeth"
+    else
+      ok "$label: $pred holds on the original and goes RED on the mutant"
+    fi
+  }
 
-  # ---- teeth 2: remove "Claude profile" heading → assertion 2 must go RED --
   echo "-- teeth 2: 'Claude profile' removed → assertion 2 must go RED --"
-  # Mutant: remove every line that contains "Claude profile"
-  sed '/Claude profile/d' "$DOC" > "$m2"
-  if _has_claude_profile "$m2"; then
-    no "teeth 2: 'Claude profile' still present in mutant — could not build mutant"
-  else
-    ok "teeth 2: mutant lacks 'Claude profile' → assertion 2 would go RED"
-  fi
-
-  # ---- teeth 3: remove "Opus 5.5" → assertion 3 must go RED ----------------
+  tooth "teeth 2" _has_claude_profile '/Claude profile/d'
   echo "-- teeth 3: 'Opus 5.5' removed → assertion 3 must go RED --"
-  sed '/Opus 5\.5/d' "$DOC" > "$m3"
-  if _has_opus_55 "$m3"; then
-    no "teeth 3: 'Opus 5.5' still present in mutant — could not build mutant"
-  else
-    ok "teeth 3: mutant lacks 'Opus 5.5' → assertion 3 would go RED"
-  fi
-
-  # ---- teeth 4: remove "Sonnet 5" → assertion 4 must go RED ----------------
+  tooth "teeth 3" _has_opus_55 '/Opus 5\.5/d'
   echo "-- teeth 4: 'Sonnet 5' removed → assertion 4 must go RED --"
-  # Remove only lines in the Claude-profile section that mention Sonnet 5;
-  # existing "sonnet" tier table rows mention Sonnet 5 only in the new section.
-  # For safety, remove any line containing "Sonnet 5".
-  sed '/Sonnet 5/d' "$DOC" > "$m4"
-  if _has_sonnet_5 "$m4"; then
-    no "teeth 4: 'Sonnet 5' still present in mutant — could not build mutant"
-  else
-    ok "teeth 4: mutant lacks 'Sonnet 5' → assertion 4 would go RED"
-  fi
-
-  # ---- teeth 5: remove "Haiku 4.5" → assertion 5 must go RED ---------------
+  tooth "teeth 4" _has_sonnet_5 '/Sonnet 5/d'
   echo "-- teeth 5: 'Haiku 4.5' removed → assertion 5 must go RED --"
-  sed '/Haiku 4\.5/d' "$DOC" > "$m5"
-  if _has_haiku_45_200k "$m5"; then
-    no "teeth 5: 'Haiku 4.5' still present in mutant — could not build mutant"
-  else
-    ok "teeth 5: mutant lacks 'Haiku 4.5' → assertion 5 would go RED"
-  fi
+  tooth "teeth 5" _has_haiku_45_200k '/Haiku 4\.5/d'
 fi
 
 echo "== $pass passed · $fail failed =="
