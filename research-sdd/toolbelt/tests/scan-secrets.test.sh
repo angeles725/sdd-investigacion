@@ -62,7 +62,7 @@ tooth(){
     esac; shift 2
   done; shift
   local -a gc=() mc=()
-  for a in "$@"; do gc+=("${a//@SUT@/$orig}"); mc+=("${a//@SUT@/$mut}"); done
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
   gout="$("${gc[@]}" 2>&1)"; grc_a=$?
   mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
   [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
