@@ -187,6 +187,8 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # marker-shaped line seen inside it is returned, so retro_marker_out_of_scope refuses the
     # retro instead of treating it as genuinely markerless. A marker inside a fence that DID
     # close stays documentation and is skipped.
+    # CRLF (kit issue #1304, review of #1315 note a): a closer line of a CRLF file ends in '\r', which
+    # is not '[ \t]', so the closer test also accepts '\r' — else no CRLF fence ever closed.
     # No POSIX interval expressions and no gawk extensions (mawk portability, #1130 finding 2):
     # run lengths are counted with a plain loop.
     _retro_status_strip_bom "$f" | awk '
@@ -214,7 +216,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
         if (c == fch) {
           n = runlen(s, c)
           rest = substr(s, n + 1)
-          if (n >= flen && rest ~ /^[ \t]*$/) { infence = 0; held = ""; next }
+          if (n >= flen && rest ~ /^[ \t\r]*$/) { infence = 0; held = ""; next }  # CR tolerated: CRLF files (#1304)
         }
         if (ismark && held == "") held = $0
       }
