@@ -12,7 +12,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-block.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+MUT=""
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -1016,693 +1017,303 @@ else
   no "77 P9: HINT line absent :: $(grep -iE 'HINT.*Declare|WARN.*resolved' <<<"$out" | head -2)"
 fi
 
-# NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
+# NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
+# empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
+# original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
+# '== exit N ==' line, so a mutant that crashed mid-run cannot read as teeth). Kit issues #943, #1299.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
-  mutant="$TMP/verify-block.MUTANT.sh"
-  # Break fence detection: force fence_line empty so the body is the whole file and adj can never drop the legend.
-  sed 's#^fence_line=\$(awk.*#fence_line=""#' "$SUT" > "$mutant"
-  d="$TMP/teeth.md"
-  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; echo "Body a [CERT]. b [CERT]."; } > "$d"
-  mout="$(bash "$mutant" "$d" 2>/dev/null)"
-  mraw=$(grep -E '^\s+\[CERT\] ' <<<"$mout" | grep -oE '[0-9]+' | head -1)
-  madj=$(grep -E '^\s+\[CERT\] ' <<<"$mout" | grep -oE '[0-9]+' | sed -n '2p')
-  # With the strip neutered, either adj==raw (no second number shown) or the numbers match → no distinction.
-  if [ -z "$madj" ] || [ "$mraw" = "$madj" ]; then ok "teeth: neutered mutant stops distinguishing legend → strip has teeth"
-  else no "teeth: mutant still distinguished (raw=$mraw adj=$madj) — strip not exercised (THEATER)"; fi
+  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  MUT="$(mktemp -d)"
+  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR.
+  # Each stage must change the original ON ITS OWN: a chain whose first stage applies would otherwise
+  # hide a later stage that matches nothing (a silent no-op) behind a mutant that merely differs.
+  mk_sed(){
+    local label="$1" out="$2" e rc err; shift 2
+    local -a args=()
+    for e in "$@"; do
+      if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
+        no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+      fi
+      args+=(-e "$e")
+    done
+    err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  }
+  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
+  # Runs ARGV twice, '@SUT@' replaced by the original, then by the mutant. PASS only when the original
+  # returns exactly GOOD_RC (output matching --good-has, not matching --good-lacks) AND the mutant returns
+  # exactly BAD_RC (output no longer matching --bad-lacks, and matching --bad-has).
+  tooth(){
+    local label="$1" grc="$2" brc="$3" mut="$4" ghas="" glacks="" blacks="" bhas="" a gout mout grc_a mrc_a why=""; shift 4
+    while [ "${1:-}" != -- ]; do
+      case "${1:-}" in
+        --good-has) ghas="$2" ;; --good-lacks) glacks="$2" ;; --bad-lacks) blacks="$2" ;; --bad-has) bhas="$2" ;;
+        *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+      esac; shift 2
+    done; shift
+    local -a gc=() mc=()
+    for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
+    gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+    mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+    [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+    if [ -n "$ghas" ] && ! grep -qiE -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi
+    if [ -n "$glacks" ] && grep -qiE -- "$glacks" <<<"$gout"; then why="$why; original output matches /$glacks/"; fi
+    [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+    if [ -n "$blacks" ] && grep -qiE -- "$blacks" <<<"$mout"; then why="$why; mutant output still matches /$blacks/"; fi
+    if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+    if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
+    else
+      no "$label — THEATER:$why"
+      [ -z "${VBDBG:-}" ] || { printf -- '--- orig ---\n%s\n--- mutant ---\n%s\n' "$gout" "$mout"; }
+    fi
+  }
+  # fixture: header blockquote legend + '---' + body lines (the shape most teeth share)
+  vbfix(){ local f="$1"; shift; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }
+  EXIT0='== exit 0 =='
+  NOCITE='ZERO file:line citations resolved'
 
-  # teeth-d6: neuter the D6 path-prefix fallback (D6-PATH-FALLBACK sentinel); the path-prefixed
-  # cite must go back to MISSING + exit 1, proving test 31 depends on the real fallback.
+  echo "-- teeth: neuter the fence detection so adjusted == raw --"
+  if mk_sed "teeth" "$MUT/fence.sh" 's#^fence_line=\$(awk.*#fence_line=""#'; then
+    vbfix "$TMP/teeth.md" "Body a [CERT]. b [CERT]."
+    tooth "teeth" 0 0 "$MUT/fence.sh" --good-has '\[CERT\] 3  \(adj 2\)' --good-lacks 'adjusted = raw' \
+      --bad-lacks '\(adj [0-9]' --bad-has 'adjusted = raw' -- bash @SUT@ "$TMP/teeth.md"
+  fi
+
   echo "-- teeth-d6: neuter D6-PATH-FALLBACK; path-prefixed cite must go MISSING + exit 1 --"
-  mutant_d6="$TMP/verify-block.D6MUTANT.sh"
-  if grep -q '# D6-PATH-FALLBACK' "$SUT"; then
-    sed '/# D6-PATH-FALLBACK/ s/.*/      : # D6-PATH-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_d6"
+  if mk_sed "teeth-d6" "$MUT/d6.sh" '/# D6-PATH-FALLBACK/ s/.*/      : # D6-PATH-FALLBACK [NEUTERED]/'; then
     mkdir -p "$TMP/sources/probes"; seq 1 200 > "$TMP/sources/probes/B10-x.txt"
-    d_d6="$TMP/d6-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "Option order fixed (sources/probes/B10-x.txt:146). \`[CERT]\`"; } > "$d_d6"
-    bash "$mutant_d6" "$d_d6" >/dev/null 2>/dev/null; md6_rc=$?
-    mout_d6="$(bash "$mutant_d6" "$d_d6" 2>/dev/null)"
-    if [ "$md6_rc" = "1" ] && grep -q 'MISSING' <<<"$mout_d6"; then
-      ok "teeth-d6: neutered D6 fallback → path-prefixed cite is MISSING + exit 1 (test 31 has teeth)"
-    else
-      no "teeth-d6: neutered D6 mutant did not produce MISSING: rc=[$md6_rc] :: $(grep -iE 'MISSING|ok|B10' <<<"$mout_d6" | head -1)"
-    fi
-  else
-    no "teeth-d6: D6-PATH-FALLBACK sentinel not found in SUT (D6 not implemented or marker missing)"
+    vbfix "$TMP/d6-teeth.md" "Option order fixed (sources/probes/B10-x.txt:146). \`[CERT]\`"
+    tooth "teeth-d6" 0 1 "$MUT/d6.sh" --good-lacks 'MISSING' --bad-has 'MISSING.*B10-x' \
+      -- bash @SUT@ "$TMP/d6-teeth.md"
   fi
 
-  # teeth-p6: neuter the P6 CERT-zero-cite WARN (P6-CERT-ZERO-CITE-WARN sentinel); the [CERT]+
-  # no-citations block must stop emitting the WARN, proving test 32 depends on the real branch.
   echo "-- teeth-p6: neuter P6-CERT-ZERO-CITE-WARN; [CERT]+no-cites block must NOT WARN --"
-  mutant_p6="$TMP/verify-block.P6MUTANT.sh"
-  if grep -q '# P6-CERT-ZERO-CITE-WARN' "$SUT"; then
-    sed '/# P6-CERT-ZERO-CITE-WARN/ s/.*/  if false; then  # P6-CERT-ZERO-CITE-WARN [NEUTERED]/' "$SUT" > "$mutant_p6"
-    d_p6="$TMP/p6-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "The flag is always set. [CERT]"; } > "$d_p6"
-    mout_p6="$(bash "$mutant_p6" "$d_p6" 2>/dev/null)"
-    if ! grep -qiE 'WARN.*\[CERT\]|\[CERT\].*WARN|WARN.*cert' <<<"$mout_p6"; then
-      ok "teeth-p6: neutered P6 branch → no WARN emitted for [CERT]+no-cites (test 32 has teeth)"
-    else
-      no "teeth-p6: neutered P6 mutant STILL emitted WARN :: $(grep -iE 'WARN' <<<"$mout_p6" | head -1)"
-    fi
-  else
-    no "teeth-p6: P6-CERT-ZERO-CITE-WARN sentinel not found in SUT (P6 not implemented or marker missing)"
+  if mk_sed "teeth-p6" "$MUT/p6.sh" '/# P6-CERT-ZERO-CITE-WARN/ s/.*/  if false; then  # P6-CERT-ZERO-CITE-WARN [NEUTERED]/'; then
+    vbfix "$TMP/p6-teeth.md" "The flag is always set. [CERT]"
+    tooth "teeth-p6" 0 0 "$MUT/p6.sh" --good-has "$NOCITE" --bad-lacks "$NOCITE" --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/p6-teeth.md"
   fi
 
-  # teeth-p6-short-tbl: neuter P6-SHORT-FORM-CITE-TABLE; table-cell :NNN must revert to WARN.
   echo "-- teeth-p6-short-tbl: neuter P6-SHORT-FORM-CITE-TABLE; table :NNN must revert to WARN --"
-  mutant_sft="$TMP/verify-block.P6SFTTBL.sh"
-  if grep -q '# P6-SHORT-FORM-CITE-TABLE' "$SUT"; then
-    sed '/# P6-SHORT-FORM-CITE-TABLE/ s/.*/_tbl_shorts=""  # P6-SHORT-FORM-CITE-TABLE [NEUTERED]/' "$SUT" > "$mutant_sft"
-    d_sft="$TMP/p6-sft-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "## Field map [CERT]"
-      echo "| Field | Line |"; echo "|---|---|"; echo "| FIELD_A | :10 |"; } > "$d_sft"
-    mout_sft="$(bash "$mutant_sft" "$d_sft" 2>/dev/null)"
-    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_sft"; then
-      ok "teeth-p6-short-tbl: neutered table extractor → table :NNN reverts to WARN (test 33 has teeth)"
-    else
-      no "teeth-p6-short-tbl: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|short' <<<"$mout_sft" | head -1)"
-    fi
-  else
-    no "teeth-p6-short-tbl: P6-SHORT-FORM-CITE-TABLE sentinel not found in SUT"
+  if mk_sed "teeth-p6-short-tbl" "$MUT/sft.sh" '/# P6-SHORT-FORM-CITE-TABLE/ s/.*/_tbl_shorts=""  # P6-SHORT-FORM-CITE-TABLE [NEUTERED]/'; then
+    vbfix "$TMP/p6-sft-teeth.md" "## Field map [CERT]" "| Field | Line |" "|---|---|" "| FIELD_A | :10 |"
+    tooth "teeth-p6-short-tbl" 0 0 "$MUT/sft.sh" --good-lacks "$NOCITE" --bad-has "$NOCITE" \
+      -- bash @SUT@ "$TMP/p6-sft-teeth.md"
   fi
 
-  # teeth-p6-short-cmt: neuter P6-SHORT-FORM-CITE-COMMENT; comment :NNN must revert to WARN.
   echo "-- teeth-p6-short-cmt: neuter P6-SHORT-FORM-CITE-COMMENT; comment :NNN must revert to WARN --"
-  mutant_sfc="$TMP/verify-block.P6SFCMT.sh"
-  if grep -q '# P6-SHORT-FORM-CITE-COMMENT' "$SUT"; then
-    sed '/# P6-SHORT-FORM-CITE-COMMENT/ s/.*/_cmt_shorts=""  # P6-SHORT-FORM-CITE-COMMENT [NEUTERED]/' "$SUT" > "$mutant_sfc"
-    d_sfc="$TMP/p6-sfc-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "## Constants [CERT]"
-      printf '```csharp\n'; echo "CONST_A = 15;  // :157"; printf '```\n'; } > "$d_sfc"
-    mout_sfc="$(bash "$mutant_sfc" "$d_sfc" 2>/dev/null)"
-    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_sfc"; then
-      ok "teeth-p6-short-cmt: neutered comment extractor → comment :NNN reverts to WARN (test 34 has teeth)"
-    else
-      no "teeth-p6-short-cmt: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|short' <<<"$mout_sfc" | head -1)"
-    fi
-  else
-    no "teeth-p6-short-cmt: P6-SHORT-FORM-CITE-COMMENT sentinel not found in SUT"
+  if mk_sed "teeth-p6-short-cmt" "$MUT/sfc.sh" '/# P6-SHORT-FORM-CITE-COMMENT/ s/.*/_cmt_shorts=""  # P6-SHORT-FORM-CITE-COMMENT [NEUTERED]/'; then
+    vbfix "$TMP/p6-sfc-teeth.md" "## Constants [CERT]" '```csharp' "CONST_A = 15;  // :157" '```'
+    tooth "teeth-p6-short-cmt" 0 0 "$MUT/sfc.sh" --good-lacks "$NOCITE" --bad-has "$NOCITE" \
+      -- bash @SUT@ "$TMP/p6-sfc-teeth.md"
   fi
 
-  # teeth-p7-range-extract: neuter P7-BT-RANGE-EXTRACT; range-only block must revert to P6 WARN.
   echo "-- teeth-p7-range-extract: neuter P7-BT-RANGE-EXTRACT; range-only block must revert to WARN --"
-  mutant_rng="$TMP/verify-block.P7RNGEXTRACT.sh"
-  if grep -q '# P7-BT-RANGE-EXTRACT' "$SUT"; then
-    sed '/# P7-BT-RANGE-EXTRACT/ s/.*/bt_cites=""  # P7-BT-RANGE-EXTRACT [NEUTERED]/' "$SUT" > "$mutant_rng"
-    d_rng="$TMP/p7-rng-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "The method \`BinaryEncoder.java:10-20\`. \`[CERT]\`"; } > "$d_rng"
-    mout_rng="$(bash "$mutant_rng" "$d_rng" 2>/dev/null)"
-    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_rng"; then
-      ok "teeth-p7-range-extract: neutered bt_cites → range-only block reverts to WARN (test 36 has teeth)"
-    else
-      no "teeth-p7-range-extract: neutered mutant did not revert to WARN :: $(grep -iE 'WARN|cert|extern' <<<"$mout_rng" | head -1)"
-    fi
-  else
-    no "teeth-p7-range-extract: P7-BT-RANGE-EXTRACT sentinel not found in SUT"
+  if mk_sed "teeth-p7-range-extract" "$MUT/rng.sh" '/# P7-BT-RANGE-EXTRACT/ s/.*/bt_cites=""  # P7-BT-RANGE-EXTRACT [NEUTERED]/'; then
+    vbfix "$TMP/p7-rng-teeth.md" "The method \`BinaryEncoder.java:10-20\`. \`[CERT]\`"
+    tooth "teeth-p7-range-extract" 0 0 "$MUT/rng.sh" --good-lacks "$NOCITE" --bad-has "$NOCITE" \
+      -- bash @SUT@ "$TMP/p7-rng-teeth.md"
   fi
 
-  # teeth-p7-cmt-secondary: neuter P7-CMT-SECONDARY; secondary :161 must not be captured.
   echo "-- teeth-p7-cmt-secondary: neuter P7-CMT-SECONDARY; // :NNN,:MMM must lose :MMM --"
-  mutant_cmtsec="$TMP/verify-block.P7CMTSEC.sh"
-  if grep -q '# P7-CMT-SECONDARY' "$SUT"; then
-    sed '/# P7-CMT-SECONDARY/ s/.*/_cmt_shorts=""  # P7-CMT-SECONDARY [NEUTERED]/' "$SUT" > "$mutant_cmtsec"
-    d_cmtsec="$TMP/p7-cmtsec-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "## Constants [CERT]"
-      printf '```csharp\n'; echo "CONST_A = 15;  // :159,:161"; printf '```\n'; } > "$d_cmtsec"
-    mout_cmtsec="$(bash "$mutant_cmtsec" "$d_cmtsec" 2>/dev/null)"
-    if ! grep -qiE 'short.*:161|:161.*short' <<<"$mout_cmtsec"; then
-      ok "teeth-p7-cmt-secondary: neutered secondary → :161 not captured (test 42 has teeth)"
-    else
-      no "teeth-p7-cmt-secondary: neutered mutant STILL captured :161 :: $(grep -iE ':161|short' <<<"$mout_cmtsec" | head -1)"
-    fi
-  else
-    no "teeth-p7-cmt-secondary: P7-CMT-SECONDARY sentinel not found in SUT"
+  if mk_sed "teeth-p7-cmt-secondary" "$MUT/cmtsec.sh" '/# P7-CMT-SECONDARY/ s/.*/_cmt_shorts=""  # P7-CMT-SECONDARY [NEUTERED]/'; then
+    vbfix "$TMP/p7-cmtsec-teeth.md" "## Constants [CERT]" '```csharp' "CONST_A = 15;  // :159,:161" '```'
+    tooth "teeth-p7-cmt-secondary" 0 0 "$MUT/cmtsec.sh" --good-has 'short.*:161|:161.*short' \
+      --bad-lacks 'short.*:161|:161.*short' --bad-has "$EXIT0" -- bash @SUT@ "$TMP/p7-cmtsec-teeth.md"
   fi
 
-  # teeth-p6-probe: neuter P6-PROBE-FILE-CITE; a probe-cited block must revert to P6 WARN.
-  # bash -n is run on the mutant first — a mutant with a syntax error cannot run and its control
-  # passes for the wrong reason (that exact defect was caught in this repo).
   echo "-- teeth-p6-probe: neuter P6-PROBE-FILE-CITE; probe-cited block must revert to WARN --"
-  mutant_probe="$TMP/verify-block.P6PROBE.sh"
-  if grep -q '# P6-PROBE-FILE-CITE' "$SUT"; then
-    sed '/# P6-PROBE-FILE-CITE/ s/.*/      probe_found=""  # P6-PROBE-FILE-CITE [NEUTERED]/' "$SUT" > "$mutant_probe"
-    bash -n "$mutant_probe" 2>/dev/null; syntax_rc=$?
-    if [ "$syntax_rc" != "0" ]; then
-      no "teeth-p6-probe: mutant has syntax error (bash -n failed rc=$syntax_rc) — cannot run"
-    else
-      d_probe="$TMP/p6-probe-teeth.md"; mkdir -p "$TMP/sources/probes/test-probe"
-      printf 'probe content\n' > "$TMP/sources/probes/test-probe/probe-20260729.txt"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT-hw] = live device response."; echo
-        echo "---"; echo
-        echo "## Live response [CERT-hw]"
-        echo "[CERT-hw] (sources/probes/test-probe/probe-20260729.txt)"; } > "$d_probe"
-      mout_probe="$(bash "$mutant_probe" "$d_probe" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$mout_probe"; then
-        ok "teeth-p6-probe: neutered probe detection → probe-cited block reverts to WARN (test 43 has teeth)"
-      else
-        no "teeth-p6-probe: neutered probe mutant did NOT revert to WARN :: $(grep -iE 'WARN|probe|cert' <<<"$mout_probe" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-probe: P6-PROBE-FILE-CITE sentinel not found in SUT (probe detection not implemented or marker missing)"
+  if mk_sed "teeth-p6-probe" "$MUT/probe.sh" '/# P6-PROBE-FILE-CITE/ s/.*/      probe_found=""  # P6-PROBE-FILE-CITE [NEUTERED]/'; then
+    mkdir -p "$TMP/sources/probes/test-probe"
+    printf 'probe content\n' > "$TMP/sources/probes/test-probe/probe-20260729.txt"
+    { echo "# Block — t"; echo; echo "> Method: [CERT-hw] = live device response."; echo; echo "---"; echo
+      echo "## Live response [CERT-hw]"; echo "[CERT-hw] (sources/probes/test-probe/probe-20260729.txt)"; } > "$TMP/p6-probe-teeth.md"
+    tooth "teeth-p6-probe" 0 0 "$MUT/probe.sh" --good-lacks 'WARN.*(\[CERT\]|zero)' --bad-has 'WARN.*(\[CERT\]|zero)' \
+      -- bash @SUT@ "$TMP/p6-probe-teeth.md"
   fi
 
-  # teeth-n-project-fallback: neuter N-PROJECT-FALLBACK; nested-layout cite must revert to extern.
-  # The sentinel is on the _bt_resolve reassignment line only (# N-PROJECT-FALLBACK, end of line);
-  # the init line uses # N-PROJECT-FALLBACK-INIT and is NOT neutered so git_root is still derived.
   echo "-- teeth-n-project-fallback: neuter N-PROJECT-FALLBACK; nested cite must revert to extern --"
-  mutant_npf="$TMP/verify-block.NPFMUTANT.sh"
-  if grep -q '# N-PROJECT-FALLBACK$' "$SUT"; then
-    sed '/# N-PROJECT-FALLBACK$/ s/.*/:  # N-PROJECT-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_npf"
-    bash -n "$mutant_npf" 2>/dev/null; npf_syntax=$?
-    if [ "$npf_syntax" != "0" ]; then
-      no "teeth-n-project-fallback: mutant has syntax error (bash -n rc=$npf_syntax) — cannot run"
-    else
-      mkdir -p "$TMP/npf-nested/src" "$TMP/npf-nested/corpus"
-      git -C "$TMP/npf-nested" init -q 2>/dev/null
-      seq 1 50 > "$TMP/npf-nested/src/tool.sh"
-      d_npf="$TMP/npf-nested/corpus/block-npf.md"
-      { echo "# Block NPF — nested layout"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "---"; echo
-        echo "## NPF Observation [CERT]"
-        echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$d_npf"
-      mout_npf="$(bash "$mutant_npf" "$d_npf" 2>/dev/null)"
-      if grep -qiE 'extern.*src/tool' <<<"$mout_npf"; then
-        ok "teeth-n-project-fallback: neutered fallback → nested cite goes extern (test 45 has teeth)"
-      else
-        no "teeth-n-project-fallback: neutered mutant did NOT revert to extern :: $(grep -iE 'extern|ok.*src|WARN' <<<"$mout_npf" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-n-project-fallback: N-PROJECT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
+  # The sentinel is on the _bt_resolve reassignment line only (end of line); the init line uses
+  # N-PROJECT-FALLBACK-INIT and is NOT neutered so git_root is still derived.
+  if mk_sed "teeth-n-project-fallback" "$MUT/npf.sh" '/# N-PROJECT-FALLBACK$/ s/.*/:  # N-PROJECT-FALLBACK [NEUTERED]/'; then
+    mkdir -p "$TMP/npf-nested/src" "$TMP/npf-nested/corpus"
+    git -C "$TMP/npf-nested" init -q 2>/dev/null
+    seq 1 50 > "$TMP/npf-nested/src/tool.sh"
+    { echo "# Block NPF — nested layout"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "## NPF Observation [CERT]"; echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$TMP/npf-nested/corpus/block-npf.md"
+    tooth "teeth-n-project-fallback" 0 0 "$MUT/npf.sh" --good-lacks 'extern.*src/tool' --bad-has 'extern.*src/tool' \
+      -- bash @SUT@ "$TMP/npf-nested/corpus/block-npf.md"
   fi
 
-  # teeth-p6-doc-aware: neuter P6-DOC-AWARE-SUPPRESS; a [CERT-doc]-only block must revert to P6 WARN,
-  # proving test 46 depends on the real doc-awareness branch (not a structural no-op).
   echo "-- teeth-p6-doc-aware: neuter P6-DOC-AWARE-SUPPRESS; [CERT-doc]-only block must revert to WARN --"
-  mutant_doc="$TMP/verify-block.P6DOCAWARE.sh"
-  if grep -q '# P6-DOC-AWARE-SUPPRESS' "$SUT"; then
-    sed '/# P6-DOC-AWARE-SUPPRESS/ s/.*/    if false; then  # P6-DOC-AWARE-SUPPRESS [NEUTERED]/' "$SUT" > "$mutant_doc"
-    bash -n "$mutant_doc" 2>/dev/null; doc_syntax=$?
-    if [ "$doc_syntax" != "0" ]; then
-      no "teeth-p6-doc-aware: mutant has syntax error (bash -n rc=$doc_syntax) — cannot run"
-    else
-      d_doc="$TMP/p6-docaware-teeth.md"
-      { echo "# Block — doc corpus"; echo
-        echo "> Method: [CERT-doc] = preserved PDF+page; [INFER] = deduction."; echo
-        echo "---"; echo
-        echo "## Config [CERT-doc]"
-        echo "The panel accepts BACnet/IP over UDP. [CERT-doc]"; } > "$d_doc"
-      mout_doc="$(bash "$mutant_doc" "$d_doc" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$mout_doc"; then
-        ok "teeth-p6-doc-aware: neutered suppressor → [CERT-doc]-only block reverts to WARN (test 46 has teeth)"
-      else
-        no "teeth-p6-doc-aware: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|cert|doc' <<<"$mout_doc" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-doc-aware: P6-DOC-AWARE-SUPPRESS sentinel not found in SUT (doc-awareness not implemented or marker missing)"
+  if mk_sed "teeth-p6-doc-aware" "$MUT/doc.sh" '/# P6-DOC-AWARE-SUPPRESS/ s/.*/    if false; then  # P6-DOC-AWARE-SUPPRESS [NEUTERED]/'; then
+    { echo "# Block — doc corpus"; echo; echo "> Method: [CERT-doc] = preserved PDF+page; [INFER] = deduction."; echo; echo "---"; echo
+      echo "## Config [CERT-doc]"; echo "The panel accepts BACnet/IP over UDP. [CERT-doc]"; } > "$TMP/p6-docaware-teeth.md"
+    tooth "teeth-p6-doc-aware" 0 0 "$MUT/doc.sh" --good-lacks 'WARN.*(\[CERT\]|zero)' --bad-has 'WARN.*(\[CERT\]|zero)' \
+      -- bash @SUT@ "$TMP/p6-docaware-teeth.md"
   fi
-  # teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis fixture must revert to WARN (not INFO).
+
+  # Type-declaring fixtures: header carries a '> **Type:** <token>' blockquote line.
+  vbtype(){ local f="$1" typeline="$2"; shift 2; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; printf '%s\n' "$typeline"; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }
+
   echo "-- teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis block must revert to WARN --"
-  mutant_type="$TMP/verify-block.P6TYPECLASSIFY.sh"
-  if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
-    sed '/# P6-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/' "$SUT" > "$mutant_type"
-    bash -n "$mutant_type" 2>/dev/null; type_syntax=$?
-    if [ "$type_syntax" != "0" ]; then
-      no "teeth-p6-type-classify: mutant has syntax error (bash -n rc=$type_syntax) — cannot run"
-    else
-      d_type="$TMP/p6-type-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** synthesis"; echo
-        echo "---"; echo
-        echo "## Summary [CERT]"; echo "The module is initialized via [Block 5]. [CERT]"; } > "$d_type"
-      mout_type="$(bash "$mutant_type" "$d_type" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_type" && ! grep -qiE 'INFO.*declared type' <<<"$mout_type"; then
-        ok "teeth-p6-type-classify: neutered classify → synthesis reverts to WARN (test 51 has teeth)"
-      else
-        no "teeth-p6-type-classify: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_type" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-type-classify: P6-TYPE-CLASSIFY sentinel not found in SUT"
+  if mk_sed "teeth-p6-type-classify" "$MUT/type.sh" '/# P6-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/'; then
+    vbtype "$TMP/p6-type-teeth.md" '> **Type:** synthesis' "## Summary [CERT]" "The module is initialized via [Block 5]. [CERT]"
+    tooth "teeth-p6-type-classify" 0 0 "$MUT/type.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
+      --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-teeth.md"
   fi
 
-  # teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must stop naming itself.
-  echo "-- teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must not appear in output --"
-  mutant_unrec="$TMP/verify-block.P6TYPEUNREC.sh"
-  if grep -q '# P6-TYPE-UNRECOGNISED' "$SUT"; then
-    sed '/# P6-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_unrec"
-    bash -n "$mutant_unrec" 2>/dev/null; unrec_syntax=$?
-    if [ "$unrec_syntax" != "0" ]; then
-      no "teeth-p6-type-unrecognised: mutant has syntax error (bash -n rc=$unrec_syntax) — cannot run"
-    else
-      d_unrec="$TMP/p6-unrec-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** experimental-new-type"; echo
-        echo "---"; echo
-        echo "## Result [CERT]"; echo "The flag is always set. [CERT]"; } > "$d_unrec"
-      mout_unrec="$(bash "$mutant_unrec" "$d_unrec" 2>/dev/null)"
-      if ! grep -q 'experimental-new-type' <<<"$mout_unrec"; then
-        ok "teeth-p6-type-unrecognised: neutered branch → token name absent from output (test 52 has teeth)"
-      else
-        no "teeth-p6-type-unrecognised: neutered mutant STILL named the token :: $(grep -iE 'experimental|WARN' <<<"$mout_unrec" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-p6-type-unrecognised: P6-TYPE-UNRECOGNISED sentinel not found in SUT"
+  echo "-- teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must stop naming itself --"
+  if mk_sed "teeth-p6-type-unrecognised" "$MUT/unrec.sh" '/# P6-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/'; then
+    vbtype "$TMP/p6-unrec-teeth.md" '> **Type:** experimental-new-type' "## Result [CERT]" "The flag is always set. [CERT]"
+    tooth "teeth-p6-type-unrecognised" 0 0 "$MUT/unrec.sh" --good-has "experimental-new-type" --bad-lacks "experimental-new-type" \
+      --bad-has "$NOCITE" -- bash @SUT@ "$TMP/p6-unrec-teeth.md"
   fi
 
-  # teeth-p6-type-strip: clear the combined strip (sentinel P6-TYPE-STRIP); backtick-wrapped token must revert
-  # to WARN — the tooth proves test 57 depends on the order-independent strip, not just any strip.
   echo "-- teeth-p6-type-strip: clear combined strip; backtick-capture must revert to WARN --"
-  mutant_tstrip="$TMP/verify-block.P6TYPESTRIP.sh"
-  if grep -q '# P6-TYPE-STRIP' "$SUT"; then
-    sed '/# P6-TYPE-STRIP/ s/.*/        _type_stripped=""  # P6-TYPE-STRIP [NEUTERED]/' "$SUT" > "$mutant_tstrip"
-    bash -n "$mutant_tstrip" 2>/dev/null; tstrip_syntax=$?
-    if [ "$tstrip_syntax" != "0" ]; then
-      no "teeth-p6-type-strip: mutant has syntax error (bash -n rc=$tstrip_syntax) — cannot run"
-    else
-      d_tstrip="$TMP/p6-type-strip-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        printf '> **Type:** `capture`\n'; echo
-        echo "---"; echo
-        echo "## Known state [CERT]"; echo "The config is X. [CERT]"; } > "$d_tstrip"
-      mout_tstrip="$(bash "$mutant_tstrip" "$d_tstrip" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_tstrip" && ! grep -qiE 'INFO.*declared type' <<<"$mout_tstrip"; then
-        ok "teeth-p6-type-strip: cleared strip → backtick-capture reverts to WARN (test 57 has teeth)"
-      else
-        no "teeth-p6-type-strip: mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_tstrip" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-type-strip: P6-TYPE-STRIP sentinel not found in SUT"
+  if mk_sed "teeth-p6-type-strip" "$MUT/tstrip.sh" '/# P6-TYPE-STRIP/ s/.*/        _type_stripped=""  # P6-TYPE-STRIP [NEUTERED]/'; then
+    vbtype "$TMP/p6-type-strip-teeth.md" '> **Type:** `capture`' "## Known state [CERT]" "The config is X. [CERT]"
+    tooth "teeth-p6-type-strip" 0 0 "$MUT/tstrip.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
+      --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-strip-teeth.md"
   fi
 
-  # teeth-p6-type-display: null the _type_warn_name fallback (P6-TYPE-DISPLAY); uppercase fixture must output ''
-  # instead of the named token — proves test 59 depends on the raw-stripped display, not just any WARN.
   echo "-- teeth-p6-type-display: null display-name fallback; uppercase token must print '' (not named) --"
-  mutant_tdisp="$TMP/verify-block.P6TYPEDISP.sh"
-  if grep -q '# P6-TYPE-DISPLAY' "$SUT"; then
-    sed '/# P6-TYPE-DISPLAY/ s/.*/        _type_warn_name=$_type_token  # P6-TYPE-DISPLAY [NEUTERED]/' "$SUT" > "$mutant_tdisp"
-    bash -n "$mutant_tdisp" 2>/dev/null; tdisp_syntax=$?
-    if [ "$tdisp_syntax" != "0" ]; then
-      no "teeth-p6-type-display: mutant has syntax error (bash -n rc=$tdisp_syntax) — cannot run"
-    else
-      d_tdisp="$TMP/p6-type-disp-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** GAP-CLOSING SWEEP — special form"; echo
-        echo "---"; echo
-        echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d_tdisp"
-      mout_tdisp="$(bash "$mutant_tdisp" "$d_tdisp" 2>/dev/null)"
-      if grep -qE "token ''" <<<"$mout_tdisp" && ! grep -q 'GAP-CLOSING' <<<"$mout_tdisp"; then
-        ok "teeth-p6-type-display: nulled display → uppercase token prints '' not named (test 59 has teeth)"
-      else
-        no "teeth-p6-type-display: mutant output wrong :: $(grep -iE 'token|GAP|WARN' <<<"$mout_tdisp" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-type-display: P6-TYPE-DISPLAY sentinel not found in SUT"
+  if mk_sed "teeth-p6-type-display" "$MUT/tdisp.sh" '/# P6-TYPE-DISPLAY/ s/.*/        _type_warn_name=$_type_token  # P6-TYPE-DISPLAY [NEUTERED]/'; then
+    vbtype "$TMP/p6-type-disp-teeth.md" '> **Type:** GAP-CLOSING SWEEP — special form' "## Finding [CERT]" "The method is defined. [CERT]"
+    tooth "teeth-p6-type-display" 0 0 "$MUT/tdisp.sh" --good-has 'GAP-CLOSING' --good-lacks "token ''" \
+      --bad-has "token ''" --bad-lacks 'GAP-CLOSING' -- bash @SUT@ "$TMP/p6-type-disp-teeth.md"
   fi
 
-  # teeth-p6-wording: mutate the new P6 WARN message by stripping the "synthesis / REMITTANCE" expected-case
-  # phrase; the warn line must then lack it, proving test 48's assertion bites (would fail on this mutant).
-  echo "-- teeth-p6-wording: strip 'synthesis / REMITTANCE' phrase from P6 WARN; test 48 must detect absence --"
-  mutant_wording="$TMP/verify-block.P6WORDING.sh"
-  sed 's/Expected for synthesis \/ REMITTANCE[^"]*;//' "$SUT" > "$mutant_wording"
-  d_wording="$TMP/p6-wording-teeth.md"
-  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-    echo "The flag is always set. [CERT]"; } > "$d_wording"
-  mout_wording="$(bash "$mutant_wording" "$d_wording" 2>/dev/null)"
-  mwarn_wording="$(grep -iE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_wording" | head -1)"
-  if ! grep -qiE 'synthesis|REMITTANCE' <<<"$mwarn_wording"; then
-    ok "teeth-p6-wording: mutant lacks 'synthesis / REMITTANCE' → test 48 assertion would fail (has teeth)"
-  else
-    no "teeth-p6-wording: mutant STILL contains 'synthesis/REMITTANCE' — mutation did not take :: [$mwarn_wording]"
+  echo "-- teeth-p6-wording: strip 'synthesis / REMITTANCE' phrase from P6 WARN --"
+  if mk_sed "teeth-p6-wording" "$MUT/wording.sh" 's/Expected for synthesis \/ REMITTANCE[^"]*;//'; then
+    vbfix "$TMP/p6-wording-teeth.md" "The flag is always set. [CERT]"
+    # the HINT line legitimately lists 'synthesis', so the discriminating token is REMITTANCE
+    tooth "teeth-p6-wording" 0 0 "$MUT/wording.sh" --good-has 'Expected for synthesis / REMITTANCE' \
+      --bad-lacks 'REMITTANCE' --bad-has "$NOCITE" -- bash @SUT@ "$TMP/p6-wording-teeth.md"
   fi
 
-  # Tooth vb49: neutralize _vb_grep_err so cite-resolution error passes silently → test 49 goes red.
-  echo "-- teeth-vb49: neutralize _vb_grep_err; -nF exit-2 must pass silently → test 49 goes red --"
-  mutant_vb49="$TMP/verify-block.MUTANT-VB49.sh"
-  sed 's/_vb_grep_err=\$_vb_h_rc/_vb_grep_err=0/' "$SUT" > "$mutant_vb49"
-  out_vb49m="$(PATH="$_stub_vb49:$PATH" bash "$mutant_vb49" "$block_vb49" "$d_vb49" 2>&1)"
-  grep -qiE 'citation resolution FAILED|unresolved.*grep exit' <<<"$out_vb49m" \
-    && no "teeth-vb49: rc-zeroed mutant still emitted WARN — test 49 is THEATER" \
-    || ok "teeth-vb49: rc-zeroed mutant passes silently — cite-resolution guard has teeth"
+  echo "-- teeth-vb49: neutralize _vb_grep_err; -nF exit-2 must pass silently --"
+  if mk_sed "teeth-vb49" "$MUT/vb49.sh" 's/_vb_grep_err=\$_vb_h_rc/_vb_grep_err=0/'; then
+    tooth "teeth-vb49" 0 0 "$MUT/vb49.sh" --good-has 'citation resolution FAILED|unresolved.*grep exit' \
+      --bad-lacks 'citation resolution FAILED|unresolved.*grep exit' --bad-has "$EXIT0" \
+      -- env "PATH=$_stub_vb49:$PATH" bash @SUT@ "$block_vb49" "$d_vb49"
+  fi
 
-  # Tooth vb50: neutralize _vb_dedup_rc so dedup error passes silently → test 50 goes red.
-  echo "-- teeth-vb50: neutralize _vb_dedup_rc; -vE exit-2 must pass silently → test 50 goes red --"
-  mutant_vb50="$TMP/verify-block.MUTANT-VB50.sh"
-  sed 's/_vb_dedup_rc=\$?/_vb_dedup_rc=0/' "$SUT" > "$mutant_vb50"
-  out_vb50m="$(PATH="$_stub_vb50:$PATH" bash "$mutant_vb50" "$block_vb50" "$d_vb50" 2>&1)"
-  grep -qiE 'citation dedup FAILED|unresolved.*grep exit' <<<"$out_vb50m" \
-    && no "teeth-vb50: rc-zeroed mutant still emitted WARN — test 50 is THEATER" \
-    || ok "teeth-vb50: rc-zeroed mutant passes silently — dedup guard has teeth"
+  echo "-- teeth-vb50: neutralize _vb_dedup_rc; -vE exit-2 must pass silently --"
+  if mk_sed "teeth-vb50" "$MUT/vb50.sh" 's/_vb_dedup_rc=\$?/_vb_dedup_rc=0/'; then
+    tooth "teeth-vb50" 0 0 "$MUT/vb50.sh" --good-has 'citation dedup FAILED|unresolved.*grep exit' \
+      --bad-lacks 'citation dedup FAILED|unresolved.*grep exit' --bad-has "$EXIT0" \
+      -- env "PATH=$_stub_vb50:$PATH" bash @SUT@ "$block_vb50" "$d_vb50"
+  fi
 
-  # teeth-p6-bq-strip: neuter both the blockquote strip (P6-BQ-STRIP) and the case-insensitive TYPE
-  # sed (P6-BQ-TYPECASE); the fixture must revert to naming '>' instead of 'GAP-CLOSING SWEEP' — that
-  # is what the original bug produced. Both sentinels are part of the same logical fix: strip is a no-op
-  # if the sed still fails to extract the value, so both must be neutered to demonstrate the old naming.
   echo "-- teeth-p6-bq-strip: neuter BQ-STRIP + TYPE-case sed; fixture must revert to naming '>' --"
-  mutant_bqs="$TMP/verify-block.P6BQSTRIP.sh"
-  if grep -q '# P6-BQ-STRIP' "$SUT" && grep -q '# P6-BQ-TYPECASE' "$SUT"; then
-    sed \
-      -e '/# P6-BQ-STRIP/ s/.*/        _type_no_bq="$_type_raw"  # P6-BQ-STRIP [NEUTERED]/' \
-      -e '/# P6-BQ-TYPECASE/ s/\[Tt\]\[Yy\]\[Pp\]\[Ee\]/[Tt]ype/' \
-      "$SUT" > "$mutant_bqs"
-    bash -n "$mutant_bqs" 2>/dev/null; bqs_syntax=$?
-    if [ "$bqs_syntax" != "0" ]; then
-      no "teeth-p6-bq-strip: mutant has syntax error (bash -n rc=$bqs_syntax) — cannot run"
-    else
-      d_bqs="$TMP/p6-bq-strip-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> **TYPE: GAP-CLOSING SWEEP.**"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "---"; echo
-        echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d_bqs"
-      mout_bqs="$(bash "$mutant_bqs" "$d_bqs" 2>/dev/null)"
-      if grep -qE "token '>'" <<<"$mout_bqs" && ! grep -q 'GAP-CLOSING SWEEP' <<<"$mout_bqs"; then
-        ok "teeth-p6-bq-strip: neutered mutant names '>' not 'GAP-CLOSING SWEEP' (test 60 has teeth)"
-      else
-        no "teeth-p6-bq-strip: mutant wrong output :: $(grep -iE "token|GAP|'>'" <<<"$mout_bqs" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-bq-strip: P6-BQ-STRIP or P6-BQ-TYPECASE sentinel not found in SUT"
+  # Both sentinels are one logical fix: the strip is a no-op if the sed still extracts the value.
+  if mk_sed "teeth-p6-bq-strip" "$MUT/bqs.sh" \
+      '/# P6-BQ-STRIP/ s/.*/        _type_no_bq="$_type_raw"  # P6-BQ-STRIP [NEUTERED]/' \
+      '/# P6-BQ-TYPECASE/ s/\[Tt\]\[Yy\]\[Pp\]\[Ee\]/[Tt]ype/'; then
+    { echo "# Block — t"; echo; echo "> **TYPE: GAP-CLOSING SWEEP.**"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$TMP/p6-bq-strip-teeth.md"
+    tooth "teeth-p6-bq-strip" 0 0 "$MUT/bqs.sh" --good-has 'GAP-CLOSING SWEEP' --good-lacks "token '>'" \
+      --bad-has "token '>'" --bad-lacks 'GAP-CLOSING SWEEP' -- bash @SUT@ "$TMP/p6-bq-strip-teeth.md"
   fi
 
-  # teeth-p6-type-classify-decision: remove 'decision' from the P6-TYPE-CLASSIFY list;
-  # the decision fixture must revert to WARN (falls to the else path with type present but not classified).
   echo "-- teeth-p6-type-classify-decision: remove decision from P6-TYPE-CLASSIFY; block must revert to WARN --"
-  mutant_tdec="$TMP/verify-block.P6TYPEDEC.sh"
-  if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
-    sed '/# P6-TYPE-CLASSIFY/ s/|decision//' "$SUT" > "$mutant_tdec"
-    bash -n "$mutant_tdec" 2>/dev/null; tdec_syntax=$?
-    if [ "$tdec_syntax" != "0" ]; then
-      no "teeth-p6-type-classify-decision: mutant has syntax error (bash -n rc=$tdec_syntax) — cannot run"
-    else
-      d_tdec="$TMP/p6-type-decision-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** decision"; echo
-        echo "---"; echo
-        echo "## Decision [CERT]"; echo "Chose approach A over B. [CERT]"; } > "$d_tdec"
-      mout_tdec="$(bash "$mutant_tdec" "$d_tdec" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_tdec" && ! grep -qiE 'INFO.*declared type' <<<"$mout_tdec"; then
-        ok "teeth-p6-type-classify-decision: removed decision → block reverts to WARN (test 64 has teeth)"
-      else
-        no "teeth-p6-type-classify-decision: mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_tdec" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-type-classify-decision: P6-TYPE-CLASSIFY sentinel not found in SUT"
+  if mk_sed "teeth-p6-type-classify-decision" "$MUT/tdec.sh" '/# P6-TYPE-CLASSIFY/ s/|decision//'; then
+    vbtype "$TMP/p6-type-decision-teeth.md" '> **Type:** decision' "## Decision [CERT]" "Chose approach A over B. [CERT]"
+    tooth "teeth-p6-type-classify-decision" 0 0 "$MUT/tdec.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
+      --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-decision-teeth.md"
   fi
 
-  # teeth-p6-nonresolvable: neuter the P6-NONRESOLVABLE-GUARD condition (force always-false);
-  # jar!entry-only fixture must revert to emitting the P6 WARN because suppression is bypassed.
   echo "-- teeth-p6-nonresolvable: neuter P6-NONRESOLVABLE-GUARD; jar-only block must revert to P6 WARN --"
-  mutant_p6nr="$TMP/verify-block.P6NR-MUTANT.sh"
-  if grep -q '# P6-NONRESOLVABLE-GUARD' "$SUT"; then
-    sed '/# P6-NONRESOLVABLE-GUARD/ s/if .*/if false; then  # P6-NONRESOLVABLE-GUARD [MUTANT]/' "$SUT" > "$mutant_p6nr"
-    bash -n "$mutant_p6nr" 2>/dev/null; p6nr_syntax=$?
-    if [ "$p6nr_syntax" != "0" ]; then
-      no "teeth-p6-nonresolvable: mutant has syntax error (bash -n rc=$p6nr_syntax) — cannot run"
-    else
-      mut_p6nr_out="$(bash "$mutant_p6nr" "$TMP/vb1-jar.md" 2>/dev/null)"
-      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero|WARN.*nothing' <<<"$mut_p6nr_out" \
-         && ! grep -qiE 'non-file-verifiable|jar-entry paths|BNNN.*back-ref' <<<"$mut_p6nr_out"; then
-        ok "teeth-p6-nonresolvable: guard-neutered mutant reverts to P6 WARN for jar-only (suppression is load-bearing)"
-      else
-        no "teeth-p6-nonresolvable: mutant did not revert to WARN :: $(grep -iE 'WARN|INFO|non-file|jar' <<<"$mut_p6nr_out" | head -2)"
-      fi
-    fi
-  else
-    no "teeth-p6-nonresolvable: P6-NONRESOLVABLE-GUARD sentinel not found in SUT"
+  if mk_sed "teeth-p6-nonresolvable" "$MUT/p6nr.sh" '/# P6-NONRESOLVABLE-GUARD/ s/if .*/if false; then  # P6-NONRESOLVABLE-GUARD [MUTANT]/'; then
+    tooth "teeth-p6-nonresolvable" 0 0 "$MUT/p6nr.sh" --good-has 'non-file-verifiable|jar-entry paths|BNNN.*back-ref' --good-lacks "$NOCITE" \
+      --bad-has "$NOCITE" --bad-lacks 'non-file-verifiable|jar-entry paths|BNNN.*back-ref' \
+      -- bash @SUT@ "$TMP/vb1-jar.md"
   fi
 
-  # T-VB1 teeth-jar-entry: neuter the jar-entry echo line (VB1-JAR-ENTRY-CITE sentinel);
-  # jar!entry fixture must no longer print the jar-entry visibility line.
   echo "-- teeth-vb1-jar-entry: neuter VB1-JAR-ENTRY-CITE echo; jar!entry visibility must disappear --"
-  mutant_vb1="$TMP/verify-block.VB1-MUTANT.sh"
-  sed 's/echo.*jar-entry.*# VB1-JAR-ENTRY-CITE/: # VB1-JAR-ENTRY-CITE [MUTANT]/' "$SUT" > "$mutant_vb1"
-  if ! grep -q 'VB1-JAR-ENTRY-CITE \[MUTANT\]' "$mutant_vb1"; then
-    no "teeth-vb1-jar-entry: could not build mutant (VB1-JAR-ENTRY-CITE sentinel not found in SUT — did the SUT change?)"
-  else
-    orig_vb1="$(bash "$SUT" "$TMP/vb1-jar.md" 2>/dev/null)"
-    mut_vb1="$(bash "$mutant_vb1" "$TMP/vb1-jar.md" 2>/dev/null)"
-    orig_has_jar=0; mut_no_jar=0
-    grep -q 'jar-entry' <<<"$orig_vb1" && orig_has_jar=1
-    ! grep -q 'jar-entry' <<<"$mut_vb1" && mut_no_jar=1
-    if [ "$orig_has_jar$mut_no_jar" = "11" ]; then
-      ok "teeth-vb1-jar-entry: original shows jar-entry, mutant does not → echo line is load-bearing"
-    else
-      no "teeth-vb1-jar-entry: orig_has_jar=$orig_has_jar mut_no_jar=$mut_no_jar (want 1 1)"
-    fi
+  if mk_sed "teeth-vb1-jar-entry" "$MUT/vb1.sh" 's/echo.*jar-entry.*# VB1-JAR-ENTRY-CITE/: # VB1-JAR-ENTRY-CITE [MUTANT]/'; then
+    tooth "teeth-vb1-jar-entry" 0 0 "$MUT/vb1.sh" --good-has 'jar-entry' --bad-lacks 'jar-entry' --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/vb1-jar.md"
   fi
 
-  # T-VB1 teeth-synth-ref: neuter the synth-ref echo line (VB1-SYNTH-REF sentinel);
-  # [BNNN]-only fixture must no longer print the synth-ref visibility line.
   echo "-- teeth-vb1-synth-ref: neuter VB1-SYNTH-REF echo; back-ref visibility must disappear --"
-  mutant_vb1s="$TMP/verify-block.VB1S-MUTANT.sh"
-  sed 's/echo.*synth-ref.*# VB1-SYNTH-REF/: # VB1-SYNTH-REF [MUTANT]/' "$SUT" > "$mutant_vb1s"
-  if ! grep -q 'VB1-SYNTH-REF \[MUTANT\]' "$mutant_vb1s"; then
-    no "teeth-vb1-synth-ref: could not build mutant (VB1-SYNTH-REF sentinel not found in SUT — did the SUT change?)"
-  else
-    orig_vb1s="$(bash "$SUT" "$TMP/vb1-synth.md" 2>/dev/null)"
-    mut_vb1s="$(bash "$mutant_vb1s" "$TMP/vb1-synth.md" 2>/dev/null)"
-    orig_has_synth=0; mut_no_synth=0
-    grep -q 'synth-ref' <<<"$orig_vb1s" && orig_has_synth=1
-    ! grep -q 'synth-ref' <<<"$mut_vb1s" && mut_no_synth=1
-    if [ "$orig_has_synth$mut_no_synth" = "11" ]; then
-      ok "teeth-vb1-synth-ref: original shows synth-ref, mutant does not → echo line is load-bearing"
-    else
-      no "teeth-vb1-synth-ref: orig_has_synth=$orig_has_synth mut_no_synth=$mut_no_synth (want 1 1)"
-    fi
+  if mk_sed "teeth-vb1-synth-ref" "$MUT/vb1s.sh" 's/echo.*synth-ref.*# VB1-SYNTH-REF/: # VB1-SYNTH-REF [MUTANT]/'; then
+    tooth "teeth-vb1-synth-ref" 0 0 "$MUT/vb1s.sh" --good-has 'synth-ref' --bad-lacks 'synth-ref' --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/vb1-synth.md"
   fi
 
-  # teeth-source-root-fallback: neuter SOURCE_ROOT-FALLBACK; decompiled-tree cite must revert to extern.
   echo "-- teeth-source-root-fallback: neuter SOURCE_ROOT-FALLBACK; decompiled-tree cite must revert to extern --"
-  mutant_sr="$TMP/verify-block.SR-MUTANT.sh"
-  if grep -q '# SOURCE_ROOT-FALLBACK' "$SUT"; then
-    sed '/# SOURCE_ROOT-FALLBACK/ s/_bt_resolve=.*/: # SOURCE_ROOT-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_sr"
-    bash -n "$mutant_sr" 2>/dev/null; sr_syntax=$?
-    if [ "$sr_syntax" -ne 0 ]; then
-      no "teeth-source-root-fallback: mutant has syntax error (bash -n rc=$sr_syntax) — cannot run"
-    else
-      mkdir -p "$TMP/sr-root/organized/platBase/vineflower/com/example"
-      seq 1 30 > "$TMP/sr-root/organized/platBase/vineflower/com/example/Foo.java"
-      d_sr="$TMP/sr-teeth.md"
-      { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-        echo "The method \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"; } > "$d_sr"
-      # Original must resolve ok with SOURCE_ROOT set; mutant must revert to extern.
-      orig_sr_out="$(SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d_sr" 2>/dev/null)"
-      mut_sr_out="$(SOURCE_ROOT="$TMP/sr-root" bash "$mutant_sr" "$d_sr" 2>/dev/null)"
-      orig_ok=0; mut_extern=0
-      grep -qE 'ok.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$orig_sr_out" && orig_ok=1
-      grep -qiE 'extern.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$mut_sr_out" && mut_extern=1
-      if [ "$orig_ok$mut_extern" = "11" ]; then
-        ok "teeth-source-root-fallback: original resolves ok; mutant reverts to extern (test 65 has teeth)"
-      else
-        no "teeth-source-root-fallback: orig_ok=$orig_ok mut_extern=$mut_extern (want 1 1) :: orig=$(grep -iE 'ok|extern' <<<"$orig_sr_out" | head -1) mut=$(grep -iE 'ok|extern' <<<"$mut_sr_out" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-source-root-fallback: SOURCE_ROOT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
+  if mk_sed "teeth-source-root-fallback" "$MUT/sr.sh" '/# SOURCE_ROOT-FALLBACK/ s/_bt_resolve=.*/: # SOURCE_ROOT-FALLBACK [NEUTERED]/'; then
+    mkdir -p "$TMP/sr-root/organized/platBase/vineflower/com/example"
+    seq 1 30 > "$TMP/sr-root/organized/platBase/vineflower/com/example/Foo.java"
+    vbfix "$TMP/sr-teeth.md" "The method \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"
+    srcite='organized/platBase/vineflower/com/example/Foo\.java:10'
+    tooth "teeth-source-root-fallback" 0 0 "$MUT/sr.sh" --good-has "ok.*$srcite" --good-lacks "extern.*$srcite" \
+      --bad-has "extern.*$srcite" --bad-lacks "ok.*$srcite" \
+      -- env "SOURCE_ROOT=$TMP/sr-root" bash @SUT@ "$TMP/sr-teeth.md"
   fi
 
-  # teeth-p9: neuter P9-RESOLVED-SUMMARY outer if; all-extern block must stop showing summary and WARN.
   echo "-- teeth-p9: neuter P9-RESOLVED-SUMMARY; all-extern block must stop emitting resolved/WARN --"
-  mutant_p9="$TMP/verify-block.P9MUTANT.sh"
-  if grep -q '# P9-RESOLVED-SUMMARY' "$SUT"; then
-    sed '/# P9-RESOLVED-SUMMARY/ s/if.*/if false; then  # P9-RESOLVED-SUMMARY [NEUTERED]/' "$SUT" > "$mutant_p9"
-    bash -n "$mutant_p9" 2>/dev/null; p9_syntax=$?
-    if [ "$p9_syntax" -ne 0 ]; then
-      no "teeth-p9: mutant has syntax error (bash -n rc=$p9_syntax) — cannot run"
-    else
-      d_p9="$TMP/p9-teeth.md"
-      { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-        echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9"
-      orig_p9="$(bash "$SUT" "$d_p9" 2>/dev/null)"
-      mut_p9="$(bash "$mutant_p9" "$d_p9" 2>/dev/null)"
-      orig_has_warn=0; mut_no_warn=0
-      grep -qiE 'WARN.*resolved 0 of|resolved 0 of' <<<"$orig_p9" && orig_has_warn=1
-      ! grep -qiE 'WARN.*resolved 0 of|resolved 0 of' <<<"$mut_p9" && mut_no_warn=1
-      if [ "$orig_has_warn$mut_no_warn" = "11" ]; then
-        ok "teeth-p9: original shows P9 summary/WARN, mutant does not → P9-RESOLVED-SUMMARY is load-bearing"
-      else
-        no "teeth-p9: orig_has_warn=$orig_has_warn mut_no_warn=$mut_no_warn (want 1 1) :: orig=$(grep -i 'resolved' <<<"$orig_p9" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-p9: P9-RESOLVED-SUMMARY sentinel not found in SUT (P9 not implemented or marker missing)"
+  if mk_sed "teeth-p9" "$MUT/p9.sh" '/# P9-RESOLVED-SUMMARY/ s/if.*/if false; then  # P9-RESOLVED-SUMMARY [NEUTERED]/'; then
+    vbfix "$TMP/p9-teeth.md" "The method \`NonExistent.java:10\`. \`[CERT]\`"
+    tooth "teeth-p9" 0 0 "$MUT/p9.sh" --good-has 'WARN.*resolved 0 of' --bad-lacks 'resolved 0 of' --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/p9-teeth.md"
   fi
 
-  # teeth-p9-type-classify: neuter P9-TYPE-CLASSIFY; synthesis+extern → WARN instead of INFO.
   echo "-- teeth-p9-type-classify: neuter P9-TYPE-CLASSIFY; synthesis+extern must revert to WARN --"
-  mutant_p9tc="$TMP/verify-block.P9TYPECLASSIFY.sh"
-  if grep -q '# P9-TYPE-CLASSIFY' "$SUT"; then
-    sed '/# P9-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/' "$SUT" > "$mutant_p9tc"
-    bash -n "$mutant_p9tc" 2>/dev/null; p9tc_syntax=$?
-    if [ "$p9tc_syntax" -ne 0 ]; then
-      no "teeth-p9-type-classify: mutant has syntax error (bash -n rc=$p9tc_syntax) — cannot run"
-    else
-      d_p9tc="$TMP/p9-type-classify-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** synthesis"; echo
-        echo "---"; echo
-        echo "As seen in \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9tc"
-      orig_p9tc="$(bash "$SUT" "$d_p9tc" 2>/dev/null)"
-      mout_p9tc="$(bash "$mutant_p9tc" "$d_p9tc" 2>/dev/null)"
-      if grep -qiE 'INFO.*resolved' <<<"$orig_p9tc" && grep -qiE 'WARN.*resolved 0 of' <<<"$mout_p9tc"; then
-        ok "teeth-p9-type-classify: neutered classify → synthesis reverts to WARN (test 70 has teeth)"
-      else
-        no "teeth-p9-type-classify: orig_info=$(grep -iE 'INFO.*resolved' <<<"$orig_p9tc" | head -1) mut_warn=$(grep -iE 'WARN.*resolved' <<<"$mout_p9tc" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-p9-type-classify: P9-TYPE-CLASSIFY sentinel not found in SUT"
+  if mk_sed "teeth-p9-type-classify" "$MUT/p9tc.sh" '/# P9-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/'; then
+    vbtype "$TMP/p9-type-classify-teeth.md" '> **Type:** synthesis' "As seen in \`NonExistent.java:10\`. \`[CERT]\`"
+    tooth "teeth-p9-type-classify" 0 0 "$MUT/p9tc.sh" --good-has 'INFO.*resolved' --good-lacks 'WARN.*resolved 0 of' \
+      --bad-has 'WARN.*resolved 0 of' --bad-lacks 'INFO.*resolved' -- bash @SUT@ "$TMP/p9-type-classify-teeth.md"
   fi
 
-  # teeth-p9-type-unrecognised: neuter P9-TYPE-UNRECOGNISED; unrecognised type must not name itself in WARN.
   echo "-- teeth-p9-type-unrecognised: neuter P9-TYPE-UNRECOGNISED; type name must vanish from WARN --"
-  mutant_p9tu="$TMP/verify-block.P9TYPEUNREC.sh"
-  if grep -q '# P9-TYPE-UNRECOGNISED' "$SUT"; then
-    sed '/# P9-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P9-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_p9tu"
-    bash -n "$mutant_p9tu" 2>/dev/null; p9tu_syntax=$?
-    if [ "$p9tu_syntax" -ne 0 ]; then
-      no "teeth-p9-type-unrecognised: mutant has syntax error (bash -n rc=$p9tu_syntax) — cannot run"
-    else
-      d_p9tu="$TMP/p9-type-unrec-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT] = x."; echo
-        echo "> **Type:** experimental-p9"; echo
-        echo "---"; echo
-        echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9tu"
-      mout_p9tu="$(bash "$mutant_p9tu" "$d_p9tu" 2>/dev/null)"
-      if ! grep -q 'experimental-p9' <<<"$mout_p9tu"; then
-        ok "teeth-p9-type-unrecognised: neutered branch → type name absent (test 75 has teeth)"
-      else
-        no "teeth-p9-type-unrecognised: neutered mutant STILL named the type :: $(grep -iE 'experimental-p9|WARN.*resolved' <<<"$mout_p9tu" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-p9-type-unrecognised: P9-TYPE-UNRECOGNISED sentinel not found in SUT"
+  if mk_sed "teeth-p9-type-unrecognised" "$MUT/p9tu.sh" '/# P9-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P9-TYPE-UNRECOGNISED [NEUTERED]/'; then
+    vbtype "$TMP/p9-type-unrec-teeth.md" '> **Type:** experimental-pnine' "The method \`NonExistent.java:10\`. \`[CERT]\`"
+    tooth "teeth-p9-type-unrecognised" 0 0 "$MUT/p9tu.sh" --good-has 'WARN.*experimental-pnine' \
+      --bad-lacks 'experimental-pnine' --bad-has 'WARN.*resolved 0 of' -- bash @SUT@ "$TMP/p9-type-unrec-teeth.md"
   fi
 
-  # teeth-p9-range-ok: neuter P9-VB-OK-RANGE; range-resolved cite → 'resolved 0 of 1' instead of 1 of 1.
   echo "-- teeth-p9-range-ok: neuter P9-VB-OK-RANGE; range-resolved cite must count as 0 --"
-  mutant_p9ro="$TMP/verify-block.P9RANGEOK.sh"
-  if grep -q '# P9-VB-OK-RANGE' "$SUT"; then
-    sed '/# P9-VB-OK-RANGE/ s/+1/+0/' "$SUT" > "$mutant_p9ro"
-    d_p9ro="$TMP/p9-range-ok-teeth.md"; seq 1 30 > "$TMP/p9-range-teeth.java"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "The loop \`p9-range-teeth.java:5-15\`. \`[CERT]\`"; } > "$d_p9ro"
-    orig_p9ro="$(bash "$SUT" "$d_p9ro" 2>/dev/null)"
-    mut_p9ro="$(bash "$mutant_p9ro" "$d_p9ro" 2>/dev/null)"
-    if grep -q 'resolved 1 of 1' <<<"$orig_p9ro" && grep -q 'resolved 0 of 1' <<<"$mut_p9ro"; then
-      ok "teeth-p9-range-ok: neutered counter → range cite counts as 0 (test 73 has teeth)"
-    else
-      no "teeth-p9-range-ok: orig=$(grep -i 'resolved' <<<"$orig_p9ro" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9ro" | head -1)"
-    fi
-  else
-    no "teeth-p9-range-ok: P9-VB-OK-RANGE sentinel not found in SUT"
+  if mk_sed "teeth-p9-range-ok" "$MUT/p9ro.sh" '/# P9-VB-OK-RANGE/ s/+1/+0/'; then
+    seq 1 30 > "$TMP/p9-range-teeth.java"
+    vbfix "$TMP/p9-range-ok-teeth.md" "The loop \`p9-range-teeth.java:5-15\`. \`[CERT]\`"
+    tooth "teeth-p9-range-ok" 0 0 "$MUT/p9ro.sh" --good-has 'resolved 1 of 1' --bad-has 'resolved 0 of 1' --bad-lacks 'resolved 1 of 1' \
+      -- bash @SUT@ "$TMP/p9-range-ok-teeth.md"
   fi
 
-  # teeth-p9-art-ok: neuter P9-VB-OK-ART; art-cite ok → 'resolved 0 of 1' instead of 1 of 1.
   echo "-- teeth-p9-art-ok: neuter P9-VB-OK-ART; art-cite ok must count as 0 --"
-  mutant_p9ao="$TMP/verify-block.P9ARTOK.sh"
-  if grep -q '# P9-VB-OK-ART' "$SUT"; then
-    sed '/# P9-VB-OK-ART/ s/+1/+0/' "$SUT" > "$mutant_p9ao"
-    d_p9ao="$TMP/p9-art-ok-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"; } > "$d_p9ao"
-    orig_p9ao="$(bash "$SUT" "$d_p9ao" 2>/dev/null)"
-    mut_p9ao="$(bash "$mutant_p9ao" "$d_p9ao" 2>/dev/null)"
-    if grep -q 'resolved 1 of 1' <<<"$orig_p9ao" && grep -q 'resolved 0 of 1' <<<"$mut_p9ao"; then
-      ok "teeth-p9-art-ok: neutered counter → art-ok cite counts as 0 (test 74 has teeth)"
-    else
-      no "teeth-p9-art-ok: orig=$(grep -i 'resolved' <<<"$orig_p9ao" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9ao" | head -1)"
-    fi
-  else
-    no "teeth-p9-art-ok: P9-VB-OK-ART sentinel not found in SUT"
+  if mk_sed "teeth-p9-art-ok" "$MUT/p9ao.sh" '/# P9-VB-OK-ART/ s/+1/+0/'; then
+    vbfix "$TMP/p9-art-ok-teeth.md" "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"
+    tooth "teeth-p9-art-ok" 0 0 "$MUT/p9ao.sh" --good-has 'resolved 1 of 1' --bad-has 'resolved 0 of 1' --bad-lacks 'resolved 1 of 1' \
+      -- bash @SUT@ "$TMP/p9-art-ok-teeth.md"
   fi
 
-  # teeth-p9-art-m: neuter P9-VB-M-ART; art-cite block → no 'resolved' line (M stays 0).
-  echo "-- teeth-p9-art-m: neuter P9-VB-M-ART; art-cite must not increment M → no resolved line --"
-  mutant_p9am="$TMP/verify-block.P9ARTM.sh"
-  if grep -q '# P9-VB-M-ART' "$SUT"; then
-    sed '/# P9-VB-M-ART/ s/+1/+0/' "$SUT" > "$mutant_p9am"
-    d_p9am="$TMP/p9-art-m-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"; } > "$d_p9am"
-    orig_p9am="$(bash "$SUT" "$d_p9am" 2>/dev/null)"
-    mut_p9am="$(bash "$mutant_p9am" "$d_p9am" 2>/dev/null)"
-    if grep -q 'resolved' <<<"$orig_p9am" && ! grep -q 'resolved' <<<"$mut_p9am"; then
-      ok "teeth-p9-art-m: neutered M counter → art cite drops 'resolved' line (test 74 has teeth)"
-    else
-      no "teeth-p9-art-m: orig=$(grep -i 'resolved' <<<"$orig_p9am" | head -1) mut_still=$(grep -i 'resolved' <<<"$mut_p9am" | head -1)"
-    fi
-  else
-    no "teeth-p9-art-m: P9-VB-M-ART sentinel not found in SUT"
+  echo "-- teeth-p9-art-m: neuter P9-VB-M-ART; art cite must not increment M --"
+  if mk_sed "teeth-p9-art-m" "$MUT/p9am.sh" '/# P9-VB-M-ART/ s/+1/+0/'; then
+    vbfix "$TMP/p9-art-m-teeth.md" "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"
+    tooth "teeth-p9-art-m" 0 0 "$MUT/p9am.sh" --good-has 'resolved [0-9]+ of' --bad-lacks 'resolved [0-9]+ of' --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/p9-art-m-teeth.md"
   fi
 
-  # teeth-p9-doc-grade-guard: neuter P9-DOC-GRADE-GUARD; doc-grade-only+extern → WARN instead of INFO.
   echo "-- teeth-p9-doc-grade-guard: neuter P9-DOC-GRADE-GUARD; doc-grade block must revert to WARN --"
-  mutant_p9dg="$TMP/verify-block.P9DOCGRADE.sh"
-  if grep -q '# P9-DOC-GRADE-GUARD' "$SUT"; then
-    sed '/# P9-DOC-GRADE-GUARD/ s/if .*/if false; then  # P9-DOC-GRADE-GUARD [NEUTERED]/' "$SUT" > "$mutant_p9dg"
-    bash -n "$mutant_p9dg" 2>/dev/null; p9dg_syntax=$?
-    if [ "$p9dg_syntax" -ne 0 ]; then
-      no "teeth-p9-doc-grade-guard: mutant has syntax error (bash -n rc=$p9dg_syntax) — cannot run"
-    else
-      d_p9dg="$TMP/p9-doc-grade-teeth.md"
-      { echo "# Block — t"; echo
-        echo "> Method: [CERT-doc] = x."; echo
-        echo "---"; echo
-        echo "The method \`NonExistent.java:10\`. \`[CERT-doc]\`"; } > "$d_p9dg"
-      orig_p9dg="$(bash "$SUT" "$d_p9dg" 2>/dev/null)"
-      mut_p9dg_out="$(bash "$mutant_p9dg" "$d_p9dg" 2>/dev/null)"
-      if grep -qiE 'INFO.*resolved' <<<"$orig_p9dg" && grep -qiE 'WARN.*resolved 0 of' <<<"$mut_p9dg_out"; then
-        ok "teeth-p9-doc-grade-guard: neutered guard → doc-grade block reverts to WARN (test 76 has teeth)"
-      else
-        no "teeth-p9-doc-grade-guard: orig_info=$(grep -iE 'INFO.*resolved' <<<"$orig_p9dg" | head -1) mut_warn=$(grep -iE 'WARN.*resolved' <<<"$mut_p9dg_out" | head -1)"
-      fi
-    fi
-  else
-    no "teeth-p9-doc-grade-guard: P9-DOC-GRADE-GUARD sentinel not found in SUT"
+  if mk_sed "teeth-p9-doc-grade-guard" "$MUT/p9dg.sh" '/# P9-DOC-GRADE-GUARD/ s/if .*/if false; then  # P9-DOC-GRADE-GUARD [NEUTERED]/'; then
+    { echo "# Block — t"; echo; echo "> Method: [CERT-doc] = x."; echo; echo "---"; echo
+      echo "The method \`NonExistent.java:10\`. \`[CERT-doc]\`"; } > "$TMP/p9-doc-grade-teeth.md"
+    tooth "teeth-p9-doc-grade-guard" 0 0 "$MUT/p9dg.sh" --good-has 'INFO.*resolved' --good-lacks 'WARN.*resolved 0 of' \
+      --bad-has 'WARN.*resolved 0 of' --bad-lacks 'INFO.*resolved' -- bash @SUT@ "$TMP/p9-doc-grade-teeth.md"
   fi
 
-  # teeth-p9-no-type-hint: neuter P9-NO-TYPE-HINT; no-Type extern cite → HINT line must disappear.
   echo "-- teeth-p9-no-type-hint: neuter P9-NO-TYPE-HINT; HINT must not appear in output --"
-  mutant_p9nh="$TMP/verify-block.P9NOTYPEHINT.sh"
-  if grep -q '# P9-NO-TYPE-HINT' "$SUT"; then
-    sed '/# P9-NO-TYPE-HINT/ s/echo.*/: # P9-NO-TYPE-HINT [NEUTERED]/' "$SUT" > "$mutant_p9nh"
-    d_p9nh="$TMP/p9-no-type-hint-teeth.md"
-    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9nh"
-    orig_p9nh="$(bash "$SUT" "$d_p9nh" 2>/dev/null)"
-    mut_p9nh_out="$(bash "$mutant_p9nh" "$d_p9nh" 2>/dev/null)"
-    if grep -qiE 'HINT.*Declare' <<<"$orig_p9nh" && ! grep -qiE 'HINT.*Declare' <<<"$mut_p9nh_out"; then
-      ok "teeth-p9-no-type-hint: neutered HINT → HINT absent from output (test 77 has teeth)"
-    else
-      no "teeth-p9-no-type-hint: orig_hint=$(grep -iE 'HINT' <<<"$orig_p9nh" | head -1) mut=$(grep -iE 'HINT' <<<"$mut_p9nh_out" | head -1)"
-    fi
-  else
-    no "teeth-p9-no-type-hint: P9-NO-TYPE-HINT sentinel not found in SUT"
+  if mk_sed "teeth-p9-no-type-hint" "$MUT/p9nh.sh" '/# P9-NO-TYPE-HINT/ s/echo.*/: # P9-NO-TYPE-HINT [NEUTERED]/'; then
+    vbfix "$TMP/p9-no-type-hint-teeth.md" "The method \`NonExistent.java:10\`. \`[CERT]\`"
+    tooth "teeth-p9-no-type-hint" 0 0 "$MUT/p9nh.sh" --good-has 'HINT.*Declare' --bad-lacks 'HINT.*Declare' \
+      --bad-has 'WARN.*resolved 0 of' -- bash @SUT@ "$TMP/p9-no-type-hint-teeth.md"
   fi
 fi
 
