@@ -21,9 +21,9 @@
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
 #        [--wire] [--no-wire] [--scaffold] [--document]
-# Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
+# Exit: 0 = scaffolded · 2 = bad args/target/not-writable/dangling-symlink hook or scaffold path (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
-#           valid .hooks shape, OR the settings.json merge itself failed (refused/aborted,
+#           valid .hooks shape or is a dangling symlink, OR the settings.json merge itself failed (refused/aborted,
 #           nothing written — never reported as success) ·
 #       5 = --wire refused: no corpus marker (INDEX.md/RESEARCH-STATE.md/RESEARCH-STATE-<focus>.md/
 #           CATALOG.md) was found at $target or $target/corpus, and --scaffold was not also given —
@@ -145,6 +145,39 @@ fi
 # established name/call sites in this script unchanged.
 corpus_present() {
   corpus_has_marker "$1"
+}
+
+# kit issue #1043 (1): escape the three characters that are special in the REPLACEMENT of a
+# `sed "s|...|...|"` expression — backslash (escape), `&` (re-inserts the match) and `|` (our
+# delimiter) — so a target/kit path containing them is rendered literally, not mangled or rejected.
+_rsdd_sed_escape() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+
+# kit issue #1043 (1): render the <KIT>/<TARGET> placeholders of a copied hook template in place.
+_rsdd_render_hook() {
+  local f="$1" k t
+  k="$(_rsdd_sed_escape "$KIT")"; t="$(_rsdd_sed_escape "$target")"
+  sed -i "s|<KIT>|$k|g; s|<TARGET>|$t|g" "$f"
+}
+
+# kit issue #1043 (2)/(3): a DANGLING symlink (-L but not -e) at a path this script would write
+# makes `cp` refuse mid-run and, on the scaffold path, lets the rollback delete the user's link.
+# Callers check every such path BEFORE any write; this prints the offenders and returns 1.
+_rsdd_dangling_symlinks() {
+  local p bad=0
+  for p in "$@"; do
+    if [ -L "$p" ] && [ ! -e "$p" ]; then echo "FATAL: $p is a dangling symlink — refusing before any write (nothing created or changed). Fix or remove the link, then re-run." >&2; bad=1; fi
+  done
+  return "$bad"
+}
+
+# kit issue #1043 (3): install a freshly-merged settings file WITHOUT mktemp+mv semantics. `mv`
+# would replace a symlinked settings.json by a regular file and give it mktemp's 0600 mode.
+# Writing the content THROUGH the destination (`cat >`) keeps the symlink, the inode, the owner and
+# the mode (a new file gets the umask default). Caller guarantees $2 is not a dangling symlink.
+_rsdd_install_settings() {
+  local tmp="$1" dest="$2"
+  if cat "$tmp" > "$dest"; then rm -f "$tmp"; return 0; fi
+  rm -f "$tmp"; return 1
 }
 
 # kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The
@@ -301,6 +334,12 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       exit 4
     fi
 
+    # kit issue #1043: a dangling symlink at a hook path (cp would refuse AFTER the other hook was
+    # written) or at settings.json (the merge would fail / write elsewhere) is refused BEFORE any
+    # write, so a failure leaves no partial state.
+    _rsdd_dangling_symlinks "$_wo_stop" "$_wo_ss" || exit 2
+    _rsdd_dangling_symlinks "$_wo_settings" || exit 4
+
     # jq is present and settings.json (if any) is valid JSON: repair absent hook files
     # (create-only — never overwrite an existing one).
     mkdir -p "$target/.claude/hooks"
@@ -308,7 +347,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       echo "kept: $_wo_stop"
     else
       cp "$TPL/hook-stop-retro-gate.sh" "$_wo_stop"
-      sed -i "s|<KIT>|$KIT|g; s|<TARGET>|$target|g" "$_wo_stop"
+      _rsdd_render_hook "$_wo_stop"
       chmod +x "$_wo_stop"
       echo "created: $_wo_stop"
     fi
@@ -354,7 +393,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
       # settings.json keeps its indentation instead of collapsing to one line.
       jq '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
-      mv "$_wo_tmp" "$_wo_settings"
+      _rsdd_install_settings "$_wo_tmp" "$_wo_settings" || { echo "FATAL: could not write $_wo_settings" >&2; exit 4; }
       _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
       if [ "$_wo_has_stop" = "true" ]; then
@@ -433,6 +472,11 @@ if [ "$force" = 0 ]; then
 fi
 
 # --- pre-flight writability (fail BEFORE any mutation) -----------------------
+# kit issue #1043 (2): refuse a dangling symlink at any path the scaffold writes BEFORE the first
+# write (the ERR rollback would otherwise also delete the user's link).
+_rsdd_dangling_symlinks "$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources/SOURCES.md" \
+  "$target/.claude/hooks/research-protocol.sh" "$target/.claude/hooks/retro-gate-stop.sh" \
+  "$target/tools/README.md" "$target/.claude/settings.json" || exit 2
 probe="$target/.rsdd-init-writeprobe.$$"
 ( : > "$probe" ) 2>/dev/null || { echo "FATAL: $target is not writable — cannot scaffold." >&2; exit 2; }
 rm -f "$probe"
@@ -463,7 +507,7 @@ cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
 _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
 cpf "$TPL/hook-stop-retro-gate.sh" "$_rg_hook"
-sed -i "s|<KIT>|$KIT|g; s|<TARGET>|$target|g" "$_rg_hook"
+_rsdd_render_hook "$_rg_hook"
 chmod +x "$_rg_hook"
 
 # .gitignore guard (METHODOLOGY §15). Ensure a trailing newline first so we never fuse
@@ -580,7 +624,7 @@ if [ "$wire" = 1 ]; then
       .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
         else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
     ' > "$_tmp_settings" 2>/dev/null; then
-      mv "$_tmp_settings" "$_settings"
+      _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
       if [ "$_wire_skip_ss" = "true" ]; then
         echo "  wired  : Stop hook registered in $_settings (SessionStart skipped — see WARN above)"
       else

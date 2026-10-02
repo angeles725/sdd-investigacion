@@ -1294,6 +1294,85 @@ else
   no "SYMLINK-TOOLBELT: guidance text leaked the render dir instead of the real kit root (out=[$_ki_out])"
 fi
 
+# ---- kit issue #1043 -------------------------------------------------------------------------
+# (1) sed-substitution metacharacters in the target path: `&` re-inserts the matched <TARGET>, `|`
+# is the s||| delimiter and `\` is an escape. The rendered hook must carry the LITERAL path.
+_k1_name='a&b|c\d'
+d="$TMP/k1/$_k1_name"; mkdir -p "$d"
+assert_exit 0 "K1043-1 scaffold: target path with & | \\ scaffolds" "$d" --corpus flat
+if grep -qxF "TARGET=\"$d\" # replaced by research-sdd-init.sh: absolute path to this research target" "$d/.claude/hooks/retro-gate-stop.sh"; then
+  ok "K1043-1 scaffold: retro-gate-stop.sh carries the literal target path"
+else
+  no "K1043-1 scaffold: TARGET line mangled: $(grep -m1 '^TARGET=' "$d/.claude/hooks/retro-gate-stop.sh")"
+fi
+d="$TMP/k1w/$_k1_name"; mkdir -p "$d"; : > "$d/INDEX.md"
+assert_exit 0 "K1043-1 wire-only: target path with & | \\ repairs hooks" "$d" --wire
+if grep -qxF "TARGET=\"$d\" # replaced by research-sdd-init.sh: absolute path to this research target" "$d/.claude/hooks/retro-gate-stop.sh"; then
+  ok "K1043-1 wire-only: retro-gate-stop.sh carries the literal target path"
+else
+  no "K1043-1 wire-only: TARGET line mangled: $(grep -m1 '^TARGET=' "$d/.claude/hooks/retro-gate-stop.sh" 2>&1)"
+fi
+
+# (2) dangling-symlink research-protocol.sh: every precondition is checked BEFORE any write, so the
+# refusal leaves NO partial state (previously retro-gate-stop.sh was created, then cp refused).
+d="$TMP/k2w"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+ln -s "$d/does-not-exist" "$d/.claude/hooks/research-protocol.sh"
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _k2_rc=$?
+[ "$_k2_rc" != 0 ] && ok "K1043-2 wire-only: dangling research-protocol.sh symlink refused (exit $_k2_rc)" \
+  || no "K1043-2 wire-only: dangling symlink did not fail"
+assert_absent "K1043-2 wire-only: NO retro-gate-stop.sh left behind" "$d/.claude/hooks/retro-gate-stop.sh"
+assert_absent "K1043-2 wire-only: NO settings.json written"         "$d/.claude/settings.json"
+[ -L "$d/.claude/hooks/research-protocol.sh" ] && ok "K1043-2 wire-only: the user's symlink is untouched" \
+  || no "K1043-2 wire-only: the user's symlink was removed"
+d="$TMP/k2s"; mkdir -p "$d/.claude/hooks"
+ln -s "$d/does-not-exist" "$d/.claude/hooks/research-protocol.sh"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _k2_rc=$?
+[ "$_k2_rc" != 0 ] && ok "K1043-2 scaffold: dangling research-protocol.sh symlink refused (exit $_k2_rc)" \
+  || no "K1043-2 scaffold: dangling symlink did not fail"
+assert_absent "K1043-2 scaffold: NO INDEX.md left behind" "$d/INDEX.md"
+assert_absent "K1043-2 scaffold: NO retros/ left behind"  "$d/retros"
+[ -L "$d/.claude/hooks/research-protocol.sh" ] && ok "K1043-2 scaffold: the user's symlink is untouched" \
+  || no "K1043-2 scaffold: the user's symlink was removed by rollback"
+
+# (3) settings.json merge preserves mode and writes THROUGH a symlink (--wire on an existing corpus
+# and --scaffold --wire on a marker-less target both go through the merge).
+d="$TMP/k3w"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
+bash "$SUT" "$d" --wire >/dev/null 2>&1
+_k3_mode="$(stat -c %a "$d/.claude/settings.json" 2>/dev/null)"
+[ "$_k3_mode" = 644 ] && ok "K1043-3 wire-only: settings.json mode preserved (644)" \
+  || no "K1043-3 wire-only: settings.json mode became $_k3_mode"
+grep -qF 'retro-gate-stop.sh' "$d/.claude/settings.json" && ok "K1043-3 wire-only: merge still applied" || no "K1043-3 wire-only: merge missing"
+d="$TMP/k3l"; mkdir -p "$d/.claude" "$d/real"; : > "$d/INDEX.md"
+printf '{"permissions":{}}\n' > "$d/real/settings.json"; chmod 640 "$d/real/settings.json"
+ln -s "$d/real/settings.json" "$d/.claude/settings.json"
+bash "$SUT" "$d" --wire >/dev/null 2>&1
+[ -L "$d/.claude/settings.json" ] && ok "K1043-3 wire-only: symlinked settings.json is still a symlink" \
+  || no "K1043-3 wire-only: symlink replaced by a regular file"
+grep -qF 'retro-gate-stop.sh' "$d/real/settings.json" && ok "K1043-3 wire-only: merge landed in the link target" \
+  || no "K1043-3 wire-only: link target not updated"
+[ "$(stat -c %a "$d/real/settings.json")" = 640 ] && ok "K1043-3 wire-only: link target mode preserved (640)" \
+  || no "K1043-3 wire-only: link target mode became $(stat -c %a "$d/real/settings.json")"
+d="$TMP/k3s"; mkdir -p "$d/.claude"
+printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
+bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+[ "$(stat -c %a "$d/.claude/settings.json" 2>/dev/null)" = 644 ] && ok "K1043-3 scaffold+wire: settings.json mode preserved (644)" \
+  || no "K1043-3 scaffold+wire: settings.json mode became $(stat -c %a "$d/.claude/settings.json" 2>/dev/null)"
+d="$TMP/k3sl"; mkdir -p "$d/.claude" "$d/real"
+printf '{"permissions":{}}\n' > "$d/real/settings.json"
+ln -s "$d/real/settings.json" "$d/.claude/settings.json"
+bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+{ [ -L "$d/.claude/settings.json" ] && grep -qF 'retro-gate-stop.sh' "$d/real/settings.json"; } \
+  && ok "K1043-3 scaffold+wire: merge written through the symlink" \
+  || no "K1043-3 scaffold+wire: symlinked settings.json replaced or not updated"
+# dangling settings.json symlink: typed refusal, nothing written
+d="$TMP/k3d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+ln -s "$d/nowhere/settings.json" "$d/.claude/settings.json"
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _k3_rc=$?
+[ "$_k3_rc" = 4 ] && ok "K1043-3 wire-only: dangling settings.json symlink refused (exit 4)" \
+  || no "K1043-3 wire-only: dangling settings.json symlink exit $_k3_rc (want 4)"
+assert_absent "K1043-3 wire-only: dangling settings case wrote no hook file" "$d/.claude/hooks/retro-gate-stop.sh"
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -1484,8 +1563,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw1/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw1/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw1/templates"
     mw1="$TMP/mw1/toolbelt/init.sh"
-    awk '/mv "\$_tmp_settings" "\$_settings"/ { next } { print }' "$SUT" > "$mw1"
-    if grep -q 'mv "\$_tmp_settings"' "$mw1"; then
+    awk '/_rsdd_install_settings "\$_tmp_settings" "\$_settings"/ { next } { print }' "$SUT" > "$mw1"
+    if grep -q '_rsdd_install_settings "\$_tmp_settings"' "$mw1"; then
       no "teeth MW1: could not build mutant (mv line still present)"
     else
       dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
@@ -2356,6 +2435,53 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth M-FORCE-WARNING: mutant did not print the misleading wording — mutant build did not take effect (out=[$_mfw_out])"
     fi
   fi
+
+  # ---- kit issue #1043 teeth (built with the shared mutant helper, kit issue #943) ----
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  _k43_build() {  # <name> <sed-expr> — mutant of the SUT in its own toolbelt/ + templates layout
+    local n="$1"; shift
+    mkdir -p "$TMP/k43/$n/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/k43/$n/toolbelt/lib/"
+    ln -sfn "$HERE/../../templates" "$TMP/k43/$n/templates"
+    mutant_sed "$SUT" "$TMP/k43/$n/toolbelt/init.sh" "$@" || return 1
+    chmod +x "$TMP/k43/$n/toolbelt/init.sh"
+  }
+  # M-1043-ESC: the escaper becomes the identity → a path with & | \ is mangled again.
+  if _k43_build esc -e 's|^_rsdd_sed_escape() .*|_rsdd_sed_escape() { printf "%s" "$1"; }|'; then
+    d="$TMP/k43/esc-t/a&b|c\\d"; mkdir -p "$d"
+    bash "$TMP/k43/esc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+    if [ "$_rc" != 0 ] || ! grep -qxF "TARGET=\"$d\" # replaced by research-sdd-init.sh: absolute path to this research target" "$d/.claude/hooks/retro-gate-stop.sh" 2>/dev/null; then
+      ok "teeth M-1043-ESC: identity escaper mangles the path (rc=$_rc) — K1043-1 has teeth"
+    else no "teeth M-1043-ESC: mutant still rendered the literal path — K1043-1 is THEATER"; fi
+  else no "teeth M-1043-ESC: could not build mutant"; fi
+  # M-1043-PRE-WO: wire-only dangling-hook precheck removed → retro-gate-stop.sh is left behind.
+  if _k43_build prewo -e 's|^    _rsdd_dangling_symlinks "\$_wo_stop" "\$_wo_ss" .*|    true|'; then
+    d="$TMP/k43/prewo-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+    ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
+    bash "$TMP/k43/prewo/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    if [ -e "$d/.claude/hooks/retro-gate-stop.sh" ]; then
+      ok "teeth M-1043-PRE-WO: without the precheck a partial hook is left behind — K1043-2 wire-only has teeth"
+    else no "teeth M-1043-PRE-WO: mutant left no partial state — K1043-2 wire-only is THEATER"; fi
+  else no "teeth M-1043-PRE-WO: could not build mutant"; fi
+  # M-1043-PRE-SC: scaffold dangling-hook precheck removed → the rollback deletes the user's link.
+  if _k43_build presc -e 's|^  "\$target/.claude/hooks/research-protocol.sh" "\$target/.claude/hooks/retro-gate-stop.sh" \\$|  "$target/.claude/hooks/none-1" "$target/.claude/hooks/none-2" \\|'; then
+    d="$TMP/k43/presc-t"; mkdir -p "$d/.claude/hooks"
+    ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
+    bash "$TMP/k43/presc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    if [ ! -L "$d/.claude/hooks/research-protocol.sh" ]; then
+      ok "teeth M-1043-PRE-SC: without the precheck the rollback deletes the user's symlink — K1043-2 scaffold has teeth"
+    else no "teeth M-1043-PRE-SC: link survived — K1043-2 scaffold is THEATER"; fi
+  else no "teeth M-1043-PRE-SC: could not build mutant"; fi
+  # M-1043-MV: install via mv again → mode 600 and symlink replaced.
+  if _k43_build mv -e 's|^  if cat "\$tmp" > "\$dest"; then rm -f "\$tmp"; return 0; fi$|  if mv "$tmp" "$dest"; then return 0; fi|'; then
+    d="$TMP/k43/mv-t"; mkdir -p "$d/.claude" "$d/real"; : > "$d/INDEX.md"
+    printf '{}\n' > "$d/real/settings.json"; chmod 644 "$d/real/settings.json"
+    ln -s "$d/real/settings.json" "$d/.claude/settings.json"
+    bash "$TMP/k43/mv/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    if [ ! -L "$d/.claude/settings.json" ]; then
+      ok "teeth M-1043-MV: mv install replaces the symlink — K1043-3 has teeth"
+    else no "teeth M-1043-MV: symlink survived the mv mutant — K1043-3 is THEATER"; fi
+  else no "teeth M-1043-MV: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
