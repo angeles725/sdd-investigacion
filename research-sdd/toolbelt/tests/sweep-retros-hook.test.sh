@@ -214,14 +214,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --bad-has 'Summary: 0 pending' -- bash @SUT@
 
   # Tooth D: mutant alters the Summary: line in summary mode only → test 9 byte-equality goes RED.
-  # The argv extracts the Summary: line in summary mode and in --full mode and prints SAME/DIFFER.
+  # The argv extracts the Summary: line in summary mode and in --full mode and prints SAME, or DIFFER
+  # plus the summary-mode line, or EMPTY when either extraction is empty (a crashed mutant is not teeth).
   echo "-- teeth D: Summary: line mutated in summary mode → test 9 must catch it --"
   write_stub 0 "$(_build_sweep_out 7)"
   mk_sed "teeth D" "$MUT/D/$H" 's/print; next  # SUMMARY-LINE-PRINT/$0 = $0 " MUTATED"; print; next/' \
     && hook_tooth "teeth D: Summary-altered mutant → summary mode differs from --full → test 9 would catch it (RED)" 0 0 "$MUT/D/$H" \
-         --good-has '^SAME$' --bad-lacks '^SAME$' --bad-has '^DIFFER$' -- \
+         --good-has '^SAME$' --bad-lacks '^SAME$' --bad-has 'MUTATED' -- \
          bash -c 'c(){ o="$(bash "$1" ${2:-} 2>&1)"; j="$(printf "%s\n" "$o" | jq -r ".hookSpecificOutput.additionalContext" 2>/dev/null)" || j="$o"; printf "%s\n" "$j" | grep "^Summary:"; }
-                  a="$(c "$1")"; b="$(c "$1" --full)"; [ -n "$a" ] && [ "$a" = "$b" ] && echo SAME || echo DIFFER' _ @SUT@
+                  a="$(c "$1")"; b="$(c "$1" --full)"; if [ -z "$a" ] || [ -z "$b" ]; then echo EMPTY; elif [ "$a" = "$b" ]; then echo SAME; else echo DIFFER; printf "%s\n" "$a"; fi' _ @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="
