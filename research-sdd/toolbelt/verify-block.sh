@@ -74,6 +74,34 @@ target="${2:-$(dirname "$block")}"
 # no filesystem walk) so the bt_cite loop can try it as a secondary location before declaring extern.
 git_root=$(git -C "$target" rev-parse --show-toplevel 2>/dev/null) || git_root=""  # N-PROJECT-FALLBACK-INIT
 
+# TARGET-ROOT fallback (#1325, METHODOLOGY §15): an in-project corpus lives at $TARGET/corpus/, and when that
+# corpus is its own git repo `git rev-parse` returns the CORPUS root — own-project source one level up never
+# resolves. Derive the TARGET root PURELY from the path string (no filesystem walk): the parent of the
+# nearest ancestor-or-self directory literally named `corpus`. A layout without a `corpus` component gets
+# no walk-up (the cite stays extern) — least surprising, never guesses an arbitrary parent.
+# The candidate is then BOUNDED (§7: an unbounded root turns `config.sh:1` under a fake $HOME into a
+# false `ok`): it is REFUSED when it is `/`, $HOME, or any ancestor of $HOME, and ACCEPTED only when it
+# looks like a project root — a directory holding one of these markers (`.git`, dir or worktree file, is
+# what identifies a git work-tree top):
+#   package.json pyproject.toml pom.xml build.gradle go.mod Cargo.toml Makefile .git
+# Only the NEAREST `corpus` ancestor is considered (no fall-through to a farther one).
+target_root=""  # TARGET-ROOT-FALLBACK-INIT
+_tr_c=""
+_tr_d="$(cd "$target" 2>/dev/null && pwd -P)" || _tr_d=""
+while [ -n "$_tr_d" ] && [ "$_tr_d" != "/" ]; do
+  if [ "$(basename "$_tr_d")" = "corpus" ]; then _tr_c="$(dirname "$_tr_d")"; break; fi
+  _tr_d="$(dirname "$_tr_d")"
+done
+if [ -n "$_tr_c" ] && [ "$_tr_c" != "/" ]; then
+  _tr_home="$(cd "${HOME:-/}" 2>/dev/null && pwd -P)" || _tr_home=""
+  case "$_tr_home/" in "$_tr_c"/*) _tr_c="" ;; esac  # TARGET-ROOT-HOME-GUARD
+fi
+if [ -n "$_tr_c" ] && [ "$_tr_c" != "/" ]; then
+  for _tr_m in package.json pyproject.toml pom.xml build.gradle go.mod Cargo.toml Makefile .git; do  # TARGET-ROOT-MARKERS
+    if [ -e "$_tr_c/$_tr_m" ]; then target_root="$_tr_c"; break; fi
+  done
+fi
+
 echo "== verify-block: $(basename "$block") (target: $target) =="
 
 # 1. Marker tally — RAW (whole block) and ADJUSTED (claims only). `grep -oE '\[CERT\]'` does NOT match the
@@ -174,16 +202,20 @@ short_cites=$(printf '%s\n%s\n' "${_tbl_shorts:-}" "${_cmt_shorts:-}" | sort -u 
 #     when at least one such path resolves on disk (retro 2026-07-29 #6 / §3 alignment).
 probe_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]+' "$block" | sort -u)
 probe_found=""
+_pf_ok=0; _pf_m=0  # P6-PROBE-REPORT: probe-file cites resolved vs. cited (#1325)
 if [ -n "$probe_cites" ]; then
   while IFS= read -r p; do
     [ -z "$p" ] && continue
+    _pf_m=$((_pf_m+1))
     if [ -f "$target/$p" ]; then
+      _pf_ok=$((_pf_ok+1))
       echo "   probe   $p"
       probe_found=1  # P6-PROBE-FILE-CITE
     else
       echo "   extern  $p  (probe path not in target — not script-verifiable)"
     fi
   done <<< "$probe_cites"
+  echo "   probe-file cites resolved $_pf_ok of $_pf_m"  # P6-PROBE-REPORT
 fi
 # (e) JAR!ENTRY citations — e.g. control-rt.jar!META-INF/module.xml — recognized non-resolvable:
 #     a Java archive entry path is not a local file:line. Print for visibility; P6 WARN is
@@ -221,7 +253,7 @@ if [ -n "$_type_raw" ]; then
   _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
   _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
   _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
-  _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
+  _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z0-9-]*')  # P1418-TYPE-DIGITS
 fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6-NONRESOLVABLE-SUPPRESS: when the only citations present are recognized non-resolvable forms
@@ -268,6 +300,10 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
     echo "   (no file:line citations found)"
   fi
   fi  # close jar_found/synth_found branch
+fi
+if [ -n "$probe_found" ] && [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ "$code_cert_total" -gt "$_pf_ok" ]; then  # P6-PROBE-COVERAGE
+  # #1325: probe-file cites satisfy the gate (no WARN) but must not read as full coverage — name the gap.
+  echo "   INFO    $code_cert_total [CERT] code marker(s) but only $_pf_ok resolved probe-file cite(s) — a probe cite verifies its file, not each marker; token-verify the rest inline."
 fi
 _vb_ok=0; _vb_m=0  # P9-RESOLVED-SUMMARY: ok resolutions vs. total attempted (bt + art cites)
 # (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
@@ -322,20 +358,30 @@ if [ -n "$bt_cites" ]; then
     if [ "$start" -gt "$end" ]; then
       echo "   RANGE!  $c  (reversed range: start $start > end $end — defect in block)"; rc=1; continue
     fi
-    _bt_resolve="$target/$f"
-    if [ ! -f "$_bt_resolve" ] && [ -n "$git_root" ] && [ "$git_root" != "$target" ] && [ -f "$git_root/$f" ]; then
-      _bt_resolve="$git_root/$f"  # N-PROJECT-FALLBACK
-    fi
-    if [ ! -f "$_bt_resolve" ] && [ -n "${SOURCE_ROOT:-}" ] && [ -f "$SOURCE_ROOT/$f" ]; then
-      _bt_resolve="$SOURCE_ROOT/$f"  # SOURCE_ROOT-FALLBACK
-    fi
+    # Roots are tried IN ORDER; the first where the file exists AND the cited range fits wins (F2: a short
+    # file at an earlier root must not pre-empt a fitting one later). If none fits, RANGE! is reported
+    # against the FIRST existing file.
+    _bt_roots=("$target"); _bt_lbl=("")
+    [ -n "$git_root" ] && [ "$git_root" != "$target" ] && { _bt_roots+=("$git_root"); _bt_lbl+=(""); }  # N-PROJECT-FALLBACK
+    [ -n "$target_root" ] && { _bt_roots+=("$target_root"); _bt_lbl+=("(target-root) "); }  # TARGET-ROOT-FALLBACK
+    [ -n "${SOURCE_ROOT:-}" ] && { _bt_roots+=("$SOURCE_ROOT"); _bt_lbl+=(""); }  # SOURCE_ROOT-FALLBACK
+    _bt_resolve=""; _bt_first=""; _bt_tag=""
+    for _bt_i in "${!_bt_roots[@]}"; do
+      [ -f "${_bt_roots[$_bt_i]}/$f" ] || continue
+      [ -z "$_bt_first" ] && { _bt_first="${_bt_roots[$_bt_i]}/$f"; _bt_first_tag="${_bt_lbl[$_bt_i]}"; }
+      if [ "$end" -le "$(wc -l < "${_bt_roots[$_bt_i]}/$f")" ]; then  # BT-RANGE-FIT
+        _bt_resolve="${_bt_roots[$_bt_i]}/$f"; _bt_tag="${_bt_lbl[$_bt_i]}"; break
+      fi
+    done
+    [ -z "$_bt_resolve" ] && [ -n "$_bt_first" ] && { _bt_resolve="$_bt_first"; _bt_tag="$_bt_first_tag"; }
+    _bt_okp="ok      "; [ -n "$_bt_tag" ] && _bt_okp="ok $_bt_tag"  # TARGET-ROOT-LABEL
     if [ -f "$_bt_resolve" ]; then
       total=$(wc -l < "$_bt_resolve")
       if [ "$end" -le "$total" ]; then
         if [ "$start" = "$end" ]; then
-          echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-BT
+          echo "   $_bt_okp$c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-BT
         else
-          echo "   ok      $c  (range end verified; file has $total lines)"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-RANGE
+          echo "   $_bt_okp$c  (range end verified; file has $total lines)"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-RANGE
         fi
       else
         echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
