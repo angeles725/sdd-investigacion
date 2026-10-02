@@ -1373,6 +1373,57 @@ bash "$SUT" "$d" --wire >/dev/null 2>&1; _k3_rc=$?
   || no "K1043-3 wire-only: dangling settings.json symlink exit $_k3_rc (want 4)"
 assert_absent "K1043-3 wire-only: dangling settings case wrote no hook file" "$d/.claude/hooks/retro-gate-stop.sh"
 
+# ---- kit issue #1043 fix-first round ----------------------------------------------------------
+# (B) atomic settings install: a mid-write failure (ulimit -f) must leave the ORIGINAL bytes and no temp.
+d="$TMP/k4a"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+python3 -c 'import json,sys; json.dump({"permissions":{"allow":["Bash(x%d:*)" % i for i in range(1500)]}}, open(sys.argv[1],"w"), indent=2)' "$d/.claude/settings.json"
+_k4a_before="$(sha256sum "$d/.claude/settings.json")"
+# A `cat` shim that fails mid-write ONLY when its stdout is a regular file (the install redirect), and
+# is the real cat for pipes/command substitution (ulimit -f would kill jq's own temp write first).
+_k4a_shim="$TMP/k4a-shim"; mkdir -p "$_k4a_shim"; _k4a_realcat="$(type -P cat)"
+cat > "$_k4a_shim/cat" <<SHIM
+#!/usr/bin/env bash
+if [ -f /dev/stdout ] && [ ! -p /dev/stdout ]; then head -c 10 "\$1"; exit 1; fi
+exec "$_k4a_realcat" "\$@"
+SHIM
+chmod +x "$_k4a_shim/cat"
+( PATH="$_k4a_shim:$PATH" bash "$SUT" "$d" --wire >/dev/null 2>&1 ); _k4a_rc=$?
+[ "$_k4a_rc" != 0 ] && ok "K1043-B atomic: failed write exits non-zero (exit $_k4a_rc)" || no "K1043-B atomic: failed write reported success"
+[ "$(sha256sum "$d/.claude/settings.json")" = "$_k4a_before" ] && ok "K1043-B atomic: original settings.json bytes survive a mid-write failure" \
+  || no "K1043-B atomic: settings.json was truncated/modified ($(stat -c %s "$d/.claude/settings.json") bytes)"
+_k4a_tmp="$(find "$d/.claude" -maxdepth 1 -name '.settings.*' | wc -l)"
+[ "$_k4a_tmp" = 0 ] && ok "K1043-B atomic: no temp file left behind" || no "K1043-B atomic: $_k4a_tmp temp file(s) left in .claude"
+
+# (2) dangling DIRECTORY symlinks (.claude, .claude/hooks) are refused pre-write, link survives.
+d="$TMP/k4b"; mkdir -p "$d/.claude"
+ln -s "$d/nowhere" "$d/.claude/hooks"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && [ -L "$d/.claude/hooks" ] && [ ! -e "$d/INDEX.md" ]; } \
+  && ok "K1043-2 scaffold: dangling .claude/hooks symlink refused (exit 2), link survives, nothing created" \
+  || no "K1043-2 scaffold: dangling .claude/hooks rc=$_rc link=$([ -L "$d/.claude/hooks" ] && echo kept || echo DELETED)"
+d="$TMP/k4c"; mkdir -p "$d"; ln -s "$d/nowhere" "$d/.claude"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && [ -L "$d/.claude" ]; } && ok "K1043-2 scaffold: dangling .claude symlink refused, link survives" \
+  || no "K1043-2 scaffold: dangling .claude rc=$_rc link=$([ -L "$d/.claude" ] && echo kept || echo DELETED)"
+d="$TMP/k4d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks"
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && [ -L "$d/.claude/hooks" ]; } && ok "K1043-2 wire-only: dangling .claude/hooks symlink refused, link survives" \
+  || no "K1043-2 wire-only: dangling .claude/hooks rc=$_rc"
+
+# (3) newline in the target path: typed refusal up front, nothing written.
+d="$TMP/k4e/a
+b"; mkdir -p "$d"; : > "$d/INDEX.md"
+bash "$SUT" "$d" --wire >/dev/null 2>"$TMP/k4e.err"; _rc=$?
+{ [ "$_rc" = 2 ] && grep -q 'newline' "$TMP/k4e.err" && [ ! -e "$d/.claude" ]; } \
+  && ok "K1043-3 newline: target path with a newline refused (exit 2, typed message, nothing written)" \
+  || no "K1043-3 newline: rc=$_rc err=[$(cat "$TMP/k4e.err")] .claude=$([ -e "$d/.claude" ] && echo created || echo absent)"
+
+# (4) scaffold WITHOUT --wire does not care about a dangling settings.json symlink (exit-2/4 split stays narrow).
+d="$TMP/k4f"; mkdir -p "$d/.claude"; ln -s "$d/nowhere/s.json" "$d/.claude/settings.json"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+[ "$_rc" = 0 ] && ok "K1043-4 scaffold w/o --wire: dangling settings.json symlink is not a precondition (exit 0)" \
+  || no "K1043-4 scaffold w/o --wire: dangling settings.json refused (exit $_rc)"
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -2455,7 +2506,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth M-1043-ESC: mutant still rendered the literal path — K1043-1 is THEATER"; fi
   else no "teeth M-1043-ESC: could not build mutant"; fi
   # M-1043-PRE-WO: wire-only dangling-hook precheck removed → retro-gate-stop.sh is left behind.
-  if _k43_build prewo -e 's|^    _rsdd_dangling_symlinks "\$_wo_stop" "\$_wo_ss" .*|    true|'; then
+  if _k43_build prewo -e 's|^    _rsdd_dangling_symlinks "\$target/.claude" .*|    true|'; then
     d="$TMP/k43/prewo-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
     ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
     bash "$TMP/k43/prewo/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
@@ -2464,7 +2515,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth M-1043-PRE-WO: mutant left no partial state — K1043-2 wire-only is THEATER"; fi
   else no "teeth M-1043-PRE-WO: could not build mutant"; fi
   # M-1043-PRE-SC: scaffold dangling-hook precheck removed → the rollback deletes the user's link.
-  if _k43_build presc -e 's|^  "\$target/.claude/hooks/research-protocol.sh" "\$target/.claude/hooks/retro-gate-stop.sh" \\$|  "$target/.claude/hooks/none-1" "$target/.claude/hooks/none-2" \\|'; then
+  if _k43_build presc -e '/^_rsdd_scaffold_paths=/,/README.md")$/{s|"\$target/.claude/hooks/research-protocol.sh"$|"$target/.claude/hooks/none-1"|;s|"\$target/.claude/hooks/retro-gate-stop.sh" |"$target/.claude/hooks/none-2" |}'; then
     d="$TMP/k43/presc-t"; mkdir -p "$d/.claude/hooks"
     ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
     bash "$TMP/k43/presc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
@@ -2472,16 +2523,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth M-1043-PRE-SC: without the precheck the rollback deletes the user's symlink — K1043-2 scaffold has teeth"
     else no "teeth M-1043-PRE-SC: link survived — K1043-2 scaffold is THEATER"; fi
   else no "teeth M-1043-PRE-SC: could not build mutant"; fi
-  # M-1043-MV: install via mv again → mode 600 and symlink replaced.
-  if _k43_build mv -e 's|^  if cat "\$tmp" > "\$dest"; then rm -f "\$tmp"; return 0; fi$|  if mv "$tmp" "$dest"; then return 0; fi|'; then
+  # M-1043-MV: the rename targets the link PATH instead of the resolved target → symlink replaced.
+  if _k43_build mv -e 's|mv -f "\$tmp2" "\$real"|mv -f "$tmp2" "$dest"|'; then
     d="$TMP/k43/mv-t"; mkdir -p "$d/.claude" "$d/real"; : > "$d/INDEX.md"
     printf '{}\n' > "$d/real/settings.json"; chmod 644 "$d/real/settings.json"
     ln -s "$d/real/settings.json" "$d/.claude/settings.json"
     bash "$TMP/k43/mv/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     if [ ! -L "$d/.claude/settings.json" ]; then
-      ok "teeth M-1043-MV: mv install replaces the symlink — K1043-3 has teeth"
-    else no "teeth M-1043-MV: symlink survived the mv mutant — K1043-3 is THEATER"; fi
+      ok "teeth M-1043-MV: renaming over the link path replaces the symlink — K1043-3 has teeth"
+    else no "teeth M-1043-MV: symlink survived the mutant — K1043-3 is THEATER"; fi
   else no "teeth M-1043-MV: could not build mutant"; fi
+  # M-1043-MODE: drop the mode copy → temp's 0600 leaks onto settings.json.
+  if _k43_build mode -e 's|chmod --reference="\$real" "\$tmp2"|true|'; then
+    d="$TMP/k43/mode-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '{}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
+    bash "$TMP/k43/mode/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    if [ "$(stat -c %a "$d/.claude/settings.json")" = 600 ]; then
+      ok "teeth M-1043-MODE: without the mode copy settings.json becomes 600 — mode assertion has teeth"
+    else no "teeth M-1043-MODE: mode survived the mutant — THEATER"; fi
+  else no "teeth M-1043-MODE: could not build mutant"; fi
+  # M-1043-INPLACE: write the destination in place again → the mid-write failure truncates it.
+  if _k43_build inplace -e 's|cat "\$tmp" > "\$tmp2" \\$|cat "$tmp" > "$real" \\|'; then
+    d="$TMP/k43/inplace-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    python3 -c 'import json,sys; json.dump({"p":["x%d" % i for i in range(1500)]}, open(sys.argv[1],"w"))' "$d/.claude/settings.json"
+    _k43_b="$(sha256sum "$d/.claude/settings.json")"
+    ( PATH="$_k4a_shim:$PATH" bash "$TMP/k43/inplace/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1 )
+    if [ "$(sha256sum "$d/.claude/settings.json")" != "$_k43_b" ]; then
+      ok "teeth M-1043-INPLACE: in-place write destroys the original on failure — K1043-B has teeth"
+    else no "teeth M-1043-INPLACE: original survived — K1043-B is THEATER"; fi
+  else no "teeth M-1043-INPLACE: could not build mutant"; fi
+  # M-1043-PRE-DIR: dangling-directory entries dropped from the scaffold precheck → rollback deletes the link.
+  if _k43_build predir -e 's|"\$target/.claude" "\$target/.claude/hooks" "\$target/.claude/hooks/research-protocol.sh"|"$target/.claude/hooks/research-protocol.sh"|'; then
+    d="$TMP/k43/predir-t"; mkdir -p "$d/.claude"; ln -s "$d/nowhere" "$d/.claude/hooks"
+    bash "$TMP/k43/predir/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    if [ ! -L "$d/.claude/hooks" ]; then
+      ok "teeth M-1043-PRE-DIR: without the dir entries the rollback deletes the user's .claude/hooks link — K1043-2 dir cases have teeth"
+    else no "teeth M-1043-PRE-DIR: link survived — THEATER"; fi
+  else no "teeth M-1043-PRE-DIR: could not build mutant"; fi
+  # M-1043-NL: newline guard removed → a newline target is no longer refused with exit 2.
+  if _k43_build nl -e 's|^case "\$target" in \*\$.\\n.\*) echo "FATAL: target path contains a newline.*$|true|'; then
+    d="$TMP/k43/nl-t/a
+b"; mkdir -p "$d"; : > "$d/INDEX.md"
+    bash "$TMP/k43/nl/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; _rc=$?
+    if [ "$_rc" != 2 ]; then
+      ok "teeth M-1043-NL: without the guard a newline target is not refused (exit $_rc) — K1043-3 newline has teeth"
+    else no "teeth M-1043-NL: still exit 2 — THEATER"; fi
+  else no "teeth M-1043-NL: could not build mutant"; fi
+  # M-1043-WIREGATE: settings.json precondition made unconditional → plain scaffold refuses (K1043-4 flips).
+  if _k43_build wg -e 's|^\[ "\$wire" = 1 \] && _rsdd_scaffold_paths|true \&\& _rsdd_scaffold_paths|'; then
+    d="$TMP/k43/wg-t"; mkdir -p "$d/.claude"; ln -s "$d/nowhere/s.json" "$d/.claude/settings.json"
+    bash "$TMP/k43/wg/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+    if [ "$_rc" = 2 ]; then
+      ok "teeth M-1043-WIREGATE: unconditional settings precheck refuses a plain scaffold — K1043-4 has teeth"
+    else no "teeth M-1043-WIREGATE: exit $_rc (want 2) — THEATER"; fi
+  else no "teeth M-1043-WIREGATE: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

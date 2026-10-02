@@ -21,9 +21,9 @@
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
 #        [--wire] [--no-wire] [--scaffold] [--document]
-# Exit: 0 = scaffolded · 2 = bad args/target/not-writable/dangling-symlink hook or scaffold path (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
+# Exit: 0 = scaffolded · 2 = bad args/target/not-writable/a newline in the target path / a dangling symlink at any path the run would write (.claude, .claude/hooks, hooks, scaffold files; settings.json only with --wire) (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
-#           valid .hooks shape or is a dangling symlink, OR the settings.json merge itself failed (refused/aborted,
+#           valid .hooks shape or is a dangling symlink (wire-only), OR the settings.json merge/atomic install itself failed (refused/aborted,
 #           nothing written — never reported as success) ·
 #       5 = --wire refused: no corpus marker (INDEX.md/RESEARCH-STATE.md/RESEARCH-STATE-<focus>.md/
 #           CATALOG.md) was found at $target or $target/corpus, and --scaffold was not also given —
@@ -123,6 +123,9 @@ done
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
 [ "$scaffold" = 1 ] && [ "$wire" = 0 ] && { echo "usage: --scaffold requires --wire (it only opts a marker-less target into scaffold+wire; pass --scaffold --wire, or drop --scaffold for the ordinary print-only scaffold)" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
+# kit issue #1043 (3): a newline in the target path cannot be rendered into the one-line hook
+# placeholders (or the printed snippet) — refuse up front, typed, before any write.
+case "$target" in *$'\n'*) echo "FATAL: target path contains a newline — refusing (nothing written): $target" >&2; exit 2;; esac
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
 for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
@@ -170,14 +173,23 @@ _rsdd_dangling_symlinks() {
   return "$bad"
 }
 
-# kit issue #1043 (3): install a freshly-merged settings file WITHOUT mktemp+mv semantics. `mv`
-# would replace a symlinked settings.json by a regular file and give it mktemp's 0600 mode.
-# Writing the content THROUGH the destination (`cat >`) keeps the symlink, the inode, the owner and
-# the mode (a new file gets the umask default). Caller guarantees $2 is not a dangling symlink.
+# kit issue #1043 (3): install a freshly-merged settings file ATOMICALLY. The temp file is created
+# in the SAME directory as the real destination (so the final mv is a same-filesystem rename), the
+# mode of an existing file is copied onto it, and a symlinked settings.json is resolved first so the
+# rename replaces the link TARGET and the link itself survives. A failed write removes the temp and
+# leaves the original bytes untouched (an in-place `cat >` would truncate them). Caller guarantees
+# $2 is not a dangling symlink.
 _rsdd_install_settings() {
-  local tmp="$1" dest="$2"
-  if cat "$tmp" > "$dest"; then rm -f "$tmp"; return 0; fi
-  rm -f "$tmp"; return 1
+  local tmp="$1" dest="$2" real tmp2
+  real="$(readlink -f -- "$dest")" || { rm -f "$tmp"; return 1; }
+  tmp2="$(mktemp "$(dirname "$real")/.settings.XXXXXX")" || { rm -f "$tmp"; return 1; }
+  if cat "$tmp" > "$tmp2" \
+     && { [ ! -e "$real" ] || chmod --reference="$real" "$tmp2"; } \
+     && { [ -e "$real" ] || chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmp2"; } \
+     && mv -f "$tmp2" "$real"; then
+    rm -f "$tmp"; return 0
+  fi
+  rm -f "$tmp" "$tmp2"; return 1
 }
 
 # kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The
@@ -337,7 +349,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # kit issue #1043: a dangling symlink at a hook path (cp would refuse AFTER the other hook was
     # written) or at settings.json (the merge would fail / write elsewhere) is refused BEFORE any
     # write, so a failure leaves no partial state.
-    _rsdd_dangling_symlinks "$_wo_stop" "$_wo_ss" || exit 2
+    _rsdd_dangling_symlinks "$target/.claude" "$target/.claude/hooks" "$_wo_stop" "$_wo_ss" || exit 2
     _rsdd_dangling_symlinks "$_wo_settings" || exit 4
 
     # jq is present and settings.json (if any) is valid JSON: repair absent hook files
@@ -474,9 +486,12 @@ fi
 # --- pre-flight writability (fail BEFORE any mutation) -----------------------
 # kit issue #1043 (2): refuse a dangling symlink at any path the scaffold writes BEFORE the first
 # write (the ERR rollback would otherwise also delete the user's link).
-_rsdd_dangling_symlinks "$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources/SOURCES.md" \
-  "$target/.claude/hooks/research-protocol.sh" "$target/.claude/hooks/retro-gate-stop.sh" \
-  "$target/tools/README.md" "$target/.claude/settings.json" || exit 2
+_rsdd_scaffold_paths=("$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources" "$corpus/sources/SOURCES.md"
+  "$target/.claude" "$target/.claude/hooks" "$target/.claude/hooks/research-protocol.sh"
+  "$target/.claude/hooks/retro-gate-stop.sh" "$target/retros" "$target/tools" "$target/tools/README.md")
+# settings.json is written only with --wire (kit issue #1043 item 4), so only then is it a precondition.
+[ "$wire" = 1 ] && _rsdd_scaffold_paths+=("$target/.claude/settings.json")
+_rsdd_dangling_symlinks "${_rsdd_scaffold_paths[@]}" || exit 2
 probe="$target/.rsdd-init-writeprobe.$$"
 ( : > "$probe" ) 2>/dev/null || { echo "FATAL: $target is not writable — cannot scaffold." >&2; exit 2; }
 rm -f "$probe"

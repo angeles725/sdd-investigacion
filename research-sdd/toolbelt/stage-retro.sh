@@ -143,9 +143,13 @@ case "$retro_abs" in
       echo "and silently stage a stale (or entirely missing) version of this file." >&2
       # kit issue #1031: word the advice per CASE — "push origin main" is wrong when the retro is
       # not on local main at all, or when origin is the side that is ahead.
-      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ] \
+         && git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
         echo "origin/main is AHEAD of local main: it has this retro, local main does not. Fast-forward" >&2
         echo "local main first:  git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      elif [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+        echo "local main and origin/main have DIVERGED: origin/main has this retro, local main does not." >&2
+        echo "Reconcile them (rebase or merge origin/main into local main), then re-stage." >&2
       elif [ -z "$_retro_head_blob" ]; then
         echo "this retro exists only on another branch (or is untracked): it is not committed on local" >&2
         echo "main. Commit/merge it onto main first, then push:  git -C \"$KIT_REPO\" push origin main" >&2

@@ -598,6 +598,25 @@ else
   no "16d exit 7 (origin ahead) → 'origin/main is AHEAD' advice, no misleading push advice" "exit=$RC out=[$OUT]"
 fi
 
+# 16e — HEAD blob absent + origin has it, but local main has DIVERGED from origin/main: the advice must be
+#       the DIVERGED one, not `merge --ff-only` (which would fail).
+repo="$(mkrepo selfref-diverged real)"
+git -C "$repo" checkout -q -b feat/pushed2
+mkdir -p "$repo/targetA/retros"
+printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
+git -C "$repo" add -A; git -C "$repo" commit -qm "retro pushed to origin main from a feature branch"
+git -C "$repo" push -q origin feat/pushed2:main 2>/dev/null
+git -C "$repo" checkout -q main
+printf 'local only\n' > "$repo/local-only.txt"
+git -C "$repo" add -A; git -C "$repo" commit -qm "local main diverges"
+git -C "$repo" checkout -q feat/pushed2   # the retro file is on disk only on this branch
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 7 ] && grep -q 'DIVERGED' <<<"$OUT" && ! grep -q 'ff-only' <<<"$OUT"; then
+  ok "16e exit 7 (retro on origin, local main diverged) → DIVERGED advice, no ff-only" "(exit $RC)"
+else
+  no "16e exit 7 (retro on origin, local main diverged) → DIVERGED advice, no ff-only" "exit=$RC out=[$OUT]"
+fi
+
 # 17 — SYMLINKED RETRO PATH CANNOT SKIP THE SELF-REFERENTIAL GUARD (Opus minor). $KIT_REPO is
 #      resolved PHYSICALLY (`cd -P`, #1024 fix). If $retro_abs stayed LOGICAL (plain `pwd`),
 #      passing the retro through a symlink that points INTO the kit repo would make retro_abs
@@ -1011,9 +1030,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       echo "and silently stage a stale (or entirely missing) version of this file." >&2
       # kit issue #1031: word the advice per CASE — "push origin main" is wrong when the retro is
       # not on local main at all, or when origin is the side that is ahead.
-      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ] \
+         && git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
         echo "origin/main is AHEAD of local main: it has this retro, local main does not. Fast-forward" >&2
         echo "local main first:  git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      elif [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+        echo "local main and origin/main have DIVERGED: origin/main has this retro, local main does not." >&2
+        echo "Reconcile them (rebase or merge origin/main into local main), then re-stage." >&2
       elif [ -z "$_retro_head_blob" ]; then
         echo "this retro exists only on another branch (or is untracked): it is not committed on local" >&2
         echo "main. Commit/merge it onto main first, then push:  git -C \"$KIT_REPO\" push origin main" >&2
@@ -1279,28 +1302,43 @@ fi'
       no "teeth: unconditional claim should print 'Switched back' on a failed checkout" "out=[$OUTM]"
     fi
   fi
-  # M-1031-WORDING: both case-specific branches disabled → 16c/16d fall through to other wording.
-  echo "-- teeth: exit-7 per-case advice disabled, expect cases 16c/16d wording to flip --"
-  for _k31 in other-branch origin-ahead; do
+  # M-1031-WORDING: per-case branches disabled → 16c/16d/16e fall through to other wording.
+  echo "-- teeth: exit-7 per-case advice disabled/reverted, expect cases 16c/16d/16e wording to flip --"
+  for _k31 in other-branch origin-ahead diverged; do
     repo="$(mkrepo "teeth-1031-$_k31" real)"
     git -C "$repo" checkout -q -b feat/x
     mkdir -p "$repo/targetA/retros"
     printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
     git -C "$repo" add -A; git -C "$repo" commit -qm "retro on feature branch"
-    [ "$_k31" = origin-ahead ] && git -C "$repo" push -q origin feat/x:main 2>/dev/null
+    if [ "$_k31" != other-branch ]; then git -C "$repo" push -q origin feat/x:main 2>/dev/null; fi
+    if [ "$_k31" = diverged ]; then
+      git -C "$repo" checkout -q main; : > "$repo/local-only.txt"; git -C "$repo" add -A; git -C "$repo" commit -qm "local main diverges"
+      git -C "$repo" checkout -q feat/x
+    fi
     _body="$(cat "$repo/research-sdd/toolbelt/stage-retro.sh")"
-    _m1='if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then'
+    _m1=$'if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ] \\\n         && git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then'
     _m2='elif [ -z "$_retro_head_blob" ]; then'
     if [[ "$_body" != *"$_m1"* || "$_body" != *"$_m2"* ]]; then no "teeth 1031-$_k31: locate per-case anchors" "SUT drifted?"; continue; fi
-    _body="${_body/"$_m1"/if false; then}"; _body="${_body/"$_m2"/elif false; then}"
+    if [ "$_k31" = diverged ]; then
+      # revert to the pre-fix ordering: no ancestor check → ff-only advice on a diverged main.
+      _rev='if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then'
+      _body="${_body/"$_m1"/"$_rev"}"
+    else
+      _body="${_body/"$_m1"/if false; then}"; _body="${_body/"$_m2"/elif false; then}"
+    fi
     printf '%s\n' "$_body" > "$repo/research-sdd/toolbelt/stage-retro.sh"
+    "$BASH_BIN" -n "$repo/research-sdd/toolbelt/stage-retro.sh" || { no "teeth 1031-$_k31: mutant has a syntax error" ""; continue; }
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-wording
     OUTM="$("$BASH_BIN" "$repo/research-sdd/toolbelt/stage-retro.sh" "$repo/targetA/retros/r1.md" 2>&1)"
-    if [ "$_k31" = other-branch ]; then _want='only on another branch'; else _want='has this retro, local main does not'; fi
-    if ! grep -q "$_want" <<<"$OUTM"; then
-      ok "teeth: per-case advice disabled → '$_want' vanishes (case 16 wording has teeth)" "()"
+    case "$_k31" in
+      other-branch) _want='only on another branch'; _gone=1 ;;
+      origin-ahead) _want='origin/main is AHEAD of local main: it has this retro'; _gone=1 ;;
+      diverged)     _want='ff-only'; _gone=0 ;;
+    esac
+    if { [ "$_gone" = 1 ] && ! grep -q "$_want" <<<"$OUTM"; } || { [ "$_gone" = 0 ] && grep -q "$_want" <<<"$OUTM"; }; then
+      ok "teeth: per-case advice mutated ($_k31) → wording flips (case 16 wording has teeth)" "()"
     else
-      no "teeth: per-case advice disabled → '$_want' should vanish" "out=[$OUTM]"
+      no "teeth: per-case advice mutated ($_k31) → wording should flip on '$_want'" "out=[$OUTM]"
     fi
   done
 fi
