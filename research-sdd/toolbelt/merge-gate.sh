@@ -102,6 +102,9 @@ if [ -n "$pr" ]; then
   fi
 fi
 
+# CAVEAT (kit issue #1367, unobserved): assessing a whole branch from its branch point after it was
+# reviewed slice by slice may return high_risk instead of already_reviewed. That is a false refuse
+# (safe direction); if it is ever observed, file it against gentle-ai — this gate does not second-guess it.
 # Ask gentle-ai. Capture stdout and the exit status separately; a non-zero assess is degraded
 # even when its stdout happens to look like an allow.
 err_file="$(mktemp 2>/dev/null)" || degraded "mktemp failed"
