@@ -306,8 +306,8 @@ tooth() {
 }
 tooth M01a-head-mismatch-exit   '/refuse: head_mismatch (--head/{n;s/exit 1/exit 0/;}' sc_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(--head' 0 '^merge-gate: refuse: head_mismatch \(--head'
 tooth M01b-pr-head-mismatch-exit '/refuse: head_mismatch (PR #\$pr head \$pr_head/{n;s/exit 1/exit 0/;}' sc_pr_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(PR #7 head' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head'
-tooth M01c-base-excludes-exit   '/refuse: base_excludes_pr_commits/{n;s/exit 1/exit 0/;}' sc_base_excludes 1 '^merge-gate: refuse: base_excludes_pr_commits' 0 '^merge-gate: refuse: base_excludes_pr_commits'
-tooth M01d-review-due-exit      '/refuse: review_due (/{n;s/exit 1/exit 0/;}' sc_review_due 1 '^merge-gate: refuse: review_due \(high_risk\)' 0 '^merge-gate: refuse: review_due \(high_risk\)'
+tooth M01c-base-excludes-exit   '/say "refuse: base_excludes_pr_commits/{n;s/exit 1/exit 0/;}' sc_base_excludes 1 '^merge-gate: refuse: base_excludes_pr_commits' 0 '^merge-gate: refuse: base_excludes_pr_commits'
+tooth M01d-review-due-exit      '/say "refuse: review_due (/{n;s/exit 1/exit 0/;}' sc_review_due 1 '^merge-gate: refuse: review_due \(high_risk\)' 0 '^merge-gate: refuse: review_due \(high_risk\)'
 tooth M01e-merge-head-rej-exit  '/refuse: head_mismatch (PR #\$pr head changed/{n;s/exit 1/exit 0/;}' sc_merge_head_rej 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head changed'
 # --cwd not-a-repo branch: without the degraded the run falls through to the NEXT probe (HEAD resolution).
 tooth M01f-cwd-not-repo-ok      's/|| degraded "--cwd is not a git repo[^"]*"/|| :/' sc_cwd_not_repo 3 '^merge-gate: degraded: --cwd is not a git repo' 3 '^merge-gate: degraded: cannot resolve HEAD'
