@@ -31,7 +31,7 @@ if [ ! -f "$SUT" ]; then
 fi
 
 # ---- Temp workspace ---------------------------------------------------------
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+MUT=""; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 
 # write_stub <exit_code> <output_text> — creates TMP/sweep-retros.sh + refreshes hook copy.
 write_stub() {
@@ -128,70 +128,100 @@ _sum_full="$(printf '%s\n' "$(_hook_content "$OUT9_FULL")" | grep '^Summary:')"
   || no "9 Summary: line differs: summary=[$_sum_summ] full=[$_sum_full]"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
-if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: hook must go red when rc-check is neutered --"
+# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
+# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by
+# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant; each
+# control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR. Each stage must change
+# the original ON ITS OWN: a chain whose first stage applies would otherwise hide a later stage that
+# matches nothing (a silent no-op) behind a mutant that merely differs.
+mk_sed(){
+  local label="$1" out="$2" e rc err; shift 2
+  local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
+      no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  mkdir -p "$(dirname "$out")"
+  err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
+# Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
+# returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
+# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
+tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
+  while [ "${1:-}" != -- ]; do
+    case "${1:-}" in
+      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
+      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+    esac; shift 2
+  done; shift
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
+  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
+  else no "$label — THEATER:$why"; fi
+}
+# hook_tooth LABEL GOOD_RC BAD_RC MUTANT [tooth opts] -- ARGV...   the hook locates its sweep stub next to
+# itself, so the stub currently in $TMP (set by write_stub for this scenario) is copied beside the mutant;
+# the ORIGINAL runs from $TMP's hook copy (also refreshed by write_stub).
+hook_tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
+  cp "$TMP/sweep-retros.sh" "$(dirname "$mut")/sweep-retros.sh"
+  tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-retros-hook.sh" "$@"
+}
 
-  # Tooth A: mutant hook never checks rc — always takes the success path.
-  # Test 3 (operational-failure → banner) must catch this and go RED.
-  sed 's/if \[ "\$rc" -ne 0 \]/if false/' \
-    "$SUT" > "$TMP/mutant-hook.sh"
-  chmod +x "$TMP/mutant-hook.sh"
+if [ "${1:-}" = "--prove-teeth" ]; then
+  MUT="$(mktemp -d)"
+  echo "-- teeth: hook must go red when rc-check is neutered --"
+  H='sweep-retros-hook.sh'
+
+  # Tooth A: mutant hook never checks rc — always takes the success path. Test 3 must go RED.
   write_stub 1 "sweep-retros: cannot find TARGETS.md"
-  cp "$TMP/mutant-hook.sh" "$TMP/sweep-retros-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'could not run\|exit 1'; then
-    ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
-  else
-    no "teeth A: mutant still emits failure banner — sed pattern may not match fixed hook"
-  fi
+  mk_sed "teeth A" "$MUT/A/$H" 's/if \[ "\$rc" -ne 0 \]/if false/' \
+    && hook_tooth "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)" 0 0 "$MUT/A/$H" \
+         --good-has 'retro sweep could not run' --bad-lacks 'could not run|exit 1' \
+         --bad-has 'Research-SDD retro sweep \(supervisor project\)' -- bash @SUT@
 
   # Tooth B: revert failure-banner wording to "retros sweep" → test 5 goes RED.
-  sed 's/retro sweep could not run/retros sweep could not run/' \
-    "$SUT" > "$TMP/mutant-hook.sh"
-  chmod +x "$TMP/mutant-hook.sh"
   write_stub 1 "sweep-retros: cannot find TARGETS.md"
-  cp "$TMP/mutant-hook.sh" "$TMP/sweep-retros-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'retro sweep could not run'; then
-    ok "teeth B: reverted to 'retros sweep' mutant → test 5 would catch it (RED)"
-  else
-    no "teeth B: mutant still matches 'retro sweep could not run' — tooth has no bite"
-  fi
+  mk_sed "teeth B" "$MUT/B/$H" 's/retro sweep could not run/retros sweep could not run/' \
+    && hook_tooth "teeth B: reverted to 'retros sweep' mutant → test 5 would catch it (RED)" 0 0 "$MUT/B/$H" \
+         --good-has 'retro sweep could not run' --bad-lacks 'retro sweep could not run' \
+         --bad-has 'retros sweep could not run' -- bash @SUT@
 
   # Tooth C: mutant drops the absent-collapse line (ABSENT-COLLAPSE-PRINT) → test 6 goes RED.
-  # Mutant: replace "print; next  # ABSENT-COLLAPSE-PRINT" with just "next" — line is suppressed.
   echo "-- teeth C: absent-collapse line dropped → test 6 must catch it --"
-  sed 's/print; next  # ABSENT-COLLAPSE-PRINT/next/' \
-    "$SUT" > "$TMP/mutant-hook-c.sh"
-  chmod +x "$TMP/mutant-hook-c.sh"
   write_stub 0 "$(_build_sweep_out 0)"
-  cp "$TMP/mutant-hook-c.sh" "$TMP/sweep-retros-hook.sh"
-  MUTANT_OUT_C="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-  _mc="$(_hook_content "$MUTANT_OUT_C")"
-  if ! printf '%s\n' "$_mc" | grep -qE 'INFO: 2 target\(s\) not traversed'; then
-    ok "teeth C: absent-collapse-drop mutant suppresses collapse line → test 6 would catch it (RED)"
-  else
-    no "teeth C: mutant still emits collapse line — tooth has no bite"
-  fi
+  mk_sed "teeth C" "$MUT/C/$H" 's/print; next  # ABSENT-COLLAPSE-PRINT/next/' \
+    && hook_tooth "teeth C: absent-collapse-drop mutant suppresses collapse line → test 6 would catch it (RED)" 0 0 "$MUT/C/$H" \
+         --good-has 'INFO: 2 target\(s\) not traversed' --bad-lacks 'INFO: 2 target\(s\) not traversed' \
+         --bad-has 'Summary: 0 pending' -- bash @SUT@
 
-  # Tooth D: mutant alters Summary: line in summary mode → test 9 byte-equality goes RED.
-  # Mutant: replace "print; next  # SUMMARY-LINE-PRINT" with a version that appends " MUTATED".
-  # Using gsub so the substitution happens inside awk, altering the line content.
+  # Tooth D: mutant alters the Summary: line in summary mode only → test 9 byte-equality goes RED.
+  # The argv extracts the Summary: line in summary mode and in --full mode and prints SAME/DIFFER.
   echo "-- teeth D: Summary: line mutated in summary mode → test 9 must catch it --"
-  sed 's/print; next  # SUMMARY-LINE-PRINT/$0 = $0 " MUTATED"; print; next/' \
-    "$SUT" > "$TMP/mutant-hook-d.sh"
-  chmod +x "$TMP/mutant-hook-d.sh"
   write_stub 0 "$(_build_sweep_out 7)"
-  cp "$TMP/mutant-hook-d.sh" "$TMP/sweep-retros-hook.sh"
-  OUT_D_SUMM="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-  OUT_D_FULL="$(bash "$TMP/sweep-retros-hook.sh" --full 2>&1)"
-  _ds="$(printf '%s\n' "$(_hook_content "$OUT_D_SUMM")" | grep '^Summary:')"
-  _df="$(printf '%s\n' "$(_hook_content "$OUT_D_FULL")" | grep '^Summary:')"
-  if [ "$_ds" != "$_df" ]; then
-    ok "teeth D: Summary-altered mutant → summary mode differs from --full → test 9 would catch it (RED)"
-  else
-    no "teeth D: Summary: lines still match on mutant — tooth has no bite"
-  fi
+  mk_sed "teeth D" "$MUT/D/$H" 's/print; next  # SUMMARY-LINE-PRINT/$0 = $0 " MUTATED"; print; next/' \
+    && hook_tooth "teeth D: Summary-altered mutant → summary mode differs from --full → test 9 would catch it (RED)" 0 0 "$MUT/D/$H" \
+         --good-has '^SAME$' --bad-lacks '^SAME$' --bad-has '^DIFFER$' -- \
+         bash -c 'c(){ o="$(bash "$1" ${2:-} 2>&1)"; j="$(printf "%s\n" "$o" | jq -r ".hookSpecificOutput.additionalContext" 2>/dev/null)" || j="$o"; printf "%s\n" "$j" | grep "^Summary:"; }
+                  a="$(c "$1")"; b="$(c "$1" --full)"; [ -n "$a" ] && [ "$a" = "$b" ] && echo SAME || echo DIFFER' _ @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="

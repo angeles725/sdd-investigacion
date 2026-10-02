@@ -12,7 +12,7 @@ LIB="$HERE/../lib/target-paths.sh"
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+MUT=""; ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT" ${MUT:+"$MUT"}' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -389,18 +389,82 @@ else
 fi
 
 # Teeth (mutation proof): only when --prove-teeth is passed.
+# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
+# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+# Every mutant is built as a COPY by lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken
+# or live-tree mutant; each control then asserts the GOOD verdict on the original AND the SPECIFIC BAD
+# verdict on the mutant. Kit-level mutants live in a COPY of the sandbox kit ($ROOT/<name>-mut); mutants
+# of files that live under $ROOT are built under $MUT (lib/mutant.sh treats the ORIG's own non-git
+# directory as the live tree, so OUT may not sit beside it).
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# mk_sed LABEL OUT EXPR...  build $OUT from $MK_ORIG (default $SUT) with one sed stage per EXPR. Each stage
+# must change the original ON ITS OWN, so a no-op stage cannot hide behind a chain that merely differs.
+mk_sed(){
+  local label="$1" out="$2" e rc err; shift 2
+  local orig="${MK_ORIG:-$SUT}"; local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
+      no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  mkdir -p "$(dirname "$out")"
+  err="$(mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# mk_verify LABEL OUT  validate a mutant built another way (heredoc), same refusals as mk_sed.
+mk_verify(){
+  local label="$1" out="$2" rc err
+  err="$(mutant_verify "${MK_ORIG:-$SUT}" "$out" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# mut_kit KIT NAME  copy a fully-prepared sandbox kit to $ROOT/NAME-mut and print its path.
+mut_kit(){ cp -R "$1" "$ROOT/$2-mut" && printf '%s' "$ROOT/$2-mut"; }
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
+# Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
+# returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
+# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
+tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
+  while [ "${1:-}" != -- ]; do
+    case "${1:-}" in
+      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
+      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+    esac; shift 2
+  done; shift
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
+  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -z "$why" ]; then ok "$label" "[original rc=$grc → mutant rc=$brc]"
+  else no "$label — THEATER:$why [mutant out: ${mout:0:300}]"; fi
+}
+# kit_tooth LABEL KIT NAME EXPR GOOD_HAS BAD_LACKS BAD_HAS [-- env/argv prefix...]  sed-mutate toolbelt/sweep-tools.sh
+# in a copy of KIT and compare the original kit's script against the mutant's on the same fixtures.
+kit_tooth(){
+  local label="$1" kit="$2" name="$3" expr="$4" good="$5" lacks="$6" has="$7" mk; shift 7
+  mk="$(mut_kit "$kit" "$name")" || { no "$label: could not copy kit"; return 1; }
+  mk_sed "$label" "$mk/toolbelt/sweep-tools.sh" "$expr" \
+    && tooth "$label" 0 0 "$mk/toolbelt/sweep-tools.sh" --orig "$kit/toolbelt/sweep-tools.sh" \
+         --good-has "$good" --bad-lacks "$lacks" --bad-has "$has" -- "$@" "$BASH_BIN" @SUT@
+}
+
 if [ "${1:-}" = "--prove-teeth" ]; then
+  MUT="$(mktemp -d)"
   # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
   kit_m="$(mkkit teeth-a)"; tgt_m="$kit_m/targetA"
   mktool "$tgt_m" "scan.py"; mktool "$tgt_m" "extract.sh"
   write_targets "$kit_m" "$tgt_m"
-  sed 's/\*\.py|\*\.sh|/NOMATCH|/' "$SUT" > "$kit_m/toolbelt/sweep-tools.sh"
-  out_m="$("$BASH_BIN" "$kit_m/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'tools: 2 found' <<<"$out_m"; then
-    ok "teeth A: extension-broken mutant misses tools → case 1 goes red" "()"
-  else
-    no "teeth A: mutant still found 2 tools — case 1 is THEATER" "out=[$out_m]"
-  fi
+  kit_tooth "teeth A: extension-broken mutant misses tools → case 1 goes red" "$kit_m" teeth-a \
+    's/\*\.py|\*\.sh|/NOMATCH|/' 'tools: 2 found' 'tools: 2 found' 'tools: 0 found'
 
   # Tooth C: break ledger matching → case-12 fixture (2 ledger-only tools) must report 0, not 2.
   kit_c="$(mkkit teeth-c)"; tgt_c="$kit_c/targetA"
@@ -410,19 +474,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| other-tool.sh | tools/other-tool.sh | created |\n'
   } > "$tgt_c/tools/README.md"
   write_targets "$kit_c" "$tgt_c"
-  # Mutant: disable ledger match by changing sentinel in_ledger=1 to in_ledger=0
-  sed 's/in_ledger=1/in_ledger=0/' "$SUT" > "$kit_c/toolbelt/sweep-tools.sh"
-  out_c="$("$BASH_BIN" "$kit_c/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'recorded (ledger): 2' <<<"$out_c"; then
-    ok "teeth C: ledger-match-broken mutant misses ledger → case 12 goes red" "()"
-  else
-    no "teeth C: mutant still found 2 ledger recordings — case 12 is THEATER" "out=[$out_c]"
-  fi
+  kit_tooth "teeth C: ledger-match-broken mutant misses ledger → case 12 goes red" "$kit_c" teeth-c \
+    's/in_ledger=1/in_ledger=0/' 'recorded \(ledger\): 2' 'recorded \(ledger\): 2' 'recorded \(ledger\): 0'
 
   # Tooth B: Form-1-only mutant lib (no $RESEARCH_HOME expansion) → case-2 must fail.
   # $_b_stub is built once and shared with Tooth B-noarg below — no second copy.
   kit_b="$(mkkit teeth-b)"; tgt_b="$ROOT/rh-base/targetB"
-  mktool "$tgt_b" "probe.sh" 2>/dev/null || true
+  mktool "$tgt_b" "probe.sh"
   write_targets "$kit_b" '$RESEARCH_HOME/targetB'
   _b_stub="$ROOT/b-stripped-lib.sh"
   cat > "$_b_stub" <<'B_STRIPPED'
@@ -436,20 +494,18 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   }
 fi
 B_STRIPPED
-  cp "$_b_stub" "$kit_b/toolbelt/lib/target-paths.sh"
-  out_b="$(RESEARCH_HOME="$ROOT/rh-base" "$BASH_BIN" "$kit_b/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'tools: 1 found' <<<"$out_b"; then
-    ok "teeth B: Form-2-dropped mutant misses \$RESEARCH_HOME → case 2 goes red" "()"
-  else
-    no "teeth B: mutant still found tool — case 2 is THEATER" "out=[$out_b]"
-  fi
+  mk_b="$(mut_kit "$kit_b" teeth-b)"
+  cp "$_b_stub" "$mk_b/toolbelt/lib/target-paths.sh"
+  MK_ORIG="$LIB" mk_verify "teeth B" "$mk_b/toolbelt/lib/target-paths.sh" \
+    && tooth "teeth B: Form-2-dropped mutant misses \$RESEARCH_HOME → case 2 goes red" 0 1 "$mk_b/toolbelt/sweep-tools.sh" \
+         --orig "$kit_b/toolbelt/sweep-tools.sh" --good-has 'tools: 1 found' --bad-lacks 'tools: 1 found' \
+         --bad-has 'no usable target paths' -- env "RESEARCH_HOME=$ROOT/rh-base" "$BASH_BIN" @SUT@
 
   # Tooth B-noarg: $_b_stub (same file installed above) must match the real lib on no-arg.
   # Parity: call target_paths_all from $_b_stub AND from the real lib with no arg;
   # assert BOTH exit non-zero AND that stub stderr == lib stderr.
   # Asserting lib rc non-zero: a lib that silently returns 0 with a message would pass parity
   # (stub copies the wrong behaviour), making this check theater (#909).
-  # Mutation: sed $_b_stub to restore 'return 0' on the # TP-STUB-NOARG line → parity breaks.
   echo "-- teeth B-noarg: Tooth B stripped stub no-arg parity with real lib; sed-mutant must break parity --"
   _bna_lib_msg="$("$BASH_BIN" -c ". '$LIB'; target_paths_all" 2>&1)"; _bna_lib_rc=$?
   _bna_stub_msg="$("$BASH_BIN" -c ". '$_b_stub'; target_paths_all" 2>&1)"; _bna_stub_rc=$?
@@ -458,19 +514,13 @@ B_STRIPPED
   else
     no "teeth B-noarg: Tooth B stub diverges from lib on no-arg" "stub rc=$_bna_stub_rc msg=[$_bna_stub_msg] lib rc=$_bna_lib_rc msg=[$_bna_lib_msg]"
   fi
-  # Mutation: sed # TP-STUB-NOARG guard back to 'return 0' in a temp copy.
-  # Tight check: rc=0 only. The mutation changes 'return 1' to 'return 0', so the only
-  # valid evidence is rc=0. The || msg-differs escape hatch was a false positive (#923-B):
-  # any non-zero rc that also changes the message (e.g. return 2) would fire it.
-  _bna_mut="$ROOT/bna-mut-$$.sh"
-  sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_b_stub" > "$_bna_mut"
-  _bna_mut_out="$("$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" 2>&1)"; _bna_mut_rc=$?
-  if [ "$_bna_mut_rc" = 0 ]; then
-    ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc"
-  else
-    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc out=[$_bna_mut_out]"
-  fi
-  rm -f "$_bna_mut"
+  # Mutation: the TP-STUB-NOARG guard back to 'return 0'. GOOD = the stub's exact rc 1 with its message;
+  # BAD = exact rc 0 (a different non-zero rc would be a different mutation, not this one). Built under $MUT:
+  # the stub lives in $ROOT, which lib/mutant.sh would treat as the live tree for an OUT beside it.
+  MK_ORIG="$_b_stub" mk_sed "teeth B-noarg mutant" "$MUT/bna/stub.sh" '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' \
+    && tooth "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" 1 0 "$MUT/bna/stub.sh" \
+         --orig "$_b_stub" --good-has 'called with no argument' --bad-lacks 'called with no argument' -- \
+         "$BASH_BIN" -c '. "$1"; target_paths_all' _ @SUT@
 
   # Tooth D: strip the dependency-dir exclusions from the find → node_modules deps get counted →
   #          case-15 fixture reports more than 2.
@@ -480,13 +530,8 @@ B_STRIPPED
   printf 'x\n' > "$tgt_d/tools/node_modules/pkg/index.js"
   printf 'x\n' > "$tgt_d/tools/node_modules/pkg/dep.py"
   write_targets "$kit_d" "$tgt_d"
-  sed "s/-not -path '[^']*'//g" "$SUT" > "$kit_d/toolbelt/sweep-tools.sh"
-  out_d="$("$BASH_BIN" "$kit_d/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'tools: 2 found' <<<"$out_d"; then
-    ok "teeth D: exclude-stripped mutant counts node_modules deps → case 15 goes red" "()"
-  else
-    no "teeth D: mutant still found only 2 — case 15 is THEATER" "out=[$out_d]"
-  fi
+  kit_tooth "teeth D: exclude-stripped mutant counts node_modules deps → case 15 goes red" "$kit_d" teeth-d \
+    "s/-not -path '[^']*'//g" 'tools: 2 found' 'tools: 2 found' 'tools: [3-9] found'
 
   # Tooth E: kill *_lib discriminator → lib modules get counted as tools →
   #          case-16 fixture reports 3 tools instead of 1.
@@ -496,27 +541,16 @@ B_STRIPPED
   printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/parser.py"
   printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/scanner.py"
   write_targets "$kit_e" "$tgt_e"
-  # Mutant: make *_lib case never match by replacing the glob with a literal non-matching name
-  sed 's/[*]_lib) return 0/NOMATCH_LIB) return 0/' "$SUT" > "$kit_e/toolbelt/sweep-tools.sh"
-  out_e="$("$BASH_BIN" "$kit_e/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'tools: 1 found' <<<"$out_e"; then
-    ok "teeth E: *_lib-broken mutant counts lib modules as tools → case 16 goes red" "()"
-  else
-    no "teeth E: mutant still reported 1 tool — case 16 is THEATER" "out=[$out_e]"
-  fi
+  kit_tooth "teeth E: *_lib-broken mutant counts lib modules as tools → case 16 goes red" "$kit_e" teeth-e \
+    's/[*]_lib) return 0/NOMATCH_LIB) return 0/' 'tools: 1 found' 'tools: 1 found' 'tools: [2-9] found'
 
   # Tooth F: disable absent-input INFO → case-17 fixture must not find INFO line.
   kit_f="$(mkkit teeth-f)"; tgt_f="$kit_f/targetA"
   mktool "$tgt_f" "scan.py"
   write_targets "$kit_f" "$tgt_f" "$kit_f/nonexistent-target"
-  # Mutant: suppress the per-absent-target INFO echo
-  sed 's/echo "INFO: corpus not found/true # disabled:/' "$SUT" > "$kit_f/toolbelt/sweep-tools.sh"
-  out_f="$("$BASH_BIN" "$kit_f/toolbelt/sweep-tools.sh" 2>&1)"
-  if ! grep -q 'INFO: corpus not found (absent-input):' <<<"$out_f"; then
-    ok "teeth F: absent-INFO-disabled mutant hides absent target → case 17 goes red" "()"
-  else
-    no "teeth F: mutant still showed INFO line — case 17 is THEATER" "out=[$out_f]"
-  fi
+  kit_tooth "teeth F: absent-INFO-disabled mutant hides absent target → case 17 goes red" "$kit_f" teeth-f \
+    's/echo "INFO: corpus not found/true # disabled:/' 'INFO: corpus not found \(absent-input\):' \
+    'INFO: corpus not found \(absent-input\):' 'tools: 1 found'
 
   # Tooth G: neutralize _st_chunk_rc so retro scan error passes silently → test 18 goes red.
   echo "-- teeth G: neutralize _st_chunk_rc; retro-scan exit-2 must pass silently → test 18 goes red --"
@@ -524,13 +558,9 @@ B_STRIPPED
   mktool "$tgt_g" "tool.sh"
   mkretro_trow "$tgt_g" "retro1.md" "tool.sh"
   write_targets "$kit_g" "$tgt_g"
-  sed 's/_st_chunk_rc=\$?/_st_chunk_rc=0/' "$SUT" > "$kit_g/toolbelt/sweep-tools.sh"
-  out_g="$(PATH="$_stub_st18:$PATH" "$BASH_BIN" "$kit_g/toolbelt/sweep-tools.sh" 2>&1)"
-  if grep -q 'retro(s) unreadable during T-row scan' <<<"$out_g"; then
-    no "teeth G: rc-zeroed mutant still emitted WARN — test 18 is THEATER" "out=[$out_g]"
-  else
-    ok "teeth G: rc-zeroed mutant passes silently — retro-scan guard has teeth" "()"
-  fi
+  kit_tooth "teeth G: rc-zeroed mutant passes silently — retro-scan guard has teeth" "$kit_g" teeth-g \
+    's/_st_chunk_rc=\$?/_st_chunk_rc=0/' 'retro\(s\) unreadable during T-row scan' \
+    'retro\(s\) unreadable during T-row scan' 'Summary:' env "PATH=$_stub_st18:$PATH"
 
   # Tooth H: zero BOTH rc1 and rc2 (simulates the pre-PIPESTATUS path that only sees $?) so any
   #   pipeline error passes silently → test 19 (second-grep stub) goes red.
@@ -543,15 +573,14 @@ B_STRIPPED
   { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
     > "$tgt_h/tools/README.md"
   write_targets "$kit_h" "$tgt_h"
-  sed -e 's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' \
-      -e 's/_st_ledger_rc2=\${_st_ledger_ps\[1\]}/_st_ledger_rc2=0/' \
-      "$SUT" > "$kit_h/toolbelt/sweep-tools.sh"
-  out_h="$(PATH="$_stub_st19:$PATH" "$BASH_BIN" "$kit_h/toolbelt/sweep-tools.sh" 2>&1)"
-  if grep -q 'scan FAILED.*ledger count unavailable' <<<"$out_h"; then
-    no "teeth H: both-rcs-zeroed mutant still emitted WARN — test 19 is THEATER" "out=[$out_h]"
-  else
-    ok "teeth H: both-rcs-zeroed mutant passes silently — PIPESTATUS capture has teeth" "()"
-  fi
+  mk_h="$(mut_kit "$kit_h" teeth-h)"
+  mk_sed "teeth H" "$mk_h/toolbelt/sweep-tools.sh" \
+      's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' \
+      's/_st_ledger_rc2=\${_st_ledger_ps\[1\]}/_st_ledger_rc2=0/' \
+    && tooth "teeth H: both-rcs-zeroed mutant passes silently — PIPESTATUS capture has teeth" 0 0 "$mk_h/toolbelt/sweep-tools.sh" \
+         --orig "$kit_h/toolbelt/sweep-tools.sh" --good-has 'scan FAILED.*ledger count unavailable' \
+         --bad-lacks 'scan FAILED.*ledger count unavailable' --bad-has 'Summary:' -- \
+         env "PATH=$_stub_st19:$PATH" "$BASH_BIN" @SUT@
 
   # Tooth H2: neutralize _st_ledger_rc1 (PIPESTATUS[0]) so first-grep error passes silently → test 19b goes red.
   # This is the critical proof: a mutant that reads ONLY rc2 (ignoring rc1) goes RED under first-grep stub.
@@ -561,14 +590,9 @@ B_STRIPPED
   { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
     > "$tgt_h2/tools/README.md"
   write_targets "$kit_h2" "$tgt_h2"
-  # Mutant: zero rc1 only — simulates the pre-fix "read only last rc" behaviour (the old gap)
-  sed 's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' "$SUT" > "$kit_h2/toolbelt/sweep-tools.sh"
-  out_h2="$(PATH="$_stub_st19b:$PATH" "$BASH_BIN" "$kit_h2/toolbelt/sweep-tools.sh" 2>&1)"
-  if grep -q 'scan FAILED.*ledger count unavailable' <<<"$out_h2"; then
-    no "teeth H2: rc1-zeroed mutant still emitted WARN — test 19b is THEATER" "out=[$out_h2]"
-  else
-    ok "teeth H2: rc1-zeroed mutant passes silently — first-grep guard has teeth" "()"
-  fi
+  kit_tooth "teeth H2: rc1-zeroed mutant passes silently — first-grep guard has teeth" "$kit_h2" teeth-h2 \
+    's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' 'scan FAILED.*ledger count unavailable' \
+    'scan FAILED.*ledger count unavailable' 'Summary:' env "PATH=$_stub_st19b:$PATH"
 fi
 
 echo "== $pass passed · $fail failed =="
