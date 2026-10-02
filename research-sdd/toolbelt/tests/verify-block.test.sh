@@ -1017,6 +1017,76 @@ else
   no "77 P9: HINT line absent :: $(grep -iE 'HINT.*Declare|WARN.*resolved' <<<"$out" | head -2)"
 fi
 
+# 78 — #1325: corpus that is its own git repo under $TARGET/corpus/ → own-project cite resolves at the TARGET root.
+#      (git rev-parse from the corpus returns the CORPUS root, so N-PROJECT-FALLBACK alone cannot see src/.)
+pr="$TMP/p1325"; mkdir -p "$pr/src" "$pr/corpus/sub"; git -C "$pr/corpus" init -q 2>/dev/null
+seq 1 60 > "$pr/src/index.js"
+{ echo "# Block 78 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Handler at \`src/index.js:50-52\`. \`[CERT]\`"; } > "$pr/corpus/block-78.md"
+out="$(bash "$SUT" "$pr/corpus/block-78.md" 2>/dev/null)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE '^\s+ok\s+src/index\.js:50-52' <<<"$out" && grep -q 'resolved 1 of 1' <<<"$out" && ! grep -q 'extern' <<<"$out"; then
+  ok "78 #1325: own-git corpus under \$TARGET/corpus/ → cite resolves at the TARGET root (ok, resolved 1 of 1)"
+else no "78 #1325: target-root cite not resolved: rc=$rc :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
+
+# 78b — same layout, block in a corpus SUB-directory (target-dir = corpus/sub) → walk up to the corpus root's parent.
+cp "$pr/corpus/block-78.md" "$pr/corpus/sub/block-78b.md"
+out="$(bash "$SUT" "$pr/corpus/sub/block-78b.md" 2>/dev/null)"
+if grep -qE '^\s+ok\s+src/index\.js:50-52' <<<"$out"; then ok "78b #1325: block in corpus/sub → cite resolves at the TARGET root"
+else no "78b #1325: sub-directory block not resolved :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
+
+# 79 — #1325 (negative half): a TARGET-root file that is TOO SHORT for the cite still FAILS (RANGE!, exit 1), never ok.
+{ echo "# Block 79 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Handler at \`src/index.js:500-502\`. \`[CERT]\`"; } > "$pr/corpus/block-79.md"
+out="$(bash "$SUT" "$pr/corpus/block-79.md" 2>/dev/null)"; rc=$?
+if [ "$rc" = 1 ] && grep -qE 'RANGE!\s+src/index\.js:500-502' <<<"$out"; then ok "79 #1325: target-root file shorter than the cite → RANGE! + exit 1"
+else no "79 #1325: out-of-range at target root not flagged: rc=$rc :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
+
+# 79b — #1325 (regression guard): a corpus dir NOT named 'corpus' gets NO parent walk-up — the cite stays extern.
+pn="$TMP/p1325n"; mkdir -p "$pn/src" "$pn/notes"; seq 1 60 > "$pn/src/index.js"
+{ echo "# Block 79b — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Handler at \`src/index.js:50-52\`. \`[CERT]\`"; } > "$pn/notes/block-79b.md"
+out="$(bash "$SUT" "$pn/notes/block-79b.md" 2>/dev/null)"
+if grep -qE 'extern\s+src/index\.js:50-52' <<<"$out"; then ok "79b #1325: non-'corpus' directory → no parent walk-up (still extern)"
+else no "79b #1325: unexpected resolution outside a corpus/ layout :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
+
+# 80 — #1325 P6: probe-file cites are REPORTED as 'resolved N of M', not silenced (first-present/last-missing and the reverse).
+pp="$TMP/p1325p"; mkdir -p "$pp/sources/probes"; printf 'x\n' > "$pp/sources/probes/a-present.txt"
+{ echo "# Block 80 — t"; echo; echo "> Method: [CERT-hw] = x."; echo; echo "---"; echo
+  echo "[CERT-hw] (sources/probes/a-present.txt) and (sources/probes/z-missing.txt)"; } > "$pp/block-80.md"
+out="$(bash "$SUT" "$pp/block-80.md" 2>/dev/null)"
+if grep -q 'probe-file cites resolved 1 of 2' <<<"$out"; then ok "80 #1325 P6: probe cites reported as 'resolved 1 of 2' (present first, missing last)"
+else no "80 #1325 P6: probe resolved-N-of-M absent :: $(grep -iE 'probe|resolved' <<<"$out" | head -3)"; fi
+{ echo "# Block 80b — t"; echo; echo "> Method: [CERT-hw] = x."; echo; echo "---"; echo
+  echo "[CERT-hw] (sources/probes/a-missing.txt) and (sources/probes/z-present.txt)"; } > "$pp/block-80b.md"
+printf 'x\n' > "$pp/sources/probes/z-present.txt"
+out="$(bash "$SUT" "$pp/block-80b.md" 2>/dev/null)"
+if grep -q 'probe-file cites resolved 1 of 2' <<<"$out"; then ok "80b #1325 P6: probe cites reported as 'resolved 1 of 2' (missing first, present last)"
+else no "80b #1325 P6: probe resolved-N-of-M absent :: $(grep -iE 'probe|resolved' <<<"$out" | head -3)"; fi
+
+# 80c — a single probe cite beside several [CERT] code markers must still surface the coverage gap.
+{ echo "# Block 80c — t"; echo; echo "> Method: [CERT-hw] = x."; echo; echo "---"; echo
+  echo "a [CERT-hw] b [CERT-hw] c [CERT-hw] d [CERT-hw] (sources/probes/a-present.txt)"; } > "$pp/block-80c.md"
+out="$(bash "$SUT" "$pp/block-80c.md" 2>/dev/null)"
+if grep -q 'probe-file cites resolved 1 of 1' <<<"$out" && grep -qE 'INFO.*4 \[CERT\].*1 resolved' <<<"$out"; then ok "80c #1325 P6: one probe cite vs 4 code markers → coverage INFO, not silence"
+else no "80c #1325 P6: coverage gap not surfaced :: $(grep -iE 'probe|resolved|INFO' <<<"$out" | head -3)"; fi
+
+# 81 — #1418: an unrecognised Type token keeps its DIGITS in the WARN display (experimental-p9, not experimental-p).
+for _t in "experimental-p9" "v2-draft" "p9"; do
+  d="$TMP/p1418-${_t}.md"
+  { echo "# Block 81 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "> **Type:** $_t"; echo; echo "---"; echo
+    echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+  out="$(run "$d")"
+  if grep -qE "unrecognised Type: '$_t';" <<<"$out"; then ok "81 #1418: Type '$_t' displayed intact in the P9 WARN"
+  else no "81 #1418: Type '$_t' mangled :: $(grep -E 'unrecognised' <<<"$out" | head -2)"; fi
+done
+# 81b — same for the P6 (zero-citation) WARN.
+d="$TMP/p1418-p6.md"
+{ echo "# Block 81b — t"; echo; echo "> Method: [CERT] = x."; echo; echo "> **Type:** experimental-p9"; echo; echo "---"; echo
+  echo "A claim. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qE "unrecognised Type: token 'experimental-p9';" <<<"$out"; then ok "81b #1418: P6 WARN displays 'experimental-p9' intact"
+else no "81b #1418: P6 Type display mangled :: $(grep -E 'unrecognised' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
@@ -1140,13 +1210,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The sentinel is on the _bt_resolve reassignment line only (end of line); the init line uses
   # N-PROJECT-FALLBACK-INIT and is NOT neutered so git_root is still derived.
   if mk_sed "teeth-n-project-fallback" "$MUT/npf.sh" '/# N-PROJECT-FALLBACK$/ s/.*/:  # N-PROJECT-FALLBACK [NEUTERED]/'; then
-    mkdir -p "$TMP/npf-nested/src" "$TMP/npf-nested/corpus"
+    mkdir -p "$TMP/npf-nested/src" "$TMP/npf-nested/docs"
     git -C "$TMP/npf-nested" init -q 2>/dev/null
     seq 1 50 > "$TMP/npf-nested/src/tool.sh"
     { echo "# Block NPF — nested layout"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
-      echo "## NPF Observation [CERT]"; echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$TMP/npf-nested/corpus/block-npf.md"
+      echo "## NPF Observation [CERT]"; echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$TMP/npf-nested/docs/block-npf.md"
     tooth "teeth-n-project-fallback" 0 0 "$MUT/npf.sh" --good-lacks 'extern.*src/tool' --bad-has 'extern.*src/tool' \
-      -- bash @SUT@ "$TMP/npf-nested/corpus/block-npf.md"
+      -- bash @SUT@ "$TMP/npf-nested/docs/block-npf.md"
   fi
 
   echo "-- teeth-p6-doc-aware: neuter P6-DOC-AWARE-SUPPRESS; [CERT-doc]-only block must revert to WARN --"
@@ -1314,6 +1384,48 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     vbfix "$TMP/p9-no-type-hint-teeth.md" "The method \`NonExistent.java:10\`. \`[CERT]\`"
     tooth "teeth-p9-no-type-hint" 0 0 "$MUT/p9nh.sh" --good-has 'HINT.*Declare' --bad-lacks 'HINT.*Declare' \
       --bad-has 'WARN.*resolved 0 of' -- bash @SUT@ "$TMP/p9-no-type-hint-teeth.md"
+  fi
+
+  echo "-- teeth-target-root-fallback: neuter TARGET-ROOT-FALLBACK; corpus-parent cite must revert to extern --"
+  if mk_sed "teeth-target-root-fallback" "$MUT/trf.sh" '/# TARGET-ROOT-FALLBACK$/ s/.*/:  # TARGET-ROOT-FALLBACK [NEUTERED]/'; then
+    tooth "teeth-target-root-fallback" 0 0 "$MUT/trf.sh" --good-has 'ok +src/index\.js:50-52' --good-lacks 'extern.*src/index' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
+  fi
+
+  echo "-- teeth-target-root-walkup: neuter the ancestor walk; a block in corpus/sub must revert to extern (corpus/ itself still ok) --"
+  if mk_sed "teeth-target-root-walkup" "$MUT/trw.sh" 's/^  _tr_d="\$(dirname "\$_tr_d")"/  _tr_d=""/'; then
+    tooth "teeth-target-root-walkup" 0 0 "$MUT/trw.sh" --good-has 'ok +src/index\.js:50-52' --good-lacks 'extern.*src/index' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/sub/block-78b.md"
+  fi
+
+  echo "-- teeth-target-root-derive: neuter the corpus-name test; no target root is ever derived --"
+  if mk_sed "teeth-target-root-derive" "$MUT/trd.sh" 's/= "corpus" \]; then target_root=/= "NO-SUCH-DIR" ]; then target_root=/'; then
+    tooth "teeth-target-root-derive" 0 0 "$MUT/trd.sh" --good-has 'ok +src/index\.js:50-52' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
+  fi
+
+  echo "-- teeth-p6-probe-report: neuter P6-PROBE-REPORT; the probe resolved-N-of-M line must vanish --"
+  if mk_sed "teeth-p6-probe-report" "$MUT/pfr.sh" '/# P6-PROBE-REPORT$/ s/echo.*/: # P6-PROBE-REPORT [NEUTERED]/'; then
+    tooth "teeth-p6-probe-report" 0 0 "$MUT/pfr.sh" --good-has 'probe-file cites resolved 1 of 2' \
+      --bad-lacks 'probe-file cites resolved' -- bash @SUT@ "$TMP/p1325p/block-80.md"
+  fi
+
+  echo "-- teeth-p6-probe-count: neuter the resolved-probe counter; N must read 0 --"
+  if mk_sed "teeth-p6-probe-count" "$MUT/pfc.sh" 's/_pf_ok=\$((_pf_ok+1))/_pf_ok=$((_pf_ok+0))/'; then
+    tooth "teeth-p6-probe-count" 0 0 "$MUT/pfc.sh" --good-has 'probe-file cites resolved 1 of 2' \
+      --bad-has 'probe-file cites resolved 0 of 2' --bad-lacks 'resolved 1 of 2' -- bash @SUT@ "$TMP/p1325p/block-80b.md"
+  fi
+
+  echo "-- teeth-p6-probe-coverage: neuter P6-PROBE-COVERAGE; the coverage-gap INFO must vanish --"
+  if mk_sed "teeth-p6-probe-coverage" "$MUT/pfcov.sh" '/# P6-PROBE-COVERAGE/ s/if .*/if false; then  # P6-PROBE-COVERAGE [NEUTERED]/'; then
+    tooth "teeth-p6-probe-coverage" 0 0 "$MUT/pfcov.sh" --good-has 'INFO.*4 \[CERT\] code marker' \
+      --bad-lacks 'INFO.*4 \[CERT\] code marker' --bad-has 'probe-file cites resolved 1 of 1' -- bash @SUT@ "$TMP/p1325p/block-80c.md"
+  fi
+
+  echo "-- teeth-p1418-type-digits: revert the Type-token regex to letters-only; digits must be dropped again --"
+  if mk_sed "teeth-p1418-type-digits" "$MUT/p1418.sh" '/# P1418-TYPE-DIGITS/ s/\[a-z0-9-\]/[a-z-]/'; then
+    tooth "teeth-p1418-type-digits" 0 0 "$MUT/p1418.sh" --good-has "unrecognised Type: token 'experimental-p9';" \
+      --bad-has "unrecognised Type: token 'experimental-p';" --bad-lacks 'experimental-p9' -- bash @SUT@ "$TMP/p1418-p6.md"
   fi
 fi
 
