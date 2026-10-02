@@ -712,6 +712,18 @@ if [ "$_c34dline" = 'Suites with teeth not using lib/mutant.sh: 1 — [cmt-only]
   ok "teeth-helper lint precision: a comment mentioning the helper is NOT use; indented/source/guarded source lines are"
 else no "teeth-helper lint precision failed: line=[$_c34dline]"; fi
 
+# 34e — a LARGE suite that really sources the helper is not listed. Regression found by the full gate:
+#       `grep -v | grep -q` under pipefail returns 141 (SIGPIPE to the producer) once the file exceeds
+#       the pipe buffer, so every big helper-using suite was mislabelled as a non-user.
+w="$(newdir c34e)"
+mkfix_teeth "$w/big-helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/big-helped.test.sh"
+head -c 300000 /dev/zero | tr '\0' 'x' | fold -w 79 | sed 's/^/: filler /' >> "$w/big-helped.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then
+  ok "teeth-helper lint: a large suite that sources the helper is not misreported (no SIGPIPE under pipefail)"
+else no "teeth-helper lint large-suite failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
+
 # 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
 #      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
 #      The runner also snapshots research-sdd/ (resolved from its own location, never the cwd)
@@ -1162,7 +1174,7 @@ REPL12
   # is built through the shared helper, which refuses an empty / identical / syntax-broken one.
   echo "-- teeth: neuter SENTINEL-HELPER-USE-TEST; hand-rolled teeth suite must vanish from the list --"
   w="$(mut_workdir teeth-helper-lint)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/&& ! {/\&\& false \&\& ! {/' 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/&& ! awk/\&\& false \&\& ! awk/' 2>"$w/mutant.err"; then
     no "teeth-helper-lint: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/hand.test.sh"
@@ -1177,7 +1189,7 @@ REPL12
   # helper in a comment must then be counted as a helper user (vanish from the list).
   echo "-- teeth: drop the comment filter; a comment-only mention must vanish from the list (case 34d) --"
   w="$(mut_workdir teeth-helper-comment)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/grep -vE [^|]*|/cat "$suite" |/' 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/!\/^\[\[:space:\]\]\*#\/ && //' 2>"$w/mutant.err"; then
     no "teeth-helper-comment: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/cmt-only.test.sh"

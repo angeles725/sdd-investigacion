@@ -386,10 +386,12 @@ for suite in "${all_suites[@]}"; do
     # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
     # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
     # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
-    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use. Comment lines are dropped
-    # first, then an actual `.`/`source` of lib/mutant.sh must remain (line start or after ; & | { ( ).
+    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use. Comment lines are skipped,
+    # then an actual `.`/`source` of lib/mutant.sh must remain (line start or after ; & | { ( ).
+    # One awk process, NOT `grep -v | grep -q`: under pipefail the early-exiting `grep -q` SIGPIPEs the
+    # producer (rc 141) on any suite larger than the pipe buffer and mislabels it a non-user.
     # SENTINEL-HELPER-USE-TEST
-    if [[ "$_has_teeth" -eq 1 ]] && ! { grep -vE '^[[:space:]]*#' "$suite" 2>/dev/null | grep -qE '(^|[;&|{(])[[:space:]]*(\.|source)[[:space:]]+[^#]*lib/mutant\.sh'; }; then
+    if [[ "$_has_teeth" -eq 1 ]] && ! awk '!/^[[:space:]]*#/ && /(^|[;&|{(])[[:space:]]*(\.|source)[[:space:]]+[^#]*lib\/mutant\.sh/ { f = 1 } END { exit !f }' "$suite" 2>/dev/null; then
       sh_teeth_nohelper+=("$base_noext")
     fi
   fi
