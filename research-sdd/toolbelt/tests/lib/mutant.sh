@@ -13,6 +13,32 @@
 #                                        the content checks of mutant_verify
 #   mutant_verify ORIG OUT               the SAME checks (placement, symlink, content) for a
 #                                        mutant built some other way (awk, a heredoc, a copy)
+#   mutant_chain  LABEL ORIG OUT EXPR...   one sed stage (-e EXPR) per EXPR, each of which must change
+#                                        ORIG ON ITS OWN (a dead stage hides behind a live one
+#                                        otherwise), then mutant_sed's checks. Stages run in ONE pass,
+#                                        so a stage cannot depend on text an earlier stage introduces:
+#                                        make such a mutation a single s///, or build it another way
+#                                        and check it with mutant_built. Multi-line EXPRs (c\ / a\) work.
+#   mutant_built  LABEL ORIG OUT           mutant_verify for a mutant built another way (awk, python3,
+#                                        bash surgery), with the failure reported in suite format
+#   mutant_tooth  LABEL GOOD_RC BAD_RC MUTANT [--orig P] [--good-has RE] [--good-lacks RE]
+#                 [--bad-has RE] [--bad-lacks RE] -- ARGV...
+#                                        runs ARGV on the original ('@SUT@' in any ARGV word is replaced
+#                                        by P, default $SUT) and again on MUTANT; PASS only when the
+#                                        original exits EXACTLY GOOD_RC (and its output matches
+#                                        --good-has / not --good-lacks) AND the mutant exits EXACTLY
+#                                        BAD_RC (and matches --bad-has / not --bad-lacks): a crashing
+#                                        mutant (any other rc) is THEATER, not teeth. Patterns are grep
+#                                        -E, case-sensitive unless MUTANT_TOOTH_ICASE is non-empty.
+#
+# Counting contract (chain / built / tooth): they NEVER touch the caller's counters. Each prints its
+# own `  FAIL  <label>...` line to stdout on failure (mutant_tooth also `  PASS  <label> [...]`) and
+# returns non-zero on failure; success of chain/built is silent and returns 0. The caller counts, e.g.
+#   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+#   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+#   mk L "$SUT" "$MUT/m.sh" 's/a/b/' && tt L 1 0 "$MUT/m.sh" -- bash @SUT@ "$dir"
+# mutant_chain returns 10 for a dead stage (message names the stage number and EXPR); any other
+# non-zero is the rc of mutant_sed / mutant_verify below. mutant_tooth returns 1 on every failure.
 #
 # Return codes (distinct, so a test can assert the SPECIFIC refusal, not "any failure"):
 #   0 ok · 2 original absent/unreadable · 3 original or mutant empty · 4 mutant byte-identical to
@@ -148,4 +174,79 @@ mutant_sed() {
     _mutant_refuse "sed failed building '$out'"; rm -f -- "$out"; return 6
   fi
   mutant_verify "$orig" "$out"
+}
+
+# mutant_chain LABEL ORIG OUT EXPR... — see header. Dead-stage check first, then mutant_sed.
+mutant_chain() {
+  local label="$1" orig="$2" out="$3" e rc err n=0
+  shift 3
+  local -a args=()
+  if [ "$#" -eq 0 ]; then
+    printf '  FAIL  %s: mutant_chain given no sed stage\n' "$label"; return 1
+  fi
+  for e in "$@"; do
+    n=$((n + 1))
+    # SENTINEL-CHAIN-DEAD-STAGE
+    if sed -e "$e" "$orig" 2>/dev/null | cmp -s - "$orig"; then
+      printf '  FAIL  %s: sed stage %d matches nothing in the original (silent no-op) :: [%s]\n' "$label" "$n" "$e"
+      return 10
+    fi
+    args+=(-e "$e")
+  done
+  err="$(mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '  FAIL  %s: mutant refused by lib/mutant.sh (rc=%d) :: %s\n' "$label" "$rc" "$err"
+  fi
+  return "$rc"
+}
+
+# mutant_built LABEL ORIG OUT — see header.
+mutant_built() {
+  local label="$1" orig="$2" out="$3" rc err
+  err="$(mutant_verify "$orig" "$out" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '  FAIL  %s: mutant refused by lib/mutant.sh (rc=%d) :: %s\n' "$label" "$rc" "$err"
+  fi
+  return "$rc"
+}
+
+# mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV... — see header.
+mutant_tooth() {
+  local label="$1" grc="$2" brc="$3" mut="$4"
+  local ghas="" glack="" bhas="" black="" orig="${SUT:-}" a gout mout grc_a mrc_a why="" gi="" rc
+  shift 4
+  [ -z "${MUTANT_TOOTH_ICASE:-}" ] || gi="-i"
+  while [ "${1:-}" != -- ]; do
+    # SENTINEL-TOOTH-MISUSE
+    case "${1:-}" in
+      --orig) orig="${2:-}" ;; --good-has) ghas="${2:-}" ;; --good-lacks) glack="${2:-}" ;;
+      --bad-has) bhas="${2:-}" ;; --bad-lacks) black="${2:-}" ;;
+      '') printf '  FAIL  %s: mutant_tooth missing the "--" before ARGV\n' "$label"; return 1 ;;
+      *) printf '  FAIL  %s: mutant_tooth bad option [%s]\n' "$label" "${1:-}"; return 1 ;;
+    esac
+    [ "$#" -ge 2 ] || { printf '  FAIL  %s: mutant_tooth option [%s] needs a value\n' "$label" "$1"; return 1; }
+    shift 2
+  done
+  shift
+  if [ "$#" -eq 0 ]; then printf '  FAIL  %s: mutant_tooth has no ARGV after "--"\n' "$label"; return 1; fi
+  if [ -z "$orig" ]; then printf '  FAIL  %s: mutant_tooth has no original (pass --orig or set $SUT)\n' "$label"; return 1; fi
+  if [ ! -f "$mut" ]; then printf '  FAIL  %s: mutant file absent [%s] — the builder failed\n' "$label" "$mut"; return 1; fi
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  # SENTINEL-TOOTH-PATTERNS
+  if [ -n "$ghas" ] && ! grep -qE $gi -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi
+  if [ -n "$glack" ] && grep -qE $gi -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
+  # SENTINEL-TOOTH-BADRC
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bhas" ] && ! grep -qE $gi -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -n "$black" ] && grep -qE $gi -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
+  if [ -z "$why" ]; then
+    printf '  PASS  %s [original rc=%s → mutant rc=%s]\n' "$label" "$grc" "$brc"; rc=0
+  else
+    printf '  FAIL  %s — THEATER:%s\n' "$label" "${why#;}"; rc=1
+  fi
+  return "$rc"
 }
