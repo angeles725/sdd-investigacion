@@ -1013,14 +1013,43 @@ art_probe() {
   return "$rc"
 }
 
-# tt LABEL GOOD_RC BAD_RC MUTANT GOOD_VAL BAD_VAL INPUT FIELD  the shared mutant_tooth over art_probe: the original
-# must exit EXACTLY GOOD_RC with value GOOD_VAL, the mutant EXACTLY BAD_RC with value BAD_VAL (a mutant that
-# merely crashes — no JSON, odd exit — matches neither: the old `!= <good value>` verdicts counted it DETECTED).
+# art_class VAL RC GOOD_VAL GOOD_RC BAD_VAL BAD_RC  classify one run by EXACT whole-value string equality (bash [ = ],
+# never a regex, so metacharacters and multi-line values cannot match loosely): prints GOOD / BAD / OTHER and exits
+# 0 / 1 / 2. A run matching both (identical expectations) is GOOD.
+art_class() {
+  if [ "$1" = "$3" ] && [ "$2" = "$4" ]; then echo GOOD; return 0; fi
+  if [ "$1" = "$5" ] && [ "$2" = "$6" ]; then echo BAD; return 1; fi
+  echo OTHER; return 2
+}
+# art_check PY INPUT OUT FIELD GOOD_VAL GOOD_RC BAD_VAL BAD_RC  run PY, then art_class its exact value + exit code.
+art_check() {
+  local val rc=0
+  val="$(art_probe "$1" "$2" "$3" "$4")" || rc=$?
+  art_class "$val" "$rc" "$5" "$6" "$7" "$8"
+}
+
+# tt LABEL GOOD_RC BAD_RC MUTANT GOOD_VAL BAD_VAL INPUT FIELD  the shared mutant_tooth over art_check: the original
+# must be classified GOOD (EXACT value GOOD_VAL and exit GOOD_RC, exit 0) and the mutant BAD (EXACT value BAD_VAL and
+# exit BAD_RC, exit 1); a mutant that merely crashes — no JSON, odd exit — is OTHER, never DETECTED.
 tt() {
   local label="$1" grc="$2" brc="$3" mut="$4" good="$5" bad="$6" input="$7" field="$8"
-  if mutant_tooth "$label" "$grc" "$brc" "$mut" --orig "$ORIG_PY" --good-has "^${good}\$" --bad-has "^${bad}\$" \
-       -- art_probe @SUT@ "$input" "$ROOT/probe.json" "$field"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
+  if mutant_tooth "$label" 0 1 "$mut" --orig "$ORIG_PY" --good-has '^GOOD$' --bad-has '^BAD$' \
+       -- art_check @SUT@ "$input" "$ROOT/probe.json" "$field" "$good" "$grc" "$bad" "$brc"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
 }
+
+# Self-proof of the exact comparison: a regex-looking or multi-line expectation must NOT match loosely.
+_ac_chk() { # WANT_CLASS VAL RC GOOD_VAL GOOD_RC BAD_VAL BAD_RC
+  local got; got="$(art_class "${@:2}")"
+  if [ "$got" = "$1" ]; then mut_ok "art_class exact: value=[${2//$'\n'/\\n}] vs good=[${4//$'\n'/\\n}] -> $got"
+  else mut_no "art_class exact: value=[$2] vs good=[$4] -> $got (want $1)"; fi
+}
+_ac_chk GOOD 1 0 1 0 0 0
+_ac_chk OTHER 1 0 '1|0' 0 '0' 0      # ERE alternation must not match
+_ac_chk OTHER x 0 '.' 0 y 0          # '.' must not match any char
+_ac_chk OTHER 1 0 '^1$' 0 y 0        # anchors are literal text
+_ac_chk OTHER $'1\n2' 0 1 0 y 0     # multi-line value is not equal to its first line
+_ac_chk BAD 0 1 1 0 0 1
+_ac_chk OTHER 1 1 1 0 0 1            # right value, wrong exit code
 
 # mut_field_tooth LABEL INPUT FIELD GOOD_VAL BAD_VAL EXPR...  exact exit code (MF_GRC/MF_BRC, default 0) and exact value on both runs.
 mut_field_tooth() {

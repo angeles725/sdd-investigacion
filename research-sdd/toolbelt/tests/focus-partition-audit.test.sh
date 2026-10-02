@@ -505,7 +505,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   # ---- tooth (a): hardcode UNCHARTERED=0, anchored so it cannot also clobber
-  # FAMILIES_UNCHARTERED= (which contains the same substring) — --same families: verifies the anchor itself too.
+  # FAMILIES_UNCHARTERED= (which contains the same substring) — the invariance assertion below verifies the anchor.
   echo "-- teeth-a: hardcode UNCHARTERED=0 (anchored); unchartered count must go red --"
   SA="$ROOT/sa"; CA="$ROOT/ca"
   mk_unit "$SA" "mod_a" "Alpha.java"
@@ -514,11 +514,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth-a: original 1 unchartered; mutant 0 — bites, and the anchor does NOT touch families:" 0 0 "$MUT/fpa.MUT-A.sh" \
          --good-has '0/1 chartered .* 1 unchartered' --bad-has '0/1 chartered .* 0 unchartered' \
          -- bash @SUT@ "$CA" --subject "$SA"
-  # The anchor must NOT also clobber FAMILIES_UNCHARTERED= (same substring): the families line must be
-  # identical in both runs. The shared mutant_tooth has no --same, so pin the exact line on both sides.
-  tooth "teeth-a: families line unchanged by the anchored mutant (FAMILIES_UNCHARTERED untouched)" 0 0 "$MUT/fpa.MUT-A.sh" \
-    --good-has 'families: 1 total · 1 fully-unchartered' --bad-has 'families: 1 total · 1 fully-unchartered' \
-    -- bash -c 'bash "$1" "$2" --subject "$3" 2>&1 | grep -E "^families:"' _ @SUT@ "$CA" "$SA"
+  # The anchor must NOT also clobber FAMILIES_UNCHARTERED= (same substring). This is an INVARIANCE assertion, not a
+  # tooth (there is no mutant verdict to flip), so it is a plain check outside mutant_tooth: run the SUT and the
+  # mutant, and require the same exit code and the same, non-empty `families:` line from their own output.
+  if [ -f "$MUT/fpa.MUT-A.sh" ]; then
+    _fa_g="$(bash "$SUT" "$CA" --subject "$SA" 2>&1)"; _fa_grc=$?
+    _fa_m="$(bash "$MUT/fpa.MUT-A.sh" "$CA" --subject "$SA" 2>&1)"; _fa_mrc=$?
+    _fa_gl="$(grep -E '^families:' <<<"$_fa_g")"; _fa_ml="$(grep -E '^families:' <<<"$_fa_m")"
+    if [ "$_fa_grc" = "$_fa_mrc" ] && [ -n "$_fa_gl" ] && [ "$_fa_gl" = "$_fa_ml" ]; then
+      ok "teeth-a: families line unchanged by the anchored mutant (FAMILIES_UNCHARTERED untouched)" "[rc=$_fa_grc, $_fa_gl]"
+    else
+      no "teeth-a: families line unchanged by the anchored mutant — INVARIANCE BROKEN" "orig rc=$_fa_grc [$_fa_gl] mutant rc=$_fa_mrc [$_fa_ml]"
+    fi
+  else
+    no "teeth-a: families invariance — mutant not built ($MUT/fpa.MUT-A.sh)"
+  fi
 
   # ---- tooth (b): drop backtick-only restriction — scan raw cell prose for bare unit mentions
   echo "-- teeth-b: bare-prose mutant; bare mention must not charter (real fix does) --"

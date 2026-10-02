@@ -584,13 +584,25 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # A tooth is proven ONLY when the REAL renderer refuses this exact fixture with exit 2 (GOOD) AND the mutant
   # completes a render (exit 0) where it refuses (BAD). A crash (uncaught Python traceback) matches neither
   # verdict on either side and never counts as a bite — kit issue #943. Optional $7 overrides the render
-  # target (T-containment must render INTO the kit itself; the real renderer refuses before writing anything).
+  # target (T-containment must render INTO the kit itself).
+  # iso_render SUT KITDIR PROFILE [into-kit]  ONE isolated run, used as the tooth ARGV so the GOOD run and the BAD
+  # run never share state: each run gets its OWN disposable copy of KITDIR and its OWN fresh outdir (or, with
+  # `into-kit`, renders INTO that per-run kit copy). The fixture kit and any earlier run's output are never reused.
+  iso_render() {
+    local sut="$1" kitdir="$2" profile="$3" into="${4:-}" run kit out rc
+    run="$(mktemp -d "$TMP/iso.XXXXXX")" || return 99
+    kit="$run/kit"; out="$run/out"
+    cp -a "$kitdir" "$kit" || { rm -rf "$run"; return 99; }
+    [ "$into" = into-kit ] && out="$kit"
+    RSDD_KIT_DIR="$kit" "$sut" "$profile" "$out"; rc=$?
+    rm -rf "$run"; return "$rc"
+  }
   bite_tooth() {
-    local tname="$1" mutant="$2" kitdir="$3" profile="$4" suffix="$5" expect="$6"
-    local outdir="${7:-$TMP/teeth-out-$suffix}"
+    local tname="$1" mutant="$2" kitdir="$3" profile="$4" expect="$6" into=""   # $5 (outdir suffix) is unused: every run gets a fresh outdir
+    if [ "$#" -ge 7 ]; then into='into-kit'; fi
     tt "teeth-$tname: mutant completes a render (exit 0) where the real script refuses ($expect) — check is load-bearing" 2 0 "$mutant" \
       --good-lacks 'Traceback \(most recent call last\)' --bad-lacks 'Traceback \(most recent call last\)' \
-      -- env RSDD_KIT_DIR="$kitdir" @SUT@ "$profile" "$outdir"
+      -- iso_render @SUT@ "$kitdir" "$profile" $into
   }
 
   echo "-- teeth: T-unknown-profile (disable the unknown-profile bash guard; sources carry ZERO markers so the GUARD-MISSING-PROFILE python fallback alone decides) --"
