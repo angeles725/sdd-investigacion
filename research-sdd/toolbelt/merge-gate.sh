@@ -45,6 +45,13 @@
 # precedence order: ci_failed (failure/cancelled/timed_out/action_required/... conclusion), ci_pending
 # (any run not completed, or no run reported at all), ci_missing (a required name absent). Reported
 # checks other than success/skipped/neutral are failed. Unreadable/off-shape check data is degraded.
+# LATEST RUN PER (name, app.id): a rerun or relabel leaves an older run next to the newer one on the same
+# head (e.g. a failed and a later green "Check Issue Has status:approved"), so before judging, only the
+# newest run per (check name, app id) is kept, ordered by started_at then numeric id (id is the tiebreak
+# and the fallback when started_at is null). Same name from two different apps stays two checks.
+# DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
+# still need every PR Validation check green.
+# KNOWN GAP: legacy commit statuses (/status) are not read, only check runs.
 set -uo pipefail
 
 say() { printf 'merge-gate: %s\n' "$*"; }
@@ -159,7 +166,9 @@ esac
 if [ -n "$do_merge" ]; then
   ci_raw="$(ghr api "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" --paginate 2>/dev/null)" || degraded "cannot read check runs for head $head (gh api failed)"
   # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
-  ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
+    | map({name, status, conclusion, app_id: (.app.id? // null), started_at: (.started_at? // ""), id: (.id? // 0)})
+    | group_by([.name, .app_id]) | map(max_by([.started_at, .id]))' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
   ci_req="$(jq -cn --arg s "$required" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' 2>/dev/null)" || degraded "cannot parse --required-checks list"
   ci_verdict="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '
     (map(select(.status == "completed" and ((.conclusion // "") | IN("success", "skipped", "neutral") | not)) | .name) | unique) as $failed

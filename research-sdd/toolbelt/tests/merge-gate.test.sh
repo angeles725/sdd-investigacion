@@ -127,7 +127,12 @@ ARGS=(--cwd "$REPO" --base-ref base)
 # mkchecks <file> <name:status:conclusion>...   (conclusion may be empty for an unfinished run)
 mkchecks() {
   local f="$1" a; shift
-  for a in "$@"; do printf '%s\n' "$a"; done | jq -Rsc '(split("\n")|map(select(length>0)|split(":")|{name:.[0],status:.[1],conclusion:(if .[2]=="" then null else .[2] end)})) as $r | {total_count: ($r|length), check_runs: $r}' > "$f"
+  for a in "$@"; do printf '%s\n' "$a"; done | jq -Rsc '
+    (split("\n") | map(select(length > 0) | split(":") | {name: .[0], status: .[1], conclusion: (if .[2] == "" then null else .[2] end)}
+      + (if (.[3] // "") != "" then {app: {id: (.[3] | tonumber)}} else {} end)
+      + (if (.[4] // "") != "" then {started_at: .[4]} else {started_at: null} end)
+      + (if (.[5] // "") != "" then {id: (.[5] | tonumber)} else {} end))) as $r
+    | {total_count: ($r | length), check_runs: $r}' > "$f"
 }
 # CKREQ: the MERGE_GATE_REQUIRED_CHECKS env for runck; the literal UNSET leaves the default in force.
 CKREQ="shellcheck,toolbelt-tests"
@@ -358,6 +363,55 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI --pr check-only never reads check runs"; else no "CI --pr read check runs"; fi
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/high.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
   if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI review_due refuse happens before any check-runs read"; else no "CI read after review_due"; fi
+  # --- #1426 fix-first: latest run per (name, app.id) wins; two-page --paginate slurp ---
+  # fields: name:status:conclusion:app:started_at:id  (started_at/id compare as strings/numbers; empty = null)
+  CKREQ="shellcheck"
+  for pos in first middle last; do
+    old="shellcheck:completed:failure:1:t1:10"; new="shellcheck:completed:success:1:t2:20"
+    pad1="pr-validation:completed:success:1:t0:1"; pad2="other:completed:success:1:t0:2"
+    case "$pos" in
+      first)  l1="$old"; l2="$pad1"; l3="$new" ;;
+      middle) l1="$pad1"; l2="$old"; l3="$new" ;;
+      last)   l1="$pad1"; l2="$pad2"; l3="$old" ;;
+    esac
+    if [ "$pos" = last ]; then mkchecks "$ROOT/ck/d.json" "$l1" "$l2" "$l3" "$new"; else mkchecks "$ROOT/ck/d.json" "$l1" "$l2" "$l3"; fi
+    runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failed + newer success same name -> merges (listed $pos)" 0 '^merge-gate: merged: PR #7'
+    # newer listed BEFORE older: listing order must not decide
+    mkchecks "$ROOT/ck/d.json" "$new" "$pad1" "$old"; runck "$S" "$ROOT/ck/d.json"
+    expect "CI dedup: newer success listed before older failed -> merges ($pos pass)" 0 '^merge-gate: merged: PR #7'
+  done
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t1:10 shellcheck:completed:failure:1:t2:20
+  : > "$ROOT/log"; runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer failed -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI dedup newer failed"
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t2:20 shellcheck:completed:success:1:t1:10
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: newer failed listed first -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  mkchecks "$ROOT/ck/d.json" pr-validation:completed:success:1:t0:1 shellcheck:completed:success:1:t1:10 shellcheck:in_progress::1:t2:20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer pending -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:in_progress::1:t2:20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failed + newer pending -> ci_pending (stale failure ignored)" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
+  # same name from two different apps are two checks: both considered
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t2:20 shellcheck:completed:failure:2:t1:10
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: same name, two apps, one failed -> ci_failed (app.id is part of the key)" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:completed:success:1:t2:20 shellcheck:completed:success:2:t1:11
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: two apps, each latest green -> merges" 0 '^merge-gate: merged: PR #7'
+  # started_at null: id is the fallback ordering
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::3 shellcheck:completed:success:1::5
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id success wins -> merges" 0 '^merge-gate: merged: PR #7'
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1::3 shellcheck:completed:failure:1::5
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id failed wins -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  # started_at outranks id: the later start wins even with a LOWER id
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t2:10 shellcheck:completed:success:1:t1:20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: later started_at beats higher id -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  # ids compare as numbers, not strings (9 < 10)
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::9 shellcheck:completed:success:1::10
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: ids compare numerically (10 beats 9)" 0 '^merge-gate: merged: PR #7'
+  # two-page --paginate output: two JSON objects concatenated; a gate that reads only page 1 must not pass
+  printf '%s\n%s\n' '{"total_count":3,"check_runs":[{"name":"pr-validation","status":"completed","conclusion":"success"}]}' \
+    '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/pages.json"
+  runck "$S" "$ROOT/ck/pages.json"; expect "CI two-page paginate: required check only on page 2 -> merges" 0 '^merge-gate: merged: PR #7'
+  printf '%s\n%s\n' '{"total_count":2,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' \
+    '{"total_count":2,"check_runs":[{"name":"toolbelt-tests","status":"completed","conclusion":"failure"}]}' > "$ROOT/ck/pages.json"
+  CKREQ="shellcheck"; runck "$S" "$ROOT/ck/pages.json"; expect "CI two-page paginate: failure only on page 2 -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(toolbelt-tests\)'
+  CKREQ="shellcheck,toolbelt-tests"
 }
 
 echo "-- merge-gate behavioural suite --"
@@ -481,6 +535,12 @@ mutate M63-gh-error-ignored              's/ || degraded "cannot read check runs
 mutate M64-shape-unchecked               's/error("shape")/[]/g'
 mutate M66-unpaginated-single-page       's/ --paginate//'
 mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'
+mutate M68-dedup-removed                 's/^    | group_by(\[\.name, \.app_id\]) | map(max_by(\[\.started_at, \.id\]))/    | .   /'
+mutate M69-dedup-picks-oldest            's/map(max_by(\[\.started_at, \.id\]))/map(min_by([.started_at, .id]))/'
+mutate M70-app-id-ignored-in-key         's/group_by(\[\.name, \.app_id\])/group_by([.name])/'
+mutate M71-started-at-ignored            's/map(max_by(\[\.started_at, \.id\]))/map(max_by([.id]))/'
+mutate M72-id-compared-as-string         's/id: (\.id? \/\/ 0)/id: ((.id? \/\/ 0) | tostring)/'
+mutate M73-first-page-only               's/\[\.\[\]\.check_runs\[\]\]/[.[0].check_runs[]]/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]
