@@ -2112,6 +2112,45 @@ else
   no "T-IDG-E: stdout=[$_idg_e_got] stderr=[$_idg_e_stderr] rc=$_idg_e_rc — expected unverified marker + WARN + exit 0"
 fi
 
+# T-IDG-NOTARGETS (kit issue #1304 item 5): a kit with NO TARGETS.md (absent) or a TARGETS.md with
+# no registered rows (empty) must read as UNVERIFIED coverage, never as a bare verified-clean STOP.
+# Real reconcile-issues.sh exits 1 on both (operational failure, kit issue #1287 item 3) and the
+# status gate's F5b branch (IDG-OPFAIL-SENTINEL) turns that exit into the unverified marker.
+# Runs the REAL reconcile (R3-STUB-ONLY convention); gh is stubbed. A pending retro with a delta
+# guarantees reconcile is actually probed.
+for _nt_case in absent empty; do
+  _nt_kit="$TMP/kit-idg-notargets-$_nt_case/research-sdd/toolbelt"
+  _nt_gh="$TMP/gh-stub-notargets-$_nt_case"
+  mk_kit_real_reconcile "$_nt_kit" "$_nt_gh"
+  case "$_nt_case" in
+    absent) rm -f "$_nt_kit/../TARGETS.md" ;;
+    empty)  printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$_nt_kit/../TARGETS.md" ;;
+  esac
+  _nt_t="$TMP/target-idg-notargets-$_nt_case"; mkstate "$_nt_t" 0 "high|done gap|covered"
+  mkdir -p "$_nt_t/retros"
+  cat > "$_nt_t/retros/notargets-retro.md" <<'NT_EOF'
+<!-- review-status: pending -->
+# No-targets retro
+
+## Proposed kit deltas
+
+| # | Proposed change | Target | Evidence | Priority |
+|---|---|---|---|---|
+| 1 | test delta | file.sh | evidence | high |
+NT_EOF
+  _nt_err="$TMP/idg-notargets-$_nt_case-stderr.txt"
+  _nt_got="$(PATH="$_nt_gh:$PATH" bash "$_nt_kit/research-sdd-status.sh" "$_nt_t" --next 2>"$_nt_err")"
+  _nt_rc=$?
+  _nt_stderr="$(cat "$_nt_err")"
+  if [ "$_nt_got" = "STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]" ] \
+     && grep -q 'reconcile-issues.sh failed' <<<"$_nt_stderr" \
+     && [ "$_nt_rc" -eq 0 ]; then
+    ok "T-IDG-NOTARGETS-$_nt_case: TARGETS.md $_nt_case → [issue-coverage: unverified] + reconcile-failed WARN + exit 0"
+  else
+    no "T-IDG-NOTARGETS-$_nt_case: stdout=[$_nt_got] stderr=[$_nt_stderr] rc=$_nt_rc — expected the unverified marker"
+  fi
+done
+
 # T-IDG-F: signal-kill class (exit 137) → distinct unverified marker, not bare STOP
 # Verifies that the F5b fix covers the full else-branch, not just exit 1.
 _kitf="$TMP/kitf"; mk_kit "$_kitf" "exit_137"
@@ -4406,6 +4445,30 @@ CTR_TEETH_EOF
     fi
   else
     no "teeth-IDG-opfail: IDG-OPFAIL-SENTINEL not found in SUT"
+  fi
+
+  # ---- teeth-IDG-notargets (kit issue #1304 item 5): neuter IDG-OPFAIL-SENTINEL with the REAL
+  # reconcile and NO TARGETS.md; the T-IDG-NOTARGETS cases must go RED (bare STOP).
+  echo "-- teeth-IDG-notargets: sentinel-neutered mutant + real reconcile + absent TARGETS.md --"
+  _ntm_kit="$TMP/kit-teeth-notargets/research-sdd/toolbelt"
+  _ntm_gh="$TMP/gh-stub-teeth-notargets"
+  mk_kit_real_reconcile "$_ntm_kit" "$_ntm_gh"
+  rm -f "$_ntm_kit/../TARGETS.md"
+  . "$HERE/lib/mutant.sh"
+  if mutant_sed "$SUT" "$TMP/status.NOTARGETS.MUTANT.sh" -e 's/_idg_had_unverified=1  # IDG-OPFAIL-SENTINEL/: # MUTANT-NOTARGETS/'; then
+    cp "$TMP/status.NOTARGETS.MUTANT.sh" "$_ntm_kit/research-sdd-status.sh"
+    _ntm_t="$TMP/target-teeth-notargets"; mkstate "$_ntm_t" 0 "high|done gap|covered"
+    mkdir -p "$_ntm_t/retros"
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target | Evidence | Priority |\n|---|---|---|---|---|\n| 1 | d | f.sh | e | high |\n' \
+      > "$_ntm_t/retros/r.md"
+    _ntm_got="$(PATH="$_ntm_gh:$PATH" bash "$_ntm_kit/research-sdd-status.sh" "$_ntm_t" --next 2>/dev/null)"
+    case "$_ntm_got" in
+      "STOP | read-only-investigable exhausted (0)")
+        ok "teeth-IDG-notargets: sentinel-neutered mutant → bare STOP → T-IDG-NOTARGETS goes RED" ;;
+      *) no "teeth-IDG-notargets: mutant returned unexpected [$_ntm_got]" ;;
+    esac
+  else
+    no "teeth-IDG-notargets: mutant refused by mutant.sh"
   fi
 
   # ---- teeth-IDG-oos: neuter the IDG-OOS-SENTINEL guard; T-IDG-OOS must return a bare clean STOP.
