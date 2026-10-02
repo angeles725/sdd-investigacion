@@ -1020,18 +1020,18 @@ fi
 # 78 — #1325: corpus that is its own git repo under $TARGET/corpus/ → own-project cite resolves at the TARGET root.
 #      (git rev-parse from the corpus returns the CORPUS root, so N-PROJECT-FALLBACK alone cannot see src/.)
 pr="$TMP/p1325"; mkdir -p "$pr/src" "$pr/corpus/sub"; git -C "$pr/corpus" init -q 2>/dev/null
-seq 1 60 > "$pr/src/index.js"
+seq 1 60 > "$pr/src/index.js"; : > "$pr/package.json"
 { echo "# Block 78 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
   echo "Handler at \`src/index.js:50-52\`. \`[CERT]\`"; } > "$pr/corpus/block-78.md"
 out="$(bash "$SUT" "$pr/corpus/block-78.md" 2>/dev/null)"; rc=$?
-if [ "$rc" = 0 ] && grep -qE '^\s+ok\s+src/index\.js:50-52' <<<"$out" && grep -q 'resolved 1 of 1' <<<"$out" && ! grep -q 'extern' <<<"$out"; then
+if [ "$rc" = 0 ] && grep -qE '^\s+ok \(target-root\) src/index\.js:50-52' <<<"$out" && grep -q 'resolved 1 of 1' <<<"$out" && ! grep -q 'extern' <<<"$out"; then
   ok "78 #1325: own-git corpus under \$TARGET/corpus/ → cite resolves at the TARGET root (ok, resolved 1 of 1)"
 else no "78 #1325: target-root cite not resolved: rc=$rc :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
 
 # 78b — same layout, block in a corpus SUB-directory (target-dir = corpus/sub) → walk up to the corpus root's parent.
 cp "$pr/corpus/block-78.md" "$pr/corpus/sub/block-78b.md"
 out="$(bash "$SUT" "$pr/corpus/sub/block-78b.md" 2>/dev/null)"
-if grep -qE '^\s+ok\s+src/index\.js:50-52' <<<"$out"; then ok "78b #1325: block in corpus/sub → cite resolves at the TARGET root"
+if grep -qE '^\s+ok \(target-root\) src/index\.js:50-52' <<<"$out"; then ok "78b #1325: block in corpus/sub → cite resolves at the TARGET root"
 else no "78b #1325: sub-directory block not resolved :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
 
 # 79 — #1325 (negative half): a TARGET-root file that is TOO SHORT for the cite still FAILS (RANGE!, exit 1), never ok.
@@ -1086,6 +1086,78 @@ d="$TMP/p1418-p6.md"
 out="$(run "$d")"
 if grep -qE "unrecognised Type: token 'experimental-p9';" <<<"$out"; then ok "81b #1418: P6 WARN displays 'experimental-p9' intact"
 else no "81b #1418: P6 Type display mangled :: $(grep -E 'unrecognised' <<<"$out" | head -1)"; fi
+
+# ---- #1325 fix-first round: target root must be BOUNDED, VISIBLE, and must not pre-empt a fitting root ----
+vbcite(){ local f="$1"; shift; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf 'Cites: `%s`. `[CERT]`\n' "$@"; } > "$f"; }
+
+# 82 — F1(a): a fake HOME that IS the parent of corpus/ is refused even when it carries a project marker.
+h="$TMP/f1h/home"; mkdir -p "$h/corpus" "$h/.ssh"; : > "$h/package.json"; echo x > "$h/config.sh"; echo k > "$h/.ssh/id_rsa.pub"
+vbcite "$h/corpus/b.md" "config.sh:1" ".ssh/id_rsa.pub:1"
+out="$(HOME="$h" bash "$SUT" "$h/corpus/b.md" 2>/dev/null)"
+if grep -qE 'extern\s+config\.sh:1' <<<"$out" && grep -qE 'extern\s+\.ssh/id_rsa\.pub:1' <<<"$out" && ! grep -qE '^\s+ok' <<<"$out"; then
+  ok "82 F1a: target root == \$HOME refused (dotfile/secret cites stay extern)"
+else no "82 F1a: \$HOME resolved as target root :: $(grep -E 'config|id_rsa' <<<"$out" | head -2)"; fi
+
+# 82b — F1(a): a target root that is an ANCESTOR of $HOME is refused (marker present, so only the guard can refuse).
+a="$TMP/f1a"; mkdir -p "$a/corpus/projects/foo/notes"; : > "$a/package.json"; echo p > "$a/passwd.txt"
+vbcite "$a/corpus/projects/foo/notes/b.md" "passwd.txt:1"
+out="$(HOME="$a/corpus/projects/foo" bash "$SUT" "$a/corpus/projects/foo/notes/b.md" 2>/dev/null)"
+if grep -qE 'extern\s+passwd\.txt:1' <<<"$out" && ! grep -qE '^\s+ok' <<<"$out"; then ok "82b F1a: target root that is an ancestor of \$HOME refused"
+else no "82b F1a: ancestor-of-HOME accepted :: $(grep -E 'passwd' <<<"$out" | head -2)"; fi
+
+# 82c — F1(b): a corpus ancestor whose parent carries NO project marker is not a project root → extern.
+m="$TMP/f1b"; mkdir -p "$m/corpus/x"; echo s > "$m/secret.txt"
+vbcite "$m/corpus/x/b.md" "secret.txt:1"
+out="$(bash "$SUT" "$m/corpus/x/b.md" 2>/dev/null)"
+if grep -qE 'extern\s+secret\.txt:1' <<<"$out" && ! grep -qE '^\s+ok' <<<"$out"; then ok "82c F1b: markerless parent of corpus/ is not a project root (extern)"
+else no "82c F1b: markerless parent accepted :: $(grep -E 'secret' <<<"$out" | head -2)"; fi
+
+# 82d — F1(b): a git work-tree top (its `.git` entry is the marker) IS a project root even when corpus/ is a nested repo.
+g="$TMP/f1g"; mkdir -p "$g/corpus" "$g/src"; git -C "$g" init -q 2>/dev/null; git -C "$g/corpus" init -q 2>/dev/null; seq 1 5 > "$g/src/a.sh"
+vbcite "$g/corpus/b.md" "src/a.sh:2"
+out="$(bash "$SUT" "$g/corpus/b.md" 2>/dev/null)"
+if grep -qE 'ok \(target-root\) src/a\.sh:2' <<<"$out"; then ok "82d F1b: git work-tree top accepted as project root"
+else no "82d F1b: git top refused :: $(grep -E 'src/a' <<<"$out" | head -2)"; fi
+
+# 82e — F1(b): each documented marker file alone qualifies (list edges: first, middle, last).
+for mk in package.json Makefile Cargo.toml; do
+  q="$TMP/f1m-$mk"; mkdir -p "$q/corpus"; : > "$q/$mk"; seq 1 5 > "$q/z.sh"; vbcite "$q/corpus/b.md" "z.sh:2"
+  out="$(bash "$SUT" "$q/corpus/b.md" 2>/dev/null)"
+  if grep -qE 'ok \(target-root\) z\.sh:2' <<<"$out"; then ok "82e F1b: marker '$mk' qualifies"
+  else no "82e F1b: marker '$mk' not honoured :: $(grep -E 'z\.sh' <<<"$out" | head -1)"; fi
+done
+
+# 83 — F2: the first EXISTING root must not pre-empt a root where the cited range FITS.
+f2="$TMP/p2"; mkdir -p "$f2/corpus" "$TMP/p2sr"; : > "$f2/package.json"; seq 1 3 > "$f2/lib.sh"; seq 1 100 > "$TMP/p2sr/lib.sh"
+vbcite "$f2/corpus/b.md" "lib.sh:50"
+out="$(SOURCE_ROOT="$TMP/p2sr" bash "$SUT" "$f2/corpus/b.md" 2>/dev/null)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE '^\s+ok\s+lib\.sh:50' <<<"$out" && ! grep -q 'RANGE!' <<<"$out"; then ok "83 F2: short target-root file does not pre-empt a SOURCE_ROOT file that fits (ok, exit 0)"
+else no "83 F2: first-existing root pre-empted :: rc=$rc $(grep -E 'lib\.sh' <<<"$out" | head -1)"; fi
+# 83b — other direction: the cite fits the FIRST root → that root wins (labelled), no SOURCE_ROOT needed.
+vbcite "$f2/corpus/b2.md" "lib.sh:2"
+out="$(SOURCE_ROOT="$TMP/p2sr" bash "$SUT" "$f2/corpus/b2.md" 2>/dev/null)"
+if grep -qE 'ok \(target-root\) lib\.sh:2' <<<"$out"; then ok "83b F2: fitting first root wins (target-root)"
+else no "83b F2: first fitting root not used :: $(grep -E 'lib\.sh' <<<"$out" | head -1)"; fi
+# 83c — nothing fits: RANGE! against the FIRST existing file, exit 1.
+vbcite "$f2/corpus/b3.md" "lib.sh:500"
+out="$(SOURCE_ROOT="$TMP/p2sr" bash "$SUT" "$f2/corpus/b3.md" 2>/dev/null)"; rc=$?
+if [ "$rc" = 1 ] && grep -qE 'RANGE!\s+lib\.sh:500\s+\(file has 3 lines\)' <<<"$out"; then ok "83c F2: no root fits → RANGE! against the first existing file (3 lines), exit 1"
+else no "83c F2: wrong no-fit report :: rc=$rc $(grep -E 'lib\.sh' <<<"$out" | head -1)"; fi
+
+# 84 — F3: nested corpus/…/corpus → the NEAREST corpus ancestor decides (inner parent has the marker + file).
+n3="$TMP/p3"; mkdir -p "$n3/corpus/inner/corpus"; : > "$n3/package.json"; : > "$n3/corpus/inner/package.json"
+seq 1 5 > "$n3/corpus/inner/inner.sh"; seq 1 5 > "$n3/outer.sh"
+vbcite "$n3/corpus/inner/corpus/b.md" "inner.sh:2" "outer.sh:2"
+out="$(bash "$SUT" "$n3/corpus/inner/corpus/b.md" 2>/dev/null)"
+if grep -qE 'ok \(target-root\) inner\.sh:2' <<<"$out" && grep -qE 'extern\s+outer\.sh:2' <<<"$out"; then ok "84 F3: nearest corpus ancestor wins (inner ok, outer extern)"
+else no "84 F3: nested corpus resolved wrongly :: $(grep -E 'inner|outer' <<<"$out" | head -2)"; fi
+
+# 84b — F3: a directory merely CONTAINING 'corpus' (corpus-old) is not a corpus dir → extern.
+o4="$TMP/p4"; mkdir -p "$o4/corpus-old" "$o4/src"; : > "$o4/package.json"; seq 1 5 > "$o4/src/x.sh"
+vbcite "$o4/corpus-old/b.md" "src/x.sh:2"
+out="$(bash "$SUT" "$o4/corpus-old/b.md" 2>/dev/null)"
+if grep -qE 'extern\s+src/x\.sh:2' <<<"$out"; then ok "84b F3: 'corpus-old' is not a corpus dir (extern)"
+else no "84b F3: substring match on corpus :: $(grep -E 'x\.sh' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
@@ -1318,7 +1390,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth-source-root-fallback: neuter SOURCE_ROOT-FALLBACK; decompiled-tree cite must revert to extern --"
-  if mk_sed "teeth-source-root-fallback" "$MUT/sr.sh" '/# SOURCE_ROOT-FALLBACK/ s/_bt_resolve=.*/: # SOURCE_ROOT-FALLBACK [NEUTERED]/'; then
+  if mk_sed "teeth-source-root-fallback" "$MUT/sr.sh" '/# SOURCE_ROOT-FALLBACK/ s/.*/: # SOURCE_ROOT-FALLBACK [NEUTERED]/'; then
     mkdir -p "$TMP/sr-root/organized/platBase/vineflower/com/example"
     seq 1 30 > "$TMP/sr-root/organized/platBase/vineflower/com/example/Foo.java"
     vbfix "$TMP/sr-teeth.md" "The method \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"
@@ -1388,20 +1460,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth-target-root-fallback: neuter TARGET-ROOT-FALLBACK; corpus-parent cite must revert to extern --"
   if mk_sed "teeth-target-root-fallback" "$MUT/trf.sh" '/# TARGET-ROOT-FALLBACK$/ s/.*/:  # TARGET-ROOT-FALLBACK [NEUTERED]/'; then
-    tooth "teeth-target-root-fallback" 0 0 "$MUT/trf.sh" --good-has 'ok +src/index\.js:50-52' --good-lacks 'extern.*src/index' \
-      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
+    tooth "teeth-target-root-fallback" 0 0 "$MUT/trf.sh" --good-has 'ok \(target-root\) src/index\.js:50-52' --good-lacks 'extern.*src/index' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok .*src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
   fi
 
   echo "-- teeth-target-root-walkup: neuter the ancestor walk; a block in corpus/sub must revert to extern (corpus/ itself still ok) --"
   if mk_sed "teeth-target-root-walkup" "$MUT/trw.sh" 's/^  _tr_d="\$(dirname "\$_tr_d")"/  _tr_d=""/'; then
-    tooth "teeth-target-root-walkup" 0 0 "$MUT/trw.sh" --good-has 'ok +src/index\.js:50-52' --good-lacks 'extern.*src/index' \
-      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/sub/block-78b.md"
+    tooth "teeth-target-root-walkup" 0 0 "$MUT/trw.sh" --good-has 'ok \(target-root\) src/index\.js:50-52' --good-lacks 'extern.*src/index' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok .*src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/sub/block-78b.md"
   fi
 
   echo "-- teeth-target-root-derive: neuter the corpus-name test; no target root is ever derived --"
-  if mk_sed "teeth-target-root-derive" "$MUT/trd.sh" 's/= "corpus" \]; then target_root=/= "NO-SUCH-DIR" ]; then target_root=/'; then
-    tooth "teeth-target-root-derive" 0 0 "$MUT/trd.sh" --good-has 'ok +src/index\.js:50-52' \
-      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok +src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
+  if mk_sed "teeth-target-root-derive" "$MUT/trd.sh" 's/= "corpus" \]; then _tr_c=/= "NO-SUCH-DIR" ]; then _tr_c=/'; then
+    tooth "teeth-target-root-derive" 0 0 "$MUT/trd.sh" --good-has 'ok \(target-root\) src/index\.js:50-52' \
+      --bad-has 'extern +src/index\.js:50-52' --bad-lacks 'ok .*src/index\.js' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
   fi
 
   echo "-- teeth-p6-probe-report: neuter P6-PROBE-REPORT; the probe resolved-N-of-M line must vanish --"
@@ -1426,6 +1498,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-p1418-type-digits" "$MUT/p1418.sh" '/# P1418-TYPE-DIGITS/ s/\[a-z0-9-\]/[a-z-]/'; then
     tooth "teeth-p1418-type-digits" 0 0 "$MUT/p1418.sh" --good-has "unrecognised Type: token 'experimental-p9';" \
       --bad-has "unrecognised Type: token 'experimental-p';" --bad-lacks 'experimental-p9' -- bash @SUT@ "$TMP/p1418-p6.md"
+  fi
+
+  echo "-- teeth-tr-home-guard: neuter the HOME guard; fake-HOME and ancestor-of-HOME roots must resolve ok again --"
+  if mk_sed "teeth-tr-home-guard" "$MUT/trhg.sh" '/# TARGET-ROOT-HOME-GUARD/ s/.*/  : # TARGET-ROOT-HOME-GUARD [NEUTERED]/'; then
+    tooth "teeth-tr-home-guard (equal)" 0 0 "$MUT/trhg.sh" --good-has 'extern +config\.sh:1' --good-lacks '^ +ok' \
+      --bad-has 'ok \(target-root\) config\.sh:1' -- env "HOME=$TMP/f1h/home" bash @SUT@ "$TMP/f1h/home/corpus/b.md"
+    tooth "teeth-tr-home-guard (ancestor)" 0 0 "$MUT/trhg.sh" --good-has 'extern +passwd\.txt:1' --good-lacks '^ +ok' \
+      --bad-has 'ok \(target-root\) passwd\.txt:1' -- env "HOME=$TMP/f1a/corpus/projects/foo" bash @SUT@ "$TMP/f1a/corpus/projects/foo/notes/b.md"
+  fi
+
+  echo "-- teeth-tr-home-equal-only: guard only the equal case; an ANCESTOR of HOME must resolve again --"
+  if mk_sed "teeth-tr-home-equal-only" "$MUT/trhe.sh" '/# TARGET-ROOT-HOME-GUARD/ s#"\$_tr_c"/\*#"$_tr_c/"#'; then
+    tooth "teeth-tr-home-equal-only" 0 0 "$MUT/trhe.sh" --good-has 'extern +passwd\.txt:1' --good-lacks '^ +ok' \
+      --bad-has 'ok \(target-root\) passwd\.txt:1' -- env "HOME=$TMP/f1a/corpus/projects/foo" bash @SUT@ "$TMP/f1a/corpus/projects/foo/notes/b.md"
+  fi
+
+  echo "-- teeth-tr-any-parent: accept any parent as project root; the markerless layout must resolve again --"
+  if mk_sed "teeth-tr-any-parent" "$MUT/trap.sh" '/target_root="\$_tr_c"; break/ s/if \[ -e "[^"]*" \]/if true/'; then
+    tooth "teeth-tr-any-parent" 0 0 "$MUT/trap.sh" --good-has 'extern +secret\.txt:1' --good-lacks '^ +ok' \
+      --bad-has 'ok \(target-root\) secret\.txt:1' -- bash @SUT@ "$TMP/f1b/corpus/x/b.md"
+  fi
+
+  echo "-- teeth-tr-marker-*: drop one marker from the list; a project carrying only that marker must stop resolving --"
+  if mk_sed "teeth-tr-marker-first" "$MUT/trm1.sh" '/# TARGET-ROOT-MARKERS/ s/package\.json //'; then
+    tooth "teeth-tr-marker-first" 0 0 "$MUT/trm1.sh" --good-has 'ok \(target-root\) z\.sh:2' --bad-has 'extern +z\.sh:2' \
+      --bad-lacks 'ok .*z\.sh' -- bash @SUT@ "$TMP/f1m-package.json/corpus/b.md"
+  fi
+  if mk_sed "teeth-tr-marker-middle" "$MUT/trm2.sh" '/# TARGET-ROOT-MARKERS/ s/Makefile //'; then
+    tooth "teeth-tr-marker-middle" 0 0 "$MUT/trm2.sh" --good-has 'ok \(target-root\) z\.sh:2' --bad-has 'extern +z\.sh:2' \
+      --bad-lacks 'ok .*z\.sh' -- bash @SUT@ "$TMP/f1m-Makefile/corpus/b.md"
+  fi
+  if mk_sed "teeth-tr-marker-last" "$MUT/trm3.sh" '/# TARGET-ROOT-MARKERS/ s/ \.git;/;/'; then
+    tooth "teeth-tr-marker-last" 0 0 "$MUT/trm3.sh" --good-has 'ok \(target-root\) src/a\.sh:2' --bad-has 'extern +src/a\.sh:2' \
+      --bad-lacks 'ok .*src/a\.sh' -- bash @SUT@ "$TMP/f1g/corpus/b.md"
+  fi
+
+  echo "-- teeth-tr-label: neuter the (target-root) label; the matching root must no longer be visible --"
+  if mk_sed "teeth-tr-label" "$MUT/trl.sh" '/# TARGET-ROOT-LABEL/ s/.*/    _bt_okp="ok      "  # TARGET-ROOT-LABEL [NEUTERED]/'; then
+    tooth "teeth-tr-label" 0 0 "$MUT/trl.sh" --good-has 'ok \(target-root\) src/index\.js:50-52' \
+      --bad-has 'ok +src/index\.js:50-52' --bad-lacks 'target-root' -- bash @SUT@ "$TMP/p1325/corpus/block-78.md"
+  fi
+
+  echo "-- teeth-bt-range-fit: neuter the range-fit test; the first EXISTING root pre-empts again (RANGE!) --"
+  if mk_sed "teeth-bt-range-fit" "$MUT/brf.sh" '/# BT-RANGE-FIT/ s/if .*/if true; then  # BT-RANGE-FIT [NEUTERED]/'; then
+    tooth "teeth-bt-range-fit" 0 1 "$MUT/brf.sh" --good-has '^ +ok +lib\.sh:50' --good-lacks 'RANGE!' \
+      --bad-has 'RANGE!.*lib\.sh:50' -- env "SOURCE_ROOT=$TMP/p2sr" bash @SUT@ "$f2/corpus/b.md"
+  fi
+
+  echo "-- teeth-bt-range-break: drop the break; a later fitting root must not override the first fitting one --"
+  if mk_sed "teeth-bt-range-break" "$MUT/brb.sh" '/# BT-RANGE-FIT/,+1 s/; break//'; then
+    tooth "teeth-bt-range-break" 0 0 "$MUT/brb.sh" --good-has 'ok \(target-root\) lib\.sh:2' \
+      --bad-lacks 'target-root' --bad-has '^ +ok +lib\.sh:2' -- env "SOURCE_ROOT=$TMP/p2sr" bash @SUT@ "$f2/corpus/b2.md"
+  fi
+
+  echo "-- teeth-bt-first-existing: drop the first-existing fallback; a no-fit cite must not degrade to extern --"
+  if mk_sed "teeth-bt-first-existing" "$MUT/bfe.sh" '/-z "\$_bt_resolve" \] && \[ -n "\$_bt_first"/ s/.*/    : # [NEUTERED]/'; then
+    tooth "teeth-bt-first-existing" 1 0 "$MUT/bfe.sh" --good-has 'RANGE!.*lib\.sh:500.*3 lines' \
+      --bad-has 'extern +lib\.sh:500' --bad-lacks 'RANGE!' -- env "SOURCE_ROOT=$TMP/p2sr" bash @SUT@ "$f2/corpus/b3.md"
+  fi
+
+  echo "-- teeth-tr-nearest: drop the break; the FARTHEST corpus ancestor must win again --"
+  if mk_sed "teeth-tr-nearest" "$MUT/trn.sh" 's/_tr_c="\$(dirname "\$_tr_d")"; break; fi/_tr_c="$(dirname "$_tr_d")"; fi/'; then
+    tooth "teeth-tr-nearest" 0 0 "$MUT/trn.sh" --good-has 'extern +outer\.sh:2' \
+      --bad-has 'ok \(target-root\) outer\.sh:2' -- bash @SUT@ "$n3/corpus/inner/corpus/b.md"
+  fi
+
+  echo "-- teeth-tr-exact-name: substring match on 'corpus'; corpus-old must be a corpus dir again --"
+  if mk_sed "teeth-tr-exact-name" "$MUT/trx.sh" 's/\[ "\$(basename "\$_tr_d")" = "corpus" \]/[[ "$(basename "$_tr_d")" == *corpus* ]]/'; then
+    tooth "teeth-tr-exact-name" 0 0 "$MUT/trx.sh" --good-has 'extern +src/x\.sh:2' --good-lacks '^ +ok' \
+      --bad-has 'ok \(target-root\) src/x\.sh:2' -- bash @SUT@ "$o4/corpus-old/b.md"
   fi
 fi
 
