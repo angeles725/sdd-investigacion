@@ -351,6 +351,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   # unreadable checks are degraded, never a merge
   : > "$ROOT/log"; CKFAIL=1 runck "$S" "$ROOT/ck/pass.json"
   expect "CI gh checks error -> degraded" 3 '^merge-gate: degraded: cannot read check runs'; ck_nomerge "CI gh error"
+  expect "CI gh checks error surfaces gh stderr (#1433)" 3 'degraded: cannot read check runs.*HTTP 502'
   echo '{not json' > "$ROOT/ck/bad.json"; : > "$ROOT/log"; runck "$S" "$ROOT/ck/bad.json"
   expect "CI malformed JSON -> degraded" 3 '^merge-gate: degraded: .*check'; ck_nomerge "CI malformed JSON"
   echo '{"total_count":1}' > "$ROOT/ck/bad.json"; runck "$S" "$ROOT/ck/bad.json"
@@ -364,7 +365,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/high.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
   if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI review_due refuse happens before any check-runs read"; else no "CI read after review_due"; fi
   # --- #1426 fix-first: latest run per (name, app.id) wins; two-page --paginate slurp ---
-  # fields: name:status:conclusion:app:started_at:id  (started_at/id compare as strings/numbers; empty = null)
+  # fields: name:status:conclusion:app:started_at:id  (started_at is parsed but never used for ordering; id compares as a number; empty = null)
   CKREQ="shellcheck"
   for pos in first middle last; do
     old="shellcheck:completed:failure:1:t1:10"; new="shellcheck:completed:success:1:t2:20"
@@ -393,7 +394,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: same name, two apps, one failed -> ci_failed (app.id is part of the key)" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:completed:success:1:t2:20 shellcheck:completed:success:2:t1:11
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: two apps, each latest green -> merges" 0 '^merge-gate: merged: PR #7'
-  # started_at null: id is the fallback ordering
+  # started_at null: ordering is the highest check-run id only (started_at is never consulted)
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::3 shellcheck:completed:success:1::5
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id success wins -> merges" 0 '^merge-gate: merged: PR #7'
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1::3 shellcheck:completed:failure:1::5
@@ -518,6 +519,8 @@ mutate M38-pr-implies-merge       's/^\[ -n "\$do_merge" \] || exit 0/:/'
 mutate M39-pr-flag-ignored        's/^    --pr) .*/    --pr) shift 2 ;;/'
 mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
 mutate M41-head-reject-first-line-only 's/printf .%s. "\$merge_out" | grep -Eqi/printf "%s" "$merge_line" | grep -Eqi/'
+sc_ci_stderr() { CKREQ="shellcheck"; : > "$ROOT/log"; CKFAIL=1 runck "$1" "$ROOT/ck/pass.json"; }
+tooth M19b-ci-stderr-dropped 's/\${ci_err:+: \$ci_err}//' sc_ci_stderr 3 'HTTP 502' 3 '^merge-gate: degraded: cannot read check runs for head [0-9a-f]+ \(gh api failed\)$'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
 mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
 # #1426 CI-gate mutants. sc_ci_* run on the check files written below (and by the suite) under $ROOT/ck.
@@ -539,7 +542,7 @@ mutate M59-flag-required-ignored         's/required="\$2"; shift 2 ;;/shift 2 ;
 mutate M60-checks-not-bound-to-head      's/commits\/\$head\/check-runs/commits\/HEAD\/check-runs/'
 mutate M61-required-not-trimmed          's/map(gsub("^\\\\s+|\\\\s+\$"; ""))/./'
 mutate M62-zero-reported-ok              's/elif length == 0 then .*/elif length == 0 then "ok"/'
-mutate M63-gh-error-ignored              's/ || degraded "cannot read check runs for head[^"]*"/ || :/'
+mutate M63-gh-error-ignored              's/^    degraded "cannot read check runs for head[^"]*"/    :/'
 mutate M64-shape-unchecked               's/error("shape")/[]/g'
 mutate M66-unpaginated-single-page       's/ --paginate//'
 mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'

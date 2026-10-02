@@ -166,7 +166,11 @@ esac
 
 # CI gate (see header): --merge only, after the review verdict and before any allow/merge output.
 if [ -n "$do_merge" ]; then
-  ci_raw="$(ghr api "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" --paginate 2>/dev/null)" || degraded "cannot read check runs for head $head (gh api failed)"
+  ci_raw="$(ghr api "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" --paginate 2>"$err_file")" || {
+    # Surface gh's own error (bounded, single line) instead of a generic message.
+    ci_err="$(tr '\n' ' ' <"$err_file" 2>/dev/null | cut -c1-300)"
+    degraded "cannot read check runs for head $head (gh api failed${ci_err:+: $ci_err})"
+  }
   # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
   ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
     | map({name, status, conclusion, app_id: (.app.id? // null), id: (.id? // 0)})
