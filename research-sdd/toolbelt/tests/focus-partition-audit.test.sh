@@ -511,7 +511,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_unit "$SA" "mod_a" "Alpha.java"
   mkdir -p "$CA"
   mk_sed "teeth-a" "$MUT/fpa.MUT-A.sh" 's/^UNCHARTERED=.*/UNCHARTERED=0  # MUTATED-A/' \
-    && tooth "teeth-a: original 1 unchartered; mutant 0 — bites, and the anchor does NOT touch families:" 0 0 "$MUT/fpa.MUT-A.sh" \
+    && tooth "teeth-a: original 1 unchartered; mutant 0 — bites" 0 0 "$MUT/fpa.MUT-A.sh" \
          --good-has '0/1 chartered .* 1 unchartered' --bad-has '0/1 chartered .* 0 unchartered' \
          -- bash @SUT@ "$CA" --subject "$SA"
   # The anchor must NOT also clobber FAMILIES_UNCHARTERED= (same substring). This is an INVARIANCE assertion, not a
