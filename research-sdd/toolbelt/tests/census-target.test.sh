@@ -52,51 +52,14 @@ code() { bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
 # verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-# mk_sed LABEL OUT EXPR...  build OUT from $MK_ORIG (default $SUT), one sed stage per EXPR; every
-# stage must change the original on its own (a dead stage hides behind a live one otherwise).
-mk_sed() {
-  local label="$1" out="$2" e rc err; shift 2
-  local orig="${MK_ORIG:-$SUT}"; local -a args=()
-  for e in "$@"; do
-    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
-      no "$label: sed stage matches nothing in the original (silent no-op)" "[$e]"; return 1
-    fi
-    args+=(-e "$e")
-  done
-  err="$(mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc)" "$err"; return 1; }
-}
-# mk_verify LABEL OUT  same refusals for a mutant built another way (bash string surgery).
-mk_verify() {
-  local label="$1" out="$2" rc err
-  err="$(mutant_verify "${MK_ORIG:-$SUT}" "$out" 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc)" "$err"; return 1; }
-}
-# tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
-# Runs ARGV on the original ('@SUT@' → $SUT) then on the mutant; PASS only when the original exits
-# GOOD_RC with the good-side output conditions AND the mutant exits exactly BAD_RC with the bad-side
-# output conditions: a crashing or syntax-broken mutant cannot read as teeth.
-tooth() {
-  local label="$1" grc="$2" brc="$3" mut="$4" ghas="" glack="" bhas="" black="" a gout mout grc_a mrc_a why=""; shift 4
-  while [ "${1:-}" != -- ]; do
-    case "${1:-}" in
-      --good-has) ghas="$2" ;; --good-lacks) glack="$2" ;; --bad-has) bhas="$2" ;; --bad-lacks) black="$2" ;;
-      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
-    esac; shift 2
-  done; shift
-  local -a gc=() mc=()
-  for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
-  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
-  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
-  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
-  if [ -n "$ghas" ] && ! grep -qE -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi
-  if [ -n "$glack" ] && grep -qE -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
-  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
-  if [ -n "$bhas" ] && ! grep -qE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
-  if [ -n "$black" ] && grep -qE -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
-  if [ -z "$why" ]; then ok "$label" "[original rc=$grc → mutant rc=$brc]"
-  else no "$label — THEATER" "$why"; fi
-}
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# The builders and the exact-verdict runner are shared (lib/mutant.sh, #1299): they print their own
+# FAIL/PASS line and return non-zero on failure; these adapters only COUNT. MK_ORIG overrides the
+# original a mutant is built from (default $SUT).
+mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "${MK_ORIG:-$SUT}" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+mk_verify() { mutant_built "$1" "${MK_ORIG:-$SUT}" "$2" || { fail=$((fail+1)); return 1; }; }
+tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
 echo "== census-target.test.sh (SUT: $(basename "$SUT")) =="
 
