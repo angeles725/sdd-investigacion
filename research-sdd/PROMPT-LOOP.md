@@ -770,6 +770,9 @@ Always read first, in this order:
          marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
          remembered (it exits non-zero on a cited file:line whose line is out of range). It is your own
          calculator, not an orchestrator gate.
+       - Before committing the block, run `$KIT/toolbelt/lint-block.sh <block.md>` next to `verify-block.sh`
+         (METHODOLOGY §11 "Block lint"): a non-zero exit is a defect to fix or to waive with a reasoned
+         `lint-waive` token; `lint-block.sh --audit <corpus>` is the report-only form for legacy corpora.
          VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
          all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
          etc.), verify-block classifies them as `extern` — it prints `resolved 0 of M` and a graded WARN
@@ -1111,6 +1114,13 @@ Always read first, in this order:
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
          `retro: pending`. Enforcement: once wired (kit issue #479), `$KIT/toolbelt/retro-gate.sh` runs as the
          target's Stop hook and blocks the session ONCE with the exact missing element until this holds.
+         SEED AS THE RUN'S OWN FINAL STEP (#1258): the Stop hook's `retro-conforming` seeding is only a
+         backstop, so after the retro is committed run `bash $KIT/toolbelt/stage-retro-issues.sh <retro> --apply`
+         yourself and include its final `summary:` line in the return; if it exits 1 with `degraded:` (e.g. `gh`
+         absent or unauthenticated, kit issue repo unresolved, target not registered in TARGETS.md) or
+         exits 2 (some issue creations failed), say so — never omit the line. The hook also appends one line per
+         Stop to `<target>/.claude/.rsdd-retro-gate-stops.log` (branch taken plus seeding evidence: the
+         seeder's `summary:` line, or a typed skip or degraded reason); check it when seeding looks missing.
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
          triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
          project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for codex or
@@ -1373,6 +1383,12 @@ HARD RULES:
     documentation and methodology gaps cluster on the same shared files, so serial dispatch is
     often the correct choice and not a performance issue. Parallelism is safe only when each agent
     owns an exclusive, non-overlapping set of output files.
+  - NEVER MERGE A DUE CANDIDATE BEFORE ITS REVIEW (#1272). Before any merge run
+    `$KIT/toolbelt/merge-gate.sh --cwd <worktree at the PR head> --base-ref <PR base> --pr <PR#>` (or
+    `--merge <PR#>` to let it merge) and merge only on a PR-bound `allow` (line ends `bound to PR #N`);
+    a run without `--pr`/`--merge` is range-only and trusts your `--base-ref`. `refuse: review_due` = review
+    and acknowledge that exact head first; `refuse: base_excludes_pr_commits` = your base hides PR commits;
+    `degraded` (exit 3) is never an allow. Details: `PROMPT-LOOP-APPENDIX.md#review-and-delivery`.
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)

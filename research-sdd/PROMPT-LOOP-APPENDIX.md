@@ -280,8 +280,8 @@ DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (K
 Trigger: read this section in full when a repo under receipt-driven development (RDD) is about to
 commit or merge, when a change set is large enough that a review lens budget could refuse it, when
 a tooling bootstrap lands many tools at once, or when the target repo cannot enforce required
-checks. (Kit issues #895, #1176, #1217, #1272, #1276.) These are DOCTRINE: no toolbelt merge
-wrapper exists, and none is implied. The operator or driver follows the order below by hand.
+checks. (Kit issues #895, #1176, #1217, #1272, #1276.) The merge-order rule has an instrument
+(`merge-gate.sh`, below); the rest is DOCTRINE the operator or driver follows by hand.
 
 ```text
          BULK AUTONOMOUS COMMITS VS RDD. When a chain commits per block under RDD, every commit
@@ -307,10 +307,14 @@ wrapper exists, and none is implied. The operator or driver follows the order be
          review time (observed ~40-90 s per slice) behind the writer. Reviewing is still per
          commit; pipelining changes only the ordering.
          NEVER MERGE A DUE CANDIDATE BEFORE ITS REVIEW. When `gentle-ai review assess` reports
-         `review_due=true`, the merge waits for the ACKNOWLEDGED review of that exact head. Today
-         this is an ordering the operator/driver must keep by hand (the observed failure: a PR merged
-         before review, reviewed post-merge); a mechanical check in the merge path is a possible
-         future instrument, not an existing one.
+         `review_due=true`, the merge waits for the ACKNOWLEDGED review of that exact head (the
+         observed failure: a PR merged before review, reviewed post-merge). The mechanical check
+         is `toolbelt/merge-gate.sh --cwd <worktree at the PR head> --base-ref <PR base> --pr <PR#>`
+         (or `--merge <PR#>`, which runs `gh pr merge <PR#> --squash --match-head-commit <head>`
+         itself after an allow); merge only on a PR-bound allow (the line ends `bound to PR #N`).
+         Without `--pr`/`--merge` it is range-only and trusts your `--base-ref`. Exit 0 allow, 1 refuse,
+         2 usage, 3 degraded (never an allow). It never runs `gentle-ai review start`; the review
+         itself stays the operator's step.
          MERGE WAITS FOR GREEN CI WHEN BRANCH PROTECTION IS UNAVAILABLE. If the target repo cannot
          enforce required checks (e.g. a private repo on a free plan), the driver's merge step
          MUST wait for green CI (`gh pr checks <n> --watch`) and record the result in the PR or
