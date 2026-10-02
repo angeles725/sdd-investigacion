@@ -8,6 +8,9 @@
 # living-mirror rule already MANDATES refreshing the row on run close — this mechanizes the check so the
 # rule is enforced, not just remembered.
 #
+# Also WARNs (never FAILs) when a `B<n>-G<m>` backlog row drifted from the block bullet that defines it —
+# delegated to check-gap-drift.sh (kit issues #1291, #1294).
+#
 # Usage: verify-state.sh <target-dir> [--focus <slug>]
 # Exit: 0 = consistent · 1 = inconsistency (stale mirror) · 2 = bad args / no state file / absent-focus.
 set -uo pipefail
@@ -1080,6 +1083,29 @@ for state in "${states[@]}"; do
   if [ "${#denoms[@]}" -ge 2 ]; then
     joined="$(printf '%s vs ' "${denoms[@]}")"; joined="${joined% vs }"
     echo "   WARN   contradictory coverage denominators ($joined) — collapse to one canonical coverage number"
+  fi
+
+  # GAP-DRIFT (WARN-only, kit issues #1291/#1294) — a `B<n>-G<m>` backlog row whose text shares too few
+  # content words with the bullet that defines it in block <n> was paraphrased into a different question.
+  # Delegated to check-gap-drift.sh (one implementation, also runnable standalone); never changes rc.
+  # Only runs when the state HAS gap-id rows; a missing/failed checker is a typed degraded WARN, never silence.
+  if grep -qE '^[[:space:]]*\|[^|]*\|[[:space:]]*B[0-9]+-G[0-9]+' "$state" 2>/dev/null; then  # GAP-DRIFT-ROWS-PRESENT
+    _gd="$(cd "$(dirname "$0")" && pwd)/check-gap-drift.sh"
+    if [ ! -f "$_gd" ]; then
+      echo "   WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh; B<n>-G<m> rows were NOT compared with their block bullets"
+    else
+      _gd_out="$(bash "$_gd" "$target" --state "$state" 2>&1)"; _gd_rc=$?
+      if [ "$_gd_rc" -ge 2 ]; then
+        echo "   WARN   gap-drift: degraded — check-gap-drift.sh failed (exit $_gd_rc): $(printf '%s' "$_gd_out" | head -1)"
+      else
+        while IFS= read -r _gd_l; do
+          case "$_gd_l" in
+            DRIFT\?*|UNPARSED*) echo "   WARN   gap-drift: $_gd_l — copy the child-gap text verbatim from the block bullet (METHODOLOGY §7)" ;;  # GAP-DRIFT-WARN
+            DEGRADED*)          echo "   WARN   gap-drift: $_gd_l" ;;
+          esac
+        done <<<"$_gd_out"
+      fi
+    fi
   fi
 
   [ "$frc" -eq 0 ] && echo "   ok     envelope validated + summary consistent with the backlog."
