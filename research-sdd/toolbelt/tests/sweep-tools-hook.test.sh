@@ -53,29 +53,35 @@ OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
 # 4. Emits summary when unrecorded > 0.
 write_stub 0 "$(printf 'TARGET  demo\n        tools: 3 found\n        recorded (T-rows): 1  ·  unrecorded: 2  ·  no retro has a tools table\n\nSummary: 3 tool(s) across 1 target(s) · 1 recorded · 2 unrecorded.')"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'unrecorded' \
-  && printf '%s\n' "$OUT" | grep -qi 'Summary' \
+<<<"$OUT" grep -qi 'unrecorded' \
+  && <<<"$OUT" grep -qi 'Summary' \
   && ok "4 unrecorded > 0 → emits summary line" \
-  || no "4 unrecorded > 0 → expected summary in output (exit=$RC out=[$OUT])"
+  || { no "4 unrecorded > 0 → expected summary in output (exit=$RC out=[$OUT])"
+       # Kit issue #1349: seen once inside an aggregate run, never reproduced standalone. Record the stub
+       # inputs the hook actually ran against (a "could not run" banner here would point at an exec race
+       # on the freshly written stub, e.g. ETXTBSY, rather than at the hook's parsing).
+       printf '        stub: %s | hook: %s | stub-out: [%s]\n' \
+         "$(ls -l "$TMP/sweep-tools.sh" 2>&1)" "$(ls -l "$TMP/sweep-tools-hook.sh" 2>&1)" "$(cat "$TMP/stub-out.txt" 2>&1)"
+       printf '        jq=%s TMPDIR=%s\n' "$(command -v jq 2>&1 || echo absent)" "${TMPDIR:-unset}"; }
 
 # 5. Operational failure (sweep exits non-zero) → error banner, not silence.
 write_stub 1 "sweep-tools: cannot find TARGETS.md"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
+<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
   && ok "5 sweep failure (rc=1) → error banner emitted" \
   || no "5 sweep failure → expected error banner (exit=$RC out=[$OUT])"
 
 # 6. Anti-silent-zero: sweep exits 0 but emits no Summary line → warning surfaced.
 write_stub 0 "TARGET  demo"$'\n'"        no tools directory"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'missing summary\|unexpected' \
+<<<"$OUT" grep -qi 'missing summary\|unexpected' \
   && ok "6 missing Summary line → anti-silent-zero warning emitted" \
   || no "6 missing Summary line → expected warning, got exit=$RC out=[$OUT]"
 
 # 7. PARTIAL WARN passthrough: WARN line from sweep included when unrecorded > 0.
 write_stub 0 "$(printf 'Summary: 1 tool(s) across 2 target(s) · 0 recorded · 1 unrecorded.\nWARN: 1 target(s) skipped — truncated path; sweep is PARTIAL: some-target')"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -q 'WARN' \
+<<<"$OUT" grep -q 'WARN' \
   && ok "7 PARTIAL WARN included when unrecorded > 0" \
   || no "7 PARTIAL WARN → expected WARN in output (exit=$RC out=[$OUT])"
 
@@ -91,7 +97,7 @@ STUB_STH8
 chmod +x "$_stub_sth8/grep"
 write_stub 0 "$(printf 'Summary: 1 tool(s) across 1 target(s) · 0 recorded · 1 unrecorded.')"
 OUT_STH8="$(PATH="$_stub_sth8:$PATH" bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC_STH8=$?
-printf '%s\n' "$OUT_STH8" | grep -qiE 'WARN-line extraction failed|grep exit' \
+<<<"$OUT_STH8" grep -qiE 'WARN-line extraction failed|grep exit' \
   && ok "8 WARN-line extraction grep exit-2 → failure notice in output" \
   || no "8 WARN-line extraction grep exit-2 not reported (exit=$RC_STH8 out=[$OUT_STH8])"
 
@@ -104,7 +110,7 @@ printf '%s\n' "$OUT_STH8" | grep -qiE 'WARN-line extraction failed|grep exit' \
 write_stub 0 "$(printf 'Summary: 0 tool(s) across 0 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.\nINFO: 34 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.')"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
 if [ -n "$OUT" ] && [ "$RC" -eq 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'INFO:.*not traversed'; then
+   && <<<"$OUT" grep -q 'INFO:.*not traversed'; then
   ok "9 absent targets (0 unrecorded) → NOT silent, INFO line surfaced" "(exit $RC)"
 else
   no "9 absent targets → expected INFO:.*not traversed in output, got exit=$RC out=[$OUT]"
@@ -116,8 +122,8 @@ fi
 write_stub 0 "$(printf 'Summary: 5 tool(s) across 2 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 5 unrecorded.\nINFO: 2 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.')"
 OUT="$(bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC=$?
 if [ -n "$OUT" ] && [ "$RC" -eq 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'unrecorded' \
-   && printf '%s\n' "$OUT" | grep -q 'INFO:.*not traversed'; then
+   && <<<"$OUT" grep -q 'unrecorded' \
+   && <<<"$OUT" grep -q 'INFO:.*not traversed'; then
   ok "10 unrecorded>0 AND absent → both surfaced in output" "(exit $RC)"
 else
   no "10 unrecorded>0 AND absent → expected both unrecorded summary and INFO line, got exit=$RC out=[$OUT]"
@@ -197,6 +203,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has 'INFO:.*not traversed' --bad-lacks 'INFO:.*not traversed' \
          --bad-has 'unrecorded' -- bash @SUT@
 fi
+
+# Kit issue #1349 — pipefail + early-terminating consumer. Under `set -o pipefail`, a producer piped into `grep -q`
+# fails whenever grep -q exits on its first match before printf has finished writing (SIGPIPE, rc 141): a
+# PASSING assertion reads as a failure, only under load (the failure output itself contained the expected text).
+# Assertions here use a here-string (`<<<"$v" grep -q PAT`) instead. This self-lint keeps the idiom out.
+_pf_re='\| *grep +-[a-zA-Z]*q'
+_pf_self="${BASH_SOURCE[0]}"
+_pf_n="$(grep -cE -- "$_pf_re" "$_pf_self")"; _pf_rc=$?
+if [ "$_pf_rc" -ge 2 ]; then no "#1349 lint: could not read $_pf_self (grep exit $_pf_rc)"
+elif [ "${_pf_n:-0}" -eq 0 ]; then ok "#1349 lint: no 'pipe-into-grep-q' (pipefail SIGPIPE race) idiom in this suite"
+else no "#1349 lint: $_pf_n 'pipe-into-grep-q' site(s) — use <<<\"\$v\" grep -q: $(grep -nE -- "$_pf_re" "$_pf_self" | cut -d: -f1 | head -20 | tr '\n' ' ')"; fi
+# Detector self-check (the lint must be able to see the idiom it forbids).
+if [ "$(printf 'x | %s -q y\n' grep | grep -cE -- "$_pf_re")" = "1" ]; then ok "#1349 lint: detector flags a synthetic 'pipe-into-grep-q' line"
+else no "#1349 lint: detector missed a synthetic 'pipe-into-grep-q' line — the lint is THEATER"; fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
