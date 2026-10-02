@@ -404,6 +404,15 @@ the cell blank is not cosmetic: `verify-sources.sh`'s LEVEL-4 fabricated-citatio
 rows that NAME a block, so an empty cell silently disables that check for the row. (A whole focus once left all
 12 of its registered rows blank, disabling the check for every one.)
 
+**Licensed install artifacts that are NOT preserved: type `local-install (not preserved)`.** A registry row for an
+artifact read in place from a licensed install (not copied under `sources/`) carries Type `local-install (not
+preserved)`, never a preserved-file type, so a reader does not look for bytes that are not there. Record the REAL
+time the hash was taken (the `sha256sum` run, UTC) in the Date cell: no midnight placeholder like `T00:00:00Z`.
+The Origin cell names the install-relative path (`<install-root>/modules/x.jar`), never an absolute
+machine-specific path such as `/mnt/c/...`. The native reviewer flagged both absolute paths and placeholder
+timestamps as provenance defects. (Source: n5 wave 8-9 retro #3; the registry template is
+`templates/SOURCES.template.md`.)
+
 **Multi-focus SOURCES.md: use filename-qualified block refs in the "Blocks that cite it" column.** In a corpus where multiple focuses coexist (each with its own block prefix, e.g. `ops-blockN` and `ztna-blockN`), bare block numbers (`Block 3`) are ambiguous when two focuses share the same N. Always write the filename-qualified form (`ztna-block3`, not `Block 3`) in the "Blocks that cite it" cell. `verify-sources.sh`'s LEVEL-4 cross-check parses this form; a bare number in a multi-focus corpus produces false-positive or false-negative fabrication results.
 
 **Cite the FULL LITERAL registered basename — never an ellipsis form.** When a block cites a long or generated
@@ -633,6 +642,15 @@ one `UNIT:` line per affected unit. Cite a decompiled unit as evidence only afte
 `result=marked` or `kept-primary` output carries a failure marker and `result=failed` has no output at all. A `reason=missing` unit is a class the engine silently left out; on a multi-release jar, classes present only under `META-INF/versions/N` are such a true omission with Vineflower. Header `reason=` tokens `coverage-sweep-unavailable`, `no-class-entries` and `total_budget_exhausted` mean the coverage proof itself could not be completed: treat the tree as unverified, never as covered. `timeout-unavailable` means the engines ran UNBOUNDED (no `timeout` binary); the sweep still ran.
 
 **Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. No checker reads this declaration yet; the fixed grammar makes it auditable when one exists. A silent skip is indistinguishable from a forgotten census. (Source: 2026-08-30-alarm-webhook-focus-retro.md D1)
+
+**Census scope: enumerate every tree shape, state the exclusions.** A corpus-wide census or count must list
+each tree shape the corpus uses (e.g. `vineflower/`, `fallback/`, per-version dirs) and say which it excludes
+and why. A blanket exclusion meant to avoid double-counting silently dropped the one module that exists only
+under `fallback/` (n5 B105 corrected the B80/B90 totals, 211 to 217 sites, because `bajaui` has no other tree).
+**Negative existence by full-table read.** To claim "X is absent", read the WHOLE table (the full import
+table, the full symbol list, the whole-corpus grep over every tree shape above) and report the table size
+beside the zero, rather than one negative grep; this is the method behind the §3 symmetric-opening marker.
+(Examples: n5 B63 njre.dll import table, B73 isChildLegal, B45 census; source: wave 6-7 retro #3, wave 10-11 retro #4)
 
 **A residual category is not noise until someone has read it.** Naming a classifier output bucket `other`,
 `misc`, or `unclassified` is a decision to stop looking, not a conclusion. Record any residual bucket with
@@ -1827,6 +1845,13 @@ can score it correctly. A metric that fails the known-positive test is broken an
 candidate verdict is meaningful. A metric whose known-positive passes is then trusted to assess the candidate
 genuinely. (Source: blender-llm B45/B50 — luminance metric scored correct colouring as a regression; the
 broken instrument was confirmed by a known-positive probe, not by adjusting the colouring.)
+
+**SELF-REFERENTIAL MARKER INFLATION: do not paste `verify-block.sh`'s own tally into the block.** The tool
+counts bracketed marker tokens in the file, so a Self-verify section that quotes its bracketed
+`[CERT]`/`[INFER]` tally adds those tokens to the next run's count, and every re-run drifts upward. Write
+the tally in prose or without brackets (`CERT 41, INFER 6`), or read it as an ADJUSTED count (§11 raw vs
+adjusted). Six n5 blocks (B61, B66, B67, B70, B72, B75) each rediscovered this independently. Doctrine
+only; the instrument does not exclude its own tally. (Source: n5 wave 6-7 retro #2)
 
 ## 11b. Verifying the verifier and the kit test-lane contract
 
@@ -3085,7 +3110,8 @@ the loop instead of a manual favor: at the end of a run, the loop proposes its o
 **When it fires.** At every FOCUS completion, and ALWAYS at campaign STOP (§8 terminal trigger). For a
 very long single focus, it MAY also fire every ~10 blocks so lessons don't wait until the end. Also fires:
 (a) proactively, whenever a run yields a REUSABLE METHOD or hits a REPEATED FRICTION — do not wait for STOP
-or operator intervention; (b) at §20 document-mode completion; (c) at session close;
+or operator intervention; (b) at §20 document-mode completion, including a batch (tanda) of 3+ blocks that ends without formal
+completion (hilton B19-B24 had no retro until the operator asked); (c) at session close;
 (d) at a §21 wall exit when the exit was triggered by a toolbelt wrapper (blocked-on-tool or config-cap exit) —
 record a narrow tooling-only retro note AT THE MOMENT of the wall, do not wait for STOP. In document-mode runs
 (§20) there is no focus-completion or corpus STOP trigger, so a §21 wall exit is often the only §18 trigger
@@ -3675,7 +3701,7 @@ conventions unchanged. Invoked `/research-sdd <target> document "<what to docume
 operational contract is PROMPT-LOOP's DOCUMENT CYCLE. One-line essence: research-sdd DISCOVERS; document mode
 CAPTURES what you already know or just did, and always mirrors it to Engram so it stays findable.
 
-**Cross-ref §18:** a document-mode run ends with the same §18 retrospective pass a discovery run does — fire it at §20 completion before handing off.
+**Cross-ref §18:** a document-mode run ends with the same §18 retrospective pass a discovery run does — fire it at §20 completion before handing off, or at the close of a batch of 3+ blocks that ends without formal completion.
 
 **CAPTURE vs DISCOVER.** The static loop uncovers gaps and self-feeds a backlog; document mode does the
 opposite — it SEEDS the full list of topics/steps up front (the outline IS the work-list) and STOPS when the
@@ -3748,7 +3774,9 @@ step that silently never runs. (Source: investigacion/mini-pc/corpus/retros/2026
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
 **Auto-routed destination (subject vs toolchain).** The key decision — made by the MODE, not by the user per
-call: ask "does this knowledge serve OTHER targets too?"
+call, and made PER CLAIM, not per block (one block can hold a subject claim and a toolchain claim, e.g. a
+client's PDF instance plus the reusable "`pdftotext` lies, render at 300 dpi" technique; routing the whole block
+to the corpus loses the toolchain half): ask "does this knowledge serve OTHER targets too?"
 - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS device) →
   the TARGET's corpus (`$CORPUS`), like any block.
 - REUSABLE toolchain / environment knowledge (how to bring up Ghidra, how to use bkcrack, a WSL setup step —
@@ -3788,7 +3816,9 @@ been exercised end-to-end on a real target: computadoras B16–B25 (~10 `method:
 preserving probes under `sources/probes/`, each passing `verify-block.sh`, and each mirrored to Engram). The
 mode is EXERCISED. Maintainer caveat: those blocks were driven inline rather than through the skill's
 `document` sub-command — the `method: document-cycle` stamp confirms the DOCUMENT CYCLE contract was
-followed; whether the CLI surface was exercised is a separate question.
+followed; whether the CLI surface was exercised is a separate question. A further document-mode exercise: the
+hilton-bms dashboard run (B11-B12, 2026-08-01; `verify-block` exit 0 on both, Engram mirror under
+`research/hilton-bms/dashboard`) and its energeticos B19-B24 batch.
 
 ## 20b. Modo bloque vs. modo diario
 
