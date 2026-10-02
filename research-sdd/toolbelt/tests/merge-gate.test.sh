@@ -398,9 +398,17 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id success wins -> merges" 0 '^merge-gate: merged: PR #7'
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1::3 shellcheck:completed:failure:1::5
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id failed wins -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  # started_at outranks id: the later start wins even with a LOWER id
+  # latest = highest check-run id, NEVER started_at: a fresh QUEUED rerun has null started_at and a higher id
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t1:10 shellcheck:queued::1::20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer QUEUED rerun (null started_at, higher id) -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
+  mkchecks "$ROOT/ck/d.json" shellcheck:queued::1::20 shellcheck:completed:success:1:t1:10
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: newer queued rerun listed first -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:queued::1::20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failure + newer queued null-started rerun -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t2:10 shellcheck:completed:success:1:t1:20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: later started_at beats higher id -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: higher id beats later started_at -> merges" 0 '^merge-gate: merged: PR #7'
+  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t2:10 shellcheck:completed:failure:1:t1:20
+  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: higher id failed beats later started_at success -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
   # ids compare as numbers, not strings (9 < 10)
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::9 shellcheck:completed:success:1::10
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: ids compare numerically (10 beats 9)" 0 '^merge-gate: merged: PR #7'
@@ -535,10 +543,10 @@ mutate M63-gh-error-ignored              's/ || degraded "cannot read check runs
 mutate M64-shape-unchecked               's/error("shape")/[]/g'
 mutate M66-unpaginated-single-page       's/ --paginate//'
 mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'
-mutate M68-dedup-removed                 's/^    | group_by(\[\.name, \.app_id\]) | map(max_by(\[\.started_at, \.id\]))/    | .   /'
-mutate M69-dedup-picks-oldest            's/map(max_by(\[\.started_at, \.id\]))/map(min_by([.started_at, .id]))/'
+mutate M68-dedup-removed                 's/^    | group_by(\[\.name, \.app_id\]) | map(max_by(\.id))/    | .   /'
+mutate M69-dedup-picks-oldest            's/map(max_by(\.id))/map(min_by(.id))/'
 mutate M70-app-id-ignored-in-key         's/group_by(\[\.name, \.app_id\])/group_by([.name])/'
-mutate M71-started-at-ignored            's/map(max_by(\[\.started_at, \.id\]))/map(max_by([.id]))/'
+mutate M71-order-by-started-at-first     's/id: (\.id? \/\/ 0)/id: (.id? \/\/ 0), started_at: (.started_at? \/\/ "")/;s/map(max_by(\.id))/map(max_by([.started_at, .id]))/'
 mutate M72-id-compared-as-string         's/id: (\.id? \/\/ 0)/id: ((.id? \/\/ 0) | tostring)/'
 mutate M73-first-page-only               's/\[\.\[\]\.check_runs\[\]\]/[.[0].check_runs[]]/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
