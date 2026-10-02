@@ -63,6 +63,19 @@ case "$1 $2" in
       case "$f" in headRefOid|baseRefName|number|state|title|url) ;; *) echo "Unknown JSON field: \"$f\"" >&2; exit 1 ;; esac
     done
     printf '{"headRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}"; exit 0 ;;
+  "api repos/{owner}/{repo}/commits/"*"/check-runs"*)
+    # REST check-runs for ONE commit sha. Only --paginate is accepted: any --json/--jq (field-name
+    # drift) or other flag fails loudly. A sha other than the PR head gets an EMPTY set, so a gate bound
+    # to the wrong sha shows up as ci_pending, never as a lucky pass.
+    ckpath="$2"; shift 2
+    pag=""; for a in "$@"; do case "$a" in --paginate) pag=1 ;; *) echo "stub gh: unsupported api argument: $a" >&2; exit 1 ;; esac; done
+    [ -n "$pag" ] || { echo "stub gh: check-runs read without --paginate (would silently truncate at one page)" >&2; exit 1; }
+    [ -n "${STUB_CHECKS_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    cksha="${ckpath#repos/\{owner\}/\{repo\}/commits/}"; cksha="${cksha%%/*}"
+    if [ "$cksha" != "${STUB_PR_HEAD:-}" ]; then echo '{"total_count":0,"check_runs":[]}'; exit 0; fi
+    if [ -n "${STUB_CHECKS_JSON:-}" ]; then cat "$STUB_CHECKS_JSON"; exit 0; fi
+    echo '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"},{"name":"toolbelt-tests","status":"completed","conclusion":"success"},{"name":"pr-validation","status":"completed","conclusion":"success"}]}'
+    exit 0 ;;
   "api repos/{owner}/{repo}/pulls/"*|api\ repos/*)
     [ -n "${STUB_API_FAIL:-}" ] && exit 1
     printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
@@ -109,6 +122,23 @@ expect() { # expect <label> <rc> <regex-on-stdout>
   else no "$1 (rc=$RC want $2; out: $OUT)"; fi
 }
 ARGS=(--cwd "$REPO" --base-ref base)
+
+# --- CI-gate helpers (kit issue #1426) ---------------------------------------------------------
+# mkchecks <file> <name:status:conclusion>...   (conclusion may be empty for an unfinished run)
+mkchecks() {
+  local f="$1" a; shift
+  for a in "$@"; do printf '%s\n' "$a"; done | jq -Rsc '(split("\n")|map(select(length>0)|split(":")|{name:.[0],status:.[1],conclusion:(if .[2]=="" then null else .[2] end)})) as $r | {total_count: ($r|length), check_runs: $r}' > "$f"
+}
+# CKREQ: the MERGE_GATE_REQUIRED_CHECKS env for runck; the literal UNSET leaves the default in force.
+CKREQ="shellcheck,toolbelt-tests"
+# runck <sut> <checks-file> [extra sut args]   (a --merge 7 run whose PR head equals the checked HEAD)
+runck() {
+  local sut="$1" cj="$2"; shift 2
+  OUT="$( if [ "$CKREQ" = UNSET ]; then unset MERGE_GATE_REQUIRED_CHECKS; else export MERGE_GATE_REQUIRED_CHECKS="$CKREQ"; fi
+    PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=0 \
+      STUB_CHECKS_JSON="$cj" STUB_CHECKS_FAIL="${CKFAIL:-}" STUB_LOG="$ROOT/log" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
+}
+mkdir -p "$ROOT/ck"
 
 suite() { # suite <sut> — the whole behavioural suite, reusable against mutants
   local S="$1"
@@ -251,6 +281,83 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   expect "N-a head rejection matched even behind a deprecation line" 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed before merge: Head branch was modified'
   OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'X Merge failed\nHead branch was modified. Review and try the merge again.')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
   expect "N-a head rejection matched on a later line of gh output" 1 '^merge-gate: refuse: head_mismatch'
+  # --- #1426: --merge refuses on pending / failed / missing CI checks bound to the exact head ---
+  ck_nomerge() { if ! grep -q 'pr merge' "$ROOT/log"; then ok "$1 never calls gh pr merge"; else no "$1 merged anyway"; fi; }
+  CKREQ="shellcheck,toolbelt-tests"
+  mkchecks "$ROOT/ck/pass.json" shellcheck:completed:success toolbelt-tests:completed:success pr-validation:completed:success
+  : > "$ROOT/log"; runck "$S" "$ROOT/ck/pass.json"
+  expect "CI all pass -> merges" 0 '^merge-gate: merged: PR #7'
+  if grep -q "^gh api repos/{owner}/{repo}/commits/$HEAD_SHA/check-runs" "$ROOT/log"; then ok "CI check-runs read for the exact head sha"; else no "CI gh calls ($(cat "$ROOT/log"))"; fi
+  mkchecks "$ROOT/ck/pass2.json" shellcheck:completed:success toolbelt-tests:completed:skipped pr-validation:completed:neutral
+  runck "$S" "$ROOT/ck/pass2.json"; expect "CI skipped/neutral count as pass" 0 '^merge-gate: merged: PR #7'
+  # one case per bad state, offender FIRST / MIDDLE / LAST of three reported checks, plus single element
+  for st in pending:queued: pending:in_progress: pending:waiting: failed:completed:failure failed:completed:cancelled failed:completed:timed_out failed:completed:action_required; do
+    tok="${st%%:*}"; rest="${st#*:}"; bs="${rest%%:*}"; bc="${rest#*:}"; want="ci_$tok"
+    for pos in first middle last; do
+      case "$pos" in
+        first)  mkchecks "$ROOT/ck/x.json" "shellcheck:$bs:$bc" toolbelt-tests:completed:success pr-validation:completed:success ;;
+        middle) mkchecks "$ROOT/ck/x.json" shellcheck:completed:success "toolbelt-tests:$bs:$bc" pr-validation:completed:success ;;
+        last)   mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:completed:success "pr-validation:$bs:$bc" ;;
+      esac
+      : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
+      expect "CI $want ($bs/${bc:-none}) offender $pos" 1 "^merge-gate: refuse: $want "
+      ck_nomerge "CI $want offender $pos"
+    done
+    mkchecks "$ROOT/ck/x.json" "shellcheck:$bs:$bc"; CKREQ="shellcheck"; : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
+    expect "CI $want ($bs/${bc:-none}) single element" 1 "^merge-gate: refuse: $want "; CKREQ="shellcheck,toolbelt-tests"
+  done
+  # a failure outranks a pending check reported alongside it
+  mkchecks "$ROOT/ck/x.json" shellcheck:in_progress: toolbelt-tests:completed:failure
+  runck "$S" "$ROOT/ck/x.json"; expect "CI failed outranks pending" 1 '^merge-gate: refuse: ci_failed '
+  # the refusal names the offending check
+  mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:in_progress: pr-validation:completed:success
+  runck "$S" "$ROOT/ck/x.json"; expect "CI refusal names the offending check" 1 'ci_pending \(toolbelt-tests\)'
+  # missing: the absent required check FIRST / MIDDLE / LAST of a three-name list, and single element
+  mkchecks "$ROOT/ck/x.json" b:completed:success c:completed:success; CKREQ="a,b,c"; runck "$S" "$ROOT/ck/x.json"
+  expect "CI ci_missing required absent FIRST" 1 '^merge-gate: refuse: ci_missing \(a\)'
+  mkchecks "$ROOT/ck/x.json" a:completed:success c:completed:success; runck "$S" "$ROOT/ck/x.json"
+  expect "CI ci_missing required absent MIDDLE" 1 '^merge-gate: refuse: ci_missing \(b\)'
+  mkchecks "$ROOT/ck/x.json" a:completed:success b:completed:success; : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
+  expect "CI ci_missing required absent LAST" 1 '^merge-gate: refuse: ci_missing \(c\)'; ck_nomerge "CI ci_missing"
+  mkchecks "$ROOT/ck/x.json" other:completed:success; CKREQ="a"; runck "$S" "$ROOT/ck/x.json"
+  expect "CI ci_missing single-element required list" 1 '^merge-gate: refuse: ci_missing \(a\)'
+  mkchecks "$ROOT/ck/x.json" axb:completed:success; CKREQ="a.b"; runck "$S" "$ROOT/ck/x.json"
+  expect "CI required names match literally, not as regex" 1 '^merge-gate: refuse: ci_missing \(a.b\)'
+  mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:completed:success; CKREQ=" shellcheck , toolbelt-tests ,"; runck "$S" "$ROOT/ck/x.json"
+  expect "CI required list tolerates spaces and a trailing comma" 0 '^merge-gate: merged: PR #7'
+  CKREQ="shellcheck,toolbelt-tests"
+  # explicitly empty list = opt-out of REQUIRED names only (doc-only PRs); reported checks must still be green
+  mkchecks "$ROOT/ck/doc.json" pr-validation:completed:success
+  CKREQ=""; runck "$S" "$ROOT/ck/doc.json"; expect "CI empty env list + only PR-validation passing -> merges" 0 '^merge-gate: merged: PR #7'
+  CKREQ="shellcheck,toolbelt-tests"; runck "$S" "$ROOT/ck/doc.json" --required-checks ""
+  expect "CI empty --required-checks overrides env and merges" 0 '^merge-gate: merged: PR #7'
+  CKREQ=UNSET; runck "$S" "$ROOT/ck/doc.json"; expect "CI default required set refuses doc-only checks (ci_missing)" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  runck "$S" "$ROOT/ck/pass.json"; expect "CI default required set passes when both present" 0 '^merge-gate: merged: PR #7'
+  CKREQ=""; mkchecks "$ROOT/ck/x.json" pr-validation:in_progress:; runck "$S" "$ROOT/ck/x.json"
+  expect "CI empty list still refuses a pending reported check" 1 '^merge-gate: refuse: ci_pending '
+  mkchecks "$ROOT/ck/x.json" pr-validation:completed:failure; runck "$S" "$ROOT/ck/x.json"
+  expect "CI empty list still refuses a failed reported check" 1 '^merge-gate: refuse: ci_failed '
+  printf '{"total_count":0,"check_runs":[]}\n' > "$ROOT/ck/none.json"; runck "$S" "$ROOT/ck/none.json"
+  expect "CI empty list + zero reported checks -> ci_pending (cannot prove CI ran)" 1 '^merge-gate: refuse: ci_pending \(no check runs reported'
+  CKREQ="shellcheck,toolbelt-tests"; runck "$S" "$ROOT/ck/pass.json" --required-checks "shellcheck"
+  expect "CI --required-checks flag overrides env" 0 '^merge-gate: merged: PR #7'
+  runck "$S" "$ROOT/ck/pass.json" --required-checks "shellcheck,nope"; expect "CI --required-checks flag adds a required name" 1 '^merge-gate: refuse: ci_missing \(nope\)'
+  OUT="$(PATH="$STUBS:$PATH" bash "$S" "${ARGS[@]}" --required-checks 2>/dev/null)"; RC=$?; expect "usage: --required-checks needs a value" 2 '^merge-gate: usage'
+  # unreadable checks are degraded, never a merge
+  : > "$ROOT/log"; CKFAIL=1 runck "$S" "$ROOT/ck/pass.json"
+  expect "CI gh checks error -> degraded" 3 '^merge-gate: degraded: cannot read check runs'; ck_nomerge "CI gh error"
+  echo '{not json' > "$ROOT/ck/bad.json"; : > "$ROOT/log"; runck "$S" "$ROOT/ck/bad.json"
+  expect "CI malformed JSON -> degraded" 3 '^merge-gate: degraded: .*check'; ck_nomerge "CI malformed JSON"
+  echo '{"total_count":1}' > "$ROOT/ck/bad.json"; runck "$S" "$ROOT/ck/bad.json"
+  expect "CI off-shape JSON (no check_runs array) -> degraded" 3 '^merge-gate: degraded: .*check'
+  echo '{"check_runs":[{"status":"completed","conclusion":"success"}]}' > "$ROOT/ck/bad.json"; runck "$S" "$ROOT/ck/bad.json"
+  expect "CI check run without a name -> degraded" 3 '^merge-gate: degraded: .*check'
+  : > "$ROOT/empty.json"; runck "$S" "$ROOT/empty.json"; expect "CI empty gh output -> degraded" 3 '^merge-gate: degraded: .*check'
+  # the CI gate is a --merge gate: --pr alone never reads check runs; review_due refuses before any read
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
+  if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI --pr check-only never reads check runs"; else no "CI --pr read check runs"; fi
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/high.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
+  if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI review_due refuse happens before any check-runs read"; else no "CI read after review_due"; fi
 }
 
 echo "-- merge-gate behavioural suite --"
@@ -351,6 +458,29 @@ mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
 mutate M41-head-reject-first-line-only 's/printf .%s. "\$merge_out" | grep -Eqi/printf "%s" "$merge_line" | grep -Eqi/'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
 mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
+# #1426 CI-gate mutants. sc_ci_* run on the check files written below (and by the suite) under $ROOT/ck.
+sc_ci_pending() { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/x_pending.json"; }
+sc_ci_failed()  { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/x_failed.json"; }
+sc_ci_missing() { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/doc.json"; }
+mkchecks "$ROOT/ck/x_pending.json" shellcheck:completed:success toolbelt-tests:in_progress:
+mkchecks "$ROOT/ck/x_failed.json" shellcheck:completed:success toolbelt-tests:completed:failure
+tooth M50-ci-pending-exit  '/CI for this exact head must be green/{n;s/exit 1/exit 0/;}' sc_ci_pending 1 '^merge-gate: refuse: ci_pending' 0 '^merge-gate: refuse: ci_pending'
+tooth M51-ci-failed-exit   '/CI for this exact head must be green/{n;s/exit 1/exit 0/;}' sc_ci_failed 1 '^merge-gate: refuse: ci_failed' 0 '^merge-gate: refuse: ci_failed'
+tooth M52-ci-gate-skipped  's/^if \[ -n "\$do_merge" \]; then$/if false; then/' sc_ci_missing 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged'
+tooth M53-pending-as-pass  's/elif (\$pending | length) > 0 then/elif false then/' sc_ci_pending 1 '^merge-gate: refuse: ci_pending' 0 '^merge-gate: merged'
+tooth M54-missing-dropped  's/elif (\$missing | length) > 0 then/elif false then/' sc_ci_missing 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged'
+tooth M55-failed-dropped   's/if (\$failed | length) > 0 then/if false then/' sc_ci_failed 1 '^merge-gate: refuse: ci_failed' 0 '^merge-gate: merged'
+mutate M56-only-failure-conclusion-fails 's/((\.conclusion \/\/ "") | IN("success", "skipped", "neutral") | not)/((.conclusion \/\/ "") == "failure")/'
+mutate M57-default-required-emptied      's/^required="shellcheck,toolbelt-tests"/required=""/'
+mutate M58-env-required-ignored          's/^\[ -z "\${MERGE_GATE_REQUIRED_CHECKS+x}" \] || required=.*/:/'
+mutate M59-flag-required-ignored         's/required="\$2"; shift 2 ;;/shift 2 ;;/'
+mutate M60-checks-not-bound-to-head      's/commits\/\$head\/check-runs/commits\/HEAD\/check-runs/'
+mutate M61-required-not-trimmed          's/map(gsub("^\\\\s+|\\\\s+\$"; ""))/./'
+mutate M62-zero-reported-ok              's/elif length == 0 then .*/elif length == 0 then "ok"/'
+mutate M63-gh-error-ignored              's/ || degraded "cannot read check runs for head[^"]*"/ || :/'
+mutate M64-shape-unchecked               's/error("shape")/[]/g'
+mutate M66-unpaginated-single-page       's/ --paginate//'
+mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]

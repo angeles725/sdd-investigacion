@@ -7,7 +7,7 @@
 # `review_due_reason=already_reviewed`), so this script re-implements none of that logic.
 #
 # Usage:
-#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>]
+#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]
 #
 # TRUST ASSUMPTION: a run without --pr/--merge is RANGE-ONLY. It trusts the caller's --base-ref and
 # --head and says so on its allow line; it does NOT prove the range is the whole PR. Use `--pr N`
@@ -19,6 +19,7 @@
 #   merge-gate: refuse: review_due (<reason>) ...                                        exit 1
 #   merge-gate: refuse: head_mismatch ...                                                exit 1
 #   merge-gate: refuse: base_excludes_pr_commits ... (--pr/--merge only)                 exit 1
+#   merge-gate: refuse: ci_pending|ci_failed|ci_missing (<checks>) ... (--merge only)   exit 1
 #   merge-gate: degraded: <why>                                                          exit 3
 #   merge-gate: usage: <why>                                                             exit 2
 #   merge-gate: merged: PR #N (head=<sha> cwd=<dir>)                                     exit 0
@@ -31,13 +32,28 @@
 # read-only PR binding (one `gh api repos/{owner}/{repo}/pulls/N` inside --cwd). `--merge N` binds
 # the same way, then runs `gh pr merge N --squash --match-head-commit <head>` after an allow.
 # Never calls `gentle-ai review start`.
+#
+# CI GATE (kit issue #1426, --merge only): after the review allow and BEFORE `gh pr merge`, the check
+# runs of the EXACT head sha are read (one read-only `gh api repos/{owner}/{repo}/commits/<head>/check-runs
+# --paginate` inside --cwd) and the merge is refused unless every reported check is green and every
+# required check is present. Required set: --required-checks <a,b,...>, else env
+# MERGE_GATE_REQUIRED_CHECKS, else the default `shellcheck,toolbelt-tests`. An explicitly EMPTY list
+# (flag or env) is the opt-out for path-filtered doc-only PRs whose CI never runs those two jobs; it
+# waives only the required-NAME check, every reported check must still be green and at least one must be
+# reported. Why REST by sha and not `gh pr checks`: `gh pr checks` resolves the PR's CURRENT head (it can
+# differ from the head we verified and merge with), and gh 2.45 has no `--json` there. Refusals, in
+# precedence order: ci_failed (failure/cancelled/timed_out/action_required/... conclusion), ci_pending
+# (any run not completed, or no run reported at all), ci_missing (a required name absent). Reported
+# checks other than success/skipped/neutral are failed. Unreadable/off-shape check data is degraded.
 set -uo pipefail
 
 say() { printf 'merge-gate: %s\n' "$*"; }
-usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>]" >&2; exit 2; }
+usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]" >&2; exit 2; }
 degraded() { say "degraded: $*"; exit 3; }
 
 cwd="" base="" want_head="" pr="" do_merge=""
+required="shellcheck,toolbelt-tests"
+[ -z "${MERGE_GATE_REQUIRED_CHECKS+x}" ] || required="$MERGE_GATE_REQUIRED_CHECKS"   # set-but-empty = opt-out
 while [ $# -gt 0 ]; do
   case "$1" in
     --pr) [ $# -ge 2 ] || usage "--pr needs a PR number"; pr="$2"; shift 2 ;;
@@ -45,6 +61,7 @@ while [ $# -gt 0 ]; do
     --base-ref) [ $# -ge 2 ] || usage "--base-ref needs a value"; base="$2"; shift 2 ;;
     --head) [ $# -ge 2 ] || usage "--head needs a value"; want_head="$2"; shift 2 ;;
     --merge) [ $# -ge 2 ] || usage "--merge needs a PR number"; pr="$2"; do_merge=1; shift 2 ;;
+    --required-checks) [ $# -ge 2 ] || usage "--required-checks needs a value (use \"\" to opt out)"; required="$2"; shift 2 ;;
     *) usage "unknown argument: $1" ;;
   esac
 done
@@ -137,6 +154,29 @@ case "$reason" in
   passive|already_reviewed|under_budget) ;;
   *) degraded "unknown not-due reason from gentle-ai: $reason (refusing to guess)" ;;
 esac
+
+# CI gate (see header): --merge only, after the review verdict and before any allow/merge output.
+if [ -n "$do_merge" ]; then
+  ci_raw="$(ghr api "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" --paginate 2>/dev/null)" || degraded "cannot read check runs for head $head (gh api failed)"
+  # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
+  ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  ci_req="$(jq -cn --arg s "$required" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' 2>/dev/null)" || degraded "cannot parse --required-checks list"
+  ci_verdict="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '
+    (map(select(.status == "completed" and ((.conclusion // "") | IN("success", "skipped", "neutral") | not)) | .name) | unique) as $failed
+    | (map(select(.status != "completed") | .name) | unique) as $pending
+    | ([.[].name] as $seen | $req | map(select(. as $r | $seen | index($r) | not))) as $missing
+    | if ($failed | length) > 0 then "ci_failed (\($failed | join(",")))"
+      elif ($pending | length) > 0 then "ci_pending (\($pending | join(",")))"
+      elif length == 0 then "ci_pending (no check runs reported)"
+      elif ($missing | length) > 0 then "ci_missing (\($missing | join(",")))"
+      else "ok" end' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
+  [ -n "$ci_verdict" ] || degraded "cannot evaluate check runs for head $head"
+  if [ "$ci_verdict" != "ok" ]; then
+    say "refuse: $ci_verdict (head=$head) — CI for this exact head must be green before merging"
+    exit 1
+  fi
+fi
+
 if [ -z "$pr" ]; then
   say "allow: $reason (head=$head base=$base merge_base=$mb) (range-only; not bound to a PR — use --pr N or --merge N)"
   exit 0
