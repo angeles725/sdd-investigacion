@@ -62,7 +62,21 @@ _stop_log_write() {
   fi
 }
 _session_id=""
-trap _stop_log_write EXIT
+# Part C scratch files (kit issue #1404): removed on EVERY exit path, including a SIGTERM/SIGINT from
+# a Stop timeout. The signal traps only `exit`, which runs the EXIT handler; SIGKILL stays untrappable.
+_dl_f1=""; _dl_f2=""; _dl_of=""
+_dl_cleanup() {
+  [ -z "$_dl_f1" ] || rm -f -- "$_dl_f1"
+  [ -z "$_dl_f2" ] || rm -f -- "$_dl_f2"
+  [ -z "$_dl_of" ] || rm -f -- "$_dl_of"
+}
+_exit_handler() {
+  _stop_log_write
+  _dl_cleanup   # SENTINEL-DIRLINK-CLEANUP
+}
+trap _exit_handler EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 # SENTINEL-STOP-LOG-END
 
 # ── Load helpers ──────────────────────────────────────────────────────────────
@@ -457,7 +471,12 @@ fi
 # RETRO_GATE_DIRLINK_TIMEOUT must be a positive number (integer or decimal, e.g. 5 or 2.5). 0 would
 # disable GNU timeout (an unbounded walk on a Stop hook) and a non-number would fail every walk with
 # rc 125, so anything else is a typed WARN and the 5 s default is used (never a silent disable).
-# NOT bounded: the TOTAL Part C time (N links x timeout worst case); deferred, see kit issue #1352.
+# NOT bounded: the TOTAL Part C time (N links x timeout worst case); deferred (kit issues #1352,
+# #1404 — a cumulative budget needs a decision on its own variable/semantics; bash has no float
+# arithmetic, so a decimal RETRO_GATE_DIRLINK_TIMEOUT cannot simply be subtracted from).
+# SCRATCH FILES: _dl_f1/_dl_f2/_dl_of are removed by the EXIT handler (also reached from the
+# TERM/INT traps), so a Stop timeout that kills the hook does not leak them. If `mktemp` fails, Part C
+# is skipped with one typed WARN (no scratch file = no walk), never a per-link rc=126 report.
 _dl_timeout="${RETRO_GATE_DIRLINK_TIMEOUT:-5}"
 # SENTINEL-DIRLINK-TIMEOUT-START
 if ! [[ "$_dl_timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [[ "$_dl_timeout" =~ ^0+(\.0+)?$ ]]; then
@@ -467,8 +486,9 @@ if ! [[ "$_dl_timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [[ "$_dl_timeout" =~ ^0+(\.0
 fi
 # SENTINEL-DIRLINK-TIMEOUT-END
 # _dl_find <find-args…>: bounded find; NUL-delimited stdout (callers pass -print0) lands in the file
-# _dl_of and the status in _dl_rc (124 = timed out, 127 = no `timeout` binary, 126 = no scratch
-# file). Never fails the caller. (A file, not a command substitution: bash drops NUL bytes there,
+# _dl_of and the status in _dl_rc (124 = timed out, 127 = no `timeout` binary, 126 = defensive guard
+# for a missing scratch file; the scan itself is skipped with its own typed WARN before that can
+# happen, so a real 126 here is find/timeout's "cannot execute"). Never fails the caller. (A file, not a command substitution: bash drops NUL bytes there,
 # and the subshell would lose _dl_rc.)
 _dl_find() {
   if [ -z "$_dl_of" ]; then _dl_rc=126; return 0; fi
@@ -480,11 +500,21 @@ _dl_find() {
 if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
   _dl_tgt="$(realpath -- "$TARGET" 2>/dev/null)" || _dl_tgt="$TARGET"
   _dl_home="$(realpath -- "${HOME:-/nonexistent}" 2>/dev/null)" || _dl_home=""
-  _dl_cands=()
+  _dl_cands=(); _dl_skip=0
   _dl_f1="$(mktemp 2>/dev/null)" || _dl_f1=""
   _dl_f2="$(mktemp 2>/dev/null)" || _dl_f2=""
   _dl_of="$(mktemp 2>/dev/null)" || _dl_of=""
-  if [ -n "$_dl_f1" ] && [ -n "$_dl_f2" ] \
+  # SENTINEL-DIRLINK-SCRATCH-START
+  # No scratch file for the walks → Part C cannot run at all: say so ONCE, with the real cause (it is
+  # not a find/timeout failure), instead of one "walk incomplete (rc=126)" per link.
+  if [ -z "$_dl_of" ]; then
+    printf 'retro-gate: WARN: directory-symlink scan skipped: cannot create a scratch file (mktemp failed) for %s — symlinked research directories not scanned\n' \
+      "$(basename "$TARGET")" >&2
+    _dl_cands=(); _dl_skip=1
+  fi
+  # SENTINEL-DIRLINK-SCRATCH-END
+  if [ "$_dl_skip" -eq 1 ]; then :
+  elif [ -n "$_dl_f1" ] && [ -n "$_dl_f2" ] \
      && git -C "$TARGET" ls-files -s -z > "$_dl_f1" 2>/dev/null \
      && git -C "$TARGET" ls-files -o --exclude-standard -z > "$_dl_f2" 2>/dev/null; then
     while IFS= read -r -d '' _p; do
