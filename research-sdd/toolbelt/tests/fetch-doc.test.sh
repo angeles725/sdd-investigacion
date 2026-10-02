@@ -712,17 +712,23 @@ d37b_tmpdir="$TMP/rr-37b-tmpdir"; mkdir -p "$d37b_tmpdir"
 STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
 export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 _rc37b=0
-TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
+# #1354 (R3-37b-tmpdir-vacuous): an empty $TMPDIR proves nothing unless mktemp really created files THERE. This
+# logging mktemp shim records every path it hands out, so the assertion below can require >=1 created AND 0 left.
+mklog37b="$TMP/mklog37b-bin"; mkdir -p "$mklog37b"; _realmk37b="$(command -v mktemp)"
+printf '#!/usr/bin/env bash\nr="$(%s "$@")" || exit $?\nprintf "%%s\\n" "$r" >> "$MKTEMP_LOG"\nprintf "%%s\\n" "$r"\n' "$_realmk37b" > "$mklog37b/mktemp"; chmod +x "$mklog37b/mktemp"
+: > "$TMP/mklog37b.txt"
+MKTEMP_LOG="$TMP/mklog37b.txt" PATH="$mklog37b:$PATH" TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
+_made37b="$(awk -v p="$d37b_tmpdir/" 'index($0,p)==1{n++} END{print n+0}' "$TMP/mklog37b.txt")"
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
 slug37b="$(echo "http://s37b.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
 _row37b=false
 [ -f "$d37b/sources/SOURCES.md" ] && grep -q "$slug37b" "$d37b/sources/SOURCES.md" && _row37b=true
 _leaked37b="$(find "$d37b_tmpdir" -type f 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_leaked37b" = "0" ] \
+if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_made37b" -ge 1 ] && [ "$_leaked37b" = "0" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
   ok "web: RDD/R1 — wget ALSO failing registers nothing and leaks NO temp HTML file"
-else no "R37b: rc=$_rc37b row=$_row37b leaked=$_leaked37b err='$(cat "$TMP/runchain.err")'"; fi
+else no "R37b: rc=$_rc37b row=$_row37b made-in-tmpdir=$_made37b leaked=$_leaked37b err='$(cat "$TMP/runchain.err")'"; fi
 unset STUB_ROUTES
 
 # 39 — CORE (round-5 N2'/N3'): curl exit 28 with %{time_connect}=0 (the connect phase never
@@ -1342,8 +1348,8 @@ SED
 
   echo "-- teeth: exit-28 disambiguation (round-5 N2'/N3') — always skip on exit 28, ignoring time_connect --"
   connect28mutant="$(mkmut connect28-disambig <<'SED'
-/^          28)$/,/^            ;;$/c\
-          28) skip_fallback=1 ;;  # MUTANT: 28-disambiguation removed
+/^ *28)$/,/^ *;;$/c\
+    28) skip_fallback=1 ;;  # MUTANT: 28-disambiguation removed
 SED
 )"
   if ! grep -q 'MUTANT: 28-disambiguation removed' "$connect28mutant"; then
@@ -2158,6 +2164,108 @@ if [ "$_rc63" = "0" ] && [ -e "$d63/sources/web-snapshots/$slug63.$o12_63.md" ] 
   ok "web: #1313 N8 — --replace keeps the old snapshot under a versioned name and registers the new one"
 else no "R63: rc=$_rc63 err='$(cat "$TMP/err63.txt")' files=$(ls "$d63/sources/web-snapshots" | tr '\n' ' ')"; fi
 
+# ─── #1354: signal windows, concurrent same-NAME, pandoc kill ───
+# The SUT exposes a test seam: FETCHDOC_TEST_AT=<point> runs FETCHDOC_TEST_CMD in the MAIN shell at that exact spot
+# (points: after-fork = between `&` and DL_PID=$!, install = start of install_file), so races are injected
+# deterministically instead of with sleeps.
+
+# R65 — N5a: TERM delivered exactly between the fork of the download child and DL_PID=$!. The child must still be
+#       cancelled (pre-fix it was orphaned and ran to completion): exit 143, download never finishes, no debris.
+# run_hook_term <script> <dir> <done-marker> — echoes the script's exit code.
+run_hook_term(){
+  local script="$1" dir="$2" done_m="$3" rc=0
+  rm -f "$done_m"
+  STUB_ROUTES="" STUB_DOWNLOAD_HANG=1 STUB_HANG_SECS=2 STUB_HANG_DONE_MARKER="$done_m" \
+    FETCHDOC_TEST_AT=after-fork FETCHDOC_TEST_CMD='kill -TERM $$' \
+    PATH="$stubbin:$PATH" bash "$script" --replace doc "http://s65.example/a" "$dir" datasheets r65.pdf >/dev/null 2>&1 || rc=$?
+  sleep 2.5   # past the stub's 2 s: an orphaned download has finished by now
+  echo "$rc"
+}
+d65="$TMP/rr-65/target"; f65="$(mkexisting "$d65" r65.pdf)"
+rc65="$(run_hook_term "$SUT" "$d65" "$TMP/done65.marker")"
+_part65="$(find "$d65/sources" -name '*.fetchdoc-part.*' | wc -l | tr -d ' ')"
+if [ "$rc65" = "143" ] && [ ! -e "$TMP/done65.marker" ] && [ "$_part65" = "0" ] && [ "$(sum_of "$f65")" = "$EVID_SUM" ] && [ ! -e "$d65/sources/SOURCES.md" ]; then
+  ok "doc: #1354 N5 — TERM between the fork and DL_PID=\$! still cancels the download (exit 143, no orphan, no debris)"
+else no "R65: rc=$rc65 orphan-finished=$([ -e "$TMP/done65.marker" ] && echo y || echo n) parts=$_part65"; fi
+
+# R66 — N5b: TERM delivered WHILE mktemp (the download's stdout capture file) is running must not leak that file.
+#       A mktemp stub TERMs the script (pid read from a pidfile; the script is exec'd so the pid is stable) once, then
+#       creates the file for real. fired=y proves the signal really landed inside the window (non-vacuous).
+mkbin="$TMP/mktemp-term-bin"; mkdir -p "$mkbin"; _realmktemp="$(command -v mktemp)"
+cat > "$mkbin/mktemp" <<EOF
+#!/usr/bin/env bash
+if [ -n "\${MKTEMP_TERM_PIDFILE:-}" ] && [ ! -e "\$MKTEMP_TERM_PIDFILE.fired" ]; then : > "\$MKTEMP_TERM_PIDFILE.fired"; kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")"; fi
+exec $_realmktemp "\$@"
+EOF
+chmod +x "$mkbin/mktemp"
+# run_mktemp_term <script> <dir> <tmpdir> <probe-count-file> — echoes the exit code.
+run_mktemp_term(){
+  local script="$1" dir="$2" tdir="$3" pcf="$4" rc=0
+  rm -f "$TMP/pid66" "$TMP/pid66.fired"; : > "$pcf"
+  STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$pcf" MKTEMP_TERM_PIDFILE="$TMP/pid66" TMPDIR="$tdir" PATH="$mkbin:$stubbin:$PATH" \
+    bash -c 'echo $$ > "$MKTEMP_TERM_PIDFILE"; exec bash "$0" doc http://s66.example/a "$1" datasheets r66.pdf' "$script" "$dir" >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+d66="$TMP/rr-66/target"; mkdir -p "$d66"; t66="$TMP/rr-66-tmp"; mkdir -p "$t66"
+rc66="$(run_mktemp_term "$SUT" "$d66" "$t66" "$TMP/probe66.txt")"
+_leak66="$(find "$t66" -mindepth 1 | wc -l | tr -d ' ')"
+if [ -e "$TMP/pid66.fired" ] && [ "$rc66" = "143" ] && [ "$_leak66" = "0" ] && [ ! -s "$TMP/probe66.txt" ] && [ ! -e "$d66/sources/SOURCES.md" ]; then
+  ok "doc: #1354 N5 — TERM during mktemp leaks no temp file and starts no download (exit 143)"
+else no "R66: fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) rc=$rc66 leaked=$_leak66 probes=$(wc -l < "$TMP/probe66.txt")"; fi
+
+# R67 — N6: a concurrent run on the same NAME lands its file AFTER this run's preflight_dest but BEFORE its install.
+#       Without --replace the second run must REFUSE (exit 4): the other run's bytes stay, nothing is archived,
+#       no row is written (pre-fix it archived the other run's file and installed over it).
+d67="$TMP/rr-67/target"; mkdir -p "$d67/sources/datasheets"
+_rc67=0
+STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+  PATH="$stubbin:$PATH" bash "$SUT" doc "http://s67.example/a" "$d67" datasheets r67.pdf >/dev/null 2>"$TMP/err67.txt" || _rc67=$?
+if [ "$_rc67" = "4" ] && [ "$(cat "$d67/sources/datasheets/r67.pdf")" = "OTHER-RUN" ] \
+   && [ "$(find "$d67/sources" -type f | wc -l | tr -d ' ')" = "1" ] && grep -qi 'REFUSED' "$TMP/err67.txt"; then
+  ok "doc: #1354 N6 — a file that appears after preflight is refused (exit 4) without --replace: not archived, not overwritten, no row"
+else no "R67: rc=$_rc67 files=$(find "$d67/sources" -type f | tr '\n' ' ') err='$(cat "$TMP/err67.txt")'"; fi
+
+# R67b — same race WITH --replace is still honoured: the other run's bytes are archived, the new bytes win.
+d67b="$TMP/rr-67b/target"; mkdir -p "$d67b/sources/datasheets"
+_rc67b=0; _o12_67b="$(printf 'OTHER-RUN\n' | sha256sum | cut -c1-12)"
+STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+  PATH="$stubbin:$PATH" bash "$SUT" --replace doc "http://s67.example/b" "$d67b" datasheets r67.pdf >/dev/null 2>&1 || _rc67b=$?
+if [ "$_rc67b" = "0" ] && [ "$(cat "$d67b/sources/datasheets/r67.$_o12_67b.pdf" 2>/dev/null)" = "OTHER-RUN" ] \
+   && grep -qF 'stub body for http://s67.example/b' "$d67b/sources/datasheets/r67.pdf"; then
+  ok "doc: #1354 N6 — with --replace the late-appearing file is archived under a versioned name and the new bytes win"
+else no "R67b: rc=$_rc67b files=$(ls "$d67b/sources/datasheets" | tr '\n' ' ')"; fi
+
+# R67c — web mode shares the contract.
+d67c="$TMP/rr-67c/target"; mkdir -p "$d67c/sources/web-snapshots"
+slug67c="$(echo "http://s67c.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+_rc67c=0
+STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+  PATH="$stubbin:$PATH" bash "$SUT" web "http://s67c.example/page" "$d67c" >/dev/null 2>&1 || _rc67c=$?
+if [ "$_rc67c" = "4" ] && [ "$(cat "$d67c/sources/web-snapshots/$slug67c.md")" = "OTHER-RUN" ] \
+   && [ "$(find "$d67c/sources" -type f | wc -l | tr -d ' ')" = "1" ]; then
+  ok "web: #1354 N6 — a snapshot that appears after preflight is refused (exit 4) without --replace"
+else no "R67c: rc=$_rc67c files=$(find "$d67c/sources" -type f | tr '\n' ' ')"; fi
+
+# R68 — item 5: a TERM during the pandoc conversion KILLS pandoc (pre-fix the run waited for pandoc to finish).
+#       The stub writes a done marker only when it runs to completion; it must be absent after the run exits.
+killpandoc="$TMP/killpandoc-bin"; mkdir -p "$killpandoc"
+printf '#!/usr/bin/env bash\n: > "$PANDOC_MARK"\nsleep 3\n: > "$PANDOC_DONE"\nout=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done\n[ -n "$out" ] && echo converted > "$out"\nexit 0\n' > "$killpandoc/pandoc"; chmod +x "$killpandoc/pandoc"
+# run_pandoc_kill <script> <dir> — echoes the exit code; leaves the done marker state for the caller.
+run_pandoc_kill(){
+  local script="$1" dir="$2" pid rc=0; rm -f "$TMP/pandoc68.mark" "$TMP/pandoc68.done"
+  STUB_ROUTES="" PANDOC_MARK="$TMP/pandoc68.mark" PANDOC_DONE="$TMP/pandoc68.done" PATH="$killpandoc:$stubbin:$PATH" bash "$script" web "http://s68.example/page" "$dir" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -e "$TMP/pandoc68.mark" ] && break; sleep 0.1; done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || rc=$?
+  sleep 3.5   # past the stub's 3 s: a pandoc that was NOT killed has finished by now
+  echo "$rc"
+}
+d68="$TMP/rr-68/target"; mkdir -p "$d68"; rc68="$(run_pandoc_kill "$SUT" "$d68")"
+if [ -e "$TMP/pandoc68.mark" ] && [ "$rc68" = "143" ] && [ ! -e "$TMP/pandoc68.done" ] && [ ! -e "$d68/sources/SOURCES.md" ] \
+   && [ "$(find "$d68/sources/web-snapshots" -type f | wc -l | tr -d ' ')" = "0" ]; then
+  ok "web: #1354 — TERM during the pandoc conversion kills pandoc itself (exit 143, conversion never completes, no debris)"
+else no "R68: rc=$rc68 pandoc-completed=$([ -e "$TMP/pandoc68.done" ] && echo y || echo n)"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -2188,7 +2296,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth_refuse <name> <expected-rc-that-must-vanish> <sed-expr> <fixture-setup...> — shared shape: a mutant that drops a guard must
   # let the run SUCCEED where the real SUT exits with the typed refusal code.
   echo "-- teeth #1313: overwrite refusal removed -> existing NAME is silently replaced --"
-  m="$(tm13 norefuse 's/if \[ -e "\$dest" \] \&\& \[ "\$REPLACE" -eq 0 \]; then/if false; then/')"
+  # #1354: install_file's exclusive-install backstop would still refuse, so the mutant drops it as well.
+  m="$(tm13 norefuse 's/if \[ -e "\$dest" \] \&\& \[ "\$REPLACE" -eq 0 \]; then/if false; then/' 's/^  if \[ "\$REPLACE" -eq 0 \]; then$/  if false; then/')"
   if [ -z "$m" ]; then no "teeth-norefuse: could not build mutant (refusal condition not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-norefuse/target"; mkdir -p "$d"; seed51 "$d" r51.pdf "http://s51.example/old"
@@ -2345,13 +2454,64 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-lateprefl: rc=$rc probes=$(wc -l < "$TMP/probe-lateprefl.txt") — R51 does NOT pin the preflight-before-download order (THEATER)"; fi
   fi
 
-  echo "-- teeth #1313 W1: web signal block moved ABOVE the pandoc conversion -> pandoc runs uncancellable --"
-  m="$(tm13 sigabovepandoc 's/^    mv -f "\$HTML.fetchdoc-part.\$\$" "\$HTML"$/&\n    trap '"''"' INT TERM/' 's/^    trap '"''"' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode$/    :/')"
+  echo "-- teeth #1313 W1: INT/TERM ignored while pandoc runs -> a TERM during the conversion is swallowed --"
+  # #1354: the conversion is a tracked child now; arm_cancel_traps (called once DL_PID is set) is what keeps TERM live.
+  m="$(tm13 sigabovepandoc 's/^  arm_cancel_traps$/  trap '"''"' INT TERM/')"
   if [ -z "$m" ]; then no "teeth-sigabovepandoc: could not build mutant (web signal-block / HTML move not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-sigabovepandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_term "$m" "$d")"
     if [ "$rc" != "143" ]; then ok "teeth-sigabovepandoc: with the block above pandoc the TERM is swallowed (rc=$rc) -> R64 has teeth"
     else no "teeth-sigabovepandoc: still cancelled (rc=143) — R64 does NOT pin the block's position (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354 N5a: defer_cancel records nothing -> a TERM between the fork and DL_PID orphans the download --"
+  m="$(tm13 nodefer 's/^defer_cancel() { CANCEL_PENDING=0; trap .*$/defer_cancel() { CANCEL_PENDING=0; }/')"
+  if [ -z "$m" ]; then no "teeth-nodefer: could not build mutant (defer_cancel not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-nodefer/target"; mkexisting "$d" r65.pdf >/dev/null; rc="$(run_hook_term "$m" "$d" "$TMP/done-nodefer.marker")"
+    if [ -e "$TMP/done-nodefer.marker" ]; then ok "teeth-nodefer: without the deferral the orphaned download finishes (rc=$rc) -> R65 has teeth"
+    else no "teeth-nodefer: the download was still cancelled — R65 does NOT pin the deferral (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354 N5b: cancel_download no longer removes the capture file -> TERM during mktemp leaks it --"
+  m="$(tm13 nodlout 's/^  \[ -z "\$DL_OUT" \] || rm -f "\$DL_OUT"$/  :/')"
+  if [ -z "$m" ]; then no "teeth-nodlout: could not build mutant (DL_OUT cleanup not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-nodlout/target"; mkdir -p "$d"; t="$TMP/t-nodlout-tmp"; mkdir -p "$t"; rc="$(run_mktemp_term "$m" "$d" "$t" "$TMP/probe-nodlout.txt")"
+    _l="$(find "$t" -mindepth 1 | wc -l | tr -d ' ')"
+    if [ -e "$TMP/pid66.fired" ] && [ "$_l" != "0" ]; then ok "teeth-nodlout: the capture file leaks ($_l) without the cleanup -> R66 has teeth"
+    else no "teeth-nodlout: leaked=$_l fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) — R66 does NOT observe the capture file (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354 N6: install_file archives without --replace (the old behaviour) --"
+  m="$(tm13 instarch 's/^  if \[ "\$REPLACE" -eq 1 \] && \[ -e "\$dest" \]; then  # SENTINEL-INSTALL-REPLACE-GUARD$/  if [ -e "$dest" ]; then/')"
+  if [ -z "$m" ]; then no "teeth-instarch: could not build mutant (replace guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-instarch/target"; mkdir -p "$d/sources/datasheets"; rc=0
+    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+      PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != "4" ] && [ "$(find "$d/sources/datasheets" -type f | wc -l | tr -d ' ')" -gt 1 ]; then ok "teeth-instarch: the mutant archives the other run's file (rc=$rc) -> R67 has teeth"
+    else no "teeth-instarch: rc=$rc — R67 does NOT pin the REPLACE re-check (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354 N6: install_file overwrites a late-appearing file (no exclusive install) --"
+  m="$(tm13 instexcl 's/^  if \[ "\$REPLACE" -eq 0 \]; then$/  if false; then/')"
+  if [ -z "$m" ]; then no "teeth-instexcl: could not build mutant (exclusive-install branch not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-instexcl/target"; mkdir -p "$d/sources/datasheets"; rc=0
+    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+      PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "0" ] && [ "$(cat "$d/sources/datasheets/r67.pdf")" != "OTHER-RUN" ]; then ok "teeth-instexcl: the mutant overwrites the other run's bytes (rc=0) -> R67 has teeth"
+    else no "teeth-instexcl: rc=$rc — R67 does NOT pin the exclusive install (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354 item 5: pandoc back in the foreground -> TERM waits for pandoc to finish --"
+  m="$(tm13 fgpandoc 's/^    run_cancellable \/dev\/null convert_html "\$HTML" "\$WPART"$/    convert_html "$HTML" "$WPART"/')"
+  if [ -z "$m" ]; then no "teeth-fgpandoc: could not build mutant (pandoc call not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-fgpandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_kill "$m" "$d")"
+    if [ -e "$TMP/pandoc68.done" ]; then ok "teeth-fgpandoc: a foreground pandoc runs to completion after TERM (rc=$rc) -> R68 has teeth"
+    else no "teeth-fgpandoc: pandoc was still killed — R68 does NOT pin the tracked conversion (THEATER)"; fi
   fi
 fi
 

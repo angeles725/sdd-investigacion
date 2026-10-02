@@ -30,8 +30,12 @@
 # download succeeded, and INT/TERM are ignored from that point on until the row is written, so a cancelled
 # run can never replace a registered file nor leave a row that disagrees with it (a signal that arrives in
 # that last window is deliberately dropped: the window is only the install + sha256 + row write, never a
-# download or a pandoc conversion, so the run completes consistently; in web mode a signal during the
-# conversion is acted on when pandoc returns, before anything is installed).
+# download or a pandoc conversion, so the run completes consistently; in web mode the pandoc conversion is
+# itself a tracked child in its own process group, so a signal during it kills pandoc, before anything is
+# installed). INT/TERM in the unavoidable pre-tracking windows (mktemp, fork -> DL_PID) are recorded, not acted
+# on, and honoured the moment the child is tracked (#1354), so no child is orphaned and no temp file leaks.
+# Concurrent runs on the same NAME (#1354): install_file re-checks the destination right before installing; without
+# --replace the install is exclusive (hard link: atomic, fails if the file appeared) and refuses with exit 4.
 # A SIGKILL of the script's own process group (e.g. `timeout -k`) no longer reaches the download child, which
 # runs in its own process group: the orphan can install nothing (only the main shell moves the part file) and
 # its "<dest>.fetchdoc-part.<pid>" file is swept by a later run once its pid is dead.
@@ -75,6 +79,23 @@ reg() { # registers a row in SOURCES.md
   ' "$md" > "$tmp" && mv "$tmp" "$md"
 }
 
+# head_never_reached_host <head_rc> <time_connect> — true when a failed HEAD probe demonstrably never reached a live
+# host, so the GET retry cannot do better: curl exit 6 (cannot resolve) or 7 (cannot connect) always; exit 28 (timed
+# out) ONLY when %{time_connect} is zero, i.e. the connect phase never completed (round-5 N2'/N3'). Exit 28 with a
+# nonzero time_connect means the host accepted the connection and the RESPONSE then hung: the retry is worth it.
+head_never_reached_host() {
+  local skip_fallback=0
+  case "$1" in
+    6|7) skip_fallback=1 ;;  # SENTINEL-CONNECT-SKIP: DNS/connect failure — never reached the host
+    28)
+      case "$2" in
+        0|0.000000|0.000000000|"") skip_fallback=1 ;;  # never connected — skip the retry
+      esac
+      ;;
+  esac
+  [ "$skip_fallback" -eq 1 ]
+}
+
 # resolve_permanent_redirect <url> — walks the redirect chain from <url> via a bounded per-hop
 # curl PROBE, following ONLY PERMANENT redirects (301/308). Registers only what a docs-reorg /
 # slug-change redirect (METHODOLOGY.md §5, retro D4) actually resolves to. Stops advancing — and
@@ -95,7 +116,7 @@ reg() { # registers a row in SOURCES.md
 # on `2>/dev/null` — to stay silent-zero-safe (kit CLAUDE.md §7): an empty or malformed probe
 # output must fall back to the last known-good URL, never register "".
 resolve_permanent_redirect() {
-  local cur="$1" hop=0 probe code loc head_rc head_time_connect skip_fallback rest
+  local cur="$1" hop=0 probe code loc head_rc head_time_connect rest
   local max_hops=10  # SENTINEL-MAXHOPS-VALUE (bounded hop loop — kit review PR #1155 round 2/3)
   local max_time=20  # SENTINEL-MAX-TIME (curl --max-time per hop, round 3 RS1 — bound a hanging probe)
   local connect_timeout=10  # SENTINEL-CONNECT-TIMEOUT (round-4 N3 — bounds the connect/TLS phase
@@ -136,20 +157,11 @@ resolve_permanent_redirect() {
     case "$code" in
       301|302|303|307|308|2??) : ;;  # HEAD gave a definitive answer — use it as-is
       *)
-        skip_fallback=0
-        case "$head_rc" in
-          6|7) skip_fallback=1 ;;  # SENTINEL-CONNECT-SKIP: DNS/connect failure — never reached the host
-          28)
-            case "$head_time_connect" in
-              0|0.000000|0.000000000|"") skip_fallback=1 ;;  # never connected — skip the retry
-            esac  # else: connected, then the RESPONSE hung — the retry is worth it
-            ;;
-        esac
-        if [ "$skip_fallback" -eq 0 ]; then
+        if head_never_reached_host "$head_rc" "$head_time_connect"; then
+          probe=""
+        else
           # SENTINEL-PROBE-FALLBACK-GET
           probe="$(curl -sS -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -r 0-0 -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
-        else
-          probe=""
         fi
         ;;
     esac
@@ -382,11 +394,21 @@ rename_row() {
 # and its bytes differ, the old bytes are first kept under a versioned name and their row retargeted.
 # Sets INSTALL_SAME=1 (and drops <part>) when the bytes are identical AND already registered: no new row.
 INSTALL_SAME=0
+# _test_hook <point> — test seam (#1354): when FETCHDOC_TEST_AT names <point>, FETCHDOC_TEST_CMD runs in the MAIN shell
+# at that exact spot, so a signal or a concurrent writer can be injected deterministically (no sleeps).
+_test_hook() { [ "${FETCHDOC_TEST_AT:-}" = "$1" ] || return 0; eval "${FETCHDOC_TEST_CMD:-:}"; }
 install_file() {
   local part="$1" dest="$2" oldsha newsha base stem ext vname vpath rel
   INSTALL_SAME=0
+  _test_hook install
   rel="${dest#"$SDIR"/}"
-  if [ -e "$dest" ]; then
+  # N6 (#1354): preflight_dest ran BEFORE the download, so a concurrent run on the same NAME may have landed a file
+  # (or a symlink) since. Re-check here: a symlink is always refused, and an existing file is archived ONLY with --replace.
+  if [ -L "$dest" ]; then
+    echo "fetch-doc: REFUSED: destination became a symlink during the download: $dest; nothing installed" >&2
+    exit 5
+  fi
+  if [ "$REPLACE" -eq 1 ] && [ -e "$dest" ]; then  # SENTINEL-INSTALL-REPLACE-GUARD
     oldsha="$(sha256sum "$dest" | cut -d' ' -f1)"; newsha="$(sha256sum "$part" | cut -d' ' -f1)"
     if [ "$oldsha" = "$newsha" ]; then
       if has_row "$rel" "$newsha"; then
@@ -419,6 +441,16 @@ install_file() {
       echo "fetch-doc: replaced $dest; old bytes kept as $vname" >&2
     fi
   fi
+  if [ "$REPLACE" -eq 0 ]; then
+    # SENTINEL-INSTALL-EXCL: without --replace the install must be EXCLUSIVE. A hard link fails atomically when
+    # <dest> exists (a file that appears between the re-check above and here still cannot be overwritten).
+    if ln "$part" "$dest" 2>/dev/null; then rm -f "$part"; return 0; fi
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+      echo "fetch-doc: REFUSED: destination appeared during the download: $dest — re-run with --replace to keep the old bytes under a versioned name; nothing installed" >&2
+      exit 4
+    fi
+    # ln failed for another reason (e.g. a filesystem without hard links): fall back to the plain move below.
+  fi
   mv -f "$part" "$dest" || { rm -f "$part"; echo "fetch-doc: could not move download into place: $dest" >&2; exit 1; }
 }
 
@@ -442,17 +474,43 @@ cancel_download() {
   fi
   [ -z "$DL_OUT" ] || rm -f "$DL_OUT"
 }
-download_into() {
-  local rc=0
-  DL_OUT="$(mktemp)"
+# Signal windows (#1354 N5): between the fork and `DL_PID=$!` (and around the mktemp) the child is not yet tracked,
+# so an immediate cancel would orphan it. defer_cancel makes INT/TERM only RECORD themselves (CANCEL_PENDING);
+# arm_cancel_traps restores the real handlers; run_cancellable then acts on a recorded signal once DL_PID is known.
+# Handlers (unlike an ignore) are reset to default in the forked child, so the child stays killable.
+CANCEL_PENDING=0
+arm_cancel_traps() { trap 'cancel_download; exit 130' INT; trap 'cancel_download; exit 143' TERM; }
+defer_cancel() { CANCEL_PENDING=0; trap 'CANCEL_PENDING=130' INT; trap 'CANCEL_PENDING=143' TERM; }
+# run_cancellable <stdout-file> <cmd...> — runs <cmd> as the TRACKED background child (own process group, so the
+# whole group is killed on cancel) and waits for it; returns its exit status. The caller must have called
+# defer_cancel before any step it wants covered; this arms the real traps as soon as DL_PID is set.
+run_cancellable() {
+  local out="$1" rc=0; shift
+  if [ "$CANCEL_PENDING" -ne 0 ]; then arm_cancel_traps; cancel_download; exit "$CANCEL_PENDING"; fi
   set -m
-  fetch_and_register "$1" "$2" --keep-part >"$DL_OUT" </dev/null &
+  "$@" >"$out" </dev/null &
+  _test_hook after-fork
   DL_PID=$!
   set +m
+  arm_cancel_traps
+  if [ "$CANCEL_PENDING" -ne 0 ]; then cancel_download; exit "$CANCEL_PENDING"; fi
   wait "$DL_PID" || rc=$?
   DL_PID=""
+  return "$rc"
+}
+download_into() {
+  local rc=0
+  defer_cancel
+  DL_OUT="$(mktemp)"
+  run_cancellable "$DL_OUT" fetch_and_register "$1" "$2" --keep-part || rc=$?
   if [ "$rc" -ne 0 ]; then rm -f "$DL_OUT"; exit "$rc"; fi
   EFFECTIVE_URL="$(cat "$DL_OUT")"; rm -f "$DL_OUT"; DL_OUT=""
+}
+
+# convert_html <html> <out> — pandoc html->gfm into <out>, falling back to a plain copy (also when pandoc is absent).
+convert_html() {
+  if have_cmd pandoc; then pandoc -f html -t gfm "$1" -o "$2" 2>/dev/null || cp "$1" "$2"
+  else cp "$1" "$2"; fi
 }
 
 # Main dispatch is guarded so the file can be SOURCED to unit-test reg(), resolve_permanent_redirect()
@@ -527,12 +585,12 @@ case "$MODE" in
     # SENTINEL-WEB-ATOMIC (#1285 review): write the snapshot to a part file and move it into place,
     # so a pandoc/cp that dies mid-write cannot truncate an already-registered snapshot.
     WPART="$DEST.fetchdoc-part.$$"
-    if command -v pandoc >/dev/null; then
-      pandoc -f html -t gfm "$HTML" -o "$WPART" 2>/dev/null || cp "$HTML" "$WPART"
-    else cp "$HTML" "$WPART"; fi
+    # #1354: the conversion is a tracked child in its own process group, so a TERM kills pandoc itself (the old
+    # foreground call only acted on the signal once pandoc returned); the EXIT trap removes $WPART.
+    defer_cancel
+    run_cancellable /dev/null convert_html "$HTML" "$WPART"
     # Block signals only NOW, after the conversion (#1313 W1): ignored signals are inherited across exec, so
-    # blocking before pandoc would make it uncancellable. A TERM that arrives during pandoc is handled as soon as
-    # pandoc returns (bash defers the trap past a foreground child) and the EXIT trap removes $WPART.
+    # blocking before pandoc would make it uncancellable.
     trap '' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode
     install_file "$WPART" "$DEST"
     rm -f "$HTML"
