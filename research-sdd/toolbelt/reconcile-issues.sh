@@ -128,6 +128,18 @@ declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
+declare -F retro_grammar_defenced >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+
+# RECONCILE_ISSUES_LIST_LIMIT (kit issue #1369 c): the open-issues `gh issue list` carries an explicit
+# --limit (gh's own default is 30, which silently truncated a busy repo and read tracked rows as
+# untracked). 1000 is GitHub search's practical ceiling; the env override exists so a test can fill a
+# page without 1000 fixtures. A reply that FILLS the limit may be truncated: typed degraded, never a
+# confident answer (see the record-separator count below).
+_LIST_LIMIT="${RECONCILE_ISSUES_LIST_LIMIT:-1000}"
+case "$_LIST_LIMIT" in
+  ''|*[!0-9]*|0) echo "degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '$_LIST_LIMIT')" >&2; exit 1 ;;
+esac
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 [ -f "$_TP_LIB" ] || { echo "reconcile-issues: cannot find helper $_TP_LIB" >&2; exit 1; }
@@ -156,6 +168,13 @@ audit_retro() {
   local retro_path="$1" target_nm="$2"
   local retro_basename
   retro_basename="$(basename "$retro_path")"
+
+  # RECONCILE_ISSUES_UNREADABLE (R3-unreadable-silent-zero): an existing but unreadable retro is not an
+  # empty one - every parse below would see nothing and report a confident empty-input / no-match.
+  if [ ! -r "$retro_path" ]; then
+    echo "degraded: retro not readable: $retro_path — cannot audit, no verdict" >&2
+    return 1
+  fi
 
   local r_tracked=0 r_untracked=0 r_orphaned=0
   local _gh_rc _gh_stderr_file _gh_err_msg
@@ -250,7 +269,7 @@ audit_retro() {
 
   # --- Parse all delta row-ids from the retro (same awk as stage-retro-issues.sh)
   local _all_row_ids
-  _all_row_ids="$(awk '
+  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk '
     BEGIN { in_sec=0 }
     {
       low = tolower($0)
@@ -276,7 +295,7 @@ audit_retro() {
         print rid
       }
     }
-  ' "$retro_path")"
+  ')"
 
   # RECONCILE_ISSUES_ENTRY_FORM (kit issue #1332 item 2): no table rows -> the doctrine-valid
   # `### D<N> —` entry form (sweep-retros form 2). The IDs come from the SHARED grammar lib so
@@ -349,16 +368,17 @@ ${_rln}"
       return 1
     }
   else
-    local _qpfx _qbodies
+    local _qpfx _qbodies _qn
     for _qpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
       _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
       # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
       _qbodies="$(gh issue list \
           --repo "$_REPO" \
           --state open \
+          --limit "$_LIST_LIMIT" \
           --search "\"Source retro: ${_qpfx} ·\"" \
           --json body \
-          --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
+          --jq '.[] | .body, "\u001e"' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
       if [ "$_gh_rc" -ne 0 ]; then
         if [ -n "$_gh_stderr_file" ]; then
           _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
@@ -371,6 +391,16 @@ ${_rln}"
         return 1
       fi
       [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
+      # RECONCILE_ISSUES_LIST_CAP_GUARD (kit issue #1369 c): the --jq emits one record-separator line
+      # (octal 036, never present in an issue body) after every body, so the issue COUNT is readable
+      # without a JSON parser. A reply that filled the --limit may have been cut off: the missing
+      # issues would read as untracked rows, so it is a typed degraded, not an answer.
+      _qn="$(printf '%s\n' "$_qbodies" | awk '$0 == "\036" { n++ } END { print n + 0 }')"
+      if [ "$_qn" -ge "$_LIST_LIMIT" ]; then
+        echo "degraded: gh issue list returned $_qn results = the --limit $_LIST_LIMIT cap for $retro_basename — the result may be truncated (raise RECONCILE_ISSUES_LIST_LIMIT)" >&2
+        return 1
+      fi
+      _qbodies="$(printf '%s\n' "$_qbodies" | awk '$0 != "\036"')"
       _all_bodies="${_all_bodies}${_qbodies}"$'\n'
     done
   fi

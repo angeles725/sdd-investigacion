@@ -100,6 +100,11 @@ if [ -z "$retro" ] || [ ! -f "$retro" ]; then
   echo "absent-input: retro not found: ${retro:-<no path given>}" >&2
   exit 1
 fi
+# STAGE_RETRO_ISSUES_UNREADABLE (R3-unreadable-silent-zero): exists but unreadable is not empty - typed.
+if [ ! -r "$retro" ]; then
+  echo "degraded: retro not readable: $retro" >&2
+  exit 1
+fi
 retro="$(cd "$(dirname "$retro")" && pwd)/$(basename "$retro")"
 
 # ---------------------------------------------------------------------------
@@ -400,6 +405,17 @@ declare -F retro_grammar_entry_rows >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_rows" >&2; exit 1; }
 declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
+declare -F retro_grammar_defenced >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+
+# STAGE_RETRO_ISSUES_LIST_LIMIT (kit issue #1369 c): every dedup `gh issue list` carries an explicit
+# --limit (gh's own default is 30, which silently truncated a busy repo). 1000 is GitHub search's
+# practical ceiling; the env override exists so a test can fill a page without 1000 fixtures. A reply
+# that FILLS the limit may be truncated, so it is a typed failure, never "no match" (see _list_filled).
+_LIST_LIMIT="${STAGE_RETRO_ISSUES_LIST_LIMIT:-1000}"
+case "$_LIST_LIMIT" in
+  ''|*[!0-9]*|0) echo "degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got '$_LIST_LIMIT')" >&2; exit 1 ;;
+esac
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 if [ ! -f "$_TP_LIB" ]; then
@@ -553,7 +569,7 @@ fi
 retro_file="$retro"
 retro_basename="$(basename "$retro")"
 
-_rows="$(awk '
+_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
   BEGIN { in_sec=0 }
   {
     low = tolower($0)
@@ -581,7 +597,7 @@ _rows="$(awk '
         (n>=4 ? f[4] : ""), (n>=5 ? f[5] : ""), (n>=6 ? f[6] : "")
     }
   }
-' "$retro_file")"
+')"
 
 # STAGE_RETRO_ISSUES_ENTRY_FORM (kit issue #1332 N1): no table rows -> the doctrine-valid
 # `### D<N> —` entry form. retro_grammar_entry_rows (the shared grammar lib — the parser
@@ -694,9 +710,10 @@ _exact_sig_matches() {
         sub(/[ \t\r]+$/, "", ln)
         if (ln == sig) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
       }
+      ntotal++
       if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
     }
-    BEGIN { sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; out = ""; s = "" }
+    BEGIN { sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
     { s = s $0 "\n" }
     END {
       n = length(s); i = 1
@@ -746,8 +763,19 @@ _exact_sig_matches() {
       }
       if (depth != 0) exit 3
       printf "[%s]\n", out
+      printf "total=%d\n", ntotal      # STAGE_RETRO_ISSUES_TOTAL_LINE: how many issues the reply held (see _list_filled)
     }
   '
+}
+
+# _list_filled <reply-from-_exact_sig_matches>: true when the reply held >= the --limit issues. Such a
+# reply may have been cut off by the limit, so "no exact match in it" proves nothing. An output with
+# no `total=` line is not a trustworthy reading either: treated as filled (fail closed).
+_list_filled() {
+  local _t
+  _t="$(printf '%s\n' "$1" | sed -n 's/^total=\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+  [ -n "$_t" ] || return 0
+  [ "$_t" -ge "$_LIST_LIMIT" ]    # STAGE_RETRO_ISSUES_LIST_FILLED
 }
 
 # ---------------------------------------------------------------------------
@@ -864,7 +892,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # STAGE_RETRO_ISSUES_DEDUP_STATE_ALL: anchor for the state=all teeth proof.
     _search_sig="${_source_line}"
     _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
-      --search "\"$_search_sig\"" --json state,body 2>&1)"
+      --limit "$_LIST_LIMIT" --search "\"$_search_sig\"" --json state,body 2>&1)"
     _dedup_rc=$?
     # STAGE_RETRO_ISSUES_DEDUP_LIST_FAILURE_GUARD (kit issue #949 item 2): a failed list call
     # (non-zero exit — network error, bad gh invocation, rate limit, …) must NOT fall through to
@@ -892,6 +920,10 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "ERROR: gh issue list (dedup) reply could not be parsed for row $_rid: $_raw_existing" >&2
       failed=$((failed+1)); continue
     }
+    # A full page is only a problem when NO exact match was found in it (a match is a match however
+    # many other issues the page holds), so the verdict is deferred to just before the create below.
+    _page_filled=""   # empty, or the name of the lookup whose page filled the --limit
+    if _list_filled "$_existing"; then _page_filled="primary"; fi
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
@@ -910,7 +942,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     if [ "$_legacy_target_name" != "$target_name" ]; then
       _legacy_sig="Source retro: ${_legacy_target_name}/retros/${retro_basename} · ${_rid}"
       _legacy_existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
-        --search "\"$_legacy_sig\"" --json state,body 2>&1)"
+        --limit "$_LIST_LIMIT" --search "\"$_legacy_sig\"" --json state,body 2>&1)"
       _legacy_rc=$?
       if [ "$_legacy_rc" -ne 0 ]; then
         echo "ERROR: gh issue list (legacy-signature dedup) failed for row $_rid: $_legacy_existing" >&2
@@ -928,6 +960,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         echo "ERROR: gh issue list (legacy-signature dedup) reply could not be parsed for row $_rid: $_legacy_raw" >&2
         failed=$((failed+1)); continue
       }
+      if _list_filled "$_legacy_existing"; then _page_filled="legacy-signature"; fi
       if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
         echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
         skipped_dedup=$((skipped_dedup+1)); continue
@@ -936,6 +969,15 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         echo "skipped-duplicate: issue for row $_rid already exists (closed; legacy signature matched '$_legacy_sig')"
         skipped_dedup=$((skipped_dedup+1)); continue
       fi
+    fi
+
+    # STAGE_RETRO_ISSUES_LIST_CAP_GUARD (kit issue #1369 c): no exact match, but a lookup filled its
+    # --limit, so the match may have been cut off. Not "no match": a typed failure, nothing created.
+    if [ -n "$_page_filled" ]; then
+      echo "ERROR: gh issue list (dedup) returned $_LIST_LIMIT results = the --limit $_LIST_LIMIT cap" \
+           "for row $_rid ($_page_filled lookup) — the result may be truncated, refusing to create" \
+           "(raise STAGE_RETRO_ISSUES_LIST_LIMIT or narrow the repo)" >&2
+      failed=$((failed+1)); continue
     fi
 
     ensure_target_label   # STAGE_RETRO_ISSUES_LABEL_PROBE_CALL: once, before the first create
