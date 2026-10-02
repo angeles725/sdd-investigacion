@@ -80,6 +80,12 @@ _reg_name="$(target_name_for_retro "$KIT_REPO/research-sdd/TARGETS.md" "$retro")
 _reg_rc=$?
 if [ "$_reg_rc" -eq 0 ] && [ -n "$_reg_name" ]; then
   target="$_reg_name"
+elif [ "$_reg_rc" -eq 1 ]; then
+  # STAGE_RETRO_TARGET_NAME_RC1 (kit issue #1369 d): rc 1 is an OPERATIONAL failure (registry absent /
+  # unreadable / no path parsed / wrong RESEARCH_HOME / retro dir missing; the lib already printed the
+  # specific reason above). It is not "this retro is unregistered" (rc 2), so it is typed apart: the
+  # basename label may differ from the registered name the issue signatures use.
+  echo "WARN: target-name lookup FAILED (rc=1, operational — the registry could not be consulted, see the message above) for '$retro' — labelling with directory basename '$target', which may differ from the registered target name" >&2
 else
   echo "WARN: no registered target name for '$retro' (target_name_for_retro rc=$_reg_rc) — labelling with directory basename '$target'" >&2
 fi

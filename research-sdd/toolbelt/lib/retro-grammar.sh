@@ -85,6 +85,61 @@ function is_depr_heading(low) {
 }
 '
 
+# ─── retro_grammar_defenced <file> ───────────────────────────────────────────
+# Prints the file WITHOUT its fenced code blocks (kit issues #1356 item 1, #1369 b): a
+# `### D99 —` entry, a `**Priority**` field or a `## Proposed kit deltas` heading written inside a
+# fenced EXAMPLE is documentation, not a delta. ONE implementation shared by delta_info,
+# entry_rows, stage-retro-issues.sh and reconcile-issues.sh so every consumer counts the same lines.
+# CommonMark fence rules (the same ones lib/retro-status.sh applies to markers):
+#   - a fence OPENS on 3+ backticks or tildes, indented at most 3 spaces; a backtick opener whose
+#     info string contains a backtick is inline code, not a fence;
+#   - a line indented 4+ spaces (or by a tab) is INDENTED CODE: it neither opens nor closes a fence;
+#   - it CLOSES only on a line of the SAME character, at least as long as the opener, with nothing
+#     but whitespace after it (a trailing CR is tolerated: CRLF files);
+#   - RETRO_GRAMMAR_FENCE_UNCLOSED: a fence still open at EOF is NOT treated as a fence. Dropping
+#     everything after a stray opener would turn real entries into a silent zero; keeping them is
+#     the pre-existing behaviour and errs toward a visible count.
+# Two passes over the same file (awk reads it twice): pass 1 records the line numbers of every
+# CLOSED fence (opener through closer inclusive), pass 2 prints the remaining lines. Run lengths are
+# counted with a plain loop (no POSIX interval expressions: mawk portability, kit issue #1130).
+# Returns 1 (no output) when the file is absent/unreadable - never an empty success.
+if ! typeset -f retro_grammar_defenced >/dev/null 2>&1; then
+  retro_grammar_defenced() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    awk '
+      function runlen(s, c,    n) { n = 0; while (substr(s, n + 1, 1) == c) n++; return n }
+      function indent(s,    n, c) {
+        n = 0
+        while ((c = substr(s, n + 1, 1)) == " ") n++
+        if (c == "\t") n += 4
+        return n
+      }
+      FNR == NR {
+        if (indent($0) >= 4) next          # RETRO_GRAMMAR_FENCE_INDENT: indented code, never a fence line
+        s = $0; sub(/^ +/, "", s)
+        c = substr(s, 1, 1)
+        if (!open) {
+          if (c == "`" || c == "~") {
+            n = runlen(s, c); rest = substr(s, n + 1)
+            if (n >= 3 && !(c == "`" && index(rest, "`") > 0)) { open = 1; fch = c; flen = n; ostart = FNR }
+          }
+          next
+        }
+        if (c == fch) {
+          n = runlen(s, c); rest = substr(s, n + 1)
+          if (n >= flen && rest ~ /^[ \t\r]*$/) {   # RETRO_GRAMMAR_FENCE_CLOSER (CR tolerated: CRLF files)
+            for (k = ostart; k <= FNR; k++) skip[k] = 1
+            open = 0
+          }
+        }
+        next
+      }
+      !(FNR in skip) { print }
+    ' "$f" "$f"
+  }
+fi
+
 # Idempotent: safe to source more than once.
 # typeset -f is used instead of declare -F: both work in bash (typeset is an alias for declare),
 # while declare -F in zsh means "declare as float" (always exits 0), so sourcing from zsh with
@@ -94,7 +149,7 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
   retro_grammar_delta_info() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || { printf '0:n:0\001\0010\0010\001\n'; return 0; }
-    awk "$_RG_AWK_CANONICAL_FN"'
+    retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
       BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""
               in_unrec=0; unrec_found=0; unrec_rows=0; unrec_heading="" }
       { low=tolower($0) }
@@ -167,7 +222,7 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
           else        printf "0:n:0\001\001%d\001%d\001%s\n",         unrec_found, unrec_data, unrec_heading
         }
       }
-    ' "$f"
+    '
   }
 
 fi
@@ -197,10 +252,31 @@ if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
   retro_grammar_entry_rows() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    awk "$_RG_AWK_CANONICAL_FN"'
+    retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
       function flush() {
+        if (pr == "") pr = hp   # RETRO_GRAMMAR_HEADING_PRIORITY fallback: the body **Priority** always wins
         if (have) printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
         have=0
+      }
+      # heading_prio: a parenthetical of the heading made ONLY of the words new, priority, high,
+      # medium, low (any case, separated by commas, colons or spaces) and carrying a level yields
+      # that level as written. (low-risk change) and (medium confidence) carry other words: ignored.
+      function heading_prio(h,    rest, p, q, inner, n, k, w, tok, lvl, ok, lt) {
+        rest = h
+        while ((p = index(rest, "(")) > 0) {
+          rest = substr(rest, p + 1); q = index(rest, ")")
+          if (q == 0) break
+          inner = substr(rest, 1, q - 1); rest = substr(rest, q + 1)
+          n = split(inner, w, /[,;:[:space:]]+/); lvl = ""; ok = 1
+          for (k = 1; k <= n; k++) {
+            tok = w[k]; if (tok == "") continue
+            lt = tolower(tok)
+            if (lt == "high" || lt == "medium" || lt == "low") { if (lvl == "") lvl = tok }
+            else if (lt != "new" && lt != "priority") ok = 0
+          }
+          if (ok && lvl != "") return lvl
+        }
+        return ""
       }
       BEGIN { in_sec=0; have=0 }
       { low=tolower($0) }
@@ -216,7 +292,7 @@ if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
         sub(/[[:space:]]+$/, "", t)
         split(t, w, /[[:space:]]+/)
         id=w[1]; sub(/[.:]+$/, "", id)
-        if (id ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) { have=1; if (title == "") title=id; tg=""; ev=""; pr="" }
+        if (id ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) { have=1; if (title == "") title=id; tg=""; ev=""; pr=""; hp=heading_prio($0) }
         next
       }
       in_sec && have && match($0, /^\*\*[^*]+\*\*/) {
@@ -227,7 +303,7 @@ if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
         else if (nm ~ /evidence/ && ev == "") ev=rest
       }
       END { flush() }
-    ' "$f"
+    '
   }
 fi
 

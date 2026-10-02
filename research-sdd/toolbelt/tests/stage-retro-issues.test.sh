@@ -163,7 +163,41 @@ fuzzy_plus_exact() { printf '[{"body":"Other\\n---\\nSource retro: niagara-%s","
 crlf_reply() { printf '[{"body":"x\\n---\\n%s\\r\\ntail","state":"OPEN"}]\n' "$_sig"; }
 create_alt() { local n; n="$(cat "$0.cnt" 2>/dev/null || echo 0)"; n=$((n+1)); echo "$n" > "$0.cnt"; if [ "$n" -ge 2 ]; then printf 'ERROR: GraphQL request failed\n'; return 1; fi; printf 'https://github.com/r/issues/%s\n' "$n"; }
 sigonly_reply() { printf '[{"state":"OPEN","body":"%s"}]\n' "$_sig"; }
+# Kit issue #1369 (c): the stub must REJECT what real gh would reject instead of inventing support.
+# `gh issue list` here accepts only --repo/--state/--search/--jq/--limit/--json, --limit a positive
+# integer, --json fields from {state, body}. Anything else exits 2 with a gh-style message.
+_validate_list() {
+  local _sk="" _a _f
+  for _a in "$@"; do
+    if [ -n "$_sk" ]; then
+      case "$_sk" in
+        json)  for _f in ${_a//,/ }; do case "$_f" in state|body) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
+        limit) case "$_a" in ''|*[!0-9]*|0) echo "gh stub: invalid --limit: $_a" >&2; return 1 ;; esac ;;
+        state) case "$_a" in open|closed|all) ;; *) echo "gh stub: invalid --state: $_a" >&2; return 1 ;; esac ;;
+      esac
+      _sk=""; continue
+    fi
+    case "$_a" in
+      issue|list) ;;
+      --repo|--search|--jq) _sk=val ;;
+      --state) _sk=state ;;
+      --json)  _sk=json ;;
+      --limit) _sk=limit ;;
+      *) echo "gh stub: unknown flag: $_a" >&2; return 1 ;;
+    esac
+  done
+}
+# page2: a repo with two NON-matching issues for the query. Honours --limit exactly as gh does: at most
+# <limit> of them come back, so limit 2 returns a FULL page (possibly truncated) and limit 3 does not.
+page2_reply() {
+  local _l="" _p="" _a _n _i _o=""
+  for _a in "$@"; do [ "$_p" = "--limit" ] && _l="$_a"; _p="$_a"; done
+  _n=2; [ -n "$_l" ] && [ "$_l" -lt 2 ] && _n="$_l"
+  for ((_i = 1; _i <= _n; _i++)); do _o="${_o}${_o:+,}{\"body\":\"unrelated issue $_i\",\"state\":\"OPEN\"}"; done
+  printf '[%s]\n' "$_o"
+}
 STUBHELP
+      printf 'case " $* " in *" issue list "*) _validate_list "$@" || exit 2 ;; esac\n'
       printf 'case " $* " in\n'
       printf '  *" auth status "*) exit 0 ;;\n'
       # Kit issue #1332 item 1: the `target:<name>` label probe. labelmode (4th arg):
@@ -254,6 +288,9 @@ STUBHELP
           # the signatures must still count as failed, never fall through to create.
           printf '  *" issue list "*"%s"*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n' "$sigpat"
           printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
+          ;;
+        page2)
+          printf '  *" issue list "*) page2_reply "$@"; exit 0 ;;\n'
           ;;
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
@@ -1968,6 +2005,40 @@ RETROEOF
     else no "T1332-l teeth: disabled guard must flip 79a" "79a is THEATER: out=[$OUT]"; fi
   else no "T1332-l: build mutant" "mutant_sed refused"; fi
 
+  # #1356/#1369 mutants: fence tracking and the list limit (cases 80a, 81a, 81b, 81d have teeth)
+  stg_mutant() {   # stg_mutant <tag> <stub-mode> <sed-expr...>: builds mbox + mutant SUT; sets MBOX
+    local tag="$1" mode="$2"; shift 2
+    MBOX="$(mkbox "teeth-1369-$tag")"; mk_gh_stub "$MBOX" "$mode"
+    mutant_sed "$SUT" "$MBOX/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
+      || { no "T1369-$tag: build mutant" "mutant_sed refused"; return 1; }
+  }
+  if stg_mutant fence nomatch -e 's/^_rows="\$(retro_grammar_defenced "\$retro_file" | awk/_rows="$(cat "$retro_file" | awk/'; then
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$MBOX/rh/target-foo/retros/r.md"
+    run "$MBOX" "$MBOX/rh/target-foo/retros/r.md"
+    if [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ]; then ok "T1369-fence teeth: table awk bypasses defenced → fenced row seeded (80a has teeth)" "()"
+    else no "T1369-fence teeth: bypassing fence tracking must flip 80a" "80a is THEATER: out=[$OUT]"; fi
+  fi
+  if stg_mutant nolimit nomatch -e 's/^      --limit "\$_LIST_LIMIT" --search "\\"\$_search_sig\\"" /      --search "\\"$_search_sig\\"" /'; then
+    run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+    if ! grep -qE 'gh issue list .*--limit [0-9]+' "$MBOX/bin/gh.log"; then ok "T1369-limit teeth: --limit dropped → no explicit limit on the dedup call (81a has teeth)" "()"
+    else no "T1369-limit teeth: dropping --limit must flip 81a" "81a is THEATER"; fi
+  fi
+  full_mutant() {   # full_mutant <tag> <sed-expr>: page2 stub, limit 2 → 81b must stop failing
+    if stg_mutant "$1" page2 -e "$2"; then
+      STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+      if grep -q 'gh issue create' "$MBOX/bin/gh.log"; then ok "T1369-$1 teeth: mutant creates despite a full page (81b has teeth)" "()"
+      else no "T1369-$1 teeth: mutant must flip 81b" "81b is THEATER: out=[$OUT]"; fi
+    fi
+  }
+  full_mutant capguard 's/^    if \[ "\$_page_filled" = 1 \]; then$/    if false; then/'
+  full_mutant filledcmp 's/\[ "\$_t" -ge "\$_LIST_LIMIT" \]/[ "$_t" -gt "$_LIST_LIMIT" ]/'
+  full_mutant totalline 's/^      printf "total=%d\\n", ntotal /      printf "total=%d\\n", 0 /'
+  if stg_mutant limitvalid nomatch -e "s/^  ''|\*\[!0-9\]\*|0) echo \"degraded: STAGE_RETRO_ISSUES_LIST_LIMIT/  NEVER) echo \"degraded: STAGE_RETRO_ISSUES_LIST_LIMIT/"; then
+    STAGE_RETRO_ISSUES_LIST_LIMIT=abc run "$MBOX" "$MBOX/rh/target-foo/retros/none.md"
+    if ! grep -q '^degraded: STAGE_RETRO_ISSUES_LIST_LIMIT' <<<"$OUT"; then ok "T1369-limitvalid teeth: validation removed → no typed degraded line (81d has teeth)" "()"
+    else no "T1369-limitvalid teeth: removing validation must flip 81d" "81d is THEATER: out=[$OUT]"; fi
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -3543,6 +3614,100 @@ if [ "$RC" = 0 ] && grep -q "^unclassifiable: delta section found but contains n
   ok "79c stage unclassifiable message names both accepted forms (same wording as reconcile)" "(exit $RC)"
 else
   no "79c unclassifiable wording" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 80 — FENCE TRACKING (kit issue #1356 item 1, #1369 b): fenced examples are documentation.
+box80="$(mkbox case-fence-table)"; mk_gh_stub "$box80" nomatch
+r80="$box80/rh/target-foo/retros/r80.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$r80"
+run "$box80" "$r80"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q '^planned-issue: real row' <<<"$OUT"; then
+  ok "80a a table row inside a fenced example is not seeded (1 planned: the real row)" "(exit $RC)"
+else
+  no "80a fenced table row" "exit=$RC out=[$OUT]"
+fi
+box80b="$(mkbox case-fence-entry)"; mk_gh_stub "$box80b" nomatch
+r80b="$box80b/rh/target-foo/retros/r80b.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — first (priority: high)\n\n```\n### D99 — fenced fake\n**Priority**: HIGH\n```\n\n### D2 — second (NEW, MEDIUM)\n' > "$r80b"
+run "$box80b" "$r80b"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] && ! grep -q 'D99' <<<"$OUT"; then
+  ok "80b a fenced '### D99 —' entry is not seeded (D1, D2 only)" "(exit $RC)"
+else
+  no "80b fenced entry" "exit=$RC out=[$OUT]"
+fi
+# 80c — heading-only priority (#1356 item 2) yields the priority label
+if grep -A1 '^planned-issue: first' <<<"$OUT" | grep -q 'priority:high' \
+   && grep -A1 '^planned-issue: second' <<<"$OUT" | grep -q 'priority:medium'; then
+  ok "80c priority written only in the heading → priority:high / priority:medium labels" "(exit $RC)"
+else
+  no "80c heading priority label" "out=[$OUT]"
+fi
+# 80d — a 4-space-indented fence opener (indented code) hides nothing (#1369 b)
+box80d="$(mkbox case-fence-indented)"; mk_gh_stub "$box80d" nomatch
+r80d="$box80d/rh/target-foo/retros/r80d.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one\n\n    ```\n### D2 — two\n### D3 — three\n' > "$r80d"
+run "$box80d" "$r80d"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 3 ]; then
+  ok "80d a 4-space-indented fence opener opens nothing (3 planned)" "(exit $RC)"
+else
+  no "80d indented opener" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 81 — LIST LIMIT (kit issue #1369 c): the dedup `gh issue list` carried NO --limit (gh defaults to
+#      30), so a busy repo silently truncated the result and a duplicate could be re-created.
+#      Now: an explicit --limit, and a reply that fills it is a typed failure (never "no match").
+box81="$(mkbox case-limit)"; mk_gh_stub "$box81" nomatch
+run "$box81" "$(mk_retro "$box81" target-foo r81.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+if [ "$RC" = 0 ] && grep -qE 'gh issue list .*--limit [0-9]+' "$box81/bin/gh.log"; then
+  ok "81a the dedup gh issue list passes an explicit --limit" "(exit $RC)"
+else
+  no "81a explicit --limit" "exit=$RC log=[$(cat "$box81/bin/gh.log" 2>/dev/null)]"
+fi
+box81b="$(mkbox case-limit-full)"; mk_gh_stub "$box81b" page2
+r81b="$(mk_retro "$box81b" target-foo r81b.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$box81b" "$r81b" --apply
+if [ "$RC" != 0 ] && grep -q '^ERROR: gh issue list (dedup) returned 2 results = the --limit 2 cap' <<<"$OUT" \
+   && ! grep -q 'gh issue create' "$box81b/bin/gh.log"; then
+  ok "81b a reply that FILLS the limit is a typed failure and creates nothing" "(exit $RC)"
+else
+  no "81b full page" "exit=$RC out=[$OUT] log=[$(cat "$box81b/bin/gh.log")]"
+fi
+box81c="$(mkbox case-limit-under)"; mk_gh_stub "$box81c" page2
+r81c="$(mk_retro "$box81c" target-foo r81c.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+STAGE_RETRO_ISSUES_LIST_LIMIT=3 run "$box81c" "$r81c" --apply
+if [ "$RC" = 0 ] && grep -q 'gh issue create' "$box81c/bin/gh.log" && ! grep -q 'cap' <<<"$OUT"; then
+  ok "81c a reply one UNDER the limit is trusted (no-match → creates)" "(exit $RC)"
+else
+  no "81c under limit" "exit=$RC out=[$OUT]"
+fi
+# 81d — an invalid limit override is refused, not passed through
+STAGE_RETRO_ISSUES_LIST_LIMIT=abc run "$box81c" "$r81c"
+if [ "$RC" = 1 ] && grep -q '^degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer' <<<"$OUT"; then
+  ok "81d a non-numeric STAGE_RETRO_ISSUES_LIST_LIMIT is a typed degraded exit 1" "(exit $RC)"
+else
+  no "81d bad limit override" "exit=$RC out=[$OUT]"
+fi
+# 81f — a FULL page that still holds the exact signature is a duplicate, not a failure
+box81f="$(mkbox case-limit-full-match)"; mk_gh_stub "$box81f" fuzzyplusexact
+r81f="$(mk_retro "$box81f" target-foo r81f.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$box81f" "$r81f" --apply
+if [ "$RC" = 0 ] && grep -q '^skipped-duplicate:' <<<"$OUT" && ! grep -q 'cap' <<<"$OUT"; then
+  ok "81f a full page that contains the exact signature dedups (no spurious cap error)" "(exit $RC)"
+else
+  no "81f full page with match" "exit=$RC out=[$OUT]"
+fi
+# 81e — the gh stub itself rejects an unknown flag and an unknown --json field (it must not invent support)
+box81e="$(mkbox case-stub-strict)"; mk_gh_stub "$box81e" nomatch
+"$box81e/bin/gh" issue list --bogus x >/dev/null 2>&1; _rc1=$?
+"$box81e/bin/gh" issue list --json state,nope >/dev/null 2>&1; _rc2=$?
+"$box81e/bin/gh" issue list --limit 0 >/dev/null 2>&1; _rc3=$?
+"$box81e/bin/gh" issue list --repo r --state all --search q --json state,body --limit 5 >/dev/null 2>&1; _rc4=$?
+if [ "$_rc1" = 2 ] && [ "$_rc2" = 2 ] && [ "$_rc3" = 2 ] && [ "$_rc4" = 0 ]; then
+  ok "81e gh stub rejects unknown flag / unknown --json field / --limit 0; accepts the real shape" "(rc $_rc1 $_rc2 $_rc3 $_rc4)"
+else
+  no "81e stub strictness" "rc=$_rc1 $_rc2 $_rc3 $_rc4"
 fi
 
 echo "== $pass passed · $fail failed =="

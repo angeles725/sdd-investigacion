@@ -708,8 +708,9 @@ mk_targets_md "$repo" other "$repo/other"
 mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
 run "$repo" "targetA/retros/r1.md"
 if [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/targetA-r1" ] \
-   && grep -q "WARN: no registered target name.*basename 'targetA'" <<<"$OUT"; then
-  ok "23 unregistered retro → WARN + basename label, staging proceeds" "(exit $RC)"
+   && grep -q "WARN: no registered target name.*(target_name_for_retro rc=2).*basename 'targetA'" <<<"$OUT" \
+   && ! grep -q 'target-name lookup FAILED' <<<"$OUT"; then
+  ok "23 unregistered retro (rc 2) → no-match WARN + basename label, NOT typed as an operational failure" "(exit $RC)"
 else
   no "23 unregistered retro → expected WARN + retro/targetA-r1" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
 fi
@@ -724,9 +725,9 @@ repo="$(mkrepo emptyregistry real)"
 printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$repo/research-sdd/TARGETS.md"
 mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
 run "$repo" "targetA/retros/r1.md"
-if [ "$rc24a" = 0 ] && [ "$b24a" = "retro/targetA-r1" ] && grep -qi 'WARN: no registered target name' <<<"$out24a" \
-   && grep -qi 'cannot read' <<<"$out24a" \
-   && [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/targetA-r1" ] && grep -qi 'no registered target' <<<"$OUT"; then
+if [ "$rc24a" = 0 ] && [ "$b24a" = "retro/targetA-r1" ] && grep -q "WARN: target-name lookup FAILED (rc=1, operational" <<<"$out24a" \
+   && grep -qi 'cannot read' <<<"$out24a" && ! grep -q 'no registered target name' <<<"$out24a" \
+   && [ "$RC" = 0 ] && [ "$(branches "$repo")" = "retro/targetA-r1" ] && grep -q "WARN: target-name lookup FAILED (rc=1, operational" <<<"$OUT"; then
   ok "24 absent / zero-row TARGETS.md → typed reason + WARN + basename label" "(rc=$rc24a/$RC)"
 else
   no "24 absent / zero-row TARGETS.md → expected typed reason + WARN + basename" "absent=[$out24a] empty=[$OUT]"
@@ -1269,6 +1270,18 @@ fi'
       ok "T1287b teeth: WARN dropped → silent basename guess (case 23 has teeth)" "()"
     else
       no "T1287b teeth: WARN dropped must flip case 23" "case 23 is THEATER: out=[$OUT]"
+    fi
+  fi
+
+  echo "-- teeth T1369d: rc 1 no longer typed apart from rc 2 --"
+  repo="$(mkrepo teeth-rc1 real)"
+  mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+  if tooth_swap "$repo" 'elif [ "$_reg_rc" -eq 1 ]; then' 'elif false; then'; then
+    run "$repo" "targetA/retros/r1.md"
+    if ! grep -q 'target-name lookup FAILED' <<<"$OUT" && grep -q 'WARN: no registered target name' <<<"$OUT"; then
+      ok "T1369d teeth: rc-1 branch removed → generic no-match WARN again (case 24 has teeth)" "()"
+    else
+      no "T1369d teeth: rc-1 branch removed must flip case 24" "case 24 is THEATER: out=[$OUT]"
     fi
   fi
 
