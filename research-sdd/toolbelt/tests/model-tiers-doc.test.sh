@@ -74,22 +74,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # original) AND the BAD verdict (it fails on the mutant).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   export MUTANT_SYNTAX=none
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
-  # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant; PREDICATE must
-  # hold on the original and must NOT hold on the mutant.
+  # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
+  export -f _has_claude_profile _has_opus_55 _has_sonnet_5 _has_haiku_45_200k
+  # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant (mutant_chain);
+  # PREDICATE must hold on the original (rc 0) and must NOT hold on the mutant (rc 1) — mutant_tooth.
   tooth() {
-    local label="$1" pred="$2" expr="$3" out="$TT/$1.md" rc err
-    err="$(mutant_sed "$DOC" "$out" -e "$expr" 2>&1)"; rc=$?
-    if [ "$rc" -ne 0 ]; then no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; fi
-    if ! "$pred" "$DOC"; then
-      no "$label: $pred does NOT hold on the original — the tooth has no GOOD verdict to flip"
-    elif "$pred" "$out"; then
-      no "$label: $pred still holds on the mutant — no teeth"
+    local label="$1" pred="$2" expr="$3" out="$TT/$1.md" line
+    mutant_chain "$label" "$DOC" "$out" "$expr" || { fail=$((fail+1)); return 1; }
+    if line="$(mutant_tooth "$label: $pred" 0 1 "$out" --orig "$DOC" -- bash -c "$pred"' "$1"' _ @SUT@)"; then
+      pass=$((pass+1)); printf '%s\n' "$line"
     else
-      ok "$label: $pred holds on the original and goes RED on the mutant"
+      fail=$((fail+1)); printf '%s\n' "$line"
     fi
   }
 

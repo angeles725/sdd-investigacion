@@ -963,9 +963,8 @@ fi
 # is NOT teeth — the old `!= <good value>` verdicts counted a crash as "DETECTED".
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
-# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
 MUTDIR=""
 trap '
   chmod 755 "$ROOT/unreadable-subdir-module/art-x/extracted/secret-dir" 2>/dev/null || true
@@ -973,20 +972,15 @@ trap '
   rm -rf "$ROOT" ${MUTDIR:+"$MUTDIR"}
 ' EXIT
 
-# mk_mutant LABEL EXPR...  build $MUTDIR/palette_lexicon_agents.py from $ORIG_PY, one sed stage per EXPR.
-# Each stage must change the original ON ITS OWN. Returns 1 (after recording a FAIL) when refused.
+# mk_mutant LABEL EXPR...  build $MUTDIR/palette_lexicon_agents.py from $ORIG_PY with the shared mutant_chain
+# (one sed stage per EXPR, each of which must change the original ON ITS OWN). The SUT directory is copied
+# first so the mutant keeps its sibling modules. Returns 1 (after a recorded FAIL) when refused.
 mk_mutant() {
-  local label="$1" e rc err; shift
-  local -a args=()
+  local label="$1"; shift
   MUTDIR="$(mktemp -d)"; cp -a "$SUT_DIR/." "$MUTDIR/"
-  for e in "$@"; do
-    if sed -e "$e" "$ORIG_PY" | cmp -s - "$ORIG_PY"; then
-      mut_no "$label: sed stage matches nothing in the original (silent no-op) :: [${e:0:70}]"; rm -rf "$MUTDIR"; return 1
-    fi
-    args+=(-e "$e")
-  done
-  err="$(MUTANT_SYNTAX=none mutant_sed "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py" "${args[@]}" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ]; then mut_no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; rm -rf "$MUTDIR"; return 1; fi
+  if ! MUTANT_SYNTAX=none mutant_chain "$label" "$ORIG_PY" "$MUTDIR/palette_lexicon_agents.py" "$@"; then
+    MUT_FAIL=$((MUT_FAIL+1)); rm -rf "$MUTDIR"; return 1
+  fi
   if ! python3 -m py_compile "$MUTDIR/palette_lexicon_agents.py" 2>/dev/null; then
     mut_no "$label: mutant failed py_compile"; rm -rf "$MUTDIR"; return 1
   fi
@@ -1009,38 +1003,36 @@ else: print(art.get(f, 'absent'))
 PY
 }
 
-# art_run PY INPUT OUT FIELD  run PY on INPUT, set RA_RC (exit code) and RA_VAL (FIELD, or 'nojson').
-art_run() {
-  rm -f "$3"; RA_RC=0
-  python3 "$1" --input "$2" --output "$3" 2>/dev/null || RA_RC=$?
-  if [ -f "$3" ]; then RA_VAL="$(art_field "$3" "$4")"; else RA_VAL="nojson"; fi
+# art_probe PY INPUT OUT FIELD  run PY on INPUT; print FIELD of the output document (or 'nojson') and exit with
+# PY's own exit code, so the shared mutant_tooth sees the exact exit code AND the exact value of each run.
+art_probe() {
+  local rc=0
+  rm -f "$3"
+  python3 "$1" --input "$2" --output "$3" 2>/dev/null || rc=$?
+  if [ -f "$3" ]; then art_field "$3" "$4"; else echo nojson; fi
+  return "$rc"
 }
 
-# mut_verdict LABEL G_RC G_VAL WANT_G_RC WANT_G_VAL B_RC B_VAL WANT_B_RC WANT_B_VAL  exact GOOD + exact BAD.
-mut_verdict() {
-  local label="$1"
-  if [ "$2" = "$4" ] && [ "$3" = "$5" ] && [ "$6" = "$8" ] && [ "$7" = "$9" ]; then
-    mut_ok "$label: original rc=$2 value='$3' → mutant rc=$6 value='$7' — DETECTED"
-  else
-    mut_no "$label — THEATER: original rc=$2 value='$3' (want rc=$4 '$5'); mutant rc=$6 value='$7' (want rc=$8 '$9')"
-  fi
+# tt LABEL GOOD_RC BAD_RC MUTANT GOOD_VAL BAD_VAL INPUT FIELD  the shared mutant_tooth over art_probe: the original
+# must exit EXACTLY GOOD_RC with value GOOD_VAL, the mutant EXACTLY BAD_RC with value BAD_VAL (a mutant that
+# merely crashes — no JSON, odd exit — matches neither: the old `!= <good value>` verdicts counted it DETECTED).
+tt() {
+  local label="$1" grc="$2" brc="$3" mut="$4" good="$5" bad="$6" input="$7" field="$8"
+  if mutant_tooth "$label" "$grc" "$brc" "$mut" --orig "$ORIG_PY" --good-has "^${good}\$" --bad-has "^${bad}\$" \
+       -- art_probe @SUT@ "$input" "$ROOT/probe.json" "$field"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
 }
 
 # mut_field_tooth LABEL INPUT FIELD GOOD_VAL BAD_VAL EXPR...  exact exit code (MF_GRC/MF_BRC, default 0) and exact value on both runs.
 mut_field_tooth() {
-  local label="$1" input="$2" field="$3" good="$4" bad="$5" grc gval; shift 5
+  local label="$1" input="$2" field="$3" good="$4" bad="$5"; shift 5
   mk_mutant "$label" "$@" || return 1
-  art_run "$ORIG_PY" "$input" "$ROOT/good.json" "$field"; grc=$RA_RC; gval=$RA_VAL
-  art_run "$MUTDIR/palette_lexicon_agents.py" "$input" "$ROOT/bad.json" "$field"
-  mut_verdict "$label" "$grc" "$gval" "${MF_GRC:-0}" "$good" "$RA_RC" "$RA_VAL" "${MF_BRC:-0}" "$bad"
+  tt "$label" "${MF_GRC:-0}" "${MF_BRC:-0}" "$MUTDIR/palette_lexicon_agents.py" "$good" "$bad" "$input" "$field"
   rm -rf "$MUTDIR"
 }
 
 # --- M1: S_ISLNK → S_ISBLK so a symlink INPUT is no longer rejected (original exit 2 + no document).
 if mk_mutant "M1 symlink guard" 's/if _stat\.S_ISLNK(lstat_in\.st_mode):/if _stat.S_ISBLK(lstat_in.st_mode):  # MUTANT-M1/'; then
-  art_run "$ORIG_PY" "$ROOT/sym-module" "$ROOT/m1g.json" top:status; _m1g_rc=$RA_RC; _m1g_val=$RA_VAL
-  art_run "$MUTDIR/palette_lexicon_agents.py" "$ROOT/sym-module" "$ROOT/m1.json" top:status
-  mut_verdict "M1 symlink guard" "$_m1g_rc" "$_m1g_val" 2 nojson "$RA_RC" "$RA_VAL" 0 complete
+  tt "M1 symlink guard" 2 0 "$MUTDIR/palette_lexicon_agents.py" nojson complete "$ROOT/sym-module" top:status
   rm -rf "$MUTDIR"
 fi
 
@@ -1061,9 +1053,7 @@ mut_field_tooth "M7 BOM stripping" "$FIXTURES/bom-lexicon-module" duplicate_bare
 
 # --- M8: palette cap reverted to 4 MiB: the large palette (original: complete, exit 0) is truncated again.
 if mk_mutant "M8 palette cap" 's/_MAX_PALETTE_BYTES    = 16 \* 1024 \* 1024/_MAX_PALETTE_BYTES    = 4 * 1024 * 1024  # MUTANT-M8/'; then
-  art_run "$ORIG_PY" "$_T14_MOD" "$ROOT/m8g.json" top:status; _m8g_rc=$RA_RC; _m8g_val=$RA_VAL
-  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T14_MOD" "$ROOT/m8.json" top:status
-  mut_verdict "M8 palette cap" "$_m8g_rc" "$_m8g_val" 0 complete "$RA_RC" "$RA_VAL" 1 failed
+  tt "M8 palette cap" 0 1 "$MUTDIR/palette_lexicon_agents.py" complete failed "$_T14_MOD" top:status
   rm -rf "$MUTDIR"
 fi
 
@@ -1089,10 +1079,8 @@ elif mk_mutant "M13 onerror=None" 's/lexicon_files = _find_lexicon_files(ext_dir
   mkdir -p "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
   printf 'hidden=secret\n' > "$_T21_MOD/art-x/extracted/secret-dir/hidden.lexicon" 2>/dev/null || true
   chmod 000 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
-  art_run "$ORIG_PY" "$_T21_MOD" "$ROOT/m13g.json" len:top:errors; _m13g_rc=$RA_RC; _m13g_val=$RA_VAL
-  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T21_MOD" "$ROOT/m13.json" len:top:errors
+  tt "M13 onerror=None" 1 0 "$MUTDIR/palette_lexicon_agents.py" 1 0 "$_T21_MOD" len:top:errors
   chmod 755 "$_T21_MOD/art-x/extracted/secret-dir" 2>/dev/null || true
-  mut_verdict "M13 onerror=None" "$_m13g_rc" "$_m13g_val" 1 1 "$RA_RC" "$RA_VAL" 0 0
   rm -rf "$MUTDIR"
 fi
 
@@ -1103,10 +1091,8 @@ elif mk_mutant "M14 unreadable-file error" '/: lexicon file unreadable/d'; then
   # Recreate the chmod-000 file (restored after T22)
   printf 'key2=v2\n' > "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
   chmod 000 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
-  art_run "$ORIG_PY" "$_T22_MOD" "$ROOT/m14g.json" len:top:errors; _m14g_rc=$RA_RC; _m14g_val=$RA_VAL
-  art_run "$MUTDIR/palette_lexicon_agents.py" "$_T22_MOD" "$ROOT/m14.json" len:top:errors
+  tt "M14 unreadable-file error" 1 0 "$MUTDIR/palette_lexicon_agents.py" 1 0 "$_T22_MOD" len:top:errors
   chmod 644 "$_T22_MOD/art-y/extracted/locked.lexicon" 2>/dev/null || true
-  mut_verdict "M14 unreadable-file error" "$_m14g_rc" "$_m14g_val" 1 1 "$RA_RC" "$RA_VAL" 0 0
   rm -rf "$MUTDIR"
 fi
 

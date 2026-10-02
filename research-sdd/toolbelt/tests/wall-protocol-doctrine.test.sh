@@ -168,58 +168,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # through the SAME predicates the main checks use.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   export MUTANT_SYNTAX=none
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
-  # mk_mut LABEL OUT SED_ARGS...  build OUT from $METHODOLOGY; false (and a FAIL) when lib/mutant.sh refuses.
-  mk_mut() {
-    local label="$1" out="$2" rc err; shift 2
-    err="$(mutant_sed "$METHODOLOGY" "$out" "$@" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
-  }
+  # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
+  export -f order_state section21_of s21_has
+  # tt LABEL GOOD_RC BAD_RC MUTANT [mutant_tooth opts] -- ARGV  count the shared mutant_tooth verdict.
+  tt() { local line; if line="$(mutant_tooth "$@")"; then pass=$((pass+1)); else fail=$((fail+1)); fi; printf '%s\n' "$line"; }
+  # mk LABEL OUT EXPR...  build OUT from $METHODOLOGY (mutant_chain: every stage must apply on its own).
+  mk() { local label="$1" out="$2"; shift 2; mutant_chain "$label" "$METHODOLOGY" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
 
   # teeth-M1: delete EVERY line mentioning 'blocked-on-tool' (§21 has two occurrences; removing only the
-  # first leaves the whole-file check GREEN). GOOD: original has the token; BAD: mutant lacks it.
+  # first leaves the whole-file check GREEN). GOOD: original has the token (rc 0); BAD: mutant lacks it (rc 1).
   MUT_FILE="$TMPDIR_PT/METHODOLOGY-mutant.md"
-  if mk_mut "teeth-M1" "$MUT_FILE" -e '/blocked-on-tool/d'; then
-    if grep -qF 'blocked-on-tool' "$METHODOLOGY" && ! grep -qF 'blocked-on-tool' "$MUT_FILE"; then
-      ok "teeth-M1: 'blocked-on-tool' present in the original, absent from the mutant — the whole-file check goes RED (teeth proven)"
-    else
-      no "teeth-M1: GOOD/BAD verdicts not exact (original has token: $(grep -cF 'blocked-on-tool' "$METHODOLOGY"), mutant has token: $(grep -cF 'blocked-on-tool' "$MUT_FILE"))"
-    fi
+  if mk "teeth-M1" "$MUT_FILE" '/blocked-on-tool/d'; then
+    tt "teeth-M1: 'blocked-on-tool' present in the original, absent from the mutant (whole-file check)" 0 1 "$MUT_FILE" \
+      --orig "$METHODOLOGY" -- grep -qF 'blocked-on-tool' @SUT@
   fi
 
-  # teeth-M2: swap the §20 and §21 headings; the REAL order_state must flip ok → wrong.
+  # teeth-M2: swap the §20 and §21 headings; the REAL order_state must flip ok → wrong. One sed pass,
+  # each stage touches a different line, so no sentinel is needed.
   MUT_ORDER="$TMPDIR_PT/METHODOLOGY-order-mutant.md"
-  if mk_mut "teeth-M2" "$MUT_ORDER" \
-       -e 's/^## 20\. Document mode/## SWAP_SENTINEL Document mode/' \
-       -e 's/^## 21\. Wall protocol/## 20. Wall protocol/' \
-       -e 's/^## SWAP_SENTINEL Document mode/## 21. Document mode/'; then
-    _o_good="$(order_state "$METHODOLOGY")"; _o_bad="$(order_state "$MUT_ORDER")"
-    case "$_o_good|$_o_bad" in
-      ok*"|wrong"*) ok "teeth-M2: order_state '$_o_good' on the original → '$_o_bad' on the swapped mutant (teeth proven)" ;;
-      *) no "teeth-M2: order_state verdicts not exact (original='$_o_good' want 'ok…', mutant='$_o_bad' want 'wrong…')" ;;
-    esac
+  if mk "teeth-M2" "$MUT_ORDER" \
+       's/^## 20\. Document mode/## 21. Document mode/' \
+       's/^## 21\. Wall protocol/## 20. Wall protocol/'; then
+    tt "teeth-M2: order_state 'ok' on the original → 'wrong' on the swapped mutant" 0 0 "$MUT_ORDER" \
+      --orig "$METHODOLOGY" --good-has '^ok ' --bad-has '^wrong ' -- bash -c 'order_state "$1"' _ @SUT@
   fi
 
   # teeth-M3/M4: delete the lines mentioning TOKEN INSIDE §21 only (sed range from the §21 heading to the
   # next numbered heading). GOOD: s21_has holds on the original; BAD: it fails on the mutant while the
-  # token still occurs OUTSIDE §21 — which is exactly what makes the scoped check, not a whole-file grep,
-  # the real guard.
+  # token may still occur OUTSIDE §21 — which is what makes the scoped check, not a whole-file grep, the
+  # real guard.
   for _tok in unavailable refused; do
     _lab="teeth-M$([ "$_tok" = unavailable ] && echo 3 || echo 4)"
     _mf="$TMPDIR_PT/METHODOLOGY-$_tok.md"
-    if mk_mut "$_lab" "$_mf" -E -e "/^## 21[.] Wall protocol/,/^## [0-9]+[.] /{/^## 21[.]/!{/$_tok/d}}"; then
-      if s21_has "$METHODOLOGY" "$_tok" && ! s21_has "$_mf" "$_tok"; then
-        if grep -qF "$_tok" "$_mf"; then
-          ok "$_lab: '$_tok' in §21 of the original, gone from §21 of the mutant but still elsewhere in the file — the scoped check goes RED where a whole-file grep stays GREEN (teeth proven)"
-        else
-          ok "$_lab: '$_tok' in §21 of the original, gone from §21 of the mutant — the scoped check goes RED (teeth proven; token has no occurrence outside §21 today)"
-        fi
-      else
-        no "$_lab: GOOD/BAD verdicts not exact (original s21_has=$(s21_has "$METHODOLOGY" "$_tok" && echo yes || echo no), mutant s21_has=$(s21_has "$_mf" "$_tok" && echo yes || echo no))"
-      fi
+    if mk "$_lab" "$_mf" "/^## 21[.] Wall protocol/,/^## [0-9][0-9]*[.] /{/^## 21[.]/!{/$_tok/d}}"; then
+      tt "$_lab: '$_tok' in §21 of the original, gone from §21 of the mutant (scoped check)" 0 1 "$_mf" \
+        --orig "$METHODOLOGY" -- bash -c 's21_has "$1" "$2"' _ @SUT@ "$_tok"
     fi
   done
 fi
