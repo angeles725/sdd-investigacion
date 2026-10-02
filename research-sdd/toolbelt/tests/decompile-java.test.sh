@@ -208,6 +208,8 @@ fi
 #   STUB_FORCE_JAVA      non-empty: the engine always also writes Forced.java (success without any class entry)
 #   STUB_STRIP_LAYOUT   non-empty: every engine writes output paths that follow the PACKAGE (BOOT-INF/classes/,
 #                        WEB-INF/classes/ and META-INF/versions/N/ prefixes dropped), like real CFR/Procyon
+#   STUB_STANDALONE_CLASSES  space list of class basenames the engines treat as TOP-LEVEL even when a prefix class sits
+#                        beside them (a separately compiled CGLIB proxy has no InnerClasses entry; kit issue #1358)
 #   STUB_LOG             append "<engine> <in> <out>" per decompile call
 T_JAVA_HOME="$ROOT/java-scn"
 mkdir -p "$T_JAVA_HOME/bin"
@@ -245,6 +247,7 @@ for c in $classes; do
     [ "${b:k:1}" = '$' ] || continue
     pre="${b:0:k}"; grep -qx "$(dirname "$c")/$pre.class\|$pre.class" <<<"$classes" && inner=1
   done
+  for m in ${STUB_STANDALONE_CLASSES:-}; do [ "$b" = "$m" ] && inner=""; done
   [ -z "$inner" ] || continue
   omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
   [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
@@ -276,13 +279,13 @@ rt() {
   rm -rf "$ROOT/o-$tag"
   if [ -n "${RT_PRESEED:-}" ]; then # stale files (older than the run) already sitting in a REUSED out-dir
     local pf; for pf in $RT_PRESEED; do
-      mkdir -p "$ROOT/o-$tag/$(dirname "$pf")"; echo "// engine=stale" > "$ROOT/o-$tag/$pf"
-      touch -d '2 days ago' "$ROOT/o-$tag/$pf"
+      mkdir -p "$ROOT/o-$tag/$(dirname "$pf")"; printf '%s\n' "${RT_PRESEED_CONTENT:-// engine=stale}" > "$ROOT/o-$tag/$pf"
+      touch -d "${RT_PRESEED_AGE:-2 days ago}" "$ROOT/o-$tag/$pf"
     done
   fi
   env JAVA_HOME="$T_JAVA_HOME" VINEFLOWER_JAR="$FAKE_VINEFLOWER" CFR_JAR="$FAKE_CFR" \
     PROCYON_JAR="$FAKE_PROCYON" RSDD_DECOMPILE_TIMEOUT=1 STUB_LOG="$ROOT/log-$tag" \
-    "${ev[@]}" bash "${RT_SUT:-$SUT}" "$in" "$ROOT/o-$tag" "$@" \
+    "${ev[@]}" bash "${RT_SUT:-$SUT}" "$in" "$ROOT/o-$tag${RT_OUT_SUFFIX:-}" "$@" \
     >"$ROOT/so-$tag" 2>"$ROOT/se-$tag"
   RC=$?; SO="$(cat "$ROOT/so-$tag")"; SE="$(cat "$ROOT/se-$tag")"
 }
@@ -705,6 +708,75 @@ rt R1 "$JARV" LC_ALL=C STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="A" -- --engine vin
 if [ "$RC" -eq 4 ] && [ "$(units_of)" = "a/A" ]; then ok "R1 multi-release: base a/A is the unit (not META-INF/versions/9/a/A)"
 else no "R1 base entry preferred over META-INF/versions" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
 
+# ── Issue #1358: decompile-java follow-ups from #1320 ────────────────────────
+# S1 (item 1): the marker scan's handled-set lookup uses the layout key. Without STUB_STRIP_LAYOUT the engines write
+# BOOT-INF/classes/b/B.java (prefix kept) while record_unit keyed the unit as b/B: a raw-path lookup misses and the
+# fallback's own marked output is handled a second time.
+rt S1 "$JARB" STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "BOOT-INF/classes/b/B" ] && grep -q 'reason=missing fallback=cfr result=marked' <<<"$SO"; then
+  ok "S1 prefix kept in output path: marker scan finds the unit in the handled-set (one unit, not two)"
+else no "S1 scan_markers looks the handled-set up by layout key" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+# S2 (item 2): a CGLIB proxy compiled next to Foo.class is its own unit; its omission is typed, not a bare OK.
+JARC="$ROOT/cglib.jar"
+mkjar "$JARC" 'p/Foo.class' 'p/Foo$$EnhancerByCGLIB$$ab.class' 'p/Foo$Bar.class' 'p/Bar$$FastClassBySpringCGLIB$$cd.class' 'p/Bar.class' 'p/Baz$$SpringCGLIB$$0.class' 'p/Baz.class' 'p/Qux$ByteBuddy$ef.class' 'p/Qux.class' 'p/Zed$$KeyFactoryByCGLIB$$ff.class' 'p/Zed.class'
+CGLIB_ENV=(STUB_STANDALONE_CLASSES='Foo$$EnhancerByCGLIB$$ab Bar$$FastClassBySpringCGLIB$$cd Baz$$SpringCGLIB$$0 Qux$ByteBuddy$ef Zed$$KeyFactoryByCGLIB$$ff')
+rt S2 "$JARC" "${CGLIB_ENV[@]}" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && [ -f "$ROOT/o-S2/"'p/Foo$$EnhancerByCGLIB$$ab.java' ]; then
+  ok "S2a proxy classes next to their base, fully decompiled → OK (no false missing; Foo\$Bar stays inner)"
+else no "S2a generated classes decompiled normally" "rc=$RC so=[$SO]"; fi
+rt S2b "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+if [ "$RC" -eq 4 ] && ! grep -q '^OK' <<<"$SO" && [ "$(units_of)" = 'p/Foo$$EnhancerByCGLIB$$ab' ]; then
+  ok "S2b omitted Foo\$\$EnhancerByCGLIB\$\$ab (first of the list) → the ONE missing unit"
+else no "S2b CGLIB omission is detected" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+rt S2c "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Qux$ByteBuddy$ef' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'p/Qux$ByteBuddy$ef' ]; then ok "S2c omitted ByteBuddy subclass (last of the list) → the ONE missing unit"
+else no "S2c ByteBuddy omission is detected" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+rt S2d "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Baz$$SpringCGLIB$$0 Bar$$FastClassBySpringCGLIB$$cd' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'p/Bar$$FastClassBySpringCGLIB$$cd p/Baz$$SpringCGLIB$$0' ]; then ok "S2d omitted FastClass + SpringCGLIB proxies (middle) → exactly those two units"
+else no "S2d middle-of-list proxies are detected" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+rt S2g "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Zed$$KeyFactoryByCGLIB$$ff' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'p/Zed$$KeyFactoryByCGLIB$$ff' ]; then ok "S2g omitted KeyFactory proxy → the ONE missing unit"
+else no "S2g KeyFactory omission is detected" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+JAR1C="$ROOT/cglib1.jar"; mkjar "$JAR1C" 'p/Foo.class' 'p/Foo$$EnhancerByCGLIB$$ab.class'
+rt S2e "$JAR1C" STUB_STANDALONE_CLASSES='Foo$$EnhancerByCGLIB$$ab' STUB_OMIT_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = 'p/Foo$$EnhancerByCGLIB$$ab' ]; then ok "S2e single proxy beside a single base, omitted → typed missing"
+else no "S2e two-class jar detects the omission" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+# S2f: a nested class OF a proxy (Foo$$EnhancerByCGLIB$$ab$1) is inner of the proxy, never a unit of its own.
+JARCN="$ROOT/cglibn.jar"; mkjar "$JARCN" 'p/Foo.class' 'p/Foo$$EnhancerByCGLIB$$ab.class' 'p/Foo$$EnhancerByCGLIB$$ab$1.class'
+rt S2f "$JARCN" STUB_STANDALONE_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO"; then ok "S2f proxy\$1 nested class stays inner of the proxy → OK"
+else no "S2f only the proxy-suffix NAME is a unit; its nested class is not" "rc=$RC so=[$SO]"; fi
+# S3 (item 4): the stamp backdate must not make a pre-existing file modified inside the 2 s window look fresh.
+RT_PRESEED_AGE="1 second ago" RT_PRESEED="keep/Old.java" rt S3a "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ -f "$ROOT/o-S3a/keep/Old.java" ] && [ "$(engine_of S3a keep/Old.java)" = stale ]; then
+  ok "S3a discard after a failed primary keeps a pre-existing file modified 1 s before the run"
+else no "S3a discard_run_output spares files that predate the run" "rc=$RC so=[$SO]"; fi
+RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A2.java" rt S3b "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing' <<<"$SO" && [ "$(engine_of S3b a/A2.java)" = cfr ]; then
+  ok "S3b a 1 s-old stale file is not coverage for an omitted class"
+else no "S3b recent pre-existing file is not coverage" "rc=$RC so=[$SO]"; fi
+RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A1.java" rt S3c "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(engine_of S3c a/A1.java)" = vineflower ]; then ok "S3c a recent pre-existing file that THIS run overwrites is still this run's output"
+else no "S3c rewritten file is fresh" "rc=$RC so=[$SO]"; fi
+# S4 (review R1): a STALE marked .java modified 1 s before the run, never rewritten by it, is not this run's output:
+# the marker scan must not re-handle it (no UNIT line, bare OK).
+STALE_MARK="$(printf '    // $VF: Couldn%st be decompiled' "'")"
+RT_PRESEED_AGE="1 second ago" RT_PRESEED_CONTENT="$STALE_MARK" RT_PRESEED="x/Stale.java" rt S4 "$JARP" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && [ -z "$(units_of)" ]; then
+  ok "S4 stale marked file modified 1 s before the run is not re-handled by the marker scan → OK"
+else no "S4 scan_markers skips files that predate the run" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+# S5 (review R2): an out-dir given WITH a trailing slash behaves like one without (snapshot keys and lookups agree).
+RT_OUT_SUFFIX=/ RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A2.java" rt S5a "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: a/A2 reason=missing' <<<"$SO" && [ "$(engine_of S5a a/A2.java)" = cfr ]; then
+  ok "S5a trailing-slash out-dir: a 1 s-old stale file is still not coverage"
+else no "S5a trailing-slash out-dir keeps the freshness snapshot" "rc=$RC so=[$SO]"; fi
+RT_OUT_SUFFIX=/ RT_PRESEED_AGE="1 second ago" RT_PRESEED="keep/Old.java" rt S5b "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(engine_of S5b keep/Old.java)" = stale ]; then ok "S5b trailing-slash out-dir: discard keeps the pre-existing file"
+else no "S5b trailing-slash discard" "rc=$RC so=[$SO]"; fi
+RT_OUT_SUFFIX=/ rt S5c "$JARB" STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+if [ "$RC" -eq 4 ] && [ "$(units_of)" = "BOOT-INF/classes/b/B" ]; then ok "S5c trailing-slash out-dir: marker scan derives the same unit name (one unit)"
+else no "S5c trailing-slash marker-scan unit name" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -1026,6 +1098,84 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" rt mN5 "$JARV" LC_ALL=C STUB_STRIP_LAYOUT=1 STUB_OMIT_CLASSES="A" -- --engine vineflower
     if [ "$(units_of)" != "a/A" ]; then ok "teeth-mN5: base-not-preferred mutant names the versioned entry → R1 bites"
     else no "teeth-mN5: mutant still named a/A — R1 has no teeth" "so=[$SO]"; fi
+  fi
+  echo "-- teeth: issue #1358 follow-ups --"
+  # mS1: handled-set looked up by the raw output path → S1 handles the fallback's own output twice.
+  if build_mut mS1 's/^    \[ -z "\${HANDLED\[\$(layout_key "\$unit")\]:-}" \]/    [ -z "${HANDLED[$unit]:-}" ]/'; then
+    RT_SUT="$MUT" rt mS1 "$JARB" STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+    if [ "$(units_of)" != "BOOT-INF/classes/b/B" ]; then ok "teeth-mS1: raw-path handled lookup double-handles the unit → S1 bites"
+    else no "teeth-mS1: mutant still reported one unit — S1 has no teeth" "so=[$SO]"; fi
+  fi
+  # mS2a: generated-class rule removed → S2b..S2e omissions read as OK again (the pre-fix false negative).
+  if build_mut mS2a 's/^  \[\[ "\$b" =~ \$GENERATED_CLASS_RE \]\] && return 0$/  :/'; then
+    RT_SUT="$MUT" rt mS2a "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2a: rule-removed mutant misses the omitted CGLIB proxy → S2b bites"
+    else no "teeth-mS2a: mutant still detected the omission — S2b has no teeth" "so=[$SO]"; fi
+  fi
+  # mS2b..d: each recognised family dropped on its own → its own omission test goes silent.
+  if build_mut mS2b '/^GENERATED_CLASS_RE=/s/ByteBuddy/NoSuchTagBB/'; then
+    RT_SUT="$MUT" rt mS2b "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Qux$ByteBuddy$ef' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2b: ByteBuddy-family-dropped mutant misses the omission → S2c bites"
+    else no "teeth-mS2b: mutant still detected ByteBuddy — S2c has no teeth" "so=[$SO]"; fi
+  fi
+  if build_mut mS2c '/^GENERATED_CLASS_RE=/s/SpringCGLIB/NoSuchTagSC/'; then
+    RT_SUT="$MUT" rt mS2c "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Baz$$SpringCGLIB$$0' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2c: SpringCGLIB-family-dropped mutant misses the omission → S2d bites"
+    else no "teeth-mS2c: mutant still detected SpringCGLIB — S2d has no teeth" "so=[$SO]"; fi
+  fi
+  if build_mut mS2d '/^GENERATED_CLASS_RE=/s/FastClass/NoSuchTagFC/'; then
+    RT_SUT="$MUT" rt mS2d "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Bar$$FastClassBySpringCGLIB$$cd' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2d: FastClass-family-dropped mutant misses the omission → S2d bites"
+    else no "teeth-mS2d: mutant still detected FastClass — S2d has no teeth" "so=[$SO]"; fi
+  fi
+  # mS2e: suffix-anchors removed → a proxy's nested class (Foo$$EnhancerByCGLIB$$ab$1) becomes a false unit → S2f bites.
+  if build_mut mS2e '/^GENERATED_CLASS_RE=/{s/\$|/|/g;s/\$'"'"'$/'"'"'/}'; then
+    RT_SUT="$MUT" rt mS2e "$JARCN" STUB_STANDALONE_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mS2e: unanchored mutant calls the proxy's nested class a unit → S2f bites"
+    else no "teeth-mS2e: mutant still printed OK — S2f has no teeth" "so=[$SO]"; fi
+  fi
+  if build_mut mS2f '/^GENERATED_CLASS_RE=/s/KeyFactory/NoSuchTagKF/'; then
+    RT_SUT="$MUT" rt mS2f "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Zed$$KeyFactoryByCGLIB$$ff' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2f: KeyFactory-family-dropped mutant misses the omission → S2g bites"
+    else no "teeth-mS2f: mutant still detected KeyFactory — S2g has no teeth" "so=[$SO]"; fi
+  fi
+  if build_mut mS2g '/^GENERATED_CLASS_RE=/s/(Enhancer|/(NoSuchTagEN|/'; then
+    RT_SUT="$MUT" rt mS2g "$JARC" "${CGLIB_ENV[@]}" STUB_OMIT_CLASSES='Foo$$EnhancerByCGLIB$$ab' -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS2g: Enhancer-family-dropped mutant misses the omission → S2b bites"
+    else no "teeth-mS2g: mutant still detected Enhancer — S2b has no teeth" "so=[$SO]"; fi
+  fi
+  # mS4: scan_markers without the freshness guard → S4 re-handles the stale marked file.
+  if build_mut mS4 's/^    is_fresh "\$f" || continue .*$/    :/'; then
+    RT_SUT="$MUT" RT_PRESEED_AGE="1 second ago" RT_PRESEED_CONTENT="$STALE_MARK" RT_PRESEED="x/Stale.java" rt mS4 "$JARP" -- --engine vineflower
+    if ! grep -q '^OK' <<<"$SO"; then ok "teeth-mS4: guard-removed mutant re-handles a stale marked file → S4 bites"
+    else no "teeth-mS4: mutant still printed OK — S4 has no teeth" "so=[$SO]"; fi
+  fi
+  # mS5: out-dir not normalised → S5a (snapshot miss) and S5c (unit name) go red.
+  if build_mut mS5 's/^while \[ "\${OUT%\/}" != "\$OUT" \].*$/:/'; then
+    RT_SUT="$MUT" RT_OUT_SUFFIX=/ RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A2.java" rt mS5 "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+    if grep -q '^OK' <<<"$SO"; then ok "teeth-mS5a: un-normalised out-dir counts a stale file as coverage → S5a bites"
+    else no "teeth-mS5a: mutant still reported the omission — S5a has no teeth" "so=[$SO]"; fi
+    RT_SUT="$MUT" RT_OUT_SUFFIX=/ rt mS5c "$JARB" STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STUB_CFR_MARKER=1 -- --engine vineflower
+    if [ "$(units_of)" != "BOOT-INF/classes/b/B" ]; then ok "teeth-mS5c: un-normalised out-dir yields a bogus unit name → S5c bites"
+    else no "teeth-mS5c: mutant still named one unit — S5c has no teeth" "so=[$SO]"; fi
+  fi
+  # mS3a: discard ignores freshness → S3a loses the pre-existing file.
+  if build_mut mS3a 's/^    if is_fresh "\$_df"; then rm -f -- "\$_df"; fi$/    rm -f -- "$_df"/'; then
+    RT_SUT="$MUT" RT_PRESEED_AGE="1 second ago" RT_PRESEED="keep/Old.java" rt mS3a "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if [ ! -e "$ROOT/o-mS3a/keep/Old.java" ]; then ok "teeth-mS3a: freshness-blind discard deletes a pre-existing file → S3a bites"
+    else no "teeth-mS3a: mutant kept the file — S3a has no teeth" "so=[$SO]"; fi
+  fi
+  # mS3b: is_fresh without the pre-run snapshot → S3b counts the recent stale file as coverage.
+  if build_mut mS3b 's/^  \[ -n "\${PRE_MTIME\[\$1\]+x}" \] || return 0$/  return 0/'; then
+    RT_SUT="$MUT" RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A2.java" rt mS3b "$JARP" STUB_OMIT_CLASSES="A2" -- --engine vineflower
+    if ! grep -q 'reason=missing' <<<"$SO"; then ok "teeth-mS3b: snapshot-less mutant treats the recent stale file as coverage → S3b bites"
+    else no "teeth-mS3b: mutant still reported the omission — S3b has no teeth" "so=[$SO]"; fi
+  fi
+  # mS3c: every snapshotted file stays stale even when rewritten → S3c's overwritten output is wrongly spared/ignored.
+  if build_mut mS3c 's/^  \[ "\$(stat -c %.9Y "\$1" 2>\/dev\/null)" != "\${PRE_MTIME\[\$1\]}" \]$/  return 1/'; then
+    RT_SUT="$MUT" RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A1.java" rt mS3c "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
+    if [ "$(engine_of mS3c a/A1.java)" != vineflower ]; then ok "teeth-mS3c: mtime-blind mutant discards this run's rewritten file → S3c bites"
+    else no "teeth-mS3c: mutant still kept the rewritten file — S3c has no teeth" "so=[$SO]"; fi
   fi
 fi
 
