@@ -127,6 +127,10 @@ if [ -n "${RSDD_DECOMPILE_MAX_HEAP:-}" ]; then
   [[ "$RSDD_DECOMPILE_MAX_HEAP" =~ ^[1-9][0-9]{0,5}[mMgG]$ ]] || { echo "invalid RSDD_DECOMPILE_MAX_HEAP" >&2; exit 2; }
   JAVA_ARGS=("-Xmx$RSDD_DECOMPILE_MAX_HEAP")
 fi
+# Normalise the out-dir once (kit issue #1358 review): a trailing slash would make find print "out/p/A.java" while
+# lookups build "out//p/A.java", so the freshness snapshot and the marker scan's prefix strip would silently miss.
+# A bare "/" is kept as is.
+while [ "${OUT%/}" != "$OUT" ] && [ -n "${OUT%/}" ]; do OUT="${OUT%/}"; done
 mkdir -p "$OUT"
 
 # Runtime-dependency probe (kit CLAUDE.md §7): `timeout` absent is a typed degraded state, never a
@@ -222,6 +226,10 @@ layout_key() {
 
 # is_fresh <file> — this run wrote (or rewrote) the file: newer than the backdated stamp AND not an untouched file
 # that was already inside the backdate window when the run started (kit issue #1358 item 4).
+# Failure direction is deliberately conservative: on a filesystem whose mtime granularity is coarser than the run
+# (1-2 s) a file this run rewrote can keep an identical mtime, and a failed stat reads as "" — in both cases the
+# file is treated as STALE, which surfaces as a loud false reason=missing (or a re-run), never as a silent pass.
+# `stat -c %.9Y` is GNU coreutils only (like touch -d and find -printf elsewhere in this script).
 is_fresh() {
   [ "$1" -nt "$STAMP" ] || return 1
   [ -n "${PRE_MTIME[$1]+x}" ] || return 0
