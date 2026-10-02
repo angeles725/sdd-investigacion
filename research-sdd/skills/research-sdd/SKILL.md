@@ -121,7 +121,10 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   Kit changes are never applied from inside a run (§18 propose-never-apply). Same `verify-block` gate,
   plus a MANDATORY Engram mirror. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
   (METHODOLOGY §20). §20 was first exercised end-to-end on a real target by the TradingView new-target
-  DOCUMENT run (target #23, B1-B3; see the kit repo-root `retros/2026-08-03-document-unregistered-bootstrap-incident.md`, not `$KIT/retros/`).
+  DOCUMENT run (target #23, B1-B3; see the kit repo-root `retros/2026-08-03-document-unregistered-bootstrap-incident.md`, not `$KIT/retros/`)
+  and again by the hilton-bms dashboard run (target #17, B11-B12). The lessons from the hilton retro deltas
+  (#1, #2, #6, #7) live in the target corpus retros under `$RESEARCH_HOME/tunnel/clientes/cancun/HotelHilton/`
+  (e.g. `retros/2026-08-01-dashboard-b11-b12.md`).
   Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) predate the mode.
 - **frontier** — genuinely unexplored territory with no prior corpus coverage on the proposed surfaces.
   Different sweep strategy from the four modes above: BREADTH-FIRST with LIGHTER BLOCK DENSITY — the goal is
