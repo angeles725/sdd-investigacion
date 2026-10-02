@@ -2009,7 +2009,7 @@ STRIPPED
   # (dated from its deep-past ORIGINAL creation, not the recent rename commit). Proves case 52 is not
   # vacuous: the --follow removal is the deciding factor, not some other detail of the fixture.
   echo "-- teeth R1: re-add --follow; renamed-retro fixture must ESCALATE again (case 52 has teeth) --"
-  anchor_r1='added="$(git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"'
+  anchor_r1='added="$(git -C "$p" log --no-renames --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"'
   if [[ "$content" != *"$anchor_r1"* ]]; then
     no "teeth R1: locate git-log added-date call in SUT" "anchor not found — SUT drifted?"
   else
@@ -2028,7 +2028,7 @@ STRIPPED
       git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    followed="${anchor_r1/log --diff-filter=A/log --follow --diff-filter=A}"
+    followed="${anchor_r1/log --no-renames --diff-filter=A/log --follow --no-renames --diff-filter=A}"
     printf '%s\n' "${content/"$anchor_r1"/"$followed"}" > "$mutant"
     outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'ESCALATED (aged' <<<"$outm"; then
@@ -3985,6 +3985,97 @@ else
   no "143 standalone H3 '### Proposals' outside section → expected WARN count-by-hand, never empty-input" "exit=$RC out=[$OUT]"
 fi
 
+# ── 144/145 — diff.renames INDEPENDENCE (kit issue #1373) ─────────────────────────────────────
+# `git log --diff-filter=A` without --no-renames depends on the user's diff.renames setting: with
+# renames=true a renamed file is reported as R (not A) so the NEW path never appears as "added" and
+# the sweep silently falls back to file mtime; with renames=false it is D+A and the rename commit is
+# the add date. The SUT must pass --no-renames so both settings give the SAME answer. Each fixture
+# is built so the two settings DIVERGE without the flag (rename commit dated 2000, mtime = now).
+# diff.renames is pinned in the fixture repo's local config, which the SUT's `git -C` calls honour.
+c144_age() {   # $1 = diff.renames value ; $2 = fixture-name suffix → prints sweep output
+  local kit tgt
+  kit="$(mkkit "c144-age-$1${2:-}")"; tgt="$kit/targetA"
+  mkdir -p "$tgt/retros"
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n' \
+    > "$tgt/retros/orig.md"
+  git -C "$tgt" init -q -b main
+  git -C "$tgt" config user.email t@example.com
+  git -C "$tgt" config user.name tester
+  git -C "$tgt" config diff.renames "$1"
+  git -C "$tgt" add -A
+  GIT_AUTHOR_DATE="1999-01-01T00:00:00" GIT_COMMITTER_DATE="1999-01-01T00:00:00" \
+    git -C "$tgt" commit -q -m "add orig.md"
+  git -C "$tgt" mv retros/orig.md retros/renamed.md
+  GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+    git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+  write_targets "$kit" "$tgt"
+  RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1
+}
+c145_map() {   # $1 = diff.renames value ; $2 = fixture-name suffix → prints sweep output
+  local kit tgt
+  kit="$(mkkit "c145-map-$1${2:-}")"; tgt="$kit/targetA"
+  # teeth hook: C145_SUT swaps a mutant over the sandbox copy of the SUT.
+  [ -z "${C145_SUT:-}" ] || cp "$C145_SUT" "$kit/toolbelt/sweep-retros.sh"
+  mkdir -p "$tgt/retros"
+  git -C "$tgt" init -q -b main
+  git -C "$tgt" config user.email t@example.com
+  git -C "$tgt" config user.name tester
+  git -C "$tgt" config diff.renames "$1"
+  printf '# block\n' > "$tgt/t-block1.md"
+  git -C "$tgt" add -A
+  GIT_AUTHOR_DATE="1999-01-01T00:00:00" GIT_COMMITTER_DATE="1999-01-01T00:00:00" \
+    git -C "$tgt" commit -q -m "add block"
+  git -C "$tgt" mv t-block1.md u-block1.md
+  GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+    git -C "$tgt" commit -q -m "rename block"
+  mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+  git -C "$tgt" add -A
+  GIT_AUTHOR_DATE="2001-01-01T00:00:00" GIT_COMMITTER_DATE="2001-01-01T00:00:00" \
+    git -C "$tgt" commit -q -m "add retro"
+  # mtime 2 days old: past the MISSING-RETRO grace window, so if the epoch map loses the renamed
+  # path the mtime fallback (2 days ago > the retro's 2001 add date) fires MISSING-RETRO.
+  touch -d '2 days ago' "$tgt/u-block1.md"
+  write_targets "$kit" "$tgt"
+  "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1
+}
+out144_t="$(c144_age true)";  out144_f="$(c144_age false)"
+if grep -q 'ESCALATED (aged' <<<"$out144_t" && grep -q 'ESCALATED (aged' <<<"$out144_f"; then
+  ok "144 age pass: renamed retro dated from rename commit under diff.renames=true AND false" "()"
+else
+  no "144 age pass: renamed retro must ESCALATE under both diff.renames settings" "true=[$out144_t] false=[$out144_f]"
+fi
+out145_t="$(c145_map true)";  out145_f="$(c145_map false)"
+if ! grep -q 'MISSING-RETRO' <<<"$out145_t" && ! grep -q 'MISSING-RETRO' <<<"$out145_f" \
+   && grep -q 'PENDING' <<<"$out145_t" && grep -q 'PENDING' <<<"$out145_f"; then
+  ok "145 epoch map: renamed block dated from rename commit (no MISSING-RETRO) under diff.renames=true AND false" "()"
+else
+  no "145 epoch map: renamed block must be dated from rename commit under both settings" "true=[$out145_t] false=[$out145_f]"
+fi
+# 146 — STRUCTURAL guard: every `git -C "$p" log ... --diff-filter=A` call in the SUT carries
+#       --no-renames. Call 1 (per-file add date, has a pathspec) is NOT observably config-dependent
+#       on git 2.55 — the pathspec stops rename pairing, so case 144 cannot go RED for it — hence
+#       this source-level pin (defence in depth, kit issue #1373). Call 2 (whole-history epoch map,
+#       no pathspec) IS observable: case 145.
+c146_counts() {   # $1 = SUT path → "<total> <with --no-renames>"
+  local t o
+  t="$(grep -c 'git -C "\$p" log .*--diff-filter=A' "$1")"
+  o="$(grep 'git -C "\$p" log .*--diff-filter=A' "$1" | grep -c -- '--no-renames')"
+  printf '%s %s' "$t" "$o"
+}
+read -r _c146_total _c146_ok <<<"$(c146_counts "$SUT")"
+if [ "$_c146_total" -ge 2 ] && [ "$_c146_total" = "$_c146_ok" ]; then
+  ok "146 every 'git log --diff-filter=A' call in SUT passes --no-renames" "($_c146_ok/$_c146_total)"
+else
+  no "146 every 'git log --diff-filter=A' call in SUT must pass --no-renames" "total=$_c146_total with-flag=$_c146_ok"
+fi
+# 144b/145b — identical across settings, not merely both-passing.
+_norm() { sed -E "s#$ROOT/c14[45]-[a-z]+-(true|false)[^/]*#KIT#g"; }
+if [ "$(_norm <<<"$out144_t")" = "$(_norm <<<"$out144_f")" ] && [ "$(_norm <<<"$out145_t")" = "$(_norm <<<"$out145_f")" ]; then
+  ok "144b/145b output byte-identical across diff.renames=true/false" "()"
+else
+  no "144b/145b output differs between diff.renames=true and false" "144 true=[$out144_t] false=[$out144_f] / 145 true=[$out145_t] false=[$out145_f]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -4801,6 +4892,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
   unset content_pfx1 anchor_pfx1
+
+  # Teeth NR (kit issue #1373): strip --no-renames from each --diff-filter=A call in turn.
+  #   NR2 (epoch-map call): the diff.renames=true run must now diverge → case 145 goes RED.
+  #   NR1 (per-file add-date call): not observable via output (pathspec stops rename pairing), so
+  #       the structural case 146 is the assertion that must go RED.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth NR2: drop --no-renames from the epoch-map call; renamed block under diff.renames=true must fire MISSING-RETRO (case 145 has teeth) --"
+  _nr2="$ROOT/teeth-nr2.sh"; _nrc=0
+  mutant_sed "$SUT" "$_nr2" 's/log --no-renames --diff-filter=A --name-only/log --diff-filter=A --name-only/' || _nrc=$?
+  if [ "$_nrc" != 0 ]; then
+    no "teeth NR2: build mutant" "mutant_sed refused (rc $_nrc) — anchor drifted?"
+  else
+    _nr2_t="$(C145_SUT="$_nr2" c145_map true -nr2)"; _nr2_f="$(C145_SUT="$_nr2" c145_map false -nr2)"
+    if grep -q 'MISSING-RETRO' <<<"$_nr2_t" && ! grep -q 'MISSING-RETRO' <<<"$_nr2_f"; then
+      ok "teeth NR2: flag-less epoch-map call diverges across diff.renames (case 145 has teeth)" "()"
+    else
+      no "teeth NR2: flag-less epoch-map call did not diverge — case 145 is THEATER" "true=[$_nr2_t] false=[$_nr2_f]"
+    fi
+  fi
+  echo "-- teeth NR1: drop --no-renames from the per-file add-date call; structural case 146 must go RED --"
+  _nr1="$ROOT/teeth-nr1.sh"; _nrc=0
+  mutant_sed "$SUT" "$_nr1" 's/log --no-renames --diff-filter=A --format=%aI/log --diff-filter=A --format=%aI/' || _nrc=$?
+  if [ "$_nrc" != 0 ]; then
+    no "teeth NR1: build mutant" "mutant_sed refused (rc $_nrc) — anchor drifted?"
+  else
+    read -r _nr1_t _nr1_o <<<"$(c146_counts "$_nr1")"
+    if [ "$_nr1_t" -ge 2 ] && [ "$_nr1_t" != "$_nr1_o" ]; then
+      ok "teeth NR1: flag-less add-date call breaks the structural guard (case 146 has teeth)" "($_nr1_o/$_nr1_t)"
+    else
+      no "teeth NR1: flag-less add-date call not detected — case 146 is THEATER" "total=$_nr1_t with-flag=$_nr1_o"
+    fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

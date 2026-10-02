@@ -312,8 +312,11 @@ for p in $paths; do
     # from its rename commit, not its original creation — rare for retro/block files (they are not
     # routinely renamed post-creation), and a sweep that never completes is worse than an occasionally
     # later "added" date.
+    # --no-renames is explicit on EVERY --diff-filter=A call (kit issue #1373): otherwise the user's
+    # diff.renames setting decides whether a renamed file counts as Added (D+A) or as R, and the
+    # dating silently changes with a config the sweep does not own.
     epoch=""
-    added="$(git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
+    added="$(git -C "$p" log --no-renames --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
     [ -n "$added" ] && epoch="$(date -d "$added" +%s 2>/dev/null || echo '')"
     [ -n "$epoch" ] || epoch="$(stat -c %Y "$f" 2>/dev/null || echo "$now")"
     age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
@@ -404,7 +407,7 @@ for p in $paths; do
         *)       [ -n "$_rsdd_epoch_ct" ] && _rsdd_epoch_map["$_line"]="$_rsdd_epoch_ct"  # RSDD_U19_FIRST_ADD
                  ;;
       esac
-    done < <(git -C "$p" log --diff-filter=A --name-only --format='EPOCH:%ct' 2>/dev/null)
+    done < <(git -C "$p" log --no-renames --diff-filter=A --name-only --format='EPOCH:%ct' 2>/dev/null)
   fi
   unset _rsdd_epoch_ct
   nr=0   # newest retro added-date under this target
