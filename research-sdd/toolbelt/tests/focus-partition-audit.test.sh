@@ -478,427 +478,286 @@ echo ""
 
 # ==========================================================================
 # TEETH — mutant verification (--prove-teeth only)
+#
+# Every mutant is a COPY of the SUT built by lib/mutant.sh (kit issues #943, #1299), which REFUSES an empty,
+# byte-identical, syntax-broken or live-tree mutant. Each tooth asserts the exact GOOD verdict (rc + positive
+# output) on the ORIGINAL AND the specific BAD verdict (rc + positive output) on the mutant, with stderr merged
+# into the captured output: a crashing or silent mutant matches no positive pattern, so it is never teeth.
 # ==========================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo ""
   echo "== --prove-teeth =="
+  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  MUT="$(mktemp -d)"
+  trap 'rm -rf "$ROOT" ${MUT:+"$MUT"}' EXIT
+  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR; each stage must change the
+  # original ON ITS OWN (a chain whose first stage applies would hide a later no-op stage).
+  mk_sed() {
+    local label="$1" out="$2" e rc err; shift 2
+    local -a args=()
+    for e in "$@"; do
+      if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
+        no "$label" "sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+      fi
+      args+=(-e "$e")
+    done
+    err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] || { no "$label" "mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  }
+  # mk_verify LABEL OUT  validate a mutant built another way (awk), same refusals as mk_sed.
+  mk_verify() {
+    local label="$1" out="$2" rc err
+    err="$(mutant_verify "$SUT" "$out" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] || { no "$label" "mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  }
+  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] [--same RE] -- ARGV...
+  # Runs ARGV against the original ('@SUT@' -> $SUT) and the mutant (stdout+stderr merged). PASS only when the
+  # original returns exactly GOOD_RC (output matches --good-has, not --good-lacks) AND the mutant returns exactly
+  # BAD_RC (output matches --bad-has, not --bad-lacks). --same RE: the lines matching RE must be non-empty and
+  # identical in both outputs (the mutation must not leak into that part of the report).
+  tooth() {
+    local label="$1" grc="$2" brc="$3" mut="$4" gpat="" glack="" bhas="" black="" same="" a gout mout grc_a mrc_a why=""; shift 4
+    while [ "${1:-}" != -- ]; do
+      case "${1:-}" in
+        --good-has) gpat="$2" ;; --good-lacks) glack="$2" ;; --bad-has) bhas="$2" ;; --bad-lacks) black="$2" ;; --same) same="$2" ;;
+        *) no "$label" "tooth() bad option '${1:-}'"; return 1 ;;
+      esac; shift 2
+    done; shift
+    [ -f "$mut" ] || { no "$label" "mutant not built ($mut)"; return 1; }
+    local -a gc=() mc=()
+    for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
+    grc_a=0; mrc_a=0
+    gout="$("${gc[@]}" 2>&1)" || grc_a=$?
+    mout="$("${mc[@]}" 2>&1)" || mrc_a=$?
+    [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+    if [ -n "$gpat" ] && ! grep -qE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
+    if [ -n "$glack" ] && grep -qE -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
+    [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+    if [ -n "$bhas" ] && ! grep -qE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+    if [ -n "$black" ] && grep -qE -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
+    if [ -n "$same" ]; then
+      local gs ms; gs="$(grep -E -- "$same" <<<"$gout")"; ms="$(grep -E -- "$same" <<<"$mout")"
+      if [ -z "$gs" ] || [ "$gs" != "$ms" ]; then why="$why; /$same/ lines empty or differ (orig='$gs' mut='$ms')"; fi
+    fi
+    if [ -z "$why" ]; then ok "$label" "[original rc=$grc → mutant rc=$brc]"
+    else no "$label — THEATER" "$why :: orig=$(head -c 400 <<<"$gout" | tr '\n' '|') mut=$(head -c 400 <<<"$mout" | tr '\n' '|')"; fi
+  }
 
   # ---- tooth (a): hardcode UNCHARTERED=0, anchored so it cannot also clobber
-  # FAMILIES_UNCHARTERED= (which contains the same substring) — verifies the anchor itself too.
+  # FAMILIES_UNCHARTERED= (which contains the same substring) — --same families: verifies the anchor itself too.
   echo "-- teeth-a: hardcode UNCHARTERED=0 (anchored); unchartered count must go red --"
-  MUTANT_A="$ROOT/fpa.MUT-A.sh"
-  if grep -q 'SENTINEL-A:' "$SUT"; then
-    sed 's/^UNCHARTERED=.*/UNCHARTERED=0  # MUTATED-A/' "$SUT" > "$MUTANT_A"
-    SA="$ROOT/sa"; CA="$ROOT/ca"
-    mk_unit "$SA" "mod_a" "Alpha.java"
-    mkdir -p "$CA"
-    rout_a="$(bash "$SUT" "$CA" --subject "$SA" 2>/dev/null)"
-    mout_a="$(bash "$MUTANT_A" "$CA" --subject "$SA" 2>/dev/null)"
-    rfam="$(printf '%s' "$rout_a" | grep 'families:')"
-    mfam="$(printf '%s' "$mout_a" | grep 'families:')"
-    if printf '%s' "$rout_a" | grep -qE '0/1 chartered .* 1 unchartered' \
-       && printf '%s' "$mout_a" | grep -qE '0/1 chartered .* 0 unchartered' \
-       && [ "$rfam" = "$mfam" ]; then
-      ok "teeth-a: original 1 unchartered; mutant 0 — bites, and the anchor does NOT touch families:"
-    else
-      no "teeth-a: mutation did not change unchartered count precisely" "orig=$rout_a mut=$mout_a"
-    fi
-  else
-    no "teeth-a: SENTINEL-A: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SA="$ROOT/sa"; CA="$ROOT/ca"
+  mk_unit "$SA" "mod_a" "Alpha.java"
+  mkdir -p "$CA"
+  mk_sed "teeth-a" "$MUT/fpa.MUT-A.sh" 's/^UNCHARTERED=.*/UNCHARTERED=0  # MUTATED-A/' \
+    && tooth "teeth-a: original 1 unchartered; mutant 0 — bites, and the anchor does NOT touch families:" 0 0 "$MUT/fpa.MUT-A.sh" \
+         --good-has '0/1 chartered .* 1 unchartered' --bad-has '0/1 chartered .* 0 unchartered' --same 'families:' \
+         -- bash @SUT@ "$CA" --subject "$SA"
 
   # ---- tooth (b): drop backtick-only restriction — scan raw cell prose for bare unit mentions
   echo "-- teeth-b: bare-prose mutant; bare mention must not charter (real fix does) --"
-  MUTANT_B="$ROOT/fpa.MUT-B.sh"
-  if grep -q 'SENTINEL-B:' "$SUT"; then
-    sed "s#grep -oE '\`\[^\`\]+\`' \"\$TMP/row_cells.txt\" 2>/dev/null#cat \"\$TMP/row_cells.txt\" 2>/dev/null#" "$SUT" > "$MUTANT_B"
-    SB="$ROOT/sb"; CB="$ROOT/cb"
-    mk_unit "$SB" "mod_bare" "Alpha.java"
-    mk_focuses "$CB" '| some-focus | active | | mod_bare |'
-    rout_b="$(bash "$SUT" "$CB" --subject "$SB" 2>/dev/null)"
-    mout_b="$(bash "$MUTANT_B" "$CB" --subject "$SB" 2>/dev/null)"
-    if printf '%s' "$rout_b" | grep -qE '0/1 chartered' \
-       && printf '%s' "$mout_b" | grep -qE '1/1 chartered'; then
-      ok "teeth-b: original 0/1 (bare prose never counts); mutant 1/1 — bites"
-    else
-      no "teeth-b: mutation did not change charter count" "orig=$rout_b mut=$mout_b"
-    fi
-  else
-    no "teeth-b: SENTINEL-B: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SB="$ROOT/sb"; CB="$ROOT/cb"
+  mk_unit "$SB" "mod_bare" "Alpha.java"
+  mk_focuses "$CB" '| some-focus | active | | mod_bare |'
+  mk_sed "teeth-b" "$MUT/fpa.MUT-B.sh" "s#grep -oE '\`\[^\`\]+\`' \"\$TMP/row_cells.txt\" 2>/dev/null#cat \"\$TMP/row_cells.txt\" 2>/dev/null#" \
+    && tooth "teeth-b: original 0/1 (bare prose never counts); mutant 1/1 — bites" 0 0 "$MUT/fpa.MUT-B.sh" \
+         --good-has '0/1 chartered' --bad-has '1/1 chartered' -- bash @SUT@ "$CB" --subject "$SB"
 
   # ---- tooth (c): split on '.' too -> reproduces the real Clock.schedule false charter
   echo "-- teeth-c: split-on-dot mutant; Clock.schedule must falsely charter 'schedule' --"
-  MUTANT_C="$ROOT/fpa.MUT-C.sh"
-  if grep -q 'SENTINEL-C:' "$SUT"; then
-    sed "s#awk -F'\[/,\]' '{ for (i = 1; i <= NF; i++) print \$i }'#awk -F'[/,.]' '{ for (i = 1; i <= NF; i++) print \$i }'#" "$SUT" > "$MUTANT_C"
-    SC="$ROOT/sc"; CC="$ROOT/cc"
-    mk_unit "$SC" "schedule" "BWeeklySchedule.java"
-    mk_focuses "$CC" '| build-kit-campaign8 | stopped | | the `Clock.schedule` delay/period floor |'
-    rout_c="$(bash "$SUT" "$CC" --subject "$SC" 2>/dev/null)"
-    mout_c="$(bash "$MUTANT_C" "$CC" --subject "$SC" 2>/dev/null)"
-    if printf '%s' "$rout_c" | grep -qE '0/1 chartered' \
-       && printf '%s' "$mout_c" | grep -qE '1/1 chartered'; then
-      ok "teeth-c: original rejects Clock.schedule; dot-split mutant falsely charters — bites"
-    else
-      no "teeth-c: mutation did not reproduce the false charter" "orig=$rout_c mut=$mout_c"
-    fi
-  else
-    no "teeth-c: SENTINEL-C: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SC="$ROOT/sc"; CC="$ROOT/cc"
+  mk_unit "$SC" "schedule" "BWeeklySchedule.java"
+  mk_focuses "$CC" '| build-kit-campaign8 | stopped | | the `Clock.schedule` delay/period floor |'
+  mk_sed "teeth-c" "$MUT/fpa.MUT-C.sh" "s#awk -F'\[/,\]' '{ for (i = 1; i <= NF; i++) print \$i }'#awk -F'[/,.]' '{ for (i = 1; i <= NF; i++) print \$i }'#" \
+    && tooth "teeth-c: original rejects Clock.schedule; dot-split mutant falsely charters — bites" 0 0 "$MUT/fpa.MUT-C.sh" \
+         --good-has '0/1 chartered' --bad-has '1/1 chartered' -- bash @SUT@ "$CC" --subject "$SC"
 
   # ---- tooth (d): exact-token equality loosened to substring
   echo "-- teeth-d: substring mutant; 'modbus' must falsely charter via 'modbusCore' token --"
-  MUTANT_D="$ROOT/fpa.MUT-D.sh"
-  if grep -q 'SENTINEL-D:' "$SUT"; then
-    sed 's/grep -qxF "\$mod"/grep -qF "\$mod"/' "$SUT" > "$MUTANT_D"
-    SD="$ROOT/sd"; CD="$ROOT/cd"
-    mk_unit "$SD" "modbus" "BModbusNetwork.java"
-    mk_focuses "$CD" '| some-focus | active | | see `modbusCore` driver family |'
-    rout_d="$(bash "$SUT" "$CD" --subject "$SD" 2>/dev/null)"
-    mout_d="$(bash "$MUTANT_D" "$CD" --subject "$SD" 2>/dev/null)"
-    if printf '%s' "$rout_d" | grep -qE '0/1 chartered' \
-       && printf '%s' "$mout_d" | grep -qE '1/1 chartered'; then
-      ok "teeth-d: original 0/1 (exact token); substring mutant 1/1 — bites"
-    else
-      no "teeth-d: mutation did not change charter count" "orig=$rout_d mut=$mout_d"
-    fi
-  else
-    no "teeth-d: SENTINEL-D: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SD="$ROOT/sd"; CD="$ROOT/cd"
+  mk_unit "$SD" "modbus" "BModbusNetwork.java"
+  mk_focuses "$CD" '| some-focus | active | | see `modbusCore` driver family |'
+  mk_sed "teeth-d" "$MUT/fpa.MUT-D.sh" 's/grep -qxF "\$mod"/grep -qF "\$mod"/' \
+    && tooth "teeth-d: original 0/1 (exact token); substring mutant 1/1 — bites" 0 0 "$MUT/fpa.MUT-D.sh" \
+         --good-has '0/1 chartered' --bad-has '1/1 chartered' -- bash @SUT@ "$CD" --subject "$SD"
 
   # ---- tooth (e): family min-length-3 gate removed -> over-merges 1-2 char prefixes
   echo "-- teeth-e: family-gate mutant; short-prefix units must over-merge --"
-  MUTANT_E="$ROOT/fpa.MUT-E.sh"
-  if grep -q 'SENTINEL-E:' "$SUT"; then
-    sed 's/if (length(k) >= 3) key = k/key = k/' "$SUT" > "$MUTANT_E"
-    SE="$ROOT/se"; CE="$ROOT/ce"
-    mk_unit "$SE" "aXray" "A.java"
-    mk_unit "$SE" "aYankee" "B.java"
-    mkdir -p "$CE"
-    rout_e="$(bash "$SUT" "$CE" --subject "$SE" 2>/dev/null)"
-    mout_e="$(bash "$MUTANT_E" "$CE" --subject "$SE" 2>/dev/null)"
-    rfam="$(printf '%s' "$rout_e" | grep 'families:' | grep -oE '^[^ ]+ [0-9]+' | grep -oE '[0-9]+' | head -1)"
-    mfam="$(printf '%s' "$mout_e" | grep 'families:' | grep -oE '^[^ ]+ [0-9]+' | grep -oE '[0-9]+' | head -1)"
-    if [ "${rfam:-0}" -eq 2 ] && [ "${mfam:-0}" -eq 1 ]; then
-      ok "teeth-e: original 2 families (a<3 chars, singletons); mutant merges to 1 — bites"
-    else
-      no "teeth-e: mutation did not change family count" "orig=$rout_e ($rfam) mut=$mout_e ($mfam)"
-    fi
-  else
-    no "teeth-e: SENTINEL-E: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SE="$ROOT/se"; CE="$ROOT/ce"
+  mk_unit "$SE" "aXray" "A.java"
+  mk_unit "$SE" "aYankee" "B.java"
+  mkdir -p "$CE"
+  mk_sed "teeth-e" "$MUT/fpa.MUT-E.sh" 's/if (length(k) >= 3) key = k/key = k/' \
+    && tooth "teeth-e: original 2 families (a<3 chars, singletons); mutant merges to 1 — bites" 0 0 "$MUT/fpa.MUT-E.sh" \
+         --good-has '^families: 2\b' --bad-has '^families: 1\b' -- bash @SUT@ "$CE" --subject "$SE"
 
   # ---- tooth (f): unclassifiable-row gate loosened -> blank-identity row silently classified
   echo "-- teeth-f: unclassifiable-gate mutant; blank-identity row must silently classify --"
-  MUTANT_F="$ROOT/fpa.MUT-F.sh"
-  if grep -q 'SENTINEL-F:' "$SUT"; then
-    sed 's/if (n < 2 || ident == "") { unclass++; next }/if (n < 1) { unclass++; next }/' "$SUT" > "$MUTANT_F"
-    SF="$ROOT/sf"; CF="$ROOT/cf"
-    mk_unit "$SF" "mod_a" "Alpha.java"
-    mk_focuses "$CF" '|  | active | | ambito con `mod_a` pero sin identidad de focus |'
-    rout_f="$(bash "$SUT" "$CF" --subject "$SF" 2>/dev/null)"
-    mout_f="$(bash "$MUTANT_F" "$CF" --subject "$SF" 2>/dev/null)"
-    if printf '%s' "$rout_f" | grep -q 'FOCUSES.md rows: 0 classified, 1 unclassifiable' \
-       && printf '%s' "$mout_f" | grep -q 'FOCUSES.md rows: 1 classified, 0 unclassifiable'; then
-      ok "teeth-f: original counts blank-identity row unclassifiable; mutant classifies it — bites"
-    else
-      no "teeth-f: mutation did not change row classification" "orig=$rout_f mut=$mout_f"
-    fi
-  else
-    no "teeth-f: SENTINEL-F: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SF="$ROOT/sf"; CF="$ROOT/cf"
+  mk_unit "$SF" "mod_a" "Alpha.java"
+  mk_focuses "$CF" '|  | active | | ambito con `mod_a` pero sin identidad de focus |'
+  mk_sed "teeth-f" "$MUT/fpa.MUT-F.sh" 's/if (n < 2 || ident == "") { unclass++; next }/if (n < 1) { unclass++; next }/' \
+    && tooth "teeth-f: original counts blank-identity row unclassifiable; mutant classifies it — bites" 0 0 "$MUT/fpa.MUT-F.sh" \
+         --good-has 'FOCUSES.md rows: 0 classified, 1 unclassifiable' --bad-has 'FOCUSES.md rows: 1 classified, 0 unclassifiable' \
+         -- bash @SUT@ "$CF" --subject "$SF"
 
   # ---- tooth (g) (F6): row-shape gate loosened back to bare index($0,"|")
   echo "-- teeth-g (F6): row-shape mutant; a prose line with '|' must be miscounted as a row --"
-  MUTANT_G="$ROOT/fpa.MUT-G.sh"
-  if grep -q 'SENTINEL-ROW:' "$SUT"; then
-    sed 's#if (\$0 !~ /\^\[ \\t\]\*\\|/) next#if (index($0, "|") == 0) next#' "$SUT" > "$MUTANT_G"
-    SG="$ROOT/sg"; CG="$ROOT/cg"
-    mk_unit "$SG" "mod_a" "Alpha.java"
-    mkdir -p "$CG"
-    {
-      printf '| Focus | Estado | RESEARCH-STATE | Ambito |\n'
-      printf '|---|---|---|---|\n'
-      printf 'prose line with bit48=ADMIN_READ|ADMIN_WRITE embedded, not a table row\n'
-      printf '| real-focus | active | | scope mentions `mod_a` |\n'
-    } > "$CG/FOCUSES.md"
-    rout_g="$(bash "$SUT" "$CG" --subject "$SG" 2>/dev/null)"
-    mout_g="$(bash "$MUTANT_G" "$CG" --subject "$SG" 2>/dev/null)"
-    if printf '%s' "$rout_g" | grep -q '1 classified, 0 unclassifiable' \
-       && ! printf '%s' "$mout_g" | grep -q '1 classified, 0 unclassifiable'; then
-      ok "teeth-g: original excludes the prose-with-pipe line; mutant miscounts it — bites"
-    else
-      no "teeth-g: mutation did not change row classification" "orig=$rout_g mut=$mout_g"
-    fi
-  else
-    no "teeth-g: SENTINEL-ROW: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SG="$ROOT/sg"; CG="$ROOT/cg"
+  mk_unit "$SG" "mod_a" "Alpha.java"
+  mkdir -p "$CG"
+  {
+    printf '| Focus | Estado | RESEARCH-STATE | Ambito |\n'
+    printf '|---|---|---|---|\n'
+    printf 'prose line with bit48=ADMIN_READ|ADMIN_WRITE embedded, not a table row\n'
+    printf '| real-focus | active | | scope mentions `mod_a` |\n'
+  } > "$CG/FOCUSES.md"
+  mk_sed "teeth-g" "$MUT/fpa.MUT-G.sh" 's#if (\$0 !~ /\^\[ \\t\]\*\\|/) next#if (index($0, "|") == 0) next#' \
+    && tooth "teeth-g: original excludes the prose-with-pipe line; mutant miscounts it — bites" 0 0 "$MUT/fpa.MUT-G.sh" \
+         --good-has 'FOCUSES.md rows: 1 classified, 0 unclassifiable' --bad-has 'FOCUSES.md rows: [0-9]+ classified' \
+         --bad-lacks 'FOCUSES.md rows: 1 classified, 0 unclassifiable' -- bash @SUT@ "$CG" --subject "$SG"
 
   # ---- tooth (h): dependency probe removed -> a missing PATH tool no longer degrades
   echo "-- teeth-h: drop dependency-probe loop body; missing tool must silently proceed --"
-  MUTANT_H="$ROOT/fpa.MUT-H.sh"
-  if grep -q 'SENTINEL-H:' "$SUT"; then
-    awk '
-      /# SENTINEL-H:/ { print; getline; print "  : # MUTATED-H (probe body dropped)"; skip=1; next }
-      skip && /^  fi$/ { skip=0; next }
-      skip { next }
-      { print }
-    ' "$SUT" > "$MUTANT_H"
-    TOOLSDIR_H="$ROOT/mini-path-h"
-    mkdir -p "$TOOLSDIR_H"
-    for t in bash find grep sed awk sort wc tr mktemp basename head rm; do
-      [ "$t" = "awk" ] && continue
-      ln -sf "$(command -v "$t")" "$TOOLSDIR_H/$t"
-    done
-    rc_r=0; rc_m=0
-    PATH="$TOOLSDIR_H" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_r=$?
-    PATH="$TOOLSDIR_H" bash "$MUTANT_H" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_m=$?
-    if [ "$rc_r" -eq 3 ] && [ "$rc_m" -ne 3 ]; then
-      ok "teeth-h: original exits 3 (degraded, awk missing); mutant does not — bites"
-    else
-      no "teeth-h: mutation did not change degraded behavior" "rc_r=$rc_r rc_m=$rc_m"
-    fi
-  else
-    no "teeth-h: SENTINEL-H: comment not found in SUT (cannot anchor mutation)"
-  fi
+  TOOLSDIR_H="$ROOT/mini-path-h"
+  mkdir -p "$TOOLSDIR_H"
+  for t in bash find grep sed sort wc tr mktemp basename head rm cat dirname; do   # awk deliberately absent
+    ln -sf "$(command -v "$t")" "$TOOLSDIR_H/$t"
+  done
+  awk '
+    /# SENTINEL-H:/ { print; getline; print "  : # MUTATED-H (probe body dropped)"; skip=1; next }
+    skip && /^  fi$/ { skip=0; next }
+    skip { next }
+    { print }
+  ' "$SUT" > "$MUT/fpa.MUT-H.sh"
+  mk_verify "teeth-h" "$MUT/fpa.MUT-H.sh" \
+    && tooth "teeth-h: original exits 3 (degraded, awk missing); mutant does not — bites" 3 0 "$MUT/fpa.MUT-H.sh" \
+         --good-has 'degraded: awk not found in PATH' --bad-has 'units: 0/0 chartered' --bad-lacks 'degraded:' \
+         -- env PATH="$TOOLSDIR_H" bash @SUT@ "$ROOT/corpus" --subject "$ROOT/s2"
 
   # ---- tooth (i) (F1, headline): disable RESEARCH-STATE resolution entirely
   echo "-- teeth-i (F1): RESEARCH-STATE-disabled mutant; the headline regression must reproduce --"
-  MUTANT_I="$ROOT/fpa.MUT-I.sh"
-  if grep -q 'STATE_RESOLVED=0' "$SUT"; then
-    sed 's/if \[ -f "\$sfile" \] && \[ -r "\$sfile" \]; then/if false; then/' "$SUT" > "$MUTANT_I"
-    SI="$ROOT/si"; CI="$ROOT/ci"
-    mk_unit "$SI" "modbusCore" "BModbusNetwork.java"
-    mk_focuses "$CI" '| modbus | active | RESEARCH-STATE-modbus.md | the Modbus driver (no module names here) |'
-    mk_state "$CI" "RESEARCH-STATE-modbus.md" '`modbusCore-rt` root COVERED -> B294'
-    rout_i="$(bash "$SUT" "$CI" --subject "$SI" 2>/dev/null)"
-    mout_i="$(bash "$MUTANT_I" "$CI" --subject "$SI" 2>/dev/null)"
-    if printf '%s' "$rout_i" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_i" | grep -qE '0/1 chartered'; then
-      ok "teeth-i: original resolves RESEARCH-STATE charter; mutant reproduces the F1 false negative — bites"
-    else
-      no "teeth-i: mutation did not reproduce F1" "orig=$rout_i mut=$mout_i"
-    fi
-  else
-    no "teeth-i: RESEARCH-STATE resolution anchor not found in SUT (cannot anchor mutation)"
-  fi
+  SI="$ROOT/si"; CI="$ROOT/ci"
+  mk_unit "$SI" "modbusCore" "BModbusNetwork.java"
+  mk_focuses "$CI" '| modbus | active | RESEARCH-STATE-modbus.md | the Modbus driver (no module names here) |'
+  mk_state "$CI" "RESEARCH-STATE-modbus.md" '`modbusCore-rt` root COVERED -> B294'
+  mk_sed "teeth-i" "$MUT/fpa.MUT-I.sh" 's/if \[ -f "\$sfile" \] && \[ -r "\$sfile" \]; then/if false; then/' \
+    && tooth "teeth-i: original resolves RESEARCH-STATE charter; mutant reproduces the F1 false negative — bites" 0 0 "$MUT/fpa.MUT-I.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CI" --subject "$SI"
 
   # ---- tooth (j): whitespace-split stage removed
   echo "-- teeth-j: whitespace-split-removed mutant; multi-identifier span must lose interior tokens --"
-  MUTANT_J="$ROOT/fpa.MUT-J.sh"
-  if grep -q "awk '{ for (i = 1; i <= NF; i++) print \$i }' \\\\" "$SUT"; then
-    awk '
-      /awk .\{ for \(i = 1; i <= NF; i\+\+\) print \$i \}. \\$/ { getline; next }
-      { print }
-    ' "$SUT" > "$MUTANT_J"
-    SJ="$ROOT/sj"; CJ="$ROOT/cj"
-    mk_unit "$SJ" "honIrmConfig" "A.java"
-    mk_focuses "$CJ" '| kitControl | active | | gate: `check-coverage.py honeywellSpyderTool honIrmConfig` |'
-    rout_j="$(bash "$SUT" "$CJ" --subject "$SJ" 2>/dev/null)"
-    mout_j="$(bash "$MUTANT_J" "$CJ" --subject "$SJ" 2>/dev/null)"
-    if printf '%s' "$rout_j" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_j" | grep -qE '0/1 chartered'; then
-      ok "teeth-j: original resolves honIrmConfig via whitespace-split; mutant loses it — bites"
-    else
-      no "teeth-j: mutation did not change charter count" "orig=$rout_j mut=$mout_j"
-    fi
-  else
-    no "teeth-j: whitespace-split anchor not found in SUT (cannot anchor mutation)"
-  fi
+  SJ="$ROOT/sj"; CJ="$ROOT/cj"
+  mk_unit "$SJ" "honIrmConfig" "A.java"
+  mk_focuses "$CJ" '| kitControl | active | | gate: `check-coverage.py honeywellSpyderTool honIrmConfig` |'
+  awk '
+    /awk .\{ for \(i = 1; i <= NF; i\+\+\) print \$i \}. \\$/ { getline; next }
+    { print }
+  ' "$SUT" > "$MUT/fpa.MUT-J.sh"
+  mk_verify "teeth-j" "$MUT/fpa.MUT-J.sh" \
+    && tooth "teeth-j: original resolves honIrmConfig via whitespace-split; mutant loses it — bites" 0 0 "$MUT/fpa.MUT-J.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CJ" --subject "$SJ"
 
   # ---- tooth (k): profile-suffix expansion disabled
   echo "-- teeth-k: profile-suffix-disabled mutant; <module>-wb must stop chartering <module> --"
-  MUTANT_K="$ROOT/fpa.MUT-K.sh"
-  if grep -q 'plain_tokens_suffix.txt' "$SUT"; then
-    sed 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" "\$TMP/bare_camel_tokens.txt" "\$TMP/bare_suffix_tokens.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" "$TMP/bare_camel_tokens.txt" "$TMP/bare_suffix_tokens.txt" > "$TMP/charter_tokens.txt"#' "$SUT" > "$MUTANT_K"
-    SK="$ROOT/sk"; CK="$ROOT/ck"
-    mk_unit "$SK" "clCBus" "A.java"
-    mk_focuses "$CK" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
-    mk_state "$CK" "RESEARCH-STATE-wb-vendor-ux.md" 'Archetype surveyed: `clCBus-wb` widgets'
-    rout_k="$(bash "$SUT" "$CK" --subject "$SK" 2>/dev/null)"
-    mout_k="$(bash "$MUTANT_K" "$CK" --subject "$SK" 2>/dev/null)"
-    if printf '%s' "$rout_k" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_k" | grep -qE '0/1 chartered'; then
-      ok "teeth-k: original expands clCBus-wb -> clCBus; mutant does not — bites"
-    else
-      no "teeth-k: mutation did not change charter count" "orig=$rout_k mut=$mout_k"
-    fi
-  else
-    no "teeth-k: profile-suffix anchor not found in SUT (cannot anchor mutation)"
-  fi
+  SK="$ROOT/sk"; CK="$ROOT/ck"
+  mk_unit "$SK" "clCBus" "A.java"
+  mk_focuses "$CK" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+  mk_state "$CK" "RESEARCH-STATE-wb-vendor-ux.md" 'Archetype surveyed: `clCBus-wb` widgets'
+  mk_sed "teeth-k" "$MUT/fpa.MUT-K.sh" 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" "\$TMP/bare_camel_tokens.txt" "\$TMP/bare_suffix_tokens.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" "$TMP/bare_camel_tokens.txt" "$TMP/bare_suffix_tokens.txt" > "$TMP/charter_tokens.txt"#' \
+    && tooth "teeth-k: original expands clCBus-wb -> clCBus; mutant does not — bites" 0 0 "$MUT/fpa.MUT-K.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CK" --subject "$SK"
 
   # ---- tooth (l): glob matching disabled
   echo "-- teeth-l: glob-matching-disabled mutant; clHVAC* must stop chartering clHVACChiller --"
-  MUTANT_L="$ROOT/fpa.MUT-L.sh"
-  if grep -q 'SENTINEL-G:' "$SUT"; then
-    sed "s#elif \[ -s \"\$TMP/glob_tokens.txt\" \]; then#elif false; then#" "$SUT" > "$MUTANT_L"
-    SL="$ROOT/sl"; CL="$ROOT/cl"
-    mk_unit "$SL" "clHVACChiller" "A.java"
-    mk_focuses "$CL" '| kitControl | active | | control HVAC libs (`clHVAC*`) |'
-    rout_l="$(bash "$SUT" "$CL" --subject "$SL" 2>/dev/null)"
-    mout_l="$(bash "$MUTANT_L" "$CL" --subject "$SL" 2>/dev/null)"
-    if printf '%s' "$rout_l" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_l" | grep -qE '0/1 chartered'; then
-      ok "teeth-l: original glob-charters clHVACChiller; mutant does not — bites"
-    else
-      no "teeth-l: mutation did not change charter count" "orig=$rout_l mut=$mout_l"
-    fi
-  else
-    no "teeth-l: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SL="$ROOT/sl"; CL="$ROOT/cl"
+  mk_unit "$SL" "clHVACChiller" "A.java"
+  mk_focuses "$CL" '| kitControl | active | | control HVAC libs (`clHVAC*`) |'
+  mk_sed "teeth-l" "$MUT/fpa.MUT-L.sh" 's#elif \[ -s "\$TMP/glob_tokens.txt" \]; then#elif false; then#' \
+    && tooth "teeth-l: original glob-charters clHVACChiller; mutant does not — bites" 0 0 "$MUT/fpa.MUT-L.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CL" --subject "$SL"
 
   # ---- tooth (m) (F7): --depth integer validation removed
   echo "-- teeth-m (F7): depth-validation-removed mutant; --depth abc must stop exiting 2 --"
-  MUTANT_M="$ROOT/fpa.MUT-M.sh"
-  if grep -q "FATAL: --depth must be a non-negative integer" "$SUT"; then
-    sed "s/^  ''|\*\[!0-9\]\*) printf 'FATAL: --depth.*/  *) : # MUTATED-M no-op ;;/" "$SUT" > "$MUTANT_M"
-    rc_r=0; rc_m=0
-    bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" --depth abc >/dev/null 2>&1 || rc_r=$?
-    bash "$MUTANT_M" "$ROOT/corpus" --subject "$ROOT/s2" --depth abc >/dev/null 2>&1 || rc_m=$?
-    if [ "$rc_r" -eq 2 ] && [ "$rc_m" -ne 2 ]; then
-      ok "teeth-m: original exits 2 on --depth abc; mutant does not — bites"
-    else
-      no "teeth-m: mutation did not change exit behavior" "rc_r=$rc_r rc_m=$rc_m"
-    fi
-  else
-    no "teeth-m: --depth validation anchor not found in SUT (cannot anchor mutation)"
-  fi
+  mk_sed "teeth-m" "$MUT/fpa.MUT-M.sh" "s/^  ''|\*\[!0-9\]\*) printf 'FATAL: --depth.*/  *) : # MUTATED-M no-op ;;/" \
+    && tooth "teeth-m: original exits 2 on --depth abc; mutant does not — bites" 2 3 "$MUT/fpa.MUT-M.sh" \
+         --good-has 'FATAL: --depth must be a non-negative integer' --bad-has 'degraded: find over .* failed' --bad-lacks 'FATAL: --depth' \
+         -- bash @SUT@ "$ROOT/corpus" --subject "$ROOT/s2" --depth abc
 
   # ---- tooth (n) (R1, round 3): camelCase internal-uppercase-or-digit gate removed
   echo "-- teeth-n (R1): camelCase-gate mutant; a bare LOWERCASE table-row word must falsely charter --"
-  MUTANT_N="$ROOT/fpa.MUT-N.sh"
-  if grep -q 'SENTINEL-CAMEL:' "$SUT"; then
-    sed "s#grep -E '\[A-Z0-9\]' \"\$TMP/bare_words_raw.txt\" 2>/dev/null#cat \"\$TMP/bare_words_raw.txt\" 2>/dev/null#" "$SUT" > "$MUTANT_N"
-    SN="$ROOT/sn"; CN="$ROOT/cn"
-    mk_unit "$SN" "mobile" "A.java"
-    mk_focuses "$CN" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
-    mk_state "$CN" "RESEARCH-STATE-wb-vendor-ux.md" \
-      '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
-    rout_n="$(bash "$SUT" "$CN" --subject "$SN" 2>/dev/null)"
-    mout_n="$(bash "$MUTANT_N" "$CN" --subject "$SN" 2>/dev/null)"
-    if printf '%s' "$rout_n" | grep -qE '0/1 chartered' \
-       && printf '%s' "$mout_n" | grep -qE '1/1 chartered'; then
-      ok "teeth-n: original never charters bare-lowercase mobile (no suffix); mutant does — bites"
-    else
-      no "teeth-n: mutation did not change charter count" "orig=$rout_n mut=$mout_n"
-    fi
-  else
-    no "teeth-n: SENTINEL-CAMEL: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SN="$ROOT/sn"; CN="$ROOT/cn"
+  mk_unit "$SN" "mobile" "A.java"
+  mk_focuses "$CN" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+  mk_state "$CN" "RESEARCH-STATE-wb-vendor-ux.md" \
+    '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
+  mk_sed "teeth-n" "$MUT/fpa.MUT-N.sh" "s#grep -E '\[A-Z0-9\]' \"\$TMP/bare_words_raw.txt\" 2>/dev/null#cat \"\$TMP/bare_words_raw.txt\" 2>/dev/null#" \
+    && tooth "teeth-n: original never charters bare-lowercase mobile (no suffix); mutant does — bites" 0 0 "$MUT/fpa.MUT-N.sh" \
+         --good-has '0/1 chartered' --bad-has '1/1 chartered' -- bash @SUT@ "$CN" --subject "$SN"
 
   # ---- tooth (o) (R1, round 3): bare-mention downgrade removed — reverts to pre-round-3
   # always-unchartered behavior for a bare-lowercase table-row mention.
   echo "-- teeth-o (R1): bare-mention-removed mutant; mobile must fall back to plain unchartered --"
-  MUTANT_O="$ROOT/fpa.MUT-O.sh"
-  if grep -q 'SENTINEL-BAREMENTION:' "$SUT"; then
-    sed 's/if grep -qxF "\$mod" "\$TMP\/bare_lowercase_tokens.txt" 2>\/dev\/null; then/if false; then/' "$SUT" > "$MUTANT_O"
-    SO="$ROOT/so"; CO="$ROOT/co"
-    mk_unit "$SO" "mobile" "A.java"
-    mk_focuses "$CO" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
-    mk_state "$CO" "RESEARCH-STATE-wb-vendor-ux.md" \
-      '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
-    rout_o="$(bash "$SUT" "$CO" --subject "$SO" 2>/dev/null)"
-    mout_o="$(bash "$MUTANT_O" "$CO" --subject "$SO" 2>/dev/null)"
-    if printf '%s' "$rout_o" | grep -qE '1 bare-mention' \
-       && ! printf '%s' "$mout_o" | grep -qE '1 bare-mention'; then
-      ok "teeth-o: original reports mobile as bare-mention; mutant reverts to silent unchartered — bites"
-    else
-      no "teeth-o: mutation did not change bare-mention count" "orig=$rout_o mut=$mout_o"
-    fi
-  else
-    no "teeth-o: SENTINEL-BAREMENTION: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SO="$ROOT/so"; CO="$ROOT/co"
+  mk_unit "$SO" "mobile" "A.java"
+  mk_focuses "$CO" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+  mk_state "$CO" "RESEARCH-STATE-wb-vendor-ux.md" \
+    '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
+  mk_sed "teeth-o" "$MUT/fpa.MUT-O.sh" 's/if grep -qxF "\$mod" "\$TMP\/bare_lowercase_tokens.txt" 2>\/dev\/null; then/if false; then/' \
+    && tooth "teeth-o: original reports mobile as bare-mention; mutant reverts to silent unchartered — bites" 0 0 "$MUT/fpa.MUT-O.sh" \
+         --good-has '1 bare-mention' --bad-has '0/1 chartered' --bad-lacks '1 bare-mention' -- bash @SUT@ "$CO" --subject "$SO"
 
   # ---- tooth (p) (R3, round 3): `cat` dropped from the dependency probe
   echo "-- teeth-p (R3): cat-probe-removed mutant; a missing cat must stop degrading --"
-  MUTANT_P="$ROOT/fpa.MUT-P.sh"
-  if grep -q 'find awk grep sort sed wc tr mktemp basename head rm cat dirname' "$SUT"; then
-    sed 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm dirname/' "$SUT" > "$MUTANT_P"
-    TOOLSDIR_P="$ROOT/mini-path-p"
-    mkdir -p "$TOOLSDIR_P"
-    for t in bash find grep sed awk sort wc tr mktemp basename head rm dirname; do
-      ln -sf "$(command -v "$t")" "$TOOLSDIR_P/$t"
-    done
-    rc_r=0; rc_m=0
-    PATH="$TOOLSDIR_P" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_r=$?
-    PATH="$TOOLSDIR_P" bash "$MUTANT_P" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_m=$?
-    if [ "$rc_r" -eq 3 ] && [ "$rc_m" -ne 3 ]; then
-      ok "teeth-p: original exits 3 (degraded, cat missing); mutant does not — bites"
-    else
-      no "teeth-p: mutation did not change degraded behavior" "rc_r=$rc_r rc_m=$rc_m"
-    fi
-  else
-    no "teeth-p: dependency-probe list anchor not found in SUT (cannot anchor mutation)"
-  fi
+  TOOLSDIR_P="$ROOT/mini-path-p"
+  mkdir -p "$TOOLSDIR_P"
+  for t in bash find grep sed awk sort wc tr mktemp basename head rm dirname; do   # cat deliberately absent
+    ln -sf "$(command -v "$t")" "$TOOLSDIR_P/$t"
+  done
+  mk_sed "teeth-p" "$MUT/fpa.MUT-P.sh" 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm dirname/' \
+    && tooth "teeth-p: original exits 3 (degraded, cat missing); mutant does not — bites" 3 0 "$MUT/fpa.MUT-P.sh" \
+         --good-has 'degraded: cat not found in PATH' --bad-has 'units: 0/0 chartered' --bad-lacks 'degraded:' \
+         -- env PATH="$TOOLSDIR_P" bash @SUT@ "$ROOT/corpus" --subject "$ROOT/s2"
 
   # ---- tooth (q) (R3, round 3): `dirname` dropped from the dependency probe
   echo "-- teeth-q (R3): dirname-probe-removed mutant; a missing dirname must stop degrading --"
-  MUTANT_Q="$ROOT/fpa.MUT-Q.sh"
-  if grep -q 'find awk grep sort sed wc tr mktemp basename head rm cat dirname' "$SUT"; then
-    sed 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm cat/' "$SUT" > "$MUTANT_Q"
-    TOOLSDIR_Q="$ROOT/mini-path-q"
-    mkdir -p "$TOOLSDIR_Q"
-    for t in bash find grep sed awk sort wc tr mktemp basename head rm cat; do
-      ln -sf "$(command -v "$t")" "$TOOLSDIR_Q/$t"
-    done
-    rc_r=0; rc_m=0
-    PATH="$TOOLSDIR_Q" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_r=$?
-    PATH="$TOOLSDIR_Q" bash "$MUTANT_Q" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_m=$?
-    if [ "$rc_r" -eq 3 ] && [ "$rc_m" -ne 3 ]; then
-      ok "teeth-q: original exits 3 (degraded, dirname missing); mutant does not — bites"
-    else
-      no "teeth-q: mutation did not change degraded behavior" "rc_r=$rc_r rc_m=$rc_m"
-    fi
-  else
-    no "teeth-q: dependency-probe list anchor not found in SUT (cannot anchor mutation)"
-  fi
+  TOOLSDIR_Q="$ROOT/mini-path-q"
+  mkdir -p "$TOOLSDIR_Q"
+  for t in bash find grep sed awk sort wc tr mktemp basename head rm cat; do   # dirname deliberately absent
+    ln -sf "$(command -v "$t")" "$TOOLSDIR_Q/$t"
+  done
+  mk_sed "teeth-q" "$MUT/fpa.MUT-Q.sh" 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm cat/' \
+    && tooth "teeth-q: original exits 3 (degraded, dirname missing); mutant does not — bites" 3 0 "$MUT/fpa.MUT-Q.sh" \
+         --good-has 'degraded: dirname not found in PATH' --bad-has 'units: 0/0 chartered' --bad-lacks 'degraded:' \
+         -- env PATH="$TOOLSDIR_Q" bash @SUT@ "$ROOT/corpus" --subject "$ROOT/s2"
 
   # ---- tooth (r) (round 4, LOW): bare profile-suffix gate removed — reverts a bare
   # `<word>-<profile>` table-row token to (at best) bare-mention, never a confident charter.
   echo "-- teeth-r: bare-suffix-gate mutant; bare zwave-wb must stop chartering zwave --"
-  MUTANT_R="$ROOT/fpa.MUT-R.sh"
-  if grep -q 'SENTINEL-SUFFIX:' "$SUT"; then
-    sed '/bare_hyphenated_raw.txt/,/if (suf == "rt"/ s/if (suf == "rt" || suf == "wb" || suf == "ux" || suf == "se") {/if (0) {/' "$SUT" > "$MUTANT_R"
-    SR="$ROOT/sr"; CR="$ROOT/cr"
-    mk_unit "$SR" "zwave" "A.java"
-    mk_focuses "$CR" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
-    mk_state "$CR" "RESEARCH-STATE-wb-vendor-ux.md" \
-      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
-    rout_r="$(bash "$SUT" "$CR" --subject "$SR" 2>/dev/null)"
-    mout_r="$(bash "$MUTANT_R" "$CR" --subject "$SR" 2>/dev/null)"
-    if printf '%s' "$rout_r" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_r" | grep -qE '0/1 chartered'; then
-      ok "teeth-r: original charters bare zwave-wb; mutant does not — bites"
-    else
-      no "teeth-r: mutation did not change charter count" "orig=$rout_r mut=$mout_r"
-    fi
-  else
-    no "teeth-r: SENTINEL-SUFFIX: comment not found in SUT (cannot anchor mutation)"
-  fi
+  SR="$ROOT/sr"; CR="$ROOT/cr"
+  mk_unit "$SR" "zwave" "A.java"
+  mk_focuses "$CR" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+  mk_state "$CR" "RESEARCH-STATE-wb-vendor-ux.md" \
+    '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+  mk_sed "teeth-r" "$MUT/fpa.MUT-R.sh" '/bare_hyphenated_raw.txt/,/if (suf == "rt"/ s/if (suf == "rt" || suf == "wb" || suf == "ux" || suf == "se") {/if (0) {/' \
+    && tooth "teeth-r: original charters bare zwave-wb; mutant does not — bites" 0 0 "$MUT/fpa.MUT-R.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CR" --subject "$SR"
 
   # ---- tooth (s) (round 4, LOW): trailing .jar stripping removed — bacnetUtil-rt.jar must stop
   # resolving to the "rt" profile suffix.
   echo "-- teeth-s: jar-strip-removed mutant; bacnetUtil-rt.jar must stop chartering bacnetUtil --"
-  MUTANT_S="$ROOT/fpa.MUT-S.sh"
-  if grep -q 'sub(/\\.jar\$/, "", suf)' "$SUT"; then
-    sed '0,/sub(\/\\.jar\$\/, "", suf)/ s/sub(\/\\.jar\$\/, "", suf)/suf = suf/' "$SUT" > "$MUTANT_S"
-    SS="$ROOT/ss"; CS="$ROOT/cs"
-    mk_unit "$SS" "bacnetUtil" "A.java"
-    mk_focuses "$CS" '| protocols | stopped | RESEARCH-STATE-protocols.md | protocol survey |'
-    mk_state "$CS" "RESEARCH-STATE-protocols.md" \
-      '| high | P3 | BACnet APDU service | `bacnet-rt.jar`, `bacnetUtil-rt.jar` | COVERED -> B133 |'
-    rout_s="$(bash "$SUT" "$CS" --subject "$SS" 2>/dev/null)"
-    mout_s="$(bash "$MUTANT_S" "$CS" --subject "$SS" 2>/dev/null)"
-    if printf '%s' "$rout_s" | grep -qE '1/1 chartered' \
-       && printf '%s' "$mout_s" | grep -qE '0/1 chartered'; then
-      ok "teeth-s: original strips .jar and charters bacnetUtil; mutant does not — bites"
-    else
-      no "teeth-s: mutation did not change charter count" "orig=$rout_s mut=$mout_s"
-    fi
-  else
-    no "teeth-s: .jar-strip anchor not found in SUT (cannot anchor mutation)"
-  fi
+  SS="$ROOT/ss"; CS="$ROOT/cs"
+  mk_unit "$SS" "bacnetUtil" "A.java"
+  mk_focuses "$CS" '| protocols | stopped | RESEARCH-STATE-protocols.md | protocol survey |'
+  mk_state "$CS" "RESEARCH-STATE-protocols.md" \
+    '| high | P3 | BACnet APDU service | `bacnet-rt.jar`, `bacnetUtil-rt.jar` | COVERED -> B133 |'
+  mk_sed "teeth-s" "$MUT/fpa.MUT-S.sh" '0,/sub(\/\\.jar\$\/, "", suf)/ s/sub(\/\\.jar\$\/, "", suf)/suf = suf/' \
+    && tooth "teeth-s: original strips .jar and charters bacnetUtil; mutant does not — bites" 0 0 "$MUT/fpa.MUT-S.sh" \
+         --good-has '1/1 chartered' --bad-has '0/1 chartered' -- bash @SUT@ "$CS" --subject "$SS"
 
   echo ""
 fi
