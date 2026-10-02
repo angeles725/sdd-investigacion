@@ -1476,62 +1476,32 @@ out40="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40=$?
 # (rc + positive output) on the ORIGINAL against the same fixture AND the specific BAD verdict (rc + positive output)
 # on the mutant; a crash or empty output can satisfy neither side.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   MUT="$(mktemp -d)"
   trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
-  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR; each stage must change the
-  # original ON ITS OWN (a chain whose first stage applies would hide a later no-op stage).
-  mk_sed(){
-    local label="$1" out="$2" e rc err; shift 2
-    local -a args=()
-    for e in "$@"; do
-      if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
-        no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
-      fi
-      args+=(-e "$e")
-    done
-    err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
-  }
-  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] [--fix DIR] -- ARGV...
-  # Runs ARGV against the original ('@SUT@' -> $SUT) and the mutant. '@FIX@' -> a FRESH copy of --fix DIR per run, so
-  # a real (non --dry-run) archive of the first run cannot leak state into the second. PASS only when the original
-  # returns exactly GOOD_RC (output matches --good-has, not --good-lacks) AND the mutant returns exactly BAD_RC
-  # (output matches --bad-has, not --bad-lacks).
-  _fixn=0
-  tooth(){
-    local label="$1" grc="$2" brc="$3" mut="$4" gpat="" glack="" bhas="" black="" fix="" a gout mout grc_a mrc_a why="" fg="" fm=""; shift 4
-    while [ "${1:-}" != -- ]; do
-      case "${1:-}" in
-        --good-has) gpat="$2" ;; --good-lacks) glack="$2" ;; --bad-has) bhas="$2" ;; --bad-lacks) black="$2" ;; --fix) fix="$2" ;;
-        *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
-      esac; shift 2
-    done; shift
-    [ -f "$mut" ] || { no "$label: mutant not built ($mut)"; return 1; }
-    if [ -n "$fix" ]; then
-      [ -d "$fix" ] || { no "$label: fixture dir absent ($fix)"; return 1; }
-      _fixn=$((_fixn+1)); fg="$MUT/fix.g$_fixn"; fm="$MUT/fix.m$_fixn"
-      cp -a "$fix" "$fg" && cp -a "$fix" "$fm" || { no "$label: could not copy fixture"; return 1; }
-    fi
-    local -a gc=() mc=()
-    for a in "$@"; do
-      gc+=("$(sed -e "s#@SUT@#$SUT#g" -e "s#@FIX@#$fg#g" <<<"$a")")
-      mc+=("$(sed -e "s#@SUT@#$mut#g" -e "s#@FIX@#$fm#g" <<<"$a")")
-    done
-    gout="$("${gc[@]}" 2>&1)"; grc_a=$?
-    mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
-    [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
-    if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
-    if [ -n "$glack" ] && grep -qiE -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
-    [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
-    if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
-    if [ -n "$black" ] && grep -qiE -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
-    if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
-    else no "$label — THEATER:$why"; fi
+  export MUTANT_TOOTH_ICASE=1   # the output predicates below are case-insensitive, as they always were
+  # Thin counting wrappers over the shared helpers: they print their own FAIL/PASS lines and never touch this
+  # suite's counters, so the caller counts.
+  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT, one sed stage per EXPR (mutant_chain: each stage must change
+  # the original ON ITS OWN, a chain whose first stage applies would hide a later no-op stage).
+  mk_sed(){ local label="$1" out="$2"; shift 2; mutant_chain "$label" "$SUT" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
+  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
+  # The shared mutant_tooth runs ARGV against the original ('@SUT@' -> $SUT) and the mutant: PASS only when the
+  # original returns exactly GOOD_RC (output matches --good-has, not --good-lacks) AND the mutant returns exactly
+  # BAD_RC (output matches --bad-has, not --bad-lacks).
+  tooth(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # run_on_fix [VAR=val...] SUT FIXDIR [ARGS...]  run SUT on a FRESH copy of FIXDIR (a real, non --dry-run archive
+  # of the first run must not leak state into the second), optionally under extra environment variables.
+  run_on_fix(){
+    local -a ev=()
+    while [[ "${1:-}" == [A-Za-z_]*=* ]]; do ev+=("$1"); shift; done
+    local sut="$1" fix="$2" f rc; shift 2
+    f="$(mktemp -d "$MUT/fix.XXXXXX")" && rm -rf "$f" && cp -a "$fix" "$f" || { echo "run_on_fix: could not copy fixture $fix" >&2; return 99; }
+    env ${ev[@]+"${ev[@]}"} bash "$sut" "$f" "$@"; rc=$?
+    rm -rf "$f"; return "$rc"
   }
   # Every mutant is a copy of the SUT placed in $MUT, so the siblings and lib/ it resolves via $(dirname $0) are
   # copied there ONCE.
@@ -1546,26 +1516,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   d="$TMP/teeth"; mkgood "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"   # fixture edit: coverage claims all closed while a gap is pending
   mk_sed "teeth" "$MUT/archive.MUTANT.sh" 's/gate_rc=1/gate_rc=0/g' \
     && tooth "teeth: gate-neutered mutant archives a stale corpus → gate test has teeth" 3 0 "$MUT/archive.MUTANT.sh" \
-         --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$d" -- bash @SUT@ @FIX@
+         --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d"
 
   echo "-- teeth: revert the ADDED-only filter (drop --diff-filter=A) so a backlink-edit counts; expect a WARN --"
   mk_sed "teeth(23a)" "$MUT/archive.ADDMUTANT.sh" 's/show --diff-filter=A -M --name-only/show --name-only/' \
     && { mkrun_git_backlink "$TMP/teeth-backlink"
          tooth "teeth: name-only mutant WARNs on the add-1+modify-1 iteration → case 23a has teeth" 0 0 "$MUT/archive.ADDMUTANT.sh" \
-           --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' --fix "$TMP/teeth-backlink" -- bash @SUT@ @FIX@; }
+           --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-backlink"; }
 
   echo "-- teeth: drop -M from the block detector (RDD round 2, F4) — expect a false WARN on the rename fixture --"
   mk_sed "teeth(23b)" "$MUT/archive.NOMUTANT.sh" 's/show --diff-filter=A -M --name-only/show --diff-filter=A --name-only/' \
     && { mkrun_git_rename "$TMP/teeth-rename"
          tooth "teeth: -M dropped → false WARN on rename+add under diff.renames=false → case 23b has teeth" 0 0 "$MUT/archive.NOMUTANT.sh" \
-           --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' --fix "$TMP/teeth-rename" -- bash @SUT@ @FIX@; }
+           --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-rename"; }
 
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
   mk_sed "teeth(uf)" "$MUT/archive.UFMUTANT.sh" 's/gate_rc=1  # uf-gate-refuse/gate_rc=0  # MUTANT-uf-gate/' \
     && tooth "teeth(uf): uf gate neutered → uf=1 corpus archives (exit 0) — uf refuse is load-bearing" 3 0 "$MUT/archive.UFMUTANT.sh" \
-         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$d" -- bash @SUT@ @FIX@
+         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d"
 
   echo "-- teeth(uf-split): revert uf-gate scope from \$target to \$corpus; split-layout UF=1 must then archive --"
   # Reverting to "$corpus" reproduces the bug: corpus = first-focus dir, sibling focuses are skipped.
@@ -1574,7 +1544,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$d/beta/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/beta/RESEARCH-STATE.md"
   mk_sed "teeth(uf-split)" "$MUT/archive.SPLITMUTANT.sh" 's/|| list_state_files "\$target"  # AR1-FOCUS-SCOPE/|| list_state_files "\$corpus"  # AR1-FOCUS-SCOPE  # MUTANT-uf-split/' \
     && tooth "teeth(uf-split): scope-reversion mutant → split-layout UF=1 archives (exit 0) — \$target scope is load-bearing" 3 0 "$MUT/archive.SPLITMUTANT.sh" \
-         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$d" -- bash @SUT@ @FIX@
+         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d"
 
   echo "-- teeth(mf-uf): multi-focus uf gate — UF=1 in one focus must refuse; neutered mutant must archive --"
   d="$TMP/mf-uf-teeth"; mkmulti "$d"
@@ -1582,20 +1552,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$d/RESEARCH-STATE-alpha.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-alpha.md"
   mk_sed "teeth(mf-uf)" "$MUT/archive.MFUF-MUTANT.sh" 's/gate_rc=1  # uf-gate-refuse/gate_rc=0  # MUTANT-uf-gate-mf/' \
     && tooth "teeth(mf-uf): mf uf gate neutered → UF=1 in alpha-focus archives (exit 0) — mf uf refuse is load-bearing" 3 0 "$MUT/archive.MFUF-MUTANT.sh" \
-         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$d" -- bash @SUT@ @FIX@
+         --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d"
 
   echo "-- teeth(rename-tradeoff): reintroduce --follow to rsdd_added_epoch; renamed retro must trigger MISSING-RETRO gate (exit 3) --"
   # After D6 promotion: the --follow mutant dates the retro from year-2000 (before the 2026-01-10 block)
   # → MISSING-RETRO gate fires → exit 3.
   mk_sed "teeth(rename-tradeoff)" "$MUT/archive.RENAME-MUTANT.sh" 's/log --diff-filter=A --format=%ct/log --follow --diff-filter=A --format=%ct/' \
     && tooth "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO gate (exit 3) → case 36 has teeth" 0 3 "$MUT/archive.RENAME-MUTANT.sh" \
-         --good-has "$ARCH_RE" --good-lacks 'MISSING-RETRO' --bad-has 'MISSING-RETRO  : REFUSE' --bad-lacks "$ARCH_RE" --fix "$TMP/rename-tradeoff" -- bash @SUT@ @FIX@
+         --good-has "$ARCH_RE" --good-lacks 'MISSING-RETRO' --bad-has 'MISSING-RETRO  : REFUSE' --bad-lacks "$ARCH_RE" -- run_on_fix @SUT@ "$TMP/rename-tradeoff"
 
   echo "-- teeth(missing-retro-gate): neuter ONLY the missing-retro gate; corpus-advanced case must then archive --"
   d_mrg="$TMP/mr-gate-teeth"; mkgood "$d_mrg"; rm -rf "$d_mrg/retros"   # no retro → missing-retro condition
   mk_sed "teeth(missing-retro-gate)" "$MUT/archive.MRG-MUTANT.sh" 's/gate_rc=1  # missing-retro-gate-refuse/gate_rc=0  # MUTANT-missing-retro-gate/' \
     && tooth "teeth(missing-retro-gate): gate neutered → corpus-advanced archives (exit 0) — missing-retro gate is load-bearing" 3 0 "$MUT/archive.MRG-MUTANT.sh" \
-         --good-has 'MISSING-RETRO  : REFUSE' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$d_mrg" -- bash @SUT@ @FIX@
+         --good-has 'MISSING-RETRO  : REFUSE' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d_mrg"
 
   # AR2 teeth: strip AR2-VSTATE-FOCUS-SCOPE so verify-state is called without --focus;
   # --focus alpha must then REFUSE because beta's stale state fails the unscoped verify-state gate.
@@ -1608,13 +1578,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash "$HERE/../research-sdd-status.sh" "$_ar2t" --sync-state --focus beta >/dev/null 2>&1
   mk_sed "teeth-ar2" "$MUT/archive.AR2-MUTANT.sh" 's/\[ -n "\$focus_slug" \] && _vstate_args=.*# AR2-VSTATE-FOCUS-SCOPE/_vstate_args=()  # AR2-VSTATE-FOCUS-SCOPE [MUTANT]/' \
     && tooth "teeth-ar2: mutant exit 3 on --focus alpha (verify-state not scoped) — AR2 scope is load-bearing" 0 3 "$MUT/archive.AR2-MUTANT.sh" \
-         --good-has "$ARCH_RE" --good-lacks "$REFUSE_RE" --bad-has "$REFUSE_RE" --bad-lacks "$ARCH_RE" --fix "$_ar2t" -- bash @SUT@ @FIX@ --focus alpha --dry-run
+         --good-has "$ARCH_RE" --good-lacks "$REFUSE_RE" --bad-has "$REFUSE_RE" --bad-lacks "$ARCH_RE" -- run_on_fix @SUT@ "$_ar2t" --focus alpha --dry-run
 
   # T-AR1 teeth: neuter AR1-FOCUS-SCOPE; --focus alpha must no longer scope UF gate → beta UF=1 blocks it.
   echo "-- teeth-ar1: neuter AR1-FOCUS-SCOPE; --focus alpha must revert to full-corpus UF scan --"
   mk_sed "teeth-ar1" "$MUT/archive.AR1-MUTANT.sh" 's/\[ -n "\$focus_slug" \] && printf.*# AR1-FOCUS-SCOPE/list_state_files "$target"  # AR1-FOCUS-SCOPE [MUTANT]/' \
     && tooth "teeth-ar1: mutant exit 3 on --focus alpha (beta UF=1 not scoped) — AR1 scope is load-bearing" 0 3 "$MUT/archive.AR1-MUTANT.sh" \
-         --good-has "$ARCH_RE" --good-lacks "$UF_RE" --bad-has "$UF_RE" --bad-lacks "$ARCH_RE" --fix "$TMP/ar1-focus" -- bash @SUT@ @FIX@ --focus alpha --dry-run
+         --good-has "$ARCH_RE" --good-lacks "$UF_RE" --bad-has "$UF_RE" --bad-lacks "$ARCH_RE" -- run_on_fix @SUT@ "$TMP/ar1-focus" --focus alpha --dry-run
 
   # #970 round-3 teeth 1/3 — non-git fallback branch: neuter the `gate "scan-secrets " ...` call that
   # fires when $target is confirmed NOT a git repo (case 16's fixture, "secret", is a plain non-git
@@ -1622,7 +1592,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth(secrets-nongit): neuter the non-git fallback call; a non-git corpus with a leaked secret must then archive --"
   mk_sed "teeth(secrets-nongit)" "$MUT/archive.NONGIT-MUTANT.sh" 's/gate "scan-secrets " scan-secrets\.sh.*/:  # MUTANT-non-git-fallback/' \
     && tooth "teeth(secrets-nongit): non-git fallback neutered → non-git corpus with a leaked secret archives (exit 0) — the fallback call is load-bearing" 3 0 "$MUT/archive.NONGIT-MUTANT.sh" \
-         --good-has 'scan-secrets +: FAIL' --bad-has "$ARCH_RE" --bad-lacks 'scan-secrets +: FAIL' --fix "$TMP/secret" -- bash @SUT@ @FIX@
+         --good-has 'scan-secrets +: FAIL' --bad-has "$ARCH_RE" --bad-lacks 'scan-secrets +: FAIL' -- run_on_fix @SUT@ "$TMP/secret"
 
   # #970 round-3 teeth 2/3 — neuter (a), the plain `scan-secrets.sh $corpus` filesystem scan. The
   # gitignored-.env fixture (17f-opus2) can ONLY be caught by (a) — (b) `--committed` never saw an
@@ -1630,7 +1600,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth(secrets-plain-scan): neuter (a), the plain scan-secrets.sh \$corpus call; a gitignored secret must then archive --"
   mk_sed "teeth(secrets-plain-scan)" "$MUT/archive.PLAINSCAN-MUTANT.sh" 's/"\$here\/scan-secrets\.sh" "\$corpus" >\/dev\/null 2>&1; _ss_wt_rc=\$?/_ss_wt_rc=0  # MUTANT-plain-scan-skipped/' \
     && tooth "teeth(secrets-plain-scan): (a) neutered → gitignored-secret fixture archives (exit 0) — the plain filesystem scan is load-bearing" 3 0 "$MUT/archive.PLAINSCAN-MUTANT.sh" \
-         --good-has 'scan-secrets' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$TMP/gitignored-env" -- bash @SUT@ @FIX@
+         --good-has 'scan-secrets' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$TMP/gitignored-env"
 
   # #970 round-3 teeth 3/3 — the F3 loud-refuse branch (scan-secrets-gate-git-probe-error). 17g's stub
   # (a git that always exits 127) is the UNCONDITIONAL, host-independent primary tooth; the dubious-ownership
@@ -1639,10 +1609,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth(secrets-f3-refuse): neuter the F3 ambiguous-git-failure refuse; the stubbed-git fixture must then archive --"
   if mk_sed "teeth(secrets-f3-refuse)" "$MUT/archive.F3-MUTANT.sh" 's/gate_rc=1  # scan-secrets-gate-git-probe-error/gate_rc=0  # MUTANT-git-probe-error/'; then
     tooth "teeth(secrets-f3-refuse): F3 refuse neutered → stubbed-git corpus archives (exit 0) — the gate_rc assignment is load-bearing (unconditional, host-independent)" 3 0 "$MUT/archive.F3-MUTANT.sh" \
-      --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$TMP/gitstub" -- env PATH="$TMP/stubbin:$PATH" bash @SUT@ @FIX@
+      --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/stubbin:$PATH" @SUT@ "$TMP/gitstub"
     if _dubious_ownership_reproduces "$TMP/dubious"; then
       tooth "teeth(secrets-f3-refuse) bonus: same mutant on dubious-ownership fixture also archives (exit 0) — confirms the sentinel is shared" 3 0 "$MUT/archive.F3-MUTANT.sh" \
-        --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$TMP/dubious" -- env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 bash @SUT@ @FIX@
+        --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix GIT_TEST_ASSUME_DIFFERENT_OWNER=1 @SUT@ "$TMP/dubious"
     else
       skip "teeth(secrets-f3-refuse) bonus: GIT_TEST_ASSUME_DIFFERENT_OWNER=1 does not reproduce on this host — unconditional tooth above already covers this sentinel"
     fi
@@ -1653,7 +1623,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth(secrets-committed): revert --committed \$target to a plain \$corpus scan; history-only secret must then archive --"
   mk_sed "teeth(secrets-committed)" "$MUT/archive.COMMITTED-MUTANT.sh" 's/scan-secrets\.sh" --committed "\$target"/scan-secrets.sh" "$corpus"/' \
     && tooth "teeth(secrets-committed): --committed reverted to a plain \$corpus scan → history-only secret archives (exit 0) — --committed \$target is load-bearing" 3 0 "$MUT/archive.COMMITTED-MUTANT.sh" \
-         --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" --fix "$TMP/committed-deleted-secret" -- bash @SUT@ @FIX@
+         --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$TMP/committed-deleted-secret"
 fi
 
 # ==================== AR2 — --focus scopes the verify-state gate (#647) ====================

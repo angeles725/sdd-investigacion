@@ -111,8 +111,8 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # (MK_SYNTAX default); SUT mutants of render-profile.sh keep the bash syntax check (MK_SYNTAX=bash).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
 
 PROVE_TEETH=0
 [ "${1:-}" = "--prove-teeth" ] && PROVE_TEETH=1
@@ -139,27 +139,12 @@ make_kit() {
   cp "$GENERAL_PROFILE" "$dir/profiles/general.slots.md"
 }
 
-# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
-# mk_sed_stages ORIG OUT EXPR...  build OUT from ORIG with one sed stage per EXPR. Each stage must change
-# the original ON ITS OWN (a chain whose first stage applies would hide a later no-op stage). Reports the
-# reason on stderr and returns 1 — safe inside $(...), where a no() would be lost with the subshell.
-mk_sed_stages() {
-  local orig="$1" out="$2" e rc err; shift 2
-  local -a args=()
-  for e in "$@"; do
-    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
-      printf 'sed stage matches nothing in the original (silent no-op) :: [%s]\n' "${e:0:80}" >&2; return 1
-    fi
-    args+=(-e "$e")
-  done
-  err="$(MUTANT_SYNTAX="${MK_SYNTAX:-none}" mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] || { printf 'mutant refused by lib/mutant.sh (rc=%s) :: %s\n' "$rc" "$err" >&2; return 1; }
-}
-# mk_sed_from ORIG LABEL OUT EXPR...  parent-shell wrapper: a refusal is a recorded FAIL.
+# mk_sed_from ORIG LABEL OUT EXPR...  parent-shell wrapper over the shared mutant_chain (one sed stage per
+# EXPR, each of which must change ORIG on its own): a refusal prints its own FAIL line and is counted here.
 mk_sed_from() {
-  local orig="$1" label="$2" out="$3" err; shift 3
-  err="$(mk_sed_stages "$orig" "$out" "$@" 2>&1)" && return 0
-  no "$label: $err"; return 1
+  local orig="$1" label="$2" out="$3"; shift 3
+  MUTANT_SYNTAX="${MK_SYNTAX:-none}" mutant_chain "$label" "$orig" "$out" "$@" && return 0
+  fail=$((fail+1)); return 1
 }
 
 run_renderer() {
@@ -563,9 +548,9 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     local m="$TMP/mutant.$name.render-profile.sh" a err
     local -a exprs=()
     for a in "$@"; do [ "$a" = "-e" ] || exprs+=("$a"); done
-    # lib/mutant.sh refuses empty / byte-identical / syntax-broken / live-tree mutants; each sed stage
+    # mutant_chain refuses empty / byte-identical / syntax-broken / live-tree mutants; each sed stage
     # must also change the SUT on its own.
-    if ! err="$(MK_SYNTAX=bash mk_sed_stages "$RENDERER" "$m" "${exprs[@]}" 2>&1)"; then
+    if ! err="$(MUTANT_SYNTAX=bash mutant_chain "$name" "$RENDERER" "$m" "${exprs[@]}" 2>&1)"; then
       printf 'MUTATION-DID-NOT-TAKE: %s\n' "$err" >&2
       return 3
     fi
@@ -589,33 +574,35 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     return 1
   }
 
-  # bite_tooth NAME MUTANT FIXTURE_KIT PROFILE OUTDIR_SUFFIX EXPECT_DESC
-  # A tooth is proven ONLY when the mutant completes a render (exit 0) where
-  # the real script refuses. A crash (uncaught Python traceback) is detected
-  # explicitly and never counts as a bite — kit issue #943.
+  # shellcheck disable=SC2034  # SUT is read by the sourced mutant_tooth (the original under test)
+  SUT="$RENDERER"
+  # tt LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...  count the shared mutant_tooth verdict (it prints its own
+  # PASS/FAIL line and never touches this suite's counters).
+  tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+
+  # bite_tooth NAME MUTANT FIXTURE_KIT PROFILE OUTDIR_SUFFIX EXPECT_DESC [OUTDIR]
+  # A tooth is proven ONLY when the REAL renderer refuses this exact fixture with exit 2 (GOOD) AND the mutant
+  # completes a render (exit 0) where it refuses (BAD). A crash (uncaught Python traceback) matches neither
+  # verdict on either side and never counts as a bite — kit issue #943. Optional $7 overrides the render
+  # target (T-containment must render INTO the kit itself).
+  # iso_render SUT KITDIR PROFILE [into-kit]  ONE isolated run, used as the tooth ARGV so the GOOD run and the BAD
+  # run never share state: each run gets its OWN disposable copy of KITDIR and its OWN fresh outdir (or, with
+  # `into-kit`, renders INTO that per-run kit copy). The fixture kit and any earlier run's output are never reused.
+  iso_render() {
+    local sut="$1" kitdir="$2" profile="$3" into="${4:-}" run kit out rc
+    run="$(mktemp -d "$TMP/iso.XXXXXX")" || return 99
+    kit="$run/kit"; out="$run/out"
+    cp -a "$kitdir" "$kit" || { rm -rf "$run"; return 99; }
+    [ "$into" = into-kit ] && out="$kit"
+    RSDD_KIT_DIR="$kit" "$sut" "$profile" "$out"; rc=$?
+    rm -rf "$run"; return "$rc"
+  }
   bite_tooth() {
-    # Optional $7 overrides the render target (T-containment must render INTO the kit itself).
-    local tname="$1" mutant="$2" kitdir="$3" profile="$4" suffix="$5" expect="$6"
-    local outdir="${7:-$TMP/teeth-out-$suffix}"
-    local out rc gout grc
-    # GOOD verdict: the REAL renderer must refuse this exact fixture with exit 2 (never a crash or an
-    # accidental pass), otherwise the mutant "completing a render" proves nothing. T-containment renders
-    # INTO the kit itself, so its original run is the same invocation but on a disposable copy.
-    local gkit="$kitdir" gout_dir="$TMP/teeth-good-$suffix"
-    if [ -n "${7:-}" ]; then gkit="$TMP/teeth-good-kit-$suffix"; cp -r "$kitdir" "$gkit"; gout_dir="$gkit"; fi
-    gout="$(RSDD_KIT_DIR="$gkit" "$RENDERER" "$profile" "$gout_dir" 2>&1)"; grc=$?
-    if [ "$grc" -ne 2 ]; then
-      no "teeth-$tname: the ORIGINAL renderer did not refuse with exit 2 (rc=$grc, out=[$gout]) — the tooth has no GOOD verdict to flip"
-      return 1
-    fi
-    out="$(RSDD_KIT_DIR="$kitdir" "$mutant" "$profile" "$outdir" 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ]; then
-      ok "teeth-$tname: mutant completes a render (exit 0) where the real script refuses ($expect) — check is load-bearing"
-    elif grep -qi 'Traceback (most recent call last)' <<<"$out"; then
-      no "teeth-$tname: mutant CRASHED (Python traceback) instead of rendering — not a valid bite (a crash never counts, #943)"
-    else
-      no "teeth-$tname: mutant still refuses (rc=$rc, out=[$out]) — no teeth"
-    fi
+    local tname="$1" mutant="$2" kitdir="$3" profile="$4" expect="$6" into=""   # $5 (outdir suffix) is unused: every run gets a fresh outdir
+    if [ "$#" -ge 7 ]; then into='into-kit'; fi
+    tt "teeth-$tname: mutant completes a render (exit 0) where the real script refuses ($expect) — check is load-bearing" 2 0 "$mutant" \
+      --good-lacks 'Traceback \(most recent call last\)' --bad-lacks 'Traceback \(most recent call last\)' \
+      -- iso_render @SUT@ "$kitdir" "$profile" $into
   }
 
   echo "-- teeth: T-unknown-profile (disable the unknown-profile bash guard; sources carry ZERO markers so the GUARD-MISSING-PROFILE python fallback alone decides) --"
@@ -723,41 +710,30 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   fi
 
   echo "-- teeth: T-subst (positive control: break the substitution itself) --"
-  m="$(mutant_renderer subst -e "s/out.append(body)/out.append('MUTATED-NOT-SUBSTITUTED')/")"
-  if [ -n "$m" ]; then
-    outdir="$TMP/teeth-out-subst"
-    if RSDD_KIT_DIR="$kitF2" "$m" general "$outdir" >/dev/null 2>&1; then
-      rendered="$outdir/skills/research-sdd/SKILL.md"
-      if grep -qF 'MUTATED-NOT-SUBSTITUTED' "$rendered" && ! grep -qF 'read IN FULL every iteration' "$rendered"; then
-        ok "teeth-subst: mutant renders the mutated body, not the real slot body — F2's assertion would catch this"
-      else
-        no "teeth-subst: mutant did not visibly diverge — no teeth"
-      fi
-    else
-      no "teeth-subst: mutant failed to run (expected exit 0 with wrong output, not a refusal) — cannot prove this positive control"
-    fi
+  if m="$(mutant_renderer subst -e "s/out.append(body)/out.append('MUTATED-NOT-SUBSTITUTED')/")"; then
+    # GOOD (rc 1): the real renderer renders the real slot body, so the marker text is absent.
+    # BAD (rc 0): the mutant renders (exit 0) the mutated body — F2's assertion would catch this.
+    tt "teeth-subst: mutant renders the mutated body, not the real slot body — F2's assertion would catch this" 1 0 "$m" \
+      -- bash -c 'rm -rf "$3"; RSDD_KIT_DIR="$1" "$2" general "$3" >/dev/null 2>&1 || exit 9
+           grep -qF MUTATED-NOT-SUBSTITUTED "$3/skills/research-sdd/SKILL.md" \
+           && ! grep -qF "read IN FULL every iteration" "$3/skills/research-sdd/SKILL.md"' \
+         _ "$kitF2" @SUT@ "$TMP/teeth-out-subst"
   else
     no "teeth-subst: mutant_renderer could not construct the mutant (mutation anchor not found) — cannot prove teeth"
   fi
 
   echo "-- teeth: T-claude-byte-corruption (kit issue #993 WU4: mutate install_rel's copy to append one extra byte to the claude render; F1's byte-identical cmp -s must catch it — this claim previously had no dedicated mutation control) --"
-  m="$(mutant_renderer byte-corrupt -e 's/cp "\$src" "\$outdir\/\$rel" ||/cp "\$src" "\$outdir\/\$rel" \&\& printf X >> "\$outdir\/\$rel" ||/')"
-  if [ -n "$m" ]; then
-    kitByte="$TMP/kitByte"; outByte="$TMP/teeth-out-byte"
+  if m="$(mutant_renderer byte-corrupt -e 's/cp "\$src" "\$outdir\/\$rel" ||/cp "\$src" "\$outdir\/\$rel" \&\& printf X >> "\$outdir\/\$rel" ||/')"; then
+    kitByte="$TMP/kitByte"
     make_kit "$kitByte"
-    if RSDD_KIT_DIR="$kitByte" "$m" claude "$outByte" >/dev/null 2>&1; then
-      allDiverged=1
-      for rel in skills/research-sdd/SKILL.md PROMPT-LOOP.md METHODOLOGY.md; do
-        cmp -s "$kitByte/$rel" "$outByte/$rel" && allDiverged=0
-      done
-      if [ "$allDiverged" -eq 1 ]; then
-        ok "teeth-claude-byte-corruption: F1's real cmp -s check catches the one-byte divergence in every claude-rendered file — check is load-bearing"
-      else
-        no "teeth-claude-byte-corruption: at least one claude-rendered file still compared byte-identical after the mutation — no teeth"
-      fi
-    else
-      no "teeth-claude-byte-corruption: mutant failed to run (expected exit 0 with corrupted output) — cannot prove this control"
-    fi
+    # GOOD (rc 1): the real renderer's claude render stays byte-identical in at least one file (here all 3).
+    # BAD (rc 0): the mutant renders (exit 0) and EVERY claude-rendered file diverged — F1's cmp -s catches it.
+    tt "teeth-claude-byte-corruption: F1's real cmp -s check catches the one-byte divergence in every claude-rendered file — check is load-bearing" 1 0 "$m" \
+      -- bash -c 'rm -rf "$3"; RSDD_KIT_DIR="$1" "$2" claude "$3" >/dev/null 2>&1 || exit 9
+           for rel in skills/research-sdd/SKILL.md PROMPT-LOOP.md METHODOLOGY.md; do
+             cmp -s "$1/$rel" "$3/$rel" && exit 1
+           done; exit 0' \
+         _ "$kitByte" @SUT@ "$TMP/teeth-out-byte"
   else
     no "teeth-claude-byte-corruption: mutant_renderer could not construct the mutant (mutation anchor not found) — cannot prove teeth"
   fi
@@ -794,29 +770,21 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   cp "$METHODOLOGY" "$MINI_SYM/mini/METHODOLOGY.md"
   ln -s "$MINI_SYM/mini/toolbelt" "$MINI_SYM/render/profile/general/toolbelt"
 
-  GREEN_SYM_OUT="$(bash "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" general \
-    "$MINI_SYM/render/profile/general" 2>&1)"; GREEN_SYM_RC=$?
-  if [ "$GREEN_SYM_RC" -eq 0 ]; then
-    ok "SYMLINK-TOOLBELT: fixed render-profile.sh, invoked through a symlinked toolbelt/, renders cleanly"
-  else
-    no "SYMLINK-TOOLBELT: fixed render-profile.sh failed through a symlinked toolbelt/ (rc=$GREEN_SYM_RC out=[$GREEN_SYM_OUT])"
-  fi
-
   MUT_SYM_RPS="$TMP/render-profile-mut-sym.sh"
   if MK_SYNTAX=bash mk_sed_from "$RENDERER" "teeth SYMLINK-TOOLBELT pre-check" "$MUT_SYM_RPS" \
       's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
       's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/'; then
     ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted on both hops, each stage applied on its own)"
-  fi
-  chmod +x "$MUT_SYM_RPS"
-  cp "$MUT_SYM_RPS" "$MINI_SYM/mini/toolbelt/render-profile.sh"
-  chmod +x "$MINI_SYM/mini/toolbelt/render-profile.sh"
-  MUT_SYM_OUT="$(bash "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" general \
-    "$MINI_SYM/render/profile/general" 2>&1)"; MUT_SYM_RC=$?
-  if [ "$MUT_SYM_RC" -eq 2 ] && printf '%s' "$MUT_SYM_OUT" | grep -qi 'outdir equals the kit directory'; then
-    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ (outdir-equals-kit refusal, rc=2) → -P fix has teeth"
-  else
-    no "teeth SYMLINK-TOOLBELT: reverted mutant did not re-break — -P fix check is THEATER (rc=$MUT_SYM_RC out=[$MUT_SYM_OUT])"
+    chmod +x "$MUT_SYM_RPS"
+    # The argv installs @SUT@ (the fixed renderer for the good run, the -P-reverted mutant for the bad run)
+    # into the mini kit and invokes it THROUGH the symlinked toolbelt/.
+    # GOOD (rc 0, no refusal): the fixed script renders cleanly into the render dir.
+    # BAD (rc 2): the reverted mutant collapses KIT_DIR onto the render dir and trips the outdir-equals-kit refusal.
+    tt "teeth SYMLINK-TOOLBELT: fixed script renders cleanly through a symlinked toolbelt/; the reverted mutant re-breaks (outdir-equals-kit refusal) → -P fix has teeth" 0 2 "$MUT_SYM_RPS" \
+      --good-lacks 'outdir equals the kit directory' --bad-has 'outdir equals the kit directory' \
+      -- bash -c 'cp "$1" "$2"; chmod +x "$2"; bash "$3" general "$4"' \
+         _ @SUT@ "$MINI_SYM/mini/toolbelt/render-profile.sh" \
+         "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" "$MINI_SYM/render/profile/general"
   fi
 
 fi

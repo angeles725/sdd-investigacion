@@ -487,76 +487,48 @@ echo ""
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo ""
   echo "== --prove-teeth =="
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   MUT="$(mktemp -d)"
   trap 'rm -rf "$ROOT" ${MUT:+"$MUT"}' EXIT
-  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR; each stage must change the
-  # original ON ITS OWN (a chain whose first stage applies would hide a later no-op stage).
-  mk_sed() {
-    local label="$1" out="$2" e rc err; shift 2
-    local -a args=()
-    for e in "$@"; do
-      if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
-        no "$label" "sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
-      fi
-      args+=(-e "$e")
-    done
-    err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label" "mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
-  }
+  # Thin counting wrappers over the shared helpers: they print their own FAIL/PASS lines and never touch
+  # this suite's counters, so the caller counts.
+  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT, one sed stage per EXPR (each must apply on its own).
+  mk_sed() { local label="$1" out="$2"; shift 2; mutant_chain "$label" "$SUT" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
   # mk_verify LABEL OUT  validate a mutant built another way (awk), same refusals as mk_sed.
-  mk_verify() {
-    local label="$1" out="$2" rc err
-    err="$(mutant_verify "$SUT" "$out" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label" "mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
-  }
-  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] [--same RE] -- ARGV...
-  # Runs ARGV against the original ('@SUT@' -> $SUT) and the mutant (stdout+stderr merged). PASS only when the
-  # original returns exactly GOOD_RC (output matches --good-has, not --good-lacks) AND the mutant returns exactly
-  # BAD_RC (output matches --bad-has, not --bad-lacks). --same RE: the lines matching RE must be non-empty and
-  # identical in both outputs (the mutation must not leak into that part of the report).
-  tooth() {
-    local label="$1" grc="$2" brc="$3" mut="$4" gpat="" glack="" bhas="" black="" same="" a gout mout grc_a mrc_a why=""; shift 4
-    while [ "${1:-}" != -- ]; do
-      case "${1:-}" in
-        --good-has) gpat="$2" ;; --good-lacks) glack="$2" ;; --bad-has) bhas="$2" ;; --bad-lacks) black="$2" ;; --same) same="$2" ;;
-        *) no "$label" "tooth() bad option '${1:-}'"; return 1 ;;
-      esac; shift 2
-    done; shift
-    [ -f "$mut" ] || { no "$label" "mutant not built ($mut)"; return 1; }
-    local -a gc=() mc=()
-    for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
-    grc_a=0; mrc_a=0
-    gout="$("${gc[@]}" 2>&1)" || grc_a=$?
-    mout="$("${mc[@]}" 2>&1)" || mrc_a=$?
-    [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
-    if [ -n "$gpat" ] && ! grep -qE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
-    if [ -n "$glack" ] && grep -qE -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
-    [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
-    if [ -n "$bhas" ] && ! grep -qE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
-    if [ -n "$black" ] && grep -qE -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
-    if [ -n "$same" ]; then
-      local gs ms; gs="$(grep -E -- "$same" <<<"$gout")"; ms="$(grep -E -- "$same" <<<"$mout")"
-      if [ -z "$gs" ] || [ "$gs" != "$ms" ]; then why="$why; /$same/ lines empty or differ (orig='$gs' mut='$ms')"; fi
-    fi
-    if [ -z "$why" ]; then ok "$label" "[original rc=$grc → mutant rc=$brc]"
-    else no "$label — THEATER" "$why :: orig=$(head -c 400 <<<"$gout" | tr '\n' '|') mut=$(head -c 400 <<<"$mout" | tr '\n' '|')"; fi
-  }
+  mk_verify() { mutant_built "$1" "$SUT" "$2" || { fail=$((fail+1)); return 1; }; }
+  # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
+  # Shared mutant_tooth ('@SUT@' -> $SUT for the original, the mutant for the bad run; stdout+stderr merged):
+  # exact GOOD_RC + positive output on the original AND exact BAD_RC + positive output on the mutant.
+  tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   # ---- tooth (a): hardcode UNCHARTERED=0, anchored so it cannot also clobber
-  # FAMILIES_UNCHARTERED= (which contains the same substring) — --same families: verifies the anchor itself too.
+  # FAMILIES_UNCHARTERED= (which contains the same substring) — the invariance assertion below verifies the anchor.
   echo "-- teeth-a: hardcode UNCHARTERED=0 (anchored); unchartered count must go red --"
   SA="$ROOT/sa"; CA="$ROOT/ca"
   mk_unit "$SA" "mod_a" "Alpha.java"
   mkdir -p "$CA"
   mk_sed "teeth-a" "$MUT/fpa.MUT-A.sh" 's/^UNCHARTERED=.*/UNCHARTERED=0  # MUTATED-A/' \
     && tooth "teeth-a: original 1 unchartered; mutant 0 — bites, and the anchor does NOT touch families:" 0 0 "$MUT/fpa.MUT-A.sh" \
-         --good-has '0/1 chartered .* 1 unchartered' --bad-has '0/1 chartered .* 0 unchartered' --same 'families:' \
+         --good-has '0/1 chartered .* 1 unchartered' --bad-has '0/1 chartered .* 0 unchartered' \
          -- bash @SUT@ "$CA" --subject "$SA"
+  # The anchor must NOT also clobber FAMILIES_UNCHARTERED= (same substring). This is an INVARIANCE assertion, not a
+  # tooth (there is no mutant verdict to flip), so it is a plain check outside mutant_tooth: run the SUT and the
+  # mutant, and require the same exit code and the same, non-empty `families:` line from their own output.
+  if [ -f "$MUT/fpa.MUT-A.sh" ]; then
+    _fa_g="$(bash "$SUT" "$CA" --subject "$SA" 2>&1)"; _fa_grc=$?
+    _fa_m="$(bash "$MUT/fpa.MUT-A.sh" "$CA" --subject "$SA" 2>&1)"; _fa_mrc=$?
+    _fa_gl="$(grep -E '^families:' <<<"$_fa_g")"; _fa_ml="$(grep -E '^families:' <<<"$_fa_m")"
+    if [ "$_fa_grc" = "$_fa_mrc" ] && [ -n "$_fa_gl" ] && [ "$_fa_gl" = "$_fa_ml" ]; then
+      ok "teeth-a: families line unchanged by the anchored mutant (FAMILIES_UNCHARTERED untouched)" "[rc=$_fa_grc, $_fa_gl]"
+    else
+      no "teeth-a: families line unchanged by the anchored mutant — INVARIANCE BROKEN" "orig rc=$_fa_grc [$_fa_gl] mutant rc=$_fa_mrc [$_fa_ml]"
+    fi
+  else
+    no "teeth-a: families invariance — mutant not built ($MUT/fpa.MUT-A.sh)"
+  fi
 
   # ---- tooth (b): drop backtick-only restriction — scan raw cell prose for bare unit mentions
   echo "-- teeth-b: bare-prose mutant; bare mention must not charter (real fix does) --"

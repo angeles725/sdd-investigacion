@@ -105,8 +105,8 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 source "$LIB"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built ($HERE/lib/mutant.sh)" >&2; exit 2; }
 export MUTANT_SYNTAX=none
 
 pass=0; fail=0
@@ -569,24 +569,20 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
 
   # --- mutation-control helpers (kit issues #943, #1299) ----------------------------------------
   # Every mutant is built FROM the real source file INTO a copied kit under $TMP (a temp dir outside
-  # the live tree) by lib/mutant.sh, which REFUSES an empty, byte-identical or live-tree mutant
-  # (MUTANT_SYNTAX=none: the targets are markdown, not bash). A sed stage that matches nothing is
-  # recorded as a FAIL instead of a silently unmutated kit.
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
-  # mk_sed_from ORIG LABEL OUT EXPR  build OUT from ORIG with one sed EXPR; false (and a FAIL) when refused.
+  # the live tree) by the shared lib/mutant.sh, which REFUSES an empty, byte-identical or live-tree mutant
+  # (MUTANT_SYNTAX=none: the targets are markdown, not bash). The two wrappers below only COUNT: the helper
+  # prints its own FAIL line (a sed stage that matches nothing is a FAIL, never a silently unmutated kit).
+  # mk_sed_from ORIG LABEL OUT EXPR  build OUT from ORIG with one sed EXPR (mutant_chain); false (and a FAIL) when refused.
   mk_sed_from() {
-    local orig="$1" label="$2" out="$3" e="$4" rc err
-    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
-      no "$label: sed stage matches nothing in the original (silent no-op) :: [${e:0:80}]"; return 1
-    fi
-    err="$(mutant_sed "$orig" "$out" -e "$e" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+    local orig="$1" label="$2" out="$3" e="$4"
+    mutant_chain "$label" "$orig" "$out" "$e" && return 0
+    fail=$((fail+1)); return 1
   }
   # mk_verify_from ORIG LABEL OUT  validate a mutant built another way (python3, append) with the same refusals.
   mk_verify_from() {
-    local orig="$1" label="$2" out="$3" rc err
-    err="$(mutant_verify "$orig" "$out" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+    local orig="$1" label="$2" out="$3"
+    mutant_built "$label" "$orig" "$out" && return 0
+    fail=$((fail+1)); return 1
   }
 
   # GOOD verdicts: the exact assertion each tooth below flips, run on the UNMUTATED renders. A tooth only
