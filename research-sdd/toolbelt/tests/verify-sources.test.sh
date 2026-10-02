@@ -899,88 +899,76 @@ fi
 # crash or a sed that never applied can never read as teeth. kit issue #1299.
 if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/mutants"
-  # Verdict functions: <script> <fixture-dir> → one token line; compared EXACTLY, never "!= N".
-  v_rc() { bash "$1" "$2" >/dev/null 2>&1; echo "rc=$?"; }
-  v_has() {   # v_has <regex> <script> <dir> → rc + whether the regex appears in the output
-    local out rc; out="$(bash "$2" "$3" 2>&1)"; rc=$?
-    echo "rc=$rc match=$(grep -qE "$1" <<<"$out" && echo yes || echo no)"
-  }
-  v_l4warn() { v_has 'WARN.*LEVEL-4.*UNCHECKED' "$1" "$2"; }
-  v_hashwarn() { v_has 'unverifiable-hash' "$1" "$2"; }
-  v_schemawarn() { v_has 'WARN.*(malformed|schema)' "$1" "$2"; }
-  v_certdoc() {
-    local out rc; out="$(bash "$1" "$2" 2>&1)"; rc=$?
-    echo "rc=$rc certdoc=$(grep -oE '\[CERT-doc\] [0-9]+' <<<"$out" | grep -oE '[0-9]+' | head -1)"
-  }
-  v_vs49() {   # row-scan grep stub (exit 2) active
-    local out rc; out="$(PATH="$_stub_vs49:$PATH" bash "$1" "$2" 2>&1)"; rc=$?
-    echo "rc=$rc match=$(grep -qiE 'row scan FAILED|row count unavailable' <<<"$out" && echo yes || echo no)"
-  }
-  # Local tooth() (verdict-function form). TODO(#1299): move into a shared lib/mutant.sh helper.
-  # tooth <id> <label> <fixture> <verdict-fn> <good-verdict> <mutant-verdict> <sed-args...>
-  tooth() {
-    local id="$1" label="$2" fx="$3" vfn="$4" want_good="$5" want_bad="$6" mut mrc=0 good bad
-    shift 6
-    mut="$TMP/mutants/verify-sources.$id.sh"
-    echo "-- teeth $id: $label --"
-    good="$($vfn "$SUT" "$fx")"
-    if [ "$good" != "$want_good" ]; then
-      printf '  FAIL  %-42s real SUT verdict [%s], expected [%s]\n' "teeth $id: good verdict" "$good" "$want_good"; fail=$((fail+1)); return
-    fi
-    mutant_sed "$SUT" "$mut" "$@" 2>"$TMP/mutants/$id.err" || mrc=$?
-    if [ "$mrc" -ne 0 ]; then
-      printf '  FAIL  %-42s mutant_sed refused (rc %s): %s\n' "teeth $id: build mutant" "$mrc" "$(head -1 "$TMP/mutants/$id.err")"; fail=$((fail+1)); return
-    fi
-    bad="$($vfn "$mut" "$fx")"
-    if [ "$bad" = "$want_bad" ]; then
-      printf '  PASS  %-42s (good [%s] → mutant [%s])\n' "teeth $id: $label" "$good" "$bad"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant verdict [%s], expected [%s] — THEATER\n' "teeth $id: $label" "$bad" "$want_bad"; fail=$((fail+1))
-    fi
-  }
-  # Multi-line / quote-bearing replacements live in sed script files (-f), not shell-quoted one-liners.
-  cat > "$TMP/mutants/appended.sed" <<'SED'
+  # Shared helpers (lib/mutant.sh, #1299) print their own FAIL/PASS line and return non-zero on
+  # failure; these adapters only COUNT. Each tooth asserts the EXACT rc (and output patterns) of the
+  # real SUT and of the mutant on the same fixture.
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+  tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # Multi-line / quote-bearing replacements are sed scripts held in variables (one -e stage each).
+  APPENDED_SED="$(cat <<'SED'
 /L6-SCOPE/c\
   done < <(awk '/^\\|/&&/ sha256 /{r=1} r&&/^\\|/{print} r&&!/^\\|/{r=0}' "$sources_md" 2>/dev/null)
 SED
-  cat > "$TMP/mutants/sigpipe.sed" <<'SED'
+)"
+  SIGPIPE_SED="$(cat <<'SED'
 /&& n=\$((n + 1)) *# SIGPIPE-SAFE/c\
     printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))
 SED
-
-  tooth RESOLUTION "corpus-root resolution reverted to \$target" "$TMP/flagship-subdir" v_rc rc=1 rc=0 \
-    's|corpus="$(dirname "$anchor")"|corpus="$target"|'
-  tooth L5-SUBSTRING "exact registration match reverted to basename substring" "$TMP/bad-substring-collision" v_rc rc=1 rc=0 \
-    '/grep -qxF "$rel" <<< "$registered"/c\  if ! grep -qF "$(basename "$rel")" <<< "$registered"; then'
-  tooth FIXA-TAB "tab-trim normalization dropped" "$TMP/good-tab-padded-registration" v_rc rc=0 rc=1 \
-    's|gsub(/\[`\[:blank:\]\]/|gsub(/[` ]/|'
-  tooth L6-COMPARE "hash compare neutralized" "$TMP/bad-hash-mismatch" v_rc rc=1 rc=0 \
-    '/HASH-INTEGRITY compare/c\      if false; then'
-  tooth L1-LEGEND "legend strip reverted (whole file counted)" "$TMP/legend-only-no-registry" v_rc rc=0 rc=1 \
-    '/LEGEND-STRIP: count markers/c\      body="$(cat "$f")"'
-  tooth B4-CITED "citation check disabled (_cited_ok preset)" "$TMP/b4-multi-focus-bad" v_rc rc=1 rc=0 \
-    's/_cited_ok=0$/_cited_ok=1/'
-  tooth PFX "prefix comparison neutralized" "$TMP/bad-prefix-mismatch" v_rc rc=1 rc=0 \
-    '/PREFIX-COMPARISON compare/c\            disk_pfx="$pfx_lower"'
+)"
+  # Shape: mk_sed ID MUTANT EXPR... && tooth "teeth ID: label" GOOD_RC BAD_RC MUTANT [patterns] -- bash @SUT@ FIXTURE
+  m="$TMP/mutants/RESOLUTION.sh"
+  mk_sed RESOLUTION "$m" 's|corpus="$(dirname "$anchor")"|corpus="$target"|' \
+    && tooth "teeth RESOLUTION: corpus-root resolution reverted to \$target" 1 0 "$m" -- bash @SUT@ "$TMP/flagship-subdir"
+  m="$TMP/mutants/L5-SUBSTRING.sh"
+  mk_sed L5-SUBSTRING "$m" '/grep -qxF "$rel" <<< "$registered"/c\  if ! grep -qF "$(basename "$rel")" <<< "$registered"; then' \
+    && tooth "teeth L5-SUBSTRING: exact registration match reverted to basename substring" 1 0 "$m" -- bash @SUT@ "$TMP/bad-substring-collision"
+  m="$TMP/mutants/FIXA-TAB.sh"
+  mk_sed FIXA-TAB "$m" 's|gsub(/\[`\[:blank:\]\]/|gsub(/[` ]/|' \
+    && tooth "teeth FIXA-TAB: tab-trim normalization dropped" 0 1 "$m" -- bash @SUT@ "$TMP/good-tab-padded-registration"
+  m="$TMP/mutants/L6-COMPARE.sh"
+  mk_sed L6-COMPARE "$m" '/HASH-INTEGRITY compare/c\      if false; then' \
+    && tooth "teeth L6-COMPARE: hash compare neutralized" 1 0 "$m" -- bash @SUT@ "$TMP/bad-hash-mismatch"
+  m="$TMP/mutants/L1-LEGEND.sh"
+  mk_sed L1-LEGEND "$m" '/LEGEND-STRIP: count markers/c\      body="$(cat "$f")"' \
+    && tooth "teeth L1-LEGEND: legend strip reverted (whole file counted)" 0 1 "$m" -- bash @SUT@ "$TMP/legend-only-no-registry"
+  m="$TMP/mutants/B4-CITED.sh"
+  mk_sed B4-CITED "$m" 's/_cited_ok=0$/_cited_ok=1/' \
+    && tooth "teeth B4-CITED: citation check disabled (_cited_ok preset)" 1 0 "$m" -- bash @SUT@ "$TMP/b4-multi-focus-bad"
+  m="$TMP/mutants/PFX.sh"
+  mk_sed PFX "$m" '/PREFIX-COMPARISON compare/c\            disk_pfx="$pfx_lower"' \
+    && tooth "teeth PFX: prefix comparison neutralized" 1 0 "$m" -- bash @SUT@ "$TMP/bad-prefix-mismatch"
   # D1: anchor on the CODE line only. The old awk matched /L6-FIELD-GUARD/ anywhere and so ALSO
   # overwrote the explanatory comment at verify-sources.sh:303 with executable code (defect).
-  tooth D1-GUARD "L6 field guard disabled" "$TMP/d1-skip-l6" v_hashwarn "rc=0 match=no" "rc=0 match=yes" \
-    '/pipes=.*# L6-FIELD-GUARD$/c\  pipes="${_raw//[^|]/}"; [ 1 -ne 1 ] && continue'
-  tooth D1B-BLOCKEXIT "registry block-exit disabled" "$TMP/d1-second-table" v_schemawarn "rc=0 match=no" "rc=0 match=yes" \
-    's/{ in_blk=0 }   # BLOCK-EXIT/{ }/'
-  tooth APPENDED "L6 reverted to registry-block scope" "$TMP/appended-rows-fail" v_rc rc=1 rc=0 -f "$TMP/mutants/appended.sed"
-  tooth SIGPIPE "count_marker reverted to printf|grep pipeline" "$TMP/sigpipe-det" v_certdoc "rc=0 certdoc=1" "rc=0 certdoc=0" \
-    -f "$TMP/mutants/sigpipe.sed"
-  tooth L4SZ "L4 silent-zero guard neutralized" "$TMP/l4-unpopulated-bcell" v_l4warn "rc=0 match=yes" "rc=0 match=no" \
-    '/L4-SILENT-ZERO-GUARD/c\  if false; then'
-  tooth L4PROBE "L4 probe neutralized" "$TMP/l4-nonwhitelist-ext" v_l4warn "rc=0 match=yes" "rc=0 match=no" \
-    '/L4-PROBE-MATCH/c\        if false; then'
-  tooth L6ASYM "L6 guard -lt 7 changed to -ne 7" "$TMP/l6-asym-extra-pipe" v_rc rc=1 rc=0 \
-    '/pipes=.*# L6-FIELD-GUARD$/s/-lt 7/-ne 7/'
-  tooth VS1-REGEX "LEVEL 3 regex drops jsonl|ndjson|gz" "$d_vs1_ndjson" v_rc rc=1 rc=0 \
-    's/(jsonl|ndjson|gz|/(/'
-  tooth VS49-RC "row-scan rc zeroed" "$d_vs49" v_vs49 "rc=0 match=yes" "rc=0 match=no" \
-    's/_vsrc_rows_rc=$?/_vsrc_rows_rc=0/'
+  m="$TMP/mutants/D1-GUARD.sh"
+  mk_sed D1-GUARD "$m" '/pipes=.*# L6-FIELD-GUARD$/c\  pipes="${_raw//[^|]/}"; [ 1 -ne 1 ] && continue' \
+    && tooth "teeth D1-GUARD: L6 field guard disabled" 0 0 "$m" --good-lacks 'unverifiable-hash' --bad-has 'unverifiable-hash' -- bash @SUT@ "$TMP/d1-skip-l6"
+  m="$TMP/mutants/D1B-BLOCKEXIT.sh"
+  mk_sed D1B-BLOCKEXIT "$m" 's/{ in_blk=0 }   # BLOCK-EXIT/{ }/' \
+    && tooth "teeth D1B-BLOCKEXIT: registry block-exit disabled" 0 0 "$m" --good-lacks 'WARN.*(malformed|schema)' --bad-has 'WARN.*(malformed|schema)' -- bash @SUT@ "$TMP/d1-second-table"
+  m="$TMP/mutants/APPENDED.sh"
+  mk_sed APPENDED "$m" "$APPENDED_SED" \
+    && tooth "teeth APPENDED: L6 reverted to registry-block scope" 1 0 "$m" -- bash @SUT@ "$TMP/appended-rows-fail"
+  m="$TMP/mutants/SIGPIPE.sh"
+  mk_sed SIGPIPE "$m" "$SIGPIPE_SED" \
+    && tooth "teeth SIGPIPE: count_marker reverted to printf|grep pipeline" 0 0 "$m" \
+         --good-has '\[CERT-doc\] 1([^0-9]|$)' --bad-has '\[CERT-doc\] 0([^0-9]|$)' --bad-lacks '\[CERT-doc\] [1-9]' -- bash @SUT@ "$TMP/sigpipe-det"
+  m="$TMP/mutants/L4SZ.sh"
+  mk_sed L4SZ "$m" '/L4-SILENT-ZERO-GUARD/c\  if false; then' \
+    && tooth "teeth L4SZ: L4 silent-zero guard neutralized" 0 0 "$m" --good-has 'WARN.*LEVEL-4.*UNCHECKED' --bad-lacks 'WARN.*LEVEL-4.*UNCHECKED' -- bash @SUT@ "$TMP/l4-unpopulated-bcell"
+  m="$TMP/mutants/L4PROBE.sh"
+  mk_sed L4PROBE "$m" '/L4-PROBE-MATCH/c\        if false; then' \
+    && tooth "teeth L4PROBE: L4 probe neutralized" 0 0 "$m" --good-has 'WARN.*LEVEL-4.*UNCHECKED' --bad-lacks 'WARN.*LEVEL-4.*UNCHECKED' -- bash @SUT@ "$TMP/l4-nonwhitelist-ext"
+  m="$TMP/mutants/L6ASYM.sh"
+  mk_sed L6ASYM "$m" '/pipes=.*# L6-FIELD-GUARD$/s/-lt 7/-ne 7/' \
+    && tooth "teeth L6ASYM: L6 guard -lt 7 changed to -ne 7" 1 0 "$m" -- bash @SUT@ "$TMP/l6-asym-extra-pipe"
+  m="$TMP/mutants/VS1-REGEX.sh"
+  mk_sed VS1-REGEX "$m" 's/(jsonl|ndjson|gz|/(/' \
+    && tooth "teeth VS1-REGEX: LEVEL 3 regex drops jsonl|ndjson|gz" 1 0 "$m" -- bash @SUT@ "$d_vs1_ndjson"
+  m="$TMP/mutants/VS49-RC.sh"
+  mk_sed VS49-RC "$m" 's/_vsrc_rows_rc=$?/_vsrc_rows_rc=0/' \
+    && MUTANT_TOOTH_ICASE=1 tooth "teeth VS49-RC: row-scan rc zeroed" 0 0 "$m" \
+         --good-has 'row scan FAILED|row count unavailable' --bad-lacks 'row scan FAILED|row count unavailable' \
+         -- env PATH="$_stub_vs49:$PATH" bash @SUT@ "$d_vs49"
 fi
 
 echo "== $pass passed · $fail failed =="
