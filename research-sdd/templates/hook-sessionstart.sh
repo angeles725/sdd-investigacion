@@ -48,12 +48,12 @@ if [ -n "$_session_id" ]; then
   # OWN rotation pass. A CONCURRENT session's rotation pass does not know this session's id and
   # can still delete this session's files once they age past the 7-day window.
   # $_session_id is embedded unescaped in the `find -name` exclusion patterns below — VALIDATE
-  # it carries no glob metacharacter (`*`, `?`, `[`) first, rather than merely assuming it is a
+  # it carries no glob metacharacter (`*`, `?`, `[`) or backslash (a `find -name` escape) first, rather than merely assuming it is a
   # UUID: an id shaped like that would widen or narrow the exclusion match, turning this into a
   # mis-scoped delete. Skip rotation loudly (never silently) when the id fails that check.
   case "$_session_id" in
-    *[\*\?\[]*)
-      printf 'hook-sessionstart: WARN: session_id contains a glob metacharacter — skipping rotation to avoid a mis-scoped delete: %s\n' "$_session_id" >&2
+    *[\*\?\[\\]*)
+      printf 'hook-sessionstart: WARN: session_id contains a glob metacharacter or backslash — skipping rotation to avoid a mis-scoped delete: %s\n' "$_session_id" >&2
       ;;
     *)
       find "$_hook_target/.claude" -maxdepth 1 \

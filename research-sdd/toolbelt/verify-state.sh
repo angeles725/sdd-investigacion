@@ -47,7 +47,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 if [ -n "$focus_slug" ]; then  # FOCUS-FILTER
-  _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" \
+  _focused="$(find -H "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" \
     -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
   if [ ! -f "$_focused" ]; then
     echo "verify-state: no RESEARCH-STATE-${focus_slug}.md found under $target" >&2; exit 2
@@ -56,7 +56,7 @@ if [ -n "$focus_slug" ]; then  # FOCUS-FILTER
 else
   # Lint EVERY RESEARCH-STATE*.md under the target (a reopened / multi-focus corpus keeps one per
   # focus). Exit 2 only when NONE exists; otherwise aggregate: rc=1 if ANY state file fails CHECK 1.
-  mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null)
+  mapfile -t states < <(find -H "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null)
   [ "${#states[@]}" -gt 0 ] || { echo "verify-state: no RESEARCH-STATE*.md under $target" >&2; exit 2; }
 fi
 
@@ -538,7 +538,7 @@ fi
 # still fail for other environmental reasons (removed between the top-of-script check and here, a
 # permission change, etc.) — verified below, never assumed.
 # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
-_p8_canon="$(CDPATH= cd -- "$_p8_hroot" 2>/dev/null && pwd -P)"
+_p8_canon="$(CDPATH= cd -P -- "$_p8_hroot" 2>/dev/null && pwd -P)"
 _p8_root_ok=1
 case "$_p8_canon" in
   ''|*$'\n'*) _p8_root_ok=0 ;;

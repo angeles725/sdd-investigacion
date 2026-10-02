@@ -4881,7 +4881,10 @@ mk_state_p8 "$d_cdp_base/real/mytarget"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_cdp_base/real/mytarget/.claude/hooks/x.sh"
 printf '#!/bin/bash\necho decoy\n' > "$d_cdp_base/decoy/mytarget/.claude/hooks/y.sh"
 _p8cdp="$(cd "$d_cdp_base/real" && CDPATH="$d_cdp_base/decoy" bash "$SUT" mytarget 2>/dev/null)"
-if grep -qiF "root: $d_cdp_base/real/mytarget)" <<<"$_p8cdp"; then
+# kit issue #1034: the SUT prints the PHYSICAL root (pwd -P). Compare against the canonicalized
+# expectation — a TMPDIR under a symlinked ancestor (macOS /var -> /private/var) must not break it.
+_p8cdp_root="$(cd -P "$d_cdp_base/real/mytarget" && pwd -P)"
+if grep -qiF "root: $_p8cdp_root)" <<<"$_p8cdp"; then
   ok "P8S-CDPATH: an exported CDPATH with a same-named decoy does not divert the canonicalized root"
 else
   no "P8S-CDPATH: expected the real root in the summary line; got: $(echo "$_p8cdp" | grep -i 'hook-set:' | head -3)"
@@ -4904,7 +4907,7 @@ fi
 d_cfail="$TMP/p8s-canonfail"; mk_state_p8 "$d_cfail"; mkdir -p "$d_cfail/.claude/hooks"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_cfail/.claude/hooks/x.sh"
 cd() {
-  if [ "$1" = "--" ] && [ "$2" = "$P8_CANONFAIL_TARGET" ]; then return 1; fi
+  if [ "$1" = "-P" ] && [ "$2" = "--" ] && [ "$3" = "$P8_CANONFAIL_TARGET" ]; then return 1; fi
   # shellcheck disable=SC2164  # this wrapper's own exit code IS the propagated cd result; no
   # separate "|| exit" is needed since nothing here runs after it.
   command cd "$@"
@@ -4914,7 +4917,9 @@ export P8_CANONFAIL_TARGET="$d_cfail"
 _p8cfail="$(bash "$SUT" "$d_cfail" 2>/dev/null)"
 unset -f cd
 unset P8_CANONFAIL_TARGET
-if grep -qiE 'degraded.*hook-set.*cannot canonicalize target root|hook-set.*cannot canonicalize target root' <<<"$_p8cfail"; then
+# kit issue #1034: the 'degraded' label is part of the typed state — NOT optional (the old
+# alternation accepted the message without it).
+if grep -qE '^ *degraded +hook-set: cannot canonicalize target root' <<<"$_p8cfail"; then
   ok "P8S-CANON-FAIL: a forced canonicalization failure is reported as a typed degraded state"
 else
   no "P8S-CANON-FAIL: expected a typed 'cannot canonicalize target root' report; got: $(echo "$_p8cfail" | grep -i 'hook-set' | head -3)"
@@ -4928,6 +4933,59 @@ if grep -qiE 'hook-set:.*refused.*could not be canonicalized' <<<"$_p8cfail"; th
   ok "P8S-CANON-FAIL: the refused candidate is reported by name, not silently dropped"
 else
   no "P8S-CANON-FAIL: expected a per-candidate refusal report; got: $(echo "$_p8cfail" | grep -i hook | head -3)"
+fi
+
+# P8S-CANON-FAIL-SETTINGS (kit issue #1034): the SAME forced canonicalization failure, but the hook
+# is declared through settings.json (the settings-derived branch, not the .claude/hooks/ listing).
+# It must be refused by name and never read — a direct assertion for that branch.
+d_cfs="$TMP/p8s-canonfail-settings"; mk_state_p8 "$d_cfs"; mkdir -p "$d_cfs/tools/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\n' > "$d_cfs/tools/hooks/protocol.sh"
+mk_settings_cmds "$d_cfs" "$d_cfs/tools/hooks/protocol.sh"
+cd() {
+  if [ "$1" = "-P" ] && [ "$2" = "--" ] && [ "$3" = "$P8_CANONFAIL_TARGET" ]; then return 1; fi
+  # shellcheck disable=SC2164  # this wrapper's own exit code IS the propagated cd result.
+  command cd "$@"
+}
+export -f cd
+export P8_CANONFAIL_TARGET="$d_cfs"
+_p8cfs="$(bash "$SUT" "$d_cfs" 2>/dev/null)"
+unset -f cd
+unset P8_CANONFAIL_TARGET
+if grep -qE 'WARN +hook-set: settings\.json hook command refused — target root could not be canonicalized' <<<"$_p8cfs"; then
+  ok "P8S-CANON-FAIL-SETTINGS: a settings-derived hook is refused and reported when the root cannot be canonicalized"
+else
+  no "P8S-CANON-FAIL-SETTINGS: expected the settings-derived refusal; got: $(echo "$_p8cfs" | grep -i 'hook' | head -4)"
+fi
+if grep -qiE 'WARN.*hook-placeholder.*protocol\.sh|hook-placeholder.*protocol\.sh.*WARN' <<<"$_p8cfs"; then
+  no "P8S-CANON-FAIL-SETTINGS: protocol.sh was READ despite the canonicalization failure — fails OPEN"
+else
+  ok "P8S-CANON-FAIL-SETTINGS: protocol.sh was never read — the failure fails CLOSED"
+fi
+
+# P8S-ROOT-DOTDOT-SYMLINK (kit issue #1034): the root is canonicalized PHYSICALLY (cd -P), matching the
+# comment and the candidate-directory canonicalization. A target spelled <symlink>/.. is the physical
+# parent of the link's real directory (that is also what the kernel resolves for the `-d` probes), NOT
+# the logical parent of the link's own path.
+d_dd="$TMP/p8s-dotdot"; mkdir -p "$d_dd/real/sub" "$d_dd/logical"
+mk_state_p8 "$d_dd/real"; mkdir -p "$d_dd/real/.claude/hooks"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_dd/real/.claude/hooks/x.sh"
+ln -s "$d_dd/real/sub" "$d_dd/logical/link"
+_p8dd="$(bash "$SUT" "$d_dd/logical/link/.." 2>/dev/null)"
+if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8dd"; then
+  ok "P8S-ROOT-DOTDOT-SYMLINK: <symlink>/.. canonicalizes physically (cd -P) and finds the real root's hook"
+else
+  no "P8S-ROOT-DOTDOT-SYMLINK: expected x.sh to WARN via the physical root; got: $(echo "$_p8dd" | grep -i 'hook' | head -3)"
+fi
+
+# P8S-SYMLINK-TARGET (kit issue #1034): the target passed as a SYMLINK without a trailing slash is
+# found like the same path with one (find does not descend into a symlinked start path without -H).
+d_stl="$TMP/p8s-symtarget-real"; mk_state_p8 "$d_stl"
+ln -s "$d_stl" "$TMP/p8s-symtarget-link"
+bash "$SUT" "$TMP/p8s-symtarget-link" >/dev/null 2>&1; _p8stl_rc=$?
+if [ "$_p8stl_rc" != 2 ]; then
+  ok "P8S-SYMLINK-TARGET: a symlinked target without a trailing slash is searched (exit $_p8stl_rc, not 'no RESEARCH-STATE' 2)"
+else
+  no "P8S-SYMLINK-TARGET: symlinked target without trailing slash exits 2 (no RESEARCH-STATE found)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -5389,6 +5447,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     ok "teeth-VS-FINDINGS: mutant counts the Severity rows (exit non-zero on the ok fixture) → VS-FINDINGS RED"
   fi
+fi
+
+# teeth for kit #1034 (built with the shared mutant helper, kit issue #943).
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
+  # _k34_canonfail <script> <target> — run <script> against <target> with the test-only `cd -P` seam
+  # forcing the root canonicalization to fail.
+  _k34_canonfail() {
+    cd() {
+      if [ "$1" = "-P" ] && [ "$2" = "--" ] && [ "$3" = "$P8_CANONFAIL_TARGET" ]; then return 1; fi
+      # shellcheck disable=SC2164  # the wrapper's own exit code IS the propagated cd result.
+      command cd "$@"
+    }
+    export -f cd; export P8_CANONFAIL_TARGET="$2"
+    bash "$1" "$2" 2>/dev/null
+    unset -f cd; unset P8_CANONFAIL_TARGET
+  }
+  echo "-- teeth-1034-LABEL: drop the 'degraded' label from the canon-fail report → P8S-CANON-FAIL label assertion flips --"
+  _k34m="$TMP/verify-state.K34LABEL.MUTANT.sh"
+  if mutant_sed "$SUT" "$_k34m" -e 's|echo "   degraded   hook-set: cannot canonicalize|echo "   info       hook-set: cannot canonicalize|'; then
+    _k34o="$(_k34_canonfail "$_k34m" "$d_cfail")"
+    if ! grep -qE '^ *degraded +hook-set: cannot canonicalize target root' <<<"$_k34o"; then
+      ok "teeth-1034-LABEL: mutant loses the 'degraded' label → the tightened assertion has teeth"
+    else no "teeth-1034-LABEL: mutant still carries the label — assertion is THEATER"; fi
+  else no "teeth-1034-LABEL: could not build mutant"; fi
+
+  echo "-- teeth-1034-SETTINGS: settings-derived branch ignores a failed root → CANON-FAIL-SETTINGS flips --"
+  _k34m="$TMP/verify-state.K34SET.MUTANT.sh"
+  if mutant_sed "$SUT" "$_k34m" -e 's|^    if \[ "\$_p8_root_ok" -eq 0 \]; then$|    if false; then|'; then
+    _k34o="$(_k34_canonfail "$_k34m" "$d_cfs")"
+    if ! grep -qE 'WARN +hook-set: settings\.json hook command refused — target root could not be canonicalized' <<<"$_k34o"; then
+      ok "teeth-1034-SETTINGS: mutant never refuses the settings-derived hook → the direct assertion has teeth"
+    else no "teeth-1034-SETTINGS: mutant still refuses — assertion is THEATER"; fi
+  else no "teeth-1034-SETTINGS: could not build mutant"; fi
+
+  echo "-- teeth-1034-P: root canonicalization back to a logical cd → ROOT-DOTDOT-SYMLINK flips --"
+  _k34m="$TMP/verify-state.K34P.MUTANT.sh"
+  if mutant_sed "$SUT" "$_k34m" -e 's|^_p8_canon="\$(CDPATH= cd -P -- |_p8_canon="$(CDPATH= cd -- |'; then
+    _k34o="$(bash "$_k34m" "$d_dd/logical/link/.." 2>/dev/null)"
+    if ! grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_k34o"; then
+      ok "teeth-1034-P: logical cd resolves <symlink>/.. to the wrong root → the physical-root assertion has teeth"
+    else no "teeth-1034-P: mutant still finds the physical root's hook — assertion is THEATER"; fi
+  else no "teeth-1034-P: could not build mutant"; fi
+
+  echo "-- teeth-1034-H: drop find -H → SYMLINK-TARGET flips --"
+  _k34m="$TMP/verify-state.K34H.MUTANT.sh"
+  if mutant_sed "$SUT" "$_k34m" -e 's|find -H "\$target"|find "$target"|g'; then
+    bash "$_k34m" "$TMP/p8s-symtarget-link" >/dev/null 2>&1; _k34rc=$?
+    if [ "$_k34rc" = 2 ]; then
+      ok "teeth-1034-H: without find -H a symlinked target exits 2 → the symlink-target assertion has teeth"
+    else no "teeth-1034-H: mutant exit $_k34rc (want 2) — assertion is THEATER"; fi
+  else no "teeth-1034-H: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
