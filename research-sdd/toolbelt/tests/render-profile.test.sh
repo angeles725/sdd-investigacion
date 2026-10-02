@@ -105,6 +105,14 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# --- mutation helpers (kit issues #943, #1299) -------------------------------------------------------
+# lib/mutant.sh builds every mutant as a COPY under $TMP (a temp dir outside the live tree) and REFUSES
+# an empty, byte-identical, syntax-broken or live-tree one. Markdown fixtures set MUTANT_SYNTAX=none
+# (MK_SYNTAX default); SUT mutants of render-profile.sh keep the bash syntax check (MK_SYNTAX=bash).
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
 
 PROVE_TEETH=0
 [ "${1:-}" = "--prove-teeth" ] && PROVE_TEETH=1
@@ -129,6 +137,29 @@ make_kit() {
   cp "$PROMPTLOOP" "$dir/PROMPT-LOOP.md"
   cp "$METHODOLOGY" "$dir/METHODOLOGY.md"
   cp "$GENERAL_PROFILE" "$dir/profiles/general.slots.md"
+}
+
+# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+# mk_sed_stages ORIG OUT EXPR...  build OUT from ORIG with one sed stage per EXPR. Each stage must change
+# the original ON ITS OWN (a chain whose first stage applies would hide a later no-op stage). Reports the
+# reason on stderr and returns 1 — safe inside $(...), where a no() would be lost with the subshell.
+mk_sed_stages() {
+  local orig="$1" out="$2" e rc err; shift 2
+  local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
+      printf 'sed stage matches nothing in the original (silent no-op) :: [%s]\n' "${e:0:80}" >&2; return 1
+    fi
+    args+=(-e "$e")
+  done
+  err="$(MUTANT_SYNTAX="${MK_SYNTAX:-none}" mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { printf 'mutant refused by lib/mutant.sh (rc=%s) :: %s\n' "$rc" "$err" >&2; return 1; }
+}
+# mk_sed_from ORIG LABEL OUT EXPR...  parent-shell wrapper: a refusal is a recorded FAIL.
+mk_sed_from() {
+  local orig="$1" label="$2" out="$3" err; shift 3
+  err="$(mk_sed_stages "$orig" "$out" "$@" 2>&1)" && return 0
+  no "$label: $err"; return 1
 }
 
 run_renderer() {
@@ -225,7 +256,7 @@ fi
 # =============================================================================
 kitF4="$TMP/kitF4"; outF4="$TMP/outF4"
 make_kit "$kitF4"
-sed -i 's/§17 resume\./§17 resume. <!-- slot:no-such-id-in-profile -->stray<!-- \/slot -->/' "$kitF4/skills/research-sdd/SKILL.md"
+mk_sed_from "$SKILL" "F4" "$kitF4/skills/research-sdd/SKILL.md" 's/§17 resume\./§17 resume. <!-- slot:no-such-id-in-profile -->stray<!-- \/slot -->/'
 out="$(run_renderer "$kitF4" general "$outF4" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -qi 'missing' <<<"$out"; then
   ok "F4: missing profile slot section rejected (exit 2, 'missing' in message)"
@@ -239,7 +270,7 @@ fi
 # =============================================================================
 kitF5="$TMP/kitF5"; outF5="$TMP/outF5"
 make_kit "$kitF5"
-sed -i 's/<!-- slot:hotcore-cadence -->read once per context/<!-- slot:hotcore-cadence --><!-- slot:hotcore-cadence -->read once per context/' "$kitF5/skills/research-sdd/SKILL.md"
+mk_sed_from "$SKILL" "F5" "$kitF5/skills/research-sdd/SKILL.md" 's/<!-- slot:hotcore-cadence -->read once per context/<!-- slot:hotcore-cadence --><!-- slot:hotcore-cadence -->read once per context/'
 out="$(run_renderer "$kitF5" general "$outF5" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -qi 'nested' <<<"$out"; then
   ok "F5: nested slot marker rejected (exit 2, 'nested' in message)"
@@ -257,7 +288,7 @@ fi
 # =============================================================================
 kitF6="$TMP/kitF6"; outF6="$TMP/outF6"
 make_kit "$kitF6"
-sed -i 's/is a contract violation\.<!-- \/slot -->/is a contract violation./' "$kitF6/skills/research-sdd/SKILL.md"
+mk_sed_from "$SKILL" "F6" "$kitF6/skills/research-sdd/SKILL.md" 's/is a contract violation\.<!-- \/slot -->/is a contract violation./'
 out="$(run_renderer "$kitF6" general "$outF6" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -Eqi 'unclosed|unbalanced' <<<"$out"; then
   ok "F6: unclosed slot marker rejected (exit 2, 'unclosed'/'unbalanced' in message)"
@@ -271,7 +302,7 @@ fi
 # =============================================================================
 kitF7="$TMP/kitF7"; outF7="$TMP/outF7"
 make_kit "$kitF7"
-sed -i 's/<!-- slot:hotcore-cadence -->read once per context/read once per context/' "$kitF7/skills/research-sdd/SKILL.md"
+mk_sed_from "$SKILL" "F7" "$kitF7/skills/research-sdd/SKILL.md" 's/<!-- slot:hotcore-cadence -->read once per context/read once per context/'
 out="$(run_renderer "$kitF7" general "$outF7" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -qi 'unbalanced' <<<"$out"; then
   ok "F7: stray /slot with no open marker rejected (exit 2, 'unbalanced' in message)"
@@ -318,9 +349,10 @@ fi
 # =============================================================================
 kitF10="$TMP/kitF10"; outF10="$TMP/outF10"
 make_kit "$kitF10"
-sed -i -e 's/<!-- slot:hotcore-cadence -->//' \
-       -e 's/<!-- slot:loop-return-contract-explicit -->//' -e 's/<!-- \/slot -->//g' "$kitF10/skills/research-sdd/SKILL.md"
-sed -i -e 's/<!-- slot:hotcore-loop-cadence -->//' -e 's/<!-- \/slot -->//g' "$kitF10/PROMPT-LOOP.md"
+mk_sed_from "$SKILL" "F10/SKILL" "$kitF10/skills/research-sdd/SKILL.md" \
+  's/<!-- slot:hotcore-cadence -->//' 's/<!-- slot:loop-return-contract-explicit -->//' 's/<!-- \/slot -->//g'
+mk_sed_from "$PROMPTLOOP" "F10/LOOP" "$kitF10/PROMPT-LOOP.md" \
+  's/<!-- slot:hotcore-loop-cadence -->//' 's/<!-- \/slot -->//g'
 out="$(run_renderer "$kitF10" general "$outF10" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -qi 'zero slot markers' <<<"$out"; then
   ok "F10: zero markers in sources while profile declares slots fails with the EXACT zero-marker message (exit 2)"
@@ -462,7 +494,7 @@ fi
 # =============================================================================
 kitF17="$TMP/kitF17"; outF17="$TMP/outF17"
 make_kit "$kitF17"
-sed -i 's/<!-- slot:hotcore-cadence -->read once per context/<!-- SLOT:extra-uppercase -->stray<!-- \/SLOT -->\n<!-- slot:hotcore-cadence -->read once per context/' "$kitF17/skills/research-sdd/SKILL.md"
+mk_sed_from "$SKILL" "F17" "$kitF17/skills/research-sdd/SKILL.md" 's/<!-- slot:hotcore-cadence -->read once per context/<!-- SLOT:extra-uppercase -->stray<!-- \/SLOT -->\n<!-- slot:hotcore-cadence -->read once per context/'
 out="$(run_renderer "$kitF17" general "$outF17" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -Eqi 'non-canonical|case' <<<"$out"; then
   ok "F17: near-miss-cased marker rejected loudly (exit 2)"
@@ -528,14 +560,13 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # recorded — R2/R3/R4-teeth-silent-skip).
   mutant_renderer() {
     local name="$1"; shift
-    local m="$TMP/mutant.$name.render-profile.sh"
-    cp "$RENDERER" "$m"
-    local before after
-    before="$(md5sum "$m" | cut -d' ' -f1)"
-    sed -i "$@" "$m"
-    after="$(md5sum "$m" | cut -d' ' -f1)"
-    if [ "$before" = "$after" ]; then
-      printf 'MUTATION-DID-NOT-TAKE\n' >&2
+    local m="$TMP/mutant.$name.render-profile.sh" a err
+    local -a exprs=()
+    for a in "$@"; do [ "$a" = "-e" ] || exprs+=("$a"); done
+    # lib/mutant.sh refuses empty / byte-identical / syntax-broken / live-tree mutants; each sed stage
+    # must also change the SUT on its own.
+    if ! err="$(MK_SYNTAX=bash mk_sed_stages "$RENDERER" "$m" "${exprs[@]}" 2>&1)"; then
+      printf 'MUTATION-DID-NOT-TAKE: %s\n' "$err" >&2
       return 3
     fi
     chmod +x "$m"
@@ -566,7 +597,17 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     # Optional $7 overrides the render target (T-containment must render INTO the kit itself).
     local tname="$1" mutant="$2" kitdir="$3" profile="$4" suffix="$5" expect="$6"
     local outdir="${7:-$TMP/teeth-out-$suffix}"
-    local out rc
+    local out rc gout grc
+    # GOOD verdict: the REAL renderer must refuse this exact fixture with exit 2 (never a crash or an
+    # accidental pass), otherwise the mutant "completing a render" proves nothing. T-containment renders
+    # INTO the kit itself, so its original run is the same invocation but on a disposable copy.
+    local gkit="$kitdir" gout_dir="$TMP/teeth-good-$suffix"
+    if [ -n "${7:-}" ]; then gkit="$TMP/teeth-good-kit-$suffix"; cp -r "$kitdir" "$gkit"; gout_dir="$gkit"; fi
+    gout="$(RSDD_KIT_DIR="$gkit" "$RENDERER" "$profile" "$gout_dir" 2>&1)"; grc=$?
+    if [ "$grc" -ne 2 ]; then
+      no "teeth-$tname: the ORIGINAL renderer did not refuse with exit 2 (rc=$grc, out=[$gout]) — the tooth has no GOOD verdict to flip"
+      return 1
+    fi
     out="$(RSDD_KIT_DIR="$kitdir" "$mutant" "$profile" "$outdir" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
       ok "teeth-$tname: mutant completes a render (exit 0) where the real script refuses ($expect) — check is load-bearing"
@@ -580,9 +621,10 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   echo "-- teeth: T-unknown-profile (disable the unknown-profile bash guard; sources carry ZERO markers so the GUARD-MISSING-PROFILE python fallback alone decides) --"
   kitTUnknown="$TMP/kitTUnknown"
   make_kit "$kitTUnknown"
-  sed -i -e 's/<!-- slot:hotcore-cadence -->//' \
-         -e 's/<!-- slot:loop-return-contract-explicit -->//' -e 's/<!-- \/slot -->//g' "$kitTUnknown/skills/research-sdd/SKILL.md"
-  sed -i -e 's/<!-- slot:hotcore-loop-cadence -->//' -e 's/<!-- \/slot -->//g' "$kitTUnknown/PROMPT-LOOP.md"
+  mk_sed_from "$SKILL" "teeth-unknown-profile/SKILL" "$kitTUnknown/skills/research-sdd/SKILL.md" \
+    's/<!-- slot:hotcore-cadence -->//' 's/<!-- slot:loop-return-contract-explicit -->//' 's/<!-- \/slot -->//g'
+  mk_sed_from "$PROMPTLOOP" "teeth-unknown-profile/LOOP" "$kitTUnknown/PROMPT-LOOP.md" \
+    's/<!-- slot:hotcore-loop-cadence -->//' 's/<!-- \/slot -->//g'
   if m="$(require_mutant unknown-profile -e 's/if \[ ! -f "\$PROFILE_FILE" \]; then/if false; then/')"; then
     bite_tooth unknown-profile "$m" "$kitTUnknown" no-such-profile-xyz unknown-profile "unknown profile"
   else
@@ -619,7 +661,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # SUBSEQUENT real marker's open tripping GUARD-NESTED first (which is what
   # happens if the unclosed fragment is inserted BEFORE another marker in
   # the same file).
-  sed -i 's/is a contract violation\.<!-- \/slot -->/is a contract violation.<!-- \/slot --> <!-- slot:leftover-fragment -->this text is permanently unclosed/' "$kitTUnclosed/skills/research-sdd/SKILL.md"
+  mk_sed_from "$SKILL" "teeth-unclosed" "$kitTUnclosed/skills/research-sdd/SKILL.md" 's/is a contract violation\.<!-- \/slot -->/is a contract violation.<!-- \/slot --> <!-- slot:leftover-fragment -->this text is permanently unclosed/'
   if m="$(require_mutant unclosed -e 's/if open_tok is not None:  # GUARD-UNCLOSED/if False:  # GUARD-UNCLOSED/')"; then
     bite_tooth unclosed "$m" "$kitTUnclosed" general unclosed "unclosed"
   else
@@ -761,15 +803,12 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   fi
 
   MUT_SYM_RPS="$TMP/render-profile-mut-sym.sh"
-  sed -e 's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
-      -e 's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/' \
-      "$RENDERER" > "$MUT_SYM_RPS"
-  chmod +x "$MUT_SYM_RPS"
-  if diff -q "$RENDERER" "$MUT_SYM_RPS" >/dev/null 2>&1; then
-    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found (did the fix change shape?)"
-  else
-    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted on both hops)"
+  if MK_SYNTAX=bash mk_sed_from "$RENDERER" "teeth SYMLINK-TOOLBELT pre-check" "$MUT_SYM_RPS" \
+      's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
+      's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/'; then
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted on both hops, each stage applied on its own)"
   fi
+  chmod +x "$MUT_SYM_RPS"
   cp "$MUT_SYM_RPS" "$MINI_SYM/mini/toolbelt/render-profile.sh"
   chmod +x "$MINI_SYM/mini/toolbelt/render-profile.sh"
   MUT_SYM_OUT="$(bash "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" general \
