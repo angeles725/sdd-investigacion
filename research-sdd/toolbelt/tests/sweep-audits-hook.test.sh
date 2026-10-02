@@ -32,7 +32,7 @@ if [ ! -f "$SUT" ]; then
 fi
 
 # ---- Temp workspace ---------------------------------------------------------
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+MUT=""; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 
 # write_stub <exit_code> <output_text> — creates TMP/sweep-audits.sh + refreshes hook copy.
 write_stub() {
@@ -167,59 +167,95 @@ else
 fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
+# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
+# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
+# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by
+# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant; each
+# control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR. Each stage must change
+# the original ON ITS OWN: a chain whose first stage applies would otherwise hide a later stage that
+# matches nothing (a silent no-op) behind a mutant that merely differs.
+mk_sed(){
+  local label="$1" out="$2" e rc err; shift 2
+  local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
+      no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  mkdir -p "$(dirname "$out")"
+  err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
+# Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
+# returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
+# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
+tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
+  while [ "${1:-}" != -- ]; do
+    case "${1:-}" in
+      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
+      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+    esac; shift 2
+  done; shift
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
+  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
+  else no "$label — THEATER:$why"; fi
+}
+# hook_tooth LABEL GOOD_RC BAD_RC MUTANT [tooth opts] -- ARGV...   the hook locates its sweep stub next to
+# itself, so the stub currently in $TMP (set by write_stub for this scenario) is copied beside the mutant;
+# the ORIGINAL runs from $TMP's hook copy (also refreshed by write_stub).
+hook_tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
+  cp "$TMP/sweep-audits.sh" "$(dirname "$mut")/sweep-audits.sh"
+  tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-audits-hook.sh" "$@"
+}
+
 if [ "${1:-}" = "--prove-teeth" ]; then
+  MUT="$(mktemp -d)"
+  H='sweep-audits-hook.sh'
   echo "-- teeth: hook must go red when rc-check is neutered --"
 
-  # Tooth A: mutant hook never checks rc — always takes the success path.
-  # Test 3 (operational-failure → banner) must catch this and go RED.
-  sed 's/if \[ "\$rc" -ne 0 \]/if false/' \
-    "$SUT" > "$TMP/mutant-hook.sh"
-  chmod +x "$TMP/mutant-hook.sh"
+  # Tooth A: mutant hook never checks rc — always takes the success path. Test 3 must go RED.
   write_stub 1 "sweep-audits: cannot find TARGETS.md"
-  cp "$TMP/mutant-hook.sh" "$TMP/sweep-audits-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'could not run\|exit 1'; then
-    ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
-  else
-    no "teeth A: mutant still emits failure banner — sed pattern may not match fixed hook"
-  fi
+  mk_sed "teeth A" "$MUT/A/$H" 's/if \[ "\$rc" -ne 0 \]/if false/' \
+    && hook_tooth "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)" 0 0 "$MUT/A/$H" \
+         --good-has 'audits sweep could not run' --bad-lacks 'could not run|exit 1' \
+         --bad-has 'Research-SDD pending audits' -- bash @SUT@
 
   echo "-- teeth B (§7 anti-silent-zero): neuter ABSENT-COLLAPSE-PRINT → absent targets silently dropped → test 5 RED --"
   # Tooth B: mutant drops the 'print' from the aggregate absent-input block (keeps 'next').
-  # Per-target lines are still filtered by their own rule; aggregate line is NOT emitted.
-  # Result: nothing about absent targets disclosed → test 5 ('run --full to list them' absent) → RED.
   write_stub 0 "$STUB_ABSENT"
-  sed 's/print; next  # ABSENT-COLLAPSE-PRINT/next  # ABSENT-COLLAPSE-DISABLED/' \
-    "$SUT" > "$TMP/mutant-hook-B.sh"
-  chmod +x "$TMP/mutant-hook-B.sh"
-  cp "$TMP/mutant-hook-B.sh" "$TMP/sweep-audits-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -q 'run --full to list them'; then
-    ok "teeth B: ABSENT-COLLAPSE-PRINT neutered → absent targets silently dropped → test 5 RED"
-  else
-    no "teeth B: mutant still shows 'run --full' — sed pattern may not match hook"
-  fi
+  mk_sed "teeth B" "$MUT/B/$H" 's/print; next  # ABSENT-COLLAPSE-PRINT/next  # ABSENT-COLLAPSE-DISABLED/' \
+    && hook_tooth "teeth B: ABSENT-COLLAPSE-PRINT neutered → absent targets silently dropped → test 5 RED" 0 0 "$MUT/B/$H" \
+         --good-has 'run --full to list them' --bad-lacks 'run --full to list them' \
+         --bad-has 'Nothing to review' -- bash @SUT@
 
   echo "-- teeth C: invert full-guard condition → --full mode also filtered → test 6 RED --"
-  # Tooth C: mutant changes the FULL-PASSTHROUGH-GUARD condition so the awk filter runs
-  # in --full mode too (condition becomes _full=1, which IS true in --full mode).
-  # Per-target lines are then absent in --full output → test 6 ('per-target line present') → RED.
+  # Tooth C: the awk filter also runs in --full mode (condition becomes _full=1).
   write_stub 0 "$STUB_ABSENT"
-  sed 's/\[ "\$_full" = 0 \]; then  # FULL-PASSTHROUGH-GUARD/[ "$_full" = 1 ]; then  # FULL-PASSTHROUGH-GUARD/' \
-    "$SUT" > "$TMP/mutant-hook-C.sh"
-  chmod +x "$TMP/mutant-hook-C.sh"
-  cp "$TMP/mutant-hook-C.sh" "$TMP/sweep-audits-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -q 'corpus not found (absent-input): /fake/path1'; then
-    ok "teeth C: full-guard inverted → per-target lines absent in --full → test 6 RED"
-  else
-    no "teeth C: mutant still shows per-target line in --full — sed pattern may not match hook"
-  fi
+  mk_sed "teeth C" "$MUT/C/$H" 's/\[ "\$_full" = 0 \]; then  # FULL-PASSTHROUGH-GUARD/[ "$_full" = 1 ]; then  # FULL-PASSTHROUGH-GUARD/' \
+    && hook_tooth "teeth C: full-guard inverted → per-target lines absent in --full → test 6 RED" 0 0 "$MUT/C/$H" \
+         --good-has 'corpus not found \(absent-input\): /fake/path1' \
+         --bad-lacks 'corpus not found \(absent-input\): /fake/path1' \
+         --bad-has 'Nothing to review' -- bash @SUT@ --full
 
   echo "-- teeth D (#974): neuter EMPTY-COLLAPSE-COUNT → ei stays 0 → no summary → test 7 RED (anti-silent-zero) --"
   # Tooth D: mutant drops ei++ from the EMPTY-COLLAPSE-COUNT line (keeps 'next').
-  # Per-target lines are still suppressed; but ei stays 0 so no summary line is emitted.
-  # Silent zero for empty-input targets → test 7 ('counted summary present') → RED.
   STUB_EMPTY_LOCAL='INFO: corpus exists, no audits found (empty-input): /fake/empty1
 INFO: corpus exists, no audits found (empty-input): /fake/empty2
 INFO: corpus exists, no audits found (empty-input): /fake/empty3
@@ -227,35 +263,22 @@ INFO: corpus exists, no audits found (empty-input): /fake/empty3
 Summary: 0 pending / 0 audits across targets.
 Nothing to review.'
   write_stub 0 "$STUB_EMPTY_LOCAL"
-  sed 's/ei++; next  # EMPTY-COLLAPSE-COUNT/next  # EMPTY-COLLAPSE-DISABLED/' \
-    "$SUT" > "$TMP/mutant-hook-D.sh"
-  chmod +x "$TMP/mutant-hook-D.sh"
-  cp "$TMP/mutant-hook-D.sh" "$TMP/sweep-audits-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them'; then
-    ok "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei stays 0 → summary absent → test 7 RED (anti-silent-zero)"
-  else
-    no "teeth D: mutant still emits empty-input summary — sed pattern may not match hook"
-  fi
+  mk_sed "teeth D" "$MUT/D/$H" 's/ei++; next  # EMPTY-COLLAPSE-COUNT/next  # EMPTY-COLLAPSE-DISABLED/' \
+    && hook_tooth "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei stays 0 → summary absent → test 7 RED (anti-silent-zero)" 0 0 "$MUT/D/$H" \
+         --good-has 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them' \
+         --bad-lacks 'INFO: [0-9]+ corpus\(es\) empty-input' --bad-has 'Nothing to review' -- bash @SUT@
 
   echo "-- teeth E (#974): neuter EMPTY-COLLAPSE-EMIT in END → no summary emitted → test 9 RED --"
   # Tooth E: mutant replaces the EMPTY-COLLAPSE-EMIT printf line in END with a comment.
-  # No empty-input summary is emitted → test 9 (single empty-input) gets no summary → RED.
   _STUB_TOOTH_E='INFO: corpus exists, no audits found (empty-input): /fake/tooth-e1
 
 Summary: 0 pending / 0 audits across targets.
 Nothing to review.'
   write_stub 0 "$_STUB_TOOTH_E"
-  sed '/EMPTY-COLLAPSE-EMIT/s/.*/      # EMPTY-COLLAPSE-DISABLED/' \
-    "$SUT" > "$TMP/mutant-hook-E.sh"
-  chmod +x "$TMP/mutant-hook-E.sh"
-  cp "$TMP/mutant-hook-E.sh" "$TMP/sweep-audits-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qF 'corpus(es) empty-input'; then
-    ok "teeth E: EMPTY-COLLAPSE-EMIT neutered → no summary emitted → test 9 RED"
-  else
-    no "teeth E: mutant still emits empty-input summary — sed pattern may not match hook"
-  fi
+  mk_sed "teeth E" "$MUT/E/$H" '/EMPTY-COLLAPSE-EMIT/s/.*/      # EMPTY-COLLAPSE-DISABLED/' \
+    && hook_tooth "teeth E: EMPTY-COLLAPSE-EMIT neutered → no summary emitted → test 9 RED" 0 0 "$MUT/E/$H" \
+         --good-has 'corpus\(es\) empty-input' --bad-lacks 'corpus\(es\) empty-input' \
+         --bad-has 'Nothing to review' -- bash @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="
