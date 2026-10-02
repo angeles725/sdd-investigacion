@@ -250,8 +250,9 @@ else no "chain: zero stages (rc=$rc msg=[$msg])"; fi
 
 # --- mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
 printf '#!/usr/bin/env bash\nif [ "${1:-}" = fail ]; then echo "found BADTHING"; exit 1; fi\necho "all clear"; exit 0\n' > "$TMP/src/sut.sh"
-# shellcheck disable=SC2034  # SUT is read by the sourced mutant_tooth
-SUT1="$TMP/src/sut.sh"; SUT="$SUT1"   # default original for mutant_tooth when --orig is absent
+SUT1="$TMP/src/sut.sh"
+# shellcheck disable=SC2034  # SUT is read by the sourced mutant_tooth (default original without --orig)
+SUT="$SUT1"
 mutant_sed "$SUT1" "$TMP/mut-inv.sh" 's/exit 0/exit 1/' 2>/dev/null          # good rc 0  → bad rc 1
 mutant_sed "$SUT1" "$TMP/mut-crash.sh" 's/echo "all clear"; exit 0/exit 2/' 2>/dev/null   # crashes with rc 2
 mutant_sed "$SUT1" "$TMP/mut-same.sh" 's/all clear/all quiet/' 2>/dev/null   # rc stays 0
