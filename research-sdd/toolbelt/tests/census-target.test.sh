@@ -18,11 +18,12 @@ SUT="$HERE/../census-target.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 TMP="$(mktemp -d)"
-# _mut16/_mut18 are placed in $HERE (not $TMP) so their dirname resolves to
-# the tests directory, keeping $SUT reachable.  Initialise to empty so the
-# trap below is safe before --prove-teeth assigns them.
-_mut16=""; _mut18=""
-trap 'rm -rf "$TMP"; [ -n "${_mut16:-}" ] && rm -f "$_mut16"; [ -n "${_mut18:-}" ] && rm -f "$_mut18"' EXIT
+# MUT holds every mutant, OUTSIDE the live tree (kit #943/#1299: a mutant written beside the SUT
+# lands in the tracked tree).  The two skip-accounting mutants are mutants of THIS test file, which
+# finds the SUT as "$HERE/../census-target.sh"; they therefore live in a mirrored layout —
+# "$MUT/tests/<mutant>" next to a verbatim copy "$MUT/census-target.sh" — so $SUT stays reachable.
+MUT="$(mktemp -d)"; mkdir -p "$MUT/tests"
+trap 'rm -rf "$TMP" "$MUT"' EXIT
 pass=0; fail=0; skipped=0
 ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -44,6 +45,58 @@ fi
 
 run()  { bash "$SUT" "$@" 2>&1; }
 code() { bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
+
+# --- mutation-control helpers (kit issues #943, #1299) -------------------------------------------
+# Mutants are built by lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or
+# live-tree mutant; each control then asserts the GOOD verdict on the original AND the SPECIFIC BAD
+# verdict on the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+# mk_sed LABEL OUT EXPR...  build OUT from $MK_ORIG (default $SUT), one sed stage per EXPR; every
+# stage must change the original on its own (a dead stage hides behind a live one otherwise).
+mk_sed() {
+  local label="$1" out="$2" e rc err; shift 2
+  local orig="${MK_ORIG:-$SUT}"; local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
+      no "$label: sed stage matches nothing in the original (silent no-op)" "[$e]"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  err="$(mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc)" "$err"; return 1; }
+}
+# mk_verify LABEL OUT  same refusals for a mutant built another way (bash string surgery).
+mk_verify() {
+  local label="$1" out="$2" rc err
+  err="$(mutant_verify "${MK_ORIG:-$SUT}" "$out" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc)" "$err"; return 1; }
+}
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
+# Runs ARGV on the original ('@SUT@' → $SUT) then on the mutant; PASS only when the original exits
+# GOOD_RC with the good-side output conditions AND the mutant exits exactly BAD_RC with the bad-side
+# output conditions: a crashing or syntax-broken mutant cannot read as teeth.
+tooth() {
+  local label="$1" grc="$2" brc="$3" mut="$4" ghas="" glack="" bhas="" black="" a gout mout grc_a mrc_a why=""; shift 4
+  while [ "${1:-}" != -- ]; do
+    case "${1:-}" in
+      --good-has) ghas="$2" ;; --good-lacks) glack="$2" ;; --bad-has) bhas="$2" ;; --bad-lacks) black="$2" ;;
+      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+    esac; shift 2
+  done; shift
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  if [ -n "$ghas" ] && ! grep -qE -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi
+  if [ -n "$glack" ] && grep -qE -- "$glack" <<<"$gout"; then why="$why; original output matches /$glack/"; fi
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bhas" ] && ! grep -qE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -n "$black" ] && grep -qE -- "$black" <<<"$mout"; then why="$why; mutant output still matches /$black/"; fi
+  if [ -z "$why" ]; then ok "$label" "[original rc=$grc → mutant rc=$brc]"
+  else no "$label — THEATER" "$why"; fi
+}
 
 echo "== census-target.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -263,25 +316,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   d="$TMP/teeth-dir"; mkdir -p "$d"
   printf 'x\n' > "$d/onlyone.xyz"   # 1 file — well below threshold=5
 
-  # First, assert the SUT does NOT star it (negative control).
-  out_sut="$(run "$d")"
-  if grep -qE 'xyz.*\*' <<<"$out_sut"; then
-    no "teeth pre-check: SUT incorrectly stars a 1-file type (baseline broken)" "(can't prove teeth)"
-  else
-    ok "teeth pre-check: SUT does NOT star 1-file type below threshold" "(baseline clean)"
-    # Now build a mutant that forces flag=1 always in awk.
-    mutant="$TMP/census-target.MUTANT.sh"
-    # Swap the conditional expression in the awk to always set flag="*"
-    sed 's/flag = (cnt\[e\] >= tc + 0 || bytes\[e\] >= tm + 0) ? "\*" : ""/flag = "*"/' "$SUT" > "$mutant"
-    chmod +x "$mutant"
-    out_mut="$(bash "$mutant" "$d" 2>&1)"
-    if grep -qE 'xyz.*\*' <<<"$out_mut"; then
-      ok "teeth: mutant (flag=1 always) DOES star the sub-threshold type (guard is load-bearing)" "(case 6 has teeth)"
-    else
-      no "teeth: mutant should star sub-threshold type but did not — guard may not be the decider" \
-         "$(echo "$out_mut" | grep -i xyz | head -1)"
-    fi
-  fi
+  # Original: exit 0 and the 1-file type is NOT starred. Mutant (flag always "*"): exit 0 and it IS.
+  mutant="$MUT/census-target.MUTANT.sh"
+  # Swap the conditional expression in the awk to always set flag="*"
+  mk_sed "teeth" "$mutant" 's/flag = (cnt\[e\] >= tc + 0 || bytes\[e\] >= tm + 0) ? "\*" : ""/flag = "*"/' \
+    && tooth "teeth: mutant (flag=1 always) stars the sub-threshold type; SUT does not (guard is load-bearing)" 0 0 "$mutant" \
+         --good-lacks 'xyz.*\*' --bad-has 'xyz.*\*' -- bash @SUT@ "$d"
 
   # ---------------------------------------------------------------------------
   # SKIP-ACCOUNTING TEETH
@@ -454,15 +494,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation RED check: re-route case 16 skip → ok; forced-probe must show PASS
   # line for case 16, not SKIP, and the pass summary increases by 1.
-  # Mutants live in $HERE so dirname "$0" resolves SUT correctly — no _TEETH_HERE.
+  # Mutants live in the mirrored $MUT/tests layout so dirname "$0" resolves a SUT copy — no _TEETH_HERE.
   # Backreference \( \) inserts a backslash-paren before the quote, making the
   # sed line's byte sequence differ from the anchor so cnt_occ does not count it.
-  _mut16="$HERE/census-target.SKIPMUT16.sh"
-  sed 's/skip \("16 unreadable dir warning — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/' \
-    "$_self" > "$_mut16"
-  if cmp -s "$_mut16" "$_self"; then
-    no "skip-mut-16: mutant is byte-identical to test file — sed found no site to mutate"
-  else
+  # The mutants are mutants of the TEST FILE: built in the mirrored layout under $MUT (see top).
+  cp "$SUT" "$MUT/census-target.sh"
+  mkdir -p "$MUT/tests/lib" && cp "$HERE/lib/mutant.sh" "$MUT/tests/lib/mutant.sh"   # the mutant test sources it too
+  _mut16="$MUT/tests/census-target.SKIPMUT16.sh"
+  if MK_ORIG="$_self" mk_sed "skip-mut-16" "$_mut16" \
+    's/skip \("16 unreadable dir warning — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/'; then
     _mut16_out="$(_CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_mut16" --_teeth-probe-root 2>&1)"
     _mut16_skip16="$(printf '%s\n' "$_mut16_out" | grep -cE '^  SKIP  16 ')"
     _mut16_pass16="$(printf '%s\n' "$_mut16_out" | grep -cE '^  PASS  16 ')"
@@ -476,12 +516,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Mutation RED check: re-route case 18 skip → ok; same accounting proof.
-  _mut18="$HERE/census-target.SKIPMUT18.sh"
-  sed 's/skip \("18 WARNING on stdout — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/' \
-    "$_self" > "$_mut18"
-  if cmp -s "$_mut18" "$_self"; then
-    no "skip-mut-18: mutant is byte-identical to test file — sed found no site to mutate"
-  else
+  _mut18="$MUT/tests/census-target.SKIPMUT18.sh"
+  if MK_ORIG="$_self" mk_sed "skip-mut-18" "$_mut18" \
+    's/skip \("18 WARNING on stdout — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/'; then
     _mut18_out="$(_CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_mut18" --_teeth-probe-root 2>&1)"
     _mut18_skip18="$(printf '%s\n' "$_mut18_out" | grep -cE '^  SKIP  18 ')"
     _mut18_pass18="$(printf '%s\n' "$_mut18_out" | grep -cE '^  PASS  18 ')"
@@ -499,52 +536,49 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf 'x\n' > "$d_git/.git/objects/noext"  # no-extension file inside .git
   printf 'x\n' > "$d_git/real.txt"             # .txt extension — unrelated to (no ext)
 
-  out_sut_git="$(run "$d_git")"
-  if grep -qF '(no ext)' <<<"$out_sut_git"; then
-    no "teeth-git pre-check: SUT shows (no ext) row (baseline broken — can't prove tooth)"
+  # Original: exit 0 and no (no ext) row (the .git object is excluded). Mutant (exclusion removed):
+  # exit 0 and the (no ext) row appears.
+  git_anchor="-not -path '*/.git/*' "
+  sut_git_content="$(cat "$SUT")"
+  if [[ "$sut_git_content" != *"$git_anchor"* ]]; then
+    no "teeth-git: .git exclusion anchor not found in SUT — SUT drifted?"
   else
-    ok "teeth-git pre-check: SUT does NOT show (no ext) row (git object excluded — baseline clean)"
-    git_anchor="-not -path '*/.git/*' "
-    sut_git_content="$(cat "$SUT")"
-    if [[ "$sut_git_content" != *"$git_anchor"* ]]; then
-      no "teeth-git: .git exclusion anchor not found in SUT — SUT drifted?"
-    else
-      mutant_git="$TMP/census-target.GIT-MUTANT.sh"
-      printf '%s\n' "${sut_git_content/"$git_anchor"/}" > "$mutant_git"
-      chmod +x "$mutant_git"
-      out_mut_git="$(bash "$mutant_git" "$d_git" 2>&1)"
-      if grep -qF '(no ext)' <<<"$out_mut_git"; then
-        ok "teeth-git: mutant (no .git exclusion) shows (no ext) row — exclusion is load-bearing (case 11 has teeth)"
-      else
-        no "teeth-git: mutant should show (no ext) for git object but did not" \
-           "$(echo "$out_mut_git" | head -5 | tr '\n' '|')"
-      fi
-    fi
+    mutant_git="$MUT/census-target.GIT-MUTANT.sh"
+    printf '%s\n' "${sut_git_content/"$git_anchor"/}" > "$mutant_git"
+    chmod +x "$mutant_git"
+    mk_verify "teeth-git" "$mutant_git" \
+      && tooth "teeth-git: mutant (no .git exclusion) shows (no ext) row; SUT does not — exclusion is load-bearing (case 11 has teeth)" 0 0 "$mutant_git" \
+           --good-lacks '\(no ext\)' --bad-has '\(no ext\)' -- bash @SUT@ "$d_git"
   fi
 
   echo "-- teeth-mb: neuter byte comparison; 1MB file must NOT be starred in the mutant --"
   d="$TMP/teeth-mb-dir"; mkdir -p "$d"
   dd if=/dev/zero of="$d/onebig.iso" bs=1048576 count=1 2>/dev/null  # 1MB, count=1 < 5
 
-  # Positive control: SUT must star it via MB arm.
-  out_sut_mb="$(run "$d")"
-  if grep -qE 'iso[[:space:]].*\*' <<<"$out_sut_mb"; then
-    ok "teeth-mb pre-check: SUT stars 1MB single file via MB arm" "(positive control)"
-    # Mutant: neuter ONLY the byte comparison (0>=tm is always false; count arm still works).
-    mutant_mb="$TMP/census-target.MB-MUTANT.sh"
-    sed 's/bytes\[e\] >= tm + 0/0 >= tm + 0/' "$SUT" > "$mutant_mb"
-    chmod +x "$mutant_mb"
-    out_mut_mb="$(bash "$mutant_mb" "$d" 2>&1)"
-    if ! grep -qE 'iso[[:space:]].*\*' <<<"$out_mut_mb"; then
-      ok "teeth-mb: byte-neutered mutant does NOT star 1MB file (count < 5, byte arm dead) — byte comparison is load-bearing"
-    else
-      no "teeth-mb: byte-neutered mutant still stars iso — byte comparison may not be the decider (THEATER)" \
-         "$(echo "$out_mut_mb" | grep -i iso | head -1)"
-    fi
-  else
-    no "teeth-mb pre-check: SUT fails to star 1MB file (baseline broken, can't prove MB teeth)" \
-       "$(echo "$out_sut_mb" | grep -i iso | head -1)"
-  fi
+  # Original: exit 0 and the 1MB file IS starred via the MB arm. Mutant (byte comparison neutered,
+  # count arm intact): exit 0 and it is NOT starred.
+  mutant_mb="$MUT/census-target.MB-MUTANT.sh"
+  mk_sed "teeth-mb" "$mutant_mb" 's/bytes\[e\] >= tm + 0/0 >= tm + 0/' \
+    && tooth "teeth-mb: byte-neutered mutant does NOT star the 1MB file (count < 5, byte arm dead); SUT does — byte comparison is load-bearing" 0 0 "$mutant_mb" \
+         --good-has 'iso[[:space:]].*\*' --bad-lacks 'iso[[:space:]].*\*' -- bash @SUT@ "$d"
+
+  # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
+  # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
+  echo "-- teeth-helper: lib/mutant.sh refuses byte-identical / syntax-broken mutants; no-op stage refused --"
+  mutant_sed "$SUT" "$MUT/neutral-identical.sh" 's/ZZZ_NO_SUCH_TOKEN_ZZZ/x/' 2>/dev/null; _hrc=$?
+  [ "$_hrc" = 4 ] && [ ! -e "$MUT/neutral-identical.sh" ] \
+    && ok "teeth-helper: byte-identical (no-op sed) mutant REFUSED with rc=4 and removed" \
+    || no "teeth-helper: byte-identical mutant not refused as rc=4" "(rc=$_hrc)"
+  mutant_sed "$SUT" "$MUT/neutral-syntax.sh" 's/^set -uo pipefail$/fi/' 2>/dev/null; _hrc=$?
+  [ "$_hrc" = 5 ] && [ ! -e "$MUT/neutral-syntax.sh" ] \
+    && ok "teeth-helper: syntax-broken mutant REFUSED with rc=5 and removed" \
+    || no "teeth-helper: syntax-broken mutant not refused as rc=5" "(rc=$_hrc)"
+  _hfail0="$fail"
+  mk_sed "chain" "$MUT/neutral-chain.sh" 's/flag = (cnt/flag = (CNT/' 's/ZZZ_NO_SUCH_TOKEN_ZZZ/x/' >/dev/null; _hrc=$?
+  _hfail1="$fail"; fail="$_hfail0"   # the refusal was the expected outcome: do not count its no() as a failure
+  [ "$_hrc" != 0 ] && [ "$_hfail1" = $((_hfail0 + 1)) ] && [ ! -e "$MUT/neutral-chain.sh" ] \
+    && ok "teeth-helper: chain containing a no-op stage REFUSED (no mutant written)" \
+    || no "teeth-helper: chain with a no-op stage was not refused" "(rc=$_hrc)"
 fi
 
 echo "== $pass passed · $fail failed =="

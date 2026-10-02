@@ -12,7 +12,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../scan-secrets.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+MUT=""
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -21,6 +22,60 @@ skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
 newcorpus(){ local d="$1"; mkdir -p "$d"; printf '# Block 1 — t\n\n> legend\n\n---\n\n' > "$d/t-block1.md"; }
 runrc(){ bash "$SUT" "$1" >/dev/null 2>&1; echo $?; }
 runout(){ bash "$SUT" "$1" 2>&1; }
+# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
+# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by
+# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant; each
+# control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+MUT="$(mktemp -d)"
+# mk_sed LABEL OUT EXPR...  build $OUT from $MK_ORIG (default $SUT) with one sed stage per EXPR.
+# Each stage must change the original ON ITS OWN: a chain whose first stage applies would otherwise
+# hide a later stage that matches nothing (a silent no-op) behind a mutant that merely differs.
+mk_sed(){
+  local label="$1" out="$2" e rc err; shift 2
+  local orig="${MK_ORIG:-$SUT}"; local -a args=()
+  for e in "$@"; do
+    if sed -e "$e" "$orig" | cmp -s - "$orig"; then
+      no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
+    fi
+    args+=(-e "$e")
+  done
+  err="$(mutant_sed "$orig" "$out" "${args[@]}" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# mk_verify LABEL OUT  validate a mutant built another way (python3 / awk), same refusals as mk_sed.
+mk_verify(){
+  local label="$1" out="$2" rc err
+  err="$(mutant_verify "${MK_ORIG:-$SUT}" "$out" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+}
+# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
+# Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
+# returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
+# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
+tooth(){
+  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
+  while [ "${1:-}" != -- ]; do
+    case "${1:-}" in
+      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
+      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
+    esac; shift 2
+  done; shift
+  local -a gc=() mc=()
+  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
+  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
+  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
+  if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
+  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
+  if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
+  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
+  if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
+  else no "$label — THEATER:$why"; fi
+}
 
 echo "== scan-secrets.test.sh =="
 
@@ -333,50 +388,42 @@ fi
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"
-  mutant="$TMP/scan-secrets.MUTANT.sh"
-  sed 's/PRIVATE KEY/PRIVATE_KEY_NOMATCH/g' "$SUT" > "$mutant"   # neuters the PEM regex literal
+  mutant="$MUT/scan-secrets.MUTANT.sh"
   d="$TMP/teeth"; newcorpus "$d"
   { echo "-----BEGIN OPENSSH PRIVATE KEY-----"; echo "b3BlbnNzaC1rZXk"; echo "-----END OPENSSH PRIVATE KEY-----"; } >> "$d/t-block1.md"
-  bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
-  [ "$mrc" = 0 ] && ok "teeth: PEM-neutered mutant stops flagging the key → detector has teeth" || no "teeth: mutant still flagged (exit $mrc) — PEM detection not exercised (THEATER)"
+  mk_sed "teeth" "$mutant" 's/PRIVATE KEY/PRIVATE_KEY_NOMATCH/g' \
+    && tooth "teeth: PEM-neutered mutant stops flagging the key → detector has teeth" 1 0 "$mutant" -- bash @SUT@ "$d"
 
   # Additional mutation control: neuter the NUL-scan rc-check; the producer-fail case must then NOT WARN.
   echo "-- teeth: neuter the _nul_rc check, expect producer exit-2 to pass silently as 0 --"
-  mutant_nul="$TMP/scan-secrets.MUTANT-nul.sh"
-  sed 's/_nul_rc=\$?/_nul_rc=0/g' "$SUT" > "$mutant_nul"
+  mutant_nul="$MUT/scan-secrets.MUTANT-nul.sh"
   d_nf="$TMP/teeth-nul"; newcorpus "$d_nf"
-  out_nf="$(PATH="$_stub25:$PATH" bash "$mutant_nul" "$d_nf" 2>&1)"
-  grep -qiE 'NUL-byte scan FAILED|binary-skip detection incomplete' <<<"$out_nf" \
-    && no "teeth-nul: neutered mutant still reported SCAN-FAIL — rc-check not exercised (THEATER)" \
-    || ok "teeth-nul: neutered mutant passes silently — rc-check has teeth"
+  mk_sed "teeth-nul" "$mutant_nul" 's/_nul_rc=\$?/_nul_rc=0/g' \
+    && tooth "teeth-nul: neutered mutant passes silently — rc-check has teeth" 0 0 "$mutant_nul" \
+         --good-has 'NUL-byte scan FAILED|binary-skip detection incomplete' \
+         --bad-lacks 'NUL-byte scan FAILED|binary-skip detection incomplete' \
+         -- env PATH="$_stub25:$PATH" bash @SUT@ "$d_nf"
 
   # Teeth for test 26: neutralize _vsec_nulls_rc so count-fail passes silently — test 26 must go red.
   echo "-- teeth: neutralize _vsec_nulls_rc; count exit-2 must pass silently → test 26 goes red --"
-  mutant_nc="$TMP/scan-secrets.MUTANT-nc.sh"
-  sed 's/_vsec_nulls_rc=\$?/_vsec_nulls_rc=0/' "$SUT" > "$mutant_nc"
+  mutant_nc="$MUT/scan-secrets.MUTANT-nc.sh"
   d_nc2="$TMP/teeth-nc"; newcorpus "$d_nc2"
-  out_ncm="$(PATH="$_stub26:$PATH" bash "$mutant_nc" "$d_nc2" 2>&1)"
-  grep -qiE 'NUL-byte count FAILED|count unavailable' <<<"$out_ncm" \
-    && no "teeth-nc: rc-zeroed mutant still emitted WARN — test 26 is THEATER" \
-    || ok "teeth-nc: rc-zeroed mutant passes silently — count-fail guard has teeth"
+  mk_sed "teeth-nc" "$mutant_nc" 's/_vsec_nulls_rc=\$?/_vsec_nulls_rc=0/' \
+    && tooth "teeth-nc: rc-zeroed mutant passes silently — count-fail guard has teeth" 0 0 "$mutant_nc" \
+         --good-has 'NUL-byte count FAILED|count unavailable' \
+         --bad-lacks 'NUL-byte count FAILED|count unavailable' \
+         -- env PATH="$_stub26:$PATH" bash @SUT@ "$d_nc2"
 
   # Teeth for tests 27 and 28 (--committed mode): neuter the blobs list so no per-blob scans run —
   # exit 0 even when HEAD contains a token. Strategy: empty _blobs_list after the dedup step and
   # silence the N=0+raw_lines>0 DEGRADED guard so the empty result is treated as clean.
   echo "-- teeth: empty blobs list + silence N=0 guard — tests 27+28 must go red (no blobs scanned) --"
-  mutant_cm="$TMP/scan-secrets.MUTANT-committed.sh"
-  # Replace the dedup line (last awk in the pipeline) to also truncate the output:
-  #   awk '!seen[$1]++' > "$_blobs_list"
-  # becomes:
-  #   awk '!seen[$1]++' > "$_blobs_list"; : > "$_blobs_list"
-  # Also silence: if [ "$_total_blobs" -eq 0 ] && [ "${_raw_lines:-0}" -gt 0 ]
-  sed "s/awk '!seen\[\\\$1\]++' > \"\\\$_blobs_list\"/awk '!seen[\$1]++' > \"\$_blobs_list\"; : > \"\$_blobs_list\"/g" \
-    "$SUT" \
-  | sed 's/if \[ "\$_total_blobs" -eq 0 \] && \[ "\${_raw_lines:-0}" -gt 0 \]/if false \&\& false/g' \
-  > "$mutant_cm"
+  mutant_cm="$MUT/scan-secrets.MUTANT-committed.sh"
+  # Stage 1 appends a truncation after the dedup line; stage 2 silences the N=0 + raw_lines>0 guard.
+  mk_sed "teeth-cm" "$mutant_cm" \
+    "s/awk '!seen\[\\\$1\]++' > \"\\\$_blobs_list\"/awk '!seen[\$1]++' > \"\$_blobs_list\"; : > \"\$_blobs_list\"/g" \
+    's/if \[ "\$_total_blobs" -eq 0 \] && \[ "\${_raw_lines:-0}" -gt 0 \]/if false \&\& false/g'
   # test-27 tooth: root NOTES.md token in committed HEAD but deleted from working tree.
-  # The HEAD-removed mutant scans the WT — deleted file is absent — so it exits 0.
-  # The real committed mode finds NOTES.md in HEAD → exit 1. Test 27 would flip → has teeth.
   d_t27="$TMP/teeth-cm27"
   mkdir -p "$d_t27/corpus"
   git -C "$d_t27" init -q 2>/dev/null
@@ -385,9 +432,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf 'token: ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t27/NOTES.md"
   git -C "$d_t27" add corpus/t-block1.md NOTES.md && git -C "$d_t27" commit -q -m "init" 2>/dev/null
   rm "$d_t27/NOTES.md"   # delete from WT after commit; HEAD still contains the token
-  cm_rc27m="$(bash "$mutant_cm" --committed "$d_t27" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc27m" != 1 ] && ok "teeth-cm27: HEAD-removed mutant misses WT-deleted root token → test 27 has teeth" \
-    || no "teeth-cm27: HEAD-removed mutant still caught root token — test 27 is THEATER (rc=$cm_rc27m)"
+  tooth "teeth-cm27: HEAD-removed mutant misses WT-deleted root token → test 27 has teeth" 1 0 "$mutant_cm" \
+    -- bash @SUT@ --committed "$d_t27"
 
   # test-28 tooth: WT-redacted secret should no longer be caught by the mutant
   d_t28="$TMP/teeth-cm28"
@@ -397,75 +443,53 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf 'token: ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t28/corpus/t-block1.md"
   git -C "$d_t28" add corpus/t-block1.md && git -C "$d_t28" commit -q -m "init" 2>/dev/null
   printf 'token: REDACTED\n' > "$d_t28/corpus/t-block1.md"  # redact in WT
-  cm_rc28m="$(bash "$mutant_cm" --committed "$d_t28" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc28m" != 1 ] && ok "teeth-cm28: HEAD-removed mutant misses WT-redacted committed secret → test 28 has teeth" \
-    || no "teeth-cm28: HEAD-removed mutant still caught committed secret — test 28 is THEATER (rc=$cm_rc28m)"
+  tooth "teeth-cm28: HEAD-removed mutant misses WT-redacted committed secret → test 28 has teeth" 1 0 "$mutant_cm" \
+    -- bash @SUT@ --committed "$d_t28"
 
   # Teeth for test 29 (degraded exit on git absent): neuter the probe block (first committed=1 block)
-  # AND the B3 rc-checks in scan() and advisory. With all DEGRADED paths disabled:
-  # - probe skipped, so git-absent is not caught at entry
-  # - git grep fails (rc 127 via _stub_no_git) but rc-check is if-false, so no DEGRADED emitted
-  # - scan finds no secrets in the clean fixture, exits 0
-  # Test 29 expects non-zero + DEGRADED → must flip to FAIL → has teeth.
+  # AND the B3 rc-checks in scan() and advisory. With all DEGRADED paths disabled the probe is skipped,
+  # git grep fails (rc 127 via _stub_no_git) but no rc-check fires, and the clean fixture exits 0.
+  # (#1299: a former stage targeting `_cml_rc` matched nothing — that variable no longer exists in the
+  # SUT — and hid behind the chain; it is dropped, and mk_sed now refuses any stage that matches nothing.)
   echo "-- teeth: replace first committed-probe block with 'if false' — test 29 must go red --"
-  mutant_deg="$TMP/scan-secrets.MUTANT-probe.sh"
-  # GNU sed: neuter the probe (first committed=1 guard) and all DEGRADED-emitting rc-checks.
+  mutant_deg="$MUT/scan-secrets.MUTANT-probe.sh"
   # NOTE: file must NOT be named '*degraded*' — the grep pattern below checks for that string and
   # bash error messages include the script path, which would cause a false match.
-  sed '0,/if \[ "\$committed" = 1 \]; then/{s/if \[ "\$committed" = 1 \]; then/if false; then/}' \
-    "$SUT" \
-  | sed 's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
-  | sed 's/if \[ "\$_cml_rc" -ne 0 \]/if false/g' \
-  | sed 's/if \[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
-    > "$mutant_deg"
-  cm_out29m="$(PATH="$_stub_no_git" bash "$mutant_deg" --committed "$d_deg" 2>&1)"
-  cm_rc29m=$?
-  if printf '%s' "$cm_out29m" | grep -qiE 'degraded|git not'; then
-    no "teeth-deg: probe-neutered mutant still emits DEGRADED — test 29 is THEATER"
-  else
-    ok "teeth-deg: probe-neutered mutant no DEGRADED output → test 29 has teeth (rc=$cm_rc29m)"
-  fi
+  mk_sed "teeth-deg" "$mutant_deg" \
+    '0,/if \[ "\$committed" = 1 \]; then/{s/if \[ "\$committed" = 1 \]; then/if false; then/}' \
+    's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
+    's/if \[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
+    && tooth "teeth-deg: probe-neutered mutant no DEGRADED output → test 29 has teeth" 3 0 "$mutant_deg" \
+         --good-has 'degraded|git not' --bad-lacks 'degraded|git not' \
+         -- env PATH="$_stub_no_git" bash @SUT@ --committed "$d_deg"
 
   # Teeth for tests 31 (B1: -e required) and 32-34 (B2: :(glob) pathspecs).
   # Mutant-b1: remove '-e' from scan()'s filter grep so PEM pattern (-----BEGIN…) is parsed as an option.
-  # Without -e, grep -E '-----BEGIN…' treats the pattern as a filename (starts with ---), fails.
-  # Test 31 must flip to FAIL (exit 1 → exit 0, no PEM hit, which ≠1 so the test fails).
   echo "-- teeth-b1: remove -e from scan() HC filter grep — test 31 PEM must go red --"
-  mutant_b1="$TMP/scan-secrets.MUTANT-b1.sh"
-  sed 's/grep -aE -e "\$re"/grep -aE "\$re"/g' "$SUT" > "$mutant_b1"
-  cm_rc31m="$(bash "$mutant_b1" --committed "$d_t31" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc31m" != 1 ] && ok "teeth-b1: -e-removed mutant misses PEM (rc=$cm_rc31m) → test 31 has teeth" \
-    || no "teeth-b1: mutant still caught PEM (rc=$cm_rc31m) — test 31 is THEATER"
+  mutant_b1="$MUT/scan-secrets.MUTANT-b1.sh"
+  mk_sed "teeth-b1" "$mutant_b1" 's/grep -aE -e "\$re"/grep -aE "\$re"/g' \
+    && tooth "teeth-b1: -e-removed mutant misses PEM → test 31 has teeth" 1 0 "$mutant_b1" \
+         -- bash @SUT@ --committed "$d_t31"
 
   # Mutant-b2: remove the awk include line that matches nested .env* files (path ~ /...env[^.../).
-  # Without it corpus/.env.local (nested .env.local) is no longer matched → test 32 must flip.
   echo "-- teeth-b2: drop nested .env* awk filter line — test 32 nested .env must go red --"
-  mutant_b2="$TMP/scan-secrets.MUTANT-b2.sh"
-  grep -vF 'env[^' "$SUT" > "$mutant_b2"
-  cm_rc32m="$(bash "$mutant_b2" --committed "$d_t32" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc32m" != 1 ] && ok "teeth-b2: env[^-removed mutant misses nested .env.local (rc=$cm_rc32m) → test 32 has teeth" \
-    || no "teeth-b2: mutant still caught nested .env.local (rc=$cm_rc32m) — test 32 is THEATER"
+  mutant_b2="$MUT/scan-secrets.MUTANT-b2.sh"
+  mk_sed "teeth-b2" "$mutant_b2" '/env\[\^/d' \
+    && tooth "teeth-b2: env[^-removed mutant misses nested .env.local → test 32 has teeth" 1 0 "$mutant_b2" \
+         -- bash @SUT@ --committed "$d_t32"
 
   # Teeth for test 35 (B3: rev-list enumeration rc ≥ 2 → DEGRADED).
-  # Mutant-b3: neuter the PIPESTATUS check so rev-list failure is silently ignored.
-  # M4: the check now uses _rev_obj_pstat[0] and [1] instead of _rev_obj_rc.
-  # Test 35 must flip to FAIL (exit 0 instead of 3 — empty blob list, no scan, no DEGRADED).
-  # Note: 0 blobs with _raw_lines=0 is NOT DEGRADED (empty repo), so the mutant must also
-  # silence the N=0 check; we do that by patching both conditions to false.
+  # Mutant-b3: neuter the PIPESTATUS checks so a rev-list failure is silently ignored, and silence the
+  # N=0 check (0 blobs with _raw_lines=0 is not DEGRADED, so the empty list must also read as clean).
   echo "-- teeth-b3: remove _rev_obj_pstat check — test 35 must go red (silent pass) --"
-  mutant_b3="$TMP/scan-secrets.MUTANT-b3.sh"
-  sed 's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g;
-       s/if \[ "\$_total_blobs" -eq 0 \]/if false/g' \
-    "$SUT" \
-  | sed 's/if \[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
-    > "$mutant_b3"
-  cm_out35m="$(PATH="$_stub_bad_revlist:$PATH" bash "$mutant_b3" --committed "$d_t35" 2>&1)"
-  cm_rc35m=$?
-  if [ "$cm_rc35m" != 3 ] && ! printf '%s' "$cm_out35m" | grep -qi 'degraded'; then
-    ok "teeth-b3: rc-check-removed mutant silently passes (rc=$cm_rc35m) → test 35 has teeth"
-  else
-    no "teeth-b3: mutant still emits DEGRADED (rc=$cm_rc35m) — test 35 is THEATER"
-  fi
+  mutant_b3="$MUT/scan-secrets.MUTANT-b3.sh"
+  mk_sed "teeth-b3" "$mutant_b3" \
+    's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
+    's/if \[ "\$_total_blobs" -eq 0 \]/if false/g' \
+    's/if \[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
+    && tooth "teeth-b3: rc-check-removed mutant silently passes → test 35 has teeth" 3 0 "$mutant_b3" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env PATH="$_stub_bad_revlist:$PATH" bash @SUT@ --committed "$d_t35"
 fi
 
 # 36 — --committed catches a token that was in a past commit but deleted from HEAD (MAJOR1 history scan).
@@ -545,15 +569,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for tests 36+28 (MAJOR1 all-history): same rev-list-empty mutant as teeth-cm27/28.
   # Test 36 must go red (exits 0 — no history scan, past commit token missed).
   echo "-- teeth: empty rev-list — test 36 past-commit token must go red --"
-  cm_rc36m="$(bash "$mutant_cm" --committed "$d_t36" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc36m" != 1 ] && ok "teeth-hist36: empty-rev-list mutant misses past-commit token (rc=$cm_rc36m) → test 36 has teeth" \
-    || no "teeth-hist36: mutant still caught past-commit token (rc=$cm_rc36m) — test 36 is THEATER"
+  tooth "teeth-hist36: empty-rev-list mutant misses past-commit token → test 36 has teeth" 1 0 "$mutant_cm" \
+    -- bash @SUT@ --committed "$d_t36"
 
-  # Teeth for test 37 (MAJOR1 commit messages): neuter git log so commit messages are empty.
+  # Teeth for test 37 (MAJOR1 commit messages): neuter the commit-message scan so messages are empty.
   # M4 changed the command to span two lines with -c log.showSignature=false; use Python to match
   # the multi-line form reliably.
   echo "-- teeth: neuter git log — test 37 commit-message token must go red --"
-  mutant_cmsg="$TMP/scan-secrets.MUTANT-cmsg.sh"
+  mutant_cmsg="$MUT/scan-secrets.MUTANT-cmsg.sh"
   python3 - "$SUT" "$mutant_cmsg" << 'PYCMSG37'
 import sys
 lines = open(sys.argv[1]).readlines()
@@ -578,56 +601,55 @@ while i < len(lines):
         out.append(lines[i])
         i += 1
 if not replaced:
-    import sys as _sys; print("WARN: cmsg37 catfile block not found in SUT", file=_sys.stderr)
+    sys.exit("cmsg37 catfile block not found in SUT")
 open(sys.argv[2], 'w').write(''.join(out))
 PYCMSG37
-  cm_rc37m="$(bash "$mutant_cmsg" --committed "$d_t37" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc37m" != 1 ] && ok "teeth-cmsg37: log-neutered mutant misses commit-message token (rc=$cm_rc37m) → test 37 has teeth" \
-    || no "teeth-cmsg37: mutant still caught commit-message token (rc=$cm_rc37m) — test 37 is THEATER"
+  mk_verify "teeth-cmsg37" "$mutant_cmsg" \
+    && tooth "teeth-cmsg37: log-neutered mutant misses commit-message token → test 37 has teeth" 1 0 "$mutant_cmsg" \
+         -- bash @SUT@ --committed "$d_t37"
 
   # Teeth for test 38 (MAJOR2 -a flag): change -naE back to -nIE so binary files are skipped.
   # B6 rescan is also neutered — otherwise the NUL-stripped copy catches the token despite -nIE.
   # Together these prove the main scan path (not B6) is what T38 exercises.
   echo "-- teeth: change -naE to -nIE + neuter B6 rescan — test 38 NUL-byte file must go red --"
-  mutant_noflag="$TMP/scan-secrets.MUTANT-noflag.sh"
+  mutant_noflag="$MUT/scan-secrets.MUTANT-noflag.sh"
   python3 - "$SUT" "$mutant_noflag" << 'PYNOFLAG38'
 import sys, re
 content = open(sys.argv[1]).read()
 # 1. Change main HC grep flag from -naE to -nIE (skips binary files)
-content = content.replace('-naE', '-nIE')
+content, n1 = re.subn('-naE', '-nIE', content)
 # 2. Neuter B6 unconditional NUL-stripped rescan: replace the NUL-stripped grep with 'true'
 #    (after -naE→-nIE the NUL-stripped copy has no NULs, so -nIE treats it as text and still
 #    finds the token; must replace the grep itself to prove the main-scan path drives T38).
-content = re.sub(
+content, n2 = re.subn(
     r'    grep -nIE \\\n(      -e [^\n]+\n)+      "\$_nul_tmp" 2>/dev/null \\',
     r'    true 2>/dev/null \\',
     content
 )
+# #1299: every stage must apply — a no-op second stage would still leave a "different" mutant.
+if n1 == 0 or n2 == 0:
+    sys.exit("noflag38: stage no-op (flag-swap=%d, B6-grep-neuter=%d)" % (n1, n2))
 open(sys.argv[2], 'w').write(content)
 PYNOFLAG38
-  cm_rc38m="$(bash "$mutant_noflag" --committed "$d_t38" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc38m" = 0 ] && ok "teeth-noflag38: -nIE+no-B6 mutant misses NUL-byte .md token (rc=0 = false clean) → test 38 has teeth" \
-    || no "teeth-noflag38: mutant rc=$cm_rc38m (want 0=false clean) — test 38 is THEATER"
+  mk_verify "teeth-noflag38" "$mutant_noflag" \
+    && tooth "teeth-noflag38: -nIE+no-B6 mutant misses NUL-byte .md token (false clean) → test 38 has teeth" 1 0 "$mutant_noflag" \
+         -- bash @SUT@ --committed "$d_t38"
 
   # Teeth for test 39 (MAJOR3 subdir refuse): remove the show-toplevel check.
   echo "-- teeth: remove subdir check — test 39 must go red (no longer refuses subdirectory) --"
-  mutant_m3="$TMP/scan-secrets.MUTANT-m3.sh"
-  sed 's/if \[ "\$_target_real" != "\$_toplevel_real" \]/if false/g' "$SUT" > "$mutant_m3"
-  cm_rc39m="$(bash "$mutant_m3" --committed "$d_t39sub" 2>/dev/null; echo $?)"
-  [ "$cm_rc39m" != 3 ] && ok "teeth-m3-39: toplevel-check-removed mutant does not refuse subdir (rc=$cm_rc39m) → test 39 has teeth" \
-    || no "teeth-m3-39: mutant still refuses subdir (rc=$cm_rc39m) — test 39 is THEATER"
+  mutant_m3="$MUT/scan-secrets.MUTANT-m3.sh"
+  mk_sed "teeth-m3-39" "$mutant_m3" 's/if \[ "\$_target_real" != "\$_toplevel_real" \]/if false/g' \
+    && tooth "teeth-m3-39: toplevel-check-removed mutant does not refuse subdir → test 39 has teeth" 3 0 "$mutant_m3" \
+         -- bash @SUT@ --committed "$d_t39sub"
 
   # Teeth for test 40 (MINOR -i advisory): remove -i from advisory git grep so case-insensitive
   # matching is lost — PASSWORD= (uppercase) must no longer WARN.
   echo "-- teeth: remove -i from advisory git grep — test 40 PASSWORD= must go red (no WARN) --"
-  mutant_noi="$TMP/scan-secrets.MUTANT-noi.sh"
-  sed 's/grep -naiP/grep -naP/g' "$SUT" > "$mutant_noi"
-  out40m="$(bash "$mutant_noi" --committed "$d_t40" 2>&1)"
-  if grep -qE '^[[:space:]]+WARN ' <<<"$out40m"; then
-    no "teeth-noi40: -i-removed mutant still WARNs on PASSWORD= — test 40 is THEATER"
-  else
-    ok "teeth-noi40: -i-removed mutant does not WARN on PASSWORD= (uppercase) → test 40 has teeth"
-  fi
+  mutant_noi="$MUT/scan-secrets.MUTANT-noi.sh"
+  mk_sed "teeth-noi40" "$mutant_noi" 's/grep -naiP/grep -naP/g' \
+    && tooth "teeth-noi40: -i-removed mutant does not WARN on PASSWORD= (uppercase) → test 40 has teeth" 0 0 "$mutant_noi" \
+         --good-has '^[[:space:]]+WARN ' --bad-lacks '^[[:space:]]+WARN ' \
+         -- bash @SUT@ --committed "$d_t40"
 fi
 
 # --------------------------------------------------------------------------
@@ -852,107 +874,87 @@ cm_rc52="$(bash "$SUT" --committed "$d_t52" >/dev/null 2>&1; echo $?)"
   || no "52 B5 newline in path: rc=$cm_rc52 (want 1) — path split, blob sha lost, token missed"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Teeth for T41 (B1 out-of-scope first): mutant uses rev-list --objects (old behavior, dedup
-  # by first-seen path) → misses the in-scope notes.md copy → exits 0 → test 41 must go red.
-  echo "-- teeth-b1-41: rev-list mutant dedup loses in-scope copy — test 41 must go red --"
-  mutant_b1_41="$TMP/scan-secrets.MUTANT-b1-41.sh"
-  # Replace log --raw enumeration with rev-list --objects (old approach):
-  sed 's/git --no-replace-objects -C "\$target" log --format= --raw --no-abbrev --no-renames -m --root -z HEAD/git -C "$target" rev-list --objects HEAD/g; s/| tr '"'"'\\\\0'"'"' '"'"'\\\\n'"'"'//g' \
-    "$SUT" > "$mutant_b1_41" 2>/dev/null || sed 's/--no-replace-objects//g' "$SUT" > "$mutant_b1_41"
-  # Actually, test teeth by removing --no-replace-objects (M1 mutant) for T51 first,
-  # and for T41 by direct mutation of the awk to use old rev-list --objects style.
-  # Simpler teeth for T41: a rev-list-only mutant won't enumerate the notes.md path
-  # when a.txt sorts/appears first. Hard to mechanically reproduce; skip the b1-41 awk teeth.
-  # Use B1 teeth = M1: remove --no-replace-objects and verify T51 flips.
-  echo "-- teeth-m1-51: remove --no-replace-objects — test 51 must go red (replace active) --"
-  mutant_m1="$TMP/scan-secrets.MUTANT-m1.sh"
-  sed 's/git --no-replace-objects/git/g' "$SUT" > "$mutant_m1"
-  cm_rc51m="$(bash "$mutant_m1" --committed "$d_t51" >/dev/null 2>&1; echo $?)"
-  if [ "$cm_rc51m" != 1 ]; then
-    ok "teeth-m1-51: no-replace-objects-removed mutant follows replacement, misses secret (rc=$cm_rc51m) → test 51 has teeth"
-  else
-    no "teeth-m1-51: mutant still caught secret (rc=$cm_rc51m) — test 51 is THEATER"
+  # Teeth for T41/T42 (B1: in-scope copy must survive blob dedup). The SUT filters (blob, path) pairs
+  # by scope BEFORE it dedups by blob sha. The mutant restores the old first-seen-path dedup: it
+  # dedups by sha as soon as a path record is read, BEFORE the scope filter, so a blob first seen
+  # at an out-of-scope path (a.txt / decompiled/x.md) hides its later in-scope copy (notes.md /
+  # zz.md) → false clean. (#1299: the former mutant targeted a `log --raw` command that no longer
+  # exists in the SUT, was never executed and asserted nothing; rebuilt against the live code path.)
+  echo "-- teeth-b1-41/42: dedup-before-scope-filter mutant loses the in-scope copy — tests 41+42 must go red --"
+  mutant_b1_41="$MUT/scan-secrets.MUTANT-b1-41.sh"
+  if mk_sed "teeth-b1-41" "$mutant_b1_41" 's/^  if (sha_cur ~ \/\^0+\$\/) next$/&\n  if (seen_b1[sha_cur]++) next   # MUTANT: first-seen path decides scope/'; then
+    tooth "teeth-b1-41: dedup-before-filter mutant misses in-scope notes.md copy → test 41 has teeth" 1 0 "$mutant_b1_41" \
+      -- bash @SUT@ --committed "$d_t41"
+    tooth "teeth-b1-42: dedup-before-filter mutant misses in-scope zz.md copy → test 42 has teeth" 1 0 "$mutant_b1_41" \
+      -- bash @SUT@ --committed "$d_t42"
   fi
+
+  # Teeth for T51 (M1 git replace): remove --no-replace-objects so the replacement hides the secret.
+  echo "-- teeth-m1-51: remove --no-replace-objects — test 51 must go red (replace active) --"
+  mutant_m1="$MUT/scan-secrets.MUTANT-m1.sh"
+  mk_sed "teeth-m1-51" "$mutant_m1" 's/git --no-replace-objects/git/g' \
+    && tooth "teeth-m1-51: no-replace-objects-removed mutant follows replacement, misses secret → test 51 has teeth" 1 0 "$mutant_m1" \
+         -- bash @SUT@ --committed "$d_t51"
 
   # Teeth for T44 (B4 Latin-1): neuter -a flag in grep so invalid UTF-8 lines are dropped.
   echo "-- teeth-b4-44: grep without -a — test 44 Latin-1 must go red --"
-  mutant_b4="$TMP/scan-secrets.MUTANT-b4.sh"
-  # Remove the 'a' from -naE (change -naE to -nE) — both in ONE LOOP and in scan().
-  sed 's/-naE/-nE/g; s/-naiP/-niP/g' "$SUT" > "$mutant_b4"
-  cm_rc44m="$(LC_ALL=C.UTF-8 bash "$mutant_b4" --committed "$d_t44" >/dev/null 2>&1; echo $?)"
-  if [ "$cm_rc44m" != 1 ]; then
-    ok "teeth-b4-44: -a-removed mutant drops Latin-1 line (rc=$cm_rc44m) → test 44 has teeth"
-  else
-    no "teeth-b4-44: mutant still caught Latin-1 line (rc=$cm_rc44m) — test 44 is THEATER"
-  fi
+  mutant_b4="$MUT/scan-secrets.MUTANT-b4.sh"
+  # Remove the 'a' from -naE / -naiP — both in ONE LOOP and in scan().
+  mk_sed "teeth-b4-44" "$mutant_b4" 's/-naE/-nE/g' 's/-naiP/-niP/g' \
+    && tooth "teeth-b4-44: -a-removed mutant drops Latin-1 line → test 44 has teeth" 1 0 "$mutant_b4" \
+         -- env LC_ALL=C.UTF-8 bash @SUT@ --committed "$d_t44"
 
   # Teeth for T46 (B3 rev-list exit 1): restore old >=2 check on the PIPESTATUS checks so
   # rev-list exit-1 is treated as ok → scan proceeds silently → test 46 must go red.
-  # M4: PIPESTATUS checks use _rev_obj_pstat[0] and [1]; neutering both to -ge 2 restores the
-  # old fail-open behaviour where rc=1 from rev-list is silently ignored.
   echo "-- teeth-b3-46: restore >=2 on pstat[0] and pstat[1] — test 46 exit-1 must go red (silent pass) --"
-  mutant_b3_46="$TMP/scan-secrets.MUTANT-b3-46.sh"
-  sed 's/\[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[0]:-0}" -ge 2 ]/g;
-       s/\[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[1]:-0}" -ge 2 ]/g;
-       s/\[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \]/[ "${_cmsg_rev_pstat[0]:-0}" -ge 2 ]/g;
-       s/\[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]/[ "${_cmsg_rev_pstat[1]:-0}" -ge 2 ]/g' \
-    "$SUT" > "$mutant_b3_46"
-  cm_out46m="$(PATH="$_stub46:$PATH" bash "$mutant_b3_46" --committed "$d_t46" 2>&1)"
-  cm_rc46m=$?
-  if [ "$cm_rc46m" != 3 ] && ! printf '%s' "$cm_out46m" | grep -qi 'degraded'; then
-    ok "teeth-b3-46: >=2-restored mutant passes silently on exit-1 → test 46 has teeth"
-  else
-    no "teeth-b3-46: mutant still emits DEGRADED (rc=$cm_rc46m) — test 46 is THEATER"
-  fi
+  mutant_b3_46="$MUT/scan-secrets.MUTANT-b3-46.sh"
+  mk_sed "teeth-b3-46" "$mutant_b3_46" \
+    's/\[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[0]:-0}" -ge 2 ]/g' \
+    's/\[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[1]:-0}" -ge 2 ]/g' \
+    's/\[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \]/[ "${_cmsg_rev_pstat[0]:-0}" -ge 2 ]/g' \
+    's/\[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]/[ "${_cmsg_rev_pstat[1]:-0}" -ge 2 ]/g' \
+    && tooth "teeth-b3-46: >=2-restored mutant passes silently on exit-1 → test 46 has teeth" 3 0 "$mutant_b3_46" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env PATH="$_stub46:$PATH" bash @SUT@ --committed "$d_t46"
 
   # Teeth for T47 (B3 mktemp): neuter mktemp check → mktemp failure not caught.
   echo "-- teeth-b3-47: remove mktemp check — test 47 must go red (silent on mktemp fail) --"
-  mutant_b3_47="$TMP/scan-secrets.MUTANT-b3-47.sh"
+  mutant_b3_47="$MUT/scan-secrets.MUTANT-b3-47.sh"
   # Override mktemp to always use /tmp regardless of TMPDIR: the failure-guard never fires,
   # and the scan runs normally → finds the token → exits 1 (not 3). Test 47 must go red.
-  sed 's/\$(mktemp)/$(TMPDIR=\/tmp mktemp)/g' "$SUT" > "$mutant_b3_47"
-  cm_out47m="$(TMPDIR="$TMP/nonexistent-tmpdir-$$" bash "$mutant_b3_47" --committed "$d_t47" 2>&1)"
-  cm_rc47m=$?
-  if [ "$cm_rc47m" != 3 ] && ! printf '%s' "$cm_out47m" | grep -qi 'degraded'; then
-    ok "teeth-b3-47: mktemp-check-removed mutant passes silently on tmpdir failure → test 47 has teeth"
-  else
-    no "teeth-b3-47: mutant still emits DEGRADED (rc=$cm_rc47m) — test 47 is THEATER"
-  fi
+  mk_sed "teeth-b3-47" "$mutant_b3_47" 's/\$(mktemp)/$(TMPDIR=\/tmp mktemp)/g' \
+    && tooth "teeth-b3-47: mktemp-check-removed mutant scans despite unusable tmpdir (finds the token) → test 47 has teeth" 3 1 "$mutant_b3_47" \
+         --good-has 'degraded' --bad-lacks 'degraded' --bad-has 'LEAK!' \
+         -- env TMPDIR="$TMP/nonexistent-tmpdir-$$" bash @SUT@ --committed "$d_t47"
 
   # Teeth for T48 (B3 awk missing): remove awk probe → awk absence not detected.
   echo "-- teeth-b3-48: remove awk probe — test 48 must go red (silent on awk absent) --"
-  mutant_b3_48="$TMP/scan-secrets.MUTANT-b3-48.sh"
+  mutant_b3_48="$MUT/scan-secrets.MUTANT-b3-48.sh"
   # Remove both lines of the awk probe (line 1 has the test, line 2 has the message+exit),
   # then also disable the PIPESTATUS check so awk-missing silently produces an empty blob list
   # → scan finds nothing → exits 0, not 3. Test 48 must go red.
-  sed '/command -v awk/,/requires awk/d' "$SUT" \
-    | sed 's/if \[ "\${_frc\[0\]:-0}" -ne 0 \] || \[ "\${_frc\[1\]:-0}" -ne 0 \] || \[ "\${_frc\[2\]:-0}" -ne 0 \]/if false/g' \
-    > "$mutant_b3_48"
-  cm_out48m="$(PATH="$_stub48" bash "$mutant_b3_48" --committed "$d_t48" 2>&1)"
-  cm_rc48m=$?
-  if [ "$cm_rc48m" != 3 ] && ! printf '%s' "$cm_out48m" | grep -qi 'degraded'; then
-    ok "teeth-b3-48: awk-probe-removed mutant passes silently without awk → test 48 has teeth"
-  else
-    no "teeth-b3-48: mutant still emits DEGRADED (rc=$cm_rc48m) — test 48 is THEATER"
-  fi
+  mk_sed "teeth-b3-48" "$mutant_b3_48" \
+    '/command -v awk/,/requires awk/d' \
+    's/if \[ "\${_frc\[0\]:-0}" -ne 0 \] || \[ "\${_frc\[1\]:-0}" -ne 0 \] || \[ "\${_frc\[2\]:-0}" -ne 0 \]/if false/g' \
+    && tooth "teeth-b3-48: awk-probe-removed mutant passes silently without awk → test 48 has teeth" 3 0 "$mutant_b3_48" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env PATH="$_stub48" bash @SUT@ --committed "$d_t48"
 
   # Teeth for T49 (B2 cat-file): remove cat-file exit-code check.
   echo "-- teeth-b2-49: unchecked cat-file → test 49 must go red (reads empty as clean) --"
-  mutant_b2_49="$TMP/scan-secrets.MUTANT-b2-49.sh"
-  sed 's/if ! git --no-replace-objects -C "\$target" cat-file blob/git --no-replace-objects -C "$target" cat-file blob/g; s/then$/: #/; /DEGRADED.*cat-file blob/d' \
-    "$SUT" > "$mutant_b2_49" 2>/dev/null || \
-  sed 's/if ! \(git.*cat-file blob.*\) > "\$_blob_tmp"/\1 > "$_blob_tmp"/g' "$SUT" > "$mutant_b2_49"
-  cm_out49m="$(bash "$mutant_b2_49" --committed "$d_t49" 2>&1)"
-  cm_rc49m=$?
-  if [ "$cm_rc49m" != 3 ] && ! printf '%s' "$cm_out49m" | grep -qi 'degraded'; then
-    ok "teeth-b2-49: cat-file-check-removed mutant reads corrupt blob as empty → test 49 has teeth"
-  else
-    no "teeth-b2-49: mutant still emits DEGRADED (rc=$cm_rc49m) — test 49 is THEATER"
-  fi
+  mutant_b2_49="$MUT/scan-secrets.MUTANT-b2-49.sh"
+  # (#1299: the former 3-stage chain produced a syntax-broken script — `then$`→`: #` orphaned the
+  # closing `fi` — whose crash read as teeth under a bare `rc != 3`; lib/mutant.sh refuses it.
+  # One stage that keeps the if/fi structure instead: the cat-file failure test becomes `if false`.)
+  mk_sed "teeth-b2-49" "$mutant_b2_49" \
+    's/if ! git --no-replace-objects -C "\$target" cat-file blob "\$bsha" > "\$_blob_tmp" 2>\/dev\/null; then/if false; then/' \
+    && tooth "teeth-b2-49: cat-file-check-removed mutant reads corrupt blob as empty → test 49 has teeth" 3 0 "$mutant_b2_49" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- bash @SUT@ --committed "$d_t49"
 
-  # Teeth for T50 (B5 pipe in path): use sed-based mutant that restores sed injection.
+  # Teeth for T50 (B5 pipe in path): mutant restores the sed-based prefix (injection via '|' in path).
   echo "-- teeth-b5-50: sed-based prefix → test 50 pipe-path must go red --"
-  mutant_b5="$TMP/scan-secrets.MUTANT-b5.sh"
+  mutant_b5="$MUT/scan-secrets.MUTANT-b5.sh"
   # Replace ENVIRON-based awk prefix with the old sed-based one (vulnerable to '|' in paths):
   # sed "s|^|${bpath}@${bshort}:|" breaks when bpath contains '|', and the token is lost.
   python3 - "$SUT" "$mutant_b5" << 'PYEOF'
@@ -964,18 +966,14 @@ content = content.replace(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF
-  cm_rc50m="$(bash "$mutant_b5" --committed "$d_t50" >/dev/null 2>&1; echo $?)"
-  if [ "$cm_rc50m" != 1 ]; then
-    ok "teeth-b5-50: sed-mutant breaks on pipe path (rc=$cm_rc50m) → test 50 has teeth"
-  else
-    no "teeth-b5-50: sed mutant still caught pipe-path token (rc=$cm_rc50m) — test 50 may be THEATER"
-  fi
+  mk_verify "teeth-b5-50" "$mutant_b5" \
+    && tooth "teeth-b5-50: sed-mutant breaks on pipe path → test 50 has teeth" 1 3 "$mutant_b5" \
+         -- bash @SUT@ --committed "$d_t50"
 
   # Teeth for T52 (B5 newline-in-path): remove RS="\0" from awk BEGIN → awk uses default newline
-  # RS → NUL-terminated git log output is not parsed correctly → path with embedded newline is split
-  # → blob sha lost → token missed → exit 0 → test 52 must go red.
+  # RS → NUL-terminated diff-tree output is not parsed correctly → fail-closed DEGRADED (rc=3).
   echo "-- teeth-b5-52: RS-null-removed — test 52 newline-path must go red --"
-  mutant_b5_52="$TMP/scan-secrets.MUTANT-b5-52.sh"
+  mutant_b5_52="$MUT/scan-secrets.MUTANT-b5-52.sh"
   python3 - "$SUT" "$mutant_b5_52" << 'PYEOF'
 import sys
 content = open(sys.argv[1]).read()
@@ -986,12 +984,9 @@ content = content.replace(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF
-  cm_rc52m="$(bash "$mutant_b5_52" --committed "$d_t52" >/dev/null 2>&1; echo $?)"
-  if [ "$cm_rc52m" != 1 ]; then
-    ok "teeth-b5-52: RS-removed mutant misses newline-path blob (rc=$cm_rc52m) → test 52 has teeth"
-  else
-    no "teeth-b5-52: mutant still caught newline-path token (rc=$cm_rc52m) — test 52 is THEATER"
-  fi
+  mk_verify "teeth-b5-52" "$mutant_b5_52" \
+    && tooth "teeth-b5-52: RS-removed mutant breaks on newline-path blob → test 52 has teeth" 1 3 "$mutant_b5_52" \
+         -- bash @SUT@ --committed "$d_t52"
 fi
 
 # --------------------------------------------------------------------------
@@ -1474,7 +1469,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # validation, giving DEGRADED exit 3; instead we insert a skip INSIDE Rule 1 so it is consumed
   # there (silently) and never reaches the fail-closed path.
   echo "-- teeth-r4-53: colon-path early-skip in Rule 1 — :notes.md sha cleared → rc=0 --"
-  mutant_t53="$TMP/scan-secrets.MUTANT-r4-53.sh"
+  mutant_t53="$MUT/scan-secrets.MUTANT-r4-53.sh"
   python3 - "$SUT" "$mutant_t53" << 'PYEOF53'
 import sys
 content = open(sys.argv[1]).read()
@@ -1489,14 +1484,13 @@ content = content.replace(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF53
-  _m53rc=$(bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; echo $?)
-  [ "$_m53rc" = 0 ] \
-    && ok "teeth-r4-53: colon-skip mutant silently misses :notes.md (rc=0 = false clean) → test 53 has teeth" \
-    || no "teeth-r4-53: mutant did not pass silently (rc=$_m53rc, want 0) — check mutation"
+  mk_verify "teeth-r4-53" "$mutant_t53" \
+    && tooth "teeth-r4-53: colon-skip mutant silently misses :notes.md (rc=0 = false clean) → test 53 has teeth" 1 0 "$mutant_t53" \
+         -- bash @SUT@ --committed "$d_t53"
 
   # Teeth for T56 (gitlink): restore old awk without 160000 skip → cat-file fails on submod sha → DEGRADED.
   echo "-- teeth-r4-56: remove gitlink skip — test 56 must go red (DEGRADED on cat-file) --"
-  mutant_t56="$TMP/scan-secrets.MUTANT-r4-56.sh"
+  mutant_t56="$MUT/scan-secrets.MUTANT-r4-56.sh"
   python3 - "$SUT" "$mutant_t56" << 'PYEOF56'
 import sys
 content = open(sys.argv[1]).read()
@@ -1505,13 +1499,13 @@ import re
 content = re.sub(r'  if \(\$2 == "160000"\).*?next\s*\}.*?\n', '', content)
 open(sys.argv[2], 'w').write(content)
 PYEOF56
-  _m56rc=$(bash "$mutant_t56" --committed "$d_t56" >/dev/null 2>&1; echo $?)
-  [ "$_m56rc" != 1 ] && ok "teeth-r4-56: gitlink-skip-removed mutant DEGRADED on submod sha (rc=$_m56rc) → test 56 has teeth" \
-    || no "teeth-r4-56: mutant still exited 1 on gitlink (rc=$_m56rc) — test 56 is THEATER"
+  mk_verify "teeth-r4-56" "$mutant_t56" \
+    && tooth "teeth-r4-56: gitlink-skip-removed mutant DEGRADED on submod sha → test 56 has teeth" 1 3 "$mutant_t56" \
+         -- bash @SUT@ --committed "$d_t56"
 
   # Teeth for T57 (grafts): remove grafts check → DEGRADED no longer emitted → test 57 must go red.
   echo "-- teeth-r4-57: remove grafts check — test 57 must go red (no longer DEGRADED) --"
-  mutant_t57="$TMP/scan-secrets.MUTANT-r4-57.sh"
+  mutant_t57="$MUT/scan-secrets.MUTANT-r4-57.sh"
   python3 - "$SUT" "$mutant_t57" << 'PYEOF57'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1524,17 +1518,14 @@ content = re.sub(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF57
-  _m57out=$(bash "$mutant_t57" --committed "$d_t57" 2>&1)
-  _m57rc=$?
-  if [ "$_m57rc" != 3 ] && ! printf '%s' "$_m57out" | grep -qi 'degraded'; then
-    ok "teeth-r4-57: grafts-check-removed mutant proceeds (rc=$_m57rc) → test 57 has teeth"
-  else
-    no "teeth-r4-57: mutant still DEGRADED (rc=$_m57rc) — test 57 is THEATER"
-  fi
+  mk_verify "teeth-r4-57" "$mutant_t57" \
+    && tooth "teeth-r4-57: grafts-check-removed mutant proceeds → test 57 has teeth" 3 0 "$mutant_t57" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- bash @SUT@ --committed "$d_t57"
 
-  # Teeth for T58 (git log rc=1): restore old -ge 2 check → rc=1 treated as ok → exit 0.
+  # Teeth for T58 (cat-file rc=1 on the commit scan): neuter the _cmsg_rev_pstat PIPESTATUS guard.
   echo "-- teeth-r4-58: remove _cmsg_rev_pstat PIPESTATUS check — test 58 cat-file rc=1 must go red --"
-  mutant_t58="$TMP/scan-secrets.MUTANT-r4-58.sh"
+  mutant_t58="$MUT/scan-secrets.MUTANT-r4-58.sh"
   python3 - "$SUT" "$mutant_t58" << 'PYEOF58'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1547,69 +1538,70 @@ content = re.sub(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF58
-  _m58out=$(PATH="$_stub_t58:$PATH" bash "$mutant_t58" --committed "$d_t58" 2>&1)
-  _m58rc=$?
-  if [ "$_m58rc" != 3 ] && ! printf '%s' "$_m58out" | grep -qi 'degraded'; then
-    ok "teeth-r4-58: _cmsg_rev_pstat-removed mutant ignores cat-file rc=1 (rc=$_m58rc) → test 58 has teeth"
-  else
-    no "teeth-r4-58: mutant still DEGRADED (rc=$_m58rc) — test 58 is THEATER"
-  fi
+  mk_verify "teeth-r4-58" "$mutant_t58" \
+    && tooth "teeth-r4-58: _cmsg_rev_pstat-removed mutant ignores cat-file rc=1 → test 58 has teeth" 3 0 "$mutant_t58" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env PATH="$_stub_t58:$PATH" bash @SUT@ --committed "$d_t58"
 
   # Teeth for T59 (unchecked _cmsg_tmp mktemp): remove the mktemp check for _cmsg_tmp AND
   # restore the old -ge 2 check AND remove the _cmsg_hits_tmp mktemp check.
   # With stub failing on call ≥ 8: call 8 (_cmsg_tmp) and call 9 (_cmsg_hits_tmp) both fail.
   # Without both guards removed, one of them still catches the failure → DEGRADED.
   echo "-- teeth-r4-59: remove _cmsg_tmp + _cmsg_hits_tmp checks + restore -ge 2 — test 59 must go red --"
-  mutant_t59="$TMP/scan-secrets.MUTANT-r4-59.sh"
+  mutant_t59="$MUT/scan-secrets.MUTANT-r4-59.sh"
   python3 - "$SUT" "$mutant_t59" << 'PYEOF59'
 import sys, re
 content = open(sys.argv[1]).read()
+def stage(name, new, n):
+    # #1299: a stage that matches nothing is a silent no-op — refuse instead of writing the mutant.
+    if n == 0:
+        sys.exit("r4-59: stage '%s' matched nothing in the SUT" % name)
+    return new
 # Remove the _cmsg_tmp mktemp check
-content = re.sub(
+content, n = re.subn(
     r'(_cmsg_tmp="\$\(mktemp\)") \|\| \{[^}]+\}',
     r'\1',
     content
 )
+content = stage('_cmsg_tmp check', content, n)
 # Remove the _cmsg_hits_tmp mktemp check (M4 addition; also fails on call 9 with the stub)
-content = re.sub(
+content, n = re.subn(
     r'(_cmsg_hits_tmp="\$\(mktemp\)") \|\| \{[^}]+rm[^}]+exit 3;\s*\}',
     r'\1',
     content
 )
+content = stage('_cmsg_hits_tmp check', content, n)
 # Neuter the _cmsg_rev_pstat PIPESTATUS guard (M5 addition): with _cmsg_tmp="" the redirect to
 # "" fails, making cat-file exit non-zero; without this guard that failure would be caught.
-content = re.sub(
+content, n = re.subn(
     r'  if \[ "\$\{_cmsg_rev_pstat\[0\]:-0\}" -ne 0 \] \|\| \[ "\$\{_cmsg_rev_pstat\[1\]:-0\}" -ne 0 \]; then\n.*?fi\n',
     '  if false; then\n    : # neutered cmsg_rev_pstat\n  fi\n',
     content,
     flags=re.DOTALL
 )
+content = stage('_cmsg_rev_pstat guard', content, n)
 # Neuter the cmsg grep rc check (M4 addition; also needs neutering)
-content = content.replace(
-    'if [ "$_cmsg_grep_rc" -ge 2 ]',
-    'if false'
-)
+n = content.count('if [ "$_cmsg_grep_rc" -ge 2 ]')
+content = stage('_cmsg_grep_rc check', content.replace('if [ "$_cmsg_grep_rc" -ge 2 ]', 'if false'), n)
 open(sys.argv[2], 'w').write(content)
 PYEOF59
-  printf '0\n' > "$_count59"
-  _m59out=$(PATH="$_stub59:$PATH" bash "$mutant_t59" --committed "$d_t59" 2>&1)
-  _m59rc=$?
-  if [ "$_m59rc" != 3 ] && ! printf '%s' "$_m59out" | grep -qi 'degraded'; then
-    ok "teeth-r4-59: _cmsg_tmp-check-removed mutant passes silently (rc=$_m59rc) → test 59 has teeth"
-  else
-    no "teeth-r4-59: mutant still DEGRADED (rc=$_m59rc) — test 59 is THEATER"
-  fi
+  # The stub counts mktemp calls in $_count59; reset it before EACH run (original, then mutant).
+  mk_verify "teeth-r4-59" "$mutant_t59" \
+    && tooth "teeth-r4-59: _cmsg_tmp-check-removed mutant passes silently → test 59 has teeth" 3 0 "$mutant_t59" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- bash -c 'printf "0\n" > "$1"; shift; exec "$@"' _ "$_count59" \
+            env PATH="$_stub59:$PATH" bash @SUT@ --committed "$d_t59"
 
   # Teeth for T60 (log.showSignature): restore the exact round-4 porcelain git log --raw -m
   # enumeration; run against the real SSH-signed T60 fixture with log.showSignature=true.
   # With a real signed commit, git log injects the SSH verification line ("Good "git" signature…")
   # BEFORE the first NUL-delimited diff record. This non-header text trips fail-closed awk Rule 3
-  # → DEGRADED (rc≠1 proves the scan breaks). If T60 was skipped (no gpgsig), skip teeth too.
+  # → DEGRADED (rc=3 proves the scan breaks). If T60 was skipped (no gpgsig), skip teeth too.
   echo "-- teeth-r4-60: porcelain-log-with-m (round-4 exact) + showSignature — awk Rule 3 must fire --"
   if ! git -C "$d_t60" cat-file commit HEAD 2>/dev/null | grep -q '^gpgsig'; then
     echo "  SKIP:teeth-r4-60: T60 commit has no gpgsig; cannot prove showSignature teeth without a signed commit"
   else
-    mutant_t60="$TMP/scan-secrets.MUTANT-r4-60.sh"
+    mutant_t60="$MUT/scan-secrets.MUTANT-r4-60.sh"
     python3 - "$SUT" "$mutant_t60" << 'PYEOF60'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1625,10 +1617,9 @@ content = re.sub(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF60
-    _m60rc=$(GIT_CONFIG_GLOBAL="$_gcfg60" bash "$mutant_t60" --committed "$d_t60" >/dev/null 2>&1; echo $?)
-    [ "$_m60rc" != 1 ] \
-      && ok "teeth-r4-60: porcelain-log+showSignature mutant breaks (rc=$_m60rc≠1) → test 60 has teeth" \
-      || no "teeth-r4-60: porcelain-log+showSignature mutant still found token (rc=1) — test 60 is THEATER"
+    mk_verify "teeth-r4-60" "$mutant_t60" \
+      && tooth "teeth-r4-60: porcelain-log+showSignature mutant breaks (DEGRADED) → test 60 has teeth" 1 3 "$mutant_t60" \
+           -- env GIT_CONFIG_GLOBAL="$_gcfg60" bash @SUT@ --committed "$d_t60"
   fi
 
   # Teeth for T61 (log.diffMerges=off): restore the exact round-4 porcelain git log --raw -m
@@ -1637,7 +1628,7 @@ PYEOF60
   # (unlike plumbing diff-tree which -m always controls independently of log.* config).
   # Result: merge commit diffs suppressed → evil-merge blob not enumerated → exit 0 (false clean).
   echo "-- teeth-r4-61: porcelain-log-with-m (round-4 exact) + diffMerges=off — must miss evil-merge --"
-  mutant_t61="$TMP/scan-secrets.MUTANT-r4-61.sh"
+  mutant_t61="$MUT/scan-secrets.MUTANT-r4-61.sh"
   python3 - "$SUT" "$mutant_t61" << 'PYEOF61'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1654,17 +1645,16 @@ content = re.sub(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF61
-  _m61rc=$(GIT_CONFIG_GLOBAL="$_gcfg61" bash "$mutant_t61" --committed "$d_t61" >/dev/null 2>&1; echo $?)
-  [ "$_m61rc" != 1 ] \
-    && ok "teeth-r4-61: porcelain-log-with-m+diffMerges=off mutant misses evil-merge (rc=$_m61rc≠1) → test 61 has teeth" \
-    || no "teeth-r4-61: porcelain-log-with-m mutant still found evil-merge (rc=1) — test 61 is THEATER"
+  mk_verify "teeth-r4-61" "$mutant_t61" \
+    && tooth "teeth-r4-61: porcelain-log-with-m+diffMerges=off mutant misses evil-merge (false clean) → test 61 has teeth" 1 0 "$mutant_t61" \
+         -- env GIT_CONFIG_GLOBAL="$_gcfg61" bash @SUT@ --committed "$d_t61"
 
   # Teeth for T62/T63/T64 (M5 raw commit object scan): restore the old git log --format=%s%n%b
   # commit-message scan. One shared mutant covers all three because all three exploit the same
   # gap: the old scan outputs text via git log (re-encoded or format-limited) while cat-file
   # returns raw stored bytes immune to encoding and including all commit-object fields.
   echo "-- teeth-m5-62/63/64: old git-log commit scan — logOutputEncoding/commitEncoding/author miss --"
-  mutant_m5="$TMP/scan-secrets.MUTANT-m5.sh"
+  mutant_m5="$MUT/scan-secrets.MUTANT-m5.sh"
   python3 - "$SUT" "$mutant_m5" << 'PYEOF_M5'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1680,37 +1670,32 @@ old_block = re.search(
     content,
     flags=re.DOTALL
 )
-if old_block:
-    content = content[:old_block.start()] + (
-        '  git --no-replace-objects -c log.showSignature=false -C "$target" \\\n'
-        '      log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null\n'
-        '  _cml_rc=$?\n'
-        '  if [ "$_cml_rc" -ne 0 ]; then\n'
-        '    echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2\n'
-        '    rm -f "$_cmsg_tmp"; exit 3\n'
-        '  fi\n'
-    ) + content[old_block.end():]
-else:
-    import sys as _sys; print("WARN: m5 block not found in SUT", file=_sys.stderr)
+if not old_block:
+    sys.exit("m5 block not found in SUT")
+content = content[:old_block.start()] + (
+    '  git --no-replace-objects -c log.showSignature=false -C "$target" \\\n'
+    '      log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null\n'
+    '  _cml_rc=$?\n'
+    '  if [ "$_cml_rc" -ne 0 ]; then\n'
+    '    echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2\n'
+    '    rm -f "$_cmsg_tmp"; exit 3\n'
+    '  fi\n'
+) + content[old_block.end():]
 open(sys.argv[2], 'w').write(content)
 PYEOF_M5
-  _m62rc=$(GIT_CONFIG_GLOBAL="$_gcfg62" bash "$mutant_m5" --committed "$d_t62" >/dev/null 2>&1; echo $?)
-  [ "$_m62rc" = 0 ] \
-    && ok "teeth-m5-62: old git-log mutant misses logOutputEncoding=UTF-16 token (rc=0 = false clean) → test 62 has teeth" \
-    || no "teeth-m5-62: old git-log mutant rc=$_m62rc (want 0=false clean) — test 62 is THEATER"
-  _m63rc=$(GIT_CONFIG_GLOBAL="$_gcfg63" bash "$mutant_m5" --committed "$d_t63" >/dev/null 2>&1; echo $?)
-  [ "$_m63rc" = 0 ] \
-    && ok "teeth-m5-63: old git-log mutant misses commitEncoding=UTF-16 token (rc=0 = false clean) → test 63 has teeth" \
-    || no "teeth-m5-63: old git-log mutant rc=$_m63rc (want 0=false clean) — test 63 is THEATER"
-  _m64rc=$(bash "$mutant_m5" --committed "$d_t64" >/dev/null 2>&1; echo $?)
-  [ "$_m64rc" = 0 ] \
-    && ok "teeth-m5-64: old git-log mutant misses secret in author name (rc=0 = false clean) → test 64 has teeth" \
-    || no "teeth-m5-64: old git-log mutant rc=$_m64rc (want 0=false clean) — test 64 is THEATER"
+  if mk_verify "teeth-m5" "$mutant_m5"; then
+    tooth "teeth-m5-62: old git-log mutant misses logOutputEncoding=UTF-16 token (false clean) → test 62 has teeth" 1 0 "$mutant_m5" \
+      -- env GIT_CONFIG_GLOBAL="$_gcfg62" bash @SUT@ --committed "$d_t62"
+    tooth "teeth-m5-63: old git-log mutant misses commitEncoding=UTF-16 token (false clean) → test 63 has teeth" 1 0 "$mutant_m5" \
+      -- env GIT_CONFIG_GLOBAL="$_gcfg63" bash @SUT@ --committed "$d_t63"
+    tooth "teeth-m5-64: old git-log mutant misses secret in author name (false clean) → test 64 has teeth" 1 0 "$mutant_m5" \
+      -- bash @SUT@ --committed "$d_t64"
+  fi
 
   # Teeth for T65 (GIT_GRAFT_FILE): remove the GIT_GRAFT_FILE env check.
   # Without the check, the scan proceeds despite the env override → no DEGRADED.
   echo "-- teeth-r4-65: remove GIT_GRAFT_FILE check — test 65 must go red (no DEGRADED) --"
-  mutant_t65="$TMP/scan-secrets.MUTANT-r4-65.sh"
+  mutant_t65="$MUT/scan-secrets.MUTANT-r4-65.sh"
   python3 - "$SUT" "$mutant_t65" << 'PYEOF65'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1723,19 +1708,16 @@ content = re.sub(
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF65
-  _m65out=$(GIT_GRAFT_FILE="$_graft65" bash "$mutant_t65" --committed "$d_t65" 2>&1)
-  _m65rc=$?
-  if [ "$_m65rc" != 3 ] && ! printf '%s' "$_m65out" | grep -qi 'degraded'; then
-    ok "teeth-r4-65: GIT_GRAFT_FILE-check-removed mutant proceeds silently (rc=$_m65rc) → test 65 has teeth"
-  else
-    no "teeth-r4-65: mutant still DEGRADED (rc=$_m65rc) — test 65 is THEATER"
-  fi
+  mk_verify "teeth-r4-65" "$mutant_t65" \
+    && tooth "teeth-r4-65: GIT_GRAFT_FILE-check-removed mutant proceeds silently → test 65 has teeth" 3 0 "$mutant_t65" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env GIT_GRAFT_FILE="$_graft65" bash @SUT@ --committed "$d_t65"
 
   # Teeth for T66-T68 (B6 NUL-stripped rescan): replace the NUL-stripped grep with 'true'
   # so it produces no output → token missed → rc=0 (false clean, the real danger).
   # The scan is now unconditional so the mutant targets the grep, not a gate.
   echo "-- teeth-b6: replace NUL-stripped grep with true — test 66 UTF-16LE must go red (rc=0) --"
-  mutant_b6="$TMP/scan-secrets.MUTANT-b6.sh"
+  mutant_b6="$MUT/scan-secrets.MUTANT-b6.sh"
   python3 - "$SUT" "$mutant_b6" << 'PYEOF_B6'
 import sys, re
 content = open(sys.argv[1]).read()
@@ -1746,19 +1728,16 @@ content = re.sub(
     r'    true 2>/dev/null \\',
     content
 )
-if '    true 2>/dev/null \\' not in content:
-    print("WARN: B6 NUL-stripped grep not found in SUT", file=sys.stderr)
 open(sys.argv[2], 'w').write(content)
 PYEOF_B6
-  _m66rc=$(bash "$mutant_b6" --committed "$d_t66" >/dev/null 2>&1; echo $?)
-  [ "$_m66rc" = 0 ] \
-    && ok "teeth-b6: NUL-stripped-grep-replaced-with-true mutant misses UTF-16LE token (rc=0) → test 66 has teeth" \
-    || no "teeth-b6: mutant rc=$_m66rc (want 0=false clean) — test 66 is THEATER"
+  mk_verify "teeth-b6" "$mutant_b6" \
+    && tooth "teeth-b6: NUL-stripped-grep-replaced-with-true mutant misses UTF-16LE token (rc=0) → test 66 has teeth" 1 0 "$mutant_b6" \
+         -- bash @SUT@ --committed "$d_t66"
 
   # Teeth for T70 (tr rc check): remove the || { DEGRADED; exit 3; } guard on tr so a
   # failing tr leaves _nul_tmp empty → HC grep finds nothing in empty file → rc=0 (false clean).
   echo "-- teeth-tr-70: remove tr rc guard — failing tr must give rc=0 (false clean) --"
-  mutant_tr70="$TMP/scan-secrets.MUTANT-tr70.sh"
+  mutant_tr70="$MUT/scan-secrets.MUTANT-tr70.sh"
   python3 - "$SUT" "$mutant_tr70" << 'PYEOF_TR70'
 import sys
 content = open(sys.argv[1]).read()
@@ -1771,17 +1750,18 @@ old_guard = (
 )
 new_guard = "    tr -d '\\000' < \"$_blob_tmp\" > \"$_nul_tmp\""
 if old_guard not in content:
-    print("WARN: tr guard not found in SUT", file=sys.stderr)
+    sys.exit("tr guard not found in SUT")
 content = content.replace(old_guard, new_guard)
 open(sys.argv[2], 'w').write(content)
 PYEOF_TR70
-  _m70rc=$(PATH="$_tr70_dir:$PATH" bash "$mutant_tr70" --committed "$d_t66" >/dev/null 2>&1; echo $?)
-  [ "$_m70rc" = 0 ] \
-    && ok "teeth-tr-70: tr-guard-removed mutant gives rc=0 on failing tr (false clean) → test 70 has teeth" \
-    || no "teeth-tr-70: mutant rc=$_m70rc (want 0=false clean) — test 70 is THEATER"
+  mk_verify "teeth-tr-70" "$mutant_tr70" \
+    && tooth "teeth-tr-70: tr-guard-removed mutant gives rc=0 on failing tr (false clean) → test 70 has teeth" 3 0 "$mutant_tr70" \
+         --good-has 'degraded' --bad-lacks 'degraded' \
+         -- env PATH="$_tr70_dir:$PATH" bash @SUT@ --committed "$d_t66"
 
   # teeth-71: neuter SENTINEL-M4-HEADER-CHECK (force _sm_ok always true); test 71's too-short-sha
   # fixture must then FALSE-PASS (rc=0, no DEGRADED) instead of being rejected.
+  # The awk-program mutants below are built by lib/mutant.sh too (MUTANT_SYNTAX=none: not bash).
   echo "-- teeth-71: neuter SENTINEL-M4-HEADER-CHECK; the too-short-sha fixture must FALSE-PASS --"
   if [ -z "${_t71_awk_start:-}" ] || [ -z "${_t71_awk_end:-}" ]; then
     no "teeth-71: precondition failed — test 71 could not locate the awk program block"
@@ -1790,18 +1770,11 @@ PYEOF_TR70
     if [ "$_t71_sentinel_count" -ne 1 ]; then
       no "teeth-71: SENTINEL-M4-HEADER-CHECK not found exactly once (count=$_t71_sentinel_count)"
     else
-      _t71_mut_prog="$TMP/t71-header-mutant.awk"
-      sed "/SENTINEL-M4-HEADER-CHECK/{n;s/.*/  if (0) {/}" "$_t71_prog" > "$_t71_mut_prog"
-      if cmp -s "$_t71_prog" "$_t71_mut_prog"; then
-        no "teeth-71: mutation was a byte-identical no-op — sentinel not found in extracted program"
-      else
-        _t71_mout="$(awk -f "$_t71_mut_prog" "$_t71_in_bad" 2>&1)"; _t71_mrc=$?
-        if [ "$_t71_mrc" -eq 0 ] && ! printf '%s' "$_t71_mout" | grep -qi 'malformed'; then
-          ok "teeth-71: _sm_ok-neutered mutant accepts the too-short-sha header (rc=0, no DEGRADED) → test 71 has teeth"
-        else
-          no "teeth-71: mutant still rejected the malformed header (rc=$_t71_mrc) — mutation not exercised (THEATER)"
-        fi
-      fi
+      _t71_mut_prog="$MUT/t71-header-mutant.awk"
+      MK_ORIG="$_t71_prog" MUTANT_SYNTAX=none mk_sed "teeth-71" "$_t71_mut_prog" '/SENTINEL-M4-HEADER-CHECK/{n;s/.*/  if (0) {/}' \
+        && tooth "teeth-71: _sm_ok-neutered mutant accepts the too-short-sha header → test 71 has teeth" 1 0 "$_t71_mut_prog" \
+             --orig "$_t71_prog" --good-has 'malformed' --bad-lacks 'malformed' \
+             -- awk -f @SUT@ "$_t71_in_bad"
     fi
   fi
 
@@ -1811,20 +1784,13 @@ PYEOF_TR70
   if [ -z "${_t71_prog:-}" ] || [ -z "${_t71_in_bad65_3:-}" ]; then
     no "teeth-71b: precondition failed — test 71 could not locate the awk program block"
   else
-    _t71b_p3="$TMP/t71b-3.awk"; _t71b_p4="$TMP/t71b-4.awk"
-    sed 's/length(\$3) <= 64/length($3) <= 65/' "$_t71_prog" > "$_t71b_p3"
-    sed 's/length(\$4) <= 64/length($4) <= 65/' "$_t71_prog" > "$_t71b_p4"
-    if cmp -s "$_t71_prog" "$_t71b_p3" || cmp -s "$_t71_prog" "$_t71b_p4"; then
-      no "teeth-71b: mutation was a byte-identical no-op — upper-bound text not found in extracted program"
-    else
-      awk -f "$_t71b_p3" "$_t71_in_bad65_3" >/dev/null 2>&1; _t71b_rc3=$?
-      awk -f "$_t71b_p4" "$_t71_in_bad65_4" >/dev/null 2>&1; _t71b_rc4=$?
-      if [ "$_t71b_rc3" -eq 0 ] && [ "$_t71b_rc4" -eq 0 ]; then
-        ok "teeth-71b: upper bounds widened -> 65-char shas FALSE-PASS in both fields -> test 71's 64-char upper bound has real teeth"
-      else
-        no "teeth-71b: mutant still rejected a 65-char sha (field3=rc$_t71b_rc3 field4=rc$_t71b_rc4) — mutation not exercised (THEATER)"
-      fi
-    fi
+    _t71b_p3="$MUT/t71b-3.awk"; _t71b_p4="$MUT/t71b-4.awk"
+    MK_ORIG="$_t71_prog" MUTANT_SYNTAX=none mk_sed "teeth-71b-3" "$_t71b_p3" 's/length(\$3) <= 64/length($3) <= 65/' \
+      && tooth "teeth-71b-3: field-3 upper bound widened -> 65-char sha FALSE-PASSes → test 71's 64-char bound has teeth" 1 0 "$_t71b_p3" \
+           --orig "$_t71_prog" -- awk -f @SUT@ "$_t71_in_bad65_3"
+    MK_ORIG="$_t71_prog" MUTANT_SYNTAX=none mk_sed "teeth-71b-4" "$_t71b_p4" 's/length(\$4) <= 64/length($4) <= 65/' \
+      && tooth "teeth-71b-4: field-4 upper bound widened -> 65-char sha FALSE-PASSes → test 71's 64-char bound has teeth" 1 0 "$_t71b_p4" \
+           --orig "$_t71_prog" -- awk -f @SUT@ "$_t71_in_bad65_4"
   fi
 
   # teeth-73 (kit issue #1142 review round 3, nit): drop the restored tab/trailing-space checks;
@@ -1833,20 +1799,37 @@ PYEOF_TR70
   if [ -z "${_t71_prog:-}" ]; then
     no "teeth-73: precondition failed — test 71/73 could not locate the awk program block"
   else
-    _t73_mut_prog="$TMP/t73-header-mutant.awk"
-    sed 's/&& (\$0 !~ \/\\t\/) && (\$0 !~ \/ \$\/)$//' "$_t71_prog" > "$_t73_mut_prog"
-    if cmp -s "$_t71_prog" "$_t73_mut_prog"; then
-      no "teeth-73: mutation was a byte-identical no-op — strictness-check text not found in extracted program"
-    else
-      _t73_mout_tab="$(awk -f "$_t73_mut_prog" "$_t73_in_tab" 2>&1)"; _t73_mrc_tab=$?
-      _t73_mout_trail="$(awk -f "$_t73_mut_prog" "$_t73_in_trail" 2>&1)"; _t73_mrc_trail=$?
-      if [ "$_t73_mrc_tab" -eq 0 ] && [ "$_t73_mrc_trail" -eq 0 ]; then
-        ok "teeth-73: tab/trailing-space checks dropped -> both fixtures FALSE-PASS (rc=0) -> test 73's restored strictness has real teeth"
-      else
-        no "teeth-73: mutant still rejected one or both fixtures (tab=rc$_t73_mrc_tab trail=rc$_t73_mrc_trail) — mutation not exercised (THEATER)"
-      fi
+    _t73_mut_prog="$MUT/t73-header-mutant.awk"
+    if MK_ORIG="$_t71_prog" MUTANT_SYNTAX=none mk_sed "teeth-73" "$_t73_mut_prog" 's/&& (\$0 !~ \/\\t\/) && (\$0 !~ \/ \$\/)$//'; then
+      tooth "teeth-73-tab: strictness dropped -> TAB-delimited header FALSE-PASSes → test 73 has teeth" 1 0 "$_t73_mut_prog" \
+        --orig "$_t71_prog" -- awk -f @SUT@ "$_t73_in_tab"
+      tooth "teeth-73-trail: strictness dropped -> trailing-space header FALSE-PASSes → test 73 has teeth" 1 0 "$_t73_mut_prog" \
+        --orig "$_t71_prog" -- awk -f @SUT@ "$_t73_in_trail"
     fi
   fi
+
+  # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
+  # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
+  echo "-- teeth-helper: lib/mutant.sh refuses byte-identical / syntax-broken / empty mutants --"
+  mutant_sed "$SUT" "$MUT/neutral-identical.sh" 's/ZZZ_NO_SUCH_TOKEN_ZZZ/x/' 2>/dev/null; _hrc=$?
+  [ "$_hrc" = 4 ] && [ ! -e "$MUT/neutral-identical.sh" ] \
+    && ok "teeth-helper: byte-identical (no-op sed) mutant REFUSED with rc=4 and removed" \
+    || no "teeth-helper: byte-identical mutant not refused as rc=4 (rc=$_hrc)"
+  mutant_sed "$SUT" "$MUT/neutral-syntax.sh" 's/^set -uo pipefail$/fi/' 2>/dev/null; _hrc=$?
+  [ "$_hrc" = 5 ] && [ ! -e "$MUT/neutral-syntax.sh" ] \
+    && ok "teeth-helper: syntax-broken mutant REFUSED with rc=5 and removed" \
+    || no "teeth-helper: syntax-broken mutant not refused as rc=5 (rc=$_hrc)"
+  mutant_sed "$SUT" "$MUT/neutral-empty.sh" 'd' 2>/dev/null; _hrc=$?
+  [ "$_hrc" = 3 ] && [ ! -e "$MUT/neutral-empty.sh" ] \
+    && ok "teeth-helper: empty mutant REFUSED with rc=3 and removed" \
+    || no "teeth-helper: empty mutant not refused as rc=3 (rc=$_hrc)"
+  # A chain with one live stage and one dead stage (the former `_cml_rc` stage) must be refused too:
+  # the live stage alone would make the final mutant differ from the original and hide the dead one.
+  _hout="$(no(){ printf '%s' "$1"; }; mk_sed "chain" "$MUT/neutral-chain.sh" \
+    's/PRIVATE KEY/PRIVATE_KEY_NOMATCH/g' 's/if \[ "\$_cml_rc" -ne 0 \]/if false/g')"; _hrc=$?
+  [ "$_hrc" != 0 ] && [ ! -e "$MUT/neutral-chain.sh" ] && grep -q 'silent no-op' <<<"$_hout" \
+    && ok "teeth-helper: chain containing a no-op stage REFUSED (stage named, no mutant written)" \
+    || no "teeth-helper: chain with a no-op stage was not refused (rc=$_hrc) :: $_hout"
 fi
 
 [ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="
