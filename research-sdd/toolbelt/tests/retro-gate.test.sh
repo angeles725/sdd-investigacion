@@ -1587,8 +1587,9 @@ printf '%s' "$ERR" | grep -q 'WARN: directory-symlink walk incomplete' \
 
 # ─── #1352: Part C follow-ups (newline link names, timeout validation, untracked leg) ─────────
 # S12: a link whose NAME contains a newline is one path end to end (NUL-delimited, never rejoined
-# with newlines). Before the fix it was split into `a` and `b`, the walk hit a cwd-relative `b`,
-# and research behind the link was missed (loud WARN, but still a false ALLOW).
+# with newlines). Before the fix the path "<target>/nl<LF>link" was split at the newline into two
+# paths ("<target>/nl" and "link"), the walk hit the cwd-relative "link", and research behind the
+# link was missed (loud WARN, but still a false ALLOW).
 S12_EXT="$ROOT/s12-ext"; mkfresh "$S12_EXT"
 T_s12="$ROOT/t-s12"; mkgit "$T_s12"; SID_s12="s12-sess"; mksessionfile "$T_s12" "$SID_s12" "202609050800"
 ln -s "$S12_EXT" "$T_s12/$(printf 'nl\nlink')"
@@ -1634,6 +1635,89 @@ RETRO_GATE_DIRLINK_TIMEOUT="" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$S
 { ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "5" ]; } \
   && ok "#1352 S14b: empty RETRO_GATE_DIRLINK_TIMEOUT behaves as unset (5 s, no WARN)" \
   || no "#1352 S14b: empty timeout mishandled: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
+
+# ─── #1404: Part C follow-ups (scratch-file failure, kill cleanup, root-discovery pin) ────────
+# S15: when `mktemp` cannot create the scratch file, Part C is skipped with ONE typed WARN naming the
+# cause — not one "walk incomplete (rc=126)" per link (rc 126 is a find/timeout exit, never ours).
+STUB_NOMKTEMP="$ROOT/stub-nomktemp"; mkdir -p "$STUB_NOMKTEMP"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$STUB_NOMKTEMP/mktemp"; chmod +x "$STUB_NOMKTEMP/mktemp"
+S15_EXT="$ROOT/s15-ext"; mkfresh "$S15_EXT"
+T_s15="$ROOT/t-s15"; mkgit "$T_s15"; SID_s15="s15-sess"; mksessionfile "$T_s15" "$SID_s15" "202609050800"
+ln -s "$S15_EXT" "$T_s15/corpus-a"; ln -s "$S15_EXT" "$T_s15/corpus-b"
+run_gate_path "$STUB_NOMKTEMP" "$T_s15" "$(mkjson "$SID_s15" false)"
+{ [ "$RC" -eq 0 ] \
+    && [ "$(printf '%s\n' "$ERR" | grep -c 'WARN: directory-symlink scan skipped: cannot create a scratch file')" = "1" ] \
+    && ! printf '%s' "$ERR" | grep -q 'rc=126'; } \
+  && ok "#1404 S15: mktemp failure → one typed 'scratch file' WARN, no per-link rc=126 overload" \
+  || no "#1404 S15: scratch-file failure mishandled: RC=$RC ERR=$ERR"
+# S15b: control — with mktemp working the same fixture raises no scratch-file WARN and blocks.
+rm -f "$T_s15/.claude/.rsdd-retro-blocked-$SID_s15"
+run_gate "$T_s15" "$(mkjson "$SID_s15" false)"
+{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'scratch file'; } \
+  && ok "#1404 S15b: control — mktemp available → no scratch-file WARN, link walked → blocks" \
+  || no "#1404 S15b: control broken: OUT=$OUT ERR=$ERR"
+# S16: killing the hook (SIGTERM, as a Stop timeout does) mid-Part C must not leak the scratch files.
+# TMPDIR points at a private dir so any leak is visible. Two stall points: inside `git ls-files`
+# (all three scratch files live) and inside the inner walk (_dl_of live). bash defers the trap until
+# the foreground stub returns, so each stub only sleeps 2 s.
+STUB_KGIT="$ROOT/stub-kill-git"; mkdir -p "$STUB_KGIT"
+printf '#!/usr/bin/env bash\ncase " $* " in *" ls-files "*) : > "$STARTED"; sleep 2;; esac\nexec %s "$@"\n' "$REAL_GIT" > "$STUB_KGIT/git"
+STUB_KTO="$ROOT/stub-kill-timeout"; mkdir -p "$STUB_KTO"
+printf '#!/usr/bin/env bash\ncase " $* " in *" -newer "*) : > "$STARTED"; sleep 2;; esac\nshift; exec "$@"\n' > "$STUB_KTO/timeout"
+chmod +x "$STUB_KGIT/git" "$STUB_KTO/timeout"
+# kill_case <label> <stubdir> <sid> <target> <signal> [sut] → sets KRC, KLEFT (files left in the private TMPDIR)
+kill_case() {
+  local stub="$2" sid="$3" tgt="$4" sig="$5" sut="${6:-$SUT}" kt="$ROOT/ktmp-$1" pid
+  rm -rf "$kt"; mkdir -p "$kt"; export STARTED="$kt.started"; rm -f "$STARTED"
+  rm -f "$tgt/.claude/.rsdd-retro-blocked-$sid"
+  mkjson "$sid" false > "$kt.in"
+  # python3 execs bash with SIGINT back at its default: a background job of a non-interactive shell
+  # starts with SIGINT ignored, and an ignored-on-entry signal can never be trapped.
+  TMPDIR="$kt" PATH="$stub:$PATH" python3 -c 'import os,signal,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execv(sys.argv[1], sys.argv[1:])' \
+    "$BASH_BIN" "$sut" "$tgt" < "$kt.in" > /dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 60); do [ -e "$STARTED" ] && break; sleep 0.1; done
+  if [ ! -e "$STARTED" ]; then KRC="never-started"; KLEFT="n/a"; kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return; fi
+  kill -"$sig" "$pid"; wait "$pid" 2>/dev/null; KRC=$?
+  KLEFT="$(ls -A "$kt" | tr '\n' ' ')"
+}
+S16_EXT="$ROOT/s16-ext"; mkfresh "$S16_EXT"
+T_s16="$ROOT/t-s16"; mkgit "$T_s16"; SID_s16="s16-sess"; mksessionfile "$T_s16" "$SID_s16" "202609050800"
+ln -s "$S16_EXT" "$T_s16/corpus"
+kill_case s16a "$STUB_KGIT" "$SID_s16" "$T_s16" TERM
+{ [ "$KRC" = "143" ] && [ -z "$KLEFT" ]; } \
+  && ok "#1404 S16a: SIGTERM during git enumeration → exit 143, no scratch files left" \
+  || no "#1404 S16a: leak or wrong exit: rc=$KRC left=[$KLEFT]"
+kill_case s16b "$STUB_KTO" "$SID_s16" "$T_s16" TERM
+{ [ "$KRC" = "143" ] && [ -z "$KLEFT" ]; } \
+  && ok "#1404 S16b: SIGTERM during the inner walk → exit 143, no scratch files left" \
+  || no "#1404 S16b: leak or wrong exit: rc=$KRC left=[$KLEFT]"
+kill_case s16c "$STUB_KTO" "$SID_s16" "$T_s16" INT
+{ [ "$KRC" = "130" ] && [ -z "$KLEFT" ]; } \
+  && ok "#1404 S16c: SIGINT during the inner walk → exit 130, no scratch files left" \
+  || no "#1404 S16c: leak or wrong exit: rc=$KRC left=[$KLEFT]"
+# S17: PIN for the removed resolved-path nested-worktree check (#1352 R3). Part C no longer tests the
+# RESOLVED link target against the nested-worktree roots because every root the lib reports lives
+# under the target, and the inside-target skip already covers that. If root discovery ever reports a
+# root OUTSIDE the target, a link resolving into it would be walked: this case then goes RED and the
+# resolved check (`_in_nested_worktree "$_lr"`) must be restored in Part C.
+nw_roots_inside() {  # <target> → 0 when every nested-worktree root is inside the target; prints offenders
+  local t r rr bad=0 roots
+  t="$(realpath -- "$1")"
+  roots="$(bash -c '. "$1"; block_files_nested_worktree_roots "$2"; [ -z "${NW_EXTRA:-}" ] || printf "%s\n" "$NW_EXTRA"' _ "$HERE/../lib/block-files.sh" "$1" 2>/dev/null)" || { printf 'probe-failed '; return 1; }
+  [ -n "$roots" ] || { printf 'no-roots '; return 1; }
+  while IFS= read -r r; do
+    rr="$(realpath -m -- "$r")"
+    if [ "$rr" != "$t" ] && [ "${rr#"$t"/}" = "$rr" ]; then printf '%s ' "$r"; bad=1; fi
+  done <<< "$roots"
+  return "$bad"
+}
+T_s17="$ROOT/t-s17"; mkgit "$T_s17"; git -C "$T_s17" worktree add -q "$T_s17/nested-wt" -b s17-branch 2>/dev/null
+mkdir -p "$T_s17/.claude/worktrees/agent-y"
+_s17_off="$(nw_roots_inside "$T_s17")"; _s17_rc=$?
+{ [ "$_s17_rc" -eq 0 ] && bash -c '. "$1"; block_files_nested_worktree_roots "$2"' _ "$HERE/../lib/block-files.sh" "$T_s17" 2>/dev/null | grep -qF "nested-wt"; } \
+  && ok "#1404 S17: every nested-worktree root (incl. a real linked worktree) lies inside the target" \
+  || no "#1404 S17: root discovery reports a root outside the target [$_s17_off] — restore the resolved-path check in Part C"
 
 # ─── #1301 item 3: the gate when the nested-worktree PROBE itself fails ───────
 # The lib returns 2 (not a directory) or 3 (incomplete traversal); anything else is a defect. The
@@ -3187,6 +3271,36 @@ if nwmutant 'dirlink-fallback-print' 's|-type l -xtype d -print0|-type l -xtype 
     && no "TOOTH dirlink-fallback-print: mutant still blocks S13 — fallback -print0 not load-bearing" \
     || ok "TOOTH dirlink-fallback-print: mutant misses the newline-named fallback link — RED as expected"
 fi
+# DL14 (#1404 item 1): ONLY the inner walk loses -print0 → S12 (newline-named link) misses its research.
+# (DL13 mutates the enumeration find; the inner walk is the other -print0, anchored by its -name/-not args.)
+if nwmutant 'dirlink-inner-print' "s|-not -path '\*/.git/\*' -print0|-not -path '*/.git/*' -print|"; then M_DL14="$NWM"
+  rmblocked "$T_s12" "$SID_s12"; run_mutant "$M_DL14" "$T_s12" "$(mkjson "$SID_s12" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-inner-print: mutant still blocks S12 — inner-walk -print0 not load-bearing" \
+    || ok "TOOTH dirlink-inner-print: mutant misses the newline-named link's research — RED as expected"
+fi
+# DL15 (#1404 item 2): scratch-file guard removed → S15 loses the single typed WARN (and the per-link
+# rc=126 'walk incomplete' lines come back).
+if nwmutant 'dirlink-scratch-guard' '/SENTINEL-DIRLINK-SCRATCH-START/,/SENTINEL-DIRLINK-SCRATCH-END/d'; then M_DL15="$NWM"
+  rmblocked "$T_s15" "$SID_s15"; _sut_save="$SUT"; SUT="$M_DL15"
+  run_gate_path "$STUB_NOMKTEMP" "$T_s15" "$(mkjson "$SID_s15" false)"; SUT="$_sut_save"
+  { ! printf '%s' "$ERR" | grep -q 'cannot create a scratch file' && printf '%s' "$ERR" | grep -q 'rc=126'; } \
+    && ok "TOOTH dirlink-scratch-guard: mutant reverts to the per-link rc=126 overload — RED as expected" \
+    || no "TOOTH dirlink-scratch-guard: guard not load-bearing: ERR=$ERR"
+fi
+# DL16 (#1404 item 3): scratch cleanup dropped from the EXIT handler → S16a/b leak the files.
+if nwmutant 'dirlink-no-cleanup' '/SENTINEL-DIRLINK-CLEANUP/d'; then M_DL16="$NWM"
+  kill_case m16a "$STUB_KGIT" "$SID_s16" "$T_s16" TERM "$M_DL16"; _m16a="$KLEFT"
+  kill_case m16b "$STUB_KTO" "$SID_s16" "$T_s16" TERM "$M_DL16"; _m16b="$KLEFT"
+  { [ -n "$_m16a" ] && [ "$_m16a" != "n/a" ] && [ -n "$_m16b" ] && [ "$_m16b" != "n/a" ]; } \
+    && ok "TOOTH dirlink-no-cleanup: mutant leaks scratch files when killed — RED as expected" \
+    || no "TOOTH dirlink-no-cleanup: cleanup not load-bearing: left-a=[$_m16a] left-b=[$_m16b]"
+fi
+# DL17 (#1404 item 5): the S17 checker itself must bite — a lib reporting a root outside the target fails it.
+_dl17_off="$(NW_EXTRA="/outside-the-target/worktrees" nw_roots_inside "$T_s17")"; _dl17_rc=$?
+{ [ "$_dl17_rc" -ne 0 ] && printf '%s' "$_dl17_off" | grep -qF '/outside-the-target/worktrees'; } \
+  && ok "TOOTH nw-root-outside-pin: an injected outside root trips the S17 pin — RED as expected" \
+  || no "TOOTH nw-root-outside-pin: pin did not trip: rc=$_dl17_rc off=[$_dl17_off]"
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
 if nwmutant 'catalog-not-excluded' '/SENTINEL-GENERATED-CATALOG-START/,/SENTINEL-GENERATED-CATALOG-END/d'; then M_CAT1="$NWM"
   rmblocked "$T_c1" "c1-sess"; run_mutant "$M_CAT1" "$T_c1" "$(mkjson "c1-sess" false)"
@@ -3339,7 +3453,7 @@ slmut() {
   return "$_slm_rc"
 }
 # trap dropped → no line is ever written
-if slmut trap-dropped 's/^trap _stop_log_write EXIT$/:/'; then
+if slmut trap-dropped 's/^trap _exit_handler EXIT$/:/'; then
   _t="$ROOT/slt1"; mkgit "$_t"; mksessionfile "$_t" slt1 "202609050800"
   run_mutant "$SLM" "$_t" "$(mkjson slt1 false)"
   [ "$(sl_lines "$_t")" = "0" ] && ok "TOOTH sl-trap-dropped: without the EXIT trap no Stop is logged (SL1a goes RED)" \
