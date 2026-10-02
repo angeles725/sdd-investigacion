@@ -449,30 +449,49 @@ fi
 # worktree; one that resolves to /, $HOME or an ancestor of the target (typed WARN: it would walk
 # the whole parent tree). A self-referential link therefore is never walked at all; no mutant can
 # bite on S3 (termination is a property of find -H and the skip), so S3 stays a regression case.
+# LIMITS (documented, no fleet incidence): `ls-files` does not recurse into a SUBMODULE and does not
+# list the contents of an untracked NESTED CLONE, so a directory link that lives inside either one is
+# never enumerated, exactly like the gitignored case above (kit issue #1352). Candidates stay
+# NUL-delimited end to end (a bash array here, `-print0` in the walks), so a link NAME containing a
+# newline is one path, not two.
+# RETRO_GATE_DIRLINK_TIMEOUT must be a positive number (integer or decimal, e.g. 5 or 2.5). 0 would
+# disable GNU timeout (an unbounded walk on a Stop hook) and a non-number would fail every walk with
+# rc 125, so anything else is a typed WARN and the 5 s default is used (never a silent disable).
+# NOT bounded: the TOTAL Part C time (N links x timeout worst case); deferred, see kit issue #1352.
 _dl_timeout="${RETRO_GATE_DIRLINK_TIMEOUT:-5}"
-# _dl_find <find-args…>: bounded find; stdout lands in _dl_out and the status in _dl_rc (124 = timed
-# out, 127 = no `timeout` binary). Never fails the caller. (No command substitution at the call
-# site: its subshell would lose both variables.)
+# SENTINEL-DIRLINK-TIMEOUT-START
+if ! [[ "$_dl_timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [[ "$_dl_timeout" =~ ^0+(\.0+)?$ ]]; then
+  printf "retro-gate: WARN: RETRO_GATE_DIRLINK_TIMEOUT='%s' is not a positive number — using the default 5 s\n" \
+    "$_dl_timeout" >&2
+  _dl_timeout=5
+fi
+# SENTINEL-DIRLINK-TIMEOUT-END
+# _dl_find <find-args…>: bounded find; NUL-delimited stdout (callers pass -print0) lands in the file
+# _dl_of and the status in _dl_rc (124 = timed out, 127 = no `timeout` binary, 126 = no scratch
+# file). Never fails the caller. (A file, not a command substitution: bash drops NUL bytes there,
+# and the subshell would lose _dl_rc.)
 _dl_find() {
-  _dl_out=""
+  if [ -z "$_dl_of" ]; then _dl_rc=126; return 0; fi
+  : > "$_dl_of"
   if ! command -v timeout >/dev/null 2>&1; then _dl_rc=127; return 0; fi
-  _dl_out="$(timeout "$_dl_timeout" find "$@" 2>/dev/null)"; _dl_rc=$?
+  timeout "$_dl_timeout" find "$@" > "$_dl_of" 2>/dev/null; _dl_rc=$?
   return 0
 }
 if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
   _dl_tgt="$(realpath -- "$TARGET" 2>/dev/null)" || _dl_tgt="$TARGET"
   _dl_home="$(realpath -- "${HOME:-/nonexistent}" 2>/dev/null)" || _dl_home=""
-  _dl_cands=""
+  _dl_cands=()
   _dl_f1="$(mktemp 2>/dev/null)" || _dl_f1=""
   _dl_f2="$(mktemp 2>/dev/null)" || _dl_f2=""
+  _dl_of="$(mktemp 2>/dev/null)" || _dl_of=""
   if [ -n "$_dl_f1" ] && [ -n "$_dl_f2" ] \
      && git -C "$TARGET" ls-files -s -z > "$_dl_f1" 2>/dev/null \
      && git -C "$TARGET" ls-files -o --exclude-standard -z > "$_dl_f2" 2>/dev/null; then
     while IFS= read -r -d '' _p; do
-      [ -L "$TARGET/$_p" ] && [ -d "$TARGET/$_p" ] && _dl_cands="${_dl_cands}${TARGET%/}/${_p}"$'\n'
+      if [ -L "$TARGET/$_p" ] && [ -d "$TARGET/$_p" ]; then _dl_cands+=("${TARGET%/}/${_p}"); fi
     done < <(grep -z '^120000 ' "$_dl_f1" | sed -z 's/^[^\t]*\t//'; cat "$_dl_f2")
   else
-    _dl_find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print
+    _dl_find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print0
     if [ "$_dl_rc" -eq 124 ]; then
       printf 'retro-gate: WARN: directory-symlink scan timed out after %ss for %s — symlinked research directories not scanned\n' \
         "$_dl_timeout" "$(basename "$TARGET")" >&2
@@ -480,10 +499,12 @@ if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
       printf 'retro-gate: WARN: directory-symlink scan incomplete (rc=%s) for %s — symlinked research directories may be missed\n' \
         "$_dl_rc" "$(basename "$TARGET")" >&2
     fi
-    _dl_cands="$_dl_out"
+    if [ -n "$_dl_of" ]; then
+      while IFS= read -r -d '' _p; do _dl_cands+=("$_p"); done < "$_dl_of"
+    fi
   fi
   rm -f "$_dl_f1" "$_dl_f2"
-  while IFS= read -r _lnk; do
+  for _lnk in ${_dl_cands[@]+"${_dl_cands[@]}"}; do
     [ -n "$_lnk" ] || continue
     _lr="$(realpath -- "$_lnk" 2>/dev/null)" || continue
     # SENTINEL-DIRLINK-ANCESTOR-START
@@ -494,22 +515,25 @@ if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
     fi
     # SENTINEL-DIRLINK-ANCESTOR-END
     # SENTINEL-DIRLINK-INSIDE-START
+    # Resolving inside the target also covers a nested worktree: those roots live under $TARGET
+    # (block_files_nested_worktree_roots), so a separate _in_nested_worktree "$_lr" test is redundant.
     if [ "$_lr" = "$_dl_tgt" ] || [ "${_lr#"$_dl_tgt"/}" != "$_lr" ]; then continue; fi
-    _in_nested_worktree "$_lr" && continue
     # SENTINEL-DIRLINK-INSIDE-END
     _in_nested_worktree "$_lnk" && continue
-    _dl_find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' -not -path '*/.git/*'
+    _dl_find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' -not -path '*/.git/*' -print0
     # SENTINEL-DIRLINK-WALK-WARN-START
     if [ "$_dl_rc" -ne 0 ]; then
       printf 'retro-gate: WARN: directory-symlink walk incomplete (rc=%s) under %s — research behind it may be missed\n' \
         "$_dl_rc" "${_lnk#"$TARGET"/}" >&2
     fi
     # SENTINEL-DIRLINK-WALK-WARN-END
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      _is_research_file "$f" && _has_changed=1
-    done <<< "$_dl_out"
-  done <<< "$_dl_cands"
+    if [ -n "$_dl_of" ]; then
+      while IFS= read -r -d '' f; do
+        _is_research_file "$f" && _has_changed=1
+      done < "$_dl_of"
+    fi
+  done
+  rm -f "$_dl_of"
 fi
 # SENTINEL-DIRLINK-SCAN-END
 
