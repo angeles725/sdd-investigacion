@@ -30,7 +30,10 @@ jobs:
     # ~11-13s moved INTO this step instead of running a second time in its own step below. Raised
     # from 10 -> 12 for headroom: the toolbelt-only step was already measured at 7:44-8:15 against
     # the old 10-minute cap before the install suite's time moved in here.
-    timeout-minutes: 12
+    # 12 -> 20 (2026-10-01): successful runs had reached 11:12-11:29 and every run after the
+    # merge-gate / lint-block / retro-gate suites landed was cancelled at the 12-minute cap
+    # (main included) — a cancelled gate proves nothing. Runtime budget tracked separately.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
