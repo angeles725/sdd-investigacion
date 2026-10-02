@@ -48,8 +48,10 @@
 #   Failure path limits (reported or documented, not hidden): the per-package / whole-artifact re-runs decompile
 #   .class entries only, so non-class jar entries (META-INF/*, .lexicon, ...) are NOT copied — the status line
 #   carries resources_not_copied=N (or =unknown when the listing cannot be taken; N can OVERSTATE the loss when
-#   the whole-artifact fallback engine is Vineflower, which copies resources itself); and each per-package rerun
-#   sees only its own package, so cross-package library context is lost for that rerun (not reported per unit).
+#   the whole-artifact fallback engine is Vineflower, which copies resources itself — kit issue #1358 item 3,
+#   documented, not fixed: Vineflower's resource handling for a jar input was not verified); and each per-package
+#   rerun sees only its own package, so cross-package library context is lost for that rerun (not reported per
+#   unit; kit issue #1358 item 6, a documented limit — fixing it would mean feeding the whole jar as library).
 #   Failure markers are failure TEXTS only, anchored as comments; informational '$VF:' comments (synthetic
 #   class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range quality
 #   notes) keep the primary file; comments saying the output is WRONG or will not compile ("decompiled code is
@@ -194,6 +196,12 @@ STAMP="$(mktemp)"
 # Backdate the run stamp 2 s: a coarse-mtime filesystem (FAT 2 s, ext3 1 s) can stamp this run's own output
 # a moment BEFORE the stamp, and a strictly-newer test would then call fresh output stale (kit issue #1320 N4).
 touch -d '2 seconds ago' "$STAMP"
+# The backdate has a side effect (kit issue #1358 item 4): a file already sitting in a REUSED out-dir that was
+# modified inside that 2 s window looks "newer than the stamp", i.e. fresh. Snapshot those ambiguous files (path ->
+# mtime to the nanosecond) BEFORE any engine runs; is_fresh() then treats one as this run's only if its mtime changed.
+declare -A PRE_MTIME=()
+while IFS= read -r -d '' _pf; do PRE_MTIME["$_pf"]="$(stat -c %.9Y "$_pf" 2>/dev/null)"; done \
+  < <(find "$OUT" -type f -newer "$STAMP" -print0)
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$STAMP" "$WORK"; }
 trap cleanup EXIT
@@ -212,10 +220,22 @@ layout_key() {
   printf '%s\n' "$p"
 }
 
+# is_fresh <file> — this run wrote (or rewrote) the file: newer than the backdated stamp AND not an untouched file
+# that was already inside the backdate window when the run started (kit issue #1358 item 4).
+is_fresh() {
+  [ "$1" -nt "$STAMP" ] || return 1
+  [ -n "${PRE_MTIME[$1]+x}" ] || return 0
+  [ "$(stat -c %.9Y "$1" 2>/dev/null)" != "${PRE_MTIME[$1]}" ]
+}
+
 # discard_run_output — drop what THIS run wrote: its files, then the directories that became empty
-# (kit issue #1320 item 6: a budget discard used to leave empty package directories behind).
+# (kit issue #1320 item 6: a budget discard used to leave empty package directories behind). A pre-existing file
+# that merely falls inside the stamp's 2 s backdate window is NOT this run's and is kept (kit issue #1358 item 4).
 discard_run_output() {
-  find "$OUT" -type f -newer "$STAMP" -delete 2>/dev/null || true
+  local _df
+  while IFS= read -r -d '' _df; do
+    if is_fresh "$_df"; then rm -f -- "$_df"; fi
+  done < <(find "$OUT" -type f -newer "$STAMP" -print0 2>/dev/null)
   find "$OUT" -mindepth 1 -type d -empty -newer "$STAMP" -delete 2>/dev/null || true
 }
 
@@ -319,9 +339,18 @@ ensure_ext() {
 # non-empty prefix ending just before one of its '$' has a .class beside it ($Gson$Types$X is inner of
 # $Gson$Types although '$Gson' itself has no class — kit issue #1320 B1); inner classes are emitted inside their
 # outer's source. Everything else is a unit (Scala Foo$, package$, obfuscated names, orphan inner classes).
+#
+# Separately compiled top-level classes that merely EXTEND a name already in the jar are NOT inner (kit issue #1358
+# item 2): CGLIB / Spring proxies (Foo$$EnhancerByCGLIB$$ab, Foo$$FastClassBySpringCGLIB$$ab, Foo$$SpringCGLIB$$0)
+# and ByteBuddy subclasses (Foo$ByteBuddy$ab) sit next to Foo.class but the engines emit them as their own source,
+# so their omission must be detected. Only a name that ENDS in the generated suffix is matched; a nested class of
+# such a proxy (Foo$$EnhancerByCGLIB$$ab$1) still goes through the prefix rule. Residual false positive: a
+# hand-written inner class literally named like a proxy would be demanded as its own unit (never seen in practice).
+GENERATED_CLASS_RE='\$\$(Enhancer|FastClass|KeyFactory)By[A-Za-z0-9_]*\$\$[A-Za-z0-9_]+$|\$\$SpringCGLIB\$\$[0-9]+$|\$ByteBuddy\$[A-Za-z0-9_]+$'
 is_unit_class() {
   local b pre k d
   b="$(basename "$1" .class)"
+  [[ "$b" =~ $GENERATED_CLASS_RE ]] && return 0
   d="$(dirname "$1")"
   for ((k = 1; k < ${#b}; k++)); do
     [ "${b:k:1}" = '$' ] || continue
@@ -382,7 +411,7 @@ isolate_jar() {
 unit_covered() {
   local k
   k="$(layout_key "$1")"
-  { [ -f "$OUT/$1.java" ] && [ "$OUT/$1.java" -nt "$STAMP" ]; } || { [ -f "$OUT/$k.java" ] && [ "$OUT/$k.java" -nt "$STAMP" ]; }
+  { [ -f "$OUT/$1.java" ] && is_fresh "$OUT/$1.java"; } || { [ -f "$OUT/$k.java" ] && is_fresh "$OUT/$k.java"; }
 }
 
 # find_class <unit> — the extracted .class of a unit named by its OUTPUT path (prefix-layout aware).
@@ -413,6 +442,9 @@ sweep_coverage() {
     if unit_covered "$unit" || [ -n "${HANDLED[$(layout_key "$unit")]:-}" ]; then continue; fi
     if [ -n "$ISOLATING" ] && budget_exhausted; then BUDGET_HIT=1; return 2; fi
     fallback_unit "$unit" missing "$f"
+  # LC_ALL=C pins the walk order (base entries vs META-INF/versions/N, kit issue #1358 item 5): the outcome does
+  # not depend on it (has_base_class decides), but a locale-dependent order would make the UNIT list unstable.
+  # Not unit-tested: a differing order cannot be forced here (C.UTF-8 only), so the pin is documented, not proven.
   done < <(find "$EXT" -name '*.class' | LC_ALL=C sort)
 }
 
@@ -431,7 +463,8 @@ scan_markers() {
     m=0; file_has_marker "$f" || m=$?
     [ "$m" -ne 1 ] || continue
     rel="${f#"$OUT"/}"; unit="${rel%.java}"
-    [ -z "${HANDLED[$unit]:-}" ] || continue
+    is_fresh "$f" || continue # a pre-existing file inside the stamp's backdate window is not this run's (#1358 item 4)
+    [ -z "${HANDLED[$(layout_key "$unit")]:-}" ] || continue # HANDLED is keyed on layout_key (kit issue #1358 item 1)
     if [ "$m" -ne 0 ]; then record_unit "$unit" marker-scan-error none kept-primary; continue; fi
     if [[ "${IN,,}" == *.class ]]; then input="$IN"
     elif ensure_ext && input="$(find_class "$unit")"; then :
