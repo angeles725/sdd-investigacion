@@ -679,7 +679,7 @@ mkfix_sh    "$w/nt.test.sh" 3 0 0            # no teeth at all -> own category, 
 mkfix_teeth "$w/hand.test.sh"                # teeth, hand-rolled mutants
 mkfix_teeth_nobanner "$w/handnb.test.sh"     # teeth without banner, hand-rolled
 mkfix_teeth "$w/helped.test.sh"
-printf '# uses the shared helper: . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"; rc=$?
 _c34line="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
 if [ "$rc" -eq 0 ] && [ "$_c34line" = 'Suites with teeth not using lib/mutant.sh: 2 — [hand, handnb]' ]; then
@@ -692,10 +692,56 @@ else no "teeth-helper lint: line present without --prove-teeth"; fi
 # 34c — all teeth suites use the helper -> explicit zero, not a missing line (absent != zero).
 w="$(newdir c34c)"
 mkfix_teeth "$w/helped.test.sh"
-printf '# . "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
 if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then ok "teeth-helper lint: explicit zero when every teeth suite uses the helper"
 else no "teeth-helper lint zero-state failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
+
+# 34d — lint precision (kit issue #1299 item 5): a COMMENT that merely mentions the helper must not
+#       satisfy the lint; only a real `.`/`source` line does. Indented and `source` forms count;
+#       a comment that happens to contain `; . lib/mutant.sh` does not.
+w="$(newdir c34d)"
+mkfix_teeth "$w/cmt-only.test.sh"
+printf '# shellcheck source=lib/mutant.sh\n# . "$HERE/lib/mutant.sh"\n# a; . "$HERE/lib/mutant.sh"\n' >> "$w/cmt-only.test.sh"
+mkfix_teeth "$w/src-dot.test.sh";    printf '  . "$HERE/lib/mutant.sh"\n'      >> "$w/src-dot.test.sh"
+mkfix_teeth "$w/src-word.test.sh";   printf 'source "$HERE/lib/mutant.sh"\n'   >> "$w/src-word.test.sh"
+mkfix_teeth "$w/src-guard.test.sh";  printf '. "$HERE/lib/mutant.sh" || exit 2\n' >> "$w/src-guard.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+_c34dline="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
+if [ "$_c34dline" = 'Suites with teeth not using lib/mutant.sh: 1 — [cmt-only]' ]; then
+  ok "teeth-helper lint precision: a comment mentioning the helper is NOT use; indented/source/guarded source lines are"
+else no "teeth-helper lint precision failed: line=[$_c34dline]"; fi
+
+# 34e — a LARGE suite that really sources the helper is not listed. Regression found by the full gate:
+#       `grep -v | grep -q` under pipefail returns 141 (SIGPIPE to the producer) once the file exceeds
+#       the pipe buffer, so every big helper-using suite was mislabelled as a non-user.
+w="$(newdir c34e)"
+mkfix_teeth "$w/big-helped.test.sh"
+printf '. "$HERE/lib/mutant.sh"\n' >> "$w/big-helped.test.sh"
+head -c 300000 /dev/zero | tr '\0' 'x' | fold -w 79 | sed 's/^/: filler /' >> "$w/big-helped.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; then
+  ok "teeth-helper lint: a large suite that sources the helper is not misreported (no SIGPIPE under pipefail)"
+else no "teeth-helper lint large-suite failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
+
+# 34f — lint recognition (kit issue #1299 review): one level of VAR=...lib/mutant.sh indirection
+#       (mutant.test.sh uses LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}" + `. "$LIB"`), and the
+#       `then . x` / `; . x` / `&& . x` prefixes, are USE. Not use: a source of a variable never
+#       assigned the helper path, a variable assigned only in a comment, and a source line that
+#       is just the body of a heredoc.
+w="$(newdir c34f)"
+mkfix_teeth "$w/via-var.test.sh";  printf 'LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"\n. "$LIB"\n' >> "$w/via-var.test.sh"
+mkfix_teeth "$w/via-brace.test.sh"; printf 'H=$HERE/lib/mutant.sh\nsource ${H}\n' >> "$w/via-brace.test.sh"
+mkfix_teeth "$w/via-then.test.sh"; printf 'if true; then . "$HERE/lib/mutant.sh"; fi\n' >> "$w/via-then.test.sh"
+mkfix_teeth "$w/via-and.test.sh";  printf '[ -f x ] && . "$HERE/lib/mutant.sh"\n' >> "$w/via-and.test.sh"
+mkfix_teeth "$w/other-var.test.sh"; printf 'LIB=/usr/lib/other.sh\n. "$LIB"\n' >> "$w/other-var.test.sh"
+mkfix_teeth "$w/cmt-var.test.sh";  printf '# LIB=$HERE/lib/mutant.sh\n. "$LIB"\n' >> "$w/cmt-var.test.sh"
+mkfix_teeth "$w/heredoc.test.sh";  printf 'cat <<EOF\n. "$HERE/lib/mutant.sh"\nEOF\n' >> "$w/heredoc.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+_c34fline="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
+if [ "$_c34fline" = 'Suites with teeth not using lib/mutant.sh: 3 — [cmt-var, heredoc, other-var]' ]; then
+  ok "teeth-helper lint recognition: VAR indirection and then/;/&& prefixes count; foreign var, comment-only assignment and heredoc body do not"
+else no "teeth-helper lint recognition failed: line=[$_c34fline]"; fi
 
 # 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
 #      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
@@ -752,6 +798,30 @@ if [ "$rc" -eq 1 ] \
    && ! grep -qF 'a-noise.test.sh leaked' <<<"$out"; then
   ok "kit-tree hermeticity: identical-bytes rewrite and __pycache__ are ignored; a same-size content change is caught"
 else no "kit-tree hermeticity noise failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
+
+# 35e — symlinks (kit issue #1299 item 7): the guard used `-type f`, so a symlink a suite created,
+#       retargeted or removed under research-sdd/ was invisible. Links are tracked by path + target
+#       (never followed), dangling ones included; an untouched link is not blamed.
+w="$(newdir c35e)"; _c35ekit="${w%/toolbelt/tests}"
+mkdir -p "$_c35ekit/install"; printf 'k\n' > "$_c35ekit/install/keep.sh"
+ln -s keep.sh "$_c35ekit/install/stable.lnk"; ln -s keep.sh "$_c35ekit/install/retarget.lnk"; ln -s keep.sh "$_c35ekit/install/doomed.lnk"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'ln -s nowhere-dangling "$k/install/new.lnk"\n'
+  printf 'ln -sfn elsewhere.sh "$k/install/retarget.lnk"\n'
+  printf 'rm -f "$k/install/doomed.lnk"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/a-linky.test.sh"
+mkfix_sh "$w/b-clean.test.sh" 1 0 0
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'files under research-sdd/): 3' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/new.lnk (new)' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/retarget.lnk (modified)' <<<"$out" \
+   && grep -qF 'a-linky.test.sh leaked: install/doomed.lnk (removed)' <<<"$out" \
+   && ! grep -qF 'stable.lnk' <<<"$out" && ! grep -qF 'b-clean.test.sh leaked' <<<"$out"; then
+  ok "kit-tree hermeticity: a new, retargeted (dangling too) and removed symlink under research-sdd/ is named; an untouched link is not"
+else no "kit-tree symlink case failed: rc=$rc :: $(grep -iE 'kit-tree|leaked|lnk' <<<"$out" | tr '\n' '|')"; fi
 
 # 35c — DEGRADED, never a confident 0: a scanner that fails ONLY on the kit-tree scan (the cwd scan
 #       still works) must fail the run and say so with the kit-tree reason.
@@ -1118,12 +1188,12 @@ REPL12
       fi
     fi
   fi
-  # Mutation (kit issue #943): neuter the helper-usage test in SENTINEL-TEETH-HELPER-LINT; a
+  # Mutation (kit issue #943): neuter the helper-usage test in SENTINEL-HELPER-USE-TEST; a
   # hand-rolled teeth suite must then vanish from the "not using lib/mutant.sh" line. The mutant
   # is built through the shared helper, which refuses an empty / identical / syntax-broken one.
-  echo "-- teeth: neuter SENTINEL-TEETH-HELPER-LINT; hand-rolled teeth suite must vanish from the list --"
+  echo "-- teeth: neuter SENTINEL-HELPER-USE-TEST; hand-rolled teeth suite must vanish from the list --"
   w="$(mut_workdir teeth-helper-lint)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" "/SENTINEL-TEETH-HELPER-LINT/,+8s/&& ! grep -qF 'lib\\/mutant.sh' \"\$suite\" 2>\\/dev\\/null/\\&\\& false/" 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/&& ! awk/\&\& false \&\& ! awk/' 2>"$w/mutant.err"; then
     no "teeth-helper-lint: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/hand.test.sh"
@@ -1132,6 +1202,38 @@ REPL12
       ok "teeth-helper-lint: neutered lint reports 0 for a hand-rolled teeth suite → lint has real teeth"
     else
       no "teeth-helper-lint: mutant still named the hand-rolled suite — lint mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
+    fi
+  fi
+  # Mutation (kit issue #1299 review): drop the variable resolution; a `. "$LIB"` suite must then
+  # be listed as a non-user (case 34f).
+  echo "-- teeth: drop VAR indirection in SENTINEL-HELPER-USE-TEST; a source of \$LIB must be listed (case 34f) --"
+  w="$(mut_workdir teeth-helper-var)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/isvar\[v\] = 1/isvar[v] = 1; delete isvar[v]/' 2>"$w/mutant.err"; then
+    no "teeth-helper-var: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/via-var.test.sh"
+    printf 'LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"\n. "$LIB"\n' >> "$w/via-var.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if grep -qF 'Suites with teeth not using lib/mutant.sh: 1 — [via-var]' <<<"$mout"; then
+      ok "teeth-helper-var: without VAR resolution the \$LIB source is not recognised → indirection has real teeth"
+    else
+      no "teeth-helper-var: mutant still recognised the \$LIB source — mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
+    fi
+  fi
+  # Mutation (kit issue #1299 item 5): drop the comment filter; a suite that only MENTIONS the
+  # helper in a comment must then be counted as a helper user (vanish from the list).
+  echo "-- teeth: drop the comment filter; a comment-only mention must vanish from the list (case 34d) --"
+  w="$(mut_workdir teeth-helper-comment)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/^      \/\^\[\[:space:\]\]\*#\/ { next }$/d' 2>"$w/mutant.err"; then
+    no "teeth-helper-comment: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/cmt-only.test.sh"
+    printf '# a; . "$HERE/lib/mutant.sh"\n' >> "$w/cmt-only.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$mout"; then
+      ok "teeth-helper-comment: without the comment filter a comment-only mention passes the lint → filter has real teeth"
+    else
+      no "teeth-helper-comment: mutant still named the comment-only suite — mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
     fi
   fi
   # Mutation (kit issue #1156): neuter the change test in SENTINEL-KIT-TREE-CHECK; a suite that
@@ -1155,6 +1257,28 @@ REPL12
       ok "teeth-kit-tree: neutered guard FALSE-PASSES a confirmed leak under research-sdd/ → kit-tree guard has real teeth"
     else
       no "teeth-kit-tree: mutant still caught the leak (rc=$mrc) — mutation not exercised (THEATER)"
+    fi
+  fi
+  # Mutation (kit issue #1299 item 7): make the symlink listing see nothing; a symlink created under
+  # research-sdd/ must then FALSE-PASS. The leak is confirmed to have happened.
+  echo "-- teeth: blind SENTINEL-KIT-TREE-SYMLINKS; a symlink created under research-sdd/ must FALSE-PASS --"
+  w="$(mut_workdir teeth-kit-tree-symlink)"; _ktl="${w%/toolbelt/tests}"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" "/SENTINEL-KIT-TREE-SYMLINKS/,+2s/-type l /-type l -name __never__ /" 2>"$w/mutant.err"; then
+    no "teeth-kit-tree-symlink: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    { printf '#!/usr/bin/env bash\n'
+      printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+      printf 'ln -s nowhere "$k/install/stray.lnk" && : > "%s"\n' "$TMP/teeth-kit-tree-symlink.leaked"
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    } > "$w/linky.test.sh"
+    mkdir -p "$_ktl/install"
+    mout="$(bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    if [ ! -e "$TMP/teeth-kit-tree-symlink.leaked" ]; then
+      no "teeth-kit-tree-symlink: fixture never leaked — FALSE-PASS would prove nothing"
+    elif [ "$mrc" -eq 0 ] && grep -qF 'violations (new/modified/removed files under research-sdd/): 0' <<<"$mout"; then
+      ok "teeth-kit-tree-symlink: symlink-blind guard FALSE-PASSES a confirmed symlink leak → symlink tracking has real teeth"
+    else
+      no "teeth-kit-tree-symlink: mutant still caught the symlink (rc=$mrc) — mutation not exercised (THEATER)"
     fi
   fi
 fi

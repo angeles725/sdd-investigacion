@@ -91,6 +91,7 @@ _mutant_check_out() {
 
 mutant_verify() {
   local orig="$1" out="$2" rc
+  # SENTINEL-VERIFY-ORIG-CHECK
   if [ ! -f "$orig" ] || [ ! -r "$orig" ]; then
     _mutant_refuse "original '$orig' is not a readable file"; return 2
   fi
@@ -103,6 +104,7 @@ mutant_verify() {
   fi
   _mutant_check_out "$orig" "$out"; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
+  # SENTINEL-NOT-PRODUCED-CHECK
   if [ ! -f "$out" ]; then
     _mutant_refuse "mutant '$out' was not produced"; return 2
   fi
@@ -127,6 +129,7 @@ mutant_verify() {
 mutant_sed() {
   local orig="$1" out="$2" rc
   shift 2
+  # SENTINEL-SED-ORIG-CHECK
   if [ ! -f "$orig" ] || [ ! -r "$orig" ]; then
     _mutant_refuse "original '$orig' is not a readable file"; return 2
   fi
@@ -140,6 +143,7 @@ mutant_sed() {
   # Placement BEFORE anything is written (mutant_verify repeats it; this one guards the sed write).
   _mutant_check_out "$orig" "$out"; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
+  # SENTINEL-SED-FAIL-CHECK
   if ! sed "$@" "$orig" > "$out"; then
     _mutant_refuse "sed failed building '$out'"; rm -f -- "$out"; return 6
   fi

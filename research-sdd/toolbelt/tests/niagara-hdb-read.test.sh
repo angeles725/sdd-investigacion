@@ -3,8 +3,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../niagara-hdb-read.sh"
-FIXTURES="$HERE/fixtures/niagara-hdb-read"
-mkdir -p "$FIXTURES"
 
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
@@ -14,6 +12,10 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1299
+# item 6, CLAUDE.md section 8): the kit-tree guard only tolerates identical-byte rewrites.
+FIXTURES="$ROOT/fixtures/niagara-hdb-read"
+mkdir -p "$FIXTURES" || { echo "FATAL: cannot create $FIXTURES" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # Build .hdb fixture files programmatically (never inside a live target dir)
@@ -325,6 +327,9 @@ fi
 # ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
+# Hermeticity (kit issue #1299 item 6): fixtures are built in $ROOT; a rewrite of anything under
+# research-sdd/ is caught by the run-all kit-tree guard (no per-suite assertion: the live fixture dir
+# no longer exists, so one would be vacuous).
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
   exit $?

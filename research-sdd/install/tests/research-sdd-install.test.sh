@@ -26,7 +26,10 @@ for _f in "$KITROOT/install"/*; do
   [ "$_f" = "$KITROOT/install/tests" ] && continue
   cp -R "$_f" "$MKI/" || { echo "FATAL: cannot copy $_f into the temp install copy" >&2; exit 2; }
 done
-for _f in "$KITROOT"/*; do
+# Dotfiles included (kit issue #1299 item 7): "$KITROOT"/* alone skips them. `.[!.]*` excludes . and ..;
+# an unmatched glob stays literal, hence the existence guard.
+for _f in "$KITROOT"/* "$KITROOT"/.[!.]*; do
+  [ -e "$_f" ] || [ -L "$_f" ] || continue
   [ "$_f" = "$KITROOT/install" ] && continue
   ln -s "$_f" "$MK/$(basename "$_f")" || { echo "FATAL: cannot link $_f into the temp kit copy" >&2; exit 2; }
 done
@@ -42,14 +45,23 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # Every mutant and driver now lives in a temp copy of the install dir. The snapshot below is taken
 # before anything runs and compared at the END of the suite, before the EXIT trap removes anything
 # — so a file the suite wrote into the live tree and has not yet cleaned is still seen.
-# Tracked: path + size + mtime of every entry under research-sdd/install (tests/ included).
+# Tracked: path + content checksum (POSIX cksum) of every file, path of every directory, and path +
+# target of every symlink under research-sdd/install (tests/ included). No GNU `find -printf` (kit
+# issue #1299 item 7: a BSD find rejects it, which made the suite FATAL there). Content, not mtime:
+# an identical-bytes rewrite is not a change (the run-all kit-tree guard uses the same rule).
 # Absent-input guard: a snapshot that is empty or whose find failed would read as "unchanged".
 _install_tree_snapshot() {
-  local out root="${1:-$KITROOT/install}"
-  out="$(find "$root" -mindepth 1 -printf '%P\t%y\t%s\t%T@\n')" || return 1
-  [ -n "$out" ] || return 1
-  # Directories by existence only: a directory's mtime moves on any entry change inside it.
-  printf '%s\n' "$out" | awk -F'\t' '{ if ($2 == "d") print $1 "\td"; else print $1 "\t" $3 ":" $4 }' | LC_ALL=C sort
+  local root="${1:-$KITROOT/install}" dirs files links
+  dirs="$(find "$root" -mindepth 1 -type d)" || return 1
+  files="$(find "$root" -mindepth 1 -type f -exec cksum {} +)" || return 1
+  links="$(find "$root" -mindepth 1 -type l -exec sh -c 'for p; do printf "%s\tlink:%s\n" "$p" "$(readlink "$p")"; done' sh {} +)" || return 1
+  [ -n "$dirs$files$links" ] || return 1
+  {
+    # Directories by existence only: a directory's mtime moves on any entry change inside it.
+    printf '%s\n' "$dirs" | awk -v pre="$root/" 'NF { if (index($0, pre) == 1) $0 = substr($0, length(pre) + 1); print $0 "\td" }'
+    printf '%s\n' "$files" | awk -v pre="$root/" 'NF >= 3 { c = $1 ":" $2; sub(/^[^ ]+ [^ ]+ /, ""); if (index($0, pre) == 1) $0 = substr($0, length(pre) + 1); print $0 "\t" c }'
+    printf '%s\n' "$links" | awk -F'\t' -v pre="$root/" 'NF >= 2 { if (index($1, pre) == 1) $1 = substr($1, length(pre) + 1); print $1 "\t" $2 }'
+  } | LC_ALL=C sort
 }
 INSTALL_SNAP_BEFORE="$(_install_tree_snapshot)" \
   || { echo "FATAL: cannot snapshot $KITROOT/install (find failed or tree empty)" >&2; exit 2; }
@@ -1926,6 +1938,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth: MUTANT27 still refused correctly — R3-dry-run-switch-warn check is THEATER (rc=$rc_m27 out=$out_m27)"
   fi
 fi
+
+# Portability (kit issue #1299 item 7): the snapshot must not depend on GNU `find -printf` (a BSD
+# find rejects it, which made this suite FATAL there). A stub find that refuses -printf stands in
+# for a BSD find; the snapshot must still succeed and see a change.
+_pf_bin="$TMP/nofind-printf-bin"; mkdir -p "$_pf_bin"
+_pf_real="$(command -v find)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'for a in "$@"; do [ "$a" = "-printf" ] && { echo "find: unknown primary -printf" >&2; exit 1; }; done\n'
+  printf 'exec %s "$@"\n' "$_pf_real"
+} > "$_pf_bin/find"; chmod +x "$_pf_bin/find"
+_pf_probe="$TMP/portable-probe"; mkdir -p "$_pf_probe"; printf 'a\n' > "$_pf_probe/a.sh"
+_pf_s0="$(PATH="$_pf_bin:$PATH" _install_tree_snapshot "$_pf_probe")"; _pf_rc=$?
+printf 'changed\n' > "$_pf_probe/a.sh"
+_pf_s1="$(PATH="$_pf_bin:$PATH" _install_tree_snapshot "$_pf_probe")"
+if [ "$_pf_rc" -eq 0 ] && [ -n "$_pf_s0" ] && [ "$_pf_s1" != "$_pf_s0" ]; then
+  ok "hermetic snapshot: works without GNU find -printf (BSD-style find) and still registers a change"
+else no "hermetic snapshot depends on GNU find -printf (rc=$_pf_rc, snapshot=[$_pf_s0])"; fi
+
+# Dotfiles (kit issue #1299 item 7): the temp kit copy must mirror EVERY top-level entry of the kit,
+# dotfiles included (the old `"$KITROOT"/*` glob skipped them).
+_dot_missing=""
+for _f in "$KITROOT"/.[!.]*; do
+  [ -e "$_f" ] || [ -L "$_f" ] || continue
+  [ -e "$MK/$(basename "$_f")" ] || [ -L "$MK/$(basename "$_f")" ] || _dot_missing="$_dot_missing $(basename "$_f")"
+done
+if [ -z "$_dot_missing" ]; then ok "temp kit copy mirrors the kit's top-level dotfiles"
+else no "temp kit copy is missing top-level dotfiles:$_dot_missing"; fi
 
 # Teeth for the hermeticity check itself: the snapshot must register a NEW, a MODIFIED and a
 # REMOVED file (first / middle / last positions), proven on a temp copy — never on the live tree.

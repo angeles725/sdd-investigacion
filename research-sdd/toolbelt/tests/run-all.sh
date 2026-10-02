@@ -136,7 +136,8 @@ fi
 # SUT, so a concurrent shellcheck of install/ read transient files and a SIGKILL left them behind.
 # This guard snapshots research-sdd/ (resolved from THIS script's location, never the cwd) around
 # every suite; a new, modified or removed entry is attributed to the suite that was running.
-# Files are tracked by path + CONTENT HASH (sha1sum), never mtime: measured on the real tree, ~20
+# Files are tracked by path + CONTENT HASH (sha1sum) and symlinks by path + target (kit issue #1299
+# item 7; never followed), never mtime: measured on the real tree, ~20
 # suites rewrite committed fixtures with identical bytes (new mtime, no change) and python suites
 # drop __pycache__/*.pyc — flagging either would fail the gate on every run for noise. A file that
 # appears, disappears or changes bytes IS a violation. Directories are not tracked (an empty one is
@@ -153,11 +154,19 @@ _kit_tree_cur=""
 _scan_kit_tree() {
   # Sets _kit_tree_cur to a sorted "relpath<TAB>identity" listing. Returns 1 (listing untouched)
   # when the scan cannot run. STDOUT only: stderr noise from a successful find is never parsed.
-  local _out _rc
+  local _out _lnk _rc
   _out="$(find "$KIT_TREE" -type f -not -path '*/__pycache__/*' -exec sha1sum {} +)"
   _rc=$?
   [[ $_rc -eq 0 ]] || return 1
-  _kit_tree_cur="$(printf '%s\n' "$_out" | awk -v pre="$KIT_TREE/" 'NF >= 2 { h = $1; sub(/^[^ ]+  /, ""); if (index($0, pre) == 1) $0 = substr($0, length(pre) + 1); print $0 "\t" h }' | LC_ALL=C sort)"
+  # Symlinks (kit issue #1299 item 7): `-type f` never lists a link, so one a suite created,
+  # retargeted or removed was invisible. Tracked by path + target text (never followed, so a
+  # dangling link counts), one tab-separated "path<TAB>link:<target>" line each.
+  # SENTINEL-KIT-TREE-SYMLINKS
+  _lnk="$(find "$KIT_TREE" -type l -not -path '*/__pycache__/*' -exec sh -c 'for p; do printf "%s\tlink:%s\n" "$p" "$(readlink "$p")"; done' sh {} +)"
+  _rc=$?
+  [[ $_rc -eq 0 ]] || return 1
+  _kit_tree_cur="$({ printf '%s\n' "$_out" | awk -v pre="$KIT_TREE/" 'NF >= 2 { h = $1; sub(/^[^ ]+  /, ""); if (index($0, pre) == 1) $0 = substr($0, length(pre) + 1); print $0 "\t" h }'
+    printf '%s\n' "$_lnk" | awk -F'\t' -v pre="$KIT_TREE/" 'NF >= 2 { if (index($1, pre) == 1) $1 = substr($1, length(pre) + 1); print $1 "\t" $2 }'; } | LC_ALL=C sort)"
   return 0
 }
 if [[ -z "$KIT_TREE" ]]; then
@@ -377,7 +386,32 @@ for suite in "${all_suites[@]}"; do
     # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
     # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
     # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
-    if [[ "$_has_teeth" -eq 1 ]] && ! grep -qF 'lib/mutant.sh' "$suite" 2>/dev/null; then
+    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use; an actual `.`/`source` is.
+    # Recognised: a literal lib/mutant.sh target, or a variable assigned the helper path earlier or
+    # later in the same file (ONE level: `LIB=...lib/mutant.sh` then `. "$LIB"`), after a line start
+    # or one of ; & | { ( then do else. Comment lines and heredoc bodies are skipped (a delimiter
+    # is detected from `<<[-]WORD`; `<<<` herestrings are ignored). Known limits: a second level of
+    # indirection and a quoted multi-line string that looks like a source line are not resolved.
+    # One awk process, NOT `grep -v | grep -q`: under pipefail the early-exiting `grep -q` SIGPIPEs the
+    # producer (rc 141) on any suite larger than the pipe buffer and mislabels it a non-user.
+    # SENTINEL-HELPER-USE-TEST
+    if [[ "$_has_teeth" -eq 1 ]] && ! awk '
+      hd != "" { t = $0; sub(/^[ \t]+/, "", t); if (t == hd) hd = ""; next }
+      /^[[:space:]]*#/ { next }
+      { code[++n] = $0
+        if ($0 !~ /<<</ && match($0, /<<-?[^A-Za-z_]*[A-Za-z_][A-Za-z0-9_]*/)) {
+          d = substr($0, RSTART, RLENGTH); sub(/^<<-?[^A-Za-z_]*/, "", d); hd = d } }
+      END {
+        for (i = 1; i <= n; i++)
+          if (code[i] ~ /^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=.*lib\/mutant\.sh/) {
+            v = code[i]; sub(/^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?/, "", v); sub(/=.*/, "", v)
+            isvar[v] = 1 }
+        for (i = 1; i <= n; i++) {
+          if (code[i] !~ /(^|[;&|{(]|(^|[[:space:]])(then|do|else))[[:space:]]*(\.|source)[[:space:]]+/) continue
+          if (code[i] ~ /(\.|source)[[:space:]]+[^#]*lib\/mutant\.sh/) exit 0
+          for (v in isvar) if (index(code[i], "$" v) || index(code[i], "${" v)) exit 0
+        }
+        exit 1 }' "$suite" 2>/dev/null; then
       sh_teeth_nohelper+=("$base_noext")
     fi
   fi
