@@ -1659,31 +1659,46 @@ run_gate "$T_s15" "$(mkjson "$SID_s15" false)"
 # S16: killing the hook (SIGTERM, as a Stop timeout does) mid-Part C must not leak the scratch files.
 # TMPDIR points at a private dir so any leak is visible. Two stall points: inside `git ls-files`
 # (all three scratch files live) and inside the inner walk (_dl_of live). bash defers the trap until
-# the foreground stub returns, so each stub only sleeps 2 s.
+# the foreground stub returns, so each stub holds until kill_case releases it (readiness-polled, bounded
+# at 30 s; kit issue #1421 item 3 — a fixed sleep let a loaded host see the stub return before the kill).
 STUB_KGIT="$ROOT/stub-kill-git"; mkdir -p "$STUB_KGIT"
-printf '#!/usr/bin/env bash\ncase " $* " in *" ls-files "*) : > "$STARTED"; sleep 2;; esac\nexec %s "$@"\n' "$REAL_GIT" > "$STUB_KGIT/git"
+printf '#!/usr/bin/env bash\n_hold() { : > "$STARTED"; for _ in $(seq 1 300); do [ -e "$RELEASED" ] && break; sleep 0.1; done; }\ncase " $* " in *" ls-files "*) _hold;; esac\nexec %s "$@"\n' "$REAL_GIT" > "$STUB_KGIT/git"
 STUB_KTO="$ROOT/stub-kill-timeout"; mkdir -p "$STUB_KTO"
-printf '#!/usr/bin/env bash\ncase " $* " in *" -newer "*) : > "$STARTED"; sleep 2;; esac\nshift; exec "$@"\n' > "$STUB_KTO/timeout"
+printf '#!/usr/bin/env bash\n_hold() { : > "$STARTED"; for _ in $(seq 1 300); do [ -e "$RELEASED" ] && break; sleep 0.1; done; }\ncase " $* " in *" -newer "*) _hold;; esac\nshift; exec "$@"\n' > "$STUB_KTO/timeout"
 chmod +x "$STUB_KGIT/git" "$STUB_KTO/timeout"
-# kill_case <label> <stubdir> <sid> <target> <signal> [sut] → sets KRC, KLEFT (files left in the private TMPDIR)
+# kill_prereq: kill_case drives bash through python3 (SIGINT back to SIG_DFL). Probe it (§7) — never a silent pass.
+kill_prereq() { command -v python3 >/dev/null 2>&1; }
+# kill_case <label> <stubdir> <sid> <target> <signal> [sut] → sets KRC, KLEFT (files left in the private
+# TMPDIR), KLOG (last stop-log line). KRC=no-python3 when the prerequisite is missing. STARTED/RELEASED
+# are passed per-command, never exported into later tests.
 kill_case() {
-  local stub="$2" sid="$3" tgt="$4" sig="$5" sut="${6:-$SUT}" kt="$ROOT/ktmp-$1" pid
-  rm -rf "$kt"; mkdir -p "$kt"; export STARTED="$kt.started"; rm -f "$STARTED"
-  rm -f "$tgt/.claude/.rsdd-retro-blocked-$sid"
+  local stub="$2" sid="$3" tgt="$4" sig="$5" sut="${6:-$SUT}" kt="$ROOT/ktmp-$1" pid started released
+  KRC=""; KLEFT=""; KLOG=""
+  if ! kill_prereq; then KRC="no-python3"; KLEFT="n/a"; return; fi
+  started="$kt.started"; released="$kt.released"
+  rm -rf "$kt"; mkdir -p "$kt"; rm -f "$started" "$released"
+  rm -f "$tgt/.claude/.rsdd-retro-blocked-$sid" "$tgt/.claude/.rsdd-retro-gate-stops.log"
   mkjson "$sid" false > "$kt.in"
   # python3 execs bash with SIGINT back at its default: a background job of a non-interactive shell
   # starts with SIGINT ignored, and an ignored-on-entry signal can never be trapped.
-  TMPDIR="$kt" PATH="$stub:$PATH" python3 -c 'import os,signal,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execv(sys.argv[1], sys.argv[1:])' \
+  STARTED="$started" RELEASED="$released" TMPDIR="$kt" PATH="$stub:$PATH" python3 -c 'import os,signal,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execv(sys.argv[1], sys.argv[1:])' \
     "$BASH_BIN" "$sut" "$tgt" < "$kt.in" > /dev/null 2>&1 &
   pid=$!
-  for _ in $(seq 1 60); do [ -e "$STARTED" ] && break; sleep 0.1; done
-  if [ ! -e "$STARTED" ]; then KRC="never-started"; KLEFT="n/a"; kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return; fi
-  kill -"$sig" "$pid"; wait "$pid" 2>/dev/null; KRC=$?
+  for _ in $(seq 1 300); do [ -e "$started" ] && break; sleep 0.1; done
+  if [ ! -e "$started" ]; then KRC="never-started"; KLEFT="n/a"; : > "$released"; kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return; fi
+  kill -"$sig" "$pid"; : > "$released"; wait "$pid" 2>/dev/null; KRC=$?
   KLEFT="$(ls -A "$kt" | tr '\n' ' ')"
+  KLOG="$(tail -n 1 "$tgt/.claude/.rsdd-retro-gate-stops.log" 2>/dev/null)"
 }
 S16_EXT="$ROOT/s16-ext"; mkfresh "$S16_EXT"
 T_s16="$ROOT/t-s16"; mkgit "$T_s16"; SID_s16="s16-sess"; mksessionfile "$T_s16" "$SID_s16" "202609050800"
 ln -s "$S16_EXT" "$T_s16/corpus"
+# S16p: the probe itself, both polarities (a constant-true or constant-false probe fails one of them).
+mkdir -p "$ROOT/s16-emptybin"
+if ( PATH="$ROOT/s16-emptybin"; ! kill_prereq ) && { ! command -v python3 >/dev/null 2>&1 || kill_prereq; }; then
+  ok "#1421 S16p: kill_prereq reports python3 absent (empty PATH) and present (real PATH) correctly"
+else no "#1421 S16p: kill_prereq probe is not tracking python3 availability"; fi
+if kill_prereq; then
 kill_case s16a "$STUB_KGIT" "$SID_s16" "$T_s16" TERM
 { [ "$KRC" = "143" ] && [ -z "$KLEFT" ]; } \
   && ok "#1404 S16a: SIGTERM during git enumeration → exit 143, no scratch files left" \
@@ -1692,10 +1707,21 @@ kill_case s16b "$STUB_KTO" "$SID_s16" "$T_s16" TERM
 { [ "$KRC" = "143" ] && [ -z "$KLEFT" ]; } \
   && ok "#1404 S16b: SIGTERM during the inner walk → exit 143, no scratch files left" \
   || no "#1404 S16b: leak or wrong exit: rc=$KRC left=[$KLEFT]"
+# S16d (#1421 items 1+2): a SIGTERM-killed hook is logged branch=killed, not 'unclassified'. This is what
+# makes the TERM trap load-bearing: without it bash still runs the EXIT handler but the branch is never set.
+{ [ "$KRC" = "143" ] && printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+  && ok "#1421 S16d: SIGTERM → stop-log line carries branch=killed" \
+  || no "#1421 S16d: killed hook not tagged: rc=$KRC log=[$KLOG]"
 kill_case s16c "$STUB_KTO" "$SID_s16" "$T_s16" INT
 { [ "$KRC" = "130" ] && [ -z "$KLEFT" ]; } \
   && ok "#1404 S16c: SIGINT during the inner walk → exit 130, no scratch files left" \
   || no "#1404 S16c: leak or wrong exit: rc=$KRC left=[$KLEFT]"
+{ [ "$KRC" = "130" ] && printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+  && ok "#1421 S16e: SIGINT → stop-log line carries branch=killed" \
+  || no "#1421 S16e: interrupted hook not tagged: rc=$KRC log=[$KLOG]"
+else
+  printf '  SKIP  #1404 S16a-c / #1421 S16d-e: python3 not available — kill-signal cases not run\n'
+fi
 # S17: PIN for the removed resolved-path nested-worktree check (#1352 R3). Part C no longer tests the
 # RESOLVED link target against the nested-worktree roots because every root the lib reports lives
 # under the target, and the inside-target skip already covers that. If root discovery ever reports a
@@ -3289,7 +3315,8 @@ if nwmutant 'dirlink-scratch-guard' '/SENTINEL-DIRLINK-SCRATCH-START/,/SENTINEL-
     || no "TOOTH dirlink-scratch-guard: guard not load-bearing: ERR=$ERR"
 fi
 # DL16 (#1404 item 3): scratch cleanup dropped from the EXIT handler → S16a/b leak the files.
-if nwmutant 'dirlink-no-cleanup' '/SENTINEL-DIRLINK-CLEANUP/d'; then M_DL16="$NWM"
+if ! kill_prereq; then printf '  SKIP  TOOTH dirlink-no-cleanup: python3 not available — kill_case cannot run\n'
+elif nwmutant 'dirlink-no-cleanup' '/SENTINEL-DIRLINK-CLEANUP/d'; then M_DL16="$NWM"
   kill_case m16a "$STUB_KGIT" "$SID_s16" "$T_s16" TERM "$M_DL16"; _m16a="$KLEFT"
   kill_case m16b "$STUB_KTO" "$SID_s16" "$T_s16" TERM "$M_DL16"; _m16b="$KLEFT"
   { [ -n "$_m16a" ] && [ "$_m16a" != "n/a" ] && [ -n "$_m16b" ] && [ "$_m16b" != "n/a" ]; } \
@@ -3386,6 +3413,29 @@ p_tooth "p-warn-dropped (probe failure is silent)" \
   '/SENTINEL-NW-PROBE-FAIL-START/,/SENTINEL-NW-PROBE-FAIL-END/d' pc_nowarn
 p_tooth "p-rc3-double-warn (rc 3 no longer exempt from the gate-level WARN)" \
   's/"\$_nw_rc" -ne 3 \]/"$_nw_rc" -ne 99 ]/' pc_rc3warn
+
+# #1421 teeth: each signal trap must be load-bearing — without it the EXIT handler still runs but the
+# stop-log line is not tagged branch=killed (S16d/S16e would go RED).
+if ! kill_prereq; then printf '  SKIP  TOOTH k-term-trap-dropped / k-int-trap-dropped / k-branch-unset: python3 not available — kill_case cannot run\n'
+else
+  for _k in TERM:term:143 INT:int:130; do
+    IFS=: read -r _ksig _kn _krc <<< "$_k"
+    _km="$MUT_KIT/toolbelt/mutant-k-$_kn-trap-dropped.sh"
+    mutant_sed "$SUT" "$_km" "/^trap '_STOP_BRANCH=killed; exit $_krc' $_ksig\$/d"; _kmrc=$?
+    if [ "$_kmrc" -ne 0 ]; then no "TOOTH k-$_kn-trap-dropped: mutant refused by lib/mutant.sh (rc=$_kmrc) — tooth not built"; continue; fi
+    kill_case "mk$_kn" "$STUB_KTO" "$SID_s16" "$T_s16" "$_ksig" "$_km"
+    { [ -n "$KLOG" ] && ! printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+      && ok "TOOTH k-$_kn-trap-dropped: without the $_ksig trap the stop-log loses branch=killed — RED as expected" \
+      || no "TOOTH k-$_kn-trap-dropped: trap not load-bearing: rc=$KRC log=[$KLOG] left=[$KLEFT]"
+  done
+  # k-branch-unset: the traps still exit but no longer tag the branch (S16d would go RED).
+  if mutant_sed "$SUT" "$MUT_KIT/toolbelt/mutant-k-branch-unset.sh" "s/_STOP_BRANCH=killed; exit/exit/"; then
+    kill_case mkbu "$STUB_KTO" "$SID_s16" "$T_s16" TERM "$MUT_KIT/toolbelt/mutant-k-branch-unset.sh"
+    { [ -n "$KLOG" ] && ! printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+      && ok "TOOTH k-branch-unset: traps that do not set the branch leave the line untagged — RED as expected" \
+      || no "TOOTH k-branch-unset: tag not load-bearing: log=[$KLOG]"
+  else no "TOOTH k-branch-unset: mutant refused by lib/mutant.sh — tooth not built"; fi
+fi
 
 # ESC mutants: build from the SUT text in bash (no sed-escaping of quote characters).
 _esc_orig='s=${s//$_dq/"$_esc_dq"}'
