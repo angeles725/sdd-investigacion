@@ -1695,6 +1695,7 @@ T_s16="$ROOT/t-s16"; mkgit "$T_s16"; SID_s16="s16-sess"; mksessionfile "$T_s16" 
 ln -s "$S16_EXT" "$T_s16/corpus"
 # S16p: the probe itself, both polarities (a constant-true or constant-false probe fails one of them).
 mkdir -p "$ROOT/s16-emptybin"
+# shellcheck disable=SC2123  # deliberate: hide python3 inside the subshell only
 if ( PATH="$ROOT/s16-emptybin"; ! kill_prereq ) && { ! command -v python3 >/dev/null 2>&1 || kill_prereq; }; then
   ok "#1421 S16p: kill_prereq reports python3 absent (empty PATH) and present (real PATH) correctly"
 else no "#1421 S16p: kill_prereq probe is not tracking python3 availability"; fi
