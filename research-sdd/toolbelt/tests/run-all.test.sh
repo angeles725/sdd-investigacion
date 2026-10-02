@@ -724,6 +724,25 @@ if grep -qF 'Suites with teeth not using lib/mutant.sh: 0 — []' <<<"$out"; the
   ok "teeth-helper lint: a large suite that sources the helper is not misreported (no SIGPIPE under pipefail)"
 else no "teeth-helper lint large-suite failed: $(grep -F 'lib/mutant.sh' <<<"$out" | tr '\n' '|')"; fi
 
+# 34f — lint recognition (kit issue #1299 review): one level of VAR=...lib/mutant.sh indirection
+#       (mutant.test.sh uses LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}" + `. "$LIB"`), and the
+#       `then . x` / `; . x` / `&& . x` prefixes, are USE. Not use: a source of a variable never
+#       assigned the helper path, a variable assigned only in a comment, and a source line that
+#       is just the body of a heredoc.
+w="$(newdir c34f)"
+mkfix_teeth "$w/via-var.test.sh";  printf 'LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"\n. "$LIB"\n' >> "$w/via-var.test.sh"
+mkfix_teeth "$w/via-brace.test.sh"; printf 'H=$HERE/lib/mutant.sh\nsource ${H}\n' >> "$w/via-brace.test.sh"
+mkfix_teeth "$w/via-then.test.sh"; printf 'if true; then . "$HERE/lib/mutant.sh"; fi\n' >> "$w/via-then.test.sh"
+mkfix_teeth "$w/via-and.test.sh";  printf '[ -f x ] && . "$HERE/lib/mutant.sh"\n' >> "$w/via-and.test.sh"
+mkfix_teeth "$w/other-var.test.sh"; printf 'LIB=/usr/lib/other.sh\n. "$LIB"\n' >> "$w/other-var.test.sh"
+mkfix_teeth "$w/cmt-var.test.sh";  printf '# LIB=$HERE/lib/mutant.sh\n. "$LIB"\n' >> "$w/cmt-var.test.sh"
+mkfix_teeth "$w/heredoc.test.sh";  printf 'cat <<EOF\n. "$HERE/lib/mutant.sh"\nEOF\n' >> "$w/heredoc.test.sh"
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+_c34fline="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
+if [ "$_c34fline" = 'Suites with teeth not using lib/mutant.sh: 3 — [cmt-var, heredoc, other-var]' ]; then
+  ok "teeth-helper lint recognition: VAR indirection and then/;/&& prefixes count; foreign var, comment-only assignment and heredoc body do not"
+else no "teeth-helper lint recognition failed: line=[$_c34fline]"; fi
+
 # 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
 #      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
 #      The runner also snapshots research-sdd/ (resolved from its own location, never the cwd)
@@ -1185,11 +1204,27 @@ REPL12
       no "teeth-helper-lint: mutant still named the hand-rolled suite — lint mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
     fi
   fi
+  # Mutation (kit issue #1299 review): drop the variable resolution; a `. "$LIB"` suite must then
+  # be listed as a non-user (case 34f).
+  echo "-- teeth: drop VAR indirection in SENTINEL-HELPER-USE-TEST; a source of \$LIB must be listed (case 34f) --"
+  w="$(mut_workdir teeth-helper-var)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/isvar\[v\] = 1/isvar[v] = 1; delete isvar[v]/' 2>"$w/mutant.err"; then
+    no "teeth-helper-var: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/via-var.test.sh"
+    printf 'LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"\n. "$LIB"\n' >> "$w/via-var.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if grep -qF 'Suites with teeth not using lib/mutant.sh: 1 — [via-var]' <<<"$mout"; then
+      ok "teeth-helper-var: without VAR resolution the \$LIB source is not recognised → indirection has real teeth"
+    else
+      no "teeth-helper-var: mutant still recognised the \$LIB source — mutation not exercised (THEATER) :: $(grep -F 'lib/mutant.sh' <<<"$mout" | tr '\n' '|')"
+    fi
+  fi
   # Mutation (kit issue #1299 item 5): drop the comment filter; a suite that only MENTIONS the
   # helper in a comment must then be counted as a helper user (vanish from the list).
   echo "-- teeth: drop the comment filter; a comment-only mention must vanish from the list (case 34d) --"
   w="$(mut_workdir teeth-helper-comment)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-HELPER-USE-TEST/,+2s/!\/^\[\[:space:\]\]\*#\/ && //' 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/^      \/\^\[\[:space:\]\]\*#\/ { next }$/d' 2>"$w/mutant.err"; then
     no "teeth-helper-comment: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/cmt-only.test.sh"

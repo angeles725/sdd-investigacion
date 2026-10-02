@@ -386,12 +386,32 @@ for suite in "${all_suites[@]}"; do
     # SENTINEL-TEETH-HELPER-LINT (kit issue #943): a suite with teeth that never references the
     # shared mutant helper builds its mutants by hand, with none of the helper's refusals (empty,
     # byte-identical, syntax-broken, live-tree, symlink OUT). Reported, never failed: migration is incremental.
-    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use. Comment lines are skipped,
-    # then an actual `.`/`source` of lib/mutant.sh must remain (line start or after ; & | { ( ).
+    # Kit issue #1299 item 5: a COMMENT mentioning the helper is not use; an actual `.`/`source` is.
+    # Recognised: a literal lib/mutant.sh target, or a variable assigned the helper path earlier or
+    # later in the same file (ONE level: `LIB=...lib/mutant.sh` then `. "$LIB"`), after a line start
+    # or one of ; & | { ( then do else. Comment lines and heredoc bodies are skipped (a delimiter
+    # is detected from `<<[-]WORD`; `<<<` herestrings are ignored). Known limits: a second level of
+    # indirection and a quoted multi-line string that looks like a source line are not resolved.
     # One awk process, NOT `grep -v | grep -q`: under pipefail the early-exiting `grep -q` SIGPIPEs the
     # producer (rc 141) on any suite larger than the pipe buffer and mislabels it a non-user.
     # SENTINEL-HELPER-USE-TEST
-    if [[ "$_has_teeth" -eq 1 ]] && ! awk '!/^[[:space:]]*#/ && /(^|[;&|{(])[[:space:]]*(\.|source)[[:space:]]+[^#]*lib\/mutant\.sh/ { f = 1 } END { exit !f }' "$suite" 2>/dev/null; then
+    if [[ "$_has_teeth" -eq 1 ]] && ! awk '
+      hd != "" { t = $0; sub(/^[ \t]+/, "", t); if (t == hd) hd = ""; next }
+      /^[[:space:]]*#/ { next }
+      { code[++n] = $0
+        if ($0 !~ /<<</ && match($0, /<<-?[^A-Za-z_]*[A-Za-z_][A-Za-z0-9_]*/)) {
+          d = substr($0, RSTART, RLENGTH); sub(/^<<-?[^A-Za-z_]*/, "", d); hd = d } }
+      END {
+        for (i = 1; i <= n; i++)
+          if (code[i] ~ /^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=.*lib\/mutant\.sh/) {
+            v = code[i]; sub(/^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?/, "", v); sub(/=.*/, "", v)
+            isvar[v] = 1 }
+        for (i = 1; i <= n; i++) {
+          if (code[i] !~ /(^|[;&|{(]|(^|[[:space:]])(then|do|else))[[:space:]]*(\.|source)[[:space:]]+/) continue
+          if (code[i] ~ /(\.|source)[[:space:]]+[^#]*lib\/mutant\.sh/) exit 0
+          for (v in isvar) if (index(code[i], "$" v) || index(code[i], "${" v)) exit 0
+        }
+        exit 1 }' "$suite" 2>/dev/null; then
       sh_teeth_nohelper+=("$base_noext")
     fi
   fi
