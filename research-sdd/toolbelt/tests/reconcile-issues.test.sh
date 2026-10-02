@@ -1414,7 +1414,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       || { no "T1369-$tag: build mutant" "mutant_sed refused"; return 1; }
   }
   echo "-- teeth T1369-fence: table awk bypasses the shared defenced stream --"
-  if rec_mutant fence nomatch -e 's/^  _all_row_ids="\$(retro_grammar_defenced "\$retro_path" | awk/  _all_row_ids="$(cat "$retro_path" | awk/'; then
+  if rec_mutant fence nomatch -e 's/^  _all_row_ids="\$(_RG_QUIET_FENCE=1 retro_grammar_defenced "\$retro_path" | awk/  _all_row_ids="$(cat "$retro_path" | awk/'; then
     printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$MBOX/rh/target-foo/retros/r.md"
     run "$MBOX" --issues-cache /dev/null "$MBOX/rh/target-foo/retros/r.md"
     if grep -q '^untracked: row 2 ' <<<"$OUT"; then ok "T1369-fence teeth: fence bypassed → fenced row 2 reported (40a has teeth)" "()"
@@ -1443,6 +1443,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RECONCILE_ISSUES_LIST_LIMIT=abc run "$MBOX" "$MBOX/rh/target-foo/retros/r.md"
     if ! grep -q '^degraded: RECONCILE_ISSUES_LIST_LIMIT' <<<"$OUT"; then ok "T1369-limitvalid teeth: validation removed → no typed degraded line (41d has teeth)" "()"
     else no "T1369-limitvalid teeth: removing validation must flip 41d" "41d is THEATER: out=[$OUT]"; fi
+  fi
+
+  # #1403 fix-first mutants: unreadable retro, single unclosed-fence WARN (cases 42a, 42b)
+  if [ "$(id -u)" != 0 ] && rec_mutant unreadable nomatch -e 's/^  if \[ ! -r "\$retro_path" \]; then$/  if false; then/'; then
+    mk_open_retro "$MBOX/rh/target-foo/retros/r.md" >/dev/null
+    chmod 000 "$MBOX/rh/target-foo/retros/r.md"; run "$MBOX" "$MBOX/rh/target-foo/retros/r.md"; chmod 600 "$MBOX/rh/target-foo/retros/r.md"
+    if ! grep -q '^degraded: retro not readable' <<<"$OUT"; then ok "T1403-unreadable teeth: reconcile check removed → no typed degraded (42a has teeth)" "()"
+    else no "T1403-unreadable teeth: removing the check must flip 42a" "42a is THEATER: out=[$OUT]"; fi
+  fi
+  if rec_mutant quiettable nomatch -e 's/_all_row_ids="\$(_RG_QUIET_FENCE=1 retro_grammar_defenced/_all_row_ids="$(retro_grammar_defenced/'; then
+    printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n### D1 — one\n\n```\n### D2 — two\n' > "$MBOX/rh/target-foo/retros/r.md"
+    run "$MBOX" --issues-cache /dev/null "$MBOX/rh/target-foo/retros/r.md"
+    _n="$(grep -c '^WARN: unclosed code fence' <<<"$OUT")"
+    if [ "$_n" != 1 ]; then ok "T1403-quiettable teeth: WARN count is $_n, not 1 (42b has teeth)" "()"
+    else no "T1403-quiettable teeth: mutant must flip 42b" "42b is THEATER: out=[$OUT]"; fi
   fi
 
 fi  # --prove-teeth
@@ -1935,6 +1950,30 @@ if [ "$_rc1" = 2 ] && [ "$_rc2" = 2 ] && [ "$_rc3" = 2 ] && [ "$_rc4" = 0 ]; the
   ok "41e gh stub rejects unknown flag / unknown --json field / --limit 0; accepts the real shape" "(rc $_rc1 $_rc2 $_rc3 $_rc4)"
 else
   no "41e stub strictness" "rc=$_rc1 $_rc2 $_rc3 $_rc4"
+fi
+
+# ---------------------------------------------------------------------------
+# 42 — UNREADABLE retro (R3-unreadable-silent-zero): typed degraded, never empty-input / a silent zero.
+box42="$(mkbox case-unreadable)"; mk_gh_stub "$box42" nomatch
+mk_open_retro "$box42/rh/target-foo/retros/r42.md" >/dev/null
+if [ "$(id -u)" = 0 ]; then
+  echo "  SKIP  42a unreadable retro: running as root, permissions do not bind"
+else
+  chmod 000 "$box42/rh/target-foo/retros/r42.md"; run "$box42" "$box42/rh/target-foo/retros/r42.md"; chmod 600 "$box42/rh/target-foo/retros/r42.md"
+  if [ "$RC" = 1 ] && grep -q '^degraded: retro not readable' <<<"$OUT" && ! grep -q 'empty-input\|^untracked:\|^no-match' <<<"$OUT"; then
+    ok "42a unreadable retro → typed degraded exit 1 (not empty-input, not a verdict)" "(exit $RC)"
+  else
+    no "42a unreadable retro" "exit=$RC out=[$OUT]"
+  fi
+fi
+box42b="$(mkbox case-unclosed-fence)"; mk_gh_stub "$box42b" nomatch
+printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n### D1 — one\n\n```\n### D2 — two\n' > "$box42b/rh/target-foo/retros/r42b.md"
+run "$box42b" --issues-cache /dev/null "$box42b/rh/target-foo/retros/r42b.md"
+if [ "$RC" = 0 ] && grep -q '^untracked: row D1 ' <<<"$OUT" && grep -q '^untracked: row D2 ' <<<"$OUT" \
+   && [ "$(grep -c '^WARN: unclosed code fence opened at line 8' <<<"$OUT")" = 1 ]; then
+  ok "42b unclosed fence: both entries still reported (fail-open), WARN exactly once" "(exit $RC)"
+else
+  no "42b unclosed fence" "exit=$RC out=[$OUT]"
 fi
 
 echo "== $pass passed · $fail failed =="

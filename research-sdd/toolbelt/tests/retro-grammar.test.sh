@@ -368,6 +368,47 @@ printf '```\n## Proposed kit deltas\n\n### D1 — fake\n```' > "$ROOT/fence-head
 _got="$(rgi_first "$ROOT/fence-head.md")"
 [ "$_got" = "0:n:0" ] && ok "T36 a fenced canonical heading opens no section (first/last-line fence edges)" "($_got)" || no "T36 fenced heading" "got=[$_got] want=[0:n:0]"
 
+echo "-- unreadable file: typed, never a silent zero (R3-unreadable-silent-zero) --"
+_unr="$ROOT/unreadable.md"
+printf '## Proposed kit deltas\n\n### D1 — a\n' > "$_unr"; chmod 000 "$_unr"
+if [ "$(id -u)" = 0 ]; then
+  skip "T40 unreadable file (chmod 000)" "running as root: permissions do not bind — typed skip"
+else
+  _o="$(retro_grammar_delta_info "$_unr" 2>"$ROOT/unr.err")"; _rc=$?
+  [ "$_rc" -ne 0 ] && grep -q 'cannot read' "$ROOT/unr.err" \
+    && ok "T40a delta_info on an unreadable file: non-zero + typed 'cannot read' on stderr (not a silent 0:n:0)" "(rc=$_rc)" \
+    || no "T40a delta_info unreadable" "rc=$_rc out=[$_o] err=[$(cat "$ROOT/unr.err")]"
+  retro_grammar_defenced "$_unr" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -ne 0 ] && ok "T40b defenced on an unreadable file: non-zero" "(rc=$_rc)" || no "T40b defenced unreadable" "rc=$_rc"
+  retro_grammar_entry_rows "$_unr" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -ne 0 ] && ok "T40c entry_rows on an unreadable file: non-zero" "(rc=$_rc)" || no "T40c entry_rows unreadable" "rc=$_rc"
+  retro_grammar_entry_ids "$_unr" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -ne 0 ] && ok "T40d entry_ids on an unreadable file: non-zero" "(rc=$_rc)" || no "T40d entry_ids unreadable" "rc=$_rc"
+fi
+chmod 600 "$_unr"
+
+echo "-- unclosed fence: still fails open, but says so on stderr (once, never on stdout) --"
+_ucw="$(retro_grammar_defenced "$ROOT/fence-open.md" 2>&1 >/dev/null)"
+[[ "$_ucw" == "WARN: unclosed code fence opened at line 5 in "*"fence-open.md — treated as text" ]] && [ "$(wc -l <<<"$_ucw" | tr -d ' ')" = 1 ] \
+  && ok "T41a unclosed fence → exactly one 'WARN: unclosed code fence opened at line 5 in <file> — treated as text'" "()" \
+  || no "T41a unclosed-fence WARN" "got=[$_ucw]"
+_ucw="$(retro_grammar_defenced "$ROOT/fence-open.md" 2>/dev/null | grep -c WARN)"
+[ "$_ucw" = 0 ] && ok "T41b the WARN never reaches stdout (stdout parsing unaffected)" "()" || no "T41b WARN leaked to stdout" "count=$_ucw"
+_ucw="$(retro_grammar_defenced "$ROOT/fence-a.md" 2>&1 >/dev/null)"
+[ -z "$_ucw" ] && ok "T41c a CLOSED fence is silent" "()" || no "T41c closed fence must be silent" "got=[$_ucw]"
+_ucw="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$ROOT/fence-open.md" 2>&1 >/dev/null)"
+[ -z "$_ucw" ] && ok "T41d _RG_QUIET_FENCE=1 silences it (secondary calls of one run)" "()" || no "T41d quiet switch" "got=[$_ucw]"
+_ucw="$(retro_grammar_delta_info "$ROOT/fence-open.md" 2>&1 >/dev/null)"
+[[ "$_ucw" == "WARN: unclosed code fence opened at line 5 in "* ]] \
+  && ok "T41e delta_info (the first call of every consumer) carries the WARN" "()" || no "T41e delta_info WARN" "got=[$_ucw]"
+_ucw="$(retro_grammar_entry_ids "$ROOT/fence-open.md" 2>&1 >/dev/null)"
+[ -z "$_ucw" ] && ok "T41f entry_ids is quiet (its caller already got the WARN from delta_info)" "()" || no "T41f entry_ids must be quiet" "got=[$_ucw]"
+
+echo "-- bare (low) / (medium) / (high) heading parenthetical is a priority (intentional, pinned) --"
+printf '## Proposed kit deltas\n\n### D1 — x (low)\n\n### D2 — y (medium)\n\n### D3 — z (high)\n' > "$ROOT/headbare.md"
+_got="$(retro_grammar_entry_rows "$ROOT/headbare.md" | awk -F'\037' '{printf "%s=%s,", $1, $6}')"
+[ "$_got" = "D1=low,D2=medium,D3=high," ] && ok "T39 a bare (low)/(medium)/(high) parenthetical yields that priority (intentional)" "($_got)" || no "T39 bare level" "got=[$_got]"
+
 echo "-- heading-only priority: '(priority: high)' / '(NEW, MEDIUM)' --"
 _hp="$ROOT/headprio.md"
 printf '## Proposed kit deltas\n\n### D1 — Title one (priority: high)\n\n### D2 — Title two (NEW, MEDIUM)\n\n### D3 — fix it (low-risk change)\n\n### D4 — keep (medium confidence)\n\n### D5 — body wins (priority: low)\n**Priority**: HIGH\n\n### D6 — last (LOW)\n' > "$_hp"
@@ -692,7 +733,7 @@ fence_mutant F3c 's/if (indent(\$0) >= 4) next /if (0) next /' "$ROOT/fence-ind4
 fence_mutant F4 's/if (n >= flen \&\& rest/if (n >= 3 \&\& rest/' "$ROOT/fence-b.md" retro_grammar_entry_ids "D1,D2,"
 fence_mutant F5 's/ \&\& !(c == "`" \&\& index(rest, "`") > 0)//' "$ROOT/fence-btick.md" retro_grammar_entry_ids "D1,D2,D3,"
 fence_mutant F6 's/^      !(FNR in skip) { print }/      !(FNR in skip) \&\& !(open \&\& FNR >= ostart) { print }/' "$ROOT/fence-open.md" retro_grammar_entry_ids "D1,D2,"
-fence_mutant D1 '/return 0; }$/{n;s/retro_grammar_defenced "\$f" | awk/cat "$f" | awk/}' "$ROOT/fence-a.md" retro_grammar_delta_info "1:2:2||0|0|,"
+fence_mutant D1 's/^    retro_grammar_defenced "\$f" | awk "\$_RG_AWK_CANONICAL_FN"/    cat "$f" | awk "$_RG_AWK_CANONICAL_FN"/' "$ROOT/fence-a.md" retro_grammar_delta_info "1:2:2||0|0|,"
 fence_mutant E1 '/^    \[ -n "\$f" \] \&\& \[ -f "\$f" \] \&\& \[ -r "\$f" \] || return 1$/{n;s/retro_grammar_defenced "\$f" | awk/cat "$f" | awk/}' "$ROOT/fence-a.md" retro_grammar_entry_ids "D1,D2,"
 _hp_good="D1=high,D2=MEDIUM,D3=,D4=,D5=HIGH,D6=LOW,"
 hp_mutant() {   # hp_mutant <tag> <sed-expr>: the mutant lib must change T37's priority column
@@ -706,6 +747,39 @@ hp_mutant H1 's/if (pr == "") pr = hp /pr = pr /'
 hp_mutant H2 's/if (pr == "") pr = hp /if (hp != "") pr = hp /'
 hp_mutant H3 's/else if (lt != "new" \&\& lt != "priority") ok = 0/else if (0) ok = 0/'
 hp_mutant H4 's/lt == "medium" || lt == "low") { if (lvl == "") lvl = tok }/lt == "low") { if (lvl == "") lvl = tok }/'
+
+# stderr-behaviour mutants: fence_mutant compares stdout, these compare what the function says on stderr.
+err_mutant() {   # err_mutant <tag> <sed-expr> <function> <file> <env-prefix-or-""> <want-pattern> <must-match yes|no>
+  local tag="$1" expr="$2" fn="$3" file="$4" envp="$5" pat="$6" mlib="$ROOT/em-$1.sh" err
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1403-$tag: build mutant" "mutant_sed refused"; return; fi
+  err="$(env $envp "$BASH_BIN" -c '. "$1"; "$2" "$3" 2>&1 >/dev/null' _ "$mlib" "$fn" "$file")"
+  if ! grep -qE "$pat" <<<"$err"; then ok "T1403-$tag teeth: mutant changes what $fn says on stderr" "()"
+  else no "T1403-$tag teeth: mutant must change stderr" "THEATER: err=[$err]"; fi
+}
+err_mutant U2 's/if (open \&\& ENVIRON\["_RG_QUIET_FENCE"\] != "1")/if (0)/' retro_grammar_defenced "$ROOT/fence-open.md" "" '^WARN: unclosed code fence'
+quiet_mutant() {   # the quiet switch ignored → the WARN is repeated where it must be silent
+  local mlib="$ROOT/em-quiet.sh" err
+  mutant_sed "$RG_LIB" "$mlib" -e 's/ENVIRON\["_RG_QUIET_FENCE"\] != "1"/ENVIRON["_RG_QUIET_FENCE"] != "NEVER"/' || { no "T1403-Q: build mutant" "refused"; return; }
+  err="$(_RG_QUIET_FENCE=1 "$BASH_BIN" -c '. "$1"; retro_grammar_defenced "$2" 2>&1 >/dev/null' _ "$mlib" "$ROOT/fence-open.md")"
+  if [ -n "$err" ]; then ok "T1403-Q teeth: quiet switch ignored → WARN repeated (T41d has teeth)" "()"
+  else no "T1403-Q teeth: mutant must break T41d" "THEATER"; fi
+  mutant_sed "$RG_LIB" "$mlib" -e 's/info="\$(_RG_QUIET_FENCE=1 retro_grammar_delta_info "\$f")"/info="$(retro_grammar_delta_info "$f")"/' || { no "T1403-Q2: build mutant" "refused"; return; }
+  err="$("$BASH_BIN" -c '. "$1"; retro_grammar_entry_warn "$2" 2>&1 >/dev/null' _ "$mlib" "$ROOT/fence-open.md")"
+  if [ -n "$err" ]; then ok "T1403-Q2 teeth: entry_warn's delta_info not quiet → WARN repeated" "()"
+  else no "T1403-Q2 teeth: mutant must repeat the WARN" "THEATER"; fi
+}
+quiet_mutant
+if [ "$(id -u)" = 0 ]; then
+  skip "T1403-U1 teeth (unreadable check)" "running as root — typed skip"
+else
+  _umlib="$ROOT/em-U1.sh"
+  mutant_sed "$RG_LIB" "$_umlib" -e 's/^    if \[ ! -r "\$f" \]; then$/    if false; then/' || no "T1403-U1: build mutant" "refused"
+  printf '## Proposed kit deltas\n\n### D1 — a\n' > "$ROOT/unreadable2.md"; chmod 000 "$ROOT/unreadable2.md"
+  _uerr="$("$BASH_BIN" -c '. "$1"; retro_grammar_delta_info "$2" 2>&1 >/dev/null' _ "$_umlib" "$ROOT/unreadable2.md")"
+  chmod 600 "$ROOT/unreadable2.md"
+  if ! grep -q 'cannot read' <<<"$_uerr"; then ok "T1403-U1 teeth: unreadable check removed → silent zero again (T40a has teeth)" "()"
+  else no "T1403-U1 teeth: removing the check must flip T40a" "THEATER: err=[$_uerr]"; fi
+fi
 
 echo ""
 echo "== $pass passed · $fail failed =="

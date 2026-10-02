@@ -98,7 +98,11 @@ function is_depr_heading(low) {
 #     but whitespace after it (a trailing CR is tolerated: CRLF files);
 #   - RETRO_GRAMMAR_FENCE_UNCLOSED: a fence still open at EOF is NOT treated as a fence. Dropping
 #     everything after a stray opener would turn real entries into a silent zero; keeping them is
-#     the pre-existing behaviour and errs toward a visible count.
+#     the pre-existing behaviour and errs toward a visible count. It is NOT silent: one
+#     `WARN: unclosed code fence opened at line N in <file> — treated as text` line goes to STDERR
+#     (never stdout, so no consumer's parsing changes). A run calls this helper several times on the
+#     same file; every consumer's FIRST call (delta_info) speaks and the secondary calls set
+#     _RG_QUIET_FENCE=1 so the line is not repeated.
 # Two passes over the same file (awk reads it twice): pass 1 records the line numbers of every
 # CLOSED fence (opener through closer inclusive), pass 2 prints the remaining lines. Run lengths are
 # counted with a plain loop (no POSIX interval expressions: mawk portability, kit issue #1130).
@@ -107,7 +111,7 @@ if ! typeset -f retro_grammar_defenced >/dev/null 2>&1; then
   retro_grammar_defenced() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    awk '
+    _RG_FENCE_FILE="$f" awk '
       function runlen(s, c,    n) { n = 0; while (substr(s, n + 1, 1) == c) n++; return n }
       function indent(s,    n, c) {
         n = 0
@@ -136,6 +140,10 @@ if ! typeset -f retro_grammar_defenced >/dev/null 2>&1; then
         next
       }
       !(FNR in skip) { print }
+      END {
+        if (open && ENVIRON["_RG_QUIET_FENCE"] != "1")   # RETRO_GRAMMAR_FENCE_UNCLOSED_WARN
+          printf "WARN: unclosed code fence opened at line %d in %s \342\200\224 treated as text\n", ostart, ENVIRON["_RG_FENCE_FILE"] | "cat 1>&2"
+      }
     ' "$f" "$f"
   }
 fi
@@ -149,6 +157,15 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
   retro_grammar_delta_info() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || { printf '0:n:0\001\0010\0010\001\n'; return 0; }
+    # RETRO_GRAMMAR_UNREADABLE: an existing but unreadable file is NOT an empty one. The defenced
+    # stream would be empty and the awk below would report "no delta section" - a silent zero. Say so
+    # on stderr and fail (the zero-shaped line keeps legacy parsers parseable; the exit status and the
+    # typed message are what distinguish it).
+    if [ ! -r "$f" ]; then
+      echo "retro-grammar: cannot read $f (unreadable) — delta count is UNKNOWN, not zero" >&2
+      printf '0:n:0\001\0010\0010\001\n'
+      return 1
+    fi
     retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
       BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""
               in_unrec=0; unrec_found=0; unrec_rows=0; unrec_heading="" }
@@ -252,7 +269,7 @@ if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
   retro_grammar_entry_rows() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
+    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
       function flush() {
         if (pr == "") pr = hp   # RETRO_GRAMMAR_HEADING_PRIORITY fallback: the body **Priority** always wins
         if (have) printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
@@ -261,6 +278,7 @@ if ! typeset -f retro_grammar_entry_rows >/dev/null 2>&1; then
       # heading_prio: a parenthetical of the heading made ONLY of the words new, priority, high,
       # medium, low (any case, separated by commas, colons or spaces) and carrying a level yields
       # that level as written. (low-risk change) and (medium confidence) carry other words: ignored.
+      # A BARE (low) / (medium) / (high) IS a priority: intentional, pinned by test T39.
       function heading_prio(h,    rest, p, q, inner, n, k, w, tok, lvl, ok, lt) {
         rest = h
         while ((p = index(rest, "(")) > 0) {
@@ -326,7 +344,7 @@ fi
 if ! typeset -f retro_grammar_entry_warn >/dev/null 2>&1; then
   retro_grammar_entry_warn() {
     local f="${1:-}" info form cnt n rest
-    info="$(retro_grammar_delta_info "$f")"
+    info="$(_RG_QUIET_FENCE=1 retro_grammar_delta_info "$f")"
     info="${info%%$'\001'*}"                 # found:form:count
     rest="${info#*:}"; form="${rest%%:*}"; cnt="${rest##*:}"
     [ "$form" = "2" ] || return 0

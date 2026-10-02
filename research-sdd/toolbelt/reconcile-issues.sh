@@ -169,6 +169,13 @@ audit_retro() {
   local retro_basename
   retro_basename="$(basename "$retro_path")"
 
+  # RECONCILE_ISSUES_UNREADABLE (R3-unreadable-silent-zero): an existing but unreadable retro is not an
+  # empty one - every parse below would see nothing and report a confident empty-input / no-match.
+  if [ ! -r "$retro_path" ]; then
+    echo "degraded: retro not readable: $retro_path — cannot audit, no verdict" >&2
+    return 1
+  fi
+
   local r_tracked=0 r_untracked=0 r_orphaned=0
   local _gh_rc _gh_stderr_file _gh_err_msg
 
@@ -262,7 +269,7 @@ audit_retro() {
 
   # --- Parse all delta row-ids from the retro (same awk as stage-retro-issues.sh)
   local _all_row_ids
-  _all_row_ids="$(retro_grammar_defenced "$retro_path" | awk '
+  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk '
     BEGIN { in_sec=0 }
     {
       low = tolower($0)

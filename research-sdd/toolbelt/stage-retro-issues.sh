@@ -100,6 +100,11 @@ if [ -z "$retro" ] || [ ! -f "$retro" ]; then
   echo "absent-input: retro not found: ${retro:-<no path given>}" >&2
   exit 1
 fi
+# STAGE_RETRO_ISSUES_UNREADABLE (R3-unreadable-silent-zero): exists but unreadable is not empty - typed.
+if [ ! -r "$retro" ]; then
+  echo "degraded: retro not readable: $retro" >&2
+  exit 1
+fi
 retro="$(cd "$(dirname "$retro")" && pwd)/$(basename "$retro")"
 
 # ---------------------------------------------------------------------------
@@ -564,7 +569,7 @@ fi
 retro_file="$retro"
 retro_basename="$(basename "$retro")"
 
-_rows="$(retro_grammar_defenced "$retro_file" | awk '
+_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
   BEGIN { in_sec=0 }
   {
     low = tolower($0)
@@ -917,8 +922,8 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     }
     # A full page is only a problem when NO exact match was found in it (a match is a match however
     # many other issues the page holds), so the verdict is deferred to just before the create below.
-    _page_filled=0
-    ! _list_filled "$_existing" || _page_filled=1
+    _page_filled=""   # empty, or the name of the lookup whose page filled the --limit
+    if _list_filled "$_existing"; then _page_filled="primary"; fi
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
@@ -955,7 +960,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         echo "ERROR: gh issue list (legacy-signature dedup) reply could not be parsed for row $_rid: $_legacy_raw" >&2
         failed=$((failed+1)); continue
       }
-      ! _list_filled "$_legacy_existing" || _page_filled=1
+      if _list_filled "$_legacy_existing"; then _page_filled="legacy-signature"; fi
       if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
         echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
         skipped_dedup=$((skipped_dedup+1)); continue
@@ -968,8 +973,10 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
 
     # STAGE_RETRO_ISSUES_LIST_CAP_GUARD (kit issue #1369 c): no exact match, but a lookup filled its
     # --limit, so the match may have been cut off. Not "no match": a typed failure, nothing created.
-    if [ "$_page_filled" = 1 ]; then
-      echo "ERROR: gh issue list (dedup) returned $_LIST_LIMIT results = the --limit $_LIST_LIMIT cap for row $_rid — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT or narrow the repo)" >&2
+    if [ -n "$_page_filled" ]; then
+      echo "ERROR: gh issue list (dedup) returned $_LIST_LIMIT results = the --limit $_LIST_LIMIT cap" \
+           "for row $_rid ($_page_filled lookup) — the result may be truncated, refusing to create" \
+           "(raise STAGE_RETRO_ISSUES_LIST_LIMIT or narrow the repo)" >&2
       failed=$((failed+1)); continue
     fi
 
