@@ -837,13 +837,14 @@ if [ "$mode" = "--sync-state" ]; then
       "$(basename "$state")" "${_unc}" >&2
     if printf '%s' "${_decl_kg}" | grep -qE '^[0-9]+$' && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
       if [ "${_unc:-0}" -gt 0 ]; then
-        # KG-LB-UPPER (#1350): the keep is bounded — uncounted rows can explain at most _unc missing gaps, so a declared total above
-        # derived + uncounted is provably stale and is overwritten like any stale value (never a blanket keep).
-        if [ "${_decl_kg}" -le "$(( ${_dkg_total} + ${_unc} ))" ]; then
-          _kg_lb=1; printf 'sync-state: WARN: %s: keeping the declared known_gaps=%s (derived %d is below it); gaps_closed = max(declared, derived).\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" >&2
-        else
-          printf 'sync-state: WARN: %s: declared known_gaps=%s exceeds derived %d + %d uncounted row(s) — provably stale, NOT kept; deriving it.\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" "${_unc}" >&2
-        fi
+        # KG-LB-UPPER (#1350): the keep is LOUD, never destructive. A declared total above derived + uncounted cannot be explained by the
+        # uncounted rows alone, but it is NOT provably stale: it may include closed gaps tracked outside the backlog table (prose, another
+        # heading). So it is still kept (propose-never-apply) and the unexplained excess is WARNed for a hand check.
+        _kg_lb=1; printf 'sync-state: WARN: %s: keeping the declared known_gaps=%s (derived %d is below it); gaps_closed = max(declared, derived).\n' "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" >&2
+        [ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] && printf 'sync-state: WARN: %s: declared known_gaps=%s exceeds what the parser can count (derived %d + %d uncounted) — NOT rewritten; it may include gaps tracked outside the backlog table (prose, other headings) — verify by hand.\n' \
+          "$(basename "$state")" "${_decl_kg}" "${_dkg_total}" "${_unc}" >&2
+      # B1-NO-UPPER (#1350): this branch keeps WITHOUT an upper bound on purpose: with only closed-class rows and no Coverage metric there is no
+      # counted evidence to bound the declared total against, so any declared value is kept (and WARNed below).
       elif [ -z "${_cm_kg}" ] && [ "$(( ${_plain:-0} + ${def:-0} ))" -eq 0 ]; then  # B1: only closed-class rows, no prose metric: nothing proves the declared total shrank
         _kg_lb=1
         printf 'sync-state: WARN: %s: the backlog has only closed-class rows and there is no Coverage metric N/M — derived known_gaps=%d is not evidence the declared total shrank; keeping the declared known_gaps/gaps_closed.\n' \
