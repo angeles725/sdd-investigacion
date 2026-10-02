@@ -205,6 +205,22 @@ else
      "err=[$(cat "$_gm_err")] unrelated-survived=$([ -e "$_gm_unrelated" ] && echo yes || echo no)"
 fi
 
+# kit issue #1031: a BACKSLASH is a `find -name` escape (`\i` matches a literal `i`), so a session_id
+# carrying one would narrow or shift the self-exclusion exactly like a glob metacharacter — it is
+# rejected by the same guard, loudly, and rotation is skipped.
+echo "-- backslash guard: a session_id containing a backslash skips rotation loudly --"
+_bsd="$TMP/backslash-target"; mkdir -p "$_bsd/.claude/hooks"; cp "$SUT" "$_bsd/.claude/hooks/research-protocol.sh"
+_bs_unrelated="$_bsd/.claude/.rsdd-session-unrelated-old"
+printf 'deadbeef\n' > "$_bs_unrelated"; touch -d '-10 days' "$_bs_unrelated"
+_bs_err="$TMP/backslash-err.txt"
+printf '%s' '{"session_id":"evil\\id"}' | bash "$_bsd/.claude/hooks/research-protocol.sh" >/dev/null 2>"$_bs_err"
+if grep -q 'glob metacharacter or backslash' "$_bs_err" && [ -e "$_bs_unrelated" ]; then
+  ok "backslash guard: WARNs loudly and skips rotation (unrelated old file survives)"
+else
+  no "backslash guard: WARNs loudly and skips rotation" \
+     "err=[$(cat "$_bs_err")] unrelated-survived=$([ -e "$_bs_unrelated" ] && echo yes || echo no)"
+fi
+
 # ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
 
 echo "-- p8: hook installed from template triggers only per-target placeholders --"
@@ -327,17 +343,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth: glob-metachar validation has teeth --"
-  _content_hookss="$(cat "$SUT")"
+  _content_hooks="$(cat "$SUT")"
   anchor_glob='  case "$_session_id" in
-    *[\*\?\[]*)'
+    *[\*\?\[\\]*)'
   neutered_glob='  case "$_session_id" in
     _never_matches_this_)'
-  if [[ "$_content_hookss" != *"$anchor_glob"* ]]; then
+  if [[ "$_content_hooks" != *"$anchor_glob"* ]]; then
     no "teeth: locate glob-metachar validation in SUT" "anchor not found — SUT drifted?"
   else
     _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
     _m7="$_m7d/.claude/hooks/research-protocol.sh"
-    printf '%s\n' "${_content_hookss/"$anchor_glob"/"$neutered_glob"}" > "$_m7"
+    printf '%s\n' "${_content_hooks/"$anchor_glob"/"$neutered_glob"}" > "$_m7"
     _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
     printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
     printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
@@ -345,6 +361,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
     else
       no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+    fi
+    # kit issue #1031: revert ONLY the backslash member of the character class → a backslash id
+    # is accepted again and the mis-scoped delete returns (the backslash guard has teeth).
+    reverted_bs='  case "$_session_id" in
+    *[\*\?\[]*)'
+    _m8d="$TMP/backslash-mutant"; mkdir -p "$_m8d/.claude/hooks"
+    _m8="$_m8d/.claude/hooks/research-protocol.sh"
+    printf '%s\n' "${_content_hooks/"$anchor_glob"/"$reverted_bs"}" > "$_m8"
+    _m8_unrelated="$_m8d/.claude/.rsdd-session-unrelated-old"
+    printf 'deadbeef\n' > "$_m8_unrelated"; touch -d '-10 days' "$_m8_unrelated"
+    printf '%s' '{"session_id":"evil\\id"}' | bash "$_m8" >/dev/null 2>/dev/null
+    if [ ! -e "$_m8_unrelated" ]; then
+      ok "teeth: backslash member removed from the guard → unrelated old file gets deleted (RED as expected)"
+    else
+      no "teeth: backslash member removed from the guard → unrelated old file should have been deleted" ""
     fi
   fi
 

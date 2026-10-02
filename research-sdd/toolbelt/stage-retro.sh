@@ -140,8 +140,24 @@ case "$retro_abs" in
     if [ -z "$_retro_origin_blob" ] || [ "$_retro_origin_blob" != "$_retro_head_blob" ]; then
       echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and origin/main does" >&2
       echo "not have the SAME content as the local commit — staging would branch from origin/main" >&2
-      echo "and silently stage a stale (or entirely missing) version of this file. Push it first:" >&2
-      echo "    git -C \"$KIT_REPO\" push origin main" >&2
+      echo "and silently stage a stale (or entirely missing) version of this file." >&2
+      # kit issue #1031: word the advice per CASE — "push origin main" is wrong when the retro is
+      # not on local main at all, or when origin is the side that is ahead.
+      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+        echo "origin/main is AHEAD of local main: it has this retro, local main does not. Fast-forward" >&2
+        echo "local main first:  git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      elif [ -z "$_retro_head_blob" ]; then
+        echo "this retro exists only on another branch (or is untracked): it is not committed on local" >&2
+        echo "main. Commit/merge it onto main first, then push:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+        echo "local main is AHEAD of origin/main. Push it first:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        echo "origin/main is AHEAD of local main. Fast-forward local main first:" >&2
+        echo "    git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      else
+        echo "local main and origin/main have DIVERGED for this file. Reconcile them (rebase or merge)," >&2
+        echo "then push, before staging." >&2
+      fi
       echo "...then re-run stage-retro.sh." >&2
       exit 7
     fi
@@ -171,8 +187,13 @@ if [ ! -r "$retro" ]; then
   # that is currently checked out (RDD R4-exit8-remediation-fails), so leaving the repo on
   # $branch would make the remediation advice below fail the moment it is run. Best-effort —
   # print the checkout as part of the advice too, in case this one somehow does not take.
-  git -C "$KIT_REPO" checkout -q main 2>/dev/null
-  echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  # kit issue #1031: report the outcome TRUTHFULLY — never claim a switch that did not happen.
+  if git -C "$KIT_REPO" checkout -q main 2>/dev/null; then
+    echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  else
+    echo "Could NOT switch back to main (the checkout failed) — the repo is still on $branch." >&2
+    echo "If $branch is a stale leftover branch that predates this retro," >&2
+  fi
   echo "delete it: git -C \"$KIT_REPO\" checkout main && git -C \"$KIT_REPO\" branch -D $branch" >&2
   exit 8
 fi

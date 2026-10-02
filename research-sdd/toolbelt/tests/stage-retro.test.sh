@@ -523,6 +523,81 @@ else
      "exit=$RC branches=[$(branches "$repo")] head=[$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)] out=[$OUT]"
 fi
 
+# ---- kit issue #1031 -------------------------------------------------------------------------
+# 15c — exit 8 must report the switch-back TRUTHFULLY. A `git` shim lets the first `checkout -q main`
+#       (the preamble one) through and FAILS every later one, so the post-exit-8 switch-back fails.
+#       The script used to print "Switched back to main." regardless.
+repo="$(mkrepo exit8-switchback-fails real)"
+git -C "$repo" branch -q "retro/targetA-r1" origin/main
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+_shim="$ROOT/shim-1031"; mkdir -p "$_shim"; : > "$_shim/count"
+_real_git="$(type -P git)"
+cat > "$_shim/git" <<SHIM
+#!/usr/bin/env bash
+case " \$* " in
+  *" checkout -q main "*)
+    n="\$(wc -l < "$_shim/count")"; echo x >> "$_shim/count"
+    [ "\$n" -ge 1 ] && { echo "shim: forced checkout failure" >&2; exit 1; } ;;
+esac
+exec "$_real_git" "\$@"
+SHIM
+chmod +x "$_shim/git"
+OUT="$(PATH="$_shim:$PATH" "$BASH_BIN" "$repo/research-sdd/toolbelt/stage-retro.sh" "$repo/targetA/retros/r1.md" 2>&1)"; RC=$?
+if [ "$RC" = 8 ] \
+   && ! grep -q 'Switched back to main' <<<"$OUT" \
+   && grep -q 'Could NOT switch back to main' <<<"$OUT"; then
+  ok "15c exit 8 with a failing switch-back reports 'Could NOT switch back', not 'Switched back'" "(exit $RC)"
+else
+  no "15c exit 8 with a failing switch-back reports 'Could NOT switch back', not 'Switched back'" "exit=$RC out=[$OUT]"
+fi
+# 15d — and when the switch-back DOES work the success wording is kept (case 15 asserts the state).
+repo="$(mkrepo exit8-switchback-ok real)"
+git -C "$repo" branch -q "retro/targetA-r1" origin/main
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 8 ] && grep -q 'Switched back to main' <<<"$OUT" && ! grep -q 'Could NOT' <<<"$OUT"; then
+  ok "15d exit 8 with a working switch-back says 'Switched back to main'" "(exit $RC)"
+else
+  no "15d exit 8 with a working switch-back says 'Switched back to main'" "exit=$RC out=[$OUT]"
+fi
+
+# 16b/16c/16d — exit 7 advice is worded per CASE (local ahead / only on another branch / origin ahead).
+repo="$(mkrepo selfref-local-ahead real)"
+mkdir -p "$repo/targetA/retros"
+printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
+git -C "$repo" add -A; git -C "$repo" commit -qm "retro on local main only"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 7 ] && grep -q 'local main is AHEAD of origin/main' <<<"$OUT" && grep -q 'push origin main' <<<"$OUT"; then
+  ok "16b exit 7 (retro only on local main) → 'local main is AHEAD' + push advice" "(exit $RC)"
+else
+  no "16b exit 7 (retro only on local main) → 'local main is AHEAD' + push advice" "exit=$RC out=[$OUT]"
+fi
+
+repo="$(mkrepo selfref-other-branch real)"
+git -C "$repo" checkout -q -b feat/side
+mkdir -p "$repo/targetA/retros"
+printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
+git -C "$repo" add -A; git -C "$repo" commit -qm "retro on a feature branch only"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 7 ] && grep -q 'only on another branch' <<<"$OUT" && ! grep -q 'AHEAD' <<<"$OUT"; then
+  ok "16c exit 7 (retro only on another branch) → 'only on another branch' advice" "(exit $RC)"
+else
+  no "16c exit 7 (retro only on another branch) → 'only on another branch' advice" "exit=$RC out=[$OUT]"
+fi
+
+repo="$(mkrepo selfref-origin-ahead real)"
+git -C "$repo" checkout -q -b feat/pushed
+mkdir -p "$repo/targetA/retros"
+printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
+git -C "$repo" add -A; git -C "$repo" commit -qm "retro pushed to origin main from a feature branch"
+git -C "$repo" push -q origin feat/pushed:main 2>/dev/null
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 7 ] && grep -q 'origin/main is AHEAD of local main' <<<"$OUT" && ! grep -q 'push origin main' <<<"$OUT"; then
+  ok "16d exit 7 (origin ahead) → 'origin/main is AHEAD' advice, no misleading push advice" "(exit $RC)"
+else
+  no "16d exit 7 (origin ahead) → 'origin/main is AHEAD' advice, no misleading push advice" "exit=$RC out=[$OUT]"
+fi
+
 # 17 — SYMLINKED RETRO PATH CANNOT SKIP THE SELF-REFERENTIAL GUARD (Opus minor). $KIT_REPO is
 #      resolved PHYSICALLY (`cd -P`, #1024 fix). If $retro_abs stayed LOGICAL (plain `pwd`),
 #      passing the retro through a symlink that points INTO the kit repo would make retro_abs
@@ -933,8 +1008,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ -z "$_retro_origin_blob" ] || [ "$_retro_origin_blob" != "$_retro_head_blob" ]; then
       echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and origin/main does" >&2
       echo "not have the SAME content as the local commit — staging would branch from origin/main" >&2
-      echo "and silently stage a stale (or entirely missing) version of this file. Push it first:" >&2
-      echo "    git -C \"$KIT_REPO\" push origin main" >&2
+      echo "and silently stage a stale (or entirely missing) version of this file." >&2
+      # kit issue #1031: word the advice per CASE — "push origin main" is wrong when the retro is
+      # not on local main at all, or when origin is the side that is ahead.
+      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+        echo "origin/main is AHEAD of local main: it has this retro, local main does not. Fast-forward" >&2
+        echo "local main first:  git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      elif [ -z "$_retro_head_blob" ]; then
+        echo "this retro exists only on another branch (or is untracked): it is not committed on local" >&2
+        echo "main. Commit/merge it onto main first, then push:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+        echo "local main is AHEAD of origin/main. Push it first:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        echo "origin/main is AHEAD of local main. Fast-forward local main first:" >&2
+        echo "    git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      else
+        echo "local main and origin/main have DIVERGED for this file. Reconcile them (rebase or merge)," >&2
+        echo "then push, before staging." >&2
+      fi
       echo "...then re-run stage-retro.sh." >&2
       exit 7
     fi
@@ -1060,8 +1151,13 @@ esac'
   # that is currently checked out (RDD R4-exit8-remediation-fails), so leaving the repo on
   # $branch would make the remediation advice below fail the moment it is run. Best-effort —
   # print the checkout as part of the advice too, in case this one somehow does not take.
-  git -C "$KIT_REPO" checkout -q main 2>/dev/null
-  echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  # kit issue #1031: report the outcome TRUTHFULLY — never claim a switch that did not happen.
+  if git -C "$KIT_REPO" checkout -q main 2>/dev/null; then
+    echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  else
+    echo "Could NOT switch back to main (the checkout failed) — the repo is still on $branch." >&2
+    echo "If $branch is a stale leftover branch that predates this retro," >&2
+  fi
   echo "delete it: git -C \"$KIT_REPO\" checkout main && git -C \"$KIT_REPO\" branch -D $branch" >&2
   exit 8
 fi'
@@ -1088,9 +1184,8 @@ fi'
   # `checkout -q main` before exit 8, keeping the readability guard itself intact. Proves 15b's
   # assertion depends specifically on the switch-back, not merely on exit 8 firing at all.
   echo "-- teeth: drop the exit-8 checkout-back-to-main, expect 'branch -D' remediation to fail --"
-  anchor_swb='  git -C "$KIT_REPO" checkout -q main 2>/dev/null
-  echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2'
-  neutered_swb='  echo "If $branch is a stale leftover branch that predates this retro," >&2'
+  anchor_swb='  if git -C "$KIT_REPO" checkout -q main 2>/dev/null; then'
+  neutered_swb='  if true; then'
   if [[ "$content" != *"$anchor_swb"* ]]; then
     no "teeth: locate exit-8 checkout-back-to-main in SUT" "anchor not found — SUT drifted?"
   else
@@ -1167,6 +1262,47 @@ fi'
       no "T1287c teeth: helper guards neutered must flip case 25" "case 25 is THEATER: rc=$RC branches=[$(branches "$repo")] out=[$OUT]"
     fi
   fi
+  # ---- kit issue #1031 teeth --------------------------------------------------------------------
+  # M-1031-TRUTH: the switch-back claim becomes unconditional again → 15c (failing checkout) still
+  # prints "Switched back to main", so its assertion flips.
+  echo "-- teeth: unconditional 'Switched back' claim, expect case 15c to flip --"
+  repo="$(mkrepo teeth-1031-truth real)"
+  git -C "$repo" branch -q "retro/targetA-r1" origin/main
+  mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+  if tooth_swap "$repo" '  if git -C "$KIT_REPO" checkout -q main 2>/dev/null; then' '  git -C "$KIT_REPO" checkout -q main 2>/dev/null; if true; then'; then
+    : > "$_shim/count"
+    OUTM="$(PATH="$_shim:$PATH" "$BASH_BIN" "$repo/research-sdd/toolbelt/stage-retro.sh" "$repo/targetA/retros/r1.md" 2>&1)"
+    : > "$_shim/count"
+    if grep -q 'Switched back to main' <<<"$OUTM" && ! grep -q 'Could NOT' <<<"$OUTM"; then
+      ok "teeth: unconditional claim prints 'Switched back' on a failed checkout (case 15c has teeth)" "()"
+    else
+      no "teeth: unconditional claim should print 'Switched back' on a failed checkout" "out=[$OUTM]"
+    fi
+  fi
+  # M-1031-WORDING: both case-specific branches disabled → 16c/16d fall through to other wording.
+  echo "-- teeth: exit-7 per-case advice disabled, expect cases 16c/16d wording to flip --"
+  for _k31 in other-branch origin-ahead; do
+    repo="$(mkrepo "teeth-1031-$_k31" real)"
+    git -C "$repo" checkout -q -b feat/x
+    mkdir -p "$repo/targetA/retros"
+    printf '<!-- review-status: pending -->\n# retro\n' > "$repo/targetA/retros/r1.md"
+    git -C "$repo" add -A; git -C "$repo" commit -qm "retro on feature branch"
+    [ "$_k31" = origin-ahead ] && git -C "$repo" push -q origin feat/x:main 2>/dev/null
+    _body="$(cat "$repo/research-sdd/toolbelt/stage-retro.sh")"
+    _m1='if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then'
+    _m2='elif [ -z "$_retro_head_blob" ]; then'
+    if [[ "$_body" != *"$_m1"* || "$_body" != *"$_m2"* ]]; then no "teeth 1031-$_k31: locate per-case anchors" "SUT drifted?"; continue; fi
+    _body="${_body/"$_m1"/if false; then}"; _body="${_body/"$_m2"/elif false; then}"
+    printf '%s\n' "$_body" > "$repo/research-sdd/toolbelt/stage-retro.sh"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-wording
+    OUTM="$("$BASH_BIN" "$repo/research-sdd/toolbelt/stage-retro.sh" "$repo/targetA/retros/r1.md" 2>&1)"
+    if [ "$_k31" = other-branch ]; then _want='only on another branch'; else _want='has this retro, local main does not'; fi
+    if ! grep -q "$_want" <<<"$OUTM"; then
+      ok "teeth: per-case advice disabled → '$_want' vanishes (case 16 wording has teeth)" "()"
+    else
+      no "teeth: per-case advice disabled → '$_want' should vanish" "out=[$OUTM]"
+    fi
+  done
 fi
 
 echo "== $pass passed · $fail failed =="
