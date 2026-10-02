@@ -280,7 +280,37 @@ mutate() {
   if [ "$n" -gt 0 ]; then echo "  PASS(mut)  $name detected ($n failing cases)"; MUT_PASS=$((MUT_PASS+1))
   else echo "  FAIL(mut)  $name: suite stayed green"; MUT_FAIL=$((MUT_FAIL+1)); fi
 }
-mutate M01-refuse-exits-zero      's/^  exit 1$/  exit 0/'
+# M01 (kit issue #1367): the old single mutant `s/^  exit 1$/  exit 0/` matched exactly ONE of the five
+# `exit 1` refuse sites (the review_due one), so the other four exits had no mutant that flipped them.
+# One tooth per exit site (plus the --cwd not-a-repo branch), each pinning the exact GOOD verdict on the
+# original SUT and the specific BAD verdict on the mutant. A tooth fails when the original does not give
+# the GOOD verdict, when the mutant is refused, or when the mutant does not give the BAD verdict.
+sc_head_mismatch()  { run "$1" "$ROOT/j/passive.json" "${ARGS[@]}" --head "$BASE_SHA"; }
+sc_pr_head_mismatch() { runenv "$1" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --merge 7; }
+sc_base_excludes()  { PRB="$C0_R3"; runenv "$1" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --pr 7; PRB="$BASE_SHA"; }
+sc_review_due()     { run "$1" "$ROOT/j/high.json" "${ARGS[@]}"; }
+sc_merge_head_rej() { OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="Head branch was modified. Review and try the merge again." bash "$1" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?; }
+sc_cwd_not_repo()   { run "$1" "$ROOT/j/passive.json" --cwd "$ROOT/not-a-repo" --base-ref base; }
+# tooth <name> <sed-expr> <scenario> <good-rc> <good-regex> <bad-rc> <bad-regex>
+tooth() {
+  local name="$1" expr="$2" sc="$3" grc="$4" gre="$5" brc="$6" bre="$7" mut="$MD/$1.sh" rcm
+  "$sc" "$SUT"
+  if [ "$RC" -ne "$grc" ] || ! printf '%s' "$OUT" | grep -Eq "$gre"; then
+    echo "  FAIL(mut)  $name: original gave rc=$RC out=[$OUT], wanted rc=$grc /$gre/"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
+  mutant_sed "$SUT" "$mut" "$expr"; rcm=$?
+  if [ "$rcm" -ne 0 ]; then echo "  FAIL(mut)  $name: mutant refused (rc=$rcm)"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
+  chmod +x "$mut"; "$sc" "$mut"
+  if [ "$RC" -eq "$brc" ] && printf '%s' "$OUT" | grep -Eq "$bre"; then
+    echo "  PASS(mut)  $name: good rc=$grc -> mutant rc=$RC"; MUT_PASS=$((MUT_PASS+1))
+  else echo "  FAIL(mut)  $name: mutant gave rc=$RC out=[$OUT], wanted rc=$brc /$bre/"; MUT_FAIL=$((MUT_FAIL+1)); fi
+}
+tooth M01a-head-mismatch-exit   '/refuse: head_mismatch (--head/{n;s/exit 1/exit 0/;}' sc_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(--head' 0 '^merge-gate: refuse: head_mismatch \(--head'
+tooth M01b-pr-head-mismatch-exit '/refuse: head_mismatch (PR #\$pr head \$pr_head/{n;s/exit 1/exit 0/;}' sc_pr_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(PR #7 head' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head'
+tooth M01c-base-excludes-exit   '/refuse: base_excludes_pr_commits/{n;s/exit 1/exit 0/;}' sc_base_excludes 1 '^merge-gate: refuse: base_excludes_pr_commits' 0 '^merge-gate: refuse: base_excludes_pr_commits'
+tooth M01d-review-due-exit      '/refuse: review_due (/{n;s/exit 1/exit 0/;}' sc_review_due 1 '^merge-gate: refuse: review_due \(high_risk\)' 0 '^merge-gate: refuse: review_due \(high_risk\)'
+tooth M01e-merge-head-rej-exit  '/refuse: head_mismatch (PR #\$pr head changed/{n;s/exit 1/exit 0/;}' sc_merge_head_rej 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head changed'
+# --cwd not-a-repo branch: without the degraded the run falls through to the NEXT probe (HEAD resolution).
+tooth M01f-cwd-not-repo-ok      's/|| degraded "--cwd is not a git repo[^"]*"/|| :/' sc_cwd_not_repo 3 '^merge-gate: degraded: --cwd is not a git repo' 3 '^merge-gate: degraded: cannot resolve HEAD'
 mutate M02-already-reviewed-gone  's/passive|already_reviewed|under_budget) ;;/passive|under_budget) ;;/'
 mutate M03-unknown-reason-allowed 's/^  \*) degraded "unknown not-due.*/  *) ;;/'
 mutate M04-assess-rc-ignored      's/^if \[ "\$assess_rc" -ne 0 \]; then/if false; then/'
