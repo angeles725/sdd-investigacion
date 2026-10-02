@@ -27,7 +27,11 @@
 #   checked=N suspects=N no_bullet=N no_block=N no_words=N unparsed=N skipped_nonpending=N skipped_closed=N
 #                                           skipped_closed = gap-id rows with an em-dash / ~~struck~~ / numeric
 #                                           priority cell (closed-class or iteration-history rows, never compared)
-# Exit: 0 = no drift suspected · 1 = drift or unparsed rows · 2 = usage / unreadable input.
+# Exit: 0 = no drift suspected · 1 = drift or unparsed rows (findings ONLY) · 2 = every operational
+# failure (usage, unreadable input, missing or broken helper lib).
+# Known limit: the overlap measure sees only words that start with a letter (>= 3 chars). Numbers,
+# versions and identifiers that start with a digit (9.5.0, 1166) are invisible to it, so a row that
+# changes only a number or an id is NOT detected as drift.
 # NO-BULLET / NO-BLOCK alone exit 0: some gaps are legitimately defined in prose only; they are
 # reported, never skipped. Read-only: never edits a corpus (propose-never-apply).
 set -uo pipefail
@@ -37,14 +41,14 @@ _usage() { echo "usage: check-gap-drift.sh <target-dir> [--state <file>] [--thre
 _HERE="$(cd "$(dirname "$0")" && pwd)"
 _GRLIB="$_HERE/lib/gap-rows.sh"
 _BFLIB="$_HERE/lib/block-files.sh"
-[ -f "$_GRLIB" ] || { echo "check-gap-drift: cannot find helper $_GRLIB" >&2; exit 1; }
-[ -f "$_BFLIB" ] || { echo "check-gap-drift: cannot find helper $_BFLIB" >&2; exit 1; }
+[ -f "$_GRLIB" ] || { echo "check-gap-drift: cannot find helper $_GRLIB" >&2; exit 2; }
+[ -f "$_BFLIB" ] || { echo "check-gap-drift: cannot find helper $_BFLIB" >&2; exit 2; }
 # shellcheck source=lib/gap-rows.sh
 . "$_GRLIB"
 # shellcheck source=lib/block-files.sh
 . "$_BFLIB"
-declare -F gap_rows_parse >/dev/null 2>&1 || { echo "check-gap-drift: helper lib/gap-rows.sh failed to define gap_rows_parse" >&2; exit 1; }
-declare -F block_file_filter >/dev/null 2>&1 || { echo "check-gap-drift: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+declare -F gap_rows_parse >/dev/null 2>&1 || { echo "check-gap-drift: helper lib/gap-rows.sh failed to define gap_rows_parse" >&2; exit 2; }
+declare -F block_file_filter >/dev/null 2>&1 || { echo "check-gap-drift: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 2; }
 
 target="${1:-}"
 [ -n "$target" ] && [ -d "$target" ] || { _usage; exit 2; }
@@ -52,8 +56,8 @@ shift
 state=""; threshold=20; all=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --state)     state="${2:-}"; [ -n "$state" ] || { _usage; exit 2; }; shift 2 ;;
-    --threshold) threshold="${2:-}"; shift 2 ;;
+    --state)     [ "$#" -ge 2 ] || { _usage; exit 2; }; state="$2"; [ -n "$state" ] || { _usage; exit 2; }; shift 2 ;;
+    --threshold) [ "$#" -ge 2 ] || { _usage; exit 2; }; threshold="$2"; shift 2 ;;
     --all)       all=1; shift ;;
     *)           _usage; exit 2 ;;
   esac

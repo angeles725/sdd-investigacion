@@ -15,8 +15,10 @@
 #   stdout (tab-separated, one record per line):
 #     ROW<TAB><gid><TAB><block-number><TAB><pending|other><TAB><row text after the id>
 #     SKIPPED<TAB><cell 2>                a gap-id row whose priority cell is a closed-class / history marker
-#                                         (em-dash `—`, `~~strike~~`, or a number — iteration-history tables):
-#                                         out of scope, counted by the caller, never UNPARSED (fleet sweep:
+#                                         (em-dash `—`, `~~strike~~`, or a number — iteration-history tables)
+#                                         AND whose status is not `pending`: out of scope, counted by the
+#                                         caller, never UNPARSED. A `pending` row with such a first cell is
+#                                         NOT skipped: it is a ROW (or UNPARSED when it has < 4 cells) (fleet sweep:
 #                                         niagara-research carries ~50 such rows)
 #     UNPARSED<TAB><first 90 chars>      a table row whose 2nd cell starts with a gap id but that is not
 #                                         a valid `| high|medium|low|deferred | ... | status |` row
@@ -51,8 +53,9 @@ if ! declare -F gap_rows_parse >/dev/null 2>&1; then
         for (k=1;k<=n;k++) { gsub(/^[ \t]+|[ \t]+$/,"",a[k]); gsub(/\001/,"|",a[k]) }
         if (a[2] !~ /^B[0-9]+-G[0-9]+([ \t]|$)/) next
         pr=a[1]
-        if (pr ~ /^(—|~~|[0-9]+$)/) { printf "SKIPPED\t%s\n", a[2]; next }   # closed-class / history row: not a backlog row to compare
-        if (n<4 || pr !~ /^(high|medium|low|deferred)$/) { printf "UNPARSED\t%s\n", substr(line,1,90); next }
+        # closed-class / history row (NOT pending): out of scope. A PENDING row with such a first cell is still a backlog row: it is compared (or UNPARSED), never skipped.
+        if (pr ~ /^(—|~~|[0-9]+$)/ && tolower(a[n]) !~ /^pending/) { printf "SKIPPED\t%s\n", a[2]; next }
+        if (n<4 || (pr !~ /^(—|~~|[0-9]+$)/ && pr !~ /^(high|medium|low|deferred)$/)) { printf "UNPARSED\t%s\n", substr(line,1,90); next }
         gid=a[2]; sub(/[ \t].*$/,"",gid)
         txt=a[2]; sub(/^B[0-9]+-G[0-9]+[ \t]*/,"",txt); gsub(/\t/," ",txt)
         bn=gid; sub(/^B/,"",bn); sub(/-G.*$/,"",bn)

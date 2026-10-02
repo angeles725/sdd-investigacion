@@ -1095,15 +1095,17 @@ for state in "${states[@]}"; do
       echo "   WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh; B<n>-G<m> rows were NOT compared with their block bullets"
     else
       _gd_out="$(bash "$_gd" "$target" --state "$state" 2>&1)"; _gd_rc=$?
-      if [ "$_gd_rc" -ge 2 ]; then
+      _gd_typed=0
+      while IFS= read -r _gd_l; do
+        case "$_gd_l" in
+          DRIFT\?*|UNPARSED*) _gd_typed=1; echo "   WARN   gap-drift: $_gd_l — copy the child-gap text verbatim from the block bullet (METHODOLOGY §7)" ;;  # GAP-DRIFT-WARN
+          DEGRADED*)          echo "   WARN   gap-drift: $_gd_l" ;;
+        esac
+      done <<<"$_gd_out"
+      # rc 2 = operational failure; rc 1 is reserved for findings, so rc 1 with NO typed finding line is a
+      # broken checker (e.g. a helper lib missing), never silence.
+      if [ "$_gd_rc" -ge 2 ] || { [ "$_gd_rc" -eq 1 ] && [ "$_gd_typed" -eq 0 ]; }; then  # GAP-DRIFT-BROKEN
         echo "   WARN   gap-drift: degraded — check-gap-drift.sh failed (exit $_gd_rc): $(printf '%s' "$_gd_out" | head -1)"
-      else
-        while IFS= read -r _gd_l; do
-          case "$_gd_l" in
-            DRIFT\?*|UNPARSED*) echo "   WARN   gap-drift: $_gd_l — copy the child-gap text verbatim from the block bullet (METHODOLOGY §7)" ;;  # GAP-DRIFT-WARN
-            DEGRADED*)          echo "   WARN   gap-drift: $_gd_l" ;;
-          esac
-        done <<<"$_gd_out"
       fi
     fi
   fi

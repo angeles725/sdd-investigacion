@@ -22,8 +22,8 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # run <args...> : run the SUT, capture stdout+stderr in OUT and the exit code in RC.
-run(){ OUT="$(bash "$SUT" "$@" 2>&1)"; RC=$?; }
-has(){ printf '%s\n' "$OUT" | grep -qF -- "$1"; }
+run(){ OUT="$(timeout 20 bash "$SUT" "$@" 2>&1)"; RC=$?; }
+has(){ grep -qF -- "$1" <<<"$OUT"; }
 # expect <label> <rc> <needle>...: exit code and every needle present.
 expect(){ local label="$1" want="$2"; shift 2; local miss=""
   [ "$RC" = "$want" ] || miss="rc=$RC(want $want) "
@@ -223,6 +223,46 @@ st "$d" "$HDR1" "$HDR2" "$HDR3" "$(row high 'B8-G1 class access zulu yankee' pen
 blk "$d" proj-block8.md '- **B8-G1** clas acces mapping only.'
 run "$d"; expect "19b a double-s ending is NOT stemmed ('class' != 'clas')" 1 "DRIFT? B8-G1"
 
+# 20. A PENDING row is never silently skipped because of its first cell: numeric / em-dash / ~~struck~~
+#     priority cells on a pending row are compared (drift flagged) at FIRST, LAST and SINGLE positions.
+GOODP='Alpha handshake timing analysis'; BADP='Totally unrelated question about gizmos widgets'
+for pc in '1' '—' '~~low~~'; do
+  tag="$(printf '%s' "$pc" | tr -c 'A-Za-z0-9' 'x')"
+  d="$TMP/pend1-$tag"
+  st "$d" "$HDR1" "$HDR2" "$HDR3" "| $pc | B5-G1 $BADP | x | pending |" "$(row high "B5-G2 $GOODP" pending)"
+  blk "$d" proj-block5.md "- **B5-G1** $GOODP." "- **B5-G2** $GOODP."
+  run "$d"; expect "20a pending row with first cell '$pc' (FIRST position) is compared: DRIFT?" 1 "DRIFT? B5-G1" "skipped_closed=0"
+  d="$TMP/pendL-$tag"
+  st "$d" "$HDR1" "$HDR2" "$HDR3" "$(row high "B5-G2 $GOODP" pending)" "| $pc | B5-G1 $BADP | x | pending |"
+  blk "$d" proj-block5.md "- **B5-G1** $GOODP." "- **B5-G2** $GOODP."
+  run "$d"; expect "20b pending row with first cell '$pc' (LAST position) is compared: DRIFT?" 1 "DRIFT? B5-G1"
+  d="$TMP/pendS-$tag"
+  st "$d" "$HDR1" "$HDR2" "$HDR3" "| $pc | B5-G1 $BADP | x | pending |"
+  blk "$d" proj-block5.md "- **B5-G1** $GOODP."
+  run "$d"; expect "20c pending row with first cell '$pc' (SINGLE row) is compared: DRIFT?" 1 "DRIFT? B5-G1" "checked=1 suspects=1"
+done
+d="$TMP/pend-ok"
+st "$d" "$HDR1" "$HDR2" "$HDR3" "| 1 | B5-G1 $GOODP | x | pending |"
+blk "$d" proj-block5.md "- **B5-G1** $GOODP."
+run "$d"; expect "20d a faithful pending row with a numeric first cell is checked and clean" 0 "checked=1 suspects=0" "skipped_closed=0"
+d="$TMP/pend-short"
+st "$d" "$HDR1" "$HDR2" "$HDR3" "| — | B5-G1 $BADP | pending |"
+blk "$d" proj-block5.md "- **B5-G1** $GOODP."
+run "$d"; expect "20e pending row with a marker first cell but too few cells is UNPARSED, not skipped" 1 "UNPARSED" "unparsed=1"
+
+# 21. Operational failures exit 2 (1 is reserved for findings); a flag with a missing value cannot hang.
+run "$TMP/clean" --threshold; expect "21a --threshold with no value exits 2 (no hang)" 2 "usage"
+run "$TMP/clean" --state; expect "21b --state with no value exits 2 (no hang)" 2 "usage"
+mkdir -p "$TMP/nolib/lib"; cp "$SUT" "$TMP/nolib/"; cp "$TOOLBELT/lib/block-files.sh" "$TMP/nolib/lib/"
+OUT="$(timeout 20 bash "$TMP/nolib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
+expect "21c missing lib/gap-rows.sh exits 2 (never 1, which means findings)" 2 "gap-rows.sh"
+mkdir -p "$TMP/nolib2/lib"; cp "$SUT" "$TMP/nolib2/"; cp "$TOOLBELT/lib/gap-rows.sh" "$TMP/nolib2/lib/"
+OUT="$(timeout 20 bash "$TMP/nolib2/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
+expect "21d missing lib/block-files.sh exits 2" 2 "block-files.sh"
+mkdir -p "$TMP/badlib/lib"; cp "$SUT" "$TMP/badlib/"; cp "$TOOLBELT/lib/block-files.sh" "$TMP/badlib/lib/"; : > "$TMP/badlib/lib/gap-rows.sh"
+OUT="$(timeout 20 bash "$TMP/badlib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
+expect "21e lib that fails to define its function exits 2" 2 "failed to define"
+
 # --- lib unit checks ---
 echo "-- lib/gap-rows.sh --"
 # shellcheck source=lib/gap-rows.sh
@@ -255,14 +295,22 @@ mkdir -p "$TMP/vscopy/lib"
 cp "$VS" "$TMP/vscopy/verify-state.sh"
 cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TMP/vscopy/lib/"
 OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-drift" 2>&1)"; RC=$?
-if printf '%s\n' "$OUT" | grep -qF 'check-gap-drift.sh not found'; then ok "V4 checker absent + gap rows present => typed degraded WARN (never silent)"; else no "V4 missing checker not reported"; fi
+if grep -qF 'check-gap-drift.sh not found' <<<"$OUT"; then ok "V4 checker absent + gap rows present => typed degraded WARN (never silent)"; else no "V4 missing checker not reported"; fi
+mkdir -p "$TMP/vscopy3/lib"; cp "$VS" "$TMP/vscopy3/verify-state.sh"; cp "$SUT" "$TMP/vscopy3/"
+cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TMP/vscopy3/lib/"
+OUT="$(bash "$TMP/vscopy3/verify-state.sh" "$TMP/vs-drift" 2>&1)"
+if grep -qF 'gap-drift: degraded' <<<"$OUT"; then ok "V7 checker present but its helper lib is missing => typed degraded WARN (not silence)"; else no "V7 broken checker produced no gap-drift line — $(printf '%s' "$OUT" | grep -a gap-drift | head -1)"; fi
+mkdir -p "$TMP/vscopy4/lib"; cp "$VS" "$TMP/vscopy4/verify-state.sh"; cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TMP/vscopy4/lib/"
+printf '#!/usr/bin/env bash\necho oops >&2\nexit 1\n' > "$TMP/vscopy4/check-gap-drift.sh"
+OUT="$(bash "$TMP/vscopy4/verify-state.sh" "$TMP/vs-drift" 2>&1)"
+if grep -qF 'check-gap-drift.sh failed (exit 1)' <<<"$OUT"; then ok "V8 checker exit 1 with NO typed finding line => degraded WARN (1 is reserved for findings)"; else no "V8 untyped exit 1 not reported"; fi
 mkdir -p "$TMP/vs-norows"; { printf '%s\n' '# S' '<!-- research-state.v1 -->' 'schema: research-state.v1' 'covered_blocks: 0' 'gaps_closed: 0' 'known_gaps: 1' 'investigable_open: 1' 'requires_execution_open: 0' 'blocked_open: 0' 'deferred_open: 0' '<!-- /research-state.v1 -->' "$HDR1" "$HDR2" "$HDR3" '| high | plain gap | x | pending |'; } > "$TMP/vs-norows/RESEARCH-STATE.md"
 OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-norows" 2>&1)"
 lacks "V5 checker absent but NO gap rows => no degraded noise" "check-gap-drift.sh not found"
 mkdir -p "$TMP/vscopy2/lib"; cp "$VS" "$TMP/vscopy2/verify-state.sh"; cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TMP/vscopy2/lib/"
 printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$TMP/vscopy2/check-gap-drift.sh"
 OUT="$(bash "$TMP/vscopy2/verify-state.sh" "$TMP/vs-drift" 2>&1)"
-if printf '%s\n' "$OUT" | grep -qF 'check-gap-drift.sh failed (exit 2)'; then ok "V6 checker exits 2 => typed degraded WARN naming the failure"; else no "V6 checker failure not reported"; fi
+if grep -qF 'check-gap-drift.sh failed (exit 2)' <<<"$OUT"; then ok "V6 checker exits 2 => typed degraded WARN naming the failure"; else no "V6 checker failure not reported"; fi
 
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -278,8 +326,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local d mo mrc kept=lost; d="$(mk_tree "$name")"
     if ! mutant_sed "$TOOLBELT/$file" "$d/$file" "$expr" 2>/dev/null; then
       no "teeth $name: could not build mutant (pattern absent / refused by lib/mutant.sh)"; return; fi
-    mo="$(bash "$d/check-gap-drift.sh" "$fx" "$@" 2>&1)"; mrc=$?
-    printf '%s\n' "$mo" | grep -qF -- "$needle" && kept=kept
+    mo="$(timeout 10 bash "$d/check-gap-drift.sh" "$fx" "$@" 2>&1)"; mrc=$?
+    grep -qF -- "$needle" <<<"$mo" && kept=kept
     if [ "$mrc" != "$grc" ] || [ "$kept" = lost ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc, needle $kept)"
     else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
   # vtooth <name> <sed-expr> <fixture> <verify-state dir kind: full|nochk> <needle> <present|absent>
@@ -290,22 +338,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth $name: could not build verify-state mutant"; return; fi
     [ "$kind" = nochk ] && rm -f "$d/check-gap-drift.sh"
     if [ "$kind" = stub ]; then printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$d/check-gap-drift.sh"; fi
+    if [ "$kind" = stub1 ]; then printf '#!/usr/bin/env bash\necho oops >&2\nexit 1\n' > "$d/check-gap-drift.sh"; fi
+    if [ "$kind" = nolib ]; then rm -f "$d/lib/gap-rows.sh"; fi
     mo="$(bash "$d/verify-state.sh" "$fx" 2>&1)"
     if [ "$mode" = present ]; then
-      printf '%s\n' "$mo" | grep -qF -- "$needle" && no "teeth $name: mutant still prints [$needle] — THEATER" || ok "teeth $name: mutant loses [$needle]"
+      grep -qF -- "$needle" <<<"$mo" && no "teeth $name: mutant still prints [$needle] — THEATER" || ok "teeth $name: mutant loses [$needle]"
     else
-      printf '%s\n' "$mo" | grep -qF -- "$needle" && ok "teeth $name: mutant now prints [$needle]" || no "teeth $name: mutant still silent — THEATER"
+      grep -qF -- "$needle" <<<"$mo" && ok "teeth $name: mutant now prints [$needle]" || no "teeth $name: mutant still silent — THEATER"
     fi; }
 
   tooth bracket-form    lib/gap-rows.sh 's#\\\[?/,"",s)#/,"",s)#' "$TMP/forms" 0 "no_bullet=0"
   tooth id-digit-guard  lib/gap-rows.sh 's#substr(s,length(gid)+1,1) !~ /[[]0-9[]]/#1#' "$TMP/prefix" 0 "checked=1 suspects=0"
-  tooth unparsed-grammar lib/gap-rows.sh 's#if (n<4 || pr !~ /^(high|medium|low|deferred)$/)#if (0)#' "$TMP/unp" 1 "unparsed=1"
+  tooth unparsed-grammar lib/gap-rows.sh '/printf "UNPARSED/s/if (n<4 .*) { printf "UNPARSED/if (0) { printf "UNPARSED/' "$TMP/unp" 1 "unparsed=1"
   tooth continuation-cap lib/gap-rows.sh 's/if (cont>=7) exit/if (0) exit/' "$TMP/cap" 1 "DRIFT? B7-G1"
   tooth stop-next-bullet lib/gap-rows.sh 's@if (line ~ [^|]* || line ~ /^#/@if (0 || line ~ /^#/@' "$TMP/stopnext" 1 "DRIFT? B7-G1"
   tooth stop-blank-line lib/gap-rows.sh 's# || line !~ /\[^ \\t]/##' "$TMP/stopblank" 1 "DRIFT? B7-G1"
   tooth stop-heading    lib/gap-rows.sh 's@ || line ~ /^#/@@' "$TMP/stophead" 1 "DRIFT? B7-G1"
   tooth stemming        lib/gap-rows.sh 's/if (length(w)>3 \&\& w ~ \/\[^s\]s$\/) w=substr(w,1,length(w)-1)/ /' "$TMP/stem" 0 "checked=1 suspects=0"
-  tooth closed-class-skip lib/gap-rows.sh '/printf "SKIPPED/s/if (pr ~ [^{]*{/if (0) {/' "$TMP/closedclass" 0 "unparsed=0"
+  tooth closed-class-skip lib/gap-rows.sh '/printf "SKIPPED/s/if (pr ~ [^{]*{/if (0) {/' "$TMP/closedclass" 0 "skipped_closed=3"
   tooth threshold-boundary check-gap-drift.sh 's/\[ \$((shared\*100)) -lt/[ $((shared*100)) -le/' "$TMP/thr-edge" 0 "suspects=0"
   tooth exit-on-drift   check-gap-drift.sh 's/^\[ "\$suspects" -eq 0 \] && \[ "\$unparsed" -eq 0 \]$/true/' "$TMP/drift" 1 "DRIFT? B1-G1"
   tooth no-words-state  check-gap-drift.sh 's/if \[ "\${total:-0}" -eq 0 \]/if [ "${total:-0}" -eq 99999 ]/' "$TMP/nowords" 0 "NO-WORDS B8-G1"
@@ -313,9 +363,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth pending-filter  check-gap-drift.sh 's/if \[ "\$all" -eq 0 \] && \[ "\$pend" != "pending" \]/if false/' "$TMP/allclosed" 0 "no pending B<n>-G<m> rows"
   tooth worktree-prune  check-gap-drift.sh 's# \\( -path "$target/.claude/worktrees" -o -name .git \\) -prune -o##' "$TMP/wt" 0 "NO-BLOCK B3-G1"
   tooth threshold-range check-gap-drift.sh 's/\[ "\$threshold" -le 100 \]/true/' "$TMP/clean" 2 "threshold" --threshold 101
-  vtooth vs-warn-lines  's@DRIFT\\?\*|UNPARSED\*) echo@DRIFT_NEVER*) echo@' "$TMP/vs-drift" full "gap-drift: DRIFT?" present
+  vtooth vs-warn-lines  's@DRIFT\\?\*|UNPARSED\*) _gd_typed@DRIFT_NEVER*) _gd_typed@' "$TMP/vs-drift" full "gap-drift: DRIFT?" present
   vtooth vs-missing-checker 's/if \[ ! -f "\$_gd" \]; then/if false; then/' "$TMP/vs-drift" nochk "check-gap-drift.sh not found" present
-  vtooth vs-failed-checker 's/if \[ "\$_gd_rc" -ge 2 \]; then/if false; then/' "$TMP/vs-drift" stub "check-gap-drift.sh failed (exit 2)" present
+  vtooth vs-failed-checker '/GAP-DRIFT-BROKEN/s/\[ "\$_gd_rc" -ge 2 \] || //' "$TMP/vs-drift" stub "check-gap-drift.sh failed (exit 2)" present
+  vtooth vs-untyped-exit1 '/GAP-DRIFT-BROKEN/s/ || { \[ "\$_gd_rc" -eq 1 \] && \[ "\$_gd_typed" -eq 0 \]; }//' "$TMP/vs-drift" stub1 "check-gap-drift.sh failed (exit 1)" present
+  vtooth vs-missing-helper '/GAP-DRIFT-BROKEN/s/\[ "\$_gd_rc" -ge 2 \] || //' "$TMP/vs-drift" nolib "gap-drift: degraded" present
+  tooth pending-marker-row lib/gap-rows.sh 's/if (pr ~ \/^(—|~~|\[0-9\]+\$)\/ \&\& tolower(a\[n\]) !~ \/^pending\/)/if (pr ~ \/^(—|~~|[0-9]+$)\/)/' "$TMP/pendS-1" 1 "DRIFT? B5-G1"
+  tooth helper-exit-code check-gap-drift.sh 's/failed to define gap_rows_parse" >&2; exit 2/failed to define gap_rows_parse" >\&2; exit 1/' "$TMP/badlib" 2 "failed to define"
+  tooth flag-missing-value check-gap-drift.sh 's/\[ "\$#" -ge 2 \] || { _usage; exit 2; }/true/' "$TMP/clean" 2 "usage" --state
   vtooth vs-rows-guard  '/GAP-DRIFT-ROWS-PRESENT/s/if grep -qE .* 2>\/dev\/null; then/if true; then/' "$TMP/vs-norows" nochk "check-gap-drift.sh not found" absent
 fi
 
