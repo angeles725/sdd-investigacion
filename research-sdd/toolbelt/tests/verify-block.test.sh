@@ -1164,54 +1164,22 @@ else no "84b F3: substring match on corpus :: $(grep -E 'x\.sh' <<<"$out" | head
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
 # '== exit N ==' line, so a mutant that crashed mid-run cannot read as teeth). Kit issues #943, #1299.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   MUT="$(mktemp -d)"
-  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR.
-  # Each stage must change the original ON ITS OWN: a chain whose first stage applies would otherwise
-  # hide a later stage that matches nothing (a silent no-op) behind a mutant that merely differs.
+  # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (the shared mutant_chain
+  # refuses a dead stage); a refusal is counted as a failure here, the helper never touches the counters.
   mk_sed(){
-    local label="$1" out="$2" e rc err; shift 2
-    local -a args=()
-    for e in "$@"; do
-      if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
-        no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
-      fi
-      args+=(-e "$e")
-    done
-    err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
-    [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+    mutant_chain "$1" "$SUT" "$2" "${@:3}" || { fail=$((fail+1)); return 1; }
   }
   # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
-  # Runs ARGV twice, '@SUT@' replaced by the original, then by the mutant. PASS only when the original
-  # returns exactly GOOD_RC (output matching --good-has, not matching --good-lacks) AND the mutant returns
-  # exactly BAD_RC (output no longer matching --bad-lacks, and matching --bad-has).
+  # Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line): '@SUT@' is replaced by
+  # the original, then by the mutant; PASS only when each side returns its EXACT rc and its output verdict.
+  # The pre-migration local helper matched patterns case-insensitively, so MUTANT_TOOTH_ICASE keeps that exact.
   tooth(){
-    local label="$1" grc="$2" brc="$3" mut="$4" ghas="" glacks="" blacks="" bhas="" a gout mout grc_a mrc_a why=""; shift 4
-    while [ "${1:-}" != -- ]; do
-      case "${1:-}" in
-        --good-has) ghas="$2" ;; --good-lacks) glacks="$2" ;; --bad-lacks) blacks="$2" ;; --bad-has) bhas="$2" ;;
-        *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
-      esac; shift 2
-    done; shift
-    local -a gc=() mc=()
-    for a in "$@"; do gc+=("${a//@SUT@/"$SUT"}"); mc+=("${a//@SUT@/"$mut"}"); done
-    gout="$("${gc[@]}" 2>&1)"; grc_a=$?
-    mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
-    [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
-    if [ -n "$ghas" ] && ! grep -qiE -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi
-    if [ -n "$glacks" ] && grep -qiE -- "$glacks" <<<"$gout"; then why="$why; original output matches /$glacks/"; fi
-    [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
-    if [ -n "$blacks" ] && grep -qiE -- "$blacks" <<<"$mout"; then why="$why; mutant output still matches /$blacks/"; fi
-    if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
-    if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
-    else
-      no "$label — THEATER:$why"
-      [ -z "${VBDBG:-}" ] || { printf -- '--- orig ---\n%s\n--- mutant ---\n%s\n' "$gout" "$mout"; }
-    fi
+    if MUTANT_TOOTH_ICASE=1 mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   # fixture: header blockquote legend + '---' + body lines (the shape most teeth share)
   vbfix(){ local f="$1"; shift; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }

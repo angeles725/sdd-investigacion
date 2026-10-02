@@ -125,53 +125,26 @@ fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 # --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
-# TODO(#1299): replace with shared lib/mutant.sh helpers once promoted
-# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by
-# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant; each
-# control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
+# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by the shared
+# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant and a dead sed
+# stage; each control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the
+# mutant (exact rc on both sides: a crashing mutant is not teeth).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_sed >/dev/null 2>&1 && typeset -f mutant_verify >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_sed/mutant_verify ($HERE/lib/mutant.sh)" >&2; exit 2; }
-# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR. Each stage must change
-# the original ON ITS OWN: a chain whose first stage applies would otherwise hide a later stage that
-# matches nothing (a silent no-op) behind a mutant that merely differs.
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (mutant_chain refuses a dead
+# stage); a refusal is counted as a failure here, the helper itself never touches the counters.
 mk_sed(){
-  local label="$1" out="$2" e rc err; shift 2
-  local -a args=()
-  for e in "$@"; do
-    if sed -e "$e" "$SUT" | cmp -s - "$SUT"; then
-      no "$label: sed stage matches nothing in the original (silent no-op) :: [$e]"; return 1
-    fi
-    args+=(-e "$e")
-  done
+  local out="$2"
   mkdir -p "$(dirname "$out")"
-  err="$(mutant_sed "$SUT" "$out" "${args[@]}" 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] || { no "$label: mutant refused by lib/mutant.sh (rc=$rc) :: $err"; return 1; }
+  mutant_chain "$1" "$SUT" "$out" "${@:3}" || { fail=$((fail+1)); return 1; }
 }
 # tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
-# Runs ARGV twice, '@SUT@' replaced by the original ($SUT unless --orig), then by the mutant. PASS only when the original
-# returns exactly GOOD_RC (and its output matches --good-has) AND the mutant returns exactly BAD_RC
-# (and its output no longer matches --bad-lacks, and matches --bad-has): a crashing mutant is not teeth.
+# Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line). The pre-migration
+# local helper matched patterns case-insensitively, so MUTANT_TOOTH_ICASE keeps that behaviour exactly.
 tooth(){
-  local label="$1" grc="$2" brc="$3" mut="$4" gpat="" bpat="" bhas="" orig="$SUT" a gout mout grc_a mrc_a why=""; shift 4
-  while [ "${1:-}" != -- ]; do
-    case "${1:-}" in
-      --orig) orig="$2" ;; --good-has) gpat="$2" ;; --bad-lacks) bpat="$2" ;; --bad-has) bhas="$2" ;;
-      *) no "$label: tooth() bad option '${1:-}'"; return 1 ;;
-    esac; shift 2
-  done; shift
-  local -a gc=() mc=()
-  for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
-  gout="$("${gc[@]}" 2>&1)"; grc_a=$?
-  mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
-  [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
-  if [ -n "$gpat" ] && ! grep -qiE -- "$gpat" <<<"$gout"; then why="$why; original output lacks /$gpat/"; fi
-  [ "$mrc_a" = "$brc" ] || why="$why; mutant rc=$mrc_a (want $brc)"
-  if [ -n "$bpat" ] && grep -qiE -- "$bpat" <<<"$mout"; then why="$why; mutant output still matches /$bpat/"; fi
-  if [ -n "$bhas" ] && ! grep -qiE -- "$bhas" <<<"$mout"; then why="$why; mutant output lacks /$bhas/"; fi
-  if [ -z "$why" ]; then ok "$label [original rc=$grc → mutant rc=$brc]"
-  else no "$label — THEATER:$why"; fi
+  if MUTANT_TOOTH_ICASE=1 mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
 # hook_tooth LABEL GOOD_RC BAD_RC MUTANT [tooth opts] -- ARGV...   the hook locates its sweep stub next to
 # itself, so the stub currently in $TMP (set by write_stub for this scenario) is copied beside the mutant;
