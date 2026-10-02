@@ -22,6 +22,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-sources.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_sed >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_sed ($HERE/lib/mutant.sh)" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
@@ -890,348 +893,94 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
+# NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
+# the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
+# mutant_sed refuses an empty / byte-identical / syntax-broken / live-tree mutant (rc 3/4/5/8), so a
+# crash or a sed that never applied can never read as teeth. kit issue #1299.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
-  mutant="$TMP/verify-sources.MUTANT.sh"
-  # revert the resolution: force corpus=$target (the pre-fix behavior)
-  awk '{ if ($0 ~ /corpus="\$\(dirname "\$anchor"\)"/) print "  corpus=\"$target\"  # MUTANT: resolution reverted"; else print }' "$SUT" > "$mutant"
-  if ! grep -q 'MUTANT: resolution reverted' "$mutant"; then
-    echo "  FAIL  could not build mutant (resolution line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/flagship-subdir"   # reuse the flagship fixture
-    # The MUTANT must FALSE-PASS (exit 0) where the real SUT catches (exit 1).
-    bash "$mutant" "$d" >/dev/null 2>&1; mgot=$?
-    if [ "$mgot" = 0 ]; then
-      printf '  PASS  %-42s (mutant false-passes → real test has teeth)\n' "teeth: mutant exit 0, SUT exit 1"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 0). Flagship does NOT depend on the resolution — THEATER.\n' "teeth" "$mgot"; fail=$((fail+1))
+  mkdir -p "$TMP/mutants"
+  # Verdict functions: <script> <fixture-dir> → one token line; compared EXACTLY, never "!= N".
+  v_rc() { bash "$1" "$2" >/dev/null 2>&1; echo "rc=$?"; }
+  v_has() {   # v_has <regex> <script> <dir> → rc + whether the regex appears in the output
+    local out rc; out="$(bash "$2" "$3" 2>&1)"; rc=$?
+    echo "rc=$rc match=$(grep -qE "$1" <<<"$out" && echo yes || echo no)"
+  }
+  v_l4warn() { v_has 'WARN.*LEVEL-4.*UNCHECKED' "$1" "$2"; }
+  v_hashwarn() { v_has 'unverifiable-hash' "$1" "$2"; }
+  v_schemawarn() { v_has 'WARN.*(malformed|schema)' "$1" "$2"; }
+  v_certdoc() {
+    local out rc; out="$(bash "$1" "$2" 2>&1)"; rc=$?
+    echo "rc=$rc certdoc=$(grep -oE '\[CERT-doc\] [0-9]+' <<<"$out" | grep -oE '[0-9]+' | head -1)"
+  }
+  v_vs49() {   # row-scan grep stub (exit 2) active
+    local out rc; out="$(PATH="$_stub_vs49:$PATH" bash "$1" "$2" 2>&1)"; rc=$?
+    echo "rc=$rc match=$(grep -qiE 'row scan FAILED|row count unavailable' <<<"$out" && echo yes || echo no)"
+  }
+  # Local tooth() (verdict-function form). TODO(#1299): move into a shared lib/mutant.sh helper.
+  # tooth <id> <label> <fixture> <verdict-fn> <good-verdict> <mutant-verdict> <sed-args...>
+  tooth() {
+    local id="$1" label="$2" fx="$3" vfn="$4" want_good="$5" want_bad="$6" mut mrc=0 good bad
+    shift 6
+    mut="$TMP/mutants/verify-sources.$id.sh"
+    echo "-- teeth $id: $label --"
+    good="$($vfn "$SUT" "$fx")"
+    if [ "$good" != "$want_good" ]; then
+      printf '  FAIL  %-42s real SUT verdict [%s], expected [%s]\n' "teeth $id: good verdict" "$good" "$want_good"; fail=$((fail+1)); return
     fi
-  fi
-
-  # LEVEL 5 teeth: revert the registration to the OLD basename-substring check and assert the substring-
-  #   collision orphan (BAD 6) then FALSE-PASSES — proving the exact File-column match is load-bearing.
-  echo "-- teeth proof: revert LEVEL 5 to basename-substring, expect the collision orphan to FALSE-PASS --"
-  mutant5="$TMP/verify-sources.MUTANT5.sh"
-  awk '{ if ($0 ~ /grep -qxF "\$rel"/) print "  if ! grep -qF \"$base\" \"$sources_md\" 2>/dev/null; then  # MUTANT5: reverted to basename substring"; else print }' "$SUT" > "$mutant5"
-  if ! grep -q 'MUTANT5: reverted to basename substring' "$mutant5"; then
-    echo "  FAIL  could not build LEVEL 5 mutant (registration line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/bad-substring-collision"   # reuse the collision fixture (BAD 6)
-    bash "$mutant5" "$d" >/dev/null 2>&1; m5got=$?
-    if [ "$m5got" = 0 ]; then
-      printf '  PASS  %-42s (mutant false-passes → collision test has teeth)\n' "teeth: LEVEL 5 substring mutant exit 0"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 6 does NOT depend on the exact match — THEATER.\n' "teeth: LEVEL 5" "$m5got"; fail=$((fail+1))
+    mutant_sed "$SUT" "$mut" "$@" 2>"$TMP/mutants/$id.err" || mrc=$?
+    if [ "$mrc" -ne 0 ]; then
+      printf '  FAIL  %-42s mutant_sed refused (rc %s): %s\n' "teeth $id: build mutant" "$mrc" "$(head -1 "$TMP/mutants/$id.err")"; fail=$((fail+1)); return
     fi
-  fi
-
-  # FIX A teeth: revert the File-cell normalization to space+backtick only (drop tab-stripping) and assert the
-  #   tab-padded fixture (GOOD 8) then FALSE-ORPHANS — proving the tab trim is load-bearing on the HARD gate.
-  echo "-- teeth proof: drop tab-stripping from registration, expect the tab-padded fixture to FALSE-ORPHAN --"
-  mutantA="$TMP/verify-sources.MUTANTA.sh"
-  sed 's|gsub(/\[`\[:blank:\]\]/|gsub(/[` ]/|' "$SUT" > "$mutantA"
-  if ! grep -qF 'gsub(/[` ]/' "$mutantA"; then
-    echo "  FAIL  could not build FIX A mutant (normalization line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/good-tab-padded-registration"   # reuse the tab-padded fixture (GOOD 8)
-    bash "$mutantA" "$d" >/dev/null 2>&1; magot=$?
-    if [ "$magot" = 1 ]; then
-      printf '  PASS  %-42s (mutant false-orphans → tab-trim has teeth)\n' "teeth: FIX A mutant exit 1"; pass=$((pass+1))
+    bad="$($vfn "$mut" "$fx")"
+    if [ "$bad" = "$want_bad" ]; then
+      printf '  PASS  %-42s (good [%s] → mutant [%s])\n' "teeth $id: $label" "$good" "$bad"; pass=$((pass+1))
     else
-      printf '  FAIL  %-42s mutant exit %s (expected 1). GOOD 8 does NOT depend on tab-stripping — THEATER.\n' "teeth: FIX A" "$magot"; fail=$((fail+1))
+      printf '  FAIL  %-42s mutant verdict [%s], expected [%s] — THEATER\n' "teeth $id: $label" "$bad" "$want_bad"; fail=$((fail+1))
     fi
-  fi
+  }
+  # Multi-line / quote-bearing replacements live in sed script files (-f), not shell-quoted one-liners.
+  cat > "$TMP/mutants/appended.sed" <<'SED'
+/L6-SCOPE/c\
+  done < <(awk '/^\\|/&&/ sha256 /{r=1} r&&/^\\|/{print} r&&!/^\\|/{r=0}' "$sources_md" 2>/dev/null)
+SED
+  cat > "$TMP/mutants/sigpipe.sed" <<'SED'
+/&& n=\$((n + 1)) *# SIGPIPE-SAFE/c\
+    printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))
+SED
 
-  # LEVEL 6 teeth: neutralize the hash comparison and assert the tampered fixture (BAD 7) then FALSE-PASSES —
-  #   proving the recompute-and-compare is load-bearing (without it the registered sha256 is dead weight).
-  echo "-- teeth proof: neutralize the LEVEL 6 hash compare, expect the tampered fixture to FALSE-PASS --"
-  mutant6="$TMP/verify-sources.MUTANT6.sh"
-  awk '{ if ($0 ~ /HASH-INTEGRITY compare/) print "      if false; then  # MUTANT6: hash compare neutralized"; else print }' "$SUT" > "$mutant6"
-  if ! grep -q 'MUTANT6: hash compare neutralized' "$mutant6"; then
-    echo "  FAIL  could not build LEVEL 6 mutant (compare line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/bad-hash-mismatch"   # reuse the tampered fixture (BAD 7)
-    bash "$mutant6" "$d" >/dev/null 2>&1; m6got=$?
-    if [ "$m6got" = 0 ]; then
-      printf '  PASS  %-42s (mutant false-passes → hash check has teeth)\n' "teeth: LEVEL 6 compare mutant exit 0"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 7 does NOT depend on the recompute — THEATER.\n' "teeth: LEVEL 6" "$m6got"; fail=$((fail+1))
-    fi
-  fi
-
-  # LEVEL 1 legend-strip teeth: revert the body extraction to the WHOLE FILE (count the legend again) and
-  #   assert the legend-only fixture then FALSE-FAILS (exit 1) — proving the positional strip is load-bearing.
-  echo "-- teeth proof: revert LEVEL 1 to whole-file marker count, expect legend-only to FALSE-FAIL --"
-  mutantL="$TMP/verify-sources.MUTANTL.sh"
-  awk '{ if ($0 ~ /LEGEND-STRIP: count markers/) print "      body=\"$(cat \"$f\")\"  # MUTANTL: legend strip reverted"; else print }' "$SUT" > "$mutantL"
-  if ! grep -q 'MUTANTL: legend strip reverted' "$mutantL"; then
-    echo "  FAIL  could not build LEVEL 1 mutant (legend-strip line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/legend-only-no-registry"   # reuse the legend-only fixture
-    bash "$mutantL" "$d" >/dev/null 2>&1; mlgot=$?
-    if [ "$mlgot" = 1 ]; then
-      printf '  PASS  %-42s (mutant false-fails → legend-strip has teeth)\n' "teeth: LEVEL 1 whole-file mutant exit 1"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 1). Legend-only does NOT depend on the strip — THEATER.\n' "teeth: LEVEL 1" "$mlgot"; fail=$((fail+1))
-    fi
-  fi
-
-  # B4 teeth: disable the multi-file citation check entirely (_cited_ok always starts at 1, so
-  # FABRICATED-CITE never fires). The B4-BAD fixture (neither block file cites the source, so the real SUT
-  # exits 1) must then FALSE-PASS (exit 0), proving the _cited_ok=0 initialization + loop check are load-bearing.
-  echo "-- teeth proof: B4 — disable citation check (_cited_ok always 1), expect BAD fixture to FALSE-PASS --"
-  mutantB4="$TMP/verify-sources.MUTANTB4.sh"
-  sed 's/_cited_ok=0$/_cited_ok=1  # MUTANT-B4: check disabled/' "$SUT" > "$mutantB4"
-  if ! grep -q 'MUTANT-B4: check disabled' "$mutantB4"; then
-    echo "  FAIL  could not build B4 mutant (_cited_ok line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/b4-multi-focus-bad"   # reuse: neither block1.md cites ext.md → real SUT exits 1
-    bash "$mutantB4" "$d" >/dev/null 2>&1; mb4got=$?
-    if [ "$mb4got" = 0 ]; then
-      printf '  PASS  %-42s (disabled mutant false-passes → citation loop is load-bearing)\n' "teeth: B4 check-disabled mutant exit 0"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 0) — citation check may not depend on _cited_ok init (THEATER).\n' "teeth: B4" "$mb4got"; fail=$((fail+1))
-    fi
-  fi
-
-  # PREFIX-COMPARISON teeth: neutralize the disk_pfx computation so it always equals pfx_lower —
-  #   meaning the comparison always succeeds. BAD 8 (16-char prefix that doesn't match the file)
-  #   must then FALSE-PASS (exit 0), proving the PREFIX-COMPARISON is load-bearing.
-  echo "-- teeth proof: neutralize PREFIX-COMPARISON, expect BAD 8 to FALSE-PASS --"
-  mutant_pfx="$TMP/verify-sources.MUTANT-PFX.sh"
-  awk '{ if ($0 ~ /PREFIX-COMPARISON compare/) print "            disk_pfx=\"$pfx_lower\"  # MUTANT-PFX: comparison neutralized"; else print }' "$SUT" > "$mutant_pfx"
-  if ! grep -q 'MUTANT-PFX: comparison neutralized' "$mutant_pfx"; then
-    echo "  FAIL  could not build PREFIX mutant (sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    d="$TMP/bad-prefix-mismatch"   # reuse BAD 8: prefix 0000000000000000… never matches real content
-    bash "$mutant_pfx" "$d" >/dev/null 2>&1; m_pfx_got=$?
-    if [ "$m_pfx_got" = 0 ]; then
-      printf '  PASS  %-42s (mutant false-passes → prefix check has teeth)\n' "teeth: PREFIX-COMPARISON mutant exit 0"; pass=$((pass+1))
-    else
-      printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 8 not dependent on prefix compare.\n' "teeth: PREFIX-COMPARISON" "$m_pfx_got"; fail=$((fail+1))
-    fi
-  fi
-
-  # D1 teeth: disable the L6-FIELD-GUARD (the sentinel that skips malformed rows in LEVEL 6).
-  #   The D1-SKIP-L6 fixture has a 5-col web-snapshot row with "B5" in the sha256 slot. With the
-  #   guard disabled, LEVEL 6 processes it and emits "unverifiable-hash" (reads "B5" as a 2-char
-  #   hex prefix < MIN_PREFIX). With the guard active, the row is skipped and no hash output appears.
-  #   bash -n validated first: a mutant with a syntax error never runs, proving nothing (THEATER).
-  echo "-- teeth proof: D1 — disable L6-FIELD-GUARD, expect D1-SKIP-L6 to produce misleading unverifiable-hash --"
-  mutant_d1="$TMP/verify-sources.MUTANT-D1.sh"
-  awk '{ if ($0 ~ /L6-FIELD-GUARD/) print "  pipes=\"${_raw//[^|]/}\"; [ 1 -ne 1 ] && continue   # MUTANT-D1: L6 guard disabled"; else print }' "$SUT" > "$mutant_d1"
-  if ! grep -q 'MUTANT-D1: L6 guard disabled' "$mutant_d1"; then
-    echo "  FAIL  could not build D1 mutant (L6-FIELD-GUARD sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    bash -n "$mutant_d1" 2>/dev/null; d1_bn=$?
-    if [ "$d1_bn" -ne 0 ]; then
-      echo "  FAIL  D1 mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-    else
-      d="$TMP/d1-skip-l6"   # built above: 5-col web-snap row, B5 in sha256 slot
-      md1_out="$(bash "$mutant_d1" "$d" 2>&1)"
-      if grep -q 'unverifiable-hash' <<<"$md1_out"; then
-        printf '  PASS  %-42s (mutant fires misleading hash warn → guard is load-bearing)\n' "teeth: D1 L6-guard mutant → unverifiable-hash"; pass=$((pass+1))
-      else
-        printf '  FAIL  %-42s (mutant did not produce unverifiable-hash — guard not load-bearing)\n' "teeth: D1 L6-guard"; fail=$((fail+1))
-      fi
-    fi
-  fi
-
-  # D1B teeth: disable the BLOCK-EXIT transition in the pre-check awk (change
-  # { in_blk=0 } to { }) so in_blk never resets to 0 after the primary block. The
-  # secondary table rows that appear after a heading are then treated as data rows of
-  # the primary (registry) block — they get per-row WARNs for their different column
-  # count (4 vs 8). The D1-SECOND-TABLE assertion (expects zero WARNs) must fire.
-  # bash -n validated first: a syntactically broken mutant cannot prove anything.
-  echo "-- teeth proof: D1B — disable BLOCK-EXIT, expect D1-SECOND-TABLE to show false-positive WARNs --"
-  mutant_d1b="$TMP/verify-sources.MUTANT-D1B.sh"
-  sed 's/{ in_blk=0 }   # BLOCK-EXIT/{ }   # MUTANT-D1B: block-exit disabled/' "$SUT" > "$mutant_d1b"
-  if ! grep -q 'MUTANT-D1B' "$mutant_d1b"; then
-    echo "  FAIL  could not build D1B mutant (BLOCK-EXIT sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    bash -n "$mutant_d1b" 2>/dev/null; d1b_bn=$?
-    if [ "$d1b_bn" -ne 0 ]; then
-      echo "  FAIL  D1B mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-    else
-      d="$TMP/d1-second-table"   # built above: clean 6-col registry + secondary 2-col table
-      md1b_out="$(bash "$mutant_d1b" "$d" 2>&1)"
-      if grep -qE 'WARN.*(malformed|schema)' <<<"$md1b_out"; then
-        printf '  PASS  %-42s (mutant fires WARN on secondary → BLOCK-EXIT load-bearing)\n' "teeth: D1B BLOCK-EXIT → false-positive WARN"; pass=$((pass+1))
-      else
-        printf '  FAIL  %-42s (mutant produced no WARN — BLOCK-EXIT not load-bearing)\n' "teeth: D1B BLOCK-EXIT"; fail=$((fail+1))
-      fi
-    fi
-  fi
-
-  # APPENDED-ROWS teeth: revert L6 to the old registry-block scope (awk that reads only
-  # rows before the first non-table line) and assert the appended-rows fixture FALSE-PASSES
-  # (exit 0). Without the full-file scan, L6 never reaches the appended row's wrong hash.
-  # Uses the L6-SCOPE sentinel on the done line. bash -n validated first.
-  echo "-- teeth proof: APPENDED-ROWS — revert L6 to registry-block scope, expect appended hash to false-pass --"
-  mutant_appended="$TMP/verify-sources.MUTANT-APPENDED.sh"
-  _ar_l6ln=$(grep -n 'L6-SCOPE' "$SUT" | head -1 | cut -d: -f1)
-  if [ -z "$_ar_l6ln" ]; then
-    echo "  FAIL  could not build APPENDED-ROWS mutant (L6-SCOPE sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    { head -n $((_ar_l6ln - 1)) "$SUT"
-      printf '  done < <(awk '"'"'/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}'"'"' "$sources_md" 2>/dev/null)   # MUTANT-APPENDED: reverted to registry-block scope\n'
-      tail -n +"$((_ar_l6ln + 1))" "$SUT"
-    } > "$mutant_appended"
-    if ! grep -q 'MUTANT-APPENDED' "$mutant_appended"; then
-      echo "  FAIL  APPENDED-ROWS mutant build failed (replacement not found in output)"; fail=$((fail+1))
-    else
-      bash -n "$mutant_appended" 2>/dev/null; _mapp_bn=$?
-      if [ "$_mapp_bn" -ne 0 ]; then
-        echo "  FAIL  APPENDED-ROWS mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-      else
-        d="$TMP/appended-rows-fail"   # built above: appended row has wrong hash, real SUT exits 1
-        bash "$mutant_appended" "$d" >/dev/null 2>&1; _mapp_rc=$?
-        if [ "$_mapp_rc" = 0 ]; then
-          printf '  PASS  %-42s (mutant false-passes → full-file scan is load-bearing)\n' "teeth: APPENDED-ROWS mutant exit 0"; pass=$((pass+1))
-        else
-          printf '  FAIL  %-42s mutant exit %s (expected 0) — APPENDED-ROWS test may not depend on full-file scan.\n' "teeth: APPENDED-ROWS" "$_mapp_rc"; fail=$((fail+1))
-        fi
-      fi
-    fi
-  fi
-
-  # SIGPIPE-RACE teeth: revert count_marker to the old printf|grep pipeline form and
-  # assert the large-body fixture produces count=0 (the race fires). With the marker on
-  # line 2 and 400KB of filler, grep exits after ~30 bytes, printf gets SIGPIPE (exit 141),
-  # set -o pipefail makes the pipeline non-zero, && does not fire, count stays 0 instead of
-  # 1. The race is 100% reliable at 400KB (verified on main-branch before the fix).
-  # bash -n validated first.
-  echo "-- teeth proof: SIGPIPE-RACE — revert count_marker to pipeline form, expect [CERT-doc] count=0 --"
-  mutant_sigpipe="$TMP/verify-sources.MUTANT-SIGPIPE.sh"
-  _sp_saln=$(grep -n 'SIGPIPE-SAFE' "$SUT" | head -1 | cut -d: -f1)
-  if [ -z "$_sp_saln" ]; then
-    echo "  FAIL  could not build SIGPIPE mutant (SIGPIPE-SAFE sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    { head -n $((_sp_saln - 1)) "$SUT"
-      printf '%s\n' '    printf '"'"'%s'"'"' "$body" | grep -qF "$marker" && n=$((n + 1))   # MUTANT-SIGPIPE: pipeline reverted'
-      tail -n +"$((_sp_saln + 1))" "$SUT"
-    } > "$mutant_sigpipe"
-    if ! grep -q 'MUTANT-SIGPIPE' "$mutant_sigpipe"; then
-      echo "  FAIL  SIGPIPE mutant build failed (replacement not found in output)"; fail=$((fail+1))
-    else
-      bash -n "$mutant_sigpipe" 2>/dev/null; _msp_bn=$?
-      if [ "$_msp_bn" -ne 0 ]; then
-        echo "  FAIL  SIGPIPE mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-      else
-        d="$TMP/sigpipe-det"   # built above: [CERT-doc] on line 2, 400KB filler
-        _msp_out="$(bash "$mutant_sigpipe" "$d" 2>&1)"
-        _msp_doc="$(printf '%s' "$_msp_out" | grep -oE '\[CERT-doc\] [0-9]+' | grep -oE '[0-9]+')"
-        if [ "${_msp_doc:-}" = "0" ]; then
-          printf '  PASS  %-42s (pipeline mutant counts 0 → herestring fix is load-bearing)\n' "teeth: SIGPIPE-RACE mutant [CERT-doc]=0"; pass=$((pass+1))
-        else
-          printf '  FAIL  %-42s (mutant count=%s, expected 0 — race did not trigger or fixture too small)\n' "teeth: SIGPIPE-RACE" "${_msp_doc:-empty}"; fail=$((fail+1))
-        fi
-      fi
-    fi
-  fi
-
-  # L4-SILENT-ZERO teeth: neutralize the L4-SILENT-ZERO-GUARD so the WARN can never fire.
-  #   The L4-UNPOPULATED-BCELL fixture has a registry with rows but blank "cite it" cells, and a
-  #   block that cites sources/ on disk. Real SUT: guard fires → WARN emitted. Mutant (guard
-  #   replaced with `if false`): guard never fires → WARN absent → fixture FALSE-PASSES (no WARN).
-  #   bash -n validated first: a syntactically broken mutant proves nothing (THEATER).
-  echo "-- teeth proof: L4-SILENT-ZERO — neutralize guard, expect L4-UNPOPULATED-BCELL to FALSE-PASS (no WARN) --"
-  mutant_l4sz="$TMP/verify-sources.MUTANT-L4SZ.sh"
-  awk '{ if ($0 ~ /L4-SILENT-ZERO-GUARD/) print "  if false; then   # MUTANT-L4SZ: guard neutralized"; else print }' "$SUT" > "$mutant_l4sz"
-  if ! grep -q 'MUTANT-L4SZ: guard neutralized' "$mutant_l4sz"; then
-    echo "  FAIL  could not build L4SZ mutant (L4-SILENT-ZERO-GUARD sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    bash -n "$mutant_l4sz" 2>/dev/null; _ml4sz_bn=$?
-    if [ "$_ml4sz_bn" -ne 0 ]; then
-      echo "  FAIL  L4SZ mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-    else
-      d="$TMP/l4-unpopulated-bcell"   # reuse: registry rows present, blank cite cells, block cites sources/
-      _ml4sz_out="$(bash "$mutant_l4sz" "$d" 2>&1)"
-      if ! grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$_ml4sz_out"; then
-        printf '  PASS  %-42s (mutant silences WARN → guard is load-bearing)\n' "teeth: L4SZ guard mutant → no WARN"; pass=$((pass+1))
-      else
-        printf '  FAIL  %-42s (mutant still emits WARN — guard is not load-bearing, THEATER)\n' "teeth: L4SZ guard mutant"; fail=$((fail+1))
-      fi
-    fi
-  fi
-
-  # L4-PROBE-MATCH teeth: neutralize the divergence-free probe so it never finds a registered
-  #   basename in any block → _l4_disk_cites stays empty → the guard's WARN never fires.
-  #   The L4-NONWHITELIST-EXT fixture has ds.py registered, blank cite cells, and a block that
-  #   mentions ds.py. Real SUT: probe finds "ds.py" → WARN fires. Mutant: probe silenced →
-  #   no WARN → fixture FALSE-PASSES (WARN absent). bash -n validated first.
-  echo "-- teeth proof: L4-PROBE-MATCH — neutralize probe, expect L4-NONWHITELIST-EXT to FALSE-PASS (no WARN) --"
-  mutant_l4probe="$TMP/verify-sources.MUTANT-L4PROBE.sh"
-  awk '{ if ($0 ~ /L4-PROBE-MATCH/) print "        if false; then   # MUTANT-L4PROBE: probe neutralized"; else print }' "$SUT" > "$mutant_l4probe"
-  if ! grep -q 'MUTANT-L4PROBE: probe neutralized' "$mutant_l4probe"; then
-    echo "  FAIL  could not build L4-PROBE mutant (L4-PROBE-MATCH sentinel not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    bash -n "$mutant_l4probe" 2>/dev/null; _ml4p_bn=$?
-    if [ "$_ml4p_bn" -ne 0 ]; then
-      echo "  FAIL  L4-PROBE mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-    else
-      d="$TMP/l4-nonwhitelist-ext"   # reuse: ds.py registered, blank cite cells, block cites ds.py
-      _ml4p_out="$(bash "$mutant_l4probe" "$d" 2>&1)"
-      if ! grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$_ml4p_out"; then
-        printf '  PASS  %-42s (mutant silences WARN → probe is load-bearing)\n' "teeth: L4-PROBE-MATCH mutant → no WARN"; pass=$((pass+1))
-      else
-        printf '  FAIL  %-42s (mutant still emits WARN — probe is not load-bearing, THEATER)\n' "teeth: L4-PROBE-MATCH mutant"; fail=$((fail+1))
-      fi
-    fi
-  fi
-
-  # L6-FIELD-GUARD-ASYM teeth: change -lt to -ne so EXTRA-PIPE rows are skipped.
-  #   The L6-ASYM-EXTRA-PIPE fixture has a web-snapshot row with 8 pipes and a wrong hash.
-  #   Real SUT: 8 >= 7 → guard does NOT skip → hash checked → mismatch → exit 1.
-  #   Mutant (-ne 7): 8 ≠ 7 → guard SKIPS the row → hash never checked → exit 0 (false-pass).
-  #   bash -n validated first: a syntactically broken mutant proves nothing (THEATER).
-  echo "-- teeth proof: L6-FIELD-GUARD-ASYM — change -lt to -ne, expect extra-pipe fixture to FALSE-PASS --"
-  mutant_l6asym="$TMP/verify-sources.MUTANT-L6ASYM.sh"
-  awk '{ if ($0 ~ /pipes=/ && $0 ~ /L6-FIELD-GUARD/) { sub(/-lt 7/, "-ne 7"); sub(/L6-FIELD-GUARD/, "MUTANT-L6ASYM: changed -lt to -ne"); } print }' "$SUT" > "$mutant_l6asym"
-  if ! grep -q 'MUTANT-L6ASYM' "$mutant_l6asym"; then
-    echo "  FAIL  could not build L6-ASYM mutant (L6-FIELD-GUARD code line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    bash -n "$mutant_l6asym" 2>/dev/null; _ml6asym_bn=$?
-    if [ "$_ml6asym_bn" -ne 0 ]; then
-      echo "  FAIL  L6-ASYM mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
-    else
-      d="$TMP/l6-asym-extra-pipe"   # fixture 1A: 8-pipe row with wrong hash — real SUT exits 1
-      bash "$mutant_l6asym" "$d" >/dev/null 2>&1; _ml6asym_rc=$?
-      if [ "$_ml6asym_rc" = 0 ]; then
-        printf '  PASS  %-42s (mutant false-passes → -lt asymmetry is load-bearing)\n' "teeth: L6-FIELD-GUARD-ASYM mutant exit 0"; pass=$((pass+1))
-      else
-        printf '  FAIL  %-42s mutant exit %s (expected 0) — asymmetric guard may not be load-bearing.\n' "teeth: L6-FIELD-GUARD-ASYM" "$_ml6asym_rc"; fail=$((fail+1))
-      fi
-    fi
-  fi
-
-  # T-VS1 teeth: revert LEVEL 3 regex (remove jsonl|ndjson|gz|); .ndjson fixture must false-pass (silent miss).
-  echo "-- teeth-vs1: revert LEVEL 3 regex (drop jsonl/ndjson/gz); .ndjson fixture must no longer be caught --"
-  mutant_vs1="$TMP/verify-sources.VS1-MUTANT.sh"
-  sed 's/# VS1-LEVEL3-REGEX$/# VS1-LEVEL3-REGEX [MUTANT]/' \
-    "$SUT" | sed 's/(jsonl|ndjson|gz|/(/' > "$mutant_vs1"
-  if ! grep -q 'VS1-LEVEL3-REGEX \[MUTANT\]' "$mutant_vs1"; then
-    printf '  FAIL  %-42s\n' "teeth-vs1: could not build VS1 mutant (VS1-LEVEL3-REGEX sentinel not found)"; fail=$((fail+1))
-  else
-    bash "$mutant_vs1" "$d_vs1_ndjson" >/dev/null 2>&1; rc_vs1m=$?
-    [ "$rc_vs1m" = 1 ] \
-      && { printf '  FAIL  %-42s :: exit %s\n' "teeth-vs1: reverted regex still catches .ndjson — THEATER" "$rc_vs1m"; fail=$((fail+1)); } \
-      || { printf '  PASS  %-42s (.ndjson silently passes on revert)\n' "teeth-vs1: LEVEL 3 revert → .ndjson false-passes"; pass=$((pass+1)); }
-  fi
-
-  # Teeth for test 49: neutralize _vsrc_rows_rc so row-scan error passes silently → test 49 goes red.
-  echo "-- teeth: neutralize _vsrc_rows_rc; row-scan exit-2 must pass silently → test 49 goes red --"
-  mutant_vs49="$TMP/verify-sources.MUTANT-VS49.sh"
-  sed 's/_vsrc_rows_rc=\$?/_vsrc_rows_rc=0/' "$SUT" > "$mutant_vs49"
-  if ! grep -q '_vsrc_rows_rc=0' "$mutant_vs49"; then
-    echo "  FAIL  could not build VS49 mutant (rc line not found — did the SUT change?)"; fail=$((fail+1))
-  else
-    out_vs49m="$(PATH="$_stub_vs49:$PATH" bash "$mutant_vs49" "$d_vs49" 2>&1)"
-    grep -qiE 'row scan FAILED|row count unavailable' <<<"$out_vs49m" \
-      && { echo "  FAIL  teeth-vs49: rc-zeroed mutant still emitted WARN — test 49 is THEATER"; fail=$((fail+1)); } \
-      || { printf '  PASS  %-42s (test 49 has teeth)\n' "teeth-vs49: rc-zeroed mutant silent"; pass=$((pass+1)); }
-  fi
+  tooth RESOLUTION "corpus-root resolution reverted to \$target" "$TMP/flagship-subdir" v_rc rc=1 rc=0 \
+    's|corpus="$(dirname "$anchor")"|corpus="$target"|'
+  tooth L5-SUBSTRING "exact registration match reverted to basename substring" "$TMP/bad-substring-collision" v_rc rc=1 rc=0 \
+    '/grep -qxF "$rel" <<< "$registered"/c\  if ! grep -qF "$(basename "$rel")" <<< "$registered"; then'
+  tooth FIXA-TAB "tab-trim normalization dropped" "$TMP/good-tab-padded-registration" v_rc rc=0 rc=1 \
+    's|gsub(/\[`\[:blank:\]\]/|gsub(/[` ]/|'
+  tooth L6-COMPARE "hash compare neutralized" "$TMP/bad-hash-mismatch" v_rc rc=1 rc=0 \
+    '/HASH-INTEGRITY compare/c\      if false; then'
+  tooth L1-LEGEND "legend strip reverted (whole file counted)" "$TMP/legend-only-no-registry" v_rc rc=0 rc=1 \
+    '/LEGEND-STRIP: count markers/c\      body="$(cat "$f")"'
+  tooth B4-CITED "citation check disabled (_cited_ok preset)" "$TMP/b4-multi-focus-bad" v_rc rc=1 rc=0 \
+    's/_cited_ok=0$/_cited_ok=1/'
+  tooth PFX "prefix comparison neutralized" "$TMP/bad-prefix-mismatch" v_rc rc=1 rc=0 \
+    '/PREFIX-COMPARISON compare/c\            disk_pfx="$pfx_lower"'
+  # D1: anchor on the CODE line only. The old awk matched /L6-FIELD-GUARD/ anywhere and so ALSO
+  # overwrote the explanatory comment at verify-sources.sh:303 with executable code (defect).
+  tooth D1-GUARD "L6 field guard disabled" "$TMP/d1-skip-l6" v_hashwarn "rc=0 match=no" "rc=0 match=yes" \
+    '/pipes=.*# L6-FIELD-GUARD$/c\  pipes="${_raw//[^|]/}"; [ 1 -ne 1 ] && continue'
+  tooth D1B-BLOCKEXIT "registry block-exit disabled" "$TMP/d1-second-table" v_schemawarn "rc=0 match=no" "rc=0 match=yes" \
+    's/{ in_blk=0 }   # BLOCK-EXIT/{ }/'
+  tooth APPENDED "L6 reverted to registry-block scope" "$TMP/appended-rows-fail" v_rc rc=1 rc=0 -f "$TMP/mutants/appended.sed"
+  tooth SIGPIPE "count_marker reverted to printf|grep pipeline" "$TMP/sigpipe-det" v_certdoc "rc=0 certdoc=1" "rc=0 certdoc=0" \
+    -f "$TMP/mutants/sigpipe.sed"
+  tooth L4SZ "L4 silent-zero guard neutralized" "$TMP/l4-unpopulated-bcell" v_l4warn "rc=0 match=yes" "rc=0 match=no" \
+    '/L4-SILENT-ZERO-GUARD/c\  if false; then'
+  tooth L4PROBE "L4 probe neutralized" "$TMP/l4-nonwhitelist-ext" v_l4warn "rc=0 match=yes" "rc=0 match=no" \
+    '/L4-PROBE-MATCH/c\        if false; then'
+  tooth L6ASYM "L6 guard -lt 7 changed to -ne 7" "$TMP/l6-asym-extra-pipe" v_rc rc=1 rc=0 \
+    '/pipes=.*# L6-FIELD-GUARD$/s/-lt 7/-ne 7/'
+  tooth VS1-REGEX "LEVEL 3 regex drops jsonl|ndjson|gz" "$d_vs1_ndjson" v_rc rc=1 rc=0 \
+    's/(jsonl|ndjson|gz|/(/'
+  tooth VS49-RC "row-scan rc zeroed" "$d_vs49" v_vs49 "rc=0 match=yes" "rc=0 match=no" \
+    's/_vsrc_rows_rc=$?/_vsrc_rows_rc=0/'
 fi
 
 echo "== $pass passed · $fail failed =="
