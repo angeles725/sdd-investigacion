@@ -6655,8 +6655,8 @@ b13_lb_fix() { # <dir> <declared kg> <declared gc>
   b13_fix "$1" "## Gap backlog" "$B13H4" '| 4 | SA-G2 | closed | x |' '| 5 | SA-G3 | closed | x |' '| — | e1 | web | closed |' '| high | g1 | web | pending |'
   sed -i -e "s/^known_gaps: .*/known_gaps: $2/" -e "s/^gaps_closed: .*/gaps_closed: $3/" "$1/RESEARCH-STATE.md"
 }
-d="$TMP/b13-lb-keep"; b13_lb_fix "$d" 9 5
-b13_expect "T-1307-LOWERBOUND declared 9/5 kept (derived undercount is 2)" "$(b13_run "$d")" "9 5 1 0"
+d="$TMP/b13-lb-keep"; b13_lb_fix "$d" 4 3   # bound: derived 2 + 2 uncounted = 4 (kit #1350: the keep is bounded)
+b13_expect "T-1307-LOWERBOUND declared 4/3 kept (derived undercount is 2, 2 uncounted)" "$(b13_run "$d")" "4 3 1 0"
 if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1307-LOWERBOUND: the keep is explained on stderr"; else no "T-1307-LOWERBOUND: silent keep — [$(b13_err "$d")]"; fi
 d="$TMP/b13-lb-grow"; b13_lb_fix "$d" 1 0
 b13_expect "T-1307-LOWERBOUND derived 2 >= declared 1 still wins" "$(b13_run "$d")" "2 1 1 0"
@@ -6677,11 +6677,11 @@ b13_b2_fix() { # <dir> <declared kg> <declared gc>
   b13_fix "$1" "## Gap backlog" "$B13H4" '| 4 | X-G | closed | x |' '| — | e1 | web | closed |' '| — | e2 | web | closed |' '| — | e3 | web | closed |' '| — | e4 | web | closed |' '| high | g1 | web | pending |'
   printf '\n## Coverage\n\n- **Coverage metric**: 3 / 4 closed\n' >> "$1/RESEARCH-STATE.md"; b13_decl "$1" "$2" "$3"
 }
-d="$TMP/b13-b2"; b13_b2_fix "$d" 20 10
-b13_expect "T-1307-B2 declared 20/10 beats prose 3/4 under the lower-bound keep" "$(b13_run "$d")" "20 10 1 0"
+d="$TMP/b13-b2"; b13_b2_fix "$d" 6 5   # bound: derived 5 + 1 uncounted = 6
+b13_expect "T-1307-B2 declared 6/5 beats prose 3/4 under the lower-bound keep" "$(b13_run "$d")" "6 5 1 0"
 # follow-up 3: the keep must not freeze gaps_closed: a real closure (derived gc 4 > declared 2) is not hidden.
-d="$TMP/b13-b2-gc"; b13_b2_fix "$d" 20 2
-b13_expect "T-1307-GCMAX gaps_closed = max(declared 2, derived 4), known_gaps declared 20" "$(b13_run "$d")" "20 4 1 0"
+d="$TMP/b13-b2-gc"; b13_b2_fix "$d" 6 2
+b13_expect "T-1307-GCMAX gaps_closed = max(declared 2, derived 4), known_gaps declared 6" "$(b13_run "$d")" "6 4 1 0"
 # follow-up 1: an em-dash row whose Gap cell is not a gap id is a note, not a gap: WARN + not counted.
 d="$TMP/b13-note"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| — | §14 B24 correction (2026-09-09) | web | ✅ B24 |' '| — | **E1** — real closed gap | web | ✅ B1 |' '| high | g1 | web | pending |'
 b13_expect "T-1307-NOTE correction-note em-dash row not counted" "$(b13_run "$d")" "2 1 1 0"
@@ -6701,12 +6701,12 @@ b13_expect "T-1307-BOLDHDR **Priority** header counts" "$(b13_run "$d")" "2 1 1 
 # derived 16/16 because KC8/KC13 have 6 cells).
 MAL6='| high | KC8 | web | pending | x | y |'
 b19_decl() { sed -i -e "s/^known_gaps: .*/known_gaps: $2/" -e "s/^gaps_closed: .*/gaps_closed: $3/" "$1/RESEARCH-STATE.md"; }
-b19_fx_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" "$MAL6" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 5 3; }
-b19_fx_mid()    { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6" '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 5 3; }
-b19_fx_last()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" 5 3; }
-b19_fx_single() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6"; b19_decl "$1" 3 2; }
-b19_fx_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| — | e1 | web | closed | x | y |'; b19_decl "$1" 3 2; }
-for _pos in first:"5 3 1 0" mid:"5 3 1 0" last:"5 3 1 0" single:"3 2 1 0" closed:"3 2 1 0"; do
+b19_fx_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" "$MAL6" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
+b19_fx_mid()    { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6" '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
+b19_fx_last()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" 3 2; }
+b19_fx_single() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' "$MAL6"; b19_decl "$1" 2 1; }
+b19_fx_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| — | e1 | web | closed | x | y |'; b19_decl "$1" 2 1; }
+for _pos in first:"3 2 1 0" mid:"3 2 1 0" last:"3 2 1 0" single:"2 1 1 0" closed:"2 1 1 0"; do
   d="$TMP/b19-mal-${_pos%%:*}"; "b19_fx_${_pos%%:*}" "$d"
   b13_expect "T-1319-MALFORMED ${_pos%%:*}: declared pair kept (malformed row = lower bound)" "$(b13_run "$d")" "${_pos#*:}"
   if grep -qi 'lower bound' <<<"$(b13_err "$d")" && grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1319-MALFORMED ${_pos%%:*}: keep + lower-bound stated on stderr"; else no "T-1319-MALFORMED ${_pos%%:*}: silent — [$(b13_err "$d")]"; fi
@@ -6731,6 +6731,38 @@ d="$TMP/b19-esc-vs"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a\|b | web
 b13_run "$d" >/dev/null
 if bash "$HERE/../verify-state.sh" "$d" 2>&1 | grep -q 'FAIL   envelope investigable_open='; then no "T-1319-ESCPIPE lockstep: verify-state derives a different investigable_open"; else ok "T-1319-ESCPIPE lockstep: verify-state agrees on investigable_open"; fi
 
+
+# ==================== kit #1350 — a prose line must not trigger the keep; the keep has an upper bound ====================
+# Item 1: only a line that STARTS with `|` is a table row. A prose line (even one containing pipes, after a blank line that ended
+# the table) must never be reported UNCOUNTED, so it cannot trigger the lower-bound keep. Edges: closed-class branch, tier branch.
+PROSE_C='— note: rows use the a | b convention'
+PROSE_T='low | prose with | several | pipes | inside'
+b50_fx_prose_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | e1 | web | ✅ B1 |' '| — | e2 | web | ✅ B2 |' '| high | g1 | web | pending |' '' "$PROSE_C"; b19_decl "$1" 4 3; }
+b50_fx_prose_tier()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' "$PROSE_T"; b19_decl "$1" 3 2; }
+b50_fx_prose_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '' "$PROSE_T" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
+d="$TMP/b50-prose-closed"; b50_fx_prose_closed "$d"
+b13_expect "T-1350-PROSE closed-class: prose line does not keep declared 4/3 (derived 3, prose would add 1)" "$(b13_run "$d")" "3 2 1 0"
+if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE closed-class: spurious keep message — [$(b13_err "$d")]"; else ok "T-1350-PROSE closed-class: no keep message"; fi
+d="$TMP/b50-prose-tier"; b50_fx_prose_tier "$d"
+b13_expect "T-1350-PROSE tier: prose line does not keep declared 3/2 (derived 2, prose would add 1)" "$(b13_run "$d")" "2 1 1 0"
+d="$TMP/b50-prose-first"; b50_fx_prose_first "$d"
+b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 corrected" "$(b13_run "$d")" "2 1 1 0"
+# Control: a real `|` row with the same malformed shape still keeps (the guard is the leading pipe, not the cell count).
+d="$TMP/b50-prose-ctl"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' '| low | real | malformed | row | here |'; b19_decl "$d" 3 2
+b13_expect "T-1350-PROSE control: a leading-pipe malformed row still keeps (3/2 = derived 2 + 1 uncounted)" "$(b13_run "$d")" "3 2 1 0"
+# Control: an INDENTED table row (leading whitespace before the pipe) is still a row, so its malformed shape still keeps.
+b50_fx_indented() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '   | low | real | malformed | row | here |'; b19_decl "$1" 3 2; }
+d="$TMP/b50-indented"; b50_fx_indented "$d"
+b13_expect "T-1350-PROSE control: an indented malformed table row still keeps (3/2)" "$(b13_run "$d")" "3 2 1 0"
+# Item 2: the keep is bounded: declared must be <= derived + uncounted, else the declared value is provably stale.
+b50_fx_ub() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" "$2" "$3"; }
+b50_fx_ub_over()  { b50_fx_ub "$1" 9 5; }
+b50_fx_ub_edge()  { b50_fx_ub "$1" 3 2; }
+d="$TMP/b50-ub-over"; b50_fx_ub_over "$d"
+b13_expect "T-1350-UPPER declared 9 > derived 2 + uncounted 1: provably stale, overwritten" "$(b13_run "$d")" "2 1 1 0"
+if grep -qi 'stale' <<<"$(b13_err "$d")" && ! grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then ok "T-1350-UPPER over: stale stated on stderr, no keep"; else no "T-1350-UPPER over: [$(b13_err "$d")]"; fi
+d="$TMP/b50-ub-edge"; b50_fx_ub_edge "$d"
+b13_expect "T-1350-UPPER declared 3 == derived 2 + uncounted 1: kept (inclusive bound)" "$(b13_run "$d")" "3 2 1 0"
 
 # ----- teeth for kit #1307: every mutant is a COPY of the SUT built by lib/mutant.sh (refuses no-op / invalid-bash mutants) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -6772,8 +6804,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
   m="$TMP/status.B13-LOWERBOUND.MUTANT.sh"
   if mutant_sed "$SUT" "$m" -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
-    dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 9 5; got="$(B13_SUT="$m" b13_run "$dd")"
-    [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
+    dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 4 3; got="$(B13_SUT="$m" b13_run "$dd")"
+    [ "$got" != "4 3 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
   else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
   if mutant_sed "$SUT" "$m" -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
@@ -6796,12 +6828,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_fx_note()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | §14 B24 correction (2026-09-09) | web | ✅ B24 |' '| — | **E1** — real closed gap | web | ✅ B1 |' '| high | g1 | web | pending |'; }
   b13_fx_grupo() { b13_fix "$1" "## Reapertura 2026-07-12 — backlog A→B→C" "| Grupo | ID | Gap | Estado |" '| — | BG24 | closed one | ✅ B9 |' '| **A** | BG20 | open one | pending |'; }
   b13_fx_bold()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'; printf '\n## Gaps\n\n| **Priority** | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n| medium | G2 | oob gap | y | covered |\n' >> "$1/RESEARCH-STATE.md"; }
-  b13_b2_fix_20() { b13_b2_fix "$1" 20 10; }; b13_b2_fix_2() { b13_b2_fix "$1" 20 2; }
+  b13_b2_fix_20() { b13_b2_fix "$1" 6 5; }; b13_b2_fix_2() { b13_b2_fix "$1" 6 2; }
   b13_tooth2 B1-KEEP "15 15 0 0" b13_fx_b1 -e 's/elif \[ -z "\${_cm_kg}" \]/elif false/'
-  b13_tooth2 B2-DECLARED "20 10 1 0" b13_b2_fix_20 -e 's/^      kg="\${_decl_kg}"$/      kg=1/'
-  b13_tooth2 GCMAX "20 4 1 0" b13_b2_fix_2 -e 's/\[ "\$_gc_d" -gt "\$gc" \] \&\& gc="\$_gc_d"/:/'
+  b13_tooth2 B2-DECLARED "6 5 1 0" b13_b2_fix_20 -e 's/^      kg="\${_decl_kg}"$/      kg=1/'
+  b13_tooth2 GCMAX "6 4 1 0" b13_b2_fix_2 -e 's/\[ "\$_gc_d" -gt "\$gc" \] \&\& gc="\$_gc_d"/:/'
   b13_tooth2 NOTE "2 1 1 0" b13_fx_note -e '/CC-EMDASH-NOTE/s/if (g !~ [^{]*{/if (0) {/'
-  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/print "UNCOUNTED\\t" p/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) print "UNCOUNTED\\t" p/x=1/'
+  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/unc(p)/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) unc(p)/x=1/'
   b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
   # OOB guard: the Findings fixture is two tables, so build it by hand.
   m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
@@ -6826,10 +6858,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # ---- teeth for kit #1319 (malformed row = lower bound; escaped pipe) ----
   b19_fx_esc4() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'; }
   b19_fx_esc5() { b13_fix "$1" "## Gap-backlog" '| Priority | ID | Gap | Artifact | Status |' '| high | G1 | uses a\|b | x | pending |' '| low | G2 | ok | x | covered \| B1 |'; }
-  b13_tooth2 B19-MALFORMED-TIER "5 3 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) print "UNCOUNTED\\t" p//'
-  b13_tooth2 B19-MALFORMED-CLOSED "3 2 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; if (want_closed) print "UNCOUNTED\\t" p//'
+  b13_tooth2 B19-MALFORMED-TIER "3 2 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) unc(p)//'
+  b13_tooth2 B19-MALFORMED-CLOSED "2 1 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; unc(p)//'
   b13_tooth2 B19-ESCPIPE-4 "3 2 1 0" b19_fx_esc4 -e '/BP-ESCAPED-PIPE/d'
   b13_tooth2 B19-ESCPIPE-5 "2 1 1 0" b19_fx_esc5 -e '/BP-ESCAPED-PIPE/d'
+  # ---- teeth for kit #1350 (prose line must not trigger the keep; the keep is bounded) ----
+  b13_tooth2 B50-PROSE-CLOSED "3 2 1 0" b50_fx_prose_closed -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-TIER "2 1 1 0" b50_fx_prose_tier -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-FIRST "2 1 1 0" b50_fx_prose_first -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-INDENTED-ROW "3 2 1 0" b50_fx_indented -e 's/isrow = (\$0 ~ \/\^\[ \\t\]\*\\|\/)/isrow = ($0 ~ \/^\\|\/)/'
+  b13_tooth2 B50-UPPER-DROPPED "2 1 1 0" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -le "\$(( \${_dkg_total} + \${_unc} ))" \]/true/'
+  b13_tooth2 B50-UPPER-INCLUSIVE "3 2 1 0" b50_fx_ub_edge -e 's/\[ "\${_decl_kg}" -le "\$(( \${_dkg_total} + \${_unc} ))" \]/[ "${_decl_kg}" -lt "$(( ${_dkg_total} + ${_unc} ))" ]/'
 fi
 
 if [ "$skips" -gt 0 ]; then
