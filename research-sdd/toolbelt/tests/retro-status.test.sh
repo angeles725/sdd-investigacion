@@ -1314,6 +1314,26 @@ got="$(retro_marker_line "$f")"
   && ok "83 uppercase REVIEW-STATUS marker → found (case-insensitive)" "()" \
   || no "83 uppercase REVIEW-STATUS marker → found (case-insensitive)" "got [$got]"
 
+# 84 — CRLF line endings (kit issue #1304, Opus review of #1315 note a): a closer line is
+#      '```\r', so the closer test must tolerate the CR. A CRLF fence that holds a documented
+#      example marker must CLOSE, so the real marker after it wins (before the fix the fence never
+#      closed: the decoy inside was returned by the fail-closed END rule instead).
+f="$ROOT/retro-crlf-fence.md"
+printf '# retro\r\n\r\n```\r\n<!-- review-status: pending -->\r\n```\r\n\r\n<!-- review-status: applied 2026-01-01 -->\r\n' > "$f"
+got="$(retro_marker_line "$f" | tr -d '\r')"
+[ "$got" = "<!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "84 CRLF closed fence holding a decoy marker → real marker after it returned" "()" \
+  || no "84 CRLF closed fence holding a decoy marker → real marker after it returned" "got [$got]"
+
+# 85 — LIST-EDGE: CRLF fence holding a decoy and NOTHING after it → empty, not out-of-scope.
+f="$ROOT/retro-crlf-fence-only.md"
+printf '# retro\r\n\r\n~~~\r\n<!-- review-status: pending -->\r\n~~~\r\n' > "$f"
+got="$(retro_marker_line "$f")"
+oos=1; retro_marker_out_of_scope "$f" && oos=0
+[ -z "$got" ] && [ "$oos" = 1 ] \
+  && ok "85 CRLF closed fence holding only a decoy marker → empty, not out-of-scope" "()" \
+  || no "85 CRLF closed fence holding only a decoy marker → empty, not out-of-scope" "got [$got] oos_rc=$oos"
+
 # ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1651,6 +1671,11 @@ EOF
   printf '# r\n\nbody\n\n<!-- REVIEW-STATUS: applied 2026-01-01 -->\n' > "$FX/upper.md"   # F7 expect: marker
   fence_tooth F7 "tolower dropped (uppercase REVIEW-STATUS no longer matches)" "$FX/upper.md" \
     "<!-- REVIEW-STATUS: applied 2026-01-01 -->" 's/lc = tolower(\$0)/lc = \$0/'
+
+  printf '# r\r\n\r\n```\r\n<!-- review-status: pending -->\r\n```\r\n\r\n<!-- review-status: applied 2026-01-01 -->\r\n' > "$FX/crlf.md"
+  # F8 expect: the REAL marker (CR kept in the raw line). Mutant: closer CR tolerance dropped.
+  fence_tooth F8 "closer CR tolerance dropped (CRLF fence never closes)" "$FX/crlf.md" \
+    "$(printf '<!-- review-status: applied 2026-01-01 -->\r')" 's#rest ~ /^\[ \\t\\r\]\*\$/#rest ~ /^[ \\t]*$/#'
 
   # ── Structural guard (kit issue #1130 finding 2): no POSIX interval expression ({m,n}) may
   # reappear inside retro_marker_line's or retro_marker_scope_line's awk match regex — that is
