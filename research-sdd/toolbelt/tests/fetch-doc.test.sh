@@ -2176,7 +2176,7 @@ run_hook_term(){
   local script="$1" dir="$2" done_m="$3" rc=0
   rm -f "$done_m"
   STUB_ROUTES="" STUB_DOWNLOAD_HANG=1 STUB_HANG_SECS=2 STUB_HANG_DONE_MARKER="$done_m" \
-    FETCHDOC_TEST_AT=after-fork FETCHDOC_TEST_CMD='kill -TERM $$' \
+    FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=after-fork FETCHDOC_TEST_CMD='kill -TERM $$' \
     PATH="$stubbin:$PATH" bash "$script" --replace doc "http://s65.example/a" "$dir" datasheets r65.pdf >/dev/null 2>&1 || rc=$?
   sleep 2.5   # past the stub's 2 s: an orphaned download has finished by now
   echo "$rc"
@@ -2218,7 +2218,7 @@ else no "R66: fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) rc=$rc66 le
 #       no row is written (pre-fix it archived the other run's file and installed over it).
 d67="$TMP/rr-67/target"; mkdir -p "$d67/sources/datasheets"
 _rc67=0
-STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" doc "http://s67.example/a" "$d67" datasheets r67.pdf >/dev/null 2>"$TMP/err67.txt" || _rc67=$?
 if [ "$_rc67" = "4" ] && [ "$(cat "$d67/sources/datasheets/r67.pdf")" = "OTHER-RUN" ] \
    && [ "$(find "$d67/sources" -type f | wc -l | tr -d ' ')" = "1" ] && grep -qi 'REFUSED' "$TMP/err67.txt"; then
@@ -2228,18 +2228,27 @@ else no "R67: rc=$_rc67 files=$(find "$d67/sources" -type f | tr '\n' ' ') err='
 # R67b — same race WITH --replace is still honoured: the other run's bytes are archived, the new bytes win.
 d67b="$TMP/rr-67b/target"; mkdir -p "$d67b/sources/datasheets"
 _rc67b=0; _o12_67b="$(printf 'OTHER-RUN\n' | sha256sum | cut -c1-12)"
-STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" --replace doc "http://s67.example/b" "$d67b" datasheets r67.pdf >/dev/null 2>&1 || _rc67b=$?
 if [ "$_rc67b" = "0" ] && [ "$(cat "$d67b/sources/datasheets/r67.$_o12_67b.pdf" 2>/dev/null)" = "OTHER-RUN" ] \
    && grep -qF 'stub body for http://s67.example/b' "$d67b/sources/datasheets/r67.pdf"; then
   ok "doc: #1354 N6 — with --replace the late-appearing file is archived under a versioned name and the new bytes win"
 else no "R67b: rc=$_rc67b files=$(ls "$d67b/sources/datasheets" | tr '\n' ' ')"; fi
 
+# R67d — the concurrent run installed IDENTICAL bytes: still refused (exit 4) without --replace, and still no row.
+src67d="$TMP/rr-67d-src/target"; mkdir -p "$src67d"; seed51 "$src67d" r67.pdf "http://s67d.example/a"
+d67d="$TMP/rr-67d/target"; mkdir -p "$d67d/sources/datasheets"; _rc67d=0
+STUB_ROUTES="" SRC67D="$src67d/sources/datasheets/r67.pdf" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='cp "$SRC67D" "$DEST"' \
+  PATH="$stubbin:$PATH" bash "$SUT" doc "http://s67d.example/a" "$d67d" datasheets r67.pdf >/dev/null 2>&1 || _rc67d=$?
+if [ "$_rc67d" = "4" ] && [ "$(sum_of "$d67d/sources/datasheets/r67.pdf")" = "$(sum_of "$src67d/sources/datasheets/r67.pdf")" ] && [ ! -e "$d67d/sources/SOURCES.md" ]; then
+  ok "doc: #1354 N6 — a concurrent run that installed identical bytes is still refused (exit 4) without --replace"
+else no "R67d: rc=$_rc67d files=$(find "$d67d/sources" -type f | tr '\n' ' ')"; fi
+
 # R67c — web mode shares the contract.
 d67c="$TMP/rr-67c/target"; mkdir -p "$d67c/sources/web-snapshots"
 slug67c="$(echo "http://s67c.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
 _rc67c=0
-STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" web "http://s67c.example/page" "$d67c" >/dev/null 2>&1 || _rc67c=$?
 if [ "$_rc67c" = "4" ] && [ "$(cat "$d67c/sources/web-snapshots/$slug67c.md")" = "OTHER-RUN" ] \
    && [ "$(find "$d67c/sources" -type f | wc -l | tr -d ' ')" = "1" ]; then
@@ -2265,6 +2274,37 @@ if [ -e "$TMP/pandoc68.mark" ] && [ "$rc68" = "143" ] && [ ! -e "$TMP/pandoc68.d
    && [ "$(find "$d68/sources/web-snapshots" -type f | wc -l | tr -d ' ')" = "0" ]; then
   ok "web: #1354 — TERM during the pandoc conversion kills pandoc itself (exit 143, conversion never completes, no debris)"
 else no "R68: rc=$rc68 pandoc-completed=$([ -e "$TMP/pandoc68.done" ] && echo y || echo n)"; fi
+
+# R69 — the test seam is TEST-ONLY: with FETCHDOC_TEST_AT and FETCHDOC_TEST_CMD set but WITHOUT the explicit opt-in
+#       FETCHDOC_TEST_SEAM=1, the hook must be a no-op (CMD never runs). The positive control (SEAM=1) proves the
+#       marker really is written when the seam is live, so "absent" is not vacuous.
+d69="$TMP/rr-69/target"; mkdir -p "$d69"; d69p="$TMP/rr-69p/target"; mkdir -p "$d69p"
+rm -f "$TMP/seam69.marker" "$TMP/seam69p.marker"
+_rc69=0; STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD=': > "$TMP_MARKER"' TMP_MARKER="$TMP/seam69.marker" \
+  PATH="$stubbin:$PATH" bash "$SUT" doc "http://s69.example/a" "$d69" datasheets r69.pdf >/dev/null 2>&1 || _rc69=$?
+_rc69p=0; STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD=': > "$TMP_MARKER"' TMP_MARKER="$TMP/seam69p.marker" \
+  PATH="$stubbin:$PATH" bash "$SUT" doc "http://s69.example/a" "$d69p" datasheets r69.pdf >/dev/null 2>&1 || _rc69p=$?
+if [ "$_rc69" = "0" ] && [ ! -e "$TMP/seam69.marker" ] && [ "$_rc69p" = "0" ] && [ -e "$TMP/seam69p.marker" ]; then
+  ok "doc: #1354 — the test seam is a no-op without FETCHDOC_TEST_SEAM=1 (and live with it)"
+else no "R69: no-optin rc=$_rc69 marker=$([ -e "$TMP/seam69.marker" ] && echo RAN || echo absent) / optin rc=$_rc69p marker=$([ -e "$TMP/seam69p.marker" ] && echo ran || echo ABSENT)"; fi
+
+# R70 — the install-time symlink re-check: DEST becomes a symlink AFTER preflight (during the download). Both with and
+#       without --replace the run must REFUSE (exit 5) and leave the link and its target untouched.
+# run_late_symlink <script> <dir> <replace-flag-or-empty> — echoes the exit code; the link target is $TMP/link70.txt.
+run_late_symlink(){
+  local script="$1" dir="$2" rflag="$3" rc=0
+  printf 'LINK-TARGET\n' > "$TMP/link70.txt"; mkdir -p "$dir/sources/datasheets"; rm -f "$dir/sources/datasheets/r70.pdf"
+  STUB_ROUTES="" LINK70="$TMP/link70.txt" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='ln -s "$LINK70" "$DEST"' \
+    PATH="$stubbin:$PATH" bash "$script" ${rflag:+"$rflag"} doc "http://s70.example/a" "$dir" datasheets r70.pdf >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+d70="$TMP/rr-70/target"; d70r="$TMP/rr-70r/target"
+_rc70="$(run_late_symlink "$SUT" "$d70" "")"; _lk70a="$(cat "$TMP/link70.txt")"; _isl70=n; [ -L "$d70/sources/datasheets/r70.pdf" ] && _isl70=y
+_rc70r="$(run_late_symlink "$SUT" "$d70r" "--replace")"; _lk70b="$(cat "$TMP/link70.txt")"; _isl70r=n; [ -L "$d70r/sources/datasheets/r70.pdf" ] && _isl70r=y
+if [ "$_rc70" = "5" ] && [ "$_rc70r" = "5" ] && [ "$_lk70a" = "LINK-TARGET" ] && [ "$_lk70b" = "LINK-TARGET" ] && [ "$_isl70" = "y" ] && [ "$_isl70r" = "y" ] \
+   && [ ! -e "$d70/sources/SOURCES.md" ] && [ ! -e "$d70r/sources/SOURCES.md" ]; then
+  ok "doc: #1354 — a DEST that becomes a symlink during the download is refused (exit 5), link and target untouched, no row"
+else no "R70: rc=$_rc70/$_rc70r target='$_lk70a'/'$_lk70b' link=$_isl70/$_isl70r"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -2460,7 +2500,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$m" ]; then no "teeth-sigabovepandoc: could not build mutant (web signal-block / HTML move not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-sigabovepandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_term "$m" "$d")"
-    if [ "$rc" != "143" ]; then ok "teeth-sigabovepandoc: with the block above pandoc the TERM is swallowed (rc=$rc) -> R64 has teeth"
+    if [ "$rc" = "0" ]; then ok "teeth-sigabovepandoc: with the block above pandoc the TERM is swallowed and the run completes (rc=$rc) -> R64 has teeth"
     else no "teeth-sigabovepandoc: still cancelled (rc=143) — R64 does NOT pin the block's position (THEATER)"; fi
   fi
 
@@ -2488,7 +2528,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$m" ]; then no "teeth-instarch: could not build mutant (replace guard not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-instarch/target"; mkdir -p "$d/sources/datasheets"; rc=0
-    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+    STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
       PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
     if [ "$rc" != "4" ] && [ "$(find "$d/sources/datasheets" -type f | wc -l | tr -d ' ')" -gt 1 ]; then ok "teeth-instarch: the mutant archives the other run's file (rc=$rc) -> R67 has teeth"
     else no "teeth-instarch: rc=$rc — R67 does NOT pin the REPLACE re-check (THEATER)"; fi
@@ -2499,7 +2539,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$m" ]; then no "teeth-instexcl: could not build mutant (exclusive-install branch not found, or refused by lib/mutant.sh)"
   else
     d="$TMP/t-instexcl/target"; mkdir -p "$d/sources/datasheets"; rc=0
-    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
+    STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
       PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
     if [ "$rc" = "0" ] && [ "$(cat "$d/sources/datasheets/r67.pdf")" != "OTHER-RUN" ]; then ok "teeth-instexcl: the mutant overwrites the other run's bytes (rc=0) -> R67 has teeth"
     else no "teeth-instexcl: rc=$rc — R67 does NOT pin the exclusive install (THEATER)"; fi
@@ -2512,6 +2552,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/t-fgpandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_kill "$m" "$d")"
     if [ -e "$TMP/pandoc68.done" ]; then ok "teeth-fgpandoc: a foreground pandoc runs to completion after TERM (rc=$rc) -> R68 has teeth"
     else no "teeth-fgpandoc: pandoc was still killed — R68 does NOT pin the tracked conversion (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354: seam opt-in guard removed -> FETCHDOC_TEST_CMD runs without FETCHDOC_TEST_SEAM --"
+  m="$(tm13 noseam 's/^_test_hook() { \[ "\${FETCHDOC_TEST_SEAM:-}" = "1" \] || return 0; /_test_hook() { /')"
+  if [ -z "$m" ]; then no "teeth-noseam: could not build mutant (SEAM guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-noseam/target"; mkdir -p "$d"; rm -f "$TMP/seam-noseam.marker"
+    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD=': > "$TMP_MARKER"' TMP_MARKER="$TMP/seam-noseam.marker" \
+      PATH="$stubbin:$PATH" bash "$m" doc "http://s69.example/a" "$d" datasheets r69.pdf >/dev/null 2>&1 || true
+    if [ -e "$TMP/seam-noseam.marker" ]; then ok "teeth-noseam: without the guard the hook command runs unopted -> R69 has teeth"
+    else no "teeth-noseam: the command did not run — R69 does NOT pin the SEAM opt-in (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1354: install_file symlink re-check removed -> a late symlink is not refused with exit 5 --"
+  m="$(tm13 nolatelink '/^install_file()/,/^}/ s/^  if \[ -L "\$dest" \]; then$/  if false; then/')"
+  if [ -z "$m" ]; then no "teeth-nolatelink: could not build mutant (install_file symlink re-check not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-nolatelink/target"; rc="$(run_late_symlink "$m" "$d" "")"
+    if [ "$rc" = "4" ]; then ok "teeth-nolatelink: without the re-check a late symlink is not refused with exit 5 (rc=$rc) -> R70 has teeth"
+    else no "teeth-nolatelink: still exit 5 — R70 does NOT pin the install-time re-check (THEATER)"; fi
   fi
 fi
 

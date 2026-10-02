@@ -44,6 +44,8 @@
 # versioned name is already taken by different bytes, or is a symlink, the run REFUSES (exit 1) and keeps
 # the current bytes. --replace with byte-identical content registered already adds no duplicate row.
 # `ocr` takes no --replace (the flag is accepted anywhere and ignored for ocr).
+# TEST-ONLY: FETCHDOC_TEST_SEAM=1 + FETCHDOC_TEST_AT/FETCHDOC_TEST_CMD inject code at fixed points (_test_hook); the
+# test suite uses them to reproduce races deterministically. They are inert without FETCHDOC_TEST_SEAM=1.
 # Exit codes: 1 failure, 2 usage, 3 missing dependency, 4 destination exists (no --replace),
 # 5 symlinked destination.
 set -euo pipefail
@@ -394,9 +396,10 @@ rename_row() {
 # and its bytes differ, the old bytes are first kept under a versioned name and their row retargeted.
 # Sets INSTALL_SAME=1 (and drops <part>) when the bytes are identical AND already registered: no new row.
 INSTALL_SAME=0
-# _test_hook <point> — test seam (#1354): when FETCHDOC_TEST_AT names <point>, FETCHDOC_TEST_CMD runs in the MAIN shell
-# at that exact spot, so a signal or a concurrent writer can be injected deterministically (no sleeps).
-_test_hook() { [ "${FETCHDOC_TEST_AT:-}" = "$1" ] || return 0; eval "${FETCHDOC_TEST_CMD:-:}"; }
+# _test_hook <point> — TEST-ONLY seam (#1354). A no-op unless FETCHDOC_TEST_SEAM=1 is set explicitly; then, when
+# FETCHDOC_TEST_AT names <point>, FETCHDOC_TEST_CMD is eval'd in the MAIN shell at that exact spot, so a signal or a
+# concurrent writer can be injected deterministically (no sleeps). Never set these variables in production.
+_test_hook() { [ "${FETCHDOC_TEST_SEAM:-}" = "1" ] || return 0; [ "${FETCHDOC_TEST_AT:-}" = "$1" ] || return 0; eval "${FETCHDOC_TEST_CMD:-:}"; }
 install_file() {
   local part="$1" dest="$2" oldsha newsha base stem ext vname vpath rel
   INSTALL_SAME=0
