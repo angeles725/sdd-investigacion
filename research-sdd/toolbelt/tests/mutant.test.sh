@@ -201,6 +201,147 @@ MUTANT_SYNTAX=none mutant_sed "$TMP/src/solo.sh" "$TMP/solo.out" 's/solo/duo/' 2
 if [ "$rc" -eq 0 ]; then ok "edge: single-line original mutates"
 else no "edge: single-line original refused (rc=$rc)"; fi
 
+# --- mutant_chain / mutant_tooth / mutant_built (kit issue #1299): the shared per-stage mutant builder,
+# the exact-verdict tooth runner and the external-mutant checker that replace the per-suite mk_sed /
+# mk_verify / tooth copies. Each PRINTS its own `  FAIL  ` line (mutant_tooth also its `  PASS  ` line)
+# in the suite format and returns non-zero on failure, so the caller counts: nothing here touches the
+# caller's pass/fail counters. mutant_chain returns 10 for a dead stage, else mutant_sed/verify's rc.
+printf '#!/usr/bin/env bash\nA=1\nB=2\nC=3\n' > "$TMP/src/chain.sh"
+CH="$TMP/src/chain.sh"
+
+# C1 — every stage applies: rc 0, silent, mutant carries BOTH edits.
+out="$TMP/c1.sh"; msg="$(mutant_chain c1 "$CH" "$out" 's/A=1/A=9/' 's/B=2/B=8/' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$msg" ] && grep -q 'A=9' "$out" && grep -q 'B=8' "$out"; then
+  ok "chain: two live stages build one mutant, silently (rc 0)"
+else no "chain: two live stages (rc=$rc msg=[$msg])"; fi
+
+# C2 — a LAST stage that matches nothing is a defect even though the first stage changes the bytes.
+out="$TMP/c2.sh"; msg="$(mutant_chain c2 "$CH" "$out" 's/A=1/A=9/' 's/NO_SUCH/x/' 2>&1)"; rc=$?
+if [ "$rc" -eq 10 ] && [[ "$msg" == *"  FAIL  c2"* ]] && [[ "$msg" == *"stage 2"* ]] && [[ "$msg" == *"NO_SUCH"* ]] && [ ! -e "$out" ]; then
+  ok "chain: dead last stage fails, names the stage, builds nothing"
+else no "chain: dead last stage (rc=$rc msg=[$msg])"; fi
+
+# C3 — a dead FIRST stage is caught too (list edge: first position).
+out="$TMP/c3.sh"; msg="$(mutant_chain c3 "$CH" "$out" 's/NO_SUCH/x/' 's/B=2/B=8/' 2>&1)"; rc=$?
+if [ "$rc" -eq 10 ] && [[ "$msg" == *"stage 1"* ]] && [[ "$msg" == *"NO_SUCH"* ]]; then ok "chain: dead first stage fails (rc 10, names stage 1)"
+else no "chain: dead first stage (rc=$rc msg=[$msg])"; fi
+
+# C4 — a single dead stage (single-element list).
+out="$TMP/c4.sh"; msg="$(mutant_chain c4 "$CH" "$out" 's/NO_SUCH/x/' 2>&1)"; rc=$?
+if [ "$rc" -eq 10 ] && [[ "$msg" == *"stage 1"* ]] && [[ "$msg" == *"NO_SUCH"* ]]; then ok "chain: single dead stage fails (rc 10)"
+else no "chain: single dead stage (rc=$rc msg=[$msg])"; fi
+
+# C5 — a chain whose stages all apply but break bash is refused with the helper's rc named.
+out="$TMP/c5.sh"; msg="$(mutant_chain c5 "$ORIG" "$out" '/^fi$/d' 2>&1)"; rc=$?
+if [ "$rc" -eq 5 ] && [[ "$msg" == *"  FAIL  c5"* ]] && [[ "$msg" == *"rc=5"* ]]; then
+  ok "chain: syntax-broken mutant is refused and the rc is named"
+else no "chain: syntax-broken (rc=$rc msg=[$msg])"; fi
+
+# C6 — MUTANT_SYNTAX=none is honoured through the chain (non-bash targets).
+printf 'x: 1\ny: 2\n' > "$TMP/src/data.yml"
+out="$TMP/c6.yml"; msg="$(MUTANT_SYNTAX=none mutant_chain c6 "$TMP/src/data.yml" "$out" 's/x: 1/x: 2/' 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'x: 2' "$out"; then ok "chain: MUTANT_SYNTAX=none builds a non-bash mutant"
+else no "chain: MUTANT_SYNTAX=none (rc=$rc msg=[$msg])"; fi
+
+# C7 — a chain with no stage at all is a FAIL (rc 1), not a vacuous identical-copy refusal.
+msg="$(mutant_chain c7 "$CH" "$TMP/c7.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == *"no sed stage"* ]]; then ok "chain: zero stages fails (rc 1)"
+else no "chain: zero stages (rc=$rc msg=[$msg])"; fi
+
+# --- mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = fail ]; then echo "found BADTHING"; exit 1; fi\necho "all clear"; exit 0\n' > "$TMP/src/sut.sh"
+# shellcheck disable=SC2034  # SUT is read by the sourced mutant_tooth
+SUT1="$TMP/src/sut.sh"; SUT="$SUT1"   # default original for mutant_tooth when --orig is absent
+mutant_sed "$SUT1" "$TMP/mut-inv.sh" 's/exit 0/exit 1/' 2>/dev/null          # good rc 0  → bad rc 1
+mutant_sed "$SUT1" "$TMP/mut-crash.sh" 's/echo "all clear"; exit 0/exit 2/' 2>/dev/null   # crashes with rc 2
+mutant_sed "$SUT1" "$TMP/mut-same.sh" 's/all clear/all quiet/' 2>/dev/null   # rc stays 0
+
+# T1 — exact GOOD rc on the original and exact BAD rc on the mutant → PASS line, rc 0.
+msg="$(mutant_tooth t1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$msg" == "  PASS  t1"* ]]; then ok "tooth: exact good/bad rc passes with a PASS line"
+else no "tooth: exact rc (rc=$rc msg=[$msg])"; fi
+
+# T2 — a mutant that merely CRASHES (rc 2) when BAD_RC is 1 is theater, not teeth.
+msg="$(mutant_tooth t2 0 1 "$TMP/mut-crash.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t2"* ]] && [[ "$msg" == *"THEATER"* ]] && [[ "$msg" == *"mutant rc=2 (want 1)"* ]]; then
+  ok "tooth: crashing mutant (rc 2) is THEATER, names the rc"
+else no "tooth: crash (rc=$rc msg=[$msg])"; fi
+
+# T3 — a wrong GOOD rc on the original fails even when the mutant matches.
+msg="$(mutant_tooth t3 1 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == *"original rc=0 (want 1)"* ]]; then ok "tooth: wrong original rc fails and says so"
+else no "tooth: original rc (rc=$rc msg=[$msg])"; fi
+
+# T4 — a mutant that does not change the verdict is theater.
+msg="$(mutant_tooth t4 0 1 "$TMP/mut-same.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == *"mutant rc=0 (want 1)"* ]]; then ok "tooth: verdict-preserving mutant fails"
+else no "tooth: unchanged verdict (rc=$rc msg=[$msg])"; fi
+
+# T5 — output predicates: each of the four passes when true and fails when false.
+tp(){ # tp <label> <want-rc> <mutant> <opts...>
+  local label="$1" want="$2" mut="$3"; shift 3
+  local m r; m="$(mutant_tooth "$label" 0 0 "$mut" "$@" -- bash @SUT@ 2>&1)"; r=$?
+  if [ "$r" -eq "$want" ]; then ok "tooth opt: $label"; else no "tooth opt: $label (rc=$r want=$want msg=[$m])"; fi
+}
+tp good-has-true  0 "$TMP/mut-same.sh" --good-has 'all clear'
+tp good-has-false 1 "$TMP/mut-same.sh" --good-has 'NEVERSEEN'
+tp good-lacks-true  0 "$TMP/mut-same.sh" --good-lacks 'BADTHING'
+tp good-lacks-false 1 "$TMP/mut-same.sh" --good-lacks 'all clear'
+tp bad-has-true  0 "$TMP/mut-same.sh" --bad-has 'all quiet'
+tp bad-has-false 1 "$TMP/mut-same.sh" --bad-has 'all clear'
+tp bad-lacks-true  0 "$TMP/mut-same.sh" --bad-lacks 'all clear'
+tp bad-lacks-false 1 "$TMP/mut-same.sh" --bad-lacks 'all quiet'
+
+# T6 — @SUT@ is replaced inside an argv word, ARGV carries extra args, and --orig overrides the original.
+msg="$(mutant_tooth t6 1 1 "$TMP/mut-same.sh" --orig "$SUT1" --good-has BADTHING --bad-has BADTHING -- bash @SUT@ fail 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "tooth: ARGV extra args reach both runs"; else no "tooth: argv (rc=$rc msg=[$msg])"; fi
+printf '#!/usr/bin/env bash\necho "$0"\n' > "$TMP/src/echo0.sh"
+mutant_sed "$TMP/src/echo0.sh" "$TMP/mut-echo0.sh" 's/echo/echo -n/' 2>/dev/null
+msg="$(mutant_tooth t6b 0 0 "$TMP/mut-echo0.sh" --orig "$TMP/src/echo0.sh" --good-has 'src/echo0.sh' --bad-has 'mut-echo0.sh' -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "tooth: @SUT@ is the original for the good run and the mutant for the bad run"
+else no "tooth: @SUT@ substitution (rc=$rc msg=[$msg])"; fi
+
+# T7 — misuse is a FAIL, never a silent pass: unknown option, and a missing '--'.
+msg="$(mutant_tooth t7 0 1 "$TMP/mut-inv.sh" --bogus x -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t7"* ]] && [[ "$msg" == *"bogus"* ]]; then ok "tooth: unknown option fails"
+else no "tooth: unknown option (rc=$rc msg=[$msg])"; fi
+msg="$(mutant_tooth t7b 0 1 "$TMP/mut-inv.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t7b"* ]] && [[ "$msg" == *'missing the "--"'* ]] && [ "$(wc -l <<<"$msg")" -eq 1 ]; then ok "tooth: missing '--' fails and says so"
+else no "tooth: missing -- (rc=$rc msg=[$msg])"; fi
+msg="$(mutant_tooth t7c 0 1 "$TMP/mut-inv.sh" -- 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t7c"* ]] && [[ "$msg" == *"no ARGV"* ]] && [[ "$msg" != *THEATER* ]]; then
+  ok "tooth: empty ARGV after '--' fails and says so"
+else no "tooth: empty ARGV (rc=$rc msg=[$msg])"; fi
+
+# T8 — an absent mutant file (builder failed and the caller ignored it) is a FAIL, not teeth.
+msg="$(mutant_tooth t8 0 1 "$TMP/does-not-exist.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t8"* ]] && [[ "$msg" == *"mutant file absent"* ]] && [[ "$msg" != *THEATER* ]]; then ok "tooth: absent mutant file fails"
+else no "tooth: absent mutant (rc=$rc msg=[$msg])"; fi
+
+# T9 — neither --orig nor $SUT: the original is unknown, which is a FAIL (never a pass on nothing).
+msg="$(unset SUT; mutant_tooth t9 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == "  FAIL  t9"* ]] && [[ "$msg" == *"no original"* ]] && [[ "$msg" != *THEATER* ]]; then ok "tooth: no --orig and no \$SUT fails"
+else no "tooth: no original (rc=$rc msg=[$msg])"; fi
+
+# T10 — MUTANT_TOOTH_ICASE makes every pattern case-insensitive; the default is case-sensitive.
+tp icase-default 1 "$TMP/mut-same.sh" --good-has 'ALL CLEAR'
+msg="$(MUTANT_TOOTH_ICASE=1 mutant_tooth t10 0 0 "$TMP/mut-same.sh" --good-has 'ALL CLEAR' --bad-has 'ALL QUIET' -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "tooth: MUTANT_TOOTH_ICASE=1 makes --good-has/--bad-has case-insensitive"
+else no "tooth: icase has (rc=$rc msg=[$msg])"; fi
+msg="$(MUTANT_TOOTH_ICASE=1 mutant_tooth t10b 0 0 "$TMP/mut-same.sh" --bad-lacks 'ALL QUIET' -- bash @SUT@ 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [[ "$msg" == *"mutant output still matches"* ]]; then
+  ok "tooth: MUTANT_TOOTH_ICASE=1 makes --bad-lacks case-insensitive"
+else no "tooth: icase lacks (rc=$rc msg=[$msg])"; fi
+
+# T11 — mutant_built: silent rc 0 for a real mutant; a refused one prints a FAIL naming the rc.
+msg="$(mutant_built b1 "$ORIG" "$ext" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$msg" ]; then ok "built: externally built differing mutant is accepted silently"
+else no "built: accepted (rc=$rc msg=[$msg])"; fi
+cp "$ORIG" "$TMP/b2.sh"
+msg="$(mutant_built b2 "$ORIG" "$TMP/b2.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 4 ] && [[ "$msg" == "  FAIL  b2"* ]] && [[ "$msg" == *"rc=4"* ]]; then ok "built: identical copy fails with the helper's rc named"
+else no "built: identical (rc=$rc msg=[$msg])"; fi
+
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   SELFTEST="$HERE/mutant.test.sh"
@@ -244,6 +385,45 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "sed failure: refused (rc 6, says sed failed)"
   teeth_case selfoverwrite '/SENTINEL-SELF-CHECK/,+3s/return 7/:/' \
     "self-overwrite: OUT equal to the original path is refused"
+  # mutant_chain / mutant_built / mutant_tooth (#1299)
+  teeth_case chaindead '/SENTINEL-CHAIN-DEAD-STAGE/,+1s/cmp -s - "\$orig"/false/' \
+    "chain: dead last stage"
+  teeth_case chaindeadrc 's/return 10/return 1/' \
+    "chain: dead first stage"
+  teeth_case chainnostage '/given no sed stage/s/return 1/:/' \
+    "chain: zero stages"
+  teeth_case chainrc '/^mutant_chain/,/^}/s/return "\$rc"/return 1/' \
+    "chain: syntax-broken"
+  teeth_case builtsilent '/^mutant_built/,/^}/s/-ne 0/-eq 0/' \
+    "built: accepted"
+  teeth_case toothbadrc '/SENTINEL-TOOTH-BADRC/,+1s/\[ "\$mrc_a" = "\$brc" \] ||/:/' \
+    "tooth: crash"
+  teeth_case toothgoodrc 's/^  \[ "\$grc_a" = "\$grc" \] || why=.*$/  :/' \
+    "tooth: original rc"
+  teeth_case toothghas '/SENTINEL-TOOTH-PATTERNS/,+3s/\[ -n "\$ghas" \]/false/' \
+    "tooth opt: good-has-false"
+  teeth_case toothglack '/SENTINEL-TOOTH-PATTERNS/,+3s/\[ -n "\$glack" \]/false/' \
+    "tooth opt: good-lacks-false"
+  teeth_case toothbhas '/SENTINEL-TOOTH-BADRC/,+3s/\[ -n "\$bhas" \]/false/' \
+    "tooth opt: bad-has-false"
+  teeth_case toothblack '/SENTINEL-TOOTH-BADRC/,+3s/\[ -n "\$black" \]/false/' \
+    "tooth opt: bad-lacks-false"
+  teeth_case toothicase 's/gi="-i"/gi=""/' \
+    "tooth: icase has"
+  teeth_case toothoption '/bad option/s/return 1 ;;/: ;;/' \
+    "tooth: unknown option"
+  teeth_case toothnodash '/missing the "--"/s/return 1 ;;/: ;;/' \
+    "tooth: missing --"
+  teeth_case toothnoargv '/has no ARGV/s/return 1;/:;/' \
+    "tooth: empty ARGV"
+  teeth_case toothnoorig '/has no original/s/return 1;/:;/' \
+    "tooth: no original"
+  teeth_case toothabsent '/mutant file absent/s/return 1;/:;/' \
+    "tooth: absent mutant"
+  teeth_case toothdefault 's/orig="\${SUT:-}"/orig=""/' \
+    "tooth: exact rc"
+  teeth_case toothsubst 's/@SUT@\/"\$orig"/@SUT@\/"$mut"/' \
+    "tooth: @SUT@ substitution"
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
