@@ -295,6 +295,10 @@ checks. (Kit issues #895, #1176, #1217, #1272, #1276.) The merge-order rule has 
          commit) and the recovery is a post-refusal split. Make the split the DEFAULT. Pre-split a
          large tooling-bootstrap (one commit per ported/created tool) BEFORE the first review
          attempt; cut slices at commit boundaries with real parents, never a squashed blob.
+         WAVE INTEGRATION: commit a large binary `sources/` preservation (PDF, jar) as its OWN work
+         unit and slice block commits at ~2-3 blocks each, so the one medium-risk piece is a small
+         reviewable candidate (n5 wave 9: one mixed range was refused; re-sliced into 5 commits,
+         only the PDF commit was medium and it reviewed cleanly).
          RDD BASE-REF IS THE LAST REVIEWED BOUNDARY. For the first slice that is the branch
          merge-base (where the branch left the default branch); each reviewed commit/slice then
          becomes the next base. Never use a moving `origin/main`: a base ahead of the branch shows

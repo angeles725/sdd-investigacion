@@ -493,6 +493,14 @@ Always read first, in this order:
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
          after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
          documented the JNI boundary; required a §279.9 self-revision.)
+         GAP-ID VERIFY + ALREADY-COVERED PRE-CHECK (sub-agent launch): a gap ID in a writer prompt is
+         the caller's LABEL, a hypothesis. The writer verifies it against the cited block's OWN file
+         (the `Gap:` / gap-ID line there) BEFORE writing, and states any correction up front ("prompt
+         said B65-G3; block B65 defines B65-G1"). Then, before investigating, grep the gap ID across
+         LATER blocks and RESEARCH-STATE: stale backlog rows point at gaps a later block already closed.
+         On a hit, return `ALREADY-COVERED — <block> §<n.x>` and stop; the driver closes the row without
+         authoring a block (same closure path as REMITTANCE below). (Evidence: n5 waves 6-7 B69 B65-G1
+         vs G3, B74 B50-G7 vs G6; wave 11: 7 gaps returned ALREADY-COVERED at no re-derivation cost.)
          REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
          but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
          the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
@@ -616,7 +624,10 @@ Always read first, in this order:
          `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
          from inside a subdirectory may exist relative to the project root. (Evidence: spyder commissioning.)
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
-         grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
+         grep-confirm it yourself before accepting, across ALL install roots the target uses (a
+         split install keeps `bin/`+`jre/` apart from a config-home `modules/`; absence proved on one
+         root is not absence). (Evidence: n5 B102 "pxEditor absent", refuted by an `ls` of the config home.)
+         (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
          PHYSICAL-ACTION FACTS (highest-priority VERIFY): for any cited fact a human will act on
          physically — wiring instructions, terminal maps, part numbers, safety values, calibration
@@ -1178,7 +1189,9 @@ Always read first, in this order:
          `sources/probes/` and cited `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase
          (§12) already does. Do NOT invent a new marker; reuse the existing ones.
   3. AUTO-ROUTE the write destination by knowledge TYPE (the MODE decides — the user does NOT specify per
-     call). Ask: "does this knowledge serve OTHER targets too?"
+     call), PER CLAIM, not per block: one block may hold subject claims AND toolchain claims, so route
+     each claim separately (the toolchain half proposed via the retro, not left only inside the block).
+     Ask: "does this knowledge serve OTHER targets too?"
        - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS
          device) → the TARGET's corpus (`$CORPUS`), like any block.
        - REUSABLE TOOLCHAIN / environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step — useful
@@ -1213,7 +1226,9 @@ Always read first, in this order:
          CONTINUATION hard rule).
        - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
          NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP",
-         and outline completion is a focus completion.
+         and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
+         the same way even without formal outline completion: emit the retro when the batch closes, do
+         not wait for the operator to ask (hilton B19-B24 had none until demanded).
        - TARGETS.md row refresh: update block count and run facts as part of closing the document run.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
          close-checklist). Use `--dry-run` to preview.
@@ -1324,6 +1339,17 @@ HARD RULES:
     differences; an intersection proves set equivalence and names any residue explicitly — which
     members are present, which are missing, and whether the discrepancy is a subset or a symmetric
     difference. (Evidence: blender-llm B61 §61.2.)
+  - NEVER COMPARE DIFFERENT LEVELS OR CUTS WITHOUT A DISCLAIMER (twin of RE-MEASURE A DRAMATIC
+    NEGATIVE). Before setting two figures side by side, state what level and cut each is: equipment vs
+    service-entrance, full month vs partial, extracted vs live, own count vs a vendor aggregate. If they
+    differ, say so next to the comparison or do not compare. A mismatched pair reads as a dramatic
+    result (hilton B21: 20% vs 46.9% from a double count; B23/B24: monthly vendor total vs partial
+    measured) and the second measurement the sibling rule demands must be like-for-like.
+  - VERIFY-FIRST ON EXTERNAL DELIVERIES. Anything that reaches a third party (an emailed report, a cron
+    sender, a webhook, a deployed endpoint): build and test in an isolated preview, use endpoints that
+    do NOT send, never arm a cron or make a real send without the operator's consent, and confirm the
+    recipients by API rather than from memory. Production stays untouched until the OK. (Evidence:
+    hilton energeticos report worker, B19-B24.)
   - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
     striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
     NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
