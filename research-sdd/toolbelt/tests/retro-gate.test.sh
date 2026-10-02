@@ -15,6 +15,7 @@
 #   esc-*                 (#1167 item 2) _json_escape_reason replacement operand; esc-ctrl* (#1301-6)
 #   l-*                   (#1301) one mutant per `find -H` scan site (symlinked target)
 #   dirlink-*, bp-read-unbraced  (#1311) directory-symlink scan; back-pointer read stderr
+#   dirlink-untracked-leg, -timeout-validation, -newline-split, -fallback-print  (#1352) Part C follow-ups
 #   nw-backpointer-dropped, p-*  (#1301) worktree back-pointer proof; probe-failure fail-safe
 #
 # Usage: retro-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
@@ -1584,6 +1585,56 @@ printf '%s' "$ERR" | grep -q 'WARN: directory-symlink walk incomplete' \
   && ok "#1311 S10: failing inner walk → typed WARN" \
   || no "#1311 S10: incomplete walk silent: ERR=$ERR"
 
+# ─── #1352: Part C follow-ups (newline link names, timeout validation, untracked leg) ─────────
+# S12: a link whose NAME contains a newline is one path end to end (NUL-delimited, never rejoined
+# with newlines). Before the fix it was split into `a` and `b`, the walk hit a cwd-relative `b`,
+# and research behind the link was missed (loud WARN, but still a false ALLOW).
+S12_EXT="$ROOT/s12-ext"; mkfresh "$S12_EXT"
+T_s12="$ROOT/t-s12"; mkgit "$T_s12"; SID_s12="s12-sess"; mksessionfile "$T_s12" "$SID_s12" "202609050800"
+ln -s "$S12_EXT" "$T_s12/$(printf 'nl\nlink')"
+run_gate "$T_s12" "$(mkjson "$SID_s12" false)"
+{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'WARN: directory-symlink'; } \
+  && ok "#1352 S12: a directory link named with a newline is walked as one path → blocks, no WARN" \
+  || no "#1352 S12: newline-named link mishandled: OUT=$OUT ERR=$ERR"
+# S13: the same link through the bounded-find FALLBACK (git cannot enumerate) — NUL end to end too.
+T_s13="$ROOT/t-s13"; mkgit "$T_s13"; SID_s13="s13-sess"; mksessionfile "$T_s13" "$SID_s13" "202609050800"
+ln -s "$S12_EXT" "$T_s13/$(printf 'nl\nlink')"
+run_gate_path "$STUB_NOLS" "$T_s13" "$(mkjson "$SID_s13" false)"
+{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'WARN: directory-symlink'; } \
+  && ok "#1352 S13: newline-named link via the find fallback is walked as one path → blocks, no WARN" \
+  || no "#1352 S13: newline-named link mishandled in fallback: OUT=$OUT ERR=$ERR"
+# S14: RETRO_GATE_DIRLINK_TIMEOUT must be a positive number. Anything else is a typed WARN naming
+# the variable and falls back to the 5 s default (never 0 = unbounded, never a per-link rc 125).
+# The stub `timeout` logs the seconds it was handed, so the fallback value is observed, not assumed.
+STUB_TOLOG="$ROOT/stub-tolog"; mkdir -p "$STUB_TOLOG"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "$TOLOG"\nshift; exec "$@"\n' > "$STUB_TOLOG/timeout"; chmod +x "$STUB_TOLOG/timeout"
+S14_EXT="$ROOT/s14-ext"; mkfresh "$S14_EXT"
+T_s14="$ROOT/t-s14"; mkgit "$T_s14"; SID_s14="s14-sess"; mksessionfile "$T_s14" "$SID_s14" "202609050800"
+ln -s "$S14_EXT" "$T_s14/corpus"
+for _tv in abc 0 0.0 -3 1e3 2s; do
+  TOLOG="$ROOT/tolog-$_tv"; : > "$TOLOG"; export TOLOG
+  rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
+  RETRO_GATE_DIRLINK_TIMEOUT="$_tv" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
+  { printf '%s' "$ERR" | grep -q "WARN: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' is not a positive number" \
+      && [ "$(head -n1 "$TOLOG")" = "5" ] && blocks_json_s "$OUT"; } \
+    && ok "#1352 S14: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' → typed WARN, default 5 s used, link still walked" \
+    || no "#1352 S14: invalid timeout '$_tv' mishandled: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
+done
+# S14b: valid values (integer, decimal) pass through unchanged with NO warning; empty = unset.
+for _tv in 7 2.5; do
+  TOLOG="$ROOT/tolog-ok-$_tv"; : > "$TOLOG"; export TOLOG
+  rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
+  RETRO_GATE_DIRLINK_TIMEOUT="$_tv" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
+  { ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "$_tv" ]; } \
+    && ok "#1352 S14b: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' is used as given, no WARN" \
+    || no "#1352 S14b: valid timeout '$_tv' rejected or altered: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
+done
+TOLOG="$ROOT/tolog-empty"; : > "$TOLOG"; export TOLOG; rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
+RETRO_GATE_DIRLINK_TIMEOUT="" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
+{ ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "5" ]; } \
+  && ok "#1352 S14b: empty RETRO_GATE_DIRLINK_TIMEOUT behaves as unset (5 s, no WARN)" \
+  || no "#1352 S14b: empty timeout mishandled: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
+
 # ─── #1301 item 3: the gate when the nested-worktree PROBE itself fails ───────
 # The lib returns 2 (not a directory) or 3 (incomplete traversal); anything else is a defect. The
 # gate must FAIL SAFE: keep scanning (worktree copies may then be counted → a recoverable false
@@ -3102,6 +3153,39 @@ if nwmutant 'dirlink-tracked-leg' "s|grep -z '\\^120000 '|grep -z '^999999 '|"; 
   blocks_json "$OUT" \
     && no "TOOTH dirlink-tracked-leg: mutant still blocks S11 — tracked leg not load-bearing" \
     || ok "TOOTH dirlink-tracked-leg: mutant misses the tracked link — RED as expected"
+fi
+# DL10 (#1352 item 4): the UNTRACKED `ls-files -o` leg dropped → S1 (untracked, non-ignored link) allows.
+if nwmutant 'dirlink-untracked-leg' 's|; cat "\$_dl_f2")|; true)|'; then M_DL10="$NWM"
+  rmblocked "$T_s1" "$SID_s1"; run_mutant "$M_DL10" "$T_s1" "$(mkjson "$SID_s1" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-untracked-leg: mutant still blocks S1 — untracked leg not load-bearing" \
+    || ok "TOOTH dirlink-untracked-leg: mutant misses the untracked link — RED as expected"
+fi
+# DL11 (#1352 item 3): the timeout validation removed → 'abc' is handed to timeout unchanged, no WARN.
+if nwmutant 'dirlink-timeout-validation' '/SENTINEL-DIRLINK-TIMEOUT-START/,/SENTINEL-DIRLINK-TIMEOUT-END/d'; then M_DL11="$NWM"
+  rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
+  TOLOG="$ROOT/tolog-m11"; : > "$TOLOG"; export TOLOG
+  _sut_save="$SUT"; SUT="$M_DL11"
+  RETRO_GATE_DIRLINK_TIMEOUT=abc run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
+  SUT="$_sut_save"
+  { ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "abc" ]; } \
+    && ok "TOOTH dirlink-timeout-validation: mutant passes 'abc' through with no WARN — RED as expected" \
+    || no "TOOTH dirlink-timeout-validation: validation not load-bearing: ERR=$ERR first-arg=$(head -n1 "$TOLOG")"
+fi
+# DL12 (#1352 item 1): candidates word-split on newlines again → S12 (newline-named link) misses.
+if nwmutant 'dirlink-newline-split' 's|for _lnk in \${_dl_cands\[@\]+"\${_dl_cands\[@\]}"}|for _lnk in $(printf "%s\\n" ${_dl_cands[@]+"${_dl_cands[@]}"})|'; then M_DL12="$NWM"
+  rmblocked "$T_s12" "$SID_s12"; run_mutant "$M_DL12" "$T_s12" "$(mkjson "$SID_s12" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-newline-split: mutant still blocks S12 — NUL-delimiting not load-bearing" \
+    || ok "TOOTH dirlink-newline-split: mutant misses the newline-named link — RED as expected"
+fi
+# DL13 (#1352 item 1): the fallback enumeration reverts to newline output → S13 misses.
+if nwmutant 'dirlink-fallback-print' 's|-type l -xtype d -print0|-type l -xtype d -print|'; then M_DL13="$NWM"
+  rmblocked "$T_s13" "$SID_s13"; _sut_save="$SUT"; SUT="$M_DL13"
+  run_gate_path "$STUB_NOLS" "$T_s13" "$(mkjson "$SID_s13" false)"; SUT="$_sut_save"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-fallback-print: mutant still blocks S13 — fallback -print0 not load-bearing" \
+    || ok "TOOTH dirlink-fallback-print: mutant misses the newline-named fallback link — RED as expected"
 fi
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
 if nwmutant 'catalog-not-excluded' '/SENTINEL-GENERATED-CATALOG-START/,/SENTINEL-GENERATED-CATALOG-END/d'; then M_CAT1="$NWM"
