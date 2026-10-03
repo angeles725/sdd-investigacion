@@ -603,6 +603,20 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
           else if (!cp && h[k] ~ /^(priority|prioridad)/) cp = k
         }
         if (!ct) cg = ce = cy = cp = 0
+        else {
+          # Per role: a header-name match wins, else the role keeps its POSITIONAL column (3..6) when the
+          # header has that cell and no other role claimed it (a partly-named header is not a regression).
+          used[ct] = 1
+          if (cg) used[cg] = 1
+          if (ce) used[ce] = 1
+          if (cy) used[cy] = 1
+          if (cp) used[cp] = 1
+          if (!cg && 3 <= hn && !used[3]) { cg = 3; used[3] = 1 }
+          if (!ce && 4 <= hn && !used[4]) { ce = 4; used[4] = 1 }
+          if (!cy && 5 <= hn && !used[5]) { cy = 5; used[5] = 1 }
+          if (!cp && 6 <= hn && !used[6]) { cp = 6; used[6] = 1 }
+          for (k in used) delete used[k]
+        }
       }
       prev = ""; next
     }

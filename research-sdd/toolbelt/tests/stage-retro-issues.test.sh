@@ -3905,6 +3905,18 @@ if [ "$RC" = 0 ] && grep -q '^planned-issue: Positional title stays the second c
 else
   no "85d unknown header" "exit=$RC out=[$OUT]"
 fi
+# 85g — a header naming ONLY the title: every other role keeps its positional column (no regression)
+box85g="$(mkbox case-hdr-title-only)"; mk_gh_stub "$box85g" nomatch
+r85g="$(mk_hdr_retro "$box85g" r85g.md '| # | Title | Where | Proof | Kind | Rank |' 6 \
+  '| 1 | Only the title column is named | toolbelt/g.sh | B7 | fix | HIGH |')"
+run "$box85g" "$r85g"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: Only the title column is named$' <<<"$OUT" \
+   && grep -q '\*\*Target:\*\* toolbelt/g.sh' <<<"$OUT" && grep -q '\*\*Evidence:\*\* B7' <<<"$OUT" \
+   && grep -q 'type:bug' <<<"$OUT" && grep -q 'priority:high' <<<"$OUT"; then
+  ok "85g header naming only the title → target/evidence/type/priority keep positional values" "(exit $RC)"
+else
+  no "85g partial header" "exit=$RC out=[$OUT]"
+fi
 # 85e — TITLE GUARD: bare priority/type token, and the 11/12-char boundary
 box85e="$(mkbox case-title-guard)"; mk_gh_stub "$box85e" nomatch
 r85e="$(mk_retro "$box85e" target-foo r85e.md '<!-- review-status: pending -->' \
@@ -3990,8 +4002,7 @@ fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1260: header-name mapping + title guard --"
-  # h_mutant <tag> <case-label> <expect-fn> <sed-expr> <retro-header> <ncols> <row>: the mutant must make <expect-fn> false
-  h_mut() {   # h_mut <tag> <sed-expr> <check-regex> <header> <ncols> <row> [args]: mutant output must NOT match <check-regex>
+  h_mut() {   # h_mut <tag> <sed-expr> <check-regex> <header> <ncols> <row>: the mutant's output must NOT match <check-regex>
     local tag="$1" expr="$2" rx="$3" hdr="$4" nc="$5" row="$6" mb
     mb="$(mkbox "teeth-1260-$tag")"; mk_gh_stub "$mb" nomatch
     if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e "$expr"; then
@@ -4007,6 +4018,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   h_mut priority 's/(cp ? f\[cp\] : "")/""/' 'priority:low' "$H1" 4 "$R1"
   h_mut type 's/(cy ? f\[cy\] : "")/""/' 'type:bug' "$H2" 5 "$R2"
   h_mut lastcol 's/for (k = 2; k <= hn; k++)/for (k = 2; k < hn; k++)/' 'Target:\*\* toolbelt/a.sh' "$H2" 5 "$R2"
+  H3='| # | Title | Where | Proof | Kind | Rank |'; R3='| 1 | Only the title column is named | toolbelt/g.sh | B7 | fix | HIGH |'
+  h_mut posfallback 's/^          if (!cg \&\& 3 <= hn \&\& !used\[3\]) { cg = 3; used\[3\] = 1 }$/          :/' 'Target:\*\* toolbelt/g.sh' "$H3" 6 "$R3"
+  h_mut posfallback-pri 's/^          if (!cp \&\& 6 <= hn \&\& !used\[6\]) { cp = 6; used\[6\] = 1 }$/          :/' 'priority:high' "$H3" 6 "$R3"
   mb="$(mkbox teeth-1260-guard)"; mk_gh_stub "$mb" nomatch
   if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  if title_is_unusable "\$_title"; then$/  if false; then/'; then
     run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |')"
