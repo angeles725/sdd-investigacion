@@ -234,7 +234,7 @@ cp "$SUT" "$_p8d/.claude/hooks/research-protocol.sh"
   printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
   printf '<!-- /research-state.v1 -->\n'; } > "$_p8d/RESEARCH-STATE.md"
 _p8_out="$(bash "$VS" "$_p8d" 2>/dev/null)"
-if printf '%s\n' "$_p8_out" | grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+if <<<"$_p8_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
   no "p8: unexpected <KIT> placeholder WARN — template still contains <KIT>"
 else
   ok "p8: no <KIT> placeholder WARN (\$RESEARCH_SDD_KIT correctly used)"
@@ -389,7 +389,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
     printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
   _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
-  if printf '%s\n' "$_m3_out" | grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+  if <<<"$_m3_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
     ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
   else
     no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"

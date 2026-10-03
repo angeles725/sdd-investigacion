@@ -113,7 +113,7 @@ printf '%s\n' \
   'check_debian' \
   > "$guard_script"
 guard_out="$(bash "$guard_script" 2>&1)"; guard_rc=$?
-if [ "$guard_rc" -ne 0 ] && printf '%s' "$guard_out" | grep -q 'Debian/Ubuntu'; then
+if [ "$guard_rc" -ne 0 ] && <<<"$guard_out" grep -q 'Debian/Ubuntu'; then
   ok "debian-guard: non-zero exit with 'Debian/Ubuntu' message when apt-get absent"
 else
   no "debian-guard: expected non-zero + Debian/Ubuntu message" \
@@ -161,7 +161,7 @@ file_count_env="$(find "$dry_scratch_home" -mindepth 1 | wc -l)"
         "$(find "$dry_scratch_home" -mindepth 1)"
 
 # Check that PLAN lines are present in output.
-if printf '%s' "$dry_out" | grep -q 'PLAN'; then
+if <<<"$dry_out" grep -q 'PLAN'; then
   ok "dry-run: output contains PLAN lines"
 else
   no "dry-run: no PLAN lines in output" "out=$dry_out"
@@ -195,7 +195,7 @@ start_count=0
 notice_home="$TMP/notice-home-absent"
 mkdir -p "$notice_home"
 notice_out_absent="$(bash "$SUT" --dry-run --home "$notice_home" --harness claude 2>/dev/null || true)"
-if printf '%s' "$notice_out_absent" | grep -q 'OPTIONAL'; then
+if <<<"$notice_out_absent" grep -q 'OPTIONAL'; then
   ok "agents-notice: OPTIONAL notice printed when agent file absent"
 else
   no "agents-notice: expected OPTIONAL notice when agent file absent"
@@ -205,7 +205,7 @@ notice_home2="$TMP/notice-home-present"
 mkdir -p "$notice_home2/.claude/agents"
 touch "$notice_home2/.claude/agents/sdd-apply.md"
 notice_out_present="$(bash "$SUT" --dry-run --home "$notice_home2" --harness claude 2>/dev/null || true)"
-if ! printf '%s' "$notice_out_present" | grep -q 'OPTIONAL'; then
+if ! <<<"$notice_out_present" grep -q 'OPTIONAL'; then
   ok "agents-notice: no OPTIONAL notice when agent file present"
 else
   no "agents-notice: unexpected OPTIONAL notice when agent file exists"
@@ -238,7 +238,7 @@ printf '%s\n' \
   > "$orphan_script"
 orphan_out="$(bash "$orphan_script" 2>&1)"
 # Both runs must return 3 (orphan path), file untouched.
-if printf '%s' "$orphan_out" | grep -q 'rc1=3 rc2=3'; then
+if <<<"$orphan_out" grep -q 'rc1=3 rc2=3'; then
   ok "orphan-splice: both runs return 3 (warn-and-skip path)"
 else
   no "orphan-splice: expected rc1=3 rc2=3" "out=$orphan_out"
@@ -253,7 +253,7 @@ else
   no "orphan-splice: file was modified or original content lost" \
      "file=$(cat "$orphan_file" 2>/dev/null)"
 fi
-if printf '%s' "$orphan_out" | grep -qi 'WARNING'; then
+if <<<"$orphan_out" grep -qi 'WARNING'; then
   ok "orphan-splice: WARNING emitted for stray marker"
 else
   no "orphan-splice: no WARNING for stray marker" "out=$orphan_out"
@@ -308,7 +308,7 @@ printf '%s\n' \
   > "$summary_script8"
 
 summary_out8="$(bash "$summary_script8" 2>/dev/null)" || true
-if printf '%s' "$summary_out8" | grep -qF 'AVAILABLE: 3 | MISSING/UNUSABLE: 3'; then
+if <<<"$summary_out8" grep -qF 'AVAILABLE: 3 | MISSING/UNUSABLE: 3'; then
   ok "summary: fixture 3 AVAILABLE + 3 MISSING/UNUSABLE/PROBE_FAILED → correct 3|3 (legend excluded)"
 else
   summary_line8="$(printf '%s' "$summary_out8" | grep 'SUMMARY' || true)"
@@ -333,7 +333,7 @@ printf '%s\n' \
   "main --home \"$empty_home8\" --harness claude" \
   > "$empty_script8"
 empty_out8="$(bash "$empty_script8" 2>/dev/null || true)"
-if printf '%s' "$empty_out8" | grep -q 'DEGRADED'; then
+if <<<"$empty_out8" grep -q 'DEGRADED'; then
   ok "summary: empty-cache (nonexistent RESEARCH_TOOLS_CACHE) → DEGRADED line"
 else
   no "summary: expected DEGRADED on empty cache" "out=$(printf '%s' "$empty_out8" | grep 'SUMMARY\|DEGRADED' || true)"
@@ -368,7 +368,7 @@ printf '%s\n' \
   > "$summary_script9"
 
 summary_out9="$(bash "$summary_script9" 2>&1)"; summary_rc9=$?
-if [ "$summary_rc9" -ne 0 ] && printf '%s' "$summary_out9" | grep -q 'BASELINE DEGRADED'; then
+if [ "$summary_rc9" -ne 0 ] && <<<"$summary_out9" grep -q 'BASELINE DEGRADED'; then
   ok "skill-deploy failure: BASELINE DEGRADED + non-zero exit when installer exits 1"
 else
   summary_line9="$(printf '%s' "$summary_out9" | grep 'SUMMARY' || true)"
@@ -691,7 +691,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "main --home \"$mut_g_home\" --harness claude" \
       > "$mut_g_script"
     mut_g_out="$(bash "$mut_g_script" 2>/dev/null || true)"
-    if printf '%s' "$mut_g_out" | grep -qF 'AVAILABLE: 4'; then
+    if <<<"$mut_g_out" grep -qF 'AVAILABLE: 4'; then
       ok "teeth-g: SENTINEL-GREP-AV-ANCHOR mutant reports 4 AVAILABLE (legend line counted; anchor bites)"
     else
       mut_g_line="$(printf '%s' "$mut_g_out" | grep 'SUMMARY' || true)"
@@ -700,7 +700,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
 
     # Confirm original still reports 3 AVAILABLE (control).
-    if printf '%s' "$summary_out8" | grep -qF 'AVAILABLE: 3'; then
+    if <<<"$summary_out8" grep -qF 'AVAILABLE: 3'; then
       ok "teeth-g: original reports AVAILABLE: 3 (control confirmed; legend excluded)"
     else
       orig_g_line="$(printf '%s' "$summary_out8" | grep 'SUMMARY' || true)"
@@ -737,7 +737,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "main --home \"$mut_h_home\" --harness claude" \
       > "$mut_h_script"
     mut_h_out="$(bash "$mut_h_script" 2>&1)"; mut_h_rc=$?
-    if [ "$mut_h_rc" -eq 0 ] && printf '%s' "$mut_h_out" | grep -q 'BASELINE OK'; then
+    if [ "$mut_h_rc" -eq 0 ] && <<<"$mut_h_out" grep -q 'BASELINE OK'; then
       ok "teeth-h: SENTINEL-SKILL-DEPLOY mutant reports BASELINE OK exit 0 (deploy-failure guard bites)"
     else
       mut_h_line="$(printf '%s' "$mut_h_out" | grep 'SUMMARY' || true)"
@@ -746,7 +746,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
 
     # Confirm original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control).
-    if [ "$summary_rc9" -ne 0 ] && printf '%s' "$summary_out9" | grep -q 'BASELINE DEGRADED'; then
+    if [ "$summary_rc9" -ne 0 ] && <<<"$summary_out9" grep -q 'BASELINE DEGRADED'; then
       ok "teeth-h: original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control confirmed)"
     else
       no "teeth-h: original SUT control failed — fix not in place?" \

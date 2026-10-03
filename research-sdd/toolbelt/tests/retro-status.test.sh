@@ -489,7 +489,7 @@ body text
 EOF
 )"
 ml20="$(retro_marker_line "$f20")"
-printf '%s' "$ml20" | grep -qiE '<!--[[:space:]]*review-status:' \
+<<<"$ml20" grep -qiE '<!--[[:space:]]*review-status:' \
   && ok "20 retro_marker_line: marker after H1+blank → found (real corpus layout)" "(got '$ml20')" \
   || no "20 retro_marker_line: marker after H1+blank → found (real corpus layout)" "got '$ml20'"
 
@@ -504,7 +504,7 @@ body
 EOF
 )"
 ml21="$(retro_marker_line "$f21")"
-printf '%s' "$ml21" | grep -qF 'PARTIAL' \
+<<<"$ml21" grep -qF 'PARTIAL' \
   && ok "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "(got '$ml21')" \
   || no "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "got '$ml21'"
 
@@ -556,7 +556,7 @@ f="$(mkretro ml-real-plus-quoted <<'EOF'
 EOF
 )"
 ml24="$(retro_marker_line "$f")"
-printf '%s' "$ml24" | grep -qF 'applied' \
+<<<"$ml24" grep -qF 'applied' \
   && ok "24 retro_marker_line: real after-H1 marker returned; quoted-in-table ignored" "(got '$ml24')" \
   || no "24 retro_marker_line: real after-H1 marker should be returned first" "got '$ml24'"
 
@@ -1405,7 +1405,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth S1: build hash-strip-removed mutant" "mutant syntax error"
     else
       outs1="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s1_mutant" '#1, #2' 2>&1)"
-      if printf '%s' "$outs1" | grep -q '^#1$'; then
+      if <<<"$outs1" grep -q '^#1$'; then
         ok "teeth S1: hash-strip-removed mutant leaves '#1' attached (case 33 has teeth)" "(got [$outs1])"
       else
         no "teeth S1: hash-strip-removed mutant should leave '#1' attached" "got [$outs1] — case 33 is THEATER"
@@ -1430,7 +1430,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth S2: build paren-strip-removed mutant" "mutant syntax error"
     else
       outs2="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s2_mutant" 'Δ1 (#549)' 2>&1)"
-      if printf '%s' "$outs2" | grep -qF '#549'; then
+      if <<<"$outs2" grep -qF '#549'; then
         ok "teeth S2: paren-strip-removed mutant leaks the annotation (case 34 has teeth)" "(got [$outs2])"
       else
         no "teeth S2: paren-strip-removed mutant should leak the annotation" "got [$outs2] — case 34 is THEATER"
@@ -1687,7 +1687,7 @@ EOF
   # documentation prose that may legitimately quote the old '{0,3}' shape for explanatory value.
   _ml_body="$(sed -n '/^  retro_marker_line() {/,/^  }/p' "$HELPER" | grep -vE '^[[:space:]]*#')"
   _sl_body="$(sed -n '/^  retro_marker_scope_line() {/,/^  }/p' "$HELPER" | grep -vE '^[[:space:]]*#')"
-  if printf '%s%s' "$_ml_body" "$_sl_body" | grep -qE '\{[0-9]+,[0-9]*\}'; then
+  if <<<"$_ml_body$_sl_body" grep -qE '\{[0-9]+,[0-9]*\}'; then
     no "structural guard: retro_marker_line/scope_line still carry a {m,n} interval expression" \
       "mawk-incompatible shape reintroduced"
   else

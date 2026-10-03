@@ -103,7 +103,7 @@ report_d="$(cat "$CACHE_D" 2>/dev/null || true)"
 objdump_line="$(printf '%s\n' "$report_d" | grep -E 'objdump' | head -1 || true)"
 if [ "$rc_d" -ne 0 ] \
    && grep -qi 'could not determine' "$stderr_d" \
-   && ! printf '%s\n' "$objdump_line" | grep -q 'MISSING'; then
+   && ! <<<"$objdump_line" grep -q 'MISSING'; then
   ok "d probe-failed: non-zero + could-not-determine + not MISSING" "(rc=$rc_d)"
 else
   no "d probe-failed: non-zero + could-not-determine + not MISSING" \
@@ -136,7 +136,7 @@ report_f="$(cat "$CACHE_F" 2>/dev/null || true)"
 marker_line="$(printf '%s\n' "$report_f" | grep -F '  marker ' | head -1 || true)"
 if [ "$rc_f" -ne 0 ] \
    && grep -qi 'could not determine' "$stderr_f" \
-   && printf '%s\n' "$marker_line" | grep -q 'PROBE_FAILED'; then
+   && <<<"$marker_line" grep -q 'PROBE_FAILED'; then
   ok "f python_row probe-failed: non-zero + could-not-determine + PROBE_FAILED" "(rc=$rc_f)"
 else
   no "f python_row probe-failed: non-zero + could-not-determine + PROBE_FAILED" \
@@ -166,7 +166,7 @@ report_g="$(cat "$CACHE_G" 2>/dev/null || true)"
 vineflower_line="$(printf '%s\n' "$report_g" | grep -F 'Vineflower' | head -1 || true)"
 if [ "$rc_g" -ne 0 ] \
    && grep -qi 'could not determine' "$stderr_g" \
-   && printf '%s\n' "$vineflower_line" | grep -q 'PROBE_FAILED'; then
+   && <<<"$vineflower_line" grep -q 'PROBE_FAILED'; then
   ok "g jarrow probe-failed (unzip absent rc 127): non-zero + could-not-determine + PROBE_FAILED" "(rc=$rc_g)"
 else
   no "g jarrow probe-failed (unzip absent rc 127): non-zero + could-not-determine + PROBE_FAILED" \
@@ -211,7 +211,7 @@ report_h="$(cat "$CACHE_H" 2>/dev/null || true)"
 java_line_h="$(printf '%s\n' "$report_h" | grep -F 'Java 21' | head -1 || true)"
 if [ "$rc_h" -ne 0 ] \
    && grep -qi 'could not determine' "$stderr_h" \
-   && printf '%s\n' "$java_line_h" | grep -q 'PROBE_FAILED'; then
+   && <<<"$java_line_h" grep -q 'PROBE_FAILED'; then
   ok "h Java secondary probe: shim+sleeping java → PROBE_FAILED" "(rc=$rc_h)"
 else
   no "h Java secondary probe: shim+sleeping java → PROBE_FAILED" \
@@ -440,7 +440,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash "$MUT2" --cache "$ROOT/cache-m2f.txt" --quiet \
     >/dev/null 2>/dev/null || true
   marker_line_m2f="$(cat "$ROOT/cache-m2f.txt" 2>/dev/null | grep -F '  marker ' | head -1 || true)"
-  if ! printf '%s\n' "$marker_line_m2f" | grep -q 'PROBE_FAILED'; then
+  if ! <<<"$marker_line_m2f" grep -q 'PROBE_FAILED'; then
     ok "teeth-3: PROBE_FAILED→MISSING mutant: marker timeout shows MISSING — test-f bites" \
        "(PROBE_FAILED absent from report)"
   else
@@ -456,7 +456,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     /bin/bash "$MUT2" --cache "$ROOT/cache-m2g.txt" --quiet \
     >/dev/null 2>/dev/null || true
   vineflower_line_m2g="$(cat "$ROOT/cache-m2g.txt" 2>/dev/null | grep -F 'Vineflower' | head -1 || true)"
-  if ! printf '%s\n' "$vineflower_line_m2g" | grep -q 'PROBE_FAILED'; then
+  if ! <<<"$vineflower_line_m2g" grep -q 'PROBE_FAILED'; then
     ok "teeth-4: PROBE_FAILED→MISSING mutant: vineflower 127 shows MISSING — test-g bites" \
        "(PROBE_FAILED absent from report)"
   else
@@ -479,7 +479,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --cache "$ROOT/cache-mh.txt" --quiet \
     >/dev/null 2>/dev/null || true
   java_line_mh="$(cat "$ROOT/cache-mh.txt" 2>/dev/null | grep -F 'Java 21' | head -1 || true)"
-  if ! printf '%s\n' "$java_line_mh" | grep -q 'PROBE_FAILED'; then
+  if ! <<<"$java_line_mh" grep -q 'PROBE_FAILED'; then
     ok "teeth-h: PROBE_FAILED→MISSING mutant: Java secondary probe shows MISSING — test-h bites" \
        "(PROBE_FAILED absent from report)"
   else
@@ -553,7 +553,7 @@ env -u DOTNET_ROOT \
   HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_IL" --quiet >/dev/null 2>&1 || rc_il=$?
 ilspy_line_il="$(grep -F '  ilspycmd ' "$CACHE_IL" 2>/dev/null | head -1 || true)"
-if [ "$rc_il" -eq 0 ] && printf '%s\n' "$ilspy_line_il" | grep -q 'AVAILABLE'; then
+if [ "$rc_il" -eq 0 ] && <<<"$ilspy_line_il" grep -q 'AVAILABLE'; then
   ok "il ilspycmd: binary + resolvable DOTNET_ROOT → AVAILABLE" "(rc=$rc_il)"
 else
   no "il ilspycmd: binary + resolvable DOTNET_ROOT → AVAILABLE" \
@@ -576,7 +576,7 @@ env -u DOTNET_ROOT \
   HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_IL2" --quiet >/dev/null 2>&1 || rc_il2=$?
 ilspy_line_il2="$(grep -F '  ilspycmd ' "$CACHE_IL2" 2>/dev/null | head -1 || true)"
-if [ "$rc_il2" -eq 0 ] && printf '%s\n' "$ilspy_line_il2" | grep -q 'UNUSABLE'; then
+if [ "$rc_il2" -eq 0 ] && <<<"$ilspy_line_il2" grep -q 'UNUSABLE'; then
   ok "il2 ilspycmd: binary found but DOTNET_ROOT probe fails → UNUSABLE" "(rc=$rc_il2)"
 else
   no "il2 ilspycmd: binary found but DOTNET_ROOT probe fails → UNUSABLE" \
@@ -603,7 +603,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     bash "$SHIM_IL/detect-tools.sh" --cache "$CACHE_MIL" --quiet >/dev/null 2>&1 || true
   ilspy_line_mil="$(grep -F '  ilspycmd ' "$CACHE_MIL" 2>/dev/null | head -1 || true)"
   # rsdd_resolve_dotnet_root always fails → UNUSABLE (or MISSING). Test-il expects AVAILABLE → bites.
-  if ! printf '%s\n' "$ilspy_line_mil" | grep -q 'AVAILABLE'; then
+  if ! <<<"$ilspy_line_mil" grep -q 'AVAILABLE'; then
     ok "teeth-il: rsdd_resolve_dotnet_root=fail shim → not AVAILABLE → test-il bites" \
        "(line=[$ilspy_line_mil])"
   else

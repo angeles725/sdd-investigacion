@@ -116,8 +116,8 @@ for s in "${CANONICAL[@]}"; do make_stub "$s" 0; done
 make_stub "sweep-retros.sh" 1   # retros fails; others pass
 OUT="$(bash "$FAKE/sweep-all.sh" 2>&1)"
 pass_banner=0; fail_banner=0
-printf '%s\n' "$OUT" | grep -qiE 'PASS.*sweep-audits' && pass_banner=1
-printf '%s\n' "$OUT" | grep -qiE 'FAIL.*sweep-retros' && fail_banner=1
+<<<"$OUT" grep -qiE 'PASS.*sweep-audits' && pass_banner=1
+<<<"$OUT" grep -qiE 'FAIL.*sweep-retros' && fail_banner=1
 [ "$pass_banner" -eq 1 ] && [ "$fail_banner" -eq 1 ] \
   && ok "6 banners: PASS for passing scripts, FAIL for failing scripts" \
   || no "6 banners: expected PASS(sweep-audits) and FAIL(sweep-retros) in output (out=[$OUT])"
@@ -136,7 +136,7 @@ OUT="$(RSDD_SWEEP_TIMEOUT=1 bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
   || no "7 timeout: expected non-zero exit after timeout, got 0"
 
 # ---- 8. Timeout banner includes timeout indication -------------------------
-printf '%s\n' "$OUT" | grep -qiE 'FAIL.*sweep-audits.*(timeout|timed)' \
+<<<"$OUT" grep -qiE 'FAIL.*sweep-audits.*(timeout|timed)' \
   && ok "8 timeout-banner: FAIL banner mentions timeout for killed script" \
   || no "8 timeout-banner: expected FAIL+timeout indication (out=[$OUT])"
 

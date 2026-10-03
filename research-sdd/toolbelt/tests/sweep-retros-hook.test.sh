@@ -47,21 +47,21 @@ write_stub() {
 # 3. Operational failure (sweep exits non-zero) → "could not run" banner, NOT normal header.
 write_stub 1 "sweep-retros: cannot find TARGETS.md"
 OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
+<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
   && ok "3 sweep failure (rc=1) → operational-failure banner emitted" \
   || no "3 sweep failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
 
 # 4. Success (sweep exits 0) → normal header present in output.
 write_stub 0 "TARGET  demo  · 0 open retros"
 OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'retro sweep\|§18' \
+<<<"$OUT" grep -qi 'retro sweep\|§18' \
   && ok "4 success (rc=0) → normal retro header emitted" \
   || no "4 success → expected normal header (exit=$RC out=[$OUT])"
 
 # 5. Failure banner uses singular "retro sweep" (not "retros sweep").
 write_stub 1 "sweep-retros: cannot find TARGETS.md"
 OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'retro sweep could not run' \
+<<<"$OUT" grep -qi 'retro sweep could not run' \
   && ok "5 failure banner wording: 'retro sweep could not run' (singular, not 'retros')" \
   || no "5 failure banner wording: expected 'retro sweep could not run' (exit=$RC out=[$OUT])"
 
@@ -94,12 +94,12 @@ _hook_content() { printf '%s\n' "$1" | jq -r '.hookSpecificOutput.additionalCont
 write_stub 0 "$(_build_sweep_out 0)"
 OUT6="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
 _content6="$(_hook_content "$OUT6")"
-printf '%s\n' "$_content6" | grep -qE 'INFO: 2 target\(s\) not traversed' \
+<<<"$_content6" grep -qE 'INFO: 2 target\(s\) not traversed' \
   && ok "6 summary mode, 0 pending + 2 absent: absent collapse line present (no silent clean)" \
   || no "6 summary mode, 0 pending + 2 absent: absent collapse line MISSING"
 
 # 7. Summary mode: absent collapse line says "run --full to list them" (not "see INFO lines above").
-printf '%s\n' "$_content6" | grep -q 'run --full to list them' \
+<<<"$_content6" grep -q 'run --full to list them' \
   && ok "7 summary mode: absent collapse line says 'run --full to list them'" \
   || no "7 summary mode: absent collapse line missing --full hint"
 
@@ -112,7 +112,7 @@ _cnt8="$(printf '%s\n' "$_content8" | grep -c '^PENDING')" || _cnt8=0
   && ok "8 summary mode, 8 pending: exactly 5 PENDING lines shown (got $_cnt8)" \
   || no "8 summary mode, 8 pending: expected 5 PENDING lines, got $_cnt8"
 
-printf '%s\n' "$_content8" | grep -q 'and 3 more' \
+<<<"$_content8" grep -q 'and 3 more' \
   && ok "8b summary mode: '… and 3 more' message present" \
   || no "8b summary mode: '… and 3 more' message MISSING"
 

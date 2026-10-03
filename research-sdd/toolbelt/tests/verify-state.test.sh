@@ -455,7 +455,7 @@ else no "req-premature: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<
 d="$TMP/req-agree"; ewrite "$d" 0 4 7 1 1 1 "high|open read-only gap|pending" \
   "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
+if [ "$(code "$d")" = 0 ] && ! <<<"$(grep -E '^   (FAIL|WARN)' <<<"$out")" grep -q 'requires_execution_open'; then
   ok "marked-open row + declared 1 → exit 0, CHECK E silent (backlog-anchored agreement)"
 else no "req-agree: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
@@ -465,7 +465,7 @@ else no "req-agree: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<
 #      must NOT do — derived 0 proves nothing.
 d="$TMP/req-prose-only"; ewrite "$d" 0 4 7 1 1 1 "high|open read-only gap|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
+if [ "$(code "$d")" = 0 ] && ! <<<"$(grep -E '^   (FAIL|WARN)' <<<"$out")" grep -q 'requires_execution_open'; then
   ok "prose-tracked (no marker) + declared 1 → exit 0, silent (no false FAIL on logosoft-shape corpora)"
 else no "req-prose-only: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
@@ -485,7 +485,7 @@ d="$TMP/req-closed"; ewrite "$d" 0 4 5 0 0 1 \
   "high|~~G50 old build gap~~|requires-execution → §19" \
   "high|G51 landed PoC|requires-execution ✅ cubierto — B72"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
+if [ "$(code "$d")" = 0 ] && ! <<<"$(grep -E '^   (FAIL|WARN)' <<<"$out")" grep -q 'requires_execution_open'; then
   ok "struck-through / cubierto requires-execution rows excluded → derived 0, exit 0"
 else no "req-closed: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
@@ -508,7 +508,7 @@ else no "req-negated-open: exit $(code "$d") :: $(grep -iE 'requires_execution' 
 #      marked-open build row → CHECK E must stay SILENT (exit 0, no false FAIL).
 d="$TMP/req-freetext-mention"; ewrite "$d" 0 4 6 1 0 1 "medium|future scope note|pending (requires-execution)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
+if [ "$(code "$d")" = 0 ] && ! <<<"$(grep -E '^   (FAIL|WARN)' <<<"$out")" grep -q 'requires_execution_open'; then
   ok "free-text 'pending (requires-execution)' mention NOT counted → exit 0, CHECK E silent (no false FAIL)"
 else no "req-freetext-mention: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
@@ -557,7 +557,7 @@ else no "B3-MF1: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out"
   echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE-focus-b.md"
 out="$(run "$d")"   # lints BOTH state files; both must pass
-if [ "$(code "$d")" = 0 ] && grep -c 'ok.*envelope validated' <<<"$out" | grep -q '^2$'; then
+if [ "$(code "$d")" = 0 ] && <<<"$(grep -c 'ok.*envelope validated' <<<"$out")" grep -q '^2$'; then
   ok "B3-MF2: both focuses PASS with per-focus block counts (2 + 5, never the combined 7)"
 else no "B3-MF2: exit $(code "$d") · ok-lines=$(grep -c 'ok.*envelope validated' <<<"$out") :: $(grep -iE 'FAIL|covered_blocks' <<<"$out" | head -2 | tr '\n' '|')"; fi
 
@@ -1697,7 +1697,7 @@ d="$TMP/focus-single-hit"; mkdir -p "$d"
 } > "$d/RESEARCH-STATE-email.md"
 out="$(runf "$d" --focus database)"
 if [ "$(codef "$d" --focus database)" = 0 ] \
-   && grep -c '== verify-state:' <<<"$out" | grep -q '^1$'; then
+   && <<<"$(grep -c '== verify-state:' <<<"$out")" grep -q '^1$'; then
   ok "F1 --focus database: lints ONLY RESEARCH-STATE-database.md (1 header, exit 0)"
 else no "F1 --focus: exit=$(codef "$d" --focus database) headers=$(grep -c '== verify-state:' <<<"$out" || true) (want exit 0, 1 header)"; fi
 
@@ -1737,7 +1737,7 @@ d="$TMP/focus-thin-match"; mkdir -p "$d"
 f2b_rc="$(codef "$d" --focus database)"
 f2b_out="$(runf "$d" --focus database)"
 if [ "$f2b_rc" != 2 ] \
-   && grep -c '== verify-state:' <<<"$f2b_out" | grep -q '^1$'; then
+   && <<<"$(grep -c '== verify-state:' <<<"$f2b_out")" grep -q '^1$'; then
   ok "F2b --focus thin-match: file EXISTS → NOT exit 2 (exit $f2b_rc), 1 header (absent-focus ≠ thin-exists)"
 else no "F2b: exit=$f2b_rc headers=$(grep -c '== verify-state:' <<<"$f2b_out" || true) (want exit!=2, 1 header)"; fi
 
@@ -1765,7 +1765,7 @@ d="$TMP/focus-empty-file"; mkdir -p "$d"
 f2c_rc="$(codef "$d" --focus database)"
 f2c_out="$(runf "$d" --focus database)"
 if [ "$f2c_rc" != 2 ] \
-   && grep -c '== verify-state:' <<<"$f2c_out" | grep -q '^1$'; then
+   && <<<"$(grep -c '== verify-state:' <<<"$f2c_out")" grep -q '^1$'; then
   ok "F2c --focus empty-file: 0-byte file EXISTS (-f true) → NOT exit 2 (exit $f2c_rc), 1 header (§7 empty ≠ absent)"
 else no "F2c: exit=$f2c_rc headers=$(grep -c '== verify-state:' <<<"$f2c_out" || true) (want exit!=2, 1 header)"; fi
 
@@ -3298,7 +3298,7 @@ PYEOF
       # F1 teeth: neutered mutant lints BOTH consistent files → 2 headers (not 1)
       echo "-- teeth-FOCUS-F1: neutered → must show 2 headers, not 1 --"
       foc1_out="$(bash "$mutantFOC" "$TMP/focus-single-hit" --focus database 2>/dev/null)"
-      if ! grep -c '== verify-state:' <<<"$foc1_out" | grep -q '^1$'; then
+      if ! <<<"$(grep -c '== verify-state:' <<<"$foc1_out")" grep -q '^1$'; then
         ok "teeth-FOCUS-F1: neutered → multiple headers (not 1) — focus isolation has teeth"
       else
         no "teeth-FOCUS-F1: neutered mutant still shows only 1 header — THEATER"
@@ -3314,7 +3314,7 @@ PYEOF
       # F2b teeth: neutered mutant lints BOTH (thin + consistent) → 2 headers
       echo "-- teeth-FOCUS-F2b: neutered → must show 2 headers, not 1 --"
       foc2b_out="$(bash "$mutantFOC" "$TMP/focus-thin-match" --focus database 2>/dev/null)"
-      if ! grep -c '== verify-state:' <<<"$foc2b_out" | grep -q '^1$'; then
+      if ! <<<"$(grep -c '== verify-state:' <<<"$foc2b_out")" grep -q '^1$'; then
         ok "teeth-FOCUS-F2b: neutered → multiple headers (not 1) — thin-match isolation has teeth"
       else
         no "teeth-FOCUS-F2b: neutered mutant still shows only 1 header — THEATER"
@@ -3322,7 +3322,7 @@ PYEOF
       # F2c teeth: neutered mutant lints BOTH (empty + consistent) → 2 headers (pre-fix RED path)
       echo "-- teeth-FOCUS-F2c: neutered → must show 2 headers, not 1 --"
       foc2c_out="$(bash "$mutantFOC" "$TMP/focus-empty-file" --focus database 2>/dev/null)"
-      if ! grep -c '== verify-state:' <<<"$foc2c_out" | grep -q '^1$'; then
+      if ! <<<"$(grep -c '== verify-state:' <<<"$foc2c_out")" grep -q '^1$'; then
         ok "teeth-FOCUS-F2c: neutered → multiple headers (not 1) — empty-file isolation has teeth (pre-fix RED)"
       else
         no "teeth-FOCUS-F2c: neutered mutant still shows only 1 header — THEATER"
@@ -3862,19 +3862,19 @@ else
   no "P8-D: hook with <SUBJECT> on code line → expected hook-placeholder WARN; got: $(echo "$_p8d" | grep -i hook | head -1)"
 fi
 # The WARN line itself must name the placeholder
-if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qiF "SUBJECT"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8d")" grep -qiF "SUBJECT"; then
   ok "P8-D: WARN line names the placeholder <SUBJECT>"
 else
   no "P8-D: WARN line does not name <SUBJECT>"
 fi
 # WARN must name the exact hook file (exact-file assertion)
-if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "research-protocol.sh"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8d")" grep -qF "research-protocol.sh"; then
   ok "P8-D: WARN line names the hook file (research-protocol.sh)"
 else
   no "P8-D: WARN line does not name the hook file"
 fi
 # WARN must include a line number (F4 requirement)
-if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qE 'line\(s\) [0-9]'; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8d")" grep -qE 'line\(s\) [0-9]'; then
   ok "P8-D: WARN line includes line number"
 else
   no "P8-D: WARN line missing line number"
@@ -3912,7 +3912,7 @@ if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8e2"; then
 else
   no "P8-E2: hook with <prefix> on code line → expected WARN; got: $(echo "$_p8e2" | grep -i hook | head -1)"
 fi
-if echo "$_p8e2" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "prefix"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8e2")" grep -qF "prefix"; then
   ok "P8-E2: WARN line names <prefix>"
 else
   no "P8-E2: WARN line does not name <prefix>"
@@ -3939,7 +3939,7 @@ _p8f_warns=$(echo "$_p8f" | grep -cE 'WARN.*hook-placeholder|hook-placeholder.*W
 [ "${_p8f_warns:-0}" -ge 1 ] && ok "P8-F: multi-hook first-placeholder → at least 1 WARN" \
                              || no "P8-F: multi-hook first-placeholder → expected WARN, got $_p8f_warns"
 # Exact-file: the WARN must name the file that has the placeholder
-if echo "$_p8f" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "a-first.sh"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8f")" grep -qF "a-first.sh"; then
   ok "P8-F: WARN names the specific file (a-first.sh)"
 else
   no "P8-F: WARN does not name the specific placeholder file (a-first.sh)"
@@ -3957,7 +3957,7 @@ else
   no "P8-G: last hook with placeholder → expected WARN (last-position edge)"
 fi
 # Exact-file: WARN must name z-last.sh
-if echo "$_p8g" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "z-last.sh"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8g")" grep -qF "z-last.sh"; then
   ok "P8-G: WARN names the last hook file (z-last.sh)"
 else
   no "P8-G: WARN does not name z-last.sh"
@@ -4313,7 +4313,7 @@ _p8sb="$(run "$d" 2>/dev/null)"
 _p8sb_warns=$(echo "$_p8sb" | grep -cE 'WARN.*hook-placeholder|hook-placeholder.*WARN' 2>/dev/null || true)
 [ "${_p8sb_warns:-0}" -eq 1 ] && ok "P8S-B: 3 settings hooks, FIRST placeholder → exactly 1 WARN" \
                               || no "P8S-B: expected exactly 1 WARN, got $_p8sb_warns"
-if echo "$_p8sb" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "a-first.sh"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sb")" grep -qF "a-first.sh"; then
   ok "P8S-B: WARN names the first settings-declared file (a-first.sh)"
 else
   no "P8S-B: WARN does not name a-first.sh"
@@ -4330,7 +4330,7 @@ mk_settings_cmds "$d" \
   '$CLAUDE_PROJECT_DIR/tools/hooks/b-middle.sh' \
   '$CLAUDE_PROJECT_DIR/tools/hooks/c-last.sh'
 _p8sc="$(run "$d" 2>/dev/null)"
-if echo "$_p8sc" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "c-last.sh"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sc")" grep -qF "c-last.sh"; then
   ok "P8S-C: 3 settings hooks, LAST placeholder → WARN names c-last.sh (last-position edge)"
 else
   no "P8S-C: expected WARN naming c-last.sh; got: $(echo "$_p8sc" | grep -i hook | head -3)"
@@ -4355,7 +4355,7 @@ d="$TMP/p8s-py-args"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
 printf '#!/usr/bin/env python3\nSUBJECT = "<SUBJECT>"\nprint(SUBJECT)\n' > "$d/tools/hooks/lint.py"
 mk_settings_cmds "$d" 'python3 $CLAUDE_PROJECT_DIR/tools/hooks/lint.py --strict --fix'
 _p8se="$(run "$d" 2>/dev/null)"
-if echo "$_p8se" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "lint.py"; then
+if <<<"$(grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8se")" grep -qF "lint.py"; then
   ok "P8S-E: python3 ... lint.py --strict --fix (args + .py) → placeholder WARN names lint.py"
 else
   no "P8S-E: expected WARN naming lint.py; got: $(echo "$_p8se" | grep -i hook | head -3)"
@@ -5397,7 +5397,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "TOOTH $label: mutant identical to the builder — sed matched nothing (tooth not built)"; return
     fi
     mout="$(hb_checks "$mtxt" 2>/dev/null)"
-    if printf '%s\n' "$mout" | grep -qF "FAIL:$want"; then
+    if <<<"$mout" grep -qF "FAIL:$want"; then
       ok "TOOTH $label: mutant trips FAIL:$want (RED as expected)"
     else
       no "TOOTH $label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$mout" | tr '\n' ' ')]"

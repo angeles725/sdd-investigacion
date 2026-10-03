@@ -3560,8 +3560,8 @@ else
   no "78a dry-run entry-form" "exit=$RC out=[$OUT]"
 fi
 # priority from the **Priority** line: D1 high, D3 medium (labels line follows its title line)
-if grep -A1 '^planned-issue: A tool ships' <<<"$OUT" | grep -q 'priority:high' \
-   && grep -A1 '^planned-issue: Verify the numerical claim' <<<"$OUT" | grep -q 'priority:medium'; then
+if <<<"$(grep -A1 '^planned-issue: A tool ships' <<<"$OUT")" grep -q 'priority:high' \
+   && <<<"$(grep -A1 '^planned-issue: Verify the numerical claim' <<<"$OUT")" grep -q 'priority:medium'; then
   ok "78b entry priority read from the **Priority** line (D1 high, D3 medium)" "()"
 else
   no "78b entry priority" "out=[$OUT]"
@@ -3656,8 +3656,8 @@ else
   no "80b fenced entry" "exit=$RC out=[$OUT]"
 fi
 # 80c — heading-only priority (#1356 item 2) yields the priority label
-if grep -A1 '^planned-issue: first' <<<"$OUT" | grep -q 'priority:high' \
-   && grep -A1 '^planned-issue: second' <<<"$OUT" | grep -q 'priority:medium'; then
+if <<<"$(grep -A1 '^planned-issue: first' <<<"$OUT")" grep -q 'priority:high' \
+   && <<<"$(grep -A1 '^planned-issue: second' <<<"$OUT")" grep -q 'priority:medium'; then
   ok "80c priority written only in the heading → priority:high / priority:medium labels" "(exit $RC)"
 else
   no "80c heading priority label" "out=[$OUT]"

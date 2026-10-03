@@ -133,7 +133,7 @@ STUB11
 chmod +x "$_stub11/git"
 d11="$TMP/contradiction"; mkdir -p "$d11"
 out11="$(PATH="$_stub11:$PATH" bash "$SUT" "$d11" 2>&1)"
-if printf '%s\n' "$out11" | grep -qi 'counters disagree\|all three counters read 0'; then
+if <<<"$out11" grep -qi 'counters disagree\|all three counters read 0'; then
   ok "11 all-counters-0 contradiction → WARN fires"
 else
   no "11 contradiction WARN missing (out=[$out11])"
@@ -167,7 +167,7 @@ STUBGREP
 chmod +x "$_stub12/grep"
 d12="$TMP/greparr"; mkdir -p "$d12"
 out12="$(PATH="$_stub12:$PATH" bash "$SUT" "$d12" 2>&1)"
-if printf '%s\n' "$out12" | grep -qi 'count FAILED\|grep exit'; then
+if <<<"$out12" grep -qi 'count FAILED\|grep exit'; then
   ok "12 grep exit 2 on counter → 'count FAILED' WARN fires"
 else
   no "12 count-FAILED WARN missing (out=[$out12])"
@@ -200,7 +200,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$SUT" > "$mutant3"
   # Run the contradiction scenario (stub11) against mutant3 — WARN must be absent.
   out_m3="$(PATH="$_stub11:$PATH" bash "$mutant3" "$d11" 2>&1)"
-  if ! printf '%s\n' "$out_m3" | grep -qi 'counters disagree\|count FAILED'; then
+  if ! <<<"$out_m3" grep -qi 'counters disagree\|count FAILED'; then
     ok "teeth: || true mutant silences contradiction/failed WARNs → tests 11+12 would catch it (RED)"
   else
     no "teeth: || true mutant still emits WARNs — tooth has no bite"

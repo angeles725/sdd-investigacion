@@ -205,7 +205,7 @@ if [ -f "$_r2_settings" ]; then
   _r2_ss_cmd1="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if printf '%s' "$_r2_stop_cmd1" | grep -q 'retro-gate-stop.sh'; then
+if <<<"$_r2_stop_cmd1" grep -q 'retro-gate-stop.sh'; then
   ok "R2: --scaffold --wire on a fresh target wired Stop (retro-gate-stop.sh)"
 else
   no "R2: --scaffold --wire did NOT wire Stop — stop=[$_r2_stop_cmd1]"
@@ -235,8 +235,8 @@ if [ -f "$_r2_settings" ]; then
   _r2_ss_cmd2="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if printf '%s' "$_r2_stop_cmd2" | grep -q 'retro-gate-stop.sh' && \
-   printf '%s' "$_r2_ss_cmd2"   | grep -q 'research-protocol.sh'; then
+if <<<"$_r2_stop_cmd2" grep -q 'retro-gate-stop.sh' && \
+   <<<"$_r2_ss_cmd2" grep -q 'research-protocol.sh'; then
   ok "R2: after adapting the hook, a re-run --wire wires BOTH Stop and SessionStart"
 else
   no "R2: after adapting the hook, re-run --wire did NOT wire both hooks — stop=[$_r2_stop_cmd2] ss=[$_r2_ss_cmd2]"
@@ -331,7 +331,7 @@ mock_gh "$BOX_R6/bin" tracked-e2e
 
 _r6_out="$(PATH="$BOX_R6/bin:$PATH" "$BASH_BIN" \
   "$BOX_R6/research-sdd/toolbelt/reconcile-issues.sh" "$R6_RETRO" 2>/dev/null)"
-if printf '%s' "$_r6_out" | grep -qi 'tracked:'; then
+if <<<"$_r6_out" grep -qi 'tracked:'; then
   ok "R6: reconcile-issues reports delta 'tracked:' with matching mock issue"
 else
   no "R6: expected 'tracked:' in output, got [$_r6_out]"
@@ -362,7 +362,7 @@ if [ "$_r7_rc" -eq 0 ]; then
 else
   no "R7: gate must exit 0 with unauthenticated gh, got exit $_r7_rc"
 fi
-if printf '%s' "$_r7_stderr" | grep -q 'WARN.*not authenticated'; then
+if <<<"$_r7_stderr" grep -q 'WARN.*not authenticated'; then
   ok "R7: gate emits WARN when gh not authenticated (degraded is honest)"
 else
   no "R7: gate missing gh-auth WARN with unauthenticated gh; stderr=[$_r7_stderr]"
@@ -461,8 +461,8 @@ jq -n '{
 _r2tb_stop="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
 _r2tb_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
 _r2tb_pass=0
-if printf '%s' "$_r2tb_stop" | grep -q 'retro-gate-stop.sh' && \
-   printf '%s' "$_r2tb_ss"   | grep -q 'research-protocol.sh'; then
+if <<<"$_r2tb_stop" grep -q 'retro-gate-stop.sh' && \
+   <<<"$_r2tb_ss" grep -q 'research-protocol.sh'; then
   _r2tb_pass=1
 fi
 if [ "$_r2tb_pass" -eq 0 ]; then
@@ -518,7 +518,7 @@ _r7t_stdout="$(printf '%s' "$_r7_json" | PATH="$FAIL_AUTH_R7:$PATH" \
 _r7t_stderr="$(cat "$_r7t_errf")"
 
 _r7t_has_ghprobe_warn=0
-printf '%s' "$_r7t_stderr" | grep -q 'WARN.*not authenticated' && _r7t_has_ghprobe_warn=1
+<<<"$_r7t_stderr" grep -q 'WARN.*not authenticated' && _r7t_has_ghprobe_warn=1
 if [ "$_r7t_has_ghprobe_warn" -eq 0 ]; then
   ok "R7-TOOTH: mutant (gh-probe stripped) → no gh-auth WARN → R7 check would FAIL (bites)"
 else

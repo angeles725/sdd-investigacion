@@ -47,29 +47,29 @@ write_stub() {
 #    A silent clean run is the defect (#380 precedent) — sentinel MUST be emitted.
 write_stub 0 "Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged."
 OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -q 'Research-SDD tool catalog: clean (5 logged tools, 0 uncataloged).' \
+<<<"$OUT" grep -q 'Research-SDD tool catalog: clean (5 logged tools, 0 uncataloged).' \
   && ok "3 all-cataloged (0 not cataloged) → declared-clean sentinel emitted" \
   || no "3 all-cataloged → expected clean sentinel, got exit=$RC out=[$OUT]"
 
 # 4. Emits drift when not-cataloged > 0.
 write_stub 0 "$(printf 'WARN  installed-but-not-cataloged: '\''typst'\'' is logged...\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
 OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'not cataloged' \
-  && printf '%s\n' "$OUT" | grep -qi 'Summary' \
+<<<"$OUT" grep -qi 'not cataloged' \
+  && <<<"$OUT" grep -qi 'Summary' \
   && ok "4 not-cataloged > 0 → emits drift summary" \
   || no "4 not-cataloged > 0 → expected drift summary (exit=$RC out=[$OUT])"
 
 # 5. Operational failure (guard exits non-zero) → error banner, not silence.
 write_stub 1 "verify-tool-catalog: ERROR — cannot find INSTALLED-TOOLS.md (absent-input)"
 OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
+<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
   && ok "5 guard failure (rc=1) → error banner emitted" \
   || no "5 guard failure → expected error banner (exit=$RC out=[$OUT])"
 
 # 6. Anti-silent-zero: guard exits 0 but emits no Summary AND no empty-input sentence → warning.
 write_stub 0 "some unexpected garbage with no Summary line"
 OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'missing summary\|unexpected' \
+<<<"$OUT" grep -qi 'missing summary\|unexpected' \
   && ok "6 missing Summary line (not empty-input) → anti-silent-zero warning emitted" \
   || no "6 missing Summary line → expected warning, got exit=$RC out=[$OUT]"
 
@@ -92,7 +92,7 @@ STUB_VTCH8
 chmod +x "$_stub_vtch8/grep"
 write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
 OUT_VTCH8="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC_VTCH8=$?
-printf '%s\n' "$OUT_VTCH8" | grep -qiE 'WARN-line extraction failed|grep exit' \
+<<<"$OUT_VTCH8" grep -qiE 'WARN-line extraction failed|grep exit' \
   && ok "8 WARN-line extraction grep exit-2 → failure notice in output" \
   || no "8 WARN-line extraction grep exit-2 not reported (exit=$RC_VTCH8 out=[$OUT_VTCH8])"
 
@@ -128,7 +128,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   write_stub 0 "$(printf 'Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged.')"
   cp "$TMP/mutant-hook-c.sh" "$TMP/verify-tool-catalog-hook.sh"
   MUTANT_OUT_C="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT_C" | grep -q 'Research-SDD tool catalog: clean'; then
+  if ! <<<"$MUTANT_OUT_C" grep -q 'Research-SDD tool catalog: clean'; then
     ok "teeth C: clean-silent mutant omits sentinel → test 3 would catch it (RED)"
   else
     no "teeth C: mutant still emits clean sentinel — tooth has no bite"
@@ -144,7 +144,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     > "$TMP/verify-tool-catalog.sh"
   cp "$mutant_vtch_b" "$TMP/verify-tool-catalog-hook.sh"
   out_vtch8m="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"
-  printf '%s\n' "$out_vtch8m" | grep -qiE 'WARN-line extraction failed|grep exit' \
+  <<<"$out_vtch8m" grep -qiE 'WARN-line extraction failed|grep exit' \
     && no "teeth B: rc-zeroed mutant still emitted notice — test 8 is THEATER" \
     || ok "teeth B: rc-zeroed mutant passes silently — extraction guard has teeth"
 fi

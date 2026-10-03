@@ -118,7 +118,7 @@ runenv() {
   OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$json" STUB_PR_HEAD="$prh" STUB_PR_BASE="$PRB" STUB_MERGE_RC="$mrc" STUB_LOG="$ROOT/log" bash "$sut" "$@" 2>"$ROOT/err")"; RC=$?
 }
 expect() { # expect <label> <rc> <regex-on-stdout>
-  if [ "$RC" -eq "$2" ] && printf '%s' "$OUT" | grep -Eq "$3"; then ok "$1"
+  if [ "$RC" -eq "$2" ] && <<<"$OUT" grep -Eq "$3"; then ok "$1"
   else no "$1 (rc=$RC want $2; out: $OUT)"; fi
 }
 ARGS=(--cwd "$REPO" --base-ref base)
@@ -245,7 +245,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: untracked files require an explicit declaration" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
   expect "N5 own hint to clean or ignore untracked files" 3 'clean or ignore untracked files'
   OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: something else" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  if [ "$RC" -eq 3 ] && ! printf '%s' "$OUT" | grep -q 'untracked'; then ok "N5 no untracked hint on unrelated assess errors"; else no "N5 hint leaked ($OUT)"; fi
+  if [ "$RC" -eq 3 ] && ! <<<"$OUT" grep -q 'untracked'; then ok "N5 no untracked hint on unrelated assess errors"; else no "N5 hint leaked ($OUT)"; fi
   # teeth gaps: --merge without gh, gh pr view failing, unborn HEAD, mktemp failure
   mkminimal "$ROOT/nogh" git jq bash env cat dirname mktemp rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nogh/"
   OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
@@ -267,7 +267,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   expect "F2 pure run says range-only / not bound to a PR" 0 'allow: passive .*\(range-only; not bound to a PR — use --pr N or --merge N\)'
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
   expect "F2 --pr allow is PR-bound" 0 'allow: passive .*\(bound to PR #7'
-  if ! printf '%s' "$OUT" | grep -q 'range-only'; then ok "F2 --pr allow does not claim range-only"; else no "F2 --pr line still range-only ($OUT)"; fi
+  if ! <<<"$OUT" grep -q 'range-only'; then ok "F2 --pr allow does not claim range-only"; else no "F2 --pr line still range-only ($OUT)"; fi
   if grep -q '^gh api ' "$ROOT/log" && ! grep -q 'pr merge' "$ROOT/log"; then ok "F2 --pr reads the PR but never merges"; else no "F2 --pr gh calls ($(cat "$ROOT/log"))"; fi
   case "$OUT" in *merged:*) no "F2 --pr printed merged";; *) ok "F2 --pr prints no merged line";; esac
   : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --pr 7
@@ -465,12 +465,12 @@ sc_cwd_not_repo()   { run "$1" "$ROOT/j/passive.json" --cwd "$ROOT/not-a-repo" -
 tooth() {
   local name="$1" expr="$2" sc="$3" grc="$4" gre="$5" brc="$6" bre="$7" mut="$MD/$1.sh" rcm
   "$sc" "$SUT"
-  if [ "$RC" -ne "$grc" ] || ! printf '%s' "$OUT" | grep -Eq "$gre"; then
+  if [ "$RC" -ne "$grc" ] || ! <<<"$OUT" grep -Eq "$gre"; then
     echo "  FAIL(mut)  $name: original gave rc=$RC out=[$OUT], wanted rc=$grc /$gre/"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
   mutant_sed "$SUT" "$mut" "$expr"; rcm=$?
   if [ "$rcm" -ne 0 ]; then echo "  FAIL(mut)  $name: mutant refused (rc=$rcm)"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
   chmod +x "$mut"; "$sc" "$mut"
-  if [ "$RC" -eq "$brc" ] && printf '%s' "$OUT" | grep -Eq "$bre"; then
+  if [ "$RC" -eq "$brc" ] && <<<"$OUT" grep -Eq "$bre"; then
     echo "  PASS(mut)  $name: good rc=$grc -> mutant rc=$RC"; MUT_PASS=$((MUT_PASS+1))
   else echo "  FAIL(mut)  $name: mutant gave rc=$RC out=[$OUT], wanted rc=$brc /$bre/"; MUT_FAIL=$((MUT_FAIL+1)); fi
 }

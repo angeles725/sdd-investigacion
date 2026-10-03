@@ -61,7 +61,7 @@ if TEST_ROOT="$ROOT" RECORD="$ROOT/b3.args" "$SUT" ghidra "$INPUT" "$ROOT/out/b3
     _ps_val="$(sed -n '/^-postScript$/{n; p; q}' "$ROOT/b3.args")"
     _sp_val="$(sed -n '/^-scriptPath$/{n; p; q}' "$ROOT/b3.args")"
     if [ "$_ps_val" = "MyScript.java" ] \
-      && printf '%s\n' "$_sp_val" | grep -Fq -- "$ROOT/scripts"; then
+      && <<<"$_sp_val" grep -Fq -- "$ROOT/scripts"; then
       ok "B3: -postScript gets basename; caller dir is on -scriptPath"
     else
       no "B3: -postScript='$_ps_val' -scriptPath='$_sp_val' (want basename + caller dir)"
@@ -196,8 +196,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # M7 guard: on a tool-less PATH the quick-mode guard must emit SKIP (not FAIL).
   # M7 mutation: removing `else` puts the run inside the then-block, so it fires when
   # tools are absent and the SUT exits 127 (set -euo pipefail + file missing) → FAIL.
-  if printf '%s\n' "$_out" | grep -qF '  SKIP  quick mode' \
-     && ! printf '%s\n' "$_out" | grep -qF '  FAIL  quick mode'; then
+  if <<<"$_out" grep -qF '  SKIP  quick mode' \
+     && ! <<<"$_out" grep -qF '  FAIL  quick mode'; then
     ok "M7-base: clean-PATH run emits SKIP (not FAIL) for quick mode — guard working"
   else
     no "M7-base: quick mode did not emit SKIP-only in clean-PATH run — guard absent or broken"
@@ -210,7 +210,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$HERE/decompile-native.test.sh" > "$_m7"
   chmod +x "$_m7"
   _m7out="$(PATH="$_clean" bash "$_m7" 2>&1)"
-  if printf '%s\n' "$_m7out" | grep -qF '  FAIL  quick mode'; then
+  if <<<"$_m7out" grep -qF '  FAIL  quick mode'; then
     ok "M7-killed: else-removed mutant FAILs quick mode on tool-less PATH — M7 detected"
   else
     no "M7-killed: mutant did not FAIL quick mode on tool-less PATH — M7 survived (THEATER)"
@@ -324,9 +324,9 @@ if ! command -v file >/dev/null 2>&1; then
     echo "  SKIP  M11 (tools unavailable: missing file)"
 fi
 ')
-  if printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M9' \
-     && printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M10' \
-     && printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M11'; then
+  if <<<"$_guard_out" grep -qF '  SKIP  M9' \
+     && <<<"$_guard_out" grep -qF '  SKIP  M10' \
+     && <<<"$_guard_out" grep -qF '  SKIP  M11'; then
     ok "M9/M10/M11-guard: absent file/strings → SKIP emitted (no false kill possible)"
   else
     no "M9/M10/M11-guard: absent tools did not emit expected SKIPs — guard broken"
@@ -419,7 +419,7 @@ _pdb_src="$ROOT/target.pdb"; printf 'PDB-placeholder\n' >"$_pdb_src"
 GHIDRA_MAXMEM="" RECORD="$ROOT/pdb1.args" TEST_ROOT="$ROOT" \
   bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/pdb1" --pdb "$_pdb_src" >/dev/null 2>&1
 _pdb1_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb1.args" 2>/dev/null)"
-printf '%s\n' "$_pdb1_import" | grep -q 'pdb-stage' \
+<<<"$_pdb1_import" grep -q 'pdb-stage' \
   && ok "PDB1: --pdb caused binary to be imported from pdb-stage/ subdirectory" \
   || no "PDB1: import path '${_pdb1_import:-<empty>}' not under pdb-stage (staging not implemented)"
 _pdb1_staged="$ROOT/out/pdb1/pdb-stage/$(basename "$_pdb_src")"
@@ -431,7 +431,7 @@ _pdb1_staged="$ROOT/out/pdb1/pdb-stage/$(basename "$_pdb_src")"
 GHIDRA_MAXMEM="" RECORD="$ROOT/pdb2.args" TEST_ROOT="$ROOT" \
   bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/pdb2" >/dev/null 2>&1
 _pdb2_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb2.args" 2>/dev/null)"
-printf '%s\n' "$_pdb2_import" | grep -q 'pdb-stage' \
+<<<"$_pdb2_import" grep -q 'pdb-stage' \
   && no "PDB2: import path contains 'pdb-stage' even without --pdb" \
   || ok "PDB2: without --pdb, binary imported directly (no pdb-stage)"
 
@@ -461,7 +461,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     GHIDRA_MAXMEM="" RECORD="$ROOT/pdb1-mut.args" TEST_ROOT="$ROOT" \
       bash "$_pdb1_mut" ghidra "$INPUT" "$ROOT/out/pdb1-mut" --pdb "$_pdb_src" >/dev/null 2>&1
     _pdb1_mut_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb1-mut.args" 2>/dev/null)"
-    printf '%s\n' "$_pdb1_mut_import" | grep -q 'pdb-stage' \
+    <<<"$_pdb1_mut_import" grep -q 'pdb-stage' \
       && no "teeth-pdb1: mutant still uses pdb-stage path — PDB1 import check has no teeth (THEATER)" \
       || ok "teeth-pdb1: mutant import path '${_pdb1_mut_import}' not under pdb-stage — PDB1 detection confirmed"
   fi
