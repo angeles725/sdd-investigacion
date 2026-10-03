@@ -46,7 +46,7 @@ fi
 
 # 2. Usage errors
 run; [ "$RC" -eq 2 ] && ok "2a no arguments -> exit 2" || no "2a no arguments (rc=$RC)"
-run --bogus "$FX/r3-first.md"; [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'unknown option' \
+run --bogus "$FX/r3-first.md"; [ "$RC" -eq 2 ] && grep -qF 'unknown option' <<< "$OUT" \
   && ok "2b unknown option -> exit 2" || no "2b unknown option (rc=$RC out=[$OUT])"
 
 # 3. R3 at FIRST / MIDDLE / LAST / SINGLE row positions: exact line of the ROW-BAD row, rc 1
@@ -60,8 +60,8 @@ done
 # 4. R3 negatives: durable / mixed / file:line / block ref / non-hardware marker / no path -> clean,
 #    AND the coverage counter proves the rows were looked at (6 rows, 5 carry cert-hw/live markers).
 run "$FX/r3-clean.md"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'NO-MATCH' && printf '%s' "$OUT" | grep -qF 'cert-hw-live-items=5' \
-   && printf '%s' "$OUT" | grep -qF 'selfverify-sections=1'; then
+if [ "$RC" -eq 0 ] && grep -qF 'NO-MATCH' <<< "$OUT" && grep -qF 'cert-hw-live-items=5' <<< "$OUT" \
+   && grep -qF 'selfverify-sections=1' <<< "$OUT"; then
   ok "4 R3 clean fixture -> exit 0, NO-MATCH, coverage counters prove rows were inspected"
 else no "4 R3 clean fixture (rc=$RC out=[$OUT])"; fi
 
@@ -85,13 +85,13 @@ run "$FX/r6-edges.md"; want="$(lines_of FIRST-LINE-BAD "$FX/r6-edges.md") $(line
 run "$FX/r6-single.md"
 [ "$RC" -eq 1 ] && [ "$(reported R6 "$OUT" "$FX/r6-single.md")" = "1" ] && ok "6c R6 single-line file flagged at line 1" || no "6c R6 single (rc=$RC out=[$OUT])"
 run "$FX/r6-clean.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'r6-trigger-clauses=2' && ok "6d R6 cleared by a cited raw path; both trigger clauses were counted (looked at)" || no "6d R6 clean (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'r6-trigger-clauses=2' <<< "$OUT" && ok "6d R6 cleared by a cited raw path; both trigger clauses were counted (looked at)" || no "6d R6 clean (rc=$RC out=[$OUT])"
 run "$FX/r6-split.md"
 [ "$RC" -eq 0 ] && ok "6e R6: block ref and 'does not mention' in DIFFERENT clauses is not a finding" || no "6e R6 split (rc=$RC out=[$OUT])"
 
 printf '# Block 19 — synthetic\n\nNote the flag ([Block 429]) is filtered out of the sheet \xe2\x80\x94 wire layout never shows as a property.\n\n[Block 5] is cited here as provenance for a long and unrelated explanation that goes on well past the allowed distance before this block never mentions anything.\n' > "$TMP/r6-dash.md"
 run "$TMP/r6-dash.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'r6-trigger-clauses=0' && ok "6f R6: verdict separated from [Block N] by a dash / by >80 chars is NOT a comparison claim" || no "6f R6 dash/distance (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'r6-trigger-clauses=0' <<< "$OUT" && ok "6f R6: verdict separated from [Block N] by a dash / by >80 chars is NOT a comparison claim" || no "6f R6 dash/distance (rc=$RC out=[$OUT])"
 
 printf '# Block 20 — synthetic\n\n[Block 55]%ss own probe (quoted in full, [Block 55] \xc2\xa755.2) does not mention the warning. DOT-BAD\n' "'" > "$TMP/r6-dot.md"
 run "$TMP/r6-dot.md"
@@ -105,7 +105,7 @@ if [ "$RC" -eq 1 ] && [ "$(reported R0 "$OUT" "$FX/waiver-noreason.md")" = "$wan
   ok "7b waiver without reason / empty reason -> R0 finding AND the original R3 still fires (fail closed)"
 else no "7b no-reason (rc=$RC want=[$want] out=[$OUT])"; fi
 run "$FX/waiver-malformed.md"
-[ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE '^R0 .*waiver names no rule id' && ok "7c malformed waiver (no rule id) -> R0" || no "7c malformed (rc=$RC out=[$OUT])"
+[ "$RC" -eq 1 ] && grep -qE '^R0 .*waiver names no rule id' <<< "$OUT" && ok "7c malformed waiver (no rule id) -> R0" || no "7c malformed (rc=$RC out=[$OUT])"
 run "$FX/waiver-wrongrule.md"
 [ "$RC" -eq 1 ] && [ "$(reported R3 "$OUT" "$FX/waiver-wrongrule.md")" = "$(lines_of ROW-BAD "$FX/waiver-wrongrule.md")" ] && ok "7d a waiver for a DIFFERENT rule does not waive R3" || no "7d wrong rule (rc=$RC out=[$OUT])"
 run "$FX/waiver-adjacent.md"
@@ -113,60 +113,60 @@ run "$FX/waiver-adjacent.md"
 
 # 8. Typed states in FAIL mode
 run "$FX/empty.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'EMPTY-INPUT' && printf '%s' "$OUT" | grep -qF 'empty=1' && ok "8a empty file -> EMPTY-INPUT (not NO-MATCH), exit 0" || no "8a empty (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && grep -qF 'empty=1' <<< "$OUT" && ok "8a empty file -> EMPTY-INPUT (not NO-MATCH), exit 0" || no "8a empty (rc=$RC out=[$OUT])"
 run "$FX/blank.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'EMPTY-INPUT' && ok "8b whitespace-only file -> EMPTY-INPUT" || no "8b blank (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8b whitespace-only file -> EMPTY-INPUT" || no "8b blank (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'ABSENT-INPUT' && ok "8c absent file -> ABSENT-INPUT, exit 2" || no "8c absent (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'ABSENT-INPUT' <<< "$OUT" && ok "8c absent file -> ABSENT-INPUT, exit 2" || no "8c absent (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md" "$FX/r3-first.md"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'ABSENT-INPUT' && printf '%s' "$OUT" | grep -qE '^R3 .*r3-first.md' && ok "8d absent + good file: the good file is still linted, final exit stays 2" || no "8d absent+good (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'ABSENT-INPUT' <<< "$OUT" && grep -qE '^R3 .*r3-first.md' <<< "$OUT" && ok "8d absent + good file: the good file is still linted, final exit stays 2" || no "8d absent+good (rc=$RC out=[$OUT])"
 printf 'bad \377\376 bytes\n' > "$TMP/bad-utf8.md"
 run "$TMP/bad-utf8.md" "$FX/r3-first.md"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'UNREADABLE' && printf '%s' "$OUT" | grep -qE '^R3 .*r3-first.md' && ok "8e undecodable file -> UNREADABLE, exit 2, other files still linted" || no "8e unreadable (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'UNREADABLE' <<< "$OUT" && grep -qE '^R3 .*r3-first.md' <<< "$OUT" && ok "8e undecodable file -> UNREADABLE, exit 2, other files still linted" || no "8e unreadable (rc=$RC out=[$OUT])"
 run "$FX/corpus"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'is a directory' && ok "8f directory in FAIL mode -> exit 2 (corpora need --audit)" || no "8f dir in FAIL (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'is a directory' <<< "$OUT" && ok "8f directory in FAIL mode -> exit 2 (corpora need --audit)" || no "8f dir in FAIL (rc=$RC out=[$OUT])"
 
 # 9. Multi-file FAIL mode reports every file
 run "$FX/r3-first.md" "$FX/r3-last.md" "$FX/r6-single.md"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE '^R3 .*r3-first.md' && printf '%s' "$OUT" | grep -qE '^R3 .*r3-last.md' \
-   && printf '%s' "$OUT" | grep -qE '^R6 .*r6-single.md' && printf '%s' "$OUT" | grep -qF 'files=3'; then
+if [ "$RC" -eq 1 ] && grep -qE '^R3 .*r3-first.md' <<< "$OUT" && grep -qE '^R3 .*r3-last.md' <<< "$OUT" \
+   && grep -qE '^R6 .*r6-single.md' <<< "$OUT" && grep -qF 'files=3' <<< "$OUT"; then
   ok "9 multi-file FAIL run reports every file's findings and files=3"
 else no "9 multi-file (rc=$RC out=[$OUT])"; fi
 
 # 10. --audit: report-only over a corpus directory
 run --audit "$FX/corpus"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=3 ' && printf '%s' "$OUT" | grep -qF 'R3=2' \
-   && printf '%s' "$OUT" | grep -qF 'R6=1' && printf '%s' "$OUT" | grep -qF 'findings=3' \
-   && ! printf '%s' "$OUT" | grep -qE '^R[036] .*notes.md' && printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED: 1'; then
+if [ "$RC" -eq 0 ] && grep -qF 'SUMMARY AUDIT files=3 ' <<< "$OUT" && grep -qF 'R3=2' <<< "$OUT" \
+   && grep -qF 'R6=1' <<< "$OUT" && grep -qF 'findings=3' <<< "$OUT" \
+   && ! grep -qE '^R[036] .*notes.md' <<< "$OUT" && grep -qF 'UNCLASSIFIED: 1' <<< "$OUT"; then
   ok "10a --audit corpus: exit 0 with findings, nested bloque file found, decoy notes.md never scanned but reported UNCLASSIFIED (files=3 R3=2 R6=1)"
 else no "10a audit corpus (rc=$RC out=[$OUT])"; fi
 run --audit "$FX/corpus-empty"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'has no canonical block files' && ! printf '%s' "$OUT" | grep -qF 'NO-MATCH' && ok "10b --audit dir with no block files -> EMPTY-INPUT (distinct from NO-MATCH), exit 0" || no "10b audit empty (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'has no canonical block files' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "10b --audit dir with no block files -> EMPTY-INPUT (distinct from NO-MATCH), exit 0" || no "10b audit empty (rc=$RC out=[$OUT])"
 run --audit "$FX/corpus-nomatch"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'NO-MATCH' && printf '%s' "$OUT" | grep -qF 'files=1 ' && ok "10c --audit clean corpus -> NO-MATCH with files=1 (looked, found nothing)" || no "10c audit nomatch (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'NO-MATCH' <<< "$OUT" && grep -qF 'files=1 ' <<< "$OUT" && ok "10c --audit clean corpus -> NO-MATCH with files=1 (looked, found nothing)" || no "10c audit nomatch (rc=$RC out=[$OUT])"
 run --audit "$TMP/no-such-dir"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'ABSENT-INPUT' && ok "10d --audit absent path -> ABSENT-INPUT, exit 2" || no "10d audit absent (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'ABSENT-INPUT' <<< "$OUT" && ok "10d --audit absent path -> ABSENT-INPUT, exit 2" || no "10d audit absent (rc=$RC out=[$OUT])"
 run --audit "$FX/r3-first.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE '^R3 ' && ok "10e --audit on a single file reports findings, still exit 0" || no "10e audit file (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qE '^R3 ' <<< "$OUT" && ok "10e --audit on a single file reports findings, still exit 0" || no "10e audit file (rc=$RC out=[$OUT])"
 mkdir -p "$TMP/.claude/wt" "$TMP/pruned/node_modules/m" "$TMP/pruned/.claude"
 cp -R "$FX/corpus" "$TMP/.claude/wt/corpus"
 cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned/node_modules/m/vendored-block1.md"
 cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned/.claude/hidden-block2.md"
 cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned/real-block3.md"
 run --audit "$TMP/.claude/wt/corpus"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=3 ' \
+[ "$RC" -eq 0 ] && grep -qF 'SUMMARY AUDIT files=3 ' <<< "$OUT" \
   && ok "10g corpus living UNDER a .claude/ ancestor is still scanned (prune is by basename below the root)" || no "10g .claude ancestor (rc=$RC out=[$OUT])"
 run --audit "$TMP/pruned"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=1 ' \
+[ "$RC" -eq 0 ] && grep -qF 'SUMMARY AUDIT files=1 ' <<< "$OUT" \
   && ok "10h node_modules/ and .claude/ SUBTREES below the root are pruned (files=1)" || no "10h prune (rc=$RC out=[$OUT])"
 run "$FX/corpus-nomatch/demo-block1.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY LINT' && ok "10f FAIL mode on a clean block -> exit 0, SUMMARY LINT" || no "10f fail clean (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'SUMMARY LINT' <<< "$OUT" && ok "10f FAIL mode on a clean block -> exit 0, SUMMARY LINT" || no "10f fail clean (rc=$RC out=[$OUT])"
 
 # 11. DEGRADED: no python3 on PATH -> exit 2, never a clean pass
 mkdir -p "$TMP/nopy-bin"
 for t in dirname mktemp rm cat find sort grep sed; do p="$(command -v "$t")" && ln -sf "$p" "$TMP/nopy-bin/$t"; done
 OUT="$(PATH="$TMP/nopy-bin" "$BASH" "$SUT" "$FX/r3-first.md" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'DEGRADED' && ok "11 python3 absent -> DEGRADED, exit 2 (not a confident 0)" || no "11 degraded (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'DEGRADED' <<< "$OUT" && ok "11 python3 absent -> DEGRADED, exit 2 (not a confident 0)" || no "11 degraded (rc=$RC out=[$OUT])"
 
 # 12. Read-only: a linting run leaves the fixture tree byte-identical
 before="$(cd "$FX" && find . -type f -print0 | sort -z | xargs -0 sha1sum | sha1sum)"
@@ -183,7 +183,7 @@ OUT="$(python3 "$HELPER" --files-from /etc/hostname 2>&1)"; RC=$?
 run "$FX/r3-slashtokens.md"; want="$(lines_of ROW-BAD "$FX/r3-slashtokens.md")"; got="$(reported R3 "$OUT" "$FX/r3-slashtokens.md")"
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "14a ephemeral-only rows with binary/sha256, 3/3, N/A, and/or, bare out.txt:12, [Block 12]/B12 are ALL flagged ($want)" || no "14a slash tokens (rc=$RC want=[$want] got=[$got])"
 run "$FX/r3-durable2.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'cert-hw-live-items=5' && ok "14b path-shaped durable forms (dir/, 3 segments, dir+file:line, canonical block file, dir+ext) clear an ephemeral row" || no "14b durable forms (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'cert-hw-live-items=5' <<< "$OUT" && ok "14b path-shaped durable forms (dir/, 3 segments, dir+file:line, canonical block file, dir+ext) clear an ephemeral row" || no "14b durable forms (rc=$RC out=[$OUT])"
 run "$FX/r3-hyphen.md"; want="$(lines_of ROW-BAD "$FX/r3-hyphen.md")"; got="$(reported R3 "$OUT" "$FX/r3-hyphen.md")"
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "14c U+2011 hyphen in 'Self-verify' and in the marker, lower-case [cert-hw] are recognised ($want)" || no "14c hyphen variants (rc=$RC want=[$want] got=[$got])"
 run "$FX/r3-quoted.md"; want="$(lines_of ROW-BAD "$FX/r3-quoted.md")"; got="$(reported R3 "$OUT" "$FX/r3-quoted.md")"
@@ -191,11 +191,11 @@ run "$FX/r3-quoted.md"; want="$(lines_of ROW-BAD "$FX/r3-quoted.md")"; got="$(re
 run "$FX/r3-tilde.md"
 [ "$RC" -eq 0 ] && ok "14e ~~~ fenced table is skipped" || no "14e tilde fence (rc=$RC out=[$OUT])"
 run "$FX/r3-fence-mismatch.md"
-[ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -qF 'WARN' && ok "14f a ~~~ line does not close a \`\`\` fence (CommonMark); no spurious WARN" || no "14f fence mismatch (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && ! grep -qF 'WARN' <<< "$OUT" && ok "14f a ~~~ line does not close a \`\`\` fence (CommonMark); no spurious WARN" || no "14f fence mismatch (rc=$RC out=[$OUT])"
 run "$FX/r3-unclosed.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE '^WARN .*r3-unclosed.md:5: unclosed' && printf '%s' "$OUT" | grep -qF 'warn=1' && ok "14g unclosed fence -> WARN with its line (5) and warn=1 in SUMMARY, not a silent skip" || no "14g unclosed fence (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qE '^WARN .*r3-unclosed.md:5: unclosed' <<< "$OUT" && grep -qF 'warn=1' <<< "$OUT" && ok "14g unclosed fence -> WARN with its line (5) and warn=1 in SUMMARY, not a silent skip" || no "14g unclosed fence (rc=$RC out=[$OUT])"
 run "$FX/r3-header.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'cert-hw-live-items=1' && ok "14h a table HEADER row carrying marker text is not inspected as an item (items=1)" || no "14h header row (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'cert-hw-live-items=1' <<< "$OUT" && ok "14h a table HEADER row carrying marker text is not inspected as an item (items=1)" || no "14h header row (rc=$RC out=[$OUT])"
 run "$FX/r3-hashtag.md"; want="$(lines_of ROW-BAD "$FX/r3-hashtag.md")"; got="$(reported R3 "$OUT" "$FX/r3-hashtag.md")"
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "14i '#1 priority' is not a heading: the Self-verify section continues past it" || no "14i hashtag (rc=$RC want=[$want] got=[$got])"
 run "$FX/waiver-fenced.md"
@@ -204,7 +204,7 @@ run "$FX/waiver-alias.md"; want="$(lines_of ROW-BAD "$FX/waiver-alias.md")"
 [ "$RC" -eq 1 ] && [ "$(reported R3 "$OUT" "$FX/waiver-alias.md")" = "$want" ] && [ "$(reported R0 "$OUT" "$FX/waiver-alias.md")" = "$want" ] \
   && ok "14k reference alias <!-- lint-ok: R3 reason --> waives with a reason; without one: R0 + R3 still fires" || no "14k alias (rc=$RC out=[$OUT])"
 run "$FX/waiver-unknown.md"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R99' && printf '%s' "$OUT" | grep -qE '^R0 .*upper-case' \
+if [ "$RC" -eq 1 ] && grep -qE '^R0 .*unknown rule R99' <<< "$OUT" && grep -qE '^R0 .*upper-case' <<< "$OUT" \
    && [ "$(reported R3 "$OUT" "$FX/waiver-unknown.md")" = "$(lines_of LOW-BAD "$FX/waiver-unknown.md")" ]; then
   ok "14l waiver for an unknown rule id -> R0; lower-case id -> R0 'upper-case' and does not waive"
 else no "14l unknown/lower waiver (rc=$RC out=[$OUT])"; fi
@@ -212,39 +212,39 @@ run "$FX/r6-verbs.md"; want="$(lines_of -BAD "$FX/r6-verbs.md")"; got="$(reporte
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "14m R6 verb forms: never mentioned / did not cite / never references / do not include / didn't show" || no "14m R6 verbs (rc=$RC want=[$want] got=[$got])"
 mkdir -p "$TMP/nolib"; cp "$SUT" "$HELPER" "$TMP/nolib/"
 OUT="$(bash "$TMP/nolib/lint-block.sh" "$FX/r3-first.md" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'block_file_filter' && ok "14n failed load of lib/block-files.sh -> exit 2 (never 1 = findings)" || no "14n lib load failure (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'block_file_filter' <<< "$OUT" && ok "14n failed load of lib/block-files.sh -> exit 2 (never 1 = findings)" || no "14n lib load failure (rc=$RC out=[$OUT])"
 run --audit "$FX/corpus-unclassified"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED: 2' && printf '%s' "$OUT" | grep -qF 'notes.md' && printf '%s' "$OUT" | grep -qF 'files=1 ' \
+[ "$RC" -eq 0 ] && grep -qF 'UNCLASSIFIED: 2' <<< "$OUT" && grep -qF 'notes.md' <<< "$OUT" && grep -qF 'files=1 ' <<< "$OUT" \
   && ok "14o --audit reports non-canonical .md files as UNCLASSIFIED: 2 (with paths), not silently dropped" || no "14o unclassified (rc=$RC out=[$OUT])"
 run --audit "$FX/corpus-empty"
-printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED: 1' && printf '%s' "$OUT" | grep -qF 'has no canonical block files' && ok "14p block-less dir: EMPTY-INPUT plus UNCLASSIFIED: 1" || no "14p empty+unclassified (rc=$RC out=[$OUT])"
+grep -qF 'UNCLASSIFIED: 1' <<< "$OUT" && grep -qF 'has no canonical block files' <<< "$OUT" && ok "14p block-less dir: EMPTY-INPUT plus UNCLASSIFIED: 1" || no "14p empty+unclassified (rc=$RC out=[$OUT])"
 run "$FX/r3-prose.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'cert-hw-live-items=1' && ok "14q prose paragraph that merely MENTIONS a marker and a /tmp path is not an item (only table rows / list items are); the real bullet is counted" || no "14q prose (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'cert-hw-live-items=1' <<< "$OUT" && ok "14q prose paragraph that merely MENTIONS a marker and a /tmp path is not an item (only table rows / list items are); the real bullet is counted" || no "14q prose (rc=$RC out=[$OUT])"
 run "$FX/waiver-reserved.md"
 if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | grep -cE '^INFO .*waiver for inactive pack rule R(9|1) \(not enforced by the generic core\)')" = "2" ] \
-   && printf '%s' "$OUT" | grep -qF 'inactive-waivers=2' && printf '%s' "$OUT" | grep -qF 'findings=0'; then
+   && grep -qF 'inactive-waivers=2' <<< "$OUT" && grep -qF 'findings=0' <<< "$OUT"; then
   ok "15a waivers naming RESERVED pack rule ids (R9, R1 alias) are INFO, not R0: exit 0, inactive-waivers=2"
 else no "15a reserved waivers (rc=$RC out=[$OUT])"; fi
 run "$FX/waiver-reserved-bad.md"; want="$(lines_of BAD "$FX/waiver-reserved-bad.md")"
-if [ "$RC" -eq 1 ] && [ "$(reported R0 "$OUT" "$FX/waiver-reserved-bad.md")" = "$want" ] && printf '%s' "$OUT" | grep -qF 'inactive-waivers=0' \
-   && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R99' && printf '%s' "$OUT" | grep -qE '^R0 .*unknown rule R10'; then
+if [ "$RC" -eq 1 ] && [ "$(reported R0 "$OUT" "$FX/waiver-reserved-bad.md")" = "$want" ] && grep -qF 'inactive-waivers=0' <<< "$OUT" \
+   && grep -qE '^R0 .*unknown rule R99' <<< "$OUT" && grep -qE '^R0 .*unknown rule R10' <<< "$OUT"; then
   ok "15b unknown ids (R99, R10), a reason-less reserved waiver and a lower-case reserved id all stay R0 (4 findings, inactive-waivers=0)"
 else no "15b reserved-bad (rc=$RC want=[$want] out=[$OUT])"; fi
 run "$FX/r6-code.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'r6-trigger-clauses=0' && ok "16a R6: 'never references/referenced' (code sense: constant, API) is NOT a comparison claim" || no "16a R6 code sense (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'r6-trigger-clauses=0' <<< "$OUT" && ok "16a R6: 'never references/referenced' (code sense: constant, API) is NOT a comparison claim" || no "16a R6 code sense (rc=$RC out=[$OUT])"
 run "$FX/r3-words.md"; want="$(lines_of ROW-BAD "$FX/r3-words.md")"; got="$(reported R3 "$OUT" "$FX/r3-words.md")"
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "16b R3: read/write/execute, N4.14/N5.0 (digit-only extension) and runs/3.14 do not clear a row ($want)" || no "16b word tokens (rc=$RC want=[$want] got=[$got])"
 run "$FX/r3-fence-short.md"
-[ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -qF 'WARN' && ok "16c a closing fence SHORTER than its opener does not close it (4-backtick fence holds a 3-backtick line)" || no "16c short closer (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && ! grep -qF 'WARN' <<< "$OUT" && ok "16c a closing fence SHORTER than its opener does not close it (4-backtick fence holds a 3-backtick line)" || no "16c short closer (rc=$RC out=[$OUT])"
 mkdir -p "$TMP/pruned2/.venv" "$TMP/pruned2/venv" "$TMP/pruned2/lib/site-packages" "$TMP/pruned2/.atl"
 for d in .venv venv lib/site-packages .atl; do cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned2/$d/vendored-block1.md"; printf '# n\n' > "$TMP/pruned2/$d/notes.md"; done
 cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned2/real-block2.md"
 run --audit "$TMP/pruned2"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=1 ' && ! printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED' && ok "16d .venv, venv, site-packages and .atl subtrees are pruned: not scanned and not counted as UNCLASSIFIED" || no "16d tool-dir prune (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'SUMMARY AUDIT files=1 ' <<< "$OUT" && ! grep -qF 'UNCLASSIFIED' <<< "$OUT" && ok "16d .venv, venv, site-packages and .atl subtrees are pruned: not scanned and not counted as UNCLASSIFIED" || no "16d tool-dir prune (rc=$RC out=[$OUT])"
 
 # 17. Slice 2 (kit #1365 item 3): inline `[CERT-hw] (<ephemeral path>)` evidence OUTSIDE Self-verify
 run "$FX/r3-inline.md"; want="$(lines_of INLINE-BAD "$FX/r3-inline.md")"; got="$(reported R3 "$OUT" "$FX/r3-inline.md")"
-if [ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && printf '%s' "$OUT" | grep -qF 'cert-inline-items=10'; then
+if [ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && grep -qF 'cert-inline-items=10' <<< "$OUT"; then
   ok "17a inline marker + ephemeral-only parenthetical flagged on the exact lines ($want): paragraph, list item, table row, nested paren, last line; durable/no-path/no-group/later-aside negatives clear (incl. prose-only group); 10 groups inspected"
 else no "17a inline (rc=$RC want=[$want] got=[$got] out=[$OUT])"; fi
 run "$FX/r3-inline-single.md"
@@ -253,11 +253,11 @@ run "$FX/r3-inline-waived.md"; want="$(lines_of INLINE-BAD "$FX/r3-inline-waived
 [ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "17c inline R3: a valid waiver waives its paragraph; wrong-rule and reason-less waivers do not ($want)" || no "17c inline waiver (rc=$RC want=[$want] got=[$got] out=[$OUT])"
 run "$FX/r3-inline-selfverify.md"; got="$(reported R3 "$OUT" "$FX/r3-inline-selfverify.md")"
 want="$(lines_of ROW-BAD "$FX/r3-inline-selfverify.md") $(lines_of INLINE-BAD "$FX/r3-inline-selfverify.md")"
-[ "$RC" -eq 1 ] && [ "$got" = "$want" ] && printf '%s' "$OUT" | grep -qE 'cert-inline-items=1($| )' && ok "17d Self-verify rows/items reported once (no duplicate from the inline pass); Self-verify prose stays out of scope; only the unit outside the section is an inline hit ($want)" || no "17d no-dup (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+[ "$RC" -eq 1 ] && [ "$got" = "$want" ] && grep -qE 'cert-inline-items=1($| )' <<< "$OUT" && ok "17d Self-verify rows/items reported once (no duplicate from the inline pass); Self-verify prose stays out of scope; only the unit outside the section is an inline hit ($want)" || no "17d no-dup (rc=$RC want=[$want] got=[$got] out=[$OUT])"
 run "$FX/r3-inline-fenced.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE 'cert-inline-items=1($| )' && ok "17e inline marker inside a code fence is not linted; the real clean group is counted" || no "17e inline fenced (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qE 'cert-inline-items=1($| )' <<< "$OUT" && ok "17e inline marker inside a code fence is not linted; the real clean group is counted" || no "17e inline fenced (rc=$RC out=[$OUT])"
 run --audit "$FX/r3-inline.md"
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'R3=6' && ok "17f --audit over inline findings stays report-only (exit 0, R3=6)" || no "17f inline audit (rc=$RC out=[$OUT])"
+[ "$RC" -eq 0 ] && grep -qF 'R3=6' <<< "$OUT" && ok "17f --audit over inline findings stays report-only (exit 0, R3=6)" || no "17f inline audit (rc=$RC out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -385,7 +385,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # P: coverage counter neutered (looked-at proof lies)
   if tooth_build P lint_block.py 's#doc.cov\["cert_hw_live_items"\] += 1#doc.cov["cert_hw_live_items"] += 0#'; then
     mrun "$FX/r3-clean.md"
-    printf '%s' "$MOUT" | grep -qF 'cert-hw-live-items=5' && no "teeth P: counter mutant still reports 5 — THEATER" \
+    grep -qF 'cert-hw-live-items=5' <<< "$MOUT" && no "teeth P: counter mutant still reports 5 — THEATER" \
       || ok "teeth P: coverage counter neutered -> summary no longer proves rows were inspected -> case 4 has teeth"
   fi
   # Q: wrapper — absent path no longer fails
@@ -396,22 +396,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # R: wrapper — canonical block-file filter dropped -> decoy notes.md scanned
   if tooth_build R lint-block.sh 's#block_file_filter < "\$tmp/all" > "\$tmp/found"#cat < "$tmp/all" > "$tmp/found"#'; then
     mrun --audit "$FX/corpus"
-    printf '%s' "$MOUT" | grep -qF 'notes.md' && ok "teeth R: filter dropped -> decoy notes.md SCANNED -> case 10a has teeth" || no "teeth R: decoy not scanned — THEATER :: out=[$MOUT]"
+    grep -qF 'notes.md' <<< "$MOUT" && ok "teeth R: filter dropped -> decoy notes.md SCANNED -> case 10a has teeth" || no "teeth R: decoy not scanned — THEATER :: out=[$MOUT]"
   fi
   # S: wrapper — python3 probe disabled -> no DEGRADED report
   if tooth_build S lint-block.sh 's#command -v python3 >/dev/null 2>&1#command -v dirname >/dev/null 2>\&1#'; then
     MOUT="$(PATH="$TMP/nopy-bin" "$BASH" "$MT/lint-block.sh" "$FX/r3-first.md" 2>&1)"; MRC=$?
-    printf '%s' "$MOUT" | grep -qF 'DEGRADED' && no "teeth S: probe mutant still reports DEGRADED — THEATER" || ok "teeth S: python3 probe disabled -> no DEGRADED signal -> case 11 has teeth"
+    grep -qF 'DEGRADED' <<< "$MOUT" && no "teeth S: probe mutant still reports DEGRADED — THEATER" || ok "teeth S: python3 probe disabled -> no DEGRADED signal -> case 11 has teeth"
   fi
   # U: wrapper — prune by absolute-path substring again -> a corpus under a .claude/ ancestor vanishes
   if tooth_build U lint-block.sh 's#-o -name \.claude#-o -path "*/.claude/*"#'; then
     mrun --audit "$TMP/.claude/wt/corpus"
-    printf '%s' "$MOUT" | grep -qF 'SUMMARY AUDIT files=3 ' && no "teeth U: substring prune mutant still scans the corpus — THEATER" || ok "teeth U: substring prune -> corpus under .claude/ silently skipped -> case 10g has teeth"
+    grep -qF 'SUMMARY AUDIT files=3 ' <<< "$MOUT" && no "teeth U: substring prune mutant still scans the corpus — THEATER" || ok "teeth U: substring prune -> corpus under .claude/ silently skipped -> case 10g has teeth"
   fi
   # V: wrapper — node_modules no longer pruned
   if tooth_build V lint-block.sh 's#-name node_modules -o ##'; then
     mrun --audit "$TMP/pruned"
-    printf '%s' "$MOUT" | grep -qF 'SUMMARY AUDIT files=1 ' && no "teeth V: node_modules mutant still reports files=1 — THEATER" || ok "teeth V: node_modules not pruned -> vendored block scanned -> case 10h has teeth"
+    grep -qF 'SUMMARY AUDIT files=1 ' <<< "$MOUT" && no "teeth V: node_modules mutant still reports files=1 — THEATER" || ok "teeth V: node_modules not pruned -> vendored block scanned -> case 10h has teeth"
   fi
   # ---- Review round 1 teeth ----
   # tooth_set NAME FILE SED FIXTURE RULE -> mutant must NOT report exactly the lines the suite
@@ -421,7 +421,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth_build "$name" "$file" "$expr" || return 0
     mrun "$fx"
     want="$(lines_of "$tag" "$fx")"; got="$(reported "$rule" "$MOUT" "$fx")"
-    if ! printf '%s' "$MOUT" | grep -qF 'SUMMARY'; then no "teeth $name: mutant crashed instead of linting (wrong-reason bite) :: out=[$MOUT]"
+    if ! grep -qF 'SUMMARY' <<< "$MOUT"; then no "teeth $name: mutant crashed instead of linting (wrong-reason bite) :: out=[$MOUT]"
     elif [ "$got" != "$want" ]; then ok "teeth $name: mutant reports [$got] instead of [$want] -> the exact-set assertion has teeth"
     else no "teeth $name: mutant still reports the asserted set [$want] — THEATER"; fi
   }
@@ -440,7 +440,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if tooth_build X2 lint_block.py 's#^    if open_ch is not None:#    if False:#'; then
     mrun "$FX/r3-unclosed.md"
-    printf '%s' "$MOUT" | grep -qF 'WARN' && no "teeth X2: mutant still warns — THEATER" || ok "teeth X2: unclosed-fence WARN removed -> hidden content is silent again -> case 14g has teeth"
+    grep -qF 'WARN' <<< "$MOUT" && no "teeth X2: mutant still warns — THEATER" || ok "teeth X2: unclosed-fence WARN removed -> hidden content is silent again -> case 14g has teeth"
   fi
   if tooth_build X3 lint_block.py 's#`{3,}|~{3,}#`{3,}#'; then
     mrun "$FX/r3-tilde.md"
@@ -459,7 +459,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth_set Z2 lint_block.py 's#alias = m.group(1).lower() == "ok"#alias = False#' "$FX/waiver-alias.md" R3
   if tooth_build Z3 lint_block.py 's#^                if rule not in RULE_IDS and not inactive:#                if False:#'; then
     mrun "$FX/waiver-unknown.md"
-    printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R99' && no "teeth Z3: mutant still reports the unknown rule — THEATER" || ok "teeth Z3: unknown-rule check removed -> R99 waiver accepted silently -> case 14l has teeth"
+    grep -qE '^R0 .*unknown rule R99' <<< "$MOUT" && no "teeth Z3: mutant still reports the unknown rule — THEATER" || ok "teeth Z3: unknown-rule check removed -> R99 waiver accepted silently -> case 14l has teeth"
   fi
   tooth_set Z4 lint_block.py 's#^                if raw_id != rule:#                if False:#' "$FX/waiver-unknown.md" R3 LOW-BAD
   tooth_set Q1 lint_block.py 's#|cite)#)#' "$FX/r6-verbs.md" R6 -BAD
@@ -471,7 +471,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if tooth_build U2 lint-block.sh 's#block_file_filter -v < "\$tmp/all" > "\$tmp/unclass"#: > "$tmp/unclass"#'; then
     mrun --audit "$FX/corpus-unclassified"
-    printf '%s' "$MOUT" | grep -qF 'UNCLASSIFIED' && no "teeth U2: mutant still reports UNCLASSIFIED — THEATER" || ok "teeth U2: unclassified listing removed -> non-canonical files dropped silently -> case 14o has teeth"
+    grep -qF 'UNCLASSIFIED' <<< "$MOUT" && no "teeth U2: mutant still reports UNCLASSIFIED — THEATER" || ok "teeth U2: unclassified listing removed -> non-canonical files dropped silently -> case 14o has teeth"
   fi
   if tooth_build P2 lint_block.py 's#if u.kind not in ("row", "item") or u.line not in sv:#if u.kind not in ("row", "item", "para") or u.line not in sv:#'; then
     mrun "$FX/r3-prose.md"
@@ -483,7 +483,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if tooth_build R2 lint_block.py 's#^RESERVED_PACK_RULE_IDS = .*#RESERVED_PACK_RULE_IDS = tuple("R%d" % n for n in range(1, 200))#'; then
     mrun "$FX/waiver-reserved-bad.md"
-    printf '%s' "$MOUT" | grep -qE '^R0 .*unknown rule R99' && no "teeth R2: mutant still reports R99 unknown — THEATER" || ok "teeth R2: reserved set widened to R1..R199 -> R99 silently accepted -> case 15b has teeth"
+    grep -qE '^R0 .*unknown rule R99' <<< "$MOUT" && no "teeth R2: mutant still reports R99 unknown — THEATER" || ok "teeth R2: reserved set widened to R1..R199 -> R99 silently accepted -> case 15b has teeth"
   fi
   if tooth_build R3 lint_block.py 's#^                if not reason:#                if False:#'; then
     mrun "$FX/waiver-reserved-bad.md"
@@ -502,7 +502,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for _n in .venv venv site-packages .atl; do
     if tooth_build "K5$_n" lint-block.sh "s#-o -name $_n##"; then
       mrun --audit "$TMP/pruned2"
-      printf '%s' "$MOUT" | grep -qF 'SUMMARY AUDIT files=1 ' && no "teeth K5 $_n: mutant still prunes it — THEATER" || ok "teeth K5 $_n: prune name removed -> vendored tree scanned/counted -> case 16d has teeth"
+      grep -qF 'SUMMARY AUDIT files=1 ' <<< "$MOUT" && no "teeth K5 $_n: mutant still prunes it — THEATER" || ok "teeth K5 $_n: prune name removed -> vendored tree scanned/counted -> case 16d has teeth"
     fi
   done
   # ---- Slice 2 (kit #1365 item 3) teeth: inline [CERT-hw] (<ephemeral>) outside Self-verify ----
@@ -519,12 +519,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if tooth_build I8 lint_block.py 's#doc.cov\["cert_inline_items"\] += 1#doc.cov["cert_inline_items"] += 0#'; then
     mrun "$FX/r3-inline-fenced.md"
-    printf '%s' "$MOUT" | grep -qE 'cert-inline-items=1( |$)' && no "teeth I8: counter mutant still reports 1 — THEATER" || ok "teeth I8: inline counter neutered -> summary no longer proves groups were inspected -> case 17e has teeth"
+    grep -qE 'cert-inline-items=1( |$)' <<< "$MOUT" && no "teeth I8: counter mutant still reports 1 — THEATER" || ok "teeth I8: inline counter neutered -> summary no longer proves groups were inspected -> case 17e has teeth"
   fi
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
     mrun --audit "$FX/corpus-empty"
-    printf '%s' "$MOUT" | grep -qF 'has no canonical block files' && no "teeth T: mutant still reports EMPTY-INPUT — THEATER" || ok "teeth T: empty-corpus signal removed -> case 10b has teeth"
+    grep -qF 'has no canonical block files' <<< "$MOUT" && no "teeth T: mutant still reports EMPTY-INPUT — THEATER" || ok "teeth T: empty-corpus signal removed -> case 10b has teeth"
   fi
 fi
 
