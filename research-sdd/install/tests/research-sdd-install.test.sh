@@ -1853,17 +1853,17 @@ _tmpl_isolation_scenario() { # <installer> <home>
   bash "$sut" --home "$home" --harness gentle-shell >/dev/null 2>&1
   tp="$root/prompts/research-sdd.md"; mk="$root/research-sdd/.installed-template-state"; sm="$root/research-sdd/.installed-skill-state"
   [ -d "$root/research-sdd/profile/general" ] || bad="$bad no-initial-general-render"
-  t_sha="$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)"; t_marker="$(cat "$mk" 2>/dev/null)"
+  t_sha="$(cksum < "$tp" 2>/dev/null)"; t_marker="$(cat "$mk" 2>/dev/null)"
   [ -n "$t_sha" ] && [ -n "$t_marker" ] || bad="$bad no-template-or-marker"
   bash "$sut" --home "$home" --harness gentle-shell --profile claude >/dev/null 2>&1
-  [ "$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)" = "$t_sha" ] || bad="$bad template-changed-by-switch"
+  [ "$(cksum < "$tp" 2>/dev/null)" = "$t_sha" ] || bad="$bad template-changed-by-switch"
   [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch"
   grep -q '^profile=template$' "$mk" 2>/dev/null || bad="$bad template-marker-lost-its-profile"
   grep -q '^profile=claude$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched"
   [ ! -e "$root/research-sdd/profile/general" ] || bad="$bad orphan-general-render-kept"
   bash "$sut" --home "$home" --harness gentle-shell --profile general >/dev/null 2>&1
   [ -f "$root/research-sdd/profile/general/skills/research-sdd/SKILL.md" ] || bad="$bad general-render-not-restored"
-  [ "$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)" = "$t_sha" ] || bad="$bad template-changed-by-switch-back"
+  [ "$(cksum < "$tp" 2>/dev/null)" = "$t_sha" ] || bad="$bad template-changed-by-switch-back"
   [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch-back"
   grep -q '^profile=general$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched-back"
   printf '%s' "${bad:-OK}" | sed 's/^ //'
@@ -1875,12 +1875,18 @@ else no "template marker isolation broken: $_ti"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: template marker shared with the skill marker (kit issue #1469) --"
   MTI="$MKI/research-sdd-install.MUTANT-TMPLSHARE.$$.sh"
-  mutant_sed "$SUT" "$MTI" 's|tmpl_marker="\$config_root/research-sdd/.installed-template-state"|tmpl_marker="$config_root/research-sdd/.installed-skill-state"|' \
-    || no "teeth: MUTANT-TMPLSHARE could not be built (refused by the mutant helper — see above)"
-  _ti_m="$(_tmpl_isolation_scenario "$MTI" "$TMP/tmpl-iso-mut")"
-  if [ "$_ti_m" != OK ]; then
-    ok "teeth: a shared skill/template marker breaks the isolation scenario ($_ti_m)"
-  else no "teeth: shared-marker mutant passed the isolation scenario — check is THEATER"; fi
+  if mutant_sed "$SUT" "$MTI" 's|tmpl_marker="\$config_root/research-sdd/.installed-template-state"|tmpl_marker="$config_root/research-sdd/.installed-skill-state"|'; then
+    _ti_m="$(_tmpl_isolation_scenario "$MTI" "$TMP/tmpl-iso-mut")"
+    # The SPECIFIC failure the shared marker causes: the template marker loses profile=template (the
+    # skill's marker overwrites it). A missing/broken installer yields other tokens and must not count.
+    # The mutant installer must also have RUN (it wrote the skill marker): a missing installer fails too.
+    [ -s "$TMP/tmpl-iso-mut/.gentle-shell/agent/research-sdd/.installed-skill-state" ] || _ti_m="installer-did-not-run $_ti_m"
+    case " $_ti_m " in
+      *" installer-did-not-run "*) no "teeth: MUTANT-TMPLSHARE installer did not run — no teeth established ($_ti_m)" ;;
+      *" template-marker-lost-its-profile "*) ok "teeth: a shared skill/template marker makes the template marker lose profile=template ($_ti_m)" ;;
+      *) no "teeth: shared-marker mutant did not fail with template-marker-lost-its-profile — check is THEATER or the mutant did not run ($_ti_m)" ;;
+    esac
+  else no "teeth: MUTANT-TMPLSHARE could not be built (refused by the mutant helper — see above)"; fi
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
