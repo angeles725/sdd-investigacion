@@ -3992,6 +3992,9 @@ fi
 # the add date. The SUT must pass --no-renames so both settings give the SAME answer. Each fixture
 # is built so the two settings DIVERGE without the flag (rename commit dated 2000, mtime = now).
 # diff.renames is pinned in the fixture repo's local config, which the SUT's `git -C` calls honour.
+# CAVEAT (kit issue #1401): case 144 is a BEHAVIOUR PIN only. On git 2.55 the per-file call carries a
+# pathspec, which stops rename pairing, so dropping --no-renames from that call does NOT make 144 go
+# red today; the structural case 146 is what bites for it. Case 145 (no pathspec) can go red (teeth NR2).
 c144_age() {   # $1 = diff.renames value ; $2 = fixture-name suffix → prints sweep output
   local kit tgt
   kit="$(mkkit "c144-age-$1${2:-}")"; tgt="$kit/targetA"
@@ -4056,10 +4059,14 @@ fi
 #       on git 2.55 — the pathspec stops rename pairing, so case 144 cannot go RED for it — hence
 #       this source-level pin (defence in depth, kit issue #1373). Call 2 (whole-history epoch map,
 #       no pathspec) IS observable: case 145.
+#       Only CODE is counted (kit issue #1401): full-line and trailing comments are stripped first, so a
+#       comment that merely mentions --no-renames can neither satisfy nor hide a call. Case 145 stays the
+#       behavioural guard; a call split across continuation lines is outside this line-level pin.
 c146_counts() {   # $1 = SUT path → "<total> <with --no-renames>"
-  local t o
-  t="$(grep -c 'git -C "\$p" log .*--diff-filter=A' "$1")"
-  o="$(grep 'git -C "\$p" log .*--diff-filter=A' "$1" | grep -c -- '--no-renames')"
+  local t o code
+  code="$(sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$1")"
+  t="$(grep -c 'git -C "\$p" log .*--diff-filter=A' <<<"$code")"
+  o="$(grep 'git -C "\$p" log .*--diff-filter=A' <<<"$code" | grep -c -- '--no-renames')"
   printf '%s %s' "$t" "$o"
 }
 read -r _c146_total _c146_ok <<<"$(c146_counts "$SUT")"
@@ -4069,7 +4076,10 @@ else
   no "146 every 'git log --diff-filter=A' call in SUT must pass --no-renames" "total=$_c146_total with-flag=$_c146_ok"
 fi
 # 144b/145b — identical across settings, not merely both-passing.
-_norm() { sed -E "s#$ROOT/c14[45]-[a-z]+-(true|false)[^/]*#KIT#g"; }
+# $ROOT is regex-escaped before interpolation (kit issue #1401); the optional suffix is the explicit
+# `-nrN` teeth-fixture tag, not a catch-all `[^/]*`.
+_root_re="$(printf '%s' "$ROOT" | sed -E 's/[][\\.^$*+?(){}|#\/]/\\&/g')"
+_norm() { sed -E "s#${_root_re}/c14[45]-[a-z]+-(true|false)(-nr[0-9]+)?#KIT#g"; }
 if [ "$(_norm <<<"$out144_t")" = "$(_norm <<<"$out144_f")" ] && [ "$(_norm <<<"$out145_t")" = "$(_norm <<<"$out145_f")" ]; then
   ok "144b/145b output byte-identical across diff.renames=true/false" "()"
 else
@@ -4910,6 +4920,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth NR2: flag-less epoch-map call diverges across diff.renames (case 145 has teeth)" "()"
     else
       no "teeth NR2: flag-less epoch-map call did not diverge — case 145 is THEATER" "true=[$_nr2_t] false=[$_nr2_f]"
+    fi
+  fi
+  echo "-- teeth NR3: a trailing comment naming --no-renames must NOT satisfy case 146 (comment stripping has teeth) --"
+  _nr3="$ROOT/teeth-nr3.sh"; _nrc=0
+  mutant_sed "$SUT" "$_nr3" 's/^\(.*log \)--no-renames \(--diff-filter=A --format=%aI.*\)$/\1\2  # --no-renames/' || _nrc=$?
+  if [ "$_nrc" != 0 ]; then
+    no "teeth NR3: build mutant" "mutant_sed refused (rc $_nrc) — anchor drifted?"
+  else
+    read -r _nr3_t _nr3_o <<<"$(c146_counts "$_nr3")"
+    if [ "$_nr3_t" -ge 2 ] && [ "$_nr3_t" != "$_nr3_o" ]; then
+      ok "teeth NR3: comment-only mention of the flag does not satisfy case 146" "($_nr3_o/$_nr3_t)"
+    else
+      no "teeth NR3: comment satisfied case 146 — comment stripping is THEATER" "total=$_nr3_t with-flag=$_nr3_o"
     fi
   fi
   echo "-- teeth NR1: drop --no-renames from the per-file add-date call; structural case 146 must go RED --"

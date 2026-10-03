@@ -1428,6 +1428,24 @@ else
      "rc=$rc :: $(grep -i 'retro\|MISSING' <<<"$out" | head -2)"
 fi
 
+# 36b — STRUCTURAL guard (kit issue #1401, defence in depth): every `git -C "$d" log ... --diff-filter=A`
+#       CODE line in the SUT carries --no-renames (comments stripped, so a comment cannot satisfy it).
+#       On git 2.55 the pathspec stops rename pairing, so a behavioural case cannot go RED for a
+#       flag-less call today; this source-level pin is the assertion that bites.
+c36b_counts() {   # $1 = SUT path → "<total> <with --no-renames>"
+  local t o code
+  code="$(sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$1")"
+  t="$(grep -c 'git -C "\$d" log .*--diff-filter=A' <<<"$code")"
+  o="$(grep 'git -C "\$d" log .*--diff-filter=A' <<<"$code" | grep -c -- '--no-renames')"
+  printf '%s %s' "$t" "$o"
+}
+read -r _c36b_total _c36b_ok <<<"$(c36b_counts "$SUT")"
+if [ "$_c36b_total" -ge 1 ] && [ "$_c36b_total" = "$_c36b_ok" ]; then
+  ok "36b every 'git log --diff-filter=A' call in SUT passes --no-renames ($_c36b_ok/$_c36b_total)"
+else
+  no "36b every 'git log --diff-filter=A' call in SUT must pass --no-renames (total=$_c36b_total with-flag=$_c36b_ok)"
+fi
+
 # 37 — MISSING-RETRO GATE (D6: promoted from advisory WARN to hard gate): a corpus with blocks
 #      advanced past the newest §18 retro must REFUSE with exit 3 (gate code), not merely WARN.
 #      mkgood now seeds a close-retro; remove it to expose the gate (no retro → condition fires).
@@ -1557,9 +1575,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth(rename-tradeoff): reintroduce --follow to rsdd_added_epoch; renamed retro must trigger MISSING-RETRO gate (exit 3) --"
   # After D6 promotion: the --follow mutant dates the retro from year-2000 (before the 2026-01-10 block)
   # → MISSING-RETRO gate fires → exit 3.
-  mk_sed "teeth(rename-tradeoff)" "$MUT/archive.RENAME-MUTANT.sh" 's/log --diff-filter=A --format=%ct/log --follow --diff-filter=A --format=%ct/' \
+  mk_sed "teeth(rename-tradeoff)" "$MUT/archive.RENAME-MUTANT.sh" 's/log --no-renames --diff-filter=A --format=%ct/log --follow --no-renames --diff-filter=A --format=%ct/' \
     && tooth "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO gate (exit 3) → case 36 has teeth" 0 3 "$MUT/archive.RENAME-MUTANT.sh" \
          --good-has "$ARCH_RE" --good-lacks 'MISSING-RETRO' --bad-has 'MISSING-RETRO  : REFUSE' --bad-lacks "$ARCH_RE" -- run_on_fix @SUT@ "$TMP/rename-tradeoff"
+
+  echo "-- teeth(no-renames): drop --no-renames from rsdd_added_epoch; structural case 36b must go RED --"
+  if mk_sed "teeth(no-renames)" "$MUT/archive.NORENAMES-MUTANT.sh" 's/log --no-renames --diff-filter=A --format=%ct/log --diff-filter=A --format=%ct/'; then
+    read -r _nr_t _nr_o <<<"$(c36b_counts "$MUT/archive.NORENAMES-MUTANT.sh")"
+    if [ "$_nr_t" -ge 1 ] && [ "$_nr_t" != "$_nr_o" ]; then
+      ok "teeth(no-renames): flag-less call breaks the structural guard → case 36b has teeth ($_nr_o/$_nr_t)"
+    else
+      no "teeth(no-renames): flag-less call not detected — case 36b is THEATER (total=$_nr_t with-flag=$_nr_o)"
+    fi
+  fi
 
   echo "-- teeth(missing-retro-gate): neuter ONLY the missing-retro gate; corpus-advanced case must then archive --"
   d_mrg="$TMP/mr-gate-teeth"; mkgood "$d_mrg"; rm -rf "$d_mrg/retros"   # no retro → missing-retro condition
