@@ -1,0 +1,3 @@
+printf x | grep -i -q x
+printf x | grep -E -i -q x
+printf x | grep -F -m 1 x

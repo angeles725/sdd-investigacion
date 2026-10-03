@@ -1,0 +1,10 @@
+printf x | grep -q x  # sigpipe-lint: allow same-line reproduction
+# sigpipe-lint: allow line-before reproduction
+printf x | grep -q x
+printf x |
+  grep -q x  # sigpipe-lint: allow multi-line reproduction
+printf x | grep -q x  # sigpipe-lint: allow
+# sigpipe-lint: allow a blank line below breaks the line-before rule
+
+printf x | grep -q x
+printf x | grep -q x

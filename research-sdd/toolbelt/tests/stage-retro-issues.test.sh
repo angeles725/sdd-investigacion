@@ -3801,8 +3801,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   echo "-- teeth T1444: SUT pipe-to-grep -q race --"
   # Each mutant restores the PIPED form of one rewritten site; the matching 83x case must go red.
-  sp_expr_912='s#if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_existing"; then#if ! printf \x27%s\x27 "$_existing" | grep -q \x27^[[:space:]]*\\[\x27; then#'
-  sp_expr_639='s#grep -qxF "\$1" <<<"\$shipped_ids"#printf \x27%s\\n\x27 "$shipped_ids" | grep -qxF "$1"#'
+  sp_expr_912='s#if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_existing"; then#if ! printf \x27%s\x27 "$_existing" | grep -q \x27^[[:space:]]*\\[\x27; then#'  # sigpipe-lint: allow sed anchor that restores the piped idiom in a T1444-a mutant
+  sp_expr_639='s#grep -qxF "\$1" <<<"\$shipped_ids"#printf \x27%s\\n\x27 "$shipped_ids" | grep -qxF "$1"#'  # sigpipe-lint: allow sed anchor that restores the piped idiom in a T1444 mutant
   mbox="$(mkbox teeth-sigpipe-912)"; mk_gh_stub "$mbox" match; sp_big_reply_stub "$mbox"
   if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e "$sp_expr_912"; then
     run "$mbox" "$(mk_entry_retro "$mbox" r83t.md '<!-- review-status: pending -->')" --apply
