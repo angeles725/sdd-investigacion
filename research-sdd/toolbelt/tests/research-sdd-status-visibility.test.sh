@@ -168,6 +168,28 @@ if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for 
 else no "11a hung gh: ${el}s out=[$(grep -i remote <<<"$out")]"; fi
 [ "$(cat "$g/prompt.env" 2>/dev/null)" = 1 ] && ok "11b gh runs with GH_PROMPT_DISABLED=1" || no "11b GH_PROMPT_DISABLED not set: [$(cat "$g/prompt.env" 2>/dev/null)]"
 
+# 11c/11d: timeout binary fallbacks under a hermetic PATH: a stub dir holding symlinks to ONLY the tools the
+# report needs (never timeout/gtimeout); gtimeout is added back as a symlink to the real timeout where wanted.
+REAL_TO="$(command -v timeout 2>/dev/null || true)"
+mkpath() { # DIR with-gtimeout|none — prints DIR
+  local pd="$1" t p; rm -rf "$pd"; mkdir -p "$pd"
+  for t in bash env git grep sed awk cat cut tr sort uniq head tail wc date find xargs ls mkdir rm mktemp dirname \
+           basename sha1sum sha256sum stat sleep readlink realpath mv cp diff expr id uname tee comm printf jq python3 gh; do
+    p="$(command -v "$t" 2>/dev/null)" && [ -f "$p" ] && ln -sf "$p" "$pd/$t"; done
+  if [ "$2" = with-gtimeout ]; then ln -s "$REAL_TO" "$pd/gtimeout"; fi
+  printf '%s' "$pd"
+}
+if [ -z "$REAL_TO" ]; then no "11c/11d need a real timeout binary to build the hermetic PATH"; else
+  hp="$(mkpath "$TMP/path-gt" with-gtimeout)"
+  t0=$SECONDS; out="$(PATH="$hp" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT" "$TMP/slow" 2>&1)"; el=$((SECONDS-t0))
+  if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for remote origin' <<<"$out"; then ok "11c timeout absent, gtimeout present -> still bounded (timed out in ${el}s)"
+  else no "11c gtimeout fallback: ${el}s out=[$(grep -i remote <<<"$out")]"; fi
+  hp="$(mkpath "$TMP/path-none" none)"
+  out="$(PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT" "$TMP/pub" 2>&1)"
+  if grep -qE '^degraded: remote-visibility: timeout/gtimeout not found' <<<"$out" && ! grep -q '^WARN public-remote' <<<"$out"; then ok "11d neither timeout nor gtimeout -> typed degraded"
+  else no "11d no-timeout branch: out=[$(grep -i remote <<<"$out")]"; fi
+fi
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for the remote-visibility check --"
@@ -212,22 +234,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     stub_gh "$TMP/g-tG" PRIVATE; rm -f "$TMP/g-tG/gh.argv"; mkstate "$TMP/tG"; mkgit "$TMP/tG" origin='https://user:SECRETTOKEN@github.com/o/r.git'
     status "$TMP/tG" "$TMP/g-tG/gh" >/dev/null
     grep -q SECRETTOKEN "$TMP/g-tG/gh.argv" && ok "teeth G: URL to gh -> credential case 9 has teeth" || no "teeth G: mutant stayed clean — THEATER"; fi
-  # H: not-a-github-slug branch silenced -> case 9 degraded assertion goes red
+  # H: the 'not a github owner/repo' message text is rewritten (guard stays) -> case 9's degraded-line assertion goes red
   if tooth H 's/not a github owner\/repo/DEG-OFF/'; then
     out="$(status "$TMP/ng-local" "$TMP/g-ng-local/gh")"
     grep -q 'not a github owner/repo' <<<"$out" && no "teeth H: mutant still degraded — THEATER" || ok "teeth H: not-github branch silenced -> case 9 has teeth"; fi
-  # I: timeout bound removed -> the hung gh is not converted to degraded
-  if tooth I 's/timeout "\${RSDD_GH_TIMEOUT:-10}" //'; then
-    out="$(RSDD_GH_TIMEOUT=1 timeout 8 bash "$SUT_UNDER_TEST" "$TMP/slow" 2>&1)"
-    grep -q 'timed out' <<<"$out" && no "teeth I: mutant still bounded — THEATER" || ok "teeth I: no timeout bound -> case 11a has teeth"; fi
+  # I: timeout bound removed -> the hung gh is not converted to degraded. The control first proves the
+  # UNMUTATED script passes the timeout case through the same status helper + gh stub, then the mutant
+  # must run the full stub sleep (positive signal: elapsed >= 4s) and lose the 'timed out' line.
+  g="$TMP/g-slow4"; mkdir -p "$g"; printf '#!/usr/bin/env bash\nsleep 4\necho PRIVATE\n' > "$g/gh"; chmod +x "$g/gh"
+  SUT_UNDER_TEST=""; t0=$SECONDS; base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$((SECONDS-t0))
+  if ! { [ "$elb" -lt 4 ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I: unmutated script did not pass the timeout case (${elb}s) — control invalid"
+  elif tooth I 's/"\$_rv_to" "\${RSDD_GH_TIMEOUT:-10}" //'; then
+    t0=$SECONDS; out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$((SECONDS-t0))
+    if [ "$el" -ge 4 ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I: unbounded gh ran ${el}s, no 'timed out' -> case 11a has teeth"
+    else no "teeth I: mutant still bounded (${el}s) — THEATER"; fi; fi
   # J: GH_PROMPT_DISABLED dropped
   if tooth J 's/GH_PROMPT_DISABLED=1 //'; then
     rm -f "$TMP/g-slow/prompt.env"; RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$TMP/g-slow/gh" >/dev/null
     [ "$(cat "$TMP/g-slow/prompt.env" 2>/dev/null)" = 1 ] && no "teeth J: mutant still sets it — THEATER" || ok "teeth J: prompt guard dropped -> case 11b has teeth"; fi
-  # K: empty-url guard removed -> gh is called with an empty/unrecognised argument path
+  # K: the 'url empty' message text is rewritten (guard and its continue stay) -> case 10's degraded-line assertion goes red
   if tooth K 's/url empty/DEG-OFF/'; then
     out="$(status "$TMP/emptyurl" "$TMP/g-empty-url/gh")"
     grep -qE 'url empty' <<<"$out" && no "teeth K: mutant still degraded — THEATER" || ok "teeth K: empty-url branch silenced -> case 10 has teeth"; fi
+  # L: no-timeout degraded message rewritten -> case 11d goes red
+  if [ -n "$REAL_TO" ] && tooth L 's/gtimeout not found/DEG-OFF/'; then
+    out="$(PATH="$TMP/path-none" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" 2>&1)"
+    grep -q 'timeout/gtimeout not found' <<<"$out" && no "teeth L: mutant still degraded — THEATER" || ok "teeth L: no-timeout branch silenced -> case 11d has teeth"; fi
+  # M: gtimeout fallback removed -> case 11c goes red (degraded 'timeout/gtimeout not found' instead of 'timed out')
+  if [ -n "$REAL_TO" ] && tooth M 's/gtimeout/gtimeout-REMOVED/g'; then
+    out="$(PATH="$TMP/path-gt" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT_UNDER_TEST" "$TMP/slow" 2>&1)"
+    grep -q 'timed out' <<<"$out" && no "teeth M: mutant still bounded via gtimeout — THEATER" || ok "teeth M: gtimeout fallback removed -> case 11c has teeth"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
