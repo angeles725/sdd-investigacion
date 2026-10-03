@@ -4307,8 +4307,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -q '# IDG-TIMEOUT-WRAP' "$SUT"; then
     sed '/# IDG.*TIMEOUT-WRAP/s/"$_idg_timeout_bin" "$_idg_timeout_secs" //' \
       "$SUT" > "$idg_tmt_mutant"
-    if grep -F '# IDG-TIMEOUT-WRAP' "$idg_tmt_mutant" | grep -qF '"$_idg_timeout_bin"' || \
-       grep -F '# IDG-REVERIFY-TIMEOUT-WRAP' "$idg_tmt_mutant" | grep -qF '"$_idg_timeout_bin"'; then
+    if grep -qF '"$_idg_timeout_bin"' <<<"$(grep -F '# IDG-TIMEOUT-WRAP' "$idg_tmt_mutant")" || \
+       grep -qF '"$_idg_timeout_bin"' <<<"$(grep -F '# IDG-REVERIFY-TIMEOUT-WRAP' "$idg_tmt_mutant")"; then
       no "teeth-IDG-timeout: could not build mutant (sed did not remove _idg_timeout_bin from IDG-TIMEOUT-WRAP or IDG-REVERIFY-TIMEOUT-WRAP)"
     else
       _tmt_mut_kit="$TMP/kit-teeth-tmt"
@@ -5648,7 +5648,7 @@ fi
 # false-fail (misreported as "no") or, worse, silently no-op. Probe once, up front, and SKIP (never
 # silently pass, never falsely fail) every test that depends on it, loudly naming the reason.
 _gnu_date_ok=0
-if /usr/bin/date --version 2>/dev/null | grep -qi 'GNU coreutils'; then
+if grep -qi 'GNU coreutils' <<<"$(/usr/bin/date --version 2>/dev/null)"; then
   _gnu_date_ok=1
 fi
 
@@ -6729,7 +6729,7 @@ b13_expect "T-1319-ESCPIPE raw unescaped pipe stays malformed (not counted)" "$(
 # Lockstep: verify-state derives the same investigable_open from the row --sync-state just wrote.
 d="$TMP/b19-esc-vs"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| high | g2 | web | pending |'
 b13_run "$d" >/dev/null
-if bash "$HERE/../verify-state.sh" "$d" 2>&1 | grep -q 'FAIL   envelope investigable_open='; then no "T-1319-ESCPIPE lockstep: verify-state derives a different investigable_open"; else ok "T-1319-ESCPIPE lockstep: verify-state agrees on investigable_open"; fi
+if grep -q 'FAIL   envelope investigable_open=' <<<"$(bash "$HERE/../verify-state.sh" "$d" 2>&1)"; then no "T-1319-ESCPIPE lockstep: verify-state derives a different investigable_open"; else ok "T-1319-ESCPIPE lockstep: verify-state agrees on investigable_open"; fi
 
 
 # ==================== kit #1350 — a prose line must not trigger the keep; the keep has an upper bound ====================

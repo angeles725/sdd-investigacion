@@ -121,8 +121,8 @@ d="$TMP/divergence"; mkdir -p "$d"
 printf '# Block 7 — cased\n' > "$d/proj-Bloque7.md"
 printf '# Block 1 — lower\n' > "$d/proj-bloque1.md"   # a real lowercase block so both sets are non-empty
 gen "$SUT" "$d"
-if ! py_set "$d" | grep -q '^proj-Bloque7.md$' && ! grep_set "$d" | grep -q '^proj-Bloque7.md$' \
-   && py_set "$d" | grep -q '^proj-bloque1.md$' && grep_set "$d" | grep -q '^proj-bloque1.md$'; then
+if ! grep -q '^proj-Bloque7.md$' <<<"$(py_set "$d")" && ! grep -q '^proj-Bloque7.md$' <<<"$(grep_set "$d")" \
+   && grep -q '^proj-bloque1.md$' <<<"$(py_set "$d")" && grep -q '^proj-bloque1.md$' <<<"$(grep_set "$d")"; then
   ok "case agreement: mixed-case block excluded by BOTH (BLOCK_RE + reconciled grep), lowercase kept by both"
 else no "case drift: py=[$(py_set "$d" | tr '\n' ' ')] grep=[$(grep_set "$d" | tr '\n' ' ')] (both must DROP proj-Bloque7.md, KEEP proj-bloque1.md)"; fi
 
@@ -188,7 +188,7 @@ PY
   else
     printf '# x\n' > "$md/bloque9.md"; printf '# Block 1 — real\n' > "$md/proj-bloque1.md"
     python3 "$mutant" >/dev/null 2>&1
-    if py_set "$md" | grep -q '^bloque9.md$'; then
+    if grep -q '^bloque9.md$' <<<"$(py_set "$md")"; then
       ok "teeth(A): mutant catalogs bare 'bloque9.md' → case 5's exclusion pins the BLOCK_RE prefix+dash guard"
     else no "teeth(A): mutant did NOT leak bloque9.md — exclusion does not depend on BLOCK_RE (THEATER)"; fi
   fi
