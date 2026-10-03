@@ -151,7 +151,9 @@ lacks "13b no PLAN line is printed for a malformed measurement" "PLAN:"
 d="$TMP/root"; mkrepo "$d"; add "$d" a 10
 git -C "$d" checkout -q --orphan unrelated; git -C "$d" rm -rfq . ; printf 'r\n' > "$d/r.txt"; git -C "$d" add -A; git -C "$d" commit -q -m root
 git -C "$d" merge -q --allow-unrelated-histories -m merge main
-run --cwd "$d" --base-ref main; expect "14 root commit on the first-parent walk is typed base=ROOT" 0 "base=ROOT" "PLAN:"
+run --cwd "$d" --base-ref main; expect "14 root commit on the first-parent walk: plan printed" 0 "PLAN:"
+rs="$(git -C "$d" rev-parse --short=12 "$(git -C "$d" rev-list --first-parent --max-parents=0 unrelated)")"
+slice_has 1 "SLICE 1 $rs.." "base=ROOT" && ok "14b base=ROOT is tied to the slice starting at the root commit" || no "14b base=ROOT not on the slice starting at $rs: $(printf '%s' "$OUT" | tr '\n' '~')"
 # shim <name> <pattern>: a git wrapper that fails (exit 1, no output) for any invocation matching the case pattern.
 shim(){ mkdir -p "$TMP/$1"; printf '#!/bin/sh\ncase "$*" in %s) exit 1;; esac\nexec %s "$@"\n' "$2" "$REALGIT" > "$TMP/$1/git"; chmod +x "$TMP/$1/git"; }
 # 15. A failed parent lookup is an error, never silently treated as a root commit.
@@ -163,6 +165,7 @@ lacks "15b no PLAN / base=ROOT after a parent lookup failure" "PLAN:" "base=ROOT
 shim shim-hash '*"hash-object"*'
 OUT="$(PATH="$TMP/shim-hash:$PATH" timeout 30 bash "$SUT" --cwd "$TMP/root" --base-ref main 2>&1)"; RC=$?
 expect "16 empty-tree failure on a root commit exits 2 and names it" 2 "cannot compute the empty tree"
+lacks "16b no PLAN / base=ROOT after an empty-tree failure" "PLAN:" "base=ROOT"
 
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -204,8 +207,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant"; return; fi
     mo="$(PATH="$shimdir:$PATH" timeout 30 bash "$m" --cwd "$repo" --base-ref "$ref" 2>&1)"; mrc=$?
     if [ "$mrc" != 2 ] || { [ -n "$needle" ] && ! grep -qF -- "$needle" <<<"$mo"; }; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
-  shimtooth2 parents-checked 's/cannot read parents of \$short"; exit 2;/cannot read parents of $short"; true;/' "$TMP/shim-parents" "$TMP/parents" base
-  shimtooth2 emptytree-checked 's/cannot compute the empty tree/cannot diff/' "$TMP/shim-hash" "$TMP/root" main "cannot compute the empty tree"
+  shimtooth2 parents-checked 's/ || { echo .*; exit 2; } # PARENTS$/ || true # PARENTS/' "$TMP/shim-parents" "$TMP/parents" base "cannot read parents"
+  shimtooth2 emptytree-checked 's/ || { echo .*; exit 2; } # EMPTYTREE$/ || true # EMPTYTREE/' "$TMP/shim-hash" "$TMP/root" main "cannot compute the empty tree"
   tooth bad-ref-exit 's/exit 2 # BADREF/exit 0 # BADREF/' 2 "no-such-ref" "$TMP/parents" --base-ref no-such-ref
   tooth max-validation 's/^\[\[ "\$max" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
 fi
