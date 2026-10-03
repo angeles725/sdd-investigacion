@@ -10,7 +10,7 @@ the target; the human (or a reviewed `patch -p1`) applies it.
 |---|---|
 | Engine | `verify-state.sh` itself, run once over the target. The recomputed value is read from its FAIL/WARN line; nothing is re-derived here. |
 | Output | Unified diff on stdout (`a/<rel>` / `b/<rel>`, relative to the target); progress, `SKIP`, `NOTE` and the summary on stderr. |
-| Summary | `state-update: checked= skipped= changed= degraded= unproposed=` — always the last stderr line. |
+| Summary | `state-update: checked= skipped= changed= degraded= unproposed=` — emitted on every exit path (usage, absent, DEGRADED, normal) by an EXIT trap, so it is always the last stderr line. A failing state-file listing helper or an untraversable target is DEGRADED (exit 3), never "no state files". |
 | Exit 0 | No change proposed. **Not** "verify-state passes": see `unproposed`. |
 | Exit 1 | A change is proposed. |
 | Exit 2 | Usage, or no `RESEARCH-STATE*.md` under the target. |
@@ -48,6 +48,7 @@ Only fields `verify-state.sh` recomputes **from disk** are proposed, each from o
 - **Shared-global focus with no attributed `B<n>` ids**: verify-state reports INFO "unverifiable", emits no
   mismatch line, so nothing is proposed.
 - **Envelope-less state file**: `SKIP` — seeding an envelope is `research-sdd-status.sh --sync-state`'s job.
+- **Stale stop-control number with no rewritable line**: counted in `unproposed=` with a `NOTE`, never dropped.
 - **verify-state FAIL lines of any other shape** (unparseable backlog, absent backlog section, ...) are counted
   in `unproposed=` with a per-file `NOTE`; nothing is invented for them.
 

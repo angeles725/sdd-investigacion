@@ -28,6 +28,16 @@
 # Env: STATE_UPDATE_VERIFY overrides the path of verify-state.sh (test hook).
 set -uo pipefail
 
+checked=0; skipped=0; changed=0; degraded=0; unproposed=0; work=""
+# SU-SUMMARY-TRAP: the summary is emitted on EVERY exit path (usage, absent, early DEGRADED, normal) and is
+# always the LAST stderr line, because it is printed by the EXIT trap after every other message.
+_summary() {
+  printf 'state-update: checked=%s skipped=%s changed=%s degraded=%s unproposed=%s (propose-never-apply: nothing was written)\n' \
+    "$checked" "$skipped" "$changed" "$degraded" "$unproposed" >&2
+  [ -n "$work" ] && rm -rf "$work"
+}
+trap _summary EXIT
+
 here="$(cd "$(dirname "$0")" && pwd)"
 verify_sh="${STATE_UPDATE_VERIFY:-$here/verify-state.sh}"
 
@@ -54,13 +64,18 @@ _FPLIB="$here/lib/focus-prefix.sh"
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "state-update: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 3; }
 
 target="${target%/}"
-mapfile -t states < <(list_state_files "$target")
+# SU-LIST-FAIL: a failing listing helper or an untraversable target must not read as "no state files".
+listing="$(list_state_files "$target")"; lrc=$?
+if [ "$lrc" -ne 0 ] || [ ! -r "$target" ] || [ ! -x "$target" ]; then
+  echo "state-update: DEGRADED — could not enumerate state files under $target (helper rc=$lrc)" >&2; exit 3
+fi
+states=()
+[ -n "$listing" ] && mapfile -t states <<<"$listing"
 if [ "${#states[@]}" -eq 0 ]; then
   echo "state-update: no RESEARCH-STATE*.md under $target" >&2; exit 2
 fi
 
-work="$(mktemp -d)" || { echo "state-update: DEGRADED — mktemp failed" >&2; exit 3; }
-trap 'rm -rf "$work"' EXIT
+work="$(mktemp -d)" || { work=""; echo "state-update: DEGRADED — mktemp failed" >&2; exit 3; }
 
 if [ ! -f "$verify_sh" ]; then
   echo "state-update: DEGRADED — cannot find $verify_sh" >&2; exit 3
@@ -85,22 +100,22 @@ awk '
     }
     # CHECK E FAIL: requires_execution_open=0 while N open requires-execution backlog gap(s) remain
     if ($1 == "FAIL" && $2 == "envelope" && $3 == "requires_execution_open=0" && match($0, / while [0-9]+ open requires-execution/)) {
-      s=substr($0, RSTART+7, RLENGTH-7); sub(/ .*/, "", s); print "SET\t" f "\trequires_execution_open\t" s; next }
+      s=substr($0, RSTART, RLENGTH); sub(/^ while /, "", s); sub(/ .*/, "", s); print "SET\t" f "\trequires_execution_open\t" s; next }
     # CHECK F legacy: deferred_open missing while N deferred backlog gap(s) found
     if ($1 == "WARN" && $2 == "envelope" && $3 == "deferred_open" && $4 == "missing" && match($0, / while [0-9]+ deferred backlog/)) {
-      s=substr($0, RSTART+7, RLENGTH-7); sub(/ .*/, "", s); print "SET\t" f "\tdeferred_open\t" s; next }
+      s=substr($0, RSTART, RLENGTH); sub(/^ while /, "", s); sub(/ .*/, "", s); print "SET\t" f "\tdeferred_open\t" s; next }
     # SC-CROSS-CHECK: stop-control prose N, backlog derives M investigable gap(s)
     if ($1 == "FAIL" && $2 == "stop-control" && match($0, /backlog derives [0-9]+ investigable/)) {
-      s=substr($0, RSTART+16, RLENGTH-16); sub(/ .*/, "", s); print "PROSE\t" f "\t" s; next }
+      s=substr($0, RSTART, RLENGTH); sub(/^backlog derives /, "", s); sub(/ .*/, "", s); print "PROSE\t" f "\t" s; next }
     if ($1 == "FAIL") print "UNPROPOSED\t" f
   }' "$work/verify.out" > "$work/directives" || { echo "state-update: DEGRADED — parsing verify-state output failed" >&2; exit 3; }
 
 # SU-DUP-BASENAME: verify-state names sections by basename; two state files sharing one cannot be told apart.
-if [ "$(printf '%s\n' "${states[@]}" | xargs -n1 basename | sort | uniq -d | wc -l)" -gt 0 ]; then
+dups="$(for _s in "${states[@]}"; do printf '%s\n' "${_s##*/}"; done | sort | uniq -d)"
+if [ -n "$dups" ]; then
   echo "state-update: DEGRADED — two state files share a basename; verify-state sections are ambiguous" >&2; exit 3
 fi
 
-checked=0; skipped=0; changed=0; degraded=0; unproposed=0
 for s in "${states[@]}"; do
   rel="${s#"$target"/}"
   base="$(basename "$s")"
@@ -142,14 +157,21 @@ for s in "${states[@]}"; do
       if (match(tolower($0), /investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+/)) {
         pre=substr($0,1,RSTART-1); seg=substr($0,RSTART,RLENGTH); post=substr($0,RSTART+RLENGTH)
         sub(/[0-9]+$/, prose, seg); $0=pre seg post; pdone=1 } }
-    { print }' "$s" > "$work/proposed" || { echo "state-update: DEGRADED — $rel: rewriting failed" >&2; degraded=$((degraded+1)); continue; }
+    { print }
+    END { if (prose != "" && !pdone) print "PROSE-UNMATCHED" > "/dev/stderr" }' "$s" > "$work/proposed" 2> "$work/awk.err" \
+    || { echo "state-update: DEGRADED — $rel: rewriting failed" >&2; degraded=$((degraded+1)); continue; }
+  # SU-PROSE-UNMATCHED: verify-state flagged the stop-control number but no line could be rewritten; that is
+  # an unproposed finding, never a silent drop.
+  if grep -qx 'PROSE-UNMATCHED' "$work/awk.err"; then
+    echo "state-update: NOTE [$rel] stop-control prose is stale (backlog derives $prose) but no rewritable 'read-only investigable: N' line was found — nothing proposed for it" >&2
+    unproposed=$((unproposed+1))
+  fi
   if ! cmp -s "$s" "$work/proposed"; then
     diff -u --label "a/$rel" --label "b/$rel" "$s" "$work/proposed"
     changed=$((changed+1))
   fi
 done
 
-echo "state-update: checked=$checked skipped=$skipped changed=$changed degraded=$degraded unproposed=$unproposed (propose-never-apply: nothing was written)" >&2
 if [ "$degraded" -gt 0 ]; then exit 3; fi   # SU-DEGRADED-EXIT
 if [ "$checked" -eq 0 ]; then   # SU-NOTHING-CHECKED: every state file was skipped — no evidence was taken
   echo "state-update: DEGRADED — no state file with an envelope was examined" >&2; exit 3

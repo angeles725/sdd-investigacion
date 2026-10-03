@@ -148,7 +148,7 @@ lacks "16b no covered_blocks hunk" "covered_blocks"
 
 # 17. verify-state FAIL lines this tool does not own are COUNTED, not hidden: rc stays 0 but the summary says so.
 d="$TMP/unp"; blocks "$d" proj-block1.md proj-block2.md; state "$d/RESEARCH-STATE.md" 2 2 2; sed -i 's/^| high | Gap one | x | pending |/| bogus | Gap one | x | pending |/' "$d/RESEARCH-STATE.md"
-run "$d"; expect "17 an unparseable backlog is surfaced as unproposed>0, nothing invented" 0 "unproposed=" "not recomputable counters"
+run "$d"; expect "17 an unparseable backlog is surfaced as unproposed>=1, nothing invented" 0 "unproposed=1" "not recomputable counters"
 lacks "17b no diff for an unparseable backlog" "--- a/"
 
 # 18. the remaining owned fields, each driven by its own verify-state message form.
@@ -186,6 +186,28 @@ state "$d/RESEARCH-STATE.md" 1 2 2; state "$d/RESEARCH-STATE-x.md" 2 2 2
 run "$d"; expect "21 root of a multi-state corpus: corpus-wide covered_blocks withheld, NOTE names it" 0 "changed=0" "covered_blocks withheld"
 lacks "21b no covered_blocks hunk for the root" "-covered_blocks" "+covered_blocks"
 
+# 22. verify-state flags a stale stop-control number but no rewritable line exists: counted, never dropped.
+d="$TMP/prosegone"; blocks "$d" proj-block1.md proj-block2.md; state "$d/RESEARCH-STATE.md" 2 2 2; sed -i '/read-only investigable/d' "$d/RESEARCH-STATE.md"
+printf '#!/usr/bin/env bash\necho "== verify-state: RESEARCH-STATE.md (target: x) =="\necho "   FAIL   stop-control prose '"'"'read-only-investigable: 1'"'"' but backlog derives 2 investigable gap(s) — refresh"\nexit 1\n' > "$TMP/stub-prose.sh"
+STATE_UPDATE_VERIFY="$TMP/stub-prose.sh" run "$d"; expect "22 unrewritable stop-control prose => NOTE and unproposed=1, no diff" 0 "unproposed=1" "no rewritable"
+lacks "22b no diff hunk" "--- a/"
+
+# 23. the state-file listing helper fails: DEGRADED (never "no state files"), exit 3.
+mkdir -p "$TMP/hf/lib"; cp "$SUT" "$TMP/hf/"; cp "$TOOLBELT/verify-state.sh" "$TOOLBELT/check-gap-drift.sh" "$TMP/hf/" 2>/dev/null; cp "$TOOLBELT"/lib/*.sh "$TMP/hf/lib/"
+printf 'list_state_files() { echo "boom" >&2; return 1; }\n' > "$TMP/hf/lib/state-files.sh"
+OUT="$(bash "$TMP/hf/state-update.sh" "$TMP/clean" 2>&1)"; RC=$?
+[ "$RC" = 3 ] && grep -qF "could not enumerate state files" <<<"$OUT" && ok "23 failing listing helper => DEGRADED exit 3" || no "23 helper failure masked (rc=$RC): $OUT"
+
+# 24. the summary is ALWAYS emitted and is the LAST stderr line, on every exit path.
+last_is_summary(){ local l; l="$(tail -n 1 "$TMP/stderr")"
+  [[ "$l" =~ ^state-update:\ checked=[0-9]+\ skipped=[0-9]+\ changed=[0-9]+\ degraded=[0-9]+\ unproposed=[0-9]+\  ]]; }
+for spec in "usage:" "absent:$TMP/empty" "clean:$TMP/clean" "drift:$TMP/drift" "noenv:$TMP/noenv" "dup:$TMP/dup"; do
+  n="${spec%%:*}"; a="${spec#*:}"; if [ -n "$a" ]; then run "$a"; else run; fi
+  last_is_summary && ok "24 summary is the last stderr line ($n, rc=$RC)" || no "24 summary missing/not last ($n): $(tail -n 2 "$TMP/stderr" | tr '\n' '~')"
+done
+STATE_UPDATE_VERIFY="$TMP/stub-fail.sh" run "$TMP/deg"; last_is_summary && ok "24 summary last on a verify-state failure (rc=$RC)" || no "24 summary not last on verify failure"
+OUT="$(bash "$TMP/hf/state-update.sh" "$TMP/clean" 2>&1 >/dev/null)"; grep -q 'checked=' <<<"$OUT" && ok "24 summary emitted on the listing-failure path" || no "24 no summary on listing failure"
+
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: state-update.sh mutants --"
@@ -216,13 +238,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt field-req-warn        's/kv\[1\]=="requires_execution_open" || //' "$TMP/reqwarn" 1 0
   tt unproposed-count      's/^    if (\$1 == "FAIL") print "UNPROPOSED\\t" f/    if (0) print "UNPROPOSED\\t" f/' "$TMP/unp" 0 0 --good-has 'not recomputable counters' --bad-lacks 'not recomputable counters'
   tt append-missing-key    's/if (!(order\[i\] in seen)) print order\[i\] ": " nv\[order\[i\]\]/if (0) print order[i]/' "$TMP/defmiss" 1 0
-  tt prose-offset          's/RSTART+16, RLENGTH-16/RSTART+17, RLENGTH-17/' "$TMP/forms" 1 0
+  tt prose-extract         's/sub(\/^backlog derives \/, "", s)/sub(\/^backlog derives \/, "9", s)/' "$TMP/forms" 1 1 --good-has '[*][*]2[*][*] [(]G74' --bad-lacks '[*][*]2[*][*] [(]G74'
   tt crlf-preserve         's/cr=(\$0 ~ \/\\r\$\/) ? "\\r" : ""/cr=""/' "$TMP/crlf" 1 1 --good-has $'[+]covered_blocks: 2\r' --bad-lacks $'[+]covered_blocks: 2\r'
   tt root-corpus-wide      's/\[ "\${#states\[@\]}" -gt 1 \] \&\& \[ -z "\$(derive_focus_prefix "\$s")" \]/false \&\& [ -z "$(derive_focus_prefix "$s")" ]/' "$TMP/rootcw" 0 1 --bad-has '[+]covered_blocks: 4'
-  tt dup-basename         's/-gt 0 \]; then$/-gt 99 ]; then/' "$TMP/dup" 3 1
+  STATE_UPDATE_VERIFY="$TMP/stub-prose.sh" tt prose-unmatched-count '/SU-PROSE-UNMATCHED/,/^  fi$/s/unproposed=\$((unproposed+1))/true/' "$TMP/prosegone" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
+  tt summary-trap          's/^trap _summary EXIT$/trap : EXIT/' "$TMP/empty" 2 2 --good-has 'checked=' --bad-lacks 'checked='
+  tt dup-basename          's/^if \[ -n "\$dups" \]; then/if false; then/' "$TMP/dup" 3 1
+  # list-fail-gate: the failing-helper tree from case 23 with the rc gate removed must stop reading DEGRADED.
+  m="$TMP/hf/state-update-m.sh"
+  if mutant_chain list-fail-gate "$SUT" "$m" 's/^if \[ "\$lrc" -ne 0 \] || /if false || /'; then
+    bash "$m" "$TMP/clean" >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" = 2 ]; then ok "teeth list-fail-gate: without the rc gate the failing helper reads as 'no state files' (rc 2)"; else no "teeth list-fail-gate: mutant rc=$mrc — THEATER"; fi
+  else fail=$((fail+1)); fi
+  # summary-not-last: a stray line printed after the summary must be caught by the case-24 predicate.
+  m="$MUT/state-update.sh"
+  if mutant_chain summary-not-last "$SUT" "$m" 's/^  \[ -n "\$work" \] && rm -rf "\$work"$/  [ -n "$work" ] \&\& rm -rf "$work"; echo trailing >\&2/'; then
+    bash "$m" "$TMP/clean" >/dev/null 2>"$TMP/stderr"
+    if last_is_summary; then no "teeth summary-not-last: mutant still ends with the summary — THEATER"; else ok "teeth summary-not-last: a trailing line defeats the last-line predicate"; fi
+  else fail=$((fail+1)); fi
   # never-write: run the seeder-equivalent write path on the live target — here, make the rewrite land on "$s".
   m="$MUT/state-update.sh"
-  if mutant_chain never-write "$SUT" "$m" 's#> "\$work/proposed" || { echo "state-update: DEGRADED — \$rel: rewriting failed"#> "$s.new" \&\& mv "$s.new" "$s" || { echo "state-update: DEGRADED — $rel: rewriting failed"#'; then
+  if mutant_chain never-write "$SUT" "$m" 's#> "\$work/proposed" 2> "\$work/awk.err"#> "$s.new" 2> "$work/awk.err" \&\& mv "$s.new" "$s"#'; then
     d="$TMP/ro2"; blocks "$d" proj-block1.md proj-block2.md; state "$d/RESEARCH-STATE.md" 1 1 1
     before="$(snap "$d")"; bash "$m" "$d" >/dev/null 2>&1; after="$(snap "$d")"
     if [ "$before" != "$after" ]; then ok "teeth never-write: mutant modifies the target, so case 4 bites"; else no "teeth never-write: mutant left the target unchanged — THEATER"; fi
