@@ -385,7 +385,7 @@ else no "tooth debug: stdout is byte-identical with the flag set (off=[$dbg_off_
 if grep -q 'MUTANT_TOOTH_DEBUG' "$TMP/d1on.err" && grep -q 'original rc=0' "$TMP/d1on.err" \
    && grep -q 'mutant rc=1' "$TMP/d1on.err" && grep -q 'all clear' "$TMP/d1on.err" && grep -q 'mut-inv.sh' "$TMP/d1on.err"; then
   ok "tooth debug: set prints mutant path, both rcs and run output to stderr"
-else no "tooth debug set (err=[$(cat "$TMP/d1on.err")])"; fi
+else no "tooth debug: set prints mutant path, both rcs and run output to stderr (err=[$(cat "$TMP/d1on.err")])"; fi
 
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -432,7 +432,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "self-overwrite: OUT equal to the original path is refused"
   teeth_case sedrm '/SENTINEL-SED-FAIL-CHECK/,+3s/rm -f -- "\$out"; //' \
     "sed failure (rc 6): the stale/partial mutant file is removed"
-  teeth_case unreadable 's/ || \[ ! -r "\$orig" \]//' \
+  teeth_case unreadable '/^mutant_sed/,/^}/s/ || \[ ! -r "\$orig" \]//' \
     "unreadable original: mutant_sed refuses"
   teeth_case unreadablever '/^mutant_verify/,/^}/s/ || \[ ! -r "\$orig" \]//' \
     "unreadable original: mutant_verify refuses"
@@ -440,6 +440,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "tooth debug: unset prints nothing on stderr"
   teeth_case debugstdout '/^_mutant_debug()/s/ >&2//' \
     "tooth debug: stdout is byte-identical"
+  teeth_case debugquiet '/^_mutant_debug()/s/printf .*$/:; }/' \
+    "tooth debug: set prints mutant path, both rcs and run output to stderr"
   # mutant_chain / mutant_built / mutant_tooth (#1299)
   teeth_case chaindead '/SENTINEL-CHAIN-DEAD-STAGE/,+1s/cmp -s - "\$orig"/false/' \
     "chain: dead last stage"
