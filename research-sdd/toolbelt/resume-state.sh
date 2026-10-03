@@ -11,7 +11,9 @@
 #   --base-ref REF  ref ahead/behind is measured against; default: origin/main, else main
 #   --no-gh         do not call gh; prs is null with prs_status "skipped"
 #
-# Exit: 0 ok · 2 usage / not a repository / unresolvable ref · 3 DEGRADED (git or jq missing — no JSON)
+# Exit: 0 ok · 2 usage / not a repository / unresolvable ref / runtime failure (git worktree list or mktemp
+#       failed — no JSON) · 3 DEGRADED (git or jq missing — no JSON). A missing gh or timeout is NOT an exit:
+#       it is reported inside the document as prs_status degraded:gh-missing / degraded:timeout-missing.
 #
 # Anti-silent-zero (CLAUDE.md §7): a worktree whose directory is gone reports exists=false with null counts
 # (not 0); an unknown PR list is prs=null plus a typed prs_status, never an empty array.
@@ -115,6 +117,8 @@ done < <(git for-each-ref --format='%(refname)' refs/heads)
 prs_json=null; prs_status="skipped"; prs_truncated=null
 if [ "$use_gh" = 1 ]; then
   if ! command -v gh >/dev/null 2>&1; then prs_status="degraded:gh-missing"
+  # Without timeout the gh call would exit 127 and read as a gh failure; name the real cause instead.
+  elif ! command -v timeout >/dev/null 2>&1; then prs_status="degraded:timeout-missing"
   else
     raw="$(timeout 30 gh pr list --state open --limit "$GH_LIMIT" --json number,headRefName,state,url 2>/dev/null)"; grc=$?
     if [ "$grc" = 124 ]; then prs_status="degraded:gh-timeout"
