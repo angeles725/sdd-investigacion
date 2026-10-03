@@ -65,7 +65,10 @@ add_worktree() { # path head branch(or empty) prunable(0/1)
   if [ -d "$wpath" ]; then
     exists=true
     if st="$(git -C "$wpath" status --porcelain 2>/dev/null)"; then
-      dirty="$(grep -vc '^??' <<<"$st")"; untracked="$(grep -c '^??' <<<"$st")"
+      # A here-string always appends a newline, so an empty status would reach grep as one blank
+      # line and count as dirty=1; a clean worktree is 0/0 by definition.
+      if [ -z "$st" ]; then dirty=0; untracked=0
+      else dirty="$(grep -vc '^??' <<<"$st")"; untracked="$(grep -c '^??' <<<"$st")"; fi
     else dirty=null; untracked=null; fi
   else exists=false; dirty=null; untracked=null; fi
   if [ -n "$whead" ]; then ab="$(ab_json "$whead")"; else ab='{"ahead":null,"behind":null}'; fi

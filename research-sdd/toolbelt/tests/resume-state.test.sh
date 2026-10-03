@@ -54,6 +54,7 @@ W="$(jqe '.worktrees[]|select(.branch=="feat/a")|[.dirty,.untracked,.ahead,.behi
 eq "2a feat/a dirty=1 untracked=2 ahead=2 behind=1 exists" "${W%,*}" "1,2,2,1,true"
 eq "2b feat/a head sha" "${W##*,}" "$(git -C "$TMP/wt-a" rev-parse HEAD)"
 eq "2c primary worktree is on main, ahead 0 behind 0" "$(jqe '.worktrees[]|select(.branch=="main")|[.ahead,.behind]|map(tostring)|join(",")')" "0,0"
+eq "2d clean primary worktree: dirty 0 untracked 0 (empty status is not one line)" "$(jqe '.worktrees[]|select(.branch=="main")|[.dirty,.untracked]|map(tostring)|join(",")')" "0,0"
 
 # 3. branches: only those NOT checked out in a worktree
 eq "3  branches exclude worktree branches" "$(jqe '[.branches[].name]|sort|join(",")')" "ahead1,loose"
@@ -153,6 +154,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
   tooth swap-ahead-behind 's/--left-right --count "\$base_ref\.\.\.\$ref"/--left-right --count "$ref...$base_ref"/' '[.branches[]|select(.name=="loose")|.behind]|first'
   tooth untracked-as-dirty 's/grep -vc /grep -c /' '[.worktrees[]|select(.path|endswith("wt-d"))|.dirty]|first'
+  tooth empty-status-guard 's/if \[ -z "\$st" \]; then dirty=0; untracked=0/if false; then :/' '[.worktrees[]|select(.branch=="main")|.dirty]|first'
   tooth no-skipped-status 's/"skipped"/"ok"/' '.prs_status'
   tooth keep-worktree-branches 's/is_wt_branch "\$b" && continue/false \&\& continue/' '.branches|length'
   tooth exists-always-true 's/\[ -d "\$wpath" \]/true/' '[.worktrees[]|select(.exists==false)]|length'
