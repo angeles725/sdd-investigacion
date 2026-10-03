@@ -153,8 +153,8 @@ for s in "${states[@]}"; do
     /<!-- \/research-state.v1 -->/ { for (i=1;i<=n;i++) if (!(order[i] in seen)) print order[i] ": " nv[order[i]]; inb=0; print; next }
     inb { c=index($0,":"); if (c) { k=substr($0,1,c-1); gsub(/^[ \t]+|[ \t]+$/,"",k)
             if (k in nv) { seen[k]=1; cr=($0 ~ /\r$/) ? "\r" : ""; print substr($0,1,c) " " nv[k] cr; next } } }
-    prose != "" && !pdone && tolower($0) ~ /read-only investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+/ {
-      if (match(tolower($0), /investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+/)) {
+    prose != "" && !pdone && tolower($0) ~ /read-only investigable\*?\*?:[[:space:]]*\*?\*?[0-9]+/ {
+      if (match(tolower($0), /investigable\*?\*?:[[:space:]]*\*?\*?[0-9]+/)) {
         pre=substr($0,1,RSTART-1); seg=substr($0,RSTART,RLENGTH); post=substr($0,RSTART+RLENGTH)
         sub(/[0-9]+$/, prose, seg); $0=pre seg post; pdone=1 } }
     { print }
