@@ -1,0 +1,3 @@
+echo before
+printf x | grep -q x
+echo after

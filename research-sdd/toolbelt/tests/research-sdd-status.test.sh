@@ -3926,7 +3926,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -q '# N641-FOCUSES-BEFORE-INVALID-PRIORITY' "$SUT"; then
     awk '/# N641-FOCUSES-BEFORE-INVALID-PRIORITY/{
       print "        # MUTANT-641: INVALID_PRIORITY check moved before FOCUSES skip (reverts bug order)"
-      print "        if backlog_rows 2>/dev/null | grep -q '"'"'^INVALID_PRIORITY'"'"'; then"
+      print "        if backlog_rows 2>/dev/null | grep -q '"'"'^INVALID_PRIORITY'"'"'; then"  # sigpipe-lint: allow deliberate reproduction of the pre-fix idiom inside a mutant body (T-641 tooth)
       print "          _any_real_stale=1; break  # MUTANT-641-EARLY"
       print "        fi"
     } { print }' "$SUT" > "$n641_mutant"

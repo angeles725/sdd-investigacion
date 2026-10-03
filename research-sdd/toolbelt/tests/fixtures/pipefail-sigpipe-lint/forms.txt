@@ -1,0 +1,23 @@
+printf x | grep -q x
+printf x | grep -qx x
+printf x | grep -iq x
+printf x | grep -i -q x
+printf x | grep -Eq x
+printf x | grep -Eqi/ x
+printf x | grep --quiet x
+printf x | grep --silent x
+printf x | grep -m 1 x
+printf x | grep -m1 x
+printf x | grep --max-count=1 x
+printf x | grep --max-count 1 x
+printf x | grep x -q
+printf x | grep -E 'a|b' -q
+printf x | command grep -q x
+printf x | egrep -q x
+printf x | fgrep -q x
+printf x | rg -q x
+printf x | /usr/bin/grep -q x
+printf x |& grep -q x
+printf x |grep -q x
+printf x | grep -v y | grep -q x
+if printf x | grep -q x; then :; fi

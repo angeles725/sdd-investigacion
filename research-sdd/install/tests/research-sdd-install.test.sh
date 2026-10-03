@@ -2024,20 +2024,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else ok "teeth: snapshot of an ABSENT root fails loudly (absent-input is not 'unchanged')"; fi
 fi
 
-# Kit issue #1349 — pipefail + early-terminating consumer. Under `set -o pipefail`, a producer piped into `grep -q`
-# fails whenever grep -q exits on its first match before printf has finished writing (SIGPIPE, rc 141): a
-# PASSING assertion reads as a failure, only under load (the failure output itself contained the expected text).
-# Assertions here use a here-string (`<<<"$v" grep -q PAT`) instead. This self-lint keeps the idiom out.
-_pf_re='\| *grep +-[a-zA-Z]*q'
-_pf_self="${BASH_SOURCE[0]}"
-_pf_n="$(grep -cE -- "$_pf_re" "$_pf_self")"; _pf_rc=$?
-if [ "$_pf_rc" -ge 2 ]; then no "#1349 lint: could not read $_pf_self (grep exit $_pf_rc)"
-elif [ "${_pf_n:-0}" -eq 0 ]; then ok "#1349 lint: no 'pipe-into-grep-q' (pipefail SIGPIPE race) idiom in this suite"
-else no "#1349 lint: $_pf_n 'pipe-into-grep-q' site(s) — use <<<\"\$v\" grep -q: $(grep -nE -- "$_pf_re" "$_pf_self" | cut -d: -f1 | head -20 | tr '\n' ' ')"; fi
-# Detector self-check (the lint must be able to see the idiom it forbids).
-if [ "$(printf 'x | %s -q y\n' grep | grep -cE -- "$_pf_re")" = "1" ]; then ok "#1349 lint: detector flags a synthetic 'pipe-into-grep-q' line"
-else no "#1349 lint: detector missed a synthetic 'pipe-into-grep-q' line — the lint is THEATER"; fi
-
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
 INSTALL_SNAP_AFTER="$(_install_tree_snapshot)" || INSTALL_SNAP_AFTER="<snapshot failed>"
 if [ "$INSTALL_SNAP_AFTER" = "$INSTALL_SNAP_BEFORE" ]; then
