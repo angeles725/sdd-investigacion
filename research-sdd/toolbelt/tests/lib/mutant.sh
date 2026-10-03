@@ -60,8 +60,15 @@
 #   MUTANT_SYNTAX=none   skip the `bash -n` check (mutants of non-bash files). Default: bash.
 #   MUTANT_TMPROOT       the directory OUT must live under. Default: ${TMPDIR:-/tmp}.
 #
+#   MUTANT_TOOTH_DEBUG   when non-empty, mutant_tooth also prints diagnostic detail to STDERR: the
+#                        label, original and mutant paths, ARGV, both exit codes and both outputs.
+#                        Unset (default): nothing extra is printed; stdout is identical either way.
+#
 # FUNCTIONS ONLY — source it, never execute it. No `set` options here: a sourced `set` would
 # mutate the calling suite's shell options.
+
+# _mutant_debug <text...> — stderr diagnostic line; callers gate it on MUTANT_TOOTH_DEBUG.
+_mutant_debug() { printf 'MUTANT_TOOTH_DEBUG: %s\n' "$*" >&2; }
 
 _mutant_refuse() { printf 'mutant: REFUSED — %s\n' "$1" >&2; }
 
@@ -241,6 +248,11 @@ mutant_tooth() {
   for a in "$@"; do gc+=("${a//@SUT@/"$orig"}"); mc+=("${a//@SUT@/"$mut"}"); done
   gout="$("${gc[@]}" 2>&1)"; grc_a=$?
   mout="$("${mc[@]}" 2>&1)"; mrc_a=$?
+  if [ -n "${MUTANT_TOOTH_DEBUG:-}" ]; then
+    _mutant_debug "$label: original=$orig mutant=$mut argv=[$*]"
+    _mutant_debug "$label: original rc=$grc_a (want $grc) output=[$gout]"
+    _mutant_debug "$label: mutant rc=$mrc_a (want $brc) output=[$mout]"
+  fi
   [ "$grc_a" = "$grc" ] || why="original rc=$grc_a (want $grc)"
   # SENTINEL-TOOTH-PATTERNS
   if [ -n "$ghas" ] && ! grep -qE $gi -- "$ghas" <<<"$gout"; then why="$why; original output lacks /$ghas/"; fi

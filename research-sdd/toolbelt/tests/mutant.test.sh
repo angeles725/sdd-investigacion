@@ -356,6 +356,37 @@ msg="$(mutant_tooth t12c 0 0 "$TMP/mut-same.sh" --bad-lacks 'all clear' -- bash 
 if [ "$rc" -eq 0 ] && [[ "$msg" == "  PASS  t12c"* ]]; then ok "tooth: equal rcs with --bad-lacks discriminate and pass"
 else no "tooth: bad-lacks lifts refusal (rc=$rc msg=[$msg])"; fi
 
+# T13 — rc 6 contract beyond the code: a sed that fails leaves NO mutant file behind (a caller that
+# ignores the rc must find nothing to run), even when OUT pre-existed with stale bytes.
+out="$TMP/m13.sh"; printf 'stale\n' > "$out"
+mutant_sed "$ORIG" "$out" 's/a' >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 6 ] && [ ! -e "$out" ]; then ok "sed failure (rc 6): the stale/partial mutant file is removed"
+else no "sed failure (rc 6): the stale/partial mutant file is removed (rc=$rc exists=$([ -e "$out" ] && echo y || echo n))"; fi
+
+# T14 — rc 2 for an UNREADABLE original (exists, non-empty, but not readable) — distinct from absent.
+# Skipped as root, where chmod 000 does not make a file unreadable.
+unr="$TMP/src/unreadable.sh"; printf 'echo hi\n' > "$unr"; chmod 000 "$unr"
+if [ ! -r "$unr" ]; then
+  expect_rc "unreadable original: mutant_sed refuses (rc 2, says not a readable file)" 2 "not a readable file" \
+    mutant_sed "$unr" "$TMP/m14.sh" 's/hi/x/'
+  expect_rc "unreadable original: mutant_verify refuses (rc 2, says not a readable file)" 2 "not a readable file" \
+    mutant_verify "$unr" "$ext"
+else ok "unreadable original: SKIP — running as a user for whom chmod 000 is still readable"; fi
+chmod 600 "$unr"
+
+# T15 — MUTANT_TOOTH_DEBUG (opt-in): unset => stderr is empty and stdout unchanged; set => detail on
+# STDERR only (stdout stays byte-identical, so a caller capturing stdout is unaffected).
+dbg_off_out="$(mutant_tooth d1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>"$TMP/d1.err")"; rc=$?
+dbg_on_out="$(MUTANT_TOOTH_DEBUG=1 mutant_tooth d1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>"$TMP/d1on.err")"
+if [ "$rc" -eq 0 ] && [ ! -s "$TMP/d1.err" ]; then ok "tooth debug: unset prints nothing on stderr"
+else no "tooth debug: unset prints nothing on stderr (rc=$rc err=[$(cat "$TMP/d1.err")])"; fi
+if [ "$dbg_off_out" = "$dbg_on_out" ] && [ -n "$dbg_on_out" ]; then ok "tooth debug: stdout is byte-identical with the flag set"
+else no "tooth debug: stdout is byte-identical with the flag set (off=[$dbg_off_out] on=[$dbg_on_out])"; fi
+if grep -q 'MUTANT_TOOTH_DEBUG' "$TMP/d1on.err" && grep -q 'original rc=0' "$TMP/d1on.err" \
+   && grep -q 'mutant rc=1' "$TMP/d1on.err" && grep -q 'all clear' "$TMP/d1on.err" && grep -q 'mut-inv.sh' "$TMP/d1on.err"; then
+  ok "tooth debug: set prints mutant path, both rcs and run output to stderr"
+else no "tooth debug set (err=[$(cat "$TMP/d1on.err")])"; fi
+
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   SELFTEST="$HERE/mutant.test.sh"
@@ -399,6 +430,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "sed failure: refused (rc 6, says sed failed)"
   teeth_case selfoverwrite '/SENTINEL-SELF-CHECK/,+3s/return 7/:/' \
     "self-overwrite: OUT equal to the original path is refused"
+  teeth_case sedrm '/SENTINEL-SED-FAIL-CHECK/,+3s/rm -f -- "\$out"; //' \
+    "sed failure (rc 6): the stale/partial mutant file is removed"
+  teeth_case unreadable 's/ || \[ ! -r "\$orig" \]//' \
+    "unreadable original: mutant_sed refuses"
+  teeth_case unreadablever '/^mutant_verify/,/^}/s/ || \[ ! -r "\$orig" \]//' \
+    "unreadable original: mutant_verify refuses"
+  teeth_case debugon 's/if \[ -n "\${MUTANT_TOOTH_DEBUG:-}" \]; then/if true; then/' \
+    "tooth debug: unset prints nothing on stderr"
+  teeth_case debugstdout '/^_mutant_debug()/s/ >&2//' \
+    "tooth debug: stdout is byte-identical"
   # mutant_chain / mutant_built / mutant_tooth (#1299)
   teeth_case chaindead '/SENTINEL-CHAIN-DEAD-STAGE/,+1s/cmp -s - "\$orig"/false/' \
     "chain: dead last stage"
