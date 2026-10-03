@@ -17,6 +17,8 @@ SUT="$HERE/../plan-review-slices.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "FATAL: git required" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+case "${1:-}" in ""|--prove-teeth) ;; *) echo "usage: plan-review-slices.test.sh [--prove-teeth]" >&2; exit 2 ;; esac
+[ $# -le 1 ] || { echo "usage: plan-review-slices.test.sh [--prove-teeth]" >&2; exit 2; }
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -30,6 +32,11 @@ lacks(){ local label="$1"; shift; local hit=""
   for n in "$@"; do has "$n" && hit="${hit}[unexpected: $n] "; done
   if [ -z "$hit" ]; then ok "$label"; else no "$label — $hit| out: $(printf '%s' "$OUT" | tr '\n' '~' | cut -c1-300)"; fi; }
 
+# slice_has <k> <needle>...: the SLICE <k> line must exist and contain every needle (binds needles to ONE line).
+slice_has(){ local k="$1" line n; shift; line="$(grep -F -- "SLICE $k " <<<"$OUT" | sed -n 1p)"
+  [ -n "$line" ] || return 1; for n in "$@"; do grep -qF -- "$n" <<<"$line" || return 1; done; }
+slice_lacks(){ local k="$1" line n; shift; line="$(grep -F -- "SLICE $k " <<<"$OUT" | sed -n 1p)"
+  [ -n "$line" ] || return 1; for n in "$@"; do grep -qF -- "$n" <<<"$line" && return 1; done; return 0; }
 # mkrepo <dir> : repo with one base commit tagged `base`.
 mkrepo(){ local d="$1"; mkdir -p "$d"
   git -C "$d" init -q -b main 2>/dev/null || { git -C "$d" init -q; git -C "$d" checkout -q -b main; }
@@ -61,11 +68,15 @@ lacks "3d no UNSPLITTABLE at equality" "UNSPLITTABLE"
 # 4. UNSPLITTABLE in the middle, first, last, and alone.
 d="$TMP/unsp"; mkrepo "$d"; add "$d" a 50; add "$d" big 500; add "$d" c 50
 run --cwd "$d" --base-ref base --max-lines 400
-expect "4  oversized middle commit is its own UNSPLITTABLE slice" 0 "SLICE 2 " "commits=1 UNSPLITTABLE lines=500" "PLAN: 3 slice(s) commits=3 lines=600 max=400"
+expect "4  oversized middle commit: three slices, plan totals" 0 "PLAN: 3 slice(s) commits=3 lines=600 max=400"
+slice_has 2 "commits=1 UNSPLITTABLE lines=500" && ok "4a UNSPLITTABLE tag sits on slice 2" || no "4a slice 2 lacks UNSPLITTABLE: $(printf '%s' "$OUT" | tr '\n' '~')"
+{ slice_lacks 1 UNSPLITTABLE && slice_lacks 3 UNSPLITTABLE; } && ok "4a2 slices 1 and 3 carry no UNSPLITTABLE tag" || no "4a2 UNSPLITTABLE leaked onto a normal slice"
 d="$TMP/unsp-first"; mkrepo "$d"; add "$d" big 500; add "$d" a 50
-run --cwd "$d" --base-ref base --max-lines 400; expect "4b UNSPLITTABLE first, then a normal slice" 0 "SLICE 1 " "UNSPLITTABLE lines=500" "SLICE 2 " "PLAN: 2 slice(s)"
+run --cwd "$d" --base-ref base --max-lines 400; expect "4b UNSPLITTABLE first, then a normal slice" 0 "PLAN: 2 slice(s)"
+{ slice_has 1 "UNSPLITTABLE lines=500" && slice_lacks 2 UNSPLITTABLE; } && ok "4b2 tag on slice 1 only" || no "4b2 tag misplaced: $(printf '%s' "$OUT" | tr '\n' '~')"
 d="$TMP/unsp-last"; mkrepo "$d"; add "$d" a 50; add "$d" big 500
-run --cwd "$d" --base-ref base --max-lines 400; expect "4c UNSPLITTABLE last, preceded by a normal slice" 0 "SLICE 1 " "SLICE 2 " "UNSPLITTABLE lines=500" "PLAN: 2 slice(s)"
+run --cwd "$d" --base-ref base --max-lines 400; expect "4c UNSPLITTABLE last, preceded by a normal slice" 0 "PLAN: 2 slice(s)"
+{ slice_lacks 1 UNSPLITTABLE && slice_has 2 "UNSPLITTABLE lines=500"; } && ok "4c2 tag on slice 2 only" || no "4c2 tag misplaced: $(printf '%s' "$OUT" | tr '\n' '~')"
 d="$TMP/unsp-one"; mkrepo "$d"; add "$d" big 500
 run --cwd "$d" --base-ref base --max-lines 400; expect "4d single oversized commit: one UNSPLITTABLE slice" 0 "PLAN: 1 slice(s) commits=1 lines=500" "UNSPLITTABLE"
 
@@ -136,6 +147,26 @@ OUT="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$SUT" --cwd "$d" --base-ref base 
 expect "13 malformed numstat row exits 2 and names it" 2 "malformed numstat"
 lacks "13b no PLAN line is printed for a malformed measurement" "PLAN:"
 
+# 14. Root commit on the first-parent walk (unrelated history merged in): typed base=ROOT, never a guess.
+d="$TMP/root"; mkrepo "$d"; add "$d" a 10
+git -C "$d" checkout -q --orphan unrelated; git -C "$d" rm -rfq . ; printf 'r\n' > "$d/r.txt"; git -C "$d" add -A; git -C "$d" commit -q -m root
+git -C "$d" merge -q --allow-unrelated-histories -m merge main
+run --cwd "$d" --base-ref main; expect "14 root commit on the first-parent walk: plan printed" 0 "PLAN:"
+rs="$(git -C "$d" rev-parse --short=12 "$(git -C "$d" rev-list --first-parent --max-parents=0 unrelated)")"
+slice_has 1 "SLICE 1 $rs.." "base=ROOT" && ok "14b base=ROOT is tied to the slice starting at the root commit" || no "14b base=ROOT not on the slice starting at $rs: $(printf '%s' "$OUT" | tr '\n' '~')"
+# shim <name> <pattern>: a git wrapper that fails (exit 1, no output) for any invocation matching the case pattern.
+shim(){ mkdir -p "$TMP/$1"; printf '#!/bin/sh\ncase "$*" in %s) exit 1;; esac\nexec %s "$@"\n' "$2" "$REALGIT" > "$TMP/$1/git"; chmod +x "$TMP/$1/git"; }
+# 15. A failed parent lookup is an error, never silently treated as a root commit.
+shim shim-parents '*"rev-list --parents"*'
+OUT="$(PATH="$TMP/shim-parents:$PATH" timeout 30 bash "$SUT" --cwd "$TMP/parents" --base-ref base 2>&1)"; RC=$?
+expect "15 parent lookup failure exits 2 and names it" 2 "cannot read parents"
+lacks "15b no PLAN / base=ROOT after a parent lookup failure" "PLAN:" "base=ROOT"
+# 16. A failed empty-tree computation for a root commit is its own typed error.
+shim shim-hash '*"hash-object"*'
+OUT="$(PATH="$TMP/shim-hash:$PATH" timeout 30 bash "$SUT" --cwd "$TMP/root" --base-ref main 2>&1)"; RC=$?
+expect "16 empty-tree failure on a root commit exits 2 and names it" 2 "cannot compute the empty tree"
+lacks "16b no PLAN / base=ROOT after an empty-tree failure" "PLAN:" "base=ROOT"
+
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: plan-review-slices mutants --"
@@ -168,8 +199,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mo="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$m" --cwd "$TMP/malformed" --base-ref base 2>&1)"; mrc=$?
     if [ "$mrc" != 2 ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still exits 2 — THEATER"; fi; }
   shimtooth malformed-check 's/NF > 0 { bad = 1 }/NF > 0 { bad = 0 }/'
+  tooth root-typed 's/pshort="ROOT"/pshort="NONE"/' 0 "base=ROOT" "$TMP/root" --base-ref main
+  tooth unsplit-flag 's/s_unsplit=1$/s_unsplit=0/' 0 "UNSPLITTABLE lines=500" "$TMP/unsp" --base-ref base --max-lines 400
+  # shimtooth2 <name> <sed-expr> <shim dir> <repo> <base>: the original exits 2 under the shim; the mutant must not.
+  # An optional <needle> must also vanish from the mutant output (a mutant that still exits 2 for another reason is not caught by rc alone).
+  shimtooth2(){ local name="$1" expr="$2" shimdir="$3" repo="$4" ref="$5" needle="${6:-}" m="$TMP/mut/$1.sh" mo mrc
+    if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant"; return; fi
+    mo="$(PATH="$shimdir:$PATH" timeout 30 bash "$m" --cwd "$repo" --base-ref "$ref" 2>&1)"; mrc=$?
+    if [ "$mrc" != 2 ] || { [ -n "$needle" ] && ! grep -qF -- "$needle" <<<"$mo"; }; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
+  shimtooth2 parents-checked 's/ || { echo .*; exit 2; } # PARENTS$/ || true # PARENTS/' "$TMP/shim-parents" "$TMP/parents" base "cannot read parents"
+  shimtooth2 emptytree-checked 's/ || { echo .*; exit 2; } # EMPTYTREE$/ || true # EMPTYTREE/' "$TMP/shim-hash" "$TMP/root" main "cannot compute the empty tree"
   tooth bad-ref-exit 's/exit 2 # BADREF/exit 0 # BADREF/' 2 "no-such-ref" "$TMP/parents" --base-ref no-such-ref
-  tooth max-validation 's/^\[\[ "\$MAX" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
+  tooth max-validation 's/^\[\[ "\$max" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
 fi
 
 echo "== $pass passed · $fail failed =="
