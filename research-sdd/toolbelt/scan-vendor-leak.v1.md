@@ -27,15 +27,19 @@ Globs are bash `[[ == ]]` patterns against the repo-relative path; `*` crosses `
 Built-in rule, independent of the conf: `*.class *.jar *.dll *.so *.so.<digit>* *.exe` (case-insensitive) is a leak unless allowed.
 
 An unknown directive, a directive without an argument, a `prefix` that is not dotted identifier characters, or a
-`path`/`allow` glob that is absolute or contains `..` is `BAD-CONF` and exit 2: a typo (`prefx`) or a rule that could
+`path`/`allow` glob that is absolute or has a `..` path segment (a name such as `v1..2.jar` is fine), or an `allow` glob that matches every probe path shape (top-level, hidden, nested, binary extensions: a blanket allow, e.g. `*`, `?*`, `*?*`), is `BAD-CONF` and exit 2: a typo (`prefx`) or a rule that could
 never match must not read as a clean run. A conf that is a symlink, a directory, or unreadable (`UNREADABLE-CONF`) is
 also exit 2, never ABSENT.
+
+Where the conf is read from: the INDEX when `.research-sdd/vendor-leak.conf` is tracked or staged (in both modes, so a
+work-tree edit that is not staged changes nothing); a conf present only in the work tree is still used, but the run prints
+`CONF-UNTRACKED` because a commit would not carry it. A conf with unmerged index entries is `BAD-CONF` and exit 2.
 
 ## Output and exit codes
 
 ```
 LEAK <binary|path|package> <path>[:<line>] <reason>
-SUMMARY scanned=N allowed=N findings=N unreadable=N conf=present|absent prefixes=N paths=N allows=N mode=tracked|staged
+SUMMARY scanned=N allowed=N findings=N unreadable=N unmerged=N conf=present|absent prefixes=N paths=N allows=N mode=tracked|staged
 ```
 
 A file can yield more than one LEAK line (e.g. a `.class` under `decompiled/**` is `binary` and `path`).
@@ -47,6 +51,8 @@ Typed non-finding states (never a silent zero):
 | `ABSENT-CONF` | No conf: only the built-in binary rule ran. The SUMMARY repeats "path/package rules NOT evaluated". |
 | `EMPTY-CONF` | Conf exists with zero directives: same limitation. |
 | `EMPTY-INPUT` | Zero files in scope (empty repo / nothing staged): nothing was looked at. |
+| `CONF-UNTRACKED` | Conf exists only in the work tree (not in the index): used, but a commit would not carry it. |
+| `UNMERGED <path>` | Unmerged index entries: not scanned; counted in `unmerged=N`; exit 2 (or 1 if a finding exists). |
 | `BAD-CONF` / `UNREADABLE-CONF` | Invalid, unsafe or unreadable declaration (exit 2). |
 | `UNREADABLE <path>` | Index content of a source file could not be read, so its package rule was NOT evaluated; counted in `unreadable=N`; the run is never clean (exit 2, or 1 if a finding exists). |
 
@@ -54,11 +60,11 @@ Typed non-finding states (never a silent zero):
 |---|---|
 | 0 | no findings |
 | 1 | findings |
-| 2 | usage, not a git work tree, bad/unreadable conf, or unreadable index content |
-| 3 | DEGRADED (git missing or file listing failed) |
+| 2 | usage, not a git work tree, bad/unreadable conf, unreadable index content, or unmerged index entries |
+| 3 | DEGRADED, on stderr (git missing, mktemp failed, or git could not list files) |
 
 Modes: `--tracked` (default) = every file git tracks under the target; `--staged` = files added/copied/modified/renamed
-in the index (type changes such as file → symlink are scanned; deletions are skipped on purpose). Package declarations are read from the INDEX (`git show :./path`), not the worktree copy, so a staged
+in the index (type changes such as file → symlink are scanned; deletions are skipped on purpose). Unmerged index entries (merge/rebase conflict) are reported once each as `UNMERGED <path>`, not scanned, counted in `unmerged=N`, and make the run exit 2 (never clean, never a LEAK/UNREADABLE misreport). Package declarations are read from the INDEX (`git show :./path`), not the worktree copy, so a staged
 scan judges what a commit would send. A target that is a sub-directory of a repo is scanned relative to that
 directory only.
 
@@ -86,7 +92,7 @@ Classification by hand:
 |---|---|---|
 | niagara5-research | 1 binary: `poc/n5-hello/gradle/wrapper/gradle-wrapper.jar` | FALSE positive: Gradle's own public wrapper jar, not vendor code. Needs an `allow poc/**/gradle/wrapper/*` line. HEAD has no vendor-package `.java` (fixed by #25 / efd7256). |
 | niagara5-research @ `b8eebcd` (scratch clone + conf `prefix javax.baja` / `prefix com.tridium`) | 2 package: `evidence/b118/BQudtUnitTag.cons-linemapped.java:1`, `BSimpleSigningProfile.cons-linemapped.java:1`; plus the gradle jar | TRUE positives for the incident. FALSE negatives: `BDevice.cons-linemapped.java` (package `niagara.driver`) and `InitProbe.java` (default package) leak Tridium code but are not recognised. |
-| niagara-research | 1344 binary: 1316 `.class` + 11 `.jar` + 3 `.dll` + 2 `.exe` under `sources/probes`, `.jar` under `codegen/`, `toolshost/`, `sources/sdk-dev-examples`, `.so` under `examinacion-optimizer-4.13/sources`, and `com/tridium/workbench/commands/LinkMarkCommand.class` | Mostly TRUE (vendor-derived or compiled probe artifacts tracked in a repo with a remote); whether each is publishable is a human review per path, not decidable by the tool. `com/tridium/**.class` at repo root is a TRUE vendor-binary leak. The probe jars/classes are authored artifacts: allowlist-or-untrack decision belongs to the owner. |
+| niagara-research | 1344 binary, reconciled by extension: 1318 `.class` + 19 `.jar` + 3 `.dll` + 2 `.exe` + 2 `.so` (re-counted 2026-10-03 from the scanner's own LEAK lines). Locations include `sources/probes`, `.jar` under `codegen/`, `toolshost/`, `sources/sdk-dev-examples`, `.so` under `examinacion-optimizer-4.13/sources`, and `com/tridium/workbench/commands/LinkMarkCommand.class` | Mostly TRUE (vendor-derived or compiled probe artifacts tracked in a repo with a remote); whether each is publishable is a human review per path, not decidable by the tool. `com/tridium/**.class` at repo root is a TRUE vendor-binary leak. The probe jars/classes are authored artifacts: allowlist-or-untrack decision belongs to the owner. |
 | niagara-help, COB-IM2, api-paneles, blender-llm, cloudflare, fluke-177x-datos, mini-pc, nave-panccadia, sdd-investigacion, sullair, panccadia-3d-viewer, hisense, three.js research, Pancaddia, HotelHilton, HotelPalace, ford | 0 | Clean on the binary rule only (`ABSENT-CONF`: prefix/path rules not evaluated). |
 | module-navigator | exit 2 (not a git work tree) | Typed refusal, correct. |
 | all other TARGETS rows | directory absent on this machine | Not scanned; absence is reported by the sweep harness, not by the tool. |

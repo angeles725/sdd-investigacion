@@ -13,12 +13,15 @@
 #   --staged   only files added/copied/modified/renamed in the index (what a commit would send).
 # Output (stdout, one line each):
 #   LEAK <binary|path|package> <path>[:<line>] <reason>
-#   ABSENT-CONF / EMPTY-CONF / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF / UNREADABLE <path>
-#                                                       — typed non-finding states
-#   SUMMARY scanned=N allowed=N findings=N unreadable=N conf=present|absent prefixes=N paths=N allows=N mode=M
+#   ABSENT-CONF / EMPTY-CONF / CONF-UNTRACKED / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF /
+#   UNREADABLE <path> / UNMERGED <path>                 — typed non-finding states
+#   SUMMARY scanned=N allowed=N findings=N unreadable=N unmerged=N conf=present|absent prefixes=N paths=N allows=N mode=M
 # Exit: 0 no findings · 1 findings · 2 usage / not a git repo / bad or unreadable conf / unreadable index
-#       content (UNREADABLE: the scan could not look, so it is never clean) · 3 DEGRADED (git missing).
-# Findings (1) outrank unreadable (2) only in the exit code; both are printed.
+#       content (UNREADABLE) / unmerged index entries (UNMERGED) — in both cases the scan could not look, so
+#       it is never clean · 3 DEGRADED on stderr (git missing, mktemp failed, or git could not list files).
+# Findings (1) outrank unreadable/unmerged (2) only in the exit code; all are printed.
+# The conf is read from the INDEX when it is there (what a commit would send); a conf that exists only in the
+# work tree is still used but announced with CONF-UNTRACKED. Unmerged paths are reported once and not scanned.
 # READ-ONLY: only `git ls-files|diff|show|rev-parse` run against the target; nothing is written.
 set -uo pipefail
 
@@ -43,18 +46,40 @@ git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 shopt -u nocasematch
 
 PREFIXES=(); PATHS=(); ALLOWS=()
-conf="$target/.research-sdd/vendor-leak.conf"
+conf_rel=".research-sdd/vendor-leak.conf"
+conf="$target/$conf_rel"
 conf_state=absent
 bad_conf=0
-# The conf is read from the work tree. Anything at that path that is not a readable regular file
-# (symlink that could point outside the target, directory, chmod 000) is a typed refusal, never ABSENT.
-if [ -L "$conf" ] || { [ -e "$conf" ] && [ ! -f "$conf" ]; }; then
-  echo "BAD-CONF $conf is a symlink or not a regular file — refusing to read it"
-  exit 2
-fi
-if [ -f "$conf" ]; then
-  [ -r "$conf" ] || { echo "UNREADABLE-CONF $conf exists but cannot be read — not treated as absent"; exit 2; }
+files_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
+conf_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
+trap 'rm -f "$files_tmp" "$conf_tmp"' EXIT
+conf_file="$conf"
+# Source order: the INDEX entry wins (it is what a commit would send); otherwise the work tree.
+idx_entry="$(git -C "$target" ls-files -s -- "./$conf_rel" 2>/dev/null)"
+if [ -n "$idx_entry" ]; then
+  idx_mode="${idx_entry%% *}"
+  if grep -qvE '^[0-9]+ [0-9a-f]+ 0	' <<<"$idx_entry"; then
+    echo "BAD-CONF $conf has unmerged index entries — resolve the merge first"; exit 2
+  fi
+  if [ "$idx_mode" != 100644 ] && [ "$idx_mode" != 100755 ]; then
+    echo "BAD-CONF $conf is a symlink or not a regular file in the index — refusing to read it"; exit 2
+  fi
+  git -C "$target" show ":./$conf_rel" > "$conf_tmp" 2>/dev/null \
+    || { echo "UNREADABLE-CONF $conf is in the index but its content cannot be read — not treated as absent"; exit 2; }
+  conf_file="$conf_tmp"
   conf_state=present
+elif [ -e "$conf" ] || [ -L "$conf" ]; then
+  # Not in the index: anything at that path that is not a readable regular file (symlink that could point
+  # outside the target, directory, chmod 000) is a typed refusal, never ABSENT.
+  if [ -L "$conf" ] || [ ! -f "$conf" ]; then
+    echo "BAD-CONF $conf is a symlink or not a regular file — refusing to read it"
+    exit 2
+  fi
+  [ -r "$conf" ] || { echo "UNREADABLE-CONF $conf exists but cannot be read — not treated as absent"; exit 2; }
+  echo "CONF-UNTRACKED $conf is not in the index — read from the work tree; a commit would not carry it"
+  conf_state=present
+fi
+if [ "$conf_state" = present ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
     line="${line#"${line%%[![:space:]]*}"}"
@@ -72,24 +97,38 @@ if [ -f "$conf" ]; then
           continue
         fi
         # Paths are repo-relative: an absolute or `..` glob could never match, i.e. a silently dead rule.
+        # `..` is refused only as a whole path SEGMENT; a name such as `v1..2.jar` is a legal glob.
         case "$dir:$arg" in
           prefix:*[!A-Za-z0-9_.]*|prefix:.*|prefix:*.|prefix:*..*)
             echo "BAD-CONF invalid package prefix '$arg' in $conf (letters, digits, _ and . only)"
             bad_conf=1; continue ;;
-          path:/*|allow:/*|path:*..*|allow:*..*)
-            echo "BAD-CONF glob '$arg' in $conf must be repo-relative (no leading / and no ..)"
+          path:/*|allow:/*|path:..|path:../*|path:*/..|path:*/../*|allow:..|allow:../*|allow:*/..|allow:*/../*)
+            echo "BAD-CONF glob '$arg' in $conf must be repo-relative (no leading / and no .. segment)"
             bad_conf=1; continue ;;
         esac
+        # `*` crosses `/`, so an allow can match every file. Decide semantically: a glob that matches ALL of
+        # these probe shapes (top-level, hidden, nested, binary extensions) is blanket, whatever its spelling.
+        if [ "$dir" = allow ]; then
+          blanket=1
+          for probe in a a.jar d/a.class .x d/e/f.so x/y/z.dll Q.EXE; do
+            # shellcheck disable=SC2053  # the glob is meant to be a pattern
+            [[ "$probe" == $arg ]] || { blanket=0; break; }
+          done
+          if [ "$blanket" = 1 ]; then
+            echo "BAD-CONF allow '$arg' in $conf matches every file — refusing a blanket allow"
+            bad_conf=1; continue
+          fi
+        fi
         case "$dir" in
           prefix) PREFIXES+=("$arg") ;;
           path) PATHS+=("$arg") ;;
           allow) ALLOWS+=("$arg") ;;
         esac ;;
       *)
-      echo "BAD-CONF unknown directive '$dir' in $conf (expected prefix|path|allow)"
-      bad_conf=1 ;;
+        echo "BAD-CONF unknown directive '$dir' in $conf (expected prefix|path|allow)"
+        bad_conf=1 ;;
     esac
-  done < "$conf"
+  done < "$conf_file"
 fi
 [ "$bad_conf" = 0 ] || exit 2
 
@@ -123,18 +162,32 @@ emit() { # emit <kind> <path-with-optional-:line> <reason>
 list_files() {
   if [ "$mode" = staged ]; then
     # ACMRT: added/copied/modified/renamed/type-changed. Deletions (D) are excluded ON PURPOSE: a deleted
-    # path has no index content to leak. Unmerged (U) entries are not listed; resolve the merge first.
+    # path has no index content to leak. Unmerged (U) entries are not listed here: they are reported up front
+    # as UNMERGED (see below), never silently dropped.
     git -C "$target" diff --cached --name-only --relative -z --diff-filter=ACMRT
   else
     git -C "$target" ls-files -z
   fi
 }
 
-files_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
-trap 'rm -f "$files_tmp"' EXIT
+# Unmerged index entries (merge/rebase conflict): `git show :path` has no stage-0 blob and `ls-files` lists
+# the path once per stage, so they would be misreported as UNREADABLE or double-counted. Type them instead.
+declare -A UNMERGED=()
+unmerged=0
+unmerged_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
+git -C "$target" ls-files -u -z > "$unmerged_tmp" || { rm -f "$unmerged_tmp"; echo "DEGRADED: git could not list unmerged entries" >&2; exit 3; }
+while IFS= read -r -d '' rec; do
+  up="${rec#*$'\t'}"
+  [ -z "${UNMERGED[$up]+x}" ] || continue
+  UNMERGED[$up]=1
+  unmerged=$((unmerged+1))
+  echo "UNMERGED ${up//$'\n'/\\n} index has unmerged entries — NOT scanned; resolve the merge first"
+done < "$unmerged_tmp"
+rm -f "$unmerged_tmp"
 list_files > "$files_tmp" || { echo "DEGRADED: git could not list files ($mode)" >&2; exit 3; }
 
 while IFS= read -r -d '' p; do
+  [ -z "${UNMERGED[$p]+x}" ] || continue
   scanned=$((scanned+1))
   if is_allowed "$p"; then
     allowed=$((allowed+1))
@@ -173,10 +226,11 @@ while IFS= read -r -d '' p; do
   fi
 done < "$files_tmp"
 
-[ "$scanned" -gt 0 ] || echo "EMPTY-INPUT no files in scope for mode=$mode — a zero here means nothing was looked at"
+[ "$scanned" -gt 0 ] || [ "$unmerged" -gt 0 ] || echo "EMPTY-INPUT no files in scope for mode=$mode — a zero here means nothing was looked at"
 note=""
 [ "$conf_state" = present ] || note=" — path/package rules NOT evaluated (no conf); only the built-in binary rule ran"
-echo "SUMMARY scanned=$scanned allowed=$allowed findings=$findings unreadable=$unreadable conf=$conf_state prefixes=${#PREFIXES[@]} paths=${#PATHS[@]} allows=${#ALLOWS[@]} mode=$mode$note"
+echo "SUMMARY scanned=$scanned allowed=$allowed findings=$findings unreadable=$unreadable unmerged=$unmerged conf=$conf_state prefixes=${#PREFIXES[@]} paths=${#PATHS[@]} allows=${#ALLOWS[@]} mode=$mode$note"
 [ "$findings" -gt 0 ] && exit 1
 [ "$unreadable" -gt 0 ] && exit 2
+[ "$unmerged" -gt 0 ] && exit 2
 exit 0

@@ -7,7 +7,8 @@
 # javax.baja); a missing conf is a TYPED ABSENT-CONF state (never a silent pass on prefixes); --staged
 # reads the index, default reads tracked files; the scan never writes to the target.
 #
-# Usage: scan-vendor-leak.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+# Usage: scan-vendor-leak.test.sh [--prove-teeth]
+# Exit: 0 all held · 1 regression · 2 harness fatal (SUT or lib/mutant.sh missing / not loadable).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../scan-vendor-leak.sh"
@@ -171,6 +172,53 @@ o="$(out "$d" --staged)"
 d="$TMP/so"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" lib/libz.so.1.2; addf "$d" docs/x.so.md; commit "$d"
 o="$(out "$d")"; has "$o" '^LEAK binary lib/libz\.so\.1\.2 ' && ! has "$o" 'x\.so\.md' && ok "versioned .so.N flagged, .so.md not" || no "versioned so wrong: $o"
 
+# 16 — second-round advisories (#1522).
+# 16a unmerged index entries are typed UNMERGED (once per path, never a LEAK/clean/UNREADABLE), exit 2, both modes.
+d="$TMP/merge"; newrepo "$d" "$FIX/vendor-leak.conf"; commit "$d"
+git -C "$d" checkout -q -b side; addf "$d" src/C.java 'package com.acme.side;'; commit "$d"
+git -C "$d" checkout -q -; addf "$d" src/C.java 'package javax.baja.main;'; commit "$d"
+git -C "$d" merge side >/dev/null 2>&1
+for m in --tracked --staged; do
+  o="$(out "$d" $m)"; n="$(grep -c '^UNMERGED src/C\.java' <<<"$o")"
+  [ "$(rc "$d" $m)" = 2 ] && [ "$n" = 1 ] && ! has "$o" '^LEAK ' && ! has "$o" '^UNREADABLE ' && has "$o" 'unmerged=1' \
+    && ok "unmerged entry ($m) → one UNMERGED line, unmerged=1, exit 2" || no "unmerged ($m) wrong (n=$n): $o"
+done
+# 16b the conf is read from the INDEX when it is there: a worktree edit that empties it changes nothing.
+d="$TMP/confidx"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" .research-sdd/vendor-leak.conf "$(cat "$FIX/vendor-leak.conf")"
+addf "$d" src/V.java 'package javax.baja.s;'
+printf '# emptied in the work tree only\n' > "$d/.research-sdd/vendor-leak.conf"
+o="$(out "$d" --staged)"
+[ "$(rc "$d" --staged)" = 1 ] && has "$o" '^LEAK package src/V\.java:1 ' && ! has "$o" '^EMPTY-CONF' && ok "staged conf read from the index, not the edited work tree" || no "conf read from work tree: $o"
+# 16c a conf that exists only in the work tree is still used but the run says so.
+d="$TMP/confwt"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" src/V.java 'package javax.baja.s;'
+o="$(out "$d" --staged)"
+[ "$(rc "$d" --staged)" = 1 ] && has "$o" '^CONF-UNTRACKED ' && has "$o" '^LEAK package ' && ok "work-tree-only conf → used, typed CONF-UNTRACKED note" || no "untracked conf note wrong: $o"
+# 16d `..` is refused only as a path SEGMENT; a name containing two dots is a legal glob.
+d="$TMP/dots"; newrepo "$d"; mkdir -p "$d/.research-sdd"
+printf 'path foo..bar/**\nallow v1..2.jar\n' > "$d/.research-sdd/vendor-leak.conf"
+[ "$(rc "$d")" = 0 ] && ok "glob with 'a..b' inside a name accepted" || no "a..b glob over-rejected"
+for bad in 'path a/../b' 'path ..' 'allow x/..' 'path ../x'; do
+  printf '%s\n' "$bad" > "$d/.research-sdd/vendor-leak.conf"
+  [ "$(rc "$d")" = 2 ] && ok "conf '$bad' → exit 2" || no "conf '$bad' accepted"
+done
+# 16e an allow that is only wildcards would silently allow everything: refused.
+for bad in 'allow *' 'allow **' 'allow ***' 'allow *?*' 'allow ?*' 'allow [!Z]*'; do
+  printf '%s\n' "$bad" > "$d/.research-sdd/vendor-leak.conf"
+  [ "$(rc "$d")" = 2 ] && has "$(out "$d")" '^BAD-CONF ' && ok "conf '$bad' → BAD-CONF exit 2" || no "conf '$bad' accepted"
+done
+# a narrow allow is still fine (probe matching must not over-reject)
+printf 'allow poc/**/gradle/wrapper/*\nallow */**\n' > "$d/.research-sdd/vendor-leak.conf"
+[ "$(rc "$d")" = 0 ] && ok "narrow allow globs accepted" || no "narrow allow over-rejected"
+# 16f index-conf refusals: symlink in the index, and unmerged conf.
+d="$TMP/idxlink"; newrepo "$d"; h="$(printf 'prefix javax.baja' | git -C "$d" hash-object -w --stdin)"
+git -C "$d" update-index --add --cacheinfo "120000,$h,.research-sdd/vendor-leak.conf"
+o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*symlink' && ok "symlink conf in the index → BAD-CONF exit 2" || no "index symlink conf wrong: $o"
+d="$TMP/idxmerge"; newrepo "$d"; addf "$d" .research-sdd/vendor-leak.conf 'prefix a.b'; commit "$d"
+git -C "$d" checkout -q -b side; addf "$d" .research-sdd/vendor-leak.conf 'prefix c.d'; commit "$d"
+git -C "$d" checkout -q -; addf "$d" .research-sdd/vendor-leak.conf 'prefix e.f'; commit "$d"
+git -C "$d" merge side >/dev/null 2>&1
+o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*unmerged' && ok "unmerged conf in the index → BAD-CONF exit 2" || no "unmerged conf wrong: $o"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
@@ -209,7 +257,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk "I lineno" "$SUT" "$MUT/i.sh" 's/"\$p:\$ln"/"$p"/' \
     && tt "I :line dropped from package finding" 1 1 "$MUT/i.sh" --good-has 'Vendor\.java:3 ' --bad-lacks 'Vendor\.java:3 ' -- bash @SUT@ "$TMP/pkg"
   # J: bad conf directive accepted silently.
-  mk "J badconf" "$SUT" "$MUT/j.sh" 's/BAD-CONF unknown directive/NOTE unknown directive/;s/^      bad_conf=1/      bad_conf=0/' \
+  mk "J badconf" "$SUT" "$MUT/j.sh" '/BAD-CONF unknown directive/,/;;/s/bad_conf=1/bad_conf=0/' \
     && tt "J unknown directive tolerated → exit 0" 2 0 "$MUT/j.sh" -- bash @SUT@ "$TMP/badconf"
   # K: unreadable content no longer fails the run.
   mk "K unreadable" "$SUT" "$MUT/k.sh" 's/^\[ "\$unreadable" -gt 0 \] && exit 2/:/' \
@@ -224,9 +272,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk "O conflink" "$SUT" "$MUT/o.sh" 's/if \[ -L "\$conf" \] ||/if false ||/' \
     && tt "O symlinked conf accepted → read through the link" 2 0 "$MUT/o.sh" -- bash @SUT@ "$TMP/conflink"
   # P: unsafe conf globs accepted.
-  mk "P globs" "$SUT" "$MUT/p.sh" 's/path:\/\*|allow:\/\*|path:\*\.\.\*|allow:\*\.\.\*)/path:ZZZ)/' \
+  mk "P globs" "$SUT" "$MUT/p.sh" 's/path:\.\.|path:\.\.\/\*|path:\*\/\.\.|path:\*\/\.\.\/\*|/path:ZZZ|/' \
     && { printf 'path ../x/**\n' > "$TMP/hard/.research-sdd/vendor-leak.conf"
          tt "P ../ glob accepted → silently dead rule" 2 0 "$MUT/p.sh" -- bash @SUT@ "$TMP/hard"; }
+  # Q: unmerged entries silently dropped.
+  mk "Q unmerged" "$SUT" "$MUT/q.sh" 's/^\[ "\$unmerged" -gt 0 \] && exit 2/:/' \
+    && tt "Q unmerged ignored → exit 0 over a conflicted index" 2 0 "$MUT/q.sh" -- bash @SUT@ "$TMP/merge"
+  # R: conf read from the work tree again.
+  mk "R conf-wt" "$SUT" "$MUT/r.sh" 's/^  conf_file="\$conf_tmp"/  conf_file="$conf"/' \
+    && tt "R conf from work tree → emptied work-tree conf hides the prefix" 1 0 "$MUT/r.sh" -- bash @SUT@ "$TMP/confidx" --staged
+  # S: blanket-allow guard disabled (probe loop can never conclude blanket).
+  mk "S allow-star" "$SUT" "$MUT/s.sh" 's/^          blanket=1$/          blanket=0/' \
+    && { printf 'allow ***\n' > "$TMP/dots/.research-sdd/vendor-leak.conf"
+         tt "S blanket allow accepted → allows everything" 2 0 "$MUT/s.sh" -- bash @SUT@ "$TMP/dots"; }
+  # T: index symlink conf accepted (mode check dropped).
+  mk "T idx-symlink" "$SUT" "$MUT/t.sh" 's/\[ "\$idx_mode" != 100644 \] && \[ "\$idx_mode" != 100755 \]/false/' \
+    && tt "T index symlink conf accepted" 2 0 "$MUT/t.sh" -- bash @SUT@ "$TMP/idxlink"
+  # U: unmerged conf accepted.
+  mk "U idx-unmerged" "$SUT" "$MUT/u.sh" 's/if grep -qvE /if false \&\& grep -qvE /' \
+    && tt "U unmerged conf branch removed → typed BAD-CONF lost (falls to UNREADABLE-CONF)" 2 2 "$MUT/u.sh" --good-has '^BAD-CONF .*unmerged' --bad-lacks '^BAD-CONF .*unmerged' -- bash @SUT@ "$TMP/idxmerge"
 fi
 
 echo "== $pass passed · $fail failed =="
