@@ -700,12 +700,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun --audit --pack=jvm "$FX/pack-single.md"
     [ "$MRC" -eq 2 ] && ok "teeth PW3: --pack=NAME arm removed -> unknown option, exit 2 -> case 18f has teeth" || no "teeth PW3: mutant still exited $MRC — THEATER"
   fi
-  ptooth N10 lint-block-packs/native-binary.py 's#if name.lower() == "r2" and name != "r2":#if False:#' "$FX/pack-r9.md" R9 R9- native-binary
+  ptooth N10 lint-block-packs/native-binary.py 's#if name == "R2":#if False:#' "$FX/pack-r9.md" R9 R9- native-binary
   if tooth_build PL10 lint_block.py 's#            if not names or val.startswith("-"):#            if val.startswith("-"):#'; then
     mrun --audit --pack , "$FX/pack-single.md"
     [ "$MRC" -eq 2 ] && no "teeth PL10: empty-name check removed but ',' still rejected — THEATER" || ok "teeth PL10: empty-name check removed -> '--pack ,' runs core-only silently (rc=$MRC) -> case 18n has teeth"
   fi
-  if tooth_build PL11 lint_block.py 's#          + (f" crashed={crashed}" if crashed else "")##'; then
+  if tooth_build PL11 lint_block.py 's#crashed_cov = f" crashed={crashed}" if crashed else ""#crashed_cov = ""#'; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-crash" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"
     grep -qF 'crashed=' <<< "$MOUT" && no "teeth PL11: mutant still reports crashed= — THEATER" || ok "teeth PL11: crashed= dropped from SUMMARY -> case 18l has teeth"
   fi

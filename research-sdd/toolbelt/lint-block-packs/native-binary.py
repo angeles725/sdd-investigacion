@@ -43,8 +43,8 @@ def instruments(text):
     found = set()
     for m in R9_INSTRUMENT_RE.finditer(text):
         name = m.group(1)
-        if name.lower() == "r2" and name != "r2":
-            continue  # "R2" is a rule id, not radare2
+        if name == "R2":
+            continue  # the rule id "R2", not radare2 (the regex is case-insensitive; only lower-case r2 counts)
         found.add(name.lower())
     for span in R9_CODE_SPAN_RE.findall(text):
         for name in R9_CODE_ONLY_INSTRUMENTS:

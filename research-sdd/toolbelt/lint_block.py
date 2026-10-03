@@ -640,12 +640,11 @@ def main(argv):
     if LOADED_PACKS:
         pack_trigger_fields = " ".join(f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS)
         pack_cov = f" packs={','.join(LOADED_PACKS)} {pack_trigger_fields}"
-    print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} inactive-waivers={inactive} {per_rule} "
-          f"| inspected: selfverify-sections={cov['selfverify_sections']} "
-          f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']} "
-          f"cert-inline-items={cov['cert_inline_items']}"
-          + (f" crashed={crashed}" if crashed else "")
-          + pack_cov)
+    crashed_cov = f" crashed={crashed}" if crashed else ""
+    inspected = (f"selfverify-sections={cov['selfverify_sections']} cert-hw-live-items={cov['cert_hw_live_items']} "
+                 f"r6-trigger-clauses={cov['r6_trigger_clauses']} cert-inline-items={cov['cert_inline_items']}")
+    print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} "
+          f"inactive-waivers={inactive} {per_rule} | inspected: {inspected}{crashed_cov}{pack_cov}")
     if unreadable or crashed:
         return 2
     if read - empty == 0:
