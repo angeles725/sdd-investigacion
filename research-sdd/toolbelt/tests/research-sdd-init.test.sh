@@ -1783,7 +1783,9 @@ TOEOF
   cat > "$K71_GIT/git" <<GITEOF
 #!/usr/bin/env bash
 case "\$*" in
-  *"rev-parse --is-inside-work-tree"*) [ -n "\${K71_NOTREPO:-}" ] && exit 128 ;;
+  *"rev-parse --is-inside-work-tree"*)
+    [ -n "\${K71_NOTREPO:-}" ] && { echo "fatal: not a git repository (or any of the parent directories): .git" >&2; exit 128; }
+    [ -n "\${K71_DUBIOUS:-}" ] && { echo "fatal: detected dubious ownership in repository at '/x'" >&2; exit 128; } ;;
   *" remote"*) [ -n "\${K71_REMOTEFAIL:-}" ] && exit 1 ;;
 esac
 exec "$K71_REALGIT" "\$@"
@@ -1795,6 +1797,10 @@ GITEOF
   d="$(_k71_target l2)"
   PATH="$K71_GIT:$K71_BIN:$PATH" K71_REMOTEFAIL=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-l git remote failing inside a repo: DEGRADED" "vendor-leak: DEGRADED could not list git remotes" "$TMP/k71.out"
+  d="$(_k71_target l3)"
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-l rev-parse failing inside a repo (dubious ownership): DEGRADED, not NO-REMOTE" "vendor-leak: DEGRADED git rev-parse failed" "$TMP/k71.out"
+  assert_grep "K1271-l rev-parse failure surfaces git's reason" "dubious ownership" "$TMP/k71.out"
 
   # K1271-m advice text: a plain run scaffolds the conf; --wire only adds the CI workflow
   d="$(_k71_target m2)"; _k71_run "$d" PUBLIC 0
@@ -3167,13 +3173,21 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'HTTP 401' "$TMP/k71t.out" && no "teeth M-1271-STDERR: stderr still surfaced — THEATER" \
       || ok "teeth M-1271-STDERR: stderr not surfaced when discarded — K1271-p has teeth"
   else no "teeth M-1271-STDERR: could not build mutant"; fi
-  # M-1271-RC124: a timeout (124) is folded into the generic failure message.
-  if _k43_build k71r1 -e 's#^  if \[ "\$gh_rc" = 124 \]; then$#  if false; then#'; then
+  # M-1271-RC124: a timeout (124) is folded into the generic failure message (needs a real timeout(1)).
+  if ! command -v timeout >/dev/null 2>&1; then echo "  SKIP  teeth M-1271-RC124: GNU timeout not on PATH"
+  elif _k43_build k71r1 -e 's#^  if \[ "\$gh_rc" = 124 \]; then$#  if false; then#'; then
     d="$(_k71_target t-r1 https://example.invalid/x.git)"
     PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=6 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71r1/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-RC124: typed message survives — THEATER" \
       || ok "teeth M-1271-RC124: typed 'gh timed out' gone — K1271-i has teeth"
   else no "teeth M-1271-RC124: could not build mutant"; fi
+  # M-1271-RPFAIL: every rev-parse failure is read as "not a repo" → dubious ownership hides as NO-REMOTE.
+  if _k43_build k71rp -e 's#\*"not a git repository"\*) ;;   \# VL-NOTREPO#*) ;;   \# VL-NOTREPO#'; then
+    d="$(_k71_target t-rp https://example.invalid/x.git)"
+    PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$TMP/k43/k71rp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'DEGRADED git rev-parse failed' "$TMP/k71t.out" && no "teeth M-1271-RPFAIL: still DEGRADED — K1271-l3 is THEATER" \
+      || ok "teeth M-1271-RPFAIL: dubious ownership no longer DEGRADED — K1271-l3 has teeth"
+  else no "teeth M-1271-RPFAIL: could not build mutant"; fi
   # M-1271-NOPROMPT: GH_PROMPT_DISABLED is no longer exported to gh.
   if _k43_build k71np -e 's#GH_PROMPT_DISABLED=1 "\${gh_cmd#"${gh_cmd#'; then
     d="$(_k71_target t-np https://example.invalid/x.git)"; : > "$TMP/k71t.gh.log"
@@ -3189,7 +3203,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || no "teeth M-1271-WFDIR: nothing written under the mutant — K1271-k is THEATER"
   else no "teeth M-1271-WFDIR: could not build mutant"; fi
   # M-1271-NOTREPO: the not-a-work-tree check is removed → a non-repo is reported as DEGRADED, not NO-REMOTE.
-  if _k43_build k71nt -e 's#^  if ! git -C "\$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then$#  if false; then#'; then
+  if _k43_build k71nt -e 's#^  if ! rp_err="\$(git -C "\$target" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then$#  if false; then#'; then
     d="$(_k71_target t-nt)"
     PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$TMP/k43/k71nt/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'vendor-leak: NO-REMOTE' "$TMP/k71t.out" && no "teeth M-1271-NOTREPO: NO-REMOTE survives — K1271-l is THEATER" \

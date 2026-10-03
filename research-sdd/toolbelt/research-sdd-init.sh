@@ -759,8 +759,14 @@ fi
 _rsdd_vendor_leak_wiring() {
   local tag="  vendor-leak:" remotes vis conf="$target/.research-sdd/vendor-leak.conf" wf="$target/.github/workflows/vendor-leak.yml"
   local tpl_conf="$TPL/vendor-leak.conf.template" tpl_ci="$TPL/vendor-leak-ci.template.yml"
-  # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); only a git failure INSIDE a repo is DEGRADED.
-  if ! git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); any other rev-parse failure (dubious
+  # ownership, corrupt metadata) is a git failure and DEGRADED — never hidden as "nothing to ask about".
+  local rp_err
+  if ! rp_err="$(git -C "$target" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then
+    case "$rp_err" in
+      *"not a git repository"*) ;;   # VL-NOTREPO
+      *) echo "$tag DEGRADED git rev-parse failed in $target — vendor-leak wiring skipped [git: ${rp_err%%$'\n'*}]"; return 0 ;;
+    esac
     echo "$tag NO-REMOTE $target is not a git work tree — nothing scaffolded; a plain run scaffolds the conf once the target is a git repo with a remote (--wire additionally writes the CI workflow)"
     return 0
   fi
