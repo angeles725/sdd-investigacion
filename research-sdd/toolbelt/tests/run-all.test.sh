@@ -220,21 +220,22 @@ if [ "$rc" -eq 0 ] && grep -qF 'Test cases passed: 2' <<<"$out"; then
   ok "empty-arg: \"\" behaves as no-flag → discovers + runs fixtures, exit 0"
 else no "empty-arg regressed: rc=$rc :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
 
-# 9 — trailing args after --prove-teeth are ignored (only $1 inspected): runs normally, and the
-#     garbage is NOT forwarded to suites (the .test.sh recorder must see exactly "--prove-teeth").
+# 9 — an unknown token in ANY position is refused (exit 2, "unknown flag") and no suite runs: a typo
+#     after a valid flag (`-j 2 --prove-teath`) must not silently drop teeth and report green.
 w="$(newdir c9)"
 { printf '#!/usr/bin/env bash\n'
-  # The recorder writes OUTSIDE the fixture's kit tree (kit issue #1156: run-all now fails any
-  # suite that writes under research-sdd/, and this fixture's tree is a real kit-shaped one).
-  printf 'printf "%%s" "${1:-NONE}" > "%s"\n' "$TMP/c9-arg-sh.txt"
+  printf ': > "%s"\n' "$TMP/c9-ran.txt"
   printf 'echo "== 3 passed %s 0 failed =="\n' "$MID"
-  printf 'exit 0\n'
 } > "$w/rec.test.sh"
-out="$(bash "$w/run-all.sh" --prove-teeth extra-garbage 2>&1)"; rc=$?
-argsh="$(cat "$TMP/c9-arg-sh.txt" 2>/dev/null || true)"
-if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && grep -qF 'Test cases passed: 3' <<<"$out"; then
-  ok "trailing-args: '--prove-teeth extra-garbage' runs normally, only \$1 inspected (suite got --prove-teeth, not the garbage)"
-else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
+_c9bad=""
+for _a in "garbage" "--prove-teeth garbage" "--prove-teeth --prove-teath" "-j 2 --prove-teath" "--prove-teeth -j 2 garbage" "-j 2 --prove-teeth garbage"; do
+  rm -f "$TMP/c9-ran.txt"
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $_a 2>&1)"; rc=$?
+  if [ "$rc" -ne 2 ] || ! grep -qF 'unknown flag:' <<<"$out" || [ -e "$TMP/c9-ran.txt" ]; then _c9bad="$_c9bad [$_a rc=$rc]"; fi
+done
+if [ -z "$_c9bad" ]; then ok "unknown-flag: an unknown token in first/middle/last position exits 2 and runs nothing"
+else no "unknown-flag regressed:$_c9bad"; fi
 
 # 10 — skip-reporting: a suite that emits SKIP: and exits 0 must appear in the
 #      "Suites skipped" section, not counted as passed or failed. A passing suite
@@ -842,6 +843,137 @@ else
   else no "kit-tree hermeticity degraded failed: rc=$rc :: $(grep -iE 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
+# --- Opt-in parallel mode (kit issue #1463): `-j N` ---------------------------------------------
+# GNU parallel is needed for the batch cases; without it they SKIP (never a silent pass), and the
+# flag-refusal and DEGRADED cases still run because they do not need it.
+have_gnu_parallel=0
+_pv="$(parallel --version 2>/dev/null)"   # captured, not piped into grep -m1 (SIGPIPE under pipefail)
+case "$_pv" in *"GNU parallel"*) have_gnu_parallel=1 ;; esac
+skip_j(){ printf '  SKIP  %s (GNU parallel not installed)\n' "$1"; }
+# agg_norm — the aggregate block minus the lines that legitimately differ between serial and -j
+# (the corpus path, the Parallel line); everything else must be byte-identical.
+agg_norm(){ sed -n '/^AGGREGATE RESULT$/,$p' <<<"$1" | grep -v -e '^Corpus: toolbelt' -e '^Parallel:'; }
+
+# j1 — refusals: bare -j, -j 0, -j 100%, non-numeric, above the cap are exit 2 with a named reason.
+w="$(newdir j1)"; mkfix_sh "$w/a.test.sh" 1 0 0
+_j1bad=""
+for _a in "-j" "-j 0" "-j 100%" "-j abc" "-j 7" "-j 100" "--jobs" "-j -3"; do
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $_a 2>&1)"; rc=$?
+  if [ "$rc" -ne 2 ] || ! grep -qF 'invalid -j value' <<<"$out"; then _j1bad="$_j1bad [$_a rc=$rc]"; fi
+done
+if [ -z "$_j1bad" ]; then ok "-j refusals: bare/0/100%/non-numeric/over-cap are exit 2 with 'invalid -j value'"
+else no "-j refusals failed:$_j1bad"; fi
+
+# j2 — -j parity: same fixtures, serial vs -j 3: identical aggregate (modulo the Parallel line),
+#      same exit code, and the Parallel line is present only under -j.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j2)"
+  mkfix_sh "$w/a.test.sh" 3 0 0; mkfix_sh "$w/b.test.sh" 1 1 1; mkfix_sh "$w/c.test.sh" 2 0 0
+  mkfix_skip "$w/d.test.sh" dskip; mkfix_harness "$w/e.test.sh"
+  sout="$(bash "$w/run-all.sh" 2>&1)"; src=$?
+  pout="$(bash "$w/run-all.sh" -j 3 2>&1)"; prc=$?
+  if [ "$src" -eq "$prc" ] && [ "$prc" -eq 1 ] \
+     && [ "$(agg_norm "$sout")" = "$(agg_norm "$pout")" ] \
+     && [ -n "$(agg_norm "$pout")" ] \
+     && grep -qF 'Suites run:    5' <<<"$pout" \
+     && grep -qF 'b.test.sh (exit 1)' <<<"$pout" \
+     && grep -qF 'e.test.sh (HARNESS ERROR, exit 2)' <<<"$pout" \
+     && grep -qF 'Parallel: -j 3' <<<"$pout" \
+     && ! grep -qF 'Parallel:' <<<"$sout"; then
+    ok "-j parity: aggregate identical to serial (rc $prc), 5 suites counted, failures named, Parallel line only under -j"
+  else no "-j parity failed: src=$src prc=$prc :: $(diff <(agg_norm "$sout") <(agg_norm "$pout") | head -6 | tr '\n' '|')"; fi
+else skip_j "-j parity"; fi
+
+# j3 — replay order: suite banners appear in the serial (sorted) order even though they ran concurrently.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j3)"
+  for n in a b c d; do mkfix_sh "$w/$n.test.sh" 1 0 0; done
+  sed -i 's/^exit 0$/sleep 1; exit 0/' "$w/a.test.sh"   # a finishes last; replay must still list it first
+  out="$(bash "$w/run-all.sh" -j 4 2>&1)"; rc=$?
+  _order="$(grep '^>>> running:' <<<"$out" | tr '\n' ' ')"
+  if [ "$rc" -eq 0 ] && [ "$_order" = ">>> running: a.test.sh >>> running: b.test.sh >>> running: c.test.sh >>> running: d.test.sh " ]; then
+    ok "-j replay order: banners follow the sorted serial order"
+  else no "-j replay order failed: rc=$rc order=[$_order]"; fi
+else skip_j "-j replay order"; fi
+
+# j4 — --prove-teeth is forwarded under -j, in either flag order.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j4)"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%s" "${1:-none}" > "%s/arg.txt"\n' "$w"
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/rec.test.sh"
+  bash "$w/run-all.sh" -j 2 --prove-teeth >/dev/null 2>&1; _a1="$(cat "$w/arg.txt")"
+  rm -f "$w/arg.txt"
+  bash "$w/run-all.sh" --prove-teeth -j2 >/dev/null 2>&1; _a2="$(cat "$w/arg.txt")"
+  if [ "$_a1" = "--prove-teeth" ] && [ "$_a2" = "--prove-teeth" ]; then ok "-j forwards --prove-teeth to *.test.sh in both flag orders"
+  else no "-j teeth forwarding failed: [$_a1] [$_a2]"; fi
+else skip_j "-j teeth forwarding"; fi
+
+# j5 — DEGRADED, never silent: -j without GNU parallel prints a typed line and still runs serially.
+w="$(newdir j5)"; mkfix_sh "$w/a.test.sh" 2 0 0; mkfix_sh "$w/b.test.sh" 1 0 0
+_j5bin="$TMP/j5-bin"; mkdir -p "$_j5bin"
+{ printf '#!/bin/sh\n'; printf 'echo "not the real thing"\n'; } > "$_j5bin/parallel"; chmod +x "$_j5bin/parallel"
+out="$(PATH="$_j5bin:$PATH" bash "$w/run-all.sh" -j 4 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'DEGRADED — GNU parallel not found' <<<"$out" \
+   && grep -qF 'Parallel: DEGRADED' <<<"$out" \
+   && grep -qF 'Suites passed: 2' <<<"$out" \
+   && grep -qF 'Test cases passed: 3' <<<"$out"; then
+  ok "-j degraded: no GNU parallel -> typed DEGRADED line (stderr + aggregate), serial run still counts every suite"
+else no "-j degraded failed: rc=$rc :: $(grep -iE 'degraded|Suites' <<<"$out" | tr '\n' '|')"; fi
+
+# j6 — a leaking suite is not lost under -j: the batch-level snapshot catches it and the run fails
+#      loud under the batch label (attribution to the suite is a documented, typed limitation).
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j6)"; _j6kit="${w%/toolbelt/tests}"; mkdir -p "$_j6kit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j6cwd="$TMP/j6-cwd"; mkdir -p "$_j6cwd"
+  out="$(cd "$_j6cwd" && bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -qF 'Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): 1' <<<"$out" \
+     && grep -qF 'install/leak.MUTANT.sh (new)' <<<"$out" \
+     && grep -qF 're-run serially to name the suite' <<<"$out"; then
+    ok "-j leak: a suite writing into research-sdd/ fails the run under the typed batch label"
+  else no "-j leak failed: rc=$rc :: $(grep -iE 'kit-tree|leaked|batch' <<<"$out" | tr '\n' '|')"; fi
+else skip_j "-j leak"; fi
+
+# j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
+#      so a hung suite (started, never done) is nameable; the aggregate block is unaffected.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j8)"; mkfix_sh "$w/a.test.sh" 1 0 0; mkfix_sh "$w/b.test.sh" 1 1 1
+  errf="$TMP/j8.err"; bash "$w/run-all.sh" -j 2 >/dev/null 2>"$errf"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -qF 'run-all.sh: -j started: a.test.sh' "$errf" && grep -qF 'run-all.sh: -j done: a.test.sh rc=0' "$errf" \
+     && grep -qF 'run-all.sh: -j started: b.test.sh' "$errf" && grep -qF 'run-all.sh: -j done: b.test.sh rc=1' "$errf"; then
+    ok "-j progress: per-suite started/done(rc) lines on stderr"
+  else no "-j progress failed: rc=$rc :: $(tr '\n' '|' < "$errf" | cut -c1-300)"; fi
+else skip_j "-j progress"; fi
+
+# j7 — no silent zero: a suite whose worker dies before recording its exit code is named as failed
+#      and the result-count mismatch is reported (never read as "nothing failed").
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j7)"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    printf 'kill -9 "$PPID"\n'
+  } > "$w/dies.test.sh"
+  mkfix_sh "$w/fine.test.sh" 1 0 0
+  out="$(bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -qF 'recorded 1 result(s) for 2 suite(s)' <<<"$out" \
+     && grep -qF 'dies.test.sh (exit 127)' <<<"$out" \
+     && grep -qF 'Suites run:    2' <<<"$out"; then
+    ok "-j no-silent-zero: a worker that never recorded a result is a named failure plus a count-mismatch line"
+  else no "-j no-silent-zero failed: rc=$rc :: $(grep -iE 'recorded|dies|Suites' <<<"$out" | tr '\n' '|')"; fi
+else skip_j "-j no-silent-zero"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1280,6 +1412,78 @@ REPL12
     else
       no "teeth-kit-tree-symlink: mutant still caught the symlink (rc=$mrc) — mutation not exercised (THEATER)"
     fi
+  fi
+fi
+
+# --- Mutation controls for -j (kit issue #1463) -------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
+  # Mutation: drop the post-batch kit-tree check; a leak under -j must then FALSE-PASS.
+  echo "-- teeth: drop the -j batch kit-tree check; a leak under -j must FALSE-PASS --"
+  w="$(mut_workdir teeth-j-leak)"; _tjk="${w%/toolbelt/tests}"; mkdir -p "$_tjk/install"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^  _check_kit_tree_hermeticity "\$PARALLEL_LABEL"$/  :/' 2>"$w/mutant.err"; then
+    no "teeth-j-leak: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    { printf '#!/usr/bin/env bash\n'
+      printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+      printf 'printf x > "$k/install/leak.MUTANT.sh" && : > "%s"\n' "$TMP/teeth-j-leak.leaked"
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    } > "$w/leaky.test.sh"
+    mout="$(bash "$w/run-all.sh" -j 2 2>&1)"; mrc=$?
+    if [ ! -e "$TMP/teeth-j-leak.leaked" ]; then no "teeth-j-leak: fixture never leaked — FALSE-PASS would prove nothing"
+    elif [ "$mrc" -eq 0 ]; then ok "teeth-j-leak: batch-check-less mutant FALSE-PASSES a confirmed leak → the -j batch check has real teeth"
+    else no "teeth-j-leak: mutant still caught the leak (rc=$mrc) — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: ignore the recorded exit code under -j; a failing fixture must then FALSE-PASS.
+  echo "-- teeth: ignore the recorded exit code under -j; a failing fixture must FALSE-PASS --"
+  w="$(mut_workdir teeth-j-rc)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^      rc="\$(cat "\$PAR_DIR\/\$suite_idx.rc")"$/      rc=0/' 2>"$w/mutant.err"; then
+    no "teeth-j-rc: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_sh "$w/ok.test.sh" 1 0 0; mkfix_sh "$w/bad.test.sh" 0 1 1
+    bash "$w/run-all.sh" -j 2 >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then ok "teeth-j-rc: rc-ignoring mutant reports green despite a failing fixture → the -j exit-code replay has real teeth"
+    else no "teeth-j-rc: mutant still failed (rc=$mrc) — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: drop the upper cap; -j 7 must then be accepted (not exit 2).
+  echo "-- teeth: drop the -j cap; -j 7 must be ACCEPTED --"
+  w="$(mut_workdir teeth-j-cap)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/\[\[ "\$((10#\$1))" -gt "\$MAX_JOBS" \]\]/false/' 2>"$w/mutant.err"; then
+    no "teeth-j-cap: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_sh "$w/ok.test.sh" 1 0 0
+    bash "$w/run-all.sh" -j 7 >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -ne 2 ]; then ok "teeth-j-cap: cap-less mutant accepts -j 7 → the cap has real teeth"
+    else no "teeth-j-cap: mutant still refused -j 7 — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: let unknown tokens through; a typo after a valid flag must then be silently accepted.
+  echo "-- teeth: drop the unknown-flag refusal; '-j 2 --prove-teath' must be ACCEPTED --"
+  w="$(mut_workdir teeth-unknown-flag)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/unknown flag: \$_a; \$USAGE/{N;s/.*/      :/}' 2>"$w/mutant.err"; then
+    no "teeth-unknown-flag: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_sh "$w/ok.test.sh" 1 0 0
+    bash "$w/run-all.sh" -j 2 --prove-teath >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then ok "teeth-unknown-flag: refusal-less mutant accepts a trailing typo → the refusal has real teeth"
+    else no "teeth-unknown-flag: mutant still refused (rc=$mrc) — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: break the COUNT LOGIC (not the message): the unmutated runner must print the
+  # mismatch line for a worker that dies; the mutant must not.
+  echo "-- teeth: break the -j result-count comparison; the mismatch line must disappear --"
+  w="$(mut_workdir teeth-j-count)"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    printf 'kill -9 "$PPID"\n'
+  } > "$w/dies.test.sh"
+  cp "$SUT" "$w/run-all.good.sh"
+  gout="$(bash "$w/run-all.good.sh" -j 2 2>&1)"
+  if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$gout"; then
+    no "teeth-j-count: UNMUTATED runner did not print the mismatch line — control invalid"
+  elif ! mutant_sed "$SUT" "$w/run-all.sh" 's/\[\[ "\$_par_results" -ne "\${#all_suites\[@\]}" \]\]/false/' 2>"$w/mutant.err"; then
+    no "teeth-j-count: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mout="$(bash "$w/run-all.sh" -j 2 2>&1)"
+    if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$mout"; then ok "teeth-j-count: count-logic mutant loses the mismatch line the real runner prints → the check has real teeth"
+    else no "teeth-j-count: mutant still reports the mismatch — mutation not exercised (THEATER)"; fi
   fi
 fi
 

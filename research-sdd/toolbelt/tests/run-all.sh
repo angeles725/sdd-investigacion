@@ -15,7 +15,12 @@
 #   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth|--require-teeth]
+#   ./run-all.sh [--prove-teeth|--require-teeth] [-j N]
+#
+#   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
+#                    typed DEGRADED line, serial run). Serial is the default and the reference.
+#                    Hermeticity guards snapshot once around the batch, so a leak is reported
+#                    under a batch label (re-run serially to name the suite), never silently.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
 #                    negative control). Node suites are n/a (they have no flag).
@@ -186,8 +191,30 @@ fi
 # a typo (e.g. --prove-teath) can't silently disable teeth while reporting green.
 PROVE_TEETH=""
 REQUIRE_TEETH=""
-if [[ -n "${1:-}" ]]; then
-  case "$1" in
+# Opt-in parallelism (kit issue #1463): `-j N` / `-jN` / `--jobs N`, N a plain integer 1..6 (the
+# cap is deliberate: the heavy suites are CPU/IO-bound and a runaway fan-out makes timing-
+# sensitive suites flaky). Refused: bare `-j`, `-j 0`, `-j 100%`, non-numeric, N above the cap.
+# Serial stays the default and the reference behaviour. May precede or follow the teeth flag;
+# any other token, in any position, exits 2 (unknown flag).
+MAX_JOBS=6
+JOBS=1
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [-j N]"
+_parse_jobs() {  # <value> — sets JOBS or exits 2
+  if [[ ! "$1" =~ ^[0-9]+$ ]] || [[ "$((10#$1))" -lt 1 ]]; then
+    echo "invalid -j value '$1': need an integer 1..$MAX_JOBS (no bare -j, 0, percentages or non-numerics); $USAGE" >&2
+    exit 2
+  fi
+  if [[ "$((10#$1))" -gt "$MAX_JOBS" ]]; then
+    echo "invalid -j value '$1': capped at $MAX_JOBS; $USAGE" >&2
+    exit 2
+  fi
+  JOBS=$((10#$1))
+}
+_args=("$@")
+_ai=0
+while [[ $_ai -lt ${#_args[@]} ]]; do
+  _a="${_args[$_ai]}"
+  case "$_a" in
     --prove-teeth)
       PROVE_TEETH="--prove-teeth"
       ;;
@@ -195,12 +222,24 @@ if [[ -n "${1:-}" ]]; then
       PROVE_TEETH="--prove-teeth"
       REQUIRE_TEETH=1
       ;;
+    -j|--jobs)
+      _ai=$((_ai + 1))
+      _parse_jobs "${_args[$_ai]-}"
+      ;;
+    -j*)
+      _parse_jobs "${_a#-j}"
+      ;;
+    "")
+      ;;
     *)
-      echo "unknown flag: $1; usage: run-all.sh [--prove-teeth|--require-teeth]" >&2
+      # Every unknown token, in ANY position, is refused: a typo after a valid flag
+      # (`-j 2 --prove-teath`) must not silently run without teeth and report green.
+      echo "unknown flag: $_a; $USAGE" >&2
       exit 2
       ;;
   esac
-fi
+  _ai=$((_ai + 1))
+done
 
 # --- Discover suites deterministically ------------------------------------
 shopt -s nullglob
@@ -266,33 +305,10 @@ sh_teeth_nohelper=()   # stripped basenames: HAS teeth (banner or flag) but neve
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
 
-for suite in "${all_suites[@]}"; do
-  base="$(basename "$suite")"
-  suites_run=$((suites_run + 1))
-
-  echo "==============================================================="
-  echo ">>> running: $base"
-  echo "==============================================================="
-
-  # Build the command. Only *.test.sh suites accept --prove-teeth.
-  # A direct pipe to `tee` streams output AND captures it; the pipeline waits
-  # for `tee` to finish, so the temp file is fully written before we parse it.
-  # PIPESTATUS[0] is the SUITE's exit code (not tee's) — reliable under pipefail.
-  if [[ "$base" == *.test.mjs ]]; then
-    # Node ESM suite: no shebang, no +x — must be invoked via `node`.
-    node "$suite" 2>&1 | tee "$tmp_out"
-    rc=${PIPESTATUS[0]}
-  else
-    # Shell suite: run with bash; forward the flag only when set.
-    if [[ -n "$PROVE_TEETH" ]]; then
-      bash "$suite" "$PROVE_TEETH" 2>&1 | tee "$tmp_out"
-    else
-      bash "$suite" 2>&1 | tee "$tmp_out"
-    fi
-    rc=${PIPESTATUS[0]}
-  fi
-
-  # --- Hermeticity check: did THIS suite leak/modify/delete a top-level cwd entry? ---
+# Per-suite hermeticity checks, as functions so the -j batch path can run them ONCE after the
+# whole parallel batch (labelled) while the serial path runs them after every suite (by suite name).
+_check_cwd_hermeticity() {
+  local base="$1"
   # SENTINEL-HERMETICITY-CHECK
   if [[ "$HERMETICITY_DEGRADED" -eq 0 ]]; then
     declare -A _cur_entries=()
@@ -318,7 +334,9 @@ for suite in "${all_suites[@]}"; do
       for _k in "${!_cur_entries[@]}"; do _prev_entries["$_k"]="${_cur_entries[$_k]}"; done
     fi
   fi
-
+}
+_check_kit_tree_hermeticity() {
+  local base="$1"
   # --- Kit-tree hermeticity check (kit issue #1156): did THIS suite touch research-sdd/? ---
   # SENTINEL-KIT-TREE-CHECK
   if [[ "$KIT_TREE_DEGRADED" -eq 0 ]]; then
@@ -350,6 +368,109 @@ for suite in "${all_suites[@]}"; do
       _kit_tree_prev="$_kit_tree_cur"   # roll forward, or a later suite is re-blamed
     fi
   fi
+}
+
+# --- Parallel batch (opt-in, kit issue #1463) --------------------------------------------------
+# JOBS_ACTIVE is non-empty only when -j N>1 was asked for AND GNU parallel is usable. If it is
+# not, say so with a typed DEGRADED line and run serially — never a silent downgrade. Under -j the
+# suites run concurrently into per-suite files; the loop below then REPLAYS them serially in the
+# usual order, so parsing, teeth tracking and the aggregate are the same code path as serial.
+# Hermeticity attribution cannot be per-suite while suites overlap: both guards snapshot once
+# before and once after the batch, and a violation is reported under a typed batch label that
+# says to re-run serially to name the offender (it still fails the run — never a silent pass).
+JOBS_ACTIVE=""
+PARALLEL_DEGRADED_REASON=""
+PARALLEL_LABEL="-j batch (offender unattributed — re-run serially to name the suite)"
+_parallel_gnu_ok() {
+  # Captured then pattern-matched: a `| head | grep -q` chain would SIGPIPE under pipefail.
+  command -v parallel >/dev/null 2>&1 || return 1
+  local _pv; _pv="$(parallel --version 2>/dev/null)" || return 1
+  [[ "$_pv" == *"GNU parallel"* ]]
+}
+if [[ "$JOBS" -gt 1 ]]; then
+  if _parallel_gnu_ok; then
+    JOBS_ACTIVE=1
+  else
+    PARALLEL_DEGRADED_REASON="GNU parallel not found; -j $JOBS requested but running serially"
+    echo "run-all.sh: DEGRADED — $PARALLEL_DEGRADED_REASON" >&2
+  fi
+fi
+if [[ -n "$JOBS_ACTIVE" ]]; then
+  PAR_DIR="$(mktemp -d)"
+  trap 'rm -f "$tmp_out"; rm -rf "$PAR_DIR"' EXIT
+  cat > "$PAR_DIR/run1.sh" <<'WORKER'
+#!/usr/bin/env bash
+# run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.
+idx="$1"; suite="$2"
+# Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
+# with a "started" line and no "done" line.
+echo "run-all.sh: -j started: $(basename "$suite")" >&2
+if [[ "$suite" == *.test.mjs ]]; then
+  node "$suite" > "$PAR_DIR/$idx.out" 2>&1
+elif [[ -n "${PROVE_TEETH:-}" ]]; then
+  bash "$suite" "$PROVE_TEETH" > "$PAR_DIR/$idx.out" 2>&1
+else
+  bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
+fi
+rc=$?
+echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
+echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
+WORKER
+  export PAR_DIR PROVE_TEETH
+  echo "run-all.sh: -j $JOBS — running ${#all_suites[@]} suite(s) in parallel (output replayed in serial order below)" >&2
+  parallel --line-buffer -j "$JOBS" bash "$PAR_DIR/run1.sh" '{#}' '{}' ::: "${all_suites[@]}" >/dev/null
+  # No silent zero: every suite must have left a result file.
+  _par_results=$(find "$PAR_DIR" -maxdepth 1 -name '*.rc' | wc -l)
+  if [[ "$_par_results" -ne "${#all_suites[@]}" ]]; then
+    echo "run-all.sh: -j batch recorded $_par_results result(s) for ${#all_suites[@]} suite(s); the missing suites are reported as failed" >&2
+  fi
+  _check_cwd_hermeticity "$PARALLEL_LABEL"
+  _check_kit_tree_hermeticity "$PARALLEL_LABEL"
+fi
+
+suite_idx=0
+for suite in "${all_suites[@]}"; do
+  base="$(basename "$suite")"
+  suites_run=$((suites_run + 1))
+  suite_idx=$((suite_idx + 1))
+
+  echo "==============================================================="
+  echo ">>> running: $base"
+  echo "==============================================================="
+
+  # Build the command. Only *.test.sh suites accept --prove-teeth.
+  # A direct pipe to `tee` streams output AND captures it; the pipeline waits
+  # for `tee` to finish, so the temp file is fully written before we parse it.
+  # PIPESTATUS[0] is the SUITE's exit code (not tee's) — reliable under pipefail.
+  if [[ -n "$JOBS_ACTIVE" ]]; then
+    # -j path: the suite already ran in the batch; replay its captured output and exit code.
+    if [[ -f "$PAR_DIR/$suite_idx.rc" ]]; then
+      rc="$(cat "$PAR_DIR/$suite_idx.rc")"
+    else
+      rc=127   # no result recorded — surfaces as a named failure below, never a pass
+    fi
+    : > "$tmp_out"
+    [[ -f "$PAR_DIR/$suite_idx.out" ]] && cat "$PAR_DIR/$suite_idx.out" > "$tmp_out"
+    cat "$tmp_out"
+  elif [[ "$base" == *.test.mjs ]]; then
+    # Node ESM suite: no shebang, no +x — must be invoked via `node`.
+    node "$suite" 2>&1 | tee "$tmp_out"
+    rc=${PIPESTATUS[0]}
+  else
+    # Shell suite: run with bash; forward the flag only when set.
+    if [[ -n "$PROVE_TEETH" ]]; then
+      bash "$suite" "$PROVE_TEETH" 2>&1 | tee "$tmp_out"
+    else
+      bash "$suite" 2>&1 | tee "$tmp_out"
+    fi
+    rc=${PIPESTATUS[0]}
+  fi
+
+  if [[ -z "$JOBS_ACTIVE" ]]; then
+    _check_cwd_hermeticity "$base"
+    _check_kit_tree_hermeticity "$base"
+  fi
+
 
   # Parse the LAST matching summary line from the captured output.
   # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
@@ -467,6 +588,11 @@ if [[ "$INSTALL_TESTS_DEGRADED" -eq 1 ]]; then
   echo "Corpus: install tests — ABSENT-INPUT (research-sdd/install/tests not found; NOT traversed; run exits non-zero)"
 else
   echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
+fi
+if [[ -n "$JOBS_ACTIVE" ]]; then
+  echo "Parallel: -j $JOBS — hermeticity attribution is per-batch, not per-suite (violations name the batch; re-run serially to name the suite)"
+elif [[ -n "$PARALLEL_DEGRADED_REASON" ]]; then
+  echo "Parallel: DEGRADED — $PARALLEL_DEGRADED_REASON"
 fi
 echo "Suites run:    $suites_run"
 echo "Suites passed: $suites_ok"
