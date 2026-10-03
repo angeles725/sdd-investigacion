@@ -15,6 +15,8 @@
 #       failed — no JSON) · 3 DEGRADED (git or jq missing — no JSON). A missing gh or timeout is NOT an exit:
 #       it is reported inside the document as prs_status degraded:gh-missing / degraded:timeout-missing.
 #
+# Read-only guarantee: GIT_OPTIONAL_LOCKS=0 is exported so no git call refreshes an index or takes optional locks.
+#
 # Anti-silent-zero (CLAUDE.md §7): a worktree whose directory is gone reports exists=false with null counts
 # (not 0); an unknown PR list is prs=null plus a typed prs_status, never an empty array.
 set -uo pipefail
@@ -40,6 +42,9 @@ command -v jq >/dev/null 2>&1 || { echo "DEGRADED: jq not found; cannot build th
 [ -d "$cwd" ] || { echo "resume-state.sh: not a directory: $cwd" >&2; exit 2; }
 # Ambient GIT_* variables would redirect every call below to another repository.
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+# A read-only tool must not refresh any index: `git status` otherwise rewrites stale index stat data
+# opportunistically (main and linked worktrees alike). Inherited by every git call below.
+export GIT_OPTIONAL_LOCKS=0
 top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || { echo "resume-state.sh: not a git repository: $cwd" >&2; exit 2; }
 cd "$top" || exit 2
 
