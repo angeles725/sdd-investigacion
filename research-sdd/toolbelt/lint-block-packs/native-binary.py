@@ -23,6 +23,8 @@ R9_SHA256_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
 R9_ANCHOR_RE = re.compile(
     r"\b0x[0-9A-Fa-f]{3,}\b|\b(?:VA|RVA|offset)\s*[:=]?\s*[0-9A-Fa-f]{4,}\b")
 # `nm` and `strings` are ordinary words/units: they count only inside a backtick code span.
+# `r2` (radare2's CLI) counts only in exactly that lower-case spelling: matched case-insensitively it
+# would collide with the rule id "R2" (waivers, cross-references) and count it as an instrument.
 R9_INSTRUMENTS = {
     "readelf", "objdump", "r2", "radare2", "rabin2", "ghidra", "pefile", "pelib", "osslsigncode",
     "ilspycmd", "ilspy", "diec", "dumpbin", "otool", "ldd", "gdb", "lldb", "capstone", "xxd",
@@ -36,7 +38,8 @@ R9_CODE_SPAN_RE = re.compile(r"`([^`]*)`")
 
 
 def instruments(text):
-    found = {m.group(1).lower() for m in R9_INSTRUMENT_RE.finditer(text)}
+    found = {m.group(1).lower() for m in R9_INSTRUMENT_RE.finditer(text)
+             if m.group(1).lower() != "r2" or m.group(1) == "r2"}
     for span in R9_CODE_SPAN_RE.findall(text):
         for name in R9_CODE_ONLY_INSTRUMENTS:
             if re.search(r"(?<![\w/-])" + name + r"(?![\w-])", span):
@@ -50,7 +53,11 @@ def build(api):
         for u in doc.units:
             if u.kind not in api.CLAIM_KINDS:
                 continue
-            if not any(R9_MARKER_RE.search(c) and R9_NATIVE_RE.search(c) for c in api.clauses(u.text)):
+            # Trigger: some clause pairs an evidence marker with native-binary context. The three
+            # requirements below are then checked over the WHOLE unit (they sit in neighbouring clauses).
+            makes_native_claim = any(R9_MARKER_RE.search(c) and R9_NATIVE_RE.search(c)
+                                     for c in api.clauses(u.text))
+            if not makes_native_claim:
                 continue
             doc.cov["r9_triggers"] += 1
             if doc.waived("R9", u):

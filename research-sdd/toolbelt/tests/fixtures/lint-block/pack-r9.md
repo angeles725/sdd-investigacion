@@ -11,6 +11,7 @@
 9. [CERT] The javax.baja.sys package loads the handler.
 10. [CERT] Waived: the vendor.dll exports a handler <!-- lint-waive: R9 reason=hash recorded in the sibling block -->
 11. [CERT] The vendor.dll at 0x1a2b3c read with readelf and objdump. R9-NOSHA-BAD
+12. [CERT] The vendor.dll sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef at 0x1a2b3c read with objdump (see R2 notes). R9-RULEID-BAD
 
 | claim | evidence |
 |---|---|

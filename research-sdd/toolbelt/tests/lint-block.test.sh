@@ -273,8 +273,14 @@ else no "18a no-pack baseline (rc=$RC out=[$OUT])"; fi
 run --pack nosuch "$FX/pack-jvm.md"
 [ "$RC" -eq 2 ] && grep -qF 'unknown pack nosuch' <<< "$OUT" && grep -qF 'jvm' <<< "$OUT" && grep -qF 'multi-version' <<< "$OUT" && grep -qF 'native-binary' <<< "$OUT" \
   && ok "18b unknown pack -> exit 2 naming the available packs (never a silent core-only run)" || no "18b unknown pack (rc=$RC out=[$OUT])"
-run --pack "$FX/pack-jvm.md"; [ "$RC" -eq 2 ] && ok "18c --pack with a path-like / missing name -> exit 2" || no "18c pack operand (rc=$RC out=[$OUT])"
+run --pack "Bad_Name" "$FX/pack-jvm.md"; [ "$RC" -eq 2 ] && grep -qF 'invalid pack name' <<< "$OUT" && ok "18c --pack with a path-like name -> exit 2 'invalid pack name'" || no "18c pack operand (rc=$RC out=[$OUT])"
 run "$FX/pack-jvm.md" --pack; [ "$RC" -eq 2 ] && grep -qF -- '--pack needs a name' <<< "$OUT" && ok "18d --pack with no operand -> exit 2" || no "18d no operand (rc=$RC out=[$OUT])"
+for emp in "" "," ",,"; do
+  run --audit --pack "$emp" "$FX/pack-single.md"
+  [ "$RC" -eq 2 ] && grep -qF -- '--pack needs a name' <<< "$OUT" && ! grep -qF 'SUMMARY' <<< "$OUT" && ok "18n empty pack list ('$emp') -> exit 2, nothing linted" || no "18n empty pack list '$emp' (rc=$RC out=[$OUT])"
+  run --audit "--pack=$emp" "$FX/pack-single.md"
+  [ "$RC" -eq 2 ] && ! grep -qF 'SUMMARY' <<< "$OUT" && ok "18n --pack=$emp form -> exit 2, nothing linted" || no "18n --pack=$emp (rc=$RC out=[$OUT])"
+done
 run --pack ../x "$FX/pack-jvm.md"; [ "$RC" -eq 2 ] && grep -qF 'invalid pack name' <<< "$OUT" && ok "18e path traversal in a pack name is refused (exit 2)" || no "18e traversal (rc=$RC out=[$OUT])"
 run --audit --pack jvm,multi-version --pack=native-binary --pack jvm "$FX/pack-single.md"
 if [ "$RC" -eq 0 ] && grep -qF 'packs=jvm,multi-version,native-binary ' <<< "$OUT"; then
@@ -301,7 +307,7 @@ LINT_BLOCK_PACKS_DIR="$TMP/no-such-dir" run --audit --pack demo "$FX/pack-single
 [ "$RC" -eq 2 ] && grep -qF 'DEGRADED' <<< "$OUT" && ok "18i absent packs directory -> DEGRADED, exit 2" || no "18i absent dir (rc=$RC out=[$OUT])"
 printf 'def build(api):\n    def boom(doc):\n        raise RuntimeError("boom")\n    return [("R1", boom)]\n' > "$TMP/pk-crash/demo.py"
 LINT_BLOCK_PACKS_DIR="$TMP/pk-crash" run --audit --pack demo "$FX/pack-single.md"
-[ "$RC" -eq 2 ] && grep -qF 'RULE-CRASH' <<< "$OUT" && ok "18l a pack rule that raises -> RULE-CRASH on stderr and exit 2 (never exit 1 = findings, never a clean zero)" || no "18l rule crash (rc=$RC out=[$OUT])"
+[ "$RC" -eq 2 ] && grep -qF 'RULE-CRASH' <<< "$OUT" && grep -qF 'crashed=1' <<< "$OUT" && ok "18l a pack rule that raises -> RULE-CRASH on stderr, crashed=1 in SUMMARY and exit 2 (never exit 1 = findings, never a clean zero)" || no "18l rule crash (rc=$RC out=[$OUT])"
 run --audit --pack nosuch "$FX/corpus-empty"
 [ "$RC" -eq 2 ] && grep -qF 'unknown pack nosuch' <<< "$OUT" && ok "18m a bad pack fails even when the corpus is empty (packs validated before any listing)" || no "18m bad pack + empty corpus (rc=$RC out=[$OUT])"
 run --pack jvm "$FX/pack-single.md"
@@ -338,8 +344,8 @@ grep -qE 'r8-triggers=8( |$)' <<< "$OUT" && grep -qF 'packs=multi-version' <<< "
 # 21. Native-binary pack: R9 sha256 + address anchor + two instruments
 run --pack native-binary "$FX/pack-r9.md"
 want="$(lines_of R9- "$FX/pack-r9.md")"; got="$(reported R9 "$OUT" "$FX/pack-r9.md")"
-[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && ok "21a R9 flagged on the exact lines ($want): nothing cited, one instrument, no anchor, no sha256 only, plain-prose 'nm' (not an instrument), table row; complete claim, \`nm\` in a code span, [CERT-doc], no marker, .sys package, waiver clear" || no "21a R9 (rc=$RC want=[$want] got=[$got] out=[$OUT])"
-grep -qE 'r9-triggers=10( |$)' <<< "$OUT" && ok "21b SUMMARY names the pack and its trigger count (r9-triggers=10)" || no "21b r9 coverage (out=[$OUT])"
+[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && ok "21a R9 flagged on the exact lines ($want): nothing cited, one instrument, no anchor, no sha256 only, rule id R2 is not an instrument, plain-prose 'nm' (not an instrument), table row; complete claim, \`nm\` in a code span, [CERT-doc], no marker, .sys package, waiver clear" || no "21a R9 (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+grep -qE 'r9-triggers=11( |$)' <<< "$OUT" && ok "21b SUMMARY names the pack and its trigger count (r9-triggers=11)" || no "21b r9 coverage (out=[$OUT])"
 grep -qE '^R9 .*pack-r9.md:[0-9]+: native-binary claim: no sha256' <<< "$OUT" && grep -qE 'no address anchor' <<< "$OUT" && grep -qE '1 of 2 instruments' <<< "$OUT" && ok "21c each R9 finding names WHICH requirement is missing" || no "21c r9 messages (out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
@@ -666,6 +672,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun --audit --pack=jvm "$FX/pack-single.md"
     [ "$MRC" -eq 2 ] && ok "teeth PW3: --pack=NAME arm removed -> unknown option, exit 2 -> case 18f has teeth" || no "teeth PW3: mutant still exited $MRC — THEATER"
   fi
+  ptooth N10 lint-block-packs/native-binary.py 's#^             if m.group(1).lower() != "r2" or m.group(1) == "r2"}#             }#' "$FX/pack-r9.md" R9 R9- native-binary
+  if tooth_build PL10 lint_block.py 's#            if not names or val.startswith("-"):#            if val.startswith("-"):#'; then
+    mrun --audit --pack , "$FX/pack-single.md"
+    [ "$MRC" -eq 2 ] && no "teeth PL10: empty-name check removed but ',' still rejected — THEATER" || ok "teeth PL10: empty-name check removed -> '--pack ,' runs core-only silently (rc=$MRC) -> case 18n has teeth"
+  fi
+  if tooth_build PL11 lint_block.py 's#          + (f" crashed={crashed}" if crashed else "")##'; then
+    MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-crash" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"
+    grep -qF 'crashed=' <<< "$MOUT" && no "teeth PL11: mutant still reports crashed= — THEATER" || ok "teeth PL11: crashed= dropped from SUMMARY -> case 18l has teeth"
+  fi
   # core claim-rule factory
   ptooth F1 lint_block.py 's#if is_cleared(clause) or doc.waived(rule_id, u):#if is_cleared(clause):#' "$FX/pack-jvm.md" R1 R1- jvm
   ptooth F2 lint_block.py 's#^CLAIM_KINDS = .*#CLAIM_KINDS = ("para", "item", "heading")#' "$FX/pack-jvm.md" R5 R5- jvm
@@ -698,7 +713,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth N8 lint-block-packs/native-binary.py 's#^            if doc.waived("R9", u):#            if False:#' "$FX/pack-r9.md" R9 R9- native-binary
   if tooth_build N9 lint-block-packs/native-binary.py 's#doc.cov\["r9_triggers"\] += 1#doc.cov["r9_triggers"] += 0#'; then
     mrun --pack native-binary "$FX/pack-r9.md"
-    grep -qE 'r9-triggers=10( |$)' <<< "$MOUT" && no "teeth N9: mutant still reports r9-triggers=10 — THEATER" || ok "teeth N9: R9 counter neutered -> SUMMARY no longer proves the units were inspected -> case 21b has teeth"
+    grep -qE 'r9-triggers=11( |$)' <<< "$MOUT" && no "teeth N9: mutant still reports r9-triggers=11 — THEATER" || ok "teeth N9: R9 counter neutered -> SUMMARY no longer proves the units were inspected -> case 21b has teeth"
   fi
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then

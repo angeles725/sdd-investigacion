@@ -25,6 +25,8 @@ R1_VERB_RE = re.compile("|".join([
     r"\bmodernized\b", r"migrated to", r"converted to",
     r"N5 now", r"new in N5", r"Java[\s-]21[\s-]?style",
 ]), re.IGNORECASE)
+# Evidence tokens showing the claim was read from the class file (or the vendor source), not from a
+# decompiler's resugared output; any one of them in the claim's own clause clears R1.
 R1_EVIDENCE_RE = re.compile("|".join([
     r"\bjavap\b", r"\btypeSwitch\b", r"\bSwitchBootstraps\b", r"\bLambdaMetafactory\b",
     r"\bPermittedSubclasses\b", r"Record attribute", r"extends\s+java\.lang\.Record",

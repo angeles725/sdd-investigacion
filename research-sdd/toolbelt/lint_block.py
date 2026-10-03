@@ -467,8 +467,9 @@ def clauses(text):
 def make_claim_rule(rule_id, is_claim, is_cleared, message):
     """Rule factory for the common pack shape: a clause that makes a claim (`is_claim`) and carries no
     clearing evidence (`is_cleared`) is a finding unless the unit holds a valid waiver for `rule_id`.
-    Bumps `r<N>_triggers` for every claim clause seen (cleared or not), so the SUMMARY proves it looked."""
-    covkey = rule_id.lower() + "_triggers"
+    Bumps `r<N>_triggers` for every claim clause seen (cleared or not), so the SUMMARY proves it looked.
+    At most ONE finding per unit (the first uncleared claim clause); later clauses are not examined."""
+    covkey = rule_id.lower() + "_triggers"  # e.g. "r1_triggers", printed as `r1-triggers=` in SUMMARY
 
     def rule(doc):
         out = []
@@ -479,6 +480,8 @@ def make_claim_rule(rule_id, is_claim, is_cleared, message):
                 if not is_claim(clause):
                     continue
                 doc.cov[covkey] += 1
+                # Evidence is clause-scoped: it clears only the claim in its own clause. A waiver is
+                # unit-scoped (any line of the paragraph / row).
                 if is_cleared(clause) or doc.waived(rule_id, u):
                     continue
                 out.append((u.line, rule_id, f"{message}: {excerpt(clause)}"))
@@ -560,10 +563,12 @@ def main(argv):
                 val = argv[i] if i < len(argv) else ""
             else:
                 val = a[len("--pack="):]
-            if not val or val.startswith("-"):
+            names = [n for n in val.split(",") if n]
+            # `--pack ''` / `--pack ,` name nothing: that is a usage error, never a silent core-only run.
+            if not names or val.startswith("-"):
                 print("lint-block: --pack needs a name", file=sys.stderr)
                 return 2
-            pack_names.extend(n for n in val.split(",") if n)
+            pack_names.extend(names)
         elif a == "--files-from":
             i += 1
             if i >= len(argv) or argv[i] != "-":
@@ -632,6 +637,7 @@ def main(argv):
           f"| inspected: selfverify-sections={cov['selfverify_sections']} "
           f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']} "
           f"cert-inline-items={cov['cert_inline_items']}"
+          + (f" crashed={crashed}" if crashed else "")
           + (f" packs={','.join(LOADED_PACKS)} " + " ".join(
               f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS) if LOADED_PACKS else ""))
     if unreadable or crashed:
