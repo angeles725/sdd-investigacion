@@ -3964,7 +3964,7 @@ r85h="$(mk_retro "$box85h" target-foo r85h.md '<!-- review-status: pending -->' 
 "| 1 | ñandúñandúñ | CLAUDE.md | B1 | fix | HIGH |
 | 2 | ñandúñandúñá | CLAUDE.md | B1 | fix | HIGH |")"
 for _loc85h in C C.utf8; do
-  if [ "$_loc85h" != C ] && [ "$(printf 'ñ' | LC_ALL="$_loc85h" wc -m 2>/dev/null)" != 1 ]; then
+  if [ "$_loc85h" != C ] && [ "$(printf 'ñ' | LC_ALL="$_loc85h" wc -m 2>/dev/null | tr -d ' \t')" != 1 ]; then   # tr: BSD wc left-pads its count
     echo "  SKIP  85h multibyte title under LC_ALL=$_loc85h: locale not installed or not a UTF-8 locale"
     continue
   fi
