@@ -231,8 +231,8 @@ fi
 
 # ── --all mode: iterate every registered harness ─────────────────────────────
 # Setup for --all tests:
-#   H_ALL: claude in-sync, codex absent, reasonix diverged (LAST)
-#   — tests the list-edge rule: drift in the last harness in RESEARCH_SDD_HARNESSES order
+#   H_ALL: claude in-sync, codex/pi/gentle-shell absent, reasonix diverged (middle of the list; the
+#   LAST-position drift case — gentle-shell — is covered by PIH4/TOOTH D)
 H_ALL="$ROOT/home_all"
 mkdir -p "$H_ALL/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_ALL/.claude/skills/research-sdd/SKILL.md"      # claude: in-sync
@@ -264,11 +264,11 @@ else
   no "AN3 --all diverged → expected 'diverged=1' in summary; got: $ERR_AN2"
 fi
 
-# AN4: --all diverged → summary shows absent=1 (codex not installed)
-if <<<"$ERR_AN2" grep -q 'absent=1'; then
-  ok "AN4 --all diverged → summary absent=1"
+# AN4: --all diverged → summary shows absent=3 (codex, pi, gentle-shell not installed)
+if <<<"$ERR_AN2" grep -q 'absent=3'; then
+  ok "AN4 --all diverged → summary absent=3"
 else
-  no "AN4 --all diverged → expected 'absent=1' in summary; got: $ERR_AN2"
+  no "AN4 --all diverged → expected 'absent=3' in summary; got: $ERR_AN2"
 fi
 
 # AN5: --all all-absent → exit 0 (not installing is normal)
@@ -750,6 +750,59 @@ fi
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
 
+# ── PIH: pi + gentle-shell harnesses are registered and drift-checked (general profile) ──────────
+# Both default to the "general" profile, deploy under <home>/.pi/agent and <home>/.gentle-shell/agent,
+# and gentle-shell is the LAST registered harness (list-edge rule: drift in the last position must
+# still be reported). Real installer + real render-profile.sh, never a mutant.
+if [ ! -f "$INSTALLER_PD" ]; then
+  no "PIH setup: installer not found: $INSTALLER_PD"
+else
+  H_PIH="$ROOT/home_pih"
+  bash "$INSTALLER_PD" --home "$H_PIH" --harness pi >/dev/null 2>&1
+  bash "$INSTALLER_PD" --home "$H_PIH" --harness gentle-shell >/dev/null 2>&1
+  for _h in pi gentle-shell; do
+    case "$_h" in pi) _rel=".pi/agent" ;; *) _rel=".gentle-shell/agent" ;; esac
+    bash "$SUT" --harness "$_h" --home "$H_PIH" >/dev/null 2>&1; _rc=$?
+    if [ "$_rc" -eq 0 ]; then ok "PIH1 $_h: fresh general-profile install is in-sync (exit 0)"
+    else no "PIH1 $_h: fresh install reported rc=$_rc (expected 0)"; fi
+    [ -f "$H_PIH/$_rel/skills/research-sdd/SKILL.md" ] \
+      && ok "PIH2 $_h: deployed skill lives at <home>/$_rel/skills/research-sdd/SKILL.md" \
+      || no "PIH2 $_h: no deployed skill at <home>/$_rel"
+  done
+  bash "$SUT" --all --home "$H_PIH" >/dev/null 2>&1; _rc=$?
+  [ "$_rc" -eq 0 ] && ok "PIH3 --all: pi and gentle-shell both in-sync (exit 0)" || no "PIH3 --all: expected exit 0, got $_rc"
+  printf '\n<!-- hand-edited -->\n' >> "$H_PIH/.gentle-shell/agent/skills/research-sdd/SKILL.md"
+  _err="$(bash "$SUT" --all --home "$H_PIH" 2>&1 >/dev/null)"; _rc=$?
+  if [ "$_rc" -eq 1 ] && <<<"$_err" grep -q 'fix:.*--harness gentle-shell.*--force-skill'; then
+    ok "PIH4 --all: drift in the LAST registered harness (gentle-shell) is reported with its fix command"
+  else no "PIH4 --all: gentle-shell drift missed (rc=$_rc, err=$_err)"; fi
+  printf '\n<!-- hand-edited -->\n' >> "$H_PIH/.pi/agent/skills/research-sdd/SKILL.md"
+  _err="$(bash "$SUT" --all --home "$H_PIH" 2>&1 >/dev/null)"
+  if <<<"$_err" grep -q 'diverged=2'; then ok "PIH5 --all: pi + gentle-shell both diverged → diverged=2"
+  else no "PIH5 --all: expected diverged=2 (err=$_err)"; fi
+
+  if [ "$prove_teeth" -eq 1 ]; then
+    # Tooth: a sandbox kit whose adapters.sh DROPS gentle-shell from RESEARCH_SDD_HARNESSES must NOT
+    # report the gentle-shell drift PIH4 detects (rc 0, name absent) — so PIH4 depends on registration.
+    PIK="$ROOT/pikit"
+    mkdir -p "$PIK/install" "$PIK/toolbelt" "$PIK/skills/research-sdd"
+    sed 's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/' "$HERE/../../install/adapters.sh" > "$PIK/install/adapters.sh"
+    cp "$SUT" "$PIK/toolbelt/verify-skill-drift.sh"
+    cp "$SRC_SKILL" "$PIK/skills/research-sdd/SKILL.md"
+    if cmp -s "$HERE/../../install/adapters.sh" "$PIK/install/adapters.sh"; then
+      no "teeth PIH: harness-dropped mutant is byte-identical to adapters.sh — mutation never applied"
+    else
+      H_PIT="$ROOT/home_pit"; mkdir -p "$H_PIT/.gentle-shell/agent/skills/research-sdd"
+      printf 'stale\n' > "$H_PIT/.gentle-shell/agent/skills/research-sdd/SKILL.md"
+      bash "$SUT" --all --home "$H_PIT" >/dev/null 2>&1; _rc_good=$?
+      bash "$PIK/toolbelt/verify-skill-drift.sh" --all --home "$H_PIT" >/dev/null 2>&1; _rc_mut=$?
+      if [ "$_rc_good" -ne 0 ] && [ "$_rc_mut" -eq 0 ]; then
+        ok "teeth PIH: dropping gentle-shell from RESEARCH_SDD_HARNESSES hides its drift (good rc=$_rc_good, mutant rc=0) → registration is load-bearing"
+      else no "teeth PIH: harness-dropped mutant not distinguishable (good rc=$_rc_good, mutant rc=$_rc_mut)"; fi
+    fi
+  fi
+fi
+
 # SENTINEL-TEETH-BANNER-START
 if [ "$prove_teeth" -eq 1 ]; then
   echo "-- mutation teeth --"
@@ -814,14 +867,14 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
 
   # TOOTH D: all-last-skipped — mutant replaces the --all loop to skip the last harness.
-  # Real test AN1: reasonix (last in RESEARCH_SDD_HARNESSES) diverged → exit 1.
-  # Mutant: loop iterates all-but-last (${RESEARCH_SDD_HARNESSES% *}) → misses reasonix → exit 0.
+  # Real test PIH4: gentle-shell (last in RESEARCH_SDD_HARNESSES) diverged → exit 1.
+  # Mutant: loop iterates all-but-last (${RESEARCH_SDD_HARNESSES% *}) → misses gentle-shell → exit 0.
   # The for-loop sentinel is the literal 'for h in $RESEARCH_SDD_HARNESSES' line in the SUT.
   H_TD="$ROOT/home_td"
   mkdir -p "$H_TD/.claude/skills/research-sdd"
   cp "$SRC_SKILL" "$H_TD/.claude/skills/research-sdd/SKILL.md"
-  mkdir -p "$H_TD/.reasonix/skills/research-sdd"
-  printf 'stale content\n' > "$H_TD/.reasonix/skills/research-sdd/SKILL.md"
+  mkdir -p "$H_TD/.gentle-shell/agent/skills/research-sdd"
+  printf 'stale content\n' > "$H_TD/.gentle-shell/agent/skills/research-sdd/SKILL.md"
   MUT_D="$MUT_DIR/verify-skill-drift-mut-D.sh"
   # Mutant: change loop to skip the last harness
   sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
@@ -850,11 +903,11 @@ if [ "$prove_teeth" -eq 1 ]; then
     no "TOOTH D sabotage: renamed sentinel → mutant differs — sabotage check inconclusive"
   fi
 
-  # Actual tooth: mutant misses last harness (reasonix) diverged → exits 0 → RED
+  # Actual tooth: mutant misses last harness (gentle-shell) diverged → exits 0 → RED
   bash "$MUT_D" --all --home "$H_TD" 2>/dev/null
   RC_TD=$?
   if [ "$RC_TD" -eq 0 ]; then
-    ok "TOOTH D all-last-skipped: mutant exits 0 with reasonix (last) diverged — RED as expected"
+    ok "TOOTH D all-last-skipped: mutant exits 0 with gentle-shell (last) diverged — RED as expected"
   else
     no "TOOTH D all-last-skipped: mutant exits non-zero — tooth has no bite (RC=$RC_TD)"
   fi

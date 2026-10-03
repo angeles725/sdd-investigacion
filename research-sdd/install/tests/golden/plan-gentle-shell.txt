@@ -1,0 +1,37 @@
+harness=gentle-shell
+  profile=general (source=default)
+  RENDER  {HOME}/.gentle-shell/agent/research-sdd/profile/general (profile=general)
+  INSTALL {HOME}/.gentle-shell/agent/skills/research-sdd/SKILL.md (from rendered profile 'general')
+  SPLICE  {HOME}/.gentle-shell/agent/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: {HOME}/.gentle-shell/agent/skills/research-sdd/SKILL.md
+  | Kit path: ~/.gentle-shell/agent/research-sdd/profile/general
+  | 
+  | Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session
+  | start; all read-only, degrade to silence on failure):
+  |   Single command (recommended): `toolbelt/sweep-all.sh`
+  |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
+  |   - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals
+  |   - `toolbelt/sweep-audits.sh`        — pending section 13 audit reports
+  |   - `toolbelt/sweep-breakthroughs.sh` — unindexed/drifted section 22 breakthrough ledger entries
+  |   - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift
+  |   - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning
+  |   - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets
+  |   - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry
+  |   - `toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source
+  | <!-- research-sdd:end -->
+  INSTALL {HOME}/.gentle-shell/agent/prompts/research-sdd.md (slash-command prompt template)
+  | ---
+  | description: Run the research-sdd investigation loop
+  | argument-hint: "<target or question>"
+  | ---
+  | Read the research-sdd skill at {HOME}/.gentle-shell/agent/skills/research-sdd/SKILL.md and follow it exactly to run the
+  | investigation loop. Treat the text below as the target or question to investigate
+  | (if it is empty, ask which target to investigate):
+  | 
+  | $ARGUMENTS
+  slash_commands=true

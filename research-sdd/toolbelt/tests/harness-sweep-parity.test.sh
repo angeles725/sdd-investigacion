@@ -165,6 +165,26 @@ else
   no "quoted-commands: fixture file missing — cannot test quote stripping: $FIXTURE_QUOTED"
 fi
 
+# ---- pi + gentle-shell goldens: manual-sweep harnesses held to the same canonical set ----------
+# Pi has no SessionStart hook, so both Pi harnesses document the manual sweep block exactly like
+# Codex. Their goldens must reference the same canonical set + the sweep-all.sh aggregator.
+# (Not added to --list-inputs: they live beside plan-codex.txt under the same golden/ directory.)
+for _pig in pi gentle-shell; do
+  _pif="$REPO/research-sdd/install/tests/golden/plan-$_pig.txt"
+  if [ ! -f "$_pif" ]; then no "$_pig: golden missing: $_pif"; continue; fi
+  _pis="$(extract_codex "$_pif")"
+  if [ "$_pis" = "$CLAUDE_SET" ]; then ok "$_pig == claude (identical canonical sweep set, $CANONICAL_COUNT scripts)"
+  else
+    no "$_pig != claude  PARITY DRIFT"
+    printf '    claude: %s\n' "$(echo "$CLAUDE_SET" | tr '\n' ' ')"
+    printf '    %s : %s\n' "$_pig" "$(echo "$_pis" | tr '\n' ' ')"
+  fi
+  grep -q '`toolbelt/sweep-all.sh`' "$_pif" \
+    && ok "$_pig: sweep-all.sh aggregator referenced in plan-$_pig.txt" \
+    || no "$_pig: sweep-all.sh NOT referenced in plan-$_pig.txt"
+done
+
+
 # ---- --list-inputs contract ------------------------------------------------
 # The mode must emit exactly the two harness input files as repo-relative paths,
 # one per line. ci-path-filter-coverage.test.sh consumes this at runtime so the
@@ -226,6 +246,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth C: un-stripped parser yields wrong names from quoted fixture (quote-strip fix has teeth)"
   else
     no "teeth C: un-stripped parser passed — the fixture does not catch the bug (quoted-commands assertion is theater)"
+  fi
+
+  # Teeth D: rename sweep-retros.sh in a temp copy of the pi golden — the pi/gentle-shell parity
+  # check (same extractor, same canonical set) must see it as drift vs Claude.
+  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$REPO/research-sdd/install/tests/golden/plan-pi.txt" > "$TMP/plan-pi-mutant.txt"
+  mutant_pi="$(extract_codex "$TMP/plan-pi-mutant.txt")"
+  if [ -n "$mutant_pi" ] && [ "$CLAUDE_SET" != "$mutant_pi" ]; then
+    ok "teeth D: renaming sweep-retros in the Pi golden detected as drift vs Claude"
+  else
+    no "teeth D: mutant Pi golden NOT caught — pi/gentle-shell parity check is theater"
   fi
 fi
 
