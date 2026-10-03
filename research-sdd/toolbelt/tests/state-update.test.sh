@@ -215,9 +215,20 @@ mkdir -p "$TMP/nocmp"; for _t in dirname basename grep sort uniq tr head mktemp 
 SOUT="$(PATH="$TMP/nocmp" "$BASH" "$SUT" "$TMP/drift" 2>"$TMP/stderr")"; RC=$?; OUT="$SOUT"$'\n'"$(cat "$TMP/stderr")"
 expect "25a missing cmp => DEGRADED naming the tool, exit 3" 3 "required tool 'cmp' not found"
 mkdir -p "$TMP/baddiff"; printf '#!/bin/sh\necho diffboom >&2\nexit 2\n' > "$TMP/baddiff/diff"; chmod +x "$TMP/baddiff/diff"
-PATH="$TMP/baddiff:$PATH" run "$TMP/drift"; expect "25b diff exiting 2 => DEGRADED (never a silent empty proposal), exit 3" 3 "diff failed" "degraded=1" "changed=0"
+PATH="$TMP/baddiff:$PATH" run "$TMP/drift"; expect "25b diff exiting 2 => DEGRADED (never a silent empty proposal), exit 3" 3 "diff failed (rc=2)" "changed=0 degraded=1 unproposed="
 mkdir -p "$TMP/badcmp"; printf '#!/bin/sh\nexit 2\n' > "$TMP/badcmp/cmp"; chmod +x "$TMP/badcmp/cmp"
-PATH="$TMP/badcmp:$PATH" run "$TMP/drift"; expect "25c cmp exiting 2 => DEGRADED, exit 3" 3 "cmp failed" "degraded=1"
+PATH="$TMP/badcmp:$PATH" run "$TMP/drift"; expect "25c cmp exiting 2 => DEGRADED, exit 3" 3 "cmp failed (rc=2)" "changed=0 degraded=1 unproposed="
+mkdir -p "$TMP/diff0"; printf '#!/bin/sh\nexit 0\n' > "$TMP/diff0/diff"; chmod +x "$TMP/diff0/diff"
+PATH="$TMP/diff0:$PATH" run "$TMP/drift"; expect "25d diff exiting 0 while cmp said differ => typed DEGRADED, not an empty proposal" 3 "diff failed (rc=0)" "changed=0 degraded=1 unproposed="
+
+# 26. (#1534) the shared-global detector must see a TAB-indented block_scope line (grep ERE: \t inside [] is not a tab).
+#     verify-state is stubbed to flag covered_blocks on the un-suffixed root of a 2-state corpus; because the root
+#     IS shared-global the #906 withholding must NOT apply and the value is proposed.
+d="$TMP/sgtab"; blocks "$d" proj-block1.md proj-block2.md x-block1.md x-block2.md
+state "$d/RESEARCH-STATE.md" 1 2 2 $'\tblock_scope: shared-global'; state "$d/RESEARCH-STATE-x.md" 2 2 2
+printf '#!/usr/bin/env bash\necho "== verify-state: RESEARCH-STATE.md (target: x) =="\necho "   FAIL   envelope covered_blocks=1 != 4 attributed block(s) under shared-global"\necho "== verify-state: RESEARCH-STATE-x.md (target: x) =="\nexit 1\n' > "$TMP/stub-sg.sh"
+STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" run "$d"; expect "26 tab-indented shared-global root: covered_blocks proposed, not withheld" 1 "+covered_blocks: 4"
+lacks "26b no withholding NOTE for a shared-global root" "covered_blocks withheld"
 
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -255,8 +266,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   STATE_UPDATE_VERIFY="$TMP/stub-prose.sh" tt prose-unmatched-count '/SU-PROSE-UNMATCHED/,/^  fi$/s/unproposed=\$((unproposed+1))/true/' "$TMP/prosegone" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
   tt summary-trap          's/^trap _summary EXIT$/trap : EXIT/' "$TMP/empty" 2 2 --good-has 'checked=' --bad-lacks 'checked='
   tt dup-basename          's/^if \[ -n "\$dups" \]; then/if false; then/' "$TMP/dup" 3 1
-  # (#1534) cmp-probe / diff-rc / cmp-rc / withheld-counted: each mutant removes one guard, the case-25 fixtures must notice.
+  # (#1534) withheld-counted (case 21), cmp-probe (25a), diff-rc-gate (25b, 25d), cmp-rc-gate (25c), sg-tab-class (26): each mutant removes one guard and its named case must notice.
   tt withheld-counted      '/SU-WITHHELD-COUNTED/d' "$TMP/rootcw" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
+  STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" tt sg-tab-class 's/\^\[\[:space:\]\]\*block_scope:\[\[:space:\]\]\*/^[ \\t]*block_scope:[ \\t]*/' "$TMP/sgtab" 1 0
   m="$MUT/state-update.sh"
   if mutant_chain cmp-probe "$SUT" "$m" 's/for _t in diff mktemp awk cmp; do/for _t in diff mktemp awk; do/'; then
     PATH="$TMP/nocmp" "$BASH" "$m" "$TMP/drift" >/dev/null 2>"$TMP/stderr"

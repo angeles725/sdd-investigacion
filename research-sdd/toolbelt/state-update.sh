@@ -143,7 +143,7 @@ for s in "${states[@]}"; do
   # corpus-wide number, not this focus's. Writing it would satisfy the lint with a value that is not the
   # focus's count (fleet-measured: 266 -> 1193 on a 90-focus corpus), so covered_blocks is withheld.
   if [ "$base" = "RESEARCH-STATE.md" ] && [ "${#states[@]}" -gt 1 ] && [ -z "$(derive_focus_prefix "$s")" ] \
-     && ! grep -Eq '^[ \t]*block_scope:[ \t]*shared-global' "$s" && [[ " $sets" == *" covered_blocks="* ]]; then
+     && ! grep -Eq '^[[:space:]]*block_scope:[[:space:]]*shared-global' "$s" && [[ " $sets" == *" covered_blocks="* ]]; then
     sets="$(printf '%s' "$sets" | tr ' ' '\n' | grep -v '^covered_blocks=' | tr '\n' ' ')"
     unproposed=$((unproposed+1))   # SU-WITHHELD-COUNTED: verify-state flagged it and nothing is proposed for it
     echo "state-update: NOTE [$rel] covered_blocks withheld: un-suffixed root of a multi-state corpus with no FOCUSES.md block prefix (verify-state counts the corpus-wide total)" >&2
