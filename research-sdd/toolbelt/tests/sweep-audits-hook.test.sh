@@ -58,14 +58,14 @@ Nothing to review.'
 # 3. Operational failure (sweep exits non-zero) → "could not run" banner, NOT normal header.
 write_stub 1 "sweep-audits: cannot find TARGETS.md"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
+<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
   && ok "3 sweep failure (rc=1) → operational-failure banner emitted" \
   || no "3 sweep failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
 
 # 4. Success (sweep exits 0) → normal header present in output.
 write_stub 0 "TARGET  demo  · 0 open audits"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'pending audits\|§13' \
+<<<"$OUT" grep -qi 'pending audits\|§13' \
   && ok "4 success (rc=0) → normal audit header emitted" \
   || no "4 success → expected normal header (exit=$RC out=[$OUT])"
 
@@ -76,8 +76,8 @@ printf '%s\n' "$OUT" | grep -qi 'pending audits\|§13' \
 write_stub 0 "$STUB_ABSENT"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'run --full to list them' \
-   && ! printf '%s\n' "$OUT" | grep -q 'corpus not found (absent-input):'; then
+   && <<<"$OUT" grep -q 'run --full to list them' \
+   && ! <<<"$OUT" grep -q 'corpus not found (absent-input):'; then
   ok "5 default mode: 3 absent targets → aggregate counted line (run --full), no per-target lines"
 else
   no "5 default mode: aggregate 'run --full' absent or per-target lines present (exit=$RC out=[$OUT])"
@@ -88,7 +88,7 @@ fi
 write_stub 0 "$STUB_ABSENT"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'corpus not found (absent-input): /fake/path1'; then
+   && <<<"$OUT" grep -q 'corpus not found (absent-input): /fake/path1'; then
   ok "6 --full mode: per-target absent-input lines passed through"
 else
   no "6 --full mode: per-target line NOT found in output (exit=$RC out=[$OUT])"
@@ -112,8 +112,8 @@ Nothing to review.'
 write_stub 0 "$STUB_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -q 'corpus exists, no audits found (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 3 corpus(es) empty-input — run --full to list them'; then
+   && ! <<<"$OUT" grep -q 'corpus exists, no audits found (empty-input):' \
+   && <<<"$OUT" grep -qF 'INFO: 3 corpus(es) empty-input — run --full to list them'; then
   ok "7 default mode: 3 empty-input targets → no per-target lines, exact summary 'INFO: 3 corpus(es) empty-input — run --full to list them'"
 else
   no "7 default mode: per-target empty-input lines still present OR exact summary missing (exit=$RC out=[$OUT])"
@@ -123,7 +123,7 @@ fi
 write_stub 0 "$STUB_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'corpus exists, no audits found (empty-input): /fake/empty1'; then
+   && <<<"$OUT" grep -q 'corpus exists, no audits found (empty-input): /fake/empty1'; then
   ok "8 --full mode: per-target empty-input lines passed through"
 else
   no "8 --full mode: per-target empty-input line NOT found in output (exit=$RC out=[$OUT])"
@@ -138,8 +138,8 @@ Nothing to review.'
 write_stub 0 "$_STUB_SINGLE_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'corpus exists, no audits found (empty-input):' \
+   && <<<"$OUT" grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
   ok "9 single empty-input target → exact summary 'INFO: 1 corpus(es) empty-input — run --full to list them'"
 else
   no "9 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
@@ -159,8 +159,8 @@ Nothing to review.'
 write_stub 0 "$_STUB_MIXED_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'corpus exists, no audits found (empty-input):' \
+   && <<<"$OUT" grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
   ok "10 ordering robustness: 1 early + 1 late empty-input → TOTAL count=2 in one summary (END emission)"
 else
   no "10 ordering robustness: expected 'INFO: 2 corpus(es) empty-input' but got wrong count or per-target lines present (exit=$RC out=[$OUT])"

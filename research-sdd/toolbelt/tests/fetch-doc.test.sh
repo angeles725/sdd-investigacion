@@ -188,7 +188,7 @@ route(){
   printf '%s %s' "$code" "$loc"
 }
 # head_routes_has <url> — true if $STUB_HEAD_ROUTES names <url> as its own row.
-head_routes_has(){ printf '%s\n' "${STUB_HEAD_ROUTES:-}" | grep -qF "$1 "; }
+head_routes_has(){ <<<"${STUB_HEAD_ROUTES:-}" grep -qF "$1 "; }
 
 if [ "$is_probe" -eq 1 ]; then
   if [ -n "${STUB_PROBE_FAIL_URL:-}" ] && [ "$url" = "$STUB_PROBE_FAIL_URL" ]; then
@@ -994,7 +994,7 @@ ENDPDF
 _have_curl=false
 command -v curl >/dev/null 2>&1 && _have_curl=true
 _pdf_ok=false
-if command -v file >/dev/null 2>&1 && file -b "$_pdf_fixture" 2>/dev/null | grep -qi pdf; then _pdf_ok=true; fi
+if command -v file >/dev/null 2>&1 && <<<"$(file -b "$_pdf_fixture" 2>/dev/null)" grep -qi pdf; then _pdf_ok=true; fi
 _have_pdftotext=false
 if command -v pdftotext >/dev/null 2>&1; then
   _ptxt_out="$(pdftotext "$_pdf_fixture" - 2>/dev/null)"
@@ -2079,8 +2079,8 @@ printf 'B-BYTES\n' > "$d59/sources/datasheets/r59.pdf"; shaB59="$(sum_of "$d59/s
 printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n| datasheets/r59.pdf | datasheets | http://s59.example/A | 2026-01-01T00:00:00Z | %s | |\n| datasheets/r59.pdf | datasheets | http://s59.example/B | 2026-02-01T00:00:00Z | %s | |\n' "$shaA59" "$shaB59" > "$d59/sources/SOURCES.md"
 _rc59=0; STUB_ROUTES="" sut --replace doc "http://s59.example/C" "$d59" datasheets r59.pdf >/dev/null 2>"$TMP/err59.txt" || _rc59=$?
 md59="$d59/sources/SOURCES.md"
-if [ "$_rc59" = "0" ] && grep -F 'http://s59.example/B' "$md59" | grep -qF "datasheets/r59.${shaB59:0:12}.pdf" \
-   && grep -F 'http://s59.example/A' "$md59" | grep -qF '| datasheets/r59.pdf |' && grep -qi 'different sha' "$TMP/err59.txt"; then
+if [ "$_rc59" = "0" ] && <<<"$(grep -F 'http://s59.example/B' "$md59")" grep -qF "datasheets/r59.${shaB59:0:12}.pdf" \
+   && <<<"$(grep -F 'http://s59.example/A' "$md59")" grep -qF '| datasheets/r59.pdf |' && grep -qi 'different sha' "$TMP/err59.txt"; then
   ok "doc: #1313 B2 — --replace retargets only the row whose sha matches the archived bytes and warns about the other"
 else no "R59: rc=$_rc59 rows='$(grep 'r59' "$md59" | cut -d'|' -f2,4 | tr '\n' '/')' err='$(cat "$TMP/err59.txt")'"; fi
 
@@ -2432,7 +2432,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n| datasheets/r59.pdf | datasheets | http://s59.example/A | 2026-01-01T00:00:00Z | %s | |\n| datasheets/r59.pdf | datasheets | http://s59.example/B | 2026-02-01T00:00:00Z | %s | |\n' "$shaA59" "$shaB59" > "$d/sources/SOURCES.md"
     printf 'B-BYTES\n' > "$d/sources/datasheets/r59.pdf"
     STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s59.example/C" "$d" datasheets r59.pdf >/dev/null 2>&1
-    if grep -F 'http://s59.example/A' "$d/sources/SOURCES.md" | grep -qF "r59.${shaB59:0:12}.pdf"; then ok "teeth-shascope: mutant also retargets the other sha's row (wrong archive) -> R59 has teeth"
+    if <<<"$(grep -F 'http://s59.example/A' "$d/sources/SOURCES.md")" grep -qF "r59.${shaB59:0:12}.pdf"; then ok "teeth-shascope: mutant also retargets the other sha's row (wrong archive) -> R59 has teeth"
     else no "teeth-shascope: the A row was not retargeted by the mutant — R59 does NOT depend on the sha condition (THEATER)"; fi
   fi
 

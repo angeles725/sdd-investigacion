@@ -80,13 +80,13 @@ OUT="$(run_hook_with_stub 1 "== verify-kit-clean: kit (branch: main) ==
    working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked
    verdict      : NOT clean — commit/stash + push before staging a retro (else mixed history)
 == exit 1 ==")"
-printf '%s\n' "$OUT" | grep -qi 'NOT clean\|commit/stash\|not clean' \
+<<<"$OUT" grep -qi 'NOT clean\|commit/stash\|not clean' \
   && ok "4 dirty kit (rc=1) → banner containing 'NOT clean' emitted" \
   || no "4 dirty kit → expected 'NOT clean' banner (out=[$OUT])"
 
 # 5. Gate-error (rc=2) → hook emits error banner containing "could not run" or similar.
 OUT="$(run_hook_with_stub 2 "verify-kit-clean: not a git repo: /bad/path")"
-printf '%s\n' "$OUT" | grep -qi 'could not run\|exit 2\|misconfigured' \
+<<<"$OUT" grep -qi 'could not run\|exit 2\|misconfigured' \
   && ok "5 gate error (rc=2) → error banner emitted" \
   || no "5 gate error → expected error banner (out=[$OUT])"
 
@@ -104,7 +104,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
    verdict      : NOT clean" > "$TMP/stub-out.txt"
   chmod +x "$TMP/verify-kit-clean.sh"
   MUTANT_OUT="$(bash "$TMP/mutant-hook.sh" 2>&1)"
-  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'NOT clean\|not clean'; then
+  if ! <<<"$MUTANT_OUT" grep -qi 'NOT clean\|not clean'; then
     ok "teeth A: rc-neutered mutant silences dirty banner → test 4 would catch it (RED)"
   else
     no "teeth A: mutant still emits dirty banner — tooth has no bite (sed pattern may not match)"

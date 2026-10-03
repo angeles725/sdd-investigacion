@@ -107,7 +107,7 @@ else
   no "8 absent → expected exit 3; got exit=$RC (stderr: $OUT_STDERR)"
 fi
 # Absent stderr must contain typed 'absent' keyword
-if printf '%s' "$OUT_STDERR" | grep -q 'absent'; then
+if <<<"$OUT_STDERR" grep -q 'absent'; then
   ok "9 absent stderr carries 'absent' keyword"
 else
   no "9 absent stderr missing 'absent' keyword (got: $OUT_STDERR)"
@@ -179,7 +179,7 @@ sed "s|\"\$here/verify-skill-drift.sh\"|\"$SUT\" --home \"$H_DIV2\"|" \
   "$HOOK_SUT" > "$HOOK_PATCHED2"
 chmod +x "$HOOK_PATCHED2"
 HOOK_OUT2="$(bash "$HOOK_PATCHED2" 2>&1)"
-if printf '%s' "$HOOK_OUT2" | grep -q 'force-skill'; then
+if <<<"$HOOK_OUT2" grep -q 'force-skill'; then
   ok "13 hook diverged → message mentions --force-skill"
 else
   no "13 hook diverged → expected '--force-skill' in output; got [$HOOK_OUT2]"
@@ -251,21 +251,21 @@ fi
 
 # AN2: --all diverged → stderr contains fix command for the diverged harness
 ERR_AN2="$(bash "$SUT" --all --home "$H_ALL" 2>&1 >/dev/null)"
-if printf '%s' "$ERR_AN2" | grep -q 'fix:.*--harness reasonix.*--force-skill'; then
+if <<<"$ERR_AN2" grep -q 'fix:.*--harness reasonix.*--force-skill'; then
   ok "AN2 --all diverged → fix command for reasonix in stderr"
 else
   no "AN2 --all diverged → expected fix command; got: $ERR_AN2"
 fi
 
 # AN3: --all diverged → summary shows diverged=1
-if printf '%s' "$ERR_AN2" | grep -q 'diverged=1'; then
+if <<<"$ERR_AN2" grep -q 'diverged=1'; then
   ok "AN3 --all diverged → summary diverged=1"
 else
   no "AN3 --all diverged → expected 'diverged=1' in summary; got: $ERR_AN2"
 fi
 
 # AN4: --all diverged → summary shows absent=1 (codex not installed)
-if printf '%s' "$ERR_AN2" | grep -q 'absent=1'; then
+if <<<"$ERR_AN2" grep -q 'absent=1'; then
   ok "AN4 --all diverged → summary absent=1"
 else
   no "AN4 --all diverged → expected 'absent=1' in summary; got: $ERR_AN2"
@@ -333,7 +333,7 @@ sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_DIV_ALL
   "$HOOK_SUT" > "$HOOK_PATCHED2_ALL"
 chmod +x "$HOOK_PATCHED2_ALL"
 HOOK_OUT2_ALL="$(bash "$HOOK_PATCHED2_ALL" 2>&1)"
-if printf '%s' "$HOOK_OUT2_ALL" | grep -q 'force-skill'; then
+if <<<"$HOOK_OUT2_ALL" grep -q 'force-skill'; then
   ok "AN-hook-2 hook --all diverged → output mentions --force-skill"
 else
   no "AN-hook-2 hook --all diverged → expected '--force-skill' in output; got [$HOOK_OUT2_ALL]"
@@ -482,7 +482,7 @@ fi
 # AX6: HOME unset → exit 2 with typed could-not-run message (not stale / abort)
 AX6_ERR="$(env -u HOME bash "$SUT" 2>&1)"
 RC_AX6=$?
-if [ "$RC_AX6" -eq 2 ] && printf '%s' "$AX6_ERR" | grep -q 'could-not-run.*HOME'; then
+if [ "$RC_AX6" -eq 2 ] && <<<"$AX6_ERR" grep -q 'could-not-run.*HOME'; then
   ok "AX6 HOME unset → exit 2 + typed 'could-not-run: HOME is unset'"
 else
   no "AX6 HOME unset → expected exit 2 + could-not-run; got exit=$RC_AX6 err=[$AX6_ERR]"
@@ -495,7 +495,7 @@ sed 's|"$here/verify-skill-drift.sh" --all|env -u HOME "'"$SUT"'" --all|' \
   "$HOOK_SUT" > "$HOOK_AX7"
 chmod +x "$HOOK_AX7"
 AX7_OUT="$(bash "$HOOK_AX7" 2>&1)"
-if printf '%s' "$AX7_OUT" | grep -qi 'ERROR'; then
+if <<<"$AX7_OUT" grep -qi 'ERROR'; then
   ok "AX7 hook HOME unset → output contains ERROR (not WARN)"
 else
   no "AX7 hook HOME unset → expected ERROR in output; got: $AX7_OUT"
@@ -590,9 +590,9 @@ fi
 # H_BDG3 (set up above) has all 3 harnesses diverged; max_fix_lines=1 → claude gets
 # the detailed fix line, codex/reasonix must appear in "also diverged" line.
 REM1_OUT="$(bash "$SUT" --all --home "$H_BDG3" 2>&1)"
-if printf '%s\n' "$REM1_OUT" | grep -qF 'claude' && \
-   printf '%s\n' "$REM1_OUT" | grep -qF 'codex' && \
-   printf '%s\n' "$REM1_OUT" | grep -qF 'reasonix'; then
+if <<<"$REM1_OUT" grep -qF 'claude' && \
+   <<<"$REM1_OUT" grep -qF 'codex' && \
+   <<<"$REM1_OUT" grep -qF 'reasonix'; then
   ok "REM1 3-diverged → all harness names appear in output"
 else
   no "REM1 3-diverged → some harness names missing from output: $REM1_OUT"
@@ -624,7 +624,7 @@ else
     printf '\n<!-- hand-edited by an operator -->\n' >> "$DEPLOYED_PD1"
     ERR_PD1_DIV="$(bash "$SUT" --harness reasonix --home "$H_PD1" 2>&1)"
     RC_PD1_DIV=$?
-    if [ "$RC_PD1_DIV" -eq 1 ] && printf '%s' "$ERR_PD1_DIV" | grep -q 'diverged'; then
+    if [ "$RC_PD1_DIV" -eq 1 ] && <<<"$ERR_PD1_DIV" grep -q 'diverged'; then
       ok "PD1b: hand-edited general-profile skill is detected as diverged (exit 1)"
     else
       no "PD1b: hand-edit not detected (rc=$RC_PD1_DIV, out=$ERR_PD1_DIV)"
@@ -646,7 +646,7 @@ H_PD3="$ROOT/home_pd3"
 make_home_copy "$H_PD3" "$SRC_SKILL"
 ERR_PD3="$(bash "$SUT" --harness claude --home "$H_PD3" --profile bogus-profile-xyz 2>&1)"
 RC_PD3=$?
-if [ "$RC_PD3" -eq 2 ] && printf '%s' "$ERR_PD3" | grep -qi 'unknown profile'; then
+if [ "$RC_PD3" -eq 2 ] && <<<"$ERR_PD3" grep -qi 'unknown profile'; then
   ok "PD3: unknown --profile is could-not-run (exit 2), not a false verdict"
 else
   no "PD3: unknown --profile: wrong exit/message (rc=$RC_PD3, out=$ERR_PD3)"
@@ -674,7 +674,7 @@ if [ -f "$INSTALLER_PD" ]; then
     OUT_SYM_SINGLE="$(bash "$RENDER_TB_SYM" --harness reasonix --home "$H_SYM" 2>&1)"; RC_SYM_SINGLE=$?
     OUT_SYM_ALL="$(bash "$RENDER_TB_SYM" --all --home "$H_SYM" 2>&1)"; RC_SYM_ALL=$?
     if [ "$RC_SYM_SINGLE" -eq 0 ] && [ "$RC_SYM_ALL" -eq 0 ] \
-       && ! printf '%s%s' "$OUT_SYM_SINGLE" "$OUT_SYM_ALL" | grep -qi 'zero slot markers'; then
+       && ! <<<"$OUT_SYM_SINGLE$OUT_SYM_ALL" grep -qi 'zero slot markers'; then
       ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, resolves the real kit root (single: rc=$RC_SYM_SINGLE, --all: rc=$RC_SYM_ALL)"
     else
       no "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/ failed (single rc=$RC_SYM_SINGLE out=[$OUT_SYM_SINGLE]; --all rc=$RC_SYM_ALL out=[$OUT_SYM_ALL])"
@@ -720,7 +720,7 @@ if [ -f "$INSTALLER_PD" ]; then
   bash "$INSTALLER_PD" --home "$H_F3MISS" --harness reasonix >/dev/null 2>&1
   rm -rf "$H_F3MISS/.reasonix/research-sdd/profile/general"
   ERR_F3MISS="$(bash "$SUT" --harness reasonix --home "$H_F3MISS" 2>&1)"; RC_F3MISS=$?
-  if [ "$RC_F3MISS" -eq 2 ] && printf '%s' "$ERR_F3MISS" | grep -qi 'render dir missing'; then
+  if [ "$RC_F3MISS" -eq 2 ] && <<<"$ERR_F3MISS" grep -qi 'render dir missing'; then
     ok "F3-missing: a missing persisted render dir is could-not-run (exit 2), never in-sync"
   else
     no "F3-missing: missing render dir not detected (rc=$RC_F3MISS, out=$ERR_F3MISS)"
@@ -737,7 +737,7 @@ if [ -f "$INSTALLER_PD" ]; then
   bash "$INSTALLER_PD" --home "$H_F3HE" --harness reasonix >/dev/null 2>&1
   echo "tampered" >> "$H_F3HE/.reasonix/research-sdd/profile/general/PROMPT-LOOP.md"
   ERR_F3HE="$(bash "$SUT" --harness reasonix --home "$H_F3HE" 2>&1)"; RC_F3HE=$?
-  if [ "$RC_F3HE" -eq 2 ] && printf '%s' "$ERR_F3HE" | grep -qi 'render dir diverged'; then
+  if [ "$RC_F3HE" -eq 2 ] && <<<"$ERR_F3HE" grep -qi 'render dir diverged'; then
     ok "F3-handedit: a hand-edited persisted PROMPT-LOOP.md is detected (could-not-run, not in-sync)"
   else
     no "F3-handedit: hand-edited render dir not detected (rc=$RC_F3HE, out=$ERR_F3HE)"
@@ -1038,7 +1038,7 @@ if [ "$prove_teeth" -eq 1 ]; then
 
   # Actual tooth: all 3 diverged, but also_names missing → codex absent from output → RED
   MUT_K_OUT="$(bash "$MUT_K" --all --home "$H_BDG3" 2>&1)"
-  if ! printf '%s\n' "$MUT_K_OUT" | grep -qF 'codex'; then
+  if ! <<<"$MUT_K_OUT" grep -qF 'codex'; then
     ok "TOOTH K also-diverged-names: mutant hides codex — RED as expected"
   else
     no "TOOTH K also-diverged-names: mutant still shows codex — tooth has no bite"
@@ -1211,7 +1211,7 @@ if [ "$prove_teeth" -eq 1 ]; then
 
   OUT_TSYM="$(bash "$SCRATCH_TSYM/render/profile/general/toolbelt/verify-skill-drift.sh" \
     --harness reasonix --home "$H_TSYM" --profile general 2>&1)"; RC_TSYM=$?
-  if [ "$RC_TSYM" -eq 2 ] && printf '%s' "$OUT_TSYM" | grep -qi 'zero slot markers'; then
+  if [ "$RC_TSYM" -eq 2 ] && <<<"$OUT_TSYM" grep -qi 'zero slot markers'; then
     ok "teeth SYMLINK-TOOLBELT: both mutants together re-break through a symlinked toolbelt/ (zero slot markers, rc=2) → the -P fix pair has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: mutants did not re-break — -P fix check is THEATER (rc=$RC_TSYM out=[$OUT_TSYM])"

@@ -326,7 +326,7 @@ box="$(mkbox c14-help)"
 stub "$box" brew 0   # sentinel: if the flag leaks to *), brew exits 0 and log() fires
 run "$box" --help
 _no_ledger=$([ ! -f "$box/INSTALLED-TOOLS.md" ] && echo yes || echo no)
-_has_usage=$(printf '%s' "$OUT" | grep -qi 'install-tool' && echo yes || echo no)
+_has_usage=$(<<<"$OUT" grep -qi 'install-tool' && echo yes || echo no)
 if [ "$RC" = 0 ] && [ "$_no_ledger" = yes ] && [ "$_has_usage" = yes ]; then
   ok "14 --help → exit 0, usage, no ledger" "(exit $RC)"
 else
@@ -338,7 +338,7 @@ box="$(mkbox c15-h)"
 stub "$box" brew 0
 run "$box" -h
 _no_ledger=$([ ! -f "$box/INSTALLED-TOOLS.md" ] && echo yes || echo no)
-_has_usage=$(printf '%s' "$OUT" | grep -qi 'install-tool' && echo yes || echo no)
+_has_usage=$(<<<"$OUT" grep -qi 'install-tool' && echo yes || echo no)
 if [ "$RC" = 0 ] && [ "$_no_ledger" = yes ] && [ "$_has_usage" = yes ]; then
   ok "15 -h → exit 0, usage, no ledger" "(exit $RC)"
 else

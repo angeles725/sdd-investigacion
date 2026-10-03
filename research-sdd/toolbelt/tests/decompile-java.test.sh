@@ -92,10 +92,10 @@ run_engine() {
 # Regression: the original code always passed -jar "$IN", breaking .class inputs.
 # After the fix the class file is a bare positional; -o $OUT comes before it.
 argv_a="$(run_engine "$SUT" "$ROOT/log-a.txt" "$FAKE_CLASS" "$FAKE_OUT" --engine procyon)"
-if printf '%s\n' "$argv_a" | grep -qF -- "-jar $FAKE_CLASS"; then
+if <<<"$argv_a" grep -qF -- "-jar $FAKE_CLASS"; then
   no "a procyon+class: class file must NOT follow -jar" "argv=[$argv_a]"
-elif printf '%s\n' "$argv_a" | grep -qF "$FAKE_CLASS" \
-  && printf '%s\n' "$argv_a" | grep -qF -- "-o $FAKE_OUT"; then
+elif <<<"$argv_a" grep -qF "$FAKE_CLASS" \
+  && <<<"$argv_a" grep -qF -- "-o $FAKE_OUT"; then
   ok "a procyon+class: bare positional, no -jar misuse, -o present" ""
 else
   no "a procyon+class: class file or -o missing from argv" "argv=[$argv_a]"
@@ -103,8 +103,8 @@ fi
 
 # ── Test (b): procyon + .jar — -jar <jar> must be present ────────────────────
 argv_b="$(run_engine "$SUT" "$ROOT/log-b.txt" "$FAKE_JAR" "$FAKE_OUT" --engine procyon)"
-if printf '%s\n' "$argv_b" | grep -qF -- "-jar $FAKE_JAR" \
-  && printf '%s\n' "$argv_b" | grep -qF -- "-o $FAKE_OUT"; then
+if <<<"$argv_b" grep -qF -- "-jar $FAKE_JAR" \
+  && <<<"$argv_b" grep -qF -- "-o $FAKE_OUT"; then
   ok "b procyon+jar: -jar <jar> and -o present" ""
 else
   no "b procyon+jar: -jar <jar> or -o missing" "argv=[$argv_b]"
@@ -112,10 +112,10 @@ fi
 
 # ── Test (c): vineflower + .class — regression: no -jar misuse ───────────────
 argv_c="$(run_engine "$SUT" "$ROOT/log-c.txt" "$FAKE_CLASS" "$FAKE_OUT" --engine vineflower)"
-if printf '%s\n' "$argv_c" | grep -qF -- "-jar $FAKE_CLASS"; then
+if <<<"$argv_c" grep -qF -- "-jar $FAKE_CLASS"; then
   no "c vineflower+class: must not pass -jar <class>" "argv=[$argv_c]"
-elif printf '%s\n' "$argv_c" | grep -qF "$FAKE_CLASS" \
-  && printf '%s\n' "$argv_c" | grep -qF "$FAKE_OUT"; then
+elif <<<"$argv_c" grep -qF "$FAKE_CLASS" \
+  && <<<"$argv_c" grep -qF "$FAKE_OUT"; then
   ok "c vineflower+class: no -jar misuse, in/out positionals present" ""
 else
   no "c vineflower+class: in/out missing from argv" "argv=[$argv_c]"
@@ -123,8 +123,8 @@ fi
 
 # ── Test (d): cfr + .class — regression: --outputdir present ─────────────────
 argv_d="$(run_engine "$SUT" "$ROOT/log-d.txt" "$FAKE_CLASS" "$FAKE_OUT" --engine cfr)"
-if printf '%s\n' "$argv_d" | grep -qF "$FAKE_CLASS" \
-  && printf '%s\n' "$argv_d" | grep -qF -- "--outputdir $FAKE_OUT"; then
+if <<<"$argv_d" grep -qF "$FAKE_CLASS" \
+  && <<<"$argv_d" grep -qF -- "--outputdir $FAKE_OUT"; then
   ok "d cfr+class: <in> --outputdir <out> in argv" ""
 else
   no "d cfr+class: expected pattern missing" "argv=[$argv_d]"
@@ -136,8 +136,8 @@ fi
 FAKE_JAR_UPPER="$ROOT/test.JAR"
 touch "$FAKE_JAR_UPPER"
 argv_e="$(run_engine "$SUT" "$ROOT/log-e.txt" "$FAKE_JAR_UPPER" "$FAKE_OUT" --engine procyon)"
-if printf '%s\n' "$argv_e" | grep -qF -- "-jar $FAKE_JAR_UPPER" \
-  && printf '%s\n' "$argv_e" | grep -qF -- "-o $FAKE_OUT"; then
+if <<<"$argv_e" grep -qF -- "-jar $FAKE_JAR_UPPER" \
+  && <<<"$argv_e" grep -qF -- "-o $FAKE_OUT"; then
   ok "e procyon+.JAR(upper): -jar <jar> and -o present (case-insensitive route)" ""
 else
   no "e procyon+.JAR(upper): -jar <jar> or -o missing -- case-sensitive bug" "argv=[$argv_e]"
@@ -791,7 +791,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's/== \*\.jar/== */' "$SUT" > "$MUT1"
   chmod +x "$MUT1"
   argv_m1="$(run_engine "$MUT1" "$ROOT/log-m1.txt" "$FAKE_CLASS" "$FAKE_OUT" --engine procyon)"
-  if printf '%s\n' "$argv_m1" | grep -qF -- "-jar $FAKE_CLASS"; then
+  if <<<"$argv_m1" grep -qF -- "-jar $FAKE_CLASS"; then
     ok "teeth-1: always-jar mutant passes -jar <class> — test (a) bites" ""
   else
     no "teeth-1: always-jar mutant must produce -jar <class>" "argv=[$argv_m1]"
@@ -803,7 +803,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's/== \*\.jar/== NEVER_MATCH/' "$SUT" > "$MUT2"
   chmod +x "$MUT2"
   argv_m2="$(run_engine "$MUT2" "$ROOT/log-m2.txt" "$FAKE_JAR" "$FAKE_OUT" --engine procyon)"
-  if ! printf '%s\n' "$argv_m2" | grep -qF -- "-jar $FAKE_JAR"; then
+  if ! <<<"$argv_m2" grep -qF -- "-jar $FAKE_JAR"; then
     ok "teeth-2: never-jar mutant omits -jar <jar> — test (b) bites" ""
   else
     no "teeth-2: never-jar mutant must omit -jar <jar>" "argv=[$argv_m2]"

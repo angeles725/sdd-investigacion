@@ -1287,8 +1287,8 @@ ln -s "$_ki_altkit/toolbelt" "$_ki_altkit/render/profile/general/toolbelt"
 ln -sfn "$HERE/../../templates" "$_ki_altkit/render/profile/general/templates"
 _ki_out="$(bash "$_ki_altkit/render/profile/general/toolbelt/research-sdd-init.sh" \
   "$_ki_altkit/newtarget" --corpus flat 2>&1)"
-if printf '%s' "$_ki_out" | grep -qF "$_ki_altkit/toolbelt/ensure-remote.sh" \
-   && ! printf '%s' "$_ki_out" | grep -qF '/render/profile/general/'; then
+if <<<"$_ki_out" grep -qF "$_ki_altkit/toolbelt/ensure-remote.sh" \
+   && ! <<<"$_ki_out" grep -qF '/render/profile/general/'; then
   ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, guidance text names the real kit root"
 else
   no "SYMLINK-TOOLBELT: guidance text leaked the render dir instead of the real kit root (out=[$_ki_out])"
@@ -2329,7 +2329,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ln -sfn "$HERE/../../templates" "$_ki_altkit_t/render/profile/general/templates"
   _ki_out_t="$(bash "$_ki_altkit_t/render/profile/general/toolbelt/research-sdd-init.sh" \
     "$_ki_altkit_t/newtarget" --corpus flat 2>&1)"
-  if printf '%s' "$_ki_out_t" | grep -qF '/render/profile/general/TARGETS.md'; then
+  if <<<"$_ki_out_t" grep -qF '/render/profile/general/TARGETS.md'; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant leaks the render dir path again → -P fix has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant did not leak the render dir path — -P fix check is THEATER (out=[$_ki_out_t])"
