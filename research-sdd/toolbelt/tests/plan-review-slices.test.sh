@@ -172,5 +172,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth max-validation 's/^\[\[ "\$MAX" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
 fi
 
-echo "== plan-review-slices: $pass passed, $fail failed =="
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
