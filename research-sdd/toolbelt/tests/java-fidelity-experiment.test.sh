@@ -201,5 +201,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 echo
-echo "RESULT: $pass passed, $fail failed"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
