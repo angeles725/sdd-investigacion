@@ -235,6 +235,9 @@ snaps=0
 registered=""
 if [ -f "$sources_md" ]; then
   registered="$(awk -F'|' '/^\|/ { v=$2; gsub(/[`[:blank:]]/,"",v); if (v!="" && v!="File" && v !~ /^[-:]+$/) print v }' "$sources_md")"
+  # #1228: the File cell may use the repo-root form `sources/web-snapshots/x` as well as the bare
+  # `web-snapshots/x`; canonical key is relative to sources/, so strip ONE leading `sources/` (anchored).
+  registered="$(sed 's#^sources/##' <<< "$registered")"   # SRCPFX-L5
 fi
 # Elided citations present in blocks: capture the <tail> after `web-snapshots/...`. The kit writes display-only
 # elided paths (LEVEL 3 excludes them too); a snapshot counts as ELIDED-cited iff its real name ends with <tail>.
@@ -312,6 +315,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
     pipes="${_raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # L6-FIELD-GUARD
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
+    key="${key#sources/}"   # SRCPFX-L6 (#1228: accept the repo-root `sources/web-snapshots/x` form)
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
     file="$corpus/sources/$key"
     [ -f "$file" ] || continue   # registered but absent on disk is out of scope here (not an integrity mismatch)
@@ -355,7 +359,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
   done < "$sources_md"   # L6-SCOPE: full-file scan (catches rows appended after headings — the fetch-doc.sh reg() pattern)
   [ $((hverified + hunverif)) -gt 0 ] && \
     echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/short-prefix = WARN)"
-elif [ -f "$sources_md" ] && grep -qE '^\| web-snapshots/' "$sources_md" 2>/dev/null; then
+elif [ -f "$sources_md" ] && grep -qE '^\| (sources/)?web-snapshots/' "$sources_md" 2>/dev/null; then
   echo "-- web-snapshot hashes: sha256sum not found — hash integrity cannot be checked (WARN)"
 fi
 
@@ -372,7 +376,9 @@ if [ -f "$sources_md" ]; then
     pipes="${_d2raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # D2-FIELD-GUARD: same asymmetric rule as L6
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_d2raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
-    case "$key" in ''|File|*---*|web-snapshots/*) continue;; esac   # skip header, separator, web-snap
+    # #1228: root-form web-snapshot rows belong to LEVEL 6, not to this "non-web-snapshot" count. Only the
+    # web-snapshot form is excluded; other `sources/`-prefixed rows keep their prior (uncounted) behaviour.
+    case "$key" in ''|File|*---*|web-snapshots/*|sources/web-snapshots/*) continue;; esac   # skip header, separator, web-snap
     [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
     case "$reg" in ''|'('*) continue;; esac                         # empty or placeholder
