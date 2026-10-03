@@ -10,11 +10,11 @@ the target; the human (or a reviewed `patch -p1`) applies it.
 |---|---|
 | Engine | `verify-state.sh` itself, run once over the target. The recomputed value is read from its FAIL/WARN line; nothing is re-derived here. |
 | Output | Unified diff on stdout (`a/<rel>` / `b/<rel>`, relative to the target); progress, `SKIP`, `NOTE` and the summary on stderr. |
-| Summary | `state-update: checked= skipped= changed= degraded= unproposed=` — emitted on every exit path (usage, absent, DEGRADED, normal) by an EXIT trap, so it is always the last stderr line. A failing state-file listing helper or an untraversable target is DEGRADED (exit 3), never "no state files". |
+| Summary | `state-update: checked= skipped= changed= degraded= unproposed=` — emitted on every exit path (usage, absent, DEGRADED, normal) by an EXIT trap, so it is always the last stderr line. A failing state-file listing helper or an untraversable target is DEGRADED (exit 3), never "no state files". `unproposed` also counts a `covered_blocks` value withheld by the kit #906 rule, so it is never silently dropped. |
 | Exit 0 | No change proposed. **Not** "verify-state passes": see `unproposed`. |
 | Exit 1 | A change is proposed. |
 | Exit 2 | Usage, or no `RESEARCH-STATE*.md` under the target. |
-| Exit 3 | DEGRADED: verify-state could not be run / exited ≥ 2, printed no section for a state file, two state files share a basename, or **every** state file was skipped (nothing examined). Takes precedence over 1; any diff already found is still printed. |
+| Exit 3 | DEGRADED: verify-state could not be run / exited ≥ 2, printed no section for a state file, two state files share a basename, the state-file listing failed, a required tool (`diff`, `mktemp`, `awk`, `cmp`) is missing, `diff`/`cmp` errored while rewriting (per file, names the file), a rewrite failed, or **every** state file was skipped (nothing examined). Takes precedence over 1; any diff already found is still printed. |
 | Env | `STATE_UPDATE_VERIFY` overrides the verify-state path (test hook). |
 
 ## Owned fields
@@ -29,6 +29,8 @@ Only fields `verify-state.sh` recomputes **from disk** are proposed, each from o
 | `requires_execution_open` | E | `envelope requires_execution_open=X != N marked-open ...` (WARN) · `requires_execution_open=0 ... while N open requires-execution ...` (FAIL) |
 | `deferred_open` | F | `envelope deferred_open=X != N deferred backlog gap(s)` · `deferred_open missing while N deferred ...` (appended inside the fence) |
 | Stop-control prose number | SC-CROSS-CHECK | `stop-control prose '...: X' but backlog derives N investigable gap(s)`; only the digits after `investigable**:` change |
+
+Shared-global form: with no attributed `B<n>` ids verify-state emits INFO "unverifiable" and no mismatch line, so nothing is proposed (pinned by test case 16). Only the "attributed block(s) under shared-global" mismatch form is parsed.
 
 ## Never touched
 
