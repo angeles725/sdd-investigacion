@@ -12,6 +12,8 @@ LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"
 # shellcheck source=lib/mutant.sh
 . "$LIB"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# An exported debug flag must not leak into any case (T15 sets it explicitly where it is under test).
+unset MUTANT_TOOTH_DEBUG
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -366,7 +368,8 @@ else no "sed failure (rc 6): the stale/partial mutant file is removed (rc=$rc ex
 # T14 — rc 2 for an UNREADABLE original (exists, non-empty, but not readable) — distinct from absent.
 # Skipped as root, where chmod 000 does not make a file unreadable.
 unr="$TMP/src/unreadable.sh"; printf 'echo hi\n' > "$unr"; chmod 000 "$unr"
-if [ ! -r "$unr" ]; then
+UNR_TESTABLE=0; [ ! -r "$unr" ] && UNR_TESTABLE=1
+if [ "$UNR_TESTABLE" -eq 1 ]; then
   expect_rc "unreadable original: mutant_sed refuses (rc 2, says not a readable file)" 2 "not a readable file" \
     mutant_sed "$unr" "$TMP/m14.sh" 's/hi/x/'
   expect_rc "unreadable original: mutant_verify refuses (rc 2, says not a readable file)" 2 "not a readable file" \
@@ -376,7 +379,8 @@ chmod 600 "$unr"
 
 # T15 — MUTANT_TOOTH_DEBUG (opt-in): unset => stderr is empty and stdout unchanged; set => detail on
 # STDERR only (stdout stays byte-identical, so a caller capturing stdout is unaffected).
-dbg_off_out="$(mutant_tooth d1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>"$TMP/d1.err")"; rc=$?
+# Explicitly clear the flag so an exported MUTANT_TOOTH_DEBUG (the obvious way to debug a tooth) cannot leak in.
+dbg_off_out="$(MUTANT_TOOTH_DEBUG='' mutant_tooth d1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>"$TMP/d1.err")"; rc=$?
 dbg_on_out="$(MUTANT_TOOTH_DEBUG=1 mutant_tooth d1 0 1 "$TMP/mut-inv.sh" -- bash @SUT@ 2>"$TMP/d1on.err")"
 if [ "$rc" -eq 0 ] && [ ! -s "$TMP/d1.err" ]; then ok "tooth debug: unset prints nothing on stderr"
 else no "tooth debug: unset prints nothing on stderr (rc=$rc err=[$(cat "$TMP/d1.err")])"; fi
@@ -432,10 +436,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "self-overwrite: OUT equal to the original path is refused"
   teeth_case sedrm '/SENTINEL-SED-FAIL-CHECK/,+3s/rm -f -- "\$out"; //' \
     "sed failure (rc 6): the stale/partial mutant file is removed"
-  teeth_case unreadable '/^mutant_sed/,/^}/s/ || \[ ! -r "\$orig" \]//' \
-    "unreadable original: mutant_sed refuses"
-  teeth_case unreadablever '/^mutant_verify/,/^}/s/ || \[ ! -r "\$orig" \]//' \
-    "unreadable original: mutant_verify refuses"
+  if [ "$UNR_TESTABLE" -eq 1 ]; then
+    teeth_case unreadable '/^mutant_sed/,/^}/s/ || \[ ! -r "\$orig" \]//' \
+      "unreadable original: mutant_sed refuses"
+    teeth_case unreadablever '/^mutant_verify/,/^}/s/ || \[ ! -r "\$orig" \]//' \
+      "unreadable original: mutant_verify refuses"
+  else
+    ok "teeth unreadable/unreadablever: SKIP — chmod 000 is still readable here (same check as T14)"
+  fi
   teeth_case debugon 's/if \[ -n "\${MUTANT_TOOTH_DEBUG:-}" \]; then/if true; then/' \
     "tooth debug: unset prints nothing on stderr"
   teeth_case debugstdout '/^_mutant_debug()/s/ >&2//' \
