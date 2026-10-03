@@ -1008,6 +1008,46 @@ ed_check shifted 1 1 "#1487 BAD: shifted-left row (digest not in col 5)"
 ed_corpus clean "$(ed_row a.pdf "$OK_H")"
 ed_check clean 0 0 "#1487 GOOD: ordinary hash"
 
+# #1500 R3 — a row with NO closing pipe: its last cell is field NF, which a 2..NF-1 scan never visited
+# (CLAUDE.md §7 list edges: single / first / middle / last, digest in the LAST cell).
+ed_row_np() { printf '| %s | datasheet | http://x | 2026-01-01 | %s' "$1" "$2"; }   # no trailing pipe
+ed_corpus np-single "$(ed_row_np a.pdf "$E256")"
+ed_check np-single 1 1 "#1500 BAD: pipe-less single row, last-cell digest"
+ed_corpus np-first "$(ed_row_np a.pdf "$E256")" "$(ed_row b.pdf "$OK_H")" "$(ed_row c.pdf "$OK_H")"
+ed_check np-first 1 1 "#1500 BAD: pipe-less FIRST row, last-cell digest"
+ed_corpus np-middle "$(ed_row a.pdf "$OK_H")" "$(ed_row_np b.pdf "$E256")" "$(ed_row c.pdf "$OK_H")"
+ed_check np-middle 1 1 "#1500 BAD: pipe-less MIDDLE row, last-cell digest"
+ed_corpus np-last "$(ed_row a.pdf "$OK_H")" "$(ed_row b.pdf "$OK_H")" "$(ed_row_np c.pdf "$E256 ")"
+ed_check np-last 1 1 "#1500 BAD: pipe-less LAST row, padded last-cell digest"
+ed_corpus np-clean "$(ed_row_np a.pdf "$OK_H")"
+ed_check np-clean 0 0 "#1500 GOOD: pipe-less row with an ordinary hash"
+
+# #1500 R4 — fail-open: the awk detector must not be able to die or go blind silently. The stub intercepts
+# ONLY the LEVEL 7 program (its text carries EMPTY-DIGEST-TABLE); every other awk call runs the real awk.
+#   silent: prints nothing, exit 0 (the dialect-mismatch shape); rcfail: real output but exit 3.
+_ed_real_awk="$(command -v awk)"
+for _ed_mode in silent rcfail; do
+  _ed_stub="$TMP/stub-bin-ed-$_ed_mode"; mkdir -p "$_ed_stub"
+  case "$_ed_mode" in silent) _ed_act='exit 0';; rcfail) _ed_act='"'"$_ed_real_awk"'" "$@"; exit 3';; esac
+  cat > "$_ed_stub/awk" <<STUB_ED
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in *EMPTY-DIGEST-TABLE*) $_ed_act;; esac; done
+exec "$_ed_real_awk" "\$@"
+STUB_ED
+  chmod +x "$_ed_stub/awk"
+done
+ed_degraded() { # <mode> <label> — a failing/blind detector is a typed ERROR + exit 1, never a clean PASS
+  local out got
+  out="$(PATH="$TMP/stub-bin-ed-$1:$PATH" bash "$SUT" "$TMP/ed-clean" 2>&1)"; got=$?
+  if [ "$got" = 1 ] && grep -q 'ERROR: empty-digest scan DEGRADED' <<<"$out"; then
+    printf '  PASS  %-42s (exit 1, typed degraded line)\n' "$2"; pass=$((pass+1))
+  else
+    printf '  FAIL  %-42s want exit 1 + DEGRADED line, got %s\n' "$2" "$got"; fail=$((fail+1))
+  fi
+}
+ed_degraded silent "#1500 BAD: blind detector (no trailer) is degraded"
+ed_degraded rcfail "#1500 BAD: detector exit != 0 is degraded"
+
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
 # the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
@@ -1110,8 +1150,17 @@ SED
   mk_sed ED-NOMINP "$m" '/# EMPTY-DIGEST-MATCH$/s/length(p) >= minp \&\& //' \
     && tooth "teeth ED-NOMINP: minimum-prefix length check dropped" 0 1 "$m" --bad-has 'empty-digest:' -- bash @SUT@ "$TMP/ed-sub-prefix"
   m="$TMP/mutants/ED-COL5.sh"
-  mk_sed ED-COL5 "$m" 's/for (i = 2; i < NF; i++) {/for (i = 6; i < 7; i++) {/' \
+  mk_sed ED-COL5 "$m" 's/for (i = 2; i <= NF; i++) {/for (i = 6; i < 7; i++) {/' \
     && tooth "teeth ED-COL5: scan narrowed to the sha256 column only" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-shifted"
+  m="$TMP/mutants/ED-PIPELESS.sh"
+  mk_sed ED-PIPELESS "$m" 's/for (i = 2; i <= NF; i++) {/for (i = 2; i < NF; i++) {/' \
+    && tooth "teeth ED-PIPELESS: last cell skipped again" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-np-single"
+  m="$TMP/mutants/ED-NORC.sh"
+  mk_sed ED-NORC "$m" 's/_ed_rc=$?/_ed_rc=0/' \
+    && tooth "teeth ED-NORC: detector rc ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-rcfail:$PATH" bash @SUT@ "$TMP/ed-clean"
+  m="$TMP/mutants/ED-NOTRAILER.sh"
+  mk_sed ED-NOTRAILER "$m" 's/ || ! grep -q .^@@scanned \[0-9\]\[0-9\]\*\$. <<<"\$_ed_out"; then/; then/' \
+    && tooth "teeth ED-NOTRAILER: missing coverage trailer ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-silent:$PATH" bash @SUT@ "$TMP/ed-clean"
 fi
 
 echo "== $pass passed · $fail failed =="

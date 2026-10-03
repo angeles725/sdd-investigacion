@@ -1219,6 +1219,30 @@ eh_check waive-elided 0 0 "#1487 GOOD: waived elided prefix"
 eh_block clean "sha256 $OKH"
 eh_check clean 0 0 "#1487 GOOD: ordinary hash"
 
+# #1500 — fail-open: the awk detector must not die or go blind silently. The stub intercepts ONLY the
+# empty-digest program (its text carries EMPTY-DIGEST-TABLE); every other awk call runs the real awk.
+#   silent: prints nothing, exit 0 (dialect-mismatch shape); rcfail: real output but exit 3.
+_eh_real_awk="$(command -v awk)"
+for _eh_mode in silent rcfail; do
+  _eh_stub="$TMP/stub-bin-eh-$_eh_mode"; mkdir -p "$_eh_stub"
+  case "$_eh_mode" in silent) _eh_act='exit 0';; rcfail) _eh_act='"'"$_eh_real_awk"'" "$@"; exit 3';; esac
+  cat > "$_eh_stub/awk" <<STUB_EH
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in *EMPTY-DIGEST-TABLE*) $_eh_act;; esac; done
+exec "$_eh_real_awk" "\$@"
+STUB_EH
+  chmod +x "$_eh_stub/awk"
+done
+eh_degraded() { # <mode> <label>
+  local out got
+  out="$(PATH="$TMP/stub-bin-eh-$1:$PATH" bash "$SUT" "$TMP/eh-clean.md" 2>&1)"; got=$?
+  if [ "$got" = 1 ] && grep -q 'ERROR: empty-digest scan DEGRADED' <<<"$out" && ! grep -q '(none — no unwaived' <<<"$out"
+  then ok "$2 (exit 1, typed degraded line)"
+  else no "$2 :: want exit 1 + DEGRADED line, got $got"; fi
+}
+eh_degraded silent "#1500 BAD: blind detector (no trailer) is degraded"
+eh_degraded rcfail "#1500 BAD: detector exit != 0 is degraded"
+
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
@@ -1622,6 +1646,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-eh-waiver: waiver ignored; a marked line must FAIL again --"
   if mk_sed "teeth-eh-waiver" "$MUT/ehw.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (0)/'; then
     tooth "teeth-eh-waiver" 0 1 "$MUT/ehw.sh" --good-has 'INFO +empty-digest waived' --bad-has 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-waived.md"
+  fi
+  # #1500: the verdict rides the machine tag, not the printed text. Rewording the INFO message must NOT turn a
+  # waived hit into a FAIL (the old prefix match would have), and dropping the W branch must.
+  echo "-- teeth-eh-tag: waived verdict is decided by the W tag, not the INFO text --"
+  if mk_sed "teeth-eh-tag-reword" "$MUT/ehr.sh" 's/W\\t   INFO    empty-digest waived/W\\t   NOTE: empty-digest waived/'; then
+    _eh_r_out="$(bash "$MUT/ehr.sh" "$TMP/eh-waived.md" 2>&1)"; _eh_r_rc=$?
+    if [ "$_eh_r_rc" = 0 ] && grep -q 'NOTE: empty-digest waived' <<<"$_eh_r_out"; then ok "teeth-eh-tag: reworded INFO text still waived (exit 0)"
+    else no "teeth-eh-tag: reworded INFO text changed the verdict (exit $_eh_r_rc)"; fi
+  fi
+  if mk_sed "teeth-eh-tag" "$MUT/eht.sh" '/# VB-EH-WAIVED-TAG$/d'; then
+    tooth "teeth-eh-tag" 0 1 "$MUT/eht.sh" --good-has 'INFO +empty-digest waived' --bad-has 'EMPTYHASH|empty-digest waived' -- bash @SUT@ "$TMP/eh-waived.md"
+  fi
+  echo "-- teeth-eh-norc / teeth-eh-notrailer: a failing or blind detector must read as degraded --"
+  if mk_sed "teeth-eh-norc" "$MUT/ehrc.sh" 's/_vb_eh_rc=$?/_vb_eh_rc=0/'; then
+    tooth "teeth-eh-norc" 1 0 "$MUT/ehrc.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-eh-rcfail:$PATH" bash @SUT@ "$TMP/eh-clean.md"
+  fi
+  if mk_sed "teeth-eh-notrailer" "$MUT/ehtr.sh" 's/ || ! grep -q .*<<<"\$_vb_eh_out"; then/; then/'; then
+    tooth "teeth-eh-notrailer" 1 0 "$MUT/ehtr.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-eh-silent:$PATH" bash @SUT@ "$TMP/eh-clean.md"
   fi
   echo "-- teeth-eh-waiver-global: waiver also exempts every other line (one marker disables the check) --"
   if mk_sed "teeth-eh-waiver-global" "$MUT/ehwg.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (1)/'; then
