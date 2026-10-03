@@ -260,6 +260,12 @@ DOCUMENT CYCLE LARGE-SCALE run writes blocks from per-section agent findings. (K
          and/or its child-gaps section exactly what the truncation prevented it from attempting or
          resolving, instead of delivering a narrower block as if it were the briefed one. Advance
          rather than close a gap you could not fully attempt, with a named follow-up child gap.
+         SWEEP CLAIMS ARE DRIVER-VERIFIED. A delegated evidence sweep returns leads, not facts: the driver
+         re-opens every load-bearing token (file:line, count, quoted string) before writing it `[CERT]`. An
+         unverified sweep claim stays `[INFER]`, and a block whose INFER ratio is high because of such claims
+         declares type `mixed` (METHODOLOGY §11). Tell the sweep agent in the brief that its counts will be
+         re-run; a driver re-run once failed to reproduce a sweep count. (Evidence: niagara B1185, B1188,
+         B1194-B1196. Source: n4 agent-mcp retro #2.)
          BLOCKER-SCOPED FOCUS FIRST. In a combined build+research session, when the build hits a
          WB/framework wall, spin a focused research block on that exact wall BEFORE hand-coding a
          workaround, and hand the finding to the in-flight build via a teammate message. A focus
