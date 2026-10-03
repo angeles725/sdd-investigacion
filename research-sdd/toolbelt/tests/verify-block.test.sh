@@ -1159,6 +1159,66 @@ out="$(bash "$SUT" "$o4/corpus-old/b.md" 2>/dev/null)"
 if grep -qE 'extern\s+src/x\.sh:2' <<<"$out"; then ok "84b F3: 'corpus-old' is not a corpus dir (extern)"
 else no "84b F3: substring match on corpus :: $(grep -E 'x\.sh' <<<"$out" | head -1)"; fi
 
+# #1487 — EMPTY-INPUT DIGEST in a cited hash. A hash equal to the digest of empty input proves nothing
+# (the file was missing/empty when hashed). FAIL (exit 1) with a typed `EMPTYHASH!` finding naming the line.
+# The match is on a whole hex token: a longer hex run that merely CONTAINS the digest must NOT fire.
+E256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+E1=da39a3ee5e6b4b0d3255bfef95601890afd80709
+EMD5=d41d8cd98f00b204e9800998ecf8427e
+OKH=abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234
+eh_block() { # <name> <body-line...> — header legend + body
+  local f="$TMP/eh-$1.md"; shift
+  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"
+}
+eh_check() { # <name> <want-rc> <want-count> <label>
+  local f="$TMP/eh-$1.md" out got n
+  out="$(bash "$SUT" "$f" 2>&1)"; got=$?
+  n="$(grep -c 'EMPTYHASH!' <<<"$out")"
+  if [ "$got" = "$2" ] && [ "$n" = "$3" ]; then ok "$4 (exit $got, $n finding(s))"
+  else no "$4 :: want exit $2/$3 finding(s), got $got/$n"; fi
+}
+eh_block single "## 1.1 [INFER] kotlin-stdlib sha256 $E256 registered."
+eh_check single 1 1 "#1487 BAD: single cited sha256 empty digest"
+eh_block first "sha256 $E256" "sha256 $OKH" "sha256 $OKH"
+eh_check first 1 1 "#1487 BAD: empty digest on FIRST body line"
+eh_block middle "sha256 $OKH" "sha256 $E256" "sha256 $OKH"
+eh_check middle 1 1 "#1487 BAD: empty digest on MIDDLE body line"
+eh_block last "sha256 $OKH" "sha256 $OKH" "sha256 $E256"
+eh_check last 1 1 "#1487 BAD: empty digest on LAST body line"
+eh_block sha1 "sha1 $E1"
+eh_check sha1 1 1 "#1487 BAD: sha1 empty digest"
+eh_block md5 "md5 $EMD5"
+eh_check md5 1 1 "#1487 BAD: md5 empty digest"
+eh_block upper "sha256 $(printf '%s' "$E256" | tr 'a-f' 'A-F')"
+eh_check upper 1 1 "#1487 BAD: UPPERCASE empty digest"
+eh_block tick "sha256 \`$E256\`"
+eh_check tick 1 1 "#1487 BAD: backticked empty digest"
+eh_block table "| kotlin-stdlib | $E256 |"
+eh_check table 1 1 "#1487 BAD: empty digest in a table cell"
+eh_block elided "sha256 e3b0c442…"
+eh_check elided 1 1 "#1487 BAD: elided empty-digest prefix"
+eh_block two "a $E256" "b $E1"
+eh_check two 1 2 "#1487 BAD: two lines -> two findings"
+eh_block twosame "| $E256 | again $E256 |"
+eh_check twosame 1 2 "#1487 BAD: same digest twice on one line -> two findings"
+# NEGATIVES — must stay exit 0 / no finding
+eh_block sub-long "x ${E256}00" "y ff${E1}" "z ${EMD5}ab"
+eh_check sub-long 0 0 "#1487 GOOD: digest as substring of a longer hex run"
+eh_block sub-word "xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+eh_check sub-word 0 0 "#1487 GOOD: digest glued to a word char is not a hash token"
+eh_block short-pfx "sha256 e3b0c4…"
+eh_check short-pfx 0 0 "#1487 GOOD: short prefix (<8 hex) is no claim"
+eh_block waived "n5 registered the empty digest $E256 for a missing file. <!-- empty-digest: quoted -->"
+eh_check waived 0 0 "#1487 GOOD: waived quoted digest is not a FAIL"
+eh_w_out="$(bash "$SUT" "$TMP/eh-waived.md" 2>&1)"
+if grep -q "^   INFO    empty-digest waived on line 7" <<<"$eh_w_out"; then ok "#1487 waived hit is reported as INFO (not silent)"; else no "#1487 waived hit not reported as INFO"; fi
+eh_block waive-other "n5 registered the empty digest $E256 for a missing file. <!-- empty-digest: quoted -->" "but $E1 here is unwaived"
+eh_check waive-other 1 1 "#1487 BAD: waiver covers only its own line"
+eh_block waive-elided "sha256 e3b0c442… <!-- empty-digest: quoted -->"
+eh_check waive-elided 0 0 "#1487 GOOD: waived elided prefix"
+eh_block clean "sha256 $OKH"
+eh_check clean 0 0 "#1487 GOOD: ordinary hash"
+
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
@@ -1536,6 +1596,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-tr-exact-name" "$MUT/trx.sh" 's/\[ "\$(basename "\$_tr_d")" = "corpus" \]/[[ "$(basename "$_tr_d")" == *corpus* ]]/'; then
     tooth "teeth-tr-exact-name" 0 0 "$MUT/trx.sh" --good-has 'extern +src/x\.sh:2' --good-lacks '^ +ok' \
       --bad-has 'ok \(target-root\) src/x\.sh:2' -- bash @SUT@ "$o4/corpus-old/b.md"
+  fi
+  # #1487 empty-digest teeth: detector off, exact-run match widened to substring, glued-char guard dropped,
+  # elided-prefix arm dropped, md5 table entry dropped, and the per-line scan cut to one token per line.
+  echo "-- teeth-eh-off: empty-digest match disabled --"
+  if mk_sed "teeth-eh-off" "$MUT/eho.sh" '/# VB-EMPTY-DIGEST-MATCH$/s/if (tok == d\[k\] .*$/if (0)   # VB-EMPTY-DIGEST-MATCH/'; then
+    tooth "teeth-eh-off" 1 0 "$MUT/eho.sh" --good-has 'EMPTYHASH!' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-single.md"
+  fi
+  echo "-- teeth-eh-substr: exact hex-run match widened to substring --"
+  if mk_sed "teeth-eh-substr" "$MUT/ehs.sh" '/# VB-EMPTY-DIGEST-MATCH$/s/tok == d\[k\]/index(tok, d[k]) > 0/'; then
+    tooth "teeth-eh-substr" 0 1 "$MUT/ehs.sh" --bad-has 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-sub-long.md"
+  fi
+  echo "-- teeth-eh-glue: drop the preceding-word-char guard --"
+  if mk_sed "teeth-eh-glue" "$MUT/ehg.sh" 's/if (before !~ \/\[a-z0-9_\]\/) {/if (1) {/'; then
+    tooth "teeth-eh-glue" 0 1 "$MUT/ehg.sh" --bad-has 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-sub-word.md"
+  fi
+  echo "-- teeth-eh-nopfx: elided-prefix arm dropped --"
+  if mk_sed "teeth-eh-nopfx" "$MUT/ehp.sh" '/# VB-EMPTY-DIGEST-MATCH$/s/ || (elided .*index(d\[k\], tok) == 1))/)/'; then
+    tooth "teeth-eh-nopfx" 1 0 "$MUT/ehp.sh" --good-has 'EMPTYHASH!' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-elided.md"
+  fi
+  echo "-- teeth-eh-md5: md5 digest dropped from the table --"
+  if mk_sed "teeth-eh-md5" "$MUT/ehm.sh" '/d\["md5"\]=/s/d41d8cd98f00b204e9800998ecf8427e/00000000000000000000000000000000/'; then
+    tooth "teeth-eh-md5" 1 0 "$MUT/ehm.sh" --good-has 'EMPTYHASH!' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-md5.md"
+  fi
+  echo "-- teeth-eh-waiver: waiver ignored; a marked line must FAIL again --"
+  if mk_sed "teeth-eh-waiver" "$MUT/ehw.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (0)/'; then
+    tooth "teeth-eh-waiver" 0 1 "$MUT/ehw.sh" --good-has 'INFO +empty-digest waived' --bad-has 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-waived.md"
+  fi
+  echo "-- teeth-eh-waiver-global: waiver also exempts every other line (one marker disables the check) --"
+  if mk_sed "teeth-eh-waiver-global" "$MUT/ehwg.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (1)/'; then
+    tooth "teeth-eh-waiver-global" 1 0 "$MUT/ehwg.sh" --good-has 'EMPTYHASH! line 8' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-waive-other.md"
+  fi
+  echo "-- teeth-eh-oneperline: stop after the first token on a line --"
+  if mk_sed "teeth-eh-oneperline" "$MUT/eh1.sh" '/^      rest = after$/s/.*/      rest = ""/'; then
+    tooth "teeth-eh-oneperline" 1 1 "$MUT/eh1.sh" --good-has 'cited: 2 \(FAIL\)' --bad-has 'cited: 1 \(FAIL\)' -- bash @SUT@ "$TMP/eh-twosame.md"
   fi
 fi
 
