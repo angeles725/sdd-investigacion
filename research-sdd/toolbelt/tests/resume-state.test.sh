@@ -203,5 +203,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth wrong-schema 's#research-sdd.resume-state/v1#research-sdd.resume-state/v0#' '.schema'
 fi
 
-echo "Passed: $pass  Failed: $fail"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
