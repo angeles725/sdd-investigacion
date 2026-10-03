@@ -73,7 +73,7 @@ stub_gh "$TMP/g-pub" PUBLIC
 d="$TMP/pub"; mkstate "$d"; mkgit "$d" origin=https://github.com/o/r.git
 out="$(status "$d" "$TMP/g-pub/gh")"
 if grep -qE '^WARN public-remote: origin ' <<<"$out"; then ok "3a PUBLIC remote -> WARN public-remote: origin"; else no "3a no WARN for a PUBLIC remote: $(grep -i remote <<<"$out")"; fi
-if grep -q 'repo view' "$TMP/g-pub/gh.argv" && grep -q 'https://github.com/o/r.git' "$TMP/g-pub/gh.argv" && grep -q 'visibility' "$TMP/g-pub/gh.argv"; then ok "3b gh called as 'repo view <url> --json visibility'"; else no "3b unexpected gh argv: $(cat "$TMP/g-pub/gh.argv" 2>/dev/null)"; fi
+if grep -q 'repo view' "$TMP/g-pub/gh.argv" && grep -q ' o/r ' "$TMP/g-pub/gh.argv" && grep -q 'visibility' "$TMP/g-pub/gh.argv"; then ok "3b gh called as 'repo view <owner/repo> --json visibility'"; else no "3b unexpected gh argv: $(cat "$TMP/g-pub/gh.argv" 2>/dev/null)"; fi
 
 # 4. PRIVATE / INTERNAL -> silent
 for v in PRIVATE INTERNAL; do
@@ -130,6 +130,44 @@ status "$TMP/pub" "$TMP/g-pub/gh" >/dev/null
 after="$(cd "$TMP/pub" && find . -type f -not -path './.git/*' | sort | xargs sha1sum)"
 [ "$before" = "$after" ] && [ "$rem" = "$(git -C "$TMP/pub" remote -v)" ] && ok "8 read-only: target files and remotes untouched" || no "8 the check mutated the target"
 
+# 9. R1: only OWNER/REPO reaches gh's argv — never the URL, never embedded credentials (#1245 review)
+cred_case() { # label url want-owner/repo
+  local g="$TMP/g-cred-$1"; stub_gh "$g" PRIVATE; rm -f "$g/gh.argv"
+  local dd="$TMP/cred-$1"; mkstate "$dd"; mkgit "$dd" origin="$2"
+  status "$dd" "$g/gh" >/dev/null
+  if [ "$(grep -c . "$g/gh.argv" 2>/dev/null)" = 1 ] && grep -qE "^repo view $3 --json" "$g/gh.argv" && ! grep -qE 'SECRETTOKEN|://|@' "$g/gh.argv"; then ok "9 $1 -> gh argv carries only $3"
+  else no "9 $1: argv=[$(cat "$g/gh.argv" 2>/dev/null)]"; fi
+}
+cred_case https-userinfo 'https://user:SECRETTOKEN@github.com/o/r.git' o/r
+cred_case https-token-only 'https://SECRETTOKEN@github.com/o/r' o/r
+cred_case scp 'git@github.com:o/r.git' o/r
+cred_case ssh-url 'ssh://git@github.com/o/r.git' o/r
+cred_case trailing-slash 'https://github.com/o/r.git/' o/r
+# not a GitHub owner/repo -> typed degraded, gh NEVER called with it
+for spec in "local:/srv/git/x.git" "other-forge:https://user:SECRETTOKEN@gitlab.com/o/r.git" "dash:https://github.com/-evil/r.git"; do
+  lbl="${spec%%:*}"; u="${spec#*:}"; g="$TMP/g-ng-$lbl"; stub_gh "$g" PUBLIC; rm -f "$g/gh.argv"
+  dd="$TMP/ng-$lbl"; mkstate "$dd"; mkgit "$dd" origin="$u"
+  out="$(status "$dd" "$g/gh")"
+  if grep -qE '^degraded: remote-visibility: origin not a github owner/repo' <<<"$out" && [ ! -e "$g/gh.argv" ] && ! grep -q SECRETTOKEN <<<"$out"; then ok "9 $lbl -> degraded, gh not called"
+  else no "9 $lbl: out=[$(grep -i remote <<<"$out")] argv=[$(cat "$g/gh.argv" 2>/dev/null)]"; fi
+done
+
+# 10. R2: an empty `git remote get-url` is a typed degraded line; gh never gets an empty argument
+g="$TMP/g-empty-url"; stub_gh "$g" PUBLIC; rm -f "$g/gh.argv"
+dd="$TMP/emptyurl"; mkstate "$dd"; mkgit "$dd" origin=https://github.com/o/r.git; git -C "$dd" config remote.origin.url ""
+out="$(status "$dd" "$g/gh")"
+if grep -qE '^degraded: remote-visibility: origin (url empty|not a github owner/repo)' <<<"$out" && [ ! -e "$g/gh.argv" ] && ! grep -q '^WARN public-remote' <<<"$out"; then ok "10 empty remote URL -> typed degraded, gh not called"
+else no "10 empty url: out=[$(grep -i remote <<<"$out")] argv=[$(cat "$g/gh.argv" 2>/dev/null)]"; fi
+
+# 11. R3/R4: the gh call is bounded and never prompts; a timeout is a typed degraded line
+g="$TMP/g-slow"; mkdir -p "$g"
+printf '#!/usr/bin/env bash\necho "$GH_PROMPT_DISABLED" > "%s/prompt.env"\nsleep 30\necho PRIVATE\n' "$g" > "$g/gh"; chmod +x "$g/gh"
+dd="$TMP/slow"; mkstate "$dd"; mkgit "$dd" origin=https://github.com/o/r.git
+t0=$SECONDS; out="$(RSDD_GH_TIMEOUT=1 status "$dd" "$g/gh")"; el=$((SECONDS-t0))
+if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for remote origin' <<<"$out"; then ok "11a hung gh -> bounded, typed degraded (timed out) in ${el}s"
+else no "11a hung gh: ${el}s out=[$(grep -i remote <<<"$out")]"; fi
+[ "$(cat "$g/prompt.env" 2>/dev/null)" = 1 ] && ok "11b gh runs with GH_PROMPT_DISABLED=1" || no "11b GH_PROMPT_DISABLED not set: [$(cat "$g/prompt.env" 2>/dev/null)]"
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for the remote-visibility check --"
@@ -169,6 +207,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth F 's/"${_rv_arr\[@\]}"/"${_rv_arr[0]}"/'; then
     out="$(status "$TMP/edge-last" "$TMP/gm-last/gh")"
     grep -q '^WARN public-remote:' <<<"$out" && no "teeth F: first-only mutant still sees the last remote — THEATER" || ok "teeth F: loop truncated -> list-edge case 6 has teeth"; fi
+  # G: the URL (with credentials) goes to gh again instead of owner/repo
+  if tooth G 's/"\$_rv_gh" repo view "\$_rv_slug"/"$_rv_gh" repo view "$_rv_url"/'; then
+    stub_gh "$TMP/g-tG" PRIVATE; rm -f "$TMP/g-tG/gh.argv"; mkstate "$TMP/tG"; mkgit "$TMP/tG" origin='https://user:SECRETTOKEN@github.com/o/r.git'
+    status "$TMP/tG" "$TMP/g-tG/gh" >/dev/null
+    grep -q SECRETTOKEN "$TMP/g-tG/gh.argv" && ok "teeth G: URL to gh -> credential case 9 has teeth" || no "teeth G: mutant stayed clean — THEATER"; fi
+  # H: not-a-github-slug branch silenced -> case 9 degraded assertion goes red
+  if tooth H 's/not a github owner\/repo/DEG-OFF/'; then
+    out="$(status "$TMP/ng-local" "$TMP/g-ng-local/gh")"
+    grep -q 'not a github owner/repo' <<<"$out" && no "teeth H: mutant still degraded — THEATER" || ok "teeth H: not-github branch silenced -> case 9 has teeth"; fi
+  # I: timeout bound removed -> the hung gh is not converted to degraded
+  if tooth I 's/timeout "\${RSDD_GH_TIMEOUT:-10}" //'; then
+    out="$(RSDD_GH_TIMEOUT=1 timeout 8 bash "$SUT_UNDER_TEST" "$TMP/slow" 2>&1)"
+    grep -q 'timed out' <<<"$out" && no "teeth I: mutant still bounded — THEATER" || ok "teeth I: no timeout bound -> case 11a has teeth"; fi
+  # J: GH_PROMPT_DISABLED dropped
+  if tooth J 's/GH_PROMPT_DISABLED=1 //'; then
+    rm -f "$TMP/g-slow/prompt.env"; RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$TMP/g-slow/gh" >/dev/null
+    [ "$(cat "$TMP/g-slow/prompt.env" 2>/dev/null)" = 1 ] && no "teeth J: mutant still sets it — THEATER" || ok "teeth J: prompt guard dropped -> case 11b has teeth"; fi
+  # K: empty-url guard removed -> gh is called with an empty/unrecognised argument path
+  if tooth K 's/url empty/DEG-OFF/'; then
+    out="$(status "$TMP/emptyurl" "$TMP/g-empty-url/gh")"
+    grep -qE 'url empty' <<<"$out" && no "teeth K: mutant still degraded — THEATER" || ok "teeth K: empty-url branch silenced -> case 10 has teeth"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
