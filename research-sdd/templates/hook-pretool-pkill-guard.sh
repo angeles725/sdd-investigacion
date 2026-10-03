@@ -7,8 +7,9 @@
 # own argv, so pkill signals the session shell (exit 144). `kill $(pgrep -f <pattern>)` returns the same
 # wrapper PIDs. A bracket-escaped pattern (`[p]attern`) does not match its own text, so it is safe.
 #
-# Install: copy to <TARGET>/.claude/hooks/pkill-guard.sh and register under hooks.PreToolUse with
-# matcher "Bash" in <TARGET>/.claude/settings.json (propose-never-apply: the operator installs it).
+# Install: research-sdd-init.sh copies this to <TARGET>/.claude/hooks/pkill-guard.sh (scaffold, and the
+# create-only --wire repair — a hand-adapted copy is never overwritten) and PRINTS the hooks.PreToolUse
+# (matcher "Bash") registration; --wire merges it into <TARGET>/.claude/settings.json (kit issue #1496).
 #
 # Contract (Claude Code PreToolUse): reads the hook JSON on stdin; ALWAYS exits 0.
 #   DENY  = stdout {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",

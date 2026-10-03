@@ -1424,6 +1424,88 @@ bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 [ "$_rc" = 0 ] && ok "K1043-4 scaffold w/o --wire: dangling settings.json symlink is not a precondition (exit 0)" \
   || no "K1043-4 scaffold w/o --wire: dangling settings.json refused (exit $_rc)"
 
+# ---- kit issue #1496: pkill-guard PreToolUse hook is installed AND registered (matcher Bash) ------
+_PKT="$HERE/../../templates/hook-pretool-pkill-guard.sh"
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  SKIP  1496: jq not on PATH"
+else
+  # (a) plain scaffold: hook installed byte-identical + executable; snippet PROPOSES it; no settings write.
+  d="$TMP/1496-a"; mkdir -p "$d"; _o="$TMP/1496-a.out"
+  bash "$SUT" "$d" --corpus flat >"$_o" 2>&1
+  assert_file "K1496-a scaffold installs .claude/hooks/pkill-guard.sh" "$d/.claude/hooks/pkill-guard.sh"
+  cmp -s "$_PKT" "$d/.claude/hooks/pkill-guard.sh" && ok "K1496-a installed hook is byte-identical to the template" \
+    || no "K1496-a installed hook differs from (or is missing vs) the template"
+  [ -x "$d/.claude/hooks/pkill-guard.sh" ] && ok "K1496-a installed hook is executable" || no "K1496-a installed hook is not executable"
+  assert_absent "K1496-a propose-never-apply: no settings.json without --wire" "$d/.claude/settings.json"
+  assert_grep "K1496-a printed snippet carries PreToolUse" '"PreToolUse"' "$_o"
+  assert_grep "K1496-a printed snippet names the Bash matcher + hook path" "{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$d/.claude/hooks/pkill-guard.sh\"}]}" "$_o"
+
+  # (b) scaffold + wire: PreToolUse/Bash registered exactly once.
+  d="$TMP/1496-b"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+  [ "$(jq -r --arg c "$d/.claude/hooks/pkill-guard.sh" '[.hooks.PreToolUse[]? | select(.matcher=="Bash") | .hooks[]? | select(.command==$c)] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
+    && ok "K1496-b --scaffold --wire registers PreToolUse/Bash pkill-guard once" \
+    || no "K1496-b --scaffold --wire did not register PreToolUse/Bash pkill-guard exactly once"
+
+  # (c) wire-only repair on a corpus with NO guard: creates it, registers it; second run is idempotent.
+  d="$TMP/1496-c"; mkdir -p "$d"; : > "$d/INDEX.md"
+  bash "$SUT" "$d" --wire >"$TMP/1496-c1.out" 2>&1
+  assert_file "K1496-c wire-only repair creates the missing pkill-guard hook" "$d/.claude/hooks/pkill-guard.sh"
+  assert_grep "K1496-c wire-only reports created" "created: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-c1.out"
+  _c_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
+  bash "$SUT" "$d" --wire >"$TMP/1496-c2.out" 2>&1
+  [ "$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)" = "$_c_sha" ] && ok "K1496-c re-run leaves settings.json byte-identical (idempotent)" \
+    || no "K1496-c re-run changed settings.json (not idempotent)"
+  assert_grep "K1496-c re-run reports kept" "kept: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-c2.out"
+  assert_grep "K1496-c re-run reports already wired" "PreToolUse pkill-guard hook already wired" "$TMP/1496-c2.out"
+  [ "$(jq '.hooks.PreToolUse | length' "$d/.claude/settings.json")" = "1" ] && ok "K1496-c exactly one PreToolUse entry after two runs" \
+    || no "K1496-c PreToolUse entry count != 1 after two runs"
+
+  # (d) a hand-adapted guard is NEVER overwritten (create-only).
+  d="$TMP/1496-d"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+  printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
+  _d_sha="$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)"
+  bash "$SUT" "$d" --wire >"$TMP/1496-d.out" 2>&1
+  [ "$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)" = "$_d_sha" ] && ok "K1496-d hand-adapted pkill-guard survives byte-for-byte" \
+    || no "K1496-d hand-adapted pkill-guard was overwritten"
+  assert_grep "K1496-d reports kept" "kept: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-d.out"
+
+  # (e) already registered via $CLAUDE_PROJECT_DIR (whole-command-quoted form) is the SAME hook — not re-added.
+  d="$TMP/1496-e"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json")" = "1" ] && ok "K1496-e CLAUDE_PROJECT_DIR-registered guard is deduped (not double-registered)" \
+    || no "K1496-e CLAUDE_PROJECT_DIR-registered guard was registered a second time"
+
+  # (f) an unrelated pre-existing PreToolUse entry is preserved alongside the new one.
+  d="$TMP/1496-f"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"/x/mine.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(jq -r '[.hooks.PreToolUse[].hooks[].command] | sort | join(",")' "$d/.claude/settings.json")" = "$d/.claude/hooks/pkill-guard.sh,/x/mine.sh" ] \
+    && ok "K1496-f existing unrelated PreToolUse entry preserved, guard appended" \
+    || no "K1496-f merge lost or mangled the existing PreToolUse entry"
+
+  # (g) jq absent: wire-only prints a snippet that carries PreToolUse and writes NOTHING (no hook file).
+  _g_jqdir="$(dirname "$(command -v jq)")"
+  _g_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_g_jqdir" | tr '\n' ':' | sed 's/:$//')"
+  if PATH="$_g_pnojq" command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  K1496-g: jq still reachable after dir exclusion"
+  else
+    d="$TMP/1496-g"; mkdir -p "$d"; : > "$d/INDEX.md"
+    PATH="$_g_pnojq" bash "$SUT" "$d" --wire >"$TMP/1496-g.out" 2>/dev/null
+    assert_grep "K1496-g jq-absent snippet carries the PreToolUse guard" "\"command\":\"$d/.claude/hooks/pkill-guard.sh\"" "$TMP/1496-g.out"
+    assert_absent "K1496-g jq-absent: no hook file written" "$d/.claude/hooks/pkill-guard.sh"
+  fi
+
+  # (h) dangling symlink at the guard path is refused BEFORE any write (wire-only).
+  d="$TMP/1496-h"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks/pkill-guard.sh"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
+  [ "$_rc" = 2 ] && [ ! -e "$d/.claude/hooks/retro-gate-stop.sh" ] && [ ! -e "$d/.claude/settings.json" ] \
+    && ok "K1496-h dangling pkill-guard symlink refused (exit 2), nothing else written" \
+    || no "K1496-h dangling pkill-guard symlink: exit $_rc or partial write"
+fi
+
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -2577,6 +2659,68 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       ok "teeth M-1043-WIREGATE: unconditional settings precheck refuses a plain scaffold — K1043-4 has teeth"
     else no "teeth M-1043-WIREGATE: exit $_rc (want 2) — THEATER"; fi
   else no "teeth M-1043-WIREGATE: could not build mutant"; fi
+  # ---- kit issue #1496 teeth: each mutant defeats ONE piece of the pkill-guard wiring ---------------
+  _k96_inits() { printf '%s\n' "$TMP/k43/$1/toolbelt/init.sh"; }
+  # M-1496-SCAFFOLD: the scaffold's cpf of the guard removed → no hook file on a plain scaffold.
+  if _k43_build k96sc -e '/cpf "\$TPL\/hook-pretool-pkill-guard.sh"/d'; then
+    d="$TMP/k43/k96sc-t"; mkdir -p "$d"
+    bash "$(_k96_inits k96sc)" "$d" --corpus flat >/dev/null 2>&1
+    [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && ok "teeth M-1496-SCAFFOLD: no cpf → no guard installed — K1496-a has teeth" \
+      || no "teeth M-1496-SCAFFOLD: guard still installed — THEATER"
+  else no "teeth M-1496-SCAFFOLD: could not build mutant"; fi
+  # M-1496-WO-CREATE: wire-only repair never creates the guard.
+  if _k43_build k96wc -e '/cp "\$TPL\/hook-pretool-pkill-guard.sh" "\$_wo_pk"/d'; then
+    d="$TMP/k43/k96wc-t"; mkdir -p "$d"; : > "$d/INDEX.md"
+    bash "$(_k96_inits k96wc)" "$d" --wire >/dev/null 2>&1
+    [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && ok "teeth M-1496-WO-CREATE: no cp → repair leaves the guard absent — K1496-c has teeth" \
+      || no "teeth M-1496-WO-CREATE: guard still created — THEATER"
+  else no "teeth M-1496-WO-CREATE: could not build mutant"; fi
+  # M-1496-OVERWRITE: create-only test neutered → a hand-adapted guard is clobbered.
+  if _k43_build k96ow -e 's|^    if \[ -e "\$_wo_pk" \]; then|    if false; then|'; then
+    d="$TMP/k43/k96ow-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+    printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
+    bash "$(_k96_inits k96ow)" "$d" --wire >/dev/null 2>&1
+    grep -qF 'hand-adapted' "$d/.claude/hooks/pkill-guard.sh" && no "teeth M-1496-OVERWRITE: adaptation survived — THEATER" \
+      || ok "teeth M-1496-OVERWRITE: guard clobbered without the create-only test — K1496-d has teeth"
+  else no "teeth M-1496-OVERWRITE: could not build mutant"; fi
+  # M-1496-DEDUP: the already-registered detection always false → a second run double-registers.
+  if _k43_build k96dd -e 's/(\$pk_cmds | any(. as \$c | (\$pk_variants | index(\$c)) != null)) as \$has_pk/false as $has_pk/'; then
+    d="$TMP/k43/k96dd-t"; mkdir -p "$d"; : > "$d/INDEX.md"
+    bash "$(_k96_inits k96dd)" "$d" --wire >/dev/null 2>&1; bash "$(_k96_inits k96dd)" "$d" --wire >/dev/null 2>&1
+    [ "$(jq '.hooks.PreToolUse | length' "$d/.claude/settings.json" 2>/dev/null)" = "2" ] \
+      && ok "teeth M-1496-DEDUP: without dedup a re-run double-registers — K1496-c/e have teeth" \
+      || no "teeth M-1496-DEDUP: still one entry — THEATER"
+  else no "teeth M-1496-DEDUP: could not build mutant"; fi
+  # M-1496-MATCHER: the Bash matcher is lost in every merge → registration no longer targets Bash.
+  if _k43_build k96mt -e 's/"matcher":"Bash"/"matcher":"*"/g'; then
+    d="$TMP/k43/k96mt-t"; mkdir -p "$d"
+    bash "$(_k96_inits k96mt)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$d/.claude/settings.json" 2>/dev/null)" != "Bash" ] \
+      && ok "teeth M-1496-MATCHER: matcher changed away from Bash — K1496-b has teeth" \
+      || no "teeth M-1496-MATCHER: matcher still Bash — THEATER"
+  else no "teeth M-1496-MATCHER: could not build mutant"; fi
+  # M-1496-WO-MERGE: wire-only merge no longer adds the PreToolUse entry.
+  if _k43_build k96wm -e 's/(\.hooks\.PreToolUse = (if \$has_pk then/(.hooks.PreToolUse = (if true then/'; then
+    d="$TMP/k43/k96wm-t"; mkdir -p "$d"; : > "$d/INDEX.md"
+    bash "$(_k96_inits k96wm)" "$d" --wire >/dev/null 2>&1
+    [ "$(jq '[.hooks.PreToolUse[]?] | length' "$d/.claude/settings.json" 2>/dev/null)" = "0" ] \
+      && ok "teeth M-1496-WO-MERGE: wire-only merge adds no PreToolUse — K1496-c has teeth" \
+      || no "teeth M-1496-WO-MERGE: entry still added — THEATER"
+  else no "teeth M-1496-WO-MERGE: could not build mutant"; fi
+  # M-1496-SNIPPET: the printed (propose-never-apply) snippet drops the PreToolUse block.
+  if _k43_build k96sn -e '/"PreToolUse": \[/d'; then
+    d="$TMP/k43/k96sn-t"; mkdir -p "$d"
+    bash "$(_k96_inits k96sn)" "$d" --corpus flat >"$TMP/k96sn.out" 2>&1
+    grep -qF '"PreToolUse"' "$TMP/k96sn.out" && no "teeth M-1496-SNIPPET: snippet still has PreToolUse — THEATER" \
+      || ok "teeth M-1496-SNIPPET: snippet lost PreToolUse — K1496-a snippet assertions have teeth"
+  else no "teeth M-1496-SNIPPET: could not build mutant"; fi
+  # M-1496-DANGLING: guard path dropped from the wire-only symlink precheck → partial write on a dangling link.
+  if _k43_build k96dl -e 's|"\$_wo_stop" "\$_wo_ss" "\$_wo_pk" \|\| exit 2|"$_wo_stop" "$_wo_ss" \|\| exit 2|'; then
+    d="$TMP/k43/k96dl-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks/pkill-guard.sh"
+    bash "$(_k96_inits k96dl)" "$d" --wire >/dev/null 2>&1; _rc=$?
+    [ "$_rc" != 2 ] && ok "teeth M-1496-DANGLING: unchecked dangling guard link is not refused (exit $_rc) — K1496-h has teeth" \
+      || no "teeth M-1496-DANGLING: still exit 2 — THEATER"
+  else no "teeth M-1496-DANGLING: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

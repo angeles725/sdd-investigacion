@@ -128,7 +128,7 @@ target="$(cd "$target" && pwd)"
 case "$target" in *$'\n'*) echo "FATAL: target path contains a newline — refusing (nothing written): $target" >&2; exit 2;; esac
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
-for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
+for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh hook-pretool-pkill-guard.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
 # kit issue #1114: RESEARCH-STATE-document.template.md is required ONLY when --document is actually
@@ -224,26 +224,27 @@ _rsdd_cmd_variants_json() {
 # processing failure — must honor the SAME #959 guard as the live-write path: never offer a
 # SessionStart line to paste while research-protocol.sh still carries a live <SUBJECT>.
 _rsdd_print_wire_snippet() {
-  local stop_cmd="$1" ss_cmd="$2" skip_ss="$3" tgt="$4"
+  local stop_cmd="$1" ss_cmd="$2" skip_ss="$3" tgt="$4" pk_cmd="$5"
   echo "-- §479 HOOK WIRING snippet (paste into $tgt/.claude/settings.json) --"
+  # kit issue #1496: PreToolUse (matcher Bash) carries the pkill-guard; it takes no per-target
+  # params, so it is always offered (like Stop). SessionStart is omitted while unadapted (#959).
+  local pk_entry="      {\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$pk_cmd\"}]}"
+  local stop_entry="      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}"
+  local ss_entry="      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$ss_cmd\"}]}"
   if [ "$skip_ss" = "true" ]; then
     printf '%s\n' '{' \
       '  "hooks": {' \
-      '    "Stop": [' \
-      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}" \
-      '    ]' \
+      '    "Stop": [' "$stop_entry" '    ],' \
+      '    "PreToolUse": [' "$pk_entry" '    ]' \
       '  }' \
       '}'
     echo "-- SessionStart omitted: $ss_cmd still has the <SUBJECT> placeholder (adapt it first, PROMPT-LOOP §c follow-up) --"
   else
     printf '%s\n' '{' \
       '  "hooks": {' \
-      '    "Stop": [' \
-      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}" \
-      '    ],' \
-      '    "SessionStart": [' \
-      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$ss_cmd\"}]}" \
-      '    ]' \
+      '    "Stop": [' "$stop_entry" '    ],' \
+      '    "PreToolUse": [' "$pk_entry" '    ],' \
+      '    "SessionStart": [' "$ss_entry" '    ]' \
       '  }' \
       '}'
   fi
@@ -306,6 +307,8 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
     _wo_stop_rel=".claude/hooks/retro-gate-stop.sh"
     _wo_ss_rel=".claude/hooks/research-protocol.sh"
+    _wo_pk="$target/.claude/hooks/pkill-guard.sh"
+    _wo_pk_rel=".claude/hooks/pkill-guard.sh"
     _wo_settings="$target/.claude/settings.json"
 
     # §7 anti-silent-zero: probe for jq FIRST — jq-absent means NO writes at all, including no
@@ -324,7 +327,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
         _wo_pre_skip_ss="true"
         echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — the snippet below omits SessionStart until you adapt it (PROMPT-LOOP §c follow-up)." >&2
       fi
-      _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_pre_skip_ss" "$target"
+      _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_pre_skip_ss" "$target" "$_wo_pk"
       echo "== done =="
       exit 0
     fi
@@ -349,7 +352,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # kit issue #1043: a dangling symlink at a hook path (cp would refuse AFTER the other hook was
     # written) or at settings.json (the merge would fail / write elsewhere) is refused BEFORE any
     # write, so a failure leaves no partial state.
-    _rsdd_dangling_symlinks "$target/.claude" "$target/.claude/hooks" "$_wo_stop" "$_wo_ss" || exit 2
+    _rsdd_dangling_symlinks "$target/.claude" "$target/.claude/hooks" "$_wo_stop" "$_wo_ss" "$_wo_pk" || exit 2
     _rsdd_dangling_symlinks "$_wo_settings" || exit 4
 
     # jq is present and settings.json (if any) is valid JSON: repair absent hook files
@@ -369,6 +372,15 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       cp "$TPL/hook-sessionstart.sh" "$_wo_ss"
       echo "created: $_wo_ss"
     fi
+    # kit issue #1496: pkill-guard PreToolUse hook — create-only (a hand-adapted copy is never
+    # overwritten); no per-target placeholders, so it is copied as-is and always wired.
+    if [ -e "$_wo_pk" ]; then
+      echo "kept: $_wo_pk"
+    else
+      cp "$TPL/hook-pretool-pkill-guard.sh" "$_wo_pk"
+      chmod +x "$_wo_pk"
+      echo "created: $_wo_pk"
+    fi
 
     # kit issue #959/#1038/#1040: never wire an unadapted SessionStart hook — it would inject a
     # raw <SUBJECT> placeholder card into every session. Stop is always safe to wire. Only a LIVE
@@ -383,24 +395,30 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # kit issue #1040 finding 1: recognise $CLAUDE_PROJECT_DIR-relative forms as the same hook.
     _wo_stop_variants="$(_rsdd_cmd_variants_json "$_wo_stop" "$_wo_stop_rel")"
     _wo_ss_variants="$(_rsdd_cmd_variants_json "$_wo_ss" "$_wo_ss_rel")"
+    _wo_pk_variants="$(_rsdd_cmd_variants_json "$_wo_pk" "$_wo_pk_rel")"
 
     # -s (non-empty), not -f: a ZERO-BYTE existing file is treated as {} (see the pre-validation
     # comment above) — reading it with `cat` would otherwise feed jq an empty stdin, which is a
     # jq error (no input value), not an empty object.
     _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)"
-    if _wo_merge_out="$(printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" \
+    if _wo_merge_out="$(printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" --arg pc "$_wo_pk" \
         --argjson stop_variants "$_wo_stop_variants" --argjson ss_variants "$_wo_ss_variants" \
+        --argjson pk_variants "$_wo_pk_variants" \
         --argjson skip_ss "$_wo_skip_ss" '
         ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
         ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
         ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
         ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
+        ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // []) as $pk_cmds |
+        ($pk_cmds | any(. as $c | ($pk_variants | index($c)) != null)) as $has_pk |
+        (.hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
+          else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
         (.hooks.Stop = (if $has_stop then (.hooks.Stop // [])
           else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)) |
         (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
           else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
-        {settings: ., has_stop: $has_stop, has_ss: $has_ss}
+        {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk}
       ' 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
       # settings.json keeps its indentation instead of collapsing to one line.
@@ -408,6 +426,12 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       _rsdd_install_settings "$_wo_tmp" "$_wo_settings" || { echo "FATAL: could not write $_wo_settings" >&2; exit 4; }
       _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
+      _wo_has_pk="$(jq -r '.has_pk' <<<"$_wo_merge_out")"
+      if [ "$_wo_has_pk" = "true" ]; then
+        echo "  wired  : PreToolUse pkill-guard hook already wired in $_wo_settings"
+      else
+        echo "  wired  : PreToolUse pkill-guard hook registered in $_wo_settings"
+      fi
       if [ "$_wo_has_stop" = "true" ]; then
         echo "  wired  : Stop hook already wired (wire-only; corpus untouched) in $_wo_settings"
       else
@@ -438,7 +462,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # snippet on jq-processing failure (jq present but errored; settings.json shape was already
     # pre-checked above, so this branch is defensive/rare) and exit 4 — hook files created above
     # (if any) already exist on disk, but settings.json was NOT written.
-    _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target"
+    _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target" "$_wo_pk"
     echo "== done =="
     exit 4
   fi
@@ -488,7 +512,7 @@ fi
 # write (the ERR rollback would otherwise also delete the user's link).
 _rsdd_scaffold_paths=("$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources" "$corpus/sources/SOURCES.md"
   "$target/.claude" "$target/.claude/hooks" "$target/.claude/hooks/research-protocol.sh"
-  "$target/.claude/hooks/retro-gate-stop.sh" "$target/retros" "$target/tools" "$target/tools/README.md")
+  "$target/.claude/hooks/retro-gate-stop.sh" "$target/.claude/hooks/pkill-guard.sh" "$target/retros" "$target/tools" "$target/tools/README.md")
 # settings.json is written only with --wire (kit issue #1043 item 4), so only then is it a precondition.
 [ "$wire" = 1 ] && _rsdd_scaffold_paths+=("$target/.claude/settings.json")
 _rsdd_dangling_symlinks "${_rsdd_scaffold_paths[@]}" || exit 2
@@ -524,6 +548,10 @@ _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
 cpf "$TPL/hook-stop-retro-gate.sh" "$_rg_hook"
 _rsdd_render_hook "$_rg_hook"
 chmod +x "$_rg_hook"
+# kit issue #1496: pkill-guard PreToolUse hook (no placeholders to render)
+_pk_hook="$target/.claude/hooks/pkill-guard.sh"
+cpf "$TPL/hook-pretool-pkill-guard.sh" "$_pk_hook"
+chmod +x "$_pk_hook"
 
 # .gitignore guard (METHODOLOGY §15). Ensure a trailing newline first so we never fuse
 # onto a pre-existing last line the user authored.
@@ -538,7 +566,7 @@ if ! git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then git -C "$target"
 
 # --- post-flight verification (success is EARNED, not assumed) ----------------
 for f in "$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources/SOURCES.md" \
-         "$target/.claude/hooks/research-protocol.sh" "$target/.claude/hooks/retro-gate-stop.sh" \
+         "$target/.claude/hooks/research-protocol.sh" "$target/.claude/hooks/retro-gate-stop.sh" "$target/.claude/hooks/pkill-guard.sh" \
          "$target/tools/README.md"; do
   [ -f "$f" ] || { echo "FATAL: expected artifact missing after scaffold: $f" >&2; exit 1; }
 done
@@ -559,7 +587,7 @@ rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(target root, f
 echo "== research-sdd-init: scaffolded =="
 echo "  target : $target"
 echo "  corpus : ${rel}"
-echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · retros/ · tools/README.md · .gitignore"
+echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · pkill-guard hook · retros/ · tools/README.md · .gitignore"
 echo "  catalog: CATALOG.md is regenerated by research-sdd-archive.sh via the KIT generator (no per-target copy — eje #2)"
 if [ "$document" = 1 ]; then
   echo "  mode   : document-cycle scaffold (--document, kit issue #1114) — RESEARCH-STATE.md seeded from the OUTLINE-driven variant (METHODOLOGY §20), not the gap-discovery one"
@@ -605,6 +633,7 @@ echo
 # --no-wire is a backward-compat alias for the default (print-only, no write).
 _stop_cmd="$target/.claude/hooks/retro-gate-stop.sh"
 _ss_cmd="$target/.claude/hooks/research-protocol.sh"
+_pk_cmd="$target/.claude/hooks/pkill-guard.sh"
 _settings="$target/.claude/settings.json"
 _wire_result="skip"
 
@@ -631,7 +660,10 @@ if [ "$wire" = 1 ]; then
     fi
     _tmp_settings="$(mktemp)"
     # Idempotent merge: add Stop + SessionStart entries only if the command is not already present
-    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" --argjson skip_ss "$_wire_skip_ss" '
+    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" --arg pc "$_pk_cmd" --argjson skip_ss "$_wire_skip_ss" '
+      ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$pc])) as $has_pk |
+      .hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
+        else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end) |
       ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
       ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
       .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
@@ -662,6 +694,9 @@ if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
     '  "hooks": {' \
     '    "Stop": [' \
     '      {"matcher":"","hooks":[{"type":"command","command":"'"$_stop_cmd"'"}]}' \
+    '    ],' \
+    '    "PreToolUse": [' \
+    '      {"matcher":"Bash","hooks":[{"type":"command","command":"'"$_pk_cmd"'"}]}' \
     '    ],' \
     '    "SessionStart": [' \
     '      {"matcher":"","hooks":[{"type":"command","command":"'"$_ss_cmd"'"}]}' \
