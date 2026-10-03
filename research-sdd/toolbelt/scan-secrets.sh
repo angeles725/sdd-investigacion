@@ -331,11 +331,8 @@ fi
 # In --committed mode the narrowing is SKIPPED — we scan the entire committed repo at HEAD.
 corpus="$target"
 if [ "$committed" = 0 ]; then
-  # pipefail-audit: external `find` producer. Fleet max unobserved (root is usually empty or has 1
-  # block file — output <200 B). Race onset for external producers: ~64 KB. Measured 0/400 trials
-  # (200 quiet + 200 under load). A race would invert ! to TRUE, descending when blocks ARE at root.
-  # verify-sources.sh:24 fixed the identical pattern with -print -quit; no fix here — unproven.
-  if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | grep -q .; then
+  # fixed under #1444: `[ -z "$(find ... -print -quit)" ]`, no pipe, so no SIGPIPE race is possible.
+  if [ -z "$(find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -print -quit 2>/dev/null)" ]; then
     anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
               | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
     [ -n "$anchor" ] && corpus="$(dirname "$anchor")"
@@ -355,10 +352,8 @@ else
   echo "== scan-secrets: $(basename "$target") =="
   [ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/"
 fi
-# pipefail-audit: external `grep` producer on TARGETS.md. Fleet max 2,007 B (TRANE; 2 rows).
-# Race onset for external producers: ~64 KB. Measured 0/200 trials. A race would silently skip
-# the live-install notice (advisory only, not a gate). No fix — not reproduced.
-if grep -iE "\b$(basename "$target")\b" "$KIT/TARGETS.md" 2>/dev/null | grep -qi 'live-install'; then
+# fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
+if grep -qi 'live-install' < <(grep -iE "\b$(basename "$target")\b" "$KIT/TARGETS.md" 2>/dev/null); then
   echo "-- target registered LIVE-INSTALL: SECRETS DISCIPLINE is a hard invariant here (zero secrets exfiltrated)."
 fi
 
@@ -433,19 +428,14 @@ while IFS= read -r line; do
   [ -z "$val" ] && continue
   case "$val" in '<'*|'$'*|'{'*|'*'*|'%'*) continue;; esac                       # placeholder / var / format
   case "$val" in *...*|*…*) continue;; esac                                      # truncated illustration (abc123…)
-  # pipefail-audit (lines here through the hex check): all printf calls are single-arg bash
-  # builtins. Bash-builtin single-arg printf is structurally immune to the SIGPIPE race — the
-  # write completes before grep can exit, regardless of variable size (0/30 at 1 MB). No fix
-  # needed for any of these sites. $content at line below is one grep output line (fleet max
-  # 3,776 B in niagara-research) — still size-immune because it is a builtin printf arg.
-  # Failure direction for line 107: suppressed continue → false ADVISORY WARN (noisy, not silent).
-  printf '%s' "$val" | grep -q '[][()#]' && continue                             # markdown link / code structure
-  printf '%s' "$val" | grep -qiE '^(x{3,}|redacted|changeme|example|placeholder|none|null|test|todo|your[_-]?)' && continue
+  # fixed under #1444: the checks below read $val/$content via here-strings, no producer | grep -q pipe, so no SIGPIPE race is possible.
+  grep -q '[][()#]' <<<"$val" && continue                             # markdown link / code structure
+  grep -qiE '^(x{3,}|redacted|changeme|example|placeholder|none|null|test|todo|your[_-]?)' <<<"$val" && continue
   [ "${#val}" -ge 8 ] || continue                                                # too short to be a real secret
-  printf '%s' "$val" | grep -qE '[A-Za-z]' && printf '%s' "$val" | grep -qE '[0-9]' || continue   # must mix (documented gap: all-alpha)
+  grep -qE '[A-Za-z]' <<<"$val" && grep -qE '[0-9]' <<<"$val" || continue   # must mix (documented gap: all-alpha)
   # A bare hex value is a hash ONLY when its line cites it as one; otherwise a hex-shaped token is suspect.
-  if printf '%s' "$val" | grep -qiE '^[0-9a-f]{32,64}$'; then
-    printf '%s' "$content" | grep -qiE 'sha[0-9]*|md5|hash|checksum|digest|fingerprint' && continue
+  if grep -qiE '^[0-9a-f]{32,64}$' <<<"$val"; then
+    grep -qiE 'sha[0-9]*|md5|hash|checksum|digest|fingerprint' <<<"$content" && continue
   fi
   echo "   WARN    $line"
   warns=$((warns+1))

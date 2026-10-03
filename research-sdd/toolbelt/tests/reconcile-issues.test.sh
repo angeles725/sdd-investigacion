@@ -1388,7 +1388,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1332-R2: entry IDs ignored when classifying (every entry untracked despite a cache hit) --"
   box_e2="$(mkbox teeth-entry-ids)"; mk_gh_stub "$box_e2" nomatch
   if mutant_sed "$SUT" "$box_e2/research-sdd/toolbelt/reconcile-issues.sh" \
-       -e 's/if printf .%s\\n. "\$_issue_row_ids" | grep -qxF "\$_rid"; then/if false; then/'; then
+       -e '/# RECONCILE-ROWID-CACHE-CHECK$/s/if grep .*; then  #/if false; then  #/'; then
     sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$ENTRY_FIX" > "$box_e2/rh/target-foo/retros/r.md"
     cache_for "$ROOT/cache-e2.txt" target-foo r.md D2
     run "$box_e2" --issues-cache "$ROOT/cache-e2.txt" "$box_e2/rh/target-foo/retros/r.md"

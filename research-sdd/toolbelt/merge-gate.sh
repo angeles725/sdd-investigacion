@@ -205,7 +205,7 @@ merge_rc=$?
 if [ "$merge_rc" -ne 0 ]; then
   # Skip gh deprecation/warning noise so it cannot replace the real error.
   merge_line="$(printf '%s\n' "$merge_out" | grep -Evi 'deprecat|^warning' | head -n 1 | cut -c1-200)"
-  if printf '%s' "$merge_out" | grep -Eqi 'head branch was modified|match-head-commit|head sha'; then
+  if grep -Eqi 'head branch was modified|match-head-commit|head sha' <<<"$merge_out"; then  # MERGE-GATE-HEAD-REJECT
     say "refuse: head_mismatch (PR #$pr head changed before merge: $merge_line)"
     exit 1
   fi

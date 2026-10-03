@@ -179,7 +179,7 @@ sort "$TMP/dirs_raw.txt" > "$TMP/dirs.txt"
 : > "$TMP/units.txt"
 while IFS= read -r dir; do
   while IFS= read -r ext; do
-    if find "$dir" -maxdepth 999 -type f -name "*.${ext}" -print -quit 2>/dev/null | grep -q .; then
+    if [ -n "$(find "$dir" -maxdepth 999 -type f -name "*.${ext}" -print -quit 2>/dev/null)" ]; then
       printf '%s\n' "$dir" >> "$TMP/units.txt"
       break
     fi

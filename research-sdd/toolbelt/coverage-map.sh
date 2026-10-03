@@ -116,7 +116,7 @@ ext_alt="$(printf '%s' "$EXT_CSV" | tr ',' '|' | tr -d ' ')"
 : > "$TMP/units_all.txt"
 while IFS= read -r dir; do
   while IFS= read -r ext; do
-    if find "$dir" -maxdepth 999 -type f -name "*.${ext}" -print -quit 2>/dev/null | grep -q .; then
+    if [ -n "$(find "$dir" -maxdepth 999 -type f -name "*.${ext}" -print -quit 2>/dev/null)" ]; then
       printf '%s\n' "$dir" >> "$TMP/units_all.txt"
       break
     fi

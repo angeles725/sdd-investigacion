@@ -306,14 +306,15 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   retro_is_excluded() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    _retro_status_strip_bom "$f" | awk '
+    # Process substitution, not `producer | grep -q` (#1444): grep -q exits at the first match,
+    # the producer takes SIGPIPE (141) and pipefail would flip a match into a failure.
+    grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$' < <(
+      _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' 2>/dev/null \
-      | grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$'
-      # pipefail-audit: external `awk` producer (leading HTML-comment block of a retro file).
-      # Fleet max 414 B (2026-07-06-kit-audit.md). Race onset: ~64 KB. Fleet max << onset; SAFE.
+    ' 2>/dev/null)
+      # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
   }
 
   # retro_is_waived <file>
@@ -337,13 +338,13 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   retro_is_waived() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    _retro_status_strip_bom "$f" | awk '
+    grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$' < <(
+      _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' 2>/dev/null \
-      | grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$'
-      # pipefail-audit: same awk producer as retro_is_excluded. Fleet max 414 B. SAFE.
+    ' 2>/dev/null)
+      # fixed under #1444: process substitution (same producer as retro_is_excluded), no SIGPIPE race is possible.
   }
 
   # retro_has_bare_marker <file>
@@ -363,9 +364,8 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   retro_has_bare_marker() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    _retro_status_strip_bom "$f" | head -10 | grep -qiE '^[[:space:]]*review-status:'
-    # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
-    # Race onset for external producers: ~64 KB. Fleet max << onset; SAFE.
+    grep -qiE '^[[:space:]]*review-status:' < <(_retro_status_strip_bom "$f" | head -10)
+    # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
   }
 
   # retro_marker_is_partial <marker_line>
@@ -425,7 +425,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # 'shipped:' keyword, or opening paren — unchanged from #1090.
     local structured
     structured="$(printf '%s' "$body" | sed -E 's/(—|shipped:|\().*$//')"
-    if printf '%s' "$structured" | grep -qE '(^|[^A-Za-z])PARTIAL($|[^A-Za-z])'; then
+    if grep -qE '(^|[^A-Za-z])PARTIAL($|[^A-Za-z])' <<<"$structured"; then
       return 0
     fi
     # Structured region for the 'shipped:' keyword search (condition b, kit issue #1093 item 2):
@@ -433,7 +433,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # keyword this condition searches for could never appear in its own scoped region.
     local structured_for_shipped
     structured_for_shipped="$(printf '%s' "$body" | sed -E 's/(—|\().*$//')"
-    printf '%s' "$structured_for_shipped" | grep -q 'shipped:'
+    grep -q 'shipped:' <<<"$structured_for_shipped"
   }
 
   # retro_marker_shipped_ids <shipped_raw>
