@@ -156,16 +156,37 @@ done <<< "$HARNESS_INPUTS_RAW"
 #   real-tree : RHS mentions $HERE/../.. or $TOOLBELT/..  (also the ${HERE} / ${TOOLBELT} forms)
 #   temp      : RHS mentions mktemp, or a $TMP / $TMPDIR / $SCRATCH / $BOX / $ROOT / $TWO_KIT path
 #   unclassified : any other RHS, or $KIT/ referenced with no KIT binding at all
-# Measured on the real tree at authoring time: 2 unclassified suites (hotcore-budget.test.sh, which
-# cites "$KIT/TARGETS.md" only as an anchor string with no binding, and verify-cd-physical.test.sh, whose KIT= lines live in generated fixtures) — noisy enough that this is a WARN,
-# not a failure; the count is printed on every run.
+# Measured on the real tree at authoring time: 1 unclassified suite (hotcore-budget.test.sh, which
+# cites "$KIT/TARGETS.md" only as an anchor string, no binding) — noisy enough that this is a WARN,
+# not a failure; the count is printed on every run. Comments and heredoc bodies are ignored (live_lines).
 KIT_BIND_RE='^[[:space:]]*((local|readonly|export|declare)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)?)?KIT='
 KIT_REF_RE='\$(\{KIT\}|KIT)/[A-Za-z0-9_./-]+'
+# live_lines: print only LIVE shell text of a suite — full-line comments dropped, trailing
+# ` # ...` comments stripped, heredoc bodies skipped. Every scan below reads through this one
+# filter so a `$KIT/X.md` mention in prose or in a fixture body is never counted as a read.
+# (Heuristic: a ` #` inside a quoted string is also stripped; acceptable, it only loses prose.)
+live_lines() {
+  awk '
+    heredoc != "" { t=$0; if (dash) sub(/^\t+/, "", t); if (t == heredoc) heredoc=""; next }
+    /^[[:space:]]*#/ { next }
+    {
+      line=$0
+      if (match(line, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+        tag=substr(line, RSTART, RLENGTH); dash=(tag ~ /^<<-/)
+        gsub(/^<<-?[[:space:]]*["\047]?|["\047]?$/, "", tag); heredoc=tag
+      }
+      sub(/[[:space:]]+#.*$/, "", line)
+      print line
+    }
+  ' "$1"
+}
+
 classify_kit_binding() {
   # $1 suite file -> prints real | temp | none (no $KIT/ ref) | unclassified
-  local suite="$1" bindings
-  if ! grep -vE '^[[:space:]]*#' "$suite" | grep -qE "$KIT_REF_RE"; then echo none; return; fi
-  bindings="$(grep -E "$KIT_BIND_RE" "$suite")" || bindings=""
+  local suite="$1" live bindings
+  live="$(live_lines "$suite")"
+  if ! grep -qE "$KIT_REF_RE" <<< "$live"; then echo none; return; fi
+  bindings="$(grep -E "$KIT_BIND_RE" <<< "$live")" || bindings=""
   if grep -qE '\$\{?(HERE\}?/\.\./\.\.|TOOLBELT\}?/\.\.)' <<< "$bindings"; then echo real
   elif [ -n "$bindings" ] && ! grep -vE 'mktemp|\$\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT)\b' <<< "$bindings" | grep -q .; then echo temp
   else echo unclassified; fi
@@ -185,9 +206,9 @@ derive_doc_inputs() {
   for suite in "$@"; do
     [ -f "$suite" ] || continue
     # $HERE/../../<p> is always the real tree; $KIT/<p> only when that suite binds KIT to the real kit.
-    grep -ohE '\$HERE/\.\./\.\./[A-Za-z0-9_./-]+' "$suite" 2>/dev/null | sed -E 's#^\$HERE/\.\./\.\./##'
+    live_lines "$suite" | grep -oE '\$HERE/\.\./\.\./[A-Za-z0-9_./-]+' | sed -E 's#^\$HERE/\.\./\.\./##'
     if [ "$(classify_kit_binding "$suite")" = real ]; then
-      grep -ohE "$KIT_REF_RE" "$suite" 2>/dev/null | sed -E 's#^\$(\{KIT\}|KIT)/##'
+      live_lines "$suite" | grep -oE "$KIT_REF_RE" | sed -E 's#^\$(\{KIT\}|KIT)/##'
     fi
   done | sed -E 's#[./]+$##' | sort -u \
     | while IFS= read -r p; do
@@ -201,7 +222,12 @@ derive_doc_inputs() {
       done | sort -u
 }
 
-ALL_SUITES=("$HERE"/*.test.sh "$REPO/research-sdd/install/tests"/*.test.sh)
+# This suite is excluded from its own scan: its teeth fixtures deliberately contain KIT bindings and
+# `$KIT/METHODOLOGY.md` text, which would otherwise be derived as if a suite read that doc.
+ALL_SUITES=()
+for _s in "$HERE"/*.test.sh "$REPO/research-sdd/install/tests"/*.test.sh; do
+  [ "$(basename "$_s")" = "$(basename "${BASH_SOURCE[0]}")" ] || ALL_SUITES+=("$_s")
+done
 UNCLASSIFIED="$(unclassified_suites "${ALL_SUITES[@]}")"
 if [ -n "$UNCLASSIFIED" ]; then
   unc_count=0
@@ -215,7 +241,7 @@ DOC_INPUTS="$(derive_doc_inputs "$REPO/research-sdd" "${ALL_SUITES[@]}")"
 doc_count=0
 while IFS= read -r line; do if [ -n "$line" ]; then doc_count=$((doc_count + 1)); fi; done <<< "$DOC_INPUTS"
 if [ "$doc_count" -gt 0 ]; then
-  ok "docs: derived $doc_count doctrine files read by suites"
+  ok "docs: derived $doc_count doctrine files read by suites: $(tr '\n' ' ' <<< "$DOC_INPUTS")"
 else
   harness_error "docs: derivation found zero doctrine files — scan pattern broken (silent zero)"
 fi
@@ -330,11 +356,37 @@ FX_EOF
   cp "$WORKFLOW" "$FR/.github/workflows/toolbelt-tests.yml"
   cp "$0" "$FR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh"
   printf '#!/usr/bin/env bash\nprintf ".claude/settings.json\\n"\n' > "$FR/research-sdd/toolbelt/tests/harness-sweep-parity.test.sh"
-  bash "$FR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh" > "$TMP/f.out" 2>&1; frc=$?
+  frc=0
+  bash "$FR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh" > "$TMP/f.out" 2>&1 || frc=$?
   if [ "$frc" -eq 2 ] && grep -q 'HARNESS ERROR: docs: derivation found zero' "$TMP/f.out"; then
     ok "teeth F: zero doc derivation exits 2 with a typed HARNESS ERROR (not 1)"
   else
     no "teeth F: zero derivation rc=$frc (want 2) — harness error conflated with gap"
+  fi
+
+
+  # Teeth G: `$KIT/<doc>` / `$HERE/../../<doc>` inside a comment, a trailing comment, or a heredoc
+  # body is NOT a read. Mutant: with the filter replaced by plain cat, the same fixture IS derived.
+  cat > "$TMP/fx/g.test.sh" << 'FX_EOF'
+HERE=x
+KIT="$(cd "$HERE/../.." && pwd)"
+# see $KIT/PROMPT-LOOP.md for context
+true  # also $HERE/../../PROMPT-LOOP.md
+cat > f << 'INNER'
+$KIT/PROMPT-LOOP.md
+$HERE/../../PROMPT-LOOP.md
+INNER
+echo done
+FX_EOF
+  g_live="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/g.test.sh")"
+  live_lines_real="$(declare -f live_lines)"
+  live_lines() { cat "$1"; }
+  g_mut="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/g.test.sh")"
+  eval "$live_lines_real"
+  if [ -z "$g_live" ] && grep -qx 'research-sdd/PROMPT-LOOP.md' <<< "$g_mut"; then
+    ok "teeth G: comment and heredoc-body mentions are not derived (and are, with the filter removed)"
+  else
+    no "teeth G: filter ineffective or mutant did not go red (live=[$g_live] mutant=[$g_mut])"
   fi
 
 fi
