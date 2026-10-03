@@ -391,8 +391,8 @@ else no "--require-teeth-fail: rc=$rc :: $(grep 'Suites without' <<<"$out" | tr 
 
 # 21 — require-teeth: exits 0 when all suites have teeth (no-teeth list is empty).
 w="$(newdir c21)"
-mkfix_teeth "$w/wt1.test.sh"
-mkfix_teeth "$w/wt2.test.sh"
+mkfix_teeth "$w/wt1.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/wt1.test.sh"
+mkfix_teeth "$w/wt2.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/wt2.test.sh"
 out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'Suites without teeth: 0 — []' <<<"$out"; then
   ok "--require-teeth: exits 0 when all suites have teeth"
@@ -744,6 +744,73 @@ if [ "$_c34fline" = 'Suites with teeth not using lib/mutant.sh: 3 — [cmt-var, 
   ok "teeth-helper lint recognition: VAR indirection and then/;/&& prefixes count; foreign var, comment-only assignment and heredoc body do not"
 else no "teeth-helper lint recognition failed: line=[$_c34fline]"; fi
 
+# 36 — teeth-helper gate (kit issue #1299 item 4): under --require-teeth a hand-rolled teeth suite must
+#      use lib/mutant.sh or carry a waiver in teeth-helper-waivers.txt next to the runner.
+#      36a unwaived -> exit 1 and named; 36b waived -> exit 0, waived count + names on their own line.
+w="$(newdir c36a)"
+mkfix_teeth "$w/hand.test.sh"
+mkfix_teeth "$w/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qxF 'Suites with teeth not using lib/mutant.sh and not waived: 1 — [hand]' <<<"$out" \
+   && grep -qxF 'Waived teeth-helper suites (teeth-helper-waivers.txt): 0 — []' <<<"$out"; then
+  ok "teeth-helper gate: an unwaived hand-rolled teeth suite fails --require-teeth and is named"
+else no "teeth-helper gate (unwaived) failed: rc=$rc :: $(grep -iE 'waive|lib/mutant' <<<"$out" | tr '\n' '|')"; fi
+# 36a2 — the same fixture under plain --prove-teeth stays report-only (exit 0, no gate lines).
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -qF 'not waived' <<<"$out"; then ok "teeth-helper gate: --prove-teeth alone stays report-only"
+else no "teeth-helper gate leaked into --prove-teeth: rc=$rc :: $(grep -iE 'waive' <<<"$out" | tr '\n' '|')"; fi
+w="$(newdir c36b)"
+mkfix_teeth "$w/hand.test.sh"; mkfix_teeth "$w/hand2.test.sh"
+printf '# comment\n\nhand fixture is hand-rolled\n  hand2   second reason with spaces\n' > "$w/teeth-helper-waivers.txt"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qxF 'Suites with teeth not using lib/mutant.sh and not waived: 0 — []' <<<"$out" \
+   && grep -qxF 'Waived teeth-helper suites (teeth-helper-waivers.txt): 2 — [hand, hand2]' <<<"$out" \
+   && grep -qF 'Stale teeth-helper waivers (suite uses the helper, has no teeth, or does not exist): 0 — []' <<<"$out"; then
+  ok "teeth-helper gate: waived suites pass, are printed with count and names, comments/blank lines ignored"
+else no "teeth-helper gate (waived) failed: rc=$rc :: $(grep -iE 'waive|lib/mutant' <<<"$out" | tr '\n' '|')"; fi
+
+# 36c — STALE waivers fail loudly: a waived suite that now uses the helper, one with no teeth at
+#       all, and one that no longer exists. Each is named; the run exits 1.
+w="$(newdir c36c)"
+mkfix_teeth "$w/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+mkfix_sh "$w/noteeth.test.sh" 1 0 0
+mkfix_teeth "$w/hand.test.sh"
+printf 'helped now migrated\nnoteeth never had teeth\ngone deleted suite\nhand still waived\n' > "$w/teeth-helper-waivers.txt"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'Stale teeth-helper waivers (suite uses the helper, has no teeth, or does not exist): 3 — [gone, helped, noteeth]' <<<"$out"; then
+  ok "teeth-helper gate: stale waivers (now helper user / no teeth / nonexistent suite) are named and fail the run"
+else no "teeth-helper gate (stale) failed: rc=$rc :: $(grep -iE 'stale|waive' <<<"$out" | tr '\n' '|')"; fi
+
+# 36d — a waiver line with no reason (and a bad suite name, and a duplicate) is invalid and fails.
+w="$(newdir c36d)"
+mkfix_teeth "$w/hand.test.sh"
+printf 'hand\nbad/name reason\nhand first\nhand second\n' > "$w/teeth-helper-waivers.txt"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'Invalid teeth-helper waiver lines: 3 — [line 1: '"'hand'"' has no reason, line 2: bad suite name, line 4: '"'hand'"' waived twice]' <<<"$out"; then
+  ok "teeth-helper gate: reason-less, badly named and duplicate waiver lines are reported and fail the run"
+else no "teeth-helper gate (invalid) failed: rc=$rc :: $(grep -iE 'invalid|waive' <<<"$out" | tr '\n' '|')"; fi
+
+# 36e — absent waiver file is absent-input, not a silent pass: said so; passes only when nothing needs a waiver.
+w="$(newdir c36e)"
+mkfix_teeth "$w/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'Teeth-helper waivers: ABSENT-INPUT' <<<"$out" \
+   && grep -qxF 'Suites with teeth not using lib/mutant.sh and not waived: 0 — []' <<<"$out"; then
+  ok "teeth-helper gate: an absent waiver file is reported as ABSENT-INPUT and passes only because nothing needs a waiver"
+else no "teeth-helper gate (absent) failed: rc=$rc :: $(grep -iE 'waive' <<<"$out" | tr '\n' '|')"; fi
+# 36f — a waiver path that is not a readable file (a directory) fails the run.
+w="$(newdir c36f)"
+mkfix_teeth "$w/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/helped.test.sh"
+mkdir "$w/teeth-helper-waivers.txt"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'Teeth-helper waivers: UNREADABLE' <<<"$out"; then
+  ok "teeth-helper gate: an unreadable waiver path is reported as UNREADABLE and fails the run"
+else no "teeth-helper gate (unreadable) failed: rc=$rc :: $(grep -iE 'waive' <<<"$out" | tr '\n' '|')"; fi
+
 # 35 — kit-tree hermeticity (kit issue #1156): the cwd guard cannot see a suite that writes INTO
 #      the repo tree (the install suite wrote research-sdd-install.MUTANT*.sh next to its SUT).
 #      The runner also snapshots research-sdd/ (resolved from its own location, never the cwd)
@@ -841,6 +908,57 @@ else
   if [ "$rc" -eq 1 ] && grep -qF 'Kit-tree hermeticity: DEGRADED' <<<"$out"; then
     ok "kit-tree hermeticity degraded: a failing kit-tree scan is DEGRADED and fails the run (not a confident 0)"
   else no "kit-tree hermeticity degraded failed: rc=$rc :: $(grep -iE 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
+# 37 — kit-tree guard gaps (kit issue #1299 item 7).
+# 37a — dotfiles: a leak onto a dotfile/dot-directory under research-sdd/ is tracked like any file
+#       (probe: `find` lists them; there is no shell glob in the scan to skip them).
+w="$(newdir c37a)"; _c37akit="${w%/toolbelt/tests}"
+mkdir -p "$_c37akit/install"; printf 'k\n' > "$_c37akit/.hidden-keep"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+  printf 'printf x > "$k/.hidden-new"; mkdir -p "$k/.hdir" && printf x > "$k/.hdir/f"; rm -f "$k/.hidden-keep"\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+} > "$w/a-dotty.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'a-dotty.test.sh leaked: .hidden-new (new)' <<<"$out" \
+   && grep -qF 'a-dotty.test.sh leaked: .hdir/f (new)' <<<"$out" \
+   && grep -qF 'a-dotty.test.sh leaked: .hidden-keep (removed)' <<<"$out"; then
+  ok "kit-tree hermeticity: dotfiles and dot-directories under research-sdd/ are tracked"
+else no "kit-tree dotfile case failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
+
+# 37b — a chmod-000 file left under research-sdd/ makes the scan fail; the DEGRADED reason must NAME
+#       the unreadable entry (a leftover/suite fault), not blame the scanner. Root ignores mode bits: SKIP.
+if [ "$(id -u)" -eq 0 ]; then
+  ok "kit-tree unreadable entry: SKIP under root (root ignores permission bits)"
+else
+  # before any suite runs
+  w="$(newdir c37b)"; _c37bkit="${w%/toolbelt/tests}"
+  mkdir -p "$_c37bkit/install"; printf 's\n' > "$_c37bkit/install/locked.sh"; chmod 000 "$_c37bkit/install/locked.sh"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+  chmod 644 "$_c37bkit/install/locked.sh"
+  _c37line="$(grep -E '^Kit-tree hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -eq 1 ] && grep -qF 'unreadable entry under research-sdd/ before any suite ran: install/locked.sh' <<<"$_c37line" \
+     && ! grep -qF "scanner ('find'" <<<"$_c37line"; then
+    ok "kit-tree unreadable entry: a pre-existing chmod-000 file is named in the DEGRADED reason, not blamed on the scanner"
+  else no "kit-tree unreadable (pre-existing) failed: rc=$rc :: $_c37line"; fi
+  # created by a suite mid-run
+  w="$(newdir c37c)"; _c37ckit="${w%/toolbelt/tests}"
+  mkdir -p "$_c37ckit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf s > "$k/install/leftover.sh"; chmod 000 "$k/install/leftover.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-locker.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+  chmod 644 "$_c37ckit/install/leftover.sh"
+  _c37line="$(grep -E '^Kit-tree hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -eq 1 ] && grep -qF 'unreadable entry under research-sdd/ after a-locker.test.sh: install/leftover.sh' <<<"$_c37line"; then
+    ok "kit-tree unreadable entry: a chmod-000 file created by a suite is named with the suite, not blamed on the scanner"
+  else no "kit-tree unreadable (mid-run) failed: rc=$rc :: $_c37line"; fi
 fi
 
 # --- Opt-in parallel mode (kit issue #1463): `-j N` ---------------------------------------------
@@ -1049,7 +1167,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-require: require-teeth mutation was a byte-identical no-op"
   else
     mkfix_sh    "$w/nt.test.sh" 3 0 0
-    mkfix_teeth "$w/wt.test.sh"
+    mkfix_teeth "$w/wt.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$w/wt.test.sh"   # helper user: only the no-teeth gate may bite
     bash "$w/run-all.sh" --require-teeth >/dev/null 2>&1; mrc=$?
     if [ "$mrc" -eq 0 ]; then
       ok "teeth-require: neutered exit guard exits 0 despite no-teeth suite → exit path has real teeth"
@@ -1373,7 +1491,7 @@ REPL12
   # happened (the fixture records it OUTSIDE the tree) so a silent no-leak fixture cannot read as a bite.
   echo "-- teeth: neuter SENTINEL-KIT-TREE-CHECK; a file written under research-sdd/ must FALSE-PASS --"
   w="$(mut_workdir teeth-kit-tree)"; _ktk="${w%/toolbelt/tests}"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-KIT-TREE-CHECK/,+8s/elif \[\[ "\$_kit_tree_cur" != "\$_kit_tree_prev" \]\]; then/elif false; then/' 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-KIT-TREE-CHECK/,+16s/elif \[\[ "\$_kit_tree_cur" != "\$_kit_tree_prev" \]\]; then/elif false; then/' 2>"$w/mutant.err"; then
     no "teeth-kit-tree: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     { printf '#!/usr/bin/env bash\n'
@@ -1411,6 +1529,61 @@ REPL12
       ok "teeth-kit-tree-symlink: symlink-blind guard FALSE-PASSES a confirmed symlink leak → symlink tracking has real teeth"
     else
       no "teeth-kit-tree-symlink: mutant still caught the symlink (rc=$mrc) — mutation not exercised (THEATER)"
+    fi
+  fi
+fi
+
+# --- Mutation controls for the teeth-helper gate and the unreadable-entry reason (kit issue #1299) ---
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Each of the three gate conditions in SENTINEL-TEETH-HELPER-EXIT is neutered in turn; the fixture
+  # that the condition exists to catch must then FALSE-PASS (exit 0 under --require-teeth).
+  _gate_mut(){ # name  sed-condition-fragment  fixture-label  setup-function
+    local name="$1" frag="$2" label="$3" setup="$4" mw mout mrc
+    echo "-- teeth: neuter the $label condition in SENTINEL-TEETH-HELPER-EXIT; that fixture must FALSE-PASS --"
+    mw="$(mut_workdir "teeth-helper-gate-$name")"
+    if ! mutant_sed "$SUT" "$mw/run-all.sh" "/SENTINEL-TEETH-HELPER-EXIT/,+2s/$frag/false/" 2>"$mw/mutant.err"; then
+      no "teeth-helper-gate-$name: could not build a valid mutant: $(cat "$mw/mutant.err")"
+      return
+    fi
+    "$setup" "$mw"
+    bash "$mw/run-all.sh" --require-teeth >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then ok "teeth-helper-gate-$name: neutered $label condition exits 0 on the offending fixture → condition has real teeth"
+    else no "teeth-helper-gate-$name: mutant still exited $mrc — mutation not exercised (THEATER)"; fi
+  }
+  _setup_unwaived(){ mkfix_teeth "$1/hand.test.sh"; }
+  _setup_stale(){ mkfix_teeth "$1/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$1/helped.test.sh"
+    printf 'helped stale\n' > "$1/teeth-helper-waivers.txt"; }
+  _setup_invalid(){ mkfix_teeth "$1/helped.test.sh"; printf '. "$HERE/lib/mutant.sh"\n' >> "$1/helped.test.sh"
+    printf 'noreason\n' > "$1/teeth-helper-waivers.txt"; }
+  _gate_mut unwaived '\[\[ \${#_unwaived\[@\]} -gt 0 \]\]' unwaived _setup_unwaived
+  _gate_mut stale '\[\[ \${#_stale\[@\]} -gt 0 \]\]' stale _setup_stale
+  _gate_mut invalid '\[\[ \${#_wv_invalid\[@\]} -gt 0 \]\]' invalid _setup_invalid
+  # Mutation: nothing counts as waived; the waived fixture (36b) must then FAIL --require-teeth.
+  echo "-- teeth: stop matching waivers; a fully waived fixture must then FAIL --"
+  w="$(mut_workdir teeth-helper-waive-match)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/if \[\[ "\${_wv_reason\[\$_n\]+set}" == "set" \]\]; then _waived/if false; then _waived/' 2>"$w/mutant.err"; then
+    no "teeth-helper-waive-match: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_teeth "$w/hand.test.sh"; printf 'hand reason\n' > "$w/teeth-helper-waivers.txt"
+    bash "$w/run-all.sh" --require-teeth >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 1 ]; then ok "teeth-helper-waive-match: matching-less mutant fails a waived fixture → waiver matching has real teeth"
+    else no "teeth-helper-waive-match: mutant still exited $mrc — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: blind the unreadable-entry finder; the DEGRADED reason must then fall back to blaming the scanner.
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "-- teeth: blind SENTINEL-KIT-TREE-UNREADABLE; the reason must revert to blaming the scanner --"
+    w="$(mut_workdir teeth-kit-tree-unreadable)"; _tku="${w%/toolbelt/tests}"
+    if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-KIT-TREE-UNREADABLE/,+4s/-not -readable/-name __never__/' 2>"$w/mutant.err"; then
+      no "teeth-kit-tree-unreadable: could not build a valid mutant: $(cat "$w/mutant.err")"
+    else
+      mkdir -p "$_tku/install"; printf 's\n' > "$_tku/install/locked.sh"; chmod 000 "$_tku/install/locked.sh"
+      mkfix_sh "$w/a.test.sh" 1 0 0
+      mout="$(bash "$w/run-all.sh" 2>&1)"
+      chmod 644 "$_tku/install/locked.sh"
+      _tkuline="$(grep -E '^Kit-tree hermeticity: DEGRADED' <<<"$mout")"
+      if grep -qF "scanner ('find'" <<<"$_tkuline" && ! grep -qF 'install/locked.sh' <<<"$_tkuline"; then
+        ok "teeth-kit-tree-unreadable: finder-blind mutant blames the scanner again → unreadable-entry reason has real teeth"
+      else no "teeth-kit-tree-unreadable: mutant still named the entry — mutation not exercised (THEATER)"; fi
     fi
   fi
 fi
