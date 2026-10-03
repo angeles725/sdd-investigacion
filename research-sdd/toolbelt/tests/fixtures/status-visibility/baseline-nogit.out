@@ -1,0 +1,15 @@
+== research-sdd-status: nogit  ·  corpus: (flat) ==
+  Stop hook       : absent-settings
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+  -- summary --
+     WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.
+     ok     envelope validated + summary consistent with the backlog.

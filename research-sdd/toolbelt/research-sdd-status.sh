@@ -1772,8 +1772,41 @@ else
   nopen="$(count_open_contra "${ledgers[@]}")"
   [ "$nopen" -gt 0 ] && echo "  contradictions  : ${nopen} open" || echo "  contradictions  : (none)"
 fi
+# remote_visibility_block — read back each git remote's visibility (kit issue #1245). ensure-remote.sh
+# verifies PRIVATE only at creation and short-circuits on an existing origin, so a remote made PUBLIC later
+# is invisible without this. Surfaces the state; NEVER flips it (visibility is the owner's decision).
+#   PUBLIC             -> `WARN public-remote: <remote> ...` (stdout, part of the report)
+#   PRIVATE / INTERNAL -> silent;  no .git or no remote -> silent (nothing to read back)
+#   gh absent / failing / empty or unrecognised answer -> typed `degraded: remote-visibility: ...`
+#   (§7: a read-back that could not run is never a silent pass).
+# RSDD_GH_BIN overrides the gh binary (tests stub it; no network). Only the remote NAME is printed:
+# a remote URL may embed credentials.
+remote_visibility_block() {
+  [ -e "$target/.git" ] || return 0
+  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_vis _rv_rc
+  command -v git >/dev/null 2>&1 || { echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
+  mapfile -t _rv_arr < <(git -C "$target" remote 2>/dev/null)
+  [ "${#_rv_arr[@]}" -gt 0 ] || return 0
+  for _rv_r in "${_rv_arr[@]}"; do
+    [ -n "$_rv_r" ] || continue
+    if ! command -v "$_rv_gh" >/dev/null 2>&1; then
+      echo "degraded: remote-visibility: gh not found — cannot verify the visibility of remote $_rv_r"; continue
+    fi
+    _rv_url="$(git -C "$target" remote get-url "$_rv_r" 2>/dev/null)"
+    _rv_vis="$("$_rv_gh" repo view "$_rv_url" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
+    if [ "$_rv_rc" -ne 0 ]; then
+      echo "degraded: remote-visibility: gh failed (rc=$_rv_rc) for remote $_rv_r — visibility unverified"; continue
+    fi
+    case "$_rv_vis" in
+      PUBLIC) echo "WARN public-remote: $_rv_r is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it." ;;
+      PRIVATE|INTERNAL) ;;
+      *) echo "degraded: remote-visibility: unrecognised gh answer [$_rv_vis] for remote $_rv_r — visibility unverified" ;;
+    esac
+  done
+}
 saturation_line
 campaign_status_block
+remote_visibility_block
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
