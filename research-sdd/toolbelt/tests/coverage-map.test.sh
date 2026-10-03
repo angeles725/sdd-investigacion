@@ -41,7 +41,7 @@ mk_unit() {
 # ---- 1. absent subject → exit 1 + typed message
 out="$(rune "$ROOT/corpus" --subject "$ROOT/absent_subject" 2>&1)"
 rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'absent-input'; then
+if [ "$rc" -eq 1 ] && <<<"$out" grep -q 'absent-input'; then
   ok "absent subject: exit 1 + absent-input message"
 else
   no "absent subject: expected exit 1 + absent-input" "rc=$rc out=$out"
@@ -52,7 +52,7 @@ S2="$ROOT/s2"; C2="$ROOT/c2"
 mk_unit "$S2" "mod_alpha" "README.txt"
 mk_corpus "$C2" "proj-bloque1.md" "some text"
 out="$(run "$C2" --subject "$S2")"
-if printf '%s' "$out" | grep -q 'empty-input'; then
+if <<<"$out" grep -q 'empty-input'; then
   ok "empty subject (no .java): empty-input message"
 else
   no "empty subject: expected empty-input" "out=$out"
@@ -64,7 +64,7 @@ mk_unit "$S3" "mod_a" "Alpha.java"
 mkdir -p "$C3"   # corpus exists but has no block files
 touch "$C3/notes.txt"
 out="$(run "$C3" --subject "$S3")"
-if printf '%s' "$out" | grep -q 'corpus: empty-input'; then
+if <<<"$out" grep -q 'corpus: empty-input'; then
   ok "zero block files: corpus empty-input state distinct from zero citations"
 else
   no "zero block files: expected corpus empty-input" "out=$out"
@@ -75,7 +75,7 @@ S4="$ROOT/s4"; C4="$ROOT/c4"
 mk_unit "$S4" "mod_a" "Alpha.java"
 mk_corpus "$C4" "proj-bloque1.md" "nothing relevant here"
 out="$(run "$C4" --subject "$S4")"
-if printf '%s' "$out" | grep -q 'no-match'; then
+if <<<"$out" grep -q 'no-match'; then
   ok "zero citations: no-match line present"
 else
   no "zero citations: no-match line missing" "out=$out"
@@ -89,12 +89,12 @@ mk_unit "$S5" "alpha" "Shared.java"
 mk_unit "$S5" "beta"  "Shared.java"
 mk_corpus "$C5" "proj-bloque1.md" "Shared.java used here; also UniqueClass.java in context"
 out="$(run "$C5" --subject "$S5")"
-ambig_n="$(printf '%s' "$out" | grep 'ambiguous basenames excluded' | grep -oE '[0-9]+' | head -1)"
-modules_line="$(printf '%s' "$out" | grep 'modules:')"
+ambig_n="$(<<<"$out" grep 'ambiguous basenames excluded' | grep -oE '[0-9]+' | sed -n 1p)"
+modules_line="$(<<<"$out" grep 'modules:')"
 # Shared is ambiguous (2 modules), UniqueClass is unambiguous and cited
 # solo → cited; alpha and beta → uncited (Shared excluded)
 if [ "${ambig_n:-0}" -ge 1 ] \
-   && printf '%s' "$modules_line" | grep -qE '1/3 cited'; then
+   && <<<"$modules_line" grep -qE '1/3 cited'; then
   ok "ambiguity exclusion: Shared excluded; solo cited via UniqueClass.java"
 else
   no "ambiguity exclusion" "ambig=$ambig_n modules_line=$modules_line"
@@ -105,7 +105,7 @@ S6="$ROOT/s6"; C6="$ROOT/c6"
 mk_unit "$S6" "solo" "Foo.java"
 mk_corpus "$C6" "proj-bloque1.md" "BarFoo is the main class here"
 out="$(run "$C6" --subject "$S6")"
-if printf '%s' "$out" | grep -qE '0/1 cited'; then
+if <<<"$out" grep -qE '0/1 cited'; then
   ok "ext-bearing: Foo not cited (no Foo.java in corpus, BarFoo irrelevant)"
 else
   no "ext-bearing: Foo should NOT be cited" "out=$out"
@@ -116,7 +116,7 @@ S7="$ROOT/s7"; C7="$ROOT/c7"
 mk_unit "$S7" "solo" "Widget.java"
 mk_corpus "$C7" "proj-bloque1.md" "see Widget.java in the codebase"
 out="$(run "$C7" --subject "$S7")"
-if printf '%s' "$out" | grep -qE '1/1 cited'; then
+if <<<"$out" grep -qE '1/1 cited'; then
   ok "ext-bearing citation: Widget.java (>=4 chars) is cited correctly"
 else
   no "ext-bearing citation: Widget.java should be cited" "out=$out"
@@ -127,7 +127,7 @@ S8="$ROOT/s8"; C8="$ROOT/c8"
 mk_unit "$S8" "bacnetUtil" "BACnetDevice.java"
 mk_corpus "$C8" "proj-bloque1.md" "see bacnetUtil/src/BACnetDevice.java for details"
 out="$(run "$C8" --subject "$S8")"
-if printf '%s' "$out" | grep -qE '1/1 cited'; then
+if <<<"$out" grep -qE '1/1 cited'; then
   ok "path-token citation: bacnetUtil/ in corpus cites bacnetUtil module"
 else
   no "path-token citation: expected 1/1 cited" "out=$out"
@@ -140,7 +140,7 @@ for i in $(seq 1 5); do touch "$S9/big/Class${i}.java"; done
 touch "$S9/small/OneClass.java"
 mk_corpus "$C9" "proj-bloque1.md" "nothing matching here"
 out="$(run "$C9" --subject "$S9" --top 2)"
-first_count="$(printf '%s' "$out" | grep -E '^[0-9]+' | head -1 | awk '{print $1}')"
+first_count="$(<<<"$out" grep -E '^[0-9]+' | sed -n 1p | awk '{print $1}')"
 if [ "${first_count:-0}" -eq 5 ]; then
   ok "--top N: big (5 files) ranks first, small (1 file) second"
 else
@@ -155,7 +155,7 @@ mk_unit "$S10" "mod_b" "FooBar.java" # 6 chars → included
 mk_corpus "$C10" "proj-bloque1.md" "FooBar.java is a real class. Foo appears too."
 out="$(run "$C10" --subject "$S10")"
 # mod_b (FooBar.java) should be cited, mod_a's Foo is excluded (short → not indexed)
-if printf '%s' "$out" | grep -qE '1/2 cited'; then
+if <<<"$out" grep -qE '1/2 cited'; then
   ok "short basenames excluded: Foo (3 chars) not in index; FooBar.java cited"
 else
   no "short basename exclusion" "out=$out"
@@ -166,9 +166,9 @@ S11="$ROOT/s11"; C11="$ROOT/c11"
 mk_unit "$S11" "mod_a" "Alpha.java"
 mk_corpus "$C11" "proj-bloque1.md" "unrelated text"
 out="$(run "$C11" --subject "$S11")"
-if printf '%s' "$out" | grep -q 'ambiguous basenames excluded:' \
-   && printf '%s' "$out" | grep -q 'excluded by declaration:' \
-   && printf '%s' "$out" | grep -q 'modules:'; then
+if <<<"$out" grep -q 'ambiguous basenames excluded:' \
+   && <<<"$out" grep -q 'excluded by declaration:' \
+   && <<<"$out" grep -q 'modules:'; then
   ok "always-print: ambiguous + excluded-by-declaration + modules lines always present"
 else
   no "always-print: missing required output lines" "out=$out"
@@ -182,11 +182,11 @@ mk_corpus "$C12" "proj-bloque1.md" "Main.java is the entry point"
 EXCL12="$ROOT/excl12.txt"
 printf 'vendorLib\n' > "$EXCL12"
 out="$(run "$C12" --subject "$S12" --exclude-file "$EXCL12")"
-excl_line="$(printf '%s' "$out" | grep 'excluded by declaration:')"
+excl_line="$(<<<"$out" grep 'excluded by declaration:')"
 # vendorLib excluded: effective total=1, appCore cited via Main.java
-if printf '%s' "$out" | grep -qE '1/1 cited' \
-   && printf '%s' "$excl_line" | grep -q '1 unit' \
-   && printf '%s' "$excl_line" | grep -q "$EXCL12"; then
+if <<<"$out" grep -qE '1/1 cited' \
+   && <<<"$excl_line" grep -q '1 unit' \
+   && <<<"$excl_line" grep -q "$EXCL12"; then
   ok "--exclude-file: vendorLib excluded; appCore cited; declaration names file"
 else
   no "--exclude-file: failed" "out=$out excl_line=$excl_line"
@@ -198,9 +198,9 @@ mk_unit "$S13" "appMain" "Main.java"      # basename Main = 4 chars (≥4 → in
 mk_unit "$S13" "thirdParty" "Vendor.java"
 mk_corpus "$C13" "proj-bloque1.md" "Main.java is the application entry point"
 out="$(run "$C13" --subject "$S13" --exclude "thirdParty")"
-excl_line13="$(printf '%s' "$out" | grep 'excluded by declaration:')"
-if printf '%s' "$out" | grep -qE '1/1 cited' \
-   && printf '%s' "$excl_line13" | grep -q '1 unit'; then
+excl_line13="$(<<<"$out" grep 'excluded by declaration:')"
+if <<<"$out" grep -qE '1/1 cited' \
+   && <<<"$excl_line13" grep -q '1 unit'; then
   ok "--exclude: thirdParty excluded from denominator; appMain cited"
 else
   no "--exclude: failed" "out=$out excl_line=$excl_line13"
@@ -219,7 +219,7 @@ if [ "$(id -u)" -eq 0 ]; then
   ok "14-skip (running as root; chmod 000 does not prevent read — root can always read)"
 else
   out14="$(rune "$C14" --subject "$S14" --exclude-file "$EXCL14")"
-  if printf '%s' "$out14" | grep -q 'WARN: exclude-file read FAILED'; then
+  if <<<"$out14" grep -q 'WARN: exclude-file read FAILED'; then
     ok "14. unreadable exclude file: WARN fires (not silently empty, #500)"
   else
     no "14. unreadable exclude file: expected WARN line, got none" "out=$out14"
@@ -235,8 +235,8 @@ mk_corpus "$C15" "proj-bloque1.md" "nothing matching here at all"
 EXCL15="$ROOT/excl15.txt"
 printf '# This line is a comment\n# Another comment\n\n' > "$EXCL15"
 out15="$(rune "$C15" --subject "$S15" --exclude-file "$EXCL15")"
-if ! printf '%s' "$out15" | grep -q 'WARN:' \
-   && printf '%s' "$out15" | grep -q 'excluded by declaration: 0'; then
+if ! <<<"$out15" grep -q 'WARN:' \
+   && <<<"$out15" grep -q 'excluded by declaration: 0'; then
   ok "15. all-comment exclude file: no WARN, rc==1 treated as benign empty set"
 else
   no "15. all-comment exclude file: unexpected WARN or wrong exclusion count" "out=$out15"
@@ -250,7 +250,7 @@ mk_unit "$S16" "mod_a" "DistinctWidget.java"
 mkdir -p "$C16/sub dir"   # directory whose name contains a space
 printf 'DistinctWidget.java is referenced here\n' > "$C16/sub dir/proj-bloque1.md"
 out16="$(run "$C16" --subject "$S16")"
-if printf '%s' "$out16" | grep -qE '1/1 cited'; then
+if <<<"$out16" grep -qE '1/1 cited'; then
   ok "16. space in corpus subdir: DistinctWidget.java cited through space-path block"
 else
   no "16. space in corpus subdir: expected 1/1 cited" "out=$out16"
@@ -266,7 +266,7 @@ if [ "$(id -u)" -eq 0 ]; then
   ok "17-skip (running as root; chmod 000 does not prevent read)"
 else
   out17="$(rune "$C17" --subject "$S17")"
-  if printf '%s' "$out17" | grep -q 'WARN:.*block files unreadable'; then
+  if <<<"$out17" grep -q 'WARN:.*block files unreadable'; then
     ok "17. unreadable block: WARN fires in stderr (#506)"
   else
     no "17. unreadable block: expected WARN, got none" "out=$out17"
@@ -294,15 +294,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -q 'SENTINEL-A:' "$SUT"; then
     sed 's/UNCITED=.*/UNCITED=0  # MUTATED-A/' "$SUT" > "$MUTANT_A"
     mout_a="$(bash "$MUTANT_A" "$CT" --subject "$ST" 2>/dev/null)"
-    if printf '%s' "$mout_a" | grep -qE '0 never cited'; then
+    if <<<"$mout_a" grep -qE '0 never cited'; then
       ok "teeth-a: UNCITED=0 mutant prints 0 never cited (assertion in real test would fail)"
     else
       no "teeth-a: mutant did not output 0 never cited" "out=$mout_a"
     fi
     # The real assertion: without mutation, uncited is 1
     rout_a="$(run "$CT" --subject "$ST" 2>/dev/null)"
-    if printf '%s' "$rout_a" | grep -qE '1 never cited' \
-       && ! printf '%s' "$mout_a" | grep -qE '1 never cited'; then
+    if <<<"$rout_a" grep -qE '1 never cited' \
+       && ! <<<"$mout_a" grep -qE '1 never cited'; then
       ok "teeth-a: original prints 1 never cited; mutant prints 0 — bites"
     else
       no "teeth-a: mutation did not change uncited count" "orig=$rout_a mut=$mout_a"
@@ -324,8 +324,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_corpus "$CT_B" "proj-bloque1.md" "Shared.java is referenced here"
     mout_b="$(bash "$MUTANT_B" "$CT_B" --subject "$ST" 2>/dev/null)"
     rout_b="$(run "$CT_B" --subject "$ST" 2>/dev/null)"
-    mcited="$(printf '%s' "$mout_b" | grep 'modules:' | sed 's/modules: //' | cut -d'/' -f1 || true)"
-    rcited="$(printf '%s' "$rout_b" | grep 'modules:' | sed 's/modules: //' | cut -d'/' -f1 || true)"
+    mcited="$(<<<"$mout_b" grep 'modules:' | sed 's/modules: //' | cut -d'/' -f1 || true)"
+    rcited="$(<<<"$rout_b" grep 'modules:' | sed 's/modules: //' | cut -d'/' -f1 || true)"
     if [ "${rcited:-x}" != "${mcited:-y}" ]; then
       ok "teeth-b: ambiguity exclusion removal changes cited count (orig=$rcited mut=$mcited)"
     else
@@ -349,8 +349,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_corpus "$CC" "proj-bloque1.md" "SomeBase.java is the main class in the module"
     mout_c="$(bash "$MUTANT_C" "$CC" --subject "$SC" 2>/dev/null)"
     rout_c="$(run "$CC" --subject "$SC" 2>/dev/null)"
-    if printf '%s' "$rout_c" | grep -qE '0/1 cited' \
-       && printf '%s' "$mout_c" | grep -qE '1/1 cited'; then
+    if <<<"$rout_c" grep -qE '0/1 cited' \
+       && <<<"$mout_c" grep -qE '1/1 cited'; then
       ok "teeth-c: original 0 cited (word-boundary); mutant (substring) 1 cited — bites"
     else
       no "teeth-c: mutation did not change citation" "orig=$rout_c mut=$mout_c"
@@ -375,12 +375,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_corpus "$CD" "proj-bloque1.md" "This is the main dialog class here"
     rout_d="$(run "$CD" --subject "$SD" 2>/dev/null)"
     mout_d="$(bash "$MUTANT_D" "$CD" --subject "$SD" 2>/dev/null)"
-    if printf '%s' "$rout_d" | grep -qE '0/1 cited' \
-       && printf '%s' "$mout_d" | grep -qE '1/1 cited'; then
+    if <<<"$rout_d" grep -qE '0/1 cited' \
+       && <<<"$mout_d" grep -qE '1/1 cited'; then
       ok "teeth-d: original not cited (no This.java in corpus); bare-stem mutant cited — bites"
     else
       no "teeth-d: bare-stem mutant did not change citation" \
-         "orig=$(printf '%s' "$rout_d" | grep modules:) mut=$(printf '%s' "$mout_d" | grep modules:)"
+         "orig=$(<<<"$rout_d" grep modules:) mut=$(<<<"$mout_d" grep modules:)"
     fi
   else
     no "teeth-d: SENTINEL-D: comment not found in SUT (cannot anchor mutation)"
@@ -401,12 +401,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_corpus "$CE" "proj-bloque1.md" "some content here"
     rout_e="$(run "$CE" --subject "$SE" --exclude "vendorLib" 2>/dev/null)"
     mout_e="$(bash "$MUTANT_E" "$CE" --subject "$SE" --exclude "vendorLib" 2>/dev/null)"
-    if printf '%s' "$rout_e" | grep -q 'excluded by declaration:' \
-       && ! printf '%s' "$mout_e" | grep -q 'excluded by declaration:'; then
+    if <<<"$rout_e" grep -q 'excluded by declaration:' \
+       && ! <<<"$mout_e" grep -q 'excluded by declaration:'; then
       ok "teeth-e: original prints excluded-by-declaration; mutant silences it — bites"
     else
       no "teeth-e: excluded-by-declaration line mutation did not bite" \
-         "orig_has=$(printf '%s' "$rout_e" | grep -c 'excluded by declaration:' || true) mut_has=$(printf '%s' "$mout_e" | grep -c 'excluded by declaration:' || true)"
+         "orig_has=$(<<<"$rout_e" grep -c 'excluded by declaration:' || true) mut_has=$(<<<"$mout_e" grep -c 'excluded by declaration:' || true)"
     fi
   else
     no "teeth-e: SENTINEL-E: comment not found in SUT (cannot anchor mutation)"
@@ -426,12 +426,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_corpus "$CF" "proj-bloque1.md" "see bacnetDb/ for the schema directory overview"
     rout_f="$(run "$CF" --subject "$SF" 2>/dev/null)"
     mout_f="$(bash "$MUTANT_F" "$CF" --subject "$SF" 2>/dev/null)"
-    if printf '%s' "$rout_f" | grep -qE '0/1 cited' \
-       && printf '%s' "$mout_f" | grep -qE '1/1 cited'; then
+    if <<<"$rout_f" grep -qE '0/1 cited' \
+       && <<<"$mout_f" grep -qE '1/1 cited'; then
       ok "teeth-f: bare dir bacnetDb/ not cited (original); bare-dir mutant cites — bites"
     else
       no "teeth-f: path-token tightening mutation did not bite" \
-         "orig=$(printf '%s' "$rout_f" | grep modules:) mut=$(printf '%s' "$mout_f" | grep modules:)"
+         "orig=$(<<<"$rout_f" grep modules:) mut=$(<<<"$mout_f" grep modules:)"
     fi
   else
     no "teeth-f: SENTINEL-F: comment not found in SUT"
@@ -457,12 +457,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       rout_g="$(bash "$SUT" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
       sed 's/printf.*exclude-file read FAILED.*/: # MUTATED-G/' "$SUT" > "$MUTANT_G"
       mout_g="$(bash "$MUTANT_G" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
-      if printf '%s' "$rout_g" | grep -q 'WARN: exclude-file read FAILED' \
-         && ! printf '%s' "$mout_g" | grep -q 'WARN: exclude-file read FAILED'; then
+      if <<<"$rout_g" grep -q 'WARN: exclude-file read FAILED' \
+         && ! <<<"$mout_g" grep -q 'WARN: exclude-file read FAILED'; then
         ok "teeth-g: original WARNs on unreadable file; drop-WARN mutant silences it — bites"
       else
         no "teeth-g: drop-WARN mutant did not change WARN output" \
-           "orig_warn=$(printf '%s' "$rout_g" | grep -c 'WARN:' || true) mut_warn=$(printf '%s' "$mout_g" | grep -c 'WARN:' || true)"
+           "orig_warn=$(<<<"$rout_g" grep -c 'WARN:' || true) mut_warn=$(<<<"$mout_g" grep -c 'WARN:' || true)"
       fi
       chmod 644 "$EXCL_G"
     fi
@@ -487,12 +487,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       rout_h="$(bash "$SUT" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
       sed 's/|| _excl_rc=\$?/|| true/' "$SUT" > "$MUTANT_H"
       mout_h="$(bash "$MUTANT_H" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
-      if printf '%s' "$rout_h" | grep -q 'WARN: exclude-file read FAILED' \
-         && ! printf '%s' "$mout_h" | grep -q 'WARN: exclude-file read FAILED'; then
+      if <<<"$rout_h" grep -q 'WARN: exclude-file read FAILED' \
+         && ! <<<"$mout_h" grep -q 'WARN: exclude-file read FAILED'; then
         ok "teeth-h: original WARNs; || true revert silences WARN — bites"
       else
         no "teeth-h: || true revert did not change WARN output" \
-           "orig_warn=$(printf '%s' "$rout_h" | grep -c 'WARN:' || true) mut_warn=$(printf '%s' "$mout_h" | grep -c 'WARN:' || true)"
+           "orig_warn=$(<<<"$rout_h" grep -c 'WARN:' || true) mut_warn=$(<<<"$mout_h" grep -c 'WARN:' || true)"
       fi
       chmod 644 "$EXCL_H"
     fi
@@ -521,12 +521,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf 'DistinctWidget.java is referenced here\n' > "$CI/sub dir/proj-bloque1.md"
     rout_i="$(run "$CI" --subject "$SI" 2>/dev/null)"
     mout_i="$(bash "$MUTANT_I" "$CI" --subject "$SI" 2>/dev/null)"
-    if printf '%s' "$rout_i" | grep -qE '1/1 cited' \
-       && printf '%s' "$mout_i" | grep -qE '0/1 cited'; then
+    if <<<"$rout_i" grep -qE '1/1 cited' \
+       && <<<"$mout_i" grep -qE '0/1 cited'; then
       ok "teeth-i: original cites space-path block (1/1); xargs mutant drops it (0/1) — bites"
     else
       no "teeth-i: whitespace-safe mutation did not change citation" \
-         "orig=$(printf '%s' "$rout_i" | grep 'modules:') mut=$(printf '%s' "$mout_i" | grep 'modules:')"
+         "orig=$(<<<"$rout_i" grep 'modules:') mut=$(<<<"$mout_i" grep 'modules:')"
     fi
   else
     no "teeth-i: SENTINEL-CORPUS-WS: not found in SUT (cannot anchor mutation)"
@@ -547,12 +547,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       rout_j="$(bash "$SUT" "$CJ" --subject "$SJ" 2>&1)"
       mout_j="$(bash "$MUTANT_J" "$CJ" --subject "$SJ" 2>&1)"
-      if printf '%s' "$rout_j" | grep -q 'WARN:.*block files unreadable' \
-         && ! printf '%s' "$mout_j" | grep -q 'WARN:.*block files unreadable'; then
+      if <<<"$rout_j" grep -q 'WARN:.*block files unreadable' \
+         && ! <<<"$mout_j" grep -q 'WARN:.*block files unreadable'; then
         ok "teeth-j: original WARNs on unreadable block; drop-WARN mutant silences it — bites"
       else
         no "teeth-j: drop-WARN mutant did not change WARN output" \
-           "orig_warn=$(printf '%s' "$rout_j" | grep -c 'WARN:') mut_warn=$(printf '%s' "$mout_j" | grep -c 'WARN:')"
+           "orig_warn=$(<<<"$rout_j" grep -c 'WARN:') mut_warn=$(<<<"$mout_j" grep -c 'WARN:')"
       fi
       chmod 644 "$CJ/proj-bloque1.md"
     fi

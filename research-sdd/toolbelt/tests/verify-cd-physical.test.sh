@@ -75,7 +75,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 echo "$HERE"
 EOF
 OUT3="$(bash "$SUT" "$box3" 2>&1)"; RC3=$?
-if [ "$RC3" -eq 0 ] && ! printf '%s' "$OUT3" | grep -q 'HIT'; then
+if [ "$RC3" -eq 0 ] && ! <<<"$OUT3" grep -q 'HIT'; then
   ok "3 non-climbing dirname(\$0) derivation is NOT flagged (harmless, exit 0)"
 else
   no "3 non-climbing derivation was wrongly flagged (rc=$RC3 out=[$OUT3])"
@@ -89,7 +89,7 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "$KIT"
 EOF
 OUT4="$(bash "$SUT" "$box4" 2>&1)"; RC4=$?
-if [ "$RC4" -eq 1 ] && printf '%s' "$OUT4" | grep -q 'HIT.*bad\.sh:2'; then
+if [ "$RC4" -eq 1 ] && <<<"$OUT4" grep -q 'HIT.*bad\.sh:2'; then
   ok "4 climbing derivation lacking -P IS flagged (HIT, exit 1)"
 else
   no "4 climbing derivation should have been flagged (rc=$RC4 out=[$OUT4])"
@@ -103,7 +103,7 @@ KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 echo "$KIT"
 EOF
 OUT5="$(bash "$SUT" "$box5" 2>&1)"; RC5=$?
-if [ "$RC5" -eq 0 ] && ! printf '%s' "$OUT5" | grep -q 'HIT'; then
+if [ "$RC5" -eq 0 ] && ! <<<"$OUT5" grep -q 'HIT'; then
   ok "5 climbing derivation WITH -P is NOT flagged (exit 0)"
 else
   no "5 -P'd climbing derivation was wrongly flagged (rc=$RC5 out=[$OUT5])"
@@ -119,7 +119,7 @@ KIT="$(cd -P "$(dirname "$0")/.." && pwd)"
 echo "$KIT"
 EOF
 OUT5B="$(bash "$SUT" "$box5b" 2>&1)"; RC5B=$?
-if [ "$RC5B" -eq 0 ] && ! printf '%s' "$OUT5B" | grep -q 'HIT'; then
+if [ "$RC5B" -eq 0 ] && ! <<<"$OUT5B" grep -q 'HIT'; then
   ok "5b climbing derivation with cd -P alone (bare pwd) is NOT flagged (exit 0)"
 else
   no "5b cd-P-only climbing derivation was wrongly flagged (rc=$RC5B out=[$OUT5B])"
@@ -136,7 +136,7 @@ KX="/unrelated/path"
 OTHER="$(cd "$KX/.." && pwd)"
 EOF
 OUT5C="$(bash "$SUT" "$box5c" 2>&1)"; RC5C=$?
-if [ "$RC5C" -eq 0 ] && ! printf '%s' "$OUT5C" | grep -q 'HIT'; then
+if [ "$RC5C" -eq 0 ] && ! <<<"$OUT5C" grep -q 'HIT'; then
   ok "5c word-boundary: \$KX does not falsely match a tainted K"
 else
   no "5c word-boundary: \$KX was wrongly treated as a reference to tainted K (rc=$RC5C out=[$OUT5C])"
@@ -151,7 +151,7 @@ cat > "$box5d/fixed.sh" <<'EOF'
 KIT="$(cd "$(dirname "$0")" && cd .. && cd -P . && pwd)"
 EOF
 OUT5D="$(bash "$SUT" "$box5d" 2>&1)"; RC5D=$?
-if [ "$RC5D" -eq 1 ] && printf '%s' "$OUT5D" | grep -q 'HIT.*fixed\.sh:2'; then
+if [ "$RC5D" -eq 1 ] && <<<"$OUT5D" grep -q 'HIT.*fixed\.sh:2'; then
   ok "5d per-cd precision: 'cd .. && cd -P .' IS flagged — the climbing cd has no -P of its own"
 else
   no "5d per-cd precision: 'cd .. && cd -P .' was wrongly left unflagged (rc=$RC5D out=[$OUT5D])"
@@ -165,7 +165,7 @@ cat > "$box5e/fixed.sh" <<'EOF'
 KIT="$(cd "$(dirname -- "$0")/.." && pwd)"
 EOF
 OUT5E="$(bash "$SUT" "$box5e" 2>&1)"; RC5E=$?
-if [ "$RC5E" -eq 1 ] && printf '%s' "$OUT5E" | grep -q 'HIT.*fixed\.sh:2'; then
+if [ "$RC5E" -eq 1 ] && <<<"$OUT5E" grep -q 'HIT.*fixed\.sh:2'; then
   ok "5e cheap shape: 'dirname -- \"\$0\"' is recognised as a rooted, climbing derivation"
 else
   no "5e cheap shape: 'dirname -- \"\$0\"' was not recognised (rc=$RC5E out=[$OUT5E])"
@@ -178,7 +178,7 @@ cat > "$box5f/fixed.sh" <<'EOF'
 KIT="$(cd "$(dirname "${0}")/.." && pwd)"
 EOF
 OUT5F="$(bash "$SUT" "$box5f" 2>&1)"; RC5F=$?
-if [ "$RC5F" -eq 1 ] && printf '%s' "$OUT5F" | grep -q 'HIT.*fixed\.sh:2'; then
+if [ "$RC5F" -eq 1 ] && <<<"$OUT5F" grep -q 'HIT.*fixed\.sh:2'; then
   ok "5f cheap shape: 'dirname \"\${0}\"' (braced) is recognised as a rooted, climbing derivation"
 else
   no "5f cheap shape: 'dirname \"\${0}\"' was not recognised (rc=$RC5F out=[$OUT5F])"
@@ -192,7 +192,7 @@ local KIT="$(cd "$(dirname "$0")/.." && pwd)"
 export KIT2="$(cd "$KIT/.." && pwd)"
 EOF
 OUT5G="$(bash "$SUT" "$box5g" 2>&1)"; RC5G=$?
-if [ "$RC5G" -eq 1 ] && printf '%s' "$OUT5G" | grep -q 'HIT.*fixed\.sh:2'; then
+if [ "$RC5G" -eq 1 ] && <<<"$OUT5G" grep -q 'HIT.*fixed\.sh:2'; then
   ok "5g cheap shape: a 'local' prefix before the variable name is recognised"
 else
   no "5g cheap shape: 'local KIT=...' was not recognised (rc=$RC5G out=[$OUT5G])"
@@ -210,8 +210,8 @@ cat > "$box5h/fixed.sh" <<'EOF'
 here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)" # matches *.txt or [ab]*
 EOF
 OUT5H="$(bash "$SUT" "$box5h" 2>&1)"; RC5H=$?
-if [ "$RC5H" -eq 1 ] && printf '%s' "$OUT5H" | grep -q 'HIT.*fixed\.sh:3' \
-   && ! printf '%s' "$OUT5H" | grep -qi 'somefile\|anotherfile'; then
+if [ "$RC5H" -eq 1 ] && <<<"$OUT5H" grep -q 'HIT.*fixed\.sh:3' \
+   && ! <<<"$OUT5H" grep -qi 'somefile\|anotherfile'; then
   ok "5h unquoted-split-globs: a glob-metachar-bearing line is handled correctly, no glob expansion leaked"
 else
   no "5h unquoted-split-globs: glob metacharacters affected the result (rc=$RC5H out=[$OUT5H])"
@@ -227,7 +227,7 @@ KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 echo "$KIT"
 EOF
 OUT5I="$(bash "$SUT" "$box5i" 2>&1)"; RC5I=$?
-if [ "$RC5I" -eq 0 ] && ! printf '%s' "$OUT5I" | grep -qi 'no-match'; then
+if [ "$RC5I" -eq 0 ] && ! <<<"$OUT5I" grep -qi 'no-match'; then
   ok "5i climb_seen: an all-compliant file is NOT reported as no-match (the pattern was seen)"
 else
   no "5i climb_seen: an all-compliant file was wrongly reported as no-match (rc=$RC5I out=[$OUT5I])"
@@ -242,8 +242,8 @@ KIT="$(cd "$SELF_DIR/.." && pwd)"
 echo "$KIT"
 EOF
 OUT6="$(bash "$SUT" "$box6" 2>&1)"; RC6=$?
-if [ "$RC6" -eq 1 ] && printf '%s' "$OUT6" | grep -q 'HIT.*chained\.sh:3' \
-   && ! printf '%s' "$OUT6" | grep -q 'chained\.sh:2'; then
+if [ "$RC6" -eq 1 ] && <<<"$OUT6" grep -q 'HIT.*chained\.sh:3' \
+   && ! <<<"$OUT6" grep -q 'chained\.sh:2'; then
   ok "6 chained derivation: line 3 (the climb) is flagged, line 2 (safe hop) is not"
 else
   no "6 chained-derivation taint propagation failed (rc=$RC6 out=[$OUT6])"
@@ -258,7 +258,7 @@ target_root="$(cd "$(dirname "$(dirname "$retro")")" && pwd)"
 echo "$target_root"
 EOF
 OUT7="$(bash "$SUT" "$box7" 2>&1)"; RC7=$?
-if [ "$RC7" -eq 0 ] && ! printf '%s' "$OUT7" | grep -q 'HIT'; then
+if [ "$RC7" -eq 0 ] && ! <<<"$OUT7" grep -q 'HIT'; then
   ok "7 dirname of an unrelated variable (not \$0/BASH_SOURCE) is excluded"
 else
   no "7 unrelated dirname was wrongly flagged (rc=$RC7 out=[$OUT7])"
@@ -272,7 +272,7 @@ here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)"
 echo "$KIT"
 EOF
 OUT8="$(bash "$SUT" "$box8" 2>&1)"; RC8=$?
-if [ "$RC8" -eq 1 ] && printf '%s' "$OUT8" | grep -q 'HIT.*semi\.sh:2'; then
+if [ "$RC8" -eq 1 ] && <<<"$OUT8" grep -q 'HIT.*semi\.sh:2'; then
   ok "8 ';'-separated statement on one physical line: taint propagates, climb flagged"
 else
   no "8 ';'-separated statement taint propagation failed (rc=$RC8 out=[$OUT8])"
@@ -286,8 +286,8 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"  # LINT-CD-PHYSICAL-OK: fixture, deliber
 echo "$KIT"
 EOF
 OUT9="$(bash "$SUT" "$box9" 2>&1)"; RC9=$?
-if [ "$RC9" -eq 0 ] && printf '%s' "$OUT9" | grep -q 'ALLOWED.*allowed\.sh:2' \
-   && ! printf '%s' "$OUT9" | grep -q 'HIT'; then
+if [ "$RC9" -eq 0 ] && <<<"$OUT9" grep -q 'ALLOWED.*allowed\.sh:2' \
+   && ! <<<"$OUT9" grep -q 'HIT'; then
   ok "9 allow-marker on the flagged line suppresses the HIT (ALLOWED, exit 0)"
 else
   no "9 same-line allow-marker did not suppress the HIT (rc=$RC9 out=[$OUT9])"
@@ -302,8 +302,8 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "$KIT"
 EOF
 OUT10="$(bash "$SUT" "$box10" 2>&1)"; RC10=$?
-if [ "$RC10" -eq 0 ] && printf '%s' "$OUT10" | grep -q 'ALLOWED.*allowed2\.sh:3' \
-   && ! printf '%s' "$OUT10" | grep -q 'HIT'; then
+if [ "$RC10" -eq 0 ] && <<<"$OUT10" grep -q 'ALLOWED.*allowed2\.sh:3' \
+   && ! <<<"$OUT10" grep -q 'HIT'; then
   ok "10 allow-marker on the PRECEDING line also suppresses the HIT"
 else
   no "10 preceding-line allow-marker did not suppress the HIT (rc=$RC10 out=[$OUT10])"
@@ -317,7 +317,7 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"  # LINT-CD-PHYSICAL-OK:
 echo "$KIT"
 EOF
 OUT11="$(bash "$SUT" "$box11" 2>&1)"; RC11=$?
-if [ "$RC11" -eq 1 ] && printf '%s' "$OUT11" | grep -q 'HIT.*emptyreason\.sh:2'; then
+if [ "$RC11" -eq 1 ] && <<<"$OUT11" grep -q 'HIT.*emptyreason\.sh:2'; then
   ok "11 allow-marker with an empty reason still counts as a HIT (reason is required)"
 else
   no "11 empty-reason allow-marker wrongly suppressed the HIT (rc=$RC11 out=[$OUT11])"
@@ -325,7 +325,7 @@ fi
 
 # ── 12. absent-input: no scan directory found ────────────────────────────────
 OUT12="$(bash "$SUT" "$TMP/does-not-exist-$$" 2>&1)"; RC12=$?
-if [ "$RC12" -eq 2 ] && printf '%s' "$OUT12" | grep -qi 'absent-input'; then
+if [ "$RC12" -eq 2 ] && <<<"$OUT12" grep -qi 'absent-input'; then
   ok "12 absent-input: no scan directory found → exit 2, typed message"
 else
   no "12 absent-input state not reported (rc=$RC12 out=[$OUT12])"
@@ -335,7 +335,7 @@ fi
 box13="$(mkbox case-empty)"
 printf 'not a shell script\n' > "$box13/readme.txt"
 OUT13="$(bash "$SUT" "$box13" 2>&1)"; RC13=$?
-if [ "$RC13" -eq 2 ] && printf '%s' "$OUT13" | grep -qi 'empty-input'; then
+if [ "$RC13" -eq 2 ] && <<<"$OUT13" grep -qi 'empty-input'; then
   ok "13 empty-input: directory exists, no *.sh files → exit 2, typed message"
 else
   no "13 empty-input state not reported (rc=$RC13 out=[$OUT13])"
@@ -348,7 +348,7 @@ cat > "$box14/plain.sh" <<'EOF'
 echo "hello world"
 EOF
 OUT14="$(bash "$SUT" "$box14" 2>&1)"; RC14=$?
-if [ "$RC14" -eq 0 ] && printf '%s' "$OUT14" | grep -qi 'no-match'; then
+if [ "$RC14" -eq 0 ] && <<<"$OUT14" grep -qi 'no-match'; then
   ok "14 no-match: files scanned, pattern never seen → exit 0, typed message"
 else
   no "14 no-match state not reported (rc=$RC14 out=[$OUT14])"
@@ -380,7 +380,7 @@ cat > "$box15b/tests/some.test.sh" <<'EOF'
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 EOF
 OUT15B="$(bash "$SUT" "$box15b/tests" 2>&1)"; RC15B=$?
-if [ "$RC15B" -eq 1 ] && printf '%s' "$OUT15B" | grep -q 'HIT.*some\.test\.sh:2'; then
+if [ "$RC15B" -eq 1 ] && <<<"$OUT15B" grep -q 'HIT.*some\.test\.sh:2'; then
   ok "15b explicit tests/ directory argument is still scanned in full (default-scope exclusion is a default, not a limit)"
 else
   no "15b explicit tests/ directory argument was not scanned (rc=$RC15B out=[$OUT15B])"
