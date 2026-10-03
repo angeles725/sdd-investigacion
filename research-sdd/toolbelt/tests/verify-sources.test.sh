@@ -953,6 +953,37 @@ grep -q 'orphan-snapshot: sources/web-snapshots/x.md' <<<"$out" && ! grep -q 'or
   || { printf '  FAIL  %-42s (orphan set wrong)\n' "#1228 orphan isolated from root-form row"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# #1483 — non-web-snapshot rows written in the repo-root form `sources/<f>` must reach the D2 "not hash-verified"
+# visibility count (COUNT-ONLY: still not hash-verified, so a wrong hash on them stays exit 0 — no calibration
+# change to LEVEL 6). LIST EDGES: bare row FIRST, root-form MIDDLE (backticked), root-form LAST; plus a root-form
+# web-snapshot row (belongs to LEVEL 6, must NOT be counted) and a foreign-prefix row (must NOT be counted).
+d="$TMP/d2-rootform"; mkdir -p "$d/sources/manuals" "$d/sources/web-snapshots"
+block "$d/d2r-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/manuals/a.pdf sources/manuals/b.pdf sources/manuals/c.pdf sources/web-snapshots/w.md'
+: > "$d/sources/manuals/a.pdf"; : > "$d/sources/manuals/b.pdf"; : > "$d/sources/manuals/c.pdf"
+snapshot "$d/sources/web-snapshots/w.md" '<div>w</div>'
+sources_registry "$d" \
+  "| manuals/a.pdf | manual | http://x | 2026-01-01 | abcdef01… | B1 |" \
+  "| \`sources/manuals/b.pdf\` | manual | http://x | 2026-01-01 | abcdef02… | B1 |" \
+  "| sources/manuals/c.pdf | manual | http://x | 2026-01-01 | abcdef03… | B1 |" \
+  "| sources/web-snapshots/w.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/w.md") | B1 |" \
+  "| foo/sources/manuals/a.pdf | manual | http://x | 2026-01-01 | abcdef04… | B1 |"
+assert_exit "$SUT" 0 "#1483 GOOD: root-form non-web rows, exit 0 (count-only)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'non-web-snapshot rows with on-disk files and hashes: 3 not hash-verified' <<<"$out" \
+  && { printf '  PASS  %-42s (3 counted: bare + 2 root-form)\n' "#1483 root-form non-web rows counted"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (%s)\n' "#1483 root-form non-web rows counted" "$(grep 'not hash-verified' <<<"$out")"; fail=$((fail+1)); }
+
+# Single root-form row ONLY (single-element list): before the fix the count line was absent altogether.
+d="$TMP/d2-rootform-single"; mkdir -p "$d/sources/manuals"
+block "$d/d2rs-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/manuals/only.pdf'
+: > "$d/sources/manuals/only.pdf"
+sources_registry "$d" "| sources/manuals/only.pdf | manual | http://x | 2026-01-01 | abcdef01… | B1 |"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'hashes: 1 not hash-verified' <<<"$out" \
+  && { printf '  PASS  %-42s (single root-form row counted)\n' "#1483 single root-form row counted"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (%s)\n' "#1483 single root-form row counted" "$(grep 'not hash-verified' <<<"$out")"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # #1487 — EMPTY-INPUT DIGEST (LEVEL 7). A registry hash equal to the digest of empty input proves nothing
 # (the file was missing/empty when hashed). FAIL (exit 1) with a typed `empty-digest:` finding. Exact-cell
 # match only: a longer hex string that merely CONTAINS the digest is a different value and must NOT fire.
@@ -1126,6 +1157,9 @@ SED
   m="$TMP/mutants/SRCPFX-L6.sh"
   mk_sed SRCPFX-L6 "$m" '/SRCPFX-L6/d' \
     && tooth "teeth SRCPFX-L6: LEVEL 6 root-form normalization dropped" 1 0 "$m" -- bash @SUT@ "$TMP/rootform-tampered"
+  m="$TMP/mutants/SRCPFX-D2.sh"
+  mk_sed SRCPFX-D2 "$m" '/SRCPFX-D2/d' \
+    && tooth "teeth SRCPFX-D2: D2 root-form normalization dropped" 0 0 "$m" --good-has 'hashes: 3 not hash-verified' --bad-lacks 'hashes: 3 not hash-verified' -- bash @SUT@ "$TMP/d2-rootform"
   m="$TMP/mutants/VS49-RC.sh"
   mk_sed VS49-RC "$m" 's/_vsrc_rows_rc=$?/_vsrc_rows_rc=0/' \
     && MUTANT_TOOTH_ICASE=1 tooth "teeth VS49-RC: row-scan rc zeroed" 0 0 "$m" \

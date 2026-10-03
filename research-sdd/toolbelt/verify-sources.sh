@@ -376,9 +376,13 @@ if [ -f "$sources_md" ]; then
     pipes="${_d2raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # D2-FIELD-GUARD: same asymmetric rule as L6
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_d2raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
-    # #1228: root-form web-snapshot rows belong to LEVEL 6, not to this "non-web-snapshot" count. Only the
-    # web-snapshot form is excluded; other `sources/`-prefixed rows keep their prior (uncounted) behaviour.
-    case "$key" in ''|File|*---*|web-snapshots/*|sources/web-snapshots/*) continue;; esac   # skip header, separator, web-snap
+    # #1483: the File cell may use the repo-root form `sources/<f>` as well as the bare `<f>`. Canonical key is
+    # relative to sources/, so strip ONE leading `sources/` (anchored) — otherwise the path below resolves to
+    # `sources/sources/<f>`, the row is skipped, and the uncovered surface silently under-counts (§7).
+    # COUNT-ONLY: these rows are made visible, NOT hash-verified — widening verification is a separate unit.
+    key="${key#sources/}"   # SRCPFX-D2
+    # #1228: web-snapshot rows (either form, now normalized above) belong to LEVEL 6, not to this count.
+    case "$key" in ''|File|*---*|web-snapshots/*) continue;; esac   # skip header, separator, web-snap
     [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
     case "$reg" in ''|'('*) continue;; esac                         # empty or placeholder
