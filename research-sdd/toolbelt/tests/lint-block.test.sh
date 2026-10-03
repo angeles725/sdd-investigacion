@@ -242,6 +242,23 @@ cp "$FX/corpus-nomatch/demo-block1.md" "$TMP/pruned2/real-block2.md"
 run --audit "$TMP/pruned2"
 [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'SUMMARY AUDIT files=1 ' && ! printf '%s' "$OUT" | grep -qF 'UNCLASSIFIED' && ok "16d .venv, venv, site-packages and .atl subtrees are pruned: not scanned and not counted as UNCLASSIFIED" || no "16d tool-dir prune (rc=$RC out=[$OUT])"
 
+# 17. Slice 2 (kit #1365 item 3): inline `[CERT-hw] (<ephemeral path>)` evidence OUTSIDE Self-verify
+run "$FX/r3-inline.md"; want="$(lines_of INLINE-BAD "$FX/r3-inline.md")"; got="$(reported R3 "$OUT" "$FX/r3-inline.md")"
+if [ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && printf '%s' "$OUT" | grep -qF 'cert-inline-items=10'; then
+  ok "17a inline marker + ephemeral-only parenthetical flagged on the exact lines ($want): paragraph, list item, table row, nested paren, last line; durable/no-path/no-group/later-aside negatives clear (incl. prose-only group); 10 groups inspected"
+else no "17a inline (rc=$RC want=[$want] got=[$got] out=[$OUT])"; fi
+run "$FX/r3-inline-single.md"
+[ "$RC" -eq 1 ] && [ "$(reported R3 "$OUT" "$FX/r3-inline-single.md")" = "1" ] && ok "17b inline R3 on a single-line file flagged at line 1" || no "17b inline single (rc=$RC out=[$OUT])"
+run "$FX/r3-inline-waived.md"; want="$(lines_of INLINE-BAD "$FX/r3-inline-waived.md")"; got="$(reported R3 "$OUT" "$FX/r3-inline-waived.md")"
+[ "$RC" -eq 1 ] && [ "$got" = "$want" ] && ok "17c inline R3: a valid waiver waives its paragraph; wrong-rule and reason-less waivers do not ($want)" || no "17c inline waiver (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+run "$FX/r3-inline-selfverify.md"; got="$(reported R3 "$OUT" "$FX/r3-inline-selfverify.md")"
+want="$(lines_of ROW-BAD "$FX/r3-inline-selfverify.md") $(lines_of INLINE-BAD "$FX/r3-inline-selfverify.md")"
+[ "$RC" -eq 1 ] && [ "$got" = "$want" ] && printf '%s' "$OUT" | grep -qE 'cert-inline-items=1($| )' && ok "17d Self-verify rows/items reported once (no duplicate from the inline pass); Self-verify prose stays out of scope; only the unit outside the section is an inline hit ($want)" || no "17d no-dup (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+run "$FX/r3-inline-fenced.md"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE 'cert-inline-items=1($| )' && ok "17e inline marker inside a code fence is not linted; the real clean group is counted" || no "17e inline fenced (rc=$RC out=[$OUT])"
+run --audit "$FX/r3-inline.md"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'R3=6' && ok "17f --audit over inline findings stays report-only (exit 0, R3=6)" || no "17f inline audit (rc=$RC out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -488,6 +505,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '%s' "$MOUT" | grep -qF 'SUMMARY AUDIT files=1 ' && no "teeth K5 $_n: mutant still prunes it — THEATER" || ok "teeth K5 $_n: prune name removed -> vendored tree scanned/counted -> case 16d has teeth"
     fi
   done
+  # ---- Slice 2 (kit #1365 item 3) teeth: inline [CERT-hw] (<ephemeral>) outside Self-verify ----
+  tooth_set I1 lint_block.py 's#R3_INLINE_GROUP_RE.match(u.text, m.end())#R3_INLINE_GROUP_RE.search(u.text, m.end())#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I2 lint_block.py '/Slice 2/,$ s#if any(_is_durable_token(t) for t in R3_TOKEN_RE.findall(evidence)):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I3 lint_block.py '/Slice 2/,/return out/ s#if doc.waived("R3", u):#if False:#' "$FX/r3-inline-waived.md" R3 INLINE-BAD
+  tooth_set I4 lint_block.py '/Slice 2/,$ s#if not R3_EPHEMERAL_RE.search(evidence):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I5 lint_block.py 's#{0,400}#{0,5}#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I6 lint_block.py 's#R3_INLINE_GROUP_RE = re.compile(r"`?\\s\*#R3_INLINE_GROUP_RE = re.compile(r"(?!)`?\\s*#' "$FX/r3-inline-single.md" R3 INLINE-BAD
+  if tooth_build I7 lint_block.py '/Slice 2/,$ s#or u.line in sv:#or False:#'; then
+    mrun "$FX/r3-inline-selfverify.md"
+    want="$(lines_of ROW-BAD "$FX/r3-inline-selfverify.md") $(lines_of INLINE-BAD "$FX/r3-inline-selfverify.md")"; got="$(reported R3 "$MOUT" "$FX/r3-inline-selfverify.md")"
+    [ "$got" != "$want" ] && ok "teeth I7: Self-verify exclusion dropped from the inline pass -> rows reported twice / prose swept in [$got] -> case 17d has teeth" || no "teeth I7: mutant still reports exactly [$want] — THEATER"
+  fi
+  if tooth_build I8 lint_block.py 's#doc.cov\["cert_inline_items"\] += 1#doc.cov["cert_inline_items"] += 0#'; then
+    mrun "$FX/r3-inline-fenced.md"
+    printf '%s' "$MOUT" | grep -qE 'cert-inline-items=1( |$)' && no "teeth I8: counter mutant still reports 1 — THEATER" || ok "teeth I8: inline counter neutered -> summary no longer proves groups were inspected -> case 17e has teeth"
+  fi
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
     mrun --audit "$FX/corpus-empty"
