@@ -1611,6 +1611,7 @@ if command -v git >/dev/null 2>&1; then
 #!/usr/bin/env bash
 echo "$* [GH_PROMPT_DISABLED=${GH_PROMPT_DISABLED:-unset}]" >> "${K71_LOG:-/dev/null}"
 [ -n "${K71_SLEEP:-}" ] && sleep "$K71_SLEEP"
+[ -n "${K71_ERR:-}" ] && printf '%s\nsecond line\n' "$K71_ERR" >&2
 [ -n "${K71_VIS:-}" ] && printf '%s\n' "$K71_VIS"
 exit "${K71_RC:-0}"
 GHEOF
@@ -1638,7 +1639,7 @@ GHEOF
   assert_file "K1271-a PUBLIC: .research-sdd/vendor-leak.conf stub scaffolded" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-a PUBLIC: stub names the directive vocabulary" "allow  <glob>" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-a PUBLIC: typed PUBLIC line" "vendor-leak: PUBLIC" "$TMP/k71.out"
-  assert_grep "K1271-a PUBLIC: CI snippet proposed (names the scanner)" "scan-vendor-leak.sh" "$TMP/k71.out"
+  assert_grep "K1271-a PUBLIC: CI snippet proposed (carries the scanner run step)" "run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked" "$TMP/k71.out"
   assert_absent "K1271-a PUBLIC: workflow NOT written without --wire (propose-never-apply)" "$d/.github/workflows/vendor-leak.yml"
   assert_grep "K1271-a: gh asked for visibility" "repo view" "$TMP/k71.gh.log"
   # the scanner itself accepts the stub: EMPTY-CONF, exit 0 on an empty tree
@@ -1696,6 +1697,32 @@ GHEOF
   assert_grep "K1271-i gh hangs: typed 'gh timed out'" "gh timed out" "$TMP/k71.out"
   assert_absent "K1271-i gh hangs: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-i gh runs with GH_PROMPT_DISABLED=1" "GH_PROMPT_DISABLED=1" "$TMP/k71.gh.log"
+  # K1271-o RSDD_GH_TIMEOUT validated: 0 / abc / empty fall back to the bounded default 20 with a note (never 0 = unbounded)
+  K71_TO="$TMP/k71to"; mkdir -p "$K71_TO"
+  cat > "$K71_TO/timeout" <<TOEOF
+#!/usr/bin/env bash
+echo "\$1" >> "\${K71_TOLOG:-/dev/null}"
+exec "$(command -v timeout)" "\$@"
+TOEOF
+  chmod +x "$K71_TO/timeout"
+  for _bad in 0 abc ""; do
+    d="$(_k71_target "o-${_bad:-empty}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="$_bad" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+    assert_grep "K1271-o RSDD_GH_TIMEOUT='$_bad': note about the invalid value" "RSDD_GH_TIMEOUT" "$TMP/k71.out"
+    [ "$(head -1 "$TMP/k71.to.log")" = 20 ] && ok "K1271-o RSDD_GH_TIMEOUT='$_bad': bounded default 20 passed to timeout" || no "K1271-o RSDD_GH_TIMEOUT='$_bad': timeout got '$(head -1 "$TMP/k71.to.log")'"
+  done
+  d="$(_k71_target o-ok https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+  PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && ok "K1271-o valid RSDD_GH_TIMEOUT=7 honoured" || no "K1271-o valid RSDD_GH_TIMEOUT=7 not honoured"
+  # K1271-p rc 125 (timeout itself failed) has its own wording; gh's first stderr line is surfaced on failure
+  d="$(_k71_target p1 https://example.invalid/x.git)"
+  PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-p rc 125: own DEGRADED wording" "timeout could not run gh" "$TMP/k71.out"
+  d="$(_k71_target p2 https://example.invalid/x.git)"
+  PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-p gh failure: first stderr line surfaced" "HTTP 401: bad credentials" "$TMP/k71.out"
+  grep -qF 'second line' "$TMP/k71.out" && no "K1271-p only the FIRST stderr line is surfaced" || ok "K1271-p only the first stderr line is surfaced"
+
   # K1271-j no `timeout` binary → still runs, says so (unbounded probe is announced, never silent)
   K71_NOTO="$TMP/k71noto"; mkdir -p "$K71_NOTO"; cp -P "$K71_NOGH"/* "$K71_NOTO"/; rm -f "$K71_NOTO/timeout"; cp "$K71_BIN/gh" "$K71_NOTO/gh"
   d="$(_k71_target j https://example.invalid/x.git)"
@@ -1735,7 +1762,6 @@ GITEOF
   assert_grep "K1271-l git remote failing inside a repo: DEGRADED" "vendor-leak: DEGRADED could not list git remotes" "$TMP/k71.out"
 
   # K1271-m advice text: a plain run scaffolds the conf; --wire only adds the CI workflow
-  d="$(_k71_target m1)"; _k71_run "$d" PUBLIC 0
   d="$(_k71_target m2)"; _k71_run "$d" PUBLIC 0
   assert_grep "K1271-m NO-REMOTE advice: a plain re-run scaffolds the conf" "a plain run scaffolds the conf" "$TMP/k71.out"
   d="$(_k71_target m3 https://example.invalid/x.git)"; _k71_run "$d" PRIVATE 0
@@ -3047,7 +3073,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || no "teeth M-1271-PRIVATE: no scaffold under the mutant — K1271-d is THEATER"
   else no "teeth M-1271-PRIVATE: could not build mutant"; fi
   # M-1271-GHFAIL: a failing gh is read as PUBLIC (silent misclassification) → stub appears.
-  if _k43_build k71gf -e 's#2>/dev/null)" || gh_rc=\$?#2>/dev/null)" || { vis=PUBLIC; gh_rc=0; }#'; then
+  if _k43_build k71gf -e 's#2>"\$gh_err")" || gh_rc=\$?#2>"$gh_err")" || { vis=PUBLIC; gh_rc=0; }#'; then
     d="$(_k71t k71gf gf "" 1)"
     [ -e "$d/.research-sdd/vendor-leak.conf" ] && ok "teeth M-1271-GHFAIL: failing gh scaffolds under the mutant — K1271-f has teeth" \
       || no "teeth M-1271-GHFAIL: no scaffold under the mutant — K1271-f is THEATER"
@@ -3072,13 +3098,34 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ -s "$TMP/k71t.gh.log" ] && ok "teeth M-1271-NOREMOTE: gh consulted with no remote under the mutant — K1271-e has teeth" \
       || no "teeth M-1271-NOREMOTE: gh still not consulted — K1271-e is THEATER"
   else no "teeth M-1271-NOREMOTE: could not build mutant"; fi
-  # M-1271-TIMEOUT: the probe is no longer wrapped in `timeout` → a hanging gh is not cut off (stub sleeps 6s, limit 1s).
+  # M-1271-TIMEOUT: the probe is no longer wrapped in `timeout` → a hanging gh is not cut off (stub sleeps 3s, limit 1s).
   if _k43_build k71to -e 's#^    gh_cmd=(timeout "\$gh_t" "\${gh_cmd\[@\]}")$#    : #'; then
     d="$(_k71_target t-to https://example.invalid/x.git)"; : > "$TMP/k71t.out"
     PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=3 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71to/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-TIMEOUT: still timed out — K1271-i is THEATER" \
       || ok "teeth M-1271-TIMEOUT: hang not cut off without the wrapper — K1271-i has teeth"
   else no "teeth M-1271-TIMEOUT: could not build mutant"; fi
+  # M-1271-TOVALID: RSDD_GH_TIMEOUT is passed through unvalidated → 0 reaches timeout (unbounded).
+  if _k43_build k71tv -e "s#^    ''|\*\[!0-9\]\*|0\*)\$#    NEVERMATCH)#"; then
+    d="$(_k71_target t-tv https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71tv/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1271-TOVALID: 0 reaches timeout without validation — K1271-o has teeth" \
+      || no "teeth M-1271-TOVALID: timeout got '$(head -1 "$TMP/k71.to.log")' — K1271-o is THEATER"
+  else no "teeth M-1271-TOVALID: could not build mutant"; fi
+  # M-1271-RC125: rc 125 loses its own wording.
+  if _k43_build k71r5 -e 's#^  elif \[ "\$gh_rc" = 125 \]; then$#  elif false; then#'; then
+    d="$(_k71_target t-r5 https://example.invalid/x.git)"
+    PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$TMP/k43/k71r5/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'timeout could not run gh' "$TMP/k71t.out" && no "teeth M-1271-RC125: wording survives — THEATER" \
+      || ok "teeth M-1271-RC125: wording gone — K1271-p has teeth"
+  else no "teeth M-1271-RC125: could not build mutant"; fi
+  # M-1271-STDERR: gh stderr is discarded again.
+  if _k43_build k71se -e 's#2>"\$gh_err")" || gh_rc#2>/dev/null)" || gh_rc#'; then
+    d="$(_k71_target t-se https://example.invalid/x.git)"
+    PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$TMP/k43/k71se/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'HTTP 401' "$TMP/k71t.out" && no "teeth M-1271-STDERR: stderr still surfaced — THEATER" \
+      || ok "teeth M-1271-STDERR: stderr not surfaced when discarded — K1271-p has teeth"
+  else no "teeth M-1271-STDERR: could not build mutant"; fi
   # M-1271-RC124: a timeout (124) is folded into the generic failure message.
   if _k43_build k71r1 -e 's#^  if \[ "\$gh_rc" = 124 \]; then$#  if false; then#'; then
     d="$(_k71_target t-r1 https://example.invalid/x.git)"

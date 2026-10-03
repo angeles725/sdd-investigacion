@@ -773,20 +773,33 @@ _rsdd_vendor_leak_wiring() {
     echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
     return 0
   fi
-  # The probe is bounded (RSDD_GH_TIMEOUT seconds, default 20) and never prompts (GH_PROMPT_DISABLED=1).
-  # No `timeout` binary → the probe still runs but unbounded, and that is announced (never silent).
-  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT:-20}" gh_cmd=(gh repo view --json visibility --jq .visibility)
+  # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
+  # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
+  # other value falls back to 20 with a note. No `timeout` binary -> the probe runs unbounded, announced.
+  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view --json visibility --jq .visibility)
+  case "$gh_t" in
+    ''|*[!0-9]*|0*)
+      echo "$tag note: RSDD_GH_TIMEOUT='$gh_t' is not a positive integer — using the default 20s"
+      gh_t=20 ;;
+  esac
   if command -v timeout >/dev/null 2>&1; then
     gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
   else
     echo "$tag note: timeout not found — the gh probe runs unbounded"
   fi
-  vis="$(cd "$target" && GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>/dev/null)" || gh_rc=$?
+  gh_err="$(mktemp 2>/dev/null)" || gh_err=/dev/null
+  vis="$(cd "$target" && GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
+  gh_why=""
+  [ "$gh_err" = /dev/null ] || { gh_why="$(sed -n '1p' "$gh_err" 2>/dev/null)"; rm -f "$gh_err"; }
+  [ -n "$gh_why" ] && gh_why=" [gh: $gh_why]"
   if [ "$gh_rc" = 124 ]; then
     echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
     return 0
+  elif [ "$gh_rc" = 125 ]; then
+    echo "$tag DEGRADED timeout could not run gh (exit 125)$gh_why — vendor-leak wiring skipped (NOT a pass)"
+    return 0
   elif [ "$gh_rc" != 0 ]; then
-    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote) — vendor-leak wiring skipped (NOT a pass)"
+    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote)$gh_why — vendor-leak wiring skipped (NOT a pass)"
     return 0
   fi
   case "$vis" in
