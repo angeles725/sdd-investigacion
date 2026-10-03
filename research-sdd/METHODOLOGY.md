@@ -2010,8 +2010,19 @@ before trusting its verdict:
   packer preserves must link a reproducible minimal experiment (idiom pairs compiled with and without the
   relevant flags, then diffed at the bytecode/binary level), not rest on recollection. The orchestrator twice
   restated such a rule wrongly in chat ("confirm with javap" was incomplete; "enhanced for is
-  indistinguishable" was wrong) until a javac experiment settled it. The kit ships no experiment script for
-  this yet; the experiment lives in the target's `tools/`. (Source: n5 method-errors retro #12.)
+  indistinguishable" was wrong) until a javac experiment settled it. For Java decompilation fidelity the kit
+  ships `toolbelt/java-fidelity-experiment.sh` (kit issue #1488): it compiles each small synthetic fixture
+  with `javac` (with `-g` and with no `-g`), decompiles through the kit's own `decompile-java.sh` wrapper,
+  recompiles the decompiled source, and compares normalised `javap -c -p` output, printing one
+  `GOOD` / `DIVERGED` / `FAILED reason=` line per construct and mode plus a `DEBUGINFO` line (is a
+  `LocalVariableTable` present with and without `-g`; `unmeasured` when it could not be observed), and a
+  `RESULT` line naming the JDK version and the engine the wrapper used (the engine version is not
+  recorded). A missing `javac`, `javap` or decompiler yields a typed
+  `DEGRADED:` line, exit 4, and no verdict. Its limits are part of the claim: a verdict holds for that
+  fixture, that JDK and that engine version only, and the script does not diff `javap` of two idiom variants
+  or regenerate a per-JDK matrix — a rule about a construct it does not cover still needs the experiment
+  extended or the rule dropped. For other tools (native compilers, packers) the experiment still lives in the
+  target's `tools/`. (Source: n5 method-errors retro #12.)
 
 - **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
   (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
