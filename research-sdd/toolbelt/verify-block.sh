@@ -501,13 +501,8 @@ fi
 #    WAIVER (a block that legitimately QUOTES the empty digest, e.g. to document the n5 incident): end THAT
 #    line with the marker `<!-- empty-digest: quoted -->`. A waived hit is reported as `INFO` (never silent)
 #    and does not change the exit code; an unwaived hit on any other line still FAILs.
-_vb_eh_n=0; _vb_eh_w=0
-while IFS= read -r _vb_eh_line; do
-  [ -z "$_vb_eh_line" ] && continue
-  echo "$_vb_eh_line"
-  case "$_vb_eh_line" in "   INFO"*) _vb_eh_w=$((_vb_eh_w + 1)); continue;; esac   # VB-EH-WAIVED-INFO
-  _vb_eh_n=$((_vb_eh_n + 1)); rc=1
-done < <(awk '
+_vb_eh_n=0; _vb_eh_w=0; _vb_eh_deg=0
+_vb_eh_out=$(awk '
   BEGIN { d["sha256"]="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
           d["sha1"]="da39a3ee5e6b4b0d3255bfef95601890afd80709"
           d["md5"]="d41d8cd98f00b204e9800998ecf8427e" }   # VB-EMPTY-DIGEST-TABLE
@@ -522,16 +517,36 @@ done < <(awk '
         for (k in d) {
           if (tok == d[k] || (elided && length(tok) >= 8 && length(tok) < length(d[k]) && index(d[k], tok) == 1))   # VB-EMPTY-DIGEST-MATCH
             if (index($0, "<!-- empty-digest: quoted -->") > 0)   # VB-EH-WAIVER
-              printf "   INFO    empty-digest waived on line %d (%s digest quoted on purpose, marker present)\n", NR, k
+              printf "W\t   INFO    empty-digest waived on line %d (%s digest quoted on purpose, marker present)\n", NR, k
             else
-            printf "   EMPTYHASH! line %d: %s digest of EMPTY input (%s%s) — proves nothing (file missing/empty when hashed); re-hash the real file\n", NR, k, substr(tok, 1, 16), (length(tok) > 16 ? "…" : "")
+            printf "F\t   EMPTYHASH! line %d: %s digest of EMPTY input (%s%s) — proves nothing (file missing/empty when hashed); re-hash the real file\n", NR, k, substr(tok, 1, 16), (length(tok) > 16 ? "…" : "")
         }
       }
       rest = after
     }
   }
+  END { print "T\t@@scanned " NR }   # coverage trailer: absent => the detector did not run to completion
 ' "$block")
-if [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equals the digest of empty input; waived: $_vb_eh_w)"; else echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"; fi
+_vb_eh_rc=$?
+# Anti-silent-zero (#1500): an aborted detector, or one that never reached END, is a typed degraded state.
+if [ "$_vb_eh_rc" -ne 0 ] || ! grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_eh_out"; then
+  printf '   ERROR: empty-digest scan DEGRADED (awk exit %d, no scan trailer) — block NOT checked for empty-input digests\n' "$_vb_eh_rc"
+  rc=1; _vb_eh_deg=1
+fi
+# Each awk line is `<tag><TAB><text>`: W = waived INFO, F = FAIL, T = trailer. The tag, not the printed text,
+# decides the verdict (#1500), so rewording the message cannot flip the exit code.
+while IFS= read -r _vb_eh_line; do
+  [ -z "$_vb_eh_line" ] && continue
+  _vb_eh_tag=${_vb_eh_line%%$'\t'*}; _vb_eh_text=${_vb_eh_line#*$'\t'}
+  case "$_vb_eh_tag" in
+    T) continue;;
+    W) echo "$_vb_eh_text"; _vb_eh_w=$((_vb_eh_w + 1)); continue;;   # VB-EH-WAIVED-TAG
+  esac
+  echo "$_vb_eh_text"
+  _vb_eh_n=$((_vb_eh_n + 1)); rc=1
+done <<<"$_vb_eh_out"
+if [ "$_vb_eh_deg" -eq 1 ]; then :   # degraded: the ERROR line above is the verdict — never also print a clean "(none)"
+elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equals the digest of empty input; waived: $_vb_eh_w)"; else echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"; fi
 
 echo "== exit $rc =="
 exit $rc
