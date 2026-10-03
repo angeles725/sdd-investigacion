@@ -436,6 +436,10 @@ directory back a block, register ONE row per DIRECTORY (the path cell = the dir)
 basename cross-check (it resolves ONE basename per row). Pick a granularity — one row per file, or one row per
 directory — and never put a multi-file compound in the File column.
 
+**SOURCES.md File-cell forms.** `verify-sources.sh` accepts both `web-snapshots/<f>` and the repo-root form
+`sources/web-snapshots/<f>` in the File cell: LEVEL 5/6 strip one anchored leading `sources/` (anchors
+`SRCPFX-L5`/`SRCPFX-L6`; #1228).
+
 **Beautified-temp citation (minified / obfuscated code).** For minified or obfuscated sources (bundled JS,
 etc.), beautify the artifact to a SCRATCHPAD temp — never into `sources/` (keep the READ-ONLY-over-subject
 discipline: the temp is a working view, not preserved evidence). Cite `file:line` of the beautified copy as
@@ -590,6 +594,12 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 **Go to the source artifact when a derived summary cannot answer the question.** A pre-extracted summary (a workbook, a report, an index) is a convenience, not the subject. When the summary cannot answer a question the original artifact obviously can, budget the cost of parsing the original. Open a separate enrichment pass rather than inferring around the gap; keep the fast-path summary for general use. Do not let sunk-cost of having already read the summary prevent opening the authoritative source. (Evidence: B20 — the workbook has no orientation field; the DXF has it in every 4-vertex LWPOLYLINE; ~75 s to parse 129 MB against ~2 s for the workbook; kept as a distinct pass.)
 
 **Cite the preserved copy for any subject you did not author — mutation OR remote drift.** The obligation to cite a preserved local copy rather than a live external source extends beyond subjects you have mutated. It applies equally to any cloned external repository you cite: a `file:line` anchored to a live `main` of an upstream repo is at risk of force-push or rebase. Preserve the files cited at the pinned commit under `sources/` (e.g. `sources/web-snapshots/<repo-name>/`), register them in SOURCES.md, and cite the preserved copy. Trigger: EITHER (a) you mutated the subject, OR (b) you cite a remote repo you do not own. (Evidence: B8 — blend-ai cloned at `@34a1149`, 7 files preserved; `verify-block` resolved 5/5 non-extern citations against the preserved snapshot.)
+
+**Check an external standard's freshness before citing it.** Before citing a spec or standard (e.g. the MCP
+spec), fetch its changelog / latest version and snapshot it; do not assume the revision you first found is
+current. A first-cited MCP revision (2025-06-18) had been superseded by 2026-07-28 and the change altered design
+consequences (stateless, no initialize). (Evidence: `sources/web-snapshots/2026-10-01-mcp-spec-2026-07-28-changelog.md`,
+B1193. Source: n4 agent-mcp retro #4.)
 
 ## 6. Research tools
 
@@ -1817,6 +1827,35 @@ which transition the duration counts from. A `coolingSince` anchor that survived
 
 **POPULATION-FLOOR GATE: a verification suite must not pass an empty subject.** Every gate that counts defects is satisfied by an empty subject — `0 manifold errors` passes whether the mesh has 50,000 faces or zero. Require at least one population-minimum check, placed FIRST: the gate must exit non-zero if the subject has fewer than N items, where N is the minimum known-sound size. (Source: blender-llm B59 §59.5.)
 
+**A SINGLE COMPARISON NEEDS A POPULATION FLOOR TOO.** Extend the rule above from suites to individual equalities:
+every equality in an evidence script asserts both operands are non-empty before it reports a match. An empty
+operand is never a match, and the digest of empty input (sha256 `e3b0c442…b855`, sha1 `da39a3ee…0709`, md5
+`d41d8cd9…427e`) is never a registry hash. (Evidence: n5 — kotlin-stdlib registered with the sha256 of nothing
+because the file was missing when hashed; a signature check reported an Authenticode "match" when both digests
+were empty. Neither `verify-sources.sh` nor `verify-block.sh` rejects the empty-input digest yet. Source: n5
+fidelity-t21 retro #2.)
+
+**GENERATED, NOT TYPED: headline numbers and "tests pass" claims in task/feature docs come from tool output.**
+A headline number is embedded from a script's output between markers (with a test that the block equals the
+script's output); a "tests pass" claim cites a recorded test run (count, result, seconds, HEAD sha, dirty flag).
+Never retype either as prose. (Evidence: a published number had to be corrected, and "make test 702/737/803/841
+OK" claims had one 755-test log on disk. Source: n5 workflow-process-study retro #3.)
+
+**LONG BATCH RUNS ARE CONTENT-ADDRESSED PER UNIT, AND THE CACHE IS THE CHECKPOINT.** A run over a population
+(classes, files, records) that takes more than ~30 min keys each unit's result on the sha256 of ALL its inputs
+plus the toolchain identity (tool versions, schema version, flags), and reuses a stored result only on an exact
+key match; a forced bypass flag stays available. A per-container key (per module/jar) is not enough: one changed
+unit regrades the whole container. Write each unit's result durably as soon as it is produced (append plus
+atomic rename/fsync per batch) so an interrupted run resumes at the next missing unit. Gate it with an
+equivalence test — interrupt mid-container, rerun, require output byte-identical to an uninterrupted run — plus
+one test per key component (changing it must force recomputation). Never claim a speedup for the run that fills
+the cache. (Source: n5 fidelity long-run-throughput retro #1, #2.)
+
+**PER-UNIT PROCESS SPAWN OF A HEAVY RUNTIME IS A SMELL.** When a pipeline starts a JVM or interpreter per unit,
+measure the spawn share of wall time; if it dominates, keep a persistent server. (Evidence: jxbrowser took ~8 h
+of a 10.6 h run; the grader's `--tool-server` already serves javac/javap, the CFR/Procyon fallback does not.
+Source: n5 long-run-throughput retro #4.)
+
 **HELPER CONTAMINATION: a prefix/pattern classifier must exclude helpers explicitly.** A population filter defined by prefix, pattern, or name regex will admit helper objects (profiles, references, imported underlays, dimension lines) unless it excludes them explicitly. The symptom is a large, confident, wrong count — 9,635 imported SVG curves becoming 999 name collisions; 1,145 dimension-named profiles matching a `.ddd` regex; 84 bevel profiles becoming 407 duplicate pairs. Standard fix: enumerate the helper categories the corpus actually carries, add explicit exclusion predicates, and verify the excluded set is non-empty. **Prospective form (scope expansion is part of adding a class, not a follow-up):** extending a gate's scope IS part of adding a class — a gate that cannot see a class cannot clear it. Schedule scope expansion alongside, not after, the class addition. (Sources: blender-llm B37 §37.3, B40 §40.2, B52 §52.5, B55 §55.4, B59 §59.5.)
 
 **DEDUPLICATE ON IDENTITY, NOT GEOMETRY, WHEN THE SOURCE PROVIDES IDENTIFIERS.** Sharing an identifier is not itself duplication: the CLASS PAIR decides. Use the source's own identifier as the deduplication key; a geometric proximity threshold cannot separate entities that are intentionally co-located from entities that are accidentally duplicated — those are different phenomena that happen to occupy the same space. (Source: blender-llm B53 §53.4 — 963 of 974 shared DXF handles were correct by design; only 11 were genuinely built twice.)
@@ -1948,6 +1987,24 @@ before trusting its verdict:
   when such a case exists — a method that passes only the positive may be trivially accepting; one
   that passes only the negative may be trivially rejecting).
 
+- **An equivalence oracle needs TWO control kinds from day one.** An oracle that decides "A equals B after a
+  transform" (normalizer, canonicalizer, minify-then-compare, hash-after-strip) ships with (a) a WRONG-PAIR
+  control — unrelated pairs must not match (catches a vacuous oracle) — and (b) a per-rule NEAR-MISS MUTATION
+  suite: for every normalization rule, one semantics-changing mutation the rule could plausibly erase must stay
+  unequal, run fail-closed in the target's test lane (0 survivors). A wrong-pair control alone cannot catch
+  over-normalization, because unrelated pairs differ in many places at once. Any number the oracle produced
+  before both controls existed is provisional, and is retracted if a control fails. (Evidence: n5 T21 — the
+  schema-1 normalizer called `a-b` equal to `b-a` and `"a"+x` equal to `"b"+x`, retracting every schema-1
+  grade; B124 — a first oracle that emptied both sides reported 2,147 of 2,153 modules "equal", exposed only
+  by the wrong-pair control. Source: n5 fidelity-t21 retro #1.)
+
+- **Run an experiment before restating a tool-behavior rule.** A rule about what a compiler, decompiler, or
+  packer preserves must link a reproducible minimal experiment (idiom pairs compiled with and without the
+  relevant flags, then diffed at the bytecode/binary level), not rest on recollection. The orchestrator twice
+  restated such a rule wrongly in chat ("confirm with javap" was incomplete; "enhanced for is
+  indistinguishable" was wrong) until a javac experiment settled it. The kit ships no experiment script for
+  this yet; the experiment lives in the target's `tools/`. (Source: n5 method-errors retro #12.)
+
 - **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
   (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
   that requires an ASYMMETRIC signature to test correctly — signed area, winding order, a known-handed
@@ -1977,6 +2034,14 @@ before trusting its verdict:
   blast radius.
 
 **A GATE IS ONLY WORTH WHAT ITS REFERENCE IS WORTH: validate the reference before trusting the gate.** A red/green gate built on a defective reference misleads: it may pass a broken artefact because the reference itself is wrong. Before trusting a gate's verdict, confirm the reference was independently verified — not derived from the same source or method the gate is checking. (Source: blender-llm B21-B37)
+
+**HARNESS-GAP TRIAGE BEFORE DEFECT ATTRIBUTION.** When a harness reproduces a vendor runtime (compile, link,
+load, run), derive its load path from the vendor launcher itself (launcher strings, module lists, the shipped
+JRE `release` file) and classify every "missing dependency" failure as a HARNESS gap until that load path is
+reproduced. Only then attribute the failure to the tool under test, and report the harness-completion step as
+its own stage in the headline number. (Evidence: n5 T21 F7 — a non-recursive `bin/ext/*.jar` glob plus a JDK
+without JavaFX made 74 classes look like decompiler failures; 0 remained after completing the load path.
+Source: n5 fidelity-t21 retro #3.)
 
 **Kit test-lane contract (toolbelt quality gate).** The toolbelt gate (`run-all.sh`) defaults to the
 **fast** lane: suites load fixture-cached assertions instead of spawning the real tool (Ghidra, r2,
@@ -2014,6 +2079,11 @@ rebuild) stay slow-only. A computed value that is not an importable constant (e.
 the same case: its fast tooth is a fixture-level structural check and its real regression tooth lives
 in the slow lane. Every fixture-copy or SUT-copy mutation MUST be drift-guarded — fail loud with a
 `MUTANT-SETUP-FAIL` when the mutated token is absent, never silently green.
+
+**Python mutation tests: run with `python3 -B` (or clear `__pycache__`).** A same-size, same-second source
+mutation-then-restore leaves a stale `.pyc` whose recorded mtime/size still matches, so the correctly restored
+file appears to fail. (Evidence: `tools/bog-cycles.py` mutation check, niagara B1198 §1198.4. Source: n4 agent-mcp
+retro #1.)
 
 **Rule R5 — the content-addressed manifest `verify` is slow-only and never enters a fixture.**
 Suites that produce an `analysis-manifest.v1` (native, firmware, java) MUST keep `analysis_manifest.py
@@ -3681,6 +3751,12 @@ hard-stops, never blind.
   an external oracle → `[CERT-hw]`; confirmed only by a same-corpus script → `[INFER]`. (Evidence:
   nave-panccadia B7–B9 — three consecutive defects past a 16/16–25/25 green gate, each caught only by the
   operator looking at the render, not by any gate check.)
+
+- **Version-matrix API-signature diff as a standard instrument.** Across target versions, a cheap mechanical
+  per-version API-signature diff (`javap` output through a normalizer) is the first instrument to run, ranked
+  against decompile fidelity: constants-level checks are `[CERT]`; a noisy class-level diff is not trusted
+  unless the normalizer itself is validated (§11b equivalence-oracle controls). The tools live in the target
+  (niagara `tools/n4-api-sig.sh`, `n4-api-sigdiff.py`), not in the kit toolbelt. (Source: n4 agent-mcp retro #3.)
 
 - **Deterministic camera-position hook (precondition for reproducible §19 QA captures).** For browser-rendered 3D deliverables, expose a deterministic camera-position hook at build time (e.g. `window.__cam = {position, target}` settable before the render loop starts) and drive it from the QA driver (e.g. a `--cam <name>` CLI flag that selects from a named set of positions). Name and document the positions used in the QA session alongside the captures under `sources/probes/` so a future run replicates the same angles. A random-orbit QA pass is non-reproducible and spends most captures on uninformative views; a named-position set makes each capture a deliberate, re-runnable measurement. The hook costs one build-time feature; absent it, a QA agent orbiting by click will waste half its budget finding useful angles before any meaningful capture is possible. This is a precondition for the external-oracle captures above to constitute evidence rather than orbit-lottery. (Evidence: nave-panccadia B38–B39 QA session — blind-orbit wasted roughly half captures on uninformative angles; `window.__cam` + `--cam <name>` Playwright CLI flag resolved this.)
 
