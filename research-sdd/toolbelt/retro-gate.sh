@@ -63,7 +63,9 @@ _stop_log_write() {
 }
 _session_id=""
 # Part C scratch files (kit issue #1404): removed on EVERY exit path, including a SIGTERM/SIGINT from
-# a Stop timeout. The signal traps only `exit`, which runs the EXIT handler; SIGKILL stays untrappable.
+# a Stop timeout. The signal traps tag the stop-log line branch=killed (kit issue #1421 item 2) and
+# `exit`, which runs the EXIT handler; SIGKILL stays untrappable. bash runs the EXIT trap on a fatal
+# SIGTERM/SIGINT even without these traps, so what they add is the branch=killed tag (pinned by S16d/e).
 _dl_f1=""; _dl_f2=""; _dl_of=""
 _dl_cleanup() {
   [ -z "$_dl_f1" ] || rm -f -- "$_dl_f1"
@@ -75,8 +77,8 @@ _exit_handler() {
   _dl_cleanup   # SENTINEL-DIRLINK-CLEANUP
 }
 trap _exit_handler EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+trap '_STOP_BRANCH=killed; exit 143' TERM
+trap '_STOP_BRANCH=killed; exit 130' INT
 # SENTINEL-STOP-LOG-END
 
 # ── Load helpers ──────────────────────────────────────────────────────────────
