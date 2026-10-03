@@ -12,8 +12,9 @@ Core rules
       An invalid waiver never suppresses anything (fail closed) and is itself a finding.
   R3  ephemeral evidence: a Self-verify table row or list item (not prose) marked [CERT-hw] or [CERT-live] whose cited
       evidence is only a /tmp (or scratchpad) path — a session-local file nobody can re-open.
-      SCOPE: Self-verify sections only. An inline `[CERT-hw] (/tmp/...)` outside a Self-verify
-      section is NOT covered (known fleet gap, deferred).
+      Also (slice 2): an inline `[CERT-hw] (<evidence>)` group OUTSIDE Self-verify sections, in prose,
+      list items and table cells, when the parenthetical directly after the marker cites only an
+      ephemeral path. Prose INSIDE Self-verify sections stays out of scope (known gap).
   R6  cross-block comparison: a clause of the form "[Block N] ... does not mention/show/contain/
       include/cite ..." in a paragraph or table row that cites no raw artifact path.
 
@@ -213,7 +214,8 @@ class Doc:
         self.fenced, self.unclosed = scan_fences(self.lines)
         self.units = extract_units(self.lines, self.fenced)
         self.sections = heading_sections(self.lines, self.fenced)
-        self.cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0}
+        self.cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0,
+                    "cert_inline_items": 0}
         self.valid_waivers = []   # [(line, rule)]
         self.r0 = []              # [(line, "R0", msg)]
         self.infos = []           # [(line, msg)] — inactive-pack-rule waivers
@@ -289,6 +291,10 @@ R3_TOKEN_RE = re.compile(r"[^\s`\"'()]+")
 # `read/write/execute` are not paths. A bare `out.txt:12` is not durable: nobody can tell which
 # file it is.
 R3_EXT_RE = re.compile(r"\.[A-Za-z0-9]{0,5}[A-Za-z][A-Za-z0-9]{0,5}(?::\d+(?:-\d+)?)?$")
+# Inline evidence group (outside Self-verify): the marker, an optional closing backtick / colon / dash, then
+# a parenthetical (one nesting level, no `|` so a table cell is never crossed) of at most 400 characters. A path
+# that merely sits elsewhere in the paragraph is NOT this marker's evidence.
+R3_INLINE_GROUP_RE = re.compile(r"`?\s*[:—–-]?\s*\(((?:[^()|]|\([^()|]*\)){0,400})\)")
 R3_BLOCKFILE_RE = re.compile(r"[\w.+-]+-(?:block|bloque)\d+(?:-[\w-]+)?\.md\b")
 
 
@@ -333,6 +339,27 @@ def rule_r3(doc):
             continue
         out.append((u.line, "R3", "[CERT-hw]/[CERT-live] evidence cites only an ephemeral path: "
                     + excerpt(evidence)))
+    # SENTINEL-R3-INLINE-BEGIN
+    # Inline evidence group OUTSIDE Self-verify sections (kit #1365 item 3).
+    for u in doc.units:
+        if u.kind not in ("row", "item", "para") or u.line in sv:
+            continue
+        for m in R3_MARKER_RE.finditer(u.text):
+            gm = R3_INLINE_GROUP_RE.match(u.text, m.end())
+            if gm is None:
+                continue
+            doc.cov["cert_inline_items"] += 1
+            evidence = gm.group(1)
+            if not R3_EPHEMERAL_RE.search(evidence):
+                continue
+            if any(_is_durable_token(t) for t in R3_TOKEN_RE.findall(evidence)):
+                continue
+            if doc.waived("R3", u):
+                continue
+            out.append((u.line, "R3", "inline [CERT-hw]/[CERT-live] evidence cites only an ephemeral path: "
+                        + excerpt(evidence)))
+            break  # one finding per unit, like the Self-verify pass
+    # SENTINEL-R3-INLINE-END
     return out
 
 
@@ -426,7 +453,7 @@ def main(argv):
         return 2
 
     counts = {r: 0 for r in ["R0"] + RULE_IDS}
-    cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0}
+    cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0, "cert_inline_items": 0}
     read = empty = unreadable = total = warn = inactive = 0
     for path in files:
         try:
@@ -459,7 +486,8 @@ def main(argv):
     per_rule = " ".join(f"{r}={counts.get(r, 0)}" for r in ["R0"] + RULE_IDS)
     print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} inactive-waivers={inactive} {per_rule} "
           f"| inspected: selfverify-sections={cov['selfverify_sections']} "
-          f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']}")
+          f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']} "
+          f"cert-inline-items={cov['cert_inline_items']}")
     if unreadable:
         return 2
     if read - empty == 0:
