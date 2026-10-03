@@ -422,3 +422,31 @@ Evidence (2026-08-19 homelab session): `Get-NetNeighbor` showed `.34` ARP-absent
 a credentials problem) and revealed a new `.36` (L2-present, silent on ICMP/TCP/SNMP/BACnet). Reverse
 DNS named `.36` = `MXC-RAYL-T14S` — a Lenovo ThinkPad T14s laptop, identified without a single open
 port.
+
+## 8. Batch parallelism (GNU parallel) — concurrency cap
+
+GNU parallel is cataloged in `tool-registry.md` (`(direct)`; optional dependency, see `DEPENDENCIES.md`).
+Use it only for steps that are independent per item (per-file decompiles, per-module lint sweeps,
+per-block `verify-block.sh` runs, corpus-wide greps, `bats -j N`).
+
+- **Hard cap `-j 6`** (about half the cores on a 16-core host). Never `-j 0`, bare `-j`, `-j 100%` or
+  any all-cores form.
+- **One parallel batch at a time, machine-wide.** Check `uptime` first: load average above ~6 means
+  wait or run serially.
+- **Memory headroom:** check `free -g`; `-j` x per-job RAM must stay well under available RAM. Ghidra
+  headless and other heavy decompilers: `-j 2` max.
+- **Local station or live tunnel active on the host:** `-j 3` or serial.
+- **Never parallelize against a LIVE system** (stations, oBIX/BOX, BACnet — lockout is 5 failures in
+  30 s). Parallel is for local, read-only, offline work only.
+- **No concurrent writes to a shared file** (corpus files, RESEARCH-STATE, CATALOG, git): each item
+  writes its own output file in the scratchpad.
+- **Always `--keep-order --halt now,fail=1`**, and check result count == input count (a silently
+  skipped item is a silent zero). Merged output stays deterministic and diff-able as evidence.
+- **A parallel-only failure is suspect:** rerun that file serially before believing or citing it; the
+  serial run is the reference.
+- **Parallel is a speed tool, not a verification shortcut:** verify-block, self-verify and
+  corroboration gates still run.
+- **Silent-zero trap:** `bats -j N` without `parallel` runs 0 tests and prints no `not ok`. Probe
+  `command -v parallel` first and count `ok` lines against the plan (METHODOLOGY §11b R7).
+- Evidence (niagara-tools, 2026-10-03): `bats -j 6 tests/*.bats` on 16 cores → 1037 ok / 0 not ok /
+  67 skip in 122 s, host load 1.0-1.7 before the run.
