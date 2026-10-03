@@ -75,8 +75,16 @@ norm(){ sed "s|$1|{HOME}|g"; }
 # absolute path). Normalise BOTH forms, regex-escaped so a '.', '[' or '&' in the path is literal.
 KITROOT_P="$(cd -P "$KITROOT" && pwd -P)"
 _sed_lit(){ printf '%s' "$1" | sed 's/[][\\.*^$|&]/\\&/g'; }
-# _normkit_for <logical> <physical> — stdin→stdout; physical form first so a prefix relationship cannot split it.
-_normkit_for(){ local l p; l="$(_sed_lit "$1")"; p="$(_sed_lit "$2")"; sed -e "s|$p|{KIT}|g" -e "s|$l|{KIT}|g"; }
+# _normkit_for <logical> <physical> — stdin→stdout; the LONGER form is substituted first so a prefix
+# relationship cannot split it, in either direction: logical a prefix of physical (the usual case — the
+# suite reached through a symlinked parent) or physical a prefix of logical (a symlink pointing up,
+# e.g. /r/a/link -> /r; kit issue #1472). Equal lengths mean the same string.
+_normkit_for(){
+  local l p
+  l="$(_sed_lit "$1")"; p="$(_sed_lit "$2")"
+  if [ "${#2}" -ge "${#1}" ]; then sed -e "s|$p|{KIT}|g" -e "s|$l|{KIT}|g"
+  else sed -e "s|$l|{KIT}|g" -e "s|$p|{KIT}|g"; fi
+}
 normkit(){ _normkit_for "$KITROOT" "$KITROOT_P"; }
 
 # _direct_clean_profile_dir <dir> <config_root> — invokes _rsdd_clean_profile_dir DIRECTLY (never
@@ -342,6 +350,27 @@ else
 out="$(bash "$TMP/kitlink/install/research-sdd-install.sh" --dry-run --home "$home" --harness claude 2>&1 | norm "$home" | _normkit_for "$TMP/kitlink" "$KITROOT_P")"
 if [ "$out" = "$(cat "$GOLD/plan-claude.txt")" ]; then ok "dry-run plan via a symlinked kit path normalises to the golden (#1349)"
 else no "dry-run plan via a symlinked kit path drifted from golden (#1349; logical=$TMP/kitlink physical=$KITROOT_P)"; diff <(cat "$GOLD/plan-claude.txt") <(printf '%s\n' "$out") | head -20; fi
+fi
+
+# 35b — _normkit_for with the PHYSICAL path a strict prefix of the LOGICAL one (kit issue #1472): a
+#       symlink that points UP (/r/a/link -> /r) makes physical=/r a prefix of logical=/r/a/link. The
+#       longer form must be replaced first, otherwise the shorter one splits it ("{KIT}/a/link").
+_nk_in="see /r/a/link/install/x and /r/other"
+_nk_got="$(printf '%s\n' "$_nk_in" | _normkit_for "/r/a/link" "/r")"
+if [ "$_nk_got" = "see {KIT}/install/x and {KIT}/other" ]; then ok "_normkit_for: physical a strict prefix of logical normalises both without splitting (#1472)"
+else no "_normkit_for: physical-prefix-of-logical split the logical path (#1472; got: $_nk_got)"; fi
+# and the common direction (logical a strict prefix of physical) keeps working
+_nk_got="$(printf '%s\n' "see /r/real/install/x and /r/other" | _normkit_for "/r" "/r/real")"
+if [ "$_nk_got" = "see {KIT}/install/x and {KIT}/other" ]; then ok "_normkit_for: logical a strict prefix of physical normalises both (#1472)"
+else no "_normkit_for: logical-prefix-of-physical regressed (#1472; got: $_nk_got)"; fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: _normkit_for must order by length (always-physical-first mutant, in a subshell) --"
+  # Mutant: the length test is forced true → physical is always substituted first (the pre-#1472 shape).
+  _nk_m="$( eval "$(declare -f _normkit_for | sed 's/\[ "\${#2}" -ge "\${#1}" \]/true/')"
+            printf '%s\n' "$_nk_in" | _normkit_for "/r/a/link" "/r" )"
+  if [ "$_nk_m" != "see {KIT}/install/x and {KIT}/other" ] && [ -n "$_nk_m" ]; then
+    ok "teeth: an always-physical-first _normkit_for splits the logical path → the #1472 fixture bites"
+  else no "teeth: the always-physical-first mutant still normalised correctly (or did not run: [$_nk_m]) — #1472 fixture is THEATER"; fi
 fi
 
 # 36 — --help block integrity (kit issue #1024 round 4, item 5): usage() no longer prints a
@@ -1643,6 +1672,32 @@ if [ "$_pf_rc" -eq 0 ] && [ -n "$_pf_s0" ] && [ "$_pf_s1" != "$_pf_s0" ]; then
   ok "hermetic snapshot: works without GNU find -printf (BSD-style find) and still registers a change"
 else no "hermetic snapshot depends on GNU find -printf (rc=$_pf_rc, snapshot=[$_pf_s0])"; fi
 
+# Dotfiles (kit issue #1299 item 7): a created, modified and removed DOTFILE (and one inside a dot
+# directory) must each change the snapshot — a `$root/*` glob would skip them all.
+_df_probe="$TMP/dot-probe"; mkdir -p "$_df_probe"; printf 'a\n' > "$_df_probe/a.sh"
+_df_s0="$(_install_tree_snapshot "$_df_probe")" || _df_s0="<failed>"
+printf 'x\n' > "$_df_probe/.hidden"; mkdir "$_df_probe/.dotdir"; printf 'y\n' > "$_df_probe/.dotdir/inner"
+_df_s1="$(_install_tree_snapshot "$_df_probe")" || _df_s1="<failed>"
+printf 'xx longer\n' > "$_df_probe/.hidden"
+_df_s2="$(_install_tree_snapshot "$_df_probe")" || _df_s2="<failed>"
+printf 'yy longer\n' > "$_df_probe/.dotdir/inner"
+_df_s3="$(_install_tree_snapshot "$_df_probe")" || _df_s3="<failed>"
+rm -f "$_df_probe/.hidden"
+_df_s4="$(_install_tree_snapshot "$_df_probe")" || _df_s4="<failed>"
+if [ "$_df_s0" != "<failed>" ] && [ "$_df_s1" != "$_df_s0" ] && [ "$_df_s2" != "$_df_s1" ] \
+   && [ "$_df_s3" != "$_df_s2" ] && [ "$_df_s4" != "$_df_s3" ]; then
+  ok "hermetic snapshot: a created, modified and removed dotfile (and a file in a dot directory) are each detected (#1299 item 7)"
+else no "hermetic snapshot misses dotfile changes (#1299 item 7)"; fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: a dotfile-blind snapshot (glob-style) must fail the dotfile fixture --"
+  # Mutant: the file scan skips names starting with '.', as `"$root"/*` would.
+  _df_m="$( eval "$(declare -f _install_tree_snapshot | sed "s/-type f -exec cksum/-type f ! -name '.*' -exec cksum/")"
+            printf 'a\n' > "$_df_probe/.m2"; a="$(_install_tree_snapshot "$_df_probe")"; printf 'zzz longer\n' > "$_df_probe/.m2"; b="$(_install_tree_snapshot "$_df_probe")"
+            [ -n "$a" ] && [ "$a" = "$b" ] && echo BLIND || echo SEES )"
+  if [ "$_df_m" = BLIND ]; then ok "teeth: a dotfile-blind snapshot misses a dotfile change → the dotfile fixture bites"
+  else no "teeth: the dotfile-blind mutant still saw the change (or did not run: [$_df_m]) — dotfile fixture is THEATER"; fi
+fi
+
 # ======================================================================================================
 # Pi + gentle-shell harnesses. Both surface the skill under an agent dir (~/.pi/agent,
 # ~/.gentle-shell/agent) AND deploy a slash-command PROMPT TEMPLATE (prompts/research-sdd.md) so Pi's
@@ -1785,6 +1840,54 @@ _viol="$(_slash_invariant "$HERE/../adapters.sh")"
   || no "slash invariant violated by: $_viol"
 [ "$(bash -c '. "$1"; for h in $RESEARCH_SDD_HARNESSES; do rsdd_field "$h" supports_slash_commands /H; done | grep -c true' _ "$HERE/../adapters.sh")" = 2 ] \
   && ok "slash invariant: exactly pi + gentle-shell report supports_slash=true" || no "slash invariant: unexpected supports_slash=true set"
+
+# PI4 — template marker isolation (kit issue #1469). The prompt template and the skill are deployed
+# through the SAME helper with SEPARATE marker files (.installed-template-state, profile=template, vs
+# .installed-skill-state). Sharing one file would let a skill profile switch read the template's
+# profile as "previous profile", clean the wrong render dir, or rewrite the template's recorded hash.
+# Scenario: install twice (default profile = general), switch the skill profile to claude, then back.
+# Prints "OK" or a space-separated list of broken invariants.
+_tmpl_isolation_scenario() { # <installer> <home>
+  local sut="$1" home="$2" root="$2/.gentle-shell/agent" bad="" tp mk sm t_sha t_marker
+  bash "$sut" --home "$home" --harness gentle-shell >/dev/null 2>&1
+  bash "$sut" --home "$home" --harness gentle-shell >/dev/null 2>&1
+  tp="$root/prompts/research-sdd.md"; mk="$root/research-sdd/.installed-template-state"; sm="$root/research-sdd/.installed-skill-state"
+  [ -d "$root/research-sdd/profile/general" ] || bad="$bad no-initial-general-render"
+  t_sha="$(cksum < "$tp" 2>/dev/null)"; t_marker="$(cat "$mk" 2>/dev/null)"
+  [ -n "$t_sha" ] && [ -n "$t_marker" ] || bad="$bad no-template-or-marker"
+  bash "$sut" --home "$home" --harness gentle-shell --profile claude >/dev/null 2>&1
+  [ "$(cksum < "$tp" 2>/dev/null)" = "$t_sha" ] || bad="$bad template-changed-by-switch"
+  [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch"
+  grep -q '^profile=template$' "$mk" 2>/dev/null || bad="$bad template-marker-lost-its-profile"
+  grep -q '^profile=claude$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched"
+  [ ! -e "$root/research-sdd/profile/general" ] || bad="$bad orphan-general-render-kept"
+  bash "$sut" --home "$home" --harness gentle-shell --profile general >/dev/null 2>&1
+  [ -f "$root/research-sdd/profile/general/skills/research-sdd/SKILL.md" ] || bad="$bad general-render-not-restored"
+  [ "$(cksum < "$tp" 2>/dev/null)" = "$t_sha" ] || bad="$bad template-changed-by-switch-back"
+  [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch-back"
+  grep -q '^profile=general$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched-back"
+  printf '%s' "${bad:-OK}" | sed 's/^ //'
+}
+_ti="$(_tmpl_isolation_scenario "$SUT" "$TMP/tmpl-iso")"
+if [ "$_ti" = OK ]; then ok "template marker isolation: 2 installs + skill-profile switch (general→claude→general) leave template, its marker and the render dir intact"
+else no "template marker isolation broken: $_ti"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: template marker shared with the skill marker (kit issue #1469) --"
+  MTI="$MKI/research-sdd-install.MUTANT-TMPLSHARE.$$.sh"
+  if mutant_sed "$SUT" "$MTI" 's|tmpl_marker="\$config_root/research-sdd/.installed-template-state"|tmpl_marker="$config_root/research-sdd/.installed-skill-state"|'; then
+    _ti_m="$(_tmpl_isolation_scenario "$MTI" "$TMP/tmpl-iso-mut")"
+    # The SPECIFIC failure the shared marker causes: the template marker loses profile=template (the
+    # skill's marker overwrites it). A missing/broken installer yields other tokens and must not count.
+    # The mutant installer must also have RUN (it wrote the skill marker): a missing installer fails too.
+    [ -s "$TMP/tmpl-iso-mut/.gentle-shell/agent/research-sdd/.installed-skill-state" ] || _ti_m="installer-did-not-run $_ti_m"
+    case " $_ti_m " in
+      *" installer-did-not-run "*) no "teeth: MUTANT-TMPLSHARE installer did not run — no teeth established ($_ti_m)" ;;
+      *" template-marker-lost-its-profile "*) ok "teeth: a shared skill/template marker makes the template marker lose profile=template ($_ti_m)" ;;
+      *) no "teeth: shared-marker mutant did not fail with template-marker-lost-its-profile — check is THEATER or the mutant did not run ($_ti_m)" ;;
+    esac
+  else no "teeth: MUTANT-TMPLSHARE could not be built (refused by the mutant helper — see above)"; fi
+fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: Pi template deployment skipped / template for empty-field harness / harness dropped --"
