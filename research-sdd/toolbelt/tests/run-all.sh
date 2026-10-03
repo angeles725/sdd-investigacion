@@ -174,13 +174,29 @@ _scan_kit_tree() {
     printf '%s\n' "$_lnk" | awk -F'\t' -v pre="$KIT_TREE/" 'NF >= 2 { if (index($1, pre) == 1) $1 = substr($1, length(pre) + 1); print $1 "\t" $2 }'; } | LC_ALL=C sort)"
   return 0
 }
+_kit_tree_unreadable() {
+  # Kit issue #1299 item 7: a chmod-000 file/dir left under research-sdd/ makes `sha1sum`/`find` fail,
+  # which used to be reported as "the scanner failed" and blamed on the tooling. Names the first
+  # unreadable entry (relative path) when one exists, empty otherwise. Captured, never piped into
+  # `head` (SIGPIPE under pipefail). SENTINEL-KIT-TREE-UNREADABLE
+  local _u
+  _u="$(find "$KIT_TREE" -not -readable 2>/dev/null)"
+  _u="${_u%%$'\n'*}"
+  [[ -n "$_u" ]] && printf '%s' "${_u#"$KIT_TREE"/}"
+  return 0
+}
 if [[ -z "$KIT_TREE" ]]; then
   KIT_TREE_DEGRADED=1
   KIT_TREE_DEGRADED_REASON="the kit tree (research-sdd/) could not be resolved from $SCRIPT_DIR"
   echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED — $KIT_TREE_DEGRADED_REASON" >&2
 elif ! _scan_kit_tree; then
   KIT_TREE_DEGRADED=1
-  KIT_TREE_DEGRADED_REASON="the kit-tree scanner ('find' + 'sha1sum') failed or is unavailable on this platform"
+  _kt_unreadable="$(_kit_tree_unreadable)"
+  if [[ -n "$_kt_unreadable" ]]; then
+    KIT_TREE_DEGRADED_REASON="unreadable entry under research-sdd/ before any suite ran: $_kt_unreadable (a leftover permission change in the tree, not a scanner fault)"
+  else
+    KIT_TREE_DEGRADED_REASON="the kit-tree scanner ('find' + 'sha1sum') failed or is unavailable on this platform"
+  fi
   echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED — $KIT_TREE_DEGRADED_REASON" >&2
 else
   _kit_tree_prev="$_kit_tree_cur"
@@ -342,8 +358,13 @@ _check_kit_tree_hermeticity() {
   if [[ "$KIT_TREE_DEGRADED" -eq 0 ]]; then
     if ! _scan_kit_tree; then
       KIT_TREE_DEGRADED=1
-      KIT_TREE_DEGRADED_REASON="the kit-tree scanner failed mid-run (after $base)"
-      echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED mid-run (after $base) — the scanner failed; cannot verify remaining suites stay hermetic" >&2
+      _kt_unreadable="$(_kit_tree_unreadable)"
+      if [[ -n "$_kt_unreadable" ]]; then
+        KIT_TREE_DEGRADED_REASON="unreadable entry under research-sdd/ after $base: $_kt_unreadable (the suite, or a leftover, changed its permissions — not a scanner fault)"
+      else
+        KIT_TREE_DEGRADED_REASON="the kit-tree scanner failed mid-run (after $base)"
+      fi
+      echo "run-all.sh: WARNING: kit-tree hermeticity guard DEGRADED mid-run (after $base) — $KIT_TREE_DEGRADED_REASON; cannot verify remaining suites stay hermetic" >&2
     elif [[ "$_kit_tree_cur" != "$_kit_tree_prev" ]]; then
       declare -A _kt_prev_map=() _kt_cur_map=()
       while IFS=$'\t' read -r _kt_path _kt_id; do
@@ -664,6 +685,71 @@ if [[ -n "$PROVE_TEETH" ]]; then
   _nh_names=""; for _n in "${_nh_sorted[@]}"; do _nh_names="${_nh_names:+$_nh_names, }$_n"; done
   # SENTINEL-TEETH-HELPER-REPORT
   echo "Suites with teeth not using lib/mutant.sh: ${#_nh_sorted[@]} — [$_nh_names]"
+  # --- Teeth-helper gate (kit issue #1299 item 4; --require-teeth only) -----------------------
+  # Under --require-teeth every hand-rolled teeth suite must either use the helper or carry an
+  # explicit waiver in teeth-helper-waivers.txt ("<suite> <reason>" per line; '#' comments).
+  # Unwaived suites, STALE waivers (the suite now uses the helper, lost its teeth, or no longer
+  # exists), and malformed waiver lines each fail the run — none is silently ignored (§7).
+  # A missing waiver file is reported as absent-input and means "no waivers", which fails only
+  # when something actually needs one.
+  if [[ -n "$REQUIRE_TEETH" ]]; then
+    WAIVER_FILE="$SCRIPT_DIR/teeth-helper-waivers.txt"
+    declare -A _wv_reason=()
+    _wv_invalid=()
+    _wv_state="ok"
+    if [[ ! -e "$WAIVER_FILE" ]]; then
+      _wv_state="absent"
+    elif [[ ! -f "$WAIVER_FILE" || ! -r "$WAIVER_FILE" ]]; then
+      _wv_state="unreadable"
+    else
+      _wv_ln=0
+      while IFS= read -r _wv_line || [[ -n "$_wv_line" ]]; do
+        _wv_ln=$((_wv_ln + 1))
+        _wv_line="${_wv_line#"${_wv_line%%[![:space:]]*}"}"
+        [[ -z "$_wv_line" || "$_wv_line" == "#"* ]] && continue
+        _wv_name="${_wv_line%%[[:space:]]*}"
+        _wv_why="${_wv_line#"$_wv_name"}"
+        _wv_why="${_wv_why#"${_wv_why%%[![:space:]]*}"}"
+        if [[ ! "$_wv_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          _wv_invalid+=("line $_wv_ln: bad suite name")
+        elif [[ -z "$_wv_why" ]]; then
+          _wv_invalid+=("line $_wv_ln: '$_wv_name' has no reason")
+        elif [[ "${_wv_reason[$_wv_name]+set}" == "set" ]]; then
+          _wv_invalid+=("line $_wv_ln: '$_wv_name' waived twice")
+        else
+          _wv_reason["$_wv_name"]="$_wv_why"
+        fi
+      done < "$WAIVER_FILE"
+    fi
+    declare -A _nh_set=()
+    for _n in "${_nh_sorted[@]}"; do _nh_set["$_n"]=1; done
+    _unwaived=(); _waived=(); _stale=()
+    for _n in "${_nh_sorted[@]}"; do
+      if [[ "${_wv_reason[$_n]+set}" == "set" ]]; then _waived+=("$_n"); else _unwaived+=("$_n"); fi
+    done
+    for _n in "${!_wv_reason[@]}"; do
+      [[ "${_nh_set[$_n]+set}" == "set" ]] || _stale+=("$_n")
+    done
+    _join() { local _r="" _x; for _x in "$@"; do _r="${_r:+$_r, }$_x"; done; printf '%s' "$_r"; }
+    _un_names=""; _wa_names=""; _st_names=""; _iv_names=""
+    if [[ ${#_unwaived[@]} -gt 0 ]]; then _un_names="$(_join "${_unwaived[@]}")"; fi
+    if [[ ${#_waived[@]} -gt 0 ]]; then _wa_names="$(_join "${_waived[@]}")"; fi
+    if [[ ${#_stale[@]} -gt 0 ]]; then
+      mapfile -t _stale < <(printf '%s\n' "${_stale[@]}" | LC_ALL=C sort)
+      _st_names="$(_join "${_stale[@]}")"
+    fi
+    if [[ ${#_wv_invalid[@]} -gt 0 ]]; then _iv_names="$(_join "${_wv_invalid[@]}")"; fi
+    case "$_wv_state" in
+      absent) echo "Teeth-helper waivers: ABSENT-INPUT ($WAIVER_FILE not found; treated as no waivers)" ;;
+      unreadable) echo "Teeth-helper waivers: UNREADABLE ($WAIVER_FILE is not a readable file; run fails)" ;;
+    esac
+    # SENTINEL-TEETH-HELPER-GATE
+    echo "Suites with teeth not using lib/mutant.sh and not waived: ${#_unwaived[@]} — [$_un_names]"
+    echo "Waived teeth-helper suites (teeth-helper-waivers.txt): ${#_waived[@]} — [$_wa_names]"
+    # SENTINEL-TEETH-HELPER-STALE
+    echo "Stale teeth-helper waivers (suite uses the helper, has no teeth, or does not exist): ${#_stale[@]} — [$_st_names]"
+    echo "Invalid teeth-helper waiver lines: ${#_wv_invalid[@]} — [$_iv_names]"
+  fi
 fi
 echo "==============================================================="
 
@@ -675,6 +761,11 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
+    exit 1
+  fi
+  # SENTINEL-TEETH-HELPER-EXIT
+  if [[ -n "$REQUIRE_TEETH" ]] && { [[ ${#_unwaived[@]} -gt 0 ]] || [[ ${#_stale[@]} -gt 0 ]] \
+     || [[ ${#_wv_invalid[@]} -gt 0 ]] || [[ "$_wv_state" == "unreadable" ]]; }; then
     exit 1
   fi
   exit 0
