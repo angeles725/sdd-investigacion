@@ -426,8 +426,9 @@ if [ -f "$sources_md" ]; then
   _ed_rc=$?
   # Anti-silent-zero (#1500): a detector that aborted, or never reached END (no trailer), is a typed degraded
   # state — never a clean registry. rc=1 so the gate cannot read a blind scan as PASS.
-  if [ "$_ed_rc" -ne 0 ] || ! grep -q '^@@scanned [0-9][0-9]*$' <<<"$_ed_out"; then
-    printf '   ERROR: empty-digest scan DEGRADED (awk exit %d%s) — SOURCES.md NOT checked for empty-input digests\n' "$_ed_rc" "$(grep -q '^@@scanned [0-9][0-9]*$' <<<"$_ed_out" || echo ', no scan trailer')"
+  _ed_trailer=""; grep -q '^@@scanned [0-9][0-9]*$' <<<"$_ed_out" || _ed_trailer=", no scan trailer"
+  if [ "$_ed_rc" -ne 0 ] || [ -n "$_ed_trailer" ]; then
+    printf '   ERROR: empty-digest scan DEGRADED (awk exit %d%s) — SOURCES.md NOT checked for empty-input digests\n' "$_ed_rc" "$_ed_trailer"
     rc=1
   fi
   while IFS= read -r _ed_line; do
