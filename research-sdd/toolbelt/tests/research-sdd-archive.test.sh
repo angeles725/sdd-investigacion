@@ -33,7 +33,7 @@ skip(){ printf '  SKIP  %s\n' "$1"; }
 _dubious_ownership_reproduces() {
   local d="$1" err rc
   err="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 git -C "$d" rev-parse --show-toplevel 2>&1 1>/dev/null)"; rc=$?
-  [ "$rc" -ne 0 ] && printf '%s\n' "$err" | grep -qi 'dubious ownership'
+  [ "$rc" -ne 0 ] && <<<"$err" grep -qi 'dubious ownership'
 }
 
 # A consistent, gate-passing corpus: coverage ratio matches (no all-closed-but-pending desync), no

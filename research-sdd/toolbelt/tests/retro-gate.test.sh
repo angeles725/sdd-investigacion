@@ -252,7 +252,7 @@ _j1="$(mkjson "$SID1" "true")"
 run_gate "$T1" "$_j1"
 [ "$RC" -eq 0 ] && ok "ALLOW: stop_hook_active=true → exit 0" || no "ALLOW: stop_hook_active=true — want 0, got $RC"
 [ -z "$OUT" ] && ok "ALLOW: stop_hook_active=true → no block JSON on stdout" || no "ALLOW: stop_hook_active=true — unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'loop-safety' && ok "ALLOW: stop_hook_active stderr says loop-safety" \
+<<<"$ERR" grep -q 'loop-safety' && ok "ALLOW: stop_hook_active stderr says loop-safety" \
   || no "ALLOW: stop_hook_active — stderr missing 'loop-safety': $ERR"
 
 # ─── (2) First call with block + no retro → blocks ───────────────────────────
@@ -263,16 +263,16 @@ mkblock "$T2" "niagara-block1.md" "2026-09-05T10:00:00"
 _j2="$(mkjson "$SID2" "false")"
 run_gate "$T2" "$_j2"
 [ "$RC" -eq 0 ] && ok "BLOCK: no retro → exit 0 (hook contract)" || no "BLOCK: no retro — want exit 0, got $RC"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' && ok "BLOCK: no retro → decision=block in stdout" \
+<<<"$OUT" grep -qF '"decision":"block"' && ok "BLOCK: no retro → decision=block in stdout" \
   || no "BLOCK: no retro — missing decision:block in stdout: $OUT"
-printf '%s' "$OUT" | grep -qF 'retro.template.md' && ok "BLOCK: no retro → reason has template ref" \
+<<<"$OUT" grep -qF 'retro.template.md' && ok "BLOCK: no retro → reason has template ref" \
   || no "BLOCK: no retro — reason missing template ref: $OUT"
 
 # ─── (3) Block-once: second call in same session → allow ─────────────────────
 run_gate "$T2" "$_j2"
 [ "$RC" -eq 0 ] && ok "ALLOW: block-once second call → exit 0" || no "ALLOW: block-once — want 0, got $RC"
 [ -z "$OUT" ] && ok "ALLOW: block-once second call → no block JSON" || no "ALLOW: block-once — expected no block, got: $OUT"
-printf '%s' "$ERR" | grep -q 'block-once' && ok "ALLOW: block-once stderr says block-once" \
+<<<"$ERR" grep -q 'block-once' && ok "ALLOW: block-once stderr says block-once" \
   || no "ALLOW: block-once — stderr missing 'block-once': $ERR"
 
 # ─── (4) No research files changed → allow ───────────────────────────────────
@@ -289,7 +289,7 @@ _j3="$(mkjson "$SID3" "false")"
 run_gate "$T3" "$_j3"
 [ "$RC" -eq 0 ] && ok "ALLOW: no research change → exit 0" || no "ALLOW: no change — want 0, got $RC"
 [ -z "$OUT" ] && ok "ALLOW: no research change → no block JSON" || no "ALLOW: no change — unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'no-change' && ok "ALLOW: no-change branch in stderr" \
+<<<"$ERR" grep -q 'no-change' && ok "ALLOW: no-change branch in stderr" \
   || no "ALLOW: no-change — stderr missing 'no-change': $ERR"
 
 # ─── (5) Conforming retro newer than block → allow ───────────────────────────
@@ -304,7 +304,7 @@ _j4="$(mkjson "$SID4" "false")"
 run_gate "$T4" "$_j4"
 [ "$RC" -eq 0 ] && ok "ALLOW: conforming retro newer than block → exit 0" || no "ALLOW: conform — want 0, got $RC"
 [ -z "$OUT" ] && ok "ALLOW: conforming retro → no block JSON" || no "ALLOW: conform — unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'retro-conforming' && ok "ALLOW: conforming retro branch in stderr" \
+<<<"$ERR" grep -q 'retro-conforming' && ok "ALLOW: conforming retro branch in stderr" \
   || no "ALLOW: conform — stderr missing 'retro-conforming': $ERR"
 
 # ─── (6) Non-conforming retro newer than block → block with actionable reason ─
@@ -317,11 +317,11 @@ touch -t 202609051200 "$T5/retros/2026-09-05-bad-retro.md"
 
 _j5="$(mkjson "$SID5" "false")"
 run_gate "$T5" "$_j5"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' && ok "BLOCK: non-conforming retro → decision=block" \
+<<<"$OUT" grep -qF '"decision":"block"' && ok "BLOCK: non-conforming retro → decision=block" \
   || no "BLOCK: non-conforming — missing decision:block: $OUT"
-printf '%s' "$OUT" | grep -qF 'retro.template.md' && ok "BLOCK: non-conforming reason has template ref" \
+<<<"$OUT" grep -qF 'retro.template.md' && ok "BLOCK: non-conforming reason has template ref" \
   || no "BLOCK: non-conforming — reason missing template ref: $OUT"
-printf '%s' "$OUT" | grep -qF 'missing elements' && ok "BLOCK: non-conforming reason has missing elements" \
+<<<"$OUT" grep -qF 'missing elements' && ok "BLOCK: non-conforming reason has missing elements" \
   || no "BLOCK: non-conforming — reason missing 'missing elements': $OUT"
 
 # ─── (7) jq absent → degrade allow (exit 0, degraded stderr, no block JSON) ──
@@ -340,9 +340,9 @@ else
     || no "DEGRADE: jq absent — want exit 0, got $RC"
   [ -z "$OUT" ] && ok "DEGRADE: jq absent → no block JSON on stdout" \
     || no "DEGRADE: jq absent — unexpected stdout: $OUT"
-  printf '%s' "$ERR" | grep -q 'branch=degraded' && ok "DEGRADE: jq absent → branch=degraded in stderr" \
+  <<<"$ERR" grep -q 'branch=degraded' && ok "DEGRADE: jq absent → branch=degraded in stderr" \
     || no "DEGRADE: jq absent — stderr missing 'branch=degraded': $ERR"
-  printf '%s' "$ERR" | grep -q 'jq missing' && ok "DEGRADE: jq absent → 'jq missing' in stderr" \
+  <<<"$ERR" grep -q 'jq missing' && ok "DEGRADE: jq absent → 'jq missing' in stderr" \
     || no "DEGRADE: jq absent — stderr missing 'jq missing': $ERR"
 fi
 
@@ -355,7 +355,7 @@ mkblock "$T7" "niagara-block1.md" "2026-09-05T10:00:00"
 _j7="$(mkjson "$SID7" "false")"
 run_gate "$T7" "$_j7"
 [ "$RC" -eq 0 ] && ok "EMITTER: block with dq-name → exit 0" || no "EMITTER: dq-name — want 0, got $RC"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "EMITTER: dq-name → decision=block present" \
   || no "EMITTER: dq-name — missing decision:block: $OUT"
 if command -v jq >/dev/null 2>&1; then
@@ -384,9 +384,9 @@ if [ -f "$SEED_LOG_EN3" ] && grep -qF -- '--apply' "$SEED_LOG_EN3"; then
 else
   no "EN3-a: stub seeder NOT called with --apply (seeding not triggered); log=$(cat "$SEED_LOG_EN3" 2>/dev/null || echo '<absent>')"
 fi
-printf '%s' "$ERR" | grep -q 'issue-seeding' && ok "EN3-a: 'issue-seeding' summary in stderr" \
+<<<"$ERR" grep -q 'issue-seeding' && ok "EN3-a: 'issue-seeding' summary in stderr" \
   || no "EN3-a: 'issue-seeding' summary missing from stderr: $ERR"
-printf '%s' "$ERR" | grep -q 'ran=1' && ok "EN3-a: ran=1 counter in issue-seeding summary" \
+<<<"$ERR" grep -q 'ran=1' && ok "EN3-a: ran=1 counter in issue-seeding summary" \
   || no "EN3-a: expected ran=1 in issue-seeding summary; got: $ERR"
 
 # ─── (EN3-b) No retro → still blocks, seeding NOT called ─────────────────────
@@ -398,7 +398,7 @@ mkblock "$TEN3B" "niagara-block1.md" "2026-09-05T10:00:00"
 _jen3b="$(mkjson "$SIDEN3B" "false")"
 # Use real SUT (no stub needed; seeding should not be reached on block path)
 run_gate "$TEN3B" "$_jen3b"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "EN3-b: no retro → still produces decision:block" \
   || no "EN3-b: no retro → missing decision:block: $OUT"
 
@@ -415,9 +415,9 @@ run_gate_nogh "$TEN3C" "$_jen3c"
   || no "EN3-c: conforming retro + gh absent → want exit 0, got $RC"
 [ -z "$OUT" ] && ok "EN3-c: conforming retro + gh absent → no block JSON" \
   || no "EN3-c: conforming retro + gh absent → unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'issue-seeding' && ok "EN3-c: gh absent → 'issue-seeding' in stderr (WARN or summary)" \
+<<<"$ERR" grep -q 'issue-seeding' && ok "EN3-c: gh absent → 'issue-seeding' in stderr (WARN or summary)" \
   || no "EN3-c: gh absent → 'issue-seeding' missing from stderr: $ERR"
-printf '%s' "$ERR" | grep -q 'WARN' && ok "EN3-c: gh absent → 'WARN' in stderr" \
+<<<"$ERR" grep -q 'WARN' && ok "EN3-c: gh absent → 'WARN' in stderr" \
   || no "EN3-c: gh absent → 'WARN' missing from stderr: $ERR"
 
 # ─── (EN3-d) Idempotent re-run: seeding called twice without error ────────────
@@ -472,14 +472,14 @@ run_fkit_fail_gate "$TEN3E" "$_jen3e"
   || no "EN3-e: failing seeder → expected exit 0, got $RC"
 [ -z "$OUT" ] && ok "EN3-e: failing seeder → no block JSON on stdout" \
   || no "EN3-e: failing seeder → unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'WARN.*seeder failed' && ok "EN3-e: failing seeder → WARN in stderr" \
+<<<"$ERR" grep -q 'WARN.*seeder failed' && ok "EN3-e: failing seeder → WARN in stderr" \
   || no "EN3-e: failing seeder → expected 'WARN.*seeder failed' in stderr; got: $ERR"
-printf '%s' "$ERR" | grep -q 'failed=1' && ok "EN3-e: failing seeder → failed=1 in summary line" \
+<<<"$ERR" grep -q 'failed=1' && ok "EN3-e: failing seeder → failed=1 in summary line" \
   || no "EN3-e: failing seeder → expected 'failed=1' in summary; got: $ERR"
-printf '%s' "$ERR" | grep -q 'WARN.*fail-seeder' && ok "EN3-e: failing seeder → retro filename in WARN line" \
+<<<"$ERR" grep -q 'WARN.*fail-seeder' && ok "EN3-e: failing seeder → retro filename in WARN line" \
   || no "EN3-e: failing seeder → expected 'WARN.*fail-seeder' in WARN line; got: $ERR"
 # Seeder reason (first line of seeder output) appears in the per-retro WARN line
-printf '%s' "$ERR" | grep -q 'WARN.*rate limit' && ok "EN3-e: failing seeder → seeder reason in WARN" \
+<<<"$ERR" grep -q 'WARN.*rate limit' && ok "EN3-e: failing seeder → seeder reason in WARN" \
   || no "EN3-e: failing seeder → expected seeder reason 'rate limit' in WARN; got: $ERR"
 
 # ─── (EN3-e-partial) Partial seeder: creates some issues then fails ───────────
@@ -516,13 +516,13 @@ ERR_P="$(cat "$errf_p")"; rm -f "$errf_p"
 [ "$RC" -eq 0 ] && ok "EN3-e-partial: partial seeder → gate still allows (exit 0)" \
   || no "EN3-e-partial: partial seeder → expected exit 0; got $RC"
 # created=1 in summary (partial progress must be counted even on failure)
-printf '%s' "$ERR_P" | grep -q 'created=1' && ok "EN3-e-partial: partial seeder → created=1 in summary" \
+<<<"$ERR_P" grep -q 'created=1' && ok "EN3-e-partial: partial seeder → created=1 in summary" \
   || no "EN3-e-partial: partial seeder → expected 'created=1' in summary; got: $ERR_P"
 # failed=1 in summary
-printf '%s' "$ERR_P" | grep -q 'failed=1' && ok "EN3-e-partial: partial seeder → failed=1 in summary" \
+<<<"$ERR_P" grep -q 'failed=1' && ok "EN3-e-partial: partial seeder → failed=1 in summary" \
   || no "EN3-e-partial: partial seeder → expected 'failed=1' in summary; got: $ERR_P"
 # WARN must say count came from partial-progress lines (not summary)
-printf '%s' "$ERR_P" | grep -q 'no summary:.*counted.*partial-progress' && ok "EN3-e-partial: partial seeder → WARN mentions partial-progress count" \
+<<<"$ERR_P" grep -q 'no summary:.*counted.*partial-progress' && ok "EN3-e-partial: partial seeder → WARN mentions partial-progress count" \
   || no "EN3-e-partial: partial seeder → expected WARN about partial-progress count; got: $ERR_P"
 
 # ─── EN3-f: seeder exit 0 + typed outcome (empty-input:) → empty=1, no absent-summary WARN ─
@@ -556,15 +556,15 @@ printf '%s' "$_jtf" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_F/toolbelt/retro-gate.sh" "$TF" >"$ROOT/out_tf.$$" 2>"$errf_tf"
 ERR_F="$(cat "$errf_tf")"; rm -f "$errf_tf" "$ROOT/out_tf.$$"
 # empty=1 in issue-seeding summary (typed outcome recognised, counter incremented)
-printf '%s' "$ERR_F" | grep -q 'empty=1' \
+<<<"$ERR_F" grep -q 'empty=1' \
   && ok "EN3-f: empty-input: typed outcome → empty=1 in issue-seeding summary" \
   || no "EN3-f: expected empty=1 in summary; got: $ERR_F"
 # NO absent-summary WARN (typed outcome suppresses the WARN)
-printf '%s' "$ERR_F" | grep -q 'WARN.*no summary' \
+<<<"$ERR_F" grep -q 'WARN.*no summary' \
   && no "EN3-f: empty-input: must NOT trigger absent-summary WARN; got: $ERR_F" \
   || ok "EN3-f: empty-input: did not trigger absent-summary WARN (correct)"
 # ran=1 in summary (seeder was called)
-printf '%s' "$ERR_F" | grep -q 'ran=1' \
+<<<"$ERR_F" grep -q 'ran=1' \
   && ok "EN3-f: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-f: expected ran=1 in summary; got: $ERR_F"
 
@@ -603,23 +603,23 @@ printf '%s' "$_jtu" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_U/toolbelt/retro-gate.sh" "$TU" >"$ROOT/out_u.$$" 2>"$errf_u"
 ERR_U="$(cat "$errf_u")"; rm -f "$errf_u" "$ROOT/out_u.$$"
 # unclassifiable=1 in issue-seeding summary (typed outcome recognised, counter incremented)
-printf '%s' "$ERR_U" | grep -q 'unclassifiable=1' \
+<<<"$ERR_U" grep -q 'unclassifiable=1' \
   && ok "EN3-unclassifiable: unclassifiable: typed outcome → unclassifiable=1 in issue-seeding summary" \
   || no "EN3-unclassifiable: expected unclassifiable=1 in summary; got: $ERR_U"
 # A typed, loud, non-fatal WARN naming the retro (not the generic 'no summary: line' fallback)
-printf '%s' "$ERR_U" | grep -q 'WARN: seeder: unclassifiable for.*needs manual review' \
+<<<"$ERR_U" grep -q 'WARN: seeder: unclassifiable for.*needs manual review' \
   && ok "EN3-unclassifiable: typed loud WARN naming the retro (needs manual review)" \
   || no "EN3-unclassifiable: expected typed WARN naming the retro; got: $ERR_U"
 # NO generic 'no summary: line' fallback WARN (typed outcome suppresses it)
-printf '%s' "$ERR_U" | grep -q 'no summary: line' \
+<<<"$ERR_U" grep -q 'no summary: line' \
   && no "EN3-unclassifiable: must NOT trigger the generic 'no summary: line' WARN; got: $ERR_U" \
   || ok "EN3-unclassifiable: did not trigger the generic 'no summary: line' WARN (correct)"
 # failed=0 — non-fatal, never counted as a create failure
-printf '%s' "$ERR_U" | grep -q 'failed=0' \
+<<<"$ERR_U" grep -q 'failed=0' \
   && ok "EN3-unclassifiable: non-fatal — failed=0 in summary" \
   || no "EN3-unclassifiable: expected failed=0 (non-fatal); got: $ERR_U"
 # ran=1 in summary (seeder was called)
-printf '%s' "$ERR_U" | grep -q 'ran=1' \
+<<<"$ERR_U" grep -q 'ran=1' \
   && ok "EN3-unclassifiable: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-unclassifiable: expected ran=1 in summary; got: $ERR_U"
 
@@ -654,23 +654,23 @@ printf '%s' "$_jtabs" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_ABS/toolbelt/retro-gate.sh" "$TABS" >"$ROOT/out_abs.$$" 2>"$errf_abs"
 ERR_ABS="$(cat "$errf_abs")"; rm -f "$errf_abs" "$ROOT/out_abs.$$"
 # absent=1 in issue-seeding summary (distinct from empty)
-printf '%s' "$ERR_ABS" | grep -q 'absent=1' \
+<<<"$ERR_ABS" grep -q 'absent=1' \
   && ok "EN3-absent: absent-input: typed outcome → absent=1 in issue-seeding summary" \
   || no "EN3-absent: expected absent=1 in summary; got: $ERR_ABS"
 # empty=0 — must not be folded into empty counter
-printf '%s' "$ERR_ABS" | grep -q 'empty=0' \
+<<<"$ERR_ABS" grep -q 'empty=0' \
   && ok "EN3-absent: absent-input: does not increment empty counter (empty=0)" \
   || no "EN3-absent: expected empty=0 (not folded into empty); got: $ERR_ABS"
 # failed=0 — absent-input seeder must NOT contribute to failed counter
-printf '%s' "$ERR_ABS" | grep -q 'failed=0 ' \
+<<<"$ERR_ABS" grep -q 'failed=0 ' \
   && ok "EN3-absent: absent-input: does not increment failed counter (failed=0)" \
   || no "EN3-absent: expected failed=0 (absent not counted as failed); got: $ERR_ABS"
 # No per-retro seeder-failed WARN (only the absent-input WARN fires)
-printf '%s' "$ERR_ABS" | grep -q 'WARN: seeder failed' \
+<<<"$ERR_ABS" grep -q 'WARN: seeder failed' \
   && no "EN3-absent: absent-input must NOT emit seeder-failed WARN; got: $ERR_ABS" \
   || ok "EN3-absent: absent-input: no seeder-failed WARN (correct)"
 # Anchored WARN: must match the specific absent-input WARN line, not a reason line
-printf '%s' "$ERR_ABS" | grep -qF 'WARN: seeder: absent-input for 2026-09-05-tabs.md' \
+<<<"$ERR_ABS" grep -qF 'WARN: seeder: absent-input for 2026-09-05-tabs.md' \
   && ok "EN3-absent: absent-input: typed outcome → WARN naming retro emitted" \
   || no "EN3-absent: expected 'WARN: seeder: absent-input for 2026-09-05-tabs.md'; got: $ERR_ABS"
 
@@ -707,15 +707,15 @@ printf '%s' "$_jtnm" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_NM/toolbelt/retro-gate.sh" "$TNM" >"$ROOT/out_nm.$$" 2>"$errf_nm"
 ERR_NM="$(cat "$errf_nm")"; rm -f "$errf_nm" "$ROOT/out_nm.$$"
 # empty=1 in summary (no-match with summary: → empty counter via summary branch)
-printf '%s' "$ERR_NM" | grep -q 'empty=1' \
+<<<"$ERR_NM" grep -q 'empty=1' \
   && ok "EN3-no-match: no-match: typed outcome → empty=1 in issue-seeding summary" \
   || no "EN3-no-match: expected empty=1 in summary; got: $ERR_NM"
 # absent=0 — must not be counted as absent
-printf '%s' "$ERR_NM" | grep -q 'absent=0' \
+<<<"$ERR_NM" grep -q 'absent=0' \
   && ok "EN3-no-match: no-match: does not increment absent counter (absent=0)" \
   || no "EN3-no-match: expected absent=0; got: $ERR_NM"
 # no absent-input WARN
-printf '%s' "$ERR_NM" | grep -q 'WARN.*absent-input' \
+<<<"$ERR_NM" grep -q 'WARN.*absent-input' \
   && no "EN3-no-match: no-match must NOT trigger absent-input WARN; got: $ERR_NM" \
   || ok "EN3-no-match: no-match: did not trigger absent-input WARN (correct)"
 
@@ -748,11 +748,11 @@ printf '%s' "$_jtasw" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_ASW/toolbelt/retro-gate.sh" "$TASW" >"$ROOT/out_asw.$$" 2>"$errf_asw"
 ERR_ASW="$(cat "$errf_asw")"; rm -f "$errf_asw" "$ROOT/out_asw.$$"
 # WARN fires (exit 0 + no typed outcome + no summary = absent-summary WARN)
-printf '%s' "$ERR_ASW" | grep -q 'WARN.*no summary' \
+<<<"$ERR_ASW" grep -q 'WARN.*no summary' \
   && ok "EN3-absent-summary-WARN: exit 0, no typed outcome → absent-summary WARN fires" \
   || no "EN3-absent-summary-WARN: expected WARN 'no summary'; got: $ERR_ASW"
 # Gate still allows (seeder exit 0)
-printf '%s' "$ERR_ASW" | grep -q 'ran=1' \
+<<<"$ERR_ASW" grep -q 'ran=1' \
   && ok "EN3-absent-summary-WARN: ran=1 in summary (seeder was called)" \
   || no "EN3-absent-summary-WARN: expected ran=1 in summary; got: $ERR_ASW"
 
@@ -783,12 +783,12 @@ errf_sum="$ROOT/err_sum.$$"
 OUT="$(printf '%s' "$_jen3sum" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_SUM/toolbelt/retro-gate.sh" "$TEN3SUM" 2>"$errf_sum")"; RC=$?
 ERR_SUM="$(cat "$errf_sum")"; rm -f "$errf_sum"
-printf '%s' "$ERR_SUM" | grep -q 'created=1' && ok "EN3-summary: real summary: format → created=1 in issue-seeding" \
+<<<"$ERR_SUM" grep -q 'created=1' && ok "EN3-summary: real summary: format → created=1 in issue-seeding" \
   || no "EN3-summary: expected created=1 from summary: parse; got: $ERR_SUM"
 
 # ─── (EN3-ran) ran=N counter present in issue-seeding summary (#935) ─────────
 # RED before fix: SUT has no ran= counter.
-printf '%s' "$ERR_SUM" | grep -q 'ran=1' && ok "EN3-ran: ran=1 counter in issue-seeding summary" \
+<<<"$ERR_SUM" grep -q 'ran=1' && ok "EN3-ran: ran=1 counter in issue-seeding summary" \
   || no "EN3-ran: expected ran=1 in summary; got: $ERR_SUM"
 
 # ─── (EN3-reason) WARN reason = last non-progress line, not first (#935) ──────
@@ -820,9 +820,9 @@ OUT="$(printf '%s' "$_jen3rsn" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_RSN/toolbelt/retro-gate.sh" "$TEN3RSN" 2>"$errf_rsn")"; RC=$?
 ERR_RSN="$(cat "$errf_rsn")"; rm -f "$errf_rsn"
 # New: WARN reason should be the last non-progress line ('API quota exhausted'), not 'created:'
-printf '%s' "$ERR_RSN" | grep -qE 'WARN.*API quota' && ok "EN3-reason: WARN reason is last non-progress line" \
+<<<"$ERR_RSN" grep -qE 'WARN.*API quota' && ok "EN3-reason: WARN reason is last non-progress line" \
   || no "EN3-reason: expected 'API quota' as reason; got: $ERR_RSN"
-printf '%s' "$ERR_RSN" | grep -qE 'WARN.*created:' && no "EN3-reason: WARN must NOT show progress line as reason" \
+<<<"$ERR_RSN" grep -qE 'WARN.*created:' && no "EN3-reason: WARN must NOT show progress line as reason" \
   || ok "EN3-reason: WARN does not show 'created:' as reason (correct)"
 
 # ─── (EN3-944) PR #944 compat: summary with failed=N + exit 2 ────────────────
@@ -856,19 +856,19 @@ printf '%s' "$_j944" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_944/toolbelt/retro-gate.sh" "$T944" >"$ROOT/out_944.$$" 2>"$errf_944"
 ERR_944="$(cat "$errf_944")"; rm -f "$errf_944" "$ROOT/out_944.$$"
 # created=1 parsed from summary (not from progress lines)
-printf '%s' "$ERR_944" | grep -q 'created=1' \
+<<<"$ERR_944" grep -q 'created=1' \
   && ok "EN3-944: PR #944 summary with failed=N → created=1 parsed correctly" \
   || no "EN3-944: expected created=1 from PR #944 summary; got: $ERR_944"
 # failed=1 (retro count, not per-issue count) — one retro failed
-printf '%s' "$ERR_944" | grep -qE 'failed=1( |$)' \
+<<<"$ERR_944" grep -qE 'failed=1( |$)' \
   && ok "EN3-944: PR #944 exit 2 → failed=1 (retro count, not per-issue 3)" \
   || no "EN3-944: expected failed=1 (retro count) in summary; got: $ERR_944"
 # failed-issues=3 (per-issue count from summary)
-printf '%s' "$ERR_944" | grep -q 'failed-issues=3' \
+<<<"$ERR_944" grep -q 'failed-issues=3' \
   && ok "EN3-944: PR #944 summary failed=3 → failed-issues=3 (per-issue count)" \
   || no "EN3-944: expected failed-issues=3 from summary parsing; got: $ERR_944"
 # per-retro WARN still fires (exit 2 is a failure)
-printf '%s' "$ERR_944" | grep -q 'WARN.*seeder failed' \
+<<<"$ERR_944" grep -q 'WARN.*seeder failed' \
   && ok "EN3-944: exit 2 with summary → seeder-failed WARN still emitted" \
   || no "EN3-944: expected WARN for seeder exit 2; got: $ERR_944"
 # aggregate WARN uses new format: 'N issue create(s) failed across M retro(s)'
@@ -911,7 +911,7 @@ touch -t 202609051000 "$T_flip/niagara-block1.md"
 touch -t 202609051200 "$T_flip/retros/2026-01-10-old-retro.md"
 _j_flip="$(mkjson "$SID_flip" "false")"
 run_gate "$T_flip" "$_j_flip"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#957 T-flip: old retro with bumped mtime → still blocks (session-sha scope, not mtime)" \
   || no "#957 T-flip: old retro with bumped mtime → should block but allowed — session-scope bypass"
 
@@ -933,7 +933,7 @@ GIT_AUTHOR_DATE="2026-09-23T12:00:00" GIT_COMMITTER_DATE="2026-09-23T12:00:00" \
   git -C "$T_gmv" commit -q -m "rename retro"
 _j_gmv="$(mkjson "$SID_gmv" "false")"
 run_gate "$T_gmv" "$_j_gmv"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#957 T-git-mv: renamed retro (git mv) → still blocks (rename=R not A in diff)" \
   || no "#957 T-git-mv: renamed retro → should block but allowed — rename bypass (pre-fix RED)"
 
@@ -959,7 +959,7 @@ GIT_AUTHOR_DATE="2026-09-23T12:00:00" GIT_COMMITTER_DATE="2026-09-23T12:00:00" \
   git -C "$T_gmvdr" commit -q -m "rename retro"
 _j_gmvdr="$(mkjson "$SID_gmvdr" "false")"
 run_gate "$T_gmvdr" "$_j_gmvdr"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#984 T-git-mv-diff-renames-false: renamed retro under diff.renames=false → still blocks (-M forces rename detection)" \
   || no "#984 T-git-mv-diff-renames-false: renamed retro under diff.renames=false → should block but allowed — config-dependent rename bypass (pre-fix RED)"
 
@@ -1102,7 +1102,7 @@ touch -t 202601010800 "$T_uto/retros/2026-01-01-old-untracked.md"
 mksessionfile "$T_uto" "$SID_uto" "202609050800"
 _j_uto="$(mkjson "$SID_uto" "false")"
 run_gate "$T_uto" "$_j_uto"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#957 T-untracked-old: untracked retro older than session → blocks (accepted tradeoff)" \
   || no "#957 T-untracked-old: untracked retro older than session → should block: OUT=$OUT"
 
@@ -1118,7 +1118,7 @@ GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
   git -C "$T_idx" commit -q -m "add retros index"
 _j_idx="$(mkjson "$SID_idx" "false")"
 run_gate "$T_idx" "$_j_idx"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#957 T-idx-only: INDEX.md excluded from qualifying retros → blocks" \
   || no "#957 T-idx-only: INDEX.md should be excluded → expected block: OUT=$OUT"
 
@@ -1135,7 +1135,7 @@ GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
   git -C "$T_exc" commit -q -m "add excluded retro"
 _j_exc="$(mkjson "$SID_exc" "false")"
 run_gate "$T_exc" "$_j_exc"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#957 T-excluded: excluded retro (kit-retro: exclude) → still blocks" \
   || no "#957 T-excluded: excluded retro should not qualify → expected block: OUT=$OUT"
 
@@ -1252,7 +1252,7 @@ touch -t 202609051200 "$TPFX/retros/2026-09-05-tpfx.md"
 errf_tpfx="$ROOT/err_tpfx.$$"
 OUT="$(printf '%s' "$(mkjson "$STPFX" false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$SUT" "$TPFX" 2>"$errf_tpfx")"; RC=$?
 ERR="$(cat "$errf_tpfx")"; rm -f "$errf_tpfx"
-if printf '%s' "$ERR" | grep -q 'retro-gate: WARN: out-of-scope-marker: '; then
+if <<<"$ERR" grep -q 'retro-gate: WARN: out-of-scope-marker: '; then
   ok "T-SEEDABLE-PFX: real retro-gate.sh WARN leads with the literal 'out-of-scope-marker:' token" "()"
 else
   no "T-SEEDABLE-PFX: expected 'retro-gate: WARN: out-of-scope-marker: ' in stderr" "got: $ERR"
@@ -1281,7 +1281,7 @@ run_gate "$T_w1" "$(mkjson "$SID_w1" false)"
 [ -z "$OUT" ] \
   && ok "#1223 W1: only a .claude/worktrees copy changed → allows (no block JSON)" \
   || no "#1223 W1: .claude/worktrees copy must not count as a changed research file: $OUT"
-printf '%s' "$ERR" | grep -q 'branch=no-change' \
+<<<"$ERR" grep -q 'branch=no-change' \
   && ok "#1223 W1: stderr says branch=no-change" \
   || no "#1223 W1: expected branch=no-change, got: $ERR"
 
@@ -1293,7 +1293,7 @@ mkwtcopy "$T_w2" ".claude/worktrees/aaa-first" "niagara-block1.md"
 mkblock "$T_w2" "niagara-block2.md" "2026-09-05T10:00:00"
 mkwtcopy "$T_w2" ".claude/worktrees/zzz-last" "niagara-block3.md"
 run_gate "$T_w2" "$(mkjson "$SID_w2" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W2: real block changed beside worktree copies → still blocks" \
   || no "#1223 W2: real block change must still block: OUT=$OUT ERR=$ERR"
 
@@ -1320,7 +1320,7 @@ mksessionfile "$T_w3b" "$SID_w3b" "202609050800"
 mkdir -p "$T_w3b/clone/.git"
 printf '# Block\n' > "$T_w3b/clone/niagara-block1.md"
 run_gate "$T_w3b" "$(mkjson "$SID_w3b" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W3b: block in a nested clone (.git dir) still counts → blocks" \
   || no "#1223 W3b: nested clone must not be excluded: OUT=$OUT ERR=$ERR"
 T_w3c="$ROOT/t-w3c"; mkgit "$T_w3c"; SID_w3c="w3c-sess"
@@ -1329,7 +1329,7 @@ mkdir -p "$T_w3c/sub"
 printf 'gitdir: ../.git/modules/sub\n' > "$T_w3c/sub/.git"
 printf '# Block\n' > "$T_w3c/sub/niagara-block1.md"
 run_gate "$T_w3c" "$(mkjson "$SID_w3c" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W3c: block under a submodule-style .git file still counts → blocks" \
   || no "#1223 W3c: submodule must not be excluded: OUT=$OUT ERR=$ERR"
 
@@ -1354,7 +1354,7 @@ touch -t 202609051000 "$T_w5/niagara-block1.md"
 mkretro "$T_w5/.claude/worktrees/agent-x" "2026-09-05-w5.md" 1
 touch -t 202609051200 "$T_w5/.claude/worktrees/agent-x/retros/2026-09-05-w5.md"
 run_gate "$T_w5" "$(mkjson "$SID_w5" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W5: a retro only inside .claude/worktrees does not qualify → blocks" \
   || no "#1223 W5: worktree-only retro was accepted as the retro: OUT=$OUT ERR=$ERR"
 
@@ -1390,7 +1390,7 @@ printf '%s/side-wt/.git\n' "$T_w7" > "$T_w7/.fakegit/worktrees/side-wt/gitdir"  
 printf '# Block\n' > "$T_w7/niagara-block1.md"; touch -d '-3 hours' "$T_w7/niagara-block1.md"
 mkretro "$T_w7/side-wt" "2026-09-05-w7.md" 1;     touch -d '-1 hour' "$T_w7/side-wt/retros/2026-09-05-w7.md"
 run_gate "$T_w7" "$(mkjson "w7-sess" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W7: degraded — a retro only inside a nested worktree does not qualify → blocks" \
   || no "#1223 W7: degraded scan accepted a worktree retro: OUT=$OUT ERR=$ERR"
 
@@ -1404,7 +1404,7 @@ git -C "$T_w8" add -f ".claude/worktrees/agent-x/retros/2026-09-05-w8.md"
 GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
   git -C "$T_w8" commit -q -m "force-add worktree retro"
 run_gate "$T_w8" "$(mkjson "$SID_w8" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W8: a committed retro under .claude/worktrees does not qualify → blocks" \
   || no "#1223 W8: committed worktree retro was accepted: OUT=$OUT ERR=$ERR"
 
@@ -1428,7 +1428,7 @@ else
   no "PRECOND(#1223 W9): fixture lacks the /worktrees/ look-alike submodule gitdir: $(cat "$T_w9/notes/.git" 2>&1)"
 fi
 run_gate "$T_w9" "$(mkjson "$SID_w9" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1223 W9: block changed inside a submodule of a linked-worktree target → still blocks" \
   || no "#1223 W9: submodule treated as a nested worktree (false ALLOW): OUT=$OUT ERR=$ERR"
 
@@ -1441,7 +1441,7 @@ mksessionfile "$T_w10" "$SID_w10" "202609050800"
 mkdir -p "$T_w10/fake"; : > "$T_w10/fake/commondir"; printf 'gitdir: .\n' > "$T_w10/fake/.git"
 printf '# Block\n' > "$T_w10/fake/niagara-block1.md"
 run_gate "$T_w10" "$(mkjson "$SID_w10" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1301 W10: 'gitdir: .' + stray commondir is not a worktree → block beside it still counts" \
   || no "#1301 W10: contrived gitdir treated as a linked worktree (false ALLOW): OUT=$OUT ERR=$ERR"
 # W10b: commondir present, back-pointer file ABSENT (e.g. a half-pruned worktree) → still counts.
@@ -1451,12 +1451,12 @@ mkdir -p "$T_w10b/side" "$T_w10b/.fakegit/wt"; : > "$T_w10b/.fakegit/wt/commondi
 printf 'gitdir: %s/.fakegit/wt\n' "$T_w10b" > "$T_w10b/side/.git"
 printf '# Block\n' > "$T_w10b/side/niagara-block1.md"
 run_gate "$T_w10b" "$(mkjson "$SID_w10b" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1301 W10b: worktree gitdir without a back-pointer is unprovable → its block still counts" \
   || no "#1301 W10b: back-pointer-less gitdir treated as a worktree (false ALLOW): OUT=$OUT ERR=$ERR"
 # #1311 item 1: the back-pointer read of a commondir-without-gitdir directory is a decision, not an
 # error — the shell's own "No such file or directory" must not leak into the Stop hook's stderr.
-printf '%s' "$ERR" | grep -qi 'no such file' \
+<<<"$ERR" grep -qi 'no such file' \
   && no "#1311 W10b-stderr: back-pointer read leaked to stderr: $ERR" \
   || ok "#1311 W10b-stderr: missing <gitdir>/gitdir emits nothing to stderr"
 
@@ -1470,7 +1470,7 @@ T_s1="$ROOT/t-s1"; mkgit "$T_s1"; SID_s1="s1-sess"
 mksessionfile "$T_s1" "$SID_s1" "202609050800"
 ln -s "$S1_EXT" "$T_s1/corpus"
 run_gate "$T_s1" "$(mkjson "$SID_s1" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1311 S1: block changed through a directory symlink → blocks (no false ALLOW)" \
   || no "#1311 S1: symlinked research dir false ALLOW: OUT=$OUT ERR=$ERR"
 # S2: the link target holds only research OLDER than the session start → nothing changed → ALLOW.
@@ -1480,7 +1480,7 @@ T_s2="$ROOT/t-s2"; mkgit "$T_s2"; SID_s2="s2-sess"
 mksessionfile "$T_s2" "$SID_s2" "202609050800"
 ln -s "$S2_EXT" "$T_s2/corpus"
 run_gate "$T_s2" "$(mkjson "$SID_s2" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && no "#1311 S2: unchanged symlinked research blocked (over-block): OUT=$OUT" \
   || ok "#1311 S2: unchanged research behind a directory symlink does not block"
 # S3: a symlink back to its own ancestor (a loop) terminates and, with nothing changed, allows.
@@ -1488,7 +1488,7 @@ T_s3="$ROOT/t-s3"; mkgit "$T_s3"; SID_s3="s3-sess"
 mksessionfile "$T_s3" "$SID_s3" "202609050800"
 ln -s "$T_s3" "$T_s3/loop"
 run_gate "$T_s3" "$(mkjson "$SID_s3" false)"
-{ [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -qF '"decision":"block"'; } \
+{ [ "$RC" -eq 0 ] && ! <<<"$OUT" grep -qF '"decision":"block"'; } \
   && ok "#1311 S3: a self-referential directory symlink terminates and allows" \
   || no "#1311 S3: loop symlink mishandled RC=$RC OUT=$OUT ERR=$ERR"
 # S4: a directory symlink ADDED since the session sha (committed link) is itself a change → BLOCK
@@ -1501,7 +1501,7 @@ ln -s "$S4_EXT" "$T_s4/corpus"; git -C "$T_s4" add corpus
 GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
   git -C "$T_s4" commit -q -m "add corpus link"
 run_gate "$T_s4" "$(mkjson "$SID_s4" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1311 S4: a directory symlink added since the session start counts as a change → blocks" \
   || no "#1311 S4: newly added directory symlink false ALLOW: OUT=$OUT ERR=$ERR"
 
@@ -1525,7 +1525,7 @@ run_gate_path() {  # <stubdir> <target> <json>
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
 mkfresh() { mkdir -p "$1"; printf '# Block\n' > "$1/niagara-block1.md"; }  # mtime = now (> session)
-blocks_json_s() { printf '%s' "$1" | grep -qF '"decision":"block"'; }
+blocks_json_s() { <<<"$1" grep -qF '"decision":"block"'; }
 
 # S11: a TRACKED link committed BEFORE the session start (Part A sees nothing) with research
 # changed behind it → BLOCK; proves the tracked mode-120000 leg of the git enumeration.
@@ -1536,7 +1536,7 @@ GIT_AUTHOR_DATE="2026-09-01T12:00:00" GIT_COMMITTER_DATE="2026-09-01T12:00:00" \
   git -C "$T_s11" commit -q -m "add corpus link"
 mksessionfile "$T_s11" "$SID_s11" "202609050800"; printf '# Block\n' > "$S11_EXT/niagara-block1.md"
 run_gate "$T_s11" "$(mkjson "$SID_s11" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1311 S11: tracked directory link (pre-session) with changed research behind it → blocks" \
   || no "#1311 S11: tracked link missed: OUT=$OUT ERR=$ERR"
 
@@ -1552,7 +1552,7 @@ blocks_json_s "$OUT" \
 mkfresh "$ROOT/anc/sib"; T_s6="$ROOT/anc/t-s6"; mkgit "$T_s6"; SID_s6="s6-sess"
 mksessionfile "$T_s6" "$SID_s6" "202609050800"; ln -s "$ROOT/anc" "$T_s6/up"
 run_gate "$T_s6" "$(mkjson "$SID_s6" false)"
-{ ! blocks_json_s "$OUT" && printf '%s' "$ERR" | grep -q 'WARN: directory symlink .*ancestor'; } \
+{ ! blocks_json_s "$OUT" && <<<"$ERR" grep -q 'WARN: directory symlink .*ancestor'; } \
   && ok "#1311 S6: link to an ancestor is skipped with a typed WARN" \
   || no "#1311 S6: ancestor link scanned or silent: OUT=$OUT ERR=$ERR"
 # S7 (documented tradeoff): a GITIGNORED directory link is not enumerated (git is the candidate source).
@@ -1574,14 +1574,14 @@ blocks_json_s "$OUT" \
 T_s9="$ROOT/t-s9"; mkgit "$T_s9"; SID_s9="s9-sess"; mksessionfile "$T_s9" "$SID_s9" "202609050800"
 ln -s "$S1_EXT" "$T_s9/corpus"
 run_gate_path "$STUB_TO124" "$T_s9" "$(mkjson "$SID_s9" false)"
-printf '%s' "$ERR" | grep -q 'WARN: directory-symlink scan timed out' \
+<<<"$ERR" grep -q 'WARN: directory-symlink scan timed out' \
   && ok "#1311 S9: fallback timeout → typed WARN" \
   || no "#1311 S9: timeout silent: ERR=$ERR"
 # S10 (N3): an inner walk that exits non-zero is a typed WARN (incomplete), not a silent no-match.
 T_s10="$ROOT/t-s10"; mkgit "$T_s10"; SID_s10="s10-sess"; mksessionfile "$T_s10" "$SID_s10" "202609050800"
 ln -s "$S2_EXT" "$T_s10/corpus"
 run_gate_path "$STUB_TOINNER" "$T_s10" "$(mkjson "$SID_s10" false)"
-printf '%s' "$ERR" | grep -q 'WARN: directory-symlink walk incomplete' \
+<<<"$ERR" grep -q 'WARN: directory-symlink walk incomplete' \
   && ok "#1311 S10: failing inner walk → typed WARN" \
   || no "#1311 S10: incomplete walk silent: ERR=$ERR"
 
@@ -1594,14 +1594,14 @@ S12_EXT="$ROOT/s12-ext"; mkfresh "$S12_EXT"
 T_s12="$ROOT/t-s12"; mkgit "$T_s12"; SID_s12="s12-sess"; mksessionfile "$T_s12" "$SID_s12" "202609050800"
 ln -s "$S12_EXT" "$T_s12/$(printf 'nl\nlink')"
 run_gate "$T_s12" "$(mkjson "$SID_s12" false)"
-{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'WARN: directory-symlink'; } \
+{ blocks_json_s "$OUT" && ! <<<"$ERR" grep -q 'WARN: directory-symlink'; } \
   && ok "#1352 S12: a directory link named with a newline is walked as one path → blocks, no WARN" \
   || no "#1352 S12: newline-named link mishandled: OUT=$OUT ERR=$ERR"
 # S13: the same link through the bounded-find FALLBACK (git cannot enumerate) — NUL end to end too.
 T_s13="$ROOT/t-s13"; mkgit "$T_s13"; SID_s13="s13-sess"; mksessionfile "$T_s13" "$SID_s13" "202609050800"
 ln -s "$S12_EXT" "$T_s13/$(printf 'nl\nlink')"
 run_gate_path "$STUB_NOLS" "$T_s13" "$(mkjson "$SID_s13" false)"
-{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'WARN: directory-symlink'; } \
+{ blocks_json_s "$OUT" && ! <<<"$ERR" grep -q 'WARN: directory-symlink'; } \
   && ok "#1352 S13: newline-named link via the find fallback is walked as one path → blocks, no WARN" \
   || no "#1352 S13: newline-named link mishandled in fallback: OUT=$OUT ERR=$ERR"
 # S14: RETRO_GATE_DIRLINK_TIMEOUT must be a positive number. Anything else is a typed WARN naming
@@ -1616,7 +1616,7 @@ for _tv in abc 0 0.0 -3 1e3 2s; do
   TOLOG="$ROOT/tolog-$_tv"; : > "$TOLOG"; export TOLOG
   rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
   RETRO_GATE_DIRLINK_TIMEOUT="$_tv" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
-  { printf '%s' "$ERR" | grep -q "WARN: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' is not a positive number" \
+  { <<<"$ERR" grep -q "WARN: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' is not a positive number" \
       && [ "$(head -n1 "$TOLOG")" = "5" ] && blocks_json_s "$OUT"; } \
     && ok "#1352 S14: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' → typed WARN, default 5 s used, link still walked" \
     || no "#1352 S14: invalid timeout '$_tv' mishandled: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
@@ -1626,13 +1626,13 @@ for _tv in 7 2.5; do
   TOLOG="$ROOT/tolog-ok-$_tv"; : > "$TOLOG"; export TOLOG
   rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
   RETRO_GATE_DIRLINK_TIMEOUT="$_tv" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
-  { ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "$_tv" ]; } \
+  { ! <<<"$ERR" grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "$_tv" ]; } \
     && ok "#1352 S14b: RETRO_GATE_DIRLINK_TIMEOUT='$_tv' is used as given, no WARN" \
     || no "#1352 S14b: valid timeout '$_tv' rejected or altered: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
 done
 TOLOG="$ROOT/tolog-empty"; : > "$TOLOG"; export TOLOG; rm -f "$T_s14/.claude/.rsdd-retro-blocked-$SID_s14"
 RETRO_GATE_DIRLINK_TIMEOUT="" run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
-{ ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "5" ]; } \
+{ ! <<<"$ERR" grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "5" ]; } \
   && ok "#1352 S14b: empty RETRO_GATE_DIRLINK_TIMEOUT behaves as unset (5 s, no WARN)" \
   || no "#1352 S14b: empty timeout mishandled: first-arg=$(head -n1 "$TOLOG") ERR=$ERR"
 
@@ -1646,14 +1646,14 @@ T_s15="$ROOT/t-s15"; mkgit "$T_s15"; SID_s15="s15-sess"; mksessionfile "$T_s15" 
 ln -s "$S15_EXT" "$T_s15/corpus-a"; ln -s "$S15_EXT" "$T_s15/corpus-b"
 run_gate_path "$STUB_NOMKTEMP" "$T_s15" "$(mkjson "$SID_s15" false)"
 { [ "$RC" -eq 0 ] \
-    && [ "$(printf '%s\n' "$ERR" | grep -c 'WARN: directory-symlink scan skipped: cannot create a scratch file')" = "1" ] \
-    && ! printf '%s' "$ERR" | grep -q 'rc=126'; } \
+    && [ "$(<<<"$ERR" grep -c 'WARN: directory-symlink scan skipped: cannot create a scratch file')" = "1" ] \
+    && ! <<<"$ERR" grep -q 'rc=126'; } \
   && ok "#1404 S15: mktemp failure → one typed 'scratch file' WARN, no per-link rc=126 overload" \
   || no "#1404 S15: scratch-file failure mishandled: RC=$RC ERR=$ERR"
 # S15b: control — with mktemp working the same fixture raises no scratch-file WARN and blocks.
 rm -f "$T_s15/.claude/.rsdd-retro-blocked-$SID_s15"
 run_gate "$T_s15" "$(mkjson "$SID_s15" false)"
-{ blocks_json_s "$OUT" && ! printf '%s' "$ERR" | grep -q 'scratch file'; } \
+{ blocks_json_s "$OUT" && ! <<<"$ERR" grep -q 'scratch file'; } \
   && ok "#1404 S15b: control — mktemp available → no scratch-file WARN, link walked → blocks" \
   || no "#1404 S15b: control broken: OUT=$OUT ERR=$ERR"
 # S16: killing the hook (SIGTERM, as a Stop timeout does) mid-Part C must not leak the scratch files.
@@ -1710,14 +1710,14 @@ kill_case s16b "$STUB_KTO" "$SID_s16" "$T_s16" TERM
   || no "#1404 S16b: leak or wrong exit: rc=$KRC left=[$KLEFT]"
 # S16d (#1421 items 1+2): a SIGTERM-killed hook is logged branch=killed, not 'unclassified'. This is what
 # makes the TERM trap load-bearing: without it bash still runs the EXIT handler but the branch is never set.
-{ [ "$KRC" = "143" ] && printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+{ [ "$KRC" = "143" ] && <<<"$KLOG" grep -qF 'branch=killed'; } \
   && ok "#1421 S16d: SIGTERM → stop-log line carries branch=killed" \
   || no "#1421 S16d: killed hook not tagged: rc=$KRC log=[$KLOG]"
 kill_case s16c "$STUB_KTO" "$SID_s16" "$T_s16" INT
 { [ "$KRC" = "130" ] && [ -z "$KLEFT" ]; } \
   && ok "#1404 S16c: SIGINT during the inner walk → exit 130, no scratch files left" \
   || no "#1404 S16c: leak or wrong exit: rc=$KRC left=[$KLEFT]"
-{ [ "$KRC" = "130" ] && printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+{ [ "$KRC" = "130" ] && <<<"$KLOG" grep -qF 'branch=killed'; } \
   && ok "#1421 S16e: SIGINT → stop-log line carries branch=killed" \
   || no "#1421 S16e: interrupted hook not tagged: rc=$KRC log=[$KLOG]"
 else
@@ -1742,7 +1742,8 @@ nw_roots_inside() {  # <target> → 0 when every nested-worktree root is inside 
 T_s17="$ROOT/t-s17"; mkgit "$T_s17"; git -C "$T_s17" worktree add -q "$T_s17/nested-wt" -b s17-branch 2>/dev/null
 mkdir -p "$T_s17/.claude/worktrees/agent-y"
 _s17_off="$(nw_roots_inside "$T_s17")"; _s17_rc=$?
-{ [ "$_s17_rc" -eq 0 ] && bash -c '. "$1"; block_files_nested_worktree_roots "$2"' _ "$HERE/../lib/block-files.sh" "$T_s17" 2>/dev/null | grep -qF "nested-wt"; } \
+_s17_roots="$(bash -c '. "$1"; block_files_nested_worktree_roots "$2"' _ "$HERE/../lib/block-files.sh" "$T_s17" 2>/dev/null)"
+{ [ "$_s17_rc" -eq 0 ] && grep -qF "nested-wt" <<<"$_s17_roots"; } \
   && ok "#1404 S17: every nested-worktree root (incl. a real linked worktree) lies inside the target" \
   || no "#1404 S17: root discovery reports a root outside the target [$_s17_off] — restore the resolved-path check in Part C"
 
@@ -1770,27 +1771,27 @@ mksessionfile "$T_p1" "$SID_p1" "202609050800"
 printf '# Block\n' > "$T_p1/niagara-block1.md"
 for _pfrc in 2 5 127; do
   run_pf "$_pfrc" "$T_p1" "$SID_p1"
-  printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  <<<"$OUT" grep -qF '"decision":"block"' \
     && ok "#1301 P1(rc=$_pfrc): probe failure → the gate still BLOCKS the changed block (fail safe)" \
     || no "#1301 P1(rc=$_pfrc): probe failure must not allow: OUT=$OUT ERR=$ERR"
-  printf '%s' "$ERR" | grep -qF "WARN: nested-worktree probe failed (rc=$_pfrc)" \
+  <<<"$ERR" grep -qF "WARN: nested-worktree probe failed (rc=$_pfrc)" \
     && ok "#1301 P1(rc=$_pfrc): typed WARN names the failed probe and its rc" \
     || no "#1301 P1(rc=$_pfrc): no typed probe-failure WARN: $ERR"
-  printf '%s' "$ERR" | grep -q 'state=allow' \
+  <<<"$ERR" grep -q 'state=allow' \
     && no "#1301 P1(rc=$_pfrc): stderr claims state=allow: $ERR" \
     || ok "#1301 P1(rc=$_pfrc): stderr never claims state=allow"
 done
 # P2: rc 3 (incomplete traversal) is the lib's own typed WARN — the gate must not repeat it.
 run_pf 3 "$T_p1" "$SID_p1"
-printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed' \
+<<<"$ERR" grep -qF 'nested-worktree probe failed' \
   && no "#1301 P2: rc=3 warned twice (the lib already warned): $ERR" \
   || ok "#1301 P2: rc=3 adds no duplicate gate-level WARN"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1301 P2: rc=3 still blocks the changed block" \
   || no "#1301 P2: rc=3 must not allow: OUT=$OUT ERR=$ERR"
 # P3: rc 0 control — no failure WARN.
 run_pf 0 "$T_p1" "$SID_p1"
-printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed' \
+<<<"$ERR" grep -qF 'nested-worktree probe failed' \
   && no "#1301 P3: rc=0 emitted a probe-failure WARN: $ERR" \
   || ok "#1301 P3: rc=0 control emits no probe-failure WARN"
 
@@ -1814,7 +1815,7 @@ printf '# Catalog (generated)\n' > "$T_c2/CATALOG.md"; touch -d '-3 hours' "$T_c
 mkretro "$T_c2" "2026-09-05-c2.md" 1;                  touch -d '-2 hours' "$T_c2/retros/2026-09-05-c2.md"
 printf '# Block\n' > "$T_c2/niagara-block1.md";         touch -d '-1 hour' "$T_c2/niagara-block1.md"
 run_gate "$T_c2" "$(mkjson "c2-sess" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1229 C2: degraded — real block newer than the retro still blocks (CATALOG.md does not mask it)" \
   || no "#1229 C2: real stale-retro case must still block: OUT=$OUT ERR=$ERR"
 
@@ -1914,15 +1915,15 @@ mksessionfile "$T_l1" "$SID_l1" "202609050800"
 mkdir -p "$T_l1/research"; printf '# Block\n' > "$T_l1/research/niagara-block1.md"
 ln -s "$T_l1" "$ROOT/t-l1-link"
 run_gate "$T_l1" "$(mkjson "$SID_l1" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "PRECOND(#1301 L1): real-path target with an uncommitted block → blocks (fixture is a changed corpus)" \
   || no "PRECOND(#1301 L1): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
 rm -f "$T_l1/.claude/.rsdd-retro-blocked-$SID_l1"
 run_gate "$ROOT/t-l1-link" "$(mkjson "$SID_l1" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1301 L1: the same corpus via a symlinked target → blocks (no false ALLOW)" \
   || no "#1301 L1: symlinked target false ALLOW: OUT=$OUT ERR=$ERR"
-printf '%s' "$ERR" | grep -q 'branch=no-change' \
+<<<"$ERR" grep -q 'branch=no-change' \
   && no "#1301 L1: symlinked target reported branch=no-change: $ERR" \
   || ok "#1301 L1: symlinked target does not report branch=no-change"
 
@@ -1936,12 +1937,12 @@ mksessionfile "$L2_MAIN" "$SID_l2" "202609050800"
 printf '# Block\n' > "$L2_MAIN/notes/niagara-block1.md"
 ln -s "$L2_MAIN" "$ROOT/l2-link"
 run_gate "$L2_MAIN" "$(mkjson "$SID_l2" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "PRECOND(#1301 L2): real-path target, block changed inside a submodule → blocks" \
   || no "PRECOND(#1301 L2): control did not block — fixture broken: OUT=$OUT ERR=$ERR"
 rm -f "$L2_MAIN/.claude/.rsdd-retro-blocked-$SID_l2"
 run_gate "$ROOT/l2-link" "$(mkjson "$SID_l2" false)"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "#1301 L2: submodule block via a symlinked target → blocks" \
   || no "#1301 L2: symlinked target + submodule false ALLOW: OUT=$OUT ERR=$ERR"
 
@@ -1969,7 +1970,7 @@ printf '# Block\n\nContent.\n' > "$T_l5/niagara-block1.md"; touch -d '-1 hour'  
 mkretro "$T_l5" "2026-09-05-l5.md" 1;                       touch -d '-3 hours' "$T_l5/retros/2026-09-05-l5.md"
 ln -s "$T_l5" "$ROOT/t-l5-link"
 run_gate "$ROOT/t-l5-link" "$(mkjson "l5-sess" false)"
-printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'   && ok "#1301 L5: degraded stale retro via a symlinked target → blocks as OLDER than the block"   || no "#1301 L5: stale-retro branch not reached via the symlinked target: OUT=$OUT ERR=$ERR"
+<<<"$OUT" grep -qF 'is OLDER than newest changed block'   && ok "#1301 L5: degraded stale retro via a symlinked target → blocks as OLDER than the block"   || no "#1301 L5: stale-retro branch not reached via the symlinked target: OUT=$OUT ERR=$ERR"
 
 # L4 (issue seeding): the retro scan of _run_issue_seeding must also follow the symlink.
 T_l4="$ROOT/t-l4"; mkgit "$T_l4"; SID_l4="l4-sess"
@@ -2049,7 +2050,7 @@ mk_sl_conforming() {  # <target> <sid> → conforming retro newer than the block
   touch -t 202609051000 "$1/niagara-block1.md"
   mkretro "$1" "2026-09-05-sl.md" 1; touch -t 202609051200 "$1/retros/2026-09-05-sl.md"
 }
-blocks_json() { printf '%s' "$1" | grep -qF '"decision":"block"'; }
+blocks_json() { <<<"$1" grep -qF '"decision":"block"'; }
 
 # SL1: no-change Stop → exactly one typed line
 TSL1="$ROOT/sl1"; mkgit "$TSL1"; mksessionfile "$TSL1" "sl1" "202609050800"
@@ -2066,7 +2067,7 @@ esac
 
 # SL2: second Stop appends (not overwrites); loop-safety branch is logged too
 run_gate "$TSL1" "$(mkjson sl1 true)"
-if [ "$(sl_lines "$TSL1")" = "2" ] && sl_last "$TSL1" | grep -qF 'branch=loop-safety'; then
+if [ "$(sl_lines "$TSL1")" = "2" ] && grep -qF 'branch=loop-safety' <<<"$(sl_last "$TSL1")"; then
   ok "#1258 SL2: second Stop appends a branch=loop-safety line"
 else no "#1258 SL2: $(cat "$TSL1/.claude/$SL_NAME")"; fi
 
@@ -2074,17 +2075,17 @@ else no "#1258 SL2: $(cat "$TSL1/.claude/$SL_NAME")"; fi
 TSL3="$ROOT/sl3"; mkgit "$TSL3"; mksessionfile "$TSL3" "sl3" "202609050800"
 mkblock "$TSL3" "niagara-block1.md" "2026-09-05T10:00:00"
 run_gate "$TSL3" "$(mkjson sl3 false)"
-if blocks_json "$OUT" && sl_last "$TSL3" | grep -qF 'branch=retro-pending'; then
+if blocks_json "$OUT" && grep -qF 'branch=retro-pending' <<<"$(sl_last "$TSL3")"; then
   ok "#1258 SL3: block verdict intact and logged as branch=retro-pending"
 else no "#1258 SL3: out=$OUT log=$(sl_last "$TSL3")"; fi
 run_gate "$TSL3" "$(mkjson sl3 false)"
-sl_last "$TSL3" | grep -qF 'branch=block-once' && ok "#1258 SL3b: block-once branch logged" \
+grep -qF 'branch=block-once' <<<"$(sl_last "$TSL3")" && ok "#1258 SL3b: block-once branch logged" \
   || no "#1258 SL3b: $(sl_last "$TSL3")"
 
 # SL4: conforming retro + seeding → summary: line on stderr AND in the log
 TSL4="$ROOT/sl4"; mk_sl_conforming "$TSL4" sl4
 rm -f "$SEED_LOG_EN3"; run_fkit_gate "$TSL4" "$(mkjson sl4 false)"
-printf '%s\n' "$ERR" | grep -qE 'summary: created=0 skipped-duplicate=0' \
+<<<"$ERR" grep -qE 'summary: created=0 skipped-duplicate=0' \
   && ok "#1258 SL4a: seeder summary: line surfaced on hook stderr" || no "#1258 SL4a: $ERR"
 _sl="$(sl_last "$TSL4")"
 case "$_sl" in
@@ -2096,7 +2097,7 @@ esac
 # SL5: seeding skipped (gh not authenticated) → typed reason in the log, never silent
 TSL5="$ROOT/sl5"; mk_sl_conforming "$TSL5" sl5
 run_gate_nogh "$TSL5" "$(mkjson sl5 false)"
-sl_last "$TSL5" | grep -qF 'seeding=skipped:gh-not-authenticated' \
+grep -qF 'seeding=skipped:gh-not-authenticated' <<<"$(sl_last "$TSL5")" \
   && ok "#1258 SL5: gh-not-authenticated skip is logged typed" || no "#1258 SL5: $(sl_last "$TSL5")"
 
 # SL6: seeder degraded (unregistered target, exit 1) → typed seeder-degraded note
@@ -2105,7 +2106,7 @@ printf '#!/usr/bin/env bash\nprintf "degraded: target not registered in TARGETS.
 cp "$SUT" "$FKIT_DEG/toolbelt/retro-gate.sh"
 TSL6="$ROOT/sl6"; mk_sl_conforming "$TSL6" sl6
 OUT="$(printf '%s' "$(mkjson sl6 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$FKIT_DEG/toolbelt/retro-gate.sh" "$TSL6" 2>/dev/null)"; RC=$?
-if sl_last "$TSL6" | grep -qF 'seeder-degraded' && [ "$RC" -eq 0 ]; then
+if grep -qF 'seeder-degraded' <<<"$(sl_last "$TSL6")" && [ "$RC" -eq 0 ]; then
   ok "#1258 SL6: seeder 'degraded:' is logged typed; exit stays 0"
 else no "#1258 SL6: rc=$RC $(sl_last "$TSL6")"; fi
 
@@ -2114,14 +2115,14 @@ TSL7="$ROOT/sl7"; mkgit "$TSL7"; mksessionfile "$TSL7" "sl7" "202609050800"
 for _i in $(seq 1 700); do printf 'old line %s\n' "$_i"; done > "$TSL7/.claude/$SL_NAME"
 run_gate "$TSL7" "$(mkjson sl7 false)"
 _n="$(sl_lines "$TSL7")"
-if [ "$_n" -le 300 ] && [ "$_n" -ge 100 ] && sl_last "$TSL7" | grep -qF 'branch=no-change'; then
+if [ "$_n" -le 300 ] && [ "$_n" -ge 100 ] && grep -qF 'branch=no-change' <<<"$(sl_last "$TSL7")"; then
   ok "#1258 SL7: log bounded ($_n lines) and keeps the newest line"
 else no "#1258 SL7: lines=$_n last=$(sl_last "$TSL7")"; fi
 
 # SL8: write failure (.claude is a regular file) → typed WARN, verdict + exit code unchanged
 TSL8="$ROOT/sl8"; mkgit "$TSL8"; printf 'x' > "$TSL8/.claude"
 run_gate "$TSL8" "$(mkjson sl8 false)"
-if [ "$RC" -eq 0 ] && printf '%s' "$ERR" | grep -qF 'retro-gate: WARN: stop-log write failed'; then
+if [ "$RC" -eq 0 ] && <<<"$ERR" grep -qF 'retro-gate: WARN: stop-log write failed'; then
   ok "#1258 SL8a: unwritable state dir → typed stderr WARN, exit 0"
 else no "#1258 SL8a: rc=$RC err=$ERR"; fi
 TSL8B="$ROOT/sl8b"; mkgit "$TSL8B"; mkblock "$TSL8B" "niagara-block1.md" "2026-09-05T10:00:00"
@@ -2133,7 +2134,7 @@ blocks_json "$OUT" && ok "#1258 SL8b: block verdict still emitted when the log c
 # SL9: jq-missing degraded exit is logged as branch=degraded
 TSL9="$ROOT/sl9"; mkgit "$TSL9"
 run_gate_nojq "$TSL9" "$(mkjson sl9 false)"
-sl_last "$TSL9" | grep -qF 'branch=degraded' && ok "#1258 SL9: jq-missing degraded Stop is logged" \
+grep -qF 'branch=degraded' <<<"$(sl_last "$TSL9")" && ok "#1258 SL9: jq-missing degraded Stop is logged" \
   || no "#1258 SL9: $(sl_last "$TSL9")"
 
 # SL10 (B1): the log must be covered by the `.claude/.rsdd-*` ignore rule real targets already carry
@@ -2169,16 +2170,16 @@ TSL11="$ROOT/sl11"; mkgit "$TSL11"; mksessionfile "$TSL11" "slr" "202609050800"
 FKIT_NH="$ROOT/fkitnh"; mkdir -p "$FKIT_NH/toolbelt"; cp "$SUT" "$FKIT_NH/toolbelt/retro-gate.sh"
 TSL12="$ROOT/sl12"; mkgit "$TSL12"
 OUT="$(printf '%s' "$(mkjson sl12 false)" | "$BASH_BIN" "$FKIT_NH/toolbelt/retro-gate.sh" "$TSL12" 2>/dev/null)"; RC=$?
-if [ "$RC" -eq 0 ] && sl_last "$TSL12" | grep -qF 'branch=error-helper'; then
+if [ "$RC" -eq 0 ] && grep -qF 'branch=error-helper' <<<"$(sl_last "$TSL12")"; then
   ok "#1258 SL12: missing helper → exit 0 and a branch=error-helper line"
 else no "#1258 SL12: rc=$RC log=$(sl_last "$TSL12")"; fi
 
 # SL13 (N3): a degraded check (no session-start sha) is marked on the line
 TSL13="$ROOT/sl13"; mkgit "$TSL13"
 run_gate "$TSL13" "$(mkjson sl13 false)"
-sl_last "$TSL13" | grep -qF 'mode=degraded' && ok "#1258 SL13a: no session sha → line carries mode=degraded" \
+grep -qF 'mode=degraded' <<<"$(sl_last "$TSL13")" && ok "#1258 SL13a: no session sha → line carries mode=degraded" \
   || no "#1258 SL13a: $(sl_last "$TSL13")"
-sl_last "$TSL1" | grep -qF 'mode=degraded' && no "#1258 SL13b: a healthy Stop must not be marked degraded: $(sl_last "$TSL1")" \
+grep -qF 'mode=degraded' <<<"$(sl_last "$TSL1")" && no "#1258 SL13b: a healthy Stop must not be marked degraded: $(sl_last "$TSL1")" \
   || ok "#1258 SL13b: a session-sha Stop is not marked degraded"
 
 # SL14 (N5): the REAL stage-retro-issues.sh on an unregistered target -> exit 1 'degraded:' reaches
@@ -2194,7 +2195,7 @@ TSL14="$ROOT/sl14"; mk_sl_conforming "$TSL14" sl14
 mkdir -p "$ROOT/sl14bin"   # gh stub: auth ok, dedup search -> empty JSON array, everything else exit 0
 printf '#!/usr/bin/env bash\ncase "${1:-} ${2:-}" in "issue list") echo "[]";; esac\nexit 0\n' > "$ROOT/sl14bin/gh"; chmod +x "$ROOT/sl14bin/gh"
 OUT="$(printf '%s' "$(mkjson sl14 false)" | env -u RESEARCH_HOME HOME="$ROOT/sl14home" RESEARCH_SDD_ISSUE_REPO=o/r PATH="$ROOT/sl14bin:$PATH" "$BASH_BIN" "$SL14KIT/research-sdd/toolbelt/retro-gate.sh" "$TSL14" 2>"$ROOT/sl14.err")"; RC=$?
-if [ "$RC" -eq 0 ] && sl_last "$TSL14" | grep -qF 'seeder-degraded:2026-09-05-sl.md:degraded: target'; then
+if [ "$RC" -eq 0 ] && grep -qF 'seeder-degraded:2026-09-05-sl.md:degraded: target' <<<"$(sl_last "$TSL14")"; then
   ok "#1258 SL14: real seeder's unregistered-target degraded is logged typed; exit 0 (hermetic kit, no HOME)"
 else no "#1258 SL14: rc=$RC log=$(sl_last "$TSL14") err=$(cat "$ROOT/sl14.err")"; fi
 
@@ -2253,7 +2254,7 @@ _jm1="$(mkjson "$SM1" "false")"
 run_mutant "$M1" "$TM1" "$_jm1"
 # Second call: mutant ignores state file → should block again (RED = expected)
 run_mutant "$M1" "$TM1" "$_jm1"
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "TOOTH blocks-twice: mutant blocks second call (RED as expected)" \
   || no "TOOTH blocks-twice: mutant should have blocked second call but did not"
 
@@ -2268,7 +2269,7 @@ touch -t 202609051200 "$TM2/retros/2026-09-05-bad-retro.md"
 _jm2="$(mkjson "$SM2" "false")"
 run_mutant "$M2" "$TM2" "$_jm2"
 # Mutant allows even though retro is non-conforming → should NOT block (RED = allows)
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && no "TOOTH allows-unmarked: mutant should ALLOW non-conforming retro (RED) but it blocked" \
   || ok "TOOTH allows-unmarked: mutant allows non-conforming retro (RED as expected)"
 
@@ -2280,7 +2281,7 @@ mkblock "$TM3" "niagara-block1.md" "2026-09-05T10:00:00"
 _jm3="$(mkjson "$SM3" "true")"  # stop_hook_active=true
 run_mutant "$M3" "$TM3" "$_jm3"
 # Mutant should block despite stop_hook_active=true (RED = expected)
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+<<<"$OUT" grep -qF '"decision":"block"' \
   && ok "TOOTH ignores-stop_hook_active: mutant blocks despite stop_hook_active=true (RED as expected)" \
   || no "TOOTH ignores-stop_hook_active: mutant should block but allowed; check SENTINEL placement"
 
@@ -2302,7 +2303,7 @@ mkblock "$TM4" "niagara-block1.md" "2026-09-05T10:00:00"
 _jm4="$(mkjson "$SM4" "false")"
 run_mutant "$M4" "$TM4" "$_jm4"
 # Mutant reason lacks template reference (RED = expected: not actionable)
-printf '%s' "$OUT" | grep -qF 'retro.template.md' \
+<<<"$OUT" grep -qF 'retro.template.md' \
   && no "TOOTH reason-not-actionable: mutant should lack template ref but it was present" \
   || ok "TOOTH reason-not-actionable: mutant reason lacks template ref (RED as expected)"
 
@@ -2320,7 +2321,7 @@ if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
 else
   run_mutant_nojq "$M5" "$TM5" "$_jm5"
   # Mutant has no probe → no 'branch=degraded' in stderr (RED as expected)
-  printf '%s' "$ERR" | grep -q 'branch=degraded' \
+  <<<"$ERR" grep -q 'branch=degraded' \
     && no "TOOTH degraded-stderr-dropped: mutant should NOT emit degraded line but it did" \
     || ok "TOOTH degraded-stderr-dropped: mutant silent (no degraded stderr) — RED as expected"
 fi
@@ -2349,7 +2350,7 @@ if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
 else
   run_mutant_nojq "$M6" "$TM6" "$_jm6"
   # Mutant: jq-cn fails silently → no block JSON on stdout (RED = silent allow)
-  printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  <<<"$OUT" grep -qF '"decision":"block"' \
     && no "TOOTH jq-emitter-reverted: mutant should produce no block JSON (no jq) but it did" \
     || ok "TOOTH jq-emitter-reverted: mutant silent block (no jq-cn output) — RED as expected"
 fi
@@ -2409,7 +2410,7 @@ OUT="$(printf '%s' "$_jm8" | SEED_LOG="$_seed_log8" \
   PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$M8" "$TM8" 2>"$errf_m8")"; RC=$?
 ERR_M8="$(cat "$errf_m8")"; rm -f "$errf_m8"
 # Mutant: no probe → no 'retro-gate: WARN: gh' on stderr
-printf '%s' "$ERR_M8" | grep -qF 'retro-gate: WARN: gh' \
+<<<"$ERR_M8" grep -qF 'retro-gate: WARN: gh' \
   && no "TOOTH gh-probe-dropped: mutant should NOT emit gh WARN but it did: $ERR_M8" \
   || ok "TOOTH gh-probe-dropped: mutant emits no gh WARN — RED as expected"
 
@@ -2526,19 +2527,19 @@ OUT="$(printf '%s' "$_jm10" | PATH="$ROOT/mockbin2:$PATH" \
   "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m10.sh" "$TM10" 2>"$errf_m10")"; RC=$?
 ERR_M10="$(cat "$errf_m10")"; rm -f "$errf_m10"
 # Positive: loop ran and emitted the issue-seeding: summary line (loop-reached proof)
-if printf '%s' "$ERR_M10" | grep -q 'issue-seeding:'; then
+if <<<"$ERR_M10" grep -q 'issue-seeding:'; then
   ok "TOOTH seeder-rc-swallowed: loop ran and reached issue-seeding: summary"
 else
   no "TOOTH seeder-rc-swallowed: issue-seeding: line absent — mutant exited before the loop"
 fi
 # Positive: mutant shows failed=0 — EN3-e 'failed=1' assertion would go RED
-if printf '%s' "$ERR_M10" | grep -q 'failed=0'; then
+if <<<"$ERR_M10" grep -q 'failed=0'; then
   ok "TOOTH seeder-rc-swallowed: mutant shows failed=0 (EN3-e failed=1 assertion would fail — RED)"
 else
   no "TOOTH seeder-rc-swallowed: mutant shows failed≠0 — tooth has no bite"
 fi
 # Absence: mutant must not emit WARN — EN3-e WARN assertion would go RED
-if printf '%s' "$ERR_M10" | grep -q 'WARN.*seeder failed'; then
+if <<<"$ERR_M10" grep -q 'WARN.*seeder failed'; then
   no "TOOTH seeder-rc-swallowed: mutant emitted WARN — tooth has no bite"
 else
   ok "TOOTH seeder-rc-swallowed: mutant did NOT emit WARN (EN3-e WARN assertion would fail — RED)"
@@ -2591,13 +2592,13 @@ OUT="$(printf '%s' "$_jm11" | PATH="$ROOT/mockbin2:$PATH" \
   "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m11.sh" "$TM11" 2>"$errf_m11")"; RC=$?
 ERR_M11="$(cat "$errf_m11")"; rm -f "$errf_m11"
 # Mutant: no aggregate WARN → gate emits no 'issue create(s) failed across' line
-if printf '%s' "$ERR_M11" | grep -q 'issue create(s) failed across'; then
+if <<<"$ERR_M11" grep -q 'issue create(s) failed across'; then
   no "TOOTH 11 aggregate-warn-dropped: mutant emitted aggregate WARN — tooth has no bite"
 else
   ok "TOOTH 11 aggregate-warn-dropped: mutant did NOT emit aggregate WARN (RED as expected)"
 fi
 # Positive: mutant still emits issue-seeding: summary (loop ran)
-if printf '%s' "$ERR_M11" | grep -q 'issue-seeding:'; then
+if <<<"$ERR_M11" grep -q 'issue-seeding:'; then
   ok "TOOTH 11 aggregate-warn-dropped: mutant still emits issue-seeding: summary (loop ran)"
 else
   no "TOOTH 11 aggregate-warn-dropped: issue-seeding: absent — mutant may have crashed"
@@ -2665,7 +2666,7 @@ SUMEOF3
   OUT="$(printf '%s' "$_jm12" | PATH="$ROOT/mockbin2:$PATH" \
     "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m12-sut.sh" "$TM12" 2>"$errf_m12_sut")"; RC=$?
   ERR_M12_SUT="$(cat "$errf_m12_sut")"; rm -f "$errf_m12_sut"
-  if printf '%s' "$ERR_M12_SUT" | grep -qi 'permission denied\|inaccessible'; then
+  if <<<"$ERR_M12_SUT" grep -qi 'permission denied\|inaccessible'; then
     ok "TOOTH 12 find-stderr-suppressed: real SUT — find traversal error in gate stderr (precondition)"
   else
     no "TOOTH 12 find-stderr-suppressed: real SUT — traversal error absent; tooth setup broken; got: $ERR_M12_SUT"
@@ -2676,7 +2677,7 @@ SUMEOF3
   OUT="$(printf '%s' "$_jm12" | PATH="$ROOT/mockbin2:$PATH" \
     "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m12.sh" "$TM12" 2>"$errf_m12")"; RC=$?
   ERR_M12="$(cat "$errf_m12")"; rm -f "$errf_m12"
-  if printf '%s' "$ERR_M12" | grep -qi 'permission denied\|inaccessible'; then
+  if <<<"$ERR_M12" grep -qi 'permission denied\|inaccessible'; then
     no "TOOTH 12 find-stderr-suppressed: mutant — traversal error still in stderr; 2>/dev/null had no effect"
   else
     ok "TOOTH 12 find-stderr-suppressed: mutant suppresses seeding find stderr (RED as expected)"
@@ -2744,19 +2745,19 @@ OUT="$(printf '%s' "$_jm13" | PATH="$ROOT/mockbin2:$PATH" \
   "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m13.sh" "$TM13" 2>"$errf_m13")"; RC=$?
 ERR_M13="$(cat "$errf_m13")"; rm -f "$errf_m13"
 # Positive: loop ran and emitted issue-seeding: summary (crash → no output → this FAILS tooth)
-if printf '%s' "$ERR_M13" | grep -q 'issue-seeding:'; then
+if <<<"$ERR_M13" grep -q 'issue-seeding:'; then
   ok "TOOTH 13 typed-outcome-dropped: loop ran and emitted issue-seeding: summary (loop-reached proof)"
 else
   no "TOOTH 13 typed-outcome-dropped: issue-seeding: absent — mutant may have crashed (tooth invalid)"
 fi
 # Positive: mutant emits wrong WARN ('no summary:' or 'seeder failed') not absent-input WARN
-if printf '%s' "$ERR_M13" | grep -q 'WARN.*absent-input'; then
+if <<<"$ERR_M13" grep -q 'WARN.*absent-input'; then
   no "TOOTH 13 typed-outcome-dropped: mutant emits absent-input WARN — tooth has no bite"
 else
   ok "TOOTH 13 typed-outcome-dropped: mutant does NOT emit absent-input WARN (wrong path — RED as expected)"
 fi
 # Negative: absent=1 must NOT appear in mutant output (absent counter not incremented)
-if printf '%s' "$ERR_M13" | grep -q 'absent=1'; then
+if <<<"$ERR_M13" grep -q 'absent=1'; then
   no "TOOTH 13 typed-outcome-dropped: mutant reports absent=1 — tooth has no bite"
 else
   ok "TOOTH 13 typed-outcome-dropped: mutant does not report absent=1 (EN3-absent assertion would fail — RED)"
@@ -2822,19 +2823,19 @@ OUT="$(printf '%s' "$_jm14" | PATH="$ROOT/mockbin2:$PATH" \
 ERR_M14="$(cat "$errf_m14")"; rm -f "$errf_m14"
 
 # Positive: loop ran (loop-reached proof)
-if printf '%s' "$ERR_M14" | grep -q 'issue-seeding:'; then
+if <<<"$ERR_M14" grep -q 'issue-seeding:'; then
   ok "TOOTH 14 absent-not-failed-dropped: loop ran and emitted issue-seeding: summary"
 else
   no "TOOTH 14 absent-not-failed-dropped: issue-seeding: absent — mutant may have crashed (tooth invalid)"
 fi
 # On mutant: absent-input counted as failed=1 (guard removed → skip-failed branch never fires)
-if printf '%s' "$ERR_M14" | grep -qE 'failed=1( |$)'; then
+if <<<"$ERR_M14" grep -qE 'failed=1( |$)'; then
   ok "TOOTH 14 absent-not-failed-dropped: mutant reports failed=1 (guard removed — RED as expected)"
 else
   no "TOOTH 14 absent-not-failed-dropped: mutant does NOT report failed=1 — tooth has no bite"
 fi
 # On mutant: seeder-failed WARN fires (absent counted in failed branch)
-if printf '%s' "$ERR_M14" | grep -q 'WARN.*seeder failed'; then
+if <<<"$ERR_M14" grep -q 'WARN.*seeder failed'; then
   ok "TOOTH 14 absent-not-failed-dropped: mutant emits seeder-failed WARN (guard removed — RED as expected)"
 else
   no "TOOTH 14 absent-not-failed-dropped: mutant does NOT emit seeder-failed WARN — tooth has no bite"
@@ -2978,7 +2979,7 @@ if grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$RS_LIB"; then
   # fallback (unaffected by the H1-skip removal) still finds the marker and fires the
   # out-of-scope-marker guard, keeping the final verdict not-seedable via a DIFFERENT, still-safe
   # code path. The tooth's signal is that fallback firing, not a flipped final verdict.
-  if printf '%s' "$out_t18s" | grep -q 'out-of-scope-marker' && printf '%s' "$out_t18s" | grep -q 'not-seedable'; then
+  if <<<"$out_t18s" grep -q 'out-of-scope-marker' && <<<"$out_t18s" grep -q 'not-seedable'; then
     ok "T18-seedable teeth: H1-skip removed → out-of-scope-marker fallback fires, still not-seedable (has teeth)" "()"
   else
     no "T18-seedable teeth: H1-skip removed → out-of-scope-marker fallback should fire" "got [$out_t18s] — THEATER"
@@ -3045,8 +3046,8 @@ FT20EOF
   printf '%s' "$_jt20" | PATH="$MOCK_GH_DIR:$PATH" \
     "$BASH_BIN" "$FKIT_T20/toolbelt/retro-gate.sh" "$T20" >"$ROOT/out_t20.$$" 2>"$errf_t20"
   ERR_T20="$(cat "$errf_t20")"; rm -f "$errf_t20" "$ROOT/out_t20.$$"
-  if printf '%s' "$ERR_T20" | grep -q 'unclassifiable=0' \
-     && printf '%s' "$ERR_T20" | grep -q 'no summary: line'; then
+  if <<<"$ERR_T20" grep -q 'unclassifiable=0' \
+     && <<<"$ERR_T20" grep -q 'no summary: line'; then
     ok "T20-unclassifiable teeth: case arm removed → falls through to generic WARN, unclassifiable=0 (has teeth)" "()"
   else
     no "T20-unclassifiable teeth: case arm removed → should fall through to generic WARN" "got [$ERR_T20] — EN3-unclassifiable is THEATER"
@@ -3073,8 +3074,8 @@ if [[ "$sut_content_gate" == *"$anchor_pfx1_gate"* ]]; then
   printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$STPFX" \
     | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$mutant_pfx1_gate" "$TPFX" >"$ROOT/out_pfx1.$$" 2>"$errf_pfx1"
   ERR_PFX1="$(cat "$errf_pfx1")"; rm -f "$errf_pfx1" "$ROOT/out_pfx1.$$"
-  if ! printf '%s' "$ERR_PFX1" | grep -q 'WARN: out-of-scope-marker: ' \
-     && printf '%s' "$ERR_PFX1" | grep -q 'out-of-scope-marker for'; then
+  if ! <<<"$ERR_PFX1" grep -q 'WARN: out-of-scope-marker: ' \
+     && <<<"$ERR_PFX1" grep -q 'out-of-scope-marker for'; then
     ok "teeth PFX1: wording reverted → T-SEEDABLE-PFX's colon-prefixed grep no longer matches (has teeth)" "()"
   else
     no "teeth PFX1: wording reverted → T-SEEDABLE-PFX should stop matching" "got=[$ERR_PFX1] — THEATER"
@@ -3101,7 +3102,7 @@ nwmutant() {
   return 0
 }
 # blocks_json <var-output>: 0 when stdout carries a block decision.
-blocks_json() { printf '%s' "$1" | grep -qF '"decision":"block"'; }
+blocks_json() { <<<"$1" grep -qF '"decision":"block"'; }
 # rmblocked <target> <session_id>: clear the block-once state so a mutant run is judged on the
 # scan logic, not suppressed by the original fixture run's "already blocked this session" file.
 rmblocked() { rm -f "$1/.claude/.rsdd-retro-blocked-$2"; }
@@ -3196,7 +3197,7 @@ if cmp -s "$_lib_mk" "$_lib_mk.orig"; then
   no "TOOTH bp-read-unbraced: lib mutant identical to original — sed matched nothing (tooth not built)"
 else
   rmblocked "$T_w10b" "$SID_w10b"; run_mutant "$MUT_KIT/toolbelt/mutant-proofs.sh" "$T_w10b" "$(mkjson "$SID_w10b" false)"
-  printf '%s' "$ERR" | grep -qi 'no such file' \
+  <<<"$ERR" grep -qi 'no such file' \
     && ok "TOOTH bp-read-unbraced: mutant leaks 'No such file' to stderr — RED as expected" \
     || no "TOOTH bp-read-unbraced: mutant stayed quiet — braces not load-bearing: ERR=$ERR"
 fi
@@ -3240,14 +3241,14 @@ fi
 # DL6 (N3): walk-failure WARN removed → S10 goes silent.
 if nwmutant 'dirlink-walkwarn-removed' '/SENTINEL-DIRLINK-WALK-WARN-START/,/SENTINEL-DIRLINK-WALK-WARN-END/d'; then M_DL6="$NWM"
   rmblocked "$T_s10" "$SID_s10"; PATH="$STUB_TOINNER:$PATH" run_mutant "$M_DL6" "$T_s10" "$(mkjson "$SID_s10" false)"
-  printf '%s' "$ERR" | grep -q 'directory-symlink walk incomplete' \
+  <<<"$ERR" grep -q 'directory-symlink walk incomplete' \
     && no "TOOTH dirlink-walkwarn-removed: mutant still warns — WARN not load-bearing" \
     || ok "TOOTH dirlink-walkwarn-removed: mutant is silent on a failed walk — RED as expected"
 fi
 # DL7: timeout branch removed (124 handled as a generic rc) → S9 loses its 'timed out' wording.
 if nwmutant 'dirlink-timeout-branch' 's/"\$_dl_rc" -eq 124/"$_dl_rc" -eq 999/'; then M_DL7="$NWM"
   rmblocked "$T_s9" "$SID_s9"; PATH="$STUB_TO124:$PATH" run_mutant "$M_DL7" "$T_s9" "$(mkjson "$SID_s9" false)"
-  printf '%s' "$ERR" | grep -q 'scan timed out' \
+  <<<"$ERR" grep -q 'scan timed out' \
     && no "TOOTH dirlink-timeout-branch: mutant still reports a timeout" \
     || ok "TOOTH dirlink-timeout-branch: mutant loses the timeout WARN — RED as expected"
 fi
@@ -3279,7 +3280,7 @@ if nwmutant 'dirlink-timeout-validation' '/SENTINEL-DIRLINK-TIMEOUT-START/,/SENT
   _sut_save="$SUT"; SUT="$M_DL11"
   RETRO_GATE_DIRLINK_TIMEOUT=abc run_gate_path "$STUB_TOLOG" "$T_s14" "$(mkjson "$SID_s14" false)"
   SUT="$_sut_save"
-  { ! printf '%s' "$ERR" | grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "abc" ]; } \
+  { ! <<<"$ERR" grep -q 'RETRO_GATE_DIRLINK_TIMEOUT' && [ "$(head -n1 "$TOLOG")" = "abc" ]; } \
     && ok "TOOTH dirlink-timeout-validation: mutant passes 'abc' through with no WARN — RED as expected" \
     || no "TOOTH dirlink-timeout-validation: validation not load-bearing: ERR=$ERR first-arg=$(head -n1 "$TOLOG")"
 fi
@@ -3311,7 +3312,7 @@ fi
 if nwmutant 'dirlink-scratch-guard' '/SENTINEL-DIRLINK-SCRATCH-START/,/SENTINEL-DIRLINK-SCRATCH-END/d'; then M_DL15="$NWM"
   rmblocked "$T_s15" "$SID_s15"; _sut_save="$SUT"; SUT="$M_DL15"
   run_gate_path "$STUB_NOMKTEMP" "$T_s15" "$(mkjson "$SID_s15" false)"; SUT="$_sut_save"
-  { ! printf '%s' "$ERR" | grep -q 'cannot create a scratch file' && printf '%s' "$ERR" | grep -q 'rc=126'; } \
+  { ! <<<"$ERR" grep -q 'cannot create a scratch file' && <<<"$ERR" grep -q 'rc=126'; } \
     && ok "TOOTH dirlink-scratch-guard: mutant reverts to the per-link rc=126 overload — RED as expected" \
     || no "TOOTH dirlink-scratch-guard: guard not load-bearing: ERR=$ERR"
 fi
@@ -3326,7 +3327,7 @@ elif nwmutant 'dirlink-no-cleanup' '/SENTINEL-DIRLINK-CLEANUP/d'; then M_DL16="$
 fi
 # DL17 (#1404 item 5): the S17 checker itself must bite — a lib reporting a root outside the target fails it.
 _dl17_off="$(NW_EXTRA="/outside-the-target/worktrees" nw_roots_inside "$T_s17")"; _dl17_rc=$?
-{ [ "$_dl17_rc" -ne 0 ] && printf '%s' "$_dl17_off" | grep -qF '/outside-the-target/worktrees'; } \
+{ [ "$_dl17_rc" -ne 0 ] && <<<"$_dl17_off" grep -qF '/outside-the-target/worktrees'; } \
   && ok "TOOTH nw-root-outside-pin: an injected outside root trips the S17 pin — RED as expected" \
   || no "TOOTH nw-root-outside-pin: pin did not trip: rc=$_dl17_rc off=[$_dl17_off]"
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
@@ -3347,7 +3348,7 @@ hb_mutant() { # <label> <sed-script> <expected FAIL: token>
     no "TOOTH $label: mutant identical to the builder — sed matched nothing (tooth not built)"; return
   fi
   mout="$(hb_checks "$mtxt" 2>/dev/null)"
-  if printf '%s\n' "$mout" | grep -qF "FAIL:$want"; then
+  if <<<"$mout" grep -qF "FAIL:$want"; then
     ok "TOOTH $label: mutant trips FAIL:$want (RED as expected)"
   else
     no "TOOTH $label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$mout" | tr '\n' ' ')]"
@@ -3383,9 +3384,9 @@ l_run() {
   OUT="$(printf '%s' "$(mkjson "$3" false)" | SEED_LOG="$SEED_LOG_EN3" PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$1" "$2" 2>"$errf")"; RC=$?
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
-lc_partb()   { l_run "$1" "$ROOT/t-l1-link" "$SID_l1"; [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'branch=no-change'; }
-lc_deg_blk() { l_run "$1" "$ROOT/t-l5-link" "l5-sess"; ! printf '%s' "$OUT" | grep -qF 'is OLDER than newest changed block'; }
-lc_deg_rtr() { l_run "$1" "$ROOT/t-l3-link" "l3-sess"; printf '%s' "$OUT" | grep -qF '"decision":"block"'; }
+lc_partb()   { l_run "$1" "$ROOT/t-l1-link" "$SID_l1"; [ -z "$OUT" ] && <<<"$ERR" grep -q 'branch=no-change'; }
+lc_deg_blk() { l_run "$1" "$ROOT/t-l5-link" "l5-sess"; ! <<<"$OUT" grep -qF 'is OLDER than newest changed block'; }
+lc_deg_rtr() { l_run "$1" "$ROOT/t-l3-link" "l3-sess"; <<<"$OUT" grep -qF '"decision":"block"'; }
 lc_seed()    { : > "$SEED_LOG_EN3"; l_run "$1" "$ROOT/t-l4-link" "$SID_l4"; ! grep -q 'l4real' "$SEED_LOG_EN3"; }
 l_tooth "l-partb-scan (find -H dropped from the Part B scan)" \
   's/find -H "\$TARGET" -newer/find "$TARGET" -newer/' lc_partb
@@ -3406,8 +3407,8 @@ p_tooth() {
   if "$fn"; then ok "TOOTH $name: mutant misbehaves (RED as expected)"; else no "TOOTH $name: mutant behaved like the real SUT — no teeth"; fi
 }
 pc_allows()  { run_pf 5 "$T_p1" "$SID_p1"; [ -z "$OUT" ]; }
-pc_nowarn()  { run_pf 5 "$T_p1" "$SID_p1"; ! printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed (rc=5)'; }
-pc_rc3warn() { run_pf 3 "$T_p1" "$SID_p1"; printf '%s' "$ERR" | grep -qF 'nested-worktree probe failed'; }
+pc_nowarn()  { run_pf 5 "$T_p1" "$SID_p1"; ! <<<"$ERR" grep -qF 'nested-worktree probe failed (rc=5)'; }
+pc_rc3warn() { run_pf 3 "$T_p1" "$SID_p1"; <<<"$ERR" grep -qF 'nested-worktree probe failed'; }
 p_tooth "p-failopen (a failed probe exits 0 → false ALLOW)" \
   's/^if \[ "\$_nw_rc" -ne 0 \] && \[ "\$_nw_rc" -ne 3 \]; then$/&\n  exit 0/' pc_allows
 p_tooth "p-warn-dropped (probe failure is silent)" \
@@ -3425,14 +3426,14 @@ else
     mutant_sed "$SUT" "$_km" "/^trap '_STOP_BRANCH=killed; exit $_krc' $_ksig\$/d"; _kmrc=$?
     if [ "$_kmrc" -ne 0 ]; then no "TOOTH k-$_kn-trap-dropped: mutant refused by lib/mutant.sh (rc=$_kmrc) — tooth not built"; continue; fi
     kill_case "mk$_kn" "$STUB_KTO" "$SID_s16" "$T_s16" "$_ksig" "$_km"
-    { [ -n "$KLOG" ] && ! printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+    { [ -n "$KLOG" ] && ! <<<"$KLOG" grep -qF 'branch=killed'; } \
       && ok "TOOTH k-$_kn-trap-dropped: without the $_ksig trap the stop-log loses branch=killed — RED as expected" \
       || no "TOOTH k-$_kn-trap-dropped: trap not load-bearing: rc=$KRC log=[$KLOG] left=[$KLEFT]"
   done
   # k-branch-unset: the traps still exit but no longer tag the branch (S16d would go RED).
   if mutant_sed "$SUT" "$MUT_KIT/toolbelt/mutant-k-branch-unset.sh" "s/_STOP_BRANCH=killed; exit/exit/"; then
     kill_case mkbu "$STUB_KTO" "$SID_s16" "$T_s16" TERM "$MUT_KIT/toolbelt/mutant-k-branch-unset.sh"
-    { [ -n "$KLOG" ] && ! printf '%s' "$KLOG" | grep -qF 'branch=killed'; } \
+    { [ -n "$KLOG" ] && ! <<<"$KLOG" grep -qF 'branch=killed'; } \
       && ok "TOOTH k-branch-unset: traps that do not set the branch leave the line untagged — RED as expected" \
       || no "TOOTH k-branch-unset: tag not load-bearing: log=[$KLOG]"
   else no "TOOTH k-branch-unset: mutant refused by lib/mutant.sh — tooth not built"; fi
@@ -3478,7 +3479,7 @@ fi
 mutant_sed "$SUT" "$MUT_KIT/toolbelt/mutant-esc-ctrl31.sh" 's/ 30 31; do/ 30; do/'; _escd_rc=$?
 if [ "$_escd_rc" -ne 0 ]; then
   no "TOOTH esc-ctrl-last: mutant refused by lib/mutant.sh (rc=$_escd_rc) — tooth not built"
-elif esc_checks "$MUT_KIT/toolbelt/mutant-esc-ctrl31.sh" | grep -qF 'FAIL:ctrl-last'; then
+elif _esc_ctrl_out="$(esc_checks "$MUT_KIT/toolbelt/mutant-esc-ctrl31.sh")"; grep -qF 'FAIL:ctrl-last' <<<"$_esc_ctrl_out"; then
   ok "TOOTH esc-ctrl-last: dropping 0x1f from the loop trips the ctrl-last edge (RED as expected)"
 else
   no "TOOTH esc-ctrl-last: ctrl-last edge stayed green with 0x1f unescaped — no teeth"
@@ -3522,8 +3523,8 @@ fi
 if slmut skip-note-dropped '/_seed_note "skipped:gh-not-authenticated"/d'; then
   _t="$ROOT/slt3"; mk_sl_conforming "$_t" slt3
   OUT="$(printf '%s' "$(mkjson slt3 false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$SLM" "$_t" 2>/dev/null)"
-  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-skip-note-dropped: positive control — mutant did not reach retro-conforming"
-  sl_last "$_t" | grep -qF 'skipped:gh-not-authenticated' \
+  grep -qF 'branch=retro-conforming' <<<"$(sl_last "$_t")" || no "TOOTH sl-skip-note-dropped: positive control — mutant did not reach retro-conforming"
+  grep -qF 'skipped:gh-not-authenticated' <<<"$(sl_last "$_t")" \
     && no "TOOTH sl-skip-note-dropped: skip reason still logged — no teeth" \
     || ok "TOOTH sl-skip-note-dropped: dropping the note makes the skip silent (SL5 goes RED)"
 fi
@@ -3532,8 +3533,8 @@ if slmut summary-dropped '/_seed_note "\$(basename "\$rf") \$_summary"/d'; then
   _t="$ROOT/slt4"; mk_sl_conforming "$_t" slt4
   mkdir -p "$ROOT/slt4kit"; cp -r "$FKIT/toolbelt" "$ROOT/slt4kit/"; cp "$SLM" "$ROOT/slt4kit/toolbelt/retro-gate.sh"
   OUT="$(printf '%s' "$(mkjson slt4 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt4kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
-  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-summary-dropped: positive control — mutant did not reach retro-conforming"
-  sl_last "$_t" | grep -qF 'summary: created=' \
+  grep -qF 'branch=retro-conforming' <<<"$(sl_last "$_t")" || no "TOOTH sl-summary-dropped: positive control — mutant did not reach retro-conforming"
+  grep -qF 'summary: created=' <<<"$(sl_last "$_t")" \
     && no "TOOTH sl-summary-dropped: summary still logged — no teeth" \
     || ok "TOOTH sl-summary-dropped: dropping the note loses the seeder summary (SL4b goes RED)"
 fi
@@ -3542,8 +3543,8 @@ if slmut degraded-untyped 's/_seed_note "seeder-degraded:/_seed_note "seeder-x:/
   _t="$ROOT/slt5"; mk_sl_conforming "$_t" slt5
   mkdir -p "$ROOT/slt5kit"; cp -r "$FKIT_DEG/toolbelt" "$ROOT/slt5kit/"; cp "$SLM" "$ROOT/slt5kit/toolbelt/retro-gate.sh"
   OUT="$(printf '%s' "$(mkjson slt5 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt5kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
-  sl_last "$_t" | grep -qF 'branch=retro-conforming' || no "TOOTH sl-degraded-untyped: positive control — mutant did not reach retro-conforming"
-  sl_last "$_t" | grep -qF 'seeder-degraded' \
+  grep -qF 'branch=retro-conforming' <<<"$(sl_last "$_t")" || no "TOOTH sl-degraded-untyped: positive control — mutant did not reach retro-conforming"
+  grep -qF 'seeder-degraded' <<<"$(sl_last "$_t")" \
     && no "TOOTH sl-degraded-untyped: typed note still present — no teeth" \
     || ok "TOOTH sl-degraded-untyped: renaming the note loses the typed degraded reason (SL6 goes RED)"
 fi
@@ -3558,15 +3559,15 @@ if slmut helper-unlogged 's/^_STOP_BRANCH="error-helper"/_STOP_BRANCH=""/'; then
   _t="$ROOT/slt8"; mkgit "$_t"
   printf '%s' "$(mkjson slt8 false)" | "$BASH_BIN" "$ROOT/slt8kit/toolbelt/retro-gate.sh" "$_t" >/dev/null 2>&1
   [ -n "$(sl_last "$_t")" ] || no "TOOTH sl-helper-unlogged: positive control — no log line written"
-  sl_last "$_t" | grep -qF 'branch=error-helper' && no "TOOTH sl-helper-unlogged: still error-helper — no teeth" \
+  grep -qF 'branch=error-helper' <<<"$(sl_last "$_t")" && no "TOOTH sl-helper-unlogged: still error-helper — no teeth" \
     || ok "TOOTH sl-helper-unlogged: dropping the branch name leaves helper failures unclassified (SL12 goes RED)"
 fi
 # mode=degraded dropped
 if slmut mode-dropped 's/ mode=degraded//'; then
   _t="$ROOT/slt7"; mkgit "$_t"
   run_mutant "$SLM" "$_t" "$(mkjson slt7 false)"
-  sl_last "$_t" | grep -qF 'branch=' || no "TOOTH sl-mode-dropped: positive control — no log line written"
-  sl_last "$_t" | grep -qF 'mode=degraded' && no "TOOTH sl-mode-dropped: still marked degraded — no teeth" \
+  grep -qF 'branch=' <<<"$(sl_last "$_t")" || no "TOOTH sl-mode-dropped: positive control — no log line written"
+  grep -qF 'mode=degraded' <<<"$(sl_last "$_t")" && no "TOOTH sl-mode-dropped: still marked degraded — no teeth" \
     || ok "TOOTH sl-mode-dropped: dropping the marker hides a degraded check (SL13a goes RED)"
 fi
 # write failure leaks into the exit code
