@@ -1570,6 +1570,16 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d3.out" 2>&1
   assert_grep "K1509-d scaffold --wire on an already-registered guard says already wired" "PreToolUse pkill-guard hook already wired" "$TMP/1509-d3.out"
   assert_grep "K1509-d scaffold --wire still registers the absent Stop hook" "Stop hook registered in" "$TMP/1509-d3.out"
+  # (f) a merge FAILURE on the scaffold --wire path (settings.json whose .hooks is a string, so the
+  # shared merge's jq errors) is a typed, guarded failure like the wire-only path: message names the
+  # file + "refusing to report success", exit 4, settings.json byte-untouched, and no bare errexit abort.
+  d="$TMP/1509-f"; mkdir -p "$d/.claude"
+  printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-f.out" 2>"$TMP/1509-f.err"; _k9_rc=$?
+  [ "$_k9_rc" = 4 ] && ok "K1509-f scaffold --wire merge failure exits 4" || no "K1509-f scaffold --wire merge failure: exit $_k9_rc (want 4); stderr: $(tail -3 "$TMP/1509-f.err" | tr '\n' ' ')"
+  assert_grep "K1509-f typed message on stderr" "degraded: jq failed on $d/.claude/settings.json — refusing to report success" "$TMP/1509-f.err"
+  [ "$(cat "$d/.claude/settings.json")" = '{"hooks":"oops"}' ] && ok "K1509-f settings.json untouched on merge failure" || no "K1509-f settings.json was modified on merge failure"
+  assert_grep "K1509-f paste-able snippet still printed" '"PreToolUse"' "$TMP/1509-f.out"
   # (e) the scaffold print-only snippet and the wire-only (jq-absent) snippet carry the identical hook block.
   # jq-absent PATH is an ALLOWLIST of symlinks (not "PATH minus jq's dir", which also drops bash/coreutils
   # when jq lives in /usr/bin) and the run is asserted to have reached the degraded branch.
@@ -2803,6 +2813,22 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k99sr.out" && no "teeth M-1509-SCAFFOLD-REPORT: still reports already wired — THEATER" \
       || ok "teeth M-1509-SCAFFOLD-REPORT: wrong report without the flag — K1509-d has teeth"
   else no "teeth M-1509-SCAFFOLD-REPORT: could not build mutant"; fi
+  # M-1509-MERGE-FAIL-EXIT: the scaffold --wire merge-failure exit is dropped → failure reads as success.
+  if _k43_build k99mf -e 's/^if \[ "\${_wire_merge_failed:-0}" = 1 \]; then exit 4; fi$/:/'; then
+    d="$TMP/k43/k99mf-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99mf)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?
+    [ "$_k9_rc" != 4 ] && ok "teeth M-1509-MERGE-FAIL-EXIT: without the exit a merge failure is silent success (rc=$_k9_rc) — K1509-f has teeth" \
+      || no "teeth M-1509-MERGE-FAIL-EXIT: still exit 4 — THEATER"
+  else no "teeth M-1509-MERGE-FAIL-EXIT: could not build mutant"; fi
+  # M-1509-MERGE-FAIL-MSG: the typed failure message is lost.
+  if _k43_build k99mm -e 's/refusing to report success (settings.json untouched/quietly continuing (settings.json untouched/'; then
+    d="$TMP/k43/k99mm-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99mm)" "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/k99mm.err"
+    grep -qF "refusing to report success" "$TMP/k99mm.err" && no "teeth M-1509-MERGE-FAIL-MSG: message still present — THEATER" \
+      || ok "teeth M-1509-MERGE-FAIL-MSG: typed message gone — K1509-f has teeth"
+  else no "teeth M-1509-MERGE-FAIL-MSG: could not build mutant"; fi
   # M-1496-WO-MERGE: wire-only merge no longer adds the PreToolUse entry.
   if _k43_build k96wm -e 's/(\.hooks\.PreToolUse = (if \$has_pk then/(.hooks.PreToolUse = (if true then/'; then
     d="$TMP/k43/k96wm-t"; mkdir -p "$d"; : > "$d/INDEX.md"

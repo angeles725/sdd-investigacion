@@ -691,9 +691,11 @@ if [ "$wire" = 1 ]; then
     # SessionStart and PreToolUse are each added only if no equivalent registration form is present.
     # kit issue #1509: keep the merge's {settings, has_*} output (it used to be piped straight into
     # `jq .settings`, discarding the has-* flags) so each hook's registered/already-wired state is reported.
-    _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
-        "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" 2>/dev/null)"
-    if [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
+    # The merge sits INSIDE the if-guard (as in the wire-only path): under `set -e` an unguarded
+    # failing assignment would abort with jq's raw exit code (5) and no typed message (kit issue #1509).
+    if _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
+        "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" 2>/dev/null)" \
+        && [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
         && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
       _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
       _wire_has_stop="$(jq -r '.has_stop' <<<"$_wire_merge_out")"
@@ -723,8 +725,11 @@ if [ "$wire" = 1 ]; then
       _wire_result="wired"
     else
       rm -f "$_tmp_settings"
-      echo "degraded: jq failed to process $_settings — falling back to print" >&2
+      # Same contract as the wire-only path: typed message, snippet to paste, exit 4 (a failed
+      # merge must never read as success; the scaffold itself already completed, settings.json is untouched).
+      echo "degraded: jq failed on $_settings — refusing to report success (settings.json untouched; paste the snippet below, or fix the file and re-run with --wire)" >&2
       _wire_result="degraded"
+      _wire_merge_failed=1
     fi
   fi
 fi
@@ -736,3 +741,5 @@ if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "false" "$_pk_cmd"
 fi
 echo "== done =="
+# kit issue #1509: a failed settings.json merge on the scaffold --wire path exits 4 (see header).
+if [ "${_wire_merge_failed:-0}" = 1 ]; then exit 4; fi
