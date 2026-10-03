@@ -636,7 +636,7 @@ fi
 # is_shipped <row_id>: true when ID is in the shipped set of a PARTIAL marker
 is_shipped() {
   [ $is_partial -eq 1 ] || return 1
-  printf '%s\n' "$shipped_ids" | grep -qxF "$1"
+  grep -qxF "$1" <<<"$shipped_ids"
 }
 
 # map_type <type_cell>: prints "feature" | "bug" | "docs"
@@ -665,7 +665,7 @@ map_priority() {
 # is_wrong_kit <target_cell>: true if the cell names another kit
 # STAGE_RETRO_ISSUES_WRONGKIT_GUARD: this is the anchor for T2 teeth proof.
 is_wrong_kit() {
-  printf '%s' "$1" | grep -qiE '[-a-zA-Z0-9]+-kit[:/]'
+  grep -qiE '[-a-zA-Z0-9]+-kit[:/]' <<<"$1"
 }
 
 # strip_md_bold: if the cell opens with a bold lead-in (**phrase**), return just
@@ -801,12 +801,12 @@ _label_present() {
     echo "degraded: could not probe label '$_lname' on $KIT_ISSUE_REPO (gh label list exit $_lrc): $_lout — no issue was created" >&2
     exit 1
   fi
-  if ! printf '%s' "$_lout" | grep -q '^[[:space:]]*\['; then
+  if ! grep -q '^[[:space:]]*\[' <<<"$_lout"; then
     echo "degraded: gh label list returned an unexpected reply for '$_lname' on $KIT_ISSUE_REPO (expected a JSON array): $_lout — no issue was created" >&2
     exit 1
   fi
   _lname_lc="$(printf '%s' "$_lname" | tr 'A-Z' 'a-z')"
-  printf '%s' "$_lout" | tr -d '[:space:]' | tr 'A-Z' 'a-z' | grep -qF "\"name\":\"${_lname_lc}\""
+  grep -qF "\"name\":\"${_lname_lc}\"" < <(printf '%s' "$_lout" | tr -d '[:space:]' | tr 'A-Z' 'a-z')
 }
 ensure_target_label() {
   [ "$_label_ready" -eq 1 ] && return 0
@@ -909,7 +909,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # as "no match" and proceeded straight to gh issue create — exactly the duplicate this dedup
     # check exists to prevent. Require the reply to actually start with '[' (a JSON array, empty
     # or not) before trusting a "no match" reading; anything else is a failure, not a no-match.
-    if ! printf '%s' "$_existing" | grep -q '^[[:space:]]*\['; then
+    if ! grep -q '^[[:space:]]*\[' <<<"$_existing"; then
       echo "ERROR: gh issue list (dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_existing" >&2
       failed=$((failed+1)); continue
     fi
@@ -924,12 +924,12 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # many other issues the page holds), so the verdict is deferred to just before the create below.
     _page_filled=""   # empty, or the name of the lookup whose page filled the --limit
     if _list_filled "$_existing"; then _page_filled="primary"; fi
-    if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
+    if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_existing"; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
     fi
     # STAGE_RETRO_ISSUES_DEDUP_CHECK: anchor for T3 teeth proof — skip create when match found.
-    if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"CLOSED"'; then
+    if grep -q '"state":[[:space:]]*"CLOSED"' <<<"$_existing"; then
       echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
     fi

@@ -796,7 +796,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH 2: Neuter is_wrong_kit body → wrong-kit row is planned instead of skipped.
   # The anchor is the grep pattern inside is_wrong_kit that detects another-kit target cells.
   echo "-- teeth T2: neuter is_wrong_kit detection --"
-  anchor_t2="  printf '%s' \"\$1\" | grep -qiE '[-a-zA-Z0-9]+-kit[:/]'"
+  anchor_t2="  grep -qiE '[-a-zA-Z0-9]+-kit[:/]' <<<\"\$1\""
   if [[ "$sut_content" == *"$anchor_t2"* ]]; then
     box_t2="$(mkbox teeth-wrongkit)"
     retro_t2="$(mk_retro "$box_t2" target-foo r.md \
@@ -820,7 +820,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH 3: Neuter the dedup check → gh issue create is called even when a match exists.
   # The anchor is the comment + condition line that guards creation on a found duplicate.
   echo "-- teeth T3: neuter dedup OPEN-match check condition --"
-  anchor_t3='    if printf '"'"'%s'"'"' "$_existing" | grep -q '"'"'"state":[[:space:]]*"OPEN"'"'"'; then'
+  anchor_t3='    if grep -q '"'"'"state":[[:space:]]*"OPEN"'"'"' <<<"$_existing"; then'
   if [[ "$sut_content" == *"$anchor_t3"* ]]; then
     box_t3="$(mkbox teeth-dedup)"
     mk_gh_stub "$box_t3" match
@@ -1325,7 +1325,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # together for case 9c's fall-through scenario to reproduce.
   echo "-- teeth T23: neuter both dedup failure guards; failed list call must fall through to create (case 9c has teeth) --"
   anchor_t23='    if [ "$_dedup_rc" -ne 0 ]; then'
-  anchor_t23b='    if ! printf '\''%s'\'' "$_existing" | grep -q '\''^[[:space:]]*\['\''; then'
+  anchor_t23b='    if ! grep -q '\''^[[:space:]]*\['\'' <<<"$_existing"; then'
   if [[ "$sut_content" == *"$anchor_t23"* ]] && [[ "$sut_content" == *"$anchor_t23b"* ]]; then
     box_t23="$(mkbox teeth-t23-listfail-guard)"
     mk_gh_stub "$box_t23" listfail
@@ -1949,11 +1949,11 @@ RETROEOF
     if [ "$N_ICREATE" = 2 ]; then ok "T1332-d teeth: label-create failure no longer exits → issues created (76d has teeth)" "()"
     else no "T1332-d teeth: swallowed create failure must flip 76d" "76d is THEATER: icreate=$N_ICREATE"; fi
   fi
-  if lbl_mutant fuzzy nomatch fuzzyonly 's/tr -d .\[:space:\]. | tr .A-Z. .a-z. | grep -qF "\\"name\\":\\"\${_lname_lc}\\""/grep -qF "${_lname_lc}"/'; then
+  if lbl_mutant fuzzy nomatch fuzzyonly 's/grep -qF "\\"name\\":\\"\${_lname_lc}\\""/grep -qF "${_lname_lc}"/'; then
     if [ "$N_LCREATE" = 0 ]; then ok "T1332-e teeth: substring match → fuzzy hit read as 'exists', no create (76f has teeth)" "()"
     else no "T1332-e teeth: fuzzy match must flip 76f" "76f is THEATER: lcreate=$N_LCREATE"; fi
   fi
-  if lbl_mutant emptyok nomatch listempty '/printf .%s. "\$_lout" | grep -q/s/if !/if false \&\& !/'; then
+  if lbl_mutant emptyok nomatch listempty '/<<<"\$_lout"; then$/s/if !/if false \&\& !/'; then
     if [ "$N_ICREATE" = 2 ] || [ "$N_LCREATE" = 1 ]; then ok "T1332-f teeth: empty-reply guard removed → empty reply read as 'missing' (76e has teeth)" "()"
     else no "T1332-f teeth: removed guard must flip 76e" "76e is THEATER: icreate=$N_ICREATE lcreate=$N_LCREATE"; fi
   fi
@@ -1962,7 +1962,7 @@ RETROEOF
     else no "T1332-g teeth: wrong color must flip 76a" "76a is THEATER"; fi
   fi
 
-  if lbl_mutant nocase nomatch existsupper 's/ | tr .A-Z. .a-z. | grep -qF/ | grep -qF/'; then
+  if lbl_mutant nocase nomatch existsupper 's/ | tr .A-Z. .a-z.)$/)/'; then
     if [ "$N_LCREATE" = 1 ]; then ok "T1332-h teeth: case-sensitive compare → upper-case label read as missing (76i has teeth)" "()"
     else no "T1332-h teeth: case-sensitive compare must flip 76i" "76i is THEATER: lcreate=$N_LCREATE"; fi
   fi
@@ -3752,6 +3752,67 @@ if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] && [ "$(gre
   ok "82b unclosed fence: both entries still seed (fail-open) and the WARN appears exactly once" "(exit $RC)"
 else
   no "82b unclosed fence" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 83 — SIGPIPE race in the SUT (kit issue #1444). Under `set -o pipefail`, `printf '%s' "$big" |
+#      grep -q PAT` exits 141 (the writer takes SIGPIPE once grep -q has matched and gone) whenever the
+#      input outgrows the pipe buffer and the match sits early: a MATCH reads as a FAILURE. The
+#      small-input cases above can never reach that, so these use inputs well past 64 KiB with the
+#      match on the FIRST line / FIRST entry. Deterministic: a blocked writer is guaranteed its EPIPE.
+#      (a) a >64 KiB `gh issue list` reply that starts with '[' and carries the exact OPEN match;
+#      (b) a PARTIAL marker whose shipped list is >64 KiB with D1..D3 first.
+sp_big_reply_stub() {   # sp_big_reply_stub <box>: swap the stub's reply() for a ~440 KB multi-line array
+  local box="$1" fn="$1/bin/reply.fn" tmp="$1/bin/gh.new"
+  cat > "$fn" <<'SPFN'
+reply() { local _i=0; printf '[\n'; while [ "$_i" -lt 4000 ]; do printf '{"body":"unrelated padding issue %05d xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","state":"OPEN"},\n' "$_i"; _i=$((_i+1)); done; printf '{"body":"Delta\\n\\n---\\n%s\\ntail","state":"%s"}\n]\n' "$_sig" "$1"; }
+SPFN
+  awk 'FNR == NR { fn = fn $0 "\n"; next } /^reply\(\) / { printf "%s", fn; next } { print }' "$fn" "$box/bin/gh" > "$tmp"
+  cat "$tmp" > "$box/bin/gh"; rm -f "$tmp" "$fn"
+}
+sp_shipped_retro() {   # sp_shipped_retro <box> <fname>: entry-form retro, PARTIAL, shipped list D1..D3 + 10000 filler ids
+  local box="$1" fname="$2" ids
+  ids="$(awk 'BEGIN { printf "D1, D2, D3"; for (i = 1; i <= 10000; i++) printf ", Z%06d", i; printf "\n" }')"
+  mk_entry_retro "$box" "$fname" "<!-- review-status: applied 2026-07-31 · kit abc · PARTIAL — shipped: $ids -->"
+}
+box83a="$(mkbox case-sigpipe-bigreply)"; mk_gh_stub "$box83a" match; sp_big_reply_stub "$box83a"
+r83a="$(mk_entry_retro "$box83a" r83a.md '<!-- review-status: pending -->')"
+run "$box83a" "$r83a" --apply
+if [ "$RC" = 0 ] && grep -q 'summary: created=0 skipped-duplicate=3 ' <<<"$OUT"; then
+  ok "83a --apply, a >64 KiB dedup reply opening with '[' → still 3 skipped-duplicate (no SIGPIPE flip)" "(exit $RC)"
+else
+  no "83a big dedup reply" "exit=$RC out=[${OUT:0:600}]"
+fi
+box83b="$(mkbox case-sigpipe-bigshipped)"; mk_gh_stub "$box83b" nomatch
+r83b="$(sp_shipped_retro "$box83b" r83b.md)"
+run "$box83b" "$r83b"
+if [ "$RC" = 0 ] && ! grep -q '^planned-issue:' <<<"$OUT"; then
+  ok "83b a >64 KiB shipped list with D1..D3 first → nothing planned (is_shipped keeps its match)" "(exit $RC)"
+else
+  no "83b big shipped list" "exit=$RC planned=$(grep -c '^planned-issue:' <<<"$OUT") out=[${OUT:0:600}]"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth T1444: SUT pipe-to-grep -q race --"
+  # Each mutant restores the PIPED form of one rewritten site; the matching 83x case must go red.
+  sp_expr_912='s#if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_existing"; then#if ! printf \x27%s\x27 "$_existing" | grep -q \x27^[[:space:]]*\\[\x27; then#'
+  sp_expr_639='s#grep -qxF "\$1" <<<"\$shipped_ids"#printf \x27%s\\n\x27 "$shipped_ids" | grep -qxF "$1"#'
+  mbox="$(mkbox teeth-sigpipe-912)"; mk_gh_stub "$mbox" match; sp_big_reply_stub "$mbox"
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e "$sp_expr_912"; then
+    run "$mbox" "$(mk_entry_retro "$mbox" r83t.md '<!-- review-status: pending -->')" --apply
+    if ! grep -q 'summary: created=0 skipped-duplicate=3 ' <<<"$OUT" && grep -q 'unexpected reply' <<<"$OUT"; then
+      ok "T1444-a teeth: piped '[' guard → big dedup reply read as unexpected (83a has teeth)" "()"
+    else no "T1444-a teeth: piped form must flip 83a" "83a is THEATER: exit=$RC out=[${OUT:0:400}]"; fi
+  else no "T1444-a: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  mbox="$(mkbox teeth-sigpipe-639)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e "$sp_expr_639"; then
+    run "$mbox" "$(sp_shipped_retro "$mbox" r83u.md)"
+    if grep -q '^planned-issue:' <<<"$OUT"; then
+      ok "T1444-b teeth: piped is_shipped → shipped D1..D3 re-planned (83b has teeth)" "()"
+    else no "T1444-b teeth: piped form must flip 83b" "83b is THEATER: exit=$RC out=[${OUT:0:400}]"; fi
+  else no "T1444-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
