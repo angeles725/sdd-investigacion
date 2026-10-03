@@ -1622,8 +1622,8 @@ HARD RULES:
     wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6.)
     Mechanical guard: `templates/hook-pretool-pkill-guard.sh` (PreToolUse, matcher `Bash`) denies a
     command-position `pkill -f`/`pgrep -f`/`--full` without `-x` and without a bracket-escaped pattern, naming
-    (a)-(c); without `jq` it degrades to `ask`. Install it by hand as `<TARGET>/.claude/hooks/pkill-guard.sh`
-    under `hooks.PreToolUse` — `research-sdd-init.sh` does not wire it yet.
+    (a)-(c); without `jq` it degrades to `ask`. `research-sdd-init.sh` installs it as
+    `<TARGET>/.claude/hooks/pkill-guard.sh` (create-only) and `--wire` registers it under `hooks.PreToolUse`.
     VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
     actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
     reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)
