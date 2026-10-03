@@ -164,10 +164,12 @@ mkbin() { # mkbin DIR OMIT : PATH dir with symlinks to every tool the SUT may ca
   done
 }
 fresh
-for tool in git find; do
+REQ="$(sed -n 's/^REQUIRED_TOOLS="\([^"]*\)".*/\1/p' "$SUT")"
+[ -n "$REQ" ] && ok "REQUIRED_TOOLS list extracted from the SUT: $REQ" || no "REQUIRED_TOOLS extraction (would loop over nothing)"
+for tool in $REQ; do
   mkbin "$TMP/bin-no-$tool" "$tool"
   OUT="$(PATH="$TMP/bin-no-$tool" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-  { [ "$RC" = 3 ] && has "DEGRADED"; } && ok "$tool missing -> exit 3 with typed DEGRADED" || no "degraded without $tool" "(rc=$RC $OUT)"
+  { [ "$RC" = 3 ] && has "DEGRADED" && has "$tool not found"; } && ok "$tool missing -> exit 3 with typed DEGRADED" || no "degraded without $tool" "(rc=$RC $OUT)"
 done
 
 # ---- --stale-hours is decimal, never octal ----------------------------------------------------
@@ -182,20 +184,45 @@ run --target "$REPO" --tmp "$FT" --stale-hours 99999999999999999999
 run --target "$REPO" --tmp "$FT" --stale-hours -1
 [ "$RC" = 2 ] && ok "--stale-hours -1 -> exit 2" || no "negative stale" "(rc=$RC)"
 
+# ---- --stale-hours 0 makes every owned tmp.* entry stale (documented in clean-check.v1.md) -------
+fresh; : > "$FT/tmp.hour"; ago 1 "$FT/tmp.hour"
+run --target "$REPO" --tmp "$FT" --stale-hours 0
+{ [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.hour"; } && ok "--stale-hours 0 flags a 1h-old tmp.* entry" || no "stale 0" "(rc=$RC $OUT)"
+run --target "$REPO" --tmp "$FT" --stale-hours 2
+{ [ "$RC" = 0 ] && ! has "tmp.hour"; } && ok "--stale-hours 2 spares the same 1h-old entry" || no "stale 2" "(rc=$RC $OUT)"
+
 # ---- scan failures and the readdir race (shimmed git/find, first on PATH) ---------------------
 mkdir -p "$TMP/shim-git" "$TMP/shim-find" "$TMP/shim-race"
 REALGIT="$(type -P git)"; REALFIND="$(type -P find)"
-printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && exit 1\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-git/git"
-printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-find/find"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && { echo "shim-git-diagnostic: ls-files exploded" >&2; exit 1; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-git/git"
+printf '#!/bin/sh\necho "shim-find-diagnostic: find exploded" >&2\nexit 1\n' > "$TMP/shim-find/find"
+mkdir -p "$TMP/shim-sort" "$TMP/shim-revparse" "$TMP/shim-warn"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && echo "warning: shim-warn unreadable attributes file" >&2\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-warn/git"
+chmod +x "$TMP/shim-warn/git"
+printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-sort/sort"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && { echo "fatal: detected dubious ownership in repository" >&2; exit 128; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-revparse/git"
+chmod +x "$TMP/shim-sort/sort" "$TMP/shim-revparse/git"
 # shim-race models an entry vanishing mid-scan: find fails UNLESS it is given -ignore_readdir_race.
-printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -ignore_readdir_race ] && exec %s "$@"; done\nexit 1\n' "$REALFIND" > "$TMP/shim-race/find"
+# The flag is stripped before exec so the shim also works over a find that lacks it (BSD).
+printf '#!/bin/sh\nf=0; n=$#\nwhile [ "$n" -gt 0 ]; do a=$1; shift; n=$((n-1)); if [ "$a" = -ignore_readdir_race ]; then f=1; else set -- "$@" "$a"; fi; done\n[ "$f" = 1 ] || exit 1\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-race/find"
 chmod +x "$TMP/shim-git/git" "$TMP/shim-find/find" "$TMP/shim-race/find"
 fresh; printf 'x\n' > "$REPO/stray"
 OUT="$(PATH="$TMP/shim-git:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && has "git ls-files failed"; } && ok "failing git ls-files -> exit 2, never a quiet clean" || no "git scan failure" "(rc=$RC $OUT)"
+{ has "shim-git-diagnostic"; } && ok "git stderr diagnostic is surfaced on failure" || no "git stderr discarded" "(rc=$RC $OUT)"
+fresh
+OUT="$(PATH="$TMP/shim-revparse:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 2 ] && has "dubious ownership"; } && ok "git rev-parse failure reports git's own reason, not 'not a work tree'" || no "rev-parse misdiagnosis" "(rc=$RC $OUT)"
+fresh; printf 'x\n' > "$REPO/stray"
+OUT="$(PATH="$TMP/shim-warn:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "GARBAGE untracked stray"; } && ok "successful rev-parse with a stderr warning still scans normally" || no "rev-parse warning misread" "(rc=$RC $OUT)"
+fresh; : > "$FT/tmp.old1"; : > "$FT/tmp.old2"; ago 48 "$FT/tmp.old1"; ago 48 "$FT/tmp.old2"
+OUT="$(PATH="$TMP/shim-sort:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 2 ] && has "sort failed"; } && ok "failing sort -> exit 2, never a quiet clean" || no "sort failure" "(rc=$RC $OUT)"
 fresh
 OUT="$(PATH="$TMP/shim-find:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && has "find failed"; } && ok "failing find -> exit 2, never a quiet clean" || no "find scan failure" "(rc=$RC $OUT)"
+{ has "shim-find-diagnostic"; } && ok "find stderr diagnostic is surfaced on failure" || no "find stderr discarded" "(rc=$RC $OUT)"
 : > "$FT/tmp.old"; ago 48 "$FT/tmp.old"
 OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.old"; } && ok "readdir race tolerated: scan runs with -ignore_readdir_race and completes" || no "readdir race" "(rc=$RC $OUT)"
@@ -253,27 +280,38 @@ KL
     --good-has 'CLEAN-CHECK: clean' --bad-has 'stale-tmp' -- env "CLEAN_CHECK_UID=$(( $(id -u) + 1 ))" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
   mt "age printed in minutes, not hours" 's|/ 3600|/ 60|' 1 1 \
     --good-has 'age=48h' --bad-lacks 'age=48h' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
-  # Scratchpad: both classes. SP_REPO holds an untracked scratch dir, SP_TMP a stale tmp.* scratchpad.
+  # Scratchpad: both classes. SP holds an untracked scratch dir, SPT a stale tmp.* scratchpad.
   fresh; SP="$REPO"; SPT="$FT"; mkdir -p "$SP/scratch"; printf 'x\n' > "$SP/scratch/a"
   mkdir "$SPT/tmp.pad"; ago 48 "$SPT/tmp.pad"
-  mt "scratchpad exemption removed (untracked class)" 's/_in_scratch "\$TARGET_P\/\$_p" && continue/:/' 1 1 \
+  mt "scratchpad exemption removed (untracked class)" 's/_in_scratch "\$TARGET_P\/\$_rel" && continue/:/' 1 1 \
     --good-lacks 'scratch/a' --bad-has 'GARBAGE untracked scratch/a' -- env "CLEAN_CHECK_SCRATCHPAD=$SP/scratch" "$BASH_BIN" @SUT@ --target "$SP" --tmp "$SPT"
   mt "scratchpad exemption removed (tmp class)" 's/_in_scratch "\$_p" && continue/:/' 1 1 \
     --good-lacks 'tmp\.pad' --bad-has 'GARBAGE stale-tmp .*tmp\.pad' -- env "CLEAN_CHECK_SCRATCHPAD=$SPT/tmp.pad" "$BASH_BIN" @SUT@ --target "$E" --tmp "$SPT"
   mt "findings no longer change the exit code" 's/^exit 1$/exit 0/' 1 0 \
     --good-has 'finding' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   # DEGRADED probe: with git absent the mutant must NOT report exit 3 + DEGRADED.
-  mt "DEGRADED probe disabled" 's/command -v "\$_tool" >\/dev\/null 2>&1 ||/true ||/' 3 2 \
+  mt "tool-presence probe disabled" 's/command -v "\$_tool" >\/dev\/null 2>&1 ||/true ||/' 3 2 \
     --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env "PATH=$TMP/bin-no-git" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  # Truncated/failed scans: a git or find that fails must be exit 2, never a quiet clean.
   mt "decimal normalization of --stale-hours removed (octal 08 breaks)" 's/STALE_H=\$((10#\$STALE_H))/:/' 0 2 \
     --good-has 'older than 8h' --bad-lacks 'CLEAN-CHECK: clean' -- "$BASH_BIN" @SUT@ --target "$CL" --tmp "$CLT" --stale-hours 08
+  # Truncated/failed scans: a git, find or sort that fails must be exit 2, never a quiet clean.
   mt "readdir-race flag no longer passed to the scan" 's/\${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
     --good-has 'stale-tmp' --bad-has 'find failed' -- env "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$RT"
   mt "git failure no longer detected (RC marker ignored, untracked scan)" '/git ls-files failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
     --good-has 'git ls-files failed' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   mt "find failure no longer detected (RC marker ignored, tmp scan)" '/find failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
     --good-has 'find failed' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
+  fresh; ST="$FT"; : > "$ST/tmp.a"; : > "$ST/tmp.b"; ago 48 "$ST/tmp.a"; ago 48 "$ST/tmp.b"
+  mt "sort failure no longer detected (RC marker ignored, sort step)" '/sort failed/s/"\${_sorted\[\$_slast\]}" = "RC=0"/"x" = "x"/' 2 1 \
+    --good-has 'sort failed' -- env "PATH=$TMP/shim-sort:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ST"
+  mt "git stderr discarded again" 's|ls-files --others --exclude-standard -z$|ls-files --others --exclude-standard -z 2>/dev/null|' 2 2 \
+    --good-has 'shim-git-diagnostic' --bad-lacks 'shim-git-diagnostic' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
+  mt "find stderr discarded again" 's|-print0$|-print0 2>/dev/null|' 2 2 \
+    --good-has 'shim-find-diagnostic' --bad-lacks 'shim-find-diagnostic' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
+  mt "rev-parse reason dropped from the error" 's/: \${_gmsg:-git exited non-zero without output}//' 2 2 \
+    --good-has 'dubious ownership' --bad-lacks 'dubious ownership' -- env "PATH=$TMP/shim-revparse:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
+  mt "rev-parse stderr merged into the stdout comparison" 's/rev-parse --is-inside-work-tree 2>\/dev\/null)"/rev-parse --is-inside-work-tree 2>\&1)"/' 1 2 \
+    --good-has 'GARBAGE untracked stray' --bad-has 'not inside a git work tree' -- env "PATH=$TMP/shim-warn:$PATH" "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
 fi
 
 echo "== $pass passed · $fail failed =="

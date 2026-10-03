@@ -57,10 +57,13 @@ CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <H
 | 0 | clean |
 | 1 | at least one finding |
 | 2 | usage error, `--target` absent or not inside a git work tree, `--tmp` absent, or a scan command failed |
-| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort`) is not on `PATH`; nothing was measured (the typed `DEGRADED` line goes to stderr) |
+| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort id stat`) is not on `PATH`; nothing was measured (the typed `DEGRADED` line goes to stderr) |
 
-A scan that errors partway is exit 2, never a quiet "clean": the untracked list is read with an
-explicit end marker so a truncated `git` run cannot read as an empty one.
+A scan that errors partway is exit 2, never a quiet "clean": both the untracked list (`git ls-files`)
+and the `tmp.*` list (`find`) are read with an explicit end marker, and the `sort` ordering step carries
+its own, so a truncated or failed `git`, `find` or `sort` cannot read as an empty list. The scan's own
+stderr is shown, and a `git rev-parse` failure reports git's reason (for example dubious ownership)
+instead of "not a work tree"; stderr noise from a `git rev-parse` that succeeds is ignored (only its stdout is compared).
 
 ## Test hook
 
