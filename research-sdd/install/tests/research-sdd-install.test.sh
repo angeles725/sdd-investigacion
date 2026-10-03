@@ -75,8 +75,16 @@ norm(){ sed "s|$1|{HOME}|g"; }
 # absolute path). Normalise BOTH forms, regex-escaped so a '.', '[' or '&' in the path is literal.
 KITROOT_P="$(cd -P "$KITROOT" && pwd -P)"
 _sed_lit(){ printf '%s' "$1" | sed 's/[][\\.*^$|&]/\\&/g'; }
-# _normkit_for <logical> <physical> — stdin→stdout; physical form first so a prefix relationship cannot split it.
-_normkit_for(){ local l p; l="$(_sed_lit "$1")"; p="$(_sed_lit "$2")"; sed -e "s|$p|{KIT}|g" -e "s|$l|{KIT}|g"; }
+# _normkit_for <logical> <physical> — stdin→stdout; the LONGER form is substituted first so a prefix
+# relationship cannot split it, in either direction: logical a prefix of physical (the usual case — the
+# suite reached through a symlinked parent) or physical a prefix of logical (a symlink pointing up,
+# e.g. /r/a/link -> /r; kit issue #1472). Equal lengths mean the same string.
+_normkit_for(){
+  local l p
+  l="$(_sed_lit "$1")"; p="$(_sed_lit "$2")"
+  if [ "${#2}" -ge "${#1}" ]; then sed -e "s|$p|{KIT}|g" -e "s|$l|{KIT}|g"
+  else sed -e "s|$l|{KIT}|g" -e "s|$p|{KIT}|g"; fi
+}
 normkit(){ _normkit_for "$KITROOT" "$KITROOT_P"; }
 
 # _direct_clean_profile_dir <dir> <config_root> — invokes _rsdd_clean_profile_dir DIRECTLY (never
@@ -342,6 +350,27 @@ else
 out="$(bash "$TMP/kitlink/install/research-sdd-install.sh" --dry-run --home "$home" --harness claude 2>&1 | norm "$home" | _normkit_for "$TMP/kitlink" "$KITROOT_P")"
 if [ "$out" = "$(cat "$GOLD/plan-claude.txt")" ]; then ok "dry-run plan via a symlinked kit path normalises to the golden (#1349)"
 else no "dry-run plan via a symlinked kit path drifted from golden (#1349; logical=$TMP/kitlink physical=$KITROOT_P)"; diff <(cat "$GOLD/plan-claude.txt") <(printf '%s\n' "$out") | head -20; fi
+fi
+
+# 35b — _normkit_for with the PHYSICAL path a strict prefix of the LOGICAL one (kit issue #1472): a
+#       symlink that points UP (/r/a/link -> /r) makes physical=/r a prefix of logical=/r/a/link. The
+#       longer form must be replaced first, otherwise the shorter one splits it ("{KIT}/a/link").
+_nk_in="see /r/a/link/install/x and /r/other"
+_nk_got="$(printf '%s\n' "$_nk_in" | _normkit_for "/r/a/link" "/r")"
+if [ "$_nk_got" = "see {KIT}/install/x and {KIT}/other" ]; then ok "_normkit_for: physical a strict prefix of logical normalises both without splitting (#1472)"
+else no "_normkit_for: physical-prefix-of-logical split the logical path (#1472; got: $_nk_got)"; fi
+# and the common direction (logical a strict prefix of physical) keeps working
+_nk_got="$(printf '%s\n' "see /r/real/install/x and /r/other" | _normkit_for "/r" "/r/real")"
+if [ "$_nk_got" = "see {KIT}/install/x and {KIT}/other" ]; then ok "_normkit_for: logical a strict prefix of physical normalises both (#1472)"
+else no "_normkit_for: logical-prefix-of-physical regressed (#1472; got: $_nk_got)"; fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: _normkit_for must order by length (always-physical-first mutant, in a subshell) --"
+  # Mutant: the length test is forced true → physical is always substituted first (the pre-#1472 shape).
+  _nk_m="$( eval "$(declare -f _normkit_for | sed 's/\[ "\${#2}" -ge "\${#1}" \]/true/')"
+            printf '%s\n' "$_nk_in" | _normkit_for "/r/a/link" "/r" )"
+  if [ "$_nk_m" != "see {KIT}/install/x and {KIT}/other" ] && [ -n "$_nk_m" ]; then
+    ok "teeth: an always-physical-first _normkit_for splits the logical path → the #1472 fixture bites"
+  else no "teeth: the always-physical-first mutant still normalised correctly (or did not run: [$_nk_m]) — #1472 fixture is THEATER"; fi
 fi
 
 # 36 — --help block integrity (kit issue #1024 round 4, item 5): usage() no longer prints a
@@ -1642,6 +1671,32 @@ _pf_s1="$(PATH="$_pf_bin:$PATH" _install_tree_snapshot "$_pf_probe")"
 if [ "$_pf_rc" -eq 0 ] && [ -n "$_pf_s0" ] && [ "$_pf_s1" != "$_pf_s0" ]; then
   ok "hermetic snapshot: works without GNU find -printf (BSD-style find) and still registers a change"
 else no "hermetic snapshot depends on GNU find -printf (rc=$_pf_rc, snapshot=[$_pf_s0])"; fi
+
+# Dotfiles (kit issue #1299 item 7): a created, modified and removed DOTFILE (and one inside a dot
+# directory) must each change the snapshot — a `$root/*` glob would skip them all.
+_df_probe="$TMP/dot-probe"; mkdir -p "$_df_probe"; printf 'a\n' > "$_df_probe/a.sh"
+_df_s0="$(_install_tree_snapshot "$_df_probe")" || _df_s0="<failed>"
+printf 'x\n' > "$_df_probe/.hidden"; mkdir "$_df_probe/.dotdir"; printf 'y\n' > "$_df_probe/.dotdir/inner"
+_df_s1="$(_install_tree_snapshot "$_df_probe")" || _df_s1="<failed>"
+printf 'xx longer\n' > "$_df_probe/.hidden"
+_df_s2="$(_install_tree_snapshot "$_df_probe")" || _df_s2="<failed>"
+printf 'yy longer\n' > "$_df_probe/.dotdir/inner"
+_df_s3="$(_install_tree_snapshot "$_df_probe")" || _df_s3="<failed>"
+rm -f "$_df_probe/.hidden"
+_df_s4="$(_install_tree_snapshot "$_df_probe")" || _df_s4="<failed>"
+if [ "$_df_s0" != "<failed>" ] && [ "$_df_s1" != "$_df_s0" ] && [ "$_df_s2" != "$_df_s1" ] \
+   && [ "$_df_s3" != "$_df_s2" ] && [ "$_df_s4" != "$_df_s3" ]; then
+  ok "hermetic snapshot: a created, modified and removed dotfile (and a file in a dot directory) are each detected (#1299 item 7)"
+else no "hermetic snapshot misses dotfile changes (#1299 item 7)"; fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: a dotfile-blind snapshot (glob-style) must fail the dotfile fixture --"
+  # Mutant: the file scan skips names starting with '.', as `"$root"/*` would.
+  _df_m="$( eval "$(declare -f _install_tree_snapshot | sed "s/-type f -exec cksum/-type f ! -name '.*' -exec cksum/")"
+            printf 'a\n' > "$_df_probe/.m2"; a="$(_install_tree_snapshot "$_df_probe")"; printf 'zzz longer\n' > "$_df_probe/.m2"; b="$(_install_tree_snapshot "$_df_probe")"
+            [ -n "$a" ] && [ "$a" = "$b" ] && echo BLIND || echo SEES )"
+  if [ "$_df_m" = BLIND ]; then ok "teeth: a dotfile-blind snapshot misses a dotfile change → the dotfile fixture bites"
+  else no "teeth: the dotfile-blind mutant still saw the change (or did not run: [$_df_m]) — dotfile fixture is THEATER"; fi
+fi
 
 # ======================================================================================================
 # Pi + gentle-shell harnesses. Both surface the skill under an agent dir (~/.pi/agent,
