@@ -430,7 +430,7 @@ ${_rln}"
     while IFS= read -r _rid; do
       [ -z "$_rid" ] && continue
       # RECONCILE_ISSUES_TRACKED_CHECK: anchor for T1 teeth — condition detects tracked
-      if printf '%s\n' "$_issue_row_ids" | grep -qxF "$_rid"; then
+      if grep -qxF "$_rid" <<<"$_issue_row_ids"; then  # RECONCILE-ROWID-CACHE-CHECK
         printf 'tracked: row %s — open issue found in %s\n' "$_rid" "$retro_basename"
         r_tracked=$((r_tracked+1))
       else

@@ -518,7 +518,7 @@ mutate M37-always-range-only      's/^if \[ -z "\$pr" \]; then/if true; then/'
 mutate M38-pr-implies-merge       's/^\[ -n "\$do_merge" \] || exit 0/:/'
 mutate M39-pr-flag-ignored        's/^    --pr) .*/    --pr) shift 2 ;;/'
 mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
-mutate M41-head-reject-first-line-only 's/printf .%s. "\$merge_out" | grep -Eqi/printf "%s" "$merge_line" | grep -Eqi/'
+mutate M41-head-reject-first-line-only '/# MERGE-GATE-HEAD-REJECT$/s/<<<"\$merge_out"/<<<"$merge_line"/'
 sc_ci_stderr() { CKREQ="shellcheck"; : > "$ROOT/log"; CKFAIL=1 runck "$1" "$ROOT/ck/pass.json"; }
 tooth M19b-ci-stderr-dropped 's/\${ci_err:+: \$ci_err}//' sc_ci_stderr 3 'HTTP 502' 3 '^merge-gate: degraded: cannot read check runs for head [0-9a-f]+ \(gh api failed\)$'
 mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'

@@ -82,7 +82,7 @@ if [ "$root_flag" = 1 ]; then
   elif [ -n "$_root_cands" ]; then
     _root_sib=""; _root_nsib=0
     while IFS= read -r _rc; do
-      if find "$(dirname "$_rc")" -maxdepth 1 -name 'RESEARCH-STATE-*.md' -not -name '*.template.md' 2>/dev/null | grep -q .; then  # ROOT-PICK-SIBLINGS
+      if [ -n "$(find "$(dirname "$_rc")" -maxdepth 1 -name 'RESEARCH-STATE-*.md' -not -name '*.template.md' -print -quit 2>/dev/null)" ]; then  # ROOT-PICK-SIBLINGS
         _root_sib="$_rc"; _root_nsib=$((_root_nsib+1))
       fi
     done <<<"$_root_cands"
@@ -1358,7 +1358,7 @@ if [ "$mode" = "--next" ]; then
     # shellcheck disable=SC2154 # _rd_foc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
     if [ "$_rd_foc_tok" = "stopped" ] || [ "$_rd_foc_tok" = "paused" ]; then continue; fi
     _rd_bsr="$(env_get blocks_since_retro)"
-    if printf '%s' "$_rd_bsr" | grep -qE '^[0-9]+$' && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then  # RD-THRESHOLD-CHECK
+    if grep -qE '^[0-9]+$' <<<"$_rd_bsr" && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then  # RD-THRESHOLD-CHECK
       echo "RETRO-DUE | ${_rd_bsr} blocks since last retro (§18 threshold: ${_rd_threshold})"
       exit 0
     fi

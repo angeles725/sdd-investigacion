@@ -4134,7 +4134,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-627: neuter RD-THRESHOLD-CHECK; bsr=11 fixture must fall through to NEXT --"
   rd_mutant="$TMP/status.RD627.MUTANT.sh"
   if grep -q '# RD-THRESHOLD-CHECK' "$SUT"; then
-    sed '/# RD-THRESHOLD-CHECK$/s/if printf.*/if false; then  # MUTANT-RD627/' "$SUT" > "$rd_mutant"
+    sed '/# RD-THRESHOLD-CHECK$/s/if grep.*/if false; then  # MUTANT-RD627/' "$SUT" > "$rd_mutant"
     if grep -q '# RD-THRESHOLD-CHECK' "$rd_mutant"; then
       no "teeth-627: could not build mutant (sed did not replace RD-THRESHOLD-CHECK — check sed pattern)"
     else
@@ -6515,7 +6515,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       || no "teeth-SX-CWKEEP: mutant still keeps covered_blocks=7 — THEATER"
   fi
   echo "-- teeth-SX-ROOTPICK: accept a lone nested file with no focus siblings as the root → SX-10a goes RED --"
-  if m="$(sx_mutant SX-ROOTPICK '/ROOT-PICK-SIBLINGS/s/| grep -q \.; then/| cat >\/dev\/null; then/')"; then
+  if m="$(sx_mutant SX-ROOTPICK '/ROOT-PICK-SIBLINGS/s/if \[ -n .*; then  #/if true; then  #/')"; then
     d="$TMP/teeth-sx-rootpick"; sx_fixture "$d" stale RESEARCH-STATE-alpha.md; sx_fixture "$d/archive" stale
     bash "$m" "$d" --sync-state --root >/dev/null 2>&1; _rc=$?
     [ "$_rc" = 0 ] && ok "teeth-SX-ROOTPICK: mutant writes archive/RESEARCH-STATE.md as the root (rc 0) → SX-10a RED" \
