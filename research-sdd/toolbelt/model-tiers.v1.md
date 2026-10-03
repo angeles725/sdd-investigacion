@@ -8,7 +8,7 @@
 PROMPT-LOOP.md and METHODOLOGY.md describe model tier selection using Claude-specific
 model names (`haiku`, `sonnet`, `opus`).  This document defines the same tiers as
 harness-neutral abstract concepts so they apply consistently across all three supported
-harnesses (Claude Code, Codex, Reasonix).
+harnesses (Claude Code, Pi, gentle-shell).
 
 This is a documentation contract, not runtime configuration.  The toolbelt cannot
 select, enforce, or verify which model a harness uses; that authority belongs entirely
@@ -36,19 +36,19 @@ or modify the session model.
 ## 2. Per-Harness Mapping Table
 
 These are **recommendations / defaults**.  They reflect what PROMPT-LOOP.md and
-METHODOLOGY.md currently assign for Claude Code.  For Codex the mapping is indicative:
-the actual model is always user-configured outside this repo.
-(OpenCode support was dropped on 2026-09-23 #954.)
+METHODOLOGY.md currently assign for Claude Code.  For Pi and gentle-shell the tiers are
+indicative only: the actual model is always user-configured outside this repo.
+(OpenCode support was dropped on 2026-09-23 #954; Codex and Reasonix on 2026-10-03 #1471.)
 
-| Abstract tier | Claude Code (`model:` on Agent/Task) | Codex |
+| Abstract tier | Claude Code (`model:` on Agent/Task) | Pi / gentle-shell |
 |---|---|---|
-| **mechanical** | `model: 'haiku'` | `model` + `reasoningEffort: low` (user-set in `config.toml`) |
-| **structural** | `model: 'sonnet'` (default for most sweeps) | `model` + `reasoningEffort: medium` |
-| **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | `model` + `reasoningEffort: high` |
+| **mechanical** | `model: 'haiku'` | lowest-cost model and reasoning level the user's Pi setup offers |
+| **structural** | `model: 'sonnet'` (default for most sweeps) | mid-cost model, medium reasoning level |
+| **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | strongest model, high reasoning level |
 
 **Fallback rule (all harnesses)**: when the recommended tier is unavailable, substitute
 one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md (NORMAL CYCLE
-step 3, MODEL TIER) and METHODOLOGY.md §8; it carries over to Codex unchanged.
+step 3, MODEL TIER) and METHODOLOGY.md §8; it carries over to Pi and gentle-shell unchanged.
 **Exemption — verification/refutation voters**: if `sonnet` is unavailable for a verification or refutation step, run inline on the driver or defer — never substitute `haiku` (METHODOLOGY §11b).
 
 ---
@@ -61,9 +61,10 @@ Concrete model selection, provider choice, profile, and reasoning-level are
 - **Claude Code** — the `model:` parameter on an Agent/Task call is set by the
   session user (e.g. via `/model`).  The toolbelt only names the abstract tier.
 - **OpenCode** — support dropped 2026-09-23 (#954); `toolbelt/opencode/` removed.
-- **Codex** — model and `reasoningEffort` are set in the user's
-  `~/.codex/config.toml`.  The installer's managed block covers MCP server
-  registration only; model config is never written by the toolbelt.
+- **Codex / Reasonix** — support dropped 2026-10-03 (#1471); the installer no longer
+  touches `~/.codex` or `~/.reasonix`.
+- **Pi / gentle-shell** — model and reasoning level are set in the user's own Pi
+  configuration; model config is never written by the toolbelt.
 
 The toolbelt cannot verify or enforce which model is actually used.  This tier map
 is guidance; each harness's live configuration is authoritative.
@@ -78,7 +79,7 @@ repeated in future planning.
 The research-sdd evidence and manifest formats (`analysis-manifest.v1`,
 `emit_evidence` output, all `*.v1.md` JSON contracts) are already fully
 harness-independent.  The same format is emitted regardless of whether the
-adapter runs under Claude Code or Codex.  No homogenization is needed;
+adapter runs under Claude Code, Pi or gentle-shell.  No homogenization is needed;
 no agent-specific format variants exist.  The `analysis-manifest.v1.md` contract
 is the authoritative schema reference for all harnesses.
 

@@ -93,7 +93,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`verify-state.sh`](toolbelt/verify-state.sh) | `<target-dir>` | Living-mirror lint — catches a stale summary that would emit a premature STOP. |
 | [`verify-sources.sh`](toolbelt/verify-sources.sh) | `<target-dir>` | `SOURCES.md` preservation linter — every cited source is downloaded, present, and registered. |
 | [`scan-secrets.sh`](toolbelt/scan-secrets.sh) | `<target-dir>` | Fails closed if a high-confidence secret **value** leaked into authored content. |
-| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude. (OpenCode support was dropped on 2026-09-23 #954.) |
+| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Pi, gentle-shell and manual-run contexts; redundant but harmless in Claude. (OpenCode support was dropped on 2026-09-23 #954; Codex and Reasonix on 2026-10-03 #1471.) |
 
 ### Close
 
@@ -166,7 +166,7 @@ which classifies depth (quick answer · light exploration · exhaustive block lo
 
 ---
 
-## Installing into a harness (claude · codex · reasonix · pi · gentle-shell)
+## Installing into a harness (claude · pi · gentle-shell)
 
 ```bash
 # preview first (touches nothing), then install; --harness all installs every registered harness
@@ -179,8 +179,8 @@ gentle-shell runs Pi with (`~/.gentle-shell/agent`). Both get the skill under `s
 the launcher + manual session-start sweep block in `AGENTS.md` (Pi has no session-start hook), and a
 slash-command prompt template at `prompts/research-sdd.md`, which is what makes `/research-sdd <target or
 question>` exist in Pi (the skill alone is only reachable as `/skill:research-sdd`). A template you
-edited by hand is kept (the installer warns); `--force-skill` backs it up first. Pi's MCP config is JSON,
-so the installer registers no MCP servers for these two harnesses.
+edited by hand is kept (the installer warns); `--force-skill` backs it up first. The installer registers
+no MCP servers for any harness.
 
 ---
 
@@ -201,6 +201,22 @@ rm -rf ~/.config/opencode/skills/research-sdd/
 #      <!-- research-sdd:start -->
 #      ...
 #      <!-- research-sdd:end -->
+```
+
+---
+
+## Removing an old Codex or Reasonix install
+
+Codex and Reasonix support was dropped on 2026-10-03 (#1471). The installer no longer touches
+`~/.codex` or `~/.reasonix`, and it never deletes what it already wrote there. To clean up manually:
+
+```bash
+# Remove the deployed skill copy and the rendered profile tree
+rm -rf ~/.codex/skills/research-sdd/ ~/.reasonix/skills/research-sdd/ ~/.reasonix/research-sdd/
+
+# Delete the marked launcher block (<!-- research-sdd:start --> ... <!-- research-sdd:end -->)
+# from ~/.codex/AGENTS.md and ~/.reasonix/AGENTS.md, and the marked MCP block
+# (# research-sdd:start ... # research-sdd:end) from ~/.codex/config.toml and ~/.reasonix/config.toml.
 ```
 
 ---

@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-# harness-sweep-parity.test.sh — locks the canonical sweep-script set across the two active agent
-# harnesses (Claude, Codex) so a future edit to one harness that forgets the other is caught
-# immediately.
+# harness-sweep-parity.test.sh — locks the canonical sweep-script set across the supported agent
+# harnesses (Claude, Pi, gentle-shell) so a future edit to one harness that forgets the others is
+# caught immediately.
 #
 # OpenCode support was dropped on 2026-09-23 (#954); its surface (toolbelt/opencode/
-# research-sdd-sweep.ts) has been removed.  Codex remains a manual harness whose golden plan
+# research-sdd-sweep.ts) has been removed. Codex and Reasonix were dropped on 2026-10-03 (#1471).
+# Pi (and its isolated-home wrapper gentle-shell) is the manual-sweep harness: its golden plan
 # lists the canonical sweep scripts explicitly.
 #
 # WHY THIS TEST EXISTS (anti-theater):
 #   Parity drifted silently once (README said 2 scripts; .claude/settings.json had grown to 4;
-#   Codex golden listed all 4 manually; nothing bound both surfaces to one canonical list).
+#   the manual-harness golden listed all 4 by hand; nothing bound both surfaces to one canonical list).
 #   This test does that binding: it parses each authoritative source file directly (no hardcoded
 #   list that would rot) and fails if any harness adds, drops, or renames a sweep script relative
 #   to the canonical set.
 #
-# Surfaces parsed (both must agree on the same canonical names):
-#   Claude : .claude/settings.json              — SessionStart hook command paths
-#   Codex  : install/tests/golden/plan-codex.txt — backtick-quoted toolbelt/ entries
+# Surfaces parsed (all must agree on the same canonical names):
+#   Claude       : .claude/settings.json                    — SessionStart hook command paths
+#   Pi           : install/tests/golden/plan-pi.txt          — backtick-quoted toolbelt/ entries
+#   gentle-shell : install/tests/golden/plan-gentle-shell.txt — same shape as Pi
 #
 # Canonical name normalisation:
 #   Claude wires -hook.sh wrapper scripts; strip "-hook" suffix to recover the base name that
-#   the Codex harness references directly. Result: sweep-retros, sweep-audits,
+#   the manual-sweep harnesses reference directly. Result: sweep-retros, sweep-audits,
 #   sweep-breakthroughs, verify-registry, verify-kit-clean, sweep-tools, verify-tool-catalog.
 #
 # Usage: harness-sweep-parity.test.sh [--prove-teeth]
@@ -37,18 +39,18 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # ---- Source file paths -----------------------------------------------------
 SETTINGS="$REPO/.claude/settings.json"
-CODEX_GOLDEN="$REPO/research-sdd/install/tests/golden/plan-codex.txt"
+PI_GOLDEN="$REPO/research-sdd/install/tests/golden/plan-pi.txt"
 
 # --list-inputs: print harness input files as repo-relative paths, one per line.
 # ci-path-filter-coverage.test.sh calls this to derive its checked set at runtime
 # rather than maintaining a hardcoded duplicate list that can drift.
 if [ "${1:-}" = "--list-inputs" ]; then
   printf '%s\n' "${SETTINGS#"$REPO/"}"
-  printf '%s\n' "${CODEX_GOLDEN#"$REPO/"}"
+  printf '%s\n' "${PI_GOLDEN#"$REPO/"}"
   exit 0
 fi
 
-for f in "$SETTINGS" "$CODEX_GOLDEN"; do
+for f in "$SETTINGS" "$PI_GOLDEN"; do
   [ -f "$f" ] || { printf 'FATAL: source not found: %s\n' "$f" >&2; exit 2; }
 done
 command -v jq >/dev/null 2>&1 \
@@ -58,7 +60,7 @@ command -v jq >/dev/null 2>&1 \
 # Each helper emits sorted canonical names (one per line) from its authoritative source.
 #
 # Claude: .hooks.SessionStart[0].hooks[].command → basename → strip "-hook.sh" suffix
-# Codex:  `toolbelt/*.sh` backtick entries        → strip prefix + ".sh"
+# Manual harnesses (Pi, gentle-shell): `toolbelt/*.sh` backtick entries → strip prefix + ".sh"
 
 extract_claude() {
   local f="${1:-$SETTINGS}"
@@ -73,8 +75,8 @@ extract_claude() {
   # Unquoted paths pass through unchanged — both forms must parse correctly.
 }
 
-extract_codex() {
-  local f="${1:-$CODEX_GOLDEN}"
+extract_manual() {
+  local f="${1:-$PI_GOLDEN}"
   grep -oE '`toolbelt/[^`]+\.sh`' "$f" \
     | tr -d '`' \
     | sed 's|^toolbelt/||' \
@@ -84,7 +86,7 @@ extract_codex() {
   # NOTE: sweep-all.sh is deliberately excluded from the canonical set extracted here.
   # It is the aggregator shim (U-A20) that CALLS the four canonical scripts; it is not
   # a canonical member of the sweep set itself. A separate assertion (see below) verifies
-  # that it IS referenced in the codex golden as the single recommended command.
+  # that it IS referenced in the manual-harness goldens as the single recommended command.
 }
 
 # count non-blank lines in $1
@@ -102,36 +104,36 @@ CANONICAL_COUNT=0
 for _m in $CANONICAL_MEMBERS; do CANONICAL_COUNT=$((CANONICAL_COUNT + 1)); done
 
 CLAUDE_SET="$(extract_claude)"
-CODEX_SET="$(extract_codex)"
+PI_SET="$(extract_manual)"
 
 # ---- 1–2: Non-empty parse sanity -------------------------------------------
 [ -n "$CLAUDE_SET" ] \
   && ok "claude: parsed non-empty script set from settings.json" \
   || no "claude: empty parse (jq path or settings.json format changed?)"
 
-[ -n "$CODEX_SET" ] \
-  && ok "codex: parsed non-empty script set from plan-codex.txt" \
-  || no "codex: empty parse (backtick format in golden changed?)"
+[ -n "$PI_SET" ] \
+  && ok "pi: parsed non-empty script set from plan-pi.txt" \
+  || no "pi: empty parse (backtick format in golden changed?)"
 
 # ---- 3–4: Cardinality (exactly CANONICAL_COUNT per surface) ----------------
 claude_c=$(count_lines "$CLAUDE_SET")
-codex_c=$(count_lines "$CODEX_SET")
+pi_c=$(count_lines "$PI_SET")
 
 [ "$claude_c" = "$CANONICAL_COUNT" ] \
   && ok "claude: exactly $CANONICAL_COUNT scripts referenced" \
   || no "claude: expected $CANONICAL_COUNT scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 
-[ "$codex_c" = "$CANONICAL_COUNT" ] \
-  && ok "codex: exactly $CANONICAL_COUNT scripts referenced" \
-  || no "codex: expected $CANONICAL_COUNT scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
+[ "$pi_c" = "$CANONICAL_COUNT" ] \
+  && ok "pi: exactly $CANONICAL_COUNT scripts referenced" \
+  || no "pi: expected $CANONICAL_COUNT scripts, got $pi_c (set: $(echo "$PI_SET" | tr '\n' ' '))"
 
 # ---- 5: Cross-surface equality ---------------------------------------------
-if [ "$CLAUDE_SET" = "$CODEX_SET" ]; then
-  ok "claude == codex (identical canonical set)"
+if [ "$CLAUDE_SET" = "$PI_SET" ]; then
+  ok "claude == pi (identical canonical set)"
 else
-  no "claude != codex  PARITY DRIFT"
+  no "claude != pi  PARITY DRIFT"
   printf '    claude: %s\n' "$(echo "$CLAUDE_SET" | tr '\n' ' ')"
-  printf '    codex : %s\n' "$(echo "$CODEX_SET"  | tr '\n' ' ')"
+  printf '    pi    : %s\n' "$(echo "$PI_SET"  | tr '\n' ' ')"
 fi
 
 # ---- 6–N: Canonical member presence (by exact name) ------------------------
@@ -141,13 +143,13 @@ for script in $CANONICAL_MEMBERS; do
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 done
 
-# ---- Codex golden references the sweep-all.sh aggregator -------------------
-# sweep-all.sh is NOT a canonical sweep member (excluded from extract_codex above); it is
-# the U-A20 aggregator shim that runs the four canonical scripts in one command. The codex
+# ---- Pi golden references the sweep-all.sh aggregator ----------------------
+# sweep-all.sh is NOT a canonical sweep member (excluded from extract_manual above); it is
+# the U-A20 aggregator shim that runs the canonical scripts in one command. The Pi
 # section should reference it as the single recommended manual command.
-grep -q '`toolbelt/sweep-all.sh`' "$CODEX_GOLDEN" \
-  && ok "codex: sweep-all.sh aggregator referenced in plan-codex.txt (single recommended command)" \
-  || no "codex: sweep-all.sh NOT referenced in plan-codex.txt (expected as single recommended command)"
+grep -q '`toolbelt/sweep-all.sh`' "$PI_GOLDEN" \
+  && ok "pi: sweep-all.sh aggregator referenced in plan-pi.txt (single recommended command)" \
+  || no "pi: sweep-all.sh NOT referenced in plan-pi.txt (expected as single recommended command)"
 
 # ---- Quoted-command form (regression guard for PR #108) --------------------
 # extract_claude must tolerate commands wrapped in literal double-quotes, i.e.
@@ -165,14 +167,15 @@ else
   no "quoted-commands: fixture file missing — cannot test quote stripping: $FIXTURE_QUOTED"
 fi
 
-# ---- pi + gentle-shell goldens: manual-sweep harnesses held to the same canonical set ----------
-# Pi has no SessionStart hook, so both Pi harnesses document the manual sweep block exactly like
-# Codex. Their goldens must reference the same canonical set + the sweep-all.sh aggregator.
-# (Not added to --list-inputs: they live beside plan-codex.txt under the same golden/ directory.)
-for _pig in pi gentle-shell; do
+# ---- gentle-shell golden: the isolated-home Pi wrapper held to the same canonical set ----------
+# Pi has no SessionStart hook, so both Pi harnesses document the manual sweep block. The gentle-shell
+# golden must reference the same canonical set + the sweep-all.sh aggregator.
+# (Not added to --list-inputs: it lives beside plan-pi.txt under the same golden/ directory.)
+_pig_list="gentle-shell"
+for _pig in $_pig_list; do
   _pif="$REPO/research-sdd/install/tests/golden/plan-$_pig.txt"
   if [ ! -f "$_pif" ]; then no "$_pig: golden missing: $_pif"; continue; fi
-  _pis="$(extract_codex "$_pif")"
+  _pis="$(extract_manual "$_pif")"
   if [ "$_pis" = "$CLAUDE_SET" ]; then ok "$_pig == claude (identical canonical sweep set, $CANONICAL_COUNT scripts)"
   else
     no "$_pig != claude  PARITY DRIFT"
@@ -217,19 +220,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jq 'del(.hooks.SessionStart[0].hooks[] | select(.command | test("sweep-audits")))' \
       "$SETTINGS" > "$TMP/settings-drop.json"
   mutant_cl="$(extract_claude "$TMP/settings-drop.json")"
-  if [ "$mutant_cl" != "$CODEX_SET" ]; then
-    ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Codex"
+  if [ "$mutant_cl" != "$PI_SET" ]; then
+    ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Pi"
   else
     no "teeth A: dropped hook NOT caught — cross-surface comparison is theater"
   fi
 
-  # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the codex golden
-  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$CODEX_GOLDEN" > "$TMP/plan-codex-mutant.txt"
-  mutant_cx="$(extract_codex "$TMP/plan-codex-mutant.txt")"
-  if [ "$CLAUDE_SET" != "$mutant_cx" ]; then
-    ok "teeth B: renaming sweep-retros in Codex golden detected as drift vs Claude"
+  # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the Pi golden
+  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$PI_GOLDEN" > "$TMP/plan-pi-mutant.txt"
+  mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"
+  if [ "$CLAUDE_SET" != "$mutant_pi" ]; then
+    ok "teeth B: renaming sweep-retros in the Pi golden detected as drift vs Claude"
   else
-    no "teeth B: mutant Codex NOT caught — cross-surface comparison is theater"
+    no "teeth B: mutant Pi NOT caught — cross-surface comparison is theater"
   fi
 
   # Teeth C: prove the quote-stripping test has teeth.
@@ -248,14 +251,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth C: un-stripped parser passed — the fixture does not catch the bug (quoted-commands assertion is theater)"
   fi
 
-  # Teeth D: rename sweep-retros.sh in a temp copy of the pi golden — the pi/gentle-shell parity
-  # check (same extractor, same canonical set) must see it as drift vs Claude.
-  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$REPO/research-sdd/install/tests/golden/plan-pi.txt" > "$TMP/plan-pi-mutant.txt"
-  mutant_pi="$(extract_codex "$TMP/plan-pi-mutant.txt")"
-  if [ -n "$mutant_pi" ] && [ "$CLAUDE_SET" != "$mutant_pi" ]; then
-    ok "teeth D: renaming sweep-retros in the Pi golden detected as drift vs Claude"
+  # Teeth D: rename sweep-retros.sh in a temp copy of the gentle-shell golden — the gentle-shell
+  # parity check (same extractor, same canonical set) must see it as drift vs Claude.
+  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$REPO/research-sdd/install/tests/golden/plan-gentle-shell.txt" > "$TMP/plan-gs-mutant.txt"
+  mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"
+  if [ -n "$mutant_gs" ] && [ "$CLAUDE_SET" != "$mutant_gs" ]; then
+    ok "teeth D: renaming sweep-retros in the gentle-shell golden detected as drift vs Claude"
   else
-    no "teeth D: mutant Pi golden NOT caught — pi/gentle-shell parity check is theater"
+    no "teeth D: mutant gentle-shell golden NOT caught — gentle-shell parity check is theater"
   fi
 fi
 

@@ -275,7 +275,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 #!/usr/bin/env bash
 if [ "${1:-}" = "--list-inputs" ]; then
   printf '.claude/settings.json\n'
-  printf 'research-sdd/install/tests/golden/plan-codex.txt\n'
+  printf 'research-sdd/install/tests/golden/plan-pi.txt\n'
   printf 'research-sdd/install/adapters.sh\n'
   exit 0
 fi
