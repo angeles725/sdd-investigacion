@@ -24,16 +24,18 @@ blank lines and CRLF tolerated:
 
 Globs are bash `[[ == ]]` patterns against the repo-relative path; `*` crosses `/`, so `dir/**` covers a whole tree.
 
-Built-in rule, independent of the conf: `*.class *.jar *.dll *.so *.exe` (case-insensitive) is a leak unless allowed.
+Built-in rule, independent of the conf: `*.class *.jar *.dll *.so *.so.<digit>* *.exe` (case-insensitive) is a leak unless allowed.
 
-An unknown directive or a directive without an argument is `BAD-CONF` and exit 2: a typo (`prefx`) must not read as a
-clean run.
+An unknown directive, a directive without an argument, a `prefix` that is not dotted identifier characters, or a
+`path`/`allow` glob that is absolute or contains `..` is `BAD-CONF` and exit 2: a typo (`prefx`) or a rule that could
+never match must not read as a clean run. A conf that is a symlink, a directory, or unreadable (`UNREADABLE-CONF`) is
+also exit 2, never ABSENT.
 
 ## Output and exit codes
 
 ```
 LEAK <binary|path|package> <path>[:<line>] <reason>
-SUMMARY scanned=N allowed=N findings=N conf=present|absent prefixes=N paths=N allows=N mode=tracked|staged
+SUMMARY scanned=N allowed=N findings=N unreadable=N conf=present|absent prefixes=N paths=N allows=N mode=tracked|staged
 ```
 
 A file can yield more than one LEAK line (e.g. a `.class` under `decompiled/**` is `binary` and `path`).
@@ -45,17 +47,18 @@ Typed non-finding states (never a silent zero):
 | `ABSENT-CONF` | No conf: only the built-in binary rule ran. The SUMMARY repeats "path/package rules NOT evaluated". |
 | `EMPTY-CONF` | Conf exists with zero directives: same limitation. |
 | `EMPTY-INPUT` | Zero files in scope (empty repo / nothing staged): nothing was looked at. |
-| `BAD-CONF` | Invalid declaration (exit 2). |
+| `BAD-CONF` / `UNREADABLE-CONF` | Invalid, unsafe or unreadable declaration (exit 2). |
+| `UNREADABLE <path>` | Index content of a source file could not be read, so its package rule was NOT evaluated; counted in `unreadable=N`; the run is never clean (exit 2, or 1 if a finding exists). |
 
 | Exit | Meaning |
 |---|---|
 | 0 | no findings |
 | 1 | findings |
-| 2 | usage, not a git work tree, or bad conf |
+| 2 | usage, not a git work tree, bad/unreadable conf, or unreadable index content |
 | 3 | DEGRADED (git missing or file listing failed) |
 
 Modes: `--tracked` (default) = every file git tracks under the target; `--staged` = files added/copied/modified/renamed
-in the index. Package declarations are read from the INDEX (`git show :./path`), not the worktree copy, so a staged
+in the index (type changes such as file → symlink are scanned; deletions are skipped on purpose). Package declarations are read from the INDEX (`git show :./path`), not the worktree copy, so a staged
 scan judges what a commit would send. A target that is a sub-directory of a repo is scanned relative to that
 directory only.
 

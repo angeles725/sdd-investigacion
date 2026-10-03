@@ -18,11 +18,6 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
-MUT="$(mktemp -d)"
 
 # newrepo <dir> [conf-file] — git repo with one committed README; conf copied to .research-sdd/ if given.
 newrepo(){
@@ -134,17 +129,59 @@ bash "$SUT" "$d" >/dev/null 2>&1; bash "$SUT" "$d" --staged >/dev/null 2>&1
 after="$(git -C "$d" status --porcelain=v1 -z | sha1sum)$(find "$d" -path "$d/.git" -prune -o -type f -print | sort | xargs sha1sum | sha1sum)"
 [ "$before" = "$after" ] && ok "scan leaves the target tree and index unchanged" || no "target mutated by scan"
 
-# 14 — sub-directory target: refuses to silently scan a partial repo? (target may be a subdir; paths relative to it)
+# 14 — sub-directory target: paths are relative to the target and files outside it are not scanned.
 d="$TMP/sub"; newrepo "$d"; mkdir -p "$d/corpus/.research-sdd"; printf 'path gen/**\n' > "$d/corpus/.research-sdd/vendor-leak.conf"
 addf "$d" corpus/gen/x.txt; addf "$d" outside/y.jar; commit "$d"
 o="$(out "$d/corpus")"; has "$o" '^LEAK path gen/x\.txt ' && ! has "$o" 'y\.jar' && ok "subdir target: paths relative to the target, outside files not scanned" || no "subdir wrong: $o"
 
+# 15 — fail-closed paths (review round 1).
+# 15a unreadable index content is typed UNREADABLE, counted, and never exit 0.
+d="$TMP/unread"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" src/U.java 'package com.acme;'; commit "$d"
+h="$(git -C "$d" rev-parse :src/U.java)"; rm -f "$d/.git/objects/${h:0:2}/${h:2}"
+o="$(out "$d")"
+[ "$(rc "$d")" = 2 ] && has "$o" '^UNREADABLE src/U\.java ' && has "$o" 'unreadable=1' && ok "unreadable index blob → UNREADABLE line, unreadable=1, exit 2 (never clean)" || no "unreadable blob wrong: $o"
+# a real finding elsewhere still wins the exit code (1) but UNREADABLE is still printed
+cp -r "$d" "$TMP/unreadmix"; d="$TMP/unreadmix"; addf "$d" z.jar; o="$(out "$d")"
+[ "$(rc "$d")" = 1 ] && has "$o" '^UNREADABLE ' && has "$o" '^LEAK binary z\.jar' && ok "finding + unreadable → exit 1, both reported" || no "mixed wrong: $o"
+# 15b unreadable conf is never ABSENT (skipped when running as a user that ignores chmod).
+d="$TMP/confperm"; newrepo "$d" "$FIX/vendor-leak.conf"; chmod 000 "$d/.research-sdd/vendor-leak.conf"
+if [ -r "$d/.research-sdd/vendor-leak.conf" ]; then echo "  SKIP  unreadable conf (chmod 000 still readable here)"
+else o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^UNREADABLE-CONF ' && ! has "$o" '^ABSENT-CONF' && ok "chmod 000 conf → UNREADABLE-CONF exit 2, not ABSENT" || no "unreadable conf wrong: $o"; fi
+chmod 644 "$d/.research-sdd/vendor-leak.conf"
+# 15c conf that is a symlink or a directory is refused.
+d="$TMP/conflink"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'prefix javax.baja\n' > "$TMP/outside.conf"; ln -s "$TMP/outside.conf" "$d/.research-sdd/vendor-leak.conf"
+o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*symlink' && ok "symlinked conf → BAD-CONF exit 2" || no "symlink conf wrong: $o"
+d="$TMP/confdir"; newrepo "$d"; mkdir -p "$d/.research-sdd/vendor-leak.conf"
+[ "$(rc "$d")" = 2 ] && ok "conf path is a directory → exit 2 (not ABSENT)" || no "conf dir wrong"
+# 15d conf values that could never match are refused, not silently dead.
+d="$TMP/hard"; newrepo "$d"; mkdir -p "$d/.research-sdd"
+for bad in 'prefix javax.*' 'prefix .javax' 'prefix javax..baja' 'path /etc/**' 'path ../x/**' 'allow ../y'; do
+  printf '%s\n' "$bad" > "$d/.research-sdd/vendor-leak.conf"
+  [ "$(rc "$d")" = 2 ] && has "$(out "$d")" '^BAD-CONF ' && ok "conf '$bad' → BAD-CONF exit 2" || no "conf '$bad' accepted"
+done
+# 15e --staged: a staged deletion is skipped explicitly; a typechange to a symlink is scanned.
+d="$TMP/sdel"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" gone.jar; addf "$d" tc.jar; commit "$d"
+git -C "$d" rm -q --cached gone.jar
+o="$(out "$d" --staged)"
+[ "$(rc "$d" --staged)" = 0 ] && ! has "$o" 'gone\.jar' && ok "--staged: staged deletion not reported" || no "staged deletion wrong: $o"
+rm -f "$d/tc.jar"; ln -s README.md "$d/tc.jar"; git -C "$d" add tc.jar
+o="$(out "$d" --staged)"
+[ "$(rc "$d" --staged)" = 1 ] && has "$o" '^LEAK binary tc\.jar ' && ok "--staged: typechange (file → symlink) is scanned" || no "typechange wrong: $o"
+# 15f versioned shared objects.
+d="$TMP/so"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" lib/libz.so.1.2; addf "$d" docs/x.so.md; commit "$d"
+o="$(out "$d")"; has "$o" '^LEAK binary lib/libz\.so\.1\.2 ' && ! has "$o" 'x\.so\.md' && ok "versioned .so.N flagged, .so.md not" || no "versioned so wrong: $o"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  MUT="$(mktemp -d)"
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A: binary rule neutered → built-in binary artifacts pass.
-  mk "A binary" "$SUT" "$MUT/a.sh" 's/\*\.class|\*\.jar|\*\.dll|\*\.so|\*\.exe)/*.zzznomatch)/' \
+  mk "A binary" "$SUT" "$MUT/a.sh" 's/\*\.class|\*\.jar|\*\.dll|\*\.so|\*\.so\.\[0-9\]\*|\*\.exe)/*.zzznomatch)/' \
     && tt "A binary rule neutered → jar passes" 1 0 "$MUT/a.sh" --bad-lacks '^LEAK binary' --good-has '^LEAK binary' -- bash @SUT@ "$TMP/bin"
   # B: package boundary dropped → javax.bajaextra false positive.
   mk "B boundary" "$SUT" "$MUT/b.sh" 's/"\$pkg" == "\$pre"\.\*/"$pkg" == "$pre"*/' \
@@ -163,7 +200,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "F ABSENT-CONF line dropped → silent pass on prefixes" 1 1 "$MUT/f.sh" --good-has '^ABSENT-CONF' --bad-lacks '^ABSENT-CONF' -- bash @SUT@ "$TMP/noconf"
   # G: --staged lists tracked files instead of the index diff.
   d="$TMP/modes2"; newrepo "$d" "$FIX/vendor-leak.conf"; addf "$d" old/committed.jar; commit "$d"
-  mk "G staged" "$SUT" "$MUT/g.sh" 's/git -C "\$target" diff --cached --name-only --relative -z --diff-filter=ACMR/git -C "$target" ls-files -z/' \
+  mk "G staged" "$SUT" "$MUT/g.sh" 's/git -C "\$target" diff --cached --name-only --relative -z --diff-filter=ACMRT/git -C "$target" ls-files -z/' \
     && tt "G --staged reads tracked set → committed leak flagged" 0 1 "$MUT/g.sh" -- bash @SUT@ "$TMP/modes2" --staged
   # H: git probe removed → no typed DEGRADED.
   mk "H probe" "$SUT" "$MUT/h.sh" 's/command -v git >\/dev\/null 2>&1 ||/true ||/' \
@@ -174,6 +211,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # J: bad conf directive accepted silently.
   mk "J badconf" "$SUT" "$MUT/j.sh" 's/BAD-CONF unknown directive/NOTE unknown directive/;s/^      bad_conf=1/      bad_conf=0/' \
     && tt "J unknown directive tolerated → exit 0" 2 0 "$MUT/j.sh" -- bash @SUT@ "$TMP/badconf"
+  # K: unreadable content no longer fails the run.
+  mk "K unreadable" "$SUT" "$MUT/k.sh" 's/^\[ "\$unreadable" -gt 0 \] && exit 2/:/' \
+    && tt "K unreadable ignored → exit 0 on a blob that could not be read" 2 0 "$MUT/k.sh" -- bash @SUT@ "$TMP/unread"
+  # L: typechange dropped from the staged filter.
+  mk "L typechange" "$SUT" "$MUT/l.sh" 's/--diff-filter=ACMRT/--diff-filter=ACMR/' \
+    && tt "L typechange dropped → symlinked .jar passes --staged" 1 0 "$MUT/l.sh" -- bash @SUT@ "$TMP/sdel" --staged
+  # N: versioned shared objects not matched.
+  mk "N so" "$SUT" "$MUT/n.sh" 's/|\*\.so\.\[0-9\]\*//' \
+    && tt "N versioned .so dropped → libz.so.1.2 passes" 1 0 "$MUT/n.sh" --good-has 'libz\.so\.1\.2' --bad-lacks 'libz\.so\.1\.2' -- bash @SUT@ "$TMP/so"
+  # O: symlinked conf accepted.
+  mk "O conflink" "$SUT" "$MUT/o.sh" 's/if \[ -L "\$conf" \] ||/if false ||/' \
+    && tt "O symlinked conf accepted → read through the link" 2 0 "$MUT/o.sh" -- bash @SUT@ "$TMP/conflink"
+  # P: unsafe conf globs accepted.
+  mk "P globs" "$SUT" "$MUT/p.sh" 's/path:\/\*|allow:\/\*|path:\*\.\.\*|allow:\*\.\.\*)/path:ZZZ)/' \
+    && { printf 'path ../x/**\n' > "$TMP/hard/.research-sdd/vendor-leak.conf"
+         tt "P ../ glob accepted → silently dead rule" 2 0 "$MUT/p.sh" -- bash @SUT@ "$TMP/hard"; }
 fi
 
 echo "== $pass passed · $fail failed =="

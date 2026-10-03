@@ -13,9 +13,12 @@
 #   --staged   only files added/copied/modified/renamed in the index (what a commit would send).
 # Output (stdout, one line each):
 #   LEAK <binary|path|package> <path>[:<line>] <reason>
-#   ABSENT-CONF / EMPTY-CONF / EMPTY-INPUT / BAD-CONF  — typed non-finding states
-#   SUMMARY scanned=N allowed=N findings=N conf=present|absent prefixes=N paths=N allows=N mode=M
-# Exit: 0 no findings · 1 findings · 2 usage / not a git repo / bad conf · 3 DEGRADED (git missing).
+#   ABSENT-CONF / EMPTY-CONF / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF / UNREADABLE <path>
+#                                                       — typed non-finding states
+#   SUMMARY scanned=N allowed=N findings=N unreadable=N conf=present|absent prefixes=N paths=N allows=N mode=M
+# Exit: 0 no findings · 1 findings · 2 usage / not a git repo / bad or unreadable conf / unreadable index
+#       content (UNREADABLE: the scan could not look, so it is never clean) · 3 DEGRADED (git missing).
+# Findings (1) outrank unreadable (2) only in the exit code; both are printed.
 # READ-ONLY: only `git ls-files|diff|show|rev-parse` run against the target; nothing is written.
 set -uo pipefail
 
@@ -43,7 +46,14 @@ PREFIXES=(); PATHS=(); ALLOWS=()
 conf="$target/.research-sdd/vendor-leak.conf"
 conf_state=absent
 bad_conf=0
+# The conf is read from the work tree. Anything at that path that is not a readable regular file
+# (symlink that could point outside the target, directory, chmod 000) is a typed refusal, never ABSENT.
+if [ -L "$conf" ] || { [ -e "$conf" ] && [ ! -f "$conf" ]; }; then
+  echo "BAD-CONF $conf is a symlink or not a regular file — refusing to read it"
+  exit 2
+fi
 if [ -f "$conf" ]; then
+  [ -r "$conf" ] || { echo "UNREADABLE-CONF $conf exists but cannot be read — not treated as absent"; exit 2; }
   conf_state=present
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
@@ -61,6 +71,15 @@ if [ -f "$conf" ]; then
           bad_conf=1
           continue
         fi
+        # Paths are repo-relative: an absolute or `..` glob could never match, i.e. a silently dead rule.
+        case "$dir:$arg" in
+          prefix:*[!A-Za-z0-9_.]*|prefix:.*|prefix:*.|prefix:*..*)
+            echo "BAD-CONF invalid package prefix '$arg' in $conf (letters, digits, _ and . only)"
+            bad_conf=1; continue ;;
+          path:/*|allow:/*|path:*..*|allow:*..*)
+            echo "BAD-CONF glob '$arg' in $conf must be repo-relative (no leading / and no ..)"
+            bad_conf=1; continue ;;
+        esac
         case "$dir" in
           prefix) PREFIXES+=("$arg") ;;
           path) PATHS+=("$arg") ;;
@@ -94,7 +113,7 @@ is_allowed() {
   matches_any "$1" "${ALLOWS[@]}"
 }
 
-findings=0; scanned=0; allowed=0
+findings=0; scanned=0; allowed=0; unreadable=0
 emit() { # emit <kind> <path-with-optional-:line> <reason>
   local loc="${2//$'\n'/\\n}"
   printf 'LEAK %s %s %s\n' "$1" "$loc" "$3"
@@ -103,7 +122,9 @@ emit() { # emit <kind> <path-with-optional-:line> <reason>
 
 list_files() {
   if [ "$mode" = staged ]; then
-    git -C "$target" diff --cached --name-only --relative -z --diff-filter=ACMR
+    # ACMRT: added/copied/modified/renamed/type-changed. Deletions (D) are excluded ON PURPOSE: a deleted
+    # path has no index content to leak. Unmerged (U) entries are not listed; resolve the merge first.
+    git -C "$target" diff --cached --name-only --relative -z --diff-filter=ACMRT
   else
     git -C "$target" ls-files -z
   fi
@@ -121,7 +142,7 @@ while IFS= read -r -d '' p; do
   fi
   lc="${p,,}"
   case "$lc" in
-    *.class|*.jar|*.dll|*.so|*.exe) emit binary "$p" "vendor binary artifact (built-in rule)" ;;
+    *.class|*.jar|*.dll|*.so|*.so.[0-9]*|*.exe) emit binary "$p" "vendor binary artifact (built-in rule)" ;;
   esac
   if [ "${#PATHS[@]}" -gt 0 ] && matches_any "$p" "${PATHS[@]}"; then
     emit path "$p" "matches declared vendor path"
@@ -129,7 +150,11 @@ while IFS= read -r -d '' p; do
   if [ "${#PREFIXES[@]}" -gt 0 ]; then
     case "$lc" in
       *.java|*.kt|*.scala|*.groovy)
-        content="$(git -C "$target" show ":./$p" 2>/dev/null)" || content=""
+        if ! content="$(git -C "$target" show ":./$p" 2>/dev/null)"; then
+          echo "UNREADABLE ${p//$'\n'/\\n} index content could not be read — package rule NOT evaluated for this file"
+          unreadable=$((unreadable+1))
+          continue
+        fi
         ln=0
         while IFS= read -r l || [ -n "$l" ]; do
           ln=$((ln+1))
@@ -151,6 +176,7 @@ done < "$files_tmp"
 [ "$scanned" -gt 0 ] || echo "EMPTY-INPUT no files in scope for mode=$mode — a zero here means nothing was looked at"
 note=""
 [ "$conf_state" = present ] || note=" — path/package rules NOT evaluated (no conf); only the built-in binary rule ran"
-echo "SUMMARY scanned=$scanned allowed=$allowed findings=$findings conf=$conf_state prefixes=${#PREFIXES[@]} paths=${#PATHS[@]} allows=${#ALLOWS[@]} mode=$mode$note"
+echo "SUMMARY scanned=$scanned allowed=$allowed findings=$findings unreadable=$unreadable conf=$conf_state prefixes=${#PREFIXES[@]} paths=${#PATHS[@]} allows=${#ALLOWS[@]} mode=$mode$note"
 [ "$findings" -gt 0 ] && exit 1
+[ "$unreadable" -gt 0 ] && exit 2
 exit 0
