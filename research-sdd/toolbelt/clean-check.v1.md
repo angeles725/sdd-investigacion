@@ -63,7 +63,7 @@ A scan that errors partway is exit 2, never a quiet "clean": both the untracked 
 and the `tmp.*` list (`find`) are read with an explicit end marker, and the `sort` ordering step carries
 its own, so a truncated or failed `git`, `find` or `sort` cannot read as an empty list. The scan's own
 stderr is shown, and a `git rev-parse` failure reports git's reason (for example dubious ownership)
-instead of "not a work tree".
+instead of "not a work tree"; stderr noise from a `git rev-parse` that succeeds is ignored (only its stdout is compared).
 
 ## Test hook
 

@@ -46,15 +46,15 @@ case "$OWNER_UID" in ''|*[!0-9]*) _err "cannot determine the owner uid ('$OWNER_
 [ -n "$TARGET" ] || TARGET="$PWD"
 [ -d "$TARGET" ] || { _err "target not found: $TARGET"; exit 2; }
 TARGET_P="$(cd -P -- "$TARGET" && pwd -P)" || { _err "cannot enter target: $TARGET"; exit 2; }
-# git's own stderr is kept: a rev-parse that fails for another reason (dubious ownership, a broken git)
-# must not read as "not a work tree".
-_gmsg=""; _inside=""
-if _inside="$(git -C "$TARGET_P" rev-parse --is-inside-work-tree 2>&1)"; then
-  if [ "$_inside" != "true" ]; then _gmsg="not a work tree"; fi
+# stdout alone decides: a successful git may still print warnings on stderr (unreadable config, deprecation)
+# and those must not turn a work tree into a failure. Only when the check fails is git rerun, stderr only,
+# to report git's own reason (dubious ownership, a broken git) - never a guess like "not a work tree".
+if _inside="$(git -C "$TARGET_P" rev-parse --is-inside-work-tree 2>/dev/null)"; then
+  [ "$_inside" = "true" ] || { _err "target is not inside a git work tree: $TARGET"; exit 2; }
 else
-  _gmsg="${_inside:-git exited non-zero without output}"; _gmsg="${_gmsg//$'\n'/ }"
+  _gmsg="$(git -C "$TARGET_P" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; _gmsg="${_gmsg//$'\n'/ }"
+  _err "git rev-parse failed for target $TARGET: ${_gmsg:-git exited non-zero without output}"; exit 2
 fi
-[ -z "$_gmsg" ] || { _err "target is not inside a git work tree: $TARGET (git: $_gmsg)"; exit 2; }
 [ -n "$TMPD" ] || TMPD="${TMPDIR:-/tmp}"
 TMPD="${TMPD%/}"; [ -n "$TMPD" ] || TMPD="/"
 [ -d "$TMPD" ] || { _err "tmp dir not found: $TMPD"; exit 2; }

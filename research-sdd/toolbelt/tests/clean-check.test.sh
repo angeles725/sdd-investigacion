@@ -169,7 +169,7 @@ REQ="$(sed -n 's/^REQUIRED_TOOLS="\([^"]*\)".*/\1/p' "$SUT")"
 for tool in $REQ; do
   mkbin "$TMP/bin-no-$tool" "$tool"
   OUT="$(PATH="$TMP/bin-no-$tool" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-  { [ "$RC" = 3 ] && has "DEGRADED"; } && ok "$tool missing -> exit 3 with typed DEGRADED" || no "degraded without $tool" "(rc=$RC $OUT)"
+  { [ "$RC" = 3 ] && has "DEGRADED" && has "$tool not found"; } && ok "$tool missing -> exit 3 with typed DEGRADED" || no "degraded without $tool" "(rc=$RC $OUT)"
 done
 
 # ---- --stale-hours is decimal, never octal ----------------------------------------------------
@@ -196,7 +196,9 @@ mkdir -p "$TMP/shim-git" "$TMP/shim-find" "$TMP/shim-race"
 REALGIT="$(type -P git)"; REALFIND="$(type -P find)"
 printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && { echo "shim-git-diagnostic: ls-files exploded" >&2; exit 1; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-git/git"
 printf '#!/bin/sh\necho "shim-find-diagnostic: find exploded" >&2\nexit 1\n' > "$TMP/shim-find/find"
-mkdir -p "$TMP/shim-sort" "$TMP/shim-revparse"
+mkdir -p "$TMP/shim-sort" "$TMP/shim-revparse" "$TMP/shim-warn"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && echo "warning: shim-warn unreadable attributes file" >&2\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-warn/git"
+chmod +x "$TMP/shim-warn/git"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-sort/sort"
 printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && { echo "fatal: detected dubious ownership in repository" >&2; exit 128; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-revparse/git"
 chmod +x "$TMP/shim-sort/sort" "$TMP/shim-revparse/git"
@@ -211,6 +213,9 @@ OUT="$(PATH="$TMP/shim-git:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT
 fresh
 OUT="$(PATH="$TMP/shim-revparse:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && has "dubious ownership"; } && ok "git rev-parse failure reports git's own reason, not 'not a work tree'" || no "rev-parse misdiagnosis" "(rc=$RC $OUT)"
+fresh; printf 'x\n' > "$REPO/stray"
+OUT="$(PATH="$TMP/shim-warn:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "GARBAGE untracked stray"; } && ok "successful rev-parse with a stderr warning still scans normally" || no "rev-parse warning misread" "(rc=$RC $OUT)"
 fresh; : > "$FT/tmp.old1"; : > "$FT/tmp.old2"; ago 48 "$FT/tmp.old1"; ago 48 "$FT/tmp.old2"
 OUT="$(PATH="$TMP/shim-sort:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && has "sort failed"; } && ok "failing sort -> exit 2, never a quiet clean" || no "sort failure" "(rc=$RC $OUT)"
@@ -303,8 +308,10 @@ KL
     --good-has 'shim-git-diagnostic' --bad-lacks 'shim-git-diagnostic' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   mt "find stderr discarded again" 's|-print0$|-print0 2>/dev/null|' 2 2 \
     --good-has 'shim-find-diagnostic' --bad-lacks 'shim-find-diagnostic' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
-  mt "rev-parse reason dropped from the error" 's/ (git: \$_gmsg)//' 2 2 \
+  mt "rev-parse reason dropped from the error" 's/: \${_gmsg:-git exited non-zero without output}//' 2 2 \
     --good-has 'dubious ownership' --bad-lacks 'dubious ownership' -- env "PATH=$TMP/shim-revparse:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
+  mt "rev-parse stderr merged into the stdout comparison" 's/rev-parse --is-inside-work-tree 2>\/dev\/null)"/rev-parse --is-inside-work-tree 2>\&1)"/' 1 2 \
+    --good-has 'GARBAGE untracked stray' --bad-has 'not inside a git work tree' -- env "PATH=$TMP/shim-warn:$PATH" "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
 fi
 
 echo "== $pass passed · $fail failed =="
