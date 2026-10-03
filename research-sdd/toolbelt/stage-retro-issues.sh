@@ -880,11 +880,18 @@ ensure_target_label() {
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
 
-# title_is_unusable <title>: true for a bare priority/type token (the length clause of #1260 is deferred:
-# ~25 fixtures use 1-11 char titles and the fleet minimum is 19 chars, so it would change no real output).
+# STAGE_RETRO_ISSUES_MIN_TITLE (kit issue #1260 / #1492): a title shorter than this many characters is
+# a mis-read cell, never a delta summary. Measured 2026-10-03: the fleet minimum planned title is 19
+# chars, so the clause changes no real output today; it is a guard against the NEXT mis-mapped column.
+_MIN_TITLE_LEN=12
+
+# title_is_unusable <title>: true for a bare priority/type token OR a title under _MIN_TITLE_LEN chars
+# (length counted on the trimmed title, in characters).
 title_is_unusable() {
   local t
   t="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # STAGE_RETRO_ISSUES_SHORT_TITLE: anchor for the length-clause tooth
+  [ "${#t}" -lt "$_MIN_TITLE_LEN" ] && return 0
   case "$t" in
     critical|medium|high|low|bug|fix|feature|docs|documentation|regression|enhancement) return 0 ;;
   esac
@@ -932,7 +939,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # is a mis-read column (issue #1248 was titled `LOW`), never a real delta summary.
   # Not created, not silently dropped: typed `unclassifiable-row:` line + summary count, exit 0.
   if title_is_unusable "$_title"; then
-    echo "unclassifiable-row: row $_rid has no usable title (got '$_title': a bare priority/type token) — needs manual review, no issue staged" >&2
+    echo "unclassifiable-row: row $_rid has no usable title (got '$_title': a bare priority/type token or a title under $_MIN_TITLE_LEN chars) — needs manual review, no issue staged" >&2
     open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1)); continue
   fi
 

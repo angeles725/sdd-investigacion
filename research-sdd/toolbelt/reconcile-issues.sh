@@ -449,8 +449,20 @@ ${_rln}"
       [ -z "$_irid" ] && continue
       # RECONCILE_ISSUES_ORPHANED_CHECK: anchor for T3 teeth — condition detects orphaned
       if ! grep -qxF "$_irid" <<<"$_open_ids"; then
-        printf 'orphaned: issue for row %s is no longer open in %s\n' \
-          "$_irid" "$retro_basename"
+        # RECONCILE_ISSUES_SHIPPED_OPEN (kit issue #1492 / #1260): say WHY the row is no longer open
+        # when the retro marker proves it (shipped id list, or a terminal applied/dismissed status),
+        # so the human can close the issue. REPORT ONLY (propose-never-apply): nothing is closed.
+        # A row merely absent from the retro gets no claim: absent is not shipped.
+        local _orphan_why=""
+        if [ "$is_partial" -eq 1 ] && grep -qxF "$_irid" <<<"$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN
+          _orphan_why=" — the retro marker lists it shipped; propose closing the issue (not closed here)"
+        elif grep -qxF "$_irid" <<<"$_all_row_ids"; then
+          case "$_status" in
+            applied|dismissed) _orphan_why=" — the retro review-status is ${_status}; propose closing the issue (not closed here)" ;;  # RECONCILE-STATUS-REASON
+          esac
+        fi
+        printf 'orphaned: issue for row %s is no longer open in %s%s\n' \
+          "$_irid" "$retro_basename" "$_orphan_why"
         r_orphaned=$((r_orphaned+1))
       fi
     done <<< "$_issue_row_ids"
