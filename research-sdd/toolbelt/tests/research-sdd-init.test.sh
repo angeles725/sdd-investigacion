@@ -1609,14 +1609,15 @@ if command -v git >/dev/null 2>&1; then
   # gh stub: prints $K71_VIS and exits $K71_RC; records that it was called.
   cat > "$K71_BIN/gh" <<'GHEOF'
 #!/usr/bin/env bash
-echo "$*" >> "${K71_LOG:-/dev/null}"
+echo "$* [GH_PROMPT_DISABLED=${GH_PROMPT_DISABLED:-unset}]" >> "${K71_LOG:-/dev/null}"
+[ -n "${K71_SLEEP:-}" ] && sleep "$K71_SLEEP"
 [ -n "${K71_VIS:-}" ] && printf '%s\n' "$K71_VIS"
 exit "${K71_RC:-0}"
 GHEOF
   chmod +x "$K71_BIN/gh"
   # PATH with NO gh at all: symlink every tool the SUT needs except gh.
   K71_NOGH="$TMP/k71nogh"; mkdir -p "$K71_NOGH"
-  for _t in bash git sed cp mkdir cat rm dirname mktemp jq grep awk chmod ln date tr sort cut wc ls mv stat uname basename env head tail touch printf readlink tee find xargs id; do
+  for _t in bash git sed cp mkdir cat rm dirname mktemp jq grep awk chmod ln date tr sort cut wc ls mv stat uname basename env head tail touch printf readlink tee find xargs id timeout sleep; do
     _p="$(command -v "$_t" 2>/dev/null)" && [ -x "$_p" ] && ln -sf "$_p" "$K71_NOGH/$_t"
   done
   _k71_target() {  # <name> [remote-url] — an empty git target, optionally with an origin remote
@@ -1687,6 +1688,67 @@ GHEOF
   { [ "$_k71_rc" = 0 ] && grep -qF 'vendor-leak: DEGRADED' "$TMP/k71.out" && grep -qF 'gh not found' "$TMP/k71.out"; } \
     && ok "K1271-h gh missing: typed DEGRADED (gh not found), scaffold exit 0" || no "K1271-h gh missing: rc=$_k71_rc"
   assert_absent "K1271-h gh missing: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+
+  # K1271-i gh hangs → bounded by timeout (RSDD_GH_TIMEOUT), typed DEGRADED "gh timed out"; prompts disabled
+  d="$(_k71_target i https://example.invalid/x.git)"; : > "$TMP/k71.gh.log"
+  RSDD_GH_TIMEOUT=1 K71_SLEEP=6 _k71_run "$d" PUBLIC 0
+  [ "$K71_RC_OUT" = 0 ] && ok "K1271-i gh hangs: scaffold still exits 0" || no "K1271-i gh hangs: exit $K71_RC_OUT"
+  assert_grep "K1271-i gh hangs: typed 'gh timed out'" "gh timed out" "$TMP/k71.out"
+  assert_absent "K1271-i gh hangs: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1271-i gh runs with GH_PROMPT_DISABLED=1" "GH_PROMPT_DISABLED=1" "$TMP/k71.gh.log"
+  # K1271-j no `timeout` binary → still runs, says so (unbounded probe is announced, never silent)
+  K71_NOTO="$TMP/k71noto"; mkdir -p "$K71_NOTO"; cp -P "$K71_NOGH"/* "$K71_NOTO"/; rm -f "$K71_NOTO/timeout"; cp "$K71_BIN/gh" "$K71_NOTO/gh"
+  d="$(_k71_target j https://example.invalid/x.git)"
+  PATH="$K71_NOTO" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-j no timeout binary: announced" "timeout not found" "$TMP/k71.out"
+  assert_file "K1271-j no timeout binary: probe still ran (PUBLIC scaffold)" "$d/.research-sdd/vendor-leak.conf"
+
+  # K1271-k --wire with a symlinked / non-directory .github or .github/workflows → DEGRADED, nothing written through it
+  d="$(_k71_target k1 https://example.invalid/x.git)"; mkdir -p "$TMP/k71-elsewhere"; ln -s "$TMP/k71-elsewhere" "$d/.github"
+  _k71_run "$d" PUBLIC 0 --scaffold --wire
+  assert_grep "K1271-k .github symlink: typed DEGRADED" "DEGRADED $d/.github" "$TMP/k71.out"
+  assert_absent "K1271-k .github symlink: nothing written through it" "$TMP/k71-elsewhere/workflows"
+  d="$(_k71_target k2 https://example.invalid/x.git)"; mkdir -p "$d/.github" "$TMP/k71-elsewhere2"; ln -s "$TMP/k71-elsewhere2" "$d/.github/workflows"
+  _k71_run "$d" PUBLIC 0 --scaffold --wire
+  assert_grep "K1271-k .github/workflows symlink: typed DEGRADED" "DEGRADED $d/.github/workflows" "$TMP/k71.out"
+  assert_absent "K1271-k .github/workflows symlink: nothing written through it" "$TMP/k71-elsewhere2/vendor-leak.yml"
+  d="$(_k71_target k3 https://example.invalid/x.git)"; : > "$d/.github"
+  _k71_run "$d" PUBLIC 0 --scaffold --wire
+  assert_grep "K1271-k .github regular file: typed DEGRADED" "DEGRADED $d/.github" "$TMP/k71.out"
+
+  # K1271-l git wrapper: not-a-repo → NO-REMOTE; a real `git remote` failure inside a repo → DEGRADED
+  K71_GIT="$TMP/k71git"; mkdir -p "$K71_GIT"; K71_REALGIT="$(command -v git)"
+  cat > "$K71_GIT/git" <<GITEOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"rev-parse --is-inside-work-tree"*) [ -n "\${K71_NOTREPO:-}" ] && exit 128 ;;
+  *" remote"*) [ -n "\${K71_REMOTEFAIL:-}" ] && exit 1 ;;
+esac
+exec "$K71_REALGIT" "\$@"
+GITEOF
+  chmod +x "$K71_GIT/git"
+  d="$(_k71_target l1)"
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-l not a git repo: NO-REMOTE (not DEGRADED)" "vendor-leak: NO-REMOTE" "$TMP/k71.out"
+  d="$(_k71_target l2)"
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_REMOTEFAIL=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-l git remote failing inside a repo: DEGRADED" "vendor-leak: DEGRADED could not list git remotes" "$TMP/k71.out"
+
+  # K1271-m advice text: a plain run scaffolds the conf; --wire only adds the CI workflow
+  d="$(_k71_target m1)"; _k71_run "$d" PUBLIC 0
+  d="$(_k71_target m2)"; _k71_run "$d" PUBLIC 0
+  assert_grep "K1271-m NO-REMOTE advice: a plain re-run scaffolds the conf" "a plain run scaffolds the conf" "$TMP/k71.out"
+  d="$(_k71_target m3 https://example.invalid/x.git)"; _k71_run "$d" PRIVATE 0
+  assert_grep "K1271-m PRIVATE advice: a plain re-run scaffolds the conf" "a plain run scaffolds the conf" "$TMP/k71.out"
+
+  # K1271-n PUBLIC but a kit template missing → typed DEGRADED, nothing scaffolded
+  mkdir -p "$TMP/k71kit/toolbelt/lib" "$TMP/k71kit/templates"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/k71kit/toolbelt/lib/"
+  cp "$HERE/../../templates/"* "$TMP/k71kit/templates/"; rm -f "$TMP/k71kit/templates/vendor-leak.conf.template"
+  cp "$SUT" "$TMP/k71kit/toolbelt/init.sh"; chmod +x "$TMP/k71kit/toolbelt/init.sh"
+  d="$(_k71_target n https://example.invalid/x.git)"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k71kit/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  assert_grep "K1271-n missing template: typed DEGRADED" "kit templates missing" "$TMP/k71.out"
+  assert_absent "K1271-n missing template: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
 fi
 
 
@@ -2985,7 +3047,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || no "teeth M-1271-PRIVATE: no scaffold under the mutant — K1271-d is THEATER"
   else no "teeth M-1271-PRIVATE: could not build mutant"; fi
   # M-1271-GHFAIL: a failing gh is read as PUBLIC (silent misclassification) → stub appears.
-  if _k43_build k71gf -e 's#gh repo view --json visibility --jq .visibility 2>/dev/null)"; then#gh repo view --json visibility --jq .visibility 2>/dev/null || echo PUBLIC)"; then#'; then
+  if _k43_build k71gf -e 's#2>/dev/null)" || gh_rc=\$?#2>/dev/null)" || { vis=PUBLIC; gh_rc=0; }#'; then
     d="$(_k71t k71gf gf "" 1)"
     [ -e "$d/.research-sdd/vendor-leak.conf" ] && ok "teeth M-1271-GHFAIL: failing gh scaffolds under the mutant — K1271-f has teeth" \
       || no "teeth M-1271-GHFAIL: no scaffold under the mutant — K1271-f is THEATER"
@@ -3010,6 +3072,47 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ -s "$TMP/k71t.gh.log" ] && ok "teeth M-1271-NOREMOTE: gh consulted with no remote under the mutant — K1271-e has teeth" \
       || no "teeth M-1271-NOREMOTE: gh still not consulted — K1271-e is THEATER"
   else no "teeth M-1271-NOREMOTE: could not build mutant"; fi
+  # M-1271-TIMEOUT: the probe is no longer wrapped in `timeout` → a hanging gh is not cut off (stub sleeps 6s, limit 1s).
+  if _k43_build k71to -e 's#^    gh_cmd=(timeout "\$gh_t" "\${gh_cmd\[@\]}")$#    : #'; then
+    d="$(_k71_target t-to https://example.invalid/x.git)"; : > "$TMP/k71t.out"
+    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=3 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71to/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-TIMEOUT: still timed out — K1271-i is THEATER" \
+      || ok "teeth M-1271-TIMEOUT: hang not cut off without the wrapper — K1271-i has teeth"
+  else no "teeth M-1271-TIMEOUT: could not build mutant"; fi
+  # M-1271-RC124: a timeout (124) is folded into the generic failure message.
+  if _k43_build k71r1 -e 's#^  if \[ "\$gh_rc" = 124 \]; then$#  if false; then#'; then
+    d="$(_k71_target t-r1 https://example.invalid/x.git)"
+    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=6 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71r1/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-RC124: typed message survives — THEATER" \
+      || ok "teeth M-1271-RC124: typed 'gh timed out' gone — K1271-i has teeth"
+  else no "teeth M-1271-RC124: could not build mutant"; fi
+  # M-1271-NOPROMPT: GH_PROMPT_DISABLED is no longer exported to gh.
+  if _k43_build k71np -e 's#GH_PROMPT_DISABLED=1 "\${gh_cmd#"${gh_cmd#'; then
+    d="$(_k71_target t-np https://example.invalid/x.git)"; : > "$TMP/k71t.gh.log"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71np/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    grep -qF 'GH_PROMPT_DISABLED=1' "$TMP/k71t.gh.log" && no "teeth M-1271-NOPROMPT: still set — THEATER" \
+      || ok "teeth M-1271-NOPROMPT: variable absent without the export — K1271-i has teeth"
+  else no "teeth M-1271-NOPROMPT: could not build mutant"; fi
+  # M-1271-WFDIR: the .github symlink guard is removed → the workflow is written through the link.
+  if _k43_build k71wd -e 's#^    if \[ -L "\$gh_dir" \] .*#    if false; then bad_dir=""#'; then
+    d="$(_k71_target t-wd https://example.invalid/x.git)"; mkdir -p "$TMP/k71-wd-out"; ln -s "$TMP/k71-wd-out" "$d/.github"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71wd/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    [ -e "$TMP/k71-wd-out/workflows/vendor-leak.yml" ] && ok "teeth M-1271-WFDIR: written through the symlink without the guard — K1271-k has teeth" \
+      || no "teeth M-1271-WFDIR: nothing written under the mutant — K1271-k is THEATER"
+  else no "teeth M-1271-WFDIR: could not build mutant"; fi
+  # M-1271-NOTREPO: the not-a-work-tree check is removed → a non-repo is reported as DEGRADED, not NO-REMOTE.
+  if _k43_build k71nt -e 's#^  if ! git -C "\$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then$#  if false; then#'; then
+    d="$(_k71_target t-nt)"
+    PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$TMP/k43/k71nt/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'vendor-leak: NO-REMOTE' "$TMP/k71t.out" && no "teeth M-1271-NOTREPO: NO-REMOTE survives — K1271-l is THEATER" \
+      || ok "teeth M-1271-NOTREPO: non-repo misreported without the check — K1271-l has teeth"
+  else no "teeth M-1271-NOTREPO: could not build mutant"; fi
+  # M-1271-ADVICE: the PRIVATE advice reverts to the old --wire-only wording.
+  if _k43_build k71ad -e 's#a plain run scaffolds the conf (--wire additionally writes the CI workflow)"$#re-run with --wire"#'; then
+    d="$(_k71t k71ad ad PRIVATE 0)"
+    grep -qF 'a plain run scaffolds the conf' "$TMP/k71t.out" && no "teeth M-1271-ADVICE: wording survives — K1271-m is THEATER" \
+      || ok "teeth M-1271-ADVICE: wording gone under the mutant — K1271-m has teeth"
+  else no "teeth M-1271-ADVICE: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

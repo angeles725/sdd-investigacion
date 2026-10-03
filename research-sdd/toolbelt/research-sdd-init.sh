@@ -759,22 +759,39 @@ fi
 _rsdd_vendor_leak_wiring() {
   local tag="  vendor-leak:" remotes vis conf="$target/.research-sdd/vendor-leak.conf" wf="$target/.github/workflows/vendor-leak.yml"
   local tpl_conf="$TPL/vendor-leak.conf.template" tpl_ci="$TPL/vendor-leak-ci.template.yml"
+  # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); only a git failure INSIDE a repo is DEGRADED.
+  if ! git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "$tag NO-REMOTE $target is not a git work tree — nothing scaffolded; a plain run scaffolds the conf once the target is a git repo with a remote (--wire additionally writes the CI workflow)"
+    return 0
+  fi
   remotes="$(git -C "$target" remote 2>/dev/null)" || { echo "$tag DEGRADED could not list git remotes in $target — vendor-leak wiring skipped; re-run once git works"; return 0; }
   if [ -z "$remotes" ]; then
-    echo "$tag NO-REMOTE no remote configured — nothing scaffolded; re-run research-sdd-init.sh --wire once a remote exists, or create $conf by hand before making the repo public"
+    echo "$tag NO-REMOTE no remote configured — nothing scaffolded; once a remote exists, a plain run scaffolds the conf (--wire additionally writes the CI workflow), or create $conf by hand before making the repo public"
     return 0
   fi
   if ! command -v gh >/dev/null 2>&1; then
     echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
     return 0
   fi
-  if ! vis="$(cd "$target" && gh repo view --json visibility --jq .visibility 2>/dev/null)"; then
+  # The probe is bounded (RSDD_GH_TIMEOUT seconds, default 20) and never prompts (GH_PROMPT_DISABLED=1).
+  # No `timeout` binary → the probe still runs but unbounded, and that is announced (never silent).
+  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT:-20}" gh_cmd=(gh repo view --json visibility --jq .visibility)
+  if command -v timeout >/dev/null 2>&1; then
+    gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
+  else
+    echo "$tag note: timeout not found — the gh probe runs unbounded"
+  fi
+  vis="$(cd "$target" && GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>/dev/null)" || gh_rc=$?
+  if [ "$gh_rc" = 124 ]; then
+    echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
+    return 0
+  elif [ "$gh_rc" != 0 ]; then
     echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote) — vendor-leak wiring skipped (NOT a pass)"
     return 0
   fi
   case "$vis" in
     PRIVATE|INTERNAL)
-      echo "$tag PRIVATE remote visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, re-run research-sdd-init.sh --wire"
+      echo "$tag PRIVATE remote visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, a plain run scaffolds the conf (--wire additionally writes the CI workflow)"
       return 0 ;;
     PUBLIC) ;;
     *)
@@ -796,7 +813,12 @@ _rsdd_vendor_leak_wiring() {
     echo "$tag DEGRADED could not write $conf"
   fi
   if [ "$wire" = 1 ]; then
-    if [ -e "$wf" ] || [ -L "$wf" ]; then
+    local gh_dir="$target/.github" wf_dir="$target/.github/workflows" bad_dir=""
+    if [ -L "$gh_dir" ] || { [ -e "$gh_dir" ] && [ ! -d "$gh_dir" ]; }; then bad_dir="$gh_dir"
+    elif [ -L "$wf_dir" ] || { [ -e "$wf_dir" ] && [ ! -d "$wf_dir" ]; }; then bad_dir="$wf_dir"; fi
+    if [ -n "$bad_dir" ]; then
+      echo "$tag DEGRADED $bad_dir is a symlink or not a directory — workflow not written"
+    elif [ -e "$wf" ] || [ -L "$wf" ]; then
       echo "$tag kept existing $wf (never overwritten)"
     elif mkdir -p "$target/.github/workflows" && cp "$tpl_ci" "$wf"; then
       echo "$tag wrote CI workflow $wf — fill <KIT_REPOSITORY> and <KIT_REF> before committing (an unfilled workflow fails loudly)"
