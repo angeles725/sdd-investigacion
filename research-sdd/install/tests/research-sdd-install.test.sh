@@ -2103,6 +2103,25 @@ if [ "$(id -u)" -ne 0 ]; then
   else no "pi blocked: partial-failure contract broken (rc=$rc)"; fi
 fi
 
+# PI3 — slash-command invariant: supports_slash_commands=true must be backed by a prompt template or by
+# a DOCUMENTED skill-native harness (none today). Keeps the field meaning "a literal /research-sdd exists".
+_slash_native_documented=""
+_slash_invariant() { # <adapters.sh> -> prints violating harnesses
+  local adp="$1" hh sl tpl
+  for hh in $(bash -c '. "$1"; echo "$RESEARCH_SDD_HARNESSES"' _ "$adp"); do
+    sl="$(bash -c '. "$1"; rsdd_field "$2" supports_slash_commands /H' _ "$adp" "$hh")"
+    tpl="$(bash -c '. "$1"; rsdd_field "$2" prompt_template_path /H' _ "$adp" "$hh")"
+    if [ "$sl" = true ] && [ -z "$tpl" ]; then
+      case " $_slash_native_documented " in *" $hh "*) ;; *) printf '%s ' "$hh" ;; esac
+    fi
+  done
+}
+_viol="$(_slash_invariant "$HERE/../adapters.sh")"
+[ -z "$_viol" ] && ok "slash invariant: every supports_slash=true harness has a prompt template (or is documented skill-native)" \
+  || no "slash invariant violated by: $_viol"
+[ "$(bash -c '. "$1"; for h in $RESEARCH_SDD_HARNESSES; do rsdd_field "$h" supports_slash_commands /H; done | grep -c true' _ "$HERE/../adapters.sh")" = 2 ] \
+  && ok "slash invariant: exactly pi + gentle-shell report supports_slash=true" || no "slash invariant: unexpected supports_slash=true set"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: Pi template deployment skipped / template for empty-field harness / harness dropped --"
   # build a temp kit whose install/ holds a given SUT + adapters (everything else symlinked from the live kit)
@@ -2133,6 +2152,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if <<<"$out_b" grep -q 'prompt template'; then
     ok "teeth: empty-field-ignoring mutant plans a template for claude → the no-template-for-claude check bites"
   else no "teeth: empty-field mutant did not plan a claude template — PI2 check is THEATER"; fi
+  # T-D: supports_slash=true for a harness with no template → the slash invariant must fire
+  MPD="$MKI/adapters.MUTANT-PID.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MPD" '/_RSDD_SUPPORTS_SLASH=(/,/^)/ s/\[claude\]="false"/[claude]="true"/' \
+    || no "teeth: MUTANT-PID could not be built (refused by the mutant helper — see above)"
+  if [ "$(_slash_invariant "$MPD")" = "claude " ]; then
+    ok "teeth: slash=true without a template (claude) is caught by the slash invariant"
+  else no "teeth: slash invariant did not flag the template-less slash=true mutant — PI3 is THEATER"; fi
   # T-C: gentle-shell dropped from RESEARCH_SDD_HARNESSES
   MPC="$MKI/adapters.MUTANT-PIC.$$.sh"
   mutant_sed "$HERE/../adapters.sh" "$MPC" 's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/' \

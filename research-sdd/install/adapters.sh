@@ -47,11 +47,17 @@ declare -A _RSDD_PROMPT_STRATEGY=(
   [pi]="markdown-sections"
   [gentle-shell]="markdown-sections"
 )
-# WHAT the harness can do: does a SKILL surface as a slash command?
+# WHAT the harness can do: does a LITERAL `/research-sdd` slash command exist for this harness?
+# `true` is only valid when one of two sources backs it:
+#   (a) skill-native — the harness itself exposes the installed skill as /research-sdd (no harness
+#       registered today; a future one must be added to the documented list in the install suite's
+#       slash-invariant case), or
+#   (b) prompt template — _RSDD_PROMPT_TEMPLATE_REL is non-empty, so the installer deploys the file the
+#       harness turns into the command (pi + gentle-shell: prompts/research-sdd.md becomes
+#       /research-sdd; their skill alone is only /skill:research-sdd).
+# The install suite enforces this: supports_slash=true with neither source fails.
 # reasonix: skills are invoked via a run_skill tool; slash commands are a separate namespace
 # fed by commands/ — so the SKILL.md launcher is NOT a slash command.
-# pi + gentle-shell: the installer ALSO deploys a prompts/research-sdd.md template (see
-# _RSDD_PROMPT_TEMPLATE_REL), which Pi registers as a real `/research-sdd` slash command.
 declare -A _RSDD_SUPPORTS_SLASH=(
   [claude]="false"
   [codex]="false"
