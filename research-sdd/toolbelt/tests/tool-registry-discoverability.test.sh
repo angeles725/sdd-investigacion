@@ -17,7 +17,9 @@ REGISTRY="$TB/tool-registry.md"
 
 pass=0; fail=0
 # One EXIT trap for every teeth temp dir (a later `trap` replaces an earlier one, leaking the rest).
-trap 'rm -rf "${tmp:-}" "${tmp_m:-}" "${tmp_g:-}"' EXIT
+# Reset first: a value inherited from the caller's environment must never reach the trap's rm -rf.
+tmp='' tmp_m='' tmp_g=''
+trap 'rm -rf "$tmp" "$tmp_m" "$tmp_g"' EXIT
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 echo "== tool-registry-discoverability.test.sh =="

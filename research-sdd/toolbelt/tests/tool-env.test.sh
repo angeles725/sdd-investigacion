@@ -32,6 +32,8 @@ unset RSDD_BREW_PREFIX HOMEBREW_PREFIX
 unset R2 RSDD_R2_USRBIN ILSPYCMD
 unset RSDD_DOTNET_ROOT DOTNET_ROOT
 unset RSDD_SYSTEM_PKGCONFIG_PATH PKG_CONFIG_PATH PKG_CONFIG_BIN
+# Trap-referenced teeth dirs: never inherit a caller's value into the EXIT trap's rm -rf.
+unset TMP_TEETH TMP_TEETH_R2
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "${TMP_TEETH:-}" "${TMP_TEETH_R2:-}"' EXIT
 pass=0; fail=0
