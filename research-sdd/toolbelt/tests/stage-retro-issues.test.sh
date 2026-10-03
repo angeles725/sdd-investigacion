@@ -3770,10 +3770,14 @@ SPFN
   awk 'FNR == NR { fn = fn $0 "\n"; next } /^reply\(\) / { printf "%s", fn; next } { print }' "$fn" "$box/bin/gh" > "$tmp"
   cat "$tmp" > "$box/bin/gh"; rm -f "$tmp" "$fn"
 }
-sp_shipped_retro() {   # sp_shipped_retro <box> <fname>: entry-form retro, PARTIAL, shipped list D1..D3 + 10000 filler ids
-  local box="$1" fname="$2" ids
-  ids="$(awk 'BEGIN { printf "D1, D2, D3"; for (i = 1; i <= 10000; i++) printf ", Z%06d", i; printf "\n" }')"
-  mk_entry_retro "$box" "$fname" "<!-- review-status: applied 2026-07-31 · kit abc · PARTIAL — shipped: $ids -->"
+sp_shipped_retro() {   # sp_shipped_retro <box> <fname>: entry-form retro, PARTIAL, shipped list D1..D3 + 150000 filler ids (~1.2 MB)
+  # The ids are generated INSIDE awk and written to the file (never passed as an argument), so the
+  # size is bounded by neither ARG_MAX nor the 128 KB per-argument limit: ~1.2 MB is ~19 pipe buffers
+  # (64 KiB), so a piped `printf | grep -qxF D1` is certain to still be writing when grep -q exits.
+  local box="$1" fname="$2" p
+  p="$(mk_entry_retro "$box" "$fname" '<!-- review-status: applied 2026-07-31 · kit abc · PARTIAL — shipped: @@IDS@@ -->')"
+  awk '/@@IDS@@/ { i = index($0, "@@IDS@@"); printf "%sD1, D2, D3", substr($0, 1, i - 1); for (n = 1; n <= 150000; n++) printf ", Z%06d", n; print substr($0, i + 7); next } { print }' "$p" > "$p.new" && mv "$p.new" "$p"
+  printf '%s' "$p"
 }
 box83a="$(mkbox case-sigpipe-bigreply)"; mk_gh_stub "$box83a" match; sp_big_reply_stub "$box83a"
 r83a="$(mk_entry_retro "$box83a" r83a.md '<!-- review-status: pending -->')"
@@ -3787,7 +3791,7 @@ box83b="$(mkbox case-sigpipe-bigshipped)"; mk_gh_stub "$box83b" nomatch
 r83b="$(sp_shipped_retro "$box83b" r83b.md)"
 run "$box83b" "$r83b"
 if [ "$RC" = 0 ] && ! grep -q '^planned-issue:' <<<"$OUT"; then
-  ok "83b a >64 KiB shipped list with D1..D3 first → nothing planned (is_shipped keeps its match)" "(exit $RC)"
+  ok "83b a ~1.2 MB shipped list with D1..D3 first → nothing planned (is_shipped keeps its match)" "(exit $RC)"
 else
   no "83b big shipped list" "exit=$RC planned=$(grep -c '^planned-issue:' <<<"$OUT") out=[${OUT:0:600}]"
 fi

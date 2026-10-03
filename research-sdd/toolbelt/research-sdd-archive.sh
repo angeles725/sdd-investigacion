@@ -451,8 +451,7 @@ echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the cl
 echo "    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal."
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
 [ -n "${one_block_line:-}" ] && echo "${one_block_line}"
-# pipefail-audit: external `find` producer looking for at most 1 directory entry (<100 B).
-# Race onset for external producers: ~64 KB. Fleet max << onset; 0/200 trials. Not reproduced.
+# fixed under #1444: `[ -n "$(find ... -print -quit)" ]`, no pipe, so no SIGPIPE race is possible.
 if [ -n "$(find "$corpus" -maxdepth 1 -type d -name 'codegen' -print -quit 2>/dev/null)" ]; then
   # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
   # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning

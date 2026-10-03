@@ -314,8 +314,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       /^[[:space:]]*$/     { next }
       { exit }
     ' 2>/dev/null)
-      # pipefail-audit: external `awk` producer (leading HTML-comment block of a retro file).
-      # Fleet max 414 B (2026-07-06-kit-audit.md). Race onset: ~64 KB. Fleet max << onset; SAFE.
+      # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
   }
 
   # retro_is_waived <file>
@@ -345,7 +344,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       /^[[:space:]]*$/     { next }
       { exit }
     ' 2>/dev/null)
-      # pipefail-audit: same awk producer as retro_is_excluded. Fleet max 414 B. SAFE.
+      # fixed under #1444: process substitution (same producer as retro_is_excluded), no SIGPIPE race is possible.
   }
 
   # retro_has_bare_marker <file>
@@ -366,8 +365,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
     grep -qiE '^[[:space:]]*review-status:' < <(_retro_status_strip_bom "$f" | head -10)
-    # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
-    # Race onset for external producers: ~64 KB. Fleet max << onset; SAFE.
+    # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
   }
 
   # retro_marker_is_partial <marker_line>

@@ -555,8 +555,7 @@ case "$MODE" in
     # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
     # page/section from it (§5). Page-anchored extraction belongs to extract-pdf.sh, which
     # produces sources/extracted/<name>.md with YAML front-matter (METHODOLOGY.md §5/§15).
-    # pipefail-audit: external `file -b` producer. Fleet max <100 B (single-line type description).
-    # Race onset for external producers: ~64 KB. Fleet max << onset; structurally safe.
+    # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
     if grep -qi pdf < <(file -b "$DEST"); then
       printf 'hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh "%s"  (a flat pdftotext dump has no page anchors and must not be cited).\n' "$DEST" >&2
     fi

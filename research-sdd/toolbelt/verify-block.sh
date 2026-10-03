@@ -349,7 +349,7 @@ if [ -n "$bt_cites" ]; then
       *-*) start="${rng%-*}"; end="${rng##*-}";;   # range form NNN-MMM
       *)   start="$rng"; end="$rng";;               # single line
     esac
-    # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $f size.
+    # fixed under #1444: here-string, no printf | grep -q pipe, so no SIGPIPE race is possible.
     grep -qiE "^${art_name}$" <<<"$f" && continue
     _vb_m=$((_vb_m+1))  # P9-VB-M-BT
     if [ "$start" -eq 0 ]; then

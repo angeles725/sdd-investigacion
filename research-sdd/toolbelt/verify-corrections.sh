@@ -48,7 +48,7 @@ for f in "${blocks[@]}"; do
   # Correction-declaring lines: a real correction VERB (`corrects` / Spanish `corrig…`) — NOT the adjective
   # "correct" and NOT the backlink phrase "corrected in" — AND a [Block N]/[Bloque N] reference on the line.
   while IFS= read -r line; do
-    # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $line size.
+    # fixed under #1444: here-string, no printf | grep -q pipe, so no SIGPIPE race is possible.
     grep -qiE '\b(corrects|corrig[a-z]*)\b' <<<"$line" || continue
     # TIGHT VERB→REFERENCE BINDING: the correction verb governs ONLY the FIRST [Block N]/[Bloque N] that
     # FOLLOWS it on the line. Slice the line from the first verb, then take just that first bracketed ref — a
@@ -65,9 +65,7 @@ for f in "${blocks[@]}"; do
         continue
       fi
       # Reciprocal backlink: the target file must mention "corrected in"/"corregido en" AND B<c>/Block <c>.
-      # pipefail-audit: external `grep` producer on a block file. Fleet max 4,250 B
-      # (dashboard-block6.md). Race onset for external producers: ~64 KB. Measured 0/200 trials.
-      # A race would produce a spurious FAIL (present backlink reported missing).
+      # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
       if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE 'corrected|corregido' "$tgt" 2>/dev/null); then
         : # reciprocated
       else
