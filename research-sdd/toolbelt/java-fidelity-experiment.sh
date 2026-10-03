@@ -25,10 +25,15 @@
 #     FIDELITY <Name> mode=<g|nog> verdict=GOOD       recompiles, normalised bytecode identical
 #     FIDELITY <Name> mode=<g|nog> verdict=DIVERGED   recompiles, bytecode differs (a finding, not a failure)
 #     FIDELITY <Name> mode=<g|nog> verdict=FAILED reason=<compile|multi-class|decompile|no-output|
-#                                        multi-output|recompile|recompile-no-class>
+#                                        multi-output|timeout|recompile|recompile-no-class|javap-original|
+#                                        javap-recompiled>
 #   Plus one DEBUGINFO line per fixture: whether `javap -l -p` shows a LocalVariableTable with -g and
 #   without it (the "-g vs no -g" half of the matrix).
-#   Summary: RESULT: DONE jdk=<v> constructs=N cells=M good=a diverged=b failed=c
+#   (DEBUGINFO values: yes | no | unmeasured — unmeasured means the original did not compile or javap failed.)
+#   Summary: RESULT: DONE jdk=<v|unknown> engines=<e[,e]|unknown> engine_degraded_cells=N [timeout=unavailable]
+#                         constructs=N cells=M good=a diverged=b failed=c
+#   engines= is the engine name the wrapper's own status line reported per cell (the ENGINE VERSION is not
+#   exposed by the wrapper and is not recorded); engine_degraded_cells counts wrapper exit 4 (fallback ran).
 #
 # Exit codes (anti-silent-zero, CLAUDE.md §7 — three states stay distinguishable):
 #   0  experiment ran; every cell measured (DIVERGED / FAILED cells are findings, read the lines)
@@ -37,6 +42,8 @@
 #   4  DEGRADED: a runtime dependency is missing, nothing is reported as measured. One line:
 #        DEGRADED: reason=javac-missing|javap-missing|decompiler-missing [detail]
 #      A DEGRADED run never prints a verdict for the cell that could not run and never prints RESULT: DONE.
+#
+# Env: RSDD_FIDELITY_TIMEOUT (seconds, default 240) bounds each decompiler run (typed FAILED reason=timeout).
 #
 # Limits (stated, not hidden): GOOD means "same bytecode for this fixture on this JDK and this engine
 # version", not "faithful in general"; one construct per fixture, default package only; the experiment
@@ -51,7 +58,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --fixtures) [ $# -ge 2 ] || { echo "usage: --fixtures needs a directory" >&2; exit 2; }; FIXTURES="$2"; shift 2 ;;
     --work)     [ $# -ge 2 ] || { echo "usage: --work needs a directory" >&2; exit 2; }; WORK="$2"; shift 2 ;;
-    -h|--help)  sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)  sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d'; exit 0 ;;
     *) echo "usage: java-fidelity-experiment.sh [--fixtures DIR] [--work DIR]" >&2; exit 2 ;;
   esac
 done
@@ -71,7 +78,16 @@ JAVAP_BIN="${RSDD_FIDELITY_JAVAP:-}"
 DECOMPILER="${RSDD_FIDELITY_DECOMPILER:-$HERE/decompile-java.sh}"
 JAVAC="$JAVAC_BIN"; JAVAP="$JAVAP_BIN"
 
-degraded() { echo "DEGRADED: reason=$1 ${2:-}"; exit 4; }
+# A DEGRADED exit after some cells were already printed says so: those lines are valid, the run is incomplete.
+degraded() {
+  local done_cells=$(( ${n_good:-0} + ${n_div:-0} + ${n_fail:-0} ))
+  if [ "$done_cells" -gt 0 ]; then
+    echo "DEGRADED: reason=$1 ${2:-} partial_cells=$done_cells (FIDELITY lines above are valid; the run is INCOMPLETE, no RESULT line)"
+  else
+    echo "DEGRADED: reason=$1 ${2:-}"
+  fi
+  exit 4
+}
 if ! [ -x "$JAVAC_BIN" ]  # SENTINEL-JAVAC-PROBE
 then degraded javac-missing "(no usable javac; set RSDD_FIDELITY_JAVAC or put a JDK on PATH)"; fi
 [ -x "$JAVAP_BIN" ] || degraded javap-missing "(no usable javap; set RSDD_FIDELITY_JAVAP or put a JDK on PATH)"
@@ -84,7 +100,19 @@ else
   mkdir -p "$WORK" || { echo "cannot create --work directory: $WORK" >&2; exit 2; }
 fi
 
-JDK_VERSION="$("$JAVAC" -version 2>&1)"; JDK_VERSION="${JDK_VERSION#javac }"; JDK_VERSION="${JDK_VERSION%%$'\n'*}"
+# javac -version prints "javac <ver>" (possibly after JVM notices such as JAVA_TOOL_OPTIONS); take the
+# first line of that shape, else "unknown" — never a guessed value.
+JDK_VERSION="unknown"
+while IFS= read -r _l; do
+  case "$_l" in "javac "[0-9]*) JDK_VERSION="${_l#javac }"; break ;; esac
+done < <("$JAVAC" -version 2>&1)
+
+# Bound every decompiler run (the wrapper has its own timeout, this is the outer guard).
+TIMEOUT_SECS="${RSDD_FIDELITY_TIMEOUT:-240}"
+TIMEOUT_BIN="$(command -v timeout 2>/dev/null)"
+[ -n "$TIMEOUT_BIN" ] || TIMEOUT_BIN="$(command -v gtimeout 2>/dev/null)"
+TIMEOUT_NOTE=""; [ -n "$TIMEOUT_BIN" ] || TIMEOUT_NOTE=" timeout=unavailable"
+ENGINES=""; n_engine_degraded=0
 
 normalise() { sed -E 's/#[0-9]+(, *[0-9]+)?//g; /^Compiled from/d' "$1"; }
 n_good=0; n_div=0; n_fail=0
@@ -96,7 +124,7 @@ verdict() { # verdict NAME MODE VERDICT [REASON]
 
 cell() { # cell NAME SRC MODE FLAGS
   local name="$1" src="$2" mode="$3" flags="$4"
-  local base="$WORK/$name/$mode" log orig re dec jf n_cls n_java drc
+  local base="$WORK/$name/$mode" log orig re dec jf n_cls n_java drc eng
   rm -rf "$base"; mkdir -p "$base/orig" "$base/dec" "$base/re"
   orig="$base/orig"; dec="$base/dec"; re="$base/re"; log="$base/log"
   # shellcheck disable=SC2086
@@ -104,9 +132,19 @@ cell() { # cell NAME SRC MODE FLAGS
   n_cls="$(find "$orig" -name '*.class' -type f | wc -l)"
   if [ "$n_cls" -ne 1 ]; then verdict "$name" "$mode" FAILED multi-class; return; fi
   local cls; cls="$(find "$orig" -name '*.class' -type f)"
-  drc=0; "$DECOMPILER" "$cls" "$dec" >"$base/dec.log" 2>&1 || drc=$?
+  drc=0
+  if [ -n "$TIMEOUT_BIN" ]; then "$TIMEOUT_BIN" "$TIMEOUT_SECS" "$DECOMPILER" "$cls" "$dec" >"$base/dec.log" 2>&1 || drc=$?
+  else "$DECOMPILER" "$cls" "$dec" >"$base/dec.log" 2>&1 || drc=$?; fi
+  # Engine provenance: the wrapper's status line names the engine it used ("(engine=<e>)").
+  eng="$(sed -n 's/.*(engine=\([A-Za-z0-9_.-]*\)).*/\1/p' "$base/dec.log" | tail -n 1)"
+  # A cell whose wrapper run printed no engine line (failed, timed out) adds nothing; no engine at all -> unknown.
+  if [ -n "$eng" ]; then
+    case ",$ENGINES," in *",$eng,"*) ;; *) ENGINES="${ENGINES:+$ENGINES,}$eng" ;; esac
+  fi
+  [ "$drc" -ne 4 ] || n_engine_degraded=$((n_engine_degraded+1))
   if [ "$drc" -eq 3 ]  # SENTINEL-DECOMPILER-RC3
   then degraded decompiler-missing "(decompiler exit 3 on $name mode=$mode: required tool missing)"; fi
+  if [ "$drc" -eq 124 ]; then verdict "$name" "$mode" FAILED timeout; return; fi
   if [ "$drc" -ne 0 ] && [ "$drc" -ne 4 ]; then verdict "$name" "$mode" FAILED decompile; return; fi
   n_java="$(find "$dec" -name '*.java' -type f | wc -l)"
   if [ "$n_java" -eq 0 ]  # SENTINEL-NO-OUTPUT
@@ -119,19 +157,25 @@ cell() { # cell NAME SRC MODE FLAGS
   fi
   local rcls; rcls="$(find "$re" -name "$(basename "$cls")" -type f)"
   [ -n "$rcls" ] || { verdict "$name" "$mode" FAILED recompile-no-class; return; }
-  "$JAVAP" -c -p "$cls" >"$base/orig.javap" 2>&1 || { verdict "$name" "$mode" FAILED compile; return; }
-  "$JAVAP" -c -p "$rcls" >"$base/re.javap" 2>&1 || { verdict "$name" "$mode" FAILED recompile; return; }
+  "$JAVAP" -c -p "$cls" >"$base/orig.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-original; return; }
+  "$JAVAP" -c -p "$rcls" >"$base/re.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-recompiled; return; }
   local orig_norm new_norm
   orig_norm="$(normalise "$base/orig.javap")"; new_norm="$(normalise "$base/re.javap")"
   if [ "$orig_norm" = "$new_norm" ]  # SENTINEL-COMPARE
   then verdict "$name" "$mode" GOOD; else verdict "$name" "$mode" DIVERGED; fi
 }
 
-lvt_present() { # lvt_present NAME MODE -> yes|no (from the ORIGINAL classes of that cell)
-  local d="$WORK/$1/$2/orig" cls out="$WORK/$1/$2/lvt.javap"
+# lvt_present NAME MODE -> yes | no | unmeasured. "unmeasured" = the original did not compile or javap failed,
+# so absence of a LocalVariableTable was never observed (it must not read as "no").
+lvt_present() {
+  local d="$WORK/$1/$2/orig" cls out="$WORK/$1/$2/lvt.javap" n=0
   : >"$out"
-  while IFS= read -r cls; do "$JAVAP" -l -p "$cls" >>"$out" 2>&1; done < <(find "$d" -name '*.class' -type f | sort)
-  if [ -s "$out" ] && grep -q 'LocalVariableTable' "$out"; then echo yes; else echo no; fi
+  while IFS= read -r cls; do
+    "$JAVAP" -l -p "$cls" >>"$out" 2>&1 || { echo unmeasured; return; }
+    n=$((n+1))
+  done < <(find "$d" -name '*.class' -type f | sort)
+  [ "$n" -gt 0 ] || { echo unmeasured; return; }  # SENTINEL-LVT-UNMEASURED
+  if grep -q 'LocalVariableTable' "$out"; then echo yes; else echo no; fi
 }
 
 for src in "${SRCS[@]}"; do
@@ -142,6 +186,6 @@ for src in "${SRCS[@]}"; do
   printf 'DEBUGINFO %s g_lvt=%s nog_lvt=%s\n' "$name" "$(lvt_present "$name" g)" "$(lvt_present "$name" nog)"
 done
 
-printf 'RESULT: DONE jdk=%s constructs=%d cells=%d good=%d diverged=%d failed=%d\n' \
-  "$JDK_VERSION" "${#SRCS[@]}" $((n_good + n_div + n_fail)) "$n_good" "$n_div" "$n_fail"
+printf 'RESULT: DONE jdk=%s engines=%s engine_degraded_cells=%d%s constructs=%d cells=%d good=%d diverged=%d failed=%d\n' \
+  "$JDK_VERSION" "${ENGINES:-unknown}" "$n_engine_degraded" "$TIMEOUT_NOTE" "${#SRCS[@]}" $((n_good + n_div + n_fail)) "$n_good" "$n_div" "$n_fail"
 exit 0

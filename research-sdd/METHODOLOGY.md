@@ -2015,7 +2015,9 @@ before trusting its verdict:
   with `javac` (with `-g` and with no `-g`), decompiles through the kit's own `decompile-java.sh` wrapper,
   recompiles the decompiled source, and compares normalised `javap -c -p` output, printing one
   `GOOD` / `DIVERGED` / `FAILED reason=` line per construct and mode plus a `DEBUGINFO` line (is a
-  `LocalVariableTable` present with and without `-g`). A missing `javac`, `javap` or decompiler yields a typed
+  `LocalVariableTable` present with and without `-g`; `unmeasured` when it could not be observed), and a
+  `RESULT` line naming the JDK version and the engine the wrapper used (the engine version is not
+  recorded). A missing `javac`, `javap` or decompiler yields a typed
   `DEGRADED:` line, exit 4, and no verdict. Its limits are part of the claim: a verdict holds for that
   fixture, that JDK and that engine version only, and the script does not diff `javap` of two idiom variants
   or regenerate a per-JDK matrix — a rule about a construct it does not cover still needs the experiment
