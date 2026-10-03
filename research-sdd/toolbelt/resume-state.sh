@@ -17,7 +17,9 @@
 # (not 0); an unknown PR list is prs=null plus a typed prs_status, never an empty array.
 set -uo pipefail
 
-usage() { echo "usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh]" >&2; exit 2; }
+usage_text="usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh]"
+usage() { echo "$usage_text" >&2; exit 2; }
+GH_LIMIT=1000
 
 cwd="."; base_ref=""; use_gh=1
 while [ $# -gt 0 ]; do
@@ -25,7 +27,7 @@ while [ $# -gt 0 ]; do
     --cwd) [ $# -ge 2 ] || usage; cwd="$2"; shift 2 ;;
     --base-ref) [ $# -ge 2 ] || usage; base_ref="$2"; shift 2 ;;
     --no-gh) use_gh=0; shift ;;
-    -h|--help) usage ;;
+    -h|--help) echo "$usage_text"; exit 0 ;;
     *) echo "resume-state.sh: unknown argument: $1" >&2; usage ;;
   esac
 done
@@ -39,6 +41,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
 top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || { echo "resume-state.sh: not a git repository: $cwd" >&2; exit 2; }
 cd "$top" || exit 2
 
+# An option-shaped ref would be parsed by git as a flag, not a revision.
+case "$base_ref" in -*) echo "resume-state.sh: --base-ref must not start with '-': $base_ref" >&2; exit 2 ;; esac
 if [ -z "$base_ref" ]; then
   if git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then base_ref="origin/main"
   elif git rev-parse --verify --quiet "main^{commit}" >/dev/null; then base_ref="main"
@@ -64,7 +68,7 @@ add_worktree() { # path head branch(or empty) prunable(0/1)
   local wpath="$1" whead="$2" wbranch="$3" prunable="$4" exists dirty untracked st ab
   if [ -d "$wpath" ]; then
     exists=true
-    if st="$(git -C "$wpath" status --porcelain 2>/dev/null)"; then
+    if st="$(git --no-optional-locks -C "$wpath" status --porcelain 2>/dev/null)"; then
       # A here-string always appends a newline, so an empty status would reach grep as one blank
       # line and count as dirty=1; a clean worktree is 0/0 by definition.
       if [ -z "$st" ]; then dirty=0; untracked=0
@@ -97,30 +101,41 @@ done <<<"$porcelain"
 is_wt_branch() { case "$wt_branches" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 br_lines=""
-while IFS= read -r b; do
+# Full refnames (not refname:short): a short name can be ambiguous with a tag and resolve elsewhere.
+while IFS= read -r fullref; do
+  b="${fullref#refs/heads/}"
   [ -n "$b" ] || continue
   is_wt_branch "$b" && continue
   sha="$(git rev-parse --verify --quiet "refs/heads/$b^{commit}")" || continue
   br_lines="$br_lines$(jq -nc --arg name "$b" --arg head "$sha" --argjson ab "$(ab_json "refs/heads/$b")" \
     '{name:$name, head:$head} + $ab')
 "
-done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+done < <(git for-each-ref --format='%(refname)' refs/heads)
 
-prs_json=null; prs_status="skipped"
+prs_json=null; prs_status="skipped"; prs_truncated=null
 if [ "$use_gh" = 1 ]; then
   if ! command -v gh >/dev/null 2>&1; then prs_status="degraded:gh-missing"
-  elif raw="$(timeout 30 gh pr list --state open --json number,headRefName,state,url 2>/dev/null)"; then
-    if prs_json="$(jq -c 'map({number, branch:.headRefName, state, url})' <<<"$raw" 2>/dev/null)" && [ -n "$prs_json" ]; then
+  else
+    raw="$(timeout 30 gh pr list --state open --limit "$GH_LIMIT" --json number,headRefName,state,url 2>/dev/null)"; grc=$?
+    if [ "$grc" = 124 ]; then prs_status="degraded:gh-timeout"
+    elif [ "$grc" != 0 ]; then prs_status="degraded:gh-failed"
+    elif prs_json="$(jq -c 'map({number, branch:.headRefName, state, url})' <<<"$raw" 2>/dev/null)" && [ -n "$prs_json" ]; then
       prs_status="ok"
+      # gh silently caps at --limit: a full page means the list may be incomplete.
+      if [ "$(jq 'length' <<<"$prs_json")" -ge "$GH_LIMIT" ]; then prs_truncated=true; else prs_truncated=false; fi
     else prs_json=null; prs_status="degraded:gh-bad-json"; fi
-  else prs_status="degraded:gh-failed"; fi
+  fi
 fi
 
+# The sections travel through files (--slurpfile), never argv: a large repo would exceed ARG_MAX.
+sect="$(mktemp -d)" || { echo "resume-state.sh: mktemp failed" >&2; exit 2; }
+trap 'rm -rf "$sect"' EXIT
+printf '%s' "$wt_lines" > "$sect/wt"; printf '%s' "$br_lines" > "$sect/br"; printf '%s' "$prs_json" > "$sect/prs"
+
 jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote" \
-  --arg base_ref "$base_ref" --arg base_sha "$base_sha" --argjson prs "$prs_json" --arg prs_status "$prs_status" \
-  --arg wt "$wt_lines" --arg br "$br_lines" '
-  def lines($s): [$s | split("\n")[] | select(length > 0) | fromjson];
+  --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated" \
+  --slurpfile wt "$sect/wt" --slurpfile br "$sect/br" --slurpfile prs "$sect/prs" '
   {schema:"research-sdd.resume-state/v1", generated_at:$generated_at,
    repo:{toplevel:$top, remote:(if $remote=="" then null else $remote end)},
    base_ref:$base_ref, base_sha:$base_sha,
-   worktrees:lines($wt), branches:lines($br), prs:$prs, prs_status:$prs_status}'
+   worktrees:$wt, branches:$br, prs:$prs[0], prs_truncated:$prs_truncated, prs_status:$prs_status}'

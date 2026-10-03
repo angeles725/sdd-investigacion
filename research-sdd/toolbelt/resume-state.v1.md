@@ -9,7 +9,7 @@ no hand-set fields. Rendering the prose handoff from this document is slice 2.
 | rc | Meaning |
 |---|---|
 | 0 | document printed (a degraded PR list is still rc 0 — see `prs_status`) |
-| 2 | usage error, not a git repository, unresolvable `--base-ref`, or no `origin/main`/`main` and no `--base-ref` |
+| 2 | usage error (`--help` exits 0), not a git repository, unresolvable or option-shaped (`-...`) `--base-ref`, or no `origin/main`/`main` and no `--base-ref` |
 | 3 | DEGRADED: `git` or `jq` missing — a typed `DEGRADED:` line on stderr, no JSON on stdout |
 
 ## Schema `research-sdd.resume-state/v1`
@@ -32,7 +32,8 @@ no hand-set fields. Rendering the prose handoff from this document is slice 2.
 | `worktrees[].ahead`, `.behind` | int\|null | commits of HEAD not in `base_ref` / of `base_ref` not in HEAD |
 | `branches[]` | array | local branches NOT checked out in any worktree: `name`, `head`, `ahead`, `behind` |
 | `prs` | array\|null | open PRs `{number, branch, state, url}`; null whenever the list is unknown |
-| `prs_status` | string | `ok` (list is authoritative, possibly empty) · `skipped` (`--no-gh`) · `degraded:gh-missing` · `degraded:gh-failed` · `degraded:gh-bad-json` |
+| `prs_truncated` | bool\|null | true when gh returned exactly the `--limit` (1000) results, so the list may be incomplete; false otherwise; null when `prs` is null |
+| `prs_status` | string | `ok` (list is authoritative, possibly empty) · `skipped` (`--no-gh`) · `degraded:gh-missing` · `degraded:gh-failed` · `degraded:gh-timeout` · `degraded:gh-bad-json` |
 
 ## Anti-silent-zero contract (CLAUDE.md §7)
 
