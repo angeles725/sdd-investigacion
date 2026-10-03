@@ -1832,8 +1832,10 @@ every equality in an evidence script asserts both operands are non-empty before 
 operand is never a match, and the digest of empty input (sha256 `e3b0c442…b855`, sha1 `da39a3ee…0709`, md5
 `d41d8cd9…427e`) is never a registry hash. (Evidence: n5 — kotlin-stdlib registered with the sha256 of nothing
 because the file was missing when hashed; a signature check reported an Authenticode "match" when both digests
-were empty. Neither `verify-sources.sh` nor `verify-block.sh` rejects the empty-input digest yet. Source: n5
-fidelity-t21 retro #2.)
+were empty. `verify-sources.sh` now FAILs (LEVEL 7, `empty-digest:`) any SOURCES.md cell equal to an empty-input digest, and
+`verify-block.sh` FAILs (`EMPTYHASH!`) any hash cited in a block that equals one (full digest, or an elided prefix of
+>= 8 hex chars; a longer hex run that merely contains the digest never fires). Source: n5 fidelity-t21 retro #2;
+kit issue #1487.)
 
 **GENERATED, NOT TYPED: headline numbers and "tests pass" claims in task/feature docs come from tool output.**
 A headline number is embedded from a script's output between markers (with a test that the block equals the
