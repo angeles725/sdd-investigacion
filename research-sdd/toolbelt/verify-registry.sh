@@ -201,24 +201,24 @@ for p in $paths; do
       [ -z "$_vr_tok" ] && continue
       # Block count: N md / N blocks / N blocks @YYYY-MM-DD / N blocks @YYYY-MM-DD, ACTIVE
       # The @date form is tightened to require an ISO date so loose garbage after @ is caught.
-      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+(md|blocks?)[[:space:]]*(@[0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]*,[[:space:]]*ACTIVE)?)?$' && continue
+      grep -qiE '^[0-9]+[[:space:]]+(md|blocks?)[[:space:]]*(@[0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]*,[[:space:]]*ACTIVE)?)?$' <<<"$_vr_tok" && continue
       # Focus count: N focuses / N focus (singular consistent with N run / N runs)
-      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+focus(es)?$' && continue
+      grep -qiE '^[0-9]+[[:space:]]+focus(es)?$' <<<"$_vr_tok" && continue
       # Run count: N runs / N run
-      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+runs?$' && continue
+      grep -qiE '^[0-9]+[[:space:]]+runs?$' <<<"$_vr_tok" && continue
       # Retro field: N retros / N retros + M corpus §18 + K client retros
       # Anchored at end: '3 retrograde motion' must not pass (previously unanchored pattern did).
-      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+retros?([[:space:]]+\+.*)?$' && continue
+      grep -qiE '^[0-9]+[[:space:]]+retros?([[:space:]]+\+.*)?$' <<<"$_vr_tok" && continue
       # Gap count: N-of-N gaps
-      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+-of-[0-9]+[[:space:]]+gaps?$' && continue
+      grep -qiE '^[0-9]+-of-[0-9]+[[:space:]]+gaps?$' <<<"$_vr_tok" && continue
       # nc flag (bare, exact)
       [ "$_vr_tok" = "nc" ] && continue
       # git status
-      printf '%s' "$_vr_tok" | grep -qE '^git[[:space:]]+(yes|no)$' && continue
+      grep -qE '^git[[:space:]]+(yes|no)$' <<<"$_vr_tok" && continue
       # remote status
-      printf '%s' "$_vr_tok" | grep -qE '^remote[[:space:]]+(yes|no)$' && continue
+      grep -qE '^remote[[:space:]]+(yes|no)$' <<<"$_vr_tok" && continue
       # hook (any form: hook yes / hook no / hook file yes / hook deferred / hook yes ×2 / …)
-      printf '%s' "$_vr_tok" | grep -qE '^hook[[:space:]]' && continue
+      grep -qE '^hook[[:space:]]' <<<"$_vr_tok" && continue
       # unregistered
       [ "$_vr_tok" = "unregistered" ] && continue
       # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
@@ -316,7 +316,7 @@ for p in $paths; do
   # enforced by tests 6 and 13. '/ nc' is detected by the ERE below; the sentinel comment is the
   # mutation target for the --prove-teeth nc teeth test.
   # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $row size.
-  if printf '%s' "$row" | grep -qE '/ nc[ /;)|]'; then  # NC-EXEMPT-CHECK
+  if grep -qE '/ nc[ /;)|]' <<<"$row"; then  # NC-EXEMPT-CHECK
     name="$(basename "$p")"
     checked=$((checked + 1))
     # NC-CONTRADICTION CHECK: the nc flag asserts there is no corpus here. If a RESEARCH-STATE.md

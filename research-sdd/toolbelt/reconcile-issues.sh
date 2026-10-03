@@ -328,7 +328,7 @@ audit_retro() {
       [ -z "$_rln" ] && continue
       if [ "$is_partial" -eq 1 ]; then
         # Skip rows in the shipped set
-        if printf '%s\n' "$shipped_ids" | grep -qxF "$_rln"; then
+        if grep -qxF "$_rln" <<<"$shipped_ids"; then
           continue
         fi
       fi
@@ -448,7 +448,7 @@ ${_rln}"
     while IFS= read -r _irid; do
       [ -z "$_irid" ] && continue
       # RECONCILE_ISSUES_ORPHANED_CHECK: anchor for T3 teeth — condition detects orphaned
-      if ! printf '%s\n' "$_open_ids" | grep -qxF "$_irid"; then
+      if ! grep -qxF "$_irid" <<<"$_open_ids"; then
         printf 'orphaned: issue for row %s is no longer open in %s\n' \
           "$_irid" "$retro_basename"
         r_orphaned=$((r_orphaned+1))

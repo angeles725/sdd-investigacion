@@ -182,7 +182,7 @@ for p in $paths; do
   for tool in "${tool_files[@]}"; do
     base="$(basename "$tool")"
     in_retro=0; in_ledger=0
-    [ -n "$t_rows" ] && printf '%s\n' "$t_rows" | grep -qF "$base" && in_retro=1
+    [ -n "$t_rows" ] && grep -qF "$base" <<<"$t_rows" && in_retro=1
     # Boundary-aware ledger match: require a cell-start or path separator before the basename
     # so that `envelope.py` does not false-match inside `gf-envelope.py`.
     # Preceding boundary: backtick, pipe, slash, or space.  Trailing: same set plus colon.

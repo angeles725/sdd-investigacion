@@ -316,7 +316,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
     file="$corpus/sources/$key"
     [ -f "$file" ] || continue   # registered but absent on disk is out of scope here (not an integrity mismatch)
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
-    if printf '%s' "$reg" | grep -qiE '^[0-9a-f]{64}$'; then
+    if grep -qiE '^[0-9a-f]{64}$' <<<"$reg"; then
       reg_full=$(printf '%s' "$reg" | tr 'A-F' 'a-f')                 # normalize case for the compare
       disk_full=$(sha256sum "$file" | cut -d' ' -f1)
       if [ "$reg_full" != "$disk_full" ]; then   # HASH-INTEGRITY compare
@@ -337,7 +337,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
           # Strip trailing ellipsis (Unicode … or ASCII ...) and spaces to extract the raw hex prefix.
           pfx="${reg%%…*}"; pfx="${pfx%%[.][.][.]*}"; pfx="$(printf '%s' "$pfx" | tr -d '[:space:]')"
           pfx_lower="$(printf '%s' "$pfx" | tr 'A-F' 'a-f')"
-          if printf '%s' "$pfx_lower" | grep -qE '^[0-9a-f]+$' && [ "${#pfx_lower}" -ge "$MIN_PREFIX" ]; then
+          if grep -qE '^[0-9a-f]+$' <<<"$pfx_lower" && [ "${#pfx_lower}" -ge "$MIN_PREFIX" ]; then
             disk_pfx="$(sha256sum "$file" | cut -d' ' -f1 | cut -c1-"${#pfx_lower}")"   # PREFIX-COMPARISON compare
             if [ "$pfx_lower" = "$disk_pfx" ]; then
               hverified=$((hverified + 1))
@@ -376,7 +376,7 @@ if [ -f "$sources_md" ]; then
     [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
     case "$reg" in ''|'('*) continue;; esac                         # empty or placeholder
-    printf '%s' "$reg" | grep -qiE '^[0-9a-f]' || continue          # not hex-looking
+    grep -qiE '^[0-9a-f]' <<<"$reg" || continue          # not hex-looking
     _nskip=$((_nskip + 1))
   done < "$sources_md"
   [ "$_nskip" -gt 0 ] && \

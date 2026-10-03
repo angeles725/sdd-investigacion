@@ -40,5 +40,5 @@ mkdir -p "$OUT"
 "$ILSPY" -p "$IN" -o "$OUT" || "$ILSPY" "$IN" -o "$OUT"
 # Verify ilspycmd actually decompiled something: at least one .cs file must exist in $OUT.
 # ilspycmd returns 0 for obfuscated/empty/unsupported assemblies without emitting any source.
-find "$OUT" -type f -name '*.cs' -print -quit | grep -q . || { echo "WARN: ilspycmd exited 0 but produced no .cs files in $OUT (assembly may be obfuscated or unsupported)" >&2; exit 1; }
+[ -n "$(find "$OUT" -type f -name '*.cs' -print -quit)" ] || { echo "WARN: ilspycmd exited 0 but produced no .cs files in $OUT (assembly may be obfuscated or unsupported)" >&2; exit 1; }
 echo "OK: $IN -> $OUT  (ilspycmd)"

@@ -640,7 +640,7 @@ if [ "$_degraded" -eq 0 ]; then
   while IFS= read -r _rpath; do
     [ -n "$_rpath" ] || continue
     # Accept only paths under a retros/ directory (any depth)
-    printf '%s\n' "$_rpath" | grep -qE '(^|/)retros/[^/].*\.md$' || continue
+    grep -qE '(^|/)retros/[^/].*\.md$' <<<"$_rpath" || continue
     # Case-insensitive index-file guard matching main's -iname '*index*.md'
     case "$(basename "$_rpath")" in *[Ii][Nn][Dd][Ee][Xx]*) continue ;; esac
     _rfull="$TARGET/$_rpath"
@@ -665,7 +665,7 @@ if [ "$_degraded" -eq 0 ]; then
   if [ -f "$_session_file" ]; then
     while IFS= read -r _rpath; do
       [ -n "$_rpath" ] || continue
-      printf '%s\n' "$_rpath" | grep -qE '(^|/)retros/[^/].*\.md$' || continue
+      grep -qE '(^|/)retros/[^/].*\.md$' <<<"$_rpath" || continue
       case "$(basename "$_rpath")" in *[Ii][Nn][Dd][Ee][Xx]*) continue ;; esac
       _rfull="$TARGET/$_rpath"
       [ -f "$_rfull" ] || continue

@@ -199,7 +199,7 @@ _rsdd_install_settings() {
 _rsdd_has_live_subject_placeholder() {
   local f="$1"
   [ -f "$f" ] || return 1
-  grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qF '<SUBJECT>'
+  grep -qF '<SUBJECT>' < <(grep -vE '^[[:space:]]*#' "$f" 2>/dev/null)
 }
 
 # kit issue #1040 finding 1 (round 2 of #1038), extended round 3: a hook may already be

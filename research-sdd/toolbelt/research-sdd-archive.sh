@@ -181,7 +181,7 @@ if ! command -v git >/dev/null 2>&1; then
   gate_rc=1  # scan-secrets-gate-no-git
 else
   _ss_top_out="$(git -C "$target" rev-parse --show-toplevel 2>&1)"; _ss_top_rc=$?
-  if [ "$_ss_top_rc" -ne 0 ] && printf '%s\n' "$_ss_top_out" | grep -qi 'not a git repository' && [ ! -e "$target/.git" ]; then
+  if [ "$_ss_top_rc" -ne 0 ] && grep -qi 'not a git repository' <<<"$_ss_top_out" && [ ! -e "$target/.git" ]; then
     # confirmed NOT a git repo — unchanged pre-#970 working-tree-only fallback.
     gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
   elif [ "$_ss_top_rc" -ne 0 ]; then
@@ -324,7 +324,7 @@ if [ "$gate_rc" != 0 ]; then
       echo "    $here/scan-secrets.sh --committed $target   # + committed history"
     elif [ "$_hint_top_rc" -eq 0 ]; then
       echo "    $here/scan-secrets.sh $corpus   # working tree only — target is nested inside $_hint_top_out"
-    elif printf '%s\n' "$_hint_top_out" | grep -qi 'not a git repository' && [ ! -e "$target/.git" ]; then
+    elif grep -qi 'not a git repository' <<<"$_hint_top_out" && [ ! -e "$target/.git" ]; then
       echo "    $here/scan-secrets.sh $corpus"
     else
       echo "    git probe failed — fix git first"
@@ -453,7 +453,7 @@ echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retr
 [ -n "${one_block_line:-}" ] && echo "${one_block_line}"
 # pipefail-audit: external `find` producer looking for at most 1 directory entry (<100 B).
 # Race onset for external producers: ~64 KB. Fleet max << onset; 0/200 trials. Not reproduced.
-if find "$corpus" -maxdepth 1 -type d -name 'codegen' 2>/dev/null | grep -q .; then
+if [ -n "$(find "$corpus" -maxdepth 1 -type d -name 'codegen' -print -quit 2>/dev/null)" ]; then
   # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
   # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning
   # to stderr — advisory, NOT a hard refuse: kept a warning (exit stays 0) so a legitimate close with no

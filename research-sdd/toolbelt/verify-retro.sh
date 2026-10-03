@@ -95,7 +95,7 @@ case "$_status" in
   "")
     # No review-status found — check for kit-retro: exclude opt-out
     _excluded=0
-    if printf '%s\n' "$_leading" | grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->'; then
+    if grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->' <<<"$_leading"; then
       _excluded=1
     fi
     if [ "$_excluded" -eq 1 ]; then

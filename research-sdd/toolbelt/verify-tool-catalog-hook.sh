@@ -25,7 +25,7 @@ summary="$(printf '%s\n' "$out" | grep '^Summary:')"
 # rather than treating a broken instrument as "clean" (covers both empty-input and no-Summary cases;
 # empty-input already prints its own explicit sentence, so absence of BOTH is the true anomaly).
 if [ -z "$summary" ]; then
-  if printf '%s\n' "$out" | grep -qi 'empty-input\|no tool log rows'; then
+  if grep -qi 'empty-input\|no tool log rows' <<<"$out"; then
     exit 0  # legitimate empty-input state: nothing to reconcile, stay silent
   fi
   hdr="Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:"

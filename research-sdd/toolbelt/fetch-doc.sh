@@ -557,7 +557,7 @@ case "$MODE" in
     # produces sources/extracted/<name>.md with YAML front-matter (METHODOLOGY.md §5/§15).
     # pipefail-audit: external `file -b` producer. Fleet max <100 B (single-line type description).
     # Race onset for external producers: ~64 KB. Fleet max << onset; structurally safe.
-    if file -b "$DEST" | grep -qi pdf; then
+    if grep -qi pdf < <(file -b "$DEST"); then
       printf 'hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh "%s"  (a flat pdftotext dump has no page anchors and must not be cited).\n' "$DEST" >&2
     fi
     if [ "$INSTALL_SAME" -eq 1 ]; then

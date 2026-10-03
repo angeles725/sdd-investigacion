@@ -839,7 +839,7 @@ for state in "${states[@]}"; do
   # KSW-EXTRACT: known_stale_warns — comma-separated suppression ids. env_field uses `$2` (splits on spaces)
   # but this value may contain spaces between items; use a full-line awk to extract reliably.
   e_ksw="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*known_stale_warns:/{v=$0; sub(/^[[:space:]]*known_stale_warns:[[:space:]]*/,"",v); sub(/[[:space:]]+$/,"",v); print v; exit}' "$state")"  # KSW-EXTRACT
-  _ksw_has() { printf '%s\n' "${e_ksw}" | tr ',' '\n' | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' | grep -qxF "$1"; }
+  _ksw_has() { grep -qxF "$1" < <(printf '%s\n' "${e_ksw}" | tr ',' '\n' | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//'); }
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"

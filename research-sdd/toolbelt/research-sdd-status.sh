@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
       # R2-001: the message says "positive integer" — 0 is not one, so reject it here too
       # (the digits-only regex alone would accept "0", contradicting the usage message).
       # SM-ZERO-REJECT-ANCHOR (next line)
-      { printf '%s' "$stall_minutes" | grep -qE '^[0-9]+$' && [ "$stall_minutes" -ne 0 ]; } \
+      { grep -qE '^[0-9]+$' <<<"$stall_minutes" && [ "$stall_minutes" -ne 0 ]; } \
         || { echo "usage: --stall-minutes requires a positive integer" >&2; exit 2; }
       shift 2 ;;
     *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
@@ -835,7 +835,7 @@ if [ "$mode" = "--sync-state" ]; then
     _plain="$(backlog_rows 2>/dev/null | grep -v '^INVALID_PRIORITY' | grep -c . | tr -d ' ')"  # rows the pre-#1307 derivation saw
     [ "${_unc:-0}" -gt 0 ] && printf 'sync-state: WARN: %s: %d backlog row(s) are NOT counted (undeclared tier / malformed row / table without a Priority header) — known_gaps and gaps_closed are LOWER bounds, verify against the prose.\n' \
       "$(basename "$state")" "${_unc}" >&2
-    if printf '%s' "${_decl_kg}" | grep -qE '^[0-9]+$' && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
+    if grep -qE '^[0-9]+$' <<<"${_decl_kg}" && [ "${_decl_kg}" -ge "${_dkg_total}" ] 2>/dev/null; then
       if [ "${_unc:-0}" -gt 0 ]; then
         # KG-LB-UPPER (#1350): the keep is LOUD, never destructive. A declared total above derived + uncounted cannot be explained by the
         # uncounted rows alone, but it is NOT provably stale: it may include closed gaps tracked outside the backlog table (prose, another
@@ -854,13 +854,13 @@ if [ "$mode" = "--sync-state" ]; then
     if [ "$_kg_lb" = 1 ]; then  # KG-LB-KEEP: assign the DECLARED total explicitly (a stale prose Y must not win); gaps_closed = max(declared, derived) so a real closure is not hidden
       kg="${_decl_kg}"
       _gc_d=$(( ${_dkg_total} - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} )); [ "$_gc_d" -lt 0 ] && _gc_d=0
-      gc="${_decl_gc}"; printf '%s' "$gc" | grep -qE '^[0-9]+$' || gc=0
+      gc="${_decl_gc}"; grep -qE '^[0-9]+$' <<<"$gc" || gc=0
       [ "$_gc_d" -gt "$gc" ] && gc="$_gc_d"
       [ "$gc" -gt "$kg" ] && gc="$kg"
     fi
     if [ "$_kg_lb" = 0 ] \
-       && printf '%s' "${_dkg_total}" | grep -qE '^[0-9]+$' \
-       && printf '%s' "${_cm_kg:-0}" | grep -qE '^[0-9]+$' \
+       && grep -qE '^[0-9]+$' <<<"${_dkg_total}" \
+       && grep -qE '^[0-9]+$' <<<"${_cm_kg:-0}" \
        && [ "${_dkg_total}" -gt "${_cm_kg:-0}" ] 2>/dev/null; then  # KG-BACKLOG-GATE
       kg="${_dkg_total}"  # KG-BACKLOG-EXCEEDS
       # KG-BACKLOG-GC: when kg comes from backlog, gc = closed rows = kg − (io + req + bo + def).
@@ -1180,7 +1180,7 @@ issues_due_gate() {
           _idg_had_unverified=1
           printf 'WARN: reconcile-issues.sh timed out for %s — treating as unverified\n' \
             "$(basename "$_idg_retro")" >&2
-        elif printf '%s\n' "$_ri_err_content" | grep -qE '^degraded:'; then
+        elif grep -qE '^degraded:' <<<"$_ri_err_content"; then
           # F5a: gh degraded → WARN + continue (fall through; don't break, don't block offline)
           _idg_had_unverified=1
           printf 'WARN: could not verify issue coverage (gh degraded) — seed manually\n' >&2
@@ -1198,7 +1198,7 @@ issues_due_gate() {
       # otherwise fall through to the clean count below and read as "verified clean" — the exact
       # silent-zero shape §7 forbids, since this retro's rows were never actually classified.
       # Treat it as unverified coverage, the same bucket as an operational failure.
-      if printf '%s\n' "$_ri_err_content" | grep -qE '^out-of-scope-marker:'; then
+      if grep -qE '^out-of-scope-marker:' <<<"$_ri_err_content"; then
         _idg_had_unverified=1  # IDG-OOS-SENTINEL
         printf 'WARN: reconcile-issues.sh reported an out-of-scope review-status marker for %s — treating as unverified\n' \
           "$(basename "$_idg_retro")" >&2
@@ -1227,7 +1227,7 @@ issues_due_gate() {
             _idg_had_unverified=1
             printf 'WARN: re-verify timed out for %s — treating as unverified\n' \
               "$(basename "$_idg_retro")" >&2
-          elif printf '%s\n' "$_ri_err_content" | grep -qE '^degraded:'; then
+          elif grep -qE '^degraded:' <<<"$_ri_err_content"; then
             _idg_had_unverified=1
             printf 'WARN: could not re-verify issue coverage (gh degraded) — seed manually\n' >&2
           else
@@ -1309,7 +1309,7 @@ if [ "$mode" = "--next" ]; then
           continue
         fi
         # Unparseable backlog is a real failure for ACTIVE focuses (concealment hazard, BP-INVALID-PRIORITY-FAIL).
-        if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
+        if grep -q '^INVALID_PRIORITY' < <(backlog_rows 2>/dev/null); then
           _any_real_stale=1; break
         fi
         _d_inv="$(count_investigable)"
@@ -1325,7 +1325,7 @@ if [ "$mode" = "--next" ]; then
           # CHECK D mirror: declared full coverage (gc==kg, kg>0) while investigable gaps remain.
           _e_gc="$(env_get gaps_closed)"; _e_kg="$(env_get known_gaps)"
           if [ -n "${_e_gc}" ] && [ -n "${_e_kg}" ] \
-             && printf '%s%s' "${_e_gc}" "${_e_kg}" | grep -qE '^[0-9]+$' \
+             && grep -qE '^[0-9]+$' <<<"${_e_gc}${_e_kg}" \
              && [ "${_e_kg}" -gt 0 ] 2>/dev/null \
              && [ "${_e_gc}" = "${_e_kg}" ]; then
             _any_real_stale=1; break
@@ -1487,7 +1487,7 @@ _campaign_age_min() {
   local ts="$1" ts_epoch now_epoch age
   ts_epoch=$(date -d "$ts" +%s 2>/dev/null) \
     || ts_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null) || true
-  if [ -z "$ts_epoch" ] || ! printf '%s' "$ts_epoch" | grep -qE '^-?[0-9]+$'; then
+  if [ -z "$ts_epoch" ] || ! grep -qE '^-?[0-9]+$' <<<"$ts_epoch"; then
     printf 'unknown'
     return
   fi
@@ -1518,7 +1518,7 @@ _campaign_row_counts() {
     _row_kind="${_row_kind#"${_row_kind%%[! ]*}"}" ; _row_kind="${_row_kind%"${_row_kind##*[! ]}"}"
     _row_state="${_row_state#"${_row_state%%[! ]*}"}" ; _row_state="${_row_state%"${_row_state##*[! ]}"}"
     [ "$_row_kind" = "Kind" ] && continue                              # header row
-    printf '%s' "$_row_kind" | grep -qE '^-+$' && continue            # separator row
+    grep -qE '^-+$' <<<"$_row_kind" && continue            # separator row
     [ -z "$_row_name" ] && continue                                    # truly empty line
     _cq_row_count=$(( _cq_row_count + 1 ))
     # Validate Kind vocabulary: focus | tier | sub-topic
@@ -1554,7 +1554,7 @@ _campaign_row_counts() {
 # <section-text> is passed in rather than re-fetched — see _campaign_row_counts above (R2-002).
 _campaign_stop_text() {
   local _p="$1" _a="$2" _la="$3" _section="${4:-}" _field
-  _field="$(printf '%s\n' "$_section" | grep -m1 '^campaign_stop:' | sed 's/^campaign_stop:[[:space:]]*//')"
+  _field="$(grep -m1 '^campaign_stop:' <<<"$_section" | sed 's/^campaign_stop:[[:space:]]*//')"
   if [ -n "$_field" ]; then
     printf '%s' "$_field"
     return
@@ -1679,7 +1679,7 @@ campaign_status_block() {
       "campaign${_cqb_flabel}" "$_p" "$_a" "$_d" "$_b" "$_r"
 
     # --- last_audit ---
-    _la="$(printf '%s\n' "$_cqb_section" | grep -m1 '^last_audit:' | sed 's/^last_audit:[[:space:]]*//')"
+    _la="$(grep -m1 '^last_audit:' <<<"$_cqb_section" | sed 's/^last_audit:[[:space:]]*//')"
     if [ -n "$_la" ]; then
       printf '  %-16s: %s\n' "last_audit${_cqb_flabel}" "$_la"
     else
@@ -1695,7 +1695,7 @@ campaign_status_block() {
     fi
 
     # --- campaign_bounds ---
-    _cq_bounds_field="$(printf '%s\n' "$_cqb_section" | grep -m1 '^campaign_bounds:' | sed 's/^campaign_bounds:[[:space:]]*//')"
+    _cq_bounds_field="$(grep -m1 '^campaign_bounds:' <<<"$_cqb_section" | sed 's/^campaign_bounds:[[:space:]]*//')"
     if [ -n "$_cq_bounds_field" ]; then
       printf '  %-16s: %s\n' "campaign_bounds${_cqb_flabel}" "$_cq_bounds_field"
       # Validate each key=value token
@@ -1705,10 +1705,10 @@ campaign_status_block() {
         _bd_val="$(printf '%s' "$_bd_token" | cut -d= -f2-)"
         case "$_bd_key" in
           max-depth|iterations)
-            printf '%s' "$_bd_val" | grep -qE '^[0-9]+$' \
+            grep -qE '^[0-9]+$' <<<"$_bd_val" \
               || printf 'WARN: campaign_bounds%s: bad %s value '\''%s'\''\n' "$_cqb_wlabel" "$_bd_key" "$_bd_val" >&2 ;;
           wall-clock)
-            printf '%s' "$_bd_val" | grep -qE '^[0-9]+(\.[0-9]+)?h$' \
+            grep -qE '^[0-9]+(\.[0-9]+)?h$' <<<"$_bd_val" \
               || printf 'WARN: campaign_bounds%s: bad wall-clock value '\''%s'\''\n' "$_cqb_wlabel" "$_bd_val" >&2 ;;
           *)
             printf 'WARN: campaign_bounds%s: unknown key '\''%s'\''\n' "$_cqb_wlabel" "$_bd_key" >&2 ;;
@@ -1723,7 +1723,7 @@ campaign_status_block() {
       _ts_age_min="$(_campaign_age_min "$_ts")"
       printf '  %-16s: %s  (age: %s min)\n' "last_iteration_ts${_cqb_flabel}" "$_ts" "$_ts_age_min"
       if [ "$_p" -gt 0 ] || [ "$_a" -gt 0 ]; then
-        if printf '%s' "$_ts_age_min" | grep -qE '^[0-9]+$' && [ "$_ts_age_min" -gt "$stall_minutes" ]; then
+        if grep -qE '^[0-9]+$' <<<"$_ts_age_min" && [ "$_ts_age_min" -gt "$stall_minutes" ]; then
           printf 'WARN: campaign stall%s — last_iteration_ts age %s min exceeds threshold %s min\n' "$_cqb_wlabel" "$_ts_age_min" "$stall_minutes" >&2  # CQ-STALL-WARN-ANCHOR
           :  # noop — keeps then-block non-empty after stall-anchor mutation
         fi

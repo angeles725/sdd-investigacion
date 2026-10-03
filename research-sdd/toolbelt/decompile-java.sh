@@ -188,7 +188,7 @@ run_engine() {
 }
 
 # has_java <dir> — at least one .java file exists below it.
-has_java() { find "$1" -type f -name '*.java' -print -quit 2>/dev/null | grep -q .; }
+has_java() { [ -n "$(find "$1" -type f -name '*.java' -print -quit 2>/dev/null)" ]; }
 
 # Fail fast (exit 3, as before) when the PRIMARY engine cannot run at all.
 PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
