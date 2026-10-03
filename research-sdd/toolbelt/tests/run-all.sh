@@ -195,7 +195,7 @@ REQUIRE_TEETH=""
 # cap is deliberate: the heavy suites are CPU/IO-bound and a runaway fan-out makes timing-
 # sensitive suites flaky). Refused: bare `-j`, `-j 0`, `-j 100%`, non-numeric, N above the cap.
 # Serial stays the default and the reference behaviour. May precede or follow the teeth flag;
-# anything after the recognised flags is ignored, exactly as before.
+# any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
 USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [-j N]"
@@ -212,8 +212,7 @@ _parse_jobs() {  # <value> — sets JOBS or exits 2
 }
 _args=("$@")
 _ai=0
-_first=1
-while [[ $_ai -lt ${#_args[@]} && $_ai -lt 3 ]]; do
+while [[ $_ai -lt ${#_args[@]} ]]; do
   _a="${_args[$_ai]}"
   case "$_a" in
     --prove-teeth)
@@ -230,15 +229,15 @@ while [[ $_ai -lt ${#_args[@]} && $_ai -lt 3 ]]; do
     -j*)
       _parse_jobs "${_a#-j}"
       ;;
+    "")
+      ;;
     *)
-      if [[ -n "$_a" && $_first -eq 1 ]]; then
-        echo "unknown flag: $_a; $USAGE" >&2
-        exit 2
-      fi
-      break
+      # Every unknown token, in ANY position, is refused: a typo after a valid flag
+      # (`-j 2 --prove-teath`) must not silently run without teeth and report green.
+      echo "unknown flag: $_a; $USAGE" >&2
+      exit 2
       ;;
   esac
-  _first=0
   _ai=$((_ai + 1))
 done
 
@@ -403,6 +402,9 @@ if [[ -n "$JOBS_ACTIVE" ]]; then
 #!/usr/bin/env bash
 # run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.
 idx="$1"; suite="$2"
+# Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
+# with a "started" line and no "done" line.
+echo "run-all.sh: -j started: $(basename "$suite")" >&2
 if [[ "$suite" == *.test.mjs ]]; then
   node "$suite" > "$PAR_DIR/$idx.out" 2>&1
 elif [[ -n "${PROVE_TEETH:-}" ]]; then
@@ -410,11 +412,13 @@ elif [[ -n "${PROVE_TEETH:-}" ]]; then
 else
   bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
 fi
-echo "$?" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
+rc=$?
+echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
+echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
 WORKER
   export PAR_DIR PROVE_TEETH
   echo "run-all.sh: -j $JOBS — running ${#all_suites[@]} suite(s) in parallel (output replayed in serial order below)" >&2
-  parallel -j "$JOBS" bash "$PAR_DIR/run1.sh" '{#}' '{}' ::: "${all_suites[@]}" >/dev/null 2>&1
+  parallel --line-buffer -j "$JOBS" bash "$PAR_DIR/run1.sh" '{#}' '{}' ::: "${all_suites[@]}" >/dev/null
   # No silent zero: every suite must have left a result file.
   _par_results=$(find "$PAR_DIR" -maxdepth 1 -name '*.rc' | wc -l)
   if [[ "$_par_results" -ne "${#all_suites[@]}" ]]; then

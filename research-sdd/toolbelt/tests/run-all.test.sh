@@ -220,21 +220,22 @@ if [ "$rc" -eq 0 ] && grep -qF 'Test cases passed: 2' <<<"$out"; then
   ok "empty-arg: \"\" behaves as no-flag → discovers + runs fixtures, exit 0"
 else no "empty-arg regressed: rc=$rc :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
 
-# 9 — trailing args after --prove-teeth are ignored (only $1 inspected): runs normally, and the
-#     garbage is NOT forwarded to suites (the .test.sh recorder must see exactly "--prove-teeth").
+# 9 — an unknown token in ANY position is refused (exit 2, "unknown flag") and no suite runs: a typo
+#     after a valid flag (`-j 2 --prove-teath`) must not silently drop teeth and report green.
 w="$(newdir c9)"
 { printf '#!/usr/bin/env bash\n'
-  # The recorder writes OUTSIDE the fixture's kit tree (kit issue #1156: run-all now fails any
-  # suite that writes under research-sdd/, and this fixture's tree is a real kit-shaped one).
-  printf 'printf "%%s" "${1:-NONE}" > "%s"\n' "$TMP/c9-arg-sh.txt"
+  printf ': > "%s"\n' "$TMP/c9-ran.txt"
   printf 'echo "== 3 passed %s 0 failed =="\n' "$MID"
-  printf 'exit 0\n'
 } > "$w/rec.test.sh"
-out="$(bash "$w/run-all.sh" --prove-teeth extra-garbage 2>&1)"; rc=$?
-argsh="$(cat "$TMP/c9-arg-sh.txt" 2>/dev/null || true)"
-if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && grep -qF 'Test cases passed: 3' <<<"$out"; then
-  ok "trailing-args: '--prove-teeth extra-garbage' runs normally, only \$1 inspected (suite got --prove-teeth, not the garbage)"
-else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
+_c9bad=""
+for _a in "garbage" "--prove-teeth garbage" "--prove-teeth --prove-teath" "-j 2 --prove-teath" "--prove-teeth -j 2 garbage" "-j 2 --prove-teeth garbage"; do
+  rm -f "$TMP/c9-ran.txt"
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $_a 2>&1)"; rc=$?
+  if [ "$rc" -ne 2 ] || ! grep -qF 'unknown flag:' <<<"$out" || [ -e "$TMP/c9-ran.txt" ]; then _c9bad="$_c9bad [$_a rc=$rc]"; fi
+done
+if [ -z "$_c9bad" ]; then ok "unknown-flag: an unknown token in first/middle/last position exits 2 and runs nothing"
+else no "unknown-flag regressed:$_c9bad"; fi
 
 # 10 — skip-reporting: a suite that emits SKIP: and exits 0 must appear in the
 #      "Suites skipped" section, not counted as passed or failed. A passing suite
@@ -943,6 +944,18 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   else no "-j leak failed: rc=$rc :: $(grep -iE 'kit-tree|leaked|batch' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j leak"; fi
 
+# j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
+#      so a hung suite (started, never done) is nameable; the aggregate block is unaffected.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir j8)"; mkfix_sh "$w/a.test.sh" 1 0 0; mkfix_sh "$w/b.test.sh" 1 1 1
+  errf="$TMP/j8.err"; bash "$w/run-all.sh" -j 2 >/dev/null 2>"$errf"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -qF 'run-all.sh: -j started: a.test.sh' "$errf" && grep -qF 'run-all.sh: -j done: a.test.sh rc=0' "$errf" \
+     && grep -qF 'run-all.sh: -j started: b.test.sh' "$errf" && grep -qF 'run-all.sh: -j done: b.test.sh rc=1' "$errf"; then
+    ok "-j progress: per-suite started/done(rc) lines on stderr"
+  else no "-j progress failed: rc=$rc :: $(tr '\n' '|' < "$errf" | cut -c1-300)"; fi
+else skip_j "-j progress"; fi
+
 # j7 — no silent zero: a suite whose worker dies before recording its exit code is named as failed
 #      and the result-count mismatch is reported (never read as "nothing failed").
 if [ "$have_gnu_parallel" -eq 1 ]; then
@@ -1442,18 +1455,34 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
     if [ "$mrc" -ne 2 ]; then ok "teeth-j-cap: cap-less mutant accepts -j 7 → the cap has real teeth"
     else no "teeth-j-cap: mutant still refused -j 7 — mutation not exercised (THEATER)"; fi
   fi
-  # Mutation: drop the count-mismatch report; the j7 line must vanish.
-  echo "-- teeth: drop the -j result-count line; the mismatch must go unreported --"
+  # Mutation: let unknown tokens through; a typo after a valid flag must then be silently accepted.
+  echo "-- teeth: drop the unknown-flag refusal; '-j 2 --prove-teath' must be ACCEPTED --"
+  w="$(mut_workdir teeth-unknown-flag)"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/unknown flag: \$_a; \$USAGE/{N;s/.*/      :/}' 2>"$w/mutant.err"; then
+    no "teeth-unknown-flag: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mkfix_sh "$w/ok.test.sh" 1 0 0
+    bash "$w/run-all.sh" -j 2 --prove-teath >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then ok "teeth-unknown-flag: refusal-less mutant accepts a trailing typo → the refusal has real teeth"
+    else no "teeth-unknown-flag: mutant still refused (rc=$mrc) — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation: break the COUNT LOGIC (not the message): the unmutated runner must print the
+  # mismatch line for a worker that dies; the mutant must not.
+  echo "-- teeth: break the -j result-count comparison; the mismatch line must disappear --"
   w="$(mut_workdir teeth-j-count)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/recorded \$_par_results result(s)/recorded-X $_par_results result(s)/' 2>"$w/mutant.err"; then
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    printf 'kill -9 "$PPID"\n'
+  } > "$w/dies.test.sh"
+  cp "$SUT" "$w/run-all.good.sh"
+  gout="$(bash "$w/run-all.good.sh" -j 2 2>&1)"
+  if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$gout"; then
+    no "teeth-j-count: UNMUTATED runner did not print the mismatch line — control invalid"
+  elif ! mutant_sed "$SUT" "$w/run-all.sh" 's/\[\[ "\$_par_results" -ne "\${#all_suites\[@\]}" \]\]/false/' 2>"$w/mutant.err"; then
     no "teeth-j-count: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
-    { printf '#!/usr/bin/env bash\n'
-      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
-      printf 'kill -9 "$PPID"\n'
-    } > "$w/dies.test.sh"
     mout="$(bash "$w/run-all.sh" -j 2 2>&1)"
-    if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$mout"; then ok "teeth-j-count: reworded mutant loses the count-mismatch line → the assertion bites"
+    if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$mout"; then ok "teeth-j-count: count-logic mutant loses the mismatch line the real runner prints → the check has real teeth"
     else no "teeth-j-count: mutant still reports the mismatch — mutation not exercised (THEATER)"; fi
   fi
 fi
