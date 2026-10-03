@@ -19,6 +19,7 @@ through a §18 `promote` verdict that moves it into `toolbelt/`. Do not add targ
 | Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
 | File-type / packer / compiler / entropy detection | any regular binary or firmware blob | diec (Detect-It-Easy CLI) | (direct) | ✅ |
 | Manual byte-level inspection / patching | any regular binary | hexedit / bvi (interactive hex editors) | (direct; manual step) | ✅ |
+| Batch parallelism for test suites and per-file sweeps | any set of independent per-item steps (per-file decompiles, per-module lint sweeps, per-block `verify-block.sh` runs, corpus-wide greps) | GNU parallel (`parallel`) — usage: `parallel -j 6 --keep-order --halt now,fail=1 …` (hard cap `-j 6`; merged output stays deterministic; local/offline work only — caps and rules in `DYNAMIC-SETUP.md` §8) | (direct) | ✅ |
 | Native corroboration evidence | Regular native binary | radare2 static analysis in Bubblewrap | `corroborate-native.sh` (`native-static.v1`) | ✅ |
 | Native curated evidence | Regular native binary | Ghidra curated exporter in Bubblewrap; evidence file cap 64 (`--max-files`; override with `corroborate-ghidra.sh --max-files N`); NOT a decompiler — Ghidra performs static analysis and exports curated evidence; Vineflower decompiles Java | `decompile-native.sh ghidra-evidence` (`ghidra-corroboration.v1`) | ✅ |
 | Native ELF/PE — r2 fallback | Native binary; Ghidra unavailable or a fast disassembly suffices | radare2 static analysis (`aaa` full analysis + `pdf` of `main`; falls back to `afl` if `main` absent; no GUI) | `decompile-native.sh r2 <binary>` | ✅ |
@@ -129,6 +130,7 @@ a live-network probe, modifies system state, or exercises hardware. Read-only di
 | krak2 (Krakatau2 — JVM bytecode assembler/disassembler) | `~/.local/bin/krak2` (cargo); resolved via `command -v krak2` |
 | diec (Detect-It-Easy CLI — file-type/packer/entropy detection) | `/usr/bin/diec` (apt, root-owned); resolved via `command -v diec` |
 | hexedit / bvi (interactive hex editors — manual byte inspection) | `/home/linuxbrew/.linuxbrew/bin/hexedit`, `/home/linuxbrew/.linuxbrew/bin/bvi` (linuxbrew); resolved via `command -v` |
+| `parallel` (GNU parallel 20260922 — batch parallelism; enables `bats -j N`) | `/home/linuxbrew/.linuxbrew/bin/parallel` (linuxbrew); resolved via `command -v parallel`, version via `parallel --version \| head -1` |
 
 ## Environment override
 

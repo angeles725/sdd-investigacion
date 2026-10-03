@@ -2037,6 +2037,13 @@ calibration context; their calibration corpus is committed inside the TARGET cor
 The frozen-fixture requirement applies to the calibration corpus only — the instrument's own test
 fixtures follow the R2 rule.
 
+**Rule R7 — a parallel test lane must prove it ran (silent zero).** `bats -j N` without GNU parallel
+prints `Executed 0 instead of expected N tests` and no `not ok` line: the lane looks clean and ran
+nothing. Probe `command -v parallel` before any `-j` and run serially when it is absent; count the `ok`
+lines against the plan (`1..N`) and treat any shortfall as a failed lane, not a pass. (Evidence:
+niagara-tools fold campaign 2026-10-02 — two writers ran ~900 tests serially after hitting it, bats
+1.14.) Hard caps (`-j 6`, one batch at a time, never against a live system) and `--keep-order`: `toolbelt/DYNAMIC-SETUP.md` §8.
+
 ## 12. Dynamic phase (validation against a live system)
 
 The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
