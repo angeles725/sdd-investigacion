@@ -19,8 +19,9 @@
 #
 #   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
-#                    Hermeticity guards snapshot once around the batch, so a leak is reported
-#                    under a batch label (re-run serially to name the suite), never silently.
+#                    Hermeticity guards snapshot once around the batch; a leak found there triggers
+#                    an automatic serial re-run that names the suite (mtime of the leaked path),
+#                    falling back to a typed batch label, never silently.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
 #                    negative control). Node suites are n/a (they have no flag).
@@ -401,18 +402,95 @@ _check_kit_tree_hermeticity() {
 # says to re-run serially to name the offender (it still fails the run — never a silent pass).
 JOBS_ACTIVE=""
 PARALLEL_DEGRADED_REASON=""
-PARALLEL_LABEL="-j batch (offender unattributed — re-run serially to name the suite)"
+PARALLEL_UNUSABLE_WHY=""
+PARALLEL_LABEL="-j batch (offender unattributed — no suite re-touched the path in the serial attribution re-run)"
 _parallel_gnu_ok() {
+  # Sets PARALLEL_UNUSABLE_WHY to the concrete cause on failure (kit issue #1491 item 2): three
+  # distinct states must not share one message — absent, present-but-broken, present-but-not-GNU.
   # Captured then pattern-matched: a `| head | grep -q` chain would SIGPIPE under pipefail.
-  command -v parallel >/dev/null 2>&1 || return 1
-  local _pv; _pv="$(parallel --version 2>/dev/null)" || return 1
-  [[ "$_pv" == *"GNU parallel"* ]]
+  PARALLEL_UNUSABLE_WHY=""
+  if ! command -v parallel >/dev/null 2>&1; then
+    PARALLEL_UNUSABLE_WHY="'parallel' is not on PATH"
+    return 1
+  fi
+  local _pv
+  if ! _pv="$(parallel --version 2>/dev/null)"; then
+    PARALLEL_UNUSABLE_WHY="'parallel' is on PATH ($(command -v parallel)) but 'parallel --version' failed"
+    return 1
+  fi
+  if [[ "$_pv" != *"GNU parallel"* ]]; then
+    PARALLEL_UNUSABLE_WHY="'parallel' on PATH ($(command -v parallel)) is not GNU parallel"
+    return 1
+  fi
+  return 0
+}
+# Attribution of a batch leak (kit issue #1491 item 1). The batch snapshot proves a leak happened
+# but not WHO; serial attribution re-runs the suites one at a time and blames the suite after
+# which a leaked path's mtime moves (mtime, not content: the kit-tree guard is content-hash based
+# and a suite re-writing identical bytes would otherwise stay anonymous). It only runs when the
+# batch found a new/modified leak, so a clean -j run and the whole serial path are untouched. An
+# entry no suite re-touches (removed paths, a flaky/ordering-dependent leak) keeps the typed
+# batch label — still failing the run, never silently dropped.
+_mtime_of() {   # _mtime_of <path>: nanosecond mtime, or "absent"
+  stat -c '%y' -- "$1" 2>/dev/null || printf 'absent'
+}
+_attribute_batch_leaks() {
+  local _cwd_start="$1" _kt_start="$2" _e _path _kind _i _s _b
+  local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=()
+  for ((_i = _cwd_start; _i < ${#hermeticity_violations[@]}; _i++)); do
+    _e="${hermeticity_violations[$_i]#"$PARALLEL_LABEL leaked: "}"
+    _kind="${_e##* (}"; _kind="${_kind%)}"; _path="${_e% (*}"
+    [[ "$_kind" == removed ]] && continue
+    _pend_path+=("$CALLER_CWD/$_path"); _pend_kind+=("$_kind"); _pend_src+=("cwd:$_path"); _pend_done+=("")
+  done
+  for ((_i = _kt_start; _i < ${#kit_tree_violations[@]}; _i++)); do
+    _e="${kit_tree_violations[$_i]#"$PARALLEL_LABEL leaked: "}"
+    _kind="${_e##* (}"; _kind="${_kind%)}"; _path="${_e% (*}"
+    [[ "$_kind" == removed ]] && continue
+    _pend_path+=("$KIT_TREE/$_path"); _pend_kind+=("$_kind"); _pend_src+=("kit:$_path"); _pend_done+=("")
+  done
+  [[ ${#_pend_path[@]} -gt 0 ]] || return 0
+  echo "run-all.sh: -j leak detected in the batch; re-running suites serially to name the offender" >&2
+  local -a _attr=()   # "<src>\t<suite>\t<kind>"
+  local _left=${#_pend_path[@]}
+  for _s in "${all_suites[@]}"; do
+    [[ $_left -gt 0 ]] || break
+    _b="$(basename "$_s")"
+    for _i in "${!_pend_path[@]}"; do _pend_before[_i]="$(_mtime_of "${_pend_path[$_i]}")"; done
+    echo "run-all.sh: -j attribution re-run: $_b" >&2
+    if [[ "$_b" == *.test.mjs ]]; then node "$_s" >/dev/null 2>&1
+    elif [[ -n "$PROVE_TEETH" ]]; then bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
+    else bash "$_s" >/dev/null 2>&1; fi
+    for _i in "${!_pend_path[@]}"; do
+      [[ -z "${_pend_done[$_i]}" ]] || continue
+      if [[ "$(_mtime_of "${_pend_path[$_i]}")" != "${_pend_before[$_i]}" ]]; then
+        _pend_done[_i]=1; _left=$((_left - 1))
+        _attr+=("${_pend_src[$_i]}"$'\t'"$_b"$'\t'"${_pend_kind[$_i]}")
+      fi
+    done
+  done
+  # Rewrite the attributed entries under the suite's name; the rest keep the batch label.
+  local _a _src _suite _k
+  for _a in "${_attr[@]}"; do
+    IFS=$'\t' read -r _src _suite _k <<< "$_a"
+    _path="${_src#*:}"
+    if [[ "${_src%%:*}" == cwd ]]; then
+      for _i in "${!hermeticity_violations[@]}"; do
+        [[ "${hermeticity_violations[$_i]}" == "$PARALLEL_LABEL leaked: $_path ($_k)" ]] && hermeticity_violations[_i]="$_suite leaked: $_path ($_k)"
+      done
+    else
+      for _i in "${!kit_tree_violations[@]}"; do
+        [[ "${kit_tree_violations[$_i]}" == "$PARALLEL_LABEL leaked: $_path ($_k)" ]] && kit_tree_violations[_i]="$_suite leaked: $_path ($_k)"
+      done
+    fi
+  done
+  return 0
 }
 if [[ "$JOBS" -gt 1 ]]; then
   if _parallel_gnu_ok; then
     JOBS_ACTIVE=1
   else
-    PARALLEL_DEGRADED_REASON="GNU parallel not found; -j $JOBS requested but running serially"
+    PARALLEL_DEGRADED_REASON="$PARALLEL_UNUSABLE_WHY; -j $JOBS requested but running serially"
     echo "run-all.sh: DEGRADED — $PARALLEL_DEGRADED_REASON" >&2
   fi
 fi
@@ -445,8 +523,10 @@ WORKER
   if [[ "$_par_results" -ne "${#all_suites[@]}" ]]; then
     echo "run-all.sh: -j batch recorded $_par_results result(s) for ${#all_suites[@]} suite(s); the missing suites are reported as failed" >&2
   fi
+  _hv_before=${#hermeticity_violations[@]}; _kv_before=${#kit_tree_violations[@]}
   _check_cwd_hermeticity "$PARALLEL_LABEL"
   _check_kit_tree_hermeticity "$PARALLEL_LABEL"
+  _attribute_batch_leaks "$_hv_before" "$_kv_before"
 fi
 
 suite_idx=0
@@ -611,7 +691,7 @@ else
   echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  echo "Parallel: -j $JOBS — hermeticity attribution is per-batch, not per-suite (violations name the batch; re-run serially to name the suite)"
+  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed to its suite by an automatic serial re-run (unattributed ones keep the batch label)"
 elif [[ -n "$PARALLEL_DEGRADED_REASON" ]]; then
   echo "Parallel: DEGRADED — $PARALLEL_DEGRADED_REASON"
 fi
