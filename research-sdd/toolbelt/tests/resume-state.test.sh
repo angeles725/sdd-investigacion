@@ -124,9 +124,9 @@ eq "8a git missing -> rc 3, DEGRADED, empty stdout" "$RC|$(grep -c 'DEGRADED' <<
 
 # 9. read-only: git state identical before/after. The snapshot covers refs, worktree list, status AND the
 # content hash of every file under .git, so a stray write (index, config, marker file) is visible too.
-snap(){ export GIT_OPTIONAL_LOCKS=0   # the snapshot itself must not refresh indexes it is hashing
+snap()( export GIT_OPTIONAL_LOCKS=0   # subshell body: scoped to the snapshot, never leaks to later SUT runs
   { git -C "$R" for-each-ref; git -C "$R" worktree list --porcelain; git -C "$R" status --porcelain
-    ( cd "$R/.git" && find . -type f -print0 | sort -z | xargs -0 sha1sum ); } | sha1sum; }
+    ( cd "$R/.git" && find . -type f -print0 | sort -z | xargs -0 sha1sum ); } | sha1sum )
 b="$(snap)"; run --cwd "$R" --no-gh; a="$(snap)"
 eq "9  repo state unchanged by a run" "$a" "$b"
 : > "$R/.git/stray-marker"; s9a="$(snap)"; rm -f "$R/.git/stray-marker"
