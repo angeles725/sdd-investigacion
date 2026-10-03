@@ -40,12 +40,12 @@ case "$mode" in
   fail)     echo "boom" >&2; exit 1 ;;
   none)     echo "OK: $in -> $out (engine=stub)" ;;
   missing)  echo "no engine" >&2; exit 3 ;;
+  fallback) cp "$STUB_DIR/$name.good" "$out/$name.java"; echo "DEGRADED: $in -> $out (engine=stubfb units=1)"; exit 4 ;;
   hang)     exec sleep 30 ;;
 esac
 STUB
 chmod +x "$STUB_DIR/decompiler.sh"
 export STUB_DIR
-export RSDD_FIDELITY_TIMEOUT=2
 
 FIX="$ROOT/fixtures"; mkdir -p "$FIX"
 printf 'public class Same { public static int f(int a) { return a + 1; } }\n' > "$FIX/Same.java"
@@ -65,9 +65,14 @@ echo hang > "$STUB_DIR/Hang.mode"
 printf 'public class Nocompile { int f( { }\n' > "$FIX/Nocompile.java"
 printf 'public class Dbg { public static int f(int a) { int b = a + 1; return b; } }\n' > "$FIX/Dbg.java"
 cp "$FIX/Dbg.java" "$STUB_DIR/Dbg.good"
+echo fallback > "$STUB_DIR/Dbg.mode"
+
+# The Hang cells need a real timeout binary; without one the case is skipped (never counted) and Hang fails fast.
+HAVE_TIMEOUT=0; { command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; } && HAVE_TIMEOUT=1
+[ "$HAVE_TIMEOUT" = 1 ] || echo fail > "$STUB_DIR/Hang.mode"
 
 run() { # run SUT ARGV... ; sets OUT, RC
-  OUT="$(RSDD_FIDELITY_DECOMPILER="$STUB_DIR/decompiler.sh" "$@" 2>&1)"; RC=$?
+  OUT="$(RSDD_FIDELITY_TIMEOUT=2 RSDD_FIDELITY_DECOMPILER="$STUB_DIR/decompiler.sh" "$@" 2>&1)"; RC=$?
 }
 has()  { grep -qE -- "$1" <<<"$OUT"; }
 
@@ -81,56 +86,69 @@ has '^FIDELITY Broken mode=g verdict=FAILED reason=recompile$' && ok "5 recompil
 has '^FIDELITY Gone mode=g verdict=FAILED reason=decompile$'   && ok "6 decompiler non-zero -> FAILED reason=decompile" || no "6 decompile" "$OUT"
 has '^FIDELITY Empty mode=g verdict=FAILED reason=no-output$'  && ok "7 decompiler rc 0 with no .java -> FAILED reason=no-output (not GOOD)" || no "7 no-output" "$OUT"
 has '^FIDELITY Multi mode=g verdict=FAILED reason=multi-class$' && ok "8 multi-class fixture -> FAILED reason=multi-class" || no "8 multi-class" "$OUT"
-has '^FIDELITY Hang mode=g verdict=FAILED reason=timeout$' && ok "9b decompiler exceeding the bound -> FAILED reason=timeout" || no "9b timeout" "$OUT"
-has '^FIDELITY Nocompile mode=g verdict=FAILED reason=compile$' && ok "9c fixture that does not compile -> FAILED reason=compile" || no "9c compile" "$OUT"
-has '^DEBUGINFO Nocompile g_lvt=unmeasured nog_lvt=unmeasured$' && ok "9d unmeasurable DEBUGINFO is 'unmeasured', never 'no'" || no "9d unmeasured" "$OUT"
-has '^RESULT: DONE jdk=[0-9][0-9.]* engines=stub engine_degraded_cells=0 ' && ok "9e RESULT records jdk version and the engine the wrapper reported" || no "9e provenance" "$(grep RESULT <<<"$OUT")"
-has '^DEBUGINFO Dbg g_lvt=yes nog_lvt=no$'           && ok "9 -g keeps LocalVariableTable, no -g drops it (DEBUGINFO)" || no "9 debuginfo" "$OUT"
-has '^RESULT: DONE .*constructs=9 cells=18 good=([0-9]+) diverged=([0-9]+) failed=([0-9]+)'  && ok "10 summary counts the cells it measured" || no "10 summary" "$OUT"
-has 'constructs=9 cells=18 good=4 diverged=2 failed=12$' && ok "11 summary tallies GOOD/DIVERGED/FAILED exactly" || no "11 tally" "$(printf '%s\n' "$OUT" | grep RESULT)"
+if [ "$HAVE_TIMEOUT" = 1 ]; then
+  has '^FIDELITY Hang mode=g verdict=FAILED reason=timeout$' && ok "9 decompiler exceeding the bound -> FAILED reason=timeout" || no "9 timeout" "$OUT"
+else echo "  SKIP  timeout case: no timeout/gtimeout binary — not counted"; fi
+has '^FIDELITY Nocompile mode=g verdict=FAILED reason=compile$' && ok "10 fixture that does not compile -> FAILED reason=compile" || no "10 compile" "$OUT"
+has '^DEBUGINFO Nocompile g_lvt=unmeasured nog_lvt=unmeasured$' && ok "11 unmeasurable DEBUGINFO is 'unmeasured', never 'no'" || no "11 unmeasured" "$OUT"
+has '^RESULT: DONE jdk=[0-9][^ ]* engines=stub,stubfb engine_degraded_cells=2 ' && ok "12 RESULT records jdk version, engines seen and degraded-cell count" || no "12 provenance" "$(grep RESULT <<<"$OUT")"
+has '^DEBUGINFO Dbg g_lvt=yes nog_lvt=no$'           && ok "13 -g keeps LocalVariableTable, no -g drops it (DEBUGINFO)" || no "13 debuginfo" "$OUT"
+has '^RESULT: DONE .*constructs=9 cells=18 good=([0-9]+) diverged=([0-9]+) failed=([0-9]+)'  && ok "14 summary counts the cells it measured" || no "14 summary" "$OUT"
+has 'constructs=9 cells=18 good=4 diverged=2 failed=12$' && ok "15 summary tallies GOOD/DIVERGED/FAILED exactly" || no "15 tally" "$(printf '%s\n' "$OUT" | grep RESULT)"
+
+has '^FALLBACK Dbg mode=g engine=stubfb$' && has '^FALLBACK Dbg mode=nog engine=stubfb$' \
+  && ok "16 a wrapper exit-4 (fallback) cell is named on its own FALLBACK line" || no "16 fallback attribution" "$OUT"
+! has '^FALLBACK (Same|Diff) ' && ok "17 cells that did not fall back print no FALLBACK line" || no "17 spurious fallback" "$OUT"
 
 # ---- typed degraded / usage ------------------------------------------------------------------------
 run env RSDD_FIDELITY_JAVAC=/nonexistent/javac bash "$SUT" --fixtures "$FIX" --work "$ROOT/w2"
 { [ "$RC" = 4 ] && has '^DEGRADED: .*reason=javac-missing' && ! has 'verdict=GOOD' && ! has '^RESULT: DONE'; } \
-  && ok "12 javac absent -> typed DEGRADED rc 4, no verdict, never DONE" || no "12 javac degraded" "rc=$RC $OUT"
+  && ok "18 javac absent -> typed DEGRADED rc 4, no verdict, never DONE" || no "18 javac degraded" "rc=$RC $OUT"
 run env RSDD_FIDELITY_JAVAP=/nonexistent/javap bash "$SUT" --fixtures "$FIX" --work "$ROOT/w3"
-{ [ "$RC" = 4 ] && has 'reason=javap-missing'; } && ok "13 javap absent -> DEGRADED reason=javap-missing" || no "13 javap degraded" "rc=$RC $OUT"
+{ [ "$RC" = 4 ] && has 'reason=javap-missing'; } && ok "19 javap absent -> DEGRADED reason=javap-missing" || no "19 javap degraded" "rc=$RC $OUT"
+run env RSDD_FIDELITY_JAVAC="$ROOT" bash "$SUT" --fixtures "$FIX" --work "$ROOT/w3b"
+{ [ "$RC" = 4 ] && has 'reason=javac-missing'; } && ok "20 javac override that is a directory (not a file) -> DEGRADED" || no "20 dir probe" "rc=$RC $OUT"
+for bad in abc 0 -5 1.5 ""; do
+  run env RSDD_FIDELITY_TIMEOUT="$bad" bash "$SUT" --fixtures "$FIX" --work "$ROOT/w3c"
+  { [ "$RC" = 2 ] && has 'RSDD_FIDELITY_TIMEOUT'; } && ok "21 invalid RSDD_FIDELITY_TIMEOUT '$bad' -> rc 2" || no "21 timeout validation '$bad'" "rc=$RC $OUT"
+done
 # javac genuinely absent from PATH (not an override): a PATH of symlinks to everything but the JDK.
 BIN="$ROOT/bin"; mkdir -p "$BIN"
 for t in bash sed mkdir rm cat find sort diff mktemp dirname basename grep wc tr cp mv cut head tail date uname env ls printf; do
   p="$(command -v "$t" 2>/dev/null)" && [ -n "$p" ] && ln -sf "$p" "$BIN/$t"
 done
 OUT="$(PATH="$BIN" RSDD_FIDELITY_DECOMPILER="$STUB_DIR/decompiler.sh" "$BIN/bash" "$SUT" --fixtures "$FIX" --work "$ROOT/w4" 2>&1)"; RC=$?
-{ [ "$RC" = 4 ] && has 'reason=javac-missing'; } && ok "14 javac not on PATH -> DEGRADED rc 4" || no "14 PATH degraded" "rc=$RC $OUT"
+{ [ "$RC" = 4 ] && has 'reason=javac-missing'; } && ok "22 javac not on PATH -> DEGRADED rc 4" || no "22 PATH degraded" "rc=$RC $OUT"
 echo missing > "$STUB_DIR/Same.mode"
 run bash "$SUT" --fixtures "$FIX" --work "$ROOT/w5"
 { [ "$RC" = 4 ] && has 'reason=decompiler-missing' && has 'partial_cells=[1-9]' && ! has '^RESULT: DONE'; } \
-  && ok "15 decompiler rc 3 mid-run -> DEGRADED, partial_cells named, never DONE" || no "15 decompiler degraded" "rc=$RC $OUT"
+  && ok "23 decompiler rc 3 mid-run -> DEGRADED, partial_cells named, never DONE" || no "23 decompiler degraded" "rc=$RC $OUT"
 echo copy > "$STUB_DIR/Same.mode"
 run bash "$SUT" --fixtures "$ROOT/absent" --work "$ROOT/w6"
-[ "$RC" = 2 ] && ok "16 absent fixtures dir -> rc 2" || no "16 absent" "rc=$RC"
+[ "$RC" = 2 ] && ok "24 absent fixtures dir -> rc 2" || no "24 absent" "rc=$RC"
 mkdir -p "$ROOT/emptyfix"
 run bash "$SUT" --fixtures "$ROOT/emptyfix" --work "$ROOT/w7"
-{ [ "$RC" = 1 ] && has 'no fixtures'; } && ok "17 empty fixtures dir -> rc 1 (distinct from absent)" || no "17 empty" "rc=$RC $OUT"
+{ [ "$RC" = 1 ] && has 'no fixtures'; } && ok "25 empty fixtures dir -> rc 1 (distinct from absent)" || no "25 empty" "rc=$RC $OUT"
 run bash "$SUT" --help
-{ [ "$RC" = 0 ] && has 'Limits \(stated' && has '^# +java-fidelity-experiment.sh'; } && ok "18b --help prints the whole header block" || no "18b help" "rc=$RC"
+{ [ "$RC" = 0 ] && has 'Limits \(stated' && has '^# +java-fidelity-experiment.sh'; } && ok "26 --help prints the whole header block" || no "26 help" "rc=$RC"
 run bash "$SUT" --bogus
-[ "$RC" = 2 ] && ok "18 unknown flag -> rc 2" || no "18 usage" "rc=$RC"
+[ "$RC" = 2 ] && ok "27 unknown flag -> rc 2" || no "27 usage" "rc=$RC"
 
 # ---- one real run (counted only when the real toolchain is usable) ----------------------------------
 REALFIX="$HERE/fixtures/java-fidelity-experiment"
 n_fix="$(find "$REALFIX" -maxdepth 1 -name '*.java' | wc -l)"
-OUT="$(bash "$SUT" --fixtures "$REALFIX" --work "$ROOT/wreal" 2>&1)"; RC=$?
+OUT="$(env -u RSDD_FIDELITY_TIMEOUT bash "$SUT" --fixtures "$REALFIX" --work "$ROOT/wreal" 2>&1)"; RC=$?
 if [ "$RC" = 0 ]; then
   cells="$(printf '%s\n' "$OUT" | grep -c '^FIDELITY ')"
-  [ "$cells" = $((n_fix * 2)) ] && ok "19 real run measured every fixture in both modes" "($cells cells)" || no "19 real cells" "cells=$cells fixtures=$n_fix"
-  has '^FIDELITY EnhancedFor mode=g verdict=GOOD$' && has '^RESULT: DONE jdk=[0-9][0-9.]* engines=[a-z]' \
-    && ok "19b real run: known-good fixture is GOOD and provenance recorded (an all-FAILED run is not a pass)" \
-    || no "19b real run all-failed or no provenance" "$(grep -E '^RESULT' <<<"$OUT")"
+  [ "$cells" = $((n_fix * 2)) ] && ok "28 real run measured every fixture in both modes" "($cells cells)" || no "28 real cells" "cells=$cells fixtures=$n_fix"
+  # Engine-agnostic: at least one GOOD cell proves the pipeline measured something (an all-FAILED run is not a pass).
+  has '^RESULT: DONE jdk=[0-9][^ ]* engines=[a-z]' && has ' good=[1-9][0-9]* ' \
+    && ok "29 real run: at least one GOOD cell and provenance recorded" \
+    || no "29 real run all-failed or no provenance" "$(grep -E '^RESULT' <<<"$OUT")"
 elif [ "$RC" = 4 ]; then
-  echo "  SKIP  19 real run: toolchain degraded ($(printf '%s\n' "$OUT" | grep '^DEGRADED' | head -1)) — not counted"
+  echo "  SKIP  real run: toolchain degraded ($(printf '%s\n' "$OUT" | grep '^DEGRADED' | head -1)) — not counted"
 else
-  no "19 real run" "rc=$RC"
+  no "28 real run" "rc=$RC"
 fi
 
 # ---- teeth ---------------------------------------------------------------------------------------------
@@ -151,7 +169,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --bad-has 'Diff mode=g verdict=GOOD' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wA"
 
   echo "-- teeth B: recompile status ignored -> uncompilable output reported GOOD/DIVERGED --"
-  mk "teeth B" "$MUT/B.sh" 's/if ! "\$JAVAC" \$flags -d "\$re" "\$jf" >"\$log" 2>&1; then  # SENTINEL-RECOMPILE-RC/if false; then  # SENTINEL-RECOMPILE-RC/' \
+  mk "teeth B" "$MUT/B.sh" 's/if ! "\$JAVAC_BIN" \$flags -d "\$re" "\$jf" >"\$log" 2>&1; then  # SENTINEL-RECOMPILE-RC/if false; then  # SENTINEL-RECOMPILE-RC/' \
     && tt "teeth B: ignored recompile failure no longer yields FAILED" 0 0 "$MUT/B.sh" \
          --good-has 'Broken mode=g verdict=FAILED reason=recompile$' \
          --bad-lacks 'Broken mode=g verdict=FAILED reason=recompile$' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wB"
@@ -163,7 +181,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --bad-lacks 'Empty mode=g verdict=FAILED reason=no-output' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wC"
 
   echo "-- teeth D: javac probe disabled -> missing javac no longer DEGRADED --"
-  mk "teeth D" "$MUT/D.sh" 's/\[ -x "\$JAVAC_BIN" \]  # SENTINEL-JAVAC-PROBE/true  # SENTINEL-JAVAC-PROBE/' \
+  mk "teeth D" "$MUT/D.sh" 's/{ \[ -f "\$JAVAC_BIN" \] \&\& \[ -x "\$JAVAC_BIN" \]; }  # SENTINEL-JAVAC-PROBE/true  # SENTINEL-JAVAC-PROBE/' \
     && tt "teeth D: javac absent still degrades only with the probe" 4 0 "$MUT/D.sh" \
          --good-has 'reason=javac-missing' --bad-has '^RESULT: DONE' \
          -- env RSDD_FIDELITY_JAVAC=/nonexistent/javac bash @SUT@ --fixtures "$FIX" --work "$MUT/wD"
@@ -193,11 +211,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has 'DEBUGINFO Nocompile g_lvt=unmeasured' --bad-lacks 'g_lvt=unmeasured' \
          --bad-has 'DEBUGINFO Nocompile g_lvt=no' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wH"
 
+  export RSDD_FIDELITY_TIMEOUT=2
   echo "-- teeth I: timeout status 124 no longer typed -> reported as a generic decompile failure --"
-  mk "teeth I" "$MUT/I.sh" 's/if \[ "\$drc" -eq 124 \]; then/if false; then/' \
+  if [ "$HAVE_TIMEOUT" != 1 ]; then echo "  SKIP  teeth I: no timeout/gtimeout binary — not counted"
+  else mk "teeth I" "$MUT/I.sh" 's/\[ "\$drc" -eq 124 \]  # SENTINEL-TIMEOUT-RC/false  # SENTINEL-TIMEOUT-RC/' \
     && tt "teeth I: Hang fixture keeps reason=timeout only with the 124 branch" 0 0 "$MUT/I.sh" \
          --good-has 'Hang mode=g verdict=FAILED reason=timeout$' --bad-lacks 'Hang mode=g verdict=FAILED reason=timeout$' \
          --bad-has 'Hang mode=g verdict=FAILED reason=decompile$' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wI"
+  fi
+
+  echo "-- teeth J: fallback attribution dropped -> degraded cell no longer named --"
+  mk "teeth J" "$MUT/J.sh" 's/\[ "\$drc" -ne 4 \] || fb_note  # SENTINEL-FALLBACK-NOTE/true  # SENTINEL-FALLBACK-NOTE/' \
+    && tt "teeth J: FALLBACK line exists only with the attribution" 0 0 "$MUT/J.sh" \
+         --good-has '^FALLBACK Dbg mode=g engine=stubfb$' --bad-lacks '^FALLBACK Dbg mode=g' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wJ"
+
+  echo "-- teeth K: executable-bit-only probe -> directory accepted as javac --"
+  mk "teeth K" "$MUT/K.sh" 's/{ \[ -f "\$JAVAC_BIN" \] \&\& \[ -x "\$JAVAC_BIN" \]; }  # SENTINEL-JAVAC-PROBE/[ -x "$JAVAC_BIN" ]  # SENTINEL-JAVAC-PROBE/' \
+    && tt "teeth K: a directory is not a usable javac" 4 0 "$MUT/K.sh" \
+         --good-has 'reason=javac-missing' --bad-lacks 'reason=javac-missing' \
+         -- env RSDD_FIDELITY_JAVAC="$ROOT" bash @SUT@ --fixtures "$FIX" --work "$MUT/wK"
+
+  echo "-- teeth L: timeout env validation dropped --"
+  mk "teeth L" "$MUT/L.sh" 's/\[\[ "\$TIMEOUT_SECS" =~ \^\[1-9\]\[0-9\]{0,5}\$ \]\]  # SENTINEL-TIMEOUT-VALIDATE/true  # SENTINEL-TIMEOUT-VALIDATE/' \
+    && tt "teeth L: junk RSDD_FIDELITY_TIMEOUT must stay rc 2" 2 0 "$MUT/L.sh" \
+         --good-has 'RSDD_FIDELITY_TIMEOUT' -- env RSDD_FIDELITY_TIMEOUT=abc bash @SUT@ --fixtures "$FIX" --work "$MUT/wL"
 fi
 
 echo
