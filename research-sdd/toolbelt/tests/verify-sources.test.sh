@@ -1159,7 +1159,7 @@ SED
   mk_sed ED-NORC "$m" 's/_ed_rc=$?/_ed_rc=0/' \
     && tooth "teeth ED-NORC: detector rc ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-rcfail:$PATH" bash @SUT@ "$TMP/ed-clean"
   m="$TMP/mutants/ED-NOTRAILER.sh"
-  mk_sed ED-NOTRAILER "$m" 's/ || ! grep -q .^@@scanned \[0-9\]\[0-9\]\*\$. <<<"\$_ed_out"; then/; then/' \
+  mk_sed ED-NOTRAILER "$m" 's/ || \[ -n "\$_ed_trailer" \]; then/; then/' \
     && tooth "teeth ED-NOTRAILER: missing coverage trailer ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-silent:$PATH" bash @SUT@ "$TMP/ed-clean"
 fi
 

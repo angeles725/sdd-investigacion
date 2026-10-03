@@ -170,7 +170,7 @@ else no "11a hung gh: ${el}s out=[$(grep -i remote <<<"$out")]"; fi
 
 # 11c/11d: timeout binary fallbacks under a hermetic PATH: a stub dir holding symlinks to ONLY the tools the
 # report needs (never timeout/gtimeout); gtimeout is added back as a symlink to the real timeout where wanted.
-REAL_TO="$(command -v timeout 2>/dev/null || true)"
+REAL_TO="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
 mkpath() { # DIR with-gtimeout|none — prints DIR
   local pd="$1" t p; rm -rf "$pd"; mkdir -p "$pd"
   for t in bash env git grep sed awk cat cut tr sort uniq head tail wc date find xargs ls mkdir rm mktemp dirname \

@@ -222,7 +222,9 @@ strip_kit_literals() {
     }'
 }
 
-# classify_binding VAR REAL_RE LIVE-TEXT -> real | temp | unclassified, from VAR's binding lines.
+# classify_binding VAR REAL_RE LIVE-TEXT [EXTRA_TEMP] -> real | temp | unclassified, from VAR's binding lines.
+# EXTRA_TEMP is an optional `|NAME|NAME2` suffix appended to the temp-root alternation, so a caller can
+# declare extra variables (e.g. a temp-bound REPO) whose bindings count as temp.
 classify_binding() {
   local var="$1" real_re="$2" live="$3" extra_temp="${4:-}" bindings
   bindings="$(grep -E "^[[:space:]]*((local|readonly|export|declare)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)?)?${var}=" <<< "$live")" || bindings=""
