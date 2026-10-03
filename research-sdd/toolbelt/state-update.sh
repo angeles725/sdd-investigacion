@@ -22,7 +22,10 @@
 #
 # Usage: state-update.sh <target-dir>
 # Exit: 0 = no change proposed · 1 = change proposed (diff on stdout) · 2 = usage / no state file
-#       3 = DEGRADED (verify-state could not be run or said nothing about a state file; takes precedence over 1)
+#       3 = DEGRADED (takes precedence over 1; any diff already found is still printed): verify-state could not be
+#           run / exited >= 2 / said nothing about a state file; a required tool (diff mktemp awk cmp) is missing or
+#           errored; the state-file listing failed; two state files share a basename; a rewrite failed; or every
+#           state file was skipped (nothing examined)
 # stderr always ends with `checked= skipped= changed= degraded= unproposed=`: `unproposed` counts verify-state
 # FAIL lines this tool does not own (it proposes nothing for them — exit 0 does NOT mean verify-state passes).
 # Env: STATE_UPDATE_VERIFY overrides the path of verify-state.sh (test hook).
@@ -53,7 +56,7 @@ _SFLIB="$here/lib/state-files.sh"
 declare -F list_state_files >/dev/null 2>&1 || { echo "state-update: helper $_SFLIB failed to define list_state_files" >&2; exit 3; }
 
 # SU-DEP-PROBE: a missing tool is a typed DEGRADED, never a silent "no change".
-for _t in diff mktemp awk; do
+for _t in diff mktemp awk cmp; do
   command -v "$_t" >/dev/null 2>&1 || { echo "state-update: DEGRADED — required tool '$_t' not found" >&2; exit 3; }
 done
 
@@ -140,8 +143,9 @@ for s in "${states[@]}"; do
   # corpus-wide number, not this focus's. Writing it would satisfy the lint with a value that is not the
   # focus's count (fleet-measured: 266 -> 1193 on a 90-focus corpus), so covered_blocks is withheld.
   if [ "$base" = "RESEARCH-STATE.md" ] && [ "${#states[@]}" -gt 1 ] && [ -z "$(derive_focus_prefix "$s")" ] \
-     && ! grep -Eq '^[[:space:]]*block_scope:[[:space:]]*shared-global' "$s" && [[ " $sets" == *" covered_blocks="* ]]; then
+     && ! grep -Eq '^[ \t]*block_scope:[ \t]*shared-global' "$s" && [[ " $sets" == *" covered_blocks="* ]]; then
     sets="$(printf '%s' "$sets" | tr ' ' '\n' | grep -v '^covered_blocks=' | tr '\n' ' ')"
+    unproposed=$((unproposed+1))   # SU-WITHHELD-COUNTED: verify-state flagged it and nothing is proposed for it
     echo "state-update: NOTE [$rel] covered_blocks withheld: un-suffixed root of a multi-state corpus with no FOCUSES.md block prefix (verify-state counts the corpus-wide total)" >&2
   fi
   [ -n "$sets$prose" ] || continue
@@ -153,8 +157,8 @@ for s in "${states[@]}"; do
     /<!-- \/research-state.v1 -->/ { for (i=1;i<=n;i++) if (!(order[i] in seen)) print order[i] ": " nv[order[i]]; inb=0; print; next }
     inb { c=index($0,":"); if (c) { k=substr($0,1,c-1); gsub(/^[ \t]+|[ \t]+$/,"",k)
             if (k in nv) { seen[k]=1; cr=($0 ~ /\r$/) ? "\r" : ""; print substr($0,1,c) " " nv[k] cr; next } } }
-    prose != "" && !pdone && tolower($0) ~ /read-only investigable\*?\*?:[[:space:]]*\*?\*?[0-9]+/ {
-      if (match(tolower($0), /investigable\*?\*?:[[:space:]]*\*?\*?[0-9]+/)) {
+    prose != "" && !pdone && tolower($0) ~ /read-only investigable\*?\*?:[ \t]*\*?\*?[0-9]+/ {
+      if (match(tolower($0), /investigable\*?\*?:[ \t]*\*?\*?[0-9]+/)) {
         pre=substr($0,1,RSTART-1); seg=substr($0,RSTART,RLENGTH); post=substr($0,RSTART+RLENGTH)
         sub(/[0-9]+$/, prose, seg); $0=pre seg post; pdone=1 } }
     { print }
@@ -166,9 +170,20 @@ for s in "${states[@]}"; do
     echo "state-update: NOTE [$rel] stop-control prose is stale (backlog derives $prose) but no rewritable 'read-only investigable: N' line was found — nothing proposed for it" >&2
     unproposed=$((unproposed+1))
   fi
-  if ! cmp -s "$s" "$work/proposed"; then
-    diff -u --label "a/$rel" --label "b/$rel" "$s" "$work/proposed"
+  # SU-CMP-DIFF-RC: cmp 0 = same, 1 = differ; diff -u must then exit 1. Any other code is a tool error, never
+  # "no change" and never an empty proposal.
+  cmp -s "$s" "$work/proposed"; crc=$?
+  if [ "$crc" -eq 1 ]; then
+    diff -u --label "a/$rel" --label "b/$rel" "$s" "$work/proposed" > "$work/diff.out" 2> "$work/diff.err"; drc=$?
+    if [ "$drc" -ne 1 ]; then
+      echo "state-update: DEGRADED — $rel: diff failed (rc=$drc): $(head -3 "$work/diff.err" | tr '\n' ' ')" >&2
+      degraded=$((degraded+1)); continue
+    fi
+    cat "$work/diff.out"
     changed=$((changed+1))
+  elif [ "$crc" -ne 0 ]; then
+    echo "state-update: DEGRADED — $rel: cmp failed (rc=$crc)" >&2
+    degraded=$((degraded+1))
   fi
 done
 
