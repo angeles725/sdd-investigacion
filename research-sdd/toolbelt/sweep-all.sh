@@ -3,10 +3,10 @@
 # in sequence, capture each exit status, print a clear per-script PASS/FAIL banner, and exit
 # non-zero if ANY script failed.
 #
-# WHY THIS EXISTS (U-A20): Codex has no session-start hook, so the sweep scripts must be
+# WHY THIS EXISTS (U-A20): Pi and gentle-shell have no session-start hook, so the sweep scripts must be
 # run manually. This shim collapses seven commands into one, raising compliance probability.
 # Claude runs the same seven scripts automatically via its session-start hook —
-# this aggregator is intended for manual or Codex use; it is harmless (but redundant) in Claude.
+# this aggregator is intended for manual, Pi or gentle-shell use; it is harmless (but redundant) in Claude.
 # (OpenCode support was dropped on 2026-09-23 #954.)
 #
 # Each script runs INDEPENDENTLY: a failure or timeout is captured and reported, but NEVER

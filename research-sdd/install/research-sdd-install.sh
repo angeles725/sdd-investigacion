@@ -244,9 +244,10 @@ _rsdd_link_missing_entries() {
 # render-profile.sh did NOT materialize is symlinked in at the same relative path, so every
 # $KIT/... reference inside the rendered SKILL.md/PROMPT-LOOP.md (toolbelt/*.sh, TARGETS.md,
 # templates/, tool-registry.md, other skills/*, ...) still resolves once the installed launcher's
-# "Kit path:" fast-path points HERE instead of at the kit (kit issue #1024 review F1 — pi and
-# gentle-shell default to "general", so a plain re-install was breaking every such reference for
-# their users). Walks <kit>'s TOP LEVEL plus skills/* plus skills/research-sdd/* — the two directory
+# "Kit path:" fast-path points HERE instead of at the kit (kit issue #1024 review F1 — reasonix,
+# since dropped in #1471, defaulted to "general", so a plain re-install was breaking every such
+# reference for its users; the same applies now to pi and gentle-shell, which also default to
+# "general"). Walks <kit>'s TOP LEVEL plus skills/* plus skills/research-sdd/* — the two directory
 # levels a renderer could plausibly touch — rather than hardcoding render-profile.sh's 3 file
 # names, so a future renderer output is completed automatically without editing this function.
 # render-profile.sh's OWN contract is untouched: this lives here, in the installer, on purpose.

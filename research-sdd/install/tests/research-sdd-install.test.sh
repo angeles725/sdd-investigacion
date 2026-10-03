@@ -606,8 +606,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   MUTANT30A="$MKI/adapters.MUTANT30A.$$.sh"
   mutant_sed "$HERE/../adapters.sh" "$MUTANT30A" 's/^RESEARCH_SDD_HARNESSES="claude pi gentle-shell"/RESEARCH_SDD_HARNESSES="claude codex pi gentle-shell"/' \
     || no "teeth: MUTANT30A could not be built (refused by the mutant helper — see above)"
+  # Mutant B is a COMPLETE re-registration of reasonix (every adapter table, default profile "claude"
+  # so the fake kit needs no profile files), so the only thing that normally blocks it is the table.
   MUTANT30B="$MKI/adapters.MUTANT30B.$$.sh"
-  mutant_sed "$HERE/../adapters.sh" "$MUTANT30B" 's/^  \[pi\]=".pi\/agent"$/&\n  [reasonix]=".reasonix"/;s/^  \[pi\]="general"$/&\n  [reasonix]="claude"/' \
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT30B" 's/^declare -A _RSDD_CONFIG_ROOT_REL=($/&\n  [reasonix]=".reasonix"/;s/^declare -A _RSDD_PROMPT_FILE_NAME=($/&\n  [reasonix]="AGENTS.md"/;s/^declare -A _RSDD_PROMPT_STRATEGY=($/&\n  [reasonix]="markdown-sections"/;s/^declare -A _RSDD_SUPPORTS_SLASH=($/&\n  [reasonix]="false"/;s/^declare -A _RSDD_NEEDS_SWEEP=($/&\n  [reasonix]="true"/;s/^declare -A _RSDD_SKILL_SRC_RELKIT=($/&\n  [reasonix]="skills\/research-sdd\/SKILL.md"/;s/^declare -A _RSDD_DEFAULT_PROFILE=($/&\n  [reasonix]="claude"/' \
     || no "teeth: MUTANT30B could not be built (refused by the mutant helper — see above)"
   m30kit="$TMP/m30-fake-kit"
   mkdir -p "$m30kit/install" "$m30kit/skills/research-sdd"
@@ -620,9 +622,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else ok "teeth: re-adding codex to RESEARCH_SDD_HARNESSES changes the supported list → the supported-list check has teeth"; fi
   cp "$MUTANT30B" "$m30kit/install/adapters.sh"
   bash "$m30kit/install/research-sdd-install.sh" --harness reasonix --home "$TMP/m30b-home" >/dev/null 2>&1; rc_m30b=$?
-  if [ "$rc_m30b" -eq 2 ]; then
-    no "teeth: reasonix-re-registered mutant still exits 2 — the dropped-harness check is THEATER"
-  else ok "teeth: re-registering reasonix makes '--harness reasonix' stop failing with exit 2 → the dropped-harness check has teeth"; fi
+  if [ "$rc_m30b" -eq 0 ] && [ -f "$TMP/m30b-home/.reasonix/skills/research-sdd/SKILL.md" ] \
+     && grep -q '<!-- research-sdd:start -->' "$TMP/m30b-home/.reasonix/AGENTS.md" 2>/dev/null; then
+    ok "teeth: a complete reasonix registration installs it (rc 0, SKILL.md + launcher written) → the adapter table is what blocks the dropped harness"
+  else no "teeth: reasonix re-registered but not installed (rc=$rc_m30b) — the dropped-harness check is THEATER"; fi
 
 fi
 
