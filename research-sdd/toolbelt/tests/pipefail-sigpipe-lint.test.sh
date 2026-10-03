@@ -71,7 +71,7 @@ function flagkind(t,   cl) {
 }
 
 # Scan one logical line for `| [wrapper] grep|egrep|fgrep|rg ... <quiet/max-count flag>`.
-function check(text, startline, reason,   i, n, pc, nc, rest, args, m, j, ch, tok, q, intok, fin, hit, k, exempt) {
+function check(text, startline, reason,   kind, i, n, pc, nc, rest, args, m, j, ch, tok, q, intok, fin, hit, k, exempt) {
   n = length(text)
   for (i = 1; i <= n; i++) {
     if (substr(text, i, 1) != "|") continue
@@ -92,10 +92,10 @@ function check(text, startline, reason,   i, n, pc, nc, rest, args, m, j, ch, to
       if (fin || (q == "" && (ch == " " || ch == "\t"))) {
         if (intok) {
           k++
-          q = flagkind(tok)
-          if (q == 2) break
-          if (q == 1) { hit = 1; break }
-          q = ""; tok = ""; intok = 0
+          kind = flagkind(tok)
+          if (kind == 2) break
+          if (kind == 1) { hit = 1; break }
+          tok = ""; intok = 0
           if (k >= maxtok) break
         }
         if (fin) break
@@ -110,8 +110,8 @@ function check(text, startline, reason,   i, n, pc, nc, rest, args, m, j, ch, to
     if (hit) {
       exempt = (reason != "")  # SENTINEL-PFL-EXEMPT
       gsub(/[ \t]+/, " ", text)
-      if (exempt) printf "E\t%s\t%d\t%s\n", FILENAME, startline, reason
-      else printf "V\t%s\t%d\t%s\n", FILENAME, startline, substr(text, 1, 160)
+      if (exempt) printf "E\t%s\t%d\t%s\n", bufname, startline, reason
+      else printf "V\t%s\t%d\t%s\n", bufname, startline, substr(text, 1, 160)
       return
     }
   }
@@ -134,7 +134,7 @@ FNR == 1 { if (inb) finish(); prevmark = "" }
     next
   }
   ncode++
-  if (!inb) { inb = 1; bufstart = FNR; buf = ""; reason = prevmark }
+  if (!inb) { inb = 1; bufstart = FNR; bufname = FILENAME; buf = ""; reason = prevmark }
   if (r != "") reason = r
   prevmark = ""
   t = line
@@ -230,6 +230,13 @@ scan_case "single-line file, no trailing newline: 1 violation" 1 1 0 "1" "$FIX/p
 scan_case "every flag form in forms.txt is flagged (23 lines, each reported)" 1 23 0 "$(seq -s ' ' 1 23)" "$FIX/forms.txt"
 scan_case "split flags (-i -q, -E -i -q, -F -m 1) are flagged" 1 3 0 "1 2 3" "$FIX/split.txt"
 scan_case "multi-line pipe, comment between, backslash forms (5 sites at their first line)" 1 5 0 "1 3 6 8 10" "$FIX/multiline.txt"
+# A buffer left open by the last line of a file (trailing backslash) must be reported under ITS file and line.
+out="$(bash "$SELF" --scan "$FIX/multi-a.txt" "$FIX/multi-b.txt" 2>&1)"
+if grep -q 'VIOLATION .*multi-a\.txt:2:' <<<"$out" && ! grep -q 'multi-b\.txt:[0-9]*: ' <<<"$out"; then ok "multi-file: dangling last line of A is reported under multi-a.txt:2 (A then B)"
+else no "multi-file forward order misattributed: $(grep VIOLATION <<<"$out" | head -3)"; fi
+out="$(bash "$SELF" --scan "$FIX/multi-b.txt" "$FIX/multi-a.txt" 2>&1)"
+if grep -q 'VIOLATION .*multi-a\.txt:2:' <<<"$out" && ! grep -q 'multi-b\.txt:[0-9]*: ' <<<"$out"; then ok "multi-file: reverse order (B then A) still names multi-a.txt:2"
+else no "multi-file reverse order misattributed: $(grep VIOLATION <<<"$out" | head -3)"; fi
 scan_case "comment-only, ||, -c, -o, -v, plain grep, no-pipe, here-string, awk are NOT flagged" 0 0 0 "" "$FIX/nomatch.txt"
 scan_case "exemptions: marker same line / line above / multi-line consumer exempt; no-reason, blank-separated and unmarked flagged" 1 3 3 "6 9 10" "$FIX/exempt.txt"
 
@@ -300,6 +307,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth multiline" "$MUT/multi/$M" '/^  if (t ~ .*# SENTINEL-PFL-MULTILINE$/ s/if ([^{]*) {/if (0) {/' \
     && tooth "teeth multiline: end-of-line pipe not joined → multi-line sites missed" 1 1 "$MUT/multi/$M" \
          --good-has 'violations: 5' --bad-lacks 'violations: 5' --bad-has 'violations: [0-4]' -- bash @SUT@ --scan "$FIX/multiline.txt"
+
+  # Tooth 6: report under FILENAME instead of the name stored when the buffer opened → a dangling last line
+  # of file A is attributed to file B.
+  mk_sed "teeth bufname" "$MUT/bufname/$M" '/^      else printf "V/ s/bufname/FILENAME/' \
+    && tooth "teeth bufname: FILENAME at flush time → violation of A reported under B" 1 1 "$MUT/bufname/$M" \
+         --good-has 'multi-a\.txt:2:' --bad-lacks 'multi-a\.txt:2:' -- bash @SUT@ --scan "$FIX/multi-a.txt" "$FIX/multi-b.txt"
 
   rm -rf "$MUT"
 fi
