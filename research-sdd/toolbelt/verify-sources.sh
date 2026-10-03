@@ -10,7 +10,7 @@
 # Exit: 0 = ok · 1 = preserved-source markers exist but SOURCES.md is missing, or a cited sources/ file is
 #       absent on disk, or a block NAMED in the registry's "cite it" column does not actually reference the
 #       source (fabricated citation, LEVEL 4), or a web-snapshot on disk is not registered in SOURCES.md
-#       (LEVEL 5) · 2 = bad args.
+#       (LEVEL 5), or a registry cell equals the digest of EMPTY input (LEVEL 7, #1487) · 2 = bad args.
 
 set -uo pipefail
 target="${1:-}"
@@ -387,6 +387,45 @@ if [ -f "$sources_md" ]; then
   done < "$sources_md"
   [ "$_nskip" -gt 0 ] && \
     echo "-- non-web-snapshot rows with on-disk files and hashes: $_nskip not hash-verified (LEVEL 6 covers web-snapshots/ only)"
+fi
+
+# LEVEL 7 — EMPTY-INPUT DIGEST (#1487, METHODOLOGY §11a). A registry hash equal to the digest of EMPTY input
+# (sha256 e3b0c442…, sha1 da39a3ee…, md5 d41d8cd9…) proves nothing: it is what a hasher prints when the file
+# was missing or empty at hashing time (n5: kotlin-stdlib registered with the sha256 of nothing). LEVEL 6
+# cannot catch it — the registered file is often gitignored/absent, and an empty on-disk file would even
+# "verify". FAIL (rc=1), a typed `empty-digest:` finding per offending cell.
+#   Scope: EVERY cell of EVERY table row (not just column 5) — a row whose cells shifted left (the malformed-
+#   row case) must not hide the digest. Match is EXACT on the cell after stripping backticks/blanks and
+#   lowercasing, so a longer hex string that merely CONTAINS the digest, or a URL cell that embeds it, never
+#   fires. An elided prefix (`e3b0c442…` / `e3b0c442...`) of >= MIN_PREFIX hex chars also counts: the
+#   registry's own display convention truncates hashes. Shorter prefixes are no claim (cf. LEVEL 6).
+# Runs over the full file, independent of LEVEL 6's sha256sum probe (no external hasher needed).
+if [ -f "$sources_md" ]; then
+  _ed_n=0
+  while IFS= read -r _ed_line; do
+    [ -z "$_ed_line" ] && continue
+    echo "$_ed_line"
+    _ed_n=$((_ed_n + 1)); rc=1
+  done < <(awk -F'|' -v minp="$MIN_PREFIX" '
+    BEGIN { d["sha256"]="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            d["sha1"]="da39a3ee5e6b4b0d3255bfef95601890afd80709"
+            d["md5"]="d41d8cd98f00b204e9800998ecf8427e" }   # EMPTY-DIGEST-TABLE
+    /^\|/ {
+      for (i = 2; i < NF; i++) {
+        v = $i; gsub(/[`[:blank:]]/, "", v); v = tolower(v)
+        if (v == "") continue
+        p = v; el = 0
+        if (sub(/…$/, "", p) || sub(/\.\.\.$/, "", p)) el = 1
+        if (p !~ /^[0-9a-f]+$/) continue
+        for (k in d) {
+          if (p == d[k] || (el && length(p) >= minp && length(p) < length(d[k]) && index(d[k], p) == 1)) {   # EMPTY-DIGEST-MATCH
+            printf "   empty-digest: SOURCES.md line %d — a cell holds the %s digest of EMPTY input (%s%s) — proves nothing (file missing/empty when hashed); re-hash the real file\n", NR, k, substr(p, 1, 16), (length(p) > 16 ? "…" : "")
+          }
+        }
+      }
+    }
+  ' "$sources_md")
+  [ "$_ed_n" -eq 0 ] || echo "-- empty-input digests in SOURCES.md: $_ed_n (FAIL)"
 fi
 
 echo "== exit $rc =="

@@ -953,6 +953,62 @@ grep -q 'orphan-snapshot: sources/web-snapshots/x.md' <<<"$out" && ! grep -q 'or
   || { printf '  FAIL  %-42s (orphan set wrong)\n' "#1228 orphan isolated from root-form row"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# #1487 — EMPTY-INPUT DIGEST (LEVEL 7). A registry hash equal to the digest of empty input proves nothing
+# (the file was missing/empty when hashed). FAIL (exit 1) with a typed `empty-digest:` finding. Exact-cell
+# match only: a longer hex string that merely CONTAINS the digest is a different value and must NOT fire.
+E256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+E1=da39a3ee5e6b4b0d3255bfef95601890afd80709
+EMD5=d41d8cd98f00b204e9800998ecf8427e
+OK_H=abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234
+ed_row() { printf '| %s | datasheet | http://x | 2026-01-01 | %s | — |' "$1" "$2"; }
+ed_corpus() { # <name> <row...>
+  local n="$1"; shift; local d="$TMP/ed-$n"; mkdir -p "$d"
+  block "$d/ed-block1.md" '# Block 1' '## 1.1 [CERT] file.c:10 — local claim.'
+  sources_registry "$d" "$@"; : > "$d/sources/a.pdf"
+}
+ed_check() { # <name> <want-rc> <want-count> <label>
+  local d="$TMP/ed-$1" out got n
+  out="$(bash "$SUT" "$d" 2>&1)"; got=$?
+  n="$(grep -c '^   empty-digest:' <<<"$out")"
+  if [ "$got" = "$2" ] && [ "$n" = "$3" ]; then
+    printf '  PASS  %-42s (exit %s, %s finding(s))\n' "$4" "$got" "$n"; pass=$((pass+1))
+  else
+    printf '  FAIL  %-42s want exit %s/%s finding(s), got %s/%s\n' "$4" "$2" "$3" "$got" "$n"; fail=$((fail+1))
+  fi
+}
+ed_corpus single "$(ed_row a.pdf "$E256")"
+ed_check single 1 1 "#1487 BAD: single row, sha256 empty digest"
+ed_corpus first "$(ed_row a.pdf "$E256")" "$(ed_row b.pdf "$OK_H")" "$(ed_row c.pdf "$OK_H")"
+ed_check first 1 1 "#1487 BAD: empty digest in FIRST row"
+ed_corpus middle "$(ed_row a.pdf "$OK_H")" "$(ed_row b.pdf "$E256")" "$(ed_row c.pdf "$OK_H")"
+ed_check middle 1 1 "#1487 BAD: empty digest in MIDDLE row"
+ed_corpus last "$(ed_row a.pdf "$OK_H")" "$(ed_row b.pdf "$OK_H")" "$(ed_row c.pdf "$E256")"
+ed_check last 1 1 "#1487 BAD: empty digest in LAST row"
+ed_corpus sha1 "$(ed_row a.pdf "$E1")"
+ed_check sha1 1 1 "#1487 BAD: sha1 empty digest"
+ed_corpus md5 "$(ed_row a.pdf "$EMD5")"
+ed_check md5 1 1 "#1487 BAD: md5 empty digest"
+ed_corpus upper "$(ed_row a.pdf "$(printf '%s' "$E256" | tr 'a-f' 'A-F')")"
+ed_check upper 1 1 "#1487 BAD: UPPERCASE empty digest"
+ed_corpus tick "$(ed_row a.pdf "\`$E256\`")"
+ed_check tick 1 1 "#1487 BAD: backticked empty digest"
+ed_corpus elided "$(ed_row a.pdf "e3b0c442…")"
+ed_check elided 1 1 "#1487 BAD: elided empty-digest prefix"
+ed_corpus two "$(ed_row a.pdf "$E256")" "$(ed_row b.pdf "$E1")"
+ed_check two 1 2 "#1487 BAD: two rows -> two findings"
+# NEGATIVES — must stay exit 0 / no finding
+ed_corpus sub-long "$(ed_row a.pdf "${E256}00")" "$(ed_row b.pdf "ff${E1}")"
+ed_check sub-long 0 0 "#1487 GOOD: digest as substring of longer hex"
+ed_corpus sub-prefix "$(ed_row a.pdf "e3b0c4")"
+ed_check sub-prefix 0 0 "#1487 GOOD: short prefix (<8 hex) is no claim"
+ed_corpus other-cell "| a.pdf | datasheet | http://x/$E256 | 2026-01-01 | $OK_H | — |"
+ed_check other-cell 0 0 "#1487 GOOD: digest inside a longer URL cell"
+ed_corpus shifted "| a.pdf | datasheet | $E256 | 2026-01-01 | — |"
+ed_check shifted 1 1 "#1487 BAD: shifted-left row (digest not in col 5)"
+ed_corpus clean "$(ed_row a.pdf "$OK_H")"
+ed_check clean 0 0 "#1487 GOOD: ordinary hash"
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
 # the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
 # mutant_sed refuses an empty / byte-identical / syntax-broken / live-tree mutant (rc 3/4/5/8), so a
@@ -1035,6 +1091,23 @@ SED
     && MUTANT_TOOTH_ICASE=1 tooth "teeth VS49-RC: row-scan rc zeroed" 0 0 "$m" \
          --good-has 'row scan FAILED|row count unavailable' --bad-lacks 'row scan FAILED|row count unavailable' \
          -- env PATH="$_stub_vs49:$PATH" bash @SUT@ "$d_vs49"
+  # #1487 LEVEL 7 teeth: the detector disabled, the exact match widened to substring, the prefix arm dropped,
+  # and the sha1 table entry removed must each flip the verdict on the matching fixture.
+  m="$TMP/mutants/ED-OFF.sh"
+  mk_sed ED-OFF "$m" '/# EMPTY-DIGEST-MATCH$/s/if (.*) {/if (0) {/' \
+    && tooth "teeth ED-OFF: empty-digest match disabled" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-single"
+  m="$TMP/mutants/ED-SUBSTR.sh"
+  mk_sed ED-SUBSTR "$m" '/# EMPTY-DIGEST-MATCH$/s/p == d\[k\]/index(p, d[k]) > 0/' \
+    && tooth "teeth ED-SUBSTR: exact match widened to substring" 0 1 "$m" --bad-has 'empty-digest:' -- bash @SUT@ "$TMP/ed-sub-long"
+  m="$TMP/mutants/ED-NOPFX.sh"
+  mk_sed ED-NOPFX "$m" '/# EMPTY-DIGEST-MATCH$/s/ || (el .*index(d\[k\], p) == 1)//' \
+    && tooth "teeth ED-NOPFX: elided-prefix arm dropped" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-elided"
+  m="$TMP/mutants/ED-NOMD5.sh"
+  mk_sed ED-NOMD5 "$m" '/d\["md5"\]=/s/d41d8cd98f00b204e9800998ecf8427e/00000000000000000000000000000000/' \
+    && tooth "teeth ED-NOMD5: md5 digest dropped from the table" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-md5"
+  m="$TMP/mutants/ED-COL5.sh"
+  mk_sed ED-COL5 "$m" 's/for (i = 2; i < NF; i++) {/for (i = 6; i < 7; i++) {/' \
+    && tooth "teeth ED-COL5: scan narrowed to the sha256 column only" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-shifted"
 fi
 
 echo "== $pass passed · $fail failed =="
