@@ -1807,6 +1807,8 @@ which transition the duration counts from. A `coolingSince` anchor that survived
 
 **DECODED FIELD NAME IS A HYPOTHESIS.** A field name inferred from surrounding context — protocol position, adjacent labels, vendor convention — is a hypothesis, not a fact. Confirm it against the answer key (the system's own export or dump) before computing any derived value from it. A wrong field name does not raise an error; it silently propagates the wrong value through every downstream calculation. (Source: fluke-177x-datos) For the live-system answer key that makes field-name confirmation possible, see SCALE GROUND TRUTH and SAME-SNAPSHOT COMPARISON in §12.
 
+**TYPE-GATED FIELD SEMANTICS (sub-case of the rule above).** One column's meaning can depend on a discriminator/type column in the SAME row, so confirming it for one record type does NOT confirm it for the others: check each type independently before the field enters an aggregate or a display. (Evidence: `events.residual_v` is residual RMS V for `Interrupción`/`Caída`, a signed ΔV for `RVC`, a signed peak V for `Forma de onda` — three quantities under one name, found only by checking every event type.)
+
 **SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.)
 
 **RECOMPUTE-BLINDNESS: at least one check must read consumer state, not derived state.** When a pipeline both APPLIES and ASSUMES a transform, an analysis that recomputes the expected transform cannot detect one that is wrong — both sides agree by construction. At least one check must read the state the CONSUMER reads (the render, the export, the downstream tool output), not the state the analysis derives. A passing registration residual and coverage metric will not detect a 45 km parent offset; only the render — returning empty — will. (Source: blender-llm B44 §44.4.)
@@ -2425,6 +2427,15 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **A negative dynamic result is a first-class finding, not a failed probe.** When a requires-execution step returns a NEGATIVE (the expected behaviour does NOT occur), record it with the same evidence standard as a positive result, and immediately check whether any prior block asserted the corresponding POSITIVE. If one does, §14-correct it in the same pass — do not defer to a later audit or wait for the operator to ask. This is the proactive execution-result pairing rule; it complements §14's proactive measurement-scan rule. B534's honest negative ("moved file is native") §14-corrected B532's "one Java method = HostId gate", but only because the operator kept asking; this rule makes the pairing mandatory on every negative execution result.
 - **SCALE GROUND TRUTH: seek the artefact the system itself PRODUCES as the answer key.** When validating by reproduction, the most reliable answer key is the export, report, or dump the live system produces under its own rules — not a reference transcribed from documentation or a prior analysis. The system-produced artefact reveals field-name bugs, missing fields, and encoding differences that documentation and captures hide. (Source: fluke-177x-datos)
 - **SAME-SNAPSHOT COMPARISON: compare against the EXACT same data snapshot.** When validating by reproduction, any size or timestamp difference between the reference and the test data simulates a false discrepancy. Compare the reproduction against the operator's own artefact from the same measurement session — not a same-day but different-session sample, not a re-export from a different firmware revision. A false discrepancy from mismatched snapshots wastes an iteration and may mask a real bug behind the size-change noise. (Source: fluke-177x-datos)
+- **Integrator-placed config is not derivable from module source — never fabricate its path.** A component's
+  station mount/ORD (e.g. `Programacion/CompresorControl`) is placed by the integrator, not fixed by the module:
+  a `BComponent` does not live under `/Services` by default. If no export, nav or probe names it, record the
+  mount as UNKNOWN (`[INFER]`, §3) and obtain it from a live nav (oBIX) or the operator — do not write a
+  plausible-looking path. (Evidence: a CompPan ORD absent from every tunnel export; operator supplied it.)
+- **A corpus decompile of a NEWER build does not certify an OLDER subject.** When the subject's own class files
+  are present at a different version than the corpus decompile, cross-check the load-bearing branch on the
+  subject's classes with `javap -c` BEFORE writing `[CERT]` (B1166: the newer `BSetPointBinding.saveSetPoint`
+  swallows an Hx failure, the 4.3.58.18 class throws). Absent the subject's classes, mark it a scope divergence (§14).
 - **After an incident, check the DEVICE first (refines §17).** If an iteration was killed/crashed mid-write
   in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
   the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
@@ -2801,6 +2812,11 @@ B64→B55). Make this a habit, not an accident:
   card vs one on the wire) CLARIFIES the prior block's scope rather than refuting it, and must name the
   axis that moved ("correct against a network attacker; this block assumes physical media in hand") so
   two true statements about different threat models are not read as a contradiction.
+- **A settled claim, even in the SAME block, is corrected transparently.** §20's "revise in place" licenses a silent
+  rewrite only while the section still carries an open/provisional marker (`Status: LIVE/UNFOLDING`, `[ASSUMPTION]`).
+  Once a claim is marked settled (`[CERT]`/`[CERT-live]`) — before any other block cites it, or when it was already
+  deployed — a refutation keeps or quotes the retracted claim plus a "corrected — see commit `<sha>`" note, never a
+  same-heading rewrite (B14 §14.10: a wrong verdict ran live on a dashboard and was recoverable only via `git log -p`).
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
 - **Proactively scan for contradictions after computing a measurement.** The reactive rule above fires
   when you revisit a prior claim. Add the proactive complement: after computing a measurement over a
@@ -3074,7 +3090,11 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   Each concurrent lane writes in its OWN worktree (or its own clone) and integrates through commits; a
   cross-lane action over the shared tree waits on the BARRIER above. Reading a peer's untracked or uncommitted
   file is allowed only as evidence marked as such (`[INFER]` until the peer commits) — never as a citation
-  target by number.
+  target by number. Before EDITING a file in a repo shared with live peers, run `git status`/`git diff` on the
+  target first: a dirty tree is a collision risk and may already hold the requested change — coordinate with the
+  owning lane instead of duplicating or clobbering it. When the target repo differs from the session cwd, the
+  harness `isolation: worktree` option builds the worktree from the cwd's repo (the wrong one): create it with
+  `git -C <target> worktree add` and hand the writer that path (PROMPT-LOOP-APPENDIX, harness worktree isolation).
 
 **Intra-focus parallel gap fan-out.** When a single focus has open gaps that map to DISJOINT file sets
 with no cross-gap dependency, those sweeps may be launched concurrently as waves rather than
@@ -3140,7 +3160,7 @@ those entries and the journal to extract reusable kit deltas — it does not aut
 judgment, not the driver's own rationalizations). The retro agent:
 
 1. **Reads the current kit FIRST** — `$KIT/PROMPT-LOOP.md` + `$KIT/METHODOLOGY.md` — and DEDUPES. It proposes
-   only what is genuinely new; a lesson the kit already encodes is noted as "already covered", not re-proposed.
+   only what is genuinely new; a lesson the kit already encodes is noted as "already covered", not re-proposed. **Exception: a lesson that RECURS after being written as prose is not "already covered"** — if the run violated an existing rule, the retro proposes a check, tool or recorded step (and says so in the delta row), not more prose.
 2. **Reviews the run** — blocks written, `§14` cross-block corrections, gaps that stalled or got mis-classified,
    rules that were SKIPPED in practice (e.g. a model tier never set, a gate run where the kit says not to), and
    techniques the operator IMPROVISED that the kit does not name; and consolidates any journal entries
@@ -3729,7 +3749,7 @@ pins its RESOLVED location (or the resolver command that produced it) in the cit
 
 **Pipeline-repo subjects.** When the subject's data directories are REWRITTEN by each pipeline run, the snapshot rule has a specific form: cite only committed blob references (`git show <sha>:<path>`) for any measurement that enters the corpus — never a working-tree path as primary evidence. Three failure modes recur: (1) *stale table* — a prior run's output survives at the current path and reads as fresh data; (2) *phantom regression* — a mid-run snapshot captures an intermediate state and produces a plausible-wrong number; (3) *working-tree drift* — the directory is rewritten while the block is being written, so citations diverge. Enforcement path: per-artifact sha256 execution-provenance stamp in the block header + a `--allow-unpinned` build guard that rejects working-tree paths without an explicit override.
 
-**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. (Source: niagara relayed-cert-live retro.)
+**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. **Exception:** once a section is marked settled (`[CERT]`/`[CERT-live]`), a later refutation follows §14's transparent correction (quote the retracted claim, add a "corrected" note), not a silent rewrite. (Source: niagara relayed-cert-live retro.)
 
 **The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
 something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an
@@ -3759,6 +3779,8 @@ investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md 
 *(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder. **Attribution and preservation requirements for relayed probes:** (a) attribute who ran the probe in the citation (a name or role — distinguishes relay from direct observation); (b) preserve the relayed artifact — screenshot, log extract, diagnostic output — under `sources/probes/` exactly as a direct probe would be; (c) record unitemized residuals as `[INFER]` — items mentioned in the relay that the preserved artifact does not confirm are not `[CERT-live]`. A relayed claim with no preserved artifact stays `[INFER]` for any value-dependent sub-claim. (Source: niagara relayed-cert-live retro.)
 
 *(3) External-product steps in runbook blocks.* A runbook block often mixes corpus `[CERT]` facts (this device's config, locally verified) with external-product steps (how to configure the DNS provider, how to invoke the hosting API). Keep these visually separate: external steps verified against an official source are `[CERT-web]` (URL + access date, §3); unverified external steps are `[INFER]`. A block where `[CERT]` and `[CERT-web]/[INFER]` rows are interleaved without separation is a reviewer red flag — the reader cannot tell which claims are locally verified. Document mode introduces no new markers for this: `[CERT-web]` and `[INFER]` already cover it.
+
+**The displayed label is also a hypothesis (client-facing deliverables).** Before shipping a dashboard, PDF or report, cross-check every operator-facing LABEL against the underlying field's actual semantics and unit — not only its computed value: a plausible label does not confirm what the field holds. (Evidence: B14 §14.13 found `energy_kwh` ~26× inflated and a "151 V pico" that was max-RMS-per-interval; later `pct_depth` was not `%Vnom` despite the deployed "%Vnom" label. See TYPE-GATED FIELD SEMANTICS, §11a.)
 
 **Two-layer alerting pattern (platform-up ≠ payload-freshness).** When a documented deployment relies on an
 external platform-status notification (a tunnel-up ping, an uptime check), that signal covers only the
