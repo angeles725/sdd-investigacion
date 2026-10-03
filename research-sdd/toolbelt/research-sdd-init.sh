@@ -236,7 +236,12 @@ _rsdd_merge_settings() {
     ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
     ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
     ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
-    ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // []) as $pk_cmds |
+    # kit issue #1509: the guard only protects Bash, so a registration counts as "present" ONLY under
+    # a matcher that fires for Bash ("" / absent / "*" / a regex that fully matches "Bash"); the same
+    # command under e.g. matcher "Edit" is not the guard wired. An invalid regex counts as not covering.
+    def covers_bash: (.matcher // "") as $m |
+      ($m == "" or $m == "*" or (try ("Bash" | test("^(?:" + $m + ")$")) catch false));
+    ((.hooks.PreToolUse // []) | map(select(covers_bash) | .hooks // [] | map(.command)) | add // []) as $pk_cmds |
     ($pk_cmds | any(. as $c | ($pk_variants | index($c)) != null)) as $has_pk |
     (.hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
       else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
@@ -254,6 +259,16 @@ _rsdd_merge_settings() {
 _rsdd_print_wire_snippet() {
   local stop_cmd="$1" ss_cmd="$2" skip_ss="$3" tgt="$4" pk_cmd="$5"
   echo "-- §479 HOOK WIRING snippet (paste into $tgt/.claude/settings.json) --"
+  _rsdd_print_wire_block "$stop_cmd" "$ss_cmd" "$skip_ss" "$pk_cmd"
+  if [ "$skip_ss" = "true" ]; then
+    echo "-- SessionStart omitted: $ss_cmd still has the <SUBJECT> placeholder (adapt it first, PROMPT-LOOP §c follow-up) --"
+  fi
+}
+
+# kit issue #1509: the JSON block alone, shared by the wire-only/degraded snippet above AND the
+# scaffold print-only snippet (they used to carry two hand-copied renderings of the same block).
+_rsdd_print_wire_block() {
+  local stop_cmd="$1" ss_cmd="$2" skip_ss="$3" pk_cmd="$4"
   # kit issue #1496: PreToolUse (matcher Bash) carries the pkill-guard; it takes no per-target
   # params, so it is always offered (like Stop). SessionStart is omitted while unadapted (#959).
   local pk_entry="      {\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$pk_cmd\"}]}"
@@ -266,7 +281,6 @@ _rsdd_print_wire_snippet() {
       '    "PreToolUse": [' "$pk_entry" '    ]' \
       '  }' \
       '}'
-    echo "-- SessionStart omitted: $ss_cmd still has the <SUBJECT> placeholder (adapt it first, PROMPT-LOOP §c follow-up) --"
   else
     printf '%s\n' '{' \
       '  "hooks": {' \
@@ -644,6 +658,10 @@ echo
 _stop_cmd="$target/.claude/hooks/retro-gate-stop.sh"
 _ss_cmd="$target/.claude/hooks/research-protocol.sh"
 _pk_cmd="$target/.claude/hooks/pkill-guard.sh"
+# $CLAUDE_PROJECT_DIR-relative forms the shared merge also recognises (kit issue #1509: named once).
+_stop_rel=".claude/hooks/retro-gate-stop.sh"
+_ss_rel=".claude/hooks/research-protocol.sh"
+_pk_rel=".claude/hooks/pkill-guard.sh"
 _settings="$target/.claude/settings.json"
 _wire_result="skip"
 
@@ -671,21 +689,47 @@ if [ "$wire" = 1 ]; then
     _tmp_settings="$(mktemp)"
     # Idempotent merge via the SAME shared predicate as the wire-only path (kit issue #1496): Stop,
     # SessionStart and PreToolUse are each added only if no equivalent registration form is present.
-    if printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
-        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \
-        "$_wire_skip_ss" 2>/dev/null | jq '.settings' > "$_tmp_settings" 2>/dev/null \
+    # kit issue #1509: keep the merge's {settings, has_*} output (it used to be piped straight into
+    # `jq .settings`, discarding the has-* flags) so each hook's registered/already-wired state is reported.
+    # The merge sits INSIDE the if-guard (as in the wire-only path): under `set -e` an unguarded
+    # failing assignment would abort with jq's raw exit code (5) and no typed message (kit issue #1509).
+    if _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
+        "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" 2>/dev/null)" \
+        && [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
         && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
       _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
-      if [ "$_wire_skip_ss" = "true" ]; then
-        echo "  wired  : Stop hook registered in $_settings (SessionStart skipped — see WARN above)"
+      _wire_has_stop="$(jq -r '.has_stop' <<<"$_wire_merge_out")"
+      _wire_has_ss="$(jq -r '.has_ss' <<<"$_wire_merge_out")"
+      _wire_has_pk="$(jq -r '.has_pk' <<<"$_wire_merge_out")"
+      if [ "$_wire_has_pk" = "true" ]; then
+        echo "  wired  : PreToolUse pkill-guard hook already wired in $_settings"
       else
-        echo "  wired  : hooks registered in $_settings"
+        echo "  wired  : PreToolUse pkill-guard hook registered in $_settings"
+      fi
+      if [ "$_wire_has_stop" = "true" ]; then
+        echo "  wired  : Stop hook already wired in $_settings"
+      else
+        echo "  wired  : Stop hook registered in $_settings"
+      fi
+      if [ "$_wire_skip_ss" = "true" ]; then
+        if [ "$_wire_has_ss" = "true" ]; then
+          echo "  wired  : SessionStart hook already wired in $_settings (left as-is — <SUBJECT> placeholder is live, so the existing entry was not touched or re-added)"
+        else
+          echo "  skipped: SessionStart hook NOT registered (unadapted <SUBJECT> placeholder — see WARN above)"
+        fi
+      elif [ "$_wire_has_ss" = "true" ]; then
+        echo "  wired  : SessionStart hook already wired in $_settings"
+      else
+        echo "  wired  : SessionStart hook registered in $_settings"
       fi
       _wire_result="wired"
     else
       rm -f "$_tmp_settings"
-      echo "degraded: jq failed to process $_settings — falling back to print" >&2
+      # Same contract as the wire-only path: typed message, snippet to paste, exit 4 (a failed
+      # merge must never read as success; the scaffold itself already completed, settings.json is untouched).
+      echo "degraded: jq failed on $_settings — refusing to report success (settings.json untouched; paste the snippet below, or fix the file and re-run with --wire)" >&2
       _wire_result="degraded"
+      _wire_merge_failed=1
     fi
   fi
 fi
@@ -694,18 +738,8 @@ fi
 if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself, or re-run with --wire) --"
   echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
-  printf '%s\n' '{' \
-    '  "hooks": {' \
-    '    "Stop": [' \
-    '      {"matcher":"","hooks":[{"type":"command","command":"'"$_stop_cmd"'"}]}' \
-    '    ],' \
-    '    "PreToolUse": [' \
-    '      {"matcher":"Bash","hooks":[{"type":"command","command":"'"$_pk_cmd"'"}]}' \
-    '    ],' \
-    '    "SessionStart": [' \
-    '      {"matcher":"","hooks":[{"type":"command","command":"'"$_ss_cmd"'"}]}' \
-    '    ]' \
-    '  }' \
-    '}'
+  _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "false" "$_pk_cmd"
 fi
 echo "== done =="
+# kit issue #1509: a failed settings.json merge on the scaffold --wire path exits 4 (see header).
+if [ "${_wire_merge_failed:-0}" = 1 ]; then exit 4; fi

@@ -1492,7 +1492,9 @@ else
     echo "  SKIP  K1496-g: jq still reachable after dir exclusion"
   else
     d="$TMP/1496-g"; mkdir -p "$d"; : > "$d/INDEX.md"
-    PATH="$_g_pnojq" bash "$SUT" "$d" --wire >"$TMP/1496-g.out" 2>/dev/null
+    PATH="$_g_pnojq" bash "$SUT" "$d" --wire >"$TMP/1496-g.out" 2>"$TMP/1496-g.err"
+    # #1509: prove the run reached the jq-absent branch (not died early for an unrelated PATH reason).
+    assert_grep "K1496-g run reached the jq-absent degraded branch" "degraded: jq not found" "$TMP/1496-g.err"
     assert_grep "K1496-g jq-absent snippet carries the PreToolUse guard" "\"command\":\"$d/.claude/hooks/pkill-guard.sh\"" "$TMP/1496-g.out"
     assert_absent "K1496-g jq-absent: no hook file written" "$d/.claude/hooks/pkill-guard.sh"
   fi
@@ -1525,6 +1527,79 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --wire >"$TMP/1496-j.out" 2>&1
   assert_grep "K1496-j kept non-executable guard warns" "WARN: $d/.claude/hooks/pkill-guard.sh is not executable" "$TMP/1496-j.out"
   [ ! -x "$d/.claude/hooks/pkill-guard.sh" ] && ok "K1496-j kept guard left untouched (still not executable)" || no "K1496-j kept guard was modified"
+fi
+
+# ---- kit issue #1509: matcher-aware pkill-guard dedup; scaffold --wire reports per-hook state ------
+if command -v jq >/dev/null 2>&1; then
+  # <settings> <guard-cmd> -> number of guard registrations whose matcher COVERS the Bash tool
+  _k9_nbash() {
+    jq --arg c "$2" '[.hooks.PreToolUse[]? | select(((.matcher // "") as $m | ($m == "" or $m == "*") or (try ("Bash" | test("^(?:" + $m + ")$")) catch false))) | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null
+  }
+  # (a) a guard registered ONLY under a matcher that never fires for Bash (Edit) is NOT "present":
+  # the wire-only repair and scaffold --wire must each register a Bash-covering entry.
+  for _k9_mode in wireonly scaffold; do
+    d="$TMP/1509-a-$_k9_mode"; mkdir -p "$d/.claude"
+    [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
+    printf '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
+    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
+    [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "1" ] \
+      && ok "K1509-a ($_k9_mode) guard under a non-Bash matcher is not counted as present; a Bash-covering entry is added" \
+      || no "K1509-a ($_k9_mode) guard under matcher Edit was deduped - Bash is unguarded (covering entries: $(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh"))"
+  done
+  # (c) controls: matchers that DO cover Bash (empty, absent, "*", alternation, exact) are present - not re-added.
+  _k9_i=0
+  for _k9_m in '"matcher":"",' '' '"matcher":"*",' '"matcher":"Bash|Edit",' '"matcher":"Bash",'; do
+    _k9_i=$((_k9_i+1))
+    for _k9_mode in wireonly scaffold; do
+      d="$TMP/1509-c$_k9_i-$_k9_mode"; mkdir -p "$d/.claude"
+      [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
+      printf '{"hooks":{"PreToolUse":[{%s"hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$_k9_m" "$d" > "$d/.claude/settings.json"
+      if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
+      [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
+        && ok "K1509-c ($_k9_mode, matcher [$_k9_m]) Bash-covering registration is deduped" \
+        || no "K1509-c ($_k9_mode, matcher [$_k9_m]) Bash-covering registration was double-registered"
+    done
+  done
+  # (d) scaffold --wire reports each hook's state: fresh -> registered; already present -> already wired.
+  d="$TMP/1509-d"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d1.out" 2>&1
+  assert_grep "K1509-d fresh scaffold --wire reports the guard as registered" "PreToolUse pkill-guard hook registered in" "$TMP/1509-d1.out"
+  assert_grep "K1509-d fresh scaffold --wire reports Stop as registered" "Stop hook registered in" "$TMP/1509-d1.out"
+  d="$TMP/1509-d3"; mkdir -p "$d/.claude"
+  printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d3.out" 2>&1
+  assert_grep "K1509-d scaffold --wire on an already-registered guard says already wired" "PreToolUse pkill-guard hook already wired" "$TMP/1509-d3.out"
+  assert_grep "K1509-d scaffold --wire still registers the absent Stop hook" "Stop hook registered in" "$TMP/1509-d3.out"
+  # (f) a merge FAILURE on the scaffold --wire path (settings.json whose .hooks is a string, so the
+  # shared merge's jq errors) is a typed, guarded failure like the wire-only path: message names the
+  # file + "refusing to report success", exit 4, settings.json byte-untouched, and no bare errexit abort.
+  d="$TMP/1509-f"; mkdir -p "$d/.claude"
+  printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-f.out" 2>"$TMP/1509-f.err"; _k9_rc=$?
+  [ "$_k9_rc" = 4 ] && ok "K1509-f scaffold --wire merge failure exits 4" || no "K1509-f scaffold --wire merge failure: exit $_k9_rc (want 4); stderr: $(tail -3 "$TMP/1509-f.err" | tr '\n' ' ')"
+  assert_grep "K1509-f typed message on stderr" "degraded: jq failed on $d/.claude/settings.json — refusing to report success" "$TMP/1509-f.err"
+  [ "$(cat "$d/.claude/settings.json")" = '{"hooks":"oops"}' ] && ok "K1509-f settings.json untouched on merge failure" || no "K1509-f settings.json was modified on merge failure"
+  assert_grep "K1509-f paste-able snippet still printed" '"PreToolUse"' "$TMP/1509-f.out"
+  # (e) the scaffold print-only snippet and the wire-only (jq-absent) snippet carry the identical hook block.
+  # jq-absent PATH is an ALLOWLIST of symlinks (not "PATH minus jq's dir", which also drops bash/coreutils
+  # when jq lives in /usr/bin) and the run is asserted to have reached the degraded branch.
+  d="$TMP/1509-e"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat >"$TMP/1509-e1.out" 2>&1
+  d2="$TMP/1509-e2"; mkdir -p "$d2"; : > "$d2/INDEX.md"
+  _k9_nojq="$TMP/1509-nojq-bin"; mkdir -p "$_k9_nojq"
+  for _k9_t in bash cat mktemp rm mkdir cp chmod grep sed tr dirname basename date ls ln mv head tail sort wc printf env readlink cut awk git find uname id touch cmp diff tee; do
+    _k9_p="$(command -v "$_k9_t" 2>/dev/null)"; [ -n "$_k9_p" ] && [ -x "$_k9_p" ] && ln -sf "$_k9_p" "$_k9_nojq/$_k9_t"
+  done
+  PATH="$_k9_nojq" bash "$SUT" "$d2" --wire >"$TMP/1509-e2.out" 2>"$TMP/1509-e2.err"
+  assert_grep "K1509-e jq-absent (allowlist PATH) reaches the degraded branch" "degraded: jq not found" "$TMP/1509-e2.err"
+  # SessionStart is legitimately omitted on the wire-only path (no adapted hook), so compare the
+  # Stop + PreToolUse portion only (everything before the SessionStart key), target path normalised.
+  # Only the hook entries ("matcher" lines) are compared: the closing-bracket lines legitimately differ
+  # (a trailing comma when SessionStart follows).
+  _k9_blk() { sed -n '/^{$/,/^}$/p' "$1" | sed '/"SessionStart"/,$d' | grep -F '"matcher"' | sed "s|$2|<T>|g"; }
+  [ -n "$(_k9_blk "$TMP/1509-e1.out" "$d")" ] && [ "$(_k9_blk "$TMP/1509-e1.out" "$d")" = "$(_k9_blk "$TMP/1509-e2.out" "$d2")" ] \
+    && ok "K1509-e scaffold snippet and wire-only snippet carry the identical Stop+PreToolUse block" \
+    || no "K1509-e snippet blocks diverge between the scaffold and wire-only paths"
 fi
 
 
@@ -2721,6 +2796,39 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       && ok "teeth M-1496-MATCHER: matcher changed away from Bash — K1496-b has teeth" \
       || no "teeth M-1496-MATCHER: matcher still Bash — THEATER"
   else no "teeth M-1496-MATCHER: could not build mutant"; fi
+  # M-1509-MATCHER-AGNOSTIC: the dedup ignores the matcher again → a guard under matcher Edit is "present".
+  if _k43_build k99ma -e 's/map(select(covers_bash) | \.hooks/map(.hooks/'; then
+    d="$TMP/k43/k99ma-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99ma)" "$d" --wire >/dev/null 2>&1
+    [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
+      && ok "teeth M-1509-MATCHER-AGNOSTIC: matcher-blind dedup leaves Bash unguarded — K1509-a has teeth" \
+      || no "teeth M-1509-MATCHER-AGNOSTIC: still registered a Bash entry — THEATER"
+  else no "teeth M-1509-MATCHER-AGNOSTIC: could not build mutant"; fi
+  # M-1509-SCAFFOLD-REPORT: scaffold --wire stops reading the guard's has-flag → always claims "registered".
+  if _k43_build k99sr -e 's/"\$_wire_has_pk" = "true"/"$_wire_has_pk" = "never"/'; then
+    d="$TMP/k43/k99sr-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99sr)" "$d" --corpus flat --scaffold --wire >"$TMP/k99sr.out" 2>&1
+    grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k99sr.out" && no "teeth M-1509-SCAFFOLD-REPORT: still reports already wired — THEATER" \
+      || ok "teeth M-1509-SCAFFOLD-REPORT: wrong report without the flag — K1509-d has teeth"
+  else no "teeth M-1509-SCAFFOLD-REPORT: could not build mutant"; fi
+  # M-1509-MERGE-FAIL-EXIT: the scaffold --wire merge-failure exit is dropped → failure reads as success.
+  if _k43_build k99mf -e 's/^if \[ "\${_wire_merge_failed:-0}" = 1 \]; then exit 4; fi$/:/'; then
+    d="$TMP/k43/k99mf-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99mf)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?
+    [ "$_k9_rc" != 4 ] && ok "teeth M-1509-MERGE-FAIL-EXIT: without the exit a merge failure is silent success (rc=$_k9_rc) — K1509-f has teeth" \
+      || no "teeth M-1509-MERGE-FAIL-EXIT: still exit 4 — THEATER"
+  else no "teeth M-1509-MERGE-FAIL-EXIT: could not build mutant"; fi
+  # M-1509-MERGE-FAIL-MSG: the typed failure message is lost.
+  if _k43_build k99mm -e 's/refusing to report success (settings.json untouched/quietly continuing (settings.json untouched/'; then
+    d="$TMP/k43/k99mm-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
+    bash "$(_k96_inits k99mm)" "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/k99mm.err"
+    grep -qF "refusing to report success" "$TMP/k99mm.err" && no "teeth M-1509-MERGE-FAIL-MSG: message still present — THEATER" \
+      || ok "teeth M-1509-MERGE-FAIL-MSG: typed message gone — K1509-f has teeth"
+  else no "teeth M-1509-MERGE-FAIL-MSG: could not build mutant"; fi
   # M-1496-WO-MERGE: wire-only merge no longer adds the PreToolUse entry.
   if _k43_build k96wm -e 's/(\.hooks\.PreToolUse = (if \$has_pk then/(.hooks.PreToolUse = (if true then/'; then
     d="$TMP/k43/k96wm-t"; mkdir -p "$d"; : > "$d/INDEX.md"
@@ -2751,12 +2859,12 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     printf '%s %s' "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)"
   }
   # M-1496-SCAFFOLD-PK-REL: the scaffold path loses the guard's relative form → exact-string dedup again.
-  if _k43_build k96pr -e 's|^        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\$|        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" "nope-pk" \\|'; then
+  if _k43_build k96pr -e 's|^_pk_rel=".claude/hooks/pkill-guard.sh"$|_pk_rel="nope-pk"|'; then
     [ "$(_k96i_run k96pr | cut -d' ' -f1)" = "2" ] && ok "teeth M-1496-SCAFFOLD-PK-REL: scaffold --wire double-registers the guard without the shared forms — K1496-i has teeth" \
       || no "teeth M-1496-SCAFFOLD-PK-REL: still deduped — THEATER"
   else no "teeth M-1496-SCAFFOLD-PK-REL: could not build mutant"; fi
   # M-1496-SCAFFOLD-STOP-REL: same for the Stop hook.
-  if _k43_build k96sr -e 's|^        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\$|        "nope-stop" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\|'; then
+  if _k43_build k96sr -e 's|^_stop_rel=".claude/hooks/retro-gate-stop.sh"$|_stop_rel="nope-stop"|'; then
     [ "$(_k96i_run k96sr | cut -d' ' -f2)" = "2" ] && ok "teeth M-1496-SCAFFOLD-STOP-REL: scaffold --wire double-registers Stop without the shared forms — K1496-i has teeth" \
       || no "teeth M-1496-SCAFFOLD-STOP-REL: still deduped — THEATER"
   else no "teeth M-1496-SCAFFOLD-STOP-REL: could not build mutant"; fi
