@@ -1694,6 +1694,7 @@ GHEOF
     && ok "K1271-h gh missing: typed DEGRADED (gh not found), scaffold exit 0" || no "K1271-h gh missing: rc=$_k71_rc"
   assert_absent "K1271-h gh missing: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
 
+  if command -v timeout >/dev/null 2>&1; then   # K1271-i/o need a real timeout(1)
   # K1271-i gh hangs → bounded by timeout (RSDD_GH_TIMEOUT), typed DEGRADED "gh timed out"; prompts disabled
   d="$(_k71_target i https://example.invalid/x.git)"; : > "$TMP/k71.gh.log"
   RSDD_GH_TIMEOUT=1 K71_SLEEP=6 _k71_run "$d" PUBLIC 0
@@ -1718,6 +1719,7 @@ TOEOF
   d="$(_k71_target o-ok https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
   PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && ok "K1271-o valid RSDD_GH_TIMEOUT=7 honoured" || no "K1271-o valid RSDD_GH_TIMEOUT=7 not honoured"
+  else echo "  SKIP  K1271-i/o: GNU timeout not on PATH (the SUT then runs gh unbounded, announced)"; fi
   # K1271-p rc 125 (timeout itself failed) has its own wording; gh's first stderr line is surfaced on failure
   d="$(_k71_target p1 https://example.invalid/x.git)"
   PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
@@ -3135,6 +3137,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'vendor-leak: NO-REMOTE' "$TMP/k71t.out" && no "teeth M-1271-NOREMOTE: typed NO-REMOTE survives — K1271-e is THEATER" \
       || ok "teeth M-1271-NOREMOTE: typed NO-REMOTE gone without the short-circuit — K1271-e has teeth"
   else no "teeth M-1271-NOREMOTE: could not build mutant"; fi
+  if command -v timeout >/dev/null 2>&1; then   # these mutants need a real timeout(1)
   # M-1271-TIMEOUT: the probe is no longer wrapped in `timeout` → a hanging gh is not cut off (stub sleeps 3s, limit 1s).
   if _k43_build k71to -e 's#^    gh_cmd=(timeout "\$gh_t" "\${gh_cmd\[@\]}")$#    : #'; then
     d="$(_k71_target t-to https://example.invalid/x.git)"; : > "$TMP/k71t.out"
@@ -3149,6 +3152,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1271-TOVALID: 0 reaches timeout without validation — K1271-o has teeth" \
       || no "teeth M-1271-TOVALID: timeout got '$(head -1 "$TMP/k71.to.log")' — K1271-o is THEATER"
   else no "teeth M-1271-TOVALID: could not build mutant"; fi
+  else echo "  SKIP  teeth M-1271-TIMEOUT/TOVALID: GNU timeout not on PATH"; fi
   # M-1271-RC125: rc 125 loses its own wording.
   if _k43_build k71r5 -e 's#^  elif \[ "\$gh_rc" = 125 \]; then$#  elif false; then#'; then
     d="$(_k71_target t-r5 https://example.invalid/x.git)"
