@@ -16,6 +16,8 @@ REGISTRY="$TB/tool-registry.md"
 [ -f "$REGISTRY" ] || { echo "FATAL: tool-registry.md not found: $REGISTRY" >&2; exit 2; }
 
 pass=0; fail=0
+# One EXIT trap for every teeth temp dir (a later `trap` replaces an earlier one, leaking the rest).
+trap 'rm -rf "${tmp:-}" "${tmp_m:-}" "${tmp_g:-}"' EXIT
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 echo "== tool-registry-discoverability.test.sh =="
@@ -63,7 +65,6 @@ check_registry "$REGISTRY"
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove jvm-callgraph.sh row from a registry copy; check must flag it --"
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
   mutant="$tmp/tool-registry.md"
   grep -v 'jvm-callgraph' "$REGISTRY" > "$mutant"
   mut_fail=0
@@ -107,7 +108,6 @@ check_native_modes "$REGISTRY"
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove decompile-native.sh r2 row from a registry copy; modes check must flag it --"
   tmp_m="$(mktemp -d)"
-  trap 'rm -rf "$tmp_m"' EXIT
   mutant_m="$tmp_m/tool-registry.md"
   grep -v 'decompile-native\.sh r2' "$REGISTRY" > "$mutant_m"
   mut_mode_fail=0
@@ -158,7 +158,6 @@ check_gates "$REGISTRY"
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove scan-secrets.sh row from a registry copy; gates check must flag it --"
   tmp_g="$(mktemp -d)"
-  trap 'rm -rf "$tmp_g"' EXIT
   mutant_g="$tmp_g/tool-registry.md"
   grep -v 'scan-secrets' "$REGISTRY" > "$mutant_g"
   mut_gate_fail=0

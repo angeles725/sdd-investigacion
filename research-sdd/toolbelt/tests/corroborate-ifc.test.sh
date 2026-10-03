@@ -255,6 +255,7 @@ else
   # Mutant failed to run → wrong mutation, or mutation broke something structural
   mut_no "mutant failed to run (mutation too destructive or wrong)"
 fi
+rm -rf "$MUTDIR"
 
 pass=$((pass + MUT_PASS))
 fail=$((fail + MUT_FAIL))
