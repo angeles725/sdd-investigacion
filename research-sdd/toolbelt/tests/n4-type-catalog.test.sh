@@ -187,6 +187,76 @@ LEFT="$(find "$ROOT" -name '*.tmp.*' | wc -l)"
 LEFT="$(find "$ROOT" -maxdepth 1 -name 'atomic.json.tmp.*' | wc -l)"
 [ "$LEFT" = 0 ] && [ -s "$ROOT/atomic.json" ] && ok "T13c success leaves only the final file" || no "T13c temp left ($LEFT) or catalog missing"
 
+# --- T14 a root whose .java files are ALL unreadable is degraded (exit 2), never a no-match (exit 1) ----
+mkdir -p "$ROOT/allunr/sub"
+ln -s "$ROOT/allunr/nowhere" "$ROOT/allunr/sub/Dead.java"
+run "$SUT" build "$ROOT/allunr" --out "$ROOT/allunr.json"
+rc_is "T14a only unreadable .java files exits 2" 2
+has "T14a typed degraded message names the counts" "$ERR" 'degraded.*1 unreadable.*0 .*readable'
+[ ! -e "$ROOT/allunr.json" ] && ok "T14a no catalog written" || no "T14a catalog written for an unreadable root"
+run "$SUT" show "$ROOT/allunr" BFoo
+rc_is "T14b show over an all-unreadable dir exits 2" 2
+mkdir -p "$ROOT/lockroot/inner"
+chmod 000 "$ROOT/lockroot"
+if [ "$(id -u)" != 0 ] && ! ls "$ROOT/lockroot" >/dev/null 2>&1; then
+  run "$SUT" build "$ROOT/lockroot" --out "$ROOT/lockroot.json"
+  rc_is "T14c unreadable root directory exits 2 (not 'no .java files')" 2
+else
+  echo "  SKIP  T14c unreadable root (running as root or chmod ineffective)"
+fi
+chmod 755 "$ROOT/lockroot"
+
+# --- T15 show on a malformed catalog is a typed exit 2, never a traceback --------------------------------
+printf '[]' > "$ROOT/m-list.json"
+printf '{"a.B": 5}' > "$ROOT/m-scalar.json"
+printf '{"a.B": {"extends": "X"}}' > "$ROOT/m-nokeys.json"
+printf '{"a.B": {"extends": "X", "properties": [{"name": "p"}], "actions": [], "topics": []}}' > "$ROOT/m-noflags.json"
+printf '{"a.B": {"extends": "X", "properties": [5], "actions": [], "topics": []}}' > "$ROOT/m-badslot.json"
+printf '{not json' > "$ROOT/m-syntax.json"
+for m in list scalar nokeys noflags badslot syntax; do
+  run "$SUT" show "$ROOT/m-$m.json" B
+  rc_is "T15 malformed catalog ($m) exits 2" 2
+  has "T15 ($m) typed message" "$ERR" 'cannot load catalog'
+  lacks "T15 ($m) no traceback" "$ERR" 'Traceback'
+done
+
+# --- T16 numeric flag forms: hex, multi-token numeric, mixed with a named flag ------------------------------
+mkdir -p "$ROOT/num"
+cat > "$ROOT/num/BNum.java" <<'JAVA'
+package demo.num;
+public class BNum extends BComponent
+{
+  public static final Property hex = newProperty(0x10, BString.DEFAULT, null);
+  public static final Property multi = newProperty((int)1024 | 8, BString.DEFAULT, null);
+  public static final Property mixed = newProperty(Flags.READONLY | 0x10 | (int)256, BString.DEFAULT, null);
+}
+JAVA
+run "$SUT" show "$ROOT/num" BNum
+rc_is "T16 show numeric forms exits 0" 0
+has "T16 hex 0x10 decodes to 16 letter a" "$OUT" 'hex +flags=16 +a '
+has "T16 multi-token numeric (int)1024 | 8 decodes to 1032" "$OUT" 'multi +flags=1032 +sf '
+has "T16 named | hex | cast decodes to 273" "$OUT" 'mixed +flags=273 +rao '
+
+# --- T17 unknown tokens of a dropped duplicate are not counted or warned -----------------------------------
+cp -r "$FX/doc" "$ROOT/dupdoc"
+run "$SUT" build "$FX/doc" "$ROOT/dupdoc" --out "$ROOT/dupdoc.json"
+has "T17 duplicate tree adds no unknown-flag-tokens" "$OUT" 'unknown-flag-tokens: 1 '
+n_warn="$(grep -c 'unknown flag token' <<<"$ERR")"
+[ "$n_warn" = 1 ] && ok "T17 the token is warned once, not per duplicate" || no "T17 warned $n_warn times"
+
+# --- T18 show: empty catalog is distinct from an unknown type; hits are sorted -----------------------------
+run "$SUT" show "$ROOT/empty" BFoo
+rc_is "T18a show over a dir with no types exits 1" 1
+has "T18a says the catalog is empty, not 'no such type'" "$ERR" 'no types catalogued'
+# walk order (dir a, b, c) is zz, mm, aa: the natural order is the REVERSE of sorted, so only the sort can fix it
+mkdir -p "$ROOT/two/a" "$ROOT/two/b" "$ROOT/two/c"
+sed 's/package demo.pkg;/package zz.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/a/BFoo.java"
+sed 's/package demo.pkg;/package aa.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/c/BFoo.java"
+sed 's/package demo.pkg;/package mm.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/b/BFoo.java"
+run "$SUT" show "$ROOT/two" BFoo
+SEQ="$(grep -oE '^[a-z.]+BFoo' <<<"$OUT" | paste -sd, -)"
+[ "$SEQ" = "aa.pkg.BFoo,mm.pkg.BFoo,zz.pkg.BFoo" ] && ok "T18b ambiguous suffix hits print in sorted order" || no "T18b hit sequence [$SEQ]"
+
 # ======================== MUTATION CONTROLS — --prove-teeth ==========================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of n4_type_catalog.py must flip a specific verdict --"
@@ -227,7 +297,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mp "M5 2-arg action branch disabled: ping keeps empty default" 's/if len(args) == 2:/if len(args) == 99:/' 'ping +flags=16 +a +default= facets=BFacets\.NULL' show "$FX/doc" BFoo
   mp "M6 unknown flag tokens dropped silently" 's/unknown\.append(tok)/pass/' 'unknown-flag-tokens: 1' build "$FX/doc"
   FIFO_DIR="$ROOT/fifodir"; mkdir -p "$FIFO_DIR"; cp "$FX/doc/pkg/BFoo.java" "$FIFO_DIR/"; mkfifo "$FIFO_DIR/Pipe.java"
-  mx "M7 absent-root guard removed (exit 2 -> not 2)" 's/if not os\.path\.isdir(root):/if False:/' 2 1 build "$ROOT/does-not-exist"
+  MP_RC=2 mp "M7 absent-root guard removed: the typed 'not a directory' message must survive" 's/if not os\.path\.isdir(root):/if False:/' 'not a directory.*does-not-exist' build "$ROOT/does-not-exist"
   mp "M10 duplicate counter removed" 's/st\["duplicates"\] += 1/pass/' 'duplicates: 1 ' build "$FX/doc" "$FX/cfr"
   mp "M11 unparseable-declaration counter removed" 's/st\["dropped_declarations"\] += 1/pass/' 'dropped-declarations: 1 ' build "$ROOT/drop"
   mp "M12 no-class guard removed" 's/if has_slots and not t\["class"\]:/if False:/' 'no-class-files: 1( |$)' build "$ROOT/drop"
@@ -242,6 +312,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   MX_PREFIX="timeout 5" mx "M15 non-regular-file guard removed: FIFO blocks (rc 124)" 's/if not os\.path\.isfile(path):/if False:/' 0 124 build "$FIFO_DIR" --out "$ROOT/fifo.json"
   MP_RC=1 mp "M8 zero-.java guard removed: message must name the empty input" 's/if files_seen == 0:/if False:/' 'no \.java files' build "$ROOT/empty"
   mx "M9 zero-declaration guard removed (exit 1 -> 0)" 's/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
+  # the #1511 round-2 fixes
+  mx "M16 degraded guard removed: all-unreadable root reads as no-match (exit 2 -> 1)" 's/if degraded:/if False:/' 2 1 build "$ROOT/allunr"
+  mx "M17 catalog shape validation removed: malformed catalog tracebacks (exit 2 -> 1)" 's/^    _validate_catalog(cat)$/    pass/' 2 1 show "$ROOT/m-nokeys.json" B
+  mp "M18 unknown tokens counted for a dropped duplicate" 's/^\( *\)continue    # a dropped duplicate.*/\1pass/' 'unknown-flag-tokens: 1 ' build "$FX/doc" "$ROOT/dupdoc"
+  mp "M19 hex literal branch removed" 's/\^0\[xX\]\[0-9a-fA-F\]+\$/^NOPE$/' 'hex +flags=16 +a ' show "$ROOT/num" BNum
+  mp "M20 only the first |-separated numeric token decoded" 's/for part in expr\.split("|"):/for part in expr.split("|")[:1]:/' 'multi +flags=1032 ' show "$ROOT/num" BNum
+  # M21 asserts the FULL printed sequence of hits (fixture walk order is zz,mm,aa; sorted is aa,mm,zz), so only the sort fixes it
+  mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
+  if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  rm -f "$MUT/m21.py"
+  MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" 's/^    if not cat:$/    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
 fi
 
 echo "== $pass passed · $fail failed =="

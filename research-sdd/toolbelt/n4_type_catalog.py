@@ -17,11 +17,13 @@ Read-only, stdlib only. Usage:
     n4_type_catalog.py build <dir>... [--out catalog.json]
     n4_type_catalog.py show <catalog.json|dir> <ClassName|pkg.Class>
 Exit codes: 0 ok; 1 nothing catalogued (no .java files / no declarations) or type not found;
-2 usage error, absent root, unreadable catalog, or --out that cannot be written.
+2 usage error, absent root, unreadable or malformed catalog, --out that cannot be written, or a degraded
+read (.java entries or directories were unreadable and NO .java file could be read at all).
 Nothing is skipped quietly: unreadable files/directories, non-regular files, declarations whose call could
 not be parsed, and files with declarations but no class are each warned on stderr and counted in the summary.
-Provenance rule: a catalog entry is `[CERT]`-grade only for the file/line it was parsed from; inherited slots
-are NOT merged (use `extends` to walk), and a type with no declarations is omitted.
+Provenance rule: a catalog entry is `[CERT]`-grade only for the file it was parsed from (`source`; no line
+numbers are recorded); inherited slots are NOT merged (use `extends` to walk), and a type with no
+declarations is omitted.
 """
 
 import argparse
@@ -76,34 +78,45 @@ def decode_flags(expr):
     return total, letters, unknown
 
 
-def _split_args(s):
-    """Split a call-argument string at top-level commas (respecting parens and string literals)."""
-    args, depth, cur, i, n = [], 0, [], 0, len(s)
-    in_str = None
+def _chars(text, start=0):
+    """Yield (index, char, in_literal) for text[start:]; the ONE string/char-literal scanner.
+
+    Quotes and escaped characters count as in-literal, so a paren, comma or ';' inside a literal is never
+    structural. _split_args, _balanced_call and _call_args all walk through this, so a literal-handling fix
+    lands once.
+    """
+    in_str, i, n = None, start, len(text)
     while i < n:
-        c = s[i]
+        c = text[i]
         if in_str:
-            cur.append(c)
+            yield i, c, True
             if c == "\\" and i + 1 < n:
-                cur.append(s[i + 1])
                 i += 1
+                yield i, text[i], True
             elif c == in_str:
                 in_str = None
         elif c in "\"'":
             in_str = c
-            cur.append(c)
-        elif c in "([{":
-            depth += 1
-            cur.append(c)
-        elif c in ")]}":
-            depth -= 1
-            cur.append(c)
-        elif c == "," and depth == 0:
-            args.append("".join(cur).strip())
-            cur = []
+            yield i, c, True
         else:
-            cur.append(c)
+            yield i, c, False
         i += 1
+
+
+def _split_args(s):
+    """Split a call-argument string at top-level commas (respecting parens and string literals)."""
+    args, depth, cur = [], 0, []
+    for _, c, lit in _chars(s):
+        if not lit:
+            if c in "([{":
+                depth += 1
+            elif c in ")]}":
+                depth -= 1
+            elif c == "," and depth == 0:
+                args.append("".join(cur).strip())
+                cur = []
+                continue
+        cur.append(c)
     tail = "".join(cur).strip()
     if tail or args:
         args.append(tail)
@@ -128,24 +141,16 @@ _DECL = re.compile(
 
 def _balanced_call(text, start):
     """From `start` (just after '='), return the expression up to the terminating ';' at paren depth 0."""
-    depth, i, n = 0, start, len(text)
-    in_str = None
-    while i < n:
-        c = text[i]
-        if in_str:
-            if c == "\\":
-                i += 1
-            elif c == in_str:
-                in_str = None
-        elif c in "\"'":
-            in_str = c
-        elif c == "(":
+    depth = 0
+    for i, c, lit in _chars(text, start):
+        if lit:
+            continue
+        if c == "(":
             depth += 1
         elif c == ")":
             depth -= 1
         elif c == ";" and depth == 0:
             return text[start:i]
-        i += 1
     return text[start:]
 
 
@@ -158,23 +163,16 @@ def _call_args(expr):
     if not call:
         return []
     start = call.end()
-    depth, in_str, j = 1, None, start
-    while j < len(expr):
-        c = expr[j]
-        if in_str:
-            if c == "\\":
-                j += 1
-            elif c == in_str:
-                in_str = None
-        elif c in "\"'":
-            in_str = c
-        elif c == "(":
+    depth = 1
+    for j, c, lit in _chars(expr, start):
+        if lit:
+            continue
+        if c == "(":
             depth += 1
         elif c == ")":
             depth -= 1
             if depth == 0:
                 return _split_args(expr[start:j])
-        j += 1
     return []
 
 
@@ -233,8 +231,8 @@ def build_catalog(roots, stats=None):
     no_class_files so callers can prove the instrument looked (anti-silent-zero).
     """
     st = stats if stats is not None else {}
-    for k in ("java_files", "unreadable", "duplicates", "unknown_flag_tokens", "dropped_declarations",
-              "no_class_files"):
+    for k in ("java_files", "read_files", "unreadable", "duplicates", "unknown_flag_tokens",
+              "dropped_declarations", "no_class_files"):
         st.setdefault(k, 0)
 
     def walk_error(e):
@@ -261,6 +259,7 @@ def build_catalog(roots, stats=None):
                     st["unreadable"] += 1
                     _warn("cannot read %s: %s" % (path, e))
                     continue
+                st["read_files"] += 1
                 for name in t.pop("dropped"):
                     st["dropped_declarations"] += 1
                     _warn("unparseable slot declaration '%s' dropped in %s" % (name, path))
@@ -272,28 +271,68 @@ def build_catalog(roots, stats=None):
                 if not has_slots:
                     continue
                 t["source"] = path
+                key = (t["package"] + "." if t["package"] else "") + t["class"]
+                if key in cat:
+                    st["duplicates"] += 1
+                    continue    # a dropped duplicate is not in the catalog: its tokens are not counted either
                 for label in ("properties", "actions", "topics"):
                     for it in t[label]:
                         for tok in it.get("unknownFlags", ()):
                             st["unknown_flag_tokens"] += 1
                             _warn("unknown flag token '%s' in %s (slot %s)" % (tok, path, it["name"]))
-                key = (t["package"] + "." if t["package"] else "") + t["class"]
-                if key in cat:
-                    st["duplicates"] += 1
-                else:
-                    cat[key] = t
+                cat[key] = t
     return cat
 
 
+def _degraded(stats, roots):
+    """Message when the read was degraded (some entries unreadable, NO .java file readable), else None.
+
+    Distinct from empty-input and no-match: the instrument could not look, so a zero says nothing.
+    """
+    if stats["unreadable"] > 0 and stats["read_files"] == 0:
+        return ("n4-type-catalog: degraded — %d unreadable entr%s, 0 .java files readable under: %s; "
+                "no catalog produced" % (stats["unreadable"], "y" if stats["unreadable"] == 1 else "ies",
+                                         " ".join(roots)))
+    return None
+
+
+_SLOT_KEYS = ("name", "flags", "flagLetters", "default", "facets")
+
+
+def _validate_catalog(cat):
+    """Raise ValueError unless `cat` has the shape `build` emits (what `show` dereferences)."""
+    if not isinstance(cat, dict):
+        raise ValueError("catalog must be a JSON object keyed by type, got %s" % type(cat).__name__)
+    for k, t in cat.items():
+        if not isinstance(t, dict):
+            raise ValueError("entry %r is not an object" % k)
+        for key in ("extends", "properties", "actions", "topics"):
+            if key not in t:
+                raise ValueError("entry %r lacks '%s'" % (k, key))
+        for label in ("properties", "actions", "topics"):
+            if not isinstance(t[label], list):
+                raise ValueError("entry %r: '%s' is not a list" % (k, label))
+            for it in t[label]:
+                if not isinstance(it, dict) or any(f not in it for f in _SLOT_KEYS):
+                    raise ValueError("entry %r: a %s slot is not an object with %s" % (k, label, "/".join(_SLOT_KEYS)))
+
+
 def _load_catalog(arg):
+    """Return (catalog, stats|None); stats is set only when `arg` is a source directory built on the fly."""
     if os.path.isdir(arg):
-        return build_catalog([arg])
+        stats = {}
+        return build_catalog([arg], stats), stats
     with open(arg, encoding="utf-8") as fh:
-        return json.load(fh)
+        cat = json.load(fh)
+    _validate_catalog(cat)
+    return cat, None
 
 
 def _show(cat, name):
-    hits = [k for k in cat if k == name or k.endswith("." + name)]
+    if not cat:
+        print("n4-type-catalog: no types catalogued (empty catalog); cannot show %s" % name, file=sys.stderr)
+        return 1
+    hits = sorted(k for k in cat if k == name or k.endswith("." + name))
     if not hits:
         print("no such type: %s" % name, file=sys.stderr)
         return 1
@@ -315,6 +354,10 @@ def _build(args):
     stats = {}
     cat = build_catalog(args.dirs, stats)
     files_seen = stats["java_files"]
+    degraded = _degraded(stats, args.dirs)
+    if degraded:
+        print(degraded, file=sys.stderr)
+        return 2
     if files_seen == 0:
         print("n4-type-catalog: no .java files under: %s" % " ".join(args.dirs), file=sys.stderr)
         return 1
@@ -366,9 +409,13 @@ def main(argv=None):
         return _build(args)
     if args.cmd == "show":
         try:
-            cat = _load_catalog(args.catalog)
-        except (OSError, ValueError) as e:
+            cat, stats = _load_catalog(args.catalog)
+        except (OSError, ValueError, RecursionError) as e:
             print("n4-type-catalog: cannot load catalog %s: %s" % (args.catalog, e), file=sys.stderr)
+            return 2
+        degraded = _degraded(stats, [args.catalog]) if stats is not None else None
+        if degraded:
+            print(degraded, file=sys.stderr)
             return 2
         return _show(cat, args.type)
     return 2

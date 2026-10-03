@@ -44,8 +44,8 @@ building a directory on the fly.
 | Exit | Meaning |
 |---|---|
 | 0 | catalog built / type shown |
-| 1 | nothing catalogued: no `.java` files under the roots (empty-input), `.java` files but no slot declarations (no-match; the message carries the file count), or `show` of an unknown type |
-| 2 | usage error, a root that is not a directory (absent-input), an unreadable `--catalog` for `show`, an `--out` that cannot be written (temp file + rename, so no partial catalog is left), or `python3` missing (typed `degraded` message on stderr, no catalog) |
+| 1 | nothing catalogued: no `.java` files under the roots (empty-input), `.java` files but no slot declarations (no-match; the message carries the file count), `show` over an empty catalog (`no types catalogued`), or `show` of an unknown type |
+| 2 | usage error, a root that is not a directory (absent-input), an unreadable or malformed catalog for `show` (the positional `<catalog.json\|dir>` argument; invalid JSON or a shape `build` never emits), an `--out` that cannot be written (temp file + rename, so no partial catalog is left), a degraded read (unreadable `.java` entries or directories and NO `.java` file readable at all: typed `degraded` message on stderr, no catalog; this is not a no-match), or `python3` missing (typed `degraded` message on stderr, no catalog) |
 
 A zero never reads as success: the summary always states how many `.java` files were
 read, so "0 types from 0 files" and "0 types from 4,000 files" are distinguishable.
