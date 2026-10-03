@@ -28,18 +28,22 @@ SUT="$HERE/../focus-partition-audit.sh"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 
-ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
+# SUT-call evidence (kit issue #1349). run()/rune() record the call's args, exit code and (run only) stderr;
+# every assertion (ok or no) clears it afterwards, so a failure prints evidence ONLY from a SUT call made by
+# that very assertion — never a stale one from an earlier case, and nothing for direct `bash "$SUT"` calls.
+_ctx_clear() { rm -f "$ROOT/last.err" "$ROOT/last.rc" "$ROOT/last.call"; }
+ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); _ctx_clear; }
 no() {
   printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1))
-  # Kit issue #1349: a flaky failure seen once inside an aggregate run carried only stdout. run() keeps the
-  # last call's stderr and exit code in $ROOT, so the next occurrence reports the full evidence.
-  if [ -s "$ROOT/last.err" ]; then printf '        last run() stderr: %s\n' "$(head -c 2000 "$ROOT/last.err")"; fi
-  [ -f "$ROOT/last.rc" ] && printf '        last run() exit code: %s\n' "$(cat "$ROOT/last.rc")"
+  [ -f "$ROOT/last.call" ] && printf '        last SUT call: %s\n' "$(cat "$ROOT/last.call")"
+  [ -s "$ROOT/last.err" ] && printf '        its stderr: %s\n' "$(head -c 2000 "$ROOT/last.err")"
+  [ -f "$ROOT/last.rc" ] && printf '        its exit code: %s\n' "$(cat "$ROOT/last.rc")"
+  _ctx_clear
   return 0
 }
 
-run() { local _rc; : > "$ROOT/last.err"; bash "$SUT" "$@" 2>"$ROOT/last.err"; _rc=$?; printf '%s' "$_rc" > "$ROOT/last.rc"; return "$_rc"; }
-rune() { bash "$SUT" "$@" 2>&1; }  # include stderr
+run() { local _rc; printf '%s' "run $*" > "$ROOT/last.call"; : > "$ROOT/last.err"; bash "$SUT" "$@" 2>"$ROOT/last.err"; _rc=$?; printf '%s' "$_rc" > "$ROOT/last.rc"; return "$_rc"; }
+rune() { local _rc; printf '%s' "rune (stderr merged into stdout) $*" > "$ROOT/last.call"; bash "$SUT" "$@" 2>&1; _rc=$?; printf '%s' "$_rc" > "$ROOT/last.rc"; return "$_rc"; }
 
 echo "== focus-partition-audit.test.sh =="
 

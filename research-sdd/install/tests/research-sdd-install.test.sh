@@ -523,11 +523,19 @@ else no "--force-skill + dry-run: mutated the filesystem"; fi
 # 3b — kit issue #1349: the suite reached through a SYMLINKED kit path. The installer renders the physical
 #      path; the logical (symlink) path must not survive normalisation. RED against the old logical-only
 #      normkit: `Kit path: <physical>` stayed in the output and the golden diff failed.
-ln -s "$KITROOT_P" "$TMP/kitlink" || { echo "FATAL: cannot create $TMP/kitlink" >&2; exit 2; }
+# A failed symlink creation skips THIS case only (typed, reasoned, never a silent pass) — it must not abort
+# the suite and with it every later assertion, the hermeticity snapshot and the footer.
+rm -rf "$TMP/kitlink"
+KITLINK_OK=0
+if ln -s "$KITROOT_P" "$TMP/kitlink" 2>"$TMP/kitlink.err" && [ -L "$TMP/kitlink" ]; then KITLINK_OK=1; fi
 home="$TMP/dry-symlinked"
+if [ "$KITLINK_OK" = 0 ]; then
+  printf '  SKIP  dry-run plan via a symlinked kit path (#1349): cannot create %s -> %s (%s)\n' "$TMP/kitlink" "$KITROOT_P" "$(head -c 300 "$TMP/kitlink.err" 2>/dev/null)"
+else
 out="$(bash "$TMP/kitlink/install/research-sdd-install.sh" --dry-run --home "$home" --harness claude 2>&1 | norm "$home" | _normkit_for "$TMP/kitlink" "$KITROOT_P")"
 if [ "$out" = "$(cat "$GOLD/plan-claude.txt")" ]; then ok "dry-run plan via a symlinked kit path normalises to the golden (#1349)"
 else no "dry-run plan via a symlinked kit path drifted from golden (#1349; logical=$TMP/kitlink physical=$KITROOT_P)"; diff <(cat "$GOLD/plan-claude.txt") <(printf '%s\n' "$out") | head -20; fi
+fi
 
 # 36 — --help block integrity (kit issue #1024 round 4, item 5): usage() no longer prints a
 #      hardcoded `sed -n 'A,Bp'` line range (which had to be hand-recomputed every time a
@@ -720,11 +728,13 @@ else no "reasonix orphan warning wrong (got: '$(printf '%s' "$err_51rx" | head -
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  if [ "$KITLINK_OK" = 0 ]; then printf '  SKIP  teeth: symlinked-kit normalisation tooth (no kitlink)\n'; else
   echo "-- teeth: logical-only kit normalisation (the pre-#1349 normkit) must leave the physical path behind --"
   old_out="$(bash "$TMP/kitlink/install/research-sdd-install.sh" --dry-run --home "$TMP/dry-symlinked" --harness claude 2>&1 | norm "$TMP/dry-symlinked" | sed "s|$TMP/kitlink|{KIT}|g")"
   if [ "$old_out" != "$(cat "$GOLD/plan-claude.txt")" ] && <<<"$old_out" grep -qF "Kit path: $KITROOT_P"; then
     ok "teeth: logical-only normalisation leaves 'Kit path: <physical>' → the #1349 case has teeth"
   else no "teeth: logical-only normalisation still matched the golden — the #1349 case is THEATER"; fi
+  fi
 
   echo "-- teeth: neuter the marker-aware splice, expect duplicate sections on re-apply --"
   # Live beside the real SUT so the mutant still resolves adapters.sh + the kit's source SKILL.md.
