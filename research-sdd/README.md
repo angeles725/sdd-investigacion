@@ -166,6 +166,24 @@ which classifies depth (quick answer · light exploration · exhaustive block lo
 
 ---
 
+## Installing into a harness (claude · codex · reasonix · pi · gentle-shell)
+
+```bash
+# preview first (touches nothing), then install; --harness all installs every registered harness
+"$KIT/install/research-sdd-install.sh" --harness pi --dry-run
+"$KIT/install/research-sdd-install.sh" --harness pi
+```
+
+`pi` targets Pi's default agent dir (`~/.pi/agent`); `gentle-shell` targets the isolated agent dir
+gentle-shell runs Pi with (`~/.gentle-shell/agent`). Both get the skill under `skills/research-sdd/`,
+the launcher + manual session-start sweep block in `AGENTS.md` (Pi has no session-start hook), and a
+slash-command prompt template at `prompts/research-sdd.md`, which is what makes `/research-sdd <target or
+question>` exist in Pi (the skill alone is only reachable as `/skill:research-sdd`). A template you
+edited by hand is kept (the installer warns); `--force-skill` backs it up first. Pi's MCP config is JSON,
+so the installer registers no MCP servers for these two harnesses.
+
+---
+
 ## Removing an old OpenCode install
 
 OpenCode support was dropped on 2026-09-23 (#954). If you previously installed the kit into
