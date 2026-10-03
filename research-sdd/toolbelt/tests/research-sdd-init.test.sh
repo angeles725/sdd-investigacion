@@ -1463,7 +1463,7 @@ else
 
   # (d) a hand-adapted guard is NEVER overwritten (create-only).
   d="$TMP/1496-d"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
-  printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
+  printf '#!/usr/bin/env bash\n# MARK-1496-LOCAL\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
   _d_sha="$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)"
   bash "$SUT" "$d" --wire >"$TMP/1496-d.out" 2>&1
   [ "$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)" = "$_d_sha" ] && ok "K1496-d hand-adapted pkill-guard survives byte-for-byte" \
@@ -1503,6 +1503,28 @@ else
   [ "$_rc" = 2 ] && [ ! -e "$d/.claude/hooks/retro-gate-stop.sh" ] && [ ! -e "$d/.claude/settings.json" ] \
     && ok "K1496-h dangling pkill-guard symlink refused (exit 2), nothing else written" \
     || no "K1496-h dangling pkill-guard symlink: exit $_rc or partial write"
+fi
+
+
+# ---- kit issue #1496 round 2: scaffold --wire shares the wire-only dedup predicate -----------------
+if command -v jq >/dev/null 2>&1; then
+  # (i) scaffold+wire with the guard AND stop hook already registered via a non-canonical
+  # $CLAUDE_PROJECT_DIR form: neither is registered a second time.
+  d="$TMP/1496-i"; mkdir -p "$d/.claude"
+  printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+  [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
+    && ok "K1496-i scaffold --wire dedups a non-canonical PreToolUse form" \
+    || no "K1496-i scaffold --wire double-registered the pkill-guard"
+  [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
+    && ok "K1496-i scaffold --wire dedups a non-canonical Stop form" \
+    || no "K1496-i scaffold --wire double-registered the Stop hook"
+  # (j) a kept hand-adapted guard that is not executable draws a WARN (wire-only).
+  d="$TMP/1496-j"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"; chmod -x "$d/.claude/hooks/pkill-guard.sh"
+  bash "$SUT" "$d" --wire >"$TMP/1496-j.out" 2>&1
+  assert_grep "K1496-j kept non-executable guard warns" "WARN: $d/.claude/hooks/pkill-guard.sh is not executable" "$TMP/1496-j.out"
+  [ ! -x "$d/.claude/hooks/pkill-guard.sh" ] && ok "K1496-j kept guard left untouched (still not executable)" || no "K1496-j kept guard was modified"
 fi
 
 
@@ -2678,9 +2700,9 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1496-OVERWRITE: create-only test neutered → a hand-adapted guard is clobbered.
   if _k43_build k96ow -e 's|^    if \[ -e "\$_wo_pk" \]; then|    if false; then|'; then
     d="$TMP/k43/k96ow-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
-    printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
+    printf '#!/usr/bin/env bash\n# MARK-1496-LOCAL\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
     bash "$(_k96_inits k96ow)" "$d" --wire >/dev/null 2>&1
-    grep -qF 'hand-adapted' "$d/.claude/hooks/pkill-guard.sh" && no "teeth M-1496-OVERWRITE: adaptation survived — THEATER" \
+    grep -qF 'MARK-1496-LOCAL' "$d/.claude/hooks/pkill-guard.sh" && no "teeth M-1496-OVERWRITE: adaptation survived — THEATER" \
       || ok "teeth M-1496-OVERWRITE: guard clobbered without the create-only test — K1496-d has teeth"
   else no "teeth M-1496-OVERWRITE: could not build mutant"; fi
   # M-1496-DEDUP: the already-registered detection always false → a second run double-registers.
@@ -2721,6 +2743,31 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$_rc" != 2 ] && ok "teeth M-1496-DANGLING: unchecked dangling guard link is not refused (exit $_rc) — K1496-h has teeth" \
       || no "teeth M-1496-DANGLING: still exit 2 — THEATER"
   else no "teeth M-1496-DANGLING: could not build mutant"; fi
+  # ---- kit issue #1496 round 2 teeth ----------------------------------------------------------------
+  _k96i_run() {  # <mutant-name> → runs the K1496-i fixture on that mutant, prints "pk stop" entry counts
+    local d="$TMP/k43/$1-t"; mkdir -p "$d/.claude"
+    printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/$1/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    printf '%s %s' "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)"
+  }
+  # M-1496-SCAFFOLD-PK-REL: the scaffold path loses the guard's relative form → exact-string dedup again.
+  if _k43_build k96pr -e 's|^        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\$|        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" "nope-pk" \\|'; then
+    [ "$(_k96i_run k96pr | cut -d' ' -f1)" = "2" ] && ok "teeth M-1496-SCAFFOLD-PK-REL: scaffold --wire double-registers the guard without the shared forms — K1496-i has teeth" \
+      || no "teeth M-1496-SCAFFOLD-PK-REL: still deduped — THEATER"
+  else no "teeth M-1496-SCAFFOLD-PK-REL: could not build mutant"; fi
+  # M-1496-SCAFFOLD-STOP-REL: same for the Stop hook.
+  if _k43_build k96sr -e 's|^        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\$|        "nope-stop" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \\|'; then
+    [ "$(_k96i_run k96sr | cut -d' ' -f2)" = "2" ] && ok "teeth M-1496-SCAFFOLD-STOP-REL: scaffold --wire double-registers Stop without the shared forms — K1496-i has teeth" \
+      || no "teeth M-1496-SCAFFOLD-STOP-REL: still deduped — THEATER"
+  else no "teeth M-1496-SCAFFOLD-STOP-REL: could not build mutant"; fi
+  # M-1496-NOEXEC-WARN: the not-executable warning removed.
+  if _k43_build k96nx -e '/\[ -x "\$_wo_pk" \] || echo "WARN:/d'; then
+    d="$TMP/k43/k96nx-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"; chmod -x "$d/.claude/hooks/pkill-guard.sh"
+    bash "$(_k96_inits k96nx)" "$d" --wire >"$TMP/k96nx.out" 2>&1
+    grep -qF 'is not executable' "$TMP/k96nx.out" && no "teeth M-1496-NOEXEC-WARN: warning still present — THEATER" \
+      || ok "teeth M-1496-NOEXEC-WARN: warning gone — K1496-j has teeth"
+  else no "teeth M-1496-NOEXEC-WARN: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

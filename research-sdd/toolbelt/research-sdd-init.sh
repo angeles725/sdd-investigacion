@@ -220,6 +220,34 @@ _rsdd_cmd_variants_json() {
   ]'
 }
 
+# kit issue #1496 (RDD round 1): ONE merge + dedup predicate for BOTH the wire-only repair and the
+# scaffold --wire path, so the two can never diverge on which already-registered forms count as the
+# same hook (they did: scaffold --wire matched exact strings only). Reads the base settings JSON on
+# stdin; args: <stop-abs> <ss-abs> <pk-abs> <stop-rel> <ss-rel> <pk-rel> <skip_ss true|false>. Emits
+# {settings, has_stop, has_ss, has_pk}; a skipped SessionStart never removes an existing entry.
+_rsdd_merge_settings() {
+  local sv ssv pv
+  sv="$(_rsdd_cmd_variants_json "$1" "$4")"; ssv="$(_rsdd_cmd_variants_json "$2" "$5")"
+  pv="$(_rsdd_cmd_variants_json "$3" "$6")"
+  jq --arg sc "$1" --arg ac "$2" --arg pc "$3" \
+    --argjson stop_variants "$sv" --argjson ss_variants "$ssv" --argjson pk_variants "$pv" \
+    --argjson skip_ss "$7" '
+    ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
+    ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
+    ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
+    ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
+    ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // []) as $pk_cmds |
+    ($pk_cmds | any(. as $c | ($pk_variants | index($c)) != null)) as $has_pk |
+    (.hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
+      else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
+    (.hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+      else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)) |
+    (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
+      else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
+    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk}
+  '
+}
+
 # kit issue #1040 finding 2 (round 2 of #1038): the print-only fallback — jq absent, or jq
 # processing failure — must honor the SAME #959 guard as the live-write path: never offer a
 # SessionStart line to paste while research-protocol.sh still carries a live <SUBJECT>.
@@ -376,6 +404,8 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # overwritten); no per-target placeholders, so it is copied as-is and always wired.
     if [ -e "$_wo_pk" ]; then
       echo "kept: $_wo_pk"
+      # A hand-adapted guard is never modified, but a non-executable one is silently inert once wired.
+      [ -x "$_wo_pk" ] || echo "WARN: $_wo_pk is not executable — the PreToolUse hook cannot run until you chmod +x it (left untouched: hand-adapted hooks are never modified)." >&2
     else
       cp "$TPL/hook-pretool-pkill-guard.sh" "$_wo_pk"
       chmod +x "$_wo_pk"
@@ -393,33 +423,13 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     fi
 
     # kit issue #1040 finding 1: recognise $CLAUDE_PROJECT_DIR-relative forms as the same hook.
-    _wo_stop_variants="$(_rsdd_cmd_variants_json "$_wo_stop" "$_wo_stop_rel")"
-    _wo_ss_variants="$(_rsdd_cmd_variants_json "$_wo_ss" "$_wo_ss_rel")"
-    _wo_pk_variants="$(_rsdd_cmd_variants_json "$_wo_pk" "$_wo_pk_rel")"
-
     # -s (non-empty), not -f: a ZERO-BYTE existing file is treated as {} (see the pre-validation
     # comment above) — reading it with `cat` would otherwise feed jq an empty stdin, which is a
     # jq error (no input value), not an empty object.
     _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)"
-    if _wo_merge_out="$(printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" --arg pc "$_wo_pk" \
-        --argjson stop_variants "$_wo_stop_variants" --argjson ss_variants "$_wo_ss_variants" \
-        --argjson pk_variants "$_wo_pk_variants" \
-        --argjson skip_ss "$_wo_skip_ss" '
-        ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
-        ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
-        ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
-        ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
-        ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // []) as $pk_cmds |
-        ($pk_cmds | any(. as $c | ($pk_variants | index($c)) != null)) as $has_pk |
-        (.hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
-          else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
-        (.hooks.Stop = (if $has_stop then (.hooks.Stop // [])
-          else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)) |
-        (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
-          else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
-        {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk}
-      ' 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
+    if _wo_merge_out="$(printf '%s' "$_wo_base" | _rsdd_merge_settings "$_wo_stop" "$_wo_ss" "$_wo_pk" \
+        "$_wo_stop_rel" "$_wo_ss_rel" "$_wo_pk_rel" "$_wo_skip_ss" 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
       # settings.json keeps its indentation instead of collapsing to one line.
       jq '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
@@ -659,18 +669,12 @@ if [ "$wire" = 1 ]; then
       _wire_base="$(cat "$_settings")"
     fi
     _tmp_settings="$(mktemp)"
-    # Idempotent merge: add Stop + SessionStart entries only if the command is not already present
-    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" --arg pc "$_pk_cmd" --argjson skip_ss "$_wire_skip_ss" '
-      ((.hooks.PreToolUse // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$pc])) as $has_pk |
-      .hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
-        else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end) |
-      ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
-      ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
-      .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
-        else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
-      .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
-        else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
-    ' > "$_tmp_settings" 2>/dev/null; then
+    # Idempotent merge via the SAME shared predicate as the wire-only path (kit issue #1496): Stop,
+    # SessionStart and PreToolUse are each added only if no equivalent registration form is present.
+    if printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
+        ".claude/hooks/retro-gate-stop.sh" ".claude/hooks/research-protocol.sh" ".claude/hooks/pkill-guard.sh" \
+        "$_wire_skip_ss" 2>/dev/null | jq '.settings' > "$_tmp_settings" 2>/dev/null \
+        && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
       _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
       if [ "$_wire_skip_ss" = "true" ]; then
         echo "  wired  : Stop hook registered in $_settings (SessionStart skipped — see WARN above)"
