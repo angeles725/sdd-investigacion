@@ -1136,9 +1136,9 @@ Always read first, in this order:
          seeder's `summary:` line, or a typed skip or degraded reason); check it when seeding looks missing.
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
          triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
-         project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for codex or
-         reasonix, so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
-         codex/reasonix, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
+         project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for any other
+         harness (pi, gentle-shell), so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
+         pi/gentle-shell, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
          retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
