@@ -20,8 +20,9 @@
 #   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
 #                    Hermeticity guards snapshot once around the batch; a leak found there triggers
-#                    an automatic serial re-run that names the suite (mtime of the leaked path),
-#                    falling back to a typed batch label, never silently.
+#                    a serial re-run of only the candidate suites (those whose run window held the
+#                    leaked path's mtime) names the suite; otherwise a typed batch label plus an
+#                    `Attribution:` line saying why, never silently.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
 #                    negative control). Node suites are n/a (they have no flag).
@@ -399,11 +400,12 @@ _check_kit_tree_hermeticity() {
 # usual order, so parsing, teeth tracking and the aggregate are the same code path as serial.
 # Hermeticity attribution cannot be per-suite while suites overlap: both guards snapshot once
 # before and once after the batch, and a violation is reported under a typed batch label that
-# says to re-run serially to name the offender (it still fails the run — never a silent pass).
+# says the offender could not be named (it still fails the run — never a silent pass); a leak is
+# first attributed by a bounded serial re-run of the candidate suites (see _attribute_batch_leaks).
 JOBS_ACTIVE=""
 PARALLEL_DEGRADED_REASON=""
 PARALLEL_UNUSABLE_WHY=""
-PARALLEL_LABEL="-j batch (offender unattributed — no suite re-touched the path in the serial attribution re-run)"
+PARALLEL_LABEL="-j batch (offender unattributed — see the 'Attribution:' line for why)"
 _parallel_gnu_ok() {
   # Sets PARALLEL_UNUSABLE_WHY to the concrete cause on failure (kit issue #1491 item 2): three
   # distinct states must not share one message — absent, present-but-broken, present-but-not-GNU.
@@ -425,52 +427,101 @@ _parallel_gnu_ok() {
   return 0
 }
 # Attribution of a batch leak (kit issue #1491 item 1). The batch snapshot proves a leak happened
-# but not WHO; serial attribution re-runs the suites one at a time and blames the suite after
-# which a leaked path's mtime moves (mtime, not content: the kit-tree guard is content-hash based
-# and a suite re-writing identical bytes would otherwise stay anonymous). It only runs when the
-# batch found a new/modified leak, so a clean -j run and the whole serial path are untouched. An
-# entry no suite re-touches (removed paths, a flaky/ordering-dependent leak) keeps the typed
-# batch label — still failing the run, never silently dropped.
-_mtime_of() {   # _mtime_of <path>: nanosecond mtime, or "absent"
-  stat -c '%y' -- "$1" 2>/dev/null || printf 'absent'
+# but not WHO. Each -j worker records its suite's [start,end] wall-clock window; the leaked path's
+# mtime (the LAST writer) falls inside the window of the suite(s) that were running at that moment,
+# so only those candidates (at most -j N of them, never the whole corpus) are re-run serially, each
+# under a per-suite timeout (RUN_ALL_ATTRIBUTION_TIMEOUT seconds, default 600, via `timeout` when
+# present). A candidate is blamed when the leaked path's signature (full-resolution mtime AND
+# content hash) changes across its re-run: mtime alone misses a suite that restores the mtime, the
+# hash alone misses an identical-bytes rewrite. It only runs when the batch found a new/modified
+# leak, so a clean -j run and the serial path are untouched. Everything that cannot be attributed
+# (removed paths, no window containing the mtime, a leak that does not reproduce, a missing stat
+# or date capability) keeps the typed batch label AND gets a typed `Attribution:` line saying why
+# — never a silent label. Side effects of a re-run are the suite's own (the same as the first run).
+ATTRIBUTION_LINES=()
+_STAT_MODE=""
+_probe_stat() {
+  local _v _f="${PAR_DIR:-$SCRIPT_DIR}/run1.sh"
+  [[ -e "$_f" ]] || _f="$SCRIPT_DIR/run-all.sh"
+  if _v="$(stat -c '%.9Y' -- "$_f" 2>/dev/null)" && [[ "$_v" =~ ^[0-9]+\.[0-9]+$ ]]; then _STAT_MODE=gnu
+  elif _v="$(stat -f '%m' -- "$_f" 2>/dev/null)" && [[ "$_v" =~ ^[0-9]+$ ]]; then _STAT_MODE=bsd
+  else _STAT_MODE=none; fi
+}
+_mtime_of() {   # _mtime_of <path>: epoch mtime (full resolution under GNU stat), or "absent"
+  case "$_STAT_MODE" in
+    gnu) stat -c '%.9Y' -- "$1" 2>/dev/null || printf 'absent' ;;
+    bsd) stat -f '%m' -- "$1" 2>/dev/null || printf 'absent' ;;
+    *) printf 'absent' ;;
+  esac
+}
+_sig_of() {     # _sig_of <path>: "<mtime>|<sha1 of a regular file>"
+  local _h=""
+  [[ -f "$1" ]] && _h="$(sha1sum -- "$1" 2>/dev/null)" && _h="${_h%% *}"
+  printf '%s|%s' "$(_mtime_of "$1")" "$_h"
+}
+_pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its new/modified batch entries
+  local -n _pv="$1"; local _from="$4" _i _e _kind _path
+  for ((_i = _from; _i < ${#_pv[@]}; _i++)); do
+    _e="${_pv[$_i]#"$PARALLEL_LABEL leaked: "}"
+    _kind="${_e##* (}"; _kind="${_kind%)}"; _path="${_e% (*}"
+    [[ "$_kind" == removed ]] && continue
+    _pend_path+=("$3/$_path"); _pend_src+=("$2:$_path"); _pend_kind+=("$_kind"); _pend_done+=("")
+  done
 }
 _attribute_batch_leaks() {
-  local _cwd_start="$1" _kt_start="$2" _e _path _kind _i _s _b
-  local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=()
-  for ((_i = _cwd_start; _i < ${#hermeticity_violations[@]}; _i++)); do
-    _e="${hermeticity_violations[$_i]#"$PARALLEL_LABEL leaked: "}"
-    _kind="${_e##* (}"; _kind="${_kind%)}"; _path="${_e% (*}"
-    [[ "$_kind" == removed ]] && continue
-    _pend_path+=("$CALLER_CWD/$_path"); _pend_kind+=("$_kind"); _pend_src+=("cwd:$_path"); _pend_done+=("")
+  local _i _j _s _b _m _w _ws _we _tol _t _cmd_to
+  local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=() _cand=() _attr=()
+  # Clean batch: no new violation of either kind -> silent, byte-identical to before.
+  [[ ${#hermeticity_violations[@]} -eq $1 && ${#kit_tree_violations[@]} -eq $2 ]] && return 0
+  _pend_add hermeticity_violations cwd "$CALLER_CWD" "$1"
+  _pend_add kit_tree_violations kit "$KIT_TREE" "$2"
+  [[ ${#_pend_path[@]} -gt 0 ]] || { ATTRIBUTION_LINES+=("Attribution: nothing to attribute (only removed paths; a removed path cannot be re-touched)"); return 0; }
+  _probe_stat
+  if [[ "$_STAT_MODE" == none ]]; then
+    ATTRIBUTION_LINES+=("Attribution: DEGRADED (neither 'stat -c %.9Y' nor 'stat -f %m' works on this platform; ${#_pend_path[@]} leaked path(s) left under the batch label)")
+    echo "run-all.sh: -j attribution DEGRADED — no usable stat; leaks keep the batch label" >&2
+    return 0
+  fi
+  _tol=0.05; [[ "$_STAT_MODE" == bsd ]] && _tol=1
+  # Candidate suites: those whose recorded window contains a leaked path's mtime.
+  for _i in "${!_pend_path[@]}"; do
+    _m="$(_mtime_of "${_pend_path[$_i]}")"
+    [[ "$_m" == absent ]] && continue
+    for _j in "${!all_suites[@]}"; do
+      [[ -f "$PAR_DIR/$((_j + 1)).win" ]] || continue
+      read -r _ws _we < "$PAR_DIR/$((_j + 1)).win"
+      if awk -v m="$_m" -v s="$_ws" -v e="$_we" -v t="$_tol" 'BEGIN { exit !(m + 0 >= s - t && m + 0 <= e + t) }'; then
+        [[ " ${_cand[*]} " == *" $_j "* ]] || _cand+=("$_j")
+      fi
+    done
   done
-  for ((_i = _kt_start; _i < ${#kit_tree_violations[@]}; _i++)); do
-    _e="${kit_tree_violations[$_i]#"$PARALLEL_LABEL leaked: "}"
-    _kind="${_e##* (}"; _kind="${_kind%)}"; _path="${_e% (*}"
-    [[ "$_kind" == removed ]] && continue
-    _pend_path+=("$KIT_TREE/$_path"); _pend_kind+=("$_kind"); _pend_src+=("kit:$_path"); _pend_done+=("")
-  done
-  [[ ${#_pend_path[@]} -gt 0 ]] || return 0
-  echo "run-all.sh: -j leak detected in the batch; re-running suites serially to name the offender" >&2
-  local -a _attr=()   # "<src>\t<suite>\t<kind>"
-  local _left=${#_pend_path[@]}
-  for _s in "${all_suites[@]}"; do
-    [[ $_left -gt 0 ]] || break
-    _b="$(basename "$_s")"
-    for _i in "${!_pend_path[@]}"; do _pend_before[_i]="$(_mtime_of "${_pend_path[$_i]}")"; done
+  if [[ ${#_cand[@]} -eq 0 ]]; then
+    ATTRIBUTION_LINES+=("Attribution: DEGRADED (no suite run window contains the leaked path's mtime — missing window records or clock skew; ${#_pend_path[@]} path(s) left under the batch label)")
+    echo "run-all.sh: -j attribution DEGRADED — no suite window matches the leak's mtime" >&2
+    return 0
+  fi
+  mapfile -t _cand < <(printf '%s\n' "${_cand[@]}" | sort -n)
+  _t="${RUN_ALL_ATTRIBUTION_TIMEOUT:-600}"; _cmd_to=()
+  command -v timeout >/dev/null 2>&1 && _cmd_to=(timeout "$_t")
+  echo "run-all.sh: -j leak detected in the batch; re-running ${#_cand[@]} candidate suite(s) of ${#all_suites[@]} serially to name the offender" >&2
+  for _j in "${_cand[@]}"; do
+    _s="${all_suites[$_j]}"; _b="$(basename "$_s")"
+    for _i in "${!_pend_path[@]}"; do _pend_before[_i]="$(_sig_of "${_pend_path[$_i]}")"; done
     echo "run-all.sh: -j attribution re-run: $_b" >&2
-    if [[ "$_b" == *.test.mjs ]]; then node "$_s" >/dev/null 2>&1
-    elif [[ -n "$PROVE_TEETH" ]]; then bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
-    else bash "$_s" >/dev/null 2>&1; fi
+    if [[ "$_b" == *.test.mjs ]]; then "${_cmd_to[@]}" node "$_s" >/dev/null 2>&1
+    elif [[ -n "$PROVE_TEETH" ]]; then "${_cmd_to[@]}" bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
+    else "${_cmd_to[@]}" bash "$_s" >/dev/null 2>&1; fi
+    [[ $? -eq 124 && ${#_cmd_to[@]} -gt 0 ]] && ATTRIBUTION_LINES+=("Attribution: re-run of $_b hit the ${_t}s timeout")
     for _i in "${!_pend_path[@]}"; do
       [[ -z "${_pend_done[$_i]}" ]] || continue
-      if [[ "$(_mtime_of "${_pend_path[$_i]}")" != "${_pend_before[$_i]}" ]]; then
-        _pend_done[_i]=1; _left=$((_left - 1))
+      if [[ "$(_sig_of "${_pend_path[$_i]}")" != "${_pend_before[$_i]}" ]]; then
+        _pend_done[_i]=1
         _attr+=("${_pend_src[$_i]}"$'\t'"$_b"$'\t'"${_pend_kind[$_i]}")
       fi
     done
   done
-  # Rewrite the attributed entries under the suite's name; the rest keep the batch label.
-  local _a _src _suite _k
+  ATTRIBUTION_LINES+=("Attribution: re-ran ${#_cand[@]} candidate suite(s) of ${#all_suites[@]} (bounded to suites whose run window contained the leak's mtime)")
+  local _a _src _suite _k _path _un=0
   for _a in "${_attr[@]}"; do
     IFS=$'\t' read -r _src _suite _k <<< "$_a"
     _path="${_src#*:}"
@@ -484,6 +535,8 @@ _attribute_batch_leaks() {
       done
     fi
   done
+  for _i in "${!_pend_done[@]}"; do [[ -z "${_pend_done[$_i]}" ]] && _un=$((_un + 1)); done
+  [[ $_un -gt 0 ]] && ATTRIBUTION_LINES+=("Attribution: $_un leaked path(s) not reproduced by any candidate re-run, left under the batch label")
   return 0
 }
 if [[ "$JOBS" -gt 1 ]]; then
@@ -501,6 +554,8 @@ if [[ -n "$JOBS_ACTIVE" ]]; then
 #!/usr/bin/env bash
 # run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.
 idx="$1"; suite="$2"
+# Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
+_t0="$(date +%s.%N 2>/dev/null)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
 # with a "started" line and no "done" line.
 echo "run-all.sh: -j started: $(basename "$suite")" >&2
@@ -512,6 +567,8 @@ else
   bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
 fi
 rc=$?
+_t1="$(date +%s.%N 2>/dev/null)"
+case "$_t0$_t1" in *[!0-9.]*|"") ;; *) echo "$_t0 $_t1" > "$PAR_DIR/$idx.win" ;; esac
 echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
 echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
 WORKER
@@ -691,7 +748,8 @@ else
   echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed to its suite by an automatic serial re-run (unattributed ones keep the batch label)"
+  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
+  for _al in "${ATTRIBUTION_LINES[@]}"; do echo "$_al"; done
 elif [[ -n "$PARALLEL_DEGRADED_REASON" ]]; then
   echo "Parallel: DEGRADED — $PARALLEL_DEGRADED_REASON"
 fi
