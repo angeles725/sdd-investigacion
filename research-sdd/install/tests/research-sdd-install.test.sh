@@ -1786,6 +1786,48 @@ _viol="$(_slash_invariant "$HERE/../adapters.sh")"
 [ "$(bash -c '. "$1"; for h in $RESEARCH_SDD_HARNESSES; do rsdd_field "$h" supports_slash_commands /H; done | grep -c true' _ "$HERE/../adapters.sh")" = 2 ] \
   && ok "slash invariant: exactly pi + gentle-shell report supports_slash=true" || no "slash invariant: unexpected supports_slash=true set"
 
+# PI4 — template marker isolation (kit issue #1469). The prompt template and the skill are deployed
+# through the SAME helper with SEPARATE marker files (.installed-template-state, profile=template, vs
+# .installed-skill-state). Sharing one file would let a skill profile switch read the template's
+# profile as "previous profile", clean the wrong render dir, or rewrite the template's recorded hash.
+# Scenario: install twice (default profile = general), switch the skill profile to claude, then back.
+# Prints "OK" or a space-separated list of broken invariants.
+_tmpl_isolation_scenario() { # <installer> <home>
+  local sut="$1" home="$2" root="$2/.gentle-shell/agent" bad="" tp mk sm t_sha t_marker
+  bash "$sut" --home "$home" --harness gentle-shell >/dev/null 2>&1
+  bash "$sut" --home "$home" --harness gentle-shell >/dev/null 2>&1
+  tp="$root/prompts/research-sdd.md"; mk="$root/research-sdd/.installed-template-state"; sm="$root/research-sdd/.installed-skill-state"
+  [ -d "$root/research-sdd/profile/general" ] || bad="$bad no-initial-general-render"
+  t_sha="$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)"; t_marker="$(cat "$mk" 2>/dev/null)"
+  [ -n "$t_sha" ] && [ -n "$t_marker" ] || bad="$bad no-template-or-marker"
+  bash "$sut" --home "$home" --harness gentle-shell --profile claude >/dev/null 2>&1
+  [ "$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)" = "$t_sha" ] || bad="$bad template-changed-by-switch"
+  [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch"
+  grep -q '^profile=template$' "$mk" 2>/dev/null || bad="$bad template-marker-lost-its-profile"
+  grep -q '^profile=claude$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched"
+  [ ! -e "$root/research-sdd/profile/general" ] || bad="$bad orphan-general-render-kept"
+  bash "$sut" --home "$home" --harness gentle-shell --profile general >/dev/null 2>&1
+  [ -f "$root/research-sdd/profile/general/skills/research-sdd/SKILL.md" ] || bad="$bad general-render-not-restored"
+  [ "$(sha256sum "$tp" 2>/dev/null | cut -d' ' -f1)" = "$t_sha" ] || bad="$bad template-changed-by-switch-back"
+  [ "$(cat "$mk" 2>/dev/null)" = "$t_marker" ] || bad="$bad template-marker-changed-by-switch-back"
+  grep -q '^profile=general$' "$sm" 2>/dev/null || bad="$bad skill-marker-not-switched-back"
+  printf '%s' "${bad:-OK}" | sed 's/^ //'
+}
+_ti="$(_tmpl_isolation_scenario "$SUT" "$TMP/tmpl-iso")"
+if [ "$_ti" = OK ]; then ok "template marker isolation: 2 installs + skill-profile switch (general→claude→general) leave template, its marker and the render dir intact"
+else no "template marker isolation broken: $_ti"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: template marker shared with the skill marker (kit issue #1469) --"
+  MTI="$MKI/research-sdd-install.MUTANT-TMPLSHARE.$$.sh"
+  mutant_sed "$SUT" "$MTI" 's|tmpl_marker="\$config_root/research-sdd/.installed-template-state"|tmpl_marker="$config_root/research-sdd/.installed-skill-state"|' \
+    || no "teeth: MUTANT-TMPLSHARE could not be built (refused by the mutant helper — see above)"
+  _ti_m="$(_tmpl_isolation_scenario "$MTI" "$TMP/tmpl-iso-mut")"
+  if [ "$_ti_m" != OK ]; then
+    ok "teeth: a shared skill/template marker breaks the isolation scenario ($_ti_m)"
+  else no "teeth: shared-marker mutant passed the isolation scenario — check is THEATER"; fi
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: Pi template deployment skipped / template for empty-field harness / harness dropped --"
   # build a temp kit whose install/ holds a given SUT + adapters (everything else symlinked from the live kit)
