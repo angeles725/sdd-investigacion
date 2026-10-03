@@ -248,12 +248,14 @@ n_warn="$(grep -c 'unknown flag token' <<<"$ERR")"
 run "$SUT" show "$ROOT/empty" BFoo
 rc_is "T18a show over a dir with no types exits 1" 1
 has "T18a says the catalog is empty, not 'no such type'" "$ERR" 'no types catalogued'
-mkdir -p "$ROOT/two/a" "$ROOT/two/b"
+# walk order (dir a, b, c) is zz, mm, aa: the natural order is the REVERSE of sorted, so only the sort can fix it
+mkdir -p "$ROOT/two/a" "$ROOT/two/b" "$ROOT/two/c"
 sed 's/package demo.pkg;/package zz.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/a/BFoo.java"
-sed 's/package demo.pkg;/package aa.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/b/BFoo.java"
+sed 's/package demo.pkg;/package aa.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/c/BFoo.java"
+sed 's/package demo.pkg;/package mm.pkg;/' "$FX/doc/pkg/BFoo.java" > "$ROOT/two/b/BFoo.java"
 run "$SUT" show "$ROOT/two" BFoo
-FIRST="$(grep -m1 -oE '^[a-z.]+BFoo' <<<"$OUT")"
-[ "$FIRST" = "aa.pkg.BFoo" ] && ok "T18b ambiguous suffix hits print in sorted order" || no "T18b first hit [$FIRST]"
+SEQ="$(grep -oE '^[a-z.]+BFoo' <<<"$OUT" | paste -sd, -)"
+[ "$SEQ" = "aa.pkg.BFoo,mm.pkg.BFoo,zz.pkg.BFoo" ] && ok "T18b ambiguous suffix hits print in sorted order" || no "T18b hit sequence [$SEQ]"
 
 # ======================== MUTATION CONTROLS — --prove-teeth ==========================================
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -316,9 +318,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mp "M18 unknown tokens counted for a dropped duplicate" 's/^\( *\)continue    # a dropped duplicate.*/\1pass/' 'unknown-flag-tokens: 1 ' build "$FX/doc" "$ROOT/dupdoc"
   mp "M19 hex literal branch removed" 's/\^0\[xX\]\[0-9a-fA-F\]+\$/^NOPE$/' 'hex +flags=16 +a ' show "$ROOT/num" BNum
   mp "M20 only the first |-separated numeric token decoded" 's/for part in expr\.split("|"):/for part in expr.split("|")[:1]:/' 'multi +flags=1032 ' show "$ROOT/num" BNum
-  # M21 needs the FIRST printed line, so it drives the mutant through `head -1` instead of mp's argv shape
+  # M21 asserts the FULL printed sequence of hits (fixture walk order is zz,mm,aa; sorted is aa,mm,zz), so only the sort fixes it
   mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
-  if mutant_tooth "M21 show hits not sorted (first printed hit must be aa.pkg)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo' --bad-lacks '^aa\.pkg\.BFoo' -- bash -c 'python3 "$1" show "$2" BFoo | head -1' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m21.py"
   MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" 's/^    if not cat:$/    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
 fi
