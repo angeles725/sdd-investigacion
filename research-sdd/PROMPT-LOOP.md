@@ -1614,6 +1614,10 @@ HARD RULES:
     `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
     the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
     wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6.)
+    Mechanical guard: `templates/hook-pretool-pkill-guard.sh` (PreToolUse, matcher `Bash`) denies a
+    command-position `pkill -f`/`pgrep -f`/`--full` without `-x` and without a bracket-escaped pattern, naming
+    (a)-(c); without `jq` it degrades to `ask`. Install it by hand as `<TARGET>/.claude/hooks/pkill-guard.sh`
+    under `hooks.PreToolUse` — `research-sdd-init.sh` does not wire it yet.
     VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
     actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
     reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)

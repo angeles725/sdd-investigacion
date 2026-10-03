@@ -3003,6 +3003,11 @@ scan covers the working tree only; for a high-sensitivity target, audit or squas
 push (`scan-secrets.sh` does not walk deleted history). It is idempotent (an existing `origin`
 short-circuits) and is NEVER auto-invoked by the loop — the operator runs it once, per target, on consent. A
 corpus remote is NEVER public.
+Visibility can drift after creation, so [`toolbelt/research-sdd-status.sh`](toolbelt/research-sdd-status.sh)
+re-reads every remote's visibility on each run: `WARN public-remote: <remote>` when PUBLIC, `degraded:
+remote-visibility: ...` when `gh` is absent, failing or unrecognised. It surfaces the state and never changes it
+(visibility is the owner's decision); while a remote is PUBLIC, audit tracked files for decompiled or proprietary
+paths before any push.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
