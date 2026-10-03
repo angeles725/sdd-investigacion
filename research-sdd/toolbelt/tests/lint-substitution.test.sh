@@ -51,7 +51,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # 3. Absent-input: root does not exist -> exit 2, ABSENT-INPUT on stderr.
 OUT="$(bash "$SUT" "$TMP/does-not-exist" 2>&1)"; RC=$?
-if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'ABSENT-INPUT'; then
+if [ "$RC" -eq 2 ] && <<<"$OUT" grep -qF 'ABSENT-INPUT'; then
   ok "3 absent root -> exit 2, ABSENT-INPUT reported"
 else
   no "3 absent root failed (exit=$RC out=[$OUT])"
@@ -61,7 +61,7 @@ fi
 #    silently equal to the "0 violations / no-match" case, per §7 three-state discipline).
 mkdir -p "$TMP/empty-root"
 OUT="$(bash "$SUT" "$TMP/empty-root" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'EMPTY-INPUT'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'EMPTY-INPUT'; then
   ok "4 empty root (0 .sh files) -> exit 0, EMPTY-INPUT reported"
 else
   no "4 empty root failed (exit=$RC out=[$OUT])"
@@ -85,7 +85,7 @@ printf %s "PLACEHOLDER{content/"PLACEHOLDERanchor"/PLACEHOLDERrepl}"'
 } > "$TMP/formA-bad/site.sh"
 unset _fa_tpl
 OUT="$(bash "$SUT" "$TMP/formA-bad" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | grep -qF 'FORM-A'; then
+if [ "$RC" -eq 1 ] && <<<"$OUT" grep -qF 'FORM-A'; then
   ok "5 FORM-A unquoted bare-variable replacement -> exit 1, FORM-A reported"
 else
   no "5 FORM-A positive failed (exit=$RC out=[$OUT])"
@@ -101,7 +101,7 @@ mkdir -p "$TMP/formA-good"
   printf 'printf %%s "${content/"$anchor"/"$repl"}"\n'
 } > "$TMP/formA-good/site.sh"
 OUT="$(bash "$SUT" "$TMP/formA-good" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'NO-MATCH'; then
   ok "6 FORM-A quoted replacement -> exit 0, no violation (negative control)"
 else
   no "6 FORM-A negative failed (exit=$RC out=[$OUT])"
@@ -119,7 +119,7 @@ _fb_awk="'${_fb_tpl//PLACEHOLDER/1,6}'"
 } > "$TMP/formB-bad/site.sh"
 unset _fb_tpl _fb_awk
 OUT="$(bash "$SUT" "$TMP/formB-bad" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | grep -qF 'FORM-B'; then
+if [ "$RC" -eq 1 ] && <<<"$OUT" grep -qF 'FORM-B'; then
   ok "7 FORM-B awk interval expression -> exit 1, FORM-B reported"
 else
   no "7 FORM-B positive failed (exit=$RC out=[$OUT])"
@@ -133,7 +133,7 @@ mkdir -p "$TMP/formB-good"
     "'{ if (\$0 ~ /^##?#?#?#?#?[[:space:]]/) print \"dirty\" }'"
 } > "$TMP/formB-good/site.sh"
 OUT="$(bash "$SUT" "$TMP/formB-good" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'NO-MATCH'; then
   ok "8 FORM-B chained-? (not an interval) -> exit 0, no violation (negative control)"
 else
   no "8 FORM-B negative failed (exit=$RC out=[$OUT])"
@@ -148,7 +148,7 @@ mkdir -p "$TMP/formB-noawk"
   printf 'echo hi\n'
 } > "$TMP/formB-noawk/site.sh"
 OUT="$(bash "$SUT" "$TMP/formB-noawk" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'NO-MATCH'; then
   ok "9 FORM-B scope: interval-looking text in a non-awk file is not flagged"
 else
   no "9 FORM-B scope failed (exit=$RC out=[$OUT])"
@@ -158,7 +158,7 @@ fi
 #     against the real toolbelt tree must report 0 violations — this is the regression guard for
 #     kit issue #1121's fix (17+ quoted sites, lib/retro-grammar.sh's mawk-portable rewrite).
 OUT="$(bash "$SUT" "$TOOLBELT_ROOT" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'NO-MATCH'; then
   ok "10 live-corpus: real toolbelt tree scans clean (0 violations)"
 else
   no "10 live-corpus failed — real toolbelt tree has violations (exit=$RC out=[$OUT])"
@@ -185,7 +185,7 @@ _fa2_body="${_fa2_body//DOLLAR/\$}"
   printf '%s\n' "$_fa2_body"
 } > "$TMP/formA-widened/site.sh"
 OUT="$(bash "$SUT" "$TMP/formA-widened" 2>&1)"; RC=$?
-_fa2_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-A')"
+_fa2_count="$(<<<"$OUT" grep -cF 'FORM-A')"
 if [ "$RC" -eq 1 ] && [ "$_fa2_count" -eq 4 ]; then
   ok "11 FORM-A widened forms: array subscript, braced pattern, default-value replacement, command-substitution replacement all detected (4 sites)"
 else
@@ -209,7 +209,7 @@ _fb2_body="${_fb2_body//EXACT/6}"
   printf '%s\n' "$_fb2_body"
 } > "$TMP/formB-widened/site.sh"
 OUT="$(bash "$SUT" "$TMP/formB-widened" 2>&1)"; RC=$?
-_fb2_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-B')"
+_fb2_count="$(<<<"$OUT" grep -cF 'FORM-B')"
 if [ "$RC" -eq 1 ] && [ "$_fb2_count" -eq 4 ]; then
   ok "12 FORM-B widened forms: bare pattern, negated bare pattern, match() argument, exact-count interval all detected (4 sites)"
 else
@@ -232,11 +232,11 @@ if [ -n "$INSTALL_ROOT" ]; then
   _c13_expected=$((_c13_expected + $(find "$INSTALL_ROOT" -type f -name '*.sh' | wc -l)))
 fi
 OUT="$(cd "$TOOLBELT_ROOT" && bash "$SUT" 2>&1)"; RC=$?
-_c13_scanned="$(printf '%s\n' "$OUT" | grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
+_c13_scanned="$(<<<"$OUT" grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
 if [ "$RC" -eq 0 ] \
-   && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH' \
-   && printf '%s\n' "$OUT" | grep -q 'research-sdd/toolbelt' \
-   && printf '%s\n' "$OUT" | grep -q 'research-sdd/install' \
+   && <<<"$OUT" grep -qF 'NO-MATCH' \
+   && <<<"$OUT" grep -q 'research-sdd/toolbelt' \
+   && <<<"$OUT" grep -q 'research-sdd/install' \
    && [ -n "$_c13_scanned" ] && [ "$_c13_scanned" -eq "$_c13_expected" ]; then
   ok "13 default no-argument invocation scans both trees, scanned count ($_c13_scanned) matches an independent find count ($_c13_expected), 0 violations"
 else
@@ -277,7 +277,7 @@ _fa3_body="${_fa3_body//ESCBR/\\\}}"
 } > "$TMP/formA-anywhere/site.sh"
 unset _fa3_tpl _fa3_body
 OUT="$(bash "$SUT" "$TMP/formA-anywhere" 2>&1)"; RC=$?
-_fa3_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-A')"
+_fa3_count="$(<<<"$OUT" grep -cF 'FORM-A')"
 if [ "$RC" -eq 1 ] && [ "$_fa3_count" -eq 7 ]; then
   ok "14 FORM-A trigger-anywhere: retro-gate.sh:210 shape (escaped backslash then bare \$), mixed quoted-prefix, positional param (\$1), special param (\$@), indirect ref (\$!ref), bare backtick pair, escaped-brace pattern — all 7 detected"
 else
@@ -297,7 +297,7 @@ else
   chmod 000 "$TMP/unreadable/site.sh"
   OUT="$(bash "$SUT" "$TMP/unreadable" 2>&1)"; RC=$?
   chmod 644 "$TMP/unreadable/site.sh"
-  if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'DEGRADED'; then
+  if [ "$RC" -eq 2 ] && <<<"$OUT" grep -qF 'DEGRADED'; then
     ok "15 fail-closed-on-unreadable-file: chmod-000 file -> exit 2, DEGRADED reported (not a confident 0)"
   else
     no "15 fail-closed-on-unreadable-file failed (exit=$RC out=[$OUT])"
@@ -320,9 +320,9 @@ printf '#!/usr/bin/env bash\nx=ok\n' > "$TMP/c16root/clean.sh"
 chmod +x "$TMP/fakebin16/find"
 OUT="$(PATH="$TMP/fakebin16:$PATH" bash "$SUT" "$TMP/c16root" 2>"$TMP/c16.err")"; RC=$?
 _c16_err="$(cat "$TMP/c16.err")"
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'scanned 1 file(s)' \
-   && ! printf '%s\n' "$OUT" | grep -qF 'bogus-stderr-diagnostic' \
-   && printf '%s\n' "$_c16_err" | grep -qF 'bogus-stderr-diagnostic'; then
+if [ "$RC" -eq 0 ] && <<<"$OUT" grep -qF 'scanned 1 file(s)' \
+   && ! <<<"$OUT" grep -qF 'bogus-stderr-diagnostic' \
+   && <<<"$_c16_err" grep -qF 'bogus-stderr-diagnostic'; then
   ok "16 find stderr kept out of the file list: stderr line + exit 0 -> scanned 1 real file, diagnostic surfaced on stderr (not scanned as a path)"
 else
   no "16 find stderr leaked into the file list (exit=$RC out=[$OUT] err=[$_c16_err])"
@@ -341,7 +341,7 @@ mkdir -p "$TMP/fakebin17"
 } > "$TMP/fakebin17/find"
 chmod +x "$TMP/fakebin17/find"
 OUT="$(PATH="$TMP/fakebin17:$PATH" bash "$SUT" "$TMP/c16root" 2>&1)"; RC=$?
-if [ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'DEGRADED' && printf '%s\n' "$OUT" | grep -qF "'find' failed"; then
+if [ "$RC" -eq 2 ] && <<<"$OUT" grep -qF 'DEGRADED' && <<<"$OUT" grep -qF "'find' failed"; then
   ok "17 fail-closed-on-find-failure: partial listing + find exit 1 -> exit 2, DEGRADED reported (not a confident 0)"
 else
   no "17 fail-closed-on-find-failure failed (exit=$RC out=[$OUT])"
@@ -356,7 +356,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed "s#^formA_re=.*#formA_re='NEVER_MATCHES_THIS_STRING_XYZ123'#" "$SUT" > "$TMP/mutant-formA.sh"
   chmod +x "$TMP/mutant-formA.sh"
   MOUT="$(bash "$TMP/mutant-formA.sh" "$TMP/formA-bad" 2>&1)"; MRC=$?
-  if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+  if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'NO-MATCH'; then
     ok "teeth A: formA_re neutered -> known FORM-A violation FALSE-PASSES -> case 5 has teeth"
   else
     no "teeth A: mutant still caught the FORM-A violation (exit=$MRC) — mutation not exercised (THEATER)"
@@ -367,7 +367,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed "s#^formB_re=.*#formB_re='NEVER_MATCHES_THIS_STRING_XYZ123'#" "$SUT" > "$TMP/mutant-formB.sh"
   chmod +x "$TMP/mutant-formB.sh"
   MOUT="$(bash "$TMP/mutant-formB.sh" "$TMP/formB-bad" 2>&1)"; MRC=$?
-  if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+  if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'NO-MATCH'; then
     ok "teeth B: formB_re neutered -> known FORM-B violation FALSE-PASSES -> case 7 has teeth"
   else
     no "teeth B: mutant still caught the FORM-B violation (exit=$MRC) — mutation not exercised (THEATER)"
@@ -379,7 +379,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's/^exit 1$/exit 0/' "$SUT" > "$TMP/mutant-exit.sh"
   chmod +x "$TMP/mutant-exit.sh"
   MOUT="$(bash "$TMP/mutant-exit.sh" "$TMP/formA-bad" 2>&1)"; MRC=$?
-  if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'FORM-A'; then
+  if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'FORM-A'; then
     ok "teeth C: violations-found exit code neutered to 0 -> case 5's exit-1 assertion has teeth"
   else
     no "teeth C: mutant unexpectedly still exited non-zero (exit=$MRC) — mutation not exercised (THEATER)"
@@ -411,7 +411,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth D: precondition failed — the real (unmutated) lint already flags formB-gate fixture; it does not isolate the gate (out=[$CTRL_OUT])"
     else
       MOUT="$(bash "$TMP/mutant-gate.sh" "$TMP/formB-gate" 2>&1)"; MRC=$?
-      if [ "$MRC" -eq 1 ] && printf '%s\n' "$MOUT" | grep -qF 'FORM-B'; then
+      if [ "$MRC" -eq 1 ] && <<<"$MOUT" grep -qF 'FORM-B'; then
         ok "teeth D: awk-invoking-file gate neutered -> a real FORM-B shape in a non-awk file FALSE-FLAGS -> scope gate has real teeth"
       else
         no "teeth D: mutant did not flag the non-awk FORM-B-shaped fixture (exit=$MRC) — mutation not exercised (THEATER)"
@@ -431,7 +431,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth E: trigger-anywhere mutation was a byte-identical no-op — sed pattern did not match"
   else
     MOUT="$(bash "$TMP/mutant-anywhere.sh" "$TMP/formA-anywhere" 2>&1)"; MRC=$?
-    _me_count="$(printf '%s\n' "$MOUT" | grep -cF 'FORM-A')"
+    _me_count="$(<<<"$MOUT" grep -cF 'FORM-A')"
     # exactly the 2 sub-forms that need a nonzero prefix before the trigger (the
     # retro-gate.sh:210 shape and the mixed-quoted-prefix shape) stop matching; the other 4
     # (positional/special/indirect param, bare backtick pair) already have the trigger at
@@ -461,7 +461,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       chmod 000 "$TMP/unreadable-teeth/site.sh"
       MOUT="$(bash "$TMP/mutant-failclosed.sh" "$TMP/unreadable-teeth" 2>&1)"; MRC=$?
       chmod 644 "$TMP/unreadable-teeth/site.sh"
-      if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+      if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'NO-MATCH'; then
         ok "teeth F: fail-closed threshold neutered -> chmod-000 file FALSE-PASSES as a confident 0 -> case 15's DEGRADED design has real teeth"
       else
         no "teeth F: mutant still failed closed (exit=$MRC) — mutation not exercised (THEATER) :: out=[$MOUT]"
@@ -489,14 +489,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$SUT" "$TMP/isog/toolbelt/lint-substitution-ctrl.sh"
     chmod +x "$TMP/isog/toolbelt/lint-substitution-ctrl.sh"
     CTRL_OUT="$(cd "$TMP/isog/toolbelt" && bash "$TMP/isog/toolbelt/lint-substitution-ctrl.sh" 2>&1)"; CTRL_RC=$?
-    _cg_expected="$(printf '%s\n' "$CTRL_OUT" | grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
+    _cg_expected="$(<<<"$CTRL_OUT" grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
     # isolated toolbelt/ holds 3 files (the mutant script itself, this control copy, and
     # other.sh); isolated install/ holds 1 (other.sh) — an unmutated scan of both is 4.
     if [ "$CTRL_RC" -ne 0 ] || [ "$_cg_expected" != "4" ]; then
       no "teeth G: precondition failed — the real (unmutated) lint did not report scanning all 4 isolated-fixture files (out=[$CTRL_OUT])"
     else
       MOUT="$(cd "$TMP/isog/toolbelt" && bash "$TMP/isog/toolbelt/lint-substitution.sh" 2>&1)"; MRC=$?
-      _mg_scanned="$(printf '%s\n' "$MOUT" | grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
+      _mg_scanned="$(<<<"$MOUT" grep -oE 'scanned [0-9]+ file' | grep -oE '[0-9]+')"
       if [ "$MRC" -eq 0 ] && [ "$_mg_scanned" = "3" ]; then
         ok "teeth G: ROOTS loop capped to the first root only -> scanned count drops from 4 to $_mg_scanned (install fixture never walked) -> case 13's hardened assertion has real teeth"
       else
@@ -514,7 +514,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth H: could not build mutant (find-rc check not found, or refused by lib/mutant.sh)"
   else
     MOUT="$(PATH="$TMP/fakebin17:$PATH" bash "$TMP/mutant-find.sh" "$TMP/c16root" 2>&1)"; MRC=$?
-    if [ "$MRC" -eq 0 ] && printf '%s\n' "$MOUT" | grep -qF 'NO-MATCH'; then
+    if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'NO-MATCH'; then
       ok "teeth H: find-failure branch disabled -> partial listing FALSE-PASSES as a confident 0 -> case 17 has real teeth"
     else
       no "teeth H: mutant still failed closed (exit=$MRC) — mutation not exercised (THEATER) :: out=[$MOUT]"
@@ -527,7 +527,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth I: could not build mutant (find stderr redirect not found, or refused by lib/mutant.sh)"
   else
     MOUT="$(PATH="$TMP/fakebin16:$PATH" bash "$TMP/mutant-find2.sh" "$TMP/c16root" 2>&1)"; MRC=$?
-    if ! printf '%s\n' "$MOUT" | grep -qF 'scanned 1 file(s)'; then
+    if ! <<<"$MOUT" grep -qF 'scanned 1 file(s)'; then
       ok "teeth I: find stderr merged into stdout -> bogus path breaks the clean 1-file scan -> case 16 has real teeth"
     else
       no "teeth I: mutant did not leak the stderr line into the file list — case 16 does not pin the separation (THEATER) :: out=[$MOUT]"
@@ -541,7 +541,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth J: could not build mutant (_lint_pattern_re not found, or refused by lib/mutant.sh)"
   else
     MOUT="$(bash "$TMP/mutant-esc.sh" "$TMP/formA-anywhere" 2>&1)"; MRC=$?
-    _mj_count="$(printf '%s\n' "$MOUT" | grep -cF 'FORM-A')"
+    _mj_count="$(<<<"$MOUT" grep -cF 'FORM-A')"
     if [ "$MRC" -eq 1 ] && [ "$_mj_count" -eq 6 ]; then
       ok "teeth J: escaped-pair alternative dropped -> escaped-brace sub-form undetected (count 7 -> $_mj_count) -> case 14's escaped-brace probe has real teeth"
     else

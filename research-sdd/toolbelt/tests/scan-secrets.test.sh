@@ -262,7 +262,7 @@ for _b in bash grep head sed tr mktemp dirname basename; do
 done
 cm_out29="$(PATH="$_stub_no_git" bash "$SUT" --committed "$d_deg" 2>&1)"
 cm_rc29=$?
-if [ "$cm_rc29" != 0 ] && printf '%s' "$cm_out29" | grep -qiE 'degraded|git not'; then
+if [ "$cm_rc29" != 0 ] && <<<"$cm_out29" grep -qiE 'degraded|git not'; then
   ok "29 --committed with git absent → non-zero + typed DEGRADED message"
 else
   no "29 --committed no-git: rc=$cm_rc29 (want non-0) out=$cm_out29"
@@ -343,7 +343,7 @@ printf '#!/bin/bash\ncase "$*" in\n  *"rev-list HEAD"*) exit 2 ;;\n  *) exec "%s
   "$REAL_GIT35" > "$_stub_bad_revlist/git"; chmod +x "$_stub_bad_revlist/git"
 cm_out35="$(PATH="$_stub_bad_revlist:$PATH" bash "$SUT" --committed "$d_t35" 2>&1)"
 cm_rc35=$?
-if [ "$cm_rc35" = 3 ] && printf '%s' "$cm_out35" | grep -qi 'degraded'; then
+if [ "$cm_rc35" = 3 ] && <<<"$cm_out35" grep -qi 'degraded'; then
   ok "35 --committed git log --raw rc2 → typed DEGRADED exit 3, not silent pass (B3)"
 else
   no "35 --committed log --raw fail: rc=$cm_rc35 (want 3) out=$cm_out35"
@@ -509,10 +509,10 @@ printf '# clean\n' > "$d_t39sub/corpus/t-block1.md"
 git -C "$d_t39root" add NOTES.md subproject && git -C "$d_t39root" commit -q -m "init" 2>/dev/null
 cm_out39="$(bash "$SUT" --committed "$d_t39sub" 2>&1)"
 cm_rc39="$(bash "$SUT" --committed "$d_t39sub" 2>/dev/null; echo $?)"
-if [ "$cm_rc39" = 3 ] && printf '%s' "$cm_out39" | grep -qiE 'subdir|subdirectory|toplevel|repo root'; then
+if [ "$cm_rc39" = 3 ] && <<<"$cm_out39" grep -qiE 'subdir|subdirectory|toplevel|repo root'; then
   ok "39 --committed refuses when target is a subdirectory of its git repo → exit 3 (MAJOR3)"
 else
-  no "39 MAJOR3 subdir: rc=$cm_rc39 (want 3) out=$(printf '%s' "$cm_out39" | head -2)"
+  no "39 MAJOR3 subdir: rc=$cm_rc39 (want 3) out=$(printf '%s' "$cm_out39" | sed -n 1,2p)"
 fi
 
 # 40 — --committed advisory is case-insensitive: PASSWORD= (uppercase) must WARN (MINOR: -i restored).
@@ -711,7 +711,7 @@ printf '#!/bin/bash\ncase "$*" in\n  *"rev-list HEAD"*) exit 1 ;;\n  *) exec "%s
   "$REAL_GIT46" > "$_stub46/git"; chmod +x "$_stub46/git"
 cm_out46="$(PATH="$_stub46:$PATH" bash "$SUT" --committed "$d_t46" 2>&1)"
 cm_rc46=$?
-if [ "$cm_rc46" = 3 ] && printf '%s' "$cm_out46" | grep -qi 'degraded'; then
+if [ "$cm_rc46" = 3 ] && <<<"$cm_out46" grep -qi 'degraded'; then
   ok "46 B3 git log/rev-list exit 1: DEGRADED exit 3 (any non-zero is failure)"
 else
   no "46 B3 rev-list exit 1: rc=$cm_rc46 (want 3) — exit-1 was treated as ok (old >=2 check)"
@@ -726,7 +726,7 @@ printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t47/n.md"
 git -C "$d_t47" add n.md && git -C "$d_t47" commit -q -m "init" 2>/dev/null
 cm_out47="$(TMPDIR="$TMP/nonexistent-tmpdir-$$" bash "$SUT" --committed "$d_t47" 2>&1)"
 cm_rc47=$?
-if [ "$cm_rc47" = 3 ] && printf '%s' "$cm_out47" | grep -qi 'degraded'; then
+if [ "$cm_rc47" = 3 ] && <<<"$cm_out47" grep -qi 'degraded'; then
   ok "47 B3 mktemp fails: DEGRADED exit 3 (TMPDIR missing/unusable)"
 else
   no "47 B3 mktemp fail: rc=$cm_rc47 (want 3) — mktemp failure not detected"
@@ -745,7 +745,7 @@ for _b in git grep sed sort head mktemp rm cat dirname basename bash tr; do
 done
 cm_out48="$(PATH="$_stub48" bash "$SUT" --committed "$d_t48" 2>&1)"
 cm_rc48=$?
-if [ "$cm_rc48" = 3 ] && printf '%s' "$cm_out48" | grep -qi 'degraded'; then
+if [ "$cm_rc48" = 3 ] && <<<"$cm_out48" grep -qi 'degraded'; then
   ok "48 B3 awk missing: DEGRADED exit 3 (filter pipeline cannot run)"
 else
   no "48 B3 awk missing: rc=$cm_rc48 (want 3) — awk absence not detected"
@@ -767,7 +767,7 @@ _bfile49="$d_t49/.git/objects/${_bsha49:0:2}/${_bsha49:2}"
 chmod u+w "$_bfile49" && printf 'x' > "$_bfile49"    # corrupt the loose object
 cm_out49="$(bash "$SUT" --committed "$d_t49" 2>&1)"
 cm_rc49=$?
-if [ "$cm_rc49" = 3 ] && printf '%s' "$cm_out49" | grep -qi 'degraded'; then
+if [ "$cm_rc49" = 3 ] && <<<"$cm_out49" grep -qi 'degraded'; then
   ok "49 B2 corrupt blob: cat-file failure → DEGRADED exit 3"
 else
   no "49 B2 cat-file fail: rc=$cm_rc49 (want 3) — cat-file exit unchecked, empty content read as clean"
@@ -1036,10 +1036,10 @@ mkdir -p "$d_t57/.git/info"
 printf '%s %s\n' "$_head_t57" "$_head_t57" > "$d_t57/.git/info/grafts"
 cm_out57="$(bash "$SUT" --committed "$d_t57" 2>&1)"
 cm_rc57=$?
-if [ "$cm_rc57" = 3 ] && printf '%s' "$cm_out57" | grep -qi 'degraded'; then
+if [ "$cm_rc57" = 3 ] && <<<"$cm_out57" grep -qi 'degraded'; then
   ok "57 .git/info/grafts non-empty → DEGRADED exit 3 (grafts may hide commits from scan)"
 else
-  no "57 grafts: rc=$cm_rc57 (want 3) — grafts not detected :: $(printf '%s' "$cm_out57" | head -2)"
+  no "57 grafts: rc=$cm_rc57 (want 3) — grafts not detected :: $(printf '%s' "$cm_out57" | sed -n 1,2p)"
 fi
 
 # 58 — M5: rev-list|cat-file --batch for commit objects: if cat-file --batch exits non-zero →
@@ -1058,10 +1058,10 @@ printf '#!/bin/bash\nfor _a in "$@"; do [ "$_a" = "--batch" ] && exit 1; done\ne
   "$REAL_GIT58" > "$_stub_t58/git"; chmod +x "$_stub_t58/git"
 cm_out58="$(PATH="$_stub_t58:$PATH" bash "$SUT" --committed "$d_t58" 2>&1)"
 cm_rc58=$?
-if [ "$cm_rc58" = 3 ] && printf '%s' "$cm_out58" | grep -qi 'degraded'; then
+if [ "$cm_rc58" = 3 ] && <<<"$cm_out58" grep -qi 'degraded'; then
   ok "58 M5: cat-file --batch rc=1 for commit scan → DEGRADED exit 3 (PIPESTATUS[1] ≠ 0)"
 else
-  no "58 cat-file --batch rc=1: rc=$cm_rc58 (want 3) :: $(printf '%s' "$cm_out58" | head -2)"
+  no "58 cat-file --batch rc=1: rc=$cm_rc58 (want 3) :: $(printf '%s' "$cm_out58" | sed -n 1,2p)"
 fi
 
 # 59 — B: _cmsg_tmp mktemp fails on the 8th mktemp call → DEGRADED exit 3.
@@ -1093,10 +1093,10 @@ git -C "$d_t59" add a.md && git -C "$d_t59" commit -q -m "debug: ghp_0123456789a
 printf '0\n' > "$_count59"   # reset counter before actual scan
 cm_out59="$(PATH="$_stub59:$PATH" bash "$SUT" --committed "$d_t59" 2>&1)"
 cm_rc59=$?
-if [ "$cm_rc59" = 3 ] && printf '%s' "$cm_out59" | grep -qi 'degraded'; then
+if [ "$cm_rc59" = 3 ] && <<<"$cm_out59" grep -qi 'degraded'; then
   ok "59 B: _cmsg_tmp mktemp fail (8th call) → DEGRADED exit 3 (unchecked mktemp fix)"
 else
-  no "59 _cmsg_tmp mktemp fail: rc=$cm_rc59 (want 3) :: $(printf '%s' "$cm_out59" | head -3)"
+  no "59 _cmsg_tmp mktemp fail: rc=$cm_rc59 (want 3) :: $(printf '%s' "$cm_out59" | sed -n 1,3p)"
 fi
 
 # 60 — M4: log.showSignature=true causes porcelain git log to inject SSH/GPG verification text
@@ -1137,17 +1137,17 @@ GIT_CONFIG_GLOBAL="$_gcfg60" git -C "$d_t60" commit -S -q -m "signed commit with
   || git -C "$d_t60" commit -q -m "signed commit with token (ssh unavailable)"
 # Assert the commit is actually signed; otherwise the showSignature path never fires and the test
 # only proves the plumbing doesn't break on an unsigned commit — not that it handles signatures.
-if ! git -C "$d_t60" cat-file commit HEAD | grep -q '^gpgsig'; then
+if ! grep -q '^gpgsig' < <(git -C "$d_t60" cat-file commit HEAD); then
   # Not a pass: emit a typed skip so the suite still surfaces the gap
   echo "  SKIP:60: SSH signing unavailable in this environment — commit has no gpgsig, showSignature path untested" >&2
   skip "60: SSH signing unavailable — showSignature path untested (see SKIP:60 above)"
 else
   t60_out="$(GIT_CONFIG_GLOBAL="$_gcfg60" bash "$SUT" --committed "$d_t60" 2>&1)"
   t60_rc=$?
-  if [ "$t60_rc" = 1 ] && printf '%s' "$t60_out" | grep -q 'LEAK'; then
+  if [ "$t60_rc" = 1 ] && <<<"$t60_out" grep -q 'LEAK'; then
     ok "60: log.showSignature=true does not cause plumbing enumeration to miss signed-commit blob (exit 1)"
   else
-    no "60: log.showSignature=true scan: rc=$t60_rc (want 1) :: $(printf '%s' "$t60_out" | head -3)"
+    no "60: log.showSignature=true scan: rc=$t60_rc (want 1) :: $(printf '%s' "$t60_out" | sed -n 1,3p)"
   fi
 fi
 
@@ -1186,10 +1186,10 @@ git -C "$d_t61" commit -q -m "remove s.md"
 printf '[log]\n  diffMerges = off\n' > "$_gcfg61"
 t61_out="$(GIT_CONFIG_GLOBAL="$_gcfg61" bash "$SUT" --committed "$d_t61" 2>&1)"
 t61_rc=$?
-if [ "$t61_rc" = 1 ] && printf '%s' "$t61_out" | grep -q 'LEAK'; then
+if [ "$t61_rc" = 1 ] && <<<"$t61_out" grep -q 'LEAK'; then
   ok "61: log.diffMerges=off does not hide evil-merge secret via plumbing enumeration (exit 1)"
 else
-  no "61: log.diffMerges=off scan: rc=$t61_rc (want 1) :: $(printf '%s' "$t61_out" | head -3)"
+  no "61: log.diffMerges=off scan: rc=$t61_rc (want 1) :: $(printf '%s' "$t61_out" | sed -n 1,3p)"
 fi
 
 # 62 — M5: i18n.logOutputEncoding=UTF-16 causes git log to re-encode output to UTF-16 LE (BOM
@@ -1206,10 +1206,10 @@ git -C "$d_t62" commit -q --allow-empty \
 printf '[i18n]\n  logOutputEncoding = UTF-16\n' > "$_gcfg62"
 t62_out="$(GIT_CONFIG_GLOBAL="$_gcfg62" bash "$SUT" --committed "$d_t62" 2>&1)"
 t62_rc=$?
-if [ "$t62_rc" = 1 ] && printf '%s' "$t62_out" | grep -q 'LEAK'; then
+if [ "$t62_rc" = 1 ] && <<<"$t62_out" grep -q 'LEAK'; then
   ok "62: i18n.logOutputEncoding=UTF-16 does not hide token in commit message (raw cat-file scan)"
 else
-  no "62: logOutputEncoding=UTF-16: rc=$t62_rc (want 1) :: $(printf '%s' "$t62_out" | head -3)"
+  no "62: logOutputEncoding=UTF-16: rc=$t62_rc (want 1) :: $(printf '%s' "$t62_out" | sed -n 1,3p)"
 fi
 
 # 63 — M5: i18n.commitEncoding=UTF-16 adds an 'encoding UTF-16' header to the commit object; git
@@ -1227,10 +1227,10 @@ GIT_CONFIG_GLOBAL="$_gcfg63" git -C "$d_t63" commit -q --allow-empty \
   -m "commitenc: secret=ghp_0123456789abcdefghijklmnopqrstuvwxyz" 2>/dev/null
 t63_out="$(GIT_CONFIG_GLOBAL="$_gcfg63" bash "$SUT" --committed "$d_t63" 2>&1)"
 t63_rc=$?
-if [ "$t63_rc" = 1 ] && printf '%s' "$t63_out" | grep -q 'LEAK'; then
+if [ "$t63_rc" = 1 ] && <<<"$t63_out" grep -q 'LEAK'; then
   ok "63: i18n.commitEncoding=UTF-16 does not hide token in commit message (raw cat-file scan)"
 else
-  no "63: commitEncoding=UTF-16: rc=$t63_rc (want 1) :: $(printf '%s' "$t63_out" | head -3)"
+  no "63: commitEncoding=UTF-16: rc=$t63_rc (want 1) :: $(printf '%s' "$t63_out" | sed -n 1,3p)"
 fi
 
 # 64 — M5: secret value in author name is invisible to git log --format="%s%n%b" (only subject
@@ -1243,10 +1243,10 @@ git -C "$d_t64" -c "user.name=ghp_0123456789abcdefghijklmnopqrstuvwxyz TestUser"
   commit -q --allow-empty -m "normal commit message" 2>/dev/null
 t64_out="$(bash "$SUT" --committed "$d_t64" 2>&1)"
 t64_rc=$?
-if [ "$t64_rc" = 1 ] && printf '%s' "$t64_out" | grep -q 'LEAK'; then
+if [ "$t64_rc" = 1 ] && <<<"$t64_out" grep -q 'LEAK'; then
   ok "64: secret in author name detected via raw commit object scan (cat-file, closes #987 item 1)"
 else
-  no "64: author-name secret: rc=$t64_rc (want 1) :: $(printf '%s' "$t64_out" | head -3)"
+  no "64: author-name secret: rc=$t64_rc (want 1) :: $(printf '%s' "$t64_out" | sed -n 1,3p)"
 fi
 
 # 65 — M5: GIT_GRAFT_FILE env set → DEGRADED exit 3.
@@ -1261,10 +1261,10 @@ _head_t65="$(git -C "$d_t65" rev-parse HEAD 2>/dev/null)"
 printf '%s %s\n' "$_head_t65" "$_head_t65" > "$_graft65"
 t65_out="$(GIT_GRAFT_FILE="$_graft65" bash "$SUT" --committed "$d_t65" 2>&1)"
 t65_rc=$?
-if [ "$t65_rc" = 3 ] && printf '%s' "$t65_out" | grep -qi 'degraded'; then
+if [ "$t65_rc" = 3 ] && <<<"$t65_out" grep -qi 'degraded'; then
   ok "65: GIT_GRAFT_FILE set → DEGRADED exit 3 (env overrides info/grafts check)"
 else
-  no "65: GIT_GRAFT_FILE: rc=$t65_rc (want 3) :: $(printf '%s' "$t65_out" | head -2)"
+  no "65: GIT_GRAFT_FILE: rc=$t65_rc (want 3) :: $(printf '%s' "$t65_out" | sed -n 1,2p)"
 fi
 
 # 66 — B6: UTF-16LE .env blob with BOM; NUL bytes hide ASCII token from grep -a.
@@ -1336,10 +1336,10 @@ for _b70 in git bash grep sed sort head wc awk rm cat dirname basename printf mk
 done
 t70_out="$(PATH="$_tr70_dir:$PATH" bash "$SUT" --committed "$d_t66" 2>&1)"
 t70_rc=$?
-if [ "$t70_rc" = 3 ] && printf '%s' "$t70_out" | grep -qi 'degraded'; then
+if [ "$t70_rc" = 3 ] && <<<"$t70_out" grep -qi 'degraded'; then
   ok "70: failing tr stub → DEGRADED exit 3 (tr rc check guards NUL-strip)"
 else
-  no "70: failing tr stub: rc=$t70_rc (want 3) :: $(printf '%s' "$t70_out" | head -2)"
+  no "70: failing tr stub: rc=$t70_rc (want 3) :: $(printf '%s' "$t70_out" | sed -n 1,2p)"
 fi
 
 # 71 — M4 Rule 2 header validation (kit issue #1142 review): the {6}/{40,64} interval
@@ -1348,8 +1348,8 @@ fi
 # program (the block between its 'awk \'' invocation and matching closing quote, kit issue #1032
 # region) rather than reimplemented, so this test stays byte-faithful to the real validation and
 # cannot silently drift from it. RS="\0": records below are NUL-terminated, matching diff-tree -z.
-_t71_awk_start="$(grep -n "^  awk '\$" "$SUT" | head -1 | cut -d: -f1)"
-_t71_awk_end="$(grep -nF '_rev_obj_tmp" | sort' "$SUT" | head -1 | cut -d: -f1)"
+_t71_awk_start="$(grep -n -m1 "^  awk '\$" "$SUT" | cut -d: -f1)"
+_t71_awk_end="$(grep -nF -m1 '_rev_obj_tmp" | sort' "$SUT" | cut -d: -f1)"
 if [ -z "$_t71_awk_start" ] || [ -z "$_t71_awk_end" ]; then
   no "71: could not locate the awk program block in the SUT (drifted anchors?)"
 else
@@ -1377,9 +1377,9 @@ else
   _t71_out_ok64="$(awk -f "$_t71_prog" "$_t71_in_ok64" 2>&1)"; _t71_rc_ok64=$?
   _t71_out_bad="$(awk -f "$_t71_prog" "$_t71_in_bad" 2>&1)"; _t71_rc_bad=$?
   if [ "$_t71_rc_ok" -eq 0 ] && [ "$_t71_rc_ok64" -eq 0 ] \
-     && [ "$_t71_rc_bad" -ne 0 ] && printf '%s' "$_t71_out_bad" | grep -qi 'malformed diff-tree header' \
-     && [ "$_t71_rc_b3" -ne 0 ] && printf '%s' "$_t71_out_b3" | grep -qi 'malformed diff-tree header' \
-     && [ "$_t71_rc_b4" -ne 0 ] && printf '%s' "$_t71_out_b4" | grep -qi 'malformed diff-tree header'; then
+     && [ "$_t71_rc_bad" -ne 0 ] && <<<"$_t71_out_bad" grep -qi 'malformed diff-tree header' \
+     && [ "$_t71_rc_b3" -ne 0 ] && <<<"$_t71_out_b3" grep -qi 'malformed diff-tree header' \
+     && [ "$_t71_rc_b4" -ne 0 ] && <<<"$_t71_out_b4" grep -qi 'malformed diff-tree header'; then
     ok "71: Rule 2 header validation — 40-char and 64-char shas accepted, 39-char (too short) and 65-char (too long, either field) rejected with DEGRADED"
   else
     no "71: Rule 2 header validation failed :: ok40=rc$_t71_rc_ok ok64=rc$_t71_rc_ok64 bad=rc$_t71_rc_bad out=[$_t71_out_bad]"
@@ -1395,7 +1395,7 @@ else
     _t72_out_ok64="$(mawk -f "$_t71_prog" "$_t71_in_ok64" 2>&1)"; _t72_rc_ok64=$?
     _t72_out_bad="$(mawk -f "$_t71_prog" "$_t71_in_bad" 2>&1)"; _t72_rc_bad=$?
     if [ "$_t72_rc_ok64" -eq 0 ] \
-       && [ "$_t72_rc_bad" -ne 0 ] && printf '%s' "$_t72_out_bad" | grep -qi 'malformed diff-tree header'; then
+       && [ "$_t72_rc_bad" -ne 0 ] && <<<"$_t72_out_bad" grep -qi 'malformed diff-tree header'; then
       ok "72: Rule 2 header validation under mawk — 64-char (SHA-256) sha accepted, 39-char rejected with DEGRADED"
     else
       no "72: mawk-pinned header validation failed :: ok64=rc$_t72_rc_ok64 bad=rc$_t72_rc_bad out=[$_t72_out_bad]"
@@ -1416,8 +1416,8 @@ else
   printf ':100644 100644 %s %s M \0path.txt\0' "$_t71_sha40" "$_t71_sha40" > "$_t73_in_trail"
   _t73_out_tab="$(awk -f "$_t71_prog" "$_t73_in_tab" 2>&1)"; _t73_rc_tab=$?
   _t73_out_trail="$(awk -f "$_t71_prog" "$_t73_in_trail" 2>&1)"; _t73_rc_trail=$?
-  if [ "$_t73_rc_tab" -ne 0 ] && printf '%s' "$_t73_out_tab" | grep -qi 'malformed diff-tree header' \
-     && [ "$_t73_rc_trail" -ne 0 ] && printf '%s' "$_t73_out_trail" | grep -qi 'malformed diff-tree header'; then
+  if [ "$_t73_rc_tab" -ne 0 ] && <<<"$_t73_out_tab" grep -qi 'malformed diff-tree header' \
+     && [ "$_t73_rc_trail" -ne 0 ] && <<<"$_t73_out_trail" grep -qi 'malformed diff-tree header'; then
     ok "73: Rule 2 header validation rejects a TAB-delimited header and a trailing-space header (restored full strictness)"
   else
     no "73: full-strictness restoration failed :: tab=rc$_t73_rc_tab out=[$_t73_out_tab] trail=rc$_t73_rc_trail out=[$_t73_out_trail]"
@@ -1562,7 +1562,7 @@ PYEOF59
   # BEFORE the first NUL-delimited diff record. This non-header text trips fail-closed awk Rule 3
   # → DEGRADED (rc=3 proves the scan breaks). If T60 was skipped (no gpgsig), skip teeth too.
   echo "-- teeth-r4-60: porcelain-log-with-m (round-4 exact) + showSignature — awk Rule 3 must fire --"
-  if ! git -C "$d_t60" cat-file commit HEAD 2>/dev/null | grep -q '^gpgsig'; then
+  if ! grep -q '^gpgsig' < <(git -C "$d_t60" cat-file commit HEAD 2>/dev/null); then
     echo "  SKIP:teeth-r4-60: T60 commit has no gpgsig; cannot prove showSignature teeth without a signed commit"
   else
     mutant_t60="$MUT/scan-secrets.MUTANT-r4-60.sh"
