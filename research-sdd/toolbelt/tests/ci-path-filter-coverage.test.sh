@@ -19,6 +19,12 @@
 # Anti-silent-zero contract (CLAUDE.md §7):
 #   Zero inputs or zero filters in either block must fail loudly.
 #
+# Doc-consistency extension (kit agenda item 4):
+#   Suites also read real doctrine files (METHODOLOGY.md, PROMPT-LOOP.md, skills/**,
+#   profiles/**) via $HERE/../../<path> or $KIT/<path>. Those paths are DERIVED by
+#   scanning the suites; each existing file outside the already-covered trees must be
+#   covered by both filter blocks, or a doc-only PR breaks a suite and merges without CI.
+#
 # Usage: ci-path-filter-coverage.test.sh [--prove-teeth]
 # Exit : 0 all inputs covered in both blocks · 1 gap detected · 2 harness error
 
@@ -30,6 +36,8 @@ REPO="$(cd "$TOOLBELT/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locati
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# harness_error: the instrument could not do its job (exit 2), as opposed to a real gap (exit 1).
+harness_error(){ printf '  FAIL  HARNESS ERROR: %s\n' "$1"; fail=$((fail+1)); printf '== %d passed · %d failed ==\n' "$pass" "$fail"; exit 2; }
 
 PARITY_TEST="$HERE/harness-sweep-parity.test.sh"
 WORKFLOW="$REPO/.github/workflows/toolbelt-tests.yml"
@@ -52,9 +60,7 @@ done <<< "$HARNESS_INPUTS_RAW"
 if [ "$input_count" -gt 0 ]; then
   ok "parity-test: derived $input_count harness inputs from $(basename "$PARITY_TEST")"
 else
-  no "parity-test: --list-inputs returned nothing — mode broken or parity test has no inputs"
-  printf '== %d passed · %d failed ==\n' "$pass" "$fail"
-  exit 1
+  harness_error "parity-test: --list-inputs returned nothing — mode broken or parity test has no inputs"
 fi
 
 # ---- Parse push and pull_request path filter blocks separately --------------
@@ -83,15 +89,13 @@ while IFS= read -r line; do if [ -n "$line" ]; then pr_count=$((pr_count + 1)); 
 if [ "$push_count" -gt 0 ]; then
   ok "workflow: parsed $push_count path filters from push block"
 else
-  no "workflow: zero push path filters — workflow format may have changed"
-  printf '== %d passed · %d failed ==\n' "$pass" "$fail"; exit 1
+  harness_error "workflow: zero push path filters — workflow format may have changed"
 fi
 
 if [ "$pr_count" -gt 0 ]; then
   ok "workflow: parsed $pr_count path filters from pull_request block"
 else
-  no "workflow: zero pull_request path filters — workflow format may have changed"
-  printf '== %d passed · %d failed ==\n' "$pass" "$fail"; exit 1
+  harness_error "workflow: zero pull_request path filters — workflow format may have changed"
 fi
 
 # ---- Match helper -----------------------------------------------------------
@@ -137,6 +141,128 @@ while IFS= read -r input_file; do
   fi
 done <<< "$HARNESS_INPUTS_RAW"
 
+# ---- Doc-consistency coverage: doctrine files the suites read ---------------
+# Derive repo-relative doc files from `$HERE/../../<p>` and `$KIT/<p>` / `${KIT}/<p>` references
+# in every suite. Paths under toolbelt/, install/, templates/ are already covered by
+# their own filters. TARGETS.md is excluded on purpose: suites cite it as an anchor
+# string or write it into fixtures, and it is refreshed by hand every session, so
+# filtering on it would run the full suite on every registry refresh for no coverage.
+#
+# Enumerator coverage proof (CLAUDE.md §7): a `$KIT/<p>` reference only counts when the suite's
+# KIT binding is classified as the REAL tree. Every suite with a non-comment `$KIT/` reference is
+# classified, and one whose binding is absent or unrecognised is reported UNCLASSIFIED (WARN).
+# Recognised KIT binding forms (line start, optional indentation, optional
+# `local|readonly|export|declare [-flags]` prefix, quoted or unquoted RHS):
+#   real-tree : RHS mentions $HERE/../.. or $TOOLBELT/..  (also the ${HERE} / ${TOOLBELT} forms)
+#   temp      : RHS mentions mktemp, or a $TMP / $TMPDIR / $SCRATCH / $BOX / $ROOT / $TWO_KIT path
+#   unclassified : any other RHS, or $KIT/ referenced with no KIT binding at all
+# Measured on the real tree at authoring time: 1 unclassified suite (hotcore-budget.test.sh, which
+# cites "$KIT/TARGETS.md" only as an anchor string, no binding) — noisy enough that this is a WARN,
+# not a failure; the count is printed on every run. Comments and heredoc bodies are ignored (live_lines).
+KIT_BIND_RE='^[[:space:]]*((local|readonly|export|declare)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)?)?KIT='
+KIT_REF_RE='\$(\{KIT\}|KIT)/[A-Za-z0-9_./-]+'
+# live_lines: print only LIVE shell text of a suite — full-line comments dropped, trailing
+# ` # ...` comments stripped, heredoc bodies skipped. Every scan below reads through this one
+# filter so a `$KIT/X.md` mention in prose or in a fixture body is never counted as a read.
+# (Heuristic: a ` #` inside a quoted string is also stripped; acceptable, it only loses prose.)
+live_lines() {
+  awk '
+    heredoc != "" { t=$0; if (dash) sub(/^\t+/, "", t); if (t == heredoc) heredoc=""; next }
+    /^[[:space:]]*#/ { next }
+    {
+      line=$0
+      if (match(line, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+        tag=substr(line, RSTART, RLENGTH); dash=(tag ~ /^<<-/)
+        gsub(/^<<-?[[:space:]]*["\047]?|["\047]?$/, "", tag); heredoc=tag
+      }
+      sub(/[[:space:]]+#.*$/, "", line)
+      print line
+    }
+  ' "$1"
+}
+
+classify_kit_binding() {
+  # $1 suite file -> prints real | temp | none (no $KIT/ ref) | unclassified
+  local suite="$1" live bindings
+  live="$(live_lines "$suite")"
+  if ! grep -qE "$KIT_REF_RE" <<< "$live"; then echo none; return; fi
+  bindings="$(grep -E "$KIT_BIND_RE" <<< "$live")" || bindings=""
+  if grep -qE '\$\{?(HERE\}?/\.\./\.\.|TOOLBELT\}?/\.\.)' <<< "$bindings"; then echo real
+  elif [ -n "$bindings" ] && ! grep -vE 'mktemp|\$\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT)\b' <<< "$bindings" | grep -q .; then echo temp
+  else echo unclassified; fi
+}
+
+unclassified_suites() {
+  local suite
+  for suite in "$@"; do
+    [ -f "$suite" ] || continue
+    [ "$(classify_kit_binding "$suite")" = unclassified ] && basename "$suite"
+  done
+  return 0
+}
+
+derive_doc_inputs() {
+  local kit_dir="$1" suite p; shift
+  for suite in "$@"; do
+    [ -f "$suite" ] || continue
+    # $HERE/../../<p> is always the real tree; $KIT/<p> only when that suite binds KIT to the real kit.
+    live_lines "$suite" | grep -oE '\$HERE/\.\./\.\./[A-Za-z0-9_./-]+' | sed -E 's#^\$HERE/\.\./\.\./##'
+    if [ "$(classify_kit_binding "$suite")" = real ]; then
+      live_lines "$suite" | grep -oE "$KIT_REF_RE" | sed -E 's#^\$(\{KIT\}|KIT)/##'
+    fi
+  done | sed -E 's#[./]+$##' | sort -u \
+    | while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        case "$p" in ../*|toolbelt|toolbelt/*|install|install/*|templates|templates/*|TARGETS.md) continue ;; esac
+        if [ -d "$kit_dir/$p" ]; then
+          find "$kit_dir/$p" -type f | sed "s#^$kit_dir/#research-sdd/#"
+        elif [ -f "$kit_dir/$p" ]; then
+          printf 'research-sdd/%s\n' "$p"
+        fi
+      done | sort -u
+}
+
+# This suite is excluded from its own scan: its teeth fixtures deliberately contain KIT bindings and
+# `$KIT/METHODOLOGY.md` text, which would otherwise be derived as if a suite read that doc.
+ALL_SUITES=()
+for _s in "$HERE"/*.test.sh "$REPO/research-sdd/install/tests"/*.test.sh; do
+  [ "$(basename "$_s")" = "$(basename "${BASH_SOURCE[0]}")" ] || ALL_SUITES+=("$_s")
+done
+UNCLASSIFIED="$(unclassified_suites "${ALL_SUITES[@]}")"
+if [ -n "$UNCLASSIFIED" ]; then
+  unc_count=0
+  while IFS= read -r line; do if [ -n "$line" ]; then unc_count=$((unc_count + 1)); fi; done <<< "$UNCLASSIFIED"
+  printf '  WARN  docs: %d suite(s) reference $KIT/<path> with an unclassified KIT binding (not derived): %s\n' "$unc_count" "$(tr '\n' ' ' <<< "$UNCLASSIFIED")"
+else
+  ok "docs: every suite with a \$KIT/ reference has a classified KIT binding"
+fi
+
+DOC_INPUTS="$(derive_doc_inputs "$REPO/research-sdd" "${ALL_SUITES[@]}")"
+doc_count=0
+while IFS= read -r line; do if [ -n "$line" ]; then doc_count=$((doc_count + 1)); fi; done <<< "$DOC_INPUTS"
+if [ "$doc_count" -gt 0 ]; then
+  ok "docs: derived $doc_count doctrine files read by suites: $(tr '\n' ' ' <<< "$DOC_INPUTS")"
+else
+  harness_error "docs: derivation found zero doctrine files — scan pattern broken (silent zero)"
+fi
+
+doc_gaps() {
+  # $1 push filters  $2 pr filters  -> prints "<block>: <file>" per gap
+  local f
+  while IFS= read -r f; do
+    if [ -z "$f" ]; then continue; fi
+    input_covered_in "$f" "$1" || printf 'push: %s\n' "$f"
+    input_covered_in "$f" "$2" || printf 'pull_request: %s\n' "$f"
+  done <<< "$DOC_INPUTS"
+}
+
+DOC_GAPS="$(doc_gaps "$PUSH_FILTERS" "$PR_FILTERS")"
+if [ -z "$DOC_GAPS" ]; then
+  ok "docs: all $doc_count doctrine files covered in push and pull_request filters"
+else
+  while IFS= read -r g; do no "docs: NOT COVERED ($g) — add to paths: in $(basename "$WORKFLOW")"; done <<< "$DOC_GAPS"
+fi
+
 # ---- NEGATIVE CONTROL: prove both defects are closed -----------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: verify derivation reads parity test and asymmetry is detected --"
@@ -155,7 +281,7 @@ if [ "${1:-}" = "--list-inputs" ]; then
 fi
 STUB_EOF
   stub_inputs="$(bash "$TMP/stub-parity.sh" --list-inputs)"
-  if printf '%s\n' "$stub_inputs" | grep -qx 'research-sdd/install/adapters.sh'; then
+  if grep -qx 'research-sdd/install/adapters.sh' <<< "$stub_inputs"; then
     ok "teeth A: extra input from stub parity test appears in derived set (derivation reads live file)"
   else
     no "teeth A: extra stub input NOT found — derivation is not reading parity test at runtime"
@@ -181,6 +307,88 @@ STUB_EOF
   else
     no "teeth B: asymmetry NOT detected (push=$asym_in_push pr=$asym_in_pr) — per-block check is theater"
   fi
+
+  # Teeth C: drop the skills glob from the pull_request block only; doc gap must surface.
+  awk '
+    /^  pull_request:$/ { in_pr=1 }
+    /^jobs:$/           { in_pr=0 }
+    in_pr && /research-sdd\/skills\/\*\*/ { next }
+    { print }
+  ' "$WORKFLOW" > "$TMP/nodoc.yml"
+  nd_gaps="$(doc_gaps "$(extract_trigger_paths "$TMP/nodoc.yml" push)" "$(extract_trigger_paths "$TMP/nodoc.yml" pull_request)")"
+  if grep -q '^pull_request: research-sdd/skills/' <<< "$nd_gaps" && ! grep -q '^push:' <<< "$nd_gaps"; then
+    ok "teeth C: removing skills path from pull_request block is detected as a doc gap"
+  else
+    no "teeth C: doc gap NOT detected after removing skills filter — doc check is theater"
+  fi
+
+  # Teeth D: a suite binding KIT with indentation + `readonly` and reading $KIT/METHODOLOGY.md must be derived.
+  mkdir -p "$TMP/fx"
+  cat > "$TMP/fx/a.test.sh" << 'FX_EOF'
+HERE=x
+  readonly KIT="$(cd "$HERE/../.." && pwd)"
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  if grep -qx 'research-sdd/METHODOLOGY.md' <<< "$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/a.test.sh")"; then
+    ok "teeth D: indented 'readonly KIT=...' binding is recognised and \$KIT/METHODOLOGY.md derived"
+  else
+    no "teeth D: indented readonly KIT binding NOT derived — binding recognition too narrow"
+  fi
+
+  # Teeth E: a suite referencing $KIT/ with an unrecognised binding is reported UNCLASSIFIED, not silently dropped.
+  cat > "$TMP/fx/b.test.sh" << 'FX_EOF'
+KIT="$(compute_kit_somehow)"
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  cat > "$TMP/fx/c.test.sh" << 'FX_EOF'
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  unc="$(unclassified_suites "$TMP/fx/a.test.sh" "$TMP/fx/b.test.sh" "$TMP/fx/c.test.sh")"
+  if [ "$unc" = "$(printf 'b.test.sh\nc.test.sh')" ]; then
+    ok "teeth E: unrecognised and absent KIT bindings are reported UNCLASSIFIED (a.test.sh real-tree is not)"
+  else
+    no "teeth E: unclassified enumeration wrong: [$unc]"
+  fi
+
+  # Teeth F: zero derivation is a harness error (rc 2), not a gap (rc 1). Run a copy of this suite in a
+  # synthetic repo whose suites reference no doctrine file.
+  FR="$TMP/frepo"; mkdir -p "$FR/research-sdd/toolbelt/tests" "$FR/.github/workflows"
+  cp "$WORKFLOW" "$FR/.github/workflows/toolbelt-tests.yml"
+  cp "$0" "$FR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh"
+  printf '#!/usr/bin/env bash\nprintf ".claude/settings.json\\n"\n' > "$FR/research-sdd/toolbelt/tests/harness-sweep-parity.test.sh"
+  frc=0
+  bash "$FR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh" > "$TMP/f.out" 2>&1 || frc=$?
+  if [ "$frc" -eq 2 ] && grep -q 'HARNESS ERROR: docs: derivation found zero' "$TMP/f.out"; then
+    ok "teeth F: zero doc derivation exits 2 with a typed HARNESS ERROR (not 1)"
+  else
+    no "teeth F: zero derivation rc=$frc (want 2) — harness error conflated with gap"
+  fi
+
+
+  # Teeth G: `$KIT/<doc>` / `$HERE/../../<doc>` inside a comment, a trailing comment, or a heredoc
+  # body is NOT a read. Mutant: with the filter replaced by plain cat, the same fixture IS derived.
+  cat > "$TMP/fx/g.test.sh" << 'FX_EOF'
+HERE=x
+KIT="$(cd "$HERE/../.." && pwd)"
+# see $KIT/PROMPT-LOOP.md for context
+true  # also $HERE/../../PROMPT-LOOP.md
+cat > f << 'INNER'
+$KIT/PROMPT-LOOP.md
+$HERE/../../PROMPT-LOOP.md
+INNER
+echo done
+FX_EOF
+  g_live="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/g.test.sh")"
+  live_lines_real="$(declare -f live_lines)"
+  live_lines() { cat "$1"; }
+  g_mut="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/g.test.sh")"
+  eval "$live_lines_real"
+  if [ -z "$g_live" ] && grep -qx 'research-sdd/PROMPT-LOOP.md' <<< "$g_mut"; then
+    ok "teeth G: comment and heredoc-body mentions are not derived (and are, with the filter removed)"
+  else
+    no "teeth G: filter ineffective or mutant did not go red (live=[$g_live] mutant=[$g_mut])"
+  fi
+
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

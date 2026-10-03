@@ -175,7 +175,7 @@ old_ln=$(grep -n 'old.md'   <<<"$OUT" | head -1 | cut -d: -f1)
 fresh_ln=$(grep -n 'fresh.md' <<<"$OUT" | head -1 | cut -d: -f1)
 if [ "$RC" = 0 ] \
    && [ "$(grep -c 'ESCALATED (aged' <<<"$OUT")" = 1 ] \
-   && grep -A1 'old.md' <<<"$OUT" | grep -q 'ESCALATED (aged' \
+   && grep -q 'ESCALATED (aged' <<<"$(grep -A1 'old.md' <<<"$OUT")" \
    && [ -n "$old_ln" ] && [ -n "$fresh_ln" ] && [ "$old_ln" -lt "$fresh_ln" ]; then
   ok "8 aged pending audit → ESCALATED tag + sorted oldest-first (fresh not tagged)" "(exit $RC)"
 else
