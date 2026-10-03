@@ -808,8 +808,9 @@ if [[ -n "$PROVE_TEETH" ]]; then
     mapfile -t _nb_sorted < <(printf '%s\n' "${sh_teeth_nobanner[@]}" | sort)
   fi
   # Build comma-separated name strings.
-  _nt_names=""; for _n in "${_nt_sorted[@]}"; do _nt_names="${_nt_names:+$_nt_names, }$_n"; done
-  _nb_names=""; for _n in "${_nb_sorted[@]}"; do _nb_names="${_nb_names:+$_nb_names, }$_n"; done
+  _join() { local _r="" _x; for _x in "$@"; do _r="${_r:+$_r, }$_x"; done; printf '%s' "$_r"; }
+  _nt_names=""; if [[ ${#_nt_sorted[@]} -gt 0 ]]; then _nt_names="$(_join "${_nt_sorted[@]}")"; fi
+  _nb_names=""; if [[ ${#_nb_sorted[@]} -gt 0 ]]; then _nb_names="$(_join "${_nb_sorted[@]}")"; fi
   # SENTINEL-NO-TEETH-BANNER
   echo "Suites without teeth: ${#_nt_sorted[@]} — [$_nt_names]"
   echo "(vocabulary check: a \"teeth\" case with no real mutant is a review item)"
@@ -820,7 +821,7 @@ if [[ -n "$PROVE_TEETH" ]]; then
   _nh_sorted=(); if [[ ${#sh_teeth_nohelper[@]} -gt 0 ]]; then
     mapfile -t _nh_sorted < <(printf '%s\n' "${sh_teeth_nohelper[@]}" | sort)
   fi
-  _nh_names=""; for _n in "${_nh_sorted[@]}"; do _nh_names="${_nh_names:+$_nh_names, }$_n"; done
+  _nh_names=""; if [[ ${#_nh_sorted[@]} -gt 0 ]]; then _nh_names="$(_join "${_nh_sorted[@]}")"; fi
   # SENTINEL-TEETH-HELPER-REPORT
   echo "Suites with teeth not using lib/mutant.sh: ${#_nh_sorted[@]} — [$_nh_names]"
   # --- Teeth-helper gate (kit issue #1299 item 4; --require-teeth only) -----------------------
@@ -859,6 +860,15 @@ if [[ -n "$PROVE_TEETH" ]]; then
         fi
       done < "$WAIVER_FILE"
     fi
+    # A basename shared by both corpora (one waiver line would silently cover both files) is ambiguous.
+    if [[ ${#_nh_sorted[@]} -gt 0 ]]; then
+      _nh_dups=""; _nh_dups="$(printf '%s\n' "${_nh_sorted[@]}" | uniq -d)"
+      if [[ -n "$_nh_dups" ]]; then
+        while IFS= read -r _n; do
+          _wv_invalid+=("'$_n' is ambiguous: a suite with that name exists in both corpora, so a waiver cannot be scoped to one")
+        done <<<"$_nh_dups"
+      fi
+    fi
     declare -A _nh_set=()
     for _n in "${_nh_sorted[@]}"; do _nh_set["$_n"]=1; done
     _unwaived=(); _waived=(); _stale=()
@@ -868,7 +878,6 @@ if [[ -n "$PROVE_TEETH" ]]; then
     for _n in "${!_wv_reason[@]}"; do
       [[ "${_nh_set[$_n]+set}" == "set" ]] || _stale+=("$_n")
     done
-    _join() { local _r="" _x; for _x in "$@"; do _r="${_r:+$_r, }$_x"; done; printf '%s' "$_r"; }
     _un_names=""; _wa_names=""; _st_names=""; _iv_names=""
     if [[ ${#_unwaived[@]} -gt 0 ]]; then _un_names="$(_join "${_unwaived[@]}")"; fi
     if [[ ${#_waived[@]} -gt 0 ]]; then _wa_names="$(_join "${_waived[@]}")"; fi
