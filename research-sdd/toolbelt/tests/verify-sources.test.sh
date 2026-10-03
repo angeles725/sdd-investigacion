@@ -893,6 +893,66 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# #1228 — the File column may carry the repo-root form `sources/web-snapshots/<f>` as well as the bare
+# `web-snapshots/<f>` form. Both must register a snapshot (LEVEL 5) AND be hash-verified (LEVEL 6).
+sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+# one fixture builder: rootform_corpus <dir> <row-prefix-for-a> ; a.md registered with the given File-cell prefix
+d="$TMP/rootform-good"; mkdir -p "$d"
+block "$d/rf-block1.md" '# Block 1' '## 1.1 [CERT-web] sources/web-snapshots/a.md — cited.'
+snapshot "$d/sources/web-snapshots/a.md" '<div>body</div>'
+sources_registry "$d" "| sources/web-snapshots/a.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/a.md") | B1 |"
+assert_exit "$SUT" 0 "#1228 GOOD: repo-root-form row registers snapshot" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'orphan-snapshot' <<<"$out" \
+  && { printf '  FAIL  %-42s (false orphan)\n' "#1228 root-form not an orphan"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no orphan line)\n' "#1228 root-form not an orphan"; pass=$((pass+1)); }
+grep -q 'web-snapshot hashes: 1 verified' <<<"$out" \
+  && { printf '  PASS  %-42s (L6 reached the row)\n' "#1228 root-form hash is LEVEL-6 verified"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (L6 skipped the row)\n' "#1228 root-form hash is LEVEL-6 verified"; fail=$((fail+1)); }
+
+# TAMPERED root-form row must be CAUGHT as a hash-mismatch (before the fix L6 never looked at it).
+d="$TMP/rootform-tampered"; mkdir -p "$d"
+block "$d/rt-block1.md" '# Block 1' '## 1.1 [CERT-web] sources/web-snapshots/a.md — cited.'
+snapshot "$d/sources/web-snapshots/a.md" '<div>body</div>'
+sources_registry "$d" "| sources/web-snapshots/a.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/a.md") | B1 |"
+snapshot "$d/sources/web-snapshots/a.md" '<div>TAMPERED after registration</div>'
+assert_exit "$SUT" 1 "#1228 BAD: tampered root-form snapshot" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'hash-mismatch: sources/web-snapshots/a.md' <<<"$out" \
+  && { printf '  PASS  %-42s (mismatch line printed)\n' "#1228 root-form tamper → hash-mismatch"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (mismatch line missing)\n' "#1228 root-form tamper → hash-mismatch"; fail=$((fail+1)); }
+
+# LIST EDGES — mixed forms, nested path, first/middle/last position; every snapshot is registered → PASS (0).
+d="$TMP/rootform-mixed"; mkdir -p "$d"
+block "$d/rm-block1.md" '# Block 1' '## 1.1 [CERT-web] sources/web-snapshots/a.md sources/web-snapshots/b.md sources/web-snapshots/ex.com/c.md sources/web-snapshots/d.md'
+for f in a.md b.md ex.com/c.md d.md; do snapshot "$d/sources/web-snapshots/$f" "<div>$f</div>"; done
+sources_registry "$d" \
+  "| web-snapshots/a.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/a.md") | B1 |" \
+  "| sources/web-snapshots/b.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/b.md") | B1 |" \
+  "| \`sources/web-snapshots/ex.com/c.md\` | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/ex.com/c.md") | B1 |" \
+  "| sources/web-snapshots/d.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/d.md") | B1 |"
+assert_exit "$SUT" 0 "#1228 GOOD: mixed bare/root forms, first..last" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'web-snapshot hashes: 4 verified' <<<"$out" \
+  && { printf '  PASS  %-42s (all 4 verified)\n' "#1228 mixed forms: all four hash-verified"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (%s)\n' "#1228 mixed forms: all four hash-verified" "$(grep 'web-snapshot hashes' <<<"$out")"; fail=$((fail+1)); }
+
+# NO OVER-SUPPRESSION — a real orphan next to root-form rows is STILL caught, and a prefixed-looking
+# row that is not anchored at the File-cell start (`foo/sources/web-snapshots/x.md`) registers nothing.
+d="$TMP/rootform-orphan"; mkdir -p "$d"
+block "$d/ro-block1.md" '# Block 1' '## 1.1 [CERT-web] sources/web-snapshots/a.md sources/web-snapshots/x.md'
+snapshot "$d/sources/web-snapshots/a.md" '<div>a</div>'
+snapshot "$d/sources/web-snapshots/x.md" '<div>x, registered only under a foreign prefix</div>'
+sources_registry "$d" \
+  "| sources/web-snapshots/a.md | web-snapshot | http://x | 2026-01-01 | $(sha_of "$d/sources/web-snapshots/a.md") | B1 |" \
+  "| foo/sources/web-snapshots/x.md | web-snapshot | http://x | 2026-01-01 | abcd1234 | B1 |"
+assert_exit "$SUT" 1 "#1228 BAD: foreign-prefix row does not register" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'orphan-snapshot: sources/web-snapshots/x.md' <<<"$out" && ! grep -q 'orphan-snapshot: sources/web-snapshots/a.md' <<<"$out" \
+  && { printf '  PASS  %-42s (only x is orphan)\n' "#1228 orphan isolated from root-form row"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (orphan set wrong)\n' "#1228 orphan isolated from root-form row"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
 # the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
 # mutant_sed refuses an empty / byte-identical / syntax-broken / live-tree mutant (rc 3/4/5/8), so a
@@ -964,6 +1024,12 @@ SED
   m="$TMP/mutants/VS1-REGEX.sh"
   mk_sed VS1-REGEX "$m" 's/(jsonl|ndjson|gz|/(/' \
     && tooth "teeth VS1-REGEX: LEVEL 3 regex drops jsonl|ndjson|gz" 1 0 "$m" -- bash @SUT@ "$d_vs1_ndjson"
+  m="$TMP/mutants/SRCPFX-L5.sh"
+  mk_sed SRCPFX-L5 "$m" '/SRCPFX-L5/d' \
+    && tooth "teeth SRCPFX-L5: LEVEL 5 root-form normalization dropped" 0 1 "$m" -- bash @SUT@ "$TMP/rootform-good"
+  m="$TMP/mutants/SRCPFX-L6.sh"
+  mk_sed SRCPFX-L6 "$m" '/SRCPFX-L6/d' \
+    && tooth "teeth SRCPFX-L6: LEVEL 6 root-form normalization dropped" 1 0 "$m" -- bash @SUT@ "$TMP/rootform-tampered"
   m="$TMP/mutants/VS49-RC.sh"
   mk_sed VS49-RC "$m" 's/_vsrc_rows_rc=$?/_vsrc_rows_rc=0/' \
     && MUTANT_TOOTH_ICASE=1 tooth "teeth VS49-RC: row-scan rc zeroed" 0 0 "$m" \
