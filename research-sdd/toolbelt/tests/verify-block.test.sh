@@ -1662,7 +1662,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-eh-norc" "$MUT/ehrc.sh" 's/_vb_eh_rc=$?/_vb_eh_rc=0/'; then
     tooth "teeth-eh-norc" 1 0 "$MUT/ehrc.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-eh-rcfail:$PATH" bash @SUT@ "$TMP/eh-clean.md"
   fi
-  if mk_sed "teeth-eh-notrailer" "$MUT/ehtr.sh" 's/ || ! grep -q .*<<<"\$_vb_eh_out"; then/; then/'; then
+  if mk_sed "teeth-eh-notrailer" "$MUT/ehtr.sh" 's/ || \[ -n "\$_vb_eh_trailer" \]; then/; then/'; then
     tooth "teeth-eh-notrailer" 1 0 "$MUT/ehtr.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-eh-silent:$PATH" bash @SUT@ "$TMP/eh-clean.md"
   fi
   echo "-- teeth-eh-waiver-global: waiver also exempts every other line (one marker disables the check) --"
