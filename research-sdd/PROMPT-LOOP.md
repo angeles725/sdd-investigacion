@@ -621,6 +621,9 @@ Always read first, in this order:
          UNSPLITTABLE). Review slice N (one RDD transaction per slice, `--base-ref <the slice's
          base=> --committed-only`, read-only on immutable commits) while the writer works on slice
          N+1. An UNSPLITTABLE commit is a decision for the human, not a mid-commit cut.
+         SCOPE: valid only while slice N's commits are immutable — never amend/rebase/force-push
+         them once its review starts. A correction on slice N lands as a NEW commit with its own
+         transaction; planned slices are then stale, so re-plan from the reviewed boundary.
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
