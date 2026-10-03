@@ -1779,11 +1779,12 @@ fi
 #   PRIVATE / INTERNAL -> silent;  no .git or no remote -> silent (nothing to read back)
 #   gh absent / failing / empty or unrecognised answer -> typed `degraded: remote-visibility: ...`
 #   (§7: a read-back that could not run is never a silent pass).
-# RSDD_GH_BIN overrides the gh binary (tests stub it; no network). Only the remote NAME is printed:
-# a remote URL may embed credentials.
+# RSDD_GH_BIN overrides the gh binary (tests stub it; no network). Only the remote NAME is printed and
+# only OWNER/REPO reaches gh's argv: a remote URL may embed credentials. Empty / non-github URL, missing
+# `timeout`, or a gh call over RSDD_GH_TIMEOUT seconds (default 10; GH_PROMPT_DISABLED=1) -> typed degraded.
 remote_visibility_block() {
   [ -e "$target/.git" ] || return 0
-  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_vis _rv_rc
+  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis _rv_rc
   command -v git >/dev/null 2>&1 || { echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
   mapfile -t _rv_arr < <(git -C "$target" remote 2>/dev/null)
   [ "${#_rv_arr[@]}" -gt 0 ] || return 0
@@ -1792,8 +1793,26 @@ remote_visibility_block() {
     if ! command -v "$_rv_gh" >/dev/null 2>&1; then
       echo "degraded: remote-visibility: gh not found — cannot verify the visibility of remote $_rv_r"; continue
     fi
-    _rv_url="$(git -C "$target" remote get-url "$_rv_r" 2>/dev/null)"
-    _rv_vis="$("$_rv_gh" repo view "$_rv_url" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
+    _rv_url="$(git -C "$target" remote get-url "$_rv_r" 2>/dev/null)" || _rv_url=""
+    if [ -z "$_rv_url" ]; then
+      echo "degraded: remote-visibility: $_rv_r url empty or unreadable — visibility unverified"; continue
+    fi
+    # Reduce the URL to OWNER/REPO (scheme + userinfo + host stripped) so no credential reaches gh's argv;
+    # anything that is not a github.com owner/repo is never handed to gh (it could resolve the cwd repo).
+    _rv_slug=""
+    if [[ "$_rv_url" =~ ^([A-Za-z][A-Za-z0-9+.-]*://)?([^/]*@)?github\.com[:/]+([A-Za-z0-9][A-Za-z0-9_.-]*)/([A-Za-z0-9_.-]+)/?$ ]]; then
+      _rv_slug="${BASH_REMATCH[3]}/${BASH_REMATCH[4]%.git}"
+    fi
+    if [ -z "$_rv_slug" ]; then
+      echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
+    fi
+    if ! command -v timeout >/dev/null 2>&1; then
+      echo "degraded: remote-visibility: timeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
+    fi
+    _rv_vis="$(GH_PROMPT_DISABLED=1 timeout "${RSDD_GH_TIMEOUT:-10}" "$_rv_gh" repo view "$_rv_slug" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
+    if [ "$_rv_rc" -eq 124 ]; then
+      echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue
+    fi
     if [ "$_rv_rc" -ne 0 ]; then
       echo "degraded: remote-visibility: gh failed (rc=$_rv_rc) for remote $_rv_r — visibility unverified"; continue
     fi

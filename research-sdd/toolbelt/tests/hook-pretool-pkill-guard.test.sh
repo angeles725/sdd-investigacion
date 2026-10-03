@@ -54,12 +54,28 @@ deny "second line of a multi-line command" $'echo hi\npkill -f foo'
 deny "full path to pkill" '/usr/bin/pkill -f foo'
 # a bad pattern behind a good one in the same command is still refused
 deny "escaped pkill then unescaped pgrep" 'pkill -f [f]oo; pgrep -f bar'
+# 1b. compound keywords / wrappers before the command word do not hide it (#1244 review)
+deny "if pgrep -f" 'if pgrep -f foo >/dev/null; then echo up; fi'
+deny "elif pgrep -f" 'if true; then :; elif pgrep -f foo; then :; fi'
+deny "while pkill -f" 'while pkill -f foo; do sleep 1; done'
+deny "until pgrep -f" 'until pgrep -f foo; do sleep 1; done'
+deny "command pkill -f" 'command pkill -f foo'
+deny "nice pkill -f" 'nice -n 5 pkill -f foo'
+deny "if ! pgrep -f" 'if ! pgrep -f foo; then :; fi'
+# 1c. bracket proviso: safe ONLY when the plain pattern appears nowhere else in the command
+deny "bracket + plain pattern in a cd path" "cd /srv/foo && pkill -f '[f]oo'"
+deny "bracket + plain pattern spawned earlier" "./foo & sleep 1; pkill -f '[f]oo'"
+deny "bracket + plain multi-word pattern elsewhere" "echo foo --serve; pkill -f '[f]oo --serve'"
+# documented false denial (header limits): quoted prose with a separator then pkill -f is refused
+deny "quoted prose with a separator before pkill -f (documented false denial)" 'git commit -m "x; pkill -f foo"'
 
 # 2. allowed
 allow "bracket-escaped pattern" 'pkill -f [f]oo'
 allow "bracket-escaped, quoted" "pkill -f '[f]oo --serve'"
 allow "bracket-escaped with a signal" 'pkill -9 -f "[s]erver"'
 allow "pgrep bracket-escaped" 'pgrep -f [f]oo'
+allow "if + bracket-escaped pgrep, plain pattern absent" 'if pgrep -f [f]oo; then echo up; fi'
+allow "bracket-escaped, unrelated command around it" 'cd /srv/app && pkill -f [f]oo'
 allow "-x exact name" 'pkill -x foo'
 allow "-f with -x (exact full match cannot hit the wrapper)" 'pkill -fx foo'
 allow "pkill without -f" 'pkill foo'
@@ -113,6 +129,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth G 's/pkill|pgrep) ;;/pkill) ;;/'                              deny  'pgrep -f foo'
   tooth H 's/^_flat=.*/_flat="$_cmd"/'                                deny  'echo a; pkill -f foo'
   tooth I 's/tr -d "[^|]*|/cat |/'                                    deny  "bash -c 'pkill -f foo'"
+  tooth K 's/|if|elif|while|until|command|nice//'                     deny  'if pgrep -f foo'
+  tooth L 's/_plain_elsewhere=1/_plain_elsewhere=0/'                  deny  "cd /srv/foo && pkill -f '[f]oo'"
   # J: the degraded "ask" branch removed -> a pkill payload with unparseable stdin is silently allowed
   if mutant_sed "$SUT" "$M/J.sh" 's/grep -Eq .pkill|pgrep./false/' >/dev/null 2>&1; then
     mo="$(printf '{not json pkill -f foo' | bash "$M/J.sh" 2>/dev/null)"
