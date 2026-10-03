@@ -2015,12 +2015,26 @@ if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 9 is no longer open in r43
 else
   no "43c plain orphan" "exit=$RC out=[$OUT]"
 fi
-# 43d — never mutates: the gh stub log carries no close/edit call (report-only contract).
-run "$box43a" "$retro43a"
-if grep -q 'gh issue list' "$box43a/bin/gh.log" 2>/dev/null && ! grep -qE 'issue (close|edit)' "$box43a/bin/gh.log"; then
-  ok "43d report-only: the gh path listed issues and made no close/edit call" "()"
+# 43d — never mutates: on the LIVE gh path (no --issues-cache) the stub answers the row-1 query with an open
+# issue, so the SUT reaches its close PROPOSAL; the stub log must still carry no close/edit call (report-only
+# contract). Non-vacuous (#1519): the proposal must actually be emitted, the log is fresh for this run, and a
+# positive control proves the log WOULD record a close/edit if the SUT issued one.
+box43d="$(mkbox case-report-only)"
+mk_gh_stub "$box43d" lines 'Source retro: target-foo/retros/r43d.md · 1' ''
+retro43d="$(mk_retro "$box43d" target-foo r43d.md \
+  "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
+  "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | LOW |')")"
+: > "$box43d/bin/gh.log"
+run "$box43d" "$retro43d"
+cp "$box43d/bin/gh.log" "$box43d/run.log"
+: > "$box43d/bin/gh.log"
+PATH="$box43d/bin:$PATH" gh issue close 1 >/dev/null 2>&1; PATH="$box43d/bin:$PATH" gh issue edit 1 >/dev/null 2>&1
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 is no longer open in r43d.md .*shipped.*close' <<<"$OUT" \
+   && grep -q 'gh issue list' "$box43d/run.log" && ! grep -qE 'issue (close|edit)' "$box43d/run.log" \
+   && grep -q 'gh issue close' "$box43d/bin/gh.log" && grep -q 'gh issue edit' "$box43d/bin/gh.log"; then
+  ok "43d report-only: close proposal emitted via gh, no close/edit call logged (log proven able to record one)" "()"
 else
-  no "43d report-only" "gh.log=[$(cat "$box43a/bin/gh.log" 2>&1)]"
+  no "43d report-only" "rc=$RC out=[$OUT] run.log=[$(cat "$box43d/run.log" 2>&1)] control=[$(cat "$box43d/bin/gh.log" 2>&1)]"
 fi
 
 # 43e — PRECEDENCE: a dismissed+PARTIAL marker (dismissed wins for open rows; PARTIAL still carries the shipped
@@ -2074,6 +2088,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1492-b teeth: status reason neutered -> no applied/close proposal (43b has teeth)" "()"
     else no "T1492-b teeth: neutering must flip 43b" "43b is THEATER: out=[$OUT]"; fi
   else no "T1492-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (d) a SUT that issues `gh issue close` while proposing must be visible to 43d's log check (#1519).
+  mk43="$(mkbox teeth-1519-d)"
+  mk_gh_stub "$mk43" lines 'Source retro: target-foo/retros/r43d.md · 1' ''
+  if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e "s/^\\( *\\)printf 'orphaned: issue for row/\\1gh issue close \"\$_irid\" >\\/dev\\/null 2>\\&1\\n&/"; then
+    r43="$(mk_retro "$mk43" target-foo r43d.md \
+      "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
+      "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | LOW |')")"
+    : > "$mk43/bin/gh.log"
+    run "$mk43" "$r43"
+    if grep -qE 'issue (close|edit)' "$mk43/bin/gh.log"; then
+      ok "T1519-d teeth: SUT issuing gh issue close is recorded by the stub log (43d has teeth)" "()"
+    else no "T1519-d teeth: a closing SUT must be visible to 43d" "43d is THEATER: log=[$(cat "$mk43/bin/gh.log" 2>&1)] out=[$OUT]"; fi
+  else no "T1519-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

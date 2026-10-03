@@ -885,25 +885,34 @@ skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
 # chars, so the clause changes no real output today; it is a guard against the NEXT mis-mapped column.
 _MIN_TITLE_LEN=12
 
-# title_is_unusable <title>: true when the trimmed title is under _MIN_TITLE_LEN CHARACTERS or is a bare
-# priority/type token. Sets _title_reason to the clause that fired so the message names it. Length is
-# counted in characters, not bytes, whatever the caller's locale: under LC_ALL=C every byte except a
-# UTF-8 continuation byte (0x80-0xBF) starts one character. The token list holds only tokens that reach
-# it, i.e. at least _MIN_TITLE_LEN chars (a shorter token is already caught by length), so each clause
-# is reachable and has its own tooth.
+# title_is_unusable <title>: true when the trimmed title is a bare priority/type token (any length) or is
+# under _MIN_TITLE_LEN CHARACTERS. Sets _title_reason to the clause that fired so the message names it.
+# The token check runs FIRST and is independent of the length floor (kit issue #1519): a token is labelled
+# a token even when it is also short, and the list needs no knowledge of _MIN_TITLE_LEN. It mirrors the
+# vocabulary map_priority/map_type recognise, exact match only.
+# Length is counted in characters, not bytes, whatever the caller's locale: for valid UTF-8 under LC_ALL=C
+# every byte except a continuation byte (0x80-0xBF) starts one character. Input that is NOT valid UTF-8
+# (e.g. Latin-1) has no continuation bytes to discount, so it is counted in bytes instead of being
+# undercounted into a false refusal; with no iconv to validate, the byte count is the safe fallback too.
 _title_reason=""
 title_is_unusable() {
   local t _n
   t="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # STAGE_RETRO_ISSUES_TOKEN_CLAUSE: anchor for the token-clause tooth
+  case "$t" in
+    high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix)
+      _title_reason="a bare priority/type token"; return 0 ;;
+  esac
   # STAGE_RETRO_ISSUES_CHAR_COUNT: anchor for the byte-vs-character tooth
-  _n="$(printf '%s' "$t" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+  if printf '%s' "$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+    _n="$(printf '%s' "$t" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+  else
+    _n="$(printf '%s' "$t" | LC_ALL=C wc -c)"
+  fi
   # STAGE_RETRO_ISSUES_SHORT_TITLE: anchor for the length-clause tooth
   if [ "$((_n + 0))" -lt "$_MIN_TITLE_LEN" ]; then
     _title_reason="a title under $_MIN_TITLE_LEN characters"; return 0
   fi
-  case "$t" in
-    documentation) _title_reason="a bare priority/type token"; return 0 ;;
-  esac
   return 1
 }
 

@@ -3929,13 +3929,15 @@ r85e="$(mk_retro "$box85e" target-foo r85e.md '<!-- review-status: pending -->' 
 | 7 | twelve chars | CLAUDE.md | B1 | fix | HIGH |
 | 8 | Documentation | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box85e" "$r85e"
-# Each clause names itself: a short token title is rejected by LENGTH (row 1), a long token by the token list (row 8).
-if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT" \
+# Each clause names itself: a bare token is labelled a TOKEN whatever its length (rows 1, 2, 8: the token check
+# runs before the length clause, #1519), and a non-token short title is labelled by LENGTH (row 6).
+if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*bare priority/type token' <<<"$OUT" \
+   && grep -q '^unclassifiable-row: row 2 .*bare priority/type token' <<<"$OUT" \
    && grep -q '^unclassifiable-row: row 8 .*bare priority/type token' <<<"$OUT" \
-   && ! grep -q '^unclassifiable-row: row 8 .*under 12' <<<"$OUT" \
+   && ! grep -q '^unclassifiable-row: row [128] .*under 12' <<<"$OUT" \
    && [ "$(grep -c '^unclassifiable-row:' <<<"$OUT")" = 6 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] \
    && grep -q '^planned-issue: a short but real$' <<<"$OUT" && grep -q '^planned-issue: twelve chars$' <<<"$OUT" \
-   && grep -q '^unclassifiable-row: row 1 ' <<<"$OUT" && grep -q '^unclassifiable-row: row 6 .*under 12 characters' <<<"$OUT"; then
+   && grep -q '^unclassifiable-row: row 6 .*under 12 characters' <<<"$OUT"; then
   ok "85e guard: token titles and the 11-char title → unclassifiable-row, the 12-char title planned" "(exit $RC)"
 else
   no "85e title guard" "exit=$RC out=[$OUT]"
@@ -3954,20 +3956,37 @@ else
   no "85f guard under --apply" "exit=$RC creates=$creates85f out=[$OUT]"
 fi
 # 85h — the length counts CHARACTERS, not bytes, in any locale (kit issue #1492): an 11-char title that is
-# 22 bytes long is refused, a 12-char one is planned. Run under a byte locale (C) and a UTF-8 locale.
+# 16 bytes long (3x ñ + 2x ú) is refused, a 12-char one (18 bytes) is planned. Run under a byte locale (C)
+# and a UTF-8 locale; a UTF-8 locale that is not installed is a SKIP, never a silent pass (#1519), and an
+# installed one must really count multibyte characters (wc -m) or the case would only re-test LC_ALL=C.
 box85h="$(mkbox case-title-chars)"; mk_gh_stub "$box85h" nomatch
 r85h="$(mk_retro "$box85h" target-foo r85h.md '<!-- review-status: pending -->' \
 "| 1 | ñandúñandúñ | CLAUDE.md | B1 | fix | HIGH |
 | 2 | ñandúñandúñá | CLAUDE.md | B1 | fix | HIGH |")"
 for _loc85h in C C.utf8; do
+  if [ "$_loc85h" != C ] && [ "$(printf 'ñ' | LC_ALL="$_loc85h" wc -m 2>/dev/null)" != 1 ]; then
+    echo "  SKIP  85h multibyte title under LC_ALL=$_loc85h: locale not installed or not a UTF-8 locale"
+    continue
+  fi
   LC_ALL="$_loc85h" run "$box85h" "$r85h"
   if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT" \
      && grep -q '^planned-issue: ñandúñandúñá$' <<<"$OUT" && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ]; then
-    ok "85h multibyte title: 11-char (22-byte) title refused, 12 chars planned under LC_ALL=$_loc85h" "(exit $RC)"
+    ok "85h multibyte title: 11-char (16-byte) title refused, 12 chars planned under LC_ALL=$_loc85h" "(exit $RC)"
   else
     no "85h multibyte title under LC_ALL=$_loc85h" "exit=$RC out=[$OUT]"
   fi
 done
+# 85i — a title that is NOT valid UTF-8 (Latin-1 bytes 0xB0 fall in the continuation range) must not be
+# undercounted into a false refusal (#1519): 12 bytes, 12 Latin-1 characters, three of them 0xB0 -> planned.
+box85i="$(mkbox case-title-latin1)"; mk_gh_stub "$box85i" nomatch
+r85i="$(mk_retro "$box85i" target-foo r85i.md '<!-- review-status: pending -->' \
+"$(printf '| 1 | a\260b\260c\260defghi | CLAUDE.md | B1 | fix | HIGH |')")"
+LC_ALL=C run "$box85i" "$r85i"
+if [ "$RC" = 0 ] && ! LC_ALL=C grep -aq '^unclassifiable-row:' <<<"$OUT" && [ "$(LC_ALL=C grep -ac '^planned-issue:' <<<"$OUT")" = 1 ]; then
+  ok "85i non-UTF-8 title: 12 bytes with continuation-range bytes is planned, not undercounted" "(exit $RC)"
+else
+  no "85i non-UTF-8 title undercount" "exit=$RC out=[$OUT]"
+fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -4000,6 +4019,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1492-c teeth: byte count -> 11-char multibyte title staged (85h has teeth)" "()"
     else no "T1492-c teeth: byte count must flip 85h" "85h is THEATER: out=[${OUT:0:300}]"; fi
   else no "T1492-c: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  echo "-- teeth T1519: token clause independent of length, non-UTF-8 fallback --"
+  # (d) token clause neutered -> the long token `Documentation` is staged (85e row 8 has teeth).
+  mbox="$(mkbox teeth-1519-d)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#^    high|medium|low|feature|.*documentation|doc-fix|docfix)$#    zzz-no-token)#'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r85w.md '<!-- review-status: pending -->' \
+"| 1 | Documentation | CLAUDE.md | B1 | fix | HIGH |")"
+    if grep -q '^planned-issue: Documentation$' <<<"$OUT"; then
+      ok "T1519-d teeth: token clause neutered -> long token title staged (85e has teeth)" "()"
+    else no "T1519-d teeth: neutering the token clause must flip 85e" "85e is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1519-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (e) token check demoted below the length clause -> a short token is labelled by length (85e row 1 has teeth).
+  mbox="$(mkbox teeth-1519-e)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#^    high|medium|low|feature|\(.*\)documentation|doc-fix|docfix)$#    xx-no-short-token|\1documentation|doc-fix|docfix)#'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r85x.md '<!-- review-status: pending -->' \
+"| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |")"
+    if grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT"; then
+      ok "T1519-e teeth: short tokens dropped from the list -> labelled by length (85e has teeth)" "()"
+    else no "T1519-e teeth: short-token removal must flip 85e" "85e is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1519-e: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (f) UTF-8 validity probe forced true -> the Latin-1 title is undercounted and refused (85i has teeth).
+  mbox="$(mkbox teeth-1519-f)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#if printf .%s. "\$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then#if true; then#'; then
+    LC_ALL=C run "$mbox" "$(mk_retro "$mbox" target-foo r85y.md '<!-- review-status: pending -->' \
+"$(printf '| 1 | a\260b\260c\260defghi | CLAUDE.md | B1 | fix | HIGH |')")"
+    if LC_ALL=C grep -aq '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT"; then
+      ok "T1519-f teeth: validity probe removed -> Latin-1 title undercounted and refused (85i has teeth)" "()"
+    else no "T1519-f teeth: removing the probe must flip 85i" "85i is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1519-f: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   echo "-- teeth T1444: SUT pipe-to-grep -q race --"
   # Each mutant restores the PIPED form of one rewritten site; the matching 83x case must go red.
   sp_expr_912='s#if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_existing"; then#if ! printf \x27%s\x27 "$_existing" | grep -q \x27^[[:space:]]*\\[\x27; then#'  # sigpipe-lint: allow sed anchor that restores the piped idiom in a T1444-a mutant
@@ -4078,7 +4125,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1260-guard teeth: guard off must plan LOW" "85e is THEATER: out=[$OUT]"; fi
   else no "T1260-guard: build mutant" "mutant_sed refused"; fi
   mb="$(mkbox teeth-1260-tokens)"; mk_gh_stub "$mb" nomatch
-  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^    documentation) _title_reason=/    NEVERMATCH) _title_reason=/'; then
+  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#^    high|medium|low|feature|.*documentation|doc-fix|docfix)$#    NEVERMATCH)#'; then
     run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | documentation | CLAUDE.md | B1 | fix | HIGH |')"
     if grep -q '^planned-issue: documentation$' <<<"$OUT"; then ok "T1260-tokens teeth: token list emptied → bare 'documentation' (13 chars, past the length clause) planned (85e has teeth)" "()"
     else no "T1260-tokens teeth: emptied list must plan documentation" "85e is THEATER: out=[$OUT]"; fi
