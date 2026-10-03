@@ -64,7 +64,7 @@ d="$TMP/ratio.md"
 } > "$d"
 out="$(run "$d")"
 # raw ratio would be 2/3=0.67; adjusted 1/2=0.50. Assert the ratio line shows the adjusted 2 CERT total.
-if grep -E 'ratio' <<<"$out" | grep -qE '1/2|= 0\.50'; then ok "ratio uses adjusted counts (1/2 = 0.50, not raw 2/3)"
+if grep -qE '1/2|= 0\.50' <<<"$(grep -E 'ratio' <<<"$out")"; then ok "ratio uses adjusted counts (1/2 = 0.50, not raw 2/3)"
 else no "ratio not on adjusted :: $(grep -i ratio <<<"$out" | head -1)"; fi
 
 # 5 — body section separators (extra ---) after the header must NOT strip body claims.

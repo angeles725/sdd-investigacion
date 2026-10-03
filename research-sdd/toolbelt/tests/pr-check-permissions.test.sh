@@ -49,12 +49,13 @@ grants_scope() {
   fi
   # Block form: extract the indented body of the top-level permissions: block,
   # then look for `  <scope>: read|write`.
-  awk '
+  local blk
+  blk="$(awk '
     /^permissions:[[:space:]]*$/ { in_blk=1; next }
     in_blk && /^[^[:space:]]/    { in_blk=0 }
     in_blk                       { print }
-  ' "$file" \
-    | grep -qE "^[[:space:]]+${scope}:[[:space:]]*(read|write)([[:space:]]|$)"
+  ' "$file")"
+  grep -qE "^[[:space:]]+${scope}:[[:space:]]*(read|write)([[:space:]]|$)" <<<"$blk"
 }
 
 # Anti-silent-zero: prove a permissions declaration exists at all before judging

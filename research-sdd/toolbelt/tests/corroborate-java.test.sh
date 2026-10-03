@@ -58,15 +58,15 @@ cat > "$ROOT/fake-runtime/bin/java" <<'SH'
 if [ "${1:-}" = -version ]; then echo 'openjdk version "21.0.1"' >&2; exit 0; fi
 case "${1:-}" in -Xmx*) shift;; esac
 [ "${1:-}" = -jar ] || exit 90; jar="$2"; shift 2
-if unzip -Z1 "$jar" | grep -qx SLOW; then sleep 3; fi
-if unzip -Z1 "$jar" | grep -qx FAIL; then echo 'stub failure' >&2; exit 7; fi
+if grep -qx SLOW <<<"$(unzip -Z1 "$jar")"; then sleep 3; fi
+if grep -qx FAIL <<<"$(unzip -Z1 "$jar")"; then echo 'stub failure' >&2; exit 7; fi
 case "$(basename "$jar")" in
   vineflower*) [ "${1:-}" = --thread-count=1 ] || exit 94; shift; in="$1"; out="$2" ;;
   cfr*) in="$1"; [ "$2" = --outputdir ] || exit 91; out="$3" ;;
   procyon*) [ "$1" = -jar ] || exit 92; in="$2"; [ "$3" = -o ] || exit 93; out="$4" ;;
 esac
 mkdir -p "$out/fixture"
-if unzip -Z1 "$jar" | grep -qx SPAM; then
+if grep -qx SPAM <<<"$(unzip -Z1 "$jar")"; then
   for name in $(seq 1 20); do head -c 1024 /dev/zero > "$out/fixture/$name.java"; done
   head -c 131072 /dev/zero >&2
   exit 8

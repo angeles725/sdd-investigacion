@@ -379,8 +379,7 @@ CSRC
   printf '%s' "$summary_line" > "$tmp/summary_line.txt"
 
   # Leak check: normalized output must contain no host paths.
-  if printf '%s\n%s\n' "$c_output" "$summary_line" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n%s\n' "$c_output" "$summary_line")"; then
     echo "regen_ghidra_c_exporter: host path leaked after normalization — aborting" >&2
     printf '%s\n%s\n' "$c_output" "$summary_line" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -803,8 +802,7 @@ PY
     echo "regen_corroborate_firmware: normalization produced empty output (happy)" >&2; return 1
   fi
   # Mandatory in-regen leak check (model: regen_corroborate_native_r2 :1010-1016).
-  if printf '%s\n' "$normalized_happy" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_happy")"; then
     echo "regen_corroborate_firmware: host path leaked after normalization (happy) — aborting" >&2
     printf '%s\n' "$normalized_happy" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -834,8 +832,7 @@ PY
   if [[ -z "$normalized_capped" ]]; then
     echo "regen_corroborate_firmware: normalization produced empty output (capped)" >&2; return 1
   fi
-  if printf '%s\n' "$normalized_capped" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_capped")"; then
     echo "regen_corroborate_firmware: host path leaked after normalization (capped) — aborting" >&2
     printf '%s\n' "$normalized_capped" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -1051,8 +1048,7 @@ PY
   fi
 
   # Leak check: normalized output must not contain host paths.
-  if printf '%s\n' "$normalized" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized")"; then
     echo "regen_corroborate_ghidra: host path leaked after normalization — aborting" >&2
     printf '%s\n' "$normalized" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -1207,8 +1203,7 @@ PY
   fi
   # Mandatory in-regen leak-check (model: regen_corroborate_native_r2).
   # java lives under /home/linuxbrew — 'linuxbrew' token MUST be caught if missed.
-  if printf '%s\n' "$normalized_happy" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_happy")"; then
     echo "regen_jvm_callgraph: host path leaked after normalization (happy) — aborting" >&2
     printf '%s\n' "$normalized_happy" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -1235,8 +1230,7 @@ PY
   if [[ -z "$normalized_capped" ]]; then
     echo "regen_jvm_callgraph: normalization produced empty output (capped)" >&2; return 1
   fi
-  if printf '%s\n' "$normalized_capped" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_capped")"; then
     echo "regen_jvm_callgraph: host path leaked after normalization (capped) — aborting" >&2
     printf '%s\n' "$normalized_capped" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -1372,8 +1366,7 @@ PY
   fi
   # Mandatory leak check (model: regen_ghidra_c_exporter :378-385).
   # Any remaining host path aborts the regen — do NOT trust the normalizer blind.
-  if printf '%s\n' "$normalized_happy" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_happy")"; then
     echo "regen_corroborate_native_r2: host path leaked after normalization (happy) — aborting" >&2
     printf '%s\n' "$normalized_happy" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
@@ -1397,8 +1390,7 @@ PY
   if [[ -z "$normalized_capped" ]]; then
     echo "regen_corroborate_native_r2: normalization produced empty output (capped)" >&2; return 1
   fi
-  if printf '%s\n' "$normalized_capped" \
-       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+  if grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet' <<<"$(printf '%s\n' "$normalized_capped")"; then
     echo "regen_corroborate_native_r2: host path leaked after normalization (capped) — aborting" >&2
     printf '%s\n' "$normalized_capped" \
       | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
