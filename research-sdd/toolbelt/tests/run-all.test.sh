@@ -972,6 +972,25 @@ skip_j(){ printf '  SKIP  %s (GNU parallel not installed)\n' "$1"; }
 # (the corpus path, the Parallel line); everything else must be byte-identical.
 agg_norm(){ sed -n '/^AGGREGATE RESULT$/,$p' <<<"$1" | grep -v -e '^Corpus: toolbelt' -e '^Parallel:'; }
 
+# mkbin_without <dir> <name>... — a PATH directory holding a symlink to EVERY executable found on the
+# current PATH except the named ones (derived, not a hand-kept allowlist: a tool the runner later
+# starts needing can never turn the case into a wrong-reason failure). Prints <dir>.
+mkbin_without(){
+  local d="$1"; shift; mkdir -p "$d"
+  local pd f n x skip
+  local IFS=:
+  for pd in $PATH; do
+    [ -d "$pd" ] || continue
+    for f in "$pd"/*; do
+      [ -x "$f" ] && [ -f "$f" ] || continue
+      n="${f##*/}"; skip=0
+      for x in "$@"; do [ "$n" = "$x" ] && skip=1; done
+      [ "$skip" -eq 1 ] || [ -e "$d/$n" ] || ln -s "$f" "$d/$n"
+    done
+  done
+  printf '%s' "$d"
+}
+
 # j1 — refusals: bare -j, -j 0, -j 100%, non-numeric, above the cap are exit 2 with a named reason.
 w="$(newdir j1)"; mkfix_sh "$w/a.test.sh" 1 0 0
 _j1bad=""
@@ -1029,21 +1048,39 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   else no "-j teeth forwarding failed: [$_a1] [$_a2]"; fi
 else skip_j "-j teeth forwarding"; fi
 
-# j5 — DEGRADED, never silent: -j without GNU parallel prints a typed line and still runs serially.
+# j5 — DEGRADED, never silent: -j without usable GNU parallel prints a typed line carrying the
+#      CONCRETE reason (kit issue #1491 item 2) and still runs serially. Three distinct causes:
+#      not on PATH, on PATH but not GNU, on PATH but `--version` fails.
 w="$(newdir j5)"; mkfix_sh "$w/a.test.sh" 2 0 0; mkfix_sh "$w/b.test.sh" 1 0 0
 _j5bin="$TMP/j5-bin"; mkdir -p "$_j5bin"
 { printf '#!/bin/sh\n'; printf 'echo "not the real thing"\n'; } > "$_j5bin/parallel"; chmod +x "$_j5bin/parallel"
+_j5nobin="$(mkbin_without "$TMP/j5-nobin" parallel)"
+_j5brk="$TMP/j5-brk"; mkdir -p "$_j5brk"
+{ printf '#!/bin/sh\n'; printf 'exit 3\n'; } > "$_j5brk/parallel"; chmod +x "$_j5brk/parallel"
+_j5bad=""
 out="$(PATH="$_j5bin:$PATH" bash "$w/run-all.sh" -j 4 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && grep -qF 'DEGRADED — GNU parallel not found' <<<"$out" \
+   && grep -qF 'DEGRADED — '"'parallel' on PATH ($_j5bin/parallel) is not GNU parallel" <<<"$out" \
    && grep -qF 'Parallel: DEGRADED' <<<"$out" \
+   && ! grep -qF 'not on PATH' <<<"$out" \
    && grep -qF 'Suites passed: 2' <<<"$out" \
    && grep -qF 'Test cases passed: 3' <<<"$out"; then
-  ok "-j degraded: no GNU parallel -> typed DEGRADED line (stderr + aggregate), serial run still counts every suite"
-else no "-j degraded failed: rc=$rc :: $(grep -iE 'degraded|Suites' <<<"$out" | tr '\n' '|')"; fi
+  ok "-j degraded: non-GNU parallel -> DEGRADED names 'is not GNU parallel' (stderr + aggregate), serial run still counts every suite"
+else no "-j degraded (non-GNU) failed: rc=$rc :: $(grep -iE 'degraded|Suites' <<<"$out" | tr '\n' '|')"; fi
+out="$(PATH="$_j5brk:$PATH" bash "$w/run-all.sh" -j 4 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "but 'parallel --version' failed" <<<"$out" && grep -qF 'Suites passed: 2' <<<"$out"; then
+  ok "-j degraded: parallel whose --version fails -> DEGRADED names the failing --version"
+else no "-j degraded (--version fails) failed: rc=$rc :: $(grep -iE 'degraded' <<<"$out" | tr '\n' '|')"; fi
+out="$(PATH="$_j5nobin" "$_j5nobin/bash" "$w/run-all.sh" -j 4 2>&1)"; rc=$?
+if [ ! -x "$_j5nobin/bash" ] || [ -e "$_j5nobin/parallel" ]; then
+  no "-j degraded (absent): control invalid — stripped PATH lacks bash or still has parallel"
+elif [ "$rc" -eq 0 ] && grep -qF "DEGRADED — 'parallel' is not on PATH" <<<"$out" && grep -qF 'Parallel: DEGRADED' <<<"$out"; then
+  ok "-j degraded: no parallel on PATH -> DEGRADED names 'not on PATH'"
+else no "-j degraded (absent) failed: rc=$rc :: $(grep -iE 'degraded' <<<"$out" | tr '\n' '|')"; fi
 
-# j6 — a leaking suite is not lost under -j: the batch-level snapshot catches it and the run fails
-#      loud under the batch label (attribution to the suite is a documented, typed limitation).
+# j6 — a leaking suite under -j is NAMED (kit issue #1491 item 1): the batch snapshot catches the
+#      leak, then an automatic serial re-run attributes it to the suite whose run re-touches the
+#      path. The clean suite is never blamed, and the run still fails.
 if [ "$have_gnu_parallel" -eq 1 ]; then
   w="$(newdir j6)"; _j6kit="${w%/toolbelt/tests}"; mkdir -p "$_j6kit/install"
   { printf '#!/usr/bin/env bash\n'
@@ -1056,11 +1093,96 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   out="$(cd "$_j6cwd" && bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
   if [ "$rc" -eq 1 ] \
      && grep -qF 'Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): 1' <<<"$out" \
-     && grep -qF 'install/leak.MUTANT.sh (new)' <<<"$out" \
-     && grep -qF 're-run serially to name the suite' <<<"$out"; then
-    ok "-j leak: a suite writing into research-sdd/ fails the run under the typed batch label"
+     && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
+     && ! grep -qF 'b-clean.test.sh leaked' <<<"$out" \
+     && ! grep -qF -- '-j batch (offender unattributed' <<<"$out"; then
+    ok "-j leak: a suite writing into research-sdd/ is named (serial attribution re-run), run fails"
   else no "-j leak failed: rc=$rc :: $(grep -iE 'kit-tree|leaked|batch' <<<"$out" | tr '\n' '|')"; fi
-else skip_j "-j leak"; fi
+  # j9 — same for the caller-cwd guard.
+  w="$(newdir j9)"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'printf x > "%s/j9-leak.txt"\n' "$TMP/j9-cwd"
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-cwdleak.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j9cwd="$TMP/j9-cwd"; mkdir -p "$_j9cwd"
+  out="$(cd "$_j9cwd" && bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'a-cwdleak.test.sh leaked: j9-leak.txt (new)' <<<"$out" && ! grep -qF 'b-clean.test.sh leaked' <<<"$out"; then
+    ok "-j cwd leak: a suite dropping a file in the caller cwd is named, run fails"
+  else no "-j cwd leak failed: rc=$rc :: $(grep -iE 'hermeticity|leaked' <<<"$out" | tr '\n' '|')"; fi
+  # j10 — an unattributable leak (a removal; nothing to re-touch) still fails under the typed batch label.
+  w="$(newdir j10)"; _j10kit="${w%/toolbelt/tests}"; mkdir -p "$_j10kit/install"; printf x > "$_j10kit/install/victim.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'rm -f "$k/install/victim.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-rm.test.sh"
+  _j10cwd="$TMP/j10-cwd"; mkdir -p "$_j10cwd"
+  out="$(cd "$_j10cwd" && bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF -- '-j batch (offender unattributed' <<<"$out" && grep -qF 'install/victim.sh (removed)' <<<"$out"; then
+    ok "-j leak: an unattributable (removed) path keeps the typed batch label and still fails the run"
+  else no "-j unattributable leak failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<<"$out" | tr '\n' '|')"; fi
+  # j11 — serial path unchanged: the same leaky fixture run WITHOUT -j names the suite directly,
+  #       prints no Parallel line and never starts an attribution re-run.
+  w="$(newdir j11)"; _j11kit="${w%/toolbelt/tests}"; mkdir -p "$_j11kit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-leaky.test.sh"
+  _j11cwd="$TMP/j11-cwd"; mkdir -p "$_j11cwd"
+  out="$(cd "$_j11cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
+     && ! grep -qF 'attribution re-run' <<<"$out" && ! grep -qF 'Parallel:' <<<"$out"; then
+    ok "serial path unchanged: leak named directly, no Parallel line, no attribution re-run"
+  else no "serial path unchanged failed: rc=$rc :: $(grep -iE 'leaked|attribution|Parallel' <<<"$out" | tr '\n' '|')"; fi
+  # j12 — bound (kit issue #1491 review R4/R3-002): only the suites whose run window held the leak's
+  #       mtime are re-run — never the whole corpus.
+  w="$(newdir j12)"; _j12kit="${w%/toolbelt/tests}"; mkdir -p "$_j12kit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'sleep 1\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-slow.test.sh" 1 0 0; sed -i 's/^exit 0$/sleep 1; exit 0/' "$w/b-slow.test.sh"
+  for n in c1 c2 c3 c4; do mkfix_sh "$w/$n.test.sh" 1 0 0; done
+  _j12cwd="$TMP/j12-cwd"; mkdir -p "$_j12cwd"; _j12err="$TMP/j12.err"
+  out="$(cd "$_j12cwd" && bash "$w/run-all.sh" -j 2 2>"$_j12err")"; rc=$?
+  _j12n="$(grep -c 'attribution re-run:' "$_j12err")"
+  if [ "$rc" -eq 1 ] && [ "$_j12n" -le 2 ] && [ "$_j12n" -ge 1 ] \
+     && ! grep -qE 'attribution re-run: c[0-9]' "$_j12err" \
+     && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
+     && grep -qE '^Attribution: re-ran [12] candidate suite\(s\) of 6' <<<"$out"; then
+    ok "-j attribution is bounded: $_j12n candidate suite(s) of 6 re-run, the Attribution line states the bound"
+  else no "-j attribution bound failed: rc=$rc n=$_j12n :: $(grep -E 'attribution|Attribution|leaked' "$_j12err" <<<"$out" | tr '\n' '|')"; fi
+  # j13 — a missing stat is a typed DEGRADED attribution, not a silent batch label.
+  w="$(newdir j13)"; _j13kit="${w%/toolbelt/tests}"; mkdir -p "$_j13kit/install"
+  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j13bin="$(mkbin_without "$TMP/j13-bin" stat)"; _j13cwd="$TMP/j13-cwd"; mkdir -p "$_j13cwd"
+  out="$(cd "$_j13cwd" && PATH="$_j13bin" "$_j13bin/bash" "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ -e "$_j13bin/stat" ] || [ ! -e "$_j13bin/parallel" ]; then no "-j stat-less: control invalid (stat present or parallel missing in the stripped PATH)"
+  elif [ "$rc" -eq 1 ] && grep -qE '^Attribution: DEGRADED \(neither' <<<"$out" && grep -qF -- '-j batch (offender unattributed' <<<"$out"; then
+    ok "-j stat-less: attribution is a typed DEGRADED line and the leak keeps the batch label (run fails)"
+  else no "-j stat-less failed: rc=$rc :: $(grep -iE 'attribution|leaked|degraded' <<<"$out" | tr '\n' '|')"; fi
+  # j14 — a suite that REWRITES the leaked path with different bytes but restores its mtime is still
+  #       named (the signature is mtime AND content hash).
+  w="$(newdir j14)"; _j14kit="${w%/toolbelt/tests}"; mkdir -p "$_j14kit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"; f="$k/install/leak.MUTANT.sh"\n'
+    printf 'm="$(stat -c %%y "$f" 2>/dev/null)"\n'
+    printf 'printf "%%s" "$RANDOM$RANDOM$(date +%%N)" > "$f"\n'
+    printf '[ -n "$m" ] && touch -d "$m" "$f"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-restore.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j14cwd="$TMP/j14-cwd"; mkdir -p "$_j14cwd"
+  out="$(cd "$_j14cwd" && bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'a-restore.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out"; then
+    ok "-j attribution: a suite that rewrites the path and restores its mtime is named via the content hash"
+  else no "-j restored-mtime failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
+else skip_j "-j leak attribution (j6/j9/j10/j11)"; fi
 
 # j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
 #      so a hung suite (started, never done) is nameable; the aggregate block is unaffected.
@@ -1657,6 +1779,82 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
     mout="$(bash "$w/run-all.sh" -j 2 2>&1)"
     if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$mout"; then ok "teeth-j-count: count-logic mutant loses the mismatch line the real runner prints → the check has real teeth"
     else no "teeth-j-count: mutant still reports the mismatch — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation (kit issue #1491 item 1): neuter the serial attribution call. The real runner names the
+  # leaking suite; the mutant must fall back to the batch label.
+  echo "-- teeth: neuter the -j serial attribution re-run; the suite name must disappear --"
+  w="$(mut_workdir teeth-j-attr)"; _tjkit="${w%/toolbelt/tests}"; mkdir -p "$_tjkit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  cp "$SUT" "$w/run-all.good.sh"
+  gout="$(bash "$w/run-all.good.sh" -j 2 2>&1)"
+  rm -f "$_tjkit/install/leak.MUTANT.sh"
+  if ! grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$gout"; then
+    no "teeth-j-attr: UNMUTATED runner did not name the suite — control invalid"
+  elif ! mutant_sed "$SUT" "$w/run-all.sh" 's/^  _attribute_batch_leaks "\$_hv_before" "\$_kv_before"$/  true/' 2>"$w/mutant.err"; then
+    no "teeth-j-attr: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mout="$(bash "$w/run-all.sh" -j 2 2>&1)"
+    rm -f "$_tjkit/install/leak.MUTANT.sh"
+    if ! grep -qF 'a-leaky.test.sh leaked:' <<<"$mout" && grep -qF -- '-j batch (offender unattributed' <<<"$mout"; then
+      ok "teeth-j-attr: attribution-neutered mutant reports only the batch label → the attribution has real teeth"
+    else no "teeth-j-attr: mutant still names the suite — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation (review R4/R3-002): widen the candidate filter to every suite; the bound must disappear.
+  echo "-- teeth: drop the attribution window filter; every suite must then be re-run --"
+  w="$(mut_workdir teeth-j-bound)"; _tbkit="${w%/toolbelt/tests}"; mkdir -p "$_tbkit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'sleep 1\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-slow.test.sh" 1 0 0; sed -i 's/^exit 0$/sleep 1; exit 0/' "$w/b-slow.test.sh"
+  for n in c1 c2 c3 c4; do mkfix_sh "$w/$n.test.sh" 1 0 0; done
+  if ! mutant_sed "$SUT" "$w/run-all.sh" "s/BEGIN { exit !(m + 0 >= s - t \&\& m + 0 <= e + t) }/BEGIN { exit 0 }/" 2>"$w/mutant.err"; then
+    no "teeth-j-bound: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mout="$(cd "$TMP" && bash "$w/run-all.sh" -j 2 2>&1)"
+    rm -f "$_tbkit/install/leak.MUTANT.sh"
+    if grep -qE 'attribution re-run: c[0-9]' <<<"$mout" || grep -qE 'attribution re-run: c[0-9]' "$TMP/teeth-j-bound.err" 2>/dev/null; then
+      ok "teeth-j-bound: filter-less mutant re-runs clean suites → the bound has real teeth"
+    else no "teeth-j-bound: mutant did not widen the re-run — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation (review R3-001): signature = mtime only; the restore-mtime suite must go unnamed.
+  echo "-- teeth: drop the content hash from the attribution signature; the mtime-restoring suite must go unnamed --"
+  w="$(mut_workdir teeth-j-sig)"; _tskit="${w%/toolbelt/tests}"; mkdir -p "$_tskit/install"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"; f="$k/install/leak.MUTANT.sh"\n'
+    printf 'm="$(stat -c %%y "$f" 2>/dev/null)"\n'
+    printf 'printf "%%s" "$RANDOM$RANDOM$(date +%%N)" > "$f"\n'
+    printf '[ -n "$m" ] && touch -d "$m" "$f"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-restore.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^  \[\[ -f "\$1" \]\] && _h="\$(sha1sum.*$/  :/' 2>"$w/mutant.err"; then
+    no "teeth-j-sig: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mout="$(cd "$TMP" && bash "$w/run-all.sh" -j 2 2>&1)"
+    rm -f "$_tskit/install/leak.MUTANT.sh"
+    if ! grep -qF 'a-restore.test.sh leaked:' <<<"$mout"; then ok "teeth-j-sig: hash-less mutant fails to name the mtime-restoring suite → the content hash has real teeth"
+    else no "teeth-j-sig: mutant still names the suite — mutation not exercised (THEATER)"; fi
+  fi
+  # Mutation (item 2): make the non-GNU cause say 'not on PATH'; the non-GNU case must then lose its reason.
+  echo "-- teeth: misname the non-GNU DEGRADED cause; the exact reason must disappear --"
+  w="$(mut_workdir teeth-j-reason)"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  _trbin="$TMP/teeth-reason-bin"; mkdir -p "$_trbin"
+  { printf '#!/bin/sh\n'; printf 'echo "not the real thing"\n'; } > "$_trbin/parallel"; chmod +x "$_trbin/parallel"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/is not GNU parallel"/is not on PATH"/' 2>"$w/mutant.err"; then
+    no "teeth-j-reason: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    mout="$(PATH="$_trbin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"
+    if ! grep -qF 'is not GNU parallel' <<<"$mout"; then ok "teeth-j-reason: misnamed-cause mutant loses 'is not GNU parallel' → the reason assertion has real teeth"
+    else no "teeth-j-reason: mutant still says 'is not GNU parallel' — mutation not exercised (THEATER)"; fi
   fi
 fi
 
