@@ -159,18 +159,27 @@ done <<< "$HARNESS_INPUTS_RAW"
 # An UNCLASSIFIED suite is a harness error (rc 2): a read through an unrecognised binding would
 # otherwise drop out of the derived set silently (#1455). A `$KIT/<p>` that is only a single-quoted span or
 # backslash-escaped literal (detected quote-aware per line; an ambiguous line stays visible) (e.g. hotcore-budget.test.sh's "$KIT/TARGETS.md" anchor strings) is no read and
-# is classified `none`. Comments and heredoc bodies are ignored (live_lines). Deferred (#1455 item 3,
-# low value): live_lines still detects heredoc openers before stripping trailing comments.
+# is classified `none`. Comments and heredoc bodies are ignored (live_lines).
+# Heredoc openers are detected AFTER the trailing comment is stripped, and `<<<word` is a here-string.
 KIT_REF_RE='\$(\{KIT\}|KIT)/[A-Za-z0-9_./-]+'
-# Real-tree path prefixes, defined ONCE and reused by every consumer (derivation, prefix strip).
-# HERE_PFX: $HERE/../../<p> (tests dirs) and $TOOLBELT/../<p> — always the real tree, each as bare,
-# ${braced} or "$quoted"/ . REPO_PFX: $REPO/research-sdd/<p> — a read of the real tree ONLY when the
-# suite binds REPO to it (classify_binding REPO); a temp-bound REPO is a fixture (#1455 item 2).
-HERE_PFX='(\$\{?HERE\}?"?/\.\./\.\./|\$\{?TOOLBELT\}?"?/\.\./)'
-REPO_PFX='(\$\{?REPO\}?"?/research-sdd/)'
-REAL_REF_RE="${HERE_PFX}[A-Za-z0-9_./-]+"
+KIT_REF_PREFIX_RE='^\$(\{KIT\}|KIT)/'
+# Real-tree path prefixes. The variable bases (_V_*: bare, ${braced} or "$quoted" followed by `/`) are
+# defined ONCE and composed into EVERY consumer: derivation (HERE_PFX, REPO_PFX), prefix strip, and the
+# binding classifiers (REPO_REAL_BIND_RE, KIT_HERE_BIND_RE), so they cannot drift (#1479 R2-001).
+# HERE_PFX: $HERE/../../<p> (tests dirs) and $TOOLBELT/../<p> — always the real tree. REPO_PFX:
+# $REPO/research-sdd/<p> — a read of the real tree ONLY when the suite binds REPO to it
+# (classify_binding REPO); a temp-bound REPO is a fixture (#1455 item 2).
+# A doc path must START with a name character, so a deeper climb than the recognised prefix matches
+# nothing instead of being partly stripped into `..` or a parent-relative path (#1479).
+_V_HERE='\$\{?HERE\}?"?'
+_V_TOOLBELT='\$\{?TOOLBELT\}?"?'
+_V_REPO='\$\{?REPO\}?"?'
+DOC_PATH_RE='[A-Za-z0-9_][A-Za-z0-9_./-]*'
+HERE_PFX="(${_V_HERE}/\.\./\.\./|${_V_TOOLBELT}/\.\./)"
+REPO_PFX="(${_V_REPO}/research-sdd/)"
+REAL_REF_RE="${HERE_PFX}${DOC_PATH_RE}"
 REAL_REF_PREFIX_RE="^${HERE_PFX}"
-REPO_REF_RE="${REPO_PFX}[A-Za-z0-9_./-]+"
+REPO_REF_RE="${REPO_PFX}${DOC_PATH_RE}"
 REPO_REF_PREFIX_RE="^${REPO_PFX}"
 # live_lines: print only LIVE shell text of a suite — full-line comments dropped, trailing
 # ` # ...` comments stripped, heredoc bodies skipped. Every scan below reads through this one
@@ -182,11 +191,12 @@ live_lines() {
     /^[[:space:]]*#/ { next }
     {
       line=$0
-      if (match(line, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
-        tag=substr(line, RSTART, RLENGTH); dash=(tag ~ /^<<-/)
+      sub(/[[:space:]]+#.*$/, "", line)
+      code=line; gsub(/<<</, "___", code)
+      if (match(code, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+        tag=substr(code, RSTART, RLENGTH); dash=(tag ~ /^<<-/)
         gsub(/^<<-?[[:space:]]*["\047]?|["\047]?$/, "", tag); heredoc=tag
       }
-      sub(/[[:space:]]+#.*$/, "", line)
       print line
     }
   ' "$1"
@@ -214,17 +224,18 @@ strip_kit_literals() {
 
 # classify_binding VAR REAL_RE LIVE-TEXT -> real | temp | unclassified, from VAR's binding lines.
 classify_binding() {
-  local var="$1" real_re="$2" live="$3" bindings
+  local var="$1" real_re="$2" live="$3" extra_temp="${4:-}" bindings
   bindings="$(grep -E "^[[:space:]]*((local|readonly|export|declare)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)?)?${var}=" <<< "$live")" || bindings=""
   if grep -qE "$real_re" <<< "$bindings"; then echo real
-  elif [ -n "$bindings" ] && [ -z "$(grep -vE 'mktemp|\$\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT)\b' <<< "$bindings")" ]; then echo temp
+  elif [ -n "$bindings" ] && [ -z "$(grep -vE "mktemp|\\\$\\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT${extra_temp})\\b" <<< "$bindings")" ]; then echo temp
   else echo unclassified; fi
 }
 
 # A REPO binding is the real tree when it climbs out of the toolbelt or the tests dir.
-REPO_REAL_BIND_RE='\$\{?(TOOLBELT\}?/\.\./\.\.|HERE\}?/\.\./\.\./\.\.)'
-# A KIT binding is the real kit via HERE/TOOLBELT climbs, or `$REPO/research-sdd`.
-KIT_REAL_BIND_RE='\$\{?(HERE\}?/\.\./\.\.|TOOLBELT\}?/\.\.|REPO\}?/research-sdd)'
+REPO_REAL_BIND_RE="(${_V_TOOLBELT}/\.\./\.\.|${_V_HERE}/\.\./\.\./\.\.)"
+# A KIT binding is the real kit via HERE/TOOLBELT climbs; `$REPO/research-sdd` counts only when REPO
+# itself is real-bound (classify_kit_binding adds it), and is a temp fixture when REPO is temp-bound.
+KIT_HERE_BIND_RE="(${_V_HERE}/\.\./\.\.|${_V_TOOLBELT}/\.\.)"
 
 classify_kit_binding() {
   # $1 suite file -> prints real | temp | none (no live $KIT/ ref) | unclassified
@@ -233,30 +244,53 @@ classify_kit_binding() {
   # A `$KIT/<p>` inside a single-quoted span or written `\$KIT` is a literal anchor, never expanded, so it
   # needs no binding (#1455: hotcore-budget cites "$KIT/TARGETS.md" only as an anchor string).
   if ! strip_kit_literals <<< "$live" | grep -E "$KIT_REF_RE" >/dev/null; then echo none; return; fi
-  classify_binding KIT "$KIT_REAL_BIND_RE" "$live"
+  local repo_class kit_re="$KIT_HERE_BIND_RE" extra=""
+  repo_class="$(classify_binding REPO "$REPO_REAL_BIND_RE" "$live")"
+  case "$repo_class" in
+    real) kit_re="(${KIT_HERE_BIND_RE}|${_V_REPO}/research-sdd)" ;;
+    temp) extra="|REPO" ;;
+  esac
+  classify_binding KIT "$kit_re" "$live" "$extra"
+}
+
+classify_repo_binding() {
+  # $1 suite file -> real | temp | none (no live $REPO/research-sdd read) | unclassified
+  local suite="$1" live
+  live="$(live_lines "$suite")"
+  if ! strip_kit_literals <<< "$live" | grep -E "$REPO_REF_RE" >/dev/null; then echo none; return; fi
+  classify_binding REPO "$REPO_REAL_BIND_RE" "$live"
 }
 
 unclassified_suites() {
   local suite
   for suite in "$@"; do
     [ -f "$suite" ] || continue
-    [ "$(classify_kit_binding "$suite")" = unclassified ] && basename "$suite"
+    if [ "$(classify_kit_binding "$suite")" = unclassified ] || [ "$(classify_repo_binding "$suite")" = unclassified ]; then
+      basename "$suite"
+    fi
   done
   return 0
+}
+
+# doc_refs_raw SUITE: every real-tree doc path a suite reads, prefix-stripped but NOT yet filtered.
+# $HERE/../../<p> is always the real tree; $REPO/research-sdd/<p> only when REPO is real-bound;
+# $KIT/<p> only when that suite binds KIT to the real kit.
+doc_refs_raw() {
+  local suite="$1"
+  live_lines "$suite" | grep -oE "$REAL_REF_RE" | sed -E "s#$REAL_REF_PREFIX_RE##"
+  if [ "$(classify_binding REPO "$REPO_REAL_BIND_RE" "$(live_lines "$suite")")" = real ]; then
+    live_lines "$suite" | grep -oE "$REPO_REF_RE" | sed -E "s#$REPO_REF_PREFIX_RE##"
+  fi
+  if [ "$(classify_kit_binding "$suite")" = real ]; then
+    live_lines "$suite" | grep -oE "$KIT_REF_RE" | sed -E "s#$KIT_REF_PREFIX_RE##"
+  fi
 }
 
 derive_doc_inputs() {
   local kit_dir="$1" suite p; shift
   for suite in "$@"; do
     [ -f "$suite" ] || continue
-    # $HERE/../../<p> is always the real tree; $KIT/<p> only when that suite binds KIT to the real kit.
-    live_lines "$suite" | grep -oE "$REAL_REF_RE" | sed -E "s#$REAL_REF_PREFIX_RE##"
-    if [ "$(classify_binding REPO "$REPO_REAL_BIND_RE" "$(live_lines "$suite")")" = real ]; then
-      live_lines "$suite" | grep -oE "$REPO_REF_RE" | sed -E "s#$REPO_REF_PREFIX_RE##"
-    fi
-    if [ "$(classify_kit_binding "$suite")" = real ]; then
-      live_lines "$suite" | grep -oE "$KIT_REF_RE" | sed -E 's#^\$(\{KIT\}|KIT)/##'
-    fi
+    doc_refs_raw "$suite"
   done | sed -E 's#[./]+$##' | sort -u \
     | while IFS= read -r p; do
         [ -n "$p" ] || continue
@@ -280,7 +314,7 @@ if [ -n "$UNCLASSIFIED" ]; then
   unc_count=0
   while IFS= read -r line; do if [ -n "$line" ]; then unc_count=$((unc_count + 1)); fi; done <<< "$UNCLASSIFIED"
   # An unclassified binding silently weakens doc coverage, so it is a harness error (rc 2), not a WARN (#1455).
-  harness_error "docs: $unc_count UNCLASSIFIED suite(s) reference \$KIT/<path> with an unrecognised KIT binding — bind KIT to the real tree or a temp dir, or quote the mention as a literal: $(tr '\n' ' ' <<< "$UNCLASSIFIED")"
+  harness_error "docs: $unc_count UNCLASSIFIED suite(s) read \$KIT/<path> or \$REPO/research-sdd/<path> with an unrecognised KIT/REPO binding — bind KIT/REPO to the real tree or a temp dir, or quote the mention as a literal: $(tr '\n' ' ' <<< "$UNCLASSIFIED")"
 else
   ok "docs: every suite with a \$KIT/ reference has a classified KIT binding"
 fi
@@ -529,6 +563,121 @@ FX_EOF
     ok "teeth J: all 7 HERE/TOOLBELT/REPO-relative path forms are derived (and the literal-only regex drops some)"
   else
     no "teeth J: forms not all derived or mutant stayed green (got=[$j_got] mutant=[$j_mut])"
+  fi
+
+  # Teeth M (#1479): a `<<<word` here-string and a heredoc opener inside a trailing comment are NOT
+  # heredocs; the live read after each must still be derived. Mutant: the pre-fix live_lines.
+  cat > "$TMP/fx/m.test.sh" << 'FX_EOF'
+HERE=x
+KIT="$(cd "$HERE/../.." && pwd)"
+grep foo <<< word
+cat "$KIT/METHODOLOGY.md"
+true  # cat <<EOF
+cat "$KIT/PROMPT-LOOP.md"
+FX_EOF
+  m_want="$(printf 'research-sdd/METHODOLOGY.md\nresearch-sdd/PROMPT-LOOP.md')"
+  m_got="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/m.test.sh")"
+  m_fn="$(declare -f live_lines)"
+  live_lines() {
+    awk '
+      heredoc != "" { t=$0; if (dash) sub(/^\t+/, "", t); if (t == heredoc) heredoc=""; next }
+      /^[[:space:]]*#/ { next }
+      {
+        line=$0
+        if (match(line, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+          tag=substr(line, RSTART, RLENGTH); dash=(tag ~ /^<<-/)
+          gsub(/^<<-?[[:space:]]*["\047]?|["\047]?$/, "", tag); heredoc=tag
+        }
+        sub(/[[:space:]]+#.*$/, "", line)
+        print line
+      }
+    ' "$1"
+  }
+  m_mut="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/m.test.sh")"
+  eval "$m_fn"
+  if [ "$m_got" = "$m_want" ] && [ "$m_mut" != "$m_want" ]; then
+    ok "teeth M: here-string and commented heredoc opener do not swallow later reads (pre-fix live_lines does)"
+  else
+    no "teeth M: got=[$m_got] mutant=[$m_mut]"
+  fi
+
+  # Teeth N (#1479 R3-toolbelt-prefix-partial-climb): a deeper climb than the recognised prefix is
+  # matched by NOTHING — never partly stripped into a bare `..` or a parent-relative path.
+  cat > "$TMP/fx/n.test.sh" << 'FX_EOF'
+REPO="$(cd "$TOOLBELT/../.." && pwd)"
+a="$TOOLBELT/../../METHODOLOGY.md"
+b="$HERE/../../../PROMPT-LOOP.md"
+c="$(cd "$TOOLBELT/../.." && pwd)"
+d="$TOOLBELT/../PROMPT-AUDIT.md"
+FX_EOF
+  n_got="$(doc_refs_raw "$TMP/fx/n.test.sh")"
+  if [ "$n_got" = "PROMPT-AUDIT.md" ]; then
+    ok "teeth N: TOOLBELT/HERE over-climbs yield no partial token (only the exact climb is derived)"
+  else
+    no "teeth N: raw refs=[$n_got] (want only PROMPT-AUDIT.md)"
+  fi
+
+  # Teeth O (#1479 R2-001): the quoted-slash form binds as real for KIT and REPO — binding and
+  # derivation regexes share one prefix definition, so they cannot drift.
+  cat > "$TMP/fx/o.test.sh" << 'FX_EOF'
+HERE=x
+KIT="$HERE"/../..
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  cat > "$TMP/fx/o2.test.sh" << 'FX_EOF'
+TOOLBELT=x
+REPO="$TOOLBELT"/../..
+cat "$REPO/research-sdd/PROMPT-LOOP.md"
+FX_EOF
+  o_got="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/o.test.sh" "$TMP/fx/o2.test.sh")"
+  o_unc="$(unclassified_suites "$TMP/fx/o.test.sh" "$TMP/fx/o2.test.sh")"
+  if [ "$o_got" = "$(printf 'research-sdd/METHODOLOGY.md\nresearch-sdd/PROMPT-LOOP.md')" ] && [ -z "$o_unc" ]; then
+    ok "teeth O: quoted-slash KIT/REPO bindings classify real and derive"
+  else
+    no "teeth O: derived=[$o_got] unclassified=[$o_unc]"
+  fi
+
+  # Teeth P (#1479 R3-001): KIT set from a temp-bound REPO is a fixture, not the real kit — not derived,
+  # and not UNCLASSIFIED either. KIT from an UNRECOGNISED REPO binding is UNCLASSIFIED.
+  cat > "$TMP/fx/p1.test.sh" << 'FX_EOF'
+REPO="$ROOT/repo"
+KIT="$REPO/research-sdd"
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  cat > "$TMP/fx/p2.test.sh" << 'FX_EOF'
+REPO="$(compute_repo_somehow)"
+KIT="$REPO/research-sdd"
+cat "$KIT/METHODOLOGY.md"
+FX_EOF
+  p_got="$(derive_doc_inputs "$REPO/research-sdd" "$TMP/fx/p1.test.sh")"
+  p_unc="$(unclassified_suites "$TMP/fx/p1.test.sh" "$TMP/fx/p2.test.sh")"
+  if [ -z "$p_got" ] && [ "$p_unc" = "p2.test.sh" ]; then
+    ok "teeth P: KIT via a temp-bound REPO is a fixture (not derived, not unclassified); via an unknown REPO it is UNCLASSIFIED"
+  else
+    no "teeth P: derived=[$p_got] unclassified=[$p_unc]"
+  fi
+
+  # Teeth Q (#1479 R3-002): $REPO/research-sdd reads with an unrecognised or absent REPO binding are
+  # UNCLASSIFIED (rc 2 through the harness), never silently dropped; temp and real REPO are not.
+  cat > "$TMP/fx/q1.test.sh" << 'FX_EOF'
+REPO="$(compute_repo_somehow)"
+cat "$REPO/research-sdd/METHODOLOGY.md"
+FX_EOF
+  cat > "$TMP/fx/q2.test.sh" << 'FX_EOF'
+cat "$REPO/research-sdd/METHODOLOGY.md"
+FX_EOF
+  q_unc="$(unclassified_suites "$TMP/fx/q1.test.sh" "$TMP/fx/q2.test.sh" "$TMP/fx/l1.test.sh" "$TMP/fx/l2.test.sh")"
+  QR="$TMP/qrepo"; mkdir -p "$QR/research-sdd/toolbelt/tests" "$QR/.github/workflows"
+  cp "$WORKFLOW" "$QR/.github/workflows/toolbelt-tests.yml"
+  cp "$0" "$QR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh"
+  cp "$TMP/fx/q1.test.sh" "$QR/research-sdd/toolbelt/tests/q1.test.sh"
+  printf '#!/usr/bin/env bash\nprintf ".claude/settings.json\\n"\n' > "$QR/research-sdd/toolbelt/tests/harness-sweep-parity.test.sh"
+  qrc=0
+  bash "$QR/research-sdd/toolbelt/tests/ci-path-filter-coverage.test.sh" > "$TMP/q.out" 2>&1 || qrc=$?
+  if [ "$q_unc" = "$(printf 'q1.test.sh\nq2.test.sh')" ] && [ "$qrc" -eq 2 ] && grep -q 'HARNESS ERROR: docs:.*UNCLASSIFIED.*q1\.test\.sh' "$TMP/q.out"; then
+    ok "teeth Q: an unrecognised/absent REPO binding with \$REPO/research-sdd reads is UNCLASSIFIED (rc 2)"
+  else
+    no "teeth Q: unclassified=[$q_unc] rc=$qrc"
   fi
 
 fi
