@@ -3,6 +3,10 @@
 # The scanner is part of the research-sdd kit, so CI has to fetch the kit: point <KIT_REPOSITORY>
 # (owner/name) and <KIT_REF> (tag or sha — pin it) at your kit checkout. An unfilled placeholder makes
 # the checkout step FAIL, which is intentional: a guard that cannot run must never read as a pass.
+# Access: the kit checkout runs with the target's default GITHUB_TOKEN, which can read only the target
+# repository. If the kit repository is private or internal, give that step a credential that can read it
+# (e.g. `token: ${{ secrets.KIT_READ_TOKEN }}` holding a read-only fine-grained PAT); without one the step
+# fails with "not found" on every run — loud, but easy to mistake for the unfilled-placeholder failure.
 # Action pinning: actions/checkout is referenced by the major tag @v4 (a mutable ref) so the template needs no
 # per-release maintenance. For a public repo, replace it with the full commit sha of the v4 release you reviewed.
 name: vendor-leak
