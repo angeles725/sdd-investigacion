@@ -20,6 +20,8 @@ R9_NATIVE_RE = re.compile(
     r"|\bPE32\+?|\bELF(?:32|64)?\b|\bMach-O\b|\bPE\s+(?:binary|binaries|file|image|header|section)s?\b"
     r"|\bAuthenticode\b")
 R9_SHA256_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
+# The lookahead `(?=[0-9A-Fa-f]*\d)` requires at least one digit in the hex run after VA/RVA/offset:
+# English words made only of hex letters ("offset decade", "VA faded") are not addresses.
 R9_ANCHOR_RE = re.compile(
     r"\b0x[0-9A-Fa-f]{3,}\b|\b(?:VA|RVA|offset)\s*[:=]?\s*(?=[0-9A-Fa-f]*\d)[0-9A-Fa-f]{4,}\b")
 # `nm` and `strings` are ordinary words/units: they count only inside a backtick code span.

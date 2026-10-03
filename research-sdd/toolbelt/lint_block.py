@@ -520,9 +520,9 @@ def load_packs(names):
         if not rules:
             raise PackError(f"pack {name} registered no rules")
         for rule in rules:
-            if not (isinstance(rule, tuple) and len(rule) == 2 and isinstance(rule[0], str) and callable(rule[1])):
+            if not (isinstance(rule, (tuple, list)) and len(rule) == 2 and isinstance(rule[0], str) and callable(rule[1])):
                 raise PackError(f"pack {name}: malformed rule {rule!r} (build() must return (rule_id, callable) pairs)")
-        for rid, fn in rules:
+        for rid, fn in rules:  # shape validated above
             if rid in RULE_IDS:
                 raise PackError(f"pack {name}: rule {rid} is already active")
             if rid not in RESERVED_PACK_RULE_IDS:

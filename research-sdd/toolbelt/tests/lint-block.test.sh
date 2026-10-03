@@ -365,6 +365,16 @@ printf 'def build(api):\n    return [("R1",)]\n' > "$TMP/pk-shape/demo.py"
 LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" run --audit --pack demo "$FX/pack-single.md"
 if [ "$RC" -eq 2 ] && grep -qF 'malformed rule' <<< "$OUT" && ! grep -qF 'Traceback' <<< "$OUT" && ! grep -qF 'SUMMARY' <<< "$OUT"; then ok "22e a pack rule that is not a (rule_id, callable) pair -> exit 2 'malformed rule', no traceback, nothing linted"
 else no "22e pack shape guard (rc=$RC out=[$OUT])"; fi
+mkdir -p "$TMP/pk-gen" "$TMP/pk-noniter" "$TMP/pk-listpair"
+printf 'def build(api):\n    yield ("R1", lambda doc: [(1, "R1", "synthetic")])\n' > "$TMP/pk-gen/demo.py"
+printf 'def build(api):\n    return None\n' > "$TMP/pk-noniter/demo.py"
+printf 'def build(api):\n    return [["R1", lambda doc: [(1, "R1", "synthetic")]]]\n' > "$TMP/pk-listpair/demo.py"
+LINT_BLOCK_PACKS_DIR="$TMP/pk-gen" run --pack demo "$FX/pack-single.md"
+[ "$RC" -eq 1 ] && grep -qE '^R1 .*pack-single.md:1: synthetic' <<< "$OUT" && ok "22f a generator-returning build() registers its rules and fires" || no "22f generator pack (rc=$RC out=[$OUT])"
+LINT_BLOCK_PACKS_DIR="$TMP/pk-listpair" run --pack demo "$FX/pack-single.md"
+[ "$RC" -eq 1 ] && grep -qE '^R1 .*pack-single.md:1: synthetic' <<< "$OUT" && ok "22g a [rule_id, callable] list pair is accepted like a tuple" || no "22g list pair (rc=$RC out=[$OUT])"
+LINT_BLOCK_PACKS_DIR="$TMP/pk-noniter" run --audit --pack demo "$FX/pack-single.md"
+[ "$RC" -eq 2 ] && grep -qF 'failed to load' <<< "$OUT" && ! grep -qF 'Traceback' <<< "$OUT" && ! grep -qF 'SUMMARY' <<< "$OUT" && ok "22h a non-iterable build() return -> exit 2, nothing linted" || no "22h non-iterable (rc=$RC out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -706,9 +716,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth M5 lint-block-packs/multi-version.py 's#(?<!\[\\d.\])##' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth M6 lint-block-packs/multi-version.py 's#4\\.15(?!\\d)#4\\.15#' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth N11 lint-block-packs/native-binary.py 's#(?=\[0-9A-Fa-f\]\*\\d)##' "$FX/pack-adv-r9.md" R9 ADV-R9-BAD native-binary
-  if tooth_build L1 lint_block.py 's#if not (isinstance(rule, tuple)#if False and not (isinstance(rule, tuple)#'; then
+  if tooth_build L1 lint_block.py 's#if not (isinstance(rule,#if False and not (isinstance(rule,#'; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
     grep -qF 'malformed rule' <<< "$MOUT" && no "teeth L1: mutant still reports 'malformed rule' — THEATER" || ok "teeth L1: shape guard removed -> malformed pack entry no longer reported cleanly (rc=$MRC) -> case 22e has teeth"
+  fi
+  if tooth_build L2 lint_block.py 's#rules = list(build(api))#rules = build(api)#'; then
+    MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-gen" bash "$MT/lint-block.sh" --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
+    [ "$MRC" -eq 1 ] && no "teeth L2: mutant still fires on a generator pack — THEATER" || ok "teeth L2: build() result not materialised -> generator pack silently registers nothing/crashes (rc=$MRC) -> case 22f has teeth"
+  fi
+  if tooth_build L3 lint_block.py 's#isinstance(rule, (tuple, list))#isinstance(rule, tuple)#'; then
+    MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-listpair" bash "$MT/lint-block.sh" --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
+    [ "$MRC" -eq 1 ] && no "teeth L3: mutant still accepts a list pair — THEATER" || ok "teeth L3: list pairs rejected (rc=$MRC) -> case 22g has teeth"
+  fi
+  if tooth_build L4 lint_block.py 's#raise PackError(f"pack {name} failed to load: {type(exc).__name__}: {exc}")#rules = [("R1", lambda d: [])]#'; then
+    MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-noniter" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
+    [ "$MRC" -eq 2 ] && no "teeth L4: mutant still exits 2 — THEATER" || ok "teeth L4: non-iterable return no longer fails closed (rc=$MRC) -> case 22h has teeth"
   fi
   # core claim-rule factory
   ptooth F1 lint_block.py 's#if is_cleared(clause) or doc.waived(rule_id, u):#if is_cleared(clause):#' "$FX/pack-jvm.md" R1 R1- jvm
