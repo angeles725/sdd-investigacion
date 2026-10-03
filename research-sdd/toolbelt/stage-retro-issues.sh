@@ -885,15 +885,24 @@ skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
 # chars, so the clause changes no real output today; it is a guard against the NEXT mis-mapped column.
 _MIN_TITLE_LEN=12
 
-# title_is_unusable <title>: true for a bare priority/type token OR a title under _MIN_TITLE_LEN chars
-# (length counted on the trimmed title, in characters).
+# title_is_unusable <title>: true when the trimmed title is under _MIN_TITLE_LEN CHARACTERS or is a bare
+# priority/type token. Sets _title_reason to the clause that fired so the message names it. Length is
+# counted in characters, not bytes, whatever the caller's locale: under LC_ALL=C every byte except a
+# UTF-8 continuation byte (0x80-0xBF) starts one character. The token list holds only tokens that reach
+# it, i.e. at least _MIN_TITLE_LEN chars (a shorter token is already caught by length), so each clause
+# is reachable and has its own tooth.
+_title_reason=""
 title_is_unusable() {
-  local t
+  local t _n
   t="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # STAGE_RETRO_ISSUES_CHAR_COUNT: anchor for the byte-vs-character tooth
+  _n="$(printf '%s' "$t" | LC_ALL=C tr -d '\200-\277' | wc -c)"
   # STAGE_RETRO_ISSUES_SHORT_TITLE: anchor for the length-clause tooth
-  [ "${#t}" -lt "$_MIN_TITLE_LEN" ] && return 0
+  if [ "$((_n + 0))" -lt "$_MIN_TITLE_LEN" ]; then
+    _title_reason="a title under $_MIN_TITLE_LEN characters"; return 0
+  fi
   case "$t" in
-    critical|medium|high|low|bug|fix|feature|docs|documentation|regression|enhancement) return 0 ;;
+    documentation) _title_reason="a bare priority/type token"; return 0 ;;
   esac
   return 1
 }
@@ -939,7 +948,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # is a mis-read column (issue #1248 was titled `LOW`), never a real delta summary.
   # Not created, not silently dropped: typed `unclassifiable-row:` line + summary count, exit 0.
   if title_is_unusable "$_title"; then
-    echo "unclassifiable-row: row $_rid has no usable title (got '$_title': a bare priority/type token or a title under $_MIN_TITLE_LEN chars) — needs manual review, no issue staged" >&2
+    echo "unclassifiable-row: row $_rid has no usable title (got '$_title': $_title_reason) — needs manual review, no issue staged" >&2
     open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1)); continue
   fi
 

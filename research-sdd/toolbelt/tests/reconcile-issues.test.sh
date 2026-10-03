@@ -2023,8 +2023,36 @@ else
   no "43d report-only" "gh.log=[$(cat "$box43a/bin/gh.log" 2>&1)]"
 fi
 
+# 43e — PRECEDENCE: a dismissed+PARTIAL marker (dismissed wins for open rows; PARTIAL still carries the shipped
+# list). Row 1 is listed shipped -> the SHIPPED reason; row 2 is not listed -> the DISMISSED reason. The
+# shipped branch must win for row 1 although its row also satisfies the status branch.
+box43e="$(mkbox case-shipped-open-precedence)"; mk_gh_stub "$box43e" nomatch
+retro43e="$(mk_retro "$box43e" target-foo r43e.md \
+  "<!-- review-status: dismissed 2026-06-01 · PARTIAL — shipped: 1 -->" \
+  "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | dropped delta | CLAUDE.md | B2 | new | LOW |')")"
+printf 'Source retro: target-foo/retros/r43e.md · 1\n\x1e\nSource retro: target-foo/retros/r43e.md · 2\n' > "$ROOT/cache43e.txt"
+run "$box43e" --issues-cache "$ROOT/cache43e.txt" "$retro43e"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 .*lists it shipped' <<<"$OUT" \
+   && ! grep -q '^orphaned: issue for row 1 .*review-status' <<<"$OUT" \
+   && grep -q '^orphaned: issue for row 2 .*review-status is dismissed' <<<"$OUT"; then
+  ok "43e dismissed+PARTIAL: shipped row -> shipped reason (precedence), unlisted row -> dismissed reason" "(exit $RC)"
+else
+  no "43e precedence" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
+  # (c) shipped branch demoted below the status branch -> 43e row 1 reads the status reason instead.
+  mk43="$(mkbox teeth-1492-c)"; mk_gh_stub "$mk43" nomatch
+  if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e 's/if \[ "\$is_partial" -eq 1 \] && grep -qxF "\$_irid" <<<"\$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN$/if false; then  # RECONCILE-SHIPPED-OPEN/'; then
+    r43="$(mk_retro "$mk43" target-foo r43e.md \
+      "<!-- review-status: dismissed 2026-06-01 · PARTIAL — shipped: 1 -->" \
+      "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | dropped delta | CLAUDE.md | B2 | new | LOW |')")"
+    run "$mk43" --issues-cache "$ROOT/cache43e.txt" "$r43"
+    if grep -q '^orphaned: issue for row 1 .*review-status' <<<"$OUT" && ! grep -q 'lists it shipped' <<<"$OUT"; then
+      ok "T1492-c teeth: shipped branch removed -> row 1 falls to the status reason (43e has teeth)" "()"
+    else no "T1492-c teeth: removing the shipped branch must flip 43e" "43e is THEATER: out=[$OUT]"; fi
+  else no "T1492-c: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   # (a) shipped-ids lookup neutered -> 43a loses its shipped proposal; (b) applied-status reason neutered -> 43b flips.
   mk43="$(mkbox teeth-1492-a)"; mk_gh_stub "$mk43" nomatch
   if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e 's/&& grep -qxF "\$_irid" <<<"\$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN$/\&\& false; then/'; then
