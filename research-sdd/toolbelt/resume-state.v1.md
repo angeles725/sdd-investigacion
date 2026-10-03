@@ -9,7 +9,7 @@ no hand-set fields. Rendering the prose handoff from this document is slice 2.
 | rc | Meaning |
 |---|---|
 | 0 | document printed (a degraded PR list is still rc 0 — see `prs_status`) |
-| 2 | usage error (`--help` exits 0), not a git repository, unresolvable or option-shaped (`-...`) `--base-ref`, or no `origin/main`/`main` and no `--base-ref` |
+| 2 | usage error (`--help` exits 0), not a git repository, unresolvable or option-shaped (`-...`) `--base-ref`, or no `origin/main`/`main` and no `--base-ref`; also a runtime failure (`git worktree list` or `mktemp` failed) — no JSON on stdout |
 | 3 | DEGRADED: `git` or `jq` missing — a typed `DEGRADED:` line on stderr, no JSON on stdout |
 
 ## Schema `research-sdd.resume-state/v1`
@@ -27,13 +27,13 @@ no hand-set fields. Rendering the prose handoff from this document is slice 2.
 | `worktrees[].head` | string\|null | HEAD sha |
 | `worktrees[].exists` | bool | false when the directory is gone (a prunable entry) |
 | `worktrees[].prunable` | bool | git marks the entry prunable |
-| `worktrees[].dirty` | int\|null | tracked-file changes (`status --porcelain` lines not starting `??`); null when the directory is gone |
-| `worktrees[].untracked` | int\|null | untracked entries (`??` lines); null when the directory is gone |
+| `worktrees[].dirty` | int\|null | tracked-file changes (`status --porcelain` lines not starting `??`); null when the directory is gone, or when `git status` itself failed in an existing directory |
+| `worktrees[].untracked` | int\|null | untracked entries (`??` lines); null when the directory is gone, or when `git status` itself failed in an existing directory |
 | `worktrees[].ahead`, `.behind` | int\|null | commits of HEAD not in `base_ref` / of `base_ref` not in HEAD |
 | `branches[]` | array | local branches NOT checked out in any worktree: `name`, `head`, `ahead`, `behind` |
 | `prs` | array\|null | open PRs `{number, branch, state, url}`; null whenever the list is unknown |
 | `prs_truncated` | bool\|null | true when gh returned exactly the `--limit` (1000) results, so the list may be incomplete; false otherwise; null when `prs` is null |
-| `prs_status` | string | `ok` (list is authoritative, possibly empty) · `skipped` (`--no-gh`) · `degraded:gh-missing` · `degraded:gh-failed` · `degraded:gh-timeout` · `degraded:gh-bad-json` |
+| `prs_status` | string | `ok` (list is authoritative, possibly empty) · `skipped` (`--no-gh`) · `degraded:gh-missing` · `degraded:gh-failed` · `degraded:gh-timeout` · `degraded:gh-bad-json` · `degraded:timeout-missing` (`timeout` not on PATH, so gh was not called) |
 
 ## Anti-silent-zero contract (CLAUDE.md §7)
 

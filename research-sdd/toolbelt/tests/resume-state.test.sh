@@ -122,10 +122,33 @@ eq "8  jq missing -> rc 3, DEGRADED, empty stdout" "$RC|$(grep -c 'DEGRADED' <<<
 PATH="$TMP/nogit" run --cwd "$R" --no-gh
 eq "8a git missing -> rc 3, DEGRADED, empty stdout" "$RC|$(grep -c 'DEGRADED' <<<"$ERR")|${#OUT}" "3|1|0"
 
-# 9. read-only: git state identical before/after (refs, worktree list, status)
-snap(){ { git -C "$R" for-each-ref; git -C "$R" worktree list --porcelain; git -C "$R" status --porcelain; } | sha1sum; }
+# 9. read-only: git state identical before/after. The snapshot covers refs, worktree list, status AND the
+# content hash of every file under .git, so a stray write (index, config, marker file) is visible too.
+snap()( export GIT_OPTIONAL_LOCKS=0   # subshell body: scoped to the snapshot, never leaks to later SUT runs
+  { git -C "$R" for-each-ref; git -C "$R" worktree list --porcelain; git -C "$R" status --porcelain
+    ( cd "$R/.git" && find . -type f -print0 | sort -z | xargs -0 sha1sum ); } | sha1sum )
 b="$(snap)"; run --cwd "$R" --no-gh; a="$(snap)"
 eq "9  repo state unchanged by a run" "$a" "$b"
+: > "$R/.git/stray-marker"; s9a="$(snap)"; rm -f "$R/.git/stray-marker"
+if [ "$s9a" != "$b" ]; then ok "9a snapshot is not vacuous: a stray .git write changes it"; else no "9a snapshot is blind to a stray .git write"; fi
+# 9e. the SUT itself exports GIT_OPTIONAL_LOCKS=0 to every git call (deterministic: a logging git wrapper)
+mkdir -p "$TMP/gitlog"; REAL_GIT="$(command -v git)"
+printf '#!/bin/sh\necho "${GIT_OPTIONAL_LOCKS-unset}" >> "%s/log"\nexec "%s" "$@"\n' "$TMP/gitlog" "$REAL_GIT" > "$TMP/gitlog/git"
+chmod +x "$TMP/gitlog/git"
+( unset GIT_OPTIONAL_LOCKS; PATH="$TMP/gitlog:$PATH" bash "$SUT" --cwd "$R" --no-gh >/dev/null 2>&1 )
+eq "9e every git call sees GIT_OPTIONAL_LOCKS=0" "$(sort -u "$TMP/gitlog/log" | tr '\n' ,)" "0,"
+
+# 9b. the script is executable in the index and on disk (git mode 100755)
+eq "9b resume-state.sh is mode 100755 in git" "$(git -C "$HERE" ls-files -s -- "$SUT" | cut -d' ' -f1)" "100755"
+[ -x "$SUT" ] && ok "9c resume-state.sh is executable on disk" || no "9c resume-state.sh is not executable on disk"
+
+# 9d. timeout missing: a typed prs_status, not a misreported gh failure (gh itself is present and healthy)
+NT_TOOLS="${BASE_TOOLS/ timeout/}"
+# shellcheck disable=SC2086
+mkpath "$TMP/notimeout" git jq $NT_TOOLS
+cp "$STUB/ok/gh" "$TMP/notimeout/gh"
+OUT="$(PATH="$TMP/notimeout" "$(command -v bash)" "$SUT" --cwd "$R" 2>/dev/null)"; RC=$?
+eq "9d timeout absent -> degraded:timeout-missing, prs null, rc 0" "$(jqe '[(.prs|type),.prs_status]|join(",")')|$RC" "null,degraded:timeout-missing|0"
 
 # 10. detached HEAD worktree: branch null, still listed
 ( cd "$R" && git worktree add -q --detach "$TMP/wt-d" main~1 ) >/dev/null 2>&1
@@ -200,6 +223,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth exists-always-true 's/\[ -d "\$wpath" \]/true/' '[.worktrees[]|select(.exists==false)]|length'
   TOOTH_GH=1 tooth truncation-flag 's/-ge "\$GH_LIMIT"/-ge 99999/' '.prs_truncated'
   tooth short-refname 's/refname)/refname:short)/' '[.branches[]|select(.name=="dup")]|length'
+  # timeout guard: with timeout absent the mutant (guard removed) must report gh-failed instead
+  m="$MUT/no-timeout-guard.sh"
+  if mutant_sed "$SUT" "$m" 's/elif ! command -v timeout >\/dev\/null 2>&1; then prs_status="degraded:timeout-missing"/elif false; then :/' 2>/dev/null; then
+    mo="$(PATH="$TMP/notimeout" "$(command -v bash)" "$m" --cwd "$R" 2>/dev/null | jq -r .prs_status 2>/dev/null)"
+    if [ "$mo" != "degraded:timeout-missing" ]; then ok "teeth no-timeout-guard: mutant flips the assertion"; else no "teeth no-timeout-guard: THEATER"; fi
+  else no "teeth no-timeout-guard: could not build mutant"; fi
+  # read-only: a mutant that writes into .git must change the snapshot used by case 9
+  m="$MUT/stray-write.sh"
+  if mutant_sed "$SUT" "$m" 's/^remote=\(.*\)$/remote=\1; : > "$top\/.git\/stray-write"/' 2>/dev/null; then
+    snap >/dev/null; b="$(snap)"; bash "$m" --cwd "$R" --no-gh >/dev/null 2>&1; a="$(snap)"; rm -f "$R/.git/stray-write"
+    if [ "$a" != "$b" ]; then ok "teeth stray-write: snapshot detects a write under .git"; else no "teeth stray-write: snapshot blind — THEATER"; fi
+  else no "teeth stray-write: could not build mutant"; fi
+  # optional-locks export removed: the logging git wrapper must then see the variable unset
+  m="$MUT/no-optional-locks.sh"
+  if mutant_sed "$SUT" "$m" 's/^export GIT_OPTIONAL_LOCKS=0$/:/' 2>/dev/null; then
+    rm -f "$TMP/gitlog/log"; ( unset GIT_OPTIONAL_LOCKS; PATH="$TMP/gitlog:$PATH" bash "$m" --cwd "$R" --no-gh >/dev/null 2>&1 )
+    if [ "$(sort -u "$TMP/gitlog/log" | tr '\n' ,)" != "0," ]; then ok "teeth no-optional-locks: mutant flips the assertion"; else no "teeth no-optional-locks: THEATER"; fi
+  else no "teeth no-optional-locks: could not build mutant"; fi
   tooth wrong-schema 's#research-sdd.resume-state/v1#research-sdd.resume-state/v0#' '.schema'
 fi
 
