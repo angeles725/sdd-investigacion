@@ -1,0 +1,1 @@
+The module adopts switch expressions throughout. R1-SINGLE-BAD
