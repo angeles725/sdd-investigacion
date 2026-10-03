@@ -402,16 +402,13 @@ fi
 # Runs over the full file, independent of LEVEL 6's sha256sum probe (no external hasher needed).
 if [ -f "$sources_md" ]; then
   _ed_n=0
-  while IFS= read -r _ed_line; do
-    [ -z "$_ed_line" ] && continue
-    echo "$_ed_line"
-    _ed_n=$((_ed_n + 1)); rc=1
-  done < <(awk -F'|' -v minp="$MIN_PREFIX" '
+  _ed_out=$(awk -F'|' -v minp="$MIN_PREFIX" '
     BEGIN { d["sha256"]="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
             d["sha1"]="da39a3ee5e6b4b0d3255bfef95601890afd80709"
             d["md5"]="d41d8cd98f00b204e9800998ecf8427e" }   # EMPTY-DIGEST-TABLE
     /^\|/ {
-      for (i = 2; i < NF; i++) {
+      scanned++   # a row with no closing pipe has a real last cell at $NF: scan 2..NF, not 2..NF-1
+      for (i = 2; i <= NF; i++) {
         v = $i; gsub(/[`[:blank:]]/, "", v); v = tolower(v)
         if (v == "") continue
         p = v; el = 0
@@ -424,7 +421,21 @@ if [ -f "$sources_md" ]; then
         }
       }
     }
+    END { print "@@scanned " scanned + 0 }   # coverage trailer: absent => the detector did not run to completion
   ' "$sources_md")
+  _ed_rc=$?
+  # Anti-silent-zero (#1500): a detector that aborted, or never reached END (no trailer), is a typed degraded
+  # state — never a clean registry. rc=1 so the gate cannot read a blind scan as PASS.
+  if [ "$_ed_rc" -ne 0 ] || ! grep -q '^@@scanned [0-9][0-9]*$' <<<"$_ed_out"; then
+    printf '   ERROR: empty-digest scan DEGRADED (awk exit %d, no scan trailer) — SOURCES.md NOT checked for empty-input digests\n' "$_ed_rc"
+    rc=1
+  fi
+  while IFS= read -r _ed_line; do
+    [ -z "$_ed_line" ] && continue
+    case "$_ed_line" in "@@scanned "*) continue;; esac   # VS-ED-TRAILER
+    echo "$_ed_line"
+    _ed_n=$((_ed_n + 1)); rc=1
+  done <<<"$_ed_out"
   [ "$_ed_n" -eq 0 ] || echo "-- empty-input digests in SOURCES.md: $_ed_n (FAIL)"
 fi
 
