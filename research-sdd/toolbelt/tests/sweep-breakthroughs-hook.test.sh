@@ -58,14 +58,14 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
 # 3. Operational failure (sweep exits non-zero) → "could not run" banner, NOT normal header.
 write_stub 1 "sweep-breakthroughs: cannot find TARGETS.md"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
+<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
   && ok "3 sweep failure (rc=1) → operational-failure banner emitted" \
   || no "3 sweep failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
 
 # 4. Success (sweep exits 0) → normal header present in output.
 write_stub 0 "TARGET  demo  · 0 drifted breakthroughs"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'breakthrough\|§22' \
+<<<"$OUT" grep -qi 'breakthrough\|§22' \
   && ok "4 success (rc=0) → normal breakthrough header emitted" \
   || no "4 success → expected normal header (exit=$RC out=[$OUT])"
 
@@ -76,8 +76,8 @@ printf '%s\n' "$OUT" | grep -qi 'breakthrough\|§22' \
 write_stub 0 "$STUB_ABSENT"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'run --full to list them' \
-   && ! printf '%s\n' "$OUT" | grep -q 'corpus not found (absent-input):'; then
+   && <<<"$OUT" grep -q 'run --full to list them' \
+   && ! <<<"$OUT" grep -q 'corpus not found (absent-input):'; then
   ok "5 default mode: 3 absent targets → aggregate counted line (run --full), no per-target lines"
 else
   no "5 default mode: aggregate 'run --full' absent or per-target lines present (exit=$RC out=[$OUT])"
@@ -88,7 +88,7 @@ fi
 write_stub 0 "$STUB_ABSENT"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" --full 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'corpus not found (absent-input): /fake/path1'; then
+   && <<<"$OUT" grep -q 'corpus not found (absent-input): /fake/path1'; then
   ok "6 --full mode: per-target absent-input lines passed through"
 else
   no "6 --full mode: per-target line NOT found in output (exit=$RC out=[$OUT])"
@@ -128,8 +128,8 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
 write_stub 0 "$STUB_EMPTY_ONLY"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -q 'corpus exists, no block files (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
+   && ! <<<"$OUT" grep -q 'corpus exists, no block files (empty-input):' \
+   && <<<"$OUT" grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
   ok "7 default mode: 2 empty-input targets → no per-target lines, exact summary 'INFO: 2 corpus(es) empty-input — run --full to list them'"
 else
   no "7 default mode: per-target empty-input lines present OR exact summary missing (exit=$RC out=[$OUT])"
@@ -142,8 +142,8 @@ fi
 write_stub 0 "$STUB_NOMATCH_ONLY"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -q 'no tagged breakthroughs in corpus (no-match' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 3 corpus(es) no-match — run --full to list them'; then
+   && ! <<<"$OUT" grep -q 'no tagged breakthroughs in corpus (no-match' \
+   && <<<"$OUT" grep -qF 'INFO: 3 corpus(es) no-match — run --full to list them'; then
   ok "8 default mode: 3 no-match targets → no per-target lines, exact summary 'INFO: 3 corpus(es) no-match — run --full to list them'"
 else
   no "8 default mode: per-target no-match lines present OR exact summary missing (exit=$RC out=[$OUT])"
@@ -154,8 +154,8 @@ fi
 write_stub 0 "$STUB_EMPTY_NOMATCH"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" --full 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -q 'corpus exists, no block files (empty-input): /fake/empty1' \
-   && printf '%s\n' "$OUT" | grep -q 'no tagged breakthroughs in corpus (no-match'; then
+   && <<<"$OUT" grep -q 'corpus exists, no block files (empty-input): /fake/empty1' \
+   && <<<"$OUT" grep -q 'no tagged breakthroughs in corpus (no-match'; then
   ok "9 --full mode: per-target empty-input and no-match lines passed through"
 else
   no "9 --full mode: per-target lines NOT found in output (exit=$RC out=[$OUT])"
@@ -167,9 +167,9 @@ fi
 write_stub 0 "$STUB_EMPTY_NOMATCH"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no block files (empty-input):' \
-   && ! printf '%s\n' "$OUT" | grep -qF 'no tagged breakthroughs in corpus (no-match' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input, 3 no-match — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'corpus exists, no block files (empty-input):' \
+   && ! <<<"$OUT" grep -qF 'no tagged breakthroughs in corpus (no-match' \
+   && <<<"$OUT" grep -qF 'INFO: 2 corpus(es) empty-input, 3 no-match — run --full to list them'; then
   ok "10 combined: 2 empty + 3 no-match → exact combined summary line (anti-silent-zero §7)"
 else
   no "10 combined: per-target lines present or exact combined summary missing (exit=$RC out=[$OUT])"
@@ -184,8 +184,8 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
 write_stub 0 "$_STUB_SINGLE_EI"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no block files (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'corpus exists, no block files (empty-input):' \
+   && <<<"$OUT" grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
   ok "11 single empty-input → exact summary 'INFO: 1 corpus(es) empty-input — run --full to list them'"
 else
   no "11 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
@@ -199,8 +199,8 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
 write_stub 0 "$_STUB_SINGLE_NM"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'no tagged breakthroughs in corpus (no-match' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) no-match — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'no tagged breakthroughs in corpus (no-match' \
+   && <<<"$OUT" grep -qF 'INFO: 1 corpus(es) no-match — run --full to list them'; then
   ok "12 single no-match → exact summary 'INFO: 1 corpus(es) no-match — run --full to list them'"
 else
   no "12 single no-match: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
@@ -222,9 +222,9 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
 write_stub 0 "$_STUB_MIXED_EI_NM"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
-   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no block files (empty-input):' \
-   && ! printf '%s\n' "$OUT" | grep -qF 'no tagged breakthroughs in corpus (no-match' \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input, 2 no-match — run --full to list them'; then
+   && ! <<<"$OUT" grep -qF 'corpus exists, no block files (empty-input):' \
+   && ! <<<"$OUT" grep -qF 'no tagged breakthroughs in corpus (no-match' \
+   && <<<"$OUT" grep -qF 'INFO: 2 corpus(es) empty-input, 2 no-match — run --full to list them'; then
   ok "13 ordering robustness: 1 early + 1 late ei/nm → TOTAL count=2 each in one combined summary (END emission)"
 else
   no "13 ordering robustness: expected 'INFO: 2 corpus(es) empty-input, 2 no-match' but got wrong counts or per-target lines present (exit=$RC out=[$OUT])"

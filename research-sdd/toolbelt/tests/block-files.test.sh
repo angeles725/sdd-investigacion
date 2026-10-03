@@ -160,17 +160,17 @@ nw_checks() {
     nw_fixture "$d"
     roots="$(block_files_nested_worktree_roots "$d")"; rc=$?
     [ "$rc" -eq 0 ] || echo "FAIL:roots-rc($rc)"
-    printf '%s\n' "$roots" | grep -qxF "$d/.claude/worktrees" || echo "FAIL:fixed-claude-worktrees-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/side-wt" || echo "FAIL:linked-worktree-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/deep/er/wt2" || echo "FAIL:deep-linked-worktree-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/sub" && echo "FAIL:submodule-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/sub2" && echo "FAIL:worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/contrived" && echo "FAIL:contrived-gitdir-dot-with-stray-commondir-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/nobp" && echo "FAIL:commondir-without-backpointer-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/wrongbp" && echo "FAIL:backpointer-naming-another-worktree-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/relbp" || echo "FAIL:relative-backpointer-worktree-must-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d/clone" && echo "FAIL:nested-clone-must-not-be-root"
-    printf '%s\n' "$roots" | grep -qxF "$d" && echo "FAIL:own-git-file-must-not-make-root-a-root"
+    <<<"$roots" grep -qxF "$d/.claude/worktrees" || echo "FAIL:fixed-claude-worktrees-root"
+    <<<"$roots" grep -qxF "$d/side-wt" || echo "FAIL:linked-worktree-root"
+    <<<"$roots" grep -qxF "$d/deep/er/wt2" || echo "FAIL:deep-linked-worktree-root"
+    <<<"$roots" grep -qxF "$d/sub" && echo "FAIL:submodule-must-not-be-root"
+    <<<"$roots" grep -qxF "$d/sub2" && echo "FAIL:worktrees-lookalike-gitdir-without-commondir-must-not-be-root"
+    <<<"$roots" grep -qxF "$d/contrived" && echo "FAIL:contrived-gitdir-dot-with-stray-commondir-must-not-be-root"
+    <<<"$roots" grep -qxF "$d/nobp" && echo "FAIL:commondir-without-backpointer-must-not-be-root"
+    <<<"$roots" grep -qxF "$d/wrongbp" && echo "FAIL:backpointer-naming-another-worktree-must-not-be-root"
+    <<<"$roots" grep -qxF "$d/relbp" || echo "FAIL:relative-backpointer-worktree-must-be-root"
+    <<<"$roots" grep -qxF "$d/clone" && echo "FAIL:nested-clone-must-not-be-root"
+    <<<"$roots" grep -qxF "$d" && echo "FAIL:own-git-file-must-not-make-root-a-root"
     # predicate: root itself, under it, FIRST / MIDDLE / LAST / ONLY roots, sibling-prefix trap
     block_files_path_in_nested_worktree "$d/side-wt/x-block1.md" "$roots" || echo "FAIL:under-linked-worktree"
     block_files_path_in_nested_worktree "$d/.claude/worktrees/agent-1/x-block1.md" "$roots" || echo "FAIL:under-claude-worktrees"
@@ -210,7 +210,7 @@ $d/c" || echo "FAIL:first-root"
       chmod 755 "$d/locked"
       [ "$rc3" -eq 3 ] || echo "FAIL:incomplete-traversal-rc3(rc=$rc3)"
       grep -q 'find exited' "$d/r3.err" || echo "FAIL:incomplete-traversal-typed-warn"
-      printf '%s\n' "$r3" | grep -qxF "$d/side-wt" || echo "FAIL:incomplete-traversal-keeps-partial-roots"
+      <<<"$r3" grep -qxF "$d/side-wt" || echo "FAIL:incomplete-traversal-keeps-partial-roots"
     fi
   )
 }
@@ -239,41 +239,41 @@ nw_real_checks() {
     g -C "$d/wt" submodule update --init
     [ -f "$d/wt/notes/.git" ] || echo "FAIL:fixture-a-submodule-missing"
     ra="$(block_files_nested_worktree_roots "$d/wt" 2>/dev/null)"
-    printf '%s\n' "$ra" | grep -qxF "$d/wt/notes" && echo "FAIL:a-submodule-in-linked-worktree-target-must-not-be-root"
+    <<<"$ra" grep -qxF "$d/wt/notes" && echo "FAIL:a-submodule-in-linked-worktree-target-must-not-be-root"
     block_files_path_in_nested_worktree "$d/wt/notes/x-block1.md" "$ra" && echo "FAIL:a-submodule-file-must-not-be-excluded"
     # (b) submodule at a path containing "worktrees", target = main
     g -C "$d/main" submodule update --init
     rb="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
-    printf '%s\n' "$rb" | grep -qxF "$d/main/research/worktrees/x" && echo "FAIL:b-submodule-under-worktrees-path-must-not-be-root"
-    printf '%s\n' "$rb" | grep -qxF "$d/main/notes" && echo "FAIL:b-plain-submodule-must-not-be-root"
+    <<<"$rb" grep -qxF "$d/main/research/worktrees/x" && echo "FAIL:b-submodule-under-worktrees-path-must-not-be-root"
+    <<<"$rb" grep -qxF "$d/main/notes" && echo "FAIL:b-plain-submodule-must-not-be-root"
     # (c) a real nested linked worktree under the target IS a root
     g -C "$d/main" worktree add "$d/main/side" -b sideb
     rc="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
-    printf '%s\n' "$rc" | grep -qxF "$d/main/side" || echo "FAIL:c-real-linked-worktree-must-be-root"
+    <<<"$rc" grep -qxF "$d/main/side" || echo "FAIL:c-real-linked-worktree-must-be-root"
     # (d) stale: gitdir removed → cannot be proven a worktree → NOT excluded (blocking-safe)
     rm -rf "$d/main/.git/worktrees/side"
     rd="$(block_files_nested_worktree_roots "$d/main" 2>/dev/null)"
-    printf '%s\n' "$rd" | grep -qxF "$d/main/side" && echo "FAIL:d-stale-worktree-must-not-be-excluded"
+    <<<"$rd" grep -qxF "$d/main/side" && echo "FAIL:d-stale-worktree-must-not-be-excluded"
     # symlinked target: probe must still see the tree (find -H)
     g -C "$d/main" worktree add "$d/main/side2" -b side2b
     ln -s "$d/main" "$d/link"
     rl="$(block_files_nested_worktree_roots "$d/link" 2>/dev/null)"; rcl=$?
     [ "$rcl" -eq 0 ] || echo "FAIL:symlinked-target-rc($rcl)"
-    printf '%s\n' "$rl" | grep -qxF "$d/link/side2" || echo "FAIL:symlinked-target-sees-worktrees"
+    <<<"$rl" grep -qxF "$d/link/side2" || echo "FAIL:symlinked-target-sees-worktrees"
   )
 }
 nwr_out="$(nw_real_checks "$HELPER")"
-nwr_fails="$(printf '%s\n' "$nwr_out" | grep '^FAIL:' | tr '\n' ' ')"
+nwr_fails="$(<<<"$nwr_out" grep '^FAIL:' | tr '\n' ' ')"
 [ -z "$nwr_fails" ] \
   && ok "9b nested-worktree roots on REAL git fixtures (linked-worktree target + submodule, submodule under worktrees/ path, stale, symlinked target)" \
   || no "9b nested-worktree roots on real git fixtures" "$nwr_fails"
 
 nw_out="$(nw_checks "$HELPER")"
-nw_fails="$(printf '%s\n' "$nw_out" | grep '^FAIL:' | tr '\n' ' ')"
+nw_fails="$(<<<"$nw_out" grep '^FAIL:' | tr '\n' ' ')"
 [ -z "$nw_fails" ] \
   && ok "9 nested-worktree helpers: roots + predicate hold (edges, traps, absent root, incomplete traversal)" \
   || no "9 nested-worktree helpers" "$nw_fails"
-printf '%s\n' "$nw_out" | grep '^SKIP:' | while IFS= read -r _s; do
+<<<"$nw_out" grep '^SKIP:' | while IFS= read -r _s; do
   printf '  SKIP  9 nested-worktree helpers: %s\n' "${_s#SKIP:}"
 done
 
@@ -328,7 +328,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       tno "$label: mutant identical to helper — sed did not match (TOOTH NOT BUILT)"; rm -f "$mf"; return
     fi
     out="$("$chk" "$mf")"
-    if printf '%s\n' "$out" | grep -qF "FAIL:$want"; then
+    if <<<"$out" grep -qF "FAIL:$want"; then
       tok "$label: mutant makes $chk report FAIL:$want"
     else
       tno "$label: mutant did NOT trip FAIL:$want — got [$(printf '%s' "$out" | tr '\n' ' ')]"
