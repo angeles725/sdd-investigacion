@@ -64,6 +64,8 @@
 #   2   --apply completed but one or more `gh issue create` calls failed (failed > 0)
 #       Callers must treat exit 2 as a partial failure: the summary line carries
 #       'failed=N' at the END of the summary so existing parsers remain unaffected.
+#       A failed create whose issue a re-run dedup search then finds is NOT counted failed: it is
+#       reported `unknown-outcome: …` and tallied in the `unknown-outcome=N` field just before failed=.
 
 set -uo pipefail
 
@@ -581,10 +583,45 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
         low ~ /^## summary of proposed delta/ ||
         low ~ /^## summary of new deltas/ ||
         low ~ /^## delta details([[:space:]]|$)/) {
-      in_sec = 1; next
+      in_sec = 1; prev = ""; ct = 0; next
     }
     if (/^##[^#]/) { in_sec = 0; next }
-    if (in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/) {
+    # STAGE_RETRO_ISSUES_HEADER_MAP (kit issue #1260): the row directly above a table separator is
+    # that table'"'"'s HEADER. Its cells are mapped by NAME to the title/target/evidence/type/priority
+    # roles; a header naming no title column leaves ct = 0 = the old positional reading (cells 2..6).
+    if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
+      if (prev != "") {
+        hl = tolower(prev)
+        sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
+        hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
+        ct = cg = ce = cy = cp = 0
+        for (k = 2; k <= hn; k++) {
+          if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
+          else if (!cg && h[k] ~ /(target|kit file)/) cg = k
+          else if (!ce && h[k] ~ /^(evidence|why$)/) ce = k
+          else if (!cy && h[k] ~ /^type/) cy = k
+          else if (!cp && h[k] ~ /^(priority|prioridad)/) cp = k
+        }
+        if (!ct) cg = ce = cy = cp = 0
+        else {
+          # Per role: a header-name match wins, else the role keeps its POSITIONAL column (3..6) when the
+          # header has that cell and no other role claimed it (a partly-named header is not a regression).
+          used[ct] = 1
+          if (cg) used[cg] = 1
+          if (ce) used[ce] = 1
+          if (cy) used[cy] = 1
+          if (cp) used[cp] = 1
+          if (!cg && 3 <= hn && !used[3]) { cg = 3; used[3] = 1 }
+          if (!ce && 4 <= hn && !used[4]) { ce = 4; used[4] = 1 }
+          if (!cy && 5 <= hn && !used[5]) { cy = 5; used[5] = 1 }
+          if (!cp && 6 <= hn && !used[6]) { cp = 6; used[6] = 1 }
+          for (k in used) delete used[k]
+        }
+      }
+      prev = ""; next
+    }
+    if (in_sec && /^\|/) {
+      prev = $0
       line = $0
       sub(/^\|[[:space:]]*/, "", line)
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
@@ -592,9 +629,14 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
       rid = f[1]; gsub(/[[:space:]]/, "", rid)
       if (rid ~ /^[-:]+$/) next
       if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
-      printf "%s\037%s\037%s\037%s\037%s\037%s\n",
-        (n>=1 ? f[1] : ""), (n>=2 ? f[2] : ""), (n>=3 ? f[3] : ""),
-        (n>=4 ? f[4] : ""), (n>=5 ? f[5] : ""), (n>=6 ? f[6] : "")
+      if (ct) {
+        printf "%s\037%s\037%s\037%s\037%s\037%s\n", f[1], f[ct],
+          (cg ? f[cg] : ""), (ce ? f[ce] : ""), (cy ? f[cy] : ""), (cp ? f[cp] : "")
+      } else {
+        printf "%s\037%s\037%s\037%s\037%s\037%s\n",
+          (n>=1 ? f[1] : ""), (n>=2 ? f[2] : ""), (n>=3 ? f[3] : ""),
+          (n>=4 ? f[4] : ""), (n>=5 ? f[5] : ""), (n>=6 ? f[6] : "")
+      }
     }
   }
 ')"
@@ -836,7 +878,29 @@ ensure_target_label() {
 # ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
-skipped_dedup=0; created=0; failed=0
+skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
+
+# title_is_unusable <title>: true for a bare priority/type token (the length clause of #1260 is deferred:
+# ~25 fixtures use 1-11 char titles and the fleet minimum is 19 chars, so it would change no real output).
+title_is_unusable() {
+  local t
+  t="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$t" in
+    critical|medium|high|low|bug|fix|feature|docs|documentation|regression|enhancement) return 0 ;;
+  esac
+  return 1
+}
+
+# _recheck_exists <signature>: return 0 when an exact-signature issue (any state) exists NOW, 1 when
+# the lookup succeeded and found none, 2 when the lookup itself failed or could not be parsed.
+_recheck_exists() {
+  local _r
+  _r="$(gh issue list --state all --repo "$KIT_ISSUE_REPO" \
+    --limit "$_LIST_LIMIT" --search "\"$1\"" --json state,body 2>/dev/null)" || return 2
+  grep -q '^[[:space:]]*\[' <<<"$_r" || return 2
+  _r="$(printf '%s' "$_r" | _exact_sig_matches "$1")" || return 2
+  grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_r"
+}
 
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
   _rid="$(printf '%s' "$_rid" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -864,6 +928,13 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # Build issue fields
   _title="$(strip_md_bold "$_delta")"
   if [ "${#_title}" -gt 120 ]; then _title="${_title:0:117}..."; fi
+  # STAGE_RETRO_ISSUES_TITLE_GUARD (kit issue #1260): a bare priority/type token
+  # is a mis-read column (issue #1248 was titled `LOW`), never a real delta summary.
+  # Not created, not silently dropped: typed `unclassifiable-row:` line + summary count, exit 0.
+  if title_is_unusable "$_title"; then
+    echo "unclassifiable-row: row $_rid has no usable title (got '$_title': a bare priority/type token) — needs manual review, no issue staged" >&2
+    open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1)); continue
+  fi
 
   _type_label="$(map_type "$_type_cell")"
   _priority_label="$(map_priority "$_priority_cell")"
@@ -992,6 +1063,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       --title "$_title" \
       $_label_flags \
       --body "$_body" 2>&1)" || {
+        # STAGE_RETRO_ISSUES_UNKNOWN_OUTCOME (kit issue #1261): a failed create can still have written
+        # the issue (timeout after the write). Re-run the exact-signature lookup before counting a
+        # failure: a hit is `unknown-outcome` (the issue exists, nothing to retry); no hit stays
+        # `failed`; a lookup that itself fails leaves the outcome unprovable, so it also stays `failed`.
+        if _recheck_exists "$_search_sig"; then
+          echo "unknown-outcome: gh issue create failed for row $_rid but a re-run dedup search found the issue (search matched '$_search_sig'): $_url" >&2
+          unknown_outcome=$((unknown_outcome+1)); continue
+        fi
         echo "ERROR: gh issue create failed for row $_rid: $_url" >&2
         failed=$((failed+1)); continue
       }
@@ -1008,8 +1087,8 @@ fi
 if [ $apply -eq 1 ]; then
   # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
   # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
-  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d failed=%d\n' \
-    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$failed"
+  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unclassifiable=%d unknown-outcome=%d failed=%d\n' \
+    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$unknown_outcome" "$failed"
 fi
 
 # Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).

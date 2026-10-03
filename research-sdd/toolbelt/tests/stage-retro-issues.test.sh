@@ -295,6 +295,15 @@ STUBHELP
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
           ;;
+        createfailcreated)
+          # kit issue #1261: `gh issue create` FAILS but the issue was in fact created server-side
+          # (a timeout after the write). Lists see nothing until the create ran, then the exact hit.
+          printf '  *" issue list "*) if [ -f "$0.created" ]; then reply OPEN; else printf "[]\\n"; fi; exit 0 ;;\n'
+          ;;
+        createfailrelistfail)
+          # kit issue #1261: create fails AND the follow-up lookup fails — the outcome stays unknown.
+          printf '  *" issue list "*) if [ -f "$0.created" ]; then printf "gh: error: boom\\n" >&2; exit 1; else printf "[]\\n"; fi; exit 0 ;;\n'
+          ;;
         listempty)
           # Exit 0, EMPTY stdout — no '[' at all. Distinguishes "the call succeeded and truly
           # found nothing" (a real '[]' reply) from "the call succeeded but the reply itself is
@@ -309,6 +318,8 @@ STUBHELP
       if [ "$mode" = "createfail" ]; then
         # createfail: gh issue create exits 1 to simulate an API error
         printf '  *" issue create "*) printf "ERROR: GraphQL request failed\\n"; exit 1 ;;\n'
+      elif [ "$mode" = "createfailcreated" ] || [ "$mode" = "createfailrelistfail" ]; then
+        printf '  *" issue create "*) : > "$0.created"; printf "ERROR: timeout after write\\n"; exit 1 ;;\n'
       elif [ "$mode" = "createfailsecond" ]; then
         # createfailsecond (kit issue #949 item 4): the FIRST create succeeds, every later one fails
         # — a mixed success/failure run (created=1 failed=1), not all-or-nothing.
@@ -3796,6 +3807,146 @@ else
   no "83b big shipped list" "exit=$RC planned=$(grep -c '^planned-issue:' <<<"$OUT") out=[${OUT:0:600}]"
 fi
 
+# ---------------------------------------------------------------------------
+# 84 — UNKNOWN OUTCOME after a failed create (kit issue #1261). A `gh issue create` can fail (timeout,
+#      5xx) AFTER the issue was written; counting that as `failed` made the Stop hook report a failure
+#      for an issue that exists (observed: failed=1, rerun skipped-duplicate x2). After a failed
+#      create the dedup search is re-run: an exact hit is `unknown-outcome` (exit 0, the issue exists);
+#      no hit stays `failed`; a failing re-lookup stays `failed` (the outcome is unprovable).
+ONE_ROW='| 1 | a real delta row | CLAUDE.md | B1 | fix | HIGH |'
+box84a="$(mkbox case-create-unknown)"; mk_gh_stub "$box84a" createfailcreated
+r84a="$(mk_retro "$box84a" target-foo r84a.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84a" "$r84a" --apply
+if [ "$RC" = 0 ] && grep -q '^unknown-outcome: .*row 1' <<<"$OUT" \
+   && grep -q 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=1 failed=0' <<<"$OUT" \
+   && ! grep -q '^ERROR: gh issue create failed' <<<"$OUT" \
+   && [ "$(grep -c '^gh issue list' "$box84a/bin/gh.log")" = 2 ] \
+   && [ "$(grep '^gh issue list' "$box84a/bin/gh.log" | grep -c -- '--repo test-owner/test-kit')" = 2 ]; then
+  ok "84a create fails but a re-run dedup finds the issue → unknown-outcome, exit 0, failed=0" "(exit $RC)"
+else
+  no "84a unknown outcome" "exit=$RC out=[$OUT]"
+fi
+box84b="$(mkbox case-create-unprovable)"; mk_gh_stub "$box84b" createfailrelistfail
+r84b="$(mk_retro "$box84b" target-foo r84b.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84b" "$r84b" --apply
+if [ "$RC" = 2 ] && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT" && grep -q '^ERROR: gh issue create failed' <<<"$OUT"; then
+  ok "84b create fails AND the re-lookup fails → still failed (exit 2), never unknown-outcome" "(exit $RC)"
+else
+  no "84b unprovable outcome" "exit=$RC out=[$OUT]"
+fi
+box84c="$(mkbox case-create-failed-clean)"; mk_gh_stub "$box84c" createfail
+r84c="$(mk_retro "$box84c" target-foo r84c.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84c" "$r84c" --apply
+lists84c="$(grep -c 'gh issue list' "$box84c/bin/gh.log")"
+if [ "$RC" = 2 ] && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT" && [ "$lists84c" = 2 ]; then
+  ok "84c create fails and the re-run dedup finds nothing → failed=1 (exit 2) after exactly 2 lookups" "(exit $RC lists=$lists84c)"
+else
+  no "84c genuine failure" "exit=$RC lists=$lists84c out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 85 — HEADER-NAME column mapping + TITLE GUARD (kit issue #1260). The row parser read columns by
+#      POSITION (2=title, 3=target, 4=evidence, 5=type, 6=priority), so a retro whose table is
+#      `| # | Priority | Gist | Absorb target |` seeded issue #1248 titled `LOW`. Columns are now mapped by
+#      HEADER NAME; a table whose header names no title column keeps the positional reading. (The `< 12 chars`
+#      clause of #1260 is deferred: ~25 fixtures use short titles; fleet minimum is 19 chars.) A title
+#      that is still a bare priority/type token is never created: it is
+#      reported `unclassifiable-row:` (exit 0, counted in the summary), so its delta is not silently lost.
+mk_hdr_retro() {   # mk_hdr_retro <box> <fname> <header-line> <ncols> <row...>
+  local box="$1" fname="$2" hdr="$3" n="$4" f i sep="|"; shift 4
+  f="$box/rh/target-foo/retros/$fname"
+  for ((i = 0; i < n; i++)); do sep="$sep---|"; done
+  { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n%s\n%s\n' "$hdr" "$sep"; printf '%s\n' "$@"; } > "$f"
+  printf '%s' "$f"
+}
+box85a="$(mkbox case-hdr-priority-first)"; mk_gh_stub "$box85a" nomatch
+r85a="$(mk_hdr_retro "$box85a" r85a.md '| # | Priority | Gist | Absorb target |' 4 \
+  '| 1 | LOW | Seed one issue per unclassifiable retro | toolbelt/stage-retro-issues.sh |')"
+run "$box85a" "$r85a"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: Seed one issue per unclassifiable retro$' <<<"$OUT" \
+   && grep -q 'priority:low' <<<"$OUT" && grep -q '\*\*Target:\*\* toolbelt/stage-retro-issues.sh' <<<"$OUT" \
+   && ! grep -q '^planned-issue: LOW$' <<<"$OUT"; then
+  ok "85a header '# | Priority | Gist | Absorb target' → title from Gist, priority:low, target mapped" "(exit $RC)"
+else
+  no "85a priority-first header" "exit=$RC out=[$OUT]"
+fi
+# 85b — title FIRST (after #), mapped columns at the LAST position (list edge), a Type column
+box85b="$(mkbox case-hdr-edges)"; mk_gh_stub "$box85b" nomatch
+r85b="$(mk_hdr_retro "$box85b" r85b.md '| # | Title | Priority | Type | Kit target |' 5 \
+  '| 1 | Add a header-name column mapper | HIGH | fix | toolbelt/a.sh |' \
+  '| 2 | Second delta with its own words | LOW | doc | toolbelt/b.sh |')"
+run "$box85b" "$r85b"
+if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] \
+   && grep -q '^planned-issue: Add a header-name column mapper$' <<<"$OUT" \
+   && grep -q 'type:bug' <<<"$OUT" && grep -q 'type:docs' <<<"$OUT" \
+   && grep -q '\*\*Target:\*\* toolbelt/a.sh' <<<"$OUT" && grep -q '\*\*Target:\*\* toolbelt/b.sh' <<<"$OUT"; then
+  ok "85b header with Kit target LAST: first+last rows both mapped (title, type, priority, target)" "(exit $RC)"
+else
+  no "85b title-first header" "exit=$RC out=[$OUT]"
+fi
+# 85c — a SINGLE data row and a missing Type column: type falls back to the default label, no crash
+box85c="$(mkbox case-hdr-notype)"; mk_gh_stub "$box85c" nomatch
+r85c="$(mk_hdr_retro "$box85c" r85c.md '| # | Proposed change | Priority | Target |' 4 \
+  '| 1 | A delta without a type column | HIGH | toolbelt/c.sh |')"
+run "$box85c" "$r85c"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: A delta without a type column$' <<<"$OUT" && grep -q 'type:feature' <<<"$OUT" \
+   && grep -q 'priority:high' <<<"$OUT" && grep -q '\*\*Target:\*\* toolbelt/c.sh' <<<"$OUT"; then
+  ok "85c single row, no Type column → default type label, other columns still mapped by name" "(exit $RC)"
+else
+  no "85c missing type column" "exit=$RC out=[$OUT]"
+fi
+# 85d — a header naming NO recognised title column keeps the positional reading
+box85d="$(mkbox case-hdr-unknown)"; mk_gh_stub "$box85d" nomatch
+r85d="$(mk_hdr_retro "$box85d" r85d.md '| ID | Foo | Bar | Evidence | Kind | Rank |' 6 \
+  '| 1 | Positional title stays the second cell | CLAUDE.md | B1 | fix | HIGH |')"
+run "$box85d" "$r85d"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: Positional title stays the second cell$' <<<"$OUT" && grep -q 'type:bug' <<<"$OUT"; then
+  ok "85d unrecognised header → positional fallback (title, type) unchanged" "(exit $RC)"
+else
+  no "85d unknown header" "exit=$RC out=[$OUT]"
+fi
+# 85g — a header naming ONLY the title: every other role keeps its positional column (no regression)
+box85g="$(mkbox case-hdr-title-only)"; mk_gh_stub "$box85g" nomatch
+r85g="$(mk_hdr_retro "$box85g" r85g.md '| # | Title | Where | Proof | Kind | Rank |' 6 \
+  '| 1 | Only the title column is named | toolbelt/g.sh | B7 | fix | HIGH |')"
+run "$box85g" "$r85g"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: Only the title column is named$' <<<"$OUT" \
+   && grep -q '\*\*Target:\*\* toolbelt/g.sh' <<<"$OUT" && grep -q '\*\*Evidence:\*\* B7' <<<"$OUT" \
+   && grep -q 'type:bug' <<<"$OUT" && grep -q 'priority:high' <<<"$OUT"; then
+  ok "85g header naming only the title → target/evidence/type/priority keep positional values" "(exit $RC)"
+else
+  no "85g partial header" "exit=$RC out=[$OUT]"
+fi
+# 85e — TITLE GUARD: bare priority/type token, and the 11/12-char boundary
+box85e="$(mkbox case-title-guard)"; mk_gh_stub "$box85e" nomatch
+r85e="$(mk_retro "$box85e" target-foo r85e.md '<!-- review-status: pending -->' \
+"| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |
+| 2 | Fix | CLAUDE.md | B1 | fix | HIGH |
+| 3 | Feature | CLAUDE.md | B1 | fix | HIGH |
+| 4 | a short but real | CLAUDE.md | B1 | fix | HIGH |
+| 5 | medium | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box85e" "$r85e"
+if [ "$RC" = 0 ] && [ "$(grep -c '^unclassifiable-row:' <<<"$OUT")" = 4 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] \
+   && grep -q '^planned-issue: a short but real$' <<<"$OUT" \
+   && grep -q '^unclassifiable-row: row 1 ' <<<"$OUT" && grep -q '^unclassifiable-row: row 5 ' <<<"$OUT"; then
+  ok "85e guard: LOW / Fix / Feature / medium → unclassifiable-row (first..last), a real short title planned" "(exit $RC)"
+else
+  no "85e title guard" "exit=$RC out=[$OUT]"
+fi
+# 85f — --apply: a guarded row creates NO issue, is counted unclassifiable, and the run is not a failure
+box85f="$(mkbox case-title-guard-apply)"; mk_gh_stub "$box85f" nomatch
+r85f="$(mk_retro "$box85f" target-foo r85f.md '<!-- review-status: pending -->' \
+"| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |
+| 2 | A perfectly fine title | CLAUDE.md | B1 | fix | HIGH |")"
+run "$box85f" "$r85f" --apply
+creates85f="$(grep -c 'gh issue create' "$box85f/bin/gh.log")"
+if [ "$RC" = 0 ] && [ "$creates85f" = 1 ] \
+   && grep -q 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=1 unknown-outcome=0 failed=0' <<<"$OUT"; then
+  ok "85f --apply: guarded row not created, unclassifiable=1 in the summary, exit 0" "(exit $RC creates=$creates85f)"
+else
+  no "85f guard under --apply" "exit=$RC creates=$creates85f out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -3817,6 +3968,71 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1444-b teeth: piped is_shipped → shipped D1..D3 re-planned (83b has teeth)" "()"
     else no "T1444-b teeth: piped form must flip 83b" "83b is THEATER: exit=$RC out=[${OUT:0:400}]"; fi
   else no "T1444-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth T1261: unknown-outcome re-check --"
+  # (a) re-check disabled → a created-but-reported-failed issue is counted failed again (84a has teeth)
+  mbox="$(mkbox teeth-1261-a)"; mk_gh_stub "$mbox" createfailcreated
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^        if _recheck_exists "\$_search_sig"; then$/        if false; then/'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+    if [ "$RC" = 2 ] && grep -q 'failed=1' <<<"$OUT"; then ok "T1261-a teeth: re-check off → failed=1, exit 2 (84a has teeth)" "()"
+    else no "T1261-a teeth: disabled re-check must flip 84a" "84a is THEATER: exit=$RC out=[$OUT]"; fi
+  else no "T1261-a: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (d) re-check without --repo → 84a's per-call --repo assertion flips
+  mbox="$(mkbox teeth-1261-d)"; mk_gh_stub "$mbox" createfailcreated
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  _r="\$(gh issue list --state all --repo "\$KIT_ISSUE_REPO" \\$/  _r="$(gh issue list --state all \\/'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+    if [ "$(grep '^gh issue list' "$mbox/bin/gh.log" | grep -c -- '--repo test-owner/test-kit')" != 2 ]; then ok "T1261-d teeth: re-check without --repo → per-call --repo count != 2 (84a has teeth)" "()"
+    else no "T1261-d teeth: dropping --repo must flip 84a" "84a is THEATER"; fi
+  else no "T1261-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (b) re-check that always says 'found' → a genuine failure is swallowed (84b and 84c have teeth)
+  for _t in 1261-b:createfailrelistfail 1261-c:createfail; do
+    mbox="$(mkbox "teeth-${_t%%:*}")"; mk_gh_stub "$mbox" "${_t##*:}"
+    if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  grep -q .\"state\":\[\[:space:\]\]\*\"\\(OPEN\\|CLOSED\\)\". <<<"\$_r"$/  true/' \
+         -e 's/--json state,body 2>\/dev\/null)" || return 2$/--json state,body 2>\/dev\/null)"/' \
+         -e "s/^  grep -q '\^\[\[:space:\]\]\*\\\\\[' <<<\"\\\$_r\" || return 2\$/  :/" \
+         -e 's/^  _r="\$(printf .%s. "\$_r" | _exact_sig_matches "\$1")" || return 2$/  _r="$(printf "%s" "$_r" | _exact_sig_matches "$1")" || :/'; then
+      run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+      if [ "$RC" = 0 ] && grep -q 'unknown-outcome=1' <<<"$OUT"; then ok "T${_t%%:*} teeth: always-found re-check swallows a real failure (84${_t:5:1} has teeth)" "()"
+      else no "T${_t%%:*} teeth: always-found re-check must flip 84${_t:5:1}" "THEATER: exit=$RC out=[$OUT]"; fi
+    else no "T${_t%%:*}: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  done
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth T1260: header-name mapping + title guard --"
+  h_mut() {   # h_mut <tag> <sed-expr> <check-regex> <header> <ncols> <row>: the mutant's output must NOT match <check-regex>
+    local tag="$1" expr="$2" rx="$3" hdr="$4" nc="$5" row="$6" mb
+    mb="$(mkbox "teeth-1260-$tag")"; mk_gh_stub "$mb" nomatch
+    if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e "$expr"; then
+      run "$mb" "$(mk_hdr_retro "$mb" r.md "$hdr" "$nc" "$row")"
+      if ! grep -qE "$rx" <<<"$OUT"; then ok "T1260-$tag teeth: mutant loses [$rx]" "()"
+      else no "T1260-$tag teeth: mutant must lose [$rx]" "case is THEATER: out=[$OUT]"; fi
+    else no "T1260-$tag: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  }
+  H1='| # | Priority | Gist | Absorb target |'; R1='| 1 | LOW | Seed one issue per unclassifiable retro | toolbelt/x.sh |'
+  H2='| # | Title | Priority | Type | Kit target |'; R2='| 1 | Add a header-name column mapper | HIGH | fix | toolbelt/a.sh |'
+  h_mut title 's/ct = k$/ct = 0/' '^planned-issue: Seed one' "$H1" 4 "$R1"
+  h_mut target 's/(cg ? f\[cg\] : "")/""/' 'Target:\*\* toolbelt/x.sh' "$H1" 4 "$R1"
+  h_mut priority 's/(cp ? f\[cp\] : "")/""/' 'priority:low' "$H1" 4 "$R1"
+  h_mut type 's/(cy ? f\[cy\] : "")/""/' 'type:bug' "$H2" 5 "$R2"
+  h_mut lastcol 's/for (k = 2; k <= hn; k++)/for (k = 2; k < hn; k++)/' 'Target:\*\* toolbelt/a.sh' "$H2" 5 "$R2"
+  H3='| # | Title | Where | Proof | Kind | Rank |'; R3='| 1 | Only the title column is named | toolbelt/g.sh | B7 | fix | HIGH |'
+  h_mut posfallback 's/^          if (!cg \&\& 3 <= hn \&\& !used\[3\]) { cg = 3; used\[3\] = 1 }$/          :/' 'Target:\*\* toolbelt/g.sh' "$H3" 6 "$R3"
+  h_mut posfallback-pri 's/^          if (!cp \&\& 6 <= hn \&\& !used\[6\]) { cp = 6; used\[6\] = 1 }$/          :/' 'priority:high' "$H3" 6 "$R3"
+  mb="$(mkbox teeth-1260-guard)"; mk_gh_stub "$mb" nomatch
+  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  if title_is_unusable "\$_title"; then$/  if false; then/'; then
+    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |')"
+    if grep -q '^planned-issue: LOW$' <<<"$OUT"; then ok "T1260-guard teeth: guard off → a bare LOW title is planned (85e has teeth)" "()"
+    else no "T1260-guard teeth: guard off must plan LOW" "85e is THEATER: out=[$OUT]"; fi
+  else no "T1260-guard: build mutant" "mutant_sed refused"; fi
+  mb="$(mkbox teeth-1260-tokens)"; mk_gh_stub "$mb" nomatch
+  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^    critical|medium|high|low|bug|fix|feature|docs|documentation|regression|enhancement) return 0 ;;$/    NEVERMATCH) return 0 ;;/'; then
+    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | medium | CLAUDE.md | B1 | fix | HIGH |')"
+    if grep -q '^planned-issue: medium$' <<<"$OUT"; then ok "T1260-tokens teeth: token list emptied → bare 'medium' planned (85e has teeth)" "()"
+    else no "T1260-tokens teeth: emptied list must plan medium" "85e is THEATER: out=[$OUT]"; fi
+  else no "T1260-tokens: build mutant" "mutant_sed refused"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
