@@ -530,7 +530,7 @@ _vb_eh_out=$(awk '
 _vb_eh_rc=$?
 # Anti-silent-zero (#1500): an aborted detector, or one that never reached END, is a typed degraded state.
 if [ "$_vb_eh_rc" -ne 0 ] || ! grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_eh_out"; then
-  printf '   ERROR: empty-digest scan DEGRADED (awk exit %d, no scan trailer) — block NOT checked for empty-input digests\n' "$_vb_eh_rc"
+  printf '   ERROR: empty-digest scan DEGRADED (awk exit %d%s) — block NOT checked for empty-input digests\n' "$_vb_eh_rc" "$(grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_eh_out" || echo ', no scan trailer')"
   rc=1; _vb_eh_deg=1
 fi
 # Each awk line is `<tag><TAB><text>`: W = waived INFO, F = FAIL, T = trailer. The tag, not the printed text,
