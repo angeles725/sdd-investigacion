@@ -183,7 +183,7 @@ run "$d"; PROP="$(printf '%s' "$SOUT" | grep -c '^+covered_blocks: 2'$'\r''$')"
 #     for it, which is not the focus's number — covered_blocks is withheld (NOTE), the sibling is still checked.
 d="$TMP/rootcw"; blocks "$d" proj-block1.md proj-block2.md x-block1.md x-block2.md
 state "$d/RESEARCH-STATE.md" 1 2 2; state "$d/RESEARCH-STATE-x.md" 2 2 2
-run "$d"; expect "21 root of a multi-state corpus: corpus-wide covered_blocks withheld, NOTE names it" 0 "changed=0" "covered_blocks withheld"
+run "$d"; expect "21 root of a multi-state corpus: corpus-wide covered_blocks withheld, NOTE names it, and it is COUNTED (#1534)" 0 "changed=0" "covered_blocks withheld" "unproposed=1"
 lacks "21b no covered_blocks hunk for the root" "-covered_blocks" "+covered_blocks"
 
 # 22. verify-state flags a stale stop-control number but no rewritable line exists: counted, never dropped.
@@ -207,6 +207,28 @@ for spec in "usage:" "absent:$TMP/empty" "clean:$TMP/clean" "drift:$TMP/drift" "
 done
 STATE_UPDATE_VERIFY="$TMP/stub-fail.sh" run "$TMP/deg"; last_is_summary && ok "24 summary last on a verify-state failure (rc=$RC)" || no "24 summary not last on verify failure"
 OUT="$(bash "$TMP/hf/state-update.sh" "$TMP/clean" 2>&1 >/dev/null)"; grep -q 'checked=' <<<"$OUT" && ok "24 summary emitted on the listing-failure path" || no "24 no summary on listing failure"
+
+# 25. (#1534) a required tool missing is a typed DEGRADED, cmp included; a diff/cmp that errors is never read
+#     as "no change" or as an empty diff.
+mkdir -p "$TMP/nocmp"; for _t in dirname basename grep sort uniq tr head mktemp awk diff rm cat sed find; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$TMP/nocmp/$_t"; done
+SOUT="$(PATH="$TMP/nocmp" "$BASH" "$SUT" "$TMP/drift" 2>"$TMP/stderr")"; RC=$?; OUT="$SOUT"$'\n'"$(cat "$TMP/stderr")"
+expect "25a missing cmp => DEGRADED naming the tool, exit 3" 3 "required tool 'cmp' not found"
+mkdir -p "$TMP/baddiff"; printf '#!/bin/sh\necho diffboom >&2\nexit 2\n' > "$TMP/baddiff/diff"; chmod +x "$TMP/baddiff/diff"
+PATH="$TMP/baddiff:$PATH" run "$TMP/drift"; expect "25b diff exiting 2 => DEGRADED (never a silent empty proposal), exit 3" 3 "diff failed (rc=2)" "changed=0 degraded=1 unproposed="
+mkdir -p "$TMP/badcmp"; printf '#!/bin/sh\nexit 2\n' > "$TMP/badcmp/cmp"; chmod +x "$TMP/badcmp/cmp"
+PATH="$TMP/badcmp:$PATH" run "$TMP/drift"; expect "25c cmp exiting 2 => DEGRADED, exit 3" 3 "cmp failed (rc=2)" "changed=0 degraded=1 unproposed="
+mkdir -p "$TMP/diff0"; printf '#!/bin/sh\nexit 0\n' > "$TMP/diff0/diff"; chmod +x "$TMP/diff0/diff"
+PATH="$TMP/diff0:$PATH" run "$TMP/drift"; expect "25d diff exiting 0 while cmp said differ => typed DEGRADED, not an empty proposal" 3 "diff failed (rc=0)" "changed=0 degraded=1 unproposed="
+
+# 26. (#1534) the shared-global detector must see a TAB-indented block_scope line (grep ERE: \t inside [] is not a tab).
+#     verify-state is stubbed to flag covered_blocks on the un-suffixed root of a 2-state corpus; because the root
+#     IS shared-global the #906 withholding must NOT apply and the value is proposed.
+d="$TMP/sgtab"; blocks "$d" proj-block1.md proj-block2.md x-block1.md x-block2.md
+state "$d/RESEARCH-STATE.md" 1 2 2 $'\tblock_scope: shared-global'; state "$d/RESEARCH-STATE-x.md" 2 2 2
+printf '#!/usr/bin/env bash\necho "== verify-state: RESEARCH-STATE.md (target: x) =="\necho "   FAIL   envelope covered_blocks=1 != 4 attributed block(s) under shared-global"\necho "== verify-state: RESEARCH-STATE-x.md (target: x) =="\nexit 1\n' > "$TMP/stub-sg.sh"
+STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" run "$d"; expect "26 tab-indented shared-global root: covered_blocks proposed, not withheld" 1 "+covered_blocks: 4"
+lacks "26b no withholding NOTE for a shared-global root" "covered_blocks withheld"
 
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -244,6 +266,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   STATE_UPDATE_VERIFY="$TMP/stub-prose.sh" tt prose-unmatched-count '/SU-PROSE-UNMATCHED/,/^  fi$/s/unproposed=\$((unproposed+1))/true/' "$TMP/prosegone" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
   tt summary-trap          's/^trap _summary EXIT$/trap : EXIT/' "$TMP/empty" 2 2 --good-has 'checked=' --bad-lacks 'checked='
   tt dup-basename          's/^if \[ -n "\$dups" \]; then/if false; then/' "$TMP/dup" 3 1
+  # (#1534) withheld-counted (case 21), cmp-probe (25a), diff-rc-gate (25b, 25d), cmp-rc-gate (25c), sg-tab-class (26): each mutant removes one guard and its named case must notice.
+  tt withheld-counted      '/SU-WITHHELD-COUNTED/d' "$TMP/rootcw" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
+  STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" tt sg-tab-class 's/\^\[\[:space:\]\]\*block_scope:\[\[:space:\]\]\*/^[ \\t]*block_scope:[ \\t]*/' "$TMP/sgtab" 1 0
+  m="$MUT/state-update.sh"
+  if mutant_chain cmp-probe "$SUT" "$m" 's/for _t in diff mktemp awk cmp; do/for _t in diff mktemp awk; do/'; then
+    PATH="$TMP/nocmp" "$BASH" "$m" "$TMP/drift" >/dev/null 2>"$TMP/stderr"
+    if ! grep -qF "required tool 'cmp' not found" "$TMP/stderr"; then ok "teeth cmp-probe: without the probe the typed missing-tool message is gone"; else no "teeth cmp-probe: mutant still names the missing tool — THEATER"; fi
+  else fail=$((fail+1)); fi
+  if mutant_chain diff-rc-gate "$SUT" "$m" 's/if \[ "\$drc" -ne 1 \]; then/if false; then/'; then
+    PATH="$TMP/baddiff:$PATH" bash "$m" "$TMP/drift" >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" != 3 ]; then ok "teeth diff-rc-gate: without the gate a failing diff is not DEGRADED (rc $mrc)"; else no "teeth diff-rc-gate: mutant still rc 3 — THEATER"; fi
+  else fail=$((fail+1)); fi
+  if mutant_chain cmp-rc-gate "$SUT" "$m" 's/elif \[ "\$crc" -ne 0 \]; then/elif false; then/'; then
+    PATH="$TMP/badcmp:$PATH" bash "$m" "$TMP/drift" >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" != 3 ]; then ok "teeth cmp-rc-gate: without the gate a failing cmp is not DEGRADED (rc $mrc)"; else no "teeth cmp-rc-gate: mutant still rc 3 — THEATER"; fi
+  else fail=$((fail+1)); fi
   # list-fail-gate: the failing-helper tree from case 23 with the rc gate removed must stop reading DEGRADED.
   m="$TMP/hf/state-update-m.sh"
   if mutant_chain list-fail-gate "$SUT" "$m" 's/^if \[ "\$lrc" -ne 0 \] || /if false || /'; then
