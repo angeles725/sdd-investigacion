@@ -674,6 +674,8 @@ Always read first, in this order:
          Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
          or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+         Independent per-item batch steps may use `parallel -j 6 --keep-order --halt now,fail=1` (hard cap `-j 6`, one batch
+         at a time, offline work only; serial rerun is the reference) — `toolbelt/DYNAMIC-SETUP.md` §8.
        - RESOURCE-BUDGETS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#resource-budgets` in full
          before starting a heavy run or delegating one (CPU/RAM budget, queue, record the load).
        - LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`

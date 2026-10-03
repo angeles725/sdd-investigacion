@@ -58,3 +58,4 @@
 | jqwik | `Maven Central net.jqwik 1.10.1 + junit-platform-console-standalone 1.14.4, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
 | cfr-master | `git leibnitz27/cfr @c4145259 (2026-06-04) mvn package JDK8 -> cfr-0.153-SNAPSHOT.jar sha256 e49a52a6...b6, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
 | fernflower | `git JetBrains/fernflower @5ab777bf (2026-09-24) gradlew jar JDK21 -> fernflower.jar sha256 b8c4dc8b...b46, scratch-only` | installed | ? | 2026-09-28T07:57:56Z | external/manual |
+| parallel | `brew install parallel` | installed | kit | 2026-10-03T07:25:56Z | GNU parallel 20260922 at /home/linuxbrew/.linuxbrew/bin/parallel; enables `bats -j N` (without it bats -j runs 0 tests silently); niagara-tools suite 1037 ok/0 fail in 122 s with -j 6 on 16 cores; cap -j to ~half the cores |

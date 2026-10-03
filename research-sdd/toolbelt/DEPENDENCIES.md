@@ -217,6 +217,7 @@ ilspycmd (any version) + compatible .NET runtime  # .NET decompilation; runtime 
 gh                                           # GitHub remote (ensure-remote.sh)
 unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
+parallel (GNU parallel, OPTIONAL)            # batch parallelism; REQUIRED for `bats -j N` (without it bats runs 0 tests silently — METHODOLOGY §11b R7); the kit's own gate does not need it
 ```
 
 For unblob corroboration: `corroborate-unblob.sh` runs unblob inside a hardened
