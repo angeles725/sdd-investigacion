@@ -17,7 +17,7 @@ set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
 
 _err() { printf 'clean-check: ERROR: %s\n' "$1" >&2; }
-_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N]\n' "$(basename "$0")" >&2; }
+_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N]\n' "${0##*/}" >&2; }
 
 TARGET=""; TMPD=""; STALE_H=24
 while [ $# -gt 0 ]; do
@@ -32,21 +32,29 @@ done
 # Decimal digits only, at most 9 (no arithmetic overflow); a leading zero (08, 010) is still decimal.
 case "$STALE_H" in ''|*[!0-9]*|??????????*) _usage; _err "--stale-hours must be a decimal integer of at most 9 digits: '$STALE_H'"; exit 2 ;; esac
 STALE_H=$((10#$STALE_H))
-OWNER_UID="${CLEAN_CHECK_UID:-}"
-if [ -z "$OWNER_UID" ]; then OWNER_UID="$(id -u 2>/dev/null)" || OWNER_UID=""; fi
-case "$OWNER_UID" in ''|*[!0-9]*) _err "cannot determine the owner uid ('$OWNER_UID')"; exit 2 ;; esac
 
 # SENTINEL-DEGRADED-PROBE: a missing dependency is a typed DEGRADED, never a quiet clean (§7).
-REQUIRED_TOOLS="git find date sort"   # the single list: the probe below and the header/doc refer to it
+REQUIRED_TOOLS="git find date sort id stat"   # the single list: the probe below and the header/doc refer to it
 for _tool in $REQUIRED_TOOLS; do
   command -v "$_tool" >/dev/null 2>&1 || { printf 'clean-check: DEGRADED: %s not found on PATH; nothing was measured\n' "$_tool" >&2; exit 3; }
 done
 
+OWNER_UID="${CLEAN_CHECK_UID:-}"
+if [ -z "$OWNER_UID" ]; then OWNER_UID="$(id -u 2>/dev/null)" || OWNER_UID=""; fi
+case "$OWNER_UID" in ''|*[!0-9]*) _err "cannot determine the owner uid ('$OWNER_UID')"; exit 2 ;; esac
+
 [ -n "$TARGET" ] || TARGET="$PWD"
 [ -d "$TARGET" ] || { _err "target not found: $TARGET"; exit 2; }
 TARGET_P="$(cd -P -- "$TARGET" && pwd -P)" || { _err "cannot enter target: $TARGET"; exit 2; }
-_inside="$(git -C "$TARGET_P" rev-parse --is-inside-work-tree 2>/dev/null)" || _inside=""
-[ "$_inside" = "true" ] || { _err "target is not inside a git work tree: $TARGET"; exit 2; }
+# git's own stderr is kept: a rev-parse that fails for another reason (dubious ownership, a broken git)
+# must not read as "not a work tree".
+_gmsg=""; _inside=""
+if _inside="$(git -C "$TARGET_P" rev-parse --is-inside-work-tree 2>&1)"; then
+  if [ "$_inside" != "true" ]; then _gmsg="not a work tree"; fi
+else
+  _gmsg="${_inside:-git exited non-zero without output}"; _gmsg="${_gmsg//$'\n'/ }"
+fi
+[ -z "$_gmsg" ] || { _err "target is not inside a git work tree: $TARGET (git: $_gmsg)"; exit 2; }
 [ -n "$TMPD" ] || TMPD="${TMPDIR:-/tmp}"
 TMPD="${TMPD%/}"; [ -n "$TMPD" ] || TMPD="/"
 [ -d "$TMPD" ] || { _err "tmp dir not found: $TMPD"; exit 2; }
@@ -103,20 +111,21 @@ FINDINGS=0
 [ "$KEEP_PRESENT" = 1 ] || printf 'ABSENT-KEEPLIST %s\n' "$KEEP_FILE"
 
 # ---- (a) untracked, non-ignored files --------------------------------------------------------
+# git's and find's stderr is deliberately NOT discarded: on failure it is the diagnostic.
 # The list is read with an explicit RC marker as its last NUL-terminated element, so a git run that
 # failed or was cut short cannot read as an empty (clean) list.
 _items=()
 while IFS= read -r -d '' _p; do _items+=("$_p"); done < <(
-  git -C "$TARGET_P" ls-files --others --exclude-standard -z 2>/dev/null
+  git -C "$TARGET_P" ls-files --others --exclude-standard -z
   printf 'RC=%s\0' "$?"
 )
 _last=$(( ${#_items[@]} - 1 ))
 { [ "$_last" -ge 0 ] && [ "${_items[$_last]}" = "RC=0" ]; } || { _err "git ls-files failed or was truncated in $TARGET"; exit 2; }
 for ((_i = 0; _i < _last; _i++)); do
-  _p="${_items[$_i]}"
-  _kept "$_p" && continue
-  _in_scratch "$TARGET_P/$_p" && continue
-  printf 'GARBAGE untracked %s\n' "$_p"
+  _rel="${_items[$_i]}"
+  _kept "$_rel" && continue
+  _in_scratch "$TARGET_P/$_rel" && continue
+  printf 'GARBAGE untracked %s\n' "$_rel"
   FINDINGS=$((FINDINGS + 1))
 done
 
@@ -136,17 +145,26 @@ FIND_RACE=()
 if find "$TMPD_P" -ignore_readdir_race -maxdepth 0 >/dev/null 2>&1; then FIND_RACE=(-ignore_readdir_race); fi
 _items=()
 while IFS= read -r -d '' _p; do _items+=("$_p"); done < <(
-  find "$TMPD_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 1 -name 'tmp.*' -uid "$OWNER_UID" -mmin "+$((STALE_H * 60))" -print0 2>/dev/null
+  find "$TMPD_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 1 -name 'tmp.*' -uid "$OWNER_UID" -mmin "+$((STALE_H * 60))" -print0
   printf 'RC=%s\0' "$?"
 )
 _last=$(( ${#_items[@]} - 1 ))
 { [ "$_last" -ge 0 ] && [ "${_items[$_last]}" = "RC=0" ]; } || { _err "find failed or was truncated in $TMPD"; exit 2; }
 _now="$(date +%s)"
-_sorted=()
+# The sort step carries its own RC marker (producer and sort both), so a failing sort cannot shrink the
+# list to nothing and read as a quiet clean.
+_sorted=(); _slast=-1
 if [ "$_last" -gt 0 ]; then
-  while IFS= read -r -d '' _p; do _sorted+=("$_p"); done < <(printf '%s\0' "${_items[@]:0:$_last}" | sort -z)
+  while IFS= read -r -d '' _p; do _sorted+=("$_p"); done < <(
+    printf '%s\0' "${_items[@]:0:$_last}" | sort -z
+    _pst=("${PIPESTATUS[@]}")
+    printf 'RC=%s\0' "$(( _pst[0] || _pst[1] ))"
+  )
+  _slast=$(( ${#_sorted[@]} - 1 ))
+  { [ "$_slast" -ge 0 ] && [ "${_sorted[$_slast]}" = "RC=0" ]; } || { _err "sort failed or was truncated while ordering tmp.* entries in $TMPD"; exit 2; }
 fi
-for _p in ${_sorted[@]+"${_sorted[@]}"}; do
+for ((_i = 0; _i < _slast; _i++)); do
+  _p="${_sorted[$_i]}"
   _in_scratch "$_p" && continue
   _m="$(_mtime "$_p")"
   if [ -n "$_m" ]; then _age="$(( (_now - _m) / 3600 ))h"; else _age="unknown"; fi
