@@ -119,8 +119,73 @@ OUT="$(PATH="$ROOT/nopath" "$BASH" "$SUT" build "$FX/doc" 2>"$ROOT/err")"; RC=$?
 rc_is "T8b python3 absent exits 2" 2
 has "T8b typed degraded state" "$ERR" 'degraded.*python3'
 
-# --- the tool never writes into the fixture tree -------------------------------------------------------
-if [ -z "$(find "$FX" -newer "$ROOT/err" -type f 2>/dev/null)" ]; then ok "T9 fixtures untouched"; else no "T9 fixture tree modified"; fi
+# --- T9 the tool never writes into the fixture tree (content hash before/after, not mtimes) ------------
+tree_hash() { (cd "$FX" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum); }
+H0="$(tree_hash)"
+"$SUT" build "$FX/doc" "$FX/cfr" --out "$ROOT/h.json" >/dev/null 2>&1; "$SUT" show "$FX/doc" BFoo >/dev/null 2>&1
+H1="$(tree_hash)"
+N_FILES="$(find "$FX" -type f | wc -l)"
+if [ "$N_FILES" -ge 4 ] && [ -n "$H0" ] && [ "$H0" = "$H1" ]; then ok "T9 fixtures untouched ($N_FILES files, hash stable)"; else no "T9 fixture tree modified or empty ($N_FILES files)"; fi
+
+# --- T10 duplicates across roots: first wins, counted --------------------------------------------------
+run "$SUT" build "$FX/doc" "$FX/cfr" --out "$ROOT/dup.json"
+rc_is "T10 two roots exit 0" 0
+has "T10 duplicate type counted" "$OUT" 'types: 2 .*duplicates: 1 '
+
+# --- T11 unreadable inputs are counted and warned, never skipped quietly ------------------------------
+mkdir -p "$ROOT/unr/sub" "$ROOT/unr/locked"
+cp "$FX/doc/pkg/BFoo.java" "$ROOT/unr/"
+ln -s "$ROOT/unr/nowhere" "$ROOT/unr/sub/Dead.java"
+run "$SUT" build "$ROOT/unr" --out "$ROOT/unr.json"
+rc_is "T11a dangling .java symlink: build still exits 0" 0
+has "T11a counted as unreadable" "$OUT" 'unreadable: 1 '
+has "T11a warned" "$ERR" 'not a regular file.*Dead\.java'
+mkfifo "$ROOT/unr/sub/Pipe.java"
+run timeout 10 "$SUT" build "$ROOT/unr" --out "$ROOT/unr2.json"
+rc_is "T11b FIFO named *.java does not block the walk" 0
+has "T11b FIFO counted as unreadable" "$OUT" 'unreadable: 2 '
+rm -f "$ROOT/unr/sub/Pipe.java"
+chmod 000 "$ROOT/unr/locked"
+if [ "$(id -u)" != 0 ] && ! ls "$ROOT/unr/locked" >/dev/null 2>&1; then
+  run "$SUT" build "$ROOT/unr" --out "$ROOT/unr3.json"
+  has "T11c unreadable directory counted" "$OUT" 'unreadable: 2 '
+  has "T11c unreadable directory warned" "$ERR" 'cannot read directory.*locked'
+else
+  echo "  SKIP  T11c unreadable directory (running as root or chmod ineffective)"
+fi
+chmod 755 "$ROOT/unr/locked"
+
+# --- T12 declarations that cannot be parsed or have no class are surfaced -------------------------------
+mkdir -p "$ROOT/drop"
+cat > "$ROOT/drop/BD.java" <<'JAVA'
+package demo.drop;
+public class BD extends BObject
+{
+  public static final Property q = makeIt();
+  public static final Property ok = newProperty(0, BString.DEFAULT, null);
+}
+JAVA
+cat > "$ROOT/drop/NoClass.java" <<'JAVA'
+package demo.drop;
+public static final Property z = newProperty(0, BString.DEFAULT, null);
+JAVA
+run "$SUT" build "$ROOT/drop" --out "$ROOT/drop.json"
+rc_is "T12 build exits 0 (BD is catalogued)" 0
+has "T12a unparseable declaration counted" "$OUT" 'dropped-declarations: 1 '
+has "T12a warned naming the slot" "$ERR" "unparseable slot declaration 'q' dropped"
+has "T12b file with slots but no class counted" "$OUT" 'no-class-files: 1( |$)'
+has "T12b warned naming the file" "$ERR" 'no class declaration.*NoClass\.java'
+has "T12 the parseable slot is kept" "$OUT" 'types: 1 +properties: 1 '
+
+# --- T13 --out failure is a typed exit 2 and leaves no partial file ------------------------------------
+run "$SUT" build "$FX/doc" --out "$ROOT/no-such-dir/c.json"
+rc_is "T13a unwritable --out exits 2" 2
+has "T13a names the path" "$ERR" 'cannot write.*no-such-dir'
+LEFT="$(find "$ROOT" -name '*.tmp.*' | wc -l)"
+[ "$LEFT" = 0 ] && ok "T13b no temp file left behind" || no "T13b $LEFT temp file(s) left behind"
+"$SUT" build "$FX/doc" --out "$ROOT/atomic.json" >/dev/null 2>&1
+LEFT="$(find "$ROOT" -maxdepth 1 -name 'atomic.json.tmp.*' | wc -l)"
+[ "$LEFT" = 0 ] && [ -s "$ROOT/atomic.json" ] && ok "T13c success leaves only the final file" || no "T13c temp left ($LEFT) or catalog missing"
 
 # ======================== MUTATION CONTROLS — --prove-teeth ==========================================
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -146,7 +211,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mx() {
     local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
     mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" || { fail=$((fail+1)); return 1; }
-    if mutant_tooth "$label" "$grc" "$brc" "$MUT/m_$$.py" --orig "$PY" -- python3 @SUT@ "$@"; then
+    # shellcheck disable=SC2086 # MX_PREFIX is a deliberate word-split command prefix (e.g. "timeout 5")
+    if mutant_tooth "$label" "$grc" "$brc" "$MUT/m_$$.py" --orig "$PY" -- ${MX_PREFIX:-} python3 @SUT@ "$@"; then
       pass=$((pass+1))
     else
       fail=$((fail+1))
@@ -158,9 +224,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mp "M3 string literals not tracked in _split_args" '0,/elif c in "\\"'"'"'":/s//elif False:/' 'label +flags=4 +h +default=new BString\("open \( paren"\) facets=BFacets\.NULL' show "$FX/doc" BFoo
   mp "M4a (BValue) cast not stripped from slot arguments" 's/\^\\((?:int|BValue/^\\((?:int/' 'out +flags=0 +[^ ]* +default=BBoolean\.FALSE facets=BFacets\.make' show "$FX/cfr" BFoo
   MP_EXPR2='s/\^\\((?:int|BValue/^\\((?:BValue/' mp "M4b (int) cast not stripped from flags (both strip sites)" 's/\^\\(\\s\*int\\s\*\\)\\s\*/^ZZZ/' 'in8 +flags=9 +rs ' show "$FX/cfr" BFoo
-  mp "M5 2-arg action branch disabled: ping keeps empty default" '0,/if len(args) == 2:     # newAction/s//if len(args) == 99:     # newAction/' 'ping +flags=16 +a +default= facets=BFacets\.NULL' show "$FX/doc" BFoo
+  mp "M5 2-arg action branch disabled: ping keeps empty default" 's/if len(args) == 2:/if len(args) == 99:/' 'ping +flags=16 +a +default= facets=BFacets\.NULL' show "$FX/doc" BFoo
   mp "M6 unknown flag tokens dropped silently" 's/unknown\.append(tok)/pass/' 'unknown-flag-tokens: 1' build "$FX/doc"
+  FIFO_DIR="$ROOT/fifodir"; mkdir -p "$FIFO_DIR"; cp "$FX/doc/pkg/BFoo.java" "$FIFO_DIR/"; mkfifo "$FIFO_DIR/Pipe.java"
   mx "M7 absent-root guard removed (exit 2 -> not 2)" 's/if not os\.path\.isdir(root):/if False:/' 2 1 build "$ROOT/does-not-exist"
+  mp "M10 duplicate counter removed" 's/st\["duplicates"\] += 1/pass/' 'duplicates: 1 ' build "$FX/doc" "$FX/cfr"
+  mp "M11 unparseable-declaration counter removed" 's/st\["dropped_declarations"\] += 1/pass/' 'dropped-declarations: 1 ' build "$ROOT/drop"
+  mp "M12 no-class guard removed" 's/if has_slots and not t\["class"\]:/if False:/' 'no-class-files: 1( |$)' build "$ROOT/drop"
+  mkdir -p "$ROOT/lk/locked"; cp "$FX/doc/pkg/BFoo.java" "$ROOT/lk/"; chmod 000 "$ROOT/lk/locked"
+  if [ "$(id -u)" != 0 ] && ! ls "$ROOT/lk/locked" >/dev/null 2>&1; then
+    mp "M13 walk onerror counter removed" '0,/        st\["unreadable"\] += 1/s//        pass/' 'unreadable: 1( |$)' build "$ROOT/lk"
+  else
+    echo "  SKIP  M13 (running as root or chmod ineffective)"
+  fi
+  chmod 755 "$ROOT/lk/locked"
+  mx "M14 --out write error swallowed (exit 2 -> 0)" 's/cannot write %s: %s" % (args\.out, e), file=sys.stderr)/&\n            return 0/' 2 0 build "$FX/doc" --out "$ROOT/no-such-dir/c.json"
+  MX_PREFIX="timeout 5" mx "M15 non-regular-file guard removed: FIFO blocks (rc 124)" 's/if not os\.path\.isfile(path):/if False:/' 0 124 build "$FIFO_DIR" --out "$ROOT/fifo.json"
   MP_RC=1 mp "M8 zero-.java guard removed: message must name the empty input" 's/if files_seen == 0:/if False:/' 'no \.java files' build "$ROOT/empty"
   mx "M9 zero-declaration guard removed (exit 1 -> 0)" 's/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
 fi

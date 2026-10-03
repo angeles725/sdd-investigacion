@@ -33,19 +33,19 @@ the Niagara letter form (`rs`).
 The summary line (stdout with `--out`, stderr otherwise):
 
 ```
-types: N  properties: N  actions: N  topics: N  java-files: N  unknown-flag-tokens: N  duplicates: N  unreadable: N
+types: N  properties: N  actions: N  topics: N  java-files: N  unknown-flag-tokens: N  duplicates: N  unreadable: N  dropped-declarations: N  no-class-files: N
 ```
 
 `show` prints one type (`pkg.Class` or a bare `Class` suffix) from a catalog or by
 building a directory on the fly.
 
-## Exit codes and the three empty states
+## Exit codes and the empty states
 
 | Exit | Meaning |
 |---|---|
 | 0 | catalog built / type shown |
 | 1 | nothing catalogued: no `.java` files under the roots (empty-input), `.java` files but no slot declarations (no-match; the message carries the file count), or `show` of an unknown type |
-| 2 | usage error, a root that is not a directory (absent-input), an unreadable `--catalog`, or `python3` missing (typed `degraded` message on stderr, no catalog) |
+| 2 | usage error, a root that is not a directory (absent-input), an unreadable `--catalog` for `show`, an `--out` that cannot be written (temp file + rename, so no partial catalog is left), or `python3` missing (typed `degraded` message on stderr, no catalog) |
 
 A zero never reads as success: the summary always states how many `.java` files were
 read, so "0 types from 0 files" and "0 types from 4,000 files" are distinguishable.
@@ -61,7 +61,14 @@ read, so "0 types from 0 files" and "0 types from 4,000 files" are distinguishab
   `unknown-flag-tokens`. The decoded `flags` is then a lower bound for that slot. Known
   case: `Flags.A + Flags.B` (a `+` instead of `|`) is reported this way (1 slot in the
   N4 `docSource` corpus: `BRelation.inbound`).
-- Unreadable files are counted and warned, never skipped quietly.
+- Nothing is skipped quietly. Each of these is warned on stderr and counted in the summary:
+  unreadable files and directories, non-regular `*.java` entries (FIFO, device, dangling
+  symlink: skipped without being opened, so a FIFO cannot block the walk), declarations
+  whose call could not be parsed (`dropped-declarations`), and files that declare slots
+  but no class (`no-class-files`).
+- Planned follow-up (not done here, calibration change): decode `Flags.A + Flags.B` as an OR
+  of the two flags. Until then such a slot reports `flags` as a lower bound and is flagged
+  through `unknownFlags`.
 
 ## Measured on the N4 corpus (read-only, 2026-10-03)
 

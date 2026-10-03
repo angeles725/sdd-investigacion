@@ -17,7 +17,9 @@ Read-only, stdlib only. Usage:
     n4_type_catalog.py build <dir>... [--out catalog.json]
     n4_type_catalog.py show <catalog.json|dir> <ClassName|pkg.Class>
 Exit codes: 0 ok; 1 nothing catalogued (no .java files / no declarations) or type not found;
-2 usage error, absent root, or unreadable catalog.
+2 usage error, absent root, unreadable catalog, or --out that cannot be written.
+Nothing is skipped quietly: unreadable files/directories, non-regular files, declarations whose call could
+not be parsed, and files with declarations but no class are each warned on stderr and counted in the summary.
 Provenance rule: a catalog entry is `[CERT]`-grade only for the file/line it was parsed from; inherited slots
 are NOT merged (use `extends` to walk), and a type with no declarations is omitted.
 """
@@ -147,6 +149,51 @@ def _balanced_call(text, start):
     return text[start:]
 
 
+def _call_args(expr):
+    """Argument list of the first `newProperty(`/`newAction(`/`newTopic(` call in `expr`, or [] if not parseable.
+
+    Walks to the matching ')' while ignoring parens inside string/char literals.
+    """
+    call = re.search(r"new(Property|Action|Topic)\s*\(", expr)
+    if not call:
+        return []
+    start = call.end()
+    depth, in_str, j = 1, None, start
+    while j < len(expr):
+        c = expr[j]
+        if in_str:
+            if c == "\\":
+                j += 1
+            elif c == in_str:
+                in_str = None
+        elif c in "\"'":
+            in_str = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return _split_args(expr[start:j])
+        j += 1
+    return []
+
+
+def _default_and_facets(kind, args):
+    """(default, facets) strings for a slot call.
+
+    Property: newProperty(flags, default, facets).
+    Action/Topic: the 2-arg form (flags, facets) has no default/parameter; the longer forms take the
+    parameter/default as arg 2 and the facets as the LAST arg.
+    """
+    if kind == "Property":
+        return (_clean(args[1]) if len(args) > 1 else "",
+                _clean(args[2]) if len(args) > 2 else "null")
+    if len(args) == 2:
+        return "", _clean(args[1])
+    return (_clean(args[1]) if len(args) > 1 else "",
+            _clean(args[-1]) if len(args) > 2 else "null")
+
+
 def parse_source(text):
     pkg = re.search(r"^\s*package\s+([\w.]+)\s*;", text, re.M)
     cls = re.search(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+(\w+)(?:\s+extends\s+([\w.<>]+))?", text)
@@ -157,101 +204,79 @@ def parse_source(text):
         "properties": [],
         "actions": [],
         "topics": [],
+        "dropped": [],
     }
     for m in _DECL.finditer(text):
         kind, name = m.group(1), m.group(2)
-        expr = _balanced_call(text, m.end())
-        call = re.search(r"new(Property|Action|Topic)\s*\(", expr)
-        if not call:
-            continue
-        inner_start = call.end()
-        # inner = text up to the matching ')' of the call
-        depth, j, inner = 1, inner_start, None
-        in_str = None
-        while j < len(expr):
-            c = expr[j]
-            if in_str:
-                if c == "\\":
-                    j += 1
-                elif c == in_str:
-                    in_str = None
-            elif c in "\"'":
-                in_str = c
-            elif c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-                if depth == 0:
-                    inner = expr[inner_start:j]
-                    break
-            j += 1
-        if inner is None:
-            continue
-        args = _split_args(inner)
+        args = _call_args(_balanced_call(text, m.end()))
         if not args:
+            out["dropped"].append(name)   # a declaration we could not parse: counted by the caller, never silent
             continue
         flags, letters, unknown = decode_flags(_clean(args[0]))
         rec = {"name": name, "flags": flags, "flagLetters": "".join(letters), "args": [_clean(a) for a in args]}
         if unknown:
             # Surfaced, never dropped: the int/letters above are then a LOWER BOUND for this slot.
             rec["unknownFlags"] = unknown
-        if kind == "Property":
-            rec["default"] = _clean(args[1]) if len(args) > 1 else ""
-            rec["facets"] = _clean(args[2]) if len(args) > 2 else "null"
-            out["properties"].append(rec)
-        elif kind == "Action":
-            if len(args) == 2:     # newAction(flags, facets): no parameter
-                rec["default"] = ""
-                rec["facets"] = _clean(args[1])
-            else:
-                rec["default"] = _clean(args[1]) if len(args) > 1 else ""
-                rec["facets"] = _clean(args[-1]) if len(args) > 2 else "null"
-            out["actions"].append(rec)
-        else:
-            if len(args) == 2:
-                rec["default"] = ""
-                rec["facets"] = _clean(args[1])
-            else:
-                rec["default"] = _clean(args[1]) if len(args) > 1 else ""
-                rec["facets"] = _clean(args[-1]) if len(args) > 2 else "null"
-            out["topics"].append(rec)
+        rec["default"], rec["facets"] = _default_and_facets(kind, args)
+        out[{"Property": "properties", "Action": "actions", "Topic": "topics"}[kind]].append(rec)
     return out
+
+
+def _warn(msg):
+    print("n4-type-catalog: warning: " + msg, file=sys.stderr)
 
 
 def build_catalog(roots, stats=None):
     """Walk roots (sorted, so first-wins on a duplicate type is deterministic); return {type: record}.
 
-    `stats` (dict) receives java_files, unreadable, duplicates, unknown_flag_tokens so callers can prove
-    the instrument looked (anti-silent-zero).
+    `stats` (dict) receives java_files, unreadable, duplicates, unknown_flag_tokens, dropped_declarations and
+    no_class_files so callers can prove the instrument looked (anti-silent-zero).
     """
     st = stats if stats is not None else {}
-    for k in ("java_files", "unreadable", "duplicates", "unknown_flag_tokens"):
+    for k in ("java_files", "unreadable", "duplicates", "unknown_flag_tokens", "dropped_declarations",
+              "no_class_files"):
         st.setdefault(k, 0)
+
+    def walk_error(e):
+        st["unreadable"] += 1
+        _warn("cannot read directory %s: %s" % (e.filename, e))
+
     cat = {}
     for root in roots:
-        for dp, dn, files in os.walk(root):
+        for dp, dn, files in os.walk(root, onerror=walk_error):
             dn.sort()
             for fn in sorted(files):
                 if not fn.endswith(".java"):
                     continue
                 path = os.path.join(dp, fn)
                 st["java_files"] += 1
+                if not os.path.isfile(path):    # FIFO/device would block; dangling symlink cannot be read
+                    st["unreadable"] += 1
+                    _warn("not a regular file, skipped: %s" % path)
+                    continue
                 try:
                     with open(path, encoding="utf-8", errors="replace") as fh:
                         t = parse_source(fh.read())
                 except OSError as e:
                     st["unreadable"] += 1
-                    print("n4-type-catalog: warning: cannot read %s: %s" % (path, e), file=sys.stderr)
+                    _warn("cannot read %s: %s" % (path, e))
                     continue
-                if not (t["properties"] or t["actions"] or t["topics"]) or not t["class"]:
+                for name in t.pop("dropped"):
+                    st["dropped_declarations"] += 1
+                    _warn("unparseable slot declaration '%s' dropped in %s" % (name, path))
+                has_slots = bool(t["properties"] or t["actions"] or t["topics"])
+                if has_slots and not t["class"]:
+                    st["no_class_files"] += 1
+                    _warn("slot declarations but no class declaration, skipped: %s" % path)
+                    continue
+                if not has_slots:
                     continue
                 t["source"] = path
                 for label in ("properties", "actions", "topics"):
                     for it in t[label]:
                         for tok in it.get("unknownFlags", ()):
                             st["unknown_flag_tokens"] += 1
-                            print("n4-type-catalog: warning: unknown flag token '%s' in %s (slot %s)"
-                                  % (tok, path, it["name"]), file=sys.stderr)
+                            _warn("unknown flag token '%s' in %s (slot %s)" % (tok, path, it["name"]))
                 key = (t["package"] + "." if t["package"] else "") + t["class"]
                 if key in cat:
                     st["duplicates"] += 1
@@ -298,16 +323,28 @@ def _build(args):
               % (files_seen, " ".join(args.dirs)), file=sys.stderr)
         return 1
     summary = ("types: %d  properties: %d  actions: %d  topics: %d  java-files: %d  "
-               "unknown-flag-tokens: %d  duplicates: %d  unreadable: %d" % (
+               "unknown-flag-tokens: %d  duplicates: %d  unreadable: %d  dropped-declarations: %d  no-class-files: %d" % (
                    len(cat),
                    sum(len(t["properties"]) for t in cat.values()),
                    sum(len(t["actions"]) for t in cat.values()),
                    sum(len(t["topics"]) for t in cat.values()),
-                   files_seen, stats["unknown_flag_tokens"], stats["duplicates"], stats["unreadable"]))
+                   files_seen, stats["unknown_flag_tokens"], stats["duplicates"], stats["unreadable"],
+                   stats["dropped_declarations"], stats["no_class_files"]))
     data = json.dumps(cat, indent=1, sort_keys=True)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write(data)
+        # temp file + rename: a failed or interrupted write never leaves a truncated catalog at --out
+        tmp = "%s.tmp.%d" % (args.out, os.getpid())
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(data)
+            os.replace(tmp, args.out)
+        except OSError as e:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            print("n4-type-catalog: cannot write %s: %s" % (args.out, e), file=sys.stderr)
+            return 2
         print(summary)
     else:
         print(data)
