@@ -339,7 +339,8 @@ def rule_r3(doc):
             continue
         out.append((u.line, "R3", "[CERT-hw]/[CERT-live] evidence cites only an ephemeral path: "
                     + excerpt(evidence)))
-    # Slice 2 (kit #1365 item 3): inline evidence group OUTSIDE Self-verify sections.
+    # SENTINEL-R3-INLINE-BEGIN
+    # Inline evidence group OUTSIDE Self-verify sections (kit #1365 item 3).
     for u in doc.units:
         if u.kind not in ("row", "item", "para") or u.line in sv:
             continue
@@ -358,6 +359,7 @@ def rule_r3(doc):
             out.append((u.line, "R3", "inline [CERT-hw]/[CERT-live] evidence cites only an ephemeral path: "
                         + excerpt(evidence)))
             break  # one finding per unit, like the Self-verify pass
+    # SENTINEL-R3-INLINE-END
     return out
 
 

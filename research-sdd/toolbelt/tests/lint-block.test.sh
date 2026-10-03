@@ -259,6 +259,11 @@ run "$FX/r3-inline-fenced.md"
 run --audit "$FX/r3-inline.md"
 [ "$RC" -eq 0 ] && grep -qF 'R3=6' <<< "$OUT" && ok "17f --audit over inline findings stays report-only (exit 0, R3=6)" || no "17f inline audit (rc=$RC out=[$OUT])"
 
+run "$FX/r3-inline-sep.md"; want="$(lines_of SEP-BAD "$FX/r3-inline-sep.md")"; got="$(reported R3 "$OUT" "$FX/r3-inline-sep.md")"
+[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && grep -qE 'cert-inline-items=5( |$)' <<< "$OUT" && ok "17g optional separator between marker and group: colon, em dash, en dash, hyphen and backtick+colon flagged ($want); comma, semicolon and a double separator do not match (5 groups inspected)" || no "17g separators (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+run "$FX/r3-inline-cap.md"; want="$(lines_of CAP-BAD "$FX/r3-inline-cap.md")"; got="$(reported R3 "$OUT" "$FX/r3-inline-cap.md")"
+[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && grep -qE 'cert-inline-items=1( |$)' <<< "$OUT" && ok "17h group of exactly 400 characters is flagged ($want); a 401-character group is not matched and not counted" || no "17h cap (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -507,12 +512,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   done
   # ---- Slice 2 (kit #1365 item 3) teeth: inline [CERT-hw] (<ephemeral>) outside Self-verify ----
   tooth_set I1 lint_block.py 's#R3_INLINE_GROUP_RE.match(u.text, m.end())#R3_INLINE_GROUP_RE.search(u.text, m.end())#' "$FX/r3-inline.md" R3 INLINE-BAD
-  tooth_set I2 lint_block.py '/Slice 2/,$ s#if any(_is_durable_token(t) for t in R3_TOKEN_RE.findall(evidence)):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
-  tooth_set I3 lint_block.py '/Slice 2/,/return out/ s#if doc.waived("R3", u):#if False:#' "$FX/r3-inline-waived.md" R3 INLINE-BAD
-  tooth_set I4 lint_block.py '/Slice 2/,$ s#if not R3_EPHEMERAL_RE.search(evidence):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I2 lint_block.py '/SENTINEL-R3-INLINE-BEGIN/,/SENTINEL-R3-INLINE-END/ s#if any(_is_durable_token(t) for t in R3_TOKEN_RE.findall(evidence)):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
+  tooth_set I3 lint_block.py '/SENTINEL-R3-INLINE-BEGIN/,/SENTINEL-R3-INLINE-END/ s#if doc.waived("R3", u):#if False:#' "$FX/r3-inline-waived.md" R3 INLINE-BAD
+  tooth_set I4 lint_block.py '/SENTINEL-R3-INLINE-BEGIN/,/SENTINEL-R3-INLINE-END/ s#if not R3_EPHEMERAL_RE.search(evidence):#if False:#' "$FX/r3-inline.md" R3 INLINE-BAD
   tooth_set I5 lint_block.py 's#{0,400}#{0,5}#' "$FX/r3-inline.md" R3 INLINE-BAD
   tooth_set I6 lint_block.py 's#R3_INLINE_GROUP_RE = re.compile(r"`?\\s\*#R3_INLINE_GROUP_RE = re.compile(r"(?!)`?\\s*#' "$FX/r3-inline-single.md" R3 INLINE-BAD
-  if tooth_build I7 lint_block.py '/Slice 2/,$ s#or u.line in sv:#or False:#'; then
+  if tooth_build I7 lint_block.py '/SENTINEL-R3-INLINE-BEGIN/,/SENTINEL-R3-INLINE-END/ s#or u.line in sv:#or False:#'; then
     mrun "$FX/r3-inline-selfverify.md"
     want="$(lines_of ROW-BAD "$FX/r3-inline-selfverify.md") $(lines_of INLINE-BAD "$FX/r3-inline-selfverify.md")"; got="$(reported R3 "$MOUT" "$FX/r3-inline-selfverify.md")"
     [ "$got" != "$want" ] && ok "teeth I7: Self-verify exclusion dropped from the inline pass -> rows reported twice / prose swept in [$got] -> case 17d has teeth" || no "teeth I7: mutant still reports exactly [$want] — THEATER"
@@ -521,6 +526,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun "$FX/r3-inline-fenced.md"
     grep -qE 'cert-inline-items=1( |$)' <<< "$MOUT" && no "teeth I8: counter mutant still reports 1 — THEATER" || ok "teeth I8: inline counter neutered -> summary no longer proves groups were inspected -> case 17e has teeth"
   fi
+  tooth_set S1 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]?##' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set S2 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]#[:–-]#' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set S3 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]#[—–-]#' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set S4 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]#[:—–]#' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set S5 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]#[:—–,;-]#' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set S6 lint_block.py '/^R3_INLINE_GROUP_RE/ s#\[:—–-\]?#[:—–-]*#' "$FX/r3-inline-sep.md" R3 SEP-BAD
+  tooth_set C1 lint_block.py '/^R3_INLINE_GROUP_RE/ s#{0,400}#{0,399}#' "$FX/r3-inline-cap.md" R3 CAP-BAD
+  tooth_set C2 lint_block.py '/^R3_INLINE_GROUP_RE/ s#{0,400}#{0,4000}#' "$FX/r3-inline-cap.md" R3 CAP-BAD
+  tooth_set C3 lint_block.py '/^R3_INLINE_GROUP_RE/ s#{0,400}#*#' "$FX/r3-inline-cap.md" R3 CAP-BAD
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
     mrun --audit "$FX/corpus-empty"
