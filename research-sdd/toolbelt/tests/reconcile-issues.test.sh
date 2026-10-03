@@ -1976,5 +1976,105 @@ else
   no "42b unclosed fence" "exit=$RC out=[$OUT]"
 fi
 
+# ---------------------------------------------------------------------------
+# 43 — SHIPPED-OPEN (kit issue #1492 / #1260): reconcile-issues.sh is report-only (propose-never-apply),
+# so "close an open issue whose delta shipped" is a PROPOSAL: the orphaned line says WHY the row is no
+# longer open (the marker lists it shipped / the retro is applied or dismissed) and names the action.
+# 43a — PARTIAL retro: row 1 shipped (open issue -> proposal to close), row 2 deferred (tracked).
+box43a="$(mkbox case-shipped-open-partial)"; mk_gh_stub "$box43a" nomatch
+retro43a="$(mk_retro "$box43a" target-foo r43a.md \
+  "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
+  "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | LOW |')")"
+printf 'Source retro: target-foo/retros/r43a.md · 1\n\x1e\nSource retro: target-foo/retros/r43a.md · 2\n' > "$ROOT/cache43a.txt"
+run "$box43a" --issues-cache "$ROOT/cache43a.txt" "$retro43a"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 is no longer open in r43a.md .*shipped.*close' <<<"$OUT" \
+   && grep -q '^tracked: row 2 ' <<<"$OUT" && ! grep -q '^orphaned: issue for row 2' <<<"$OUT"; then
+  ok "43a PARTIAL: open issue for a shipped row → orphaned + shipped-close proposal; deferred row tracked" "(exit $RC)"
+else
+  no "43a shipped-open (PARTIAL)" "exit=$RC out=[$OUT]"
+fi
+# 43b — fully applied retro: every issue still open is a close proposal (reason names the status).
+box43b="$(mkbox case-shipped-open-applied)"; mk_gh_stub "$box43b" nomatch
+retro43b="$(mk_retro "$box43b" target-foo r43b.md \
+  "<!-- review-status: applied 2026-06-01 · kit deadbeef -->" \
+  "| 1 | old shipped delta | METHODOLOGY.md | B1 | new | HIGH |")"
+printf 'Source retro: target-foo/retros/r43b.md · 1\n' > "$ROOT/cache43b.txt"
+run "$box43b" --issues-cache "$ROOT/cache43b.txt" "$retro43b"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 is no longer open in r43b.md .*applied.*close' <<<"$OUT"; then
+  ok "43b applied retro: open issue → orphaned + close proposal naming the applied status" "(exit $RC)"
+else
+  no "43b shipped-open (applied)" "exit=$RC out=[$OUT]"
+fi
+# 43c — a row that simply is not in the retro stays a plain orphan (no shipped claim: absent != shipped).
+box43c="$(mkbox case-orphan-not-shipped)"; mk_gh_stub "$box43c" nomatch
+retro43c="$(mk_open_retro "$box43c/rh/target-foo/retros/r43c.md")"
+printf 'Source retro: target-foo/retros/r43c.md · 9\n' > "$ROOT/cache43c.txt"
+run "$box43c" --issues-cache "$ROOT/cache43c.txt" "$retro43c"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 9 is no longer open in r43c.md$' <<<"$OUT"; then
+  ok "43c pending retro, issue for an absent row → plain orphaned, no shipped/close claim" "(exit $RC)"
+else
+  no "43c plain orphan" "exit=$RC out=[$OUT]"
+fi
+# 43d — never mutates: the gh stub log carries no close/edit call (report-only contract).
+run "$box43a" "$retro43a"
+if grep -q 'gh issue list' "$box43a/bin/gh.log" 2>/dev/null && ! grep -qE 'issue (close|edit)' "$box43a/bin/gh.log"; then
+  ok "43d report-only: the gh path listed issues and made no close/edit call" "()"
+else
+  no "43d report-only" "gh.log=[$(cat "$box43a/bin/gh.log" 2>&1)]"
+fi
+
+# 43e — PRECEDENCE: a dismissed+PARTIAL marker (dismissed wins for open rows; PARTIAL still carries the shipped
+# list). Row 1 is listed shipped -> the SHIPPED reason; row 2 is not listed -> the DISMISSED reason. The
+# shipped branch must win for row 1 although its row also satisfies the status branch.
+box43e="$(mkbox case-shipped-open-precedence)"; mk_gh_stub "$box43e" nomatch
+retro43e="$(mk_retro "$box43e" target-foo r43e.md \
+  "<!-- review-status: dismissed 2026-06-01 · PARTIAL — shipped: 1 -->" \
+  "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | dropped delta | CLAUDE.md | B2 | new | LOW |')")"
+printf 'Source retro: target-foo/retros/r43e.md · 1\n\x1e\nSource retro: target-foo/retros/r43e.md · 2\n' > "$ROOT/cache43e.txt"
+run "$box43e" --issues-cache "$ROOT/cache43e.txt" "$retro43e"
+if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 .*lists it shipped' <<<"$OUT" \
+   && ! grep -q '^orphaned: issue for row 1 .*review-status' <<<"$OUT" \
+   && grep -q '^orphaned: issue for row 2 .*review-status is dismissed' <<<"$OUT"; then
+  ok "43e dismissed+PARTIAL: shipped row -> shipped reason (precedence), unlisted row -> dismissed reason" "(exit $RC)"
+else
+  no "43e precedence" "exit=$RC out=[$OUT]"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth T1492: shipped-open reason --"
+  # (c) shipped branch demoted below the status branch -> 43e row 1 reads the status reason instead.
+  mk43="$(mkbox teeth-1492-c)"; mk_gh_stub "$mk43" nomatch
+  if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e 's/if \[ "\$is_partial" -eq 1 \] && grep -qxF "\$_irid" <<<"\$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN$/if false; then  # RECONCILE-SHIPPED-OPEN/'; then
+    r43="$(mk_retro "$mk43" target-foo r43e.md \
+      "<!-- review-status: dismissed 2026-06-01 · PARTIAL — shipped: 1 -->" \
+      "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | dropped delta | CLAUDE.md | B2 | new | LOW |')")"
+    run "$mk43" --issues-cache "$ROOT/cache43e.txt" "$r43"
+    if grep -q '^orphaned: issue for row 1 .*review-status' <<<"$OUT" && ! grep -q 'lists it shipped' <<<"$OUT"; then
+      ok "T1492-c teeth: shipped branch removed -> row 1 falls to the status reason (43e has teeth)" "()"
+    else no "T1492-c teeth: removing the shipped branch must flip 43e" "43e is THEATER: out=[$OUT]"; fi
+  else no "T1492-c: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (a) shipped-ids lookup neutered -> 43a loses its shipped proposal; (b) applied-status reason neutered -> 43b flips.
+  mk43="$(mkbox teeth-1492-a)"; mk_gh_stub "$mk43" nomatch
+  if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e 's/&& grep -qxF "\$_irid" <<<"\$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN$/\&\& false; then/'; then
+    r43="$(mk_retro "$mk43" target-foo r43a.md \
+      "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
+      "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | LOW |')")"
+    run "$mk43" --issues-cache "$ROOT/cache43a.txt" "$r43"
+    if ! grep -q '^orphaned: issue for row 1 .*shipped' <<<"$OUT"; then
+      ok "T1492-a teeth: shipped lookup neutered -> no shipped proposal (43a has teeth)" "()"
+    else no "T1492-a teeth: neutering must flip 43a" "43a is THEATER: out=[$OUT]"; fi
+  else no "T1492-a: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  mk43="$(mkbox teeth-1492-b)"; mk_gh_stub "$mk43" nomatch
+  if mutant_sed "$SUT" "$mk43/research-sdd/toolbelt/reconcile-issues.sh" -e 's/^\( *applied|dismissed) \)_orphan_why=.*# RECONCILE-STATUS-REASON$/\1: ;;/'; then
+    r43="$(mk_retro "$mk43" target-foo r43b.md \
+      "<!-- review-status: applied 2026-06-01 · kit deadbeef -->" \
+      "| 1 | old shipped delta | METHODOLOGY.md | B1 | new | HIGH |")"
+    run "$mk43" --issues-cache "$ROOT/cache43b.txt" "$r43"
+    if ! grep -q '^orphaned: issue for row 1 .*applied' <<<"$OUT"; then
+      ok "T1492-b teeth: status reason neutered -> no applied/close proposal (43b has teeth)" "()"
+    else no "T1492-b teeth: neutering must flip 43b" "43b is THEATER: out=[$OUT]"; fi
+  else no "T1492-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

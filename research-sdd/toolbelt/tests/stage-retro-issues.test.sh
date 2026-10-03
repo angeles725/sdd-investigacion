@@ -656,7 +656,7 @@ dedup_case "9e-9 exact hit, OPEN (regression pin for the exact path) → skipped
 box="$(mkbox case-degraded)"
 mk_hermetic_bin "$box"   # essentials only, NO gh
 _deg_retro="$(mk_retro "$box" target-foo r-deg.md "<!-- review-status: pending -->" \
-  "| 1 | d | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | d fixture row | CLAUDE.md | B1 | new | HIGH |")"
 # Run with a FULLY hermetic PATH so no system gh can be found
 OUT10="$(PATH="$box/bin" \
   "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" \
@@ -673,7 +673,7 @@ fi
 box="$(mkbox case-srcline)"
 retro="$(mk_retro "$box" target-foo r-src.md \
   "<!-- review-status: pending -->" \
-  "| 1 | delta text | CLAUDE.md §7 | B1 | new | MEDIUM |")"
+  "| 1 | delta text fixture row | CLAUDE.md §7 | B1 | new | MEDIUM |")"
 run "$box" "$retro"
 has_src=0; has_rollout=0
 grep -q 'Source retro:.*r-src\.md.*·.*1' <<<"$OUT" && has_src=1
@@ -690,7 +690,7 @@ fi
 box="$(mkbox case-types)"
 retro="$(mk_retro "$box" target-foo r-types.md \
   "<!-- review-status: pending -->" \
-  "$(printf '| 1 | feature delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | bug delta | CLAUDE.md | B2 | fix | HIGH |\n| 3 | doc delta | CLAUDE.md | B3 | docs | HIGH |')")"
+  "$(printf '| 1 | feature delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | bug delta fixture row | CLAUDE.md | B2 | fix | HIGH |\n| 3 | doc delta fixture row | CLAUDE.md | B3 | docs | HIGH |')")"
 run "$box" "$retro"
 feat_found=0; bug_found=0; docs_found=0
 grep -q 'type:feature' <<<"$OUT" && feat_found=1
@@ -771,7 +771,7 @@ fi
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 # Two open rows (kit issue #1332): used by the label-probe cases (76*) and their teeth.
-TWO_ROWS='| 1 | first delta | CLAUDE.md | B1 | fix | HIGH |
+TWO_ROWS='| 1 | first delta fixture row | CLAUDE.md | B1 | fix | HIGH |
 | 2 | second delta | CLAUDE.md | B2 | fix | HIGH |'
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
@@ -896,7 +896,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t5" createfail
     retro_t5="$(mk_retro "$box_t5" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | fail delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | fail delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t5="$box_t5/research-sdd/toolbelt/stage-retro-issues.sh"
     # Remove the increment, keeping only 'continue'; sed replaces the whole token-containing line.
     sed 's/failed=\$((failed+1)); continue/continue  # T5-teeth-no-increment/' \
@@ -953,7 +953,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   box_tsym="$(mkbox teeth-symlink-toolbelt)"
-  retro_tsym="$(mk_retro "$box_tsym" target-foo r-tsym.md - "| 1 | do a thing | some/file | cite | fix | P2 |")"
+  retro_tsym="$(mk_retro "$box_tsym" target-foo r-tsym.md - "| 1 | do a thing fixture row | some/file | cite | fix | P2 |")"
   mutant_tsym="$box_tsym/research-sdd/toolbelt/stage-retro-issues.sh"
   sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
       -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
@@ -986,7 +986,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t7" nomatch
     retro_t7="$(mk_retro "$box_t7" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t7 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t7 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t7="$box_t7/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t7"/gh issue create \\}" > "$mutant_t7"
     bash -n "$mutant_t7" 2>/dev/null || { no "T7 teeth: mutant_t7 failed bash -n syntax check" ""; }
@@ -1012,7 +1012,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t8" nomatch
     retro_t8="$(mk_retro "$box_t8" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t8 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t8 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t8="$box_t8/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t8"/gh issue list --state all \\}" > "$mutant_t8"
     bash -n "$mutant_t8" 2>/dev/null || { no "T8 teeth: mutant_t8 failed bash -n syntax check" ""; }
@@ -1038,7 +1038,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t9" nomatch
     retro_t9="$(mk_retro "$box_t9" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t9 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t9 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t9="$box_t9/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t9"/if false; then}" > "$mutant_t9"
     bash -n "$mutant_t9" 2>/dev/null || { no "T9 teeth: mutant_t9 failed bash -n syntax check" ""; }
@@ -1069,7 +1069,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t10="$(mkbox_at "$parent_t10" nested-kit)"
     retro_t10="$(mk_retro "$box_t10" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t10 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t10 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t10="$box_t10/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t10"/  if false; then  # teeth-t10-f1-check-removed}" > "$mutant_t10"
     bash -n "$mutant_t10" 2>/dev/null || { no "T10 teeth: mutant_t10 failed bash -n syntax check" ""; }
@@ -1093,7 +1093,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t11="$(mkbox teeth-t11-shape)"
     retro_t11="$(mk_retro "$box_t11" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t11 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t11 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t11="$box_t11/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t11"/  return 0  # teeth-t11-shape-check-removed}" > "$mutant_t11"
     bash -n "$mutant_t11" 2>/dev/null || { no "T11 teeth: mutant_t11 failed bash -n syntax check" ""; }
@@ -1118,7 +1118,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t12" "https://github.com/o/n.git/"
     retro_t12="$(mk_retro "$box_t12" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t12 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t12 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t12="$box_t12/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t12="$(printf '  rest="${rest%%.git}"\n  rest="${rest%%/}"')"
     printf '%s\n' "${sut_content/"$anchor_t12"/"$reverted_t12"}" > "$mutant_t12"
@@ -1145,7 +1145,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t13" "https://ghe.corp.example.com/ghe-owner/ghe-kit.git"
     retro_t13="$(mk_retro "$box_t13" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t13 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t13 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t13="$box_t13/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t13"/      printf '%s' \"\$rest\"  # teeth-t13-host-drop}" > "$mutant_t13"
     bash -n "$mutant_t13" 2>/dev/null || { no "T13 teeth: mutant_t13 failed bash -n syntax check" ""; }
@@ -1171,7 +1171,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t14" "https://github.com-alias/o/n.git"
     retro_t14="$(mk_retro "$box_t14" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t14 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t14 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t14="$box_t14/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t14"/    if false; then  # teeth-t14-alias-check-removed}" > "$mutant_t14"
     bash -n "$mutant_t14" 2>/dev/null || { no "T14 teeth: mutant_t14 failed bash -n syntax check" ""; }
@@ -1196,7 +1196,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t15" "https://github.com:443/o/n.git"
     retro_t15="$(mk_retro "$box_t15" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t15 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t15 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t15="$box_t15/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t15"/  : # teeth-t15-port-strip-removed}" > "$mutant_t15"
     bash -n "$mutant_t15" 2>/dev/null || { no "T15 teeth: mutant_t15 failed bash -n syntax check" ""; }
@@ -1227,7 +1227,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t16" "git@ghe.corp.com:o/n.git"
     retro_t16="$(mk_retro "$box_t16" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t16 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t16 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t16="$box_t16/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t16='    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (RDD follow-up item a): scp form drops its host ONLY
     # when it matches the github.com alias pattern — see the docstring above for why any OTHER
@@ -1257,7 +1257,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_git_remote "$box_t20" "https://user@github.com-evil.attacker.com/o/n"
     retro_t20="$(mk_retro "$box_t20" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t20 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t20 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t20="$box_t20/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t20="_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\\.|www\\.)?github\\.com(-[^/]*)?\$'"
     printf '%s\n' "${sut_content/"$anchor_t20"/"$reverted_t20"}" > "$mutant_t20"
@@ -1282,7 +1282,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t21="$(mkbox teeth-t21-host-dot)"
     retro_t21="$(mk_retro "$box_t21" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t21 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t21 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t21="$box_t21/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t21="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
     printf '%s\n' "${sut_content/"$anchor_t21"/"$reverted_t21"}" > "$mutant_t21"
@@ -1308,7 +1308,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t22" matchclosed
     retro_t22="$(mk_retro "$box_t22" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t22 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t22 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t22="$box_t22/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t22='    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open \'
     printf '%s\n' "${sut_content/"$anchor_t22"/"$reverted_t22"}" > "$mutant_t22"
@@ -1342,7 +1342,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t23" listfail
     retro_t23="$(mk_retro "$box_t23" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t23 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t23 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t23="$box_t23/research-sdd/toolbelt/stage-retro-issues.sh"
     mutant_content_t23="${sut_content/"$anchor_t23"/    if false; then  # teeth-t23-listfail-guard-removed}"
     mutant_content_t23="${mutant_content_t23/"$anchor_t23b"/    if false; then  # teeth-t23-emptyreply-guard-removed}"
@@ -1373,7 +1373,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_gh_stub "$box_t23b" listempty
     retro_t23b="$(mk_retro "$box_t23b" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t23b delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t23b delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t23b="$box_t23b/research-sdd/toolbelt/stage-retro-issues.sh"
     printf '%s\n' "${sut_content/"$anchor_t23b"/    if false; then  # teeth-t23b-emptyreply-guard-removed}" > "$mutant_t23b"
     bash -n "$mutant_t23b" 2>/dev/null || { no "T23b teeth: mutant_t23b failed bash -n syntax check" ""; }
@@ -1400,7 +1400,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t17="$(mkbox teeth-t17-shape-tighten)"
     retro_t17="$(mk_retro "$box_t17" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t17 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t17 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t17="$box_t17/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\$'"
     printf '%s\n' "${sut_content/"$anchor_t17"/"$reverted_t17"}" > "$mutant_t17"
@@ -1426,7 +1426,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t18="$(mkbox teeth-t18-subshell-bug)"
     retro_t18="$(mk_retro "$box_t18" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t18 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t18 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t18="$box_t18/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t18="$(printf '( resolve_kit_issue_repo )\n_kit_issue_repo_rc=$?')"
     printf '%s\n' "${sut_content/"$anchor_t18"/"$reverted_t18"}" > "$mutant_t18"
@@ -1456,7 +1456,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box_t19="$(mkbox_at "$enclosing_parent_t19" nested-kit)"
     retro_t19="$(mk_retro "$box_t19" target-foo r.md \
       "<!-- review-status: pending -->" \
-      "| 1 | t19 delta | CLAUDE.md | B1 | new | HIGH |")"
+      "| 1 | t19 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t19="$box_t19/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t19='    3) _kit_issue_repo_reason="kit root is not its own git checkout — found an enclosing repo instead at $KIT_ROOT" ;;'
     printf '%s\n' "${sut_content/"$anchor_t19"/"$reverted_t19"}" > "$mutant_t19"
@@ -1573,7 +1573,7 @@ RETROEOF
     retro_gr1="$box_gr1/rh/target-foo/retros/r-gr1.md"
     { printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
       printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
-      printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
+      printf '| 1 | delta uno fixture row | CLAUDE.md | B1 | new | HIGH |\n'
     } > "$retro_gr1"
     printf '%s\n' "${rg_lib_content/"$anchor_gr1"/}" > "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh"
     "$BASH_BIN" -n "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
@@ -1723,7 +1723,7 @@ RETROEOF
   box_a="$(mkbox teeth-nearest)"
   mkdir -p "$box_a/rh/target-foo/inner-t/retros"
   retro_a="$(mk_retro "$box_a" target-foo r-a.md "<!-- review-status: pending -->" \
-    "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+    "| 1 | outer delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
   cp "$retro_a" "$box_a/rh/target-foo/inner-t/retros/r-a.md"
   printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box_a" "$box_a" \
     > "$box_a/research-sdd/TARGETS.md"
@@ -1741,7 +1741,7 @@ RETROEOF
   echo "-- teeth T1287b: neuter the TARGETS.md operational-failure exit --"
   box_b="$(mkbox teeth-opfail)"
   retro_b="$(mk_retro "$box_b" target-foo r-b.md "<!-- review-status: pending -->" \
-    "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+    "| 1 | flat delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
   rm -f "$box_b/research-sdd/TARGETS.md"
   if tooth_swap "$box_b" stage-retro-issues.sh 'if [ "$_tnr_rc" -eq 1 ]; then' 'if false; then'; then
     run_box "$box_b" "$retro_b"
@@ -1888,7 +1888,7 @@ RETROEOF
   box_f2="$(mkbox teeth-failed-plus2)"
   mk_gh_stub "$box_f2" createfail
   retro_f2="$(mk_retro "$box_f2" target-foo r.md "<!-- review-status: pending -->" \
-    "| 1 | fail delta | CLAUDE.md | B1 | new | HIGH |")"
+    "| 1 | fail delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
   sed 's/failed=\$((failed+1)); continue/failed=$((failed+2)); continue/' "$SUT" > "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh"
   if cmp -s "$SUT" "$box_f2/research-sdd/toolbelt/stage-retro-issues.sh"; then
     no "T949-4a teeth: build +2 mutant" "mutant identical — sed substitution failed"
@@ -1907,7 +1907,7 @@ RETROEOF
   box_g1="$(mkbox teeth-failed-gt1)"
   mk_gh_stub "$box_g1" createfail
   retro_g1="$(mk_retro "$box_g1" target-foo r.md "<!-- review-status: pending -->" \
-    "| 1 | fail delta | CLAUDE.md | B1 | new | HIGH |")"
+    "| 1 | fail delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
   sed 's/\[ "\$failed" -gt 0 \] && exit 2/[ "$failed" -gt 1 ] \&\& exit 2/' "$SUT" > "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh"
   if cmp -s "$SUT" "$box_g1/research-sdd/toolbelt/stage-retro-issues.sh"; then
     no "T949-4b teeth: build -gt 1 mutant" "mutant identical — sed substitution failed"
@@ -1989,7 +1989,7 @@ RETROEOF
     if ! mutant_sed "$SUT" "$mfile" -e "$expr"; then no "T1332-$tag: build mutant" "mutant_sed refused"; return 1; fi
     r="$mbox/rh/target-foo/retros/r.md"
     if [ "$kind" = gap ]; then
-      printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$r"
+      printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id entry fixture\n\n### D2 — plain id entry fixture\n' > "$r"
     else
       sed 's/^<!-- review-status: applied.*-->$/<!-- review-status: pending -->/' "$HERE/fixtures/retro-entry-form-applied-3.md" > "$r"
     fi
@@ -2009,7 +2009,7 @@ RETROEOF
   mbox79="$(mkbox teeth-unregistered)"; mk_gh_stub "$mbox79" nomatch "" missing
   mkdir -p "$mbox79/rh/other-kit/retros"
   if mutant_sed "$SUT" "$mbox79/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  if \[ "\$_target_registered" -ne 1 \]; then$/  if false; then/'; then
-    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a | CLAUDE.md | B1 | fix | HIGH |\n' > "$mbox79/rh/other-kit/retros/r.md"
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |\n' > "$mbox79/rh/other-kit/retros/r.md"
     run "$mbox79" "$mbox79/rh/other-kit/retros/r.md" --apply
     if grep -q 'gh label create' "$mbox79/bin/gh.log" && grep -q 'gh issue create' "$mbox79/bin/gh.log"; then
       ok "T1332-l teeth: guard disabled → unregistered target gets a label and issues (79a has teeth)" "()"
@@ -2024,19 +2024,19 @@ RETROEOF
       || { no "T1369-$tag: build mutant" "mutant_sed refused"; return 1; }
   }
   if stg_mutant fence nomatch -e 's/^_rows="\$(_RG_QUIET_FENCE=1 retro_grammar_defenced "\$retro_file" | awk/_rows="$(cat "$retro_file" | awk/'; then
-    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$MBOX/rh/target-foo/retros/r.md"
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row fixture row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$MBOX/rh/target-foo/retros/r.md"
     run "$MBOX" "$MBOX/rh/target-foo/retros/r.md"
     if [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ]; then ok "T1369-fence teeth: table awk bypasses defenced → fenced row seeded (80a has teeth)" "()"
     else no "T1369-fence teeth: bypassing fence tracking must flip 80a" "80a is THEATER: out=[$OUT]"; fi
   fi
   if stg_mutant nolimit nomatch -e 's/^      --limit "\$_LIST_LIMIT" --search "\\"\$_search_sig\\"" /      --search "\\"$_search_sig\\"" /'; then
-    run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+    run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')" --apply
     if ! grep -qE 'gh issue list .*--limit [0-9]+' "$MBOX/bin/gh.log"; then ok "T1369-limit teeth: --limit dropped → no explicit limit on the dedup call (81a has teeth)" "()"
     else no "T1369-limit teeth: dropping --limit must flip 81a" "81a is THEATER"; fi
   fi
   full_mutant() {   # full_mutant <tag> <sed-expr>: page2 stub, limit 2 → 81b must stop failing
     if stg_mutant "$1" page2 -e "$2"; then
-      STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+      STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$MBOX" "$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')" --apply
       if grep -q 'gh issue create' "$MBOX/bin/gh.log"; then ok "T1369-$1 teeth: mutant creates despite a full page (81b has teeth)" "()"
       else no "T1369-$1 teeth: mutant must flip 81b" "81b is THEATER: out=[$OUT]"; fi
     fi
@@ -2052,14 +2052,14 @@ RETROEOF
 
   # #1403 fix-first mutants: unreadable retro, single unclosed-fence WARN (cases 82a, 82b)
   if [ "$(id -u)" != 0 ] && stg_mutant unreadable nomatch -e 's/^if \[ ! -r "\$retro" \]; then$/if false; then/'; then
-    _mr="$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+    _mr="$(mk_retro "$MBOX" target-foo r.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')"
     chmod 000 "$_mr"; run "$MBOX" "$_mr"; chmod 600 "$_mr"
     if ! grep -q '^degraded: retro not readable' <<<"$OUT"; then ok "T1403-unreadable teeth: stage check removed → no typed degraded (82a has teeth)" "()"
     else no "T1403-unreadable teeth: removing the check must flip 82a" "82a is THEATER: out=[$OUT]"; fi
   fi
   warn_once() {   # warn_once <tag>: MBOX holds a mutant; 82b's retro must now produce != 1 WARN lines
     local r="$MBOX/rh/target-foo/retros/r.md" n
-    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one\n\n```\n### D2 — two\n' > "$r"
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one entry fixture\n\n```\n### D2 — two entry fixture\n' > "$r"
     run "$MBOX" "$r"; n="$(grep -c '^WARN: unclosed code fence' <<<"$OUT")"
     if [ "$n" != 1 ]; then ok "T1403-$1 teeth: WARN count is $n, not 1 (82b has teeth)" "()"
     else no "T1403-$1 teeth: mutant must flip 82b" "82b is THEATER: out=[$OUT]"; fi
@@ -2078,7 +2078,7 @@ box="$(mkbox case-createfail)"
 mk_gh_stub "$box" createfail
 retro="$(mk_retro "$box" target-foo r-createfail.md \
   "<!-- review-status: pending -->" \
-  "$(printf '| 1 | first delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
+  "$(printf '| 1 | first delta fixture row | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
 run "$box" "$retro" --apply
 summary_line16="$(grep '^summary:' <<<"$OUT")"
 has_failed_field=0; failed_count_nonzero=0; rc_nonzero=0
@@ -2098,7 +2098,7 @@ fi
 box="$(mkbox case-createfail-single)"
 mk_gh_stub "$box" createfail
 retro="$(mk_retro "$box" target-foo r-createfail1.md "<!-- review-status: pending -->" \
-  "| 1 | only delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | only delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 run "$box" "$retro" --apply
 summary_line16b="$(grep '^summary:' <<<"$OUT")"
 if [ "$RC" = 2 ] && grep -qF 'created=0 ' <<<"$summary_line16b" && grep -qE 'failed=1$' <<<"$summary_line16b"; then
@@ -2112,7 +2112,7 @@ fi
 box="$(mkbox case-createfail-mixed)"
 mk_gh_stub "$box" createfailsecond
 retro="$(mk_retro "$box" target-foo r-createfail-mixed.md "<!-- review-status: pending -->" \
-  "$(printf '| 1 | first delta | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
+  "$(printf '| 1 | first delta fixture row | CLAUDE.md | B1 | new | HIGH |\n| 2 | second delta | CLAUDE.md | B2 | fix | LOW |')")"
 run "$box" "$retro" --apply
 summary_line16c="$(grep '^summary:' <<<"$OUT")"
 if [ "$RC" = 2 ] && grep -qF 'created=1 ' <<<"$summary_line16c" && grep -qE 'failed=1$' <<<"$summary_line16c" \
@@ -2332,7 +2332,7 @@ fi
 # silently falls back to basename and WARNs "target directory ... not found" — reproduced against
 # the pre-fix SUT with this exact fixture.
 box_sym="$(mkbox symlink-toolbelt)"
-retro_sym="$(mk_retro "$box_sym" target-foo r-sym.md - "| 1 | do a thing | some/file | cite | fix | P2 |")"
+retro_sym="$(mk_retro "$box_sym" target-foo r-sym.md - "| 1 | do a thing fixture row | some/file | cite | fix | P2 |")"
 mkdir -p "$box_sym/research-sdd/profile/general"
 ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/toolbelt"
 OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
@@ -2475,7 +2475,7 @@ git -C "$enclosing_parent_24" remote add origin \
 box24="$(mkbox_at "$enclosing_parent_24" nested-kit)"
 retro24="$(mk_retro "$box24" target-foo r-f1.md \
   "<!-- review-status: pending -->" \
-  "| 1 | f1 delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | f1 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 OUT24="$(PATH="$box24/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box24/research-sdd/toolbelt/stage-retro-issues.sh" "$retro24" 2>&1)"; RC24=$?
 # The reason text is allowed to explain that an enclosing repo was found; what
@@ -2519,7 +2519,7 @@ box26="$(mkbox case-f2-shape-override)"
 mk_gh_stub "$box26" nomatch
 retro26="$(mk_retro "$box26" target-foo r-f2.md \
   "<!-- review-status: pending -->" \
-  "| 1 | f2 delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | f2 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 f2_bad_values=(
   "foo"
   "a b/c"
@@ -2674,7 +2674,7 @@ derive_dry() {
   local retro
   retro="$(mk_retro "$box" "$tgt" r.md \
     "<!-- review-status: pending -->" \
-    "| 1 | delta | CLAUDE.md | B1 | new | HIGH |")"
+    "| 1 | delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
   OUT="$(PATH="$box/bin:$PATH" "$BASH_BIN" \
     "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC=$?
 }
@@ -2782,7 +2782,7 @@ box_shape="$(mkbox case-item4-shape)"
 mk_gh_stub "$box_shape" nomatch
 retro_shape="$(mk_retro "$box_shape" target-foo r-shape.md \
   "<!-- review-status: pending -->" \
-  "| 1 | shape delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | shape delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 shape_bad_values=(
   "../o/n"
   "-o/n"
@@ -2826,7 +2826,7 @@ fi
 box45="$(mkbox case-item3-bad-value-survives)"
 retro45="$(mk_retro "$box45" target-foo r-item3.md \
   "<!-- review-status: pending -->" \
-  "| 1 | item3 delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | item3 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 OUT45="$(PATH="$box45/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
   "$BASH_BIN" "$box45/research-sdd/toolbelt/stage-retro-issues.sh" "$retro45" 2>&1)"; RC45=$?
 if [ "$RC45" = 0 ] && grep -q "^kit-issue-repo: unresolved (invalid repo shape 'foo' — expected \[HOST/\]OWNER/REPO)$" <<<"$OUT45"; then
@@ -2847,7 +2847,7 @@ git -C "$enclosing_parent_46" remote add origin \
 box46="$(mkbox_at "$enclosing_parent_46" nested-kit)"
 retro46="$(mk_retro "$box46" target-foo r-item5.md \
   "<!-- review-status: pending -->" \
-  "| 1 | item5 delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | item5 delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 OUT46="$(PATH="$box46/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box46/research-sdd/toolbelt/stage-retro-issues.sh" "$retro46" 2>&1)"; RC46=$?
 if [ "$RC46" = 0 ] && grep -qi 'toplevel' <<<"$OUT46" \
@@ -2867,7 +2867,7 @@ fi
 box47="$(mkbox case-hash-shipped)"
 retro47="$(mk_retro "$box47" target-foo r-hash-shipped.md \
   "<!-- review-status: applied 2026-09-05 · kit e0b701a · PARTIAL — shipped: #1 (§11 consumer-absence), #2 (§5 slot-vs-derived) -->" \
-  "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| 3 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
+  "$(printf '| 1 | delta one fixture row | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two fixture row | METHODOLOGY.md | B2 | new | HIGH |\n| 3 | delta three fixture row | METHODOLOGY.md | B3 | new | HIGH |')")"
 run "$box47" "$retro47"
 row3_47=0; row1_47=0; row2_47=0
 grep -q '· 3' <<<"$OUT" && row3_47=1
@@ -2885,7 +2885,7 @@ fi
 box48="$(mkbox case-annotation-shipped)"
 retro48="$(mk_retro "$box48" target-foo r-annotation-shipped.md \
   "<!-- review-status: applied 2026-09-05 · kit e0b701a · PARTIAL — shipped: Δ1 (#549), D1 (§20) -->" \
-  "$(printf '| Δ1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| D1 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| D2 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
+  "$(printf '| Δ1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| D1 | delta two fixture row | METHODOLOGY.md | B2 | new | HIGH |\n| D2 | delta three fixture row | METHODOLOGY.md | B3 | new | HIGH |')")"
 run "$box48" "$retro48"
 d2_48=0; delta1_48=0; d1_48=0
 grep -q '· D2' <<<"$OUT" && d2_48=1
@@ -2925,7 +2925,7 @@ fi
 box50="$(mkbox case-1090-repro)"
 retro50="$(mk_retro "$box50" target-foo r-1090-repro.md \
   "<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->" \
-  "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |')")"
+  "$(printf '| 1 | delta one fixture row | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two fixture row | METHODOLOGY.md | B2 | new | HIGH |')")"
 run "$box50" "$retro50"
 if [ "$RC" = 0 ] && ! grep -q 'planned-issue:' <<<"$OUT"; then
   ok "50 #1090 real repro marker: dismissed + prose 'partial' → zero open rows" "(exit $RC)"
@@ -2945,7 +2945,7 @@ for pos in first middle last; do
   box51="$(mkbox "case-1090-prose-$pos")"
   retro51="$(mk_retro "$box51" target-foo r-1090-prose.md \
     "<!-- review-status: dismissed 2026-09-20 · kit deadbeef — ${_prose} -->" \
-    "| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |")"
+    "| 1 | delta one fixture row | METHODOLOGY.md | B1 | new | HIGH |")"
   run "$box51" "$retro51"
   if [ "$RC" = 0 ] && ! grep -q 'planned-issue:' <<<"$OUT"; then
     ok "51 #1090 dismissed + prose 'partial' at $pos → zero open rows" "(exit $RC)"
@@ -2991,7 +2991,7 @@ git init -q "$box54" >/dev/null 2>&1
 git -C "$box54" remote add origin "git@ghe.corp.com:o/n.git" >/dev/null 2>&1
 retro54="$(mk_retro "$box54" target-foo r-item-a-apply.md \
   "<!-- review-status: pending -->" \
-  "| 1 | delta | CLAUDE.md | B1 | new | HIGH |")"
+  "| 1 | delta fixture row | CLAUDE.md | B1 | new | HIGH |")"
 OUT54="$(PATH="$box54/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
   "$BASH_BIN" "$box54/research-sdd/toolbelt/stage-retro-issues.sh" "$retro54" --apply 2>&1)"; RC54=$?
 gh_called_54=0
@@ -3063,7 +3063,7 @@ box59="$(mkbox case-spanish-alias)"
 retro59="$box59/rh/target-foo/retros/r-spanish.md"
 { printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
   printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
-  printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
+  printf '| 1 | delta uno fixture row | CLAUDE.md | B1 | new | HIGH |\n'
 } > "$retro59"
 run "$box59" "$retro59"
 if [ "$RC" = 0 ] && grep -q '^planned-issue:' <<<"$OUT" && ! grep -qi 'empty-input\|unclassifiable' <<<"$OUT"; then
@@ -3162,7 +3162,7 @@ fi
 # 65 — FLAT layout still resolves (regression guard for the walk-up)
 box65="$(mkbox case-flat-walkup)"
 retro65="$(mk_retro "$box65" target-foo r-flat.md "<!-- review-status: pending -->" \
-  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | flat delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box65" "$retro65"
 if [ "$RC" = 0 ] && grep -q 'labels: .*target:target-foo,' <<<"$OUT" \
   && ! grep -qi 'not found' <<<"$OUT"; then
@@ -3202,7 +3202,7 @@ fi
 #      registry with zero rows is an operational failure (case 71), not a no-match.
 box68="$(mkbox case-flat-unregistered)"
 retro68="$(mk_retro "$box68" target-foo r-flat-unreg.md "<!-- review-status: pending -->" \
-  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | flat delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | other | `%s/rh/other` |\n' "$box68" \
   > "$box68/research-sdd/TARGETS.md"
 mkdir -p "$box68/rh/other"
@@ -3235,7 +3235,7 @@ fi
 #      exit 1 with a typed message — never a WARN + basename guess that plans issues anyway.
 box70="$(mkbox case-targets-absent)"
 retro70="$(mk_retro "$box70" target-foo r-noreg.md "<!-- review-status: pending -->" \
-  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | flat delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 rm -f "$box70/research-sdd/TARGETS.md"
 run "$box70" "$retro70"
 if [ "$RC" = 1 ] && grep -qi 'cannot read' <<<"$OUT" && ! grep -q 'planned-issue:' <<<"$OUT"; then
@@ -3248,7 +3248,7 @@ fi
 #      "this retro is simply unregistered") — flat AND nested.
 box71="$(mkbox case-targets-empty)"
 retro71f="$(mk_retro "$box71" target-foo r-empty-f.md "<!-- review-status: pending -->" \
-  "| 1 | flat delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | flat delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 retro71n="$(mk_nested_retro "$box71" corpus/retros r-empty-n.md)"
 printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n' > "$box71/research-sdd/TARGETS.md"
 run "$box71" "$retro71f"; out71f="$OUT"; rc71f=$RC
@@ -3267,7 +3267,7 @@ box72="$(mkbox case-nested-registered)"
 mkdir -p "$box72/rh/target-foo/inner-t/retros"
 retro72i="$box72/rh/target-foo/inner-t/retros/r-in.md"
 retro72o="$(mk_retro "$box72" target-foo r-out.md "<!-- review-status: pending -->" \
-  "| 1 | outer delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | outer delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 cp "$retro72o" "$retro72i"
 printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | outer-name | `%s/rh/target-foo` |\n| 2 | inner-name | `%s/rh/target-foo/inner-t` |\n' "$box72" "$box72" \
   > "$box72/research-sdd/TARGETS.md"
@@ -3302,7 +3302,7 @@ fi
 #      back too, and the WARN reaches the operator instead of vanishing (R2-whitespace-fallback).
 box74="$(mkbox case-name-fallback)"
 retro74="$(mk_retro "$box74" target-foo r-fb.md "<!-- review-status: pending -->" \
-  "| 1 | fb delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | fb delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 |  | `%s/rh/target-foo` |\n' "$box74" \
   > "$box74/research-sdd/TARGETS.md"
 run "$box74" "$retro74"; out74a="$OUT"; rc74a=$RC
@@ -3374,7 +3374,7 @@ fi
 box75d="$(mkbox case-legacy-dedup-same)"
 mk_gh_stub "$box75d" nomatch
 retro75d="$(mk_retro "$box75d" target-foo r-same.md "<!-- review-status: pending -->" \
-  "| 1 | same delta | CLAUDE.md | B1 | fix | HIGH |")"
+  "| 1 | same delta fixture row | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box75d" "$retro75d" --apply
 lists75d="$(grep -c 'issue list' "$box75d/bin/gh.log")"
 if [ "$RC" = 0 ] && [ "$lists75d" = 1 ]; then
@@ -3604,7 +3604,7 @@ fi
 # Entries WITHOUT a matching shape for the id (a **D1** heading) are not seedable: WARN, rest still seeds.
 box78f="$(mkbox case-entry-seed-gap)"; mk_gh_stub "$box78f" nomatch
 r78f="$box78f/rh/target-foo/retros/r78f.md"
-printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id\n\n### D2 — plain id\n' > "$r78f"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### **D1** — bold id entry fixture\n\n### D2 — plain id entry fixture\n' > "$r78f"
 run "$box78f" "$r78f"
 if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q '^WARN: .*1 of 2' <<<"$OUT"; then
   ok "78f entry with an unusable ID token: WARN names the gap (1 of 2), the usable entry still seeds" "(exit $RC)"
@@ -3620,7 +3620,7 @@ fi
 box79="$(mkbox case-unregistered)"; mk_gh_stub "$box79" nomatch "" missing
 mkdir -p "$box79/rh/other-kit/retros"
 r79="$box79/rh/other-kit/retros/r79.md"
-printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a | CLAUDE.md | B1 | fix | HIGH |\n| 2 | b | CLAUDE.md | B2 | fix | HIGH |\n' > "$r79"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |\n| 2 | b fixture row | CLAUDE.md | B2 | fix | HIGH |\n' > "$r79"
 run "$box79" "$r79" --apply
 LOG79="$(cat "$box79/bin/gh.log" 2>/dev/null)"
 if [ "$RC" = 1 ] && [ "$(grep -c '^degraded:' <<<"$OUT")" = 1 ] && grep -q "^degraded:.*unregistered.*other-kit" <<<"$OUT" \
@@ -3650,7 +3650,7 @@ fi
 # 80 — FENCE TRACKING (kit issue #1356 item 1, #1369 b): fenced examples are documentation.
 box80="$(mkbox case-fence-table)"; mk_gh_stub "$box80" nomatch
 r80="$box80/rh/target-foo/retros/r80.md"
-printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$r80"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | real row fixture row | CLAUDE.md | B1 | fix | HIGH |\n\n```markdown\n| 2 | fenced example row | CLAUDE.md | B2 | fix | LOW |\n```\n' > "$r80"
 run "$box80" "$r80"
 if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] && grep -q '^planned-issue: real row' <<<"$OUT"; then
   ok "80a a table row inside a fenced example is not seeded (1 planned: the real row)" "(exit $RC)"
@@ -3676,7 +3676,7 @@ fi
 # 80d — a 4-space-indented fence opener (indented code) hides nothing (#1369 b)
 box80d="$(mkbox case-fence-indented)"; mk_gh_stub "$box80d" nomatch
 r80d="$box80d/rh/target-foo/retros/r80d.md"
-printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one\n\n    ```\n### D2 — two\n### D3 — three\n' > "$r80d"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one entry fixture\n\n    ```\n### D2 — two entry fixture\n### D3 — three entry fixture\n' > "$r80d"
 run "$box80d" "$r80d"
 if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 3 ]; then
   ok "80d a 4-space-indented fence opener opens nothing (3 planned)" "(exit $RC)"
@@ -3689,14 +3689,14 @@ fi
 #      30), so a busy repo silently truncated the result and a duplicate could be re-created.
 #      Now: an explicit --limit, and a reply that fills it is a typed failure (never "no match").
 box81="$(mkbox case-limit)"; mk_gh_stub "$box81" nomatch
-run "$box81" "$(mk_retro "$box81" target-foo r81.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')" --apply
+run "$box81" "$(mk_retro "$box81" target-foo r81.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')" --apply
 if [ "$RC" = 0 ] && grep -qE 'gh issue list .*--limit [0-9]+' "$box81/bin/gh.log"; then
   ok "81a the dedup gh issue list passes an explicit --limit" "(exit $RC)"
 else
   no "81a explicit --limit" "exit=$RC log=[$(cat "$box81/bin/gh.log" 2>/dev/null)]"
 fi
 box81b="$(mkbox case-limit-full)"; mk_gh_stub "$box81b" page2
-r81b="$(mk_retro "$box81b" target-foo r81b.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+r81b="$(mk_retro "$box81b" target-foo r81b.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')"
 STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$box81b" "$r81b" --apply
 if [ "$RC" != 0 ] && grep -q '^ERROR: gh issue list (dedup) returned 2 results = the --limit 2 cap' <<<"$OUT" \
    && ! grep -q 'gh issue create' "$box81b/bin/gh.log"; then
@@ -3705,7 +3705,7 @@ else
   no "81b full page" "exit=$RC out=[$OUT] log=[$(cat "$box81b/bin/gh.log")]"
 fi
 box81c="$(mkbox case-limit-under)"; mk_gh_stub "$box81c" page2
-r81c="$(mk_retro "$box81c" target-foo r81c.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+r81c="$(mk_retro "$box81c" target-foo r81c.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')"
 STAGE_RETRO_ISSUES_LIST_LIMIT=3 run "$box81c" "$r81c" --apply
 if [ "$RC" = 0 ] && grep -q 'gh issue create' "$box81c/bin/gh.log" && ! grep -q 'cap' <<<"$OUT"; then
   ok "81c a reply one UNDER the limit is trusted (no-match → creates)" "(exit $RC)"
@@ -3721,7 +3721,7 @@ else
 fi
 # 81f — a FULL page that still holds the exact signature is a duplicate, not a failure
 box81f="$(mkbox case-limit-full-match)"; mk_gh_stub "$box81f" fuzzyplusexact
-r81f="$(mk_retro "$box81f" target-foo r81f.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+r81f="$(mk_retro "$box81f" target-foo r81f.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')"
 STAGE_RETRO_ISSUES_LIST_LIMIT=2 run "$box81f" "$r81f" --apply
 if [ "$RC" = 0 ] && grep -q '^skipped-duplicate:' <<<"$OUT" && ! grep -q 'cap' <<<"$OUT"; then
   ok "81f a full page that contains the exact signature dedups (no spurious cap error)" "(exit $RC)"
@@ -3744,7 +3744,7 @@ fi
 # 82 — UNREADABLE retro (R3-unreadable-silent-zero): an existing but unreadable file is a typed
 #      degraded exit 1, never "empty-input" / a silent zero. Unclosed fence: one WARN, still seeds.
 box82="$(mkbox case-unreadable)"; mk_gh_stub "$box82" nomatch
-r82="$(mk_retro "$box82" target-foo r82.md '<!-- review-status: pending -->' '| 1 | a | CLAUDE.md | B1 | fix | HIGH |')"
+r82="$(mk_retro "$box82" target-foo r82.md '<!-- review-status: pending -->' '| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |')"
 if [ "$(id -u)" = 0 ]; then
   echo "  SKIP  82a unreadable retro: running as root, permissions do not bind"
 else
@@ -3757,7 +3757,7 @@ else
 fi
 box82b="$(mkbox case-unclosed-fence)"; mk_gh_stub "$box82b" nomatch
 r82b="$box82b/rh/target-foo/retros/r82b.md"
-printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one\n\n```\n### D2 — two\n' > "$r82b"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D1 — one entry fixture\n\n```\n### D2 — two entry fixture\n' > "$r82b"
 run "$box82b" "$r82b"
 if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] && [ "$(grep -c '^WARN: unclosed code fence opened at line 8' <<<"$OUT")" = 1 ]; then
   ok "82b unclosed fence: both entries still seed (fail-open) and the WARN appears exactly once" "(exit $RC)"
@@ -3917,19 +3917,26 @@ if [ "$RC" = 0 ] && grep -q '^planned-issue: Only the title column is named$' <<
 else
   no "85g partial header" "exit=$RC out=[$OUT]"
 fi
-# 85e — TITLE GUARD: bare priority/type token, and the 11/12-char boundary
+# 85e — TITLE GUARD: bare priority/type token, and the 11/12-char length boundary (kit issue #1492)
 box85e="$(mkbox case-title-guard)"; mk_gh_stub "$box85e" nomatch
 r85e="$(mk_retro "$box85e" target-foo r85e.md '<!-- review-status: pending -->' \
 "| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |
 | 2 | Fix | CLAUDE.md | B1 | fix | HIGH |
 | 3 | Feature | CLAUDE.md | B1 | fix | HIGH |
 | 4 | a short but real | CLAUDE.md | B1 | fix | HIGH |
-| 5 | medium | CLAUDE.md | B1 | fix | HIGH |")"
+| 5 | medium | CLAUDE.md | B1 | fix | HIGH |
+| 6 | elevenchars | CLAUDE.md | B1 | fix | HIGH |
+| 7 | twelve chars | CLAUDE.md | B1 | fix | HIGH |
+| 8 | Documentation | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box85e" "$r85e"
-if [ "$RC" = 0 ] && [ "$(grep -c '^unclassifiable-row:' <<<"$OUT")" = 4 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] \
-   && grep -q '^planned-issue: a short but real$' <<<"$OUT" \
-   && grep -q '^unclassifiable-row: row 1 ' <<<"$OUT" && grep -q '^unclassifiable-row: row 5 ' <<<"$OUT"; then
-  ok "85e guard: LOW / Fix / Feature / medium → unclassifiable-row (first..last), a real short title planned" "(exit $RC)"
+# Each clause names itself: a short token title is rejected by LENGTH (row 1), a long token by the token list (row 8).
+if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT" \
+   && grep -q '^unclassifiable-row: row 8 .*bare priority/type token' <<<"$OUT" \
+   && ! grep -q '^unclassifiable-row: row 8 .*under 12' <<<"$OUT" \
+   && [ "$(grep -c '^unclassifiable-row:' <<<"$OUT")" = 6 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 2 ] \
+   && grep -q '^planned-issue: a short but real$' <<<"$OUT" && grep -q '^planned-issue: twelve chars$' <<<"$OUT" \
+   && grep -q '^unclassifiable-row: row 1 ' <<<"$OUT" && grep -q '^unclassifiable-row: row 6 .*under 12 characters' <<<"$OUT"; then
+  ok "85e guard: token titles and the 11-char title → unclassifiable-row, the 12-char title planned" "(exit $RC)"
 else
   no "85e title guard" "exit=$RC out=[$OUT]"
 fi
@@ -3946,10 +3953,53 @@ if [ "$RC" = 0 ] && [ "$creates85f" = 1 ] \
 else
   no "85f guard under --apply" "exit=$RC creates=$creates85f out=[$OUT]"
 fi
+# 85h — the length counts CHARACTERS, not bytes, in any locale (kit issue #1492): an 11-char title that is
+# 22 bytes long is refused, a 12-char one is planned. Run under a byte locale (C) and a UTF-8 locale.
+box85h="$(mkbox case-title-chars)"; mk_gh_stub "$box85h" nomatch
+r85h="$(mk_retro "$box85h" target-foo r85h.md '<!-- review-status: pending -->' \
+"| 1 | ñandúñandúñ | CLAUDE.md | B1 | fix | HIGH |
+| 2 | ñandúñandúñá | CLAUDE.md | B1 | fix | HIGH |")"
+for _loc85h in C C.utf8; do
+  LC_ALL="$_loc85h" run "$box85h" "$r85h"
+  if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT" \
+     && grep -q '^planned-issue: ñandúñandúñá$' <<<"$OUT" && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ]; then
+    ok "85h multibyte title: 11-char (22-byte) title refused, 12 chars planned under LC_ALL=$_loc85h" "(exit $RC)"
+  else
+    no "85h multibyte title under LC_ALL=$_loc85h" "exit=$RC out=[$OUT]"
+  fi
+done
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  echo "-- teeth T1492: title length clause --"
+  # (a) clause removed -> the 11-char title is staged; (b) off-by-one (-le) -> the 12-char title is refused.
+  mbox="$(mkbox teeth-minlen-a)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#if \[ "\$((_n + 0))" -lt "\$_MIN_TITLE_LEN" \]; then#if false; then#'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r85t.md '<!-- review-status: pending -->' \
+"| 1 | elevenchars | CLAUDE.md | B1 | fix | HIGH |
+| 2 | twelve chars | CLAUDE.md | B1 | fix | HIGH |")"
+    if grep -q '^planned-issue: elevenchars$' <<<"$OUT"; then
+      ok "T1492-a teeth: length clause removed -> 11-char title staged (85e has teeth)" "()"
+    else no "T1492-a teeth: removing the clause must flip 85e" "85e is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1492-a: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  mbox="$(mkbox teeth-minlen-b)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#\[ "\$((_n + 0))" -lt "\$_MIN_TITLE_LEN" \]#[ "$((_n + 0))" -le "$_MIN_TITLE_LEN" ]#'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r85u.md '<!-- review-status: pending -->' \
+"| 1 | twelve chars | CLAUDE.md | B1 | fix | HIGH |")"
+    if ! grep -q '^planned-issue: twelve chars$' <<<"$OUT"; then
+      ok "T1492-b teeth: off-by-one (-le) -> 12-char title refused (85e boundary has teeth)" "()"
+    else no "T1492-b teeth: off-by-one must flip 85e" "85e boundary is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1492-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (c) bytes instead of characters -> the 11-char / 22-byte title is staged under LC_ALL=C (85h has teeth).
+  mbox="$(mkbox teeth-minlen-c)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e "s#LC_ALL=C tr -d '\\\\200-\\\\277' | wc -c#LC_ALL=C wc -c#"; then
+    LC_ALL=C run "$mbox" "$(mk_retro "$mbox" target-foo r85v.md '<!-- review-status: pending -->' \
+"| 1 | ñandúñandúñ | CLAUDE.md | B1 | fix | HIGH |")"
+    if grep -q '^planned-issue: ñandúñandúñ$' <<<"$OUT"; then
+      ok "T1492-c teeth: byte count -> 11-char multibyte title staged (85h has teeth)" "()"
+    else no "T1492-c teeth: byte count must flip 85h" "85h is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1492-c: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   echo "-- teeth T1444: SUT pipe-to-grep -q race --"
   # Each mutant restores the PIPED form of one rewritten site; the matching 83x case must go red.
   sp_expr_912='s#if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_existing"; then#if ! printf \x27%s\x27 "$_existing" | grep -q \x27^[[:space:]]*\\[\x27; then#'  # sigpipe-lint: allow sed anchor that restores the piped idiom in a T1444-a mutant
@@ -4028,10 +4078,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1260-guard teeth: guard off must plan LOW" "85e is THEATER: out=[$OUT]"; fi
   else no "T1260-guard: build mutant" "mutant_sed refused"; fi
   mb="$(mkbox teeth-1260-tokens)"; mk_gh_stub "$mb" nomatch
-  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^    critical|medium|high|low|bug|fix|feature|docs|documentation|regression|enhancement) return 0 ;;$/    NEVERMATCH) return 0 ;;/'; then
-    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | medium | CLAUDE.md | B1 | fix | HIGH |')"
-    if grep -q '^planned-issue: medium$' <<<"$OUT"; then ok "T1260-tokens teeth: token list emptied → bare 'medium' planned (85e has teeth)" "()"
-    else no "T1260-tokens teeth: emptied list must plan medium" "85e is THEATER: out=[$OUT]"; fi
+  if mutant_sed "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^    documentation) _title_reason=/    NEVERMATCH) _title_reason=/'; then
+    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' '| 1 | documentation | CLAUDE.md | B1 | fix | HIGH |')"
+    if grep -q '^planned-issue: documentation$' <<<"$OUT"; then ok "T1260-tokens teeth: token list emptied → bare 'documentation' (13 chars, past the length clause) planned (85e has teeth)" "()"
+    else no "T1260-tokens teeth: emptied list must plan documentation" "85e is THEATER: out=[$OUT]"; fi
   else no "T1260-tokens: build mutant" "mutant_sed refused"; fi
 fi
 

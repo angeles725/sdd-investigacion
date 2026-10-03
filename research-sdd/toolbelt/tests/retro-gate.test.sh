@@ -75,7 +75,7 @@ mkretro() {
   local tgt="$1" fname="$2" ok_retro="$3"
   mkdir -p "$tgt/retros"
   if [ "$ok_retro" -eq 1 ]; then
-    printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta | file.sh | evidence | fix | low |\n' \
+    printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta fixture row | file.sh | evidence | fix | low |\n' \
       > "$tgt/retros/$fname"
   else
     # non-conforming: missing marker and delta section
