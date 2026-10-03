@@ -1482,6 +1482,10 @@ HARD RULES:
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
     dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    CREDENTIAL SOURCE + POST-RUN SWEEP: take test credentials from a mode-600 file OUTSIDE the repo,
+    never pasted in a channel or embedded in an artifact; after EVERY live run that used one, grep the
+    run's outputs (report, stdout, audit, journal) for the secret value with a silent `grep -c`, require
+    0, record the count in the block, and delete the credential file (0 hits on 5 runs x 4 outputs).
     MINIMAL-PRIVILEGE CAVEAT: minting an ephemeral principal is a SURFACE-DEPENDENT capability — cloud
     platforms and managed IAM (AWS/GCP/Azure) typically can; embedded controllers, PLC/SCADA stacks,
     and hardware I/O APIs typically cannot. Check for an existing low-privilege account FIRST. When

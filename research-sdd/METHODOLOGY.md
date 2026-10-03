@@ -589,6 +589,11 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 
 **Batch registration of official doc sections at bootstrap.** When a focus makes FIRST corpus use of an official multi-file doc section (e.g. `guides-clean/<Topic>/` with many files), register the section ONCE at bootstrap as a directory-level SOURCES.md row (path cell = the dir, sha256 of a manifest or spot file, file count noted in comments). Blocks cite specific files under the registered section. Do not defer registration until the first citing block — each would need to re-register the whole section, and a block that never does leaves the section untracked. (Evidence: hierarchy focus made first-ever corpus use of a 32-file Hierarchies section; registered ad-hoc per block rather than as a batch, losing source coherence.)
 
+**Name multi-run evidence `run1..N` from the first run.** When a live check will be repeated, name its
+evidence `<name>-run1.json` ... from run 1 and keep a `SHA256SUMS` manifest beside it, so later runs never
+force a rename (a `smoke-report.json` had to become `smoke-report-run1.json` once runs 2-5 existed, and
+every citation moved with it).
+
 **Operator incident history and bitácoras as `[CERT-live]` evidence.** A recorded incident log or bitácora — the operator's direct observation of a running system under real conditions — is a first-class evidence source on par with decompiled code inspection for behavioral claims. When a corpus captures lived incident observations (actual fault modes, hardware behavior under load), register the recording (logbook scan, session transcript, or structured notes file) in SOURCES.md, cite it `[CERT-live]`, and preserve it under `sources/probes/` or `sources/manuals/` exactly as any other primary source. Do not collapse it into `[INFER]` merely because it is an operator's account rather than a code trace.
 
 **Go to the source artifact when a derived summary cannot answer the question.** A pre-extracted summary (a workbook, a report, an index) is a convenience, not the subject. When the summary cannot answer a question the original artifact obviously can, budget the cost of parsing the original. Open a separate enrichment pass rather than inferring around the gap; keep the fast-path summary for general use. Do not let sunk-cost of having already read the summary prevent opening the authoritative source. (Evidence: B20 — the workbook has no orientation field; the DXF has it in every 4-vertex LWPOLYLINE; ~75 s to parse 129 MB against ~2 s for the workbook; kept as a distinct pass.)
@@ -2233,6 +2238,29 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   controllers, PLC/SCADA stacks, protocol bridges, and hardware I/O APIs typically CANNOT. When minting
   is not available, fall back to the dry-run/scratch-object approach above with the existing credential;
   do not treat ephemeral-principal creation as a universal prerequisite or a blocking requirement.
+- **Live-write hygiene: identity before, persistence after, runner shape, double-first.** Five rules for
+  a run that writes a live subject (Evidence: niagara n4 agent-mcp am20 and live-runs retros).
+  **(1) Identity gate.** Before the FIRST live write, read the live subject's identity (name, version,
+  host) and compare it with the name the operator authorized; on a mismatch, stop and re-confirm. An
+  operator who authorized "PRUEBAS / localhost" was answered by a station named `LLM`; only a pre-write
+  `stationName` read caught it.
+  **(2) "Write acknowledged" is not persistence.** A `null`/OK reply from a save proves only that the call
+  returned. Locate the subject's REAL home (a stale copy in a user directory is not it) BEFORE the first
+  write, then verify persistence on the artifact itself there (mtime/hash).
+  **(3) REQUIRED vs PROBE steps.** A live runner separates REQUIRED steps, which gate the exit code, from
+  PROBE steps that test a claim not yet proven live. A probe's verdict is recorded but never fails the
+  run, and cleanup always runs after it, so a probe can be retried across runs without blocking the
+  proven path; promoting a probe to REQUIRED is an explicit act (a rollback was a probe in runs 1-4,
+  failed honestly with no stray objects, and passed in run 5).
+  **(4) Probe scripts are inert on import.** A live-WRITE probe script carries an
+  `if __name__ == "__main__"` guard, requires an explicit phase argument for every mutating step, and no
+  helper one-liner ever imports a phase script (`python3 -c "import am20" save` fired an unplanned
+  `Station.save`).
+  **(5) Reproduce a live rejection in the test double first.** When the live system rejects an operation,
+  reproduce that rejection, with the live error text, in the project's test double (fake server, stub,
+  simulator) and watch the RED fail exactly like live BEFORE fixing; the double then accumulates the
+  system's rejection rules and the block lists them as certified facts (4 live rejections, each modeled
+  in the fake first, run 5 passed). See also §19.
 - **Direct operator authorization names the target — a peer-relayed summary is never authorization.**
   For any §12 operation that writes a live or operational system, authorization must come directly
   from the operator in a message that names the specific target, interface, and action. A
@@ -3676,6 +3704,15 @@ hard-stops, never blind.
   row and a companion test; a one-off PoC lives in the scratchpad and is cited through its preserved output
   under `sources/probes/`. Deciding late is how tools end up uncatalogued (§18 `promote`/`absorb` verdicts
   exist for exactly this hand-off).
+- **Declare probe-only elements; list unconsumed outputs.** A live test structure built for coverage
+  declares which of its elements are probe-only (not part of the intended function), and the block lists
+  every unconsumed output — an output left unlinked made the operator ask where it was connected. When
+  the live system rejects an operation, reproduce the rejection in the test double first (§12 live-write
+  hygiene, rule 5).
+- **Inner-loop test lane for target repos.** Not only the kit's own §11b fast lane: a target repo whose
+  full suite is slow (755 tests, ~1,300 s serial, run 30+ times a day) maps changed files to their tests
+  for per-task iteration, keeps the full suite as the CLOSING gate, and carries a test asserting every
+  tool has a mapped test so the map cannot silently drift.
 - **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
