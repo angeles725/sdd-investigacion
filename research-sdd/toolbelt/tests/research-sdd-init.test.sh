@@ -1603,6 +1603,93 @@ if command -v jq >/dev/null 2>&1; then
 fi
 
 
+# ---- kit issue #1271 slice 2: vendor-leak guard wiring (gh stubbed via PATH — hermetic, no network) ----
+if command -v git >/dev/null 2>&1; then
+  K71_BIN="$TMP/k71bin"; mkdir -p "$K71_BIN"
+  # gh stub: prints $K71_VIS and exits $K71_RC; records that it was called.
+  cat > "$K71_BIN/gh" <<'GHEOF'
+#!/usr/bin/env bash
+echo "$*" >> "${K71_LOG:-/dev/null}"
+[ -n "${K71_VIS:-}" ] && printf '%s\n' "$K71_VIS"
+exit "${K71_RC:-0}"
+GHEOF
+  chmod +x "$K71_BIN/gh"
+  # PATH with NO gh at all: symlink every tool the SUT needs except gh.
+  K71_NOGH="$TMP/k71nogh"; mkdir -p "$K71_NOGH"
+  for _t in bash git sed cp mkdir cat rm dirname mktemp jq grep awk chmod ln date tr sort cut wc ls mv stat uname basename env head tail touch printf readlink tee find xargs id; do
+    _p="$(command -v "$_t" 2>/dev/null)" && [ -x "$_p" ] && ln -sf "$_p" "$K71_NOGH/$_t"
+  done
+  _k71_target() {  # <name> [remote-url] — an empty git target, optionally with an origin remote
+    local d="$TMP/k71-$1"; mkdir -p "$d"; git -C "$d" init -q 2>/dev/null
+    [ -n "${2:-}" ] && git -C "$d" remote add origin "$2"
+    printf '%s' "$d"
+  }
+  _k71_run() {  # <target> <vis> <rc> [init args…] → stdout+stderr in $TMP/k71.out, rc in K71_RC_OUT
+    local d="$1" vis="$2" rc="$3"; shift 3
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71.gh.log" bash "$SUT" "$d" --corpus flat "$@" >"$TMP/k71.out" 2>&1
+    K71_RC_OUT=$?
+  }
+
+  # K1271-a PUBLIC remote → stub conf scaffolded, typed line, CI snippet proposed (not written without --wire)
+  d="$(_k71_target a https://example.invalid/pub.git)"; : > "$TMP/k71.gh.log"
+  _k71_run "$d" PUBLIC 0
+  [ "$K71_RC_OUT" = 0 ] && ok "K1271-a PUBLIC: scaffold exits 0" || no "K1271-a PUBLIC: exit $K71_RC_OUT"
+  assert_file "K1271-a PUBLIC: .research-sdd/vendor-leak.conf stub scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1271-a PUBLIC: stub names the directive vocabulary" "allow  <glob>" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1271-a PUBLIC: typed PUBLIC line" "vendor-leak: PUBLIC" "$TMP/k71.out"
+  assert_grep "K1271-a PUBLIC: CI snippet proposed (names the scanner)" "scan-vendor-leak.sh" "$TMP/k71.out"
+  assert_absent "K1271-a PUBLIC: workflow NOT written without --wire (propose-never-apply)" "$d/.github/workflows/vendor-leak.yml"
+  assert_grep "K1271-a: gh asked for visibility" "repo view" "$TMP/k71.gh.log"
+  # the scanner itself accepts the stub: EMPTY-CONF, exit 0 on an empty tree
+  _k71_scan="$(cd "$d" && bash "$HERE/../scan-vendor-leak.sh" "$d" 2>&1)"; _k71_rc=$?
+  { [ "$_k71_rc" = 0 ] && grep -qF 'EMPTY-CONF' <<<"$_k71_scan"; } && ok "K1271-a: scanner reads the stub as EMPTY-CONF (exit 0)" || no "K1271-a: scanner on the stub: rc=$_k71_rc out=[$_k71_scan]"
+
+  # K1271-b PUBLIC + --scaffold --wire → workflow written; K1271-c existing conf / workflow never overwritten
+  d="$(_k71_target b https://example.invalid/pub.git)"
+  _k71_run "$d" PUBLIC 0 --scaffold --wire
+  assert_file "K1271-b PUBLIC --wire: workflow written" "$d/.github/workflows/vendor-leak.yml"
+  assert_grep "K1271-b PUBLIC --wire: workflow runs the scanner" "scan-vendor-leak.sh" "$d/.github/workflows/vendor-leak.yml"
+  d="$(_k71_target c https://example.invalid/pub.git)"; mkdir -p "$d/.research-sdd" "$d/.github/workflows"
+  printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"; printf 'hand-written\n' > "$d/.github/workflows/vendor-leak.yml"
+  _k71_run "$d" PUBLIC 0 --scaffold --wire
+  assert_grep "K1271-c existing conf untouched" "prefix com.keepme" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1271-c existing workflow untouched" "hand-written" "$d/.github/workflows/vendor-leak.yml"
+  assert_grep "K1271-c typed kept-existing line" "kept existing" "$TMP/k71.out"
+
+  # K1271-d PRIVATE → no scaffold, typed message
+  d="$(_k71_target d https://example.invalid/priv.git)"
+  _k71_run "$d" PRIVATE 0 --scaffold --wire
+  assert_absent "K1271-d PRIVATE: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  assert_absent "K1271-d PRIVATE: no workflow written" "$d/.github/workflows/vendor-leak.yml"
+  assert_grep "K1271-d PRIVATE: typed message" "vendor-leak: PRIVATE" "$TMP/k71.out"
+
+  # K1271-e no remote → no gh call, no scaffold, typed message
+  d="$(_k71_target e)"; : > "$TMP/k71.gh.log"
+  _k71_run "$d" PUBLIC 0
+  assert_absent "K1271-e no remote: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1271-e no remote: typed message" "vendor-leak: NO-REMOTE" "$TMP/k71.out"
+  [ ! -s "$TMP/k71.gh.log" ] && ok "K1271-e no remote: gh never invoked" || no "K1271-e no remote: gh was invoked"
+
+  # K1271-f gh failing → typed DEGRADED, never a silent pass or a scaffold; scaffold itself still succeeds
+  d="$(_k71_target f https://example.invalid/x.git)"
+  _k71_run "$d" "" 1
+  [ "$K71_RC_OUT" = 0 ] && ok "K1271-f gh fails: corpus scaffold still exits 0" || no "K1271-f gh fails: exit $K71_RC_OUT"
+  assert_grep "K1271-f gh fails: typed DEGRADED" "vendor-leak: DEGRADED" "$TMP/k71.out"
+  assert_absent "K1271-f gh fails: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  # K1271-g gh answering something unrecognised → DEGRADED, not PUBLIC and not PRIVATE
+  d="$(_k71_target g https://example.invalid/x.git)"
+  _k71_run "$d" "WEIRD" 0
+  assert_grep "K1271-g unrecognised visibility: typed DEGRADED" "vendor-leak: DEGRADED" "$TMP/k71.out"
+  assert_absent "K1271-g unrecognised visibility: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+  # K1271-h gh absent from PATH → typed DEGRADED
+  d="$(_k71_target h https://example.invalid/x.git)"
+  PATH="$K71_NOGH" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1; _k71_rc=$?
+  { [ "$_k71_rc" = 0 ] && grep -qF 'vendor-leak: DEGRADED' "$TMP/k71.out" && grep -qF 'gh not found' "$TMP/k71.out"; } \
+    && ok "K1271-h gh missing: typed DEGRADED (gh not found), scaffold exit 0" || no "K1271-h gh missing: rc=$_k71_rc"
+  assert_absent "K1271-h gh missing: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
+fi
+
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -2876,6 +2963,53 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'is not executable' "$TMP/k96nx.out" && no "teeth M-1496-NOEXEC-WARN: warning still present — THEATER" \
       || ok "teeth M-1496-NOEXEC-WARN: warning gone — K1496-j has teeth"
   else no "teeth M-1496-NOEXEC-WARN: could not build mutant"; fi
+
+  # ---- kit issue #1271 slice 2 teeth (shared mutant helper; gh stubbed via PATH as in the K1271 block) ----
+  _k71t() {  # <name> <target-suffix> <vis> <rc> <init-args…> — run mutant <name> against a fresh remote target
+    local n="$1" sfx="$2" vis="$3" rc="$4"; shift 4
+    local d; d="$(_k71_target "t-$sfx" https://example.invalid/x.git)"
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/$n/toolbelt/init.sh" "$d" --corpus flat "$@" >"$TMP/k71t.out" 2>&1
+    printf '%s' "$d"
+  }
+  # M-1271-OVERWRITE: the never-overwrite guard is removed → a hand-written conf is clobbered.
+  if _k43_build k71ow -e 's|^  if \[ -e "\$conf" \] \|\| \[ -L "\$conf" \]; then$|  if false; then|'; then
+    d="$(_k71_target t-ow https://example.invalid/x.git)"; mkdir -p "$d/.research-sdd"; printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71ow/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    grep -qF 'prefix com.keepme' "$d/.research-sdd/vendor-leak.conf" && no "teeth M-1271-OVERWRITE: conf survived without the guard — K1271-c is THEATER" \
+      || ok "teeth M-1271-OVERWRITE: conf clobbered without the guard — K1271-c has teeth"
+  else no "teeth M-1271-OVERWRITE: could not build mutant"; fi
+  # M-1271-PRIVATE: a PRIVATE remote is treated as PUBLIC → the stub appears.
+  if _k43_build k71pv -e 's#^    PRIVATE|INTERNAL)$#    NEVERMATCH)#' -e 's#^    PUBLIC) ;;$#    PUBLIC|PRIVATE) ;;#'; then
+    d="$(_k71t k71pv pv PRIVATE 0)"
+    [ -e "$d/.research-sdd/vendor-leak.conf" ] && ok "teeth M-1271-PRIVATE: PRIVATE scaffolds under the mutant — K1271-d has teeth" \
+      || no "teeth M-1271-PRIVATE: no scaffold under the mutant — K1271-d is THEATER"
+  else no "teeth M-1271-PRIVATE: could not build mutant"; fi
+  # M-1271-GHFAIL: a failing gh is read as PUBLIC (silent misclassification) → stub appears.
+  if _k43_build k71gf -e 's#gh repo view --json visibility --jq .visibility 2>/dev/null)"; then#gh repo view --json visibility --jq .visibility 2>/dev/null || echo PUBLIC)"; then#'; then
+    d="$(_k71t k71gf gf "" 1)"
+    [ -e "$d/.research-sdd/vendor-leak.conf" ] && ok "teeth M-1271-GHFAIL: failing gh scaffolds under the mutant — K1271-f has teeth" \
+      || no "teeth M-1271-GHFAIL: no scaffold under the mutant — K1271-f is THEATER"
+  else no "teeth M-1271-GHFAIL: could not build mutant"; fi
+  # M-1271-NOWIRE-GATE: the workflow is written without --wire → propose-never-apply broken.
+  if _k43_build k71nw -e 's#^  if \[ "\$wire" = 1 \]; then$#  if true; then#'; then
+    d="$(_k71t k71nw nw PUBLIC 0)"
+    [ -e "$d/.github/workflows/vendor-leak.yml" ] && ok "teeth M-1271-NOWIRE-GATE: workflow written without --wire under the mutant — K1271-a has teeth" \
+      || no "teeth M-1271-NOWIRE-GATE: not written under the mutant — K1271-a is THEATER"
+  else no "teeth M-1271-NOWIRE-GATE: could not build mutant"; fi
+  # M-1271-NOGH-PROBE: the gh-missing probe is removed → the typed 'gh not found' message disappears.
+  if _k43_build k71ng -e 's#^  if ! command -v gh >/dev/null 2>&1; then$#  if false; then#'; then
+    d="$(_k71_target t-ng https://example.invalid/x.git)"
+    PATH="$K71_NOGH" bash "$TMP/k43/k71ng/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    grep -qF 'gh not found' "$TMP/k71t.out" && no "teeth M-1271-NOGH-PROBE: message survives — K1271-h is THEATER" \
+      || ok "teeth M-1271-NOGH-PROBE: typed message gone without the probe — K1271-h has teeth"
+  else no "teeth M-1271-NOGH-PROBE: could not build mutant"; fi
+  # M-1271-NOREMOTE: the no-remote short-circuit is removed → gh is consulted with no remote.
+  if _k43_build k71nr -e 's#^  if \[ -z "\$remotes" \]; then$#  if false; then#'; then
+    : > "$TMP/k71t.gh.log"; d="$(_k71_target t-nr)"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71nr/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ -s "$TMP/k71t.gh.log" ] && ok "teeth M-1271-NOREMOTE: gh consulted with no remote under the mutant — K1271-e has teeth" \
+      || no "teeth M-1271-NOREMOTE: gh still not consulted — K1271-e is THEATER"
+  else no "teeth M-1271-NOREMOTE: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -36,6 +36,13 @@
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
 #
+# VENDOR-LEAK GUARD WIRING (kit issue #1271 slice 2, full-scaffold path only): after a scaffold the script asks
+# `gh repo view` whether the target's remote is PUBLIC. PUBLIC → scaffold a stub .research-sdd/vendor-leak.conf
+# (never overwritten) and propose a CI workflow running scan-vendor-leak.sh (printed; written to
+# .github/workflows/vendor-leak.yml only with --wire, never overwritten). Typed states, all on stdout under
+# "vendor-leak:": NO-REMOTE (no gh call) · PRIVATE (no scaffold) · PUBLIC · DEGRADED (gh missing/failing/
+# unrecognised answer — never a silent pass, never fails the corpus scaffold).
+#
 # DOCUMENT-CYCLE SCAFFOLD VARIANT (kit issue #1114): --document swaps the RESEARCH-STATE.md source
 # template from RESEARCH-STATE.template.md (gap-discovery / NORMAL CYCLE) to
 # RESEARCH-STATE-document.template.md (OUTLINE-driven / DOCUMENT CYCLE, METHODOLOGY §20). The
@@ -740,6 +747,69 @@ if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
   _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "false" "$_pk_cmd"
 fi
+
+# --- vendor-leak guard wiring (kit issue #1271 slice 2) -----------------------------------------
+# A PUBLIC remote makes a committed vendor binary / decompiled vendor tree a real leak that
+# scan-secrets.sh cannot see (it excludes decompiled trees). So when `gh repo view` reports the
+# target's remote as PUBLIC: scaffold a stub .research-sdd/vendor-leak.conf (never overwrite) and
+# PROPOSE a CI workflow running scan-vendor-leak.sh (written only with --wire, never overwritten).
+# Every state is typed — NO-REMOTE / PRIVATE / PUBLIC / DEGRADED — and a gh that is missing, failing or
+# answering something unrecognised is DEGRADED, never a silent pass (CLAUDE.md §7). A degraded probe
+# never fails the corpus scaffold itself (already verified above).
+_rsdd_vendor_leak_wiring() {
+  local tag="  vendor-leak:" remotes vis conf="$target/.research-sdd/vendor-leak.conf" wf="$target/.github/workflows/vendor-leak.yml"
+  local tpl_conf="$TPL/vendor-leak.conf.template" tpl_ci="$TPL/vendor-leak-ci.template.yml"
+  remotes="$(git -C "$target" remote 2>/dev/null)" || { echo "$tag DEGRADED could not list git remotes in $target — vendor-leak wiring skipped; re-run once git works"; return 0; }
+  if [ -z "$remotes" ]; then
+    echo "$tag NO-REMOTE no remote configured — nothing scaffolded; re-run research-sdd-init.sh --wire once a remote exists, or create $conf by hand before making the repo public"
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
+    return 0
+  fi
+  if ! vis="$(cd "$target" && gh repo view --json visibility --jq .visibility 2>/dev/null)"; then
+    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote) — vendor-leak wiring skipped (NOT a pass)"
+    return 0
+  fi
+  case "$vis" in
+    PRIVATE|INTERNAL)
+      echo "$tag PRIVATE remote visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, re-run research-sdd-init.sh --wire"
+      return 0 ;;
+    PUBLIC) ;;
+    *)
+      echo "$tag DEGRADED gh reported an unrecognised visibility '$vis' — vendor-leak wiring skipped (NOT a pass)"
+      return 0 ;;
+  esac
+  if [ ! -f "$tpl_conf" ] || [ ! -f "$tpl_ci" ]; then
+    echo "$tag DEGRADED PUBLIC remote but kit templates missing ($tpl_conf / $tpl_ci) — nothing scaffolded"
+    return 0
+  fi
+  echo "$tag PUBLIC remote is PUBLIC — vendor code (decompiled trees, *.class/*.jar/*.dll/*.so/*.exe) must never be committed"
+  if [ -e "$conf" ] || [ -L "$conf" ]; then
+    echo "$tag kept existing $conf (never overwritten)"
+  elif [ -L "$target/.research-sdd" ] || { [ -e "$target/.research-sdd" ] && [ ! -d "$target/.research-sdd" ]; }; then
+    echo "$tag DEGRADED $target/.research-sdd is a symlink or not a directory — conf not scaffolded"
+  elif mkdir -p "$target/.research-sdd" && cp "$tpl_conf" "$conf"; then
+    echo "$tag scaffolded stub $conf — declare the vendor package prefixes / paths (scan-vendor-leak.v1.md); until then only the binary rule applies"
+  else
+    echo "$tag DEGRADED could not write $conf"
+  fi
+  if [ "$wire" = 1 ]; then
+    if [ -e "$wf" ] || [ -L "$wf" ]; then
+      echo "$tag kept existing $wf (never overwritten)"
+    elif mkdir -p "$target/.github/workflows" && cp "$tpl_ci" "$wf"; then
+      echo "$tag wrote CI workflow $wf — fill <KIT_REPOSITORY> and <KIT_REF> before committing (an unfilled workflow fails loudly)"
+    else
+      echo "$tag DEGRADED could not write $wf"
+    fi
+  else
+    echo "$tag CI guard (propose-never-apply: save as .github/workflows/vendor-leak.yml, fill the placeholders, or re-run with --wire; scanner: $KIT/toolbelt/scan-vendor-leak.sh):"
+    sed 's/^/    | /' "$tpl_ci"
+  fi
+}
+_rsdd_vendor_leak_wiring
+
 echo "== done =="
 # kit issue #1509: a failed settings.json merge on the scaffold --wire path exits 4 (see header).
 if [ "${_wire_merge_failed:-0}" = 1 ]; then exit 4; fi

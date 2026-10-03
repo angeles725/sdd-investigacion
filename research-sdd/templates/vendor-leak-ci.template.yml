@@ -1,0 +1,25 @@
+# .github/workflows/vendor-leak.yml — CI guard against committing vendor code to a PUBLIC target
+# (kit issue #1271). Proposed by research-sdd-init.sh; review it, fill the two <PLACEHOLDERS>, then commit.
+# The scanner is part of the research-sdd kit, so CI has to fetch the kit: point <KIT_REPOSITORY>
+# (owner/name) and <KIT_REF> (tag or sha — pin it) at your kit checkout. An unfilled placeholder makes
+# the checkout step FAIL, which is intentional: a guard that cannot run must never read as a pass.
+name: vendor-leak
+on:
+  push:
+  pull_request:
+jobs:
+  scan-vendor-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: target
+      - uses: actions/checkout@v4
+        with:
+          repository: <KIT_REPOSITORY>
+          ref: <KIT_REF>
+          path: kit
+      # Exit 0 clean · 1 findings · 2 cannot look (bad conf / unreadable / unmerged) · 3 degraded:
+      # every non-zero exit fails the job.
+      - name: scan tracked files for vendor-code leaks
+        run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked
