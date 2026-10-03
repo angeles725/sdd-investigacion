@@ -1208,6 +1208,14 @@ eh_block sub-word "xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852
 eh_check sub-word 0 0 "#1487 GOOD: digest glued to a word char is not a hash token"
 eh_block short-pfx "sha256 e3b0c4…"
 eh_check short-pfx 0 0 "#1487 GOOD: short prefix (<8 hex) is no claim"
+eh_block waived "n5 registered the empty digest $E256 for a missing file. <!-- empty-digest: quoted -->"
+eh_check waived 0 0 "#1487 GOOD: waived quoted digest is not a FAIL"
+eh_w_out="$(bash "$SUT" "$TMP/eh-waived.md" 2>&1)"
+if grep -q "^   INFO    empty-digest waived on line 7" <<<"$eh_w_out"; then ok "#1487 waived hit is reported as INFO (not silent)"; else no "#1487 waived hit not reported as INFO"; fi
+eh_block waive-other "n5 registered the empty digest $E256 for a missing file. <!-- empty-digest: quoted -->" "but $E1 here is unwaived"
+eh_check waive-other 1 1 "#1487 BAD: waiver covers only its own line"
+eh_block waive-elided "sha256 e3b0c442… <!-- empty-digest: quoted -->"
+eh_check waive-elided 0 0 "#1487 GOOD: waived elided prefix"
 eh_block clean "sha256 $OKH"
 eh_check clean 0 0 "#1487 GOOD: ordinary hash"
 
@@ -1610,6 +1618,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-eh-md5: md5 digest dropped from the table --"
   if mk_sed "teeth-eh-md5" "$MUT/ehm.sh" '/d\["md5"\]=/s/d41d8cd98f00b204e9800998ecf8427e/00000000000000000000000000000000/'; then
     tooth "teeth-eh-md5" 1 0 "$MUT/ehm.sh" --good-has 'EMPTYHASH!' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-md5.md"
+  fi
+  echo "-- teeth-eh-waiver: waiver ignored; a marked line must FAIL again --"
+  if mk_sed "teeth-eh-waiver" "$MUT/ehw.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (0)/'; then
+    tooth "teeth-eh-waiver" 0 1 "$MUT/ehw.sh" --good-has 'INFO +empty-digest waived' --bad-has 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-waived.md"
+  fi
+  echo "-- teeth-eh-waiver-global: waiver also exempts every other line (one marker disables the check) --"
+  if mk_sed "teeth-eh-waiver-global" "$MUT/ehwg.sh" 's/if (index(\$0, "<!-- empty-digest: quoted -->") > 0)/if (1)/'; then
+    tooth "teeth-eh-waiver-global" 1 0 "$MUT/ehwg.sh" --good-has 'EMPTYHASH! line 8' --bad-lacks 'EMPTYHASH!' -- bash @SUT@ "$TMP/eh-waive-other.md"
   fi
   echo "-- teeth-eh-oneperline: stop after the first token on a line --"
   if mk_sed "teeth-eh-oneperline" "$MUT/eh1.sh" '/^      rest = after$/s/.*/      rest = ""/'; then

@@ -18,7 +18,7 @@
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target, OR a cited hash equals the digest of EMPTY
-#       input (EMPTYHASH!, #1487) · 2 = bad args.
+#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`) · 2 = bad args.
 
 set -uo pipefail
 # --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
@@ -498,10 +498,14 @@ fi
 #    not glued to a preceding word char, whole block scanned (a hash may sit in prose, a table or a code
 #    span). An elided prefix (`e3b0c442…` / `e3b0c442...`) of >= 8 hex chars counts too — the corpus's own
 #    display convention truncates hashes; shorter prefixes are no claim.
-_vb_eh_n=0
+#    WAIVER (a block that legitimately QUOTES the empty digest, e.g. to document the n5 incident): end THAT
+#    line with the marker `<!-- empty-digest: quoted -->`. A waived hit is reported as `INFO` (never silent)
+#    and does not change the exit code; an unwaived hit on any other line still FAILs.
+_vb_eh_n=0; _vb_eh_w=0
 while IFS= read -r _vb_eh_line; do
   [ -z "$_vb_eh_line" ] && continue
   echo "$_vb_eh_line"
+  case "$_vb_eh_line" in "   INFO"*) _vb_eh_w=$((_vb_eh_w + 1)); continue;; esac   # VB-EH-WAIVED-INFO
   _vb_eh_n=$((_vb_eh_n + 1)); rc=1
 done < <(awk '
   BEGIN { d["sha256"]="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -517,6 +521,9 @@ done < <(awk '
       if (before !~ /[a-z0-9_]/) {
         for (k in d) {
           if (tok == d[k] || (elided && length(tok) >= 8 && length(tok) < length(d[k]) && index(d[k], tok) == 1))   # VB-EMPTY-DIGEST-MATCH
+            if (index($0, "<!-- empty-digest: quoted -->") > 0)   # VB-EH-WAIVER
+              printf "   INFO    empty-digest waived on line %d (%s digest quoted on purpose, marker present)\n", NR, k
+            else
             printf "   EMPTYHASH! line %d: %s digest of EMPTY input (%s%s) — proves nothing (file missing/empty when hashed); re-hash the real file\n", NR, k, substr(tok, 1, 16), (length(tok) > 16 ? "…" : "")
         }
       }
@@ -524,7 +531,7 @@ done < <(awk '
     }
   }
 ' "$block")
-[ "$_vb_eh_n" -eq 0 ] && echo "   (none — no cited hash equals the digest of empty input)" || echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"
+if [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equals the digest of empty input; waived: $_vb_eh_w)"; else echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"; fi
 
 echo "== exit $rc =="
 exit $rc

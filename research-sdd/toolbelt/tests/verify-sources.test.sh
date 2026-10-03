@@ -999,7 +999,7 @@ ed_check two 1 2 "#1487 BAD: two rows -> two findings"
 # NEGATIVES — must stay exit 0 / no finding
 ed_corpus sub-long "$(ed_row a.pdf "${E256}00")" "$(ed_row b.pdf "ff${E1}")"
 ed_check sub-long 0 0 "#1487 GOOD: digest as substring of longer hex"
-ed_corpus sub-prefix "$(ed_row a.pdf "e3b0c4")"
+ed_corpus sub-prefix "$(ed_row a.pdf "e3b0c4…")" "$(ed_row b.pdf "e3b0c44...")"
 ed_check sub-prefix 0 0 "#1487 GOOD: short prefix (<8 hex) is no claim"
 ed_corpus other-cell "| a.pdf | datasheet | http://x/$E256 | 2026-01-01 | $OK_H | — |"
 ed_check other-cell 0 0 "#1487 GOOD: digest inside a longer URL cell"
@@ -1092,7 +1092,8 @@ SED
          --good-has 'row scan FAILED|row count unavailable' --bad-lacks 'row scan FAILED|row count unavailable' \
          -- env PATH="$_stub_vs49:$PATH" bash @SUT@ "$d_vs49"
   # #1487 LEVEL 7 teeth: the detector disabled, the exact match widened to substring, the prefix arm dropped,
-  # and the sha1 table entry removed must each flip the verdict on the matching fixture.
+  # the md5 table entry removed (ED-NOMD5), the scan narrowed to column 5 (ED-COL5) and the minimum-prefix
+  # length check dropped (ED-NOMINP) must each flip the verdict on the matching fixture.
   m="$TMP/mutants/ED-OFF.sh"
   mk_sed ED-OFF "$m" '/# EMPTY-DIGEST-MATCH$/s/if (.*) {/if (0) {/' \
     && tooth "teeth ED-OFF: empty-digest match disabled" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-single"
@@ -1105,6 +1106,9 @@ SED
   m="$TMP/mutants/ED-NOMD5.sh"
   mk_sed ED-NOMD5 "$m" '/d\["md5"\]=/s/d41d8cd98f00b204e9800998ecf8427e/00000000000000000000000000000000/' \
     && tooth "teeth ED-NOMD5: md5 digest dropped from the table" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-md5"
+  m="$TMP/mutants/ED-NOMINP.sh"
+  mk_sed ED-NOMINP "$m" '/# EMPTY-DIGEST-MATCH$/s/length(p) >= minp \&\& //' \
+    && tooth "teeth ED-NOMINP: minimum-prefix length check dropped" 0 1 "$m" --bad-has 'empty-digest:' -- bash @SUT@ "$TMP/ed-sub-prefix"
   m="$TMP/mutants/ED-COL5.sh"
   mk_sed ED-COL5 "$m" 's/for (i = 2; i < NF; i++) {/for (i = 6; i < 7; i++) {/' \
     && tooth "teeth ED-COL5: scan narrowed to the sha256 column only" 1 0 "$m" --good-has 'empty-digest:' --bad-lacks 'empty-digest:' -- bash @SUT@ "$TMP/ed-shifted"

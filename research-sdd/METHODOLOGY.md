@@ -1834,7 +1834,8 @@ operand is never a match, and the digest of empty input (sha256 `e3b0c442…b855
 because the file was missing when hashed; a signature check reported an Authenticode "match" when both digests
 were empty. `verify-sources.sh` now FAILs (LEVEL 7, `empty-digest:`) any SOURCES.md cell equal to an empty-input digest, and
 `verify-block.sh` FAILs (`EMPTYHASH!`) any hash cited in a block that equals one (full digest, or an elided prefix of
->= 8 hex chars; a longer hex run that merely contains the digest never fires). Source: n5 fidelity-t21 retro #2;
+>= 8 hex chars; a longer hex run that merely contains the digest never fires). A block that quotes the digest on purpose waives
+it per line with a trailing `<!-- empty-digest: quoted -->`; the hit is then reported as INFO, never silently. Source: n5 fidelity-t21 retro #2;
 kit issue #1487.)
 
 **GENERATED, NOT TYPED: headline numbers and "tests pass" claims in task/feature docs come from tool output.**
