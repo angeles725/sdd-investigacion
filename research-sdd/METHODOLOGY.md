@@ -1724,15 +1724,15 @@ runs and reports these checks:
 citation-resolution are COMPUTED, not remembered: run [`toolbelt/verify-block.sh`](toolbelt/verify-block.sh)
 `<block>` inside the iteration and paste its output into the self-report. It is the agent's OWN calculator
 (not an orchestrator post-hoc gate — §11 rejects those); it exits non-zero on a verifiable contradiction (a
-cited file that exists but whose line is out of range). It does NOT replace the token-check: a citation to a
-beautified-temp / decompiled / snapshot path shows as `extern` (not target-resolvable), so the agent still
-confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
-The reported tally MUST BE the LITERAL `verify-block.sh` output (or a verbatim excerpt of it), never a
-hand-recalled or rounded estimate: a self-report that gives `~N` counts, or a hand-computed ratio that does
-not match a live run, fails this check — and a block that reports NO numbers at all (only prose like "expect
-ratio ~0.5" / "high ratio expected") also fails: prose is not a lighter-weight compliant report. The whole
-point of trusting the self-report (below) is that its numbers are MECHANICALLY computed; a hand-number
-silently erodes that, and the gate stops being a gate. If the script was not run, the block is not done.
+cited file that exists but whose line is out of range). It does NOT replace the token-check: a beautified-temp /
+decompiled / snapshot citation shows as `extern`, so the agent confirms it by reading the cited source.
+Not every `file:line` into the target is `extern`: a backticked cite is tried against `$TARGET` (the corpus),
+the enclosing git root, the TARGET root of the §15 nested layout (parent of the nearest `corpus` component;
+needs a project marker, never `/`, `$HOME` or its ancestors; labelled `(target-root)`), then `SOURCE_ROOT`;
+artifact cites (preserved `sources/`) do not use the target-root fallback. `resolved N of M` counts resolved
+cites; probe-file cites add `probe-file cites resolved N of M`, and when they alone satisfy P6 an INFO names
+the gap to the `[CERT]` markers (a probe cite verifies its file, not each marker). The tally MUST BE the
+LITERAL `verify-block.sh` output, never a hand-recalled estimate, a mismatched hand ratio, or prose with NO numbers; if the script was not run, the block is not done.
 
 **The corpus linters are edge-triggered agent calculators too — not orchestrator gates.** `verify-block.sh` is
 the agent's PER-BLOCK calculator; `verify-state.sh` and `verify-sources.sh` are its PER-INPUT calculators, run
