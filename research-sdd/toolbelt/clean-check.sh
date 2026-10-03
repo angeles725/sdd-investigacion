@@ -9,7 +9,7 @@
 #                                         age (default 24 h) and owned by the current user
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
 # Exit: 0 clean · 1 findings · 2 usage / not a git work tree / absent dir / scan failure ·
-#       3 DEGRADED (git or find missing — nothing measured).
+#       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured).
 # propose-never-apply: this script never deletes, moves, or writes anything.
 
 set -uo pipefail
@@ -29,13 +29,16 @@ while [ $# -gt 0 ]; do
     *)             _usage; _err "unknown argument: $1"; exit 2 ;;
   esac
 done
-case "$STALE_H" in ''|*[!0-9]*) _usage; _err "--stale-hours must be a non-negative integer: '$STALE_H'"; exit 2 ;; esac
+# Decimal digits only, at most 9 (no arithmetic overflow); a leading zero (08, 010) is still decimal.
+case "$STALE_H" in ''|*[!0-9]*|??????????*) _usage; _err "--stale-hours must be a decimal integer of at most 9 digits: '$STALE_H'"; exit 2 ;; esac
+STALE_H=$((10#$STALE_H))
 OWNER_UID="${CLEAN_CHECK_UID:-}"
 if [ -z "$OWNER_UID" ]; then OWNER_UID="$(id -u 2>/dev/null)" || OWNER_UID=""; fi
 case "$OWNER_UID" in ''|*[!0-9]*) _err "cannot determine the owner uid ('$OWNER_UID')"; exit 2 ;; esac
 
 # SENTINEL-DEGRADED-PROBE: a missing dependency is a typed DEGRADED, never a quiet clean (§7).
-for _tool in git find date sort; do
+REQUIRED_TOOLS="git find date sort"   # the single list: the probe below and the header/doc refer to it
+for _tool in $REQUIRED_TOOLS; do
   command -v "$_tool" >/dev/null 2>&1 || { printf 'clean-check: DEGRADED: %s not found on PATH; nothing was measured\n' "$_tool" >&2; exit 3; }
 done
 
@@ -126,9 +129,14 @@ _mtime() {
   case "$m" in ''|*[!0-9]*) m="" ;; esac
   printf '%s' "$m"
 }
+# An entry vanishing between readdir and stat (a concurrent run cleaning its tmp.*) makes GNU find exit
+# non-zero. -ignore_readdir_race (GNU) turns that benign race off; where find lacks the flag (BSD) the
+# probe leaves it out and a race still surfaces as the loud exit 2 below — rerun, never a quiet clean.
+FIND_RACE=()
+if find "$TMPD_P" -ignore_readdir_race -maxdepth 0 >/dev/null 2>&1; then FIND_RACE=(-ignore_readdir_race); fi
 _items=()
 while IFS= read -r -d '' _p; do _items+=("$_p"); done < <(
-  find "$TMPD_P" -mindepth 1 -maxdepth 1 -name 'tmp.*' -uid "$OWNER_UID" -mmin "+$((STALE_H * 60))" -print0 2>/dev/null
+  find "$TMPD_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 1 -name 'tmp.*' -uid "$OWNER_UID" -mmin "+$((STALE_H * 60))" -print0 2>/dev/null
   printf 'RC=%s\0' "$?"
 )
 _last=$(( ${#_items[@]} - 1 ))

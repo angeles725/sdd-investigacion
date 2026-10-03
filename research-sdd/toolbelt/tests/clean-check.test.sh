@@ -45,6 +45,13 @@ fresh() {
   git -C "$REPO" -c user.name=t -c user.email=t@example.invalid commit -q -m init
   unset CLEAN_CHECK_SCRATCHPAD CLEAN_CHECK_UID
 }
+# ago HOURS PATH — set PATH's mtime HOURS in the past; portable (GNU `date -d`, BSD `date -v`, touch -t).
+ago() {
+  local ts
+  ts="$(date -d "$1 hours ago" +%Y%m%d%H%M.%S 2>/dev/null)" || ts="$(date -v-"$1"H +%Y%m%d%H%M.%S 2>/dev/null)" || ts=""
+  [ -n "$ts" ] || { echo "FATAL: cannot compute a past timestamp" >&2; exit 2; }
+  touch -t "$ts" "$2"
+}
 snapshot() {
   { (cd "$REPO" && find . -path ./.git -prune -o -print | sort); git -C "$REPO" status --porcelain; find "$FT" | sort; } 2>&1 | cksum
 }
@@ -108,11 +115,11 @@ if has "GARBAGE untracked stray.json"; then no "CRLF keep-list line must still m
 
 # ---- stale tmp --------------------------------------------------------------------------------
 fresh
-mkdir "$FT/tmp.olddir"; touch -d '48 hours ago' "$FT/tmp.olddir"
-: > "$FT/tmp.oldfile"; touch -d '30 hours ago' "$FT/tmp.oldfile"
+mkdir "$FT/tmp.olddir"; ago 48 "$FT/tmp.olddir"
+: > "$FT/tmp.oldfile"; ago 30 "$FT/tmp.oldfile"
 : > "$FT/tmp.young"
-: > "$FT/other.old"; touch -d '90 hours ago' "$FT/other.old"
-: > "$FT/xtmp.old"; touch -d '90 hours ago' "$FT/xtmp.old"
+: > "$FT/other.old"; ago 90 "$FT/other.old"
+: > "$FT/xtmp.old"; ago 90 "$FT/xtmp.old"
 run --target "$REPO" --tmp "$FT"
 [ "$RC" = 1 ] && ok "stale tmp.* -> exit 1" || no "stale exit" "(rc=$RC)"
 has "GARBAGE stale-tmp $FT/tmp.olddir age=48h" && ok "stale dir reported with age in hours" || no "stale dir" "($OUT)"
@@ -130,7 +137,7 @@ CLEAN_CHECK_UID=$(( $(id -u) + 1 )) run --target "$REPO" --tmp "$FT"
 [ "$RC" = 0 ] && ok "entries owned by another uid are never reported" || no "ownership filter" "(rc=$RC $OUT)"
 
 # ---- scratchpad -------------------------------------------------------------------------------
-fresh; mkdir -p "$REPO/scratch"; printf 'x\n' > "$REPO/scratch/a"; mkdir "$FT/tmp.pad"; touch -d '48 hours ago' "$FT/tmp.pad"
+fresh; mkdir -p "$REPO/scratch"; printf 'x\n' > "$REPO/scratch/a"; mkdir "$FT/tmp.pad"; ago 48 "$FT/tmp.pad"
 CLEAN_CHECK_SCRATCHPAD="$REPO/scratch" run --target "$REPO" --tmp "$FT"
 if has "scratch/a"; then no "scratchpad entry (untracked) must not be reported" "($OUT)"; else ok "scratchpad untracked entry never reported"; fi
 CLEAN_CHECK_SCRATCHPAD="$FT/tmp.pad" run --target "$REPO" --tmp "$FT"
@@ -139,7 +146,7 @@ run --target "$REPO" --tmp "$FT"
 { has "scratch/a" && has "tmp.pad"; } && ok "without the scratchpad declaration both are findings" || no "scratchpad control" "($OUT)"
 
 # ---- read-only --------------------------------------------------------------------------------
-fresh; printf 'x\n' > "$REPO/stray"; : > "$FT/tmp.old"; touch -d '48 hours ago' "$FT/tmp.old"
+fresh; printf 'x\n' > "$REPO/stray"; : > "$FT/tmp.old"; ago 48 "$FT/tmp.old"
 before="$(snapshot)"; run --target "$REPO" --tmp "$FT"; after="$(snapshot)"
 { [ "$RC" = 1 ] && [ "$before" = "$after" ]; } && ok "read-only: run with findings changes nothing" || no "read-only" "(rc=$RC)"
 
@@ -163,6 +170,36 @@ for tool in git find; do
   { [ "$RC" = 3 ] && has "DEGRADED"; } && ok "$tool missing -> exit 3 with typed DEGRADED" || no "degraded without $tool" "(rc=$RC $OUT)"
 done
 
+# ---- --stale-hours is decimal, never octal ----------------------------------------------------
+fresh
+for v in 08 09 010; do
+  run --target "$REPO" --tmp "$FT" --stale-hours "$v"
+  want=$((10#$v))
+  { [ "$RC" = 0 ] && has "older than ${want}h"; } && ok "--stale-hours $v parsed as decimal $want" || no "octal $v" "(rc=$RC $OUT)"
+done
+run --target "$REPO" --tmp "$FT" --stale-hours 99999999999999999999
+[ "$RC" = 2 ] && ok "--stale-hours beyond 9 digits -> exit 2 (no arithmetic overflow)" || no "huge stale" "(rc=$RC)"
+run --target "$REPO" --tmp "$FT" --stale-hours -1
+[ "$RC" = 2 ] && ok "--stale-hours -1 -> exit 2" || no "negative stale" "(rc=$RC)"
+
+# ---- scan failures and the readdir race (shimmed git/find, first on PATH) ---------------------
+mkdir -p "$TMP/shim-git" "$TMP/shim-find" "$TMP/shim-race"
+REALGIT="$(type -P git)"; REALFIND="$(type -P find)"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && exit 1\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-git/git"
+printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-find/find"
+# shim-race models an entry vanishing mid-scan: find fails UNLESS it is given -ignore_readdir_race.
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -ignore_readdir_race ] && exec %s "$@"; done\nexit 1\n' "$REALFIND" > "$TMP/shim-race/find"
+chmod +x "$TMP/shim-git/git" "$TMP/shim-find/find" "$TMP/shim-race/find"
+fresh; printf 'x\n' > "$REPO/stray"
+OUT="$(PATH="$TMP/shim-git:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 2 ] && has "git ls-files failed"; } && ok "failing git ls-files -> exit 2, never a quiet clean" || no "git scan failure" "(rc=$RC $OUT)"
+fresh
+OUT="$(PATH="$TMP/shim-find:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 2 ] && has "find failed"; } && ok "failing find -> exit 2, never a quiet clean" || no "find scan failure" "(rc=$RC $OUT)"
+: > "$FT/tmp.old"; ago 48 "$FT/tmp.old"
+OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.old"; } && ok "readdir race tolerated: scan runs with -ignore_readdir_race and completes" || no "readdir race" "(rc=$RC $OUT)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
   # Each control deletes or inverts ONE guard in a COPY of the SUT (lib/mutant.sh refuses a no-op,
@@ -181,8 +218,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf 'ignored.log\n' > "$W/.gitignore"; git -C "$W" add .gitignore
   printf 'x\n' > "$W/ignored.log"; printf 'x\n' > "$W/stray.json"; printf 'x\n' > "$W/keep/sub/f"
   printf 'x\n' > "$W/one.txt"; printf 'x\n' > "$W/notes/a.md"
-  : > "$WT/tmp.old"; touch -d '48 hours ago' "$WT/tmp.old"; : > "$WT/tmp.young"
-  : > "$WT/other.old"; touch -d '48 hours ago' "$WT/other.old"
+  : > "$WT/tmp.old"; ago 48 "$WT/tmp.old"; : > "$WT/tmp.young"
+  : > "$WT/other.old"; ago 48 "$WT/other.old"
   cat > "$W/.research-sdd/keep.txt" <<'KL'
 # a comment
 keep/ # tree
@@ -210,14 +247,15 @@ KL
     --good-has 'stale-tmp .*tmp\.old' --good-lacks 'tmp\.young' --bad-has 'tmp\.young' --bad-lacks 'tmp\.old' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
   mt "tmp name filter widened to every entry" "s/-name 'tmp\\.\\*'/-name '*'/" 1 1 \
     --good-lacks 'other\.old' --bad-has 'other\.old' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
-  fresh; CL="$REPO"
+  fresh; CL="$REPO"; CLT="$FT"
+  fresh; RT="$FT"; : > "$RT/tmp.old"; ago 48 "$RT/tmp.old"
   mt "ownership filter removed" 's/ -uid "\$OWNER_UID"//' 0 1 \
     --good-has 'CLEAN-CHECK: clean' --bad-has 'stale-tmp' -- env "CLEAN_CHECK_UID=$(( $(id -u) + 1 ))" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
   mt "age printed in minutes, not hours" 's|/ 3600|/ 60|' 1 1 \
     --good-has 'age=48h' --bad-lacks 'age=48h' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
   # Scratchpad: both classes. SP_REPO holds an untracked scratch dir, SP_TMP a stale tmp.* scratchpad.
   fresh; SP="$REPO"; SPT="$FT"; mkdir -p "$SP/scratch"; printf 'x\n' > "$SP/scratch/a"
-  mkdir "$SPT/tmp.pad"; touch -d '48 hours ago' "$SPT/tmp.pad"
+  mkdir "$SPT/tmp.pad"; ago 48 "$SPT/tmp.pad"
   mt "scratchpad exemption removed (untracked class)" 's/_in_scratch "\$TARGET_P\/\$_p" && continue/:/' 1 1 \
     --good-lacks 'scratch/a' --bad-has 'GARBAGE untracked scratch/a' -- env "CLEAN_CHECK_SCRATCHPAD=$SP/scratch" "$BASH_BIN" @SUT@ --target "$SP" --tmp "$SPT"
   mt "scratchpad exemption removed (tmp class)" 's/_in_scratch "\$_p" && continue/:/' 1 1 \
@@ -228,9 +266,10 @@ KL
   mt "DEGRADED probe disabled" 's/command -v "\$_tool" >\/dev\/null 2>&1 ||/true ||/' 3 2 \
     --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env "PATH=$TMP/bin-no-git" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   # Truncated/failed scans: a git or find that fails must be exit 2, never a quiet clean.
-  mkdir -p "$TMP/shim-git" "$TMP/shim-find"
-  printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && exit 1\nexec %s "$@"\n' "$(type -P git)" > "$TMP/shim-git/git"
-  printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-find/find"; chmod +x "$TMP/shim-git/git" "$TMP/shim-find/find"
+  mt "decimal normalization of --stale-hours removed (octal 08 breaks)" 's/STALE_H=\$((10#\$STALE_H))/:/' 0 2 \
+    --good-has 'older than 8h' --bad-lacks 'CLEAN-CHECK: clean' -- "$BASH_BIN" @SUT@ --target "$CL" --tmp "$CLT" --stale-hours 08
+  mt "readdir-race flag no longer passed to the scan" 's/\${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
+    --good-has 'stale-tmp' --bad-has 'find failed' -- env "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$RT"
   mt "git failure no longer detected (RC marker ignored, untracked scan)" '/git ls-files failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
     --good-has 'git ls-files failed' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   mt "find failure no longer detected (RC marker ignored, tmp scan)" '/find failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \

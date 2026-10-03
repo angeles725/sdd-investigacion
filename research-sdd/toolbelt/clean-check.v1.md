@@ -13,7 +13,8 @@ decides what to do with each finding.
 | stale temp | `GARBAGE stale-tmp <path> age=<h>h` | Every direct child of `--tmp` (default `${TMPDIR:-/tmp}`) whose name matches `tmp.*` (the `mktemp` default), whose mtime is older than the stale age, and that is owned by the current user. Files and directories both count. `<h>` is whole hours since the entry's own mtime. |
 
 The stale age defaults to **24 h** and is overridden with `--stale-hours N` (a non-negative
-integer; `0` makes every owned `tmp.*` entry stale). Entries owned by another user are never
+decimal integer of at most 9 digits; a leading zero is still decimal, so `08` is 8; anything else
+is exit 2; `0` makes every owned `tmp.*` entry stale). Entries owned by another user are never
 reported: the instrument must not suggest deleting what the operator cannot delete.
 
 ## The keep-list contract
@@ -41,12 +42,14 @@ is never reported, in either class. That is the one declared place a session may
 
 ## Output and exit codes
 
-On a clean run the only line printed is the final summary. Otherwise the finding lines come first
-(sorted within each class), then the summary:
+Output order: the `ABSENT-KEEPLIST` line (only when `keep.txt` is missing), then the finding lines
+(untracked in git order, stale-tmp sorted), then one summary line. So a clean run with a keep-list
+prints exactly one line, the summary; a clean run without a keep-list prints `ABSENT-KEEPLIST` and
+the summary.
 
 ```
-CLEAN-CHECK: clean (untracked in <target>, tmp.* in <tmp> older than <N>h, keep-list entries: <K>)
-CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <N>h, keep-list entries: <K>)
+CLEAN-CHECK: clean (untracked in <target>, tmp.* in <tmp> older than <H>h, keep-list entries: <K>)
+CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <H>h, keep-list entries: <K>)
 ```
 
 | Exit | Meaning |
@@ -54,7 +57,7 @@ CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <N
 | 0 | clean |
 | 1 | at least one finding |
 | 2 | usage error, `--target` absent or not inside a git work tree, `--tmp` absent, or a scan command failed |
-| 3 | `DEGRADED`: `git` or `find` is not on `PATH`; nothing was measured (the typed `DEGRADED` line goes to stderr) |
+| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort`) is not on `PATH`; nothing was measured (the typed `DEGRADED` line goes to stderr) |
 
 A scan that errors partway is exit 2, never a quiet "clean": the untracked list is read with an
 explicit end marker so a truncated `git` run cannot read as an empty one.
@@ -66,6 +69,9 @@ uses it to prove the filter bites without needing a second user.
 
 ## Known limits
 
+- A `tmp.*` entry that vanishes between readdir and stat would make `find` fail. Where `find`
+  supports `-ignore_readdir_race` (GNU) the scan uses it and the race is benign; where it does not
+  (BSD) the scan still exits 2 loudly on such a race, and a rerun is the remedy.
 - Stale age is the entry's own mtime. A directory's mtime moves when a direct child is added or
   removed, so a long-lived directory that is still being written can read as young.
 - Only direct children of `--tmp` are examined.
