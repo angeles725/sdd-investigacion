@@ -56,8 +56,9 @@ if ! mb="$(g merge-base "$BASE" HEAD 2>/dev/null)" || [ -z "$mb" ]; then
   echo "plan-review-slices: no merge-base between '$BASE' and HEAD (unrelated or shallow history)"
   exit 2
 fi
-if ! commits="$(g rev-list --first-parent --reverse "$mb..HEAD" 2>&1)"; then
-  echo "plan-review-slices: git rev-list failed: $commits"
+# stderr is deliberately NOT merged into parsed stdout: a git warning must never become a "commit".
+if ! commits="$(g rev-list --first-parent --reverse "$mb..HEAD" 2>/dev/null)"; then
+  echo "plan-review-slices: git rev-list failed for $mb..HEAD"
   exit 2
 fi
 if [ -z "$commits" ]; then
@@ -71,7 +72,8 @@ t_slices=0; t_commits=0; t_lines=0; t_bin=0
 
 emit_slice(){
   [ "$s_commits" -gt 0 ] || return 0
-  k=$((k+1)); t_slices=$((t_slices+1)); t_commits=$((t_commits+s_commits)); t_lines=$((t_lines+s_lines)); t_bin=$((t_bin+s_bin))
+  k=$((k+1)); t_slices=$((t_slices+1))
+  t_commits=$((t_commits+s_commits)); t_lines=$((t_lines+s_lines)); t_bin=$((t_bin+s_bin))
   local tag="" extra=""
   [ "$s_commits" -eq 1 ] && [ "$s_lines" -gt "$max" ] && tag="UNSPLITTABLE "
   [ "$s_bin" -gt 0 ] && extra="$(printf ' binary=%d' "$s_bin")"
@@ -83,17 +85,29 @@ emit_slice(){
   s_first=""; s_last=""; s_base=""; s_commits=0; s_lines=0; s_bin=0
 }
 
-for c in $commits; do
-  short="$(g rev-parse --short=12 "$c")" || { echo "plan-review-slices: cannot abbreviate $c"; exit 2; }
+# measure <commit>: sets short, pshort, cl (authored changed lines) and cb (binary files) for one
+# commit, measured against its first parent (the empty tree for a root commit). Exits 2 on a git
+# failure or on a numstat row that is neither "<n>\t<n>\t<path>" nor a binary "-\t-\t<path>" row.
+measure(){
+  local c="$1" parent from ns out
+  short="$(g rev-parse --short=12 "$c" 2>/dev/null)" || { echo "plan-review-slices: cannot abbreviate $c"; exit 2; }
   if parent="$(g rev-parse --verify --quiet "$c^1" 2>/dev/null)"; then
-    pshort="$(g rev-parse --short=12 "$parent")"
-    if ! ns="$(g diff --numstat "$parent" "$c" 2>&1)"; then echo "plan-review-slices: git diff failed for $short: $ns"; exit 2; fi
+    from="$parent"; pshort="$(g rev-parse --short=12 "$parent")"
   else
-    pshort="ROOT"
-    if ! ns="$(g diff --numstat "$(g hash-object -t tree /dev/null)" "$c" 2>&1)"; then echo "plan-review-slices: git diff failed for $short: $ns"; exit 2; fi
+    from="$(g hash-object -t tree /dev/null)"; pshort="ROOT"
   fi
-  # numstat: "<added>\t<deleted>\t<path>"; binary files print "-\t-\t<path>".
-  read -r cl cb < <(awk -F'\t' '$1 == "-" { b++; next } NF >= 3 { a += $1 + $2 } END { print a + 0, b + 0 }' <<<"$ns")
+  ns="$(g diff --numstat "$from" "$c" 2>/dev/null)" || { echo "plan-review-slices: git diff failed for $short"; exit 2; }
+  out="$(awk -F'\t' '
+    $1 == "-" && $2 == "-" && NF >= 3 { b++; next }
+    $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && NF >= 3 { a += $1 + $2; next }
+    NF > 0 { bad = 1 }
+    END { if (bad) print "MALFORMED"; else print a + 0, b + 0 }' <<<"$ns")"
+  if [ "$out" = MALFORMED ]; then echo "plan-review-slices: malformed numstat row for $short"; exit 2; fi
+  read -r cl cb <<<"$out"
+}
+
+for c in $commits; do
+  measure "$c"
   if [ "$cl" -gt "$max" ]; then
     emit_slice
     s_first="$short"; s_last="$short"; s_base="$pshort"; s_commits=1; s_lines="$cl"; s_bin="$cb"

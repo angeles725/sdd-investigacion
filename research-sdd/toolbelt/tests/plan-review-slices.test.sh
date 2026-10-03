@@ -94,7 +94,8 @@ c1="$(git -C "$d" rev-parse --short=12 "$s1")"; c3="$(git -C "$d" rev-parse --sh
 has "SLICE 1 $c1..$c1 " && ok "7b slice range is first..last short shas" || no "7b slice 1 range not $c1..$c1: $(printf '%s' "$OUT" | tr '\n' '~')"
 has "SLICE 3 $c3..$c3 " && ok "7c last slice range names the last commit" || no "7c slice 3 range not $c3..$c3"
 tot="$(git -C "$d" diff --numstat "$b2" "$s2" | awk '{a+=$1+$2} END{print a+0}')"
-[ "$tot" = 250 ] && ok "7d diff base..last of slice 2 equals the reported lines" || no "7d base diff is $tot, want 250"
+rep="$(grep '^SLICE 2 ' <<<"$OUT" | sed -n 's/.* lines=\([0-9]*\).*/\1/p')"
+[ -n "$rep" ] && [ "$tot" = "$rep" ] && ok "7d git diff of base..last of slice 2 ($tot) equals the reported lines ($rep)" || no "7d base diff is $tot, reported '$rep'"
 
 # 8. Exit codes.
 run --cwd "$d" --base-ref no-such-ref; expect "8  unknown base ref exits 2" 2 "no-such-ref"
@@ -127,6 +128,14 @@ d="$TMP/mb"; mkrepo "$d"; add "$d" a 20
 git -C "$d" checkout -q -b other base; add "$d" o 33
 run --cwd "$d" --base-ref main; expect "12 base on a diverged branch uses the merge-base (only HEAD side counted)" 0 "PLAN: 1 slice(s) commits=1 lines=33"
 
+# 13. A malformed numstat row fails loudly (exit 2), never counts as 0. A git shim corrupts numstat output.
+d="$TMP/malformed"; mkrepo "$d"; add "$d" a 20
+mkdir -p "$TMP/shim"; REALGIT="$(command -v git)"
+printf '#!/bin/sh\ncase "$*" in *--numstat*) echo garbage-row; exit 0;; esac\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim/git"; chmod +x "$TMP/shim/git"
+OUT="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$SUT" --cwd "$d" --base-ref base 2>&1)"; RC=$?
+expect "13 malformed numstat row exits 2 and names it" 2 "malformed numstat"
+lacks "13b no PLAN line is printed for a malformed measurement" "PLAN:"
+
 # --- mutation controls ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: plan-review-slices mutants --"
@@ -153,6 +162,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth empty-range 's/^  echo "EMPTY-RANGE/  echo "NOPE/' 0 "EMPTY-RANGE" "$TMP/empty" --base-ref base
   tooth first-parent 's/--first-parent //' 0 "PLAN: 1 slice(s) commits=2 lines=90" "$TMP/merge" --base-ref base --max-lines 400
   tooth merge-base-used 's/g merge-base "\$BASE"/g rev-parse "$BASE"/' 0 "PLAN: 1 slice(s) commits=1 lines=33" "$TMP/mb" --base-ref main
+  # shim tooth: the original exits 2 on the corrupted numstat; the mutant must not.
+  shimtooth(){ local name="$1" expr="$2" m="$TMP/mut/$1.sh" mo mrc
+    if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant"; return; fi
+    mo="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$m" --cwd "$TMP/malformed" --base-ref base 2>&1)"; mrc=$?
+    if [ "$mrc" != 2 ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still exits 2 — THEATER"; fi; }
+  shimtooth malformed-check 's/NF > 0 { bad = 1 }/NF > 0 { bad = 0 }/'
   tooth bad-ref-exit 's/exit 2 # BADREF/exit 0 # BADREF/' 2 "no-such-ref" "$TMP/parents" --base-ref no-such-ref
   tooth max-validation 's/^\[\[ "\$MAX" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
 fi
