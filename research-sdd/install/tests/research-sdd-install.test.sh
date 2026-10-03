@@ -2,7 +2,7 @@
 # research-sdd-install.test.sh — RED-FIRST harness for the multi-harness kit installer.
 #
 # The discriminating behaviour: ONE table-driven install loop surfaces the neutral SKILL.md +
-# a launcher into every harness's own paths (claude / codex / reasonix), WITHOUT any per-harness
+# a launcher into every harness's own paths (claude / codex / reasonix / pi / gentle-shell), WITHOUT any per-harness
 # branching in the loop. --dry-run must print a deterministic plan (locked by committed goldens);
 # apply must be idempotent (re-running never duplicates the marked prompt section).
 #
@@ -153,7 +153,7 @@ echo "== research-sdd-install.test.sh =="
 
 # 1..3 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
 # (opencode dropped 2026-09-23 #954 — plan-opencode.txt deleted)
-for h in claude codex reasonix; do
+for h in claude codex reasonix pi gentle-shell; do
   home="$TMP/dry-$h"
   out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home" | normkit)"
   g="$GOLD/plan-$h.txt"
@@ -196,7 +196,7 @@ grep -q 'sweep-retros.sh' "$cl" && no "claude section wrongly carries sweep fall
 # 10 — the install loop carries ZERO per-harness case arms (all divergence lives in the adapter table).
 #      A case arm is a harness name at a statement boundary followed by `|` or `)` (e.g. `claude)`);
 #      prose mentions like "(opencode)" in a comment are ignored.
-if grep -Eq '^[[:space:]]*(claude|codex|reasonix)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
+if grep -Eq '^[[:space:]]*(claude|codex|reasonix|pi|gentle-shell)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
 else ok "install loop has no per-harness branching"; fi
 
 # 12 — CRITICAL 2: an orphaned start marker (no matching end, hand-edited file) in a MARKDOWN prompt file
@@ -1989,6 +1989,161 @@ _pf_s1="$(PATH="$_pf_bin:$PATH" _install_tree_snapshot "$_pf_probe")"
 if [ "$_pf_rc" -eq 0 ] && [ -n "$_pf_s0" ] && [ "$_pf_s1" != "$_pf_s0" ]; then
   ok "hermetic snapshot: works without GNU find -printf (BSD-style find) and still registers a change"
 else no "hermetic snapshot depends on GNU find -printf (rc=$_pf_rc, snapshot=[$_pf_s0])"; fi
+
+# ======================================================================================================
+# Pi + gentle-shell harnesses. Both surface the skill under an agent dir (~/.pi/agent,
+# ~/.gentle-shell/agent) AND deploy a slash-command PROMPT TEMPLATE (prompts/research-sdd.md) so Pi's
+# `/research-sdd` exists. The template is an OPTIONAL adapter-table field (_RSDD_PROMPT_TEMPLATE_REL):
+# empty for claude/codex/reasonix, so their behaviour is unchanged.
+# ======================================================================================================
+_pi_rows="pi:.pi/agent gentle-shell:.gentle-shell/agent"
+
+# PI1 — the adapter accessor: prompt_template_path is set for pi/gentle-shell, EMPTY (rc 0) otherwise.
+_pi_driver="$TMP/pi-field-driver.sh"
+printf '#!/usr/bin/env bash\nset -uo pipefail\n. "%s"\nrsdd_field "$1" prompt_template_path "$2"\necho "RC=$?"\n' "$HERE/../adapters.sh" > "$_pi_driver"
+for row in $_pi_rows; do
+  h="${row%%:*}"; rel="${row#*:}"
+  got="$(bash "$_pi_driver" "$h" /H 2>&1)"
+  [ "$got" = "$(printf '/H/%s/prompts/research-sdd.md\nRC=0' "$rel")" ] \
+    && ok "adapter: $h prompt_template_path = <home>/$rel/prompts/research-sdd.md" \
+    || no "adapter: $h prompt_template_path wrong (got: $got)"
+done
+for h in claude codex reasonix; do
+  got="$(bash "$_pi_driver" "$h" /H 2>&1)"
+  [ "$got" = "$(printf '\nRC=0')" ] \
+    && ok "adapter: $h prompt_template_path is empty (no template for this harness)" \
+    || no "adapter: $h prompt_template_path should be empty (got: $got)"
+done
+
+for row in $_pi_rows; do
+  h="${row%%:*}"; rel="${row#*:}"
+  home="$TMP/pi-real-$h"; out="$(bash "$SUT" --home "$home" --harness "$h" 2>&1)"; rc=$?
+  root="$home/$rel"
+  [ "$rc" -eq 0 ] && ok "$h: real run exits 0" || no "$h: real run exited $rc ($out)"
+  # skill at the agent-dir skills path, valid Pi frontmatter (name + description <= 1024 chars)
+  sk="$root/skills/research-sdd/SKILL.md"
+  fm_name="$(awk 'NR==1&&$0!="---"{exit} NR>1&&$0=="---"{exit} /^name:/{sub(/^name:[ ]*/,"");print}' "$sk" 2>/dev/null)"
+  fm_desc="$(awk 'NR==1&&$0!="---"{exit} NR>1&&$0=="---"{exit} /^description:/{sub(/^description:[ ]*/,"");print}' "$sk" 2>/dev/null)"
+  if [ "$fm_name" = "research-sdd" ] && [ -n "$fm_desc" ] && [ "${#fm_desc}" -le 1024 ]; then
+    ok "$h: SKILL.md at $rel/skills with valid Pi frontmatter (name=research-sdd, description ${#fm_desc} chars)"
+  else no "$h: SKILL.md missing or frontmatter invalid (name='$fm_name', desc chars=${#fm_desc})"; fi
+  # slash-command prompt template
+  tp="$root/prompts/research-sdd.md"
+  if [ -f "$tp" ] && [ "$(sed -n 1p "$tp")" = "---" ] && grep -q '^description: .' "$tp" \
+     && grep -q '^argument-hint: ' "$tp" && grep -qF '$ARGUMENTS' "$tp" && grep -qF "$sk" "$tp"; then
+    ok "$h: prompts/research-sdd.md has frontmatter description + argument-hint, \$ARGUMENTS, and the absolute skill path"
+  else no "$h: prompt template missing/incomplete at $tp"; fi
+  # AGENTS.md launcher + manual sweep block, no MCP doc
+  pf="$root/AGENTS.md"
+  if grep -qF "Skill file: $sk" "$pf" 2>/dev/null && grep -q '^Kit path: ' "$pf" && grep -q 'sweep-retros.sh' "$pf"; then
+    ok "$h: AGENTS.md launcher carries Skill file / Kit path and the manual sweep block"
+  else no "$h: AGENTS.md launcher incomplete at $pf"; fi
+  if grep -qi 'registered automatically' "$pf" 2>/dev/null || [ -e "$root/config.toml" ] || [ -e "$root/mcp.json" ]; then
+    no "$h: must not document or register MCP (Pi MCP is JSON, not the kit's TOML renderer)"
+  else ok "$h: no MCP doc and no MCP config file written"; fi
+  <<<"$out" grep -q '^  slash_commands=true$' && ok "$h: reports slash_commands=true" || no "$h: slash_commands not true ($out)"
+  # idempotent: second run is byte-identical and keeps one marked section
+  cp "$tp" "$TMP/pi-tp-run1" 2>/dev/null; cp "$pf" "$TMP/pi-pf-run1" 2>/dev/null
+  bash "$SUT" --home "$home" --harness "$h" >/dev/null 2>&1
+  if cmp -s "$tp" "$TMP/pi-tp-run1" && cmp -s "$pf" "$TMP/pi-pf-run1" \
+     && [ "$(grep -c '<!-- research-sdd:start -->' "$pf")" = 1 ]; then ok "$h: re-run is idempotent (template + AGENTS.md byte-identical, one section)"
+  else no "$h: re-run changed the template/AGENTS.md or duplicated the section"; fi
+  # dry-run: plans the template, writes nothing
+  home_d="$TMP/pi-dry-$h"
+  out_d="$(bash "$SUT" --dry-run --home "$home_d" --harness "$h" 2>&1)"
+  if <<<"$out_d" grep -qF "$home_d/$rel/prompts/research-sdd.md (slash-command prompt template)" && [ ! -e "$home_d" ]; then
+    ok "$h: dry-run plans the prompt template and creates nothing"
+  else no "$h: dry-run missed the template plan or wrote files"; fi
+  # hand-edit protection: a user-edited template is KEPT (warn); --force-skill backs up then overwrites
+  printf 'MY OWN PROMPT\n' > "$tp"
+  err="$(bash "$SUT" --home "$home" --harness "$h" 2>&1 >/dev/null)"
+  if [ "$(cat "$tp")" = "MY OWN PROMPT" ] && <<<"$err" grep -q "WARNING $tp exists with diverged content"; then
+    ok "$h: hand-edited prompt template kept (warned), never clobbered silently"
+  else no "$h: hand-edited prompt template clobbered or no warning (err=$err)"; fi
+  bash "$SUT" --home "$home" --harness "$h" --force-skill >/dev/null 2>&1
+  if grep -qF '$ARGUMENTS' "$tp" && [ "$(cat "$tp.local-backup" 2>/dev/null)" = "MY OWN PROMPT" ]; then
+    ok "$h: --force-skill backs up the hand-edited template then restores the managed one"
+  else no "$h: --force-skill did not back up/restore the template"; fi
+  # managed update: a template whose sha matches the installer's own recorded marker is silently updated
+  printf 'OLD MANAGED BYTES\n' > "$tp"
+  _sha="$(sha256sum "$tp" | cut -d' ' -f1)"
+  printf 'profile=template\nsha256=%s\n' "$_sha" > "$root/research-sdd/.installed-template-state"
+  bash "$SUT" --home "$home" --harness "$h" >/dev/null 2>&1
+  grep -qF '$ARGUMENTS' "$tp" && ok "$h: a template matching the recorded install marker is a managed (silent) update" \
+    || no "$h: managed-content template was not updated"
+done
+
+# PI2 — claude / codex / reasonix deploy NO prompt template (empty field), even under --harness all.
+home="$TMP/pi-none"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
+for d in .claude .codex .reasonix; do
+  [ ! -e "$home/$d/prompts" ] && ok "$d: no prompts/ dir deployed (no template for this harness)" || no "$d: wrongly deployed a prompts/ dir"
+done
+for h in claude codex reasonix; do
+  out="$(bash "$SUT" --dry-run --home "$TMP/pi-none-dry" --harness "$h" 2>&1)"
+  if <<<"$out" grep -q 'prompt template'; then no "$h: dry-run plans a prompt template (field must be empty)"
+  else ok "$h: dry-run plans no prompt template"; fi
+done
+# --harness all installs both new harnesses, in registration order after reasonix
+home="$TMP/pi-all"; out="$(bash "$SUT" --home "$home" --harness all 2>&1)"
+[ "$(<<<"$out" grep '^harness=' | tr '\n' ' ')" = "harness=claude harness=codex harness=reasonix harness=pi harness=gentle-shell " ] \
+  && ok "--harness all iterates claude codex reasonix pi gentle-shell in order" \
+  || no "--harness all order/set wrong ($(<<<"$out" grep '^harness=' | tr '\n' ' '))"
+[ -f "$home/.pi/agent/prompts/research-sdd.md" ] && [ -f "$home/.gentle-shell/agent/prompts/research-sdd.md" ] \
+  && ok "--harness all deploys both Pi templates" || no "--harness all missed a Pi template"
+# unknown-harness message names the new keys
+err="$(bash "$SUT" --harness bogus --home "$TMP/pi-bogus" 2>&1)"
+<<<"$err" grep -q 'known: claude codex reasonix pi gentle-shell all' && ok "unknown-harness error lists pi and gentle-shell" || no "unknown-harness error stale ($err)"
+# partial failure: a blocked .pi must not stop the other harnesses
+if [ "$(id -u)" -ne 0 ]; then
+  home="$TMP/pi-aggr"; mkdir -p "$home/.pi"; chmod 000 "$home/.pi"
+  bash "$SUT" --home "$home" --harness all >/dev/null 2>&1; rc=$?
+  chmod 755 "$home/.pi"
+  if [ "$rc" -ne 0 ] && [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.gentle-shell/agent/prompts/research-sdd.md" ]; then
+    ok "pi blocked: nonzero exit, gentle-shell and claude still install"
+  else no "pi blocked: partial-failure contract broken (rc=$rc)"; fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: Pi template deployment skipped / template for empty-field harness / harness dropped --"
+  # build a temp kit whose install/ holds a given SUT + adapters (everything else symlinked from the live kit)
+  _pi_mkkit() {
+    local d="$1" sut="$2" adp="$3" f
+    mkdir -p "$d/install" || return 1
+    cp "$sut" "$d/install/research-sdd-install.sh" && cp "$adp" "$d/install/adapters.sh" || return 1
+    for f in "$KITROOT"/* "$KITROOT"/.[!.]*; do
+      [ -e "$f" ] || [ -L "$f" ] || continue
+      [ "$f" = "$KITROOT/install" ] && continue
+      ln -s "$f" "$d/$(basename "$f")" || return 1
+    done
+  }
+  # T-A: skip the template deployment step
+  MPA="$MKI/research-sdd-install.MUTANT-PIA.$$.sh"
+  mutant_sed "$SUT" "$MPA" 's/if \[ -n "\$template_dest" \]; then/if false; then/' \
+    || no "teeth: MUTANT-PIA could not be built (refused by the mutant helper — see above)"
+  _pi_mkkit "$TMP/pia-kit" "$MPA" "$HERE/../adapters.sh" && bash "$TMP/pia-kit/install/research-sdd-install.sh" --home "$TMP/pia-home" --harness pi >/dev/null 2>&1
+  if [ ! -f "$TMP/pia-home/.pi/agent/prompts/research-sdd.md" ] && [ -f "$TMP/pia-home/.pi/agent/skills/research-sdd/SKILL.md" ]; then
+    ok "teeth: template-skipped mutant leaves no prompts/research-sdd.md (skill still installs) → the template assertions bite"
+  else no "teeth: template-skipped mutant still deployed the template (or did not run) — template check is THEATER"; fi
+  # T-B: the accessor returns a path even when the table field is empty → a template for claude
+  MPB="$MKI/adapters.MUTANT-PIB.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MPB" '/prompt_template_path)/,/;;/ s/if \[ -n "\$plug" \]/if true/' \
+    || no "teeth: MUTANT-PIB could not be built (refused by the mutant helper — see above)"
+  out_b=""
+  _pi_mkkit "$TMP/pib-kit" "$SUT" "$MPB" && out_b="$(bash "$TMP/pib-kit/install/research-sdd-install.sh" --dry-run --home "$TMP/pib-home" --harness claude 2>&1)"
+  if <<<"$out_b" grep -q 'prompt template'; then
+    ok "teeth: empty-field-ignoring mutant plans a template for claude → the no-template-for-claude check bites"
+  else no "teeth: empty-field mutant did not plan a claude template — PI2 check is THEATER"; fi
+  # T-C: gentle-shell dropped from RESEARCH_SDD_HARNESSES
+  MPC="$MKI/adapters.MUTANT-PIC.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MPC" 's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/' \
+    || no "teeth: MUTANT-PIC could not be built (refused by the mutant helper — see above)"
+  _pi_mkkit "$TMP/pic-kit" "$SUT" "$MPC" && bash "$TMP/pic-kit/install/research-sdd-install.sh" --home "$TMP/pic-home" --harness all >/dev/null 2>&1
+  if [ ! -e "$TMP/pic-home/.pi/agent/skills/research-sdd/SKILL.md" ]; then
+    no "teeth: harness-dropped mutant run did not execute (pi missing too) — check is THEATER"
+  elif [ ! -e "$TMP/pic-home/.gentle-shell" ]; then
+    ok "teeth: harness-dropped mutant installs no gentle-shell under --harness all → the --harness all check bites"
+  else no "teeth: harness-dropped mutant still installed gentle-shell — registration check is THEATER"; fi
+fi
 
 # Dotfiles (kit issue #1299 item 7): the temp kit copy must mirror EVERY top-level entry of the kit,
 # dotfiles included (the old `"$KITROOT"/*` glob skipped them).

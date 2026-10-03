@@ -12,7 +12,7 @@
 # Every path is derived from a passed-in $home, so NOTHING hardcodes ~/.claude vs ~/.codex — the same
 # table renders a plan for any home (that is what lets --dry-run --home <tmp> drive golden tests).
 #
-# Adding a 4th harness later = ONE new key in each associative array below + one word in
+# Adding another harness later = ONE new key in each associative array below + one word in
 # RESEARCH_SDD_HARNESSES. No installer edit, no new branch.
 #
 # Sourced, not executed:  . adapters.sh   (then call rsdd_field / rsdd_render_section).
@@ -20,7 +20,7 @@
 # Registration order = install order for --harness all. Consumed by the installer after it sources
 # this file; shellcheck can't see that cross-file use, so silence the false "unused" here.
 # shellcheck disable=SC2034
-RESEARCH_SDD_HARNESSES="claude codex reasonix"
+RESEARCH_SDD_HARNESSES="claude codex reasonix pi gentle-shell"
 
 # --- THE TABLE (only home-independent facts live here; paths are derived from these + $home) --------
 # config root, relative to $home
@@ -28,42 +28,58 @@ declare -A _RSDD_CONFIG_ROOT_REL=(
   [claude]=".claude"
   [codex]=".codex"
   [reasonix]=".reasonix"
+  [pi]=".pi/agent"
+  [gentle-shell]=".gentle-shell/agent"
 )
 # system-prompt file name inside the config root
 declare -A _RSDD_PROMPT_FILE_NAME=(
   [claude]="CLAUDE.md"
   [codex]="AGENTS.md"
   [reasonix]="AGENTS.md"
+  [pi]="AGENTS.md"
+  [gentle-shell]="AGENTS.md"
 )
 # HOW the launcher is surfaced into that prompt file
 declare -A _RSDD_PROMPT_STRATEGY=(
   [claude]="markdown-sections"
   [codex]="markdown-sections"
   [reasonix]="markdown-sections"
+  [pi]="markdown-sections"
+  [gentle-shell]="markdown-sections"
 )
 # WHAT the harness can do: does a SKILL surface as a slash command?
 # reasonix: skills are invoked via a run_skill tool; slash commands are a separate namespace
 # fed by commands/ — so the SKILL.md launcher is NOT a slash command.
+# pi + gentle-shell: the installer ALSO deploys a prompts/research-sdd.md template (see
+# _RSDD_PROMPT_TEMPLATE_REL), which Pi registers as a real `/research-sdd` slash command.
 declare -A _RSDD_SUPPORTS_SLASH=(
   [claude]="false"
   [codex]="false"
   [reasonix]="false"
+  [pi]="true"
+  [gentle-shell]="true"
 )
 # WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, codex=none, reasonix=hook via ~/.reasonix/settings.json; OpenCode dropped #954)
+# (claude=hook, codex=none, reasonix=hook via ~/.reasonix/settings.json, pi/gentle-shell=none — Pi has
+# no SessionStart hook for the kit to wire; OpenCode dropped #954)
 declare -A _RSDD_NEEDS_SWEEP=(
   [claude]="false"
   [codex]="true"
   [reasonix]="false"
+  [pi]="true"
+  [gentle-shell]="true"
 )
 # WHAT: does the harness surface a short note (in its prompt file) that the installer registers the
 # skill's MCP servers automatically into its TOML config?
-# (codex + reasonix; claude manages MCP elsewhere; OpenCode dropped #954)
+# (codex + reasonix; claude manages MCP elsewhere; pi/gentle-shell: Pi's MCP config is JSON, which the
+# kit's TOML renderer cannot write, so no registration and no doc; OpenCode dropped #954)
 declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
   [claude]="false"
   [codex]="true"
   [reasonix]="true"
+  [pi]="false"
+  [gentle-shell]="false"
 )
 # WHERE: the user-owned TOML config into which the installer idempotently SPLICES the skill's MCP
 # server entries (a marked `# research-sdd:start/end` block that preserves all surrounding user
@@ -72,6 +88,8 @@ declare -A _RSDD_MCP_CONFIG_NAME=(
   [claude]=""
   [codex]="config.toml"
   [reasonix]="config.toml"
+  [pi]=""
+  [gentle-shell]=""
 )
 # WHAT: the TOML shape used by this harness's MCP config file. Drives rsdd_render_mcp_toml and the
 # conflict-detection ERE — both dispatch on shape, never on harness name.
@@ -82,14 +100,27 @@ declare -A _RSDD_MCP_TOML_SHAPE=(
   [claude]=""
   [codex]="mcp-servers-table"
   [reasonix]="plugins-array"
+  [pi]=""
+  [gentle-shell]=""
 )
-# WHERE: the skill source file, as a path RELATIVE TO the kit root. All remaining harnesses
-# (claude, codex, reasonix) use the neutral shared source under skills/research-sdd/.
+# WHERE: an OPTIONAL slash-command prompt template, as a path RELATIVE TO the harness config root.
+# Empty/absent = the harness gets no template and the installer deploys nothing extra (claude, codex,
+# reasonix). Set for Pi and its isolated-home wrapper gentle-shell: Pi turns <agent-dir>/prompts/<name>.md
+# into the slash command /<name>, so deploying prompts/research-sdd.md is what gives them a real
+# `/research-sdd` (their skills are only reachable as /skill:research-sdd).
+declare -A _RSDD_PROMPT_TEMPLATE_REL=(
+  [pi]="prompts/research-sdd.md"
+  [gentle-shell]="prompts/research-sdd.md"
+)
+# WHERE: the skill source file, as a path RELATIVE TO the kit root. Every harness
+# (claude, codex, reasonix, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
 # Note: OpenCode support was dropped on 2026-09-23 (#954).
 declare -A _RSDD_SKILL_SRC_RELKIT=(
   [claude]="skills/research-sdd/SKILL.md"
   [codex]="skills/research-sdd/SKILL.md"
   [reasonix]="skills/research-sdd/SKILL.md"
+  [pi]="skills/research-sdd/SKILL.md"
+  [gentle-shell]="skills/research-sdd/SKILL.md"
 )
 # WHAT: the per-harness DEFAULT prompt profile (kit issue #993 WU2) — used only when the
 # installer receives neither an explicit --profile flag nor a non-empty $RESEARCH_SDD_PROFILE
@@ -102,6 +133,8 @@ declare -A _RSDD_DEFAULT_PROFILE=(
   [claude]="claude"
   [codex]="claude"
   [reasonix]="general"
+  [pi]="general"
+  [gentle-shell]="general"
 )
 
 # rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
@@ -127,11 +160,32 @@ rsdd_field() {
     mcp_config_file)
       plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    prompt_template_path)
+      plug="${_RSDD_PROMPT_TEMPLATE_REL[$harness]:-}"
+      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     mcp_toml_shape) printf '%s\n' "${_RSDD_MCP_TOML_SHAPE[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
     prompt_profile) printf '%s\n' "${_RSDD_DEFAULT_PROFILE[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
   esac
+}
+
+# rsdd_render_prompt_template <harness> [home] — the slash-command prompt template body deployed at
+# prompt_template_path (Pi: <agent-dir>/prompts/research-sdd.md becomes /research-sdd). A THIN launcher
+# like the AGENTS.md section: it points the agent at the installed skill's ABSOLUTE path and passes the
+# user's slash-command arguments through as the request (Pi substitutes $ARGUMENTS).
+rsdd_render_prompt_template() {
+  local harness="$1" home="${2:-$HOME}" skill_path
+  skill_path="$(rsdd_field "$harness" skill_path "$home")" || return 2
+  printf '%s\n' '---'
+  printf '%s\n' 'description: Run the research-sdd investigation loop'
+  printf '%s\n' 'argument-hint: "<target or question>"'
+  printf '%s\n' '---'
+  printf '%s\n' "Read the research-sdd skill at $skill_path and follow it exactly to run the"
+  printf '%s\n' 'investigation loop. Treat the text below as the target or question to investigate'
+  printf '%s\n' '(if it is empty, ask which target to investigate):'
+  printf '%s\n' ''
+  printf '%s\n' '$ARGUMENTS'
 }
 
 # rsdd_valid_profile <profile> <kit> — true (0) iff <profile> is a KNOWN profile name: the

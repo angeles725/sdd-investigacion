@@ -3,7 +3,7 @@
 #
 # Surfaces the single neutral asset (skills/research-sdd/SKILL.md) + a thin launcher into every AI
 # harness's OWN paths by iterating the adapter table in adapters.sh. The loop body has ZERO
-# per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
+# per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so another harness is one table row.
 #
 # usage() (below) prints exactly the text between the # HELP-START / # HELP-END sentinel comments
 # — kit issue #1024 round 4, item 5: it used to be a hardcoded `sed -n 'A,Bp'` line range, which
@@ -12,7 +12,7 @@
 # sentinels; no line numbers to keep in sync. The sentinel lines themselves are excluded.
 # HELP-START
 # Usage:
-#   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
+#   research-sdd-install.sh [--harness claude|codex|reasonix|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
@@ -20,6 +20,11 @@
 #   --force-skill when the deployed SKILL.md has diverged, back it up and overwrite with the kit source
 #   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
+#
+# pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
+# and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
+# (the template follows the same hand-edit protection as the skill). Pi has no session-start hook, so
+# the manual sweep block is documented in <agent-dir>/AGENTS.md; no MCP registration (Pi's is JSON).
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
@@ -667,6 +672,31 @@ install_one() {
     if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
       echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
     fi
+  fi
+
+  # 2b. optional slash-command prompt template (pi / gentle-shell: prompts/research-sdd.md → /research-sdd).
+  #     The adapter field is EMPTY for every other harness, so nothing is planned or written for them.
+  #     Deployed through the SAME divergence-checked helpers as the skill (CLAUDE.md §7 three-state
+  #     rule): a hand-edited template is kept with a warning, --force-skill backs it up first, and a
+  #     template matching the installer's own recorded hash is a managed (silent) update. Its marker is
+  #     a SEPARATE file (.installed-template-state) with a constant profile "template", so the skill's
+  #     profile-switch / orphan-render-cleanup logic never fires for it. A rendered body is staged in a
+  #     temp file because those helpers copy a SOURCE FILE.
+  local template_dest tmpl_marker tmpl_src
+  template_dest="$(rsdd_field "$h" prompt_template_path "$home")"
+  if [ -n "$template_dest" ]; then
+    tmpl_marker="$config_root/research-sdd/.installed-template-state"
+    if ! tmpl_src="$(mktemp)"; then
+      echo "research-sdd-install: [$h] mktemp failed" >&2; rc=1
+    elif ! rsdd_render_prompt_template "$h" "$home" > "$tmpl_src"; then
+      echo "research-sdd-install: [$h] rendering the prompt template failed" >&2; rc=1
+    elif [ "$dry" = 1 ]; then
+      _rsdd_dry_skill_plan "$tmpl_src" "$template_dest" "$force" "slash-command prompt template" "$tmpl_marker" "template" || rc=1
+      emit_section "$(cat "$tmpl_src")"
+    else
+      _rsdd_deploy_skill "$tmpl_src" "$template_dest" "$force" "slash-command prompt template" "$h" "$tmpl_marker" "template" "$config_root" || rc=1
+    fi
+    [ -n "${tmpl_src:-}" ] && rm -f "$tmpl_src"
   fi
 
   # 3. MCP registration — only when the table names a config file (codex/reasonix config.toml).
