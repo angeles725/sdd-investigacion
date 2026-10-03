@@ -28,6 +28,10 @@ EMPTY-RANGE base=<ref>
 `base=` is the first parent of `<first>`: review the slice as `--base-ref <base>` with HEAD at
 `<last>`. Shas are 12 characters.
 
+`base=ROOT` means `<first>` is a root commit (unrelated history merged in as a first parent): it
+has no parent, so the slice cannot be reviewed through `--base-ref`; its lines are measured against
+the empty tree. Review it as part of a wider range.
+
 ## Typed states
 
 | State | Meaning |
@@ -42,7 +46,7 @@ EMPTY-RANGE base=<ref>
 | Code | Meaning |
 |---|---|
 | 0 | A plan was produced (including `UNSPLITTABLE` slices) or `EMPTY-RANGE` |
-| 2 | Bad usage, `--max-lines` not a positive integer, not a git repository, base ref unresolvable, no merge-base |
+| 2 | Bad usage, `--max-lines` not a positive integer, not a git repository, base ref unresolvable, no merge-base, a commit's parents cannot be read, or the empty tree cannot be computed for a root commit |
 | 3 | git missing (DEGRADED) |
 
 ## Limits
