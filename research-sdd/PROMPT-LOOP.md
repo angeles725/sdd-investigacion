@@ -615,6 +615,15 @@ Always read first, in this order:
        - REVIEW-AND-DELIVERY — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#review-and-delivery` in
          full before committing/merging on an RDD repo or landing a large change set (bulk-commit vs
          RDD, <=~400-line chained slices, never merge a due candidate before review, CI wait).
+       - REVIEW PIPELINING: do not serialise "review, then start the next task". Plan the slices
+         mechanically with `$KIT/toolbelt/plan-review-slices.sh [--base-ref REF] [--max-lines N]`
+         (report-only; default 400; cuts only at commit boundaries; a commit over N prints
+         UNSPLITTABLE). Review slice N (one RDD transaction per slice, `--base-ref <the slice's
+         base=> --committed-only`, read-only on immutable commits) while the writer works on slice
+         N+1. An UNSPLITTABLE commit is a decision for the human, not a mid-commit cut.
+         SCOPE: valid only while slice N's commits are immutable — never amend/rebase/force-push
+         them once its review starts. A correction on slice N lands as a NEW commit with its own
+         transaction; planned slices are then stale, so re-plan from the reviewed boundary.
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
