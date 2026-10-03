@@ -2,7 +2,7 @@
 # research-sdd-install.test.sh — RED-FIRST harness for the multi-harness kit installer.
 #
 # The discriminating behaviour: ONE table-driven install loop surfaces the neutral SKILL.md +
-# a launcher into every harness's own paths (claude / codex / reasonix / pi / gentle-shell), WITHOUT any per-harness
+# a launcher into every harness's own paths (claude / pi / gentle-shell), WITHOUT any per-harness
 # branching in the loop. --dry-run must print a deterministic plan (locked by committed goldens);
 # apply must be idempotent (re-running never duplicates the marked prompt section).
 #
@@ -153,7 +153,7 @@ echo "== research-sdd-install.test.sh =="
 
 # 1..3 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
 # (opencode dropped 2026-09-23 #954 — plan-opencode.txt deleted)
-for h in claude codex reasonix pi gentle-shell; do
+for h in claude pi gentle-shell; do
   home="$TMP/dry-$h"
   out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home" | normkit)"
   g="$GOLD/plan-$h.txt"
@@ -171,8 +171,8 @@ home="$TMP/apply"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
 skill="$home/.claude/skills/research-sdd/SKILL.md"
 if [ -f "$skill" ] && grep -q 'Research-SDD launcher' "$skill"; then ok "apply installs neutral SKILL.md (claude)"
 else no "SKILL.md not installed for claude at $skill"; fi
-[ -f "$home/.codex/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (codex leg)" || no "codex SKILL.md missing"
-[ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (reasonix leg)" || no "reasonix SKILL.md missing"
+[ -f "$home/.pi/agent/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (pi leg)" || no "pi SKILL.md missing"
+[ -f "$home/.gentle-shell/agent/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (gentle-shell leg)" || no "gentle-shell SKILL.md missing"
 # 6 — apply is idempotent: run twice, exactly ONE marked section in the prompt file.
 home="$TMP/idem"
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
@@ -186,24 +186,23 @@ home="$TMP/preserve"; mkdir -p "$home/.claude"; printf '# my own notes\nkeep me\
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
 grep -q 'keep me' "$home/.claude/CLAUDE.md" && ok "markdown-sections preserves existing content" || no "existing CLAUDE.md content clobbered"
 
-# 8 — codex leg documents the manual session-start sweep (no hook fires there); claude does NOT.
+# 8 — pi leg documents the manual session-start sweep (no hook fires there); claude does NOT.
 home="$TMP/sweep"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
-cx="$home/.codex/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
-if grep -q 'sweep-retros.sh' "$cx" && grep -q 'verify-registry.sh' "$cx"; then ok "codex AGENTS.md documents the manual sweep fallback"
-else no "codex sweep-fallback doc missing in $cx"; fi
+cx="$home/.pi/agent/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
+if grep -q 'sweep-retros.sh' "$cx" && grep -q 'verify-registry.sh' "$cx"; then ok "pi AGENTS.md documents the manual sweep fallback"
+else no "pi sweep-fallback doc missing in $cx"; fi
 grep -q 'sweep-retros.sh' "$cl" && no "claude section wrongly carries sweep fallback (has a hook)" || ok "claude section omits sweep fallback (hook fires instead)"
 
 # 10 — the install loop carries ZERO per-harness case arms (all divergence lives in the adapter table).
 #      A case arm is a harness name at a statement boundary followed by `|` or `)` (e.g. `claude)`);
 #      prose mentions like "(opencode)" in a comment are ignored.
-if grep -Eq '^[[:space:]]*(claude|codex|reasonix|pi|gentle-shell)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
+if grep -Eq '^[[:space:]]*(claude|pi|gentle-shell)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
 else ok "install loop has no per-harness branching"; fi
 
 # 12 — CRITICAL 2: an orphaned start marker (no matching end, hand-edited file) in a MARKDOWN prompt file
-#      must NOT drop every trailing user line to EOF. Unlike the TOML path (test 25, which SKIPS to avoid a
-#      duplicate table), markdown has no duplicate-table rule and dropping user content is the real risk —
-#      so the contract here is PRESERVE + APPEND: trailing user content survives AND a fresh marked section
-#      is appended (append mode). REGRESSION GUARD: the markdown path must NOT switch to the TOML skip mode.
+#      must NOT drop every trailing user line to EOF. Dropping user content is the real risk, so the
+#      contract here is PRESERVE + APPEND: trailing user content survives AND a fresh marked section
+#      is appended.
 home="$TMP/orphan"; mkdir -p "$home/.claude"
 printf '# top\n<!-- research-sdd:start -->\nstale body\nIMPORTANT user tail line\n' > "$home/.claude/CLAUDE.md"
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
@@ -215,15 +214,16 @@ else no "orphaned markdown marker mishandled (tail preserved? end markers=$ends 
 
 # 13 — CRITICAL 3: on a partial failure (one harness's config-root non-writable), overall exit
 #      MUST be nonzero AND the still-writable harnesses must still be installed.
-#      (OpenCode dropped #954; now blocks .codex and checks claude + reasonix still install.)
+#      (OpenCode dropped #954; codex and reasonix dropped #1471; now blocks .pi and checks claude +
+#      gentle-shell still install.)
 if [ "$(id -u)" -eq 0 ]; then ok "exit-code aggregation test skipped (running as root, chmod is a no-op)"
 else
-  home="$TMP/aggr"; mkdir -p "$home/.codex"; chmod 000 "$home/.codex"
+  home="$TMP/aggr"; mkdir -p "$home/.pi"; chmod 000 "$home/.pi"
   bash "$SUT" --home "$home" --harness all >/dev/null 2>&1; rc=$?
-  chmod 755 "$home/.codex"
+  chmod 755 "$home/.pi"
   [ "$rc" -ne 0 ] && ok "partial failure yields nonzero overall exit" || no "partial failure silently exited 0 (rc=$rc)"
-  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ]; then
-    ok "partial failure still installs the writable harnesses (claude + reasonix)"
+  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.gentle-shell/agent/skills/research-sdd/SKILL.md" ]; then
+    ok "partial failure still installs the writable harnesses (claude + gentle-shell)"
   else no "writable harnesses not installed after a mid-loop failure"; fi
 fi
 
@@ -263,217 +263,24 @@ bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
 diff -q "$TMP/blank-run2" "$pf" >/dev/null 2>&1 && ok "re-splice is byte-idempotent across re-runs" \
   || no "re-splice not idempotent (file grew/changed on a later run)"
 
-# 19 — ITEM 3: the codex AGENTS.md notes MCP servers are REGISTERED AUTOMATICALLY into config.toml
-#      (no contradictory "add it yourself / no-auto-merge" guidance); claude does NOT carry it.
-home="$TMP/mcpdoc"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
-cx="$home/.codex/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
-if grep -qi 'registered automatically' "$cx" && grep -q 'config.toml' "$cx" && ! grep -qi 'does NOT auto-merge' "$cx"; then
-  ok "codex AGENTS.md notes automatic MCP registration (no contradictory doc)"
-else no "codex MCP auto-registration note missing/contradictory in $cx"; fi
-grep -qi 'registered automatically' "$cl" && no "claude section wrongly carries the codex MCP note" \
-  || ok "claude section omits the codex-only MCP note"
-
-# 20 — codex MCP: --dry-run PLANS the config.toml registration (SPLICE line + the toml block) and
-#      writes NOTHING to the filesystem.
-home="$TMP/mcp-dry"
-out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
-if <<<"$out" grep -q "SPLICE  $home/.codex/config.toml" \
-   && <<<"$out" grep -q '\[mcp_servers.engram\]' \
-   && <<<"$out" grep -q '\[mcp_servers.codegraph\]'; then
-  ok "dry-run plans the config.toml MCP registration (both tables shown)"
-else no "dry-run did not plan the config.toml write"; fi
-[ ! -e "$home/.codex/config.toml" ] && ok "dry-run creates no config.toml" || no "dry-run wrote config.toml"
-
-# 21 — codex MCP: a real run splices a MARKED (#-comment) block with BOTH server tables into config.toml.
-home="$TMP/mcp-real"; bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
-cfg="$home/.codex/config.toml"
-if [ -f "$cfg" ] && grep -q '# research-sdd:start' "$cfg" && grep -q '# research-sdd:end' "$cfg" \
-   && grep -q '\[mcp_servers.engram\]' "$cfg" && grep -q '\[mcp_servers.codegraph\]' "$cfg"; then
-  ok "real run registers both MCP tables in a marked config.toml block"
-else no "config.toml MCP block missing/incomplete at $cfg"; fi
-
-# 22 — codex MCP: registration is byte-idempotent across re-runs (exactly one block, no growth), even
-#      with surrounding user TOML present.
-home="$TMP/mcp-idem"; mkdir -p "$home/.codex"
-printf 'model = "gpt-5.6-sol"\n\n[projects."/tmp"]\ntrust_level = "trusted"\n' > "$home/.codex/config.toml"
-bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1; cp "$home/.codex/config.toml" "$TMP/mcp-run1"
-bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
-cfg="$home/.codex/config.toml"
-n="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || echo 0)"
-if [ "$n" = 1 ] && diff -q "$TMP/mcp-run1" "$cfg" >/dev/null 2>&1; then
-  ok "config.toml registration is byte-idempotent (one block, no growth)"
-else no "config.toml registration not idempotent (sections=$n)"; fi
-
-# 23 — codex MCP: pre-existing UNRELATED user TOML (own tables) survives the splice untouched.
-home="$TMP/mcp-preserve"; mkdir -p "$home/.codex"
-printf '[projects."/tmp"]\ntrust_level = "trusted"\n\n[mcp_servers.context7]\nurl = "https://x"\n' > "$home/.codex/config.toml"
-bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
-cfg="$home/.codex/config.toml"
-if grep -q '\[projects."/tmp"\]' "$cfg" && grep -q '\[mcp_servers.context7\]' "$cfg" \
-   && grep -q '\[mcp_servers.engram\]' "$cfg"; then
-  ok "unrelated user TOML preserved alongside the managed MCP block"
-else no "unrelated user TOML clobbered during MCP splice"; fi
-
-# 24 — codex MCP: a pre-existing UNMARKED [mcp_servers.engram] (user-authored) must NOT be duplicated —
-#      TOML forbids duplicate tables, so the installer warns and SKIPS. Exactly one engram table remains
-#      (the user's), and our managed block is NOT written.
-home="$TMP/mcp-conflict"; mkdir -p "$home/.codex"
-printf '[mcp_servers.engram]\ncommand = "my-own-engram"\nargs = ["x"]\n' > "$home/.codex/config.toml"
-err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"
-cfg="$home/.codex/config.toml"
-n="$(grep -c '\[mcp_servers.engram\]' "$cfg" 2>/dev/null || echo 0)"
-if [ "$n" = 1 ] && grep -q 'my-own-engram' "$cfg" && ! grep -q '# research-sdd:start' "$cfg" \
-   && <<<"$err" grep -qi 'WARNING.*config.toml'; then
-  ok "pre-existing user [mcp_servers.engram] preserved + warned (no duplicate table)"
-else no "user engram table duplicated/clobbered or no warning (engram tables=$n)"; fi
-
-# 25 — CRITICAL: an orphaned '# research-sdd:start' whose body is a [mcp_servers.*] table (no matching
-#      end — a hand-edit, or a crash mid-write) must NOT be "healed" by appending a fresh block. The
-#      orphan already carries [mcp_servers.engram]/[mcp_servers.codegraph], so appending our block would
-#      yield TWO of each table — an illegal duplicate-table TOML that fails to parse. TOML's
-#      no-duplicate-tables rule DIVERGES from the markdown orphan contract (test 12): here the installer
-#      must WARN (malformed marker) and SKIP entirely — file left byte-for-byte untouched, NO second
-#      table appended, NO '# research-sdd:end' synthesised — until the user fixes the stray marker.
-home="$TMP/mcp-orphan"; mkdir -p "$home/.codex"
-printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp", "--tools=agent"]\n\n[mcp_servers.codegraph]\ncommand = "codegraph"\nargs = ["serve", "--mcp"]\n' \
-  > "$home/.codex/config.toml"
-cp "$home/.codex/config.toml" "$TMP/mcp-orphan-orig"
-err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"; rc=$?
-cfg="$home/.codex/config.toml"
-engrams="$(grep -c '\[mcp_servers.engram\]' "$cfg" 2>/dev/null || true)"
-if [ "$engrams" = 1 ] && ! grep -q '# research-sdd:end' "$cfg" && [ "$rc" = 0 ] \
-   && diff -q "$TMP/mcp-orphan-orig" "$cfg" >/dev/null 2>&1 \
-   && <<<"$err" grep -qi 'WARNING.*malformed research-sdd marker'; then
-  ok "orphaned MCP marker: warn + SKIP, file byte-preserved (no duplicate table, no synthesised end)"
-else no "orphaned MCP marker not skipped (engram tables=$engrams, has-end? $(grep -qc '# research-sdd:end' "$cfg"; echo $?), rc=$rc — expected byte-preserved skip)"; fi
-# idempotent: re-running stays a no-op SKIP (file unchanged) until the user repairs the marker.
-bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
-diff -q "$TMP/mcp-orphan-orig" "$cfg" >/dev/null 2>&1 \
-  && ok "orphaned MCP marker skip is byte-idempotent (still a no-op on re-run)" \
-  || no "orphaned MCP marker changed the file on re-run (should stay a no-op skip)"
-
-# 26 — WARNING: the duplicate-table guard must also catch spec-valid EQUIVALENT forms of the same table
-#      path — here the inline dotted-key `mcp_servers.engram = { ... }`. It defines the same table, so
-#      appending our own [mcp_servers.engram] header would be a duplicate-key TOML conflict. The installer
-#      must warn + SKIP (no header appended, file byte-preserved), same as the canonical-header case.
-home="$TMP/mcp-dotted"; mkdir -p "$home/.codex"
-printf 'mcp_servers.engram = { command = "x", args = ["y"] }\n' > "$home/.codex/config.toml"
-cp "$home/.codex/config.toml" "$TMP/mcp-dotted-orig"
-err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"
-cfg="$home/.codex/config.toml"
-if ! grep -q '# research-sdd:start' "$cfg" && ! grep -q '^\[mcp_servers.engram\]' "$cfg" \
-   && diff -q "$TMP/mcp-dotted-orig" "$cfg" >/dev/null 2>&1 \
-   && <<<"$err" grep -qi 'WARNING.*config.toml'; then
-  ok "inline dotted-key mcp_servers.engram detected as a conflict (warn+skip, byte-preserved)"
-else no "inline dotted-key mcp_servers.engram NOT detected — installer appended its own header anyway"; fi
-
-# 42 — reasonix prompt section: no manual-sweep block (it has user-level hooks, needs_sweep=false)
-#      and DOES contain the MCP-config note (needs_mcp_config_doc=true) with config.toml path.
-home="$TMP/rx-doc"; bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
-rx="$home/.reasonix/AGENTS.md"
-if ! grep -q 'sweep-retros.sh' "$rx" && grep -qi 'registered automatically' "$rx" \
-   && grep -q 'config.toml' "$rx"; then
-  ok "reasonix AGENTS.md: no sweep block (hook fires), MCP-config note present"
-else no "reasonix AGENTS.md: sweep/MCP-doc check failed (sweep=$(grep -c 'sweep-retros.sh' "$rx" 2>/dev/null||echo 0), registered=$(grep -ci 'registered automatically' "$rx" 2>/dev/null||echo 0))"; fi
-
-# 43 — reasonix MCP: --dry-run plans config.toml registration with [[plugins]] form (not the
-#      [mcp_servers.*] table form used by codex). Writes NOTHING to the filesystem.
-home="$TMP/rx-mcp-dry"
-out="$(bash "$SUT" --dry-run --home "$home" --harness reasonix 2>&1)"
-if <<<"$out" grep -q "SPLICE  $home/.reasonix/config.toml" \
-   && <<<"$out" grep -q '\[\[plugins\]\]' \
-   && <<<"$out" grep -q 'name.*=.*"engram"'; then
-  ok "reasonix dry-run plans config.toml MCP registration ([[plugins]] form)"
-else no "reasonix dry-run did not plan config.toml write (got: $(printf '%s\n' "$out" | grep 'SPLICE\|\[\[' | head -5 || true))"; fi
-[ ! -e "$home/.reasonix/config.toml" ] \
-  && ok "reasonix dry-run creates no config.toml" \
-  || no "reasonix dry-run wrote config.toml"
-
-# 44 — reasonix MCP: a real run splices a MARKED block with BOTH [[plugins]] entries into config.toml.
-home="$TMP/rx-mcp-real"; bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
-cfg="$home/.reasonix/config.toml"
-if [ -f "$cfg" ] && grep -q '# research-sdd:start' "$cfg" && grep -q '# research-sdd:end' "$cfg" \
-   && grep -q '\[\[plugins\]\]' "$cfg" \
-   && grep -q 'name.*=.*"engram"' "$cfg" && grep -q 'name.*=.*"codegraph"' "$cfg"; then
-  ok "reasonix real run registers both plugins in a marked config.toml block ([[plugins]] form)"
-else no "reasonix config.toml MCP block missing/incomplete at $cfg"; fi
-
-# 45 — reasonix MCP: registration is byte-idempotent across re-runs (exactly one block, no growth),
-#      even with surrounding user TOML present.
-home="$TMP/rx-mcp-idem"; mkdir -p "$home/.reasonix"
-printf 'theme = "dark"\n' > "$home/.reasonix/config.toml"
-bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1; cp "$home/.reasonix/config.toml" "$TMP/rx-run1"
-bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
-cfg="$home/.reasonix/config.toml"
-n="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || echo 0)"
-if [ "$n" = 1 ] && diff -q "$TMP/rx-run1" "$cfg" >/dev/null 2>&1; then
-  ok "reasonix config.toml registration is byte-idempotent (one block, no growth)"
-else no "reasonix config.toml registration not idempotent (sections=$n)"; fi
-
-# 46 — reasonix MCP: pre-existing UNRELATED user TOML survives the splice untouched.
-home="$TMP/rx-preserve"; mkdir -p "$home/.reasonix"
-printf 'theme = "light"\n\n[[other_section]]\nfoo = "bar"\n' > "$home/.reasonix/config.toml"
-bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
-cfg="$home/.reasonix/config.toml"
-if grep -q 'theme = "light"' "$cfg" && grep -q '\[\[plugins\]\]' "$cfg"; then
-  ok "unrelated user reasonix TOML preserved alongside the managed MCP block"
-else no "unrelated user reasonix TOML clobbered during MCP splice"; fi
-
-# 47 — reasonix MCP: a pre-existing user-authored `name = "engram"` plugin entry must NOT be shadowed
-#      silently. Unlike TOML [mcp_servers.*] duplicate-table errors (codex), reasonix SILENTLY
-#      de-duplicates [[plugins]] by name with LAST WINS — which means appending our managed block would
-#      silently override the user's entry with no warning at all. The installer must warn and SKIP.
-home="$TMP/rx-conflict"; mkdir -p "$home/.reasonix"
-printf '[[plugins]]\nname    = "engram"\ncommand = "my-own-engram"\nargs    = ["x"]\n' \
-  > "$home/.reasonix/config.toml"
-err="$(bash "$SUT" --home "$home" --harness reasonix 2>&1 >/dev/null)"
-cfg="$home/.reasonix/config.toml"
-n="$(grep -c 'name.*=.*"engram"' "$cfg" 2>/dev/null || echo 0)"
-if [ "$n" = 1 ] && grep -q 'my-own-engram' "$cfg" && ! grep -q '# research-sdd:start' "$cfg" \
-   && <<<"$err" grep -qi 'WARNING.*config.toml'; then
-  ok "pre-existing user name=\"engram\" plugin preserved + warned (no silent shadow)"
-else no "user engram plugin shadowed/not warned (engram lines=$n, has-start=$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null||echo 0))"; fi
-
-# 48 — reasonix MCP: an orphaned '# research-sdd:start' (no matching end) must WARN and SKIP
-#      entirely — appending would create a second [[plugins]] name="engram" entry that reasonix
-#      silently resolves by letting our entry win, discarding the user's. Same skip-not-append
-#      contract as the codex TOML path (test 25).
-home="$TMP/rx-orphan"; mkdir -p "$home/.reasonix"
-printf '# research-sdd:start\n[[plugins]]\nname    = "engram"\ncommand = "engram"\nargs    = ["mcp", "--tools=agent"]\n' \
-  > "$home/.reasonix/config.toml"
-cp "$home/.reasonix/config.toml" "$TMP/rx-orphan-orig"
-err="$(bash "$SUT" --home "$home" --harness reasonix 2>&1 >/dev/null)"; rc=$?
-cfg="$home/.reasonix/config.toml"
-n_start="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || true)"
-if [ "$n_start" = 1 ] && ! grep -q '# research-sdd:end' "$cfg" && [ "$rc" = 0 ] \
-   && diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
-   && <<<"$err" grep -qi 'WARNING.*malformed research-sdd marker'; then
-  ok "reasonix orphaned MCP marker: warn + SKIP, file byte-preserved"
-else no "reasonix orphaned MCP marker not skipped (starts=$n_start, has-end=$(grep -c '# research-sdd:end' "$cfg" 2>/dev/null || echo 0), rc=$rc)"; fi
-# idempotent: re-running stays a no-op SKIP (file unchanged).
-bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
-diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
-  && ok "reasonix orphaned MCP marker skip is byte-idempotent (still a no-op on re-run)" \
-  || no "reasonix orphaned MCP marker changed the file on re-run (should stay a no-op skip)"
-
 # 31 — dry-run on an IDENTICAL deployed skill prints [up-to-date], not a plain INSTALL.
 #      The §7 three-state rule applied to the plan: identical state must be distinguishable from absent.
 home="$TMP/dryrun-identical"
-bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1              # seed: real install
-out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"      # second run: identical
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1              # seed: real install
+out="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"      # second run: identical
 if <<<"$out" grep -q 'INSTALL.*\[up-to-date\]'; then
   ok "dry-run identical: shows [up-to-date] (absent vs identical distinguishable)"
 else no "dry-run identical: missing [up-to-date] (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
 
 # 32 — dry-run on a DIVERGED deployed skill prints SKIP and names --force-skill as the remedy.
 #      The plan must not promise an install it will then refuse to perform.
-home="$TMP/dryrun-diverged"; mkdir -p "$home/.codex/skills/research-sdd"
-printf '# custom deployed content — not kit source\n' > "$home/.codex/skills/research-sdd/SKILL.md"
-out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
+home="$TMP/dryrun-diverged"; mkdir -p "$home/.claude/skills/research-sdd"
+printf '# custom deployed content — not kit source\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+out="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"
 if <<<"$out" grep -q 'INSTALL.*SKIP.*--force-skill'; then
   ok "dry-run diverged: shows SKIP and names --force-skill remedy"
 else no "dry-run diverged: plan wrong (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
-[ ! -f "$home/.codex/skills/research-sdd/SKILL.md.local-backup" ] \
+[ ! -f "$home/.claude/skills/research-sdd/SKILL.md.local-backup" ] \
   && ok "dry-run diverged: no backup created" \
   || no "dry-run diverged: backup created unexpectedly"
 
@@ -482,11 +289,11 @@ else no "dry-run diverged: plan wrong (got: $(printf '%s\n' "$out" | grep INSTAL
 if [ "$(id -u)" -eq 0 ]; then
   ok "dry-run unreadable SKILL.md check skipped (running as root — chmod 000 is a no-op)"
 else
-  home="$TMP/dryrun-unreadable"; mkdir -p "$home/.codex/skills/research-sdd"
-  printf '# some content\n' > "$home/.codex/skills/research-sdd/SKILL.md"
-  chmod 000 "$home/.codex/skills/research-sdd/SKILL.md"
-  out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
-  chmod 644 "$home/.codex/skills/research-sdd/SKILL.md"
+  home="$TMP/dryrun-unreadable"; mkdir -p "$home/.claude/skills/research-sdd"
+  printf '# some content\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+  chmod 000 "$home/.claude/skills/research-sdd/SKILL.md"
+  out="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"
+  chmod 644 "$home/.claude/skills/research-sdd/SKILL.md"
   if <<<"$out" grep -q 'INSTALL.*SKIP.*not readable'; then
     ok "dry-run unreadable: shows SKIP for permissions issue (not a plain INSTALL)"
   else no "dry-run unreadable: wrong plan (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
@@ -657,74 +464,6 @@ if [ -d "$sf_dir" ] && ! [ -f "$sf_dir/SKILL.md" ] \
   ok "dir-at-dest real run: directory preserved, warned, no file created inside"
 else no "dir-at-dest real run: wrong behavior (is dir? $([ -d "$sf_dir" ] && echo yes || echo no), inner-file? $([ -f "$sf_dir/SKILL.md" ] && echo yes || echo no))"; fi
 
-# 49 — rsdd_render_mcp_toml: unknown shape must exit 2, write to stderr, write NOTHING to stdout.
-#      The exit-2 guard at adapters.sh (declare -F dispatch check + return 2) is correct but has
-#      no test. This assertion pins it (anti-silent-zero §7: a silent partial TOML block is a bug).
-out_49="$TMP/ta-out"; err_49="$TMP/ta-err"
-ta_script="$TMP/ta-run.sh"
-printf '. %s\nrsdd_render_mcp_toml bogus-shape\n' "$HERE/../adapters.sh" > "$ta_script"
-bash "$ta_script" >"$out_49" 2>"$err_49"; rc_49=$?
-if [ "$rc_49" -eq 2 ] && grep -qi 'unknown shape' "$err_49" && [ ! -s "$out_49" ]; then
-  ok "rsdd_render_mcp_toml(bogus-shape): exit 2, stderr has 'unknown shape', stdout empty"
-else no "rsdd_render_mcp_toml(bogus-shape): wrong (rc=$rc_49, stderr='$(cat "$err_49")', stdout-empty=$([ ! -s "$out_49" ] && echo yes || echo no))"; fi
-
-# 50 — rsdd_render_section: unknown mcp_toml_shape (needs_mcp_doc=true) must fail loudly —
-#      non-zero exit + error on stderr. Without the else branch the if/elif falls through silently
-#      (exit 0, section rendered but missing the risk sentence). Also verifies the installer
-#      propagates the failure so install_one records rc=1, not silently installs the partial section.
-tb_adapters="$TMP/adapters-bogus-shape.sh"
-sed 's/\[codex\]="mcp-servers-table"/[codex]="bogus-shape"/' "$HERE/../adapters.sh" >"$tb_adapters"
-tb_script="$TMP/tb-run.sh"
-printf '. %s\nrsdd_render_section codex %s\n' "$tb_adapters" "$TMP/tb-home" >"$tb_script"
-bash "$tb_script" >"$TMP/tb-out" 2>"$TMP/tb-err"; rc_50=$?
-if [ "$rc_50" -ne 0 ] && [ -s "$TMP/tb-err" ]; then
-  ok "rsdd_render_section(bogus-shape): fails loudly (non-zero + error on stderr)"
-else no "rsdd_render_section(bogus-shape): silent (rc=$rc_50, stderr-empty=$([ ! -s "$TMP/tb-err" ] && echo yes || echo no))"; fi
-# Installer end-to-end: bogus shape must not silently install a section missing the risk sentence.
-tb_kit="$TMP/tb-fake-kit"
-mkdir -p "$tb_kit/install" "$tb_kit/skills/research-sdd"
-cp "$HERE/../research-sdd-install.sh" "$tb_kit/install/research-sdd-install.sh"
-cp "$tb_adapters" "$tb_kit/install/adapters.sh"
-printf '# test skill placeholder\n' > "$tb_kit/skills/research-sdd/SKILL.md"
-bash "$tb_kit/install/research-sdd-install.sh" --home "$TMP/tb-inst-home" --harness codex \
-  >/dev/null 2>"$TMP/tb-inst-err"; rc_50inst=$?
-# Prompt file must NOT be written when rsdd_render_section fails: a partial section missing the
-# risk sentence must never reach the file. Without the || return 2 propagation in
-# _surface__markdown_sections, the splice still runs (silently installing the incomplete section).
-tb_pf="$TMP/tb-inst-home/.codex/AGENTS.md"
-if [ "$rc_50inst" -ne 0 ] && [ ! -f "$tb_pf" ]; then
-  ok "installer with bogus mcp_toml_shape: non-zero exit + no partial section written to prompt file"
-else no "installer with bogus mcp_toml_shape: rc=$rc_50inst, prompt-file-exists=$([ -f "$tb_pf" ] && echo yes || echo no) — partial section silently installed"; fi
-
-# 51 — orphan-skip warning must state the shape-correct risk, not a one-size-fits-all message.
-#      codex (mcp-servers-table): reason = "duplicate TOML table" (TOML parsers reject duplicates).
-#      reasonix (plugins-array):  reason = last-wins/shadowing (duplicate [[plugins]] is valid TOML
-#        but reasonix silently de-duplicates by name, last entry wins, discarding the user's entry).
-#      Both: 'WARNING.*malformed research-sdd marker' prefix preserved (tests 25 + 48 contract).
-#      Both: file byte-preserved (warn+skip semantics unchanged).
-# codex orphan:
-home_51cx="$TMP/tc-codex"; mkdir -p "$home_51cx/.codex"
-printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp"]\n' \
-  > "$home_51cx/.codex/config.toml"
-cp "$home_51cx/.codex/config.toml" "$TMP/tc-cx-orig"
-err_51cx="$(bash "$SUT" --home "$home_51cx" --harness codex 2>&1 >/dev/null)"
-if <<<"$err_51cx" grep -qi 'WARNING.*malformed research-sdd marker' \
-   && <<<"$err_51cx" grep -qi 'duplicate.*TOML table' \
-   && diff -q "$TMP/tc-cx-orig" "$home_51cx/.codex/config.toml" >/dev/null 2>&1; then
-  ok "codex orphan warning: 'duplicate TOML table' reason + byte-preserved"
-else no "codex orphan warning wrong (got: '$(printf '%s' "$err_51cx" | head -1)')"; fi
-# reasonix orphan:
-home_51rx="$TMP/tc-reasonix"; mkdir -p "$home_51rx/.reasonix"
-printf '# research-sdd:start\n[[plugins]]\nname = "engram"\ncommand = "engram"\n' \
-  > "$home_51rx/.reasonix/config.toml"
-cp "$home_51rx/.reasonix/config.toml" "$TMP/tc-rx-orig"
-err_51rx="$(bash "$SUT" --home "$home_51rx" --harness reasonix 2>&1 >/dev/null)"
-if <<<"$err_51rx" grep -qi 'WARNING.*malformed research-sdd marker' \
-   && <<<"$err_51rx" grep -qi 'last-wins\|shadowing' \
-   && diff -q "$TMP/tc-rx-orig" "$home_51rx/.reasonix/config.toml" >/dev/null 2>&1; then
-  ok "reasonix orphan warning: last-wins/shadow reason + byte-preserved"
-else no "reasonix orphan warning wrong (got: '$(printf '%s' "$err_51rx" | head -1)')"; fi
-
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -752,40 +491,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ "$n" -ge 2 ] && ok "teeth: append-only mutant duplicates the section → idempotency check has teeth" \
     || no "teeth: mutant did not duplicate ($n) — idempotency check is THEATER"
 
-  echo "-- teeth: neuter the TOML duplicate-table guard, expect a duplicate [mcp_servers.engram] --"
-  # Break the "does preserved content already define an MCP table?" conflict guard so the block is
-  # appended even when the user already has [mcp_servers.engram] — producing an invalid duplicate table.
-  MUTANT2="$MKI/research-sdd-install.MUTANT2.$$.sh"
-  mutant_sed "$SUT" "$MUTANT2" 's/grep -Eq "\$conflict"/false/' \
-    || no "teeth: MUTANT2 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT2" 2>/dev/null \
-    && ok "teeth: MUTANT2 parses (bash -n)" \
-    || no "teeth: MUTANT2 is a syntax error — mutation is theater"
-  home="$TMP/teeth-toml"; mkdir -p "$home/.codex"
-  printf '[mcp_servers.engram]\ncommand = "mine"\nargs = ["x"]\n' > "$home/.codex/config.toml"
-  bash "$MUTANT2" --home "$home" --harness codex >/dev/null 2>&1
-  n="$(grep -c '\[mcp_servers.engram\]' "$home/.codex/config.toml" 2>/dev/null || echo 0)"
-  [ "$n" -ge 2 ] && ok "teeth: guard-less mutant duplicates [mcp_servers.engram] → duplicate-table check has teeth" \
-    || no "teeth: mutant did not duplicate ($n) — duplicate-table check is THEATER"
-
-  echo "-- teeth: neuter the TOML orphan-skip, expect a duplicate [mcp_servers.engram] table --"
-  # Disable the orphan-skip guard on the TOML path so an orphaned '# research-sdd:start' carrying our own
-  # [mcp_servers.*] tables falls through to the append path — producing TWO [mcp_servers.engram] tables
-  # (illegal duplicate-table TOML). Proves the skip (not merely the warning) is what prevents corruption.
-  MUTANT3="$MKI/research-sdd-install.MUTANT3.$$.sh"
-  mutant_sed "$SUT" "$MUTANT3" 's/\[ "\$on_orphan" = skip \]/false/' \
-    || no "teeth: MUTANT3 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT3" 2>/dev/null \
-    && ok "teeth: MUTANT3 parses (bash -n)" \
-    || no "teeth: MUTANT3 is a syntax error — mutation is theater"
-  home="$TMP/teeth-orphan"; mkdir -p "$home/.codex"
-  printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp", "--tools=agent"]\n\n[mcp_servers.codegraph]\ncommand = "codegraph"\nargs = ["serve", "--mcp"]\n' \
-    > "$home/.codex/config.toml"
-  bash "$MUTANT3" --home "$home" --harness codex >/dev/null 2>&1
-  n="$(grep -c '\[mcp_servers.engram\]' "$home/.codex/config.toml" 2>/dev/null || echo 0)"
-  [ "$n" -ge 2 ] && ok "teeth: orphan-skip-less mutant duplicates [mcp_servers.engram] → orphan-skip has teeth" \
-    || no "teeth: mutant did not duplicate ($n) — orphan-skip check is THEATER"
-
   echo "-- teeth: collapse dry-run diverged label, expect test 32 [SKIP+--force-skill] check to fail --"
   # Break the diverged dry-run branch by replacing the [SKIP label with a neutral string, so the
   # grep for 'INSTALL.*SKIP.*--force-skill' no longer matches — test 32 goes red.
@@ -795,9 +500,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash -n "$MUTANT4" 2>/dev/null \
     && ok "teeth: MUTANT4 parses (bash -n)" \
     || no "teeth: MUTANT4 is a syntax error — mutation is theater"
-  home="$TMP/teeth-dryrun-diverged"; mkdir -p "$home/.codex/skills/research-sdd"
-  printf '# custom deployed content\n' > "$home/.codex/skills/research-sdd/SKILL.md"
-  out_m4="$(bash "$MUTANT4" --dry-run --home "$home" --harness codex 2>&1)"
+  home="$TMP/teeth-dryrun-diverged"; mkdir -p "$home/.claude/skills/research-sdd"
+  printf '# custom deployed content\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+  out_m4="$(bash "$MUTANT4" --dry-run --home "$home" --harness claude 2>&1)"
   if <<<"$out_m4" grep -q 'INSTALL.*SKIP.*--force-skill'; then
     no "teeth: mutant still matched [SKIP+--force-skill] — dry-run diverged check is THEATER"
   else
@@ -872,86 +577,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     chmod 644 "$m7kit/skills/research-sdd/SKILL.md"
   fi
 
-  echo "-- teeth: neuter plugins-array conflict guard; expect user name=\"engram\" to be shadowed --"
-  # Kill the grep conflict check so the installer appends its managed block even when the user
-  # already has name="engram". Because reasonix LAST-WINS silently, the user's entry is then
-  # shadowed with no warning — proves the conflict guard is what prevents silent data loss.
-  MUTANT8="$MKI/research-sdd-install.MUTANT8.$$.sh"
-  mutant_sed "$SUT" "$MUTANT8" 's/grep -Eq "\$conflict" "\$scan"/false/' \
-    || no "teeth: MUTANT8 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT8" 2>/dev/null \
-    && ok "teeth: MUTANT8 parses (bash -n)" \
-    || no "teeth: MUTANT8 is a syntax error — mutation is theater"
-  home="$TMP/teeth-rx-conflict"; mkdir -p "$home/.reasonix"
-  printf '[[plugins]]\nname    = "engram"\ncommand = "USER-FIRST"\nargs    = ["x"]\n' \
-    > "$home/.reasonix/config.toml"
-  bash "$MUTANT8" --home "$home" --harness reasonix >/dev/null 2>&1
-  n_eng="$(grep -c 'name.*=.*"engram"' "$home/.reasonix/config.toml" 2>/dev/null || echo 0)"
-  [ "$n_eng" -ge 2 ] \
-    && ok "teeth: guard-less mutant shadows user engram plugin → plugins-array conflict guard has teeth" \
-    || no "teeth: mutant did not shadow (name-engram lines=$n_eng) — plugins-array conflict guard is THEATER"
-
-  echo "-- teeth: kill shape dispatch in rsdd_render_mcp_toml; expect wrong table form for reasonix --"
-  # Replace the shape argument so the installer always requests the mcp-servers-table form.
-  # For reasonix, this emits [mcp_servers.engram] instead of [[plugins]] — the wrong form, proving
-  # the shape dispatch is what selects the correct TOML structure.
-  MUTANT9="$MKI/research-sdd-install.MUTANT9.$$.sh"
-  mutant_sed "$SUT" "$MUTANT9" 's/rsdd_render_mcp_toml "\$shape"/rsdd_render_mcp_toml "mcp-servers-table"/' \
-    || no "teeth: MUTANT9 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT9" 2>/dev/null \
-    && ok "teeth: MUTANT9 parses (bash -n)" \
-    || no "teeth: MUTANT9 is a syntax error — mutation is theater"
-  home_m9="$TMP/teeth-rx-shape"
-  bash "$MUTANT9" --home "$home_m9" --harness reasonix >/dev/null 2>&1
-  cfg_m9="$home_m9/.reasonix/config.toml"
-  if [ -f "$cfg_m9" ] && grep -q '\[mcp_servers.engram\]' "$cfg_m9" \
-     && ! grep -q '\[\[plugins\]\]' "$cfg_m9"; then
-    ok "teeth: shape-dispatch mutant emits wrong form ([mcp_servers.*] not [[plugins]]) → shape dispatch has teeth"
-  else
-    no "teeth: shape-dispatch mutant still produced [[plugins]] — shape dispatch check is THEATER"
-  fi
-
-  echo "-- teeth: neuter else fail-loud in rsdd_render_section; expect T-b silent-failure check to fail --"
-  # Remove the return 2 in the else branch so an unknown mcp_toml_shape exits 0 (silent) — the
-  # pre-fix behaviour. T-b's non-zero exit assertion then fails, proving the else is what makes it bite.
-  MUTANT10="$MKI/adapters.MUTANT10.$$.sh"
-  mutant_sed "$HERE/../adapters.sh" "$MUTANT10" '/rsdd_render_section: unknown mcp_toml_shape/{n; s/return 2/: # mutated/}' \
-    || no "teeth: MUTANT10 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT10" 2>/dev/null \
-    && ok "teeth: MUTANT10 parses (bash -n)" \
-    || no "teeth: MUTANT10 is a syntax error — mutation is theater"
-  ma_script="$TMP/ma-run.sh"
-  ma_bogus="$TMP/ma-adapters-bogus.sh"
-  sed 's/\[codex\]="mcp-servers-table"/[codex]="bogus-shape"/' "$MUTANT10" >"$ma_bogus"
-  # Pass a non-empty kit path so the kit-empty guard passes and the function reaches the
-  # mcp_toml_shape else branch — that is the branch MUTANT10 neutered.
-  printf '. %s\nrsdd_render_section codex %s %s\n' "$ma_bogus" "$TMP/ma-home" "$KITROOT" >"$ma_script"
-  bash "$ma_script" >/dev/null 2>/dev/null; rc_ma=$?
-  if [ "$rc_ma" -eq 0 ]; then
-    ok "teeth: else-neutered mutant exits 0 on unknown shape → T-b fail-loud check has teeth"
-  else
-    no "teeth: else-neutered mutant still exited $rc_ma — T-b fail-loud check is THEATER"
-  fi
-
-  echo "-- teeth: revert orphan-skip reason to wrong wording; expect T-c reasonix check to fail --"
-  # Replace the shape-correct plugins-array reason with the old one-size wording ("duplicate TOML
-  # table"). Reasonix orphan then warns with the wrong text — T-c's last-wins/shadowing grep fails.
-  MUTANT11="$MKI/research-sdd-install.MUTANT11.$$.sh"
-  mutant_sed "$SUT" "$MUTANT11" 's/last-wins shadowing/a duplicate TOML table/' \
-    || no "teeth: MUTANT11 could not be built (refused by the mutant helper — see above)"
-  bash -n "$MUTANT11" 2>/dev/null \
-    && ok "teeth: MUTANT11 parses (bash -n)" \
-    || no "teeth: MUTANT11 is a syntax error — mutation is theater"
-  home_m11="$TMP/teeth-m11-rx"; mkdir -p "$home_m11/.reasonix"
-  printf '# research-sdd:start\n[[plugins]]\nname = "engram"\ncommand = "engram"\n' \
-    > "$home_m11/.reasonix/config.toml"
-  err_m11="$(bash "$MUTANT11" --home "$home_m11" --harness reasonix 2>&1 >/dev/null)"
-  if <<<"$err_m11" grep -qi 'last-wins\|shadowing'; then
-    no "teeth: wrong-reason mutant still matched last-wins/shadowing — T-c reasonix check is THEATER"
-  else
-    ok "teeth: wrong-reason mutant fails last-wins/shadowing grep → T-c reasonix check has teeth"
-  fi
-
   echo "-- teeth: remove 'Kit path:' from adapters.sh; expect test-52 'Kit path:' check to fail --"
   # Strip the Kit path: printf line from adapters.sh so the rendered section no longer carries the
   # fast-path anchor. Test 52's 'Kit path:' grep must then fail — proving the emit is what bites.
@@ -973,6 +598,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     ok "teeth: MUTANT12 omits 'Kit path:' → test-52 Kit path check has teeth"
   fi
+
+  echo "-- teeth: re-add codex / reasonix to the adapter table; expect the dropped-harness checks (#1471) to fail --"
+  # Mutant A re-adds codex to RESEARCH_SDD_HARNESSES (so the supported list and the unknown-harness
+  # message name it). Mutant B re-registers reasonix's config root, so `--harness reasonix` no longer
+  # hits the unknown-harness exit 2. Each is run through the same assertions as the live checks.
+  MUTANT30A="$MKI/adapters.MUTANT30A.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT30A" 's/^RESEARCH_SDD_HARNESSES="claude pi gentle-shell"/RESEARCH_SDD_HARNESSES="claude codex pi gentle-shell"/' \
+    || no "teeth: MUTANT30A could not be built (refused by the mutant helper — see above)"
+  MUTANT30B="$MKI/adapters.MUTANT30B.$$.sh"
+  mutant_sed "$HERE/../adapters.sh" "$MUTANT30B" 's/^  \[pi\]=".pi\/agent"$/&\n  [reasonix]=".reasonix"/;s/^  \[pi\]="general"$/&\n  [reasonix]="claude"/' \
+    || no "teeth: MUTANT30B could not be built (refused by the mutant helper — see above)"
+  m30kit="$TMP/m30-fake-kit"
+  mkdir -p "$m30kit/install" "$m30kit/skills/research-sdd"
+  cp "$HERE/../research-sdd-install.sh" "$m30kit/install/research-sdd-install.sh"
+  printf '# placeholder skill\n' > "$m30kit/skills/research-sdd/SKILL.md"
+  cp "$MUTANT30A" "$m30kit/install/adapters.sh"
+  err_m30a="$(bash "$m30kit/install/research-sdd-install.sh" --harness bogus --home "$TMP/m30a-home" 2>&1)"
+  if <<<"$err_m30a" grep -q 'known: claude pi gentle-shell all'; then
+    no "teeth: codex-re-added mutant still reports the exact supported list — the supported-list check is THEATER"
+  else ok "teeth: re-adding codex to RESEARCH_SDD_HARNESSES changes the supported list → the supported-list check has teeth"; fi
+  cp "$MUTANT30B" "$m30kit/install/adapters.sh"
+  bash "$m30kit/install/research-sdd-install.sh" --harness reasonix --home "$TMP/m30b-home" >/dev/null 2>&1; rc_m30b=$?
+  if [ "$rc_m30b" -eq 2 ]; then
+    no "teeth: reasonix-re-registered mutant still exits 2 — the dropped-harness check is THEATER"
+  else ok "teeth: re-registering reasonix makes '--harness reasonix' stop failing with exit 2 → the dropped-harness check has teeth"; fi
 
 fi
 
@@ -1044,7 +694,7 @@ fi
 
 # ── kit issue #993 WU2: install-time prompt-profile selection ────────────────────────────────
 # 53 — profile precedence: --profile flag > $RESEARCH_SDD_PROFILE env > per-harness default
-#      (adapters.sh _RSDD_DEFAULT_PROFILE: claude=claude, codex=claude, reasonix=general).
+#      (adapters.sh _RSDD_DEFAULT_PROFILE: claude=claude, pi=general, gentle-shell=general).
 out_53a="$(bash "$SUT" --dry-run --home "$TMP/prec-a" --harness claude --profile general 2>&1)"
 <<<"$out_53a" grep -q 'profile=general (source=flag)' \
   && ok "53a: --profile flag selects the profile and reports source=flag" \
@@ -1060,15 +710,15 @@ out_53c="$(RESEARCH_SDD_PROFILE=general bash "$SUT" --dry-run --home "$TMP/prec-
   && ok "53c: --profile flag wins over \$RESEARCH_SDD_PROFILE env (precedence)" \
   || no "53c: flag did not win over env (got: $(printf '%s' "$out_53c" | grep profile=)))"
 
-out_53d="$(bash "$SUT" --dry-run --home "$TMP/prec-d" --harness reasonix 2>&1)"
+out_53d="$(bash "$SUT" --dry-run --home "$TMP/prec-d" --harness pi 2>&1)"
 <<<"$out_53d" grep -q 'profile=general (source=default)' \
-  && ok "53d: reasonix falls back to its per-harness default (general)" \
-  || no "53d: reasonix default wrong (got: $(printf '%s' "$out_53d" | grep profile=)))"
+  && ok "53d: pi falls back to its per-harness default (general)" \
+  || no "53d: pi default wrong (got: $(printf '%s' "$out_53d" | grep profile=)))"
 
-out_53e="$(bash "$SUT" --dry-run --home "$TMP/prec-e" --harness codex 2>&1)"
+out_53e="$(bash "$SUT" --dry-run --home "$TMP/prec-e" --harness claude 2>&1)"
 <<<"$out_53e" grep -q 'profile=claude (source=default)' \
-  && ok "53e: codex falls back to its per-harness default (claude)" \
-  || no "53e: codex default wrong (got: $(printf '%s' "$out_53e" | grep profile=)))"
+  && ok "53e: claude falls back to its per-harness default (claude)" \
+  || no "53e: claude default wrong (got: $(printf '%s' "$out_53e" | grep profile=)))"
 
 # 54 — unknown profile → exit 2 with a clear message; nothing written to the filesystem.
 #      Both entry points (--profile flag and $RESEARCH_SDD_PROFILE env) are validated.
@@ -1112,8 +762,8 @@ else no "55: profile=claude SKILL.md diverged from kit source"; fi
 #      for. Any distinguishing string proves the SAME thing (render reached the install); this one
 #      is additionally correct doctrine.
 home_56="$TMP/general-real"
-bash "$SUT" --home "$home_56" --harness reasonix >/dev/null 2>&1
-pf_56="$home_56/.reasonix/AGENTS.md"
+bash "$SUT" --home "$home_56" --harness pi >/dev/null 2>&1
+pf_56="$home_56/.pi/agent/AGENTS.md"
 kitpath_56="$(grep '^Kit path:' "$pf_56" 2>/dev/null | sed 's/^Kit path: //')"
 kitpath_56_expanded="${kitpath_56/#\~/"$home_56"}"
 if [ -n "$kitpath_56" ] && [ -f "$kitpath_56_expanded/PROMPT-LOOP.md" ] \
@@ -1123,8 +773,8 @@ else no "56: Kit-path resolution did not reach a rendered PROMPT-LOOP.md (kitpat
 if grep -q '(read IN FULL once per context)' "$KITROOT/PROMPT-LOOP.md"; then
   no "56 sanity: kit source PROMPT-LOOP.md already contains the rendered text — test cannot discriminate"
 else ok "56 sanity: kit source PROMPT-LOOP.md does not contain the rendered text (test discriminates)"; fi
-sf_56="$home_56/.reasonix/skills/research-sdd/SKILL.md"
-render_56="$home_56/.reasonix/research-sdd/profile/general/skills/research-sdd/SKILL.md"
+sf_56="$home_56/.pi/agent/skills/research-sdd/SKILL.md"
+render_56="$home_56/.pi/agent/research-sdd/profile/general/skills/research-sdd/SKILL.md"
 if [ -f "$sf_56" ] && [ -f "$render_56" ] && cmp -s "$sf_56" "$render_56"; then
   ok "56: installed SKILL.md matches the rendered profile output"
 else no "56: installed SKILL.md does not match the rendered profile output"; fi
@@ -1132,10 +782,10 @@ else no "56: installed SKILL.md does not match the rendered profile output"; fi
 # 57 — re-running install for a rendered profile must not leave STALE renders: a leftover file
 #      from a prior render (e.g. a slot id later removed from the profile) does not survive.
 home_57="$TMP/stale-render"
-bash "$SUT" --home "$home_57" --harness reasonix >/dev/null 2>&1
-render_dir_57="$home_57/.reasonix/research-sdd/profile/general"
+bash "$SUT" --home "$home_57" --harness pi >/dev/null 2>&1
+render_dir_57="$home_57/.pi/agent/research-sdd/profile/general"
 echo "stale leftover from a prior render" > "$render_dir_57/STALE-MARKER.txt"
-bash "$SUT" --home "$home_57" --harness reasonix >/dev/null 2>&1
+bash "$SUT" --home "$home_57" --harness pi >/dev/null 2>&1
 [ ! -e "$render_dir_57/STALE-MARKER.txt" ] \
   && ok "57: stale file from a prior render is cleaned on re-install" \
   || no "57: stale render file survived a re-install"
@@ -1160,23 +810,23 @@ else no "58: render-dir cleaner did not refuse an out-of-convention dir (got: $o
 #    --force-skill ignored, and the dry-run plan always printed a bare INSTALL even when diverged.
 # 59 — dry-run on a DIVERGED deployed skill (rendered profile) prints SKIP and names
 #      --force-skill as the remedy — mirrors test 32 for the render leg.
-home_59="$TMP/dryrun-diverged-render"; mkdir -p "$home_59/.reasonix/skills/research-sdd"
-printf '# custom deployed content — not the rendered profile\n' > "$home_59/.reasonix/skills/research-sdd/SKILL.md"
-out_59="$(bash "$SUT" --dry-run --home "$home_59" --harness reasonix 2>&1)"
+home_59="$TMP/dryrun-diverged-render"; mkdir -p "$home_59/.pi/agent/skills/research-sdd"
+printf '# custom deployed content — not the rendered profile\n' > "$home_59/.pi/agent/skills/research-sdd/SKILL.md"
+out_59="$(bash "$SUT" --dry-run --home "$home_59" --harness pi 2>&1)"
 if <<<"$out_59" grep -q 'INSTALL.*SKIP.*--force-skill'; then
   ok "59: dry-run diverged (rendered profile): shows SKIP and names --force-skill remedy"
 else no "59: dry-run diverged (rendered profile): plan wrong (got: $(printf '%s\n' "$out_59" | grep INSTALL || true))"; fi
-[ ! -f "$home_59/.reasonix/skills/research-sdd/SKILL.md.local-backup" ] \
+[ ! -f "$home_59/.pi/agent/skills/research-sdd/SKILL.md.local-backup" ] \
   && ok "59: dry-run diverged (rendered profile): no backup created" \
   || no "59: dry-run diverged (rendered profile): backup created unexpectedly"
 
 # 60 — a plain re-install (no flags) of a rendered profile with a hand-edited deployed skill must
 #      NOT clobber it (this used to silently overwrite unconditionally — the finding's core claim).
 home_60="$TMP/render-noclobber"
-bash "$SUT" --home "$home_60" --harness reasonix >/dev/null 2>&1
-sf_60="$home_60/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_60" --harness pi >/dev/null 2>&1
+sf_60="$home_60/.pi/agent/skills/research-sdd/SKILL.md"
 printf '# my hand-edited deployed skill — local delta\n' > "$sf_60"
-err_60="$(bash "$SUT" --home "$home_60" --harness reasonix 2>&1 >/dev/null)"
+err_60="$(bash "$SUT" --home "$home_60" --harness pi 2>&1 >/dev/null)"
 if grep -q 'my hand-edited deployed skill' "$sf_60"; then
   ok "60: rendered-profile re-install preserves a hand-edited deployed SKILL.md (data-loss regression fixed)"
 else no "60: rendered-profile re-install CLOBBERED a hand-edited deployed SKILL.md (DATA LOSS)"; fi
@@ -1187,12 +837,12 @@ else no "60: rendered-profile re-install CLOBBERED a hand-edited deployed SKILL.
 # 61 — --force-skill overwrites a diverged deployed skill on the rendered-profile leg, backing it
 #      up first — same contract as test 34 for the claude/kit-source leg.
 home_61="$TMP/render-force-overwrite"
-bash "$SUT" --home "$home_61" --harness reasonix >/dev/null 2>&1
-sf_61="$home_61/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_61" --harness pi >/dev/null 2>&1
+sf_61="$home_61/.pi/agent/skills/research-sdd/SKILL.md"
 printf '# custom local content — NOT the rendered profile\nmy local delta\n' > "$sf_61"
-bash "$SUT" --force-skill --home "$home_61" --harness reasonix >/dev/null 2>&1
+bash "$SUT" --force-skill --home "$home_61" --harness pi >/dev/null 2>&1
 bak_61="$sf_61.local-backup"
-render_61="$home_61/.reasonix/research-sdd/profile/general/skills/research-sdd/SKILL.md"
+render_61="$home_61/.pi/agent/research-sdd/profile/general/skills/research-sdd/SKILL.md"
 if [ -f "$render_61" ] && cmp -s "$sf_61" "$render_61"; then
   ok "61: --force-skill installs the rendered profile over a diverged deployed skill"
 else no "61: --force-skill did not install the rendered profile (still diverged or missing)"; fi
@@ -1204,12 +854,12 @@ else no "61: --force-skill backup missing or does not contain original content (
 #      INSTALL — mirrors test 31 for the render leg; also proves the dry-run classification diffs
 #      against the ACTUAL rendered bytes, not a stale or placeholder comparison.
 home_62="$TMP/dryrun-identical-render"
-bash "$SUT" --home "$home_62" --harness reasonix >/dev/null 2>&1
-out_62="$(bash "$SUT" --dry-run --home "$home_62" --harness reasonix 2>&1)"
+bash "$SUT" --home "$home_62" --harness pi >/dev/null 2>&1
+out_62="$(bash "$SUT" --dry-run --home "$home_62" --harness pi 2>&1)"
 if <<<"$out_62" grep -q 'INSTALL.*\[up-to-date\]'; then
   ok "62: dry-run identical (rendered profile): shows [up-to-date]"
 else no "62: dry-run identical (rendered profile): missing [up-to-date] (got: $(printf '%s\n' "$out_62" | grep INSTALL || true))"; fi
-[ ! -f "$home_62/.reasonix/skills/research-sdd/SKILL.md.local-backup" ] \
+[ ! -f "$home_62/.pi/agent/skills/research-sdd/SKILL.md.local-backup" ] \
   && ok "62: dry-run identical (rendered profile): no backup created" \
   || no "62: dry-run identical (rendered profile): backup created unexpectedly"
 
@@ -1257,8 +907,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && ok "teeth: MUTANT15 parses (bash -n)" \
     || no "teeth: MUTANT15 is a syntax error — mutation is theater"
   home_m15="$TMP/teeth-m15-kitpath"
-  bash "$MUTANT15" --home "$home_m15" --harness reasonix >/dev/null 2>&1
-  kp_m15="$(grep '^Kit path:' "$home_m15/.reasonix/AGENTS.md" 2>/dev/null | sed 's/^Kit path: //')"
+  bash "$MUTANT15" --home "$home_m15" --harness pi >/dev/null 2>&1
+  kp_m15="$(grep '^Kit path:' "$home_m15/.pi/agent/AGENTS.md" 2>/dev/null | sed 's/^Kit path: //')"
   if <<<"$kp_m15" grep -q 'research-sdd/profile/general'; then
     no "teeth: MUTANT15 still pointed Kit path at the render dir — kit_for_section wiring check is THEATER"
   else
@@ -1273,10 +923,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && ok "teeth: MUTANT16 parses (bash -n)" \
     || no "teeth: MUTANT16 is a syntax error — mutation is theater"
   home_m16="$TMP/teeth-m16-stale"
-  bash "$MUTANT16" --home "$home_m16" --harness reasonix >/dev/null 2>&1
-  render_dir_m16="$home_m16/.reasonix/research-sdd/profile/general"
+  bash "$MUTANT16" --home "$home_m16" --harness pi >/dev/null 2>&1
+  render_dir_m16="$home_m16/.pi/agent/research-sdd/profile/general"
   echo "stale" > "$render_dir_m16/STALE-MARKER.txt"
-  bash "$MUTANT16" --home "$home_m16" --harness reasonix >/dev/null 2>&1
+  bash "$MUTANT16" --home "$home_m16" --harness pi >/dev/null 2>&1
   if [ -e "$render_dir_m16/STALE-MARKER.txt" ]; then
     ok "teeth: MUTANT16 (clean skipped) leaves the stale marker → stale-render cleanup check has teeth"
   else
@@ -1459,8 +1109,8 @@ fi
 # entry under the rendered skills/ subtree, is symlinked into the render dir — only the 3 rendered
 # files (and the skills/research-sdd/ directory that holds one of them) stay real.
 home_f1="$TMP/f1-kitrefs"
-bash "$SUT" --home "$home_f1" --harness reasonix >/dev/null 2>&1
-render_root_f1="$home_f1/.reasonix/research-sdd/profile/general"
+bash "$SUT" --home "$home_f1" --harness pi >/dev/null 2>&1
+render_root_f1="$home_f1/.pi/agent/research-sdd/profile/general"
 skill_f1="$render_root_f1/skills/research-sdd/SKILL.md"
 loop_f1="$render_root_f1/PROMPT-LOOP.md"
 
@@ -1606,12 +1256,12 @@ fi
 # pre-existing hand-edit on the SAME profile (R3's own behaviour, tests 60/F4d) is unaffected,
 # since old_profile == new profile there.
 home_it3="$TMP/item3-mixed-state"
-bash "$SUT" --home "$home_it3" --harness reasonix --profile general >/dev/null 2>&1
-sf_it3="$home_it3/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_it3" --harness pi --profile general >/dev/null 2>&1
+sf_it3="$home_it3/.pi/agent/skills/research-sdd/SKILL.md"
 printf '# hand-edited — a real local delta\n' >> "$sf_it3"
-launcher_it3="$home_it3/.reasonix/AGENTS.md"
+launcher_it3="$home_it3/.pi/agent/AGENTS.md"
 launcher_before_it3="$(cat "$launcher_it3" 2>/dev/null)"
-err_it3="$(bash "$SUT" --home "$home_it3" --harness reasonix --profile claude 2>&1 >/dev/null)"; rc_it3=$?
+err_it3="$(bash "$SUT" --home "$home_it3" --harness pi --profile claude 2>&1 >/dev/null)"; rc_it3=$?
 launcher_after_it3="$(cat "$launcher_it3" 2>/dev/null)"
 if [ "$rc_it3" -ne 0 ] && grep -q 'hand-edited — a real local delta' "$sf_it3"; then
   ok "item3: switch keeping a hand-edit exits non-zero (mixed-state signal), content still preserved"
@@ -1642,10 +1292,10 @@ fi
 # contradiction (the preview promises something the real run would refuse). Reproduced the exact
 # same way as item3/item4, with --dry-run added on the second call.
 home_r3dr="$TMP/r3-dry-run-switch-warn"
-bash "$SUT" --home "$home_r3dr" --harness reasonix --profile general >/dev/null 2>&1
-sf_r3dr="$home_r3dr/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_r3dr" --harness pi --profile general >/dev/null 2>&1
+sf_r3dr="$home_r3dr/.pi/agent/skills/research-sdd/SKILL.md"
 printf '# hand-edited — a real local delta\n' >> "$sf_r3dr"
-out_r3dr="$(bash "$SUT" --home "$home_r3dr" --harness reasonix --profile claude --dry-run 2>&1)"; rc_r3dr=$?
+out_r3dr="$(bash "$SUT" --home "$home_r3dr" --harness pi --profile claude --dry-run 2>&1)"; rc_r3dr=$?
 if [ "$rc_r3dr" -ne 0 ] \
    && <<<"$out_r3dr" grep -q 'RDD R4-001' \
    && <<<"$out_r3dr" grep -q 'SKIP.*launcher rewrite skipped' \
@@ -1663,11 +1313,11 @@ fi
 # no-op'd silently (rm -rf on a directory that never existed). rsdd_valid_profile is now run on the
 # marker's profile= value BEFORE any path is built, so an invalid value is reported explicitly.
 home_mval="$TMP/marker-validate"
-bash "$SUT" --home "$home_mval" --harness reasonix --profile general >/dev/null 2>&1
-marker_mval="$home_mval/.reasonix/research-sdd/.installed-skill-state"
-sha_mval="$(sha256sum "$home_mval/.reasonix/skills/research-sdd/SKILL.md" | awk '{print $1}')"
+bash "$SUT" --home "$home_mval" --harness pi --profile general >/dev/null 2>&1
+marker_mval="$home_mval/.pi/agent/research-sdd/.installed-skill-state"
+sha_mval="$(sha256sum "$home_mval/.pi/agent/skills/research-sdd/SKILL.md" | awk '{print $1}')"
 printf 'profile=not-a-real-profile\nsha256=%s\n' "$sha_mval" > "$marker_mval"
-err_mval="$(bash "$SUT" --home "$home_mval" --harness reasonix --profile claude 2>&1 >/dev/null)"
+err_mval="$(bash "$SUT" --home "$home_mval" --harness pi --profile claude 2>&1 >/dev/null)"
 if <<<"$err_mval" grep -qi "invalid profile 'not-a-real-profile'"; then
   ok "marker-validate: an invalid marker profile= value is explicitly refused before the clean"
 else
@@ -1689,9 +1339,9 @@ fi
 # F4a/b: general → claude — clean switch: SKILL.md becomes byte-identical to the kit source (no
 # "diverged" warning), and the orphaned general/ render dir is removed.
 home_f4="$TMP/f4-switch"
-bash "$SUT" --home "$home_f4" --harness reasonix --profile general >/dev/null 2>&1
-err_f4a="$(bash "$SUT" --home "$home_f4" --harness reasonix --profile claude 2>&1 >/dev/null)"
-sf_f4="$home_f4/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_f4" --harness pi --profile general >/dev/null 2>&1
+err_f4a="$(bash "$SUT" --home "$home_f4" --harness pi --profile claude 2>&1 >/dev/null)"
+sf_f4="$home_f4/.pi/agent/skills/research-sdd/SKILL.md"
 if cmp -s "$sf_f4" "$KITROOT/skills/research-sdd/SKILL.md"; then
   ok "F4a: general → claude switch installs the claude kit source byte-identically"
 else
@@ -1702,7 +1352,7 @@ if <<<"$err_f4a" grep -qi 'diverged'; then
 else
   ok "F4a: general → claude switch produced no spurious 'diverged' warning"
 fi
-if [ ! -e "$home_f4/.reasonix/research-sdd/profile/general" ]; then
+if [ ! -e "$home_f4/.pi/agent/research-sdd/profile/general" ]; then
   ok "F4b: the orphaned general/ render dir is removed after switching to claude"
 else
   no "F4b: the orphaned general/ render dir survived the switch to claude"
@@ -1711,27 +1361,27 @@ fi
 # F4c: general → claude → general → claude round trip ends in a clean claude state (matches the
 # review's own round-trip scenario). Each hop must stay clean — no accumulated divergence.
 home_f4c="$TMP/f4-roundtrip"
-bash "$SUT" --home "$home_f4c" --harness reasonix --profile general >/dev/null 2>&1
-bash "$SUT" --home "$home_f4c" --harness reasonix --profile claude  >/dev/null 2>&1
-bash "$SUT" --home "$home_f4c" --harness reasonix --profile general >/dev/null 2>&1
-err_f4c="$(bash "$SUT" --home "$home_f4c" --harness reasonix --profile claude 2>&1 >/dev/null)"
-sf_f4c="$home_f4c/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_f4c" --harness pi --profile general >/dev/null 2>&1
+bash "$SUT" --home "$home_f4c" --harness pi --profile claude  >/dev/null 2>&1
+bash "$SUT" --home "$home_f4c" --harness pi --profile general >/dev/null 2>&1
+err_f4c="$(bash "$SUT" --home "$home_f4c" --harness pi --profile claude 2>&1 >/dev/null)"
+sf_f4c="$home_f4c/.pi/agent/skills/research-sdd/SKILL.md"
 if cmp -s "$sf_f4c" "$KITROOT/skills/research-sdd/SKILL.md" \
    && ! <<<"$err_f4c" grep -qi 'diverged' \
-   && [ ! -e "$home_f4c/.reasonix/research-sdd/profile/general" ]; then
+   && [ ! -e "$home_f4c/.pi/agent/research-sdd/profile/general" ]; then
   ok "F4c: general→claude→general→claude round trip ends in a clean claude state"
 else
-  no "F4c: round trip did not end clean (identical=$(cmp -s "$sf_f4c" "$KITROOT/skills/research-sdd/SKILL.md" && echo yes || echo no), diverged-warned=$(<<<"$err_f4c" grep -qi diverged && echo yes || echo no), stale-dir=$([ -e "$home_f4c/.reasonix/research-sdd/profile/general" ] && echo yes || echo no))"
+  no "F4c: round trip did not end clean (identical=$(cmp -s "$sf_f4c" "$KITROOT/skills/research-sdd/SKILL.md" && echo yes || echo no), diverged-warned=$(<<<"$err_f4c" grep -qi diverged && echo yes || echo no), stale-dir=$([ -e "$home_f4c/.pi/agent/research-sdd/profile/general" ] && echo yes || echo no))"
 fi
 
 # F4d: regression guard — a GENUINE hand-edit made AFTER a clean switch is still detected and
 # preserved (warn+keep), never silently treated as "managed" just because a marker exists.
 home_f4d="$TMP/f4-handedit-after-switch"
-bash "$SUT" --home "$home_f4d" --harness reasonix --profile general >/dev/null 2>&1
-bash "$SUT" --home "$home_f4d" --harness reasonix --profile claude  >/dev/null 2>&1
-sf_f4d="$home_f4d/.reasonix/skills/research-sdd/SKILL.md"
+bash "$SUT" --home "$home_f4d" --harness pi --profile general >/dev/null 2>&1
+bash "$SUT" --home "$home_f4d" --harness pi --profile claude  >/dev/null 2>&1
+sf_f4d="$home_f4d/.pi/agent/skills/research-sdd/SKILL.md"
 printf '# hand-edited after the switch — a real local delta\n' >> "$sf_f4d"
-err_f4d="$(bash "$SUT" --home "$home_f4d" --harness reasonix --profile claude 2>&1 >/dev/null)"
+err_f4d="$(bash "$SUT" --home "$home_f4d" --harness pi --profile claude 2>&1 >/dev/null)"
 if grep -q 'hand-edited after the switch' "$sf_f4d" && <<<"$err_f4d" grep -qi 'diverged'; then
   ok "F4d: a genuine hand-edit made after a clean switch is still detected and preserved"
 else
@@ -1753,8 +1403,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT20 pre-check: mutant differs (linking step skipped)"
   fi
   home_m20="$TMP/teeth-m20-kitrefs"
-  bash "$MUTANT20" --home "$home_m20" --harness reasonix >/dev/null 2>&1
-  render_root_m20="$home_m20/.reasonix/research-sdd/profile/general"
+  bash "$MUTANT20" --home "$home_m20" --harness pi >/dev/null 2>&1
+  render_root_m20="$home_m20/.pi/agent/research-sdd/profile/general"
   # Reproduces the pre-fix bug directly: with linking skipped, toolbelt/ (and everything else
   # outside the 3 rendered files) never appears under the render dir at all.
   if [ -e "$render_root_m20/toolbelt" ] || [ -e "$render_root_m20/TARGETS.md" ]; then
@@ -1815,9 +1465,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT21 pre-check: mutant differs (marker-match check disabled)"
   fi
   home_m21="$TMP/teeth-m21-switch"
-  bash "$MUTANT21" --home "$home_m21" --harness reasonix --profile general >/dev/null 2>&1
-  err_m21="$(bash "$MUTANT21" --home "$home_m21" --harness reasonix --profile claude 2>&1 >/dev/null)"
-  sf_m21="$home_m21/.reasonix/skills/research-sdd/SKILL.md"
+  bash "$MUTANT21" --home "$home_m21" --harness pi --profile general >/dev/null 2>&1
+  err_m21="$(bash "$MUTANT21" --home "$home_m21" --harness pi --profile claude 2>&1 >/dev/null)"
+  sf_m21="$home_m21/.pi/agent/skills/research-sdd/SKILL.md"
   if cmp -s "$sf_m21" "$KITROOT/skills/research-sdd/SKILL.md" && ! <<<"$err_m21" grep -qi 'diverged'; then
     no "teeth: MUTANT21 still switched cleanly — marker-match check is THEATER"
   else
@@ -1837,9 +1487,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT22 pre-check: mutant differs (orphan-cleanup disabled)"
   fi
   home_m22="$TMP/teeth-m22-switch"
-  bash "$MUTANT22" --home "$home_m22" --harness reasonix --profile general >/dev/null 2>&1
-  bash "$MUTANT22" --home "$home_m22" --harness reasonix --profile claude >/dev/null 2>&1
-  if [ -e "$home_m22/.reasonix/research-sdd/profile/general" ]; then
+  bash "$MUTANT22" --home "$home_m22" --harness pi --profile general >/dev/null 2>&1
+  bash "$MUTANT22" --home "$home_m22" --harness pi --profile claude >/dev/null 2>&1
+  if [ -e "$home_m22/.pi/agent/research-sdd/profile/general" ]; then
     ok "teeth: MUTANT22 (orphan-cleanup disabled) leaves the stale general/ render dir → F4b cleanup check has teeth"
   else
     no "teeth: MUTANT22 still cleaned the orphaned render dir — F4b cleanup check is THEATER"
@@ -1880,10 +1530,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT24 pre-check: mutant differs (mixed-state guard disabled)"
   fi
   home_m24="$TMP/teeth-m24-mixed"
-  bash "$MUTANT24" --home "$home_m24" --harness reasonix --profile general >/dev/null 2>&1
-  sf_m24="$home_m24/.reasonix/skills/research-sdd/SKILL.md"
+  bash "$MUTANT24" --home "$home_m24" --harness pi --profile general >/dev/null 2>&1
+  sf_m24="$home_m24/.pi/agent/skills/research-sdd/SKILL.md"
   printf '# hand-edited — a real local delta\n' >> "$sf_m24"
-  bash "$MUTANT24" --home "$home_m24" --harness reasonix --profile claude >/dev/null 2>&1; rc_m24=$?
+  bash "$MUTANT24" --home "$home_m24" --harness pi --profile claude >/dev/null 2>&1; rc_m24=$?
   if [ "$rc_m24" -eq 0 ]; then
     ok "teeth: MUTANT24 (guard disabled) silently exits 0 on a mixed state → item3 check has teeth"
   else
@@ -1903,11 +1553,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT25 pre-check: mutant differs (marker-profile validation disabled)"
   fi
   home_m25="$TMP/teeth-m25-marker"
-  bash "$MUTANT25" --home "$home_m25" --harness reasonix --profile general >/dev/null 2>&1
-  marker_m25="$home_m25/.reasonix/research-sdd/.installed-skill-state"
-  sha_m25="$(sha256sum "$home_m25/.reasonix/skills/research-sdd/SKILL.md" | awk '{print $1}')"
+  bash "$MUTANT25" --home "$home_m25" --harness pi --profile general >/dev/null 2>&1
+  marker_m25="$home_m25/.pi/agent/research-sdd/.installed-skill-state"
+  sha_m25="$(sha256sum "$home_m25/.pi/agent/skills/research-sdd/SKILL.md" | awk '{print $1}')"
   printf 'profile=not-a-real-profile\nsha256=%s\n' "$sha_m25" > "$marker_m25"
-  err_m25="$(bash "$MUTANT25" --home "$home_m25" --harness reasonix --profile claude 2>&1 >/dev/null)"
+  err_m25="$(bash "$MUTANT25" --home "$home_m25" --harness pi --profile claude 2>&1 >/dev/null)"
   if ! <<<"$err_m25" grep -qi "invalid profile 'not-a-real-profile'"; then
     ok "teeth: MUTANT25 (validation disabled) no longer reports the invalid marker profile → marker-validate has teeth"
   else
@@ -1927,12 +1577,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT26 pre-check: mutant differs (launcher-skip check disabled)"
   fi
   home_m26="$TMP/teeth-m26-launcher-skip"
-  bash "$MUTANT26" --home "$home_m26" --harness reasonix --profile general >/dev/null 2>&1
-  sf_m26="$home_m26/.reasonix/skills/research-sdd/SKILL.md"
+  bash "$MUTANT26" --home "$home_m26" --harness pi --profile general >/dev/null 2>&1
+  sf_m26="$home_m26/.pi/agent/skills/research-sdd/SKILL.md"
   printf '# hand-edited — a real local delta\n' >> "$sf_m26"
-  launcher_m26="$home_m26/.reasonix/AGENTS.md"
+  launcher_m26="$home_m26/.pi/agent/AGENTS.md"
   launcher_before_m26="$(cat "$launcher_m26" 2>/dev/null)"
-  bash "$MUTANT26" --home "$home_m26" --harness reasonix --profile claude >/dev/null 2>&1
+  bash "$MUTANT26" --home "$home_m26" --harness pi --profile claude >/dev/null 2>&1
   launcher_after_m26="$(cat "$launcher_m26" 2>/dev/null)"
   if [ "$launcher_before_m26" != "$launcher_after_m26" ]; then
     ok "teeth: MUTANT26 (launcher-skip disabled) rewrites the launcher despite the blocked switch → item4 check has teeth"
@@ -1962,10 +1612,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT27 pre-check: mutant differs (dry-run WARN no longer signals/returns failure)"
   fi
   home_m27="$TMP/teeth-m27-dryrun-warn"
-  bash "$MUTANT27" --home "$home_m27" --harness reasonix --profile general >/dev/null 2>&1
-  sf_m27="$home_m27/.reasonix/skills/research-sdd/SKILL.md"
+  bash "$MUTANT27" --home "$home_m27" --harness pi --profile general >/dev/null 2>&1
+  sf_m27="$home_m27/.pi/agent/skills/research-sdd/SKILL.md"
   printf '# hand-edited — a real local delta\n' >> "$sf_m27"
-  out_m27="$(bash "$MUTANT27" --home "$home_m27" --harness reasonix --profile claude --dry-run 2>&1)"; rc_m27=$?
+  out_m27="$(bash "$MUTANT27" --home "$home_m27" --harness pi --profile claude --dry-run 2>&1)"; rc_m27=$?
   if [ "$rc_m27" -eq 0 ] || <<<"$out_m27" grep -q 'SPLICE.*AGENTS\.md'; then
     ok "teeth: MUTANT27 (return neutered) dry-run exits 0 and/or previews the launcher SPLICE again → R3-dry-run-switch-warn check has teeth"
   else
@@ -1994,7 +1644,7 @@ else no "hermetic snapshot depends on GNU find -printf (rc=$_pf_rc, snapshot=[$_
 # Pi + gentle-shell harnesses. Both surface the skill under an agent dir (~/.pi/agent,
 # ~/.gentle-shell/agent) AND deploy a slash-command PROMPT TEMPLATE (prompts/research-sdd.md) so Pi's
 # `/research-sdd` exists. The template is an OPTIONAL adapter-table field (_RSDD_PROMPT_TEMPLATE_REL):
-# empty for claude/codex/reasonix, so their behaviour is unchanged.
+# empty for claude, so its behaviour is unchanged.
 # ======================================================================================================
 _pi_rows="pi:.pi/agent gentle-shell:.gentle-shell/agent"
 
@@ -2008,7 +1658,8 @@ for row in $_pi_rows; do
     && ok "adapter: $h prompt_template_path = <home>/$rel/prompts/research-sdd.md" \
     || no "adapter: $h prompt_template_path wrong (got: $got)"
 done
-for h in claude codex reasonix; do
+_no_tmpl_harnesses="claude"
+for h in $_no_tmpl_harnesses; do
   got="$(bash "$_pi_driver" "$h" /H 2>&1)"
   [ "$got" = "$(printf '\nRC=0')" ] \
     && ok "adapter: $h prompt_template_path is empty (no template for this harness)" \
@@ -2033,13 +1684,13 @@ for row in $_pi_rows; do
      && grep -q '^argument-hint: ' "$tp" && grep -qF '$ARGUMENTS' "$tp" && grep -qF "$sk" "$tp"; then
     ok "$h: prompts/research-sdd.md has frontmatter description + argument-hint, \$ARGUMENTS, and the absolute skill path"
   else no "$h: prompt template missing/incomplete at $tp"; fi
-  # AGENTS.md launcher + manual sweep block, no MCP doc
+  # AGENTS.md launcher + manual sweep block, no MCP doc (the kit registers no MCP servers)
   pf="$root/AGENTS.md"
   if grep -qF "Skill file: $sk" "$pf" 2>/dev/null && grep -q '^Kit path: ' "$pf" && grep -q 'sweep-retros.sh' "$pf"; then
     ok "$h: AGENTS.md launcher carries Skill file / Kit path and the manual sweep block"
   else no "$h: AGENTS.md launcher incomplete at $pf"; fi
   if grep -qi 'registered automatically' "$pf" 2>/dev/null || [ -e "$root/config.toml" ] || [ -e "$root/mcp.json" ]; then
-    no "$h: must not document or register MCP (Pi MCP is JSON, not the kit's TOML renderer)"
+    no "$h: must not document or register MCP (the kit registers no MCP servers)"
   else ok "$h: no MCP doc and no MCP config file written"; fi
   <<<"$out" grep -q '^  slash_commands=true$' && ok "$h: reports slash_commands=true" || no "$h: slash_commands not true ($out)"
   # idempotent: second run is byte-identical and keeps one marked section
@@ -2073,26 +1724,36 @@ for row in $_pi_rows; do
     || no "$h: managed-content template was not updated"
 done
 
-# PI2 — claude / codex / reasonix deploy NO prompt template (empty field), even under --harness all.
+# PI2 — claude deploys NO prompt template (empty field), even under --harness all.
 home="$TMP/pi-none"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
-for d in .claude .codex .reasonix; do
+_no_tmpl_dirs=".claude"
+for d in $_no_tmpl_dirs; do
   [ ! -e "$home/$d/prompts" ] && ok "$d: no prompts/ dir deployed (no template for this harness)" || no "$d: wrongly deployed a prompts/ dir"
 done
-for h in claude codex reasonix; do
+_no_tmpl_harnesses="claude"
+for h in $_no_tmpl_harnesses; do
   out="$(bash "$SUT" --dry-run --home "$TMP/pi-none-dry" --harness "$h" 2>&1)"
   if <<<"$out" grep -q 'prompt template'; then no "$h: dry-run plans a prompt template (field must be empty)"
   else ok "$h: dry-run plans no prompt template"; fi
 done
-# --harness all installs both new harnesses, in registration order after reasonix
+# --harness all installs claude then both Pi harnesses, in registration order
 home="$TMP/pi-all"; out="$(bash "$SUT" --home "$home" --harness all 2>&1)"
-[ "$(<<<"$out" grep '^harness=' | tr '\n' ' ')" = "harness=claude harness=codex harness=reasonix harness=pi harness=gentle-shell " ] \
-  && ok "--harness all iterates claude codex reasonix pi gentle-shell in order" \
+[ "$(<<<"$out" grep '^harness=' | tr '\n' ' ')" = "harness=claude harness=pi harness=gentle-shell " ] \
+  && ok "--harness all iterates claude pi gentle-shell in order" \
   || no "--harness all order/set wrong ($(<<<"$out" grep '^harness=' | tr '\n' ' '))"
 [ -f "$home/.pi/agent/prompts/research-sdd.md" ] && [ -f "$home/.gentle-shell/agent/prompts/research-sdd.md" ] \
   && ok "--harness all deploys both Pi templates" || no "--harness all missed a Pi template"
 # unknown-harness message names the new keys
 err="$(bash "$SUT" --harness bogus --home "$TMP/pi-bogus" 2>&1)"
-<<<"$err" grep -q 'known: claude codex reasonix pi gentle-shell all' && ok "unknown-harness error lists pi and gentle-shell" || no "unknown-harness error stale ($err)"
+<<<"$err" grep -q 'known: claude pi gentle-shell all' && ok "unknown-harness error lists exactly the supported harnesses" || no "unknown-harness error stale ($err)"
+# dropped harnesses (#1471): codex and reasonix are unknown harnesses — exit 2, nothing written.
+for h in codex reasonix; do
+  home="$TMP/dropped-$h"
+  err="$(bash "$SUT" --harness "$h" --home "$home" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && <<<"$err" grep -q "unknown harness '$h'" && [ ! -e "$home" ]; then
+    ok "--harness $h (dropped #1471): unknown-harness error, exit 2, nothing written"
+  else no "--harness $h still accepted or wrong failure (rc=$rc, err=$err)"; fi
+done
 # partial failure: a blocked .pi must not stop the other harnesses
 if [ "$(id -u)" -ne 0 ]; then
   home="$TMP/pi-aggr"; mkdir -p "$home/.pi"; chmod 000 "$home/.pi"

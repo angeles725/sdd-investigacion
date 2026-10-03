@@ -9,7 +9,7 @@
 #                            surrounding user content; dispatch stays open for future strategies)
 #   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc
 #
-# Every path is derived from a passed-in $home, so NOTHING hardcodes ~/.claude vs ~/.codex — the same
+# Every path is derived from a passed-in $home, so NOTHING hardcodes ~/.claude vs ~/.pi — the same
 # table renders a plan for any home (that is what lets --dry-run --home <tmp> drive golden tests).
 #
 # Adding another harness later = ONE new key in each associative array below + one word in
@@ -20,30 +20,24 @@
 # Registration order = install order for --harness all. Consumed by the installer after it sources
 # this file; shellcheck can't see that cross-file use, so silence the false "unused" here.
 # shellcheck disable=SC2034
-RESEARCH_SDD_HARNESSES="claude codex reasonix pi gentle-shell"
+RESEARCH_SDD_HARNESSES="claude pi gentle-shell"
 
 # --- THE TABLE (only home-independent facts live here; paths are derived from these + $home) --------
 # config root, relative to $home
 declare -A _RSDD_CONFIG_ROOT_REL=(
   [claude]=".claude"
-  [codex]=".codex"
-  [reasonix]=".reasonix"
   [pi]=".pi/agent"
   [gentle-shell]=".gentle-shell/agent"
 )
 # system-prompt file name inside the config root
 declare -A _RSDD_PROMPT_FILE_NAME=(
   [claude]="CLAUDE.md"
-  [codex]="AGENTS.md"
-  [reasonix]="AGENTS.md"
   [pi]="AGENTS.md"
   [gentle-shell]="AGENTS.md"
 )
 # HOW the launcher is surfaced into that prompt file
 declare -A _RSDD_PROMPT_STRATEGY=(
   [claude]="markdown-sections"
-  [codex]="markdown-sections"
-  [reasonix]="markdown-sections"
   [pi]="markdown-sections"
   [gentle-shell]="markdown-sections"
 )
@@ -56,75 +50,33 @@ declare -A _RSDD_PROMPT_STRATEGY=(
 #       harness turns into the command (pi + gentle-shell: prompts/research-sdd.md becomes
 #       /research-sdd; their skill alone is only /skill:research-sdd).
 # The install suite enforces this: supports_slash=true with neither source fails.
-# reasonix: skills are invoked via a run_skill tool; slash commands are a separate namespace
-# fed by commands/ — so the SKILL.md launcher is NOT a slash command.
 declare -A _RSDD_SUPPORTS_SLASH=(
   [claude]="false"
-  [codex]="false"
-  [reasonix]="false"
   [pi]="true"
   [gentle-shell]="true"
 )
 # WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, codex=none, reasonix=hook via ~/.reasonix/settings.json, pi/gentle-shell=none — Pi has
-# no SessionStart hook for the kit to wire; OpenCode dropped #954)
+# (claude=hook, pi/gentle-shell=none — Pi has no SessionStart hook for the kit to wire; OpenCode
+# dropped #954; codex and reasonix dropped #1471)
 declare -A _RSDD_NEEDS_SWEEP=(
   [claude]="false"
-  [codex]="true"
-  [reasonix]="false"
   [pi]="true"
   [gentle-shell]="true"
 )
-# WHAT: does the harness surface a short note (in its prompt file) that the installer registers the
-# skill's MCP servers automatically into its TOML config?
-# (codex + reasonix; claude manages MCP elsewhere; pi/gentle-shell: Pi's MCP config is JSON, which the
-# kit's TOML renderer cannot write, so no registration and no doc; OpenCode dropped #954)
-declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
-  [claude]="false"
-  [codex]="true"
-  [reasonix]="true"
-  [pi]="false"
-  [gentle-shell]="false"
-)
-# WHERE: the user-owned TOML config into which the installer idempotently SPLICES the skill's MCP
-# server entries (a marked `# research-sdd:start/end` block that preserves all surrounding user
-# config). Empty = the harness manages MCP elsewhere and needs no config-file registration.
-declare -A _RSDD_MCP_CONFIG_NAME=(
-  [claude]=""
-  [codex]="config.toml"
-  [reasonix]="config.toml"
-  [pi]=""
-  [gentle-shell]=""
-)
-# WHAT: the TOML shape used by this harness's MCP config file. Drives rsdd_render_mcp_toml and the
-# conflict-detection ERE — both dispatch on shape, never on harness name.
-#   mcp-servers-table — [mcp_servers.X] named tables (codex)
-#   plugins-array     — [[plugins]] array-of-tables keyed by `name` (reasonix)
-#   ""                — harness has no MCP config file; rsdd_render_mcp_toml is never called
-declare -A _RSDD_MCP_TOML_SHAPE=(
-  [claude]=""
-  [codex]="mcp-servers-table"
-  [reasonix]="plugins-array"
-  [pi]=""
-  [gentle-shell]=""
-)
 # WHERE: an OPTIONAL slash-command prompt template, as a path RELATIVE TO the harness config root.
-# Empty/absent = the harness gets no template and the installer deploys nothing extra (claude, codex,
-# reasonix). Set for Pi and its isolated-home wrapper gentle-shell: Pi turns <agent-dir>/prompts/<name>.md
-# into the slash command /<name>, so deploying prompts/research-sdd.md is what gives them a real
+# Empty/absent = the harness gets no template and the installer deploys nothing extra (claude). Set for Pi and its isolated-home
+# wrapper gentle-shell: Pi turns <agent-dir>/prompts/<name>.md into the slash command /<name>, so deploying prompts/research-sdd.md is what gives them a real
 # `/research-sdd` (their skills are only reachable as /skill:research-sdd).
 declare -A _RSDD_PROMPT_TEMPLATE_REL=(
   [pi]="prompts/research-sdd.md"
   [gentle-shell]="prompts/research-sdd.md"
 )
 # WHERE: the skill source file, as a path RELATIVE TO the kit root. Every harness
-# (claude, codex, reasonix, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
-# Note: OpenCode support was dropped on 2026-09-23 (#954).
+# (claude, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
+# Note: OpenCode support was dropped on 2026-09-23 (#954); codex and reasonix on 2026-10-03 (#1471).
 declare -A _RSDD_SKILL_SRC_RELKIT=(
   [claude]="skills/research-sdd/SKILL.md"
-  [codex]="skills/research-sdd/SKILL.md"
-  [reasonix]="skills/research-sdd/SKILL.md"
   [pi]="skills/research-sdd/SKILL.md"
   [gentle-shell]="skills/research-sdd/SKILL.md"
 )
@@ -132,13 +84,10 @@ declare -A _RSDD_SKILL_SRC_RELKIT=(
 # installer receives neither an explicit --profile flag nor a non-empty $RESEARCH_SDD_PROFILE
 # env var (see rsdd_resolve_profile below). "claude" is the byte-identical-to-today profile;
 # any other value names a research-sdd/profiles/<name>.slots.md render-profile.sh renders at
-# install time. reasonix defaults to "general" because its target models are not Claude-family;
-# claude and codex both default to "claude" (codex agents have historically been run with the
-# Claude-tuned prompt text and nothing has asked to change that default).
+# install time. pi and gentle-shell default to "general" because their target models are not
+# Claude-family.
 declare -A _RSDD_DEFAULT_PROFILE=(
   [claude]="claude"
-  [codex]="claude"
-  [reasonix]="general"
   [pi]="general"
   [gentle-shell]="general"
 )
@@ -162,14 +111,9 @@ rsdd_field() {
     prompt_strategy)         printf '%s\n' "${_RSDD_PROMPT_STRATEGY[$harness]}" ;;
     supports_slash_commands) printf '%s\n' "${_RSDD_SUPPORTS_SLASH[$harness]}" ;;
     needs_manual_sweep_doc)  printf '%s\n' "${_RSDD_NEEDS_SWEEP[$harness]}" ;;
-    needs_mcp_config_doc)    printf '%s\n' "${_RSDD_NEEDS_MCP_CONFIG_DOC[$harness]}" ;;
-    mcp_config_file)
-      plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
-      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     prompt_template_path)
       plug="${_RSDD_PROMPT_TEMPLATE_REL[$harness]:-}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
-    mcp_toml_shape) printf '%s\n' "${_RSDD_MCP_TOML_SHAPE[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
     prompt_profile) printf '%s\n' "${_RSDD_DEFAULT_PROFILE[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
@@ -255,14 +199,13 @@ rsdd_resolve_profile() {
 # operational failure (§7 anti-silent-zero) — the function fails loudly so the installer propagates
 # the error rather than silently injecting an unusable 'Kit path: ' line.
 rsdd_render_section() {
-  local harness="$1" home="${2:-$HOME}" kit="${3:-}" skill_path needs_sweep needs_mcp_doc
+  local harness="$1" home="${2:-$HOME}" kit="${3:-}" skill_path needs_sweep
   if [ -z "$kit" ]; then
     printf 'rsdd_render_section: kit path must not be empty\n' >&2
     return 2
   fi
   skill_path="$(rsdd_field "$harness" skill_path "$home")"
   needs_sweep="$(rsdd_field "$harness" needs_manual_sweep_doc "$home")"
-  needs_mcp_doc="$(rsdd_field "$harness" needs_mcp_config_doc "$home")"
   # Emit the kit path as ~/... when it lives under $home; else as the absolute path.
   # The leading ~ is a LITERAL display character for the human reading the prompt — not a shell expansion.
   local kit_rel
@@ -294,79 +237,5 @@ rsdd_render_section() {
     printf '%s\n' '  - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry'
     printf '%s\n' '  - `toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source'
   fi
-  if [ "$needs_mcp_doc" = "true" ]; then
-    # Derive the config file path as a home-relative ~/... string (machine-independent).
-    # The leading ~ is a LITERAL display character, not a shell expansion.
-    local mcp_shape mcp_cfg_file mcp_cfg_rel
-    mcp_shape="$(rsdd_field "$harness" mcp_toml_shape)"
-    mcp_cfg_file="$(rsdd_field "$harness" mcp_config_file "$home")"
-    # shellcheck disable=SC2088
-    mcp_cfg_rel='~/'"${mcp_cfg_file#"$home/"}"
-    printf '%s\n' ''
-    printf '%s\n' 'MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically'
-    printf 'into `%s` by the installer — an idempotent marked block\n' "$mcp_cfg_rel"
-    printf '%s\n' '(`# research-sdd:start` … `# research-sdd:end`) that preserves all surrounding user config.'
-    # Risk sentence is shape-specific: duplicate-table semantics differ between harnesses.
-    if [ "$mcp_shape" = "mcp-servers-table" ]; then
-      printf '%s\n' 'If you already define your own `[mcp_servers.engram]`, the installer warns and skips rather'
-      printf '%s\n' 'than duplicate it (TOML forbids duplicate tables); remove your table to let it manage them.'
-    elif [ "$mcp_shape" = "plugins-array" ]; then
-      # CRITICAL DIVERGENCE from codex: duplicate [[plugins]] entries are VALID TOML — reasonix
-      # silently de-duplicates by `name` with LAST WINS and no warning. The installer therefore
-      # refuses to append rather than silently shadow a user's own entry.
-      printf '%s\n' 'If you already define your own `name = "engram"` plugin entry, the installer warns and'
-      printf '%s\n' 'skips rather than shadow it silently (reasonix de-duplicates [[plugins]] by name with last'
-      printf '%s\n' 'entry winning, no warning); remove your entry to let it manage them.'
-    else
-      # Unknown shape: fail loudly rather than emitting a section with the risk sentence missing
-      # (anti-silent-zero §7 — a silent partial block is a defect, not an acceptable no-op).
-      printf 'rsdd_render_section: unknown mcp_toml_shape "%s"\n' "$mcp_shape" >&2
-      return 2
-    fi
-  fi
   printf '%s\n' '<!-- research-sdd:end -->'
-}
-
-# rsdd_render_mcp_toml <shape> — emit the MCP-server block the installer SPLICES into a harness's
-# config.toml, wrapped in TOML `#`-comment idempotency markers. Dispatches to a shape-specific
-# renderer mirroring the prompt_strategy dispatch pattern (_surface__${strategy}). Unknown shape
-# fails loudly (non-zero, message on stderr) — never emits an empty block silently (§7).
-_rsdd_mcp_toml__mcp_servers_table() {
-  printf '%s\n' '# research-sdd:start'
-  printf '%s\n' '# research-sdd-managed MCP servers — this block is spliced idempotently by the installer.'
-  printf '%s\n' '# Edit via the installer, not by hand; surrounding user config is preserved.'
-  printf '%s\n' '[mcp_servers.engram]'
-  printf '%s\n' 'command = "engram"'
-  printf '%s\n' 'args = ["mcp", "--tools=agent"]'
-  printf '%s\n' ''
-  printf '%s\n' '[mcp_servers.codegraph]'
-  printf '%s\n' 'command = "codegraph"'
-  printf '%s\n' 'args = ["serve", "--mcp"]'
-  printf '%s\n' '# research-sdd:end'
-}
-
-_rsdd_mcp_toml__plugins_array() {
-  printf '%s\n' '# research-sdd:start'
-  printf '%s\n' '# research-sdd-managed MCP servers — this block is spliced idempotently by the installer.'
-  printf '%s\n' '# Edit via the installer, not by hand; surrounding user config is preserved.'
-  printf '%s\n' '[[plugins]]'
-  printf '%s\n' 'name    = "engram"'
-  printf '%s\n' 'command = "engram"'
-  printf '%s\n' 'args    = ["mcp", "--tools=agent"]'
-  printf '%s\n' ''
-  printf '%s\n' '[[plugins]]'
-  printf '%s\n' 'name    = "codegraph"'
-  printf '%s\n' 'command = "codegraph"'
-  printf '%s\n' 'args    = ["serve", "--mcp"]'
-  printf '%s\n' '# research-sdd:end'
-}
-
-rsdd_render_mcp_toml() {
-  local shape="$1" dispatch
-  dispatch="_rsdd_mcp_toml__${shape//-/_}"
-  if ! declare -F "$dispatch" >/dev/null; then
-    printf 'rsdd_render_mcp_toml: unknown shape "%s"\n' "$shape" >&2
-    return 2
-  fi
-  "$dispatch"
 }

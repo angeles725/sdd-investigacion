@@ -231,14 +231,14 @@ fi
 
 # ── --all mode: iterate every registered harness ─────────────────────────────
 # Setup for --all tests:
-#   H_ALL: claude in-sync, codex/pi/gentle-shell absent, reasonix diverged (middle of the list; the
+#   H_ALL: claude in-sync, gentle-shell absent, pi diverged (middle of the list; the
 #   LAST-position drift case — gentle-shell — is covered by PIH4/TOOTH D)
 H_ALL="$ROOT/home_all"
 mkdir -p "$H_ALL/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_ALL/.claude/skills/research-sdd/SKILL.md"      # claude: in-sync
-mkdir -p "$H_ALL/.reasonix/skills/research-sdd"
-printf 'stale content — not matching kit\n' > "$H_ALL/.reasonix/skills/research-sdd/SKILL.md"  # reasonix: diverged
-# codex (.codex) not created → absent
+mkdir -p "$H_ALL/.pi/agent/skills/research-sdd"
+printf 'stale content — not matching kit\n' > "$H_ALL/.pi/agent/skills/research-sdd/SKILL.md"  # pi: diverged
+# gentle-shell (.gentle-shell) not created → absent
 
 # AN1: --all with last harness diverged → exit 1
 bash "$SUT" --all --home "$H_ALL" 2>/dev/null
@@ -251,8 +251,8 @@ fi
 
 # AN2: --all diverged → stderr contains fix command for the diverged harness
 ERR_AN2="$(bash "$SUT" --all --home "$H_ALL" 2>&1 >/dev/null)"
-if <<<"$ERR_AN2" grep -q 'fix:.*--harness reasonix.*--force-skill'; then
-  ok "AN2 --all diverged → fix command for reasonix in stderr"
+if <<<"$ERR_AN2" grep -q 'fix:.*--harness pi.*--force-skill'; then
+  ok "AN2 --all diverged → fix command for pi in stderr"
 else
   no "AN2 --all diverged → expected fix command; got: $ERR_AN2"
 fi
@@ -264,11 +264,11 @@ else
   no "AN3 --all diverged → expected 'diverged=1' in summary; got: $ERR_AN2"
 fi
 
-# AN4: --all diverged → summary shows absent=3 (codex, pi, gentle-shell not installed)
-if <<<"$ERR_AN2" grep -q 'absent=3'; then
-  ok "AN4 --all diverged → summary absent=3"
+# AN4: --all diverged → summary shows absent=1 (gentle-shell not installed)
+if <<<"$ERR_AN2" grep -q 'absent=1'; then
+  ok "AN4 --all diverged → summary absent=1"
 else
-  no "AN4 --all diverged → expected 'absent=3' in summary; got: $ERR_AN2"
+  no "AN4 --all diverged → expected 'absent=1' in summary; got: $ERR_AN2"
 fi
 
 # AN5: --all all-absent → exit 0 (not installing is normal)
@@ -286,7 +286,7 @@ fi
 H_ALL_SYNC="$ROOT/home_all_sync"
 mkdir -p "$H_ALL_SYNC/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_ALL_SYNC/.claude/skills/research-sdd/SKILL.md"
-# Only claude is installed; codex/reasonix absent
+# Only claude is installed; pi/gentle-shell absent
 ALL_SYNC_OUT="$(bash "$SUT" --all --home "$H_ALL_SYNC" 2>/dev/null)"
 ALL_SYNC_RC=$?
 if [ "$ALL_SYNC_RC" -eq 0 ] && [ -z "$ALL_SYNC_OUT" ]; then
@@ -322,12 +322,12 @@ else
   no "AN-hook-1 hook --all in-sync → expected silent exit 0; got exit=$HOOK_RC_ALL out=[$HOOK_OUT_ALL]"
 fi
 
-# Test AN-hook-2: hook --all diverged (reasonix last) → fix command in output
+# Test AN-hook-2: hook --all diverged (pi diverged) → fix command in output
 H_DIV_ALL="$ROOT/home_div_all"
 mkdir -p "$H_DIV_ALL/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_DIV_ALL/.claude/skills/research-sdd/SKILL.md"     # claude in-sync
-mkdir -p "$H_DIV_ALL/.reasonix/skills/research-sdd"
-printf 'diverged\n' > "$H_DIV_ALL/.reasonix/skills/research-sdd/SKILL.md"  # reasonix diverged
+mkdir -p "$H_DIV_ALL/.pi/agent/skills/research-sdd"
+printf 'diverged\n' > "$H_DIV_ALL/.pi/agent/skills/research-sdd/SKILL.md"  # pi diverged
 HOOK_PATCHED2_ALL="$ROOT/hook-test2-all.sh"
 sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_DIV_ALL"'"|' \
   "$HOOK_SUT" > "$HOOK_PATCHED2_ALL"
@@ -568,10 +568,10 @@ fi
 H_BDG3="$ROOT/home_bdg3"
 mkdir -p "$H_BDG3/.claude/skills/research-sdd"
 printf '# stale claude\n' > "$H_BDG3/.claude/skills/research-sdd/SKILL.md"
-mkdir -p "$H_BDG3/.codex/skills/research-sdd"
-printf '# stale codex\n' > "$H_BDG3/.codex/skills/research-sdd/SKILL.md"
-mkdir -p "$H_BDG3/.reasonix/skills/research-sdd"
-printf '# stale reasonix\n' > "$H_BDG3/.reasonix/skills/research-sdd/SKILL.md"
+mkdir -p "$H_BDG3/.pi/agent/skills/research-sdd"
+printf '# stale pi\n' > "$H_BDG3/.pi/agent/skills/research-sdd/SKILL.md"
+mkdir -p "$H_BDG3/.gentle-shell/agent/skills/research-sdd"
+printf '# stale gentle-shell\n' > "$H_BDG3/.gentle-shell/agent/skills/research-sdd/SKILL.md"
 HOOK_BDG3="$ROOT/hook-bdg3.sh"
 sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_BDG3"'"|' \
   "$HOOK_SUT" > "$HOOK_BDG3"
@@ -588,18 +588,18 @@ fi
 
 # REM1: ≥2 harnesses diverged → every diverged harness name appears in stderr
 # H_BDG3 (set up above) has all 3 harnesses diverged; max_fix_lines=1 → claude gets
-# the detailed fix line, codex/reasonix must appear in "also diverged" line.
+# the detailed fix line, pi/gentle-shell must appear in "also diverged" line.
 REM1_OUT="$(bash "$SUT" --all --home "$H_BDG3" 2>&1)"
 if <<<"$REM1_OUT" grep -qF 'claude' && \
-   <<<"$REM1_OUT" grep -qF 'codex' && \
-   <<<"$REM1_OUT" grep -qF 'reasonix'; then
+   <<<"$REM1_OUT" grep -qE 'also diverged: .*\bpi\b' && \
+   <<<"$REM1_OUT" grep -qF 'gentle-shell'; then
   ok "REM1 3-diverged → all harness names appear in output"
 else
   no "REM1 3-diverged → some harness names missing from output: $REM1_OUT"
 fi
 
 # ── PD: profile-aware drift detection (kit issue #993 WU2) ────────────────────
-# PD1: install "general" for reasonix (its per-harness default — adapters.sh _RSDD_DEFAULT_PROFILE)
+# PD1: install "general" for pi (its per-harness default — adapters.sh _RSDD_DEFAULT_PROFILE)
 #      with the REAL installer, then verify-skill-drift re-renders that SAME profile into a
 #      throwaway temp dir and compares against it: in-sync on the untouched install, diverged
 #      after a hand-edit. Exercises the real render-profile.sh end-to-end, never a mutant.
@@ -608,12 +608,12 @@ if [ ! -f "$INSTALLER_PD" ]; then
   no "PD1 setup: installer not found: $INSTALLER_PD"
 else
   H_PD1="$ROOT/home_pd1"
-  bash "$INSTALLER_PD" --home "$H_PD1" --harness reasonix >/dev/null 2>&1
-  DEPLOYED_PD1="$H_PD1/.reasonix/skills/research-sdd/SKILL.md"
+  bash "$INSTALLER_PD" --home "$H_PD1" --harness pi >/dev/null 2>&1
+  DEPLOYED_PD1="$H_PD1/.pi/agent/skills/research-sdd/SKILL.md"
   if [ ! -f "$DEPLOYED_PD1" ]; then
     no "PD1 setup: install did not produce a deployed skill at $DEPLOYED_PD1"
   else
-    bash "$SUT" --harness reasonix --home "$H_PD1" >/dev/null 2>&1
+    bash "$SUT" --harness pi --home "$H_PD1" >/dev/null 2>&1
     RC_PD1_SYNC=$?
     if [ "$RC_PD1_SYNC" -eq 0 ]; then
       ok "PD1a: fresh general-profile install is in-sync (exit 0)"
@@ -622,7 +622,7 @@ else
     fi
 
     printf '\n<!-- hand-edited by an operator -->\n' >> "$DEPLOYED_PD1"
-    ERR_PD1_DIV="$(bash "$SUT" --harness reasonix --home "$H_PD1" 2>&1)"
+    ERR_PD1_DIV="$(bash "$SUT" --harness pi --home "$H_PD1" 2>&1)"
     RC_PD1_DIV=$?
     if [ "$RC_PD1_DIV" -eq 1 ] && <<<"$ERR_PD1_DIV" grep -q 'diverged'; then
       ok "PD1b: hand-edited general-profile skill is detected as diverged (exit 1)"
@@ -660,18 +660,18 @@ fi
 # symlink. Reproduced against the pre-fix SUT: KIT collapsed onto the render dir itself, so
 # _vsd_resolve_src's re-render call ("$KIT/toolbelt/render-profile.sh") tried to re-render the
 # render's OWN already-rendered (marker-free) files and failed loudly with "zero slot markers
-# found in sources" — exit 2 (could-not-run) for every reasonix/general check, every time, single-
+# found in sources" — exit 2 (could-not-run) for every pi/general check, every time, single-
 # harness AND --all. This uses the REAL installer against a REAL kit (the established TOOTH-PD
 # pattern above — this script's own resolution chain needs a REAL render-profile.sh, REAL
 # profiles/*.slots.md and REAL slot-marker-bearing sources to reach the exact failure mode; a
 # synthetic mini-kit would have to reimplement render-profile.sh's own behaviour to reproduce it),
-# with only a THROWAWAY --home — never the real fleet, never real ~/.claude/~/.codex config.
+# with only a THROWAWAY --home — never the real fleet, never real ~/.claude/~/.pi config.
 if [ -f "$INSTALLER_PD" ]; then
   H_SYM="$ROOT/home_symlink_toolbelt"
-  bash "$INSTALLER_PD" --home "$H_SYM" --harness reasonix >/dev/null 2>&1
-  RENDER_TB_SYM="$H_SYM/.reasonix/research-sdd/profile/general/toolbelt/verify-skill-drift.sh"
+  bash "$INSTALLER_PD" --home "$H_SYM" --harness pi >/dev/null 2>&1
+  RENDER_TB_SYM="$H_SYM/.pi/agent/research-sdd/profile/general/toolbelt/verify-skill-drift.sh"
   if [ -x "$RENDER_TB_SYM" ]; then
-    OUT_SYM_SINGLE="$(bash "$RENDER_TB_SYM" --harness reasonix --home "$H_SYM" 2>&1)"; RC_SYM_SINGLE=$?
+    OUT_SYM_SINGLE="$(bash "$RENDER_TB_SYM" --harness pi --home "$H_SYM" 2>&1)"; RC_SYM_SINGLE=$?
     OUT_SYM_ALL="$(bash "$RENDER_TB_SYM" --all --home "$H_SYM" 2>&1)"; RC_SYM_ALL=$?
     if [ "$RC_SYM_SINGLE" -eq 0 ] && [ "$RC_SYM_ALL" -eq 0 ] \
        && ! <<<"$OUT_SYM_SINGLE$OUT_SYM_ALL" grep -qi 'zero slot markers'; then
@@ -698,9 +698,9 @@ fi
 # F3-leak: no tmp dir survives under a DEDICATED TMPDIR, for both single-harness and --all modes.
 if [ -f "$INSTALLER_PD" ]; then
   H_F3LEAK="$ROOT/home_f3leak"
-  bash "$INSTALLER_PD" --home "$H_F3LEAK" --harness reasonix >/dev/null 2>&1
+  bash "$INSTALLER_PD" --home "$H_F3LEAK" --harness pi >/dev/null 2>&1
   F3_TMPDIR="$ROOT/f3-dedicated-tmpdir"; mkdir -p "$F3_TMPDIR"
-  TMPDIR="$F3_TMPDIR" bash "$SUT" --harness reasonix --home "$H_F3LEAK" >/dev/null 2>&1
+  TMPDIR="$F3_TMPDIR" bash "$SUT" --harness pi --home "$H_F3LEAK" >/dev/null 2>&1
   TMPDIR="$F3_TMPDIR" bash "$SUT" --all --home "$H_F3LEAK" >/dev/null 2>&1
   F3_LEFTOVER="$(find "$F3_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
   if [ -z "$F3_LEFTOVER" ]; then
@@ -717,9 +717,9 @@ fi
 # render's bytes.
 if [ -f "$INSTALLER_PD" ]; then
   H_F3MISS="$ROOT/home_f3miss"
-  bash "$INSTALLER_PD" --home "$H_F3MISS" --harness reasonix >/dev/null 2>&1
-  rm -rf "$H_F3MISS/.reasonix/research-sdd/profile/general"
-  ERR_F3MISS="$(bash "$SUT" --harness reasonix --home "$H_F3MISS" 2>&1)"; RC_F3MISS=$?
+  bash "$INSTALLER_PD" --home "$H_F3MISS" --harness pi >/dev/null 2>&1
+  rm -rf "$H_F3MISS/.pi/agent/research-sdd/profile/general"
+  ERR_F3MISS="$(bash "$SUT" --harness pi --home "$H_F3MISS" 2>&1)"; RC_F3MISS=$?
   if [ "$RC_F3MISS" -eq 2 ] && <<<"$ERR_F3MISS" grep -qi 'render dir missing'; then
     ok "F3-missing: a missing persisted render dir is could-not-run (exit 2), never in-sync"
   else
@@ -734,9 +734,9 @@ fi
 # it depends on at runtime has been tampered with.
 if [ -f "$INSTALLER_PD" ]; then
   H_F3HE="$ROOT/home_f3he"
-  bash "$INSTALLER_PD" --home "$H_F3HE" --harness reasonix >/dev/null 2>&1
-  echo "tampered" >> "$H_F3HE/.reasonix/research-sdd/profile/general/PROMPT-LOOP.md"
-  ERR_F3HE="$(bash "$SUT" --harness reasonix --home "$H_F3HE" 2>&1)"; RC_F3HE=$?
+  bash "$INSTALLER_PD" --home "$H_F3HE" --harness pi >/dev/null 2>&1
+  echo "tampered" >> "$H_F3HE/.pi/agent/research-sdd/profile/general/PROMPT-LOOP.md"
+  ERR_F3HE="$(bash "$SUT" --harness pi --home "$H_F3HE" 2>&1)"; RC_F3HE=$?
   if [ "$RC_F3HE" -eq 2 ] && <<<"$ERR_F3HE" grep -qi 'render dir diverged'; then
     ok "F3-handedit: a hand-edited persisted PROMPT-LOOP.md is detected (could-not-run, not in-sync)"
   else
@@ -1075,7 +1075,7 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
 
   # TOOTH K: also-diverged-names — remove SENTINEL-ALSO-DIVERGED block.
-  # Real test REM1: all 3 diverged → codex/reasonix must appear in also-diverged line.
+  # Real test REM1: all 3 diverged → pi/gentle-shell must appear in also-diverged line.
   # Mutant: accumulator deleted → also_names stays empty → guard blocks print → names absent → RED.
   MUT_K="$MUT_DIR/verify-skill-drift-mut-K.sh"
   # Delete: # SENTINEL-ALSO-DIVERGED + next line (also_names=...)
@@ -1089,12 +1089,12 @@ if [ "$prove_teeth" -eq 1 ]; then
     ok "TOOTH K pre-check: mutant differs (SENTINEL-ALSO-DIVERGED removed)"
   fi
 
-  # Actual tooth: all 3 diverged, but also_names missing → codex absent from output → RED
+  # Actual tooth: all 3 diverged, but also_names missing → gentle-shell absent from output → RED
   MUT_K_OUT="$(bash "$MUT_K" --all --home "$H_BDG3" 2>&1)"
-  if ! <<<"$MUT_K_OUT" grep -qF 'codex'; then
-    ok "TOOTH K also-diverged-names: mutant hides codex — RED as expected"
+  if ! <<<"$MUT_K_OUT" grep -qF 'gentle-shell'; then
+    ok "TOOTH K also-diverged-names: mutant hides gentle-shell — RED as expected"
   else
-    no "TOOTH K also-diverged-names: mutant still shows codex — tooth has no bite"
+    no "TOOTH K also-diverged-names: mutant still shows gentle-shell — tooth has no bite"
   fi
 
   echo "-- teeth: force _vsd_resolve_src to always use the kit source (ignore profile); expect PD1a to fail --"
@@ -1115,8 +1115,8 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
   if [ -f "$INSTALLER_PD" ]; then
     H_PD_TEETH="$ROOT/home_pd_teeth"
-    bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness reasonix >/dev/null 2>&1
-    bash "$MUT_PD" --harness reasonix --home "$H_PD_TEETH" >/dev/null 2>&1
+    bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness pi >/dev/null 2>&1
+    bash "$MUT_PD" --harness pi --home "$H_PD_TEETH" >/dev/null 2>&1
     RC_MUT_PD=$?
     if [ "$RC_MUT_PD" -eq 1 ]; then
       ok "TOOTH PD: mutant (profile ignored) reports a fresh general install as diverged — RED as expected"
@@ -1142,9 +1142,9 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
   if [ -f "$INSTALLER_PD" ]; then
     H_TF3L="$ROOT/home_tf3leak"
-    bash "$INSTALLER_PD" --home "$H_TF3L" --harness reasonix >/dev/null 2>&1
+    bash "$INSTALLER_PD" --home "$H_TF3L" --harness pi >/dev/null 2>&1
     MUT_F3LEAK_TMPDIR="$ROOT/mut-f3leak-tmpdir"; mkdir -p "$MUT_F3LEAK_TMPDIR"
-    TMPDIR="$MUT_F3LEAK_TMPDIR" bash "$MUT_F3LEAK" --harness reasonix --home "$H_TF3L" >/dev/null 2>&1
+    TMPDIR="$MUT_F3LEAK_TMPDIR" bash "$MUT_F3LEAK" --harness pi --home "$H_TF3L" >/dev/null 2>&1
     LEFTOVER_TF3L="$(find "$MUT_F3LEAK_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
     if [ -n "$LEFTOVER_TF3L" ]; then
       ok "TOOTH F3-leak: mutant (tracking disabled) leaks a tmp dir → F3-leak check has teeth"
@@ -1167,10 +1167,10 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
   if [ -f "$INSTALLER_PD" ]; then
     H_TF3C="$ROOT/home_tf3comp"
-    bash "$INSTALLER_PD" --home "$H_TF3C" --harness reasonix >/dev/null 2>&1
-    rm -rf "$H_TF3C/.reasonix/research-sdd/profile/general"
+    bash "$INSTALLER_PD" --home "$H_TF3C" --harness pi >/dev/null 2>&1
+    rm -rf "$H_TF3C/.pi/agent/research-sdd/profile/general"
     RC_TF3C=0
-    bash "$MUT_F3COMP" --harness reasonix --home "$H_TF3C" >/dev/null 2>&1 || RC_TF3C=$?
+    bash "$MUT_F3COMP" --harness pi --home "$H_TF3C" >/dev/null 2>&1 || RC_TF3C=$?
     if [ "$RC_TF3C" -eq 0 ]; then
       ok "TOOTH F3-completeness: mutant (check disabled) reports a missing render dir as in-sync → completeness check has teeth"
     else
@@ -1263,7 +1263,7 @@ if [ "$prove_teeth" -eq 1 ]; then
            "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
 
   OUT_TSYM="$(bash "$SCRATCH_TSYM/render/profile/general/toolbelt/verify-skill-drift.sh" \
-    --harness reasonix --home "$H_TSYM" --profile general 2>&1)"; RC_TSYM=$?
+    --harness pi --home "$H_TSYM" --profile general 2>&1)"; RC_TSYM=$?
   if [ "$RC_TSYM" -eq 2 ] && <<<"$OUT_TSYM" grep -qi 'zero slot markers'; then
     ok "teeth SYMLINK-TOOLBELT: both mutants together re-break through a symlinked toolbelt/ (zero slot markers, rc=2) → the -P fix pair has teeth"
   else

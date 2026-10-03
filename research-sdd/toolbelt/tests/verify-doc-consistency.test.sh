@@ -254,8 +254,8 @@ re=$'\n''WARN.*(count mismatch|declares no section)'
 INSTALLER_19="$HERE/../../install/research-sdd-install.sh"
 if [ -f "$INSTALLER_19" ]; then
   HOME_19="$(mktemp -d)"
-  bash "$INSTALLER_19" --home "$HOME_19" --harness reasonix >/dev/null 2>&1
-  RENDER_19="$HOME_19/.reasonix/research-sdd/profile/general"
+  bash "$INSTALLER_19" --home "$HOME_19" --harness pi >/dev/null 2>&1
+  RENDER_19="$HOME_19/.pi/agent/research-sdd/profile/general"
   if [ -x "$RENDER_19/toolbelt/verify-doc-consistency.sh" ]; then
     OUT_KIT_19="$(bash "$SUT" 2>&1)"
     OUT_RENDER_19="$(bash "$RENDER_19/toolbelt/verify-doc-consistency.sh" 2>&1)"
