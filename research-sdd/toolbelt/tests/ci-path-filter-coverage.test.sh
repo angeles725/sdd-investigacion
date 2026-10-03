@@ -232,7 +232,7 @@ classify_kit_binding() {
   live="$(live_lines "$suite")"
   # A `$KIT/<p>` inside a single-quoted span or written `\$KIT` is a literal anchor, never expanded, so it
   # needs no binding (#1455: hotcore-budget cites "$KIT/TARGETS.md" only as an anchor string).
-  if ! strip_kit_literals <<< "$live" | grep -qE "$KIT_REF_RE"; then echo none; return; fi
+  if ! strip_kit_literals <<< "$live" | grep -E "$KIT_REF_RE" >/dev/null; then echo none; return; fi
   classify_binding KIT "$KIT_REAL_BIND_RE" "$live"
 }
 
