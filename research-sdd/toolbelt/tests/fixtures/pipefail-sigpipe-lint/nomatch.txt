@@ -1,0 +1,15 @@
+# printf x | grep -q x   (comment-only line)
+    # printf x | grep --quiet x
+true || grep -q x file
+true || { grep -q x file; }
+printf x | grep -c x
+printf x | grep -o x
+printf x | grep -v x
+printf x | grep x
+printf x | grep -E 'a|b'
+printf x | grep -- -q
+grep -q x file
+<<<"$v" grep -q x
+printf x | awk '/q/ { exit }'
+printf x |
+  grep -c x

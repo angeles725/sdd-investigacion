@@ -1,0 +1,11 @@
+printf x |
+  grep -q x
+printf x |   
+  # a comment between producer and consumer
+  grep -m1 x
+printf x | \
+  grep -q x
+printf x \
+  | grep -q x
+printf x |\
+grep -q x

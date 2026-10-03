@@ -1,0 +1,2 @@
+echo a
+printf x | grep -q x \

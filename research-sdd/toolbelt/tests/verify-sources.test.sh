@@ -912,7 +912,7 @@ SED
 )"
   SIGPIPE_SED="$(cat <<'SED'
 /&& n=\$((n + 1)) *# SIGPIPE-SAFE/c\
-    printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))
+    printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))  # sigpipe-lint: allow SIGPIPE_SED mutant text that restores the piped idiom
 SED
 )"
   # Shape: mk_sed ID MUTANT EXPR... && tooth "teeth ID: label" GOOD_RC BAD_RC MUTANT [patterns] -- bash @SUT@ FIXTURE
