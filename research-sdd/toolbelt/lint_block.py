@@ -19,8 +19,8 @@ Core rules
       include/cite ..." in a paragraph or table row that cites no raw artifact path.
 
 Rule ids R3/R6 keep the numbering of the reference implementation so waivers stay stable when the
-per-target packs (slice 2) add the remaining ids. Extension point: RULES (a registry of
-`(rule_id, fn)` pairs, `fn(doc) -> [(line, rule_id, message)]`); a pack appends to it.
+per-target packs add the remaining ids. Extension point: RULES (a registry of
+`(rule_id, fn)` pairs, `fn(doc) -> [(line, rule_id, message)]`); a pack appends to it via load_packs.
 
 Waiver (per unit)
   <!-- lint-waive: R3 reason=free text explaining why -->
@@ -29,14 +29,23 @@ Waiver (per unit)
   implementation's spelling `<!-- lint-ok: R3 free text reason -->` is accepted as an alias.
   Waiver-shaped text inside a code fence is quoted material and is not parsed.
 
-Waivers for reserved pack rule ids (R1 R2 R4 R5 R7 R8 R9) are INFO, counted as `inactive-waivers=`.
+Waivers for reserved pack rule ids (R1 R2 R4 R5 R7 R8 R9) are INFO, counted as `inactive-waivers=`
+unless a loaded pack enforces that id.
 
 Warnings (never change the exit code, counted as `warn=` in SUMMARY)
   WARN path:LINE: unclosed code fence — everything after it is hidden from the rules.
 
 Usage (normally via lint-block.sh, which resolves the file list):
-  lint_block.py [--audit] --files-from -        newline-delimited paths on stdin
-  lint_block.py [--audit] FILE...
+  lint_block.py [--audit] [--pack NAME]... --files-from -   newline-delimited paths on stdin
+  lint_block.py [--audit] [--pack NAME]... FILE...
+  lint_block.py --pack NAME --check-packs                    load the packs only (exit 0 / 2)
+
+Packs (kit #1365 item 1): `--pack NAME` (repeatable, comma lists and `--pack=NAME` accepted) loads
+`lint-block-packs/NAME.py` next to this file (override the directory with LINT_BLOCK_PACKS_DIR). A pack
+registers per-target rules under the reserved ids; without --pack the run is the generic core only. A
+pack that is unknown, malformed, empty or colliding exits 2 with nothing linted. SUMMARY then ends with
+`packs=<names> r<N>-triggers=<count>...` (how many claim clauses each pack rule actually looked at).
+Shipped: jvm (R1 R5 R7), multi-version (R8), native-binary (R9). Not shipped: R2, R4 (see RESERVED_PACK_RULE_IDS).
 
 Modes
   default  FAIL mode: exit 1 when any finding remains.
@@ -47,9 +56,11 @@ how many were empty, and the coverage counters (how many Self-verify sections / 
 inspected, how many R6 trigger clauses were seen) — a zero finding count can always be told apart
 from "the instrument never saw anything to look at".
 """
+import os
 import re
 import sys
-from collections import namedtuple
+import types
+from collections import defaultdict, namedtuple
 
 Unit = namedtuple("Unit", "text line kind")  # kind: para | item (list item) | row | header | heading
 
@@ -214,8 +225,9 @@ class Doc:
         self.fenced, self.unclosed = scan_fences(self.lines)
         self.units = extract_units(self.lines, self.fenced)
         self.sections = heading_sections(self.lines, self.fenced)
-        self.cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0,
-                    "cert_inline_items": 0}
+        # Core counters are always present; pack rules add `r<N>_triggers` keys on demand.
+        self.cov = defaultdict(int, {"selfverify_sections": 0, "cert_hw_live_items": 0,
+                                     "r6_trigger_clauses": 0, "cert_inline_items": 0})
         self.valid_waivers = []   # [(line, rule)]
         self.r0 = []              # [(line, "R0", msg)]
         self.infos = []           # [(line, msg)] — inactive-pack-rule waivers
@@ -402,13 +414,117 @@ def rule_r6(doc):
     return out
 
 
-# Extension point (slice 2): per-target rule packs append `(rule_id, fn)` here.
+# Extension point: per-target rule packs append `(rule_id, fn)` here (see load_packs).
 RULES = [("R3", rule_r3), ("R6", rule_r6)]
 RULE_IDS = [r for r, _ in RULES]
-# Ids of the reference linter's per-target pack rules, reserved for slice 2. A waiver naming one is
-# valid in a block (it is not R0) but nothing enforces it here: it is reported as INFO and counted
-# as `inactive-waivers`. A pack that registers a rule in RULES activates its id automatically.
+# Ids of the reference linter's per-target pack rules. A waiver naming one is valid in a block (it is
+# not R0); it is enforced only while a loaded pack registers that id, otherwise it is reported as INFO
+# and counted as `inactive-waivers`. R2 (needs a re-derived trigger vocabulary) and R4 (needs a
+# METHODOLOGY clause convention) are reserved but have no pack yet (kit #1365).
 RESERVED_PACK_RULE_IDS = ("R1", "R2", "R4", "R5", "R7", "R8", "R9")
+
+
+# ---------------------------------------------------------------------------
+# Rule packs (kit #1365 item 1)
+# ---------------------------------------------------------------------------
+# A pack is `<packs dir>/<name>.py` defining `build(api) -> [(rule_id, fn)]`, where `api` is THIS module
+# (clauses, excerpt, make_claim_rule, ...) and `fn(doc) -> [(line, rule_id, message)]`. Packs are opt-in
+# (`--pack NAME`): a run without --pack is the generic core, byte-for-byte. The pack source is exec'd,
+# never imported, so loading writes no __pycache__ into the kit tree. Every loader failure is a typed
+# PackError -> exit 2 with NOTHING linted: a pack that did not load must never read as a clean run.
+PACK_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+LOADED_PACKS = []          # names, in load order
+PACK_RULE_IDS = []         # ids registered by packs, in load order
+
+
+class PackError(Exception):
+    pass
+
+
+def packs_dir():
+    return os.environ.get("LINT_BLOCK_PACKS_DIR") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "lint-block-packs")
+
+
+def available_packs(base):
+    try:
+        return sorted(f[:-3] for f in os.listdir(base) if f.endswith(".py"))
+    except OSError:
+        return []
+
+
+CLAIM_KINDS = ("para", "item", "row", "heading")
+# A unit routinely packs several semicolon/sentence-joined claims; matching a trigger and its clearing
+# evidence per CLAUSE keeps one claim's evidence from clearing (or pairing with) another claim.
+CLAUSE_SPLIT_RE = re.compile(r"(?<=[a-z0-9)`\]])[.;!?]\s+(?=[A-Z0-9`*\[(])")
+
+
+def clauses(text):
+    parts = [c.strip() for c in CLAUSE_SPLIT_RE.split(text) if c.strip()]
+    return parts or [text]
+
+
+def make_claim_rule(rule_id, is_claim, is_cleared, message):
+    """Rule factory for the common pack shape: a clause that makes a claim (`is_claim`) and carries no
+    clearing evidence (`is_cleared`) is a finding unless the unit holds a valid waiver for `rule_id`.
+    Bumps `r<N>_triggers` for every claim clause seen (cleared or not), so the SUMMARY proves it looked."""
+    covkey = rule_id.lower() + "_triggers"
+
+    def rule(doc):
+        out = []
+        for u in doc.units:
+            if u.kind not in CLAIM_KINDS:
+                continue
+            for clause in clauses(u.text):
+                if not is_claim(clause):
+                    continue
+                doc.cov[covkey] += 1
+                if is_cleared(clause) or doc.waived(rule_id, u):
+                    continue
+                out.append((u.line, rule_id, f"{message}: {excerpt(clause)}"))
+                break
+        return out
+    return rule
+
+
+def load_packs(names):
+    """Load packs (idempotent per name); raise PackError on any failure."""
+    base = packs_dir()
+    if not os.path.isdir(base):
+        raise PackError(f"DEGRADED: packs directory {base} not found - nothing was linted (this is NOT a clean result)")
+    api = sys.modules[__name__]
+    for name in names:
+        if not PACK_NAME_RE.match(name):
+            raise PackError(f"invalid pack name {name!r} (lower-case letters, digits and '-' only)")
+        if name in LOADED_PACKS:
+            continue
+        path = os.path.join(base, name + ".py")
+        if not os.path.isfile(path):
+            raise PackError(f"unknown pack {name} (available: {', '.join(available_packs(base)) or 'none'})")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                code = compile(fh.read(), path, "exec")
+            mod = types.ModuleType("lint_block_pack_" + name.replace("-", "_"))
+            exec(code, mod.__dict__)
+            build = getattr(mod, "build", None)
+            if build is None:
+                raise PackError(f"pack {name} defines no build(api)")
+            rules = list(build(api))
+        except PackError:
+            raise
+        except Exception as exc:  # syntax error, import error, a build() that raises
+            raise PackError(f"pack {name} failed to load: {type(exc).__name__}: {exc}")
+        if not rules:
+            raise PackError(f"pack {name} registered no rules")
+        for rid, fn in rules:
+            if rid in RULE_IDS:
+                raise PackError(f"pack {name}: rule {rid} is already active")
+            if rid not in RESERVED_PACK_RULE_IDS:
+                raise PackError(f"pack {name}: {rid} is not a reserved pack rule id ({', '.join(RESERVED_PACK_RULE_IDS)})")
+            RULES.append((rid, fn))
+            RULE_IDS.append(rid)
+            PACK_RULE_IDS.append(rid)
+        LOADED_PACKS.append(name)
 
 
 def lint_text(text):
@@ -428,12 +544,26 @@ def lint_text(text):
 def main(argv):
     audit = False
     files_from_stdin = False
+    check_packs = False
+    pack_names = []
     files = []
     i = 0
     while i < len(argv):
         a = argv[i]
         if a == "--audit":
             audit = True
+        elif a == "--check-packs":
+            check_packs = True
+        elif a == "--pack" or a.startswith("--pack="):
+            if a == "--pack":
+                i += 1
+                val = argv[i] if i < len(argv) else ""
+            else:
+                val = a[len("--pack="):]
+            if not val or val.startswith("-"):
+                print("lint-block: --pack needs a name", file=sys.stderr)
+                return 2
+            pack_names.extend(n for n in val.split(",") if n)
         elif a == "--files-from":
             i += 1
             if i >= len(argv) or argv[i] != "-":
@@ -446,6 +576,14 @@ def main(argv):
         else:
             files.append(a)
         i += 1
+    if pack_names:
+        try:
+            load_packs(pack_names)
+        except PackError as exc:
+            print(f"lint-block: {exc}", file=sys.stderr)
+            return 2
+    if check_packs:
+        return 0
     if files_from_stdin:
         files.extend(ln for ln in sys.stdin.read().split("\n") if ln)
     if not files:
@@ -453,8 +591,9 @@ def main(argv):
         return 2
 
     counts = {r: 0 for r in ["R0"] + RULE_IDS}
-    cov = {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0, "cert_inline_items": 0}
-    read = empty = unreadable = total = warn = inactive = 0
+    cov = defaultdict(int, {"selfverify_sections": 0, "cert_hw_live_items": 0, "r6_trigger_clauses": 0,
+                            "cert_inline_items": 0})
+    read = empty = unreadable = total = warn = inactive = crashed = 0
     for path in files:
         try:
             with open(path, "r", encoding="utf-8") as fh:
@@ -468,9 +607,14 @@ def main(argv):
             empty += 1
             print(f"EMPTY-INPUT {path}")
             continue
-        findings, warns, infos, c = lint_text(text)
-        for k in cov:
-            cov[k] += c[k]
+        try:
+            findings, warns, infos, c = lint_text(text)
+        except Exception as exc:  # a crashing rule is an operational failure, never "findings" (exit 1)
+            print(f"RULE-CRASH {path}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            crashed += 1
+            continue
+        for k, v in c.items():
+            cov[k] += v
         for line, msg in infos:
             print(f"INFO {path}:{line}: {msg}")
             inactive += 1
@@ -487,8 +631,10 @@ def main(argv):
     print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} inactive-waivers={inactive} {per_rule} "
           f"| inspected: selfverify-sections={cov['selfverify_sections']} "
           f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']} "
-          f"cert-inline-items={cov['cert_inline_items']}")
-    if unreadable:
+          f"cert-inline-items={cov['cert_inline_items']}"
+          + (f" packs={','.join(LOADED_PACKS)} " + " ".join(
+              f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS) if LOADED_PACKS else ""))
+    if unreadable or crashed:
         return 2
     if read - empty == 0:
         print("EMPTY-INPUT: every given file was empty; nothing was linted")

@@ -3,11 +3,15 @@
 #
 # Enforces the GENERIC block-writing rules that prose alone already failed to hold (see
 # lint_block.py for the rule definitions: R0 waiver hygiene, R3 ephemeral evidence in Self-verify,
-# R6 cross-block comparison without a raw artifact). Per-target rule packs (JVM, multi-version,
-# child-gap hygiene, ...) are slice 2 and plug into the RULES registry in lint_block.py.
+# R6 cross-block comparison without a raw artifact). Per-target rule packs (kit #1365 item 1) plug
+# into the RULES registry in lint_block.py and are opt-in with --pack NAME: jvm (R1 R5 R7),
+# multi-version (R8), native-binary (R9). R2 and R4 have no pack yet. NOT wired into verify-block.sh.
 #
 # Usage:
 #   lint-block.sh <block.md>...             FAIL mode: exit 1 if any finding remains. Use on NEW blocks.
+#   lint-block.sh [--pack NAME]... ...      load per-target rule packs (repeatable; NAME,NAME and
+#                                           --pack=NAME accepted). An unknown / broken pack -> exit 2,
+#                                           nothing linted. Works with --audit and FAIL mode.
 #   lint-block.sh --audit <path>...         report-only: <path> is a block file or a corpus directory
 #                                           (canonical block files found recursively). Exit 0 with
 #                                           counts whatever the findings. Use on LEGACY corpora.
@@ -37,15 +41,23 @@ HELPER="$SELF_DIR/lint_block.py"
 _bflib="$SELF_DIR/lib/block-files.sh"
 
 usage() {
-  echo "usage: lint-block.sh <block.md>...        (FAIL mode)" >&2
+  echo "usage: lint-block.sh [--pack NAME]... <block.md>...        (FAIL mode)" >&2
   echo "       lint-block.sh --audit <file|dir>...  (report-only; dirs are searched for block files)" >&2
 }
 
 audit=0
 paths=()
+pack_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --audit) audit=1 ;;
+    --pack)
+      if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then echo "lint-block: --pack needs a name" >&2; exit 2; fi
+      pack_args+=(--pack "$2"); shift ;;
+    --pack=*)
+      _pv="${1#--pack=}"
+      if [ -z "$_pv" ] || [ "${_pv#-}" != "$_pv" ]; then echo "lint-block: --pack needs a name" >&2; exit 2; fi
+      pack_args+=("$1") ;;
     -h|--help) usage; exit 0 ;;
     --) shift; while [ $# -gt 0 ]; do paths+=("$1"); shift; done; break ;;
     -*) echo "lint-block: unknown option: $1" >&2; usage; exit 2 ;;
@@ -69,6 +81,11 @@ fi
 if ! declare -F block_file_filter >/dev/null 2>&1; then
   echo "lint-block: DEGRADED: lib/block-files.sh failed to define block_file_filter — nothing was linted (this is NOT a clean result)" >&2
   exit 2
+fi
+
+# Packs are validated BEFORE any listing: a bad pack must fail even when the corpus turns out empty.
+if [ "${#pack_args[@]}" -gt 0 ]; then
+  python3 "$HELPER" "${pack_args[@]}" --check-packs || exit 2
 fi
 
 tmp="$(mktemp -d)" || { echo "lint-block: DEGRADED: cannot create temp dir" >&2; exit 2; }
@@ -128,7 +145,7 @@ fi
 
 mode_args=()
 [ "$audit" -eq 1 ] && mode_args=(--audit)
-python3 "$HELPER" "${mode_args[@]}" --files-from - < "$list"
+python3 "$HELPER" "${mode_args[@]}" "${pack_args[@]}" --files-from - < "$list"
 rc=$?
 if [ "$rc_ops" -ne 0 ] && [ "$rc" -lt 2 ]; then rc=2; fi
 exit "$rc"
