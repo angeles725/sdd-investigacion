@@ -106,10 +106,18 @@ if [ "$conf_state" = present ]; then
             echo "BAD-CONF glob '$arg' in $conf must be repo-relative (no leading / and no .. segment)"
             bad_conf=1; continue ;;
         esac
-        # `*` crosses `/`, so an allow made only of wildcards would silently allow every file.
-        if [ "$dir" = allow ] && [ -z "${arg//\*/}" ]; then
-          echo "BAD-CONF allow '$arg' in $conf matches every file — refusing a blanket allow"
-          bad_conf=1; continue
+        # `*` crosses `/`, so an allow can match every file. Decide semantically: a glob that matches ALL of
+        # these probe shapes (top-level, hidden, nested, binary extensions) is blanket, whatever its spelling.
+        if [ "$dir" = allow ]; then
+          blanket=1
+          for probe in a a.jar d/a.class .x d/e/f.so x/y/z.dll Q.EXE; do
+            # shellcheck disable=SC2053  # the glob is meant to be a pattern
+            [[ "$probe" == $arg ]] || { blanket=0; break; }
+          done
+          if [ "$blanket" = 1 ]; then
+            echo "BAD-CONF allow '$arg' in $conf matches every file — refusing a blanket allow"
+            bad_conf=1; continue
+          fi
         fi
         case "$dir" in
           prefix) PREFIXES+=("$arg") ;;

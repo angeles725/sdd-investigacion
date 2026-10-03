@@ -27,7 +27,7 @@ Globs are bash `[[ == ]]` patterns against the repo-relative path; `*` crosses `
 Built-in rule, independent of the conf: `*.class *.jar *.dll *.so *.so.<digit>* *.exe` (case-insensitive) is a leak unless allowed.
 
 An unknown directive, a directive without an argument, a `prefix` that is not dotted identifier characters, or a
-`path`/`allow` glob that is absolute or has a `..` path segment (a name such as `v1..2.jar` is fine), or an `allow` made only of `*`, is `BAD-CONF` and exit 2: a typo (`prefx`) or a rule that could
+`path`/`allow` glob that is absolute or has a `..` path segment (a name such as `v1..2.jar` is fine), or an `allow` glob that matches every probe path shape (top-level, hidden, nested, binary extensions: a blanket allow, e.g. `*`, `?*`, `*?*`), is `BAD-CONF` and exit 2: a typo (`prefx`) or a rule that could
 never match must not read as a clean run. A conf that is a symlink, a directory, or unreadable (`UNREADABLE-CONF`) is
 also exit 2, never ABSENT.
 

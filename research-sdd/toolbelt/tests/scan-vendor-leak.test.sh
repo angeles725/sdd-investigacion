@@ -202,10 +202,22 @@ for bad in 'path a/../b' 'path ..' 'allow x/..' 'path ../x'; do
   [ "$(rc "$d")" = 2 ] && ok "conf '$bad' → exit 2" || no "conf '$bad' accepted"
 done
 # 16e an allow that is only wildcards would silently allow everything: refused.
-for bad in 'allow *' 'allow **'; do
+for bad in 'allow *' 'allow **' 'allow ***' 'allow *?*' 'allow ?*' 'allow [!Z]*'; do
   printf '%s\n' "$bad" > "$d/.research-sdd/vendor-leak.conf"
   [ "$(rc "$d")" = 2 ] && has "$(out "$d")" '^BAD-CONF ' && ok "conf '$bad' → BAD-CONF exit 2" || no "conf '$bad' accepted"
 done
+# a narrow allow is still fine (probe matching must not over-reject)
+printf 'allow poc/**/gradle/wrapper/*\nallow */**\n' > "$d/.research-sdd/vendor-leak.conf"
+[ "$(rc "$d")" = 0 ] && ok "narrow allow globs accepted" || no "narrow allow over-rejected"
+# 16f index-conf refusals: symlink in the index, and unmerged conf.
+d="$TMP/idxlink"; newrepo "$d"; h="$(printf 'prefix javax.baja' | git -C "$d" hash-object -w --stdin)"
+git -C "$d" update-index --add --cacheinfo "120000,$h,.research-sdd/vendor-leak.conf"
+o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*symlink' && ok "symlink conf in the index → BAD-CONF exit 2" || no "index symlink conf wrong: $o"
+d="$TMP/idxmerge"; newrepo "$d"; addf "$d" .research-sdd/vendor-leak.conf 'prefix a.b'; commit "$d"
+git -C "$d" checkout -q -b side; addf "$d" .research-sdd/vendor-leak.conf 'prefix c.d'; commit "$d"
+git -C "$d" checkout -q -; addf "$d" .research-sdd/vendor-leak.conf 'prefix e.f'; commit "$d"
+git -C "$d" merge side >/dev/null 2>&1
+o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*unmerged' && ok "unmerged conf in the index → BAD-CONF exit 2" || no "unmerged conf wrong: $o"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
@@ -269,10 +281,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # R: conf read from the work tree again.
   mk "R conf-wt" "$SUT" "$MUT/r.sh" 's/^  conf_file="\$conf_tmp"/  conf_file="$conf"/' \
     && tt "R conf from work tree → emptied work-tree conf hides the prefix" 1 0 "$MUT/r.sh" -- bash @SUT@ "$TMP/confidx" --staged
-  # S: allow-wildcard guard removed.
-  mk "S allow-star" "$SUT" "$MUT/s.sh" 's/\[ -z "\${arg\/\/\\\*\/}" \]/false/' \
-    && { printf 'allow *\n' > "$TMP/dots/.research-sdd/vendor-leak.conf"
-         tt "S allow * accepted → allows everything" 2 0 "$MUT/s.sh" -- bash @SUT@ "$TMP/dots"; }
+  # S: blanket-allow guard disabled (probe loop can never conclude blanket).
+  mk "S allow-star" "$SUT" "$MUT/s.sh" 's/^          blanket=1$/          blanket=0/' \
+    && { printf 'allow ***\n' > "$TMP/dots/.research-sdd/vendor-leak.conf"
+         tt "S blanket allow accepted → allows everything" 2 0 "$MUT/s.sh" -- bash @SUT@ "$TMP/dots"; }
+  # T: index symlink conf accepted (mode check dropped).
+  mk "T idx-symlink" "$SUT" "$MUT/t.sh" 's/\[ "\$idx_mode" != 100644 \] && \[ "\$idx_mode" != 100755 \]/false/' \
+    && tt "T index symlink conf accepted" 2 0 "$MUT/t.sh" -- bash @SUT@ "$TMP/idxlink"
+  # U: unmerged conf accepted.
+  mk "U idx-unmerged" "$SUT" "$MUT/u.sh" 's/if grep -qvE /if false \&\& grep -qvE /' \
+    && tt "U unmerged conf branch removed → typed BAD-CONF lost (falls to UNREADABLE-CONF)" 2 2 "$MUT/u.sh" --good-has '^BAD-CONF .*unmerged' --bad-lacks '^BAD-CONF .*unmerged' -- bash @SUT@ "$TMP/idxmerge"
 fi
 
 echo "== $pass passed · $fail failed =="
