@@ -769,6 +769,20 @@ _rsdd_vendor_leak_wiring() {
     echo "$tag NO-REMOTE no remote configured — nothing scaffolded; once a remote exists, a plain run scaffolds the conf (--wire additionally writes the CI workflow), or create $conf by hand before making the repo public"
     return 0
   fi
+  # Probe the PUSH remote explicitly — a bare `gh repo view` lets gh choose (GH_REPO, set-default, upstream
+  # before origin), which may not be the repo this target publishes to. origin wins; a single other remote
+  # is used; several remotes without origin are ambiguous and DEGRADED (never guessed).
+  local remote gh_url
+  case $'\n'"$remotes"$'\n' in
+    *$'\n'origin$'\n'*) remote=origin ;;
+    *) if [ "$(printf '%s\n' "$remotes" | wc -l)" -gt 1 ]; then
+         echo "$tag DEGRADED ambiguous remote — several remotes and no 'origin' ($(printf '%s' "$remotes" | tr '\n' ' ')) — vendor-leak wiring skipped (NOT a pass)"
+         return 0
+       fi
+       remote="$remotes" ;;
+  esac
+  gh_url="$(git -C "$target" remote get-url --push "$remote" 2>/dev/null)" && [ -n "$gh_url" ] \
+    || { echo "$tag DEGRADED could not read the push URL of remote '$remote' — vendor-leak wiring skipped (NOT a pass)"; return 0; }
   if ! command -v gh >/dev/null 2>&1; then
     echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
     return 0
@@ -776,7 +790,7 @@ _rsdd_vendor_leak_wiring() {
   # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
   # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
   # other value falls back to 20 with a note. No `timeout` binary -> the probe runs unbounded, announced.
-  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view --json visibility --jq .visibility)
+  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
   case "$gh_t" in
     ''|*[!0-9]*|0*)
       echo "$tag note: RSDD_GH_TIMEOUT='$gh_t' is not a positive integer — using the default 20s"
@@ -788,7 +802,7 @@ _rsdd_vendor_leak_wiring() {
     echo "$tag note: timeout not found — the gh probe runs unbounded"
   fi
   gh_err="$(mktemp 2>/dev/null)" || gh_err=/dev/null
-  vis="$(cd "$target" && GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
+  vis="$(cd "$target" && env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
   gh_why=""
   [ "$gh_err" = /dev/null ] || { gh_why="$(sed -n '1p' "$gh_err" 2>/dev/null)"; rm -f "$gh_err"; }
   [ -n "$gh_why" ] && gh_why=" [gh: $gh_why]"
@@ -804,7 +818,7 @@ _rsdd_vendor_leak_wiring() {
   fi
   case "$vis" in
     PRIVATE|INTERNAL)
-      echo "$tag PRIVATE remote visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, a plain run scaffolds the conf (--wire additionally writes the CI workflow)"
+      echo "$tag PRIVATE remote '$remote' visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, a plain run scaffolds the conf (--wire additionally writes the CI workflow)"
       return 0 ;;
     PUBLIC) ;;
     *)
@@ -815,7 +829,7 @@ _rsdd_vendor_leak_wiring() {
     echo "$tag DEGRADED PUBLIC remote but kit templates missing ($tpl_conf / $tpl_ci) — nothing scaffolded"
     return 0
   fi
-  echo "$tag PUBLIC remote is PUBLIC — vendor code (decompiled trees, *.class/*.jar/*.dll/*.so/*.exe) must never be committed"
+  echo "$tag PUBLIC remote '$remote' is PUBLIC — vendor code (decompiled trees, *.class/*.jar/*.dll/*.so/*.exe) must never be committed"
   if [ -e "$conf" ] || [ -L "$conf" ]; then
     echo "$tag kept existing $conf (never overwritten)"
   elif [ -L "$target/.research-sdd" ] || { [ -e "$target/.research-sdd" ] && [ ! -d "$target/.research-sdd" ]; }; then
