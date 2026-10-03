@@ -2028,13 +2028,18 @@ retro43d="$(mk_retro "$box43d" target-foo r43d.md \
 run "$box43d" "$retro43d"
 cp "$box43d/bin/gh.log" "$box43d/run.log"
 : > "$box43d/bin/gh.log"
-PATH="$box43d/bin:$PATH" gh issue close 1 >/dev/null 2>&1; PATH="$box43d/bin:$PATH" gh issue edit 1 >/dev/null 2>&1
-if [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 is no longer open in r43d.md .*shipped.*close' <<<"$OUT" \
+ctl43d=0
+if [ -x "$box43d/bin/gh" ]; then
+  # absolute stub path and a PATH holding only the stub dir: the real gh can never be reached by the control
+  PATH="$box43d/bin" "$box43d/bin/gh" issue close 1 >/dev/null 2>&1; PATH="$box43d/bin" "$box43d/bin/gh" issue edit 1 >/dev/null 2>&1
+  ctl43d=1
+fi
+if [ "$ctl43d" = 1 ] && [ "$RC" = 0 ] && grep -q '^orphaned: issue for row 1 is no longer open in r43d.md .*shipped.*close' <<<"$OUT" \
    && grep -q 'gh issue list' "$box43d/run.log" && ! grep -qE 'issue (close|edit)' "$box43d/run.log" \
    && grep -q 'gh issue close' "$box43d/bin/gh.log" && grep -q 'gh issue edit' "$box43d/bin/gh.log"; then
   ok "43d report-only: close proposal emitted via gh, no close/edit call logged (log proven able to record one)" "()"
 else
-  no "43d report-only" "rc=$RC out=[$OUT] run.log=[$(cat "$box43d/run.log" 2>&1)] control=[$(cat "$box43d/bin/gh.log" 2>&1)]"
+  no "43d report-only" "stub-executable=$ctl43d rc=$RC out=[$OUT] run.log=[$(cat "$box43d/run.log" 2>&1)] control=[$(cat "$box43d/bin/gh.log" 2>&1)]"
 fi
 
 # 43e — PRECEDENCE: a dismissed+PARTIAL marker (dismissed wins for open rows; PARTIAL still carries the shipped

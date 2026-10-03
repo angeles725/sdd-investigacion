@@ -3987,6 +3987,18 @@ if [ "$RC" = 0 ] && ! LC_ALL=C grep -aq '^unclassifiable-row:' <<<"$OUT" && [ "$
 else
   no "85i non-UTF-8 title undercount" "exit=$RC out=[$OUT]"
 fi
+# 85j — iconv missing/unusable must NOT silently reintroduce #1492: valid UTF-8 is still counted in characters
+# (11 chars / 16 bytes refused, 12 chars planned), and the degradation is announced by exactly one typed NOTE.
+box85j="$(mkbox case-title-no-iconv)"; mk_gh_stub "$box85j" nomatch
+printf '#!%s\nexit 127\n' "$BASH_BIN" > "$box85j/bin/iconv"; chmod +x "$box85j/bin/iconv"
+LC_ALL=C run "$box85j" "$r85h"
+if [ "$RC" = 0 ] && grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT" \
+   && grep -q '^planned-issue: ñandúñandúñá$' <<<"$OUT" && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 1 ] \
+   && [ "$(grep -c '^NOTE: degraded: iconv is missing or unusable' <<<"$OUT")" = 1 ]; then
+  ok "85j unusable iconv: 11-char title still refused, 12 planned, one typed degraded NOTE" "(exit $RC)"
+else
+  no "85j unusable iconv" "exit=$RC out=[$OUT]"
+fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -4020,16 +4032,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1492-c teeth: byte count must flip 85h" "85h is THEATER: out=[${OUT:0:300}]"; fi
   else no "T1492-c: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   echo "-- teeth T1519: token clause independent of length, non-UTF-8 fallback --"
-  # (d) token clause neutered -> the long token `Documentation` is staged (85e row 8 has teeth).
-  mbox="$(mkbox teeth-1519-d)"; mk_gh_stub "$mbox" nomatch
-  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#^    high|medium|low|feature|.*documentation|doc-fix|docfix)$#    zzz-no-token)#'; then
-    run "$mbox" "$(mk_retro "$mbox" target-foo r85w.md '<!-- review-status: pending -->' \
-"| 1 | Documentation | CLAUDE.md | B1 | fix | HIGH |")"
-    if grep -q '^planned-issue: Documentation$' <<<"$OUT"; then
-      ok "T1519-d teeth: token clause neutered -> long token title staged (85e has teeth)" "()"
-    else no "T1519-d teeth: neutering the token clause must flip 85e" "85e is THEATER: out=[${OUT:0:300}]"; fi
-  else no "T1519-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
-  # (e) token check demoted below the length clause -> a short token is labelled by length (85e row 1 has teeth).
+  # (e) the short tokens (high|medium|low|feature) are dropped from the list -> `LOW` falls through to the
+  # length clause and is labelled by length (85e row 1 has teeth for list content; (g) guards clause ORDER).
   mbox="$(mkbox teeth-1519-e)"; mk_gh_stub "$mbox" nomatch
   if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#^    high|medium|low|feature|\(.*\)documentation|doc-fix|docfix)$#    xx-no-short-token|\1documentation|doc-fix|docfix)#'; then
     run "$mbox" "$(mk_retro "$mbox" target-foo r85x.md '<!-- review-status: pending -->' \
@@ -4038,9 +4042,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1519-e teeth: short tokens dropped from the list -> labelled by length (85e has teeth)" "()"
     else no "T1519-e teeth: short-token removal must flip 85e" "85e is THEATER: out=[${OUT:0:300}]"; fi
   else no "T1519-e: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (g) clause ORDER swapped: a length check placed BEFORE the token case labels `LOW` by length (85e row 1).
+  mbox="$(mkbox teeth-1519-g)"; mk_gh_stub "$mbox" nomatch
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's|^  case "\$t" in$|  if [ "${#t}" -lt 12 ]; then _title_reason="a title under $_MIN_TITLE_LEN characters"; return 0; fi\n  case "$t" in|'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r85z.md '<!-- review-status: pending -->' \
+"| 1 | LOW | CLAUDE.md | B1 | fix | HIGH |")"
+    if grep -q '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT"; then
+      ok "T1519-g teeth: length clause ahead of the token clause -> LOW labelled by length (85e guards order)" "()"
+    else no "T1519-g teeth: swapping the clause order must flip 85e" "85e order is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1519-g: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (h) iconv probe bypassed -> with an unusable iconv every valid title reads as invalid UTF-8 and is
+  # counted in bytes, so the 11-char / 16-byte title is staged again (85j has teeth).
+  mbox="$(mkbox teeth-1519-h)"; mk_gh_stub "$mbox" nomatch
+  printf '#!%s\nexit 127\n' "$BASH_BIN" > "$mbox/bin/iconv"; chmod +x "$mbox/bin/iconv"
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#if ! _iconv_usable || printf#if printf#'; then
+    LC_ALL=C run "$mbox" "$r85h"
+    if grep -q '^planned-issue: ñandúñandúñ$' <<<"$OUT"; then
+      ok "T1519-h teeth: probe bypassed -> unusable iconv stages the 11-char title (85j has teeth)" "()"
+    else no "T1519-h teeth: bypassing the probe must flip 85j" "85j is THEATER: out=[${OUT:0:300}]"; fi
+  else no "T1519-h: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   # (f) UTF-8 validity probe forced true -> the Latin-1 title is undercounted and refused (85i has teeth).
   mbox="$(mkbox teeth-1519-f)"; mk_gh_stub "$mbox" nomatch
-  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#if printf .%s. "\$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then#if true; then#'; then
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's#if ! _iconv_usable || printf .%s. "\$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then#if true; then#'; then
     LC_ALL=C run "$mbox" "$(mk_retro "$mbox" target-foo r85y.md '<!-- review-status: pending -->' \
 "$(printf '| 1 | a\260b\260c\260defghi | CLAUDE.md | B1 | fix | HIGH |')")"
     if LC_ALL=C grep -aq '^unclassifiable-row: row 1 .*under 12 characters' <<<"$OUT"; then

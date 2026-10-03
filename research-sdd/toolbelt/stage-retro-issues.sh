@@ -890,11 +890,28 @@ _MIN_TITLE_LEN=12
 # The token check runs FIRST and is independent of the length floor (kit issue #1519): a token is labelled
 # a token even when it is also short, and the list needs no knowledge of _MIN_TITLE_LEN. It mirrors the
 # vocabulary map_priority/map_type recognise, exact match only.
-# Length is counted in characters, not bytes, whatever the caller's locale: for valid UTF-8 under LC_ALL=C
-# every byte except a continuation byte (0x80-0xBF) starts one character. Input that is NOT valid UTF-8
-# (e.g. Latin-1) has no continuation bytes to discount, so it is counted in bytes instead of being
-# undercounted into a false refusal; with no iconv to validate, the byte count is the safe fallback too.
+# Length is counted in characters, not bytes, whatever the caller's locale: under LC_ALL=C every byte except
+# a UTF-8 continuation byte (0x80-0xBF) starts one character. Input that is NOT valid UTF-8 (e.g. Latin-1,
+# whose 0xB0 would be discounted as a continuation byte) is counted in bytes instead, so it is never
+# undercounted into a false refusal. Validity is judged by iconv, probed ONCE (_iconv_usable): when iconv is
+# missing or broken the validity check is skipped and the continuation-byte strip is used for every title.
+# Trade-off: that never over-accepts valid UTF-8 (the #1492 guarantee holds), but a non-UTF-8 title with
+# continuation-range bytes may be over-refused until iconv is available; a typed NOTE says so, never silent.
 _title_reason=""
+_iconv_state=""
+_iconv_usable() {
+  if [ -z "$_iconv_state" ]; then
+    # STAGE_RETRO_ISSUES_ICONV_PROBE: anchor for the degraded-probe tooth
+    if command -v iconv >/dev/null 2>&1 \
+       && [ "$(printf '\303\261' | LC_ALL=C iconv -f UTF-8 -t UTF-8 2>/dev/null | wc -c)" -eq 2 ]; then
+      _iconv_state=1
+    else
+      _iconv_state=0
+      echo "NOTE: degraded: iconv is missing or unusable — title length is counted by stripping UTF-8 continuation bytes without validating the encoding (non-UTF-8 titles may be over-refused)" >&2
+    fi
+  fi
+  [ "$_iconv_state" = 1 ]
+}
 title_is_unusable() {
   local t _n
   t="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -904,7 +921,7 @@ title_is_unusable() {
       _title_reason="a bare priority/type token"; return 0 ;;
   esac
   # STAGE_RETRO_ISSUES_CHAR_COUNT: anchor for the byte-vs-character tooth
-  if printf '%s' "$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+  if ! _iconv_usable || printf '%s' "$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
     _n="$(printf '%s' "$t" | LC_ALL=C tr -d '\200-\277' | wc -c)"
   else
     _n="$(printf '%s' "$t" | LC_ALL=C wc -c)"
