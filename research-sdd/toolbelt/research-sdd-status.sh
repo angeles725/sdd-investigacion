@@ -1806,10 +1806,14 @@ remote_visibility_block() {
     if [ -z "$_rv_slug" ]; then
       echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
     fi
-    if ! command -v timeout >/dev/null 2>&1; then
-      echo "degraded: remote-visibility: timeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
+    # GNU `timeout`, else `gtimeout` (macOS coreutils); only when neither exists is the check degraded.
+    _rv_to=""
+    if command -v timeout >/dev/null 2>&1; then _rv_to=timeout
+    elif command -v gtimeout >/dev/null 2>&1; then _rv_to=gtimeout; fi
+    if [ -z "$_rv_to" ]; then
+      echo "degraded: remote-visibility: timeout/gtimeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
     fi
-    _rv_vis="$(GH_PROMPT_DISABLED=1 timeout "${RSDD_GH_TIMEOUT:-10}" "$_rv_gh" repo view "$_rv_slug" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
+    _rv_vis="$(GH_PROMPT_DISABLED=1 "$_rv_to" "${RSDD_GH_TIMEOUT:-10}" "$_rv_gh" repo view "$_rv_slug" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
     if [ "$_rv_rc" -eq 124 ]; then
       echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue
     fi
