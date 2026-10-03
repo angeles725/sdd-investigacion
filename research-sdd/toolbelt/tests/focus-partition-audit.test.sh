@@ -28,11 +28,22 @@ SUT="$HERE/../focus-partition-audit.sh"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 
-ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+# SUT-call evidence (kit issue #1349). run()/rune() record the call's args, exit code and (run only) stderr;
+# every assertion (ok or no) clears it afterwards, so a failure prints evidence ONLY from a SUT call made by
+# that very assertion — never a stale one from an earlier case, and nothing for direct `bash "$SUT"` calls.
+_ctx_clear() { rm -f "$ROOT/last.err" "$ROOT/last.rc" "$ROOT/last.call"; }
+ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); _ctx_clear; }
+no() {
+  printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1))
+  [ -f "$ROOT/last.call" ] && printf '        last SUT call: %s\n' "$(cat "$ROOT/last.call")"
+  [ -s "$ROOT/last.err" ] && printf '        its stderr: %s\n' "$(head -c 2000 "$ROOT/last.err")"
+  [ -f "$ROOT/last.rc" ] && printf '        its exit code: %s\n' "$(cat "$ROOT/last.rc")"
+  _ctx_clear
+  return 0
+}
 
-run() { bash "$SUT" "$@" 2>/dev/null; }
-rune() { bash "$SUT" "$@" 2>&1; }  # include stderr
+run() { local _rc; printf '%s' "run $*" > "$ROOT/last.call"; : > "$ROOT/last.err"; bash "$SUT" "$@" 2>"$ROOT/last.err"; _rc=$?; printf '%s' "$_rc" > "$ROOT/last.rc"; return "$_rc"; }
+rune() { local _rc; printf '%s' "rune (stderr merged into stdout) $*" > "$ROOT/last.call"; bash "$SUT" "$@" 2>&1; _rc=$?; printf '%s' "$_rc" > "$ROOT/last.rc"; return "$_rc"; }
 
 echo "== focus-partition-audit.test.sh =="
 
@@ -64,7 +75,7 @@ mk_state() {
 # ---- 1. absent subject -> exit 1 + absent-input message
 out="$(rune "$ROOT/corpus" --subject "$ROOT/absent_subject" 2>&1)"
 rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'absent-input'; then
+if [ "$rc" -eq 1 ] && <<<"$out" grep -q 'absent-input'; then
   ok "absent subject: exit 1 + absent-input message"
 else
   no "absent subject: expected exit 1 + absent-input" "rc=$rc out=$out"
@@ -74,8 +85,8 @@ fi
 S2="$ROOT/s2"
 mk_unit "$S2" "mod_alpha" "README.txt"
 out="$(run "$ROOT/corpus" --subject "$S2")"
-if printf '%s' "$out" | grep -q 'subject: empty-input' \
-   && printf '%s' "$out" | grep -qE 'units: 0/0 chartered'; then
+if <<<"$out" grep -q 'subject: empty-input' \
+   && <<<"$out" grep -qE 'units: 0/0 chartered'; then
   ok "empty subject (no .java): empty-input + zeroed units line"
 else
   no "empty subject: expected empty-input" "out=$out"
@@ -87,9 +98,9 @@ S3="$ROOT/s3"; C3="$ROOT/c3"
 mk_unit "$S3" "mod_a" "Alpha.java"
 mkdir -p "$C3"   # corpus-dir exists but no FOCUSES.md
 out="$(run "$C3" --subject "$S3")"
-if printf '%s' "$out" | grep -q 'focuses: absent-input' \
-   && printf '%s' "$out" | grep -qE 'units: 0/1 chartered' \
-   && ! printf '%s' "$out" | grep -q 'no-match ('; then
+if <<<"$out" grep -q 'focuses: absent-input' \
+   && <<<"$out" grep -qE 'units: 0/1 chartered' \
+   && ! <<<"$out" grep -q 'no-match ('; then
   ok "FOCUSES.md absent: absent-input + unchartered, no duplicate no-match line (F4)"
 else
   no "FOCUSES.md absent: expected single typed state" "out=$out"
@@ -100,7 +111,7 @@ S4="$ROOT/s4"; C4="$ROOT/c4"
 mk_unit "$S4" "mod_a" "Alpha.java"
 mkdir -p "$C4"; printf 'no table here, just prose\n' > "$C4/FOCUSES.md"
 out="$(run "$C4" --subject "$S4")"
-if printf '%s' "$out" | grep -q 'focuses: empty-input'; then
+if <<<"$out" grep -q 'focuses: empty-input'; then
   ok "FOCUSES.md present, 0 rows: empty-input state"
 else
   no "FOCUSES.md 0 rows: expected empty-input" "out=$out"
@@ -111,8 +122,8 @@ S5="$ROOT/s5"; C5="$ROOT/c5"
 mk_unit "$S5" "mod_a" "Alpha.java"
 mk_focuses "$C5" '| module-mechanics | active | | plain prose scope, no code spans |'
 out="$(run "$C5" --subject "$S5")"
-if printf '%s' "$out" | grep -q 'focuses: no-match' \
-   && printf '%s' "$out" | grep -q 'FOCUSES.md rows: 1 classified, 0 unclassifiable'; then
+if <<<"$out" grep -q 'focuses: no-match' \
+   && <<<"$out" grep -q 'FOCUSES.md rows: 1 classified, 0 unclassifiable'; then
   ok "FOCUSES.md rows present, 0 chartering tokens: no-match + 1 classified row"
 else
   no "FOCUSES.md no-match" "out=$out"
@@ -125,7 +136,7 @@ mk_focuses "$C6" \
   '|  | active | | ambito con `mod_a` pero sin identidad de focus |' \
   '| real-focus | active | | scope mentions `mod_a` too |'
 out="$(run "$C6" --subject "$S6")"
-if printf '%s' "$out" | grep -q 'FOCUSES.md rows: 1 classified, 1 unclassifiable'; then
+if <<<"$out" grep -q 'FOCUSES.md rows: 1 classified, 1 unclassifiable'; then
   ok "unclassifiable row: blank-identity row counted separately, not merged into classified"
 else
   no "unclassifiable row: expected 1 classified, 1 unclassifiable" "out=$out"
@@ -137,7 +148,7 @@ mk_unit "$S7" "mod_a" "Alpha.java"
 mk_unit "$S7" "mod_b" "Beta.java"
 mk_focuses "$C7" '| some-focus | active | | scope covers `mod_a` mechanics |'
 out="$(run "$C7" --subject "$S7")"
-if printf '%s' "$out" | grep -qE 'units: 1/2 chartered'; then
+if <<<"$out" grep -qE 'units: 1/2 chartered'; then
   ok "backtick-exact charter: mod_a chartered, mod_b unchartered"
 else
   no "backtick-exact charter: expected 1/2 chartered" "out=$out"
@@ -148,7 +159,7 @@ S8="$ROOT/s8"; C8="$ROOT/c8"
 mk_unit "$S8" "mod_a" "Alpha.java"
 mk_focuses "$C8" '| some-focus | active | | evidence path `organized/mod_a/Foo.java` |'
 out="$(run "$C8" --subject "$S8")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "path-token charter: organized/mod_a/... in a backtick span charters mod_a"
 else
   no "path-token charter: expected 1/1 chartered" "out=$out"
@@ -159,7 +170,7 @@ S9="$ROOT/s9"; C9="$ROOT/c9"
 mk_unit "$S9" "schedule" "BWeeklySchedule.java"
 mk_focuses "$C9" '| build-kit-campaign8 | stopped | | the `Clock.schedule` delay/period floor |'
 out="$(run "$C9" --subject "$S9")"
-if printf '%s' "$out" | grep -qE 'units: 0/1 chartered'; then
+if <<<"$out" grep -qE 'units: 0/1 chartered'; then
   ok "false-positive rejection: Clock.schedule does not falsely charter module 'schedule'"
 else
   no "false-positive rejection FAILED: Clock.schedule falsely charters 'schedule'" "out=$out"
@@ -170,7 +181,7 @@ S10="$ROOT/s10"; C10="$ROOT/c10"
 mk_unit "$S10" "modbusCore" "BModbusNetwork.java"
 mk_focuses "$C10" '| some-focus | active | | see `modbus` driver family |'
 out="$(run "$C10" --subject "$S10")"
-if printf '%s' "$out" | grep -qE 'units: 0/1 chartered'; then
+if <<<"$out" grep -qE 'units: 0/1 chartered'; then
   ok "exact-token equality: 'modbus' token does not substring-charter 'modbusCore'"
 else
   no "exact-token equality FAILED: substring charter leaked through" "out=$out"
@@ -184,7 +195,7 @@ mk_unit "$S11" "lonActech" "C.java"
 mk_unit "$S11" "ZetaUnit" "D.java"   # starts uppercase -> singleton family (its own name)
 mkdir -p "$C11"   # no FOCUSES.md -> everything unchartered
 out="$(run "$C11" --subject "$S11")"
-if printf '%s' "$out" | grep -qE 'families: 2 total .* 2 fully-unchartered'; then
+if <<<"$out" grep -qE 'families: 2 total .* 2 fully-unchartered'; then
   ok "family grouping: lon{Aaon,Abb,Actech} cluster into 1 family; ZetaUnit is its own singleton"
 else
   no "family grouping edges FAILED" "out=$out"
@@ -213,7 +224,7 @@ done
 # deliberately omit awk and sort from the minimal PATH
 out="$(PATH="$TOOLSDIR" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
 rc=$?
-if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded:'; then
+if [ "$rc" -eq 3 ] && <<<"$out" grep -q 'degraded:'; then
   ok "degraded: missing PATH tool -> exit 3 + typed degraded message"
 else
   no "degraded state FAILED" "rc=$rc out=$out"
@@ -228,7 +239,7 @@ for t in bash find grep sed awk sort tr mktemp basename head rm; do
 done
 out="$(PATH="$TOOLSDIR_WC" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
 rc=$?
-if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded: wc not found'; then
+if [ "$rc" -eq 3 ] && <<<"$out" grep -q 'degraded: wc not found'; then
   ok "degraded (F5): missing wc -> exit 3, not a silent 0/0 pass"
 else
   no "degraded wc FAILED" "rc=$rc out=$out"
@@ -241,7 +252,7 @@ mk_focuses "$C15" '| some-focus | active | | scope |'
 chmod 000 "$C15/FOCUSES.md"
 out="$(run "$C15" --subject "$S15")"
 chmod 644 "$C15/FOCUSES.md"  # restore so ROOT cleanup can remove it
-if printf '%s' "$out" | grep -q 'focuses: unreadable'; then
+if <<<"$out" grep -q 'focuses: unreadable'; then
   ok "FOCUSES.md unreadable: distinct typed state, not folded into empty-input"
 else
   no "FOCUSES.md unreadable FAILED" "out=$out"
@@ -250,7 +261,7 @@ fi
 # ---- 16. F7: --depth rejects a non-integer with exit 2 (not a silent empty-input)
 out="$(rune "$ROOT/corpus" --subject "$ROOT/s2" --depth abc)"
 rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'depth must be a non-negative integer'; then
+if [ "$rc" -eq 2 ] && <<<"$out" grep -q 'depth must be a non-negative integer'; then
   ok "F7: --depth abc rejected with exit 2"
 else
   no "F7: --depth abc should exit 2" "rc=$rc out=$out"
@@ -259,7 +270,7 @@ fi
 # ---- 17. F7: --top rejects a non-integer with exit 2
 out="$(rune "$ROOT/corpus" --subject "$ROOT/s2" --top xyz)"
 rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'top must be a non-negative integer'; then
+if [ "$rc" -eq 2 ] && <<<"$out" grep -q 'top must be a non-negative integer'; then
   ok "F7: --top xyz rejected with exit 2"
 else
   no "F7: --top xyz should exit 2" "rc=$rc out=$out"
@@ -276,7 +287,7 @@ mkdir -p "$C18"
   printf '| real-focus | active | | scope mentions `mod_a` |\n'
 } > "$C18/FOCUSES.md"
 out="$(run "$C18" --subject "$S18")"
-if printf '%s' "$out" | grep -q 'FOCUSES.md rows: 1 classified, 0 unclassifiable'; then
+if <<<"$out" grep -q 'FOCUSES.md rows: 1 classified, 0 unclassifiable'; then
   ok "F6: prose line with embedded '|' is not counted as a table row"
 else
   no "F6 FAILED: prose-with-pipe miscounted as a row" "out=$out"
@@ -292,7 +303,7 @@ mk_state "$C19" "RESEARCH-STATE-modbus.md" \
   '|---|---|---|---|' \
   '| M1 | arch | `modbusCore-rt` root | COVERED -> B294 |'
 out="$(run "$C19" --subject "$S19")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "F1: charter resolved from the named RESEARCH-STATE file, not FOCUSES.md's own prose"
 else
   no "F1 FAILED: RESEARCH-STATE charter source not read" "out=$out"
@@ -304,7 +315,7 @@ mk_unit "$S20" "clCBus" "A.java"
 mk_focuses "$C20" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
 mk_state "$C20" "RESEARCH-STATE-wb-vendor-ux.md" 'Archetype surveyed: `clCBus-wb` widgets'
 out="$(run "$C20" --subject "$S20")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "profile-suffix: clCBus-wb charters module clCBus"
 else
   no "profile-suffix FAILED" "out=$out"
@@ -316,7 +327,7 @@ mk_unit "$S21" "clHVACChiller" "A.java"
 mk_unit "$S21" "unrelated" "B.java"
 mk_focuses "$C21" '| kitControl | active | | control HVAC libs (`clHVAC*`) |'
 out="$(run "$C21" --subject "$S21")"
-if printf '%s' "$out" | grep -qE 'units: 1/2 chartered .* \(1 glob-chartered\)'; then
+if <<<"$out" grep -qE 'units: 1/2 chartered .* \(1 glob-chartered\)'; then
   ok "glob token: clHVAC* charters clHVACChiller as glob-chartered, not unrelated"
 else
   no "glob token FAILED" "out=$out"
@@ -327,7 +338,7 @@ S22="$ROOT/s22"; C22="$ROOT/c22"
 mk_unit "$S22" "honIrmConfig" "A.java"
 mk_focuses "$C22" '| kitControl | active | | gate: `check-coverage.py honeywellSpyderTool honIrmConfig` |'
 out="$(run "$C22" --subject "$S22")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "whitespace-split: honIrmConfig resolved from a multi-identifier span"
 else
   no "whitespace-split FAILED" "out=$out"
@@ -338,8 +349,8 @@ S23="$ROOT/s23"; C23="$ROOT/c23"
 mk_unit "$S23" "mod_a" "Alpha.java"
 mk_focuses "$C23" '| gone | active | RESEARCH-STATE-gone.md | never created |'
 out="$(rune "$C23" --subject "$S23")"
-if printf '%s' "$out" | grep -q 'unresolved RESEARCH-STATE references: 1' \
-   && printf '%s' "$out" | grep -q 'WARN:.*RESEARCH-STATE-gone.md'; then
+if <<<"$out" grep -q 'unresolved RESEARCH-STATE references: 1' \
+   && <<<"$out" grep -q 'WARN:.*RESEARCH-STATE-gone.md'; then
   ok "unresolved RESEARCH-STATE reference: declared count + WARN, not a silent drop"
 else
   no "unresolved RESEARCH-STATE reference FAILED" "out=$out"
@@ -353,7 +364,7 @@ mk_focuses "$C24" '| framework-drivers | stopped | RESEARCH-STATE-framework-driv
 mk_state "$C24" "RESEARCH-STATE-framework-drivers.md" \
   'FD3 opcUaServer server-side exposure `opcUaServer-rt,-wb` (47 vf) COVERED -> B498'
 out="$(run "$C24" --subject "$S24")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "F3: comma-joined profile-suffix shorthand (opcUaServer-rt,-wb) charters opcUaServer"
 else
   no "F3 comma-joined profile-suffix FAILED" "out=$out"
@@ -368,7 +379,7 @@ mk_focuses "$C25" '| oem-honeywell-tail | stopped | RESEARCH-STATE-oem-honeywell
 mk_state "$C25" "RESEARCH-STATE-oem-honeywell-tail.md" \
   '| LOW-MED | U9 | Honeywell migrators — DELTA over B90 | honPlantControllerMigrator (68), honeywellModbusSmartSensor (25) | investigable | COVERED -> B250 |'
 out="$(run "$C25" --subject "$S25")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "R1: bare camelCase word in a real gap-table row charters honPlantControllerMigrator"
 else
   no "R1 bare-camelCase-in-table-row FAILED" "out=$out"
@@ -381,7 +392,7 @@ mk_focuses "$C26" '| oem-honeywell-tail | stopped | RESEARCH-STATE-oem-honeywell
 mk_state "$C26" "RESEARCH-STATE-oem-honeywell-tail.md" \
   '| MED | U8 | Centraline residue | 8 mods (clPrintout 24, clStationUpgradeTool 11, clProfile 1) | investigable | COVERED -> B249 |'
 out="$(run "$C26" --subject "$S26")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "R1: bare-number-annotated comma list charters clStationUpgradeTool"
 else
   no "R1 bare-number-list FAILED" "out=$out"
@@ -396,7 +407,7 @@ mk_focuses "$C27" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | ve
 mk_state "$C27" "RESEARCH-STATE-wb-vendor-ux.md" \
   '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
 out="$(run "$C27" --subject "$S27")"
-if printf '%s' "$out" | grep -qE 'units: 0/1 chartered' && printf '%s' "$out" | grep -qE '1 bare-mention'; then
+if <<<"$out" grep -qE 'units: 0/1 chartered' && <<<"$out" grep -qE '1 bare-mention'; then
   ok "R1: all-lowercase bare word with no suffix (mobile) is bare-mention"
 else
   no "R1 bare-mention FAILED" "out=$out"
@@ -411,7 +422,7 @@ mk_focuses "$C27B" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | v
 mk_state "$C27B" "RESEARCH-STATE-wb-vendor-ux.md" \
   '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
 out="$(run "$C27B" --subject "$S27B")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "round 4 LOW: bare zwave-wb (no backticks) charters module zwave"
 else
   no "round 4 bare profile-suffix FAILED" "out=$out"
@@ -425,7 +436,7 @@ mk_focuses "$C27C" '| protocols | stopped | RESEARCH-STATE-protocols.md | protoc
 mk_state "$C27C" "RESEARCH-STATE-protocols.md" \
   '| high | P3 | BACnet APDU service | `bacnet-rt.jar`, `bacnetUtil-rt.jar` | COVERED -> B133 |'
 out="$(run "$C27C" --subject "$S27C")"
-if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+if <<<"$out" grep -qE 'units: 1/1 chartered'; then
   ok "round 4 LOW: bacnetUtil-rt.jar (.jar-suffixed profile form) charters bacnetUtil"
 else
   no "round 4 .jar suffix form FAILED" "out=$out"
@@ -440,7 +451,7 @@ mk_focuses "$C28" '| some-focus | active | RESEARCH-STATE-some-focus.md | bullet
 mk_state "$C28" "RESEARCH-STATE-some-focus.md" \
   '- Covered blocks: B101 (airFlowBalancer/kitCat), B106 (honeywellSpyderTool)'
 out="$(run "$C28" --subject "$S28")"
-if printf '%s' "$out" | grep -qE 'units: 0/1 chartered' && ! printf '%s' "$out" | grep -qE '1 bare-mention'; then
+if <<<"$out" grep -qE 'units: 0/1 chartered' && ! <<<"$out" grep -qE '1 bare-mention'; then
   ok "R1 negative control: bullet-list-only mention stays plain unchartered, not bare-mention"
 else
   no "R1 negative control FAILED (bullet-list line must not count as a table row)" "out=$out"
@@ -454,7 +465,7 @@ for t in bash find grep sed awk sort wc tr mktemp basename head rm dirname; do
 done
 out="$(PATH="$TOOLSDIR_CAT" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
 rc=$?
-if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded: cat not found'; then
+if [ "$rc" -eq 3 ] && <<<"$out" grep -q 'degraded: cat not found'; then
   ok "R3: missing cat -> exit 3, not a silent empty RESEARCH-STATE read"
 else
   no "R3 cat degraded FAILED" "rc=$rc out=$out"
@@ -468,7 +479,7 @@ for t in bash find grep sed awk sort wc tr mktemp basename head rm cat; do
 done
 out="$(PATH="$TOOLSDIR_DN" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
 rc=$?
-if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded: dirname not found'; then
+if [ "$rc" -eq 3 ] && <<<"$out" grep -q 'degraded: dirname not found'; then
   ok "R3: missing dirname -> exit 3"
 else
   no "R3 dirname degraded FAILED" "rc=$rc out=$out"
@@ -733,6 +744,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo ""
 fi
+
+# Kit issue #1349 — pipefail + early-terminating consumer. Under `set -o pipefail`, a producer piped into `grep -q`
+# fails whenever grep -q exits on its first match before printf has finished writing (SIGPIPE, rc 141): a
+# PASSING assertion reads as a failure, only under load (the failure output itself contained the expected text).
+# Assertions here use a here-string (`<<<"$v" grep -q PAT`) instead. This self-lint keeps the idiom out.
+_pf_re='\| *grep +-[a-zA-Z]*q'
+_pf_self="${BASH_SOURCE[0]}"
+_pf_n="$(grep -cE -- "$_pf_re" "$_pf_self")"; _pf_rc=$?
+if [ "$_pf_rc" -ge 2 ]; then no "#1349 lint: could not read $_pf_self (grep exit $_pf_rc)"
+elif [ "${_pf_n:-0}" -eq 0 ]; then ok "#1349 lint: no 'pipe-into-grep-q' (pipefail SIGPIPE race) idiom in this suite"
+else no "#1349 lint: $_pf_n 'pipe-into-grep-q' site(s) — use <<<\"\$v\" grep -q: $(grep -nE -- "$_pf_re" "$_pf_self" | cut -d: -f1 | head -20 | tr '\n' ' ')"; fi
+# Detector self-check (the lint must be able to see the idiom it forbids).
+if [ "$(printf 'x | %s -q y\n' grep | grep -cE -- "$_pf_re")" = "1" ]; then ok "#1349 lint: detector flags a synthetic 'pipe-into-grep-q' line"
+else no "#1349 lint: detector missed a synthetic 'pipe-into-grep-q' line — the lint is THEATER"; fi
 
 # ---------- footer (run-all.sh's exact aggregator contract: this exact regex,
 # as the LAST matching line — see run-all.sh's `summary_re`)
