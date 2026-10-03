@@ -519,6 +519,9 @@ def load_packs(names):
             raise PackError(f"pack {name} failed to load: {type(exc).__name__}: {exc}")
         if not rules:
             raise PackError(f"pack {name} registered no rules")
+        for rule in rules:
+            if not (isinstance(rule, tuple) and len(rule) == 2 and isinstance(rule[0], str) and callable(rule[1])):
+                raise PackError(f"pack {name}: malformed rule {rule!r} (build() must return (rule_id, callable) pairs)")
         for rid, fn in rules:
             if rid in RULE_IDS:
                 raise PackError(f"pack {name}: rule {rid} is already active")
@@ -633,13 +636,16 @@ def main(argv):
 
     mode = "AUDIT" if audit else "LINT"
     per_rule = " ".join(f"{r}={counts.get(r, 0)}" for r in ["R0"] + RULE_IDS)
+    pack_cov = ""
+    if LOADED_PACKS:
+        pack_trigger_fields = " ".join(f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS)
+        pack_cov = f" packs={','.join(LOADED_PACKS)} {pack_trigger_fields}"
     print(f"SUMMARY {mode} files={read} empty={empty} unreadable={unreadable} findings={total} warn={warn} inactive-waivers={inactive} {per_rule} "
           f"| inspected: selfverify-sections={cov['selfverify_sections']} "
           f"cert-hw-live-items={cov['cert_hw_live_items']} r6-trigger-clauses={cov['r6_trigger_clauses']} "
           f"cert-inline-items={cov['cert_inline_items']}"
           + (f" crashed={crashed}" if crashed else "")
-          + (f" packs={','.join(LOADED_PACKS)} " + " ".join(
-              f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS) if LOADED_PACKS else ""))
+          + pack_cov)
     if unreadable or crashed:
         return 2
     if read - empty == 0:

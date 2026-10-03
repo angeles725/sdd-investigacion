@@ -26,11 +26,14 @@ R1_VERB_RE = re.compile("|".join([
     r"N5 now", r"new in N5", r"Java[\s-]21[\s-]?style",
 ]), re.IGNORECASE)
 # Evidence tokens showing the claim was read from the class file (or the vendor source), not from a
-# decompiler's resugared output; any one of them in the claim's own clause clears R1.
+# decompiler's resugared output; any one of them in the claim's own clause clears R1. A decompiler
+# (CFR, Vineflower, Procyon) is deliberately NOT a token: it resugars (METHODOLOGY decompiler
+# fidelity: its output is not 1:1 with the class file), so "CFR shows X" is the very evidence R1
+# distrusts. Cite javap / bytecode / docSource instead.
 R1_EVIDENCE_RE = re.compile("|".join([
     r"\bjavap\b", r"\btypeSwitch\b", r"\bSwitchBootstraps\b", r"\bLambdaMetafactory\b",
     r"\bPermittedSubclasses\b", r"Record attribute", r"extends\s+java\.lang\.Record",
-    r"\bdocSource\b", r"\bCFR\b", r"\bbytecode\b", r"class-file attribute",
+    r"\bdocSource\b", r"\bbytecode\b", r"class-file attribute",
     r"\bLocalVariableTable\b",
 ]), re.IGNORECASE)
 
@@ -40,9 +43,12 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 ]), re.IGNORECASE)
 # "bypass"/"no-op" are common outside the permission-dispatch failure class (build flags, test-mode
 # shortcuts): require the clause to be about permissions/security, not just use one of those words.
+# `Context` (the Niagara type) and `cx` are matched case-sensitively: lower-case "context" is an
+# ordinary English word ("in the test context") and must not make a clause permission-scoped; the
+# phrase "null context" / "null-context" (the permission-bypass idiom) stays in scope in any case.
 R5_PERM_CONTEXT_RE = re.compile(
-    r"\bpermissions?\b|getPermissions|\bContext\b|\bcx\b|\bsecurity\b|\bcredentials?\b|\bauth\w*\b",
-    re.IGNORECASE)
+    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth\w*\b|\bnull[\s-]+context\b)"
+    r"|\bContext\b|\bcx\b")
 
 R7_TRIGGER_RE = re.compile("|".join([
     r"\b(?:dead|unused|unreferenced)\s+constants?\b",

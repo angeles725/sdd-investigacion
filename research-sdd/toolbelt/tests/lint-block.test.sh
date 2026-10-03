@@ -348,6 +348,24 @@ want="$(lines_of R9- "$FX/pack-r9.md")"; got="$(reported R9 "$OUT" "$FX/pack-r9.
 grep -qE 'r9-triggers=11( |$)' <<< "$OUT" && ok "21b SUMMARY names the pack and its trigger count (r9-triggers=11)" || no "21b r9 coverage (out=[$OUT])"
 grep -qE '^R9 .*pack-r9.md:[0-9]+: native-binary claim: no sha256' <<< "$OUT" && grep -qE 'no address anchor' <<< "$OUT" && grep -qE '1 of 2 instruments' <<< "$OUT" && ok "21c each R9 finding names WHICH requirement is missing" || no "21c r9 messages (out=[$OUT])"
 
+# 22. Review advisories (kit #1517): CFR is a decompiler, not clearing evidence; pack-shape guard; R5/R8/R9 regex hygiene
+run --pack jvm "$FX/pack-adv-jvm.md"
+want="$(lines_of ADV-R1-BAD "$FX/pack-adv-jvm.md")"; got="$(reported R1 "$OUT" "$FX/pack-adv-jvm.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "22a R1: 'CFR output' does not clear an adoption claim (a decompiler resugars; only javap/bytecode/docSource do) ($want)" || no "22a CFR (want=[$want] got=[$got])"
+want="$(lines_of ADV-R5-BAD "$FX/pack-adv-jvm.md")"; got="$(reported R5 "$OUT" "$FX/pack-adv-jvm.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "22b R5: lower-case ordinary word 'context' is not permission scope; capitalised 'Context' still is ($want)" || no "22b R5 context case (want=[$want] got=[$got])"
+run --pack multi-version "$FX/pack-adv-r8.md"
+want="$(lines_of ADV-R8-BAD "$FX/pack-adv-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-adv-r8.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "22c R8: '14.15' and '4.150' are not a 4.15 baseline; 4.15, N4.15 and PowerB still clear ($want)" || no "22c R8 baseline boundary (want=[$want] got=[$got])"
+run --pack native-binary "$FX/pack-adv-r9.md"
+want="$(lines_of ADV-R9-BAD "$FX/pack-adv-r9.md")"; got="$(reported R9 "$OUT" "$FX/pack-adv-r9.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "22d R9: 'offset decade' (an English word made of hex letters) is not an address anchor; 'offset 1a2b3c' and 'RVA: dead1' still are ($want)" || no "22d R9 anchor hexword (want=[$want] got=[$got])"
+mkdir -p "$TMP/pk-shape"
+printf 'def build(api):\n    return [("R1",)]\n' > "$TMP/pk-shape/demo.py"
+LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" run --audit --pack demo "$FX/pack-single.md"
+if [ "$RC" -eq 2 ] && grep -qF 'malformed rule' <<< "$OUT" && ! grep -qF 'Traceback' <<< "$OUT" && ! grep -qF 'SUMMARY' <<< "$OUT"; then ok "22e a pack rule that is not a (rule_id, callable) pair -> exit 2 'malformed rule', no traceback, nothing linted"
+else no "22e pack shape guard (rc=$RC out=[$OUT])"; fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -656,7 +674,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-crash" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
     [ "$MRC" -eq 0 ] && ok "teeth PL8: crash counter neutered -> a crashing pack rule exits 0 (clean zero) -> case 18l has teeth" || no "teeth PL8: mutant still exited $MRC — THEATER"
   fi
-  if tooth_build PL9 lint_block.py 's#if LOADED_PACKS else ""))#if False else ""))#'; then
+  if tooth_build PL9 lint_block.py 's#^    if LOADED_PACKS:#    if False:#'; then
     mrun --audit --pack jvm "$FX/pack-single.md"
     grep -qF 'packs=jvm' <<< "$MOUT" && no "teeth PL9: mutant still prints packs= — THEATER" || ok "teeth PL9: pack fields dropped from SUMMARY -> coverage no longer provable -> cases 18f/19e have teeth"
   fi
@@ -672,7 +690,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun --audit --pack=jvm "$FX/pack-single.md"
     [ "$MRC" -eq 2 ] && ok "teeth PW3: --pack=NAME arm removed -> unknown option, exit 2 -> case 18f has teeth" || no "teeth PW3: mutant still exited $MRC — THEATER"
   fi
-  ptooth N10 lint-block-packs/native-binary.py 's#^             if m.group(1).lower() != "r2" or m.group(1) == "r2"}#             }#' "$FX/pack-r9.md" R9 R9- native-binary
+  ptooth N10 lint-block-packs/native-binary.py 's#if name.lower() == "r2" and name != "r2":#if False:#' "$FX/pack-r9.md" R9 R9- native-binary
   if tooth_build PL10 lint_block.py 's#            if not names or val.startswith("-"):#            if val.startswith("-"):#'; then
     mrun --audit --pack , "$FX/pack-single.md"
     [ "$MRC" -eq 2 ] && no "teeth PL10: empty-name check removed but ',' still rejected — THEATER" || ok "teeth PL10: empty-name check removed -> '--pack ,' runs core-only silently (rc=$MRC) -> case 18n has teeth"
@@ -680,6 +698,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth_build PL11 lint_block.py 's#          + (f" crashed={crashed}" if crashed else "")##'; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-crash" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"
     grep -qF 'crashed=' <<< "$MOUT" && no "teeth PL11: mutant still reports crashed= — THEATER" || ok "teeth PL11: crashed= dropped from SUMMARY -> case 18l has teeth"
+  fi
+  # kit #1517 advisories: each new guard has its own mutant
+  ptooth J8 lint-block-packs/jvm.py 's#r"\\bdocSource\\b", r"\\bbytecode\\b"#r"\\bdocSource\\b", r"\\bCFR\\b", r"\\bbytecode\\b"#' "$FX/pack-adv-jvm.md" R1 ADV-R1-BAD jvm
+  ptooth J9 lint-block-packs/jvm.py 's#^    r"|\\bContext\\b|\\bcx\\b")#    r"|(?i:\\bContext\\b)|\\bcx\\b")#' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
+  ptooth J10 lint-block-packs/jvm.py 's#|\\bnull\[\\s-\]+context\\b##' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
+  ptooth M5 lint-block-packs/multi-version.py 's#(?<!\[\\d.\])##' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
+  ptooth M6 lint-block-packs/multi-version.py 's#4\\.15(?!\\d)#4\\.15#' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
+  ptooth N11 lint-block-packs/native-binary.py 's#(?=\[0-9A-Fa-f\]\*\\d)##' "$FX/pack-adv-r9.md" R9 ADV-R9-BAD native-binary
+  if tooth_build L1 lint_block.py 's#if not (isinstance(rule, tuple)#if False and not (isinstance(rule, tuple)#'; then
+    MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
+    grep -qF 'malformed rule' <<< "$MOUT" && no "teeth L1: mutant still reports 'malformed rule' — THEATER" || ok "teeth L1: shape guard removed -> malformed pack entry no longer reported cleanly (rc=$MRC) -> case 22e has teeth"
   fi
   # core claim-rule factory
   ptooth F1 lint_block.py 's#if is_cleared(clause) or doc.waived(rule_id, u):#if is_cleared(clause):#' "$FX/pack-jvm.md" R1 R1- jvm

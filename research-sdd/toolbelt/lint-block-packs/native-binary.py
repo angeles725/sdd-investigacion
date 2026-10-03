@@ -21,7 +21,7 @@ R9_NATIVE_RE = re.compile(
     r"|\bAuthenticode\b")
 R9_SHA256_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
 R9_ANCHOR_RE = re.compile(
-    r"\b0x[0-9A-Fa-f]{3,}\b|\b(?:VA|RVA|offset)\s*[:=]?\s*[0-9A-Fa-f]{4,}\b")
+    r"\b0x[0-9A-Fa-f]{3,}\b|\b(?:VA|RVA|offset)\s*[:=]?\s*(?=[0-9A-Fa-f]*\d)[0-9A-Fa-f]{4,}\b")
 # `nm` and `strings` are ordinary words/units: they count only inside a backtick code span.
 # `r2` (radare2's CLI) counts only in exactly that lower-case spelling: matched case-insensitively it
 # would collide with the rule id "R2" (waivers, cross-references) and count it as an instrument.
@@ -38,8 +38,12 @@ R9_CODE_SPAN_RE = re.compile(r"`([^`]*)`")
 
 
 def instruments(text):
-    found = {m.group(1).lower() for m in R9_INSTRUMENT_RE.finditer(text)
-             if m.group(1).lower() != "r2" or m.group(1) == "r2"}
+    found = set()
+    for m in R9_INSTRUMENT_RE.finditer(text):
+        name = m.group(1)
+        if name.lower() == "r2" and name != "r2":
+            continue  # "R2" is a rule id, not radare2
+        found.add(name.lower())
     for span in R9_CODE_SPAN_RE.findall(text):
         for name in R9_CODE_ONLY_INSTRUMENTS:
             if re.search(r"(?<![\w/-])" + name + r"(?![\w-])", span):
