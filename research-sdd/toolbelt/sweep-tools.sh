@@ -189,8 +189,7 @@ for p in $paths; do
     # SENTINEL: ledger match — change in_ledger=1 to in_ledger=0 to test tooth C
     base_re="${base//./\\.}"
     [ "$ledger_status" = "parsed" ] && \
-      printf '%s\n' "$ledger_rows" | \
-      grep -qE "(^|[${BT}|/ ])${base_re}([${BT}|/ :])" && in_ledger=1
+      grep -qE "(^|[${BT}|/ ])${base_re}([${BT}|/ :])" <<<"$ledger_rows" && in_ledger=1
     if [ "$in_retro" -eq 1 ]; then
       retro_recorded=$((retro_recorded + 1))
     elif [ "$in_ledger" -eq 1 ]; then

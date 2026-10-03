@@ -188,7 +188,7 @@ classify_kit_binding() {
   if ! grep -qE "$KIT_REF_RE" <<< "$live"; then echo none; return; fi
   bindings="$(grep -E "$KIT_BIND_RE" <<< "$live")" || bindings=""
   if grep -qE '\$\{?(HERE\}?/\.\./\.\.|TOOLBELT\}?/\.\.)' <<< "$bindings"; then echo real
-  elif [ -n "$bindings" ] && ! grep -vE 'mktemp|\$\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT)\b' <<< "$bindings" | grep -q .; then echo temp
+  elif [ -n "$bindings" ] && [ -z "$(grep -vE 'mktemp|\$\{?(TMP|TMPDIR|SCRATCH|BOX|ROOT|TWO_KIT)\b' <<< "$bindings")" ]; then echo temp
   else echo unclassified; fi
 }
 
