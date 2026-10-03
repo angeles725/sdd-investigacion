@@ -19,6 +19,12 @@
 # Anti-silent-zero contract (CLAUDE.md §7):
 #   Zero inputs or zero filters in either block must fail loudly.
 #
+# Doc-consistency extension (kit agenda item 4):
+#   Suites also read real doctrine files (METHODOLOGY.md, PROMPT-LOOP.md, skills/**,
+#   profiles/**) via $HERE/../../<path> or $KIT/<path>. Those paths are DERIVED by
+#   scanning the suites; each existing file outside the already-covered trees must be
+#   covered by both filter blocks, or a doc-only PR breaks a suite and merges without CI.
+#
 # Usage: ci-path-filter-coverage.test.sh [--prove-teeth]
 # Exit : 0 all inputs covered in both blocks · 1 gap detected · 2 harness error
 
@@ -137,6 +143,60 @@ while IFS= read -r input_file; do
   fi
 done <<< "$HARNESS_INPUTS_RAW"
 
+# ---- Doc-consistency coverage: doctrine files the suites read ---------------
+# Derive repo-relative doc files from `$HERE/../../<p>`, `$KIT/<p>`, `${KIT}/<p>` references
+# in every suite. Paths under toolbelt/, install/, templates/ are already covered by
+# their own filters. TARGETS.md is excluded on purpose: suites cite it as an anchor
+# string or write it into fixtures, and it is refreshed by hand every session, so
+# filtering on it would run the full suite on every registry refresh for no coverage.
+derive_doc_inputs() {
+  local kit_dir="$1" tests_a="$2" tests_b="$3" suite p
+  for suite in "$tests_a"/*.test.sh "$tests_b"/*.test.sh; do
+    [ -f "$suite" ] || continue
+    # $HERE/../../<p> is always the real tree; $KIT/<p> only when that suite binds KIT to the real kit.
+    grep -ohE '\$HERE/\.\./\.\./[A-Za-z0-9_./-]+' "$suite" 2>/dev/null | sed -E 's#^\$HERE/\.\./\.\./##'
+    if grep -qE '^KIT="\$\(cd "(\$HERE/\.\./\.\.|\$TOOLBELT/\.\.)" ' "$suite" 2>/dev/null; then
+      grep -ohE '\$(\{KIT\}|KIT)/[A-Za-z0-9_./-]+' "$suite" 2>/dev/null | sed -E 's#^\$(\{KIT\}|KIT)/##'
+    fi
+  done | sed -E 's#[./]+$##' | sort -u \
+    | while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        case "$p" in ../*|toolbelt|toolbelt/*|install|install/*|templates|templates/*|TARGETS.md) continue ;; esac
+        if [ -d "$kit_dir/$p" ]; then
+          find "$kit_dir/$p" -type f | sed "s#^$kit_dir/#research-sdd/#"
+        elif [ -f "$kit_dir/$p" ]; then
+          printf 'research-sdd/%s\n' "$p"
+        fi
+      done | sort -u
+}
+
+DOC_INPUTS="$(derive_doc_inputs "$REPO/research-sdd" "$HERE" "$REPO/research-sdd/install/tests")"
+doc_count=0
+while IFS= read -r line; do if [ -n "$line" ]; then doc_count=$((doc_count + 1)); fi; done <<< "$DOC_INPUTS"
+if [ "$doc_count" -gt 0 ]; then
+  ok "docs: derived $doc_count doctrine files read by suites"
+else
+  no "docs: derivation found zero doctrine files — scan pattern broken (silent zero)"
+  printf '== %d passed · %d failed ==\n' "$pass" "$fail"; exit 1
+fi
+
+doc_gaps() {
+  # $1 push filters  $2 pr filters  -> prints "<block>: <file>" per gap
+  local f
+  while IFS= read -r f; do
+    if [ -z "$f" ]; then continue; fi
+    input_covered_in "$f" "$1" || printf 'push: %s\n' "$f"
+    input_covered_in "$f" "$2" || printf 'pull_request: %s\n' "$f"
+  done <<< "$DOC_INPUTS"
+}
+
+DOC_GAPS="$(doc_gaps "$PUSH_FILTERS" "$PR_FILTERS")"
+if [ -z "$DOC_GAPS" ]; then
+  ok "docs: all $doc_count doctrine files covered in push and pull_request filters"
+else
+  while IFS= read -r g; do no "docs: NOT COVERED ($g) — add to paths: in $(basename "$WORKFLOW")"; done <<< "$DOC_GAPS"
+fi
+
 # ---- NEGATIVE CONTROL: prove both defects are closed -----------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: verify derivation reads parity test and asymmetry is detected --"
@@ -155,7 +215,7 @@ if [ "${1:-}" = "--list-inputs" ]; then
 fi
 STUB_EOF
   stub_inputs="$(bash "$TMP/stub-parity.sh" --list-inputs)"
-  if printf '%s\n' "$stub_inputs" | grep -qx 'research-sdd/install/adapters.sh'; then
+  if grep -qx 'research-sdd/install/adapters.sh' <<< "$stub_inputs"; then
     ok "teeth A: extra input from stub parity test appears in derived set (derivation reads live file)"
   else
     no "teeth A: extra stub input NOT found — derivation is not reading parity test at runtime"
@@ -180,6 +240,20 @@ STUB_EOF
     ok "teeth B: push/pull_request asymmetry detected (.claude/settings.json in push only — PR gap caught)"
   else
     no "teeth B: asymmetry NOT detected (push=$asym_in_push pr=$asym_in_pr) — per-block check is theater"
+  fi
+
+  # Teeth C: drop the skills glob from the pull_request block only; doc gap must surface.
+  awk '
+    /^  pull_request:$/ { in_pr=1 }
+    /^jobs:$/           { in_pr=0 }
+    in_pr && /research-sdd\/skills\/\*\*/ { next }
+    { print }
+  ' "$WORKFLOW" > "$TMP/nodoc.yml"
+  nd_gaps="$(doc_gaps "$(extract_trigger_paths "$TMP/nodoc.yml" push)" "$(extract_trigger_paths "$TMP/nodoc.yml" pull_request)")"
+  if grep -q '^pull_request: research-sdd/skills/' <<< "$nd_gaps" && ! grep -q '^push:' <<< "$nd_gaps"; then
+    ok "teeth C: removing skills path from pull_request block is detected as a doc gap"
+  else
+    no "teeth C: doc gap NOT detected after removing skills filter — doc check is theater"
   fi
 fi
 

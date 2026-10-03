@@ -13,6 +13,16 @@ on:
       # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
       # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
       - ".claude/settings.json"
+      # Doctrine files that suites read from the real tree (verify-doc-consistency, skill-invariants,
+      # hotcore-budget, profile-invariants, verify-skill-drift, ...). Chosen over a separate light job:
+      # those suites are spread across many files, so a hand-picked subset would itself drift; the
+      # whole-suite cost on doc PRs (~15-20 min) is accepted. Derived and enforced by
+      # ci-path-filter-coverage.test.sh (doc-consistency section).
+      - "research-sdd/METHODOLOGY.md"
+      - "research-sdd/PROMPT-LOOP.md"
+      - "research-sdd/PROMPT-LOOP-APPENDIX.md"
+      - "research-sdd/skills/**"
+      - "research-sdd/profiles/**"
   pull_request:
     paths:
       - "research-sdd/toolbelt/**"
@@ -21,6 +31,11 @@ on:
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
       - ".claude/settings.json"
+      - "research-sdd/METHODOLOGY.md"
+      - "research-sdd/PROMPT-LOOP.md"
+      - "research-sdd/PROMPT-LOOP-APPENDIX.md"
+      - "research-sdd/skills/**"
+      - "research-sdd/profiles/**"
 
 jobs:
   toolbelt-tests:
