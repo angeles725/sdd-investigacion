@@ -15,10 +15,20 @@
 #           "permissionDecisionReason":"..."}}
 #   ALLOW = no stdout.
 # Refused: a command-position `pkill`/`pgrep` carrying -f / --full (and not -x / --exact) whose
-# positional pattern has no bracket expression `[x]`. A variable or empty pattern cannot be proven
-# escaped, so it is refused too. Prose that merely MENTIONS pkill -f (a commit message, a grep) is not
-# at command position and is allowed. Known limit: a heredoc body line that starts with `pkill -f`
-# is read as a command and refused — rephrase or use the alternatives below.
+# positional pattern has no bracket expression `[x]`, OR whose bracketed pattern is not actually safe
+# because its plain (de-bracketed) text also appears elsewhere in the same command (e.g.
+# `cd /srv/foo && pkill -f '[f]oo'`: the wrapper's argv still contains "foo"). A variable or empty
+# pattern cannot be proven escaped, so it is refused too. Command position means after a separator
+# and any of sudo/exec/env/nohup/xargs/time/timeout/command/nice/bash/sh/zsh/dash, flags, VAR=x, numbers,
+# or the keywords then/do/else/if/elif/while/until/!.
+# Known limits (it is a regex heuristic, not a shell parser):
+#  - False denials: quotes are stripped and every separator ; & | ( ) { } ` $ INSIDE quoted text becomes a
+#    newline, so quoted prose such as `git commit -m "x; pkill -f foo"` or a heredoc body line starting
+#    with `pkill -f` is read as a command and refused. Rephrase, or use the alternatives below.
+#  - False allows: commands built at runtime (eval, aliases, functions, variables holding the program
+#    name, `xargs`-fed names), and multi-character classes like `[ab]oo` (only the first character is
+#    used to rebuild the plain text for the elsewhere-check). Prose that merely mentions pkill -f
+#    outside any separator (a grep, an echo) is allowed.
 # Degraded (§7: could the instrument run at all?): without jq, or with unparseable stdin, the command
 # cannot be extracted — a typed `degraded: pkill-guard: ...` line goes to stderr and, when the raw
 # payload contains pkill/pgrep, the decision is "ask" (never a silent allow).
@@ -62,7 +72,7 @@ while IFS= read -r _seg; do
   # skip wrappers / flags / env assignments / numeric args (timeout 5) before the command word
   while [ "$_i" -lt "${#_tok[@]}" ]; do
     case "${_tok[$_i]}" in
-      sudo|exec|env|nohup|xargs|time|timeout|bash|sh|zsh|dash|then|do|else|'!') _i=$((_i+1)) ;;
+      sudo|exec|env|nohup|xargs|time|timeout|bash|sh|zsh|dash|then|do|else|'!'|if|elif|while|until|command|nice) _i=$((_i+1)) ;;
       -*|*=*|[0-9]*) _i=$((_i+1)) ;;
       *) break ;;
     esac
@@ -89,6 +99,11 @@ while IFS= read -r _seg; do
   _has_bracket=0
   [[ "$_pat" =~ $_bracket_re ]] && _has_bracket=1
   if [ "$_has_bracket" = 0 ]; then _bad="$_name -f${_pat:+ }${_pat# }"; break; fi
+  # bracket proviso: the bracket form is safe only if the plain pattern is absent from the whole command
+  _plain="$(printf '%s' "${_pat# }" | sed 's/\[\([^]]\)[^]]*\]/\1/g')"
+  _plain_elsewhere=0
+  [[ "$_flat" == *"$_plain"* ]] && _plain_elsewhere=1
+  if [ "$_plain_elsewhere" = 1 ]; then _bad="$_name -f ${_pat# } (its plain text \"$_plain\" also appears elsewhere in this command)"; break; fi
 done <<<"$_flat"
 
 [ -n "$_bad" ] || exit 0
