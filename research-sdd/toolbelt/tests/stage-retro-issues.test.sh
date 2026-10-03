@@ -295,6 +295,15 @@ STUBHELP
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
           ;;
+        createfailcreated)
+          # kit issue #1261: `gh issue create` FAILS but the issue was in fact created server-side
+          # (a timeout after the write). Lists see nothing until the create ran, then the exact hit.
+          printf '  *" issue list "*) if [ -f "$0.created" ]; then reply OPEN; else printf "[]\\n"; fi; exit 0 ;;\n'
+          ;;
+        createfailrelistfail)
+          # kit issue #1261: create fails AND the follow-up lookup fails — the outcome stays unknown.
+          printf '  *" issue list "*) if [ -f "$0.created" ]; then printf "gh: error: boom\\n" >&2; exit 1; else printf "[]\\n"; fi; exit 0 ;;\n'
+          ;;
         listempty)
           # Exit 0, EMPTY stdout — no '[' at all. Distinguishes "the call succeeded and truly
           # found nothing" (a real '[]' reply) from "the call succeeded but the reply itself is
@@ -309,6 +318,8 @@ STUBHELP
       if [ "$mode" = "createfail" ]; then
         # createfail: gh issue create exits 1 to simulate an API error
         printf '  *" issue create "*) printf "ERROR: GraphQL request failed\\n"; exit 1 ;;\n'
+      elif [ "$mode" = "createfailcreated" ] || [ "$mode" = "createfailrelistfail" ]; then
+        printf '  *" issue create "*) : > "$0.created"; printf "ERROR: timeout after write\\n"; exit 1 ;;\n'
       elif [ "$mode" = "createfailsecond" ]; then
         # createfailsecond (kit issue #949 item 4): the FIRST create succeeds, every later one fails
         # — a mixed success/failure run (created=1 failed=1), not all-or-nothing.
@@ -3796,6 +3807,43 @@ else
   no "83b big shipped list" "exit=$RC planned=$(grep -c '^planned-issue:' <<<"$OUT") out=[${OUT:0:600}]"
 fi
 
+# ---------------------------------------------------------------------------
+# 84 — UNKNOWN OUTCOME after a failed create (kit issue #1261). A `gh issue create` can fail (timeout,
+#      5xx) AFTER the issue was written; counting that as `failed` made the Stop hook report a failure
+#      for an issue that exists (observed: failed=1, rerun skipped-duplicate x2). After a failed
+#      create the dedup search is re-run: an exact hit is `unknown-outcome` (exit 0, the issue exists);
+#      no hit stays `failed`; a failing re-lookup stays `failed` (the outcome is unprovable).
+ONE_ROW='| 1 | a real delta row | CLAUDE.md | B1 | fix | HIGH |'
+box84a="$(mkbox case-create-unknown)"; mk_gh_stub "$box84a" createfailcreated
+r84a="$(mk_retro "$box84a" target-foo r84a.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84a" "$r84a" --apply
+if [ "$RC" = 0 ] && grep -q '^unknown-outcome: .*row 1' <<<"$OUT" \
+   && grep -q 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unknown-outcome=1 failed=0' <<<"$OUT" \
+   && ! grep -q '^ERROR: gh issue create failed' <<<"$OUT" \
+   && [ "$(grep -c '^gh issue list' "$box84a/bin/gh.log")" = 2 ] \
+   && [ "$(grep '^gh issue list' "$box84a/bin/gh.log" | grep -c -- '--repo test-owner/test-kit')" = 2 ]; then
+  ok "84a create fails but a re-run dedup finds the issue → unknown-outcome, exit 0, failed=0" "(exit $RC)"
+else
+  no "84a unknown outcome" "exit=$RC out=[$OUT]"
+fi
+box84b="$(mkbox case-create-unprovable)"; mk_gh_stub "$box84b" createfailrelistfail
+r84b="$(mk_retro "$box84b" target-foo r84b.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84b" "$r84b" --apply
+if [ "$RC" = 2 ] && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT" && grep -q '^ERROR: gh issue create failed' <<<"$OUT"; then
+  ok "84b create fails AND the re-lookup fails → still failed (exit 2), never unknown-outcome" "(exit $RC)"
+else
+  no "84b unprovable outcome" "exit=$RC out=[$OUT]"
+fi
+box84c="$(mkbox case-create-failed-clean)"; mk_gh_stub "$box84c" createfail
+r84c="$(mk_retro "$box84c" target-foo r84c.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box84c" "$r84c" --apply
+lists84c="$(grep -c 'gh issue list' "$box84c/bin/gh.log")"
+if [ "$RC" = 2 ] && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT" && [ "$lists84c" = 2 ]; then
+  ok "84c create fails and the re-run dedup finds nothing → failed=1 (exit 2) after exactly 2 lookups" "(exit $RC lists=$lists84c)"
+else
+  no "84c genuine failure" "exit=$RC lists=$lists84c out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -3817,6 +3865,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1444-b teeth: piped is_shipped → shipped D1..D3 re-planned (83b has teeth)" "()"
     else no "T1444-b teeth: piped form must flip 83b" "83b is THEATER: exit=$RC out=[${OUT:0:400}]"; fi
   else no "T1444-b: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth T1261: unknown-outcome re-check --"
+  # (a) re-check disabled → a created-but-reported-failed issue is counted failed again (84a has teeth)
+  mbox="$(mkbox teeth-1261-a)"; mk_gh_stub "$mbox" createfailcreated
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^        if _recheck_exists "\$_search_sig"; then$/        if false; then/'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+    if [ "$RC" = 2 ] && grep -q 'failed=1' <<<"$OUT"; then ok "T1261-a teeth: re-check off → failed=1, exit 2 (84a has teeth)" "()"
+    else no "T1261-a teeth: disabled re-check must flip 84a" "84a is THEATER: exit=$RC out=[$OUT]"; fi
+  else no "T1261-a: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (d) re-check without --repo → 84a's per-call --repo assertion flips
+  mbox="$(mkbox teeth-1261-d)"; mk_gh_stub "$mbox" createfailcreated
+  if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  _r="\$(gh issue list --state all --repo "\$KIT_ISSUE_REPO" \\$/  _r="$(gh issue list --state all \\/'; then
+    run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+    if [ "$(grep '^gh issue list' "$mbox/bin/gh.log" | grep -c -- '--repo test-owner/test-kit')" != 2 ]; then ok "T1261-d teeth: re-check without --repo → per-call --repo count != 2 (84a has teeth)" "()"
+    else no "T1261-d teeth: dropping --repo must flip 84a" "84a is THEATER"; fi
+  else no "T1261-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  # (b) re-check that always says 'found' → a genuine failure is swallowed (84b and 84c have teeth)
+  for _t in 1261-b:createfailrelistfail 1261-c:createfail; do
+    mbox="$(mkbox "teeth-${_t%%:*}")"; mk_gh_stub "$mbox" "${_t##*:}"
+    if mutant_sed "$SUT" "$mbox/research-sdd/toolbelt/stage-retro-issues.sh" -e 's/^  grep -q .\"state\":\[\[:space:\]\]\*\"\\(OPEN\\|CLOSED\\)\". <<<"\$_r"$/  true/' \
+         -e 's/--json state,body 2>\/dev\/null)" || return 2$/--json state,body 2>\/dev\/null)"/' \
+         -e "s/^  grep -q '\^\[\[:space:\]\]\*\\\\\[' <<<\"\\\$_r\" || return 2\$/  :/" \
+         -e 's/^  _r="\$(printf .%s. "\$_r" | _exact_sig_matches "\$1")" || return 2$/  _r="$(printf "%s" "$_r" | _exact_sig_matches "$1")" || :/'; then
+      run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+      if [ "$RC" = 0 ] && grep -q 'unknown-outcome=1' <<<"$OUT"; then ok "T${_t%%:*} teeth: always-found re-check swallows a real failure (84${_t:5:1} has teeth)" "()"
+      else no "T${_t%%:*} teeth: always-found re-check must flip 84${_t:5:1}" "THEATER: exit=$RC out=[$OUT]"; fi
+    else no "T${_t%%:*}: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+  done
 fi
 
 echo "== $pass passed · $fail failed =="

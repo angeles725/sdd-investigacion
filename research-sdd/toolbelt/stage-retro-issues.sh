@@ -64,6 +64,8 @@
 #   2   --apply completed but one or more `gh issue create` calls failed (failed > 0)
 #       Callers must treat exit 2 as a partial failure: the summary line carries
 #       'failed=N' at the END of the summary so existing parsers remain unaffected.
+#       A failed create whose issue a re-run dedup search then finds is NOT counted failed: it is
+#       reported `unknown-outcome: …` and tallied in the `unknown-outcome=N` field just before failed=.
 
 set -uo pipefail
 
@@ -836,7 +838,18 @@ ensure_target_label() {
 # ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
-skipped_dedup=0; created=0; failed=0
+skipped_dedup=0; created=0; failed=0; unknown_outcome=0
+
+# _recheck_exists <signature>: return 0 when an exact-signature issue (any state) exists NOW, 1 when
+# the lookup succeeded and found none, 2 when the lookup itself failed or could not be parsed.
+_recheck_exists() {
+  local _r
+  _r="$(gh issue list --state all --repo "$KIT_ISSUE_REPO" \
+    --limit "$_LIST_LIMIT" --search "\"$1\"" --json state,body 2>/dev/null)" || return 2
+  grep -q '^[[:space:]]*\[' <<<"$_r" || return 2
+  _r="$(printf '%s' "$_r" | _exact_sig_matches "$1")" || return 2
+  grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_r"
+}
 
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
   _rid="$(printf '%s' "$_rid" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -992,6 +1005,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       --title "$_title" \
       $_label_flags \
       --body "$_body" 2>&1)" || {
+        # STAGE_RETRO_ISSUES_UNKNOWN_OUTCOME (kit issue #1261): a failed create can still have written
+        # the issue (timeout after the write). Re-run the exact-signature lookup before counting a
+        # failure: a hit is `unknown-outcome` (the issue exists, nothing to retry); no hit stays
+        # `failed`; a lookup that itself fails leaves the outcome unprovable, so it also stays `failed`.
+        if _recheck_exists "$_search_sig"; then
+          echo "unknown-outcome: gh issue create failed for row $_rid but a re-run dedup search found the issue (search matched '$_search_sig'): $_url" >&2
+          unknown_outcome=$((unknown_outcome+1)); continue
+        fi
         echo "ERROR: gh issue create failed for row $_rid: $_url" >&2
         failed=$((failed+1)); continue
       }
@@ -1008,8 +1029,8 @@ fi
 if [ $apply -eq 1 ]; then
   # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
   # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
-  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d failed=%d\n' \
-    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$failed"
+  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unknown-outcome=%d failed=%d\n' \
+    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unknown_outcome" "$failed"
 fi
 
 # Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).
