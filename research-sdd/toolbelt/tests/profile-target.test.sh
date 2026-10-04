@@ -336,6 +336,8 @@ fi
 # re-run the SAME fixture. The file must now fall through to the PE32 arm and
 # MISROUTE to native. If the mutant still routed net-only, case 16 would be theater.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
   echo "-- teeth: neuter the .Net/Mono case arm; expect .NET+PE32 fixture to misroute → native --"
   anchor='*".Net assembly"*|*"Mono/.Net"*'
   repl='*"ZZZ_NEVER_MATCH_ZZZ"*'
@@ -345,6 +347,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mutant="$TMP/profile-target.MUTANT.sh"
     printf '%s\n' "${content/"$anchor"/"$repl"}" > "$mutant"
+    mutant_built "teeth" "$SUT" "$mutant" || no "teeth: .Net-arm mutant refused by lib/mutant.sh"
     d="$STAGE/teeth"; mkdir -p "$d"
     printf '%s' "$NETPE" > "$d/x.exe"
     mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$mutant" "$d" 2>&1)"
@@ -367,8 +370,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-p4: P4-TEXT-LIKE-ANNOT sentinel not found in SUT (P4 not implemented or marker missing)"
   else
     p4mutant="$TMP/profile-target.P4MUTANT.sh"
-    sed '/# P4-TEXT-LIKE-ANNOT/ s/.*/  if false; then  # P4-TEXT-LIKE-ANNOT [NEUTERED]/' \
-      "$SUT" > "$p4mutant"
+    mutant_sed "$SUT" "$p4mutant" '/# P4-TEXT-LIKE-ANNOT/ s/.*/  if false; then  # P4-TEXT-LIKE-ANNOT [NEUTERED]/' \
+      || no "teeth-p4: mutant refused by lib/mutant.sh"
     p4dir_t="$TMP/p4dir"; mkdir -p "$p4dir_t"
     python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'a' * 500)" \
       > "$p4dir_t/textblob.dat"
@@ -394,8 +397,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     autocad_mutant="$TMP/profile-target.AUTOCAD-MUTANT.sh"
     printf '%s\n' "${autocad_content/"$autocad_anchor"/"$autocad_repl"}" > "$autocad_mutant"
-    if ! bash -n "$autocad_mutant" >/dev/null 2>&1; then
-      no "teeth-autocad: mutant parse check (bash -n)" "mutant has syntax error — teeth are theater"
+    if ! autocad_err="$(mutant_built "teeth-autocad" "$SUT" "$autocad_mutant" 2>&1)"; then
+      no "teeth-autocad: mutant refused by lib/mutant.sh (bash -n / identity / placement)" "$autocad_err"
     else
       teeth_cad_dir="$STAGE/teeth-autocad"; mkdir -p "$teeth_cad_dir"
       printf '%s' 'AutoCAD Drawing Exchange Format, version 2007' > "$teeth_cad_dir/plan.dxf"
