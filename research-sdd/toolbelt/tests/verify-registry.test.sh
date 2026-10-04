@@ -1106,12 +1106,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the KIT= line — the ONLY difference from the fixed SUT — and confirm the self-reg WARN
   # false-fires again when reached through a symlinked toolbelt/. The mutant is built in the real
   # toolbelt/ and run through the symlink; the original is the kit's pristine copy through the same
-  # symlink. mutant_chain proves the mutation applied (the old "pre-check" grep), so the pre-check
-  # pass is kept only to hold the case count.
+  # symlink. mutant_chain proves the mutation applied (it replaces the old "pre-check" grep, which
+  # is why that separate pass is gone).
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   kit_tsym="$(mkkit teeth-symlink-toolbelt)"
   if vr_mut "teeth SYMLINK-TOOLBELT" "$kit_tsym" 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/'; then
-    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
     mkdir -p "$kit_tsym/profile/general"
     ln -s "$kit_tsym/toolbelt" "$kit_tsym/profile/general/toolbelt"
     { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
