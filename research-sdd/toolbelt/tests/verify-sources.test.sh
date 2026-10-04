@@ -1130,6 +1130,52 @@ nv_check nv-fab 1 1 "#1608 BAD: prose cell also fails LEVEL 4 (WARN + exit 1)"
 nv_corpus nv-fab-ok "$(nv_row 'x.jar' B1)"
 nv_check nv-fab-ok 0 0 "#1608 GOOD: verbatim cell, real citation"
 
+# #1678 — LEVEL 4 must keep INTERNAL blanks of the File cell (only leading/trailing blanks are padding), so a
+# verbatim spaced filename cross-checks against the block text instead of a false FABRICATED-CITE. Edges:
+# the spaced row FIRST / MIDDLE / LAST in the table and as the SINGLE row; a genuinely uncited spaced name and
+# a block that only carries the blank-collapsed form must still FAIL (the fix must not blunt the check).
+sp_corpus() { # <name> <row...> — B1 cites the spaced names verbatim; B2 carries only a blank-collapsed one
+  local d="$TMP/$1"; shift; mkdir -p "$d"
+  block "$d/sp-block1.md" '# Block 1' \
+    '## 1.1 [CERT-doc] Datasheet "IO-16-H InputOutput Module Install - 95-7756.pdf" read.' \
+    '## 1.2 [CERT-doc] Also sub dir/My File.pdf and /mnt/c/Program Files/x y.txt.' \
+    '## 1.3 [CERT-doc] plain.jar too.'
+  block "$d/sp-block2.md" '# Block 2' '## 2.1 [CERT-doc] only MyFile.pdf (collapsed) appears here.'
+  sources_registry "$d" "$@"
+}
+sp_row() { printf '| %s | doc | http://x | 2026-01-01 | abcd1234 | %s |' "$1" "$2"; }
+sp_check() { # <name> <want-fab 0|1> <want-rc> <label>
+  local out got n=0
+  out="$(bash "$SUT" "$TMP/$1" 2>&1)"; got=$?
+  grep -qF 'FABRICATED-CITE' <<<"$out" && n=1
+  if [ "$got" = "$3" ] && [ "$n" = "$2" ]; then
+    printf '  PASS  %-42s (exit %s, fabricated=%s)\n' "$4" "$got" "$n"; pass=$((pass+1))
+  else
+    printf '  FAIL  %-42s want exit %s fabricated=%s, got exit %s fabricated=%s\n' "$4" "$3" "$2" "$got" "$n"; fail=$((fail+1))
+  fi
+}
+SP_A='IO-16-H InputOutput Module Install - 95-7756.pdf'
+sp_corpus sp-single "$(sp_row "$SP_A" B1)"
+sp_check sp-single 0 0 "#1678 GOOD: spaced name, single-row table"
+sp_corpus sp-first "$(sp_row 'sub dir/My File.pdf' B1)" "$(sp_row 'plain.jar' B1)" "$(sp_row "$SP_A" B1)"
+sp_check sp-first 0 0 "#1678 GOOD: spaced name in FIRST row"
+sp_corpus sp-mid "$(sp_row 'plain.jar' B1)" "$(sp_row "$SP_A" B1)" "$(sp_row 'sub dir/My File.pdf' B1)"
+sp_check sp-mid 0 0 "#1678 GOOD: spaced name in MIDDLE row"
+sp_corpus sp-last "$(sp_row 'plain.jar' B1)" "$(sp_row 'sub dir/My File.pdf' B1)" "$(sp_row '/mnt/c/Program Files/x y.txt' B1)"
+sp_check sp-last 0 0 "#1678 GOOD: spaced name in LAST row"
+sp_corpus sp-pad "$(sp_row "   $SP_A   " B1)"
+sp_check sp-pad 0 0 "#1678 GOOD: blank-padded spaced name"
+sp_corpus sp-tab "$(printf '|\t%s\t| doc | http://x | 2026-01-01 | abcd1234 | B1 |' "$SP_A")"
+sp_check sp-tab 0 0 "#1678 GOOD: tab-padded spaced name"
+sp_corpus sp-bt "$(sp_row "\`$SP_A\`" B1)"
+sp_check sp-bt 0 0 "#1678 GOOD: backticked spaced name"
+sp_corpus sp-uncited "$(sp_row 'Never Cited File.pdf' B1)"
+sp_check sp-uncited 1 1 "#1678 BAD: spaced name no block mentions"
+sp_corpus sp-uncited-last "$(sp_row "$SP_A" B1)" "$(sp_row 'Never Cited File.pdf' B1)"
+sp_check sp-uncited-last 1 1 "#1678 BAD: uncited spaced name in LAST row"
+sp_corpus sp-collapsed "$(sp_row 'My File.pdf' B2)"
+sp_check sp-collapsed 1 1 "#1678 BAD: block only has the blank-collapsed form"
+
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
 # the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
@@ -1260,6 +1306,16 @@ SED
   m="$TMP/mutants/NV-NOCITEGATE.sh"
   mk_sed NV-NOCITEGATE "$m" "s/^        if grep -qiE '.bB(lock|loque)? ?\\[0-9\\]+' <<< \"\\\$(printf '%s' \"\\\$bcell\" | sed 's\\/(\\[^)\\]\\*)\\/\\/g')\"; then\$/        if true; then/" \
     && tooth "teeth NV-NOCITEGATE: flags rows that name no block" 0 0 "$m" --good-lacks 'is not a verbatim in-block token' --bad-has 'is not a verbatim in-block token' -- bash @SUT@ "$TMP/nv-nocite"
+  # #1678 — LEVEL 4 File-cell trim. Both teeth need exact rc on the real SUT and the mutant plus a typed line.
+  m="$TMP/mutants/SP-STRIPALL.sh"
+  mk_sed SP-STRIPALL "$m" '/# L4-FILE-TRIM$/s#.*#    file="${file//[[:blank:]]/}"#' \
+    && tooth "teeth SP-STRIPALL: all blanks stripped again" 0 1 "$m" --good-lacks 'FABRICATED-CITE' --bad-has 'FABRICATED-CITE' --bad-lacks "$NV_ERR" -- bash @SUT@ "$TMP/sp-single"
+  m="$TMP/mutants/SP-NOTRIM.sh"
+  mk_sed SP-NOTRIM "$m" '/# L4-FILE-TRIM$/s#.*#    :#' \
+    && tooth "teeth SP-NOTRIM: padding no longer trimmed" 0 1 "$m" --good-lacks 'FABRICATED-CITE' --bad-has 'FABRICATED-CITE' --bad-lacks "$NV_ERR" -- bash @SUT@ "$TMP/sp-pad"
+  m="$TMP/mutants/SP-TABKEEP.sh"
+  mk_sed SP-TABKEEP "$m" '/# L4-FILE-TRIM$/s#\[!\[:blank:\]\]#[! ]#g' \
+    && tooth "teeth SP-TABKEEP: tab padding no longer trimmed" 0 1 "$m" --good-lacks 'FABRICATED-CITE' --bad-has 'FABRICATED-CITE' --bad-lacks "$NV_ERR" -- bash @SUT@ "$TMP/sp-tab"
 fi
 
 echo "== $pass passed · $fail failed =="
