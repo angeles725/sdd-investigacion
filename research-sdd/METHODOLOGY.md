@@ -455,8 +455,8 @@ target's `evidence/b<N>/`, with a size cap stated in the block), and the block c
 reproduction recipe: the exact commands, in order, with their arguments. "Used script X" alone is not enough —
 a later session that finds neither the script nor the steps cannot recreate the result. A path under `/tmp`,
 `/var/tmp` or a session scratchpad is not a preserved path; the sha256-anchored beautified-temp view above is the
-only exception. Delegated writers are told to preserve there, never "scratch only" (PROMPT-LOOP). Part of kit
-#1207; verify-block enforcement: kit issue #1207 part 2 (not yet enforced by the tool).
+only exception. Delegated writers are told to preserve there, never "scratch only" (PROMPT-LOOP). Part of kit #1207;
+verify-block enforcement: kit issue #1207 part 2 (not yet enforced by the tool).
 - **Session SCRIPTS-MANIFEST.** One per session at `sources/probes/<date>-<slug>/SCRIPTS-MANIFEST.md`: a row per script mapping script ->
   run/step -> block, with the sha256 of the preserved copy and, when it ran on a remote host, the sha256 of the copy that executed
   there (local == remote parity recorded at run time, not reconstructed).
