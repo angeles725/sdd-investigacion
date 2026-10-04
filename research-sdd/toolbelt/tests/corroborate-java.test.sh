@@ -418,6 +418,12 @@ PY
      && ! grep -q Traceback "$FX/cfg.err"; then
     ok "invalid RSDD_CLASSFACTS_* values: stderr warning naming the variable, default limit used, rc 0, no traceback"
   else no "invalid RSDD_CLASSFACTS_* values" "rc=$_c4_rc out=[$_c4] err=[$(cat "$FX/cfg.err")]"; fi
+  # Unicode digits pass str.isdigit() but crash int(): they must warn + default too (superscript two, Arabic-Indic three).
+  _c5="$(RSDD_CLASSFACTS_MAX_ENTRIES=$'\xc2\xb2' RSDD_CLASSFACTS_MAX_BYTES=$'\xd9\xa3' python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/facts.jar" 2>"$FX/uni.err")"; _c5_rc=$?
+  if [ "$_c5_rc" -eq 0 ] && [ "$_c5" = "CLASSFILE major=52-65 lvt=mixed classes=5 resugar_risk=yes unreadable=2 partial=1 truncated=none" ] \
+     && [ "$(grep -c '^WARN: classfile-facts: invalid RSDD_CLASSFACTS_MAX_' "$FX/uni.err")" -eq 2 ] && ! grep -q Traceback "$FX/uni.err"; then
+    ok "Unicode digit limits (U+00B2, U+0663): warning + default, rc 0, no traceback"
+  else no "Unicode digit RSDD_CLASSFACTS_* limits" "rc=$_c5_rc out=[$_c5] err=[$(cat "$FX/uni.err")]"; fi
   if env "${_fx_env[@]}" RSDD_CLASSFACTS_MAX_ENTRIES=abc RSDD_CLASSFACTS_MAX_CLASS_BYTES=-5 "$SUT" --input "$FX/facts.jar" --output "$FX/out-badenv" --timeout-seconds 2 --max-heap 128m \
        --max-files 100 --max-bytes 1048576 --max-classes 100 2>"$FX/badenv.err" \
      && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert len(d["class_facts"])==5' "$FX/out-badenv/java-corroboration.v1.json" \
@@ -597,6 +603,9 @@ PY
       --good-has 'classes=5 .*truncated=none$' --bad-has 'classes=0 ' -- env RSDD_CLASSFACTS_MAX_ENTRIES=abc python3 @SUT@ classfile-facts "$FX/facts.jar"
     fx_tooth env-warn 's/^            _WARNED.add(name); print(.*$/            pass/' \
       --good-has 'classes=5 ' --bad-lacks 'WARN: classfile-facts: invalid' -- env RSDD_CLASSFACTS_MAX_ENTRIES=abc python3 @SUT@ classfile-facts "$FX/facts.jar"
+    # The bite IS the ValueError crash from int('\xb2'): narrow the forbidden output so only that crash counts.
+    FX_BAD_RC=1 FX_BAD_LACKS='ImportError|ModuleNotFoundError' fx_tooth env-ascii 's/re\.fullmatch(r"\[0-9\]+", raw)/raw.isdigit()/' \
+      --good-has 'classes=5 ' --bad-has 'ValueError' -- env RSDD_CLASSFACTS_MAX_ENTRIES=$'\xc2\xb2' python3 @SUT@ classfile-facts "$FX/facts.jar"
     FX_BAD_RC=2 fx_tooth cli-dispatch 's/raw\[:1\] == \["classfile-facts"\]/raw[:1] == ["classfile-facts-x"]/' \
       --good-has '^CLASSFILE ' --bad-lacks '^CLASSFILE ' -- python3 @SUT@ classfile-facts "$FX/facts.jar"
     fx_tooth report-facts 's/^            "class_facts": facts, "class_facts_summary": summarize_facts(facts),$/            "class_facts_summary": summarize_facts(facts),/' \

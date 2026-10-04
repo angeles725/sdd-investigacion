@@ -139,7 +139,7 @@ def _env_limit(name: str, default: int) -> int:
     raw = os.environ.get(name, "")
     if raw == "":
         return default
-    value = int(raw) if raw.isdigit() else 0
+    value = int(raw) if re.fullmatch(r"[0-9]+", raw) else 0  # ASCII only: str.isdigit() accepts digits int() rejects
     if value <= 0:
         if name not in _WARNED:
             _WARNED.add(name); print(f"WARN: classfile-facts: invalid {name}={raw!r}; using default {default}", file=sys.stderr)

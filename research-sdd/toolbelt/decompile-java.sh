@@ -216,7 +216,7 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
 # Class-file facts header (kit issue #1205): one CLASSFILE line on STDERR plus the bytecode-evidence warning. STDERR, not
 # stdout: consumers read the typed OK/DEGRADED/PARTIAL result as the first stdout line (README, METHODOLOGY "Java
 # decompile status is typed", this suite, java-fidelity-experiment.sh logs), so stdout is unchanged. The helper runs
-# under the same timeout as the engines. Three distinct failure tokens, one field set: facts-unavailable (helper or
+# under its OWN small budget (RSDD_CLASSFACTS_TIMEOUT, else min(30, TIMEOUT/8) s), not a full engine timeout. Three distinct failure tokens, one field set: facts-unavailable (helper or
 # python3 absent), facts-timeout (killed by the timeout), facts-error rc=<n> (helper ran and failed; first stderr line shown).
 CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown"
 CF_HELPER="$HERE/corroborate_java.py"
@@ -227,7 +227,12 @@ else
   # min(30, TIMEOUT/8) seconds (at least 1; 30 when the engines are unbounded). Worst-case extra wall time: that budget
   # plus --kill-after.
   CF_TIMEOUT="${RSDD_CLASSFACTS_TIMEOUT:-}"
-  if ! [[ "$CF_TIMEOUT" =~ ^[1-9][0-9]{0,4}$ ]]; then
+  # ASCII digits only (a glob, not a locale-dependent range): 1-99999 seconds.
+  case "$CF_TIMEOUT" in
+    "" | *[!0123456789]* | 0* | ??????*) CF_TIMEOUT_BAD=1 ;;
+    *) CF_TIMEOUT_BAD="" ;;
+  esac
+  if [ -n "$CF_TIMEOUT_BAD" ]; then
     [ -z "$CF_TIMEOUT" ] || echo "WARN: invalid RSDD_CLASSFACTS_TIMEOUT=$CF_TIMEOUT (positive seconds); using the derived default" >&2
     CF_TIMEOUT=30
     if [ "$TIMEOUT" -gt 0 ]; then

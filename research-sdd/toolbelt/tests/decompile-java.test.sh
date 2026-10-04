@@ -826,7 +826,7 @@ if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unkn
    && grep -qx 'WARN: classfile-facts helper: helper exploded' <<<"$SE" && ! grep -q 'second line' <<<"$SE" && ! grep -q 'facts-unavailable' <<<"$SE"; then
   ok "H6 helper crash: reason=facts-error rc=3 plus its first stderr line, distinct from facts-unavailable"
 else no "H6 facts-error header" "rc=$RC se=[$SE]"; fi
-# H7: helper hangs → bounded by the engines' timeout (RSDD_DECOMPILE_TIMEOUT=1 in rt) → reason=facts-timeout.
+# H7: helper hangs → cut by its own budget (rt sets RSDD_DECOMPILE_TIMEOUT=1, so min(30, 1/8) floors at 1 s) → reason=facts-timeout.
 mkdir -p "$MUTANT_DIR/slowhelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/slowhelper/lib/"; cp "$SUT" "$MUTANT_DIR/slowhelper/decompile-java.sh"
 printf 'import time\ntime.sleep(30)\n' > "$MUTANT_DIR/slowhelper/corroborate_java.py"
 _t0=$SECONDS
@@ -845,6 +845,9 @@ _t0=$SECONDS
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H9 "$ROOT/Hdr.class" RSDD_DECOMPILE_TIMEOUT=240 RSDD_CLASSFACTS_TIMEOUT=1 -- --engine vineflower
 if grep -q "reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 10 ]; then ok "H9 RSDD_CLASSFACTS_TIMEOUT=1 overrides the budget"
 else no "H9 RSDD_CLASSFACTS_TIMEOUT override" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H11 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=$'\xd9\xa3' -- --engine vineflower
+if grep -q $'^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=\xd9\xa3' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H11 Unicode-digit RSDD_CLASSFACTS_TIMEOUT is rejected (ASCII digits only): warning + derived default"
+else no "H11 Unicode digit RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H10 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
 if grep -q '^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=abc' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H10 invalid RSDD_CLASSFACTS_TIMEOUT: typed warning, derived default used"
 else no "H10 invalid RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
