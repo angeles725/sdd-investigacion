@@ -92,12 +92,12 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     if "$WRAPPER" build >"$ROOT/build.log" 2>&1; then
       ok "S1: offline Java 21 Maven build"
     elif _verdict="$(rsdd_jvm_build_verdict)"; [[ "$_verdict" == skip:* ]]; then
-      # The environment provably lacks the bootstrap: a coordinate the POM declares is absent from
-      # the local Maven repo (jvm-callgraph.sh bootstrap was never run; it needs network). The
-      # verdict comes from the environment, never from the build log (a POM typo reads the same
-      # in the log). Typed SKIP, one line per analyzer case, so run-all's skipped total is exact.
-      # S9/S10/S12 would otherwise "fail closed" vacuously on a missing jar (analyzer-missing
-      # exit 3). Never a FAIL and never a silent pass (#1588).
+      # The host never ran `jvm-callgraph.sh bootstrap` (needs network): no maven-compiler-plugin
+      # artifact in the local Maven repo is tagged with the bootstrap mirror id from
+      # maven-central-settings.xml (lib/jvm-offline-probe.sh; the verdict comes from the
+      # environment, never from the build log). Typed SKIP, one line per analyzer case, so
+      # run-all's skipped total is exact. S9/S10/S12 would otherwise "fail closed" vacuously on a
+      # missing jar (analyzer-missing exit 3). Never a FAIL and never a silent pass (#1588).
       for _c in "${_ANALYZER_CASES[@]}"; do
         printf '  SKIP  %s analyzer case: bootstrap absent (%s); run jvm-callgraph.sh bootstrap\n' "$_c" "${_verdict#skip: }"
       done
@@ -515,51 +515,67 @@ print("RESULT=ok")
   _PROBE_LIB="$TOOLBELT/lib/jvm-offline-probe.sh"
   # shellcheck source=../lib/jvm-offline-probe.sh
   source "$_PROBE_LIB"
-  mkdir -p "$_MUT/repo-empty" "$_MUT/repo-full/org/apache/maven/plugins/maven-compiler-plugin/3.13.0" \
-           "$_MUT/repo-nojar/org/apache/maven/plugins/maven-compiler-plugin/3.13.0"
-  : > "$_MUT/repo-full/org/apache/maven/plugins/maven-compiler-plugin/3.13.0/maven-compiler-plugin-3.13.0.jar"
+  _PD=org/apache/maven/plugins/maven-compiler-plugin/3.13.0
+  mkdir -p "$_MUT/repo-empty" "$_MUT/repo-foreign/$_PD" "$_MUT/repo-ours/$_PD" "$_MUT/repo-noremote/$_PD"
+  # Mirror id the bootstrap tags artifacts with: read from the settings file, as the probe does.
+  _MID="$(sed -n 's:.*<id>\(.*\)</id>.*:\1:p;T;q' "$TOOLBELT/jvm-callgraph/maven-central-settings.xml")"
+  [ -n "$_MID" ] || { echo "FATAL: no mirror id in maven-central-settings.xml" >&2; exit 2; }
+  for _r in foreign ours noremote; do : > "$_MUT/repo-$_r/$_PD/maven-compiler-plugin-3.13.0.jar"; done
+  printf 'maven-compiler-plugin-3.13.0.jar>other-project-repo=\n' > "$_MUT/repo-foreign/$_PD/_remote.repositories"
+  printf 'maven-compiler-plugin-3.13.0.jar>%s=\n' "$_MID" > "$_MUT/repo-ours/$_PD/_remote.repositories"
   : > "$_MUT/repo-file"
-  _probe_h='. "$1"; rsdd_jvm_build_verdict "$2"; echo "rc=$?"'
-  _probe(){ bash -c "$_probe_h" _ "$_PROBE_LIB" "$1"; }
+  _probe_h='. "$1"; rsdd_jvm_build_verdict "$2" "$3"; echo "rc=$?"'
+  _PSET="$TOOLBELT/jvm-callgraph/maven-central-settings.xml"   # explicit: a mutant copy lives elsewhere
+  _probe(){ bash -c "$_probe_h" _ "$_PROBE_LIB" "$1" "$_PSET"; }
   if [[ "$(_probe "$_MUT/repo-empty")" == "skip: "*$'\n'rc=0 && "$(_probe "$_MUT/absent")" == "skip: "*$'\n'rc=0 \
-        && "$(_probe "$_MUT/repo-nojar")" == "skip: "*$'\n'rc=0 ]]; then
-    ok "probe: absent/empty/jar-less local repo -> typed skip (bootstrap never ran)"
-  else no "probe: absent/empty/jar-less local repo -> typed skip"; fi
-  if [[ "$(_probe "$_MUT/repo-full")" == "fail: bootstrap present"$'\n'rc=1 ]]; then
-    ok "probe: bootstrap present + failing build -> fail verdict, not skip"
+        && "$(_probe "$_MUT/repo-noremote")" == "skip: "*$'\n'rc=0 ]]; then
+    ok "probe: absent/empty/untagged local repo -> typed skip (bootstrap never ran)"
+  else no "probe: absent/empty/untagged local repo -> typed skip"; fi
+  if [[ "$(_probe "$_MUT/repo-foreign")" == "skip: "*$'\n'rc=0 ]]; then
+    ok "probe: plugin cached by another project (foreign mirror id) -> typed skip"
+  else no "probe: foreign-id plugin must not read as bootstrapped"; fi
+  if [[ "$(_probe "$_MUT/repo-ours")" == "fail: bootstrap present"$'\n'rc=1 ]]; then
+    ok "probe: bootstrap-tagged plugin + failing build -> fail verdict, not skip"
   else no "probe: bootstrap present -> fail verdict"; fi
   if [[ "$(_probe "$_MUT/repo-file")" == "fail: probe error:"*$'\n'rc=2 ]]; then
     ok "probe: repo path is not a directory -> probe error (fail), never skip"
   else no "probe: non-directory repo -> probe error"; fi
-  # Mutant: drop the environment probe (the plugin-jar test never matches, so everything reads as
-  # absent). On the FULL repo the original says "fail: bootstrap present"; the mutant says
-  # "skip: ..." and would mask a real build failure as a SKIP.
+  # Mutant: drop the environment probe (the mirror-id match never succeeds, so everything reads
+  # as absent). On the bootstrap-tagged repo the original says "fail: bootstrap present"; the
+  # mutant says "skip: ..." and would mask a real build failure as a SKIP.
   export MUTANT_SYNTAX=bash
   if mutant_chain tooth-probe-dropped "$_PROBE_LIB" "$_MUT/probe-mut.sh" \
-       's/if compgen -G "\$d\*.jar" >\/dev\/null; then/if false; then/'; then
+       's/0) echo "fail: bootstrap present"; return 1 ;;/0) ;;/'; then
     tt "tooth-probe-dropped: probe removed -> bootstrap-present build failure masked as skip (bites)" 0 0 "$_MUT/probe-mut.sh" \
       --orig "$_PROBE_LIB" --good-has '^fail: bootstrap present$' --bad-has '^skip: ' \
-      --bad-lacks '^fail: bootstrap present$' -- bash -c "$_probe_h" _ @SUT@ "$_MUT/repo-full"
+      --bad-lacks '^fail: bootstrap present$' -- bash -c "$_probe_h" _ @SUT@ "$_MUT/repo-ours" "$_PSET"
   else fail=$((fail+1)); fi
   export MUTANT_SYNTAX=none
 
   # Build-settings control (#1588, real SUT defect): `bootstrap` populates the local Maven repo
   # under the mirror id research-sdd-central-only, so an offline `build` WITHOUT the same settings
   # file cannot resolve anything ("has not been downloaded from it before"). A fake mvn records
-  # the argv the wrapper hands it; `build` must be offline AND pass -s maven-central-settings.xml.
+  # whether the wrapper handed it -o and any -s (path-independent); `build` must pass both. mutant_chain
+  # refuses an identity mutant (rc 4), so a no-op mutation cannot make this tooth vacuous.
   # Typed degraded state (not a FAIL) when no usable Java 21 exists: the wrapper exits 3 before mvn.
   if (. "$TOOLBELT/lib/tool-env.sh"; rsdd_resolve_java_home >/dev/null 2>&1); then
     mkdir -p "$_MUT/fakebin" "$_MUT/bs-mut"
-    printf '#!/bin/sh\nprintf "%%s\\n" "$*" > "$FAKE_MVN_ARGS"\n' > "$_MUT/fakebin/mvn"
+    cat > "$_MUT/fakebin/mvn" <<'FAKE'
+#!/bin/sh
+# Typed, path-independent record of what the wrapper handed mvn: OFFLINE/SETTINGS = present|absent.
+o=absent; st=absent
+for a in "$@"; do case "$a" in -o) o=present ;; -s) st=present ;; esac; done
+printf 'OFFLINE=%s SETTINGS=%s\n' "$o" "$st" > "$FAKE_MVN_ARGS"
+FAKE
     chmod +x "$_MUT/fakebin/mvn"
     ln -s "$TOOLBELT/lib" "$_MUT/bs-mut/lib"; ln -s "$TOOLBELT/jvm-callgraph" "$_MUT/bs-mut/jvm-callgraph"
     _build_h='PATH="$1/fakebin:$PATH" FAKE_MVN_ARGS="$1/mvn.args" bash "$2" build >/dev/null 2>&1; echo "rc=$?"; cat "$1/mvn.args" 2>/dev/null'
-    _MC="$TOOLBELT/jvm-callgraph/maven-central-settings.xml"
     export MUTANT_SYNTAX=bash
     if mutant_chain tooth-build-settings "$WRAPPER" "$_MUT/bs-mut/jvm-callgraph.sh" \
          's| -s "\$MODULE/maven-central-settings.xml"||'; then
       tt "tooth-build-settings: build must pass -o and -s <bootstrap settings> to mvn" 0 0 "$_MUT/bs-mut/jvm-callgraph.sh" \
-        --orig "$WRAPPER" --good-has "^-o .*-s $_MC " --bad-has '^-o ' --bad-lacks "-s $_MC" -- \
+        --orig "$WRAPPER" --good-has '^OFFLINE=present SETTINGS=present$' --bad-has '^OFFLINE=present SETTINGS=absent$' \
+        --bad-lacks '^OFFLINE=present SETTINGS=present$' -- \
         bash -c "$_build_h" _ "$_MUT" @SUT@
     else fail=$((fail+1)); fi
     export MUTANT_SYNTAX=none
