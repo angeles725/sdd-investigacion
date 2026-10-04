@@ -38,3 +38,17 @@ Blocked/user decisions unchanged from 2026-10-03c (#1255 #1256 data; #1259 #1442
 
 ## Progress log
 - Session start: ODD doc created; helpers recovered from the previous scratchpad.
+
+## Close — 2026-10-04b
+
+**Merged this session (17 PRs):** #1667 (#1661 docs) · #1668 (#1657) · #1669 (#1626) · #1670 (#1663) · #1671 (#1576 slice, Closes #1674) · #1673 (#1672 CI -j4) · #1677 (#1659) · #1680 (#948) · #1681 (#1033 L1+L3, Closes #1686) · #1682 (#1637) · #1683 (#1608) · #1684 (#1555) · #1685 (#971) · #1687 (#1647) — plus #1545's PR. origin/main = 0cb1a45.
+
+**Closed as already-done (12):** #1556 #1215 #1260 #1387 #1429 #1030 #888 #943 #949 #983 #981 #1274.
+
+**New follow-up issues filed (status:approved unless noted):** #1672 (done) · #1675 (dirname "$0" lib resolution, 35 scripts) · #1676 (clean-check/verify-block advisories) · #1678 (verify-sources LEVEL 4 blank-strip) · #1674/#1686 (slice issues, closed by their PRs). #1033 stays OPEN for L2 (needs run-all.sh, overlaps a future #1647-area change). #1576 stays OPEN for its deferred teeth-strength slices.
+
+**CI change:** toolbelt-tests now runs `run-all.sh --prove-teeth -j 4` with GNU parallel (#1672) — ~14 min vs the 35-min serial cap.
+
+**Deferred to next session (NEEDS-HUMAN, ~22):** #1638 #1198 #1214 #906 #896 #979 #980 #993 #1015 #1094 #1096 #1116 #1157 #1175 #1178 #1179 #1180 #1185 #1186 #1187 #1189. Plus the large ACTIONABLE doctrine batches (METHODOLOGY/PROMPT-LOOP, grouped by destination file in the triage memory) and the remaining instrument follow-ups. **Release v1.2.0 still not cut** — carry it forward.
+
+**Observed, report-only (not a regression):** run-all aggregate shows `TMPDIR leftovers: 3 — [detect-tools: 2, research-sdd-init: 1]` under `--prove-teeth` (report-only unless `--require-clean-tmp`); worth a follow-up.
