@@ -35,7 +35,8 @@
 #                                        runs CMD and, when it returns non-zero, adds exactly ONE to the
 #                                        caller's variable COUNTER (any scope the caller can see; an
 #                                        unset COUNTER starts at 0), then returns CMD's rc unchanged. A
-#                                        COUNTER that is not an identifier or not a number is a loud
+#                                        COUNTER that is not an identifier, starts with the helper's
+#                                        reserved `_moc_` prefix, or is not a number is a loud
 #                                        `  FAIL  mutant_or_count: ...` and rc 2 without running CMD.
 #   mutant_chain_or_count COUNTER LABEL ORIG OUT EXPR...   mutant_or_count COUNTER mutant_chain ...
 #   mutant_built_or_count COUNTER LABEL ORIG OUT           mutant_or_count COUNTER mutant_built ...
@@ -47,7 +48,9 @@
 #                                        and later calls only append, so a suite never installs (and
 #                                        never replaces) a trap itself. A trap the suite re-installed
 #                                        after a registration is re-chained on the next call. A refused
-#                                        path (empty, relative, /) is rc 2 and never registered. A
+#                                        path (empty, relative, /) is rc 2 and never registered. The
+#                                        chained trap restores the exiting status in $? before a pre-
+#                                        existing trap runs, so that trap still sees the real status. A
 #                                        caller's own trap must be installed BEFORE the first
 #                                        registration or be followed by another registration.
 #   mutant_tooth  LABEL GOOD_RC BAD_RC MUTANT [--orig P] [--good-has RE] [--good-lacks RE]
@@ -281,21 +284,23 @@ mutant_py_replace() {
 
 # mutant_or_count COUNTER CMD [ARGS...] — see header.
 mutant_or_count() {
-  local counter="${1:-}" rc
-  if [[ ! "$counter" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [ "$#" -lt 2 ]; then
-    printf '  FAIL  mutant_or_count: bad counter name or no command [%s]\n' "$counter"; return 2
+  # The helper's own locals carry a reserved _moc_ prefix: ${!_moc_name} must resolve the CALLER's
+  # variable, so a counter named like a plain local (rc, c, counter) would otherwise be shadowed.
+  local _moc_name="${1:-}" _moc_rc
+  if [[ ! "$_moc_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ "$_moc_name" == _moc_* ]] || [ "$#" -lt 2 ]; then
+    printf '  FAIL  mutant_or_count: bad counter name or no command [%s]\n' "$_moc_name"; return 2
   fi
-  if [[ ! "${!counter:-0}" =~ ^[0-9]+$ ]]; then
-    printf '  FAIL  mutant_or_count: counter %s is not a number [%s]\n' "$counter" "${!counter}"; return 2
+  if [[ ! "${!_moc_name:-0}" =~ ^[0-9]+$ ]]; then
+    printf '  FAIL  mutant_or_count: counter %s is not a number [%s]\n' "$_moc_name" "${!_moc_name}"; return 2
   fi
   shift
-  "$@"; rc=$?
+  "$@"; _moc_rc=$?
   # SENTINEL-COUNT-ONCE
-  if [ "$rc" -ne 0 ]; then printf -v "$counter" '%d' $(( ${!counter:-0} + 1 )); fi
-  return "$rc"
+  if [ "$_moc_rc" -ne 0 ]; then printf -v "$_moc_name" '%d' $(( ${!_moc_name:-0} + 1 )); fi
+  return "$_moc_rc"
 }
-mutant_chain_or_count() { local c="$1"; shift; mutant_or_count "$c" mutant_chain "$@"; }
-mutant_built_or_count() { local c="$1"; shift; mutant_or_count "$c" mutant_built "$@"; }
+mutant_chain_or_count() { mutant_or_count "${1:-}" mutant_chain "${@:2}"; }
+mutant_built_or_count() { mutant_or_count "${1:-}" mutant_built "${@:2}"; }
 
 # _MUTANT_CLEANUP_PATHS is the one registry; _mutant_cleanup_run is the one cleaner.
 _MUTANT_CLEANUP_PATHS=()
@@ -321,8 +326,10 @@ mutant_cleanup_register() {
     *_mutant_cleanup_run*) ;;   # already chained (and still in place): nothing to install
     *)
       if [ -n "$prev" ]; then eval "set -- $prev"; cmd="$3"; fi   # trap -p prints: trap -- 'CMD' EXIT
-      # shellcheck disable=SC2064
-      trap "_mutant_cleanup_run${cmd:+; $cmd}" EXIT ;;
+      # shellcheck disable=SC2064,SC2154
+      # The status the script is exiting with is captured first and restored before the chained trap
+      # runs, so a trap that reads $? sees the real status, not the cleanup's.
+      trap "__mrc=\$?; _mutant_cleanup_run; (exit \"\$__mrc\")${cmd:+; $cmd}" EXIT ;;
   esac
 }
 

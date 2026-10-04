@@ -419,7 +419,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
     && typeset -f mutant_tooth >/dev/null 2>&1 && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth/mutant_cleanup_register" >&2; exit 2; }
+    && typeset -f mutant_chain_or_count >/dev/null 2>&1 && typeset -f mutant_built_or_count >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth/mutant_cleanup_register/mutant_*_or_count" >&2; exit 2; }
   # The mutants are python/json files: skip the bash -n check (empty, identical, live-tree,
   # symlink and dead-stage refusals still apply).
   export MUTANT_SYNTAX=none
@@ -431,8 +432,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # mut_py LABEL DIR SED_EXPR — build DIR/corroborate_firmware.py from the SUT; returns non-zero
   # (counted as a failure) when the mutant was refused, so its tooth never runs.
   mut_py() {
-    mkdir -p "$_MUT/$2" && cp -R "$TOOLBELT/lib" "$_MUT/$2/lib" \
-      && mutant_chain "$1" "$SUT_PY" "$_MUT/$2/corroborate_firmware.py" "$3" || { fail=$((fail+1)); return 1; }
+    if ! { mkdir -p "$_MUT/$2" && cp -R "$TOOLBELT/lib" "$_MUT/$2/lib"; }; then fail=$((fail+1)); return 1; fi
+    mutant_chain_or_count fail "$1" "$SUT_PY" "$_MUT/$2/corroborate_firmware.py" "$3"   # counts a refusal exactly once
   }
 
   # tooth-require_private: remove 'ext4' from PRIVATE_FS so an ext4 mount is rejected instead of
@@ -490,11 +491,11 @@ import json, sys
 t = json.load(open(sys.argv[1])).get("counts", {}).get("findings_total")
 print("VERDICT: F5 holds" if t == 3 else f"VERDICT: F5 RED findings_total={t}")
 PY
-    if mutant_built "tooth-cap-line-239" "$_FIX_CAPPED" "$_MUT/mutant-capped.json"; then
+    if mutant_built_or_count fail "tooth-cap-line-239" "$_FIX_CAPPED" "$_MUT/mutant-capped.json"; then
       _tt "tooth-cap-line-239: mutant fixture (total=emitted=2) → F5 total==3 assertion RED (bites)" 0 0 "$_MUT/mutant-capped.json" --orig "$_FIX_CAPPED" \
         --good-has '^VERDICT: F5 holds$' --bad-has '^VERDICT: F5 RED findings_total=2$' --bad-lacks '^VERDICT: F5 holds$' -- \
         python3 "$_MUT/h3.py" @SUT@
-    else fail=$((fail+1)); fi
+    fi   # a refused build was already counted once by mutant_built_or_count
   fi
 
   echo "-- prove-teeth done --"

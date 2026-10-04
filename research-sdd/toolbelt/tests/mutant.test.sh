@@ -409,6 +409,10 @@ case "$CH_MODE" in
           trap 'echo other >> "$CH_MARK"' EXIT   # a suite that re-installs its own trap
           mutant_cleanup_register "$CH_D2"
           exit 0 ;;
+  status) trap 'rc=$?; echo "saw=$rc" >> "$CH_MARK"; exit $rc' EXIT
+          . "$CH_LIB"
+          mutant_cleanup_register "$CH_D1"
+          exit 3 ;;
   refuse) . "$CH_LIB"
           mutant_cleanup_register '' 2> "$CH_ERR1"; echo "empty=$?" >> "$CH_RC"
           mutant_cleanup_register "rel-dir" 2> "$CH_ERR2"; echo "rel=$?" >> "$CH_RC"
@@ -439,6 +443,10 @@ cc_reset; cc_run heal; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -e "$TMP/cc d1" ] && [ ! -e "$TMP/cc-d2" ] && grep -qx other "$TMP/cc.mark"; then
   ok "cleanup: a trap re-installed by the suite is re-chained on the next registration (nothing leaks)"
 else no "cleanup: re-chain after the suite replaced the trap (rc=$rc d1=$([ -e "$TMP/cc d1" ] && echo kept || echo gone) marker=[$(cat "$TMP/cc.mark")])"; fi
+cc_reset; cc_run status; rc=$?
+if [ "$rc" -eq 3 ] && grep -qx 'saw=3' "$TMP/cc.mark" && [ ! -e "$TMP/cc d1" ]; then
+  ok "cleanup: a chained trap that reads \$? sees the real exit status and the script still exits with it"
+else no "cleanup: exit status seen by a chained trap (rc=$rc marker=[$(cat "$TMP/cc.mark")] d1=$([ -e "$TMP/cc d1" ] && echo kept || echo gone))"; fi
 mkdir -p "$TMP/cwd/rel-dir"; : > "$TMP/cc.rc"
 (cd "$TMP/cwd" && cc_run refuse)
 if grep -qx 'empty=2' "$TMP/cc.rc" && grep -qx 'rel=2' "$TMP/cc.rc" && grep -q 'REFUSED' "$TMP/cc.err1" && grep -q 'REFUSED' "$TMP/cc.err2"; then
@@ -486,6 +494,13 @@ if [ ! -e "$TMP/pm5-target.py" ]; then ok "py_replace: no write went through the
 expect_rc "py_replace: OUT equal to ORIG is rc 3 (says same path)" 3 "same path" \
   mutant_py_replace pm6 "$PYORIG" 'return 1' 'return 2' "$PYORIG"
 if [ "$(grep -c 'return 1' "$PYORIG")" -eq 2 ]; then ok "py_replace: the original survives an OUT == ORIG request"; else no "py_replace: the original was modified"; fi
+# Refusals belong on STDERR: a caller capturing stdout must see nothing.
+ln -sf "$TMP/pm8-target.py" "$TMP/pm8.py"
+so1="$(mutant_py_replace pm8 "$PYORIG" 'return 1' 'return 2' "$TMP/pm8.py" 2>/dev/null)"
+so2="$(mutant_py_replace pm9 "$PYORIG" 'return 1' 'return 2' "$TMP/src/pm9-live.py" 2>/dev/null)"
+so3="$(mutant_py_replace pm10 "$PYORIG" 'return 1' 'return 1' "$TMP/pm10.py" 2>/dev/null)"
+if [ -z "$so1$so2$so3" ]; then ok "py_replace: symlink, live-tree and identical refusals print nothing on stdout"
+else no "py_replace: refusal leaked to stdout (symlink=[$so1] live=[$so2] identical=[$so3])"; fi
 printf 'x = 1\ny = """a\nb"""\n' > "$TMP/src/ml.py"
 mutant_py_replace pm7 "$TMP/src/ml.py" $'a\nb' $'c\nd\ne' "$TMP/pm7.py" 2>/dev/null; rc=$?
 if [ "$rc" -eq 0 ] && grep -qx 'e"""' "$TMP/pm7.py"; then ok "py_replace: a multi-line anchor and replacement work"
@@ -518,6 +533,16 @@ if [ "$lc_got" = 6 ]; then ok "count-once: a function-local counter of the calle
 cnt=3; mutant_or_count 'bad;name' true > "$TMP/co5.out" 2>&1; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'bad counter' "$TMP/co5.out" && [ "$cnt" -eq 3 ]; then ok "count-once: an invalid counter name is refused loudly (rc 2)"
 else no "count-once: invalid counter name (rc=$rc out=[$(cat "$TMP/co5.out")])"; fi
+# The helper's own locals must not shadow the caller's counter: counters named like plain locals work.
+for nm in rc c counter; do
+  ( eval "$nm=0"; mutant_or_count "$nm" false >/dev/null 2>&1; mutant_chain_or_count "$nm" w "$ORIG" "$TMP/co7.sh" 's/NO_SUCH_ANCHOR/x/' >/dev/null 2>&1
+    echo "got=${!nm}" ) > "$TMP/co7.out" 2>&1
+  if grep -qx 'got=2' "$TMP/co7.out"; then ok "count-once: a counter named '$nm' increments the caller's variable (direct and via a wrapper)"
+  else no "count-once: counter named $nm shadowed (out=[$(cat "$TMP/co7.out")])"; fi
+done
+( _moc_rc=0; mutant_or_count _moc_rc false; echo "rc=$?" ) > "$TMP/co8.out" 2>&1
+if grep -qx 'rc=2' "$TMP/co8.out" && grep -q 'bad counter' "$TMP/co8.out"; then ok "count-once: a counter in the helper's reserved _moc_ namespace is refused (rc 2)"
+else no "count-once: reserved counter name (out=[$(cat "$TMP/co8.out")])"; fi
 # In a subshell: a regression that evaluates the value would abort the whole suite under `set -u`.
 ( cnt='x'; mutant_or_count cnt false; echo "rc=$?" ) > "$TMP/co6.out" 2>&1
 if grep -qx 'rc=2' "$TMP/co6.out" && grep -q 'not a number' "$TMP/co6.out"; then ok "count-once: a non-numeric counter value is refused, not evaluated (rc 2)"
@@ -627,7 +652,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # text of the case, which differs from its PASS-side text.
   teeth_case cleanuprm '/^_mutant_cleanup_run/,/^}/s/rm -rf -- "\$p"/:/' \
     "cleanup: registered paths removed at exit"
-  teeth_case cleanupchain 's/_mutant_cleanup_run\${cmd:+; \$cmd}/_mutant_cleanup_run/' \
+  teeth_case cleanupchain 's/\${cmd:+; \$cmd}//' \
     "cleanup: a pre-existing EXIT trap is chained"
   teeth_case cleanuponce 's/\*_mutant_cleanup_run\*) ;;/*_NEVER_MATCHES_*) ;;/' \
     "cleanup: trap installed once"
@@ -637,6 +662,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "cleanup: empty/relative refusal"
   teeth_case cleanupslash 's/ || \[ "\$p" = \/ \]; then/; then/' \
     "cleanup: / refusal"
+  teeth_case cleanupstatus 's/(exit \\"\\\$__mrc\\")/:/' \
+    "cleanup: exit status seen by a chained trap"
+  teeth_case countshadowrc 's/_moc_rc/rc/g' \
+    "count-once: counter named rc shadowed"
+  teeth_case countshadowname 's/_moc_name/counter/g' \
+    "count-once: counter named counter shadowed"
+  teeth_case countreserved 's/ || \[\[ "\$_moc_name" == _moc_\* \]\]//' \
+    "count-once: reserved counter name"
+  teeth_case pyrefusestdout '/^mutant_py_replace/,/^}/s/_mutant_check_out "\$orig" "\$out" || return 3/_mutant_check_out "$orig" "$out" 2>\&1 || return 3/' \
+    "py_replace: refusal leaked to stdout"
   teeth_case pyanchor '/anchor not found/s/return 2/:/' \
     "py_replace: absent anchor is rc 2"
   teeth_case pyempty '/empty anchor/s/return 2/:/' \
@@ -655,17 +690,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "py_replace: OUT equal to ORIG is rc 3"
   teeth_case countonce '/SENTINEL-COUNT-ONCE/,+1s/+ 1/+ 2/' \
     "count-once: dead stage"
-  teeth_case countalways 's/if \[ "\$rc" -ne 0 \]; then printf -v/if true; then printf -v/' \
+  teeth_case countalways 's/if \[ "\$_moc_rc" -ne 0 \]; then printf -v/if true; then printf -v/' \
     "count-once: success counted"
-  teeth_case countrc '/^mutant_or_count/,/^}/s/return "\$rc"/return 0/' \
+  teeth_case countrc '/^mutant_or_count/,/^}/s/return "\$_moc_rc"/return 0/' \
     "count-once: dead stage"
   teeth_case countname 's|\^\[A-Za-z_\]\[A-Za-z0-9_\]\*\$|^.*$|' \
     "count-once: invalid counter name"
   teeth_case countnum 's|=~ \^\[0-9\]+\$ \]\]|=~ ^.*$ ]]|' \
     "count-once: non-numeric counter"
-  teeth_case countchain 's/mutant_or_count "\$c" mutant_chain "\$@"/mutant_chain "$@"/' \
+  teeth_case countchain 's/mutant_or_count "\${1:-}" mutant_chain "\${@:2}"/mutant_chain "${@:2}"/' \
     "count-once: dead stage"
-  teeth_case countbuilt 's/mutant_or_count "\$c" mutant_built "\$@"/mutant_built "$@"/' \
+  teeth_case countbuilt 's/mutant_or_count "\${1:-}" mutant_built "\${@:2}"/mutant_built "${@:2}"/' \
     "count-once: refused built"
 fi
 
