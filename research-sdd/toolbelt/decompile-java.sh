@@ -7,6 +7,17 @@
 #                     [--thread-count N] [--timeout SECONDS] [--fallback-engine cfr|procyon|vineflower|none]
 #   decompile-java.sh --javap <Class.class>      # signatures + bytecode (javap -p -c)
 #
+# Class-file facts header (kit issue #1205): BEFORE any engine runs, stdout gets one line read straight from the
+# class-file bytes (no javap dependency; see corroborate_java.py classfile-facts):
+#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N
+#   major = class-file major version (52 = Java 8 ... 65 = Java 21; a range when the input mixes versions), lvt = whether
+#   method Code carries a LocalVariableTable (mixed = some classes do, some do not), resugar_risk=yes when any class is
+#   major >= 53 (Java 9+: lowered constructs such as indy string concatenation that a decompiler re-sugars).
+#   An unreadable class contributes NO fake version: it is counted in unreadable=N, and when nothing is readable the
+#   fields read unknown. When the helper cannot run the line is `CLASSFILE major=unknown lvt=unknown reason=facts-unavailable`
+#   (typed, never silent) and decompilation continues. stderr always carries one WARN: decompiled source is a
+#   reconstruction, so syntax-level claims need bytecode evidence (`--javap` / `javap -c -p`), not the decompiled text.
+#
 # Bounded timeout + automatic fallback (kit issues #1190, #1224):
 #   The primary engine runs under `timeout` (default 240 s, RSDD_DECOMPILE_TIMEOUT or --timeout; 0 = unbounded).
 #   On timeout or non-zero exit the affected UNIT falls back to the fallback engine (default: cfr; procyon when
@@ -195,6 +206,14 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
   echo "$ENGINE jar not found (set $(printf '%s' "$ENGINE" | tr '[:lower:]' '[:upper:]')_JAR)" >&2
   exit 3
 }
+
+# Class-file facts header (kit issue #1205): one stdout line before any engine output, plus the bytecode-evidence warning.
+if CLASSFILE_LINE="$(python3 "$HERE/corroborate_java.py" classfile-facts "$IN" 2>/dev/null)" && [ -n "$CLASSFILE_LINE" ]; then
+  echo "$CLASSFILE_LINE"
+else
+  echo "CLASSFILE major=unknown lvt=unknown reason=facts-unavailable"
+fi
+echo "WARN: decompiled source is a reconstruction; syntax-level claims (string concatenation, lambdas, switch, records, generics) need bytecode evidence (javap -c -p, see --javap), not the decompiled text" >&2
 
 STAMP="$(mktemp)"
 # Backdate the run stamp 2 s: a coarse-mtime filesystem (FAT 2 s, ext3 1 s) can stamp this run's own output

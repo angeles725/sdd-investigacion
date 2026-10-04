@@ -113,6 +113,133 @@ def jar_inventory(path: Path, max_files: int, max_bytes: int, max_classes: int) 
     }
 
 
+# Class-file facts (kit #1205), read straight from the bytes: no javap/JDK dependency, nothing executed.
+# Vineflower re-sugars constructs that javac lowers differently per release. Java 9 (major 53) is the first
+# release whose lowering a decompiler reverses on the way back (JEP 280: indy string concatenation,
+# `makeConcatWithConstants` -> `+`); later majors add more (nestmates 55, records 60/61, pattern switch 65).
+# The threshold is deliberately conservative: every class at or above it is flagged. A flag means
+# "syntax-level claims need bytecode evidence", never "the decompilation is wrong".
+RESUGAR_MIN_MAJOR = 53
+MAX_CLASS_BYTES = 64 * 1024 * 1024
+
+
+class ClassFileError(ValueError):
+    """Typed class-file parse failure; the message is the machine-readable reason token."""
+
+
+class _Reader:
+    def __init__(self, data: bytes, pos: int = 0) -> None:
+        self.data, self.pos = data, pos
+
+    def take(self, count: int) -> bytes:
+        if count < 0 or self.pos + count > len(self.data):
+            raise ClassFileError("truncated-body")
+        chunk = self.data[self.pos:self.pos + count]; self.pos += count
+        return chunk
+
+    def u2(self) -> int:
+        return int.from_bytes(self.take(2), "big")
+
+    def u4(self) -> int:
+        return int.from_bytes(self.take(4), "big")
+
+
+_CP_FIXED = {3: 4, 4: 4, 5: 8, 6: 8, 7: 2, 8: 2, 9: 4, 10: 4, 11: 4, 12: 4, 15: 3, 16: 2, 17: 4, 18: 4, 19: 2, 20: 2}
+
+
+def _attributes(reader: _Reader, names: dict[int, bytes]) -> list[tuple[bytes, bytes]]:
+    found = []
+    for _ in range(reader.u2()):
+        name = names.get(reader.u2(), b""); found.append((name, reader.take(reader.u4())))
+    return found
+
+
+def _scan_local_variable_table(data: bytes) -> bool:
+    """True when any method's Code attribute carries a LocalVariableTable; raises ClassFileError on bad bytes."""
+    reader = _Reader(data, 8)
+    names: dict[int, bytes] = {}
+    index, count = 1, reader.u2()
+    while index < count:
+        tag = reader.take(1)[0]
+        if tag == 1:
+            names[index] = reader.take(reader.u2())
+        elif tag in _CP_FIXED:
+            reader.take(_CP_FIXED[tag])
+        else:
+            raise ClassFileError("bad-constant-pool-tag")
+        index += 2 if tag in (5, 6) else 1
+    reader.take(6)                                   # access_flags, this_class, super_class
+    reader.take(2 * reader.u2())                     # interfaces
+    found = False
+    for members_are_methods in (False, True):
+        for _ in range(reader.u2()):
+            reader.take(6)                           # access_flags, name_index, descriptor_index
+            for name, body in _attributes(reader, names):
+                if members_are_methods and name == b"Code":
+                    code = _Reader(body); code.take(4); code.take(code.u4()); code.take(8 * code.u2())
+                    found = any(n == b"LocalVariableTable" for n, _ in _attributes(code, names)) or found
+    _attributes(reader, names)                       # class attributes: walked so a truncated tail is detected
+    return found
+
+
+def _null_facts(reason: str) -> dict[str, Any]:
+    return {"major_version": None, "has_LocalVariableTable": None, "resugar_risk": None, "reason": reason}
+
+
+def class_file_facts(data: bytes) -> dict[str, Any]:
+    """Facts for one class file. An unreadable header gives null facts plus a reason, never a fake 0."""
+    if len(data) < 8:
+        return _null_facts("truncated-header")
+    if data[:4] != b"\xca\xfe\xba\xbe":
+        return _null_facts("bad-magic")
+    major = int.from_bytes(data[6:8], "big")
+    facts: dict[str, Any] = {"major_version": major, "has_LocalVariableTable": None,
+                             "resugar_risk": major >= RESUGAR_MIN_MAJOR, "reason": None}
+    try:
+        facts["has_LocalVariableTable"] = _scan_local_variable_table(data)
+    except ClassFileError as exc:
+        facts["reason"] = str(exc)
+    return facts
+
+
+def read_class_facts(archive: zipfile.ZipFile, entry: str) -> dict[str, Any]:
+    try:
+        if archive.getinfo(entry).file_size > MAX_CLASS_BYTES:
+            return _null_facts("entry-too-large")
+        return class_file_facts(archive.read(entry))
+    except (KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+        return _null_facts("unreadable-entry")
+
+
+def summarize_facts(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate; lvt is yes|no|mixed|unknown (unknown: no class had a readable LVT fact)."""
+    majors = sorted({r["major_version"] for r in records if r["major_version"] is not None})
+    lvt = {r["has_LocalVariableTable"] for r in records if r["has_LocalVariableTable"] is not None}
+    state = "unknown" if not lvt else "mixed" if len(lvt) == 2 else "yes" if True in lvt else "no"
+    return {"classes": len(records), "major_versions": majors, "lvt": state,
+            "resugar_risk_classes": sum(1 for r in records if r["resugar_risk"]),
+            "unreadable_classes": sum(1 for r in records if r["reason"] is not None)}
+
+
+def classfile_facts_cli(path: Path) -> int:
+    """`corroborate_java.py classfile-facts <in.jar|in.class>`: one CLASSFILE header line for decompile-java.sh."""
+    try:
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                records = [read_class_facts(archive, n) for n in sorted(archive.namelist()) if n.endswith(".class")]
+        else:
+            records = [class_file_facts(path.read_bytes())]
+    except (OSError, zipfile.BadZipFile) as exc:
+        print(f"CLASSFILE major=unknown lvt=unknown classes=0 resugar_risk=unknown unreadable=unknown reason=unreadable-input({exc.__class__.__name__})")
+        return 0
+    summary = summarize_facts(records)
+    majors = summary["major_versions"]
+    major = "unknown" if not majors else str(majors[0]) if len(majors) == 1 else f"{majors[0]}-{majors[-1]}"
+    print(f"CLASSFILE major={major} lvt={summary['lvt']} classes={summary['classes']} "
+          f"resugar_risk={'unknown' if not majors else 'yes' if summary['resugar_risk_classes'] else 'no'} unreadable={summary['unreadable_classes']}")
+    return 0
+
+
 def scan_files(root: Path, max_files: int, max_bytes: int) -> tuple[int, int]:
     files, total = 0, 0
     if not root.exists():
@@ -505,6 +632,11 @@ def publish(stage: Path, destination: Path, overwrite: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw = sys.argv[1:] if argv is None else argv
+    if raw[:1] == ["classfile-facts"]:
+        if len(raw) != 2:
+            print("usage: corroborate_java.py classfile-facts <in.jar|in.class>", file=sys.stderr); return 2
+        return classfile_facts_cli(Path(raw[1]))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--decompile-wrapper", type=Path, required=True, help=argparse.SUPPRESS)
     parser.add_argument("--manifest-module", type=Path, required=True, help=argparse.SUPPRESS)
@@ -624,6 +756,8 @@ def main(argv: list[str] | None = None) -> int:
                                              "stderr": f"engines/{name}/stderr.txt"},
                              "truncated": {"diagnostics": diagnostics_truncated, "outputs": outputs_truncated}}
 
+        with zipfile.ZipFile(stage / "input/target.jar") as archive:
+            facts = [{"entry": name, **read_class_facts(archive, name)} for name in jar["class_entries"]]
         expected = jar["expected_classes"]
         coverage_map = {name: coverage(expected, engines[name]["output_inventory"])
                         for name in ("vineflower", "cfr", "procyon")}
@@ -634,6 +768,7 @@ def main(argv: list[str] | None = None) -> int:
                       "entry_count": jar["entry_count"], "expanded_bytes": jar["expanded_bytes"]},
             "class_entries": jar["class_entries"], "expected_classes": expected,
             "expected_class_count": jar["expected_total"], "multi_release": jar["multi_release"],
+            "class_facts": facts, "class_facts_summary": summarize_facts(facts),
             "engines": engines, "javap_signatures": signatures(stage / "engines/javap/stdout.txt"),
             "jdeps": dependency_lines(stage / "engines/jdeps/stdout.txt"), "class_coverage": coverage_map,
             "agreements": comparisons(engines),
@@ -643,6 +778,7 @@ def main(argv: list[str] | None = None) -> int:
             "errors": [f"{name}: {engines[name]['status']}" for name in failures],
             "limitations": ["Decompiler outputs are compared only by observable path and byte-hash inventories; source equivalence is not claimed.",
                             "Multi-release class entries are inventoried, but javap coverage uses base classes only.",
+                            f"class_facts.resugar_risk flags every class with major >= {RESUGAR_MIN_MAJOR}: decompiled syntax needs bytecode (javap -c -p) evidence; it does not mean the output is wrong.",
                             "JDK runtime behavior and target class initialization are not executed.",
                             "WSL2 is not a security boundary; use a disposable VM for hostile artifacts."],
         }

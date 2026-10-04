@@ -777,6 +777,45 @@ RT_OUT_SUFFIX=/ rt S5c "$JARB" STUB_OMIT_CLASSES="B" STUB_MARKER_CLASSES="B" STU
 if [ "$RC" -eq 4 ] && [ "$(units_of)" = "BOOT-INF/classes/b/B" ]; then ok "S5c trailing-slash out-dir: marker scan derives the same unit name (one unit)"
 else no "S5c trailing-slash marker-scan unit name" "rc=$RC units=[$(units_of)] so=[$SO]"; fi
 
+# ── Issue #1205: class-file facts header + bytecode-evidence warning ──────────
+# Hand-built minimal valid classes (no JDK needed): major N, one method whose Code attribute carries a
+# LocalVariableTable (lvt=1) or not (lvt=0).
+cat > "$ROOT/mkclass.py" <<'PY'
+import struct,sys,zipfile
+def cls(major, lvt):
+    u=lambda s: b"\x01"+struct.pack(">H",len(s))+s
+    cp=[u(b"T"),b"\x07\x00\x01",u(b"java/lang/Object"),b"\x07\x00\x03",u(b"m"),u(b"()V"),u(b"Code"),u(b"LocalVariableTable")]
+    attrs=struct.pack(">H",1)+struct.pack(">HI",8,2)+b"\x00\x00" if lvt else struct.pack(">H",0)
+    code=struct.pack(">HHI",0,1,1)+b"\xb1"+struct.pack(">H",0)+attrs
+    method=struct.pack(">HHHH",1,5,6,1)+struct.pack(">HI",7,len(code))+code
+    return (b"\xca\xfe\xba\xbe"+struct.pack(">HHH",0,major,len(cp)+1)+b"".join(cp)
+            +struct.pack(">HHHH",0x21,2,4,0)+struct.pack(">H",0)+struct.pack(">H",1)+method+struct.pack(">H",0))
+kind,out=sys.argv[1],sys.argv[2]
+if kind=="class": open(out,"wb").write(cls(int(sys.argv[3]),sys.argv[4]=="1"))
+else:
+    with zipfile.ZipFile(out,"w") as z:
+        z.writestr("p/Old.class",cls(52,True)); z.writestr("p/New.class",cls(65,False))
+PY
+python3 "$ROOT/mkclass.py" class "$ROOT/Hdr.class" 52 1
+python3 "$ROOT/mkclass.py" jar "$ROOT/hdr.jar"
+rt H1 "$ROOT/Hdr.class" -- --engine vineflower
+if [ "$RC" -eq 0 ] && [ "$(head -1 <<<"$SO")" = "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0" ] && grep -q '^OK' <<<"$SO"; then
+  ok "H1 .class input: first stdout line is the CLASSFILE header (major, lvt), then the typed result"
+else no "H1 CLASSFILE header for a .class input" "rc=$RC so=[$SO]"; fi
+if grep -q '^WARN: .*syntax-level.*javap -c -p' <<<"$SE"; then ok "H2 stderr warns that syntax-level claims need bytecode (javap -c -p) evidence"
+else no "H2 bytecode-evidence warning" "se=[$SE]"; fi
+rt H3 "$ROOT/hdr.jar" -- --engine vineflower
+if [ "$(head -1 <<<"$SO")" = "CLASSFILE major=52-65 lvt=mixed classes=2 resugar_risk=yes unreadable=0" ]; then ok "H3 jar input: major range, lvt=mixed and resugar_risk=yes aggregated over the jar"
+else no "H3 aggregated CLASSFILE header for a jar" "rc=$RC so=[$SO]"; fi
+rt H4 "$FAKE_CLASS" -- --engine vineflower
+if [ "$(head -1 <<<"$SO")" = "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1" ]; then ok "H4 unreadable class: typed unknown header, never a fake major 0"
+else no "H4 unreadable class header" "so=[$SO]"; fi
+# H5: facts helper unavailable (a copy of the SUT with no corroborate_java.py beside it) → typed header, run continues.
+mkdir -p "$MUTANT_DIR/nohelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/nohelper/lib/"; cp "$SUT" "$MUTANT_DIR/nohelper/decompile-java.sh"
+RT_SUT="$MUTANT_DIR/nohelper/decompile-java.sh" rt H5 "$ROOT/Hdr.class" -- --engine vineflower
+if [ "$RC" -eq 0 ] && [ "$(head -1 <<<"$SO")" = "CLASSFILE major=unknown lvt=unknown reason=facts-unavailable" ]; then ok "H5 facts helper missing: typed reason=facts-unavailable header, decompilation still runs"
+else no "H5 facts-unavailable header" "rc=$RC so=[$SO]"; fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -1176,6 +1215,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUT" RT_PRESEED_AGE="1 second ago" RT_PRESEED="a/A1.java" rt mS3c "$JARP" STUB_FAIL_WHOLE=1 -- --engine vineflower
     if [ "$(engine_of mS3c a/A1.java)" != vineflower ]; then ok "teeth-mS3c: mtime-blind mutant discards this run's rewritten file → S3c bites"
     else no "teeth-mS3c: mutant still kept the rewritten file — S3c has no teeth" "so=[$SO]"; fi
+  fi
+
+  # ── teeth: class-file facts header (kit #1205) ────────────────────────────
+  # The mutants need the real helper beside them (corroborate_java.py + its lib/), else every run would take the
+  # facts-unavailable branch and the header tests could not tell a mutant from the original.
+  echo "-- teeth: class-file facts header (#1205) --"
+  cp "$TOOLBELT_DIR/corroborate_java.py" "$MUTANT_DIR/corroborate_java.py"
+  cp -R "$TOOLBELT_DIR/lib/." "$MUTANT_DIR/lib/"
+  # mH1: header line never printed → H1/H3/H4 lose their first line.
+  if build_mut mH1 's/^  echo "\$CLASSFILE_LINE"$/  :/'; then
+    RT_SUT="$MUT" rt mH1 "$ROOT/Hdr.class" -- --engine vineflower
+    if [ "$RC" -eq 0 ] && ! grep -q '^CLASSFILE' <<<"$SO" && grep -q '^OK' <<<"$SO"; then ok "teeth-mH1: header-less mutant still runs OK but prints no CLASSFILE line → H1 bites"
+    else no "teeth-mH1: mutant still printed a header (or crashed) — H1 has no teeth" "rc=$RC so=[$SO] se=[$SE]"; fi
+  fi
+  # mH2: warning dropped → H2 loses the bytecode-evidence warning.
+  if build_mut mH2 's/^echo "WARN: decompiled source is a reconstruction.*>&2$/:/'; then
+    RT_SUT="$MUT" rt mH2 "$ROOT/Hdr.class" -- --engine vineflower
+    if [ "$RC" -eq 0 ] && grep -q '^CLASSFILE major=52 ' <<<"$SO" && ! grep -q 'javap -c -p' <<<"$SE"; then ok "teeth-mH2: warning-less mutant keeps the header but never warns → H2 bites"
+    else no "teeth-mH2: mutant still warned (or crashed) — H2 has no teeth" "rc=$RC so=[$SO] se=[$SE]"; fi
+  fi
+  # mH3: the facts-unavailable fallback removed. The mutant runs with NO helper beside it, so only the fallback
+  # branch decides what the first line is.
+  if build_mut mH3 's/^  echo "CLASSFILE major=unknown lvt=unknown reason=facts-unavailable"$/  :/'; then
+    cp "$MUT" "$MUTANT_DIR/nohelper/decompile-java.mH3.sh"
+    RT_SUT="$MUTANT_DIR/nohelper/decompile-java.mH3.sh" rt mH3 "$ROOT/Hdr.class" -- --engine vineflower
+    if [ "$RC" -eq 0 ] && ! grep -q '^CLASSFILE' <<<"$SO" && grep -q '^OK' <<<"$SO"; then ok "teeth-mH3: fallback-less mutant silently drops the header when the helper is missing → H5 bites"
+    else no "teeth-mH3: mutant still printed a typed header (or crashed) — H5 has no teeth" "rc=$RC so=[$SO] se=[$SE]"; fi
   fi
 fi
 

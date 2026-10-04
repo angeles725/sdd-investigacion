@@ -312,6 +312,91 @@ if ! env "${BASE_ENV[@]}" \
   ok "warn-java: rc=1 main() emits warn_evidence pointer for java-corroboration.v1 in stderr"
 else no "warn-java: rc=1 warn_evidence pointer missing from stderr"; fi
 
+# ── Class-file facts (kit #1205) ─────────────────────────────────────────────
+# Real tiny classes built at test time: major 52 WITH a LocalVariableTable (--release 8 -g, includes a long
+# constant so the constant pool has an 8-byte double-slot entry) and major 65 WITHOUT one (-g:none), plus
+# three deliberately broken entries: 7 bytes (header unreadable), wrong magic, and a header-only truncation.
+FX="$ROOT/facts"; mkdir -p "$FX/s8/f8" "$FX/s21/f21" "$FX/c8" "$FX/c21"
+cat > "$FX/s8/f8/Old.java" <<'JAVA'
+package f8;
+public class Old { long big() { return 123456789012L; } String s(int a) { int x = a + 1; return "v" + x; }
+  int t() { try { return 1; } catch (RuntimeException e) { return 2; } } }
+JAVA
+cat > "$FX/s21/f21/New.java" <<'JAVA'
+package f21;
+public class New { String s(int a) { int x = a + 1; return "v" + x; } }
+JAVA
+_fx_built=0
+if "$REAL_JAVA/bin/javac" --release 8 -g -nowarn -d "$FX/c8" "$FX/s8/f8/Old.java" 2>/dev/null \
+  && "$REAL_JAVA/bin/javac" --release 21 -g:none -d "$FX/c21" "$FX/s21/f21/New.java" \
+  && python3 - "$FX" <<'PY'
+import pathlib,sys,zipfile
+fx=pathlib.Path(sys.argv[1]); old=(fx/"c8/f8/Old.class").read_bytes(); new=(fx/"c21/f21/New.class").read_bytes()
+with zipfile.ZipFile(fx/"facts.jar","w") as z:
+    z.writestr("f8/Old.class",old); z.writestr("f21/New.class",new)
+    z.writestr("bad/Trunc.class",old[:7]); z.writestr("bad/Magic.class",b"not a class file at all"); z.writestr("bad/Body.class",new[:40])
+with zipfile.ZipFile(fx/"badonly.jar","w") as z: z.writestr("bad/Trunc.class",old[:7])
+PY
+then _fx_built=1; else no "class-file facts: fixture classes could not be built"; fi
+_fx_env=(JAVA_HOME="$ROOT/fake-java" RSDD_BWRAP=/usr/bin/bwrap RSDD_DECOMPILE_WRAPPER="$ROOT/wrapper-trap"
+  VINEFLOWER_JAR="$ROOT/tools/vineflower.jar" VINEFLOWER_SHA256="$(sha256sum "$ROOT/tools/vineflower.jar" | cut -d' ' -f1)"
+  CFR_JAR="$ROOT/tools/cfr.jar" CFR_SHA256="$(sha256sum "$ROOT/tools/cfr.jar" | cut -d' ' -f1)"
+  PROCYON_JAR="$ROOT/tools/procyon.jar" PROCYON_SHA256="$(sha256sum "$ROOT/tools/procyon.jar" | cut -d' ' -f1)")
+if [ "$_fx_built" -eq 1 ]; then
+  if env "${_fx_env[@]}" "$SUT" --input "$FX/facts.jar" --output "$FX/out" --timeout-seconds 2 --max-heap 128m \
+       --max-files 100 --max-bytes 1048576 --max-classes 100 \
+     && python3 - "$FX/out/java-corroboration.v1.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); f={r["entry"]:r for r in d["class_facts"]}
+assert list(f)==sorted(f) and len(f)==5, list(f)
+o=f["f8/Old.class"]; assert (o["major_version"],o["has_LocalVariableTable"],o["resugar_risk"],o["reason"])==(52,True,False,None), o
+n=f["f21/New.class"]; assert (n["major_version"],n["has_LocalVariableTable"],n["resugar_risk"],n["reason"])==(65,False,True,None), n
+t=f["bad/Trunc.class"]; assert (t["major_version"],t["has_LocalVariableTable"],t["resugar_risk"],t["reason"])==(None,None,None,"truncated-header"), t
+m=f["bad/Magic.class"]; assert (m["major_version"],m["has_LocalVariableTable"],m["resugar_risk"],m["reason"])==(None,None,None,"bad-magic"), m
+b=f["bad/Body.class"]; assert (b["major_version"],b["has_LocalVariableTable"],b["resugar_risk"],b["reason"])==(65,None,True,"truncated-body"), b
+s=d["class_facts_summary"]; assert s=={"classes":5,"major_versions":[52,65],"lvt":"mixed","resugar_risk_classes":2,"unreadable_classes":3}, s
+assert any("resugar_risk" in x and "53" in x for x in d["limitations"])
+PY
+  then ok "class facts: per-class major, LocalVariableTable, resugar_risk and typed null+reason for broken classes"
+  else no "class facts: per-class major/LVT/resugar_risk/null reasons"; fi
+
+  if python3 - "$ROOT/out one/java-corroboration.v1.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); f=d["class_facts"]
+assert [r["entry"] for r in f]==["fixture/App.class"] and f[0]["major_version"]==65 and f[0]["has_LocalVariableTable"] is False, f
+assert d["class_facts_summary"]["lvt"]=="no" and d["class_facts_summary"]["unreadable_classes"]==0
+PY
+  then ok "class facts: default javac output (no -g) reports lvt=no, major 65"; else no "class facts: default javac fixture"; fi
+
+  _cli="$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/facts.jar" 2>&1)"; _cli_rc=$?
+  _cli1="$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/c8/f8/Old.class" 2>&1)"
+  if [ "$_cli_rc" -eq 0 ] \
+     && [ "$_cli" = "CLASSFILE major=52-65 lvt=mixed classes=5 resugar_risk=yes unreadable=3" ] \
+     && [ "$_cli1" = "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0" ] \
+     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$ROOT/missing.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=0 resugar_risk=unknown unreadable=unknown reason=unreadable-input(FileNotFoundError)" ] \
+     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/badonly.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1" ] \
+     && ! python3 "$HERE/../corroborate_java.py" classfile-facts >/dev/null 2>&1; then
+    ok "classfile-facts subcommand: aggregated CLASSFILE line for jar and .class, typed unknown for unreadable input"
+  else no "classfile-facts subcommand" "got=[$_cli] [$_cli1]"; fi
+
+  if python3 - "$HERE/../corroborate_java.py" <<'PY'
+import importlib.util,sys
+spec=importlib.util.spec_from_file_location('corroborate_java',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+assert m.RESUGAR_MIN_MAJOR==53
+hdr=lambda major: b"\xca\xfe\xba\xbe\x00\x00"+major.to_bytes(2,"big")
+# list edges: empty, one byte short of a header, exact 8-byte header (body missing), wrong magic with a plausible major
+assert m.class_file_facts(b"")["reason"]=="truncated-header" and m.class_file_facts(b"")["major_version"] is None
+assert m.class_file_facts(hdr(52)[:7])["major_version"] is None
+h=m.class_file_facts(hdr(52)); assert (h["major_version"],h["resugar_risk"],h["has_LocalVariableTable"],h["reason"])==(52,False,None,"truncated-body"), h
+assert m.class_file_facts(hdr(53))["resugar_risk"] is True and m.class_file_facts(hdr(52))["resugar_risk"] is False
+assert m.class_file_facts(b"\xde\xad\xbe\xef\x00\x00\x00\x34")["reason"]=="bad-magic"
+bad=hdr(52)+b"\x00\x02\x63"  # one constant-pool entry with an invalid tag
+assert m.class_file_facts(bad)["reason"]=="bad-constant-pool-tag"
+PY
+  then ok "class_file_facts edges: empty, 7 bytes, header-only, threshold 52/53, bad magic, bad pool tag"
+  else no "class_file_facts edge cases"; fi
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-warn-java: removing the inline if-guard makes the behavioral test go red.
@@ -376,6 +461,81 @@ PY
     else fail=$((fail+1)); fi
   else
     fail=$((fail+1))
+  fi
+
+  # ── teeth: class-file facts (kit #1205) ────────────────────────────────────
+  # Direct runner over the module (no bwrap): prints one line per class entry plus SUMMARY/EDGE lines.
+  cat > "$ROOT/facts-runner.py" <<'PY'
+import importlib.util,sys,zipfile
+spec=importlib.util.spec_from_file_location('cj',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+recs=[]
+with zipfile.ZipFile(sys.argv[2]) as z:
+    for n in sorted(z.namelist()):
+        r=m.read_class_facts(z,n); recs.append(r)
+        print(f"{n} major={r['major_version']} lvt={r['has_LocalVariableTable']} risk={r['resugar_risk']} reason={r['reason']}")
+s=m.summarize_facts(recs); print(f"SUMMARY lvt={s['lvt']} majors={s['major_versions']} unreadable={s['unreadable_classes']}")
+PY
+  # run_facts_main PY — full main() run on the fixture jar; prints how many class_facts the report carries.
+  run_facts_main() {
+    local py="$1" out; out="$(mktemp -d -p "$td_java")"
+    env "${_fx_env[@]}" RSDD_CORROBORATE_VINEFLOWER="$ROOT/tools/vineflower.jar" RSDD_CORROBORATE_CFR="$ROOT/tools/cfr.jar" \
+      RSDD_CORROBORATE_PROCYON="$ROOT/tools/procyon.jar" python3 "$py" --decompile-wrapper "$ROOT/wrapper-trap" --manifest-module "$(dirname "$py")/analysis_manifest.py" \
+      --input "$FX/facts.jar" --output "$out/r" --timeout-seconds 2 --max-heap 128m --max-files 100 --max-bytes 1048576 --max-classes 100
+    local rc=$?
+    python3 - "$out/r/java-corroboration.v1.json" <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1])); print("REPORT: class_facts=%d summary=%s" % (len(d.get("class_facts",[])), "class_facts_summary" in d))
+except (OSError, ValueError) as e:
+    print("REPORT: <no artifact>", e)
+PY
+    return "$rc"
+  }
+  if [ "$_java_staged" -ne 1 ] || [ "$_fx_built" -ne 1 ]; then
+    no "teeth-facts: staging or fixture build failed; teeth not run"
+  else
+    # fx_tooth NAME EXPR ARGV-KIND [mutant_tooth options...]: build the mutant (sed stage must change the file), then
+    # run original (rc 0) vs mutant (rc 0) — a Traceback/ImportError in the mutant never counts as a bite.
+    fx_tooth() {
+      local name="$1" expr="$2"; shift 2
+      local mut="$td_java/mut/cf-$name.py"
+      if ! mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
+      if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks 'Traceback|ImportError|ModuleNotFoundError' "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+    }
+    R=(python3 "$ROOT/facts-runner.py" @SUT@ "$FX/facts.jar")
+    fx_tooth threshold 's/^RESUGAR_MIN_MAJOR = 53$/RESUGAR_MIN_MAJOR = 66/' \
+      --good-has '^f21/New\.class major=65 lvt=False risk=True ' --bad-has '^f21/New\.class major=65 lvt=False risk=False ' -- "${R[@]}"
+    fx_tooth major-offset 's/int\.from_bytes(data\[6:8\], "big")/int.from_bytes(data[4:6], "big")/' \
+      --good-has '^f8/Old\.class major=52 ' --good-lacks 'major=0 ' --bad-has 'major=0 ' -- "${R[@]}"
+    fx_tooth header-len 's/^    if len(data) < 8:$/    if len(data) < 7:/' \
+      --good-has '^bad/Trunc\.class major=None lvt=None risk=None reason=truncated-header$' \
+      --bad-has '^bad/Trunc\.class major=0 ' -- "${R[@]}"
+    fx_tooth magic 's/^    if data\[:4\] != .*:$/    if False:/' \
+      --good-has '^bad/Magic\.class major=None lvt=None risk=None reason=bad-magic$' \
+      --bad-has '^bad/Magic\.class major=[0-9]+ ' -- "${R[@]}"
+    fx_tooth lvt-name 's/n == b"LocalVariableTable"/n == b"LocalVariableTypeTable"/' \
+      --good-has '^f8/Old\.class major=52 lvt=True ' --bad-has '^f8/Old\.class major=52 lvt=False ' -- "${R[@]}"
+    fx_tooth wide-slot 's/^        index += 2 if tag in (5, 6) else 1$/        index += 1/' \
+      --good-has '^f8/Old\.class major=52 lvt=True risk=False reason=None$' \
+      --bad-lacks '^f8/Old\.class major=52 lvt=True risk=False reason=None$' -- "${R[@]}"
+    fx_tooth exc-table 's/code\.take(8 \* code\.u2())/code.take(0)/' \
+      --good-has '^f8/Old\.class major=52 lvt=True risk=False reason=None$' \
+      --bad-lacks '^f8/Old\.class major=52 lvt=True risk=False reason=None$' -- "${R[@]}"
+    fx_tooth body-reason 's/^        facts\["reason"\] = str(exc)$/        facts["reason"] = None/' \
+      --good-has '^bad/Body\.class major=65 lvt=None risk=True reason=truncated-body$' \
+      --bad-has '^bad/Body\.class major=65 lvt=None risk=True reason=None$' -- "${R[@]}"
+    fx_tooth summary-mixed 's/"mixed" if len(lvt) == 2/"mixed" if len(lvt) == 3/' \
+      --good-has '^SUMMARY lvt=mixed majors=\[52, 65\] unreadable=3$' --bad-has '^SUMMARY lvt=yes ' -- "${R[@]}"
+    fx_tooth summary-unreadable 's/sum(1 for r in records if r\["reason"\] is not None)/0/' \
+      --good-has '^SUMMARY .* unreadable=3$' --bad-has '^SUMMARY .* unreadable=0$' -- "${R[@]}"
+    fx_tooth cli-range 's/f"{majors\[0\]}-{majors\[-1\]}"/str(majors[0])/' \
+      --good-has 'CLASSFILE major=52-65 ' --bad-has 'CLASSFILE major=52 ' -- python3 @SUT@ classfile-facts "$FX/facts.jar"
+    fx_tooth cli-unknown-risk "s/'unknown' if not majors else 'yes'/'no' if not majors else 'yes'/" \
+      --good-has 'resugar_risk=unknown ' --bad-has 'resugar_risk=no ' -- python3 @SUT@ classfile-facts "$FX/badonly.jar"
+    FX_BAD_RC=2 fx_tooth cli-dispatch 's/raw\[:1\] == \["classfile-facts"\]/raw[:1] == ["classfile-facts-x"]/' \
+      --good-has '^CLASSFILE ' --bad-lacks '^CLASSFILE ' -- python3 @SUT@ classfile-facts "$FX/facts.jar"
+    fx_tooth report-facts 's/^            "class_facts": facts, "class_facts_summary": summarize_facts(facts),$/            "class_facts_summary": summarize_facts(facts),/' \
+      --good-has '^REPORT: class_facts=5 summary=True$' --bad-has '^REPORT: class_facts=0 ' -- run_facts_main @SUT@
   fi
 fi
 

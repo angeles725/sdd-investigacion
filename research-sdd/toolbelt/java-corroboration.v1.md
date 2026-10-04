@@ -56,6 +56,47 @@ left by interruption after that exchange.
   Decompiled sources are compared only by paths and byte hashes; source equivalence
   is never claimed.
 
+## Class-file facts (additive, kit #1205)
+
+The report carries `class_facts` (one record per `class_entries` item, sorted by `entry`)
+and `class_facts_summary`. They are read directly from the class-file bytes: no `javap`
+or JDK dependency, nothing is executed, and they are present even when an engine fails.
+
+| Field | Meaning |
+|---|---|
+| `entry` | JAR entry path (multi-release `META-INF/versions/N/` entries included) |
+| `major_version` | Header bytes 6-7, big-endian (52 = Java 8, 53 = Java 9, 65 = Java 21). `null` when the header cannot be read |
+| `has_LocalVariableTable` | `true` when any method `Code` attribute carries a `LocalVariableTable` (found by walking the constant pool and attributes); `false` when the whole class was walked and none does; `null` when the walk could not complete |
+| `resugar_risk` | `true` when `major_version >= 53`; `false` below it; `null` when `major_version` is `null` |
+| `reason` | `null` for a fully read class, otherwise one typed token (below) |
+
+`reason` tokens: `truncated-header` (fewer than 8 bytes), `bad-magic` (not `CAFEBABE`),
+`truncated-body` (header read, the rest ended early: `major_version` and `resugar_risk`
+stay set, `has_LocalVariableTable` is `null`), `bad-constant-pool-tag`, `entry-too-large`
+(over 64 MiB), `unreadable-entry` (the archive entry could not be read). A class whose
+header cannot be read gets `major_version: null` plus its reason, never a fake `0`: an
+unreadable class is not a version-0 class.
+
+`class_facts_summary`: `classes`, `major_versions` (sorted distinct, readable only),
+`lvt` (`yes` / `no` / `mixed` / `unknown`; `unknown` when no class gave a readable
+answer), `resugar_risk_classes`, `unreadable_classes`.
+
+**`resugar_risk` threshold: major >= 53 (Java 9).** Java 9 is the first release whose
+javac lowering a decompiler reverses on the way back: JEP 280 compiles `a + b` string
+concatenation to an `invokedynamic` `makeConcatWithConstants`, which Vineflower turns back
+into `+`. Later majors add more re-sugared constructs (nestmates at 55, records at 60/61,
+pattern-matching `switch` at 65). The threshold is deliberately conservative (it flags
+every class from Java 9 up) and is the constant `RESUGAR_MIN_MAJOR` in
+`corroborate_java.py`. The flag means decompiled *syntax-level* claims need bytecode
+evidence (`javap -c -p`); it does not say the decompilation is wrong. Classes at or below
+major 52 are not flagged, but that is not a fidelity guarantee either.
+
+`decompile-java.sh` prints the aggregate as its first stdout line (also available as
+`python3 corroborate_java.py classfile-facts <in.jar|in.class>`):
+`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N`,
+plus a `WARN:` on stderr that syntax-level claims need bytecode evidence. When the helper
+cannot run, the line is `CLASSFILE major=unknown lvt=unknown reason=facts-unavailable`.
+
 ## Trust and isolation
 
 Decompiler execution requires a trusted SHA-256 pin. These versioned defaults match
