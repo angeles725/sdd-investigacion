@@ -25,6 +25,12 @@
 #        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
+#   --focus <slug> (with --next) scopes the STALE gate to THAT focus's verify-state only (kit #1543): defects in
+#        a legacy sibling focus no longer brick a clean active focus. --all is the explicit corpus-wide form;
+#        it is also the DEFAULT when neither --focus nor --root is given (kept unchanged on purpose: the
+#        corpus-wide gate is the safe default and single-focus output is byte-identical). --all excludes
+#        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
+#        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
 # Exit: 0 ok · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
@@ -34,6 +40,7 @@ target="${1:-}"
 shift
 mode="status"
 focus_slug=""
+all_flag=0         # --all: explicit corpus-wide --next (kit #1543); same as the default when no --focus/--root is given
 root_flag=0        # --root: target the un-suffixed RESEARCH-STATE.md (kit #906)
 only_list=""       # --only: comma-separated owned counters --sync-state may rewrite (kit #911)
 only_set=0
@@ -43,6 +50,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --next|--sync-state) mode="$1"; shift ;;
     --root) root_flag=1; shift ;;
+    --all) all_flag=1; shift ;;
     --only)
       only_list="${2-}"; only_set=1
       case "$only_list" in *[[:space:]]*) echo "usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)" >&2; exit 2 ;; esac
@@ -64,13 +72,15 @@ while [ $# -gt 0 ]; do
       { grep -qE '^[0-9]+$' <<<"$stall_minutes" && [ "$stall_minutes" -ne 0 ]; } \
         || { echo "usage: --stall-minutes requires a positive integer" >&2; exit 2; }
       shift 2 ;;
-    *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
+    *) echo "usage: research-sdd-status.sh <target-dir> [--next [--all]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
   esac
 done
 # only_has <counter>: true when this counter WILL be written (no --only, or named in it).
 only_has() { [ "$only_set" = 0 ] && return 0; case ",$only_list," in *",$1,"*) return 0 ;; esac; return 1; }
 [ "$only_set" = 1 ] && [ "$mode" != "--sync-state" ] && { echo "usage: --only requires --sync-state" >&2; exit 2; }
 [ "$root_flag" = 1 ] && [ -n "$focus_slug" ] && { echo "usage: --root and --focus are mutually exclusive" >&2; exit 2; }
+[ "$all_flag" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --all requires --next" >&2; exit 2; }
+[ "$all_flag" = 1 ] && { [ "$root_flag" = 1 ] || [ -n "$focus_slug" ]; } && { echo "usage: --all is corpus-wide and excludes --focus/--root" >&2; exit 2; }
 
 if [ "$root_flag" = 1 ]; then
   # --root: select exactly the un-suffixed RESEARCH-STATE.md, ignoring every RESEARCH-STATE-<focus>.md.
@@ -1278,7 +1288,31 @@ if [ "$mode" = "--next" ]; then
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
   # Use $target (not $corpus) so the STALE gate covers the same scope as the aggregation below: scanning
   # only $corpus=dirname(first) would miss sibling focuses in a split-layout and give a false green light.
-  if ! "$here/verify-state.sh" "$target" >/dev/null 2>&1; then
+  # kit #1543: with --focus <slug> the STALE gate verifies ONLY that focus (a legacy sibling's defects
+  # must not brick a clean active focus). Without --focus (the default) or with --all it stays
+  # corpus-wide, exactly as before.
+  _gate_verify() {
+    if [ -n "$focus_slug" ]; then "$here/verify-state.sh" "$target" --focus "$focus_slug" >/dev/null 2>&1
+    else "$here/verify-state.sh" "$target" >/dev/null 2>&1; fi
+  }
+  # _stale_line: the STALE line. In a MULTI-focus corpus (corpus-wide mode) it also names the focus(es)
+  # whose own verify-state fails, so the operator sees WHICH legacy focus bricks --next (kit #1543).
+  # Single-focus corpora and --focus runs print the pre-#1543 line byte-for-byte.
+  _stale_line() {
+    local _sl_line="STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+    local _sl_files _sl_f _sl_b _sl_names=""
+    mapfile -t _sl_files < <(list_state_files "$target")
+    if [ "${#_sl_files[@]}" -ge 2 ] && [ -z "$focus_slug" ]; then
+      for _sl_f in "${_sl_files[@]}"; do
+        _sl_b="$(basename "$_sl_f" .md)"
+        case "$_sl_b" in RESEARCH-STATE-?*) _sl_b="${_sl_b#RESEARCH-STATE-}" ;; *) continue ;; esac
+        "$here/verify-state.sh" "$target" --focus "$_sl_b" >/dev/null 2>&1 || _sl_names="${_sl_names:+$_sl_names,}$_sl_b"
+      done
+      [ -n "$_sl_names" ] && _sl_line="$_sl_line [failing focus: $_sl_names]"
+    fi
+    printf '%s\n' "$_sl_line"
+  }
+  if ! _gate_verify; then
     if [ -z "$focus_slug" ]; then
       # Multi-focus bypass (issue #194): verify-state failed, but the failure may be ONLY from
       # genuinely stopped focuses whose envelopes were not re-seeded after all gaps were covered.
@@ -1294,7 +1328,7 @@ if [ "$mode" = "--next" ]; then
       # in a single-focus corpus the ONLY way d_inv=0 is trustworthy is with a clean verify-state,
       # which would have passed above and never reached this bypass path.
       if [ "${#_stale_chk[@]}" -lt 2 ]; then
-        echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+        _stale_line
         exit 0
       fi
       for state in "${_stale_chk[@]}"; do
@@ -1334,12 +1368,12 @@ if [ "$mode" = "--next" ]; then
         # d_inv=0 + parseable: genuinely stopped focus — its stale envelope is bypassed (#194).
       done
       if [ "${_any_real_stale}" = 1 ]; then
-        echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+        _stale_line
         exit 0
       fi
       # All verify-state failures are from stopped focuses — fall through to aggregation.
     else
-      echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+      _stale_line
       exit 0
     fi
   fi
