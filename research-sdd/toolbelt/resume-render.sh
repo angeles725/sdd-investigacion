@@ -59,6 +59,7 @@ fi
 [ -s "$tmp" ] || { echo "resume-render.sh: empty input (no JSON document)" >&2; exit 2; }
 # Count documents first (-s): a stream ending in null/false would otherwise fail `jq -e .` and read as malformed.
 ndocs="$(jq -s length "$tmp" 2>/dev/null)" || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
+[ "$ndocs" = 0 ] && { echo "resume-render.sh: empty input (no JSON document)" >&2; exit 2; }
 [ "$ndocs" = 1 ] || { echo "resume-render.sh: multiple JSON documents in the input (want exactly one)" >&2; exit 2; }
 jq -e . "$tmp" >/dev/null 2>&1 || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
 got="$(jq -r '.schema? // "" | tostring' "$tmp" 2>/dev/null)"

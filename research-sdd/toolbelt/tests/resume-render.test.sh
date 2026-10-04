@@ -121,20 +121,22 @@ eq "3s  empty --json value rc" "$RC" 2; has "3s1 empty --json message" "non-empt
 run --json "" --no-gh
 eq "3s2 empty --json + forwarded flag rc" "$RC" 2
 
-# 3t. dash-prefixed file name, multi-document input, null identity fields (kit issue #1571)
+# 3t-3x. dash-prefixed file name (3t), multi-document and whitespace-only input (3u), null identity fields (3v-3x) (kit issue #1571)
 mkdir -p "$TMP/dash"; cp "$P" "$TMP/dash/-state.json"
 OUT="$(cd "$TMP/dash" && timeout 30 bash "$SUT" --json -state.json 2>&1 </dev/null)"; RC=$?
 eq "3t  dash-prefixed file renders rc" "$RC" 0; has "3t1 dash-prefixed file rendered" '# Resume handoff'
 cat "$P" "$P" > "$TMP/two.json"; run --json "$TMP/two.json"
 eq "3u  two documents rc" "$RC" 2; has "3u1 two documents typed message" "multiple JSON documents"
+printf '%s\n' "$(cat "$P")" null > "$TMP/twonull.json"; run --json "$TMP/twonull.json"
+eq "3u2 stream ending in null rc" "$RC" 2; has "3u3 stream ending in null is multi-document, not malformed" "multiple JSON documents"
+printf '  \n\n' > "$TMP/ws.json"; run --json "$TMP/ws.json"
+eq "3u4 whitespace-only input rc" "$RC" 2; has "3u5 whitespace-only input is empty input" "empty input"; lacks "3u6 whitespace-only is not multi-document" "multiple JSON documents"
 jq '.worktrees[0]|=del(.path)' "$P" > "$TMP/nopath.json"; run --json "$TMP/nopath.json"
 eq "3v  worktree without path rc" "$RC" 0; has "3v1 missing path -> unknown" '- `unknown` — '; linenull "3v2 missing path never renders null on its line" '- `unknown` — '
 jq '.branches=[{"head":"abcdef0123"}]' "$P" > "$TMP/noname.json"; run --json "$TMP/noname.json"
-eq "3w0 branch without name rc" "$RC" 0; has "3w  branch without name -> unknown" '- `unknown` @ abcdef0'; linenull "3w1 missing name never renders null on its line" '- `unknown` @ abcdef0'
+eq "3w  branch without name rc" "$RC" 0; has "3w1 branch without name -> unknown" '- `unknown` @ abcdef0'; linenull "3w2 missing name never renders null on its line" '- `unknown` @ abcdef0'
 jq '.prs[0]|=(.number=null|.branch=null|.state=null|.url=null)' "$P" > "$TMP/prnull.json"; run --json "$TMP/prnull.json"
 eq "3x  PR with null fields rc" "$RC" 0; has "3x1 null PR fields -> unknown" '- #unknown `unknown` unknown — unknown'; linenull "3x2 null PR fields never render null on their line" '- #unknown'
-printf '%s\n' "$(cat "$P")" null > "$TMP/twonull.json"; run --json "$TMP/twonull.json"
-eq "3u2 stream ending in null rc" "$RC" 2; has "3u3 stream ending in null is multi-document, not malformed" "multiple JSON documents"
 
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
@@ -191,7 +193,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt no-schema-check 2 0 "$MUT/m3.sh" --good-has 'wrong schema' -- bash @SUT@ --json "$TMP/v0.json"
   mk no-shape-check "$SUT" "$MUT/m4.sh" 's/^  || { echo "resume-render.sh: malformed document.*$/  || true/' \
     && tt no-shape-check 2 0 "$MUT/m4.sh" --good-has 'malformed document' --bad-lacks 'malformed document' -- bash @SUT@ --json "$TMP/nowt.json"
-  mk no-empty-guard "$SUT" "$MUT/m5.sh" 's/^\[ -s "\$tmp" \] ||.*$/:/' \
+  mk no-empty-guard "$SUT" "$MUT/m5.sh" 's/^\[ -s "\$tmp" \] ||.*$/:/' 's/^\[ "\$ndocs" = 0 \] .*$/:/' \
     && tt no-empty-guard 2 2 "$MUT/m5.sh" --good-has 'empty input' --bad-lacks 'empty input' -- bash @SUT@ --json "$TMP/empty.json"
   mk no-jq-probe "$SUT" "$MUT/m6.sh" 's/^command -v jq >\/dev\/null 2>&1 ||.*$/:/' \
     && tt no-jq-probe 3 2 "$MUT/m6.sh" --good-has 'DEGRADED: jq' --bad-lacks 'DEGRADED' -- env PATH="$TMP/nojq" "$(command -v bash)" @SUT@ --json "$FX/state-prs-ok.json"
@@ -222,6 +224,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt dash-file-cat 0 2 "$MUT/m17.sh" --good-has 'Resume handoff' --bad-has 'empty input' -- bash -c 'cd "$1" && shift && bash "$@"' _ "$TMP/dash" @SUT@ --json -state.json
   mk multi-doc-accepted "$SUT" "$MUT/m18.sh" 's/^\[ "\$ndocs" = 1 \] .*$/:/' \
     && tt multi-doc-accepted 2 2 "$MUT/m18.sh" --good-has 'multiple JSON documents' --bad-lacks 'multiple JSON documents' -- bash @SUT@ --json "$TMP/two.json"
+  mk zero-docs-as-multi "$SUT" "$MUT/m20.sh" 's/^\[ "\$ndocs" = 0 \] .*$/:/' \
+    && tt zero-docs-as-multi 2 2 "$MUT/m20.sh" --good-has 'empty input' --bad-has 'multiple JSON documents' -- bash @SUT@ --json "$TMP/ws.json"
   mk null-identity-literal "$SUT" "$MUT/m19.sh" 's/def or_unknown(v): if v == null then "unknown" else (v|tostring) end;/def or_unknown(v): (v|tostring);/' \
     && tt null-identity-literal 0 0 "$MUT/m19.sh" --good-has '- #unknown `unknown` unknown — unknown' --bad-has '- #null `null` null — null' -- bash @SUT@ --json "$TMP/prnull.json"
 fi
