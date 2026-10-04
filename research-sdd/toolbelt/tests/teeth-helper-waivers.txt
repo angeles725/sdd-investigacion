@@ -11,5 +11,3 @@
 # no longer exists): delete the line when you migrate the suite. Do not add a waiver for a new
 # suite; use lib/mutant.sh instead.
 #
-ci-path-filter-coverage sources lib/mutant.sh but the lint's heredoc tracker misreads a '<<' inside an awk regex literal and hides the source line (kit #1647)
-gate Python-bodied suite builds mutants via bash -c '. lib/mutant.sh && mutant_chain', invisible to the shell lint (kit #1647)
