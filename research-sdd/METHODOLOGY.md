@@ -1282,7 +1282,7 @@ Routing-class table:
 |---|---|---|
 | `high`, `medium`, `low` | routable | counted in `investigable_open`; `NEXT` walks high → medium → low |
 | `deferred` | parked | counted in `deferred_open`; never yields `NEXT` |
-| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | never routable and not in `investigable_open`; counted as a CLOSED gap in `known_gaps` and `gaps_closed` by `--sync-state` (kit #1307) |
+| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | never routable and not in `investigable_open`; counted as a CLOSED gap in `known_gaps` and `gaps_closed` by `--sync-state` (kit #1307), unless a higher hand-declared value is kept — `--sync-state` then prints `sync-state: DECLARED <field>=<n> (derived <m>) — kept` instead of rewriting it (kit #1637) |
 
 **`deferred` is normative.** It is a parked routing class with its own envelope field (`deferred_open`)
 and two dedicated readers (`count_deferred()` in `research-sdd-status.sh`, `derive_deferred()` in
