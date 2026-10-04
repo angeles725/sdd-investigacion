@@ -57,9 +57,15 @@
 #     legacy backtick form `` `cd ...` `` instead of `$(...)`; `HERE=$(dirname "$0")` assigned
 #     WITHOUT an accompanying `cd`/`pwd` on that same statement, then climbed from on a LATER
 #     line (HERE is never added to the tainted set, since tainting requires a `cd ... && pwd`
-#     shape on the assignment itself); and `pushd`/`popd`-based directory tracking. A file using
-#     any of these forms to derive a climbing kit-root path gets a silent pass from this checker
-#     — grep the file by hand if one of these forms is suspected.
+#     shape on the assignment itself); `pushd`/`popd`-based directory tracking; and an
+#     assignment that does not START its `;`-separated statement, i.e. one preceded by `&&`,
+#     `||`, `then`, `do`, `else` or `!` on the same statement (`[ -d x ] && K="$(cd ...)"`,
+#     kit issue #1033 L1). A file using any of these forms to derive a climbing kit-root path
+#     gets a silent pass from this checker — grep the file by hand if one is suspected.
+#
+# RECOGNISED since kit issue #1033 L1 (formerly gaps; NOT part of the list above): a one-line
+#   function head `f(){ local K=...; }`, keyword flags such as `declare -r` / `local -r` /
+#   `declare -rx`, and a TAB after `cd`.
 #
 # ALLOW-MARKER: a flagged line, or the line immediately before it, carrying a comment
 #   # LINT-CD-PHYSICAL-OK: <reason>
@@ -164,11 +170,14 @@ _lint_scan_file() {
       # Recognises an optional local/export/declare/readonly prefix before the variable name
       # (kit issue #1024 round 5, Opus finding 2 "cheap shapes") — e.g.
       # `local KIT="$(cd "$(dirname "$0")/.." && pwd)"` was previously invisible to this regex.
-      [[ "$code" =~ ^[[:space:]]*(local|export|declare|readonly)?[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
-      var="${BASH_REMATCH[2]}"
+      # Also recognised (kit issue #1033 L1): an optional one-line function head `f(){ ` before the
+      # assignment, and keyword flags (`declare -r`, `local -r`, `declare -rx`). Groups: [6] = VAR.
+      [[ "$code" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*[[:space:]]*\([[:space:]]*\)[[:space:]]*)?(\{[[:space:]]*)?((local|export|declare|readonly)([[:space:]]+-[A-Za-z]+)*[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
+      var="${BASH_REMATCH[6]}"
       # Confirm this really is a `cd ... && pwd` capture (not e.g. an unrelated `cd`/`pwd` pair
       # elsewhere in a longer statement) — a `cd` must appear before the assignment's `pwd`.
-      [[ "$code" == *"cd "* || "$code" == *'cd"'* || "$code" == *'cd-P'* ]] || continue
+      # `[[:space:]]` (not a literal space) so a TAB after `cd` is recognised (kit issue #1033 L1).
+      [[ "$code" =~ cd[[:space:]] || "$code" == *'cd"'* || "$code" == *'cd-P'* ]] || continue
 
       is_rooted=0
       # dirname "$0" / dirname -- "$0" / dirname "${0}" (kit issue #1024 round 5, Opus finding 2
