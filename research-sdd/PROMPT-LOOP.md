@@ -1712,6 +1712,7 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
           enqueued=0, AND — on a multi-focus heavy/frontier corpus, §8c — the campaign-close
           partition check reports no genuinely unchartered unit),
         `STOP: campaign-bound-reached: <which>` — when a declared campaign bound fires.
+      When `research-sdd-status.sh <target> --next --emit-token` is available, copy its `return-token:` line verbatim; never compose the token by hand.
       A report that ends without any token is a halted-but-silent stop: the operator has no
       signal to distinguish "checkpoint, continuing" from "stopped". Never substitute a question
       ("shall I continue?", "want me to go on?", or any variant) for the continuation token —
