@@ -195,7 +195,7 @@ SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/corroborate_ifc.py"
 if [ ! -f "$ORIG_PY" ]; then
   echo "  FAIL(mut)  corroborate_ifc.py not found: $ORIG_PY"
-  echo "== $pass passed · $fail failed · 1 mut-fail =="
+  echo "== $pass passed · $fail failed =="
   exit 1
 fi
 

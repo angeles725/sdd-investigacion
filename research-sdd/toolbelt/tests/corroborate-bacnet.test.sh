@@ -144,19 +144,29 @@ SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/corroborate_bacnet.py"
 if [ ! -f "$ORIG_PY" ]; then
   echo "  FAIL(mut)  corroborate_bacnet.py not found: $ORIG_PY"
-  echo "== $pass passed · $fail failed · 1 mut-fail =="
+  echo "== $pass passed · $fail failed =="
   exit 1
 fi
 
 MUTDIR="$ROOT/mutants"; mkdir -p "$MUTDIR"
 # fresh_run.sh ADAPTER.py ARGS... — run the adapter with its own empty --output dir, so the mutant
-# never starts from the original's leftovers. corroborate_bacnet.py imports only the standard
+# never starts from the original's leftovers. After the run it prints the `status` field of the
+# bacnet-evidence.v1.json artifact written to that dir (the artifact T2 asserts on) as
+# `STATUS: <value>` and exits with the adapter's own exit code. corroborate_bacnet.py imports only the standard
 # library (no sibling module), so a standalone mutant file runs exactly like the original.
 cat > "$MUTDIR/fresh_run.sh" <<'SH'
 #!/usr/bin/env bash
 o="$(mktemp -d)"; trap 'rm -rf "$o"' EXIT
 adapter="$1"; shift
-python3 "$adapter" "$@" --output "$o/out"
+python3 "$adapter" "$@" --output "$o/out"; rc=$?
+python3 - "$o/out/bacnet-evidence.v1.json" <<'PY'
+import json, sys
+try:
+    print("STATUS:", json.load(open(sys.argv[1])).get("status"))
+except (OSError, ValueError) as e:
+    print("STATUS: <no evidence artifact>", e)
+PY
+exit "$rc"
 SH
 
 # M1: the plan-only guard exits 0 instead of 3 (T1's exit-3 check). The original must exit
@@ -167,12 +177,12 @@ mk_sed "M1 plan-only guard exit code" "$MUTDIR/m1.py" 's/sys\.exit(3)/sys.exit(0
 
 # M2: the plan-only status value changes (T2's schema check). The sed includes the trailing comma
 # so the mutant stays valid python (a comment would swallow it and turn a status change into a
-# crash). Both runs exit 3; the verdict is the status line the original must print and the mutant
-# must replace.
+# crash). Both runs exit 3; the verdict is the status read from the evidence artifact (same file
+# T2 asserts on): "plan-only" on the original, the mutated value on the mutant.
 mk_sed "M2 plan-only status value" "$MUTDIR/m2.py" 's/"plan-only",/"broken-plan",  # MUTANT-M2/' \
   && tooth "teeth: M2 plan-only status value" 3 3 "$MUTDIR/m2.py" --orig "$ORIG_PY" \
-       --good-has '"status": *"plan-only"' --bad-has '"status": *"broken-plan"' --bad-lacks '"status": *"plan-only"' -- \
-       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1 --json
+       --good-has '^STATUS: plan-only$' --bad-has '^STATUS: broken-plan$' --bad-lacks '^STATUS: plan-only$' -- \
+       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

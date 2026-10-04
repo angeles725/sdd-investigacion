@@ -314,9 +314,9 @@ PY
     td_gh="$(mktemp -d)"
     cp -R "$HERE/../lib" "$td_gh/lib"
     cp -p "$HERE/../analysis_manifest.py" "$td_gh/analysis_manifest.py"
-    # Delete the two-line inline guard (the `if` and its warn_evidence call).
+    # Delete exactly the inline guard: from the `if` line through its warn_evidence( line.
     mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
-      '/if completeness not in ("complete","partial"):/{N;d;}'
+      '/if completeness not in ("complete","partial"):/,/warn_evidence(/d'
     mut_rc=$?
     if [ "$mut_rc" -eq 0 ]; then
       mkheadless nonzero
