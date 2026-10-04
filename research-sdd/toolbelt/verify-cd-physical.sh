@@ -57,14 +57,15 @@
 #     legacy backtick form `` `cd ...` `` instead of `$(...)`; `HERE=$(dirname "$0")` assigned
 #     WITHOUT an accompanying `cd`/`pwd` on that same statement, then climbed from on a LATER
 #     line (HERE is never added to the tainted set, since tainting requires a `cd ... && pwd`
-#     shape on the assignment itself); `pushd`/`popd`-based directory tracking; and (kit issue
-#     #1033 L1) an assignment that does not START its `;`-separated statement, i.e. one preceded
-#     by `&&`, `||`, `then`, `do`, `else` or `!` on the same statement (`[ -d x ] && K="$(cd ...)"`).
-#     (Recognised since kit issue #1033 L1, no longer gaps: a one-line function head
-#     `f(){ local K=...; }`, keyword flags such as `declare -r` / `local -r` / `declare -rx`, and
-#     a TAB after `cd`.) A file using
-#     any of these forms to derive a climbing kit-root path gets a silent pass from this checker
-#     — grep the file by hand if one of these forms is suspected.
+#     shape on the assignment itself); `pushd`/`popd`-based directory tracking; and an
+#     assignment that does not START its `;`-separated statement, i.e. one preceded by `&&`,
+#     `||`, `then`, `do`, `else` or `!` on the same statement (`[ -d x ] && K="$(cd ...)"`,
+#     kit issue #1033 L1). A file using any of these forms to derive a climbing kit-root path
+#     gets a silent pass from this checker — grep the file by hand if one is suspected.
+#
+# RECOGNISED since kit issue #1033 L1 (formerly gaps; NOT part of the list above): a one-line
+#   function head `f(){ local K=...; }`, keyword flags such as `declare -r` / `local -r` /
+#   `declare -rx`, and a TAB after `cd`.
 #
 # ALLOW-MARKER: a flagged line, or the line immediately before it, carrying a comment
 #   # LINT-CD-PHYSICAL-OK: <reason>

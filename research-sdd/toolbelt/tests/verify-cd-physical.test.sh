@@ -483,7 +483,8 @@ EOF
   }
   l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
   l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'
-  l1_tooth tabcd "$box5l" 's|\[\[ "\$code" =~ cd\[\[:space:\]\] \|\||[[ "$code" == *"cd "* \|\||'
+  # BRE: `|` is a literal here (`\|` would be GNU alternation and match everywhere), so it is unescaped.
+  l1_tooth tabcd "$box5l" 's#\[\[ "\$code" =~ cd\[\[:space:\]\] ||#[[ "$code" == *"cd "* ||#'
 fi
 
 echo "== $pass passed · $fail failed =="
