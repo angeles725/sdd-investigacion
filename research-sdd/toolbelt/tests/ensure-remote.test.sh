@@ -449,10 +449,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
   # mut_sub LABEL ORIG NEW OUT — bash-substitute ORIG→NEW in the SUT text into OUT, then vet OUT with
   # lib/mutant.sh (refuses an identical, empty, syntax-broken or live-tree mutant). A refusal records a
-  # FAIL, so a tooth can never read "bit" off a mutant that was never a real mutation.
+  # FAIL and the run STOPS (mk_or_stop pattern), so a tooth never runs on a refused mutant path.
   mut_sub() {
     printf '%s\n' "${content//"$2"/"$3"}" > "$4"
-    mutant_built "$1 mutant build" "$SUT" "$4" || no "$1: mutant refused by lib/mutant.sh" "tooth not valid"
+    mutant_built "$1 mutant build" "$SUT" "$4" && return 0
+    no "$1: mutant refused by lib/mutant.sh" "tooth not run"
+    echo "== $pass passed · $fail failed =="; exit 1
   }
 
   # T1 — drop --private from the single `gh repo create`. Case 1's invariant

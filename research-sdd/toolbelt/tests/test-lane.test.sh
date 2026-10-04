@@ -26,10 +26,6 @@ LIB="$HERE/../lib/test-lane.sh"
 # shellcheck source=../lib/test-lane.sh
 . "$LIB"
 
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-
 pass=0; fail=0
 ok() { printf '  PASS  %-64s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-64s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -131,6 +127,11 @@ fi
 
 echo ""
 echo "=== --prove-teeth: verifying mutation controls ==="
+
+# Sourced only on the teeth path: a plain run never depends on the mutation helper.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

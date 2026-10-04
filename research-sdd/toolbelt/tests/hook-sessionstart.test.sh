@@ -18,9 +18,6 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 echo "== hook-sessionstart.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -246,6 +243,10 @@ fi
 # ── MUTATION CONTROLS (--prove-teeth) ────────────────────────────────────────────────────────
 
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
   echo "-- teeth M1: tool-registry.md pointer check has teeth --"
   _m1="$TMP/mutant-m1.sh"
@@ -273,7 +274,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if [ "$_m2_ec" -ne 0 ] && ! grep -qE 'syntax error|degraded: jq missing' "$TMP/m2-err.txt"; then
         ok "teeth M2: no-jq exit-0 check RED on probe-disabled mutant (has teeth)"
       else
-        no "teeth M2: probe-disabled mutant still exits 0 — no-jq exit-0 check has no teeth"
+        no "teeth M2: probe-disabled mutant did not fail for the right reason (rc=$_m2_ec; want non-zero with no 'syntax error' / 'degraded: jq missing' on stderr)"
       fi
     else
       no "teeth M2: could not build probe-disabled mutant (anchor drifted or refused by lib/mutant.sh)"
@@ -350,14 +351,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
     _m7="$_m7d/.claude/hooks/research-protocol.sh"
     printf '%s\n' "${_content_hooks/"$anchor_glob"/"$neutered_glob"}" > "$_m7"
-    mutant_built "teeth glob-metachar mutant build" "$SUT" "$_m7" || no "teeth: glob-metachar mutant refused by lib/mutant.sh"
-    _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
-    printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
-    printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
-    if [ ! -e "$_m7_unrelated" ]; then
-      ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+    if ! mutant_built "teeth glob-metachar mutant build" "$SUT" "$_m7"; then
+      no "teeth: glob-metachar mutant refused by lib/mutant.sh — tooth not run"
     else
-      no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+      _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
+      printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
+      printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
+      if [ ! -e "$_m7_unrelated" ]; then
+        ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+      else
+        no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+      fi
     fi
     # kit issue #1031: revert ONLY the backslash member of the character class → a backslash id
     # is accepted again and the mis-scoped delete returns (the backslash guard has teeth).
@@ -366,14 +370,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _m8d="$TMP/backslash-mutant"; mkdir -p "$_m8d/.claude/hooks"
     _m8="$_m8d/.claude/hooks/research-protocol.sh"
     printf '%s\n' "${_content_hooks/"$anchor_glob"/"$reverted_bs"}" > "$_m8"
-    mutant_built "teeth backslash mutant build" "$SUT" "$_m8" || no "teeth: backslash mutant refused by lib/mutant.sh"
-    _m8_unrelated="$_m8d/.claude/.rsdd-session-unrelated-old"
-    printf 'deadbeef\n' > "$_m8_unrelated"; touch -d '-10 days' "$_m8_unrelated"
-    printf '%s' '{"session_id":"evil\\id"}' | bash "$_m8" >/dev/null 2>/dev/null
-    if [ ! -e "$_m8_unrelated" ]; then
-      ok "teeth: backslash member removed from the guard → unrelated old file gets deleted (RED as expected)"
+    if ! mutant_built "teeth backslash mutant build" "$SUT" "$_m8"; then
+      no "teeth: backslash mutant refused by lib/mutant.sh — tooth not run"
     else
-      no "teeth: backslash member removed from the guard → unrelated old file should have been deleted" ""
+      _m8_unrelated="$_m8d/.claude/.rsdd-session-unrelated-old"
+      printf 'deadbeef\n' > "$_m8_unrelated"; touch -d '-10 days' "$_m8_unrelated"
+      printf '%s' '{"session_id":"evil\\id"}' | bash "$_m8" >/dev/null 2>/dev/null
+      if [ ! -e "$_m8_unrelated" ]; then
+        ok "teeth: backslash member removed from the guard → unrelated old file gets deleted (RED as expected)"
+      else
+        no "teeth: backslash member removed from the guard → unrelated old file should have been deleted" ""
+      fi
     fi
   fi
 
@@ -381,17 +388,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _m3d="$TMP/p8-mutant"
   mkdir -p "$_m3d/.claude/hooks"
   # Inject <KIT> into the hook so P8 fires a WARN about it
-  mutant_chain "teeth M3 mutant build" "$SUT" "$_m3d/.claude/hooks/research-protocol.sh" 's/\$RESEARCH_SDD_KIT/<KIT>/g' \
-    || no "teeth M3: could not build <KIT> mutant (anchor drifted or refused by lib/mutant.sh)"
-  { printf '<!-- research-state.v1 -->\n'; printf 'schema: research-state.v1\n'
-    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
-    printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
-    printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
-  _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
-  if <<<"$_m3_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
-    ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
+  if ! mutant_chain "teeth M3 mutant build" "$SUT" "$_m3d/.claude/hooks/research-protocol.sh" 's/\$RESEARCH_SDD_KIT/<KIT>/g'; then
+    no "teeth M3: could not build <KIT> mutant (anchor drifted or refused by lib/mutant.sh) — tooth not run"
   else
-    no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+    { printf '<!-- research-state.v1 -->\n'; printf 'schema: research-state.v1\n'
+      printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
+      printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+      printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
+    _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
+    if <<<"$_m3_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+      ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
+    else
+      no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+    fi
   fi
 
 fi

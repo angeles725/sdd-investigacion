@@ -35,10 +35,6 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 WORKFLOW="$REPO/.github/workflows/pr-check.yml"
 REQUIRED_SCOPES="contents issues pull-requests"
 
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-
 [ -f "$WORKFLOW" ] || { printf 'FATAL: workflow not found: %s\n' "$WORKFLOW" >&2; exit 2; }
 
 echo "== pr-check-permissions.test.sh =="
@@ -86,6 +82,10 @@ check_scopes "$WORKFLOW"
 
 # ---- NEGATIVE CONTROL: prove the check bites on the exact defect -------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: mutate a COPY and confirm the check detects the regression --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 

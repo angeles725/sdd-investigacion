@@ -15,9 +15,6 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 echo "== corpus-markers.test.sh =="
 
@@ -79,6 +76,10 @@ if corpus_marker_present "$d" "$d/corpus"; then no "10 corpus_marker_present: no
 # otherwise the mutant's own idempotency guard (`if ! declare -F ...`) sees the names already
 # defined (subshells inherit the parent's functions) and silently skips its redefinition.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: force the RESEARCH-STATE branch's return 0 to return 1 — case 1 must go RED --"
   mut_false="$ROOT/corpus-markers.MUTANT-always-false.sh"
   # lib/mutant.sh refuses a dead stage (anchor drifted) and an empty, identical, syntax-broken or live-tree mutant.

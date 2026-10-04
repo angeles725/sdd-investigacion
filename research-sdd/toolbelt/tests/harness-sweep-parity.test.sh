@@ -36,9 +36,6 @@ REPO="$(cd "$TOOLBELT/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locati
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 # ---- Source file paths -----------------------------------------------------
 SETTINGS="$REPO/.claude/settings.json"
@@ -216,6 +213,10 @@ done <<< "$LIST_OUT"
 
 # ---- NEGATIVE CONTROL: prove drift detection has teeth ---------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: inject drift into each surface; parity checks must catch it --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
