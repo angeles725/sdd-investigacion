@@ -589,16 +589,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # symlink OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  # _ah_mutant LABEL OLD NEW OUT -- replace the first OLD in the SUT with NEW. rc 2 = anchor absent
-  # (SUT changed), rc 3 = refused by the helper or not valid Python; the refusal text goes to stderr.
-  _ah_mutant() {
-    local c; c="$(cat "$SUT")"
-    [[ "$c" == *"$2"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
-    printf '%s\n' "${c/"$2"/"$3"}" > "$4"
-    MUTANT_SYNTAX=none mutant_built "$1" "$SUT" "$4" >&2 || return 3
-    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$4" 2>/dev/null \
-      || { echo "mutant $1 is not valid Python" >&2; rm -f "$4"; return 3; }
-  }
+  declare -F mutant_py_replace >/dev/null \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_py_replace" >&2; exit 2; }
+  # _ah_mutant LABEL OLD NEW OUT -- replace the first OLD in the SUT with NEW through the shared
+  # lib/mutant.sh builder. rc 2 = anchor absent (SUT changed), rc 3 = refused by the helper or not
+  # valid Python; the refusal text goes to stderr.
+  _ah_mutant() { mutant_py_replace "$1" "$SUT" "$2" "$3" "$4"; }
   # teeth-normpath: removing normpath lets /tmp/rsdd/../etc/evil pass; G-2 assertion fires
   _ah_mutant teeth-normpath 'sandbox_path = os.path.normpath(sandbox_path)' \
     'sandbox_path = sandbox_path  # MUTANT: normpath removed' "$ROOT/m-normpath.py"
