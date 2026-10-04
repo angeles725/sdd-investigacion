@@ -21,7 +21,11 @@ Then it appears as `/research-sdd` in autocomplete (new sessions pick it up auto
 
 > Note: the installer (`research-sdd/install/research-sdd-install.sh`) injects a `Kit path:` line into
 > the harness prompt so the skill resolves the kit O(1) from the launcher block on any machine.
-> No per-user path is hardcoded in `SKILL.md`.
+> No per-user path is hardcoded in `SKILL.md`. The persisted `Kit path:` is the PHYSICAL
+> (symlink-resolved) path of the kit, derived with `cd -P`/`pwd -P` in `research-sdd-install.sh`;
+> it can therefore differ from the path you typed when the checkout is reached through a symlink.
+> Scripts that climb out of their own directory follow the same rule, enforced by
+> `research-sdd/toolbelt/verify-cd-physical.sh` (see its header for the exact forms it recognises).
 
 ---
 

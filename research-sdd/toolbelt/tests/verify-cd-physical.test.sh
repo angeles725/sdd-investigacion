@@ -23,6 +23,9 @@
 #        R4-unquoted-split-globs)
 #   5i   climb_seen (formerly the misleadingly-named pattern_seen): an all-compliant file is NOT
 #        reported as no-match — the construct was seen, it just happened to pass
+#   5j   one-line function body `f(){ local K=...; }` is recognised (issue #1033 L1)
+#   5k   keyword flags (`declare -r`, `local -r`) are recognised (issue #1033 L1)
+#   5l   a tab after `cd` is recognised (issue #1033 L1)
 #   6    a chained two-hop derivation (var A non-climbing, var B climbs via A) is flagged on the
 #        SECOND line, proving taint propagates across lines/variables
 #   7    a `cd`/`pwd` unrelated to $0/BASH_SOURCE (dirname of an arbitrary variable) is excluded
@@ -233,6 +236,49 @@ else
   no "5i climb_seen: an all-compliant file was wrongly reported as no-match (rc=$RC5I out=[$OUT5I])"
 fi
 
+# ── 5j. One-line function body (issue #1033 L1): `f(){ local K=...; }` — the leading `f(){ ` and the
+#        trailing `; }` used to hide the derivation from the assignment regex.
+box5j="$(mkbox case-oneline-function)"
+cat > "$box5j/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+f(){ local K="$(cd "$(dirname "$0")/.." && pwd)"; }
+g() { local K2="$(cd -P "$(dirname "$0")/.." && pwd)"; }
+EOF
+OUT5J="$(bash "$SUT" "$box5j" 2>&1)"; RC5J=$?
+if [ "$RC5J" -eq 1 ] && <<<"$OUT5J" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5J" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5j one-line function body: the logical climb is flagged, the -P'd twin is not"
+else
+  no "5j one-line function body was not recognised correctly (rc=$RC5J out=[$OUT5J])"
+fi
+
+# ── 5k. Keyword flags (issue #1033 L1): `declare -r A=...`, `local -r B=...`, `declare -rx C=...`.
+box5k="$(mkbox case-keyword-flags)"
+cat > "$box5k/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+declare -r A="$(cd "$(dirname "$0")/.." && pwd)"
+local -r B="$(cd "$(dirname "$0")/.." && pwd)"
+declare -rx C="$(cd -P "$(dirname "$0")/.." && pwd)"
+EOF
+OUT5K="$(bash "$SUT" "$box5k" 2>&1)"; RC5K=$?
+if [ "$RC5K" -eq 1 ] && <<<"$OUT5K" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5K" grep -q 'HIT.*fixed\.sh:3' \
+   && ! <<<"$OUT5K" grep -q 'HIT.*fixed\.sh:4'; then
+  ok "5k keyword flags (declare -r / local -r): flagged without -P, not flagged with -P"
+else
+  no "5k keyword flags were not recognised correctly (rc=$RC5K out=[$OUT5K])"
+fi
+
+# ── 5l. Tab after `cd` (issue #1033 L1): whitespace is not only a space.
+box5l="$(mkbox case-tab-after-cd)"
+printf '%s\n' '#!/usr/bin/env bash' \
+  "KIT=\"\$(cd	\"\$(dirname \"\$0\")/..\" && pwd)\"" \
+  "KIT2=\"\$(cd	-P \"\$(dirname \"\$0\")/..\" && pwd)\"" > "$box5l/fixed.sh"
+OUT5L="$(bash "$SUT" "$box5l" 2>&1)"; RC5L=$?
+if [ "$RC5L" -eq 1 ] && <<<"$OUT5L" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5L" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5l tab after cd: flagged without -P, not flagged with -P"
+else
+  no "5l tab after cd was not recognised correctly (rc=$RC5L out=[$OUT5L])"
+fi
+
 # ── 6. Chained two-hop derivation: taint propagates across lines ────────────
 box6="$(mkbox case-chained)"
 cat > "$box6/chained.sh" <<'EOF'
@@ -420,6 +466,24 @@ EOF
   else
     fail=$((fail+1))
   fi
+
+  # ── issue #1033 L1: each newly recognised form has its own mutant of the SUT that reverts exactly
+  # that recognition; the real SUT must exit 1 with a HIT on the fixture and the mutant must exit 0
+  # with no HIT (a crash is neither, and --bad-lacks refuses it as a bite).
+  CRASH_RE='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|command not found'
+  mkdir -p "$TMP/l1-mut"
+  tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  l1_tooth() { # <label> <fixture-box> <sed-expr>
+    if mutant_chain "teeth L1: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$3"; then
+      tt "teeth L1: $1 recognition removed makes the fixture pass unflagged" 1 0 "$TMP/l1-mut/$1.sh" \
+        --good-has 'HIT .*fixed\.sh:2' --bad-lacks "HIT|$CRASH_RE" -- bash @SUT@ "$2"
+    else
+      fail=$((fail+1))
+    fi
+  }
+  l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
+  l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'
+  l1_tooth tabcd "$box5l" 's|\[\[ "\$code" =~ cd\[\[:space:\]\] \|\||[[ "$code" == *"cd "* \|\||'
 fi
 
 echo "== $pass passed · $fail failed =="
