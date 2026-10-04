@@ -1,0 +1,16 @@
+{
+  "schema": "research-sdd.resume-state/v1",
+  "generated_at": "2026-10-03T12:00:00Z",
+  "repo": {"toplevel": "/r/kit", "remote": null},
+  "base_ref": "origin/main",
+  "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "worktrees": [
+    {"path": "/r/kit", "branch": "main", "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "exists": true, "prunable": false, "dirty": 0, "untracked": 0, "ahead": 0, "behind": 0}
+  ],
+  "branches": [],
+  "prs": [
+    {"number": 7, "branch": "feat/x", "state": "OPEN", "url": "https://example.com/pr/7"}
+  ],
+  "prs_truncated": false,
+  "prs_status": "ok"
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "research-sdd.resume-state/v1",
+  "generated_at": "2026-10-03T12:00:00Z",
+  "repo": {"toplevel": "/r/kit", "remote": null},
+  "base_ref": "main",
+  "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "worktrees": [],
+  "branches": [],
+  "prs": [],
+  "prs_truncated": false,
+  "prs_status": "ok"
+}
