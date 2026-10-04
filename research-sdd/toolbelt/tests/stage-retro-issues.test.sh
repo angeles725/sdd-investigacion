@@ -4112,6 +4112,26 @@ else
   no "86g non-numeric count" "exit=$RC out=[$OUT]"
 fi
 
+# 86h — a count that is EMPTY on one side while the other is numeric must refuse the row: the old guard
+#      tested the two counts concatenated ("" + "3" = "3", numeric) then read the empty one as 0 (kit issue
+#      #1728). Each field is checked on its own, in both positions (title empty, body empty).
+for _m86 in title body; do
+  _b86="$(mkbox "case-scrub-empty-$_m86")"; mk_gh_stub "$_b86" nomatch
+  if [ "$_m86" = title ]; then
+    _stub86='scrub_issue_text_count() { local x; x="$(cat)"; case "$x" in *"Source retro"*) echo "redactions: 3";; *) echo "redactions: ";; esac; }'
+  else
+    _stub86='scrub_issue_text_count() { local x; x="$(cat)"; case "$x" in *"Source retro"*) echo "redactions: ";; *) echo "redactions: 3";; esac; }'
+  fi
+  printf '%s\n' 'scrub_issue_text() { cat; }' "$_stub86" > "$_b86/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+  run "$_b86" "$(mk_retro "$_b86" target-foo "r86h-$_m86.md" '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+  if [ "$RC" = 2 ] && grep -q '^ERROR: privacy scrub returned a non-numeric redaction count for row 1' <<<"$OUT" \
+     && ! grep -q 'gh issue create' "$_b86/bin/gh.log"; then
+    ok "86h an EMPTY $_m86 count beside a numeric one refuses the row (not read as 0)" "(exit $RC)"
+  else
+    no "86h empty $_m86 count" "exit=$RC out=[$OUT]"
+  fi
+done
+
 
 # ---------------------------------------------------------------------------
 # 87 — WRITER OUTCOME TRIAD + READ-BACK (kit issue #1705). Every --apply row prints
@@ -4407,6 +4427,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       nonnum) printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: lots"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
               [ "$RC" = 2 ] || bite=1; why="a non-numeric count was read as zero" ;;
+      emptycount) printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { local x; x="$(cat)"; case "$x" in *"Source retro"*) echo "redactions: 3";; *) echo "redactions: ";; esac; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+              run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+              [ "$RC" = 2 ] || bite=1; why="an empty count beside a numeric one was read as zero" ;;
       nolib)  rm -f "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")"
               grep -q 'cannot find helper .*scrub-issue-text.sh' <<<"$OUT" || bite=1; why="no typed missing-helper refusal with the lib gone" ;;
@@ -4420,7 +4443,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1707 count-line-off count 's/^    printf .  redactions: %d\\n. "\$_redactions"$/    :/'
   t1707 sig-guard-off sig    's/^  if ! grep -qxF -- "\$_source_line" <<<"\$_body"; then$/  if false; then/'
   t1707 rc-check-off rcfail 's/^    || { _scrub_refuse "\$_rid" "privacy scrub failed for row \$_rid — nothing staged or written"; continue; }$/    || :/'
-  t1707 numeric-guard-off nonnum 's/^    .*\[!0-9\]\*) _scrub_refuse "\$_rid" "privacy scrub returned/    NEVERMATCH_X) _scrub_refuse "$_rid" "privacy scrub returned/'
+  t1707 numeric-guard-off nonnum 's/^  if \[ -z "\$_title_n" \] || \[ -z "\$_body_n" \] || .*; then$/  if false; then/'
+  t1707 numeric-guard-empty emptycount 's/^  if \[ -z "\$_title_n" \] || \[ -z "\$_body_n" \] || /  if /'
   t1707 fail-closed-off nolib 's/^if \[ ! -f "\$_SC_LIB" \]; then$/if false; then/'
 fi
 
