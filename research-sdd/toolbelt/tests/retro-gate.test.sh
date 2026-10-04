@@ -2279,6 +2279,8 @@ U_OK0_BODY="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 ski
 mk_u_kit "$ROOT/ukit_unk" "$U_UNK_BODY"; mk_u_kit "$ROOT/ukit_unknosum" "$U_UNK_NOSUM_BODY"
 U_MIX_BODY="printf 'unknown-outcome: gh issue create returned an unproven row\n'; printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\n'; printf 'mutation-summary: confirmed=0 no_write=1 unknown=2\n'; exit 2"
 mk_u_kit "$ROOT/ukit_mix" "$U_MIX_BODY"; mk_u_target "$ROOT/tu_mix" k5-sess
+U_CONTRA_BODY="printf 'unknown-outcome: odd\n'; printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=0\n'; printf 'mutation-summary: confirmed=1 no_write=0 unknown=0\n'; exit 3"
+mk_u_kit "$ROOT/ukit_contra" "$U_CONTRA_BODY"; mk_u_target "$ROOT/tu_contra" k6-sess
 mk_u_kit "$ROOT/ukit_fail2" "$U_FAIL2_BODY"; mk_u_kit "$ROOT/ukit_ok0" "$U_OK0_BODY"
 mk_u_target "$ROOT/tu_unk" k1-sess; mk_u_target "$ROOT/tu_unknosum" k2-sess; mk_u_target "$ROOT/tu_fail2" k3-sess; mk_u_target "$ROOT/tu_ok0" k4-sess
 run_u "$ROOT/ukit_unk/toolbelt/retro-gate.sh" "$ROOT/tu_unk" k1-sess; ERR_K1="$ERR"
@@ -2300,6 +2302,12 @@ if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K5" 
    && grep -qE 'failed=1 failed-issues=1 .*unknown-outcome-retros=1' <<<"$ERR_K5"; then
   ok "#1705 K5: MIXED run (seeder exit 2, failed=1 AND unknown=2) → failed warning AND UNKNOWN warning, both counted"
 else no "#1705 K5: mixed exit 2 drops the UNKNOWN outcome" "got: $ERR_K5"; fi
+run_u "$ROOT/ukit_contra/toolbelt/retro-gate.sh" "$ROOT/tu_contra" k6-sess; ERR_K6="$ERR"
+if grep -qF 'unknown=contradictory (exit 3, summary unknown=0)' <<<"$ERR_K6" \
+   && grep -qE 'WARN: unknown issue create\(s\) have an UNKNOWN outcome across 1 retro' <<<"$ERR_K6" \
+   && grep -qE 'unknown-outcome-retros=1' <<<"$ERR_K6"; then
+  ok "#1705 K6: exit 3 with a parsed unknown=0 is contradictory → loud warning, counted unknown (never silent)"
+else no "#1705 K6: contradictory exit 3 / unknown=0 is silent" "got: $ERR_K6"; fi
 run_u "$ROOT/ukit_ok0/toolbelt/retro-gate.sh" "$ROOT/tu_ok0" k4-sess; ERR_K4="$ERR"
 if grep -qE 'created=1 .* failed=0 failed-issues=0 .*unknown-outcome-retros=0' <<<"$ERR_K4" && ! grep -q 'UNKNOWN outcome\|WARN' <<<"$ERR_K4"; then
   ok "#1705 K4: seeder exit 0 unchanged (no WARN, unknown-outcome-retros=0)"
@@ -3725,6 +3733,10 @@ u_teeth u-unknown-count-zero "$ROOT/ukit_unknosum" "$ROOT/tu_unknosum" k2-sess \
 u_teeth u-mixed-unknown-dropped "$ROOT/ukit_mix" "$ROOT/tu_mix" k5-sess \
   'UNKNOWN outcome across 1 retro' 'failed=1 failed-issues=1 .*unknown-outcome-retros=0' \
   's/{ \[ "\$seed_rc" -eq 2 \] || \[ "\$seed_rc" -eq 3 \]; }/{ [ "$seed_rc" -eq 3 ]; }/'
+
+u_teeth u-contradictory-silent "$ROOT/ukit_contra" "$ROOT/tu_contra" k6-sess \
+  'unknown=contradictory \(exit 3, summary unknown=0\)' 'failed=0 failed-issues=0 .*unknown-outcome-retros=0' \
+  's/^        elif \[ "\$seed_rc" -eq 3 \]; then$/        elif [ "$seed_rc" -eq 99 ]; then/'
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently

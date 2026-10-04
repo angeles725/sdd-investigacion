@@ -102,6 +102,21 @@ done
 chk "38 a rejected candidate does not hide a later real path" 'x/home/a(/home/b) end' 'x/home/a(<path> end' 1
 chk "39 path tail stops at ]" 'see [/home/u/z] ok' 'see [<path>] ok' 1
 
+chk "40 Authorization: Bearer <tok> → token redacted" 'Authorization: Bearer abcdefghijklmnop1234 end' 'Authorization: Bearer <redacted> end' 1
+chk "41 Authorization: token <tok>" 'authorization: token abcdefghijklmnop1234' 'authorization: token <redacted>' 1
+chk "42 standalone Bearer <jwt>" 'curl Bearer eyJhbGciOiJIUzI1NiJ9.abc.def now' 'curl Bearer <redacted> now' 1
+chk "43 short value and prose 'bearer of' are not tokens" 'Bearer short and the bearer of bad news' 'Bearer short and the bearer of bad news' 0
+chk "44 word-internal xbearer is not a header" 'xbearer abcdefghijklmnopqrstu' 'xbearer abcdefghijklmnopqrstu' 0
+chk "45 header match is case-insensitive" 'AUTHORIZATION: BEARER abcdefghijklmnop1234' 'AUTHORIZATION: BEARER <redacted>' 1
+chk "46 Bearer + a ghp_ token counts once" 'Bearer ghp_abcdefghij1234' 'Bearer <redacted>' 1
+chk "47 an already-redacted Bearer value is not re-counted" 'Authorization: Bearer <redacted>' 'Authorization: Bearer <redacted>' 0
+for c in '|' '>' '{' ';' ')' ']' '!' '?' '&' '+' '#' '}'; do
+  chk "48 path fails closed after [$c]" "A${c}/home/u/x B" "A${c}<path> B" 1
+done
+for c in '.' '_' '~' '%' '-' '/' 'a' '9'; do
+  chk "49 path kept inside a URL/path segment after [$c]" "A${c}/home/u/x B" "A${c}/home/u/x B" 0
+done
+
 # --- fleet-measured real shape (retros/2026-08-03-document-unregistered-bootstrap-incident.md) ------
 chk "28 fleet shape: prose path in backticks" 'DOCUMENT mode received the arbitrary project path `/home/cristian/TRADINGVIEW`, which was not yet' 'DOCUMENT mode received the arbitrary project path `<path>`, which was not yet' 1
 
@@ -148,14 +163,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "T-lowercase: case-sensitive key test → api_key leaks" 'set api_key=zz ok' 'api_key=<redacted> ok' 's/u = toupper(k);/u = k;/'
   tooth "T-author: AUTHOR exclusion dead → author= redacted" 'author=bob ok' 'author=bob ok' 's/gsub(\/AUTHOR\/, "", u)/u = u/'
   tooth "T-unterminated: no-closing-quote branch dead" 'GH_TOKEN="open and more' 'GH_TOKEN="<redacted>$' 's/if (e == 0) { v = line; rest = "" ; pre = q }/if (e == 0) { v = ""; rest = line; pre = q }/'
-  tooth "T-bd-sq: single quote not a boundary" "A'/home/u/x B" "A'<path> B" 's/"\\047`(=,<\\\[:\*\]/"`(=,<\\[:*]/'
-  tooth "T-bd-colon: colon not a boundary" 'A:/home/u/x B' 'A:<path> B' 's/<\\\[:\*\]/<\\[*]/'
-  tooth "T-bd-star: star not a boundary" 'A*/home/u/x B' 'A\*<path> B' 's/<\\\[:\*\]/<\\[:]/'
-  tooth "T-bd-paren: ( not a boundary" 'A(/home/u/x B' 'A\(<path> B' 's/`(=,<\\\[:/`=,<\\[:/'
-  tooth "T-bd-eq: = not a boundary" 'A=/home/u/x B' 'A=<path> B' 's/`(=,<\\\[:/`(,<\\[:/'
-  tooth "T-bd-lt: < not a boundary" 'A</home/u/x B' 'A<<path> B' 's/`(=,<\\\[:/`(=,\\[:/'
-  tooth "T-bd-lbracket: [ not a boundary" 'A[/home/u/x B' 'A\[<path> B' 's/`(=,<\\\[:/`(=,<:/'
-  tooth "T-bd-backtick: backtick not a boundary" 'A`/home/u/x B' 'A`<path> B' 's/"\\047`(=/"\\047(=/'
+  # fail-closed boundary: reverting to an allowlist leaks `x>/home/..`; dropping a segment character redacts inside a URL/path
+  tooth "T-bd-failopen: boundary reverted to an allowlist → '>' prefix leaks" 'x>/home/bob y' 'x><path> y' 's#!~ /\[A-Za-z0-9\._~%\\/-\]/#~ /[[:space:]"(=,]/#'
+  tooth "T-seg-alnum: alnum not a segment char" 'u https://g.com/home/u/x ok' 'https://g.com/home/u/x ok' 's#A-Za-z0-9\._~%\\/-#._~%\\/-#'
+  tooth "T-seg-dot" 'a./home/u/x ok' 'a./home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9_~%\\/-#'
+  tooth "T-seg-underscore" 'a_/home/u/x ok' 'a_/home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9.~%\\/-#'
+  tooth "T-seg-tilde" 'a~/home/u/x ok' 'a~/home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9._%\\/-#'
+  tooth "T-seg-percent" 'a%/home/u/x ok' 'a%/home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9._~\\/-#'
+  tooth "T-seg-slash" 'a//home/u/x ok' 'a//home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9._~%-#'
+  tooth "T-seg-hyphen" 'a-/home/u/x ok' 'a-/home/u/x ok' 's#A-Za-z0-9\._~%\\/-#A-Za-z0-9._~%\\/#'
+  # Authorization headers
+  tooth "T-bearer-header: Authorization Bearer rule dead" 'Authorization: Bearer abcdefghijklmnop1234 end' 'Bearer <redacted> end' 's/KWRE = ".*"/KWRE = "NEVERMATCH_ZZ"/'
+  tooth "T-bearer-token: token alternative dropped" 'authorization: token abcdefghijklmnop1234' 'token <redacted>' 's/(bearer|token)/(bearer)/'
+  tooth "T-bearer-minlen: 16-char floor dropped → short value redacted" 'Bearer short and more' 'Bearer short and more' 's/i < 16/i < 0/'
+  tooth "T-bearer-case: case-insensitive match dropped" 'AUTHORIZATION: BEARER abcdefghijklmnop1234' 'BEARER <redacted>' 's/low = tolower(line)/low = line/'
+  tooth "T-bearer-wordint: word-boundary guard dropped" 'xbearer abcdefghijklmnopqrstu' 'xbearer abcdefghijklmnopqrstu' 's#s0 == 1 || substr(low, s0 - 1, 1) !~ /\[a-z0-9_\]/#1#'
   tooth "T-skip: rejected candidate skips past a later real path" 'x/home/a(/home/b) end' 'x/home/a\(<path> end' 's/off += st; rest = substr(rest, st + 1)/rest = ""/'
   tooth "T-tail-bracket: ] allowed in path tail" 'see [/home/u/z] ok' 'see \[<path>\] ok' 's/\[^\]\[:space:\]`/[^[:space:]`/g'
   # count tooth: the path rule stops incrementing → the typed count lies

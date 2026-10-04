@@ -258,18 +258,24 @@ _run_issue_seeding() {
     # seeder's mutation-summary: on BOTH. A summary-less exit 3 reads `unknown` (never a fabricated 0).
     if [ "$_absent_typed" -eq 0 ] && { [ "$seed_rc" -eq 2 ] || [ "$seed_rc" -eq 3 ]; }; then
       # SENTINEL-UNKNOWN-OUTCOME-START
-      _unk_here=0
+      _unk_here=0; _unk_what="unknown mutation outcome"
       _u="$(printf '%s' "$seed_out" | grep '^mutation-summary:' | tail -1 | grep -oE 'unknown=[0-9]+' | cut -d= -f2)"
       if [ -n "$_u" ]; then
-        if [ "$_u" -gt 0 ]; then _unk_here=1; unknown_issues=$((unknown_issues + _u)); fi
+        if [ "$_u" -gt 0 ]; then
+          _unk_here=1; unknown_issues=$((unknown_issues + _u))
+        elif [ "$seed_rc" -eq 3 ]; then
+          # exit 3 promises >= 1 unknown row; a parsed unknown=0 contradicts it. Never silent: count it unknown.
+          _unk_here=1; unknown_issues_unknown=1
+          _unk_what="unknown=contradictory (exit 3, summary unknown=0)"
+        fi
       elif [ "$seed_rc" -eq 3 ]; then
         _unk_here=1; unknown_issues_unknown=1   # exit 3 without a parseable mutation-summary: never 0
       fi
       if [ "$_unk_here" -eq 1 ]; then
         unknown=$((unknown + 1))
         unknown_list="${unknown_list:+$unknown_list, }$(basename "$rf")"
-        printf 'retro-gate: WARN: seeder exit %d for %s: unknown mutation outcome — verify on GitHub, do not retry blindly\n' \
-          "$seed_rc" "$(basename "$rf")" >&2
+        printf 'retro-gate: WARN: seeder exit %d for %s: %s — verify on GitHub, do not retry blindly\n' \
+          "$seed_rc" "$(basename "$rf")" "$_unk_what" >&2
         _seed_note "seeder-unknown-outcome:$(basename "$rf")"
       fi
       # SENTINEL-UNKNOWN-OUTCOME-END

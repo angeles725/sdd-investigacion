@@ -28,8 +28,12 @@
 # `$RESEARCH_HOME/...` and `${RESEARCH_HOME}/...`, URLs (https://github.com/owner/repo/...), issue and
 # PR refs (`#1707`, `owner/repo#12`), and non-credential `NAME=value` tokens such as `MUTANT_SYNTAX=none`
 # or `STAGE_RETRO_ISSUES_LIST_LIMIT=5` — kit env knobs are public vocabulary, so they are not scrubbed.
-# A home path is only recognised after a boundary (start of line, whitespace, `"`, `\047`, backtick, `(`, `=`,
-# `,`, `<`, `[`, `:`, `*`); a rejected candidate never hides a later real path. So `research-sdd/home/x` and `https://host/home/x` are left alone.
+# A home-rooted path FAILS CLOSED: it is redacted unless the character right before it is a URL/path-segment
+# character ([A-Za-z0-9._~%-] or `/`), i.e. unless it is the middle of a longer path or URL; a rejected
+# candidate never hides a later real path. So `research-sdd/home/x` and `https://host/home/x` are left alone,
+# while `|/home/bob`, `>/home/bob`, `{/home/bob`, `;/home/bob` are redacted.
+# Authorization headers: `Authorization: Bearer|token <tok>` and a standalone `Bearer <tok>` (case-insensitive,
+# token >= 16 token characters) -> `<tok>` becomes `<redacted>`; header form only, not general `key: value` prose.
 #
 # The awk program is POSIX (no interval expressions, no gawk extensions): it runs under mawk.
 
@@ -47,18 +51,24 @@ if ! declare -F scrub_issue_text >/dev/null 2>&1; then
       # literal backslash is written four times.
       PATHRE = "(/home/[^/[:space:]]+|/Users/[^/[:space:]]+|/mnt/[a-z]/Users/[^/[:space:]]+|[A-Za-z]:[\\\\]Users[\\\\][^\\\\[:space:]]+)([/\\\\][^][:space:]`\"\047),;>]*)?|/root/[^][:space:]`\"\047),;>]*"
     }
+    BEGIN {
+      KWRE = "(authorization:[ \t]*(bearer|token)|bearer)[ \t]+"
+      TOKRE = "^"
+      for (i = 0; i < 16; i++) TOKRE = TOKRE "[A-Za-z0-9._~+/=-]"
+      TOKRE = TOKRE "[A-Za-z0-9._~+/=-]*"
+    }
     function bmatch(s,    off, rest, st, ln) {
       off = 0; rest = s
       while (match(rest, PATHRE)) {
         st = RSTART; ln = RLENGTH
-        if (st + off == 1 || substr(s, st + off - 1, 1) ~ /[[:space:]"\047`(=,<\[:*]/) {
+        if (st + off == 1 || substr(s, st + off - 1, 1) !~ /[A-Za-z0-9._~%\/-]/) {
           RSTART = st + off; RLENGTH = ln; return RSTART
         }
         off += st; rest = substr(rest, st + 1)
       }
       RSTART = 0; RLENGTH = -1; return 0
     }
-    function scrub(line,    out, k, u, q, e, v, rest, pre) {
+    function scrub(line,    out, k, u, q, e, v, rest, pre, low, s0, e0) {
       out = ""
       # 1) bare credential-shaped tokens (a word-internal hit is not a token)
       while (match(line, /(gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-]+|AKIA[A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9])/)) {
@@ -66,6 +76,18 @@ if ! declare -F scrub_issue_text >/dev/null 2>&1; then
           out = out substr(line, 1, RSTART); line = substr(line, RSTART + 1); continue
         }
         out = out substr(line, 1, RSTART - 1) "<redacted>"; line = substr(line, RSTART + RLENGTH); count++
+      }
+      line = out line; out = ""
+      # 1b) Authorization-header credentials: `Authorization: Bearer|token <tok>` and standalone `Bearer <tok>`
+      #     (case-insensitive; the token must be >= 16 token characters; header form only, not `key: value` prose).
+      low = tolower(line)
+      while (match(low, KWRE)) {
+        s0 = RSTART; e0 = RSTART + RLENGTH
+        rest = substr(line, e0)
+        if ((s0 == 1 || substr(low, s0 - 1, 1) !~ /[a-z0-9_]/) && match(rest, TOKRE)) {
+          out = out substr(line, 1, e0 - 1) "<redacted>"; e0 = e0 + RLENGTH; count++
+        } else out = out substr(line, 1, e0 - 1)
+        line = substr(line, e0); low = substr(low, e0)
       }
       line = out line; out = ""
       # 2) credential-named assignment: KEY=VALUE, KEY="VALUE", KEY=\047VALUE\047, KEY=`VALUE` — any case. The value

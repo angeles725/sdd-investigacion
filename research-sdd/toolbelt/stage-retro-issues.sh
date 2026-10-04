@@ -913,7 +913,7 @@ skipped_dedup=0; created=0; failed=0; summary_unknown_outcome=0; unclassifiable=
 #                            outcome is unproven, including the failed-create rows whose re-check could not look
 #                            (those are also counted in failed=). It is a superset of the first and drives exit 3.
 
-# _scrub_refuse <message>: a row the privacy scrub could not clear is refused — typed ERROR, counted failed
+# _scrub_refuse <row-id> <message>: a row the privacy scrub could not clear is refused — typed ERROR, counted failed
 # (exit 2), never written. The caller `continue`s.
 _scrub_refuse() {
   echo "ERROR: $2" >&2; failed=$((failed+1))
@@ -1057,6 +1057,9 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     ''|*[!0-9]*) _scrub_refuse "$_rid" "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
                  continue ;;
   esac
+  # redactions: = replacements made across the two OUTGOING fields. The title is derived from the delta text and
+  # the body repeats it, so a datum that appears in both is redacted (and counted) in both: the count is "how
+  # many replacements the scrub performed on what would be written", not "distinct secrets" (test 86a pins 5).
   _redactions=$((_title_n + _body_n))
   if ! grep -qxF -- "$_source_line" <<<"$_body"; then
     _scrub_refuse "$_rid" "scrub altered the signature line for row $_rid — refusing to write (dedup and read-back key on it)"
