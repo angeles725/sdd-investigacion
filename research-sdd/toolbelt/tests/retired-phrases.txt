@@ -18,5 +18,8 @@
 # Retired routing triggers (B33 candidate 2 / B34 section 34.6): the "Read 1-3 files" / "Understand 4+ files" rows
 # contradict the evidence-budget rule (at most 3 calls / ~10k tokens inline; more than ~5 sequential lookups to
 # a mapper; 2+ non-trivial files to a writer). #1701 removed both from CLAUDE.md section 1; the entries stay to keep them out.
+# Matching is byte-exact: the en-dash and the ASCII-hyphen spellings are separate entries. The ASCII "Read 1-3 files"
+# row form is banned; the research-loop rule "reading 1-3 files" in PROMPT-LOOP-APPENDIX.md is a different rule and stays.
 1–3 files	Retired routing trigger; use the evidence-budget rule (max 3 calls / ~10k tokens inline, mapper beyond ~5 lookups). Removed by #1701.
+Read 1-3 files	Retired routing trigger (ASCII-hyphen spelling of the row above). Removed by #1701.
 4+ files	Retired routing trigger; use the evidence-budget rule (max 3 calls / ~10k tokens inline, mapper beyond ~5 lookups). Removed by #1701.
