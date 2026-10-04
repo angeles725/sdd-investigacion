@@ -50,6 +50,18 @@ test('list edges: first, middle, last and single reference positions', () => {
   assert.deepEqual(parseLinkedIssues('Refs #9'), ok(nonClosing(9)));
 });
 
+test('a backtick line whose info string has backticks is inline code, not a fence', () => {
+  const result = parseLinkedIssues('``` x ```\nCloses #11\n');
+  assert.deepEqual(result.references.map((r) => r.number), [11]);
+});
+
+test('malformed refs fail closed after any non-alphanumeric boundary, like valid refs', () => {
+  for (const body of ['see/Closes #abc', 'x-Fixes #12abc']) {
+    const result = parseLinkedIssues(body);
+    assert.equal(result.errors.length, 1, body);
+  }
+});
+
 test('CRLF bodies (GitHub web form): a fence closes and later references still count', () => {
   const body = 'Intro\r\n```\r\nCloses #9\r\n```\r\nCloses #42\r\n';
   const result = parseLinkedIssues(body);

@@ -33,10 +33,11 @@ const CROSS_REPO_PATTERN = new RegExp(
   'gi'
 );
 
+// Same left boundary as REFERENCE_PATTERN, so a malformed ref fails closed wherever a valid one would count.
 // Catch keyword + invalid `#` tokens and numeric suffixes that are not valid
 // reference delimiters.
 const MALFORMED_PATTERN = new RegExp(
-  `(?<![^\\s"'[(*_~])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
+  `(?<![A-Za-z0-9])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
   'gi'
 );
 
@@ -60,7 +61,8 @@ function stripHiddenText(body) {
       continue;
     }
     if (!inComment) {
-      const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      // CommonMark: a backtick fence's info string may not contain backticks (that line is inline code).
+      const open = /^ {0,3}(`{3,}(?!.*`)|~{3,})/.exec(line);
       if (open) {
         fence = open[1];
         continue;
