@@ -35,6 +35,11 @@ TOOLS_COPY="$KIT/../tools/gen-catalog.py"             # repo-specialized copy (p
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (gen-catalog.py is a python script)" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_built >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+export MUTANT_SYNTAX=none   # the mutants are python source, not bash
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
@@ -183,7 +188,7 @@ repl = r'BLOCK_RE = re.compile(r"^(?P<prefix>.*)-?(?:block|bloque)(?P<num>\d+)(?
 mut = re.sub(r'^BLOCK_RE = re\.compile.*$', lambda _m: repl, t, count=1, flags=re.M)
 open(dst, "w", encoding="utf-8").write(mut)
 PY
-  if ! grep -q 'MUTANT: prefix/dash optional' "$mutant"; then
+  if ! mutant_built "teeth(A)" "$SUT" "$mutant" || ! grep -q 'MUTANT: prefix/dash optional' "$mutant"; then
     no "teeth(A): could not build mutant (BLOCK_RE line not found — did the SUT change?)"
   else
     printf '# x\n' > "$md/bloque9.md"; printf '# Block 1 — real\n' > "$md/proj-bloque1.md"
@@ -209,7 +214,7 @@ mut = re.sub(r'^TITLE_RE = re\.compile.*$',
              t, count=1, flags=re.M)
 open(dst, "w", encoding="utf-8").write(mut)
 PY
-  if ! grep -q 'MUTANT: TITLE_RE neutered' "$mutantB"; then
+  if ! mutant_built "teeth(B)" "$SUT" "$mutantB" || ! grep -q 'MUTANT: TITLE_RE neutered' "$mutantB"; then
     no "teeth(B): could not build mutant (TITLE_RE line not found — did the SUT change?)"
   else
     printf '# Block 1 — First block\nbody\n' > "$mb/proj-block1.md"
@@ -235,7 +240,7 @@ mut = re.sub(r'^ROOT = .*$',
              t, count=1, flags=re.M)
 open(dst, "w", encoding="utf-8").write(mut)
 PY
-  if ! grep -q 'MUTANT: argv ignored' "$mutantC"; then
+  if ! mutant_built "teeth(C)" "$SUT" "$mutantC" || ! grep -q 'MUTANT: argv ignored' "$mutantC"; then
     no "teeth(C): could not build mutant (ROOT line not found — did the SUT change?)"
   else
     scan="$TMP/teethC-scan"; mkdir -p "$scan"

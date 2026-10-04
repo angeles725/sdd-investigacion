@@ -18,6 +18,10 @@ SUT="$HERE/../extract-pdf.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
@@ -97,11 +101,9 @@ STUBEOF
     chmod +x "$_stub_noop"
 
     MUTANT_A="$TMP/extract-pdf.MUTANT-sz-A.sh"
-    sed '/^tier2_marker()/,/^tier2_docling()/ {
+    if ! mutant_chain "teeth-A" "$SUT" "$MUTANT_A" '/^tier2_marker()/,/^tier2_docling()/ {
       s/\[ -s "[$]2" \] && echo OK || return 1/return 1/
-    }' "$SUT" > "$MUTANT_A"
-
-    if ! grep -q 'return 1$' "$MUTANT_A"; then
+    }' || ! grep -q 'return 1$' "$MUTANT_A"; then
       no "teeth-A: could not build tier2_marker size-guard mutant"
     else
       _rcA=0
@@ -122,11 +124,9 @@ STUBEOF
     chmod +x "$_stub_noop"
 
     MUTANT_B="$TMP/extract-pdf.MUTANT-sz-B.sh"
-    sed '/^tier2_marker()/,/^tier2_docling()/ {
+    if ! mutant_chain "teeth-B" "$SUT" "$MUTANT_B" '/^tier2_marker()/,/^tier2_docling()/ {
       s/\[ -n "\$md" \] || { rm -rf "\$tmp"; return 1; }/: # NEUTERED md-guard/
-    }' "$SUT" > "$MUTANT_B"
-
-    if ! grep -q 'NEUTERED md-guard' "$MUTANT_B"; then
+    }' || ! grep -q 'NEUTERED md-guard' "$MUTANT_B"; then
       no "teeth-B: could not build [ -n \"\$md\" ] mutant"
     else
       _rcB=0
@@ -260,8 +260,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The detector still runs but its conclusion never reaches the dispatch logic.
   # The address+substitution form replaces the entire matching LINE, avoiding the
   # partial-match trap where a substring replacement leaves an invalid prefix.
-  sed '/IS_MOJIBAKE.*HAS_TEXT=0/s/.*/: # NEUTERED mojibake override/' "$SUT" > "$MUTANT"
-  if ! grep -q 'NEUTERED mojibake override' "$MUTANT"; then
+  if ! mutant_chain "teeth" "$SUT" "$MUTANT" '/IS_MOJIBAKE.*HAS_TEXT=0/s/.*/: # NEUTERED mojibake override/' \
+     || ! grep -q 'NEUTERED mojibake override' "$MUTANT"; then
     no "teeth: could not build mutant (override line not found — did SUT change?)"
   else
     OUT_TEETH="$TMP/out-teeth.md"

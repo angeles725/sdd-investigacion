@@ -24,6 +24,11 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
 ok() { printf '  PASS  %-68s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-68s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
@@ -232,12 +237,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-rd-ezdxf-dep: neuter RD-EZDXF-DEP-CHECK; missing ezdxf must NOT give exit 3 --"
   rdmut1="$TMP/render-drawing.M1.sh"
   if grep -q '# RD-EZDXF-DEP-CHECK' "$SUT"; then
-    sed '/# RD-EZDXF-DEP-CHECK/ s/.*/: # RD-EZDXF-DEP-CHECK [NEUTERED]/' "$SUT" > "$rdmut1"
-    chmod +x "$rdmut1"
-    mrc1=0
-    FAKE_EZDXF_RC=1 PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut1" \
-      "$TMP/valid.dxf" "$TMP/out_m1.png" >/dev/null 2>&1 || mrc1=$?
-    if [ "$mrc1" != 3 ]; then
+    mk_sed "teeth-rd-ezdxf-dep" "$rdmut1" '/# RD-EZDXF-DEP-CHECK/ s/.*/: # RD-EZDXF-DEP-CHECK [NEUTERED]/' && chmod +x "$rdmut1"
+    mrc1=99
+    [ ! -f "$rdmut1" ] || { mrc1=0; FAKE_EZDXF_RC=1 PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut1" \
+      "$TMP/valid.dxf" "$TMP/out_m1.png" >/dev/null 2>&1 || mrc1=$?; }
+    if [ ! -f "$rdmut1" ]; then
+      :  # refusal already counted by mk_sed
+    elif [ "$mrc1" != 3 ]; then
       ok "teeth-rd-ezdxf-dep: neutered guard → missing ezdxf no longer gives exit 3 (test 3 has teeth)"
     else
       no "teeth-rd-ezdxf-dep: neutered guard STILL gives exit 3 → test 3 is THEATER" "mrc=$mrc1"
@@ -251,12 +257,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-rd-file-check: neuter RD-FILE-CHECK; missing file must NOT give exit 2 --"
   rdmut2="$TMP/render-drawing.M2.sh"
   if grep -q '# RD-FILE-CHECK' "$SUT"; then
-    sed '/# RD-FILE-CHECK/ s/.*/: # RD-FILE-CHECK [NEUTERED]/' "$SUT" > "$rdmut2"
-    chmod +x "$rdmut2"
-    mrc2=0
-    PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut2" "$TMP/no-such.dxf" "$TMP/out_m2.png" \
-      >/dev/null 2>&1 || mrc2=$?
-    if [ "$mrc2" != 2 ]; then
+    mk_sed "teeth-rd-file-check" "$rdmut2" '/# RD-FILE-CHECK/ s/.*/: # RD-FILE-CHECK [NEUTERED]/' && chmod +x "$rdmut2"
+    mrc2=99
+    [ ! -f "$rdmut2" ] || { mrc2=0; PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut2" "$TMP/no-such.dxf" "$TMP/out_m2.png" \
+      >/dev/null 2>&1 || mrc2=$?; }
+    if [ ! -f "$rdmut2" ]; then
+      :  # refusal already counted by mk_sed
+    elif [ "$mrc2" != 2 ]; then
       ok "teeth-rd-file-check: neutered guard → missing file no longer gives exit 2 (test 2 has teeth)"
     else
       no "teeth-rd-file-check: neutered guard STILL gives exit 2 → test 2 is THEATER" "mrc=$mrc2"

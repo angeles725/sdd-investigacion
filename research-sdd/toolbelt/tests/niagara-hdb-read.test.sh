@@ -12,6 +12,10 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 # Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1299
 # item 6, CLAUDE.md section 8): the kit-tree guard only tolerates identical-byte rewrites.
 FIXTURES="$ROOT/fixtures/niagara-hdb-read"
@@ -354,11 +358,11 @@ MUTDIR="$(mktemp -d)"
 # --- M1: Remove os.O_NOFOLLOW guard on input --------------------------------
 # Expected: symlink input is followed instead of rejected → T2 assertion fails
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/' "$MUTDIR/niagara_hdb_read.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M1 O_NOFOLLOW input" "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py" \
+     's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/'; then
+  mut_no "M1 O_NOFOLLOW input: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
   mut_no "M1 O_NOFOLLOW input: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py"; then
-  mut_no "M1 O_NOFOLLOW input: sed had no effect"
 else
   _m1_exit=0
   python3 "$MUTDIR/niagara_hdb_read.py" \
@@ -375,12 +379,11 @@ rm -rf "$MUTDIR"
 # Expected: valid .hdb is now rejected → T4 assertion fails
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if header\[:4\] != _MAGIC:/if header[:4] == _MAGIC:  # MUTANT/' \
-  "$MUTDIR/niagara_hdb_read.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M2 magic-check" "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py" \
+     's/if header\[:4\] != _MAGIC:/if header[:4] == _MAGIC:  # MUTANT/'; then
+  mut_no "M2 magic-check: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
   mut_no "M2 magic-check: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py"; then
-  mut_no "M2 magic-check: sed had no effect"
 else
   _m2_exit=0
   python3 "$MUTDIR/niagara_hdb_read.py" \
@@ -397,12 +400,11 @@ rm -rf "$MUTDIR"
 # Expected: field_count becomes 0, not 2 → T4 assertion on field_count fails
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i "s/result\['schema_fields'\] = fields/result['schema_fields'] = []  # MUTANT/" \
-  "$MUTDIR/niagara_hdb_read.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M3 schema-fields" "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py" \
+     "s/result\['schema_fields'\] = fields/result['schema_fields'] = []  # MUTANT/"; then
+  mut_no "M3 schema-fields: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
   mut_no "M3 schema-fields: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py"; then
-  mut_no "M3 schema-fields: sed had no effect"
 else
   _m3_exit=0
   python3 "$MUTDIR/niagara_hdb_read.py" \
@@ -442,12 +444,11 @@ fi
 if [ "$_m4_orig_exit" -eq 1 ] && [ "$_m4_orig_status" = "failed" ]; then
   # Build mutant: replace absolute cap guard with if False:
   cp -a "$SUT_DIR/." "$MUTDIR/"
-  sed -i 's/if clen > _MAX_CONFIG_BYTES:/if False:  # MUTANT-M4/' \
-    "$MUTDIR/niagara_hdb_read.py"
-  if ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
+  if ! MUTANT_SYNTAX=none mutant_chain "M4 clen cap" "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py" \
+       's/if clen > _MAX_CONFIG_BYTES:/if False:  # MUTANT-M4/'; then
+    mut_no "M4 clen cap: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+  elif ! python3 -m py_compile "$MUTDIR/niagara_hdb_read.py" 2>/dev/null; then
     mut_no "M4 clen cap: mutant failed py_compile"
-  elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_hdb_read.py"; then
-    mut_no "M4 clen cap: sed had no effect (guard pattern not found)"
   else
     _m4_mut_exit=0
     (ulimit -v 1000000; python3 "$MUTDIR/niagara_hdb_read.py" \

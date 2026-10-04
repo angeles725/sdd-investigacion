@@ -18,6 +18,11 @@ HELPER="$HERE/../lib/block-files.sh"
 . "$HELPER"
 declare -F block_file_filter >/dev/null 2>&1 || { echo "FATAL: block_file_filter not defined after sourcing" >&2; exit 2; }
 
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+
 pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -322,10 +327,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # original (a no-op sed is theater) and (b) make its checker (nw_checks, or nw_real_checks when named) report the named failure.
   nw_tooth() { # <label> <sed-expr> <expected FAIL: token> [checker: nw_checks|nw_real_checks]
     local label="$1" expr="$2" want="$3" chk="${4:-nw_checks}" mf out
-    mf="$(mktemp /tmp/block-files-nwmut.XXXXXX.sh)"
-    sed "$expr" "$HELPER" > "$mf"
-    if cmp -s "$HELPER" "$mf"; then
-      tno "$label: mutant identical to helper — sed did not match (TOOTH NOT BUILT)"; rm -f "$mf"; return
+    mf="$(mktemp "${TMPDIR:-/tmp}/block-files-nwmut.XXXXXX.sh")"
+    # lib/mutant.sh refuses a no-op, empty, syntax-broken or live-tree mutant and removes it.
+    if ! mutant_chain "$label" "$HELPER" "$mf" "$expr"; then
+      tno "$label: mutant refused by lib/mutant.sh (TOOTH NOT BUILT)"; rm -f "$mf"; return
     fi
     out="$("$chk" "$mf")"
     if <<<"$out" grep -qF "FAIL:$want"; then

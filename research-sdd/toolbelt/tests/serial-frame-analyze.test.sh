@@ -20,6 +20,10 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # T1: absent input → exit 2, no JSON produced
@@ -424,11 +428,11 @@ MUTDIR="$(mktemp -d)"
 
 # --- M1: Remove O_NOFOLLOW from input open -----------------------------------
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M1 O_NOFOLLOW input" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/'; then
+  mut_no "M1 O_NOFOLLOW input: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M1 O_NOFOLLOW input: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M1 O_NOFOLLOW input: sed had no effect"
 else
   _m1_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" stats \
@@ -444,11 +448,11 @@ rm -rf "$MUTDIR"
 # --- M2: Zero out frame_count in output --------------------------------------
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/"frame_count": len(frames),/"frame_count": 0,  # MUTANT-M2/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M2 frame_count zero" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/"frame_count": len(frames),/"frame_count": 0,  # MUTANT-M2/'; then
+  mut_no "M2 frame_count zero: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M2 frame_count zero: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M2 frame_count zero: sed had no effect"
 else
   _m2_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" stats \
@@ -469,11 +473,11 @@ rm -rf "$MUTDIR"
 # --- M3: Remove O_EXCL from output open --------------------------------------
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/ | os\.O_EXCL//' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M3 O_EXCL output guard" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/ | os\.O_EXCL//'; then
+  mut_no "M3 O_EXCL output guard: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M3 O_EXCL output guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M3 O_EXCL output guard: sed had no effect"
 else
   echo "pre-existing" > "$ROOT/m3_existing.json"
   _m3_exit=0
@@ -490,11 +494,11 @@ rm -rf "$MUTDIR"
 # --- M4: Change sha256 algorithm (sha256 → md5, 64-char → 32-char) -----------
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/hashlib\.sha256()/hashlib.md5()  # MUTANT-M4/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M4 sha256 algo" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/hashlib\.sha256()/hashlib.md5()  # MUTANT-M4/'; then
+  mut_no "M4 sha256 algo: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M4 sha256 algo: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M4 sha256 algo: sed had no effect"
 else
   _m4_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" stats \
@@ -517,11 +521,11 @@ rm -rf "$MUTDIR"
 # Expected: crc16-modbus LE is NO LONGER a candidate for crc-modbus.log (T10 catches it)
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/0xA001/0xB001/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M5 Modbus-poly" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/0xA001/0xB001/'; then
+  mut_no "M5 Modbus-poly: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M5 Modbus-poly: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M5 Modbus-poly: sed had no effect"
 else
   _m5_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" checksum \
@@ -551,11 +555,11 @@ MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
 # Replace only the polynomial value (not the 0xFFFF init); no inline comment (avoids
 # eating the closing ) that makes a compound expression uncompilable — bacnet lesson).
-sed -i 's/0x1021/0x2022/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M6 CCITT-poly" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/0x1021/0x2022/'; then
+  mut_no "M6 CCITT-poly: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M6 CCITT-poly: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M6 CCITT-poly: sed had no effect"
 else
   _m6_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" checksum \
@@ -585,11 +589,11 @@ MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
 # Replace the negation (-sum(b)) with plain sum(b).  No inline comment: the lambda
 # appears mid-expression and a trailing # would eat the closing comma (see M6 lesson).
-sed -i 's/(-sum(b))/(sum(b))/' "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M7 twos-comp sign" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/(-sum(b))/(sum(b))/'; then
+  mut_no "M7 twos-comp sign: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M7 twos-comp sign: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M7 twos-comp sign: sed had no effect"
 else
   _m7_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" checksum \
@@ -617,12 +621,11 @@ cp -a "$SUT_DIR/." "$MUTDIR/"
 # Change "failed",  # sweep-all-fail → "complete",  to keep valid Python (comma intact).
 # Inline comments after the value eat the comma and break the dict — use the full
 # "failed",  # sweep-all-fail sentinel so sed targets only the right occurrence.
-sed -i 's/"status": "failed",  # sweep-all-fail/"status": "complete",  # MUTANT-M8/' \
-  "$MUTDIR/serial-frame_analyze.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M8 status-failed path" "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py" \
+     's/"status": "failed",  # sweep-all-fail/"status": "complete",  # MUTANT-M8/'; then
+  mut_no "M8 status-failed path: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_analyze.py" 2>/dev/null; then
   mut_no "M8 status-failed path: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_analyze.py"; then
-  mut_no "M8 status-failed path: sed had no effect (status:failed not yet implemented)"
 else
   _m8_exit=0
   python3 "$MUTDIR/serial-frame_analyze.py" stats \

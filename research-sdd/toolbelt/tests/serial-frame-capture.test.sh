@@ -15,6 +15,10 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 # Build stub pyserial (all Serial opens raise SerialException — simulates no hardware)
 mkdir -p "$ROOT/pystubs-fail"
@@ -246,11 +250,12 @@ fi
 # --- M1: change sys.exit(3) to sys.exit(0) in the plan-only guard -----------
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/' "$MUTDIR/serial-frame_capture.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
+# lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+if ! MUTANT_SYNTAX=none mutant_chain "M1 guard-exit" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
+     's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/'; then
+  mut_no "M1 guard-exit: mutant refused by lib/mutant.sh (sed had no effect)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M1 guard-exit: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_capture.py"; then
-  mut_no "M1 guard-exit: sed had no effect"
 else
   _m1_exit=0
   python3 "$MUTDIR/serial-frame_capture.py" sweep \
@@ -266,12 +271,11 @@ rm -rf "$MUTDIR"
 # --- M2: change plan status to a wrong value ---------------------------------
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/"status": "plan-only",/"status": "broken-plan",  # MUTANT-M2/' \
-  "$MUTDIR/serial-frame_capture.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M2 plan-status" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
+     's/"status": "plan-only",/"status": "broken-plan",  # MUTANT-M2/'; then
+  mut_no "M2 plan-status: mutant refused by lib/mutant.sh (sed had no effect)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M2 plan-status: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_capture.py"; then
-  mut_no "M2 plan-status: sed had no effect"
 else
   _m2_exit=0
   python3 "$MUTDIR/serial-frame_capture.py" sweep \
@@ -295,12 +299,11 @@ MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
 # Target the sweep_status ternary sentinel comment.  No inline comment added to
 # avoid eating syntax (see analyze M6/M8 lesson).
-sed -i 's/else "failed"  # sweep-all-fail/else "complete"/' \
-  "$MUTDIR/serial-frame_capture.py"
-if ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M3 sweep-§7" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
+     's/else "failed"  # sweep-all-fail/else "complete"/'; then
+  mut_no "M3 sweep-§7: mutant refused by lib/mutant.sh (sed had no effect; sweep §7 not yet implemented)"
+elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M3 sweep-§7: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/serial-frame_capture.py"; then
-  mut_no "M3 sweep-§7: sed had no effect (sweep §7 not yet implemented)"
 else
   _m3_exit=0
   PYTHONPATH="$ROOT/pystubs-fail" python3 "$MUTDIR/serial-frame_capture.py" \

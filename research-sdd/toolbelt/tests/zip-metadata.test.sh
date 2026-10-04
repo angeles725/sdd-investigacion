@@ -2,6 +2,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../zip-metadata.sh"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 python3 - "$ROOT" <<'PY'
 import pathlib,struct,sys
@@ -90,9 +94,12 @@ else no "root refusal"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-traversal: set safety.traversal=False; expect metadata-contract assertion to go red --"
   mutant_py="$ROOT/zip_metadata.MUTANT.py"
-  sed 's/"traversal": "\.\." in parts,/"traversal": False,/' \
-    "$HERE/../zip_metadata.py" > "$mutant_py"
-  if ! grep -qF '"traversal": False, "backslash"' "$mutant_py"; then
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  MUTANT_SYNTAX=none mutant_chain "teeth-traversal" "$HERE/../zip_metadata.py" "$mutant_py" \
+    's/"traversal": "\.\." in parts,/"traversal": False,/' || fail=$((fail+1))
+  if [ ! -f "$mutant_py" ]; then
+    :  # refusal already counted above
+  elif ! grep -qF '"traversal": False, "backslash"' "$mutant_py"; then
     no "teeth-traversal: mutant build failed (source line not found)"
   else
     python3 - "$mutant_py" "$ROOT/mixed.zip" "$HERE/.." >/dev/null 2>&1 <<'PY'
