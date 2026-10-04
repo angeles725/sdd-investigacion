@@ -315,50 +315,52 @@ else no "warn-java: rc=1 warn_evidence pointer missing from stderr"; fi
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-warn-java: removing the inline if-guard makes the behavioral test go red.
-  # Creates a mutant corroborate_java.py without the `if failures: warn_evidence(...)` block,
-  # runs it directly (Python, not the bash wrapper) with cfr-fail.jar so rc=1 fires,
-  # and asserts stderr does NOT contain java-corroboration.v1 (proves the test has teeth).
-  td_java="$(mktemp -d)"
-  python3 - "$HERE/../corroborate_java.py" "$td_java" <<'PY'
-import sys, pathlib, shutil
-sut = pathlib.Path(sys.argv[1]); td = pathlib.Path(sys.argv[2])
-src = sut.read_text()
-old = '        if failures:\n            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))\n'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: inline guard not found -- SUT changed?", file=sys.stderr); sys.exit(2)
-shutil.copytree(sut.parent / 'lib', td / 'lib')
-shutil.copy2(sut.parent / 'analysis_manifest.py', td / 'analysis_manifest.py')
-(td / 'corroborate_java.py').write_text(src.replace(old, '', 1))
-PY
-  mut_rc=$?
-  if [ "$mut_rc" -eq 0 ]; then
-    _cfr_fail_sha="$(sha256sum "$ROOT/tools/cfr-fail.jar" | cut -d' ' -f1)"
-    _vf_sha="$(sha256sum "$ROOT/tools/vineflower.jar" | cut -d' ' -f1)"
-    _procyon_sha="$(sha256sum "$ROOT/tools/procyon.jar" | cut -d' ' -f1)"
-    if ! env \
-        JAVA_HOME="$ROOT/fake-java" \
-        RSDD_BWRAP=/usr/bin/bwrap \
-        RSDD_CORROBORATE_CFR="$ROOT/tools/cfr-fail.jar" \
-        CFR_SHA256="$_cfr_fail_sha" \
-        RSDD_CORROBORATE_VINEFLOWER="$ROOT/tools/vineflower.jar" \
-        VINEFLOWER_SHA256="$_vf_sha" \
-        RSDD_CORROBORATE_PROCYON="$ROOT/tools/procyon.jar" \
-        PROCYON_SHA256="$_procyon_sha" \
-        python3 "$td_java/corroborate_java.py" \
-          --decompile-wrapper "$ROOT/wrapper-trap" \
-          --manifest-module "$td_java/analysis_manifest.py" \
-          "${ARGS[@]}" --output "$td_java/warn-java-ptr" \
-        2>"$td_java/teeth.err" \
-      && ! grep -q 'java-corroboration.v1' "$td_java/teeth.err" 2>/dev/null; then
-      ok "teeth-warn-java: guard removed → stderr empty → warn-java assertion fires (has teeth)"
-    else
-      no "teeth-warn-java: pointer still emitted without guard — NO teeth"
-    fi
+  # The mutant is corroborate_java.py without the `if failures: warn_evidence(...)` block. Both the
+  # original and the mutant are run directly (Python, not the bash wrapper) with cfr-fail.jar so
+  # rc=1 fires; the original must exit EXACTLY 1 and emit the java-corroboration.v1.json pointer
+  # on stderr (the same two facts the warn-java case above asserts), the mutant must exit 1 and
+  # emit no pointer.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  export MUTANT_SYNTAX=none   # python mutant: no bash -n
+  # Scratch lives under $ROOT, so the suite's own EXIT trap (which also restores write permission
+  # on trusted-tools) cleans it on every path.
+  td_java="$(mktemp -d -p "$ROOT")"
+  # corroborate_java.py imports lib/ and analysis_manifest.py from its own directory, so the
+  # mutant keeps a copy of both next to it.
+  mkdir -p "$td_java/mut" && cp -R "$HERE/../lib" "$td_java/mut/lib" \
+    && cp "$MANIFEST" "$td_java/mut/analysis_manifest.py"
+  # run_java_py PY — run PY with the failing-CFR environment and its own FRESH --output dir.
+  run_java_py() {
+    local py="$1" out
+    out="$(mktemp -d -p "$td_java")"
+    env \
+      JAVA_HOME="$ROOT/fake-java" \
+      RSDD_BWRAP=/usr/bin/bwrap \
+      RSDD_CORROBORATE_CFR="$ROOT/tools/cfr-fail.jar" \
+      CFR_SHA256="$(sha256sum "$ROOT/tools/cfr-fail.jar" | cut -d' ' -f1)" \
+      RSDD_CORROBORATE_VINEFLOWER="$ROOT/tools/vineflower.jar" \
+      VINEFLOWER_SHA256="$(sha256sum "$ROOT/tools/vineflower.jar" | cut -d' ' -f1)" \
+      RSDD_CORROBORATE_PROCYON="$ROOT/tools/procyon.jar" \
+      PROCYON_SHA256="$(sha256sum "$ROOT/tools/procyon.jar" | cut -d' ' -f1)" \
+      python3 "$py" \
+        --decompile-wrapper "$ROOT/wrapper-trap" \
+        --manifest-module "$(dirname "$py")/analysis_manifest.py" \
+        "${ARGS[@]}" --output "$out/warn-java-ptr"
+  }
+  if mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
+      '/^        if failures:$/{N;/\n            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))$/d;}'; then
+    if mutant_tooth "teeth-warn-java: guard removed → stderr empty → warn-java assertion fires (has teeth)" 1 1 "$td_java/mut/corroborate_java.py" \
+        --orig "$HERE/../corroborate_java.py" \
+        --good-has 'java-corroboration\.v1\.json' --bad-lacks 'java-corroboration\.v1' -- \
+        run_java_py @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
   else
-    no "teeth-warn-java: mutant setup failed (SUT changed?)"
+    fail=$((fail+1))
   fi
-  find "$td_java" -type d -name trusted-tools -exec chmod u+w {} + 2>/dev/null
-  rm -rf "$td_java"
 fi
 
 echo "== $pass passed · $fail failed =="

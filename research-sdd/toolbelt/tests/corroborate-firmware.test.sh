@@ -401,150 +401,85 @@ fi # fast | all
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: corroborate-firmware mutation controls --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutants are python/json files: skip the bash -n check (empty, identical, live-tree,
+  # symlink and dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
+  _MUT="$(mktemp -d)"; trap 'rm -rf "$_MUT"; [ -z "${ROOT:-}" ] || rm -rf "$ROOT"' EXIT  # keeps the lane's own ROOT cleanup
+  _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # corroborate_firmware.py does `sys.path.insert(0, <own dir>); from lib.adapter_core import ...`
+  # (SUT lines 10-13), so each mutant lives in its own dir next to a copy of lib/.
+  # mut_py LABEL DIR SED_EXPR — build DIR/corroborate_firmware.py from the SUT; returns non-zero
+  # (counted as a failure) when the mutant was refused, so its tooth never runs.
+  mut_py() {
+    mkdir -p "$_MUT/$2" && cp -R "$TOOLBELT/lib" "$_MUT/$2/lib" \
+      && mutant_chain "$1" "$SUT_PY" "$_MUT/$2/corroborate_firmware.py" "$3" || { fail=$((fail+1)); return 1; }
+  }
 
-  # tooth-require_private: remove 'ext4' from PRIVATE_FS → ext4 mount raises
-  # FirmwareError → F1 "ext4 must pass" assertion fires RED.
-  _mut_dir_1="$(mktemp -d)"
-  _mut_rc_1=0
-  _RP_MARKER='PRIVATE_FS = {"btrfs", "ext2", "ext3", "ext4"'
-  if ! grep -qF "$_RP_MARKER" "$SUT_PY"; then
-    no "tooth-require_private: mutation marker not found in SUT (SUT changed?)"
-  else
-    python3 - "$SUT_PY" "$_mut_dir_1" "$TOOLBELT" <<'PY'
-import sys, pathlib, shutil
-sut = pathlib.Path(sys.argv[1])
-out_dir = pathlib.Path(sys.argv[2])
-tb = pathlib.Path(sys.argv[3])
-src = sut.read_text()
-# Remove 'ext4' from PRIVATE_FS so ext4 mounts are no longer private.
-mutated = src.replace('"ext4", "f2fs"', '"f2fs"', 1)
-if mutated == src:
-    print("MUTANT-SETUP-FAIL: 'ext4', 'f2fs' token not found in PRIVATE_FS", file=sys.stderr)
-    sys.exit(2)
-(out_dir / "corroborate_firmware.py").write_text(mutated)
-shutil.copytree(str(tb / "lib"), str(out_dir / "lib"))
-PY
-    _setup_rc_1=$?
-    if [[ "$_setup_rc_1" -ne 0 ]]; then
-      no "tooth-require_private: mutant setup failed"
-    else
-      python3 - "$_mut_dir_1" <<'PY' || _mut_rc_1=$?
+  # tooth-require_private: remove 'ext4' from PRIVATE_FS so an ext4 mount is rejected instead of
+  # accepted (F1 "ext4 must pass"). Same harness on both: it prints which way ext4 went.
+  cat > "$_MUT/h1.py" <<'PY'
 import sys, importlib.util, pathlib
-mut_dir = pathlib.Path(sys.argv[1]).resolve()
-spec = importlib.util.spec_from_file_location("fw_mut1", mut_dir / "corroborate_firmware.py")
+spec = importlib.util.spec_from_file_location("fw_under_test", pathlib.Path(sys.argv[1]).resolve())
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-p = pathlib.Path("/safe/out")
 try:
-    m.require_private(p, "1 0 0:1 / /safe rw - ext4 disk rw")
-    # ext4 did NOT raise → mutation has no teeth.
-    print("MUTANT: ext4 did NOT raise FirmwareError — no teeth", file=sys.stderr)
-    sys.exit(0)   # GREEN → no teeth
+    m.require_private(pathlib.Path("/safe/out"), "1 0 0:1 / /safe rw - ext4 disk rw")
 except m.FirmwareError:
-    print("MUTANT: ext4 raised FirmwareError → has teeth", file=sys.stderr)
-    sys.exit(1)   # RED → has teeth
+    print("VERDICT: ext4 rejected")
+else:
+    print("VERDICT: ext4 accepted")
 PY
-      if [[ "$_mut_rc_1" -ne 0 ]]; then
-        ok "tooth-require_private: ext4 removed from PRIVATE_FS → ext4 raises → F1 RED (bites)"
-      else
-        no "tooth-require_private: ext4 removal had no effect — NO teeth"
-      fi
-    fi
-  fi
-  rm -rf "$_mut_dir_1"
+  mut_py "tooth-require_private" t1 's/"ext4", "f2fs"/"f2fs"/' \
+    && _tt "tooth-require_private: ext4 removed from PRIVATE_FS → ext4 raises → F1 RED (bites)" 0 0 "$_MUT/t1/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: ext4 accepted$' --bad-has '^VERDICT: ext4 rejected$' --bad-lacks '^VERDICT: ext4 accepted$' -- \
+         python3 "$_MUT/h1.py" @SUT@
 
-  # tooth-normalized: replace sorted() with reversed() → offset order breaks →
-  # F2 offset-order assertion fires RED.
-  _mut_dir_2="$(mktemp -d)"
-  _mut_rc_2=0
-  _NORM_MARKER='    return sorted(signatures, key=key), sorted(entropy, key=key)'
-  if ! grep -qF "$_NORM_MARKER" "$SUT_PY"; then
-    no "tooth-normalized: sort marker not found in SUT (SUT changed?)"
-  else
-    python3 - "$SUT_PY" "$_mut_dir_2" "$TOOLBELT" <<'PY'
-import sys, pathlib, shutil
-sut = pathlib.Path(sys.argv[1])
-out_dir = pathlib.Path(sys.argv[2])
-tb = pathlib.Path(sys.argv[3])
-src = sut.read_text()
-old = '    return sorted(signatures, key=key), sorted(entropy, key=key)\n'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: normalized sort line not found", file=sys.stderr)
-    sys.exit(2)
-mutated = src.replace(old, '    return list(reversed(signatures)), list(reversed(entropy))\n', 1)
-(out_dir / "corroborate_firmware.py").write_text(mutated)
-shutil.copytree(str(tb / "lib"), str(out_dir / "lib"))
-PY
-    _setup_rc_2=$?
-    if [[ "$_setup_rc_2" -ne 0 ]]; then
-      no "tooth-normalized: mutant setup failed"
-    else
-      python3 - "$_mut_dir_2" <<'PY' || _mut_rc_2=$?
+  # tooth-normalized: replace sorted() with reversed() so offset order breaks (F2). Input is in
+  # 0,2,1 order: reversal gives [1,2,0], which differs from sorted [0,1,2] ([2,1,0] would be
+  # accidentally correct under reversal). Each run gets a fresh scratch dir for its input file.
+  cat > "$_MUT/h2.py" <<'PY'
 import sys, importlib.util, pathlib, tempfile
-mut_dir = pathlib.Path(sys.argv[1]).resolve()
-spec = importlib.util.spec_from_file_location("fw_mut2", mut_dir / "corroborate_firmware.py")
+spec = importlib.util.spec_from_file_location("fw_under_test", pathlib.Path(sys.argv[1]).resolve())
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-# Input in 0,2,1 order: reversal gives [1,2,0], which differs from sorted [0,1,2].
-# (Avoid [2,1,0] input: reversed([2,1,0])=[0,1,2] accidentally correct.)
-with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-    f.write("0 0x0 alpha\n2 0x2 gamma\n1 0x1 beta\n")
-    tmp = pathlib.Path(f.name)
-try:
-    sigs, _ = m.normalized(tmp)
-    # With broken sort (reversed), first offset will NOT be 0 → RED.
-    if not sigs or sigs[0]["offset"] != 0:
-        print(f"MUTANT: sort broken → offset[0]={sigs[0]['offset'] if sigs else 'N/A'} != 0 → has teeth",
-              file=sys.stderr)
-        sys.exit(1)   # RED → has teeth
-    else:
-        print("MUTANT: sort still correct despite mutation — NO teeth", file=sys.stderr)
-        sys.exit(0)   # GREEN → no teeth
-finally:
-    tmp.unlink(missing_ok=True)
+with tempfile.TemporaryDirectory() as d:
+    p = pathlib.Path(d) / "sigs.txt"
+    p.write_text("0 0x0 alpha\n2 0x2 gamma\n1 0x1 beta\n")
+    sigs, _ = m.normalized(p)
+print("VERDICT: offsets", [s["offset"] for s in sigs])
 PY
-      if [[ "$_mut_rc_2" -ne 0 ]]; then
-        ok "tooth-normalized: reversed() sort → offset order wrong → F2 RED (bites)"
-      else
-        no "tooth-normalized: sort mutation had no effect — NO teeth"
-      fi
-    fi
-  fi
-  rm -rf "$_mut_dir_2"
+  mut_py "tooth-normalized" t2 's/^    return sorted(signatures, key=key), sorted(entropy, key=key)$/    return list(reversed(signatures)), list(reversed(entropy))/' \
+    && _tt "tooth-normalized: reversed() sort → offset order wrong → F2 RED (bites)" 0 0 "$_MUT/t2/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: offsets \[0, 1, 2\]$' --bad-has '^VERDICT: offsets \[1, 2, 0\]$' --bad-lacks '^VERDICT: offsets \[0, 1, 2\]$' -- \
+         python3 "$_MUT/h2.py" @SUT@
 
-  # tooth-cap-line-239: len(combined)→len(emitted) drops findings_total 3→2 → F5 RED.
-  # Proven at the fixture level (no bwrap needed):
-  #   1. Construct a mutant fixture where findings_total == findings_emitted (== 2).
-  #   2. Run F5's assertion against the mutant fixture.
-  #   3. Assert the assertion FAILS (exits non-zero) — meaning the tooth bites.
-  _mut_dir_3="$(mktemp -d)"
-  _mut_rc_3=0
+  # tooth-cap-line-239: len(combined)→len(emitted) drops findings_total 3→2 (F5). Proven at the
+  # fixture level (no bwrap needed): the mutant fixture has findings_total == findings_emitted,
+  # and F5's assertion (findings_total == 3) runs on the original and on the mutant fixture.
   if [[ ! -f "$_FIX_CAPPED" ]]; then
     no "tooth-cap-line-239: capped fixture missing (run regen first)"
   else
-    python3 - "$_FIX_CAPPED" "$_mut_dir_3/mutant-capped.json" <<'PY'
+    python3 - "$_FIX_CAPPED" "$_MUT/mutant-capped.json" <<'PY'
 import json, sys, pathlib
 d = json.load(open(sys.argv[1]))
-# Apply mutation: findings_total = findings_emitted (what len(emitted) would produce).
 d["counts"]["findings_total"] = d["counts"]["findings_emitted"]
 pathlib.Path(sys.argv[2]).write_text(json.dumps(d, indent=2))
 PY
-    # Run F5 assertion against the mutant fixture — it SHOULD fail (exit non-zero).
-    python3 - "$_mut_dir_3/mutant-capped.json" <<'PY' || _mut_rc_3=$?
+    cat > "$_MUT/h3.py" <<'PY'
 import json, sys
-d = json.load(open(sys.argv[1]))
-counts = d.get("counts", {})
-# This is the F5 assertion — fires RED when findings_total != 3.
-assert counts.get("findings_total") == 3, \
-    f"findings_total={counts.get('findings_total')} (expected 3 = len(combined))"
+t = json.load(open(sys.argv[1])).get("counts", {}).get("findings_total")
+print("VERDICT: F5 holds" if t == 3 else f"VERDICT: F5 RED findings_total={t}")
 PY
-    if [[ "$_mut_rc_3" -ne 0 ]]; then
-      ok "tooth-cap-line-239: mutant fixture (total=emitted=2) → F5 total==3 assertion RED (bites)"
-    else
-      no "tooth-cap-line-239: F5 stayed GREEN on wrong findings_total — NO teeth"
-    fi
+    if mutant_built "tooth-cap-line-239" "$_FIX_CAPPED" "$_MUT/mutant-capped.json"; then
+      _tt "tooth-cap-line-239: mutant fixture (total=emitted=2) → F5 total==3 assertion RED (bites)" 0 0 "$_MUT/mutant-capped.json" --orig "$_FIX_CAPPED" \
+        --good-has '^VERDICT: F5 holds$' --bad-has '^VERDICT: F5 RED findings_total=2$' --bad-lacks '^VERDICT: F5 holds$' -- \
+        python3 "$_MUT/h3.py" @SUT@
+    else fail=$((fail+1)); fi
   fi
-  rm -rf "$_mut_dir_3"
 
   echo "-- prove-teeth done --"
 fi

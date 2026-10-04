@@ -345,60 +345,40 @@ fi # fast | all
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: corroborate-native-r2 mutation controls --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  export MUTANT_SYNTAX=none   # python mutant: no bash -n
 
   # teeth-SAFE_R2: mutate SAFE_R2 by appending '-w' via .append() →
   # the forbidden-flag check (F1) goes RED.
   # FOOTGUN NOTE: SAFE_R2 += '-w' iterates the string (appends '-' and 'w'
   # as separate characters); '-w' never appears → teeth would stay GREEN.
   # Always use .append('-w') or += ['-w'] for this mutation.
-  _mut_dir="$(mktemp -d)"
-  _mut_tooth_rc=0
-  _MUTATION_MARKER='           "-e", "scr.interactive=false", "-c", "aaa;aflj", "input/target.bin"]'
-  if ! grep -qF "$_MUTATION_MARKER" "$SUT_PY"; then
-    no "teeth-SAFE_R2: mutation target not found in SUT (SUT changed?)"
-  else
-    # Step 1: write mutated copy with SAFE_R2.append('-w') after the list.
-    python3 - "$SUT_PY" "$_mut_dir" "$TOOLBELT" <<'PY'
-import sys, pathlib, shutil
-sut   = pathlib.Path(sys.argv[1])
-out   = pathlib.Path(sys.argv[2]) / "corroborate_native.py"
-tb    = pathlib.Path(sys.argv[3])
-old   = '           "-e", "scr.interactive=false", "-c", "aaa;aflj", "input/target.bin"]\n'
-src   = sut.read_text()
-assert old in src, "mutation target missing from source after re-read"
-out.write_text(src.replace(old, old + "SAFE_R2.append('-w')  # mutant: inject forbidden flag\n", 1))
-shutil.copytree(str(tb / 'lib'), str(out.parent / 'lib'))
-PY
-    _setup_rc=$?
-    if [[ "$_setup_rc" -ne 0 ]]; then
-      no "teeth-SAFE_R2: mutant setup failed (SUT changed?)"
-    else
-      # Step 2: import mutated module and run forbidden-flag check.
-      python3 - "$_mut_dir" <<'PY' || _mut_tooth_rc=$?
+  # corroborate_native.py imports lib/ from its own directory, so the mutant keeps a copy of it.
+  # The scratch dir is trap-cleaned on every path (the lane's own ROOT cleanup is kept).
+  _mut_dir="$(mktemp -d)"; trap 'rm -rf "$_mut_dir"; [ -z "${SHARED_OUT:-}" ] || rm -rf -- "$SHARED_OUT"; [ -z "${ROOT:-}" ] || rm -rf "$ROOT"' EXIT
+  cat > "$_mut_dir/harness.py" <<'PY'
 import sys, importlib.util, pathlib
-mut_dir = pathlib.Path(sys.argv[1]).resolve()
-spec = importlib.util.spec_from_file_location(
-    "corroborate_native_mut", mut_dir / "corroborate_native.py")
+spec = importlib.util.spec_from_file_location("corroborate_native_under_test", pathlib.Path(sys.argv[1]).resolve())
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-SAFE_R2 = list(m.SAFE_R2)
 forbidden = {'-w', '-d', '-i', '-I', '-p', '-r', '-R'}
-present = forbidden & set(SAFE_R2)
-if present:
-    print(f"append('-w') inserted {sorted(present)} into SAFE_R2 — teeth bite", file=sys.stderr)
-    sys.exit(1)   # RED → has teeth
-else:
-    print("SAFE_R2 still clean despite append('-w') — NO TEETH", file=sys.stderr)
-    sys.exit(0)   # GREEN → no teeth
+present = sorted(forbidden & set(m.SAFE_R2))
+print("VERDICT: SAFE_R2 forbidden flags", present)
 PY
-      if [[ "$_mut_tooth_rc" -ne 0 ]]; then
-        ok "teeth-SAFE_R2: append('-w') mutation → forbidden flag detected (bites)"
-      else
-        no "teeth-SAFE_R2: append('-w') mutation → check stayed GREEN (no teeth)"
-      fi
-    fi
+  if mkdir -p "$_mut_dir/m" && cp -R "$TOOLBELT/lib" "$_mut_dir/m/lib" \
+     && mutant_chain "teeth-SAFE_R2" "$SUT_PY" "$_mut_dir/m/corroborate_native.py" \
+       '/^           "-e", "scr.interactive=false", "-c", "aaa;aflj", "input\/target.bin"\]$/a SAFE_R2.append('"'-w'"')  # mutant: inject forbidden flag'; then
+    if mutant_tooth "teeth-SAFE_R2: append('-w') mutation → forbidden flag detected (bites)" 0 0 "$_mut_dir/m/corroborate_native.py" --orig "$SUT_PY" \
+        --good-has '^VERDICT: SAFE_R2 forbidden flags \[\]$' --bad-has "^VERDICT: SAFE_R2 forbidden flags \\['-w'\\]\$" --bad-lacks '^VERDICT: SAFE_R2 forbidden flags \[\]$' -- \
+        python3 "$_mut_dir/harness.py" @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
-  rm -rf "$_mut_dir"
 
   echo "-- prove-teeth done --"
 fi
