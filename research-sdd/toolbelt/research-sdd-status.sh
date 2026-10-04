@@ -1987,11 +1987,7 @@ remote_visibility_block
 # Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
 # Document mode (kit issue #1152): a NEXT / BOOTSTRAP from the Outline is final. STOP is only reported when the
 # gap-centric resolver ALSO has no open work: a fully covered Outline does not hide an open investigable gap.
-_ns_doc=""
-if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
-case "$_ns_doc" in
-  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
-  *)
+# _ns_gap_run: gap-centric verdict across every focus (subshell: the loop reassigns $state).
 _ns_gap_run() (
   _ns_skip_gaps=0
   mapfile -t _ns_states < <(list_state_files "$target")
@@ -2016,15 +2012,20 @@ _ns_gap_run() (
     echo "STOP | read-only-investigable exhausted (0)"
   fi
 )
-if [ -z "$_ns_doc" ]; then
-  printf '  next step       : '
-  _ns_gap_run
-else
-  _ns_gap="$(_ns_gap_run)"
-  case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
-  printf '  next step       : %s\n' "$_ns_gap"
-fi
-;;
+_ns_doc=""
+if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
+case "$_ns_doc" in
+  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
+  *)
+    if [ -z "$_ns_doc" ]; then
+      printf '  next step       : '
+      _ns_gap_run
+    else
+      _ns_gap="$(_ns_gap_run)"
+      case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
+      printf '  next step       : %s\n' "$_ns_gap"
+    fi
+    ;;
 esac
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
