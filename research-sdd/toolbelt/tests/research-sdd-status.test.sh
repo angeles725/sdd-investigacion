@@ -7127,6 +7127,104 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1150_t T1150-DEFINE-GUARD empty '/failed to define hook_stop_wiring_state/d' 0 --good-has 'failed to define hook_stop_wiring_state' --bad-has '== research-sdd-status:' --bad-lacks "$_t1150_crash"
 fi
 
+# ==================== kit issue #1152: honor `method: document-cycle` in the default report ====================
+# A document-cycle corpus (research-sdd-init.sh --document) is OUTLINE-driven: its ## Gap-backlog is empty on
+# purpose, so the gap-centric verdicts are wrong for it (a fresh scaffold read "STOP | read-only-investigable
+# exhausted (0)"; three `none` history rows read SATURATED). With the envelope field `method: document-cycle`
+# the default report prints the Outline progress and a document-mode next step instead. Every other corpus is
+# untouched (the fleet sweep is byte-identical).
+# t1152_fx <dir> <method> <outline-rows|-> <history-rows> — rows are literal table lines; `-` omits ## Outline.
+t1152_fx() {
+  local d="$1" method="$2" rows="$3" hist="$4"; mkdir -p "$d"
+  { printf '# T1152\n> intro\n<!-- research-state.v1 -->\nschema: research-state.v1\n'
+    [ "$method" = none ] || printf 'method: %s\n' "$method"
+    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n<!-- /research-state.v1 -->\n'
+    printf '\n## Coverage\n- **Covered blocks**: 0\n- **Coverage metric**: — (blank)\n'
+    if [ "$rows" != - ]; then
+      printf '\n## Outline (the work-list)\n\n| # | Outline item | Genre | Block | Status |\n|---|---|---|---|---|\n%s\n' "$rows"
+    fi
+    printf '\n## Gap-backlog\n\n## Iteration history\n\n| # | Date | Item | Block | Delegated | New gaps uncovered |\n|---|---|---|---|---|---|\n%s\n' "$hist"
+    printf '\n## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n- **Open gaps — requires-execution**: 0\n- **Open gaps — blocked**: 0\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+t1152_none_hist='| 1 | 2026-10-01 | a | B1 | no | none — document mode |
+| 2 | 2026-10-02 | b | B2 | no | none — document mode |
+| 3 | 2026-10-03 | c | B3 | no | none — document mode |'
+t1152_rep() { bash "$SUT" "$1" 2>/dev/null; }
+echo "-- T-1152: method: document-cycle replaces the gap-centric verdicts with Outline progress --"
+t1152_fresh="$TMP/t1152-fresh"; t1152_fx "$t1152_fresh" document-cycle '| 1 | <topic or step to document> | <subject \| procedure> | | pending |' ''
+_t1152_out="$(t1152_rep "$t1152_fresh")"
+if grep -qF '  next step       : BOOTSTRAP | seed the ## Outline' <<<"$_t1152_out" && ! grep -qF 'exhausted (0)' <<<"$_t1152_out"; then
+  ok "T-1152a: a fresh document scaffold (placeholder row only) reports BOOTSTRAP, not 'read-only-investigable exhausted (0)'"
+else no "T-1152a: next step = [$(grep 'next step' <<<"$_t1152_out")]"; fi
+grep -qF '  outline         : (unseeded: only the template placeholder row)' <<<"$_t1152_out" \
+  && ok "T-1152a2: the outline line says the outline is unseeded (the placeholder row is not counted as work)" \
+  || no "T-1152a2: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+t1152_sat="$TMP/t1152-sat"; t1152_fx "$t1152_sat" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | | pending |' "$t1152_none_hist"
+_t1152_out="$(t1152_rep "$t1152_sat")"
+if grep -qF '  saturation      : n/a (method: document-cycle' <<<"$_t1152_out" && ! grep -qF 'SATURATED' <<<"$_t1152_out"; then
+  ok "T-1152b: three 'none' history rows do NOT read SATURATED on a document-cycle corpus"
+else no "T-1152b: saturation = [$(grep 'saturation' <<<"$_t1152_out")]"; fi
+t1152_mix="$TMP/t1152-mix"; t1152_fx "$t1152_mix" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | **item b** | subject | B2 | **Covered** |
+| 3 | item c | subject | B3 | drafted (needs review) |
+| 4 | item d \| with pipe | procedure | | pending |
+| 5 | item e | subject | B5 | ✅ cubierto |' ''
+_t1152_out="$(t1152_rep "$t1152_mix")"
+grep -qF '  outline         : 3/5 covered · drafted=1 · pending=1' <<<"$_t1152_out" \
+  && ok "T-1152c: Outline progress counts covered / drafted / pending (bold, a trailing note and the hand-written ✅ spelling tolerated)" \
+  || no "T-1152c: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+grep -qF '  next step       : NEXT | outline #3 | item c' <<<"$_t1152_out" \
+  && ok "T-1152d: the document-mode next step is the first non-covered Outline row in file order" \
+  || no "T-1152d: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+t1152_done="$TMP/t1152-done"; t1152_fx "$t1152_done" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | B2 | covered |' ''
+_t1152_out="$(t1152_rep "$t1152_done")"
+grep -qF '  next step       : STOP | outline fully covered (2/2)' <<<"$_t1152_out" \
+  && ok "T-1152e: every Outline row covered -> STOP | outline fully covered (2/2)" \
+  || no "T-1152e: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+t1152_odd="$TMP/t1152-odd"; t1152_fx "$t1152_odd" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | | wip |' ''
+_t1152_out="$(t1152_rep "$t1152_odd")"
+if grep -qF '  outline         : 1/2 covered · drafted=0 · pending=0 · unrecognised=1' <<<"$_t1152_out" && grep -qF 'NEXT | outline #2 | item b' <<<"$_t1152_out"; then
+  ok "T-1152f: an unrecognised Outline status is counted as unrecognised and stays OPEN (never silently covered)"
+else no "T-1152f: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_abs="$TMP/t1152-abs"; t1152_fx "$t1152_abs" document-cycle - ''
+_t1152_out="$(t1152_rep "$t1152_abs")"
+if grep -qF '  outline         : (no ## Outline section — gap-centric verdicts kept)' <<<"$_t1152_out" && grep -qF 'exhausted (0)' <<<"$_t1152_out" \
+   && ! grep -qF 'n/a (method: document-cycle' <<<"$_t1152_out"; then
+  ok "T-1152g: a document-cycle corpus with NO ## Outline section keeps the gap-centric verdicts and says so (absent != empty; no fleet regression)"
+else no "T-1152g: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_zero="$TMP/t1152-zero"; t1152_fx "$t1152_zero" document-cycle '' ''
+_t1152_out="$(t1152_rep "$t1152_zero")"
+grep -qF '  outline         : (0 rows — the Outline table is empty)' <<<"$_t1152_out" \
+  && ok "T-1152h: an Outline section with no data rows is a typed empty state, distinct from absent" \
+  || no "T-1152h: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+# non-document corpora are untouched: a normal corpus, and the OTHER method value, keep the gap-centric report.
+t1152_norm="$TMP/t1152-norm"; t1152_fx "$t1152_norm" none '| 1 | item a | subject | B1 | covered |' "$t1152_none_hist"
+t1152_ext="$TMP/t1152-ext"; t1152_fx "$t1152_ext" document-cycle-external '| 1 | item a | subject | B1 | covered |' "$t1152_none_hist"
+_t1152_n="$(t1152_rep "$t1152_norm")"; _t1152_x="$(t1152_rep "$t1152_ext")"
+if grep -qF 'SATURATED (review)' <<<"$_t1152_n" && ! grep -q '^  outline ' <<<"$_t1152_n" && grep -qF 'exhausted (0)' <<<"$_t1152_n" \
+   && grep -qF 'SATURATED (review)' <<<"$_t1152_x" && ! grep -q '^  outline ' <<<"$_t1152_x"; then
+  ok "T-1152i: no method field, and method: document-cycle-external, keep the gap-centric verdicts and print no outline line"
+else no "T-1152i: normal=[$(grep -E 'saturation|next step|  outline ' <<<"$_t1152_n")] external=[$(grep -E 'saturation|  outline ' <<<"$_t1152_x")]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1152: each document-mode branch is load-bearing --"
+  _t1152_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1152_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  t1152_t T1152-NEXT "$t1152_fresh" '/# DOC-NEXT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'BOOTSTRAP \| seed the ## Outline' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-SAT "$t1152_sat" '/# DOC-SAT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'saturation      : n/a \(method: document-cycle' --bad-has 'SATURATED \(review\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-COVERED "$t1152_mix" '/# DOC-COVERED-TOKENS$/s/covered|done|closed/never-matches/' --good-has 'outline         : 3/5 covered' --bad-has 'outline         : 1/5 covered' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
+fi
+
 if [ "$skips" -gt 0 ]; then
   echo "== $pass passed · $fail failed · $skips skipped =="
 else
