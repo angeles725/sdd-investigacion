@@ -11,17 +11,12 @@
 #
 #   hook_stop_wiring_state_var <target-dir>
 #     Sets the GLOBAL $HOOK_WIRING_STATE to exactly one of: wired | wired-off-root | unwired |
-#     absent-settings | unreadable. PRECISE CLAIM (kit r3 review nit — "NEVER forks a subshell"
-#     here previously read as a claim about the whole function, which is wrong: the awk
-#     Stop-scope check a few lines down DOES fork its own subprocess once per call, for every
-#     state — see its own note below): the git-root / off-root check adds NO ADDITIONAL fork on
-#     top of that unavoidable awk fork. What kit issue #1140 round-2 review Blocking 3 actually
-#     fixed: an earlier revision paid a SECOND, extra fork — `$(git ...)` plus `$(cd -P ... &&
-#     pwd -P)` — on every already-'wired' result, the MAJORITY state on the real fleet (measured
-#     13-14 of 17 reachable targets), not a minority. The git-root check below now uses ONLY
-#     builtins — `[ -e ]` tests and parameter-expansion path-walking, no `git` binary, no `$(...)`
-#     command substitution — so a caller iterating many targets (sweep-retros.sh's WIRING-STATUS
-#     fleet pass) pays exactly the one awk fork every state already paid, and nothing more.
+#     absent-settings | unreadable. COST GUARANTEE: exactly one awk fork per call (the Stop-scope
+#     check), for every state; the git-root / off-root check adds no fork — it uses only builtins
+#     (`[ -e ]` tests and parameter-expansion path-walking; no `git` binary, no `$(...)`, no
+#     here-string), so a caller iterating many targets (sweep-retros.sh's WIRING-STATUS fleet
+#     pass) pays one fork per target. (History: kit issue #1140 round-2 review Blocking 3 removed
+#     an earlier second fork on the majority 'wired' state.)
 #     Always returns 0 — callers branch on $HOOK_WIRING_STATE, never on exit status.
 #
 #     NARROWER than the TARGETS.md legend's 'hook' flag definition (kit issue #1108 round 2):
@@ -145,9 +140,14 @@ if ! declare -F _hw_abspath >/dev/null 2>&1; then
       /*) : ;;
       *)  d="$PWD/$d" ;;
     esac
-    local -a _hw_parts
-    IFS='/' read -ra _hw_parts <<< "$d"
-    for part in "${_hw_parts[@]}"; do
+    # Split on '/' with parameter expansion only (kit issue #1153): a `read -ra` over a here-string
+    # needs a $TMPDIR temp file on bash < 5.1 and stops at an embedded newline.
+    local rest="${d#/}" last=0
+    while [ "$last" -eq 0 ]; do
+      case "$rest" in
+        */*) part="${rest%%/*}"; rest="${rest#*/}" ;;
+        *)   part="$rest"; last=1 ;;
+      esac
       case "$part" in
         ''|.) continue ;;
         ..)   result="${result%/*}" ;;
@@ -160,6 +160,8 @@ if ! declare -F _hw_abspath >/dev/null 2>&1; then
 fi
 
 if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
+  # NOTE: when the target AS SPELLED owns a `.git` (RAW-TARGET CHECK below), $HW_GIT_ROOT is the
+  # collapsed target string, a comparison token only; do not read files under it.
   # _hw_find_git_root <dir> : sets $HW_GIT_ROOT to the nearest ancestor of <dir> (inclusive of
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
   # FILE, and this must recognise that too), or "" if none is found before reaching `/` or the
@@ -179,7 +181,10 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # non-root directory (test 14a) does NOT: once the walk needs to climb past the leaf, it climbs
   # the SYMLINK'S OWN textual path, never the resolved target's real ancestors, so the real git
   # root behind the resolved path is never found and the result stays 'wired' — a false negative
-  # (never a false positive; it can only fail to raise a WARN it should have). A genuinely
+  # (that shape only fails to raise a WARN it should have; the one false-positive shape, a symlink
+  # followed by '..' that lands on a git root, is answered by the raw-target check, kit issue #1153
+  # — a symlink followed by '..' that lands on a NON-root directory of a different tree can still
+  # climb the wrong textual ancestors, same root cause, unmeasured). A genuinely
   # INTERMEDIATE symlinked path component (a real directory nested under a symlinked ancestor) is
   # a distinct, currently UNTESTED shape with the same root cause. Resolving either fully needs
   # `realpath`/`pwd -P`, which forks — reintroducing exactly the per-target fork Blocking 3 removed
@@ -195,6 +200,22 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
     # _hw_abspath) and silently never fired. Normalize it through the SAME _hw_abspath.
     if [ -n "${RSDD_HOOK_WIRING_CEILING:-}" ]; then
       _hw_abspath "$RSDD_HOOK_WIRING_CEILING"; ceiling="$HW_ABS_PATH"
+    fi
+    # RAW-TARGET CHECK (kit issue #1153): the kernel resolves '..' AFTER following a symlink but the
+    # textual collapse above does not, so for ".../link/.." the collapsed $d names a different
+    # directory than the one the caller means. If the target AS SPELLED already owns a `.git`, it is
+    # its own git root; answer that before the textual walk can climb past it. The ceiling still
+    # wins for the collapsed path, exactly as in the loop below.
+    local _hw_raw="$1"
+    case "$_hw_raw" in /*) : ;; *) _hw_raw="$PWD/$_hw_raw" ;; esac
+    if { [ -z "$ceiling" ] || [ "$d" != "$ceiling" ]; } && [ -e "$_hw_raw/.git" ]; then  # HOOK-WIRING-RAWGIT-CHECK
+      # COMPARISON TOKEN, NOT A PATH TO READ UNDER: in this branch $d (the textually collapsed
+      # spelling) may name a different directory than the one that owns the `.git`. It is returned
+      # so the sole consumer (hook_stop_wiring_state_var, WIRED-OFF-ROOT-CHECK, which only compares
+      # $HW_GIT_ROOT with the same normalization of the target) sees "target is its own root".
+      # Chosen over the raw spelling because that comparison would never be equal to it.
+      HW_GIT_ROOT="$d"
+      return 0
     fi
     while :; do
       if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK
