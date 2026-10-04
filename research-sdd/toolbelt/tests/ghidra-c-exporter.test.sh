@@ -319,14 +319,17 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   if [[ ! -f "$_BROKEN_FIX" || ! -f "$_HAPPY_FIX" ]]; then
     no "tooth-fix: fixture missing (happy='$_HAPPY_FIX' broken='$_BROKEN_FIX') — cannot run fixture teeth"
   else
+    _fix_extract_failed=0
     for _w in happy:"$_HAPPY_FIX" broken:"$_BROKEN_FIX"; do
-      python3 - "${_w#*:}" "$TMP/th_${_w%%:*}_c.txt" "$TMP/th_${_w%%:*}_log.txt" <<'PY'
+      python3 - "${_w#*:}" "$TMP/th_${_w%%:*}_c.txt" "$TMP/th_${_w%%:*}_log.txt" <<'PY' \
+        || { _fix_extract_failed=1; no "tooth-fix: could not extract the ${_w%%:*} fixture (${_w#*:})"; }
 import json, pathlib, sys
 d = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
 pathlib.Path(sys.argv[2]).write_text(d['c_output'])
 pathlib.Path(sys.argv[3]).write_text(d['summary_line'])
 PY
     done
+    if [ "$_fix_extract_failed" -eq 0 ]; then
 
     # tooth-fix-1: 0 exported → ck_nonzero_exports must go RED.
     tt "tooth-fix-1: ck_nonzero_exports goes RED on broken fixture (0 exported)" 0 1 "$TMP/th_broken_log.txt" \
@@ -347,6 +350,7 @@ PY
     _ck_fn_body_neutral "$TMP/th_broken_c.txt" \
       && ok "tooth-fix-3: neutralized ck_fn_body PASSES on broken fixture (predicate is load-bearing; removal = theater)" \
       || no "tooth-fix-3: neutralized ck_fn_body went RED — neutralization tooth logic error"
+    fi # fixtures extracted
   fi
 
   # ── Slow-lane Ghidra teeth (require real Ghidra run to have completed) ────

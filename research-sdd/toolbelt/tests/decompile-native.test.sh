@@ -203,6 +203,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The _nn_* drivers each run one base scenario in a FRESH dir against the SUT path in $1 and print one
   # anchored KEY_FACT=... line derived from the SAME record file the base test asserts on. They return the
   # wrapper's own exit code, so mutant_tooth's GOOD_RC / BAD_RC are the wrapper's exit codes.
+  # M9: quick mode with an endless 'strings' stub (dir in $2 first on PATH). Prints M9_PIPE=none when the
+  # wrapper exits 0, sigpipe when it dies with 141, epipe when it fails with 'Broken pipe' (runner ignores
+  # SIGPIPE); returns 0 for none, 1 for sigpipe/epipe, the raw rc otherwise (an unclassified failure).
+  # The wrapper's stdout is discarded (40 x 6 KB stub lines); stderr is kept for the crash screen.
+  _nn_m9() {
+    local d rc p=other; d="$(mktemp -d "$ROOT/m9.XXXXXX")"
+    env PATH="$2:$PATH" bash "$1" quick /bin/true >"$d/out" 2>"$d/err"; rc=$?
+    cat "$d/err"; grep '^== strings' "$d/out"
+    if [ "$rc" -eq 0 ]; then p=none
+    elif [ "$rc" -eq 141 ]; then p=sigpipe
+    elif grep -qi 'Broken pipe' "$d/err"; then p=epipe; fi
+    echo "M9_PIPE=$p"
+    case "$p" in none) return 0 ;; sigpipe|epipe) return 1 ;; *) return "$rc" ;; esac
+  }
   # B3: -postScript gets the basename; the caller dir is on -scriptPath.
   _nn_b3() {
     local d rc ps sp h=0 p=OTHER s=0; d="$(mktemp -d "$ROOT/b3.XXXXXX")"
@@ -239,13 +253,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     return "$rc"
   }
   # PDB1: --pdb stages the PDB and imports the binary from pdb-stage/; the staged copy must also exist.
-  _nn_pdb1() {
+  _nn_pdb1() {   # $1 = SUT, $2 = PDB file to stage
     local d rc imp i=DIRECT st=0 h=0; d="$(mktemp -d "$ROOT/pdb1.XXXXXX")"
-    GHIDRA_MAXMEM="" TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" --pdb "$_pdb_src" >/dev/null 2>"$d/err"; rc=$?
+    GHIDRA_MAXMEM="" TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" --pdb "$2" >/dev/null 2>"$d/err"; rc=$?
     cat "$d/err"
     imp="$(awk '/^-import$/{getline; print; exit}' "$d/args" 2>/dev/null)"
     if <<<"$imp" grep -q 'pdb-stage'; then i=STAGE; fi
-    if [ -f "$d/out/pdb-stage/$(basename "$_pdb_src")" ]; then st=1; fi
+    if [ -f "$d/out/pdb-stage/$(basename "$2")" ]; then st=1; fi
     if [ "$i" = STAGE ]; then h=1; fi
     echo "PDB1_FACT=holds:$h import:$i staged:$st"
     return "$rc"
@@ -312,7 +326,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 # head -40 closes the read pipe yes's next write raises SIGPIPE -> exit 141.
 # Pipe-capacity-independent: yes produces infinite output, never exits before SIGPIPE.
 _line="STUB_CONTROLLED_$(printf '%6000s' '' | tr ' ' 'A')"
-yes "$_line"
+# A runner that started with SIGPIPE ignored makes yes see EPIPE (rc 1) instead of dying of the signal;
+# report the same 141 a real strings killed by SIGPIPE would, so the stub behaves alike either way.
+yes "$_line" || exit 141
 STUBEOF
     chmod +x "$_m9_stubdir/strings"
     # Mutant: bare pipeline (SIGPIPE guard removed). Run with the stub strings first on PATH and /bin/true
@@ -321,10 +337,14 @@ STUBEOF
     # section header proves both runs reached the strings stage (a crash before it is not a bite).
     if _nn_stage "$ROOT/mut/m9" "$ROOT/toolbelt/lib/tool-env.sh" \
        && mk "M9 teeth: build" "$SOURCE" "$ROOT/mut/m9/decompile-native.sh" 's/ || { _sp=.*//'; then
-      tt "M9-killed: bare pipeline mutant exits 141 via controlled stub — pipe-capacity-independent" 0 141 \
+      # The driver classifies the pipe outcome, so the bite does not depend on how the runner set SIGPIPE:
+      # default disposition -> yes dies of SIGPIPE (rc 141 = sigpipe); SIGPIPE ignored by the runner ->
+      # yes sees EPIPE ('Broken pipe', rc 1 = epipe). Either way the bare pipeline fails and the driver
+      # returns 1; the original must exit 0 (M9_PIPE=none).
+      tt "M9-killed: bare pipeline mutant dies on the closed pipe via controlled stub — pipe-capacity-independent" 0 1 \
         "$ROOT/mut/m9/decompile-native.sh" --orig "$SUT" \
-        --good-has '^== strings \(first 40\) ==$' --bad-has '^== strings \(first 40\) ==$' --bad-lacks "$CRASH_RE" \
-        -- env PATH="$_m9_stubdir:$PATH" bash @SUT@ quick /bin/true
+        --good-has '^M9_PIPE=none$' --bad-has '^M9_PIPE=(sigpipe|epipe)$' --bad-lacks "$CRASH_RE" \
+        -- _nn_m9 @SUT@ "$_m9_stubdir"
     fi
   fi
   echo "-- M10 mutation: blanket || true swallows genuine strings failure → Q3 must go red --"
@@ -493,7 +513,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
           's|.*# PDB1-STAGE-PATH-SENTINEL.*|    _import_bin="$BIN"  # PDB1-STAGE-PATH-SENTINEL [MUTANT]|'; then
     tt "teeth-pdb1: mutant import path not under pdb-stage — PDB1 detection confirmed" 0 0 "$ROOT/mut/pdb1/decompile-native.sh" \
       --orig "$_mx1_sut" --good-has '^PDB1_FACT=holds:1 import:STAGE staged:1$' \
-      --bad-has '^PDB1_FACT=holds:0 import:DIRECT staged:1$' --bad-lacks "$CRASH_RE" -- _nn_pdb1 @SUT@
+      --bad-has '^PDB1_FACT=holds:0 import:DIRECT staged:1$' --bad-lacks "$CRASH_RE" -- _nn_pdb1 @SUT@ "$_pdb_src"
   fi
 fi
 
