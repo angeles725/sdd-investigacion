@@ -1053,10 +1053,12 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     && _body_n="$(printf '%s\n' "$_body_raw" | scrub_issue_text_count)" \
     || { _scrub_refuse "$_rid" "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
   _title_n="${_title_n#redactions: }"; _body_n="${_body_n#redactions: }"
-  case "$_title_n$_body_n" in
-    ''|*[!0-9]*) _scrub_refuse "$_rid" "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
-                 continue ;;
-  esac
+  # Each count is checked on its OWN (kit issue #1728): a joined test let "" + "3" pass as "3" and the empty
+  # count was then read as 0 — a silent zero.
+  if [ -z "$_title_n" ] || [ -z "$_body_n" ] || [[ "$_title_n" == *[!0-9]* ]] || [[ "$_body_n" == *[!0-9]* ]]; then
+    _scrub_refuse "$_rid" "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
+    continue
+  fi
   # redactions: = replacements made across the two OUTGOING fields. The title is derived from the delta text and
   # the body repeats it, so a datum that appears in both is redacted (and counted) in both: the count is "how
   # many replacements the scrub performed on what would be written", not "distinct secrets" (test 86a pins 5).

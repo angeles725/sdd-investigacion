@@ -18,7 +18,7 @@
 #   email    an email-shaped substring -> `<email>`, unconditionally.
 #   secret   a `KEY=VALUE` assignment whose KEY names a credential (case-insensitive; contains SECRET, TOKEN,
 #            PASSWORD, PASSWD, CREDENTIAL, APIKEY, API_KEY, PRIVATE_KEY, ACCESS_KEY, AUTH, COOKIE, BEARER or
-#            SESSION; AUTHOR is not AUTH) -> `KEY=<redacted>`; a quoted value (double, single or backtick
+#            SESSION; AUTHOR is not AUTH, but AUTHORIZATION is) -> `KEY=<redacted>`; a quoted value (double, single or backtick
 #            quotes) is redacted INSIDE the quotes, which stay: `KEY="<redacted>"`. An unterminated quote
 #            redacts to the end of the line (over-redacts, never leaks). `key: value` prose (`password: x`)
 #            is deliberately NOT matched — too many false positives in retro prose; and a bare credential-shaped token (GitHub ghp_/gho_/ghu_/ghs_/ghr_/
@@ -95,7 +95,7 @@ if ! declare -F scrub_issue_text >/dev/null 2>&1; then
       while (match(line, /[A-Za-z_][A-Za-z0-9_]*=/)) {
         k = substr(line, RSTART, RLENGTH - 1)
         out = out substr(line, 1, RSTART + RLENGTH - 1); line = substr(line, RSTART + RLENGTH)
-        u = toupper(k); gsub(/AUTHOR/, "", u)
+        u = toupper(k); gsub(/AUTHORIZ/, "AUTH_Z", u); gsub(/AUTHOR/, "", u)
         if (u !~ /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|AUTH|COOKIE|BEARER|SESSION)/) continue
         q = substr(line, 1, 1)
         if (q == "\"" || q == "\047" || q == "`") {

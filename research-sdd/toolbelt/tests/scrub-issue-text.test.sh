@@ -117,6 +117,19 @@ for c in '.' '_' '~' '%' '-' '/' 'a' '9'; do
   chk "49 path kept inside a URL/path segment after [$c]" "A${c}/home/u/x B" "A${c}/home/u/x B" 0
 done
 
+# --- #1728: AUTHORIZATION=<value> is a credential assignment (the AUTHOR exclusion must not eat AUTHORIZATION) ---
+chk "50 AUTHORIZATION=opaque is redacted (mid-line)" 'run AUTHORIZATION=opaque123 now' 'run AUTHORIZATION=<redacted> now' 1
+chk "51 AUTHORIZATION= at line START (FIRST position)" 'AUTHORIZATION=opaque123 then text' 'AUTHORIZATION=<redacted> then text' 1
+chk "52 authorization= at line END (LAST position)" 'text then authorization=opaque123' 'text then authorization=<redacted>' 1
+chk "53 AUTHORIZATION= single element (only token on the line)" 'AUTHORIZATION=opaque123' 'AUTHORIZATION=<redacted>' 1
+chk "54 AUTHORIZATION quoted value, lowercase key" 'x authorization="opaque 123" y' 'x authorization="<redacted>" y' 1
+chk "55 prefixed key X_AUTHORIZATION=" 'X_AUTHORIZATION=opaque ok' 'X_AUTHORIZATION=<redacted> ok' 1
+chk "56 AUTH= (plain) still redacted" 'AUTH=opaque ok' 'AUTH=<redacted> ok' 1
+chk "57 AUTHOR=Jane / author= / AUTHOR_NAME= are NOT credentials" 'AUTHOR=Jane author=bob AUTHOR_NAME=Jo' 'AUTHOR=Jane author=bob AUTHOR_NAME=Jo' 0
+chk "58 AUTHORIZATION and AUTHOR on one line: only the credential goes" 'AUTHOR=Jane AUTHORIZATION=opaque' 'AUTHOR=Jane AUTHORIZATION=<redacted>' 1
+chk "59 header form still redacted: first, middle, last" $'Authorization: Bearer abcdefghijklmnop1234\nmid\ncurl -H Authorization: Bearer abcdefghijklmnop1234' $'Authorization: Bearer <redacted>\nmid\ncurl -H Authorization: Bearer <redacted>' 2
+chk "60 AUTHORIZATION=<redacted> is not re-counted" 'AUTHORIZATION=<redacted>' 'AUTHORIZATION=<redacted>' 0
+
 # --- fleet-measured real shape (retros/2026-08-03-document-unregistered-bootstrap-incident.md) ------
 chk "28 fleet shape: prose path in backticks" 'DOCUMENT mode received the arbitrary project path `/home/cristian/TRADINGVIEW`, which was not yet' 'DOCUMENT mode received the arbitrary project path `<path>`, which was not yet' 1
 
@@ -162,6 +175,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "T-quoted-bt: backtick form dead" 'use X_PASSWORD=`two words` ok' 'X_PASSWORD=`<redacted>` ok' 's/ || q == "`"//'
   tooth "T-lowercase: case-sensitive key test → api_key leaks" 'set api_key=zz ok' 'api_key=<redacted> ok' 's/u = toupper(k);/u = k;/'
   tooth "T-author: AUTHOR exclusion dead → author= redacted" 'author=bob ok' 'author=bob ok' 's/gsub(\/AUTHOR\/, "", u)/u = u/'
+  tooth "T-authz: AUTHORIZ guard dropped → AUTHORIZATION= value leaks" 'run AUTHORIZATION=opaque123 now' 'AUTHORIZATION=<redacted> now' 's/gsub(\/AUTHORIZ\/, "AUTH_Z", u); //'
   tooth "T-unterminated: no-closing-quote branch dead" 'GH_TOKEN="open and more' 'GH_TOKEN="<redacted>$' 's/if (e == 0) { v = line; rest = "" ; pre = q }/if (e == 0) { v = ""; rest = line; pre = q }/'
   # fail-closed boundary: reverting to an allowlist leaks `x>/home/..`; dropping a segment character redacts inside a URL/path
   tooth "T-bd-failopen: boundary reverted to an allowlist → '>' prefix leaks" 'x>/home/bob y' 'x><path> y' 's#!~ /\[A-Za-z0-9\._~%\\/-\]/#~ /[[:space:]"(=,]/#'
