@@ -403,63 +403,54 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
 
   # teeth-1: disable scope guard in corroborate_capa.py.
   # Mutation: the raise inside _rules_scope_guard becomes a return (no-op).
-  # T15a then fails: /home is no longer rejected → test exits 1 (RED = teeth confirmed).
+  # The harness then reports "scope guard ALLOWED /home" instead of "rejects broad paths"; the
+  # original must report the latter (mutant_tooth asserts both verdict lines).
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
+  # dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_capa.py"
 
-  # Verify the mutation target exists before applying (abort if SUT changed).
-  if ! grep -qF \
-      'raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc' \
-      "$TOOLBELT/corroborate_capa.py"; then
-    no "teeth-1: mutation target not found in SUT (SUT changed?); cannot prove teeth"
-  else
-    sed 's|raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc|return  # mutant: scope guard disabled|g' \
-      "$TOOLBELT/corroborate_capa.py" > "$_MUT_PY"
-
-    _teeth_rc=0
-    # Pass both the mutant dir and the real toolbelt so lib/ imports resolve correctly.
-    python3 - "$_MUT_DIR" "$TOOLBELT" <<'PY' || _teeth_rc=$?
+  if mutant_chain "teeth-1" "$TOOLBELT/corroborate_capa.py" "$_MUT_PY" \
+      's|raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc|return  # mutant: scope guard disabled|g'; then
+    cat > "$_MUT_DIR/harness.py" <<'PY'
 import sys, importlib.util
 from pathlib import Path
 
-mut_dir  = Path(sys.argv[1]).resolve()
-toolbelt = Path(sys.argv[2]).resolve()
+toolbelt = Path(sys.argv[1]).resolve()
+module_path = Path(sys.argv[2]).resolve()
 
-# Add real toolbelt to sys.path BEFORE importing the mutant so that when the
-# mutant module does `from lib.adapter_core import ...` it finds the real lib/.
-# (The mutant will also insert mut_dir at sys.path[0] during module exec; lib/
-# resolution still falls through to toolbelt when mut_dir/lib/ does not exist.)
+# Add real toolbelt so lib/ imports resolve; the module under test may insert its own dir.
 sys.path.insert(0, str(toolbelt))
 
-spec = importlib.util.spec_from_file_location(
-    "corroborate_capa_mut", mut_dir / "corroborate_capa.py"
-)
+spec = importlib.util.spec_from_file_location("corroborate_capa_under_test", module_path)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-# Run T15a assertion against the mutant module:
-# /home should be rejected (CapaError); with the mutation the guard is disabled.
+# T15a: /home and /home/someuser must be rejected (CapaError).
 for broad in ["/home", "/home/someuser"]:
     try:
         m._rules_scope_guard(Path(broad))
-        # No CapaError raised: mutation disabled the scope guard → assertion fails.
-        print(f"T15a: mutant allowed {broad!r} (no CapaError) — assertion BITES",
-              file=sys.stderr)
-        sys.exit(1)  # test goes RED = teeth confirmed
     except m.CapaError:
-        pass  # scope guard still fires despite mutation → mutation had no effect here
-
-# All broad paths raised CapaError despite mutation → test would stay GREEN → no teeth.
-print("T15a: all broad paths still rejected despite mutation — teeth missing",
-      file=sys.stderr)
-sys.exit(0)  # test stays GREEN = teeth missing
+        continue
+    print(f"VERDICT: scope guard ALLOWED {broad}")
+    sys.exit(0)
+print("VERDICT: scope guard rejects broad paths")
 PY
 
-    if [[ "$_teeth_rc" -ne 0 ]]; then
-      ok "teeth-1: T15a goes RED with mutant scope guard: fast-lane assertion bites"
-    else
-      no "teeth-1: T15a stayed GREEN with mutant: fast-lane assertion has no teeth"
-    fi
+    # The same harness runs on the original (GOOD verdict) and on the mutant (BAD verdict);
+    # both exit 0, so the verdict line is what discriminates them.
+    if mutant_tooth "teeth-1: T15a goes RED with mutant scope guard: fast-lane assertion bites" 0 0 "$_MUT_PY" --orig "$TOOLBELT/corroborate_capa.py" \
+        --good-has 'VERDICT: scope guard rejects broad paths' --bad-has 'VERDICT: scope guard ALLOWED /home' --bad-lacks 'VERDICT: scope guard rejects broad paths' -- \
+        python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
 
   rm -rf "$_MUT_DIR"

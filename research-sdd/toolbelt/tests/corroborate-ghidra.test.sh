@@ -254,47 +254,44 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # teeth-validate-curated: mutate py:208 → dishonest fixture case flips GREEN→RED.
   # Removing the (status=="partial") != partial check lets a dishonest exporter claim
   # status="complete" while truncation=True — the live-module test bites this regression.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutants are python files: skip the bash -n check (empty, identical, live-tree, symlink
+  # and dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
   _mut_dir="$(mktemp -d)"
-  _mut_tooth_rc=0
-  _MUTATION_TARGET='        if (value["status"] == "partial") != partial: raise ValueError'
-  if ! grep -qF "$_MUTATION_TARGET" "$SUT_PY"; then
-    no "teeth-validate-curated: mutation target not found in SUT (SUT changed?)"
-  elif [[ ! -f "$_FIX_DISHONEST" ]]; then
+  if [[ ! -f "$_FIX_DISHONEST" ]]; then
     no "teeth-validate-curated: fixture missing: $_FIX_DISHONEST (run regen first)"
-  else
-    python3 - "$SUT_PY" "$_mut_dir" <<'PY'
-import sys, pathlib
-sut = pathlib.Path(sys.argv[1]); out = pathlib.Path(sys.argv[2]) / "corroborate_ghidra.py"
-old = '        if (value["status"] == "partial") != partial: raise ValueError\n'
-src = sut.read_text()
-assert old in src, "mutation target missing from source after re-read"
-out.write_text(src.replace(old, '        pass  # mutant: status==partial check disabled\n', 1))
-PY
-    python3 - "$TOOLBELT" "$_mut_dir" "$_FIX_DISHONEST" <<'PY' || _mut_tooth_rc=$?
+  elif mutant_chain "teeth-validate-curated" "$SUT_PY" "$_mut_dir/corroborate_ghidra.py" \
+      's/if (value\["status"\] == "partial") != partial: raise ValueError/pass  # mutant: status==partial check disabled/'; then
+    cat > "$_mut_dir/harness.py" <<'PY'
 import sys, importlib.util
 from pathlib import Path
 toolbelt = Path(sys.argv[1]).resolve()
-mut_dir   = Path(sys.argv[2]).resolve()
+module_path = Path(sys.argv[2])
 fix_dishonest = Path(sys.argv[3])
 sys.path.insert(0, str(toolbelt))
-spec = importlib.util.spec_from_file_location("corroborate_ghidra_mut", mut_dir / "corroborate_ghidra.py")
+spec = importlib.util.spec_from_file_location("corroborate_ghidra_under_test", module_path)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 caps = {"functions": 2, "symbols": 2, "imports": 2, "exports": 2,
         "strings": 2, "references": 2, "string_chars": 32}
 val, err = m.validate_curated(fix_dishonest, caps, 65536)
 if val is None and err == ["malformed-curated-output"]:
-    print("dishonest still rejected despite mutation — teeth missing", file=sys.stderr)
-    sys.exit(0)   # stayed GREEN → no teeth
+    print("VERDICT: dishonest REJECTED (malformed-curated-output)")
 else:
-    print(f"dishonest accepted with mutation val={type(val).__name__} err={err!r} — bites",
-          file=sys.stderr)
-    sys.exit(1)   # went RED → has teeth
+    print(f"VERDICT: dishonest ACCEPTED val={type(val).__name__} err={err!r}")
 PY
-    if [[ "$_mut_tooth_rc" -ne 0 ]]; then
-      ok "teeth-validate-curated: py:208 mutation → dishonest flips GREEN→RED (live-module bite)"
-    else
-      no "teeth-validate-curated: py:208 mutation → dishonest stayed GREEN (no teeth)"
-    fi
+    # Original: rejected (rc 0, REJECTED). Mutant: accepted (rc 0, ACCEPTED, no REJECTED).
+    if mutant_tooth "teeth-validate-curated: py:208 mutation → dishonest flips GREEN→RED (live-module bite)" 0 0 \
+        "$_mut_dir/corroborate_ghidra.py" --orig "$SUT_PY" \
+        --good-has 'VERDICT: dishonest REJECTED' --bad-has 'VERDICT: dishonest ACCEPTED' \
+        --bad-lacks 'REJECTED' -- python3 "$_mut_dir/harness.py" "$TOOLBELT" @SUT@ "$_FIX_DISHONEST"; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
   rm -rf "$_mut_dir"
 
@@ -315,17 +312,13 @@ PY
     else ok "teeth: loglink O_NOFOLLOW guard observed as _loglink_rc=2"; fi
     # teeth-warn-ghidra: removing the inline if-guard makes the behavioral test go red.
     td_gh="$(mktemp -d)"
-    python3 - "$HERE/../corroborate_ghidra.py" "$td_gh" <<'PY'
-import sys, pathlib, shutil
-sut = pathlib.Path(sys.argv[1]); td = pathlib.Path(sys.argv[2])
-src = sut.read_text()
-old = '        if completeness not in ("complete","partial"):\n            warn_evidence(schema=SCHEMA, destination=destination, detail=f"completeness={completeness}")\n'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: inline guard not found -- SUT changed?", file=sys.stderr); sys.exit(2)
-shutil.copytree(sut.parent / 'lib', td / 'lib')
-shutil.copy2(sut.parent / 'analysis_manifest.py', td / 'analysis_manifest.py')
-(td / 'corroborate_ghidra.py').write_text(src.replace(old, '', 1))
-PY
+    cp -R "$HERE/../lib" "$td_gh/lib"
+    cp -p "$HERE/../analysis_manifest.py" "$td_gh/analysis_manifest.py"
+    # Delete exactly the two-line inline guard: the `if` line AND the line right after it, only when that next
+    # line is the warn_evidence( call. Any other shape leaves the file unchanged and mutant_chain refuses the
+    # byte-identical mutant loudly — the deletion can never silently grow.
+    mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
+      '/if completeness not in ("complete","partial"):/{N;/\n[[:space:]]*warn_evidence(/d;}'
     mut_rc=$?
     if [ "$mut_rc" -eq 0 ]; then
       mkheadless nonzero
@@ -339,7 +332,7 @@ PY
         && ! grep -q 'ghidra-corroboration.v1' "$td_gh/teeth.err" 2>/dev/null; then
         ok "teeth-warn-ghidra: guard removed → stderr empty → warn-ghidra assertion fires (has teeth)"
       else no "teeth-warn-ghidra: pointer still emitted without guard — NO teeth"; fi
-    else no "teeth-warn-ghidra: mutant setup failed (SUT changed?)"; fi
+    else fail=$((fail+1)); fi  # mutant_chain printed the typed refusal
     rm -rf "$td_gh"
   fi # slow teeth
 

@@ -130,82 +130,59 @@ fi
 # --prove-teeth mutation control
 # ---------------------------------------------------------------------------
 echo "-- teeth: bacnet mutation controls --"
-MUT_PASS=0; MUT_FAIL=0
-mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
-mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+# The mutants are python files: skip the bash -n syntax check (the helper still refuses empty,
+# identical, live-tree and symlink mutants, and a stage that matches nothing).
+export MUTANT_SYNTAX=none
+mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$ORIG_PY" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/corroborate_bacnet.py"
 if [ ! -f "$ORIG_PY" ]; then
   echo "  FAIL(mut)  corroborate_bacnet.py not found: $ORIG_PY"
-  echo "== $pass passed · $fail failed · $MUT_PASS mut-pass · 1 mut-fail =="
+  echo "== $pass passed · $fail failed =="
   exit 1
 fi
 
-# Mutation M1: change sys.exit(3) to sys.exit(0) in the plan-only guard.
-# Expected: plan-only guard exits 0 instead of 3 → T1's exit-3 check fires.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/' "$MUTDIR/corroborate_bacnet.py"
-
-if cmp -s "$ORIG_PY" "$MUTDIR/corroborate_bacnet.py"; then
-  # Fallback: mutation expression did not match — try alternate form.
-  # Include the trailing comma so the mutant stays syntactically valid.
-  cp "$ORIG_PY" "$MUTDIR/corroborate_bacnet.py"
-  sed -i 's/"status": "plan-only",/"status": "live-probe",  # MUTANT-M1/' \
-    "$MUTDIR/corroborate_bacnet.py"
-fi
-
-MUTOUT="$ROOT/mut_t1"
-mkdir -p "$MUTOUT"
-python3 "$MUTDIR/corroborate_bacnet.py" \
-    --host 192.0.2.1 --output "$MUTOUT" 2>/dev/null
-_m1_code=$?
-
-if [ "$_m1_code" -eq 3 ]; then
-  # Mutant still exits 3 — mutation had no effect or wrong fallback
-  mut_no "M1 exit-3 mutation NOT detected (mutant still exits 3)"
-elif [ "$_m1_code" -eq 0 ]; then
-  # Mutant exits 0 — the T1 assertion (code == 3) would fail
-  mut_ok "M1 exit-3 mutation detected: mutant exits 0 (T1 would catch this)"
-else
-  # Any non-zero ≠ 3: the original assertion would also fire (code != 3)
-  mut_ok "M1 exit-3 mutation detected: mutant exits $_m1_code ≠ 3 (T1 would catch this)"
-fi
-
-# Mutation M2: change plan-only status value so schema check (T2) fires.
-# The sed matches the trailing comma too so the mutant stays syntactically valid
-# (a comment after the value would swallow the comma and cause a SyntaxError,
-# detecting a crash rather than a status-value change).
-cp "$ORIG_PY" "$MUTDIR/corroborate_bacnet.py"
-sed -i 's/"plan-only",/"broken-plan",  # MUTANT-M2/' "$MUTDIR/corroborate_bacnet.py"
-# Verify syntactic validity before relying on the mutant's output.
-python3 -m py_compile "$MUTDIR/corroborate_bacnet.py" 2>/dev/null \
-  || { mut_no "M2 mutant is not syntactically valid — check sed expression"; rm -rf "$MUTDIR"; pass=$((pass + MUT_PASS)); fail=$((fail + MUT_FAIL)); echo "== $pass passed · $fail failed =="; exit 1; }
-
-if cmp -s "$ORIG_PY" "$MUTDIR/corroborate_bacnet.py"; then
-  mut_no "M2 status mutation had no effect — check sed expression"
-else
-  MUTOUT2="$ROOT/mut_t2"
-  mkdir -p "$MUTOUT2"
-  python3 "$MUTDIR/corroborate_bacnet.py" \
-      --host 192.0.2.1 --output "$MUTOUT2" 2>/dev/null || true
-  if python3 - "$MUTOUT2/bacnet-evidence.v1.json" <<'PY' 2>/dev/null
+MUTDIR="$ROOT/mutants"; mkdir -p "$MUTDIR"
+# fresh_run.sh ADAPTER.py ARGS... — run the adapter with its own empty --output dir, so the mutant
+# never starts from the original's leftovers. After the run it prints the `status` field of the
+# bacnet-evidence.v1.json artifact written to that dir (the artifact T2 asserts on) as
+# `STATUS: <value>` and exits with the adapter's own exit code. corroborate_bacnet.py imports only the standard
+# library (no sibling module), so a standalone mutant file runs exactly like the original.
+cat > "$MUTDIR/fresh_run.sh" <<'SH'
+#!/usr/bin/env bash
+o="$(mktemp -d)"; trap 'rm -rf "$o"' EXIT
+adapter="$1"; shift
+python3 "$adapter" "$@" --output "$o/out"; rc=$?
+python3 - "$o/out/bacnet-evidence.v1.json" <<'PY'
 import json, sys
-d = json.load(open(sys.argv[1]))
-# This assertion SHOULD FAIL for the mutant (status is "broken-plan", not "plan-only")
-assert d.get('status') == 'plan-only', "status not plan-only"
+try:
+    print("STATUS:", json.load(open(sys.argv[1])).get("status"))
+except (OSError, ValueError) as e:
+    print("STATUS: <no evidence artifact>", e)
 PY
-  then
-    mut_no "M2 status mutation NOT detected (T2 did not fire)"
-  else
-    mut_ok "M2 status mutation detected: T2 schema check would fire"
-  fi
-fi
+exit "$rc"
+SH
 
-rm -rf "$MUTDIR"
+# M1: the plan-only guard exits 0 instead of 3 (T1's exit-3 check). The original must exit
+# EXACTLY 3 and the mutant EXACTLY 0.
+mk_sed "M1 plan-only guard exit code" "$MUTDIR/m1.py" 's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/' \
+  && tooth "teeth: M1 plan-only guard exit 3 -> 0" 3 0 "$MUTDIR/m1.py" --orig "$ORIG_PY" -- \
+       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1
 
-pass=$((pass + MUT_PASS))
-fail=$((fail + MUT_FAIL))
+# M2: the plan-only status value changes (T2's schema check). The sed includes the trailing comma
+# so the mutant stays valid python (a comment would swallow it and turn a status change into a
+# crash). Both runs exit 3; the verdict is the status read from the evidence artifact (same file
+# T2 asserts on): "plan-only" on the original, the mutated value on the mutant.
+mk_sed "M2 plan-only status value" "$MUTDIR/m2.py" 's/"plan-only",/"broken-plan",  # MUTANT-M2/' \
+  && tooth "teeth: M2 plan-only status value" 3 3 "$MUTDIR/m2.py" --orig "$ORIG_PY" \
+       --good-has '^STATUS: plan-only$' --bad-has '^STATUS: broken-plan$' --bad-lacks '^STATUS: plan-only$' -- \
+       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
