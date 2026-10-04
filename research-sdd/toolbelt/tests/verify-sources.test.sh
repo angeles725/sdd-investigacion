@@ -1081,7 +1081,8 @@ ed_degraded rcfail "#1500 BAD: detector exit != 0 is degraded"
 
 # ---------------------------------------------------------------------------
 # #1608 — a File cell that is NOT the verbatim in-block token (prose prefix, a literal "(not committed)",
-# internal blanks) can never match the block text, so the LEVEL 4 cross-check misjudges it. WARN-only: the
+# a parenthetical annotation " (...)") can never match the block text, so LEVEL 4 misjudges it. A bare spaced
+# path is verbatim and must NOT warn (its blank-strip is #1678). WARN-only: the
 # finding itself never changes the exit code (the exit code below is whatever LEVEL 4 decides for the row).
 # Only rows that NAME a block are cross-check candidates; a prose cell with an empty cite cell is not flagged.
 nv_corpus() { # <name> <row...> — a corpus whose B1 exists and cites x.jar; B9 deliberately does not resolve
@@ -1104,8 +1105,12 @@ nv_corpus nv-whole "$(nv_row '(not committed)' B9)"
 nv_check nv-whole 1 0 "#1608 BAD: File cell is literally (not committed)"
 nv_corpus nv-nc-prefix "$(nv_row '(not committed) x.jar' B9)"
 nv_check nv-nc-prefix 1 0 "#1608 BAD: (not committed) prefix on a name"
-nv_corpus nv-prose "$(nv_row 'see x.jar' B9)"
-nv_check nv-prose 1 0 "#1608 BAD: prose-prefixed File cell"
+nv_corpus nv-prose "$(nv_row 'x.jar (build reference)' B9)"
+nv_check nv-prose 1 0 "#1608 BAD: parenthetical annotation on a name"
+nv_corpus nv-spaced "$(nv_row 'sub dir/My File - 95-7756.pdf' B9)"
+nv_check nv-spaced 0 0 "#1608 GOOD: verbatim spaced path (not flagged)"
+nv_corpus nv-plus "$(nv_row 'a/x.jar + b/y.jar' B9)"
+nv_check nv-plus 0 0 "#1608 GOOD: bare A + B cell (no paren, not flagged)"
 nv_corpus nv-paren "$(nv_row '(gone)x.jar' B9)"
 nv_check nv-paren 1 0 "#1608 BAD: parenthesised prefix, no blank"
 nv_corpus nv-ok "$(nv_row 'x.jar' B9)"
@@ -1246,12 +1251,12 @@ SED
   m="$TMP/mutants/NV-OFF.sh"
   mk_sed NV-OFF "$m" "/# NONVERBATIM-FILE-CELL\$/s/case \"\\\$_nv_cell\" in/case \"x\" in/" \
     && tooth "teeth NV-OFF: non-verbatim cell check disabled" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"
-  m="$TMP/mutants/NV-NOPAREN.sh"
-  mk_sed NV-NOPAREN "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]\\*)\$/      *[[:blank:]]*)/" \
-    && tooth "teeth NV-NOPAREN: parenthesised-prefix arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-paren"
-  m="$TMP/mutants/NV-NOBLANK.sh"
-  mk_sed NV-NOBLANK "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]\\*)\$/      '('*)/" \
-    && tooth "teeth NV-NOBLANK: internal-blank arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"
+  m="$TMP/mutants/NV-NOLEAD.sh"
+  mk_sed NV-NOLEAD "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]'('\\*)\$/      *[[:blank:]]'('*)/" \
+    && tooth "teeth NV-NOLEAD: leading-paren arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-paren"
+  m="$TMP/mutants/NV-NOANNOT.sh"
+  mk_sed NV-NOANNOT "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]'('\\*)\$/      '('*)/" \
+    && tooth "teeth NV-NOANNOT: parenthetical-annotation arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"
   m="$TMP/mutants/NV-NOCITEGATE.sh"
   mk_sed NV-NOCITEGATE "$m" "s/^        if grep -qiE '.bB(lock|loque)? ?\\[0-9\\]+' <<< \"\\\$(printf '%s' \"\\\$bcell\" | sed 's\\/(\\[^)\\]\\*)\\/\\/g')\"; then\$/        if true; then/" \
     && tooth "teeth NV-NOCITEGATE: flags rows that name no block" 0 0 "$m" --good-lacks 'is not a verbatim in-block token' --bad-has 'is not a verbatim in-block token' -- bash @SUT@ "$TMP/nv-nocite"

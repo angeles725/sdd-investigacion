@@ -153,14 +153,14 @@ if [ -f "$sources_md" ]; then
     base=$(basename "$file")
     # #1608 — NON-VERBATIM FILE CELL (WARN only, a finding never changes rc). The File cell must be the
     # verbatim in-block token; annotations belong in column 2. A prose prefix, a literal "(not committed)",
-    # or any internal blank can never be found in a block's text, so the cross-check below misjudges the
-    # row. Only rows that NAME a block are cross-check candidates (same B<n> grammar as the loop below).
+    # or a parenthetical annotation " (...)" can never be found in a block's text, so the cross-check below
+    # misjudges the row. A bare spaced path is verbatim and NOT flagged here (its blank-strip is #1678). Only rows that NAME a block are cross-check candidates (same B<n> grammar as the loop below).
     _nv_cell="${fcell//\`/}"
     _nv_cell="${_nv_cell#"${_nv_cell%%[![:blank:]]*}"}"; _nv_cell="${_nv_cell%"${_nv_cell##*[![:blank:]]}"}"
     case "$_nv_cell" in   # NONVERBATIM-FILE-CELL
-      '('*|*[[:blank:]]*)
+      '('*|*[[:blank:]]'('*)
         if grep -qiE '\bB(lock|loque)? ?[0-9]+' <<< "$(printf '%s' "$bcell" | sed 's/([^)]*)//g')"; then
-          printf '   WARN: SOURCES.md File cell [%s] is not a verbatim in-block token (prose prefix / "(not committed)" / internal blanks) — the registry→block cross-check cannot match it; put annotations in column 2\n' "$_nv_cell"
+          printf '   WARN: SOURCES.md File cell [%s] is not a verbatim in-block token (leading "(" / "(not committed)" / parenthetical annotation) — the registry→block cross-check cannot match it; put annotations in column 2\n' "$_nv_cell"
         fi;;
     esac
     # drop free-form parenthetical notes first — an incidental "B12" inside a note (e.g. "(cross-ref vs B12)")
