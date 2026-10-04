@@ -63,6 +63,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   # assertion). A host without exactly that analyzer cannot run them: environmental, so a typed,
   # counted SKIP (run-all counts "  SKIP  "), never a FAIL and never a silent pass (#1588).
   # S4-S12 use RSDD_BINWALK_TEST_ONLY fakes and keep running.
+  _REAL_CASES=(S1 S2 S3)   # the real-binwalk cases a SKIP reports, one line each
   _real_reason=""
   if [ ! -x /usr/bin/binwalk ]; then
     _real_reason="/usr/bin/binwalk not installed (SUT accepts only that path; PATH binwalk: $(command -v binwalk || echo none))"
@@ -87,7 +88,7 @@ C
     printf '\x89PNG\r\n\x1a\n' >>"$ROOT/fixture.bin"
 
     if [ -n "$_real_reason" ]; then
-      for _c in S1 S2 S3; do printf '  SKIP  %s real-binwalk case: %s\n' "$_c" "$_real_reason"; done
+      for _c in "${_REAL_CASES[@]}"; do printf '  SKIP  %s real-binwalk case: %s\n' "$_c" "$_real_reason"; done
     else
       # S1: real Binwalk output is deterministic and target is never executed.
       if run "$ROOT/a" && run "$ROOT/b" \

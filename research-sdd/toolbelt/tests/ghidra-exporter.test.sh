@@ -62,6 +62,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   _JAVA21="$(rsdd_resolve_java_home 2>/dev/null || true)"
 
   _slow_skip=0
+  _SLOW_CASES=(S1 S2 S3 S4 S5 S6)   # the cases a version-gate SKIP reports, one line each
   if [ -z "$_GHIDRA_HOME" ] || [ -z "$_JAVA21" ] || ! rsdd_probe_ghidra "$_GHIDRA_HOME"; then
     echo "SLOW lane: usable Ghidra unavailable; slow-lane tests skipped." >&2
     _slow_skip=1
@@ -80,7 +81,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
         _slow_skip=1 ;;
       12.1.*) ;;
       *)
-        for _c in S1 S2 S3 S4 S5 S6; do
+        for _c in "${_SLOW_CASES[@]}"; do
           printf '  SKIP  slow %s real-Ghidra case: Ghidra 12.1.x required, found %s\n' "$_c" "$_version"
         done
         _slow_skip=1 ;;

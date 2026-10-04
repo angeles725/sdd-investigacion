@@ -56,6 +56,8 @@ _FIX_HAPPY="$(rsdd_lane_fixture jvm-callgraph happy)"
 _FIX_CAPPED="$(rsdd_lane_fixture jvm-callgraph capped)"
 
 _slow_skip=1  # default; set to 0 only when slow lane actually runs
+# Every case that needs the built analyzer jar: the single list a bootstrap-absent SKIP iterates.
+_ANALYZER_CASES=(S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13)
 
 # ---------------------------------------------------------------------------
 # SLOW LANE — real java/mvn build + integration tests
@@ -89,14 +91,14 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     # S1: offline Maven build
     if "$WRAPPER" build >"$ROOT/build.log" 2>&1; then
       ok "S1: offline Java 21 Maven build"
-    elif _verdict="$(rsdd_jvm_build_verdict "$TOOLBELT/jvm-callgraph/pom.xml")"; [[ "$_verdict" == skip:* ]]; then
+    elif _verdict="$(rsdd_jvm_build_verdict)"; [[ "$_verdict" == skip:* ]]; then
       # The environment provably lacks the bootstrap: a coordinate the POM declares is absent from
       # the local Maven repo (jvm-callgraph.sh bootstrap was never run; it needs network). The
       # verdict comes from the environment, never from the build log (a POM typo reads the same
       # in the log). Typed SKIP, one line per analyzer case, so run-all's skipped total is exact.
       # S9/S10/S12 would otherwise "fail closed" vacuously on a missing jar (analyzer-missing
       # exit 3). Never a FAIL and never a silent pass (#1588).
-      for _c in S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13; do
+      for _c in "${_ANALYZER_CASES[@]}"; do
         printf '  SKIP  %s analyzer case: bootstrap absent (%s); run jvm-callgraph.sh bootstrap\n' "$_c" "${_verdict#skip: }"
       done
       _slow_skip=1
@@ -508,45 +510,36 @@ print("RESULT=ok")
   # because edges/xrefs/paths stay True; only the specific assertion fires RED.
   _tooth tooth-F4-nodes "$_FIX_CAPPED" truncated.nodes true false "$_CHK_F4" truncated.nodes
 
-  # Environment-probe controls (#1588): the S1 SKIP-vs-FAIL verdict comes from the environment.
-  # Fake local repos: EMPTY (bootstrap absent) and FULL (every POM coordinate present). With the
-  # bootstrap present, a failing build must yield a fail verdict, not a skip.
+  # Environment-probe controls (#1588): the S1 SKIP-vs-FAIL verdict comes from the environment
+  # (was bootstrap ever run?). Fixture repos: EMPTY dir vs a dir holding the compiler-plugin jar.
   _PROBE_LIB="$TOOLBELT/lib/jvm-offline-probe.sh"
-  _POM="$TOOLBELT/jvm-callgraph/pom.xml"
   # shellcheck source=../lib/jvm-offline-probe.sh
   source "$_PROBE_LIB"
-  mkdir -p "$_MUT/repo-empty" "$_MUT/repo-full"
-  python3 - "$_POM" "$_MUT/repo-full" <<'PY'
-import os, sys
-import xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
-ns = root.tag[:root.tag.index("}") + 1]
-n = 0
-for tag in ("dependency", "plugin"):
-    for el in root.iter(ns + tag):
-        g, a, v = (el.findtext(ns + k) for k in ("groupId", "artifactId", "version"))
-        g = g or ("org.apache.maven.plugins" if tag == "plugin" else None)
-        if g and a and v:
-            d = os.path.join(sys.argv[2], *g.split("."), a, v); os.makedirs(d); open(os.path.join(d, "%s-%s.jar" % (a, v)), "w").close(); n += 1
-assert n > 0
-PY
-  _probe_h='. "$1"; rsdd_jvm_build_verdict "$2" "$3"; echo "rc=$?"'
-  _probe(){ bash -c "$_probe_h" _ "$_PROBE_LIB" "$1" "$2"; }
-  if [[ "$(_probe "$_POM" "$_MUT/repo-empty")" == "skip: "*$'\n'rc=0 ]]; then ok "probe: empty local repo -> typed skip (bootstrap absent)"
-  else no "probe: empty local repo -> typed skip"; fi
-  if [[ "$(_probe "$_POM" "$_MUT/repo-full")" == "fail: bootstrap present"$'\n'rc=1 ]]; then ok "probe: bootstrap present + failing build -> fail verdict, not skip"
+  mkdir -p "$_MUT/repo-empty" "$_MUT/repo-full/org/apache/maven/plugins/maven-compiler-plugin/3.13.0" \
+           "$_MUT/repo-nojar/org/apache/maven/plugins/maven-compiler-plugin/3.13.0"
+  : > "$_MUT/repo-full/org/apache/maven/plugins/maven-compiler-plugin/3.13.0/maven-compiler-plugin-3.13.0.jar"
+  : > "$_MUT/repo-file"
+  _probe_h='. "$1"; rsdd_jvm_build_verdict "$2"; echo "rc=$?"'
+  _probe(){ bash -c "$_probe_h" _ "$_PROBE_LIB" "$1"; }
+  if [[ "$(_probe "$_MUT/repo-empty")" == "skip: "*$'\n'rc=0 && "$(_probe "$_MUT/absent")" == "skip: "*$'\n'rc=0 \
+        && "$(_probe "$_MUT/repo-nojar")" == "skip: "*$'\n'rc=0 ]]; then
+    ok "probe: absent/empty/jar-less local repo -> typed skip (bootstrap never ran)"
+  else no "probe: absent/empty/jar-less local repo -> typed skip"; fi
+  if [[ "$(_probe "$_MUT/repo-full")" == "fail: bootstrap present"$'\n'rc=1 ]]; then
+    ok "probe: bootstrap present + failing build -> fail verdict, not skip"
   else no "probe: bootstrap present -> fail verdict"; fi
-  if [[ "$(_probe "$_MUT/no-such.pom" "$_MUT/repo-empty")" == "fail: probe error:"*$'\n'rc=2 ]]; then ok "probe: unreadable POM -> probe error (fail), never skip"
-  else no "probe: unreadable POM -> probe error"; fi
-  # Mutant: drop the environment probe (every coordinate reads as absent). On a FULL repo the
-  # original says "fail: bootstrap present"; the mutant says "skip: ..." and would mask a real
-  # build failure as a SKIP.
+  if [[ "$(_probe "$_MUT/repo-file")" == "fail: probe error:"*$'\n'rc=2 ]]; then
+    ok "probe: repo path is not a directory -> probe error (fail), never skip"
+  else no "probe: non-directory repo -> probe error"; fi
+  # Mutant: drop the environment probe (the plugin-jar test never matches, so everything reads as
+  # absent). On the FULL repo the original says "fail: bootstrap present"; the mutant says
+  # "skip: ..." and would mask a real build failure as a SKIP.
   export MUTANT_SYNTAX=bash
   if mutant_chain tooth-probe-dropped "$_PROBE_LIB" "$_MUT/probe-mut.sh" \
-       's/if not os.path.isfile(os.path.join(repo, \*g.split("."), a, v, "%s-%s.jar" % (a, v))):/if True:/'; then
+       's/if compgen -G "\$d\*.jar" >\/dev\/null; then/if false; then/'; then
     tt "tooth-probe-dropped: probe removed -> bootstrap-present build failure masked as skip (bites)" 0 0 "$_MUT/probe-mut.sh" \
       --orig "$_PROBE_LIB" --good-has '^fail: bootstrap present$' --bad-has '^skip: ' \
-      --bad-lacks '^fail: bootstrap present$' -- bash -c "$_probe_h" _ @SUT@ "$_POM" "$_MUT/repo-full"
+      --bad-lacks '^fail: bootstrap present$' -- bash -c "$_probe_h" _ @SUT@ "$_MUT/repo-full"
   else fail=$((fail+1)); fi
   export MUTANT_SYNTAX=none
 
