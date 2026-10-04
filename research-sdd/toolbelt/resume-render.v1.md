@@ -15,7 +15,7 @@ writes nothing, edits no doc and invents no field (propose-never-apply).
 | rc | Meaning |
 |---|---|
 | 0 | handoff printed |
-| 2 | usage error; absent/unreadable file; empty input; malformed JSON; wrong `schema`; wrong shape (`worktrees`/`branches` not arrays of objects, `repo` not an object, `prs` not null or an array of objects, `base_ref` not a string); a render failure (`render failed: ...`; the handoff is buffered, so stdout stays empty); `resume-state.sh` failed (rc other than 3) — nothing on stdout |
+| 2 | usage error; absent/unreadable file; empty input; malformed JSON; more than one JSON document; wrong `schema`; wrong shape (`worktrees`/`branches` not arrays of objects, `repo` not an object, `prs` not null or an array of objects, `base_ref` not a string); a render failure (`render failed: ...`; the handoff is buffered, so stdout stays empty); `resume-state.sh` failed (rc other than 3) — nothing on stdout |
 | 3 | DEGRADED: `jq` missing (typed `DEGRADED:` line on stderr), or `resume-state.sh` itself exited 3 |
 
 ## Output sections
@@ -29,6 +29,7 @@ writes nothing, edits no doc and invents no field (propose-never-apply).
 - A missing key is unknown, never a default: only an explicit `repo.remote:null` renders "none configured" (a
   missing key or `repo` renders "remote unknown"), only an explicit `branch:null` renders "detached HEAD" (a
   missing key renders "branch unknown"), and a missing `exists` renders "existence unknown".
+- A worktree `path`, loose-branch `name` or PR `number`/`branch`/`state`/`url` that is null or missing renders `unknown`, never the literal `null`.
 - `--json ""` is rejected (rc 2); it never falls back to self-run mode.
 - A worktree with `exists:false` renders `DIRECTORY MISSING` (plus a prune hint when `prunable`) with unknown counts.
 - PRs: only `prs` an array AND `prs_status:"ok"` is trusted. `[]` renders "No open PRs (gh answered with an

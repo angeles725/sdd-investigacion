@@ -93,7 +93,8 @@ jq '.worktrees[0]|=del(.exists)' "$FX/state-degraded.json" > "$TMP/noex.json"; r
 has "3p missing exists renders unknown, not present" 'existence unknown · dirty 0'
 # shape-valid but the render itself dies (object where a string is expected): rc 2, stdout empty
 REAL_JQ="$(command -v jq)"; mkdir -p "$TMP/badjq"
-printf '#!/bin/sh\ncase "$2" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
+# The stub scans EVERY argv word for the render program, so a reordered jq call cannot slip past it.
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac; done\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
 chmod +x "$TMP/badjq/jq"; cp "$P" "$TMP/e6.json"
 SO="$(PATH="$TMP/badjq:$PATH" timeout 30 bash "$SUT" --json "$TMP/e6.json" 2>"$TMP/e6.err" </dev/null)"; RC=$?
 eq "3q render failure rc" "$RC" 2; eq "3q render failure stdout empty" "$SO" ""
@@ -115,6 +116,19 @@ run --json ""
 eq "3s  empty --json value rc" "$RC" 2; has "3s1 empty --json message" "non-empty"
 run --json "" --no-gh
 eq "3s2 empty --json + forwarded flag rc" "$RC" 2
+
+# 3t. dash-prefixed file name, multi-document input, null identity fields (kit issue #1571)
+mkdir -p "$TMP/dash"; cp "$P" "$TMP/dash/-state.json"
+OUT="$(cd "$TMP/dash" && timeout 30 bash "$SUT" --json -state.json 2>&1 </dev/null)"; RC=$?
+eq "3t  dash-prefixed file renders rc" "$RC" 0; has "3t1 dash-prefixed file rendered" '# Resume handoff'
+cat "$P" "$P" > "$TMP/two.json"; run --json "$TMP/two.json"
+eq "3u  two documents rc" "$RC" 2; has "3u1 two documents typed message" "multiple JSON documents"
+jq '.worktrees[0]|=del(.path)' "$P" > "$TMP/nopath.json"; run --json "$TMP/nopath.json"
+eq "3v  worktree without path rc" "$RC" 0; has "3v1 missing path -> unknown" '- `unknown` — '; lacks "3v2 missing path never renders null" 'null'
+jq '.branches=[{"head":"abcdef0123"}]' "$P" > "$TMP/noname.json"; run --json "$TMP/noname.json"
+has "3w  branch without name -> unknown" '- `unknown` @ abcdef0'; lacks "3w1 missing name never renders null" 'null'
+jq '.prs[0]|=(.number=null|.branch=null|.state=null|.url=null)' "$P" > "$TMP/prnull.json"; run --json "$TMP/prnull.json"
+eq "3x  PR with null fields rc" "$RC" 0; has "3x1 null PR fields -> unknown" '- #unknown `unknown` unknown — unknown'; lacks "3x2 null PR fields never render null" 'null'
 
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
@@ -139,6 +153,15 @@ has "6b --no-gh surfaces as unknown, not none" 'PR list unknown: skipped'
 has "6c untracked file counted" 'untracked 1'
 run --cwd "$TMP/not-a-dir" --no-gh
 eq "6d resume-state failure -> rc 2" "$RC" 2; has "6e failure message" "resume-state.sh failed"
+
+# 6f. resume-state.sh exiting 3 (DEGRADED) propagates as rc 3, not 2 (kit issue #1571): a stub sibling
+mkdir -p "$TMP/st3"; cp "$SUT" "$TMP/st3/resume-render.sh"
+printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$TMP/st3/resume-state.sh"
+OUT="$(timeout 30 bash "$TMP/st3/resume-render.sh" --no-gh 2>&1 </dev/null)"; RC=$?
+eq "6f  resume-state rc 3 propagates as rc 3" "$RC" 3; has "6g propagation names the failure" "resume-state.sh failed (rc 3)"
+printf '#!/bin/sh\nexit 4\n' > "$TMP/st3/resume-state.sh"
+OUT="$(timeout 30 bash "$TMP/st3/resume-render.sh" --no-gh 2>&1 </dev/null)"; RC=$?
+eq "6h  resume-state rc 4 maps to rc 2" "$RC" 2
 
 # 7. read-only: rendering a fixture writes nothing next to it
 before="$(find "$FX" -type f | sort | xargs sha1sum 2>/dev/null)"
@@ -184,6 +207,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt truncation-hidden 0 0 "$MUT/m9.sh" --good-has 'truncated at the gh limit' --bad-lacks 'truncated at the gh limit' -- bash @SUT@ --json "$TMP/trunc.json"
   mk status-ignored "$SUT" "$MUT/m10.sh" 's/ or \.prs_status != "ok" then/ then/' \
     && tt status-ignored 0 0 "$MUT/m10.sh" --good-has 'PR list unknown: skipped' --bad-lacks 'PR list unknown' -- bash @SUT@ --json "$TMP/incons.json"
+  # The rc-3 mutant must run next to a stub resume-state.sh, so the original is copied beside it (--orig).
+  mkdir -p "$MUT/s3"; cp "$SUT" "$MUT/s3/orig.sh"
+  printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$MUT/s3/resume-state.sh"
+  mk rc3-not-propagated "$SUT" "$MUT/s3/m16.sh" 's/^    \[ "\$rc" -eq 3 \] && exit 3$/    :/' \
+    && tt rc3-not-propagated 3 2 "$MUT/s3/m16.sh" --orig "$MUT/s3/orig.sh" --good-has 'resume-state.sh failed \(rc 3\)' --bad-has 'resume-state.sh failed \(rc 3\)' -- bash @SUT@ --no-gh
+  mk dash-file-cat "$SUT" "$MUT/m17.sh" 's/^  cat -- "\$json_src" > "\$tmp"$/  cat "$json_src" > "$tmp"/' \
+    && tt dash-file-cat 0 2 "$MUT/m17.sh" --good-has 'Resume handoff' --bad-has 'empty input' -- bash -c 'cd "$1" && shift && bash "$@"' _ "$TMP/dash" @SUT@ --json -state.json
+  mk multi-doc-accepted "$SUT" "$MUT/m18.sh" 's/^\[ "\$(jq -s length "\$tmp" 2>\/dev\/null)" = 1 \] ||.*$/:/' \
+    && tt multi-doc-accepted 2 2 "$MUT/m18.sh" --good-has 'multiple JSON documents' --bad-lacks 'multiple JSON documents' -- bash @SUT@ --json "$TMP/two.json"
+  mk null-identity-literal "$SUT" "$MUT/m19.sh" 's/def u(v): if v == null then "unknown" else (v|tostring) end;/def u(v): (v|tostring);/' \
+    && tt null-identity-literal 0 0 "$MUT/m19.sh" --good-lacks 'null' --bad-has 'null' -- bash @SUT@ --json "$TMP/prnull.json"
 fi
 
 echo "== $pass passed · $fail failed =="

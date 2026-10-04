@@ -2,8 +2,11 @@
 # resume-render.sh — render the prose resume handoff FROM resume-state JSON (kit issue #1274, slice 2).
 #
 # Read-only and derived: it consumes a research-sdd.resume-state/v1 document (see resume-state.v1.md) and prints
-# concise Markdown. It invents nothing and writes nothing (propose-never-apply). Every null in the document is
+# concise Markdown. It invents nothing and writes nothing (propose-never-apply). A null or missing value is
 # rendered as "unknown", never as 0 or "none": prs null + a non-ok prs_status prints "PR list unknown: <status>".
+# Documented exceptions (resume-render.v1.md): an EXPLICIT repo.remote:null renders "none configured" and an
+# EXPLICIT worktree branch:null renders "detached HEAD" (that is how resume-state encodes them); a MISSING
+# key is always unknown ("remote unknown", "branch unknown").
 #
 # Usage: resume-render.sh [--json FILE|-] [--cwd DIR] [--base-ref REF] [--no-gh]
 #   --json FILE|-   render this document ('-' = stdin); without it the sibling resume-state.sh is run
@@ -50,11 +53,12 @@ elif [ "$json_src" = "-" ]; then
   cat > "$tmp"
 else
   { [ -f "$json_src" ] && [ -r "$json_src" ]; } || { echo "resume-render.sh: JSON file absent or unreadable: $json_src" >&2; exit 2; }
-  cat "$json_src" > "$tmp"
+  cat -- "$json_src" > "$tmp"
 fi
 
 [ -s "$tmp" ] || { echo "resume-render.sh: empty input (no JSON document)" >&2; exit 2; }
 jq -e . "$tmp" >/dev/null 2>&1 || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
+[ "$(jq -s length "$tmp" 2>/dev/null)" = 1 ] || { echo "resume-render.sh: multiple JSON documents in the input (want exactly one)" >&2; exit 2; }
 got="$(jq -r '.schema? // "" | tostring' "$tmp" 2>/dev/null)"
 [ "$got" = "$SCHEMA" ] || { echo "resume-render.sh: wrong schema: [$got] (want $SCHEMA)" >&2; exit 2; }
 jq -e '(.worktrees|type)=="array" and (.branches|type)=="array" and (.base_ref|type)=="string"
@@ -68,10 +72,11 @@ out="$(mktemp)" || { echo "resume-render.sh: mktemp failed" >&2; exit 2; }
 trap 'rm -f "$tmp" "$out" "$out.err"' EXIT
 jq -r '
   def cnt(l; v): if v == null then l + " unknown" else l + " " + (v|tostring) end;
+  def u(v): if v == null then "unknown" else (v|tostring) end;
   def sha(v): if v == null then "unknown" else (v|tostring|.[0:7]) end;
   def ab(o): cnt("ahead"; o.ahead) + " · " + cnt("behind"; o.behind);
   def wt:
-    "- `" + (.path|tostring) + "` — "
+    "- `" + u(.path) + "` — "
     + (if has("branch")|not then "branch unknown"
        elif .branch == null then "detached HEAD" else "branch `" + (.branch|tostring) + "`" end)
     + " @ " + sha(.head) + " · "
@@ -86,7 +91,7 @@ jq -r '
       "PR list unknown: " + ((.prs_status // "prs_status missing")|tostring)
       + (if .prs != null then " (inconsistent: a PR list is present but its status is not ok; not trusted)" else "" end)
     elif (.prs|length) == 0 then "No open PRs (gh answered with an empty list)."
-    else ((.prs[] | "- #" + (.number|tostring) + " `" + (.branch|tostring) + "` " + (.state|tostring) + " — " + (.url|tostring)),
+    else ((.prs[] | "- #" + u(.number) + " `" + u(.branch) + "` " + u(.state) + " — " + u(.url)),
           (if .prs_truncated == true then "- PR list truncated at the gh limit: it may be incomplete."
            elif .prs_truncated == null then "- PR list completeness unknown (prs_truncated null or missing)." else empty end))
     end;
@@ -102,7 +107,7 @@ jq -r '
   "",
   "## Loose branches (" + (.branches|length|tostring) + ")",
   (if (.branches|length) == 0 then "None: every local branch is checked out in a worktree."
-   else (.branches[] | "- `" + (.name|tostring) + "` @ " + sha(.head) + " · " + ab(.)) end),
+   else (.branches[] | "- `" + u(.name) + "` @ " + sha(.head) + " · " + ab(.)) end),
   "",
   "## Open PRs",
   prs,
