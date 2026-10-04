@@ -200,3 +200,27 @@ test('an oversized issue number fails closed; a normal reference beside it still
   assert.equal(result.errors[0].raw, 'Closes #99999999999999999999');
   assert.match(result.errors[0].reason, /malformed/i);
 });
+
+test('emphasis-wrapped references still count (GitHub closes them)', () => {
+  const cases = [
+    ['**Closes #12**', [closing(12)]],
+    ['*Refs #12*', [nonClosing(12)]],
+    ['_Fixes #3_', [closing(3)]],
+    ['~~Resolves #4~~', [closing(4)]],
+    ['**_Closes #5_**', [closing(5)]],
+  ];
+  for (const [body, references] of cases) {
+    assert.deepEqual(parseLinkedIssues(body), ok(...references), body);
+  }
+  const bad = parseLinkedIssues('**Closes #abc**');
+  assert.equal(bad.errors.length, 1, 'emphasized malformed reference must fail closed');
+  assert.match(bad.errors[0].reason, /malformed/i);
+});
+
+test('comment and fence markers are inert inside each other', () => {
+  assert.deepEqual(parseLinkedIssues('<!--\n```\n-->\nCloses #9'), ok(closing(9)));
+  assert.deepEqual(parseLinkedIssues('```\n<!--\n```\nCloses #9'), ok(closing(9)));
+  assert.deepEqual(parseLinkedIssues('<!--\n```\nCloses #1\n-->\nCloses #9\n```\nCloses #2'), ok(closing(9)));
+  assert.deepEqual(parseLinkedIssues('```\n<!-- Closes #1\n```\nCloses #9\n-->'), ok(closing(9)));
+  assert.deepEqual(parseLinkedIssues('a <!-- c --> Closes #8 <!-- d -->'), ok(closing(8)));
+});

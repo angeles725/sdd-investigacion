@@ -58,7 +58,7 @@ jobs:
             if (references.length === 0) {
               core.setFailed(
                 '❌ PR must reference an approved issue.\n' +
-                'Add "Closes #N", "Fixes #N", "Resolves #N" or "Refs #N" to the PR body.\n' +
+                'Add "Closes #N", "Fixes #N", "Resolves #N" or "Refs #N" (a colon after the keyword is fine) to the PR body.\n' +
                 'References inside HTML comments (<!-- ... -->) or code fences do not count.\n' +
                 'See CONTRIBUTING.md for the full contribution workflow.'
               );

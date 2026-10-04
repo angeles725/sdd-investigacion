@@ -12,7 +12,9 @@ const KEYWORDS = `${CLOSING_KEYWORDS}|${NON_CLOSING_KEYWORDS}`;
 
 // Valid references end at whitespace or common Markdown punctuation. Every
 // other suffix (for example, #12/extra) is malformed rather than #12.
-const VALID_REFERENCE_END = String.raw`$|[\s.,;:!?)}\]'"\`]`;
+// Emphasis delimiters (`**`, `*`, `~~`, and `_` when it closes the token) also
+// end a reference: GitHub closes the issue for `**Closes #12**`.
+const VALID_REFERENCE_END = String.raw`$|[\s.,;:!?)}\]'"\`*~]|_(?!\w)`;
 
 // GitHub's documented syntax puts whitespace after the keyword; the colon form
 // is accepted as well, fail-closed: a colon reference must name an approved
@@ -20,50 +22,70 @@ const VALID_REFERENCE_END = String.raw`$|[\s.,;:!?)}\]'"\`]`;
 const SEPARATOR = String.raw`:?\s+`;
 
 const REFERENCE_PATTERN = new RegExp(
-  `\\b(${KEYWORDS})${SEPARATOR}#(\\d+)(?=${VALID_REFERENCE_END})`,
+  `(?<![A-Za-z0-9])(${KEYWORDS})${SEPARATOR}#(\\d+)(?=${VALID_REFERENCE_END})`,
   'gi'
 );
 
 // owner/repo#N fails closed; non-overlapping token classes bound each match
 // to a linear scan, and the approval gate resolves only base-repo issues.
 const CROSS_REPO_PATTERN = new RegExp(
-  `\\b(${KEYWORDS})${SEPARATOR}[^\\s#\\/]*\\/[^\\s#]*#\\S*`,
+  `(?<![A-Za-z0-9])(${KEYWORDS})${SEPARATOR}[^\\s#\\/]*\\/[^\\s#]*#\\S*`,
   'gi'
 );
 
 // Catch keyword + invalid `#` tokens and numeric suffixes that are not valid
 // reference delimiters.
 const MALFORMED_PATTERN = new RegExp(
-  `(?<![^\\s"'[(])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
+  `(?<![^\\s"'[(*_~])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
   'gi'
 );
 
-// An HTML comment runs to `-->` or EOF, matching GitHub's rendering; an
-// unclosed `<!--` hides the remaining references from reviewers.
-const HTML_COMMENT_PATTERN = /<!--[\s\S]*?(?:-->|$)/g;
-
-function stripHtmlComments(body) {
-  return (body || '').replace(HTML_COMMENT_PATTERN, '');
-}
-
-// A fenced code block opens at a line of 3+ backticks or tildes (up to 3 spaces
-// of indent) and closes at a line of the same character at least as long, or at
-// EOF (an unclosed fence hides the rest, as on GitHub). Fenced text is not prose.
-function stripFencedCode(body) {
+// Hidden-text stripper: ONE line-scanning state machine tracking two states,
+// in-comment and in-fence, so a marker inside the other construct is inert.
+//  - in-fence: opened by a line of 3+ backticks/tildes (up to 3 spaces indent),
+//    closed by a line of the same character at least as long, or EOF. A `<!--`
+//    inside a fence is code, not a comment.
+//  - in-comment: opened by `<!--`, closed by `-->` or EOF (GitHub renders an
+//    unclosed comment as hiding the rest). A ``` line inside a comment is not a
+//    fence opener.
+// Text after a `-->` on the same line is visible again.
+function stripHiddenText(body) {
   const out = [];
   let fence = null;
-  for (const line of (body || '').split('\n')) {
-    if (fence === null) {
+  let inComment = false;
+  for (const line of String(body || '').split('\n')) {
+    if (fence !== null) {
+      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (!inComment) {
       const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
       if (open) {
         fence = open[1];
         continue;
       }
-      out.push(line);
-    } else {
-      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
     }
+    let visible = '';
+    let rest = line;
+    for (;;) {
+      if (inComment) {
+        const end = rest.indexOf('-->');
+        if (end === -1) break;
+        inComment = false;
+        rest = rest.slice(end + 3);
+      } else {
+        const start = rest.indexOf('<!--');
+        if (start === -1) {
+          visible += rest;
+          break;
+        }
+        visible += rest.slice(0, start);
+        inComment = true;
+        rest = rest.slice(start + 4);
+      }
+    }
+    if (!inComment || visible !== '' || line === '') out.push(visible);
   }
   return out.join('\n');
 }
@@ -77,7 +99,7 @@ function kindFor(keyword) {
 function parseLinkedIssues(body) {
   // GitHub web-form bodies arrive with CRLF; a fence close line ending in \r would never match.
   const normalized = String(body || '').replace(/\r\n?/g, '\n');
-  const visible = stripHtmlComments(stripFencedCode(normalized));
+  const visible = stripHiddenText(normalized);
   const references = [];
   const errors = [];
 
@@ -126,4 +148,4 @@ function parseLinkedIssues(body) {
   return { references, errors };
 }
 
-module.exports = { parseLinkedIssues, stripHtmlComments, stripFencedCode };
+module.exports = { parseLinkedIssues, stripHiddenText };
