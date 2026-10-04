@@ -3071,7 +3071,7 @@ Before the remote becomes PUBLIC, declare the vendor package prefixes and paths 
 `<TARGET>/.research-sdd/vendor-leak.conf` (`prefix` / `path` / `allow`; `allow` wins). `research-sdd-init.sh`
 probes the push remote's visibility after a full scaffold: on PUBLIC it scaffolds a stub conf and proposes a CI
 workflow (written only with `--wire`). Known gap (issue #1566): a stub with no declarations is `EMPTY-CONF`,
-exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*.so` `*.exe`) — a clean run
+exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*.so` `*.so.N` `*.exe`) — a clean run
 over an undeclared stub says nothing about decompiled vendor source.
 
 **Terminal no-garbage check (report-only).** Before closing a focus or campaign (§8 STOP), run
@@ -4243,7 +4243,9 @@ most 400 authored lines cut only at commit boundaries) and review slice N while 
 Slices are immutable once their review starts: a correction is a NEW commit with its own review, and the plan
 is then stale — re-plan from the reviewed boundary. Review each slice against a fixed base
 (`--base-ref <the slice's base=>`, or `$(git merge-base HEAD origin/main)` captured once), never a moving
-`origin/main`: a moving base shows merged sibling PRs as reverts.
+`origin/main`: a moving base shows merged sibling PRs as reverts. `--committed-only --base-ref <base>` reviews up
+to HEAD, so pin HEAD at the slice's last sha (e.g. a worktree checked out there) while later commits exist; a
+`base=ROOT` slice cannot be reviewed through `--base-ref` — review it inside a wider range (see PROMPT-LOOP).
 
 **Handoff discipline.** Each role-to-role handoff names the FILES delivered and their exact status
 (matching CLAUDE.md §3 cross-session ordering rule: name file sets, not unit names). A handoff that
