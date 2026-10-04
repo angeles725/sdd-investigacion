@@ -285,6 +285,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n' > "$kit/tool-registry.md"
   # Literal string replace via python3 (regex escaping of `[$0]` in sed is a false-friend hazard —
   # exact-substring replace sidesteps it entirely).
+  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
   python3 -c "
 import sys
 src = open('$SUT').read()
@@ -311,6 +312,7 @@ open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
     > "$kit/INSTALLED-TOOLS.md"
   printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\nlong capacity build note\n' \
     > "$kit/tool-registry.md"
+  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
   python3 -c "
 src = open('$SUT').read()
 old = 'grep -qiwF'
@@ -359,6 +361,7 @@ open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
   { printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
     printf '| JAR decompile | Vineflower direct |\n'
   } > "$kit/tool-registry.md"
+  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
   python3 -c "
 src = open('$SUT').read()
 old = 'grep -qiwF'
