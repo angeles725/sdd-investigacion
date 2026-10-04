@@ -23,14 +23,18 @@
 #       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR (ONLY with
 #       --strict-ephemeral; otherwise a WARN EPHEMERAL?, exit unchanged) a cited path is ephemeral — under /tmp,
 #       /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite form, [CERT*] or not; a line
-#       carrying a `sha256` anchor — the §5 beautified-temp view — is exempt, as an INFO; a line ending with
+#       carrying a REAL sha256 anchor — the word `sha256` AND a 64-hex digest on that same line, the word alone
+#       is NOT an anchor — the §5 beautified-temp view, is exempt, as an INFO; a line ending with
 #       `<!-- ephemeral-ok: <reason> -->` waives it per line as an INFO, the reason is mandatory and an empty one
 #       leaves the finding standing plus a typed `invalid marker` line; default flips to FAIL next minor), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
 #       sha256 differs from the file's (MANIFEST!, kit #1207; only when the corpus has >= 1 manifest — with none
-#       the line is `INFO no SCRIPTS-MANIFEST`) · 2 = bad args.
+#       the line is `INFO no SCRIPTS-MANIFEST`; a failed manifest scan is the typed `DEGRADED manifest scan failed`
+#       line with exit 1, like the other operational degraded states here — never read as "no manifest") · 2 = bad args.
 #   SCRIPTS-MANIFEST.md (one per sources/probes/<dir>/, kit #1207) — a markdown table, one row per preserved script:
 #       | script | sha256 | run/step | block | executed-on | remote-sha256 | role |
-#     script = file name or path relative to the manifest dir · sha256 = 64 hex of the preserved file · run/step =
+#     script = file name or path relative to the manifest dir (resolved against THAT manifest's directory and
+#     matched to the cited path; a row in another probes dir never lists this dir's script — a bare name also
+#     matches its own dir only; a cell starting with `sources/` is target-relative) · sha256 = 64 hex of the preserved file · run/step =
 #     the exact command (with arguments) or step number that ran it · block = B<N> that relies on it · executed-on =
 #     host/device where it ran · remote-sha256 = digest of the copy that ran remotely (or `-`) ·
 #     role = EXECUTED | RECIPE | FAILED-ATTEMPT. Only columns 1-2 are machine-checked; the rest is for humans.
@@ -664,9 +668,16 @@ else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict
 #     A script cite is the cited path matched by basename against the first cell of a row (any manifest).
 _vb_mf_n=0; _vb_mf_deg=0
 _vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\b' "$block" | sort -u)
-_vb_mf_files=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null | sort)
+_vb_mf_files=""; _vb_mf_frc=0
+if [ -d "$target/sources/probes" ]; then
+  _vb_mf_raw=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null; echo "@@RC=$?")   # VB-MF-FIND-RC
+  _vb_mf_frc=${_vb_mf_raw##*@@RC=}
+  _vb_mf_files=$(printf '%s\n' "${_vb_mf_raw%@@RC=*}" | grep . | sort)
+fi
 echo "-- preserved-script manifest (kit #1207: SCRIPTS-MANIFEST.md rows with sha256) --"
-if [ -z "$_vb_mf_files" ]; then
+if [ "$_vb_mf_frc" != 0 ]; then
+  echo "   ERROR: DEGRADED manifest scan failed (find exit $_vb_mf_frc under $target/sources/probes) — cited scripts NOT manifest-checked"; rc=1; _vb_mf_deg=1
+elif [ -z "$_vb_mf_files" ]; then
   echo "   INFO    no SCRIPTS-MANIFEST under $target/sources/probes — preserved-script cites are not manifest-checked ($( [ -n "$_vb_mf_cites" ] && printf '%s' "$_vb_mf_cites" | grep -c . || echo 0) cited)"
 elif [ -z "$_vb_mf_cites" ]; then
   echo "   (none — no preserved script cited under sources/probes/; manifests present: $(printf '%s\n' "$_vb_mf_files" | grep -c .))"
@@ -676,20 +687,27 @@ else
   if [ -z "$_vb_mf_sha" ]; then
     echo "   ERROR: manifest check DEGRADED (neither sha256sum nor shasum on PATH) — cited scripts NOT checked"; rc=1; _vb_mf_deg=1
   else
-    # rows: `<basename>\t<sha256 lowercase>` for every table row whose 2nd cell is a 64-hex digest
+    # rows: `<target-relative path>\t<sha256 lowercase>` for every table row whose 2nd cell is a 64-hex digest. The
+    # script cell is resolved against ITS manifest's dir (a `sources/…` cell is already target-relative); the bare
+    # basename inside that same dir is emitted too, so `a.sh` and `./a.sh` both list sources/probes/<dir>/a.sh.
     _vb_mf_rows=$(while IFS= read -r _vb_mf_f; do
-      awk -F'|' '
+      _vb_mf_md=${_vb_mf_f#"$target"/}; _vb_mf_md=${_vb_mf_md%/*}
+      awk -F'|' -v md="$_vb_mf_md" '
         /^[[:space:]]*\|/ {
           a = $2; b = $3
           gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
-          n = split(a, parts, "/"); a = parts[n]
-          if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) print a "\t" tolower(b)   # VB-MF-ROW
+          sub(/^\.\//, "", a)
+          n = split(a, parts, "/")
+          if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) {   # VB-MF-ROW
+            full = (a ~ /^sources\//) ? a : md "/" a
+            print full "\t" tolower(b)
+            print md "/" parts[n] "\t" tolower(b)
+          }
         }' "$_vb_mf_f"
     done <<<"$_vb_mf_files")
     while IFS= read -r _vb_mf_c; do
       [ -z "$_vb_mf_c" ] && continue
-      _vb_mf_b=${_vb_mf_c##*/}
-      _vb_mf_want=$(awk -F'\t' -v b="$_vb_mf_b" '$1 == b { print $2 }' <<<"$_vb_mf_rows")   # VB-MF-LOOKUP
+      _vb_mf_want=$(awk -F'\t' -v b="$_vb_mf_c" '$1 == b { print $2 }' <<<"$_vb_mf_rows")   # VB-MF-LOOKUP
       if [ -z "$_vb_mf_want" ]; then
         echo "   MANIFEST!  $_vb_mf_c  (no valid SCRIPTS-MANIFEST row for this script — add script|sha256|run/step|block|executed-on|remote-sha256|role)"; rc=1; _vb_mf_n=$((_vb_mf_n+1)); continue
       fi

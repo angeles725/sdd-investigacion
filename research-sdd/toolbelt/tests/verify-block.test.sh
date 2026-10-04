@@ -1418,7 +1418,19 @@ mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1207 GOOD: single-row manifes
 mf_corpus onebad "Ran \`sources/probes/b1/a.sh\` then \`sources/probes/b1/c.sh\`"; mf_manifest b1 a.sh @a.sh
 mf_check 1 'MANIFEST!  sources/probes/b1/c.sh' "#1207 BAD: last of two cited scripts lacks a row"
 mf_corpus othermf "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b2 a.sh @a.sh
-mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: row found in a manifest of another probes dir"
+mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(no valid SCRIPTS-MANIFEST row' "#1207 BAD: a row in another probes dir does not list this dir's script"
+mf_corpus othermf-full "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b2 sources/probes/b1/a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: a target-relative sources/ cell in another dir's manifest lists it"
+mf_corpus nested "Ran \`sources/probes/b1/sub/n.sh\`"; mkdir -p "$MFD/sources/probes/b1/sub"; printf 'echo n\n' > "$MFD/sources/probes/b1/sub/n.sh"
+{ echo "| script | sha256 |"; echo "|---|---|"; echo "| \`sub/n.sh\` | $(mf_sha "$MFD/sources/probes/b1/sub/n.sh") |"; } > "$MFD/sources/probes/b1/SCRIPTS-MANIFEST.md"
+mf_check 0 'manifest-ok  sources/probes/b1/sub/n.sh' "#1207 GOOD: a nested cell resolves relative to its manifest dir"
+mf_corpus dotslash "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b1 ./a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: ./a.sh cell lists a.sh"
+mkdir -p "$TMP/stub-bin-mf"; printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && exit 1; done\nexec %s "$@"\n' "$(command -v find)" > "$TMP/stub-bin-mf/find"; chmod +x "$TMP/stub-bin-mf/find"
+mf_corpus findfail "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b1 a.sh @a.sh
+MFD_FF="$MFD"
+out="$(PATH="$TMP/stub-bin-mf:$PATH" bash "$SUT" "$MFD/block.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'DEGRADED manifest scan failed' <<<"$out" && ! grep -q 'INFO    no SCRIPTS-MANIFEST' <<<"$out"; } && ok "#1207 BAD: failed manifest scan is typed DEGRADED (exit 1), not 'no manifest'" || no "#1207: manifest find failure (rc=$got)"
 mf_corpus noscript "Plain claim [CERT] \`src/x.c:1\`"; mf_manifest b1 a.sh @a.sh
 mf_check 0 'none — no preserved script cited' "#1207 GOOD: manifests present, no script cited -> explicit none line"
 mf_corpus proseend "Ran sources/probes/b1/a.sh." ; mf_manifest b1 a.sh @a.sh
@@ -1927,6 +1939,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-mf-row: 64-hex length check dropped --"
   if mk_sed "teeth-mf-row" "$MUT/mfr.sh" '/# VB-MF-ROW$/s/ \&\& length(b) == 64//'; then
     tooth "teeth-mf-row" 1 1 "$MUT/mfr.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-shortsha/block.md"
+  fi
+  echo "-- teeth-mf-findrc: manifest scan status ignored --"
+  if mk_sed "teeth-mf-findrc" "$MUT/mffr.sh" 's/_vb_mf_frc=\${_vb_mf_raw##\*@@RC=}/_vb_mf_frc=0/'; then
+    tooth "teeth-mf-findrc" 1 0 "$MUT/mffr.sh" --good-has 'DEGRADED manifest scan failed' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-mf:$PATH" bash @SUT@ "$MFD_FF/block.md"
+  fi
+  echo "-- teeth-mf-dir: lookup falls back to basename across ALL manifests --"
+  if mk_sed "teeth-mf-dir" "$MUT/mfd.sh" '/# VB-MF-LOOKUP$/s/\$1 == b/1/'; then
+    tooth "teeth-mf-dir" 1 0 "$MUT/mfd.sh" --good-has 'MANIFEST!' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-othermf/block.md"
   fi
   echo "-- teeth-mf-rc: manifest findings no longer flip the exit code --"
   if mk_sed "teeth-mf-rc" "$MUT/mfrc.sh" 's/(manifest sha256 differs from the file.s: \${_vb_mf_have:0:16})"; rc=1;/(manifest sha256 differs from the file'"'"'s: ${_vb_mf_have:0:16})";/'; then

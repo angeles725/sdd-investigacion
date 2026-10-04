@@ -186,11 +186,11 @@ for ((_i = 0; _i < _slast; _i++)); do
 done
 
 # _mentions <basename> <file>: whole-path-component mention (never a bare substring: run.sh is not prerun.sh,
-# out is not layout). Before: start, '/', blank, backtick or '('. After: end, blank, backtick, ')' , ',:;!?' or a
-# '.' that ends the sentence. Returns grep's status (0 found, 1 none, 2 error).
+# out is not layout). Before: start, '/', blank, backtick, quotes, brackets, '|', '<', '>' or '('. After: end, blank,
+# backtick, quotes, brackets, '|', '<', '>', ')' , ',:;!?' or a '.' that ends the sentence. Returns grep's status (0 found, 1 none, 2 error).
 _mentions() {
   local re; re="$(printf '%s' "$1" | sed 's#[][\.*^$+?(){}|/]#\\&#g')" || return 2
-  grep -qE -- "(^|[/[:space:]\`(])${re}(\$|[[:space:]\`),:;!?]|\.(\$|[[:space:]]))" "$2"
+  grep -qE -- "(^|[][/[:space:]\`(\"'|<>])${re}(\$|[][[:space:]\`)\"',:;!?|<>]|\.(\$|[[:space:]]))" "$2"
 }
 # ---- (c)/(d) scratchpad artifacts a block mentions, scripts with no manifest row (kit #1207) --------
 SCRATCH_STATE="not set"

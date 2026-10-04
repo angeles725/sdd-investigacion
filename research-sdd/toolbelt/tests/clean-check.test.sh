@@ -304,6 +304,16 @@ CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { has "$SP/probe.log cited" && has "$SP/other.dat cited"; } && ok "#1207 boundary: sentence-final period and path:line mentions match" || no "period / path:line" "($OUT)"
 if has "$SP/probe.lo cited"; then no "#1207 boundary: probe.lo must not match probe.log" "($OUT)"; else ok "#1207 boundary: a prefix of a longer name does not match"; fi
 
+# quoted / bracketed / unpadded-table citations (RDD round 2)
+for _form in '"x.sh"' "'x.sh'" '[x.sh]' '[label](x.sh)' '|x.sh|' '<x.sh>' '(x.sh)'; do
+  cc_scratch "see $_form here"; printf 'x\n' > "$SP/x.sh"
+  CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+  has "UNPRESERVED-ARTIFACT $SP/x.sh cited by notes/b1.md" && ok "#1207 boundary: mention written as $_form matches" || no "boundary form $_form" "($OUT)"
+done
+cc_scratch "see xx.sh and x.shx and .x.sh"; printf 'x\n' > "$SP/x.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT"; then no "#1207 boundary: xx.sh / x.shx / .x.sh are not x.sh" "($OUT)"; else ok "#1207 boundary: look-alike names still do not match"; fi
+
 # manifest: first cell, exact
 cc_scratch "nothing mentioned"
 printf 'echo\n' > "$SP/run.sh"
