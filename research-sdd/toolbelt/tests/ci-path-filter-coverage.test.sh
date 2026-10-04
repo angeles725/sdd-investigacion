@@ -351,6 +351,16 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: verify derivation reads parity test and asymmetry is detected --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  # Mutated-workflow builds (teeth B, C) go through lib/mutant.sh (kit issue #1299), sourced only on
+  # this path. mutant_built refuses an empty or byte-identical result (an awk filter that matched
+  # nothing); a refused build is counted ONCE and its observation never runs. The workflow is YAML,
+  # so MUTANT_SYNTAX=none. The remaining teeth (D-Q) mutate nothing on disk: they redefine this
+  # suite's OWN in-process functions (live_lines, strip_kit_literals, the *_RE variables) and
+  # compare derivations, so there is no mutant file to build and they keep their observations.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mk_built() { MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
 
   # Teeth A: stub parity test with an extra known input; derivation must include it.
   # This proves ci-path-filter-coverage.test.sh reads the live parity test at runtime,
@@ -379,17 +389,19 @@ STUB_EOF
     in_pr && /\.claude\/settings\.json/ { next }
     { print }
   ' "$WORKFLOW" > "$TMP/asymmetric.yml"
+  if mk_built "teeth B: asymmetric workflow mutant" "$WORKFLOW" "$TMP/asymmetric.yml"; then
 
-  asym_push="$(extract_trigger_paths "$TMP/asymmetric.yml" push)"
-  asym_pr="$(extract_trigger_paths "$TMP/asymmetric.yml" pull_request)"
-  asym_in_push=0; asym_in_pr=0
-  if input_covered_in ".claude/settings.json" "$asym_push"; then asym_in_push=1; fi
-  if input_covered_in ".claude/settings.json" "$asym_pr"; then asym_in_pr=1; fi
+    asym_push="$(extract_trigger_paths "$TMP/asymmetric.yml" push)"
+    asym_pr="$(extract_trigger_paths "$TMP/asymmetric.yml" pull_request)"
+    asym_in_push=0; asym_in_pr=0
+    if input_covered_in ".claude/settings.json" "$asym_push"; then asym_in_push=1; fi
+    if input_covered_in ".claude/settings.json" "$asym_pr"; then asym_in_pr=1; fi
 
-  if [ "$asym_in_push" -eq 1 ] && [ "$asym_in_pr" -eq 0 ]; then
-    ok "teeth B: push/pull_request asymmetry detected (.claude/settings.json in push only — PR gap caught)"
-  else
-    no "teeth B: asymmetry NOT detected (push=$asym_in_push pr=$asym_in_pr) — per-block check is theater"
+    if [ "$asym_in_push" -eq 1 ] && [ "$asym_in_pr" -eq 0 ]; then
+      ok "teeth B: push/pull_request asymmetry detected (.claude/settings.json in push only — PR gap caught)"
+    else
+      no "teeth B: asymmetry NOT detected (push=$asym_in_push pr=$asym_in_pr) — per-block check is theater"
+    fi
   fi
 
   # Teeth C: drop the skills glob from the pull_request block only; doc gap must surface.
@@ -399,11 +411,13 @@ STUB_EOF
     in_pr && /research-sdd\/skills\/\*\*/ { next }
     { print }
   ' "$WORKFLOW" > "$TMP/nodoc.yml"
-  nd_gaps="$(doc_gaps "$(extract_trigger_paths "$TMP/nodoc.yml" push)" "$(extract_trigger_paths "$TMP/nodoc.yml" pull_request)")"
-  if grep -q '^pull_request: research-sdd/skills/' <<< "$nd_gaps" && ! grep -q '^push:' <<< "$nd_gaps"; then
-    ok "teeth C: removing skills path from pull_request block is detected as a doc gap"
-  else
-    no "teeth C: doc gap NOT detected after removing skills filter — doc check is theater"
+  if mk_built "teeth C: no-skills-doc workflow mutant" "$WORKFLOW" "$TMP/nodoc.yml"; then
+    nd_gaps="$(doc_gaps "$(extract_trigger_paths "$TMP/nodoc.yml" push)" "$(extract_trigger_paths "$TMP/nodoc.yml" pull_request)")"
+    if grep -q '^pull_request: research-sdd/skills/' <<< "$nd_gaps" && ! grep -q '^push:' <<< "$nd_gaps"; then
+      ok "teeth C: removing skills path from pull_request block is detected as a doc gap"
+    else
+      no "teeth C: doc gap NOT detected after removing skills filter — doc check is theater"
+    fi
   fi
 
   # Teeth D: a suite binding KIT with indentation + `readonly` and reading $KIT/METHODOLOGY.md must be derived.
