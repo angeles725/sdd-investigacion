@@ -235,10 +235,12 @@ bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+(-[0-9]+)?`' "$block"
 # structural tell; it is classified in the loop only when no root holds the file (P973-NONPATH-METHOD).
 _vb_np_re='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.(com|io|net|org|dev|edu|gov|mx|local|lan|internal|cloud|app):|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.[A-Z][A-Za-z0-9_]*:'
 _vb_np_cites=""; _vb_np_n=0; _vb_np_err=0
-# Known file extensions (lower-case, one per line): a `name.ext:NNN` token with NO path whose file is not found and
-# whose ext is not in this list is read as `Class.method:NNN` (P973-NONPATH-METHOD). Listing the extension of a real
-# file here only means an unresolved cite stays `extern`; a MISSING entry can never hide a RANGE! (resolved files
-# are never reclassified), so the list errs toward being short.
+# Known file extensions (lower-case, one per line, compared case-insensitively). A path-less `name.ext:NNN` token whose
+# file is not found is read as `Class.method:NNN` (P973-NONPATH-METHOD) ONLY when ALL hold: the ext is NOT in this list,
+# the ext is a method-like identifier (starts lower-case, letters/digits, not digits-only), and the name carries an
+# upper-case letter (Class or lowerCamel). A MISSING entry is NOT harmless: an unresolved real cite with an unlisted
+# extension would leave M and E and lose the SOURCE_ROOT hint, hiding a fixable WARN. So the list is broad and every
+# doubt falls toward `extern` (the WARN). Resolved files are never reclassified (RANGE! and exit codes are safe).
 _vb_file_exts='java
 md
 js
@@ -308,7 +310,197 @@ mf
 pdf
 diff
 patch
-proto'
+proto
+scala
+sc
+sbt
+swift
+dart
+r
+rmd
+ex
+exs
+erl
+hrl
+hs
+lhs
+clj
+cljs
+edn
+groovy
+gvy
+pl
+pm
+t
+lua
+jl
+nim
+zig
+v
+sv
+vhd
+vhdl
+tcl
+awk
+bash
+zsh
+fish
+ksh
+m
+mm
+ml
+mli
+fs
+fsx
+vb
+vbs
+lisp
+el
+rkt
+scm
+svelte
+astro
+mts
+cts
+cxx
+hh
+hxx
+inl
+asm
+s
+tf
+tfvars
+hcl
+nix
+bzl
+cmake
+make
+dockerfile
+env
+lock
+sum
+mod
+plist
+strings
+storyboard
+xib
+pom
+iml
+sln
+csproj
+vbproj
+props
+targets
+resx
+xaml
+aspx
+asp
+jsp
+jspx
+erb
+ejs
+hbs
+pug
+less
+sass
+styl
+coffee
+tex
+bib
+adoc
+org
+text
+rtf
+mdx
+markdown
+json5
+jsonl
+ndjson
+tsv
+xls
+xlsx
+doc
+docx
+ppt
+pptx
+odt
+ods
+ipynb
+graphql
+gql
+prisma
+thrift
+avsc
+sol
+wasm
+wat
+j2
+jinja
+tmpl
+tpl
+mustache
+out
+err
+trc
+dmp
+pcap
+pcapng
+rpt
+cnf
+bog
+zip
+tar
+gz
+tgz
+png
+jpg
+jpeg
+gif
+bmp
+ico
+htm
+xhtml
+sh
+pyw
+pyi
+pyx
+rst
+cs
+kt
+java
+c
+h
+cpp
+hpp
+php
+rb
+rs
+go
+js
+mjs
+cjs
+ts
+tsx
+jsx
+css
+scss
+sql
+yaml
+yml
+toml
+ini
+cfg
+conf
+log
+csv
+tsv
+dat
+bin
+hex
+exe
+dll
+jar
+class'
 if [ -n "$bt_cites" ]; then
   _vb_np_cites=$(grep -E "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?   # P973-NONPATH-SPLIT
   if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""
@@ -545,7 +737,12 @@ if [ -n "$bt_cites" ]; then
       # that is not a known file extension. Only reached for an UNRESOLVED cite, so an existing file (any extension)
       # is never reclassified and ok / RANGE! / the exit code are untouched. It was counted in M above: take it back.
       _vb_np_ext="${f##*.}"; _vb_np_ext="${_vb_np_ext,,}"
-      case "$f" in */*) _vb_np_m=0 ;; *) _vb_np_m=1 ;; esac
+      # method-like: no path, ext = lower-case identifier (not digits-only, never a bare `R`/`M`), name has an upper-case letter
+      _vb_np_m=0
+      case "$f" in
+        */*) ;;
+        *) case "${f##*.}" in [a-z]*) case "${f%.*}" in *[A-Z]*) _vb_np_m=1 ;; esac ;; esac ;;
+      esac
       if [ "$_vb_np_m" = 1 ] && ! grep -qxF "$_vb_np_ext" <<<"$_vb_file_exts"; then
         echo "   nonpath  $c  (not a file path: unknown extension '$_vb_np_ext', no such file — likely Class.method:NNN; excluded from M)"
         _vb_m=$((_vb_m-1)); _vb_np_n=$((_vb_np_n+1)); continue  # P973-NONPATH-METHOD

@@ -1519,6 +1519,20 @@ n973 oddext standard 'Fits `n973-odd.zzq:2`; past EOF `n973-odd.zzq:9`. [CERT]'
 out="$(run "$N973")"; rrc "$N973"; got=$?
 { [ "$got" = 1 ] && grep -q '  ok  *n973-odd.zzq:2' <<<"$out" && grep -q 'RANGE!  n973-odd.zzq:9' <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
   && ok "#973 GUARD: an existing file with an unlisted extension still resolves / RANGE! (never reclassified nonpath)" || no "#973 existing odd-ext file reclassified (rc=$got) :: $(grep -iE 'zzq|nonpath' <<<"$out" | head -3)"
+# kit #973 round 2: an unresolved path-less cite with a REAL source extension (or no method-like shape) stays extern:
+# fixable by SOURCE_ROOT, so it keeps its place in M and E and the P9 WARN keeps its hint.
+for _t in 'Foo.scala:10' 'run.R:3' 'App.swift:5' 'x.groovy:2' 'x.qzv:2'; do
+  n973 "ext-${_t%%:*}" standard "Foreign \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q 'resolved 0 of 1 (1 extern, 0 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out" && grep -q "extern  $_t" <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
+    && ok "#973 GOOD: unresolved $_t stays extern with the WARN + SOURCE_ROOT hint" || no "#973 $_t reclassified nonpath :: $(grep -iE 'resolved|nonpath|extern' <<<"$out" | head -3)"
+done
+for _t in 'BAverage.calculate:12' 'ObixUtils.encode:7'; do
+  n973 "meth-${_t%%:*}" standard "Calls \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'resolved 0 of' <<<"$out"; } \
+    && ok "#973 GOOD: $_t is still nonpath" || no "#973 $_t no longer nonpath :: $(grep -iE 'resolved|nonpath|extern' <<<"$out" | head -3)"
+done
 # guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
 printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
 n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
@@ -2091,6 +2105,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-973-exists" "$MUT/np0.sh" 's/if \[ -n "\$_vb_np_r" \] && \[ -f "\$_vb_np_r\/\${c%:\*}" \]; then/if false; then/'; then
     tooth "teeth-973-exists" 1 0 "$MUT/np0.sh" --good-has 'RANGE!  analysis.v2.R:9' --good-lacks 'nonpath' \
       --bad-has 'nonpath  analysis.v2.R:9' --bad-lacks 'RANGE!  analysis' -- bash @SUT@ "$TMP/n973-shapereal.md"
+  fi
+  if mk_sed "teeth-973-list-shrunk" "$MUT/np8.sh" '/^scala$/d'; then
+    tooth "teeth-973-list-shrunk" 0 0 "$MUT/np8.sh" --good-has 'extern  Foo.scala:10' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  Foo.scala:10' --bad-lacks 'extern  Foo' -- bash @SUT@ "$TMP/n973-ext-Foo.scala.md"
+  fi
+  if mk_sed "teeth-973-upper-rule" "$MUT/np9.sh" 's/\*\[A-Z\]\*) _vb_np_m=1/*) _vb_np_m=1/'; then
+    tooth "teeth-973-upper-rule" 0 0 "$MUT/np9.sh" --good-has 'extern  x.qzv:2' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  x.qzv:2' --bad-lacks 'extern  x.qzv' -- bash @SUT@ "$TMP/n973-ext-x.qzv.md"
   fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \
