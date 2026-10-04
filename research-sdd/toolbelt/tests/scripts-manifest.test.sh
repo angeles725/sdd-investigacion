@@ -71,6 +71,11 @@ printf '| `only.sh` | %s | x |' "$H1" > "$M"
 rows "$T" "$M"
 { [ "$RC" = 0 ] && has "sources/probes/b1/only.sh	$H1" && [ "$(grep -c . <<<"$OUT")" = 2 ]; } && ok "a single-row manifest without a trailing newline is parsed" || no "single row" "(rc=$RC $OUT)"
 
+# trailing-slash target and `//` in the manifest path resolve like the canonical form (find under "$t/" yields `t//...`)
+printf '| `only.sh` | %s | x |\n' "$H1" > "$M"
+rows "$T//" "${D}//SCRIPTS-MANIFEST.md"
+{ [ "$RC" = 0 ] && has "sources/probes/b1/only.sh	$H1"; } && ok "trailing-slash target + // manifest path resolve to the canonical rows" || no "slash normalisation" "(rc=$RC $OUT)"
+
 # absent / empty / no-match stay distinct from failure
 printf 'just prose, no table\n' > "$M"
 rows "$T" "$M"
@@ -114,6 +119,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-has 'cannot read manifest' --bad-lacks 'cannot read manifest' -- "${RAW[@]}" "$T" "$D/ABSENT.md"
   mt "outside-target guard removed" '/not under target/d' 2 0 \
     --good-has 'not under target' --bad-lacks "$CRASH" -- "${RAW[@]}" "$T" "$TMP/outside.md"
+  mt "// in the manifest path no longer collapsed" '/# SM-SLASH-MF$/s/.*/    :/' 0 0 \
+    --good-has "sources/probes/b1/b.sh${TAB}$H1" --bad-lacks "sources/probes/b1/b.sh${TAB}$H1|$CRASH" -- "${RAW[@]}" "$T" "${D}//SCRIPTS-MANIFEST.md"
   mt "argument guard removed" '/fewer than 2 arguments/d' 2 2 \
     --good-has 'fewer than 2 arguments' --bad-lacks 'fewer than 2 arguments' -- "$BASH_BIN" -c '. "$1"; scripts_manifest_rows "$2"' _ @SUT@ "$T"
 fi

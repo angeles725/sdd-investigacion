@@ -689,6 +689,7 @@ _vb_mf_n=0; _vb_mf_deg=0
 # VB-MF-CITE
 _vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\.?([^A-Za-z0-9_./-]|$)' "$block" | sed -E 's/[^A-Za-z0-9]+$//' | sort -u)
 _vb_mf_files=""; _vb_mf_frc=0
+# a `corpus/` target makes find print `corpus//sources/...`; the shared parser canonicalises both spellings (SM-SLASH).
 if [ -d "$target/sources/probes" ]; then
   _vb_mf_raw=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null; echo "@@RC=$?")   # VB-MF-FIND-RC
   _vb_mf_frc=${_vb_mf_raw##*@@RC=}

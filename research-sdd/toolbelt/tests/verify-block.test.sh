@@ -1448,6 +1448,10 @@ mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cite followed by s
 mf_corpus unreadable "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh; chmod 000 "$MFD/sources/probes/b1/SCRIPTS-MANIFEST.md"
 if [ "$(id -u)" = 0 ]; then ok "#1659 (skipped: running as root, chmod 000 does not block reads)"
 else mf_check 1 'DEGRADED manifest parse failed' "#1659 BAD: an unreadable manifest is a typed DEGRADED parse failure, not 'no row'"; fi
+# kit #1659: a trailing-slash target (find then yields corpus//sources/...) must resolve like the canonical form
+mf_corpus slash "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
+out="$(bash "$SUT" "$MFD/block.md" "$MFD//" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && grep -q 'manifest-ok  sources/probes/b1/a.sh' <<<"$out"; } && ok "#1659 GOOD: trailing-slash target resolves manifest rows (exit 0)" || no "#1659 trailing-slash target (rc=$got): $(grep -E 'MANIFEST|manifest' <<<"$out" | head -2)"
 # kit #1659: the cite must end at a path terminator — a.sh.bak / run.py.log are NOT a phantom a.sh / run.py cite
 P=sources/probes/b1
 mf_corpus bak-single "Saved \`$P/a.sh.bak\` aside"; mf_manifest b1 b.sh @b.sh

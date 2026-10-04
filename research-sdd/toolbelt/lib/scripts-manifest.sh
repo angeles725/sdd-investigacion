@@ -31,7 +31,10 @@ if ! declare -F scripts_manifest_rows >/dev/null 2>&1; then
     local target="${1:-}" mf="${2:-}" md
     [ -n "$target" ] && [ -n "$mf" ] || { echo "scripts-manifest: called with fewer than 2 arguments" >&2; return 2; }
     [ -f "$mf" ] && [ -r "$mf" ] || { echo "scripts-manifest: cannot read manifest $mf" >&2; return 2; }
-    target="${target%/}"
+    # canonicalise both sides alike: collapse `//` runs, drop trailing slashes (find under "$t/" yields `t//...`)
+    while [ "${target//\/\//\/}" != "$target" ]; do target="${target//\/\//\/}"; done   # SM-SLASH
+    while [ "${mf//\/\//\/}" != "$mf" ]; do mf="${mf//\/\//\/}"; done   # SM-SLASH-MF
+    while [ "${target%/}" != "$target" ] && [ -n "${target%/}" ]; do target="${target%/}"; done
     case "$mf" in "$target"/*) ;; *) echo "scripts-manifest: manifest $mf is not under target $target" >&2; return 2 ;; esac
     md="${mf#"$target"/}"; md="${md%/*}"
     SM_MD="$md" awk -F'|' '
