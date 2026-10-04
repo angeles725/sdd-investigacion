@@ -20,10 +20,12 @@ That string names the exact default this contract supersedes for kit-maintenance
 
 | Scope | Route |
 |---|---|
-| Read 1–3 files to decide or verify | Inline |
-| Understand 4+ files | Delegate one narrow mapper |
+| Decide or verify within the inline evidence budget: one parallel batch, at most 3 calls and ~10k tokens (bounded searches / line ranges, not whole large files) | Inline |
+| Larger evidence, more than ~5 sequential lookups, or long-session mapping | Delegate one read-only explorer (handoff ≤ ~2k tokens with path:line evidence; one parent spot check) |
 | Write 2+ non-trivial files | Delegate one writer |
-| Broad research or context compression | Delegate |
+| Reading that prepares a write, broad research, or context compression | Delegate |
+
+File count alone never forces a route: the budget is evidence volume, not number of files.
 
 ---
 
