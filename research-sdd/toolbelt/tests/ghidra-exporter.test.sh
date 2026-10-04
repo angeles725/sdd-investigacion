@@ -73,10 +73,16 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     # The slow cases assert the exporter's behavior on a real run, not the Ghidra version
     # string, so any 12.1.x patch release is accepted (schema v1 is authored against the 12.1
     # program model). A different major.minor is environmental: typed SKIP, never FAIL (#1588).
+    # An empty/unreadable application.version is a broken install, not an environment gap: FAIL.
     case "$_version" in
+      "")
+        no "slow: Ghidra application.version unreadable/empty in $_GHIDRA_HOME/Ghidra/application.properties (broken install)"
+        _slow_skip=1 ;;
       12.1.*) ;;
       *)
-        printf '  SKIP  slow S1-S6 real-Ghidra cases: Ghidra 12.1.x required, found %s\n' "${_version:-unknown}"
+        for _c in S1 S2 S3 S4 S5 S6; do
+          printf '  SKIP  slow %s real-Ghidra case: Ghidra 12.1.x required, found %s\n' "$_c" "$_version"
+        done
         _slow_skip=1 ;;
     esac
   fi
