@@ -769,6 +769,14 @@ MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
 mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 
+# Shared helper (kit issue #1299): sourced ONLY on this branch, each function we call is checked.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
+for _fn in mutant_chain mutant_tooth; do
+  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_fn" >&2; exit 2; }
+done
+export MUTANT_SYNTAX=none   # the mutants are Python; syntax is checked with ast.parse in mut_build
+
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/px_render.py"
 if [ ! -f "$ORIG_PY" ]; then
@@ -776,426 +784,152 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="
   exit 1
 fi
+# Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
+MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
+MUTPY=""
 
-# ---------------------------------------------------------------------------
-# M1: Remove input O_NOFOLLOW -- symlink input no longer refused (exit 0)
-# ---------------------------------------------------------------------------
-MUTDIR_M1="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M1/"
-sed -i 's/_IN_FLAGS = os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_CLOEXEC/_IN_FLAGS = os.O_RDONLY | _O_NONBLOCK | _O_CLOEXEC  # MUTANT-M1/' \
-  "$MUTDIR_M1/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M1/px_render.py" 2>/dev/null; then
-  mut_no "M1 input O_NOFOLLOW: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M1/px_render.py"; then
-  mut_no "M1 input O_NOFOLLOW: sed had no effect (pattern not found)"
-else
-  _m1_exit=0
-  python3 "$MUTDIR_M1/px_render.py" "$ROOT/sym-input.px" \
-    --shared "$FIXTURES/shared" \
-    --out "$ROOT/m1.html" 2>/dev/null \
-    || _m1_exit=$?
-  if [ "$_m1_exit" -eq 0 ]; then
-    mut_ok "M1 input O_NOFOLLOW: DETECTED (symlink accepted by mutant, exit 0)"
-  else
-    mut_no "M1 input O_NOFOLLOW: NOT DETECTED (symlink still refused, exit $_m1_exit)"
+# mut_build LABEL ID SED_EXPR... — builds $MUTBASE/ID/px_render.py through mutant_chain (empty,
+# identical, dead-stage, placement refusals; every stage must change the SUT on its own) plus a
+# Python syntax check. On refusal the tooth is counted ONCE here and never runs; returns 1.
+mut_build(){
+  local label="$1" id="$2"; shift 2
+  MUTPY="$MUTBASE/$id/px_render.py"; mkdir -p "$MUTBASE/$id"
+  if ! mutant_chain "$label" "$ORIG_PY" "$MUTPY" "$@"; then
+    mut_no "$label: mutant refused by lib/mutant.sh (refusal counted here once; tooth not run)"; return 1
   fi
-fi
-rm -rf "$MUTDIR_M1"
-
-# ---------------------------------------------------------------------------
-# M2: Remove output O_EXCL -- pre-existing file no longer refused (exit 0)
-# ---------------------------------------------------------------------------
-MUTDIR_M2="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M2/"
-sed -i 's/_OUT_FLAGS = os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/_OUT_FLAGS = os.O_WRONLY | os.O_CREAT | _O_CLOEXEC  # MUTANT-M2/' \
-  "$MUTDIR_M2/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M2/px_render.py" 2>/dev/null; then
-  mut_no "M2 output O_EXCL: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M2/px_render.py"; then
-  mut_no "M2 output O_EXCL: sed had no effect (pattern not found)"
-else
-  # pre_existing.html exists from T7 -- mutant must overwrite it without error
-  _m2_exit=0
-  python3 "$MUTDIR_M2/px_render.py" "$FIXTURES/valid.px" \
-    --shared "$FIXTURES/shared" \
-    --out "$ROOT/pre_existing.html" 2>/dev/null \
-    || _m2_exit=$?
-  if [ "$_m2_exit" -eq 0 ]; then
-    mut_ok "M2 output O_EXCL: DETECTED (pre-existing accepted by mutant, exit 0)"
-  else
-    mut_no "M2 output O_EXCL: NOT DETECTED (pre-existing still refused, exit $_m2_exit)"
+  if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$MUTPY" 2>/dev/null; then
+    mut_no "$label: mutant is not valid Python (refusal counted here once; tooth not run)"; return 1
   fi
-fi
-rm -rf "$MUTDIR_M2"
+}
 
-# ---------------------------------------------------------------------------
-# M3: Remove containment check -- path-traversal escape now embedded
-# ---------------------------------------------------------------------------
-MUTDIR_M3="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M3/"
-sed -i 's/if not self\._is_contained(candidate, self\.shared):/if False:  # MUTANT-M3/' \
-  "$MUTDIR_M3/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M3/px_render.py" 2>/dev/null; then
-  mut_no "M3 containment: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M3/px_render.py"; then
-  mut_no "M3 containment: sed had no effect (pattern not found)"
-else
-  _m3_html="$ROOT/m3_escape.html"
-  _m3_exit=0
-  python3 "$MUTDIR_M3/px_render.py" "$ROOT/c8/escape.px" \
-    --shared "$ROOT/c8/shared" \
-    --out "$_m3_html" 2>/dev/null \
-    || _m3_exit=$?
-  if [ "$_m3_exit" -eq 0 ] && [ -f "$_m3_html" ]; then
-    if python3 - "$_m3_html" <<'PY'
-import sys, base64
-html = open(sys.argv[1]).read()
-secret_b64 = base64.b64encode(b'SECRET-DATA-XYZ\n').decode()
-sys.exit(0 if secret_b64 in html else 1)
-PY
-    then
-      mut_ok "M3 containment: DETECTED (secret base64 in HTML when guard removed)"
-    else
-      mut_no "M3 containment: NOT DETECTED (secret not found in HTML despite guard removed)"
-    fi
+# Typed facts printed for every run, computed from the SAME artifacts the base tests assert on
+# (the rendered HTML and the stderr summary).
+PX_FACTS='import sys, re, base64, os
+hp, ep = sys.argv[1], sys.argv[2]
+html = open(hp).read() if os.path.isfile(hp) else None
+err = open(ep).read() if os.path.isfile(ep) else ""
+print("HTML=" + ("present" if html is not None else "absent"))
+h = html or ""
+print("OUTHEAD=" + h[:8].replace("\n", " "))
+print("B64SECRET=%d" % (base64.b64encode(b"SECRET-DATA-XYZ\n").decode() in h))
+print("NOSHARED=%d" % ("NO-SHARED-SECRET" in h or base64.b64encode(b"NO-SHARED-SECRET\n").decode() in h))
+print("PAYLOAD=%d" % ("\"><img/src=x/onerror=alert(2)>" in h))
+print("FAMXSS=%d" % ("\"onmouseover" in h or "onmouseover=" in h))
+print("URIS=%d" % h.count("data:image/png;base64,"))
+print("ORPHAN=%d" % bool(set(re.findall(r"class=\"(ax\d+)\"", h)) - set(re.findall(r"\.(ax\d+)\{", h))))
+def num(k):
+    m = re.search(k + r"=(\d+)", err)
+    return m.group(1) if m else "-1"
+print("WIDGETS=" + num("widgets_rendered"))
+print("OB=" + num("assets_over_budget"))
+print("OSZ=" + num("assets_oversized"))
+print("SKIPTAG=%d" % ("skipped_by_tag" in err))'
+
+# Wrapper: PY INPUT SHARED SETUP FACTS_SCRIPT. Each run gets a FRESH output dir (removed by the
+# wrapper's own trap); SETUP builds the per-run precondition (symlinked input, pre-existing output).
+PX_WRAP='py="$1"; in="$2"; sh="$3"; setup="$4"; facts="$5"
+o="$(mktemp -d)" || exit 99
+trap "rm -rf \"$o\"" EXIT
+case "$setup" in
+  symlink) ln -s "$in" "$o/link.px"; in="$o/link.px" ;;
+  preexist) echo existing > "$o/out.html" ;;
+esac
+args=("$py" "$in")
+[ "$sh" = - ] || args+=(--shared "$sh")
+python3 "${args[@]}" --out "$o/out.html" 2>"$o/err"; rc=$?
+echo "RC=$rc"
+python3 -c "$facts" "$o/out.html" "$o/err"
+exit "$rc"'
+# pt LABEL GOOD_RC BAD_RC [--good-has RE ...] -- INPUT SHARED SETUP
+pt(){
+  local label="$1" g="$2" b="$3"; shift 3
+  local -a opts=()
+  while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
+  shift
+  if mutant_tooth "$label" "$g" "$b" "$MUTPY" "${opts[@]}" -- bash -c "$PX_WRAP" _ @SUT@ "$1" "$2" "$3" "$PX_FACTS"; then
+    MUT_PASS=$((MUT_PASS+1))
   else
-    mut_no "M3 containment: mutant did not produce HTML (exit $_m3_exit)"
+    MUT_FAIL=$((MUT_FAIL+1))
   fi
-fi
-rm -rf "$MUTDIR_M3"
+}
+SUT="$ORIG_PY"   # mutant_tooth substitutes @SUT@ with this (original) or the mutant path
 
-# ---------------------------------------------------------------------------
-# M4: Suppress widgets_rendered counter -- stderr reports 0
-# ---------------------------------------------------------------------------
-MUTDIR_M4="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M4/"
-sed -i 's/widgets_rendered += 1/pass  # MUTANT-M4/' \
-  "$MUTDIR_M4/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M4/px_render.py" 2>/dev/null; then
-  mut_no "M4 widgets_rendered: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M4/px_render.py"; then
-  mut_no "M4 widgets_rendered: sed had no effect (pattern not found)"
-else
-  _m4_stderr="$ROOT/m4.stderr"
-  _m4_exit=0
-  python3 "$MUTDIR_M4/px_render.py" "$FIXTURES/valid.px" \
-    --shared "$FIXTURES/shared" \
-    --out "$ROOT/m4.html" \
-    2>"$_m4_stderr" \
-    || _m4_exit=$?
-  if [ "$_m4_exit" -eq 0 ]; then
-    _m4_rendered="$(python3 -c "
-import re, sys
-stderr = open(sys.argv[1]).read()
-m = re.search(r'widgets_rendered=(\d+)', stderr)
-print(m.group(1) if m else '-1')
-" "$_m4_stderr" 2>/dev/null)"
-    if [ "${_m4_rendered:-}" = "0" ]; then
-      mut_ok "M4 widgets_rendered: DETECTED (stderr reports 0 when counter suppressed)"
-    else
-      mut_no "M4 widgets_rendered: NOT DETECTED (stderr reports $_m4_rendered, expected 0)"
-    fi
-  else
-    mut_no "M4 widgets_rendered: mutant failed (exit $_m4_exit, expected 0)"
-  fi
+# M1: remove the input O_NOFOLLOW: a symlinked input is no longer refused
+if mut_build "M1 input O_NOFOLLOW" M1 's/_IN_FLAGS = os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_CLOEXEC/_IN_FLAGS = os.O_RDONLY | _O_NONBLOCK | _O_CLOEXEC  # MUTANT-M1/'; then
+  pt "M1 input O_NOFOLLOW" 2 0 --good-has '^HTML=absent$' --bad-has '^HTML=present$' \
+    -- "$FIXTURES/valid.px" "$FIXTURES/shared" symlink
 fi
-rm -rf "$MUTDIR_M4"
 
-# ---------------------------------------------------------------------------
-# M5: Remove font sanitization -- XSS payload appears unescaped in HTML
-# ---------------------------------------------------------------------------
-MUTDIR_M5="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M5/"
-sed -i 's/_FAM_SAFE = lambda fam:.*/_FAM_SAFE = lambda fam: fam  # MUTANT-M5/' \
-  "$MUTDIR_M5/px_render.py"
-sed -i 's/_SZ_SAFE  = lambda sz:.*/_SZ_SAFE  = lambda sz:  sz  # MUTANT-M5/' \
-  "$MUTDIR_M5/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M5/px_render.py" 2>/dev/null; then
-  mut_no "M5 XSS font guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M5/px_render.py"; then
-  mut_no "M5 XSS font guard: sed had no effect (pattern not found)"
-else
-  _m5_exit=0
-  python3 "$MUTDIR_M5/px_render.py" "$ROOT/xss.px" \
-    --out "$ROOT/m5.html" 2>/dev/null \
-    || _m5_exit=$?
-  if [ "$_m5_exit" -eq 0 ] && [ -f "$ROOT/m5.html" ]; then
-    if python3 - "$ROOT/m5.html" <<'PY'
-import sys
-content = open(sys.argv[1]).read()
-payload = '"><img/src=x/onerror=alert(2)>'
-sys.exit(0 if payload in content else 1)
-PY
-    then
-      mut_ok "M5 XSS font guard: DETECTED (payload in HTML when sanitization removed)"
-    else
-      mut_no "M5 XSS font guard: NOT DETECTED (payload not found despite sanitization removed)"
-    fi
-  else
-    mut_no "M5 XSS font guard: mutant did not produce HTML (exit $_m5_exit)"
-  fi
+# M2: remove the output O_EXCL: a pre-existing output file is no longer refused
+if mut_build "M2 output O_EXCL" M2 's/_OUT_FLAGS = os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/_OUT_FLAGS = os.O_WRONLY | os.O_CREAT | _O_CLOEXEC  # MUTANT-M2/'; then
+  pt "M2 output O_EXCL" 2 0 --good-has '^OUTHEAD=existing$' --bad-lacks '^OUTHEAD=existing$' \
+    -- "$FIXTURES/valid.px" "$FIXTURES/shared" preexist
 fi
-rm -rf "$MUTDIR_M5"
 
-# ---------------------------------------------------------------------------
-# M6: Restore grandparent fallback -- no-shared .px can embed sibling secret
-# ---------------------------------------------------------------------------
-MUTDIR_M6="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M6/"
-sed -i 's/return None  # find_shared-no-ancestor/return os.path.dirname(os.path.abspath(px_path))  # MUTANT-M6/' \
-  "$MUTDIR_M6/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M6/px_render.py" 2>/dev/null; then
-  mut_no "M6 no-shared fallback: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M6/px_render.py"; then
-  mut_no "M6 no-shared fallback: sed had no effect (pattern not found)"
-else
-  _m6_html="$ROOT/m6_noshared.html"
-  _m6_exit=0
-  python3 "$MUTDIR_M6/px_render.py" "$ROOT/c11/no-shared.px" \
-    --out "$_m6_html" 2>/dev/null \
-    || _m6_exit=$?
-  if [ "$_m6_exit" -eq 0 ] && [ -f "$_m6_html" ]; then
-    if python3 - "$_m6_html" <<'PY'
-import sys, base64
-html = open(sys.argv[1]).read()
-# If mutant embeds the secret, it will appear as base64 or raw text
-secret_b64 = base64.b64encode(b'NO-SHARED-SECRET\n').decode()
-has_secret = 'NO-SHARED-SECRET' in html or secret_b64 in html
-sys.exit(0 if has_secret else 1)
-PY
-    then
-      mut_ok "M6 no-shared fallback: DETECTED (secret embedded when grandparent fallback restored)"
-    else
-      mut_no "M6 no-shared fallback: NOT DETECTED (secret not in HTML despite fallback)"
-    fi
-  else
-    mut_no "M6 no-shared fallback: mutant did not produce HTML (exit $_m6_exit)"
-  fi
+# M3: remove the containment check: the path-traversal escape is embedded
+if mut_build "M3 containment" M3 's/if not self\._is_contained(candidate, self\.shared):/if False:  # MUTANT-M3/'; then
+  pt "M3 containment" 0 0 --good-has '^B64SECRET=0$' --bad-has '^B64SECRET=1$' \
+    -- "$ROOT/c8/escape.px" "$ROOT/c8/shared" none
 fi
-rm -rf "$MUTDIR_M6"
 
-# ---------------------------------------------------------------------------
-# M7: Suppress skipped_by_tag accumulation -- counter stays 0
-# ---------------------------------------------------------------------------
-MUTDIR_M7="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M7/"
-sed -i 's/skipped_by_tag\[t\] = skipped_by_tag.get(t, 0) + 1/pass  # MUTANT-M7/' \
-  "$MUTDIR_M7/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M7/px_render.py" 2>/dev/null; then
-  mut_no "M7 skipped_by_tag: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M7/px_render.py"; then
-  mut_no "M7 skipped_by_tag: sed had no effect (pattern not found)"
-else
-  _m7_stderr="$ROOT/m7.stderr"
-  _m7_exit=0
-  python3 "$MUTDIR_M7/px_render.py" "$ROOT/c14/unhandled.px" \
-    --out "$ROOT/m7.html" \
-    2>"$_m7_stderr" \
-    || _m7_exit=$?
-  if [ "$_m7_exit" -eq 0 ]; then
-    if ! grep -q "skipped_by_tag" "$_m7_stderr" 2>/dev/null; then
-      mut_ok "M7 skipped_by_tag: DETECTED (skipped_by_tag absent from stderr when accumulation suppressed)"
-    else
-      mut_no "M7 skipped_by_tag: NOT DETECTED (skipped_by_tag still in stderr)"
-    fi
-  else
-    mut_no "M7 skipped_by_tag: mutant failed (exit $_m7_exit)"
-  fi
+# M4: suppress the widgets_rendered counter: stderr reports 0
+if mut_build "M4 widgets_rendered" M4 's/widgets_rendered += 1/pass  # MUTANT-M4/'; then
+  pt "M4 widgets_rendered" 0 0 --good-has '^WIDGETS=[1-9]' --bad-has '^WIDGETS=0$' \
+    -- "$FIXTURES/valid.px" "$FIXTURES/shared" none
 fi
-rm -rf "$MUTDIR_M7"
 
-# ---------------------------------------------------------------------------
-# M8: Remove S_ISREG check -- non-regular file (/dev/null) no longer refused.
-#     Uses /dev/null (char device): S_ISREG fails -> original exits 2.
-#     Mutant skips the check -> reads empty bytes -> parse error -> exit 1 (not 2).
-#     Detection condition: _m8_exit != 2 (guard bypassed, regardless of parse result).
-# ---------------------------------------------------------------------------
-MUTDIR_M8="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M8/"
-sed -i 's/if not _stat\.S_ISREG(st\.st_mode):/if False:  # MUTANT-M8/' \
-  "$MUTDIR_M8/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_M8/px_render.py" 2>/dev/null; then
-  mut_no "M8 S_ISREG: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M8/px_render.py"; then
-  mut_no "M8 S_ISREG: sed had no effect (pattern not found)"
-elif [ ! -c /dev/null ]; then
+# M5: remove font sanitisation (both guards): the XSS payload appears unescaped
+if mut_build "M5 XSS font guard" M5 \
+  's/_FAM_SAFE = lambda fam:.*/_FAM_SAFE = lambda fam: fam  # MUTANT-M5/' \
+  's/_SZ_SAFE  = lambda sz:.*/_SZ_SAFE  = lambda sz:  sz  # MUTANT-M5/'; then
+  pt "M5 XSS font guard" 0 0 --good-has '^PAYLOAD=0$' --bad-has '^PAYLOAD=1$' \
+    -- "$ROOT/xss.px" - none
+fi
+
+# M6: restore the grandparent fallback: a no-shared .px can embed a sibling secret
+if mut_build "M6 no-shared fallback" M6 's/return None  # find_shared-no-ancestor/return os.path.dirname(os.path.abspath(px_path))  # MUTANT-M6/'; then
+  pt "M6 no-shared fallback" 0 0 --good-has '^NOSHARED=0$' --bad-has '^NOSHARED=1$' \
+    -- "$ROOT/c11/no-shared.px" - none
+fi
+
+# M7: suppress the skipped_by_tag accumulation: the counter never reaches stderr
+if mut_build "M7 skipped_by_tag" M7 's/skipped_by_tag\[t\] = skipped_by_tag.get(t, 0) + 1/pass  # MUTANT-M7/'; then
+  pt "M7 skipped_by_tag" 0 0 --good-has '^SKIPTAG=1$' --bad-has '^SKIPTAG=0$' \
+    -- "$ROOT/c14/unhandled.px" - none
+fi
+
+# M8: remove the S_ISREG check: the char device /dev/null is no longer refused with exit 2; the
+# mutant reads empty bytes and fails the XML parse with exit 1 instead.
+if [ ! -c /dev/null ]; then
   mut_no "M8 S_ISREG: /dev/null not available on this platform"
-else
-  _m8_exit=0
-  python3 "$MUTDIR_M8/px_render.py" /dev/null \
-    --out "$ROOT/m8.html" 2>/dev/null \
-    || _m8_exit=$?
-  # Original exits 2 (S_ISREG fires on char device); mutant reads empty
-  # bytes -> XML parse error -> exit 1 (not 2) -> DETECTED
-  if [ "$_m8_exit" -ne 2 ]; then
-    mut_ok "M8 S_ISREG: DETECTED (char device past guard, mutant exits $_m8_exit != 2)"
-  else
-    mut_no "M8 S_ISREG: NOT DETECTED (char device still refused, exit 2)"
-  fi
+elif mut_build "M8 S_ISREG" M8 's/if not _stat\.S_ISREG(st\.st_mode):/if False:  # MUTANT-M8/'; then
+  pt "M8 S_ISREG" 2 1 --good-has '^HTML=absent$' --bad-has '^HTML=absent$' \
+    -- /dev/null - none
 fi
-rm -rf "$MUTDIR_M8"
 
-# ---------------------------------------------------------------------------
-# M-AMP: Disable dedup in css_class() -- data URI appears multiple times
-#         (targets the realpath-keyed dedup guard, not the removed _ONCE flag)
-# ---------------------------------------------------------------------------
-MUTDIR_MAMP="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_MAMP/"
-sed -i 's/if real_key not in self\._cls_idx:.*$/if True:  # MUTANT-MAMP/' \
-  "$MUTDIR_MAMP/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_MAMP/px_render.py" 2>/dev/null; then
-  mut_no "M-AMP amplification: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_MAMP/px_render.py"; then
-  mut_no "M-AMP amplification: sed had no effect (pattern not found)"
-else
-  _mamp_exit=0
-  python3 "$MUTDIR_MAMP/px_render.py" "$ROOT/c12/amp.px" \
-    --shared "$ROOT/c12/shared" \
-    --out "$ROOT/mamp.html" 2>/dev/null \
-    || _mamp_exit=$?
-  if [ "$_mamp_exit" -eq 0 ] && [ -f "$ROOT/mamp.html" ]; then
-    if python3 - "$ROOT/mamp.html" <<'PY'
-import sys, re
-html = open(sys.argv[1]).read()
-# With the dedup guard removed, widget 0 is assigned class ax0 (when dict is
-# empty) but widget 1 updates _cls_idx to a new index (ax1), and CSS only
-# emits the final dict entry.  So widget 0 uses a class not defined in CSS.
-body_classes = set(re.findall(r'class="(ax\d+)"', html))
-css_classes  = set(re.findall(r'\.(ax\d+)\{', html))
-# Detection: a class used by a widget body element has no CSS rule
-sys.exit(0 if bool(body_classes - css_classes) else 1)
-PY
-    then
-      mut_ok "M-AMP amplification: DETECTED (body class ax0 has no CSS rule when dedup removed)"
-    else
-      mut_no "M-AMP amplification: NOT DETECTED (all body classes have CSS rules)"
-    fi
-  else
-    mut_no "M-AMP amplification: mutant did not produce HTML (exit $_mamp_exit)"
-  fi
+# M-AMP: disable the dedup in css_class(): a widget body class has no CSS rule
+if mut_build "M-AMP amplification" MAMP 's/if real_key not in self\._cls_idx:.*$/if True:  # MUTANT-MAMP/'; then
+  pt "M-AMP amplification" 0 0 --good-has '^ORPHAN=0$' --bad-has '^ORPHAN=1$' \
+    -- "$ROOT/c12/amp.px" "$ROOT/c12/shared" none
 fi
-rm -rf "$MUTDIR_MAMP"
 
-# ---------------------------------------------------------------------------
-# M5a: Remove family-only sanitization (leave _SZ_SAFE intact) --
-#      font family breakout appears in HTML
-# ---------------------------------------------------------------------------
-MUTDIR_M5A="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_M5A/"
-sed -i 's/_FAM_SAFE = lambda fam:.*/_FAM_SAFE = lambda fam: fam  # MUTANT-M5A/' \
-  "$MUTDIR_M5A/px_render.py"
-# Confirm _SZ_SAFE is NOT mutated (family-only)
-if grep -q 'MUTANT-M5A' "$MUTDIR_M5A/px_render.py" && \
-   ! grep -q 'MUTANT-M5' "$MUTDIR_M5A/px_render.py" | grep '_SZ_SAFE'; then
-  :  # OK
+# M5a: remove family-only sanitisation (_SZ_SAFE intact): the font-family breakout appears
+if mut_build "M5a family-only XSS" M5A 's/_FAM_SAFE = lambda fam:.*/_FAM_SAFE = lambda fam: fam  # MUTANT-M5A/'; then
+  pt "M5a family-only XSS" 0 0 --good-has '^FAMXSS=0$' --bad-has '^FAMXSS=1$' \
+    -- "$ROOT/fam-xss.px" - none
 fi
-if ! python3 -m py_compile "$MUTDIR_M5A/px_render.py" 2>/dev/null; then
-  mut_no "M5a family-only XSS: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_M5A/px_render.py"; then
-  mut_no "M5a family-only XSS: sed had no effect (pattern not found)"
-else
-  _m5a_exit=0
-  python3 "$MUTDIR_M5A/px_render.py" "$ROOT/fam-xss.px" \
-    --out "$ROOT/m5a.html" 2>/dev/null \
-    || _m5a_exit=$?
-  if [ "$_m5a_exit" -eq 0 ] && [ -f "$ROOT/m5a.html" ]; then
-    if python3 - "$ROOT/m5a.html" <<'PY'
-import sys
-content = open(sys.argv[1]).read()
-# Without family sanitization the double-quote breaks out of the style attr
-sys.exit(0 if '"onmouseover' in content or 'onmouseover=' in content else 1)
-PY
-    then
-      mut_ok "M5a family-only XSS: DETECTED (attribute injection when _FAM_SAFE removed)"
-    else
-      mut_no "M5a family-only XSS: NOT DETECTED (injection not in HTML despite _FAM_SAFE removed)"
-    fi
-  else
-    mut_no "M5a family-only XSS: mutant did not produce HTML (exit $_m5a_exit)"
-  fi
-fi
-rm -rf "$MUTDIR_M5A"
 
-# ---------------------------------------------------------------------------
-# M-DEDUP: Key cache/cls_idx on raw ref instead of realpath -- 5 spellings
-#           of the same file produce 5 data URI copies
-# ---------------------------------------------------------------------------
-MUTDIR_MDEDUP="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_MDEDUP/"
-# Replace realpath key with raw ref in datauri()
-sed -i 's/real_key = os\.path\.realpath(path)/real_key = path  # MUTANT-MDEDUP/' \
-  "$MUTDIR_MDEDUP/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_MDEDUP/px_render.py" 2>/dev/null; then
-  mut_no "M-DEDUP realpath: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_MDEDUP/px_render.py"; then
-  mut_no "M-DEDUP realpath: sed had no effect (pattern not found)"
-else
-  _mdedup_exit=0
-  python3 "$MUTDIR_MDEDUP/px_render.py" "$ROOT/c16/spellings.px" \
-    --shared "$ROOT/c16/shared" \
-    --out "$ROOT/mdedup.html" 2>/dev/null \
-    || _mdedup_exit=$?
-  if [ "$_mdedup_exit" -eq 0 ] && [ -f "$ROOT/mdedup.html" ]; then
-    if python3 - "$ROOT/mdedup.html" <<'PY'
-import sys
-html = open(sys.argv[1]).read()
-count = html.count('data:image/png;base64,')
-# Without realpath key, 5 spellings -> 5 separate cache entries -> 5 URIs
-sys.exit(0 if count > 1 else 1)
-PY
-    then
-      mut_ok "M-DEDUP realpath: DETECTED (multiple URIs for same file when realpath key removed)"
-    else
-      mut_no "M-DEDUP realpath: NOT DETECTED (still only 1 URI with path key)"
-    fi
-  else
-    mut_no "M-DEDUP realpath: mutant did not produce HTML (exit $_mdedup_exit)"
-  fi
+# M-DEDUP: key the cache on the raw ref instead of the realpath: 5 spellings give 5 data URIs
+if mut_build "M-DEDUP realpath" MDEDUP 's/real_key = os\.path\.realpath(path)/real_key = path  # MUTANT-MDEDUP/'; then
+  pt "M-DEDUP realpath" 0 0 --good-has '^URIS=1$' --bad-has '^URIS=([2-9]|[0-9]{2,})$' \
+    -- "$ROOT/c16/spellings.px" "$ROOT/c16/shared" none
 fi
-rm -rf "$MUTDIR_MDEDUP"
 
-# ---------------------------------------------------------------------------
-# M-BUDGET: Replace over_budget counter with oversized -- distinct counters
-#            become indistinguishable
-# ---------------------------------------------------------------------------
-MUTDIR_MBUDGET="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR_MBUDGET/"
-sed -i 's/self\.over_budget\.append(ref)/self.oversized.append(ref)  # MUTANT-MBUDGET/' \
-  "$MUTDIR_MBUDGET/px_render.py"
-if ! python3 -m py_compile "$MUTDIR_MBUDGET/px_render.py" 2>/dev/null; then
-  mut_no "M-BUDGET over_budget: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR_MBUDGET/px_render.py"; then
-  mut_no "M-BUDGET over_budget: sed had no effect (pattern not found)"
-else
-  _mbudget_stderr="$ROOT/mbudget.stderr"
-  _mbudget_exit=0
-  python3 "$MUTDIR_MBUDGET/px_render.py" "$ROOT/c18/budget.px" \
-    --shared "$ROOT/c18/shared" \
-    --out "$ROOT/mbudget.html" \
-    2>"$_mbudget_stderr" \
-    || _mbudget_exit=$?
-  if [ "$_mbudget_exit" -eq 0 ]; then
-    if python3 - "$_mbudget_stderr" <<'PY'
-import sys, re
-stderr = open(sys.argv[1]).read()
-# With mutant: over_budget=0 (counter never incremented) but oversized >0
-m_ob = re.search(r'assets_over_budget=(\d+)', stderr)
-m_os = re.search(r'assets_oversized=(\d+)', stderr)
-ob = int(m_ob.group(1)) if m_ob else -1
-os_count = int(m_os.group(1)) if m_os else -1
-# Detection: over_budget stays 0 while images were wrongly counted as oversized
-sys.exit(0 if ob == 0 and os_count > 0 else 1)
-PY
-    then
-      mut_ok "M-BUDGET over_budget: DETECTED (over_budget=0, oversized inflated when counters merged)"
-    else
-      mut_no "M-BUDGET over_budget: NOT DETECTED (counters still distinct in output)"
-    fi
-  else
-    mut_no "M-BUDGET over_budget: mutant failed (exit $_mbudget_exit)"
-  fi
+# M-BUDGET: count over-budget refusals as oversized: the distinct counters merge
+if mut_build "M-BUDGET over_budget" MBUDGET 's/self\.over_budget\.append(ref)/self.oversized.append(ref)  # MUTANT-MBUDGET/'; then
+  pt "M-BUDGET over_budget" 0 0 --good-has '^OB=[1-9]' --bad-has '^OB=0$' \
+    -- "$ROOT/c18/budget.px" "$ROOT/c18/shared" none
 fi
-rm -rf "$MUTDIR_MBUDGET"
 
 echo "== $pass passed · $fail failed =="
 echo "== mut: $MUT_PASS passed · $MUT_FAIL failed =="
