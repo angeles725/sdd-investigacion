@@ -134,9 +134,18 @@ fi
 
 # ── (6) The provider-issued token ────────────────────────────────────────────
 _status="$SELF_DIR/research-sdd-status.sh"
-_to=""; command -v timeout >/dev/null 2>&1 && _to="timeout 120"
-# shellcheck disable=SC2086 # $_to is empty or the two words "timeout 120"
-_st_out="$($_to bash "$_status" "$TARGET" --next --emit-token 2>/dev/null)"; _st_rc=$?
+# Keep well under Claude Code's default per-hook budget (currently 60s): a slow status run must
+# return a typed degraded allow, never let the hook runner kill us mid-write. Override with
+# RETURN_TOKEN_GATE_TIMEOUT_SECS. When `timeout` is absent (e.g. stock macOS), we degrade rather
+# than run the status call unbounded.
+_to_secs="${RETURN_TOKEN_GATE_TIMEOUT_SECS:-20}"
+if command -v timeout >/dev/null 2>&1; then
+  # shellcheck disable=SC2086 # intentional word-split of the timeout invocation
+  _st_out="$(timeout "$_to_secs" bash "$_status" "$TARGET" --next --emit-token 2>/dev/null)"; _st_rc=$?
+  [ "$_st_rc" = 124 ] && _degraded_allow "status --next timed out after ${_to_secs}s"  # RTG-STATUS-TIMEOUT
+else
+  _degraded_allow "no 'timeout' command — cannot bound the status call within the hook budget"  # RTG-NO-TIMEOUT
+fi
 _emitted=""
 while IFS= read -r _line || [ -n "$_line" ]; do
   case "$_line" in "return-token: "*) _emitted="$_line" ;; esac

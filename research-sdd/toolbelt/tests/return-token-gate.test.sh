@@ -166,6 +166,17 @@ c="$(fresh corpus-next)"; run_gate "$c" "$(tr_ mismatch.jsonl)" s1 "$TB/return-t
 grep -q 'state=allow branch=degraded (status produced no return-token line' <<<"$g_err" && [ -z "$g_out" ] \
   && ok "G-DEGRADED-STATUS: a failing status script -> typed degraded allow, never a block" || no "G-DEGRADED-STATUS: out=[$g_out] err=[$g_err]"
 cp "$TMP/status.orig" "$TB/research-sdd-status.sh"
+# a status script slower than the bounded timeout -> typed degraded, never a block (RTG-STATUS-TIMEOUT)
+if command -v timeout >/dev/null 2>&1; then
+  cp "$TB/research-sdd-status.sh" "$TMP/status.orig2"
+  printf '#!/usr/bin/env bash\nsleep 5\n' > "$TB/research-sdd-status.sh"
+  c="$(fresh corpus-next)"; RETURN_TOKEN_GATE_TIMEOUT_SECS=1 run_gate "$c" "$(tr_ mismatch.jsonl)" s1 "$TB/return-token-gate.sh"
+  grep -q 'state=allow branch=degraded (status --next timed out' <<<"$g_err" && [ -z "$g_out" ] \
+    && ok "G-DEGRADED-TIMEOUT: a slow status run times out -> typed degraded allow, never a block" || no "G-DEGRADED-TIMEOUT: rc=$g_rc out=[$g_out] err=[$g_err]"
+  cp "$TMP/status.orig2" "$TB/research-sdd-status.sh"
+else
+  ok "G-DEGRADED-TIMEOUT: skipped (no timeout command)"
+fi
 
 echo "-- hermetic: the only write under the target is the block-once marker --"
 c="$(fresh corpus-next)"; ( cd "$c" && find . -path ./.claude -prune -o -type f -print | sort ) > "$TMP/before.lst"
