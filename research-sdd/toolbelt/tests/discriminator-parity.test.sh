@@ -155,6 +155,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # identical, syntax-broken, live-tree and symlink mutants) and asserts the exact GOOD verdict on the
   # original and the exact BAD verdict on the mutant (mutant_tooth: a crashing mutant is THEATER).
   mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
+  # tt LABEL GOOD_RC BAD_RC MUTANT ...: the exact exit codes the ORIGINAL and the MUTANT run must return.
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
   MD="$ROOT/mutants"; mkdir -p "$MD"
   FILTER_ARGV=(bash -c '. "$1"; printf "%s\n" "$2" | block_file_filter' _ @SUT@)
@@ -171,6 +172,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # TOOTH-3: a consumer's `declare -F block_file_filter` guard is what turns a broken lib into a loud
   # exit 1. Mutant = verify-corrections.sh without the guard; both copies sit beside an empty lib.
+  # Original: rc 1 + 'failed to define block_file_filter'. Mutant: proceeds past the missing filter, finds
+  # no block files and exits 2 ('no block files') — the late, misleading failure the guard prevents.
   mkdir -p "$MD/orig/lib" "$MD/mut/lib"
   printf '#!/usr/bin/env bash\n# intentionally empty — no block_file_filter defined\n' > "$MD/orig/lib/block-files.sh"
   cp "$MD/orig/lib/block-files.sh" "$MD/mut/lib/block-files.sh"
