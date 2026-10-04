@@ -492,15 +492,30 @@ fi
 # assertion demonstrably depends on the real grouping → it has teeth. If it did
 # NOT reinstall, case 1 would pass on a broken script → theater.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are copies of the SUT built through lib/mutant.sh (refuses empty / byte-identical /
+  # not-valid-bash / live-tree / symlink OUT). $ROOT is a mktemp dir, so every box is under TMPDIR.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_built >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  # _it_mutant LABEL BOX OLD NEW -- write the SUT into BOX/install-tool.sh with the first OLD replaced
+  # by NEW (NEW may be empty = deletion). rc 1 = anchor absent or the helper refused the mutant; the
+  # failure is already counted ONCE here, so the caller must skip its tooth (no second count).
+  _it_mutant() {
+    local label="$1" box="$2" old="$3" new="$4" c
+    c="$(cat "$SUT")"
+    if [[ "$c" != *"$old"* ]]; then
+      no "teeth: build $label mutant" "anchor not found — SUT drifted?"; return 1
+    fi
+    printf '%s\n' "${c/"$old"/"$new"}" > "$box/install-tool.sh"
+    if ! mutant_built "teeth: build $label mutant" "$SUT" "$box/install-tool.sh" >/dev/null; then
+      no "teeth: build $label mutant" "refused by lib/mutant.sh (empty / identical / not bash)"; return 1
+    fi
+  }
   echo "-- teeth: mutate guard to grouped 'A || { B && exit }', expect a PRESENT tool to REINSTALL --"
   box="$(mkbox teeth-grouped-mutant)"
   orig='have ilspycmd || have "$HOME/.dotnet/tools/ilspycmd" && { log ilspycmd "dotnet tool (present)" already; exit 0; }'
   new='have ilspycmd || { have "$HOME/.dotnet/tools/ilspycmd" && { log ilspycmd "dotnet tool (present)" already; exit 0; }; }'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build grouped mutant" "guard anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content//"$orig"/"$new"}" > "$box/install-tool.sh"
+  if _it_mutant grouped "$box" "$orig" "$new"; then
     stub "$box" ilspycmd 0   # present — a correct guard must NOT reinstall this
     stub "$box" dotnet 0     # records the reinstall the mutant wrongly performs
     run "$box" ilspycmd
@@ -514,11 +529,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove -*) guard, expect --foo to reach brew install and corrupt ledger --"
   box="$(mkbox teeth-flag-guard-mutant)"
   orig='  -*)        usage >&2; exit 2 ;;'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build flag-guard mutant" "guard anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content//"$orig"/}" > "$box/install-tool.sh"
+  if _it_mutant flag-guard "$box" "$orig" ""; then
     stub "$box" brew 0   # brew exits 0 → log() fires → ledger created
     run "$box" --foo
     if [ -f "$box/INSTALLED-TOOLS.md" ] && grep -q 'installed' "$box/INSTALLED-TOOLS.md"; then
@@ -531,11 +542,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   box="$(mkbox teeth-java-skip-sha256)"
   orig='    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate'
   new='    if false; then  # MUTANT: sha256 gate bypassed'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build sha256-skip mutant" "anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
+  if _it_mutant sha256-skip "$box" "$orig" "$new"; then
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
     stub_checksummer "$box" 1   # fails: correct gate would reject; mutant does not
@@ -552,11 +559,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   box="$(mkbox teeth-curl-no-dest)"
   orig='curl -fsSL "$VF_URL" -o "$TMP"'
   new_curl='curl -fsSL "$VF_URL"'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build curl-no-dest mutant" "anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content/"$orig"/"$new_curl"}" > "$box/install-tool.sh"
+  if _it_mutant curl-no-dest "$box" "$orig" "$new_curl"; then
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
     stub_checksummer "$box" 0
@@ -576,11 +579,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   box="$(mkbox teeth-java-move-before-verify)"
   orig=$'    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "sha256 mismatch"; exit 4\n    fi\n    if ! mv "$TMP" "$DEST"; then  # vineflower: verified\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "mv to DEST failed"; exit 4\n    fi'
   new=$'    if ! mv "$TMP" "$DEST"; then  # MUTANT: moved before verify\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "mv to DEST failed"; exit 4\n    fi\n    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "sha256 mismatch"; exit 4\n    fi'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build move-before-verify mutant" "anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
+  if _it_mutant move-before-verify "$box" "$orig" "$new"; then
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
     stub_checksummer "$box" 1   # fails: with mutant, DEST was already moved before the check
@@ -598,11 +597,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # regression (the --list regex only captures single-name labels), not just presence.
   echo "-- teeth: alias-form recipe (kaitai|ksc) must drop from --list, breaking 7b --"
   box="$(mkbox teeth-alias-list)"
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"  kaitai) brew_install"* ]]; then
-    no "teeth: build alias-form mutant" "kaitai recipe anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content/"  kaitai) brew_install"/"  kaitai|ksc) brew_install"}" > "$box/install-tool.sh"
+  if _it_mutant alias-form "$box" "  kaitai) brew_install" "  kaitai|ksc) brew_install"; then
     run "$box" --list
     if ! grep -qx 'kaitai' <<<"$OUT"; then
       ok "teeth: alias-form kaitai drops from --list → case 7b bites" "(kaitai absent)"
@@ -620,11 +615,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   box="$(mkbox teeth-procyon-no-idem)"
   orig='    if [ -f "$DEST" ] && echo "$PROCYON_PIN  $DEST" | sha256sum -c --status -; then'
   new_guard='    if false; then  # MUTANT: procyon idempotency check bypassed — #941'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$orig"* ]]; then
-    no "teeth: build procyon-no-idem mutant" "anchor not found — SUT drifted?"
-  else
-    printf '%s\n' "${content/"$orig"/"$new_guard"}" > "$box/install-tool.sh"
+  if _it_mutant procyon-no-idem "$box" "$orig" "$new_guard"; then
     stub_checksummer "$box" 0
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
