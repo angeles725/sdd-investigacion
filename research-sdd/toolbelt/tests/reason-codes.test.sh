@@ -66,7 +66,7 @@ finding() { printf 'FINDING: %s\n' "$*"; nfind=$((nfind + 1)); }
 
 # rc_check REGISTRY SCRIPT_DIR — prints FINDING:/DEGRADED: lines; rc 0 clean · 1 findings · 2 degraded.
 rc_check() {
-  local reg="$1" dir="$2" rows s f toks t i n
+  local reg="$1" dir="$2" rows s path toks tok req found idx i n
   local -a codes=() classes=() emits=() used=()
   local c cl em ct lc
   nfind=0
@@ -102,37 +102,37 @@ rc_check() {
     if [ -z "$em" ]; then finding "empty emitters for code: $c"; fi
   done <<<"$rows"
 
-  for t in "${REQUIRED_INPUT[@]}"; do
-    f=0
+  for req in "${REQUIRED_INPUT[@]}"; do
+    found=0
     for ((i = 0; i < n; i++)); do
-      if [ "${codes[$i]}" = "$t" ] && [ "${classes[$i]}" = "input" ]; then f=1; fi
+      if [ "${codes[$i]}" = "$req" ] && [ "${classes[$i]}" = "input" ]; then found=1; fi
     done
-    if [ "$f" -eq 0 ]; then finding "required input-class row missing: $t"; fi   # TOOTH-REQINPUT
+    if [ "$found" -eq 0 ]; then finding "required input-class row missing: $req"; fi   # TOOTH-REQINPUT
   done
 
   for s in "${SCRIPTS[@]}"; do
-    f="$dir/$s"
-    if [ ! -f "$f" ] || [ ! -r "$f" ]; then
-      printf 'DEGRADED: scanned script absent or unreadable: %s\n' "$f"; return 2
+    path="$dir/$s"
+    if [ ! -f "$path" ] || [ ! -r "$path" ]; then
+      printf 'DEGRADED: scanned script absent or unreadable: %s\n' "$path"; return 2
     fi
-    toks="$(awk "$EXTRACT_AWK" "$f")" || { printf 'DEGRADED: awk failed reading %s\n' "$f"; return 2; }
+    toks="$(awk "$EXTRACT_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
     if [ -z "$toks" ]; then                                                 # TOOTH-ZEROEXTRACT
       printf 'DEGRADED: extracted zero degraded emit lines from %s (could not look)\n' "$s"; return 2
     fi
-    while IFS= read -r t; do
-      f=-1
+    while IFS= read -r tok; do
+      idx=-1
       for ((i = 0; i < n; i++)); do
-        if [ "${codes[$i]}" = "$t" ]; then f=$i; fi
+        if [ "${codes[$i]}" = "$tok" ]; then idx=$i; fi
       done
-      if [ "$f" -lt 0 ]; then
-        finding "unlisted code emitted by $s: $t"                           # TOOTH-UNLISTED
+      if [ "$idx" -lt 0 ]; then
+        finding "unlisted code emitted by $s: $tok"                           # TOOTH-UNLISTED
         continue
       fi
-      used[f]=1
-      em="$(printf '%s' "${emits[$f]}" | tr -d ' ')"
+      used[idx]=1
+      em="$(printf '%s' "${emits[$idx]}" | tr -d ' ')"
       case ",$em," in
         *",$s,"*) ;;
-        *) finding "emitter mismatch: $s emits '$t' but the row lists '${emits[$f]}'" ;;   # TOOTH-EMITTER
+        *) finding "emitter mismatch: $s emits '$tok' but the row lists '${emits[$idx]}'" ;;   # TOOTH-EMITTER
       esac
     done <<<"$toks"
   done
