@@ -1,0 +1,15 @@
+# .research-sdd/vendor-leak.conf — vendor-code leak guard declaration (kit issue #1271).
+# Read by research-sdd/toolbelt/scan-vendor-leak.sh. This target's remote is PUBLIC, so anything
+# declared here as vendor code must never be committed. Binaries (*.class *.jar *.dll *.so *.exe)
+# are always flagged unless allowed below; the directives that follow are what YOU must declare.
+#
+#   prefix <java.package.prefix>   vendor package whose declaration in a tracked file is a leak
+#   path   <glob>                  repo-relative glob of a tree that holds vendor code (decompiled output)
+#   allow  <glob>                  reviewed exception — allow wins over every other rule
+#
+# Until a prefix or path is declared the scanner reports EMPTY-CONF and applies the binary rule only:
+# a clean run then proves nothing about decompiled vendor source. Fill this in (examples, uncomment):
+#
+# prefix com.vendor.product
+# path   decompiled/**
+# allow  tools/fixtures/tiny-test.jar
