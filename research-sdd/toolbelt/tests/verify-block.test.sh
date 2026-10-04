@@ -1443,6 +1443,31 @@ mf_corpus noscript "Plain claim [CERT] \`src/x.c:1\`"; mf_manifest b1 a.sh @a.sh
 mf_check 0 'none — no preserved script cited' "#1207 GOOD: manifests present, no script cited -> explicit none line"
 mf_corpus proseend "Ran sources/probes/b1/a.sh." ; mf_manifest b1 a.sh @a.sh
 mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cite followed by sentence period"
+# kit #1659: a manifest the shared parser cannot read is a typed DEGRADED (exit 1), never "no valid row" / "no manifest".
+# (chmod 000 is not an obstacle to root, so the case is skipped there; the tooth below is skipped with it.)
+mf_corpus unreadable "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh; chmod 000 "$MFD/sources/probes/b1/SCRIPTS-MANIFEST.md"
+if [ "$(id -u)" = 0 ]; then ok "#1659 (skipped: running as root, chmod 000 does not block reads)"
+else mf_check 1 'DEGRADED manifest parse failed' "#1659 BAD: an unreadable manifest is a typed DEGRADED parse failure, not 'no row'"; fi
+# kit #1659: the cite must end at a path terminator — a.sh.bak / run.py.log are NOT a phantom a.sh / run.py cite
+P=sources/probes/b1
+mf_corpus bak-single "Saved \`$P/a.sh.bak\` aside"; mf_manifest b1 b.sh @b.sh
+mf_check 0 'none — no preserved script cited' "#1659 GOOD: a lone a.sh.bak is no cite at all (no phantom MANIFEST! for a.sh)"
+mf_corpus log-single "Saved $P/c.py.log aside"; mf_manifest b1 b.sh @b.sh
+mf_check 0 'none — no preserved script cited' "#1659 GOOD: a lone c.py.log is no cite at all (no phantom c.py)"
+mf_corpus bak-first "Ran \`$P/a.sh.bak\`, then \`$P/b.sh\`"; mf_manifest b1 b.sh @b.sh
+mf_check 0 'manifest-ok  sources/probes/b1/b.sh' "#1659 GOOD: .bak cite FIRST of two, the real cite after it is still checked"
+mf_corpus log-middle "Ran \`$P/b.sh\`, \`$P/a.sh.log\`, \`$P/c.sh\`"; mf_manifest b1 b.sh @b.sh c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1659 GOOD: .log cite in the MIDDLE does not break its neighbours"
+mf_corpus bak-last "Ran \`$P/c.sh\` and \`$P/a.sh.bak\`"; mf_manifest b1 c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1659 GOOD: .bak cite LAST, no phantom a.sh row demanded"
+mf_corpus bak-real-missing "Ran \`$P/a.sh.bak\` and \`$P/c.sh\`"; mf_manifest b1 b.sh @b.sh
+mf_check 1 'MANIFEST!  sources/probes/b1/c.sh' "#1659 BAD: the real cite next to a .bak is still a FAIL when it lacks a row"
+mf_corpus term-eol "Ran $P/a.sh"; mf_manifest b1 a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1659 GOOD: cite at end of line (no trailing char) is still a cite"
+mf_corpus term-mix "Ran $P/a.sh, $P/b.sh; ($P/c.sh)"; mf_manifest b1 a.sh @a.sh b.sh @b.sh c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1659 GOOD: comma / semicolon / paren terminated cites are all still cites"
+mf_corpus term-mix-miss "Ran $P/a.sh, $P/b.sh; ($P/c.sh)"; mf_manifest b1 a.sh @a.sh b.sh @b.sh
+mf_check 1 'MANIFEST!  sources/probes/b1/c.sh' "#1659 BAD: a paren-terminated cite is still checked"
 
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
@@ -1454,6 +1479,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   MUT="$(mktemp -d)"
+  # mutant copies of the SUT live flat in $MUT and resolve lib/ beside themselves (kit #1659: scripts-manifest.sh)
+  ln -s "$HERE/../lib" "$MUT/lib"
   # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (the shared mutant_chain
   # refuses a dead stage); a refusal is counted as a failure here, the helper never touches the counters.
   mk_sed(){
@@ -1944,9 +1971,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-mf-lookup" "$MUT/mfl.sh" '/# VB-MF-LOOKUP$/s/\$1 == b/1/'; then
     tooth "teeth-mf-lookup" 1 1 "$MUT/mfl.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-norow/block.md"
   fi
-  echo "-- teeth-mf-row: 64-hex length check dropped --"
-  if mk_sed "teeth-mf-row" "$MUT/mfr.sh" '/# VB-MF-ROW$/s/ \&\& length(b) == 64//'; then
-    tooth "teeth-mf-row" 1 1 "$MUT/mfr.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-shortsha/block.md"
+  # the row grammar itself (64-hex sha cell, path resolution) now lives in lib/scripts-manifest.sh and is pinned by
+  # scripts-manifest.test.sh; the two teeth below pin that verify-block really consults the shared parser (kit #1659).
+  echo "-- teeth-mf-parser-unwired: rows no longer read from the shared parser --"
+  if mk_sed "teeth-mf-parser-unwired" "$MUT/mfpu.sh" '/# VB-MF-PARSE$/s/_vb_mf_one=\$(scripts_manifest_rows "\$target" "\$_vb_mf_f")/_vb_mf_one=""/'; then
+    tooth "teeth-mf-parser-unwired" 0 1 "$MUT/mfpu.sh" --good-has 'manifest-ok' --bad-has 'MANIFEST!  sources/probes/b1/a.sh  \(no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-ok/block.md"
+  fi
+  echo "-- teeth-mf-parser-fail: a failing shared parser must read as degraded --"
+  if [ "$(id -u)" = 0 ]; then echo "  (skipped: running as root, an unreadable manifest cannot be built)"
+  elif mk_sed "teeth-mf-parser-fail" "$MUT/mfpf.sh" '/# VB-MF-PARSE$/s/ || { _vb_mf_prc=1; break; }//'; then
+    tooth "teeth-mf-parser-fail" 1 1 "$MUT/mfpf.sh" --good-has 'DEGRADED manifest parse failed' --bad-lacks 'DEGRADED manifest parse failed' -- bash @SUT@ "$TMP/mf-unreadable/block.md"
+  fi
+  echo "-- teeth-mf-cite-boundary: cite terminator dropped (phantom a.sh from a.sh.bak) --"
+  if mk_sed "teeth-mf-cite-boundary" "$MUT/mfcb.sh" '/# VB-MF-CITE$/{n;s/\\.?(\[^A-Za-z0-9_.\/-]|\$)/\\b/;}'; then
+    tooth "teeth-mf-cite-boundary" 0 1 "$MUT/mfcb.sh" --good-has 'none — no preserved script cited' --bad-has 'MANIFEST!  sources/probes/b1/a.sh' -- bash @SUT@ "$TMP/mf-bak-single/block.md"
   fi
   echo "-- teeth-mf-findrc: manifest scan status ignored --"
   if mk_sed "teeth-mf-findrc" "$MUT/mffr.sh" 's/_vb_mf_frc=\${_vb_mf_raw##\*@@RC=}/_vb_mf_frc=0/'; then

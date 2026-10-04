@@ -18,6 +18,8 @@ command -v git >/dev/null 2>&1 || { echo "FATAL: git not on PATH" >&2; exit 2; }
 TMP="$(mktemp -d)"
 MUT="$(mktemp -d)"
 trap 'rm -rf "$TMP" "$MUT"' EXIT
+# mutant copies of the SUT live flat in $MUT and resolve lib/ beside themselves (kit #1659: scripts-manifest.sh)
+ln -s "$HERE/../lib" "$MUT/lib"
 pass=0; fail=0
 ok() { printf '  PASS  %-66s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-66s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -365,7 +367,31 @@ printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && { echo "s
 chmod +x "$TMP/shim-mffind/find"
 cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"; printf 'x\n' > "$REPO/sources/probes/b1/f"
 CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-mffind:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 3 ] && has "DEGRADED: manifest scan failed" && ! grep -q "^UNMANIFESTED-SCRIPT" <<<"$OUT"; } && ok "#1207: failed manifest scan -> typed DEGRADED (exit 3), not 'no manifests'" || no "manifest find rc" "(rc=$RC $OUT)"
+{ [ "$RC" = 2 ] && has "manifest scan failed" && ! grep -q "^UNMANIFESTED-SCRIPT" <<<"$OUT"; } && ok "#1659: failed manifest scan -> exit 2 (scan failure, header contract), not 'no manifests'" || no "manifest find rc" "(rc=$RC $OUT)"
+# the probes scan (preserved copies) fails the same way: exit 2, never a quiet 'nothing preserved'
+mkdir -p "$TMP/shim-pbfind"
+printf '#!/bin/sh\ncase "$*" in *SCRIPTS-MANIFEST.md*) exec %s "$@";; *sources/probes*) echo "shim-pbfind: find exploded" >&2; exit 1;; esac\nexec %s "$@"\n' "$(type -P find)" "$(type -P find)" > "$TMP/shim-pbfind/find"
+chmod +x "$TMP/shim-pbfind/find"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-pbfind:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 2 ] && has "probes scan failed"; } && ok "#1659: failed probes scan -> exit 2, preserved copies not silently skipped" || no "probes find rc" "(rc=$RC $OUT)"
+
+# #1659: DEGRADED-NO-SHA256 is a counted degraded state (exit 3 when otherwise clean, 1 when findings stand)
+mkbin "$TMP/bin-nosha" ""
+cc_scratch "nothing mentioned"; printf 'x\n' > "$SP/data.dat"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 3 ] && has "DEGRADED-NO-SHA256" && has "CLEAN-CHECK: degraded" && ! has "CLEAN-CHECK: clean"; } && ok "#1659: no sha256 tool, no findings -> exit 3 + degraded summary (never 'clean')" || no "no-sha256 clean run" "(rc=$RC $OUT)"
+printf 'echo\n' > "$SP/loose.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNMANIFESTED-SCRIPT $SP/loose.sh" && has "DEGRADED-NO-SHA256" && has "degraded: preserved-copy check skipped"; } && ok "#1659: no sha256 tool + findings -> exit 1, summary still names the degradation" || no "no-sha256 with findings" "(rc=$RC $OUT)"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && ! has "DEGRADED"; } && ok "#1659: with a sha256 tool the same run carries no degraded state" || no "sha256 control" "(rc=$RC $OUT)"
+
+# #1659 shared manifest parser: a row needs a 64-hex sha cell; a path-bearing first cell lists its basename
+cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/tool.sh"; printf 'echo\n' > "$SP/deep.sh"
+mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `tool.sh` | TODO | x | B1 | h | - | EXECUTED |\n| `sub/deep.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "UNMANIFESTED-SCRIPT $SP/tool.sh" && ! has "UNMANIFESTED-SCRIPT $SP/deep.sh"; } && ok "#1659: a row without a 64-hex sha cell does not list its script; a valid path row does" || no "shared parser in clean-check" "(rc=$RC $OUT)"
 
 # a tracked block deleted from disk is skipped and counted, not a crash
 cc_scratch "mentions gone.dat"
@@ -492,8 +518,17 @@ KL
   printf 'Ran prerun.sh and probe_run.log\n' > "$RB/notes/b1.md"; printf 'same\n' > "$RSP/probe_run.log"; printf 'same\n' > "$RB/sources/probes/b1/probe_run.log"
   mt "preserved-copy check disabled" '/# CC-PRESERVED$/s/if \[ -n "\$_h" \] \&\& grep -qxF -- "\$_h" <<<"\$_probe_shas"; then _same=1; fi/:/' 1 1 \
     --good-lacks 'UNPRESERVED-ARTIFACT .*probe_run\.log' --bad-has 'UNPRESERVED-ARTIFACT .*probe_run\.log' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 3 1 \
-    --good-has 'DEGRADED: manifest scan failed' --bad-lacks 'DEGRADED' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 2 1 \
+    --good-has 'manifest scan failed' --bad-lacks 'manifest scan failed' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "probes scan RC ignored" '/# CC-PB-RC$/s/"\${_pl\[\$_plast\]}" = "RC=0"/"x" = "x"/' 2 1 \
+    --good-has 'probes scan failed' --bad-lacks 'probes scan failed' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-pbfind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  # kit #1659: a run without sha256sum/shasum is a counted degraded state, never a clean exit 0
+  mt "missing sha256 tool no longer marks the run degraded" '/# CC-NO-SHA$/,/^    fi$/s/DEGRADED=1/:/' 3 0 \
+    --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: clean' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
+  mt "degraded run exits 0 after the summary" '/# CC-DEGRADED-EXIT/,/^    exit 3$/s/exit 3/exit 0/' 3 0 \
+    --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: degraded' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
+  mt "manifest rows no longer read from the shared parser" '/# CC-MF-PARSE$/s/_rows="\$(scripts_manifest_rows "\$TARGET_P" "\${_mf\[\$_j\]}")"/_rows=""/' 0 1 \
+    --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
   fresh; RM="$REPO"; RMT="$FT"; RMS="$TMP/rm-spad"; mkdir -p "$RMS" "$RM/.research-sdd" "$RM/notes"; printf '# n\n' > "$RM/.research-sdd/keep.txt"
   printf 'x\n' > "$RM/notes/gone.md"; git -C "$RM" add notes/gone.md .research-sdd/keep.txt; git -C "$RM" -c user.name=t -c user.email=t@example.invalid commit -q -m g; rm "$RM/notes/gone.md"
   printf 'x\n' > "$RMS/unrelated.dat"

@@ -12,7 +12,7 @@ decides what to do with each finding.
 | untracked | `GARBAGE untracked <path>` | Every untracked, **non-ignored** file under `--target` (default `.`) that no keep-list glob matches. Listed by `git ls-files --others --exclude-standard`, so `.gitignore`d files are never findings and an untracked directory is expanded to its files. |
 | stale temp | `GARBAGE stale-tmp <path> age=<h>h` | Every direct child of `--tmp` (default `${TMPDIR:-/tmp}`) whose name matches `tmp.*` (the `mktemp` default), whose mtime is older than the stale age, and that is owned by the current user. Files and directories both count. `<h>` is whole hours since the entry's own mtime. |
 | unpreserved artifact | `UNPRESERVED-ARTIFACT <file> cited by <block>` | Only with a scratchpad configured (kit #1207; see below). A file in the scratchpad whose basename or full path is mentioned by an `.md` block of the target, with no byte-identical copy under `<TARGET>/sources/probes/`: evidence about to be lost. |
-| unmanifested script | `UNMANIFESTED-SCRIPT <file>` | Only with a scratchpad configured. A scratchpad script (extension `sh ps1 py java js rb pl bat cmd groovy kts`) whose basename is not the first table cell of any row of a `<TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md`. |
+| unmanifested script | `UNMANIFESTED-SCRIPT <file>` | Only with a scratchpad configured. A scratchpad script (extension `sh ps1 py java js rb pl bat cmd groovy kts`) whose basename is not the first table cell of any valid row of a `<TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md`. |
 
 The stale age defaults to **24 h** and is overridden with `--stale-hours N` (a non-negative
 decimal integer of at most 9 digits; a leading zero is still decimal, so `08` is 8; anything else
@@ -61,15 +61,18 @@ suppressed when a byte-identical copy (sha256) already sits anywhere under
 `<TARGET>/sources/probes/`; such skips are counted in `preserved-copies:`. The remedy is to
 preserve the file under `sources/probes/b<N>/` first. Without `sha256sum` or `shasum` the check is
 skipped and the typed line `DEGRADED-NO-SHA256 ...` is printed, so a missing hash tool never reads
-as "everything preserved". It is not counted as a finding: the exit code is decided by the other checks, so
-a run whose only issue is this state exits 0 — callers must read the typed line, not just the exit code.
-Counting it as a degraded state (consistent with verify-block) is tracked in kit issue #1659.
+as "everything preserved". It is a counted degraded state, not a finding: the summary carries
+`degraded: preserved-copy check skipped`; a run with no findings reads `CLEAN-CHECK: degraded (...)`
+and exits 3 (never `clean`, never 0); a run with real findings still exits 1, because the findings are
+true and actionable, and its summary still names the degradation.
 
 ### `UNMANIFESTED-SCRIPT <file>`
 
-The basename must equal, exactly, the first table cell of some row (backticks and blanks removed,
-directory part dropped) of any `SCRIPTS-MANIFEST.md` under `<TARGET>/sources/probes/`. See
-`verify-block.sh` for the manifest row format.
+The basename must equal, exactly, the last path component of the first table cell of some **valid** row
+of any `SCRIPTS-MANIFEST.md` under `<TARGET>/sources/probes/`. A row is valid only when its second cell
+is a 64-hex sha256: the header row, the separator row and rows with a placeholder digest list nothing.
+Rows are read by the one shared parser `lib/scripts-manifest.sh` (`scripts_manifest_rows`), the same
+parser `verify-block.sh` uses for its `MANIFEST!` check; see `verify-block.sh` for the row format.
 
 ### Scratchpad state is never a silent zero
 
@@ -103,8 +106,8 @@ CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <H
 |---|---|
 | 0 | clean (also `-h` / `--help`) |
 | 1 | at least one finding |
-| 2 | usage error, `--target` absent or not inside a git work tree, `--tmp` absent, or a scan command failed (including the scratchpad `find`, the block listing and a `grep` failure while reading a block) |
-| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort id stat`) is not on `PATH`, or the `sources/probes` manifest scan or probes scan failed; the run stops there with no summary line (the typed `DEGRADED` line goes to stderr). The script header still files scan failures under exit 2; this table documents the code's behaviour, and unifying the two is tracked in kit issue #1659 |
+| 2 | usage error, `--target` absent or not inside a git work tree, `--tmp` absent, or a scan command failed (including the scratchpad `find`, the block listing, a `grep` failure while reading a block, the `sources/probes` manifest scan, the probes scan, and a manifest the shared parser cannot read) |
+| 3 | `DEGRADED`: either a tool in the script's `REQUIRED_TOOLS` list (`git find date sort id stat`) is not on `PATH` (the run stops there with no summary line; the typed `DEGRADED` line goes to stderr), or no `sha256sum`/`shasum` exists so the preserved-copy check was skipped (the run completes: typed `DEGRADED-NO-SHA256` line, summary `CLEAN-CHECK: degraded (...)`; exit 3 only when there are no findings, otherwise 1) |
 
 A scan that errors partway is exit 2, never a quiet "clean": both the untracked list (`git ls-files`)
 and the `tmp.*` list (`find`) are read with an explicit end marker, and the `sort` ordering step carries
