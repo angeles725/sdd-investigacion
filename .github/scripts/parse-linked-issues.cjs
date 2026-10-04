@@ -75,7 +75,9 @@ function kindFor(keyword) {
 }
 
 function parseLinkedIssues(body) {
-  const visible = stripHtmlComments(stripFencedCode(body));
+  // GitHub web-form bodies arrive with CRLF; a fence close line ending in \r would never match.
+  const normalized = String(body || '').replace(/\r\n?/g, '\n');
+  const visible = stripHtmlComments(stripFencedCode(normalized));
   const references = [];
   const errors = [];
 

@@ -50,6 +50,18 @@ test('list edges: first, middle, last and single reference positions', () => {
   assert.deepEqual(parseLinkedIssues('Refs #9'), ok(nonClosing(9)));
 });
 
+test('CRLF bodies (GitHub web form): a fence closes and later references still count', () => {
+  const body = 'Intro\r\n```\r\nCloses #9\r\n```\r\nCloses #42\r\n';
+  const result = parseLinkedIssues(body);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.references.map((r) => r.number), [42]);
+});
+
+test('lone CR line endings are normalized too', () => {
+  const result = parseLinkedIssues('```\rCloses #9\r```\rRefs #7\r');
+  assert.deepEqual(result.references.map((r) => r.number), [7]);
+});
+
 test('references inside fenced code blocks do not count', () => {
   assert.deepEqual(parseLinkedIssues('```\nCloses #42\n```'), ok());
   assert.deepEqual(parseLinkedIssues('Closes #7\n```md\nFixes #42\n```\nRefs #8'), ok(closing(7), nonClosing(8)));
