@@ -776,10 +776,19 @@ for suite in "${all_suites[@]}"; do
       { code[++n] = $0
         # Heredoc opener: `<<` [-] optional blanks, optional quote or backslash, then a WORD (kit
         # issue #1647). `<<` inside an awk regex literal (`/<<-?[[:space:]]*...`), preceded by `/`,
-        # or inside a quoted string (odd count of quotes before it) is not an opener.
+        # or inside a quoted string (open quote state at it) is not an opener.
         if ($0 !~ /<<</ && match($0, /<<-?[ \t]*[\\"\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
-          pre = substr($0, 1, RSTART - 1); q1 = gsub(/\047/, "", pre); q2 = gsub(/"/, "", pre)
-          if (q1 % 2 == 0 && q2 % 2 == 0 && substr($0, RSTART - 1, 1) != "/") {
+          # Quote state is scanned left to right (escapes honoured; an apostrophe inside "..." is
+          # literal), not inferred from raw parity: `echo "it'"'"'s"; cat <<EOF` is a real opener.
+          qs = ""
+          for (k = 1; k < RSTART; k++) {
+            ch = substr($0, k, 1)
+            if (qs == "\047") { if (ch == "\047") qs = "" }
+            else if (ch == "\\") k++
+            else if (qs == "\"") { if (ch == "\"") qs = "" }
+            else if (ch == "\047" || ch == "\"") qs = ch
+          }
+          if (qs == "" && substr($0, RSTART - 1, 1) != "/") {
             d = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*[\\"\047]?/, "", d); hd = d } } }
       END {
         if (py) exit 0

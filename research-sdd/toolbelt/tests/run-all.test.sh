@@ -765,6 +765,12 @@ mkfix_teeth "$w/real-heredoc.test.sh"
 printf '%s\n' "cat <<-'EOF'" '	. "$HERE/lib/mutant.sh"' '	EOF' >> "$w/real-heredoc.test.sh"
 mkfix_teeth "$w/py-bash-c.test.sh"
 printf '%s\n' "subprocess.run([\"bash\", \"-c\", '. \"\$1/lib/mutant.sh\" && mutant_chain t \"\$2\"', \"_\", d])" >> "$w/py-bash-c.test.sh"
+# A real opener after an earlier quoted string stays an opener (quote STATE, not parity): a balanced
+# "..." and an apostrophe inside "..." both precede a real <<'EOF' whose body must stay hidden.
+mkfix_teeth "$w/bal-heredoc.test.sh"
+printf '%s\n' "echo \"a\"; cat <<'EOF'" '. "$HERE/lib/mutant.sh"' 'EOF' >> "$w/bal-heredoc.test.sh"
+mkfix_teeth "$w/apos-heredoc.test.sh"
+printf '%s\n' "echo \"it's\"; cat <<'EOF'" '. "$HERE/lib/mutant.sh"' 'EOF' >> "$w/apos-heredoc.test.sh"
 mkfix_teeth "$w/py-heredoc.test.sh"
 printf '%s\n' "python3 - <<'PY'" "subprocess.run([\"bash\", \"-c\", '. \"\$1/lib/mutant.sh\" && mutant_chain t', \"_\"])" 'PY' >> "$w/py-heredoc.test.sh"
 mkfix_teeth "$w/py-cmt.test.sh"
@@ -773,7 +779,7 @@ mkfix_teeth "$w/py-nobash.test.sh"
 printf '%s\n' "x = '. \"\$1/lib/mutant.sh\" && mutant_chain t'" >> "$w/py-nobash.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
 _c34gline="$(grep -F 'not using lib/mutant.sh' <<<"$out")"
-if [ "$_c34gline" = 'Suites with teeth not using lib/mutant.sh: 3 — [py-cmt, py-nobash, real-heredoc]' ]; then
+if [ "$_c34gline" = 'Suites with teeth not using lib/mutant.sh: 5 — [apos-heredoc, bal-heredoc, py-cmt, py-nobash, real-heredoc]' ]; then
   ok "teeth-helper lint (#1647): awk-regex/quoted << open no heredoc; real heredoc still hides; bash -c python form counts, bare python string does not"
 else no "teeth-helper lint #1647 failed: line=[$_c34gline]"; fi
 
@@ -1823,6 +1829,8 @@ REPL12
   _mk34g(){ # dir
     mkfix_teeth "$1/awk-regex.test.sh"
     printf '%s\n' "awk '/<<-?[[:space:]]*[\"\\047]?[A-Za-z_][A-Za-z0-9_]*[\"\\047]?/ { print }' f" '. "$HERE/lib/mutant.sh"' >> "$1/awk-regex.test.sh"
+    mkfix_teeth "$1/apos-heredoc.test.sh"
+    printf '%s\n' "echo \"it's\"; cat <<'EOF'" '. "$HERE/lib/mutant.sh"' 'EOF' >> "$1/apos-heredoc.test.sh"
     mkfix_teeth "$1/quoted.test.sh"
     printf '%s\n' "printf '%s\\n' 'cat <<EOF'" '. "$HERE/lib/mutant.sh"' >> "$1/quoted.test.sh"
     mkfix_teeth "$1/py-bash-c.test.sh"
@@ -1840,14 +1848,17 @@ REPL12
     else no "$lbl: mutant line=[$ml] want=[$want] — mutation not exercised (THEATER)"; fi
   }
   echo "-- teeth: drop the quote/slash guard on '<<' openers; a '<<' inside quotes must open a heredoc (case 34g) --"
-  _t34g teeth-helper-heredoc-guard 'Suites with teeth not using lib/mutant.sh: 1 — [quoted]' \
-    's/if (q1 % 2 == 0 && q2 % 2 == 0 && substr(\$0, RSTART - 1, 1) != "\/") {/if (1) {/'
+  _t34g teeth-helper-heredoc-guard 'Suites with teeth not using lib/mutant.sh: 2 — [apos-heredoc, quoted]' \
+    's/if (qs == "" && substr(\$0, RSTART - 1, 1) != "\/") {/if (1) {/'
   echo "-- teeth: revert the opener regex AND drop the guard; the awk-regex '<<' must open a heredoc (case 34g) --"
-  _t34g teeth-helper-heredoc-regex 'Suites with teeth not using lib/mutant.sh: 2 — [awk-regex, quoted]' \
-    's/if (q1 % 2 == 0 && q2 % 2 == 0 && substr(\$0, RSTART - 1, 1) != "\/") {/if (1) {/' \
+  _t34g teeth-helper-heredoc-regex 'Suites with teeth not using lib/mutant.sh: 3 — [apos-heredoc, awk-regex, quoted]' \
+    's/if (qs == "" && substr(\$0, RSTART - 1, 1) != "\/") {/if (1) {/' \
     's|<<-?\[ \\t\]\*\[\\\\"\\047\]?\[A-Za-z_\]|<<-?[^A-Za-z_]*[A-Za-z_]|'
+  echo "-- teeth: revert quote STATE to raw apostrophe parity; an apostrophe inside \"...\" must not hide a real opener (case 34g) --"
+  _t34g teeth-helper-heredoc-parity 'Suites with teeth not using lib/mutant.sh: 0 — []' \
+    's|if (qs == "" \&\&|if (((pre = substr($0, 1, RSTART - 1)) "x") \&\& gsub(/\\047/, "", pre) % 2 == 0 \&\&|'
   echo "-- teeth: drop the bash -c python rule; a python-bodied helper user must be listed (case 34g) --"
-  _t34g teeth-helper-pybashc 'Suites with teeth not using lib/mutant.sh: 1 — [py-bash-c]' \
+  _t34g teeth-helper-pybashc 'Suites with teeth not using lib/mutant.sh: 2 — [apos-heredoc, py-bash-c]' \
     '/Python-bodied suites (kit issue #1647)/,+2d'
   # Mutation (kit issue #1299 item 5): drop the comment filter; a suite that only MENTIONS the
   # helper in a comment must then be counted as a helper user (vanish from the list).
