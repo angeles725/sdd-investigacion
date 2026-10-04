@@ -302,13 +302,18 @@ assert_state "19 embedded newline, nested in a repo → wired-off-root (path not
 #      silently becomes '/'. The split must use parameter expansion only. Lint over executable
 #      lines (comment lines excluded) of the lib.
 # herestring_count FILE : sets HS_N to the number of here-strings on executable lines; rc 2 when
-# grep itself failed (rc > 1), so "0" can never mean "could not look". Shared by case 20 and its tooth.
+# FILE is unreadable or awk fails, so "0" never means "could not look" (no pipeline: one awk reads
+# FILE directly and its own status is checked). Shared by case 20 and its tooth.
 herestring_count() {
-  local rc
-  if HS_N="$(grep -v '^[[:space:]]*#' "$1" | grep -c '<<<')"; then rc=0; else rc=$?; fi
-  [ "$rc" -le 1 ] || return 2
+  HS_N=""
+  [ -r "$1" ] || return 2
+  HS_N="$(awk '!/^[[:space:]]*#/ && index($0, "<<<") { n++ } END { print n + 0 }' "$1")" || return 2
   return 0
 }
+# 20a — control: a missing path must be "could not look" (rc 2, empty count), never a clean 0.
+herestring_count "$ROOT/no-such-file"; _hs_ctl_rc=$?
+if [ "$_hs_ctl_rc" -eq 2 ] && [ -z "$HS_N" ]; then ok "20a here-string lint on a missing file → rc 2, no count (not a silent 0)"
+else no "20a here-string lint on a missing file → rc 2, no count" "rc=$_hs_ctl_rc n=[$HS_N]"; fi
 if ! herestring_count "$LIB"; then
   no "20 lib here-string lint could not run"
 elif [ "$HS_N" -eq 0 ]; then
