@@ -2103,9 +2103,16 @@ if [ "$snap0" = "$snap1" ] && [ "$snap2" = "$snap3" ] && [ -n "$snap0" ]; then
   ok "V13: --verify leaves the home byte-identical in both the match and the drift state (no writes)"
 else no "V13: --verify changed the home tree"; fi
 # …and also under a read-only home (a write attempt would fail loudly and flip the exit code).
-chmod -R a-w "$vh"; _vrun "$vh" all; _ro_rc=$VRC; chmod -R u+w "$vh"
-[ "$_ro_rc" = 1 ] && ok "V13: --verify on a read-only home still reports drift, exit 1 (needs no write access)" \
-  || no "V13: read-only home verify returned rc=$_ro_rc"
+# chmod a-w must actually deny writes (false for root) or this check proves nothing: SKIP loudly then.
+chmod -R a-w "$vh"
+if { : > "$vh/.ro-probe"; } 2>/dev/null; then
+  rm -f "$vh/.ro-probe"; chmod -R u+w "$vh"
+  printf '  SKIP  V13: read-only home check — chmod has no effect here (running as root?); not counted\n'
+else
+  _vrun "$vh" all; _ro_rc=$VRC; chmod -R u+w "$vh"
+  [ "$_ro_rc" = 1 ] && ok "V13: --verify on a read-only home still reports drift, exit 1 (needs no write access)" \
+    || no "V13: read-only home verify returned rc=$_ro_rc"
+fi
 
 # V14 — mixed fleet: claude installed, others absent → exit 0; drift anywhere → exit 1.
 vh="$TMP/v14-home"; mkdir -p "$vh"; _vinst "$vh" claude
@@ -2146,6 +2153,80 @@ vh="$TMP/v17-home"; mkdir -p "$vh"; bash "$SUT" --dry-run --home "$vh" >/dev/nul
 help_v="$(bash "$SUT" --help 2>&1)"
 <<<"$help_v" grep -q -- '--verify' && <<<"$help_v" grep -Eq 'Exit: 0 = .*match or absent' && <<<"$help_v" grep -Eq '2 = at least one harness' \
   && ok "V18: --help documents --verify and the 0/1/2 exit codes" || no "V18: --help lacks --verify / exit codes"
+
+# _stub_tool <dir> <name> <body> — a PATH shim: $REAL is the real tool, resolved before any PATH change.
+_stub_tool() {
+  local d="$1" n="$2" body="$3" real
+  real="$(command -v "$n")" || return 1
+  mkdir -p "$d"
+  printf '#!/usr/bin/env bash\nREAL=%q\n%s\nexec "$REAL" "$@"\n' "$real" "$body" > "$d/$n"; chmod +x "$d/$n"
+}
+
+# V19 — a kept hand-edit is named as the CAUSE; members the run redeployed are not blamed.
+vh="$TMP/v19-home"; mkdir -p "$vh"; _vinst "$vh" pi
+printf '\nhand\n' >> "$vh/.pi/agent/prompts/research-sdd.md"
+_vinst "$vh" pi; _vrun "$vh" pi; l="$(_vline pi)"
+if [ "$VRC" = 1 ] && [[ "$l" == *"drifted=prompts/research-sdd.md (modified)"* ]] && [[ "$l" == *"kept-hand-edit=prompts/research-sdd.md"* ]] \
+   && [[ "$l" != *"skills/research-sdd/SKILL.md"* ]] && [[ "$l" != *"AGENTS.md#"* ]]; then
+  ok "V19: kept hand-edit → drift names only that member and prints kept-hand-edit=<path>"
+else no "V19: hand-edit cause not named / other members blamed (rc=$VRC) :: $l"; fi
+
+# V20 — degraded branches: unsafe recorded profile, unreadable member, unreadable record.
+vh="$TMP/v20a-home"; mkdir -p "$vh"; _vinst "$vh" claude
+sed -i 's/^profile=.*/profile=..\/evil/' "$vh/.claude/research-sdd/.installed-bundle-state"
+_vrun "$vh" claude
+[ "$VRC" = 2 ] && _vhas claude 'status=degraded .*unsafe' \
+  && ok "V20: an unsafe recorded profile name → degraded, exit 2" || no "V20: unsafe profile not degraded (rc=$VRC) :: $(_vline claude)"
+vh="$TMP/v20b-home"; mkdir -p "$vh"; _vinst "$vh" claude
+chmod 000 "$vh/.claude/skills/research-sdd/SKILL.md"
+if [ -r "$vh/.claude/skills/research-sdd/SKILL.md" ]; then
+  printf '  SKIP  V20: unreadable-member check — chmod 000 has no effect here (running as root?); not counted\n'
+else
+  _vrun "$vh" claude
+  [ "$VRC" = 2 ] && _vhas claude 'status=degraded' && ! _vhas claude 'status=(drift|match)' \
+    && ok "V20: an existing-but-unreadable member → degraded (not drift/missing), exit 2" || no "V20: unreadable member rc=$VRC :: $(_vline claude)"
+fi
+chmod 644 "$vh/.claude/skills/research-sdd/SKILL.md"
+vh="$TMP/v20c-home"; mkdir -p "$vh"; _vinst "$vh" claude
+chmod 000 "$vh/.claude/research-sdd/.installed-bundle-state"
+if [ -r "$vh/.claude/research-sdd/.installed-bundle-state" ]; then
+  printf '  SKIP  V20: unreadable-record check — chmod 000 has no effect here (running as root?); not counted\n'
+else
+  _vrun "$vh" claude
+  [ "$VRC" = 2 ] && _vhas claude 'status=degraded .*unreadable' \
+    && ok "V20: an unreadable bundle record → degraded (unreadable), exit 2" || no "V20: unreadable record rc=$VRC :: $(_vline claude)"
+fi
+chmod 644 "$vh/.claude/research-sdd/.installed-bundle-state"
+
+# V21 — the record is written ATOMICALLY: temp beside the state file; removed when the final mv fails.
+vh="$TMP/v21-home"; mkdir -p "$vh" "$TMP/v21-log"
+_stub_tool "$TMP/v21-mk" mktemp 'printf "%s\n" "$*" >> "$STUB_LOG"'
+STUB_LOG="$TMP/v21-log/mktemp.log" PATH="$TMP/v21-mk:$PATH" bash "$SUT" --home "$vh" --harness claude >/dev/null 2>&1
+if grep -qF "$vh/.claude/research-sdd/.installed-bundle-state." "$TMP/v21-log/mktemp.log"; then
+  ok "V21: the record temp file is created in the state file's own directory (same-filesystem rename)"
+else no "V21: record temp not created beside the state file :: $(cat "$TMP/v21-log/mktemp.log")"; fi
+vh="$TMP/v21b-home"; mkdir -p "$vh"
+_stub_tool "$TMP/v21-mv" mv 'case "${@: -1}" in *.installed-bundle-state) exit 1 ;; esac'
+PATH="$TMP/v21-mv:$PATH" bash "$SUT" --home "$vh" --harness claude >/dev/null 2>&1; v21rc=$?
+v21left="$(find "$vh/.claude/research-sdd" -name '.installed-bundle-state*' 2>/dev/null | awk 'END{print NR}')"
+if [ "$v21rc" != 0 ] && [ "$v21left" = 0 ]; then ok "V21: a failing final mv exits non-zero and leaks no temp file"
+else no "V21: failing mv left rc=$v21rc leftovers=$v21left"; fi
+
+# V22 — a find failure while walking the rendered profile is degraded, never a confident "missing".
+vh="$TMP/v22-home"; mkdir -p "$vh"; _vinst "$vh" pi; printf 'x\n' > "$vh/.pi/agent/research-sdd/profile/general/EXTRA-FILE.md"
+_stub_tool "$TMP/v22-find" find 'case "$*" in *"-type f"*research-sdd/profile*|*research-sdd/profile*"-type f"*) exit 1 ;; esac'
+VOUT="$(PATH="$TMP/v22-find:$PATH" bash "$SUT" --verify --home "$vh" --harness pi 2>&1)"; VRC=$?
+[ "$VRC" = 2 ] && _vhas pi 'status=degraded .*traversed' \
+  && ok "V22: find failing on the profile dir → degraded (could not be traversed), exit 2" || no "V22: find failure not degraded (rc=$VRC) :: $(_vline pi)"
+
+# V23 — a member PATH that merely contains the text MISSING is not a missing member (hash column only).
+vh="$TMP/v23-home"; mkdir -p "$vh"; _vinst "$vh" pi
+printf 'n\n' > "$vh/.pi/agent/research-sdd/profile/general/MISSING-NOTES.md"
+printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$1" --help >/dev/null 2>&1\n_rsdd_write_bundle_state pi "$2" general\necho "RC=$?"\n' > "$MKI/v23-driver.sh"
+v23="$(bash "$MKI/v23-driver.sh" "$SUT" "$vh" 2>&1)"
+if [[ "$v23" == *"RC=0"* ]] && grep -q 'MISSING-NOTES.md' "$vh/.pi/agent/research-sdd/.installed-bundle-state"; then
+  ok "V23: a profile file whose NAME contains MISSING is recorded (only the hash column is checked)"
+else no "V23: record refused for a path containing MISSING :: $v23"; fi
 
 # --- --verify teeth (kit issue #1702): every mutant is a temp copy built by lib/mutant.sh (refused =
 #     counted exactly once, its tooth never runs); every tooth pins the exact good/bad exit codes plus an
@@ -2193,10 +2274,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _vmk "teeth: V-T6 drift outranks degraded" "$SUT" "$MKI/v-t6.sh" 's/\[ "\$degraded" = 1 \] \&\& vrc=2/:/' \
     && _vtt "teeth: degraded not outranking drift → a harness that could not be checked reads as plain drift" 2 0 "$MKI/v-t6.sh" --good-has 'status=degraded' --bad-has 'status=degraded' --bad-lacks "$_CRASH" -- "$_BASH" @SUT@ --verify --home "$_TV/mixed"
   # T7 — install stops recording the bundle.
-  _vmk "teeth: V-T7 no record" "$SUT" "$MKI/v-t7.sh" 's/elif ! _rsdd_write_bundle_state "\$h" "\$home" "\$profile"; then/elif false; then/' \
+  _vmk "teeth: V-T7 no record" "$SUT" "$MKI/v-t7.sh" 's/if ! _rsdd_write_bundle_state "\$h" "\$home" "\$profile" "\$kept"; then/if false; then/' \
     && _vtt "teeth: install that records nothing → verify cannot vouch for the install" 0 2 "$MKI/v-t7.sh" --good-has 'status=match' --bad-has 'status=degraded' --bad-lacks "$_CRASH" -- "$_BASH" -c 'h="$(mktemp -d)"; "$1" "$2" --home "$h" --harness claude >/dev/null 2>&1; "$1" "$2" --verify --home "$h" --harness claude; rc=$?; rm -rf "$h"; exit $rc' _ "$_BASH" @SUT@
   # T8 — a kept hand-edit gets baselined by the next install.
-  _vmk "teeth: V-T8 baseline hand-edit" "$SUT" "$MKI/v-t8.sh" 's/if ! cmp -s "\$src_skill" "\$skill_path" ||/if false ||/' \
+  _vmk "teeth: V-T8 baseline hand-edit" "$SUT" "$MKI/v-t8.sh" 's/| _rsdd_apply_kept "\$kept")"/| cat)"/' \
     && _vtt "teeth: kept hand-edit recorded as the baseline → drift silently becomes match" 1 0 "$MKI/v-t8.sh" --good-has 'status=drift' --bad-has 'status=match' --bad-lacks "$_CRASH" -- "$_BASH" -c 'h="$(mktemp -d)"; "$1" "$2" --home "$h" --harness claude >/dev/null 2>&1; printf "\nhand\n" >> "$h/.claude/skills/research-sdd/SKILL.md"; "$1" "$2" --home "$h" --harness claude >/dev/null 2>&1; "$1" "$2" --verify --home "$h" --harness claude; rc=$?; rm -rf "$h"; exit $rc' _ "$_BASH" @SUT@
   # T9 — the launcher block is replaced by the whole prompt file (user edits would count as drift).
   _vmk "teeth: V-T9 whole-file section hash" "$SUT" "$MKI/v-t9.sh" 's/if text="\$(_rsdd_section_text "\$f")"; then/if text="$(cat "$f")"; then/' \
@@ -2205,7 +2286,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _vmk "teeth: V-T10 extra not named" "$SUT" "$MKI/v-t10.sh" '/for (p in cur) if (!(p in rec)/d' \
     && _vtt "teeth: extra-file branch removed → a stray rendered file is no longer named" 1 2 "$MKI/v-t10.sh" --good-has 'EXTRA-FILE.md \(extra\)' --bad-has 'status=degraded' --bad-lacks "$_CRASH" -- "$_BASH" @SUT@ --verify --home "$_TV/extra" --harness pi
   # T11 — the self-consistency check of the record removed.
-  _vmk "teeth: V-T11 no record self-check" "$SUT" "$MKI/v-t11.sh" 's/if \[ "\$cur_digest" != "\$rec_digest" \]; then/if false; then/' \
+  _vmk "teeth: V-T11 no record self-check" "$SUT" "$MKI/v-t11.sh" 's/if \[ "\$rec_calc" != "\$rec_digest" \]; then/if false; then/' \
     && _vtt "teeth: record self-check removed → a corrupt record is no longer typed as corrupt" 2 2 "$MKI/v-t11.sh" --good-has 'does not match its own file lines' --bad-has 'status=degraded' --bad-lacks "$_CRASH|does not match its own file lines" -- "$_BASH" @SUT@ --verify --home "$_TV/corrupt" --harness claude
   # T12 — installed-but-unrecorded home reads as absent.
   _vmk "teeth: V-T12 unrecorded reads absent" "$SUT" "$MKI/v-t12.sh" 's/\[ -e "\$skill" \] \&\& installed=1/:/' \
@@ -2213,6 +2294,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # T13 — --verify no longer refuses --dry-run.
   _vmk "teeth: V-T13 verify accepts --dry-run" "$SUT" "$MKI/v-t13.sh" 's/if \[ "\$dry" = 1 \] || \[ "\$force" = 1 \] || \[ -n "\$profile_flag" \]; then/if [ "$force" = 1 ] || [ -n "$profile_flag" ]; then/' \
     && _vtt "teeth: --verify --dry-run accepted → the usage conflict is not enforced" 2 0 "$MKI/v-t13.sh" --good-has '--verify is read-only' --bad-lacks "$_CRASH|--verify is read-only" -- "$_BASH" @SUT@ --verify --dry-run --home "$_TV/empty" --harness claude
+
+  # --- RDD round 1 teeth ---------------------------------------------------------------------
+  mkdir -p "$_TV/pi" "$_TV/unsafe" "$_TV/keptcl"
+  _vinst "$_TV/pi" pi; printf 'x\n' > "$_TV/pi/.pi/agent/research-sdd/profile/general/EXTRA-FILE.md"
+  _vinst "$_TV/unsafe" claude; sed -i 's/^profile=.*/profile=..\/evil/' "$_TV/unsafe/.claude/research-sdd/.installed-bundle-state"
+  _vinst "$_TV/keptcl" claude; printf '\nhand\n' >> "$_TV/keptcl/.claude/skills/research-sdd/SKILL.md"; _vinst "$_TV/keptcl" claude
+  _stub_tool "$TMP/tv-mk" mktemp 'printf "%s\n" "$*" >> "$STUB_LOG"'
+  _stub_tool "$TMP/tv-mv" mv 'case "${@: -1}" in *.installed-bundle-state) exit 1 ;; esac'
+  _stub_tool "$TMP/tv-find" find 'case "$*" in *research-sdd/profile*"-type f"*) exit 1 ;; esac'
+
+  # T14 — record temp created in the system temp dir instead of beside the state file.
+  _vmk "teeth: V-T14 record temp not beside state" "$SUT" "$MKI/v-t14.sh" 's|tmp="\$(mktemp "\$state.XXXXXX")"|tmp="$(mktemp)"|' \
+    && _vtt "teeth: record temp in the system temp dir → rename can cross filesystems" 0 0 "$MKI/v-t14.sh" --good-has '^SAMEDIR$' --bad-has '^OTHERDIR$' --bad-lacks "$_CRASH" -- "$_BASH" -c 'h="$(mktemp -d)"; l="$h.log"; STUB_LOG="$l" PATH="$3:$PATH" bash "$1" --home "$h" --harness claude >/dev/null 2>&1; if grep -qF "$h/.claude/research-sdd/.installed-bundle-state." "$l"; then echo SAMEDIR; else echo OTHERDIR; fi; rm -rf "$h" "$l"' _ @SUT@ x "$TMP/tv-mk"
+  # T15 — temp not removed when the final mv fails.
+  _vmk "teeth: V-T15 temp leaks on mv failure" "$SUT" "$MKI/v-t15.sh" 's/mv -f "\$tmp" "\$state" || { rm -f "\$tmp"; return 1; }/mv -f "$tmp" "$state"/' \
+    && _vtt "teeth: no cleanup after a failed mv → temp file leaks" 0 0 "$MKI/v-t15.sh" --good-has '^LEFTOVER=0$' --bad-has '^LEFTOVER=1$' --bad-lacks "$_CRASH" -- "$_BASH" -c 'h="$(mktemp -d)"; PATH="$3:$PATH" bash "$1" --home "$h" --harness claude >/dev/null 2>&1; echo "LEFTOVER=$(find "$h/.claude/research-sdd" -name ".installed-bundle-state*" | awk "END{print NR}")"; rm -rf "$h"' _ @SUT@ x "$TMP/tv-mv"
+  # T16 — find's status swallowed → an untraversable profile dir reads as drift (missing).
+  _vmk "teeth: V-T16 find status swallowed" "$SUT" "$MKI/v-t16.sh" 's|found="\$(find "\$rd" -type f 2>/dev/null)" \|\| return 3|found="$(find "$rd" -type f 2>/dev/null)" \|\| found=""|' \
+    && _vtt "teeth: find failure swallowed → a stray profile file goes unseen and the bundle reads as match" 2 0 "$MKI/v-t16.sh" --good-has 'status=degraded' --bad-has 'status=match' --bad-lacks "$_CRASH" -- "$_ENV" "PATH=$TMP/tv-find:$PATH" "$_BASH" @SUT@ --verify --home "$_TV/pi" --harness pi
+  # T17 — kept-hand-edit hint dropped from the drift line.
+  _vmk "teeth: V-T17 no kept-hand-edit hint" "$SUT" "$MKI/v-t17.sh" 's/if \[ -n "\$kept_names" \]; then/if false; then/' \
+    && _vtt "teeth: kept-hand-edit hint dropped → the cause of the drift is not named" 1 1 "$MKI/v-t17.sh" --good-has 'kept-hand-edit=skills/research-sdd/SKILL.md' --bad-lacks "$_CRASH|kept-hand-edit=" -- "$_BASH" @SUT@ --verify --home "$_TV/keptcl" --harness claude
+  # T18 — MISSING matched as a substring of the whole manifest.
+  _vmk "teeth: V-T18 MISSING substring" "$SUT" "$MKI/v-t18.sh" '/\$1=="MISSING"/c\  case "$manifest" in *MISSING*) return 1 ;; esac' \
+    && _vtt "teeth: whole-manifest MISSING match → a path containing MISSING refuses the record" 0 0 "$MKI/v-t18.sh" --good-has '^RC=0$' --bad-has '^RC=1$' --bad-lacks "$_CRASH" -- "$_BASH" -c 'h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; printf "n\n" > "$h/.pi/agent/research-sdd/profile/general/MISSING-NOTES.md"; bash "$2" "$1" "$h"; rm -rf "$h"' _ @SUT@ "$MKI/v23-driver.sh"
+  # T19 — the recorded-profile safety check removed.
+  _vmk "teeth: V-T19 unsafe profile accepted" "$SUT" "$MKI/v-t19.sh" 's/\[\[ "\$profile" =~ \^\[a-z0-9_-\]+\$ \]\] || return 1/:/' \
+    && _vtt "teeth: profile-name check removed → a traversal-shaped recorded profile is accepted" 2 0 "$MKI/v-t19.sh" --good-has 'status=degraded' --bad-has 'status=match' --bad-lacks "$_CRASH" -- "$_BASH" @SUT@ --verify --home "$_TV/unsafe" --harness claude
 fi
 
 # Teeth for the hermeticity check itself: the snapshot must register a NEW, a MODIFIED and a

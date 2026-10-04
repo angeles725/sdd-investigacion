@@ -35,8 +35,9 @@
 #                 degraded · 2 = at least one harness degraded, or an operational/usage error (degraded
 #                 outranks drift: the instrument could not look, so it must not read as a clean 1).
 #                 Combining --verify with --dry-run, --force-skill or --profile is a usage error (exit 2).
-#                 An install that KEEPS a hand-edited SKILL.md/template records no new bundle digest, so a
-#                 hand-edit is never baselined as "installed": verify keeps reporting it until it is restored.
+#                 An install that KEEPS a hand-edited SKILL.md/template records the SOURCE digest for that
+#                 member plus a kept-hand-edit=<path> line: the hand-edit is never baselined, verify reports
+#                 it as drift and prints kept-hand-edit=<path> so the cause is named.
 #
 # pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
 # and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
@@ -562,18 +563,23 @@ _rsdd_member_hash() {
 
 # _rsdd_manifest <config_root> <profile> — reads member rels on stdin, adds every regular file of the
 # rendered profile dir (non-claude profile; symlinks into the kit view are not members), de-duplicates,
-# sorts byte-wise, and prints "<sha>\t<rel>" lines. rc=1 on an unhashable member or an unsafe profile name.
+# sorts byte-wise, and prints "<sha>\t<rel>" lines. rc=1 on an unhashable member or an unsafe profile
+# name, rc=3 when the profile dir cannot be traversed.
 _rsdd_manifest() {
-  local root="$1" profile="$2" rels rel h rd f
+  local root="$1" profile="$2" rels rel h rd f found
   rels="$(cat)"
   if [ "$profile" != "claude" ]; then
     [[ "$profile" =~ ^[a-z0-9_-]+$ ]] || return 1
     rd="$root/research-sdd/profile/$profile"
     if [ -d "$rd" ]; then
+      # find's own status is captured (no pipeline / process substitution that would drop it): an
+      # untraversable profile dir must be degraded (rc 3), never a confident "members missing".
+      found="$(find "$rd" -type f 2>/dev/null)" || return 3
       while IFS= read -r f; do
+        [ -n "$f" ] || continue
         rels="$rels
 ${f#"$root"/}"
-      done < <(find "$rd" -type f)
+      done <<<"$found"
     fi
   fi
   rels="$(printf '%s\n' "$rels" | awk 'NF' | LC_ALL=C sort -u)"
@@ -595,29 +601,46 @@ _rsdd_install_members() {
   [ -z "$tmpl" ] || printf '%s\n' "${tmpl#"$root"/}"
 }
 
-# _rsdd_write_bundle_state <h> <home> <profile> — record what the install just deployed. Atomic (tmp +
-# mv) and refuses to record a bundle with a MISSING member: a record must describe real files.
+# _rsdd_apply_kept <kept> — stdin manifest -> stdout manifest where each kept member's sha is replaced by
+# the sha of the SOURCE this run meant to deploy. <kept> is "rel<TAB>sha" lines (may be empty).
+_rsdd_apply_kept() {
+  awk -F'\t' -v kept="$1" '
+    BEGIN { n=split(kept, a, "\n"); for (i=1;i<=n;i++) { if (a[i]=="") continue; split(a[i], f, "\t"); k[f[1]]=f[2] } }
+    { if (($2 in k)) printf "%s\t%s\n", k[$2], $2; else print }'
+}
+
+# _rsdd_write_bundle_state <h> <home> <profile> [kept] — record what the install just deployed.
+# Atomic: the temp file is created in the state file's OWN directory, so the final mv is a same-
+# filesystem rename; it is removed on any failure. Refuses to record a bundle with a MISSING member (a
+# record must describe real files). [kept] ("rel<TAB>source-sha" lines) names members whose deployed bytes
+# are a KEPT hand-edit: the record carries the SOURCE sha and a "kept-hand-edit=<rel>" line, so verify
+# reports that member as drifted AND names the hand-edit as the cause, while the members the run did
+# redeploy are not blamed.
 _rsdd_write_bundle_state() {
-  local h="$1" home="$2" profile="$3" root state manifest digest tmp
+  local h="$1" home="$2" profile="$3" kept="${4:-}" root state manifest digest tmp rel
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   manifest="$(_rsdd_install_members "$h" "$home" | _rsdd_manifest "$root" "$profile")" || return 1
-  case "$manifest" in *MISSING*) return 1 ;; esac
+  if awk -F'\t' '$1=="MISSING" { f=1 } END { exit !f }' <<<"$manifest"; then return 1; fi
+  manifest="$(printf '%s\n' "$manifest" | _rsdd_apply_kept "$kept")" || return 1
   digest="$(printf '%s\n' "$manifest" | _rsdd_sha256_stdin)" || return 1
   mkdir -p "$(dirname "$state")" || return 1
-  tmp="$(mktemp)" || return 1
+  tmp="$(mktemp "$state.XXXXXX")" || return 1
   {
     printf 'bundle_sha256=%s\nprofile=%s\n' "$digest" "$profile"
     printf '%s\n' "$manifest" | awk -F'\t' '{printf "file=%s  %s\n", $1, $2}'
+    while IFS=$'\t' read -r rel _; do
+      [ -z "$rel" ] || printf 'kept-hand-edit=%s\n' "$rel"
+    done <<<"$kept"
   } > "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$state"
+  mv -f "$tmp" "$state" || { rm -f "$tmp"; return 1; }
 }
 
 # _rsdd_verify_one <h> <home> — print the ONE typed line for this harness; return 0 match/absent,
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
   local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
-  local nfiles drift_names installed=0
+  local nfiles drift_names kept_names rec_calc installed=0 mrc
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   skill="$(rsdd_field "$h" skill_path "$home")"
@@ -650,15 +673,20 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=bundle record corrupt (missing bundle_sha256, profile or file lines)\n' "$h"
     return 2
   fi
-  cur_digest="$(printf '%s\n' "$rec_manifest" | _rsdd_sha256_stdin)" || cur_digest=""
-  if [ "$cur_digest" != "$rec_digest" ]; then
+  rec_calc="$(printf '%s\n' "$rec_manifest" | _rsdd_sha256_stdin)" || rec_calc=""
+  if [ "$rec_calc" != "$rec_digest" ]; then
     printf 'verify harness=%s status=degraded reason=bundle record corrupt (bundle_sha256 does not match its own file lines)\n' "$h"
     return 2
   fi
-  cur_manifest="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}' | _rsdd_manifest "$root" "$profile")" || {
+  mrc=0
+  cur_manifest="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}' | _rsdd_manifest "$root" "$profile")" || mrc=$?
+  if [ "$mrc" = 3 ]; then
+    printf 'verify harness=%s status=degraded reason=the rendered profile dir could not be traversed\n' "$h"
+    return 2
+  elif [ "$mrc" != 0 ]; then
     printf 'verify harness=%s status=degraded reason=a bundle member could not be read or the recorded profile is unsafe\n' "$h"
     return 2
-  }
+  fi
   cur_digest="$(printf '%s\n' "$cur_manifest" | _rsdd_sha256_stdin)" || {
     printf 'verify harness=%s status=degraded reason=could not hash the current manifest\n' "$h"
     return 2
@@ -679,7 +707,12 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
     return 2
   fi
-  printf 'verify harness=%s status=drift drifted=%s\n' "$h" "$drift_names"
+  kept_names="$(awk 'index($0,"kept-hand-edit=")==1 { print substr($0,16) }' "$state" | paste -sd, -)"
+  if [ -n "$kept_names" ]; then
+    printf 'verify harness=%s status=drift drifted=%s kept-hand-edit=%s\n' "$h" "$drift_names" "$kept_names"
+  else
+    printf 'verify harness=%s status=drift drifted=%s\n' "$h" "$drift_names"
+  fi
   return 1
 }
 
@@ -811,11 +844,24 @@ install_one() {
   #    (and template) are byte-identical to what this run meant to deploy. A kept hand-edit therefore
   #    never becomes the recorded baseline: --verify keeps reporting it as drift until it is restored.
   if [ "$dry" != 1 ] && [ "$rc" = 0 ]; then
-    if ! cmp -s "$src_skill" "$skill_path" || { [ -n "$template_dest" ] && ! cmp -s "$tmpl_src" "$template_dest"; }; then
-      echo "research-sdd-install: [$h] a deployed file differs from this run's source (kept hand-edit) — bundle record left unchanged" >&2
-    elif ! _rsdd_write_bundle_state "$h" "$home" "$profile"; then
-      echo "research-sdd-install: [$h] could not write the bundle record under $config_root/research-sdd/" >&2
+    local kept="" ksha
+    if ! cmp -s "$src_skill" "$skill_path"; then
+      ksha="$(_rsdd_sha256_file "$src_skill")" || ksha=""
+      kept="${skill_path#"$config_root"/}"$'\t'"$ksha"
+    fi
+    if [ -n "$template_dest" ] && ! cmp -s "$tmpl_src" "$template_dest"; then
+      ksha="$(_rsdd_sha256_file "$tmpl_src")" || ksha=""
+      kept="${kept:+$kept$'\n'}${template_dest#"$config_root"/}"$'\t'"$ksha"
+    fi
+    if [[ "$kept" == *$'\t' ]] || [[ "$kept" == *$'\t\n'* ]]; then
+      echo "research-sdd-install: [$h] could not hash the source of a kept hand-edit — bundle record not written" >&2
       rc=1
+    else
+      [ -z "$kept" ] || echo "research-sdd-install: [$h] a deployed file differs from this run's source (kept hand-edit) — recorded with the source digest; --verify will report it as drift" >&2
+      if ! _rsdd_write_bundle_state "$h" "$home" "$profile" "$kept"; then
+        echo "research-sdd-install: [$h] could not write the bundle record under $config_root/research-sdd/" >&2
+        rc=1
+      fi
     fi
   fi
   [ -z "${tmpl_src:-}" ] || rm -f "$tmpl_src"
