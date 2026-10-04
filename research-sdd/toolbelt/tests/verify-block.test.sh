@@ -1301,6 +1301,14 @@ ep_block longhex "view \`/tmp/x/app.js:3\` sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3
 ep_check longhex 1 1 "#1207 BAD: a 65-hex run is not a 64-hex digest"
 ep_block digestwith "view \`/tmp/x/app.js:3\` sha256=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
 ep_check digestwith 0 0 "#1207 GOOD: sha256= followed by a 64-hex digest anchors the line"
+ep_block spadabs "Script in \`/home/u/proj/scratchpad/x.sh\` [CERT]"
+ep_check spadabs 1 1 "#1207 BAD: scratchpad segment inside a longer absolute path"
+ep_block spadrel2 "Script in a/b/scratchpad/c.txt only"
+ep_check spadrel2 1 1 "#1207 BAD: scratchpad segment inside a longer relative path"
+ep_block spadtmpdir "Kept in \$TMPDIR/scratchpad/x.txt and \${TMPDIR}/scratchpad/y.txt"
+ep_check spadtmpdir 1 2 "#1207 BAD: \$TMPDIR/scratchpad paths are owned by the tmp arm only (counted once each)"
+ep_block spadglue "see my-scratchpad/x.txt and notscratchpad/y.txt"
+ep_check spadglue 0 0 "#1207 GOOD: scratchpad as the tail of a longer segment name is not a segment"
 ep_block clean "Plain claim [CERT] \`src/ok.c:1\`"
 ep_check clean 0 0 "#1207 GOOD: block with no ephemeral path"
 out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-single.md" 2>&1)"
@@ -1869,15 +1877,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # kit #1207 ephemeral-path teeth: detector off, tmp arm dropped, scratchpad arm dropped, glue guard dropped,
   # sha256 exemption dropped, exemption widened to the whole block, and a blind/failing detector read as clean.
   echo "-- teeth-ep-tmp: /tmp arm disabled --"
-  if mk_sed "teeth-ep-tmp" "$MUT/ept.sh" '/# VB-EP-TMP$/s/^    scan(.*$/    # VB-EP-TMP/'; then
+  if mk_sed "teeth-ep-tmp" "$MUT/ept.sh" '/# VB-EP-TMP$/s/^    spad = 0; scan(.*$/    # VB-EP-TMP/'; then
     tooth "teeth-ep-tmp" 1 0 "$MUT/ept.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
   echo "-- teeth-ep-spad: scratchpad arm disabled --"
-  if mk_sed "teeth-ep-spad" "$MUT/eps.sh" '/# VB-EP-SCRATCHPAD$/s/^    scan(.*$/    # VB-EP-SCRATCHPAD/'; then
+  if mk_sed "teeth-ep-spad" "$MUT/eps.sh" '/# VB-EP-SCRATCHPAD$/s/^    spad = 1; scan(.*$/    # VB-EP-SCRATCHPAD/'; then
     tooth "teeth-ep-spad" 1 0 "$MUT/eps.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-relspad.md"
   fi
   echo "-- teeth-ep-glue: preceding-path-char guard dropped --"
-  if mk_sed "teeth-ep-glue" "$MUT/epg.sh" '/# VB-EP-GLUE$/s/if (before !~ glue) {/if (1) {/'; then
+  if mk_sed "teeth-ep-glue" "$MUT/epg.sh" '/# VB-EP-GLUE$/s/before !~ glue \&\& //'; then
     tooth "teeth-ep-glue" 0 1 "$MUT/epg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-glued.md"
   fi
   echo "-- teeth-ep-anchor-off: sha256 exemption dropped --"
@@ -1944,9 +1952,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-mf-findrc" "$MUT/mffr.sh" 's/_vb_mf_frc=\${_vb_mf_raw##\*@@RC=}/_vb_mf_frc=0/'; then
     tooth "teeth-mf-findrc" 1 0 "$MUT/mffr.sh" --good-has 'DEGRADED manifest scan failed' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-mf:$PATH" bash @SUT@ "$MFD_FF/block.md"
   fi
-  echo "-- teeth-mf-dir: lookup falls back to basename across ALL manifests --"
-  if mk_sed "teeth-mf-dir" "$MUT/mfd.sh" '/# VB-MF-LOOKUP$/s/\$1 == b/1/'; then
-    tooth "teeth-mf-dir" 1 0 "$MUT/mfd.sh" --good-has 'MANIFEST!' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-othermf/block.md"
+  echo "-- teeth-mf-dir: path-resolved comparison replaced by a BASENAME comparison (directory scoping lost) --"
+  if mk_sed "teeth-mf-dir" "$MUT/mfd.sh" '/# VB-MF-LOOKUP$/s#\$1 == b#(n=split($1,q,"/")) \&\& (m=split(b,r,"/")) \&\& q[n]==r[m]#'; then
+    tooth "teeth-mf-dir" 1 0 "$MUT/mfd.sh" --good-has 'MANIFEST!.*no valid SCRIPTS-MANIFEST row' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-othermf/block.md"
+  fi
+  echo "-- teeth-ep-segment: scratchpad as a tail of a longer name counts as a segment --"
+  if mk_sed "teeth-ep-segment" "$MUT/epsg.sh" '/# VB-EP-SEGMENT$/s/if (!(i == 1 || substr(tok, i - 1, 1) == "\/")) return 1/if (0) return 1/'; then
+    tooth "teeth-ep-segment" 0 1 "$MUT/epsg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spadglue.md"
+  fi
+  echo "-- teeth-ep-owned: scratchpad arm also claims /tmp-owned tokens (double count) --"
+  if mk_sed "teeth-ep-owned" "$MUT/epo.sh" '/# VB-EP-OWNED$/s/return 1/return 0/'; then
+    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has 'ephemeral-path cites: 2 \(FAIL\)' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
   fi
   echo "-- teeth-mf-rc: manifest findings no longer flip the exit code --"
   if mk_sed "teeth-mf-rc" "$MUT/mfrc.sh" 's/(manifest sha256 differs from the file.s: \${_vb_mf_have:0:16})"; rc=1;/(manifest sha256 differs from the file'"'"'s: ${_vb_mf_have:0:16})";/'; then

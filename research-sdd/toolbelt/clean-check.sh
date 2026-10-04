@@ -199,14 +199,30 @@ if [ -n "$SCRATCH_P" ]; then
     printf 'ABSENT-SCRATCHPAD %s\n' "$SCRATCH_P"
     SCRATCH_STATE="absent"
   else
-    _sf=()
-    while IFS= read -r -d '' _p; do _sf+=("$_p"); done < <(
-      find "$SCRATCH_P" -type f -print0 | sort -z
-      _pst=("${PIPESTATUS[@]}")
-      printf 'RC=%s\0' "$(( _pst[0] || _pst[1] ))"
+    # The scratchpad is LIVE (the session keeps writing and deleting there): a file vanishing mid-walk must not
+    # abort the run. GNU find: -ignore_readdir_race (FIND_RACE, probed above). Without it (BSD), find's stderr is
+    # captured and ONLY "No such file or directory" lines are benign; any other error is still a failed scan.
+    _sraw=()
+    while IFS= read -r -d '' _p; do _sraw+=("$_p"); done < <(
+      { _ferr="$(find "$SCRATCH_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -type f -print0 2>&1 >&3)"; _frc=$?; } 3>&1   # CC-SCRATCH-FIND
+      if [ "$_frc" -ne 0 ] && [ -n "$_ferr" ] && ! printf '%s\n' "$_ferr" | grep -v 'No such file or directory' | grep -q .; then _frc=0; fi   # CC-ENOENT-BENIGN
+      [ "$_frc" -eq 0 ] || printf '%s\n' "$_ferr" >&2
+      printf 'RC=%s\0' "$_frc"
     )
+    _rlast=$(( ${#_sraw[@]} - 1 ))
+    { [ "$_rlast" -ge 0 ] && [ "${_sraw[$_rlast]}" = "RC=0" ]; } || { _err "find failed or was truncated in scratchpad $SCRATCH_P"; exit 2; }
+    _sf=()
+    if [ "$_rlast" -gt 0 ]; then
+      while IFS= read -r -d '' _p; do _sf+=("$_p"); done < <(
+        printf '%s\0' "${_sraw[@]:0:$_rlast}" | sort -z
+        _pst=("${PIPESTATUS[@]}")
+        printf 'RC=%s\0' "$(( _pst[0] || _pst[1] ))"
+      )
+    else
+      _sf=("RC=0")
+    fi
     _slast=$(( ${#_sf[@]} - 1 ))
-    { [ "$_slast" -ge 0 ] && [ "${_sf[$_slast]}" = "RC=0" ]; } || { _err "find failed or was truncated in scratchpad $SCRATCH_P"; exit 2; }
+    { [ "$_slast" -ge 0 ] && [ "${_sf[$_slast]}" = "RC=0" ]; } || { _err "sort failed or was truncated while ordering scratchpad files in $SCRATCH_P"; exit 2; }
     SCRATCH_STATE="$_slast file(s)"
     # blocks: every .md of the target (tracked or untracked) except the manifests themselves (a manifest row names
     # a script on purpose - it is the preservation record, not a citation). Tracked files deleted from disk are

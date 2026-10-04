@@ -597,6 +597,13 @@ _vb_ep_out=$(awk -v strict="$STRICT_EP" '
     }
     return 0
   }
+  function skipspad(tok,   i) {   # scratchpad arm only: needs a `scratchpad` PATH SEGMENT and must not be /tmp-owned
+    if (!spad) return 0
+    i = index(tok, "scratchpad/")
+    if (!(i == 1 || substr(tok, i - 1, 1) == "/")) return 1   # VB-EP-SEGMENT
+    if (tok ~ /^(\$\{?TMPDIR\}?|\/private\/var\/tmp|\/private\/tmp|\/var\/tmp|\/tmp)\//) return 1   # VB-EP-OWNED
+    return 0
+  }
   function scan(re, glue,   rest, tok, before, after, anchored, mk, reason, ok) {
     rest = $0
     anchored = hasdigest($0)   # VB-EP-ANCHOR
@@ -610,7 +617,7 @@ _vb_ep_out=$(awk -v strict="$STRICT_EP" '
       tok = substr(rest, RSTART, RLENGTH)
       before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
       after = substr(rest, RSTART + RLENGTH)
-      if (before !~ glue) {   # VB-EP-GLUE
+      if (before !~ glue && !skipspad(tok)) {   # VB-EP-GLUE
         sub(/[.,:;]+$/, "", tok)
         if (anchored)
           printf "A\t   INFO    ephemeral-anchored line %d: %s (sha256-anchored beautified-temp view, METHODOLOGY §5)\n", NR, tok
@@ -628,8 +635,8 @@ _vb_ep_out=$(awk -v strict="$STRICT_EP" '
     }
   }
   {
-    scan("(\\$\\{?TMPDIR\\}?|/private/var/tmp|/private/tmp|/var/tmp|/tmp)/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-TMP
-    scan("[A-Za-z0-9_.-]*scratchpad/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-SCRATCHPAD
+    spad = 0; scan("(\\$\\{?TMPDIR\\}?|/private/var/tmp|/private/tmp|/var/tmp|/tmp)/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-TMP
+    spad = 1; scan("[A-Za-z0-9_./@+=:~-]*scratchpad/[A-Za-z0-9_./@+=:~-]*", "[$}A-Za-z0-9_@+=:~-]")   # VB-EP-SCRATCHPAD
   }
   END { print "T\t@@scanned " NR }   # coverage trailer: absent => the detector did not run to completion
 ' "$block")
@@ -665,7 +672,9 @@ else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict
 #       - the corpus has >= 1 manifest       -> each cited script (ext sh ps1 py java js rb pl bat cmd groovy kts)
 #         without a valid row, or whose every row's sha256 differs from the file's actual sha256 (an absent file
 #         counts as a difference), is a FAIL (rc=1) with a typed `MANIFEST!` line.
-#     A script cite is the cited path matched by basename against the first cell of a row (any manifest).
+#     A script cite is the cited path matched EXACTLY against the row's resolved location: the first cell is
+#     resolved against the directory of ITS OWN manifest (a `sources/…` cell is target-relative; the bare
+#     basename inside that same dir also matches). A row in another probes dir never lists this dir's script.
 _vb_mf_n=0; _vb_mf_deg=0
 _vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\b' "$block" | sort -u)
 _vb_mf_files=""; _vb_mf_frc=0

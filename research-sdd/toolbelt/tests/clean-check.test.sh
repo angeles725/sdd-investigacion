@@ -304,6 +304,23 @@ CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { has "$SP/probe.log cited" && has "$SP/other.dat cited"; } && ok "#1207 boundary: sentence-final period and path:line mentions match" || no "period / path:line" "($OUT)"
 if has "$SP/probe.lo cited"; then no "#1207 boundary: probe.lo must not match probe.log" "($OUT)"; else ok "#1207 boundary: a prefix of a longer name does not match"; fi
 
+# live scratchpad: a file vanishing mid-walk must not abort the run (RDD round 3)
+mkdir -p "$TMP/shim-benign" "$TMP/shim-hard"
+# shim-benign: a find WITHOUT -ignore_readdir_race (BSD-like) whose scratchpad walk lists the files, then reports an
+# ENOENT for a vanished entry and exits 1. shim-hard: same but the error is a permission failure (must stay fatal).
+for _mode in benign hard; do
+  case "$_mode" in benign) _msg="find: './vanished.tmp': No such file or directory";; hard) _msg="find: './locked': Permission denied";; esac
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -ignore_readdir_race ] && exit 1; done\ncase "$1" in "$CC_SHIM_DIR"*) %s "$@"; echo "%s" >&2; exit 1;; esac\nexec %s "$@"\n' "$REALFIND" "$_msg" "$REALFIND" > "$TMP/shim-$_mode/find"
+  chmod +x "$TMP/shim-$_mode/find"
+done
+cc_scratch "Result in probe_run.log"; printf 'x\n' > "$SP/probe_run.log"; printf 'x\n' > "$SP/other.txt"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-race:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log"; } && ok "#1207 live scratchpad: -ignore_readdir_race is passed to the scratchpad walk" || no "scratch race flag" "(rc=$RC $OUT)"
+CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-benign:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && has "scratchpad: 2 file(s)"; } && ok "#1207 live scratchpad: ENOENT-only errors from a flagless find are benign" || no "scratch ENOENT fallback" "(rc=$RC $OUT)"
+CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-hard:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 2 ] && has "Permission denied" && has "find failed"; } && ok "#1207 live scratchpad: a non-ENOENT find error is still a failed scan (exit 2)" || no "scratch hard error" "(rc=$RC $OUT)"
+
 # quoted / bracketed / unpadded-table citations (RDD round 2)
 for _form in '"x.sh"' "'x.sh'" '[x.sh]' '[label](x.sh)' '|x.sh|' '<x.sh>' '(x.sh)'; do
   cc_scratch "see $_form here"; printf 'x\n' > "$SP/x.sh"
@@ -457,7 +474,7 @@ KL
   git -C "$CM" add .research-sdd/keep.txt sources; git -C "$CM" -c user.name=t -c user.email=t@example.invalid commit -q -m m
   mt "manifest lookup always misses" '/# CC-MANIFEST-LOOKUP$/s/if ! grep -qxF -- "\$_b" <<<"\$_mf_names"; then/if true; then/' 0 1 \
     --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
-  mt "absent scratchpad no longer typed" '/# CC-ABSENT$/s/-d "\$SCRATCH_P"/-e "\/"/' 0 2 \
+  mt "absent scratchpad no longer typed" '/# CC-ABSENT$/s/-d "\$SCRATCH_P"/-e "\/"/' 0 0 \
     --good-has 'ABSENT-SCRATCHPAD' --bad-lacks 'ABSENT-SCRATCHPAD' -- env "CLEAN_CHECK_SCRATCHPAD=$TMP/cc-no-spad" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
 
   # RDD round 1 teeth: substring matching, substring manifest lookup, manifest-as-block, preserved copy, find rc, missing block.
@@ -482,6 +499,14 @@ KL
   printf 'x\n' > "$RMS/unrelated.dat"
   mt "missing-on-disk blocks no longer skipped" '/# CC-MISSING$/d' 0 2 \
     --good-has 'blocks-missing-on-disk: 1' -- env "CLEAN_CHECK_SCRATCHPAD=$RMS" "$BASH_BIN" @SUT@ --target "$RM" --tmp "$RMT"
+
+  # RDD round 3 teeth: the scratchpad walk's race handling.
+  mt "scratchpad walk loses -ignore_readdir_race" '/# CC-SCRATCH-FIND$/s/ \${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
+    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  mt "ENOENT-only errors no longer benign" '/# CC-ENOENT-BENIGN$/s/_frc=0; fi/:; fi/' 1 2 \
+    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-benign:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/! printf .%s\\n. "\$_ferr" | grep -v .No such file or directory. | grep -q \./true/' 2 1 \
+    --good-has 'find failed' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-hard:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
 fi
 
 echo "== $pass passed · $fail failed =="
