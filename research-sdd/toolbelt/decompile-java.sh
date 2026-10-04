@@ -7,6 +7,23 @@
 #                     [--thread-count N] [--timeout SECONDS] [--fallback-engine cfr|procyon|vineflower|none]
 #   decompile-java.sh --javap <Class.class>      # signatures + bytecode (javap -p -c)
 #
+# Class-file facts header (kit issue #1205): BEFORE any engine runs, STDERR gets one line read straight from the
+# class-file bytes (no javap dependency; see corroborate_java.py classfile-facts). It is on stderr so the typed
+# result stays the first stdout line:
+#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>
+#   major = class-file major version (52 = Java 8 ... 65 = Java 21; a range when the input mixes versions), lvt = whether
+#   method Code carries a LocalVariableTable (mixed = some classes do, some do not), resugar_risk=yes when any class is
+#   major >= 53 (Java 9+: lowered constructs such as indy string concatenation that a decompiler re-sugars).
+#   An unreadable class (no major version readable) contributes NO fake version: it is counted in unreadable=N; a class
+#   whose header was read but whose body walk failed is counted in partial=N (its major still counts). When nothing is readable the
+#   fields read unknown. Helper failures keep the SAME field set (all unknown) with a typed reason= suffix:
+#   reason=facts-unavailable (helper/python3 absent), reason=facts-timeout (killed by --timeout), reason=facts-error rc=N
+#   (helper crashed; its first stderr line follows as a WARN). The helper runs under its OWN budget, RSDD_CLASSFACTS_TIMEOUT
+#   or min(30, --timeout/8) seconds (at least 1; 30 when unbounded), so the worst-case extra wall time is that budget plus
+#   RSDD_KILL_AFTER, not a second full --timeout. An over-cap input reads truncated=entry-cap|byte-cap plus
+#   reason=facts-truncated:<cap>. Decompilation always continues. stderr always carries one WARN: decompiled source is a
+#   reconstruction, so syntax-level claims need bytecode evidence (`--javap` / `javap -c -p`), not the decompiled text.
+#
 # Bounded timeout + automatic fallback (kit issues #1190, #1224):
 #   The primary engine runs under `timeout` (default 240 s, RSDD_DECOMPILE_TIMEOUT or --timeout; 0 = unbounded).
 #   On timeout or non-zero exit the affected UNIT falls back to the fallback engine (default: cfr; procyon when
@@ -195,6 +212,53 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
   echo "$ENGINE jar not found (set $(printf '%s' "$ENGINE" | tr '[:lower:]' '[:upper:]')_JAR)" >&2
   exit 3
 }
+
+# Class-file facts header (kit issue #1205): one CLASSFILE line on STDERR plus the bytecode-evidence warning. STDERR, not
+# stdout: consumers read the typed OK/DEGRADED/PARTIAL result as the first stdout line (README, METHODOLOGY "Java
+# decompile status is typed", this suite, java-fidelity-experiment.sh logs), so stdout is unchanged. The helper runs
+# under its OWN small budget (RSDD_CLASSFACTS_TIMEOUT, else min(30, TIMEOUT/8) s), not a full engine timeout. Three distinct failure tokens, one field set: facts-unavailable (helper or
+# python3 absent), facts-timeout (killed by the timeout), facts-error rc=<n> (helper ran and failed; first stderr line shown).
+CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown"
+CF_HELPER="$HERE/corroborate_java.py"
+if [ ! -f "$CF_HELPER" ] || ! command -v python3 >/dev/null 2>&1; then
+  echo "$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2
+else
+  # The helper gets its OWN small budget, not a second full engine timeout: RSDD_CLASSFACTS_TIMEOUT, else
+  # min(30, TIMEOUT/8) seconds (at least 1; 30 when the engines are unbounded). Worst-case extra wall time: that budget
+  # plus --kill-after.
+  CF_TIMEOUT="${RSDD_CLASSFACTS_TIMEOUT:-}"
+  # ASCII digits only (a glob, not a locale-dependent range): 1-99999 seconds.
+  case "$CF_TIMEOUT" in
+    "" | *[!0123456789]* | 0* | ??????*) CF_TIMEOUT_BAD=1 ;;
+    *) CF_TIMEOUT_BAD="" ;;
+  esac
+  if [ -n "$CF_TIMEOUT_BAD" ]; then
+    [ -z "$CF_TIMEOUT" ] || echo "WARN: invalid RSDD_CLASSFACTS_TIMEOUT=$CF_TIMEOUT (positive seconds); using the derived default" >&2
+    CF_TIMEOUT=30
+    if [ "$TIMEOUT" -gt 0 ]; then
+      CF_TIMEOUT=$((TIMEOUT / 8))
+      [ "$CF_TIMEOUT" -ge 1 ] || CF_TIMEOUT=1
+      [ "$CF_TIMEOUT" -le 30 ] || CF_TIMEOUT=30
+    fi
+  fi
+  CF_ERR="$(mktemp)"; cf_rc=0; CLASSFILE_LINE=""
+  if command -v "$TIMEOUT_BIN" >/dev/null 2>&1; then
+    CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$CF_TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
+  else
+    CLASSFILE_LINE="$(python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
+  fi
+  if [ "$cf_rc" -eq 0 ] && [ -n "$CLASSFILE_LINE" ]; then
+    echo "$CLASSFILE_LINE" >&2
+  elif [ "$cf_rc" -eq 124 ] || [ "$cf_rc" -eq 137 ]; then
+    echo "$CLASSFILE_UNKNOWN reason=facts-timeout" >&2
+  else
+    echo "$CLASSFILE_UNKNOWN reason=facts-error rc=$cf_rc" >&2
+    CF_FIRST="$(head -n 1 "$CF_ERR" 2>/dev/null || true)"
+    [ -z "$CF_FIRST" ] || echo "WARN: classfile-facts helper: $CF_FIRST" >&2
+  fi
+  rm -f "$CF_ERR"
+fi
+echo "WARN: decompiled source is a reconstruction; syntax-level claims (string concatenation, lambdas, switch, records, generics) need bytecode evidence (javap -c -p, see --javap), not the decompiled text" >&2
 
 STAMP="$(mktemp)"
 # Backdate the run stamp 2 s: a coarse-mtime filesystem (FAT 2 s, ext3 1 s) can stamp this run's own output

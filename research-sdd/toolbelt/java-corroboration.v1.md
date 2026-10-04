@@ -56,6 +56,65 @@ left by interruption after that exchange.
   Decompiled sources are compared only by paths and byte hashes; source equivalence
   is never claimed.
 
+## Class-file facts (additive, kit #1205)
+
+The report carries `class_facts` (one record per `class_entries` item, sorted by `entry`)
+and `class_facts_summary`. They are read directly from the class-file bytes: no `javap`
+or JDK dependency, nothing is executed, and they are present even when an engine fails.
+
+| Field | Meaning |
+|---|---|
+| `entry` | JAR entry path (multi-release `META-INF/versions/N/` entries included) |
+| `major_version` | Header bytes 6-7, big-endian (52 = Java 8, 53 = Java 9, 65 = Java 21). `null` when the header cannot be read |
+| `has_LocalVariableTable` | `true` when any method `Code` attribute carries a `LocalVariableTable` (found by walking the constant pool and attributes); `false` when the whole class was walked and none does; `null` when the walk could not complete |
+| `resugar_risk` | `true` when `major_version >= 53`; `false` below it; `null` when `major_version` is `null` |
+| `reason` | `null` for a fully read class, otherwise one typed token (below) |
+
+`reason` tokens: `truncated-header` (fewer than 8 bytes), `bad-magic` (not `CAFEBABE`),
+`truncated-body` (header read, the rest ended early: `major_version` and `resugar_risk`
+stay set, `has_LocalVariableTable` is `null`), `bad-constant-pool-tag`, `entry-too-large`
+(over 64 MiB), `corrupt-entry` (damaged deflate stream or unsupported compression),
+`unreadable-entry` (the archive entry could not be read). A JAR with a corrupt entry is rejected
+by the full run before publication (`corroborate-java: corrupt JAR entry`, rc 2); `corrupt-entry`
+appears in the standalone `classfile-facts` mode, which keeps going. A class whose
+header cannot be read gets `major_version: null` plus its reason, never a fake `0`: an
+unreadable class is not a version-0 class.
+
+`class_facts_summary`: `classes`, `major_versions` (sorted distinct, readable only),
+`lvt` (`yes` / `no` / `mixed` / `unknown`; `unknown` when no class gave a readable
+answer), `resugar_risk_classes`, `unreadable_classes` (no major version readable: `major_version` null)
+and `partial_classes` (header read, so the major still counts, but the body walk failed:
+`truncated-body`, `bad-constant-pool-tag`).
+
+**`resugar_risk` threshold: major >= 53 (Java 9).** Java 9 is the first release whose
+javac lowering a decompiler reverses on the way back: JEP 280 compiles `a + b` string
+concatenation to an `invokedynamic` `makeConcatWithConstants`, which Vineflower turns back
+into `+`. Later majors add more re-sugared constructs (nestmates at 55, records at 60/61,
+pattern-matching `switch` at 65). The threshold is deliberately conservative (it flags
+every class from Java 9 up) and is the constant `RESUGAR_MIN_MAJOR` in
+`corroborate_java.py`. The flag means decompiled *syntax-level* claims need bytecode
+evidence (`javap -c -p`); it does not say the decompilation is wrong. Classes at or below
+major 52 are not flagged, but that is not a fidelity guarantee either.
+
+`decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
+`OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
+available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`:
+`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`,
+plus a `WARN:` that syntax-level claims need bytecode evidence.
+
+The standalone mode is bounded like the main path (defaults 20000 class entries, 1 GiB
+expanded bytes, 64 MiB per class; overridable with `RSDD_CLASSFACTS_MAX_ENTRIES`,
+`RSDD_CLASSFACTS_MAX_BYTES`, `RSDD_CLASSFACTS_MAX_CLASS_BYTES`; read when used, and a malformed value
+prints one `WARN: classfile-facts: invalid <VAR>=...` on stderr and uses the default, never a crash).
+An overflow reads
+`truncated=<cap>` and `reason=facts-truncated:<cap>`, never a silent partial count. The wrapper
+runs it under its own budget, `RSDD_CLASSFACTS_TIMEOUT` or `min(30, --timeout/8)` seconds (at least 1;
+30 when the engines are unbounded; an invalid override warns and falls back), so the worst-case extra
+wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the helper cannot report, the line keeps the same
+field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
+python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
+line follows as a `WARN:`).
+
 ## Trust and isolation
 
 Decompiler execution requires a trusted SHA-256 pin. These versioned defaults match
