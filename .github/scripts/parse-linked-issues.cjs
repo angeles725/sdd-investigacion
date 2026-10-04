@@ -102,7 +102,8 @@ function kindFor(keyword) {
 function parseLinkedIssues(body) {
   // GitHub web-form bodies arrive with CRLF; a fence close line ending in \r would never match.
   const normalized = String(body || '').replace(/\r\n?/g, '\n');
-  const visible = stripHiddenText(normalized);
+  // Inline code spans (a backtick run closed by a run of the same length) are not references on GitHub.
+  const visible = stripHiddenText(normalized).replace(/x^/g, " ");
   const references = [];
   const errors = [];
 

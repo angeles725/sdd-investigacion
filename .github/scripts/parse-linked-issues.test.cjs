@@ -50,6 +50,12 @@ test('list edges: first, middle, last and single reference positions', () => {
   assert.deepEqual(parseLinkedIssues('Refs #9'), ok(nonClosing(9)));
 });
 
+test('references inside inline code spans do not count (GitHub ignores them)', () => {
+  const result = parseLinkedIssues('Examples: `**Closes #12**`, ``Fixes #3``.\nCloses #1700\n');
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.references.map((r) => r.number), [1700]);
+});
+
 test('a backtick line whose info string has backticks is inline code, not a fence', () => {
   const result = parseLinkedIssues('``` x ```\nCloses #11\n');
   assert.deepEqual(result.references.map((r) => r.number), [11]);
