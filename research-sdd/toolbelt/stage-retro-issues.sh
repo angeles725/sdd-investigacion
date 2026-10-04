@@ -10,6 +10,12 @@
 #   Default:  dry-run — print planned issues (title, labels, body) to stdout.
 #   --apply:  run `gh issue create` for each open delta, with dedup check.
 #
+# Privacy (kit issue #1707): every title and body is scrubbed by lib/scrub-issue-text.sh BEFORE the
+# first gh call (absolute home paths, emails, credential-named KEY=VALUE, credential-shaped tokens).
+# The dry-run shows the SCRUBBED text and a typed `  redactions: N` line per planned issue (0 included);
+# --apply prints `redactions: N (row R)`. A scrub failure, a non-numeric count, or a scrub that alters the
+# signature line refuses the row (typed ERROR, counted in failed=, exit 2) — nothing is written.
+#
 # Anti-silent-zero: four states are distinguished and named (kit issue #1111 added the 4th):
 #   absent-input     retro file not found
 #   empty-input      retro found but has no delta section AND no proposal-like heading at all
@@ -409,6 +415,19 @@ declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+
+# STAGE_RETRO_ISSUES_SCRUB_LIB (kit issue #1707): the pre-mutation privacy scrub. Fail-closed like every
+# other helper: without it nothing is planned or written — never an unscrubbed dry-run.
+_SC_LIB="$_SCRIPT_DIR/lib/scrub-issue-text.sh"
+if [ ! -f "$_SC_LIB" ]; then
+  echo "stage-retro-issues: cannot find helper $_SC_LIB" >&2; exit 1
+fi
+# shellcheck source=lib/scrub-issue-text.sh
+. "$_SC_LIB"
+declare -F scrub_issue_text >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/scrub-issue-text.sh failed to define scrub_issue_text" >&2; exit 1; }
+declare -F scrub_issue_text_count >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/scrub-issue-text.sh failed to define scrub_issue_text_count" >&2; exit 1; }
 
 # STAGE_RETRO_ISSUES_LIST_LIMIT (kit issue #1369 c): every dedup `gh issue list` carries an explicit
 # --limit (gh's own default is 30, which silently truncated a busy repo). 1000 is GitHub search's
@@ -880,6 +899,10 @@ ensure_target_label() {
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
 
+# _scrub_refuse <message>: a row the privacy scrub could not clear is refused — typed ERROR, counted failed
+# (exit 2), never written. The caller `continue`s.
+_scrub_refuse() { echo "ERROR: $1" >&2; failed=$((failed+1)); }
+
 # STAGE_RETRO_ISSUES_MIN_TITLE (kit issue #1260 / #1492): a title shorter than this many characters is
 # a mis-read cell, never a delta summary. Measured 2026-10-03: the fleet minimum planned title is 19
 # chars, so the clause changes no real output today; it is a guard against the NEXT mis-mapped column.
@@ -967,8 +990,12 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
 
   open_count=$((open_count+1))
 
-  # Build issue fields
-  _title="$(strip_md_bold "$_delta")"
+  # Build issue fields. STAGE_RETRO_ISSUES_SCRUB_TITLE (kit issue #1707): the title is scrubbed BEFORE it
+  # is truncated, so a cut can never leave a half-redacted email or path in the public title.
+  _title_raw="$(strip_md_bold "$_delta")"
+  _title="$(printf '%s\n' "$_title_raw" | scrub_issue_text)" \
+    && _title_n="$(printf '%s\n' "$_title_raw" | scrub_issue_text_count)" \
+    || { _scrub_refuse "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
   if [ "${#_title}" -gt 120 ]; then _title="${_title:0:117}..."; fi
   # STAGE_RETRO_ISSUES_TITLE_GUARD (kit issue #1260): a bare priority/type token
   # is a mis-read column (issue #1248 was titled `LOW`), never a real delta summary.
@@ -986,6 +1013,23 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
 
   _body="$(printf '%s\n\n**Target:** %s\n**Evidence:** %s\n\n---\n%s\n%s' \
     "$_delta" "$_target_cell" "$_evidence" "$_source_line" "$_rollout_line")"
+  # STAGE_RETRO_ISSUES_SCRUB_BODY (kit issue #1707): scrub the whole body before ANY gh call, count what
+  # was redacted (title + body), and refuse the row when the scrub altered the signature line — dedup and
+  # the read-back both key on it, so a mangled signature must never be written.
+  _body_raw="$_body"
+  _body="$(printf '%s\n' "$_body_raw" | scrub_issue_text)" \
+    && _body_n="$(printf '%s\n' "$_body_raw" | scrub_issue_text_count)" \
+    || { _scrub_refuse "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
+  _title_n="${_title_n#redactions: }"; _body_n="${_body_n#redactions: }"
+  case "$_title_n$_body_n" in
+    ''|*[!0-9]*) _scrub_refuse "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
+                 continue ;;
+  esac
+  _redactions=$((_title_n + _body_n))
+  if ! grep -qxF -- "$_source_line" <<<"$_body"; then
+    _scrub_refuse "scrub altered the signature line for row $_rid — refusing to write (dedup and read-back key on it)"
+    continue
+  fi
 
   _labels="status:needs-review,target:${target_name},type:${_type_label}"
   if [ -n "$_priority_label" ]; then _labels="${_labels},priority:${_priority_label}"; fi
@@ -995,8 +1039,10 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     printf '  labels: %s\n' "$_labels"
     printf '  body:\n'
     printf '%s\n' "$_body" | sed 's/^/    /'
+    printf '  redactions: %d\n' "$_redactions"
     printf '\n'
   else
+    echo "redactions: ${_redactions} (row $_rid)"
     # Dedup: search ALL states (open + closed) for the exact source signature (kit issue #949
     # item 2). A closed issue for this row must still suppress a re-create — a false issue that
     # gets manually closed used to be silently re-seeded on the next --apply because only OPEN

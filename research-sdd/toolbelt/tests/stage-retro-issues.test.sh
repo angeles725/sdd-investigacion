@@ -21,6 +21,8 @@ RETRO_GRAMMAR_LIB="$HERE/../lib/retro-grammar.sh"
 [ -f "$RETRO_GRAMMAR_LIB" ] || { echo "FATAL: retro-grammar helper not found" >&2; exit 2; }
 TARGET_PATHS_LIB="$HERE/../lib/target-paths.sh"
 [ -f "$TARGET_PATHS_LIB" ] || { echo "FATAL: target-paths helper not found" >&2; exit 2; }
+SCRUB_LIB="$HERE/../lib/scrub-issue-text.sh"
+[ -f "$SCRUB_LIB" ] || { echo "FATAL: scrub-issue-text helper not found" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v awk  >/dev/null 2>&1 || { echo "FATAL: awk not on PATH" >&2; exit 2; }
 command -v grep >/dev/null 2>&1 || { echo "FATAL: grep not on PATH" >&2; exit 2; }
@@ -107,6 +109,7 @@ mkbox_at() {
   cp "$RETRO_STATUS_LIB" "$box/research-sdd/toolbelt/lib/retro-status.sh"
   cp "$RETRO_GRAMMAR_LIB" "$box/research-sdd/toolbelt/lib/retro-grammar.sh"
   cp "$TARGET_PATHS_LIB" "$box/research-sdd/toolbelt/lib/target-paths.sh"
+  cp "$SCRUB_LIB"        "$box/research-sdd/toolbelt/lib/scrub-issue-text.sh"
   # TARGETS.md with an absolute path so target_paths_all resolves correctly
   {
     printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
@@ -862,7 +865,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # cell, skipping strip_md_bold leaves ** markers in the raw _delta → stray **.
   # The STAGE_RETRO_ISSUES_BOLD_LEAD sentinel in the SUT confirms this version.
   echo "-- teeth T4: skip strip_md_bold call → raw delta used as title --"
-  anchor_t4='  _title="$(strip_md_bold "$_delta")"'
+  anchor_t4='  _title_raw="$(strip_md_bold "$_delta")"'
   if [[ "$sut_content" == *"$anchor_t4"* ]]; then
     box_t4="$(mkbox teeth-bold)"
     retro_t4="$(mk_retro "$box_t4" target-foo r.md \
@@ -870,7 +873,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | **Bold summary sentence.** Detail text explaining the change here. | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t4="$box_t4/research-sdd/toolbelt/stage-retro-issues.sh"
     # Replace the call site so _title gets the raw _delta (bold markers intact).
-    printf '%s\n' "${sut_content/"$anchor_t4"/  _title=\"\$_delta\"  # T4-teeth: raw delta}" \
+    printf '%s\n' "${sut_content/"$anchor_t4"/  _title_raw=\"\$_delta\"  # T4-teeth: raw delta}" \
       > "$mutant_t4"
     out_t4="$(PATH="$box_t4/bin:$PATH" \
       "$BASH_BIN" "$mutant_t4" "$retro_t4" 2>&1)"; rc_t4=$?
@@ -4000,6 +4003,85 @@ else
   no "85j unusable iconv" "exit=$RC out=[$OUT]"
 fi
 
+
+# ---------------------------------------------------------------------------
+# 86 — PRE-MUTATION PRIVACY SCRUB (kit issue #1707). Text staged for a public tracker is scrubbed BEFORE
+#      the first gh call: an absolute home path, an email and a credential-named KEY=VALUE never reach
+#      the dry-run output, the `gh issue create` argv, or any other gh call. Every planned issue prints
+#      a typed `redactions: N` line (0 included: "looked, found nothing"). A scrub that would alter the
+#      signature line refuses the row (a mangled signature breaks dedup and the read-back).
+LEAK_ROW='| 1 | Fix /home/bob/secret-proj/x.sh handling for a@b.io | toolbelt/x.sh | run GH_TOKEN=abc123 | fix | HIGH |'
+box86a="$(mkbox case-scrub-dry)"; mk_gh_stub "$box86a" nomatch
+r86a="$(mk_retro "$box86a" target-foo r86a.md '<!-- review-status: pending -->' "$LEAK_ROW")"
+run "$box86a" "$r86a"
+if [ "$RC" = 0 ] && grep -q '^planned-issue: Fix <path> handling for <email>$' <<<"$OUT" \
+   && grep -q 'GH_TOKEN=<redacted>' <<<"$OUT" && grep -q '^  redactions: 5$' <<<"$OUT" \
+   && ! grep -q 'bob\|a@b.io\|abc123' <<<"$OUT"; then
+  ok "86a dry-run shows the SCRUBBED title and body and a typed redactions: 5, no raw private data" "(exit $RC)"
+else
+  no "86a dry-run scrub" "exit=$RC out=[$OUT]"
+fi
+box86b="$(mkbox case-scrub-clean)"; mk_gh_stub "$box86b" nomatch
+r86b="$(mk_retro "$box86b" target-foo r86b.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box86b" "$r86b"
+if [ "$RC" = 0 ] && grep -q '^  redactions: 0$' <<<"$OUT"; then
+  ok "86b a clean row still prints redactions: 0 (a zero that proves the scrub looked)" "(exit $RC)"
+else
+  no "86b clean row count" "exit=$RC out=[$OUT]"
+fi
+box86c="$(mkbox case-scrub-apply)"; mk_gh_stub "$box86c" nomatch
+r86c="$(mk_retro "$box86c" target-foo r86c.md '<!-- review-status: pending -->' "$LEAK_ROW")"
+run "$box86c" "$r86c" --apply
+if [ "$RC" = 0 ] && grep -q 'gh issue create' "$box86c/bin/gh.log" \
+   && grep -q 'redactions: 5 (row 1)' <<<"$OUT" \
+   && grep -q -- '<path>' "$box86c/bin/gh.log" && grep -q 'GH_TOKEN=<redacted>' "$box86c/bin/gh.log" \
+   && ! grep -q 'bob\|a@b.io\|abc123\|secret-proj' "$box86c/bin/gh.log" && ! grep -q 'bob\|abc123' <<<"$OUT"; then
+  ok "86c --apply: no gh call (dedup, labels, create) ever carries the raw private data" "(exit $RC)"
+else
+  no "86c apply scrub" "exit=$RC out=[$OUT] log=[$(cat "$box86c/bin/gh.log")]"
+fi
+box86d="$(mkbox case-scrub-sig)"; mk_gh_stub "$box86d" nomatch
+r86d="$box86d/rh/target-foo/retros/ping-x@y.io.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'; printf '%s\n' "$ONE_ROW"; } > "$r86d"
+run "$box86d" "$r86d" --apply
+if [ "$RC" = 2 ] && grep -q '^ERROR: scrub altered the signature line for row 1' <<<"$OUT" \
+   && ! grep -q 'gh issue create' "$box86d/bin/gh.log" && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT"; then
+  ok "86d a scrub that alters the signature line refuses the row: failed=1, exit 2, nothing created" "(exit $RC)"
+else
+  no "86d signature guard" "exit=$RC out=[$OUT] log=[$(cat "$box86d/bin/gh.log")]"
+fi
+box86e="$(mkbox case-scrub-nolib)"; mk_gh_stub "$box86e" nomatch
+rm -f "$box86e/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+r86e="$(mk_retro "$box86e" target-foo r86e.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box86e" "$r86e"
+if [ "$RC" = 1 ] && grep -q 'cannot find helper .*scrub-issue-text.sh' <<<"$OUT" && ! grep -q '^planned-issue:' <<<"$OUT"; then
+  ok "86e missing scrub lib → fail-closed exit 1, nothing planned (never an unscrubbed dry-run)" "(exit $RC)"
+else
+  no "86e missing lib" "exit=$RC out=[$OUT]"
+fi
+
+
+# 86f/86g — a scrub that FAILS at runtime, or returns a count that is not a number, must never look like
+#      "nothing to redact": the row is refused (failed, exit 2), nothing is created.
+box86f="$(mkbox case-scrub-rcfail)"; mk_gh_stub "$box86f" nomatch
+printf '%s\n' 'scrub_issue_text() { return 1; }' 'scrub_issue_text_count() { echo "redactions: 0"; }' > "$box86f/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+run "$box86f" "$(mk_retro "$box86f" target-foo r86f.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+if [ "$RC" = 2 ] && grep -q '^ERROR: privacy scrub failed for row 1' <<<"$OUT" && ! grep -q 'gh issue create' "$box86f/bin/gh.log" \
+   && grep -q 'unknown-outcome=0 failed=1' <<<"$OUT"; then
+  ok "86f a failing scrub refuses the row (failed=1, exit 2), nothing created" "(exit $RC)"
+else
+  no "86f scrub rc failure" "exit=$RC out=[$OUT]"
+fi
+box86g="$(mkbox case-scrub-nonnumeric)"; mk_gh_stub "$box86g" nomatch
+printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: lots"; }' > "$box86g/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+run "$box86g" "$(mk_retro "$box86g" target-foo r86g.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+if [ "$RC" = 2 ] && grep -q '^ERROR: privacy scrub returned a non-numeric redaction count for row 1' <<<"$OUT" \
+   && ! grep -q 'gh issue create' "$box86g/bin/gh.log"; then
+  ok "86g a non-numeric redaction count refuses the row (never read as zero), nothing created" "(exit $RC)"
+else
+  no "86g non-numeric count" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -4153,6 +4235,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if grep -q '^planned-issue: documentation$' <<<"$OUT"; then ok "T1260-tokens teeth: token list emptied → bare 'documentation' (13 chars, past the length clause) planned (85e has teeth)" "()"
     else no "T1260-tokens teeth: emptied list must plan documentation" "85e is THEATER: out=[$OUT]"; fi
   else no "T1260-tokens: build mutant" "mutant_sed refused"; fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth T1707: pre-mutation privacy scrub --"
+  # t1707 <tag> <mode> <sed-expr>: build the mutant IN the sandbox (mutant_chain refuses a dead stage, an
+  # identical/empty/broken/live-tree mutant), run the same fixture 86 uses, and require the mutant to
+  # exhibit the regression the case guards against. A refused build is counted exactly once.
+  t1707() {
+    local tag="$1" mode="$2" expr="$3" mb row bite=0 why=""
+    mb="$(mkbox "teeth-1707-$tag")"; mk_gh_stub "$mb" nomatch
+    mutant_chain "T1707-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
+      || { fail=$((fail+1)); return 1; }
+    case "$mode" in
+      dry)    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$LEAK_ROW")"
+              grep -q 'bob\|a@b.io\|abc123' <<<"$OUT" && bite=1; why="raw private data in the dry-run" ;;
+      count)  run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")"
+              grep -q '^  redactions: 0$' <<<"$OUT" || bite=1; why="no typed redactions line" ;;
+      apply)  run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$LEAK_ROW")" --apply
+              grep -q 'bob\|a@b.io\|abc123' "$mb/bin/gh.log" && bite=1; why="raw private data reached a gh call" ;;
+      sig)    local rs="$mb/rh/target-foo/retros/ping-x@y.io.md"
+              { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'; printf '%s\n' "$ONE_ROW"; } > "$rs"
+              run "$mb" "$rs" --apply
+              grep -q 'gh issue create' "$mb/bin/gh.log" && bite=1; why="a mangled-signature row was written" ;;
+      rcfail) printf '%s\n' 'scrub_issue_text() { return 1; }' 'scrub_issue_text_count() { echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+              run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+              [ "$RC" = 2 ] || bite=1; why="a failing scrub did not fail the run" ;;
+      nonnum) printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: lots"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+              run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+              [ "$RC" = 2 ] || bite=1; why="a non-numeric count was read as zero" ;;
+      nolib)  rm -f "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+              run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")"
+              grep -q 'cannot find helper .*scrub-issue-text.sh' <<<"$OUT" || bite=1; why="no typed missing-helper refusal with the lib gone" ;;
+    esac
+    if [ "$bite" = 1 ]; then ok "T1707-$tag teeth: mutant shows [$why]" "()"
+    else no "T1707-$tag teeth: mutant must show [$why]" "case is THEATER: exit=$RC out=[${OUT:0:300}]"; fi
+  }
+  t1707 body-scrub-off dry   's/^  _body="\$(printf .%s\\n. "\$_body_raw" | scrub_issue_text)" \\$/  _body="$_body_raw" \\/'
+  t1707 title-scrub-off dry  's/^  _title="\$(printf .%s\\n. "\$_title_raw" | scrub_issue_text)" \\$/  _title="$_title_raw" \\/'
+  t1707 apply-after-scrub apply 's/^  _body="\$(printf .%s\\n. "\$_body_raw" | scrub_issue_text)" \\$/  _body="$_body_raw" \\/'
+  t1707 count-line-off count 's/^    printf .  redactions: %d\\n. "\$_redactions"$/    :/'
+  t1707 sig-guard-off sig    's/^  if ! grep -qxF -- "\$_source_line" <<<"\$_body"; then$/  if false; then/'
+  t1707 rc-check-off rcfail 's/^    || { _scrub_refuse "privacy scrub failed for row \$_rid — nothing staged or written"; continue; }$/    || :/'
+  t1707 numeric-guard-off nonnum 's/^    .*\[!0-9\]\*) _scrub_refuse "privacy scrub returned/    NEVERMATCH_X) _scrub_refuse "privacy scrub returned/'
+  t1707 fail-closed-off nolib 's/^if \[ ! -f "\$_SC_LIB" \]; then$/if false; then/'
 fi
 
 echo "== $pass passed · $fail failed =="
