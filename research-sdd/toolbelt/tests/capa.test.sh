@@ -403,7 +403,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
 
   # teeth-1: disable scope guard in corroborate_capa.py.
   # Mutation: the raise inside _rules_scope_guard becomes a return (no-op).
-  # T15a then fails: /home is no longer rejected → test exits 1 (RED = teeth confirmed).
+  # The harness then reports "scope guard ALLOWED /home" instead of "rejects broad paths"; the
+  # original must report the latter (mutant_tooth asserts both verdict lines).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \

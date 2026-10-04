@@ -211,12 +211,24 @@ items = d['ifc']['entity_histogram']['items']
 desc = all(items[i]['count'] >= items[i+1]['count'] for i in range(len(items) - 1))
 print("SORT: descending" if desc else "SORT: broken")
 PY
+# run_check.sh ADAPTER FIXTURE CHECK.py — run the adapter in a fresh scratch dir, then the order check.
+# The scratch dir is removed on every path (EXIT trap); an adapter failure exits RUN_FAILED_RC with
+# the adapter's own stderr on the output, so a failing tooth shows its cause.
+cat > "$MUTDIR/run_check.sh" <<'SH'
+#!/usr/bin/env bash
+RUN_FAILED_RC=9   # distinct from the order check's own codes, so a crashed adapter is not read as a verdict
+o="$(mktemp -d)"; trap 'rm -rf "$o"' EXIT
+if ! python3 "$1" --manifest-cli "$(dirname "$1")/analysis_manifest.py" --input "$2" --output "$o/out" >/dev/null 2>"$o/err"; then
+  echo "RUN-FAILED: adapter exited non-zero; stderr follows"; cat "$o/err"; exit "$RUN_FAILED_RC"
+fi
+python3 "$3" "$o/out/ifc-evidence.v1.json"
+SH
 if mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
   if mutant_tooth "teeth: histogram sort-key mutation breaks count-descending order" 0 0 \
       "$MUTDIR/corroborate_ifc.py" --orig "$ORIG_PY" \
       --good-has 'SORT: descending' --bad-has 'SORT: broken' --bad-lacks 'SORT: descending' -- \
-      bash -c 'o="$(mktemp -d)" && python3 "$1" --manifest-cli "$(dirname "$1")/analysis_manifest.py" --input "$2" --output "$o/out" >/dev/null 2>&1 || { echo "RUN-FAILED"; exit 9; }; python3 "$3" "$o/out/ifc-evidence.v1.json"; rc=$?; rm -rf "$o"; exit $rc' \
-      _ @SUT@ "$FIXTURES/valid.ifc" "$MUTDIR/order_check.py"; then
+      bash "$MUTDIR/run_check.sh" \
+      @SUT@ "$FIXTURES/valid.ifc" "$MUTDIR/order_check.py"; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 else

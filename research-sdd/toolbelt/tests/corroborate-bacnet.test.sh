@@ -149,12 +149,21 @@ if [ ! -f "$ORIG_PY" ]; then
 fi
 
 MUTDIR="$ROOT/mutants"; mkdir -p "$MUTDIR"
+# fresh_run.sh ADAPTER.py ARGS... — run the adapter with its own empty --output dir, so the mutant
+# never starts from the original's leftovers. corroborate_bacnet.py imports only the standard
+# library (no sibling module), so a standalone mutant file runs exactly like the original.
+cat > "$MUTDIR/fresh_run.sh" <<'SH'
+#!/usr/bin/env bash
+o="$(mktemp -d)"; trap 'rm -rf "$o"' EXIT
+adapter="$1"; shift
+python3 "$adapter" "$@" --output "$o/out"
+SH
 
 # M1: the plan-only guard exits 0 instead of 3 (T1's exit-3 check). The original must exit
 # EXACTLY 3 and the mutant EXACTLY 0.
 mk_sed "M1 plan-only guard exit code" "$MUTDIR/m1.py" 's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/' \
   && tooth "teeth: M1 plan-only guard exit 3 -> 0" 3 0 "$MUTDIR/m1.py" --orig "$ORIG_PY" -- \
-       python3 @SUT@ --host 192.0.2.1 --output "$ROOT/mut_t1"
+       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1
 
 # M2: the plan-only status value changes (T2's schema check). The sed includes the trailing comma
 # so the mutant stays valid python (a comment would swallow it and turn a status change into a
@@ -163,7 +172,7 @@ mk_sed "M1 plan-only guard exit code" "$MUTDIR/m1.py" 's/sys\.exit(3)/sys.exit(0
 mk_sed "M2 plan-only status value" "$MUTDIR/m2.py" 's/"plan-only",/"broken-plan",  # MUTANT-M2/' \
   && tooth "teeth: M2 plan-only status value" 3 3 "$MUTDIR/m2.py" --orig "$ORIG_PY" \
        --good-has '"status": *"plan-only"' --bad-has '"status": *"broken-plan"' --bad-lacks '"status": *"plan-only"' -- \
-       python3 @SUT@ --host 192.0.2.1 --output "$ROOT/mut_t2" --json
+       bash "$MUTDIR/fresh_run.sh" @SUT@ --host 192.0.2.1 --json
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
