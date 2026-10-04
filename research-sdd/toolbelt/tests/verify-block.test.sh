@@ -1243,6 +1243,207 @@ eh_degraded() { # <mode> <label>
 eh_degraded silent "#1500 BAD: blind detector (no trailer) is degraded"
 eh_degraded rcfail "#1500 BAD: detector exit != 0 is degraded"
 
+# kit #1207 part 2 — EPHEMERAL-PATH cites FAIL. A cited path under /tmp, /var/tmp, $TMPDIR or a session
+# scratchpad is evidence that will not exist next session. Every cite form verify-block parses (`file:N`,
+# `file:N-M`, bare backticked path, parenthetical path, table cell, prose) must be covered, [CERT*] or not.
+# The §5 beautified-temp view (a line carrying a sha256 anchor) stays an INFO, never a FAIL.
+SPAD=/tmp/claude-1000/-home-x/0123-abcd/scratchpad
+ep_block() { # <name> <body-line...> — header legend + body
+  local f="$TMP/ep-$1.md"; shift
+  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"
+}
+ep_check() { # <name> <want-rc> <want-count> <label>
+  local f="$TMP/ep-$1.md" out got n
+  out="$(bash "$SUT" --strict-ephemeral "$f" 2>&1)"; got=$?
+  n="$(grep -c 'EPHEMERAL!' <<<"$out")"
+  if [ "$got" = "$2" ] && [ "$n" = "$3" ]; then ok "$4 (strict: exit $got, $n finding(s))"
+  else no "$4 :: want exit $2/$3 finding(s), got $got/$n"; fi
+}
+ep_block single "Wrapper starts the loop [CERT] \`/tmp/probe/run.sh:12\`"
+ep_check single 1 1 "#1207 BAD: [CERT] backticked /tmp file:N"
+ep_block range "Wrapper starts the loop [CERT] \`/tmp/probe/run.sh:12-20\`"
+ep_check range 1 1 "#1207 BAD: [CERT] backticked /tmp file:N-M"
+ep_block bare "Output kept in \`/tmp/probe/out.txt\` [CERT-hw]"
+ep_check bare 1 1 "#1207 BAD: bare backticked /tmp path (no line)"
+ep_block paren "Output kept (see /tmp/probe/out.txt) [CERT-hw]"
+ep_check paren 1 1 "#1207 BAD: parenthetical /tmp path"
+ep_block vartmp "Dump at \`/var/tmp/dump.bin\` [INFER]"
+ep_check vartmp 1 1 "#1207 BAD: /var/tmp path, non-CERT line"
+ep_block spad "Captured in \`$SPAD/fidelity/t1.txt\` [CERT-hw]"
+ep_check spad 1 1 "#1207 BAD: /tmp/claude-*/…/scratchpad/ path"
+ep_block relspad "Evidence sits in scratchpad/fidelity/t1.txt"
+ep_check relspad 1 1 "#1207 BAD: relative scratchpad/ path"
+ep_block tmpdir "Built into \$TMPDIR/build/a.out"
+ep_check tmpdir 1 1 "#1207 BAD: \$TMPDIR/ path"
+ep_block table "| image | /tmp/img/a.png |"
+ep_check table 1 1 "#1207 BAD: /tmp path in a table cell"
+ep_block fence "\`\`\`" "cp /tmp/patched.bin ./x" "\`\`\`"
+ep_check fence 1 1 "#1207 BAD: /tmp path inside a code fence"
+ep_block first "ref \`/tmp/a.sh:1\`" "ref \`src/ok.c:1\`" "ref \`src/ok.c:2\`"
+ep_check first 1 1 "#1207 BAD: ephemeral cite on FIRST body line"
+ep_block middle "ref \`src/ok.c:1\`" "ref \`/tmp/a.sh:1\`" "ref \`src/ok.c:2\`"
+ep_check middle 1 1 "#1207 BAD: ephemeral cite on MIDDLE body line"
+ep_block last "ref \`src/ok.c:1\`" "ref \`src/ok.c:2\`" "ref \`/tmp/a.sh:1\`"
+ep_check last 1 1 "#1207 BAD: ephemeral cite on LAST body line"
+ep_block twoline "a \`/tmp/a.sh:1\` and \`/tmp/b.sh:2\` on one line"
+ep_check twoline 1 2 "#1207 BAD: two ephemeral cites on one line are both reported"
+ep_block anchored "Beautified view \`/tmp/app.beautified.js:40\` of app.min.js sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4 (4096 bytes) [CERT]"
+ep_check anchored 0 0 "#1207 GOOD: sha256-anchored beautified-temp view is exempt"
+ep_block anchored-other "Beautified view \`/tmp/app.beautified.js:40\` sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4" "also \`/tmp/probe/run.sh:3\`"
+ep_check anchored-other 1 1 "#1207 BAD: the sha256 anchor exempts only its own line"
+ep_block glued "see \`src/tmp/x.c:3\` and ./tmp/y.c:4 and /home/u/tmp/z.c:5 and my-scratchpad-notes"
+ep_check glued 0 0 "#1207 GOOD: tmp as a middle path segment never fires"
+ep_block nodigest "sha256 not computed, see \`/tmp/x/app.js:3\`"
+ep_check nodigest 1 1 "#1207 BAD: the word sha256 without a digest is not an anchor"
+ep_block shortdigest "view \`/tmp/x/app.js:3\` sha256 abcd1234"
+ep_check shortdigest 1 1 "#1207 BAD: a short hex token is not a 64-hex anchor"
+ep_block longhex "view \`/tmp/x/app.js:3\` sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d40"
+ep_check longhex 1 1 "#1207 BAD: a 65-hex run is not a 64-hex digest"
+ep_block digestwith "view \`/tmp/x/app.js:3\` sha256=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+ep_check digestwith 0 0 "#1207 GOOD: sha256= followed by a 64-hex digest anchors the line"
+ep_block spadabs "Script in \`/home/u/proj/scratchpad/x.sh\` [CERT]"
+ep_check spadabs 1 1 "#1207 BAD: scratchpad segment inside a longer absolute path"
+ep_block spadrel2 "Script in a/b/scratchpad/c.txt only"
+ep_check spadrel2 1 1 "#1207 BAD: scratchpad segment inside a longer relative path"
+ep_block spadtmpdir "Kept in \$TMPDIR/scratchpad/x.txt and \${TMPDIR}/scratchpad/y.txt"
+ep_check spadtmpdir 1 2 "#1207 BAD: \$TMPDIR/scratchpad paths are owned by the tmp arm only (counted once each)"
+ep_block spadglue "see my-scratchpad/x.txt and notscratchpad/y.txt"
+ep_check spadglue 0 0 "#1207 GOOD: scratchpad as the tail of a longer segment name is not a segment"
+ep_block clean "Plain claim [CERT] \`src/ok.c:1\`"
+ep_check clean 0 0 "#1207 GOOD: block with no ephemeral path"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-single.md" 2>&1)"
+if grep -qE 'EPHEMERAL!  /tmp/probe/run\.sh:12  \(line [0-9]+; session/temp path — preserve under sources/probes/b<N>/\)' <<<"$out"
+then ok "#1207: typed EPHEMERAL! line names the cited token and the preservation convention"
+else no "#1207: typed line shape :: $(grep EPHEMERAL <<<"$out" | head -1)"; fi
+out="$(bash "$SUT" "$TMP/ep-anchored.md" 2>&1)"
+if grep -q 'INFO    ephemeral-anchored line' <<<"$out"; then ok "#1207: anchored temp view is reported as INFO, never silent"
+else no "#1207: anchored INFO line missing"; fi
+out="$(bash "$SUT" "$TMP/ep-clean.md" 2>&1)"
+if grep -q '(none — no unanchored ephemeral path cited; sha256-anchored: 0, ephemeral-ok: 0, invalid markers: 0)' <<<"$out"; then ok "#1207: clean block prints an explicit none line (looked, found zero)"
+else no "#1207: clean none line missing"; fi
+
+
+# staged enforcement (kit #1207): default = typed WARN EPHEMERAL? (exit unchanged); --strict-ephemeral / env = FAIL.
+ep_default() { # <name> <want-warns> <label>
+  local out got n
+  out="$(bash "$SUT" "$TMP/ep-$1.md" 2>&1)"; got=$?
+  n="$(grep -c 'EPHEMERAL?' <<<"$out")"
+  if [ "$got" = 0 ] && [ "$n" = "$2" ] && ! grep -q 'EPHEMERAL!' <<<"$out"; then ok "$3 (default: exit 0, $n WARN)"
+  else no "$3 :: want exit 0 + $2 WARN, got $got/$n"; fi
+}
+ep_default single 1 "#1207 staged: /tmp cite is a WARN by default"
+ep_default twoline 2 "#1207 staged: two cites on one line are two WARNs"
+ep_default middle 1 "#1207 staged: WARN for a cite on the MIDDLE line"
+out="$(RSDD_STRICT_EPHEMERAL=1 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=1 makes it a FAIL" || no "#1207 staged: env strict (rc=$got)"
+out="$(RSDD_STRICT_EPHEMERAL=0 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && grep -q 'EPHEMERAL?' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=0 keeps the WARN" || no "#1207 staged: env 0 (rc=$got)"
+out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
+grep -q 'ephemeral-path cites: 1 (WARN' <<<"$out" && ok "#1207 staged: summary says WARN and how to go strict" || no "#1207 staged: summary line"
+# per-line marker `<!-- ephemeral-ok: <reason> -->` (mirrors `<!-- empty-digest: quoted -->`)
+ep_block mk-ok "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server <!-- ephemeral-ok: path string produced by the subject, not evidence -->"
+ep_block mk-no "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server"
+ep_block mk-empty "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok: -->"
+ep_block mk-blank "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok:    -->"
+ep_block mk-other "ok \`/tmp/a.txt\` <!-- ephemeral-ok: prose -->" "bad \`/tmp/b.txt\`"
+out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"
+{ ! grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the WARN (INFO, never silent)" || no "#1207 marker: ok"
+out="$(bash "$SUT" "$TMP/ep-mk-no.md" 2>&1)"
+grep -q 'EPHEMERAL?' <<<"$out" && ok "#1207 marker: same line without marker WARNs" || no "#1207 marker: no marker"
+out="$(bash "$SUT" "$TMP/ep-mk-empty.md" 2>&1)"
+{ grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: empty reason -> WARN still fires + typed invalid marker" || no "#1207 marker: empty"
+out="$(bash "$SUT" "$TMP/ep-mk-blank.md" 2>&1)"
+{ grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: blank reason is invalid too" || no "#1207 marker: blank"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-mk-empty.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out" && grep -q 'invalid marker' <<<"$out"; } && ok "#1207 marker: strict + invalid marker -> FAIL" || no "#1207 marker: strict invalid (rc=$got)"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-mk-other.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && [ "$(grep -c 'EPHEMERAL!' <<<"$out")" = 1 ]; } && ok "#1207 marker: waives only its own line" || no "#1207 marker: scope (rc=$got)"
+
+# Anti-silent-zero: a dead or blind ephemeral detector must be a typed degraded state, not a clean pass.
+_ep_real_awk="$(command -v awk)"
+for _ep_mode in silent rcfail; do
+  _ep_stub="$TMP/stub-bin-ep-$_ep_mode"; mkdir -p "$_ep_stub"
+  case "$_ep_mode" in silent) _ep_act='exit 0';; rcfail) _ep_act='"'"$_ep_real_awk"'" "$@"; exit 3';; esac
+  cat > "$_ep_stub/awk" <<STUB_EP
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in *VB-EP-ANCHOR*) $_ep_act;; esac; done
+exec "$_ep_real_awk" "\$@"
+STUB_EP
+  chmod +x "$_ep_stub/awk"
+done
+ep_degraded() { # <mode> <label>
+  local out got
+  out="$(PATH="$TMP/stub-bin-ep-$1:$PATH" bash "$SUT" "$TMP/ep-clean.md" 2>&1)"; got=$?
+  if [ "$got" = 1 ] && grep -q 'ERROR: ephemeral-path scan DEGRADED' <<<"$out" && ! grep -q '(none — no unanchored' <<<"$out"
+  then ok "$2 (exit 1, typed degraded line)"
+  else no "$2 :: want exit 1 + DEGRADED line, got $got"; fi
+}
+ep_degraded silent "#1207 BAD: blind ephemeral detector (no trailer) is degraded"
+ep_degraded rcfail "#1207 BAD: ephemeral detector exit != 0 is degraded"
+
+# kit #1207 (b) — SCRIPTS-MANIFEST. A preserved script cited under sources/probes/ needs a manifest row whose
+# sha256 equals the file's, but only when the corpus has >= 1 manifest; with none, a typed INFO (never silent).
+mf_sha() { sha256sum "$1" | awk '{print $1}'; }
+mf_corpus() { # <name> <block-body-line...> — fresh corpus dir with scripts a.sh b.sh c.sh under sources/probes/b1/
+  MFD="$TMP/mf-$1"; shift; mkdir -p "$MFD/sources/probes/b1"
+  local s; for s in a b c; do printf '#!/bin/sh\necho %s\n' "$s" > "$MFD/sources/probes/b1/$s.sh"; done
+  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$MFD/block.md"
+}
+mf_manifest() { # <dir> <row-script> <sha-or-@file> ... (pairs) — writes sources/probes/<dir>/SCRIPTS-MANIFEST.md
+  local d="$1"; shift; mkdir -p "$MFD/sources/probes/$d"
+  { echo "| script | sha256 | run/step | block | executed-on | remote-sha256 | role |"; echo "|---|---|---|---|---|---|---|"
+    while [ $# -gt 1 ]; do
+      local sh="$2"; case "$sh" in @*) sh="$(mf_sha "$MFD/sources/probes/b1/${sh#@}")";; esac
+      echo "| \`$1\` | $sh | sh $1 --go | B1 | host | - | EXECUTED |"; shift 2
+    done; } > "$MFD/sources/probes/$d/SCRIPTS-MANIFEST.md"
+}
+mf_check() { # <want-rc> <want-regex> <label>
+  local out got
+  out="$(bash "$SUT" "$MFD/block.md" 2>&1)"; got=$?
+  if [ "$got" = "$1" ] && grep -qE "$2" <<<"$out"; then ok "$3 (exit $got)"
+  else no "$3 :: want exit $1 + /$2/, got $got :: $(grep -E 'MANIFEST|manifest' <<<"$out" | head -2)"; fi
+}
+mf_corpus nomf "Ran \`sources/probes/b1/a.sh\` [CERT]"
+mf_check 0 'INFO    no SCRIPTS-MANIFEST' "#1207 GOOD: corpus with no manifest keeps today's behaviour, typed INFO"
+mf_corpus ok "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cited script with matching manifest row"
+mf_corpus norow "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 b.sh @b.sh
+mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(no valid SCRIPTS-MANIFEST row' "#1207 BAD: cited script has no manifest row"
+mf_corpus badsha "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh "$(printf 'f%.0s' $(seq 64))"
+mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(manifest sha256 differs' "#1207 BAD: manifest sha256 differs from the file"
+mf_corpus shortsha "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh abc123
+mf_check 1 'no valid SCRIPTS-MANIFEST row' "#1207 BAD: truncated sha256 is not a valid row"
+mf_corpus absent "Ran \`sources/probes/b1/gone.sh\` [CERT]"; mf_manifest b1 gone.sh "$(printf 'a%.0s' $(seq 64))"
+mf_check 1 'MANIFEST!  sources/probes/b1/gone.sh  \(manifest sha256 differs' "#1207 BAD: row exists but the preserved file is absent"
+mf_corpus first "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b1 a.sh @a.sh b.sh @b.sh c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cited script is the FIRST manifest row"
+mf_corpus middle "Ran \`sources/probes/b1/b.sh\`"; mf_manifest b1 a.sh @a.sh b.sh @b.sh c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/b.sh' "#1207 GOOD: cited script is the MIDDLE manifest row"
+mf_corpus last "Ran \`sources/probes/b1/c.sh\`"; mf_manifest b1 a.sh @a.sh b.sh @b.sh c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1207 GOOD: cited script is the LAST manifest row"
+mf_corpus single "Ran \`sources/probes/b1/c.sh\`"; mf_manifest b1 c.sh @c.sh
+mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1207 GOOD: single-row manifest"
+mf_corpus onebad "Ran \`sources/probes/b1/a.sh\` then \`sources/probes/b1/c.sh\`"; mf_manifest b1 a.sh @a.sh
+mf_check 1 'MANIFEST!  sources/probes/b1/c.sh' "#1207 BAD: last of two cited scripts lacks a row"
+mf_corpus othermf "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b2 a.sh @a.sh
+mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(no valid SCRIPTS-MANIFEST row' "#1207 BAD: a row in another probes dir does not list this dir's script"
+mf_corpus othermf-full "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b2 sources/probes/b1/a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: a target-relative sources/ cell in another dir's manifest lists it"
+mf_corpus nested "Ran \`sources/probes/b1/sub/n.sh\`"; mkdir -p "$MFD/sources/probes/b1/sub"; printf 'echo n\n' > "$MFD/sources/probes/b1/sub/n.sh"
+{ echo "| script | sha256 |"; echo "|---|---|"; echo "| \`sub/n.sh\` | $(mf_sha "$MFD/sources/probes/b1/sub/n.sh") |"; } > "$MFD/sources/probes/b1/SCRIPTS-MANIFEST.md"
+mf_check 0 'manifest-ok  sources/probes/b1/sub/n.sh' "#1207 GOOD: a nested cell resolves relative to its manifest dir"
+mf_corpus dotslash "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b1 ./a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: ./a.sh cell lists a.sh"
+mkdir -p "$TMP/stub-bin-mf"; printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && exit 1; done\nexec %s "$@"\n' "$(command -v find)" > "$TMP/stub-bin-mf/find"; chmod +x "$TMP/stub-bin-mf/find"
+mf_corpus findfail "Ran \`sources/probes/b1/a.sh\`"; mf_manifest b1 a.sh @a.sh
+MFD_FF="$MFD"
+out="$(PATH="$TMP/stub-bin-mf:$PATH" bash "$SUT" "$MFD/block.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'DEGRADED manifest scan failed' <<<"$out" && ! grep -q 'INFO    no SCRIPTS-MANIFEST' <<<"$out"; } && ok "#1207 BAD: failed manifest scan is typed DEGRADED (exit 1), not 'no manifest'" || no "#1207: manifest find failure (rc=$got)"
+mf_corpus noscript "Plain claim [CERT] \`src/x.c:1\`"; mf_manifest b1 a.sh @a.sh
+mf_check 0 'none — no preserved script cited' "#1207 GOOD: manifests present, no script cited -> explicit none line"
+mf_corpus proseend "Ran sources/probes/b1/a.sh." ; mf_manifest b1 a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cite followed by sentence period"
+
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
@@ -1672,6 +1873,104 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-eh-oneperline: stop after the first token on a line --"
   if mk_sed "teeth-eh-oneperline" "$MUT/eh1.sh" '/^      rest = after$/s/.*/      rest = ""/'; then
     tooth "teeth-eh-oneperline" 1 1 "$MUT/eh1.sh" --good-has 'cited: 2 \(FAIL\)' --bad-has 'cited: 1 \(FAIL\)' -- bash @SUT@ "$TMP/eh-twosame.md"
+  fi
+  # kit #1207 ephemeral-path teeth: detector off, tmp arm dropped, scratchpad arm dropped, glue guard dropped,
+  # sha256 exemption dropped, exemption widened to the whole block, and a blind/failing detector read as clean.
+  echo "-- teeth-ep-tmp: /tmp arm disabled --"
+  if mk_sed "teeth-ep-tmp" "$MUT/ept.sh" '/# VB-EP-TMP$/s/^    spad = 0; scan(.*$/    # VB-EP-TMP/'; then
+    tooth "teeth-ep-tmp" 1 0 "$MUT/ept.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-spad: scratchpad arm disabled --"
+  if mk_sed "teeth-ep-spad" "$MUT/eps.sh" '/# VB-EP-SCRATCHPAD$/s/^    spad = 1; scan(.*$/    # VB-EP-SCRATCHPAD/'; then
+    tooth "teeth-ep-spad" 1 0 "$MUT/eps.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-relspad.md"
+  fi
+  echo "-- teeth-ep-glue: preceding-path-char guard dropped --"
+  if mk_sed "teeth-ep-glue" "$MUT/epg.sh" '/# VB-EP-GLUE$/s/before !~ glue \&\& //'; then
+    tooth "teeth-ep-glue" 0 1 "$MUT/epg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-glued.md"
+  fi
+  echo "-- teeth-ep-anchor-off: sha256 exemption dropped --"
+  if mk_sed "teeth-ep-anchor-off" "$MUT/epa.sh" '/# VB-EP-ANCHOR$/s/hasdigest(\$0)/0/'; then
+    tooth "teeth-ep-anchor-off" 0 1 "$MUT/epa.sh" --good-has 'ephemeral-anchored' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored.md"
+  fi
+  echo "-- teeth-ep-digest64: the word sha256 alone anchors (digest requirement dropped) --"
+  if mk_sed "teeth-ep-digest64" "$MUT/epd.sh" '/# VB-EP-DIGEST64$/s/length(run) == 64/1/'; then
+    tooth "teeth-ep-digest64" 1 0 "$MUT/epd.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-nodigest.md"
+  fi
+  echo "-- teeth-ep-anchor-global: sha256 anywhere in the block exempts every line --"
+  if mk_sed "teeth-ep-anchor-global" "$MUT/epag.sh" '/# VB-EP-ANCHOR$/s/hasdigest(\$0)/1/'; then
+    tooth "teeth-ep-anchor-global" 1 0 "$MUT/epag.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored-other.md"
+  fi
+  echo "-- teeth-ep-strict: --strict-ephemeral ignored (stays a WARN) --"
+  if mk_sed "teeth-ep-strict" "$MUT/epst.sh" '/# VB-EP-STRICT$/s/if (strict == "1")/if (0)/'; then
+    tooth "teeth-ep-strict" 1 0 "$MUT/epst.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-strict-flag: the flag is no longer consumed/honoured --"
+  if mk_sed "teeth-ep-strict-flag" "$MUT/epsf.sh" '/# VB-EP-STRICT-FLAG$/s/STRICT_EP=1/STRICT_EP=0/'; then
+    tooth "teeth-ep-strict-flag" 1 0 "$MUT/epsf.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-warn-rc: a default WARN flips the exit code (must stay unchanged) --"
+  if mk_sed "teeth-ep-warn-rc" "$MUT/epw.sh" 's/    W) echo "\$_vb_ep_text"; _vb_ep_n=\$((_vb_ep_n + 1)); continue;;/    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); rc=1; continue;;/'; then
+    tooth "teeth-ep-warn-rc" 0 1 "$MUT/epw.sh" --good-has 'EPHEMERAL\?' --bad-has '== exit 1 ==' -- bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-marker: marker ignored --"
+  if mk_sed "teeth-ep-marker" "$MUT/epm.sh" '/# VB-EP-MARKER$/s/index(\$0, "<!-- ephemeral-ok:")/0/'; then
+    tooth "teeth-ep-marker" 0 0 "$MUT/epm.sh" --good-lacks 'EPHEMERAL\?' --bad-has 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-ok.md"
+  fi
+  echo "-- teeth-ep-reason: empty reason accepted as a valid waiver --"
+  if mk_sed "teeth-ep-reason" "$MUT/epr.sh" '/# VB-EP-REASON$/s/if (reason != "") ok = 1/ok = 1/'; then
+    tooth "teeth-ep-reason" 0 0 "$MUT/epr.sh" --good-has 'EPHEMERAL\?' --good-has 'invalid marker' --bad-lacks 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-empty.md"
+  fi
+  echo "-- teeth-ep-invalid-line: invalid marker no longer typed --"
+  if mk_sed "teeth-ep-invalid-line" "$MUT/epi.sh" 's/if (mk > 0 \&\& !flagged\[NR\])/if (0)/'; then
+    tooth "teeth-ep-invalid-line" 0 0 "$MUT/epi.sh" --good-has 'invalid marker' --bad-lacks 'invalid marker' -- bash @SUT@ "$TMP/ep-mk-empty.md"
+  fi
+  echo "-- teeth-ep-norc / teeth-ep-notrailer: a failing or blind detector must read as degraded --"
+  if mk_sed "teeth-ep-norc" "$MUT/eprc.sh" 's/_vb_ep_rc=\$?/_vb_ep_rc=0/'; then
+    tooth "teeth-ep-norc" 1 0 "$MUT/eprc.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ep-rcfail:$PATH" bash @SUT@ "$TMP/ep-clean.md"
+  fi
+  if mk_sed "teeth-ep-notrailer" "$MUT/eptr.sh" 's/ || \[ -n "\$_vb_ep_trailer" \]; then/; then/'; then
+    tooth "teeth-ep-notrailer" 1 0 "$MUT/eptr.sh" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ep-silent:$PATH" bash @SUT@ "$TMP/ep-clean.md"
+  fi
+  echo "-- teeth-ep-rc: findings no longer flip the exit code --"
+  if mk_sed "teeth-ep-rc" "$MUT/eprc2.sh" 's/_vb_ep_n=\$((_vb_ep_n + 1)); rc=1/_vb_ep_n=$((_vb_ep_n + 1))/'; then
+    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  # kit #1207 (b) manifest teeth: sha compare off, row lookup widened, sha64 validity dropped, FAIL rc dropped.
+  echo "-- teeth-mf-sha: sha256 comparison always passes --"
+  if mk_sed "teeth-mf-sha" "$MUT/mfs.sh" '/# VB-MF-SHA$/s/if grep -qxF "\$_vb_mf_have" <<<"\$_vb_mf_want"; then/if true; then/'; then
+    tooth "teeth-mf-sha" 1 0 "$MUT/mfs.sh" --good-has 'MANIFEST!.*differs' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-badsha/block.md"
+  fi
+  echo "-- teeth-mf-lookup: every script matches every row --"
+  if mk_sed "teeth-mf-lookup" "$MUT/mfl.sh" '/# VB-MF-LOOKUP$/s/\$1 == b/1/'; then
+    tooth "teeth-mf-lookup" 1 1 "$MUT/mfl.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-norow/block.md"
+  fi
+  echo "-- teeth-mf-row: 64-hex length check dropped --"
+  if mk_sed "teeth-mf-row" "$MUT/mfr.sh" '/# VB-MF-ROW$/s/ \&\& length(b) == 64//'; then
+    tooth "teeth-mf-row" 1 1 "$MUT/mfr.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-shortsha/block.md"
+  fi
+  echo "-- teeth-mf-findrc: manifest scan status ignored --"
+  if mk_sed "teeth-mf-findrc" "$MUT/mffr.sh" 's/_vb_mf_frc=\${_vb_mf_raw##\*@@RC=}/_vb_mf_frc=0/'; then
+    tooth "teeth-mf-findrc" 1 0 "$MUT/mffr.sh" --good-has 'DEGRADED manifest scan failed' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-mf:$PATH" bash @SUT@ "$MFD_FF/block.md"
+  fi
+  echo "-- teeth-mf-dir: path-resolved comparison replaced by a BASENAME comparison (directory scoping lost) --"
+  if mk_sed "teeth-mf-dir" "$MUT/mfd.sh" '/# VB-MF-LOOKUP$/s#\$1 == b#(n=split($1,q,"/")) \&\& (m=split(b,r,"/")) \&\& q[n]==r[m]#'; then
+    tooth "teeth-mf-dir" 1 0 "$MUT/mfd.sh" --good-has 'MANIFEST!.*no valid SCRIPTS-MANIFEST row' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-othermf/block.md"
+  fi
+  echo "-- teeth-ep-segment: scratchpad as a tail of a longer name counts as a segment --"
+  if mk_sed "teeth-ep-segment" "$MUT/epsg.sh" '/# VB-EP-SEGMENT$/s/if (!(i == 1 || substr(tok, i - 1, 1) == "\/")) return 1/if (0) return 1/'; then
+    tooth "teeth-ep-segment" 0 1 "$MUT/epsg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spadglue.md"
+  fi
+  echo "-- teeth-ep-owned: scratchpad arm also claims /tmp-owned tokens (double count) --"
+  if mk_sed "teeth-ep-owned" "$MUT/epo.sh" '/# VB-EP-OWNED$/s/return 1/return 0/'; then
+    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has 'ephemeral-path cites: 2 \(FAIL\)' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
+  fi
+  echo "-- teeth-mf-rc: manifest findings no longer flip the exit code --"
+  if mk_sed "teeth-mf-rc" "$MUT/mfrc.sh" 's/(manifest sha256 differs from the file.s: \${_vb_mf_have:0:16})"; rc=1;/(manifest sha256 differs from the file'"'"'s: ${_vb_mf_have:0:16})";/'; then
+    tooth "teeth-mf-rc" 1 0 "$MUT/mfrc.sh" --good-has 'MANIFEST!' --bad-has '== exit 0 ==' -- bash @SUT@ "$TMP/mf-badsha/block.md"
+  fi
+  echo "-- teeth-mf-nomf: absence of any manifest is no longer announced --"
+  if mk_sed "teeth-mf-nomf" "$MUT/mfn.sh" 's/echo "   INFO    no SCRIPTS-MANIFEST under/echo "   (silent) under/'; then
+    tooth "teeth-mf-nomf" 0 0 "$MUT/mfn.sh" --good-has 'INFO    no SCRIPTS-MANIFEST' --bad-lacks 'no SCRIPTS-MANIFEST' -- bash @SUT@ "$TMP/mf-nomf/block.md"
   fi
 fi
 

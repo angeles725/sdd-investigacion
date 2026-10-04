@@ -11,14 +11,33 @@
 # where a from-memory self-report drifts. The token-check (does each [CERT] token appear in its source) still
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
-# Usage: verify-block.sh <block.md> [target-dir]
+# Usage: verify-block.sh [--strict-ephemeral] <block.md> [target-dir]
+#   --strict-ephemeral (or env RSDD_STRICT_EPHEMERAL=1): ephemeral-path cites FAIL (EPHEMERAL!, exit 1). WITHOUT it they are
+#       a typed WARN (EPHEMERAL?, counted and listed, exit unchanged) — the default flips to FAIL in the next minor release, kit #1207.
 #        verify-block.sh --possibility-sweep <corpus-dir>   (list existing bare feasibility verdicts; read-only)
 #   target-dir defaults to the block's own directory (file:line citations are target-relative).
 #       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target, OR a cited hash equals the digest of EMPTY
-#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`) · 2 = bad args.
+#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR (ONLY with
+#       --strict-ephemeral; otherwise a WARN EPHEMERAL?, exit unchanged) a cited path is ephemeral — under /tmp,
+#       /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite form, [CERT*] or not; a line
+#       carrying a REAL sha256 anchor — the word `sha256` AND a 64-hex digest on that same line, the word alone
+#       is NOT an anchor — the §5 beautified-temp view, is exempt, as an INFO; a line ending with
+#       `<!-- ephemeral-ok: <reason> -->` waives it per line as an INFO, the reason is mandatory and an empty one
+#       leaves the finding standing plus a typed `invalid marker` line; default flips to FAIL next minor), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
+#       sha256 differs from the file's (MANIFEST!, kit #1207; only when the corpus has >= 1 manifest — with none
+#       the line is `INFO no SCRIPTS-MANIFEST`; a failed manifest scan is the typed `DEGRADED manifest scan failed`
+#       line with exit 1, like the other operational degraded states here — never read as "no manifest") · 2 = bad args.
+#   SCRIPTS-MANIFEST.md (one per sources/probes/<dir>/, kit #1207) — a markdown table, one row per preserved script:
+#       | script | sha256 | run/step | block | executed-on | remote-sha256 | role |
+#     script = file name or path relative to the manifest dir (resolved against THAT manifest's directory and
+#     matched to the cited path; a row in another probes dir never lists this dir's script — a bare name also
+#     matches its own dir only; a cell starting with `sources/` is target-relative) · sha256 = 64 hex of the preserved file · run/step =
+#     the exact command (with arguments) or step number that ran it · block = B<N> that relies on it · executed-on =
+#     host/device where it ran · remote-sha256 = digest of the copy that ran remotely (or `-`) ·
+#     role = EXECUTED | RECIPE | FAILED-ATTEMPT. Only columns 1-2 are machine-checked; the rest is for humans.
 
 set -uo pipefail
 # --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
@@ -51,6 +70,10 @@ pf_scan() {
   ' "$1"
 }
 
+# --strict-ephemeral / RSDD_STRICT_EPHEMERAL=1 (kit #1207): ephemeral-path cites FAIL (EPHEMERAL!) instead of WARN (EPHEMERAL?).
+STRICT_EP=0; [ "${RSDD_STRICT_EPHEMERAL:-}" = "1" ] && STRICT_EP=1
+_vb_args=(); for _vb_a in "$@"; do if [ "$_vb_a" = "--strict-ephemeral" ]; then STRICT_EP=1; else _vb_args+=("$_vb_a"); fi; done  # VB-EP-STRICT-FLAG
+set -- ${_vb_args[@]+"${_vb_args[@]}"}
 if [ "${1:-}" = "--possibility-sweep" ]; then
   sweep_dir="${2:-}"
   [ -d "$sweep_dir" ] || { echo "usage: verify-block.sh --possibility-sweep <corpus-dir>" >&2; exit 2; }
@@ -548,6 +571,166 @@ while IFS= read -r _vb_eh_line; do
 done <<<"$_vb_eh_out"
 if [ "$_vb_eh_deg" -eq 1 ]; then :   # degraded: the ERROR line above is the verdict — never also print a clean "(none)"
 elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equals the digest of empty input; waived: $_vb_eh_w)"; else echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"; fi
+
+# 10. EPHEMERAL-PATH CITES (kit #1207, METHODOLOGY §5/§7 anti-ephemeral-artifact) — a cited path under /tmp,
+#     /var/tmp (also /private/tmp, /private/var/tmp, $TMPDIR/, ${TMPDIR}/) or a session `scratchpad/` dir is
+#     evidence that will not exist in the next session: FAIL (rc=1), one typed `EPHEMERAL!` line per occurrence
+#     with the block line number (WARN `EPHEMERAL?` unless strict, see STAGING). Enumerated cite forms — ALL covered because the scan reads every path-shaped
+#     token on every line, whatever wraps it: `file:N`, `file:N-M`, bare backticked path, parenthetical path,
+#     table cell, prose, code fence, `[CERT*]`-marked or not. The tmp prefix must not be glued to a preceding
+#     path char (so `src/tmp/x` and `./tmp/x` never fire). Verification is NOT limited to [CERT*] lines.
+#     STAGING: by default each hit is a WARN `EPHEMERAL?` (counted, listed, exit unchanged); with --strict-ephemeral /
+#     RSDD_STRICT_EPHEMERAL=1 it is a FAIL `EPHEMERAL!` (rc=1). The default flips to FAIL in the next minor release.
+#     EXCEPTION (the §5 beautified-temp view): a line carrying a REAL sha256 anchor (the word `sha256` plus a 64-hex
+#     digest on the same line — the word alone is not an anchor) is reported as `INFO
+#     ephemeral-anchored` and does not change the exit code — the temp is a working view whose identity is
+#     pinned by the hash of the ORIGINAL file. Preserve everything else under sources/probes/b<N>/.
+_vb_ep_n=0; _vb_ep_a=0; _vb_ep_deg=0; _vb_ep_k=0; _vb_ep_i=0
+_vb_ep_out=$(awk -v strict="$STRICT_EP" '
+  function hasdigest(line,   l, run) {   # a real anchor: the word sha256 AND a maximal 64-hex run on the line
+    l = tolower(line)
+    if (index(l, "sha256") == 0) return 0
+    while (match(l, /[0-9a-f]+/)) {
+      run = substr(l, RSTART, RLENGTH)
+      if (length(run) == 64) return 1   # VB-EP-DIGEST64
+      l = substr(l, RSTART + RLENGTH)
+    }
+    return 0
+  }
+  function skipspad(tok,   i) {   # scratchpad arm only: needs a `scratchpad` PATH SEGMENT and must not be /tmp-owned
+    if (!spad) return 0
+    i = index(tok, "scratchpad/")
+    if (!(i == 1 || substr(tok, i - 1, 1) == "/")) return 1   # VB-EP-SEGMENT
+    if (tok ~ /^(\$\{?TMPDIR\}?|\/private\/var\/tmp|\/private\/tmp|\/var\/tmp|\/tmp)\//) return 1   # VB-EP-OWNED
+    return 0
+  }
+  function scan(re, glue,   rest, tok, before, after, anchored, mk, reason, ok) {
+    rest = $0
+    anchored = hasdigest($0)   # VB-EP-ANCHOR
+    ok = 0; reason = ""
+    mk = index($0, "<!-- ephemeral-ok:")   # VB-EP-MARKER
+    if (mk > 0) {
+      reason = substr($0, mk + 18); sub(/-->.*$/, "", reason); gsub(/^[[:space:]]+|[[:space:]]+$/, "", reason)
+      if (reason != "") ok = 1   # VB-EP-REASON
+    }
+    while (match(rest, re)) {
+      tok = substr(rest, RSTART, RLENGTH)
+      before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
+      after = substr(rest, RSTART + RLENGTH)
+      if (before !~ glue && !skipspad(tok)) {   # VB-EP-GLUE
+        sub(/[.,:;]+$/, "", tok)
+        if (anchored)
+          printf "A\t   INFO    ephemeral-anchored line %d: %s (sha256-anchored beautified-temp view, METHODOLOGY §5)\n", NR, tok
+        else if (ok)
+          printf "K\t   INFO    ephemeral-ok line %d: %s (waived on purpose: %s)\n", NR, tok, reason
+        else {
+          if (mk > 0 && !flagged[NR]) { flagged[NR] = 1; printf "I\t   WARN    invalid marker line %d: `<!-- ephemeral-ok: <reason> -->` needs a non-empty reason — marker ignored\n", NR }
+          if (strict == "1")   # VB-EP-STRICT
+            printf "F\t   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)\n", tok, NR
+          else
+            printf "W\t   EPHEMERAL?  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/; FAIL under --strict-ephemeral, default next minor)\n", tok, NR
+        }
+      }
+      rest = after
+    }
+  }
+  {
+    spad = 0; scan("(\\$\\{?TMPDIR\\}?|/private/var/tmp|/private/tmp|/var/tmp|/tmp)/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-TMP
+    spad = 1; scan("[A-Za-z0-9_./@+=:~-]*scratchpad/[A-Za-z0-9_./@+=:~-]*", "[$}A-Za-z0-9_@+=:~-]")   # VB-EP-SCRATCHPAD
+  }
+  END { print "T\t@@scanned " NR }   # coverage trailer: absent => the detector did not run to completion
+' "$block")
+_vb_ep_rc=$?
+_vb_ep_trailer=""; grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_ep_out" || _vb_ep_trailer=", no scan trailer"
+echo "-- ephemeral-path cites (kit #1207: /tmp, /var/tmp, scratchpad — WARN, FAIL with --strict-ephemeral; exempt: sha256 anchor, ephemeral-ok marker) --"
+if [ "$_vb_ep_rc" -ne 0 ] || [ -n "$_vb_ep_trailer" ]; then
+  printf '   ERROR: ephemeral-path scan DEGRADED (awk exit %d%s) — block NOT checked for ephemeral cites\n' "$_vb_ep_rc" "$_vb_ep_trailer"
+  rc=1; _vb_ep_deg=1
+fi
+while IFS= read -r _vb_ep_line; do
+  [ -z "$_vb_ep_line" ] && continue
+  _vb_ep_tag=${_vb_ep_line%%$'\t'*}; _vb_ep_text=${_vb_ep_line#*$'\t'}
+  case "$_vb_ep_tag" in
+    T) continue;;
+    A) echo "$_vb_ep_text"; _vb_ep_a=$((_vb_ep_a + 1)); continue;;
+    K) echo "$_vb_ep_text"; _vb_ep_k=$((_vb_ep_k + 1)); continue;;
+    I) echo "$_vb_ep_text"; _vb_ep_i=$((_vb_ep_i + 1)); continue;;
+    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); continue;;
+  esac
+  echo "$_vb_ep_text"
+  _vb_ep_n=$((_vb_ep_n + 1)); rc=1   # VB-EP-FAIL
+done <<<"$_vb_ep_out"
+if [ "$_vb_ep_deg" -eq 1 ]; then :
+elif [ "$_vb_ep_n" -eq 0 ]; then echo "   (none — no unanchored ephemeral path cited; sha256-anchored: $_vb_ep_a, ephemeral-ok: $_vb_ep_k, invalid markers: $_vb_ep_i)"
+elif [ "$STRICT_EP" = 1 ]; then echo "-- ephemeral-path cites: $_vb_ep_n (FAIL)"
+else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict-ephemeral or RSDD_STRICT_EPHEMERAL=1 makes it FAIL; default flips next minor, kit #1207)"; fi
+
+# 11. SCRIPTS-MANIFEST (kit #1207) — a preserved script cited under sources/probes/ must be traceable to a row of
+#     a `sources/probes/**/SCRIPTS-MANIFEST.md` of the target, and the row's sha256 must equal the file's. Rules:
+#       - the corpus has NO manifest at all  -> typed `INFO    no SCRIPTS-MANIFEST` (today's behaviour kept, but
+#         never a silent pass), exit unchanged;
+#       - the corpus has >= 1 manifest       -> each cited script (ext sh ps1 py java js rb pl bat cmd groovy kts)
+#         without a valid row, or whose every row's sha256 differs from the file's actual sha256 (an absent file
+#         counts as a difference), is a FAIL (rc=1) with a typed `MANIFEST!` line.
+#     A script cite is the cited path matched EXACTLY against the row's resolved location: the first cell is
+#     resolved against the directory of ITS OWN manifest (a `sources/…` cell is target-relative; the bare
+#     basename inside that same dir also matches). A row in another probes dir never lists this dir's script.
+_vb_mf_n=0; _vb_mf_deg=0
+_vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\b' "$block" | sort -u)
+_vb_mf_files=""; _vb_mf_frc=0
+if [ -d "$target/sources/probes" ]; then
+  _vb_mf_raw=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null; echo "@@RC=$?")   # VB-MF-FIND-RC
+  _vb_mf_frc=${_vb_mf_raw##*@@RC=}
+  _vb_mf_files=$(printf '%s\n' "${_vb_mf_raw%@@RC=*}" | grep . | sort)
+fi
+echo "-- preserved-script manifest (kit #1207: SCRIPTS-MANIFEST.md rows with sha256) --"
+if [ "$_vb_mf_frc" != 0 ]; then
+  echo "   ERROR: DEGRADED manifest scan failed (find exit $_vb_mf_frc under $target/sources/probes) — cited scripts NOT manifest-checked"; rc=1; _vb_mf_deg=1
+elif [ -z "$_vb_mf_files" ]; then
+  echo "   INFO    no SCRIPTS-MANIFEST under $target/sources/probes — preserved-script cites are not manifest-checked ($( [ -n "$_vb_mf_cites" ] && printf '%s' "$_vb_mf_cites" | grep -c . || echo 0) cited)"
+elif [ -z "$_vb_mf_cites" ]; then
+  echo "   (none — no preserved script cited under sources/probes/; manifests present: $(printf '%s\n' "$_vb_mf_files" | grep -c .))"
+else
+  _vb_mf_sha=""
+  if command -v sha256sum >/dev/null 2>&1; then _vb_mf_sha="sha256sum"; elif command -v shasum >/dev/null 2>&1; then _vb_mf_sha="shasum -a 256"; fi
+  if [ -z "$_vb_mf_sha" ]; then
+    echo "   ERROR: manifest check DEGRADED (neither sha256sum nor shasum on PATH) — cited scripts NOT checked"; rc=1; _vb_mf_deg=1
+  else
+    # rows: `<target-relative path>\t<sha256 lowercase>` for every table row whose 2nd cell is a 64-hex digest. The
+    # script cell is resolved against ITS manifest's dir (a `sources/…` cell is already target-relative); the bare
+    # basename inside that same dir is emitted too, so `a.sh` and `./a.sh` both list sources/probes/<dir>/a.sh.
+    _vb_mf_rows=$(while IFS= read -r _vb_mf_f; do
+      _vb_mf_md=${_vb_mf_f#"$target"/}; _vb_mf_md=${_vb_mf_md%/*}
+      awk -F'|' -v md="$_vb_mf_md" '
+        /^[[:space:]]*\|/ {
+          a = $2; b = $3
+          gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
+          sub(/^\.\//, "", a)
+          n = split(a, parts, "/")
+          if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) {   # VB-MF-ROW
+            full = (a ~ /^sources\//) ? a : md "/" a
+            print full "\t" tolower(b)
+            print md "/" parts[n] "\t" tolower(b)
+          }
+        }' "$_vb_mf_f"
+    done <<<"$_vb_mf_files")
+    while IFS= read -r _vb_mf_c; do
+      [ -z "$_vb_mf_c" ] && continue
+      _vb_mf_want=$(awk -F'\t' -v b="$_vb_mf_c" '$1 == b { print $2 }' <<<"$_vb_mf_rows")   # VB-MF-LOOKUP
+      if [ -z "$_vb_mf_want" ]; then
+        echo "   MANIFEST!  $_vb_mf_c  (no valid SCRIPTS-MANIFEST row for this script — add script|sha256|run/step|block|executed-on|remote-sha256|role)"; rc=1; _vb_mf_n=$((_vb_mf_n+1)); continue
+      fi
+      _vb_mf_have=ABSENT
+      [ -f "$target/$_vb_mf_c" ] && _vb_mf_have=$($_vb_mf_sha "$target/$_vb_mf_c" 2>/dev/null | awk '{print tolower($1)}')
+      if grep -qxF "$_vb_mf_have" <<<"$_vb_mf_want"; then   # VB-MF-SHA
+        echo "   manifest-ok  $_vb_mf_c  (sha256 matches a row)"
+      else
+        echo "   MANIFEST!  $_vb_mf_c  (manifest sha256 differs from the file's: ${_vb_mf_have:0:16})"; rc=1; _vb_mf_n=$((_vb_mf_n+1))
+      fi
+    done <<<"$_vb_mf_cites"
+    [ "$_vb_mf_n" -gt 0 ] && echo "-- preserved-script manifest findings: $_vb_mf_n (FAIL)"
+  fi
+fi
 
 echo "== exit $rc =="
 exit $rc

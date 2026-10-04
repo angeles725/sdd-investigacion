@@ -227,6 +227,152 @@ OUT="$(PATH="$TMP/shim-find:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$F
 OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.old"; } && ok "readdir race tolerated: scan runs with -ignore_readdir_race and completes" || no "readdir race" "(rc=$RC $OUT)"
 
+# ---- kit #1207 part 4: scratchpad artifacts a block mentions / scripts with no manifest row ------------
+# A file left in the session scratchpad that some block of the target mentions (by basename or path) is
+# evidence about to be lost: UNPRESERVED-ARTIFACT <file> cited by <block>. A scratchpad SCRIPT (sh ps1 py
+# java ...) listed in no sources/probes/*/SCRIPTS-MANIFEST.md is UNMANIFESTED-SCRIPT <file>. Both are
+# findings (exit 1), never deletions. Absent/unset scratchpad is a typed state, never a quiet zero.
+cc_scratch() { # sets REPO FT SP: fresh repo, a scratchpad dir, one committed block "notes/b1.md"
+  fresh; SP="$TMP/spad$n"; mkdir -p "$SP" "$REPO/notes" "$REPO/.research-sdd"
+  printf 'sources/\n' > "$REPO/.research-sdd/keep.txt"
+  printf '%s\n' "$@" > "$REPO/notes/b1.md"
+  git -C "$REPO" add notes/b1.md .research-sdd/keep.txt
+  git -C "$REPO" -c user.name=t -c user.email=t@example.invalid commit -q -m blk
+}
+cc_scratch "Result came from probe_run.log [CERT-hw]"
+printf 'x\n' > "$SP/probe_run.log"; printf 'x\n' > "$SP/unrelated.txt"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+[ "$RC" = 1 ] && ok "#1207: scratchpad file cited by a block -> exit 1" || no "scratch cited exit" "(rc=$RC)"
+has "UNPRESERVED-ARTIFACT $SP/probe_run.log cited by notes/b1.md" && ok "#1207: typed UNPRESERVED-ARTIFACT line names file and block" || no "unpreserved line" "($OUT)"
+if has "unrelated.txt"; then no "#1207: a scratchpad file no block mentions must not be reported" "($OUT)"; else ok "#1207: unmentioned scratchpad file not reported"; fi
+has "scratchpad: 2 file(s)" && ok "#1207: summary states how many scratchpad files were scanned" || no "scratch count in summary" "($OUT)"
+
+cc_scratch "Used the helper at $TMP/spad$((n+1))/deep/dir/tool.out for it"
+mkdir -p "$SP/deep/dir"; printf 'x\n' > "$SP/deep/dir/tool.out"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNPRESERVED-ARTIFACT $SP/deep/dir/tool.out cited by notes/b1.md" && ok "#1207: nested scratchpad file mentioned by full path is found" || no "nested/full path" "($OUT)"
+
+cc_scratch "first.dat" "mid.dat" "last.dat"
+for f in first mid last; do printf 'x\n' > "$SP/$f.dat"; done
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "$SP/first.dat" && has "$SP/mid.dat" && has "$SP/last.dat"; } && ok "#1207: first/middle/last mentioned files all reported" || no "first/mid/last" "($OUT)"
+
+cc_scratch "Ran /tmp/x/probe_run.log"
+printf 'x\n' > "$SP/probe_run.log"
+unset CLEAN_CHECK_SCRATCHPAD
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "scratchpad: not set"; } && ok "#1207: unset scratchpad is a typed 'not set' state in the summary, not a pass-by-silence" || no "unset state" "(rc=$RC $OUT)"
+CLEAN_CHECK_SCRATCHPAD="$TMP/no-such-spad" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "ABSENT-SCRATCHPAD $TMP/no-such-spad" && has "scratchpad: absent"; } && ok "#1207: configured-but-absent scratchpad -> typed ABSENT-SCRATCHPAD, not 0 files" || no "absent state" "(rc=$RC $OUT)"
+run --target "$REPO" --tmp "$FT" --scratchpad "$SP"
+{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log"; } && ok "#1207: --scratchpad flag works like the env var" || no "flag" "(rc=$RC $OUT)"
+
+cc_scratch "no mention here"
+printf 'echo hi\n' > "$SP/run.sh"; printf 'print(1)\n' > "$SP/calc.py"; printf 'x\n' > "$SP/data.bin"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNMANIFESTED-SCRIPT $SP/run.sh" && has "UNMANIFESTED-SCRIPT $SP/calc.py"; } && ok "#1207: scratchpad scripts with no manifest are UNMANIFESTED-SCRIPT" || no "unmanifested" "(rc=$RC $OUT)"
+if has "data.bin"; then no "#1207: a non-script, unmentioned file must not be reported" "($OUT)"; else ok "#1207: non-script file not an UNMANIFESTED-SCRIPT"; fi
+mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `run.sh` | %064d | sh run.sh | B1 | h | - | EXECUTED |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+git -C "$REPO" add sources/probes/b1/SCRIPTS-MANIFEST.md
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNMANIFESTED-SCRIPT $SP/run.sh"; then no "#1207: a script with a manifest row must not be reported" "($OUT)"; else ok "#1207: manifest row silences UNMANIFESTED-SCRIPT"; fi
+has "UNMANIFESTED-SCRIPT $SP/calc.py" && ok "#1207: a script with no row is still reported when other rows exist" || no "calc still unmanifested" "($OUT)"
+
+cc_scratch "uses mentioned.sh here"
+printf 'echo hi\n' > "$SP/mentioned.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "UNPRESERVED-ARTIFACT $SP/mentioned.sh cited by notes/b1.md" && has "UNMANIFESTED-SCRIPT $SP/mentioned.sh" && has "CLEAN-CHECK: 2 finding(s)"; } && ok "#1207: a mentioned unmanifested script yields both typed lines" || no "both lines" "($OUT)"
+
+# ---- kit #1207 RDD round 1: boundaries, exact manifest cell, manifests excluded, preserved copies -------
+cc_scratch "Ran prerun.sh first, then tuned."
+printf 'x\n' > "$SP/run.sh"; printf 'x\n' > "$SP/prerun.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNPRESERVED-ARTIFACT $SP/prerun.sh cited by notes/b1.md" && ok "#1207 boundary: prerun.sh mention reports prerun.sh" || no "boundary prerun" "($OUT)"
+if has "UNPRESERVED-ARTIFACT $SP/run.sh"; then no "#1207 boundary: run.sh is not mentioned by 'prerun.sh'" "($OUT)"; else ok "#1207 boundary: run.sh is not a substring match of prerun.sh"; fi
+cc_scratch "The layout was about the banana."
+printf 'x\n' > "$SP/out"; printf 'x\n' > "$SP/a"; printf 'x\n' > "$SP/ana"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT"; then no "#1207 boundary: short names 'out'/'a'/'ana' inside words must not match" "($OUT)"; else ok "#1207 boundary: short names inside other words do not match"; fi
+cc_scratch 'See `out` and (a) then ana, done.'
+printf 'x\n' > "$SP/out"; printf 'x\n' > "$SP/a"; printf 'x\n' > "$SP/ana"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "UNPRESERVED-ARTIFACT $SP/out " && has "UNPRESERVED-ARTIFACT $SP/a " && has "UNPRESERVED-ARTIFACT $SP/ana "; } && ok "#1207 boundary: backtick / paren / comma delimited whole-word mentions match" || no "boundary delimiters" "($OUT)"
+cc_scratch "Kept in probe.log." "also probe.log.bak and /deep/path/other.dat:12"
+printf 'x\n' > "$SP/probe.log"; printf 'x\n' > "$SP/other.dat"; printf 'x\n' > "$SP/probe.lo"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "$SP/probe.log cited" && has "$SP/other.dat cited"; } && ok "#1207 boundary: sentence-final period and path:line mentions match" || no "period / path:line" "($OUT)"
+if has "$SP/probe.lo cited"; then no "#1207 boundary: probe.lo must not match probe.log" "($OUT)"; else ok "#1207 boundary: a prefix of a longer name does not match"; fi
+
+# live scratchpad: a file vanishing mid-walk must not abort the run (RDD round 3)
+mkdir -p "$TMP/shim-benign" "$TMP/shim-hard"
+# shim-benign: a find WITHOUT -ignore_readdir_race (BSD-like) whose scratchpad walk lists the files, then reports an
+# ENOENT for a vanished entry and exits 1. shim-hard: same but the error is a permission failure (must stay fatal).
+for _mode in benign hard; do
+  case "$_mode" in benign) _msg="find: './vanished.tmp': No such file or directory";; hard) _msg="find: './locked': Permission denied";; esac
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -ignore_readdir_race ] && exit 1; done\ncase "$1" in "$CC_SHIM_DIR"*) %s "$@"; echo "%s" >&2; exit 1;; esac\nexec %s "$@"\n' "$REALFIND" "$_msg" "$REALFIND" > "$TMP/shim-$_mode/find"
+  chmod +x "$TMP/shim-$_mode/find"
+done
+cc_scratch "Result in probe_run.log"; printf 'x\n' > "$SP/probe_run.log"; printf 'x\n' > "$SP/other.txt"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-race:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log"; } && ok "#1207 live scratchpad: -ignore_readdir_race is passed to the scratchpad walk" || no "scratch race flag" "(rc=$RC $OUT)"
+CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-benign:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && has "scratchpad: 2 file(s)"; } && ok "#1207 live scratchpad: ENOENT-only errors from a flagless find are benign" || no "scratch ENOENT fallback" "(rc=$RC $OUT)"
+CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-hard:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 2 ] && has "Permission denied" && has "find failed"; } && ok "#1207 live scratchpad: a non-ENOENT find error is still a failed scan (exit 2)" || no "scratch hard error" "(rc=$RC $OUT)"
+
+# quoted / bracketed / unpadded-table citations (RDD round 2)
+for _form in '"x.sh"' "'x.sh'" '[x.sh]' '[label](x.sh)' '|x.sh|' '<x.sh>' '(x.sh)'; do
+  cc_scratch "see $_form here"; printf 'x\n' > "$SP/x.sh"
+  CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+  has "UNPRESERVED-ARTIFACT $SP/x.sh cited by notes/b1.md" && ok "#1207 boundary: mention written as $_form matches" || no "boundary form $_form" "($OUT)"
+done
+cc_scratch "see xx.sh and x.shx and .x.sh"; printf 'x\n' > "$SP/x.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT"; then no "#1207 boundary: xx.sh / x.shx / .x.sh are not x.sh" "($OUT)"; else ok "#1207 boundary: look-alike names still do not match"; fi
+
+# manifest: first cell, exact
+cc_scratch "nothing mentioned"
+printf 'echo\n' > "$SP/run.sh"
+mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `prerun.sh` | %064d | sh run.sh --go | B1 | h | - | EXECUTED |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNMANIFESTED-SCRIPT $SP/run.sh" && ok "#1207 manifest: run.sh is not listed by a prerun.sh row or by a later cell naming it" || no "manifest exact" "($OUT)"
+printf '| `run.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 >> "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNMANIFESTED-SCRIPT $SP/run.sh"; then no "#1207 manifest: an exact first-cell row lists the script" "($OUT)"; else ok "#1207 manifest: exact first-cell row lists the script"; fi
+
+# the manifest is a preservation record, not a block that cites the scratchpad
+cc_scratch "nothing mentioned"
+printf 'x\n' > "$SP/data.csv"; mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `x.sh` | %064d | python x.sh data.csv | B1 | h | - | RECIPE |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT $SP/data.csv"; then no "#1207: SCRIPTS-MANIFEST.md must not count as a citing block" "($OUT)"; else ok "#1207: SCRIPTS-MANIFEST.md is excluded from the citing blocks"; fi
+
+# preserved byte-identical copy
+cc_scratch "Result in probe_run.log [CERT-hw]"
+printf 'same bytes\n' > "$SP/probe_run.log"; mkdir -p "$REPO/sources/probes/b1"; printf 'same bytes\n' > "$REPO/sources/probes/b1/probe_run.log"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && ! has "UNPRESERVED-ARTIFACT"; } && ok "#1207: byte-identical copy under sources/probes/ -> not UNPRESERVED" || no "preserved copy" "(rc=$RC $OUT)"
+has "preserved-copies: 1" && ok "#1207: preserved copies are counted in the summary" || no "preserved count" "($OUT)"
+printf 'different\n' > "$REPO/sources/probes/b1/probe_run.log"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && ok "#1207: a same-named but different preserved file does not count" || no "different copy" "($OUT)"
+
+# manifest scan failure is typed DEGRADED, never 'no manifests'
+mkdir -p "$TMP/shim-mffind"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && { echo "shim-mffind: find exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$(type -P find)" > "$TMP/shim-mffind/find"
+chmod +x "$TMP/shim-mffind/find"
+cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"; printf 'x\n' > "$REPO/sources/probes/b1/f"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-mffind:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 3 ] && has "DEGRADED: manifest scan failed" && ! grep -q "^UNMANIFESTED-SCRIPT" <<<"$OUT"; } && ok "#1207: failed manifest scan -> typed DEGRADED (exit 3), not 'no manifests'" || no "manifest find rc" "(rc=$RC $OUT)"
+
+# a tracked block deleted from disk is skipped and counted, not a crash
+cc_scratch "mentions gone.dat"
+printf 'x\n' > "$SP/gone.dat"; rm -f "$REPO/notes/b1.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "blocks-missing-on-disk: 1"; } && ok "#1207: deleted tracked block skipped and counted (no abort)" || no "missing block" "(rc=$RC $OUT)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
   # Each control deletes or inverts ONE guard in a COPY of the SUT (lib/mutant.sh refuses a no-op,
@@ -312,6 +458,55 @@ KL
     --good-has 'dubious ownership' --bad-lacks 'dubious ownership' -- env "PATH=$TMP/shim-revparse:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
   mt "rev-parse stderr merged into the stdout comparison" 's/rev-parse --is-inside-work-tree 2>\/dev\/null)"/rev-parse --is-inside-work-tree 2>\&1)"/' 1 2 \
     --good-has 'GARBAGE untracked stray' --bad-has 'not inside a git work tree' -- env "PATH=$TMP/shim-warn:$PATH" "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
+
+  # kit #1207: scratchpad artifact teeth. World: a repo whose block mentions probe_run.log, plus an
+  # unmentioned script; the scratchpad holds both. A second case has the scratchpad configured but absent.
+  fresh; CR="$REPO"; CRT="$FT"; CSP="$TMP/cc-spad"; mkdir -p "$CSP" "$CR/notes" "$CR/.research-sdd"
+  printf '# n\n' > "$CR/.research-sdd/keep.txt"; printf 'see probe_run.log\n' > "$CR/notes/b1.md"
+  git -C "$CR" add notes/b1.md .research-sdd/keep.txt; git -C "$CR" -c user.name=t -c user.email=t@example.invalid commit -q -m b
+  printf 'x\n' > "$CSP/probe_run.log"; printf 'echo\n' > "$CSP/tool.sh"
+  mt "scratchpad citation match always misses" 's/_mentions "\$_b" "\$TARGET_P\/\$_bp"; _g=\$?/false; _g=1/' 1 1 \
+    --good-has 'UNPRESERVED-ARTIFACT' --bad-lacks 'UNPRESERVED-ARTIFACT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  mt "script extension filter matches everything" 's/\*\.sh|\*\.ps1|\*\.py|\*\.java|\*\.js|\*\.rb|\*\.pl|\*\.bat|\*\.cmd|\*\.groovy|\*\.kts)   # CC-SCRIPT-EXT/*)   # CC-SCRIPT-EXT/' 1 1 \
+    --good-lacks 'UNMANIFESTED-SCRIPT .*probe_run' --bad-has 'UNMANIFESTED-SCRIPT .*probe_run' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  fresh; CM="$REPO"; CMT="$FT"; mkdir -p "$CM/sources/probes/b1" "$CM/.research-sdd"; printf '# n\n' > "$CM/.research-sdd/keep.txt"
+  printf '| `tool.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 > "$CM/sources/probes/b1/SCRIPTS-MANIFEST.md"
+  git -C "$CM" add .research-sdd/keep.txt sources; git -C "$CM" -c user.name=t -c user.email=t@example.invalid commit -q -m m
+  mt "manifest lookup always misses" '/# CC-MANIFEST-LOOKUP$/s/if ! grep -qxF -- "\$_b" <<<"\$_mf_names"; then/if true; then/' 0 1 \
+    --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
+  mt "absent scratchpad no longer typed" '/# CC-ABSENT$/s/-d "\$SCRATCH_P"/-e "\/"/' 0 0 \
+    --good-has 'ABSENT-SCRATCHPAD' --bad-lacks 'ABSENT-SCRATCHPAD' -- env "CLEAN_CHECK_SCRATCHPAD=$TMP/cc-no-spad" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+
+  # RDD round 1 teeth: substring matching, substring manifest lookup, manifest-as-block, preserved copy, find rc, missing block.
+  fresh; RB="$REPO"; RBT="$FT"; RSP="$TMP/rb-spad"; mkdir -p "$RSP" "$RB/notes" "$RB/.research-sdd" "$RB/sources/probes/b1"
+  printf 'sources/\n' > "$RB/.research-sdd/keep.txt"; printf 'Ran prerun.sh first.\n' > "$RB/notes/b1.md"
+  printf 'x\n' > "$RSP/run.sh"; printf 'x\n' > "$RSP/prerun.sh"; printf 'same\n' > "$RSP/data.csv"
+  printf '| `prerun.sh` | %064d | python x.sh data.csv | B1 | h | - | RECIPE |\n' 0 > "$RB/sources/probes/b1/SCRIPTS-MANIFEST.md"
+  git -C "$RB" add notes/b1.md .research-sdd/keep.txt sources; git -C "$RB" -c user.name=t -c user.email=t@example.invalid commit -q -m rb
+  mt "citation match degraded to bare substring" '/grep -qE -- "(^|/s/.*/  grep -qF -- "\$1" "\$2"/' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*/run\.sh ' --bad-has 'UNPRESERVED-ARTIFACT .*/run\.sh ' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest lookup degraded to substring" '/# CC-MANIFEST-LOOKUP$/s/grep -qxF/grep -qF/' 1 1 \
+    --good-has 'UNMANIFESTED-SCRIPT .*/run\.sh' --bad-lacks 'UNMANIFESTED-SCRIPT .*/run\.sh' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest files counted as citing blocks" '/\[ "\${_bp##\*\/}" = "SCRIPTS-MANIFEST.md" \] \&\& continue/d' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*data\.csv' --bad-has 'UNPRESERVED-ARTIFACT .*data\.csv' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  printf 'Ran prerun.sh and probe_run.log\n' > "$RB/notes/b1.md"; printf 'same\n' > "$RSP/probe_run.log"; printf 'same\n' > "$RB/sources/probes/b1/probe_run.log"
+  mt "preserved-copy check disabled" '/# CC-PRESERVED$/s/if \[ -n "\$_h" \] \&\& grep -qxF -- "\$_h" <<<"\$_probe_shas"; then _same=1; fi/:/' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*probe_run\.log' --bad-has 'UNPRESERVED-ARTIFACT .*probe_run\.log' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 3 1 \
+    --good-has 'DEGRADED: manifest scan failed' --bad-lacks 'DEGRADED' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  fresh; RM="$REPO"; RMT="$FT"; RMS="$TMP/rm-spad"; mkdir -p "$RMS" "$RM/.research-sdd" "$RM/notes"; printf '# n\n' > "$RM/.research-sdd/keep.txt"
+  printf 'x\n' > "$RM/notes/gone.md"; git -C "$RM" add notes/gone.md .research-sdd/keep.txt; git -C "$RM" -c user.name=t -c user.email=t@example.invalid commit -q -m g; rm "$RM/notes/gone.md"
+  printf 'x\n' > "$RMS/unrelated.dat"
+  mt "missing-on-disk blocks no longer skipped" '/# CC-MISSING$/d' 0 2 \
+    --good-has 'blocks-missing-on-disk: 1' -- env "CLEAN_CHECK_SCRATCHPAD=$RMS" "$BASH_BIN" @SUT@ --target "$RM" --tmp "$RMT"
+
+  # RDD round 3 teeth: the scratchpad walk's race handling.
+  mt "scratchpad walk loses -ignore_readdir_race" '/# CC-SCRATCH-FIND$/s/ \${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
+    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  mt "ENOENT-only errors no longer benign" '/# CC-ENOENT-BENIGN$/s/_frc=0; fi/:; fi/' 1 2 \
+    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-benign:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+  mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/\[ "\$_other" -eq 0 \]/true/' 2 1 \
+    --good-has 'find failed' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-hard:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
 fi
 
 echo "== $pass passed · $fail failed =="
