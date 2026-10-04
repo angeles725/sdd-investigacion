@@ -595,7 +595,8 @@ Always read first, in this order:
          and the block to cite that path PLUS the exact reproduction commands in order (METHODOLOGY §5 "Preserved-probe convention").
          Never tell a writer to keep evidence in scratch only. When a writer runs a script, the prompt requires a SCRIPTS-MANIFEST row
          (script, run/step, block, sha256 of the preserved copy, sha256 of the remote copy if run remotely), preserved failed attempts, and
-         RECIPE labelling for any script written after the fact (METHODOLOGY §5). (verify-block enforcement is staged: `EPHEMERAL?` WARN by default, FAIL with `--strict-ephemeral`; FAIL-by-default planned in kit issue #1660.)
+         RECIPE labelling for any script written after the fact (METHODOLOGY §5). An executed BUILD recipe (keys/certs/jar surgery,
+         #1639) is persisted as a runnable script in the target's `tools/` or `codegen/` in the SAME commit as its block, like probe captures. (verify-block enforcement is staged: `EPHEMERAL?` WARN by default, FAIL with `--strict-ephemeral`; FAIL-by-default planned in kit issue #1660.)
          SECRETS-SENSITIVE INLINE OVERRIDE. The file-count delegation trigger and the config-artifact
          delegation variant below are OVERRIDDEN when artifacts are SECRET-BEARING (key files, shadow
          hashes, keystores, credential configs). Stay INLINE regardless of file count: a delegated sub-
@@ -641,6 +642,9 @@ Always read first, in this order:
          sub-agent fabricated sources), rule out a cwd/relative-path bug — verify with
          `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
          from inside a subdirectory may exist relative to the project root. (Evidence: spyder commissioning.)
+         PIN THE ROOT IN THE BRIEF (#1609): every sweep brief names the corpus root as an ABSOLUTE path (a stale cwd
+         once returned remitted-only citations) and requires the return to state whether the sweep re-read the primary
+         tree (fresh) or only prior blocks (remitted tier); a return without that statement is treated as remitted-only.
          ROOT-ARGUMENT MECHANISMS (same rule, mirror image — kit #1615): when a mechanism takes a ROOT as its argument (ext dir,
          patch dir, classpath, module path), assert the FULL expected child path of a known member (e.g. the class's package path
          under a `--patch-module` dir; `config\security\licenses`, not `config\licenses`) before concluding anything from the
@@ -1426,6 +1430,10 @@ HARD RULES:
     propagate a sub-agent's "not found" without verifying the scope covered the right artifact. A §14
     correction that retracts a prior finding based on absence must re-verify the absence in the exact
     named artifact before accepting the retraction. (Evidence: B478 §478.5.)
+    CENSUS TOKEN (#1212): the cited search must be by CONTENT (class, package or resource name INSIDE
+    archives) across ALL declared artifact roots; a test for one guessed filename (`saml.jar` absent,
+    yet `saml-rt/ux/wb.jar` ship) or a look in one directory (Program Files, not the config home) does
+    not count. Cite the token searched and the root list.
   - VENDOR-DOCUMENTED PORTS FIRST (#670). Before making any connection attempt against a live
     target, read the vendor's documented management/API port from the manual or API spec. Never rely
     on a default port sweep (e.g., 22/80/443/8080) to discover the active service port: a
@@ -1512,9 +1520,18 @@ HARD RULES:
     CREDENTIAL SOURCE + POST-RUN SWEEP: take test credentials from a mode-600 file OUTSIDE the repo,
     never pasted in a channel or embedded in an artifact; after EVERY live run that used one, grep the
     run's outputs (report, stdout, audit, journal) for the secret value as a FIXED string read from the
-    credential file, never typed into argv (`test -s <cred-file> && grep -cF -f <cred-file> <outputs>` — an
-    empty file gives zero patterns and a false 0, so it fails the sweep), require 0, record the count
-    in the block, and delete the credential file (0 hits on 5 runs x 4 outputs).
+    credential file, never typed into argv. Run it as TWO steps with distinct exit codes (#1507): (1)
+    `test -s <cred-file> || { echo "SWEEP NOT RUN: credential file missing/empty" >&2; exit 2; }` (an
+    empty file gives zero patterns and a false 0); (2) `cat <outputs> | grep -cF -f <cred-file>` prints ONE
+    total (grep -c exits 1 on 0 hits — that is a CLEAN sweep, rc 1 is not a failure; with several files
+    `grep -c` prints one `file:N` line each, hence the concatenation). Require a printed total of exactly
+    0; no printed number means the sweep did not run. Strip CR/trailing whitespace from the cred file first
+    (a CRLF pattern never matches the secret and returns a false 0). Record the count in the block, and
+    delete the credential file (0 hits on 5 runs x 4 outputs).
+    COMMAND CONSTRUCTION (#1384): when a probe needs credentials, never build the command in an unquoted
+    string variable (`C="curl -u $U:$P"; $C url`) — use a shell function (`ob() { curl -u "$U:$P" "$@"; }`)
+    or an array. Under zsh the variable is not word-split, so the shell prints the whole command, secret
+    included, in its "command not found" error. (Evidence: pancaddia oBIX read leaked the credential.)
     MINIMAL-PRIVILEGE CAVEAT: minting an ephemeral principal is a SURFACE-DEPENDENT capability — cloud
     platforms and managed IAM (AWS/GCP/Azure) typically can; embedded controllers, PLC/SCADA stacks,
     and hardware I/O APIs typically cannot. Check for an existing low-privilege account FIRST. When
