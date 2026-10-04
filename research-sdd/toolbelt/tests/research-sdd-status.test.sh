@@ -6764,12 +6764,14 @@ b50_fx_prose_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | e1 | web
 b50_fx_prose_tier()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' "$PROSE_T"; b19_decl "$1" 3 2; }
 b50_fx_prose_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '' "$PROSE_T" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
 d="$TMP/b50-prose-closed"; b50_fx_prose_closed "$d"
-b13_expect "T-1350-PROSE closed-class: declared 4/3 kept by DECLARED-KEEP (#1637), not by the prose-fed lower-bound keep" "$(b13_run "$d")" "4 3 1 0"
+b13_expect "T-1350-PROSE closed-class: declared 4/3 above derived 3/2 is kept (DECLARED-KEEP #1637)" "$(b13_run "$d")" "4 3 1 0"
 if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE closed-class: spurious keep message — [$(b13_err "$d")]"; else ok "T-1350-PROSE closed-class: no keep message"; fi
 d="$TMP/b50-prose-tier"; b50_fx_prose_tier "$d"
-b13_expect "T-1350-PROSE tier: declared 3/2 kept by DECLARED-KEEP (#1637), not by the prose-fed lower-bound keep" "$(b13_run "$d")" "3 2 1 0"
+b13_expect "T-1350-PROSE tier: declared 3/2 above derived 2/1 is kept (DECLARED-KEEP #1637)" "$(b13_run "$d")" "3 2 1 0"
+if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE tier: prose line fed the lower-bound keep — [$(b13_err "$d")]"; else ok "T-1350-PROSE tier: prose line does not trigger the lower-bound keep message"; fi
 d="$TMP/b50-prose-first"; b50_fx_prose_first "$d"
-b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 kept by DECLARED-KEEP (#1637), not by the lower-bound keep" "$(b13_run "$d")" "3 2 1 0"
+b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 above derived 2/1 is kept (DECLARED-KEEP #1637)" "$(b13_run "$d")" "3 2 1 0"
+if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE prose-first: prose line fed the lower-bound keep — [$(b13_err "$d")]"; else ok "T-1350-PROSE prose-first: prose line does not trigger the lower-bound keep message"; fi
 # Control: a real `|` row with the same malformed shape still keeps (the guard is the leading pipe, not the cell count).
 d="$TMP/b50-prose-ctl"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' '| low | real | malformed | row | here |'; b19_decl "$d" 3 2
 b13_expect "T-1350-PROSE control: a leading-pipe malformed row still keeps (3/2 = derived 2 + 1 uncounted)" "$(b13_run "$d")" "3 2 1 0"
@@ -6804,6 +6806,23 @@ grep -q 'DECLARED' "$d/.b13out" && no "T-1637 absent counters must not print a D
 d="$TMP/t1637-only"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$d" 3 2
 bash "$SUT" "$d" --sync-state --only gaps_closed,known_gaps >/dev/null 2>&1
 b13_expect "T-1637 --only gaps_closed,known_gaps writes the derived values" "$(sx_env "$d/RESEARCH-STATE.md" known_gaps) $(sx_env "$d/RESEARCH-STATE.md" gaps_closed) 1 0" "2 1 1 0"
+# T-1637 pair invariant: the per-field keeps must never leave gaps_closed > known_gaps. When the kept result would
+# violate it, NEITHER declared value is kept: the derived pair is written and a typed advisory says so.
+_pair_fx() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$1" "$2" "$3"; }  # <dir> <declared kg> <declared gc>; derived is kg 2 / gc 1
+d="$TMP/t1637-pair-a"; _pair_fx "$d" 1 5
+b13_expect "T-1637 pair: declared gc 5 above derived 1 but kg 1 below derived 2 -> derived pair written" "$(b13_run "$d")" "2 1 1 0"
+grep -qF 'sync-state: DECLARED gaps_closed=5 known_gaps=1 inconsistent with derived 1/2 — derived pair written; correct the declaration by hand' "$d/.b13out" && ok "T-1637 pair: inconsistency advisory printed (gc>kg, kg below)" || no "T-1637 pair: advisory missing — out=[$(cat "$d/.b13out")]"
+grep -q 'kept' "$d/.b13out" && no "T-1637 pair: a per-field 'kept' advisory leaked — [$(cat "$d/.b13out")]" || ok "T-1637 pair: no per-field kept advisory when the pair is rejected"
+d="$TMP/t1637-pair-b"; _pair_fx "$d" 2 3
+b13_expect "T-1637 pair: declared gc 3 above derived 1 with kg 2 == derived (not kept) -> derived pair written" "$(b13_run "$d")" "2 1 1 0"
+grep -qF 'DECLARED gaps_closed=3 known_gaps=2 inconsistent with derived 1/2' "$d/.b13out" && ok "T-1637 pair: inconsistency advisory printed (gc>kg, kg equal)" || no "T-1637 pair: advisory missing (kg equal) — out=[$(cat "$d/.b13out")]"
+# single-field keep that stays consistent: only known_gaps above derived
+d="$TMP/t1637-pair-c"; _pair_fx "$d" 9 0
+b13_expect "T-1637 pair: only known_gaps declared above derived (gc 0 below) -> kg kept, gc derived" "$(b13_run "$d")" "9 1 1 0"
+grep -qF 'DECLARED known_gaps=9 (derived 2) — kept' "$d/.b13out" && ! grep -q 'inconsistent' "$d/.b13out" && ok "T-1637 pair: consistent single-field keep advises kept, not inconsistent" || no "T-1637 pair: single-field advisory wrong — out=[$(cat "$d/.b13out")]"
+# pair consistent after the keep (both above, gc <= kg): kept
+d="$TMP/t1637-pair-d"; _pair_fx "$d" 4 4
+b13_expect "T-1637 pair: both above derived and gc == kg -> kept" "$(b13_run "$d")" "4 4 1 0"
 EXCESS_WARN='exceeds what the parser can count'
 b50_fx_ub() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" "$2" "$3"; }
 b50_fx_ub_over()  { b50_fx_ub "$1" 9 5; }
@@ -6968,6 +6987,8 @@ RUNEOF
   }
   t1637_fx="$TMP/t1637-teeth"; b13_fix "$t1637_fx" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx" 3 2
   t1637_fx2="$TMP/t1637-teeth2"; b13_fix "$t1637_fx2" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx2" 1 0
+  t1637_fx3="$TMP/t1637-teeth3"; b13_fix "$t1637_fx3" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx3" 1 5
+  t1637_t T1637-PAIR "$t1637_fx3" '/# DECLARED-PAIR-CHECK$/s/if \[ "\$_dk_gc" -gt/if false \&\& [ "$_dk_gc" -gt/' --good-has 'gaps_closed: 1$' --bad-has 'gaps_closed: 5' --bad-lacks "$_t1637_crash"
   t1637_t T1637-KEEP "$t1637_fx" '/# DECLARED-KEEP$/d' --good-has 'known_gaps: 3' --bad-has 'known_gaps: 2' --bad-lacks "$_t1637_crash"
   t1637_t T1637-ADVISORY "$t1637_fx" '/# DECLARED-KEEP-ADVISORY$/d' --good-has 'DECLARED known_gaps=3 \(derived 2\) — kept' --bad-lacks "DECLARED known_gaps=|$_t1637_crash"
   # declared BELOW derived must not be kept: dropping the guard keeps 1/0 instead of deriving 2/1

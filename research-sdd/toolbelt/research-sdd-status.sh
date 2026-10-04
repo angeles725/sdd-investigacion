@@ -898,18 +898,30 @@ if [ "$mode" = "--sync-state" ]; then
     # DECLARED-KEEP (#1637): gaps_closed / known_gaps are DECLARED-only (read from prose, NOT disk-validated —
     # RESEARCH-STATE.template.md). A declared integer ABOVE the derived value is kept and the advisory names both
     # values: the derivation cannot tell a hand-truthful +1 from a stale over-count, so the operator must verify.
+    # If the kept pair would leave gaps_closed > known_gaps, neither declared value is kept (DECLARED-PAIR-CHECK).
     # A declared integer at or below the derived value is NOT kept (the derivation is evidence of an undercount;
     # the existing CHANGED line reports the rewrite). Absent or non-integer is not 0: it is seeded from the
     # derivation. --only <name> is the explicit opt-in to write the derived value, so it bypasses the keep.
     if [ "$only_set" = 0 ]; then
+      _dk_gc="$gc"; _dk_kg="$kg"; _dk_adv=""
       for _dk_f in gaps_closed known_gaps; do
         _dk_decl="$(env_get "$_dk_f")"
         grep -qE '^[0-9]+$' <<<"${_dk_decl}" || continue
         case "$_dk_f" in gaps_closed) _dk_der="$gc" ;; known_gaps) _dk_der="$kg" ;; esac
         [ "${_dk_decl}" -gt "${_dk_der}" ] || continue  # declared <= derived: the derivation is evidence of an undercount, not a falsification
-        [ "${_dk_decl}" = "${_dk_der}" ] || printf 'sync-state: DECLARED %s=%s (derived %s) — kept; verify the declared value or correct it by hand\n' "$_dk_f" "${_dk_decl}" "${_dk_der}"  # DECLARED-KEEP-ADVISORY
-        case "$_dk_f" in gaps_closed) gc="${_dk_decl}" ;; known_gaps) kg="${_dk_decl}" ;; esac  # DECLARED-KEEP
+        case "$_dk_f" in gaps_closed) _dk_gc="${_dk_decl}" ;; known_gaps) _dk_kg="${_dk_decl}" ;; esac
+        _dk_adv="${_dk_adv}sync-state: DECLARED ${_dk_f}=${_dk_decl} (derived ${_dk_der}) — kept; verify the declared value or correct it by hand"$'\n'
       done
+      # Pair invariant: the per-field decisions are independent, so a kept gaps_closed next to a derived known_gaps can
+      # leave gaps_closed > known_gaps. Then NEITHER declared value is kept: the derived pair is written. (The sum
+      # identity gc+open buckets = known_gaps stays verify-state CHECK H's WARN; only gc <= kg is enforced here.)
+      if [ "$_dk_gc" -gt "$_dk_kg" ] && { [ "$_dk_gc" != "$gc" ] || [ "$_dk_kg" != "$kg" ]; }; then  # DECLARED-PAIR-CHECK
+        printf 'sync-state: DECLARED gaps_closed=%s known_gaps=%s inconsistent with derived %s/%s — derived pair written; correct the declaration by hand\n' \
+          "$(env_get gaps_closed)" "$(env_get known_gaps)" "$gc" "$kg"
+      else
+        [ -n "$_dk_adv" ] && printf '%s' "$_dk_adv"  # DECLARED-KEEP-ADVISORY
+        gc="$_dk_gc"; kg="$_dk_kg"  # DECLARED-KEEP
+      fi
     fi
     # undocumented_findings: distinguish the three cases that pick("","...") collapses into one silent 0.
     # ABSENT       → FIRST seed (no fence): seed 0 (METHODOLOGY §7 seeding contract). Existing fence: the field is
