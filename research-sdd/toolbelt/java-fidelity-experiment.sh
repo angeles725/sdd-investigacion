@@ -35,8 +35,10 @@
 #                         constructs=N cells=M good=a diverged=b failed=c
 #   engines= is the engine name the wrapper's own status line reported per cell (the ENGINE VERSION is not
 #   exposed by the wrapper and is not recorded); engine_degraded_cells counts wrapper exit 4 (fallback ran).
-#   Every such cell also prints `FALLBACK <Name> mode=<g|nog> engine=<e|unknown>` before its verdict, so a
-#   verdict produced by a fallback engine is attributable to its cell (engines= alone is a union).
+#   Every such cell also prints `FALLBACK <Name> mode=<g|nog> labelled-engine=<e|unknown>` before its verdict, so a
+#   verdict produced through a fallback is attributable to its cell. labelled-engine is the engine label on the
+#   wrapper's status line, which is the PRIMARY engine even when a unit fell back; it is NOT the engine that
+#   produced the output (the wrapper's UNIT lines in that cell's dec.log say which units fell back).
 #
 # Exit codes (anti-silent-zero, CLAUDE.md §7 — three states stay distinguishable):
 #   0  experiment ran; every cell measured (DIVERGED / FAILED cells are findings, read the lines)
@@ -78,6 +80,12 @@ if [ "${#SRCS[@]}" -eq 0 ]; then
   exit 1  # SENTINEL-EMPTY-FIXTURES
 fi
 
+# Outer bound on every wrapper run, larger than the wrapper's own 240 s primary bound (see header).
+# Validated before any probe: a usage error is rc 2 whatever the toolchain state.
+TIMEOUT_SECS="${RSDD_FIDELITY_TIMEOUT-720}"
+[[ "$TIMEOUT_SECS" =~ ^[1-9][0-9]{0,5}$ ]]  # SENTINEL-TIMEOUT-VALIDATE
+[ $? -eq 0 ] || { echo "usage: RSDD_FIDELITY_TIMEOUT must be a positive integer (seconds), got '$TIMEOUT_SECS'" >&2; exit 2; }
+
 # ---- runtime dependency probe -> typed DEGRADED ----------------------------------------------------------
 JAVAC_BIN="${RSDD_FIDELITY_JAVAC:-}"
 [ -n "$JAVAC_BIN" ] || JAVAC_BIN="$(command -v javac 2>/dev/null)"
@@ -114,10 +122,6 @@ while IFS= read -r _l; do
   case "$_l" in "javac "[0-9]*) JDK_VERSION="${_l#javac }"; break ;; esac
 done < <("$JAVAC_BIN" -version 2>&1)
 
-# Bound every decompiler run: the OUTER guard, larger than the wrapper's own 240 s primary bound (see header).
-TIMEOUT_SECS="${RSDD_FIDELITY_TIMEOUT-720}"
-[[ "$TIMEOUT_SECS" =~ ^[1-9][0-9]{0,5}$ ]]  # SENTINEL-TIMEOUT-VALIDATE
-[ $? -eq 0 ] || { echo "usage: RSDD_FIDELITY_TIMEOUT must be a positive integer (seconds), got '$TIMEOUT_SECS'" >&2; exit 2; }
 TIMEOUT_BIN="$(command -v timeout 2>/dev/null)"
 [ -n "$TIMEOUT_BIN" ] || TIMEOUT_BIN="$(command -v gtimeout 2>/dev/null)"
 TIMEOUT_NOTE=""; [ -n "$TIMEOUT_BIN" ] || TIMEOUT_NOTE=" timeout=unavailable"
@@ -154,7 +158,7 @@ cell() { # cell NAME SRC MODE FLAGS
   if [ -n "$eng" ]; then
     case ",$ENGINES," in *",$eng,"*) ;; *) ENGINES="${ENGINES:+$ENGINES,}$eng" ;; esac
   fi
-  fb_note() { n_engine_degraded=$((n_engine_degraded+1)); printf 'FALLBACK %s mode=%s engine=%s\n' "$name" "$mode" "${eng:-unknown}"; }
+  fb_note() { n_engine_degraded=$((n_engine_degraded+1)); printf 'FALLBACK %s mode=%s labelled-engine=%s\n' "$name" "$mode" "${eng:-unknown}"; }
   [ "$drc" -ne 4 ] || fb_note  # SENTINEL-FALLBACK-NOTE
   if [ "$drc" -eq 3 ]  # SENTINEL-DECOMPILER-RC3
   then degraded decompiler-missing "(decompiler exit 3 on $name mode=$mode: required tool missing)"; fi

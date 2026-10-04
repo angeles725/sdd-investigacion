@@ -40,7 +40,7 @@ case "$mode" in
   fail)     echo "boom" >&2; exit 1 ;;
   none)     echo "OK: $in -> $out (engine=stub)" ;;
   missing)  echo "no engine" >&2; exit 3 ;;
-  fallback) cp "$STUB_DIR/$name.good" "$out/$name.java"; echo "DEGRADED: $in -> $out (engine=stubfb units=1)"; exit 4 ;;
+  fallback) cp "$STUB_DIR/$name.good" "$out/$name.java"; echo "DEGRADED: $in -> $out  (engine=stub units=1 primary=error)"; echo "UNIT: $name reason=error fallback=cfr result=ok"; exit 4 ;;
   hang)     exec sleep 30 ;;
 esac
 STUB
@@ -91,12 +91,12 @@ if [ "$HAVE_TIMEOUT" = 1 ]; then
 else echo "  SKIP  timeout case: no timeout/gtimeout binary — not counted"; fi
 has '^FIDELITY Nocompile mode=g verdict=FAILED reason=compile$' && ok "10 fixture that does not compile -> FAILED reason=compile" || no "10 compile" "$OUT"
 has '^DEBUGINFO Nocompile g_lvt=unmeasured nog_lvt=unmeasured$' && ok "11 unmeasurable DEBUGINFO is 'unmeasured', never 'no'" || no "11 unmeasured" "$OUT"
-has '^RESULT: DONE jdk=[0-9][^ ]* engines=stub,stubfb engine_degraded_cells=2 ' && ok "12 RESULT records jdk version, engines seen and degraded-cell count" || no "12 provenance" "$(grep RESULT <<<"$OUT")"
+has '^RESULT: DONE jdk=[0-9][^ ]* engines=stub engine_degraded_cells=2 ' && ok "12 RESULT records jdk version, engines seen and degraded-cell count" || no "12 provenance" "$(grep RESULT <<<"$OUT")"
 has '^DEBUGINFO Dbg g_lvt=yes nog_lvt=no$'           && ok "13 -g keeps LocalVariableTable, no -g drops it (DEBUGINFO)" || no "13 debuginfo" "$OUT"
 has '^RESULT: DONE .*constructs=9 cells=18 good=([0-9]+) diverged=([0-9]+) failed=([0-9]+)'  && ok "14 summary counts the cells it measured" || no "14 summary" "$OUT"
 has 'constructs=9 cells=18 good=4 diverged=2 failed=12$' && ok "15 summary tallies GOOD/DIVERGED/FAILED exactly" || no "15 tally" "$(printf '%s\n' "$OUT" | grep RESULT)"
 
-has '^FALLBACK Dbg mode=g engine=stubfb$' && has '^FALLBACK Dbg mode=nog engine=stubfb$' \
+has '^FALLBACK Dbg mode=g labelled-engine=stub$' && has '^FALLBACK Dbg mode=nog labelled-engine=stub$' \
   && ok "16 a wrapper exit-4 (fallback) cell is named on its own FALLBACK line" || no "16 fallback attribution" "$OUT"
 ! has '^FALLBACK (Same|Diff) ' && ok "17 cells that did not fall back print no FALLBACK line" || no "17 spurious fallback" "$OUT"
 
@@ -161,6 +161,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk() { mkdir -p "$(dirname "$2")"; mutant_chain "$1" "$SUT" "$2" "${@:3}" || { fail=$((fail+1)); return 1; }; }
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   export RSDD_FIDELITY_DECOMPILER="$STUB_DIR/decompiler.sh"
+  export RSDD_FIDELITY_TIMEOUT=2  # the 2 s stub bound applies to every stub run in the teeth block too (Hang cells)
 
   echo "-- teeth A: bytecode comparison always equal -> DIVERGED cell reported GOOD --"
   mk "teeth A" "$MUT/A.sh" 's/\[ "\$orig_norm" = "\$new_norm" \]  # SENTINEL-COMPARE/true  # SENTINEL-COMPARE/' \
@@ -211,7 +212,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has 'DEBUGINFO Nocompile g_lvt=unmeasured' --bad-lacks 'g_lvt=unmeasured' \
          --bad-has 'DEBUGINFO Nocompile g_lvt=no' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wH"
 
-  export RSDD_FIDELITY_TIMEOUT=2
   echo "-- teeth I: timeout status 124 no longer typed -> reported as a generic decompile failure --"
   if [ "$HAVE_TIMEOUT" != 1 ]; then echo "  SKIP  teeth I: no timeout/gtimeout binary — not counted"
   else mk "teeth I" "$MUT/I.sh" 's/\[ "\$drc" -eq 124 \]  # SENTINEL-TIMEOUT-RC/false  # SENTINEL-TIMEOUT-RC/' \
@@ -223,7 +223,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth J: fallback attribution dropped -> degraded cell no longer named --"
   mk "teeth J" "$MUT/J.sh" 's/\[ "\$drc" -ne 4 \] || fb_note  # SENTINEL-FALLBACK-NOTE/true  # SENTINEL-FALLBACK-NOTE/' \
     && tt "teeth J: FALLBACK line exists only with the attribution" 0 0 "$MUT/J.sh" \
-         --good-has '^FALLBACK Dbg mode=g engine=stubfb$' --bad-lacks '^FALLBACK Dbg mode=g' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wJ"
+         --good-has '^FALLBACK Dbg mode=g labelled-engine=stub$' --bad-lacks '^FALLBACK Dbg mode=g' -- bash @SUT@ --fixtures "$FIX" --work "$MUT/wJ"
 
   echo "-- teeth K: executable-bit-only probe -> directory accepted as javac --"
   mk "teeth K" "$MUT/K.sh" 's/{ \[ -f "\$JAVAC_BIN" \] \&\& \[ -x "\$JAVAC_BIN" \]; }  # SENTINEL-JAVAC-PROBE/[ -x "$JAVAC_BIN" ]  # SENTINEL-JAVAC-PROBE/' \
