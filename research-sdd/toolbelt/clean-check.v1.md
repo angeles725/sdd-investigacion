@@ -61,7 +61,9 @@ suppressed when a byte-identical copy (sha256) already sits anywhere under
 `<TARGET>/sources/probes/`; such skips are counted in `preserved-copies:`. The remedy is to
 preserve the file under `sources/probes/b<N>/` first. Without `sha256sum` or `shasum` the check is
 skipped and the typed line `DEGRADED-NO-SHA256 ...` is printed, so a missing hash tool never reads
-as "everything preserved".
+as "everything preserved". It is not counted as a finding: the exit code is decided by the other checks, so
+a run whose only issue is this state exits 0 — callers must read the typed line, not just the exit code.
+Counting it as a degraded state (consistent with verify-block) is tracked in kit issue #1659.
 
 ### `UNMANIFESTED-SCRIPT <file>`
 
