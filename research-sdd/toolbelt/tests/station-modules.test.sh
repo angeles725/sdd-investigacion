@@ -685,11 +685,11 @@ if [ "${1:-}" != "--prove-teeth" ]; then
   exit $?
 fi
 
+
 # ---------------------------------------------------------------------------
 echo "-- teeth: station-modules mutation controls --"
 # ---------------------------------------------------------------------------
 MUT_PASS=0; MUT_FAIL=0
-mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
 mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
@@ -700,279 +700,184 @@ if [ ! -f "$ORIG_PY" ]; then
   exit 1
 fi
 
-# --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
-# Expected: symlink input followed → exit 0 (not 2) → T2 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NONBLOCK/' \
-  "$MUTDIR/station_modules.py"
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M1 symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M1 symlink guard: sed had no effect (pattern not found)"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$ROOT/sym.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/m1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -ne 2 ]; then
-    mut_ok "M1 symlink guard removal detected (exit $_m1_exit, not 2)"
+# The mutation helper is sourced ONLY on this path. Every helper the controls call is probed so a
+# missing function is a loud suite failure, never a silently skipped tooth.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
+for _fn in mutant_chain mutant_built mutant_tooth; do
+  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh does not define $_fn" >&2; exit 2; }
+done
+# station_modules.py imports only the standard library (see its import block), so a single-file mutant
+# copy is self-contained; it is not Python-syntax-checked by the helper, so sm_pycheck does that.
+export MUTANT_SYNTAX=none
+MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }
+
+# sm_pycheck LABEL FILE — language-native syntax check (MUTANT_SYNTAX=none disables the bash one). A
+# mutant that does not parse is removed, so it can never reach a tooth and read as a "bite".
+sm_pycheck() {
+  if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$2" 2>/dev/null; then return 0; fi
+  printf '  FAIL  %s: mutant is not valid python (ast.parse)\n' "$1"; rm -f -- "$2"; return 1
+}
+# Builders print their own FAIL line; the suite counts a refused build exactly ONCE and its tooth never runs.
+sm_mk_sed() {   # LABEL OUT EXPR — one sed stage
+  if mutant_chain "$1" "$ORIG_PY" "$2" "$3" && sm_pycheck "$1" "$2"; then return 0; fi
+  MUT_FAIL=$((MUT_FAIL+1)); return 1
+}
+sm_mk_built() { # LABEL OUT — mutant already written by a python edit
+  if mutant_built "$1" "$ORIG_PY" "$2" && sm_pycheck "$1" "$2"; then return 0; fi
+  MUT_FAIL=$((MUT_FAIL+1)); return 1
+}
+sm_tt() {       # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
+  if mutant_tooth "$1" "$2" "$3" "$4" --orig "$ORIG_PY" "${@:5}"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
+}
+
+# sm_obs PY VM_KB INPUT INSTALL — run one station_modules.py build into a FRESH output dir and print typed
+# fact lines (the artifact the base tests assert on is the output JSON): RC, TRACEBACK (stderr),
+# JSON=present|absent|unreadable and, when readable, STATUS / TRUNC, plus the derived CAPPED
+# (status failed AND truncated True) and MPPOS (missing_parts non-empty).
+# Exits with the SUT's own rc, so mutant_tooth's GOOD_RC / BAD_RC are the real exit codes.
+# VM_KB non-empty runs under `ulimit -v`.
+sm_obs() {
+  local py="$1" vm="$2" in="$3" inst="$4" od rc=0
+  od="$(mktemp -d "$ROOT/obs.XXXXXX")" || { echo "RC=obs-setup-failed"; return 99; }
+  if [ -n "$vm" ]; then
+    (ulimit -v "$vm" && python3 "$py" --input "$in" --install "$inst" --output "$od/o.json" >/dev/null 2>"$od/err") || rc=$?
   else
-    mut_no "M1 symlink guard: mutation NOT detected (still exits 2)"
+    python3 "$py" --input "$in" --install "$inst" --output "$od/o.json" >/dev/null 2>"$od/err" || rc=$?
   fi
+  printf 'RC=%s\n' "$rc"
+  if grep -q Traceback "$od/err"; then echo "TRACEBACK=yes"; else echo "TRACEBACK=no"; fi
+  if [ -f "$od/o.json" ]; then
+    # All facts are computed BEFORE anything is printed, so a malformed or partial JSON yields exactly
+    # one line (JSON=unreadable) and never a contradicting JSON=present.
+    python3 - "$od/o.json" <<'PYEOF' || echo "JSON=unreadable"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    mp = d.get("missing_parts", {})
+    lines = ["JSON=present",
+             "STATUS=%s" % d.get("status", ""),
+             "TRUNC=%s" % d.get("truncated", ""),
+             # Derived facts: each folds ALL conditions of one old check into one line.
+             "CAPPED=%d" % (d.get("status") == "failed" and d.get("truncated") is True),
+             "MPPOS=%d" % (len(mp) > 0)]
+except Exception:
+    print("JSON=unreadable")
+    sys.exit(0)
+print("\n".join(lines))
+PYEOF
+  else
+    echo "JSON=absent"
+  fi
+  return "$rc"
+}
+# A bad side that is only an exit code must lack the typed crash line: a mutant that dies with a Python
+# traceback is theater, not a bite. sm_obs reports the crash as TRACEBACK=yes (stderr is not in its output).
+
+
+# --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
+# Original rejects the symlink (rc 2, no JSON); the mutant follows it and completes (rc 0).
+if sm_mk_sed "M1 symlink guard removed" "$MUTROOT/m1.py" \
+  's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NONBLOCK/'; then
+  sm_tt "M1 symlink guard removed" 2 0 "$MUTROOT/m1.py" \
+    --good-has '^JSON=absent$' --bad-has '^STATUS=complete$' --bad-lacks '^TRACEBACK=yes$' \
+    -- sm_obs @SUT@ "" "$ROOT/sym.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
+
 
 # --- M2: Remove bounded-read guard (zip-bomb allowed) ---
-# Expected: bomb.bog parsed without truncation → status not (failed+truncated) → T9 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M2/' \
-  "$MUTDIR/station_modules.py"
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M2 bounded-read removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M2 bounded-read removed: sed had no effect (pattern not found)"
-else
-  _m2_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$FIXTURES/bomb.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
-  _m2_status=""
-  _m2_trunc=""
-  if [ -f "$ROOT/m2.json" ]; then
-    _m2_status="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m2.json')); print(d.get('status',''))" \
-      2>/dev/null || echo "")"
-    _m2_trunc="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m2.json')); print(d.get('truncated',''))" \
-      2>/dev/null || echo "")"
-  fi
-  # Original: exit 1, status:failed, truncated:True
-  # Mutant: truncated should NOT be True (bomb was not bounded)
-  if [ "$_m2_status" != "failed" ] || [ "$_m2_trunc" != "True" ]; then
-    mut_ok "M2 bounded-read removed: got status='$_m2_status' trunc='$_m2_trunc' — DETECTED"
-  else
-    mut_no "M2 bounded-read removed: mutation NOT detected (still failed+truncated)"
-  fi
+# Original: rc 1, status failed AND truncated True (CAPPED=1). The mutant must lose the capped state.
+if sm_mk_sed "M2 bounded-read removed" "$MUTROOT/m2.py" \
+  's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M2/'; then
+  sm_tt "M2 bounded-read removed" 1 0 "$MUTROOT/m2.py" \
+    --good-has '^CAPPED=1$' --bad-has '^CAPPED=0$' \
+    -- sm_obs @SUT@ "" "$FIXTURES/bomb.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
 
 # --- M3: Never add to missing_parts (module-absent check bypassed) ---
-# Mutation: change "if not inst:" to "if False:" so the code never enters the
-# module-absent branch and missing_parts stays empty.
-# Expected: testmodule-rt absent from missing_parts → T4 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if not inst:/if False:  # MUTANT-M3/' \
-  "$MUTDIR/station_modules.py"
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M3 missing_parts tracking removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M3 missing_parts tracking removed: sed had no effect (pattern not found)"
-else
-  _m3_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$FIXTURES/valid.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
-  _m3_mp=""
-  if [ -f "$ROOT/m3.json" ]; then
-    _m3_mp="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m3.json')); print(len(d.get('missing_parts',{})))" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m3_mp" = "0" ]; then
-    mut_ok "M3 missing_parts removed: missing_parts=0 — DETECTED"
-  else
-    mut_no "M3 missing_parts removed: mutation NOT detected (missing_parts=$_m3_mp, expected 0)"
-  fi
+# Mutation: "if not inst:" -> "if False:" so the module-absent branch is never entered.
+# Original reports missing parts (MPPOS=1); the mutant reports none (MPPOS=0).
+if sm_mk_sed "M3 missing_parts tracking removed" "$MUTROOT/m3.py" \
+  's/if not inst:/if False:  # MUTANT-M3/'; then
+  sm_tt "M3 missing_parts tracking removed" 0 0 "$MUTROOT/m3.py" \
+    --good-has '^MPPOS=1$' --bad-has '^MPPOS=0$' \
+    -- sm_obs @SUT@ "" "$FIXTURES/valid.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
 
 # --- M4: Narrow zip-read exception guard (BLOCKER mutation) ---
-# Mutation: except Exception → except (zipfile.BadZipFile,)
-# Expected: zlib.error escapes as traceback → no JSON emitted → T10 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-python3 - "$MUTDIR/station_modules.py" <<'PYEOF'
+# Mutation: except Exception -> except (zipfile.BadZipFile,) in the ZIP entry read block.
+# Original: rc 1 with a failed JSON and no traceback; the mutant lets zlib.error escape as a traceback
+# (rc 1, no JSON). The rc is equal on both sides, so the typed JSON / TRACEBACK lines carry the bite.
+python3 - "$ORIG_PY" "$MUTROOT/m4.py" <<'PYEOF'
 import re, sys
-path = sys.argv[1]
-with open(path) as f: src = f.read()
-# Replace the broad except in the ZIP entry read block
+with open(sys.argv[1]) as f: src = f.read()
 src = re.sub(
     r'(        except Exception as exc:\n            try:\n                zf\.close\(\))',
     r'        except (zipfile.BadZipFile,) as exc:  # MUTANT-M4\n            try:\n                zf.close()',
     src, count=1)
-with open(path, 'w') as f: f.write(src)
+with open(sys.argv[2], 'w') as f: f.write(src)
 PYEOF
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M4 zip-read guard narrowed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M4 zip-read guard narrowed: Python edit had no effect"
-else
-  _m4_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$FIXTURES/corrupt_deflate.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
-  if [ "$_m4_exit" -eq 1 ] && [ ! -f "$ROOT/m4.json" ]; then
-    mut_ok "M4 zip-read guard narrowed: zlib.error escapes → no JSON — DETECTED"
-  else
-    mut_no "M4 zip-read guard narrowed: mutation NOT detected (exit=$_m4_exit json=$([ -f "$ROOT/m4.json" ] && echo present || echo absent))"
-  fi
+if sm_mk_built "M4 zip-read guard narrowed" "$MUTROOT/m4.py"; then
+  sm_tt "M4 zip-read guard narrowed" 1 1 "$MUTROOT/m4.py" \
+    --good-has '^JSON=present$' --good-lacks '^TRACEBACK=yes$' \
+    --bad-has '^JSON=absent$' \
+    -- sm_obs @SUT@ "" "$FIXTURES/corrupt_deflate.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
 
-# --- M5: Install-error check removed → false all-missing fires on absent modules/ ---
-# Mutation: change "if install_error:" to "if False:" so install errors are silently
-# ignored and the module-check runs with empty parts, producing "all missing" output.
-# Expected: absent modules/ install → exit 0, missing_parts non-empty → T15 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if install_error:/if False:  # MUTANT-M5/' \
-  "$MUTDIR/station_modules.py"
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M5 install-error check removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M5 install-error check removed: sed had no effect (pattern not found)"
-else
-  _m5_no_mod_install="$(mktemp -d)"
-  # no modules/ subdir: simulates broken --install path
-  _m5_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$FIXTURES/valid.bog" --install "$_m5_no_mod_install" \
-    --output "$ROOT/m5.json" 2>/dev/null || _m5_exit=$?
-  rm -rf "$_m5_no_mod_install"
-  _m5_mp=""
-  if [ -f "$ROOT/m5.json" ]; then
-    _m5_mp="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m5.json')); print(len(d.get('missing_parts',{})))" \
-      2>/dev/null || echo "")"
-  fi
-  # Mutant: exit 0 with all modules "missing" (false alarm)
-  # Detection: exit 0 AND missing_parts non-empty (the false all-missing state)
-  if [ "$_m5_exit" -eq 0 ] && [ -n "$_m5_mp" ] && [ "$_m5_mp" -gt 0 ] 2>/dev/null; then
-    mut_ok "M5 install-error check removed: exit=$_m5_exit missing_parts=$_m5_mp — DETECTED (false all-missing)"
-  else
-    mut_no "M5 install-error check removed: mutation NOT detected (exit=$_m5_exit missing_parts=$_m5_mp)"
-  fi
+# --- M5: Install-error check removed -> false all-missing fires on absent modules/ ---
+# Mutation: "if install_error:" -> "if False:". Original: rc 1, install error reported,
+# missing_parts EMPTY (T15's JSON branch). Mutant: rc 0 AND missing_parts non-empty (the false all-missing state).
+if sm_mk_sed "M5 install-error check removed" "$MUTROOT/m5.py" \
+  's/if install_error:/if False:  # MUTANT-M5/'; then
+  mkdir -p "$ROOT/m5-no-modules-install"   # no modules/ subdir: simulates a broken --install path
+  sm_tt "M5 install-error check removed" 1 0 "$MUTROOT/m5.py" \
+    --good-has '^MPPOS=0$' --bad-has '^MPPOS=1$' \
+    -- sm_obs @SUT@ "" "$FIXTURES/valid.bog" "$ROOT/m5-no-modules-install"
 fi
-rm -rf "$MUTDIR"
 
-# --- M6: Module-vs-type fix reverted → false alarm on installed module ---
-# Mutation: in the installed-module (else) branch, also add to missing_parts
-# when a type is not found in any part (the old hardcode behavior).
-# Expected: baja IS installed but baja-rt still added to missing_parts → T18 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-python3 - "$MUTDIR/station_modules.py" <<'PYEOF'
-import re, sys
-path = sys.argv[1]
-with open(path) as f: src = f.read()
-# In the else (installed) branch, add to missing_parts for unresolved types
-# (reverting the fix: makes it behave like the old hardcoded {mod}-rt addition)
+# --- M6: Module-vs-type fix reverted -> false alarm on installed module ---
+# Mutation: in the installed-module branch also add to missing_parts for an unresolved type.
+python3 - "$ORIG_PY" "$MUTROOT/m6.py" <<'PYEOF'
+import sys
+with open(sys.argv[1]) as f: src = f.read()
 src = src.replace(
     'types_unresolved.append(tn)\n                                    total_types_unresolved += 1',
     'types_unresolved.append(tn)\n                                    total_types_unresolved += 1\n'
     '                                    missing_parts.setdefault(f"{mod}-rt", f"type {tn} not in installed parts (MUTANT-M6)")',
 )
-with open(path, 'w') as f: f.write(src)
+with open(sys.argv[2], 'w') as f: f.write(src)
 PYEOF
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M6 module-vs-type reverted: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M6 module-vs-type reverted: Python edit had no effect"
-else
-  _m6_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$FIXTURES/type_mismatch.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
-  _m6_mp=""
-  if [ -f "$ROOT/m6.json" ]; then
-    _m6_mp="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m6.json')); print(len(d.get('missing_parts',{})))" \
-      2>/dev/null || echo "")"
-  fi
-  # Mutant: baja-rt added to missing_parts even though baja IS installed → false alarm
-  if [ -n "$_m6_mp" ] && [ "$_m6_mp" -gt 0 ] 2>/dev/null; then
-    mut_ok "M6 module-vs-type reverted: missing_parts=$_m6_mp (false alarm) — DETECTED"
-  else
-    mut_no "M6 module-vs-type reverted: mutation NOT detected (missing_parts=$_m6_mp, expected > 0)"
-  fi
+if sm_mk_built "M6 module-vs-type reverted" "$MUTROOT/m6.py"; then
+  sm_tt "M6 module-vs-type reverted" 0 0 "$MUTROOT/m6.py" \
+    --good-has '^MPPOS=0$' --bad-has '^MPPOS=1$' \
+    -- sm_obs @SUT@ "" "$FIXTURES/type_mismatch.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
 
 # --- M_PTXT: Plaintext bounded-read removed (read cap bypassed) ---
-# Mutation: disable the plaintext cap check so a 32 MiB+ plaintext bog is
-# read fully and parsed as (empty) XML → exit 0 instead of exit 1 (truncated).
-# Expected: plaintext_bomb.bog (>32 MiB) → mutant exits 0, original exits 1 → DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if len(raw) > _MAX_BOG_INFLATE:/if False:  # MUTANT-MPTXT/' \
-  "$MUTDIR/station_modules.py"
-if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-  mut_no "M_PTXT plaintext cap removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-  mut_no "M_PTXT plaintext cap removed: sed had no effect (pattern not found)"
-else
-  _mptxt_exit=0
-  python3 "$MUTDIR/station_modules.py" \
-    --input "$ROOT/plaintext_bomb.bog" --install "$FIXTURES/fake_install" \
-    --output "$ROOT/mptxt.json" 2>/dev/null || _mptxt_exit=$?
-  _mptxt_status=""
-  if [ -f "$ROOT/mptxt.json" ]; then
-    _mptxt_status="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/mptxt.json')); print(d.get('status',''))" \
-      2>/dev/null || echo "")"
-  fi
-  # Original: exit 1, status:failed (cap fired)
-  # Mutant: exit 0, status:complete (full content read, parsed as empty XML)
-  if [ "$_mptxt_exit" -eq 0 ] && [ "$_mptxt_status" = "complete" ]; then
-    mut_ok "M_PTXT plaintext cap removed: exit=0 status=complete — DETECTED"
-  else
-    mut_no "M_PTXT plaintext cap removed: mutation NOT detected (exit=$_mptxt_exit status=$_mptxt_status)"
-  fi
+# Original: plaintext_bomb.bog (>32 MiB) -> rc 1, status failed (cap fired). Mutant: rc 0, status
+# complete (full content read and parsed as empty XML).
+if sm_mk_sed "M_PTXT plaintext cap removed" "$MUTROOT/mptxt.py" \
+  's/if len(raw) > _MAX_BOG_INFLATE:/if False:  # MUTANT-MPTXT/'; then
+  sm_tt "M_PTXT plaintext cap removed" 1 0 "$MUTROOT/mptxt.py" \
+    --good-has '^STATUS=failed$' --bad-has '^STATUS=complete$' --bad-lacks '^TRACEBACK=yes$' \
+    -- sm_obs @SUT@ "" "$ROOT/plaintext_bomb.bog" "$FIXTURES/fake_install"
 fi
-rm -rf "$MUTDIR"
 
-# --- M_BOMB: unbounded ZIP read (read(CAP+1) → read()) on 1 GiB fixture ---
-# Requires bigbomb.bog to exist (built once by fixture generator).
-# Under ulimit -v 720896 (704 MiB), read() on 1 GiB → MemoryError (caught by
-# except Exception → truncated:False), while read(CAP+1) stops at 33 MiB →
-# cap check fires → truncated:True.
-# Skip gracefully if bigbomb.bog absent or ulimit unsupported.
+# --- M_BOMB: unbounded ZIP read (read(CAP+1) -> read()) on the 1 GiB bigbomb fixture ---
+# Under ulimit -v 720896 (704 MiB), read() on 1 GiB raises MemoryError (caught -> truncated False), while
+# read(CAP+1) stops at 33 MiB and the cap check fires (truncated True). Both sides run under the SAME
+# limit. Skip (counted as a failure, as before) if bigbomb.bog is absent or ulimit is unsupported.
 if [ ! -f "$FIXTURES/bigbomb.bog" ]; then
   mut_no "M_BOMB unbounded read: bigbomb.bog not found — SKIP (build fixture first)"
 elif ! ( ulimit -v 720896 2>/dev/null ); then
   mut_no "M_BOMB unbounded read: ulimit -v not supported — SKIP"
 else
-  MUTDIR="$(mktemp -d)"
-  cp -a "$SUT_DIR/." "$MUTDIR/"
-  sed -i 's/f\.read(_MAX_BOG_INFLATE + 1)/f.read()  # MUTANT-MBOMB/' \
-    "$MUTDIR/station_modules.py"
-  if ! python3 -m py_compile "$MUTDIR/station_modules.py" 2>/dev/null; then
-    mut_no "M_BOMB unbounded read: mutant failed py_compile"
-  elif cmp -s "$ORIG_PY" "$MUTDIR/station_modules.py"; then
-    mut_no "M_BOMB unbounded read: sed had no effect (pattern not found)"
-  else
-    _mbomb_exit=0
-    _mbomb_trunc=""
-    # Run mutant under VM limit; MemoryError → caught by except Exception → truncated=False
-    (ulimit -v 720896 && python3 "$MUTDIR/station_modules.py" \
-       --input "$FIXTURES/bigbomb.bog" --install "$FIXTURES/fake_install" \
-       --output "$ROOT/mbomb.json" 2>/dev/null) \
-      || _mbomb_exit=$?
-    if [ -f "$ROOT/mbomb.json" ]; then
-      _mbomb_trunc="$(python3 -c \
-        "import json; d=json.load(open('$ROOT/mbomb.json')); print(d.get('truncated',''))" \
-        2>/dev/null || echo "")"
-    fi
-    if [ "$_mbomb_trunc" != "True" ]; then
-      mut_ok "M_BOMB unbounded read: truncated='$_mbomb_trunc' not True — DETECTED"
-    else
-      mut_no "M_BOMB unbounded read: mutation NOT detected (still truncated:True)"
-    fi
+  if sm_mk_sed "M_BOMB unbounded read" "$MUTROOT/mbomb.py" \
+    's/f\.read(_MAX_BOG_INFLATE + 1)/f.read()  # MUTANT-MBOMB/'; then
+    sm_tt "M_BOMB unbounded read" 1 1 "$MUTROOT/mbomb.py" \
+      --good-has '^TRUNC=True$' --bad-has '^TRUNC=False$' \
+      -- sm_obs @SUT@ 720896 "$FIXTURES/bigbomb.bog" "$FIXTURES/fake_install"
   fi
-  rm -rf "$MUTDIR"
 fi
 
 pass=$((pass + MUT_PASS))

@@ -770,7 +770,6 @@ fi
 echo "-- teeth: niagara-security-audit mutation controls --"
 # ---------------------------------------------------------------------------
 MUT_PASS=0; MUT_FAIL=0
-mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
 mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
@@ -780,377 +779,185 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="
   exit 1
 fi
-MUTDIR="$(mktemp -d)"
+
+# The mutation helper is sourced ONLY on this path. Every helper the controls call is probed so a
+# missing function is a loud suite failure, never a silently skipped tooth.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
+for _fn in mutant_chain mutant_tooth; do
+  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh does not define $_fn" >&2; exit 2; }
+done
+# niagara_security_audit.py imports only the standard library (see its import block), so a single-file
+# mutant copy is self-contained; the helper's bash syntax check does not apply, so nsa_mk runs ast.parse.
+export MUTANT_SYNTAX=none
+MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }
+
+# A refused build is counted exactly ONCE (its own FAIL line is printed by the helper) and the tooth never
+# runs. The language-native syntax check lives here too: a mutant that does not parse is removed so it can
+# never reach a tooth and read as a "bite".
+nsa_mk() {      # LABEL OUT EXPR — one sed stage over the original
+  if mutant_chain "$1" "$ORIG_PY" "$2" "$3"; then
+    if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$2" 2>/dev/null; then return 0; fi
+    printf '  FAIL  %s: mutant is not valid python (ast.parse)\n' "$1"; rm -f -- "$2"
+  fi
+  MUT_FAIL=$((MUT_FAIL+1)); return 1
+}
+nsa_tt() {      # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
+  if mutant_tooth "$1" "$2" "$3" "$4" --orig "$ORIG_PY" "${@:5}"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
+}
+
+# nsa_obs PY ARGS... — run one niagara_security_audit.py into a FRESH output dir and print typed fact
+# lines (the artifact the base tests assert on is the output JSON): RC, TRACEBACK (stderr),
+# JSON=present|absent|unreadable and, when readable, one `<check-id>=<verdict>` line per check plus
+# SEC08_NOTPROVIDED=1|0 (SEC-08 observed text is exactly the "no --station provided" message).
+# Exits with the SUT's own rc, so mutant_tooth's GOOD_RC / BAD_RC are the real exit codes.
+nsa_obs() {
+  local py="$1" od rc=0
+  shift
+  od="$(mktemp -d "$ROOT/obs.XXXXXX")" || { echo "RC=obs-setup-failed"; return 99; }
+  python3 "$py" "$@" --output "$od/o.json" >/dev/null 2>"$od/err" || rc=$?
+  printf 'RC=%s\n' "$rc"
+  if grep -q Traceback "$od/err"; then echo "TRACEBACK=yes"; else echo "TRACEBACK=no"; fi
+  if [ -f "$od/o.json" ]; then
+    # All facts are computed BEFORE anything is printed, so a malformed or partial JSON yields exactly
+    # one line (JSON=unreadable) and never a contradicting JSON=present.
+    python3 - "$od/o.json" <<'PYEOF' || echo "JSON=unreadable"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    c = {x["id"]: x for x in d["checks"]}
+    lines = ["JSON=present"] + ["%s=%s" % (k, c[k]["verdict"]) for k in sorted(c)]
+    lines.append("SEC08_NOTPROVIDED=%d" % (c["SEC-08"].get("observed", "") == "not checked (no --station config.bog provided)"))
+except Exception:
+    print("JSON=unreadable")
+    sys.exit(0)
+print("\n".join(lines))
+PYEOF
+  else
+    echo "JSON=absent"
+  fi
+  return "$rc"
+}
+# A bad side that is only an exit code must lack the typed crash line: a mutant that dies with a Python
+# traceback is theater, not a bite. nsa_obs reports the crash as TRACEBACK=yes (stderr is not in its output).
+
 
 # --- M1: Remove install-root symlink guard ---
-# Expected: symlink root is followed → T2 expects exit 2, mutant exits 0 → DETECTED
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/_stat\.S_ISLNK(lstat_result\.st_mode):/_stat.S_ISBLK(lstat_result.st_mode):  # MUTANT-M1/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M1 symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M1 symlink guard: sed had no effect (pattern not found)"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$ROOT/sym-home" --output "$ROOT/m1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -ne 2 ]; then
-    mut_ok "M1 symlink guard removal detected (exit $_m1_exit, not 2)"
-  else
-    mut_no "M1 symlink guard: mutation NOT detected (still exits 2)"
-  fi
+# Original rejects the symlink root (rc 2); the mutant follows it and audits (a JSON is produced).
+if nsa_mk "M1 symlink guard removed" "$MUTROOT/m1.py" \
+  's/_stat\.S_ISLNK(lstat_result\.st_mode):/_stat.S_ISBLK(lstat_result.st_mode):  # MUTANT-M1/'; then
+  nsa_tt "M1 symlink guard removed" 2 0 "$MUTROOT/m1.py" \
+    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks '^TRACEBACK=yes$' \
+    -- nsa_obs @SUT@ "$ROOT/sym-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M2: Clear _sec01_fail (SEC-01 never fires FAIL) ---
-# Expected: insecure install returns SEC-01=PASS instead of FAIL → T6 fails
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/_sec01_fail = v is None or commented or v\.lower() == "low"/_sec01_fail = False  # MUTANT-M2/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M2 SEC-01 fail: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M2 SEC-01 fail: sed had no effect (pattern not found)"
-else
-  _m2_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/insecure-home" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
-  _m2_sec01=""
-  if [ -f "$ROOT/m2.json" ]; then
-    _m2_sec01="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m2.json'))['checks']}; print(c['SEC-01']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m2_sec01" != "FAIL" ]; then
-    mut_ok "M2 SEC-01 cleared: verdict='$_m2_sec01' not FAIL — DETECTED"
-  else
-    mut_no "M2 SEC-01: mutation NOT detected (still FAIL)"
-  fi
+if nsa_mk "M2 SEC-01 fail cleared" "$MUTROOT/m2.py" \
+  's/_sec01_fail = v is None or commented or v\.lower() == "low"/_sec01_fail = False  # MUTANT-M2/'; then
+  nsa_tt "M2 SEC-01 fail cleared" 0 0 "$MUTROOT/m2.py" \
+    --good-has '^SEC-01=FAIL$' --bad-has '^SEC-01=PASS$' \
+    -- nsa_obs @SUT@ "$FX/insecure-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M3: Clear _sec07_bad (SEC-07 never fires FAIL) ---
-# Expected: insecure install returns SEC-07=PASS instead of FAIL → T6 fails
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/_sec07_bad = v is None or commented or v\.lower() == "false"/_sec07_bad = False  # MUTANT-M3/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M3 SEC-07 fail: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M3 SEC-07 fail: sed had no effect (pattern not found)"
-else
-  _m3_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/insecure-home" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
-  _m3_sec07=""
-  if [ -f "$ROOT/m3.json" ]; then
-    _m3_sec07="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m3.json'))['checks']}; print(c['SEC-07']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m3_sec07" != "FAIL" ]; then
-    mut_ok "M3 SEC-07 cleared: verdict='$_m3_sec07' not FAIL — DETECTED"
-  else
-    mut_no "M3 SEC-07: mutation NOT detected (still FAIL)"
-  fi
+if nsa_mk "M3 SEC-07 fail cleared" "$MUTROOT/m3.py" \
+  's/_sec07_bad = v is None or commented or v\.lower() == "false"/_sec07_bad = False  # MUTANT-M3/'; then
+  nsa_tt "M3 SEC-07 fail cleared" 0 0 "$MUTROOT/m3.py" \
+    --good-has '^SEC-07=FAIL$' --bad-has '^SEC-07=PASS$' \
+    -- nsa_obs @SUT@ "$FX/insecure-home"
 fi
-rm -rf "$MUTDIR"
 
-# --- M4: Disable ZIP inflation (return empty string instead of inflated XML) ---
-# Expected: ZIP bog exec-on gives false PASS → T10 detects.
-# The mutation clears the decoded xml in the bounded-read path so no attribute
-# is ever found; exec_on bog must give PASS instead of FAIL.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/xml = data\.decode("utf-8", "replace")/xml = ""  # MUTANT-M4/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M4 ZIP inflation disabled: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M4 ZIP inflation disabled: sed had no effect (pattern not found)"
-else
-  _m4_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/secure-home" \
-    --station "$FX/bogs/bog-exec-on.zip" \
-    --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
-  _m4_sec08=""
-  if [ -f "$ROOT/m4.json" ]; then
-    _m4_sec08="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m4.json'))['checks']}; print(c['SEC-08']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m4_sec08" != "FAIL" ]; then
-    mut_ok "M4 ZIP inflation disabled: SEC-08='$_m4_sec08' not FAIL — DETECTED"
-  else
-    mut_no "M4 ZIP inflation disabled: mutation NOT detected (still FAIL)"
-  fi
+# --- M4: Disable ZIP inflation (decoded xml replaced by an empty string) ---
+# The exec-on ZIP bog must give SEC-08=FAIL; with no attribute ever found the mutant must not.
+if nsa_mk "M4 ZIP inflation disabled" "$MUTROOT/m4.py" \
+  's/xml = data\.decode("utf-8", "replace")/xml = ""  # MUTANT-M4/'; then
+  nsa_tt "M4 ZIP inflation disabled" 0 0 "$MUTROOT/m4.py" \
+    --good-has '^SEC-08=FAIL$' --bad-has '^SEC-08=PASS$' \
+    -- nsa_obs @SUT@ "$FX/secure-home" --station "$FX/bogs/bog-exec-on.zip"
 fi
-rm -rf "$MUTDIR"
 
 # --- M5: Force encoded=False always (ext-key bog never PASS) ---
-# Expected: ext-key ZIP gives FAIL instead of PASS → T13 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/encoded = val not in .*$/encoded = False  # MUTANT-M5/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M5 enc-key inverted: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M5 enc-key inverted: sed had no effect (pattern not found)"
-else
-  _m5_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/secure-home" \
-    --station "$FX/bogs/bog-ext-key.zip" \
-    --output "$ROOT/m5.json" 2>/dev/null || _m5_exit=$?
-  _m5_sec12=""
-  if [ -f "$ROOT/m5.json" ]; then
-    _m5_sec12="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m5.json'))['checks']}; print(c['SEC-12']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m5_sec12" != "PASS" ]; then
-    mut_ok "M5 enc-key inverted: SEC-12='$_m5_sec12' not PASS — DETECTED"
-  else
-    mut_no "M5 enc-key inverted: mutation NOT detected (still PASS)"
-  fi
+if nsa_mk "M5 enc-key inverted" "$MUTROOT/m5.py" \
+  's/encoded = val not in .*$/encoded = False  # MUTANT-M5/'; then
+  nsa_tt "M5 enc-key inverted" 0 0 "$MUTROOT/m5.py" \
+    --good-has '^SEC-12=PASS$' --bad-has '^SEC-12=FAIL$' \
+    -- nsa_obs @SUT@ "$FX/secure-home" --station "$FX/bogs/bog-ext-key.zip"
 fi
-rm -rf "$MUTDIR"
 
 # --- M6: SEC-06 absent dir treated as PASS (return [] instead of None) ---
-# Expected: insecure-home (no licenses/) gives SEC-06=PASS instead of NA → T17 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/return None  # absent\/unreadable dir/return []  # MUTANT-M6/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M6 SEC-06 absent→PASS: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M6 SEC-06 absent→PASS: sed had no effect (pattern not found)"
-else
-  _m6_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/insecure-home" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
-  _m6_sec06=""
-  if [ -f "$ROOT/m6.json" ]; then
-    _m6_sec06="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m6.json'))['checks']}; print(c['SEC-06']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m6_sec06" != "NA" ]; then
-    mut_ok "M6 SEC-06 absent→PASS: verdict='$_m6_sec06' not NA — DETECTED"
-  else
-    mut_no "M6 SEC-06 absent→PASS: mutation NOT detected (still NA)"
-  fi
+# insecure-home has no licenses/ dir: original SEC-06=NA, mutant SEC-06=PASS.
+if nsa_mk "M6 SEC-06 absent->PASS" "$MUTROOT/m6.py" \
+  's/return None  # absent\/unreadable dir/return []  # MUTANT-M6/'; then
+  nsa_tt "M6 SEC-06 absent->PASS" 0 0 "$MUTROOT/m6.py" \
+    --good-has '^SEC-06=NA$' --bad-has '^SEC-06=PASS$' \
+    -- nsa_obs @SUT@ "$FX/insecure-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M7: --station missing treated same as not-given (collapse observed strings) ---
-# Expected: missing station file gives same message as not-provided → T18 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/_bog_fmt = .not_found./_bog_fmt = "not_provided"  # MUTANT-M7/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M7 missing→same-as-not-given: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M7 missing→same-as-not-given: sed had no effect (pattern not found)"
-else
-  _m7_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/secure-home" \
-    --station "$ROOT/nonexistent-m7.bog" \
-    --output "$ROOT/m7.json" 2>/dev/null || _m7_exit=$?
-  _m7_obs=""
-  if [ -f "$ROOT/m7.json" ]; then
-    _m7_obs="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m7.json'))['checks']}; print(c['SEC-08'].get('observed',''))" \
-      2>/dev/null || echo "")"
-  fi
-  _not_provided="not checked (no --station config.bog provided)"
-  if [ "$_m7_obs" = "$_not_provided" ]; then
-    mut_ok "M7 missing→not-given: observed collapsed to not-provided message — DETECTED"
-  else
-    mut_no "M7 missing→not-given: mutation NOT detected (observed='$_m7_obs')"
-  fi
+# A missing station file must NOT read as "no --station provided" (SEC08_NOTPROVIDED=0); the mutant
+# collapses the two (=1).
+if nsa_mk "M7 missing->same-as-not-given" "$MUTROOT/m7.py" \
+  's/_bog_fmt = .not_found./_bog_fmt = "not_provided"  # MUTANT-M7/'; then
+  nsa_tt "M7 missing->same-as-not-given" 0 0 "$MUTROOT/m7.py" \
+    --good-has '^SEC08_NOTPROVIDED=0$' --bad-has '^SEC08_NOTPROVIDED=1$' \
+    -- nsa_obs @SUT@ "$FX/secure-home" --station "$ROOT/nonexistent-m7.bog"
 fi
-rm -rf "$MUTDIR"
 
 # --- M8: Trailing slash not stripped (symlink bypass survives) ---
-# Expected: "sym-home/" is accepted without exit 2 → T19 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/home = home\.rstrip(os\.sep) or os\.sep/home = home  # MUTANT-M8/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M8 trailing-slash not stripped: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M8 trailing-slash not stripped: sed had no effect (pattern not found)"
-else
-  _m8_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$ROOT/sym-home/" --output "$ROOT/m8.json" 2>/dev/null || _m8_exit=$?
-  if [ "$_m8_exit" -ne 2 ]; then
-    mut_ok "M8 trailing-slash bypass: exit $_m8_exit (not 2) — DETECTED"
-  else
-    mut_no "M8 trailing-slash bypass: mutation NOT detected (still exits 2)"
-  fi
+# "sym-home/" must still be rejected (rc 2); the mutant accepts it and audits (JSON produced).
+if nsa_mk "M8 trailing-slash not stripped" "$MUTROOT/m8.py" \
+  's/home = home\.rstrip(os\.sep) or os\.sep/home = home  # MUTANT-M8/'; then
+  nsa_tt "M8 trailing-slash not stripped" 2 0 "$MUTROOT/m8.py" \
+    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks '^TRACEBACK=yes$' \
+    -- nsa_obs @SUT@ "$ROOT/sym-home/"
 fi
-rm -rf "$MUTDIR"
 
 # --- M9: sec05_covered=True in the absent-blacklist branch ---
-# Expected: absent blacklist gives SEC-05=PASS instead of FAIL → T21 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/sec05_covered = False$/sec05_covered = True  # MUTANT-M9/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M9 sec05_covered=True: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M9 sec05_covered=True: sed had no effect (pattern not found)"
-else
-  _m9_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/insecure-home" --output "$ROOT/m9.json" 2>/dev/null || _m9_exit=$?
-  _m9_sec05=""
-  if [ -f "$ROOT/m9.json" ]; then
-    _m9_sec05="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m9.json'))['checks']}; print(c['SEC-05']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m9_sec05" != "FAIL" ]; then
-    mut_ok "M9 sec05_covered=True: verdict='$_m9_sec05' not FAIL — DETECTED"
-  else
-    mut_no "M9 sec05_covered=True: mutation NOT detected (still FAIL)"
-  fi
+if nsa_mk "M9 sec05_covered=True" "$MUTROOT/m9.py" \
+  's/sec05_covered = False$/sec05_covered = True  # MUTANT-M9/'; then
+  nsa_tt "M9 sec05_covered=True" 0 0 "$MUTROOT/m9.py" \
+    --good-has '^SEC-05=FAIL$' --bad-has '^SEC-05=PASS$' \
+    -- nsa_obs @SUT@ "$FX/insecure-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M10: lic_hits ignored (SEC-06 never fires FAIL) ---
-# Mutation: replace "FAIL" if lic_hits else "PASS", with "PASS",  (comma preserved)
-# → valid Python syntax; always returns clean "PASS" verdict.
-# Expected: lic-hit-home with dev license gives SEC-06="PASS" instead of "FAIL" → DETECTED.
-# Assertion uses == "PASS" (not != "FAIL") to confirm the mutant produces a well-formed
-# "PASS" verdict rather than a malformed implicit-concatenation string.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/"FAIL" if lic_hits else "PASS",/"PASS",  # MUTANT-M10/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M10 lic_hits ignored: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M10 lic_hits ignored: sed had no effect (pattern not found)"
-else
-  _m10_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/lic-hit-home" --output "$ROOT/m10.json" 2>/dev/null || _m10_exit=$?
-  _m10_sec06=""
-  if [ -f "$ROOT/m10.json" ]; then
-    _m10_sec06="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m10.json'))['checks']}; print(c['SEC-06']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m10_sec06" = "PASS" ]; then
-    mut_ok "M10 lic_hits ignored: verdict='PASS' (not FAIL) — DETECTED"
-  else
-    mut_no "M10 lic_hits ignored: mutation NOT detected (verdict='$_m10_sec06', expected 'PASS')"
-  fi
+# Mutation: replace `"FAIL" if lic_hits else "PASS",` with `"PASS",` (comma preserved), valid Python that
+# always returns a clean "PASS" verdict. The exact bad value is PASS (not merely "not FAIL") so a
+# malformed implicit-concatenation string cannot read as a bite.
+if nsa_mk "M10 lic_hits ignored" "$MUTROOT/m10.py" \
+  's/"FAIL" if lic_hits else "PASS",/"PASS",  # MUTANT-M10/'; then
+  nsa_tt "M10 lic_hits ignored" 0 0 "$MUTROOT/m10.py" \
+    --good-has '^SEC-06=FAIL$' --bad-has '^SEC-06=PASS$' \
+    -- nsa_obs @SUT@ "$FX/lic-hit-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M11: Wildcard unsigned check disabled (SEC-15 never fires FAIL) ---
-# Expected: modules-wild-home gives SEC-15=PASS instead of FAIL → T23 detects
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/risk = len(wild_uns) > 0/risk = False  # MUTANT-M11/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M11 wildcard-unsigned disabled: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M11 wildcard-unsigned disabled: sed had no effect (pattern not found)"
-else
-  _m11_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/modules-wild-home" --output "$ROOT/m11.json" 2>/dev/null || _m11_exit=$?
-  _m11_sec15=""
-  if [ -f "$ROOT/m11.json" ]; then
-    _m11_sec15="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m11.json'))['checks']}; print(c['SEC-15']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m11_sec15" != "FAIL" ]; then
-    mut_ok "M11 wildcard-unsigned disabled: verdict='$_m11_sec15' not FAIL — DETECTED"
-  else
-    mut_no "M11 wildcard-unsigned disabled: mutation NOT detected (still FAIL)"
-  fi
+if nsa_mk "M11 wildcard-unsigned disabled" "$MUTROOT/m11.py" \
+  's/risk = len(wild_uns) > 0/risk = False  # MUTANT-M11/'; then
+  nsa_tt "M11 wildcard-unsigned disabled" 0 0 "$MUTROOT/m11.py" \
+    --good-has '^SEC-15=FAIL$' --bad-has '^SEC-15=PASS$' \
+    -- nsa_obs @SUT@ "$FX/modules-wild-home"
 fi
-rm -rf "$MUTDIR"
 
 # --- M12: bounded bog read guard removed (zip-bomb site 1) ---
-# Mutation: `if len(data) > _MAX_BOG_INFLATE:` → `if False:` so oversized bog
-# is NOT truncated; `xml` becomes the full large string with no bog attributes.
-# Expected: T24 asserts MANUAL but the mutant gives PASS → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M12/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M12 bog bounded-read removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M12 bog bounded-read removed: sed had no effect (pattern not found)"
-else
-  _m12_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/secure-home" \
-    --station "$FX/bogs/bog-large.zip" \
-    --output "$ROOT/m12.json" 2>/dev/null || _m12_exit=$?
-  _m12_sec08=""
-  if [ -f "$ROOT/m12.json" ]; then
-    _m12_sec08="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m12.json'))['checks']}; print(c['SEC-08']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m12_sec08" != "MANUAL" ]; then
-    mut_ok "M12 bog guard removed: SEC-08='$_m12_sec08' not MANUAL — DETECTED"
-  else
-    mut_no "M12 bog guard removed: mutation NOT detected (still MANUAL)"
-  fi
+# Mutation: `if len(data) > _MAX_BOG_INFLATE:` -> `if False:`; the oversized bog is not truncated, so
+# the original SEC-08=MANUAL becomes a clean verdict.
+if nsa_mk "M12 bog bounded-read removed" "$MUTROOT/m12.py" \
+  's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M12/'; then
+  nsa_tt "M12 bog bounded-read removed" 0 0 "$MUTROOT/m12.py" \
+    --good-has '^SEC-08=MANUAL$' --bad-has '^SEC-08=PASS$' \
+    -- nsa_obs @SUT@ "$FX/secure-home" --station "$FX/bogs/bog-large.zip"
 fi
-rm -rf "$MUTDIR"
 
 # --- M13: bounded module.xml read guard removed (zip-bomb site 2) ---
-# Mutation: `if len(xml_data) > _MAX_MODULE_XML:` → `if False:` so oversized
-# module.xml JAR is NOT skipped; the wildcard KeyRingPermission is found.
-# Expected: T25 asserts SEC-15=PASS but the mutant gives FAIL → DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if len(xml_data) > _MAX_MODULE_XML:/if False:  # MUTANT-M13/' \
-  "$MUTDIR/niagara_security_audit.py"
-if ! python3 -m py_compile "$MUTDIR/niagara_security_audit.py" 2>/dev/null; then
-  mut_no "M13 module.xml guard removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
-  mut_no "M13 module.xml guard removed: sed had no effect (pattern not found)"
-else
-  _m13_exit=0
-  python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FX/jar-bomb-home" --output "$ROOT/m13.json" 2>/dev/null || _m13_exit=$?
-  _m13_sec15=""
-  if [ -f "$ROOT/m13.json" ]; then
-    _m13_sec15="$(python3 -c \
-      "import json; c={x['id']:x for x in json.load(open('$ROOT/m13.json'))['checks']}; print(c['SEC-15']['verdict'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m13_sec15" != "PASS" ]; then
-    mut_ok "M13 module.xml guard removed: SEC-15='$_m13_sec15' not PASS — DETECTED"
-  else
-    mut_no "M13 module.xml guard removed: mutation NOT detected (still PASS)"
-  fi
+# Mutation: `if len(xml_data) > _MAX_MODULE_XML:` -> `if False:`; the oversized module.xml JAR is no
+# longer skipped, so the wildcard KeyRingPermission is found: original SEC-15=PASS, mutant FAIL.
+if nsa_mk "M13 module.xml guard removed" "$MUTROOT/m13.py" \
+  's/if len(xml_data) > _MAX_MODULE_XML:/if False:  # MUTANT-M13/'; then
+  nsa_tt "M13 module.xml guard removed" 0 0 "$MUTROOT/m13.py" \
+    --good-has '^SEC-15=PASS$' --bad-has '^SEC-15=FAIL$' \
+    -- nsa_obs @SUT@ "$FX/jar-bomb-home"
 fi
-rm -rf "$MUTDIR"
 
 pass=$((pass + MUT_PASS))
 fail=$((fail + MUT_FAIL))
