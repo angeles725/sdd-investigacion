@@ -934,6 +934,17 @@ run_u "$ROOT/ukit_abonly/toolbelt/retro-gate.sh" "$ROOT/tu_abonly" u3-sess; ERR_
 grep -qE 'absent=1 failed=0 failed-issues=0 ' <<<"$ERR_U3" \
   && ok "#971 A2: control — absent-input alone → absent=1, failed=0 (distinct from empty/failed)" \
   || no "#971 A2: expected absent=1 failed=0; got: $ERR_U3"
+# U4: the SECOND path to unknown — a non-zero exit with a summary: line that has NO failed= field.
+U_NOFAILED_BODY="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0\\n'; exit 2"
+mk_u_kit "$ROOT/ukit_nofailed" "$U_NOFAILED_BODY"
+mk_u_target "$ROOT/tu_nofailed" u4-sess
+run_u "$ROOT/ukit_nofailed/toolbelt/retro-gate.sh" "$ROOT/tu_nofailed" u4-sess; ERR_U4="$ERR"
+grep -qE 'created=1 .* failed=1 failed-issues=unknown ' <<<"$ERR_U4" \
+  && ok "#971 U4: exit 2 + summary without failed= → failed-issues=unknown (typed, not 0)" \
+  || no "#971 U4: expected 'failed=1 failed-issues=unknown'; got: $ERR_U4"
+grep -qE 'unknown issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_U4" \
+  && ok "#971 U4b: aggregate WARN says unknown for the summary-without-failed= path" \
+  || no "#971 U4b: expected 'unknown issue create(s) failed across 1 retro(s)'; got: $ERR_U4"
 
 # ─── #957: retro-gate uses session-start sha scope, not file mtime ───────────
 # mkretro_committed <target> <fname> <gdate>: create+commit a conforming retro
@@ -3663,6 +3674,9 @@ u_teeth u-unknown-dropped "$ROOT/ukit_crash" "$ROOT/tu_crash" u1-sess \
 u_teeth u-unknown-text-ignored "$ROOT/ukit_crash" "$ROOT/tu_crash" u1-sess \
   'failed=1 failed-issues=unknown ' 'failed=1 failed-issues=0 ' \
   's/failed_issues_txt="unknown"/failed_issues_txt="$failed_issues"/'
+u_teeth u-nofailed-coerced-zero "$ROOT/ukit_nofailed" "$ROOT/tu_nofailed" u4-sess \
+  'failed=1 failed-issues=unknown ' 'failed=1 failed-issues=0 ' \
+  's/^      _seed_failed="\$_f" .*$/      _seed_failed="${_f:-0}"/'
 u_teeth u-absent-not-first "$ROOT/ukit_absent" "$ROOT/tu_absent" u2-sess \
   'created=0 .* absent=1 failed=0 ' 'created=2 .* absent=0 failed=0 ' \
   's/^    if \[ "\$_absent_typed" -eq 1 \]; then$/    if [ "$_absent_typed" -eq 99 ]; then/'
