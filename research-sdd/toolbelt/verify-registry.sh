@@ -134,7 +134,7 @@ for p in $paths; do
   claimed="$(printf '%s' "$row" | grep -oiE '[0-9]+[[:space:]]*(md|blocks)\b' | head -1 | grep -oE '[0-9]+' | head -1)"
 
   # Per-row absence rule (§7 three-state: absent ≠ empty ≠ no-match): a TARGETS.MD row is absent
-  # only when NONE of its backtick /... tokens resolves to a directory. A non-directory token in a
+  # only when NONE of its backtick path tokens (`/abs`, `$RESEARCH_HOME/rest`, `${RESEARCH_HOME}/rest`) resolves to a directory. A non-directory token in a
   # row that also has a present corpus path is a companion non-path token (e.g., `/mrdoob/three.js`
   # alongside a real corpus directory) — it is NOT counted as absent. If ALL tokens in the row are
   # absent, the row is counted once (dedup by row number) and added to the absent_paths names list.
@@ -258,7 +258,7 @@ for p in $paths; do
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
     if [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook fires only for a session launched in exactly that directory — never above it. Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
+      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook is expected to fire only for a session launched in exactly that directory (observed Claude Code behavior, not a cited spec; kit issue #1134). Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
       echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
@@ -278,10 +278,10 @@ for p in $paths; do
   # revision that also matched 'hook file yes'): per the TARGETS.md legend, 'hook file yes /
   # unregistered' asserts a hook FILE exists but is not loaded/effective — a claim about whether
   # the hook FIRES, which depends on where sessions launch from, a decision this tool does not
-  # make (kit issue #1134). Kit issue #1147 deliberately set exactly the 3 real rows this reverse
+  # make (kit issue #1134). Kit PR #1147 deliberately set exactly the 3 real rows this reverse
   # check used to WARN on (fluke-177x-datos, nave-panccadia, panccadia-3d-viewer) to 'hook file
   # yes / unregistered' for that reason; re-WARNing on them was a false positive the maintainer
-  # could never clear (the only "refresh" the old wording implied was 'hook yes', which #1147
+  # could never clear (the only "refresh" the old wording implied was 'hook yes', which PR #1147
   # explicitly rejected for these rows — the same defect class #1140 round-2 Blocking 1 already
   # removed from the forward check). A row claiming 'hook no' carries no such ambiguity: it
   # asserts NO hook file exists at all under the target, which the target's own Stop-wired
@@ -296,8 +296,8 @@ for p in $paths; do
   # what keeps this exclusion correct — see the pinned fixture (3s) and mutation tooth in
   # verify-registry.test.sh.
   #
-  # Measured on the real fleet (2026-09-25, post-#1147, at kit sha c961e67's rebase): 0 of 17
-  # reachable targets mismatch under this narrowed scope — #1147 already refreshed every row this
+  # Measured on the real fleet (2026-09-25, post-PR #1147, at kit sha c961e67's rebase): 0 of 17
+  # reachable targets mismatch under this narrowed scope — PR #1147 already refreshed every row this
   # check used to WARN on. The check still guards future drift.
   _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+no([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
   if [ -n "$_vr_hook_no_claim" ]; then

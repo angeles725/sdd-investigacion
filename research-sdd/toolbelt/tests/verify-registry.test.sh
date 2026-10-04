@@ -379,9 +379,10 @@ else
 fi
 
 # --- kit issue #1128: SYMMETRIC HOOK-WIRING RECONCILIATION — the inverse direction of #1108 -----------
-# A row claiming 'hook no' or 'hook file yes' (neither of which asserts active wiring) whose Stop hook
-# IS actually wired is registry drift the OTHER way: the row UNDER-claims. WARN-only,
-# propose-never-apply; TARGETS.md is never auto-edited — the maintainer refreshes the row by hand.
+# A row claiming 'hook no' (no hook file at all) whose Stop hook IS actually wired is registry drift
+# the OTHER way: the row UNDER-claims. 'hook file yes' claims are out of this check's scope (kit issue
+# #1141 round 3; see 3n). WARN-only, propose-never-apply; TARGETS.md is never auto-edited — the
+# maintainer refreshes the row by hand.
 
 # 3m — REVERSE HOOK-WIRING: row claims 'hook no' but the target's Stop hook IS actually wired to
 #      retro-gate → WARN naming the mismatch. Also asserts the 'attention' summary count and the
@@ -443,7 +444,7 @@ else
 fi
 
 # 3p — REVERSE HOOK-WIRING negative control: row claims 'hook yes' (the FORWARD claim, not 'hook
-#      no'/'hook file yes') and is actually wired → the reverse check must NOT also fire (it would
+#      no') and is actually wired → the reverse check must NOT also fire (it would
 #      be a nonsensical double-WARN for a row that is already consistent).
 kit="$(mkkit c3p-hookyeswired)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
@@ -472,19 +473,21 @@ else
   no "3q 'hook nonexistent' claim → word boundary rejects it, no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
 fi
 
-# 3r — REVERSE HOOK-CLAIM word-boundary: 'hook files yes' (plural 'files', not the canonical
-#      singular 'file yes' token) must NOT match the 'hook file yes' claim. Target IS wired; if the
-#      boundary were dropped, this would false-WARN.
-kit="$(mkkit c3r-hookfilesyes)"; tgt="$kit/targetA"
+# 3r — REVERSE HOOK-CLAIM inner whitespace (kit issue #1158 item 2): the old 3r fixture ('hook files
+#      yes', a boundary control for the 'hook file yes' scope) became unfailable once the reverse
+#      check was narrowed to 'hook no' only, and its comment was false. Replaced by a positive
+#      control for the one whitespace shape the extraction still owns: 'hook   no' (several spaces
+#      between the words, matched by '[[:space:]]+') on a wired target must still WARN.
+kit="$(mkkit c3r-hookmultispace)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | targetA | mature (3 md / git yes / hook files yes) | `%s` |\n' "$tgt"
+  printf '| 1 | targetA | mature (3 md / git yes / hook   no) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
 run "$kit"
-if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
-  ok "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3r 'hook   no' (multi-space) claim → reverse hook-wiring WARN still fires" "(exit $RC)"
 else
-  no "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
+  no "3r 'hook   no' (multi-space) claim → reverse hook-wiring WARN still fires" "exit=$RC out=[$OUT]"
 fi
 
 # 3s — kit issue #1141 round-2 review, Blocking 1 (three.js shape), row claim UPDATED in round 3
@@ -514,19 +517,23 @@ else
 fi
 
 # 3t — REVERSE HOOK-CLAIM case-insensitivity (kit issue #1141 round-3 review nit): row claims
-#      'HOOK NO' (uppercase) but the target's Stop hook IS actually wired → WARN still fires.
+#      'hook NO' (uppercase value) but the target's Stop hook IS actually wired → WARN still fires.
 #      Case-insensitivity previously had no dedicated fixture or mutation tooth — 'grep -iE' →
-#      'grep -E' left the suite fully green, so it was untested, not merely low-value.
+#      'grep -E' left the suite fully green, so it was untested, not merely low-value. The token
+#      is 'hook NO', not 'HOOK NO' (kit issue #1158 item 4): the maturity-schema check matches
+#      '^hook[[:space:]]' case-sensitively, so 'HOOK NO' also tripped NONCONFORM-FIELD-CHECK and
+#      the case-insensitivity was only ever exercised on a schema-rejected row. This row is
+#      schema-clean, which the assertion below pins.
 kit="$(mkkit c3t-hooknouppercase)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
+  printf '| 1 | targetA | mature (3 md / git yes / hook NO) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
 run "$kit"
-if [ "$RC" = 0 ] && grep -q 'Stop hook IS wired' <<<"$OUT"; then
-  ok "3t uppercase 'HOOK NO' claim → reverse hook-wiring WARN still fires (case-insensitive)" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'Stop hook IS wired' <<<"$OUT" && ! grep -q 'not in schema' <<<"$OUT"; then
+  ok "3t 'hook NO' claim → reverse hook-wiring WARN still fires (case-insensitive, schema-clean row)" "(exit $RC)"
 else
-  no "3t uppercase 'HOOK NO' claim → reverse hook-wiring WARN still fires (case-insensitive)" "exit=$RC out=[$OUT]"
+  no "3t 'hook NO' claim → reverse hook-wiring WARN still fires (case-insensitive, schema-clean row)" "exit=$RC out=[$OUT]"
 fi
 
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
@@ -2578,6 +2585,29 @@ else
   no "75 \$RESEARCH_HOME token + absent slug, both absent → expected exactly 1 absent" "exit=$RC out=[$OUT]"
 fi
 
+# 76 — NARROW-REGEX CONTROL (kit issue #1044 item 2): the ABSENT-PATHS-CHECK token regex accepts
+#      ONLY `/abs`, `$RESEARCH_HOME/rest` and `${RESEARCH_HOME}/rest`. A row whose registered path
+#      is absent plus a companion `$OTHER_VAR/real` token must stay ABSENT even when a directory
+#      literally named `$OTHER_VAR/real` exists relative to the CWD: only $RESEARCH_HOME is
+#      expanded, so a widened alternation (`\$[^/`]*/`) would test that literal directory and
+#      silently clear the row. The fixture creates the literal directory so widening is observable.
+kit="$(mkkit c76-other-var)"
+_rh_base_76="$ROOT/rh_base_76_$$"
+_cwd_76="$ROOT/cwd_76_$$"
+mkdir -p "$_rh_base_76" "$_cwd_76"'/$OTHER_VAR/real'
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (5 md / git yes) | `$RESEARCH_HOME/nope-76` | `$OTHER_VAR/real` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(cd "$_cwd_76" && RESEARCH_HOME="$_rh_base_76" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 1 absent target' <<<"$OUT"; then
+  ok "76 \$OTHER_VAR token (literal dir exists) is NOT a row path → row stays absent (#1044)" "(exit $RC)"
+else
+  no "76 \$OTHER_VAR token (literal dir exists) is NOT a row path → row stays absent (#1044)" "exit=$RC out=[$OUT]"
+fi
+
 # ---- TEETH for attention-gate tests 52-60 ------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   _vr_teeth_init
@@ -2844,7 +2874,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-rh-row-token-revert (issue #1039): revert the RH-ROW-TOKEN-MATCH extraction back to the
   # old `/[^`]+` -only form. Test 70's fixture (a row whose only real path is written in
   # `$RESEARCH_HOME/...` form, plus a `/slug` companion token) must regain the false "absent"
-  # verdict — proving test 70 (and its FIRST/MIDDLE/LAST siblings 71-73) has teeth.
+  # verdict — proving test 70 has teeth. Tests 71-73 (FIRST/MIDDLE/LAST list-edge variants) share the extraction but this mutant runs only test 70's fixture.
   # The line is replaced with the sed r+d idiom in ONE chain (append a replacement file's contents,
   # then delete the matched line) — two stages, each of which must change the SUT on its own — instead
   # of embedding backticks/`$` inside a sed -e script string, which would collide with the outer
@@ -2895,6 +2925,30 @@ REPL
       -- env RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" @SUT@
   fi
   unset _rh_base_t2
+
+  # teeth-rh-row-token-widen (kit issue #1044 item 2): widen the RH-ROW-TOKEN-MATCH alternation to
+  # accept ANY `$VAR/...` token. Test 76's fixture (absent `$RESEARCH_HOME/...` path plus a
+  # `$OTHER_VAR/real` companion, with a literal `$OTHER_VAR/real` directory under the CWD) must
+  # lose its "absent" verdict — proving the narrow regex is pinned, not just the happy forms.
+  echo "-- teeth-rh-row-token-widen: widen RH-ROW-TOKEN-MATCH to any \$VAR/; test 76 fixture must stop being absent --"
+  kit_rh3="$(mkkit teeth-rh-widen)"
+  _rh_base_t3="$ROOT/rh_base_teeth3_$$"
+  _cwd_t3="$ROOT/cwd_teeth3_$$"
+  mkdir -p "$_rh_base_t3" "$_cwd_t3"'/$OTHER_VAR/real'
+  { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh3"
+    printf '| 1 | tgt | mature (5 md / git yes) | `$RESEARCH_HOME/nope-76` | `$OTHER_VAR/real` |\n'
+  } > "$kit_rh3/TARGETS.md"
+  repl_rh3="$ROOT/teeth-rh-widen-repl.txt"
+  cat <<'REPL' > "$repl_rh3"
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$[^/`]*/)[^`]+`' | tr -d '`'); do
+REPL
+  if vr_mut "teeth-rh-row-token-widen" "$kit_rh3" "/# RH-ROW-TOKEN-MATCH/r $repl_rh3" '/# RH-ROW-TOKEN-MATCH/d'; then
+    vr_run "teeth-rh-row-token-widen: widened regex clears the \$OTHER_VAR row (test 76 has teeth)" "$kit_rh3" 0 0 \
+      --good-has 'INFO.*1 registered target.*absent' --bad-lacks "INFO.*1 registered target.*absent|$VR_CRASH" \
+      -- "$BASH_BIN" -c 'cd "$1" && RESEARCH_HOME="$2" exec "$3" "$4"' _ "$_cwd_t3" "$_rh_base_t3" "$BASH_BIN" @SUT@
+  fi
+  unset _rh_base_t3 _cwd_t3
 fi
 
 # --- kit issue #1108 teeth: REGISTERED-PATH MARKER CHECK + HOOK-WIRING RECONCILIATION --------------
@@ -2991,7 +3045,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  if vr_mut "teeth-hook-no-claim-extract" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: matches any hook value)/"; then
+  if vr_mut "teeth-hook-no-claim-extract" "$kit" "/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE '[^']*' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: matches any hook value)/"; then
     vr_run "teeth-hook-no-claim-extract: widened extraction false-fires on 'hook yes' — test 3p has teeth" "$kit" 0 0 \
       --good-lacks "row claims 'hook yes' but the Stop hook IS wired" --bad-has "row claims 'hook yes' but the Stop hook IS wired"
   fi
@@ -3002,31 +3056,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook nonexistent) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  if vr_mut "teeth-hook-no-claim-boundary" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+no' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: boundary dropped)/"; then
+  if vr_mut "teeth-hook-no-claim-boundary" "$kit" "/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE '[^']*' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+no' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: boundary dropped)/"; then
     vr_run "teeth-hook-no-claim-boundary: boundary-dropped extraction false-fires on 'hook nonexistent' — test 3q has teeth" "$kit" 0 0 \
       --good-lacks "row claims 'hook nonexistent' but the Stop hook IS wired" --bad-has "row claims 'hook nonexistent' but the Stop hook IS wired"
   fi
 
-  echo "-- teeth-hook-no-claim-case: drop the '-i' flag from HOOK-NO-CLAIM-EXTRACT ('grep -iE' → 'grep -E'); test 3t (uppercase 'HOOK NO') must false-WARN — kit issue #1141 round-3 review nit: case-insensitivity previously had no dedicated fixture/tooth --"
+  echo "-- teeth-hook-no-claim-case: drop the '-i' flag from HOOK-NO-CLAIM-EXTRACT ('grep -iE' → 'grep -E'); test 3t (uppercase 'hook NO') must lose its WARN (kit issue #1158 item 3: the original run must WARN, the mutant must not) --"
   kit="$(mkkit teeth-hooknocase)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
+    printf '| 1 | targetA | mature (3 md / git yes / hook NO) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   if vr_mut "teeth-hook-no-claim-case" "$kit" '/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE/grep -E/'; then
-    vr_run "teeth-hook-no-claim-case: case-sensitive mutant silences test 3t (uppercase 'HOOK NO') — has teeth" "$kit" 0 0 \
-      --good-has 'Stop hook IS wired' --bad-lacks 'Stop hook IS wired'
+    vr_run "teeth-hook-no-claim-case: case-sensitive mutant silences test 3t (uppercase 'hook NO') — has teeth" "$kit" 0 0 \
+      --good-has 'Stop hook IS wired' --good-lacks 'not in schema' \
+      --bad-lacks "Stop hook IS wired|$VR_CRASH"
   fi
 
   echo "-- teeth-hook-no-claim-fileyes-scope: widen HOOK-NO-CLAIM-EXTRACT back to also match 'hook file yes' (undoes the #1141 round-3 narrowing); test 3n ('hook file yes / unregistered', own git root) must false-WARN --"
-  kit="$(mkkit teeth-hooknofileyesscope)"; tgt="$kit/targetA"
+  # Same fixture shape as 3n (kit issue #1158 item 6): target OUTSIDE the kit dir, registered via
+  # write_targets, so the mutant is proven against the very control it claims to prove.
+  kit="$(mkkit teeth-hooknofileyesscope)"; tgt="$ROOT/teeth-hooknofileyesscope-tgt/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
-  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 1 | targetA | mature (3 md / git yes / hook file yes / unregistered) | `%s` |\n' "$tgt"
-  } > "$kit/TARGETS.md"
-  if vr_mut "teeth-hook-no-claim-fileyes-scope" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: file-yes scope reintroduced)/"; then
+  write_targets "$kit" "${tgt}::3 md / hook file yes / unregistered"
+  if vr_mut "teeth-hook-no-claim-fileyes-scope" "$kit" "/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE '[^']*' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: file-yes scope reintroduced)/"; then
     vr_run "teeth-hook-no-claim-fileyes-scope: widened extraction false-fires on 'hook file yes' — test 3n has teeth" "$kit" 0 0 \
       --good-lacks "row claims 'hook file yes' but the Stop hook IS wired" --bad-has "row claims 'hook file yes' but the Stop hook IS wired"
+  fi
+
+  echo "-- teeth-hook-no-claim-multispace: collapse '[[:space:]]+' to one space in HOOK-NO-CLAIM-EXTRACT; test 3r ('hook   no') must lose its WARN --"
+  kit="$(mkkit teeth-hooknomultispace)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook   no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-hook-no-claim-multispace" "$kit" '/# HOOK-NO-CLAIM-EXTRACT/ s/\[\[:space:\]\]+no/[[:space:]]no/'; then
+    vr_run "teeth-hook-no-claim-multispace: single-space extraction silences test 3r — has teeth" "$kit" 0 0 \
+      --good-has 'Stop hook IS wired' --bad-lacks "Stop hook IS wired|$VR_CRASH"
   fi
 
   # kit issue #1141 round-2 review, Blocking 2: a mutant that drops ONLY the reverse check's
