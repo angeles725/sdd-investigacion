@@ -15,7 +15,7 @@ writes nothing, edits no doc and invents no field (propose-never-apply).
 | rc | Meaning |
 |---|---|
 | 0 | handoff printed |
-| 2 | usage error; absent/unreadable file; empty input; malformed JSON; wrong `schema`; missing `worktrees`/`branches` arrays or `base_ref`; `resume-state.sh` failed (rc other than 3) — nothing on stdout |
+| 2 | usage error; absent/unreadable file; empty input; malformed JSON; wrong `schema`; wrong shape (`worktrees`/`branches` not arrays of objects, `repo` not an object, `prs` not null or an array of objects, `base_ref` not a string); a render failure (`malformed element: ...`; the handoff is buffered, so stdout stays empty); `resume-state.sh` failed (rc other than 3) — nothing on stdout |
 | 3 | DEGRADED: `jq` missing (typed `DEGRADED:` line on stderr), or `resume-state.sh` itself exited 3 |
 
 ## Output sections

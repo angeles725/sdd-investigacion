@@ -79,6 +79,26 @@ eq "3l --json without value rc" "$RC" 2
 run --json "$FX/state-prs-ok.json" --no-gh
 eq "3m --json + forwarded flag rejected rc" "$RC" 2
 
+# 3n. element shapes: rc 2 AND empty stdout (nothing streamed before the failure)
+P="$FX/state-prs-ok.json"
+jq '.worktrees=[1]' "$P" > "$TMP/e1.json"; jq '.branches=["x"]' "$P" > "$TMP/e2.json"
+jq '.prs=["x"]' "$P" > "$TMP/e3.json"; jq '.repo="s"' "$P" > "$TMP/e4.json"
+jq '.prs={}' "$P" > "$TMP/e5.json"
+for n in 1 2 3 4 5; do
+  SO="$(timeout 30 bash "$SUT" --json "$TMP/e$n.json" 2>/dev/null </dev/null)"; RC=$?
+  eq "3n$n bad element shape e$n rc 2" "$RC" 2; eq "3n$n stdout empty" "$SO" ""
+done
+run --json "$TMP/e1.json"; has "3o typed message" "malformed document"
+jq '.worktrees[0]|=del(.exists)' "$FX/state-degraded.json" > "$TMP/noex.json"; run --json "$TMP/noex.json"
+has "3p missing exists renders unknown, not present" 'existence unknown · dirty 0'
+# shape-valid but the render itself dies (object where a string is expected): rc 2, stdout empty
+REAL_JQ="$(command -v jq)"; mkdir -p "$TMP/badjq"
+printf '#!/bin/sh\ncase "$2" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
+chmod +x "$TMP/badjq/jq"; cp "$P" "$TMP/e6.json"
+SO="$(PATH="$TMP/badjq:$PATH" timeout 30 bash "$SUT" --json "$TMP/e6.json" 2>"$TMP/e6.err" </dev/null)"; RC=$?
+eq "3q render failure rc" "$RC" 2; eq "3q render failure stdout empty" "$SO" ""
+eq "3q typed message" "$(head -c 28 "$TMP/e6.err")" "resume-render.sh: malformed "
+
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
 eq "4  stdin render rc" "$RC" 0; has "4a stdin render output" '- #7'
@@ -123,13 +143,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt null-as-zero 0 0 "$MUT/m2.sh" --good-has "ahead unknown" --bad-lacks "ahead unknown" -- bash @SUT@ --json "$D"
   mk no-schema-check "$SUT" "$MUT/m3.sh" 's/^\[ "\$got" = "\$SCHEMA" \] ||.*$/:/' \
     && tt no-schema-check 2 0 "$MUT/m3.sh" --good-has 'wrong schema' -- bash @SUT@ --json "$TMP/v0.json"
-  mk no-shape-check "$SUT" "$MUT/m4.sh" 's/(\.worktrees|type)=="array" and (\.branches|type)=="array"/true/' \
+  mk no-shape-check "$SUT" "$MUT/m4.sh" 's/^  || { echo "resume-render.sh: malformed document.*$/  || true/' \
     && tt no-shape-check 2 0 "$MUT/m4.sh" --good-has 'malformed document' --bad-lacks 'malformed document' -- bash @SUT@ --json "$TMP/nowt.json"
   mk no-empty-guard "$SUT" "$MUT/m5.sh" 's/^\[ -s "\$tmp" \] ||.*$/:/' \
     && tt no-empty-guard 2 2 "$MUT/m5.sh" --good-has 'empty input' --bad-lacks 'empty input' -- bash @SUT@ --json "$TMP/empty.json"
   mk no-jq-probe "$SUT" "$MUT/m6.sh" 's/^command -v jq >\/dev\/null 2>&1 ||.*$/:/' \
     && tt no-jq-probe 3 2 "$MUT/m6.sh" --good-has 'DEGRADED: jq' --bad-lacks 'DEGRADED' -- env PATH="$TMP/nojq" "$(command -v bash)" @SUT@ --json "$FX/state-prs-ok.json"
-  mk empty-list-trusted "$SUT" "$MUT/m7.sh" 's/elif (\.prs|length) == 0 then "No open PRs (gh answered with an empty list)\."/elif (.prs|length) == 0 then "No open PRs"/' \
+  mk streams-directly "$SUT" "$MUT/m11.sh" 's/^\(.*\)'"'"' "\$tmp" > "\$out" 2> "\$out.err"; rc=\$?$/\1'"'"' "$tmp" 2> "$out.err"; rc=$?/' \
+    && tt streams-directly 2 2 "$MUT/m11.sh" --good-has 'malformed element' --bad-has 'Resume handoff' -- env PATH="$TMP/badjq:$PATH" bash @SUT@ --json "$TMP/e6.json"
+  mk exists-missing-as-present "$SUT" "$MUT/m12.sh" 's/if \.exists != false and \.exists != true then/if false then/' \
+    && tt exists-missing-as-present 0 0 "$MUT/m12.sh" --good-has 'existence unknown' --bad-lacks 'existence unknown' -- bash @SUT@ --json "$TMP/noex.json"
+  mk empty-list-wording "$SUT" "$MUT/m7.sh" 's/elif (\.prs|length) == 0 then "No open PRs (gh answered with an empty list)\."/elif (.prs|length) == 0 then "No open PRs"/' \
     && tt empty-list-wording 0 0 "$MUT/m7.sh" --good-has 'gh answered with an empty list' --bad-lacks 'gh answered' -- bash @SUT@ --json "$FX/state-prs-empty.json"
   mk missing-dir-hidden "$SUT" "$MUT/m8.sh" 's/if \.exists == false/if false/' \
     && tt missing-dir-hidden 0 0 "$MUT/m8.sh" --good-has 'DIRECTORY MISSING' --bad-lacks 'DIRECTORY MISSING' -- bash @SUT@ --json "$D"

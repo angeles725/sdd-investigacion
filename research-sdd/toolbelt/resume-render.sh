@@ -54,9 +54,15 @@ fi
 jq -e . "$tmp" >/dev/null 2>&1 || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
 got="$(jq -r '.schema? // "" | tostring' "$tmp" 2>/dev/null)"
 [ "$got" = "$SCHEMA" ] || { echo "resume-render.sh: wrong schema: [$got] (want $SCHEMA)" >&2; exit 2; }
-jq -e '(.worktrees|type)=="array" and (.branches|type)=="array" and (.base_ref|type)=="string"' "$tmp" >/dev/null 2>&1 \
-  || { echo "resume-render.sh: malformed document: worktrees/branches must be arrays and base_ref a string" >&2; exit 2; }
+jq -e '(.worktrees|type)=="array" and (.branches|type)=="array" and (.base_ref|type)=="string"
+  and all(.worktrees[]; type=="object") and all(.branches[]; type=="object")
+  and ((.repo // {})|type)=="object"
+  and (.prs==null or ((.prs|type)=="array" and all(.prs[]; type=="object")))' "$tmp" >/dev/null 2>&1 \
+  || { echo "resume-render.sh: malformed document: worktrees/branches must be arrays of objects, repo an object, prs null or an array of objects, base_ref a string" >&2; exit 2; }
 
+# Render into a buffer: stdout stays empty on any render failure (rc 2 contract).
+out="$(mktemp)" || { echo "resume-render.sh: mktemp failed" >&2; exit 2; }
+trap 'rm -f "$tmp" "$out" "$out.err"' EXIT
 jq -r '
   def cnt(l; v): if v == null then l + " unknown" else l + " " + (v|tostring) end;
   def sha(v): if v == null then "unknown" else (v|tostring|.[0:7]) end;
@@ -65,6 +71,7 @@ jq -r '
     "- `" + (.path|tostring) + "` — "
     + (if .branch == null then "detached HEAD" else "branch `" + (.branch|tostring) + "`" end)
     + " @ " + sha(.head) + " · "
+    + (if .exists != false and .exists != true then "existence unknown · " else "" end)
     + (if .exists == false
        then "DIRECTORY MISSING" + (if .prunable == true then " (prunable: `git worktree prune`)" else "" end)
             + " · dirty unknown · untracked unknown"
@@ -97,4 +104,9 @@ jq -r '
   "",
   "## Not derived",
   "Review receipts, in-flight workers and the next task have no git source; state them by hand."
-' "$tmp"
+' "$tmp" > "$out" 2> "$out.err"; rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "resume-render.sh: malformed element: $(head -n 1 "$out.err")" >&2; rm -f "$out.err"; exit 2
+fi
+rm -f "$out.err"
+cat "$out"
