@@ -98,9 +98,10 @@ major 52 are not flagged, but that is not a fidelity guarantee either.
 
 `decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
 `OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
-available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`:
-`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`,
-plus a `WARN:` that syntax-level claims need bytecode evidence.
+available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`, which prints only the line:
+`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`.
+The `WARN:` that syntax-level claims need bytecode evidence is printed by the `decompile-java.sh`
+wrapper, not by the standalone mode.
 
 The standalone mode is bounded like the main path (defaults 20000 class entries, 1 GiB
 expanded bytes, 64 MiB per class; overridable with `RSDD_CLASSFACTS_MAX_ENTRIES`,
@@ -113,7 +114,9 @@ runs it under its own budget, `RSDD_CLASSFACTS_TIMEOUT` or `min(30, --timeout/8)
 wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the helper cannot report, the line keeps the same
 field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
 python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
-line follows as a `WARN:`).
+line follows as a `WARN:`). A fourth token, `facts-unbounded`, means no usable `timeout` binary was
+found: the wrapper skips the helper rather than run it without a budget (the run is also
+typed `timeout-unavailable` unless `--timeout 0` asked for unbounded engines).
 
 ## Trust and isolation
 

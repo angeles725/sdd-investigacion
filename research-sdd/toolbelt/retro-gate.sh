@@ -177,7 +177,7 @@ _run_issue_seeding() {
     return 0
   fi
 
-  local created=0 skipped=0 failed=0 failed_issues=0 empty=0 absent=0 ran=0 unclassifiable=0
+  local created=0 skipped=0 failed=0 failed_issues=0 failed_issues_unknown=0 empty=0 absent=0 ran=0 unclassifiable=0
   local rf seed_out seed_rc _c _s _f _summary _seed_reason _seed_failed _absent_typed
   local failed_list=""
   while IFS= read -r rf; do
@@ -189,13 +189,24 @@ _run_issue_seeding() {
     # SENTINEL-SEEDER-RC-START
     seed_out="$(bash "$seeder" "$rf" --apply 2>&1)"
     seed_rc=$?
-    _seed_failed=0   # per-issue failure count from summary: line (exit-2 path)
+    _seed_failed=""   # per-issue failure count from the summary: line; "" = not derivable (§7)
     # Classify absent-input ONCE before the if-chain — no pipe in boolean context (e727cde)
     _absent_typed=0
     case $'\n'"$seed_out" in *$'\n'absent-input:*) _absent_typed=1 ;; esac
     # Parse counts from the authoritative summary: line emitted by the seeder at end of --apply
     _summary="$(printf '%s' "$seed_out" | grep '^summary:' | tail -1)"
-    if [ -n "$_summary" ]; then
+    # Typed-outcome scope (#971): absent-input is classified FIRST, ahead of the summary: branch, so an
+    # absent-input that arrives together with a summary: line is still counted as absent (§7) and its
+    # summary counts are not folded into created/skipped. The real seeder cannot emit both today; the
+    # order pins the contract so a future seeder cannot make an absent retro read as a normal run.
+    if [ "$_absent_typed" -eq 1 ]; then
+      :   # keeps the branch non-empty when the sentinel block below is removed (teeth)
+      # SENTINEL-TYPED-OUTCOME-START
+      absent=$((absent + 1))
+      printf 'retro-gate: WARN: seeder: absent-input for %s (retro not found — verify path)\n' \
+        "$(basename "$rf")" >&2
+      # SENTINEL-TYPED-OUTCOME-END
+    elif [ -n "$_summary" ]; then
       # Surface the seeder's own evidence line on the hook output and in the Stop log (#1258).
       printf 'retro-gate: seeder %s: %s\n' "$(basename "$rf")" "$_summary" >&2
       _seed_note "$(basename "$rf") $_summary"
@@ -204,18 +215,13 @@ _run_issue_seeding() {
       _f="$(printf '%s' "$_summary" | grep -oE 'failed=[0-9]+' | cut -d= -f2)"
       created=$((created + ${_c:-0}))
       skipped=$((skipped + ${_s:-0}))
-      _seed_failed="${_f:-0}"
-      # no-match: may accompany summary: (real seeder: search absent-input: retro not found)
-      # — all rows shipped; count as empty (no open deltas)
+      _seed_failed="$_f"   # empty when the summary carries no failed= field → unknown, not 0
+      # no-match: may accompany summary: — all rows shipped; count as empty (no open deltas).
+      # (absent-input never reaches here: it is classified first, above.)
       case $'\n'"$seed_out" in *$'\n'no-match:*) empty=$((empty + 1)) ;; esac
-    # SENTINEL-TYPED-OUTCOME-START
-    # Typed-outcome scope: absent-input (any rc, §7 distinct from empty/no-match),
-    # empty-input (no delta section), no-match (all rows shipped, exit-0 only).
-    # Scope name is correct: covers all recognised typed outcomes regardless of rc.
-    elif [ "$_absent_typed" -eq 1 ]; then
-      absent=$((absent + 1))
-      printf 'retro-gate: WARN: seeder: absent-input for %s (retro not found — verify path)\n' \
-        "$(basename "$rf")" >&2
+    # Remaining branches run only with NO absent-input and NO summary: line. They cover the other typed
+    # outcomes of an exit-0 seeder (empty-input: no delta section; no-match: all rows shipped;
+    # unclassifiable) and, for a non-zero exit, the partial-progress fallback.
     elif [ "$seed_rc" -eq 0 ]; then
       # Seeder exited 0 with no summary: empty-input (no delta section), no-match (all shipped),
       # or unclassifiable (kit issue #1111/#1129: the shared grammar found a proposal-like
@@ -235,7 +241,6 @@ _run_issue_seeding() {
           printf 'retro-gate: WARN: seeder exited 0 but no summary: line for %s\n' \
             "$(basename "$rf")" >&2 ;;
       esac
-    # SENTINEL-TYPED-OUTCOME-END
     else
       # No summary: and seeder failed — count ^created: progress lines as fallback (§7)
       _c="$(printf '%s' "$seed_out" | grep -c '^created: ')" || _c=0
@@ -247,7 +252,13 @@ _run_issue_seeding() {
     # absent-input: exits non-zero but is already counted in absent — skip failed accounting
     if [ "$seed_rc" -ne 0 ] && [ "$_absent_typed" -eq 0 ]; then
       failed=$((failed + 1))
-      failed_issues=$((failed_issues + ${_seed_failed:-0}))
+      # A missing summary (crash before it was printed) or a summary with no failed= field leaves the
+      # per-issue count not derivable: record it as unknown, never add a silent 0 (#971, §7).
+      if [ -n "$_seed_failed" ]; then
+        failed_issues=$((failed_issues + _seed_failed))
+      else
+        failed_issues_unknown=1
+      fi
       failed_list="${failed_list:+$failed_list, }$(basename "$rf")"
       # Last non-progress line of seeder output as reason (bounded to 80 chars)
       _seed_reason="$(printf '%s' "$seed_out" | \
@@ -269,14 +280,18 @@ _run_issue_seeding() {
            -not -path '*/.git/*' -not -iname '*index*.md')
   # SENTINEL-FIND-STDERR-END
 
+  # failed-issues reads `unknown` as soon as ONE failed retro had no derivable per-issue count: a partial
+  # sum would under-report, so the typed token replaces the number entirely (#971).
+  local failed_issues_txt="$failed_issues"
+  [ "$failed_issues_unknown" -eq 0 ] || failed_issues_txt="unknown"
   # SENTINEL-AGGREGATE-WARN-START
   if [ "$failed" -gt 0 ]; then
-    printf 'retro-gate: WARN: %d issue create(s) failed across %d retro(s): %s\n' \
-      "$failed_issues" "$failed" "$failed_list" >&2
+    printf 'retro-gate: WARN: %s issue create(s) failed across %d retro(s): %s\n' \
+      "$failed_issues_txt" "$failed" "$failed_list" >&2
   fi
   # SENTINEL-AGGREGATE-WARN-END
-  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%d target=%s\n' \
-    "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues" "$(basename "$target")" >&2
+  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%s target=%s\n' \
+    "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues_txt" "$(basename "$target")" >&2
   _seed_note "ran=$ran created=$created skipped-dedup=$skipped empty=$empty unclassifiable=$unclassifiable absent=$absent failed=$failed"
 }
 # SENTINEL-SEEDING-FUNC-END

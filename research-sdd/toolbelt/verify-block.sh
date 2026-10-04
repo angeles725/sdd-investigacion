@@ -40,6 +40,22 @@
 #     role = EXECUTED | RECIPE | FAILED-ATTEMPT. Only columns 1-2 are machine-checked; the rest is for humans.
 
 set -uo pipefail
+# kit #1659: the one shared SCRIPTS-MANIFEST row parser (also used by clean-check.sh). It is loaded LAZILY by
+# _vb_load_smlib (section 11 only), from the directory of THIS script with symlinks followed (BASH_SOURCE, never the
+# caller's cwd or a lib/ beside a symlink). Returns 1 with a message when it cannot be loaded.
+_vb_load_smlib() {
+  local src="${BASH_SOURCE[0]}" n=0 lt d here
+  while [ -L "$src" ] && [ "$n" -lt 40 ]; do   # VB-LIB-RESOLVE
+    n=$((n + 1)); lt="$(readlink -- "$src")" || { echo "verify-block: cannot read symlink $src" >&2; return 1; }
+    case "$lt" in /*) src="$lt" ;; *) d="${src%/*}"; [ "$d" = "$src" ] && d=.; src="$d/$lt" ;; esac
+  done
+  d="${src%/*}"; [ "$d" = "$src" ] && d=.
+  here="$(cd -P -- "$d" 2>/dev/null && pwd -P)" || { echo "verify-block: cannot resolve the script directory of $src" >&2; return 1; }
+  [ -f "$here/lib/scripts-manifest.sh" ] || { echo "verify-block: cannot find helper $here/lib/scripts-manifest.sh" >&2; return 1; }
+  # shellcheck source=lib/scripts-manifest.sh
+  . "$here/lib/scripts-manifest.sh"
+  declare -F scripts_manifest_rows >/dev/null 2>&1 || { echo "verify-block: helper lib/scripts-manifest.sh failed to define scripts_manifest_rows" >&2; return 1; }
+}
 # --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
 # pf_scan <file>: print `LINE<TAB>PHRASE<TAB>TEXT` for each BARE defeatist feasibility verdict. A verdict is bare
 # unless its SECTION (text up to the next markdown heading) carries a ROUTE LADDER: >=3 list items / table rows
@@ -676,8 +692,13 @@ else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict
 #     resolved against the directory of ITS OWN manifest (a `sources/…` cell is target-relative; the bare
 #     basename inside that same dir also matches). A row in another probes dir never lists this dir's script.
 _vb_mf_n=0; _vb_mf_deg=0
-_vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\b' "$block" | sort -u)
+# A cite ends at a PATH TERMINATOR (kit #1659): the extension must be followed by an optional sentence period and then a
+# character outside the path alphabet (or end of line) — a trailing `\b` let `a.sh.bak` / `run.py.log` backtrack to a
+# phantom `a.sh` / `run.py`. The terminator is consumed by -o, so it is stripped (a cite always ends in an alnum).
+# VB-MF-CITE
+_vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\.?([^A-Za-z0-9_./-]|$)' "$block" | sed -E 's/[^A-Za-z0-9]+$//' | sort -u)
 _vb_mf_files=""; _vb_mf_frc=0
+# a `corpus/` target makes find print `corpus//sources/...`; the shared parser canonicalises both spellings (SM-SLASH).
 if [ -d "$target/sources/probes" ]; then
   _vb_mf_raw=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null; echo "@@RC=$?")   # VB-MF-FIND-RC
   _vb_mf_frc=${_vb_mf_raw##*@@RC=}
@@ -696,24 +717,24 @@ else
   if [ -z "$_vb_mf_sha" ]; then
     echo "   ERROR: manifest check DEGRADED (neither sha256sum nor shasum on PATH) — cited scripts NOT checked"; rc=1; _vb_mf_deg=1
   else
-    # rows: `<target-relative path>\t<sha256 lowercase>` for every table row whose 2nd cell is a 64-hex digest. The
-    # script cell is resolved against ITS manifest's dir (a `sources/…` cell is already target-relative); the bare
-    # basename inside that same dir is emitted too, so `a.sh` and `./a.sh` both list sources/probes/<dir>/a.sh.
-    _vb_mf_rows=$(while IFS= read -r _vb_mf_f; do
-      _vb_mf_md=${_vb_mf_f#"$target"/}; _vb_mf_md=${_vb_mf_md%/*}
-      awk -F'|' -v md="$_vb_mf_md" '
-        /^[[:space:]]*\|/ {
-          a = $2; b = $3
-          gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
-          sub(/^\.\//, "", a)
-          n = split(a, parts, "/")
-          if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) {   # VB-MF-ROW
-            full = (a ~ /^sources\//) ? a : md "/" a
-            print full "\t" tolower(b)
-            print md "/" parts[n] "\t" tolower(b)
-          }
-        }' "$_vb_mf_f"
-    done <<<"$_vb_mf_files")
+    # rows: `<target-relative path>\t<sha256 lowercase>` per valid manifest row, from the SHARED parser (kit #1659,
+    # lib/scripts-manifest.sh: 64-hex sha cell required, cell resolved against ITS manifest's dir, `sources/…` cells
+    # target-relative, the dir/basename form emitted too). A parse failure is a typed DEGRADED, never "no rows".
+    # The helper is loaded HERE, only when a manifest exists AND a preserved script is cited: every other path (the
+    # --possibility-sweep, a block citing no script, a corpus with no manifest) never needs lib/. A helper that cannot
+    # be loaded is a typed DEGRADED (exit 1), never a quiet pass: the stub makes the parse below fail.
+    if ! _vb_load_smlib; then
+      echo "   ERROR: DEGRADED manifest helper unavailable (see above) — manifests cannot be parsed"; rc=1
+      scripts_manifest_rows() { return 2; }
+    fi
+    _vb_mf_rows=""; _vb_mf_prc=0
+    while IFS= read -r _vb_mf_f; do
+      _vb_mf_one=$(scripts_manifest_rows "$target" "$_vb_mf_f") || { _vb_mf_prc=1; break; }   # VB-MF-PARSE
+      _vb_mf_rows="$_vb_mf_rows"$'\n'"$_vb_mf_one"
+    done <<<"$_vb_mf_files"
+    if [ "$_vb_mf_prc" != 0 ]; then
+      echo "   ERROR: DEGRADED manifest parse failed (shared parser, under $target/sources/probes) — cited scripts NOT manifest-checked"; rc=1; _vb_mf_deg=1; _vb_mf_cites=""
+    fi
     while IFS= read -r _vb_mf_c; do
       [ -z "$_vb_mf_c" ] && continue
       _vb_mf_want=$(awk -F'\t' -v b="$_vb_mf_c" '$1 == b { print $2 }' <<<"$_vb_mf_rows")   # VB-MF-LOOKUP

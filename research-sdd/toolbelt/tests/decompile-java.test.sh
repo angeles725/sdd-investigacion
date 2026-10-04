@@ -832,7 +832,7 @@ printf 'import time\ntime.sleep(30)\n' > "$MUTANT_DIR/slowhelper/corroborate_jav
 _t0=$SECONDS
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H7 "$ROOT/Hdr.class" -- --engine vineflower
 if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
-  ok "H7 hung helper: killed by the engine timeout, typed reason=facts-timeout, run continues"
+  ok "H7 hung helper: cut by the helper's own CF_TIMEOUT budget, typed reason=facts-timeout, run continues"
 else no "H7 facts-timeout" "rc=$RC secs=$((SECONDS - _t0)) se=[$SE]"; fi
 # H8: the helper has its OWN small budget (default min(30, TIMEOUT/8), min 1), not the engines' full timeout:
 # with --timeout 16 the hung helper is cut after ~2 s. RSDD_CLASSFACTS_TIMEOUT overrides; an invalid value warns and falls back.
@@ -851,6 +851,14 @@ else no "H11 Unicode digit RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H10 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
 if grep -q '^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=abc' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H10 invalid RSDD_CLASSFACTS_TIMEOUT: typed warning, derived default used"
 else no "H10 invalid RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
+# H12 (kit issue #1663 R3): no usable timeout binary → the helper is NOT run unbounded; it is skipped with a typed
+# reason=facts-unbounded (full unknown field set). The hung helper (sleeps 30 s) must not be waited for.
+_t0=$SECONDS
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H12 "$ROOT/Hdr.class" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+if grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unbounded" <<<"$SE" \
+   && ! grep -q 'facts-timeout\|facts-error' <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
+  ok "H12 no timeout binary: helper skipped with typed reason=facts-unbounded (never run unbounded), $((SECONDS - _t0)) s"
+else no "H12 facts-unbounded when timeout is absent" "rc=$RC secs=$((SECONDS - _t0)) se=[$SE]"; fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
@@ -1301,11 +1309,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mCF6: mutant still said facts-timeout (or crashed) — H7 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF7: helper not run under the timeout → the hung helper is not killed (bounded here: it sleeps 30 s, then exits 0 with no line).
-  if build_mut mCF7 's/^    CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" python3 /    CLASSFILE_LINE="$(python3 /'; then
+  if build_mut mCF7 's/^  CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" python3 /  CLASSFILE_LINE="$(python3 /'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh"
     RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh" rt mCF7 "$ROOT/Hdr.class" -- --engine vineflower
     if ! grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF7: timeout-less mutant lets the hung helper run to its own end → H7 bites"
     else no "teeth-mCF7: mutant still timed the helper out — H7 has no teeth" "rc=$RC se=[$SE]"; fi
+  fi
+  # mCF10: the no-timeout-binary skip removed → the helper is attempted with the missing binary: facts-error rc=127 instead of the typed facts-unbounded (H12 bites).
+  if build_mut mCF10 's/^elif ! command -v "\$TIMEOUT_BIN" >\/dev\/null 2>&1; then$/elif false; then/'; then
+    cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF10.sh"
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF10.sh" rt mCF10 "$ROOT/Hdr.class" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+    if ! grep -q 'facts-unbounded' <<<"$SE" && grep -q 'reason=facts-error rc=127' <<<"$SE"; then ok "teeth-mCF10: skip-less mutant loses reason=facts-unbounded (falls to facts-error rc=127) → H12 bites"
+    else no "teeth-mCF10: mutant still said facts-unbounded (or crashed) — H12 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF8: helper budget = the engines' full timeout (not TIMEOUT/8) → H8's --timeout 16 keeps the helper for ~16 s.
   if build_mut mCF8 's|^      CF_TIMEOUT=\$((TIMEOUT / 8))$|      CF_TIMEOUT=$TIMEOUT|'; then

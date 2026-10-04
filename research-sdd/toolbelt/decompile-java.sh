@@ -17,7 +17,8 @@
 #   An unreadable class (no major version readable) contributes NO fake version: it is counted in unreadable=N; a class
 #   whose header was read but whose body walk failed is counted in partial=N (its major still counts). When nothing is readable the
 #   fields read unknown. Helper failures keep the SAME field set (all unknown) with a typed reason= suffix:
-#   reason=facts-unavailable (helper/python3 absent), reason=facts-timeout (killed by --timeout), reason=facts-error rc=N
+#   reason=facts-unavailable (helper/python3 absent), reason=facts-unbounded (no usable `timeout` binary: the helper is
+#   skipped, never run unbounded), reason=facts-timeout (killed by its own budget), reason=facts-error rc=N
 #   (helper crashed; its first stderr line follows as a WARN). The helper runs under its OWN budget, RSDD_CLASSFACTS_TIMEOUT
 #   or min(30, --timeout/8) seconds (at least 1; 30 when unbounded), so the worst-case extra wall time is that budget plus
 #   RSDD_KILL_AFTER, not a second full --timeout. An over-cap input reads truncated=entry-cap|byte-cap plus
@@ -216,12 +217,20 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
 # Class-file facts header (kit issue #1205): one CLASSFILE line on STDERR plus the bytecode-evidence warning. STDERR, not
 # stdout: consumers read the typed OK/DEGRADED/PARTIAL result as the first stdout line (README, METHODOLOGY "Java
 # decompile status is typed", this suite, java-fidelity-experiment.sh logs), so stdout is unchanged. The helper runs
-# under its OWN small budget (RSDD_CLASSFACTS_TIMEOUT, else min(30, TIMEOUT/8) s), not a full engine timeout. Three distinct failure tokens, one field set: facts-unavailable (helper or
-# python3 absent), facts-timeout (killed by the timeout), facts-error rc=<n> (helper ran and failed; first stderr line shown).
+# under its OWN small budget (RSDD_CLASSFACTS_TIMEOUT, else min(30, TIMEOUT/8) s), not a full engine timeout. Four distinct failure tokens, one field set: facts-unavailable (helper or
+# python3 absent), facts-unbounded (no timeout binary; helper skipped), facts-timeout (killed by the helper budget), facts-error rc=<n> (helper ran and failed; first stderr line shown).
+# The single EXIT trap lives here (before the helper's stderr tempfile exists) so every path cleans up: STAMP, WORK and
+# CF_ERR start empty and are filled in later (rm -rf "" is a no-op).
+STAMP=""; WORK=""; CF_ERR=""
+cleanup() { rm -rf "$STAMP" "$WORK" "$CF_ERR"; }
+trap cleanup EXIT
 CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown"
 CF_HELPER="$HERE/corroborate_java.py"
 if [ ! -f "$CF_HELPER" ] || ! command -v python3 >/dev/null 2>&1; then
   echo "$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2
+elif ! command -v "$TIMEOUT_BIN" >/dev/null 2>&1; then
+  # No usable timeout binary: the helper would run UNBOUNDED, so skip it (typed, never silent).
+  echo "$CLASSFILE_UNKNOWN reason=facts-unbounded" >&2
 else
   # The helper gets its OWN small budget, not a second full engine timeout: RSDD_CLASSFACTS_TIMEOUT, else
   # min(30, TIMEOUT/8) seconds (at least 1; 30 when the engines are unbounded). Worst-case extra wall time: that budget
@@ -242,11 +251,7 @@ else
     fi
   fi
   CF_ERR="$(mktemp)"; cf_rc=0; CLASSFILE_LINE=""
-  if command -v "$TIMEOUT_BIN" >/dev/null 2>&1; then
-    CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$CF_TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
-  else
-    CLASSFILE_LINE="$(python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
-  fi
+  CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$CF_TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
   if [ "$cf_rc" -eq 0 ] && [ -n "$CLASSFILE_LINE" ]; then
     echo "$CLASSFILE_LINE" >&2
   elif [ "$cf_rc" -eq 124 ] || [ "$cf_rc" -eq 137 ]; then
@@ -256,7 +261,6 @@ else
     CF_FIRST="$(head -n 1 "$CF_ERR" 2>/dev/null || true)"
     [ -z "$CF_FIRST" ] || echo "WARN: classfile-facts helper: $CF_FIRST" >&2
   fi
-  rm -f "$CF_ERR"
 fi
 echo "WARN: decompiled source is a reconstruction; syntax-level claims (string concatenation, lambdas, switch, records, generics) need bytecode evidence (javap -c -p, see --javap), not the decompiled text" >&2
 
@@ -271,8 +275,6 @@ declare -A PRE_MTIME=()
 while IFS= read -r -d '' _pf; do PRE_MTIME["$_pf"]="$(stat -c %.9Y "$_pf" 2>/dev/null)"; done \
   < <(find "$OUT" -type f -newer "$STAMP" -print0)
 WORK="$(mktemp -d)"
-cleanup() { rm -rf "$STAMP" "$WORK"; }
-trap cleanup EXIT
 
 # layout_key <unit> — the unit's package-relative path. CFR/Procyon write output paths that follow the package, so a
 # class stored under BOOT-INF/classes/, WEB-INF/classes/ or META-INF/versions/N/ is emitted WITHOUT that prefix

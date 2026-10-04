@@ -456,14 +456,15 @@ reproduction recipe: the exact commands, in order, with their arguments. "Used s
 a later session that finds neither the script nor the steps cannot recreate the result. A path under `/tmp`,
 `/var/tmp` or a session scratchpad is not a preserved path; the sha256-anchored beautified-temp view above is the
 only exception. Delegated writers are told to preserve there, never "scratch only" (PROMPT-LOOP). Part of kit #1207;
-verify-block enforcement: kit issue #1207 part 2 (not yet enforced by the tool).
+`verify-block.sh` enforces it in stages: an ephemeral-path cite is a typed `EPHEMERAL?` WARN by default and an `EPHEMERAL!` FAIL under
+`--strict-ephemeral` / `RSDD_STRICT_EPHEMERAL=1`; making FAIL the default is planned in kit issue #1660.
 - **Session SCRIPTS-MANIFEST.** One per session at `sources/probes/<date>-<slug>/SCRIPTS-MANIFEST.md`: a row per script mapping script ->
   run/step -> block, with the sha256 of the preserved copy and, when it ran on a remote host, the sha256 of the copy that executed
   there (local == remote parity recorded at run time, not reconstructed).
 - **Failed and superseded attempts are preserved too**, not only the final good script: the lesson often lives in the failed run.
 - **Executed path vs recipe.** A script written AFTER the manual commands that actually ran is labelled RECIPE, not EXECUTED, and counts
   as evidence only once it regenerates the deployed output with a matching sha256; otherwise the block cites the inline commands that ran.
-  (Manifest enforcement and the scratchpad clean-check: kit issue #1207 parts 2 and 4, not yet implemented.)
+  (Manifest enforcement: `verify-block.sh` fails a cited preserved script with no valid row or a sha256 mismatch as `MANIFEST!` when the corpus has at least one manifest. The scratchpad check: `clean-check.sh --scratchpad` reports `UNPRESERVED-ARTIFACT` and `UNMANIFESTED-SCRIPT`; contract `toolbelt/clean-check.v1.md`. Kit issue #1207.)
 
 **Obfuscated bytecode (APK/DEX, .NET, etc. — the beautified-temp rule does NOT transfer).** The rule above
 works because JS minification is a COSMETIC transform: whitespace and local names change, but structure and
@@ -501,7 +502,7 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
   that rests on decompiled `.java` is inadmissible as `[CERT]`: Vineflower resugars by class-file major version (the same
   bytecode prints as classic code at major 52 and as modern syntax at major 69), and agreement between decompilers is not
   fidelity evidence. Cite the shape named in `toolbelt/java-decompile-fidelity.v1.md` (some constructs have none: `[INFER]`).
-  The wrappers will print `major_version` once kit #1205 lands; until then read it from `javap -v`. (kit #1204)
+  `decompile-java.sh` prints a `CLASSFILE major=… lvt=… classes=… resugar_risk=…` header on stderr (kit #1205), and `corroborate-java.sh` carries `class_facts[]`; record the `major` in the claim. If the header reads `unknown`, read it from `javap -v`. (kit #1204)
 - **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
   - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`. (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.)
 - **Establish a FOUNDATION-BLOCK caveat; forward-cite it in every subsequent block header.** Scrubbing is a corpus-level hazard. Document it in the FOUNDATION evidence block (the first block that discovers it) and cite that caveat in all later block headers. This kept the discipline consistent across 6 evidence blocks (B350–B355 in the `electronicSignature` focus) and prevented ~40 potential `[CERT]` false-citations.
@@ -1282,7 +1283,7 @@ Routing-class table:
 |---|---|---|
 | `high`, `medium`, `low` | routable | counted in `investigable_open`; `NEXT` walks high → medium → low |
 | `deferred` | parked | counted in `deferred_open`; never yields `NEXT` |
-| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | never routable and not in `investigable_open`; counted as a CLOSED gap in `known_gaps` and `gaps_closed` by `--sync-state` (kit #1307) |
+| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | never routable and not in `investigable_open`; counted as a CLOSED gap in `known_gaps` and `gaps_closed` by `--sync-state` (kit #1307), unless a higher hand-declared value is kept — `--sync-state` then prints `sync-state: DECLARED <field>=<n> (derived <m>) — kept` instead of rewriting it (kit #1637) |
 
 **`deferred` is normative.** It is a parked routing class with its own envelope field (`deferred_open`)
 and two dedicated readers (`count_deferred()` in `research-sdd-status.sh`, `derive_deferred()` in

@@ -26,6 +26,7 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 command -v awk  >/dev/null 2>&1 || { echo "FATAL: awk not on PATH" >&2; exit 2; }
 command -v grep >/dev/null 2>&1 || { echo "FATAL: grep not on PATH" >&2; exit 2; }
 command -v sed  >/dev/null 2>&1 || { echo "FATAL: sed not on PATH" >&2; exit 2; }
+JQ_BIN="$(type -P jq)"; [ -n "$JQ_BIN" ] || { echo "FATAL: jq not on PATH (the closed-issue gh stub runs the SUT's --jq through it)" >&2; exit 2; }
 
 # Pre-resolve coreutil paths for hermetic PATH construction in degraded test
 _AWK_BIN="$(type -P awk)"; _GREP_BIN="$(type -P grep)"
@@ -101,6 +102,9 @@ mkbox_all() {
 #   mode=orphaned-row1: issue list echoes a Source retro line for row 1 of r-orphaned.md
 #                       (a shipped row, so the script reports orphaned)
 #   mode=fail-query   : gh issue list exits non-zero (simulates real gh rejecting bad invocation)
+#   mode=closed-completed <body> / closed-notplanned <body> / closed-fail: only a --state closed list answers
+#                       (completed/notplanned run the SUT's own --jq through real jq over a JSON array)
+#                       (kit issue #1555); the open list is empty
 #   mode=nomatch (default): issue list returns empty (all untracked)
 mk_gh_stub() {
   local box="$1" mode="${2:-nomatch}"
@@ -109,14 +113,14 @@ mk_gh_stub() {
     printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box"
     # Kit issue #1369 (c): REJECT what real gh would reject instead of inventing support. `gh issue
     # list` accepts only --repo/--state/--search/--jq/--limit/--json; --limit a positive integer;
-    # --json fields from {body, state}; --state open|closed|all. Anything else exits 2.
+    # --json fields from {body, state, stateReason}; --state open|closed|all. Anything else exits 2.
     cat <<'STUBHELP'
 _validate_list() {
   local _sk="" _a _f
   for _a in "$@"; do
     if [ -n "$_sk" ]; then
       case "$_sk" in
-        json)  for _f in ${_a//,/ }; do case "$_f" in body|state) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
+        json)  for _f in ${_a//,/ }; do case "$_f" in body|state|stateReason) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
         limit) case "$_a" in ''|*[!0-9]*|0) echo "gh stub: invalid --limit: $_a" >&2; return 1 ;; esac ;;
         state) case "$_a" in open|closed|all) ;; *) echo "gh stub: invalid --state: $_a" >&2; return 1 ;; esac ;;
       esac
@@ -140,7 +144,31 @@ STUBHELP
     else
       printf '  *" auth status "*) exit 0 ;;\n'
     fi
+    # kit issue #1555: the OPEN-issue modes below answer only an open/default-state list. A CLOSED-state
+    # list gets an empty reply unless the mode is one of the closed-* modes (which answer ONLY it).
     case "$mode" in
+      closed-*|noauth) ;;
+      *) printf '  *" issue list "*" --state closed "*) exit 0 ;;\n' ;;
+    esac
+    case "$mode" in
+      closed-completed|closed-notplanned)
+        # $3 = body text of ONE closed issue; the mode sets its stateReason. The stub answers like gh does:
+        # it feeds a real JSON array to the SUT's own --jq expression (run by the real jq), so the
+        # SUT's stateReason filter is what decides the output. Open-state lists see an empty reply.
+        _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
+        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"body":"%s","stateReason":"%s"}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$JQ_BIN"
+        printf '  *" issue list "*) exit 0 ;;\n'
+        ;;
+      closed-fill)
+        # honours --limit like gh: a closed-state list returns exactly <limit> issues (all COMPLETED,
+        # bodies of unrelated issues), run through the SUT's own --jq by real jq. Truncation fixture.
+        printf '  *" issue list "*" --state closed "*) _jq=""; _l=5; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; [ "$_p" = "--limit" ] && _l="$_a"; _p="$_a"; done; _j="["; for ((_i = 1; _i <= _l; _i++)); do _j="$_j{\\"body\\":\\"unrelated $_i\\",\\"stateReason\\":\\"COMPLETED\\"},"; done; printf "%%s" "${_j%%,}]" | "%s" -r "$_jq"; exit 0 ;;\n' "$JQ_BIN"
+        printf '  *" issue list "*) exit 0 ;;\n'
+        ;;
+      closed-fail)
+        printf '  *" issue list "*" --state closed "*) printf "gh: HTTP 502\\n" >&2; exit 1 ;;\n'
+        printf '  *" issue list "*) exit 0 ;;\n'
+        ;;
       tracked-row1)
         printf '  *" issue list "*) printf "Source retro: target-foo/retros/r-tracked.md · 1\\n"; exit 0 ;;\n'
         ;;
@@ -201,6 +229,12 @@ run() {
     "$BASH_BIN" "$box/research-sdd/toolbelt/reconcile-issues.sh" \
     "$@" 2>&1)"; RC=$?
 }
+
+# open_lists <gh.log>: count of OPEN-state `gh issue list` calls (kit issue #1555 added a separate
+# --state closed query, so the 38x cases that pin the open/legacy query count must not count it).
+open_lists() { grep 'issue list' "$1" | grep -vc -- '--state closed'; }
+# open_limit <gh.log>: true when an OPEN-state list call carries an explicit --limit (the closed query has its own).
+open_limit() { [ "$(grep 'issue list' "$1" | grep -v -- '--state closed' | grep -cE -- '--limit [0-9]+')" -ge 1 ]; }
 
 # mk_open_retro <path>: a pending retro with ONE open row; creates parent dirs; echoes the path.
 mk_open_retro() {
@@ -1368,8 +1402,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_open_retro "$box_r6/rh/target-foo/retros/r.md" >/dev/null
   if tooth_swap "$box_r6" "corpus|retros|''|\"\$target_nm\") ;;" "corpus|retros|'') ;;"; then
     run "$box_r6" "$box_r6/rh/target-foo/retros/r.md"
-    if [ "$(grep -c 'issue list' "$box_r6/bin/gh.log")" = 2 ]; then ok "T1304-R6 teeth: equal-name skip removed → second list call (case 38c has teeth)" "()"
-    else no "T1304-R6 teeth: equal-name skip removed must flip case 38c" "case 38c is THEATER: lists=$(grep -c 'issue list' "$box_r6/bin/gh.log")"; fi
+    if [ "$(open_lists "$box_r6/bin/gh.log")" = 2 ]; then ok "T1304-R6 teeth: equal-name skip removed → second list call (case 38c has teeth)" "()"
+    else no "T1304-R6 teeth: equal-name skip removed must flip case 38c" "case 38c is THEATER: lists=$(open_lists "$box_r6/bin/gh.log")"; fi
   fi
 
   # ---- kit issue #1332 item 2 teeth (entry form) — mutant built with tests/lib/mutant.sh ----
@@ -1424,7 +1458,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if rec_mutant nolimit nomatch -e '/^          --limit "\$_LIST_LIMIT" \\$/d'; then
     mk_open_retro "$MBOX/rh/target-foo/retros/r.md" >/dev/null
     run "$MBOX" "$MBOX/rh/target-foo/retros/r.md"
-    if ! grep -qE 'gh issue list .*--limit [0-9]+' "$MBOX/bin/gh.log"; then ok "T1369-nolimit teeth: no explicit --limit on the list call (41a has teeth)" "()"
+    if ! open_limit "$MBOX/bin/gh.log"; then ok "T1369-nolimit teeth: no explicit --limit on the list call (41a has teeth)" "()"
     else no "T1369-nolimit teeth: dropping --limit must flip 41a" "41a is THEATER"; fi
   fi
   rec_full_mutant() {   # rec_full_mutant <tag> <sed-expr>: page2 stub, limit 2 → 41b must stop being degraded
@@ -1779,7 +1813,7 @@ mk_targets "$box38c" target-foo "$box38c/rh/target-foo"
 mk_gh_stub "$box38c" nomatch
 retro38c="$(mk_open_retro "$box38c/rh/target-foo/retros/r38c.md")"
 run "$box38c" "$retro38c"
-lists38c="$(grep -c 'issue list' "$box38c/bin/gh.log")"
+lists38c="$(open_lists "$box38c/bin/gh.log")"
 if [ "$RC" = 0 ] && [ "$lists38c" = 1 ]; then ok "38c name == basename → exactly one list call" "(lists=$lists38c)"
 else no "38c name == basename → expected one list call" "exit=$RC lists=$lists38c out=[$OUT]"; fi
 
@@ -1790,7 +1824,7 @@ mk_targets "$box38d" reg-name "$box38d/rh/target-foo"
 mk_gh_stub "$box38d" nomatch
 retro38d="$(mk_open_retro "$box38d/rh/target-foo/corpus/retros/r38d.md")"
 run "$box38d" "$retro38d"
-lists38d="$(grep -c 'issue list' "$box38d/bin/gh.log")"
+lists38d="$(open_lists "$box38d/bin/gh.log")"
 if [ "$RC" = 0 ] && [ "$lists38d" = 1 ] && ! grep -qF 'Source retro: corpus/retros' "$box38d/bin/gh.log"; then
   ok "38d nested corpus/retros → structural legacy name skipped (one list call)" "(lists=$lists38d)"
 else
@@ -1915,7 +1949,7 @@ fi
 box41="$(mkbox case-limit)"; mk_gh_stub "$box41" nomatch
 mk_open_retro "$box41/rh/target-foo/retros/r41.md" >/dev/null
 run "$box41" "$box41/rh/target-foo/retros/r41.md"
-if [ "$RC" = 0 ] && grep -qE 'gh issue list .*--limit [0-9]+' "$box41/bin/gh.log"; then
+if [ "$RC" = 0 ] && open_limit "$box41/bin/gh.log"; then
   ok "41a the open-issues gh issue list passes an explicit --limit" "(exit $RC)"
 else
   no "41a explicit --limit" "exit=$RC log=[$(cat "$box41/bin/gh.log" 2>/dev/null)]"
@@ -2059,6 +2093,111 @@ else
   no "43e precedence" "exit=$RC out=[$OUT]"
 fi
 
+# ---------------------------------------------------------------------------
+# 44 — CLOSED ISSUE CITING THE RETRO READS AS SHIPPED (kit issue #1555). An open delta with no OPEN issue
+# whose issue was closed AS COMPLETED (body still carries this retro's signature) is `shipped`, not
+# `untracked`. Report only: nothing is closed or edited. Absent / not-planned / failed stay distinct.
+SIG44='Source retro: target-foo/retros/r44.md · 1'
+mk44() { # <box> [retro-name] -> echoes a pending retro with rows 1 and 2
+  mk_retro "$1" target-foo "${2:-r44.md}" "<!-- review-status: pending -->" \
+    "$(printf '| 1 | shipped via closed issue | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | never tracked | CLAUDE.md | B2 | new | LOW |')"
+}
+# 44a — live gh path: row 1 closed-as-completed -> shipped; row 2 has no closed issue -> still untracked.
+box44a="$(mkbox case-closed-shipped)"; mk_gh_stub "$box44a" closed-completed "$SIG44"
+retro44a="$(mk44 "$box44a")"
+: > "$box44a/bin/gh.log"
+run "$box44a" "$retro44a"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 .*closed as completed.*propose marking the row shipped' <<<"$OUT" \
+   && ! grep -q '^untracked: row 1 ' <<<"$OUT" && grep -q '^untracked: row 2 ' <<<"$OUT" \
+   && ! grep -qE 'issue (close|edit|reopen)' "$box44a/bin/gh.log"; then
+  ok "44a closed-as-completed issue citing the retro -> shipped (row 2 stays untracked, no mutation)" "(exit $RC)"
+else
+  no "44a closed shipped" "exit=$RC out=[$OUT] log=[$(cat "$box44a/bin/gh.log" 2>&1)]"
+fi
+# 44b — closed but NOT as completed (not planned) is not shipped evidence -> untracked.
+box44b="$(mkbox case-closed-notplanned)"; mk_gh_stub "$box44b" closed-notplanned "$SIG44"
+retro44b="$(mk44 "$box44b")"
+run "$box44b" "$retro44b"
+if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "44b issue closed not-planned is NOT shipped evidence -> untracked" "(exit $RC)"
+else
+  no "44b not-planned" "exit=$RC out=[$OUT]"
+fi
+# 44c — a closed issue carrying ANOTHER retro's signature (same row id) is not this retro's evidence.
+box44c="$(mkbox case-closed-other-retro)"; mk_gh_stub "$box44c" closed-completed 'Source retro: target-foo/retros/other.md · 1'
+retro44c="$(mk44 "$box44c")"
+run "$box44c" "$retro44c"
+if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "44c closed issue for another retro's row 1 -> not shipped" "(exit $RC)"
+else
+  no "44c other-retro" "exit=$RC out=[$OUT]"
+fi
+# 44d — closed query fails: typed degraded + exit 1, never a confident untracked/shipped.
+box44d="$(mkbox case-closed-fail)"; mk_gh_stub "$box44d" closed-fail
+retro44d="$(mk44 "$box44d")"
+run "$box44d" "$retro44d"
+if [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed) failed' <<<"$OUT" && ! grep -qE '^(untracked|shipped):' <<<"$OUT"; then
+  ok "44d closed-issue query failure -> typed degraded + exit 1 (no untracked/shipped)" "(exit $RC)"
+else
+  no "44d closed fail" "exit=$RC out=[$OUT]"
+fi
+# 44e — cache path: --issues-cache + --closed-cache -> shipped, and gh is never called.
+box44e="$(mkbox case-closed-cache)"; mk_gh_stub "$box44e" nomatch
+retro44e="$(mk44 "$box44e")"
+printf '%s\n' 'Source retro: target-foo/retros/other.md · 7' > "$ROOT/open44e.txt"
+printf '%s\n' "$SIG44" > "$ROOT/closed44e.txt"
+: > "$box44e/bin/gh.log"
+run "$box44e" --issues-cache "$ROOT/open44e.txt" --closed-cache "$ROOT/closed44e.txt" "$retro44e"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && grep -q '^untracked: row 2 ' <<<"$OUT" && [ ! -s "$box44e/bin/gh.log" ]; then
+  ok "44e --closed-cache -> shipped without calling gh" "(exit $RC)"
+else
+  no "44e closed cache" "exit=$RC out=[$OUT] log=[$(cat "$box44e/bin/gh.log" 2>&1)]"
+fi
+# 44f — --issues-cache WITHOUT --closed-cache: the check cannot run; it says so (absent != no-match).
+run "$box44e" --issues-cache "$ROOT/open44e.txt" "$retro44e"
+if [ "$RC" = 0 ] && grep -q '^closed-lookup: skipped' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "44f --issues-cache alone -> closed-lookup skipped is stated, rows stay untracked" "(exit $RC)"
+else
+  no "44f skipped note" "exit=$RC out=[$OUT]"
+fi
+# 44g — an unreadable --closed-cache is degraded, not an empty closed set.
+run "$box44e" --issues-cache "$ROOT/open44e.txt" --closed-cache "$ROOT/does-not-exist44.txt" "$retro44e"
+if [ "$RC" = 1 ] && grep -q '^degraded: --closed-cache file not readable' <<<"$OUT" && ! grep -qE '^(untracked|shipped):' <<<"$OUT"; then
+  ok "44g unreadable --closed-cache -> typed degraded + exit 1" "(exit $RC)"
+else
+  no "44g closed cache unreadable" "exit=$RC out=[$OUT]"
+fi
+# 44h — a row WITH an open issue never queries closed issues (tracked wins, no extra gh call).
+box44h="$(mkbox case-closed-not-queried)"; mk_gh_stub "$box44h" tracked-row1
+retro44h="$(mk_retro "$box44h" target-foo r-tracked.md "<!-- review-status: pending -->" \
+  "| 1 | tracked delta | METHODOLOGY.md | B1 | new | HIGH |")"
+: > "$box44h/bin/gh.log"
+run "$box44h" "$retro44h"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1 ' <<<"$OUT" && ! grep -q -- '--state closed' "$box44h/bin/gh.log"; then
+  ok "44h tracked row -> no closed-issue query" "(exit $RC)"
+else
+  no "44h tracked no closed query" "exit=$RC out=[$OUT] log=[$(cat "$box44h/bin/gh.log" 2>&1)]"
+fi
+# 44j — closed query FILLS --limit (stub returns <limit> COMPLETED closed issues): possible truncation ->
+# typed degraded + exit 1, never a confident untracked/shipped.
+box44j="$(mkbox case-closed-cap)"; mk_gh_stub "$box44j" closed-fill
+retro44j="$(mk44 "$box44j")"
+RECONCILE_ISSUES_LIST_LIMIT=2 run "$box44j" "$retro44j"
+if [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed) returned 2 results = the --limit 2 cap' <<<"$OUT" && ! grep -qE '^(untracked|shipped):' <<<"$OUT"; then
+  ok "44j closed query filling --limit -> typed degraded + exit 1" "(exit $RC)"
+else
+  no "44j closed cap" "exit=$RC out=[$OUT]"
+fi
+# 44i — --all fleet-summary names the shipped count.
+box44i="$(mkbox case-closed-fleet)"; mk_gh_stub "$box44i" closed-completed "$SIG44"
+mk44 "$box44i" >/dev/null
+run "$box44i" --all
+if [ "$RC" = 0 ] && grep -qE '^fleet-summary: tracked=0 untracked=1 shipped=1 ' <<<"$OUT"; then
+  ok "44i --all fleet-summary carries shipped=1 (row 1 shipped, row 2 untracked)" "(exit $RC)"
+else
+  no "44i fleet shipped" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
   # (c) shipped branch demoted below the status branch -> 43e row 1 reads the status reason instead.
@@ -2106,6 +2245,61 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "T1519-d teeth: SUT issuing gh issue close is recorded by the stub log (43d has teeth)" "()"
     else no "T1519-d teeth: a closing SUT must be visible to 43d" "43d is THEATER: log=[$(cat "$mk43/bin/gh.log" 2>&1)] out=[$OUT]"; fi
   else no "T1519-d: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
+
+  # ---- kit issue #1555 teeth (closed issue citing the retro -> shipped) — mutants built with lib/mutant.sh ----
+  # tooth1555 <label> <box-name> <stub-mode> <expr> <expect>
+  #   Builds the mutant from ONE sed expr (mutant_chain: a dead stage is refused), runs the 44 retro against
+  #   the stub mode, and requires: exit 0, the typed bite line, and NO crash signature. <expect> is
+  #   `untracked1` (row 1 reads untracked, never shipped), `shipped1` (row 1 wrongly reads shipped) or
+  #   `silent` (the cache-path closed-lookup note is gone).
+  tooth1555() {
+    local label="$1" bn="$2" mode="$3" expr="$4" expect="$5" mb mr
+    echo "-- teeth $label --"
+    mb="$(mkbox "teeth-1555-$bn")"; mk_gh_stub "$mb" "$mode" "$SIG44"
+    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
+      fail=$((fail+1)); return 0
+    fi
+    mr="$(mk44 "$mb")"
+    case "$expect" in
+      silent)
+        printf '%s\n' 'Source retro: target-foo/retros/other.md · 7' > "$ROOT/open1555-$bn.txt"
+        run "$mb" --issues-cache "$ROOT/open1555-$bn.txt" "$mr" ;;
+      *) run "$mb" "$mr" ;;
+    esac
+    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+      no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
+    fi
+    case "$expect" in
+      untracked1) if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "$label teeth: mutant loses the shipped reading (case 44 has teeth)" "()"
+                  else no "$label teeth" "case 44 is THEATER: rc=$RC out=[$OUT]"; fi ;;
+      shipped1)   if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "$label teeth: mutant reads a not-completed closure as shipped (case 44b has teeth)" "()"
+                  else no "$label teeth" "case 44b is THEATER: rc=$RC out=[$OUT]"; fi ;;
+      silent)     if [ "$RC" = 0 ] && ! grep -q '^closed-lookup: skipped' <<<"$OUT"; then ok "$label teeth: mutant drops the skipped note (case 44f has teeth)" "()"
+                  else no "$label teeth" "case 44f is THEATER: rc=$RC out=[$OUT]"; fi ;;
+    esac
+  }
+  tooth1555 T1555-a shipped-check closed-completed \
+    's/^\(        if \)\[ -n "\$_closed_row_ids" \] && grep -qxF "\$_rid" <<<"\$_closed_row_ids"; then  # RECONCILE-CLOSED-SHIPPED$/\1false; then  # RECONCILE-CLOSED-SHIPPED/' untracked1
+  tooth1555 T1555-b completed-filter closed-notplanned \
+    's/if \.stateReason == "COMPLETED" then \.body else "" end/.body/' shipped1
+  tooth1555 T1555-c closed-state closed-completed \
+    's/^\(        --state \)closed \\$/\1open \\/' untracked1
+  tooth1555 T1555-d skip-note closed-completed \
+    's/echo "closed-lookup: skipped/: "closed-lookup: skipped/' silent
+  tooth1555 T1555-e swallowed-failure closed-fail \
+    's/"\$_sig_prefix" \${_legacy_prefix:+"\$_legacy_prefix"})" || return 1$/"$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"})" || :/' untracked1
+  # T1555-f: the closed cap guard miscounts (-ge -> -gt): a reply that exactly fills --limit reads as complete.
+  echo "-- teeth T1555-f --"
+  mbf="$(mkbox teeth-1555-cap)"; mk_gh_stub "$mbf" closed-fill
+  if mutant_chain T1555-f "$SUT" "$mbf/research-sdd/toolbelt/reconcile-issues.sh" \
+       '/^_fetch_closed_bodies() {/,/^}/s/\[ "\$_n" -ge "\$_LIST_LIMIT" \]/[ "$_n" -gt "$_LIST_LIMIT" ]/'; then
+    RECONCILE_ISSUES_LIST_LIMIT=2 run "$mbf" "$(mk44 "$mbf")"
+    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+      no "T1555-f teeth" "the mutant CRASHED: out=[$OUT]"
+    elif [ "$RC" = 0 ] && ! grep -q '^degraded: gh issue list (closed) returned' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT"; then
+      ok "T1555-f teeth: miscounted cap guard -> no typed degraded, confident untracked (case 44j has teeth)" "()"
+    else no "T1555-f teeth" "case 44j is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
 fi
 
 echo "== $pass passed · $fail failed =="

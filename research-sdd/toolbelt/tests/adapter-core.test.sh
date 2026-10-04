@@ -520,16 +520,12 @@ PYEOF
   # (ast_check.py exits 0 on a SyntaxError, so an unparseable mutant would otherwise read as teeth).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  declare -F mutant_py_replace >/dev/null \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_py_replace" >&2; exit 2; }
   _ANCHOR=$'        refuse_privileged_execution()\n        if args.worker: return worker(args)'
-  # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW.
-  _ac_mutant() {
-    local c; c="$(cat "$_FC")"
-    [[ "$c" == *"$_ANCHOR"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
-    printf '%s\n' "${c/"$_ANCHOR"/"$2"}" > "$3"
-    MUTANT_SYNTAX=none mutant_built "$1" "$_FC" "$3" >&2 || return 3
-    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$3" 2>/dev/null \
-      || { echo "mutant $1 is not valid Python" >&2; rm -f "$3"; return 3; }
-  }
+  # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW through the
+  # shared lib/mutant.sh builder (rc 2 = anchor absent, rc 3 = refused / not valid Python).
+  _ac_mutant() { mutant_py_replace "$1" "$_FC" "$_ANCHOR" "$2" "$3"; }
   # _ac_tooth LABEL NEW OUT OKMSG NOMSG -- build the mutant, then ast_check.py must REJECT it (exit 0).
   _ac_tooth() {
     local bout

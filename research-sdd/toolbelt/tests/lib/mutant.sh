@@ -21,6 +21,38 @@
 #                                        and check it with mutant_built. Multi-line EXPRs (c\ / a\) work.
 #   mutant_built  LABEL ORIG OUT           mutant_verify for a mutant built another way (awk, python3,
 #                                        bash surgery), with the failure reported in suite format
+#   mutant_py_replace LABEL ORIG OLD NEW OUT
+#                                        the shared builder for a Python-SUT mutant: replace the FIRST
+#                                        literal OLD in ORIG with NEW (multi-line OK), write OUT, then
+#                                        mutant_built's checks under MUTANT_SYNTAX=none plus a python3
+#                                        compile() of OUT. Placement is checked BEFORE the write, so a
+#                                        symlink / live-tree OUT is never written through. rc 0 ok ·
+#                                        rc 2 setup failure (ORIG unreadable, empty OLD, OLD absent from
+#                                        ORIG) · rc 3 refused (OLD == NEW, placement or content refusal,
+#                                        python3 missing, not valid Python); a refused OUT is removed
+#                                        and the reason goes to STDERR, not stdout (unlike mutant_chain).
+#   mutant_or_count COUNTER CMD [ARGS...]
+#                                        runs CMD and, when it returns non-zero, adds exactly ONE to the
+#                                        caller's variable COUNTER (any scope the caller can see; an
+#                                        unset COUNTER starts at 0), then returns CMD's rc unchanged. A
+#                                        COUNTER that is not an identifier, starts with the helper's
+#                                        reserved `_moc_` prefix, or is not a number is a loud
+#                                        `  FAIL  mutant_or_count: ...` and rc 2 without running CMD.
+#   mutant_chain_or_count COUNTER LABEL ORIG OUT EXPR...   mutant_or_count COUNTER mutant_chain ...
+#   mutant_built_or_count COUNTER LABEL ORIG OUT           mutant_or_count COUNTER mutant_built ...
+#                                        the count-once contract in one place: a call site cannot
+#                                        forget, or double, the `else fail=$((fail+1))` branch.
+#   mutant_cleanup_register PATH         register an ABSOLUTE path (not / ) for `rm -rf --` at shell
+#                                        exit. One registry, one EXIT trap: the first call chains
+#                                        whatever EXIT trap already exists (`_mutant_cleanup_run; <old>`)
+#                                        and later calls only append, so a suite never installs (and
+#                                        never replaces) a trap itself. A trap the suite re-installed
+#                                        after a registration is re-chained on the next call. A refused
+#                                        path (empty, relative, /) is rc 2 and never registered. The
+#                                        chained trap restores the exiting status in $? before a pre-
+#                                        existing trap runs, so that trap still sees the real status. A
+#                                        caller's own trap must be installed BEFORE the first
+#                                        registration or be followed by another registration.
 #   mutant_tooth  LABEL GOOD_RC BAD_RC MUTANT [--orig P] [--good-has RE] [--good-lacks RE]
 #                 [--bad-has RE] [--bad-lacks RE] -- ARGV...
 #                                        runs ARGV on the original ('@SUT@' in any ARGV word is replaced
@@ -217,6 +249,88 @@ mutant_built() {
     printf '  FAIL  %s: mutant refused by lib/mutant.sh (rc=%d) :: %s\n' "$label" "$rc" "$err"
   fi
   return "$rc"
+}
+
+# mutant_py_replace LABEL ORIG OLD NEW OUT — see header.
+mutant_py_replace() {
+  local label="$1" orig="$2" old="$3" new="$4" out="$5" c
+  if [ ! -f "$orig" ] || [ ! -r "$orig" ]; then
+    echo "MUTANT-SETUP-FAIL: $label: original '$orig' is not a readable file" >&2; return 2
+  fi
+  if [ -z "$old" ]; then
+    echo "MUTANT-SETUP-FAIL: $label: empty anchor -- an empty OLD matches everywhere" >&2; return 2
+  fi
+  c="$(cat "$orig")"
+  [[ "$c" == *"$old"* ]] || { echo "MUTANT-SETUP-FAIL: $label: anchor not found -- SUT changed?" >&2; return 2; }
+  if [ "$old" = "$new" ]; then
+    echo "mutant $label: OLD and NEW are identical -- the mutation cannot apply" >&2; return 3
+  fi
+  # Placement BEFORE the write: a symlink or live-tree OUT must never be written through.
+  if [ "$orig" -ef "$out" ]; then
+    _mutant_refuse "OUT and ORIG are the same path ('$out'); never overwrite the SUT"; return 3
+  fi
+  _mutant_check_out "$orig" "$out" || return 3
+  printf '%s\n' "${c/"$old"/"$new"}" > "$out"
+  # Defense in depth: the checks above already make an empty / identical / misplaced OUT impossible.
+  MUTANT_SYNTAX=none mutant_built "$label" "$orig" "$out" >&2 || return 3
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "MUTANT-SETUP-FAIL: $label: degraded -- python3 not found, cannot syntax-check the mutant" >&2
+    rm -f -- "$out"; return 3
+  fi
+  # SENTINEL-PY-COMPILE
+  python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$out" 2>/dev/null \
+    || { echo "mutant $label is not valid Python" >&2; rm -f -- "$out"; return 3; }
+}
+
+# mutant_or_count COUNTER CMD [ARGS...] — see header.
+mutant_or_count() {
+  # The helper's own locals carry a reserved _moc_ prefix: ${!_moc_name} must resolve the CALLER's
+  # variable, so a counter named like a plain local (rc, c, counter) would otherwise be shadowed.
+  local _moc_name="${1:-}" _moc_rc
+  if [[ ! "$_moc_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ "$_moc_name" == _moc_* ]] || [ "$#" -lt 2 ]; then
+    printf '  FAIL  mutant_or_count: bad counter name or no command [%s]\n' "$_moc_name"; return 2
+  fi
+  if [[ ! "${!_moc_name:-0}" =~ ^[0-9]+$ ]]; then
+    printf '  FAIL  mutant_or_count: counter %s is not a number [%s]\n' "$_moc_name" "${!_moc_name}"; return 2
+  fi
+  shift
+  "$@"; _moc_rc=$?
+  # SENTINEL-COUNT-ONCE
+  if [ "$_moc_rc" -ne 0 ]; then printf -v "$_moc_name" '%d' $(( ${!_moc_name:-0} + 1 )); fi
+  return "$_moc_rc"
+}
+mutant_chain_or_count() { mutant_or_count "${1:-}" mutant_chain "${@:2}"; }
+mutant_built_or_count() { mutant_or_count "${1:-}" mutant_built "${@:2}"; }
+
+# _MUTANT_CLEANUP_PATHS is the one registry; _mutant_cleanup_run is the one cleaner.
+_MUTANT_CLEANUP_PATHS=()
+_mutant_cleanup_run() {
+  local p
+  for p in "${_MUTANT_CLEANUP_PATHS[@]+"${_MUTANT_CLEANUP_PATHS[@]}"}"; do
+    rm -rf -- "$p"
+  done
+}
+
+# mutant_cleanup_register PATH — see header.
+mutant_cleanup_register() {
+  local p="${1:-}" prev cmd=""
+  # An empty path is caught by the relative-path test (both sides of the comparison are empty).
+  if [ "${p#/}" = "$p" ] || [ "$p" = / ]; then
+    printf 'mutant_cleanup_register: REFUSED — path must be a non-empty absolute path other than / (got [%s])\n' "$p" >&2
+    return 2
+  fi
+  _MUTANT_CLEANUP_PATHS+=("$p")
+  # SENTINEL-CLEANUP-INSTALL
+  prev="$(trap -p EXIT)"
+  case "$prev" in
+    *_mutant_cleanup_run*) ;;   # already chained (and still in place): nothing to install
+    *)
+      if [ -n "$prev" ]; then eval "set -- $prev"; cmd="$3"; fi   # trap -p prints: trap -- 'CMD' EXIT
+      # shellcheck disable=SC2064,SC2154
+      # The status the script is exiting with is captured first and restored before the chained trap
+      # runs, so a trap that reads $? sees the real status, not the cleanup's.
+      trap "__mrc=\$?; _mutant_cleanup_run; (exit \"\$__mrc\")${cmd:+; $cmd}" EXIT ;;
+  esac
 }
 
 # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV... — see header.

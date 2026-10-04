@@ -348,7 +348,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+    && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth/mutant_cleanup_register" >&2; exit 2; }
   export MUTANT_SYNTAX=none   # python mutant: no bash -n
 
   # teeth-SAFE_R2: mutate SAFE_R2 by appending '-w' via .append() →
@@ -357,8 +358,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # as separate characters); '-w' never appears → teeth would stay GREEN.
   # Always use .append('-w') or += ['-w'] for this mutation.
   # corroborate_native.py imports lib/ from its own directory, so the mutant keeps a copy of it.
-  # The scratch dir is trap-cleaned on every path (the lane's own ROOT cleanup is kept).
-  _mut_dir="$(mktemp -d)"; trap 'rm -rf "$_mut_dir"; [ -z "${SHARED_OUT:-}" ] || rm -rf -- "$SHARED_OUT"; [ -z "${ROOT:-}" ] || rm -rf "$ROOT"' EXIT
+  # The scratch dir is cleaned on every path by the shared registry, which chains (never replaces)
+  # the lane's own EXIT trap (SHARED_OUT / ROOT cleanup).
+  _mut_dir="$(mktemp -d)"; mutant_cleanup_register "$_mut_dir"
   cat > "$_mut_dir/harness.py" <<'PY'
 import sys, importlib.util, pathlib
 spec = importlib.util.spec_from_file_location("corroborate_native_under_test", pathlib.Path(sys.argv[1]).resolve())

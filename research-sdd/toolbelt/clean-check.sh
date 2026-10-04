@@ -14,13 +14,14 @@
 #                                         when a byte-identical copy already sits under sources/probes/): evidence about
 #                                         to be lost - preserve it under sources/probes/b<N>/ first
 #   (d) UNMANIFESTED-SCRIPT <file>        (kit #1207) a scratchpad script (sh ps1 py java js rb pl bat cmd
-#                                         groovy kts) whose basename is not the FIRST table cell of any row of
+#                                         groovy kts) whose basename is not the FIRST table cell of any VALID row (2nd cell = 64-hex sha256) of
 #                                         <TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md (exact match)
 #   Scratchpad state is never a silent zero: unset -> summary `scratchpad: not set`; configured but missing
 #   -> a typed `ABSENT-SCRATCHPAD <path>` line + `scratchpad: absent`; otherwise `scratchpad: N file(s)`.
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
-# Exit: 0 clean · 1 findings · 2 usage / not a git work tree / absent dir / scan failure ·
-#       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured).
+# Exit: 0 clean · 1 findings · 2 usage / not a git work tree / absent dir / scan failure (every scan, manifests and probes included) ·
+#       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured; or no sha256sum/shasum, the
+#         preserved-copy check was skipped: typed DEGRADED-NO-SHA256 line + a `degraded` summary, exit 3 when otherwise clean, findings still win with 1).
 # propose-never-apply: this script never deletes, moves, or writes anything.
 
 set -uo pipefail
@@ -50,6 +51,22 @@ REQUIRED_TOOLS="git find date sort id stat"   # the single list: the probe below
 for _tool in $REQUIRED_TOOLS; do
   command -v "$_tool" >/dev/null 2>&1 || { printf 'clean-check: DEGRADED: %s not found on PATH; nothing was measured\n' "$_tool" >&2; exit 3; }
 done
+
+# kit #1659: the one shared SCRIPTS-MANIFEST row parser; fail closed when it cannot be loaded.
+# Resolved from THIS script's own directory with symlinks followed (BASH_SOURCE), never the caller's cwd or a lib/
+# beside a symlink.
+_src="${BASH_SOURCE[0]}"; _n=0
+while [ -L "$_src" ] && [ "$_n" -lt 40 ]; do   # CC-LIB-RESOLVE
+  _n=$((_n + 1)); _lt="$(readlink -- "$_src")" || { _err "cannot read symlink $_src"; exit 2; }
+  case "$_lt" in /*) _src="$_lt" ;; *) _d="${_src%/*}"; [ "$_d" = "$_src" ] && _d=.; _src="$_d/$_lt" ;; esac
+done
+_d="${_src%/*}"; [ "$_d" = "$_src" ] && _d=.
+_HERE="$(cd -P -- "$_d" 2>/dev/null && pwd -P)" || { _err "cannot resolve the script directory of $_src"; exit 2; }
+_SMLIB="$_HERE/lib/scripts-manifest.sh"
+[ -f "$_SMLIB" ] || { _err "cannot find helper $_SMLIB"; exit 2; }
+# shellcheck source=lib/scripts-manifest.sh
+. "$_SMLIB"
+declare -F scripts_manifest_rows >/dev/null 2>&1 || { _err "helper lib/scripts-manifest.sh failed to define scripts_manifest_rows"; exit 2; }
 
 OWNER_UID="${CLEAN_CHECK_UID:-}"
 if [ -z "$OWNER_UID" ]; then OWNER_UID="$(id -u 2>/dev/null)" || OWNER_UID=""; fi
@@ -120,7 +137,7 @@ _kept() {
   return 1
 }
 
-FINDINGS=0
+FINDINGS=0; DEGRADED=0
 [ "$KEEP_PRESENT" = 1 ] || printf 'ABSENT-KEEPLIST %s\n' "$KEEP_FILE"
 
 # ---- (a) untracked, non-ignored files --------------------------------------------------------
@@ -253,11 +270,12 @@ if [ -n "$SCRATCH_P" ]; then
         printf 'RC=%s\0' "$?"
       )
       _mlast=$(( ${#_mf[@]} - 1 ))
-      { [ "$_mlast" -ge 0 ] && [ "${_mf[$_mlast]}" = "RC=0" ]; } || { printf 'clean-check: DEGRADED: manifest scan failed under %s/sources/probes; UNMANIFESTED-SCRIPT not evaluated\n' "$TARGET_P" >&2; exit 3; }   # CC-MF-RC
+      { [ "$_mlast" -ge 0 ] && [ "${_mf[$_mlast]}" = "RC=0" ]; } || { _err "manifest scan failed under $TARGET_P/sources/probes; UNMANIFESTED-SCRIPT not evaluated"; exit 2; }   # CC-MF-RC
       for ((_j = 0; _j < _mlast; _j++)); do
-        # first cell of each table row, backticks/blanks stripped, directory part dropped: matched EXACTLY below
-        _o="$(awk -F'|' '/^[[:space:]]*\|/ { a = $2; gsub(/[`[:space:]]/, "", a); n = split(a, q, "/"); if (q[n] != "") print q[n] }' "${_mf[$_j]}")" \
-          || { _err "cannot read manifest ${_mf[$_j]}"; exit 2; }
+        # kit #1659: the shared parser (lib/scripts-manifest.sh) yields the VALID rows (64-hex sha cell); the
+        # basename of each resolved path is matched EXACTLY below. A parse failure is a failed scan (exit 2).
+        _rows="$(scripts_manifest_rows "$TARGET_P" "${_mf[$_j]}")" || { _err "cannot parse manifest ${_mf[$_j]}"; exit 2; }   # CC-MF-PARSE
+        _o="$(awk -F'\t' 'NF { n = split($1, q, "/"); if (q[n] != "") print q[n] }' <<<"$_rows")" || { _err "cannot read parsed manifest rows of ${_mf[$_j]}"; exit 2; }
         _mf_names="$_mf_names"$'\n'"$_o"
       done
     fi
@@ -272,12 +290,15 @@ if [ -n "$SCRATCH_P" ]; then
         printf 'RC=%s\0' "$?"
       )
       _plast=$(( ${#_pl[@]} - 1 ))
-      { [ "$_plast" -ge 0 ] && [ "${_pl[$_plast]}" = "RC=0" ]; } || { printf 'clean-check: DEGRADED: probes scan failed under %s/sources/probes; preserved copies not evaluated\n' "$TARGET_P" >&2; exit 3; }
+      { [ "$_plast" -ge 0 ] && [ "${_pl[$_plast]}" = "RC=0" ]; } || { _err "probes scan failed under $TARGET_P/sources/probes; preserved copies not evaluated"; exit 2; }   # CC-PB-RC
       for ((_j = 0; _j < _plast; _j++)); do
         _probe_shas="$_probe_shas"$'\n'"$($_sha_cmd -- "${_pl[$_j]}" 2>/dev/null | cut -d' ' -f1)"
       done
     fi
-    [ -n "$_sha_cmd" ] || printf 'DEGRADED-NO-SHA256 %s\n' "preserved-copy check skipped (no sha256sum/shasum on PATH)"
+    if [ -z "$_sha_cmd" ]; then   # CC-NO-SHA
+      printf 'DEGRADED-NO-SHA256 %s\n' "preserved-copy check skipped (no sha256sum/shasum on PATH)"
+      DEGRADED=1
+    fi
     for ((_i = 0; _i < _slast; _i++)); do
       _f="${_sf[$_i]}"; _b="${_f##*/}"
       _citer=""
@@ -315,7 +336,12 @@ fi
 
 # ---- summary ---------------------------------------------------------------------------------
 _scanned="untracked in $TARGET, tmp.* in $TMPD older than ${STALE_H}h, keep-list entries: $KEEP_N, scratchpad: $SCRATCH_STATE"
+if [ "$DEGRADED" -eq 1 ]; then _scanned="$_scanned, degraded: preserved-copy check skipped"; fi
 if [ "$FINDINGS" -eq 0 ]; then
+  if [ "$DEGRADED" -eq 1 ]; then   # CC-DEGRADED-EXIT: a run that could not check everything never reads as clean
+    printf 'CLEAN-CHECK: degraded (%s)\n' "$_scanned"
+    exit 3
+  fi
   printf 'CLEAN-CHECK: clean (%s)\n' "$_scanned"
   exit 0
 fi

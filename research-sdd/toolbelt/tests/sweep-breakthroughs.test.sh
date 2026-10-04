@@ -793,6 +793,87 @@ else
   no "38 last-line :$ln38 exact pointer → clean, no WARN" "exit=$RC out=[$OUT]"
 fi
 
+# 39 — F1 (#948): the drift pass compares the pointer's LINE, not just the file. A ledger pointer
+# at a line that does not carry the marker (block still has it at :5) is drift against the ledger row.
+kit="$(mkkit c39-drift-line)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n\nMore.\n' > "$tgt/pfx-block1.md"
+ln39=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:7\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '^Summary:' <<<"$OUT" \
+   && grep -q 'WARN: drift — indexed line does not carry' <<<"$OUT" \
+   && grep -q '1 drifted' <<<"$OUT"; then
+  ok "39 stale pointer :7 (marker at :$ln39) → drift against the ledger row" "(exit $RC)"
+else
+  no "39 stale pointer :7 (marker at :$ln39) → drift against the ledger row" "exit=$RC out=[$OUT]"
+fi
+
+# 40 — F2 (#948): two pointers in ONE ledger cell are all indexed (pre-fix: only the first).
+kit="$(mkkit c40-two-pointers)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"; mkblock_tagged "$tgt" "pfx-block2.md"
+ln40=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln40\` and \`$tgt/pfx-block2.md:$ln40\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '2 tagged' <<<"$OUT" && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT" && ! grep -q 'WARN' <<<"$OUT"; then
+  ok "40 two pointers in one cell → both blocks indexed, no WARN" "(exit $RC)"
+else
+  no "40 two pointers in one cell → both blocks indexed, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 41 — F3 (#948): a block with two markers is indexed when the ledger points at the SECOND one.
+kit="$(mkkit c41-second-marker)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt/pfx-block1.md"
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:9\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '1 tagged' <<<"$OUT" && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT" && ! grep -q 'WARN' <<<"$OUT"; then
+  ok "41 two markers, ledger points at the second → clean" "(exit $RC)"
+else
+  no "41 two markers, ledger points at the second → clean" "exit=$RC out=[$OUT]"
+fi
+
+# 42 — F3 (#948): two markers, ledger points at neither → exactly one unindexed WARN naming the first.
+kit="$(mkkit c42-two-markers-none)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt/pfx-block1.md"
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '1 unindexed' <<<"$OUT" \
+   && grep -q "WARN: unindexed.*pfx-block1.md:5\$" <<<"$OUT"; then
+  ok "42 two markers, none indexed → one unindexed WARN at the first marker" "(exit $RC)"
+else
+  no "42 two markers, none indexed → one unindexed WARN at the first marker" "exit=$RC out=[$OUT]"
+fi
+
+# 43 — R3 (#948): a block whose marker scan fails (grep rc>1) is skipped LOUDLY: a typed WARN line, a
+# `skipped-unreadable` count in the Summary, and no "Ledger consistent" claim. A grep shim makes the
+# failure deterministic for any uid (chmod 000 would not bite as root); it fails only for the named file.
+SHIM="$ROOT/shim-bin"; mkdir -p "$SHIM"
+REAL_GREP="$(type -P grep)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *unreadable-block1.md) exit 2;; esac; done\nexec %s "$@"\n' "$REAL_GREP" > "$SHIM/grep"
+chmod +x "$SHIM/grep"
+kit="$(mkkit c43-unreadable)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"; mkblock_tagged "$tgt" "unreadable-block1.md"
+ln43=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln43\` | k |"
+OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q '^Summary:' <<<"$OUT" \
+   && grep -q "^WARN: block file unreadable, marker scan skipped: .*unreadable-block1.md\$" <<<"$OUT" \
+   && grep -q '1 skipped-unreadable' <<<"$OUT" && grep -q '1 tagged' <<<"$OUT" \
+   && ! grep -q 'Ledger consistent' <<<"$OUT"; then
+  ok "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "(exit $RC)"
+else
+  no "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -905,12 +986,11 @@ mkblock_tagged "$tgt" "pfx-block1.md"
 ln=$(tagged_lineno "$tgt/pfx-block1.md")
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
-# Mutation: replace grep Breakthrough check with 'false' (never matches)
-# Only the 'if grep -qE ... "$bf"' line is replaced (keeping its '; then'): the old open-ended
-# 's/grep -qE.*Breakthrough.*/false/' also ate the '; then' and produced an unparseable SUT, so the
-# tooth "passed" on a crash. The elif sibling keeps its real grep, so the mutant is valid bash.
-if mutate_sut "no-marker-grep" 's/^\( *\)if grep -qE .* "\$bf" 2>\/dev\/null; then$/\1if false; then/'; then
-  # Exactly ONE line may differ from the SUT (the anchored 'if grep -qE ... "$bf"' line, never the elif sibling).
+# Mutation: replace the marker-found test (the grep status check) with 'false' (never tagged)
+# Only the 'if [ "$grc" -eq 0 ]; then' line is replaced (keeping its '; then'), so the mutant stays
+# valid bash; the scan itself still runs, only its verdict is discarded.
+if mutate_sut "no-marker-grep" 's/^\( *\)if \[ "\$grc" -eq 0 \]; then$/\1if false; then/'; then
+  # Exactly ONE line may differ from the SUT (the anchored 'if [ "$grc" -eq 0 ]' line).
   m4_changed="$(diff "$SUT" "$mutant" | grep -c '^>')"
   if [ "$m4_changed" -ne 1 ]; then
     mut_no "M4 no-marker-grep mutant must change exactly one line" "changed=$m4_changed"
@@ -1183,6 +1263,81 @@ if [ "$RC_SAB12" -eq 0 ] \
   mut_no "M12 sabotage: crash passes positive assertion (theater NOT blocked)"
 else
   mut_ok "M12 sabotage: crash blocked by RC=0 guard (theater blocked)" "(RC=$RC_SAB12)"
+fi
+
+# M13: F2 revert — while-loop over pointers back to a single if → case 40 (two pointers) goes RED.
+echo "-- M13: first-pointer-only ledger parse → case 40 detects unindexed WARN --"
+mut_kit_m13="$(mkkit m13-first-ptr)"; tgt_m13="$mut_kit_m13/targetA"
+mkblock_tagged "$tgt_m13" "pfx-block1.md"; mkblock_tagged "$tgt_m13" "pfx-block2.md"
+ln_m13=$(tagged_lineno "$tgt_m13/pfx-block1.md")
+write_targets "$mut_kit_m13" "$tgt_m13"
+write_breakthroughs "$mut_kit_m13" "| 1 | tgt | w | \`$tgt_m13/pfx-block1.md:$ln_m13\` and \`$tgt_m13/pfx-block2.md:$ln_m13\` | k |"
+if mutate_sut "first-pointer-only" 's/while (match(rest,/if (match(rest,/'; then
+  run_mutant "$mut_kit_m13" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '1 unindexed' <<<"$OUT"; then
+    mut_ok "M13 first-pointer-only → case 40 goes RED (block2 unindexed)" "(1 unindexed on mutant)"
+  else mut_no "M13 first-pointer-only → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+
+# M14: F1 revert — per-line check disabled → case 39 (stale :7 pointer) goes RED (0 drifted).
+echo "-- M14: drift per-line check disabled → case 39 detects missing drift WARN --"
+mut_kit_m14="$(mkkit m14-no-line-check)"; tgt_m14="$mut_kit_m14/targetA"
+mkdir -p "$tgt_m14"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n\nMore.\n' > "$tgt_m14/pfx-block1.md"
+write_targets "$mut_kit_m14" "$tgt_m14"
+write_breakthroughs "$mut_kit_m14" "| 1 | tgt | w | \`$tgt_m14/pfx-block1.md:7\` | k |"
+if mutate_sut "no-line-check" 's/if ! grep -qE .*<<<"\$ptext"; then/if false; then/'; then
+  run_mutant "$mut_kit_m14" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '0 drifted' <<<"$OUT" \
+     && ! grep -q 'indexed line does not carry' <<<"$OUT"; then
+    mut_ok "M14 no-line-check → case 39 goes RED (0 drifted on mutant)" "(drift WARN absent)"
+  else mut_no "M14 no-line-check → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+
+# M15: F3 revert — only the first marker considered → case 41 (ledger at second marker) goes RED.
+echo "-- M15: first-marker-only scan → case 41 detects unindexed WARN --"
+mut_kit_m15="$(mkkit m15-first-marker)"; tgt_m15="$mut_kit_m15/targetA"
+mkdir -p "$tgt_m15"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt_m15/pfx-block1.md"
+write_targets "$mut_kit_m15" "$tgt_m15"
+write_breakthroughs "$mut_kit_m15" "| 1 | tgt | w | \`$tgt_m15/pfx-block1.md:9\` | k |"
+if mutate_sut "first-marker-only" 's/\[ -n "\$first_lineno" \] || first_lineno="\$mlineno"/first_lineno="${first_lineno:-$mlineno}"; [ "$mlineno" = "$first_lineno" ] || continue/'; then
+  run_mutant "$mut_kit_m15" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '1 unindexed' <<<"$OUT"; then
+    mut_ok "M15 first-marker-only → case 41 goes RED (second marker unindexed)" "(1 unindexed on mutant)"
+  else mut_no "M15 first-marker-only → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+
+# M16/M17: R3 — the unreadable-block branch. Both mutants run under the grep shim from case 43 and are
+# keyed on the typed output (WARN line / Summary field), never on the exit code.
+run_mutant_shim() { # kit mutant
+  cp "$2" "$1/toolbelt/sweep-breakthroughs.sh"
+  OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+}
+echo "-- M16: unreadable WARN silenced → case 43 detects missing typed line --"
+mut_kit_m16="$(mkkit m16-silent-unreadable)"; tgt_m16="$mut_kit_m16/targetA"
+mkblock_tagged "$tgt_m16" "pfx-block1.md"; mkblock_tagged "$tgt_m16" "unreadable-block1.md"
+ln_m16=$(tagged_lineno "$tgt_m16/pfx-block1.md")
+write_targets "$mut_kit_m16" "$tgt_m16"
+write_breakthroughs "$mut_kit_m16" "| 1 | tgt | w | \`$tgt_m16/pfx-block1.md:$ln_m16\` | k |"
+if mutate_sut "silence-unreadable-warn" 's/echo "WARN: block file unreadable/: "WARN: block file unreadable/'; then
+  run_mutant_shim "$mut_kit_m16" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q 'WARN: block file unreadable' <<<"$OUT"; then
+    mut_ok "M16 silenced unreadable WARN → case 43 goes RED (typed line absent)" "(WARN absent on mutant)"
+  else mut_no "M16 silenced unreadable WARN → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+echo "-- M17: unreadable counter dropped → case 43 detects 0 skipped-unreadable --"
+mut_kit_m17="$(mkkit m17-no-unreadable-count)"; tgt_m17="$mut_kit_m17/targetA"
+mkblock_tagged "$tgt_m17" "pfx-block1.md"; mkblock_tagged "$tgt_m17" "unreadable-block1.md"
+ln_m17=$(tagged_lineno "$tgt_m17/pfx-block1.md")
+write_targets "$mut_kit_m17" "$tgt_m17"
+write_breakthroughs "$mut_kit_m17" "| 1 | tgt | w | \`$tgt_m17/pfx-block1.md:$ln_m17\` | k |"
+if mutate_sut "drop-unreadable-counter" 's/skipped_unreadable=\$((skipped_unreadable + 1))/:/'; then
+  run_mutant_shim "$mut_kit_m17" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '0 skipped-unreadable' <<<"$OUT" \
+     && ! grep -q '1 skipped-unreadable' <<<"$OUT"; then
+    mut_ok "M17 dropped unreadable counter → case 43 goes RED (Summary shows 0)" "(0 skipped-unreadable on mutant)"
+  else mut_no "M17 dropped unreadable counter → mutation not detected" "rc=$RC out=[$OUT]"; fi
 fi
 
 total_fail=$(( fail + mut_fail ))
