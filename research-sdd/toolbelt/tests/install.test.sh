@@ -427,13 +427,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth-a: mutant produced $mut_a_count block(s); expected >=2" \
            "file=$(cat "$target_a" 2>/dev/null)"
       fi
-      # Confirm original still produces exactly 1
-      [ "$start_count" -eq 1 ] \
-        && ok "teeth-a: original still produces exactly 1 block (control confirmed)" \
-        || no "teeth-a: original control count changed" "start_count=$start_count"
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original still produces exactly 1
+    [ "$start_count" -eq 1 ] \
+      && ok "teeth-a: original still produces exactly 1 block (control confirmed)" \
+      || no "teeth-a: original control count changed" "start_count=$start_count"
   else
     no "teeth-a: SENTINEL-IDEMPOTENT not found in SUT (cannot anchor mutation)"
   fi
@@ -464,25 +466,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth-b: mutant did NOT write file — dry guard may not be load-bearing"
       fi
-
-      # Confirm original with dry=1 does NOT write.
-      target_b_orig="$TMP/bashrc-orig-b"
-      splice_script_b_orig="$TMP/test-splice-orig-b.sh"
-      printf '%s\n' \
-        '#!/usr/bin/env bash' \
-        'set -uo pipefail' \
-        "source \"$SUT\"" \
-        "dry=1" \
-        "splice_marker \"$target_b_orig\" 'export TEST_DRY=1'" \
-        > "$splice_script_b_orig"
-      bash "$splice_script_b_orig" >/dev/null 2>&1
-      if [ ! -f "$target_b_orig" ]; then
-        ok "teeth-b: original with dry=1 does NOT write file (control confirmed)"
-      else
-        no "teeth-b: original wrote file with dry=1 (dry guard broken in SUT)"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original with dry=1 does NOT write.
+    target_b_orig="$TMP/bashrc-orig-b"
+    splice_script_b_orig="$TMP/test-splice-orig-b.sh"
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -uo pipefail' \
+      "source \"$SUT\"" \
+      "dry=1" \
+      "splice_marker \"$target_b_orig\" 'export TEST_DRY=1'" \
+      > "$splice_script_b_orig"
+    bash "$splice_script_b_orig" >/dev/null 2>&1
+    if [ ! -f "$target_b_orig" ]; then
+      ok "teeth-b: original with dry=1 does NOT write file (control confirmed)"
+    else
+      no "teeth-b: original wrote file with dry=1 (dry guard broken in SUT)"
     fi
   else
     no "teeth-b: SENTINEL-DRY-RUN not found in SUT (cannot anchor mutation)"
@@ -515,28 +518,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth-c: mutant did not call sudo_n — apt dry guard may not be load-bearing"
       fi
-
-      # Confirm original with dry=1 does NOT call sudo_n.
-      sudo_log_c_orig="$TMP/sudo-log-c-orig.txt"
-      apt_dry_orig="$TMP/test-apt-orig-c.sh"
-      printf '%s\n' \
-        '#!/usr/bin/env bash' \
-        'set -uo pipefail' \
-        "source \"$SUT\"" \
-        "dry=1" \
-        "sudo_log_c_orig=\"$sudo_log_c_orig\"" \
-        'sudo_n() { printf "called: %s\n" "$*" >> "$sudo_log_c_orig"; return 100; }' \
-        'apt_have() { return 1; }' \
-        "apt_install 'fake-pkg' || true" \
-        > "$apt_dry_orig"
-      bash "$apt_dry_orig" >/dev/null 2>&1 || true
-      if [ ! -f "$sudo_log_c_orig" ] || [ "$(wc -l < "$sudo_log_c_orig")" -eq 0 ]; then
-        ok "teeth-c: original with dry=1 does NOT call sudo_n (control confirmed)"
-      else
-        no "teeth-c: original called sudo_n with dry=1 (apt dry guard broken in SUT)"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original with dry=1 does NOT call sudo_n.
+    sudo_log_c_orig="$TMP/sudo-log-c-orig.txt"
+    apt_dry_orig="$TMP/test-apt-orig-c.sh"
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -uo pipefail' \
+      "source \"$SUT\"" \
+      "dry=1" \
+      "sudo_log_c_orig=\"$sudo_log_c_orig\"" \
+      'sudo_n() { printf "called: %s\n" "$*" >> "$sudo_log_c_orig"; return 100; }' \
+      'apt_have() { return 1; }' \
+      "apt_install 'fake-pkg' || true" \
+      > "$apt_dry_orig"
+    bash "$apt_dry_orig" >/dev/null 2>&1 || true
+    if [ ! -f "$sudo_log_c_orig" ] || [ "$(wc -l < "$sudo_log_c_orig")" -eq 0 ]; then
+      ok "teeth-c: original with dry=1 does NOT call sudo_n (control confirmed)"
+    else
+      no "teeth-c: original called sudo_n with dry=1 (apt dry guard broken in SUT)"
     fi
   else
     no "teeth-c: SENTINEL-APT-DRY not found in SUT (cannot anchor mutation)"
@@ -599,21 +603,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth-e: mutant wrote 0 files — pdf dry guard may not be load-bearing"
       fi
-
-      # Confirm original with --dry-run --with-pdf writes 0 files.
-      pdf_scratch_orig="$TMP/pdf-scratch-orig-e"
-      pdf_kit_orig="$TMP/pdf-kit-orig-e"
-      mkdir -p "$pdf_scratch_orig" "$pdf_kit_orig"
-      HOME="$pdf_scratch_orig" bash "$SUT" --dry-run --with-pdf \
-        --home "$pdf_kit_orig" --harness claude >/dev/null 2>&1 || true
-      orig_e_count="$(find "$pdf_scratch_orig" "$pdf_kit_orig" -mindepth 1 | wc -l)"
-      if [ "$orig_e_count" -eq 0 ]; then
-        ok "teeth-e: original --dry-run --with-pdf writes 0 files (control confirmed)"
-      else
-        no "teeth-e: original wrote ${orig_e_count} file(s) under --dry-run --with-pdf (SENTINEL-PDF-DRY broken)"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original with --dry-run --with-pdf writes 0 files.
+    pdf_scratch_orig="$TMP/pdf-scratch-orig-e"
+    pdf_kit_orig="$TMP/pdf-kit-orig-e"
+    mkdir -p "$pdf_scratch_orig" "$pdf_kit_orig"
+    HOME="$pdf_scratch_orig" bash "$SUT" --dry-run --with-pdf \
+      --home "$pdf_kit_orig" --harness claude >/dev/null 2>&1 || true
+    orig_e_count="$(find "$pdf_scratch_orig" "$pdf_kit_orig" -mindepth 1 | wc -l)"
+    if [ "$orig_e_count" -eq 0 ]; then
+      ok "teeth-e: original --dry-run --with-pdf writes 0 files (control confirmed)"
+    else
+      no "teeth-e: original wrote ${orig_e_count} file(s) under --dry-run --with-pdf (SENTINEL-PDF-DRY broken)"
     fi
   else
     no "teeth-e: SENTINEL-PDF-DRY not found in SUT (cannot anchor mutation)"
@@ -653,34 +658,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth-f: mutant still has ORPHAN_MID — orphan skip guard may not be load-bearing" \
            "$(cat "$orphan_f" 2>/dev/null)"
       fi
-
-      # Confirm original preserves ORPHAN_MID after two runs.
-      orphan_f_orig="$TMP/bashrc-orphan-f-orig"
-      printf '%s\n' \
-        'BEFORE_F=1' \
-        '# research-sdd:start' \
-        'ORPHAN_MID=1' \
-        'AFTER_F=2' \
-        > "$orphan_f_orig"
-      orphan_f_orig_script="$TMP/test-splice-orig-f.sh"
-      printf '%s\n' \
-        '#!/usr/bin/env bash' \
-        'set -uo pipefail' \
-        "source \"$SUT\"" \
-        "dry=0" \
-        "f=\"$orphan_f_orig\"" \
-        "splice_marker \"\$f\" 'export MUT_F=1' || true" \
-        "splice_marker \"\$f\" 'export MUT_F=1' || true" \
-        > "$orphan_f_orig_script"
-      bash "$orphan_f_orig_script" >/dev/null 2>&1 || true
-      if grep -qF 'ORPHAN_MID=1' "$orphan_f_orig" 2>/dev/null; then
-        ok "teeth-f: original preserves ORPHAN_MID after two runs (control confirmed)"
-      else
-        no "teeth-f: original lost ORPHAN_MID — orphan skip guard broken in SUT" \
-           "$(cat "$orphan_f_orig" 2>/dev/null)"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original preserves ORPHAN_MID after two runs.
+    orphan_f_orig="$TMP/bashrc-orphan-f-orig"
+    printf '%s\n' \
+      'BEFORE_F=1' \
+      '# research-sdd:start' \
+      'ORPHAN_MID=1' \
+      'AFTER_F=2' \
+      > "$orphan_f_orig"
+    orphan_f_orig_script="$TMP/test-splice-orig-f.sh"
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -uo pipefail' \
+      "source \"$SUT\"" \
+      "dry=0" \
+      "f=\"$orphan_f_orig\"" \
+      "splice_marker \"\$f\" 'export MUT_F=1' || true" \
+      "splice_marker \"\$f\" 'export MUT_F=1' || true" \
+      > "$orphan_f_orig_script"
+    bash "$orphan_f_orig_script" >/dev/null 2>&1 || true
+    if grep -qF 'ORPHAN_MID=1' "$orphan_f_orig" 2>/dev/null; then
+      ok "teeth-f: original preserves ORPHAN_MID after two runs (control confirmed)"
+    else
+      no "teeth-f: original lost ORPHAN_MID — orphan skip guard broken in SUT" \
+         "$(cat "$orphan_f_orig" 2>/dev/null)"
     fi
   else
     no "teeth-f: SENTINEL-ORPHAN-SKIP not found in SUT (cannot anchor mutation)"
@@ -719,17 +725,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth-g: mutant did not report AVAILABLE: 4 — anchor may not be load-bearing" \
            "got: $mut_g_line"
       fi
-
-      # Confirm original still reports 3 AVAILABLE (control).
-      if <<<"$summary_out8" grep -qF 'AVAILABLE: 3'; then
-        ok "teeth-g: original reports AVAILABLE: 3 (control confirmed; legend excluded)"
-      else
-        orig_g_line="$(printf '%s' "$summary_out8" | grep 'SUMMARY' || true)"
-        no "teeth-g: original does not report AVAILABLE: 3 (SUT anchor broken)" \
-           "got: $orig_g_line"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original still reports 3 AVAILABLE (control).
+    if <<<"$summary_out8" grep -qF 'AVAILABLE: 3'; then
+      ok "teeth-g: original reports AVAILABLE: 3 (control confirmed; legend excluded)"
+    else
+      orig_g_line="$(printf '%s' "$summary_out8" | grep 'SUMMARY' || true)"
+      no "teeth-g: original does not report AVAILABLE: 3 (SUT anchor broken)" \
+         "got: $orig_g_line"
     fi
   else
     no "teeth-g: SENTINEL-GREP-AV-ANCHOR not found in SUT (cannot anchor mutation)"
@@ -768,16 +775,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth-h: mutant did not report BASELINE OK exit 0 — deploy-failure guard may not be load-bearing" \
            "rc=$mut_h_rc summary=$mut_h_line"
       fi
-
-      # Confirm original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control).
-      if [ "$summary_rc9" -ne 0 ] && <<<"$summary_out9" grep -q 'BASELINE DEGRADED'; then
-        ok "teeth-h: original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control confirmed)"
-      else
-        no "teeth-h: original SUT control failed — fix not in place?" \
-           "rc=$summary_rc9 summary=$(printf '%s' "$summary_out9" | grep 'SUMMARY' || true)"
-      fi
     else
-      fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
+    fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
+    # Confirm original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control).
+    if [ "$summary_rc9" -ne 0 ] && <<<"$summary_out9" grep -q 'BASELINE DEGRADED'; then
+      ok "teeth-h: original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control confirmed)"
+    else
+      no "teeth-h: original SUT control failed — fix not in place?" \
+         "rc=$summary_rc9 summary=$(printf '%s' "$summary_out9" | grep 'SUMMARY' || true)"
     fi
   else
     no "teeth-h: SENTINEL-SKILL-DEPLOY not found in SUT (cannot anchor mutation)"

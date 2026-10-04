@@ -399,7 +399,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Every sed mutant of the SUT is built through lib/mutant.sh (mutant_chain): a stage that matches
   # nothing, an empty/byte-identical/invalid-bash mutant and a live-tree or symlink OUT are refused.
   # A refused build prints its own FAIL line, is counted exactly once (the else branch of its
-  # `if mutant_chain`), and its tooth never runs. The observations are kept as they were (they read
+  # `if mutant_chain`; the helper only prints), and its tooth never runs. The observations are kept as they were (they read
   # the report/cache file or the exit code the base test asserts on); the exit-2 teeth additionally
   # assert the typed `unknown tool "X"` stderr line so a crash that happens to exit 2 is not a bite.
   # The two lib shims (teeth-il, teeth-h) override a lib function and symlink the SUT — not a sed
@@ -427,7 +427,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-1: mutant must exit 0 for absent tool" "mutant rc=$rc_m1"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-2 (targets test d): mutant replaces PROBE_FAILED with MISSING everywhere.
@@ -450,7 +450,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "stderr=[$(cat "$stderr_m2" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-3 (targets test f): MUT2 (PROBE_FAILED→MISSING globally) run against test-f setup.
@@ -530,7 +530,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-i: mutant must create .research-tools.txt in cwd" "(file absent)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-k (targets test k): mutant restores silent write (|| true) → exits 0 on failure
@@ -555,7 +555,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-k: mutant must exit 0 (write error swallowed)" "mutant rc=$rc_mk"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -652,13 +652,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUTL" --cache "$ROOT/cache-ml.txt" --quiet --require bwrap \
       >/dev/null 2>"$ROOT/err-rc_ml.txt" || rc_ml=$?
-    if [ "$rc_ml" -eq 2 ] && grep -qxE '.*: --require: unknown tool "bwrap" — not in known set' "$ROOT/err-rc_ml.txt"; then
+    if [ "$rc_ml" -eq 2 ] && grep -qF 'unknown tool "bwrap" — not in known set' "$ROOT/err-rc_ml.txt"; then
       ok "teeth-l: unmapped-bwrap mutant exits 2 — test-l bites" "(mutant rc=2)"
     else
       no "teeth-l: mutant must exit 2 for unmapped bwrap" "mutant rc=$rc_ml (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ml.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-m (targets test m): mutant deletes the bwrap report row.
@@ -677,7 +677,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-n (targets test n): mutant removes the [ hex ] section header.
@@ -697,7 +697,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep '\[ hex \]' "$CACHE_MN" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-o (targets test o): mutant removes the krak2 row.
@@ -717,7 +717,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -738,7 +738,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep 'deliverable' "$CACHE_MP" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-q (targets test q): mutant removes the latex row.
@@ -757,7 +757,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep '^  latex ' "$CACHE_MQ" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-r (targets test r): mutant drops latex from require_label → exit 2.
@@ -770,13 +770,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUTR" --cache "$ROOT/cache-mr.txt" --quiet --require latex \
       >/dev/null 2>"$ROOT/err-rc_mr.txt" || rc_mr=$?
-    if [ "$rc_mr" -eq 2 ] && grep -qxE '.*: --require: unknown tool "latex" — not in known set' "$ROOT/err-rc_mr.txt"; then
+    if [ "$rc_mr" -eq 2 ] && grep -qF 'unknown tool "latex" — not in known set' "$ROOT/err-rc_mr.txt"; then
       ok "teeth-r: latex removed from require_label → exit 2 — test-r bites" "(mutant rc=2)"
     else
       no "teeth-r: mutant must exit 2 for unmapped latex" "mutant rc=$rc_mr (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mr.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-s (targets test s): mutant drops circuitikz from require_label → exit 2.
@@ -789,13 +789,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUTS" --cache "$ROOT/cache-ms.txt" --quiet --require circuitikz \
       >/dev/null 2>"$ROOT/err-rc_ms.txt" || rc_ms=$?
-    if [ "$rc_ms" -eq 2 ] && grep -qxE '.*: --require: unknown tool "circuitikz" — not in known set' "$ROOT/err-rc_ms.txt"; then
+    if [ "$rc_ms" -eq 2 ] && grep -qF 'unknown tool "circuitikz" — not in known set' "$ROOT/err-rc_ms.txt"; then
       ok "teeth-s: circuitikz removed from require_label → exit 2 — test-s bites" "(mutant rc=2)"
     else
       no "teeth-s: mutant must exit 2 for unmapped circuitikz" "mutant rc=$rc_ms (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ms.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -842,13 +842,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUT_T1" --cache "$ROOT/cache-mt1.txt" --quiet --require capinfos \
       >/dev/null 2>"$ROOT/err-rc_mt1.txt" || rc_mt1=$?
-    if [ "$rc_mt1" -eq 2 ] && grep -qxE '.*: --require: unknown tool "capinfos" — not in known set' "$ROOT/err-rc_mt1.txt"; then
+    if [ "$rc_mt1" -eq 2 ] && grep -qF 'unknown tool "capinfos" — not in known set' "$ROOT/err-rc_mt1.txt"; then
       ok "teeth-t1: capinfos removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
     else
       no "teeth-t1: mutant must exit 2 for unmapped capinfos" "mutant rc=$rc_mt1 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt1.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t2 (targets test t): mutant drops unsquashfs from require_label.
@@ -861,13 +861,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUT_T2" --cache "$ROOT/cache-mt2.txt" --quiet --require unsquashfs \
       >/dev/null 2>"$ROOT/err-rc_mt2.txt" || rc_mt2=$?
-    if [ "$rc_mt2" -eq 2 ] && grep -qxE '.*: --require: unknown tool "unsquashfs" — not in known set' "$ROOT/err-rc_mt2.txt"; then
+    if [ "$rc_mt2" -eq 2 ] && grep -qF 'unknown tool "unsquashfs" — not in known set' "$ROOT/err-rc_mt2.txt"; then
       ok "teeth-t2: unsquashfs removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
     else
       no "teeth-t2: mutant must exit 2 for unmapped unsquashfs" "mutant rc=$rc_mt2 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt2.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t3 (targets test t): mutant drops pwsh from require_label.
@@ -880,13 +880,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUT_T3" --cache "$ROOT/cache-mt3.txt" --quiet --require pwsh \
       >/dev/null 2>"$ROOT/err-rc_mt3.txt" || rc_mt3=$?
-    if [ "$rc_mt3" -eq 2 ] && grep -qxE '.*: --require: unknown tool "pwsh" — not in known set' "$ROOT/err-rc_mt3.txt"; then
+    if [ "$rc_mt3" -eq 2 ] && grep -qF 'unknown tool "pwsh" — not in known set' "$ROOT/err-rc_mt3.txt"; then
       ok "teeth-t3: pwsh removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
     else
       no "teeth-t3: mutant must exit 2 for unmapped pwsh" "mutant rc=$rc_mt3 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt3.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t4 (targets test t): mutant drops ezdxf from require_label.
@@ -899,13 +899,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUT_T4" --cache "$ROOT/cache-mt4.txt" --quiet --require ezdxf \
       >/dev/null 2>"$ROOT/err-rc_mt4.txt" || rc_mt4=$?
-    if [ "$rc_mt4" -eq 2 ] && grep -qxE '.*: --require: unknown tool "ezdxf" — not in known set' "$ROOT/err-rc_mt4.txt"; then
+    if [ "$rc_mt4" -eq 2 ] && grep -qF 'unknown tool "ezdxf" — not in known set' "$ROOT/err-rc_mt4.txt"; then
       ok "teeth-t4: ezdxf removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
     else
       no "teeth-t4: mutant must exit 2 for unmapped ezdxf" "mutant rc=$rc_mt4 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt4.txt" 2>/dev/null)]"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-u (targets test u): mutant drops the capinfos row from report().
@@ -924,7 +924,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 

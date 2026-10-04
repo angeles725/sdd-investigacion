@@ -539,6 +539,8 @@ if [ "$PROVE_TEETH" = 1 ]; then
   # runs. The SUTs here are Markdown, so MUTANT_SYNTAX=none (no language-native syntax check exists
   # for them). The observations are kept: each tooth still runs the SAME assert_* function the base
   # test calls (or the same grep anchor) on the mutant copy.
+  # The inner `sed did not take (no teeth)` greps below are now defensive only: mutant_chain already
+  # refuses an unchanged mutant, so they cannot be reached on a refused build.
   MUTANT_SYNTAX=none
   export MUTANT_SYNTAX
   # shellcheck source=lib/mutant.sh
@@ -557,7 +559,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A1: A1 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A1-neg: inject 'the 5 markers' → A1-neg check must go RED.
@@ -570,7 +572,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       no "teeth-A1-neg: mutant does NOT have 'the 5 markers' — sed did not take (no teeth)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A10: remove 'HOT-CORE' → A10 must go RED.
@@ -583,7 +585,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A10: A10 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A11: replace 'kaitai-struct-compiler' → A11 must go RED.
@@ -596,7 +598,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A11: A11 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A12a: remove propose-never-apply from toolchain routing only → A12a RED, A12b stays GREEN.
@@ -609,7 +611,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A12a: A12a assertion goes RED on mutant (toolchain routing mutation)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A12b: remove propose-never-apply from tool-cataloging only → A12b RED, A12a stays GREEN.
@@ -622,7 +624,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A12b: A12b assertion goes RED on mutant (tool-cataloging mutation)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A13: replace 'Dynamic is recommended' → A13 must go RED.
@@ -635,7 +637,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A13: A13 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A14: inject 'guarantees the cadence' → A14 negative check must go RED.
@@ -648,7 +650,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       no "teeth-A14: mutant does NOT have 'guarantees the cadence' — sed did not take (no teeth)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth A15: replace 're-invoker is already active' → A15 must go RED.
@@ -661,7 +663,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-A15: A15 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth B1a: remove 'dynamic self-paced, no interval' → B1 must go RED (first condition fails).
@@ -674,7 +676,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-B1a: B1 assertion goes RED on mutant (dynamic-label removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth B1b: remove '/loop 5m  <paste' → B1 must go RED (second condition fails).
@@ -687,7 +689,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-B1b: B1 assertion goes RED on mutant (5m fallback removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth B2: replace 'Do NOT issue ScheduleWakeup' → B2 must go RED.
@@ -700,7 +702,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-B2: B2 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth B3: replace 'CronDelete' → B3 must go RED.
@@ -713,7 +715,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-B3: B3 assertion goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: METHODOLOGY.md mutants for campaign assertions C1-C3 --"
@@ -728,7 +730,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C1: assert_C1 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C2: replace 'no entry is `pending` or `active`' anchor → assert_C2 must go RED.
@@ -741,7 +743,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C2: assert_C2 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C3: replace 'campaign-bound-reached:' → assert_C3 must go RED.
@@ -754,7 +756,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C3: assert_C3 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C4: replace 'Teardown runs at campaign STOP' → assert_C4 must go RED.
@@ -767,7 +769,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C4: assert_C4 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: METHODOLOGY.md mutants for bounds assertions C5-C8 --"
@@ -782,7 +784,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C5: assert_C5 goes RED on mutant (wall-clock bracket removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C6: replace depth anchor → C6 must go RED.
@@ -795,7 +797,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C6: assert_C6 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C7: replace 'campaign_stop: campaign-bound-reached:' → C7 must go RED.
@@ -808,7 +810,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C7: assert_C7 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C8: mutate 'enqueued=<N>' → 'enqueued=N' (remove angle brackets) — breaks grammar.
@@ -821,7 +823,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C8: assert_C8 goes RED on mutant (enqueued angle brackets removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: PROMPT-LOOP + METHODOLOGY + SKILL mutants for C9-C14 --"
@@ -836,7 +838,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C9: assert_C9 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C10: replace resume anchor → C10 must go RED.
@@ -849,7 +851,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C10: assert_C10 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C11a: replace 'campaign_started:' → C11 compound assertion must go RED.
@@ -862,7 +864,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C11a: assert_C11 goes RED on mutant (campaign_started removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C11b: replace 'campaign_iterations:' → C11 compound assertion must go RED.
@@ -875,7 +877,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C11b: assert_C11 goes RED on mutant (campaign_iterations removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C12: replace 'Single-focus corpora' → C12 must go RED.
@@ -888,7 +890,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C12: assert_C12 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C13: replace '`rejected`' in METHODOLOGY → C13 must go RED.
@@ -901,7 +903,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C13: assert_C13 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C14: replace 'do not ask which mode' in SKILL → C14 must go RED.
@@ -914,7 +916,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C14: assert_C14 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C15: replace 'A RUN ends only on campaign STOP' → C15 must go RED.
@@ -927,7 +929,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C15: assert_C15 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C16 (absence): inject stale text → assert_C16 must return 1 (text found = fail).
@@ -940,7 +942,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C16: assert_C16 goes RED on mutant (stale text injected)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C17 (absence): inject stale text → assert_C17 must return 1 (text found = fail).
@@ -953,7 +955,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C17: assert_C17 goes RED on mutant (stale text injected)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: C18/C19 mutants --"
@@ -968,7 +970,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C18: assert_C18 goes RED on mutant"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth C19 (absence): inject 'signal "continue"' → assert_C19 must return 1.
@@ -981,7 +983,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-C19: assert_C19 goes RED on mutant (stale text injected)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: D1 mutant (inject live pending row into template copy) --"
@@ -997,7 +999,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-D1: assert_D1 goes RED on mutant (live Campaign queue heading injected)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_built's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   echo "-- teeth: E1/E2 mutants (seal anchor, stale phrase, situational sections) --"
@@ -1012,7 +1014,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-E1a: E1a assertion goes RED on mutant (anchor removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth E1b: inject 'OPT-IN selective seal' into METHODOLOGY → E1b must go RED.
@@ -1025,7 +1027,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       no "teeth-E1b: mutant does NOT have 'OPT-IN selective seal' — sed did not take (no teeth)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth E1c: inject 'OPT-IN selective seal' into PROMPT-LOOP → E1c must go RED.
@@ -1038,7 +1040,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       no "teeth-E1c: mutant does NOT have 'OPT-IN selective seal' — sed did not take (no teeth)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth E2a: replace '§7b' with '§7X' in PROMPT-LOOP → E2a must go RED.
@@ -1051,7 +1053,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-E2a: E2a assertion goes RED on mutant (§7b removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # Teeth E2b: replace '§11a' with '§11X' in PROMPT-LOOP → E2b must go RED.
@@ -1064,7 +1066,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
       ok "teeth-E2b: E2b assertion goes RED on mutant (§11a removed)"
     fi
   else
-    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
+    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
