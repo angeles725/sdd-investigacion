@@ -345,11 +345,49 @@ else
   [ "${1:-}" = "--prove-teeth" ] || exit 0
 fi
 
-# --- teeth: pre-fix (wide-scan) mutant must leak prose, proving case 1b bites ---
+# --- teeth: every mutant is built through lib/mutant.sh (refuses empty / identical / syntax-broken /
+# live-tree mutants) and every tooth is a mutant_tooth with EXACT good/bad exit codes plus a typed line
+# on BOTH runs, so a crashing mutant (wrong rc) is THEATER, not teeth. The mutants live under $ROOT
+# (mktemp -d, trap-cleaned above), never beside the SUT.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+for _fn in mutant_chain mutant_built mutant_tooth; do
+  declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+done
+# shellcheck disable=SC2034  # read by mutant_tooth (default original) in lib/mutant.sh
+SUT="$LIB"
+# mk LABEL OUT EXPR... — sed-build a mutant of $LIB (each EXPR must change the SUT on its own); a refusal
+# records one FAIL (printed by the helper) and returns 1 so the caller never runs a tooth on it.
+mk() {
+  local l="$1" out="$2"; shift 2
+  if mutant_chain "$l" "$LIB" "$out" "$@"; then
+    ok "$l (a): mutant differs from SUT"; ok "$l (b): mutant passes bash -n"; return 0
+  fi
+  fail=$((fail+1)); return 1
+}
+tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+# blk FILE START_FIXED END — "N,M" line range of ONE exact block: the single line containing START_FIXED
+# through the first later line containing END (END starting with '=' means a whole-line match of the rest).
+# Fails when START is absent or ambiguous or END is missing, so a deletion mutant never becomes open-ended.
+blk() {
+  awk -v s="$2" -v e="$3" '
+    index($0, s) { if (sl) dup = 1; else sl = NR }
+    sl && !el && NR >= sl { if (substr(e, 1, 1) == "=") { if ($0 == substr(e, 2)) el = NR } else if (index($0, e)) el = NR }
+    END { if (sl && el && !dup) print sl "," el; else exit 1 }' "$1"
+}
+# tnr_tt LABEL GOOD_RC BAD_RC MUTANT TARGETS RETRO HOME [tooth opts...] — target_name_for_retro on the
+# original vs the mutant. The tooth merges stderr into the checked output; rc is exact on both runs.
+tnr_tt() {
+  local l="$1" g="$2" b="$3" m="$4" t="$5" r="$6" h="$7"; shift 7
+  tt "$l" "$g" "$b" "$m" "$@" -- env RESEARCH_HOME="$h" "$BASH_BIN" --norc -c \
+    "set -uo pipefail; source '@SUT@'; target_name_for_retro \"\$1\" \"\$2\"" -- "$t" "$r"
+}
+
+# Teeth for case 1b: pre-fix (wide-scan) mutant must leak prose. Good run: table path only (rc 0);
+# mutant: rc 0 too, but the prose path appears — told apart by the typed line, not by rc.
 echo ""
 echo "-- teeth: wide-scan (pre-fix) mutant; expect prose path to leak in case 1b --"
-anchor='grep -E'
-if ! grep -qF "$anchor" "$LIB"; then
+if ! grep -qF 'grep -E' "$LIB"; then
   no "teeth: locate table-row filter in LIB" "anchor not found — LIB drifted?"
 else
   MUTANT="${ROOT}/tp-mutant.sh"
@@ -367,100 +405,67 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   }
 fi
 MUTANT_SRC
-  mut="$(call "$MUTANT" target_paths_all "$FX" 2>/dev/null)"
-  if grep -qF '/prose/should/not/appear' <<<"$mut"; then
-    ok "teeth: wide-scan mutant leaks prose (case 1b has teeth)"
-  else no "teeth: wide-scan mutant must leak prose (case 1b is THEATER)" "mut=[$mut]"; fi
+  if mutant_built "teeth: wide-scan mutant build" "$LIB" "$MUTANT"; then
+    tt "teeth: wide-scan mutant leaks prose (case 1b has teeth)" 0 0 "$MUTANT" \
+      --good-has '^/table/real/path$' --good-lacks '/prose/should/not/appear' \
+      --bad-has '^/prose/should/not/appear$' -- \
+      "$BASH_BIN" --norc -c "source '@SUT@'; target_paths_all \"\$1\"" -- "$FX"
+  else fail=$((fail+1)); fi
 fi
 
-# Teeth for cases 6 and 7: mutant restores the pre-fix silent-zero no-arg behavior.
-# Delete the SENTINEL-TP-ALL-NOARG block (the fix guard) from the lib;
-# with the guard gone the no-arg code falls through to the absent-file check which
-# emits "cannot read" (not "no argument"). Case 6's assertion requires "no argument"
-# in stderr, which the mutant lacks → case 6 goes RED → the guard bites.
-echo "-- teeth 6: no-arg guard for target_paths_all --"
-if ! grep -qF '# SENTINEL-TP-ALL-NOARG-START' "$LIB"; then
-  no "teeth 6: locate SENTINEL-TP-ALL-NOARG-START in LIB" "anchor not found — LIB drifted?"
-else
-  MUTANT_TP6="${ROOT}/tp-noarg-all-mutant.sh"
-  sed '/# SENTINEL-TP-ALL-NOARG-START/,/# SENTINEL-TP-ALL-NOARG-END/d' "$LIB" > "$MUTANT_TP6"
-  err_m6="$("$BASH_BIN" --norc -c "source '$MUTANT_TP6'; target_paths_all" 2>&1 >/dev/null)"
-  # Mutant exits non-zero (absent-file path fires) but says "cannot read", not "no argument".
-  if ! grep -q 'no argument' <<<"$err_m6"; then
-    ok "teeth 6: no-arg mutant lacks 'no argument' in stderr (case 6 has teeth)"
-  else no "teeth 6: mutant unexpectedly has 'no argument' — case 6 is THEATER" "err_m6=[$err_m6]"; fi
-fi
-
-echo "-- teeth 7: no-arg guard for target_paths_pairs --"
-if ! grep -qF '# SENTINEL-TP-PAIRS-NOARG-START' "$LIB"; then
-  no "teeth 7: locate SENTINEL-TP-PAIRS-NOARG-START in LIB" "anchor not found — LIB drifted?"
-else
-  MUTANT_TP7="${ROOT}/tp-noarg-pairs-mutant.sh"
-  sed '/# SENTINEL-TP-PAIRS-NOARG-START/,/# SENTINEL-TP-PAIRS-NOARG-END/d' "$LIB" > "$MUTANT_TP7"
-  err_m7="$("$BASH_BIN" --norc -c "source '$MUTANT_TP7'; target_paths_pairs" 2>&1 >/dev/null)"
-  if ! grep -q 'no argument' <<<"$err_m7"; then
-    ok "teeth 7: no-arg mutant lacks 'no argument' in stderr (case 7 has teeth)"
-  else no "teeth 7: mutant unexpectedly has 'no argument' — case 7 is THEATER" "err_m7=[$err_m7]"; fi
-fi
+# Teeth for cases 6 and 7: delete the exact SENTINEL-TP-*-NOARG block (the fix guard). Both runs exit 1
+# (the mutant falls through to the absent-file check): rc cannot tell them apart, the typed line does —
+# original says 'no argument', the mutant says 'cannot read'.
+for _t in "6 ALL all" "7 PAIRS pairs"; do
+  read -r _n _s _f <<<"$_t"
+  echo "-- teeth $_n: no-arg guard for target_paths_$_f --"
+  if ! _r="$(blk "$LIB" "# SENTINEL-TP-$_s-NOARG-START" "# SENTINEL-TP-$_s-NOARG-END")"; then
+    no "teeth $_n: locate exact SENTINEL-TP-$_s-NOARG block in LIB" "anchor missing or ambiguous — LIB drifted?"
+  elif mk "teeth $_n" "${ROOT}/tp-noarg-$_f-mutant.sh" "${_r}d"; then
+    tt "teeth $_n: no-arg mutant lacks 'no argument' in stderr (case $_n has teeth)" 1 1 \
+      "${ROOT}/tp-noarg-$_f-mutant.sh" --good-has 'no argument' \
+      --bad-has 'cannot read' --bad-lacks 'no argument' -- \
+      "$BASH_BIN" --norc -c "source '@SUT@'; target_paths_$_f"
+  fi
+done
 
 # Teeth for case 8: removing the rh%/ normalization must make // appear in the expanded path.
 echo "-- teeth 8: trailing-slash normalization for target_paths_all --"
 MUTANT_TP8="${ROOT}/tp-slash-mutant.sh"
-sed '/rh="\${rh%\/}"/d' "$LIB" > "$MUTANT_TP8"
-# (a) mutant must differ from SUT
-if ! diff -q "$LIB" "$MUTANT_TP8" >/dev/null 2>&1; then
-  ok "teeth 8 (a): mutant differs from SUT"
-else no "teeth 8 (a): sed did not change the file — mutant == SUT (theater)"; fi
-# (b) bash -n must pass on mutant
-_m8_bn_err=$(bash -n "$MUTANT_TP8" 2>&1); _m8_bn_rc=$?
-if [ "$_m8_bn_rc" -eq 0 ]; then
-  ok "teeth 8 (b): mutant passes bash -n"
-else no "teeth 8 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m8_bn_err]"; fi
-# (d) control: SUT gives correct path (no //); mutant introduces //
-out_m8_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
-if grep -qF '/rh-slash/sub-target' <<<"$out_m8_ctrl" && ! grep -qF '//' <<<"$out_m8_ctrl"; then
-  ok "teeth 8 (d) ctrl: SUT strips trailing slash (no // in expanded path)"
-else no "teeth 8 (d) ctrl: SUT output unexpected (case 8 premise broken)" "out=[$out_m8_ctrl]"; fi
-out_m8="$("$BASH_BIN" --norc -c "source '$MUTANT_TP8'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
-if grep -qF '//' <<<"$out_m8"; then
-  ok "teeth 8: no-norm mutant produces // in path (case 8 has teeth)"
-else no "teeth 8: mutant did not produce //; case 8 is THEATER" "out=[$out_m8]"; fi
+if mk "teeth 8" "$MUTANT_TP8" '/rh="\${rh%\/}"/d'; then
+  # control on the original, same artifact the case-8 assertion reads (stdout of target_paths_all)
+  out_m8_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
+  if grep -qF '/rh-slash/sub-target' <<<"$out_m8_ctrl" && ! grep -qF '//' <<<"$out_m8_ctrl"; then
+    ok "teeth 8 (d) ctrl: SUT strips trailing slash (no // in expanded path)"
+  else no "teeth 8 (d) ctrl: SUT output unexpected (case 8 premise broken)" "out=[$out_m8_ctrl]"; fi
+  tt "teeth 8: no-norm mutant produces // in path (case 8 has teeth)" 0 0 "$MUTANT_TP8" \
+    --good-has '^/rh-slash/sub-target$' --good-lacks '//' --bad-has '//' -- \
+    "$BASH_BIN" --norc -c "source '@SUT@'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8"
+fi
 
-# Teeth for case 9: replacing ENVIRON lookup with sub()-based expansion must corrupt '&' path.
+# Teeth for case 9: replacing the ENVIRON lookup with sub()-based expansion must corrupt a '&' path.
 echo "-- teeth 9: ENVIRON-based awk (no sub() & expansion) for target_paths_all --"
 MUTANT_TP9="${ROOT}/tp-amp-mutant.sh"
-# Mutant: replace substr()/length() pfx2 path with sub() using a char-class regex
-# ([$]RESEARCH_HOME[/] avoids \$ ambiguity); braces make it one compound statement
-# so the existing else branch stays syntactically valid.
-sed 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|' \
-  "$LIB" > "$MUTANT_TP9"
-# (a) mutant must differ from SUT
-if ! diff -q "$LIB" "$MUTANT_TP9" >/dev/null 2>&1; then
-  ok "teeth 9 (a): mutant differs from SUT"
-else no "teeth 9 (a): sed did not change the file — mutant == SUT (theater)"; fi
-# (b) bash -n must pass on mutant
-_m9_bn_err=$(bash -n "$MUTANT_TP9" 2>&1); _m9_bn_rc=$?
-if [ "$_m9_bn_rc" -eq 0 ]; then
-  ok "teeth 9 (b): mutant passes bash -n"
-else no "teeth 9 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m9_bn_err]"; fi
-# (c) injected awk must parse on empty input (rc 0); isolated from the full bash context
-_m9_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
-  || _m9_awk_rc=$?
-if [ "$_m9_awk_rc" -eq 0 ]; then
-  ok "teeth 9 (c): injected awk parses on empty input"
-else no "teeth 9 (c): injected awk has syntax error (crash-based theater)" "rc=$_m9_awk_rc"; fi
-# (d) control: SUT preserves & literally; mutant corrupts it via sub() & expansion
-out_m9_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
-if grep -qF '/rh&amp/path/tgt' <<<"$out_m9_ctrl"; then
-  ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
-else no "teeth 9 (d) ctrl: SUT does not preserve & (case 9 premise broken)" "out=[$out_m9_ctrl]"; fi
-out_m9="$("$BASH_BIN" --norc -c "source '$MUTANT_TP9'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
-# Positive verdict: the mutant must RUN and emit the specific &-corrupted path (a crash emits nothing).
-if grep -qF '/rh$RESEARCH_HOME/amp/path/tgt' <<<"$out_m9" && ! grep -qF '/rh&amp/path/tgt' <<<"$out_m9"; then
-  ok "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)"
-else no "teeth 9: mutant did not corrupt & path; case 9 is THEATER" "out=[$out_m9]"; fi
-# Sabotage: the old injection (no braces → orphan else) causes an awk syntax error → crash.
-# Assert assertion (c) catches it: the broken program must return non-zero on parse.
+# braces make the injected statement one compound statement so the existing else branch stays valid
+if mk "teeth 9" "$MUTANT_TP9" 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|'; then
+  # (c) injected awk must parse on empty input (rc 0); isolated from the full bash context
+  _m9_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
+    || _m9_awk_rc=$?
+  if [ "$_m9_awk_rc" -eq 0 ]; then
+    ok "teeth 9 (c): injected awk parses on empty input"
+  else no "teeth 9 (c): injected awk has syntax error (crash-based theater)" "rc=$_m9_awk_rc"; fi
+  out_m9_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
+  if grep -qF '/rh&amp/path/tgt' <<<"$out_m9_ctrl"; then
+    ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
+  else no "teeth 9 (d) ctrl: SUT does not preserve & (case 9 premise broken)" "out=[$out_m9_ctrl]"; fi
+  # the mutant must RUN (rc 0) and emit the specific &-corrupted path (a crash emits nothing)
+  tt "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)" 0 0 "$MUTANT_TP9" \
+    --good-has '^/rh&amp/path/tgt$' --bad-has '^/rh[$]RESEARCH_HOME/amp/path/tgt$' \
+    --bad-lacks '/rh&amp/path/tgt' -- \
+    "$BASH_BIN" --norc -c "source '@SUT@'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9"
+fi
+# Sabotage: the old injection (no braces → orphan else) is an awk syntax error → crash. Assertion (c)
+# must catch it: the broken program must return non-zero on parse.
 echo "-- teeth 9 sabotage: old broken-awk injection caught by assertion (c) --"
 _sab9_rc=0
 echo '' | awk 'BEGIN { rh="" }
@@ -475,97 +480,72 @@ if [ "$_sab9_rc" -ne 0 ]; then
   ok "teeth 9 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
 else no "teeth 9 sabotage: old broken awk parsed — sabotage detection ineffective"; fi
 
-# Teeth for target_name_for_retro (kit issue #1287): each mutant must (a) differ from the SUT,
-# (b) pass bash -n (no crash-based theater), and (c) flip the specific case that guards the
-# behavior it removes. tnr() reads $LIB, so the mutant is swapped in for one scenario at a time.
+# Teeth for target_name_for_retro (kit issue #1287): each mutant is vetted by lib/mutant.sh and must
+# flip the specific case that guards the behavior it removes — rc AND typed output asserted on BOTH runs.
 echo "-- teeth TNR: target_name_for_retro mutants --"
-LIB_ORIG="$LIB"
-# tnr_mutant <id> <sed-expr>: writes the mutant to $MUT_TNR (empty on a vacuous/invalid mutant).
-tnr_mutant() {
-  MUT_TNR="${ROOT}/tnr-mutant-$1.sh"
-  sed "$2" "$LIB_ORIG" > "$MUT_TNR"
-  if cmp -s "$LIB_ORIG" "$MUT_TNR"; then
-    no "teeth TNR-$1 (a): mutant differs from SUT" "sed changed nothing — vacuous mutant"; MUT_TNR=""; return 1
-  fi
-  if ! bash -n "$MUT_TNR" 2>/dev/null; then
-    no "teeth TNR-$1 (b): mutant passes bash -n" "syntax error — crash-based theater"; MUT_TNR=""; return 1
-  fi
-  ok "teeth TNR-$1 (a,b): mutant differs and parses"
-}
-
+M="${ROOT}/tnr-mutant"
 # TNR-1: keep walking after the first match -> OUTERMOST registered ancestor wins (case 14).
-if tnr_mutant 1 's|break 2   # SENTINEL-TNR-NEAREST.*|:|'; then
-  LIB="$MUT_TNR"; tnr "$TN14a" "$ri"; m_in="$TNR_OUT"; LIB="$LIB_ORIG"
-  if [ "$m_in" = outer-t ]; then ok "teeth TNR-1: outermost-ancestor mutant flips case 14 (has teeth)"
-  else no "teeth TNR-1: outermost-ancestor mutant must flip case 14" "inner retro resolved to [$m_in]"; fi
+if mk "teeth TNR-1" "$M-1.sh" 's|break 2   # SENTINEL-TNR-NEAREST.*|:|'; then
+  tnr_tt "teeth TNR-1: outermost-ancestor mutant flips case 14 (has teeth)" 0 0 "$M-1.sh" "$TN14a" "$ri" "$ROOT" \
+    --good-has '^inner-t$' --bad-has '^outer-t$' --bad-lacks '^inner-t$'
 fi
 # TNR-2: logical instead of physical paths (case 17).
-if tnr_mutant 2 's/cd -P/cd/g; s/pwd -P/pwd/g'; then
-  LIB="$MUT_TNR"; tnr "$TN17" "$N/link-t/retros/r.md"; m_s1="$TNR_OUT/$TNR_RC"; LIB="$LIB_ORIG"
-  if [ "$m_s1" != "sym-t/0" ]; then ok "teeth TNR-2: logical-path mutant flips case 17 (has teeth)"
-  else no "teeth TNR-2: logical-path mutant must flip case 17" "still resolved: [$m_s1]"; fi
+if mk "teeth TNR-2" "$M-2.sh" 's/cd -P/cd/g; s/pwd -P/pwd/g'; then
+  tnr_tt "teeth TNR-2: logical-path mutant flips case 17 (has teeth)" 0 2 "$M-2.sh" "$TN17" "$N/link-t/retros/r.md" "$ROOT" \
+    --good-has '^sym-t$' --bad-lacks '^sym-t$'
 fi
-# TNR-3: drop the absent/unreadable guard (case 19d: unreadable file keeps the 'cannot read' message).
-if tnr_mutant 3 '/if \[ ! -f "\$f" \] || \[ ! -r "\$f" \]; then/,/^    fi$/d'; then
-  if [ ! -r "$TN19d" ] || chmod 000 "$TN19d"; then
+# TNR-3: drop the absent/unreadable guard (case 19d: an unreadable file keeps the 'cannot read' message).
+if _r="$(blk "$LIB" 'if [ ! -f "$f" ] || [ ! -r "$f" ]; then' '=    fi')"; then
+  if mk "teeth TNR-3" "$M-3.sh" "${_r}d"; then
     chmod 000 "$TN19d"
     if [ ! -r "$TN19d" ]; then
-      LIB="$MUT_TNR"; tnr "$TN19d" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
-      if ! grep -qF 'cannot read' <<<"$TNR_ERR"; then ok "teeth TNR-3: guard-less mutant flips case 19d (has teeth)"
-      else no "teeth TNR-3: guard-less mutant must flip case 19d" "rc=$TNR_RC err=[$TNR_ERR]"; fi
+      tnr_tt "teeth TNR-3: guard-less mutant flips case 19d (has teeth)" 1 1 "$M-3.sh" "$TN19d" "$(mkretro "$N/middle")" "$ROOT" \
+        --good-has 'cannot read' --bad-lacks 'cannot read'
     else skip "teeth TNR-3: guard-less mutant vs case 19d" "chmod 000 still readable (running as root?) — mutant not exercised, NOT a pass"; fi
     chmod 600 "$TN19d"
   fi
-fi
+else no "teeth TNR-3: locate exact unreadable-file guard block in LIB" "anchor missing or ambiguous — LIB drifted?"; fi
 # TNR-4: drop the empty-pairs guard -> a registry with zero rows reads as a quiet no-match (19b/19c).
-if tnr_mutant 4 '/if \[ -z "\$pairs" \]; then/,/^    fi$/d'; then
-  LIB="$MUT_TNR"; tnr "$TN19c" "$(mkretro "$N/middle")"; LIB="$LIB_ORIG"
-  if ! grep -qi 'no registered target paths parsed' <<<"$TNR_ERR"; then ok "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)"
-  else no "teeth TNR-4: empty-pairs-guard mutant must flip case 19c" "rc=$TNR_RC err=[$TNR_ERR]"; fi
-fi
+if _r="$(blk "$LIB" 'if [ -z "$pairs" ]; then' '=    fi')"; then
+  if mk "teeth TNR-4" "$M-4.sh" "${_r}d"; then
+    tnr_tt "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)" 1 2 "$M-4.sh" "$TN19c" "$(mkretro "$N/middle")" "$ROOT" \
+      --good-has 'no registered target paths parsed' --bad-lacks 'no registered target paths parsed'
+  fi
+else no "teeth TNR-4: locate exact empty-pairs guard block in LIB" "anchor missing or ambiguous — LIB drifted?"; fi
 # TNR-5: ignore the name cell, always use the basename (cases 15 / 16c).
-if tnr_mutant 5 's#^    name="\$(_TP_RAW=.*#    name=""; arc=0#'; then
-  LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "$N"; m_p="$TNR_OUT"; LIB="$LIB_ORIG"
-  if [ "$m_p" = rhp ]; then ok "teeth TNR-5: basename-only mutant flips case 15 (has teeth)"
-  else no "teeth TNR-5: basename-only mutant must flip case 15" "resolved to [$m_p]"; fi
+if mk "teeth TNR-5" "$M-5.sh" 's#^    name="\$(_TP_RAW=.*#    name=""; arc=0#'; then
+  tnr_tt "teeth TNR-5: basename-only mutant flips case 15 (has teeth)" 0 0 "$M-5.sh" "$TN15" "$(mkretro "$N/rhp")" "$N" \
+    --good-lacks '^rhp$' --bad-has '^rhp$'
 fi
 # TNR-6: drop the whitespace WARN (case 16b).
-if tnr_mutant 6 '/contains whitespace and cannot be a label/d'; then
-  LIB="$MUT_TNR"; tnr "$TN16b" "$(mkretro "$N/spacename")"; LIB="$LIB_ORIG"
-  if ! grep -qi 'WARN' <<<"$TNR_ERR"; then ok "teeth TNR-6: WARN-less mutant flips case 16b (has teeth)"
-  else no "teeth TNR-6: WARN-less mutant must flip case 16b" "err=[$TNR_ERR]"; fi
+if mk "teeth TNR-6" "$M-6.sh" '/contains whitespace and cannot be a label/d'; then
+  tnr_tt "teeth TNR-6: WARN-less mutant flips case 16b (has teeth)" 0 0 "$M-6.sh" "$TN16b" "$(mkretro "$N/spacename")" "$ROOT" \
+    --good-has 'WARN' --bad-lacks 'WARN'
 fi
 # TNR-7: no-match returns 0 instead of 2 (case 18).
-if tnr_mutant 7 's/\[ "\$hit" -ge 0 \] || return 2/[ "$hit" -ge 0 ] || return 0/'; then
-  LIB="$MUT_TNR"; tnr "$TN1" "$(mkretro "$N/stranger")"; LIB="$LIB_ORIG"
-  if [ "$TNR_RC" != 2 ]; then ok "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)"
-  else no "teeth TNR-7: no-match-rc mutant must flip case 18" "rc=$TNR_RC"; fi
+if mk "teeth TNR-7" "$M-7.sh" 's/\[ "\$hit" -ge 0 \] || return 2/[ "$hit" -ge 0 ] || return 0/'; then
+  tnr_tt "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)" 2 0 "$M-7.sh" "$TN1" "$(mkretro "$N/stranger")" "$ROOT"
 fi
-
-# TNR-8: drop the no-resolving-path guard -> a wrong RESEARCH_HOME reads as rc 2 no-match (21a/21c).
-if tnr_mutant 8 '/SENTINEL-TNR-NODIR-START/,/SENTINEL-TNR-NODIR-END/d'; then
-  LIB="$MUT_TNR"; tnr "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"; m_rc="$TNR_RC"
-  tnr "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"; m_rc2="$TNR_RC"; LIB="$LIB_ORIG"
-  if [ "$m_rc" = 2 ] && [ "$m_rc2" = 2 ]; then ok "teeth TNR-8: no-dir-guard mutant flips cases 21a and 21d to rc 2 (has teeth)"
-  else no "teeth TNR-8: no-dir-guard mutant must flip cases 21a/21d" "21a rc=$m_rc 21d rc=$m_rc2"; fi
-fi
+# TNR-8: drop the no-resolving-path guard -> a wrong RESEARCH_HOME reads as rc 2 no-match (21a/21d).
+if _r="$(blk "$LIB" 'SENTINEL-TNR-NODIR-START' 'SENTINEL-TNR-NODIR-END')"; then
+  if mk "teeth TNR-8" "$M-8.sh" "${_r}d"; then
+    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21a to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
+    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21d to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
+  fi
+else no "teeth TNR-8: locate exact SENTINEL-TNR-NODIR block in LIB" "anchor missing or ambiguous — LIB drifted?"; fi
 # TNR-8b: drop the "$RESEARCH_HOME rows exist" scope -> an absolute-only ghost registry becomes rc 1 (21c).
-if tnr_mutant 8b 's/ && \[ "\$_tnr_has_rh" -eq 1 \]//'; then
-  LIB="$MUT_TNR"; tnr "$TN21c" "$(mkretro "$N/middle")"; m_rc3="$TNR_RC"; LIB="$LIB_ORIG"
-  if [ "$m_rc3" = 1 ]; then ok "teeth TNR-8b: unscoped no-dir guard flips case 21c to rc 1 (has teeth)"
-  else no "teeth TNR-8b: unscoped guard must flip case 21c" "rc=$m_rc3"; fi
+if mk "teeth TNR-8b" "$M-8b.sh" 's/ && \[ "\$_tnr_has_rh" -eq 1 \]//'; then
+  tnr_tt "teeth TNR-8b: unscoped no-dir guard flips case 21c to rc 1 (has teeth)" 2 1 "$M-8b.sh" "$TN21c" "$(mkretro "$N/middle")" "$ROOT"
 fi
 # TNR-9: select the row from the WHOLE line instead of the Path cell (case 22a).
-if tnr_mutant 9 's/index(\$4, want)/index($0, want)/'; then
-  LIB="$MUT_TNR"; tnr "$TN22" "$(mkretro "$N/last")"; m_n="$TNR_OUT"; LIB="$LIB_ORIG"
-  if [ "$m_n" = decoy-first ]; then ok "teeth TNR-9: whole-row-match mutant flips case 22a (has teeth)"
-  else no "teeth TNR-9: whole-row-match mutant must flip case 22a" "resolved to [$m_n]"; fi
+if mk "teeth TNR-9" "$M-9.sh" 's/index(\$4, want)/index($0, want)/'; then
+  tnr_tt "teeth TNR-9: whole-row-match mutant flips case 22a (has teeth)" 0 0 "$M-9.sh" "$TN22" "$(mkretro "$N/last")" "$ROOT" \
+    --good-lacks '^decoy-first$' --bad-has '^decoy-first$'
 fi
 # TNR-10: drop the backtick delimiters -> a path that prefixes another row's path matches it (22c).
-if tnr_mutant 10 's/want = "`" ENVIRON\["_TP_RAW"\] "`"/want = ENVIRON["_TP_RAW"]/'; then
-  LIB="$MUT_TNR"; tnr "$TN22c" "$(mkretro "$N/pfx")"; m_n="$TNR_OUT"; LIB="$LIB_ORIG"
-  if [ "$m_n" = long-one ]; then ok "teeth TNR-10: undelimited-match mutant flips case 22c (has teeth)"
-  else no "teeth TNR-10: undelimited-match mutant must flip case 22c" "resolved to [$m_n]"; fi
+if mk "teeth TNR-10" "$M-10.sh" 's/want = "`" ENVIRON\["_TP_RAW"\] "`"/want = ENVIRON["_TP_RAW"]/'; then
+  tnr_tt "teeth TNR-10: undelimited-match mutant flips case 22c (has teeth)" 0 0 "$M-10.sh" "$TN22c" "$(mkretro "$N/pfx")" "$ROOT" \
+    --good-has '^short-one$' --good-lacks '^long-one$' --bad-has '^long-one$'
 fi
 
 echo ""
