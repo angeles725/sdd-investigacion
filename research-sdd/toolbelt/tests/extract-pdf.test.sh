@@ -20,6 +20,13 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Loaded only by the --prove-teeth branches, so plain runs never depend on the helper.
+load_mutant() {
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+}
 
 echo "== extract-pdf.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -81,6 +88,7 @@ else
   fi
 
   if [ "${1:-}" = "--prove-teeth" ]; then
+    load_mutant
     # Teeth A: success-path stub + guard mutated to always return 1 → SUT must fail
     echo "-- teeth A: tier2_marker size-guard mutated to 'return 1'; success-stub must then fail --"
     cat > "$_stub_noop" <<'STUBEOF'
@@ -97,11 +105,9 @@ STUBEOF
     chmod +x "$_stub_noop"
 
     MUTANT_A="$TMP/extract-pdf.MUTANT-sz-A.sh"
-    sed '/^tier2_marker()/,/^tier2_docling()/ {
+    if ! mutant_chain "teeth-A" "$SUT" "$MUTANT_A" '/^tier2_marker()/,/^tier2_docling()/ {
       s/\[ -s "[$]2" \] && echo OK || return 1/return 1/
-    }' "$SUT" > "$MUTANT_A"
-
-    if ! grep -q 'return 1$' "$MUTANT_A"; then
+    }' || ! grep -q 'return 1$' "$MUTANT_A"; then
       no "teeth-A: could not build tier2_marker size-guard mutant"
     else
       _rcA=0
@@ -122,11 +128,9 @@ STUBEOF
     chmod +x "$_stub_noop"
 
     MUTANT_B="$TMP/extract-pdf.MUTANT-sz-B.sh"
-    sed '/^tier2_marker()/,/^tier2_docling()/ {
+    if ! mutant_chain "teeth-B" "$SUT" "$MUTANT_B" '/^tier2_marker()/,/^tier2_docling()/ {
       s/\[ -n "\$md" \] || { rm -rf "\$tmp"; return 1; }/: # NEUTERED md-guard/
-    }' "$SUT" > "$MUTANT_B"
-
-    if ! grep -q 'NEUTERED md-guard' "$MUTANT_B"; then
+    }' || ! grep -q 'NEUTERED md-guard' "$MUTANT_B"; then
       no "teeth-B: could not build [ -n \"\$md\" ] mutant"
     else
       _rcB=0
@@ -254,14 +258,15 @@ fi
 
 # ── Teeth: neuter IS_MOJIBAKE override → mojibake must then route to Tier 1 ──
 if [ "${1:-}" = "--prove-teeth" ]; then
+  load_mutant
   echo "-- teeth: neuter IS_MOJIBAKE override; expect Tier-1 method on mojibake fixture --"
   MUTANT="$TMP/extract-pdf.MUTANT.sh"
   # Pin IS_MOJIBAKE to 0 by replacing the final override line with a no-op.
   # The detector still runs but its conclusion never reaches the dispatch logic.
   # The address+substitution form replaces the entire matching LINE, avoiding the
   # partial-match trap where a substring replacement leaves an invalid prefix.
-  sed '/IS_MOJIBAKE.*HAS_TEXT=0/s/.*/: # NEUTERED mojibake override/' "$SUT" > "$MUTANT"
-  if ! grep -q 'NEUTERED mojibake override' "$MUTANT"; then
+  if ! mutant_chain "teeth" "$SUT" "$MUTANT" '/IS_MOJIBAKE.*HAS_TEXT=0/s/.*/: # NEUTERED mojibake override/' \
+     || ! grep -q 'NEUTERED mojibake override' "$MUTANT"; then
     no "teeth: could not build mutant (override line not found — did SUT change?)"
   else
     OUT_TEETH="$TMP/out-teeth.md"

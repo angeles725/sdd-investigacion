@@ -71,13 +71,18 @@ fi
 
 # --prove-teeth: mutation controls
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SOURCE" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: M1 mutation: revert binwalk entropy guard to || true → S4 must go red --"
   _m1="$ROOT/scan-firmware.M1.sh"
   # Revert the PIPESTATUS-guarded form back to bare '|| true'.
-  sed 's/|| { _sp=.*/|| true   # entropy/' "$SOURCE" > "$_m1"
-  chmod +x "$_m1"
+  # lib/mutant.sh refuses a no-op, empty, syntax-broken or live-tree mutant.
+  mk_sed "M1" "$_m1" 's/|| { _sp=.*/|| true   # entropy/' && chmod +x "$_m1"
   # Confirm the mutant has || true and no PIPESTATUS (scan-firmware has only one guard).
-  if grep -qF '|| true' "$_m1" && ! grep -qF 'PIPESTATUS' "$_m1"; then
+  if [ -f "$_m1" ] && grep -qF '|| true' "$_m1" && ! grep -qF 'PIPESTATUS' "$_m1"; then
     _stubdir_m1="$ROOT/stub-m1"; mkdir -p "$_stubdir_m1"
     cat >"$_stubdir_m1/binwalk" <<'SH'
 #!/bin/sh
@@ -96,7 +101,7 @@ SH
     else
       no "M1-killed: || true mutant did not swallow failure (rc=$_m1rc) — M1 survived (THEATER)"
     fi
-  else
+  elif [ -f "$_m1" ]; then
     no "M1 setup: mutant not as expected (missing || true or still has PIPESTATUS)"
   fi
   echo "-- prove-teeth done --"

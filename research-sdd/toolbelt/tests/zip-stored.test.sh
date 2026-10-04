@@ -77,9 +77,12 @@ PY
 then ok "root execution refused (geteuid==0): exit 2, root-or-set-id in stderr"; else no "root refusal"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  mutant_py="$HERE/../zip_stored.MUTANT.py"
-  mutant_nf="$HERE/../zip_stored.NOFOLLOW.py"
-  trap 'rm -rf "$ROOT"; rm -f "$mutant_py" "$mutant_nf"' EXIT
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_py="$ROOT/zip_stored.MUTANT.py"   # temp dir: never beside the SUT (#1156)
+  mutant_nf="$ROOT/zip_stored.NOFOLLOW.py"
   cnt_occ() { awk -v n="$1" 'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' "$2"; }
   printf 'no match\n'                           > "$ROOT/cnt-proof.txt"
   _cp0="$(cnt_occ "ZSTCNT-X" "$ROOT/cnt-proof.txt")"
@@ -95,10 +98,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ "$_trav_c" != 1 ]; then
     no "teeth-traversal: anchor occurs $_trav_c time(s) in SUT (expected exactly 1); mutant not built"
   else
-    sed 's/x in ("","\.","\.\.") or/x in ("",".")      or/' \
-      "$HERE/../zip_stored.py" > "$mutant_py"
-    if cmp -s "$mutant_py" "$HERE/../zip_stored.py"; then
-      no "teeth-traversal: mutant is byte-identical to SUT (sed anchor absent in source)"
+    # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+    if ! MUTANT_SYNTAX=none mutant_chain "teeth-traversal" "$HERE/../zip_stored.py" "$mutant_py" \
+         's/x in ("","\.","\.\.") or/x in ("",".")      or/'; then
+      no "teeth-traversal: mutant refused by lib/mutant.sh (not built)"
     elif grep -qF 'x in ("",".","..")' "$mutant_py"; then
       no "teeth-traversal: sed did not remove '..'; original path-guard form still present in mutant"
     else
@@ -118,7 +121,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth-traversal: healthy SUT created ROOT/x (GREEN oracle broken; hgot=$hgot)"
       else
         rm -f "$ROOT/x"
-        python3 "$mutant_py" --input "$ROOT/traversal.zip" \
+        PYTHONPATH="$HERE/.." python3 "$mutant_py" --input "$ROOT/traversal.zip" \
           --output "$ROOT/out-trav-m" \
           --manifest-cli "$HERE/../analysis_manifest.py" \
           --metadata-parser "$HERE/../zip_metadata.py" \
@@ -138,10 +141,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ "$_nf_c" != 1 ]; then
     no "teeth-nofollow: anchor occurs $_nf_c time(s) in SUT (expected exactly 1); mutant not built"
   else
-    sed 's/NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)/NOFOLLOW = 0/' \
-      "$HERE/../zip_stored.py" > "$mutant_nf"
-    if cmp -s "$mutant_nf" "$HERE/../zip_stored.py"; then
-      no "teeth-nofollow: mutant is byte-identical to SUT (sed anchor absent in source)"
+    if ! MUTANT_SYNTAX=none mutant_chain "teeth-nofollow" "$HERE/../zip_stored.py" "$mutant_nf" \
+         's/NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)/NOFOLLOW = 0/'; then
+      no "teeth-nofollow: mutant refused by lib/mutant.sh (not built)"
     elif ! grep -qF 'NOFOLLOW = 0' "$mutant_nf"; then
       no "teeth-nofollow: mutant build failed (expected marker absent after sed)"
     else
@@ -150,7 +152,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         --manifest-cli "$HERE/../analysis_manifest.py" \
         --metadata-parser "$HERE/../zip_metadata.py" \
         >/dev/null 2>&1; hgot_nf=$?
-      python3 "$mutant_nf" --input "$ROOT/symlink.zip" \
+      PYTHONPATH="$HERE/.." python3 "$mutant_nf" --input "$ROOT/symlink.zip" \
         --output "$ROOT/out-sym-m" \
         --manifest-cli "$HERE/../analysis_manifest.py" \
         --metadata-parser "$HERE/../zip_metadata.py" \

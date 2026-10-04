@@ -631,6 +631,10 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "-- teeth: module-find mutation controls --"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 # ---------------------------------------------------------------------------
 MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
@@ -650,12 +654,11 @@ MUTDIR="$(mktemp -d)"
 # Step 2 uses os.path.isdir() which follows symlinks, so the dir check passes.
 # Expected: symlink root exits 0 instead of 2 → DETECTED.
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if _stat\.S_ISLNK(lstat_result\.st_mode):/if _stat.S_ISBLK(lstat_result.st_mode):  # MUTANT-M1/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M1 symlink guard" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/if _stat\.S_ISLNK(lstat_result\.st_mode):/if _stat.S_ISBLK(lstat_result.st_mode):  # MUTANT-M1/'; then
+  mut_no "M1 symlink guard: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M1 symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M1 symlink guard: sed had no effect (pattern not found)"
 else
   _m1_exit=0
   python3 "$MUTDIR/module_find.py" \
@@ -673,12 +676,11 @@ rm -rf "$MUTDIR"
 # Expected: extracted slot names are wrong → T6 exact name check fails → DETECTED
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/"slot": nm\.group(1),/"slot": "MUTANT-M2",  # MUTANT-M2/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M2 slot name mutated" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/"slot": nm\.group(1),/"slot": "MUTANT-M2",  # MUTANT-M2/'; then
+  mut_no "M2 slot name mutated: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M2 slot name mutated: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M2 slot name mutated: sed had no effect"
 else
   _m2_exit=0
   python3 "$MUTDIR/module_find.py" \
@@ -703,12 +705,11 @@ rm -rf "$MUTDIR"
 # captured → setpoint missing from slots → T6 DETECTED.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/while depth > 0 and j < len(stripped_lines):/while False and j < len(stripped_lines):  # MUTANT-M3/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M3 paren-balance broken" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/while depth > 0 and j < len(stripped_lines):/while False and j < len(stripped_lines):  # MUTANT-M3/'; then
+  mut_no "M3 paren-balance broken: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M3 paren-balance broken: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M3 paren-balance broken: sed had no effect"
 else
   _m3_exit=0
   python3 "$MUTDIR/module_find.py" \
@@ -734,12 +735,11 @@ rm -rf "$MUTDIR"
 # beta missing → T10 assertion fails → DETECTED.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/    return fragments$/    return fragments[:1]  # MUTANT-M4/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M4 only-first-fragment" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/    return fragments$/    return fragments[:1]  # MUTANT-M4/'; then
+  mut_no "M4 only-first-fragment: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M4 only-first-fragment: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M4 only-first-fragment: sed had no effect (anchor comment not found)"
 else
   _m4_exit=0
   python3 "$MUTDIR/module_find.py" \
@@ -766,12 +766,11 @@ rm -rf "$MUTDIR"
 # Expected: files_byte_capped stays 0 even though the file was truncated → T15 logic DETECTS.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/file_byte_capped = len(raw) == _MAX_FILE_BYTES/file_byte_capped = False  # MUTANT-M5/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M5 byte-cap suppressed" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/file_byte_capped = len(raw) == _MAX_FILE_BYTES/file_byte_capped = False  # MUTANT-M5/'; then
+  mut_no "M5 byte-cap suppressed: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M5 byte-cap suppressed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M5 byte-cap suppressed: sed had no effect (pattern not found — D-1 not implemented?)"
 else
   _m5_patchdir="$(mktemp -d)"
   _m5_work="$(mktemp -d)"
@@ -805,12 +804,11 @@ rm -rf "$MUTDIR"
 # Expected: "first" slot lost (unbalanced span) while only "second" is extracted → T16 DETECTED.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/lex = 1  # enter double-quoted string/lex = 0  # MUTANT-M6: string state disabled/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M6 string-literal awareness" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/lex = 1  # enter double-quoted string/lex = 0  # MUTANT-M6: string state disabled/'; then
+  mut_no "M6 string-literal awareness: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M6 string-literal awareness: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M6 string-literal awareness: sed had no effect (pattern not found)"
 else
   _m6_exit=0
   python3 "$MUTDIR/module_find.py" \
@@ -834,12 +832,11 @@ rm -rf "$MUTDIR"
 # Expected: ghost slot emitted from commented-out annotation → T17 DETECTED.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/stripped_content = _strip_comments(content).*$/stripped_content = content  # MUTANT-M7: comment stripping disabled/' \
-  "$MUTDIR/module_find.py"
-if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+if ! MUTANT_SYNTAX=none mutant_chain "M7 comment-stripping disabled" "$ORIG_PY" "$MUTDIR/module_find.py" \
+     's/stripped_content = _strip_comments(content).*$/stripped_content = content  # MUTANT-M7: comment stripping disabled/'; then
+  mut_no "M7 comment-stripping disabled: mutant refused by lib/mutant.sh (no-op, empty or live-tree)"
+elif ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M7 comment-stripping disabled: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
-  mut_no "M7 comment-stripping disabled: sed had no effect (pattern not found)"
 else
   _m7_exit=0
   python3 "$MUTDIR/module_find.py" \

@@ -132,6 +132,10 @@ echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
 # and (b) emit a WRONG message so the new message assertion goes RED.
 # Tools skip guard is re-checked; fixtures are rebuilt in a fresh subtree.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: mutation controls --"
   _tp=0; _tf=0
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }
@@ -166,8 +170,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # with 'generic rejection' → mutant exits 2 + nothing published (old assertion PASS), but stderr
   # no longer contains the expected substring (new message assertion goes RED).
   _m1="$_TR/sq_mut1.py"
-  sed 's/symlink in extracted tree (rejected)/generic rejection/g' "$_SUT_PY" > "$_m1"
-  if ! grep -q 'generic rejection' "$_m1"; then
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth-M1" "$_SUT_PY" "$_m1" 's/symlink in extracted tree (rejected)/generic rejection/g' \
+     || ! grep -q 'generic rejection' "$_m1"; then
     _tnok "teeth-M1: mutation target 'symlink in extracted tree (rejected)' not found -- SUT changed?"
   else
     _rc_m1=0; _se_m1="$_TR/se_m1.txt"
@@ -184,8 +189,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-M2 (targets T5 message assertion): mutant replaces 'input too small for a SquashFS superblock'
   # with 'bad input' → exits 2 + nothing published (old PASS), but wrong message (T5 new assertion RED).
   _m2="$_TR/sq_mut2.py"
-  sed 's/input too small for a SquashFS superblock/bad input/g' "$_SUT_PY" > "$_m2"
-  if ! grep -q 'bad input' "$_m2"; then
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth-M2" "$_SUT_PY" "$_m2" 's/input too small for a SquashFS superblock/bad input/g' \
+     || ! grep -q 'bad input' "$_m2"; then
     _tnok "teeth-M2: mutation target 'input too small for a SquashFS superblock' not found -- SUT changed?"
   else
     _rc_m2=0; _se_m2="$_TR/se_m2.txt"
@@ -202,8 +208,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-M3 (targets T8 message assertion): mutant replaces 'entries exceed max-entries'
   # with 'cap exceeded' → exits 2 + nothing published (old PASS), wrong message (T8 new assertion RED).
   _m3="$_TR/sq_mut3.py"
-  sed 's/entries exceed max-entries/cap exceeded/g' "$_SUT_PY" > "$_m3"
-  if ! grep -q 'cap exceeded' "$_m3"; then
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth-M3" "$_SUT_PY" "$_m3" 's/entries exceed max-entries/cap exceeded/g' \
+     || ! grep -q 'cap exceeded' "$_m3"; then
     _tnok "teeth-M3: mutation target 'entries exceed max-entries' not found -- SUT changed?"
   else
     _rc_m3=0; _se_m3="$_TR/se_m3.txt"
@@ -223,8 +230,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _m4="$_TR/sq_mut4.py"
   _oserr_old='except (OSError, ValueError, KeyError, struct.error, json.JSONDecodeError, subprocess.SubprocessError) as exc: print(f"squashfs-extract: {exc}", file=sys.stderr); return 2'
   _oserr_new='except (OSError, ValueError, KeyError, struct.error, json.JSONDecodeError, subprocess.SubprocessError) as exc: print("squashfs-extract: unexpected error", file=sys.stderr); return 2'
-  sed "s/${_oserr_old}/${_oserr_new}/" "$_SUT_PY" > "$_m4"
-  if ! grep -q 'unexpected error' "$_m4"; then
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth-M4" "$_SUT_PY" "$_m4" "s/${_oserr_old}/${_oserr_new}/" \
+     || ! grep -q 'unexpected error' "$_m4"; then
     _tnok "teeth-M4: OSError handler mutation target not found -- SUT changed?"
   else
     _rc_m4=0; _se_m4="$_TR/se_m4.txt"
