@@ -1024,7 +1024,7 @@ seq 1 60 > "$pr/src/index.js"; : > "$pr/package.json"
 { echo "# Block 78 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
   echo "Handler at \`src/index.js:50-52\`. \`[CERT]\`"; } > "$pr/corpus/block-78.md"
 out="$(bash "$SUT" "$pr/corpus/block-78.md" 2>/dev/null)"; rc=$?
-if [ "$rc" = 0 ] && grep -qE '^\s+ok \(target-root\) src/index\.js:50-52' <<<"$out" && grep -q 'resolved 1 of 1' <<<"$out" && ! grep -q 'extern' <<<"$out"; then
+if [ "$rc" = 0 ] && grep -qE '^\s+ok \(target-root\) src/index\.js:50-52' <<<"$out" && grep -q 'resolved 1 of 1' <<<"$out" && ! grep -qE '^\s+extern ' <<<"$out"; then
   ok "78 #1325: own-git corpus under \$TARGET/corpus/ → cite resolves at the TARGET root (ok, resolved 1 of 1)"
 else no "78 #1325: target-root cite not resolved: rc=$rc :: $(grep -E 'src/index|resolved' <<<"$out" | head -2)"; fi
 
@@ -1491,6 +1491,51 @@ mf_corpus term-mix "Ran $P/a.sh, $P/b.sh; ($P/c.sh)"; mf_manifest b1 a.sh @a.sh 
 mf_check 0 'manifest-ok  sources/probes/b1/c.sh' "#1659 GOOD: comma / semicolon / paren terminated cites are all still cites"
 mf_corpus term-mix-miss "Ran $P/a.sh, $P/b.sh; ($P/c.sh)"; mf_manifest b1 a.sh @a.sh b.sh @b.sh
 mf_check 1 'MANIFEST!  sources/probes/b1/c.sh' "#1659 BAD: a paren-terminated cite is still checked"
+
+# ---- kit #973: P9 counts only FILE citations, and the SOURCE_ROOT hint only where it can help -------------------
+# (1) `ip:port`, `host:port`, `pkg.Class:NNN` and unresolvable `Class.method:NNN` tokens are NOT file citations:
+#     they are listed as `nonpath` and kept out of M. (2) the summary names the extern / failed split; the
+#     SOURCE_ROOT hint fires only when at least one cite was extern (RANGE!/MISSING! resolved their file).
+n973(){ local f="$TMP/n973-$1.md" t="$2"; shift 2; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "> **Type:** $t"; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; N973="$f"; }
+seq 1 30 > "$TMP/n973-real.java"; printf 'a\nb\nc\n' > "$TMP/n973-odd.zzq"
+n973 ip standard 'Server listens on `127.0.0.1:46272`. [CERT]'
+out="$(run "$N973")"
+{ ! grep -q 'resolved 0 of' <<<"$out" && grep -q 'nonpath  127.0.0.1:46272' <<<"$out" && grep -q 'ZERO file:line citations resolved' <<<"$out"; } \
+  && ok "#973 GOOD: an ip:port token is nonpath, not an M-inflating cite (P6 still says nothing was cited)" || no "#973 ip:port counted in M :: $(grep -iE 'resolved|nonpath' <<<"$out" | head -2)"
+n973 host standard 'Tunnel to `station.sejofa.io:443` and `javax.baja.control.BTimeTrigger:238-249`. [CERT]'
+out="$(run "$N973")"
+{ ! grep -q 'resolved 0 of' <<<"$out" && grep -q 'nonpath  station.sejofa.io:443' <<<"$out" && grep -q 'nonpath  javax.baja.control.BTimeTrigger:238-249' <<<"$out"; } \
+  && ok "#973 GOOD: host:port and a fully-qualified class token are nonpath" || no "#973 host/FQCN counted in M :: $(grep -iE 'resolved|nonpath' <<<"$out" | head -3)"
+n973 mix standard 'Real `n973-real.java:5`, port `10.0.0.1:8080`, method `ObixUtils.encode:241`. [CERT]'
+out="$(run "$N973")"
+{ grep -q 'resolved 1 of 1 ' <<<"$out" && grep -q 'nonpath  10.0.0.1:8080' <<<"$out" && grep -q 'nonpath  ObixUtils.encode:241' <<<"$out"; } \
+  && ok "#973 GOOD: a file cite plus two non-path tokens -> 'resolved 1 of 1'" || no "#973 mixed block M wrong :: $(grep -iE 'resolved|nonpath' <<<"$out" | head -3)"
+n973 methodonly standard 'Calls `ObixUtils.encode:241`. [CERT]'
+out="$(run "$N973")"; got=$?
+{ ! grep -q 'resolved 0 of' <<<"$out" && grep -q 'nonpath  ObixUtils.encode:241' <<<"$out" && grep -qE 'INFO +0 file citations' <<<"$out"; } \
+  && ok "#973 GOOD: only unresolvable Class.method tokens -> typed INFO '0 file citations', no M-inflating WARN" || no "#973 method-only block silent or inflated :: $(grep -iE 'resolved|nonpath|INFO' <<<"$out" | head -3)"
+# guard: a REAL file with an unlisted extension is still a cite (exit-code behaviour unchanged)
+n973 oddext standard 'Fits `n973-odd.zzq:2`; past EOF `n973-odd.zzq:9`. [CERT]'
+out="$(run "$N973")"; rrc "$N973"; got=$?
+{ [ "$got" = 1 ] && grep -q '  ok  *n973-odd.zzq:2' <<<"$out" && grep -q 'RANGE!  n973-odd.zzq:9' <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
+  && ok "#973 GUARD: an existing file with an unlisted extension still resolves / RANGE! (never reclassified nonpath)" || no "#973 existing odd-ext file reclassified (rc=$got) :: $(grep -iE 'zzq|nonpath' <<<"$out" | head -3)"
+# item 2: RANGE! / MISSING! resolved their file -> no SOURCE_ROOT hint, split named
+n973 range standard 'Past EOF `n973-real.java:99`. [CERT]'
+out="$(run "$N973")"; rrc "$N973"; got=$?
+{ [ "$got" = 1 ] && grep -q 'resolved 0 of 1 (0 extern, 1 failed)' <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out" && grep -qE 'WARN +resolved 0 of 1' <<<"$out"; } \
+  && ok "#973 GOOD: RANGE!-only block -> '(0 extern, 1 failed)', WARN without the SOURCE_ROOT hint" || no "#973 RANGE!-only hint/summary wrong (rc=$got) :: $(grep -iE 'resolved|SOURCE_ROOT' <<<"$out" | head -3)"
+n973 missing standard 'Dump sealed (B7-gone.txt:12). [CERT]'
+out="$(run "$N973")"; rrc "$N973"; got=$?
+{ [ "$got" = 1 ] && grep -q 'resolved 0 of 1 (0 extern, 1 failed)' <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out"; } \
+  && ok "#973 GOOD: MISSING!-only block -> '(0 extern, 1 failed)', no SOURCE_ROOT hint" || no "#973 MISSING!-only hint/summary wrong (rc=$got) :: $(grep -iE 'resolved|SOURCE_ROOT' <<<"$out" | head -3)"
+n973 extern standard 'Foreign `NonExistent.java:10`. [CERT]'
+out="$(run "$N973")"
+{ grep -q 'resolved 0 of 1 (1 extern, 0 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out"; } \
+  && ok "#973 GOOD: extern-only block keeps '(1 extern, 0 failed)' and the SOURCE_ROOT hint" || no "#973 extern-only lost the hint :: $(grep -iE 'resolved|SOURCE_ROOT' <<<"$out" | head -3)"
+n973 extrange standard 'Foreign `NonExistent.java:10`; past EOF `n973-real.java:99`. [CERT]'
+out="$(run "$N973")"
+{ grep -q 'resolved 0 of 2 (1 extern, 1 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out"; } \
+  && ok "#973 GOOD: extern + RANGE! mix keeps the hint (extern cites may still be fixable)" || no "#973 mixed hint wrong :: $(grep -iE 'resolved|SOURCE_ROOT' <<<"$out" | head -3)"
 
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
@@ -2028,6 +2073,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-ep-owned: scratchpad arm also claims /tmp-owned tokens (double count) --"
   if mk_sed "teeth-ep-owned" "$MUT/epo.sh" '/# VB-EP-OWNED$/s/return 1/return 0/'; then
     tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has 'ephemeral-path cites: 2 \(FAIL\)' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
+  fi
+  echo "-- kit #973 teeth: non-path split, Class.method, extension list, listing, extern/failed split, hint scope --"
+  # fixtures n973-*.md come from the plain #973 section above; every control pins its exact rc and an anchored line
+  if mk_sed "teeth-973-split" "$MUT/np1.sh" 's/_vb_np_cites=\$(grep -E "\$_vb_np_re" <<<"\$bt_cites")/_vb_np_cites=""/'; then
+    # with the split gone the in-loop Class.method rule still lists the token, so the tell is the P6 emptiness test:
+    # a block citing only an ip:port must still read as citing NOTHING (P6 WARN), not as a non-empty bt_cites set.
+    tooth "teeth-973-split" 0 0 "$MUT/np1.sh" --good-has "$NOCITE" --good-lacks 'resolved 0 of' \
+      --bad-lacks "$NOCITE" -- bash @SUT@ "$TMP/n973-ip.md"
+  fi
+  if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
+    tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \
+      --bad-has 'resolved 0 of 1' --bad-lacks 'INFO +0 file citations' -- bash @SUT@ "$TMP/n973-methodonly.md"
+  fi
+  if mk_sed "teeth-973-extlist" "$MUT/np3.sh" 's/&& ! grep -qxF "\$_vb_np_ext" <<<"\$_vb_file_exts"/\&\& true/'; then
+    tooth "teeth-973-extlist" 0 0 "$MUT/np3.sh" --good-has '1 extern, 0 failed' --good-lacks 'nonpath  NonExistent' \
+      --bad-has 'nonpath  NonExistent.java:10' --bad-lacks 'extern, 0 failed' -- bash @SUT@ "$TMP/n973-extern.md"
+  fi
+  if mk_sed "teeth-973-list" "$MUT/np4.sh" '/# P973-NONPATH-LIST/s/echo "   nonpath  \$c .*"; _vb_np_n/: ; _vb_np_n/'; then
+    tooth "teeth-973-list" 0 0 "$MUT/np4.sh" --good-has 'nonpath  127.0.0.1:46272' --bad-lacks 'nonpath  127' --bad-has "$EXIT0" \
+      -- bash @SUT@ "$TMP/n973-ip.md"
+  fi
+  if mk_sed "teeth-973-extern-count" "$MUT/np5.sh" '/# P9-VB-E-EXTERN/s/_vb_e+1/_vb_e+0/'; then
+    tooth "teeth-973-extern-count" 0 0 "$MUT/np5.sh" --good-has '1 extern, 0 failed' \
+      --bad-has '0 extern, 0 failed' --bad-lacks 'Set SOURCE_ROOT' -- bash @SUT@ "$TMP/n973-extern.md"
+  fi
+  if mk_sed "teeth-973-failed-count" "$MUT/np6.sh" 's/\(rc=1; _vb_f=\$((_vb_f+\)1))/\10))/'; then
+    tooth "teeth-973-failed-count" 1 1 "$MUT/np6.sh" --good-has '0 extern, 1 failed' \
+      --bad-has '0 extern, 0 failed' -- bash @SUT@ "$TMP/n973-range.md"
+    tooth "teeth-973-failed-count-missing" 1 1 "$MUT/np6.sh" --good-has '0 extern, 1 failed' \
+      --bad-has '0 extern, 0 failed' -- bash @SUT@ "$TMP/n973-missing.md"
+  fi
+  if mk_sed "teeth-973-hint-scope" "$MUT/np7.sh" 's/if \[ "\$_vb_e" -gt 0 \]; then _p9_why=/if true; then _p9_why=/'; then
+    tooth "teeth-973-hint-scope" 1 1 "$MUT/np7.sh" --good-lacks 'Set SOURCE_ROOT' --good-has 'every cite failed' \
+      --bad-has 'Set SOURCE_ROOT' -- bash @SUT@ "$TMP/n973-range.md"
   fi
   echo "-- teeth-mf-rc: manifest findings no longer flip the exit code --"
   if mk_sed "teeth-mf-rc" "$MUT/mfrc.sh" 's/(manifest sha256 differs from the file.s: \${_vb_mf_have:0:16})"; rc=1;/(manifest sha256 differs from the file'"'"'s: ${_vb_mf_have:0:16})";/'; then

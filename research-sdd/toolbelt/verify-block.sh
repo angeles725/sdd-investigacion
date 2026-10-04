@@ -206,6 +206,8 @@ echo "    DESIGN/synthesis block — DECLARE the block TYPE so the ratio is read
 #       (which only saw backticked single-line cites) let them pass clean.
 #   (b) GENERIC backticked single-line cites — unchanged ok / RANGE! / extern; a non-artifact bare cite
 #       (foreign binary, offset) is still NOT a citation the script resolves, so prose stays false-positive free.
+#       ip:port / host:port / qualified-class tokens and unresolvable Class.method:NNN are `nonpath` (kit #973): listed, never counted
+#       in the P9 `resolved N of M (E extern, F failed)` summary; its SOURCE_ROOT hint appears only when E > 0.
 echo "-- [CERT] file:line citation resolution --"
 rc=0
 # The EXTENSION IS OPTIONAL: ~45% of the real corpus omits it (bloque128 declares `cited as B128-triage:LINE`),
@@ -225,6 +227,96 @@ art_tail=':[0-9]+((-|‑|–)[0-9]+)?'                                       # :
 art_spans=$(grep -oE '\([^)]*\)|`[^`]*`' "$block")                       # parenthetical + backtick spans, one per line
 art_cites=$(printf '%s\n' "$art_spans" | grep -oiE "\\b${art_name}${art_tail}" | sort -u)
 bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+(-[0-9]+)?`' "$block" | tr -d '`' | sort -u)  # P7-BT-RANGE-EXTRACT
+# kit #973 (P973-NONPATH-SPLIT): some backticked `name.ext:NNN` tokens are not file citations at all — `ip:port`
+# (127.0.0.1:46272), `host:port` (a host with >= 2 dots ending in a TLD) and a fully-qualified class (>= 2 dots,
+# last label capitalised: javax.baja.Foo:238). They would inflate M in P9 and no SOURCE_ROOT can resolve them, so
+# they are split off HERE (before the P6 emptiness tests, so a block citing only such tokens still reads as citing
+# nothing) and LISTED by the resolution loop as `nonpath`, never silently dropped. `Class.method:NNN` has no
+# structural tell; it is classified in the loop only when no root holds the file (P973-NONPATH-METHOD).
+_vb_np_re='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.(com|io|net|org|dev|edu|gov|mx|local|lan|internal|cloud|app):|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.[A-Z][A-Za-z0-9_]*:'
+_vb_np_cites=""; _vb_np_n=0; _vb_np_err=0
+# Known file extensions (lower-case, one per line): a `name.ext:NNN` token with NO path whose file is not found and
+# whose ext is not in this list is read as `Class.method:NNN` (P973-NONPATH-METHOD). Listing the extension of a real
+# file here only means an unresolved cite stays `extern`; a MISSING entry can never hide a RANGE! (resolved files
+# are never reclassified), so the list errs toward being short.
+_vb_file_exts='java
+md
+js
+mjs
+cjs
+ts
+tsx
+jsx
+html
+htm
+css
+scss
+txt
+go
+py
+csv
+properties
+xml
+kt
+kts
+vue
+sh
+ps1
+psm1
+cs
+bat
+cmd
+px
+yaml
+yml
+json
+jsonc
+c
+h
+cc
+cpp
+hpp
+rs
+rb
+php
+lua
+sql
+toml
+ini
+cfg
+conf
+log
+rst
+ttl
+lexicon
+license
+bajadoc
+vm
+xsl
+xsd
+svg
+gradle
+mk
+class
+jar
+dll
+exe
+bin
+dat
+hex
+mf
+pdf
+diff
+patch
+proto'
+if [ -n "$bt_cites" ]; then
+  _vb_np_cites=$(grep -E "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?   # P973-NONPATH-SPLIT
+  if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""
+  elif [ -n "$_vb_np_cites" ]; then
+    _vb_np_keep=$(grep -vE "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?
+    if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""; else bt_cites="$_vb_np_keep"; fi
+  fi
+fi
 # (c) Short-form :NNN citations — a bare colon + line number where the file is named in
 # surrounding prose or a table header. Two corpus-confirmed patterns:
 #   table rows  (pi5-decoding-block1: | :29 |)         — :NNN preceded by [|,[:space:]]
@@ -346,6 +438,15 @@ if [ -n "$probe_found" ] && [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$
   echo "   INFO    $code_cert_total [CERT] code marker(s) but only $_pf_ok resolved probe-file cite(s) — a probe cite verifies its file, not each marker; token-verify the rest inline."
 fi
 _vb_ok=0; _vb_m=0  # P9-RESOLVED-SUMMARY: ok resolutions vs. total attempted (bt + art cites)
+_vb_e=0; _vb_f=0   # P9-SPLIT: extern (file not found anywhere) vs. failed (RANGE!/MISSING!: the cite itself is wrong)
+# kit #973: tokens split off as non-path are listed here, visibly, and never counted in M.
+[ "$_vb_np_err" -ge 2 ] && printf '   WARN: non-path token split FAILED (grep exit %d) — ip:port / host:port tokens are counted as file cites\n' "$_vb_np_err"
+if [ -n "$_vb_np_cites" ]; then
+  while IFS= read -r c; do
+    [ -z "$c" ] && continue
+    echo "   nonpath  $c  (not a file path: ip:port / host:port / qualified class — excluded from M)"; _vb_np_n=$((_vb_np_n+1))  # P973-NONPATH-LIST
+  done <<< "$_vb_np_cites"
+fi
 # (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
 if [ -n "$art_cites" ]; then
   while IFS= read -r c; do
@@ -365,14 +466,14 @@ if [ -n "$art_cites" ]; then
       [ -n "$_full_path" ] && [ -f "$target/$_full_path" ] && f="$_full_path"  # D6-PATH-FALLBACK
     fi
     if [ ! -f "$target/$f" ]; then
-      echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1
+      echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1; _vb_f=$((_vb_f+1))  # P9-VB-F-MISSING
     else
       total=$(wc -l < "$target/$f")
       # FAIL if either endpoint is past EOF or the range is reversed (start > end).
       if [ "$start" -le "$total" ] && [ "$end" -le "$total" ] && [ "$start" -le "$end" ]; then
         echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-ART
       else
-        echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
+        echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1))
       fi
     fi
   done <<< "$art_cites"
@@ -393,10 +494,10 @@ if [ -n "$bt_cites" ]; then
     grep -qiE "^${art_name}$" <<<"$f" && continue
     _vb_m=$((_vb_m+1))  # P9-VB-M-BT
     if [ "$start" -eq 0 ]; then
-      echo "   RANGE!  $c  (start 0 is invalid — lines are 1-indexed)"; rc=1; continue
+      echo "   RANGE!  $c  (start 0 is invalid — lines are 1-indexed)"; rc=1; _vb_f=$((_vb_f+1)); continue
     fi
     if [ "$start" -gt "$end" ]; then
-      echo "   RANGE!  $c  (reversed range: start $start > end $end — defect in block)"; rc=1; continue
+      echo "   RANGE!  $c  (reversed range: start $start > end $end — defect in block)"; rc=1; _vb_f=$((_vb_f+1)); continue
     fi
     # Roots are tried IN ORDER; the first where the file exists AND the cited range fits wins (F2: a short
     # file at an earlier root must not pre-empt a fitting one later). If none fits, RANGE! is reported
@@ -424,10 +525,19 @@ if [ -n "$bt_cites" ]; then
           echo "   $_bt_okp$c  (range end verified; file has $total lines)"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-RANGE
         fi
       else
-        echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
+        echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1))
       fi
     else
-      echo "   extern  $c  (not in target: beautified-temp / decompiled / snapshot — not script-verifiable)"
+      # P973-NONPATH-METHOD: `Class.method:NNN` — no root holds the file AND the name has no path and an extension
+      # that is not a known file extension. Only reached for an UNRESOLVED cite, so an existing file (any extension)
+      # is never reclassified and ok / RANGE! / the exit code are untouched. It was counted in M above: take it back.
+      _vb_np_ext="${f##*.}"; _vb_np_ext="${_vb_np_ext,,}"
+      case "$f" in */*) _vb_np_m=0 ;; *) _vb_np_m=1 ;; esac
+      if [ "$_vb_np_m" = 1 ] && ! grep -qxF "$_vb_np_ext" <<<"$_vb_file_exts"; then
+        echo "   nonpath  $c  (not a file path: unknown extension '$_vb_np_ext', no such file — likely Class.method:NNN; excluded from M)"
+        _vb_m=$((_vb_m-1)); _vb_np_n=$((_vb_np_n+1)); continue  # P973-NONPATH-METHOD
+      fi
+      echo "   extern  $c  (not in target: beautified-temp / decompiled / snapshot — not script-verifiable)"; _vb_e=$((_vb_e+1))  # P9-VB-E-EXTERN
     fi
   done <<< "$bt_cites"
 fi
@@ -443,7 +553,12 @@ fi
 # WARN is graded by the block's declared Type:, using the same taxonomy as P6 (P9-TYPE-PARSE-EARLY above).
 # WARN-only: exit code is NOT changed (a finding is advisory, CLAUDE.md §8).
 if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
-  echo "   resolved $_vb_ok of $_vb_m"
+  echo "   resolved $_vb_ok of $_vb_m ($_vb_e extern, $_vb_f failed)"  # P9-SPLIT
+  # P9-HINT-SCOPE: SOURCE_ROOT can only help a cite whose file was NOT FOUND (extern). A RANGE!/MISSING! cite
+  # already resolved its file (or names an unpreserved artifact), so a block with no extern cite gets a different cause.
+  _p9_why="no file paths resolved."
+  if [ "$_vb_e" -gt 0 ]; then _p9_why="no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+  elif [ "$_vb_f" -gt 0 ]; then _p9_why="every cite failed (RANGE!/MISSING!, listed above) — fix those cites; SOURCE_ROOT would not help."; fi
   if [ "$_vb_ok" -eq 0 ]; then
     # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
     if [ "$cert_total" -gt 0 ] && [ "$code_cert_total" -eq 0 ]; then  # P9-DOC-GRADE-GUARD: mirror P6-CERT-ZERO-CITE-WARN/P6-DOC-AWARE-SUPPRESS
@@ -454,20 +569,22 @@ if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
           echo "   INFO    resolved 0 of $_vb_m — expected for declared type $_type_token."
           ;;
         standard|evidence|mixed|collaborative|audit)
-          echo "   WARN    resolved 0 of $_vb_m — no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+          echo "   WARN    resolved 0 of $_vb_m — $_p9_why"
           ;;
         *)
           if [ -n "$_type_raw" ]; then  # P9-TYPE-UNRECOGNISED
             _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P9-TYPE-DISPLAY
-            echo "   WARN    resolved 0 of $_vb_m — unrecognised Type: '$_type_warn_name'; no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+            echo "   WARN    resolved 0 of $_vb_m — unrecognised Type: '$_type_warn_name'; $_p9_why"
           else
-            echo "   WARN    resolved 0 of $_vb_m — no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+            echo "   WARN    resolved 0 of $_vb_m — $_p9_why"
             echo "   HINT    Declare a Type: token to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."  # P9-NO-TYPE-HINT
           fi
           ;;
       esac
     fi
   fi
+elif [ "$_vb_np_n" -gt 0 ]; then  # P973-NONPATH-INFO: tokens were excluded and nothing else was cited — say so, never a silent zero
+  echo "   INFO    0 file citations counted — $_vb_np_n non-path token(s) excluded from M (listed above as nonpath)."
 fi
 
 # 3b. POSSIBILITY-FIRST (§1) — a bare "not possible / cannot / no way / out of reach / no se puede" verdict with no
