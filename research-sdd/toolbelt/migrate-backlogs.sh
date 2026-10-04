@@ -26,7 +26,8 @@
 #   MANUAL <focus> <reason> rows=<N> first-line=<L>
 #   reasons: unknown-priority · emdash-open-row · bare-closure-word (covered/closed/done) ·
 #            unknown-status-token · malformed-row (cell count != table width, or an escaped pipe) ·
-#            unknown-focus-status · empty-backlog-skeleton · non-priority-backlog-table (a backlog-like heading
+#            unknown-focus-status · multiple-backlog-sections (a second backlog-named section with a priority
+#            table beside a canonical or already-renamed one: never duplicated, merge by hand) · empty-backlog-skeleton · non-priority-backlog-table (a backlog-like heading
 #            whose table has no Priority first column: reshape by hand; no skeleton is stacked beside it)
 # Other typed lines (stdout): `absent-input: ...` (corpus dir has no RESEARCH-STATE*.md), `empty-input: <focus>`
 # (a 0-byte state file), `ok <focus>: nothing to migrate`, `PROPOSE <focus> <file>` before each diff, and always
@@ -54,7 +55,7 @@ work="$(mktemp -d 2>/dev/null)" || { echo "degraded: migrate-backlogs: mktemp fa
 trap 'rm -rf "$work"' EXIT
 
 # --- awk: backlog transformer. Reads the file twice (pass 1 classifies sections, pass 2 rewrites).
-# Output: transformed file on stdout; MANUAL tallies "R<TAB>reason<TAB>line" on fd 3 (file $work/tally).
+# Output: transformed file on stdout; MANUAL tallies go to the per-file temp file named by the awk variable `tally` ("reason<TAB>line", appended by manual()); stdout carries ONLY the transformed file.
 BACKLOG_AWK='
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function iscanon(h) { return h ~ /^## Gap-backlog( \([^)]+\))?$/ }
@@ -73,7 +74,7 @@ NR == FNR {  # pass 1 — classify
   if ($0 ~ /^## /) { cur = FNR; h = norm($0); isbl[cur] = (tolower(h) ~ /backlog/); canon[cur] = iscanon(h); if (canon[cur]) anycanon = 1; if (isbl[cur]) anybl = 1 }
   else if (cur && $0 ~ /^[ \t]*\|/ && !(cur in hdrseen)) {
     c = $0; sub(/^[ \t]*\|/, "", c); sub(/\|.*$/, "", c); c = tolower(trim(c)); gsub(/\*\*/, "", c)
-    if (c ~ /^(priority|pr\.?|p|prioridad)$/) { hdr[cur] = 1; anyhdr = 1 }
+    if (c ~ /^(priority|pr\.?|p|prioridad)$/) { hdr[cur] = 1; if (isbl[cur]) anyhdr = 1 }  # anyhdr counts priority-led tables INSIDE backlog-named sections only
     hdrseen[cur] = 1
   }
   next
@@ -84,7 +85,10 @@ FNR == 1 { cur = 0; inbl = 0; width = 0; indata = 0 }
   if (line ~ /^## /) {
     cur = FNR; h = norm(line); inbl = 0; width = 0; indata = 0
     if (canon[cur]) inbl = 1
-    else if (isbl[cur] && hdr[cur]) { line = "## Gap-backlog"; inbl = 1; renamed = 1 }
+    else if (isbl[cur] && hdr[cur]) {
+      if (anycanon || renamed) manual("multiple-backlog-sections", FNR)  # never duplicate the canonical heading; at most one rename per file
+      else { line = "## Gap-backlog"; inbl = 1; renamed = 1 }
+    }
     print line; next
   }
   if (!inbl || line !~ /^[ \t]*\|/) { print line; next }
@@ -138,6 +142,20 @@ END {
 }
 '
 
+DOC_AWK='
+function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+function bare(s) { s = trim(s); gsub(/\*\*/, "", s); gsub(/`/, "", s); return trim(s) }
+/^[ \t]*\|/ {
+  line = $0; sub(/^[ \t]*\|/, "", line); sub(/\|[ \t]*$/, "", line); n = split(line, a, "|")
+  if (!scol) { for (i = 1; i <= n; i++) { c = tolower(bare(a[i])); if (c == "status" || c == "estado") { scol = i; break } }; next }
+  if (a[1] ~ /^[ \t:-]+$/ || scol > n) next
+  hit = (bare(a[1]) == lab); for (i = 2; i <= n; i++) if (bare(a[i]) == "RESEARCH-STATE-" lab ".md") hit = 1
+  t = bare(a[scol]); sub(/[^A-Za-z-].*$/, "", t)
+  if (hit && tolower(t) == "document") found = 1
+}
+END { print (found ? "yes" : "no") }
+'
+
 FOCUSES_AWK='
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function manual(reason, ln) { print reason "\t" ln >> tally }
@@ -184,7 +202,9 @@ propose() {
     LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" > "$out" || { echo "migrate-backlogs: awk failed on $f" >&2; exit 1; }
   fi
   local changed=0
-  if ! cmp -s "$f" "$out"; then
+  cmp -s "$f" "$out"; local crc=$?
+  [ "$crc" -gt 1 ] && { echo "migrate-backlogs: cmp failed on $f" >&2; exit 1; }
+  if [ "$crc" = 1 ]; then
     changed=1; n_prop=$((n_prop+1))
     echo "PROPOSE $label $rel"
     diff -u --label "a/$rel" --label "b/$rel" "$f" "$out"
@@ -209,7 +229,10 @@ else
     case "$b" in RESEARCH-STATE-?*) label="${b#RESEARCH-STATE-}" ;; *) label="(root)" ;; esac
     skip=0
     ff="$(dirname "$f")/FOCUSES.md"
-    if [ -r "$ff" ] && [ "$label" != "(root)" ] && grep -E "^\|.*${label}.*\|.*document" "$ff" >/dev/null 2>&1; then skip=1; fi
+    if [ -r "$ff" ] && [ "$label" != "(root)" ]; then
+      # exact parse of the FOCUSES.md table: slug cell (or state-file cell) == label AND status leading token == document
+      if LC_ALL=C awk -v lab="$label" "$DOC_AWK" "$ff" | grep -qx yes; then skip=1; fi
+    fi
     n_files=$((n_files+1))
     propose "$label" "$f" "$BACKLOG_AWK" -v "skip_skel=$skip"
   done

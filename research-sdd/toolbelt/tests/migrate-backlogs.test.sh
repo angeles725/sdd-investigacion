@@ -158,6 +158,69 @@ printf '# M\n\n## Backlog (coverage matrix)\n\n| Area | Covered |\n|---|---|\n| 
 o="$(bash "$SUT" "$TMP/matrix" 2>/dev/null)"
 if grep -q '^MANUAL m non-priority-backlog-table ' <<<"$o" && ! grep -q '^PROPOSE' <<<"$o"; then ok "14 non-priority backlog table -> MANUAL, no skeleton"; else no "14 [$o]"; fi
 
+# 15. document-focus skip is an EXACT table parse (substring / regex-metachar / notes-cell overmatch)
+mkdir -p "$TMP/doc"
+cat > "$TMP/doc/FOCUSES.md" <<'E'
+# Focuses
+
+| Focus | Status | State | Notes |
+|---|---|---|---|
+| delta | document | RESEARCH-STATE-delta.md | outline |
+| ta | active | RESEARCH-STATE-ta.md | plain |
+| abc | document | RESEARCH-STATE-abc.md | outline |
+| a.c | active | RESEARCH-STATE-a.c.md | plain |
+| zed | active | RESEARCH-STATE-zed.md | documented elsewhere |
+| real | **document** (outline) | RESEARCH-STATE-real.md | outline |
+E
+for f in delta ta abc a.c zed real; do printf '# %s\n\nno backlog\n' "$f" > "$TMP/doc/RESEARCH-STATE-$f.md"; done
+o="$(bash "$SUT" "$TMP/doc" 2>/dev/null)"
+for f in ta a.c zed; do grep -q "^MANUAL $f empty-backlog-skeleton " <<<"$o" && ok "15 $f is NOT skipped (no substring/regex/notes overmatch)" || no "15 $f wrongly skipped as document"; done
+for f in delta abc real; do grep -q "^MANUAL $f " <<<"$o" && no "15 $f (a real document focus) got a skeleton" || ok "15 $f skipped as a real document focus"; done
+
+# 16. never duplicate the canonical heading; at most one rename per file
+mkdir -p "$TMP/dup"
+cat > "$TMP/dup/RESEARCH-STATE-a.md" <<'E'
+# A
+
+## Gap-backlog
+| Priority | Gap | Type | Status |
+|---|---|---|---|
+| high | A1 | web | pending |
+
+## Backlog (old)
+| Priority | Gap | Type | Status |
+|---|---|---|---|
+| high | A2 | web | pending |
+E
+cat > "$TMP/dup/RESEARCH-STATE-b.md" <<'E'
+# B
+
+## Backlog one
+| Priority | Gap | Type | Status |
+|---|---|---|---|
+| high | B1 | web | pending |
+
+## Gap backlog two
+| Priority | Gap | Type | Status |
+|---|---|---|---|
+| high | B2 | web | pending |
+E
+o="$(bash "$SUT" "$TMP/dup" 2>/dev/null)"
+grep -q '^MANUAL a multiple-backlog-sections rows=1 ' <<<"$o" && ! grep -q '^PROPOSE a ' <<<"$o" && ok "16a canonical present -> second backlog section is MANUAL, not renamed" || no "16a [$o]"
+[ "$(grep -c '^+## Gap-backlog$' <<<"$o")" = 1 ] && grep -q '^MANUAL b multiple-backlog-sections rows=1 ' <<<"$o" && ok "16b two near-miss sections -> exactly one rename + one MANUAL" || no "16b [$o]"
+
+# 17. a Priority-led table OUTSIDE backlog-named sections must not suppress the empty-backlog proposal
+mkdir -p "$TMP/cq"
+printf '# Q\n\n## Campaign queue\n\n| Priority | Name | State |\n|---|---|---|\n| high | x | pending |\n' > "$TMP/cq/RESEARCH-STATE-q.md"
+o="$(bash "$SUT" "$TMP/cq" 2>/dev/null)"
+grep -q '^MANUAL q empty-backlog-skeleton ' <<<"$o" && ok "17 priority-led campaign-queue table does not hide a missing backlog" || no "17 [$o]"
+
+# 18. invoked directly (executable bit), not via bash
+if [ -x "$SUT" ]; then
+  o="$("$SUT" "$corpus" 2>/dev/null)"; r=$?
+  [ "$r" = 0 ] && grep -q '^migrate-backlogs: 5 file(s) inspected' <<<"$o" && ok "18 runs when invoked directly (executable)" || no "18 direct invocation rc=$r"
+else no "18 migrate-backlogs.sh is not executable"; fi
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
@@ -195,6 +258,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/matrix" 2>/dev/null)"
     grep -q '^MANUAL m non-priority-backlog-table' <<<"$o" && no "teeth J: mutant still typed — THEATER" || ok "teeth J: branch removed -> case 14 has teeth"
   else no "teeth J: mutant could not be built"; fi
+  # K: document-focus match loosened to a substring -> case 15 (ta / zed / a.c) must go red
+  t="$(mk_tree K)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/hit = (bare(a\[1\]) == lab)/hit = (index(bare(a[1]), lab) > 0)/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/doc" 2>/dev/null)"
+    grep -q '^MANUAL ta empty-backlog-skeleton' <<<"$o" && no "teeth K: substring mutant still exact — THEATER" || ok "teeth K: substring match -> case 15 has teeth"
+  else no "teeth K: mutant could not be built"; fi
+  # L: duplicate-canonical guard removed -> case 16a must go red
+  t="$(mk_tree L)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/if (anycanon || renamed) manual/if (0) manual/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/dup" 2>/dev/null)"
+    grep -q '^MANUAL a multiple-backlog-sections' <<<"$o" && no "teeth L: guard removed but still MANUAL — THEATER" || ok "teeth L: guard removed -> case 16 has teeth"
+  else no "teeth L: mutant could not be built"; fi
+  # M: anyhdr made file-global again -> case 17 must go red
+  t="$(mk_tree M)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/if (isbl\[cur\]) anyhdr = 1/anyhdr = 1/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/cq" 2>/dev/null)"
+    grep -q '^MANUAL q empty-backlog-skeleton' <<<"$o" && no "teeth M: file-global mutant still proposes — THEATER" || ok "teeth M: file-global anyhdr -> case 17 has teeth"
+  else no "teeth M: mutant could not be built"; fi
   # I: the absent-input typed line silenced
   t="$(mk_tree I)"
   if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^  echo "absent-input: no RESEARCH-STATE.*$/  :/' >/dev/null 2>&1; then
