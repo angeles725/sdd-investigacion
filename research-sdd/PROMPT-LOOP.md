@@ -590,6 +590,12 @@ Always read first, in this order:
          sub-agent boundary cost but keeps context lean. Record a constrained inline run as
          `inline (constraint: <reason>)` in the tier column so it reads as a deliberate choice, not a
          silent rule violation (see RETURN CONTRACT).
+         PRESERVE, NEVER "SCRATCH ONLY" (kit #1207): every delegated writer prompt requires any script, image, config or patched
+         binary a result depends on to be preserved under `$CORPUS/sources/probes/b<N>/` (or the target's `evidence/b<N>/`, size-capped),
+         and the block to cite that path PLUS the exact reproduction commands in order (METHODOLOGY §5 "Preserved-probe convention").
+         Never tell a writer to keep evidence in scratch only. When a writer runs a script, the prompt requires a SCRIPTS-MANIFEST row
+         (script, run/step, block, sha256 of the preserved copy, sha256 of the remote copy if run remotely), preserved failed attempts, and
+         RECIPE labelling for any script written after the fact (METHODOLOGY §5). (verify-block enforcement: kit issue #1207 part 2.)
          SECRETS-SENSITIVE INLINE OVERRIDE. The file-count delegation trigger and the config-artifact
          delegation variant below are OVERRIDDEN when artifacts are SECRET-BEARING (key files, shadow
          hashes, keystores, credential configs). Stay INLINE regardless of file count: a delegated sub-
@@ -635,6 +641,10 @@ Always read first, in this order:
          sub-agent fabricated sources), rule out a cwd/relative-path bug — verify with
          `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
          from inside a subdirectory may exist relative to the project root. (Evidence: spyder commissioning.)
+         ROOT-ARGUMENT MECHANISMS (same rule, mirror image — kit #1615): when a mechanism takes a ROOT as its argument (ext dir,
+         patch dir, classpath, module path), assert the FULL expected child path of a known member (e.g. the class's package path
+         under a `--patch-module` dir; `config\security\licenses`, not `config\licenses`) before concluding anything from the
+         mechanism's silence. A wrong root argument reads as "no effect" or "store absent".
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting, across ALL install roots the target uses (a
          split install keeps `bin/`+`jre/` apart from a config-home `modules/`; absence proved on one
@@ -798,6 +808,9 @@ Always read first, in this order:
        - Before committing the block, run `$KIT/toolbelt/lint-block.sh <block.md>` next to `verify-block.sh`
          (METHODOLOGY §11 "Block lint"): a non-zero exit is a defect to fix or to waive with a reasoned
          `lint-waive` token; `lint-block.sh --audit <corpus>` is the report-only form for legacy corpora.
+         GOVERNED-FAILURE ORACLE (steering proofs; METHODOLOGY §19, kit #1616): a block claiming a replaced constant/key/toggle took effect
+         shows the failure (or pass) at the EXACT call that value governs, with the replaced value the ONLY difference from the baseline
+         run, plus the counter-experiment (the same call passing once the dependent artifact is re-aligned). Any other failure proves nothing.
          Packs are per-target-class and audit-first: run `lint-block.sh --audit --pack <name>` and classify
          the findings before relying on FAIL mode; calibration false-positive rates are tracked on #1517.
          VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations

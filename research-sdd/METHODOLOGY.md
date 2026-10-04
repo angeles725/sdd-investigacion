@@ -160,6 +160,7 @@ taxonomy, so they were decided together:
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
+- **Delta claims name their baseline.** A delta claim ("X-only", "new in", "removed in", "replaces") states the baseline version it was computed against: the NEWEST available predecessor, or EVERY available one, stated; an older install used while a newer one is on disk is a defect. Lint: `lint-block.sh --pack multi-version` (R8). (kit #1209)
 - **Static-defect / runtime-exploitability split.** When a code-level security defect is confirmed in
   source (`[CERT]`) but whether it is EXPLOITABLE depends on runtime/container/framework semantics NOT
   documented in the corpus, SPLIT the claim — assert the code omission as `[CERT]`, mark exploitability
@@ -448,6 +449,22 @@ blocks. Anchor artifact IDENTITY with a LIVE `sha256` + byte-count of the ORIGIN
 ephemeral temp, which is not preserved); record that hash the way any ground-truth id is recorded. This
 makes a `file:line` pointing at a non-committed beautified temp fully trustworthy and reproducible.
 
+**Preserved-probe convention (any result that depends on an artifact).** A result that depends on an artifact
+(script, image, config, patched binary, intermediate file) preserves it under `sources/probes/b<N>/` (or the
+target's `evidence/b<N>/`, with a size cap stated in the block), and the block cites the preserved path PLUS the
+reproduction recipe: the exact commands, in order, with their arguments. "Used script X" alone is not enough —
+a later session that finds neither the script nor the steps cannot recreate the result. A path under `/tmp`,
+`/var/tmp` or a session scratchpad is not a preserved path; the sha256-anchored beautified-temp view above is the
+only exception. Delegated writers are told to preserve there, never "scratch only" (PROMPT-LOOP). Part of kit #1207;
+verify-block enforcement: kit issue #1207 part 2 (not yet enforced by the tool).
+- **Session SCRIPTS-MANIFEST.** One per session at `sources/probes/<date>-<slug>/SCRIPTS-MANIFEST.md`: a row per script mapping script ->
+  run/step -> block, with the sha256 of the preserved copy and, when it ran on a remote host, the sha256 of the copy that executed
+  there (local == remote parity recorded at run time, not reconstructed).
+- **Failed and superseded attempts are preserved too**, not only the final good script: the lesson often lives in the failed run.
+- **Executed path vs recipe.** A script written AFTER the manual commands that actually ran is labelled RECIPE, not EXECUTED, and counts
+  as evidence only once it regenerates the deployed output with a matching sha256; otherwise the block cites the inline commands that ran.
+  (Manifest enforcement and the scratchpad clean-check: kit issue #1207 parts 2 and 4, not yet implemented.)
+
 **Obfuscated bytecode (APK/DEX, .NET, etc. — the beautified-temp rule does NOT transfer).** The rule above
 works because JS minification is a COSMETIC transform: whitespace and local names change, but structure and
 string LITERALS survive 1:1, so a beautified line is trustworthy. DEX/APK obfuscation (ProGuard / R8 /
@@ -475,6 +492,16 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
 **Decompiler-string-scrubbed Java (Vineflower / Procyon — distinct from runtime-decode above).** When a Vineflower or Procyon decompiled `.java` tree renders string literals as a scrubber token (`n` / `ln`) everywhere a real string should appear in method bodies, the strings ARE present in the `.class` constant pool — the decompiler failed to render them, not the runtime. This is distinct from the runtime-decode hazard above (ProGuard/R8 — strings ENCRYPTED, plaintext only live): here the plaintext is statically reachable via bytecode; only the decompiler's rendering is untrustworthy.
 - **Detect by inspecting the `.class` constant pool directly.** Spot `n` / `ln` tokens in place of string literals across method bodies. Confirm via `javap -c <ClassName>` (real `ldc` constants appear) or `rg -a <expected-literal> <ClassName.class>` (plaintext in the binary).
 - **All string-dependent claims: cite bytecode or clean resources — NEVER the decompiled `.java`.** Derive every string-value claim from `javap -c -p <ClassName>` output or from preserved clean resources (`module.xml`, `.lexicon`, `extracted/` tree). A cite or grep over the decompiled `.java` for a method-body string is inadmissible when the decompiler has scrubbed it.
+- **A conditional's polarity is established by the branch instruction, never by adjacency.** A bytecode-derived claim about which
+  branch a comparison takes cites the actual branch instruction (`ifeq` / `ifne` / …) and its target offset from `javap -c -p`;
+  "call X immediately precedes constant Y, so X gates Y" is an unverified inference that can invert the polarity (B34 §34.6
+  corrected B11 §11.5: `resource.limit` is read when the call returns FALSE, `ifeq 155`). (kit #1192)
+- **Source-syntax claims from decompiled Java are not `[CERT]` unless they cite the distinguishing bytecode shape.** A claim about
+  source syntax (instanceof pattern, `var`, text block, enhanced for, switch expression, lambda, record/sealed, string concat)
+  that rests on decompiled `.java` is inadmissible as `[CERT]`: Vineflower resugars by class-file major version (the same
+  bytecode prints as classic code at major 52 and as modern syntax at major 69), and agreement between decompilers is not
+  fidelity evidence. Cite the shape named in `toolbelt/java-decompile-fidelity.v1.md` (some constructs have none: `[INFER]`).
+  The wrappers will print `major_version` once kit #1205 lands; until then read it from `javap -v`. (kit #1204)
 - **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
   - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`. (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.)
 - **Establish a FOUNDATION-BLOCK caveat; forward-cite it in every subsequent block header.** Scrubbing is a corpus-level hazard. Document it in the FOUNDATION evidence block (the first block that discovers it) and cite that caveat in all later block headers. This kept the discipline consistent across 6 evidence blocks (B350–B355 in the `electronicSignature` focus) and prevented ~40 potential `[CERT]` false-citations.
@@ -662,6 +689,11 @@ one `UNIT:` line per affected unit. Cite a decompiled unit as evidence only afte
 each tree shape the corpus uses (e.g. `vineflower/`, `fallback/`, per-version dirs) and say which it excludes
 and why. A blanket exclusion meant to avoid double-counting silently dropped the one module that exists only
 under `fallback/` (n5 B105 corrected the B80/B90 totals, 211 to 217 sites, because `bajaui` has no other tree).
+**A regex census declares its recognised forms and proves coverage of every form the corpus uses.** A count computed by a regex
+or string match declares which input forms it recognises (quote style, case, whitespace, attribute order, …) and shows, against
+the corpus itself, that no used form is missed — or the block declares the count PARTIAL. Quote styles are the worked example:
+a single-quote-only `t='…'` match found 1,389 typed elements where the both-quote census found 3,545 (n5 B24 §14, B31 §31.1).
+A low count is not "looked and found little" until the matcher is shown to see every form. (kit #1191; mirrors CLAUDE.md §7, false-negative direction)
 **Negative existence by full-table read.** To claim "X is absent", read the WHOLE table (the full import
 table, the full symbol list, the whole-corpus grep over every tree shape above) and report the table size
 beside the zero, rather than one negative grep; this is the method behind the §3 symmetric-opening marker.
@@ -859,7 +891,7 @@ artifact worth keeping — must be moved into the repo/corpus BEFORE the session
 in a scratchpad temp. A scratchpad is a working area, not storage: one session's dashboard source lived only
 under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it is worth citing or reusing
 later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
-the rescue to close-out. (Source:
+the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
 investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.)
 
 ## 7b. State-envelope instruments (situational)
@@ -1814,6 +1846,12 @@ which transition the duration counts from. A `coolingSince` anchor that survived
 
 **UNANIMITY IS AN ARTIFACT DETECTOR: a 100 % hit-rate must be re-verified by an independent method.** A result where every item in the corpus matches — every gap closes, every token resolves, every check passes — is itself suspicious. Before trusting a unanimous result, re-verify by an independent method: re-key the join on a different column, group by an orthogonal dimension, or sample a disjoint subset. A 100 % rate on a real corpus almost always signals that the instrument is matching on an artefact of its own structure rather than the target signal. (Source: blender-llm B17-B20)
 
+**AN EXACT `[CERT]` COUNT IS PROVISIONAL UNTIL A SECOND INDEPENDENT COUNT AGREES.** A `[CERT]` claim asserting an EXACT count of enumerable
+items in a source (string literals, list entries, emitters, jars) stays provisional until a second, independent count agrees: a live re-run of
+the counting mechanism at self-verify time, or a cross-check against another block or corpus that enumerated the same list. A solo count,
+however confidently phrased, is not sealed; this catches plain manual-transcription miscounts that a regex fix does not (B53: 23 corrected to 27).
+Same family as UNANIMITY: a confident number is verified by a second path. (kit #1201)
+
 **MATCHING COUNTS ARE NOT A JOIN: equal cardinality does not establish intersection.** When two sets produced by different methods both return N items, the temptation is to treat them as the same N items — they are not, until the join is measured directly (inner-join on the key, count matching rows). An equal-cardinality coincidence that survives without a direct join check is a latent false positive. (Source: blender-llm B17-B20)
 
 **CONSERVATION CHECK: quantities that must sum or balance must be explicitly checked.** If a model or state machine has quantities that should be conserved (inputs = outputs, allocations = capacity, counts before = counts after), compute the balance explicitly — do not read it from the design description. An un-checked conservation invariant is invisible until a discrepancy surfaces in a downstream consumer. (Source: blender-llm B21-B37)
@@ -2177,6 +2215,10 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   environment state (installed packages, PATH, relevant config dirs, service list); (b) treat the
   run as a §12 mutation. A silent installer that initializes undocumented runtime state is precisely
   the case this rule protects against. (Evidence: niagara-research (licensing-deepdive focus))
+- **Hash-verify every artifact deployed to a live system before interpreting its behaviour.** A license file, JAR, module or config copied
+  onto a live system is `sha256`-compared with its source (not byte size alone: a corruption can keep the size) BEFORE any verdict about
+  the system's response. Example: a corrupted `scp` left a 1291 B license where the source was 805 B, and the failure was misread as a
+  regeneration fragility. A file-list verdict (`nre -licenses`) is necessary, not sufficient. (kit #1540; B1208 §1208.1-§1208.2)
 - **Mutating the cited subject invalidates prior citations — re-anchor to a preserved snapshot.**
   If a probe modifies the target (installs a package, writes a config, restarts a service), any
   citation issued against the PRE-MUTATION state now refers to a changed artifact. Before continuing:
@@ -3206,7 +3248,8 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
 - **Independent state, per loop.** Each concurrent loop keeps its OWN `RESEARCH-STATE-<focus>.md`, its own
   block prefix, and its own STOP flag in engram. No shared mutable state between loops.
 - **Gatekeep each on its own task-notification.** The orchestrator validates each loop's returned block
-  independently as it lands; it does not block one loop waiting on another.
+  independently as it lands; it does not block one loop waiting on another. A "delivered" notification is not proof the report reached
+  you: confirm each landed block by reading its committed header, self-verification and child-gaps sections on disk (§17 rule 1; kit #1197).
 - **Cross-loop barrier for shared actions.** Any action that spans loops — a shared commit, a synthesis
   across focuses, a shared-resource write — waits on a BARRIER: it fires only when ALL participating loops
   have reached the agreed point (e.g. "commit when BOTH have stopped"). Never let one loop take a
@@ -3260,9 +3303,9 @@ disjoint directories launched as 4+3 waves, B370-B376. Source: niagara-research/
 Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76
 and B122 both did). Before re-launching an interrupted iteration:
 
-1. **Check real state first.** Run `git -C $TARGET log --oneline -5` and inspect the on-disk artifacts
-   (the expected block file, CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration already
-   committed its work.
+1. **Check real state first** — after a kill/crash AND after ANY delegated block (a "delivered" handback can fail to arrive; kit #1197, §16).
+   Run `git -C $TARGET log --oneline -5` and read the on-disk artifacts (block header, self-verify, child-gaps,
+   CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration committed its work.
 2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running
    risks overwriting good work or duplicating a block. Pick up from the actual committed state: verify
    it self-verified correctly, then continue with the next gap.
@@ -3749,6 +3792,15 @@ hard-stops, never blind.
   independent channel. The canonical form is a ROUND-TRIP byte-diff: take the real bytes → parse with your
   port → re-emit → diff against the original. A zero diff earns `[CERT]` on the reconstructed logic; a
   nonzero diff is the finding (it shows exactly where your model of the format is wrong).
+- **Governed-failure oracle for steering proofs.** To prove that a replaced constant, key or toggle took effect in a live system, show the
+  failure (or pass) at the EXACT call the replaced value governs, with the replaced value as the ONLY difference from the baseline run,
+  plus the counter-experiment: the same call passing once the dependent artifact is re-aligned. A failure elsewhere, or one with other
+  differences from baseline, proves nothing — this is not "any failure is proof". (n5 B139 §139.4: TPK steered, cacerts verification
+  failed at the cited method; B140 §140.1: the same call passed after re-signing.) (kit #1616)
+- **Snapshot the vendor install tree before and after every build against a vendor SDK.** Extends the §12 "vendor installer … snapshot first"
+  rule: vendor build plugins can silently WRITE artifacts into a read-only install tree (n5: jars installed into the real `modules/`, found
+  only because an unrelated inventory saw 247 become 248). Diff a listing/hash dump (`find <install> -newer <marker>`, `sha256sum`) around each
+  build; a non-empty diff is explained in the block, or the build is redone against a local mirror. (kit #1184)
 - **Classify each build before writing it: reusable tool or one-off PoC.** A reusable tool (a read-only
   parser for a filesystem or store the kit will meet again) gets a `toolbelt/` home, a `tool-registry.md`
   row and a companion test; a one-off PoC lives in the scratchpad and is cited through its preserved output
