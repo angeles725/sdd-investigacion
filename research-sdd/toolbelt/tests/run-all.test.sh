@@ -924,6 +924,17 @@ out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "Invalid teeth-helper waiver lines: 1 — ['hand' is ambiguous" <<<"$out"; then
   ok "teeth-helper gate: a basename shared by both corpora is reported as ambiguous and fails the run"
 else no "teeth-helper gate (basename collision) failed: rc=$rc :: $(grep -iE 'invalid|waive' <<<"$out" | tr '\n' '|')"; fi
+# 36h — an UNWAIVED collision is reported on its own line, is not an Invalid waiver line, and still
+#       fails via the 'not waived' count.
+w="$(newdir c36h)"
+mkfix_teeth "$w/hand.test.sh"
+mkdir -p "$(install_dir_for "$w")"; mkfix_teeth "$(install_dir_for "$w")/hand.test.sh"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qxF 'Ambiguous teeth-helper suite names (both corpora): 1 — [hand]' <<<"$out" \
+   && grep -qxF 'Invalid teeth-helper waiver lines: 0 — []' <<<"$out" \
+   && grep -qF 'and not waived: 2 — [hand, hand]' <<<"$out"; then
+  ok "teeth-helper gate: an unwaived shared basename is listed as ambiguous (not as an invalid waiver) and fails via 'not waived'"
+else no "teeth-helper gate (unwaived collision) failed: rc=$rc :: $(grep -iE 'ambiguous|invalid|waive' <<<"$out" | tr '\n' '|')"; fi
 
 # 37 — kit-tree guard gaps (kit issue #1299 item 7).
 # 37a — dotfiles: a leak onto a dotfile/dot-directory under research-sdd/ is tracked like any file
@@ -1713,13 +1724,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutation: blind the cross-corpus basename-collision check; the shared-name fixture (36g) must then FALSE-PASS.
   echo "-- teeth: blind the basename-collision check; case 36g's fixture must FALSE-PASS --"
   w="$(mut_workdir teeth-helper-collision)"
-  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^      if \[\[ -n "\$_nh_dups" \]\]; then$/      if false; then/' 2>"$w/mutant.err"; then
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^\(      if \)\[\[ "\${_wv_reason\[\$_n\]+set}" == "set" \]\]; then  # SENTINEL-TEETH-AMBIGUOUS$/\1false; then/' 2>"$w/mutant.err"; then
     no "teeth-helper-collision: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mkfix_teeth "$w/hand.test.sh"
+    mkdir -p "$(install_dir_for "$w")"
     mkfix_teeth "$(install_dir_for "$w")/hand.test.sh"; printf 'hand reason\n' > "$w/teeth-helper-waivers.txt"
+    if [ -f "$w/hand.test.sh" ] && [ -f "$(install_dir_for "$w")/hand.test.sh" ]; then _fixok=1; else _fixok=0; fi
     bash "$w/run-all.sh" --require-teeth >/dev/null 2>&1; mrc=$?
-    if [ "$mrc" -eq 0 ]; then ok "teeth-helper-collision: collision-blind mutant exits 0 on a shared basename → ambiguity check has real teeth"
+    if [ "$_fixok" -ne 1 ]; then no "teeth-helper-collision: fixture does not hold two hand.test.sh — a kill would prove nothing"
+    elif [ "$mrc" -eq 0 ]; then ok "teeth-helper-collision: collision-blind mutant exits 0 on a shared basename → ambiguity check has real teeth"
     else no "teeth-helper-collision: mutant still exited $mrc — mutation not exercised (THEATER)"; fi
   fi
   # Mutation: blind the unreadable-entry finder; the DEGRADED reason must then fall back to blaming the scanner.

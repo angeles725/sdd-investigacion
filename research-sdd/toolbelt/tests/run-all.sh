@@ -860,15 +860,17 @@ if [[ -n "$PROVE_TEETH" ]]; then
         fi
       done < "$WAIVER_FILE"
     fi
-    # A basename shared by both corpora (one waiver line would silently cover both files) is ambiguous.
-    if [[ ${#_nh_sorted[@]} -gt 0 ]]; then
-      _nh_dups=""; _nh_dups="$(printf '%s\n' "${_nh_sorted[@]}" | uniq -d)"
-      if [[ -n "$_nh_dups" ]]; then
-        while IFS= read -r _n; do
-          _wv_invalid+=("'$_n' is ambiguous: a suite with that name exists in both corpora, so a waiver cannot be scoped to one")
-        done <<<"$_nh_dups"
+    # A basename shared by both corpora is ambiguous: one waiver line would silently cover both files.
+    # Every such name is REPORTED on its own line below. Only a waiver line that NAMES one is Invalid
+    # (exit 1). An unwaived collision does not double-fail: the same name already lands in the
+    # "not waived" count, which fails the run.
+    _ambig=()
+    if [[ ${#_nh_sorted[@]} -gt 0 ]]; then mapfile -t _ambig < <(printf '%s\n' "${_nh_sorted[@]}" | uniq -d); fi
+    for _n in "${_ambig[@]+"${_ambig[@]}"}"; do
+      if [[ "${_wv_reason[$_n]+set}" == "set" ]]; then  # SENTINEL-TEETH-AMBIGUOUS
+        _wv_invalid+=("'$_n' is ambiguous: a suite with that name exists in both corpora, so a waiver cannot be scoped to one")
       fi
-    fi
+    done
     declare -A _nh_set=()
     for _n in "${_nh_sorted[@]}"; do _nh_set["$_n"]=1; done
     _unwaived=(); _waived=(); _stale=()
@@ -896,6 +898,8 @@ if [[ -n "$PROVE_TEETH" ]]; then
     # SENTINEL-TEETH-HELPER-STALE
     echo "Stale teeth-helper waivers (suite uses the helper, has no teeth, or does not exist): ${#_stale[@]} — [$_st_names]"
     echo "Invalid teeth-helper waiver lines: ${#_wv_invalid[@]} — [$_iv_names]"
+    _am_names=""; if [[ ${#_ambig[@]} -gt 0 ]]; then _am_names="$(_join "${_ambig[@]}")"; fi
+    echo "Ambiguous teeth-helper suite names (both corpora): ${#_ambig[@]} — [$_am_names]"
   fi
 fi
 echo "==============================================================="
