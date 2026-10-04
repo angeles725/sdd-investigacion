@@ -10,6 +10,12 @@ SUT="$HERE/../verify-registry-hook.sh"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# A refused mutant is counted as a failure; the stale OUT is removed first so it can never be run in its place.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 echo "== verify-registry-hook.test.sh =="
 
@@ -63,8 +69,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth A: mutant hook never checks rc — always takes the success path.
   # Test 3 (operational-failure → banner) must catch this and go RED.
-  sed 's/if \[ "\$rc" -ne 0 \]/if false/' \
-    "$SUT" > "$TMP/mutant-hook.sh"
+  mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/if \[ "\$rc" -ne 0 \]/if false/'
   chmod +x "$TMP/mutant-hook.sh"
   write_stub 1 "verify-registry: cannot find TARGETS.md"
   cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
@@ -76,8 +81,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Tooth B: revert "registry check" to "registry drift" → test 4 goes RED.
-  sed 's/registry check/registry drift/g' \
-    "$SUT" > "$TMP/mutant-hook.sh"
+  mk_mut "teeth B: registry drift" "$SUT" "$TMP/mutant-hook.sh" 's/registry check/registry drift/g'
   chmod +x "$TMP/mutant-hook.sh"
   write_stub 0 "INFO: all 18 rows match block counts"
   cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"

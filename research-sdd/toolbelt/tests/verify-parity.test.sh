@@ -22,6 +22,11 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 # run <deliverable> <block> : run the SUT, capture stdout (drop stderr).
 run(){ bash "$SUT" "$1" "$2" 2>/dev/null; }
@@ -152,11 +157,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant="$TMP/verify-parity.MUTANT.sh"
   # Force the drift branch's guard false so a missing hex can never be flagged.
   # The sentinel comment # PARITY-CHECK on the guard line is the stable mutation target.
-  sed 's|if ! grep -qxF.*PARITY-CHECK$|if false; then  # MUTANT: drift check neutered|' "$SUT" > "$mutant"
-  bash -n "$mutant" 2>/dev/null || { no "teeth: mutant has bash syntax error (bash -n failed) — mutant cannot run"; }
-  if ! grep -q 'MUTANT: drift check neutered' "$mutant"; then
-    no "teeth: could not build mutant (drift guard line not found — did the SUT change?)"
-  else
+  # mutant_chain refuses a dead stage, an identical or a syntax-broken mutant (replaces the hand-made bash -n / grep checks).
+  if mk_mut "teeth: drift guard neutered" "$SUT" "$mutant" 's|if ! grep -qxF.*PARITY-CHECK$|if false; then  # MUTANT: drift check neutered|'; then
     d="$TMP/drift"   # reuse the flagship drift fixture (case 5)
     bash "$mutant" "$d/tokens.css" "$d/block-1.md" >/dev/null 2>&1; mgot=$?
     if [ "$mgot" = 0 ]; then

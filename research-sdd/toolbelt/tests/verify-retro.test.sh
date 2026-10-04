@@ -250,17 +250,27 @@ teeth_pass=0; teeth_fail=0
 tok() { printf '  PASS  %s\n' "$1"; teeth_pass=$((teeth_pass+1)); }
 tno() { printf '  FAIL  %s\n' "$1"; teeth_fail=$((teeth_fail+1)); }
 
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line;
+# a refused mutant is counted as a teeth failure here (and its control then goes un-RED on its own).
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+# mk_mut LABEL SRC DST EXPR... — mutant_chain, counting a refusal.
+mk_mut() { mutant_chain "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
+# mk_built LABEL ORIG OUT — mutant_built, counting a refusal.
+mk_built() { mutant_built "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
+
 # Helper: create a mutant by deleting lines between sentinel pair
 make_mutant_delete_sentinel() {
   local sentinel="$1" src="$2" dst="$3"
-  sed "/# ${sentinel}-START/,/# ${sentinel}-END/d" "$src" > "$dst"
+  mk_mut "delete $sentinel block" "$src" "$dst" "/# ${sentinel}-START/,/# ${sentinel}-END/d" || return 1
   chmod +x "$dst"
 }
 
 # Helper: create a mutant by replacing a specific pattern
 make_mutant_replace() {
   local pattern="$1" replacement="$2" src="$3" dst="$4"
-  sed "s|${pattern}|${replacement}|g" "$src" > "$dst"
+  mk_mut "replace $pattern" "$src" "$dst" "s|${pattern}|${replacement}|g" || return 1
   chmod +x "$dst"
 }
 
@@ -311,6 +321,7 @@ mkdir -p "$_m5_dir/lib"
 cp "$SUT" "$_m5_dir/verify-retro.sh"; chmod +x "$_m5_dir/verify-retro.sh"
 printf '#!/usr/bin/env bash\n# broken lib: retro_grammar_delta_info not defined\n' \
   > "$_m5_dir/lib/retro-grammar.sh"
+mk_built "M5 broken lib" "$RG_LIB" "$_m5_dir/lib/retro-grammar.sh"
 _m5_out="$(bash "$_m5_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m5_rc=$?
 if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$_m5_out"; then
   tok "M5: broken retro-grammar.sh → verify-retro exits 2 with 'failed to define' (guard bites)"
@@ -336,6 +347,7 @@ mkdir -p "$_m7_dir/lib"
 cp "$SUT" "$_m7_dir/verify-retro.sh"; chmod +x "$_m7_dir/verify-retro.sh"
 printf '#!/usr/bin/env bash\n# partial lib: delta_info defined, has_honesty missing\nretro_grammar_delta_info() { :; }\n' \
   > "$_m7_dir/lib/retro-grammar.sh"
+mk_built "M7 partial lib" "$RG_LIB" "$_m7_dir/lib/retro-grammar.sh"
 _m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
 if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
   tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
@@ -350,6 +362,7 @@ _m8_dir="$TMP/m8-sandbox"
 mkdir -p "$_m8_dir/lib"
 cp "$SUT" "$_m8_dir/verify-retro.sh"; chmod +x "$_m8_dir/verify-retro.sh"
 grep -v 'RSDD_LEAD_DIRTY_SET' "$RG_LIB" > "$_m8_dir/lib/retro-grammar.sh"
+mk_built "M8 dirty-lead lib" "$RG_LIB" "$_m8_dir/lib/retro-grammar.sh"
 _m8_out="$(bash "$_m8_dir/verify-retro.sh" "$FIX/dirty-lead-hv.md" 2>&1)"; _m8_rc=$?
 [ "$_m8_rc" = 0 ] && \
   tok "M8: dirty-lead mutant accepts dirty-lead-hv (control goes RED → RSDD_LEAD_DIRTY_SET guard bites)" \
@@ -362,6 +375,7 @@ _m9_dir="$TMP/m9-sandbox"
 mkdir -p "$_m9_dir/lib"
 cp "$SUT" "$_m9_dir/verify-retro.sh"; chmod +x "$_m9_dir/verify-retro.sh"
 grep -v 'RSDD_H2_VETO' "$RG_LIB" > "$_m9_dir/lib/retro-grammar.sh"
+mk_built "M9 H2-veto lib" "$RG_LIB" "$_m9_dir/lib/retro-grammar.sh"
 _m9_out="$(bash "$_m9_dir/verify-retro.sh" "$FIX/h2-delta-id-veto.md" 2>&1)"; _m9_rc=$?
 [ "$_m9_rc" = 0 ] && \
   tok "M9: H2-veto mutant accepts h2-delta-id-veto (control goes RED → RSDD_H2_VETO guard bites)" \

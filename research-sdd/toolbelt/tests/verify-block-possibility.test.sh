@@ -18,6 +18,11 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 run(){ bash "${2:-$SUT}" "$1" 2>/dev/null; }
 mk(){ # mk <file> <body-lines...> : header legend + body
   local f="$1"; shift
@@ -111,18 +116,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the ladder acceptance; the laddered fixture must start to WARN --"
   mut="$TMP/verify-block.mut-ladder.sh"
   if grep -q '# PF-LADDER-ACCEPT' "$SUT"; then
-    sed '/# PF-LADDER-ACCEPT/ s/routes >= 3/routes >= 99/' "$SUT" > "$mut"
-    out="$(bash "$mut" "$TMP/ladder.md" 2>/dev/null)"
-    if grep -qE 'WARN +possibility-first' <<<"$out"; then ok "teeth-ladder: neutered threshold → ladder fixture flagged"
-    else no "teeth-ladder: mutant still passes ladder (THEATER)"; fi
+    if mk_mut "teeth-ladder" "$SUT" "$mut" '/# PF-LADDER-ACCEPT/ s/routes >= 3/routes >= 99/'; then
+      out="$(bash "$mut" "$TMP/ladder.md" 2>/dev/null)"
+      if grep -qE 'WARN +possibility-first' <<<"$out"; then ok "teeth-ladder: neutered threshold → ladder fixture flagged"
+      else no "teeth-ladder: mutant still passes ladder (THEATER)"; fi
+    fi
   else no "teeth-ladder: PF-LADDER-ACCEPT sentinel missing"; fi
   echo "-- teeth: neuter the measurement exclusion; the §11a fixture must start to WARN --"
   mut2="$TMP/verify-block.mut-meas.sh"
   if grep -q '# PF-MEASURE-EXCLUDE' "$SUT"; then
-    sed '/# PF-MEASURE-EXCLUDE/ s/.*/      l = l  # PF-MEASURE-EXCLUDE [NEUTERED]/' "$SUT" > "$mut2"
-    out="$(bash "$mut2" "$TMP/meas.md" 2>/dev/null)"
-    if grep -qE 'WARN +possibility-first' <<<"$out"; then ok "teeth-meas: neutered exclusion → measurement fixture flagged"
-    else no "teeth-meas: mutant still passes measurement language (THEATER)"; fi
+    if mk_mut "teeth-meas" "$SUT" "$mut2" '/# PF-MEASURE-EXCLUDE/ s/.*/      l = l  # PF-MEASURE-EXCLUDE [NEUTERED]/'; then
+      out="$(bash "$mut2" "$TMP/meas.md" 2>/dev/null)"
+      if grep -qE 'WARN +possibility-first' <<<"$out"; then ok "teeth-meas: neutered exclusion → measurement fixture flagged"
+      else no "teeth-meas: mutant still passes measurement language (THEATER)"; fi
+    fi
   else no "teeth-meas: PF-MEASURE-EXCLUDE sentinel missing"; fi
 fi
 

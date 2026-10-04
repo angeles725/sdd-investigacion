@@ -11,6 +11,12 @@ SUT="$HERE/../verify-tool-catalog-hook.sh"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# A refused mutant is counted as a failure; the stale OUT is removed first so it can never be run in its place.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 echo "== verify-tool-catalog-hook.test.sh =="
 
@@ -104,8 +110,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Test 4 (not-cataloged > 0 → emits drift summary) must catch this and go RED.
   # Mutant: insert unconditional exit 0 right after the missing= parse line — hook exits
   # silently regardless of the not-cataloged count, so drift goes unreported.
-  sed '/missing.*not cataloged/a\  exit 0' \
-    "$SUT" > "$TMP/mutant-hook.sh"
+  mk_mut "teeth A: always-silent" "$SUT" "$TMP/mutant-hook.sh" '/missing.*not cataloged/a\  exit 0'
   chmod +x "$TMP/mutant-hook.sh"
   write_stub 0 "$(printf 'Summary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
   cp "$TMP/stub-out.txt" "$TMP/stub-out-teeth.txt"
@@ -122,8 +127,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth C: mutant makes the clean state silent (reverts to old exit-0 idiom) → test 3 goes RED.
   # Mutant: replace sentinel emission with bare exit 0 (no jq call, no output).
   echo "-- teeth C: clean-silent mutant → test 3 (declared-clean sentinel) must catch it --"
-  sed '/CLEAN-SENTINEL/c\  exit 0' \
-    "$SUT" > "$TMP/mutant-hook-c.sh"
+  mk_mut "teeth C: clean-silent" "$SUT" "$TMP/mutant-hook-c.sh" '/CLEAN-SENTINEL/c\  exit 0'
   chmod +x "$TMP/mutant-hook-c.sh"
   write_stub 0 "$(printf 'Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged.')"
   cp "$TMP/mutant-hook-c.sh" "$TMP/verify-tool-catalog-hook.sh"
@@ -137,7 +141,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth B: neutralize _vtch_warn_rc so WARN-line extraction error passes silently → test 8 goes red.
   echo "-- teeth B: neutralize _vtch_warn_rc; extraction exit-2 must pass silently → test 8 goes red --"
   mutant_vtch_b="$TMP/mutant-hook-vtch-b.sh"
-  sed 's/_vtch_warn_rc=\$?/_vtch_warn_rc=0/' "$SUT" > "$mutant_vtch_b"
+  mk_mut "teeth B: rc-zeroed" "$SUT" "$mutant_vtch_b" 's/_vtch_warn_rc=\$?/_vtch_warn_rc=0/'
   write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
   cp "$TMP/stub-out.txt" "$TMP/stub-out-vtch8.txt"
   printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$TMP/stub-out-vtch8.txt" \

@@ -11,6 +11,11 @@ SUT="$HERE/../verify-kit-clean-hook.sh"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 echo "== verify-kit-clean-hook.test.sh =="
 
@@ -95,9 +100,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neutered rc-check must lose the dirty banner (test 4 goes RED) --"
 
   # Tooth A: rc-check neutered (always takes clean path) → dirty banner disappears → test 4 would fail.
-  sed 's/rc=\$?/rc=0/' "$SUT" > "$TMP/mutant-hook.sh" 2>/dev/null \
-    || cp "$SUT" "$TMP/mutant-hook.sh"
-  sed -i "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g" "$TMP/mutant-hook.sh"
+  # Stage 1 is the mutation; stage 2 only points the hook at the stub (a fixture patch, not a mutation).
+  mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/rc=\$?/rc=0/' "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g" || { echo "== $pass passed · $fail failed =="; exit 1; }
   chmod +x "$TMP/mutant-hook.sh"
   printf '#!/usr/bin/env bash\ncat "%s"\nexit 1\n' "$TMP/stub-out.txt" > "$TMP/verify-kit-clean.sh"
   printf '%s\n' "   working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked

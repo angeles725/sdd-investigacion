@@ -395,13 +395,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "$KIT"
 EOF
+  # The -P'd fixture is a MUTANT of the logical one, built by lib/mutant.sh (kit #1299): it refuses an
+  # empty, byte-identical, syntax-broken or live-tree mutant and a sed stage that matches nothing. The
+  # pristine copy lives in its own directory (outside the scan box) so OUT is not under ORIG's tree.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
   if [ "$RCT1" -eq 1 ]; then
     ok "teeth: logical (non -P) fixture makes the lint FAIL — the core distinction has teeth"
   else
     no "teeth: logical (non -P) fixture did NOT fail the lint — check is THEATER (rc=$RCT1 out=[$OUTT1])"
   fi
-  sed -i 's/cd "\$(dirname "\$0")\/\.\." \&\& pwd/cd -P "$(dirname "$0")\/.." \&\& pwd -P/' "$boxT/mut.sh"
+  mutant_chain "teeth: -P fixture" "$TMP/teeth-orig/mut.sh" "$boxT/mut.sh" \
+    's/cd "\$(dirname "\$0")\/\.\." \&\& pwd/cd -P "$(dirname "$0")\/.." \&\& pwd -P/' || fail=$((fail+1))
   OUTT2="$(bash "$SUT" "$boxT" 2>&1)"; RCT2=$?
   if [ "$RCT2" -eq 0 ]; then
     ok "teeth: the SAME fixture with -P applied makes the lint PASS — confirms it was the -P that mattered"

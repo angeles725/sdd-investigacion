@@ -20,6 +20,11 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
+# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 run(){ bash "$SUT" "$1" 2>/dev/null; }
 code(){ bash "$SUT" "$1" >/dev/null 2>&1; echo $?; }
 
@@ -84,19 +89,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
   echo "-- teeth: neuter the reciprocal-backlink FAIL (rc=1 → rc=0); expect the one-directional fixture to pass --"
   mutant="$TMP/verify-corrections.MUTANT.sh"
-  sed 's/rc=1/rc=0/g' "$SUT" > "$mutant"
-  d="$TMP/onedir"   # reuse case 3's one-directional fixture
-  bash "$mutant" "$d" >/dev/null 2>&1; mgot=$?
-  if [ "$mgot" = 0 ]; then
-    ok "teeth: rc-neutered mutant passes the one-directional corpus (exit 0) → case 3 has teeth"
-  else no "teeth: mutant exit $mgot (want 0) — case 3 does NOT depend on the FAIL (THEATER)"; fi
+  if mk_mut "teeth: rc-neutered" "$SUT" "$mutant" 's/rc=1/rc=0/g'; then
+    d="$TMP/onedir"   # reuse case 3's one-directional fixture
+    bash "$mutant" "$d" >/dev/null 2>&1; mgot=$?
+    if [ "$mgot" = 0 ]; then
+      ok "teeth: rc-neutered mutant passes the one-directional corpus (exit 0) → case 3 has teeth"
+    else no "teeth: mutant exit $mgot (want 0) — case 3 does NOT depend on the FAIL (THEATER)"; fi
+  fi
 
   echo "-- teeth: revert first-ref binding (drop 'head -1') so the verb governs ALL refs; the cf-fixture must FAIL --"
   bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
-  sed 's/ | head -1 | grep -oE/ | grep -oE/' "$SUT" > "$bmutant"
   if ! grep -q ' | head -1 | grep -oE' "$SUT"; then
     no "teeth: first-ref binding line not found in SUT (did the fix change shape?)"
-  else
+  elif mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" 's/ | head -1 | grep -oE/ | grep -oE/'; then
     d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink)
     bash "$bmutant" "$d" >/dev/null 2>&1; bgot=$?
     if [ "$bgot" = 1 ]; then
