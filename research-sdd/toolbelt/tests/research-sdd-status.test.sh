@@ -3041,9 +3041,13 @@ bash "$SUT" "$d" --sync-state >/dev/null 2>&1
 d="$TMP/sx2"; sx_fixture "$d" stale
 _sx2_out="$(bash "$SUT" "$d" --sync-state 2>/dev/null)"
 _sx2_ok=1
-for want in 'covered_blocks: 7 -> 0' 'gaps_closed: 9 -> 1' 'known_gaps: 9 -> 2' 'investigable_open: 5 -> 1'; do
+for want in 'covered_blocks: 7 -> 0' 'investigable_open: 5 -> 1'; do
   grep -qE "^sync-state: CHANGED RESEARCH-STATE\.md ${want}\$" <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing CHANGED line for [$want]"; }
 done
+# kit #1637: gaps_closed/known_gaps are DECLARED-only — kept (never CHANGED), with a typed advisory naming both values
+grep -qE '^sync-state: DECLARED gaps_closed=9 \(derived 1\) — kept$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for gaps_closed"; }
+grep -qE '^sync-state: DECLARED known_gaps=9 \(derived 2\) — kept$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for known_gaps"; }
+grep -E '^sync-state: CHANGED .* (gaps_closed|known_gaps):' <<<"$_sx2_out" >/dev/null && { _sx2_ok=0; echo "    declared counter reported as CHANGED"; }
 # unchanged counters must NOT be reported (requires_execution_open/blocked_open/deferred_open stayed 0)
 grep -E '^sync-state: CHANGED .* (requires_execution_open|blocked_open|deferred_open):' <<<"$_sx2_out" >/dev/null && { _sx2_ok=0; echo "    unchanged counter reported"; }
 [ "$_sx2_ok" = 1 ] && ok "SX-2: sync-state reports each changed counter (old -> new), and only the changed ones" \
@@ -3178,7 +3182,7 @@ _sx7d_err="$(bash "$SUT" "$d" --sync-state --root 2>&1 >/dev/null)"; _rc=$?
   && ok "SX-7d: --root with no root file → exit 1 + named message, nothing written" \
   || no "SX-7d: rc=$_rc err=[$_sx7d_err]"
 # --next --root reads the root file even though a sibling focus sorts first/also exists
-d="$TMP/sx7e"; sx_fixture "$d" stale; sx_fixture "$d" stale RESEARCH-STATE-alpha.md
+d="$TMP/sx7e"; sx_fixture "$d" none; sx_fixture "$d" none RESEARCH-STATE-alpha.md   # first seed: a declared 9/9 would now be KEPT (#1637) and trip the identity check
 bash "$SUT" "$d" --sync-state --root >/dev/null 2>&1
 bash "$SUT" "$d" --sync-state --focus alpha >/dev/null 2>&1   # verify-state lints EVERY state file, so seed the sibling too
 _sx7e_out="$(bash "$SUT" "$d" --next --root 2>/dev/null)"
@@ -3288,6 +3292,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  # kit #1637: DECLARED-KEEP (a declared counter above the derivation is carried forward) shadows every control
+  # whose mutant bites by clobbering such a counter or by changing the derivation that the keep now masks. Those
+  # mechanisms are still load-bearing for fixtures with declared <= derived and for --only, so their mutants are
+  # built from the SUT with DECLARED-KEEP removed (SUT_NK for cp-built mutants; an extra `-e '/# DECLARED-KEEP$/d'`
+  # stage for mutant_sed ones — mutant_sed refuses an ORIG that lives in the temp tree): the mutation is then measured
+  # against the mechanism it targets, not against the keep that masks it. The T1637-* teeth use the real SUT.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  SUT_NK="$TMP/status.NOKEEP.MUTANT.sh"
+  mutant_sed "$SUT" "$SUT_NK" -e '/# DECLARED-KEEP$/d' || { echo "  FAIL  teeth-T1637-NOKEEP: could not build the keep-less base"; fail=$((fail+1)); }
   cp "$HERE/../lib/hook-wiring.sh" "$TMP/lib/hook-wiring.sh"
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
@@ -5265,7 +5279,7 @@ open(sys.argv[2], 'w').write(out)
   echo "-- teeth-T-B1-GC-FROM-BACKLOG: restore prose gc before backlog-exceeds branch → gc stays 2 --"
   _b1_mutant="$TMP/status.B1.MUTANT.sh"
   if grep -q 'KG-BACKLOG-GC' "$SUT"; then
-    cp "$SUT" "$_b1_mutant"
+    cp "$SUT_NK" "$_b1_mutant"  # keep-less base (#1637): see SUT_NK
     # Insert a prose-gc assignment just before the if block so gc=2 (prose) when KG-BACKLOG-EXCEEDS fires
     # and the KG-BACKLOG-GC assignment inside the branch is overridden.
     # Mutant: add `gc="$(pick "${cov%%/*}" "")"` after the _cm_kg line (before the if) and delete KG-BACKLOG-GC lines
@@ -6423,7 +6437,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # sx_mutant <name> <sed-script>: build a non-empty, syntactically valid mutant; prints its path.
   sx_mutant() {
     local m="$TMP/status.$1.MUTANT.sh"
-    cp "$SUT" "$m"; sed -i "$2" "$m"
+    cp "${SX_ORIG:-$SUT}" "$m"; sed -i "$2" "$m"
     if cmp -s "$m" "$SUT"; then no "teeth-$1: mutant identical to SUT — sed did not apply" >&2; return 1; fi
     bash -n "$m" 2>/dev/null || { no "teeth-$1: mutant has a syntax error" >&2; return 1; }
     printf '%s' "$m"
@@ -6465,7 +6479,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       || no "teeth-SX-CLAMP: mutant still writes 0 — THEATER (fixture may not reach the negative branch)"
   fi
   echo "-- teeth-SX-CLAMP-KEEP: clamp to an invented 0 over a declared value → SX-4b goes RED --"
-  if m="$(sx_mutant SX-CLAMP-KEEP 's/^        gc="$(pick "" "$(env_get gaps_closed)")"  # GC-CLAMP-KEEP/        gc=0  # GC-CLAMP-KEEP/')"; then
+  if m="$(SX_ORIG="$SUT_NK" sx_mutant SX-CLAMP-KEEP 's/^        gc="$(pick "" "$(env_get gaps_closed)")"  # GC-CLAMP-KEEP/        gc=0  # GC-CLAMP-KEEP/')"; then
     d="$TMP/teeth-sx-clampkeep"; sx4b_mk "$d"; bash "$m" "$d" --sync-state >/dev/null 2>&1
     [ "$(sx_env "$d/RESEARCH-STATE.md" gaps_closed)" = 0 ] \
       && ok "teeth-SX-CLAMP-KEEP: mutant overwrites the declared gaps_closed=5 with 0 → SX-4b RED" \
@@ -6547,7 +6561,7 @@ b13_fix() {
 }
 # b13_run <dir>: run --sync-state (stderr kept in <dir>/.b13err, read with b13_err) and echo "kg gc io def".
 b13_run() {
-  bash "${B13_SUT:-$SUT}" "$1" --sync-state >/dev/null 2>"$1/.b13err"
+  bash "${B13_SUT:-$SUT}" "$1" --sync-state >"$1/.b13out" 2>"$1/.b13err"
   local f="$1/RESEARCH-STATE.md"
   echo "$(sx_env "$f" known_gaps) $(sx_env "$f" gaps_closed) $(sx_env "$f" investigable_open) $(sx_env "$f" deferred_open)"
 }
@@ -6714,9 +6728,10 @@ done
 # Control: derived >= declared still wins even with a malformed row present (the keep is never a floor-lock).
 d="$TMP/b19-mal-grow"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$d" 1 0
 b13_expect "T-1319-MALFORMED derived 2 >= declared 1 still wins" "$(b13_run "$d")" "2 1 1 0"
-# Control: a well-formed table never triggers the keep (declared 9 > derived 2 is overwritten as before).
+# Control: a well-formed table never triggers the lower-bound keep; the declared 9/5 > derived 2/1 is nevertheless kept by
+# the DECLARED-KEEP rule (#1637) — see T-1637-* below for the advisory and the edges.
 d="$TMP/b19-mal-none"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$d" 9 5
-b13_expect "T-1319-MALFORMED no malformed row: stale declared 9/5 is still corrected" "$(b13_run "$d")" "2 1 1 0"
+b13_expect "T-1319-MALFORMED no malformed row: declared 9/5 above derived is kept (DECLARED-KEEP #1637)" "$(b13_run "$d")" "9 5 1 0"
 # Item 2: `\|` inside a cell is a LITERAL pipe, not a column separator — the row keeps its cell count and is counted.
 d="$TMP/b19-esc-4"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'
 b13_expect "T-1319-ESCPIPE 4-col rows with \\| in the gap cell are counted" "$(b13_run "$d")" "3 2 1 0"
@@ -6741,12 +6756,12 @@ b50_fx_prose_closed() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| — | e1 | web
 b50_fx_prose_tier()   { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' "$PROSE_T"; b19_decl "$1" 3 2; }
 b50_fx_prose_first()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '' "$PROSE_T" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b19_decl "$1" 3 2; }
 d="$TMP/b50-prose-closed"; b50_fx_prose_closed "$d"
-b13_expect "T-1350-PROSE closed-class: prose line does not keep declared 4/3 (derived 3, prose would add 1)" "$(b13_run "$d")" "3 2 1 0"
+b13_expect "T-1350-PROSE closed-class: declared 4/3 kept by DECLARED-KEEP (#1637), not by the prose-fed lower-bound keep" "$(b13_run "$d")" "4 3 1 0"
 if grep -q 'keeping the declared known_gaps' <<<"$(b13_err "$d")"; then no "T-1350-PROSE closed-class: spurious keep message — [$(b13_err "$d")]"; else ok "T-1350-PROSE closed-class: no keep message"; fi
 d="$TMP/b50-prose-tier"; b50_fx_prose_tier "$d"
-b13_expect "T-1350-PROSE tier: prose line does not keep declared 3/2 (derived 2, prose would add 1)" "$(b13_run "$d")" "2 1 1 0"
+b13_expect "T-1350-PROSE tier: declared 3/2 kept by DECLARED-KEEP (#1637), not by the prose-fed lower-bound keep" "$(b13_run "$d")" "3 2 1 0"
 d="$TMP/b50-prose-first"; b50_fx_prose_first "$d"
-b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 corrected" "$(b13_run "$d")" "2 1 1 0"
+b13_expect "T-1350-PROSE prose BEFORE the first row: declared 3/2 kept by DECLARED-KEEP (#1637), not by the lower-bound keep" "$(b13_run "$d")" "3 2 1 0"
 # Control: a real `|` row with the same malformed shape still keeps (the guard is the leading pipe, not the cell count).
 d="$TMP/b50-prose-ctl"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' '' '| low | real | malformed | row | here |'; b19_decl "$d" 3 2
 b13_expect "T-1350-PROSE control: a leading-pipe malformed row still keeps (3/2 = derived 2 + 1 uncounted)" "$(b13_run "$d")" "3 2 1 0"
@@ -6757,6 +6772,30 @@ b13_expect "T-1350-PROSE control: an indented malformed table row still keeps (3
 # Item 2: an UNBOUNDED keep must be LOUD, never destructive. When declared > derived + uncounted the excess cannot be explained by
 # the uncounted rows, but it is NOT provably stale (it may include closed gaps tracked in prose or under another heading), so the
 # declared value is still kept and the excess is WARNed. Within the bound the keep stays as before, with no excess WARN.
+# T-1637 (kit #1637): gaps_closed / known_gaps are DECLARED-only. A declared integer ABOVE the derivation is carried
+# forward unchanged (the hand-truthful counter), with a typed stdout advisory naming both values — never a CHANGED line.
+d="$TMP/t1637-kept"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$d" 3 2
+b13_expect "T-1637 declared 3/2 above derived 2/1: carried forward" "$(b13_run "$d")" "3 2 1 0"
+for _f in "gaps_closed=2 (derived 1)" "known_gaps=3 (derived 2)"; do
+  grep -qF "sync-state: DECLARED ${_f} — kept" "$d/.b13out" && ok "T-1637 advisory names both values: [${_f}]" || no "T-1637 advisory missing [${_f}] — out=[$(cat "$d/.b13out")]"
+done
+grep -qE 'CHANGED .* (gaps_closed|known_gaps):' "$d/.b13out" && no "T-1637 kept counters must not be reported as CHANGED" || ok "T-1637 kept counters are not reported as CHANGED"
+# edge: declared == derived -> no advisory
+d="$TMP/t1637-equal"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$d" 2 1
+b13_expect "T-1637 declared == derived: unchanged" "$(b13_run "$d")" "2 1 1 0"
+grep -q 'DECLARED' "$d/.b13out" && no "T-1637 equal counters must not print an advisory — [$(cat "$d/.b13out")]" || ok "T-1637 equal counters print no advisory"
+# edge: declared BELOW derived (a gap seeded in the backlog, undeclared) -> the derivation still wins
+d="$TMP/t1637-below"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$d" 1 0
+b13_expect "T-1637 declared 1/0 below derived 2/1: derivation wins" "$(b13_run "$d")" "2 1 1 0"
+# edge: counters ABSENT from the fence (absent != 0, §7) -> seeded from the derivation, no advisory
+d="$TMP/t1637-absent"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'
+sed -i -e '/^known_gaps:/d' -e '/^gaps_closed:/d' "$d/RESEARCH-STATE.md"
+b13_expect "T-1637 counters absent: seeded from the derivation" "$(b13_run "$d")" "2 1 1 0"
+grep -q 'DECLARED' "$d/.b13out" && no "T-1637 absent counters must not print a DECLARED advisory — [$(cat "$d/.b13out")]" || ok "T-1637 absent counters print no DECLARED advisory"
+# --only <field> is the explicit opt-in to write the derived value
+d="$TMP/t1637-only"; b13_fix "$d" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$d" 3 2
+bash "$SUT" "$d" --sync-state --only gaps_closed,known_gaps >/dev/null 2>&1
+b13_expect "T-1637 --only gaps_closed,known_gaps writes the derived values" "$(sx_env "$d/RESEARCH-STATE.md" known_gaps) $(sx_env "$d/RESEARCH-STATE.md" gaps_closed) 1 0" "2 1 1 0"
 EXCESS_WARN='exceeds what the parser can count'
 b50_fx_ub() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |' "$MAL6"; b19_decl "$1" "$2" "$3"; }
 b50_fx_ub_over()  { b50_fx_ub "$1" 9 5; }
@@ -6792,7 +6831,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth() {
     local name="$1" script="$2" heading="$3" hdr="$4" want="$5" m dd got; shift 5
     m="$TMP/status.B13-$name.MUTANT.sh"
-    if ! mutant_sed "$SUT" "$m" -e "$script"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    if ! mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e "$script"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
     dd="$TMP/b13-teeth-$name"; b13_fix "$dd" "$heading" "$hdr" "$@"
     got="$(B13_SUT="$m" b13_run "$dd")"
     if [[ "$want" == ERR:* ]]; then
@@ -6820,12 +6859,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth NM-UNKNOWN '/NM-UNKNOWN-WARN/s/else if (_nm_was_last [&][&] in_data [&][&] tbl_ok)/else if (0)/' "## Gap backlog" "$B13H4" "ERR:unknown priority [4] in near-miss backlog row" \
     '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
   m="$TMP/status.B13-LOWERBOUND.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
+  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
     dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 9 5; got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
   else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
+  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
     dd="$TMP/b13-teeth-nmnohdr"; b13_fix "$dd" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |'; B13_SUT="$m" b13_run "$dd" >/dev/null
     grep -q 'unknown priority' <<<"$(b13_err "$dd")" && ok "teeth-B13-NM-NOHDR: mutant WARNs on the header-less table → T-1307-NEARMISS-NOHDR RED" || no "teeth-B13-NM-NOHDR: mutant still silent — THEATER"
   else no "teeth-B13-NM-NOHDR: mutant refused by mutant.sh"; fi
@@ -6834,9 +6873,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2() {
     local name="$1" want="$2" builder="$3" m dd got; shift 3
     m="$TMP/status.B13-$name.MUTANT.sh"
-    if ! mutant_sed "$SUT" "$m" "$@"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    if ! mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  "$@"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
     dd="$TMP/b13-teeth-$name"; "$builder" "$dd"; got="$(B13_SUT="$m" b13_run "$dd")"
-    if [[ "$want" == ERR:* ]]; then
+    if [[ "$want" == HAS:* ]]; then  # the mutant must GAIN the line (a message the good run never prints)
+      if grep -qiF -- "${want#HAS:}" <<<"$(b13_err "$dd")"; then ok "teeth-B13-$name: mutant gains [${want#HAS:}] → its test goes RED"; else no "teeth-B13-$name: mutant still lacks [${want#HAS:}] — THEATER"; fi
+    elif [[ "$want" == ERR:* ]]; then
       if grep -qiF -- "${want#ERR:}" <<<"$(b13_err "$dd")"; then no "teeth-B13-$name: mutant still emits [${want#ERR:}] — THEATER"; else ok "teeth-B13-$name: mutant loses [${want#ERR:}] → its test goes RED"; fi
     elif [ "$got" = "$want" ]; then no "teeth-B13-$name: mutant still derives [$got] — THEATER"
     else ok "teeth-B13-$name: mutant derives [$got] instead of [$want] → its test goes RED"; fi
@@ -6854,20 +6895,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
   # OOB guard: the Findings fixture is two tables, so build it by hand.
   m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
+  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
     dd="$TMP/b13-teeth-oobguard"; cp -r "$TMP/b13-findings" "$dd"; sed -i -e 's/^known_gaps:.*/known_gaps: 0/' "$dd/RESEARCH-STATE.md"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "1 0 1 0" ] && ok "teeth-B13-OOB-GUARD: mutant counts the Severity rows [$got] → T-1307-FINDINGS RED" || no "teeth-B13-OOB-GUARD: mutant still derives [$got] — THEATER"
   else no "teeth-B13-OOB-GUARD: mutant refused by mutant.sh"; fi
   # Header vocabulary: dropping `prioridad` (Spanish) / `pr.` from the priority-shaped set must break T-1307-PRIORIDAD / T-1307-FINDINGS' positive control.
   m="$TMP/status.B13-HDR-PRIORIDAD.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e 's/|p|prioridad)\$\//|p)$\//'; then
+  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/|p|prioridad)\$\//|p)$\//'; then
     dd="$TMP/b13-teeth-prioridad"; cp -r "$TMP/b13-prioridad" "$dd"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PRIORIDAD: mutant ignores a Prioridad header [$got] → T-1307-PRIORIDAD RED" || no "teeth-B13-HDR-PRIORIDAD: mutant still derives [$got] — THEATER"
   else no "teeth-B13-HDR-PRIORIDAD: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-HDR-PR.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
+  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
     dd="$TMP/b13-teeth-oobprio"; cp -r "$TMP/b13-oob-prio" "$dd"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PR: mutant ignores a Pr. header [$got] → T-1307-FINDINGS positive control RED" || no "teeth-B13-HDR-PR: mutant still derives [$got] — THEATER"
@@ -6880,17 +6921,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2 B19-ESCPIPE-4 "3 2 1 0" b19_fx_esc4 -e '/BP-ESCAPED-PIPE/d'
   b13_tooth2 B19-ESCPIPE-5 "2 1 1 0" b19_fx_esc5 -e '/BP-ESCAPED-PIPE/d'
   # ---- teeth for kit #1350 (prose line must not trigger the keep; the keep is bounded) ----
-  b13_tooth2 B50-PROSE-CLOSED "3 2 1 0" b50_fx_prose_closed -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
-  b13_tooth2 B50-PROSE-TIER "2 1 1 0" b50_fx_prose_tier -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
-  b13_tooth2 B50-PROSE-FIRST "2 1 1 0" b50_fx_prose_first -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-CLOSED "HAS:keeping the declared known_gaps" b50_fx_prose_closed -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-TIER "HAS:keeping the declared known_gaps" b50_fx_prose_tier -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
+  b13_tooth2 B50-PROSE-FIRST "HAS:keeping the declared known_gaps" b50_fx_prose_first -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
   b13_tooth2 B50-INDENTED-ROW "3 2 1 0" b50_fx_indented -e 's/isrow = (\$0 ~ \/\^\[ \\t\]\*\\|\/)/isrow = ($0 ~ \/^\\|\/)/'
   b13_tooth2 B50-UPPER-NOWARN "ERR:$EXCESS_WARN" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/false \&\& printf/'
   b13_tooth2 B50-UPPER-REWRITE "9 5 1 0" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] \&\& _kg_lb=0 \&\& printf/'
   # inclusive bound: a mutant using -ge would WARN at declared == derived + uncounted, where the good run is silent
-  if mutant_sed "$SUT" "$TMP/status.B50-INCL.MUTANT.sh" -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
+  if mutant_sed "$SUT" "$TMP/status.B50-INCL.MUTANT.sh" -e '/# DECLARED-KEEP$/d'  -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
     dd="$TMP/b13-teeth-b50incl"; b50_fx_ub_edge "$dd"; B13_SUT="$TMP/status.B50-INCL.MUTANT.sh" b13_run "$dd" >/dev/null
     grep -q "$EXCESS_WARN" <<<"$(b13_err "$dd")" && ok "teeth-B13-B50-UPPER-INCLUSIVE: -ge mutant WARNs at the bound → T-1350-UPPER edge RED" || no "teeth-B13-B50-UPPER-INCLUSIVE: mutant still silent — THEATER"
   else no "teeth-B13-B50-UPPER-INCLUSIVE: mutant refused by mutant.sh"; fi
+  # ---- teeth for kit #1637 (DECLARED-KEEP): mutant_chain builds, mutant_tooth asserts exact rc + anchored line ----
+  # t1637-run.sh <sut> <dir>: run --sync-state on a COPY of <dir> and print its output plus the written counters.
+  cat > "$TMP/t1637-run.sh" <<'RUNEOF'
+#!/usr/bin/env bash
+w="$(mktemp -d)" || exit 3
+cp -r "$2/." "$w/" || exit 3
+bash "$1" "$w" --sync-state 2>&1
+grep -E '^(known_gaps|gaps_closed):' "$w/RESEARCH-STATE.md"
+rm -rf "$w"
+RUNEOF
+  _t1637_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1637_t() { # <label> <fixture-dir> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash "$TMP/t1637-run.sh" @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  t1637_fx="$TMP/t1637-teeth"; b13_fix "$t1637_fx" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx" 3 2
+  t1637_fx2="$TMP/t1637-teeth2"; b13_fix "$t1637_fx2" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx2" 1 0
+  t1637_t T1637-KEEP "$t1637_fx" '/# DECLARED-KEEP$/d' --good-has 'known_gaps: 3' --bad-has 'known_gaps: 2' --bad-lacks "$_t1637_crash"
+  t1637_t T1637-ADVISORY "$t1637_fx" '/# DECLARED-KEEP-ADVISORY$/d' --good-has 'DECLARED known_gaps=3 \(derived 2\) — kept' --bad-lacks "DECLARED known_gaps=|$_t1637_crash"
+  # declared BELOW derived must not be kept: dropping the guard keeps 1/0 instead of deriving 2/1
+  t1637_t T1637-BELOW "$t1637_fx2" '/declared <= derived: the derivation is evidence/d' --good-has 'known_gaps: 2' --bad-has 'known_gaps: 1' --bad-lacks "$_t1637_crash"
 fi
 
 if [ "$skips" -gt 0 ]; then
