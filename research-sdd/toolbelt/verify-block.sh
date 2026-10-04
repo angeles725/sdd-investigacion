@@ -18,7 +18,18 @@
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target, OR a cited hash equals the digest of EMPTY
-#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`) · 2 = bad args.
+#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR a cited
+#       path is ephemeral — under /tmp, /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite
+#       form, [CERT*] or not; only a line carrying a `sha256` anchor — the §5 beautified-temp view — is exempt, as
+#       an INFO), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
+#       sha256 differs from the file's (MANIFEST!, kit #1207; only when the corpus has >= 1 manifest — with none
+#       the line is `INFO no SCRIPTS-MANIFEST`) · 2 = bad args.
+#   SCRIPTS-MANIFEST.md (one per sources/probes/<dir>/, kit #1207) — a markdown table, one row per preserved script:
+#       | script | sha256 | run/step | block | executed-on | remote-sha256 | role |
+#     script = file name or path relative to the manifest dir · sha256 = 64 hex of the preserved file · run/step =
+#     the exact command (with arguments) or step number that ran it · block = B<N> that relies on it · executed-on =
+#     host/device where it ran · remote-sha256 = digest of the copy that ran remotely (or `-`) ·
+#     role = EXECUTED | RECIPE | FAILED-ATTEMPT. Only columns 1-2 are machine-checked; the rest is for humans.
 
 set -uo pipefail
 # --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
@@ -548,6 +559,112 @@ while IFS= read -r _vb_eh_line; do
 done <<<"$_vb_eh_out"
 if [ "$_vb_eh_deg" -eq 1 ]; then :   # degraded: the ERROR line above is the verdict — never also print a clean "(none)"
 elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equals the digest of empty input; waived: $_vb_eh_w)"; else echo "-- empty-input digests cited: $_vb_eh_n (FAIL)"; fi
+
+# 10. EPHEMERAL-PATH CITES (kit #1207, METHODOLOGY §5/§7 anti-ephemeral-artifact) — a cited path under /tmp,
+#     /var/tmp (also /private/tmp, /private/var/tmp, $TMPDIR/, ${TMPDIR}/) or a session `scratchpad/` dir is
+#     evidence that will not exist in the next session: FAIL (rc=1), one typed `EPHEMERAL!` line per occurrence
+#     with the block line number. Enumerated cite forms — ALL covered because the scan reads every path-shaped
+#     token on every line, whatever wraps it: `file:N`, `file:N-M`, bare backticked path, parenthetical path,
+#     table cell, prose, code fence, `[CERT*]`-marked or not. The tmp prefix must not be glued to a preceding
+#     path char (so `src/tmp/x` and `./tmp/x` never fire). Verification is NOT limited to [CERT*] lines.
+#     EXCEPTION (the §5 beautified-temp view): a line that carries a `sha256` anchor is reported as `INFO
+#     ephemeral-anchored` and does not change the exit code — the temp is a working view whose identity is
+#     pinned by the hash of the ORIGINAL file. Preserve everything else under sources/probes/b<N>/.
+_vb_ep_n=0; _vb_ep_a=0; _vb_ep_deg=0
+_vb_ep_out=$(awk '
+  function scan(re, glue,   rest, tok, before, after, anchored) {
+    rest = $0
+    anchored = (index(tolower($0), "sha256") > 0)   # VB-EP-ANCHOR
+    while (match(rest, re)) {
+      tok = substr(rest, RSTART, RLENGTH)
+      before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
+      after = substr(rest, RSTART + RLENGTH)
+      if (before !~ glue) {   # VB-EP-GLUE
+        sub(/[.,:;]+$/, "", tok)
+        if (anchored)
+          printf "A\t   INFO    ephemeral-anchored line %d: %s (sha256-anchored beautified-temp view, METHODOLOGY §5)\n", NR, tok
+        else
+          printf "F\t   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)\n", tok, NR
+      }
+      rest = after
+    }
+  }
+  {
+    scan("(\\$\\{?TMPDIR\\}?|/private/var/tmp|/private/tmp|/var/tmp|/tmp)/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-TMP
+    scan("[A-Za-z0-9_.-]*scratchpad/[A-Za-z0-9_./@+=:~-]*", "[A-Za-z0-9_./~$-]")   # VB-EP-SCRATCHPAD
+  }
+  END { print "T\t@@scanned " NR }   # coverage trailer: absent => the detector did not run to completion
+' "$block")
+_vb_ep_rc=$?
+_vb_ep_trailer=""; grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_ep_out" || _vb_ep_trailer=", no scan trailer"
+echo "-- ephemeral-path cites (kit #1207: /tmp, /var/tmp, scratchpad — FAIL unless sha256-anchored) --"
+if [ "$_vb_ep_rc" -ne 0 ] || [ -n "$_vb_ep_trailer" ]; then
+  printf '   ERROR: ephemeral-path scan DEGRADED (awk exit %d%s) — block NOT checked for ephemeral cites\n' "$_vb_ep_rc" "$_vb_ep_trailer"
+  rc=1; _vb_ep_deg=1
+fi
+while IFS= read -r _vb_ep_line; do
+  [ -z "$_vb_ep_line" ] && continue
+  _vb_ep_tag=${_vb_ep_line%%$'\t'*}; _vb_ep_text=${_vb_ep_line#*$'\t'}
+  case "$_vb_ep_tag" in
+    T) continue;;
+    A) echo "$_vb_ep_text"; _vb_ep_a=$((_vb_ep_a + 1)); continue;;
+  esac
+  echo "$_vb_ep_text"
+  _vb_ep_n=$((_vb_ep_n + 1)); rc=1
+done <<<"$_vb_ep_out"
+if [ "$_vb_ep_deg" -eq 1 ]; then :
+elif [ "$_vb_ep_n" -eq 0 ]; then echo "   (none — no unanchored ephemeral path cited; sha256-anchored: $_vb_ep_a)"; else echo "-- ephemeral-path cites: $_vb_ep_n (FAIL)"; fi
+
+# 11. SCRIPTS-MANIFEST (kit #1207) — a preserved script cited under sources/probes/ must be traceable to a row of
+#     a `sources/probes/**/SCRIPTS-MANIFEST.md` of the target, and the row's sha256 must equal the file's. Rules:
+#       - the corpus has NO manifest at all  -> typed `INFO    no SCRIPTS-MANIFEST` (today's behaviour kept, but
+#         never a silent pass), exit unchanged;
+#       - the corpus has >= 1 manifest       -> each cited script (ext sh ps1 py java js rb pl bat cmd groovy kts)
+#         without a valid row, or whose every row's sha256 differs from the file's actual sha256 (an absent file
+#         counts as a difference), is a FAIL (rc=1) with a typed `MANIFEST!` line.
+#     A script cite is the cited path matched by basename against the first cell of a row (any manifest).
+_vb_mf_n=0; _vb_mf_deg=0
+_vb_mf_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\b' "$block" | sort -u)
+_vb_mf_files=$(find "$target/sources/probes" -type f -name SCRIPTS-MANIFEST.md 2>/dev/null | sort)
+echo "-- preserved-script manifest (kit #1207: SCRIPTS-MANIFEST.md rows with sha256) --"
+if [ -z "$_vb_mf_files" ]; then
+  echo "   INFO    no SCRIPTS-MANIFEST under $target/sources/probes — preserved-script cites are not manifest-checked ($( [ -n "$_vb_mf_cites" ] && printf '%s' "$_vb_mf_cites" | grep -c . || echo 0) cited)"
+elif [ -z "$_vb_mf_cites" ]; then
+  echo "   (none — no preserved script cited under sources/probes/; manifests present: $(printf '%s\n' "$_vb_mf_files" | grep -c .))"
+else
+  _vb_mf_sha=""
+  if command -v sha256sum >/dev/null 2>&1; then _vb_mf_sha="sha256sum"; elif command -v shasum >/dev/null 2>&1; then _vb_mf_sha="shasum -a 256"; fi
+  if [ -z "$_vb_mf_sha" ]; then
+    echo "   ERROR: manifest check DEGRADED (neither sha256sum nor shasum on PATH) — cited scripts NOT checked"; rc=1; _vb_mf_deg=1
+  else
+    # rows: `<basename>\t<sha256 lowercase>` for every table row whose 2nd cell is a 64-hex digest
+    _vb_mf_rows=$(while IFS= read -r _vb_mf_f; do
+      awk -F'|' '
+        /^[[:space:]]*\|/ {
+          a = $2; b = $3
+          gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
+          n = split(a, parts, "/"); a = parts[n]
+          if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) print a "\t" tolower(b)   # VB-MF-ROW
+        }' "$_vb_mf_f"
+    done <<<"$_vb_mf_files")
+    while IFS= read -r _vb_mf_c; do
+      [ -z "$_vb_mf_c" ] && continue
+      _vb_mf_b=${_vb_mf_c##*/}
+      _vb_mf_want=$(awk -F'\t' -v b="$_vb_mf_b" '$1 == b { print $2 }' <<<"$_vb_mf_rows")   # VB-MF-LOOKUP
+      if [ -z "$_vb_mf_want" ]; then
+        echo "   MANIFEST!  $_vb_mf_c  (no valid SCRIPTS-MANIFEST row for this script — add script|sha256|run/step|block|executed-on|remote-sha256|role)"; rc=1; _vb_mf_n=$((_vb_mf_n+1)); continue
+      fi
+      _vb_mf_have=ABSENT
+      [ -f "$target/$_vb_mf_c" ] && _vb_mf_have=$($_vb_mf_sha "$target/$_vb_mf_c" 2>/dev/null | awk '{print tolower($1)}')
+      if grep -qxF "$_vb_mf_have" <<<"$_vb_mf_want"; then   # VB-MF-SHA
+        echo "   manifest-ok  $_vb_mf_c  (sha256 matches a row)"
+      else
+        echo "   MANIFEST!  $_vb_mf_c  (manifest sha256 differs from the file's: ${_vb_mf_have:0:16})"; rc=1; _vb_mf_n=$((_vb_mf_n+1))
+      fi
+    done <<<"$_vb_mf_cites"
+    [ "$_vb_mf_n" -gt 0 ] && echo "-- preserved-script manifest findings: $_vb_mf_n (FAIL)"
+  fi
+fi
 
 echo "== exit $rc =="
 exit $rc
