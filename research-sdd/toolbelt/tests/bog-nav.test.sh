@@ -640,6 +640,14 @@ MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
 mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 
+# Shared helper (kit issue #1299): sourced ONLY on this branch, each function we call is checked.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
+for _fn in mutant_chain mutant_tooth; do
+  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_fn" >&2; exit 2; }
+done
+export MUTANT_SYNTAX=none   # the mutants are Python; syntax is checked with ast.parse in mut_build
+
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/bog_nav.py"
 if [ ! -f "$ORIG_PY" ]; then
@@ -648,278 +656,125 @@ if [ ! -f "$ORIG_PY" ]; then
   exit 1
 fi
 
-# --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
-# Mutation: os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK → os.O_RDONLY | _O_NONBLOCK
-# Expected: symlink input is followed and the real file opens → exit 0 (not 2) → T2 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NONBLOCK/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M1 symlink guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M1 symlink guard: sed had no effect (pattern not found)"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$ROOT/sym.bog" --output "$ROOT/m1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -ne 2 ]; then
-    mut_ok "M1 symlink guard removal detected (exit $_m1_exit, not 2)"
-  else
-    mut_no "M1 symlink guard: mutation NOT detected (still exits 2)"
-  fi
-fi
-rm -rf "$MUTDIR"
+# Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
+# Only the single mutated file is copied: bog_nav.py imports only the stdlib (see its import block)
+# and has no __file__-relative resource.
+MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
+MUTPY=""
 
-# --- M2: Remove bounded-read guard (zip-bomb allowed) ---
-# Expected: bomb.bog is parsed without truncation → status:complete instead of failed.
-# Mutation: `if len(data) > _MAX_BOG_INFLATE:` → `if False:` so oversized bog is parsed.
-# T11 asserts status:failed; mutant returns status:complete (or an error state if parse fails)
-# but NOT failed+truncated — DETECTED.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M2/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M2 bounded-read removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M2 bounded-read removed: sed had no effect (pattern not found)"
-else
-  _m2_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/bomb.bog" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
-  _m2_status=""
-  _m2_trunc=""
-  if [ -f "$ROOT/m2.json" ]; then
-    _m2_status="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m2.json')); print(d.get('status',''))" \
-      2>/dev/null || echo "")"
-    _m2_trunc="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m2.json')); print(d.get('truncated',''))" \
-      2>/dev/null || echo "")"
+# mut_build LABEL ID SED_EXPR — builds $MUTBASE/ID/bog_nav.py through mutant_chain (empty, identical,
+# dead-stage, placement refusals) plus a Python syntax check. On refusal the tooth is counted ONCE
+# here and never runs; returns 1.
+mut_build(){
+  local label="$1" id="$2" expr="$3"
+  MUTPY="$MUTBASE/$id/bog_nav.py"; mkdir -p "$MUTBASE/$id"
+  if ! mutant_chain "$label" "$ORIG_PY" "$MUTPY" "$expr"; then
+    mut_no "$label: mutant refused by lib/mutant.sh (refusal counted here once; tooth not run)"; return 1
   fi
-  # Original: exit 1, status:failed, truncated:True
-  # Mutant: exits 1 if parse fails on partial XML, but truncated:False OR exits 0 if 'A'*32M+1 is not XML
-  # Either way, the mutant should NOT produce (status:failed AND truncated:True)
-  if [ "$_m2_status" != "failed" ] || [ "$_m2_trunc" != "True" ]; then
-    mut_ok "M2 bounded-read removed: got status='$_m2_status' trunc='$_m2_trunc' — DETECTED"
-  else
-    mut_no "M2 bounded-read removed: mutation NOT detected (still failed+truncated)"
+  if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$MUTPY" 2>/dev/null; then
+    mut_no "$label: mutant is not valid Python (refusal counted here once; tooth not run)"; return 1
   fi
-fi
-rm -rf "$MUTDIR"
+}
 
-# --- M3: Parser returns empty component list always ---
-# Expected: T9 expects 3 components; mutant returns 0 → DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/handle_map\[h\] = comp$/pass  # MUTANT-M3/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M3 component-store removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M3 component-store removed: sed had no effect (pattern not found)"
-else
-  _m3_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/valid.bog" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
-  _m3_comps=""
-  if [ -f "$ROOT/m3.json" ]; then
-    _m3_comps="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m3.json')); print(d['summary']['components'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m3_comps" != "3" ]; then
-    mut_ok "M3 component-store removed: components='$_m3_comps' not 3 — DETECTED"
+# Wrapper run against the original and the mutant. Each run gets a FRESH output dir (removed by the
+# wrapper's own trap) and prints typed RC=/JSON=/FACT= lines, so the control observes the same
+# artifact the base test asserts on (the --output JSON).
+cat > "$MUTBASE/wrap.sh" <<'WRAP'
+py="$1"; in="$2"; fact="$3"; to="$4"; orig="$5"
+[ "$py" = "$orig" ] && to=60
+o="$(mktemp -d)" || exit 99
+trap 'rm -rf "$o"' EXIT
+[ "$fact" = fifo ] && { mkfifo "$o/in.fifo" || exit 99; in="$o/in.fifo"; }
+[ "$fact" = bomb ] && { ulimit -v 720896 || exit 98; }
+timeout "$to" python3 "$py" --input "$in" --output "$o/out.json" 2>/dev/null; rc=$?
+echo "RC=$rc"
+if [ -f "$o/out.json" ]; then echo "JSON=present"; else echo "JSON=absent"; fi
+j(){ python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print($1)" "$o/out.json" 2>/dev/null || echo none; }
+case "$fact" in
+  trunc|bomb) echo "FACT=$(j 'd.get("status")')/$(j 'd.get("truncated")')" ;;
+  comps) echo "FACT=$(j 'd["summary"]["components"]')" ;;
+  resolved) echo "FACT=$(j 'd["links"][0]["src_resolved"]')" ;;
+  bpath) echo "FACT=$(j '"Station/B" in {c["path"] for c in d["components"]}')" ;;
+esac
+exit "$rc"
+WRAP
+# qt LABEL GOOD_RC BAD_RC [--good-has RE ...] -- INPUT FACT MUTANT_TIMEOUT_SECONDS (the original
+# always gets 60 s; only the mutant is bounded tightly). GOOD_RC/BAD_RC are the wrapper's exit
+# codes, i.e. the exit code of bog_nav.py itself.
+qt(){
+  local label="$1" g="$2" b="$3"; shift 3
+  local -a opts=()
+  while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
+  shift
+  if mutant_tooth "$label" "$g" "$b" "$MUTPY" --orig "$ORIG_PY" "${opts[@]}" -- bash "$MUTBASE/wrap.sh" @SUT@ "$1" "$2" "$3" "$ORIG_PY"; then
+    MUT_PASS=$((MUT_PASS+1))
   else
-    mut_no "M3 component-store removed: mutation NOT detected (still 3 components)"
+    MUT_FAIL=$((MUT_FAIL+1))
   fi
-fi
-rm -rf "$MUTDIR"
+}
 
-# --- M4: Link src_resolved always False ---
-# Expected: T9 expects src_resolved=True; mutant returns False → DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i "s/'src_resolved': src is not None,/'src_resolved': src is None,  # MUTANT-M4/" \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M4 src_resolved forced False: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M4 src_resolved forced False: sed had no effect (pattern not found)"
-else
-  _m4_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/valid.bog" --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
-  _m4_resolved=""
-  if [ -f "$ROOT/m4.json" ]; then
-    _m4_resolved="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m4.json')); lks=d.get('links',[]); print(lks[0]['src_resolved'] if lks else 'no_links')" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m4_resolved" != "True" ]; then
-    mut_ok "M4 src_resolved forced False: got '$_m4_resolved' not True — DETECTED"
-  else
-    mut_no "M4 src_resolved forced False: mutation NOT detected (still True)"
-  fi
+# --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed): the symlink input is followed (T2)
+if mut_build "M1 symlink guard" M1 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NONBLOCK/'; then
+  qt "M1 symlink guard removal" 2 0 --good-has '^JSON=absent$' --bad-has '^JSON=present$' \
+    -- "$ROOT/sym.bog" none 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M5: Narrow zip-entry read exception guard (BLOCKER mutation) ---
-# Mutation: except Exception → except (zipfile.BadZipFile,)
-# Expected: zlib.error / RuntimeError / NotImplementedError escape as tracebacks
-# → T12, T14, T15 see no JSON (exit 1, json=absent) — DETECTED via T12
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-python3 - "$MUTDIR/bog_nav.py" <<'PYEOF'
-import re, sys
-path = sys.argv[1]
-with open(path) as f: src = f.read()
-# Replace ONLY the except Exception in the zip-entry read block (not the XML parse block)
-# The zip-entry except is uniquely followed by 'try:\n                zf.close()'
-src = re.sub(
-    r'(        except Exception as exc:\n            try:\n                zf\.close\(\))',
-    r'        except (zipfile.BadZipFile,) as exc:  # MUTANT-M5\n            try:\n                zf.close()',
-    src, count=1)
-with open(path, 'w') as f: f.write(src)
-PYEOF
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M5 zip-read guard narrowed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M5 zip-read guard narrowed: Python edit had no effect"
-else
-  _m5_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/corrupt_deflate.bog" --output "$ROOT/m5.json" 2>/dev/null || _m5_exit=$?
-  if [ "$_m5_exit" -eq 1 ] && [ ! -f "$ROOT/m5.json" ]; then
-    mut_ok "M5 zip-read guard narrowed: zlib.error escapes → no JSON — DETECTED"
-  else
-    mut_no "M5 zip-read guard narrowed: mutation NOT detected (exit=$_m5_exit json=$([ -f "$ROOT/m5.json" ] && echo present || echo absent))"
-  fi
+# --- M2: Remove bounded-read guard (zip-bomb allowed): T11 wants status failed AND truncated True
+if mut_build "M2 bounded-read removed" M2 's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M2/'; then
+  qt "M2 bounded-read removed" 1 0 --good-has '^FACT=failed/True$' --bad-has '^FACT=complete/False$' \
+    -- "$FIXTURES/bomb.bog" trunc 30
 fi
-rm -rf "$MUTDIR"
 
-# --- M6: Self-closing component branch disabled ---
-# Mutation: 'if h is not None and is_self_cls:' → 'if h is not None and False:'
-# Expected: self-closing components silently dropped → T16 sees 3 components not 7 — DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if h is not None and is_self_cls:/if h is not None and False:  # MUTANT-M6/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M6 self-closing disabled: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M6 self-closing disabled: sed had no effect (pattern not found)"
-else
-  _m6_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/self_closing_mix.bog" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
-  _m6_comps=""
-  if [ -f "$ROOT/m6.json" ]; then
-    _m6_comps="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m6.json')); print(d['summary']['components'])" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m6_comps" != "7" ]; then
-    mut_ok "M6 self-closing disabled: components='$_m6_comps' not 7 — DETECTED"
-  else
-    mut_no "M6 self-closing disabled: mutation NOT detected (still 7 components)"
-  fi
+# --- M3: Component store removed: T9 expects 3 components
+if mut_build "M3 component-store removed" M3 's/handle_map\[h\] = comp$/pass  # MUTANT-M3/'; then
+  qt "M3 component-store removed" 0 0 --good-has '^FACT=3$' --bad-has '^FACT=0$' \
+    -- "$FIXTURES/valid.bog" comps 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M7: <a>-tag stack push removed ---
-# Mutation: 'if not is_self_cls:' (standalone, inside <a> handler) → 'if False:'
-# Expected: non-self-closing <a> no longer pushes a frame → </a> pops a
-# component frame → B gets path 'B' not 'Station/B' → T17 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if not is_self_cls:$/if False:  # MUTANT-M7/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M7 a-tag stack push removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M7 a-tag stack push removed: sed had no effect (pattern not found)"
-else
-  _m7_exit=0
-  python3 "$MUTDIR/bog_nav.py" \
-    --input "$FIXTURES/nested_a.bog" --output "$ROOT/m7.json" 2>/dev/null || _m7_exit=$?
-  _m7_b_path=""
-  if [ -f "$ROOT/m7.json" ]; then
-    _m7_b_path="$(python3 -c \
-      "import json; d=json.load(open('$ROOT/m7.json')); comps={c['path'] for c in d['components']}; print('Station/B' in comps)" \
-      2>/dev/null || echo "")"
-  fi
-  if [ "$_m7_b_path" != "True" ]; then
-    mut_ok "M7 a-tag stack push removed: B path wrong (not 'Station/B') — DETECTED"
-  else
-    mut_no "M7 a-tag stack push removed: mutation NOT detected (B path still correct)"
-  fi
+# --- M4: src_resolved forced False: T9 expects True
+if mut_build "M4 src_resolved forced False" M4 "s/'src_resolved': src is not None,/'src_resolved': src is None,  # MUTANT-M4/"; then
+  qt "M4 src_resolved forced False" 0 0 --good-has '^FACT=True$' --bad-has '^FACT=False$' \
+    -- "$FIXTURES/valid.bog" resolved 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M_FIFO: O_NONBLOCK removed from _open_ro ---
-# Mutation: remove _O_NONBLOCK from the open flags
-# Expected: FIFO input hangs (no writer, O_RDONLY blocks) → timeout → T18 DETECTED
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/' \
-  "$MUTDIR/bog_nav.py"
-if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-  mut_no "M_FIFO O_NONBLOCK removed: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-  mut_no "M_FIFO O_NONBLOCK removed: sed had no effect (pattern not found)"
-else
-  _mfifo_fifo="$ROOT/mfifo.fifo"
-  mkfifo "$_mfifo_fifo" 2>/dev/null || true
-  _mfifo_exit=0
-  timeout 3 python3 "$MUTDIR/bog_nav.py" \
-    --input "$_mfifo_fifo" --output "$ROOT/mfifo.json" 2>/dev/null || _mfifo_exit=$?
-  if [ "$_mfifo_exit" -eq 124 ]; then
-    mut_ok "M_FIFO O_NONBLOCK removed: FIFO hung (timeout 3 s) — DETECTED"
-  else
-    mut_no "M_FIFO O_NONBLOCK removed: mutation NOT detected (exit=$_mfifo_exit, expected 124)"
-  fi
+# --- M5: Narrow the zip-entry read guard (except Exception -> except (zipfile.BadZipFile,)): zlib.error
+# escapes as a traceback, so no JSON (T12/T14/T15). Only the zip-entry handler is followed by
+# `try: zf.close()`, so the three-line block anchors the substitution; a mismatch leaves the file
+# unchanged and mutant_chain refuses it.
+if mut_build "M5 zip-read guard narrowed" M5 '/^        except Exception as exc:$/{N;/\n            try:$/{N;/\n                zf\.close()$/s/except Exception as exc:/except (zipfile.BadZipFile,) as exc:  # MUTANT-M5/;};}'; then
+  qt "M5 zip-read guard narrowed" 1 1 --good-has '^JSON=present$' --bad-has '^JSON=absent$' \
+    --bad-lacks 'integer expression expected|syntax error|unbound variable|ImportError|ModuleNotFoundError' \
+    -- "$FIXTURES/corrupt_deflate.bog" none 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M_BOMB: unbounded ZIP read (read(CAP+1) → read()) on 1 GiB fixture ---
-# Requires bigbomb.bog to exist (built once by fixture generator).
-# Under ulimit -v 720896 (704 MiB), read() on 1 GiB → MemoryError (no JSON/truncated),
-# while read(CAP+1) stops at 33 MiB → cap check fires → truncated:True.
-# Skip gracefully if bigbomb.bog absent or ulimit unsupported.
+# --- M6: Self-closing component branch disabled: T16 expects 7 components
+if mut_build "M6 self-closing disabled" M6 's/if h is not None and is_self_cls:/if h is not None and False:  # MUTANT-M6/'; then
+  qt "M6 self-closing disabled" 0 0 --good-has '^FACT=7$' --bad-has '^FACT=3$' \
+    -- "$FIXTURES/self_closing_mix.bog" comps 5
+fi
+
+# --- M7: <a>-tag stack push removed: T17 expects path Station/B
+if mut_build "M7 a-tag stack push removed" M7 's/if not is_self_cls:$/if False:  # MUTANT-M7/'; then
+  qt "M7 a-tag stack push removed" 0 0 --good-has '^FACT=True$' --bad-has '^FACT=False$' \
+    -- "$FIXTURES/nested_a.bog" bpath 5
+fi
+
+# --- M_FIFO: O_NONBLOCK removed: a FIFO input with no writer hangs (T18); 124 = the mutant's timeout
+if mut_build "M_FIFO O_NONBLOCK removed" MF 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/'; then
+  qt "M_FIFO O_NONBLOCK removed" 2 124 -- none fifo 3
+fi
+
+# --- M_BOMB: unbounded ZIP read (read(CAP+1) -> read()) on the 1 GiB fixture. Under ulimit -v
+# 720896 (704 MiB) read() raises MemoryError, so the cap check never sets truncated True. Both runs
+# execute under the same VM limit inside the wrapper. Skipped (counted as failure) when the fixture
+# is absent or ulimit -v is unsupported.
 if [ ! -f "$FIXTURES/bigbomb.bog" ]; then
   mut_no "M_BOMB unbounded read: bigbomb.bog not found — SKIP (build fixture first)"
 elif ! ( ulimit -v 720896 2>/dev/null ); then
   mut_no "M_BOMB unbounded read: ulimit -v not supported — SKIP"
-else
-  MUTDIR="$(mktemp -d)"
-  cp -a "$SUT_DIR/." "$MUTDIR/"
-  sed -i 's/f\.read(_MAX_BOG_INFLATE + 1)/f.read()  # MUTANT-MBOMB/' \
-    "$MUTDIR/bog_nav.py"
-  if ! python3 -m py_compile "$MUTDIR/bog_nav.py" 2>/dev/null; then
-    mut_no "M_BOMB unbounded read: mutant failed py_compile"
-  elif cmp -s "$ORIG_PY" "$MUTDIR/bog_nav.py"; then
-    mut_no "M_BOMB unbounded read: sed had no effect (pattern not found)"
-  else
-    _mbomb_exit=0
-    _mbomb_trunc=""
-    # Run mutant under VM limit; MemoryError → exception caught → truncated=False
-    (ulimit -v 720896 && python3 "$MUTDIR/bog_nav.py" \
-       --input "$FIXTURES/bigbomb.bog" --output "$ROOT/mbomb.json" 2>/dev/null) \
-      || _mbomb_exit=$?
-    if [ -f "$ROOT/mbomb.json" ]; then
-      _mbomb_trunc="$(python3 -c \
-        "import json; d=json.load(open('$ROOT/mbomb.json')); print(d.get('truncated',''))" \
-        2>/dev/null || echo "")"
-    fi
-    if [ "$_mbomb_trunc" != "True" ]; then
-      mut_ok "M_BOMB unbounded read: truncated='$_mbomb_trunc' not True — DETECTED"
-    else
-      mut_no "M_BOMB unbounded read: mutation NOT detected (still truncated:True)"
-    fi
-  fi
-  rm -rf "$MUTDIR"
+elif mut_build "M_BOMB unbounded read" MB 's/f\.read(_MAX_BOG_INFLATE + 1)/f.read()  # MUTANT-MBOMB/'; then
+  qt "M_BOMB unbounded read" 1 1 --good-has '^FACT=failed/True$' --bad-has '^FACT=failed/False$' \
+    -- "$FIXTURES/bigbomb.bog" bomb 60
 fi
 
 pass=$((pass + MUT_PASS))
