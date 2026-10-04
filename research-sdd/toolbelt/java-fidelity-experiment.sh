@@ -21,7 +21,7 @@
 # What it does, per fixture and per mode (g = javac -g, nog = javac with no -g flag):
 #   1. javac the fixture;   2. decompile the .class with the wrapper;   3. recompile the decompiled .java
 #   with the same javac flags;   4. compare `javap -c -p` of the original and recompiled class, constant-pool
-#   indices (#N or #N, #M) and the "Compiled from" line removed (everything else, including instruction
+#   indices (#N, or #N followed by ", N" as in "#7, 3") and the "Compiled from" line removed (everything else, including instruction
 #   offsets, must match).   Verdicts (one line per cell):
 #     FIDELITY <Name> mode=<g|nog> verdict=GOOD       recompiles, normalised bytecode identical
 #     FIDELITY <Name> mode=<g|nog> verdict=DIVERGED   recompiles, bytecode differs (a finding, not a failure)
