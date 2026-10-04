@@ -289,7 +289,10 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: canonical tool-home JAR candidates must be required by test 2 --"
   TMP_TEETH="$(mktemp -d)"
-  sed 's|\$tool_home/java/|/dev/null/no-such-dir/|g' "$LIB" > "$TMP_TEETH/tool-env-mut.sh"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_sed "$LIB" "$TMP_TEETH/tool-env-mut.sh" 's|\$tool_home/java/|/dev/null/no-such-dir/|g' \
+    || no "teeth 2: mutant refused by lib/mutant.sh"
   vf_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
     bash -c 'source "$1"; rsdd_resolve_java_jar vineflower' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
   cfr_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
@@ -311,7 +314,10 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth 10: brew-opt candidate removal breaks rsdd_resolve_r2 brew resolution --"
   TMP_TEETH_R2="$(mktemp -d)"
-  sed 's|radare2/bin/r2|radare2/bin/R2-GONE|g' "$LIB" > "$TMP_TEETH_R2/tool-env-r2-mut.sh"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_sed "$LIB" "$TMP_TEETH_R2/tool-env-r2-mut.sh" 's|radare2/bin/r2|radare2/bin/R2-GONE|g' \
+    || no "teeth 10: mutant refused by lib/mutant.sh"
   # Source under normal PATH ($1 = mutant lib, $2 = restricted PATH value for the call).
   r2_mut_result="$(RSDD_BREW_PREFIX="$ROOT/r2-brew" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" \
     bash -c 'source "$1"; PATH="$2" rsdd_resolve_r2' \

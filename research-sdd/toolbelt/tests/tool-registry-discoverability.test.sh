@@ -15,6 +15,8 @@ REGISTRY="$TB/tool-registry.md"
 
 [ -f "$REGISTRY" ] || { echo "FATAL: tool-registry.md not found: $REGISTRY" >&2; exit 2; }
 
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
 pass=0; fail=0
 # One EXIT trap for every teeth temp dir (a later `trap` replaces an earlier one, leaking the rest).
 # Reset first: a value inherited from the caller's environment must never reach the trap's rm -rf.
@@ -68,7 +70,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove jvm-callgraph.sh row from a registry copy; check must flag it --"
   tmp="$(mktemp -d)"
   mutant="$tmp/tool-registry.md"
-  grep -v 'jvm-callgraph' "$REGISTRY" > "$mutant"
+  # markdown mutant: the bash -n check does not apply (MUTANT_SYNTAX=none); the helper still refuses an empty / no-op / live-tree mutant
+  MUTANT_SYNTAX=none mutant_sed "$REGISTRY" "$mutant" '/jvm-callgraph/d' || no "teeth: could not build the jvm-callgraph mutant (refused by lib/mutant.sh)"
   mut_fail=0
   for w in "${WRAPPERS[@]}"; do
     grep -qF "$w" "$mutant" || mut_fail=$((mut_fail+1))
@@ -111,7 +114,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove decompile-native.sh r2 row from a registry copy; modes check must flag it --"
   tmp_m="$(mktemp -d)"
   mutant_m="$tmp_m/tool-registry.md"
-  grep -v 'decompile-native\.sh r2' "$REGISTRY" > "$mutant_m"
+  # markdown mutant: the bash -n check does not apply (MUTANT_SYNTAX=none); the helper still refuses an empty / no-op / live-tree mutant
+  MUTANT_SYNTAX=none mutant_sed "$REGISTRY" "$mutant_m" '/decompile-native\.sh r2/d' || no "teeth: could not build the r2 mutant (refused by lib/mutant.sh)"
   mut_mode_fail=0
   for mode in "${NATIVE_MODES[@]}"; do
     if [ "$mode" = "ghidra" ]; then
@@ -161,7 +165,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: remove scan-secrets.sh row from a registry copy; gates check must flag it --"
   tmp_g="$(mktemp -d)"
   mutant_g="$tmp_g/tool-registry.md"
-  grep -v 'scan-secrets' "$REGISTRY" > "$mutant_g"
+  # markdown mutant: the bash -n check does not apply (MUTANT_SYNTAX=none); the helper still refuses an empty / no-op / live-tree mutant
+  MUTANT_SYNTAX=none mutant_sed "$REGISTRY" "$mutant_g" '/scan-secrets/d' || no "teeth: could not build the scan-secrets mutant (refused by lib/mutant.sh)"
   mut_gate_fail=0
   for g in "${GATES[@]}"; do
     grep -qF "$g" "$mutant_g" || mut_gate_fail=$((mut_gate_fail+1))
