@@ -13,10 +13,10 @@
 #   --staged   only files added/copied/modified/renamed in the index (what a commit would send).
 #   --strict   (kit issue #1566) a run that evaluated NO vendor declaration is a non-pass: EMPTY-CONF (a conf with
 #              only comments, e.g. the scaffolded stub), ALLOW-ONLY-CONF (`allow` lines but no prefix/path) or ABSENT-CONF prints `STRICT-FAIL <state> ...` and exits 4.
-#              For CI on a PUBLIC repo, where "no prefix declared" must not read as green. Default: unchanged (exit 0).
+#              For CI on a PUBLIC repo, where "no prefix declared" must not read as green. Default exit codes are unchanged (exit 0); one advisory line, ALLOW-ONLY-CONF, is new.
 # Output (stdout, one line each):
 #   LEAK <binary|path|package> <path>[:<line>] <reason>
-#   ABSENT-CONF / EMPTY-CONF / CONF-UNTRACKED / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF /
+#   ABSENT-CONF / EMPTY-CONF / ALLOW-ONLY-CONF (advisory, exit 0 without --strict: only allow lines, no prefix/path) / CONF-UNTRACKED / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF /
 #   UNREADABLE <path> / UNMERGED <path> / STRICT-FAIL <EMPTY-CONF|ABSENT-CONF|ALLOW-ONLY-CONF> ...   — typed non-finding states
 #   SUMMARY scanned=N allowed=N findings=N unreadable=N unmerged=N conf=present|absent prefixes=N paths=N allows=N mode=M
 # Exit: 0 no findings · 1 findings · 2 usage / not a git repo / bad or unreadable conf / unreadable index
