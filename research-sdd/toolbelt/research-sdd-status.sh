@@ -568,14 +568,17 @@ env_raw() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/resear
 # Matching the bare phrase anywhere in the section read any note that merely mentioned it (e.g. an Outline line
 # pointing at the field) as the gap ratio. Label forms measured on the fleet: `**Coverage metric**:` and the
 # qualified `**Coverage metric (this focus)**:`; no prefixed label (`Gap coverage metric:`) occurs.
-# Anti-silent-zero (§7): when NO line matches the label but a line in the section still mentions the phrase
-# AND carries a ratio, the figure is NOT silently dropped (that would print <none> / let --sync-state carry a
-# stale envelope value forward): a typed WARN names the unrecognised line on stderr.
+# Anti-silent-zero (§7): when NO line in the section matches the label at all, but a line still mentions the
+# phrase AND carries a ratio, the figure is NOT silently dropped (that would print <none> / let --sync-state
+# carry a stale envelope value forward): a typed WARN names the unrecognised line on stderr. A label line that
+# EXISTS but carries no ratio (intentionally blank, e.g. document mode) means "metric not set": no WARN, even if
+# another line mentions the phrase with a ratio.
 COVMETRIC_LABEL_RE='^[[:space:]]*([-*+][[:space:]]+)?\*{0,2}coverage metric\*{0,2}[[:space:]]*(\([^)]*\))?\*{0,2}[[:space:]]*[:=]'  # CM-LABEL-ANCHOR
 cov_ratio() {
-  local _cr_r _cr_loose
+  local _cr_r _cr_loose _cr_nlab
   _cr_r="$(section '## Coverage' | grep -iE "$COVMETRIC_LABEL_RE" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
-  if [ -z "$_cr_r" ]; then
+  _cr_nlab="$(section '## Coverage' | grep -ciE "$COVMETRIC_LABEL_RE")"  # CM-LABEL-PRESENT
+  if [ -z "$_cr_r" ] && [ "${_cr_nlab:-0}" -eq 0 ]; then
     _cr_loose="$(section '## Coverage' | grep -iE 'coverage metric' | grep -E '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | cut -c1-100)"  # CM-UNRECOGNISED-LABEL
     [ -z "$_cr_loose" ] || printf 'WARN: %s: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: %s\n' "$(basename "$state")" "$_cr_loose" >&2
   fi
@@ -2018,7 +2021,7 @@ if [ -z "$_ns_doc" ]; then
   _ns_gap_run
 else
   _ns_gap="$(_ns_gap_run)"
-  if [ "${_ns_gap#NEXT}" = "$_ns_gap" ]; then _ns_gap="$_ns_doc"; fi  # DOC-STOP-GUARD
+  case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
   printf '  next step       : %s\n' "$_ns_gap"
 fi
 ;;

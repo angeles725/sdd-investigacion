@@ -7051,6 +7051,11 @@ _t1154_kg="$(t1154_env "$t1154_a" known_gaps)"; _t1154_gc="$(t1154_env "$t1154_a
 [ "$_t1154_kg/$_t1154_gc" = "0/0" ] \
   && ok "T-1154a --sync-state: envelope stays gaps_closed=0 known_gaps=0 (no outline ratio leaked in)" \
   || no "T-1154a --sync-state: known_gaps/gaps_closed = [$_t1154_kg/$_t1154_gc] want 0/0 — the outline ratio was read as the gap ratio"
+# a present-but-blank label is "metric not set": no unrecognised-label WARN in either mode (stderr is NOT discarded)
+_t1154_err="$(bash "$SUT" "$t1154_a" 2>&1 >/dev/null)"; _t1154_err2="$(bash "$SUT" "$t1154_a" --sync-state 2>&1 >/dev/null)"
+if grep -qF 'unrecognised coverage label' <<<"$_t1154_err$_t1154_err2"; then
+  no "T-1154a stderr: a blank-but-present label must NOT trigger the unrecognised-label WARN — [$_t1154_err$_t1154_err2]"
+else ok "T-1154a stderr: no unrecognised-label WARN for a present-but-blank label (default report and --sync-state)"; fi
 # B: noise line BEFORE the real label (list edge: the real line is LAST), and a single-element section.
 t1154_b="$TMP/t1154-b"; t1154_fx "$t1154_b" '- Note: the earlier Coverage metric history read 9 / 9
 - **Coverage metric**: 3 / 7 closed'
@@ -7118,6 +7123,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
   t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
   t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
+  mutant_chain T1154-BLANK "$SUT" "$TMP/status.T1154-BLANK.MUTANT.sh" 's/ \&\& \[ "\${_cr_nlab:-0}" -eq 0 \]//' || fail=$((fail+1))
+  if mutant_tooth T1154-BLANK 0 0 "$TMP/status.T1154-BLANK.MUTANT.sh" --good-lacks "unrecognised coverage label" --bad-has 'unrecognised coverage label' -- bash @SUT@ "$t1154_a"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   mutant_chain T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/' || fail=$((fail+1))
   if mutant_tooth T1154-WARN 0 0 "$TMP/status.T1154-WARN.MUTANT.sh" --good-has 'unrecognised coverage label' --bad-lacks "unrecognised coverage label|$_t1154_crash" -- bash @SUT@ "$t1154_h"; then pass=$((pass+1)); else fail=$((fail+1)); fi
 fi
@@ -7289,8 +7296,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1152_t T1152-SAT "$t1152_sat" '/# DOC-SAT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'saturation      : n/a \(method: document-cycle' --bad-has 'SATURATED \(review\)' --bad-lacks "$_t1152_crash"
   t1152_t T1152-COVERED "$t1152_mix" '/# DOC-COVERED-TOKENS$/s/covered|done|closed/never-matches/' --good-has 'outline         : 3/5 covered' --bad-has 'outline         : 1/5 covered' --bad-lacks "$_t1152_crash"
   t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-STOP-GUARD "$t1152_all" '/# DOC-STOP-GUARD$/d' --good-has 'STOP \| outline fully covered \(1/1\)' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-GUARD "$t1152_all" '/# DOC-STOP-GUARD/d' --good-has 'STOP \| outline fully covered \(1/1\)' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
   t1152_t T1152-STOP-FALLTHROUGH "$t1152_gap" 's/NEXT\*|BOOTSTRAP\*) printf/NEXT*|BOOTSTRAP*|STOP*) printf/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-ONLY-GAP-STOP "$t1152_gap" 's/case "$_ns_gap" in STOP\*)/case "$_ns_gap" in *)/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
   t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
 fi
 
