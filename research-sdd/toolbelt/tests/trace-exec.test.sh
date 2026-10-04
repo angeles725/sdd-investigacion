@@ -993,7 +993,7 @@ py_rc=$?
 # anchored TOOTH_* line; --bad-lacks rejects a crash masquerading as a bite.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _f in mutant_chain mutant_built mutant_tooth; do
+for _f in mutant_chain mutant_tooth; do
   declare -F "$_f" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_f" >&2; exit 2; }
 done
 export MUTANT_SYNTAX=none   # Python SUT: bash -n does not apply; compile() below instead

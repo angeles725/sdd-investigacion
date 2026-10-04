@@ -176,6 +176,31 @@ def _tooth_run(name):
         _cleanup(); print("TOOTH_INV5=" + ("leaked" if leaked else "reaped")); return
     print(f"TOOTH_ERROR=unknown scenario {name}")
 
+# GOOD_ARGV matches detonate_plan.build_plan output shape.
+# Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
+# --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+# NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
+# in sync (the bash heredoc harness has no shared-include path for these fixtures).
+_SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
+_GOOD_ARGV = [
+    "bwrap",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
+    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample",
+    "--",
+    "qemu-system-x86_64",
+    "-m", "256", "-smp", "1", "-accel", "tcg",
+    "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    "-drive", f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio",
+    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+]
+if len(sys.argv) > 4 and sys.argv[3] == "--tooth":
+    _tooth_run(sys.argv[4]); sys.exit(0)
+
 # ── RED1: gate-closed (no --allow-exec) → exit 3, shim NEVER spawned ────────
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); p = _shims(tmp); elf = _elf(tmp); rec = tmp / "calls.json"
@@ -194,30 +219,6 @@ try:
     import vm_disk_policy as _vdp
     from gate import GateError
 
-    # GOOD_ARGV matches detonate_plan.build_plan output shape.
-    # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
-    # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
-    # NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
-    # in sync (the bash heredoc harness has no shared-include path for these fixtures).
-    _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
-    _GOOD_ARGV = [
-        "bwrap",
-        "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
-        "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
-        "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
-        "--ro-bind", "/store/rootfs.img", "/input/rootfs",
-        "--ro-bind", "/store/sample.bin", "/input/sample",
-        "--",
-        "qemu-system-x86_64",
-        "-m", "256", "-smp", "1", "-accel", "tcg",
-        "-nic", "none", "-nodefaults",
-        "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
-        "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
-        "-drive", f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio",
-        "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
-    ]
-    if len(sys.argv) > 4 and sys.argv[3] == "--tooth":
-        _tooth_run(sys.argv[4]); sys.exit(0)
 
     # swap readonly=on → writable on the sample drive
     _bad2 = list(_GOOD_ARGV)
@@ -1038,7 +1039,7 @@ py_rc=$?
 # anchored TOOTH_* line; --bad-lacks rejects a crash masquerading as a bite.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _f in mutant_chain mutant_built mutant_tooth; do
+for _f in mutant_chain mutant_tooth; do
   declare -F "$_f" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_f" >&2; exit 2; }
 done
 export MUTANT_SYNTAX=none   # Python SUT: bash -n does not apply; compile() below instead
