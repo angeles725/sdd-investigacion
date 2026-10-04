@@ -3045,8 +3045,8 @@ for want in 'covered_blocks: 7 -> 0' 'investigable_open: 5 -> 1'; do
   grep -qE "^sync-state: CHANGED RESEARCH-STATE\.md ${want}\$" <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing CHANGED line for [$want]"; }
 done
 # kit #1637: gaps_closed/known_gaps are DECLARED-only — kept (never CHANGED), with a typed advisory naming both values
-grep -qE '^sync-state: DECLARED gaps_closed=9 \(derived 1\) — kept$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for gaps_closed"; }
-grep -qE '^sync-state: DECLARED known_gaps=9 \(derived 2\) — kept$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for known_gaps"; }
+grep -qE '^sync-state: DECLARED gaps_closed=9 \(derived 1\) — kept; verify the declared value or correct it by hand$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for gaps_closed"; }
+grep -qE '^sync-state: DECLARED known_gaps=9 \(derived 2\) — kept; verify the declared value or correct it by hand$' <<<"$_sx2_out" || { _sx2_ok=0; echo "    missing DECLARED advisory for known_gaps"; }
 grep -E '^sync-state: CHANGED .* (gaps_closed|known_gaps):' <<<"$_sx2_out" >/dev/null && { _sx2_ok=0; echo "    declared counter reported as CHANGED"; }
 # unchanged counters must NOT be reported (requires_execution_open/blocked_open/deferred_open stayed 0)
 grep -E '^sync-state: CHANGED .* (requires_execution_open|blocked_open|deferred_open):' <<<"$_sx2_out" >/dev/null && { _sx2_ok=0; echo "    unchanged counter reported"; }
@@ -3302,6 +3302,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   SUT_NK="$TMP/status.NOKEEP.MUTANT.sh"
   mutant_sed "$SUT" "$SUT_NK" -e '/# DECLARED-KEEP$/d' || { echo "  FAIL  teeth-T1637-NOKEEP: could not build the keep-less base"; fail=$((fail+1)); }
+  # nk_mutant_sed OUT SED_ARGS... — a mutant of the KEEP-LESS base. mutant_sed alone cannot catch a dead mutation
+  # expression here (the always-applied keep deletion already makes OUT differ from the SUT), so the mutation must
+  # additionally change the keep-less base itself: cmp SUT_NK vs OUT must differ. Prints the refusal, never counts.
+  nk_mutant_sed() {
+    local out="$1"; shift
+    mutant_sed "$SUT" "$out" -e '/# DECLARED-KEEP$/d' "$@" || return 1
+    if cmp -s "$SUT_NK" "$out"; then rm -f "$out"; echo "  FAIL  nk_mutant_sed: the mutation does not change the keep-less base (dead sed expression) — $out"; return 1; fi
+  }
   cp "$HERE/../lib/hook-wiring.sh" "$TMP/lib/hook-wiring.sh"
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
@@ -6438,7 +6446,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sx_mutant() {
     local m="$TMP/status.$1.MUTANT.sh"
     cp "${SX_ORIG:-$SUT}" "$m"; sed -i "$2" "$m"
-    if cmp -s "$m" "$SUT"; then no "teeth-$1: mutant identical to SUT — sed did not apply" >&2; return 1; fi
+    if cmp -s "$m" "${SX_ORIG:-$SUT}"; then no "teeth-$1: mutant identical to its base — sed did not apply" >&2; return 1; fi
     bash -n "$m" 2>/dev/null || { no "teeth-$1: mutant has a syntax error" >&2; return 1; }
     printf '%s' "$m"
   }
@@ -6831,7 +6839,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth() {
     local name="$1" script="$2" heading="$3" hdr="$4" want="$5" m dd got; shift 5
     m="$TMP/status.B13-$name.MUTANT.sh"
-    if ! mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e "$script"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    if ! nk_mutant_sed "$m" -e "$script"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
     dd="$TMP/b13-teeth-$name"; b13_fix "$dd" "$heading" "$hdr" "$@"
     got="$(B13_SUT="$m" b13_run "$dd")"
     if [[ "$want" == ERR:* ]]; then
@@ -6859,12 +6867,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth NM-UNKNOWN '/NM-UNKNOWN-WARN/s/else if (_nm_was_last [&][&] in_data [&][&] tbl_ok)/else if (0)/' "## Gap backlog" "$B13H4" "ERR:unknown priority [4] in near-miss backlog row" \
     '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
   m="$TMP/status.B13-LOWERBOUND.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
+  if nk_mutant_sed "$m" -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
     dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 9 5; got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
   else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
+  if nk_mutant_sed "$m" -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
     dd="$TMP/b13-teeth-nmnohdr"; b13_fix "$dd" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |'; B13_SUT="$m" b13_run "$dd" >/dev/null
     grep -q 'unknown priority' <<<"$(b13_err "$dd")" && ok "teeth-B13-NM-NOHDR: mutant WARNs on the header-less table → T-1307-NEARMISS-NOHDR RED" || no "teeth-B13-NM-NOHDR: mutant still silent — THEATER"
   else no "teeth-B13-NM-NOHDR: mutant refused by mutant.sh"; fi
@@ -6873,7 +6881,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2() {
     local name="$1" want="$2" builder="$3" m dd got; shift 3
     m="$TMP/status.B13-$name.MUTANT.sh"
-    if ! mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  "$@"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    if ! nk_mutant_sed "$m" "$@"; then no "teeth-B13-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
     dd="$TMP/b13-teeth-$name"; "$builder" "$dd"; got="$(B13_SUT="$m" b13_run "$dd")"
     if [[ "$want" == HAS:* ]]; then  # the mutant must GAIN the line (a message the good run never prints)
       if grep -qiF -- "${want#HAS:}" <<<"$(b13_err "$dd")"; then ok "teeth-B13-$name: mutant gains [${want#HAS:}] → its test goes RED"; else no "teeth-B13-$name: mutant still lacks [${want#HAS:}] — THEATER"; fi
@@ -6895,20 +6903,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
   # OOB guard: the Findings fixture is two tables, so build it by hand.
   m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
+  if nk_mutant_sed "$m" -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
     dd="$TMP/b13-teeth-oobguard"; cp -r "$TMP/b13-findings" "$dd"; sed -i -e 's/^known_gaps:.*/known_gaps: 0/' "$dd/RESEARCH-STATE.md"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "1 0 1 0" ] && ok "teeth-B13-OOB-GUARD: mutant counts the Severity rows [$got] → T-1307-FINDINGS RED" || no "teeth-B13-OOB-GUARD: mutant still derives [$got] — THEATER"
   else no "teeth-B13-OOB-GUARD: mutant refused by mutant.sh"; fi
   # Header vocabulary: dropping `prioridad` (Spanish) / `pr.` from the priority-shaped set must break T-1307-PRIORIDAD / T-1307-FINDINGS' positive control.
   m="$TMP/status.B13-HDR-PRIORIDAD.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/|p|prioridad)\$\//|p)$\//'; then
+  if nk_mutant_sed "$m" -e 's/|p|prioridad)\$\//|p)$\//'; then
     dd="$TMP/b13-teeth-prioridad"; cp -r "$TMP/b13-prioridad" "$dd"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PRIORIDAD: mutant ignores a Prioridad header [$got] → T-1307-PRIORIDAD RED" || no "teeth-B13-HDR-PRIORIDAD: mutant still derives [$got] — THEATER"
   else no "teeth-B13-HDR-PRIORIDAD: mutant refused by mutant.sh"; fi
   m="$TMP/status.B13-HDR-PR.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e '/# DECLARED-KEEP$/d'  -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
+  if nk_mutant_sed "$m" -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
     dd="$TMP/b13-teeth-oobprio"; cp -r "$TMP/b13-oob-prio" "$dd"
     got="$(B13_SUT="$m" b13_run "$dd")"
     [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PR: mutant ignores a Pr. header [$got] → T-1307-FINDINGS positive control RED" || no "teeth-B13-HDR-PR: mutant still derives [$got] — THEATER"
@@ -6928,10 +6936,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_tooth2 B50-UPPER-NOWARN "ERR:$EXCESS_WARN" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/false \&\& printf/'
   b13_tooth2 B50-UPPER-REWRITE "9 5 1 0" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] \&\& _kg_lb=0 \&\& printf/'
   # inclusive bound: a mutant using -ge would WARN at declared == derived + uncounted, where the good run is silent
-  if mutant_sed "$SUT" "$TMP/status.B50-INCL.MUTANT.sh" -e '/# DECLARED-KEEP$/d'  -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
+  if nk_mutant_sed "$TMP/status.B50-INCL.MUTANT.sh" -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
     dd="$TMP/b13-teeth-b50incl"; b50_fx_ub_edge "$dd"; B13_SUT="$TMP/status.B50-INCL.MUTANT.sh" b13_run "$dd" >/dev/null
     grep -q "$EXCESS_WARN" <<<"$(b13_err "$dd")" && ok "teeth-B13-B50-UPPER-INCLUSIVE: -ge mutant WARNs at the bound → T-1350-UPPER edge RED" || no "teeth-B13-B50-UPPER-INCLUSIVE: mutant still silent — THEATER"
   else no "teeth-B13-B50-UPPER-INCLUSIVE: mutant refused by mutant.sh"; fi
+  # ---- no-op guards (#1637 review): a deliberately stale sed expression is refused in each keep-less path ----
+  if _g_out="$(nk_mutant_sed "$TMP/status.GUARD-NK.MUTANT.sh" -e 's/THIS_TEXT_IS_NOT_IN_THE_SUT/x/' 2>&1)"; then
+    no "guard-nk_mutant_sed: stale expression was accepted"
+  elif [ -e "$TMP/status.GUARD-NK.MUTANT.sh" ]; then no "guard-nk_mutant_sed: refused but left a mutant file behind"
+  elif grep -q 'does not change the keep-less base' <<<"$_g_out"; then ok "guard-nk_mutant_sed: stale expression refused (keep-less base unchanged)"
+  else no "guard-nk_mutant_sed: refused for the wrong reason — [$_g_out]"; fi
+  if (SX_ORIG="$SUT_NK" sx_mutant GUARD-SX 's/THIS_TEXT_IS_NOT_IN_THE_SUT/x/' >/dev/null 2>"$TMP/guard-sx.err"); then
+    no "guard-sx_mutant: stale expression was accepted against SX_ORIG"
+  elif grep -q 'identical to its base' "$TMP/guard-sx.err"; then ok "guard-sx_mutant: stale expression refused against SX_ORIG"
+  else no "guard-sx_mutant: refused for the wrong reason — [$(cat "$TMP/guard-sx.err")]"; fi
   # ---- teeth for kit #1637 (DECLARED-KEEP): mutant_chain builds, mutant_tooth asserts exact rc + anchored line ----
   # t1637-run.sh <sut> <dir>: run --sync-state on a COPY of <dir> and print its output plus the written counters.
   cat > "$TMP/t1637-run.sh" <<'RUNEOF'

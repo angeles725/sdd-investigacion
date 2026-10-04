@@ -14,8 +14,10 @@
 #        Every counter that differs from the declared envelope is REPORTED (`sync-state: CHANGED <file>
 #        <field>: <old> -> <new>`); --only <field[,field...]> rewrites just the named counters and keeps the
 #        rest as declared (kit #911). A fence that lacks undocumented_findings is NOT given an invented 0.
-#        gaps_closed/known_gaps are DECLARED-only: a declared integer is carried forward unchanged and a differing
-#        derivation only prints `sync-state: DECLARED <field>=<n> (derived <m>) — kept` (kit #1637; --only <field> writes derived).
+#        gaps_closed/known_gaps are DECLARED-only (kit #1637): a declared integer ABOVE the derived value is KEPT and
+#        reported as `sync-state: DECLARED <field>=<n> (derived <m>) — kept; verify the declared value or correct it by
+#        hand`; at or below the derived value the derivation wins (reported as CHANGED); an absent or non-integer
+#        counter is seeded from the derivation; --only <field> writes the derived value (it bypasses the keep).
 #   --root selects the un-suffixed RESEARCH-STATE.md of a multi-focus corpus (mutually exclusive with --focus; kit #906).
 #   research-sdd-status.sh <target-dir> --next     print ONE machine-readable next-step line:
 #        NEXT | <priority> | <gap>     — investigate this gap next
@@ -893,18 +895,19 @@ if [ "$mode" = "--sync-state" ]; then
       kg="$(pick "${_cm_kg}" "$(env_get known_gaps)")"
       gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
     fi
-    # DECLARED-KEEP (#1637): gaps_closed / known_gaps are DECLARED-only (read from prose, carried forward, NOT
-    # disk-validated — RESEARCH-STATE.template.md). A valid declared integer is therefore NEVER rewritten by a
-    # full --sync-state; when the derivation disagrees, a typed advisory names both values. ABSENT (or not an
-    # integer) is not 0: nothing was declared, so the derived/picked value seeds it. --only <name> is the
-    # explicit opt-in to write the derived value, so it bypasses the keep.
+    # DECLARED-KEEP (#1637): gaps_closed / known_gaps are DECLARED-only (read from prose, NOT disk-validated —
+    # RESEARCH-STATE.template.md). A declared integer ABOVE the derived value is kept and the advisory names both
+    # values: the derivation cannot tell a hand-truthful +1 from a stale over-count, so the operator must verify.
+    # A declared integer at or below the derived value is NOT kept (the derivation is evidence of an undercount;
+    # the existing CHANGED line reports the rewrite). Absent or non-integer is not 0: it is seeded from the
+    # derivation. --only <name> is the explicit opt-in to write the derived value, so it bypasses the keep.
     if [ "$only_set" = 0 ]; then
       for _dk_f in gaps_closed known_gaps; do
         _dk_decl="$(env_get "$_dk_f")"
         grep -qE '^[0-9]+$' <<<"${_dk_decl}" || continue
         case "$_dk_f" in gaps_closed) _dk_der="$gc" ;; known_gaps) _dk_der="$kg" ;; esac
         [ "${_dk_decl}" -gt "${_dk_der}" ] || continue  # declared <= derived: the derivation is evidence of an undercount, not a falsification
-        [ "${_dk_decl}" = "${_dk_der}" ] || printf 'sync-state: DECLARED %s=%s (derived %s) — kept\n' "$_dk_f" "${_dk_decl}" "${_dk_der}"  # DECLARED-KEEP-ADVISORY
+        [ "${_dk_decl}" = "${_dk_der}" ] || printf 'sync-state: DECLARED %s=%s (derived %s) — kept; verify the declared value or correct it by hand\n' "$_dk_f" "${_dk_decl}" "${_dk_der}"  # DECLARED-KEEP-ADVISORY
         case "$_dk_f" in gaps_closed) gc="${_dk_decl}" ;; known_gaps) kg="${_dk_decl}" ;; esac  # DECLARED-KEEP
       done
     fi
