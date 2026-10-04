@@ -704,7 +704,10 @@ WRAP
 qt(){
   local label="$1" g="$2" b="$3"; shift 3
   local -a opts=()
-  while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
+  while [ "${1:-}" != -- ]; do
+    if [ "$#" -lt 3 ]; then mut_no "$label: qt called without option value or '--' (suite bug)"; return 1; fi
+    opts+=("$1" "$2"); shift 2
+  done
   shift
   if mutant_tooth "$label" "$g" "$b" "$MUTPY" --orig "$ORIG_PY" "${opts[@]}" -- bash "$MUTBASE/wrap.sh" @SUT@ "$1" "$2" "$3" "$ORIG_PY"; then
     MUT_PASS=$((MUT_PASS+1))
@@ -719,7 +722,11 @@ if mut_build "M1 symlink guard" M1 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/o
     -- "$ROOT/sym.bog" none 5
 fi
 
-# --- M2: Remove bounded-read guard (zip-bomb allowed): T11 wants status failed AND truncated True
+# --- M2: Remove bounded-read guard (zip-bomb allowed): T11 wants status failed AND truncated True.
+# The exact mutant verdict (rc 0, FACT=complete/False) is kept; the 30 s mutant timeout is far above
+# the measured cost of the uncapped parse of the 32 MiB bomb: 0.16-0.18 s serial and 0.26-0.29 s with
+# 6 concurrent runs on a 16-core host (wall time of `python3 mutant --input bomb.bog`, 3 serial + 6
+# parallel samples). A timeout (rc 124) is never accepted: BAD_RC is exactly 0 and FACT is anchored.
 if mut_build "M2 bounded-read removed" M2 's/if len(data) > _MAX_BOG_INFLATE:/if False:  # MUTANT-M2/'; then
   qt "M2 bounded-read removed" 1 0 --good-has '^FACT=failed/True$' --bad-has '^FACT=complete/False$' \
     -- "$FIXTURES/bomb.bog" trunc 30
