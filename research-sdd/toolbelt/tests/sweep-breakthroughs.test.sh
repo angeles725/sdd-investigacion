@@ -909,13 +909,19 @@ write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |
 # Only the 'if grep -qE ... "$bf"' line is replaced (keeping its '; then'): the old open-ended
 # 's/grep -qE.*Breakthrough.*/false/' also ate the '; then' and produced an unparseable SUT, so the
 # tooth "passed" on a crash. The elif sibling keeps its real grep, so the mutant is valid bash.
-if mutate_sut "no-marker-grep" 's/if grep -qE .* "\$bf" 2>\/dev\/null; then/if false; then/'; then
-  run_mutant "$mut_kit" "$mutant"
-  # With the mutation, the tagged block is never detected, so: 0 tagged, drift WARN or no-match INFO
-  if grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
-    mut_ok "M4 no-marker-grep → case 1 (clean) goes RED (0 tagged instead of 1)" "(1 tagged absent on mutant)"
+if mutate_sut "no-marker-grep" 's/^\( *\)if grep -qE .* "\$bf" 2>\/dev\/null; then$/\1if false; then/'; then
+  # Exactly ONE line may differ from the SUT (the anchored 'if grep -qE ... "$bf"' line, never the elif sibling).
+  m4_changed="$(diff "$SUT" "$mutant" | grep -c '^>')"
+  if [ "$m4_changed" -ne 1 ]; then
+    mut_no "M4 no-marker-grep mutant must change exactly one line" "changed=$m4_changed"
   else
-    mut_no "M4 no-marker-grep → mutation not detected by case 1" "out=[$OUT]"
+    run_mutant "$mut_kit" "$mutant"
+    # With the mutation, the tagged block is never detected, so: 0 tagged, drift WARN or no-match INFO
+    if grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
+      mut_ok "M4 no-marker-grep → case 1 (clean) goes RED (0 tagged instead of 1)" "(1 tagged absent on mutant)"
+    else
+      mut_no "M4 no-marker-grep → mutation not detected by case 1" "out=[$OUT]"
+    fi
   fi
 fi
 
@@ -1059,10 +1065,8 @@ if grep -q '1 tagged' <<<"$OUT_M10_CTRL" && ! grep -q 'WARN' <<<"$OUT_M10_CTRL";
 else mut_no "M10 (d) ctrl: SUT does not give expected result (M10 premise broken)" "out=[$OUT_M10_CTRL]"; fi
 # Mutant target-paths.sh: remove the rh%/ normalization lines (both functions). Built by
 # mutant_chain: it refuses a dead stage, an identical/empty mutant and a non-bash result, which
-# subsumes the former (a) differs-from-SUT and (b) bash -n checks (reported below as before).
+# subsumes the former (a) differs-from-SUT and (b) bash -n checks (no echo assertions kept).
 if mk_chain "[teeth] M10 no-tp-norm" "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" '/rh%\//d'; then
-  mut_ok "M10 (a): mutant target-paths.sh differs from SUT" "(verified by lib/mutant.sh)"
-  mut_ok "M10 (b): mutant target-paths.sh passes bash -n" "(verified by lib/mutant.sh)"
   OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
   if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
     mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
@@ -1091,9 +1095,6 @@ else mut_no "M11 (d) ctrl: SUT does not give 1 tagged (M11 premise broken)" "out
 # char-class regex [$]RESEARCH_HOME[/] avoids \$ ambiguity; braces keep else branch valid.
 if mk_chain "[teeth] M11 sub()-expansion in target-paths.sh" "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" \
     's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|'; then
-  # (a)/(b) are verified by lib/mutant.sh (differs from SUT, bash -n); reported as before.
-  mut_ok "M11 (a): mutant target-paths.sh differs from SUT" "(verified by lib/mutant.sh)"
-  mut_ok "M11 (b): mutant target-paths.sh passes bash -n" "(verified by lib/mutant.sh)"
   # (c) injected awk must parse on empty input (rc 0)
   _m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
     || _m11_awk_rc=$?
@@ -1148,8 +1149,6 @@ else
 fi
 # Create mutant: remove -x from grep -qxF (mutant_chain verifies it differs from SUT and parses)
 if mutate_sut "remove-x-flag" 's/grep -qxF/grep -qF/'; then
-  mut_ok "M12 (a): mutant differs from SUT" "(verified by lib/mutant.sh)"
-  mut_ok "M12 (b): mutant passes bash -n" "(verified by lib/mutant.sh)"
   cp "$mutant" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh"
   OUT="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
   # Positive assertion: RC=0 AND Summary present AND WARN unindexed absent.
