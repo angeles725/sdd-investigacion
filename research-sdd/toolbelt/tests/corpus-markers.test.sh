@@ -15,6 +15,9 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 echo "== corpus-markers.test.sh =="
 
@@ -78,10 +81,11 @@ if corpus_marker_present "$d" "$d/corpus"; then no "10 corpus_marker_present: no
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: force the RESEARCH-STATE branch's return 0 to return 1 — case 1 must go RED --"
   mut_false="$ROOT/corpus-markers.MUTANT-always-false.sh"
-  if ! grep -qE '^      return 0$' "$LIB"; then
-    no "teeth: locate the RESEARCH-STATE branch's 'return 0' anchor in lib — drifted?"
+  # lib/mutant.sh refuses a dead stage (anchor drifted) and an empty, identical, syntax-broken or live-tree mutant.
+  if ! mutant_chain "teeth: RESEARCH-STATE-branch mutant build" "$LIB" "$mut_false" \
+      '0,/^      return 0$/{s/^      return 0$/      return 1  # MUTANT: RESEARCH-STATE branch never matches/}'; then
+    no "teeth: could not build RESEARCH-STATE-branch mutant (anchor drifted or refused by lib/mutant.sh)"
   else
-    sed '0,/^      return 0$/{s/^      return 0$/      return 1  # MUTANT: RESEARCH-STATE branch never matches/}' "$LIB" > "$mut_false"
     (
       unset -f corpus_has_marker corpus_marker_present
       # shellcheck disable=SC1090
@@ -98,26 +102,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: force corpus_has_marker's final 'no marker' return 1 to return 0 — case 6 must go RED --"
   mut_true="$ROOT/corpus-markers.MUTANT-always-true.sh"
-  if ! grep -qE '^  corpus_has_marker\(\) \{$' "$LIB"; then
-    no "teeth: locate corpus_has_marker() function header in lib — drifted?"
+  if ! mutant_chain "teeth: always-marker-present mutant build" "$LIB" "$mut_true" \
+      '/^  corpus_has_marker() {/,/^  }/{s/^    return 1$/    return 0  # MUTANT: always marker-present/}'; then
+    no "teeth: could not build always-true mutant (anchor drifted or refused by lib/mutant.sh)"
   else
-    sed '/^  corpus_has_marker() {/,/^  }/{s/^    return 1$/    return 0  # MUTANT: always marker-present/}' "$LIB" > "$mut_true"
-    if ! grep -qF 'MUTANT: always marker-present' "$mut_true"; then
-      no "teeth: could not build always-true mutant (final return 1 anchor not found — did the lib change?)"
-    else
-      (
-        unset -f corpus_has_marker corpus_marker_present
-        # shellcheck disable=SC1090
-        . "$mut_true"
-        d="$ROOT/t6"
-        if corpus_has_marker "$d"; then
-          echo "  PASS  teeth: mutant correctly makes case 6 fail (empty dir wrongly reports a marker)"; exit 0
-        else
-          echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
-        fi
-      )
-      if [ $? -eq 0 ]; then ok "teeth: always-marker-present mutation caught (real sourced lib)"; else no "teeth: always-marker-present mutation NOT caught (theater)"; fi
-    fi
+    (
+      unset -f corpus_has_marker corpus_marker_present
+      # shellcheck disable=SC1090
+      . "$mut_true"
+      d="$ROOT/t6"
+      if corpus_has_marker "$d"; then
+        echo "  PASS  teeth: mutant correctly makes case 6 fail (empty dir wrongly reports a marker)"; exit 0
+      else
+        echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: always-marker-present mutation caught (real sourced lib)"; else no "teeth: always-marker-present mutation NOT caught (theater)"; fi
   fi
 fi
 

@@ -26,6 +26,10 @@ LIB="$HERE/../lib/test-lane.sh"
 # shellcheck source=../lib/test-lane.sh
 . "$LIB"
 
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+
 pass=0; fail=0
 ok() { printf '  PASS  %-64s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-64s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -143,9 +147,8 @@ mkdir -p "$TMP/lib"
 # ── M1: change "return 1" to "return 0" → garbage must now succeed (assertion e goes RED) ──
 echo "-- teeth M1: return 1 → return 0; garbage must no longer fail --"
 MUTANT_M1="$TMP/lib/test-lane.M1.sh"
-sed 's/return 1/return 0/g' "$LIB" > "$MUTANT_M1"
-if ! grep -q 'return 0' "$MUTANT_M1"; then
-  ton "M1: could not build mutant (return 1 not found — SUT drifted?)" ""
+if ! mutant_chain "M1 mutant build" "$LIB" "$MUTANT_M1" 's/return 1/return 0/g'; then
+  ton "M1: could not build mutant (return 1 not found or refused by lib/mutant.sh)" ""
 else
   rc_m1=0
   result_m1="$(bash -c ". \"$MUTANT_M1\"; RSDD_TEST_LANE=garbage rsdd_lane 2>/dev/null")" \
@@ -162,9 +165,8 @@ fi
 # ── M2: change default from "fast" to "slow" → assertion a goes RED ──
 echo "-- teeth M2: default fast → slow; assertion a must go RED --"
 MUTANT_M2="$TMP/lib/test-lane.M2.sh"
-sed 's/RSDD_TEST_LANE:-fast/RSDD_TEST_LANE:-slow/' "$LIB" > "$MUTANT_M2"
-if ! grep -q 'RSDD_TEST_LANE:-slow' "$MUTANT_M2"; then
-  ton "M2: could not build mutant (default pattern not found — SUT drifted?)" ""
+if ! mutant_chain "M2 mutant build" "$LIB" "$MUTANT_M2" 's/RSDD_TEST_LANE:-fast/RSDD_TEST_LANE:-slow/'; then
+  ton "M2: could not build mutant (default pattern not found or refused by lib/mutant.sh)" ""
 else
   result_m2=""
   result_m2="$(bash -c "unset RSDD_TEST_LANE; . \"$MUTANT_M2\"; rsdd_lane")" || true

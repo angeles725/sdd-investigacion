@@ -35,6 +35,10 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 WORKFLOW="$REPO/.github/workflows/pr-check.yml"
 REQUIRED_SCOPES="contents issues pull-requests"
 
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+
 [ -f "$WORKFLOW" ] || { printf 'FATAL: workflow not found: %s\n' "$WORKFLOW" >&2; exit 2; }
 
 echo "== pr-check-permissions.test.sh =="
@@ -95,7 +99,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ' "$WORKFLOW" > "$TMP/no-perms.yml"
   # Also drop any scalar permissions line, so the mutant truly has none.
   grep -vE '^permissions:' "$TMP/no-perms.yml" > "$TMP/no-perms2.yml"
-  if grep -qE '^permissions:' "$TMP/no-perms2.yml"; then
+  # The mutants are YAML, not bash: MUTANT_SYNTAX=none skips the helper's `bash -n`; every other refusal stays.
+  if ! MUTANT_SYNTAX=none mutant_built "teeth A: permission-less mutant build" "$WORKFLOW" "$TMP/no-perms2.yml"; then
+    no "teeth A: could not build permission-less mutant (refused by lib/mutant.sh)"
+  elif grep -qE '^permissions:' "$TMP/no-perms2.yml"; then
     no "teeth A: mutant still declares permissions — mutation did not strip the block"
   elif grants_scope "$TMP/no-perms2.yml" issues; then
     no "teeth A: permission-less mutant reported issues granted — check is theater"
@@ -104,8 +111,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Teeth B: remove ONE load-bearing scope (issues) -> per-scope check must miss it.
-  grep -vE '^[[:space:]]+issues:' "$WORKFLOW" > "$TMP/no-issues.yml"
-  if grants_scope "$TMP/no-issues.yml" issues; then
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth B: no-issues mutant build" "$WORKFLOW" "$TMP/no-issues.yml" '/^[[:space:]][[:space:]]*issues:/d'; then
+    no "teeth B: could not build no-issues mutant (anchor drifted or refused by lib/mutant.sh)"
+  elif grants_scope "$TMP/no-issues.yml" issues; then
     no "teeth B: mutant without an issues: line still reports issues granted — per-scope check is theater"
   else
     ok "teeth B: mutant missing the issues scope is correctly detected"

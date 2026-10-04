@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/gate.py"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "${1:-}" <<'PY'
+python3 - "$SUT" "${1:-}" "$HERE" <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -315,14 +315,17 @@ if sys.argv[2] == "--prove-teeth":
     print("-- teeth: neuter the allow=False branch; expect case-2 (allow=False→auth-required) to go red --")
     with tempfile.TemporaryDirectory() as _td_teeth:
         _mutant = Path(_td_teeth) / "gate.MUTANT.py"
-        _mutant_text = sut.read_text().replace(
-            "    if not allow:\n",
-            "    if False:  # MUTANT: allow=False branch neutered\n",
-        )
-        if "MUTANT" not in _mutant_text:
-            nok("teeth-allow-false: mutant not built — 'if not allow:' not matched in SUT (SUT may have changed)")
+        # Built by lib/mutant.sh (via bash): it refuses a dead stage, an empty, byte-identical or
+        # live-tree mutant. MUTANT_SYNTAX=none because the mutant is python, not bash.
+        _build = subprocess.run(
+            ["bash", "-c", '. "$1/lib/mutant.sh" && mutant_chain teeth-allow-false "$2" "$3" "$4"',
+             "_", sys.argv[3], str(sut), str(_mutant),
+             "s/^    if not allow:$/    if False:  # MUTANT: allow=False branch neutered/"],
+            capture_output=True, text=True, env={**os.environ, "MUTANT_SYNTAX": "none"})
+        if _build.returncode != 0:
+            nok("teeth-allow-false: mutant not built — 'if not allow:' not matched or refused by lib/mutant.sh: "
+                + (_build.stdout + _build.stderr).strip())
         else:
-            _mutant.write_text(_mutant_text)
             _ms2 = importlib.util.spec_from_file_location("gate_mutant", _mutant)
             _mm2 = importlib.util.module_from_spec(_ms2); _ms2.loader.exec_module(_mm2)
             try:
