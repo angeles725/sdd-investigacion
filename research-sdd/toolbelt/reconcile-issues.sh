@@ -178,7 +178,9 @@ _fleet_retros=0
 # _fetch_closed_bodies <retro_basename> <sig-prefix>...
 #   Prints the bodies of issues closed AS COMPLETED for the signature prefix(es) (kit issue #1555).
 #   The --jq prints one record-separator line after EVERY issue, with an empty body for one closed
-#   any other way (not planned), so the cap guard counts every returned issue. A failed query or a
+#   any other way (not planned), so the cap guard counts every returned issue: --limit truncates the
+#   TOTAL gh returns, so a full page of not-planned issues can hide a completed one and must degrade
+#   too (counting only COMPLETED would fail open on exactly that page). A failed query or a
 #   reply that filled the --limit is a typed degraded + return 1, never a confident empty answer.
 _fetch_closed_bodies() {
   local _rb="$1"; shift

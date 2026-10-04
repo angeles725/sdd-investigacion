@@ -159,6 +159,12 @@ STUBHELP
         printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"body":"%s","stateReason":"%s"}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$JQ_BIN"
         printf '  *" issue list "*) exit 0 ;;\n'
         ;;
+      closed-fill)
+        # honours --limit like gh: a closed-state list returns exactly <limit> issues (all COMPLETED,
+        # bodies of unrelated issues), run through the SUT's own --jq by real jq. Truncation fixture.
+        printf '  *" issue list "*" --state closed "*) _jq=""; _l=5; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; [ "$_p" = "--limit" ] && _l="$_a"; _p="$_a"; done; _j="["; for ((_i = 1; _i <= _l; _i++)); do _j="$_j{\\"body\\":\\"unrelated $_i\\",\\"stateReason\\":\\"COMPLETED\\"},"; done; printf "%%s" "${_j%%,}]" | "%s" -r "$_jq"; exit 0 ;;\n' "$JQ_BIN"
+        printf '  *" issue list "*) exit 0 ;;\n'
+        ;;
       closed-fail)
         printf '  *" issue list "*" --state closed "*) printf "gh: HTTP 502\\n" >&2; exit 1 ;;\n'
         printf '  *" issue list "*) exit 0 ;;\n'
@@ -2172,6 +2178,16 @@ if [ "$RC" = 0 ] && grep -q '^tracked: row 1 ' <<<"$OUT" && ! grep -q -- '--stat
 else
   no "44h tracked no closed query" "exit=$RC out=[$OUT] log=[$(cat "$box44h/bin/gh.log" 2>&1)]"
 fi
+# 44j — closed query FILLS --limit (stub returns <limit> COMPLETED closed issues): possible truncation ->
+# typed degraded + exit 1, never a confident untracked/shipped.
+box44j="$(mkbox case-closed-cap)"; mk_gh_stub "$box44j" closed-fill
+retro44j="$(mk44 "$box44j")"
+RECONCILE_ISSUES_LIST_LIMIT=2 run "$box44j" "$retro44j"
+if [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed) returned 2 results = the --limit 2 cap' <<<"$OUT" && ! grep -qE '^(untracked|shipped):' <<<"$OUT"; then
+  ok "44j closed query filling --limit -> typed degraded + exit 1" "(exit $RC)"
+else
+  no "44j closed cap" "exit=$RC out=[$OUT]"
+fi
 # 44i — --all fleet-summary names the shipped count.
 box44i="$(mkbox case-closed-fleet)"; mk_gh_stub "$box44i" closed-completed "$SIG44"
 mk44 "$box44i" >/dev/null
@@ -2272,6 +2288,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     's/echo "closed-lookup: skipped/: "closed-lookup: skipped/' silent
   tooth1555 T1555-e swallowed-failure closed-fail \
     's/"\$_sig_prefix" \${_legacy_prefix:+"\$_legacy_prefix"})" || return 1$/"$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"})" || :/' untracked1
+  # T1555-f: the closed cap guard miscounts (-ge -> -gt): a reply that exactly fills --limit reads as complete.
+  echo "-- teeth T1555-f --"
+  mbf="$(mkbox teeth-1555-cap)"; mk_gh_stub "$mbf" closed-fill
+  if mutant_chain T1555-f "$SUT" "$mbf/research-sdd/toolbelt/reconcile-issues.sh" \
+       '/^_fetch_closed_bodies() {/,/^}/s/\[ "\$_n" -ge "\$_LIST_LIMIT" \]/[ "$_n" -gt "$_LIST_LIMIT" ]/'; then
+    RECONCILE_ISSUES_LIST_LIMIT=2 run "$mbf" "$(mk44 "$mbf")"
+    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+      no "T1555-f teeth" "the mutant CRASHED: out=[$OUT]"
+    elif [ "$RC" = 0 ] && ! grep -q '^degraded: gh issue list (closed) returned' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT"; then
+      ok "T1555-f teeth: miscounted cap guard -> no typed degraded, confident untracked (case 44j has teeth)" "()"
+    else no "T1555-f teeth" "case 44j is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
 fi
 
 echo "== $pass passed · $fail failed =="
