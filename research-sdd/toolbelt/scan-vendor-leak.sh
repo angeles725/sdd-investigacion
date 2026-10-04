@@ -8,35 +8,42 @@
 # The declaration contract (what a target must write, and what this tool cannot see) is in
 # scan-vendor-leak.v1.md — read it before trusting a clean run.
 #
-# Usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged]
+# Usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged] [--strict]
 #   --tracked  (default) every file git tracks in <target-dir>; content is read from the INDEX.
 #   --staged   only files added/copied/modified/renamed in the index (what a commit would send).
+#   --strict   (kit issue #1566) a run that evaluated NO vendor declaration is a non-pass: EMPTY-CONF (a conf with
+#              only comments, e.g. the scaffolded stub) or ABSENT-CONF prints `STRICT-FAIL <state> ...` and exits 4.
+#              For CI on a PUBLIC repo, where "no prefix declared" must not read as green. Default: unchanged (exit 0).
 # Output (stdout, one line each):
 #   LEAK <binary|path|package> <path>[:<line>] <reason>
 #   ABSENT-CONF / EMPTY-CONF / CONF-UNTRACKED / EMPTY-INPUT / BAD-CONF / UNREADABLE-CONF /
-#   UNREADABLE <path> / UNMERGED <path>                 — typed non-finding states
+#   UNREADABLE <path> / UNMERGED <path> / STRICT-FAIL <EMPTY-CONF|ABSENT-CONF> ...   — typed non-finding states
 #   SUMMARY scanned=N allowed=N findings=N unreadable=N unmerged=N conf=present|absent prefixes=N paths=N allows=N mode=M
 # Exit: 0 no findings · 1 findings · 2 usage / not a git repo / bad or unreadable conf / unreadable index
 #       content (UNREADABLE) / unmerged index entries (UNMERGED) — in both cases the scan could not look, so
-#       it is never clean · 3 DEGRADED on stderr (git missing, mktemp failed, or git could not list files).
-# Findings (1) outrank unreadable/unmerged (2) only in the exit code; all are printed.
+#       it is never clean · 3 DEGRADED on stderr (git missing, mktemp failed, or git could not list files) ·
+#       4 --strict only: no vendor declaration was evaluated (EMPTY-CONF / ABSENT-CONF) and nothing worse happened.
+# Findings (1) outrank unreadable/unmerged (2), which outrank --strict (4), only in the exit code; all are printed.
 # The conf is read from the INDEX when it is there (what a commit would send); a conf that exists only in the
 # work tree is still used but announced with CONF-UNTRACKED. Unmerged paths are reported once and not scanned.
 # READ-ONLY: only `git ls-files|diff|show|rev-parse` run against the target; nothing is written.
 set -uo pipefail
 
 mode=tracked
+strict=0
+strict_why=""
 target=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tracked) mode=tracked ;;
     --staged) mode=staged ;;
-    -*) echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged] (unknown flag: $1)" >&2; exit 2 ;;
-    *) if [ -z "$target" ]; then target="$1"; else echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged]" >&2; exit 2; fi ;;
+    --strict) strict=1 ;;
+    -*) echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged] [--strict] (unknown flag: $1)" >&2; exit 2 ;;
+    *) if [ -z "$target" ]; then target="$1"; else echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged] [--strict]" >&2; exit 2; fi ;;
   esac
   shift
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-vendor-leak.sh <target-dir> [--tracked|--staged] [--strict]" >&2; exit 2; }
 
 # A missing dependency is a typed degraded state, never a pass.
 command -v git >/dev/null 2>&1 || { echo "DEGRADED: git not found — scan-vendor-leak.sh needs git" >&2; exit 3; }
@@ -134,8 +141,10 @@ fi
 
 if [ "$conf_state" = absent ]; then
   echo "ABSENT-CONF $conf — no vendor declaration; only the built-in binary rule runs"
+  strict_why="ABSENT-CONF"
 elif [ $(( ${#PREFIXES[@]} + ${#PATHS[@]} + ${#ALLOWS[@]} )) -eq 0 ]; then
   echo "EMPTY-CONF $conf — conf has no directives; only the built-in binary rule runs"
+  strict_why="EMPTY-CONF"
 fi
 
 # matches_any <path> <glob>... — bash pattern match; `*` crosses `/`, so `dir/**` covers a whole tree.
@@ -233,4 +242,8 @@ echo "SUMMARY scanned=$scanned allowed=$allowed findings=$findings unreadable=$u
 [ "$findings" -gt 0 ] && exit 1
 [ "$unreadable" -gt 0 ] && exit 2
 [ "$unmerged" -gt 0 ] && exit 2
+if [ "$strict" = 1 ] && [ -n "$strict_why" ]; then
+  echo "STRICT-FAIL $strict_why no vendor declaration was evaluated and --strict was given — declare a prefix/path in $conf_rel (scan-vendor-leak.v1.md); NOT a pass"
+fi
+[ "$strict" = 1 ] && [ -n "$strict_why" ] && exit 4
 exit 0

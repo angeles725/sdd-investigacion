@@ -219,6 +219,32 @@ git -C "$d" checkout -q -; addf "$d" .research-sdd/vendor-leak.conf 'prefix e.f'
 git -C "$d" merge side >/dev/null 2>&1
 o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*unmerged' && ok "unmerged conf in the index → BAD-CONF exit 2" || no "unmerged conf wrong: $o"
 
+# 11 — --strict (kit issue #1566 R3): EMPTY-CONF / ABSENT-CONF become a typed non-pass (exit 4); default unchanged.
+TPL="$HERE/../../templates"
+d="$TMP/strict-empty"; newrepo "$d"; cp "$TPL/vendor-leak.conf.template" "$d/.research-sdd/vendor-leak.conf" 2>/dev/null || { mkdir -p "$d/.research-sdd"; cp "$TPL/vendor-leak.conf.template" "$d/.research-sdd/vendor-leak.conf"; }
+addf "$d" src/Ok.java 'package com.acme.ok;'; commit "$d"
+o="$(out "$d" --strict)"
+[ "$(rc "$d" --strict)" = 4 ] && has "$o" '^EMPTY-CONF ' && has "$o" '^STRICT-FAIL EMPTY-CONF ' && ok "--strict + comment-only stub conf → STRICT-FAIL, exit 4" || no "strict empty wrong: $o"
+[ "$(rc "$d")" = 0 ] && ! has "$(out "$d")" 'STRICT-FAIL' && ok "no --strict + stub conf → still exit 0, no STRICT-FAIL (default unchanged)" || no "default behaviour changed"
+d="$TMP/strict-absent"; newrepo "$d"; commit "$d"
+o="$(out "$d" --tracked --strict)"
+[ "$(rc "$d" --strict)" = 4 ] && has "$o" '^STRICT-FAIL ABSENT-CONF ' && ok "--strict + no conf → STRICT-FAIL ABSENT-CONF, exit 4" || no "strict absent wrong: $o"
+[ "$(rc "$TMP/clean" --strict)" = 0 ] && ! has "$(out "$TMP/clean" --strict)" 'STRICT-FAIL' && ok "--strict + declared conf, clean tree → exit 0" || no "strict clean wrong"
+d="$TMP/strict-leak"; newrepo "$d"; addf "$d" a.jar; commit "$d"
+[ "$(rc "$d" --strict)" = 1 ] && ok "--strict + no conf + a finding → findings outrank (exit 1)" || no "strict finding rc"
+d="$TMP/strict-bad"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'prefx x\n' > "$d/.research-sdd/vendor-leak.conf"
+[ "$(rc "$d" --strict)" = 2 ] && ok "--strict + BAD-CONF → exit 2 (cannot look) outranks strict" || no "strict bad-conf rc"
+
+# 12 — CI template (kit issue #1566 R3): the scan step is strict, both placeholders sit in checkout values that
+# fail when unfilled, and the action is pinned to a full commit sha.
+CI="$TPL/vendor-leak-ci.template.yml"
+ci_ok(){ # <file> — predicate shared by the real template and its mutants
+  grep -qE '^[[:space:]]+run: bash kit/research-sdd/toolbelt/scan-vendor-leak\.sh target --tracked --strict$' "$1" \
+    && grep -qE '^[[:space:]]+repository: <KIT_REPOSITORY>$' "$1" && grep -qE '^[[:space:]]+ref: <KIT_REF>$' "$1" \
+    && ! grep -qE 'uses: actions/checkout@v[0-9]' "$1" && [ "$(grep -cE 'uses: actions/checkout@[0-9a-f]{40}( |$)' "$1")" = 2 ]
+}
+ci_ok "$CI" && ok "template: strict scan step, <KIT_REPOSITORY>/<KIT_REF> placeholders as checkout values, sha-pinned actions" || no "template shape wrong"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
@@ -291,6 +317,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # U: unmerged conf accepted.
   mk "U idx-unmerged" "$SUT" "$MUT/u.sh" 's/if grep -qvE /if false \&\& grep -qvE /' \
     && tt "U unmerged conf branch removed → typed BAD-CONF lost (falls to UNREADABLE-CONF)" 2 2 "$MUT/u.sh" --good-has '^BAD-CONF .*unmerged' --bad-lacks '^BAD-CONF .*unmerged' -- bash @SUT@ "$TMP/idxmerge"
+  # V: strict dropped from the scanner → EMPTY-CONF passes again.
+  mk "V strict" "$SUT" "$MUT/v.sh" 's/^\[ "\$strict" = 1 \] && \[ -n "\$strict_why" \] && exit 4/:/' \
+    && tt "V strict exit dropped → stub conf passes --strict" 4 0 "$MUT/v.sh" --good-has '^STRICT-FAIL EMPTY-CONF' -- bash @SUT@ "$TMP/strict-empty" --strict
+  # W: STRICT-FAIL typed line dropped (exit code alone is not the contract).
+  mk "W strict-line" "$SUT" "$MUT/w.sh" 's/echo "STRICT-FAIL /echo "X-FAIL /' \
+    && tt "W STRICT-FAIL line dropped" 4 4 "$MUT/w.sh" --good-has '^STRICT-FAIL ABSENT-CONF' --bad-lacks '^STRICT-FAIL ABSENT-CONF' -- bash @SUT@ "$TMP/strict-absent" --strict
+  # X: --strict not accepted (flag parse) → usage exit 2, not 4.
+  mk "X flag" "$SUT" "$MUT/x.sh" 's/^    --strict) strict=1 ;;$/    --strict-zz) strict=1 ;;/' \
+    && tt "X --strict flag unparsed → usage error" 4 2 "$MUT/x.sh" -- bash @SUT@ "$TMP/strict-empty" --strict
+  # Y: template mutants — each must break the shared predicate.
+  for _m in 's/ --strict$//' 's/repository: <KIT_REPOSITORY>/repository: acme\/kit/' 's/ref: <KIT_REF>/ref: main/' 's/checkout@[0-9a-f]\{40\}/checkout@v4/'; do
+    sed -e "$_m" "$CI" > "$MUT/ci.yml"
+    if cmp -s "$CI" "$MUT/ci.yml"; then no "Y template mutant '$_m' is dead (no change)"
+    elif ci_ok "$MUT/ci.yml"; then no "Y template mutant '$_m' still satisfies the predicate (THEATER)"
+    else ok "Y template mutant '$_m' breaks the predicate"; fi
+  done
 fi
 
 echo "== $pass passed · $fail failed =="
