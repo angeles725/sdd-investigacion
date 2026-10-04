@@ -42,7 +42,7 @@
 #
 # Document-mode focuses (`document` in FOCUSES.md) have no backlog by design and get no skeleton proposal.
 # Exit: 0 inspected (with or without proposals; proposals are findings, not failures) · 1 operational failure
-# (awk/diff/mktemp unavailable, unreadable file, a failed state-file scan -> typed `degraded:` on stderr) · 2 bad args or target is not a directory.
+# (awk/diff/mktemp unavailable, unreadable file, a failed state-file scan or a `diff` status >= 2 -> typed `degraded:` on stderr; diff 0 = no change, not counted) · 2 bad args or target is not a directory.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 target="${1:-}"
@@ -162,16 +162,24 @@ END {
 }
 '
 
-DOC_AWK='
+# REG_AWK: the SINGLE definition of "is this header row the focus registry?" — prepended to both DOC_AWK and
+# FOCUSES_AWK below so the two programs cannot drift (cell decoration `**` and backticks stripped once, here).
+REG_AWK='
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function bare(s) { s = trim(s); gsub(/\*\*/, "", s); gsub(/`/, "", s); return trim(s) }
+function reg_header(arr, cnt,   i, c) {  # sets global scol; true when Status/Estado AND a focus/slug column exist
+  scol = 0; hasslug = 0
+  for (i = 1; i <= cnt; i++) { c = tolower(bare(arr[i])); if (c == "status" || c == "estado") scol = i; if (c ~ /^(focus|slug|foco|name|nombre)$/) hasslug = 1 }
+  return (scol > 0 && hasslug)
+}
+'
+
+DOC_BODY='
 !/^[ \t]*\|/ { intable = 0; reg = 0 }
 /^[ \t]*\|/ {
   line = $0; sub(/^[ \t]*\|/, "", line); sub(/\|[ \t]*$/, "", line); n = split(line, a, "|")
-  if (!intable) {  # header row: only the focus registry table (Status/Estado + focus/slug column) is read
-    intable = 1; scol = 0; hasslug = 0
-    for (i = 1; i <= n; i++) { c = tolower(bare(a[i])); if (c == "status" || c == "estado") scol = i; if (c ~ /^(focus|slug|foco|name|nombre)$/) hasslug = 1 }
-    reg = (scol > 0 && hasslug); next
+  if (!intable) {  # header row: only the focus registry table is read
+    intable = 1; reg = reg_header(a, n); next
   }
   if (!reg || a[1] ~ /^[ \t:-]+$/ || scol > n) next
   hit = (bare(a[1]) == lab); for (i = 2; i <= n; i++) if (bare(a[i]) == "RESEARCH-STATE-" lab ".md") hit = 1
@@ -181,8 +189,9 @@ function bare(s) { s = trim(s); gsub(/\*\*/, "", s); gsub(/`/, "", s); return tr
 END { print (found ? "yes" : "no") }
 '
 
-FOCUSES_AWK='
-function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+DOC_AWK="$REG_AWK$DOC_BODY"
+
+FOCUSES_BODY='
 function manual(reason, ln) { print reason "\t" ln >> tally }
 function cells(line,   body) {
   pre = line; sub(/\|.*$/, "", pre); body = line; sub(/^[ \t]*\|/, "", body)
@@ -195,9 +204,7 @@ function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out
   if (line !~ /^[ \t]*\|/) { intable = 0; reg = 0; print line; next }
   cells(line)
   if (!intable) {  # header row of a new table: only the focus REGISTRY (Status/Estado + a focus/slug column) is transformed
-    intable = 1; scol = 0; hasslug = 0
-    for (i = 1; i <= nc; i++) { c = tolower(trim(raw[i])); gsub(/\*\*/, "", c); if (c == "status" || c == "estado") scol = i; if (c ~ /^(focus|slug|foco|name|nombre)$/) hasslug = 1 }
-    reg = (scol > 0 && hasslug)
+    intable = 1; reg = reg_header(raw, nc)
     print line; next
   }
   if (!reg) { print line; next }
@@ -214,6 +221,7 @@ function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out
   print line
 }
 '
+FOCUSES_AWK="$REG_AWK$FOCUSES_BODY"
 
 n_files=0; n_prop=0; n_manual=0
 # propose <label> <file> <awk-program> [awk -v args...]: transform, diff, tally.
@@ -230,13 +238,14 @@ propose() {
     LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" > "$out" || { echo "migrate-backlogs: awk failed on $f" >&2; exit 1; }
   fi
   local changed=0
-  cmp -s "$f" "$out"; local crc=$?
-  [ "$crc" -gt 1 ] && { echo "migrate-backlogs: cmp failed on $f" >&2; exit 1; }
-  if [ "$crc" = 1 ]; then
-    changed=1; n_prop=$((n_prop+1))
-    echo "PROPOSE $label $rel"
-    diff -u --label "a/$rel" --label "b/$rel" "$f" "$out"
-  fi
+  # diff status is authoritative: 0 = no change (no PROPOSE, not counted) · 1 = proposal · >=2 = trouble -> degraded.
+  local dfile="$work/diff.$n_files" drc
+  diff -u --label "a/$rel" --label "b/$rel" "$f" "$out" > "$dfile"; drc=$?
+  case "$drc" in
+    0) ;;
+    1) changed=1; n_prop=$((n_prop+1)); echo "PROPOSE $label $rel"; cat "$dfile" ;;
+    *) echo "degraded: migrate-backlogs: diff failed (status $drc) on $rel — proposal not computed" >&2; exit 1 ;;
+  esac
   local reasons r cnt first
   reasons="$(cut -f1 "$tally" | sort -u)"
   while IFS= read -r r; do

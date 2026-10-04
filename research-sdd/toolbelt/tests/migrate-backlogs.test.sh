@@ -268,6 +268,30 @@ printf '# S\n' > "$TMP/degr/corpus/RESEARCH-STATE-s.md"
 o="$(bash "$TMP/degr/migrate-backlogs.sh" "$TMP/degr/corpus" 2>&1)"; r=$?
 if [ "$r" = 1 ] && grep -q '^degraded: migrate-backlogs: scanning' <<<"$o" && ! grep -q '^absent-input' <<<"$o"; then ok "22 helper failure -> typed degraded + exit 1 (not absent-input)"; else no "22 rc=$r [$o]"; fi
 
+# 23. backtick-decorated registry header is recognised by BOTH the transform and the document-skip (one shared definition)
+mkdir -p "$TMP/bt"
+cat > "$TMP/bt/FOCUSES.md" <<'E'
+# Focuses
+
+| `Focus` | `Status` | State |
+|---|---|---|
+| main | closed | RESEARCH-STATE-main.md |
+| outline | document | RESEARCH-STATE-outline.md |
+E
+printf '# M\n\n## Gap-backlog\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| high | M1 | web | pending |\n' > "$TMP/bt/RESEARCH-STATE-main.md"
+printf '# O\n\nno backlog\n' > "$TMP/bt/RESEARCH-STATE-outline.md"
+o="$(bash "$SUT" "$TMP/bt" 2>/dev/null)"
+if grep -qF '+| main | stopped | RESEARCH-STATE-main.md |' <<<"$o" && ! grep -q '^MANUAL outline ' <<<"$o"; then ok "23 backtick-quoted Status/Focus header: transform AND document-skip both see the registry"; else no "23 [$o]"; fi
+
+# 24. diff status: 2 -> typed degraded + exit 1; 0 -> no PROPOSE and not counted
+mkdir -p "$TMP/shim2" "$TMP/shim0"
+printf '#!/bin/sh\necho diff-shim-trouble >&2\nexit 2\n' > "$TMP/shim2/diff"; chmod +x "$TMP/shim2/diff"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/shim0/diff"; chmod +x "$TMP/shim0/diff"
+o="$(PATH="$TMP/shim2:$PATH" bash "$SUT" "$corpus" 2>&1)"; r=$?
+if [ "$r" = 1 ] && grep -q '^degraded: migrate-backlogs: diff failed (status 2)' <<<"$o" && ! grep -q '^PROPOSE' <<<"$o"; then ok "24a diff status 2 -> degraded + exit 1, no PROPOSE printed"; else no "24a rc=$r [$o]"; fi
+o="$(PATH="$TMP/shim0:$PATH" bash "$SUT" "$corpus" 2>&1)"; r=$?
+if [ "$r" = 0 ] && ! grep -q '^PROPOSE' <<<"$o" && grep -q ' 0 with a mechanical proposal ' <<<"$o"; then ok "24b diff status 0 -> no PROPOSE, not counted"; else no "24b rc=$r [$o]"; fi
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
@@ -337,7 +361,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth O: mutant could not be built"; fi
   # P: every FOCUSES table treated as the registry -> case 21 must go red
   t="$(mk_tree P)"
-  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/    reg = (scol > 0 \&\& hasslug)$/    reg = (scol > 0)/' >/dev/null 2>&1; then
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/return (scol > 0 \&\& hasslug)/return (scol > 0)/' >/dev/null 2>&1; then
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/reg" 2>/dev/null)"
     grep -qF '+| side-note | stopped |' <<<"$o" && ok "teeth P: any Status table transformed -> case 21 has teeth" || no "teeth P: mutant still leaves the sibling table alone — THEATER"
   else no "teeth P: mutant could not be built"; fi
@@ -348,6 +372,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/degr/corpus" 2>&1)"; r=$?
     { [ "$r" = 1 ] && grep -q '^degraded:' <<<"$o"; } && no "teeth Q: mutant still degraded — THEATER" || ok "teeth Q: scan status ignored -> case 22 has teeth"
   else no "teeth Q: mutant could not be built"; fi
+  # R: diff status ignored (every non-zero treated as a proposal) -> case 24a must go red
+  t="$(mk_tree R)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^    \*) echo "degraded: migrate-backlogs: diff failed.*$/    *) changed=1 ;;/' >/dev/null 2>&1; then
+    o="$(PATH="$TMP/shim2:$PATH" bash "$t/migrate-backlogs.sh" "$corpus" 2>&1)"; r=$?
+    [ "$r" = 1 ] && no "teeth R: mutant still degraded — THEATER" || ok "teeth R: diff status ignored -> case 24a has teeth"
+  else no "teeth R: mutant could not be built"; fi
+  # S: the shared registry detection loses backtick stripping -> case 23 must go red (one edit hits both programs)
+  t="$(mk_tree S)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/ gsub(\/`\/, "", s);//' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/bt" 2>/dev/null)"
+    grep -qF '+| main | stopped |' <<<"$o" && no "teeth S: mutant still sees the backtick header — THEATER" || ok "teeth S: backtick strip removed -> case 23 has teeth"
+  else no "teeth S: mutant could not be built"; fi
   # I: the absent-input typed line silenced
   t="$(mk_tree I)"
   if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^  echo "absent-input: no RESEARCH-STATE.*$/  :/' >/dev/null 2>&1; then
