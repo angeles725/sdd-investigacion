@@ -20,6 +20,13 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Loaded only by the --prove-teeth branches, so plain runs never depend on the helper.
+load_mutant() {
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+}
 
 echo "== extract-pdf.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -81,10 +88,7 @@ else
   fi
 
   if [ "${1:-}" = "--prove-teeth" ]; then
-    # shellcheck source=lib/mutant.sh
-    . "$HERE/lib/mutant.sh"
-    typeset -f mutant_chain >/dev/null 2>&1 \
-      || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+    load_mutant
     # Teeth A: success-path stub + guard mutated to always return 1 → SUT must fail
     echo "-- teeth A: tier2_marker size-guard mutated to 'return 1'; success-stub must then fail --"
     cat > "$_stub_noop" <<'STUBEOF'
@@ -254,10 +258,7 @@ fi
 
 # ── Teeth: neuter IS_MOJIBAKE override → mojibake must then route to Tier 1 ──
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  load_mutant
   echo "-- teeth: neuter IS_MOJIBAKE override; expect Tier-1 method on mojibake fixture --"
   MUTANT="$TMP/extract-pdf.MUTANT.sh"
   # Pin IS_MOJIBAKE to 0 by replacing the final override line with a no-op.

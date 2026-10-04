@@ -206,7 +206,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # written at $OUT.  The post-tee guard '[ ! -f "$OUT" ]' then fires → exit 5.
   # Test 15 checks exit 0 AND file existence AND 'preserved:' in output — all three
   # fail on this mutant.  This proves a load-bearing guard (not just a cosmetic echo).
-  mk_sed "teeth A" "$TMP/mutant-a.sh" 's|tee -- "\$OUT"|tee -- /dev/null|' && chmod +x "$TMP/mutant-a.sh"
+  if mk_sed "teeth A" "$TMP/mutant-a.sh" 's|tee -- "\$OUT"|tee -- /dev/null|'; then
+  chmod +x "$TMP/mutant-a.sh"
   TDIR_A="$TMP/teeth-a-target"
   mkdir -p -- "$TDIR_A"
   STUB_A="$(make_stub "$TMP/teeth-a-stub" 0 "hw")"
@@ -214,15 +215,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   POWERSHELL_BIN="$STUB_A" bash "$TMP/mutant-a.sh" run \
     "$TDIR_A" COM3 9600 "show ver" >/dev/null 2>&1 || MUTANT_A_RC=$?
   MUTANT_A_FILE="$(find "$TDIR_A/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
-  if [ -f "$TMP/mutant-a.sh" ] && [ "$MUTANT_A_RC" -ne 0 ] && [ -z "$MUTANT_A_FILE" ]; then
+  if [ "$MUTANT_A_RC" -ne 0 ] && [ -z "$MUTANT_A_FILE" ]; then
     ok "teeth A: tee→/dev/null → no evidence file + non-zero exit → test 15 assertions catch it (RED)"
   else
     no "teeth A: mutant with /dev/null tee should break test 15 but did not (rc=$MUTANT_A_RC file=${MUTANT_A_FILE:-absent})"
   fi
+  fi  # else: refusal already counted by mk_sed
 
   # Tooth B: replace 'exit 5' (preservation-fail guard) with 'exit 0'.
   # Test 18's exit-code check for 5 must catch this → assertion goes RED.
-  mk_sed "teeth B" "$TMP/mutant-b.sh" 's/exit 5$/exit 0/' && chmod +x "$TMP/mutant-b.sh"
+  if mk_sed "teeth B" "$TMP/mutant-b.sh" 's/exit 5$/exit 0/'; then
+  chmod +x "$TMP/mutant-b.sh"
   TDIR_B="$TMP/teeth-b-target"
   OUTDIR_B="$TDIR_B/sources/probes"
   mkdir -p -- "$OUTDIR_B"
@@ -232,11 +235,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { POWERSHELL_BIN="$STUB_B" bash "$TMP/mutant-b.sh" run \
     "$TDIR_B" COM3 9600 "show ver" >/dev/null 2>&1; } || MUTANT_B_RC=$?
   chmod 755 "$OUTDIR_B"
-  if [ -f "$TMP/mutant-b.sh" ] && [ "$MUTANT_B_RC" -eq 0 ]; then
+  if [ "$MUTANT_B_RC" -eq 0 ]; then
     ok "teeth B: exit 5 → exit 0 mutant → test 18 assertion catches it (RED)"
   else
-    no "teeth B: mutant still exits 5 — sed did not take effect, check mutation"
+    no "teeth B: exit 5 → exit 0 mutant exited rc=$MUTANT_B_RC, expected 0 (test 18's exit-code check would not go red)"
   fi
+  fi  # else: refusal already counted by mk_sed
 fi
 
 echo "== $pass passed · $fail failed =="

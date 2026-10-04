@@ -253,7 +253,7 @@ cp -a "$SUT_DIR/." "$MUTDIR/"
 # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
 if ! MUTANT_SYNTAX=none mutant_chain "M1 guard-exit" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
      's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/'; then
-  mut_no "M1 guard-exit: mutant refused by lib/mutant.sh (sed had no effect)"
+  mut_no "M1 guard-exit: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
 elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M1 guard-exit: mutant failed py_compile"
 else
@@ -273,7 +273,7 @@ MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
 if ! MUTANT_SYNTAX=none mutant_chain "M2 plan-status" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
      's/"status": "plan-only",/"status": "broken-plan",  # MUTANT-M2/'; then
-  mut_no "M2 plan-status: mutant refused by lib/mutant.sh (sed had no effect)"
+  mut_no "M2 plan-status: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
 elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M2 plan-status: mutant failed py_compile"
 else
@@ -301,7 +301,7 @@ cp -a "$SUT_DIR/." "$MUTDIR/"
 # avoid eating syntax (see analyze M6/M8 lesson).
 if ! MUTANT_SYNTAX=none mutant_chain "M3 sweep-§7" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
      's/else "failed"  # sweep-all-fail/else "complete"/'; then
-  mut_no "M3 sweep-§7: mutant refused by lib/mutant.sh (sed had no effect; sweep §7 not yet implemented)"
+  mut_no "M3 sweep-§7: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
 elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
   mut_no "M3 sweep-§7: mutant failed py_compile"
 else
