@@ -620,7 +620,10 @@ Always read first, in this order:
          (report-only; default 400; cuts only at commit boundaries; a commit over N prints
          UNSPLITTABLE). Review slice N (one RDD transaction per slice, `--base-ref <the slice's
          base=> --committed-only`, read-only on immutable commits) while the writer works on slice
-         N+1. An UNSPLITTABLE commit is a decision for the human, not a mid-commit cut.
+         N+1. An UNSPLITTABLE commit is a decision for the human, not a mid-commit cut. A `base=ROOT`
+         slice cannot be reviewed via `--base-ref` (review it as part of a wider range).
+         `--committed-only --base-ref <base>` reviews up to HEAD, so pin HEAD at the slice's last
+         sha (e.g. a worktree at `<last>`) to review slice N while later commits exist.
          SCOPE: valid only while slice N's commits are immutable — never amend/rebase/force-push
          them once its review starts. A correction on slice N lands as a NEW commit with its own
          transaction; planned slices are then stale, so re-plan from the reviewed boundary.
@@ -795,6 +798,8 @@ Always read first, in this order:
        - Before committing the block, run `$KIT/toolbelt/lint-block.sh <block.md>` next to `verify-block.sh`
          (METHODOLOGY §11 "Block lint"): a non-zero exit is a defect to fix or to waive with a reasoned
          `lint-waive` token; `lint-block.sh --audit <corpus>` is the report-only form for legacy corpora.
+         Packs are per-target-class and audit-first: run `lint-block.sh --audit --pack <name>` and classify
+         the findings before relying on FAIL mode; calibration false-positive rates are tracked on #1517.
          VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
          all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
          etc.), verify-block classifies them as `extern` — it prints `resolved 0 of M` and a graded WARN

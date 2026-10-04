@@ -2017,7 +2017,11 @@ before trusting its verdict:
   `GOOD` / `DIVERGED` / `FAILED reason=` line per construct and mode plus a `DEBUGINFO` line (is a
   `LocalVariableTable` present with and without `-g`; `unmeasured` when it could not be observed), and a
   `RESULT` line naming the JDK version and the engine the wrapper used (the engine version is not
-  recorded). A missing `javac`, `javap` or decompiler yields a typed
+  recorded). Read the verdicts narrowly: `GOOD` / `DIVERGED` / `FAILED` is per cell, for one JDK and the
+  engine the wrapper LABELS — not a verdict on decompilation fidelity in general. A cell that fell back to
+  another engine prints a `FALLBACK <Name> mode=<m> labelled-engine=<e|unknown>` line, and the label names the
+  wrapper's primary engine, not the engine that produced that cell's output, so FALLBACK cells mix primary and
+  fallback output. A missing `javac`, `javap` or decompiler yields a typed
   `DEGRADED:` line, exit 4, and no verdict. Its limits are part of the claim: a verdict holds for that
   fixture, that JDK and that engine version only, and the script does not diff `javap` of two idiom variants
   or regenerate a per-JDK matrix — a rule about a construct it does not cover still needs the experiment
@@ -2134,6 +2138,14 @@ nothing. Probe `command -v parallel` before any `-j` and run serially when it is
 lines against the plan (`1..N`) and treat any shortfall as a failed lane, not a pass. (Evidence:
 niagara-tools fold campaign 2026-10-02 — two writers ran ~900 tests serially after hitting it, bats
 1.14.) Hard caps (`-j 6`, one batch at a time, never against a live system) and `--keep-order`: `toolbelt/DYNAMIC-SETUP.md` §8.
+
+**Envelope counters are proposed, never hand-recounted (§7b).** [`toolbelt/state-update.sh`](toolbelt/state-update.sh)
+`<target>` (kit issue #1284, contract `toolbelt/state-update.v1.md`) prints a unified diff bringing `covered_blocks`,
+`investigable_open`, `blocked_open`, `requires_execution_open`, `deferred_open` and the Stop-control
+`read-only investigable: N` number in line with what `verify-state.sh` recomputes from disk. The human applies the
+diff (propose-never-apply); it never proposes `known_gaps`, `gaps_closed` or any hand-set field. Its last stderr
+line (`state-update: checked= skipped= changed= degraded= unproposed=`) counts the verify-state FAIL lines it does
+not own: exit 0 means "no change proposed", not "verify-state passes".
 
 ## 12. Dynamic phase (validation against a live system)
 
@@ -3051,6 +3063,26 @@ remote-visibility: ...` when `gh` is absent, failing or unrecognised. It surface
 (visibility is the owner's decision); while a remote is PUBLIC, audit tracked files for decompiled or proprietary
 paths before any push.
 
+**Vendor-leak guard (before a remote becomes PUBLIC).** `scan-secrets.sh` looks for secret VALUES and excludes
+decompiled trees, so a vendor binary or decompiled vendor source committed to a target that is or will be
+public is invisible to it. [`toolbelt/scan-vendor-leak.sh`](toolbelt/scan-vendor-leak.sh) `<target>
+[--tracked|--staged]` (kit issue #1271, contract `toolbelt/scan-vendor-leak.v1.md`) is the separate guard.
+Before the remote becomes PUBLIC, declare the vendor package prefixes and paths in
+`<TARGET>/.research-sdd/vendor-leak.conf` (`prefix` / `path` / `allow`; `allow` wins). `research-sdd-init.sh`
+probes the push remote's visibility after a full scaffold: on PUBLIC it scaffolds a stub conf and proposes a CI
+workflow (written only with `--wire`). Known gap (issue #1566): a stub with no declarations is `EMPTY-CONF`,
+exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*.so` `*.exe`) — a clean run
+over an undeclared stub says nothing about decompiled vendor source.
+
+**Terminal no-garbage check (report-only).** Before closing a focus or campaign (§8 STOP), run
+[`toolbelt/clean-check.sh`](toolbelt/clean-check.sh) `--target <target>` (kit issue #1277, contract
+`toolbelt/clean-check.v1.md`). It lists untracked, non-ignored files that no `<TARGET>/.research-sdd/keep.txt`
+glob keeps (`GARBAGE untracked`) and stale user-owned `tmp.*` entries (`GARBAGE stale-tmp`); it deletes and
+writes nothing, so the human decides each finding (propose-never-apply). Declare intentional untracked files
+in `keep.txt` (one glob per line, optional ` # reason`); `ABSENT-KEEPLIST` says no keep file exists. The
+terminal-trigger WIRING is not built: no STOP hook, archive gate or loop step invokes it yet, so the
+operator or loop runs it by hand — a close without the run is not evidence the target is clean.
+
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
 A small target is a single axis. A **mature or large** target often has several distinct subjects worth
@@ -3244,7 +3276,6 @@ and B122 both did). Before re-launching an interrupted iteration:
    re-verify it against the primary source — the summary cannot distinguish a verified claim from an
    unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
    2026-09-13-camino-b-end-to-end-completo)
-
 ## 18. Self-retrospective (the kit learns from its own runs)
 
 The engine improves by observing real runs — not by guesswork. Every improvement in this kit so far was
@@ -4206,9 +4237,24 @@ is documented in the build-n4-module kit under its own `BUILD-LOOP.md` — cross
   A QA session is read-only with respect to the corpus — it never edits blocks or retros except to
   add a reviewer sign-off line.
 
+**Review pipelining.** Do not serialise "review, then start the next task". Plan the slices mechanically with
+[`toolbelt/plan-review-slices.sh`](toolbelt/plan-review-slices.sh) (kit issue #1276; report-only; slices of at
+most 400 authored lines cut only at commit boundaries) and review slice N while the writer works on slice N+1.
+Slices are immutable once their review starts: a correction is a NEW commit with its own review, and the plan
+is then stale — re-plan from the reviewed boundary. Review each slice against a fixed base
+(`--base-ref <the slice's base=>`, or `$(git merge-base HEAD origin/main)` captured once), never a moving
+`origin/main`: a moving base shows merged sibling PRs as reverts.
+
 **Handoff discipline.** Each role-to-role handoff names the FILES delivered and their exact status
 (matching CLAUDE.md §3 cross-session ordering rule: name file sets, not unit names). A handoff that
 says "unit X is done" without listing the output files is non-conforming.
+
+**Resume handoff (see §17).** After an interruption or between sessions, derive the repository half of the handoff
+from the repo state: `toolbelt/resume-state.sh | toolbelt/resume-render.sh --json -` (kit issue #1274; contracts
+`toolbelt/resume-state.v1.md`, `toolbelt/resume-render.v1.md`). Paste it as the machine-derived half and add by hand
+only what its `## Not derived` section lists (review receipts, in-flight workers, the next task). Unknown never reads
+as none: a missing key renders `unknown`, and the PR list is trusted only when `prs` is an array AND `prs_status` is
+`ok`; otherwise the render says `PR list unknown: <status>`.
 
 **When to use this template.** Apply it when: (a) the campaign has ≥3 units that cannot run in one
 session, OR (b) any unit requires a tool-execution phase (§19) that the coordinator session cannot
