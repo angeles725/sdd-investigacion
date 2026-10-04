@@ -34,6 +34,11 @@ source "$TOOLBELT/lib/test-lane.sh"
 [ -f "$EXPORTER" ] || { echo "FATAL: SUT not found: $EXPORTER" >&2; exit 2; }
 
 pass=0; fail=0
+# One EXIT trap for both temp dirs (a later `trap` would REPLACE this one): the slow lane's ROOT
+# and the --prove-teeth _MUT are both created later and both start empty.
+ROOT=""; _MUT=""
+_cleanup(){ [ -z "$ROOT" ] || rm -rf -- "$ROOT"; [ -z "$_MUT" ] || rm -rf -- "$_MUT"; }
+trap _cleanup EXIT
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
@@ -82,9 +87,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
 
   if [[ "$_slow_skip" -eq 0 ]]; then
 
-    ROOT="$(mktemp -d)"
-    # shellcheck disable=SC2064
-    trap 'rm -rf -- "$ROOT"' EXIT
+    ROOT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
     MARKER="$ROOT/TARGET_EXECUTED"
 
     cat >"$ROOT/fixture.c" <<'EOF'
@@ -333,66 +336,104 @@ fi # fast | all
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: fixture-mutation controls --"
-  _MUT="$(mktemp -d)"
-  # shellcheck disable=SC2064
-  trap 'rm -rf "$_MUT"' EXIT
+  # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_built mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # The SUT of these controls is a JSON fixture, not a shell script: skip the `bash -n` check.
+  # Each mutant is validated as JSON by its own builder (json.loads round-trip) instead.
+  MUTANT_SYNTAX=none
+  _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
-  # Tooth A: flip counts.*.exact false→true in capped copy.
-  # The cap-truthfulness assertion requires not c['exact']; with exact=true it fails → RED.
-  _CAPPED_MUT="$_MUT/capped_mutant.json"
-  python3 -c "
+  mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+
+  # Checkers: the same assertions the fast lane runs on the same fixture artifact (T1-fast and
+  # T2-fast), re-stated so each prints ONE typed line. A crash (bad JSON, missing key) prints a
+  # Traceback and no RESULT line, so it never reads as a bite.
+  # Exit codes: 0 = every assertion held (RESULT=ok); 1 = an assertion failed (RESULT=assert-fail:<msg>).
+  _CHK_T2='
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+    kinds = ("functions", "symbols", "imports", "exports", "strings", "references")
+    assert d["status"] == "partial", "status not partial"
+    assert d["caps"] == {k: 1 for k in kinds} | {"string_chars": 16}, "caps mismatch"
+    for k in kinds:
+        c = d["counts"][k]
+        assert c["emitted"] == 1, "emitted != 1"
+        assert c["observed"] == 2, "observed != 2"
+        assert not c["exact"], "exact must be false"
+        assert d["truncation"][k], "truncation must be true"
+    dynamic = [d["program"], *sum((d[k] for k in kinds), [])]
+    assert all(len(v) <= 16 for item in dynamic for v in item.values() if isinstance(v, str)), "string too long"
+    assert any(x["value_truncated"] for x in d["strings"]), "no value_truncated"
+    assert d["string_values_truncated"] > 0, "string_values_truncated not > 0"
+except AssertionError as e:
+    print("RESULT=assert-fail:" + str(e)); sys.exit(1)
+print("RESULT=ok")
+'
+  _CHK_T1='
+import json, pathlib, sys
+try:
+    raw = pathlib.Path(sys.argv[1]).read_bytes()
+    d = json.loads(raw)
+    canonical = (json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    assert raw.endswith(b"\n"), "fixture must end with LF"
+    assert raw == canonical, "fixture bytes are not canonical compact JSON+LF"
+    assert d["schema"] == "ghidra-curated-evidence.v1" and d["status"] == "complete", "schema/status"
+    assert d["analysis"] == {"timed_out": False}, "analysis"
+    assert d["program"]["format"] == "Executable and Linking Format (ELF)", "format"
+    assert d["program"]["image_base"] == "00400000", "image_base"
+    assert d["program"]["md5"] and d["program"]["language"] and d["program"]["compiler"], "program fields"
+    assert any(x["name"] == "exported_add" for x in d["functions"]), "functions"
+    assert any("puts" in x["name"] for x in d["imports"]), "imports"
+    assert any(x["name"] == "fixture_global" for x in d["symbols"]), "symbols"
+    assert any(x["name"] == "exported_add" for x in d["exports"]), "exports"
+    assert any("CURATED_LONG_STRING" in x["value"] for x in d["strings"]), "strings"
+    assert d["references"], "references"
+    assert all(v["exact"] and v["observed"] == v["emitted"] for v in d["counts"].values()), "counts"
+    assert not any(d["truncation"].values()), "truncation"
+    assert d["errors"] == [] and isinstance(d["warnings"], list) and d["limitations"], "errors/warnings/limitations"
+except AssertionError as e:
+    print("RESULT=assert-fail:" + str(e)); sys.exit(1)
+print("RESULT=ok")
+'
+
+  # Tooth A: flip counts.*.exact false->true in a capped copy. T2 requires not c['exact'].
+  mkdir -p "$_MUT/a"
+  if ! python3 -c "
 import json, pathlib, sys
 d = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
 for k in d['counts']:
-    d['counts'][k]['exact'] = True   # mutation: flip exact false→true
+    d['counts'][k]['exact'] = True
 pathlib.Path(sys.argv[2]).write_text(
     json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(',',':')) + '\n')
-" "$_CAPPED_FIX" "$_CAPPED_MUT"
-
-  _teeth_a_rc=0
-  python3 - "$_CAPPED_MUT" <<'PY' || _teeth_a_rc=$?
-import json, sys
-d = json.load(open(sys.argv[1], encoding='utf-8'))
-kinds = ('functions', 'symbols', 'imports', 'exports', 'strings', 'references')
-assert d['status'] == 'partial'
-assert d['caps'] == {k: 1 for k in kinds} | {'string_chars': 16}
-for k in kinds:
-    c = d['counts'][k]
-    assert c['emitted'] == 1
-    assert c['observed'] == 2
-    assert not c['exact']   # BITES: mutant has exact=true → assertion fails
-    assert d['truncation'][k]
-PY
-  if [[ "$_teeth_a_rc" -ne 0 ]]; then
-    ok "teeth-A: T2-fast goes RED when counts.*.exact flipped true (cap-truthfulness bites)"
-  else
-    no "teeth-A: T2-fast stayed GREEN with exact=true mutant — assertion has no teeth"
+" "$_CAPPED_FIX" "$_MUT/a/capped.json"; then
+    no "teeth-A: mutant build script failed"
+  elif mk teeth-A "$_CAPPED_FIX" "$_MUT/a/capped.json"; then
+    tt "teeth-A: T2-fast goes RED when counts.*.exact flipped true (cap-truthfulness bites)" 0 1 \
+      "$_MUT/a/capped.json" --orig "$_CAPPED_FIX" \
+      --good-has '^RESULT=ok$' --bad-has '^RESULT=assert-fail:exact must be false$' \
+      --bad-lacks 'Traceback|Error' -- python3 -c "$_CHK_T2" @SUT@
   fi
 
-  # Tooth B: drop trailing LF from full fixture copy.
-  # The canonical re-encode assertion checks raw.endswith(b'\n'); without LF → RED.
-  _FULL_MUT="$_MUT/full_no_lf.json"
-  python3 -c "
+  # Tooth B: drop the trailing LF from a full-fixture copy. T1 requires raw.endswith(b'\n').
+  mkdir -p "$_MUT/b"
+  if ! python3 -c "
 import pathlib, sys
 raw = pathlib.Path(sys.argv[1]).read_bytes()
 assert raw.endswith(b'\n'), 'fixture must end with LF'
-pathlib.Path(sys.argv[2]).write_bytes(raw[:-1])  # drop trailing LF
-" "$_FULL_FIX" "$_FULL_MUT"
-
-  _teeth_b_rc=0
-  python3 - "$_FULL_MUT" <<'PY' || _teeth_b_rc=$?
-import json, pathlib, sys
-p = pathlib.Path(sys.argv[1])
-raw = p.read_bytes()
-d = json.loads(raw)
-canonical = (json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(',',':')) + '\n').encode()
-assert raw.endswith(b'\n'), "fixture must end with LF"   # BITES: no LF → fails here
-assert raw == canonical
-PY
-  if [[ "$_teeth_b_rc" -ne 0 ]]; then
-    ok "teeth-B: T1-fast goes RED when trailing LF dropped (canonical re-encode bites)"
-  else
-    no "teeth-B: T1-fast stayed GREEN without trailing LF — assertion has no teeth"
+pathlib.Path(sys.argv[2]).write_bytes(raw[:-1])
+" "$_FULL_FIX" "$_MUT/b/full_no_lf.json"; then
+    no "teeth-B: mutant build script failed"
+  elif mk teeth-B "$_FULL_FIX" "$_MUT/b/full_no_lf.json"; then
+    tt "teeth-B: T1-fast goes RED when trailing LF dropped (canonical re-encode bites)" 0 1 \
+      "$_MUT/b/full_no_lf.json" --orig "$_FULL_FIX" \
+      --good-has '^RESULT=ok$' --bad-has '^RESULT=assert-fail:fixture must end with LF$' \
+      --bad-lacks 'Traceback|Error' -- python3 -c "$_CHK_T1" @SUT@
   fi
 
   echo "-- prove-teeth done --"
