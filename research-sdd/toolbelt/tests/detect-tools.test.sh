@@ -962,14 +962,37 @@ else
   no "z_guard hermetic PATH at probe time" "guard log empty (probe never ran)"
 fi
 
+# dotnet IPC leftovers (#1626): the real-PATH mutant below lets the SUT reach a REAL dotnet (ilspycmd smoke
+# probe). A dotnet killed by the probe timeout leaves clr-debug-pipe-* / dotnet-diagnostic-* files in $TMPDIR.
+# The run gets its own TMPDIR under $ROOT (removed by the EXIT trap above) and DOTNET_EnableDiagnostics=0
+# (no diagnostic IPC endpoints at all). dotnet_ipc_count prints the number of IPC leftovers in a directory
+# and returns 2 when the directory is absent (absent != empty != no-match, section 7).
+dotnet_ipc_count() {
+  [ -d "$1" ] || return 2
+  find "$1" -maxdepth 1 \( -name 'clr-debug-pipe-*' -o -name 'dotnet-diagnostic-*' \) | wc -l
+}
+# guard_mut_run <tmpdir> <DOTNET_EnableDiagnostics value>: the real-PATH run, logging PATH to GUARD_LOG_MUT.
+guard_mut_run() {
+  mkdir -p "$1"
+  rm -f "$GUARD_LOG_MUT"
+  RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" TMPDIR="$1" DOTNET_EnableDiagnostics="$2" \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH="$BIN_GUARD:$ORIG_PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-guard-mut.txt" --quiet >/dev/null 2>&1 || true
+}
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-guard (targets z_guard): mutant restores ":$ORIG_PATH" so SUT sees real PATH.
   # The recorded PATH must contain at least one real system dir → z_guard bites.
   GUARD_LOG_MUT="$ROOT/guard-path-mut.log"
-  RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" \
-    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH="$BIN_GUARD:$ORIG_PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$DETECT" --cache "$ROOT/cache-guard-mut.txt" --quiet >/dev/null 2>&1 || true
+  GUARD_TMP_MUT="$ROOT/guard-tmp-mut"
+  guard_mut_run "$GUARD_TMP_MUT" 0
+  _ipc_n="$(dotnet_ipc_count "$GUARD_TMP_MUT")"; _ipc_rc=$?
+  if [ "$_ipc_rc" -eq 0 ] && [ "$_ipc_n" -eq 0 ]; then
+    ok "teeth-guard no-leak: real-PATH run leaves 0 dotnet IPC files" "(isolated TMPDIR)"
+  else
+    no "teeth-guard no-leak: real-PATH run leaves 0 dotnet IPC files" "rc=$_ipc_rc leftovers=$_ipc_n"
+  fi
   if [ -s "$GUARD_LOG_MUT" ]; then
     _mut_path="$(head -1 "$GUARD_LOG_MUT")"
     _mut_leak=0
@@ -988,6 +1011,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-guard: guard log empty for mutant run (probe never ran)" ""
+  fi
+
+  # teeth-guard-ipc (targets teeth-guard no-leak): mutant drops the diagnostics opt-out (diagnostics left ON).
+  # A real dotnet reached through the real PATH then leaves IPC files in the isolated TMPDIR → no-leak bites.
+  # No dotnet on the real PATH → typed DEGRADED (the control cannot observe a leak), never a silent pass.
+  if command -v dotnet >/dev/null 2>&1; then
+    guard_mut_run "$ROOT/guard-tmp-mut-ipc" 1
+    _ipcm_n="$(dotnet_ipc_count "$ROOT/guard-tmp-mut-ipc")"; _ipcm_rc=$?
+    if [ "$_ipcm_rc" -eq 0 ] && [ "$_ipcm_n" -gt 0 ]; then
+      ok "teeth-guard-ipc: diagnostics-on mutant leaves dotnet IPC files — no-leak bites" "(leftovers=$_ipcm_n)"
+    else
+      no "teeth-guard-ipc: diagnostics-on mutant must leave dotnet IPC files" "rc=$_ipcm_rc leftovers=$_ipcm_n"
+    fi
+  else
+    echo "  DEGRADED  teeth-guard-ipc: no dotnet on PATH — leak mutant cannot be observed (not counted as a pass)"
   fi
 fi
 
