@@ -87,6 +87,21 @@ else no "26 purity" "out=[$purity_out] err=[$(cat "$ROOT/purity.err")]"; fi
 . "$SUT"
 declare -F scrub_issue_text >/dev/null && ok "27 sourcing twice is safe (idempotent definition)" || no "27 re-source"
 
+# --- quoted / lowercase credential assignments; widened path boundaries (RDD round 1) ---------------
+chk "29 double-quoted credential value: redacted INSIDE the quotes" 'run GH_TOKEN="abc123" now' 'run GH_TOKEN="<redacted>" now' 1
+chk "30 single-quoted value after export" "export API_KEY='xyz' ok" "export API_KEY='<redacted>' ok" 1
+chk "31 backtick-quoted value" 'use `PASSWORD=pw` ok' 'use `PASSWORD=<redacted>` ok' 1
+chk "32 lowercase credential key" 'set api_key=zz and session=abc' 'set api_key=<redacted> and session=<redacted>' 2
+chk "33 author=/AUTHOR= are not credentials" 'author=bob AUTHOR=bob' 'author=bob AUTHOR=bob' 0
+chk "34 key: value prose is not matched (documented)" 'password: hunter2 token: the parser' 'password: hunter2 token: the parser' 0
+chk "35 empty and already-redacted quoted values are not counted" 'A_TOKEN="" B_TOKEN= C_TOKEN="<redacted>" D_TOKEN=<redacted>' 'A_TOKEN="" B_TOKEN= C_TOKEN="<redacted>" D_TOKEN=<redacted>' 0
+chk "36 unterminated quote redacts to end of line (never leaks)" 'GH_TOKEN="unterminated and more' 'GH_TOKEN="<redacted>' 1
+for c in "'" ':' '*' '(' '[' '<' '`' '='; do
+  chk "37 path boundary [$c]" "A${c}/home/u/x B" "A${c}<path> B" 1
+done
+chk "38 a rejected candidate does not hide a later real path" 'x/home/a(/home/b) end' 'x/home/a(<path> end' 1
+chk "39 path tail stops at ]" 'see [/home/u/z] ok' 'see [<path>] ok' 1
+
 # --- fleet-measured real shape (retros/2026-08-03-document-unregistered-bootstrap-incident.md) ------
 chk "28 fleet shape: prose path in backticks" 'DOCUMENT mode received the arbitrary project path `/home/cristian/TRADINGVIEW`, which was not yet' 'DOCUMENT mode received the arbitrary project path `<path>`, which was not yet' 1
 
@@ -124,8 +139,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "T-akia: AKIA shape dead" 'k AKIAABCDEFGHIJKLMNOP end' 'k <redacted> end' 's/|AKIA\[/|AKXA[/'
   tooth "T-wordint: word-internal guard off → xghp_ is redacted" 'a xghp_abcdefgh b' 'a xghp_abcdefgh b' 's/if (RSTART > 1 \&\& substr(line, RSTART - 1, 1)/if (0 \&\& substr(line, RSTART - 1, 1)/'
   TFN=scrub_issue_text_count
-  tooth "T-redact-guard: already-redacted guard off → re-counted" 'GH_TOKEN=<redacted>' 'redactions: 0' 's/ \&\& tok != k "=<redacted>"//'
+  tooth "T-redact-guard: already-redacted guard off → re-counted" 'A_TOKEN="<redacted>" B_TOKEN=<redacted>' 'redactions: 0' 's/ || v == "<redacted>"//'
   TFN=scrub_issue_text
+  # --- RDD round 1: quoted/lowercase assignments and widened boundaries ---
+  tooth "T-quoted-dq: quote branch dead → quoted value leaks" 'run GH_TOKEN="abc123" now' 'GH_TOKEN="<redacted>" now' 's/if (q == "\\"" || q == "\\047" || q == "`") {/if (0) {/'
+  tooth "T-quoted-sq: single-quote form dead" "export API_KEY='xyz' ok" "API_KEY='<redacted>' ok" 's/ || q == "\\047"//'
+  tooth "T-quoted-bt: backtick form dead" 'use X_PASSWORD=`two words` ok' 'X_PASSWORD=`<redacted>` ok' 's/ || q == "`"//'
+  tooth "T-lowercase: case-sensitive key test → api_key leaks" 'set api_key=zz ok' 'api_key=<redacted> ok' 's/u = toupper(k);/u = k;/'
+  tooth "T-author: AUTHOR exclusion dead → author= redacted" 'author=bob ok' 'author=bob ok' 's/gsub(\/AUTHOR\/, "", u)/u = u/'
+  tooth "T-unterminated: no-closing-quote branch dead" 'GH_TOKEN="open and more' 'GH_TOKEN="<redacted>$' 's/if (e == 0) { v = line; rest = "" ; pre = q }/if (e == 0) { v = ""; rest = line; pre = q }/'
+  tooth "T-bd-sq: single quote not a boundary" "A'/home/u/x B" "A'<path> B" 's/"\\047`(=,<\\\[:\*\]/"`(=,<\\[:*]/'
+  tooth "T-bd-colon: colon not a boundary" 'A:/home/u/x B' 'A:<path> B' 's/<\\\[:\*\]/<\\[*]/'
+  tooth "T-bd-star: star not a boundary" 'A*/home/u/x B' 'A\*<path> B' 's/<\\\[:\*\]/<\\[:]/'
+  tooth "T-bd-paren: ( not a boundary" 'A(/home/u/x B' 'A\(<path> B' 's/`(=,<\\\[:/`=,<\\[:/'
+  tooth "T-bd-eq: = not a boundary" 'A=/home/u/x B' 'A=<path> B' 's/`(=,<\\\[:/`(,<\\[:/'
+  tooth "T-bd-lt: < not a boundary" 'A</home/u/x B' 'A<<path> B' 's/`(=,<\\\[:/`(=,\\[:/'
+  tooth "T-bd-lbracket: [ not a boundary" 'A[/home/u/x B' 'A\[<path> B' 's/`(=,<\\\[:/`(=,<:/'
+  tooth "T-bd-backtick: backtick not a boundary" 'A`/home/u/x B' 'A`<path> B' 's/"\\047`(=/"\\047(=/'
+  tooth "T-skip: rejected candidate skips past a later real path" 'x/home/a(/home/b) end' 'x/home/a\(<path> end' 's/off += st; rest = substr(rest, st + 1)/rest = ""/'
+  tooth "T-tail-bracket: ] allowed in path tail" 'see [/home/u/z] ok' 'see \[<path>\] ok' 's/\[^\]\[:space:\]`/[^[:space:]`/g'
   # count tooth: the path rule stops incrementing → the typed count lies
   m="$MUT/mcount.sh"
   if mutant_chain "T-count: path rule stops counting" "$SUT" "$m" 's/"<path>"; line = substr(line, RSTART + RLENGTH); count++/"<path>"; line = substr(line, RSTART + RLENGTH)/'; then

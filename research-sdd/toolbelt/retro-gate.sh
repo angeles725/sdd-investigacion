@@ -253,21 +253,28 @@ _run_issue_seeding() {
     fi
     # SENTINEL-ABSENT-NOT-FAILED-START
     # absent-input: exits non-zero but is already counted in absent — skip failed accounting
-    if [ "$seed_rc" -eq 3 ] && [ "$_absent_typed" -eq 0 ]; then
-      # SENTINEL-UNKNOWN-OUTCOME-START (kit issue #1705)
-      unknown=$((unknown + 1))
+    # Kit issue #1705: the unknown-outcome report is independent of the failed path. Exit 3 = unknown rows only;
+    # exit 2 = at least one failed row, and the same run may ALSO hold unknown rows (mixed run) — read the
+    # seeder's mutation-summary: on BOTH. A summary-less exit 3 reads `unknown` (never a fabricated 0).
+    if [ "$_absent_typed" -eq 0 ] && { [ "$seed_rc" -eq 2 ] || [ "$seed_rc" -eq 3 ]; }; then
+      # SENTINEL-UNKNOWN-OUTCOME-START
+      _unk_here=0
       _u="$(printf '%s' "$seed_out" | grep '^mutation-summary:' | tail -1 | grep -oE 'unknown=[0-9]+' | cut -d= -f2)"
       if [ -n "$_u" ]; then
-        unknown_issues=$((unknown_issues + _u))
-      else
-        unknown_issues_unknown=1   # exit 3 without a parseable mutation-summary: count not derivable, never 0
+        if [ "$_u" -gt 0 ]; then _unk_here=1; unknown_issues=$((unknown_issues + _u)); fi
+      elif [ "$seed_rc" -eq 3 ]; then
+        _unk_here=1; unknown_issues_unknown=1   # exit 3 without a parseable mutation-summary: never 0
       fi
-      unknown_list="${unknown_list:+$unknown_list, }$(basename "$rf")"
-      printf 'retro-gate: WARN: seeder exit 3 for %s: unknown mutation outcome — verify on GitHub, do not retry blindly\n' \
-        "$(basename "$rf")" >&2
-      _seed_note "seeder-unknown-outcome:$(basename "$rf")"
+      if [ "$_unk_here" -eq 1 ]; then
+        unknown=$((unknown + 1))
+        unknown_list="${unknown_list:+$unknown_list, }$(basename "$rf")"
+        printf 'retro-gate: WARN: seeder exit %d for %s: unknown mutation outcome — verify on GitHub, do not retry blindly\n' \
+          "$seed_rc" "$(basename "$rf")" >&2
+        _seed_note "seeder-unknown-outcome:$(basename "$rf")"
+      fi
       # SENTINEL-UNKNOWN-OUTCOME-END
-    elif [ "$seed_rc" -ne 0 ] && [ "$_absent_typed" -eq 0 ]; then
+    fi
+    if [ "$seed_rc" -ne 0 ] && [ "$seed_rc" -ne 3 ] && [ "$_absent_typed" -eq 0 ]; then
       failed=$((failed + 1))
       # A missing summary (crash before it was printed) or a summary with no failed= field leaves the
       # per-issue count not derivable: record it as unknown, never add a silent 0 (#971, §7).

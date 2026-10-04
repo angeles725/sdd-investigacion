@@ -16,17 +16,20 @@
 #            C:\Users\<u>\...) -> `<path>`. The whole token goes: the tail of a home path names private
 #            projects and checkouts, not only the user name.
 #   email    an email-shaped substring -> `<email>`, unconditionally.
-#   secret   a `KEY=VALUE` token whose KEY names a credential (contains SECRET, TOKEN, PASSWORD, PASSWD,
-#            CREDENTIAL, APIKEY, API_KEY, PRIVATE_KEY, ACCESS_KEY, AUTH, COOKIE, BEARER or SESSION) ->
-#            `KEY=<redacted>`; and a bare credential-shaped token (GitHub ghp_/gho_/ghu_/ghs_/ghr_/
+#   secret   a `KEY=VALUE` assignment whose KEY names a credential (case-insensitive; contains SECRET, TOKEN,
+#            PASSWORD, PASSWD, CREDENTIAL, APIKEY, API_KEY, PRIVATE_KEY, ACCESS_KEY, AUTH, COOKIE, BEARER or
+#            SESSION; AUTHOR is not AUTH) -> `KEY=<redacted>`; a quoted value (double, single or backtick
+#            quotes) is redacted INSIDE the quotes, which stay: `KEY="<redacted>"`. An unterminated quote
+#            redacts to the end of the line (over-redacts, never leaks). `key: value` prose (`password: x`)
+#            is deliberately NOT matched — too many false positives in retro prose; and a bare credential-shaped token (GitHub ghp_/gho_/ghu_/ghs_/ghr_/
 #            github_pat_, `sk-` API keys, AWS `AKIA...` ids) -> `<redacted>`.
 #
 # Allowlist (never redacted, by construction): repo-relative paths (`research-sdd/toolbelt/x.sh`),
 # `$RESEARCH_HOME/...` and `${RESEARCH_HOME}/...`, URLs (https://github.com/owner/repo/...), issue and
 # PR refs (`#1707`, `owner/repo#12`), and non-credential `NAME=value` tokens such as `MUTANT_SYNTAX=none`
 # or `STAGE_RETRO_ISSUES_LIST_LIMIT=5` — kit env knobs are public vocabulary, so they are not scrubbed.
-# A home path is only recognised after a boundary (start of line, whitespace, quote, backtick, `(`, `=`,
-# `,`, `<`, `[`), so `research-sdd/home/x` and `https://host/home/x` are left alone.
+# A home path is only recognised after a boundary (start of line, whitespace, `"`, `\047`, backtick, `(`, `=`,
+# `,`, `<`, `[`, `:`, `*`); a rejected candidate never hides a later real path. So `research-sdd/home/x` and `https://host/home/x` are left alone.
 #
 # The awk program is POSIX (no interval expressions, no gawk extensions): it runs under mawk.
 
@@ -42,20 +45,20 @@ if ! declare -F scrub_issue_text >/dev/null 2>&1; then
       # Home-rooted absolute paths. The tail after the user dir is part of the token. \047 = a single
       # quote (the program lives inside a shell single-quoted string). In a dynamic-regex string a
       # literal backslash is written four times.
-      PATHRE = "(/home/[^/[:space:]]+|/Users/[^/[:space:]]+|/mnt/[a-z]/Users/[^/[:space:]]+|[A-Za-z]:[\\\\]Users[\\\\][^\\\\[:space:]]+)([/\\\\][^[:space:]`\"\047),;>]*)?|/root/[^[:space:]`\"\047),;>]*"
+      PATHRE = "(/home/[^/[:space:]]+|/Users/[^/[:space:]]+|/mnt/[a-z]/Users/[^/[:space:]]+|[A-Za-z]:[\\\\]Users[\\\\][^\\\\[:space:]]+)([/\\\\][^][:space:]`\"\047),;>]*)?|/root/[^][:space:]`\"\047),;>]*"
     }
     function bmatch(s,    off, rest, st, ln) {
       off = 0; rest = s
       while (match(rest, PATHRE)) {
         st = RSTART; ln = RLENGTH
-        if (st + off == 1 || substr(s, st + off - 1, 1) ~ /[[:space:]"`(=,<\[]/) {
+        if (st + off == 1 || substr(s, st + off - 1, 1) ~ /[[:space:]"\047`(=,<\[:*]/) {
           RSTART = st + off; RLENGTH = ln; return RSTART
         }
         off += st; rest = substr(rest, st + 1)
       }
       RSTART = 0; RLENGTH = -1; return 0
     }
-    function scrub(line,    out, k, tok) {
+    function scrub(line,    out, k, u, q, e, v, rest, pre) {
       out = ""
       # 1) bare credential-shaped tokens (a word-internal hit is not a token)
       while (match(line, /(gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-][A-Za-z0-9_-]+|AKIA[A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9])/)) {
@@ -65,13 +68,25 @@ if ! declare -F scrub_issue_text >/dev/null 2>&1; then
         out = out substr(line, 1, RSTART - 1) "<redacted>"; line = substr(line, RSTART + RLENGTH); count++
       }
       line = out line; out = ""
-      # 2) credential-named KEY=VALUE
-      while (match(line, /[A-Z][A-Z0-9_]*=[^[:space:]`"\047),;]+/)) {
-        tok = substr(line, RSTART, RLENGTH); k = tok; sub(/=.*/, "", k)
-        if (k ~ /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|AUTH|COOKIE|BEARER|SESSION)/ && tok != k "=<redacted>") {
-          out = out substr(line, 1, RSTART - 1) k "=<redacted>"; count++
-        } else out = out substr(line, 1, RSTART + RLENGTH - 1)
-        line = substr(line, RSTART + RLENGTH)
+      # 2) credential-named assignment: KEY=VALUE, KEY="VALUE", KEY=\047VALUE\047, KEY=`VALUE` — any case. The value
+      #    is redacted INSIDE its quotes (the quotes stay). `key: value` prose is deliberately not matched.
+      while (match(line, /[A-Za-z_][A-Za-z0-9_]*=/)) {
+        k = substr(line, RSTART, RLENGTH - 1)
+        out = out substr(line, 1, RSTART + RLENGTH - 1); line = substr(line, RSTART + RLENGTH)
+        u = toupper(k); gsub(/AUTHOR/, "", u)
+        if (u !~ /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|AUTH|COOKIE|BEARER|SESSION)/) continue
+        q = substr(line, 1, 1)
+        if (q == "\"" || q == "\047" || q == "`") {
+          e = index(substr(line, 2), q)
+          if (e == 0) { v = line; rest = "" ; pre = q } else { v = substr(line, 2, e - 1); rest = substr(line, e + 2); pre = q }
+          if (v == "" || v == "<redacted>") continue
+          out = out q "<redacted>" (e == 0 ? "" : q); line = rest; count++
+        } else {
+          match(line, /^[^[:space:]`"\047),;]*/)
+          v = substr(line, 1, RLENGTH)
+          if (v == "" || v == "<redacted>") continue
+          out = out "<redacted>"; line = substr(line, RLENGTH + 1); count++
+        }
       }
       line = out line; out = ""
       # 3) emails

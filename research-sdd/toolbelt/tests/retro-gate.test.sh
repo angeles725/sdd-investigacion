@@ -2277,6 +2277,8 @@ U_UNK_NOSUM_BODY="printf 'unknown-outcome: gh issue create failed for row 1\n'; 
 U_FAIL2_BODY="printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\n'; printf 'mutation-summary: confirmed=0 no_write=1 unknown=0\n'; exit 2"
 U_OK0_BODY="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=0\n'; printf 'mutation-summary: confirmed=1 no_write=0 unknown=0\n'; exit 0"
 mk_u_kit "$ROOT/ukit_unk" "$U_UNK_BODY"; mk_u_kit "$ROOT/ukit_unknosum" "$U_UNK_NOSUM_BODY"
+U_MIX_BODY="printf 'unknown-outcome: gh issue create returned an unproven row\n'; printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\n'; printf 'mutation-summary: confirmed=0 no_write=1 unknown=2\n'; exit 2"
+mk_u_kit "$ROOT/ukit_mix" "$U_MIX_BODY"; mk_u_target "$ROOT/tu_mix" k5-sess
 mk_u_kit "$ROOT/ukit_fail2" "$U_FAIL2_BODY"; mk_u_kit "$ROOT/ukit_ok0" "$U_OK0_BODY"
 mk_u_target "$ROOT/tu_unk" k1-sess; mk_u_target "$ROOT/tu_unknosum" k2-sess; mk_u_target "$ROOT/tu_fail2" k3-sess; mk_u_target "$ROOT/tu_ok0" k4-sess
 run_u "$ROOT/ukit_unk/toolbelt/retro-gate.sh" "$ROOT/tu_unk" k1-sess; ERR_K1="$ERR"
@@ -2292,6 +2294,12 @@ run_u "$ROOT/ukit_fail2/toolbelt/retro-gate.sh" "$ROOT/tu_fail2" k3-sess; ERR_K3
 if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K3" && ! grep -q 'UNKNOWN outcome' <<<"$ERR_K3"; then
   ok "#1705 K3: seeder exit 2 keeps the failed path (no UNKNOWN line)"
 else no "#1705 K3: exit 2 failed path" "got: $ERR_K3"; fi
+run_u "$ROOT/ukit_mix/toolbelt/retro-gate.sh" "$ROOT/tu_mix" k5-sess; ERR_K5="$ERR"
+if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K5" \
+   && grep -qE 'WARN: 2 issue create\(s\) have an UNKNOWN outcome across 1 retro\(s\)' <<<"$ERR_K5" \
+   && grep -qE 'failed=1 failed-issues=1 .*unknown-outcome-retros=1' <<<"$ERR_K5"; then
+  ok "#1705 K5: MIXED run (seeder exit 2, failed=1 AND unknown=2) → failed warning AND UNKNOWN warning, both counted"
+else no "#1705 K5: mixed exit 2 drops the UNKNOWN outcome" "got: $ERR_K5"; fi
 run_u "$ROOT/ukit_ok0/toolbelt/retro-gate.sh" "$ROOT/tu_ok0" k4-sess; ERR_K4="$ERR"
 if grep -qE 'created=1 .* failed=0 failed-issues=0 .*unknown-outcome-retros=0' <<<"$ERR_K4" && ! grep -q 'UNKNOWN outcome\|WARN' <<<"$ERR_K4"; then
   ok "#1705 K4: seeder exit 0 unchanged (no WARN, unknown-outcome-retros=0)"
@@ -3709,10 +3717,14 @@ u_teeth u-absent-not-first "$ROOT/ukit_absent" "$ROOT/tu_absent" u2-sess \
 
 u_teeth u-unknown-as-failed "$ROOT/ukit_unk" "$ROOT/tu_unk" k1-sess \
   'UNKNOWN outcome across 1 retro' 'issue create\(s\) failed across 1 retro' \
-  's/^    if \[ "\$seed_rc" -eq 3 \] \&\& \[ "\$_absent_typed" -eq 0 \]; then$/    if [ "$seed_rc" -eq 99 ] \&\& [ "$_absent_typed" -eq 0 ]; then/'
+  's/\[ "\$seed_rc" -ne 0 \] \&\& \[ "\$seed_rc" -ne 3 \]/[ "$seed_rc" -ne 0 ]/'
 u_teeth u-unknown-count-zero "$ROOT/ukit_unknosum" "$ROOT/tu_unknosum" k2-sess \
   'WARN: unknown issue create\(s\) have an UNKNOWN' 'WARN: 0 issue create\(s\) have an UNKNOWN' \
-  's/^        unknown_issues_unknown=1 .*$/        unknown_issues=0/'
+  's/unknown_issues_unknown=1   # exit 3.*$/:/'
+
+u_teeth u-mixed-unknown-dropped "$ROOT/ukit_mix" "$ROOT/tu_mix" k5-sess \
+  'UNKNOWN outcome across 1 retro' 'failed=1 failed-issues=1 .*unknown-outcome-retros=0' \
+  's/{ \[ "\$seed_rc" -eq 2 \] || \[ "\$seed_rc" -eq 3 \]; }/{ [ "$seed_rc" -eq 3 ]; }/'
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently

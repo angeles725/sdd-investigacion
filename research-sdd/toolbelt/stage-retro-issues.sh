@@ -903,7 +903,15 @@ ensure_target_label() {
 # ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
-skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
+skipped_dedup=0; created=0; failed=0; summary_unknown_outcome=0; unclassifiable=0
+# TWO different "unknown" counters, on purpose — do not merge them:
+#   summary_unknown_outcome  feeds the summary: line's `unknown-outcome=` key (kit issue #1261, historical): rows
+#                            reported by an `unknown-outcome:` line — the issue is believed to EXIST (a failed
+#                            create whose re-check found it) or the write is unconfirmed (no URL, read-back
+#                            failed or lacks the signature). A row that is counted `failed=` instead is NOT in it.
+#   mutation_unknown         feeds mutation-summary's `unknown=` (kit issue #1705): EVERY row whose mutation
+#                            outcome is unproven, including the failed-create rows whose re-check could not look
+#                            (those are also counted in failed=). It is a superset of the first and drives exit 3.
 
 # _scrub_refuse <message>: a row the privacy scrub could not clear is refused — typed ERROR, counted failed
 # (exit 2), never written. The caller `continue`s.
@@ -1181,7 +1189,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         # `failed`; a lookup that itself fails leaves the outcome unprovable, so it also stays `failed`.
         if _recheck_exists "$_search_sig"; then
           echo "unknown-outcome: gh issue create failed for row $_rid but a re-run dedup search found the issue (search matched '$_search_sig'): $_url" >&2
-          unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+          summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
         fi
         echo "ERROR: gh issue create failed for row $_rid: $_url" >&2
         # none = the re-check PROVED nothing was written; anything else could not look, so it is unknown.
@@ -1198,18 +1206,18 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       _rb="${_rb//$'\r'/}"
       if [ "$_rb_rc" -ne 0 ]; then
         echo "unknown-outcome: gh issue create returned $_url_last for row $_rid but the read-back failed (gh issue view exit $_rb_rc): $_rb" >&2
-        unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+        summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
       fi
       if ! grep -qxF -- "$_source_line" <<<"$_rb"; then
         echo "unknown-outcome: gh issue create returned $_url_last for row $_rid but the read-back body lacks the signature line '$_source_line'" >&2
-        unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+        summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
       fi
       echo "created: $_url (row $_rid)"
       created=$((created+1))
       mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
     else
       echo "unknown-outcome: gh issue create exited 0 for row $_rid but printed no issue URL (output: $_url) — creation is not inferred from output text" >&2
-      unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+      summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
     fi
   fi
 done <<< "$_rows"
@@ -1223,7 +1231,7 @@ if [ $apply -eq 1 ]; then
   # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
   # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
   printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unclassifiable=%d unknown-outcome=%d failed=%d\n' \
-    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$unknown_outcome" "$failed"
+    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$summary_unknown_outcome" "$failed"
   # Kit issue #1705: the outcome triad is its OWN line, so the summary: line above stays byte-compatible.
   printf 'mutation-summary: confirmed=%d no_write=%d unknown=%d\n' "$mutation_confirmed" "$mutation_nowrite" "$mutation_unknown"
   if [ "$mutation_unknown" -gt 0 ]; then
