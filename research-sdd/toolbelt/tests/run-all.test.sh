@@ -1362,14 +1362,16 @@ _c38gbin="$TMP/c38g-bin"; mkdir -p "$_c38gbin"
 { printf '#!/bin/sh\n'; printf 'case "$*" in */2) exit 1 ;; esac\n'; printf 'exec %s "$@"\n' "$(command -v mkdir)"; } > "$_c38gbin/mkdir"; chmod +x "$_c38gbin/mkdir"
 out="$(PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
 PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" --require-clean-tmp >/dev/null 2>&1; rc2=$?
+_c38gl="$(grep -F 'TMPDIR scan: DEGRADED' <<<"$out")"
 if [ "$rc" -eq 0 ] && [ "$rc2" -eq 1 ] && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$out" \
-   && grep -F 'TMPDIR scan: DEGRADED' <<<"$out" | grep -qF 'created for [b-second.test.sh]'; then
+   && [[ "$_c38gl" == *'created for [b-second.test.sh]'* ]]; then
   ok "tmpdir-create-failed: a suite whose TMPDIR subdir could not be created is DEGRADED by name, not a confident 0; --require-clean-tmp fails"
 else no "tmpdir create-failed failed: rc=$rc rc2=$rc2 :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
 if [ "$have_gnu_parallel" -eq 1 ]; then
   out="$(PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
   PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 --require-clean-tmp >/dev/null 2>&1; rc2=$?
-  if [ "$rc" -eq 0 ] && [ "$rc2" -eq 1 ] && grep -F 'TMPDIR scan: DEGRADED' <<<"$out" | grep -qF 'created for [b-second.test.sh]'; then
+  _c38gl="$(grep -F 'TMPDIR scan: DEGRADED' <<<"$out")"
+  if [ "$rc" -eq 0 ] && [ "$rc2" -eq 1 ] && [[ "$_c38gl" == *'created for [b-second.test.sh]'* ]]; then
     ok "-j tmpdir-create-failed: the worker's creation failure is recorded and named under -j"
   else no "-j tmpdir create-failed failed: rc=$rc rc2=$rc2 :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j tmpdir-create-failed"; fi
