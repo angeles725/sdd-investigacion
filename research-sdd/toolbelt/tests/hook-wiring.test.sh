@@ -256,9 +256,10 @@ git init -q "$d16_b" >/dev/null 2>&1
 assert_state "16 dotdot distractor: '.../A/B/..' resolves to A (no repo) → wired, B's nested .git ignored" "$d16_a/B/.." "wired"
 
 # --- 17 — CEILING TRAILING SLASH (kit r3 review, M3): $RSDD_HOOK_WIRING_CEILING is compared
-#      TEXTUALLY against the walk-up's (now-normalized, no trailing slash) $d — a ceiling value
-#      with a trailing slash never textually matches and silently never fires, letting an enclosing
-#      repo bleed in exactly like case 13a's un-ceilinged control. Reuses case 13's TMPDIR-inside-
+#      TEXTUALLY against the walk-up's (normalized, no trailing slash) $d, so the lib normalizes
+#      the ceiling through _hw_abspath first. This case pins that: a ceiling with a trailing slash
+#      still stops the walk-up, so the enclosing repo does not bleed in (case 13a's un-ceilinged
+#      control shows what bleeding looks like). Reuses case 13's TMPDIR-inside-
 #      a-repo fixture shape with a fresh enclosing dir so it cannot collide with case 13's cleanup.
 _encl17="$ROOT/t17-enclosing"; mkdir -p "$_encl17"; git init -q "$_encl17" >/dev/null 2>&1
 _old_tmpdir17="${TMPDIR:-}"; _had17=0; [ -n "${TMPDIR+x}" ] && _had17=1
@@ -272,6 +273,42 @@ assert_state "17 ceiling with a trailing slash still blocks the enclosing repo (
 export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling17"
 rm -rf "$_inner17"
 if [ "$_had17" -eq 1 ]; then TMPDIR="$_old_tmpdir17"; export TMPDIR; else unset TMPDIR; fi
+
+# --- 18 — SYMLINK BEFORE '..' (kit issue #1153 item 1) -------------------------------------------
+# The kernel resolves '..' AFTER following a symlink, but the textual collapse in _hw_abspath does
+# not: target ".../P/sub/link/.." (link -> Q/y/z) really names Q/y, a git root of its own and the
+# directory holding the wired settings.json, yet collapses to ".../P/sub" inside enclosing repo P.
+# That used to report a false 'wired-off-root'. The raw "$target/.git" check answers it first.
+d18_p="$ROOT/t18-P"; d18_q="$ROOT/t18-Q"
+mkdir -p "$d18_p/sub" "$d18_q/y/z"
+git init -q "$d18_p" >/dev/null 2>&1; git init -q "$d18_q/y" >/dev/null 2>&1
+ln -s "$d18_q/y/z" "$d18_p/sub/link"
+wire_settings "$d18_q/y" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+assert_state "18 symlink-before-'..' resolving to a wired git root → wired (not a false off-root)" "$d18_p/sub/link/.." "wired"
+
+# --- 19 — EMBEDDED NEWLINE (kit issue #1153 item 5): the path split used to be `read -ra` over a
+#      here-string, which stops at the first newline and silently truncated the target. Target
+#      ".../t19/a<NL>b" is a plain directory inside enclosing repo t19, so it is off-root. A
+#      truncated ".../t19/a" is a different, sibling directory that is its own git root, so the old
+#      split reported a false plain 'wired' (the raw-target check cannot rescue this shape: the
+#      target itself owns no .git).
+d19_p="$ROOT/t19"; d19="$d19_p/a"$'\n'"b"
+mkdir -p "$d19" "$d19_p/a"; git init -q "$d19_p" >/dev/null 2>&1; git init -q "$d19_p/a" >/dev/null 2>&1
+wire_settings "$d19" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+assert_state "19 embedded newline, nested in a repo → wired-off-root (path not truncated)" "$d19" "wired-off-root"
+
+# --- 20 — NO HERE-STRING (kit issue #1153 item 2): on bash < 5.1 a here-string is backed by a
+#      $TMPDIR temp file; if that cannot be created `read` fails, the array stays empty and the path
+#      silently becomes '/'. The split must use parameter expansion only. Lint over executable
+#      lines (comment lines excluded) of the lib.
+if _hs_n="$(grep -v '^[[:space:]]*#' "$LIB" | grep -c '<<<')"; then _hs_rc=0; else _hs_rc=$?; fi
+if [ "$_hs_rc" -gt 1 ]; then
+  no "20 lib here-string lint could not run" "grep rc=$_hs_rc"
+elif [ "$_hs_n" -eq 0 ]; then
+  ok "20 lib has no here-string on executable lines (no TMPDIR-backed split)"
+else
+  no "20 lib has no here-string on executable lines" "found $_hs_n"
+fi
 
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
@@ -439,7 +476,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ $? -eq 0 ]; then ok "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation caught (real sourced lib)"; else no "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation NOT caught (theater)"; fi
   fi
 
-  echo "-- teeth: drop the dotdot-join '/' prefix AND the no-progress guard — case 15b must go RED (reproduces the original infinite loop) --"
+  echo "-- teeth: drop the relative-path join '/' prefix AND the no-progress guard — case 15b must go RED (reproduces the original infinite loop) --"
   mut_relhang="$ROOT/hook-wiring.MUTANT-relpath-hang.sh"
   if mk "teeth: relative-path join-prefix + no-progress-guard" "$LIB" "$mut_relhang" \
       's/\*)    result="\$result\/\$part" ;;/*)    result="$part" ;;  # MUTANT: join no longer prefixes "\/"/' \
@@ -484,6 +521,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else echo "  PASS  teeth: mutant correctly breaks case 17 (trailing-slash ceiling silently disabled [$r])"; exit 0; fi
     )
     if [ $? -eq 0 ]; then ok "teeth: ceiling-raw-comparison mutation caught (real sourced lib)"; else no "teeth: ceiling-raw-comparison mutation NOT caught (theater)"; fi
+  fi
+
+  # tooth_state LABEL MUTANT EXPECT_NOT TARGET CASE-NOTE [CWD] : source the mutant lib in a clean
+  # subshell and require the state NOT to be EXPECT_NOT (the good lib's answer) and not to be a
+  # crash/empty string — a mutant that dies reads as empty, which is theater, not a bite.
+  tooth_state() {
+    local label="$1" mut="$2" not="$3" target="$4" note="$5" cwd="${6:-$ROOT}" r
+    # shellcheck disable=SC1090
+    r="$(cd "$cwd" && unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath \
+         && . "$mut" && hook_stop_wiring_state "$target" 2>&1)"
+    case "$r" in
+      wired|wired-off-root|unwired|absent-settings|unreadable)
+        if [ "$r" != "$not" ]; then ok "teeth: $label caught (real sourced lib)" "$note -> $r"
+        else no "teeth: $label NOT caught (theater)" "state still [$r]"; fi ;;
+      *) no "teeth: $label produced a crash/unknown state, not a bite" "out=[$r]" ;;
+    esac
+  }
+
+  echo "-- teeth: neuter HOOK-WIRING-RAWGIT-CHECK — case 18 must go RED (symlink-before-'..' false off-root returns) --"
+  mut_rawgit="$ROOT/hook-wiring.MUTANT-rawgit-check.sh"
+  if mk "teeth: HOOK-WIRING-RAWGIT-CHECK anchor in lib" "$LIB" "$mut_rawgit" 's/ \&\& \[ -e "\$_hw_raw\/\.git" \]; then  # HOOK-WIRING-RAWGIT-CHECK/ \&\& false; then  # MUTANT: raw check neutered/'; then
+    tooth_state "raw-target .git check neutered" "$mut_rawgit" "wired" "$d18_p/sub/link/.." "case 18"
+  fi
+
+  echo "-- teeth: truncate the split at the first control char (newline) — case 19 must go RED --"
+  mut_split_nl="$ROOT/hook-wiring.MUTANT-split-newline.sh"
+  if mk "teeth: path-split anchor in lib" "$LIB" "$mut_split_nl" 's/local rest="\${d#\/}" last=0/local rest="${d#\/}" last=0; rest="${rest%%[[:cntrl:]]*}"  # MUTANT: truncate at newline/'; then
+    tooth_state "newline-truncating split" "$mut_split_nl" "wired-off-root" "$d19" "case 19"
+  fi
+
+  echo "-- teeth: reintroduce a here-string on an executable line — case 20 lint must go RED --"
+  mut_herestr="$ROOT/hook-wiring.MUTANT-herestring.sh"
+  if mk "teeth: path-split anchor in lib (here-string)" "$LIB" "$mut_herestr" 's/local rest="\${d#\/}" last=0/local rest="${d#\/}" last=0; : <<< "$d"  # MUTANT: here-string/'; then
+    if _hm_n="$(grep -v '^[[:space:]]*#' "$mut_herestr" | grep -c '<<<')" && [ "$_hm_n" -ne 0 ]; then
+      ok "teeth: here-string lint bites on a mutant carrying one (real sourced lib)" "found $_hm_n"
+    else
+      no "teeth: here-string lint did NOT bite on a here-string mutant (theater)" "n=[${_hm_n:-}]"
+    fi
+  fi
+
+  echo "-- teeth: stop absolutizing a relative target (drop the \$PWD prefix) — case 15c must go RED --"
+  mut_absolut="$ROOT/hook-wiring.MUTANT-no-absolutize.sh"
+  if mk "teeth: absolutize anchor in lib" "$LIB" "$mut_absolut" 's/\*)  d="\$PWD\/\$d" ;;/*)  : ;;  # MUTANT: relative target left relative/'; then
+    tooth_state "relative-target absolutize dropped" "$mut_absolut" "wired-off-root" "nested" "case 15c" "$d15c_root"
   fi
 fi
 
