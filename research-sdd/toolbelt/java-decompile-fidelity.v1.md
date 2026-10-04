@@ -30,8 +30,9 @@ lint pack `jvm` R1; this document is the reference table those do not carry.)
    with each other; it says nothing about the original source.
 
 Record the class-file `major_version` (`javap -v`, "major version:" line) in every claim that
-mentions syntax. Once kit issue #1205 lands, the decompile wrappers will print it; until then
-read it from `javap -v` yourself — do not assume any wrapper does.
+mentions syntax. `decompile-java.sh` prints it on stderr as the `CLASSFILE major=… lvt=… resugar_risk=…` header, and
+`corroborate-java.sh` carries it per class in `class_facts[]` (kit issue #1205). When the header reads
+`major=unknown` (or carries a `reason=`), read it from `javap -v` yourself.
 
 ## Matrix
 
