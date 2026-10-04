@@ -278,6 +278,25 @@ fi
 # TEETH — mutant verification (--prove-teeth only)
 # ==========================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are copies of the SUT built through lib/mutant.sh (a dead sed stage, an empty or
+  # byte-identical mutant, a live-tree or symlink OUT and invalid bash are all refused). $ROOT is a
+  # mktemp dir. A refusal prints its reason to stderr and returns 1; the tooth's else-branch then
+  # counts ONE failure and the tooth never runs.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_built; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # mk_chain OUT EXPR... -- sed mutant of the SUT, every stage must change it on its own
+  mk_chain() {
+    local out="$1" msg; shift
+    msg="$(mutant_chain "teeth: ${out##*/}" "$SUT" "$out" "$@")" || { printf '%s\n' "$msg" >&2; return 1; }
+  }
+  # mk_built OUT -- verify a mutant already written to OUT (awk build)
+  mk_built() {
+    local msg
+    msg="$(mutant_built "teeth: ${1##*/}" "$SUT" "$1")" || { printf '%s\n' "$msg" >&2; return 1; }
+  }
   echo "-- teeth: setting up shared fixture --"
   # Shared fixture: alpha (cited via UniqueAlpha.java), beta (uncited), Shared (ambiguous)
   # METHODOLOGY §3: corpus writes extension-bearing token UniqueAlpha.java
@@ -291,8 +310,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-a: hardcode UNCITED=0; uncited-count must go red --"
   MUTANT_A="$ROOT/cov-map.MUT-A.sh"
   # SENTINEL-A: count uncited
-  if grep -q 'SENTINEL-A:' "$SUT"; then
-    sed 's/UNCITED=.*/UNCITED=0  # MUTATED-A/' "$SUT" > "$MUTANT_A"
+  if grep -q 'SENTINEL-A:' "$SUT" && mk_chain "$MUTANT_A" 's/UNCITED=.*/UNCITED=0  # MUTATED-A/'; then
     mout_a="$(bash "$MUTANT_A" "$CT" --subject "$ST" 2>/dev/null)"
     if <<<"$mout_a" grep -qE '0 never cited'; then
       ok "teeth-a: UNCITED=0 mutant prints 0 never cited (assertion in real test would fail)"
@@ -308,7 +326,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-a: mutation did not change uncited count" "orig=$rout_a mut=$mout_a"
     fi
   else
-    no "teeth-a: SENTINEL-A: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-a: SENTINEL-A: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (b): remove ambiguity exclusion → cited count moves
@@ -316,9 +334,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-b: remove ambiguity exclusion; cited count must change --"
   MUTANT_B="$ROOT/cov-map.MUT-B.sh"
   # SENTINEL-B: exclude ambiguous basenames
-  if grep -q 'SENTINEL-B:' "$SUT"; then
-    # >=1 is always true; removes the single-module gate so Shared (ambiguous) survives
-    sed 's/cnt.b.==1 &&/cnt[b]>=1 \&\&/' "$SUT" > "$MUTANT_B"
+  if grep -q 'SENTINEL-B:' "$SUT" && mk_chain "$MUTANT_B" 's/cnt.b.==1 &&/cnt[b]>=1 \&\&/'; then
     # Corpus mentions Shared.java (the ambiguous basename) — extension-bearing
     CT_B="$ROOT/ctb"
     mk_corpus "$CT_B" "proj-bloque1.md" "Shared.java is referenced here"
@@ -332,7 +348,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-b: cited count unchanged after removing exclusion" "orig=$rout_b mut=$mout_b"
     fi
   else
-    no "teeth-b: SENTINEL-B: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-b: SENTINEL-B: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (c): substring instead of word-boundary on extension-bearing token
@@ -342,8 +358,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-c: remove -w from grep; SomeBase.java must falsely cite Base --"
   MUTANT_C="$ROOT/cov-map.MUT-C.sh"
   # SENTINEL-C: word-boundary grep on <basename>.<ext> tokens
-  if grep -q 'SENTINEL-C:' "$SUT"; then
-    sed 's/grep -qwFf/grep -qFf/' "$SUT" > "$MUTANT_C"
+  if grep -q 'SENTINEL-C:' "$SUT" && mk_chain "$MUTANT_C" 's/grep -qwFf/grep -qFf/'; then
     SC="$ROOT/sc"; CC="$ROOT/cc"
     mk_unit "$SC" "solo" "Base.java"
     mk_corpus "$CC" "proj-bloque1.md" "SomeBase.java is the main class in the module"
@@ -356,7 +371,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-c: mutation did not change citation" "orig=$rout_c mut=$mout_c"
     fi
   else
-    no "teeth-c: SENTINEL-C: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-c: SENTINEL-C: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (d): bare-stem mutant — match <basename> without extension
@@ -367,9 +382,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-d: bare-stem mutant; This.java must not match bare This --"
   MUTANT_D="$ROOT/cov-map.MUT-D.sh"
   # SENTINEL-D: ext-bearing pattern (bare-stem mutant: remove extension)
-  if grep -q 'SENTINEL-D:' "$SUT"; then
-    # sed: change printf '%s.%s\n' to printf '%s\n' (second %s consumed by "$ext", ignored)
-    sed 's/%s\.%s/%s/' "$SUT" > "$MUTANT_D"
+  if grep -q 'SENTINEL-D:' "$SUT" && mk_chain "$MUTANT_D" 's/%s\.%s/%s/'; then
     SD="$ROOT/sd"; CD="$ROOT/cd"
     mk_unit "$SD" "modal" "This.java"
     mk_corpus "$CD" "proj-bloque1.md" "This is the main dialog class here"
@@ -383,7 +396,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "orig=$(<<<"$rout_d" grep modules:) mut=$(<<<"$mout_d" grep modules:)"
     fi
   else
-    no "teeth-d: SENTINEL-D: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-d: SENTINEL-D: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (e): neuter excluded-by-declaration line → always-print invariant broken
@@ -393,8 +406,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-e: silence excluded-by-declaration; declaration must appear --"
   MUTANT_E="$ROOT/cov-map.MUT-E.sh"
   # SENTINEL-E: excluded-by-declaration line (must always appear; silence → tooth e)
-  if grep -q 'SENTINEL-E:' "$SUT"; then
-    sed 's/printf .excluded by declaration.*/: # MUTATED-E/' "$SUT" > "$MUTANT_E"
+  if grep -q 'SENTINEL-E:' "$SUT" && mk_chain "$MUTANT_E" 's/printf .excluded by declaration.*/: # MUTATED-E/'; then
     SE="$ROOT/se"; CE="$ROOT/ce"
     mk_unit "$SE" "appMain" "AppMain.java"
     mk_unit "$SE" "vendorLib" "VendorTool.java"
@@ -409,7 +421,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "orig_has=$(<<<"$rout_e" grep -c 'excluded by declaration:' || true) mut_has=$(<<<"$mout_e" grep -c 'excluded by declaration:' || true)"
     fi
   else
-    no "teeth-e: SENTINEL-E: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-e: SENTINEL-E: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (f): path-token requires class-file extension — bare dir must NOT cite
@@ -419,8 +431,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-f: loosen path-token to bare dir; bacnetDb/ must not cite --"
   MUTANT_F="$ROOT/cov-map.MUT-F.sh"
   # SENTINEL-F: path-token requires class-file extension (loosen to bare dir to mutate)
-  if grep -q 'SENTINEL-F:' "$SUT"; then
-    sed 's#_ptok_pat=".*#_ptok_pat="(^|[^A-Za-z0-9_])${re_mod}/"#' "$SUT" > "$MUTANT_F"
+  if grep -q 'SENTINEL-F:' "$SUT" && mk_chain "$MUTANT_F" 's#_ptok_pat=".*#_ptok_pat="(^|[^A-Za-z0-9_])${re_mod}/"#'; then
     SF="$ROOT/sf"; CF="$ROOT/cf"
     mk_unit "$SF" "bacnetDb" "BACnetSchema.java"  # 7 chars, ≥6
     mk_corpus "$CF" "proj-bloque1.md" "see bacnetDb/ for the schema directory overview"
@@ -434,7 +445,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "orig=$(<<<"$rout_f" grep modules:) mut=$(<<<"$mout_f" grep modules:)"
     fi
   else
-    no "teeth-f: SENTINEL-F: comment not found in SUT"
+    no "teeth-f: SENTINEL-F: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (g): unreadable exclude file → WARN fires; drop-WARN mutant → RED
@@ -444,7 +455,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-g: unreadable file → WARN; drop-WARN mutant must go RED --"
   MUTANT_G="$ROOT/cov-map.MUT-G.sh"
   # SENTINEL-G: capture exclude-file read rc
-  if grep -q 'SENTINEL-G:' "$SUT"; then
+  if grep -q 'SENTINEL-G:' "$SUT" && mk_chain "$MUTANT_G" 's/printf.*exclude-file read FAILED.*/: # MUTATED-G/'; then
     SG="$ROOT/sg"; CG="$ROOT/cg"
     mk_unit "$SG" "appMain" "AppEntry.java"
     mk_corpus "$CG" "proj-bloque1.md" "nothing matches here"
@@ -455,7 +466,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-g: skipped (running as root; chmod 000 not effective for root)"
     else
       rout_g="$(bash "$SUT" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
-      sed 's/printf.*exclude-file read FAILED.*/: # MUTATED-G/' "$SUT" > "$MUTANT_G"
       mout_g="$(bash "$MUTANT_G" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
       if <<<"$rout_g" grep -q 'WARN: exclude-file read FAILED' \
          && ! <<<"$mout_g" grep -q 'WARN: exclude-file read FAILED'; then
@@ -467,14 +477,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       chmod 644 "$EXCL_G"
     fi
   else
-    no "teeth-g: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-g: SENTINEL-G: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (h): restore || true → rc ≥2 no longer captured → no WARN → RED
   # Mutant: replace '|| _excl_rc=$?' with '|| true' → _excl_rc stays 0 → WARN never fires.
   echo "-- teeth-h: revert || true; WARN must disappear for unreadable file → RED --"
   MUTANT_H="$ROOT/cov-map.MUT-H.sh"
-  if grep -q 'SENTINEL-G:' "$SUT"; then
+  if grep -q 'SENTINEL-G:' "$SUT" && mk_chain "$MUTANT_H" 's/|| _excl_rc=\$?/|| true/'; then
     SH_="$ROOT/sh2"; CH_="$ROOT/ch2"
     mk_unit "$SH_" "appMain" "AppEntry.java"
     mk_corpus "$CH_" "proj-bloque1.md" "nothing matches here"
@@ -485,7 +495,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-h: skipped (running as root; chmod 000 not effective for root)"
     else
       rout_h="$(bash "$SUT" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
-      sed 's/|| _excl_rc=\$?/|| true/' "$SUT" > "$MUTANT_H"
       mout_h="$(bash "$MUTANT_H" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
       if <<<"$rout_h" grep -q 'WARN: exclude-file read FAILED' \
          && ! <<<"$mout_h" grep -q 'WARN: exclude-file read FAILED'; then
@@ -497,15 +506,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       chmod 644 "$EXCL_H"
     fi
   else
-    no "teeth-h: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
+    no "teeth-h: SENTINEL-G: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (i): revert to xargs word-split → space-path block dropped → module uncited → RED
   echo "-- teeth-i: xargs mutant word-splits space subdir; module must go uncited --"
   MUTANT_I="$ROOT/cov-map.MUT-I.sh"
   # SENTINEL-CORPUS-WS: whitespace-safe per-block cat
-  if grep -q 'SENTINEL-CORPUS-WS:' "$SUT"; then
-    awk '
+  # The awk build runs unconditionally: with the sentinel gone the mutant is byte-identical and
+  # mk_built refuses it, so the else-branch below still counts the failure exactly once.
+  awk '
       /SENTINEL-CORPUS-WS:/ {
         in_b=1
         print "xargs cat < \"$TMP/blocks.txt\" > \"$TMP/corpus.txt\" 2>/dev/null || true"
@@ -515,6 +525,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       in_b { next }
       { print }
     ' "$SUT" > "$MUTANT_I"
+  if mk_built "$MUTANT_I"; then
     SI="$ROOT/si"; CI="$ROOT/ci"
     mk_unit "$SI" "mod_a" "DistinctWidget.java"
     mkdir -p "$CI/sub dir"
@@ -529,15 +540,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "orig=$(<<<"$rout_i" grep 'modules:') mut=$(<<<"$mout_i" grep 'modules:')"
     fi
   else
-    no "teeth-i: SENTINEL-CORPUS-WS: not found in SUT (cannot anchor mutation)"
+    no "teeth-i: SENTINEL-CORPUS-WS: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 
   # ---- tooth (j): silence WARN printf → unreadable block goes unreported → RED
   echo "-- teeth-j: drop-WARN mutant; unreadable block WARN must disappear --"
   MUTANT_J="$ROOT/cov-map.MUT-J.sh"
   # SENTINEL-CORPUS-WARN: warn on dropped blocks
-  if grep -q 'SENTINEL-CORPUS-WARN:' "$SUT"; then
-    sed 's/printf .WARN: %d of %d block files.*/: # MUTATED-J/' "$SUT" > "$MUTANT_J"
+  if grep -q 'SENTINEL-CORPUS-WARN:' "$SUT" && mk_chain "$MUTANT_J" 's/printf .WARN: %d of %d block files.*/: # MUTATED-J/'; then
     SJ="$ROOT/sj"; CJ="$ROOT/cj"
     mk_unit "$SJ" "mod_a" "AppCore.java"
     mk_corpus "$CJ" "proj-bloque1.md" "AppCore.java is here"
@@ -557,7 +567,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       chmod 644 "$CJ/proj-bloque1.md"
     fi
   else
-    no "teeth-j: SENTINEL-CORPUS-WARN: not found in SUT (cannot anchor mutation)"
+    no "teeth-j: SENTINEL-CORPUS-WARN: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
 fi
 

@@ -743,6 +743,35 @@ sys.stdout.write(s.replace(old, new))
 ' "$file" "$old" "$new"
   }
 
+  # Mutants are COPIES built through lib/mutant.sh (refuses a dead sed stage, empty, byte-identical,
+  # live-tree and symlink OUT). The SUTs are markdown, so MUTANT_SYNTAX=none (no `bash -n`). A refused
+  # mutant is counted as ONE failure here and its tooth is skipped (the builders return 1).
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_built; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+
+  # mk_chain ORIG OUT EXPR... -- one sed stage per EXPR; each must change ORIG on its own.
+  mk_chain() {
+    local orig="$1" out="$2" err; shift 2
+    err="$(MUTANT_SYNTAX=none mutant_chain "teeth: ${out##*/}" "$orig" "$out" "$@")" \
+      || { no "teeth: ${out##*/} mutant refused — ${err:-no detail}"; return 1; }
+  }
+  # mk_built ORIG OUT -- verify a mutant already written to OUT (heredoc / loop / python build).
+  mk_built() {
+    local orig="$1" out="$2" err
+    err="$(MUTANT_SYNTAX=none mutant_built "teeth: ${out##*/}" "$orig" "$out")" \
+      || { no "teeth: ${out##*/} mutant refused — ${err:-no detail}"; return 1; }
+  }
+  # mk_lit ORIG OUT OLD NEW -- literal (multi-line) replacement, then the helper's checks.
+  mk_lit() {
+    local orig="$1" out="$2"
+    replace_literal_multiline "$orig" "$3" "$4" > "$out" \
+      || { no "teeth: ${out##*/} anchor not found in ${orig##*/} — prose moved? (mutant not built)"; return 1; }
+    mk_built "$orig" "$out"
+  }
+
   # bite_tooth NAME CHECK_FN VAR_NAME VAR_VAL
   # Temporarily points VAR_NAME (RSDD_SKILL / RSDD_LOOP / RSDD_METH) at a
   # mutant file, calls CHECK_FN, restores VAR_NAME, then classifies:
@@ -774,45 +803,53 @@ sys.stdout.write(s.replace(old, new))
 
   echo "-- teeth: T1 (drop a HOT-CORE token from PROMPT-LOOP.md) --"
   m="$TMP/T1.PROMPTLOOP.md"
-  sed 's/§8 §8b backlog-cell-grammar (written every iteration) §9/§8 §9/' "$PROMPTLOOP" > "$m"
-  bite_tooth T1 check_T1 RSDD_LOOP "$m"
+  if mk_chain "$PROMPTLOOP" "$m" 's/§8 §8b backlog-cell-grammar (written every iteration) §9/§8 §9/'; then
+    bite_tooth T1 check_T1 RSDD_LOOP "$m"
+  fi
 
   echo "-- teeth: T2 (drop §23 from PROMPT-LOOP.md SITUATIONAL) --"
   m="$TMP/T2.PROMPTLOOP.md"
   old=$'§21 wall · §22 breakthrough-ledger ·\n         §23 kit-change template (coordinating a kit change across sessions). Read a situational section when its trigger is your next action.'
   new='§21 wall · §22 breakthrough-ledger. Read a situational section when its trigger is your next action.'
-  replace_literal_multiline "$PROMPTLOOP" "$old" "$new" > "$m"
-  bite_tooth T2 check_T2 RSDD_LOOP "$m"
+  if mk_lit "$PROMPTLOOP" "$m" "$old" "$new"; then
+    bite_tooth T2 check_T2 RSDD_LOOP "$m"
+  fi
 
   echo "-- teeth: T3 (remove §8b from SKILL.md HOT-CORE) --"
   m="$TMP/T3.SKILL.md"
-  sed 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration),/§8 stopping + terminal trigger,/' "$SKILL" > "$m"
-  bite_tooth T3 check_T3 RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration),/§8 stopping + terminal trigger,/'; then
+    bite_tooth T3 check_T3 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T3b (re-add §8b into SKILL.md SITUATIONAL, simulating 'duplicated, not moved') --"
   m="$TMP/T3b.SKILL.md"
-  sed 's/shared-prefix corpus; §8c campaign queue/shared-prefix corpus; §8b backlog cell grammar → writing or editing a Gap-backlog row; §8c campaign queue/' "$SKILL" > "$m"
-  bite_tooth T3b check_T3b RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/shared-prefix corpus; §8c campaign queue/shared-prefix corpus; §8b backlog cell grammar → writing or editing a Gap-backlog row; §8c campaign queue/'; then
+    bite_tooth T3b check_T3b RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T4 (strip the §3b token itself from SKILL.md SITUATIONAL, keep the prose) --"
   m="$TMP/T4.SKILL.md"
-  sed 's/§3b corpus layout →/corpus layout →/' "$SKILL" > "$m"
-  bite_tooth T4 check_T4 RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/§3b corpus layout →/corpus layout →/'; then
+    bite_tooth T4 check_T4 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T4b (keep the §3b token, strip its 'corpus layout' trigger wording) --"
   m="$TMP/T4b.SKILL.md"
-  sed 's/§3b corpus layout →/§3b →/' "$SKILL" > "$m"
-  bite_tooth T4b check_T4b RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/§3b corpus layout →/§3b →/'; then
+    bite_tooth T4b check_T4b RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T5 (strip the §20b token itself from SKILL.md SITUATIONAL, keep the prose) --"
   m="$TMP/T5.SKILL.md"
-  sed 's/; §20b block mode vs\./; block mode vs./' "$SKILL" > "$m"
-  bite_tooth T5 check_T5 RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/; §20b block mode vs\./; block mode vs./'; then
+    bite_tooth T5 check_T5 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T5b (keep the §20b token, strip its 'journal mode' trigger wording) --"
   m="$TMP/T5b.SKILL.md"
-  sed 's/journal mode → deciding whether applied work/mode → deciding whether applied work/' "$SKILL" > "$m"
-  bite_tooth T5b check_T5b RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/journal mode → deciding whether applied work/mode → deciding whether applied work/'; then
+    bite_tooth T5b check_T5b RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T5b-not-adjacent (co-occurrence without adjacency must NOT pass — round-3 R2-T5b-trigger-not-bound) --"
   m="$TMP/T5bNotAdjacent.SKILL.md"
@@ -821,22 +858,25 @@ sys.stdout.write(s.replace(old, new))
   # check ('§20b' and 'journal mode' as two independent greps) would have
   # passed this (both substrings still occur somewhere); the anchored check
   # must not.
-  sed -e 's/journal mode → deciding whether applied work/mode → deciding whether applied work/' \
-      -e 's/adding\/preserving\/citing an external source;/adding\/preserving\/citing an external source (journal mode mentioned here for testing);/' \
-      "$SKILL" > "$m"
-  bite_tooth T5b-not-adjacent check_T5b RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" \
+      's/journal mode → deciding whether applied work/mode → deciding whether applied work/' \
+      's/adding\/preserving\/citing an external source;/adding\/preserving\/citing an external source (journal mode mentioned here for testing);/'; then
+    bite_tooth T5b-not-adjacent check_T5b RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T6-orphan (delete §3b's SITUATIONAL mention entirely) --"
   m="$TMP/T6orphan.SKILL.md"
   old=$'coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →\n       creating or moving corpus files; '
   new='coordinating a kit change across separate coordinator / researcher / QA sessions; '
-  replace_literal_multiline "$SKILL" "$old" "$new" > "$m"
-  bite_tooth T6-orphan check_T6 RSDD_SKILL "$m"
+  if mk_lit "$SKILL" "$m" "$old" "$new"; then
+    bite_tooth T6-orphan check_T6 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T6-multi (also list §3b in SKILL.md HOT-CORE, so it is tiered twice) --"
   m="$TMP/T6multi.SKILL.md"
-  sed 's/§8b backlog cell grammar (written every iteration), §9 golden rules,/§8b backlog cell grammar (written every iteration), §3b duplicate-test, §9 golden rules,/' "$SKILL" > "$m"
-  bite_tooth T6-multi check_T6 RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/§8b backlog cell grammar (written every iteration), §9 golden rules,/§8b backlog cell grammar (written every iteration), §3b duplicate-test, §9 golden rules,/'; then
+    bite_tooth T6-multi check_T6 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: T7 (inflate §1 with 2500 padding lines) --"
   m="$TMP/T7.METHODOLOGY.md"
@@ -846,7 +886,9 @@ sys.stdout.write(s.replace(old, new))
     for _ in $(seq 1 2500); do echo "padding line to blow the HOT-CORE budget"; done
     sed -n "$((s1+1)),\$p" "$METHODOLOGY"
   } > "$m"
-  bite_tooth T7 check_T7 RSDD_METH "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    bite_tooth T7 check_T7 RSDD_METH "$m"
+  fi
 
   echo "-- teeth: R3a (an unnumbered '## Appendix' with 2000 lines right after §1 must NOT inflate the HOT-CORE measurement) --"
   # Round-2's boundary lookup only recognized NUMBERED level-2 headings, so a
@@ -870,18 +912,21 @@ sys.stdout.write(s.replace(old, new))
     for _ in $(seq 1 2000); do echo "appendix padding line that must not count toward any HOT-CORE section"; done
     sed -n "$((e1+1)),\$p" "$METHODOLOGY"
   } > "$m"
-  baseline_out="$(check_T7)"
-  mutant_out="$(RSDD_METH="$m" check_T7)"; mutant_rc=$?
-  if [ "$mutant_rc" -eq 0 ] && [ "$mutant_out" = "$baseline_out" ]; then
-    ok "teeth-R3a: 2000-line unnumbered appendix right after §1 does not move the HOT-CORE measurement — $mutant_out"
-  else
-    no "teeth-R3a: appendix leaked into the HOT-CORE measurement (baseline=[$baseline_out] mutant=[$mutant_out] rc=$mutant_rc) — boundary-semantics fix broken"
+  if mk_built "$METHODOLOGY" "$m"; then
+    baseline_out="$(check_T7)"
+    mutant_out="$(RSDD_METH="$m" check_T7)"; mutant_rc=$?
+    if [ "$mutant_rc" -eq 0 ] && [ "$mutant_out" = "$baseline_out" ]; then
+      ok "teeth-R3a: 2000-line unnumbered appendix right after §1 does not move the HOT-CORE measurement — $mutant_out"
+    else
+      no "teeth-R3a: appendix leaked into the HOT-CORE measurement (baseline=[$baseline_out] mutant=[$mutant_out] rc=$mutant_rc) — boundary-semantics fix broken"
+    fi
   fi
 
   echo "-- teeth: m1/T8 (inject a phantom §99 token into SKILL.md HOT-CORE) --"
   m="$TMP/T8.SKILL.md"
-  sed 's/§17 resume\./§17 resume. §99 phantom-token./' "$SKILL" > "$m"
-  bite_tooth m1-phantom-token check_T8 RSDD_SKILL "$m"
+  if mk_chain "$SKILL" "$m" 's/§17 resume\./§17 resume. §99 phantom-token./'; then
+    bite_tooth m1-phantom-token check_T8 RSDD_SKILL "$m"
+  fi
 
   echo "-- teeth: m2/T9 (append near-miss numbered-heading forms to METHODOLOGY.md) --"
   m="$TMP/T9.METHODOLOGY.md"
@@ -892,7 +937,9 @@ sys.stdout.write(s.replace(old, new))
     echo "## §24. Fake Section"
     echo "## 24) Fake Section"
   } >> "$m"
-  bite_tooth m2-unrecognized-heading check_T9 RSDD_METH "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    bite_tooth m2-unrecognized-heading check_T9 RSDD_METH "$m"
+  fi
 
   echo "-- teeth: m2-widened (double space, 4 hashes, 1 hash — round-3 minor #2) --"
   m="$TMP/T9widened.METHODOLOGY.md"
@@ -903,14 +950,14 @@ sys.stdout.write(s.replace(old, new))
     echo "#### 25. Fake Section (four hashes)"
     echo "# 26. Fake Section (one hash)"
   } >> "$m"
-  bite_tooth m2-widened check_T9 RSDD_METH "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    bite_tooth m2-widened check_T9 RSDD_METH "$m"
+  fi
 
   echo "-- teeth: m3 (promote nested '### 12b.' to top-level '## 12b.' — dynamic exempt must revoke it) --"
   m="$TMP/m3.METHODOLOGY.md"
-  sed 's/^### 12b\. /## 12b. /' "$METHODOLOGY" > "$m"
-  if ! grep -qE '^## 12b\. ' "$m"; then
-    no "teeth-m3: mutation of '### 12b.' -> '## 12b.' did not take — no teeth"
-  else
+  # mk_chain refuses a dead stage, so the old "did the promotion take?" grep is subsumed.
+  if mk_chain "$METHODOLOGY" "$m" 's/^### 12b\. /## 12b. /'; then
     bite_tooth m3-dynamic-exempt check_T6 RSDD_METH "$m"
   fi
 
@@ -936,11 +983,13 @@ sys.stdout.write(s.replace(old, new))
     echo ""
     sed -n "${s13},\$p" "$METHODOLOGY"
   } > "$m"
-  out="$(RSDD_METH="$m" check_T6)"; rc=$?
-  if [ "$rc" -eq 1 ] && grep -q '§30' <<<"$out"; then
-    ok "teeth-m3-parent-reset: §30 after a non-numbered '## Appendix' is correctly caught as an orphan (rc=1) — $out"
-  else
-    no "teeth-m3-parent-reset: §30 was NOT caught (rc=$rc, out=[$out]) — parent-reset missing, §30 wrongly inherited exemption"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q '§30' <<<"$out"; then
+      ok "teeth-m3-parent-reset: §30 after a non-numbered '## Appendix' is correctly caught as an orphan (rc=1) — $out"
+    else
+      no "teeth-m3-parent-reset: §30 was NOT caught (rc=$rc, out=[$out]) — parent-reset missing, §30 wrongly inherited exemption"
+    fi
   fi
 
   echo "-- teeth: m4a (numbered heading INSIDE a fence must stay invisible to check_T6) --"
@@ -952,12 +1001,14 @@ sys.stdout.write(s.replace(old, new))
     echo "## 99. Fake Phantom Section"
     echo '```'
   } >> "$mFenced"
-  out_fenced="$(RSDD_METH="$mFenced" check_T6)"; rc_fenced=$?
-  out_baseline="$(check_T6)"
-  if [ "$rc_fenced" -eq 0 ] && [ "$out_fenced" = "$out_baseline" ] && ! grep -q '§99' <<<"$out_fenced"; then
-    ok "teeth-m4a: fenced '## 99.' heading stays invisible — check_T6 unchanged (checked count and outcome match baseline)"
-  else
-    no "teeth-m4a: fenced '## 99.' heading leaked into check_T6 (rc=$rc_fenced, out=[$out_fenced], baseline=[$out_baseline]) — fence-masking broken"
+  if mk_built "$METHODOLOGY" "$mFenced"; then
+    out_fenced="$(RSDD_METH="$mFenced" check_T6)"; rc_fenced=$?
+    out_baseline="$(check_T6)"
+    if [ "$rc_fenced" -eq 0 ] && [ "$out_fenced" = "$out_baseline" ] && ! grep -q '§99' <<<"$out_fenced"; then
+      ok "teeth-m4a: fenced '## 99.' heading stays invisible — check_T6 unchanged (checked count and outcome match baseline)"
+    else
+      no "teeth-m4a: fenced '## 99.' heading leaked into check_T6 (rc=$rc_fenced, out=[$out_fenced], baseline=[$out_baseline]) — fence-masking broken"
+    fi
   fi
 
   echo "-- teeth: m4b (control: the SAME heading OUTSIDE a fence must be caught as a new orphan) --"
@@ -967,11 +1018,13 @@ sys.stdout.write(s.replace(old, new))
     echo ""
     echo "## 99. Fake Phantom Section"
   } >> "$m"
-  out="$(RSDD_METH="$m" check_T6)"; rc=$?
-  if [ "$rc" -eq 1 ] && grep -q '§99' <<<"$out"; then
-    ok "teeth-m4b: the same heading OUTSIDE a fence IS caught as a new orphan (rc=1) — $out"
-  else
-    no "teeth-m4b: heading outside a fence was NOT caught (rc=$rc, out=[$out]) — control failed, m4a's PASS would be meaningless"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q '§99' <<<"$out"; then
+      ok "teeth-m4b: the same heading OUTSIDE a fence IS caught as a new orphan (rc=1) — $out"
+    else
+      no "teeth-m4b: heading outside a fence was NOT caught (rc=$rc, out=[$out]) — control failed, m4a's PASS would be meaningless"
+    fi
   fi
 
   echo "-- teeth: fence-unclosed (round-3 review MAJOR, repro #1: an unclosed fence must FATAL, not silently pass) --"
@@ -982,22 +1035,28 @@ sys.stdout.write(s.replace(old, new))
   m="$TMP/FenceUnclosed.METHODOLOGY.md"
   cp "$METHODOLOGY" "$m"
   { echo ""; echo '```text'; echo "## 24. New untiered section"; } >> "$m"
-  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
-  if [ "$rc" -eq 2 ]; then
-    ok "teeth-fence-unclosed: unclosed fence makes check_T6 return 2 (FATAL), not a silent PASS"
-  else
-    no "teeth-fence-unclosed: unclosed fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — silent pass would slip through"
+  fence_unclosed_built=0
+  if mk_built "$METHODOLOGY" "$m"; then
+    fence_unclosed_built=1
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 2 ]; then
+      ok "teeth-fence-unclosed: unclosed fence makes check_T6 return 2 (FATAL), not a silent PASS"
+    else
+      no "teeth-fence-unclosed: unclosed fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — silent pass would slip through"
+    fi
   fi
 
   echo "-- teeth: fence-unclosed-via-T9 (the SAME unclosed fence must also FATAL through check_T9's path) --"
   # heading_index and check_unrecognized_headings are two SEPARATE consumers
   # of mask_code_fences; the review named both by name as needing the rc=2
   # conversion, so both get their own tooth against the same mutant.
-  out="$(RSDD_METH="$m" check_T9 2>/dev/null)"; rc=$?
-  if [ "$rc" -eq 2 ]; then
-    ok "teeth-fence-unclosed-via-T9: unclosed fence makes check_T9 return 2 (FATAL) too"
-  else
-    no "teeth-fence-unclosed-via-T9: unclosed fence did NOT trigger rc=2 via check_T9 (rc=$rc, out=[$out])"
+  if [ "$fence_unclosed_built" -eq 1 ]; then  # build refusal already counted above
+    out="$(RSDD_METH="$m" check_T9 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 2 ]; then
+      ok "teeth-fence-unclosed-via-T9: unclosed fence makes check_T9 return 2 (FATAL) too"
+    else
+      no "teeth-fence-unclosed-via-T9: unclosed fence did NOT trigger rc=2 via check_T9 (rc=$rc, out=[$out])"
+    fi
   fi
 
   echo "-- teeth: fence-4backtick-nested-3backtick (round-3 review MAJOR, repro #2) --"
@@ -1008,36 +1067,42 @@ sys.stdout.write(s.replace(old, new))
   m="$TMP/Fence4Nested3.METHODOLOGY.md"
   cp "$METHODOLOGY" "$m"
   { echo ""; echo '````md'; echo '```'; echo "## 24. New untiered section"; } >> "$m"
-  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
-  if [ "$rc" -eq 2 ]; then
-    ok "teeth-fence-4backtick-nested-3backtick: the inner shorter run does not close the fence early — check_T6 returns 2"
-  else
-    no "teeth-fence-4backtick-nested-3backtick: did NOT return 2 (rc=$rc, out=[$out]) — the inner line likely closed the fence early, leaking '## 24.'"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 2 ]; then
+      ok "teeth-fence-4backtick-nested-3backtick: the inner shorter run does not close the fence early — check_T6 returns 2"
+    else
+      no "teeth-fence-4backtick-nested-3backtick: did NOT return 2 (rc=$rc, out=[$out]) — the inner line likely closed the fence early, leaking '## 24.'"
+    fi
   fi
 
   echo "-- teeth: fence-tilde-unclosed (round-3 review MAJOR, repro #3: ~~~ fences must be tracked too) --"
   m="$TMP/FenceTilde.METHODOLOGY.md"
   cp "$METHODOLOGY" "$m"
   { echo ""; echo '~~~text'; echo "## 24. New untiered section"; } >> "$m"
-  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
-  if [ "$rc" -eq 2 ]; then
-    ok "teeth-fence-tilde-unclosed: unclosed ~~~ fence makes check_T6 return 2 (tilde fences are tracked)"
-  else
-    no "teeth-fence-tilde-unclosed: unclosed ~~~ fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — tilde fences not recognized, '## 24.' leaked as a real heading"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 2 ]; then
+      ok "teeth-fence-tilde-unclosed: unclosed ~~~ fence makes check_T6 return 2 (tilde fences are tracked)"
+    else
+      no "teeth-fence-tilde-unclosed: unclosed ~~~ fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — tilde fences not recognized, '## 24.' leaked as a real heading"
+    fi
   fi
 
   echo "-- teeth: anti-silent-zero (blank out every HOT-CORE token in SKILL.md) --"
   m="$TMP/zero.SKILL.md"
-  sed 's/§1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state\/memory,/no tokens here at all,/' "$SKILL" \
-    | sed 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,/still no tokens,/' \
-    | sed 's/§11 self-verify, §17 resume\./no tokens at all./' \
-    > "$m"
-  ( tokens_of "$m" "$SKILL_HC_START" "$SKILL_HC_END" >/dev/null 2>&1 )
-  rc=$?
-  if [ "$rc" -eq 2 ]; then
-    ok "teeth-anti-silent-zero: zero-token mutant makes tokens_of return 2 (not a silent empty pass)"
-  else
-    no "teeth-anti-silent-zero: zero-token mutant did NOT trigger the guard (rc=$rc) — silent zero would slip through"
+  # Three independent stages (disjoint text), each of which must change SKILL.md on its own.
+  if mk_chain "$SKILL" "$m" \
+      's/§1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state\/memory,/no tokens here at all,/' \
+      's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,/still no tokens,/' \
+      's/§11 self-verify, §17 resume\./no tokens at all./'; then
+    ( tokens_of "$m" "$SKILL_HC_START" "$SKILL_HC_END" >/dev/null 2>&1 )
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      ok "teeth-anti-silent-zero: zero-token mutant makes tokens_of return 2 (not a silent empty pass)"
+    else
+      no "teeth-anti-silent-zero: zero-token mutant did NOT trigger the guard (rc=$rc) — silent zero would slip through"
+    fi
   fi
 
   echo "-- teeth: vanished-end-anchor (#1027 round 2 — rename PROMPT-LOOP.md's SITUATIONAL end anchor; extraction must FAIL loudly, never silently run to EOF) --"
@@ -1052,10 +1117,8 @@ sys.stdout.write(s.replace(old, new))
   # anchor ($KIT/TARGETS.md) instead, to prove the fix generalizes to ANY
   # future end-anchor rename, not just this one sentence.
   m="$TMP/VanishedEndAnchor.PROMPTLOOP.md"
-  if ! grep -qF '2. $KIT/TARGETS.md' "$PROMPTLOOP"; then
-    no "teeth-vanished-end-anchor: mutation anchor '2. \$KIT/TARGETS.md' not found in the real PROMPT-LOOP.md — tooth cannot construct its mutant (report this, do not skip silently)"
-  else
-    sed 's/2\. \$KIT\/TARGETS\.md/2. \$KIT\/RENAMED-TARGETS.md/' "$PROMPTLOOP" > "$m"
+  # mk_chain refuses a dead stage, so a moved anchor is reported loudly (one failure, tooth skipped).
+  if mk_chain "$PROMPTLOOP" "$m" 's/2\. \$KIT\/TARGETS\.md/2. \$KIT\/RENAMED-TARGETS.md/'; then
     out="$(tokens_of "$m" "$LOOP_SIT_START" "$LOOP_SIT_END" 2>&1 >/dev/null)"; rc=$?
     if [ "$rc" -eq 2 ] && grep -q 'never appeared before EOF' <<<"$out"; then
       ok "teeth-vanished-end-anchor: tokens_of on the renamed-anchor mutant returns 2 with the vanished-anchor diagnostic (rc=$rc) — $out"
