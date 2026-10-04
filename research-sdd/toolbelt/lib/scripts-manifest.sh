@@ -26,29 +26,30 @@
 #
 # FUNCTIONS ONLY — no `set` options here (a sourced `set` would mutate the caller's shell options).
 
-if ! declare -F scripts_manifest_rows >/dev/null 2>&1; then
-  scripts_manifest_rows() {
-    local target="${1:-}" mf="${2:-}" md
-    [ -n "$target" ] && [ -n "$mf" ] || { echo "scripts-manifest: called with fewer than 2 arguments" >&2; return 2; }
-    [ -f "$mf" ] && [ -r "$mf" ] || { echo "scripts-manifest: cannot read manifest $mf" >&2; return 2; }
-    # canonicalise both sides alike: collapse `//` runs, drop trailing slashes (find under "$t/" yields `t//...`)
-    while [ "${target//\/\//\/}" != "$target" ]; do target="${target//\/\//\/}"; done   # SM-SLASH
-    while [ "${mf//\/\//\/}" != "$mf" ]; do mf="${mf//\/\//\/}"; done   # SM-SLASH-MF
-    while [ "${target%/}" != "$target" ] && [ -n "${target%/}" ]; do target="${target%/}"; done
-    case "$mf" in "$target"/*) ;; *) echo "scripts-manifest: manifest $mf is not under target $target" >&2; return 2 ;; esac
-    md="${mf#"$target"/}"; md="${md%/*}"
-    SM_MD="$md" awk -F'|' '
-      /^[[:space:]]*\|/ {
-        a = $2; b = $3
-        gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
-        sub(/^\.\//, "", a)
-        n = split(a, parts, "/")
-        if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) {   # SM-ROW
-          md = ENVIRON["SM_MD"]
-          full = (a ~ /^sources\//) ? a : md "/" a
-          print full "\t" tolower(b)
-          print md "/" parts[n] "\t" tolower(b)
-        }
-      }' "$mf" || { echo "scripts-manifest: awk failed reading $mf" >&2; return 2; }
-  }
-fi
+# No `declare -F` guard (kit #1676): sourcing this file ALWAYS (re)defines the parser. A guard would let an inherited
+# `export -f scripts_manifest_rows` from the caller's environment silently win over the file being sourced, and
+# redefinition is idempotent (the body is identical every time), so there is nothing to protect.
+scripts_manifest_rows() {
+  local target="${1:-}" mf="${2:-}" md
+  [ -n "$target" ] && [ -n "$mf" ] || { echo "scripts-manifest: called with fewer than 2 arguments" >&2; return 2; }
+  [ -f "$mf" ] && [ -r "$mf" ] || { echo "scripts-manifest: cannot read manifest $mf" >&2; return 2; }
+  # canonicalise both sides alike: collapse `//` runs, drop trailing slashes (find under "$t/" yields `t//...`)
+  while [ "${target//\/\//\/}" != "$target" ]; do target="${target//\/\//\/}"; done   # SM-SLASH
+  while [ "${mf//\/\//\/}" != "$mf" ]; do mf="${mf//\/\//\/}"; done   # SM-SLASH-MF
+  while [ "${target%/}" != "$target" ] && [ -n "${target%/}" ]; do target="${target%/}"; done
+  case "$mf" in "$target"/*) ;; *) echo "scripts-manifest: manifest $mf is not under target $target" >&2; return 2 ;; esac
+  md="${mf#"$target"/}"; md="${md%/*}"
+  SM_MD="$md" awk -F'|' '
+    /^[[:space:]]*\|/ {
+      a = $2; b = $3
+      gsub(/[`[:space:]]/, "", a); gsub(/[`[:space:]]/, "", b)
+      sub(/^\.\//, "", a)
+      n = split(a, parts, "/")
+      if (a != "" && b ~ /^[0-9a-fA-F]+$/ && length(b) == 64) {   # SM-ROW
+        md = ENVIRON["SM_MD"]
+        full = (a ~ /^sources\//) ? a : md "/" a
+        print full "\t" tolower(b)
+        print md "/" parts[n] "\t" tolower(b)
+      }
+    }' "$mf" || { echo "scripts-manifest: awk failed reading $mf" >&2; return 2; }
+}
