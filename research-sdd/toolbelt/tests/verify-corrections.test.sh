@@ -79,29 +79,37 @@ else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — neuter the FAIL in a mutant; the one-directional fixture must then pass (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _mf in mutant_chain mutant_tooth; do
+    declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
+  done
+  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # A bad side that is only an exit code must not be a crash: these never read as a bite.
+  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
   # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
   echo "-- teeth: neuter the reciprocal-backlink FAIL (rc=1 → rc=0); expect the one-directional fixture to pass --"
   mutant="$TMP/verify-corrections.MUTANT.sh"
-  sed 's/rc=1/rc=0/g' "$SUT" > "$mutant"
-  d="$TMP/onedir"   # reuse case 3's one-directional fixture
-  bash "$mutant" "$d" >/dev/null 2>&1; mgot=$?
-  if [ "$mgot" = 0 ]; then
-    ok "teeth: rc-neutered mutant passes the one-directional corpus (exit 0) → case 3 has teeth"
-  else no "teeth: mutant exit $mgot (want 0) — case 3 does NOT depend on the FAIL (THEATER)"; fi
+  if mk_mut "teeth: rc-neutered" "$SUT" "$mutant" 's/rc=1/rc=0/g'; then
+    d="$TMP/onedir"   # reuse case 3's one-directional fixture: original exit 1 (FAIL), mutant exit 0
+    tt "teeth: rc-neutered mutant passes the one-directional corpus (exit 0) → case 3 has teeth" 1 0 "$mutant" --orig "$SUT" \
+      --good-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
+  fi
 
   echo "-- teeth: revert first-ref binding (drop 'head -1') so the verb governs ALL refs; the cf-fixture must FAIL --"
   bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
-  sed 's/ | head -1 | grep -oE/ | grep -oE/' "$SUT" > "$bmutant"
   if ! grep -q ' | head -1 | grep -oE' "$SUT"; then
     no "teeth: first-ref binding line not found in SUT (did the fix change shape?)"
-  else
-    d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink)
-    bash "$bmutant" "$d" >/dev/null 2>&1; bgot=$?
-    if [ "$bgot" = 1 ]; then
-      ok "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth"
-    else no "teeth: bind-mutant exit $bgot (want 1) — case 6 does NOT depend on first-ref binding (THEATER)"; fi
+  elif mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" 's/ | head -1 | grep -oE/ | grep -oE/'; then
+    d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink): original exit 0 + ok line, mutant exit 1 + FAIL
+    tt "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth" 0 1 "$bmutant" --orig "$SUT" \
+      --good-has 'ok +every declared correction' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
   fi
 fi
 

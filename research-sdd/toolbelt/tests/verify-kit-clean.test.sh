@@ -175,35 +175,54 @@ fi
 
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _mf in mutant_chain mutant_tooth; do
+    declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
+  done
+  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # A bad side that is only an exit code must not be a crash: these never read as a bite.
+  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
   echo "-- teeth: neuter the porcelain dirty-check, expect the dirty fixture to pass as clean --"
   mutant="$TMP/verify-kit-clean.MUTANT.sh"
-  sed 's/status --porcelain/status --porcelain --untracked-files=no/; s/\[ -n "\$porcelain" \]/[ -n "" ]/' "$SUT" > "$mutant"
-  d="$TMP/teeth"; mkrepo "$d"; echo "changed" > "$d/f.txt"
-  bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
-  [ "$mrc" = 0 ] && ok "teeth: dirty-check-neutered mutant reports clean → check has teeth" || no "teeth: mutant exit=$mrc — dirty check not exercised (THEATER)"
+  if mk_mut "teeth: dirty-check-neutered" "$SUT" "$mutant" 's/status --porcelain/status --porcelain --untracked-files=no/' 's/\[ -n "\$porcelain" \]/[ -n "" ]/'; then
+    d="$TMP/teeth"; mkrepo "$d"; echo "changed" > "$d/f.txt"
+    tt "teeth: dirty-check-neutered mutant reports clean → check has teeth" 1 0 "$mutant" --orig "$SUT" \
+      --good-has 'working tree : DIRTY' --bad-has 'working tree : CLEAN' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
+  fi
 
   # Additional mutation control: neuter the git-status rc-check; the git-fail stub must then exit 0 (CLEAN).
   echo "-- teeth: neuter the git_rc check, expect git-status failure to pass silently as clean --"
   mutant2="$TMP/verify-kit-clean.MUTANT2.sh"
-  sed 's/git_rc=\$?/git_rc=0/' "$SUT" > "$mutant2"
-  d_tf="$TMP/teeth-gitfail"; mkdir -p "$d_tf"
-  PATH="$_stub10:$PATH" bash "$mutant2" "$d_tf" >/dev/null 2>&1; mrc2=$?
-  [ "$mrc2" -eq 0 ] && ok "teeth: git-rc-check-neutered mutant exits 0 (silently clean) → rc-check has teeth" \
-    || no "teeth: mutant exit=$mrc2 — git-status rc check not exercised (THEATER)"
+  if mk_mut "teeth: git-rc-check-neutered" "$SUT" "$mutant2" 's/git_rc=\$?/git_rc=0/'; then
+    d_tf="$TMP/teeth-gitfail"; mkdir -p "$d_tf"
+    tt "teeth: git-rc-check-neutered mutant exits 0 (silently clean) → rc-check has teeth" 1 0 "$mutant2" --orig "$SUT" \
+      --good-has 'git status failed' --bad-lacks "$CRASH" -- env PATH="$_stub10:$PATH" bash @SUT@ "$d_tf"
+  fi
 
   # Tooth: reintroduce || true on one counter + stub grep to exit 2 → contradiction/failed WARN disappears.
   echo "-- teeth: || true on counter + grep exit 2 → WARNs must disappear (tests 11+12 go RED) --"
   mutant3="$TMP/verify-kit-clean.MUTANT3.sh"
   # Neuter the _sgrc check by replacing grep -c . with 'grep -c . || true' style:
   # Replace '; _sgrc=$?' with '|| true); _sgrc=$?' and remove the WARN checks.
-  sed 's/grep -c \./grep -c . || true/g; /WARN: DIRTY but all three counters/d; /WARN: staged count FAILED/d; /WARN: unstaged count FAILED/d; /WARN: untracked count FAILED/d' \
-    "$SUT" > "$mutant3"
-  # Run the contradiction scenario (stub11) against mutant3 — WARN must be absent.
-  out_m3="$(PATH="$_stub11:$PATH" bash "$mutant3" "$d11" 2>&1)"
-  if ! <<<"$out_m3" grep -qi 'counters disagree\|count FAILED'; then
-    ok "teeth: || true mutant silences contradiction/failed WARNs → tests 11+12 would catch it (RED)"
-  else
-    no "teeth: || true mutant still emits WARNs — tooth has no bite"
+  if mk_mut "teeth: || true counter" "$SUT" "$mutant3" 's/grep -c \./grep -c . || true/g' '/WARN: DIRTY but all three counters/ s/.*/    :/' '/WARN: staged count FAILED/d' '/WARN: unstaged count FAILED/d' '/WARN: untracked count FAILED/d'; then
+    # (The contradiction WARN is blanked to ':', not deleted: deleting it would leave an empty if-body and a
+    # syntax-broken mutant that lib/mutant.sh refuses — the old hand-made mutant was exactly that, biting for the wrong reason.)
+    # Run the contradiction scenario (stub11) against mutant3 — WARN must be absent.
+    # The original warns (contradiction/count FAILED); the mutant must stay on the DIRTY path (same exit) yet go silent.
+    out_o3="$(PATH="$_stub11:$PATH" bash "$SUT" "$d11" 2>&1)"; rc_o3=$?
+    out_m3="$(PATH="$_stub11:$PATH" bash "$mutant3" "$d11" 2>&1)"; rc_m3=$?
+    if [ "$rc_o3" = "$rc_m3" ] && grep -qiE 'counters disagree|count FAILED' <<<"$out_o3" \
+       && grep -qE '^ *working tree : DIRTY' <<<"$out_m3" && ! grep -qiE 'counters disagree|count FAILED' <<<"$out_m3" \
+       && ! grep -qE "$CRASH" <<<"$out_m3"; then
+      ok "teeth: || true mutant silences contradiction/failed WARNs → tests 11+12 would catch it (RED)"
+    else
+      no "teeth: || true mutant tooth failed (orig rc=$rc_o3, mutant rc=$rc_m3) — WARNs not silenced on a still-DIRTY report"
+    fi
   fi
 fi
 

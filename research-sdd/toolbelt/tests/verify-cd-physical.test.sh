@@ -395,18 +395,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "$KIT"
 EOF
+  # The -P'd fixture is a MUTANT of the logical one, built by lib/mutant.sh (kit #1299): it refuses an
+  # empty, byte-identical, syntax-broken or live-tree mutant and a sed stage that matches nothing. The
+  # pristine copy lives in its own directory (outside the scan box) so OUT is not under ORIG's tree.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
-  if [ "$RCT1" -eq 1 ]; then
+  if [ "$RCT1" -eq 1 ] && ! grep -qE 'syntax error|command not found|unbound variable' <<<"$OUTT1"; then
     ok "teeth: logical (non -P) fixture makes the lint FAIL — the core distinction has teeth"
   else
     no "teeth: logical (non -P) fixture did NOT fail the lint — check is THEATER (rc=$RCT1 out=[$OUTT1])"
   fi
-  sed -i 's/cd "\$(dirname "\$0")\/\.\." \&\& pwd/cd -P "$(dirname "$0")\/.." \&\& pwd -P/' "$boxT/mut.sh"
-  OUTT2="$(bash "$SUT" "$boxT" 2>&1)"; RCT2=$?
-  if [ "$RCT2" -eq 0 ]; then
-    ok "teeth: the SAME fixture with -P applied makes the lint PASS — confirms it was the -P that mattered"
+  # A refused build is counted once and the tooth is skipped, so the un-mutated logical fixture is never judged as the -P one.
+  if mutant_chain "teeth: -P fixture" "$TMP/teeth-orig/mut.sh" "$boxT/mut.sh" \
+      's/cd "\$(dirname "\$0")\/\.\." \&\& pwd/cd -P "$(dirname "$0")\/.." \&\& pwd -P/'; then
+    OUTT2="$(bash "$SUT" "$boxT" 2>&1)"; RCT2=$?
+    if [ "$RCT2" -eq 0 ]; then
+      ok "teeth: the SAME fixture with -P applied makes the lint PASS — confirms it was the -P that mattered"
+    else
+      no "teeth: -P'd fixture still fails the lint — check has no bite (rc=$RCT2 out=[$OUTT2])"
+    fi
   else
-    no "teeth: -P'd fixture still fails the lint — check has no bite (rc=$RCT2 out=[$OUTT2])"
+    fail=$((fail+1))
   fi
 fi
 

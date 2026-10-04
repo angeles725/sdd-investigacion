@@ -145,6 +145,18 @@ fi
 
 # NEGATIVE CONTROL — prove the DRIFT detection has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _mf in mutant_chain mutant_tooth; do
+    declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
+  done
+  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # A bad side that is only an exit code must not be a crash: these never read as a bite.
+  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
   # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
@@ -152,16 +164,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant="$TMP/verify-parity.MUTANT.sh"
   # Force the drift branch's guard false so a missing hex can never be flagged.
   # The sentinel comment # PARITY-CHECK on the guard line is the stable mutation target.
-  sed 's|if ! grep -qxF.*PARITY-CHECK$|if false; then  # MUTANT: drift check neutered|' "$SUT" > "$mutant"
-  bash -n "$mutant" 2>/dev/null || { no "teeth: mutant has bash syntax error (bash -n failed) — mutant cannot run"; }
-  if ! grep -q 'MUTANT: drift check neutered' "$mutant"; then
-    no "teeth: could not build mutant (drift guard line not found — did the SUT change?)"
-  else
+  # mutant_chain refuses a dead stage, an identical or a syntax-broken mutant (replaces the hand-made bash -n / grep checks).
+  if mk_mut "teeth: drift guard neutered" "$SUT" "$mutant" 's|if ! grep -qxF.*PARITY-CHECK$|if false; then  # MUTANT: drift check neutered|'; then
     d="$TMP/drift"   # reuse the flagship drift fixture (case 5)
-    bash "$mutant" "$d/tokens.css" "$d/block-1.md" >/dev/null 2>&1; mgot=$?
-    if [ "$mgot" = 0 ]; then
-      ok "teeth: neutered mutant false-passes (exit 0) → DRIFT assertion has teeth"
-    else no "teeth: mutant exit $mgot (want 0) — DRIFT case does NOT depend on the guard (THEATER)"; fi
+    # original exit 1 (DRIFT) → mutant exit 0 (false pass)
+    tt "teeth: neutered mutant false-passes (exit 0) → DRIFT assertion has teeth" 1 0 "$mutant" --orig "$SUT" \
+      --bad-lacks "$CRASH" -- bash @SUT@ "$d/tokens.css" "$d/block-1.md"
   fi
 fi
 

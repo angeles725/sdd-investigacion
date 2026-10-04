@@ -250,17 +250,39 @@ teeth_pass=0; teeth_fail=0
 tok() { printf '  PASS  %s\n' "$1"; teeth_pass=$((teeth_pass+1)); }
 tno() { printf '  FAIL  %s\n' "$1"; teeth_fail=$((teeth_fail+1)); }
 
-# Helper: create a mutant by deleting lines between sentinel pair
+# Mutants are built by lib/mutant.sh (kit #1299), sourced here only because the suite already returned
+# above on the plain run. It refuses an empty, byte-identical, syntax-broken or live-tree mutant;
+# mutant_chain also refuses a sed stage that matches nothing. A refused build is counted exactly once
+# (mk_mut / mk_built) and its control is skipped, so a stale or missing mutant is never run.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+for _mf in mutant_chain mutant_built mutant_tooth; do
+  declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
+done
+# mk_mut LABEL SRC DST EXPR... — mutant_chain, counting a refusal. mk_built LABEL ORIG OUT — mutant_built likewise.
+mk_mut() { mutant_chain "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
+mk_built() { mutant_built "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
+# tt LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...  — mutant_tooth (EXACT exit codes on the original and the mutant).
+tt() { if mutant_tooth "$@"; then teeth_pass=$((teeth_pass+1)); else teeth_fail=$((teeth_fail+1)); fi; }
+# A bad side that is only an exit code must not be a crash: these never read as a bite.
+CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
+
+# Helper: create a mutant by deleting the block between a sentinel pair. Both markers must occur exactly
+# once, so the range cannot run open-ended to EOF on a missing END marker.
 make_mutant_delete_sentinel() {
   local sentinel="$1" src="$2" dst="$3"
-  sed "/# ${sentinel}-START/,/# ${sentinel}-END/d" "$src" > "$dst"
+  if [ "$(grep -c "# ${sentinel}-START" "$src")" != 1 ] || [ "$(grep -c "# ${sentinel}-END" "$src")" != 1 ]; then
+    printf '  FAIL  delete %s block: want exactly one START and one END marker in the SUT\n' "$sentinel"
+    teeth_fail=$((teeth_fail+1)); return 1
+  fi
+  mk_mut "delete $sentinel block" "$src" "$dst" "/# ${sentinel}-START/,/# ${sentinel}-END/d" || return 1
   chmod +x "$dst"
 }
 
 # Helper: create a mutant by replacing a specific pattern
 make_mutant_replace() {
   local pattern="$1" replacement="$2" src="$3" dst="$4"
-  sed "s|${pattern}|${replacement}|g" "$src" > "$dst"
+  mk_mut "replace $pattern" "$src" "$dst" "s|${pattern}|${replacement}|g" || return 1
   chmod +x "$dst"
 }
 
@@ -269,38 +291,38 @@ make_mutant_replace() {
 mkdir -p "$TMP/lib"
 cp "$RG_LIB" "$TMP/lib/retro-grammar.sh"
 
-# MUTANT M1: strip the marker check → marker-missing fixture must exit 1 but mutant returns 0
+# Exit-code contract of the SUT under test: 0 = conforming, 1 = a lint FAIL, 2 = harness error.
+
+# MUTANT M1: strip the marker check → marker-missing fixture: original exit 1, mutant exit 0
 M1="$TMP/mutant_m1.sh"
-make_mutant_delete_sentinel "SENTINEL-MARKER-CHECK" "$SUT" "$M1"
-bash "$M1" "$FIX/marker-missing.md" >/dev/null 2>&1; _rc=$?
-[ "$_rc" = 0 ] && tok "M1: marker mutant accepts missing-marker (control goes RED → $SUT guard bites)" \
-  || tno "M1: marker mutant did NOT accept missing-marker (control should have been RED)"
+if make_mutant_delete_sentinel "SENTINEL-MARKER-CHECK" "$SUT" "$M1"; then
+  tt "M1: marker mutant accepts missing-marker (control goes RED → verify-retro.sh guard bites)" 1 0 "$M1" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/marker-missing.md"
+fi
 
-# MUTANT M2: make empty-section check always pass (change _cd -eq 0 to never-match)
-# We replace the empty-section failure condition to never trigger
+# MUTANT M2: make empty-section check always pass (change _cd -eq 0 to never-match): original 1, mutant 0
 M2="$TMP/mutant_m2.sh"
-# The mutant deletes the SENTINEL-DELTA-CHECK block and replaces it with a dummy
-# Instead, we directly mutate the condition: replace "_cd" -eq 0 with _cd -eq -999
-make_mutant_replace '_cd" -eq 0' '_cd" -eq -999' "$SUT" "$M2"
-bash "$M2" "$FIX/empty-section.md" >/dev/null 2>&1; _rc=$?
-[ "$_rc" = 0 ] && tok "M2: zero-row mutant accepts empty-section (control goes RED → $SUT guard bites)" \
-  || tno "M2: zero-row mutant did NOT accept empty-section (control should have been RED)"
+if make_mutant_replace '_cd" -eq 0' '_cd" -eq -999' "$SUT" "$M2"; then
+  tt "M2: zero-row mutant accepts empty-section (control goes RED → verify-retro.sh guard bites)" 1 0 "$M2" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/empty-section.md"
+fi
 
-# MUTANT M3: strip the unrecognised-heading FAIL block (leaving zero-rows sub-check intact)
-# With the FAIL block deleted, unrecognised-heading-with-rows exits 0 (no failures accumulated),
-# proving the guard at SENTINEL-UNREC-FAIL bites in the SUT.
+# MUTANT M3: strip the unrecognised-heading FAIL block (leaving zero-rows sub-check intact):
+# unrecognised-heading-with-rows exits 1 on the SUT and 0 on the mutant (SENTINEL-UNREC-FAIL bites).
 M3="$TMP/mutant_m3.sh"
-make_mutant_delete_sentinel "SENTINEL-UNREC-FAIL" "$SUT" "$M3"
-bash "$M3" "$FIX/unrecognised-heading.md" >/dev/null 2>&1; _rc=$?
-[ "$_rc" = 0 ] && tok "M3: unrec-fail mutant accepts unrecognised-heading-with-rows (control goes RED → $SUT guard bites)" \
-  || tno "M3: unrec-fail mutant did NOT accept unrecognised-heading-with-rows (control should have been RED)"
+if make_mutant_delete_sentinel "SENTINEL-UNREC-FAIL" "$SUT" "$M3"; then
+  tt "M3: unrec-fail mutant accepts unrecognised-heading-with-rows (control goes RED → verify-retro.sh guard bites)" 1 0 "$M3" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/unrecognised-heading.md"
+fi
 
-# MUTANT M4: strip honesty check → honesty-line fixture must exit 0 but mutant returns 1
+# MUTANT M4: the honesty predicate never matches → honesty-line fixture: original exit 0, mutant exit 1 with the typed
+# FAIL line. (The earlier mutant deleted the whole SENTINEL-HONESTY-CHECK block, leaving _has_honesty unset: it
+# "rejected" the fixture only through an `integer expression expected` crash, caught by the CRASH negative.)
 M4="$TMP/mutant_m4.sh"
-make_mutant_delete_sentinel "SENTINEL-HONESTY-CHECK" "$SUT" "$M4"
-bash "$M4" "$FIX/honesty-line.md" >/dev/null 2>&1; _rc=$?
-[ "$_rc" = 1 ] && tok "M4: honesty mutant rejects honesty-line fixture (control goes RED → $SUT honesty check bites)" \
-  || tno "M4: honesty mutant did NOT reject honesty-line fixture (control should have been RED)"
+if make_mutant_replace 'if retro_grammar_has_honesty "\$f"; then' 'if false; then' "$SUT" "$M4"; then
+  tt "M4: honesty mutant rejects honesty-line fixture (control goes RED → verify-retro.sh honesty check bites)" 0 1 "$M4" --orig "$SUT" \
+    --bad-has '^FAIL \[(absent|empty)-section\]' --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/honesty-line.md"
+fi
 
 # MUTANT M5 (new — #483 extraction guard): retro_grammar_delta_info fail-closed guard.
 # Place a broken (comment-only) retro-grammar.sh in a sandbox dir alongside verify-retro.sh;
@@ -311,21 +333,23 @@ mkdir -p "$_m5_dir/lib"
 cp "$SUT" "$_m5_dir/verify-retro.sh"; chmod +x "$_m5_dir/verify-retro.sh"
 printf '#!/usr/bin/env bash\n# broken lib: retro_grammar_delta_info not defined\n' \
   > "$_m5_dir/lib/retro-grammar.sh"
-_m5_out="$(bash "$_m5_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m5_rc=$?
-if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$_m5_out"; then
-  tok "M5: broken retro-grammar.sh → verify-retro exits 2 with 'failed to define' (guard bites)"
-else
-  tno "M5: broken retro-grammar.sh guard did not fire — rc=$_m5_rc out=[$_m5_out]"
+if mk_built "M5 broken lib" "$RG_LIB" "$_m5_dir/lib/retro-grammar.sh"; then
+  _m5_out="$(bash "$_m5_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m5_rc=$?
+  if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$_m5_out"; then
+    tok "M5: broken retro-grammar.sh → verify-retro exits 2 with 'failed to define' (guard bites)"
+  else
+    tno "M5: broken retro-grammar.sh guard did not fire — rc=$_m5_rc out=[$_m5_out]"
+  fi
 fi
 
 # MUTANT M6: delete SENTINEL-HEADER-HYPHEN-CHECK block → hyphen in "# Retro -" is no longer
 # detected → _has_title_hyphen stays 0 → header-hyphen fixture falls into the FAIL [header-missing]
-# branch → SUT exits 1. This proves the hyphen-detection guard bites.
+# branch: original exit 0, mutant exit 1. This proves the hyphen-detection guard bites.
 M6="$TMP/mutant_m6.sh"
-make_mutant_delete_sentinel "SENTINEL-HEADER-HYPHEN-CHECK" "$SUT" "$M6"
-bash "$M6" "$FIX/header-hyphen.md" >/dev/null 2>&1; _rc=$?
-[ "$_rc" -ne 0 ] && tok "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → $SUT hyphen-detection bites)" \
-  || tno "M6: hyphen-check mutant still accepted header-hyphen fixture (hyphen-detection guard is THEATER)"
+if make_mutant_delete_sentinel "SENTINEL-HEADER-HYPHEN-CHECK" "$SUT" "$M6"; then
+  tt "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → verify-retro.sh hyphen-detection bites)" 0 1 "$M6" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/header-hyphen.md"
+fi
 
 # MUTANT M7 (new — #912 has_honesty guard): retro_grammar_has_honesty fail-closed guard.
 # The broken lib defines retro_grammar_delta_info (so the M5 guard passes) but does NOT
@@ -336,36 +360,38 @@ mkdir -p "$_m7_dir/lib"
 cp "$SUT" "$_m7_dir/verify-retro.sh"; chmod +x "$_m7_dir/verify-retro.sh"
 printf '#!/usr/bin/env bash\n# partial lib: delta_info defined, has_honesty missing\nretro_grammar_delta_info() { :; }\n' \
   > "$_m7_dir/lib/retro-grammar.sh"
-_m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
-if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
-  tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
-else
-  tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
+if mk_built "M7 partial lib" "$RG_LIB" "$_m7_dir/lib/retro-grammar.sh"; then
+  _m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
+  if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
+    tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
+  else
+    tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
+  fi
 fi
 
 # MUTANT M8 (purity guard): neuter RSDD_LEAD_DIRTY_SET in the lib so lead_block_dirty is
-# never set.  dirty-lead-hv fixture should fail on SUT but mutant lib accepts it → exit 0.
+# never set. dirty-lead-hv: original exit 1, sandbox (mutant lib) exit 0.
 # This proves the is_dirty_marker() call that sets lead_block_dirty actually bites.
 _m8_dir="$TMP/m8-sandbox"
 mkdir -p "$_m8_dir/lib"
 cp "$SUT" "$_m8_dir/verify-retro.sh"; chmod +x "$_m8_dir/verify-retro.sh"
 grep -v 'RSDD_LEAD_DIRTY_SET' "$RG_LIB" > "$_m8_dir/lib/retro-grammar.sh"
-_m8_out="$(bash "$_m8_dir/verify-retro.sh" "$FIX/dirty-lead-hv.md" 2>&1)"; _m8_rc=$?
-[ "$_m8_rc" = 0 ] && \
-  tok "M8: dirty-lead mutant accepts dirty-lead-hv (control goes RED → RSDD_LEAD_DIRTY_SET guard bites)" \
-  || tno "M8: dirty-lead mutant did NOT accept dirty-lead-hv — rc=$_m8_rc out=[$_m8_out]"
+if mk_built "M8 dirty-lead lib" "$RG_LIB" "$_m8_dir/lib/retro-grammar.sh"; then
+  tt "M8: dirty-lead mutant accepts dirty-lead-hv (control goes RED → RSDD_LEAD_DIRTY_SET guard bites)" 1 0 "$_m8_dir/verify-retro.sh" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/dirty-lead-hv.md"
+fi
 
 # MUTANT M9 (H2-veto guard): neuter RSDD_H2_VETO in the lib so the H2 delta-ID veto
-# assignment is removed.  h2-delta-id-veto fixture should fail on SUT but mutant accepts it.
+# assignment is removed. h2-delta-id-veto: original exit 1, sandbox (mutant lib) exit 0.
 # This proves the H2 delta-ID veto check in retro_grammar_has_honesty bites.
 _m9_dir="$TMP/m9-sandbox"
 mkdir -p "$_m9_dir/lib"
 cp "$SUT" "$_m9_dir/verify-retro.sh"; chmod +x "$_m9_dir/verify-retro.sh"
 grep -v 'RSDD_H2_VETO' "$RG_LIB" > "$_m9_dir/lib/retro-grammar.sh"
-_m9_out="$(bash "$_m9_dir/verify-retro.sh" "$FIX/h2-delta-id-veto.md" 2>&1)"; _m9_rc=$?
-[ "$_m9_rc" = 0 ] && \
-  tok "M9: H2-veto mutant accepts h2-delta-id-veto (control goes RED → RSDD_H2_VETO guard bites)" \
-  || tno "M9: H2-veto mutant did NOT accept h2-delta-id-veto — rc=$_m9_rc out=[$_m9_out]"
+if mk_built "M9 H2-veto lib" "$RG_LIB" "$_m9_dir/lib/retro-grammar.sh"; then
+  tt "M9: H2-veto mutant accepts h2-delta-id-veto (control goes RED → RSDD_H2_VETO guard bites)" 1 0 "$_m9_dir/verify-retro.sh" --orig "$SUT" \
+    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/h2-delta-id-veto.md"
+fi
 
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
