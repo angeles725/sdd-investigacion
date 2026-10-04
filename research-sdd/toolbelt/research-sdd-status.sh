@@ -31,7 +31,8 @@
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
 #   --emit-token (with --next; kit #1706) appends ONE line `return-token: <token>` after the normal output, mapped from
 #        the same verdict (NEXT → `next: <gap>`; STOP → `STOP: campaign — <reason>` only for a single state file with no
-#        `## Campaign queue`). Any other verdict, or a non-zero --next, prints `return-token: unavailable (<reason>)` and
+#        `## Campaign queue`; the count is corpus-wide, NOT narrowed by --focus/--root — kit #1726). The verdict line is
+#        picked by prefix; zero or several verdict lines are unavailable too. Any other verdict, or a non-zero --next, prints `return-token: unavailable (<reason>)` and
 #        exits 1 — never a guessed token. Without the flag the output is unchanged. Requires --next (exit 2).
 #   --focus <slug> (with --next) scopes the STALE gate to THAT focus's verify-state only (kit #1543): defects in
 #        a legacy sibling focus no longer brick a clean active focus. --all is the explicit corpus-wide form;
@@ -99,6 +100,11 @@ only_has() { [ "$only_set" = 0 ] && return 0; case ",$only_list," in *",$1,"*) r
 # output is untouched). The token is the PROMPT-LOOP RETURN CONTRACT form the agent copies instead of composing:
 #   NEXT | <prio> | <gap>  ->  next: <gap>
 #   STOP | <reason>        ->  STOP: campaign — <reason>   ONLY for one state file with no `## Campaign queue`
+# The verdict line is selected by prefix (NEXT/STOP/ISSUES-DUE/RETRO-DUE/STALE/BOOTSTRAP + " | "); zero or several
+# such lines -> unavailable (kit #1726). The STOP guard counts EVERY state file under the target on purpose and is NOT
+# scoped by --focus/--root: those flags scope which file the VERDICT is read from, but `STOP: campaign` is a claim about
+# the whole campaign, and a focus-scoped STOP in a multi-focus corpus only says that focus is exhausted (the other
+# focuses and the §8c queue/partition check are not computed here) -> conservative `unavailable`.
 # Anything else (RETRO-DUE / ISSUES-DUE / STALE / BOOTSTRAP, a STOP over several focuses or a queue, a non-zero --next)
 # has no single contract token: `return-token: unavailable (<reason>)` + exit 1 — never a guessed token.
 if [ "$emit_token" = 1 ]; then
@@ -109,7 +115,15 @@ if [ "$emit_token" = 1 ]; then
   _et_unavail() { printf 'return-token: unavailable (%s)\n' "$1"; exit 1; }
   [ "$_et_rc" -ne 0 ] && _et_unavail "--next exited $_et_rc"  # ET-RC-GATE
   [ -n "$_et_out" ] || _et_unavail "--next printed nothing"
-  _et_verdict="${_et_out##*$'\n'}"
+  # Pick the verdict line by its PREFIX, not by position (kit #1726): a trailing note line must not become the verdict,
+  # and zero or several verdict lines mean the output is not the one-verdict shape this mapping understands.
+  _et_verdict=""; _et_nv=0
+  while IFS= read -r _et_ln; do
+    case "$_et_ln" in
+      "NEXT | "*|"STOP | "*|"ISSUES-DUE | "*|"RETRO-DUE | "*|"STALE | "*|"BOOTSTRAP | "*) _et_verdict="$_et_ln"; _et_nv=$((_et_nv+1)) ;;  # ET-VERDICT-PICK
+    esac
+  done <<<"$_et_out"
+  [ "$_et_nv" -eq 1 ] || _et_unavail "--next output carries $_et_nv verdict lines (want exactly 1)"  # ET-VERDICT-ONE
   case "$_et_verdict" in
     "NEXT | "*)
       _et_gap="${_et_verdict#NEXT | }"; _et_gap="${_et_gap#* | }"
@@ -122,7 +136,7 @@ if [ "$emit_token" = 1 ]; then
       . "$_et_here/lib/state-files.sh" 2>/dev/null
       declare -F list_state_files >/dev/null 2>&1 || _et_unavail "STOP: cannot enumerate state files (lib/state-files.sh unavailable)"
       mapfile -t _et_states < <(list_state_files "$target")
-      [ "${#_et_states[@]}" -eq 1 ] || _et_unavail "STOP over ${#_et_states[@]} state files needs the §8c campaign-close partition check"  # ET-STOP-MULTI-GUARD
+      [ "${#_et_states[@]}" -eq 1 ] || _et_unavail "STOP over ${#_et_states[@]} state files needs the §8c campaign-close partition check (--focus/--root scope the verdict, not the campaign)"  # ET-STOP-MULTI-GUARD
       grep -q '^## Campaign queue' "${_et_states[0]}" 2>/dev/null; _et_g=$?
       [ "$_et_g" -eq 1 ] || _et_unavail "STOP with a ## Campaign queue (or unreadable state) needs next-entry vs STOP: campaign from §8c"  # ET-STOP-QUEUE-GUARD
       printf 'return-token: STOP: campaign — %s\n' "${_et_verdict#STOP | }"  # ET-STOP-MAP
