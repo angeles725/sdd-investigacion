@@ -57,15 +57,20 @@ conf_rel=".research-sdd/vendor-leak.conf"
 conf="$target/$conf_rel"
 conf_state=absent
 bad_conf=0
+# ONE EXIT trap for every temp file, installed BEFORE the first mktemp so a later mktemp failure (or a signal)
+# cannot leak an earlier one; a second `trap ... EXIT` would replace this one, so extend it here instead.
+files_tmp=""; conf_tmp=""; unmerged_tmp=""
+trap 'rm -f "$files_tmp" "$conf_tmp" "$unmerged_tmp"' EXIT
 files_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
 conf_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
-trap 'rm -f "$files_tmp" "$conf_tmp"' EXIT
 conf_file="$conf"
 # Source order: the INDEX entry wins (it is what a commit would send); otherwise the work tree.
-idx_entry="$(git -C "$target" ls-files -s -- "./$conf_rel" 2>/dev/null)"
+# A failing lookup (corrupt index, git error) is a typed DEGRADED, never "not in the index".
+idx_entry="$(git -C "$target" ls-files -s -- "./$conf_rel" 2>/dev/null)" \
+  || { echo "DEGRADED: git could not read the index entry for $conf_rel — not treated as absent" >&2; exit 3; }
 if [ -n "$idx_entry" ]; then
   idx_mode="${idx_entry%% *}"
-  if grep -qvE '^[0-9]+ [0-9a-f]+ 0	' <<<"$idx_entry"; then
+  if grep -qvE '^[0-9]+ [0-9a-f]+ 0'$'\t' <<<"$idx_entry"; then
     echo "BAD-CONF $conf has unmerged index entries — resolve the merge first"; exit 2
   fi
   if [ "$idx_mode" != 100644 ] && [ "$idx_mode" != 100755 ]; then
@@ -116,10 +121,16 @@ if [ "$conf_state" = present ]; then
         # `*` crosses `/`, so an allow can match every file. Decide semantically: a glob that matches ALL of
         # these probe shapes (top-level, hidden, nested, binary extensions) is blanket, whatever its spelling.
         if [ "$dir" = allow ]; then
-          blanket=1
-          for probe in a a.jar d/a.class .x d/e/f.so x/y/z.dll Q.EXE; do
-            # shellcheck disable=SC2053  # the glob is meant to be a pattern
-            [[ "$probe" == $arg ]] || { blanket=0; break; }
+          # Two probe sets: top-level + nested, and NESTED-ONLY (`*/**` allows every file below a directory, so it
+          # is blanket for any real tree even though a top-level file never matches it).
+          blanket=0
+          for probe_set in "a a.jar d/a.class .x d/e/f.so x/y/z.dll Q.EXE" "d/a.jar d/a.class d/e/f.so x/y/z.dll Q/Q.EXE d/.x d/B.java d/e/lib.so.1"; do
+            all=1
+            for probe in $probe_set; do
+              # shellcheck disable=SC2053  # the glob is meant to be a pattern
+              [[ "$probe" == $arg ]] || { all=0; break; }
+            done
+            [ "$all" = 1 ] && { blanket=1; break; }
           done
           if [ "$blanket" = 1 ]; then
             echo "BAD-CONF allow '$arg' in $conf matches every file — refusing a blanket allow"
@@ -188,7 +199,7 @@ list_files() {
 declare -A UNMERGED=()
 unmerged=0
 unmerged_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed" >&2; exit 3; }
-git -C "$target" ls-files -u -z > "$unmerged_tmp" || { rm -f "$unmerged_tmp"; echo "DEGRADED: git could not list unmerged entries" >&2; exit 3; }
+git -C "$target" ls-files -u -z > "$unmerged_tmp" || { echo "DEGRADED: git could not list unmerged entries" >&2; exit 3; }
 while IFS= read -r -d '' rec; do
   up="${rec#*$'\t'}"
   [ -z "${UNMERGED[$up]+x}" ] || continue
@@ -196,7 +207,6 @@ while IFS= read -r -d '' rec; do
   unmerged=$((unmerged+1))
   echo "UNMERGED ${up//$'\n'/\\n} index has unmerged entries — NOT scanned; resolve the merge first"
 done < "$unmerged_tmp"
-rm -f "$unmerged_tmp"
 list_files > "$files_tmp" || { echo "DEGRADED: git could not list files ($mode)" >&2; exit 3; }
 
 while IFS= read -r -d '' p; do

@@ -202,12 +202,12 @@ for bad in 'path a/../b' 'path ..' 'allow x/..' 'path ../x'; do
   [ "$(rc "$d")" = 2 ] && ok "conf '$bad' → exit 2" || no "conf '$bad' accepted"
 done
 # 16e an allow that is only wildcards would silently allow everything: refused.
-for bad in 'allow *' 'allow **' 'allow ***' 'allow *?*' 'allow ?*' 'allow [!Z]*'; do
+for bad in 'allow *' 'allow **' 'allow ***' 'allow *?*' 'allow ?*' 'allow [!Z]*' 'allow */**' 'allow */*' 'allow ?/**'; do
   printf '%s\n' "$bad" > "$d/.research-sdd/vendor-leak.conf"
   [ "$(rc "$d")" = 2 ] && has "$(out "$d")" '^BAD-CONF ' && ok "conf '$bad' → BAD-CONF exit 2" || no "conf '$bad' accepted"
 done
 # a narrow allow is still fine (probe matching must not over-reject)
-printf 'allow poc/**/gradle/wrapper/*\nallow */**\n' > "$d/.research-sdd/vendor-leak.conf"
+printf 'allow poc/**/gradle/wrapper/*\nallow docs/**\nallow vendor/*/LICENSE\n' > "$d/.research-sdd/vendor-leak.conf"
 [ "$(rc "$d")" = 0 ] && ok "narrow allow globs accepted" || no "narrow allow over-rejected"
 # 16f index-conf refusals: symlink in the index, and unmerged conf.
 d="$TMP/idxlink"; newrepo "$d"; h="$(printf 'prefix javax.baja' | git -C "$d" hash-object -w --stdin)"
@@ -218,6 +218,44 @@ git -C "$d" checkout -q -b side; addf "$d" .research-sdd/vendor-leak.conf 'prefi
 git -C "$d" checkout -q -; addf "$d" .research-sdd/vendor-leak.conf 'prefix e.f'; commit "$d"
 git -C "$d" merge side >/dev/null 2>&1
 o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*unmerged' && ok "unmerged conf in the index → BAD-CONF exit 2" || no "unmerged conf wrong: $o"
+
+# 17 — second-round advisories (kit issue #1545).
+# R2: no literal TAB byte in the SUT (an editor that expands tabs would silently change a regex).
+! grep -qP '\t' "$SUT" && ok "SUT carries no literal tab character" || no "SUT contains a literal tab"
+# R3: a failing index lookup for the conf is a typed DEGRADED (exit 3), never "absent". A corrupt index makes
+# `ls-files` fail while `rev-parse --is-inside-work-tree` still succeeds.
+d="$TMP/badidx"; newrepo "$d" "$FIX/vendor-leak.conf"; commit "$d"; printf 'garbage' > "$d/.git/index"
+o="$(out "$d")"
+[ "$(rc "$d")" = 3 ] && has "$o" '^DEGRADED: git could not read the index entry for ' && ! has "$o" '^ABSENT-CONF|^SUMMARY' \
+  && ok "failing conf index lookup → typed DEGRADED exit 3, not ABSENT-CONF" || no "index lookup failure wrong: $o"
+# R4 / R2-trap: temp files are removed on every exit path. Fakes on PATH make the 2nd mktemp fail, or deliver a
+# SIGTERM while the unmerged-entries temp file is live; the isolated TMPDIR must be left empty.
+REAL_MK="$(command -v mktemp)"; REAL_GIT="$(command -v git)"; export REAL_MK REAL_GIT
+mkdir -p "$TMP/fk-mk" "$TMP/fk-git"
+cat > "$TMP/fk-mk/mktemp" <<'EOF'
+#!/bin/bash
+n="$(cat "$FAKE_CNT" 2>/dev/null || echo 0)"; n=$((n+1)); echo "$n" > "$FAKE_CNT"
+[ "$n" -ge "$FAKE_MK_FAIL_AT" ] && exit 1
+exec "$REAL_MK" "$@"
+EOF
+cat > "$TMP/fk-git/git" <<'EOF'
+#!/bin/bash
+case " $* " in *" ls-files -u "*) kill -TERM "$PPID"; sleep 2; exit 1 ;; esac
+exec "$REAL_GIT" "$@"
+EOF
+chmod +x "$TMP/fk-mk/mktemp" "$TMP/fk-git/git"
+# leftover_mk <sut> <fail-at> <iso> — runs the SUT with the Nth mktemp failing; prints "<rc> <leftover-count>".
+leftover_mk(){ local r; rm -f "$TMP/cnt"; rm -rf "$3"; mkdir -p "$3"
+  FAKE_CNT="$TMP/cnt" FAKE_MK_FAIL_AT="$2" TMPDIR="$3" PATH="$TMP/fk-mk:$PATH" bash "$1" "$TMP/clean" >/dev/null 2>&1; r=$?
+  echo "$r $(ls -A "$3" | wc -l)"; }
+# leftover_sig <sut> <iso> — SIGTERM arrives during the unmerged listing; prints "<rc> <leftover-count>".
+leftover_sig(){ local r; rm -rf "$2"; mkdir -p "$2"
+  TMPDIR="$2" PATH="$TMP/fk-git:$PATH" bash "$1" "$TMP/clean" >/dev/null 2>&1; r=$?
+  echo "$r $(ls -A "$2" | wc -l)"; }
+[ "$(leftover_mk "$SUT" 2 "$TMP/iso-mk2")" = "3 0" ] && ok "2nd mktemp fails → exit 3, first temp file removed (0 leftovers)" || no "mktemp-2 failure leaked: $(leftover_mk "$SUT" 2 "$TMP/iso-mk2")"
+[ "$(leftover_mk "$SUT" 3 "$TMP/iso-mk3")" = "3 0" ] && ok "3rd mktemp fails → exit 3, earlier temp files removed (0 leftovers)" || no "mktemp-3 failure leaked: $(leftover_mk "$SUT" 3 "$TMP/iso-mk3")"
+[ "$(leftover_mk "$SUT" 99 "$TMP/iso-mk99" | cut -d' ' -f2)" = 0 ] && ok "normal run leaves 0 temp files" || no "normal run leaked temp files"
+[ "$(leftover_sig "$SUT" "$TMP/iso-sig")" = "143 0" ] && ok "SIGTERM during unmerged listing → EXIT trap removes the unmerged temp file" || no "signal leaked: $(leftover_sig "$SUT" "$TMP/iso-sig")"
 
 # 11 — --strict (kit issue #1566 R3): EMPTY-CONF / ABSENT-CONF become a typed non-pass (exit 4); default unchanged.
 TPL="$HERE/../../templates"
@@ -312,9 +350,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk "R conf-wt" "$SUT" "$MUT/r.sh" 's/^  conf_file="\$conf_tmp"/  conf_file="$conf"/' \
     && tt "R conf from work tree → emptied work-tree conf hides the prefix" 1 0 "$MUT/r.sh" -- bash @SUT@ "$TMP/confidx" --staged
   # S: blanket-allow guard disabled (probe loop can never conclude blanket).
-  mk "S allow-star" "$SUT" "$MUT/s.sh" 's/^          blanket=1$/          blanket=0/' \
+  mk "S allow-star" "$SUT" "$MUT/s.sh" 's/\[ "\$all" = 1 \] \&\& { blanket=1; break; }/:/' \
     && { printf 'allow ***\n' > "$TMP/dots/.research-sdd/vendor-leak.conf"
          tt "S blanket allow accepted → allows everything" 2 0 "$MUT/s.sh" -- bash @SUT@ "$TMP/dots"; }
+  # S2 (#1545 R1): nested-only probe set dropped → `allow */**` (every nested file) accepted.
+  mk "S2 allow-nested" "$SUT" "$MUT/s2.sh" 's/ "d\/a\.jar d\/a\.class[^"]*"//' \
+    && { printf 'allow */**\n' > "$TMP/dots/.research-sdd/vendor-leak.conf"
+         tt "S2 nested-only probe dropped → */** accepted" 2 0 "$MUT/s2.sh" --good-has '^BAD-CONF allow' --bad-lacks '^BAD-CONF allow' -- bash @SUT@ "$TMP/dots"; }
+  # S3 (#1545 R2): a literal tab reintroduced into the SUT must trip the no-tab lint predicate.
+  mk "S3 tab" "$SUT" "$MUT/s3.sh" $'s/^set -uo pipefail$/&\t/' \
+    && { if ! grep -qP '\t' "$SUT" && grep -qP '\t' "$MUT/s3.sh"; then ok "S3 literal tab in SUT → lint predicate bites"; else no "S3 tab mutant not detected"; fi; }
+  # S4 (#1545 R3): failing conf index lookup tolerated → falls through instead of typed DEGRADED.
+  mk "S4 idx-degraded" "$SUT" "$MUT/s4.sh" 's/^  || { echo "DEGRADED: git could not read the index entry.*$/  || true/' \
+    && tt "S4 index lookup failure tolerated → no typed DEGRADED (the later unmerged listing still exits 3, so the typed line is the contract)" 3 3 "$MUT/s4.sh" --good-has '^DEGRADED: git could not read the index entry' --bad-lacks '^DEGRADED: git could not read the index entry' --bad-lacks 'integer expression expected|syntax error|unbound variable' -- bash @SUT@ "$TMP/badidx"
+  # S5 (#1545 R4): trap installed AFTER the mktemps again → the first temp file leaks when the 2nd mktemp fails.
+  mk "S5 trap-late" "$SUT" "$MUT/s5.sh" '/^trap .rm -f /d; /^conf_tmp="/a trap '"'"'rm -f "$files_tmp" "$conf_tmp" "$unmerged_tmp"'"'"' EXIT' \
+    && { g="$(leftover_mk "$SUT" 2 "$TMP/iso-s5g")"; b="$(leftover_mk "$MUT/s5.sh" 2 "$TMP/iso-s5b")"
+         if [ "$g" = "3 0" ] && [ "$b" = "3 1" ]; then ok "S5 trap after mktemp → 2nd-mktemp failure leaks (good=$g bad=$b)"; else no "S5 trap-late tooth (good=$g bad=$b)"; fi; }
+  # S6 (#1545 R2): unmerged temp file dropped from the trap → leaks on a signal.
+  mk "S6 trap-unmerged" "$SUT" "$MUT/s6.sh" 's/ "\$unmerged_tmp"'"'"' EXIT/'"'"' EXIT/' \
+    && { g="$(leftover_sig "$SUT" "$TMP/iso-s6g")"; b="$(leftover_sig "$MUT/s6.sh" "$TMP/iso-s6b")"
+         if [ "$g" = "143 0" ] && [ "$b" = "143 1" ]; then ok "S6 unmerged tmp not in trap → leaks on SIGTERM (good=$g bad=$b)"; else no "S6 trap-unmerged tooth (good=$g bad=$b)"; fi; }
   # T: index symlink conf accepted (mode check dropped).
   mk "T idx-symlink" "$SUT" "$MUT/t.sh" 's/\[ "\$idx_mode" != 100644 \] && \[ "\$idx_mode" != 100755 \]/false/' \
     && tt "T index symlink conf accepted" 2 0 "$MUT/t.sh" -- bash @SUT@ "$TMP/idxlink"
