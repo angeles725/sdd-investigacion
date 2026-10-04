@@ -322,11 +322,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # _nt_stage DIR — stage the kit's lib/tool-env.sh beside a mutant SUT (it resolves lib/ via $0) and
   # verify the staging. Failure is returned to the caller, which counts it once.
   _nt_stage() {
-    mkdir -p "$1/lib" && cp "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh" && [ -s "$1/lib/tool-env.sh" ]
+    mkdir -p "$1/lib" && cp "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh" && cmp -s "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh"
   }
   # _nt_stage_sut DIR — stage an unmodified SUT copy plus an (empty) lib/ dir for a mutated lib/tool-env.sh.
   _nt_stage_sut() {
-    mkdir -p "$1/lib" && cp "$SUT" "$1/decompile-net.sh" && [ -s "$1/decompile-net.sh" ]
+    mkdir -p "$1/lib" && cp "$SUT" "$1/decompile-net.sh" && cmp -s "$SUT" "$1/decompile-net.sh"
   }
   # _nt_pysub OUT REGEX REPL — write OUT = lib/tool-env.sh with exactly ONE regex substitution
   # (DOTALL|MULTILINE); exits 2 when the pattern does not match exactly once. mutant_built then verifies OUT.
@@ -334,9 +334,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     python3 - "$HERE/../lib/tool-env.sh" "$1" "$2" "$3" <<'PYEOF'
 import sys, re
 text = open(sys.argv[1]).read()
-result, n = re.subn(sys.argv[3], lambda m: sys.argv[4], text, count=1, flags=re.MULTILINE | re.DOTALL)
-if n != 1:
+flags = re.MULTILINE | re.DOTALL
+# Dry run first: refuse unless the pattern matches EXACTLY once (count=1 alone could never see a 2nd match).
+if len(re.findall(sys.argv[3], text, flags)) != 1:
     sys.exit(2)
+result = re.sub(sys.argv[3], lambda m: sys.argv[4], text, count=1, flags=flags)
 open(sys.argv[2], 'w').write(result)
 PYEOF
   }

@@ -197,7 +197,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # _nn_stage DIR LIB — stage a stub lib/tool-env.sh beside a mutant SUT (it sources $HERE/lib/tool-env.sh
   # relative to $0) and verify it; a failure is counted once here and the caller skips the build + tooth.
   _nn_stage() {
-    if mkdir -p "$1/lib" && cp "$2" "$1/lib/tool-env.sh" && [ -s "$1/lib/tool-env.sh" ]; then return 0; fi
+    if mkdir -p "$1/lib" && cp "$2" "$1/lib/tool-env.sh" && cmp -s "$2" "$1/lib/tool-env.sh"; then return 0; fi
     fail=$((fail+1)); printf '  FAIL  could not stage lib/tool-env.sh beside mutant dir %s\n' "$1"; return 1
   }
   # The _nn_* drivers each run one base scenario in a FRESH dir against the SUT path in $1 and print one
