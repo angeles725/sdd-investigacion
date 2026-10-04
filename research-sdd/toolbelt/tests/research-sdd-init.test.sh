@@ -1643,12 +1643,14 @@ GHEOF
   assert_file "K1271-a PUBLIC: .research-sdd/vendor-leak.conf stub scaffolded" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-a PUBLIC: stub names the directive vocabulary" "allow  <glob>" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-a PUBLIC: typed PUBLIC line" "vendor-leak: PUBLIC" "$TMP/k71.out"
-  assert_grep "K1271-a PUBLIC: CI snippet proposed (carries the scanner run step)" "run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked" "$TMP/k71.out"
+  assert_grep "K1271-a PUBLIC: CI snippet proposed (carries the scanner run step)" "run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked --strict" "$TMP/k71.out"
   assert_absent "K1271-a PUBLIC: workflow NOT written without --wire (propose-never-apply)" "$d/.github/workflows/vendor-leak.yml"
   assert_grep "K1271-a: gh asked for visibility" "repo view" "$TMP/k71.gh.log"
   # the scanner itself accepts the stub: EMPTY-CONF, exit 0 on an empty tree
   _k71_scan="$(cd "$d" && bash "$HERE/../scan-vendor-leak.sh" "$d" 2>&1)"; _k71_rc=$?
   { [ "$_k71_rc" = 0 ] && grep -qF 'EMPTY-CONF' <<<"$_k71_scan"; } && ok "K1271-a: scanner reads the stub as EMPTY-CONF (exit 0)" || no "K1271-a: scanner on the stub: rc=$_k71_rc out=[$_k71_scan]"
+  _k71_scan="$(cd "$d" && bash "$HERE/../scan-vendor-leak.sh" "$d" --strict 2>&1)"; _k71_rc=$?
+  { [ "$_k71_rc" = 4 ] && grep -qF 'STRICT-FAIL EMPTY-CONF' <<<"$_k71_scan"; } && ok "K1566: the proposed CI's --strict makes the untouched stub a non-pass (exit 4)" || no "K1566: strict scanner on the stub: rc=$_k71_rc out=[$_k71_scan]"
 
   # K1271-b PUBLIC + --scaffold --wire → workflow written; K1271-c existing conf / workflow never overwritten
   d="$(_k71_target b https://example.invalid/pub.git)"
@@ -1669,6 +1671,20 @@ GHEOF
   assert_absent "K1271-d PRIVATE: no workflow written" "$d/.github/workflows/vendor-leak.yml"
   assert_grep "K1271-d PRIVATE: typed message" "vendor-leak: PRIVATE" "$TMP/k71.out"
 
+  # K1566 R4: a target that is a SUBDIRECTORY of a repo inherits the parent's remotes; GitHub ignores a workflow
+  # written under <sub>/.github/workflows, so --wire must NOT write it nor claim success — typed SUBDIR state.
+  d="$(_k71_target r4 https://example.invalid/pub.git)"; mkdir -p "$d/sub"; : > "$TMP/k71.gh.log"
+  _k71_run "$d/sub" PUBLIC 0 --scaffold --wire
+  [ "$K71_RC_OUT" = 0 ] && ok "K1566-R4 subdir target: scaffold still exits 0" || no "K1566-R4 subdir target: exit $K71_RC_OUT"
+  assert_grep "K1566-R4 subdir target: typed SUBDIR state" "vendor-leak: SUBDIR" "$TMP/k71.out"
+  assert_absent "K1566-R4 subdir target: no workflow written under the subdirectory" "$d/sub/.github/workflows/vendor-leak.yml"
+  assert_absent "K1566-R4 subdir target: no conf scaffolded in the subdirectory" "$d/sub/.research-sdd/vendor-leak.conf"
+  { ! grep -qF 'wrote CI workflow' "$TMP/k71.out" && ! grep -qF 'vendor-leak: PUBLIC' "$TMP/k71.out"; } && ok "K1566-R4 subdir target: no success claim in the output" || no "K1566-R4 subdir target: success claimed"
+  [ ! -s "$TMP/k71.gh.log" ] && ok "K1566-R4 subdir target: gh not asked about the parent's remote" || no "K1566-R4 subdir target: gh was called"
+  # the repo ROOT is unaffected (K1271-b), including when reached through a symlink
+  ln -sfn "$d" "$TMP/k71-r4-link"; : > "$TMP/k71.gh.log"
+  _k71_run "$TMP/k71-r4-link" PUBLIC 0 --scaffold --wire
+  assert_file "K1566-R4 repo root via symlink: workflow still written" "$d/.github/workflows/vendor-leak.yml"
   # K1271-e no remote → no gh call, no scaffold, typed message
   d="$(_k71_target e)"; : > "$TMP/k71.gh.log"
   _k71_run "$d" PUBLIC 0
@@ -1710,7 +1726,7 @@ echo "\$1" >> "\${K71_TOLOG:-/dev/null}"
 exec "$(command -v timeout)" "\$@"
 TOEOF
   chmod +x "$K71_TO/timeout"
-  for _bad in 0 abc ""; do
+  for _bad in 0 00 abc ""; do
     d="$(_k71_target "o-${_bad:-empty}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
     PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="$_bad" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
     assert_grep "K1271-o RSDD_GH_TIMEOUT='$_bad': note about the invalid value" "RSDD_GH_TIMEOUT" "$TMP/k71.out"
@@ -1719,6 +1735,13 @@ TOEOF
   d="$(_k71_target o-ok https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
   PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && ok "K1271-o valid RSDD_GH_TIMEOUT=7 honoured" || no "K1271-o valid RSDD_GH_TIMEOUT=7 not honoured"
+  # K1566 R2: a positive integer with leading zeros is valid (decimal, not octal) — not rejected, not mis-parsed
+  for _lz in 05:5 010:10 0020:20 0000000007:7; do
+    d="$(_k71_target "lz-${_lz%%:*}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="${_lz%%:*}" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
+    { [ "$(head -1 "$TMP/k71.to.log")" = "${_lz##*:}" ] && ! grep -qF 'not a positive integer' "$TMP/k71.out"; } \
+      && ok "K1566 RSDD_GH_TIMEOUT=${_lz%%:*} → decimal ${_lz##*:}, no invalid-value note" || no "K1566 RSDD_GH_TIMEOUT=${_lz%%:*}: timeout got '$(head -1 "$TMP/k71.to.log")'"
+  done
   else echo "  SKIP  K1271-i/o: GNU timeout not on PATH (the SUT then runs gh unbounded, announced)"; fi
   # K1271-p rc 125 (timeout itself failed) has its own wording; gh's first stderr line is surfaced on failure
   d="$(_k71_target p1 https://example.invalid/x.git)"
@@ -3152,7 +3175,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || ok "teeth M-1271-TIMEOUT: hang not cut off without the wrapper — K1271-i has teeth"
   else no "teeth M-1271-TIMEOUT: could not build mutant"; fi
   # M-1271-TOVALID: RSDD_GH_TIMEOUT is passed through unvalidated → 0 reaches timeout (unbounded).
-  if _k43_build k71tv -e "s#^    ''|\*\[!0-9\]\*|0\*)\$#    NEVERMATCH)#"; then
+  if _k43_build k71tv -e "s#^    ''|\*\[!0-9\]\*) gh_t=0 ;;\$#    NEVERMATCH) gh_t=0 ;;#" -e 's#\[ "\$((10\#\$gh_t))" -eq 0 \]#false#'; then
     d="$(_k71_target t-tv https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
     PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71tv/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1271-TOVALID: 0 reaches timeout without validation — K1271-o has teeth" \
@@ -3236,6 +3259,26 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'ambiguous remote' "$TMP/k71t.out" && no "teeth M-1271-AMBIG: refusal survives — THEATER" \
       || ok "teeth M-1271-AMBIG: no refusal without the branch — K1271-q has teeth"
   else no "teeth M-1271-AMBIG: could not build mutant"; fi
+  # M-1566-SUBDIR: the top-level comparison is removed → a subdirectory target is probed and wired again.
+  if _k43_build k66sd -e 's#^  if \[ "\$_vl_top" != "\$_vl_here" \]; then#  if false; then#'; then
+    d="$(_k71_target t-sd https://example.invalid/pub.git)"; mkdir -p "$d/sub"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66sd/toolbelt/init.sh" "$d/sub" --corpus flat --scaffold --wire >"$TMP/k71t.out" 2>&1
+    { [ -e "$d/sub/.github/workflows/vendor-leak.yml" ] && ! grep -qF 'vendor-leak: SUBDIR' "$TMP/k71t.out"; } \
+      && ok "teeth M-1566-SUBDIR: subdirectory wired and no typed state without the comparison — K1566-R4 has teeth" \
+      || no "teeth M-1566-SUBDIR: still guarded under the mutant — K1566-R4 is THEATER"
+  else no "teeth M-1566-SUBDIR: could not build mutant"; fi
+  # M-1566-LZ: the leading-zero strip is removed → a long zero-padded value (0000000007) is over the length bound and falls back to 20.
+  if command -v timeout >/dev/null 2>&1 && _k43_build k66lz -e 's#^    \*) gh_t="\${gh_t\#.*$#    *) : ;;#'; then
+    d="$(_k71_target t-lz https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0000000007 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66lz/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && no "teeth M-1566-LZ: still 7 without the strip — THEATER" || ok "teeth M-1566-LZ: 0000000007 not normalised (got '$(head -1 "$TMP/k71.to.log")') without the strip — K1566 timeout cases have teeth"
+  else echo "  SKIP  teeth M-1566-LZ: no GNU timeout or mutant not buildable"; fi
+  # M-1566-ZERO: the all-zero rejection is removed → 00 reaches timeout as 0 (unbounded).
+  if command -v timeout >/dev/null 2>&1 && _k43_build k66z0 -e 's# || \[ "\$((10\#\$gh_t))" -eq 0 \]##'; then
+    d="$(_k71_target t-z0 https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=00 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66z0/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1566-ZERO: 00 reaches timeout as 0 without the guard — K1271-o '00' has teeth" || no "teeth M-1566-ZERO: 00 still bounded under the mutant (got '$(head -1 "$TMP/k71.to.log")') — THEATER"
+  else echo "  SKIP  teeth M-1566-ZERO: no GNU timeout or mutant not buildable"; fi
   # M-1271-CONFDIR: the .research-sdd symlink/non-directory guard is removed → written through the link.
   if _k43_build k71cd -e 's#^  elif \[ -L "\$target/.research-sdd" \] .*#  elif false; then :#'; then
     d="$(_k71_target t-cd https://example.invalid/x.git)"; mkdir -p "$TMP/k71-cd-out"; ln -s "$TMP/k71-cd-out" "$d/.research-sdd"

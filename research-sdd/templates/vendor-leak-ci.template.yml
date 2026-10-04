@@ -7,8 +7,8 @@
 # repository. If the kit repository is private or internal, give that step a credential that can read it
 # (e.g. `token: ${{ secrets.KIT_READ_TOKEN }}` holding a read-only fine-grained PAT); without one the step
 # fails with "not found" on every run — loud, but easy to mistake for the unfilled-placeholder failure.
-# Action pinning: actions/checkout is referenced by the major tag @v4 (a mutable ref) so the template needs no
-# per-release maintenance. For a public repo, replace it with the full commit sha of the v4 release you reviewed.
+# Action pinning: actions/checkout is pinned to the full commit sha of v4.4.0 (verified against the upstream tag
+# via the GitHub API). Bump it deliberately: look up the sha of the release you reviewed, never a floating tag.
 name: vendor-leak
 on:
   push:
@@ -17,15 +17,16 @@ jobs:
   scan-vendor-leak:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: target
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: <KIT_REPOSITORY>
           ref: <KIT_REF>
           path: kit
-      # Exit 0 clean · 1 findings · 2 cannot look (bad conf / unreadable / unmerged) · 3 degraded:
-      # every non-zero exit fails the job.
+      # Exit 0 clean · 1 findings · 2 cannot look (bad conf / unreadable / unmerged) · 3 degraded ·
+      # 4 (--strict) no vendor prefix/path declared yet (STRICT-FAIL EMPTY-CONF / ABSENT-CONF / ALLOW-ONLY-CONF): every non-zero exit fails the job.
+      # Fill .research-sdd/vendor-leak.conf with at least one prefix/path directive to turn the job green.
       - name: scan tracked files for vendor-code leaks
-        run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked
+        run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked --strict

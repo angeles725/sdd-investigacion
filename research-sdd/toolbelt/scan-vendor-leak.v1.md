@@ -50,6 +50,8 @@ Typed non-finding states (never a silent zero):
 |---|---|
 | `ABSENT-CONF` | No conf: only the built-in binary rule ran. The SUMMARY repeats "path/package rules NOT evaluated". |
 | `EMPTY-CONF` | Conf exists with zero directives: same limitation. |
+| `ALLOW-ONLY-CONF` | Advisory (kit #1566), exit 0 without `--strict`: the conf has `allow` lines but no `prefix`/`path`, so no vendor rule is declared and only the built-in binary rule runs. |
+| `STRICT-FAIL <state>` | Only with `--strict` (kit #1566): `<state>` is `ABSENT-CONF`, `EMPTY-CONF` or `ALLOW-ONLY-CONF` (an `allow`-only conf declares nothing to look for). The run exits 4 — a non-pass for CI on a PUBLIC repo; findings (1) and cannot-look (2) outrank it. Without `--strict` the exit codes are unchanged (0); `ALLOW-ONLY-CONF` is the one new advisory line. |
 | `EMPTY-INPUT` | Zero files in scope (empty repo / nothing staged): nothing was looked at. |
 | `CONF-UNTRACKED` | Conf exists only in the work tree (not in the index): used, but a commit would not carry it. |
 | `UNMERGED <path>` | Unmerged index entries: not scanned; counted in `unmerged=N`; exit 2 (or 1 if a finding exists). |
@@ -62,6 +64,7 @@ Typed non-finding states (never a silent zero):
 | 1 | findings |
 | 2 | usage, not a git work tree, bad/unreadable conf, unreadable index content, or unmerged index entries |
 | 3 | DEGRADED, on stderr (git missing, mktemp failed, or git could not list files) |
+| 4 | `--strict` only: no vendor declaration evaluated (`STRICT-FAIL`); outranked by 1 and 2 |
 
 Modes: `--tracked` (default) = every file git tracks under the target; `--staged` = files added/copied/modified/renamed
 in the index (type changes such as file → symlink are scanned; deletions are skipped on purpose). Unmerged index entries (merge/rebase conflict) are reported once each as `UNMERGED <path>`, not scanned, counted in `unmerged=N`, and make the run exit 2 (never clean, never a LEAK/UNREADABLE misreport). Package declarations are read from the INDEX (`git show :./path`), not the worktree copy, so a staged
