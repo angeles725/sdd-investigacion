@@ -341,6 +341,12 @@ tmp_out="$(mktemp)"
 # re-set the trap. A root that cannot be created is DEGRADED (the suites then run with the caller's
 # TMPDIR unchanged and nothing can be reported about leftovers) — never a confident 0 (§7).
 # SENTINEL-TMPDIR-ROOT
+# Every variable the EXIT cleanup touches is initialised HERE, before the trap: PAR_DIR is a generic
+# name, so one inherited from the caller's environment must never be mistaken for a dir this run
+# created (the cleanup removes only what this run made: _par_dir_created).
+# SENTINEL-PAR-DIR-INIT
+PAR_DIR=""
+_par_dir_created=""
 RUN_TMP_ROOT=""
 TMPDIR_DEGRADED_REASON=""
 tmp_leftovers=()        # "<suite basename>: <count>"
@@ -356,7 +362,7 @@ else
 fi
 _run_all_cleanup() {
   rm -f "$tmp_out"
-  [[ -n "${PAR_DIR:-}" ]] && rm -rf "$PAR_DIR"
+  [[ -n "$_par_dir_created" && -n "$PAR_DIR" ]] && rm -rf "$PAR_DIR"
   if [[ -n "$RUN_TMP_ROOT" ]]; then
     # A leftover the suite chmod'ed shut would defeat rm -rf; reopen it first (best effort).
     chmod -R u+rwX "$RUN_TMP_ROOT" 2>/dev/null
@@ -626,7 +632,7 @@ if [[ "$JOBS" -gt 1 ]]; then
   fi
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  PAR_DIR="$(mktemp -d)"
+  PAR_DIR="$(mktemp -d)"; _par_dir_created=1
   cat > "$PAR_DIR/run1.sh" <<'WORKER'
 #!/usr/bin/env bash
 # run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.

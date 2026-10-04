@@ -1373,6 +1373,28 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
     ok "-j tmpdir-create-failed: the worker's creation failure is recorded and named under -j"
   else no "-j tmpdir create-failed failed: rc=$rc rc2=$rc2 :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j tmpdir-create-failed"; fi
+# 38h — an inherited PAR_DIR (generic env name) must NEVER be removed by a serial run: the cleanup
+#       only removes a dir this run created.
+w="$(newdir c38h)"; mkfix_sh "$w/a.test.sh" 1 0 0
+_c38hsent="$TMP/c38h-sentinel"; mkdir -p "$_c38hsent"; : > "$_c38hsent/keep"
+out="$(PAR_DIR="$_c38hsent" bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$_c38hsent/keep" ]; then
+  ok "tmpdir-par-dir-env: an inherited PAR_DIR survives a serial run (only run-created dirs are removed)"
+else no "inherited PAR_DIR was removed or run failed: rc=$rc"; fi
+# 38i — a NODE suite gets the per-suite TMPDIR too and its leftover is counted (the node branch is a
+#       separate command line from the bash one). SKIP (typed) when node is absent.
+if command -v node >/dev/null 2>&1; then
+  w="$(newdir c38i)"; _c38root="$TMP/c38i-calltmp"; mkdir -p "$_c38root"
+  { printf "import fs from 'node:fs';\n"
+    printf "console.log('TMPDIR_SEEN=' + process.env.TMPDIR);\n"
+    printf "fs.writeFileSync(process.env.TMPDIR + '/leftover', 'x');\n"
+    printf "console.log('== 1 passed %s 0 failed ==');\n" "$MID"
+  } > "$w/n.test.mjs"
+  out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q "TMPDIR_SEEN=$_c38root/" <<<"$out" && grep -qF 'TMPDIR leftovers: 1 — [n.test.mjs: 1]' <<<"$out"; then
+    ok "tmpdir-node: a node suite runs in its own TMPDIR and its leftover is counted"
+  else no "tmpdir node failed: rc=$rc :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
+else printf '  SKIP  %s (node not installed)\n' "tmpdir-node"; fi
 # 38e — DEGRADED, never a confident 0: when the per-run root cannot be created (a `mktemp -d` that
 #       fails; plain `mktemp` still works) the runner says so, still runs the suites, and
 #       --require-clean-tmp fails the run.
@@ -2115,6 +2137,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mout="$(PATH="$_tcbin:$PATH" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; _trc=$?
     if [ "$_trc" -eq 0 ] && ! grep -qF 'TMPDIR scan: DEGRADED' <<<"$mout"; then ok "teeth-tmpd-create: record-less mutant reads the uncreated subdir as clean → the creation-failure record has real teeth"
     else no "teeth-tmpd-create: mutant still reports DEGRADED (rc=$_trc) — mutation not exercised (THEATER)"; fi
+  fi
+  echo "-- teeth: drop the PAR_DIR initialisation; an inherited PAR_DIR must then be removed by a serial run (case 38h) --"
+  if tmpd_mut teeth-tmpd-pardir '/SENTINEL-PAR-DIR-INIT/,+2{/^PAR_DIR=""$/d;/^_par_dir_created=""$/s/.*/_par_dir_created=1/}'; then
+    mkfix_sh "$w/a.test.sh" 1 0 0
+    _tpsent="$TMP/teeth-tmpd-pardir-sentinel"; mkdir -p "$_tpsent"; : > "$_tpsent/keep"
+    PAR_DIR="$_tpsent" bash "$w/run-all.sh" >/dev/null 2>&1
+    if [ ! -e "$_tpsent/keep" ]; then ok "teeth-tmpd-pardir: init-less mutant deletes the inherited PAR_DIR → the init and the created-flag have real teeth"
+    else no "teeth-tmpd-pardir: mutant left the sentinel alone — mutation not exercised (THEATER)"; fi
+  fi
+  if command -v node >/dev/null 2>&1; then
+    echo "-- teeth: stop exporting TMPDIR to node suites; the node suite must see the caller's TMPDIR (case 38i) --"
+    if tmpd_mut teeth-tmpd-node 's/TMPDIR="\$_st" node/node/'; then
+      { printf "console.log('TMPDIR_SEEN=' + process.env.TMPDIR);\n"; printf "console.log('== 1 passed %s 0 failed ==');\n" "$MID"; } > "$w/n.test.mjs"
+      tmpd_run teeth-tmpd-node
+      if ! grep -q "TMPDIR_SEEN=$_tr/tmp\.[^/]*/[0-9]" <<<"$mout"; then ok "teeth-tmpd-node: export-less node branch sees the caller's TMPDIR → the node export has real teeth"
+      else no "teeth-tmpd-node: mutant still isolates the node suite — mutation not exercised (THEATER)"; fi
+    fi
   fi
   echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
   if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
