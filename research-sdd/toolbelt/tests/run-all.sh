@@ -345,6 +345,7 @@ RUN_TMP_ROOT=""
 TMPDIR_DEGRADED_REASON=""
 tmp_leftovers=()        # "<suite basename>: <count>"
 tmp_leftover_total=0
+tmp_scan_failed=()      # suites whose existing TMPDIR subdir could not be scanned
 if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]; then
   export RUN_TMP_ROOT
 else
@@ -367,13 +368,17 @@ _suite_tmpdir() {   # _suite_tmpdir <index> — create + print the suite's TMPDI
   mkdir -p "$RUN_TMP_ROOT/$1" && printf '%s' "$RUN_TMP_ROOT/$1"
 }
 _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
-  # Entries (dotfiles included) directly inside the suite's TMPDIR subdir. Captured, rc-checked: a
-  # scan that fails (an unreadable dir) is DEGRADED, not "nothing left". A chmod-000 leftover dir is
+  # Entries (dotfiles included) directly inside the suite's TMPDIR subdir. Captured, rc-checked.
+  # ABSENT != ERROR: a suite that removed its own TMPDIR left nothing (0 for it). Only a find
+  # failure on an EXISTING dir (e.g. it was chmod'ed shut) is a scan failure, attributed to THAT
+  # suite (tmp_scan_failed) so the other suites' counts survive. A chmod-000 leftover dir inside is
   # itself ONE entry — it is listed by its parent, never opened.
   [[ -n "$RUN_TMP_ROOT" ]] || return 0
   local _o _n
+  # SENTINEL-TMPDIR-ABSENT
+  [[ -e "$RUN_TMP_ROOT/$2" ]] || return 0
   if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
-    [[ -n "$TMPDIR_DEGRADED_REASON" ]] || TMPDIR_DEGRADED_REASON="the TMPDIR scan failed for $1"
+    tmp_scan_failed+=("$1")
     return 0
   fi
   [[ -n "$_o" ]] || return 0
@@ -873,6 +878,10 @@ else
   if [[ "$tmp_leftover_total" -gt 0 ]]; then
     echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
   fi
+  if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then
+    _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"
+    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [${_ts_names%, }]; their leftovers are unverified"
+  fi
 fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
@@ -987,7 +996,7 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
-  if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]]; }; then
+  if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]]; }; then
     exit 1
   fi
   # SENTINEL-REQUIRE-TEETH-EXIT
