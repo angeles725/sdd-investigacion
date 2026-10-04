@@ -391,40 +391,36 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # Instead, we prove teeth via a direct unit test that calls _build_inventory
   # with strings LONGER than max_string_len and asserts they are capped to max.
   # With the mutation the cap fires at max+99 instead of max → assertion fails → RED.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
+  # dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_floss.py"
 
-  # Verify mutation target exists before applying.
-  if ! grep -qF 'raw_val = raw_val[:max_string_len]' "$TOOLBELT/corroborate_floss.py"; then
-    no "teeth-1: mutation target not found in SUT (SUT changed?); cannot prove teeth"
-  else
-    sed 's|raw_val = raw_val\[:max_string_len\]|raw_val = raw_val[:max_string_len+99]  # mutant|g' \
-      "$TOOLBELT/corroborate_floss.py" > "$_MUT_PY"
-
-    _teeth_rc=0
-    # Pass both mutant dir and real toolbelt so lib/ imports resolve correctly.
-    python3 - "$_MUT_DIR" "$TOOLBELT" <<'PY' || _teeth_rc=$?
+  if mutant_chain "teeth-1" "$TOOLBELT/corroborate_floss.py" "$_MUT_PY" \
+      's|raw_val = raw_val\[:max_string_len\]|raw_val = raw_val[:max_string_len+99]  # mutant|g'; then
+    cat > "$_MUT_DIR/harness.py" <<'PY'
 import sys, importlib.util
 from pathlib import Path
 
-mut_dir  = Path(sys.argv[1]).resolve()
-toolbelt = Path(sys.argv[2]).resolve()
+toolbelt = Path(sys.argv[1]).resolve()
+module_path = Path(sys.argv[2]).resolve()
 
-# Add real toolbelt so lib/ imports resolve; mutant inserts its own dir during exec.
+# Add real toolbelt so lib/ imports resolve; the module under test may insert its own dir.
 sys.path.insert(0, str(toolbelt))
 
-spec = importlib.util.spec_from_file_location(
-    "corroborate_floss_mut", mut_dir / "corroborate_floss.py"
-)
+spec = importlib.util.spec_from_file_location("corroborate_floss_under_test", module_path)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-# Build a synthetic floss JSON with strings longer than max_string_len=5.
-# _build_inventory should cap them at 5 chars; the mutant caps at 5+99=104.
-long_str = "A" * 20  # 20 chars, well above max_string_len=5
+# A string of 20 chars against max_string_len=5 must be capped at 5.
 floss_json = {
     "strings": {
-        "static_strings": [{"string": long_str, "offset": 0, "encoding": "ASCII"}],
+        "static_strings": [{"string": "A" * 20, "offset": 0, "encoding": "ASCII"}],
         "stack_strings":  [],
         "tight_strings":  [],
         "decoded_strings": [],
@@ -433,28 +429,24 @@ floss_json = {
 inv, _ = m._build_inventory(floss_json, max_strings=100, max_string_len=5)
 sampled = inv.get("static_strings", {}).get("strings", [])
 if not sampled:
-    print("FAIL: no sampled strings in inventory", file=sys.stderr)
-    sys.exit(0)  # unexpected: no strings → cannot prove length cap
-
+    print("VERDICT: no sampled strings in inventory")
+    sys.exit(0)
 actual_len = len(sampled[0]["value"])
 if actual_len > 5:
-    # Mutant did NOT cap at 5: string is longer than expected.
-    # The assertion `len(e["value"]) <= 5` in T6-fast would FAIL → teeth confirmed.
-    print(f"T6: mutant produced string of len={actual_len} (> max_string_len=5) — assertion BITES",
-          file=sys.stderr)
-    sys.exit(1)  # test goes RED = teeth confirmed
+    print(f"VERDICT: string NOT capped (len={actual_len})")
 else:
-    # Mutant still capped at 5: assertion would still pass → no teeth.
-    print(f"T6: string still capped at len={actual_len} despite mutation — teeth missing",
-          file=sys.stderr)
-    sys.exit(0)
+    print(f"VERDICT: string capped at {actual_len}")
 PY
 
-    if [[ "$_teeth_rc" -ne 0 ]]; then
-      ok "teeth-1: T6 unit-test goes RED with mutant length cap: assertion bites"
-    else
-      no "teeth-1: T6 unit-test stayed GREEN with mutant: assertion has no teeth"
-    fi
+    # The same harness runs on the original (GOOD verdict) and on the mutant (BAD verdict);
+    # both exit 0, so the verdict line is what discriminates them.
+    if mutant_tooth "teeth-1: T6 unit-test goes RED with mutant length cap: assertion bites" 0 0 "$_MUT_PY" --orig "$TOOLBELT/corroborate_floss.py" \
+        --good-has 'VERDICT: string capped at 5' --bad-has 'VERDICT: string NOT capped' --bad-lacks 'VERDICT: string capped at 5' -- \
+        python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
 
   rm -rf "$_MUT_DIR"

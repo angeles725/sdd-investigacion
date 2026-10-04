@@ -699,52 +699,49 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # teeth-1: make analyzer-exit set truncated=True in _build_limitations_and_errors.
   # Mutation: change "if run_trunc:" to also fire when analyzer-exit is in run_errors.
   # T17 asserts trunc==False for analyzer-exit; with the mutation trunc==True → RED.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
+  # dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_kaitai.py"
 
-  if ! grep -qF 'if run_trunc:' "$TOOLBELT/corroborate_kaitai.py"; then
-    no "teeth-1: mutation target 'if run_trunc:' not found in SUT (SUT changed?)"
-  else
-    sed 's/if run_trunc:/if run_trunc or any(e.startswith("analyzer-exit:") for e in run_errors):  # mutant/g' \
-      "$TOOLBELT/corroborate_kaitai.py" > "$_MUT_PY"
-
-    _teeth_rc=0
-    python3 - "$_MUT_DIR" "$TOOLBELT" <<'PY' || _teeth_rc=$?
+  if mutant_chain "teeth-1" "$TOOLBELT/corroborate_kaitai.py" "$_MUT_PY" \
+      's/if run_trunc:/if run_trunc or any(e.startswith("analyzer-exit:") for e in run_errors):  # mutant/g'; then
+    cat > "$_MUT_DIR/harness.py" <<'PY'
 import sys, importlib.util
 from pathlib import Path
 
-mut_dir  = Path(sys.argv[1]).resolve()
-toolbelt = Path(sys.argv[2]).resolve()
+toolbelt = Path(sys.argv[1]).resolve()
+module_path = Path(sys.argv[2]).resolve()
 
-# Add real toolbelt so lib/ imports resolve; mutant inserts its own dir during exec.
+# Add real toolbelt so lib/ imports resolve; the module under test may insert its own dir.
 sys.path.insert(0, str(toolbelt))
 
-spec = importlib.util.spec_from_file_location(
-    "corroborate_kaitai_mut", mut_dir / "corroborate_kaitai.py"
-)
+spec = importlib.util.spec_from_file_location("corroborate_kaitai_under_test", module_path)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-# Run T17 assertion against the mutant:
-# analyzer-exit:1 should NOT set truncated; mutant makes it set truncated=True.
+# T17: analyzer-exit:1 must NOT set truncated.
 _, _, trunc = m._build_limitations_and_errors(None, ["analyzer-exit:1"], None)
 if trunc is True:
-    # Mutant made analyzer-exit set truncated=True — assertion fails → RED.
-    print("T17: mutant made analyzer-exit set truncated=True — assertion BITES",
-          file=sys.stderr)
-    sys.exit(1)  # test goes RED = teeth confirmed
+    print("VERDICT: analyzer-exit set truncated=True")
 else:
-    # Mutation had no effect; assertion would still pass → no teeth.
-    print("T17: mutant did not change truncated for analyzer-exit — teeth missing",
-          file=sys.stderr)
-    sys.exit(0)
+    print("VERDICT: analyzer-exit leaves truncated=False")
 PY
 
-    if [[ "$_teeth_rc" -ne 0 ]]; then
-      ok "teeth-1: T17 goes RED with mutant analyzer-exit→truncated: assertion bites"
-    else
-      no "teeth-1: T17 stayed GREEN with mutant: assertion has no teeth"
-    fi
+    # The same harness runs on the original (GOOD verdict) and on the mutant (BAD verdict);
+    # both exit 0, so the verdict line is what discriminates them.
+    if mutant_tooth "teeth-1: T17 goes RED with mutant analyzer-exit→truncated: assertion bites" 0 0 "$_MUT_PY" --orig "$TOOLBELT/corroborate_kaitai.py" \
+        --good-has 'VERDICT: analyzer-exit leaves truncated=False' --bad-has 'VERDICT: analyzer-exit set truncated=True' --bad-lacks 'VERDICT: analyzer-exit leaves truncated=False' -- \
+        python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
 
   rm -rf "$_MUT_DIR"

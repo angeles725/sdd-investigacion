@@ -365,32 +365,33 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # Mutation: replace the unique content string with an empty string, so
   # limitations.append("") is called instead of appending the depth-cap message.
   # T_unit then asserts any("depth cap" in l ...) → no "depth cap" in "" → RED.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
+  # dead-stage refusals still apply).
+  export MUTANT_SYNTAX=none
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_unblob.py"
 
-  if ! grep -qF 'f"inventory truncated: depth cap {max_depth} reached"' \
-      "$TOOLBELT/corroborate_unblob.py"; then
-    no "teeth-1: mutation target not found in SUT (SUT changed?); cannot prove teeth"
-  else
-    sed 's|f"inventory truncated: depth cap {max_depth} reached"|""  # mutant: depth-cap limitation omitted|g' \
-      "$TOOLBELT/corroborate_unblob.py" > "$_MUT_PY"
-
-    _teeth_rc=0
-    python3 - "$_MUT_DIR" "$TOOLBELT" <<'PY' || _teeth_rc=$?
-import sys, tempfile, importlib.util
+  if mutant_chain "teeth-1" "$TOOLBELT/corroborate_unblob.py" "$_MUT_PY" \
+      's|f"inventory truncated: depth cap {max_depth} reached"|""  # mutant: depth-cap limitation omitted|g'; then
+    cat > "$_MUT_DIR/harness.py" <<'PY'
+import sys, importlib.util
 from pathlib import Path
 
-mut_dir  = Path(sys.argv[1]).resolve()
-toolbelt = Path(sys.argv[2]).resolve()
+toolbelt = Path(sys.argv[1]).resolve()
+module_path = Path(sys.argv[2]).resolve()
 
-# Add real toolbelt so lib/ imports resolve.
+# Add real toolbelt so lib/ imports resolve; the module under test may insert its own dir.
 sys.path.insert(0, str(toolbelt))
 
-spec = importlib.util.spec_from_file_location(
-    "corroborate_unblob_mut", mut_dir / "corroborate_unblob.py"
-)
+spec = importlib.util.spec_from_file_location("corroborate_unblob_under_test", module_path)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+
+import tempfile
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
@@ -401,22 +402,22 @@ with tempfile.TemporaryDirectory() as tmp:
     _, lims, _ = m._walk_extracted(
         root, max_entries=100, max_total_bytes=10 ** 6, max_depth=1
     )
-    if not any("depth cap" in l for l in lims):
-        # Mutant omitted the depth-cap limitation — assertion would fail → RED.
-        print("T_unit: mutant omitted depth-cap limitation — assertion BITES",
-              file=sys.stderr)
-        sys.exit(1)  # test goes RED = teeth confirmed
+    # T_unit asserts any("depth cap" in l ...).
+    if any("depth cap" in l for l in lims):
+        print("VERDICT: depth-cap limitation present")
     else:
-        print("T_unit: depth-cap limitation still present despite mutation — teeth missing",
-              file=sys.stderr)
-        sys.exit(0)
+        print("VERDICT: depth-cap limitation OMITTED")
 PY
 
-    if [[ "$_teeth_rc" -ne 0 ]]; then
-      ok "teeth-1: T_unit goes RED with mutant (depth-cap limitation omitted): assertion bites"
-    else
-      no "teeth-1: T_unit stayed GREEN with mutant: assertion has no teeth"
-    fi
+    # The same harness runs on the original (GOOD verdict) and on the mutant (BAD verdict);
+    # both exit 0, so the verdict line is what discriminates them.
+    if mutant_tooth "teeth-1: T_unit goes RED with mutant (depth-cap limitation omitted): assertion bites" 0 0 "$_MUT_PY" --orig "$TOOLBELT/corroborate_unblob.py" \
+        --good-has 'VERDICT: depth-cap limitation present' --bad-has 'VERDICT: depth-cap limitation OMITTED' --bad-lacks 'VERDICT: depth-cap limitation present' -- \
+        python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
+      pass=$((pass+1))
+    else fail=$((fail+1)); fi
+  else
+    fail=$((fail+1))
   fi
 
   rm -rf "$_MUT_DIR"
