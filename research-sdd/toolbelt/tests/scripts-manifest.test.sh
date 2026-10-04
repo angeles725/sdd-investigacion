@@ -88,6 +88,16 @@ rows "$T" "$TMP/outside.md"
 OUT="$("$BASH_BIN" -c '. "$1"; scripts_manifest_rows "$2"' _ "$SUT" "$T" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && grep -q 'fewer than 2 arguments' <<<"$OUT"; } && ok "a missing argument is rc 2" || no "missing arg" "(rc=$RC $OUT)"
 
+# kit #1676: sourcing the helper ALWAYS defines the real parser — an inherited `export -f scripts_manifest_rows`
+# (a stale or hostile function in the caller's environment) must never win over the file being sourced.
+printf '| `only.sh` | %s | x |\n' "$H1" > "$M"
+OUT="$("$BASH_BIN" -c 'scripts_manifest_rows() { echo INHERITED-FAKE; }; export -f scripts_manifest_rows; exec bash -c ". \"\$1\"; scripts_manifest_rows \"\$2\" \"\$3\"" _ "$@"' _ "$SUT" "$T" "$M" 2>&1)"; RC=$?
+{ [ "$RC" = 0 ] && has "sources/probes/b1/only.sh	$H1" && ! has "INHERITED-FAKE"; } \
+  && ok "an inherited exported scripts_manifest_rows never shadows the sourced parser" || no "inherited function shadows the parser" "(rc=$RC $OUT)"
+# re-sourcing is harmless: the second definition is identical, the result unchanged
+OUT="$("$BASH_BIN" -c '. "$1"; . "$1"; scripts_manifest_rows "$2" "$3"' _ "$SUT" "$T" "$M" 2>&1)"; RC=$?
+{ [ "$RC" = 0 ] && has "sources/probes/b1/only.sh	$H1" && [ "$(grep -c . <<<"$OUT")" = 2 ]; } && ok "sourcing the helper twice leaves the parser intact" || no "double source" "(rc=$RC $OUT)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
   # mt LABEL SED-EXPR GOOD-RC BAD-RC [tooth flags...] -- ARGV...   (@SUT@ is substituted)
@@ -123,6 +133,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-has "sources/probes/b1/b.sh${TAB}$H1" --bad-lacks "sources/probes/b1/b.sh${TAB}$H1|$CRASH" -- "${RAW[@]}" "$T" "${D}//SCRIPTS-MANIFEST.md"
   mt "argument guard removed" '/fewer than 2 arguments/d' 2 2 \
     --good-has 'fewer than 2 arguments' --bad-lacks 'fewer than 2 arguments' -- "$BASH_BIN" -c '. "$1"; scripts_manifest_rows "$2"' _ @SUT@ "$T"
+  # kit #1676: the old `declare -F` guard, put back (wrapped around the definition), lets an inherited function win
+  printf '| `only.sh` | %s | x |\n' "$H1" > "$M"
+  if mk_sed "inherited-function guard restored" "$MUT/m-guard.sh" \
+      's/^scripts_manifest_rows() {$/if ! declare -F scripts_manifest_rows >\/dev\/null 2>\&1; then scripts_manifest_rows() {/' '$ a fi'; then
+    tooth "teeth: inherited-function guard restored" 0 0 "$MUT/m-guard.sh" --good-has "only.sh${TAB}$H1" --good-lacks 'INHERITED-FAKE' \
+      --bad-has 'INHERITED-FAKE' -- "$BASH_BIN" -c 'scripts_manifest_rows() { echo INHERITED-FAKE; }; export -f scripts_manifest_rows; exec bash -c ". \"\$1\"; scripts_manifest_rows \"\$2\" \"\$3\"" _ "$@"' _ @SUT@ "$T" "$M"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

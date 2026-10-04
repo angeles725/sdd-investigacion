@@ -386,6 +386,22 @@ CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { [ "$RC" = 1 ] && ! has "DEGRADED"; } && ok "#1659: with a sha256 tool the same run carries no degraded state" || no "sha256 control" "(rc=$RC $OUT)"
 
+# kit #1676: the shared manifest parser is loaded LAZILY — only when the target holds a SCRIPTS-MANIFEST (the
+# scratchpad UNMANIFESTED-SCRIPT check is its only consumer). A copy of the SUT with NO lib/ beside it must still
+# run on a manifest-free target, and must still fail closed (exit 2) as soon as a manifest needs parsing.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/clean-check.sh"
+cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/loose.sh"; mkdir -p "$REPO/sources/probes"   # probes dir present, NO manifest
+NLR="$REPO"; NLT="$FT"; NLS="$SP"
+OUT="$(CLEAN_CHECK_SCRATCHPAD="$SP" "$BASH_BIN" "$TMP/nolib/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "UNMANIFESTED-SCRIPT $SP/loose.sh" && ! has "helper"; } && ok "#1676: a manifest-free target never needs the helper (lib/ absent, findings still reported)" || no "#1676 eager helper load" "(rc=$RC $OUT)"
+cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/loose.sh"; mkdir -p "$REPO/sources/probes/b1"   # a fresh repo: this one HAS a manifest
+printf '| `loose.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+OUT="$(CLEAN_CHECK_SCRATCHPAD="$SP" "$BASH_BIN" "$TMP/nolib/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 2 ] && has "cannot find helper"; } && ok "#1676: a manifest-bearing target with the helper missing fails closed (exit 2 'cannot find helper')" || no "#1676 helper-missing must fail closed" "(rc=$RC $OUT)"
+# fixture for the lib-resolution controls: a target whose manifest forces the helper to load, run CLEAN
+cc_scratch "nothing mentioned"; mkdir -p "$REPO/sources/probes/b1"; printf 'echo\n' > "$SP/run.sh"
+printf '| `run.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"; LKR="$REPO"; LKT="$FT"; LKS="$SP"
+
 # #1659 lib resolution: the script's own dir (symlinks followed), never the caller's cwd or the link's dir
 mkdir -p "$TMP/lnk-ok" "$TMP/lnk-plant/lib" "$TMP/cwd-plant/lib"
 ln -s "$SUT" "$TMP/lnk-ok/clean-check.sh"; ln -s "$SUT" "$TMP/lnk-plant/clean-check.sh"
@@ -393,12 +409,12 @@ for _pd in "$TMP/lnk-plant/lib" "$TMP/cwd-plant/lib"; do
   printf 'echo PLANTED-LIB-SOURCED\nscripts_manifest_rows() { return 0; }\n' > "$_pd/scripts-manifest.sh"
 done
 fresh
-OUT="$(cd "$TMP/cwd-plant" && "$BASH_BIN" "$TMP/lnk-ok/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+OUT="$(cd "$TMP/cwd-plant" && CLEAN_CHECK_SCRATCHPAD="$LKS" "$BASH_BIN" "$TMP/lnk-ok/clean-check.sh" --target "$LKR" --tmp "$LKT" 2>&1)"; RC=$?
 { [ "$RC" = 0 ] && has "CLEAN-CHECK: clean"; } && ok "#1659: a symlinked invocation resolves lib/ through the link" || no "symlink invocation" "(rc=$RC $OUT)"
-OUT="$(cd "$TMP/cwd-plant" && "$BASH_BIN" "$TMP/lnk-plant/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+OUT="$(cd "$TMP/cwd-plant" && CLEAN_CHECK_SCRATCHPAD="$LKS" "$BASH_BIN" "$TMP/lnk-plant/clean-check.sh" --target "$LKR" --tmp "$LKT" 2>&1)"; RC=$?
 { [ "$RC" = 0 ] && ! has "PLANTED-LIB-SOURCED"; } && ok "#1659: a lib planted beside the link or in the cwd is never sourced" || no "planted lib sourced" "(rc=$RC $OUT)"
 # CC-MF-PARSE fail-closed: a manifest the shared parser cannot read is exit 2, never 'no rows'
-if [ "$(id -u)" = 0 ]; then ok "#1659 (skipped: running as root, chmod 000 does not block reads)"; else
+if [ "$(id -u)" = 0 ]; then echo "  (skipped, not counted: running as root, chmod 000 does not block reads)"; else   # #1676: a skip is not a pass
   cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"
   printf '| `run.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"; chmod 000 "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
   CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
@@ -549,7 +565,10 @@ KL
   # kit #1659 lib resolution: symlinks followed (the mutant is run THROUGH a symlink; the original resolves the real lib/)
   LNKRUN='d="$(mktemp -d)"; ln -s "$1" "$d/clean-check.sh"; bash "$d/clean-check.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r'
   mt "script symlink no longer followed when locating lib/" '/# CC-LIB-RESOLVE$/s/while \[ -L "\$_src" \]/while false/' 0 2 \
-    --good-has 'CLEAN-CHECK: clean' --bad-has 'cannot find helper' -- "$BASH_BIN" -c "$LNKRUN" _ @SUT@ --target "$CL" --tmp "$CLT"
+    --good-has 'CLEAN-CHECK: clean' --bad-has 'cannot find helper' -- env "CLEAN_CHECK_SCRATCHPAD=$LKS" "$BASH_BIN" -c "$LNKRUN" _ @SUT@ --target "$LKR" --tmp "$LKT"
+  # kit #1676: lazy helper load — a manifest-free target (probes dir present, no manifest) must run with lib/ absent
+  mt "helper loaded eagerly: every sources/probes target needs lib/" '/# CC-LIB-LAZY/s/if \[ "\$_mlast" -gt 0 \]/if true/' 1 2 \
+    --good-has 'UNMANIFESTED-SCRIPT' --bad-has 'cannot find helper' -- env "CLEAN_CHECK_SCRATCHPAD=$NLS" "$BASH_BIN" -c 'd="$(mktemp -d)"; cp "$1" "$d/clean-check.sh"; bash "$d/clean-check.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r' _ @SUT@ --target "$NLR" --tmp "$NLT"
   if [ "$(id -u)" != 0 ]; then
     fresh; PW="$REPO"; PWT="$FT"; PWS="$TMP/pw-spad"; mkdir -p "$PWS" "$PW/sources/probes/b1" "$PW/.research-sdd"
     printf 'sources/\n' > "$PW/.research-sdd/keep.txt"; printf 'echo\n' > "$PWS/run.sh"

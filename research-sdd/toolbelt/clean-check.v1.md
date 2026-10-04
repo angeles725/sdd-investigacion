@@ -72,7 +72,10 @@ The basename must equal, exactly, the last path component of the first table cel
 of any `SCRIPTS-MANIFEST.md` under `<TARGET>/sources/probes/`. A row is valid only when its second cell
 is a 64-hex sha256: the header row, the separator row and rows with a placeholder digest list nothing.
 Rows are read by the one shared parser `lib/scripts-manifest.sh` (`scripts_manifest_rows`), the same
-parser `verify-block.sh` uses for its `MANIFEST!` check; see `verify-block.sh` for the row format.
+parser `verify-block.sh` uses for its `MANIFEST!` check; see `verify-block.sh` for the row format. The
+helper is loaded lazily, only when at least one `SCRIPTS-MANIFEST.md` is found: a manifest-free target
+never touches `lib/`, and a helper that cannot be found or defined once a manifest needs parsing is exit 2
+(fail closed, never "no rows").
 
 ### Scratchpad state is never a silent zero
 
