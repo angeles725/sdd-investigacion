@@ -102,7 +102,7 @@ CLEAN-CHECK: <N> finding(s) (untracked in <target>, tmp.* in <tmp> older than <H
 | 0 | clean (also `-h` / `--help`) |
 | 1 | at least one finding |
 | 2 | usage error, `--target` absent or not inside a git work tree, `--tmp` absent, or a scan command failed (including the scratchpad `find`, the block listing and a `grep` failure while reading a block) |
-| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort id stat`) is not on `PATH`, or the `sources/probes` manifest scan or probes scan failed; the run stops there with no summary line (the typed `DEGRADED` line goes to stderr) |
+| 3 | `DEGRADED`: a tool in the script's `REQUIRED_TOOLS` list (`git find date sort id stat`) is not on `PATH`, or the `sources/probes` manifest scan or probes scan failed; the run stops there with no summary line (the typed `DEGRADED` line goes to stderr). The script header still files scan failures under exit 2; this table documents the code's behaviour, and unifying the two is tracked in kit issue #1659 |
 
 A scan that errors partway is exit 2, never a quiet "clean": both the untracked list (`git ls-files`)
 and the `tmp.*` list (`find`) are read with an explicit end marker, and the `sort` ordering step carries
