@@ -563,11 +563,24 @@ env_raw() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/resear
   b { l=$0; sub(/^[[:space:]]+/,"",l); if (index(l,k":")==1) { v=substr(l,length(k)+2); sub(/^[[:space:]]+/,"",v); sub(/[[:space:]\r]+$/,"",v); print v; f=1; exit } }
   END { exit f?0:1 }' "$state"; }  # ENV-RAW
 # cov_ratio — the "N/M" of the Coverage metric FIELD in "## Coverage" (kit issue #1154), or empty when there is none.
-# The label is the field's identity: a line only counts when it STARTS with `Coverage metric:` (an optional list
-# marker and bold marks allowed). Matching the bare phrase anywhere in the section read any note that merely
-# mentioned it (e.g. an Outline line pointing at the field) as the gap ratio. Same label verify-state.sh keys on.
-COVMETRIC_LABEL_RE='^[[:space:]]*([-*+][[:space:]]+)?\*{0,2}coverage metric\*{0,2}[[:space:]]*:'  # CM-LABEL-ANCHOR
-cov_ratio() { section '## Coverage' | grep -iE "$COVMETRIC_LABEL_RE" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' '; }
+# The label is the field's identity: a line only counts when it STARTS with `Coverage metric` (an optional list
+# marker, bold marks, and a parenthetical qualifier such as `(this focus)` allowed) followed by `:` or `=`.
+# Matching the bare phrase anywhere in the section read any note that merely mentioned it (e.g. an Outline line
+# pointing at the field) as the gap ratio. Label forms measured on the fleet: `**Coverage metric**:` and the
+# qualified `**Coverage metric (this focus)**:`; no prefixed label (`Gap coverage metric:`) occurs.
+# Anti-silent-zero (§7): when NO line matches the label but a line in the section still mentions the phrase
+# AND carries a ratio, the figure is NOT silently dropped (that would print <none> / let --sync-state carry a
+# stale envelope value forward): a typed WARN names the unrecognised line on stderr.
+COVMETRIC_LABEL_RE='^[[:space:]]*([-*+][[:space:]]+)?\*{0,2}coverage metric\*{0,2}[[:space:]]*(\([^)]*\))?\*{0,2}[[:space:]]*[:=]'  # CM-LABEL-ANCHOR
+cov_ratio() {
+  local _cr_r _cr_loose
+  _cr_r="$(section '## Coverage' | grep -iE "$COVMETRIC_LABEL_RE" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+  if [ -z "$_cr_r" ]; then
+    _cr_loose="$(section '## Coverage' | grep -iE 'coverage metric' | grep -E '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | cut -c1-100)"  # CM-UNRECOGNISED-LABEL
+    [ -z "$_cr_loose" ] || printf 'WARN: %s: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: %s\n' "$(basename "$state")" "$_cr_loose" >&2
+  fi
+  printf '%s\n' "$_cr_r"
+}
 
 # pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
 # 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
@@ -1969,11 +1982,14 @@ remote_visibility_block
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
 # Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
-if [ "$_doc_mode" = 1 ]; then  # DOC-NEXT-BRANCH
-  printf '  next step       : %s\n' "$(outline_next_step)"
-else
-printf '  next step       : '
-(
+# Document mode (kit issue #1152): a NEXT / BOOTSTRAP from the Outline is final. STOP is only reported when the
+# gap-centric resolver ALSO has no open work: a fully covered Outline does not hide an open investigable gap.
+_ns_doc=""
+if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
+case "$_ns_doc" in
+  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
+  *)
+_ns_gap_run() (
   _ns_skip_gaps=0
   mapfile -t _ns_states < <(list_state_files "$target")
   for state in "${_ns_states[@]}"; do
@@ -1997,7 +2013,16 @@ printf '  next step       : '
     echo "STOP | read-only-investigable exhausted (0)"
   fi
 )
+if [ -z "$_ns_doc" ]; then
+  printf '  next step       : '
+  _ns_gap_run
+else
+  _ns_gap="$(_ns_gap_run)"
+  if [ "${_ns_gap#NEXT}" = "$_ns_gap" ]; then _ns_gap="$_ns_doc"; fi  # DOC-STOP-GUARD
+  printf '  next step       : %s\n' "$_ns_gap"
 fi
+;;
+esac
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
 exit 0   # a stale-mirror FAIL is REPORTED in the consistency line above; it must not become our exit code (contract: 0 ok / 2 bad args)

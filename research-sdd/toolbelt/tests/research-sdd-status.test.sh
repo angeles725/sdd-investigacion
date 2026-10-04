@@ -7077,6 +7077,31 @@ _t1154_got="$(t1154_cov "$t1154_e")"
 [ "$_t1154_got" = "  coverage metric : <none>" ] \
   && ok "T-1154e report: a Coverage section with no label at all stays <none> (no-match is not a number)" \
   || no "T-1154e report: got [$_t1154_got] want [  coverage metric : <none>]"
+# label forms measured on the fleet: a parenthetical qualifier, and `=` as the separator
+t1154_f="$TMP/t1154-f"; t1154_fx "$t1154_f" '- **Coverage metric (this focus)**: **7 / 8** gaps closed'
+_t1154_got="$(t1154_cov "$t1154_f")"
+[ "$_t1154_got" = "  coverage metric : 7/8" ] \
+  && ok "T-1154f report: the qualified label 'Coverage metric (this focus):' (a real fleet form) is recognised (7/8)" \
+  || no "T-1154f report: got [$_t1154_got] want [  coverage metric : 7/8]"
+t1154_g="$TMP/t1154-g"; t1154_fx "$t1154_g" '- Coverage metric = 2 / 3 closed'
+_t1154_got="$(t1154_cov "$t1154_g")"
+[ "$_t1154_got" = "  coverage metric : 2/3" ] \
+  && ok "T-1154g report: '=' as the label separator is recognised (2/3)" \
+  || no "T-1154g report: got [$_t1154_got] want [  coverage metric : 2/3]"
+# a coverage-metric-looking line the anchored label rejects is a typed WARN, never a silent <none> / stale carry-over
+t1154_h="$TMP/t1154-h"; t1154_fx "$t1154_h" '- Gap coverage metric: 5 / 6 closed'
+_t1154_err="$(bash "$SUT" "$t1154_h" 2>&1 >/dev/null)"
+if grep -qF 'unrecognised coverage label' <<<"$_t1154_err" && grep -qF 'Gap coverage metric: 5 / 6' <<<"$_t1154_err" && [ "$(t1154_cov "$t1154_h")" = "  coverage metric : <none>" ]; then
+  ok "T-1154h: a prefixed label ('Gap coverage metric:') is rejected LOUDLY (typed WARN naming the line), report stays <none>"
+else no "T-1154h: stderr=[$_t1154_err]"; fi
+_t1154_err="$(bash "$SUT" "$t1154_h" --sync-state 2>&1 >/dev/null)"
+grep -qF 'unrecognised coverage label' <<<"$_t1154_err" \
+  && ok "T-1154h --sync-state: the same typed WARN is emitted (the stale envelope value is not carried forward silently)" \
+  || no "T-1154h --sync-state: stderr=[$_t1154_err]"
+_t1154_err="$(bash "$SUT" "$t1154_e" 2>&1 >/dev/null)"
+grep -qF 'unrecognised coverage label' <<<"$_t1154_err" \
+  && no "T-1154i: a section with no ratio-bearing mention must NOT warn — [$_t1154_err]" \
+  || ok "T-1154i: no false WARN when nothing in the section looks like a coverage metric"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1154: widening the label anchor back to the bare phrase must turn T-1154a/b red --"
@@ -7093,6 +7118,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
   t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
   t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
+  mutant_chain T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/' || fail=$((fail+1))
+  if mutant_tooth T1154-WARN 0 0 "$TMP/status.T1154-WARN.MUTANT.sh" --good-has 'unrecognised coverage label' --bad-lacks "unrecognised coverage label|$_t1154_crash" -- bash @SUT@ "$t1154_h"; then pass=$((pass+1)); else fail=$((fail+1)); fi
 fi
 
 # ==================== kit issue #1150 item 2: a missing / broken lib/hook-wiring.sh is a loud exit 1 ====================
@@ -7231,6 +7258,25 @@ if grep -qF 'SATURATED (review)' <<<"$_t1152_n" && ! grep -q '^  outline ' <<<"$
   ok "T-1152i: no method field, and method: document-cycle-external, keep the gap-centric verdicts and print no outline line"
 else no "T-1152i: normal=[$(grep -E 'saturation|next step|  outline ' <<<"$_t1152_n")] external=[$(grep -E 'saturation|  outline ' <<<"$_t1152_x")]"; fi
 
+# a fully covered Outline must not hide open gap-centric work: STOP only when the gap resolver is exhausted too.
+t1152_gap="$TMP/t1152-gap"; t1152_fx "$t1152_gap" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | B2 | covered |
+| 3 | item c | subject | B3 | covered |' ''
+sed -i '/^## Gap-backlog$/a\
+\
+| Priority | Gap | type | Status |\
+|---|---|---|---|\
+| high | g1 | web | pending |' "$t1152_gap/RESEARCH-STATE.md"
+_t1152_out="$(t1152_rep "$t1152_gap")"
+if grep -qF '  outline         : 3/3 covered' <<<"$_t1152_out" && grep -qF '  next step       : NEXT | high | g1' <<<"$_t1152_out" && ! grep -qF 'outline fully covered' <<<"$_t1152_out"; then
+  ok "T-1152j: Outline 3/3 covered + one open backlog gap -> NEXT on the gap, not STOP"
+else no "T-1152j: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_all="$TMP/t1152-all"; t1152_fx "$t1152_all" document-cycle '| 1 | item a | subject | B1 | covered |' ''
+_t1152_out="$(t1152_rep "$t1152_all")"
+grep -qF '  next step       : STOP | outline fully covered (1/1)' <<<"$_t1152_out" \
+  && ok "T-1152k: Outline fully covered and no open gap work -> STOP | outline fully covered (1/1)" \
+  || no "T-1152k: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1152: each document-mode branch is load-bearing --"
   _t1152_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
@@ -7243,6 +7289,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1152_t T1152-SAT "$t1152_sat" '/# DOC-SAT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'saturation      : n/a \(method: document-cycle' --bad-has 'SATURATED \(review\)' --bad-lacks "$_t1152_crash"
   t1152_t T1152-COVERED "$t1152_mix" '/# DOC-COVERED-TOKENS$/s/covered|done|closed/never-matches/' --good-has 'outline         : 3/5 covered' --bad-has 'outline         : 1/5 covered' --bad-lacks "$_t1152_crash"
   t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-GUARD "$t1152_all" '/# DOC-STOP-GUARD$/d' --good-has 'STOP \| outline fully covered \(1/1\)' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-FALLTHROUGH "$t1152_gap" 's/NEXT\*|BOOTSTRAP\*) printf/NEXT*|BOOTSTRAP*|STOP*) printf/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
   t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
 fi
 
