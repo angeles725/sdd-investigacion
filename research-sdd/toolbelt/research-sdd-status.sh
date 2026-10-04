@@ -40,7 +40,7 @@
 #        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
 #        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
-# Exit: 0 ok · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
+# Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
 
 _orig_args=("$@")   # --emit-token re-runs this script with the same argv minus the flag (kit #1706)
