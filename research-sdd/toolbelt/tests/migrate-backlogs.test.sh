@@ -152,6 +152,12 @@ E
 o="$(bash "$SUT" "$TMP/five" 2>/dev/null)"
 grep -qF '+| high | V1 | text | doc | pending (x) |' <<<"$o" && ok "13 5-column table: Status read from the last cell" || no "13 [$o]"
 
+# 14. a backlog-like heading over a NON-priority table: typed MANUAL, and no skeleton is stacked beside it
+mkdir -p "$TMP/matrix"
+printf '# M\n\n## Backlog (coverage matrix)\n\n| Area | Covered |\n|---|---|\n| a | yes |\n' > "$TMP/matrix/RESEARCH-STATE-m.md"
+o="$(bash "$SUT" "$TMP/matrix" 2>/dev/null)"
+if grep -q '^MANUAL m non-priority-backlog-table ' <<<"$o" && ! grep -q '^PROPOSE' <<<"$o"; then ok "14 non-priority backlog table -> MANUAL, no skeleton"; else no "14 [$o]"; fi
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
@@ -183,6 +189,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth G: mutant could not be built"; fi
   # H: summary line dropped -> case 9 must go red
   lose H 's/^echo "migrate-backlogs: \$n_files file(s) inspected.*$/:/' 'migrate-backlogs: 5 file(s) inspected'
+  # J: the non-priority-table branch removed -> case 14 must go red (a skeleton gets stacked beside the matrix)
+  t="$(mk_tree J)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/!anyhdr \&\& anybl) manual/!anyhdr \&\& 0) manual/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/matrix" 2>/dev/null)"
+    grep -q '^MANUAL m non-priority-backlog-table' <<<"$o" && no "teeth J: mutant still typed — THEATER" || ok "teeth J: branch removed -> case 14 has teeth"
+  else no "teeth J: mutant could not be built"; fi
   # I: the absent-input typed line silenced
   t="$(mk_tree I)"
   if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^  echo "absent-input: no RESEARCH-STATE.*$/  :/' >/dev/null 2>&1; then

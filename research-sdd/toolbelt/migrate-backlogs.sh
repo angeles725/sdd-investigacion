@@ -26,7 +26,8 @@
 #   MANUAL <focus> <reason> rows=<N> first-line=<L>
 #   reasons: unknown-priority · emdash-open-row · bare-closure-word (covered/closed/done) ·
 #            unknown-status-token · malformed-row (cell count != table width, or an escaped pipe) ·
-#            unknown-focus-status · empty-backlog-skeleton
+#            unknown-focus-status · empty-backlog-skeleton · non-priority-backlog-table (a backlog-like heading
+#            whose table has no Priority first column: reshape by hand; no skeleton is stacked beside it)
 # Other typed lines (stdout): `absent-input: ...` (corpus dir has no RESEARCH-STATE*.md), `empty-input: <focus>`
 # (a 0-byte state file), `ok <focus>: nothing to migrate`, `PROPOSE <focus> <file>` before each diff, and always
 # one closing `migrate-backlogs: N file(s) inspected · M with a mechanical proposal · K MANUAL line(s)` so a
@@ -69,7 +70,7 @@ function setcell(i, newtrim,   l, r) { l = raw[i]; sub(/[^ \t].*$/, "", l); r = 
 function mapprio(q) { if (q == "critical") return "high"; if (q == "med") return "medium"; return q }
 function legal(q) { return (q == "high" || q == "medium" || q == "low" || q == "deferred") }
 NR == FNR {  # pass 1 — classify
-  if ($0 ~ /^## /) { cur = FNR; h = norm($0); isbl[cur] = (tolower(h) ~ /backlog/); canon[cur] = iscanon(h); if (canon[cur]) anycanon = 1 }
+  if ($0 ~ /^## /) { cur = FNR; h = norm($0); isbl[cur] = (tolower(h) ~ /backlog/); canon[cur] = iscanon(h); if (canon[cur]) anycanon = 1; if (isbl[cur]) anybl = 1 }
   else if (cur && $0 ~ /^[ \t]*\|/ && !(cur in hdrseen)) {
     c = $0; sub(/^[ \t]*\|/, "", c); sub(/\|.*$/, "", c); c = tolower(trim(c)); gsub(/\*\*/, "", c)
     if (c ~ /^(priority|pr\.?|p|prioridad)$/) { hdr[cur] = 1; anyhdr = 1 }
@@ -125,7 +126,8 @@ FNR == 1 { cur = 0; inbl = 0; width = 0; indata = 0 }
   print rebuild()
 }
 END {
-  if (!anycanon && !renamed && !anyhdr && !skip_skel) {
+  if (!anycanon && !renamed && !anyhdr && anybl) manual("non-priority-backlog-table", 0)
+  else if (!anycanon && !renamed && !anyhdr && !skip_skel) {
     print ""
     print "## Gap-backlog"
     print ""
