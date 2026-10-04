@@ -1241,6 +1241,112 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   else no "-j no-silent-zero failed: rc=$rc :: $(grep -iE 'recorded|dies|Suites' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j no-silent-zero"; fi
 
+# --- Per-run TMPDIR root (kit issue #1277 slice 3) ---------------------------------------------
+# run-all creates ONE temp root per run (under the caller's TMPDIR), exports TMPDIR to a per-suite
+# subdir, removes the root on EXIT, and reports entries a suite left in its subdir:
+# `TMPDIR leftovers: N — [suite: count]` (N = total entries; report-only, exit 1 only under
+# --require-clean-tmp). 38* run serial, 38j* the same under -j.
+# tmpfix_leak <file> <n> [dot] — a suite that leaves <n> entries in its TMPDIR (dot-names when 'dot').
+tmpfix_leak(){
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "TMPDIR_SEEN=$TMPDIR"\n'
+    if [ "${3:-}" = dot ]; then printf 'for i in $(seq 1 %s); do : > "$TMPDIR/.left$i"; done\n' "$2"
+    else printf 'for i in $(seq 1 %s); do mktemp "$TMPDIR/left.XXXXXX" >/dev/null; done\n' "$2"; fi
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+tmpfix_clean(){ # file — uses its TMPDIR and cleans up after itself
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "TMPDIR_SEEN=$TMPDIR"\n'
+    printf 'd="$(mktemp -d)"; : > "$d/x"; rm -rf "$d"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+# 38a — each suite sees its OWN TMPDIR under the caller's TMPDIR; clean suites report 0 and the whole
+#       root is gone afterwards (nothing of ours left in the caller's TMPDIR).
+w="$(newdir c38a)"; _c38root="$TMP/c38a-calltmp"; mkdir -p "$_c38root"
+tmpfix_clean "$w/a.test.sh"; tmpfix_clean "$w/b.test.sh"
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+_seen_a="$(grep -m1 'TMPDIR_SEEN=' <<<"$out")"; _seen_n="$(grep -c 'TMPDIR_SEEN=' <<<"$out")"
+_seen_u="$(grep 'TMPDIR_SEEN=' <<<"$out" | sort -u | wc -l)"
+if [ "$rc" -eq 0 ] && [ "$_seen_n" -eq 2 ] && [ "$_seen_u" -eq 2 ] \
+   && grep -q "TMPDIR_SEEN=$_c38root/" <<<"$out" \
+   && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$out" \
+   && [ -z "$(ls -A "$_c38root")" ]; then
+  ok "tmpdir-root: each suite gets its own TMPDIR under the caller's, clean suites report 0, the root is removed on exit"
+else no "tmpdir-root failed: rc=$rc seen=[$_seen_a] uniq=$_seen_u left=[$(ls -A "$_c38root" | tr '\n' ' ')] :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+# 38b — a leaking suite is named with its entry count (dotfiles included); the clean one is not;
+#       report-only (exit 0); the root is still removed.
+w="$(newdir c38b)"; _c38root="$TMP/c38b-calltmp"; mkdir -p "$_c38root"
+tmpfix_leak "$w/a-leaky.test.sh" 2; tmpfix_leak "$w/b-dot.test.sh" 1 dot; tmpfix_clean "$w/c-clean.test.sh"
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'TMPDIR leftovers: 3 — [a-leaky.test.sh: 2, b-dot.test.sh: 1]' <<<"$out" \
+   && [ -z "$(ls -A "$_c38root")" ]; then
+  ok "tmpdir-leftovers: a leaking suite is named with its entry count (dotfiles counted); report-only; root still removed"
+else no "tmpdir-leftovers failed: rc=$rc left=[$(ls -A "$_c38root" | tr '\n' ' ')] :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+# 38c — --require-clean-tmp: a leak fails the run (exit 1), a clean run still passes, usage names it.
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'TMPDIR leftovers: 3 — ' <<<"$out"; then
+  ok "tmpdir-leftovers: --require-clean-tmp turns a leak into exit 1"
+else no "tmpdir --require-clean-tmp (leak) failed: rc=$rc :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+w="$(newdir c38c)"; tmpfix_clean "$w/a.test.sh"
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$out"; then
+  ok "tmpdir-leftovers: --require-clean-tmp on a clean run exits 0"
+else no "tmpdir --require-clean-tmp (clean) failed: rc=$rc"; fi
+out="$(bash "$w/run-all.sh" --bogus-flag 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF -- '--require-clean-tmp' <<<"$out"; then
+  ok "tmpdir-leftovers: the usage text documents --require-clean-tmp"
+else no "usage text failed: rc=$rc :: $out"; fi
+# 38d — an unremovable leftover (chmod 000 dir inside the suite's TMPDIR) is still counted and the root
+#       is still cleaned. Root ignores mode bits: SKIP.
+if [ "$(id -u)" -eq 0 ]; then
+  ok "tmpdir-unreadable-leftover: SKIP under root (root ignores permission bits)"
+else
+  w="$(newdir c38d)"; _c38root="$TMP/c38d-calltmp"; mkdir -p "$_c38root"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'mkdir "$TMPDIR/locked"; : > "$TMPDIR/locked/f"; chmod 000 "$TMPDIR/locked"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$w/a-locker.test.sh"
+  out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: 1 — [a-locker.test.sh: 1]' <<<"$out" && [ -z "$(ls -A "$_c38root")" ]; then
+    ok "tmpdir-unreadable-leftover: a chmod-000 leftover is counted against the suite and the root is still removed"
+  else no "tmpdir unreadable leftover failed: rc=$rc left=[$(ls -A "$_c38root" | tr '\n' ' ')] :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+  chmod -R u+rwX "$_c38root" 2>/dev/null || true
+fi
+# 38j — the same under -j: per-suite attribution comes for free (separate subdirs); the root and
+#       PAR_DIR are both removed; the aggregate line matches serial.
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  w="$(newdir c38j)"; _c38root="$TMP/c38j-calltmp"; mkdir -p "$_c38root"
+  tmpfix_leak "$w/a-leaky.test.sh" 2; tmpfix_clean "$w/b-clean.test.sh"
+  out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  _sout="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"
+  if [ "$rc" -eq 0 ] \
+     && grep -qF 'TMPDIR leftovers: 2 — [a-leaky.test.sh: 2]' <<<"$out" \
+     && [ "$(grep -F 'TMPDIR leftovers' <<<"$out")" = "$(grep -F 'TMPDIR leftovers' <<<"$_sout")" ] \
+     && [ -z "$(ls -A "$_c38root")" ]; then
+    ok "-j tmpdir: the leaking suite is named under -j, matches the serial line, root and PAR_DIR removed"
+  else no "-j tmpdir failed: rc=$rc left=[$(ls -A "$_c38root" | tr '\n' ' ')] :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+  out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 --require-clean-tmp 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ]; then ok "-j tmpdir: --require-clean-tmp fails the run under -j too"
+  else no "-j tmpdir --require-clean-tmp failed: rc=$rc"; fi
+else skip_j "-j tmpdir"; fi
+# 38e — DEGRADED, never a confident 0: when the per-run root cannot be created (a `mktemp -d` that
+#       fails; plain `mktemp` still works) the runner says so, still runs the suites, and
+#       --require-clean-tmp fails the run.
+w="$(newdir c38e)"; tmpfix_clean "$w/a.test.sh"
+_c38ebin="$TMP/c38e-bin"; mkdir -p "$_c38ebin"
+{ printf '#!/bin/sh\n'
+  printf 'for a in "$@"; do [ "$a" = "-d" ] && exit 1; done\n'
+  printf 'exec %s "$@"\n' "$(command -v mktemp)"
+} > "$_c38ebin/mktemp"; chmod +x "$_c38ebin/mktemp"
+out="$(PATH="$_c38ebin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+PATH="$_c38ebin:$PATH" bash "$w/run-all.sh" --require-clean-tmp >/dev/null 2>&1; rc2=$?
+if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: DEGRADED — ' <<<"$out" && grep -qF 'Suites run:    1' <<<"$out" && [ "$rc2" -eq 1 ]; then
+  ok "tmpdir-degraded: an uncreatable per-run root is DEGRADED (not a confident 0); --require-clean-tmp fails it"
+else no "tmpdir degraded failed: rc=$rc rc2=$rc2 :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1901,6 +2007,67 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
     mout="$(PATH="$_trbin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"
     if ! grep -qF 'is not GNU parallel' <<<"$mout"; then ok "teeth-j-reason: misnamed-cause mutant loses 'is not GNU parallel' → the reason assertion has real teeth"
     else no "teeth-j-reason: mutant still says 'is not GNU parallel' — mutation not exercised (THEATER)"; fi
+  fi
+fi
+
+# --- Teeth for the per-run TMPDIR root (kit issue #1277 slice 3) -------------------------------
+# Each mutant is built through lib/mutant.sh (refuses empty / identical / syntax-broken ones) and run
+# on the fixture of the matching 38* case; the assertion is the SPECIFIC symptom, not "it differed".
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # tmpd_mut <name> <sed-expr> — builds the mutant run-all.sh in a fresh workdir ($w), 0 on success.
+  tmpd_mut(){ w="$(mut_workdir "$1")"
+    if ! mutant_sed "$SUT" "$w/run-all.sh" "$2" 2>"$w/mutant.err"; then no "$1: could not build a valid mutant: $(cat "$w/mutant.err")"; return 1; fi; }
+  tmpd_run(){ _tr="$TMP/$1-calltmp"; mkdir -p "$_tr"; shift; mout="$(TMPDIR="$_tr" bash "$w/run-all.sh" "$@" 2>&1)"; _trc=$?; }
+
+  echo "-- teeth: stop exporting the per-suite TMPDIR; every suite must see the SAME TMPDIR (case 38a) --"
+  if tmpd_mut teeth-tmpd-export 's/TMPDIR="\$_st" bash/bash/'; then
+    tmpfix_clean "$w/a.test.sh"; tmpfix_clean "$w/b.test.sh"
+    tmpd_run teeth-tmpd-export
+    if [ "$(grep 'TMPDIR_SEEN=' <<<"$mout" | sort -u | wc -l)" -eq 1 ]; then
+      ok "teeth-tmpd-export: without the export both suites share one TMPDIR → the per-suite subdir has real teeth"
+    else no "teeth-tmpd-export: mutant still isolates the suites — mutation not exercised (THEATER)"; fi
+  fi
+  echo "-- teeth: skip recording leftovers; the leaking suite must vanish from the line (case 38b) --"
+  if tmpd_mut teeth-tmpd-record 's/^  \[\[ -n "\$_o" \]\] || return 0$/  return 0/'; then
+    tmpfix_leak "$w/a-leaky.test.sh" 2
+    tmpd_run teeth-tmpd-record
+    if grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout"; then
+      ok "teeth-tmpd-record: recording-less mutant reports 0 for a leaking suite → the leftover check has real teeth"
+    else no "teeth-tmpd-record: mutant still reports the leak — mutation not exercised (THEATER) :: $(grep -F 'TMPDIR leftovers' <<<"$mout")"; fi
+  fi
+  echo "-- teeth: ignore --require-clean-tmp in the exit decision; a leak must then exit 0 (case 38c) --"
+  if tmpd_mut teeth-tmpd-exit '/SENTINEL-REQUIRE-CLEAN-TMP-EXIT/,+2s/\[\[ -n "\$REQUIRE_CLEAN_TMP" \]\]/false/'; then
+    tmpfix_leak "$w/a-leaky.test.sh" 2
+    tmpd_run teeth-tmpd-exit --require-clean-tmp
+    if [ "$_trc" -eq 0 ]; then ok "teeth-tmpd-exit: gate-less mutant exits 0 on a leak → --require-clean-tmp has real teeth"
+    else no "teeth-tmpd-exit: mutant still fails the run (rc=$_trc) — mutation not exercised (THEATER)"; fi
+  fi
+  echo "-- teeth: do not remove the root on exit; the caller's TMPDIR must keep our leftovers (case 38a) --"
+  if tmpd_mut teeth-tmpd-cleanup 's/^    rm -rf "\$RUN_TMP_ROOT"$/    :/'; then
+    tmpfix_clean "$w/a.test.sh"
+    tmpd_run teeth-tmpd-cleanup
+    if [ -n "$(ls -A "$_tr")" ]; then ok "teeth-tmpd-cleanup: cleanup-less mutant leaves the root behind → the EXIT removal has real teeth"
+    else no "teeth-tmpd-cleanup: mutant still removed the root — mutation not exercised (THEATER)"; fi
+    rm -rf "$_tr"
+  fi
+  if [ "$have_gnu_parallel" -eq 1 ]; then
+    echo "-- teeth: drop the -j worker's TMPDIR export; the leak must go unattributed under -j (case 38j) --"
+    if tmpd_mut teeth-tmpd-jexport 's/export TMPDIR="\$RUN_TMP_ROOT\/\$idx"/:/'; then
+      tmpfix_leak "$w/a-leaky.test.sh" 2
+      tmpd_run teeth-tmpd-jexport -j 2
+      if grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout"; then ok "teeth-tmpd-jexport: export-less -j worker reports 0 for a leaking suite → the worker export has real teeth"
+      else no "teeth-tmpd-jexport: mutant still reports the leak — mutation not exercised (THEATER)"; fi
+    fi
+  else skip_j "teeth-tmpd-jexport"; fi
+  echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
+  if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
+    tmpfix_clean "$w/a.test.sh"
+    _tdbin="$TMP/teeth-tmpd-degraded-bin"; mkdir -p "$_tdbin"
+    { printf '#!/bin/sh\n'; printf 'for a in "$@"; do [ "$a" = "-d" ] && exit 1; done\n'; printf 'exec %s "$@"\n' "$(command -v mktemp)"; } > "$_tdbin/mktemp"; chmod +x "$_tdbin/mktemp"
+    mout="$(PATH="$_tdbin:$PATH" bash "$w/run-all.sh" 2>&1)"
+    if grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout" && ! grep -qF 'TMPDIR leftovers: DEGRADED' <<<"$mout"; then
+      ok "teeth-tmpd-degraded: reason-less mutant reads an uncreatable root as a confident 0 → the DEGRADED state has real teeth"
+    else no "teeth-tmpd-degraded: mutant still reports DEGRADED — mutation not exercised (THEATER)"; fi
   fi
 fi
 
