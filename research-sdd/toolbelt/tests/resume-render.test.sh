@@ -97,7 +97,24 @@ printf '#!/bin/sh\ncase "$2" in *"def cnt"*) echo "# Resume handoff"; echo "jq: 
 chmod +x "$TMP/badjq/jq"; cp "$P" "$TMP/e6.json"
 SO="$(PATH="$TMP/badjq:$PATH" timeout 30 bash "$SUT" --json "$TMP/e6.json" 2>"$TMP/e6.err" </dev/null)"; RC=$?
 eq "3q render failure rc" "$RC" 2; eq "3q render failure stdout empty" "$SO" ""
-eq "3q typed message" "$(head -c 28 "$TMP/e6.err")" "resume-render.sh: malformed "
+eq "3q typed message" "$(head -c 33 "$TMP/e6.err")" "resume-render.sh: render failed: "
+
+# 3r. missing keys are unknown; only an explicit null is "none"/"detached"
+jq 'del(.repo.remote)' "$P" > "$TMP/norem.json"; run --json "$TMP/norem.json"
+has "3r  missing repo.remote -> remote unknown" 'remote unknown'; lacks "3r1 missing remote is not none" "none configured"
+jq 'del(.repo)' "$P" > "$TMP/norepo.json"; run --json "$TMP/norepo.json"
+eq "3r2 missing repo object still renders rc" "$RC" 0; has "3r3 missing repo -> remote unknown" 'remote unknown'
+jq '.repo.remote=null' "$P" > "$TMP/nullrem.json"; run --json "$TMP/nullrem.json"
+has "3r5 explicit null remote -> none configured" 'remote none configured'
+jq '.worktrees[0]|=del(.branch)' "$P" > "$TMP/nobr.json"; run --json "$TMP/nobr.json"
+has "3r6 missing branch -> branch unknown" 'branch unknown'; lacks "3r7 missing branch is not detached" "detached HEAD"
+jq '.prs_truncated=null' "$P" > "$TMP/truncnull.json"; run --json "$TMP/truncnull.json"
+has "3r8 ok list with null prs_truncated flags completeness unknown" 'completeness unknown'
+# 3s. --json "" is rejected, not a switch into self-run mode; the conflict check keys on --json being given
+run --json ""
+eq "3s  empty --json value rc" "$RC" 2; has "3s1 empty --json message" "non-empty"
+run --json "" --no-gh
+eq "3s2 empty --json + forwarded flag rc" "$RC" 2
 
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
@@ -137,7 +154,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   D="$FX/state-degraded.json"
-  mk unknown-as-none "$SUT" "$MUT/m1.sh" 's/if \.prs == null or (\.prs|type) != "array" or \.prs_status != "ok" then/if false then/' \
+  mk unknown-as-none "$SUT" "$MUT/m1.sh" 's/if \.prs == null or \.prs_status != "ok" then/if false then/' \
     && tt unknown-as-none 0 0 "$MUT/m1.sh" --good-has 'PR list unknown: degraded:gh-timeout' --bad-lacks 'PR list unknown' -- bash @SUT@ --json "$D"
   mk null-as-zero "$SUT" "$MUT/m2.sh" 's/if v == null then l + " unknown"/if v == null then l + " 0"/' \
     && tt null-as-zero 0 0 "$MUT/m2.sh" --good-has "ahead unknown" --bad-lacks "ahead unknown" -- bash @SUT@ --json "$D"
@@ -150,7 +167,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk no-jq-probe "$SUT" "$MUT/m6.sh" 's/^command -v jq >\/dev\/null 2>&1 ||.*$/:/' \
     && tt no-jq-probe 3 2 "$MUT/m6.sh" --good-has 'DEGRADED: jq' --bad-lacks 'DEGRADED' -- env PATH="$TMP/nojq" "$(command -v bash)" @SUT@ --json "$FX/state-prs-ok.json"
   mk streams-directly "$SUT" "$MUT/m11.sh" 's/^\(.*\)'"'"' "\$tmp" > "\$out" 2> "\$out.err"; rc=\$?$/\1'"'"' "$tmp" 2> "$out.err"; rc=$?/' \
-    && tt streams-directly 2 2 "$MUT/m11.sh" --good-has 'malformed element' --bad-has 'Resume handoff' -- env PATH="$TMP/badjq:$PATH" bash @SUT@ --json "$TMP/e6.json"
+    && tt streams-directly 2 2 "$MUT/m11.sh" --good-has 'render failed' --bad-has 'Resume handoff' -- env PATH="$TMP/badjq:$PATH" bash @SUT@ --json "$TMP/e6.json"
+  mk remote-missing-as-none "$SUT" "$MUT/m13.sh" 's/if ((\.repo \/\/ {})|has("remote"))|not then "unknown"/if false then "unknown"/' \
+    && tt remote-missing-as-none 0 0 "$MUT/m13.sh" --good-has 'remote unknown' --bad-lacks 'remote unknown' -- bash @SUT@ --json "$TMP/norem.json"
+  mk branch-missing-as-detached "$SUT" "$MUT/m14.sh" 's/if has("branch")|not then "branch unknown"/if false then "branch unknown"/' \
+    && tt branch-missing-as-detached 0 0 "$MUT/m14.sh" --good-has 'branch unknown' --bad-lacks 'branch unknown' -- bash @SUT@ --json "$TMP/nobr.json"
+  mk empty-json-accepted "$SUT" "$MUT/m15.sh" 's/\[ -n "\$2" \] || { echo "resume-render.sh: --json requires.*$/:/' \
+    && tt empty-json-accepted 2 2 "$MUT/m15.sh" --good-has 'non-empty' --bad-lacks 'non-empty' -- bash @SUT@ --json ""
   mk exists-missing-as-present "$SUT" "$MUT/m12.sh" 's/if \.exists != false and \.exists != true then/if false then/' \
     && tt exists-missing-as-present 0 0 "$MUT/m12.sh" --good-has 'existence unknown' --bad-lacks 'existence unknown' -- bash @SUT@ --json "$TMP/noex.json"
   mk empty-list-wording "$SUT" "$MUT/m7.sh" 's/elif (\.prs|length) == 0 then "No open PRs (gh answered with an empty list)\."/elif (.prs|length) == 0 then "No open PRs"/' \

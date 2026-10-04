@@ -18,17 +18,20 @@ usage() { echo "$usage_text" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCHEMA="research-sdd.resume-state/v1"
 
-json_src=""; fwd=()
+json_src=""; json_given=0; fwd=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --json) [ $# -ge 2 ] || usage; json_src="$2"; shift 2 ;;
+    --json)
+      [ $# -ge 2 ] || usage
+      [ -n "$2" ] || { echo "resume-render.sh: --json requires a non-empty FILE or '-'" >&2; exit 2; }
+      json_given=1; json_src="$2"; shift 2 ;;
     --cwd|--base-ref) [ $# -ge 2 ] || usage; fwd+=("$1" "$2"); shift 2 ;;
     --no-gh) fwd+=("$1"); shift ;;
     -h|--help) echo "$usage_text"; exit 0 ;;
     *) echo "resume-render.sh: unknown argument: $1" >&2; usage ;;
   esac
 done
-if [ -n "$json_src" ] && [ "${#fwd[@]}" -gt 0 ]; then
+if [ "$json_given" -eq 1 ] && [ "${#fwd[@]}" -gt 0 ]; then
   echo "resume-render.sh: --cwd/--base-ref/--no-gh apply to resume-state.sh and cannot be combined with --json" >&2; exit 2
 fi
 
@@ -36,7 +39,7 @@ command -v jq >/dev/null 2>&1 || { echo "DEGRADED: jq not found; cannot render t
 
 tmp="$(mktemp)" || { echo "resume-render.sh: mktemp failed" >&2; exit 2; }
 trap 'rm -f "$tmp"' EXIT
-if [ -z "$json_src" ]; then
+if [ "$json_given" -eq 0 ]; then
   bash "$HERE/resume-state.sh" ${fwd[@]+"${fwd[@]}"} > "$tmp"; rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "resume-render.sh: resume-state.sh failed (rc $rc)" >&2
@@ -69,7 +72,8 @@ jq -r '
   def ab(o): cnt("ahead"; o.ahead) + " · " + cnt("behind"; o.behind);
   def wt:
     "- `" + (.path|tostring) + "` — "
-    + (if .branch == null then "detached HEAD" else "branch `" + (.branch|tostring) + "`" end)
+    + (if has("branch")|not then "branch unknown"
+       elif .branch == null then "detached HEAD" else "branch `" + (.branch|tostring) + "`" end)
     + " @ " + sha(.head) + " · "
     + (if .exists != false and .exists != true then "existence unknown · " else "" end)
     + (if .exists == false
@@ -78,18 +82,19 @@ jq -r '
        else cnt("dirty"; .dirty) + " · " + cnt("untracked"; .untracked) end)
     + " · " + ab(.);
   def prs:
-    if .prs == null or (.prs|type) != "array" or .prs_status != "ok" then
+    if .prs == null or .prs_status != "ok" then
       "PR list unknown: " + ((.prs_status // "prs_status missing")|tostring)
       + (if .prs != null then " (inconsistent: a PR list is present but its status is not ok; not trusted)" else "" end)
     elif (.prs|length) == 0 then "No open PRs (gh answered with an empty list)."
     else ((.prs[] | "- #" + (.number|tostring) + " `" + (.branch|tostring) + "` " + (.state|tostring) + " — " + (.url|tostring)),
           (if .prs_truncated == true then "- PR list truncated at the gh limit: it may be incomplete."
-           elif .prs_truncated == null then "- PR list completeness unknown (prs_truncated missing)." else empty end))
+           elif .prs_truncated == null then "- PR list completeness unknown (prs_truncated null or missing)." else empty end))
     end;
   "# Resume handoff",
   "",
   "Generated " + ((.generated_at // "unknown time")|tostring) + " · repo `" + ((.repo.toplevel // "unknown")|tostring) + "`"
-    + " · remote " + (if .repo.remote == null then "none configured" else "`" + (.repo.remote|tostring) + "`" end),
+    + " · remote " + (if ((.repo // {})|has("remote"))|not then "unknown"
+       elif .repo.remote == null then "none configured" else "`" + (.repo.remote|tostring) + "`" end),
   "Base: `" + .base_ref + "` @ " + sha(.base_sha),
   "",
   "## Worktrees (" + (.worktrees|length|tostring) + ")",
@@ -106,7 +111,7 @@ jq -r '
   "Review receipts, in-flight workers and the next task have no git source; state them by hand."
 ' "$tmp" > "$out" 2> "$out.err"; rc=$?
 if [ "$rc" -ne 0 ]; then
-  echo "resume-render.sh: malformed element: $(head -n 1 "$out.err")" >&2; rm -f "$out.err"; exit 2
+  echo "resume-render.sh: render failed: $(head -n 1 "$out.err")" >&2; rm -f "$out.err"; exit 2
 fi
 rm -f "$out.err"
 cat "$out"
