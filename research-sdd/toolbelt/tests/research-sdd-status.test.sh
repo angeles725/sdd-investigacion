@@ -6411,8 +6411,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -qF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT"; then
     grep -vF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT" > "$_sh_mutant"
     _sh_mut_out="$(bash "$_sh_mutant" "$d" 2>/dev/null)"
-    if ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
-      ok "teeth-STOP-HOOK-LINE: line removed → test 32b/32a/32c/32d go RED (line absent) — has teeth"
+    # The mutant must still print the report HEADER: an absent Stop hook line proves nothing if a crash
+    # (empty output) is what removed it (kit issue #1150 item 3).
+    if ! grep -qF '== research-sdd-status:' <<<"$_sh_mut_out"; then
+      no "teeth-STOP-HOOK-LINE: mutant printed no report header — a crash, not a line removal — THEATER" "out=[$_sh_mut_out]"
+    elif ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
+      ok "teeth-STOP-HOOK-LINE: line removed, report header intact → test 32b/32a/32c/32d go RED (line absent) — has teeth"
     else
       no "teeth-STOP-HOOK-LINE: mutant must drop the Stop hook line — THEATER" "out=[$_sh_mut_out]"
     fi
@@ -7068,6 +7072,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
   t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
   t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
+fi
+
+# ==================== kit issue #1150 item 2: a missing / broken lib/hook-wiring.sh is a loud exit 1 ====================
+# The SUT sources lib/hook-wiring.sh near its top. Absent file -> "cannot find helper"; a file that sources
+# cleanly but defines no hook_stop_wiring_state -> "failed to define hook_stop_wiring_state". Either is an
+# operational failure of the instrument (CLAUDE.md §7/§8): exit 1, a clear message, and NO report (a report
+# printed without the Stop hook line would be a silent zero for the wiring state).
+# t1150_run <sut> <mode: missing|empty> <fixture>: build a throwaway kit copy of <sut> with that lib state,
+# run it on <fixture>, print stdout+stderr, exit with the SUT's own exit code.
+cat > "$TMP/t1150-run.sh" <<'RUNEOF'
+#!/usr/bin/env bash
+sut="$1"; mode="$2"; fx="$3"; here="$(cd "$(dirname "$0")" && pwd)"
+k="$(mktemp -d)" || exit 3
+mkdir -p "$k/lib"
+cp "$sut" "$k/research-sdd-status.sh" || exit 3
+cp "$here/kit-src/verify-state.sh" "$k/verify-state.sh" || exit 3
+cp "$here/kit-src/lib/"*.sh "$k/lib/" || exit 3
+case "$mode" in
+  missing) rm -f "$k/lib/hook-wiring.sh" ;;
+  empty)   printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines nothing\n' > "$k/lib/hook-wiring.sh" ;;
+esac
+bash "$k/research-sdd-status.sh" "$fx" 2>&1; rc=$?
+rm -rf "$k"
+exit "$rc"
+RUNEOF
+mkdir -p "$TMP/kit-src/lib"; cp "$HERE/../verify-state.sh" "$TMP/kit-src/verify-state.sh"; cp "$HERE/../lib/"*.sh "$TMP/kit-src/lib/"
+t1150_fx="$TMP/t1150-fx"; mkstate "$t1150_fx" 1 "high|g1|pending"
+echo "-- T-1150-2: missing / broken lib/hook-wiring.sh --"
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" missing "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 1 ] && grep -q 'cannot find helper .*hook-wiring.sh' <<<"$_t1150_out" && ! grep -qF '== research-sdd-status:' <<<"$_t1150_out"; then
+  ok "T-1150-2a: lib/hook-wiring.sh absent -> exit 1, 'cannot find helper' message, no report printed"
+else no "T-1150-2a: absent lib: rc=$_t1150_rc out=[$_t1150_out]"; fi
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" empty "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 1 ] && grep -q 'failed to define hook_stop_wiring_state' <<<"$_t1150_out" && ! grep -qF '== research-sdd-status:' <<<"$_t1150_out"; then
+  ok "T-1150-2b: lib/hook-wiring.sh defines no hook_stop_wiring_state -> exit 1, 'failed to define' message, no report printed"
+else no "T-1150-2b: empty lib: rc=$_t1150_rc out=[$_t1150_out]"; fi
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" intact "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 0 ] && grep -qF '== research-sdd-status:' <<<"$_t1150_out" && grep -qF 'Stop hook       :' <<<"$_t1150_out"; then
+  ok "T-1150-2c control: the same throwaway kit with an INTACT lib exits 0 and prints the report with its Stop hook line"
+else no "T-1150-2c control: intact lib: rc=$_t1150_rc out=[$(head -c 300 <<<"$_t1150_out")]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1150-2: dropping either helper check changes the failure; the report-header guard needs the control --"
+  _t1150_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1150_t() { # <label> <mode> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" mode="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" 1 "$1" "$TMP/status.$lbl.MUTANT.sh" "${@:2}" -- bash "$TMP/t1150-run.sh" @SUT@ "$mode" "$t1150_fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  # absent lib: without the -f guard the 'cannot find helper' message is gone (the declare -F guard still fails closed with the OTHER message)
+  t1150_t T1150-MISSING-GUARD missing '/cannot find helper \$_HWLIB/d' 1 --good-has 'cannot find helper' --bad-lacks "cannot find helper|$_t1150_crash"
+  # defines-nothing lib: without the declare -F guard the run no longer fails closed (exit 0, a report with an empty Stop hook value)
+  t1150_t T1150-DEFINE-GUARD empty '/failed to define hook_stop_wiring_state/d' 0 --good-has 'failed to define hook_stop_wiring_state' --bad-has '== research-sdd-status:' --bad-lacks "$_t1150_crash"
 fi
 
 if [ "$skips" -gt 0 ]; then
