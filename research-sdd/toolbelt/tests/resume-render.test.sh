@@ -21,6 +21,10 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 eq(){ if [ "$2" = "$3" ]; then ok "$1"; else no "$1 — got [$2] want [$3]"; fi; }
 has(){ case "$OUT" in *"$2"*) ok "$1" ;; *) no "$1 — output lacks [$2]" ;; esac; }
 lacks(){ case "$OUT" in *"$2"*) no "$1 — output has [$2]" ;; *) ok "$1" ;; esac; }
+# linenull LABEL FRAGMENT: the OUTPUT line containing FRAGMENT must exist and must not carry the literal "null"
+# (scoped to that field line: other lines legitimately print diagnostics that mention null).
+linenull(){ L="$(printf '%s\n' "$OUT" | grep -F -- "$2" | head -n 1)"
+  case "$L" in "") no "$1 — no output line has [$2]" ;; *null*) no "$1 — line [$L] has null" ;; *) ok "$1" ;; esac; }
 # run <args...>: stdout+stderr in OUT, rc in RC (stdin closed unless the case pipes one).
 run(){ OUT="$(timeout 30 bash "$SUT" "$@" 2>&1 </dev/null)"; RC=$?; }
 
@@ -93,7 +97,8 @@ jq '.worktrees[0]|=del(.exists)' "$FX/state-degraded.json" > "$TMP/noex.json"; r
 has "3p missing exists renders unknown, not present" 'existence unknown · dirty 0'
 # shape-valid but the render itself dies (object where a string is expected): rc 2, stdout empty
 REAL_JQ="$(command -v jq)"; mkdir -p "$TMP/badjq"
-printf '#!/bin/sh\ncase "$2" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
+# The stub scans EVERY argv word for the render program, so a reordered jq call cannot slip past it.
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac; done\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
 chmod +x "$TMP/badjq/jq"; cp "$P" "$TMP/e6.json"
 SO="$(PATH="$TMP/badjq:$PATH" timeout 30 bash "$SUT" --json "$TMP/e6.json" 2>"$TMP/e6.err" </dev/null)"; RC=$?
 eq "3q render failure rc" "$RC" 2; eq "3q render failure stdout empty" "$SO" ""
@@ -115,6 +120,23 @@ run --json ""
 eq "3s  empty --json value rc" "$RC" 2; has "3s1 empty --json message" "non-empty"
 run --json "" --no-gh
 eq "3s2 empty --json + forwarded flag rc" "$RC" 2
+
+# 3t-3x. dash-prefixed file name (3t), multi-document and whitespace-only input (3u), null identity fields (3v-3x) (kit issue #1571)
+mkdir -p "$TMP/dash"; cp "$P" "$TMP/dash/-state.json"
+OUT="$(cd "$TMP/dash" && timeout 30 bash "$SUT" --json -state.json 2>&1 </dev/null)"; RC=$?
+eq "3t  dash-prefixed file renders rc" "$RC" 0; has "3t1 dash-prefixed file rendered" '# Resume handoff'
+cat "$P" "$P" > "$TMP/two.json"; run --json "$TMP/two.json"
+eq "3u  two documents rc" "$RC" 2; has "3u1 two documents typed message" "multiple JSON documents"
+printf '%s\n' "$(cat "$P")" null > "$TMP/twonull.json"; run --json "$TMP/twonull.json"
+eq "3u2 stream ending in null rc" "$RC" 2; has "3u3 stream ending in null is multi-document, not malformed" "multiple JSON documents"
+printf '  \n\n' > "$TMP/ws.json"; run --json "$TMP/ws.json"
+eq "3u4 whitespace-only input rc" "$RC" 2; has "3u5 whitespace-only input is empty input" "empty input"; lacks "3u6 whitespace-only is not multi-document" "multiple JSON documents"
+jq '.worktrees[0]|=del(.path)' "$P" > "$TMP/nopath.json"; run --json "$TMP/nopath.json"
+eq "3v  worktree without path rc" "$RC" 0; has "3v1 missing path -> unknown" '- `unknown` — '; linenull "3v2 missing path never renders null on its line" '- `unknown` — '
+jq '.branches=[{"head":"abcdef0123"}]' "$P" > "$TMP/noname.json"; run --json "$TMP/noname.json"
+eq "3w  branch without name rc" "$RC" 0; has "3w1 branch without name -> unknown" '- `unknown` @ abcdef0'; linenull "3w2 missing name never renders null on its line" '- `unknown` @ abcdef0'
+jq '.prs[0]|=(.number=null|.branch=null|.state=null|.url=null)' "$P" > "$TMP/prnull.json"; run --json "$TMP/prnull.json"
+eq "3x  PR with null fields rc" "$RC" 0; has "3x1 null PR fields -> unknown" '- #unknown `unknown` unknown — unknown'; linenull "3x2 null PR fields never render null on their line" '- #unknown'
 
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
@@ -140,6 +162,15 @@ has "6c untracked file counted" 'untracked 1'
 run --cwd "$TMP/not-a-dir" --no-gh
 eq "6d resume-state failure -> rc 2" "$RC" 2; has "6e failure message" "resume-state.sh failed"
 
+# 6f. resume-state.sh exiting 3 (DEGRADED) propagates as rc 3, not 2 (kit issue #1571): a stub sibling
+mkdir -p "$TMP/st3"; cp "$SUT" "$TMP/st3/resume-render.sh"
+printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$TMP/st3/resume-state.sh"
+OUT="$(timeout 30 bash "$TMP/st3/resume-render.sh" --no-gh 2>&1 </dev/null)"; RC=$?
+eq "6f  resume-state rc 3 propagates as rc 3" "$RC" 3; has "6g propagation names the failure" "resume-state.sh failed (rc 3)"
+printf '#!/bin/sh\nexit 4\n' > "$TMP/st3/resume-state.sh"
+OUT="$(timeout 30 bash "$TMP/st3/resume-render.sh" --no-gh 2>&1 </dev/null)"; RC=$?
+eq "6h  resume-state rc 4 maps to rc 2" "$RC" 2
+
 # 7. read-only: rendering a fixture writes nothing next to it
 before="$(find "$FX" -type f | sort | xargs sha1sum 2>/dev/null)"
 run --json "$FX/state-degraded.json"
@@ -162,7 +193,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt no-schema-check 2 0 "$MUT/m3.sh" --good-has 'wrong schema' -- bash @SUT@ --json "$TMP/v0.json"
   mk no-shape-check "$SUT" "$MUT/m4.sh" 's/^  || { echo "resume-render.sh: malformed document.*$/  || true/' \
     && tt no-shape-check 2 0 "$MUT/m4.sh" --good-has 'malformed document' --bad-lacks 'malformed document' -- bash @SUT@ --json "$TMP/nowt.json"
-  mk no-empty-guard "$SUT" "$MUT/m5.sh" 's/^\[ -s "\$tmp" \] ||.*$/:/' \
+  mk no-empty-guard "$SUT" "$MUT/m5.sh" 's/^\[ -s "\$tmp" \] ||.*$/:/' 's/^\[ "\$ndocs" = 0 \] .*$/:/' \
     && tt no-empty-guard 2 2 "$MUT/m5.sh" --good-has 'empty input' --bad-lacks 'empty input' -- bash @SUT@ --json "$TMP/empty.json"
   mk no-jq-probe "$SUT" "$MUT/m6.sh" 's/^command -v jq >\/dev\/null 2>&1 ||.*$/:/' \
     && tt no-jq-probe 3 2 "$MUT/m6.sh" --good-has 'DEGRADED: jq' --bad-lacks 'DEGRADED' -- env PATH="$TMP/nojq" "$(command -v bash)" @SUT@ --json "$FX/state-prs-ok.json"
@@ -184,6 +215,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt truncation-hidden 0 0 "$MUT/m9.sh" --good-has 'truncated at the gh limit' --bad-lacks 'truncated at the gh limit' -- bash @SUT@ --json "$TMP/trunc.json"
   mk status-ignored "$SUT" "$MUT/m10.sh" 's/ or \.prs_status != "ok" then/ then/' \
     && tt status-ignored 0 0 "$MUT/m10.sh" --good-has 'PR list unknown: skipped' --bad-lacks 'PR list unknown' -- bash @SUT@ --json "$TMP/incons.json"
+  # The rc-3 mutant must run next to a stub resume-state.sh, so the original is copied beside it (--orig).
+  mkdir -p "$MUT/s3"; cp "$SUT" "$MUT/s3/orig.sh"
+  printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$MUT/s3/resume-state.sh"
+  mk rc3-not-propagated "$SUT" "$MUT/s3/m16.sh" 's/^    \[ "\$rc" -eq 3 \] && exit 3$/    :/' \
+    && tt rc3-not-propagated 3 2 "$MUT/s3/m16.sh" --orig "$MUT/s3/orig.sh" --good-has 'resume-state.sh failed \(rc 3\)' --bad-has 'resume-state.sh failed \(rc 3\)' -- bash @SUT@ --no-gh
+  mk dash-file-cat "$SUT" "$MUT/m17.sh" 's/^  cat -- "\$json_src" > "\$tmp"$/  cat "$json_src" > "$tmp"/' \
+    && tt dash-file-cat 0 2 "$MUT/m17.sh" --good-has 'Resume handoff' --bad-has 'empty input' -- bash -c 'cd "$1" && shift && bash "$@"' _ "$TMP/dash" @SUT@ --json -state.json
+  mk multi-doc-accepted "$SUT" "$MUT/m18.sh" 's/^\[ "\$ndocs" = 1 \] .*$/:/' \
+    && tt multi-doc-accepted 2 2 "$MUT/m18.sh" --good-has 'multiple JSON documents' --bad-lacks 'multiple JSON documents' -- bash @SUT@ --json "$TMP/two.json"
+  mk zero-docs-as-multi "$SUT" "$MUT/m20.sh" 's/^\[ "\$ndocs" = 0 \] .*$/:/' \
+    && tt zero-docs-as-multi 2 2 "$MUT/m20.sh" --good-has 'empty input' --bad-has 'multiple JSON documents' -- bash @SUT@ --json "$TMP/ws.json"
+  mk null-identity-literal "$SUT" "$MUT/m19.sh" 's/def or_unknown(v): if v == null then "unknown" else (v|tostring) end;/def or_unknown(v): (v|tostring);/' \
+    && tt null-identity-literal 0 0 "$MUT/m19.sh" --good-has '- #unknown `unknown` unknown — unknown' --bad-has '- #null `null` null — null' -- bash @SUT@ --json "$TMP/prnull.json"
 fi
 
 echo "== $pass passed · $fail failed =="
