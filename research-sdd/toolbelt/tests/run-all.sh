@@ -760,18 +760,38 @@ for suite in "${all_suites[@]}"; do
     # Recognised: a literal lib/mutant.sh target, or a variable assigned the helper path earlier or
     # later in the same file (ONE level: `LIB=...lib/mutant.sh` then `. "$LIB"`), after a line start
     # or one of ; & | { ( then do else. Comment lines and heredoc bodies are skipped (a delimiter
-    # is detected from `<<[-]WORD`; `<<<` herestrings are ignored). Known limits: a second level of
+    # is detected from `<<[-]WORD` in a command context only; `<<<` herestrings, a `<<` inside quotes and
+    # one inside an awk regex literal are ignored — kit issue #1647). A `bash -c '. .../lib/mutant.sh && ...'`
+    # string (Python-bodied suites) counts as use. Known limits: a second level of
     # indirection and a quoted multi-line string that looks like a source line are not resolved.
     # One awk process, NOT `grep -v | grep -q`: under pipefail the early-exiting `grep -q` SIGPIPEs the
     # producer (rc 141) on any suite larger than the pipe buffer and mislabels it a non-user.
     # SENTINEL-HELPER-USE-TEST
     if [[ "$_has_teeth" -eq 1 ]] && ! awk '
+      # Python-bodied suites (kit issue #1647): a bash -c string whose body sources the helper. Checked on
+      # EVERY non-comment line, heredoc bodies included (gate.test.sh embeds its Python in a heredoc).
+      !/^[[:space:]]*#/ && /bash["\047,[:space:]]+-c["\047,[:space:]]+(\.|source)[[:space:]]+[^#]*lib\/mutant\.sh/ { py = 1 }
       hd != "" { t = $0; sub(/^[ \t]+/, "", t); if (t == hd) hd = ""; next }
       /^[[:space:]]*#/ { next }
       { code[++n] = $0
-        if ($0 !~ /<<</ && match($0, /<<-?[^A-Za-z_]*[A-Za-z_][A-Za-z0-9_]*/)) {
-          d = substr($0, RSTART, RLENGTH); sub(/^<<-?[^A-Za-z_]*/, "", d); hd = d } }
+        # Heredoc opener: `<<` [-] optional blanks, optional quote or backslash, then a WORD (kit
+        # issue #1647). `<<` inside an awk regex literal (`/<<-?[[:space:]]*...`), preceded by `/`,
+        # or inside a quoted string (open quote state at it) is not an opener.
+        if ($0 !~ /<<</ && match($0, /<<-?[ \t]*[\\"\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
+          # Quote state is scanned left to right (escapes honoured; an apostrophe inside "..." is
+          # literal), not inferred from raw parity: `echo "it'"'"'s"; cat <<EOF` is a real opener.
+          qs = ""
+          for (k = 1; k < RSTART; k++) {
+            ch = substr($0, k, 1)
+            if (qs == "\047") { if (ch == "\047") qs = "" }
+            else if (ch == "\\") k++
+            else if (qs == "\"") { if (ch == "\"") qs = "" }
+            else if (ch == "\047" || ch == "\"") qs = ch
+          }
+          if (qs == "" && substr($0, RSTART - 1, 1) != "/") {
+            d = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*[\\"\047]?/, "", d); hd = d } } }
       END {
+        if (py) exit 0
         for (i = 1; i <= n; i++)
           if (code[i] ~ /^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=.*lib\/mutant\.sh/) {
             v = code[i]; sub(/^[[:space:]]*(local[[:space:]]+|export[[:space:]]+)?/, "", v); sub(/=.*/, "", v)
