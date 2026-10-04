@@ -1,0 +1,22 @@
+# retired-phrases.txt -- wording that doctrine has retired and must not reappear in LIVE doctrine.
+# Read by doctrine-absence.test.sh (kit issue #1703). Scope of the walk: CLAUDE.md, research-sdd/*.md,
+# research-sdd/templates, research-sdd/skills, research-sdd/profiles (recursive) and research-sdd/toolbelt/*.md.
+# Historical records (CHANGELOG, retros, corpus blocks, tests) are out of scope on purpose.
+#
+# Format, one entry per line, TAB-separated (a comment line starts with '#'; blank lines are ignored):
+#   <phrase> TAB <reason / replaced-by> [TAB waive=<repo-relative path>]
+# <phrase> is matched as a literal string (fixed-string grep), case-sensitive.
+# The optional waive=<path> field exempts ONE file for that phrase until the owning issue lands; the walk prints
+# every waived hit as WAIVED, so a waiver is visible debt, and a waiver that matches nothing prints a
+# non-failing "NOTE waiver-unused" line so it can be deleted. Delete the waiver in the PR that fixes the file.
+#
+# Not seeded, on purpose (verified against the tree): OpenCode / Codex / Reasonix as dropped harnesses.
+# Every live mention is a migration note ("support was dropped", README cleanup steps) or a design doc that
+# states it is a historical record, so no literal phrase is both retired and absent from legitimate text.
+# TODO: add a phrase for a dropped harness only once a stale "supported harness" wording is found to ban.
+#
+# Retired routing triggers (B33 candidate 2 / B34 section 34.6): the "Read 1-3 files" / "Understand 4+ files" rows
+# contradict the evidence-budget rule (at most 3 calls / ~10k tokens inline; more than ~5 sequential lookups to
+# a mapper; 2+ non-trivial files to a writer). CLAUDE.md section 1 still carries both until #1701 removes them.
+1–3 files	Retired routing trigger; use the evidence-budget rule (max 3 calls / ~10k tokens inline, mapper beyond ~5 lookups). Removed by #1701	waive=CLAUDE.md
+4+ files	Retired routing trigger; use the evidence-budget rule (max 3 calls / ~10k tokens inline, mapper beyond ~5 lookups). Removed by #1701	waive=CLAUDE.md
