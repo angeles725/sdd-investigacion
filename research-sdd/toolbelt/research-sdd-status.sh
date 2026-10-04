@@ -583,40 +583,24 @@ pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$
 # Cell decoration stripped before matching: `backtick-wrap` and **bold-wrap** (BOLD-STRIP).
 # WARNs to stderr: token outside closed vocabulary, or state file absent from the index.
 #
-# W2 (kit issue #1005 round 2): the default status report calls this once per state file from the
-# campaign block AND again later from the next-step block, so a multi-focus corpus with nonconforming
-# FOCUSES.md rows printed every such WARN twice. Memoize per (ffile, sbase): the awk scan (and its
-# WARNs) runs at most once per process; every later caller — regardless of which loop — reuses the
-# cached token silently. Distinct from a wrong-answer cache: the token is still recomputed once, from
-# the same file, by the same logic; only the SECOND-and-later read within one run is served from cache.
+# Memoized per (ffile, sbase): the default report reads the token once per state file from the campaign block
+# AND again from the next-step block, and the awk scan emits its WARNs, so an unmemoized read would print every
+# nonconforming-row WARN twice. The token is still computed once, from the same file, by the same logic; only
+# the second and later reads within one run are served from the cache.
 #
-# Round 2 first tried a cache FILE (a plain in-memory array does not survive the subshell every
-# `x="$(_read_focuses_tok ...)"` capture forks). Round 3 (native RDD + Opus re-review): that file was
-# a real security bug, not just an implementation detail — a predictable, world-readable path under a
-# shared tmp dir, created with `: >` (follows symlinks), whose CONTENTS were then trusted as data.
-# Reproduced: a symlink at that path clobbering an unrelated victim file, and a planted
-# "<key>\tstopped" line silently forcing a real focus into a false STOP — the same function backs
-# `--next`, so a poisoned cache file could produce a false STOP there too (kit §7 anti-silent-zero:
-# an attacker-controlled "0 gaps left" is exactly the silent-zero this doctrine exists to prevent).
+# The cache is an in-process array and the reader is called as a PLAIN statement (never inside `$(...)`), so
+# nothing is forked, nothing is written to a shared or world-readable location, and the cache only ever holds
+# values this process computed itself. A file-backed cache would be attacker-influenceable (symlink clobber, a
+# planted "<key>\tstopped" line forcing a false STOP — a silent zero, CLAUDE.md §7). The next-step `( … )`
+# subshell inherits a COPY of the array at fork time, so entries the campaign block populated are hits there.
 #
-# The actual fix: never leave the parent shell at all. `_read_focuses_tok_into <var> <ffile> <sbase>`
-# is called as a PLAIN statement (never wrapped in `$(...)`), so it runs in the caller's own process —
-# no subshell, no file, nothing written to a shared or world-readable location. The cache only ever
-# holds values this exact process computed for itself. The `( … )` next-step subshell below still
-# benefits: it inherits a COPY of this array at fork time, so every entry the campaign block already
-# populated earlier in the same run is a cache hit there too (a subshell just can't add new entries
-# back to the parent, which this call pattern never needs it to).
-#
-# Requires bash >= 4 (`declare -A`, associative arrays) — already true for this kit: 10 other
-# toolbelt scripts on main use `declare -A`.
+# Requires bash >= 4 (`declare -A`).
+# SENTINEL-RFT-HARNESS-BEGIN (the shadowing test extracts exactly the code between BEGIN and END)
 declare -A _RSDD_FOC_TOK_CACHE=()  # W2-NO-PROBE-WRITE-ANCHOR
-# Round 4 (latent, nit): every local here is prefixed `__rft_` on purpose. `printf -v "$__rft_target"`
-# assigns to a variable NAME the caller supplies — if a caller ever named its own variable the same as
-# one of this function's OWN locals (e.g. a caller literally using `_tok` or `ffile`), `printf -v`
-# would resolve to THIS function's local instead of the caller's variable (locals shadow), silently
-# leaving the caller's real variable unset/stale. Call sites today don't collide, but the prefix makes
-# a future collision need a call site to deliberately choose a `__rft_`-prefixed name, not stumble
-# into one of five short, plausible-sounding identifiers.
+# Every local is prefixed `__rft_` on purpose. `printf -v "$__rft_target"` assigns to a variable NAME the caller
+# supplies; if that name equalled one of this function's own locals, `printf -v` would resolve to the local
+# (locals shadow) and leave the caller's variable unset or stale. The prefix makes such a collision require a
+# call site that deliberately picks a `__rft_`-prefixed name.
 _read_focuses_tok_into() {
   local __rft_target="$1" __rft_ffile="$2" __rft_sbase="$3"
   local __rft_cache_key
@@ -701,6 +685,7 @@ _read_focuses_tok_uncached() {
     }
   ' "$ffile"
 }
+# SENTINEL-RFT-HARNESS-END
 
 if [ "$mode" = "--sync-state" ]; then
   # Seed the research-state.v1 envelope in EVERY RESEARCH-STATE*.md of the corpus. §16 multi-focus corpora

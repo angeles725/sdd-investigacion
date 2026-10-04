@@ -5793,18 +5793,30 @@ echo "-- W2 round 4 (security, no teeth without this shape): a READ-ONLY TMPDIR 
 # suppress. The current design never attempts a write at all, so there is nothing to fail: exit 0,
 # and stderr is clean. Assert exactly that — not "no leftover file", but "no write was ever attempted
 # in the first place", which a read-only TMPDIR turns into an observable, checked signal.
+# ro_dir_is_readonly <dir>: chmod 500 is only a read-only directory for a non-root caller. Probe it instead of
+# assuming: when a write still succeeds (root, or a filesystem ignoring mode bits) the read-only test cannot
+# run, and it must say so loudly (SKIP) instead of passing or failing for a reason that is not the SUT's.
+ro_dir_is_readonly() {
+  if ( : > "$1/.rsdd-ro-probe" ) 2>/dev/null; then rm -f "$1/.rsdd-ro-probe"; return 1; fi
+  return 0
+}
 _w2_ro_tmpdir="$(mktemp -d)"
 chmod 500 "$_w2_ro_tmpdir"
 _w2_ro_out="$TMP/w2-readonly-stdout.txt"
 _w2_ro_err="$TMP/w2-readonly-stderr.txt"
-TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
-_w2_ro_rc=$?
-chmod 700 "$_w2_ro_tmpdir"
-rm -rf "$_w2_ro_tmpdir"
-if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
-  ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
+if ro_dir_is_readonly "$_w2_ro_tmpdir"; then
+  TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
+  _w2_ro_rc=$?
+  chmod 700 "$_w2_ro_tmpdir"
+  rm -rf "$_w2_ro_tmpdir"
+  if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
+    ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
+  else
+    no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
+  fi
 else
-  no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
+  chmod 700 "$_w2_ro_tmpdir"; rm -rf "$_w2_ro_tmpdir"
+  skip "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: chmod 500 did not make the directory read-only here (running as root?) — the check cannot bite"
 fi
 
 echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable named like one of its OLD locals --"
@@ -5818,12 +5830,11 @@ echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable n
 # SUT would run its own argv-dependent top-level logic and `exit` the harness — then call it with a
 # caller-side variable named "_tok" and confirm THAT variable receives the real token.
 _shadow_harness="$TMP/shadow-harness.sh"
-# Anchor-based extraction (kit issue #1108/#1109: research-sdd-status.sh now sources
-# lib/hook-wiring.sh near its top, which SHIFTED every later line number — a hardcoded
-# 'sed -n NNNp;MMM,KKKp' range silently grabbed the wrong slice after that shift and this
-# test went RED for the wrong reason. Anchoring on the declare line through the line before
-# '--sync-state' mode dispatch survives future line-count changes above this point.
-awk '/^if \[ "\$mode" = "--sync-state" \]/{exit} /^declare -A _RSDD_FOC_TOK_CACHE=/{p=1} p{print}' "$SUT" > "$_shadow_harness"
+# Marker-based extraction (kit issue #1023): the SUT brackets the two functions this needs with
+# SENTINEL-RFT-HARNESS-BEGIN / -END comments, so the slice survives any line shift above or below it and
+# a missing or duplicated marker is a DISTINCT failure below, never misreported as the shadowing regression.
+awk '/# SENTINEL-RFT-HARNESS-BEGIN/{p=1;next} /# SENTINEL-RFT-HARNESS-END/{p=0} p{print}' "$SUT" > "$_shadow_harness"
+_shadow_nb="$(grep -cF 'SENTINEL-RFT-HARNESS-BEGIN' "$SUT")"; _shadow_ne="$(grep -cF 'SENTINEL-RFT-HARNESS-END' "$SUT")"
 _shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
 {
   printf '# Focus Registry\n\n'
@@ -5831,14 +5842,19 @@ _shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
   printf '|---|---|---|\n'
   printf '| alpha | active | RESEARCH-STATE-alpha.md |\n'
 } > "$_shadow_dir/FOCUSES.md"
+_shadow_err="$TMP/shadow-harness.err"
 _shadow_out="$(bash -c '
   # shellcheck disable=SC1090
   source "$1"
   _tok="UNCHANGED"
   _read_focuses_tok_into _tok "$2" "RESEARCH-STATE-alpha.md"
   printf "%s" "$_tok"
-' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>/dev/null)"
-if [ "$_shadow_out" = "active" ]; then
+' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>"$_shadow_err")"
+if [ "$_shadow_nb" != 1 ] || [ "$_shadow_ne" != 1 ] || [ ! -s "$_shadow_harness" ]; then
+  no "T-RFT-NO-SHADOW: harness extraction is broken (BEGIN markers=$_shadow_nb, END markers=$_shadow_ne, harness bytes=$(wc -c < "$_shadow_harness")) — this is NOT the shadowing regression"
+elif [ -s "$_shadow_err" ]; then
+  no "T-RFT-NO-SHADOW: the extracted harness wrote to stderr — a broken extraction, NOT the shadowing regression: [$(head -c 300 "$_shadow_err")]"
+elif [ "$_shadow_out" = "active" ]; then
   ok "T-RFT-NO-SHADOW: a caller variable named '_tok' (collides with an old internal local name) still receives the correct token, not left unchanged"
 else
   no "T-RFT-NO-SHADOW: expected the caller's _tok to become 'active', got [$_shadow_out] — printf -v wrote into the function's own local instead of the caller's variable"
@@ -6308,14 +6324,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _w2_ro_mut_tmpdir="$(mktemp -d)"
       chmod 500 "$_w2_ro_mut_tmpdir"
-      _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
-      TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
-      chmod 700 "$_w2_ro_mut_tmpdir"
-      rm -rf "$_w2_ro_mut_tmpdir"
-      if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
-        ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+      if ro_dir_is_readonly "$_w2_ro_mut_tmpdir"; then
+        _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
+        TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
+        chmod 700 "$_w2_ro_mut_tmpdir"
+        rm -rf "$_w2_ro_mut_tmpdir"
+        if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
+          ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+        else
+          no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+        fi
       else
-        no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+        chmod 700 "$_w2_ro_mut_tmpdir"; rm -rf "$_w2_ro_mut_tmpdir"
+        skip "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: chmod 500 did not make the directory read-only here (running as root?) — the tooth cannot bite"
       fi
     fi
   else
@@ -7224,6 +7245,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
   t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
 fi
+
+# ==================== kit issue #1023: test follow-ups ====================
+# (the marker-based RFT extraction and the root-safe read-only TMPDIR guards live where those tests do;
+# this section checks the guard helper itself.)
+# The read-only-directory probe must tell a writable directory from a read-only one.
+_ro_w="$(mktemp -d)"
+if ro_dir_is_readonly "$_ro_w"; then no "T-1023-probe: a plain writable directory was reported read-only (the SKIP guard would never fire)"
+else ok "T-1023-probe: a writable directory is NOT read-only (a root run would SKIP, not pass or fail)"; fi
+if [ "$(id -u)" != 0 ]; then
+  chmod 500 "$_ro_w"
+  if ro_dir_is_readonly "$_ro_w"; then ok "T-1023-probe: a chmod-500 directory IS read-only for a non-root caller"
+  else no "T-1023-probe: a chmod-500 directory was reported writable for a non-root caller"; fi
+  chmod 700 "$_ro_w"
+fi
+rm -rf "$_ro_w"
 
 if [ "$skips" -gt 0 ]; then
   echo "== $pass passed · $fail failed · $skips skipped =="
