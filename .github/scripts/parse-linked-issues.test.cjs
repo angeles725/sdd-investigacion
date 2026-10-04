@@ -55,8 +55,12 @@ test('a backtick line whose info string has backticks is inline code, not a fenc
   assert.deepEqual(result.references.map((r) => r.number), [11]);
 });
 
-test('malformed refs fail closed after any non-alphanumeric boundary, like valid refs', () => {
-  for (const body of ['see/Closes #abc', 'x-Fixes #12abc']) {
+test('after a slash neither a valid nor a malformed ref counts (path fragment)', () => {
+  assert.deepEqual(parseLinkedIssues('see/Closes #12 and see/Closes #abc'), { references: [], errors: [] });
+});
+
+test('malformed refs fail closed after a hyphen boundary, like valid refs', () => {
+  for (const body of ['x-Closes #abc', 'x-Fixes #12abc']) {
     const result = parseLinkedIssues(body);
     assert.equal(result.errors.length, 1, body);
   }

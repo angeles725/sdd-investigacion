@@ -22,7 +22,7 @@ const VALID_REFERENCE_END = String.raw`$|[\s.,;:!?)}\]'"\`*~]|_(?!\w)`;
 const SEPARATOR = String.raw`:?\s+`;
 
 const REFERENCE_PATTERN = new RegExp(
-  `(?<![A-Za-z0-9])(${KEYWORDS})${SEPARATOR}#(\\d+)(?=${VALID_REFERENCE_END})`,
+  `(?<![A-Za-z0-9/])(${KEYWORDS})${SEPARATOR}#(\\d+)(?=${VALID_REFERENCE_END})`,
   'gi'
 );
 
@@ -33,11 +33,12 @@ const CROSS_REPO_PATTERN = new RegExp(
   'gi'
 );
 
-// Same left boundary as REFERENCE_PATTERN, so a malformed ref fails closed wherever a valid one would count.
+// Left boundary matches REFERENCE_PATTERN: after a hyphen both count; after a slash neither does (URL/path
+// fragments such as `x/refs#anchor` are not references), so a malformed ref fails closed wherever a valid one counts.
 // Catch keyword + invalid `#` tokens and numeric suffixes that are not valid
 // reference delimiters.
 const MALFORMED_PATTERN = new RegExp(
-  `(?<![A-Za-z0-9])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
+  `(?<![^\\s"'[(*_~-])(${KEYWORDS})(?::?#\\S*|${SEPARATOR}#(?:(?!\\d)\\S*|\\d+(?=[^\\d])(?!${VALID_REFERENCE_END})\\S*))`,
   'gi'
 );
 
