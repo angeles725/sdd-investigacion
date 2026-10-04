@@ -1520,14 +1520,16 @@ HARD RULES:
     CREDENTIAL SOURCE + POST-RUN SWEEP: take test credentials from a mode-600 file OUTSIDE the repo,
     never pasted in a channel or embedded in an artifact; after EVERY live run that used one, grep the
     run's outputs (report, stdout, audit, journal) for the secret value as a FIXED string read from the
-    credential file, never typed into argv. Run it as TWO steps with distinct exit codes (#1507): (1)
-    `test -s <cred-file> || { echo "SWEEP NOT RUN: credential file missing/empty" >&2; exit 2; }` (an
-    empty file gives zero patterns and a false 0); (2) `cat <outputs> | grep -cF -f <cred-file>` prints ONE
-    total (grep -c exits 1 on 0 hits — that is a CLEAN sweep, rc 1 is not a failure; with several files
-    `grep -c` prints one `file:N` line each, hence the concatenation). Require a printed total of exactly
-    0; no printed number means the sweep did not run. Strip CR/trailing whitespace from the cred file first
-    (a CRLF pattern never matches the secret and returns a false 0). Record the count in the block, and
-    delete the credential file (0 hits on 5 runs x 4 outputs).
+    credential file, never typed into argv. Run it as THREE steps inside a script or subshell `( ... )` (so `exit 2`
+    never closes an interactive shell), exit 2 = SWEEP NOT RUN, distinct from a clean 0 (#1507): (0) strip CR and
+    trailing whitespace from the cred file (`sed -i 's/[[:space:]]*$//'`; a CRLF pattern never matches the secret
+    and returns a false 0); (1) guard: `grep -q . <cred-file>` must find at least one NON-EMPTY pattern line AFTER
+    the strip, else `echo "SWEEP NOT RUN" >&2; exit 2` (a missing, empty or whitespace-only file must not pass: an
+    empty pattern matches every line); then `test -r` EVERY output path, same exit 2 (a missing file through a
+    `cat` pipe still prints 0); (2) `cat <outputs> | grep -cF -f <cred-file>` prints ONE total (grep -c exits 1 on
+    0 hits — a CLEAN sweep, not a failure; with several files `grep -c` prints one `file:N` line each, hence
+    the concatenation). Require a printed total of exactly 0; no printed number means the sweep did not run.
+    Record the count in the block, and delete the credential file (0 hits on 5 runs x 4 outputs).
     COMMAND CONSTRUCTION (#1384): when a probe needs credentials, never build the command in an unquoted
     string variable (`C="curl -u $U:$P"; $C url`) — use a shell function (`ob() { curl -u "$U:$P" "$@"; }`)
     or an array. Under zsh the variable is not word-split, so the shell prints the whole command, secret
