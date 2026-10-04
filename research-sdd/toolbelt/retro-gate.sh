@@ -180,6 +180,9 @@ _run_issue_seeding() {
   local created=0 skipped=0 failed=0 failed_issues=0 failed_issues_unknown=0 empty=0 absent=0 ran=0 unclassifiable=0
   local rf seed_out seed_rc _c _s _f _summary _seed_reason _seed_failed _absent_typed
   local failed_list=""
+  # Kit issue #1705: seeder exit 3 = no failed row, but >=1 row whose mutation outcome is UNKNOWN (the write
+  # may have happened and is unproven). It is neither success nor a failed create: its own counters/line.
+  local unknown=0 unknown_issues=0 unknown_issues_unknown=0 unknown_list="" _u
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     _in_nested_worktree "$rf" && continue   # NW-RETRO-GUARD-SEED
@@ -250,7 +253,34 @@ _run_issue_seeding() {
     fi
     # SENTINEL-ABSENT-NOT-FAILED-START
     # absent-input: exits non-zero but is already counted in absent — skip failed accounting
-    if [ "$seed_rc" -ne 0 ] && [ "$_absent_typed" -eq 0 ]; then
+    # Kit issue #1705: the unknown-outcome report is independent of the failed path. Exit 3 = unknown rows only;
+    # exit 2 = at least one failed row, and the same run may ALSO hold unknown rows (mixed run) — read the
+    # seeder's mutation-summary: on BOTH. A summary-less exit 3 reads `unknown` (never a fabricated 0).
+    if [ "$_absent_typed" -eq 0 ] && { [ "$seed_rc" -eq 2 ] || [ "$seed_rc" -eq 3 ]; }; then
+      # SENTINEL-UNKNOWN-OUTCOME-START
+      _unk_here=0; _unk_what="unknown mutation outcome"
+      _u="$(printf '%s' "$seed_out" | grep '^mutation-summary:' | tail -1 | grep -oE 'unknown=[0-9]+' | cut -d= -f2)"
+      if [ -n "$_u" ]; then
+        if [ "$_u" -gt 0 ]; then
+          _unk_here=1; unknown_issues=$((unknown_issues + _u))
+        elif [ "$seed_rc" -eq 3 ]; then
+          # exit 3 promises >= 1 unknown row; a parsed unknown=0 contradicts it. Never silent: count it unknown.
+          _unk_here=1; unknown_issues_unknown=1
+          _unk_what="unknown=contradictory (exit 3, summary unknown=0)"
+        fi
+      elif [ "$seed_rc" -eq 3 ]; then
+        _unk_here=1; unknown_issues_unknown=1   # exit 3 without a parseable mutation-summary: never 0
+      fi
+      if [ "$_unk_here" -eq 1 ]; then
+        unknown=$((unknown + 1))
+        unknown_list="${unknown_list:+$unknown_list, }$(basename "$rf")"
+        printf 'retro-gate: WARN: seeder exit %d for %s: %s — verify on GitHub, do not retry blindly\n' \
+          "$seed_rc" "$(basename "$rf")" "$_unk_what" >&2
+        _seed_note "seeder-unknown-outcome:$(basename "$rf")"
+      fi
+      # SENTINEL-UNKNOWN-OUTCOME-END
+    fi
+    if [ "$seed_rc" -ne 0 ] && [ "$seed_rc" -ne 3 ] && [ "$_absent_typed" -eq 0 ]; then
       failed=$((failed + 1))
       # A missing summary (crash before it was printed) or a summary with no failed= field leaves the
       # per-issue count not derivable: record it as unknown, never add a silent 0 (#971, §7).
@@ -290,9 +320,15 @@ _run_issue_seeding() {
       "$failed_issues_txt" "$failed" "$failed_list" >&2
   fi
   # SENTINEL-AGGREGATE-WARN-END
-  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%s target=%s\n' \
-    "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues_txt" "$(basename "$target")" >&2
-  _seed_note "ran=$ran created=$created skipped-dedup=$skipped empty=$empty unclassifiable=$unclassifiable absent=$absent failed=$failed"
+  local unknown_txt="$unknown_issues"
+  [ "$unknown_issues_unknown" -eq 0 ] || unknown_txt="unknown"
+  if [ "$unknown" -gt 0 ]; then
+    printf 'retro-gate: WARN: %s issue create(s) have an UNKNOWN outcome across %d retro(s): %s — verify on GitHub before re-running; never blind-retry\n' \
+      "$unknown_txt" "$unknown" "$unknown_list" >&2
+  fi
+  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%s target=%s unknown-outcome-retros=%d\n' \
+    "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues_txt" "$(basename "$target")" "$unknown" >&2
+  _seed_note "ran=$ran created=$created skipped-dedup=$skipped empty=$empty unclassifiable=$unclassifiable absent=$absent failed=$failed unknown-outcome-retros=$unknown"
 }
 # SENTINEL-SEEDING-FUNC-END
 
