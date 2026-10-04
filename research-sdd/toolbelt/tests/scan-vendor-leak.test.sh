@@ -221,7 +221,13 @@ o="$(out "$d")"; [ "$(rc "$d")" = 2 ] && has "$o" '^BAD-CONF .*unmerged' && ok "
 
 # 17 — second-round advisories (kit issue #1545).
 # R2: no literal TAB byte in the SUT (an editor that expands tabs would silently change a regex).
-! grep -qP '\t' "$SUT" && ok "SUT carries no literal tab character" || no "SUT contains a literal tab"
+# tab_state <file> — prints yes|no|error. Portable (no grep -P); rc>1 is a typed error, never a pass.
+tab_state(){ local r; grep -q "$(printf '\t')" "$1" 2>/dev/null; r=$?
+  case "$r" in 0) echo yes ;; 1) echo no ;; *) echo error ;; esac; }
+printf 'a\tb\n' > "$TMP/hastab.txt"; printf 'a b\n' > "$TMP/notab.txt"
+[ "$(tab_state "$TMP/hastab.txt")" = yes ] && [ "$(tab_state "$TMP/notab.txt")" = no ] && [ "$(tab_state "$TMP/absent.nofile")" = error ] \
+  && ok "tab lint: file with tab → yes, without → no, unreadable → error (never a pass)" || no "tab_state helper wrong"
+[ "$(tab_state "$SUT")" = no ] && ok "SUT carries no literal tab character" || no "SUT tab lint: $(tab_state "$SUT")"
 # R3: a failing index lookup for the conf is a typed DEGRADED (exit 3), never "absent". A corrupt index makes
 # `ls-files` fail while `rev-parse --is-inside-work-tree` still succeeds.
 d="$TMP/badidx"; newrepo "$d" "$FIX/vendor-leak.conf"; commit "$d"; printf 'garbage' > "$d/.git/index"
@@ -359,7 +365,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          tt "S2 nested-only probe dropped → */** accepted" 2 0 "$MUT/s2.sh" --good-has '^BAD-CONF allow' --bad-lacks '^BAD-CONF allow' -- bash @SUT@ "$TMP/dots"; }
   # S3 (#1545 R2): a literal tab reintroduced into the SUT must trip the no-tab lint predicate.
   mk "S3 tab" "$SUT" "$MUT/s3.sh" $'s/^set -uo pipefail$/&\t/' \
-    && { if ! grep -qP '\t' "$SUT" && grep -qP '\t' "$MUT/s3.sh"; then ok "S3 literal tab in SUT → lint predicate bites"; else no "S3 tab mutant not detected"; fi; }
+    && { if [ "$(tab_state "$SUT")" = no ] && [ "$(tab_state "$MUT/s3.sh")" = yes ]; then ok "S3 literal tab in SUT → lint predicate bites"; else no "S3 tab mutant not detected"; fi; }
   # S4 (#1545 R3): failing conf index lookup tolerated → falls through instead of typed DEGRADED.
   mk "S4 idx-degraded" "$SUT" "$MUT/s4.sh" 's/^  || { echo "DEGRADED: git could not read the index entry.*$/  || true/' \
     && tt "S4 index lookup failure tolerated → no typed DEGRADED (the later unmerged listing still exits 3, so the typed line is the contract)" 3 3 "$MUT/s4.sh" --good-has '^DEGRADED: git could not read the index entry' --bad-lacks '^DEGRADED: git could not read the index entry' --bad-lacks 'integer expression expected|syntax error|unbound variable' -- bash @SUT@ "$TMP/badidx"
