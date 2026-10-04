@@ -515,85 +515,52 @@ PYEOF
   _FC="$HERE/../firmware_carve.py"
   [ -f "$_FC" ] || { no "teeth-setup: firmware_carve.py not found at $_FC"; }
 
+  # Mutants are built in bash through lib/mutant.sh (refuses empty / byte-identical / live-tree /
+  # symlink OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`
+  # (ast_check.py exits 0 on a SyntaxError, so an unparseable mutant would otherwise read as teeth).
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  _ANCHOR=$'        refuse_privileged_execution()\n        if args.worker: return worker(args)'
+  # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW.
+  _ac_mutant() {
+    local c; c="$(cat "$_FC")"
+    [[ "$c" == *"$_ANCHOR"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
+    printf '%s\n' "${c/"$_ANCHOR"/"$2"}" > "$3"
+    MUTANT_SYNTAX=none mutant_built "$1" "$_FC" "$3" >&2 || return 3
+    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$3" 2>/dev/null \
+      || { echo "mutant $1 is not valid Python" >&2; rm -f "$3"; return 3; }
+  }
+  # _ac_tooth LABEL NEW OUT OKMSG NOMSG -- build the mutant, then ast_check.py must REJECT it (exit 0).
+  _ac_tooth() {
+    local bout
+    if ! bout="$(_ac_mutant "$1" "$2" "$3" 2>&1)"; then no "$1: mutant not built -- $bout"; return; fi
+    if python3 "$_PT_TMP/ast_check.py" "$3" 2>/dev/null; then ok "$4"; else no "$5"; fi
+  }
+
   # teeth-bypass1: comment mentions guard before dispatch — old textual test PASSED (bug)
-  _MUT="$_PT_TMP/b1.py"
-  python3 - "$_FC" "$_MUT" <<'PY'
-import sys; from pathlib import Path
-src = Path(sys.argv[1]).read_text()
-Path(sys.argv[2]).write_text(src.replace(
-    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    "        # TODO: refuse_privileged_execution should be called here\n        if args.worker: return worker(args)",
-    1))
-PY
-  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
-    ok "teeth-bypass1: AST rejects comment-only mention (bypass B1 closed)"
-  else
-    no "teeth-bypass1: AST passed on comment-only mention — test has no teeth"
-  fi
+  _ac_tooth teeth-bypass1 $'        # TODO: refuse_privileged_execution should be called here\n        if args.worker: return worker(args)' "$_PT_TMP/b1.py" \
+    "teeth-bypass1: AST rejects comment-only mention (bypass B1 closed)" \
+    "teeth-bypass1: AST passed on comment-only mention — test has no teeth"
 
   # teeth-bypass2: if-False dead branch — old textual test PASSED (bug)
-  _MUT="$_PT_TMP/b2.py"
-  python3 - "$_FC" "$_MUT" <<'PY'
-import sys; from pathlib import Path
-src = Path(sys.argv[1]).read_text()
-Path(sys.argv[2]).write_text(src.replace(
-    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    "        if False: refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    1))
-PY
-  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
-    ok "teeth-bypass2: AST rejects guard in if-False dead branch (bypass B2 closed)"
-  else
-    no "teeth-bypass2: AST passed on if-False dead branch — test has no teeth"
-  fi
+  _ac_tooth teeth-bypass2 $'        if False: refuse_privileged_execution()\n        if args.worker: return worker(args)' "$_PT_TMP/b2.py" \
+    "teeth-bypass2: AST rejects guard in if-False dead branch (bypass B2 closed)" \
+    "teeth-bypass2: AST passed on if-False dead branch — test has no teeth"
 
   # teeth-bypass3: docstring mention before dispatch — old textual test PASSED (bug)
-  _MUT="$_PT_TMP/b3.py"
-  python3 - "$_FC" "$_MUT" <<'PY'
-import sys; from pathlib import Path
-src = Path(sys.argv[1]).read_text()
-Path(sys.argv[2]).write_text(src.replace(
-    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    '        "refuse_privileged_execution is handled elsewhere"\n        if args.worker: return worker(args)',
-    1))
-PY
-  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
-    ok "teeth-bypass3: AST rejects docstring mention of guard (bypass B3 closed)"
-  else
-    no "teeth-bypass3: AST passed on docstring mention — test has no teeth"
-  fi
+  _ac_tooth teeth-bypass3 $'        "refuse_privileged_execution is handled elsewhere"\n        if args.worker: return worker(args)' "$_PT_TMP/b3.py" \
+    "teeth-bypass3: AST rejects docstring mention of guard (bypass B3 closed)" \
+    "teeth-bypass3: AST passed on docstring mention — test has no teeth"
 
   # teeth-M2: guard removed from main() entirely — must RED
-  _MUT="$_PT_TMP/m2.py"
-  python3 - "$_FC" "$_MUT" <<'PY'
-import sys; from pathlib import Path
-src = Path(sys.argv[1]).read_text()
-Path(sys.argv[2]).write_text(src.replace(
-    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    "        if args.worker: return worker(args)",
-    1))
-PY
-  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
-    ok "teeth-M2: AST rejects absent guard in main() (M2 still red)"
-  else
-    no "teeth-M2: AST passed on absent guard — M2 has no teeth"
-  fi
+  _ac_tooth teeth-M2 $'        if args.worker: return worker(args)' "$_PT_TMP/m2.py" \
+    "teeth-M2: AST rejects absent guard in main() (M2 still red)" \
+    "teeth-M2: AST passed on absent guard — M2 has no teeth"
 
   # teeth-M7: guard placed after dispatch — must RED
-  _MUT="$_PT_TMP/m7.py"
-  python3 - "$_FC" "$_MUT" <<'PY'
-import sys; from pathlib import Path
-src = Path(sys.argv[1]).read_text()
-Path(sys.argv[2]).write_text(src.replace(
-    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
-    "        if args.worker: return worker(args)\n        refuse_privileged_execution()",
-    1))
-PY
-  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
-    ok "teeth-M7: AST rejects guard-after-dispatch (M7 still red)"
-  else
-    no "teeth-M7: AST passed on guard-after-dispatch — M7 has no teeth"
-  fi
+  _ac_tooth teeth-M7 $'        if args.worker: return worker(args)\n        refuse_privileged_execution()' "$_PT_TMP/m7.py" \
+    "teeth-M7: AST rejects guard-after-dispatch (M7 still red)" \
+    "teeth-M7: AST passed on guard-after-dispatch — M7 has no teeth"
 fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

@@ -300,6 +300,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _tp=0; _tf=0
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }
   _tnok(){ printf '  FAIL  %s\n' "$1"; _tf=$((_tf+1)); }
+  # Mutants are built in bash through lib/mutant.sh (refuses empty / byte-identical / live-tree / symlink
+  # OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  _amt=''; trap 'rm -rf "$_amt"' EXIT   # initialised before the trap: never inherit a caller's value
+  _amt="$(mktemp -d)"
+  # _am_mutant LABEL OLD NEW OUT — replace the first OLD in the SUT with NEW. rc 2 = anchor absent
+  # (SUT changed), rc 3 = refused by the helper or not valid Python; the refusal text goes to stderr.
+  _am_mutant() {
+    local c; c="$(cat "$SUT")"
+    [[ "$c" == *"$2"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
+    printf '%s\n' "${c/"$2"/"$3"}" > "$4"
+    MUTANT_SYNTAX=none mutant_built "$1" "$SUT" "$4" >&2 || return 3
+    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$4" 2>/dev/null \
+      || { echo "mutant $1 is not valid Python" >&2; rm -f "$4"; return 3; }
+  }
 
   # teeth-traversal: removing ".." from _relative must let an intra-root traversal
   # (subdir/../result.txt) slip through -- proving the ".." guard is load-bearing.
@@ -307,17 +323,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # constraint in _file_identity; that means the assertion still passed on a broken SUT
   # (defense-in-depth, not test isolation). The intra-root path stays within root, so
   # only the ".." guard can catch it: mutant accepts it (rc=0), SUT rejects it (rc=2).
-  python3 - "$SUT" <<'PY'
-import sys, json, subprocess, tempfile, atexit, shutil
+  _am_mutant teeth-traversal 'any(part in ("", ".", "..") for part in path.parts)' \
+    'any(part in ("", ".") for part in path.parts)' "$_amt/traversal.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$_amt/traversal.py" <<'PY'
+import sys, json, subprocess, tempfile
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = 'any(part in ("", ".", "..") for part in path.parts)'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: traversal guard not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, 'any(part in ("", ".") for part in path.parts)', 1)
-mdir = tempfile.mkdtemp(); atexit.register(shutil.rmtree, mdir, True)
-mp = Path(mdir) / "analysis_manifest.py"; mp.write_text(mut)
+sut = Path(sys.argv[1]); mp = Path(sys.argv[2])
 def run_sut(*args):
     return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
 def run_mut(*args):
@@ -353,6 +364,7 @@ with tempfile.TemporaryDirectory() as tmp:
         sys.exit(0)   # mutant accepts intra-root traversal -- ".." guard is load-bearing (has teeth)
     sys.exit(1)       # mutant still rejects -- ".." guard is redundant for this path (no teeth)
 PY
+  fi
   case $? in
     0) _tok "teeth-traversal: '..' guard isolated -- intra-root subdir/../result.txt accepted by mutant, rejected by SUT (has teeth)" ;;
     1) _tnok "teeth-traversal: '..' guard NOT isolated -- mutant still rejects intra-root traversal (no teeth)" ;;
@@ -363,17 +375,15 @@ PY
   # Bearer token in an allowlisted env key slip through (rc=0 instead of rc=2).
   # 'LANG' is in ENV_ALLOWLIST, so only SECRET_VALUE_RE.search(item) blocks 'Bearer abc123'.
   # With that check disabled the value passes; the assertion at lines ~87-91 goes RED.
-  python3 - "$SUT" <<'PY'
-import sys, json, subprocess, tempfile, atexit, shutil
+  # Anchor on the sanitize_environment line (the first SECRET_VALUE_RE.search(item) is the argv check).
+  # The pre-migration mutant ended the line with a comment, swallowing the ':' of the `if` -- it was
+  # not valid Python, crashed with rc 1 and read as "has teeth". Keep the mutated line valid.
+  _am_mutant teeth-env-secret 'not isinstance(item, str) or SECRET_VALUE_RE.search(item)' \
+    'not isinstance(item, str) or False' "$_amt/env-secret.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$_amt/env-secret.py" <<'PY'
+import sys, json, subprocess, tempfile
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = "SECRET_VALUE_RE.search(item)"
-if old not in src:
-    print("MUTANT-SETUP-FAIL: SECRET_VALUE_RE.search(item) not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, "False  # MUTANT: secret value check disabled", 1)
-mdir = tempfile.mkdtemp(); atexit.register(shutil.rmtree, mdir, True)
-mp = Path(mdir) / "analysis_manifest.py"; mp.write_text(mut)
+sut = Path(sys.argv[1]); mp = Path(sys.argv[2])
 def run_sut(*args):
     return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
 def run_mut(*args):
@@ -404,6 +414,7 @@ with tempfile.TemporaryDirectory() as tmp:
         sys.exit(0)   # mutant accepts Bearer value -- SECRET_VALUE_RE check is load-bearing (has teeth)
     sys.exit(1)       # mutant still rejects -- check is redundant or blocked elsewhere (no teeth)
 PY
+  fi
   case $? in
     0) _tok "teeth-env-secret: SECRET_VALUE_RE disabled -> Bearer env value accepted -> assertion fires RED (has teeth)" ;;
     1) _tnok "teeth-env-secret: mutant still rejects Bearer env value -- env-secret check may not be the sole isolator (no teeth)" ;;
@@ -412,15 +423,12 @@ PY
 
   # teeth-fstat: removing fstat mismatch check lets a concurrently modified file pass;
   # ManifestError is not raised -- assertion catches it -- has teeth.
-  python3 - "$SUT" <<'PY'
+  _am_mutant teeth-fstat '        if fields(before) != fields(after) or total != before.st_size:' \
+    '        if False:  # MUTANT: fstat mismatch check removed' "$_amt/fstat.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$_amt/fstat.py" <<'PY'
 import sys, types, tempfile
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = "        if fields(before) != fields(after) or total != before.st_size:"
-if old not in src:
-    print("MUTANT-SETUP-FAIL: fstat check line not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, "        if False:  # MUTANT: fstat mismatch check removed", 1)
+sut = Path(sys.argv[1]); mut = Path(sys.argv[2]).read_text()
 m = types.ModuleType("analysis_manifest"); m.__file__ = str(sut)
 exec(compile(mut, str(sut), "exec"), m.__dict__)
 with tempfile.TemporaryDirectory() as tmp:
@@ -441,6 +449,7 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         m.os.fstat = real_fstat
 PY
+  fi
   case $? in
     1) _tok "teeth-fstat: fstat removal -> concurrent mutation accepted -> assertion fires (has teeth)" ;;
     0) _tnok "teeth-fstat: ManifestError still raised with fstat check removed -- assertion has NO teeth" ;;

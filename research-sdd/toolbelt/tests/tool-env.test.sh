@@ -289,17 +289,22 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: canonical tool-home JAR candidates must be required by test 2 --"
   TMP_TEETH="$(mktemp -d)"
-  sed 's|\$tool_home/java/|/dev/null/no-such-dir/|g' "$LIB" > "$TMP_TEETH/tool-env-mut.sh"
-  vf_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
-    bash -c 'source "$1"; rsdd_resolve_java_jar vineflower' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
-  cfr_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
-    bash -c 'source "$1"; rsdd_resolve_java_jar cfr' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
-  procyon_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
-    bash -c 'source "$1"; rsdd_resolve_java_jar procyon' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
-  if [ -z "$vf_mut" ] && [ -z "$cfr_mut" ] && [ -z "$procyon_mut" ]; then
-    ok "teeth 2: canonical-home removal breaks all three JAR resolvers (test-2 assertion has teeth)"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$LIB" "$TMP_TEETH/tool-env-mut.sh" 's|\$tool_home/java/|/dev/null/no-such-dir/|g'; then
+    no "teeth 2: mutant refused by lib/mutant.sh"
   else
-    no "teeth 2: mutant still resolved JAR(s) — test-2 assertion has no teeth: vf=[$vf_mut] cfr=[$cfr_mut] procyon=[$procyon_mut]"
+    vf_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+      bash -c 'source "$1"; rsdd_resolve_java_jar vineflower' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+    cfr_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+      bash -c 'source "$1"; rsdd_resolve_java_jar cfr' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+    procyon_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+      bash -c 'source "$1"; rsdd_resolve_java_jar procyon' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+    if [ -z "$vf_mut" ] && [ -z "$cfr_mut" ] && [ -z "$procyon_mut" ]; then
+      ok "teeth 2: canonical-home removal breaks all three JAR resolvers (test-2 assertion has teeth)"
+    else
+      no "teeth 2: mutant still resolved JAR(s) — test-2 assertion has no teeth: vf=[$vf_mut] cfr=[$cfr_mut] procyon=[$procyon_mut]"
+    fi
   fi
 fi
 
@@ -311,15 +316,20 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth 10: brew-opt candidate removal breaks rsdd_resolve_r2 brew resolution --"
   TMP_TEETH_R2="$(mktemp -d)"
-  sed 's|radare2/bin/r2|radare2/bin/R2-GONE|g' "$LIB" > "$TMP_TEETH_R2/tool-env-r2-mut.sh"
-  # Source under normal PATH ($1 = mutant lib, $2 = restricted PATH value for the call).
-  r2_mut_result="$(RSDD_BREW_PREFIX="$ROOT/r2-brew" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" \
-    bash -c 'source "$1"; PATH="$2" rsdd_resolve_r2' \
-    _ "$TMP_TEETH_R2/tool-env-r2-mut.sh" "$ROOT/r2-empty" 2>/dev/null)"; r2_mut_rc=$?
-  if [ "$r2_mut_rc" -ne 0 ] && [ -z "$r2_mut_result" ]; then
-    ok "teeth 10: brew-opt candidate removal breaks r2 brew resolution (test-10 has teeth)"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$LIB" "$TMP_TEETH_R2/tool-env-r2-mut.sh" 's|radare2/bin/r2|radare2/bin/R2-GONE|g'; then
+    no "teeth 10: mutant refused by lib/mutant.sh"
   else
-    no "teeth 10: mutant still resolved r2 via brew — test-10 has no teeth: path=[$r2_mut_result]"
+    # Source under normal PATH ($1 = mutant lib, $2 = restricted PATH value for the call).
+    r2_mut_result="$(RSDD_BREW_PREFIX="$ROOT/r2-brew" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" \
+      bash -c 'source "$1"; PATH="$2" rsdd_resolve_r2' \
+      _ "$TMP_TEETH_R2/tool-env-r2-mut.sh" "$ROOT/r2-empty" 2>/dev/null)"; r2_mut_rc=$?
+    if [ "$r2_mut_rc" -ne 0 ] && [ -z "$r2_mut_result" ]; then
+      ok "teeth 10: brew-opt candidate removal breaks r2 brew resolution (test-10 has teeth)"
+    else
+      no "teeth 10: mutant still resolved r2 via brew — test-10 has no teeth: path=[$r2_mut_result]"
+    fi
   fi
 fi
 

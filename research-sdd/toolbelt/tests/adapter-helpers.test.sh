@@ -585,16 +585,27 @@ then ok "G-2: bind_venv writable: normpath rejects ../ traversal; double-slash n
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built in bash through lib/mutant.sh (refuses empty / byte-identical / live-tree /
+  # symlink OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # _ah_mutant LABEL OLD NEW OUT -- replace the first OLD in the SUT with NEW. rc 2 = anchor absent
+  # (SUT changed), rc 3 = refused by the helper or not valid Python; the refusal text goes to stderr.
+  _ah_mutant() {
+    local c; c="$(cat "$SUT")"
+    [[ "$c" == *"$2"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
+    printf '%s\n' "${c/"$2"/"$3"}" > "$4"
+    MUTANT_SYNTAX=none mutant_built "$1" "$SUT" "$4" >&2 || return 3
+    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$4" 2>/dev/null \
+      || { echo "mutant $1 is not valid Python" >&2; rm -f "$4"; return 3; }
+  }
   # teeth-normpath: removing normpath lets /tmp/rsdd/../etc/evil pass; G-2 assertion fires
-  python3 - "$SUT" "$ROOT" <<'PY'
+  _ah_mutant teeth-normpath 'sandbox_path = os.path.normpath(sandbox_path)' \
+    'sandbox_path = sandbox_path  # MUTANT: normpath removed' "$ROOT/m-normpath.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$ROOT" "$ROOT/m-normpath.py" <<'PY'
 import sys, types
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = "sandbox_path = os.path.normpath(sandbox_path)"
-if old not in src:
-    print("MUTANT-SETUP-FAIL: normpath target not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, "sandbox_path = sandbox_path  # MUTANT: normpath removed", 1)
+sut = Path(sys.argv[1]); mut = Path(sys.argv[3]).read_text()
 m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
 exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
 r = Path(sys.argv[2])
@@ -608,6 +619,7 @@ try:
 except ah.VenvBindError:
     sys.exit(0)   # guard still fires without normpath -- no teeth
 PY
+  fi
   case $? in
     1) ok "teeth-normpath: normpath removal -> traversal accepted -> G-2 assertion fires (has teeth)" ;;
     0) no "teeth-normpath: G-2 stayed green with normpath removed -- assertion has NO teeth" ;;
@@ -615,15 +627,12 @@ PY
   esac
 
   # teeth-nofollow: removing O_NOFOLLOW lets symlinks through; B-2 assertion fires
-  python3 - "$SUT" "$ROOT" <<'PY'
+  _ah_mutant teeth-nofollow 'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)' \
+    'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)  # MUTANT: O_NOFOLLOW removed' "$ROOT/m-nofollow.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$ROOT" "$ROOT/m-nofollow.py" <<'PY'
 import sys, types
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = 'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: O_NOFOLLOW flags line not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, 'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)  # MUTANT: O_NOFOLLOW removed', 1)
+sut = Path(sys.argv[1]); mut = Path(sys.argv[3]).read_text()
 m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
 exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
 r = Path(sys.argv[2])
@@ -637,6 +646,7 @@ try:
 except ah.PcapMagicError:
     sys.exit(0)   # guard still fires without O_NOFOLLOW -- no teeth
 PY
+  fi
   case $? in
     1) ok "teeth-nofollow: O_NOFOLLOW removal -> symlink accepted -> B-2 assertion fires (has teeth)" ;;
     0) no "teeth-nofollow: B-2 stayed green with O_NOFOLLOW removed -- assertion has NO teeth" ;;
@@ -645,18 +655,13 @@ PY
 
   # teeth-warn-evidence: dropping `if errors:` guard in emit_evidence causes
   # the empty-errors assertion to fail (stderr non-empty when it should be silent).
-  python3 - "$SUT" "$ROOT" <<'PY'
+  # Target: the `if errors:` guard that gates warn_evidence inside emit_evidence
+  _ah_mutant teeth-warn-evidence $'    if errors:\n        warn_evidence(schema=schema, destination=destination, detail=", ".join(errors))' \
+    '    warn_evidence(schema=schema, destination=destination, detail=", ".join(errors))  # MUTANT: guard removed' "$ROOT/m-warn.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$ROOT" "$ROOT/m-warn.py" <<'PY'
 import sys, types, io
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-# Target: the `if errors:` guard that gates warn_evidence inside emit_evidence
-old = "    if errors:\n        warn_evidence(schema=schema, destination=destination, detail=\", \".join(errors))"
-if old not in src:
-    print("MUTANT-SETUP-FAIL: if-errors guard not found in emit_evidence -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old,
-    "    warn_evidence(schema=schema, destination=destination, detail=\", \".join(errors))  # MUTANT: guard removed",
-    1)
+sut = Path(sys.argv[1]); mut = Path(sys.argv[3]).read_text()
 m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
 exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
 r = Path(sys.argv[2])
@@ -677,6 +682,7 @@ if buf.getvalue() != "":
 else:
     sys.exit(0)   # guard still silent without if-errors -- no teeth
 PY
+  fi
   case $? in
     1) ok "teeth-warn-evidence: if-errors removal -> spurious stderr -> A-7 empty-case fires (has teeth)" ;;
     0) no "teeth-warn-evidence: A-7 empty-case stayed green with guard removed -- NO teeth" ;;

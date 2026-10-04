@@ -79,9 +79,11 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 # Strategy: copy the real suite to a temp dir, sed-mutate the copy, run it.
 # Never mutate the live suite file. Trap cleans up both MUTDIR and any written
 # committed-tree files that the mutant run may have created.
-# Place MUTDIR inside the toolbelt directory (sibling of tests/) so that
-# $HERE/../niagara-security-audit.sh in the mutant resolves to the real SUT.
-MUTDIR="$(mktemp -d -p "$(cd "$HERE/.." && pwd)")"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
+# The mutant is built by lib/mutant.sh in a temp dir OUTSIDE the live tree (the helper refuses a
+# live-tree OUT); its SUT path is rewritten to the real SUT so it still resolves from there.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+MUTDIR="$(mktemp -d)"
 _m1_cleanup() {
   rm -rf "$MUTDIR"
   # Remove any untracked files the mutant wrote (all niagara-security-audit fixtures
@@ -92,23 +94,27 @@ _m1_cleanup() {
 }
 trap '_m1_cleanup' EXIT
 
-cp "$HERE/niagara-security-audit.test.sh" "$MUTDIR/niagara-security-audit.test.sh"
-
 # Revert FX="$ROOT/fixtures" to the committed path so the mutant writes there.
 # Also remove the FX-under-ROOT guard so the mutant does not exit 2 before
 # generating fixtures. Both together simulate a real regression (FX reverted,
 # guard removed) — the committed tree now receives the generated files.
 _committed_nia="$COMMITTED_DIR/niagara-security-audit"
-sed -i 's|FX="\$ROOT/fixtures"|FX="'"$_committed_nia"'"|g' \
-  "$MUTDIR/niagara-security-audit.test.sh"
-sed -i '/^# Guard: FX must be under ROOT/,/^esac$/d' \
-  "$MUTDIR/niagara-security-audit.test.sh"
+_real_sut="$(cd "$HERE/.." && pwd)/niagara-security-audit.sh"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 
-if cmp -s "$HERE/niagara-security-audit.test.sh" "$MUTDIR/niagara-security-audit.test.sh"; then
-  mut_no "M1 mutant setup: sed had no effect — FX pattern not found in suite"
+if ! _mb="$(mutant_chain "M1 mutant setup" "$HERE/niagara-security-audit.test.sh" "$MUTDIR/niagara-security-audit.test.sh" \
+  's|^SUT="\$HERE/\.\./niagara-security-audit\.sh"|SUT="'"$_real_sut"'"|' \
+  's|FX="\$ROOT/fixtures"|FX="'"$_committed_nia"'"|g' \
+  '/^# Guard: FX must be under ROOT/,/^esac$/d' 2>&1)"; then
+  mut_no "M1 mutant setup: ${_mb}"
 else
   # Run the mutant; expect it to write into the committed tree
-  bash "$MUTDIR/niagara-security-audit.test.sh" >/dev/null 2>&1 || true
+  # The copied suite derives everything from SUT= (its only $HERE use, lines 5-6; SUT_DIR at 776 is
+  # derived from SUT), so the rewrite is complete. Require the run to reach its summary line: an
+  # early crash would leave the tree clean for the wrong reason or dirty for an unrelated one.
+  _m1_out="$(bash "$MUTDIR/niagara-security-audit.test.sh" 2>&1 || true)"
+  if ! grep -Eq '^== [0-9]+ passed' <<<"$_m1_out"; then
+    mut_no "M1 mutant did not run to its summary line (early failure): $(tail -n 3 <<<"$_m1_out" | tr '\n' ' ')"
+  fi
 
   # Check for new dirt relative to the before-snapshot
   _mut_after="$(git -C "$REPO_ROOT" status --porcelain -- "$COMMITTED_DIR" 2>&1)" \

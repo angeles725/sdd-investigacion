@@ -116,12 +116,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$ROOT/probe.mutant.sh"
     naive='cmd_rc=${PIPESTATUS[0]:-0}; tee_rc=${PIPESTATUS[1]:-0}'
     printf '%s\n' "${content/"$anchor"/"$naive"}" > "$mutant"
+    # shellcheck source=lib/mutant.sh
+    . "$HERE/lib/mutant.sh"
     tdir="$(newtdir teeth-teefail)"
+    if ! mb="$(mutant_built "teeth: naive-split mutant" "$SUT" "$mutant" 2>&1)"; then
+      no "teeth: naive-split mutant built" "$mb"
+    else
     outm="$( ulimit -f 0 2>/dev/null; "$BASH_BIN" "$mutant" run "$tdir" echo hello 2>&1 )"
     if grep -q 'preserved:' <<<"$outm"; then
       ok "teeth: naive-split mutant FALSE-preserves on tee-fail" "(case 4 has teeth)"
     else
       no "teeth: naive-split mutant FALSE-preserves on tee-fail" "mutant stayed honest — case 4 is THEATER"
+    fi
     fi
   fi
 fi

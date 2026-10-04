@@ -282,8 +282,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     echo "-- teeth: remove target_execution guard; expect T4 (ValueError on target_execution=True) to go red --"
     _teeth_tmp="$(mktemp -d)"; trap 'rm -rf "$_teeth_tmp"' EXIT
     mutant="$_teeth_tmp/isolation_profile.MUTANT.py"
-    sed 's/^    if target_execution:$/    if False:  # MUTANT: target_execution guard removed/' \
-        "$SUT" > "$mutant"
+    # python mutant: MUTANT_SYNTAX=none skips bash -n; the helper still refuses empty / no-op / live-tree.
+    # shellcheck source=lib/mutant.sh
+    . "$HERE/lib/mutant.sh"
+    MUTANT_SYNTAX=none mutant_sed "$SUT" "$mutant" \
+        's/^    if target_execution:$/    if False:  # MUTANT: target_execution guard removed/' || true
     if ! grep -q 'MUTANT: target_execution guard removed' "$mutant"; then
         no "teeth-target-exec: mutant not built — 'if target_execution:' not matched in SUT (SUT may have changed)"
     else
