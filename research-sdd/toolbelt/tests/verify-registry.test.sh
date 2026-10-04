@@ -1310,6 +1310,11 @@ VRT2STRIPPED
       fail=$((fail+1))
     fi
     rm -f "$_vrtna_mut"
+  else
+    # mutant_built already printed the refusal; the VR-T2 tooth and the four VR-T-noarg checks that
+    # depend on the stub cannot run — count that as exactly one failure, never a silent skip.
+    fail=$((fail+1))
+    echo "  FAIL  teeth VR-T2/VR-T-noarg: stripped stub refused — 5 dependent checks did not run"
   fi
   unset _rh_base_vt2
 
@@ -1328,8 +1333,9 @@ VRT2STRIPPED
     printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
       > "$kit/TARGETS.md"
     if vr_mut "teeth VR-T3" "$kit" "${_vr_zp_range}d"; then
-      # Original: ERROR (exit 1) 'no usable target paths'... exact rc pinned below from the base case 22
-      # (which asserts exit 0 for the original). The mutant hits ALL-ABSENT-CHECK instead.
+      # Positional codes: GOOD_RC 0 = the original prints the ERROR but exits 0 (the zero-paths guard is
+      # WARN-only, as base case 22 asserts); BAD_RC 1 = the mutant skips it and hits ALL-ABSENT-CHECK,
+      # which exits 1.
       vr_run "teeth VR-T3: guard-removed mutant lacks 'no usable target paths' msg (case 22 has teeth)" "$kit" 0 1 \
         --good-has 'ERROR.*no usable target paths' --bad-lacks "ERROR.*no usable target paths|$VR_CRASH"
     fi
@@ -2078,7 +2084,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   } > "$kit/TARGETS.md"
   if vr_mut "teeth-all-absent" "$kit" '/# ALL-ABSENT-CHECK/ s/exit 1/exit 0/'; then
     MUTANT_TOOTH_ICASE=1 vr_run "teeth-all-absent: neutered guard → all-absent exits 0 (test 50 has teeth)" "$kit" 1 0 \
-      --good-lacks 'consistent with reality'
+      --good-has 'no registered corpus path exists' --good-lacks 'consistent with reality' \
+      --bad-has 'no registered corpus path exists'
   fi
 fi
 
