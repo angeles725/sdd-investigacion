@@ -685,9 +685,10 @@ if mut_build "M9 output-guards" M9 's/os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | 
 fi
 
 # --- M10: Remove O_NONBLOCK from the input open: a FIFO input blocks → timeout rc 124 (T13)
+# Only rc 2 vs 124 distinguishes the sides here (both print STATUS=none); the input is a per-run FIFO.
 if mut_build "M10 O_NONBLOCK" M10 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/'; then
   qt "M10 O_NONBLOCK removal" 2 124 --good-has '^STATUS=none$' --bad-has '^STATUS=none$' \
-    -- "$FIXTURES/valid.img" fifo 3
+    -- "(unused: fifo mode builds its own input)" fifo 3
 fi
 
 pass=$((pass + MUT_PASS))

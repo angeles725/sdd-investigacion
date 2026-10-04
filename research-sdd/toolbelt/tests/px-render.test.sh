@@ -786,7 +786,7 @@ if [ ! -f "$ORIG_PY" ]; then
 fi
 # Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
 # Only the single mutated file is copied: px_render.py imports no sibling module and its one __file__
-# use (the default organized/ root, px_render.py:200-206) resolves to an absent dir for original and
+# use (the default organized/ root in Assets.__init__) resolves to an absent dir for original and
 # mutant alike, and no tooth exercises module:// assets.
 MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
 MUTPY=""
@@ -826,7 +826,8 @@ def num(k):
 print("WIDGETS=" + num("widgets_rendered"))
 print("OB=" + num("assets_over_budget"))
 print("OSZ=" + num("assets_oversized"))
-print("SKIPTAG=%d" % ("skipped_by_tag" in err))'
+print("SKIPTAG=%d" % ("skipped_by_tag" in err))
+print("BUDGET=" + num("assets_over_budget") + "/" + num("assets_oversized"))'
 
 # Wrapper: PY INPUT SHARED SETUP FACTS_SCRIPT. Each run gets a FRESH output dir (removed by the
 # wrapper's own trap); SETUP builds the per-run precondition (symlinked input, pre-existing output).
@@ -929,7 +930,7 @@ fi
 
 # M-BUDGET: count over-budget refusals as oversized: the distinct counters merge
 if mut_build "M-BUDGET over_budget" MBUDGET 's/self\.over_budget\.append(ref)/self.oversized.append(ref)  # MUTANT-MBUDGET/'; then
-  pt "M-BUDGET over_budget" 0 0 --good-has '^OB=[1-9]' --bad-has '^OB=0$' \
+  pt "M-BUDGET over_budget" 0 0 --good-has '^BUDGET=1/0$' --bad-has '^BUDGET=0/[1-9][0-9]*$' \
     -- "$ROOT/c18/budget.px" "$ROOT/c18/shared" none
 fi
 
