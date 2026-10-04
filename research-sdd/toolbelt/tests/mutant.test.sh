@@ -391,6 +391,138 @@ if grep -q 'MUTANT_TOOTH_DEBUG' "$TMP/d1on.err" && grep -q 'original rc=0' "$TMP
   ok "tooth debug: set prints mutant path, both rcs and run output to stderr"
 else no "tooth debug: set prints mutant path, both rcs and run output to stderr (err=[$(cat "$TMP/d1on.err")])"; fi
 
+# T16 — mutant_cleanup_register (#1576): ONE registry cleaned by a single EXIT trap that is installed
+# once and CHAINS whatever EXIT trap was already there, so a suite never re-installs (and so never
+# replaces) a trap. Each case runs in a child bash because the contract IS the child's exit behaviour.
+cat > "$TMP/child-cleanup.sh" <<'CHILD'
+set -u
+case "$CH_MODE" in
+  chain)  trap 'echo pre >> "$CH_MARK"' EXIT
+          . "$CH_LIB"
+          mutant_cleanup_register "$CH_D1"; mutant_cleanup_register "$CH_D2"; mutant_cleanup_register "$CH_D1"
+          trap -p EXIT > "$CH_TRAP"
+          exit 7 ;;
+  plain)  . "$CH_LIB"; mutant_cleanup_register "$CH_D1"; exit 0 ;;
+  heal)   trap 'echo pre >> "$CH_MARK"' EXIT
+          . "$CH_LIB"
+          mutant_cleanup_register "$CH_D1"
+          trap 'echo other >> "$CH_MARK"' EXIT   # a suite that re-installs its own trap
+          mutant_cleanup_register "$CH_D2"
+          exit 0 ;;
+  refuse) . "$CH_LIB"
+          mutant_cleanup_register '' 2> "$CH_ERR1"; echo "empty=$?" >> "$CH_RC"
+          mutant_cleanup_register "rel-dir" 2> "$CH_ERR2"; echo "rel=$?" >> "$CH_RC"
+          exit 0 ;;
+  slash)  rm() { printf '%s\n' "$*" >> "$CH_RMLOG"; }   # never let a regression delete a real path
+          . "$CH_LIB"
+          mutant_cleanup_register / 2> /dev/null; echo "slash=$?" >> "$CH_RC"
+          exit 0 ;;
+esac
+CHILD
+cc_run(){ env CH_LIB="$LIB" CH_MODE="$1" CH_D1="$TMP/cc d1" CH_D2="$TMP/cc-d2" CH_MARK="$TMP/cc.mark" \
+  CH_TRAP="$TMP/cc.trap" CH_RC="$TMP/cc.rc" CH_ERR1="$TMP/cc.err1" CH_ERR2="$TMP/cc.err2" CH_RMLOG="$TMP/cc.rmlog" \
+  bash "$TMP/child-cleanup.sh"; }
+cc_reset(){ rm -rf "$TMP/cc d1" "$TMP/cc-d2"; mkdir -p "$TMP/cc d1/sub" "$TMP/cc-d2"; : > "$TMP/cc.mark"; : > "$TMP/cc.rc"; }
+
+cc_reset; cc_run chain; rc=$?
+if [ "$rc" -eq 7 ] && [ ! -e "$TMP/cc d1" ] && [ ! -e "$TMP/cc-d2" ]; then ok "cleanup: registered paths (space in a name, a duplicate) are removed at exit and the exit status survives"
+else no "cleanup: registered paths removed at exit (rc=$rc d1=$([ -e "$TMP/cc d1" ] && echo kept || echo gone) d2=$([ -e "$TMP/cc-d2" ] && echo kept || echo gone))"; fi
+if grep -qx pre "$TMP/cc.mark"; then ok "cleanup: a pre-existing EXIT trap is chained, not replaced"
+else no "cleanup: a pre-existing EXIT trap is chained (marker=[$(cat "$TMP/cc.mark")])"; fi
+n="$(grep -o '_mutant_cleanup_run' "$TMP/cc.trap" | wc -l)"
+if [ "$n" -eq 1 ]; then ok "cleanup: three registrations install the trap exactly once"
+else no "cleanup: trap installed once (runner appears $n times in [$(cat "$TMP/cc.trap")])"; fi
+cc_reset; cc_run plain; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$TMP/cc d1" ]; then ok "cleanup: works with no pre-existing EXIT trap"
+else no "cleanup: no pre-existing trap (rc=$rc)"; fi
+cc_reset; cc_run heal; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$TMP/cc d1" ] && [ ! -e "$TMP/cc-d2" ] && grep -qx other "$TMP/cc.mark"; then
+  ok "cleanup: a trap re-installed by the suite is re-chained on the next registration (nothing leaks)"
+else no "cleanup: re-chain after the suite replaced the trap (rc=$rc d1=$([ -e "$TMP/cc d1" ] && echo kept || echo gone) marker=[$(cat "$TMP/cc.mark")])"; fi
+mkdir -p "$TMP/cwd/rel-dir"; : > "$TMP/cc.rc"
+(cd "$TMP/cwd" && cc_run refuse)
+if grep -qx 'empty=2' "$TMP/cc.rc" && grep -qx 'rel=2' "$TMP/cc.rc" && grep -q 'REFUSED' "$TMP/cc.err1" && grep -q 'REFUSED' "$TMP/cc.err2"; then
+  ok "cleanup: empty and relative paths are refused (rc 2, says REFUSED)"
+else no "cleanup: empty/relative refusal (rc=[$(tr '\n' ' ' < "$TMP/cc.rc")] e1=[$(cat "$TMP/cc.err1")] e2=[$(cat "$TMP/cc.err2")])"; fi
+if [ -d "$TMP/cwd/rel-dir" ]; then ok "cleanup: a refused relative path is never registered, so it is never deleted"
+else no "cleanup: a refused relative path was registered and deleted at exit"; fi
+: > "$TMP/cc.rc"; : > "$TMP/cc.rmlog"
+cc_run slash
+if grep -qx 'slash=2' "$TMP/cc.rc" && ! grep -qx -- '-rf -- /' "$TMP/cc.rmlog"; then ok "cleanup: / is refused and never handed to rm"
+else no "cleanup: / refusal (rc=[$(cat "$TMP/cc.rc")] rm-log=[$(cat "$TMP/cc.rmlog")])"; fi
+
+# T17 — mutant_py_replace (#1576): the shared Python-mutant builder. rc 2 = setup failure (original or
+# anchor absent, empty anchor), rc 3 = refused (helper refusal, identical, not valid Python); the
+# refused mutant file is gone and the reason is on stderr.
+PYORIG="$TMP/src/orig.py"
+printf 'def f():\n    return 1\n\ndef g():\n    return 1\n' > "$PYORIG"
+out="$TMP/pm1.py"
+mutant_py_replace pm1 "$PYORIG" 'return 1' 'return 2' "$out" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(grep -c 'return 2' "$out")" -eq 1 ] && [ "$(grep -c 'return 1' "$out")" -eq 1 ] && [ "$(grep -c 'return 1' "$PYORIG")" -eq 2 ]; then
+  ok "py_replace: only the FIRST anchor is replaced, the original is untouched, rc 0"
+else no "py_replace: first-anchor replacement (rc=$rc)"; fi
+out="$TMP/pm2.py"
+expect_rc "py_replace: absent anchor is rc 2 (says anchor not found)" 2 "anchor not found" \
+  mutant_py_replace pm2 "$PYORIG" 'NO_SUCH_ANCHOR' 'x' "$out"
+if [ ! -e "$out" ]; then ok "py_replace: an absent anchor leaves no mutant behind"; else no "py_replace: absent anchor left a mutant"; fi
+expect_rc "py_replace: empty anchor is rc 2 (says empty anchor)" 2 "empty anchor" \
+  mutant_py_replace pm2b "$PYORIG" '' 'x' "$TMP/pm2b.py"
+expect_rc "py_replace: absent original is rc 2 (says not a readable file)" 2 "not a readable file" \
+  mutant_py_replace pm2c "$TMP/does-not-exist.py" 'a' 'b' "$TMP/pm2c.py"
+out="$TMP/pm3.py"
+expect_rc "py_replace: a mutant that is not valid Python is rc 3 (says not valid Python)" 3 "not valid Python" \
+  mutant_py_replace pm3 "$PYORIG" '    return 1' '  return (' "$out"
+if [ ! -e "$out" ]; then ok "py_replace: an invalid-Python mutant is removed"; else no "py_replace: invalid-Python mutant still exists"; fi
+out="$TMP/pm4.py"
+# The original has NO trailing newline, so the rewritten mutant would differ from it by that newline
+# alone: only the explicit OLD == NEW check can see that the mutation is a no-op.
+printf 'a = 1' > "$TMP/src/nonl.py"
+expect_rc "py_replace: OLD == NEW is rc 3 (says OLD and NEW are identical)" 3 "OLD and NEW are identical" \
+  mutant_py_replace pm4 "$TMP/src/nonl.py" 'a = 1' 'a = 1' "$out"
+ln -sf "$TMP/pm5-target.py" "$TMP/pm5.py"
+expect_rc "py_replace: a symlink OUT is rc 3 (helper refusal)" 3 "symlink" \
+  mutant_py_replace pm5 "$PYORIG" 'return 1' 'return 2' "$TMP/pm5.py"
+if [ ! -e "$TMP/pm5-target.py" ]; then ok "py_replace: no write went through the symlink"; else no "py_replace: wrote through the symlink"; fi
+expect_rc "py_replace: OUT equal to ORIG is rc 3 (says same path)" 3 "same path" \
+  mutant_py_replace pm6 "$PYORIG" 'return 1' 'return 2' "$PYORIG"
+if [ "$(grep -c 'return 1' "$PYORIG")" -eq 2 ]; then ok "py_replace: the original survives an OUT == ORIG request"; else no "py_replace: the original was modified"; fi
+printf 'x = 1\ny = """a\nb"""\n' > "$TMP/src/ml.py"
+mutant_py_replace pm7 "$TMP/src/ml.py" $'a\nb' $'c\nd\ne' "$TMP/pm7.py" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'e"""' "$TMP/pm7.py"; then ok "py_replace: a multi-line anchor and replacement work"
+else no "py_replace: multi-line anchor (rc=$rc)"; fi
+
+# T18 — count-once wrappers (#1576): a failure is counted EXACTLY once, in the caller's variable, by
+# the helper, so a call site cannot forget (or double) the `else fail=$((fail+1))` branch.
+cnt=0
+mutant_chain_or_count cnt co1 "$ORIG" "$TMP/co1.sh" 's/hello/bye/' >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ "$cnt" -eq 0 ]; then ok "count-once: a built mutant is not counted"
+else no "count-once: success counted (rc=$rc cnt=$cnt)"; fi
+cnt=0
+mutant_chain_or_count cnt co2 "$ORIG" "$TMP/co2.sh" 's/NO_SUCH_ANCHOR/x/' > "$TMP/co2.out" 2>&1; rc=$?
+if [ "$rc" -eq 10 ] && [ "$cnt" -eq 1 ] && grep -q '^  FAIL  co2' "$TMP/co2.out"; then ok "count-once: a dead stage is counted once, keeps rc 10 and prints the FAIL line"
+else no "count-once: dead stage (rc=$rc cnt=$cnt out=[$(cat "$TMP/co2.out")])"; fi
+cnt=0
+mutant_chain_or_count cnt co3 "$ORIG" "$TMP/co3.sh" 's/hello/hello/' >/dev/null 2>&1; rc=$?
+if [ "$rc" -ne 0 ] && [ "$cnt" -eq 1 ]; then ok "count-once: a chain build refused by the helper is counted once"
+else no "count-once: refused chain (rc=$rc cnt=$cnt)"; fi
+cnt=0
+mutant_built_or_count cnt co4 "$ORIG" "$TMP/co4-never-built.sh" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ] && [ "$cnt" -eq 1 ]; then ok "count-once: a refused mutant_built (not produced, rc 2) is counted once"
+else no "count-once: refused built (rc=$rc cnt=$cnt)"; fi
+unset cnt_unset
+mutant_or_count cnt_unset false >/dev/null 2>&1
+if [ "${cnt_unset:-}" = 1 ]; then ok "count-once: an unset counter starts at 0"; else no "count-once: unset counter (got [${cnt_unset:-}])"; fi
+co_in_fn(){ local lc=5; mutant_or_count lc false >/dev/null 2>&1; echo "$lc"; }
+lc_got="$(co_in_fn)"
+if [ "$lc_got" = 6 ]; then ok "count-once: a function-local counter of the caller is the one incremented"; else no "count-once: local counter (got [$lc_got])"; fi
+cnt=3; mutant_or_count 'bad;name' true > "$TMP/co5.out" 2>&1; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'bad counter' "$TMP/co5.out" && [ "$cnt" -eq 3 ]; then ok "count-once: an invalid counter name is refused loudly (rc 2)"
+else no "count-once: invalid counter name (rc=$rc out=[$(cat "$TMP/co5.out")])"; fi
+# In a subshell: a regression that evaluates the value would abort the whole suite under `set -u`.
+( cnt='x'; mutant_or_count cnt false; echo "rc=$?" ) > "$TMP/co6.out" 2>&1
+if grep -qx 'rc=2' "$TMP/co6.out" && grep -q 'not a number' "$TMP/co6.out"; then ok "count-once: a non-numeric counter value is refused, not evaluated (rc 2)"
+else no "count-once: non-numeric counter (out=[$(cat "$TMP/co6.out")])"; fi
+
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   SELFTEST="$HERE/mutant.test.sh"
@@ -491,6 +623,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "tooth: exact rc"
   teeth_case toothsubst 's/@SUT@\/"\$orig"/@SUT@\/"$mut"/' \
     "tooth: @SUT@ substitution"
+  # mutant_cleanup_register / mutant_py_replace / mutant_or_count (#1576). Needles are the FAIL-side
+  # text of the case, which differs from its PASS-side text.
+  teeth_case cleanuprm '/^_mutant_cleanup_run/,/^}/s/rm -rf -- "\$p"/:/' \
+    "cleanup: registered paths removed at exit"
+  teeth_case cleanupchain 's/_mutant_cleanup_run\${cmd:+; \$cmd}/_mutant_cleanup_run/' \
+    "cleanup: a pre-existing EXIT trap is chained"
+  teeth_case cleanuponce 's/\*_mutant_cleanup_run\*) ;;/*_NEVER_MATCHES_*) ;;/' \
+    "cleanup: trap installed once"
+  teeth_case cleanupheal 's/^  prev="\$(trap -p EXIT)"$/  prev="$(trap -p EXIT)"; [ "${#_MUTANT_CLEANUP_PATHS[@]}" -le 1 ] || prev=_mutant_cleanup_run/' \
+    "cleanup: re-chain after the suite replaced the trap"
+  teeth_case cleanuprel 's/if \[ "\${p#\/}" = "\$p" \] || /if /' \
+    "cleanup: empty/relative refusal"
+  teeth_case cleanupslash 's/ || \[ "\$p" = \/ \]; then/; then/' \
+    "cleanup: / refusal"
+  teeth_case pyanchor '/anchor not found/s/return 2/:/' \
+    "py_replace: absent anchor is rc 2"
+  teeth_case pyempty '/empty anchor/s/return 2/:/' \
+    "py_replace: empty anchor is rc 2"
+  teeth_case pyorig '/^mutant_py_replace/,/^}/s/if \[ ! -f "\$orig" \] || \[ ! -r "\$orig" \]; then/if false; then/' \
+    "py_replace: absent original is rc 2"
+  teeth_case pyidentical '/OLD and NEW are identical/s/return 3/:/' \
+    "py_replace: OLD == NEW is rc 3"
+  teeth_case pycompile '/SENTINEL-PY-COMPILE/,+2s/return 3/:/' \
+    "py_replace: a mutant that is not valid Python is rc 3"
+  teeth_case pyrm '/SENTINEL-PY-COMPILE/,+2s/rm -f -- "\$out"; //' \
+    "py_replace: invalid-Python mutant still exists"
+  teeth_case pysymlink '/^mutant_py_replace/,/^}/s/^  _mutant_check_out .*$/  :/' \
+    "py_replace: wrote through the symlink"
+  teeth_case pyself '/^mutant_py_replace/,/^}/s/if \[ "\$orig" -ef "\$out" \]; then/if false; then/' \
+    "py_replace: OUT equal to ORIG is rc 3"
+  teeth_case countonce '/SENTINEL-COUNT-ONCE/,+1s/+ 1/+ 2/' \
+    "count-once: dead stage"
+  teeth_case countalways 's/if \[ "\$rc" -ne 0 \]; then printf -v/if true; then printf -v/' \
+    "count-once: success counted"
+  teeth_case countrc '/^mutant_or_count/,/^}/s/return "\$rc"/return 0/' \
+    "count-once: dead stage"
+  teeth_case countname 's|\^\[A-Za-z_\]\[A-Za-z0-9_\]\*\$|^.*$|' \
+    "count-once: invalid counter name"
+  teeth_case countnum 's|=~ \^\[0-9\]+\$ \]\]|=~ ^.*$ ]]|' \
+    "count-once: non-numeric counter"
+  teeth_case countchain 's/mutant_or_count "\$c" mutant_chain "\$@"/mutant_chain "$@"/' \
+    "count-once: dead stage"
+  teeth_case countbuilt 's/mutant_or_count "\$c" mutant_built "\$@"/mutant_built "$@"/' \
+    "count-once: refused built"
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

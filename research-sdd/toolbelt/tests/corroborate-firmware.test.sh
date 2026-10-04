@@ -418,12 +418,13 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
-    && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth" >&2; exit 2; }
+    && typeset -f mutant_tooth >/dev/null 2>&1 && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth/mutant_cleanup_register" >&2; exit 2; }
   # The mutants are python/json files: skip the bash -n check (empty, identical, live-tree,
   # symlink and dead-stage refusals still apply).
   export MUTANT_SYNTAX=none
-  _MUT="$(mktemp -d)"; trap 'rm -rf "$_MUT"; [ -z "${ROOT:-}" ] || rm -rf "$ROOT"' EXIT  # keeps the lane's own ROOT cleanup
+  # The lane's own EXIT trap (ROOT cleanup) is chained by the registry, never replaced.
+  _MUT="$(mktemp -d)"; mutant_cleanup_register "$_MUT"
   _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # corroborate_firmware.py does `sys.path.insert(0, <own dir>); from lib.adapter_core import ...`
   # (SUT lines 10-13), so each mutant lives in its own dir next to a copy of lib/.
