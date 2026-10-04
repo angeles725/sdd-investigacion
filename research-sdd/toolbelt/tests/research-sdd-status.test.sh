@@ -7302,6 +7302,98 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
 fi
 
+# ==================== kit issue #1706 slice 1: --next --emit-token ====================
+# `--next --emit-token` prints the normal --next output PLUS one literal `return-token:` line derived from the same verdict,
+# so the loop copies the PROMPT-LOOP RETURN CONTRACT token instead of composing it. Unmappable verdict -> typed
+# `return-token: unavailable (<reason>)` + non-zero exit; never a guessed token. Without the flag nothing changes.
+echo "-- #1706: --next --emit-token --"
+et_run() { # <dir> [extra args...] -> sets et_out (stdout), et_rc; stderr is dropped
+  local d="$1"; shift
+  et_out="$(bash "$SUT" "$d" --next "$@" 2>/dev/null)"; et_rc=$?
+}
+et_last() { printf '%s\n' "$et_out" | tail -n 1; }
+
+d="$TMP/et-next"; mkstate "$d" 2 "high|reconstruct the shader pipeline|pending" "low|trivia|pending"
+et_plain="$(bash "$SUT" "$d" --next 2>/dev/null)"
+et_run "$d" --emit-token
+[ "$et_rc" = 0 ] && ok "T1706-NEXT-RC: NEXT verdict with --emit-token exits 0" || no "T1706-NEXT-RC: rc=$et_rc (want 0) out=[$et_out]"
+[ "$(et_last)" = "return-token: next: reconstruct the shader pipeline" ] \
+  && ok "T1706-NEXT-TOKEN: NEXT | high | <gap> -> 'return-token: next: <gap>'" \
+  || no "T1706-NEXT-TOKEN: last line [$(et_last)]"
+[ "$(printf '%s\n' "$et_out" | head -n 1)" = "$et_plain" ] && [ "$(printf '%s\n' "$et_out" | wc -l)" = 2 ] \
+  && ok "T1706-NEXT-PLAIN-PREFIX: the normal --next line is unchanged and followed by exactly one token line" \
+  || no "T1706-NEXT-PLAIN-PREFIX: out=[$et_out] plain=[$et_plain]"
+case "$et_plain" in *return-token*) no "T1706-NOFLAG: --next without the flag printed a return-token line [$et_plain]";; *) ok "T1706-NOFLAG: --next without --emit-token prints no return-token line";; esac
+et_default="$(bash "$SUT" "$d" 2>/dev/null)"
+case "$et_default" in *return-token*) no "T1706-NOFLAG-DEFAULT: default report printed a return-token line";; *) ok "T1706-NOFLAG-DEFAULT: default report prints no return-token line";; esac
+
+d="$TMP/et-stop"; mkstate "$d" 0 "high|done thing|covered"
+et_run "$d" --emit-token
+[ "$et_rc" = 0 ] && [ "$(et_last)" = "return-token: STOP: campaign — read-only-investigable exhausted (0)" ] \
+  && ok "T1706-STOP-TOKEN: STOP verdict on a single-focus, queue-less corpus -> 'STOP: campaign — <reason>'" \
+  || no "T1706-STOP-TOKEN: rc=$et_rc last=[$(et_last)]"
+
+d="$TMP/et-stop-queue"; mkstate "$d" 0 "high|done thing|covered"
+{ echo; echo "## Campaign queue"; echo; echo "| Name | Seed | Kind | Convergence | x | y | State |"; echo "|---|---|---|---|---|---|---|"; echo "| beta | s | focus | c | - | - | pending |"; } >> "$d/RESEARCH-STATE.md"
+et_run "$d" --emit-token
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1706-STOP-QUEUE: STOP with a campaign queue is unavailable (next-entry vs STOP needs the queue) and exits 1" || no "T1706-STOP-QUEUE: rc=$et_rc (want 1)";;
+  *) no "T1706-STOP-QUEUE: last=[$(et_last)] (a guessed token is the defect)";;
+esac
+
+d="$TMP/et-stop-multi"; mkstate "$d" 0 "high|done thing|covered"; cp "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-b.md"
+et_run "$d" --emit-token
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1706-STOP-MULTI: STOP over several state files is unavailable (partition check not computed) and exits 1" || no "T1706-STOP-MULTI: rc=$et_rc (want 1)";;
+  *) no "T1706-STOP-MULTI: last=[$(et_last)] (a guessed token is the defect)";;
+esac
+
+d="$TMP/et-retro"; retro_due_state "$d" 11
+et_run "$d" --emit-token
+case "$et_out" in RETRO-DUE\ *) ;; *) no "T1706-RETRO-FIXTURE: fixture did not yield RETRO-DUE [$et_out]";; esac
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1706-RETRO-DUE: RETRO-DUE has no contract token (unavailable, exit 1), verdict line still printed" || no "T1706-RETRO-DUE: rc=$et_rc (want 1)";;
+  *) no "T1706-RETRO-DUE: last=[$(et_last)]";;
+esac
+
+d="$TMP/et-nostate"; mkdir -p "$d"
+et_run "$d" --emit-token
+case "$et_out" in BOOTSTRAP\ *return-token:\ unavailable\ \(*) ok "T1706-BOOTSTRAP: BOOTSTRAP is unavailable";; *) no "T1706-BOOTSTRAP: out=[$et_out]";; esac
+[ "$et_rc" = 1 ] || no "T1706-BOOTSTRAP-RC: rc=$et_rc (want 1)"
+
+d="$TMP/et-stale"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 3 3 1 0 0; echo; echo "## Coverage"; echo "- **Coverage metric**: 3 / 3 closed"; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | still open gap | web | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+et_run "$d" --emit-token
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1706-STALE: STALE is unavailable and exits 1" || no "T1706-STALE: rc=$et_rc (want 1)";;
+  *) no "T1706-STALE: last=[$(et_last)]";;
+esac
+
+# usage: --emit-token is a --next modifier only
+bash "$SUT" "$TMP/et-next" --emit-token >/dev/null 2>"$TMP/et-usage.err"; et_rc=$?
+{ [ "$et_rc" = 2 ] && grep -q -- '--emit-token requires --next' "$TMP/et-usage.err"; } \
+  && ok "T1706-USAGE: --emit-token without --next exits 2 with a usage line" \
+  || no "T1706-USAGE: rc=$et_rc err=[$(cat "$TMP/et-usage.err")]"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1706: each --emit-token mapping and guard is load-bearing --"
+  _t1706_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1706_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" "${T1706_GOOD_RC:-0}" "${T1706_BAD_RC:-0}" "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx" --next --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  t1706_t T1706-NEXT-MAP "$TMP/et-next" '/# ET-NEXT-MAP$/s/return-token: next: /return-token: next-entry: /' --good-has 'return-token: next: reconstruct' --bad-has 'return-token: next-entry: ' --bad-lacks "$_t1706_crash"
+  t1706_t T1706-STOP-MAP "$TMP/et-stop" '/# ET-STOP-MAP$/s/STOP: campaign — /STOP: /' --good-has 'return-token: STOP: campaign — read-only' --bad-lacks "STOP: campaign|$_t1706_crash" --bad-has 'return-token: STOP: read-only'
+  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-QUEUE-GUARD "$TMP/et-stop-queue" '/# ET-STOP-QUEUE-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
+  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-MULTI-GUARD "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
+  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-OTHER-VERDICT-GUARD "$TMP/et-retro" '/# ET-OTHER-UNAVAILABLE$/s/_et_unavail/: #/' --good-has 'return-token: unavailable \(' --bad-lacks "return-token: unavailable|$_t1706_crash"
+fi
+
 # ==================== kit issue #1023: test follow-ups ====================
 # (the marker-based RFT extraction and the root-safe read-only TMPDIR guards live where those tests do;
 # this section checks the guard helper itself.)

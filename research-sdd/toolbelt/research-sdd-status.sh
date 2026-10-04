@@ -29,6 +29,10 @@
 #        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
+#   --emit-token (with --next; kit #1706) appends ONE line `return-token: <token>` after the normal output, mapped from
+#        the same verdict (NEXT → `next: <gap>`; STOP → `STOP: campaign — <reason>` only for a single state file with no
+#        `## Campaign queue`). Any other verdict, or a non-zero --next, prints `return-token: unavailable (<reason>)` and
+#        exits 1 — never a guessed token. Without the flag the output is unchanged. Requires --next (exit 2).
 #   --focus <slug> (with --next) scopes the STALE gate to THAT focus's verify-state only (kit #1543): defects in
 #        a legacy sibling focus no longer brick a clean active focus. --all is the explicit corpus-wide form;
 #        it is also the DEFAULT when neither --focus nor --root is given (kept unchanged on purpose: the
@@ -36,14 +40,16 @@
 #        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
 #        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
-# Exit: 0 ok · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
+# Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
 
+_orig_args=("$@")   # --emit-token re-runs this script with the same argv minus the flag (kit #1706)
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]" >&2; exit 2; }
 shift
 mode="status"
 focus_slug=""
+emit_token=0       # --emit-token: with --next, append the literal RETURN CONTRACT token line (kit #1706)
 all_flag=0         # --all: explicit corpus-wide --next (kit #1543); same as the default when no --focus/--root is given
 root_flag=0        # --root: target the un-suffixed RESEARCH-STATE.md (kit #906)
 only_list=""       # --only: comma-separated owned counters --sync-state may rewrite (kit #911)
@@ -55,6 +61,7 @@ while [ $# -gt 0 ]; do
     --next|--sync-state) mode="$1"; shift ;;
     --root) root_flag=1; shift ;;
     --all) all_flag=1; shift ;;
+    --emit-token) emit_token=1; shift ;;
     --only)
       only_list="${2-}"; only_set=1
       case "$only_list" in *[[:space:]]*) echo "usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)" >&2; exit 2 ;; esac
@@ -76,7 +83,7 @@ while [ $# -gt 0 ]; do
       { grep -qE '^[0-9]+$' <<<"$stall_minutes" && [ "$stall_minutes" -ne 0 ]; } \
         || { echo "usage: --stall-minutes requires a positive integer" >&2; exit 2; }
       shift 2 ;;
-    *) echo "usage: research-sdd-status.sh <target-dir> [--next [--all]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
+    *) echo "usage: research-sdd-status.sh <target-dir> [--next [--all] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
   esac
 done
 # only_has <counter>: true when this counter WILL be written (no --only, or named in it).
@@ -85,6 +92,45 @@ only_has() { [ "$only_set" = 0 ] && return 0; case ",$only_list," in *",$1,"*) r
 [ "$root_flag" = 1 ] && [ -n "$focus_slug" ] && { echo "usage: --root and --focus are mutually exclusive" >&2; exit 2; }
 [ "$all_flag" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --all requires --next" >&2; exit 2; }
 [ "$all_flag" = 1 ] && { [ "$root_flag" = 1 ] || [ -n "$focus_slug" ]; } && { echo "usage: --all is corpus-wide and excludes --focus/--root" >&2; exit 2; }
+[ "$emit_token" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --emit-token requires --next" >&2; exit 2; }
+
+# --emit-token (kit #1706): print the normal --next output, then ONE literal `return-token: <token>` line mapped from the
+# SAME verdict (this script re-runs itself without the flag, so the verdict is the one --next computes and the no-flag
+# output is untouched). The token is the PROMPT-LOOP RETURN CONTRACT form the agent copies instead of composing:
+#   NEXT | <prio> | <gap>  ->  next: <gap>
+#   STOP | <reason>        ->  STOP: campaign — <reason>   ONLY for one state file with no `## Campaign queue`
+# Anything else (RETRO-DUE / ISSUES-DUE / STALE / BOOTSTRAP, a STOP over several focuses or a queue, a non-zero --next)
+# has no single contract token: `return-token: unavailable (<reason>)` + exit 1 — never a guessed token.
+if [ "$emit_token" = 1 ]; then
+  _et_args=()
+  for _et_a in "${_orig_args[@]}"; do [ "$_et_a" = "--emit-token" ] || _et_args+=("$_et_a"); done
+  _et_out="$(bash "${BASH_SOURCE[0]}" "${_et_args[@]}")"; _et_rc=$?
+  [ -n "$_et_out" ] && printf '%s\n' "$_et_out"
+  _et_unavail() { printf 'return-token: unavailable (%s)\n' "$1"; exit 1; }
+  [ "$_et_rc" -ne 0 ] && _et_unavail "--next exited $_et_rc"  # ET-RC-GATE
+  [ -n "$_et_out" ] || _et_unavail "--next printed nothing"
+  _et_verdict="${_et_out##*$'\n'}"
+  case "$_et_verdict" in
+    "NEXT | "*)
+      _et_gap="${_et_verdict#NEXT | }"; _et_gap="${_et_gap#* | }"
+      [ -n "$_et_gap" ] && [ "$_et_gap" != "${_et_verdict#NEXT | }" ] || _et_unavail "NEXT verdict carries no gap"
+      printf 'return-token: next: %s\n' "$_et_gap"  # ET-NEXT-MAP
+      exit 0 ;;
+    "STOP | "*)
+      _et_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      # shellcheck source=lib/state-files.sh
+      . "$_et_here/lib/state-files.sh" 2>/dev/null
+      declare -F list_state_files >/dev/null 2>&1 || _et_unavail "STOP: cannot enumerate state files (lib/state-files.sh unavailable)"
+      mapfile -t _et_states < <(list_state_files "$target")
+      [ "${#_et_states[@]}" -eq 1 ] || _et_unavail "STOP over ${#_et_states[@]} state files needs the §8c campaign-close partition check"  # ET-STOP-MULTI-GUARD
+      grep -q '^## Campaign queue' "${_et_states[0]}" 2>/dev/null; _et_g=$?
+      [ "$_et_g" -eq 1 ] || _et_unavail "STOP with a ## Campaign queue (or unreadable state) needs next-entry vs STOP: campaign from §8c"  # ET-STOP-QUEUE-GUARD
+      printf 'return-token: STOP: campaign — %s\n' "${_et_verdict#STOP | }"  # ET-STOP-MAP
+      exit 0 ;;
+    *)
+      _et_unavail "verdict '${_et_verdict%% *}' has no RETURN CONTRACT token; resolve it first" ;;  # ET-OTHER-UNAVAILABLE
+  esac
+fi
 
 if [ "$root_flag" = 1 ]; then
   # --root: select exactly the un-suffixed RESEARCH-STATE.md, ignoring every RESEARCH-STATE-<focus>.md.
@@ -1987,11 +2033,7 @@ remote_visibility_block
 # Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
 # Document mode (kit issue #1152): a NEXT / BOOTSTRAP from the Outline is final. STOP is only reported when the
 # gap-centric resolver ALSO has no open work: a fully covered Outline does not hide an open investigable gap.
-_ns_doc=""
-if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
-case "$_ns_doc" in
-  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
-  *)
+# _ns_gap_run: gap-centric verdict across every focus (subshell: the loop reassigns $state).
 _ns_gap_run() (
   _ns_skip_gaps=0
   mapfile -t _ns_states < <(list_state_files "$target")
@@ -2016,15 +2058,20 @@ _ns_gap_run() (
     echo "STOP | read-only-investigable exhausted (0)"
   fi
 )
-if [ -z "$_ns_doc" ]; then
-  printf '  next step       : '
-  _ns_gap_run
-else
-  _ns_gap="$(_ns_gap_run)"
-  case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
-  printf '  next step       : %s\n' "$_ns_gap"
-fi
-;;
+_ns_doc=""
+if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
+case "$_ns_doc" in
+  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
+  *)
+    if [ -z "$_ns_doc" ]; then
+      printf '  next step       : '
+      _ns_gap_run
+    else
+      _ns_gap="$(_ns_gap_run)"
+      case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
+      printf '  next step       : %s\n' "$_ns_gap"
+    fi
+    ;;
 esac
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
