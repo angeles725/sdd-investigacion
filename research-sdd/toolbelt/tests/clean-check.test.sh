@@ -386,6 +386,25 @@ CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { [ "$RC" = 1 ] && ! has "DEGRADED"; } && ok "#1659: with a sha256 tool the same run carries no degraded state" || no "sha256 control" "(rc=$RC $OUT)"
 
+# #1659 lib resolution: the script's own dir (symlinks followed), never the caller's cwd or the link's dir
+mkdir -p "$TMP/lnk-ok" "$TMP/lnk-plant/lib" "$TMP/cwd-plant/lib"
+ln -s "$SUT" "$TMP/lnk-ok/clean-check.sh"; ln -s "$SUT" "$TMP/lnk-plant/clean-check.sh"
+for _pd in "$TMP/lnk-plant/lib" "$TMP/cwd-plant/lib"; do
+  printf 'echo PLANTED-LIB-SOURCED\nscripts_manifest_rows() { return 0; }\n' > "$_pd/scripts-manifest.sh"
+done
+fresh
+OUT="$(cd "$TMP/cwd-plant" && "$BASH_BIN" "$TMP/lnk-ok/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 0 ] && has "CLEAN-CHECK: clean"; } && ok "#1659: a symlinked invocation resolves lib/ through the link" || no "symlink invocation" "(rc=$RC $OUT)"
+OUT="$(cd "$TMP/cwd-plant" && "$BASH_BIN" "$TMP/lnk-plant/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 0 ] && ! has "PLANTED-LIB-SOURCED"; } && ok "#1659: a lib planted beside the link or in the cwd is never sourced" || no "planted lib sourced" "(rc=$RC $OUT)"
+# CC-MF-PARSE fail-closed: a manifest the shared parser cannot read is exit 2, never 'no rows'
+if [ "$(id -u)" = 0 ]; then ok "#1659 (skipped: running as root, chmod 000 does not block reads)"; else
+  cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"
+  printf '| `run.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"; chmod 000 "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+  CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+  { [ "$RC" = 2 ] && has "cannot parse manifest" && ! has "UNMANIFESTED-SCRIPT"; } && ok "#1659: an unreadable manifest -> exit 2 'cannot parse manifest' (parser fails closed)" || no "manifest parse failure" "(rc=$RC $OUT)"
+fi
+
 # #1659 shared manifest parser: a row needs a 64-hex sha cell; a path-bearing first cell lists its basename
 cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/tool.sh"; printf 'echo\n' > "$SP/deep.sh"
 mkdir -p "$REPO/sources/probes/b1"
@@ -527,6 +546,17 @@ KL
     --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: clean' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
   mt "degraded run exits 0 after the summary" '/# CC-DEGRADED-EXIT/,/^    exit 3$/s/exit 3/exit 0/' 3 0 \
     --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: degraded' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
+  # kit #1659 lib resolution: symlinks followed (the mutant is run THROUGH a symlink; the original resolves the real lib/)
+  LNKRUN='d="$(mktemp -d)"; ln -s "$1" "$d/clean-check.sh"; bash "$d/clean-check.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r'
+  mt "script symlink no longer followed when locating lib/" '/# CC-LIB-RESOLVE$/s/while \[ -L "\$_src" \]/while false/' 0 2 \
+    --good-has 'CLEAN-CHECK: clean' --bad-has 'cannot find helper' -- "$BASH_BIN" -c "$LNKRUN" _ @SUT@ --target "$CL" --tmp "$CLT"
+  if [ "$(id -u)" != 0 ]; then
+    fresh; PW="$REPO"; PWT="$FT"; PWS="$TMP/pw-spad"; mkdir -p "$PWS" "$PW/sources/probes/b1" "$PW/.research-sdd"
+    printf 'sources/\n' > "$PW/.research-sdd/keep.txt"; printf 'echo\n' > "$PWS/run.sh"
+    printf '| `run.sh` | %064d | x |\n' 0 > "$PW/sources/probes/b1/SCRIPTS-MANIFEST.md"; chmod 000 "$PW/sources/probes/b1/SCRIPTS-MANIFEST.md"
+    mt "manifest parse failure no longer fails closed" '/# CC-MF-PARSE$/s/ || { _err "cannot parse manifest \${_mf\[\$_j\]}"; exit 2; }//' 2 1 \
+      --good-has 'cannot parse manifest' --bad-lacks 'cannot parse manifest' -- env "CLEAN_CHECK_SCRATCHPAD=$PWS" "$BASH_BIN" @SUT@ --target "$PW" --tmp "$PWT"
+  fi
   mt "manifest rows no longer read from the shared parser" '/# CC-MF-PARSE$/s/_rows="\$(scripts_manifest_rows "\$TARGET_P" "\${_mf\[\$_j\]}")"/_rows=""/' 0 1 \
     --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
   fresh; RM="$REPO"; RMT="$FT"; RMS="$TMP/rm-spad"; mkdir -p "$RMS" "$RM/.research-sdd" "$RM/notes"; printf '# n\n' > "$RM/.research-sdd/keep.txt"

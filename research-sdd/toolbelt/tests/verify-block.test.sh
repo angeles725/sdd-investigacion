@@ -1448,6 +1448,21 @@ mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cite followed by s
 mf_corpus unreadable "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh; chmod 000 "$MFD/sources/probes/b1/SCRIPTS-MANIFEST.md"
 if [ "$(id -u)" = 0 ]; then ok "#1659 (skipped: running as root, chmod 000 does not block reads)"
 else mf_check 1 'DEGRADED manifest parse failed' "#1659 BAD: an unreadable manifest is a typed DEGRADED parse failure, not 'no row'"; fi
+# kit #1659 lib resolution: the script's own dir (symlinks followed), never the caller's cwd or the link's dir
+mf_corpus lnk "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
+mkdir -p "$TMP/vlnk-ok" "$TMP/vlnk-plant/lib" "$TMP/vcwd-plant/lib"
+ln -s "$SUT" "$TMP/vlnk-ok/verify-block.sh"; ln -s "$SUT" "$TMP/vlnk-plant/verify-block.sh"
+for _pd in "$TMP/vlnk-plant/lib" "$TMP/vcwd-plant/lib"; do
+  printf 'echo PLANTED-LIB-SOURCED\nscripts_manifest_rows() { return 0; }\n' > "$_pd/scripts-manifest.sh"
+done
+out="$(cd "$TMP/vcwd-plant" && bash "$TMP/vlnk-ok/verify-block.sh" "$MFD/block.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && grep -q 'manifest-ok' <<<"$out"; } && ok "#1659: a symlinked invocation resolves lib/ through the link" || no "#1659 symlink invocation (rc=$got): $(head -2 <<<"$out")"
+out="$(cd "$TMP/vcwd-plant" && bash "$TMP/vlnk-plant/verify-block.sh" "$MFD/block.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && ! grep -q 'PLANTED-LIB-SOURCED' <<<"$out"; } && ok "#1659: a lib planted beside the link or in the cwd is never sourced" || no "#1659 planted lib sourced (rc=$got)"
+# kit #1659: a path with no manifest work does not need the helper (lazy load): --possibility-sweep with lib unreachable
+mkdir -p "$TMP/vnolib" "$TMP/vnolib-corpus"; cp "$SUT" "$TMP/vnolib/verify-block.sh"
+out="$(bash "$TMP/vnolib/verify-block.sh" --possibility-sweep "$TMP/vnolib-corpus" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && ! grep -q 'cannot find helper' <<<"$out"; } && ok "#1659: --possibility-sweep never loads the manifest helper" || no "#1659 sweep depends on lib (rc=$got): $(head -2 <<<"$out")"
 # kit #1659: a trailing-slash target (find then yields corpus//sources/...) must resolve like the canonical form
 mf_corpus slash "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
 out="$(bash "$SUT" "$MFD/block.md" "$MFD//" 2>&1)"; got=$?
@@ -1985,6 +2000,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ "$(id -u)" = 0 ]; then echo "  (skipped: running as root, an unreadable manifest cannot be built)"
   elif mk_sed "teeth-mf-parser-fail" "$MUT/mfpf.sh" '/# VB-MF-PARSE$/s/ || { _vb_mf_prc=1; break; }//'; then
     tooth "teeth-mf-parser-fail" 1 1 "$MUT/mfpf.sh" --good-has 'DEGRADED manifest parse failed' --bad-lacks 'DEGRADED manifest parse failed' -- bash @SUT@ "$TMP/mf-unreadable/block.md"
+  fi
+  echo "-- teeth-mf-lib-symlink: script symlink no longer followed when locating lib/ --"
+  if mk_sed "teeth-mf-lib-symlink" "$MUT/mfls.sh" '/# VB-LIB-RESOLVE$/s/while \[ -L "\$src" \]/while false/'; then
+    tooth "teeth-mf-lib-symlink" 0 1 "$MUT/mfls.sh" --good-has 'manifest-ok' --bad-has 'cannot find helper' -- bash -c 'd="$(mktemp -d)"; ln -s "$1" "$d/verify-block.sh"; bash "$d/verify-block.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r' _ @SUT@ "$TMP/mf-ok/block.md"
   fi
   echo "-- teeth-mf-cite-boundary: cite terminator dropped (phantom a.sh from a.sh.bak) --"
   if mk_sed "teeth-mf-cite-boundary" "$MUT/mfcb.sh" '/# VB-MF-CITE$/{n;s/\\.?(\[^A-Za-z0-9_.\/-]|\$)/\\b/;}'; then

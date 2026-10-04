@@ -40,13 +40,22 @@
 #     role = EXECUTED | RECIPE | FAILED-ATTEMPT. Only columns 1-2 are machine-checked; the rest is for humans.
 
 set -uo pipefail
-# kit #1659: the one shared SCRIPTS-MANIFEST row parser (also used by clean-check.sh); fail closed when it cannot be loaded.
-_VB_HERE="${0%/*}"; [ "$_VB_HERE" = "$0" ] && _VB_HERE=.
-_VB_SMLIB="$_VB_HERE/lib/scripts-manifest.sh"
-[ -f "$_VB_SMLIB" ] || { echo "verify-block: cannot find helper $_VB_SMLIB" >&2; exit 2; }
-# shellcheck source=lib/scripts-manifest.sh
-. "$_VB_SMLIB"
-declare -F scripts_manifest_rows >/dev/null 2>&1 || { echo "verify-block: helper lib/scripts-manifest.sh failed to define scripts_manifest_rows" >&2; exit 2; }
+# kit #1659: the one shared SCRIPTS-MANIFEST row parser (also used by clean-check.sh). It is loaded LAZILY by
+# _vb_load_smlib (section 11 only), from the directory of THIS script with symlinks followed (BASH_SOURCE, never the
+# caller's cwd or a lib/ beside a symlink). Returns 1 with a message when it cannot be loaded.
+_vb_load_smlib() {
+  local src="${BASH_SOURCE[0]}" n=0 lt d here
+  while [ -L "$src" ] && [ "$n" -lt 40 ]; do   # VB-LIB-RESOLVE
+    n=$((n + 1)); lt="$(readlink -- "$src")" || { echo "verify-block: cannot read symlink $src" >&2; return 1; }
+    case "$lt" in /*) src="$lt" ;; *) d="${src%/*}"; [ "$d" = "$src" ] && d=.; src="$d/$lt" ;; esac
+  done
+  d="${src%/*}"; [ "$d" = "$src" ] && d=.
+  here="$(cd -P -- "$d" 2>/dev/null && pwd -P)" || { echo "verify-block: cannot resolve the script directory of $src" >&2; return 1; }
+  [ -f "$here/lib/scripts-manifest.sh" ] || { echo "verify-block: cannot find helper $here/lib/scripts-manifest.sh" >&2; return 1; }
+  # shellcheck source=lib/scripts-manifest.sh
+  . "$here/lib/scripts-manifest.sh"
+  declare -F scripts_manifest_rows >/dev/null 2>&1 || { echo "verify-block: helper lib/scripts-manifest.sh failed to define scripts_manifest_rows" >&2; return 1; }
+}
 # --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
 # pf_scan <file>: print `LINE<TAB>PHRASE<TAB>TEXT` for each BARE defeatist feasibility verdict. A verdict is bare
 # unless its SECTION (text up to the next markdown heading) carries a ROUTE LADDER: >=3 list items / table rows
@@ -683,6 +692,12 @@ else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict
 #     resolved against the directory of ITS OWN manifest (a `sources/…` cell is target-relative; the bare
 #     basename inside that same dir also matches). A row in another probes dir never lists this dir's script.
 _vb_mf_n=0; _vb_mf_deg=0
+# A helper that cannot be loaded is a typed DEGRADED (exit 1), never a quiet pass: the stub makes every manifest
+# parse below fail (-> `DEGRADED manifest parse failed`) while a corpus with no manifest still reads `INFO no SCRIPTS-MANIFEST`.
+if ! _vb_load_smlib; then
+  echo "ERROR: DEGRADED manifest helper unavailable (see above) — manifests cannot be parsed"; rc=1
+  scripts_manifest_rows() { return 2; }
+fi
 # A cite ends at a PATH TERMINATOR (kit #1659): the extension must be followed by an optional sentence period and then a
 # character outside the path alphabet (or end of line) — a trailing `\b` let `a.sh.bak` / `run.py.log` backtrack to a
 # phantom `a.sh` / `run.py`. The terminator is consumed by -o, so it is stripped (a cite always ends in an alnum).

@@ -53,7 +53,15 @@ for _tool in $REQUIRED_TOOLS; do
 done
 
 # kit #1659: the one shared SCRIPTS-MANIFEST row parser; fail closed when it cannot be loaded.
-_HERE="${0%/*}"; [ "$_HERE" = "$0" ] && _HERE=.
+# Resolved from THIS script's own directory with symlinks followed (BASH_SOURCE), never the caller's cwd or a lib/
+# beside a symlink.
+_src="${BASH_SOURCE[0]}"; _n=0
+while [ -L "$_src" ] && [ "$_n" -lt 40 ]; do   # CC-LIB-RESOLVE
+  _n=$((_n + 1)); _lt="$(readlink -- "$_src")" || { _err "cannot read symlink $_src"; exit 2; }
+  case "$_lt" in /*) _src="$_lt" ;; *) _d="${_src%/*}"; [ "$_d" = "$_src" ] && _d=.; _src="$_d/$_lt" ;; esac
+done
+_d="${_src%/*}"; [ "$_d" = "$_src" ] && _d=.
+_HERE="$(cd -P -- "$_d" 2>/dev/null && pwd -P)" || { _err "cannot resolve the script directory of $_src"; exit 2; }
 _SMLIB="$_HERE/lib/scripts-manifest.sh"
 [ -f "$_SMLIB" ] || { _err "cannot find helper $_SMLIB"; exit 2; }
 # shellcheck source=lib/scripts-manifest.sh
