@@ -1533,6 +1533,25 @@ for _t in 'BAverage.calculate:12' 'ObixUtils.encode:7'; do
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'resolved 0 of' <<<"$out"; } \
     && ok "#973 GOOD: $_t is still nonpath" || no "#973 $_t no longer nonpath :: $(grep -iE 'resolved|nonpath|extern' <<<"$out" | head -3)"
 done
+# kit #1721 (R3): an UNRESOLVED cite whose shape matches the FQCN / host pre-split but whose last label is a known file
+# extension (`analysis.v2.R`, `notes.v1.org`) is a missing extern source cite, not a non-path: it keeps its place in M/E
+# and the P9 WARN keeps the SOURCE_ROOT hint. Case-insensitive (`R` vs `r`).
+for _t in 'analysis.v2.R:3' 'notes.v1.org:2'; do
+  n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q 'resolved 0 of 1 (1 extern, 0 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out" && grep -q "extern  $_t" <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
+    && ok "#1721 GOOD: unresolved $_t (file-extension last label) stays extern with the WARN + SOURCE_ROOT hint" || no "#1721 $_t reclassified nonpath :: $(grep -iE 'resolved|nonpath|extern' <<<"$out" | head -3)"
+done
+# guard: a real FQCN (last label not a file extension) is still nonpath
+n973 pre-fqcn standard 'Class `javax.baja.control.BTimeTrigger:238`. [CERT]'
+out="$(run "$N973")"
+grep -q 'nonpath  javax.baja.control.BTimeTrigger:238' <<<"$out" \
+  && ok "#1721 GUARD: a non-extension FQCN is still nonpath" || no "#1721 FQCN no longer nonpath :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+# R2: the extension list has no duplicate entries (the list is read out of the SUT between its opening and closing quote)
+_vb_exts_dump(){ awk "/^_vb_file_exts='/{f=1; sub(/^_vb_file_exts='/,\"\")} f{l=\$0; e=(l ~ /'\$/); sub(/'\$/,\"\",l); print l; if(e) exit}" "$SUT"; }
+_vb_dups=$(_vb_exts_dump | sort | uniq -d); _vb_cnt=$(_vb_exts_dump | wc -l)
+{ [ -z "$_vb_dups" ] && [ "$_vb_cnt" -gt 50 ]; } \
+  && ok "#1721 GOOD: _vb_file_exts has no duplicate entries ($_vb_cnt read)" || no "#1721 _vb_file_exts duplicates or unreadable (count=$_vb_cnt) :: $(tr '\n' ' ' <<<"$_vb_dups")"
 # guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
 printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
 n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
@@ -2103,8 +2122,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-lacks "$NOCITE" -- bash @SUT@ "$TMP/n973-ip.md"
   fi
   if mk_sed "teeth-973-exists" "$MUT/np0.sh" 's/if \[ -n "\$_vb_np_r" \] && \[ -f "\$_vb_np_r\/\${c%:\*}" \]; then/if false; then/'; then
-    tooth "teeth-973-exists" 1 0 "$MUT/np0.sh" --good-has 'RANGE!  analysis.v2.R:9' --good-lacks 'nonpath' \
-      --bad-has 'nonpath  analysis.v2.R:9' --bad-lacks 'RANGE!  analysis' -- bash @SUT@ "$TMP/n973-shapereal.md"
+    tooth "teeth-973-exists" 1 1 "$MUT/np0.sh" --good-has 'RANGE!  my.v2.app:9' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  my.v2.app:9' --bad-lacks 'RANGE!  my.v2' -- bash @SUT@ "$TMP/n973-shapereal.md"
   fi
   if mk_sed "teeth-973-list-shrunk" "$MUT/np8.sh" '/^scala$/d'; then
     tooth "teeth-973-list-shrunk" 0 0 "$MUT/np8.sh" --good-has 'extern  Foo.scala:10' --good-lacks 'nonpath' \
@@ -2113,6 +2132,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-973-upper-rule" "$MUT/np9.sh" 's/\*\[A-Z\]\*) _vb_np_m=1/*) _vb_np_m=1/'; then
     tooth "teeth-973-upper-rule" 0 0 "$MUT/np9.sh" --good-has 'extern  x.qzv:2' --good-lacks 'nonpath' \
       --bad-has 'nonpath  x.qzv:2' --bad-lacks 'extern  x.qzv' -- bash @SUT@ "$TMP/n973-ext-x.qzv.md"
+  fi
+  # kit #1721: the pre-split extension check (P1721-NONPATH-EXT) and the no-duplicate-extension invariant
+  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" '/P1721-NONPATH-EXT/,/_vb_np_hit=1; fi/s/grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"/false/'; then
+    tooth "teeth-1721-preext" 0 0 "$MUT/np21.sh" --good-has 'extern  notes.v1.org:2' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  notes.v1.org:2' --bad-lacks 'extern  notes' -- bash @SUT@ "$TMP/n973-pre-notes.v1.org.md"
+  fi
+  if mk_sed "teeth-1721-dups" "$MUT/np22.sh" "s/^_vb_file_exts='java\$/_vb_file_exts='java\\njava/"; then
+    cat > "$TMP/dupcheck.sh" <<'DUPEOF'
+sed -n "/^_vb_file_exts='/,/'\$/p" "$1" | sed "s/^_vb_file_exts='//; s/'\$//" | sort | uniq -d | sed 's/^/DUP: /'; echo "dupcheck done"
+DUPEOF
+    tooth "teeth-1721-dups" 0 0 "$MUT/np22.sh" --good-has 'dupcheck done' --good-lacks 'DUP: ' \
+      --bad-has 'DUP: java' -- bash "$TMP/dupcheck.sh" @SUT@
   fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \

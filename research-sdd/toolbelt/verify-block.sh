@@ -332,7 +332,6 @@ gvy
 pl
 pm
 t
-lua
 jl
 nim
 zig
@@ -458,49 +457,10 @@ jpeg
 gif
 bmp
 ico
-htm
 xhtml
-sh
 pyw
 pyi
-pyx
-rst
-cs
-kt
-java
-c
-h
-cpp
-hpp
-php
-rb
-rs
-go
-js
-mjs
-cjs
-ts
-tsx
-jsx
-css
-scss
-sql
-yaml
-yml
-toml
-ini
-cfg
-conf
-log
-csv
-tsv
-dat
-bin
-hex
-exe
-dll
-jar
-class'
+pyx'
 if [ -n "$bt_cites" ]; then
   _vb_np_cites=$(grep -E "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?   # P973-NONPATH-SPLIT
   if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""
@@ -514,6 +474,11 @@ if [ -n "$bt_cites" ]; then
       for _vb_np_r in "$target" "$git_root" "$target_root" "${SOURCE_ROOT:-}"; do
         if [ -n "$_vb_np_r" ] && [ -f "$_vb_np_r/${c%:*}" ]; then _vb_np_hit=1; break; fi
       done
+      # P1721-NONPATH-EXT: an unresolved shape match whose LAST label is a known file extension (`analysis.v2.R`,
+      # `notes.v1.org`) is a missing extern source cite, not a non-path: leave it in bt_cites so the loop reports it
+      # `extern` (WARN + SOURCE_ROOT hint), the same rule as the Class.method branch below.
+      _vb_np_ext1="${c%:*}"; _vb_np_ext1="${_vb_np_ext1##*.}"; _vb_np_ext1="${_vb_np_ext1,,}"
+      if [ "$_vb_np_hit" = 0 ] && grep -qxF "$_vb_np_ext1" <<<"$_vb_file_exts"; then _vb_np_hit=1; fi
       [ "$_vb_np_hit" = 0 ] && _vb_np_cites="${_vb_np_cites:+$_vb_np_cites$'\n'}$c"
     done <<<"$_vb_np_cand"
     if [ -n "$_vb_np_cites" ]; then
