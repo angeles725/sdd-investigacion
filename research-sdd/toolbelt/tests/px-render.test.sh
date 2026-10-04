@@ -785,6 +785,9 @@ if [ ! -f "$ORIG_PY" ]; then
   exit 1
 fi
 # Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
+# Only the single mutated file is copied: px_render.py imports no sibling module and its one __file__
+# use (the default organized/ root, px_render.py:200-206) resolves to an absent dir for original and
+# mutant alike, and no tooth exercises module:// assets.
 MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
 MUTPY=""
 
@@ -846,13 +849,12 @@ pt(){
   local -a opts=()
   while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
   shift
-  if mutant_tooth "$label" "$g" "$b" "$MUTPY" "${opts[@]}" -- bash -c "$PX_WRAP" _ @SUT@ "$1" "$2" "$3" "$PX_FACTS"; then
+  if mutant_tooth "$label" "$g" "$b" "$MUTPY" --orig "$ORIG_PY" "${opts[@]}" -- bash -c "$PX_WRAP" _ @SUT@ "$1" "$2" "$3" "$PX_FACTS"; then
     MUT_PASS=$((MUT_PASS+1))
   else
     MUT_FAIL=$((MUT_FAIL+1))
   fi
 }
-SUT="$ORIG_PY"   # mutant_tooth substitutes @SUT@ with this (original) or the mutant path
 
 # M1: remove the input O_NOFOLLOW: a symlinked input is no longer refused
 if mut_build "M1 input O_NOFOLLOW" M1 's/_IN_FLAGS = os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK | _O_CLOEXEC/_IN_FLAGS = os.O_RDONLY | _O_NONBLOCK | _O_CLOEXEC  # MUTANT-M1/'; then

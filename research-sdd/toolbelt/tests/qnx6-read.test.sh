@@ -575,6 +575,8 @@ if [ ! -f "$ORIG_PY" ]; then
   exit 1
 fi
 # Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
+# Only the single mutated file is copied: qnx6_read.py imports only the stdlib (qnx6_read.py:23-31)
+# and has no __file__-relative resource.
 MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
 MUTPY=""
 
@@ -595,7 +597,7 @@ mut_build(){
 # Wrapper run against the original and the mutant. Each run gets a FRESH output dir (removed by the
 # wrapper's own trap) and prints typed RC=/STATUS=/fact lines, so the control observes the same
 # artifact the base test asserts on.
-Q_WRAP='py="$1"; in="$2"; fact="$3"; to="$4"; o="$(mktemp -d)" || exit 99
+Q_WRAP='py="$1"; in="$2"; fact="$3"; to="$4"; orig="$5"; [ "$py" = "$orig" ] && to=60; o="$(mktemp -d)" || exit 99
 trap "rm -rf \"$o\"" EXIT
 case "$fact" in
   fifo) mkfifo "$o/in.img"; in="$o/in.img" ;;
@@ -615,29 +617,28 @@ case "$fact" in
   victim) echo "VICTIM=$(head -c 40 "$o/v" | tr "\n" " ")" ;;
 esac
 exit "$rc"'
-# qt LABEL GOOD_RC BAD_RC [--good-has RE ...] -- FIXTURE FACT TIMEOUT
+# qt LABEL GOOD_RC BAD_RC [--good-has RE ...] -- FIXTURE FACT MUTANT_TIMEOUT_SECONDS (the original always gets 60 s; only the mutant is bounded tightly)
 qt(){
   local label="$1" g="$2" b="$3"; shift 3
   local -a opts=()
   while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
   shift
-  if mutant_tooth "$label" "$g" "$b" "$MUTPY" "${opts[@]}" -- bash -c "$Q_WRAP" _ @SUT@ "$1" "$2" "$3"; then
+  if mutant_tooth "$label" "$g" "$b" "$MUTPY" --orig "$ORIG_PY" "${opts[@]}" -- bash -c "$Q_WRAP" _ @SUT@ "$1" "$2" "$3" "$ORIG_PY"; then
     MUT_PASS=$((MUT_PASS+1))
   else
     MUT_FAIL=$((MUT_FAIL+1))
   fi
 }
-SUT="$ORIG_PY"   # mutant_tooth substitutes @SUT@ with this (original) or the mutant path
 
 # --- M1: Remove os.O_NOFOLLOW guard on input: the symlink input is followed, not rejected (T2)
 if mut_build "M1 O_NOFOLLOW input" M1 's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/'; then
-  qt "M1 O_NOFOLLOW input removal" 2 0 --good-has 'STATUS=none' --bad-has 'STATUS=complete' \
+  qt "M1 O_NOFOLLOW input removal" 2 0 --good-has '^STATUS=none$' --bad-has '^STATUS=complete$' \
     -- "$ROOT/sym.img" list 5
 fi
 
 # --- M2: Invert magic check: a valid image is now rejected (T4)
 if mut_build "M2 magic-check" M2 's/if magic != _MAGIC:/if magic == _MAGIC:  # MUTANT/'; then
-  qt "M2 magic-check inversion" 0 1 --good-has 'STATUS=complete' --bad-has 'STATUS=failed' \
+  qt "M2 magic-check inversion" 0 1 --good-has '^STATUS=complete$' --bad-has '^STATUS=failed$' \
     -- "$FIXTURES/valid.img" list 5
 fi
 
@@ -655,19 +656,19 @@ fi
 
 # --- M5: Replace the walk-error append with pass: walk errors silently ignored (T8)
 if mut_build "M5 walk-error" M5 's/errors.append(f"walk error: {exc}")/pass  # MUTANT_M5/'; then
-  qt "M5 walk-error removal" 1 0 --good-has 'STATUS=failed' --bad-has 'STATUS=complete' \
+  qt "M5 walk-error removal" 1 0 --good-has '^STATUS=failed$' --bad-has '^STATUS=complete$' \
     -- "$FIXTURES/bad_inode.img" list 5
 fi
 
 # --- M6: Remove the visited-inode guard: cyclic.img never terminates (T10) → timeout rc 124
 if mut_build "M6 cycle-guard" M6 's/if ino in visited:/if False:  # MUTANT_M6/'; then
-  qt "M6 cycle-guard removal" 0 124 --good-has 'STATUS=complete' --bad-has 'STATUS=none' \
+  qt "M6 cycle-guard removal" 0 124 --good-has '^STATUS=complete$' --bad-has '^STATUS=none$' \
     -- "$FIXTURES/cyclic.img" list 5
 fi
 
 # --- M7: Restore the old num_blocks-based cap (fstat cap removed): oom.img read times out
 if mut_build "M7 fstat-cap" M7 's/real_file_bytes = max(0, os.fstat(self._fd).st_size - self._poff)/real_file_bytes = self.num_blocks * self._bs  # MUTANT_M7/'; then
-  qt "M7 fstat-cap removal" 0 124 --good-has 'STATUS=' --bad-has 'STATUS=none' \
+  qt "M7 fstat-cap removal" 0 124 --good-has '^STATUS=complete$' --bad-has '^STATUS=none$' \
     -- "$FIXTURES/oom.img" list 2
 fi
 
@@ -679,13 +680,13 @@ fi
 
 # --- M9: Remove O_EXCL and O_NOFOLLOW from the output write: the symlinked victim is overwritten (T12)
 if mut_build "M9 output-guards" M9 's/os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/os.O_WRONLY | os.O_CREAT | _O_CLOEXEC/'; then
-  qt "M9 output-guards removal" 2 0 --good-has 'VICTIM=victim-m9' --bad-lacks 'VICTIM=victim-m9' \
+  qt "M9 output-guards removal" 2 0 --good-has '^VICTIM=victim-m9 $' --bad-lacks '^VICTIM=victim-m9 $' \
     -- "$FIXTURES/valid.img" victim 5
 fi
 
 # --- M10: Remove O_NONBLOCK from the input open: a FIFO input blocks → timeout rc 124 (T13)
 if mut_build "M10 O_NONBLOCK" M10 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/'; then
-  qt "M10 O_NONBLOCK removal" 2 124 --good-has 'STATUS=none' --bad-has 'STATUS=none' \
+  qt "M10 O_NONBLOCK removal" 2 124 --good-has '^STATUS=none$' --bad-has '^STATUS=none$' \
     -- "$FIXTURES/valid.img" fifo 3
 fi
 
