@@ -146,8 +146,11 @@ if [ -f "$sources_md" ]; then
   # em-dash cells yield no block and are skipped. Positive miss ⇒ FAIL; unresolvable block name ⇒ WARN only.
   cited=0
   while IFS='|' read -r _ fcell _ _ _ _ bcell _; do
-    file=$(printf '%s' "$fcell" | tr -d '[:blank:]')   # strip space AND tab: a tab-padded File cell must not spoof a FABRICATED-CITE
-    file=${file//\`/}          # strip markdown code backticks so the basename greps cleanly
+    file=${fcell//\`/}         # strip markdown code backticks so the basename greps cleanly
+    # #1678 — trim LEADING/TRAILING blanks only (space AND tab: a tab-padded File cell must not spoof a
+    # FABRICATED-CITE). INTERNAL blanks are part of a verbatim filename ("My File.pdf", "Program Files/x")
+    # and must survive, or the grep below can never match the block text.
+    file="${file#"${file%%[![:blank:]]*}"}"; file="${file%"${file##*[![:blank:]]}"}"   # L4-FILE-TRIM
     [ -z "$file" ] && continue
     case "$file" in File|*---*) continue;; esac
     base=$(basename "$file")
