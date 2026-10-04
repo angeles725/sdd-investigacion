@@ -559,6 +559,14 @@ MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
 mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 
+# Shared helper (kit issue #1299): sourced ONLY on this branch, each function we call is checked.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
+for _fn in mutant_chain mutant_tooth; do
+  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_fn" >&2; exit 2; }
+done
+export MUTANT_SYNTAX=none   # the mutants are Python; syntax is checked with ast.parse in mut_build
+
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/qnx6_read.py"
 if [ ! -f "$ORIG_PY" ]; then
@@ -566,256 +574,122 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="
   exit 1
 fi
-MUTDIR="$(mktemp -d)"
+# Mutants live under $ROOT (a mktemp dir, removed by the single EXIT trap above), one dir each.
+# Only the single mutated file is copied: qnx6_read.py imports only the stdlib (qnx6_read.py:23-31)
+# and has no __file__-relative resource.
+MUTBASE="$ROOT/mut"; mkdir -p "$MUTBASE"
+MUTPY=""
 
-# --- M1: Remove os.O_NOFOLLOW guard on input --------------------------------
-# Expected: symlink input is followed instead of rejected → T2 assertion fails
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/' "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M1 O_NOFOLLOW input: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M1 O_NOFOLLOW input: sed had no effect"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$ROOT/sym.img" --output "$ROOT/m1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -ne 2 ]; then
-    mut_ok "M1 O_NOFOLLOW input removal detected (exit $_m1_exit, not 2)"
-  else
-    mut_no "M1 O_NOFOLLOW input: mutation NOT detected (still exits 2)"
+# mut_build LABEL ID SED_EXPR — builds $MUTBASE/ID/qnx6_read.py through mutant_chain (empty,
+# identical, dead-stage, placement refusals) plus a Python syntax check. On refusal the tooth is
+# counted ONCE here and never runs; returns 1.
+mut_build(){
+  local label="$1" id="$2" expr="$3"
+  MUTPY="$MUTBASE/$id/qnx6_read.py"; mkdir -p "$MUTBASE/$id"
+  if ! mutant_chain "$label" "$ORIG_PY" "$MUTPY" "$expr"; then
+    mut_no "$label: mutant refused by lib/mutant.sh (refusal counted here once; tooth not run)"; return 1
   fi
-fi
-rm -rf "$MUTDIR"
+  if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$MUTPY" 2>/dev/null; then
+    mut_no "$label: mutant is not valid Python (refusal counted here once; tooth not run)"; return 1
+  fi
+}
 
-# --- M2: Invert magic check -------------------------------------------------
-# Expected: valid image is now rejected → T4 assertion fails
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if magic != _MAGIC:/if magic == _MAGIC:  # MUTANT/' \
-  "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M2 magic-check: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M2 magic-check: sed had no effect"
+# Wrapper run against the original and the mutant. Each run gets a FRESH output dir (removed by the
+# wrapper's own trap) and prints typed RC=/STATUS=/fact lines, so the control observes the same
+# artifact the base test asserts on.
+Q_WRAP='py="$1"; in="$2"; fact="$3"; to="$4"; orig="$5"; [ "$py" = "$orig" ] && to=60; o="$(mktemp -d)" || exit 99
+trap "rm -rf \"$o\"" EXIT
+case "$fact" in
+  fifo) mkfifo "$o/in.img"; in="$o/in.img" ;;
+  victim) echo victim-m9 > "$o/v"; ln -s "$o/v" "$o/out" ;;
+esac
+if [ "$fact" = extract ]; then
+  timeout "$to" python3 "$py" extract --input "$in" --fs-path /file --output "$o/out" 2>/dev/null; rc=$?
 else
-  _m2_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/valid.img" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
-  if [ "$_m2_exit" -ne 0 ]; then
-    mut_ok "M2 magic-check inversion detected (valid image rejected, exit $_m2_exit)"
-  else
-    mut_no "M2 magic-check: mutation NOT detected (still exits 0)"
-  fi
+  timeout "$to" python3 "$py" list --input "$in" --output "$o/out" 2>/dev/null; rc=$?
 fi
-rm -rf "$MUTDIR"
+echo "RC=$rc"
+echo "STATUS=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"status\"])" "$o/out" 2>/dev/null || echo none)"
+case "$fact" in
+  extract) echo "CONTENT=$(python3 -c "import sys; print(open(sys.argv[1],\"rb\").read())" "$o/out" 2>/dev/null)" ;;
+  path) echo "PATH=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"entries\"][0][\"path\"])" "$o/out" 2>/dev/null)" ;;
+  trunc) echo "TRUNC=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get(\"truncated\"))" "$o/out" 2>/dev/null)" ;;
+  victim) echo "VICTIM=$(head -c 40 "$o/v" | tr "\n" " ")" ;;
+esac
+exit "$rc"'
+# qt LABEL GOOD_RC BAD_RC [--good-has RE ...] -- FIXTURE FACT MUTANT_TIMEOUT_SECONDS (the original always gets 60 s; only the mutant is bounded tightly)
+qt(){
+  local label="$1" g="$2" b="$3"; shift 3
+  local -a opts=()
+  while [ "${1:-}" != -- ]; do opts+=("$1" "$2"); shift 2; done
+  shift
+  if mutant_tooth "$label" "$g" "$b" "$MUTPY" --orig "$ORIG_PY" "${opts[@]}" -- bash -c "$Q_WRAP" _ @SUT@ "$1" "$2" "$3" "$ORIG_PY"; then
+    MUT_PASS=$((MUT_PASS+1))
+  else
+    MUT_FAIL=$((MUT_FAIL+1))
+  fi
+}
 
-# --- M3: Zero out extracted bytes -------------------------------------------
-# Expected: extracted file is empty instead of b'hello-world\n' → T6 fails
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.write(out_fd, data)/os.write(out_fd, b"")/' "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M3 write-zero: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M3 write-zero: sed had no effect (check that cmd_extract uses os.write(out_fd, data))"
-else
-  _m3_exit=0
-  python3 "$MUTDIR/qnx6_read.py" extract \
-    --input "$FIXTURES/valid.img" --fs-path /file \
-    --output "$ROOT/m3_out" 2>/dev/null || _m3_exit=$?
-  _m3_content=""
-  [ -f "$ROOT/m3_out" ] && _m3_content="$(python3 -c "print(open('$ROOT/m3_out','rb').read())" 2>/dev/null)"
-  if [ "$_m3_exit" -eq 0 ] && [ "$_m3_content" != "b'hello-world\\n'" ]; then
-    mut_ok "M3 write-zero detected (extracted content is not b'hello-world\\n')"
-  else
-    mut_no "M3 write-zero: mutation NOT detected (content still correct or non-zero exit)"
-  fi
+# --- M1: Remove os.O_NOFOLLOW guard on input: the symlink input is followed, not rejected (T2)
+if mut_build "M1 O_NOFOLLOW input" M1 's/os\.O_RDONLY | _O_NOFOLLOW/os.O_RDONLY/'; then
+  qt "M1 O_NOFOLLOW input removal" 2 0 --good-has '^STATUS=none$' --bad-has '^STATUS=complete$' \
+    -- "$ROOT/sym.img" list 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M4: Drop slash in path construction ------------------------------------
-# Expected: path = base + name drops the '/' separator → '/file' becomes 'file'
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i "s/path = base + '\/' + name/path = base + name/" "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M4 path-slash: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M4 path-slash: sed had no effect"
-else
-  _m4_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/valid.img" --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
-  _m4_path=""
-  if [ -f "$ROOT/m4.json" ]; then
-    _m4_path="$(python3 -c "import json; d=json.load(open('$ROOT/m4.json')); print(d['entries'][0]['path'])" 2>/dev/null)"
-  fi
-  if [ "$_m4_path" != "/file" ]; then
-    mut_ok "M4 path-slash detected (path is '$_m4_path', not '/file')"
-  else
-    mut_no "M4 path-slash: mutation NOT detected (path still '/file')"
-  fi
+# --- M2: Invert magic check: a valid image is now rejected (T4)
+if mut_build "M2 magic-check" M2 's/if magic != _MAGIC:/if magic == _MAGIC:  # MUTANT/'; then
+  qt "M2 magic-check inversion" 0 1 --good-has '^STATUS=complete$' --bad-has '^STATUS=failed$' \
+    -- "$FIXTURES/valid.img" list 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M5: Replace walk-error append with pass (walk errors silently ignored) ----
-# Expected: T8 (bad inode) and T9 (indirect EOF) no longer produce status:failed
-# → status:complete + empty entries → assertions fail
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/errors.append(f"walk error: {exc}")/pass  # MUTANT_M5/' \
-  "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M5 walk-error: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M5 walk-error: sed had no effect"
-else
-  _m5a_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/bad_inode.img" --output "$ROOT/m5a.json" 2>/dev/null \
-    || _m5a_exit=$?
-  _m5a_ok=0
-  # Mutation: walk errors swallowed → T8 assertion fails (status:complete, not failed)
-  python3 - "$ROOT/m5a.json" <<'PY' 2>/dev/null && _m5a_ok=1
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d['status'] == 'failed'
-PY
-  if [ "$_m5a_ok" -eq 0 ]; then
-    mut_ok "M5 walk-error removal detected (T8: bad-inode no longer status:failed)"
-  else
-    mut_no "M5 walk-error: mutation NOT detected (T8 still status:failed)"
-  fi
+# --- M3: Zero out extracted bytes (T6)
+if mut_build "M3 write-zero" M3 's/os\.write(out_fd, data)/os.write(out_fd, b"")/'; then
+  qt "M3 write-zero" 0 0 --good-has "CONTENT=b'hello-world\\\\n'" --bad-has "CONTENT=b''" \
+    -- "$FIXTURES/valid.img" extract 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M6: Remove visited-inode guard (cycle detection disabled) ---------------
-# Expected: cyclic.img loops infinitely → T10 timeout → exit 124, not 0
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/if ino in visited:/if False:  # MUTANT_M6/' "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M6 cycle-guard: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M6 cycle-guard: sed had no effect"
-else
-  _m6_exit=0
-  timeout 5 python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/cyclic.img" --output "$ROOT/m6.json" 2>/dev/null \
-    || _m6_exit=$?
-  if [ "$_m6_exit" -ne 0 ]; then
-    mut_ok "M6 cycle-guard removal detected (exit $_m6_exit, not 0)"
-  else
-    mut_no "M6 cycle-guard: mutation NOT detected (still exits 0)"
-  fi
+# --- M4: Drop the slash in path construction: '/file' becomes 'file'
+if mut_build "M4 path-slash" M4 "s/path = base + '\/' + name/path = base + name/"; then
+  qt "M4 path-slash" 0 0 --good-has '^PATH=/file$' --bad-has '^PATH=file$' \
+    -- "$FIXTURES/valid.img" path 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M7: Restore old num_blocks-based cap (fstat cap removed) ----------------
-# Expected: oom.img longfile read runs ~2 M iterations → exceeds 2 s timeout
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-# Replace the fstat-based cap with the old num_blocks-based cap.
-# The sed target is the unique 'real_file_bytes' assignment line.
-sed -i 's/real_file_bytes = max(0, os.fstat(self._fd).st_size - self._poff)/real_file_bytes = self.num_blocks * self._bs  # MUTANT_M7/' \
-  "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M7 fstat-cap: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M7 fstat-cap: sed had no effect"
-else
-  _m7_exit=0
-  timeout 2 python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/oom.img" --output "$ROOT/m7.json" 2>/dev/null \
-    || _m7_exit=$?
-  if [ "$_m7_exit" -ne 0 ] && [ "$_m7_exit" -ne 1 ]; then
-    mut_ok "M7 fstat-cap removal detected (exit $_m7_exit ≠ 0 or 1, i.e., timed out)"
-  else
-    mut_no "M7 fstat-cap: mutation NOT detected (still exits 0 or 1 within 2 s)"
-  fi
+# --- M5: Replace the walk-error append with pass: walk errors silently ignored (T8)
+if mut_build "M5 walk-error" M5 's/errors.append(f"walk error: {exc}")/pass  # MUTANT_M5/'; then
+  qt "M5 walk-error removal" 1 0 --good-has '^STATUS=failed$' --bad-has '^STATUS=complete$' \
+    -- "$FIXTURES/bad_inode.img" list 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M8: Remove truncated[0] = True (depth-cap truncation flag suppressed) ---
-# Expected: deep.img still exits 0 but truncated:false instead of true → T11 fails
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/truncated\[0\] = True/pass  # MUTANT_M8/' "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M8 truncated-flag: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M8 truncated-flag: sed had no effect"
-else
-  _m8_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/deep.img" --output "$ROOT/m8.json" 2>/dev/null \
-    || _m8_exit=$?
-  _m8_trunc=""
-  [ -f "$ROOT/m8.json" ] && _m8_trunc="$(python3 -c \
-    "import json; d=json.load(open('$ROOT/m8.json')); print(d.get('truncated'))" 2>/dev/null)"
-  if [ "$_m8_exit" -eq 0 ] && [ "$_m8_trunc" != "True" ]; then
-    mut_ok "M8 truncated-flag removal detected (truncated is '$_m8_trunc', not True)"
-  else
-    mut_no "M8 truncated-flag: mutation NOT detected (truncated still True or wrong exit)"
-  fi
+# --- M6: Remove the visited-inode guard: cyclic.img never terminates (T10) → timeout rc 124
+if mut_build "M6 cycle-guard" M6 's/if ino in visited:/if False:  # MUTANT_M6/'; then
+  qt "M6 cycle-guard removal" 0 124 --good-has '^STATUS=complete$' --bad-has '^STATUS=none$' \
+    -- "$FIXTURES/cyclic.img" list 5
 fi
-rm -rf "$MUTDIR"
 
-# --- M9: Remove O_EXCL and O_NOFOLLOW from output write (combined guard) ------
-# O_NOFOLLOW alone is not detectable when the symlink target exists (O_EXCL would
-# still return EEXIST).  Removing both O_EXCL and O_NOFOLLOW lets the tool follow
-# the symlink and truncate+write the victim → T12 fails (exit 0, victim changed).
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-# Replace the flags expression (no trailing comment so the comma is preserved).
-sed -i 's/os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/os.O_WRONLY | os.O_CREAT | _O_CLOEXEC/' \
-  "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M9 output-guards: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M9 output-guards: sed had no effect"
-else
-  echo "victim-m9" > "$ROOT/victim9.txt"
-  ln -sf "$ROOT/victim9.txt" "$ROOT/out9_sym.json"
-  _m9_exit=0
-  python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$FIXTURES/valid.img" --output "$ROOT/out9_sym.json" \
-    2>/dev/null || _m9_exit=$?
-  _m9_victim="$(cat "$ROOT/victim9.txt" 2>/dev/null)"
-  # Without the guards: symlink is followed and victim is overwritten → exit 0, victim changed
-  if [ "$_m9_exit" -ne 2 ] || [ "$_m9_victim" = "victim-m9" ]; then
-    mut_ok "M9 output-guards removal detected (exit $_m9_exit, victim overwritten)"
-  else
-    mut_no "M9 output-guards: mutation NOT detected"
-  fi
+# --- M7: Restore the old num_blocks-based cap (fstat cap removed): oom.img read times out
+if mut_build "M7 fstat-cap" M7 's/real_file_bytes = max(0, os.fstat(self._fd).st_size - self._poff)/real_file_bytes = self.num_blocks * self._bs  # MUTANT_M7/'; then
+  qt "M7 fstat-cap removal" 0 124 --good-has '^STATUS=complete$' --bad-has '^STATUS=none$' \
+    -- "$FIXTURES/oom.img" list 2
 fi
-rm -rf "$MUTDIR"
 
-# --- M10: Remove O_NONBLOCK from input open (FIFO no longer opens non-blocking) -
-# The S_ISREG check requires a non-blocking open to work: without O_NONBLOCK,
-# opening a FIFO blocks indefinitely → T13 timeout → exit 124 ≠ 2.
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/' \
-  "$MUTDIR/qnx6_read.py"
-if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
-  mut_no "M10 O_NONBLOCK: mutant failed py_compile"
-elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
-  mut_no "M10 O_NONBLOCK: sed had no effect"
-else
-  mkfifo "$ROOT/m10_fifo.img" 2>/dev/null || true
-  _m10_exit=0
-  timeout 3 python3 "$MUTDIR/qnx6_read.py" list \
-    --input "$ROOT/m10_fifo.img" --output "$ROOT/m10.json" 2>/dev/null \
-    || _m10_exit=$?
-  if [ "$_m10_exit" -ne 2 ]; then
-    mut_ok "M10 O_NONBLOCK removal detected (FIFO blocks → exit $_m10_exit, not 2)"
-  else
-    mut_no "M10 O_NONBLOCK: mutation NOT detected (still exits 2)"
-  fi
+# --- M8: Remove truncated[0] = True: depth-cap truncation flag suppressed (T11)
+if mut_build "M8 truncated-flag" M8 's/truncated\[0\] = True/pass  # MUTANT_M8/'; then
+  qt "M8 truncated-flag removal" 0 0 --good-has '^TRUNC=True$' --bad-has '^TRUNC=False$' \
+    -- "$FIXTURES/deep.img" trunc 5
 fi
-rm -rf "$MUTDIR"
+
+# --- M9: Remove O_EXCL and O_NOFOLLOW from the output write: the symlinked victim is overwritten (T12)
+if mut_build "M9 output-guards" M9 's/os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/os.O_WRONLY | os.O_CREAT | _O_CLOEXEC/'; then
+  qt "M9 output-guards removal" 2 0 --good-has '^VICTIM=victim-m9 $' --bad-lacks '^VICTIM=victim-m9 $' \
+    -- "$FIXTURES/valid.img" victim 5
+fi
+
+# --- M10: Remove O_NONBLOCK from the input open: a FIFO input blocks → timeout rc 124 (T13)
+# Only rc 2 vs 124 distinguishes the sides here (both print STATUS=none); the input is a per-run FIFO.
+if mut_build "M10 O_NONBLOCK" M10 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/'; then
+  qt "M10 O_NONBLOCK removal" 2 124 --good-has '^STATUS=none$' --bad-has '^STATUS=none$' \
+    -- "(unused: fifo mode builds its own input)" fifo 3
+fi
 
 pass=$((pass + MUT_PASS))
 fail=$((fail + MUT_FAIL))
