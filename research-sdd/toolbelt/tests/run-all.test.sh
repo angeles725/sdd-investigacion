@@ -515,7 +515,7 @@ else no "hermeticity-removed failed: rc=$rc :: $(grep -F 'leaked:' <<<"$out" | t
 w="$(newdir c27)"
 mkfix_sh "$w/a.test.sh" 1 0 0
 if [ "$(id -u)" -eq 0 ]; then
-  ok "hermeticity-degraded: SKIP under root (root ignores directory permission bits)"
+  printf '  SKIP  %s (root ignores directory permission bits)\n' "hermeticity-degraded"
 else
   _c27cwd="$TMP/c27-cwd"; mkdir -p "$_c27cwd"
   out="$(cd "$_c27cwd" && chmod 000 "$_c27cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
@@ -957,7 +957,7 @@ else no "kit-tree dotfile case failed: rc=$rc :: $(grep -iE 'kit-tree|leaked' <<
 # 37b — a chmod-000 file left under research-sdd/ makes the scan fail; the DEGRADED reason must NAME
 #       the unreadable entry (a leftover/suite fault), not blame the scanner. Root ignores mode bits: SKIP.
 if [ "$(id -u)" -eq 0 ]; then
-  ok "kit-tree unreadable entry: SKIP under root (root ignores permission bits)"
+  printf '  SKIP  %s (root ignores permission bits)\n' "kit-tree unreadable entry"
 else
   # before any suite runs
   w="$(newdir c37b)"; _c37bkit="${w%/toolbelt/tests}"
@@ -1258,7 +1258,8 @@ tmpfix_leak(){
 tmpfix_clean(){ # file — uses its TMPDIR and cleans up after itself
   { printf '#!/usr/bin/env bash\n'
     printf 'echo "TMPDIR_SEEN=$TMPDIR"\n'
-    printf 'd="$(mktemp -d)"; : > "$d/x"; rm -rf "$d"\n'
+    printf 'd="$(mktemp -d)"; [ -n "$d" ] && [ -d "$d" ] || exit 3\n'
+    printf ': > "$d/x"; rm -rf "$d"\n'
     printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
   } > "$1"
 }
@@ -1352,10 +1353,30 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
     ok "-j tmpdir-removed: same under -j"
   else no "-j tmpdir removed failed: rc=$rc :: $(grep -E 'TMPDIR|DEGRADED' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j tmpdir-removed"; fi
+# 38g — creating ONE suite's subdir fails (root succeeded): that suite is reported in the DEGRADED scan
+#       line, NOT as 0 leftovers, and --require-clean-tmp exits 1; the other suite's count survives.
+#       The shim fails only `mkdir` of a path ending in /2 (the second suite's subdir). Serial and -j.
+w="$(newdir c38g)"; _c38root="$TMP/c38g-calltmp"; mkdir -p "$_c38root"
+tmpfix_clean "$w/a-first.test.sh"; tmpfix_clean "$w/b-second.test.sh"
+_c38gbin="$TMP/c38g-bin"; mkdir -p "$_c38gbin"
+{ printf '#!/bin/sh\n'; printf 'case "$*" in */2) exit 1 ;; esac\n'; printf 'exec %s "$@"\n' "$(command -v mkdir)"; } > "$_c38gbin/mkdir"; chmod +x "$_c38gbin/mkdir"
+out="$(PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" --require-clean-tmp >/dev/null 2>&1; rc2=$?
+if [ "$rc" -eq 0 ] && [ "$rc2" -eq 1 ] && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$out" \
+   && grep -F 'TMPDIR scan: DEGRADED' <<<"$out" | grep -qF 'created for [b-second.test.sh]'; then
+  ok "tmpdir-create-failed: a suite whose TMPDIR subdir could not be created is DEGRADED by name, not a confident 0; --require-clean-tmp fails"
+else no "tmpdir create-failed failed: rc=$rc rc2=$rc2 :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
+if [ "$have_gnu_parallel" -eq 1 ]; then
+  out="$(PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" -j 2 --require-clean-tmp >/dev/null 2>&1; rc2=$?
+  if [ "$rc" -eq 0 ] && [ "$rc2" -eq 1 ] && grep -F 'TMPDIR scan: DEGRADED' <<<"$out" | grep -qF 'created for [b-second.test.sh]'; then
+    ok "-j tmpdir-create-failed: the worker's creation failure is recorded and named under -j"
+  else no "-j tmpdir create-failed failed: rc=$rc rc2=$rc2 :: $(grep -E 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
+else skip_j "-j tmpdir-create-failed"; fi
 # 38e — DEGRADED, never a confident 0: when the per-run root cannot be created (a `mktemp -d` that
 #       fails; plain `mktemp` still works) the runner says so, still runs the suites, and
 #       --require-clean-tmp fails the run.
-w="$(newdir c38e)"; tmpfix_clean "$w/a.test.sh"
+w="$(newdir c38e)"; mkfix_sh "$w/a.test.sh" 1 0 0
 _c38ebin="$TMP/c38e-bin"; mkdir -p "$_c38ebin"
 { printf '#!/bin/sh\n'
   printf 'for a in "$@"; do [ "$a" = "-d" ] && exit 1; done\n'
@@ -2086,9 +2107,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$_trc" -eq 1 ] && grep -qF 'DEGRADED' <<<"$mout"; then ok "teeth-tmpd-absent: absent-as-error mutant goes DEGRADED → the absent-vs-error split has real teeth"
     else no "teeth-tmpd-absent: mutant still treats absent as clean — mutation not exercised (THEATER)"; fi
   fi
+  echo "-- teeth: drop the creation-failure record; a suite without a TMPDIR subdir must then read as a clean 0 (case 38g) --"
+  if tmpd_mut teeth-tmpd-create '/SENTINEL-TMPDIR-CREATE-FAILED/{n;s/.*/    :/}'; then
+    tmpfix_clean "$w/a-first.test.sh"; tmpfix_clean "$w/b-second.test.sh"
+    _tcbin="$TMP/teeth-tmpd-create-bin"; mkdir -p "$_tcbin"
+    { printf '#!/bin/sh\n'; printf 'case "$*" in */2) exit 1 ;; esac\n'; printf 'exec %s "$@"\n' "$(command -v mkdir)"; } > "$_tcbin/mkdir"; chmod +x "$_tcbin/mkdir"
+    mout="$(PATH="$_tcbin:$PATH" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; _trc=$?
+    if [ "$_trc" -eq 0 ] && ! grep -qF 'TMPDIR scan: DEGRADED' <<<"$mout"; then ok "teeth-tmpd-create: record-less mutant reads the uncreated subdir as clean → the creation-failure record has real teeth"
+    else no "teeth-tmpd-create: mutant still reports DEGRADED (rc=$_trc) — mutation not exercised (THEATER)"; fi
+  fi
   echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
   if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
-    tmpfix_clean "$w/a.test.sh"
+    mkfix_sh "$w/a.test.sh" 1 0 0
     _tdbin="$TMP/teeth-tmpd-degraded-bin"; mkdir -p "$_tdbin"
     { printf '#!/bin/sh\n'; printf 'for a in "$@"; do [ "$a" = "-d" ] && exit 1; done\n'; printf 'exec %s "$@"\n' "$(command -v mktemp)"; } > "$_tdbin/mktemp"; chmod +x "$_tdbin/mktemp"
     mout="$(PATH="$_tdbin:$PATH" bash "$w/run-all.sh" 2>&1)"

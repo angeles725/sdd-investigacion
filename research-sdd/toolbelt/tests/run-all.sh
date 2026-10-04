@@ -346,6 +346,7 @@ TMPDIR_DEGRADED_REASON=""
 tmp_leftovers=()        # "<suite basename>: <count>"
 tmp_leftover_total=0
 tmp_scan_failed=()      # suites whose existing TMPDIR subdir could not be scanned
+tmp_create_failed=()    # suites whose per-suite TMPDIR subdir could not be CREATED (they ran on the caller's TMPDIR)
 if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]; then
   export RUN_TMP_ROOT
 else
@@ -363,9 +364,18 @@ _run_all_cleanup() {
   fi
 }
 trap _run_all_cleanup EXIT
-_suite_tmpdir() {   # _suite_tmpdir <index> — create + print the suite's TMPDIR ('' when degraded)
+_suite_tmpdir() {   # _suite_tmpdir <index> [<suite basename>] — sets _st to the suite's TMPDIR ('' when none)
+  # Sets a global (never run in $(...)) so a creation failure can be RECORDED against the suite: a
+  # subdir that was never created must not later read as "the suite removed its own TMPDIR" (a
+  # confident 0). The -j worker records the same failure in $PAR_DIR/<idx>.tmpfail.
+  _st=""
   [[ -n "$RUN_TMP_ROOT" ]] || return 0
-  mkdir -p "$RUN_TMP_ROOT/$1" && printf '%s' "$RUN_TMP_ROOT/$1"
+  if mkdir -p "$RUN_TMP_ROOT/$1" 2>/dev/null; then
+    _st="$RUN_TMP_ROOT/$1"
+  elif [[ -n "${2:-}" ]]; then
+    # SENTINEL-TMPDIR-CREATE-FAILED
+    tmp_create_failed+=("$2")
+  fi
 }
 _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
   # Entries (dotfiles included) directly inside the suite's TMPDIR subdir. Captured, rc-checked.
@@ -375,6 +385,8 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
   # itself ONE entry — it is listed by its parent, never opened.
   [[ -n "$RUN_TMP_ROOT" ]] || return 0
   local _o _n
+  # A -j worker that could not create the subdir left a marker (serial records at creation time).
+  if [[ -n "${PAR_DIR:-}" && -e "$PAR_DIR/$2.tmpfail" ]]; then tmp_create_failed+=("$1"); return 0; fi
   # SENTINEL-TMPDIR-ABSENT
   [[ -e "$RUN_TMP_ROOT/$2" ]] || return 0
   if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
@@ -573,7 +585,7 @@ _attribute_batch_leaks() {
     for _i in "${!_pend_path[@]}"; do _pend_before[_i]="$(_sig_of "${_pend_path[$_i]}")"; done
     echo "run-all.sh: -j attribution re-run: $_b" >&2
     # Re-runs get their own subdir (never scanned): their leftovers must not double-count.
-    _rt="$(_suite_tmpdir "attr-$_j")"; [[ -n "$_rt" ]] || _rt="${TMPDIR:-/tmp}"
+    _suite_tmpdir "attr-$_j"; _rt="${_st:-${TMPDIR:-/tmp}}"
     if [[ "$_b" == *.test.mjs ]]; then TMPDIR="$_rt" "${_cmd_to[@]}" node "$_s" >/dev/null 2>&1
     elif [[ -n "$PROVE_TEETH" ]]; then TMPDIR="$_rt" "${_cmd_to[@]}" bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
     else TMPDIR="$_rt" "${_cmd_to[@]}" bash "$_s" >/dev/null 2>&1; fi
@@ -620,7 +632,9 @@ if [[ -n "$JOBS_ACTIVE" ]]; then
 # run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.
 idx="$1"; suite="$2"
 # Per-suite TMPDIR (kit issue #1277): a subdir of the run's root, named by the suite's index.
-if [[ -n "${RUN_TMP_ROOT:-}" ]] && mkdir -p "$RUN_TMP_ROOT/$idx"; then export TMPDIR="$RUN_TMP_ROOT/$idx"; fi
+if [[ -n "${RUN_TMP_ROOT:-}" ]]; then
+  if mkdir -p "$RUN_TMP_ROOT/$idx" 2>/dev/null; then export TMPDIR="$RUN_TMP_ROOT/$idx"; else : > "$PAR_DIR/$idx.tmpfail"; fi
+fi
 # Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
 _t0="$(date +%s.%N 2>/dev/null)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
@@ -679,12 +693,12 @@ for suite in "${all_suites[@]}"; do
     cat "$tmp_out"
   elif [[ "$base" == *.test.mjs ]]; then
     # Node ESM suite: no shebang, no +x — must be invoked via `node`.
-    _st="$(_suite_tmpdir "$suite_idx")"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
+    _suite_tmpdir "$suite_idx" "$base"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
     TMPDIR="$_st" node "$suite" 2>&1 | tee "$tmp_out"
     rc=${PIPESTATUS[0]}
   else
     # Shell suite: run with bash; forward the flag only when set.
-    _st="$(_suite_tmpdir "$suite_idx")"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
+    _suite_tmpdir "$suite_idx" "$base"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
     if [[ -n "$PROVE_TEETH" ]]; then
       TMPDIR="$_st" bash "$suite" "$PROVE_TEETH" 2>&1 | tee "$tmp_out"
     else
@@ -878,9 +892,11 @@ else
   if [[ "$tmp_leftover_total" -gt 0 ]]; then
     echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
   fi
-  if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then
-    _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"
-    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [${_ts_names%, }]; their leftovers are unverified"
+  if [[ ${#tmp_scan_failed[@]} -gt 0 || ${#tmp_create_failed[@]} -gt 0 ]]; then
+    _ts_names=""; _tc_names=""
+    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; fi
+    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; fi
+    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [$_ts_names]; per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR); their leftovers are unverified"
   fi
 fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
@@ -996,7 +1012,7 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
-  if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]]; }; then
+  if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
     exit 1
   fi
   # SENTINEL-REQUIRE-TEETH-EXIT
