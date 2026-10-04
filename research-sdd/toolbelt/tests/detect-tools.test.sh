@@ -396,41 +396,61 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
 
+  # Every sed mutant of the SUT is built through lib/mutant.sh (mutant_chain): a stage that matches
+  # nothing, an empty/byte-identical/invalid-bash mutant and a live-tree or symlink OUT are refused.
+  # A refused build prints its own FAIL line, is counted exactly once (the else branch of its
+  # `if mutant_chain`), and its tooth never runs. The observations are kept as they were (they read
+  # the report/cache file or the exit code the base test asserts on); the exit-2 teeth additionally
+  # assert the typed `unknown tool "X"` stderr line so a crash that happens to exit 2 is not a bite.
+  # The two lib shims (teeth-il, teeth-h) override a lib function and symlink the SUT — not a sed
+  # mutant of it — so they stay hand-built.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+
   # teeth-1 (targets test c): mutant forces gate_rc=0 for absent tools.
   # A gate_rc that never goes to 1 has no bite for MISSING/UNUSABLE cases.
   # Verify: mutant exits 0 for absent ghidra → test-c assertion [ rc -ne 0 ] would FAIL.
   MUT1="$ROOT/detect-mut1.sh"
-  sed 's/gate_rc=1/gate_rc=0/g' "$DETECT" > "$MUT1"
-  chmod +x "$MUT1"
-  rc_m1=0
-  env -u ANALYZE_HEADLESS -u GHIDRA_HOME -u GHIDRA_INSTALL_DIR \
-    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH=/usr/bin:/bin \
-    HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT1" --cache "$ROOT/cache-m1.txt" --quiet --require ghidra \
-    >/dev/null 2>/dev/null || rc_m1=$?
-  if [ "$rc_m1" -eq 0 ]; then
-    ok "teeth-1: gate_rc=0 mutant exits 0 for absent tool — test-c bites" "(mutant rc=0)"
+  if mutant_chain "teeth: detect-mut1.sh" "$DETECT" "$MUT1" \
+    's/gate_rc=1/gate_rc=0/g'; then
+    chmod +x "$MUT1"
+    rc_m1=0
+    env -u ANALYZE_HEADLESS -u GHIDRA_HOME -u GHIDRA_INSTALL_DIR \
+      RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH=/usr/bin:/bin \
+      HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT1" --cache "$ROOT/cache-m1.txt" --quiet --require ghidra \
+      >/dev/null 2>/dev/null || rc_m1=$?
+    if [ "$rc_m1" -eq 0 ]; then
+      ok "teeth-1: gate_rc=0 mutant exits 0 for absent tool — test-c bites" "(mutant rc=0)"
+    else
+      no "teeth-1: mutant must exit 0 for absent tool" "mutant rc=$rc_m1"
+    fi
   else
-    no "teeth-1: mutant must exit 0 for absent tool" "mutant rc=$rc_m1"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-2 (targets test d): mutant replaces PROBE_FAILED with MISSING everywhere.
   # Timed-out objdump → report says MISSING → --require evaluates as MISSING → prints
   # "MISSING — install it" (not "could not determine") → test-d stderr check goes RED.
   MUT2="$ROOT/detect-mut2.sh"
-  sed 's/PROBE_FAILED/MISSING/g' "$DETECT" > "$MUT2"
-  chmod +x "$MUT2"
-  stderr_m2="$ROOT/stderr-m2.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH="$BIN_D:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT2" --cache "$ROOT/cache-m2.txt" --quiet --require objdump \
-    >/dev/null 2>"$stderr_m2" || true
-  if ! grep -qi 'could not determine' "$stderr_m2"; then
-    ok "teeth-2: PROBE_FAILED→MISSING mutant lacks 'could not determine' — test-d bites" \
-       "(message absent)"
+  if mutant_chain "teeth: detect-mut2.sh" "$DETECT" "$MUT2" \
+    's/PROBE_FAILED/MISSING/g'; then
+    chmod +x "$MUT2"
+    stderr_m2="$ROOT/stderr-m2.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH="$BIN_D:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT2" --cache "$ROOT/cache-m2.txt" --quiet --require objdump \
+      >/dev/null 2>"$stderr_m2" || true
+    if ! grep -qi 'could not determine' "$stderr_m2"; then
+      ok "teeth-2: PROBE_FAILED→MISSING mutant lacks 'could not determine' — test-d bites" \
+         "(message absent)"
+    else
+      no "teeth-2: mutant must not have 'could not determine'" \
+         "stderr=[$(cat "$stderr_m2" 2>/dev/null)]"
+    fi
   else
-    no "teeth-2: mutant must not have 'could not determine'" \
-       "stderr=[$(cat "$stderr_m2" 2>/dev/null)]"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-3 (targets test f): MUT2 (PROBE_FAILED→MISSING globally) run against test-f setup.
@@ -490,44 +510,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-i (targets test i): mutant reverts CACHE default to cwd-relative ./.research-tools.txt
   # → file appears in cwd → test-i [ ! -e cwd/.research-tools.txt ] goes RED.
   MUT_I="$ROOT/detect-mut-i.sh"
-  sed 's|^CACHE=.*|CACHE="./.research-tools.txt"|' "$DETECT" > "$MUT_I"
-  chmod +x "$MUT_I"
-  TEMP_CWD_MUT_I="$ROOT/temp-cwd-mut-i"
-  mkdir -p "$TEMP_CWD_MUT_I"
-  FAKE_HOME_MUT_I="$ROOT/fake-home-mut-i"
-  mkdir -p "$FAKE_HOME_MUT_I"
-  (
-    cd "$TEMP_CWD_MUT_I"
-    unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
-    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-      PATH=/usr/bin:/bin HOME="$FAKE_HOME_MUT_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
-      bash "$MUT_I" --quiet >/dev/null 2>&1
-  ) || true
-  if [ -e "$TEMP_CWD_MUT_I/.research-tools.txt" ]; then
-    ok "teeth-i: cwd-relative mutant deposits file in cwd — test-i bites" "(file found in cwd)"
+  if mutant_chain "teeth: detect-mut-i.sh" "$DETECT" "$MUT_I" \
+    's|^CACHE=.*|CACHE="./.research-tools.txt"|'; then
+    chmod +x "$MUT_I"
+    TEMP_CWD_MUT_I="$ROOT/temp-cwd-mut-i"
+    mkdir -p "$TEMP_CWD_MUT_I"
+    FAKE_HOME_MUT_I="$ROOT/fake-home-mut-i"
+    mkdir -p "$FAKE_HOME_MUT_I"
+    (
+      cd "$TEMP_CWD_MUT_I"
+      unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
+      RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+        PATH=/usr/bin:/bin HOME="$FAKE_HOME_MUT_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
+        bash "$MUT_I" --quiet >/dev/null 2>&1
+    ) || true
+    if [ -e "$TEMP_CWD_MUT_I/.research-tools.txt" ]; then
+      ok "teeth-i: cwd-relative mutant deposits file in cwd — test-i bites" "(file found in cwd)"
+    else
+      no "teeth-i: mutant must create .research-tools.txt in cwd" "(file absent)"
+    fi
   else
-    no "teeth-i: mutant must create .research-tools.txt in cwd" "(file absent)"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-k (targets test k): mutant restores silent write (|| true) → exits 0 on failure
   # → test-k [ rc -ne 0 ] goes RED.
   UNWRITE_MK="$ROOT/no-write-mk"
   mkdir -p "$UNWRITE_MK"
-  chmod 000 "$UNWRITE_MK"
   MUT_K="$ROOT/detect-mut-k.sh"
-  sed 's#|| { printf.*cannot write cache file.*exit 1; }#|| true#' "$DETECT" > "$MUT_K"
-  chmod +x "$MUT_K"
-  rc_mk=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin RESEARCH_TOOLS_CACHE="$UNWRITE_MK/cache.txt" \
-    HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_K" --quiet >/dev/null 2>/dev/null || rc_mk=$?
-  chmod 755 "$UNWRITE_MK"  # restore for cleanup
-  if [ "$rc_mk" -eq 0 ]; then
-    ok "teeth-k: write-swallow mutant exits 0 for unwritable cache — test-k bites" \
-       "(mutant rc=0)"
+  if mutant_chain "teeth: detect-mut-k.sh" "$DETECT" "$MUT_K" \
+    's#|| { printf.*cannot write cache file.*exit 1; }#|| true#'; then
+    chmod +x "$MUT_K"
+    chmod 000 "$UNWRITE_MK"
+    rc_mk=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin RESEARCH_TOOLS_CACHE="$UNWRITE_MK/cache.txt" \
+      HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_K" --quiet >/dev/null 2>/dev/null || rc_mk=$?
+    chmod 755 "$UNWRITE_MK"  # restore for cleanup
+    if [ "$rc_mk" -eq 0 ]; then
+      ok "teeth-k: write-swallow mutant exits 0 for unwritable cache — test-k bites" \
+         "(mutant rc=0)"
+    else
+      no "teeth-k: mutant must exit 0 (write error swallowed)" "mutant rc=$rc_mk"
+    fi
   else
-    no "teeth-k: mutant must exit 0 (write error swallowed)" "mutant rc=$rc_mk"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 fi
 
@@ -616,126 +644,158 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-l (targets test l): mutant drops bwrap from require_label.
   # Mutation is applied to a COPY under $ROOT — never to $DETECT itself.
   MUTL="$ROOT/detect-mutl.sh"
-  sed '/^    bwrap)  *printf/d' "$DETECT" > "$MUTL"
-  chmod +x "$MUTL"
-  rc_ml=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTL" --cache "$ROOT/cache-ml.txt" --quiet --require bwrap \
-    >/dev/null 2>/dev/null || rc_ml=$?
-  if [ "$rc_ml" -eq 2 ]; then
-    ok "teeth-l: unmapped-bwrap mutant exits 2 — test-l bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mutl.sh" "$DETECT" "$MUTL" \
+    '/^    bwrap)  *printf/d'; then
+    chmod +x "$MUTL"
+    rc_ml=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTL" --cache "$ROOT/cache-ml.txt" --quiet --require bwrap \
+      >/dev/null 2>"$ROOT/err-rc_ml.txt" || rc_ml=$?
+    if [ "$rc_ml" -eq 2 ] && grep -qxE '.*: --require: unknown tool "bwrap" — not in known set' "$ROOT/err-rc_ml.txt"; then
+      ok "teeth-l: unmapped-bwrap mutant exits 2 — test-l bites" "(mutant rc=2)"
+    else
+      no "teeth-l: mutant must exit 2 for unmapped bwrap" "mutant rc=$rc_ml (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ml.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-l: mutant must exit 2 for unmapped bwrap" "mutant rc=$rc_ml"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-m (targets test m): mutant deletes the bwrap report row.
   MUTM="$ROOT/detect-mutm.sh"
-  sed '/row "bwrap (sandbox)"/d' "$DETECT" > "$MUTM"
-  chmod +x "$MUTM"
-  CACHE_MM="$ROOT/cache-mm.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTM" --cache "$CACHE_MM" --quiet >/dev/null 2>&1 || true
-  if ! grep -q '^  bwrap (sandbox) ' "$CACHE_MM"; then
-    ok "teeth-m: row-deleted mutant drops bwrap from report — test-m bites" "(row absent)"
+  if mutant_chain "teeth: detect-mutm.sh" "$DETECT" "$MUTM" \
+    '/row "bwrap (sandbox)"/d'; then
+    chmod +x "$MUTM"
+    CACHE_MM="$ROOT/cache-mm.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTM" --cache "$CACHE_MM" --quiet >/dev/null 2>&1 || true
+    if ! grep -q '^  bwrap (sandbox) ' "$CACHE_MM"; then
+      ok "teeth-m: row-deleted mutant drops bwrap from report — test-m bites" "(row absent)"
+    else
+      no "teeth-m: mutant still prints bwrap row — test-m has no teeth" \
+         "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
+    fi
   else
-    no "teeth-m: mutant still prints bwrap row — test-m has no teeth" \
-       "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-n (targets test n): mutant removes the [ hex ] section header.
   # Asserts that test-n detects a missing section header.
   MUTN="$ROOT/detect-mutn.sh"
-  sed '/echo "\[ hex \]"/d' "$DETECT" > "$MUTN"
-  chmod +x "$MUTN"
-  CACHE_MN="$ROOT/cache-mn.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTN" --cache "$CACHE_MN" --quiet >/dev/null 2>&1 || true
-  if ! grep -qF "[ hex ]" "$CACHE_MN"; then
-    ok "teeth-n: section-deleted mutant drops [ hex ] from report — test-n bites" "(header absent)"
+  if mutant_chain "teeth: detect-mutn.sh" "$DETECT" "$MUTN" \
+    '/echo "\[ hex \]"/d'; then
+    chmod +x "$MUTN"
+    CACHE_MN="$ROOT/cache-mn.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTN" --cache "$CACHE_MN" --quiet >/dev/null 2>&1 || true
+    if ! grep -qF "[ hex ]" "$CACHE_MN"; then
+      ok "teeth-n: section-deleted mutant drops [ hex ] from report — test-n bites" "(header absent)"
+    else
+      no "teeth-n: mutant still has [ hex ] header — test-n has no teeth" \
+         "(line=[$(grep '\[ hex \]' "$CACHE_MN" | head -1)])"
+    fi
   else
-    no "teeth-n: mutant still has [ hex ] header — test-n has no teeth" \
-       "(line=[$(grep '\[ hex \]' "$CACHE_MN" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-o (targets test o): mutant removes the krak2 row.
   # Asserts that test-o detects a missing tool label.
   MUTO="$ROOT/detect-muto.sh"
-  sed '/row "krak2"/d' "$DETECT" > "$MUTO"
-  chmod +x "$MUTO"
-  CACHE_MO="$ROOT/cache-mo.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTO" --cache "$CACHE_MO" --quiet >/dev/null 2>&1 || true
-  if ! grep -q "^  krak2 " "$CACHE_MO"; then
-    ok "teeth-o: row-deleted mutant drops krak2 from report — test-o bites" "(row absent)"
+  if mutant_chain "teeth: detect-muto.sh" "$DETECT" "$MUTO" \
+    '/row "krak2"/d'; then
+    chmod +x "$MUTO"
+    CACHE_MO="$ROOT/cache-mo.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTO" --cache "$CACHE_MO" --quiet >/dev/null 2>&1 || true
+    if ! grep -q "^  krak2 " "$CACHE_MO"; then
+      ok "teeth-o: row-deleted mutant drops krak2 from report — test-o bites" "(row absent)"
+    else
+      no "teeth-o: mutant still prints krak2 row — test-o has no teeth" \
+         "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
+    fi
   else
-    no "teeth-o: mutant still prints krak2 row — test-o has no teeth" \
-       "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-p (targets test p): mutant removes the [ deliverable / render ] section header.
   MUTP="$ROOT/detect-mutp.sh"
-  sed '/echo "\[ deliverable \/ render \]"/d' "$DETECT" > "$MUTP"
-  chmod +x "$MUTP"
-  CACHE_MP="$ROOT/cache-mp.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTP" --cache "$CACHE_MP" --quiet >/dev/null 2>&1 || true
-  if ! grep -qF "[ deliverable / render ]" "$CACHE_MP"; then
-    ok "teeth-p: section-deleted mutant drops [ deliverable / render ] — test-p bites" "(header absent)"
+  if mutant_chain "teeth: detect-mutp.sh" "$DETECT" "$MUTP" \
+    '/echo "\[ deliverable \/ render \]"/d'; then
+    chmod +x "$MUTP"
+    CACHE_MP="$ROOT/cache-mp.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTP" --cache "$CACHE_MP" --quiet >/dev/null 2>&1 || true
+    if ! grep -qF "[ deliverable / render ]" "$CACHE_MP"; then
+      ok "teeth-p: section-deleted mutant drops [ deliverable / render ] — test-p bites" "(header absent)"
+    else
+      no "teeth-p: mutant still has [ deliverable / render ] — test-p has no teeth" \
+         "(line=[$(grep 'deliverable' "$CACHE_MP" | head -1)])"
+    fi
   else
-    no "teeth-p: mutant still has [ deliverable / render ] — test-p has no teeth" \
-       "(line=[$(grep 'deliverable' "$CACHE_MP" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-q (targets test q): mutant removes the latex row.
   MUTQ="$ROOT/detect-mutq.sh"
-  sed '/row "latex"/d' "$DETECT" > "$MUTQ"
-  chmod +x "$MUTQ"
-  CACHE_MQ="$ROOT/cache-mq.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTQ" --cache "$CACHE_MQ" --quiet >/dev/null 2>&1 || true
-  if ! grep -q "^  latex " "$CACHE_MQ"; then
-    ok "teeth-q: row-deleted mutant drops latex from report — test-q bites" "(row absent)"
+  if mutant_chain "teeth: detect-mutq.sh" "$DETECT" "$MUTQ" \
+    '/row "latex"/d'; then
+    chmod +x "$MUTQ"
+    CACHE_MQ="$ROOT/cache-mq.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTQ" --cache "$CACHE_MQ" --quiet >/dev/null 2>&1 || true
+    if ! grep -q "^  latex " "$CACHE_MQ"; then
+      ok "teeth-q: row-deleted mutant drops latex from report — test-q bites" "(row absent)"
+    else
+      no "teeth-q: mutant still prints latex row — test-q has no teeth" \
+         "(line=[$(grep '^  latex ' "$CACHE_MQ" | head -1)])"
+    fi
   else
-    no "teeth-q: mutant still prints latex row — test-q has no teeth" \
-       "(line=[$(grep '^  latex ' "$CACHE_MQ" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-r (targets test r): mutant drops latex from require_label → exit 2.
   MUTR="$ROOT/detect-mutr.sh"
-  sed '/^    latex)/d' "$DETECT" > "$MUTR"
-  chmod +x "$MUTR"
-  rc_mr=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTR" --cache "$ROOT/cache-mr.txt" --quiet --require latex \
-    >/dev/null 2>/dev/null || rc_mr=$?
-  if [ "$rc_mr" -eq 2 ]; then
-    ok "teeth-r: latex removed from require_label → exit 2 — test-r bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mutr.sh" "$DETECT" "$MUTR" \
+    '/^    latex)/d'; then
+    chmod +x "$MUTR"
+    rc_mr=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTR" --cache "$ROOT/cache-mr.txt" --quiet --require latex \
+      >/dev/null 2>"$ROOT/err-rc_mr.txt" || rc_mr=$?
+    if [ "$rc_mr" -eq 2 ] && grep -qxE '.*: --require: unknown tool "latex" — not in known set' "$ROOT/err-rc_mr.txt"; then
+      ok "teeth-r: latex removed from require_label → exit 2 — test-r bites" "(mutant rc=2)"
+    else
+      no "teeth-r: mutant must exit 2 for unmapped latex" "mutant rc=$rc_mr (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mr.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-r: mutant must exit 2 for unmapped latex" "mutant rc=$rc_mr"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-s (targets test s): mutant drops circuitikz from require_label → exit 2.
   MUTS="$ROOT/detect-muts.sh"
-  sed '/^    circuitikz)/d' "$DETECT" > "$MUTS"
-  chmod +x "$MUTS"
-  rc_ms=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUTS" --cache "$ROOT/cache-ms.txt" --quiet --require circuitikz \
-    >/dev/null 2>/dev/null || rc_ms=$?
-  if [ "$rc_ms" -eq 2 ]; then
-    ok "teeth-s: circuitikz removed from require_label → exit 2 — test-s bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-muts.sh" "$DETECT" "$MUTS" \
+    '/^    circuitikz)/d'; then
+    chmod +x "$MUTS"
+    rc_ms=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUTS" --cache "$ROOT/cache-ms.txt" --quiet --require circuitikz \
+      >/dev/null 2>"$ROOT/err-rc_ms.txt" || rc_ms=$?
+    if [ "$rc_ms" -eq 2 ] && grep -qxE '.*: --require: unknown tool "circuitikz" — not in known set' "$ROOT/err-rc_ms.txt"; then
+      ok "teeth-s: circuitikz removed from require_label → exit 2 — test-s bites" "(mutant rc=2)"
+    else
+      no "teeth-s: mutant must exit 2 for unmapped circuitikz" "mutant rc=$rc_ms (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ms.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-s: mutant must exit 2 for unmapped circuitikz" "mutant rc=$rc_ms"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 fi
 
@@ -774,77 +834,97 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # teeth-t1 (targets test t): mutant drops capinfos from require_label.
   MUT_T1="$ROOT/detect-mut-t1.sh"
-  sed '/^    capinfos)  *printf/d' "$DETECT" > "$MUT_T1"
-  chmod +x "$MUT_T1"
-  rc_mt1=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_T1" --cache "$ROOT/cache-mt1.txt" --quiet --require capinfos \
-    >/dev/null 2>/dev/null || rc_mt1=$?
-  if [ "$rc_mt1" -eq 2 ]; then
-    ok "teeth-t1: capinfos removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mut-t1.sh" "$DETECT" "$MUT_T1" \
+    '/^    capinfos)  *printf/d'; then
+    chmod +x "$MUT_T1"
+    rc_mt1=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_T1" --cache "$ROOT/cache-mt1.txt" --quiet --require capinfos \
+      >/dev/null 2>"$ROOT/err-rc_mt1.txt" || rc_mt1=$?
+    if [ "$rc_mt1" -eq 2 ] && grep -qxE '.*: --require: unknown tool "capinfos" — not in known set' "$ROOT/err-rc_mt1.txt"; then
+      ok "teeth-t1: capinfos removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+    else
+      no "teeth-t1: mutant must exit 2 for unmapped capinfos" "mutant rc=$rc_mt1 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt1.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-t1: mutant must exit 2 for unmapped capinfos" "mutant rc=$rc_mt1"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-t2 (targets test t): mutant drops unsquashfs from require_label.
   MUT_T2="$ROOT/detect-mut-t2.sh"
-  sed '/^    unsquashfs)  *printf/d' "$DETECT" > "$MUT_T2"
-  chmod +x "$MUT_T2"
-  rc_mt2=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_T2" --cache "$ROOT/cache-mt2.txt" --quiet --require unsquashfs \
-    >/dev/null 2>/dev/null || rc_mt2=$?
-  if [ "$rc_mt2" -eq 2 ]; then
-    ok "teeth-t2: unsquashfs removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mut-t2.sh" "$DETECT" "$MUT_T2" \
+    '/^    unsquashfs)  *printf/d'; then
+    chmod +x "$MUT_T2"
+    rc_mt2=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_T2" --cache "$ROOT/cache-mt2.txt" --quiet --require unsquashfs \
+      >/dev/null 2>"$ROOT/err-rc_mt2.txt" || rc_mt2=$?
+    if [ "$rc_mt2" -eq 2 ] && grep -qxE '.*: --require: unknown tool "unsquashfs" — not in known set' "$ROOT/err-rc_mt2.txt"; then
+      ok "teeth-t2: unsquashfs removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+    else
+      no "teeth-t2: mutant must exit 2 for unmapped unsquashfs" "mutant rc=$rc_mt2 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt2.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-t2: mutant must exit 2 for unmapped unsquashfs" "mutant rc=$rc_mt2"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-t3 (targets test t): mutant drops pwsh from require_label.
   MUT_T3="$ROOT/detect-mut-t3.sh"
-  sed '/^    pwsh)  *printf/d' "$DETECT" > "$MUT_T3"
-  chmod +x "$MUT_T3"
-  rc_mt3=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_T3" --cache "$ROOT/cache-mt3.txt" --quiet --require pwsh \
-    >/dev/null 2>/dev/null || rc_mt3=$?
-  if [ "$rc_mt3" -eq 2 ]; then
-    ok "teeth-t3: pwsh removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mut-t3.sh" "$DETECT" "$MUT_T3" \
+    '/^    pwsh)  *printf/d'; then
+    chmod +x "$MUT_T3"
+    rc_mt3=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_T3" --cache "$ROOT/cache-mt3.txt" --quiet --require pwsh \
+      >/dev/null 2>"$ROOT/err-rc_mt3.txt" || rc_mt3=$?
+    if [ "$rc_mt3" -eq 2 ] && grep -qxE '.*: --require: unknown tool "pwsh" — not in known set' "$ROOT/err-rc_mt3.txt"; then
+      ok "teeth-t3: pwsh removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+    else
+      no "teeth-t3: mutant must exit 2 for unmapped pwsh" "mutant rc=$rc_mt3 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt3.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-t3: mutant must exit 2 for unmapped pwsh" "mutant rc=$rc_mt3"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-t4 (targets test t): mutant drops ezdxf from require_label.
   MUT_T4="$ROOT/detect-mut-t4.sh"
-  sed '/^    ezdxf)  *printf/d' "$DETECT" > "$MUT_T4"
-  chmod +x "$MUT_T4"
-  rc_mt4=0
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_T4" --cache "$ROOT/cache-mt4.txt" --quiet --require ezdxf \
-    >/dev/null 2>/dev/null || rc_mt4=$?
-  if [ "$rc_mt4" -eq 2 ]; then
-    ok "teeth-t4: ezdxf removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  if mutant_chain "teeth: detect-mut-t4.sh" "$DETECT" "$MUT_T4" \
+    '/^    ezdxf)  *printf/d'; then
+    chmod +x "$MUT_T4"
+    rc_mt4=0
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_T4" --cache "$ROOT/cache-mt4.txt" --quiet --require ezdxf \
+      >/dev/null 2>"$ROOT/err-rc_mt4.txt" || rc_mt4=$?
+    if [ "$rc_mt4" -eq 2 ] && grep -qxE '.*: --require: unknown tool "ezdxf" — not in known set' "$ROOT/err-rc_mt4.txt"; then
+      ok "teeth-t4: ezdxf removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+    else
+      no "teeth-t4: mutant must exit 2 for unmapped ezdxf" "mutant rc=$rc_mt4 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt4.txt" 2>/dev/null)]"
+    fi
   else
-    no "teeth-t4: mutant must exit 2 for unmapped ezdxf" "mutant rc=$rc_mt4"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 
   # teeth-u (targets test u): mutant drops the capinfos row from report().
   MUT_U="$ROOT/detect-mut-u.sh"
-  sed '/row "capinfos"/d' "$DETECT" > "$MUT_U"
-  chmod +x "$MUT_U"
-  CACHE_MU="$ROOT/cache-mu.txt"
-  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$MUT_U" --cache "$CACHE_MU" --quiet >/dev/null 2>&1 || true
-  if ! grep -q "^  capinfos " "$CACHE_MU"; then
-    ok "teeth-u: row-deleted mutant drops capinfos from report — test-u bites" "(row absent)"
+  if mutant_chain "teeth: detect-mut-u.sh" "$DETECT" "$MUT_U" \
+    '/row "capinfos"/d'; then
+    chmod +x "$MUT_U"
+    CACHE_MU="$ROOT/cache-mu.txt"
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_U" --cache "$CACHE_MU" --quiet >/dev/null 2>&1 || true
+    if ! grep -q "^  capinfos " "$CACHE_MU"; then
+      ok "teeth-u: row-deleted mutant drops capinfos from report — test-u bites" "(row absent)"
+    else
+      no "teeth-u: mutant still prints capinfos row — test-u has no teeth" \
+         "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
+    fi
   else
-    no "teeth-u: mutant still prints capinfos row — test-u has no teeth" \
-       "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
+    fail=$((fail+1))  # refusal already counted by mutant_chain's FAIL line; tooth not run
   fi
 fi
 
