@@ -34,6 +34,11 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
+# The hook also calls research-sdd-install.sh --verify (W1). These cases pin the SKILL.md-drift half only,
+# so pin that call to a silent stub: never the real install against the operator's real $HOME. The
+# install --verify half has its own suite: verify-skill-drift-hook.test.sh.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$ROOT/silent-install-verify.sh"; chmod +x "$ROOT/silent-install-verify.sh"
+export RESEARCH_SDD_INSTALL_VERIFY_CMD="$ROOT/silent-install-verify.sh"
 pass=0; fail=0
 ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }

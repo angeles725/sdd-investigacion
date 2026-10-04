@@ -31,6 +31,14 @@
 #                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
 #                   verify harness=<h> status=absent (not installed)
 #                   verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file)
+#                 After the harness lines, ONE kit-checkout staleness line (advisory: it never changes the exit
+#                 code), because deployed Stop hooks exec toolbelt scripts from THIS checkout:
+#                   verify kit status=current ref=<upstream> behind=0
+#                   verify kit status=behind ref=<upstream> behind=<n> ... fix: git -C <kit> pull --ff-only
+#                   verify kit status=degraded reason=<why>   (no git, not a git checkout, no upstream ref)
+#                 It compares HEAD with the LOCALLY KNOWN upstream ref (@{upstream}, else origin/main) and
+#                 never fetches: the ref itself is only as fresh as the last fetch, and the line says so.
+#                 $RESEARCH_SDD_KIT_DIR overrides the checkout inspected (test seam; default: this kit's root).
 #                 Exit: 0 = every harness match or absent · 1 = drift in at least one harness and none
 #                 degraded · 2 = at least one harness degraded, or an operational/usage error (degraded
 #                 outranks drift: the instrument could not look, so it must not read as a clean 1).
@@ -636,6 +644,32 @@ _rsdd_write_bundle_state() {
   mv -f "$tmp" "$state" || { rm -f "$tmp"; return 1; }
 }
 
+# _rsdd_verify_kit — print the ONE typed kit-staleness line (kit checkout vs its locally known
+# upstream). Read-only: rev-parse/rev-list only, never fetch/pull. Always returns 0 (advisory).
+_rsdd_verify_kit() {
+  local dir="${RESEARCH_SDD_KIT_DIR:-$KIT}" ref n
+  if ! command -v git >/dev/null 2>&1; then
+    printf 'verify kit status=degraded reason=git not found; cannot tell whether the kit checkout is behind its upstream\n'; return 0
+  fi
+  if ! git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf 'verify kit status=degraded reason=kit dir is not a git checkout (%s); cannot tell whether it is behind its upstream\n' "$dir"; return 0
+  fi
+  if ref="$(git -C "$dir" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$ref" ]; then :
+  elif git -C "$dir" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then ref="origin/main"
+  else
+    printf 'verify kit status=degraded reason=no upstream ref (no @{upstream}, no origin/main) in %s\n' "$dir"; return 0
+  fi
+  if ! n="$(git -C "$dir" rev-list --count "HEAD..$ref" 2>/dev/null)" || ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    printf 'verify kit status=degraded reason=could not count HEAD..%s in %s\n' "$ref" "$dir"; return 0
+  fi
+  if [ "$n" -gt 0 ]; then
+    printf 'verify kit status=behind ref=%s behind=%s (local ref, no fetch — may understate) fix: git -C %s pull --ff-only\n' "$ref" "$n" "$dir"
+  else
+    printf 'verify kit status=current ref=%s behind=0 (local ref, no fetch)\n' "$ref"
+  fi
+  return 0
+}
+
 # _rsdd_verify_one <h> <home> — print the ONE typed line for this harness; return 0 match/absent,
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
@@ -913,6 +947,7 @@ main() {
       one=0; _rsdd_verify_one "$h" "$home" || one=$?
       case "$one" in 0) ;; 1) drift=1 ;; *) degraded=1 ;; esac
     done
+    _rsdd_verify_kit  # SENTINEL-VERIFY-KIT
     [ "$degraded" = 1 ] && vrc=2
     [ "$degraded" = 0 ] && [ "$drift" = 1 ] && vrc=1
     return "$vrc"

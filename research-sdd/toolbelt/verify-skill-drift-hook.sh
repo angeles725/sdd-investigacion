@@ -1,18 +1,41 @@
 #!/usr/bin/env bash
-# verify-skill-drift-hook.sh — SessionStart hook: surfaces diverged deployed SKILL.md(s).
+# verify-skill-drift-hook.sh — SessionStart hook: surfaces diverged deployed SKILL.md(s) and
+# install --verify findings (bundle drift, stale kit checkout).
 #
-# Calls verify-skill-drift.sh --all (checks every harness registered in adapters.sh).
-# SILENT when all installed harnesses are in-sync OR all harnesses are absent (exit 0).
-# Emits additionalContext JSON via jq when any harness is diverged or could-not-run.
-# Read-only. Wired from .claude/settings.json.
+# Calls verify-skill-drift.sh --all (checks every harness registered in adapters.sh), then
+# research-sdd-install.sh --verify (kit issue #1702 bundle digest + kit-checkout staleness).
+# SILENT when all installed harnesses are in-sync / absent AND --verify has nothing to flag (exit 0).
+# Emits additionalContext JSON via jq otherwise. Read-only. Wired from .claude/settings.json.
+#
+# Budget (openspec/specs/kit-session-cost/spec.md: SessionStart output < 8,000 chars total): the
+# install --verify part contributes at most 4 typed lines of at most 170 chars each (SENTINEL-VERIFY-CAP).
+# $RESEARCH_SDD_INSTALL_VERIFY_CMD overrides the install --verify command (test seam).
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && exit 0   # all in-sync / all absent → stay completely silent
+
+vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"
+extra=""
+if [ -x "$vcmd" ]; then
+  vout="$("$vcmd" --verify 2>&1)"; vrc=$?
+  # Only findings: drift / degraded / behind lines. match, absent and current stay silent.
+  extra="$(printf '%s\n' "$vout" | grep -E '^verify .*status=(drift|degraded|behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  # Anti-silent-zero: a failing --verify that printed no typed finding must still be surfaced.
+  if [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
+    extra="verify: install --verify exited $vrc with no typed line"
+  fi
+else
+  extra="verify: install --verify could not run (not executable: ${vcmd##*/})"
+fi
+
+[ "$rc" -eq 0 ] && [ -z "$extra" ] && exit 0   # all in-sync / all absent, nothing to flag → stay completely silent
 
 case "$rc" in
+  0) msg="WARN: research-sdd install --verify reports issues — see lines below" ;;
   1) msg="WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown" ;;
   *) msg="ERROR: verify-skill-drift.sh could not run for one or more harnesses — check kit install/adapters.sh" ;;
 esac
+[ -n "$extra" ] && out="${out:+$out
+}$extra"
 
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg h "$msg" --arg c "$out" \

@@ -2332,6 +2332,79 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && _vtt "teeth: profile-name check removed → a traversal-shaped recorded profile is accepted" 2 0 "$MKI/v-t19.sh" --good-has 'status=degraded' --bad-has 'status=match' --bad-lacks "$_CRASH" -- "$_BASH" @SUT@ --verify --home "$_TV/unsafe" --harness claude
 fi
 
+# --- --verify kit-checkout staleness line (W1): `verify kit status=current|behind|degraded`, advisory
+#     (exit code unchanged), read-only, never fetches. $RESEARCH_SDD_KIT_DIR points it at a fixture repo.
+echo "-- --verify kit staleness line --"
+_kg() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+_kc() { printf '%s\n' "$2" > "$1/f.txt"; _kg -C "$1" add f.txt >/dev/null 2>&1; _kg -C "$1" commit -q -m "$2" >/dev/null 2>&1; }
+# _krun <kitdir> [PATH override] — verify against an empty home so only the kit line is interesting.
+_krun() {
+  if [ -n "${2:-}" ]; then
+    VOUT="$(PATH="$2" RESEARCH_SDD_KIT_DIR="$1" "$(command -v bash)" "$SUT" --verify --home "$TMP/kv-home" --harness claude 2>&1)"; VRC=$?
+  else
+    VOUT="$(RESEARCH_SDD_KIT_DIR="$1" bash "$SUT" --verify --home "$TMP/kv-home" --harness claude 2>&1)"; VRC=$?
+  fi
+  KLINE="$(awk 'index($0,"verify kit ")==1' <<<"$VOUT")"
+}
+mkdir -p "$TMP/kv-home"
+KUP="$TMP/kv-up"; KCL="$TMP/kv-clone"; KCL2="$TMP/kv-clone2"
+mkdir -p "$KUP"; _kg init -q -b main "$KUP" >/dev/null 2>&1; _kc "$KUP" one
+_kg clone -q "$KUP" "$KCL" >/dev/null 2>&1; _kg clone -q "$KUP" "$KCL2" >/dev/null 2>&1
+if command -v git >/dev/null 2>&1 && [ -d "$KCL/.git" ]; then
+  _krun "$KCL"
+  if [[ "$KLINE" == "verify kit status=current ref=origin/main behind=0"* ]] && [ "$VRC" = 0 ]; then ok "K1: up-to-date kit checkout → status=current, exit 0"
+  else no "K1: expected status=current (rc 0); rc=$VRC line=[$KLINE]"; fi
+  # Upstream moves (2 commits) but the clone has NOT fetched: the instrument compares local refs only.
+  _kc "$KUP" two; _kc "$KUP" three
+  _krun "$KCL"
+  if [[ "$KLINE" == *"status=current"* ]] && [ ! -e "$KCL/.git/FETCH_HEAD" ]; then ok "K2: unfetched upstream commits are NOT seen and nothing is fetched (no implicit network)"
+  else no "K2: --verify fetched or misreported (line=[$KLINE])"; fi
+  _kg -C "$KCL" fetch -q >/dev/null 2>&1; rm -f "$KCL/.git/FETCH_HEAD"
+  head_before="$(_kg -C "$KCL" rev-parse HEAD)"; refs_before="$(_kg -C "$KCL" for-each-ref | cksum)"
+  _krun "$KCL"
+  if [[ "$KLINE" == "verify kit status=behind ref=origin/main behind=2 "* ]] && [[ "$KLINE" == *"no fetch"* ]] && [[ "$KLINE" == *"pull --ff-only"* ]]; then
+    ok "K3: kit checkout 2 commits behind the known upstream → typed status=behind behind=2 with the fix command and the no-fetch caveat"
+  else no "K3: expected status=behind behind=2; line=[$KLINE]"; fi
+  [ "$VRC" = 0 ] && ok "K4: behind is advisory — --verify exit code is unchanged (0 with every harness absent)" || no "K4: behind changed the exit code (rc=$VRC)"
+  if [ "$head_before" = "$(_kg -C "$KCL" rev-parse HEAD)" ] && [ "$refs_before" = "$(_kg -C "$KCL" for-each-ref | cksum)" ] \
+     && [ -z "$(_kg -C "$KCL" status --porcelain)" ] && [ ! -e "$KCL/.git/FETCH_HEAD" ]; then ok "K5: --verify left the kit checkout untouched (HEAD, refs, worktree, no FETCH_HEAD)"
+  else no "K5: --verify modified the kit checkout"; fi
+  [ "$(grep -c '^verify kit ' <<<"$VOUT")" = 1 ] && ok "K6: exactly one kit line is printed" || no "K6: kit line count != 1 :: $VOUT"
+  # No @{upstream} but a remote-tracking origin/main exists → falls back to origin/main.
+  _kg -C "$KCL2" fetch -q >/dev/null 2>&1; _kg -C "$KCL2" branch --unset-upstream >/dev/null 2>&1
+  _krun "$KCL2"
+  [[ "$KLINE" == *"status=behind ref=origin/main behind=2"* ]] && ok "K7: no @{upstream} → falls back to origin/main" || no "K7: fallback to origin/main failed; line=[$KLINE]"
+  # Not a git checkout → typed degraded, never a silent pass.
+  mkdir -p "$TMP/kv-plain"; _krun "$TMP/kv-plain"
+  [[ "$KLINE" == "verify kit status=degraded reason=kit dir is not a git checkout"* ]] && ok "K8: non-git kit dir → typed degraded (not a silent pass)" || no "K8: expected degraded not-a-checkout; line=[$KLINE]"
+  # A repo with no upstream ref at all → typed degraded.
+  mkdir -p "$TMP/kv-noup"; _kg init -q -b main "$TMP/kv-noup" >/dev/null 2>&1; _kc "$TMP/kv-noup" solo; _krun "$TMP/kv-noup"
+  [[ "$KLINE" == "verify kit status=degraded reason=no upstream ref"* ]] && ok "K9: repo without any upstream ref → typed degraded" || no "K9: expected degraded no-upstream; line=[$KLINE]"
+  # git not on PATH → typed degraded naming git.
+  mkdir -p "$TMP/kv-nogit"; _nosha_path "$TMP/kv-nogit"; rm -f "$TMP/kv-nogit/git"
+  _krun "$KCL" "$TMP/kv-nogit"
+  [[ "$KLINE" == "verify kit status=degraded reason=git not found"* ]] && ok "K10: git absent → typed degraded naming git" || no "K10: expected degraded git-not-found; line=[$KLINE]"
+  # --help documents the kit line.
+  grep -q 'verify kit status=behind' <<<"$(bash "$SUT" --help 2>&1)" && ok "K11: --help documents the kit staleness line" || no "K11: --help lacks the kit line"
+else
+  no "K0: git or fixture clone unavailable — kit staleness tests could not run (typed, not skipped)"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ] && [ -d "$KCL/.git" ]; then
+  echo "-- teeth: kit staleness line mutants (lib/mutant.sh) --"
+  KCL4="$TMP/kv-clone4"; _kg clone -q "$KUP" "$KCL4" >/dev/null 2>&1; _kc "$KUP" four   # KCL4 is current; upstream then gains a commit KCL4 has NOT fetched
+  _vmk "teeth: K-T1 behind never reported" "$SUT" "$MKI/k-t1.sh" 's/if \[ "\$n" -gt 0 \]; then/if false; then/' \
+    && _vtt "teeth: behind branch disabled → a stale kit checkout reads as current" 0 0 "$MKI/k-t1.sh" --good-has 'verify kit status=behind' --bad-has 'verify kit status=current' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T2 git probe removed" "$SUT" "$MKI/k-t2.sh" 's/if ! command -v git >\/dev\/null 2>&1; then/if false; then/' \
+    && _vtt "teeth: git probe removed → absent git is mislabelled (reason no longer names git)" 2 2 "$MKI/k-t2.sh" --good-has 'reason=git not found' --bad-lacks "$_CRASH|reason=git not found" -- "$_ENV" "PATH=$TMP/kv-nogit" "RESEARCH_SDD_KIT_DIR=$KCL" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T3 no-upstream silent pass" "$SUT" "$MKI/k-t3.sh" "s/printf 'verify kit status=degraded reason=no upstream ref.*\$/ref=HEAD/" \
+    && _vtt "teeth: no-upstream degraded replaced by a fallback ref → silent confident 'current'" 0 0 "$MKI/k-t3.sh" --good-has 'reason=no upstream ref' --bad-has 'verify kit status=current' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$TMP/kv-noup" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T4 implicit fetch" "$SUT" "$MKI/k-t4.sh" 's|if ref="\$(git -C "\$dir" rev-parse --abbrev-ref|git -C "$dir" fetch -q 2>/dev/null; if ref="$(git -C "$dir" rev-parse --abbrev-ref|' \
+    && _vtt "teeth: an implicit fetch sneaks in → the unfetched upstream commit becomes visible (network side effect)" 0 0 "$MKI/k-t4.sh" --good-has 'verify kit status=current' --bad-has 'verify kit status=behind' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL4" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T5 kit line not called" "$SUT" "$MKI/k-t5.sh" 's/_rsdd_verify_kit  # SENTINEL-VERIFY-KIT/:/' \
+    && _vtt "teeth: kit check never called → --verify stays silent about a stale checkout" 0 0 "$MKI/k-t5.sh" --good-has 'verify kit status=' --bad-lacks "$_CRASH|verify kit status=" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+fi
+
 # Teeth for the hermeticity check itself: the snapshot must register a NEW, a MODIFIED and a
 # REMOVED file (first / middle / last positions), proven on a temp copy — never on the live tree.
 if [ "${1:-}" = "--prove-teeth" ]; then
