@@ -12,6 +12,7 @@
 ## Linked Issue
 
 <!-- REQUIRED: Replace N with the issue number. The issue must carry status:approved. -->
+<!-- Use Closes/Fixes/Resolves (closing) or Refs (non-closing), as visible text: references inside HTML comments or code fences are ignored. -->
 <!-- Automated check: "Check Issue Reference" verifies this exists. -->
 <!-- Automated check: "Check Issue Has status:approved" verifies the issue is approved. -->
 
