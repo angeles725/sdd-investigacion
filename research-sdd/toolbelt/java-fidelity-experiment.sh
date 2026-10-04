@@ -15,13 +15,14 @@
 # Design decision (recorded here and in METHODOLOGY §11b): the experiment does NOT call a decompiler
 # directly. It goes through the kit's own wrapper (decompile-java.sh: Vineflower, CFR/Procyon fallback), so
 # the verdict describes what the kit's pipeline preserves, not what one engine could do in isolation.
-# The wrapper's stdout is discarded (it logs the whole JDK module scan); only its exit status matters.
+# The wrapper's combined output is captured per cell (dec.log): its exit status types the cell and its status
+# line ("(engine=<e>)") feeds the engine provenance; the rest (the JDK module scan log) is not interpreted.
 #
 # What it does, per fixture and per mode (g = javac -g, nog = javac with no -g flag):
 #   1. javac the fixture;   2. decompile the .class with the wrapper;   3. recompile the decompiled .java
 #   with the same javac flags;   4. compare `javap -c -p` of the original and recompiled class, constant-pool
-#   indices (#N) and the "Compiled from" line removed (everything else, including instruction offsets, must
-#   match).   Verdicts (one line per cell):
+#   indices (#N, or #N followed by ", N" as in "#7, 3") and the "Compiled from" line removed (everything else, including instruction
+#   offsets, must match).   Verdicts (one line per cell):
 #     FIDELITY <Name> mode=<g|nog> verdict=GOOD       recompiles, normalised bytecode identical
 #     FIDELITY <Name> mode=<g|nog> verdict=DIVERGED   recompiles, bytecode differs (a finding, not a failure)
 #     FIDELITY <Name> mode=<g|nog> verdict=FAILED reason=<compile|multi-class|decompile|no-output|
@@ -34,6 +35,10 @@
 #                         constructs=N cells=M good=a diverged=b failed=c
 #   engines= is the engine name the wrapper's own status line reported per cell (the ENGINE VERSION is not
 #   exposed by the wrapper and is not recorded); engine_degraded_cells counts wrapper exit 4 (fallback ran).
+#   Every such cell also prints `FALLBACK <Name> mode=<g|nog> labelled-engine=<e|unknown>` before its verdict, so a
+#   verdict produced through a fallback is attributable to its cell. labelled-engine is the engine label on the
+#   wrapper's status line, which is the PRIMARY engine even when a unit fell back; it is NOT the engine that
+#   produced the output (the wrapper's UNIT lines in that cell's dec.log say which units fell back).
 #
 # Exit codes (anti-silent-zero, CLAUDE.md §7 — three states stay distinguishable):
 #   0  experiment ran; every cell measured (DIVERGED / FAILED cells are findings, read the lines)
@@ -43,11 +48,16 @@
 #        DEGRADED: reason=javac-missing|javap-missing|decompiler-missing [detail]
 #      A DEGRADED run never prints a verdict for the cell that could not run and never prints RESULT: DONE.
 #
-# Env: RSDD_FIDELITY_TIMEOUT (seconds, default 240) bounds each decompiler run (typed FAILED reason=timeout).
+# Env: RSDD_FIDELITY_TIMEOUT (positive integer seconds, default 720; anything else exits 2) is the OUTER bound on
+#      each wrapper run (typed FAILED reason=timeout). The wrapper bounds its primary engine at 240 s
+#      (RSDD_DECOMPILE_TIMEOUT) and then runs a fallback engine, so the outer bound is deliberately larger:
+#      an equal bound would kill the wrapper mid-fallback and hide the fallback behind reason=timeout.
 #
 # Limits (stated, not hidden): GOOD means "same bytecode for this fixture on this JDK and this engine
 # version", not "faithful in general"; one construct per fixture, default package only; the experiment
-# says nothing about a decompiler engine other than the one the wrapper picked first.
+# says nothing about an engine the wrapper did not run; a cell the wrapper completed through its fallback
+# engine is counted and named (FALLBACK line); the wrapper labels such a run with its PRIMARY engine, so for
+# those cells the verdict covers a mix of primary and fallback output (see dec.log).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,13 +80,18 @@ if [ "${#SRCS[@]}" -eq 0 ]; then
   exit 1  # SENTINEL-EMPTY-FIXTURES
 fi
 
+# Outer bound on every wrapper run, larger than the wrapper's own 240 s primary bound (see header).
+# Validated before any probe: a usage error is rc 2 whatever the toolchain state.
+TIMEOUT_SECS="${RSDD_FIDELITY_TIMEOUT-720}"
+[[ "$TIMEOUT_SECS" =~ ^[1-9][0-9]{0,5}$ ]]  # SENTINEL-TIMEOUT-VALIDATE
+[ $? -eq 0 ] || { echo "usage: RSDD_FIDELITY_TIMEOUT must be a positive integer (seconds), got '$TIMEOUT_SECS'" >&2; exit 2; }
+
 # ---- runtime dependency probe -> typed DEGRADED ----------------------------------------------------------
 JAVAC_BIN="${RSDD_FIDELITY_JAVAC:-}"
 [ -n "$JAVAC_BIN" ] || JAVAC_BIN="$(command -v javac 2>/dev/null)"
 JAVAP_BIN="${RSDD_FIDELITY_JAVAP:-}"
 [ -n "$JAVAP_BIN" ] || JAVAP_BIN="$(command -v javap 2>/dev/null)"
 DECOMPILER="${RSDD_FIDELITY_DECOMPILER:-$HERE/decompile-java.sh}"
-JAVAC="$JAVAC_BIN"; JAVAP="$JAVAP_BIN"
 
 # A DEGRADED exit after some cells were already printed says so: those lines are valid, the run is incomplete.
 degraded() {
@@ -88,10 +103,10 @@ degraded() {
   fi
   exit 4
 }
-if ! [ -x "$JAVAC_BIN" ]  # SENTINEL-JAVAC-PROBE
+if ! { [ -f "$JAVAC_BIN" ] && [ -x "$JAVAC_BIN" ]; }  # SENTINEL-JAVAC-PROBE
 then degraded javac-missing "(no usable javac; set RSDD_FIDELITY_JAVAC or put a JDK on PATH)"; fi
-[ -x "$JAVAP_BIN" ] || degraded javap-missing "(no usable javap; set RSDD_FIDELITY_JAVAP or put a JDK on PATH)"
-[ -x "$DECOMPILER" ] || degraded decompiler-missing "($DECOMPILER is not executable)"
+{ [ -f "$JAVAP_BIN" ] && [ -x "$JAVAP_BIN" ]; } || degraded javap-missing "(no usable javap; set RSDD_FIDELITY_JAVAP or put a JDK on PATH)"
+{ [ -f "$DECOMPILER" ] && [ -x "$DECOMPILER" ]; } || degraded decompiler-missing "($DECOMPILER is not executable)"
 
 if [ -z "$WORK" ]; then
   WORK="$(mktemp -d)" || { echo "cannot create a scratch directory" >&2; exit 2; }
@@ -105,15 +120,16 @@ fi
 JDK_VERSION="unknown"
 while IFS= read -r _l; do
   case "$_l" in "javac "[0-9]*) JDK_VERSION="${_l#javac }"; break ;; esac
-done < <("$JAVAC" -version 2>&1)
+done < <("$JAVAC_BIN" -version 2>&1)
 
-# Bound every decompiler run (the wrapper has its own timeout, this is the outer guard).
-TIMEOUT_SECS="${RSDD_FIDELITY_TIMEOUT:-240}"
 TIMEOUT_BIN="$(command -v timeout 2>/dev/null)"
 [ -n "$TIMEOUT_BIN" ] || TIMEOUT_BIN="$(command -v gtimeout 2>/dev/null)"
 TIMEOUT_NOTE=""; [ -n "$TIMEOUT_BIN" ] || TIMEOUT_NOTE=" timeout=unavailable"
 ENGINES=""; n_engine_degraded=0
 
+# normalise FILE: strip constant-pool references ("#7", "#7, 3" - javap -c prints them per instruction and
+# they shift with unrelated pool order) and the "Compiled from" header (names the .java, which differs).
+# Everything else, including instruction offsets and branch targets, stays and must match.
 normalise() { sed -E 's/#[0-9]+(, *[0-9]+)?//g; /^Compiled from/d' "$1"; }
 n_good=0; n_div=0; n_fail=0
 
@@ -128,23 +144,26 @@ cell() { # cell NAME SRC MODE FLAGS
   rm -rf "$base"; mkdir -p "$base/orig" "$base/dec" "$base/re"
   orig="$base/orig"; dec="$base/dec"; re="$base/re"; log="$base/log"
   # shellcheck disable=SC2086
-  if ! "$JAVAC" $flags -d "$orig" "$src" >"$log" 2>&1; then verdict "$name" "$mode" FAILED compile; return; fi
+  if ! "$JAVAC_BIN" $flags -d "$orig" "$src" >"$log" 2>&1; then verdict "$name" "$mode" FAILED compile; return; fi
   n_cls="$(find "$orig" -name '*.class' -type f | wc -l)"
   if [ "$n_cls" -ne 1 ]; then verdict "$name" "$mode" FAILED multi-class; return; fi
   local cls; cls="$(find "$orig" -name '*.class' -type f)"
   drc=0
   if [ -n "$TIMEOUT_BIN" ]; then "$TIMEOUT_BIN" "$TIMEOUT_SECS" "$DECOMPILER" "$cls" "$dec" >"$base/dec.log" 2>&1 || drc=$?
   else "$DECOMPILER" "$cls" "$dec" >"$base/dec.log" 2>&1 || drc=$?; fi
-  # Engine provenance: the wrapper's status line names the engine it used ("(engine=<e>)").
-  eng="$(sed -n 's/.*(engine=\([A-Za-z0-9_.-]*\)).*/\1/p' "$base/dec.log" | tail -n 1)"
+  # Engine provenance: the wrapper's status line carries "(engine=<e>)" on rc 0 and "(engine=<e> <detail>)" on
+  # a degraded rc 4 run; both shapes are read (the label is the wrapper's primary engine, see header).
+  eng="$(sed -n 's/.*(engine=\([A-Za-z0-9_.-]*\)[ )].*/\1/p' "$base/dec.log" | tail -n 1)"
   # A cell whose wrapper run printed no engine line (failed, timed out) adds nothing; no engine at all -> unknown.
   if [ -n "$eng" ]; then
     case ",$ENGINES," in *",$eng,"*) ;; *) ENGINES="${ENGINES:+$ENGINES,}$eng" ;; esac
   fi
-  [ "$drc" -ne 4 ] || n_engine_degraded=$((n_engine_degraded+1))
+  fb_note() { n_engine_degraded=$((n_engine_degraded+1)); printf 'FALLBACK %s mode=%s labelled-engine=%s\n' "$name" "$mode" "${eng:-unknown}"; }
+  [ "$drc" -ne 4 ] || fb_note  # SENTINEL-FALLBACK-NOTE
   if [ "$drc" -eq 3 ]  # SENTINEL-DECOMPILER-RC3
   then degraded decompiler-missing "(decompiler exit 3 on $name mode=$mode: required tool missing)"; fi
-  if [ "$drc" -eq 124 ]; then verdict "$name" "$mode" FAILED timeout; return; fi
+  if [ "$drc" -eq 124 ]  # SENTINEL-TIMEOUT-RC
+then verdict "$name" "$mode" FAILED timeout; return; fi
   if [ "$drc" -ne 0 ] && [ "$drc" -ne 4 ]; then verdict "$name" "$mode" FAILED decompile; return; fi
   n_java="$(find "$dec" -name '*.java' -type f | wc -l)"
   if [ "$n_java" -eq 0 ]  # SENTINEL-NO-OUTPUT
@@ -152,13 +171,13 @@ cell() { # cell NAME SRC MODE FLAGS
   if [ "$n_java" -gt 1 ]; then verdict "$name" "$mode" FAILED multi-output; return; fi
   jf="$(find "$dec" -name '*.java' -type f)"
   # shellcheck disable=SC2086
-  if ! "$JAVAC" $flags -d "$re" "$jf" >"$log" 2>&1; then  # SENTINEL-RECOMPILE-RC
+  if ! "$JAVAC_BIN" $flags -d "$re" "$jf" >"$log" 2>&1; then  # SENTINEL-RECOMPILE-RC
     verdict "$name" "$mode" FAILED recompile; return
   fi
   local rcls; rcls="$(find "$re" -name "$(basename "$cls")" -type f)"
   [ -n "$rcls" ] || { verdict "$name" "$mode" FAILED recompile-no-class; return; }
-  "$JAVAP" -c -p "$cls" >"$base/orig.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-original; return; }
-  "$JAVAP" -c -p "$rcls" >"$base/re.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-recompiled; return; }
+  "$JAVAP_BIN" -c -p "$cls" >"$base/orig.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-original; return; }
+  "$JAVAP_BIN" -c -p "$rcls" >"$base/re.javap" 2>&1 || { verdict "$name" "$mode" FAILED javap-recompiled; return; }
   local orig_norm new_norm
   orig_norm="$(normalise "$base/orig.javap")"; new_norm="$(normalise "$base/re.javap")"
   if [ "$orig_norm" = "$new_norm" ]  # SENTINEL-COMPARE
@@ -171,7 +190,7 @@ lvt_present() {
   local d="$WORK/$1/$2/orig" cls out="$WORK/$1/$2/lvt.javap" n=0
   : >"$out"
   while IFS= read -r cls; do
-    "$JAVAP" -l -p "$cls" >>"$out" 2>&1 || { echo unmeasured; return; }
+    "$JAVAP_BIN" -l -p "$cls" >>"$out" 2>&1 || { echo unmeasured; return; }
     n=$((n+1))
   done < <(find "$d" -name '*.class' -type f | sort)
   [ "$n" -gt 0 ] || { echo unmeasured; return; }  # SENTINEL-LVT-UNMEASURED
