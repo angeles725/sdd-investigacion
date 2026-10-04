@@ -42,6 +42,11 @@ source "$TOOLBELT/lib/test-lane.sh"
 pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
+# One EXIT trap for both temp dirs (a later `trap` would REPLACE this one): the slow lane's ROOT
+# and the --prove-teeth _MUT are both created later and both start empty.
+ROOT=""; _MUT=""
+_cleanup(){ [ -z "$ROOT" ] || rm -rf -- "$ROOT"; [ -z "$_MUT" ] || rm -rf -- "$_MUT"; }
+trap _cleanup EXIT
 
 # Active lane (aborts on invalid RSDD_TEST_LANE value).
 _lane="$(rsdd_lane)"
@@ -75,9 +80,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   fi
 
   if [[ "$_slow_skip" -eq 0 ]]; then
-    ROOT="$(mktemp -d)"
-    # shellcheck disable=SC2064
-    trap 'rm -rf "$ROOT"' EXIT
+    ROOT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
     JAVA21="$_JAVA21"
     run(){ "$WRAPPER" analyze "$@"; }
 
@@ -405,113 +408,89 @@ fi # fast | all
 if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: jvm-callgraph fixture-copy mutation controls (R2 EXCEPTION) --"
   echo "-- Fixture-copy teeth: assertions bite on dishonest fixture; no live SUT import --"
+  # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_built mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # The SUT of these controls is a JSON fixture: skip the `bash -n` check (the builder below
+  # round-trips through json, and a mutant that is not valid JSON crashes the checker, which the
+  # --bad-lacks guard refuses to read as a bite).
+  export MUTANT_SYNTAX=none
+  _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
-  # tooth-F1-schema: mutate happy fixture schema → F1 schema assertion RED.
-  _mut_dir_1="$(mktemp -d)"
-  _mut_rc_1=0
-  if [[ ! -f "$_FIX_HAPPY" ]]; then
-    no "tooth-F1-schema: happy fixture missing (run regen first)"
-  else
-    python3 - "$_FIX_HAPPY" "$_mut_dir_1/mutant-happy.json" <<'PY'
-import json, sys, pathlib
-d = json.load(open(sys.argv[1]))
-if d.get("schema") != "jvm-callgraph.v1":
-    print(f"MUTANT-SETUP-FAIL: schema not 'jvm-callgraph.v1' in fixture", file=sys.stderr)
-    sys.exit(2)
-d["schema"] = "jvm-callgraph.MUTANT"
-pathlib.Path(sys.argv[2]).write_text(json.dumps(d, indent=2))
-PY
-    _setup_rc_1=$?
-    if [[ "$_setup_rc_1" -ne 0 ]]; then
-      no "tooth-F1-schema: mutant setup failed (fixture changed?)"
-    else
-      python3 - "$_mut_dir_1/mutant-happy.json" <<'PY' || _mut_rc_1=$?
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("schema") == "jvm-callgraph.v1", f"schema={d.get('schema')!r}"
-PY
-      if [[ "$_mut_rc_1" -ne 0 ]]; then
-        ok "tooth-F1-schema: mutant schema='jvm-callgraph.MUTANT' → F1 RED (bites)"
-      else
-        no "tooth-F1-schema: F1 stayed GREEN on wrong schema — NO teeth"
-      fi
-    fi
-  fi
-  rm -rf "$_mut_dir_1"
+  mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
-  # tooth-F2-entries: mutate happy fixture entries to [] → F2 entries assertion RED.
-  _mut_dir_2="$(mktemp -d)"
-  _mut_rc_2=0
-  if [[ ! -f "$_FIX_HAPPY" ]]; then
-    no "tooth-F2-entries: happy fixture missing (run regen first)"
-  else
-    python3 - "$_FIX_HAPPY" "$_mut_dir_2/mutant-happy.json" <<'PY'
+  # Builder: set one dotted key of a fixture copy, refusing (rc 2) unless the key currently holds
+  # the expected OLD value (JSON), so a changed fixture cannot turn the mutation into a no-op.
+  # args: SRC OUT KEYPATH OLD_JSON NEW_JSON
+  _BUILD='
 import json, sys, pathlib
-d = json.load(open(sys.argv[1]))
-if not d.get("entries"):
-    print("MUTANT-SETUP-FAIL: entries empty or missing in fixture", file=sys.stderr)
-    sys.exit(2)
-d["entries"] = []  # mutation: remove all entries
-pathlib.Path(sys.argv[2]).write_text(json.dumps(d, indent=2))
-PY
-    _setup_rc_2=$?
-    if [[ "$_setup_rc_2" -ne 0 ]]; then
-      no "tooth-F2-entries: mutant setup failed (fixture changed?)"
-    else
-      python3 - "$_mut_dir_2/mutant-happy.json" <<'PY' || _mut_rc_2=$?
+src, out, path, old, new = sys.argv[1:6]
+d = json.load(open(src)); keys = path.split("."); t = d
+for k in keys[:-1]:
+    t = t[k]
+if t.get(keys[-1]) != json.loads(old):
+    print("MUTANT-SETUP-FAIL: %s is %r, expected %s" % (path, t.get(keys[-1]), old), file=sys.stderr); sys.exit(2)
+t[keys[-1]] = json.loads(new)
+pathlib.Path(out).write_text(json.dumps(d, indent=2))
+'
+  # Checkers: the F1 (schema), F2 (entries) and F4 (truncated.nodes) assertions of the fast lane,
+  # run on the same fixture artifact, each printing one typed line. Exit 0 = RESULT=ok,
+  # exit 1 = RESULT=assert-fail:<msg>; a crash prints a Traceback and no RESULT line.
+  _CHK_F1='
 import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("entries") == ["<fixture.App: void main(java.lang.String[])>"], \
-    f"entries={d.get('entries')!r}"
-PY
-      if [[ "$_mut_rc_2" -ne 0 ]]; then
-        ok "tooth-F2-entries: entries=[] mutation → F2 RED (bites)"
-      else
-        no "tooth-F2-entries: F2 stayed GREEN on empty entries — NO teeth"
-      fi
-    fi
-  fi
-  rm -rf "$_mut_dir_2"
+try:
+    d = json.load(open(sys.argv[1]))
+    assert d.get("schema") == "jvm-callgraph.v1", "schema"
+except AssertionError as e:
+    print("RESULT=assert-fail:" + str(e)); sys.exit(1)
+print("RESULT=ok")
+'
+  _CHK_F2='
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    assert d.get("entries") == ["<fixture.App: void main(java.lang.String[])>"], "entries"
+except AssertionError as e:
+    print("RESULT=assert-fail:" + str(e)); sys.exit(1)
+print("RESULT=ok")
+'
+  _CHK_F4='
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    assert d.get("truncated", {}).get("nodes") is True, "truncated.nodes"
+except AssertionError as e:
+    print("RESULT=assert-fail:" + str(e)); sys.exit(1)
+print("RESULT=ok")
+'
 
-  # tooth-F4-nodes: flip capped fixture truncated.nodes True→False → F4 nodes RED.
-  # This is the core tightening tooth: any(values()) would stay GREEN because other flags
-  # (edges, xrefs, paths) are still True; only the specific assertion fires RED.
-  _mut_dir_3="$(mktemp -d)"
-  _mut_rc_3=0
-  if [[ ! -f "$_FIX_CAPPED" ]]; then
-    no "tooth-F4-nodes: capped fixture missing (run regen first)"
-  else
-    python3 - "$_FIX_CAPPED" "$_mut_dir_3/mutant-capped.json" <<'PY'
-import json, sys, pathlib
-d = json.load(open(sys.argv[1]))
-if d.get("truncated", {}).get("nodes") is not True:
-    print(f"MUTANT-SETUP-FAIL: truncated.nodes not True in capped fixture: "
-          f"{d.get('truncated', {}).get('nodes')!r}", file=sys.stderr)
-    sys.exit(2)
-d["truncated"]["nodes"] = False  # mutation: nodes no longer truncated
-pathlib.Path(sys.argv[2]).write_text(json.dumps(d, indent=2))
-PY
-    _setup_rc_3=$?
-    if [[ "$_setup_rc_3" -ne 0 ]]; then
-      no "tooth-F4-nodes: mutant setup failed (fixture changed?)"
-    else
-      python3 - "$_mut_dir_3/mutant-capped.json" <<'PY' || _mut_rc_3=$?
-import json, sys
-d = json.load(open(sys.argv[1]))
-trunc = d.get("truncated", {})
-# F4 specific assertion: this fires RED when nodes=False.
-# any(trunc.values()) would stay GREEN (edges/xrefs/paths still True) — proven by this tooth.
-assert trunc.get("nodes") is True, \
-    f"F4: truncated.nodes={trunc.get('nodes')!r} (expected True: 4 nodes > max 1)"
-PY
-      if [[ "$_mut_rc_3" -ne 0 ]]; then
-        ok "tooth-F4-nodes: nodes=False → F4 truncated.nodes RED (bites; any() would stay GREEN)"
-      else
-        no "tooth-F4-nodes: F4 stayed GREEN on nodes=False — NO teeth (any() theater)"
-      fi
+  # _tooth LABEL FIXTURE KEYPATH OLD NEW CHECKER MSG — build a fresh mutant dir, then run the
+  # checker on the fixture (must exit 0, RESULT=ok) and on the mutant (must exit 1 with the typed
+  # assert-fail line naming MSG). A refused build is counted once and its tooth never runs.
+  _tooth(){
+    local label="$1" fix="$2" path="$3" old="$4" new="$5" chk="$6" msg="$7" dir
+    if [[ ! -f "$fix" ]]; then no "$label: fixture missing (run regen first)"; return; fi
+    dir="$_MUT/$label"; mkdir -p "$dir"
+    if ! python3 -c "$_BUILD" "$fix" "$dir/mutant.json" "$path" "$old" "$new"; then
+      no "$label: mutant setup failed (fixture changed?)"
+    elif mk "$label" "$fix" "$dir/mutant.json"; then
+      tt "$label: $path mutation → $msg assertion RED (bites)" 0 1 "$dir/mutant.json" --orig "$fix" \
+        --good-has '^RESULT=ok$' --bad-has "^RESULT=assert-fail:$msg\$" \
+        --bad-lacks 'Traceback|Error' -- python3 -c "$chk" @SUT@
     fi
-  fi
-  rm -rf "$_mut_dir_3"
+  }
+
+  # F1: wrong schema.
+  _tooth tooth-F1-schema "$_FIX_HAPPY" schema '"jvm-callgraph.v1"' '"jvm-callgraph.MUTANT"' "$_CHK_F1" schema
+  # F2: entries emptied.
+  _tooth tooth-F2-entries "$_FIX_HAPPY" entries '["<fixture.App: void main(java.lang.String[])>"]' '[]' "$_CHK_F2" entries
+  # F4: truncated.nodes True→False. The core tightening tooth: any(values()) would stay GREEN
+  # because edges/xrefs/paths stay True; only the specific assertion fires RED.
+  _tooth tooth-F4-nodes "$_FIX_CAPPED" truncated.nodes true false "$_CHK_F4" truncated.nodes
 
   echo "-- prove-teeth done --"
 fi
