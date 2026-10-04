@@ -108,7 +108,13 @@ if ! _mb="$(mutant_chain "M1 mutant setup" "$HERE/niagara-security-audit.test.sh
   mut_no "M1 mutant setup: ${_mb}"
 else
   # Run the mutant; expect it to write into the committed tree
-  bash "$MUTDIR/niagara-security-audit.test.sh" >/dev/null 2>&1 || true
+  # The copied suite derives everything from SUT= (its only $HERE use, lines 5-6; SUT_DIR at 776 is
+  # derived from SUT), so the rewrite is complete. Require the run to reach its summary line: an
+  # early crash would leave the tree clean for the wrong reason or dirty for an unrelated one.
+  _m1_out="$(bash "$MUTDIR/niagara-security-audit.test.sh" 2>&1 || true)"
+  if ! grep -Eq '^== [0-9]+ passed' <<<"$_m1_out"; then
+    mut_no "M1 mutant did not run to its summary line (early failure): $(tail -n 3 <<<"$_m1_out" | tr '\n' ' ')"
+  fi
 
   # Check for new dirt relative to the before-snapshot
   _mut_after="$(git -C "$REPO_ROOT" status --porcelain -- "$COMMITTED_DIR" 2>&1)" \

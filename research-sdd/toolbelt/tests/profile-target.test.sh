@@ -347,17 +347,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mutant="$TMP/profile-target.MUTANT.sh"
     printf '%s\n' "${content/"$anchor"/"$repl"}" > "$mutant"
-    mutant_built "teeth" "$SUT" "$mutant" || no "teeth: .Net-arm mutant refused by lib/mutant.sh"
-    d="$STAGE/teeth"; mkdir -p "$d"
-    printf '%s' "$NETPE" > "$d/x.exe"
-    mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$mutant" "$d" 2>&1)"
-    mroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$mout")"
-    case "$mroute" in
-      *"decompile-native.sh"*)
-        ok "teeth: .Net-arm-neutered mutant misroutes .NET→native (case 16 has teeth)" "($mroute)" ;;
-      *)
-        no "teeth: mutant did NOT misroute" "got=[$mroute] — case-arm ordering test is THEATER" ;;
-    esac
+    if ! mb="$(mutant_built "teeth" "$SUT" "$mutant" 2>&1)"; then
+      no "teeth: .Net-arm mutant refused by lib/mutant.sh" "$mb"
+    else
+      d="$STAGE/teeth"; mkdir -p "$d"
+      printf '%s' "$NETPE" > "$d/x.exe"
+      mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$mutant" "$d" 2>&1)"
+      mroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$mout")"
+      case "$mroute" in
+        *"decompile-native.sh"*)
+          ok "teeth: .Net-arm-neutered mutant misroutes .NET→native (case 16 has teeth)" "($mroute)" ;;
+        *)
+          no "teeth: mutant did NOT misroute" "got=[$mroute] — case-arm ordering test is THEATER" ;;
+      esac
+    fi
   fi
 
   # teeth-p4: neuter P4-TEXT-LIKE-ANNOT on a throwaway SUT copy; the all-ASCII
@@ -370,16 +373,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-p4: P4-TEXT-LIKE-ANNOT sentinel not found in SUT (P4 not implemented or marker missing)"
   else
     p4mutant="$TMP/profile-target.P4MUTANT.sh"
-    mutant_sed "$SUT" "$p4mutant" '/# P4-TEXT-LIKE-ANNOT/ s/.*/  if false; then  # P4-TEXT-LIKE-ANNOT [NEUTERED]/' \
-      || no "teeth-p4: mutant refused by lib/mutant.sh"
-    p4dir_t="$TMP/p4dir"; mkdir -p "$p4dir_t"
-    python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'a' * 500)" \
-      > "$p4dir_t/textblob.dat"
-    p4mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$p4mutant" "$p4dir_t" 2>&1)"
-    if ! grep -q 'text-like' <<<"$p4mout"; then
-      ok "teeth-p4: neutered annotation → ASCII 'data' fixture shows NO text-like (test 25 has teeth)"
+    if ! mutant_sed "$SUT" "$p4mutant" '/# P4-TEXT-LIKE-ANNOT/ s/.*/  if false; then  # P4-TEXT-LIKE-ANNOT [NEUTERED]/'; then
+      no "teeth-p4: mutant refused by lib/mutant.sh"
     else
-      no "teeth-p4: mutant STILL shows text-like → test 25 is THEATER" "p4mout=[$p4mout]"
+      p4dir_t="$TMP/p4dir"; mkdir -p "$p4dir_t"
+      python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'a' * 500)" \
+        > "$p4dir_t/textblob.dat"
+      p4mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$p4mutant" "$p4dir_t" 2>&1)"
+      if ! grep -q 'text-like' <<<"$p4mout"; then
+        ok "teeth-p4: neutered annotation → ASCII 'data' fixture shows NO text-like (test 25 has teeth)"
+      else
+        no "teeth-p4: mutant STILL shows text-like → test 25 is THEATER" "p4mout=[$p4mout]"
+      fi
     fi
   fi
 

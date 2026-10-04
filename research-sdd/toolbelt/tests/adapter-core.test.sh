@@ -524,16 +524,16 @@ PYEOF
   # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW.
   _ac_mutant() {
     local c; c="$(cat "$_FC")"
-    [[ "$c" == *"$_ANCHOR"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?"; return 2; }
+    [[ "$c" == *"$_ANCHOR"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
     printf '%s\n' "${c/"$_ANCHOR"/"$2"}" > "$3"
-    MUTANT_SYNTAX=none mutant_built "$1" "$_FC" "$3" || return 3
+    MUTANT_SYNTAX=none mutant_built "$1" "$_FC" "$3" >&2 || return 3
     python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$3" 2>/dev/null \
-      || { echo "  FAIL  $1: mutant is not valid Python"; rm -f "$3"; return 3; }
+      || { echo "mutant $1 is not valid Python" >&2; rm -f "$3"; return 3; }
   }
   # _ac_tooth LABEL NEW OUT OKMSG NOMSG -- build the mutant, then ast_check.py must REJECT it (exit 0).
   _ac_tooth() {
     local bout
-    if ! bout="$(_ac_mutant "$1" "$2" "$3")"; then no "$1: mutant not built -- $bout"; return; fi
+    if ! bout="$(_ac_mutant "$1" "$2" "$3" 2>&1)"; then no "$1: mutant not built -- $bout"; return; fi
     if python3 "$_PT_TMP/ast_check.py" "$3" 2>/dev/null; then ok "$4"; else no "$5"; fi
   }
 
