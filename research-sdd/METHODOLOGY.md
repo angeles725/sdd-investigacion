@@ -431,6 +431,13 @@ THAT target's `SOURCES.md`, noting the ORIGIN target. Do NOT cite across target 
 re-org, or a moved target can vanish the referenced tree). The within-target preservation above and the
 multi-FOCUS-within-one-target case (§16) both keep evidence inside one target; this is the cross-TARGET case.
 
+**A zero-hit literal search is a LEXICAL miss, not absence.** A cross-target / cross-corpus literal-string search
+(`corpus-nav.py find`, `rg`, any grep-for-a-fact tool) that returns nothing proves only that THAT token shape is
+absent. A prior corpus may have recorded the same fact in prose under a different shape than the code symbol.
+Before writing "no hits ⇒ absent / new here", retry the term as hyphenated, camelCase, snake_case and spaced
+forms (`CapacityLicensing` → `capacity-licensing`, `capacity licensing`); until then record the finding as
+`[INFER]` corpus-absence, never as absence in the subject. (retro: niagara5, #1193)
+
 **SOURCES.md row granularity — one row per file OR per directory, never a compound.** When many files from one
 directory back a block, register ONE row per DIRECTORY (the path cell = the dir), not a compound filename like
 `A.java + B.java` crammed into a single File cell. A compound basename breaks `verify-sources.sh`'s LEVEL-4
@@ -505,6 +512,16 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
   `decompile-java.sh` prints a `CLASSFILE major=… lvt=… classes=… resugar_risk=…` header on stderr (kit #1205), and `corroborate-java.sh` carries `class_facts[]`; record the `major` in the claim. If the header reads `unknown`, read it from `javap -v`. (kit #1204)
 - **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
   - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`. (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.)
+- **Compile-time constant inlining caps dead-constant censuses.** javac inlines `static final` compile-time
+  constants at every use site (JLS §13.1, §13.4.9), so a bytecode or decompiled-code census for dead constants,
+  unused fields or shadow literals cannot tell an inlined reference from a duplicated literal. Such a census stays
+  `[INFER]` unless the author's source (e.g. `docSource`) is read. The same ceiling applies to .NET `const` and
+  C/C++ macros. (retro: niagara5, #1210)
+- **Resolve dynamic dispatch before reading a call-site argument.** A behavior claim that depends on what a call
+  site passes (a null Context, a fail-open default) must first enumerate the target method's overrides across the
+  static receiver type's subtypes and name the RUNTIME target; only then can it be `[CERT]`. (Evidence: a
+  `getPermissions(null)` read as fail-open at three sites; a subtype overrode it, ignored the argument and
+  fetched the real session permissions.) Extends §9 rule 9 (a name is not a kind). (retro: niagara5, #1211)
 - **Establish a FOUNDATION-BLOCK caveat; forward-cite it in every subsequent block header.** Scrubbing is a corpus-level hazard. Document it in the FOUNDATION evidence block (the first block that discovers it) and cite that caveat in all later block headers. This kept the discipline consistent across 6 evidence blocks (B350–B355 in the `electronicSignature` focus) and prevented ~40 potential `[CERT]` false-citations.
 
 **docSource dual-tree (one class living in TWO physical trees).** When a target ships BOTH a decompiled tree
@@ -2337,6 +2354,12 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   prior session does not authorize a new write. Go back to the operator directly if the
   authorization chain is ambiguous or indirect. A write under fresh authorization still enters the
   invasiveness ladder at its lowest applicable rung — do not skip (0)–(1). (Evidence: panccadia-3d-viewer)
+- **Before an operator-requested STOP of a live service, enumerate its relaunchers.** Loop wrappers, boot
+  triggers and watchdog/scheduled tasks will restart the service and undo the stop. List them from the live
+  system (and from corpus recall of how the service is supervised), disable them in dependency order
+  (relauncher first, service last), then verify the service stays down past one full watchdog period. A stop
+  plan that does not name its relaunchers is incomplete. (Evidence: a first plan would have been undone by a
+  watchdog task within 3 minutes.) (retro: pancaddia-leon-tunnel, #1395)
 - **LIVE-WRITE PROTOCOL (three mandatory gates).** Any §12 validation that WRITES to a live or
   operational system requires all three in order: (a) direct user authorization naming the specific
   target, interface, and action — a peer-relayed summary is NOT authorization (see above); (b) change
@@ -2953,6 +2976,10 @@ B64→B55). Make this a habit, not an accident:
   HYPOTHESES). When investigation refutes that judgment, correct the prior block exactly as any
   factual claim and add the back-pointer.
 - A `[CERT-hw]` finding that contradicts a `[CERT]` block MUST trigger a correction (hardware wins, §3).
+- **Compare against the raw artifact, not the prose quote.** A §14 comparison or correction against block N must
+  open the raw preserved artifact block N cited (the probe output, the dump), never block N's prose rendering of
+  it: the raw file may already hold what the prose omitted (a warning, a second field). `lint-block.sh` flags a
+  `[Block N] does not mention ...` comparison that carries no raw artifact path (§11). (retro: niagara5, #1213)
 - **Correction-on-absence guard.** A §14 correction that retracts or refutes a prior finding ON THE BASIS OF an absence MUST first re-verify that absence in the EXACT named artifact — never a sibling. Absence in a sibling does not prove absence in the target: B478 retracted a "no `niagarad.license.*`" claim that came from opening only `nre.jar`, not `niagarad.jar`, and the wrong correction propagated to four artifacts before revert. Because a correction propagates across the corpus, an unverified absence driving it multiplies the error; re-verify the absence in the exact named artifact, never a sibling, before issuing the correction.
 - **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
   **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
@@ -3342,6 +3369,11 @@ produce lessons the focus-STOP trigger above never sees — ~10 of 30 recent ret
 and were written only because the operator asked. Treat "the session changed how the next one should run" as the
 trigger, not "a focus stopped".
 
+**Run `verify-state.sh` unconditionally before writing the retro.** It is edge-triggered on a `RESEARCH-STATE` edit
+(§11), so a block added or closed without touching that file never fires it and `covered_blocks` can drift for
+commits and retros (20 recorded vs 23 on disk). The retro pass is the backstop: run it whether or not
+`RESEARCH-STATE` was edited this run. (retro: pancaddia-leon-tunnel, #1383)
+
 **§18 is a batch pass over the run; it does not replace per-change documentation (§8).** The retrospective
 consolidates lessons at the terminal — it is not where a fix's symptom/cause/verification first gets
 written down. Each problem-entry belongs in the block, or in a journal entry per §20b when the work is
@@ -3425,6 +3457,15 @@ This preserves both the audit trail and the rule that the operator — not an au
 | `no new deltas — nothing to add.` | em-dash (U+2014) |
 
 The line must appear either directly in the canonical `## Proposed kit deltas` section (after a scaffold-only lead block) or under `## Honest verdict`. A purity failure (dirty structural marker in the lead block, or a `## D<n>` / `## Proposed…` heading outside the canonical section) voids the honesty check for that section even if the phrase is present — `verify-retro.sh` reports `FAIL [empty-section]` with the message "section impure" to distinguish it from the case where the phrase is absent entirely.
+
+**Subject-product security defects are headline items, not one bullet among many.** When a block's finding is a
+live, exploitable-class defect in the SUBJECT PRODUCT itself (not a corpus or tooling footgun) — e.g. a hardcoded
+flag that disables rejection of a deprecated or weak cryptographic algorithm on an authentication path — the
+block's own header/summary AND the run's retro (a dedicated one-line flag under `## Honest verdict`) must surface
+it for the human as a headline, distinguishable from ordinary corpus facts. The `[CERT]` vocabulary is
+severity-neutral: a routine API-shape finding and a live crypto downgrade read identically in a skim, so the
+severity must be stated in words, not left to marker weight. Certainty rules are unchanged — the flag follows
+the `[CERT]`/`[INFER]` marker of the underlying claim. (retro: niagara5, #1203)
 
 **Enforcement — the retro gate (a run is not over until the retro exists).** The trigger above fired on paper and
 not in practice: measured on 2026-09-05, three targets advanced with no retro for their latest run, and of twelve
@@ -3807,6 +3848,13 @@ hard-stops, never blind.
   row and a companion test; a one-off PoC lives in the scratchpad and is cited through its preserved output
   under `sources/probes/`. Deciding late is how tools end up uncatalogued (§18 `promote`/`absorb` verdicts
   exist for exactly this hand-off).
+- **Port a target-specific tool by vendor-then-generalize, not by editing the copy blind.** To reuse a
+  navigation/indexing tool built for one corpus's directory layout on a NEW target, first vendor it UNCHANGED as
+  the baseline commit, then generalize in a second commit: strip every hardcoded target-name path and add a
+  layout-resolution/config layer (e.g. a `corpus_config` module) that the tool reads instead. The two-step
+  history keeps the baseline's tests runnable and makes the generalization diff reviewable on its own; a
+  straight vendored copy with sed-edited paths is not a port. Extend the tests alongside the config layer.
+  (retro: niagara5, #1200)
 - **Declare probe-only elements; list unconsumed outputs.** A live test structure built for coverage
   declares which of its elements are probe-only (not part of the intended function), and the block lists
   every unconsumed output — an output left unlinked made the operator ask where it was connected. When
@@ -3992,7 +4040,7 @@ investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md 
 
 *(1) Runtime-script and narrative-process corpora.* When the source corpus is a set of runtime scripts or a narrative process document with no public API docs, `[CERT]` file:line citations of those files ARE the primary evidence — not a deficiency. The `verify-block.sh` WARN "ZERO file:line citations resolved" fires on `Type: document` blocks that cite document sections by header (`PROCESS.md §n`, no `:line`); this warns that SECTION references were not resolved as evidence citations — it does not mean the block is undercited. Distinguish document-mode section citations (a narrative anchor, no line number required) from evidence citations (a code or probe fact, requiring file:line).
 
-*(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder. **Attribution and preservation requirements for relayed probes:** (a) attribute who ran the probe in the citation (a name or role — distinguishes relay from direct observation); (b) preserve the relayed artifact — screenshot, log extract, diagnostic output — under `sources/probes/` exactly as a direct probe would be; (c) record unitemized residuals as `[INFER]` — items mentioned in the relay that the preserved artifact does not confirm are not `[CERT-live]`. A relayed claim with no preserved artifact stays `[INFER]` for any value-dependent sub-claim. (Source: niagara relayed-cert-live retro.)
+*(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder. **Attribution and preservation requirements for relayed probes:** (a) attribute who ran the probe in the citation (a name or role — distinguishes relay from direct observation); (b) preserve the relayed artifact — screenshot, log extract, diagnostic output — under `sources/probes/` exactly as a direct probe would be; (c) record unitemized residuals as `[INFER]` — items mentioned in the relay that the preserved artifact does not confirm are not `[CERT-live]`. A relayed claim with no preserved artifact stays `[INFER]` for any value-dependent sub-claim. **The relayer may be another agent.** In an orchestrated multi-agent session the "operator" can be the coordinator session that ran the probes (API/SSH calls) while a document-mode sub-agent writes the block. That is the same relay: cite `[CERT-live]`, attribute it in the header and citation (e.g. "relayed by the coordinator session"), and apply (b)/(c) unchanged, with the preservation convention declared in the target's `SOURCES.md` counting as (b). The relay itself is not a reason to downgrade to `[INFER]`. (Source: niagara relayed-cert-live retro; retro: pancaddia-leon-tunnel, #1386)
 
 *(3) External-product steps in runbook blocks.* A runbook block often mixes corpus `[CERT]` facts (this device's config, locally verified) with external-product steps (how to configure the DNS provider, how to invoke the hosting API). Keep these visually separate: external steps verified against an official source are `[CERT-web]` (URL + access date, §3); unverified external steps are `[INFER]`. A block where `[CERT]` and `[CERT-web]/[INFER]` rows are interleaved without separation is a reviewer red flag — the reader cannot tell which claims are locally verified. Document mode introduces no new markers for this: `[CERT-web]` and `[INFER]` already cover it.
 
@@ -4128,6 +4176,12 @@ no-match distinction still applies — never a bare zero):
   classifying the wall** — if the operation completed, no wall occurred. (Evidence: B60 §60.3 —
   `Connection to Blender lost: timed out` from the MCP transport while the operation completed inside
   Blender.)
+
+**Convergent walls merge; they do not multiply.** When a later attempt hits the IDENTICAL failure signature as an
+already-recorded wall (same exception class, same feature/entitlement string, same call-stack frame), record it as
+a merge into the existing row (`B17-G1 / B29-G2`, with a `merges with B17-G1` note in the later block), not an
+independent entry: one wall with several witnesses is one `needs:` and one `unblock:` plan. A signature differing
+in any of the three parts is a different wall. (retro: niagara5, #1195)
 
 **Possibility-first cross-reference.** Every wall state above blocks a CAPABILITY, never the goal: the §1
 possibility-first rule applies — express the way forward as a route ladder (>=3 routes of different classes,
