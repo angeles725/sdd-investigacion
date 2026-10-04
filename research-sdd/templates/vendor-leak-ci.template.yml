@@ -26,7 +26,7 @@ jobs:
           ref: <KIT_REF>
           path: kit
       # Exit 0 clean · 1 findings · 2 cannot look (bad conf / unreadable / unmerged) · 3 degraded ·
-      # 4 (--strict) no vendor prefix/path declared yet (EMPTY-CONF / ABSENT-CONF): every non-zero exit fails the job.
+      # 4 (--strict) no vendor prefix/path declared yet (STRICT-FAIL EMPTY-CONF / ABSENT-CONF / ALLOW-ONLY-CONF): every non-zero exit fails the job.
       # Fill .research-sdd/vendor-leak.conf with at least one prefix/path directive to turn the job green.
       - name: scan tracked files for vendor-code leaks
         run: bash kit/research-sdd/toolbelt/scan-vendor-leak.sh target --tracked --strict

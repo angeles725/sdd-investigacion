@@ -1736,7 +1736,7 @@ TOEOF
   PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && ok "K1271-o valid RSDD_GH_TIMEOUT=7 honoured" || no "K1271-o valid RSDD_GH_TIMEOUT=7 not honoured"
   # K1566 R2: a positive integer with leading zeros is valid (decimal, not octal) — not rejected, not mis-parsed
-  for _lz in 05:5 010:10 0020:20; do
+  for _lz in 05:5 010:10 0020:20 0000000007:7; do
     d="$(_k71_target "lz-${_lz%%:*}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
     PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="${_lz%%:*}" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
     { [ "$(head -1 "$TMP/k71.to.log")" = "${_lz##*:}" ] && ! grep -qF 'not a positive integer' "$TMP/k71.out"; } \
@@ -3267,11 +3267,11 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       && ok "teeth M-1566-SUBDIR: subdirectory wired and no typed state without the comparison — K1566-R4 has teeth" \
       || no "teeth M-1566-SUBDIR: still guarded under the mutant — K1566-R4 is THEATER"
   else no "teeth M-1566-SUBDIR: could not build mutant"; fi
-  # M-1566-LZ: the DECIMAL normalisation loses its 10# → 010 is parsed as octal 8 (and 0020 as 16).
-  if command -v timeout >/dev/null 2>&1 && _k43_build k66lz -e 's#gh_t=\$((10\#\$gh_t))#gh_t=$((gh_t))#'; then
+  # M-1566-LZ: the leading-zero strip is removed → a long zero-padded value (0000000007) is over the length bound and falls back to 20.
+  if command -v timeout >/dev/null 2>&1 && _k43_build k66lz -e 's#^    \*) gh_t="\${gh_t\#.*$#    *) : ;;#'; then
     d="$(_k71_target t-lz https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=010 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66lz/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
-    [ "$(head -1 "$TMP/k71.to.log")" = 10 ] && no "teeth M-1566-LZ: still 10 without 10# — THEATER" || ok "teeth M-1566-LZ: 010 mis-parsed (got '$(head -1 "$TMP/k71.to.log")') without the decimal prefix — K1566 timeout cases have teeth"
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0000000007 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66lz/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && no "teeth M-1566-LZ: still 7 without the strip — THEATER" || ok "teeth M-1566-LZ: 0000000007 not normalised (got '$(head -1 "$TMP/k71.to.log")') without the strip — K1566 timeout cases have teeth"
   else echo "  SKIP  teeth M-1566-LZ: no GNU timeout or mutant not buildable"; fi
   # M-1566-ZERO: the all-zero rejection is removed → 00 reaches timeout as 0 (unbounded).
   if command -v timeout >/dev/null 2>&1 && _k43_build k66z0 -e 's# || \[ "\$((10\#\$gh_t))" -eq 0 \]##'; then

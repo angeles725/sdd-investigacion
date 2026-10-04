@@ -235,7 +235,7 @@ d="$TMP/strict-leak"; newrepo "$d"; addf "$d" a.jar; commit "$d"
 d="$TMP/strict-allow"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'allow docs/**\n' > "$d/.research-sdd/vendor-leak.conf"; addf "$d" src/Ok.java 'package com.acme.ok;'; commit "$d"
 o="$(out "$d" --strict)"
 [ "$(rc "$d" --strict)" = 4 ] && has "$o" '^STRICT-FAIL ALLOW-ONLY-CONF ' && ok "--strict + allow-only conf → STRICT-FAIL ALLOW-ONLY-CONF, exit 4" || no "strict allow-only wrong: $o"
-[ "$(rc "$d")" = 0 ] && ! has "$(out "$d")" 'STRICT-FAIL' && ok "no --strict + allow-only conf → unchanged (exit 0)" || no "allow-only default changed"
+[ "$(rc "$d")" = 0 ] && has "$(out "$d")" '^ALLOW-ONLY-CONF ' && ! has "$(out "$d")" 'STRICT-FAIL' && ok "no --strict + allow-only conf → unchanged (exit 0)" || no "allow-only default changed"
 d="$TMP/strict-bad"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'prefx x\n' > "$d/.research-sdd/vendor-leak.conf"
 [ "$(rc "$d" --strict)" = 2 ] && ok "--strict + BAD-CONF → exit 2 (cannot look) outranks strict" || no "strict bad-conf rc"
 

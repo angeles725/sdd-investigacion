@@ -147,6 +147,7 @@ elif [ $(( ${#PREFIXES[@]} + ${#PATHS[@]} + ${#ALLOWS[@]} )) -eq 0 ]; then
   strict_why="EMPTY-CONF"
 elif [ $(( ${#PREFIXES[@]} + ${#PATHS[@]} )) -eq 0 ]; then
   # Only `allow` lines: nothing declares what to look for, so no vendor rule is evaluated (kit issue #1566).
+  echo "ALLOW-ONLY-CONF $conf — conf has only allow directives; no vendor prefix/path is declared, only the built-in binary rule runs"
   strict_why="ALLOW-ONLY-CONF"
 fi
 

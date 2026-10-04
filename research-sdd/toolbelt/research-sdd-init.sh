@@ -774,9 +774,9 @@ _rsdd_vendor_leak_wiring() {
   # repo root's .github/workflows — wiring here would probe the wrong repo and write a file nothing runs. Typed
   # SUBDIR state, nothing written, no success claim. Both paths are resolved physically (symlinked roots compare equal).
   local _vl_top _vl_here
-  _vl_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && _vl_here="$(cd "$target" 2>/dev/null && pwd -P)" \
+  _vl_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && _vl_here="$(CDPATH="" cd -- "$target" 2>/dev/null && pwd -P)" \
     || { echo "$tag DEGRADED could not resolve the repository root of $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  _vl_top="$(cd "$_vl_top" 2>/dev/null && pwd -P)" \
+  _vl_top="$(CDPATH="" cd -- "$_vl_top" 2>/dev/null && pwd -P)" \
     || { echo "$tag DEGRADED the repository root reported by git is not reachable from $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
   if [ "$_vl_top" != "$_vl_here" ]; then
     echo "$tag SUBDIR $target is a subdirectory of the repository rooted at $_vl_top — nothing probed, scaffolded or written (GitHub only runs workflows from the repo root's .github/workflows); run the vendor-leak wiring on $_vl_top, or create .research-sdd/vendor-leak.conf and the workflow there by hand (NOT a pass)"
@@ -811,6 +811,7 @@ _rsdd_vendor_leak_wiring() {
   local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
   case "$gh_t" in
     ''|*[!0-9]*) gh_t=0 ;;
+    *) gh_t="${gh_t#"${gh_t%%[!0]*}"}"; gh_t="${gh_t:-0}" ;;   # strip leading zeros (all zeros -> 0)
   esac
   # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
   # octal); an all-zero, non-numeric or >9-digit value is rejected. One fallback, one default.
