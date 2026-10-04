@@ -346,9 +346,11 @@ else
 fi
 
 # --- teeth: every mutant is built through lib/mutant.sh (refuses empty / identical / syntax-broken /
-# live-tree mutants) and every tooth is a mutant_tooth with EXACT good/bad exit codes plus a typed line
-# on BOTH runs, so a crashing mutant (wrong rc) is THEATER, not teeth. The mutants live under $ROOT
-# (mktemp -d, trap-cleaned above), never beside the SUT.
+# live-tree mutants) and every tooth is a mutant_tooth with EXACT good/bad exit codes, so a crashing
+# mutant (wrong rc) is THEATER, not teeth. Where the contract has a typed line it is asserted on the
+# run that emits it (and its absence on the other); TNR-7 and the mutant side of TNR-8 are the silent
+# no-match contract (rc 2, empty output) and instead assert no bash runtime error on the mutant run.
+# The mutants live under $ROOT (mktemp -d, trap-cleaned above), never beside the SUT.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 for _fn in mutant_chain mutant_built mutant_tooth; do
@@ -448,12 +450,6 @@ echo "-- teeth 9: ENVIRON-based awk (no sub() & expansion) for target_paths_all 
 MUTANT_TP9="${ROOT}/tp-amp-mutant.sh"
 # braces make the injected statement one compound statement so the existing else branch stays valid
 if mk "teeth 9" "$MUTANT_TP9" 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|'; then
-  # (c) injected awk must parse on empty input (rc 0); isolated from the full bash context
-  _m9_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
-    || _m9_awk_rc=$?
-  if [ "$_m9_awk_rc" -eq 0 ]; then
-    ok "teeth 9 (c): injected awk parses on empty input"
-  else no "teeth 9 (c): injected awk has syntax error (crash-based theater)" "rc=$_m9_awk_rc"; fi
   out_m9_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
   if grep -qF '/rh&amp/path/tgt' <<<"$out_m9_ctrl"; then
     ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
@@ -464,9 +460,9 @@ if mk "teeth 9" "$MUTANT_TP9" 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub
     --bad-lacks '/rh&amp/path/tgt' -- \
     "$BASH_BIN" --norc -c "source '@SUT@'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9"
 fi
-# Sabotage: the old injection (no braces → orphan else) is an awk syntax error → crash. Assertion (c)
-# must catch it: the broken program must return non-zero on parse.
-echo "-- teeth 9 sabotage: old broken-awk injection caught by assertion (c) --"
+# Sabotage: the old injection (no braces → orphan else) is an awk syntax error → crash. The tooth above
+# requires mutant rc 0, so a crash cannot pass; the broken program must return non-zero on parse.
+echo "-- teeth 9 sabotage: old broken-awk injection is a non-zero awk parse --"
 _sab9_rc=0
 echo '' | awk 'BEGIN { rh="" }
   {
@@ -477,13 +473,16 @@ echo '' | awk 'BEGIN { rh="" }
       print
   }' >/dev/null 2>&1 || _sab9_rc=$?
 if [ "$_sab9_rc" -ne 0 ]; then
-  ok "teeth 9 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
+  ok "teeth 9 sabotage: crash-prone awk exits non-zero on parse (crash is not a bite)"
 else no "teeth 9 sabotage: old broken awk parsed — sabotage detection ineffective"; fi
 
 # Teeth for target_name_for_retro (kit issue #1287): each mutant is vetted by lib/mutant.sh and must
 # flip the specific case that guards the behavior it removes — rc AND typed output asserted on BOTH runs.
 echo "-- teeth TNR: target_name_for_retro mutants --"
 M="${ROOT}/tnr-mutant"
+# NODIR: the typed no-resolving-path refusal; RTERR: bash runtime errors that would make a mutant's rc a crash.
+NODIR='resolves to a directory'
+RTERR='integer expression expected|syntax error|unbound variable'
 # TNR-1: keep walking after the first match -> OUTERMOST registered ancestor wins (case 14).
 if mk "teeth TNR-1" "$M-1.sh" 's|break 2   # SENTINEL-TNR-NEAREST.*|:|'; then
   tnr_tt "teeth TNR-1: outermost-ancestor mutant flips case 14 (has teeth)" 0 0 "$M-1.sh" "$TN14a" "$ri" "$ROOT" \
@@ -524,18 +523,22 @@ if mk "teeth TNR-6" "$M-6.sh" '/contains whitespace and cannot be a label/d'; th
 fi
 # TNR-7: no-match returns 0 instead of 2 (case 18).
 if mk "teeth TNR-7" "$M-7.sh" 's/\[ "\$hit" -ge 0 \] || return 2/[ "$hit" -ge 0 ] || return 0/'; then
-  tnr_tt "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)" 2 0 "$M-7.sh" "$TN1" "$(mkretro "$N/stranger")" "$ROOT"
+  tnr_tt "teeth TNR-7: no-match-rc mutant flips case 18 (has teeth)" 2 0 "$M-7.sh" "$TN1" "$(mkretro "$N/stranger")" "$ROOT" \
+    --good-lacks "$RTERR" --bad-lacks "$RTERR"
 fi
 # TNR-8: drop the no-resolving-path guard -> a wrong RESEARCH_HOME reads as rc 2 no-match (21a/21d).
 if _r="$(blk "$LIB" 'SENTINEL-TNR-NODIR-START' 'SENTINEL-TNR-NODIR-END')"; then
   if mk "teeth TNR-8" "$M-8.sh" "${_r}d"; then
-    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21a to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
-    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21d to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$"
+    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21a to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN15" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$" \
+      --good-has "$NODIR" --bad-lacks "$NODIR|$RTERR"
+    tnr_tt "teeth TNR-8: no-dir-guard mutant flips case 21d to rc 2 (has teeth)" 1 2 "$M-8.sh" "$TN21d" "$(mkretro "$N/rhp")" "/nonexistent-research-home-$$" \
+      --good-has "$NODIR" --bad-lacks "$NODIR|$RTERR"
   fi
 else no "teeth TNR-8: locate exact SENTINEL-TNR-NODIR block in LIB" "anchor missing or ambiguous — LIB drifted?"; fi
 # TNR-8b: drop the "$RESEARCH_HOME rows exist" scope -> an absolute-only ghost registry becomes rc 1 (21c).
 if mk "teeth TNR-8b" "$M-8b.sh" 's/ && \[ "\$_tnr_has_rh" -eq 1 \]//'; then
-  tnr_tt "teeth TNR-8b: unscoped no-dir guard flips case 21c to rc 1 (has teeth)" 2 1 "$M-8b.sh" "$TN21c" "$(mkretro "$N/middle")" "$ROOT"
+  tnr_tt "teeth TNR-8b: unscoped no-dir guard flips case 21c to rc 1 (has teeth)" 2 1 "$M-8b.sh" "$TN21c" "$(mkretro "$N/middle")" "$ROOT" \
+    --good-lacks "$NODIR|$RTERR" --bad-has "$NODIR" --bad-lacks "$RTERR"
 fi
 # TNR-9: select the row from the WHOLE line instead of the Path cell (case 22a).
 if mk "teeth TNR-9" "$M-9.sh" 's/index(\$4, want)/index($0, want)/'; then
