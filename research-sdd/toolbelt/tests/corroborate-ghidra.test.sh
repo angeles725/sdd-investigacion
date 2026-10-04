@@ -314,9 +314,11 @@ PY
     td_gh="$(mktemp -d)"
     cp -R "$HERE/../lib" "$td_gh/lib"
     cp -p "$HERE/../analysis_manifest.py" "$td_gh/analysis_manifest.py"
-    # Delete exactly the inline guard: from the `if` line through its warn_evidence( line.
+    # Delete exactly the two-line inline guard: the `if` line AND the line right after it, only when that next
+    # line is the warn_evidence( call. Any other shape leaves the file unchanged and mutant_chain refuses the
+    # byte-identical mutant loudly — the deletion can never silently grow.
     mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
-      '/if completeness not in ("complete","partial"):/,/warn_evidence(/d'
+      '/if completeness not in ("complete","partial"):/{N;/\n[[:space:]]*warn_evidence(/d;}'
     mut_rc=$?
     if [ "$mut_rc" -eq 0 ]; then
       mkheadless nonzero
