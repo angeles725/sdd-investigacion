@@ -2271,6 +2271,32 @@ else no "#1258 SL14: rc=$RC log=$(sl_last "$TSL14") err=$(cat "$ROOT/sl14.err")"
 #   * the jq round-trip case above (jq absent).
 # Every conditional case therefore appears as PASS/FAIL or as a counted '  SKIP  ' line.
 
+# ─── (#1705) seeder exit 3 = UNKNOWN mutation outcome: its own typed line, never success, never the failed path ──
+U_UNK_BODY="printf 'unknown-outcome: gh issue create failed for row 1\n'; printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=1 failed=0\n'; printf 'mutation-summary: confirmed=0 no_write=0 unknown=1\n'; exit 3"
+U_UNK_NOSUM_BODY="printf 'unknown-outcome: gh issue create failed for row 1\n'; exit 3"
+U_FAIL2_BODY="printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\n'; printf 'mutation-summary: confirmed=0 no_write=1 unknown=0\n'; exit 2"
+U_OK0_BODY="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=0\n'; printf 'mutation-summary: confirmed=1 no_write=0 unknown=0\n'; exit 0"
+mk_u_kit "$ROOT/ukit_unk" "$U_UNK_BODY"; mk_u_kit "$ROOT/ukit_unknosum" "$U_UNK_NOSUM_BODY"
+mk_u_kit "$ROOT/ukit_fail2" "$U_FAIL2_BODY"; mk_u_kit "$ROOT/ukit_ok0" "$U_OK0_BODY"
+mk_u_target "$ROOT/tu_unk" k1-sess; mk_u_target "$ROOT/tu_unknosum" k2-sess; mk_u_target "$ROOT/tu_fail2" k3-sess; mk_u_target "$ROOT/tu_ok0" k4-sess
+run_u "$ROOT/ukit_unk/toolbelt/retro-gate.sh" "$ROOT/tu_unk" k1-sess; ERR_K1="$ERR"
+if grep -qE 'WARN: 1 issue create\(s\) have an UNKNOWN outcome across 1 retro\(s\): .*verify on GitHub before re-running; never blind-retry' <<<"$ERR_K1" \
+   && grep -qE 'failed=0 failed-issues=0 .*unknown-outcome-retros=1' <<<"$ERR_K1" && ! grep -q 'issue create(s) failed' <<<"$ERR_K1"; then
+  ok "#1705 K1: seeder exit 3 → typed UNKNOWN-outcome line (count from mutation-summary), failed=0, not the failed path"
+else no "#1705 K1: exit 3 unknown line" "got: $ERR_K1"; fi
+run_u "$ROOT/ukit_unknosum/toolbelt/retro-gate.sh" "$ROOT/tu_unknosum" k2-sess; ERR_K2="$ERR"
+if grep -qE 'WARN: unknown issue create\(s\) have an UNKNOWN outcome' <<<"$ERR_K2"; then
+  ok "#1705 K2: exit 3 without a mutation-summary: → count reads 'unknown', never a fabricated number"
+else no "#1705 K2: exit 3 without mutation-summary" "got: $ERR_K2"; fi
+run_u "$ROOT/ukit_fail2/toolbelt/retro-gate.sh" "$ROOT/tu_fail2" k3-sess; ERR_K3="$ERR"
+if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K3" && ! grep -q 'UNKNOWN outcome' <<<"$ERR_K3"; then
+  ok "#1705 K3: seeder exit 2 keeps the failed path (no UNKNOWN line)"
+else no "#1705 K3: exit 2 failed path" "got: $ERR_K3"; fi
+run_u "$ROOT/ukit_ok0/toolbelt/retro-gate.sh" "$ROOT/tu_ok0" k4-sess; ERR_K4="$ERR"
+if grep -qE 'created=1 .* failed=0 failed-issues=0 .*unknown-outcome-retros=0' <<<"$ERR_K4" && ! grep -q 'UNKNOWN outcome\|WARN' <<<"$ERR_K4"; then
+  ok "#1705 K4: seeder exit 0 unchanged (no WARN, unknown-outcome-retros=0)"
+else no "#1705 K4: exit 0 unchanged" "got: $ERR_K4"; fi
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -3680,6 +3706,13 @@ u_teeth u-nofailed-coerced-zero "$ROOT/ukit_nofailed" "$ROOT/tu_nofailed" u4-ses
 u_teeth u-absent-not-first "$ROOT/ukit_absent" "$ROOT/tu_absent" u2-sess \
   'created=0 .* absent=1 failed=0 ' 'created=2 .* absent=0 failed=0 ' \
   's/^    if \[ "\$_absent_typed" -eq 1 \]; then$/    if [ "$_absent_typed" -eq 99 ]; then/'
+
+u_teeth u-unknown-as-failed "$ROOT/ukit_unk" "$ROOT/tu_unk" k1-sess \
+  'UNKNOWN outcome across 1 retro' 'issue create\(s\) failed across 1 retro' \
+  's/^    if \[ "\$seed_rc" -eq 3 \] \&\& \[ "\$_absent_typed" -eq 0 \]; then$/    if [ "$seed_rc" -eq 99 ] \&\& [ "$_absent_typed" -eq 0 ]; then/'
+u_teeth u-unknown-count-zero "$ROOT/ukit_unknosum" "$ROOT/tu_unknosum" k2-sess \
+  'WARN: unknown issue create\(s\) have an UNKNOWN' 'WARN: 0 issue create\(s\) have an UNKNOWN' \
+  's/^        unknown_issues_unknown=1 .*$/        unknown_issues=0/'
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently
