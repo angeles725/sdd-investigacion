@@ -143,7 +143,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   done
 
-  _TR="$(mktemp -d)"; trap 'rm -rf "$_TR"' EXIT
+  _TR="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_TR"' EXIT
   _SUT_PY="$HERE/../squashfs_extract.py"
   _MANIFEST="$HERE/../analysis_manifest.py"
   _PYPATH="$HERE/../lib"

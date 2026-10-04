@@ -425,7 +425,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     's/if \[ "\${_cmsg_rev_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_cmsg_rev_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
     && tooth "teeth-deg: probe-neutered mutant no DEGRADED output → test 29 has teeth" 3 0 "$mutant_deg" \
          --good-has 'degraded|git not' --bad-lacks 'degraded|git not' \
-         -- env PATH="$_stub_no_git" bash @SUT@ --committed "$d_deg"
+         -- env PATH="$_stub_no_git" TMPDIR="$MUT" bash @SUT@ --committed "$d_deg"
 
   # Teeth for tests 31 (B1: -e required) and 32-34 (B2: :(glob) pathspecs).
   # Mutant-b1: remove '-e' from scan()'s filter grep so PEM pattern (-----BEGIN…) is parsed as an option.

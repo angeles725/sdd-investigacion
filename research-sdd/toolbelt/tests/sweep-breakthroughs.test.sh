@@ -817,7 +817,7 @@ mut_pass=0; mut_fail=0
 mut_ok() { printf '  PASS  [teeth] %-56s %s\n' "$1" "${2:-}"; mut_pass=$((mut_pass+1)); }
 mut_no() { printf '  FAIL  [teeth] %-56s %s\n' "$1" "${2:-}"; mut_fail=$((mut_fail+1)); }
 
-MUTANT_DIR="$(mktemp -d)"; trap 'rm -rf "$MUTANT_DIR"' EXIT
+MUTANT_DIR="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUTANT_DIR"' EXIT
 
 mutate_sut() {
   # $1=mutation_description (documentation only — not stored) $2=sed_script

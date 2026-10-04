@@ -308,7 +308,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (defense-in-depth, not test isolation). The intra-root path stays within root, so
   # only the ".." guard can catch it: mutant accepts it (rc=0), SUT rejects it (rc=2).
   python3 - "$SUT" <<'PY'
-import sys, json, subprocess, tempfile
+import sys, json, subprocess, tempfile, atexit, shutil
 from pathlib import Path
 sut = Path(sys.argv[1]); src = sut.read_text()
 old = 'any(part in ("", ".", "..") for part in path.parts)'
@@ -316,7 +316,8 @@ if old not in src:
     print("MUTANT-SETUP-FAIL: traversal guard not found -- SUT changed?", file=sys.stderr)
     sys.exit(2)
 mut = src.replace(old, 'any(part in ("", ".") for part in path.parts)', 1)
-mp = Path(tempfile.mkdtemp()) / "analysis_manifest.py"; mp.write_text(mut)
+mdir = tempfile.mkdtemp(); atexit.register(shutil.rmtree, mdir, True)
+mp = Path(mdir) / "analysis_manifest.py"; mp.write_text(mut)
 def run_sut(*args):
     return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
 def run_mut(*args):
@@ -363,7 +364,7 @@ PY
   # 'LANG' is in ENV_ALLOWLIST, so only SECRET_VALUE_RE.search(item) blocks 'Bearer abc123'.
   # With that check disabled the value passes; the assertion at lines ~87-91 goes RED.
   python3 - "$SUT" <<'PY'
-import sys, json, subprocess, tempfile
+import sys, json, subprocess, tempfile, atexit, shutil
 from pathlib import Path
 sut = Path(sys.argv[1]); src = sut.read_text()
 old = "SECRET_VALUE_RE.search(item)"
@@ -371,7 +372,8 @@ if old not in src:
     print("MUTANT-SETUP-FAIL: SECRET_VALUE_RE.search(item) not found -- SUT changed?", file=sys.stderr)
     sys.exit(2)
 mut = src.replace(old, "False  # MUTANT: secret value check disabled", 1)
-mp = Path(tempfile.mkdtemp()) / "analysis_manifest.py"; mp.write_text(mut)
+mdir = tempfile.mkdtemp(); atexit.register(shutil.rmtree, mdir, True)
+mp = Path(mdir) / "analysis_manifest.py"; mp.write_text(mut)
 def run_sut(*args):
     return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
 def run_mut(*args):

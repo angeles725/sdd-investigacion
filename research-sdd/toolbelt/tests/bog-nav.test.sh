@@ -647,7 +647,6 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="
   exit 1
 fi
-MUTDIR="$(mktemp -d)"
 
 # --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
 # Mutation: os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK → os.O_RDONLY | _O_NONBLOCK

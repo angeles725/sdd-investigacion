@@ -32,8 +32,10 @@ unset RSDD_BREW_PREFIX HOMEBREW_PREFIX
 unset R2 RSDD_R2_USRBIN ILSPYCMD
 unset RSDD_DOTNET_ROOT DOTNET_ROOT
 unset RSDD_SYSTEM_PKGCONFIG_PATH PKG_CONFIG_PATH PKG_CONFIG_BIN
+# Trap-referenced teeth dirs: never inherit a caller's value into the EXIT trap's rm -rf.
+unset TMP_TEETH TMP_TEETH_R2
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "${TMP_TEETH:-}" "${TMP_TEETH_R2:-}"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-52s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-52s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -287,7 +289,6 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: canonical tool-home JAR candidates must be required by test 2 --"
   TMP_TEETH="$(mktemp -d)"
-  trap 'rm -rf "$ROOT" "$TMP_TEETH"' EXIT
   sed 's|\$tool_home/java/|/dev/null/no-such-dir/|g' "$LIB" > "$TMP_TEETH/tool-env-mut.sh"
   vf_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
     bash -c 'source "$1"; rsdd_resolve_java_jar vineflower' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
@@ -310,7 +311,6 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth 10: brew-opt candidate removal breaks rsdd_resolve_r2 brew resolution --"
   TMP_TEETH_R2="$(mktemp -d)"
-  trap 'rm -rf "$ROOT" "$TMP_TEETH_R2"' EXIT
   sed 's|radare2/bin/r2|radare2/bin/R2-GONE|g' "$LIB" > "$TMP_TEETH_R2/tool-env-r2-mut.sh"
   # Source under normal PATH ($1 = mutant lib, $2 = restricted PATH value for the call).
   r2_mut_result="$(RSDD_BREW_PREFIX="$ROOT/r2-brew" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" \

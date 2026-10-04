@@ -699,7 +699,6 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="
   exit 1
 fi
-MUTDIR="$(mktemp -d)"
 
 # --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
 # Expected: symlink input followed → exit 0 (not 2) → T2 DETECTED
