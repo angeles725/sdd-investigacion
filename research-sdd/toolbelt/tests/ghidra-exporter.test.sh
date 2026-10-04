@@ -4,7 +4,7 @@
 # Lane contract (lib/test-lane.sh):
 #   fast (default) — fixture-based schema/cap/isolation assertions. No Ghidra spawn.
 #                    Always emits "== N passed · N failed ==".
-#   slow           — real Ghidra run; requires Ghidra 12.1.2, gcc, python3, java21.
+#   slow           — real Ghidra run; requires Ghidra 12.1.x, gcc, python3, java21.
 #   all            — both fast and slow paths.
 #
 # ANTI-#128 NOTE — do NOT remove or move these slow-only guards to fast lane:
@@ -70,10 +70,15 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   if [[ "$_slow_skip" -eq 0 ]]; then
     _version="$(awk -F= '$1=="application.version"{print $2}' \
       "$_GHIDRA_HOME/Ghidra/application.properties")"
-    if [ "$_version" != "12.1.2" ]; then
-      no "slow: expected Ghidra 12.1.2, found $_version"
-      _slow_skip=1
-    fi
+    # The slow cases assert the exporter's behavior on a real run, not the Ghidra version
+    # string, so any 12.1.x patch release is accepted (schema v1 is authored against the 12.1
+    # program model). A different major.minor is environmental: typed SKIP, never FAIL (#1588).
+    case "$_version" in
+      12.1.*) ;;
+      *)
+        printf '  SKIP  slow S1-S6 real-Ghidra cases: Ghidra 12.1.x required, found %s\n' "${_version:-unknown}"
+        _slow_skip=1 ;;
+    esac
   fi
 
   if [[ "$_slow_skip" -eq 0 ]]; then

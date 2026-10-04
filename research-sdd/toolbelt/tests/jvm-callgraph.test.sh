@@ -87,10 +87,20 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     # S1: offline Maven build
     if "$WRAPPER" build >"$ROOT/build.log" 2>&1; then
       ok "S1: offline Java 21 Maven build"
+    elif grep -qE "Cannot access .* in offline mode|could not be resolved|has not been downloaded from it before" "$ROOT/build.log"; then
+      # The offline Maven repo lacks the pinned plugins/deps (jvm-callgraph.sh bootstrap was never
+      # run on this host; it needs network). Environmental: typed SKIP for every case that needs
+      # the analyzer jar — S9/S10/S12 would otherwise "fail closed" vacuously on a missing jar
+      # (analyzer-missing exit 3) — never a FAIL and never a silent pass (#1588).
+      printf '  SKIP  S1-S13 analyzer cases: offline Maven repo lacks pinned deps (run jvm-callgraph.sh bootstrap): %s\n' \
+        "$(grep -m1 -E 'Cannot access|could not be resolved' "$ROOT/build.log" | cut -c1-160)"
+      _slow_skip=1
     else
       no "S1: offline Java 21 Maven build" "$(tail -5 "$ROOT/build.log")"
     fi
+  fi # S1 gate
 
+  if [[ "$_slow_skip" -eq 0 ]]; then
     # Build fixture jar (App→Router→Transform→Sink chain).
     # App has a side-effecting static initialiser that writes MARKER if the class is
     # loaded at runtime; the CHA analysis must never execute the fixture.
