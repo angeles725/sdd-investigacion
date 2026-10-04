@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import zipfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -99,7 +100,10 @@ def jar_inventory(path: Path, max_files: int, max_bytes: int, max_classes: int) 
                     or entry.as_posix() != name or stat.S_ISLNK(mode) or item.filename in names):
                 raise CorroborationError(f"unsafe or duplicate JAR entry: {item.filename}")
             names.add(item.filename)
-        corrupt = archive.testzip()
+        try:
+            corrupt = archive.testzip()
+        except (zlib.error, EOFError, NotImplementedError) as exc:  # a damaged deflate stream is a typed failure, not a crash
+            raise CorroborationError(f"corrupt JAR entry: {exc.__class__.__name__}") from exc
         if corrupt is not None:
             raise CorroborationError(f"corrupt JAR entry: {corrupt}")
     class_entries = sorted(item.filename for item in entries if not item.is_dir() and item.filename.endswith(".class"))
@@ -120,7 +124,17 @@ def jar_inventory(path: Path, max_files: int, max_bytes: int, max_classes: int) 
 # The threshold is deliberately conservative: every class at or above it is flagged. A flag means
 # "syntax-level claims need bytecode evidence", never "the decompilation is wrong".
 RESUGAR_MIN_MAJOR = 53
-MAX_CLASS_BYTES = 64 * 1024 * 1024
+MAX_CLASS_BYTES = int(os.environ.get("RSDD_CLASSFACTS_MAX_CLASS_BYTES", str(64 * 1024 * 1024)))
+# Bounds for the standalone `classfile-facts` mode. They reuse the main path's defaults (--max-files 20000,
+# --max-bytes 1 GiB); the main path itself is already bounded by jar_inventory before any fact is read.
+# Overridable for tests and unusual inputs; an overflow is typed (truncated=entry-cap|byte-cap), never a silent count.
+FACTS_MAX_ENTRIES = int(os.environ.get("RSDD_CLASSFACTS_MAX_ENTRIES", "20000"))
+FACTS_MAX_EXPANDED_BYTES = int(os.environ.get("RSDD_CLASSFACTS_MAX_BYTES", str(1024 * 1024 * 1024)))
+CLASS_MAGIC = b"\xca\xfe\xba\xbe"
+CLASS_HEADER_LEN = 8                                 # magic(4) + minor(2) + major(2)
+CLASS_MAJOR_OFFSET = 6                               # major_version: bytes 6-7, big-endian
+CP_UTF8 = 1
+CP_WIDE_TAGS = (5, 6)                                # Long, Double: occupy two constant-pool slots
 
 
 class ClassFileError(ValueError):
@@ -156,18 +170,18 @@ def _attributes(reader: _Reader, names: dict[int, bytes]) -> list[tuple[bytes, b
 
 def _scan_local_variable_table(data: bytes) -> bool:
     """True when any method's Code attribute carries a LocalVariableTable; raises ClassFileError on bad bytes."""
-    reader = _Reader(data, 8)
+    reader = _Reader(data, CLASS_HEADER_LEN)
     names: dict[int, bytes] = {}
     index, count = 1, reader.u2()
     while index < count:
         tag = reader.take(1)[0]
-        if tag == 1:
+        if tag == CP_UTF8:
             names[index] = reader.take(reader.u2())
         elif tag in _CP_FIXED:
             reader.take(_CP_FIXED[tag])
         else:
             raise ClassFileError("bad-constant-pool-tag")
-        index += 2 if tag in (5, 6) else 1
+        index += 2 if tag in CP_WIDE_TAGS else 1
     reader.take(6)                                   # access_flags, this_class, super_class
     reader.take(2 * reader.u2())                     # interfaces
     found = False
@@ -188,11 +202,11 @@ def _null_facts(reason: str) -> dict[str, Any]:
 
 def class_file_facts(data: bytes) -> dict[str, Any]:
     """Facts for one class file. An unreadable header gives null facts plus a reason, never a fake 0."""
-    if len(data) < 8:
+    if len(data) < CLASS_HEADER_LEN:
         return _null_facts("truncated-header")
-    if data[:4] != b"\xca\xfe\xba\xbe":
+    if data[:4] != CLASS_MAGIC:
         return _null_facts("bad-magic")
-    major = int.from_bytes(data[6:8], "big")
+    major = int.from_bytes(data[CLASS_MAJOR_OFFSET:CLASS_MAJOR_OFFSET + 2], "big")
     facts: dict[str, Any] = {"major_version": major, "has_LocalVariableTable": None,
                              "resugar_risk": major >= RESUGAR_MIN_MAJOR, "reason": None}
     try:
@@ -207,7 +221,9 @@ def read_class_facts(archive: zipfile.ZipFile, entry: str) -> dict[str, Any]:
         if archive.getinfo(entry).file_size > MAX_CLASS_BYTES:
             return _null_facts("entry-too-large")
         return class_file_facts(archive.read(entry))
-    except (KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+    except (zlib.error, EOFError, NotImplementedError, zipfile.BadZipFile):
+        return _null_facts("corrupt-entry")
+    except (KeyError, OSError, RuntimeError):
         return _null_facts("unreadable-entry")
 
 
@@ -222,21 +238,36 @@ def summarize_facts(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def classfile_facts_cli(path: Path) -> int:
-    """`corroborate_java.py classfile-facts <in.jar|in.class>`: one CLASSFILE header line for decompile-java.sh."""
+    """`corroborate_java.py classfile-facts <in.jar|in.class>`: one CLASSFILE line for decompile-java.sh."""
+    fields = "classes={} resugar_risk={} unreadable={} truncated={}"
+    truncated = "none"
     try:
         if zipfile.is_zipfile(path):
             with zipfile.ZipFile(path) as archive:
-                records = [read_class_facts(archive, n) for n in sorted(archive.namelist()) if n.endswith(".class")]
+                names = sorted(n for n in archive.namelist() if n.endswith(".class"))
+                if len(names) > FACTS_MAX_ENTRIES:
+                    names, truncated = names[:FACTS_MAX_ENTRIES], "entry-cap"
+                records, spent = [], 0
+                for name in names:
+                    size = archive.getinfo(name).file_size
+                    if spent + size > FACTS_MAX_EXPANDED_BYTES:
+                        truncated = "byte-cap"; break
+                    spent += size; records.append(read_class_facts(archive, name))
         else:
-            records = [class_file_facts(path.read_bytes())]
-    except (OSError, zipfile.BadZipFile) as exc:
-        print(f"CLASSFILE major=unknown lvt=unknown classes=0 resugar_risk=unknown unreadable=unknown reason=unreadable-input({exc.__class__.__name__})")
+            if path.stat().st_size > MAX_CLASS_BYTES:
+                records, truncated = [_null_facts("entry-too-large")], "none"
+            else:
+                records = [class_file_facts(path.read_bytes())]
+    except (OSError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as exc:
+        print("CLASSFILE major=unknown lvt=unknown " + fields.format("unknown", "unknown", "unknown", "unknown")
+              + f" reason=unreadable-input({exc.__class__.__name__})")
         return 0
     summary = summarize_facts(records)
     majors = summary["major_versions"]
     major = "unknown" if not majors else str(majors[0]) if len(majors) == 1 else f"{majors[0]}-{majors[-1]}"
-    print(f"CLASSFILE major={major} lvt={summary['lvt']} classes={summary['classes']} "
-          f"resugar_risk={'unknown' if not majors else 'yes' if summary['resugar_risk_classes'] else 'no'} unreadable={summary['unreadable_classes']}")
+    risk = "unknown" if not majors else "yes" if summary["resugar_risk_classes"] else "no"
+    line = f"CLASSFILE major={major} lvt={summary['lvt']} " + fields.format(summary["classes"], risk, summary["unreadable_classes"], truncated)
+    print(line + (f" reason=facts-truncated:{truncated}" if truncated != "none" else ""))
     return 0
 
 

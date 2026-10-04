@@ -73,7 +73,10 @@ or JDK dependency, nothing is executed, and they are present even when an engine
 `reason` tokens: `truncated-header` (fewer than 8 bytes), `bad-magic` (not `CAFEBABE`),
 `truncated-body` (header read, the rest ended early: `major_version` and `resugar_risk`
 stay set, `has_LocalVariableTable` is `null`), `bad-constant-pool-tag`, `entry-too-large`
-(over 64 MiB), `unreadable-entry` (the archive entry could not be read). A class whose
+(over 64 MiB), `corrupt-entry` (damaged deflate stream or unsupported compression),
+`unreadable-entry` (the archive entry could not be read). A JAR with a corrupt entry is rejected
+by the full run before publication (`corroborate-java: corrupt JAR entry`, rc 2); `corrupt-entry`
+appears in the standalone `classfile-facts` mode, which keeps going. A class whose
 header cannot be read gets `major_version: null` plus its reason, never a fake `0`: an
 unreadable class is not a version-0 class.
 
@@ -91,11 +94,20 @@ every class from Java 9 up) and is the constant `RESUGAR_MIN_MAJOR` in
 evidence (`javap -c -p`); it does not say the decompilation is wrong. Classes at or below
 major 52 are not flagged, but that is not a fidelity guarantee either.
 
-`decompile-java.sh` prints the aggregate as its first stdout line (also available as
-`python3 corroborate_java.py classfile-facts <in.jar|in.class>`):
-`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N`,
-plus a `WARN:` on stderr that syntax-level claims need bytecode evidence. When the helper
-cannot run, the line is `CLASSFILE major=unknown lvt=unknown reason=facts-unavailable`.
+`decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
+`OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
+available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`:
+`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N truncated=<none|entry-cap|byte-cap>`,
+plus a `WARN:` that syntax-level claims need bytecode evidence.
+
+The standalone mode is bounded like the main path (defaults 20000 class entries, 1 GiB
+expanded bytes, 64 MiB per class; overridable with `RSDD_CLASSFACTS_MAX_ENTRIES`,
+`RSDD_CLASSFACTS_MAX_BYTES`, `RSDD_CLASSFACTS_MAX_CLASS_BYTES`). An overflow reads
+`truncated=<cap>` and `reason=facts-truncated:<cap>`, never a silent partial count. The wrapper
+runs it under the engines' `--timeout`. When the helper cannot report, the line keeps the same
+field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
+python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
+line follows as a `WARN:`).
 
 ## Trust and isolation
 

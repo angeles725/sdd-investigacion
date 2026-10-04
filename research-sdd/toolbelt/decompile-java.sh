@@ -7,15 +7,18 @@
 #                     [--thread-count N] [--timeout SECONDS] [--fallback-engine cfr|procyon|vineflower|none]
 #   decompile-java.sh --javap <Class.class>      # signatures + bytecode (javap -p -c)
 #
-# Class-file facts header (kit issue #1205): BEFORE any engine runs, stdout gets one line read straight from the
-# class-file bytes (no javap dependency; see corroborate_java.py classfile-facts):
-#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N
+# Class-file facts header (kit issue #1205): BEFORE any engine runs, STDERR gets one line read straight from the
+# class-file bytes (no javap dependency; see corroborate_java.py classfile-facts). It is on stderr so the typed
+# result stays the first stdout line:
+#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N truncated=<none|entry-cap|byte-cap>
 #   major = class-file major version (52 = Java 8 ... 65 = Java 21; a range when the input mixes versions), lvt = whether
 #   method Code carries a LocalVariableTable (mixed = some classes do, some do not), resugar_risk=yes when any class is
 #   major >= 53 (Java 9+: lowered constructs such as indy string concatenation that a decompiler re-sugars).
 #   An unreadable class contributes NO fake version: it is counted in unreadable=N, and when nothing is readable the
-#   fields read unknown. When the helper cannot run the line is `CLASSFILE major=unknown lvt=unknown reason=facts-unavailable`
-#   (typed, never silent) and decompilation continues. stderr always carries one WARN: decompiled source is a
+#   fields read unknown. Helper failures keep the SAME field set (all unknown) with a typed reason= suffix:
+#   reason=facts-unavailable (helper/python3 absent), reason=facts-timeout (killed by --timeout), reason=facts-error rc=N
+#   (helper crashed; its first stderr line follows as a WARN). An over-cap input reads truncated=entry-cap|byte-cap plus
+#   reason=facts-truncated:<cap>. Decompilation always continues. stderr always carries one WARN: decompiled source is a
 #   reconstruction, so syntax-level claims need bytecode evidence (`--javap` / `javap -c -p`), not the decompiled text.
 #
 # Bounded timeout + automatic fallback (kit issues #1190, #1224):
@@ -207,11 +210,32 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
   exit 3
 }
 
-# Class-file facts header (kit issue #1205): one stdout line before any engine output, plus the bytecode-evidence warning.
-if CLASSFILE_LINE="$(python3 "$HERE/corroborate_java.py" classfile-facts "$IN" 2>/dev/null)" && [ -n "$CLASSFILE_LINE" ]; then
-  echo "$CLASSFILE_LINE"
+# Class-file facts header (kit issue #1205): one CLASSFILE line on STDERR plus the bytecode-evidence warning. STDERR, not
+# stdout: consumers read the typed OK/DEGRADED/PARTIAL result as the first stdout line (README, METHODOLOGY "Java
+# decompile status is typed", this suite, java-fidelity-experiment.sh logs), so stdout is unchanged. The helper runs
+# under the same timeout as the engines. Three distinct failure tokens, one field set: facts-unavailable (helper or
+# python3 absent), facts-timeout (killed by the timeout), facts-error rc=<n> (helper ran and failed; first stderr line shown).
+CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown"
+CF_HELPER="$HERE/corroborate_java.py"
+if [ ! -f "$CF_HELPER" ] || ! command -v python3 >/dev/null 2>&1; then
+  echo "$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2
 else
-  echo "CLASSFILE major=unknown lvt=unknown reason=facts-unavailable"
+  CF_ERR="$(mktemp)"; cf_rc=0; CLASSFILE_LINE=""
+  if [ "$TIMEOUT" -gt 0 ]; then
+    CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
+  else
+    CLASSFILE_LINE="$(python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
+  fi
+  if [ "$cf_rc" -eq 0 ] && [ -n "$CLASSFILE_LINE" ]; then
+    echo "$CLASSFILE_LINE" >&2
+  elif [ "$cf_rc" -eq 124 ] || [ "$cf_rc" -eq 137 ]; then
+    echo "$CLASSFILE_UNKNOWN reason=facts-timeout" >&2
+  else
+    echo "$CLASSFILE_UNKNOWN reason=facts-error rc=$cf_rc" >&2
+    CF_FIRST="$(head -n 1 "$CF_ERR" 2>/dev/null || true)"
+    [ -z "$CF_FIRST" ] || echo "WARN: classfile-facts helper: $CF_FIRST" >&2
+  fi
+  rm -f "$CF_ERR"
 fi
 echo "WARN: decompiled source is a reconstruction; syntax-level claims (string concatenation, lambdas, switch, records, generics) need bytecode evidence (javap -c -p, see --javap), not the decompiled text" >&2
 

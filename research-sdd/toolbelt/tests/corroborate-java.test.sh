@@ -336,6 +336,10 @@ with zipfile.ZipFile(fx/"facts.jar","w") as z:
     z.writestr("f8/Old.class",old); z.writestr("f21/New.class",new)
     z.writestr("bad/Trunc.class",old[:7]); z.writestr("bad/Magic.class",b"not a class file at all"); z.writestr("bad/Body.class",new[:40])
 with zipfile.ZipFile(fx/"badonly.jar","w") as z: z.writestr("bad/Trunc.class",old[:7])
+# valid central directory, damaged deflate stream: flip the first compressed bytes to an invalid block type
+with zipfile.ZipFile(fx/"corrupt.jar","w",zipfile.ZIP_DEFLATED) as z: z.writestr("f8/Old.class",old+b"A"*5000)
+raw=bytearray((fx/"corrupt.jar").read_bytes()); name_len=int.from_bytes(raw[26:28],"little"); extra_len=int.from_bytes(raw[28:30],"little")
+start=30+name_len+extra_len; raw[start:start+4]=b"\xff\xff\xff\xff"; (fx/"corrupt.jar").write_bytes(bytes(raw))
 PY
 then _fx_built=1; else no "class-file facts: fixture classes could not be built"; fi
 _fx_env=(JAVA_HOME="$ROOT/fake-java" RSDD_BWRAP=/usr/bin/bwrap RSDD_DECOMPILE_WRAPPER="$ROOT/wrapper-trap"
@@ -371,13 +375,47 @@ PY
   _cli="$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/facts.jar" 2>&1)"; _cli_rc=$?
   _cli1="$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/c8/f8/Old.class" 2>&1)"
   if [ "$_cli_rc" -eq 0 ] \
-     && [ "$_cli" = "CLASSFILE major=52-65 lvt=mixed classes=5 resugar_risk=yes unreadable=3" ] \
-     && [ "$_cli1" = "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0" ] \
-     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$ROOT/missing.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=0 resugar_risk=unknown unreadable=unknown reason=unreadable-input(FileNotFoundError)" ] \
-     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/badonly.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1" ] \
+     && [ "$_cli" = "CLASSFILE major=52-65 lvt=mixed classes=5 resugar_risk=yes unreadable=3 truncated=none" ] \
+     && [ "$_cli1" = "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 truncated=none" ] \
+     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$ROOT/missing.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown reason=unreadable-input(FileNotFoundError)" ] \
+     && [ "$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/badonly.jar" 2>&1)" = "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 truncated=none" ] \
      && ! python3 "$HERE/../corroborate_java.py" classfile-facts >/dev/null 2>&1; then
     ok "classfile-facts subcommand: aggregated CLASSFILE line for jar and .class, typed unknown for unreadable input"
   else no "classfile-facts subcommand" "got=[$_cli] [$_cli1]"; fi
+
+  # kit #1205 RDD round 1: damaged deflate stream and bounded standalone input.
+  if python3 - "$HERE/../corroborate_java.py" "$FX/corrupt.jar" <<'PY'
+import importlib.util,sys,zipfile
+spec=importlib.util.spec_from_file_location('corroborate_java',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with zipfile.ZipFile(sys.argv[2]) as z:
+    r=m.read_class_facts(z,"f8/Old.class")
+assert r=={"major_version":None,"has_LocalVariableTable":None,"resugar_risk":None,"reason":"corrupt-entry"}, r
+PY
+  then ok "corrupt deflate entry: read_class_facts returns null + reason corrupt-entry (no crash)"
+  else no "corrupt deflate entry handled by read_class_facts"; fi
+  _cc="$(python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/corrupt.jar" 2>&1)"; _cc_rc=$?
+  if [ "$_cc_rc" -eq 0 ] && [ "$_cc" = "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 truncated=none" ]; then
+    ok "classfile-facts on a corrupt-deflate JAR: typed unreadable=1, rc 0, no traceback"
+  else no "classfile-facts corrupt deflate" "rc=$_cc_rc out=[$_cc]"; fi
+  _cm="$(env "${_fx_env[@]}" "$SUT" --input "$FX/corrupt.jar" --output "$FX/out-corrupt" --timeout-seconds 2 --max-heap 128m --max-files 100 --max-bytes 1048576 --max-classes 100 2>&1)"; _cm_rc=$?
+  if [ "$_cm_rc" -eq 2 ] && grep -q 'corrupt JAR entry' <<<"$_cm" && ! grep -q Traceback <<<"$_cm" && [ ! -e "$FX/out-corrupt" ]; then
+    ok "full run on a corrupt-deflate JAR: typed rc 2 'corrupt JAR entry', no traceback, nothing published"
+  else no "full run on a corrupt-deflate JAR" "rc=$_cm_rc out=[$_cm]"; fi
+  _c1="$(RSDD_CLASSFACTS_MAX_ENTRIES=1 python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/facts.jar" 2>&1)"
+  _c2="$(RSDD_CLASSFACTS_MAX_BYTES=100 python3 "$HERE/../corroborate_java.py" classfile-facts "$FX/facts.jar" 2>&1)"
+  if [ "$_c1" = "CLASSFILE major=65 lvt=unknown classes=1 resugar_risk=yes unreadable=1 truncated=entry-cap reason=facts-truncated:entry-cap" ] \
+     && [ "$_c2" = "CLASSFILE major=65 lvt=unknown classes=3 resugar_risk=yes unreadable=3 truncated=byte-cap reason=facts-truncated:byte-cap" ]; then
+    ok "classfile-facts caps: entry-cap and byte-cap overflow is typed (truncated= and reason=facts-truncated:...), never a silent partial count"
+  else no "classfile-facts caps" "entry=[$_c1] byte=[$_c2]"; fi
+  if python3 - "$HERE/../corroborate_java.py" "$FX/c8/f8/Old.class" <<'PY'
+import contextlib,importlib.util,io,pathlib,sys
+spec=importlib.util.spec_from_file_location('corroborate_java',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.MAX_CLASS_BYTES=10; buf=io.StringIO()
+with contextlib.redirect_stdout(buf): m.classfile_facts_cli(pathlib.Path(sys.argv[2]))
+assert buf.getvalue().strip()=="CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 truncated=none", buf.getvalue()
+PY
+  then ok "classfile-facts on an oversized direct .class: typed unreadable, file is not read"
+  else no "classfile-facts oversized .class"; fi
 
   if python3 - "$HERE/../corroborate_java.py" <<'PY'
 import importlib.util,sys
@@ -500,22 +538,22 @@ PY
       local name="$1" expr="$2"; shift 2
       local mut="$td_java/mut/cf-$name.py"
       if ! mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
-      if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks 'Traceback|ImportError|ModuleNotFoundError' "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+      if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks "${FX_BAD_LACKS:-Traceback|ImportError|ModuleNotFoundError}" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     }
     R=(python3 "$ROOT/facts-runner.py" @SUT@ "$FX/facts.jar")
     fx_tooth threshold 's/^RESUGAR_MIN_MAJOR = 53$/RESUGAR_MIN_MAJOR = 66/' \
       --good-has '^f21/New\.class major=65 lvt=False risk=True ' --bad-has '^f21/New\.class major=65 lvt=False risk=False ' -- "${R[@]}"
-    fx_tooth major-offset 's/int\.from_bytes(data\[6:8\], "big")/int.from_bytes(data[4:6], "big")/' \
+    fx_tooth major-offset 's/int\.from_bytes(data\[CLASS_MAJOR_OFFSET:CLASS_MAJOR_OFFSET + 2\], "big")/int.from_bytes(data[4:6], "big")/' \
       --good-has '^f8/Old\.class major=52 ' --good-lacks 'major=0 ' --bad-has 'major=0 ' -- "${R[@]}"
-    fx_tooth header-len 's/^    if len(data) < 8:$/    if len(data) < 7:/' \
+    fx_tooth header-len 's/^    if len(data) < CLASS_HEADER_LEN:$/    if len(data) < 7:/' \
       --good-has '^bad/Trunc\.class major=None lvt=None risk=None reason=truncated-header$' \
       --bad-has '^bad/Trunc\.class major=0 ' -- "${R[@]}"
-    fx_tooth magic 's/^    if data\[:4\] != .*:$/    if False:/' \
+    fx_tooth magic 's/^    if data\[:4\] != CLASS_MAGIC:$/    if False:/' \
       --good-has '^bad/Magic\.class major=None lvt=None risk=None reason=bad-magic$' \
       --bad-has '^bad/Magic\.class major=[0-9]+ ' -- "${R[@]}"
     fx_tooth lvt-name 's/n == b"LocalVariableTable"/n == b"LocalVariableTypeTable"/' \
       --good-has '^f8/Old\.class major=52 lvt=True ' --bad-has '^f8/Old\.class major=52 lvt=False ' -- "${R[@]}"
-    fx_tooth wide-slot 's/^        index += 2 if tag in (5, 6) else 1$/        index += 1/' \
+    fx_tooth wide-slot 's/^        index += 2 if tag in CP_WIDE_TAGS else 1$/        index += 1/' \
       --good-has '^f8/Old\.class major=52 lvt=True risk=False reason=None$' \
       --bad-lacks '^f8/Old\.class major=52 lvt=True risk=False reason=None$' -- "${R[@]}"
     fx_tooth exc-table 's/code\.take(8 \* code\.u2())/code.take(0)/' \
@@ -530,8 +568,19 @@ PY
       --good-has '^SUMMARY .* unreadable=3$' --bad-has '^SUMMARY .* unreadable=0$' -- "${R[@]}"
     fx_tooth cli-range 's/f"{majors\[0\]}-{majors\[-1\]}"/str(majors[0])/' \
       --good-has 'CLASSFILE major=52-65 ' --bad-has 'CLASSFILE major=52 ' -- python3 @SUT@ classfile-facts "$FX/facts.jar"
-    fx_tooth cli-unknown-risk "s/'unknown' if not majors else 'yes'/'no' if not majors else 'yes'/" \
+    fx_tooth cli-unknown-risk "s/risk = \"unknown\" if not majors else/risk = \"no\" if not majors else/" \
       --good-has 'resugar_risk=unknown ' --bad-has 'resugar_risk=no ' -- python3 @SUT@ classfile-facts "$FX/badonly.jar"
+    fx_tooth corrupt-entry 's/^        return _null_facts("corrupt-entry")$/        return _null_facts("unreadable-entry")/' \
+      --good-has '^f8/Old\.class major=None lvt=None risk=None reason=corrupt-entry$' --bad-has 'reason=unreadable-entry$' -- python3 "$ROOT/facts-runner.py" @SUT@ "$FX/corrupt.jar"
+    # The un-caught zlib.error IS the bite here: the mutant must die with that exact traceback (rc 1), not some other crash.
+    FX_BAD_RC=1 FX_BAD_LACKS='ImportError|ModuleNotFoundError' fx_tooth corrupt-catch 's/except (zlib\.error, EOFError, NotImplementedError, zipfile\.BadZipFile):/except zipfile.BadZipFile:/' \
+      --good-has 'reason=corrupt-entry$' --bad-has 'zlib\.error' -- python3 "$ROOT/facts-runner.py" @SUT@ "$FX/corrupt.jar"
+    fx_tooth entry-cap 's/^                    names, truncated = names\[:FACTS_MAX_ENTRIES\], "entry-cap"$/                    names = names[:FACTS_MAX_ENTRIES]/' \
+      --good-has 'truncated=entry-cap reason=facts-truncated:entry-cap$' --bad-has 'truncated=none$' -- env RSDD_CLASSFACTS_MAX_ENTRIES=1 python3 @SUT@ classfile-facts "$FX/facts.jar"
+    fx_tooth byte-cap 's/^                        truncated = "byte-cap"; break$/                        pass/' \
+      --good-has 'truncated=byte-cap reason=facts-truncated:byte-cap$' --bad-has 'classes=5 .*truncated=none$' -- env RSDD_CLASSFACTS_MAX_BYTES=100 python3 @SUT@ classfile-facts "$FX/facts.jar"
+    fx_tooth direct-size 's/^            if path\.stat()\.st_size > MAX_CLASS_BYTES:$/            if False:/' \
+      --good-has 'major=unknown .*unreadable=1 truncated=none$' --bad-has 'major=52 ' -- env RSDD_CLASSFACTS_MAX_CLASS_BYTES=10 python3 @SUT@ classfile-facts "$FX/c8/f8/Old.class"
     FX_BAD_RC=2 fx_tooth cli-dispatch 's/raw\[:1\] == \["classfile-facts"\]/raw[:1] == ["classfile-facts-x"]/' \
       --good-has '^CLASSFILE ' --bad-lacks '^CLASSFILE ' -- python3 @SUT@ classfile-facts "$FX/facts.jar"
     fx_tooth report-facts 's/^            "class_facts": facts, "class_facts_summary": summarize_facts(facts),$/            "class_facts_summary": summarize_facts(facts),/' \
