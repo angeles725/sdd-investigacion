@@ -3175,7 +3175,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || ok "teeth M-1271-TIMEOUT: hang not cut off without the wrapper — K1271-i has teeth"
   else no "teeth M-1271-TIMEOUT: could not build mutant"; fi
   # M-1271-TOVALID: RSDD_GH_TIMEOUT is passed through unvalidated → 0 reaches timeout (unbounded).
-  if _k43_build k71tv -e "s#^    ''|\*\[!0-9\]\*)\$#    NEVERMATCH)#" -e 's#\[ "\$((10\#\$gh_t))" -eq 0 \]#false#'; then
+  if _k43_build k71tv -e "s#^    ''|\*\[!0-9\]\*) gh_t=0 ;;\$#    NEVERMATCH) gh_t=0 ;;#" -e 's#\[ "\$((10\#\$gh_t))" -eq 0 \]#false#'; then
     d="$(_k71_target t-tv https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
     PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71tv/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1271-TOVALID: 0 reaches timeout without validation — K1271-o has teeth" \
@@ -3260,7 +3260,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || ok "teeth M-1271-AMBIG: no refusal without the branch — K1271-q has teeth"
   else no "teeth M-1271-AMBIG: could not build mutant"; fi
   # M-1566-SUBDIR: the top-level comparison is removed → a subdirectory target is probed and wired again.
-  if _k43_build k66sd -e 's#^  if \[ -n "\$_vl_top" \] \&\& \[ "\$_vl_top" != "\$_vl_here" \]; then#  if false; then#'; then
+  if _k43_build k66sd -e 's#^  if \[ "\$_vl_top" != "\$_vl_here" \]; then#  if false; then#'; then
     d="$(_k71_target t-sd https://example.invalid/pub.git)"; mkdir -p "$d/sub"
     PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66sd/toolbelt/init.sh" "$d/sub" --corpus flat --scaffold --wire >"$TMP/k71t.out" 2>&1
     { [ -e "$d/sub/.github/workflows/vendor-leak.yml" ] && ! grep -qF 'vendor-leak: SUBDIR' "$TMP/k71t.out"; } \

@@ -776,8 +776,9 @@ _rsdd_vendor_leak_wiring() {
   local _vl_top _vl_here
   _vl_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && _vl_here="$(cd "$target" 2>/dev/null && pwd -P)" \
     || { echo "$tag DEGRADED could not resolve the repository root of $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  _vl_top="$(cd "$_vl_top" 2>/dev/null && pwd -P)" || _vl_top=""
-  if [ -n "$_vl_top" ] && [ "$_vl_top" != "$_vl_here" ]; then
+  _vl_top="$(cd "$_vl_top" 2>/dev/null && pwd -P)" \
+    || { echo "$tag DEGRADED the repository root reported by git is not reachable from $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
+  if [ "$_vl_top" != "$_vl_here" ]; then
     echo "$tag SUBDIR $target is a subdirectory of the repository rooted at $_vl_top — nothing probed, scaffolded or written (GitHub only runs workflows from the repo root's .github/workflows); run the vendor-leak wiring on $_vl_top, or create .research-sdd/vendor-leak.conf and the workflow there by hand (NOT a pass)"
     return 0
   fi
@@ -809,19 +810,16 @@ _rsdd_vendor_leak_wiring() {
   # other value falls back to 20 with a note. No `timeout` binary -> the probe runs unbounded, announced.
   local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
   case "$gh_t" in
-    ''|*[!0-9]*)
-      echo "$tag note: RSDD_GH_TIMEOUT='$gh_t' is not a positive integer — using the default 20s"
-      gh_t=20 ;;
-    *)
-      # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
-      # octal); only an all-zero value is rejected. More than 9 digits is not a sane bound either.
-      if [ "${#gh_t}" -gt 9 ] || [ "$((10#$gh_t))" -eq 0 ]; then
-        echo "$tag note: RSDD_GH_TIMEOUT='$gh_t' is not a positive integer — using the default 20s"
-        gh_t=20
-      else
-        gh_t=$((10#$gh_t))
-      fi ;;
+    ''|*[!0-9]*) gh_t=0 ;;
   esac
+  # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
+  # octal); an all-zero, non-numeric or >9-digit value is rejected. One fallback, one default.
+  if [ "${#gh_t}" -gt 9 ] || [ "$((10#$gh_t))" -eq 0 ]; then
+    echo "$tag note: RSDD_GH_TIMEOUT='${RSDD_GH_TIMEOUT-20}' is not a positive integer — using the default 20s"
+    gh_t=20
+  else
+    gh_t=$((10#$gh_t))
+  fi
   if command -v timeout >/dev/null 2>&1; then
     gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
   else

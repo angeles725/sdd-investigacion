@@ -232,6 +232,10 @@ o="$(out "$d" --tracked --strict)"
 [ "$(rc "$TMP/clean" --strict)" = 0 ] && ! has "$(out "$TMP/clean" --strict)" 'STRICT-FAIL' && ok "--strict + declared conf, clean tree → exit 0" || no "strict clean wrong"
 d="$TMP/strict-leak"; newrepo "$d"; addf "$d" a.jar; commit "$d"
 [ "$(rc "$d" --strict)" = 1 ] && ok "--strict + no conf + a finding → findings outrank (exit 1)" || no "strict finding rc"
+d="$TMP/strict-allow"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'allow docs/**\n' > "$d/.research-sdd/vendor-leak.conf"; addf "$d" src/Ok.java 'package com.acme.ok;'; commit "$d"
+o="$(out "$d" --strict)"
+[ "$(rc "$d" --strict)" = 4 ] && has "$o" '^STRICT-FAIL ALLOW-ONLY-CONF ' && ok "--strict + allow-only conf → STRICT-FAIL ALLOW-ONLY-CONF, exit 4" || no "strict allow-only wrong: $o"
+[ "$(rc "$d")" = 0 ] && ! has "$(out "$d")" 'STRICT-FAIL' && ok "no --strict + allow-only conf → unchanged (exit 0)" || no "allow-only default changed"
 d="$TMP/strict-bad"; newrepo "$d"; mkdir -p "$d/.research-sdd"; printf 'prefx x\n' > "$d/.research-sdd/vendor-leak.conf"
 [ "$(rc "$d" --strict)" = 2 ] && ok "--strict + BAD-CONF → exit 2 (cannot look) outranks strict" || no "strict bad-conf rc"
 
@@ -318,7 +322,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk "U idx-unmerged" "$SUT" "$MUT/u.sh" 's/if grep -qvE /if false \&\& grep -qvE /' \
     && tt "U unmerged conf branch removed → typed BAD-CONF lost (falls to UNREADABLE-CONF)" 2 2 "$MUT/u.sh" --good-has '^BAD-CONF .*unmerged' --bad-lacks '^BAD-CONF .*unmerged' -- bash @SUT@ "$TMP/idxmerge"
   # V: strict dropped from the scanner → EMPTY-CONF passes again.
-  mk "V strict" "$SUT" "$MUT/v.sh" 's/^\[ "\$strict" = 1 \] && \[ -n "\$strict_why" \] && exit 4/:/' \
+  mk "V strict" "$SUT" "$MUT/v.sh" 's/^  exit 4$/  :/' \
     && tt "V strict exit dropped → stub conf passes --strict" 4 0 "$MUT/v.sh" --good-has '^STRICT-FAIL EMPTY-CONF' -- bash @SUT@ "$TMP/strict-empty" --strict
   # W: STRICT-FAIL typed line dropped (exit code alone is not the contract).
   mk "W strict-line" "$SUT" "$MUT/w.sh" 's/echo "STRICT-FAIL /echo "X-FAIL /' \
@@ -326,6 +330,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # X: --strict not accepted (flag parse) → usage exit 2, not 4.
   mk "X flag" "$SUT" "$MUT/x.sh" 's/^    --strict) strict=1 ;;$/    --strict-zz) strict=1 ;;/' \
     && tt "X --strict flag unparsed → usage error" 4 2 "$MUT/x.sh" -- bash @SUT@ "$TMP/strict-empty" --strict
+  # Z: allow-only conf counted as a declaration under --strict.
+  mk "Z allow-only" "$SUT" "$MUT/z.sh" 's/^  strict_why="ALLOW-ONLY-CONF"/  strict_why=""/' \
+    && tt "Z allow-only conf accepted by --strict → exit 0" 4 0 "$MUT/z.sh" -- bash @SUT@ "$TMP/strict-allow" --strict
   # Y: template mutants — each must break the shared predicate.
   for _m in 's/ --strict$//' 's/repository: <KIT_REPOSITORY>/repository: acme\/kit/' 's/ref: <KIT_REF>/ref: main/' 's/checkout@[0-9a-f]\{40\}/checkout@v4/'; do
     sed -e "$_m" "$CI" > "$MUT/ci.yml"
