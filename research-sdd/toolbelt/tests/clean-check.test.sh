@@ -234,7 +234,7 @@ OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$F
 # findings (exit 1), never deletions. Absent/unset scratchpad is a typed state, never a quiet zero.
 cc_scratch() { # sets REPO FT SP: fresh repo, a scratchpad dir, one committed block "notes/b1.md"
   fresh; SP="$TMP/spad$n"; mkdir -p "$SP" "$REPO/notes" "$REPO/.research-sdd"
-  printf '# nothing\n' > "$REPO/.research-sdd/keep.txt"
+  printf 'sources/\n' > "$REPO/.research-sdd/keep.txt"
   printf '%s\n' "$@" > "$REPO/notes/b1.md"
   git -C "$REPO" add notes/b1.md .research-sdd/keep.txt
   git -C "$REPO" -c user.name=t -c user.email=t@example.invalid commit -q -m blk
@@ -283,6 +283,68 @@ cc_scratch "uses mentioned.sh here"
 printf 'echo hi\n' > "$SP/mentioned.sh"
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { has "UNPRESERVED-ARTIFACT $SP/mentioned.sh cited by notes/b1.md" && has "UNMANIFESTED-SCRIPT $SP/mentioned.sh" && has "CLEAN-CHECK: 2 finding(s)"; } && ok "#1207: a mentioned unmanifested script yields both typed lines" || no "both lines" "($OUT)"
+
+# ---- kit #1207 RDD round 1: boundaries, exact manifest cell, manifests excluded, preserved copies -------
+cc_scratch "Ran prerun.sh first, then tuned."
+printf 'x\n' > "$SP/run.sh"; printf 'x\n' > "$SP/prerun.sh"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNPRESERVED-ARTIFACT $SP/prerun.sh cited by notes/b1.md" && ok "#1207 boundary: prerun.sh mention reports prerun.sh" || no "boundary prerun" "($OUT)"
+if has "UNPRESERVED-ARTIFACT $SP/run.sh"; then no "#1207 boundary: run.sh is not mentioned by 'prerun.sh'" "($OUT)"; else ok "#1207 boundary: run.sh is not a substring match of prerun.sh"; fi
+cc_scratch "The layout was about the banana."
+printf 'x\n' > "$SP/out"; printf 'x\n' > "$SP/a"; printf 'x\n' > "$SP/ana"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT"; then no "#1207 boundary: short names 'out'/'a'/'ana' inside words must not match" "($OUT)"; else ok "#1207 boundary: short names inside other words do not match"; fi
+cc_scratch 'See `out` and (a) then ana, done.'
+printf 'x\n' > "$SP/out"; printf 'x\n' > "$SP/a"; printf 'x\n' > "$SP/ana"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "UNPRESERVED-ARTIFACT $SP/out " && has "UNPRESERVED-ARTIFACT $SP/a " && has "UNPRESERVED-ARTIFACT $SP/ana "; } && ok "#1207 boundary: backtick / paren / comma delimited whole-word mentions match" || no "boundary delimiters" "($OUT)"
+cc_scratch "Kept in probe.log." "also probe.log.bak and /deep/path/other.dat:12"
+printf 'x\n' > "$SP/probe.log"; printf 'x\n' > "$SP/other.dat"; printf 'x\n' > "$SP/probe.lo"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ has "$SP/probe.log cited" && has "$SP/other.dat cited"; } && ok "#1207 boundary: sentence-final period and path:line mentions match" || no "period / path:line" "($OUT)"
+if has "$SP/probe.lo cited"; then no "#1207 boundary: probe.lo must not match probe.log" "($OUT)"; else ok "#1207 boundary: a prefix of a longer name does not match"; fi
+
+# manifest: first cell, exact
+cc_scratch "nothing mentioned"
+printf 'echo\n' > "$SP/run.sh"
+mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `prerun.sh` | %064d | sh run.sh --go | B1 | h | - | EXECUTED |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNMANIFESTED-SCRIPT $SP/run.sh" && ok "#1207 manifest: run.sh is not listed by a prerun.sh row or by a later cell naming it" || no "manifest exact" "($OUT)"
+printf '| `run.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 >> "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNMANIFESTED-SCRIPT $SP/run.sh"; then no "#1207 manifest: an exact first-cell row lists the script" "($OUT)"; else ok "#1207 manifest: exact first-cell row lists the script"; fi
+
+# the manifest is a preservation record, not a block that cites the scratchpad
+cc_scratch "nothing mentioned"
+printf 'x\n' > "$SP/data.csv"; mkdir -p "$REPO/sources/probes/b1"
+printf '| script | sha256 | run/step | block | executed-on | remote-sha256 | role |\n|---|---|---|---|---|---|---|\n| `x.sh` | %064d | python x.sh data.csv | B1 | h | - | RECIPE |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+if has "UNPRESERVED-ARTIFACT $SP/data.csv"; then no "#1207: SCRIPTS-MANIFEST.md must not count as a citing block" "($OUT)"; else ok "#1207: SCRIPTS-MANIFEST.md is excluded from the citing blocks"; fi
+
+# preserved byte-identical copy
+cc_scratch "Result in probe_run.log [CERT-hw]"
+printf 'same bytes\n' > "$SP/probe_run.log"; mkdir -p "$REPO/sources/probes/b1"; printf 'same bytes\n' > "$REPO/sources/probes/b1/probe_run.log"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && ! has "UNPRESERVED-ARTIFACT"; } && ok "#1207: byte-identical copy under sources/probes/ -> not UNPRESERVED" || no "preserved copy" "(rc=$RC $OUT)"
+has "preserved-copies: 1" && ok "#1207: preserved copies are counted in the summary" || no "preserved count" "($OUT)"
+printf 'different\n' > "$REPO/sources/probes/b1/probe_run.log"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && ok "#1207: a same-named but different preserved file does not count" || no "different copy" "($OUT)"
+
+# manifest scan failure is typed DEGRADED, never 'no manifests'
+mkdir -p "$TMP/shim-mffind"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && { echo "shim-mffind: find exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$(type -P find)" > "$TMP/shim-mffind/find"
+chmod +x "$TMP/shim-mffind/find"
+cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"; printf 'x\n' > "$REPO/sources/probes/b1/f"
+CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-mffind:$PATH" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 3 ] && has "DEGRADED: manifest scan failed" && ! grep -q "^UNMANIFESTED-SCRIPT" <<<"$OUT"; } && ok "#1207: failed manifest scan -> typed DEGRADED (exit 3), not 'no manifests'" || no "manifest find rc" "(rc=$RC $OUT)"
+
+# a tracked block deleted from disk is skipped and counted, not a crash
+cc_scratch "mentions gone.dat"
+printf 'x\n' > "$SP/gone.dat"; rm -f "$REPO/notes/b1.md"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "blocks-missing-on-disk: 1"; } && ok "#1207: deleted tracked block skipped and counted (no abort)" || no "missing block" "(rc=$RC $OUT)"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
@@ -376,17 +438,40 @@ KL
   printf '# n\n' > "$CR/.research-sdd/keep.txt"; printf 'see probe_run.log\n' > "$CR/notes/b1.md"
   git -C "$CR" add notes/b1.md .research-sdd/keep.txt; git -C "$CR" -c user.name=t -c user.email=t@example.invalid commit -q -m b
   printf 'x\n' > "$CSP/probe_run.log"; printf 'echo\n' > "$CSP/tool.sh"
-  mt "scratchpad citation grep always misses" 's/grep -qF -- "\$_b" "\$TARGET_P\/\$_bp"; _g=\$?/false; _g=1/' 1 1 \
+  mt "scratchpad citation match always misses" 's/_mentions "\$_b" "\$TARGET_P\/\$_bp"; _g=\$?/false; _g=1/' 1 1 \
     --good-has 'UNPRESERVED-ARTIFACT' --bad-lacks 'UNPRESERVED-ARTIFACT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
   mt "script extension filter matches everything" 's/\*\.sh|\*\.ps1|\*\.py|\*\.java|\*\.js|\*\.rb|\*\.pl|\*\.bat|\*\.cmd|\*\.groovy|\*\.kts)   # CC-SCRIPT-EXT/*)   # CC-SCRIPT-EXT/' 1 1 \
     --good-lacks 'UNMANIFESTED-SCRIPT .*probe_run' --bad-has 'UNMANIFESTED-SCRIPT .*probe_run' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
   fresh; CM="$REPO"; CMT="$FT"; mkdir -p "$CM/sources/probes/b1" "$CM/.research-sdd"; printf '# n\n' > "$CM/.research-sdd/keep.txt"
   printf '| `tool.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 > "$CM/sources/probes/b1/SCRIPTS-MANIFEST.md"
   git -C "$CM" add .research-sdd/keep.txt sources; git -C "$CM" -c user.name=t -c user.email=t@example.invalid commit -q -m m
-  mt "manifest lookup always misses" 's/grep -qF -- "\$_b" "\$_m"; _g=\$?   # CC-MANIFEST-LOOKUP/false; _g=1/' 1 1 \
+  mt "manifest lookup always misses" '/# CC-MANIFEST-LOOKUP$/s/if ! grep -qxF -- "\$_b" <<<"\$_mf_names"; then/if true; then/' 0 1 \
     --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
   mt "absent scratchpad no longer typed" '/# CC-ABSENT$/s/-d "\$SCRATCH_P"/-e "\/"/' 0 2 \
     --good-has 'ABSENT-SCRATCHPAD' --bad-lacks 'ABSENT-SCRATCHPAD' -- env "CLEAN_CHECK_SCRATCHPAD=$TMP/cc-no-spad" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+
+  # RDD round 1 teeth: substring matching, substring manifest lookup, manifest-as-block, preserved copy, find rc, missing block.
+  fresh; RB="$REPO"; RBT="$FT"; RSP="$TMP/rb-spad"; mkdir -p "$RSP" "$RB/notes" "$RB/.research-sdd" "$RB/sources/probes/b1"
+  printf 'sources/\n' > "$RB/.research-sdd/keep.txt"; printf 'Ran prerun.sh first.\n' > "$RB/notes/b1.md"
+  printf 'x\n' > "$RSP/run.sh"; printf 'x\n' > "$RSP/prerun.sh"; printf 'same\n' > "$RSP/data.csv"
+  printf '| `prerun.sh` | %064d | python x.sh data.csv | B1 | h | - | RECIPE |\n' 0 > "$RB/sources/probes/b1/SCRIPTS-MANIFEST.md"
+  git -C "$RB" add notes/b1.md .research-sdd/keep.txt sources; git -C "$RB" -c user.name=t -c user.email=t@example.invalid commit -q -m rb
+  mt "citation match degraded to bare substring" '/grep -qE -- "(^|/s/.*/  grep -qF -- "\$1" "\$2"/' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*/run\.sh ' --bad-has 'UNPRESERVED-ARTIFACT .*/run\.sh ' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest lookup degraded to substring" '/# CC-MANIFEST-LOOKUP$/s/grep -qxF/grep -qF/' 1 1 \
+    --good-has 'UNMANIFESTED-SCRIPT .*/run\.sh' --bad-lacks 'UNMANIFESTED-SCRIPT .*/run\.sh' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest files counted as citing blocks" '/\[ "\${_bp##\*\/}" = "SCRIPTS-MANIFEST.md" \] \&\& continue/d' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*data\.csv' --bad-has 'UNPRESERVED-ARTIFACT .*data\.csv' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  printf 'Ran prerun.sh and probe_run.log\n' > "$RB/notes/b1.md"; printf 'same\n' > "$RSP/probe_run.log"; printf 'same\n' > "$RB/sources/probes/b1/probe_run.log"
+  mt "preserved-copy check disabled" '/# CC-PRESERVED$/s/if \[ -n "\$_h" \] \&\& grep -qxF -- "\$_h" <<<"\$_probe_shas"; then _same=1; fi/:/' 1 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT .*probe_run\.log' --bad-has 'UNPRESERVED-ARTIFACT .*probe_run\.log' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 3 1 \
+    --good-has 'DEGRADED: manifest scan failed' --bad-lacks 'DEGRADED' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  fresh; RM="$REPO"; RMT="$FT"; RMS="$TMP/rm-spad"; mkdir -p "$RMS" "$RM/.research-sdd" "$RM/notes"; printf '# n\n' > "$RM/.research-sdd/keep.txt"
+  printf 'x\n' > "$RM/notes/gone.md"; git -C "$RM" add notes/gone.md .research-sdd/keep.txt; git -C "$RM" -c user.name=t -c user.email=t@example.invalid commit -q -m g; rm "$RM/notes/gone.md"
+  printf 'x\n' > "$RMS/unrelated.dat"
+  mt "missing-on-disk blocks no longer skipped" '/# CC-MISSING$/d' 0 2 \
+    --good-has 'blocks-missing-on-disk: 1' -- env "CLEAN_CHECK_SCRATCHPAD=$RMS" "$BASH_BIN" @SUT@ --target "$RM" --tmp "$RMT"
 fi
 
 echo "== $pass passed · $fail failed =="

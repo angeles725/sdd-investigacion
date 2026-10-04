@@ -1287,12 +1287,20 @@ ep_block last "ref \`src/ok.c:1\`" "ref \`src/ok.c:2\`" "ref \`/tmp/a.sh:1\`"
 ep_check last 1 1 "#1207 BAD: ephemeral cite on LAST body line"
 ep_block twoline "a \`/tmp/a.sh:1\` and \`/tmp/b.sh:2\` on one line"
 ep_check twoline 1 2 "#1207 BAD: two ephemeral cites on one line are both reported"
-ep_block anchored "Beautified view \`/tmp/app.beautified.js:40\` of app.min.js sha256 abcd1234 (4096 bytes) [CERT]"
+ep_block anchored "Beautified view \`/tmp/app.beautified.js:40\` of app.min.js sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4 (4096 bytes) [CERT]"
 ep_check anchored 0 0 "#1207 GOOD: sha256-anchored beautified-temp view is exempt"
-ep_block anchored-other "Beautified view \`/tmp/app.beautified.js:40\` sha256 abcd1234" "also \`/tmp/probe/run.sh:3\`"
+ep_block anchored-other "Beautified view \`/tmp/app.beautified.js:40\` sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4" "also \`/tmp/probe/run.sh:3\`"
 ep_check anchored-other 1 1 "#1207 BAD: the sha256 anchor exempts only its own line"
 ep_block glued "see \`src/tmp/x.c:3\` and ./tmp/y.c:4 and /home/u/tmp/z.c:5 and my-scratchpad-notes"
 ep_check glued 0 0 "#1207 GOOD: tmp as a middle path segment never fires"
+ep_block nodigest "sha256 not computed, see \`/tmp/x/app.js:3\`"
+ep_check nodigest 1 1 "#1207 BAD: the word sha256 without a digest is not an anchor"
+ep_block shortdigest "view \`/tmp/x/app.js:3\` sha256 abcd1234"
+ep_check shortdigest 1 1 "#1207 BAD: a short hex token is not a 64-hex anchor"
+ep_block longhex "view \`/tmp/x/app.js:3\` sha256 a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d40"
+ep_check longhex 1 1 "#1207 BAD: a 65-hex run is not a 64-hex digest"
+ep_block digestwith "view \`/tmp/x/app.js:3\` sha256=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+ep_check digestwith 0 0 "#1207 GOOD: sha256= followed by a 64-hex digest anchors the line"
 ep_block clean "Plain claim [CERT] \`src/ok.c:1\`"
 ep_check clean 0 0 "#1207 GOOD: block with no ephemeral path"
 out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-single.md" 2>&1)"
@@ -1861,11 +1869,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth "teeth-ep-glue" 0 1 "$MUT/epg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-glued.md"
   fi
   echo "-- teeth-ep-anchor-off: sha256 exemption dropped --"
-  if mk_sed "teeth-ep-anchor-off" "$MUT/epa.sh" '/# VB-EP-ANCHOR$/s/(index(tolower(\$0), "sha256") > 0)/0/'; then
+  if mk_sed "teeth-ep-anchor-off" "$MUT/epa.sh" '/# VB-EP-ANCHOR$/s/hasdigest(\$0)/0/'; then
     tooth "teeth-ep-anchor-off" 0 1 "$MUT/epa.sh" --good-has 'ephemeral-anchored' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored.md"
   fi
+  echo "-- teeth-ep-digest64: the word sha256 alone anchors (digest requirement dropped) --"
+  if mk_sed "teeth-ep-digest64" "$MUT/epd.sh" '/# VB-EP-DIGEST64$/s/length(run) == 64/1/'; then
+    tooth "teeth-ep-digest64" 1 0 "$MUT/epd.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-nodigest.md"
+  fi
   echo "-- teeth-ep-anchor-global: sha256 anywhere in the block exempts every line --"
-  if mk_sed "teeth-ep-anchor-global" "$MUT/epag.sh" '/# VB-EP-ANCHOR$/s/(index(tolower(\$0), "sha256") > 0)/1/'; then
+  if mk_sed "teeth-ep-anchor-global" "$MUT/epag.sh" '/# VB-EP-ANCHOR$/s/hasdigest(\$0)/1/'; then
     tooth "teeth-ep-anchor-global" 1 0 "$MUT/epag.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored-other.md"
   fi
   echo "-- teeth-ep-strict: --strict-ephemeral ignored (stays a WARN) --"

@@ -571,18 +571,31 @@ elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equal
 # 10. EPHEMERAL-PATH CITES (kit #1207, METHODOLOGY §5/§7 anti-ephemeral-artifact) — a cited path under /tmp,
 #     /var/tmp (also /private/tmp, /private/var/tmp, $TMPDIR/, ${TMPDIR}/) or a session `scratchpad/` dir is
 #     evidence that will not exist in the next session: FAIL (rc=1), one typed `EPHEMERAL!` line per occurrence
-#     with the block line number. Enumerated cite forms — ALL covered because the scan reads every path-shaped
+#     with the block line number (WARN `EPHEMERAL?` unless strict, see STAGING). Enumerated cite forms — ALL covered because the scan reads every path-shaped
 #     token on every line, whatever wraps it: `file:N`, `file:N-M`, bare backticked path, parenthetical path,
 #     table cell, prose, code fence, `[CERT*]`-marked or not. The tmp prefix must not be glued to a preceding
 #     path char (so `src/tmp/x` and `./tmp/x` never fire). Verification is NOT limited to [CERT*] lines.
-#     EXCEPTION (the §5 beautified-temp view): a line that carries a `sha256` anchor is reported as `INFO
+#     STAGING: by default each hit is a WARN `EPHEMERAL?` (counted, listed, exit unchanged); with --strict-ephemeral /
+#     RSDD_STRICT_EPHEMERAL=1 it is a FAIL `EPHEMERAL!` (rc=1). The default flips to FAIL in the next minor release.
+#     EXCEPTION (the §5 beautified-temp view): a line carrying a REAL sha256 anchor (the word `sha256` plus a 64-hex
+#     digest on the same line — the word alone is not an anchor) is reported as `INFO
 #     ephemeral-anchored` and does not change the exit code — the temp is a working view whose identity is
 #     pinned by the hash of the ORIGINAL file. Preserve everything else under sources/probes/b<N>/.
 _vb_ep_n=0; _vb_ep_a=0; _vb_ep_deg=0; _vb_ep_k=0; _vb_ep_i=0
 _vb_ep_out=$(awk -v strict="$STRICT_EP" '
+  function hasdigest(line,   l, run) {   # a real anchor: the word sha256 AND a maximal 64-hex run on the line
+    l = tolower(line)
+    if (index(l, "sha256") == 0) return 0
+    while (match(l, /[0-9a-f]+/)) {
+      run = substr(l, RSTART, RLENGTH)
+      if (length(run) == 64) return 1   # VB-EP-DIGEST64
+      l = substr(l, RSTART + RLENGTH)
+    }
+    return 0
+  }
   function scan(re, glue,   rest, tok, before, after, anchored, mk, reason, ok) {
     rest = $0
-    anchored = (index(tolower($0), "sha256") > 0)   # VB-EP-ANCHOR
+    anchored = hasdigest($0)   # VB-EP-ANCHOR
     ok = 0; reason = ""
     mk = index($0, "<!-- ephemeral-ok:")   # VB-EP-MARKER
     if (mk > 0) {

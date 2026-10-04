@@ -9,11 +9,13 @@
 #                                         age (default 24 h) and owned by the current user
 #   (c) UNPRESERVED-ARTIFACT <file> cited by <block>   (kit #1207) a file in the session scratchpad
 #                                         (--scratchpad DIR, else $CLEAN_CHECK_SCRATCHPAD) whose basename or
-#                                         full path is mentioned by an .md block of the target: evidence about
+#                                         full path is mentioned (as a whole path component, never a substring) by
+#                                         an .md block of the target (SCRIPTS-MANIFEST.md files excluded; skipped
+#                                         when a byte-identical copy already sits under sources/probes/): evidence about
 #                                         to be lost - preserve it under sources/probes/b<N>/ first
 #   (d) UNMANIFESTED-SCRIPT <file>        (kit #1207) a scratchpad script (sh ps1 py java js rb pl bat cmd
-#                                         groovy kts) whose basename is listed in no
-#                                         <TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md
+#                                         groovy kts) whose basename is not the FIRST table cell of any row of
+#                                         <TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md (exact match)
 #   Scratchpad state is never a silent zero: unset -> summary `scratchpad: not set`; configured but missing
 #   -> a typed `ABSENT-SCRATCHPAD <path>` line + `scratchpad: absent`; otherwise `scratchpad: N file(s)`.
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
@@ -183,6 +185,13 @@ for ((_i = 0; _i < _slast; _i++)); do
   FINDINGS=$((FINDINGS + 1))
 done
 
+# _mentions <basename> <file>: whole-path-component mention (never a bare substring: run.sh is not prerun.sh,
+# out is not layout). Before: start, '/', blank, backtick or '('. After: end, blank, backtick, ')' , ',:;!?' or a
+# '.' that ends the sentence. Returns grep's status (0 found, 1 none, 2 error).
+_mentions() {
+  local re; re="$(printf '%s' "$1" | sed 's#[][\.*^$+?(){}|/]#\\&#g')" || return 2
+  grep -qE -- "(^|[/[:space:]\`(])${re}(\$|[[:space:]\`),:;!?]|\.(\$|[[:space:]]))" "$2"
+}
 # ---- (c)/(d) scratchpad artifacts a block mentions, scripts with no manifest row (kit #1207) --------
 SCRATCH_STATE="not set"
 if [ -n "$SCRATCH_P" ]; then
@@ -199,26 +208,63 @@ if [ -n "$SCRATCH_P" ]; then
     _slast=$(( ${#_sf[@]} - 1 ))
     { [ "$_slast" -ge 0 ] && [ "${_sf[$_slast]}" = "RC=0" ]; } || { _err "find failed or was truncated in scratchpad $SCRATCH_P"; exit 2; }
     SCRATCH_STATE="$_slast file(s)"
-    # blocks: every .md of the target (tracked or untracked), minus anything below the scratchpad
-    _blk=()
-    while IFS= read -r -d '' _p; do _blk+=("$_p"); done < <(
+    # blocks: every .md of the target (tracked or untracked) except the manifests themselves (a manifest row names
+    # a script on purpose - it is the preservation record, not a citation). Tracked files deleted from disk are
+    # listed by `git ls-files -co`: skipped and COUNTED, never a crash.
+    _blk=(); _bmiss=0
+    _braw=()
+    while IFS= read -r -d '' _p; do _braw+=("$_p"); done < <(
       git -C "$TARGET_P" ls-files -co --exclude-standard -z -- '*.md'
       printf 'RC=%s\0' "$?"
     )
-    _blast=$(( ${#_blk[@]} - 1 ))
-    { [ "$_blast" -ge 0 ] && [ "${_blk[$_blast]}" = "RC=0" ]; } || { _err "git ls-files failed or was truncated listing blocks in $TARGET"; exit 2; }
-    _mf=()
-    while IFS= read -r -d '' _p; do _mf+=("$_p"); done < <(
-      find "$TARGET_P/sources/probes" -type f -name SCRIPTS-MANIFEST.md -print0 2>/dev/null
-      printf 'RC=0\0'
-    )
+    _blast=$(( ${#_braw[@]} - 1 ))
+    { [ "$_blast" -ge 0 ] && [ "${_braw[$_blast]}" = "RC=0" ]; } || { _err "git ls-files failed or was truncated listing blocks in $TARGET"; exit 2; }
+    for ((_j = 0; _j < _blast; _j++)); do
+      _bp="${_braw[$_j]}"
+      [ "${_bp##*/}" = "SCRIPTS-MANIFEST.md" ] && continue
+      _in_scratch "$TARGET_P/$_bp" && continue
+      [ -f "$TARGET_P/$_bp" ] || { _bmiss=$((_bmiss + 1)); continue; }   # CC-MISSING
+      _blk+=("$_bp")
+    done
+    # manifests: the find carries its REAL exit status; a failed scan is DEGRADED, never "no manifests".
+    _mf_names=""
+    if [ -d "$TARGET_P/sources/probes" ]; then
+      _mf=()
+      while IFS= read -r -d '' _p; do _mf+=("$_p"); done < <(
+        find "$TARGET_P/sources/probes" -type f -name SCRIPTS-MANIFEST.md -print0
+        printf 'RC=%s\0' "$?"
+      )
+      _mlast=$(( ${#_mf[@]} - 1 ))
+      { [ "$_mlast" -ge 0 ] && [ "${_mf[$_mlast]}" = "RC=0" ]; } || { printf 'clean-check: DEGRADED: manifest scan failed under %s/sources/probes; UNMANIFESTED-SCRIPT not evaluated\n' "$TARGET_P" >&2; exit 3; }   # CC-MF-RC
+      for ((_j = 0; _j < _mlast; _j++)); do
+        # first cell of each table row, backticks/blanks stripped, directory part dropped: matched EXACTLY below
+        _o="$(awk -F'|' '/^[[:space:]]*\|/ { a = $2; gsub(/[`[:space:]]/, "", a); n = split(a, q, "/"); if (q[n] != "") print q[n] }' "${_mf[$_j]}")" \
+          || { _err "cannot read manifest ${_mf[$_j]}"; exit 2; }
+        _mf_names="$_mf_names"$'\n'"$_o"
+      done
+    fi
+    # preserved copies: sha256 of every file already under sources/probes (byte-identical copy => preserved)
+    _sha_cmd=""
+    if command -v sha256sum >/dev/null 2>&1; then _sha_cmd="sha256sum"; elif command -v shasum >/dev/null 2>&1; then _sha_cmd="shasum -a 256"; fi
+    _probe_shas=""; _pres=0
+    if [ -n "$_sha_cmd" ] && [ -d "$TARGET_P/sources/probes" ]; then
+      _pl=()
+      while IFS= read -r -d '' _p; do _pl+=("$_p"); done < <(
+        find "$TARGET_P/sources/probes" -type f -print0
+        printf 'RC=%s\0' "$?"
+      )
+      _plast=$(( ${#_pl[@]} - 1 ))
+      { [ "$_plast" -ge 0 ] && [ "${_pl[$_plast]}" = "RC=0" ]; } || { printf 'clean-check: DEGRADED: probes scan failed under %s/sources/probes; preserved copies not evaluated\n' "$TARGET_P" >&2; exit 3; }
+      for ((_j = 0; _j < _plast; _j++)); do
+        _probe_shas="$_probe_shas"$'\n'"$($_sha_cmd -- "${_pl[$_j]}" 2>/dev/null | cut -d' ' -f1)"
+      done
+    fi
+    [ -n "$_sha_cmd" ] || printf 'DEGRADED-NO-SHA256 %s\n' "preserved-copy check skipped (no sha256sum/shasum on PATH)"
     for ((_i = 0; _i < _slast; _i++)); do
       _f="${_sf[$_i]}"; _b="${_f##*/}"
       _citer=""
-      for ((_j = 0; _j < _blast; _j++)); do
-        _bp="${_blk[$_j]}"
-        _in_scratch "$TARGET_P/$_bp" && continue
-        grep -qF -- "$_b" "$TARGET_P/$_bp"; _g=$?   # CC-CITE-GREP
+      for _bp in ${_blk[@]+"${_blk[@]}"}; do
+        _mentions "$_b" "$TARGET_P/$_bp"; _g=$?   # CC-CITE-GREP
         case "$_g" in
           0) _citer="$_bp"; break ;;
           1) ;;
@@ -226,23 +272,26 @@ if [ -n "$SCRATCH_P" ]; then
         esac
       done
       if [ -n "$_citer" ]; then
-        printf 'UNPRESERVED-ARTIFACT %s cited by %s\n' "$_f" "$_citer"
-        FINDINGS=$((FINDINGS + 1))
+        _same=0
+        if [ -n "$_sha_cmd" ] && [ -n "$_probe_shas" ]; then
+          _h="$($_sha_cmd -- "$_f" 2>/dev/null | cut -d' ' -f1)"
+          if [ -n "$_h" ] && grep -qxF -- "$_h" <<<"$_probe_shas"; then _same=1; fi   # CC-PRESERVED
+        fi
+        if [ "$_same" = 1 ]; then _pres=$((_pres + 1))
+        else
+          printf 'UNPRESERVED-ARTIFACT %s cited by %s\n' "$_f" "$_citer"
+          FINDINGS=$((FINDINGS + 1))
+        fi
       fi
       case "$_b" in
         *.sh|*.ps1|*.py|*.java|*.js|*.rb|*.pl|*.bat|*.cmd|*.groovy|*.kts)   # CC-SCRIPT-EXT
-          _listed=0
-          for _m in ${_mf[@]+"${_mf[@]}"}; do
-            [ "$_m" = "RC=0" ] && continue
-            grep -qF -- "$_b" "$_m"; _g=$?   # CC-MANIFEST-LOOKUP
-            case "$_g" in 0) _listed=1; break ;; 1) ;; *) _err "grep failed reading manifest $_m"; exit 2 ;; esac
-          done
-          if [ "$_listed" = 0 ]; then
+          if ! grep -qxF -- "$_b" <<<"$_mf_names"; then   # CC-MANIFEST-LOOKUP
             printf 'UNMANIFESTED-SCRIPT %s\n' "$_f"
             FINDINGS=$((FINDINGS + 1))
           fi ;;
       esac
     done
+    SCRATCH_STATE="$_slast file(s), blocks-missing-on-disk: $_bmiss, preserved-copies: $_pres"
   fi
 fi
 
