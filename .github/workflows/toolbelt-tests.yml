@@ -63,11 +63,24 @@ jobs:
       - name: Sanity-check python3
         run: python3 --version
 
+      - name: Install GNU parallel
+        # run-all.sh -j needs GNU parallel; without it the run degrades to serial with a typed
+        # DEGRADED line (kit issue #1672) — the check step below makes that a hard failure here.
+        run: sudo apt-get install -y -qq parallel >/dev/null && parallel --version | head -n 1
+
       - name: Run toolbelt + install test suites
         # research-sdd/install/tests/*.test.sh runs INLINE here (kit issue #1126/#1144) — no
         # separate step; a stand-alone "Run install test suite" step here would just re-run the
         # exact same suite a second time for no additional coverage.
-        run: bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
+        # -j 4 (kit issue #1672): the serial run reached the 35-minute cap (both runs of PR #1670
+        # cancelled at 35:00). GitHub-hosted ubuntu runners have 4 vCPUs. The serial run stays the
+        # reference for the local quiet-tree gate (CLAUDE.md section 5); CI is not that gate.
+        run: |
+          set -o pipefail
+          bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 2>&1 | tee "$RUNNER_TEMP/run-all.log"
+          # A silent fallback to serial would hide the cap problem again: require the Parallel line.
+          grep -q '^Parallel: -j 4' "$RUNNER_TEMP/run-all.log" \
+            || { echo "::error::run-all did not run in parallel mode (see DEGRADED line above)"; exit 1; }
 
   shellcheck:
     runs-on: ubuntu-latest
