@@ -330,11 +330,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   td_java="$(mktemp -d -p "$ROOT")"
   # corroborate_java.py imports lib/ and analysis_manifest.py from its own directory, so the
   # mutant keeps a copy of both next to it.
-  mkdir -p "$td_java/mut" && cp -R "$HERE/../lib" "$td_java/mut/lib" \
-    && cp "$MANIFEST" "$td_java/mut/analysis_manifest.py"
-  # run_java_py PY — run PY with the failing-CFR environment and its own FRESH --output dir.
+  _java_staged=0
+  if mkdir -p "$td_java/mut" && cp -R "$HERE/../lib" "$td_java/mut/lib" \
+     && cp "$MANIFEST" "$td_java/mut/analysis_manifest.py"; then _java_staged=1
+  else no "teeth-warn-java: could not stage the mutant dir (lib/ + analysis_manifest.py copy failed)"; fi
+  # run_java_py PY — run PY with the failing-CFR environment and its own FRESH --output dir. After
+  # the run it prints `EVIDENCE: status=<..>` read from the java-corroboration.v1.json artifact it
+  # wrote, so a run that reached the end of main() is positively identifiable (an ImportError
+  # crash writes none), and exits with the adapter's own exit code.
   run_java_py() {
-    local py="$1" out
+    local py="$1" out rc
     out="$(mktemp -d -p "$td_java")"
     env \
       JAVA_HOME="$ROOT/fake-java" \
@@ -349,12 +354,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         --decompile-wrapper "$ROOT/wrapper-trap" \
         --manifest-module "$(dirname "$py")/analysis_manifest.py" \
         "${ARGS[@]}" --output "$out/warn-java-ptr"
+    rc=$?
+    python3 - "$out/warn-java-ptr/java-corroboration.v1.json" <<'PY'
+import json, sys
+try:
+    print("EVIDENCE: status=" + str(json.load(open(sys.argv[1])).get("status")))
+except (OSError, ValueError) as e:
+    print("EVIDENCE: <no artifact>", e)
+PY
+    return "$rc"
   }
-  if mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
+  if [ "$_java_staged" -ne 1 ]; then :   # staging failure already counted; the tooth must not run
+  elif mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
       '/^        if failures:$/{N;/\n            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))$/d;}'; then
     if mutant_tooth "teeth-warn-java: guard removed → stderr empty → warn-java assertion fires (has teeth)" 1 1 "$td_java/mut/corroborate_java.py" \
         --orig "$HERE/../corroborate_java.py" \
-        --good-has 'java-corroboration\.v1\.json' --bad-lacks 'java-corroboration\.v1' -- \
+        --good-has 'java-corroboration\.v1\.json' --bad-has '^EVIDENCE: status=partial$' \
+        --bad-lacks 'java-corroboration\.v1|Traceback|ImportError|ModuleNotFoundError' -- \
         run_java_py @SUT@; then
       pass=$((pass+1))
     else fail=$((fail+1)); fi

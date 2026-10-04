@@ -403,8 +403,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: corroborate-firmware mutation controls --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
+    && typeset -f mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth" >&2; exit 2; }
   # The mutants are python/json files: skip the bash -n check (empty, identical, live-tree,
   # symlink and dead-stage refusals still apply).
   export MUTANT_SYNTAX=none
