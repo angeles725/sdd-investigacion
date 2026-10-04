@@ -17,7 +17,8 @@
 #   skeleton   a state file with no backlog table at all (and not a FOCUSES.md `document` focus) -> an empty
 #              canonical `## Gap-backlog` section appended (always paired with MANUAL empty-backlog-skeleton:
 #              the rows themselves are the operator's)
-#   priority   `critical` -> `high`; `med`/`MED` -> `medium`; `**HIGH**` -> `high`; `low (deferred)` ->
+#   priority   `critical` -> `high`; `med`/`MED` -> `medium`; `**HIGH**` -> `high`; a bare legal tier in any case
+#              (`HIGH`, `Deferred`) -> its lowercase form; `low (deferred)` ->
 #              `deferred`; `high|medium|low (note)` -> the bare tier with `(note)` moved to the END of the
 #              Status cell (decoration is free text per §8b)
 #   status     leading token `open` / `queued` -> `pending` (deprecated aliases)
@@ -52,29 +53,22 @@ for _t in awk diff mktemp; do
   command -v "$_t" >/dev/null 2>&1 || { echo "degraded: migrate-backlogs: required tool '$_t' not found — cannot compute a proposal" >&2; exit 1; }
 done
 _SFLIB="$here/lib/state-files.sh"
-[ -f "$_SFLIB" ] || { echo "migrate-backlogs: cannot find helper $_SFLIB" >&2; exit 1; }
+[ -f "$_SFLIB" ] || { echo "degraded: migrate-backlogs: cannot find helper $_SFLIB — cannot scan for state files" >&2; exit 1; }
 # shellcheck source=lib/state-files.sh
 . "$_SFLIB"
-declare -F list_state_files >/dev/null 2>&1 || { echo "migrate-backlogs: helper $_SFLIB failed to define list_state_files" >&2; exit 1; }
+declare -F list_state_files >/dev/null 2>&1 || { echo "degraded: migrate-backlogs: helper $_SFLIB failed to define list_state_files — cannot scan for state files" >&2; exit 1; }
 
 work="$(mktemp -d 2>/dev/null)" || { echo "degraded: migrate-backlogs: mktemp failed" >&2; exit 1; }
 trap 'rm -rf "$work"' EXIT
 
 # --- awk: backlog transformer. Reads the file twice (pass 1 classifies sections, pass 2 rewrites).
 # Output: transformed file on stdout; MANUAL tallies go to the per-file temp file named by the awk variable `tally` ("reason<TAB>line", appended by manual()); stdout carries ONLY the transformed file.
-BACKLOG_AWK='
+BACKLOG_BODY='
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function iscanon(h) { return h ~ /^## Gap-backlog( \([^)]+\))?$/ }
 function recog(h,   l) { l = tolower(h); return (l == "## gap backlog" || l == "## backlog" || l == "## backlog de gaps" || h ~ /^## Gap-backlog /) }
 function norm(h) { gsub(/\342\200\221/, "-", h); return h }
 function manual(reason, ln) { print reason "\t" ln >> tally }
-function cells(line,   body, n) {  # sets pre, suf, raw[1..nc]; returns nc
-  pre = line; sub(/\|.*$/, "", pre); body = line; sub(/^[ \t]*\|/, "", body)
-  suf = ""; if (match(body, /\|[ \t]*$/)) { suf = substr(body, RSTART); body = substr(body, 1, RSTART - 1) }
-  nc = split(body, raw, "|"); return nc
-}
-function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out raw[i] (i < nc ? "|" : ""); return out suf }
-function setcell(i, newtrim,   l, r) { l = raw[i]; sub(/[^ \t].*$/, "", l); r = raw[i]; sub(/^.*[^ \t]/, "", r); raw[i] = l newtrim r }
 function mapprio(q) { if (q == "critical") return "high"; if (q == "med") return "medium"; return q }
 function legal(q) { return (q == "high" || q == "medium" || q == "low" || q == "deferred") }
 NR == FNR {  # pass 1 — classify
@@ -118,14 +112,15 @@ FNR == 1 { cur = 0; inbl = 0; width = 0; indata = 0 }
   if (width < 0) { print line; next }  # unsupported width: already reported once, rows are left alone
   if (!indata || width == 0 || nc != width) { if (indata) manual("malformed-row", FNR); print line; next }
   p = trim(raw[1]); q = tolower(p); np = ""; decor = ""
-  if (legal(q) || q ~ /^~~(high|medium|low)~~$/ || q ~ /^—/) { np = p }
+  if (legal(q)) { np = q }  # a bare legal tier in ANY case is proposed lowercase (same as the **HIGH** path)
+  else if (q ~ /^~~(high|medium|low)~~$/ || q ~ /^—/) { np = p }
   else {
     b = q; gsub(/\*\*/, "", b)
     if (b == "low (deferred)") { np = "deferred" }
     else if (match(b, / *\([^)]*\)$/)) {
       base = substr(b, 1, RSTART - 1); qual = substr(b, RSTART); sub(/^ */, "", qual)
       base = mapprio(base)
-      if (base == "high" || base == "medium" || base == "low" || base == "deferred") { np = base; decor = qual }
+      if (legal(base)) { np = base; decor = qual }
       else { manual("unknown-priority", FNR); print line; next }
     } else {
       m = mapprio(b)
@@ -162,6 +157,20 @@ END {
 }
 '
 
+# CELLS_AWK: the SINGLE definition of the pipe-table cell helpers, prepended to BACKLOG_AWK and FOCUSES_AWK so the
+# two programs cannot drift. cells() sets pre, suf, raw[1..nc] and returns nc; setcell() swaps a cell's trimmed
+# text keeping its padding.
+CELLS_AWK='
+function cells(line,   body) {
+  pre = line; sub(/\|.*$/, "", pre); body = line; sub(/^[ \t]*\|/, "", body)
+  suf = ""; if (match(body, /\|[ \t]*$/)) { suf = substr(body, RSTART); body = substr(body, 1, RSTART - 1) }
+  nc = split(body, raw, "|"); return nc
+}
+function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out raw[i] (i < nc ? "|" : ""); return out suf }
+function setcell(i, newtrim,   l, r) { l = raw[i]; sub(/[^ \t].*$/, "", l); r = raw[i]; sub(/^.*[^ \t]/, "", r); raw[i] = l newtrim r }
+'
+BACKLOG_AWK="$CELLS_AWK$BACKLOG_BODY"
+
 # REG_AWK: the SINGLE definition of "is this header row the focus registry?" — prepended to both DOC_AWK and
 # FOCUSES_AWK below so the two programs cannot drift (cell decoration `**` and backticks stripped once, here).
 REG_AWK='
@@ -193,12 +202,6 @@ DOC_AWK="$REG_AWK$DOC_BODY"
 
 FOCUSES_BODY='
 function manual(reason, ln) { print reason "\t" ln >> tally }
-function cells(line,   body) {
-  pre = line; sub(/\|.*$/, "", pre); body = line; sub(/^[ \t]*\|/, "", body)
-  suf = ""; if (match(body, /\|[ \t]*$/)) { suf = substr(body, RSTART); body = substr(body, 1, RSTART - 1) }
-  nc = split(body, raw, "|")
-}
-function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out raw[i] (i < nc ? "|" : ""); return out suf }
 {
   line = $0
   if (line !~ /^[ \t]*\|/) { intable = 0; reg = 0; print line; next }
@@ -214,14 +217,14 @@ function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out
   if (lt == "closed" || lt == "reabierto") {
     nw = (lt == "closed") ? "stopped" : "reopened"
     i = index(s, tok); s2 = substr(s, 1, i - 1) nw substr(s, i + length(tok))
-    l = raw[scol]; sub(/[^ \t].*$/, "", l); r = raw[scol]; sub(/^.*[^ \t]/, "", r); raw[scol] = l s2 r
+    setcell(scol, s2)
     print rebuild(); next
   }
   if (!(lt ~ /^(active|paused|stopped|planned|bootstrapping|reopened|document)$/)) manual("unknown-focus-status", FNR)
   print line
 }
 '
-FOCUSES_AWK="$REG_AWK$FOCUSES_BODY"
+FOCUSES_AWK="$CELLS_AWK$REG_AWK$FOCUSES_BODY"
 
 n_files=0; n_prop=0; n_manual=0
 # propose <label> <file> <awk-program> [awk -v args...]: transform, diff, tally.
@@ -230,12 +233,12 @@ propose() {
   local rel out tally
   rel="${f#"$target"/}"
   out="$work/out.$n_files"; tally="$work/tally.$n_files"; : > "$tally"
-  if [ ! -r "$f" ]; then echo "migrate-backlogs: cannot read $f" >&2; exit 1; fi
+  if [ ! -r "$f" ]; then echo "degraded: migrate-backlogs: cannot read $f — proposal not computed" >&2; exit 1; fi
   if [ ! -s "$f" ]; then echo "empty-input: $label ($rel is empty)"; return 0; fi
   if [ "$prog" = "$BACKLOG_AWK" ]; then
-    LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" "$f" > "$out" || { echo "migrate-backlogs: awk failed on $f" >&2; exit 1; }
+    LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" "$f" > "$out" || { echo "degraded: migrate-backlogs: awk failed on $f — proposal not computed" >&2; exit 1; }
   else
-    LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" > "$out" || { echo "migrate-backlogs: awk failed on $f" >&2; exit 1; }
+    LC_ALL=C awk -v tally="$tally" "$@" "$prog" "$f" > "$out" || { echo "degraded: migrate-backlogs: awk failed on $f — proposal not computed" >&2; exit 1; }
   fi
   local changed=0
   # diff status is authoritative: 0 = no change (no PROPOSE, not counted) · 1 = proposal · >=2 = trouble -> degraded.
@@ -285,7 +288,7 @@ else
     ff="$(dirname "$f")/FOCUSES.md"
     if [ -r "$ff" ] && [ "$label" != "(root)" ]; then
       # exact parse of the FOCUSES.md table: slug cell (or state-file cell) == label AND status leading token == document
-      doc="$(LC_ALL=C awk -v lab="$label" "$DOC_AWK" "$ff")" || { echo "migrate-backlogs: awk failed reading $ff" >&2; exit 1; }
+      doc="$(LC_ALL=C awk -v lab="$label" "$DOC_AWK" "$ff")" || { echo "degraded: migrate-backlogs: awk failed reading $ff — document-focus check not computed" >&2; exit 1; }
       [ "$doc" = yes ] && skip=1
     fi
     n_files=$((n_files+1))

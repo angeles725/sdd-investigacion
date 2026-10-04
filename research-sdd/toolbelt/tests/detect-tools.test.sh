@@ -20,7 +20,7 @@ DETECT="$HERE/../detect-tools.sh"
 [ -f "$DETECT" ] || { echo "FATAL: script under test not found: $DETECT" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
-pass=0; fail=0
+pass=0; fail=0; degraded=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
@@ -962,14 +962,86 @@ else
   no "z_guard hermetic PATH at probe time" "guard log empty (probe never ran)"
 fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # teeth-guard (targets z_guard): mutant restores ":$ORIG_PATH" so SUT sees real PATH.
-  # The recorded PATH must contain at least one real system dir → z_guard bites.
-  GUARD_LOG_MUT="$ROOT/guard-path-mut.log"
-  RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" \
+# dotnet IPC leftovers (#1626): the real-PATH mutant below lets the SUT reach a REAL dotnet (ilspycmd smoke
+# probe). A dotnet killed by the probe timeout leaves clr-debug-pipe-* / dotnet-diagnostic-* files in $TMPDIR.
+# The run gets its own TMPDIR under $ROOT (removed by the EXIT trap above) and DOTNET_EnableDiagnostics=0
+# (no diagnostic IPC endpoints at all). dotnet_ipc_count prints the number of IPC leftovers in a directory
+# and returns 2 when the directory is absent (absent != empty != no-match, section 7).
+dotnet_ipc_count() {
+  [ -d "$1" ] || return 2
+  find "$1" -maxdepth 1 \( -name 'clr-debug-pipe-*' -o -name 'dotnet-diagnostic-*' \) | wc -l
+}
+# settled_ipc_count <dir>: stray dotnet children may outlive the SUT and create endpoints late, so re-count
+# every 0.2 s; the count is accepted only after a 1 s minimum window AND two consecutive equal counts
+# (max 15 polls, ~3 s). Prints the settled count; rc 2 on any count failure (absent dir, or a find error,
+# which the suite-wide `set -o pipefail` propagates through `| wc -l`).
+settled_ipc_count() {
+  local prev="" cur n=0
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    cur="$(dotnet_ipc_count "$1")" || return 2
+    n=$((n + 1))
+    [ "$n" -gt 5 ] && [ "$cur" = "$prev" ] && break
+    prev="$cur"; sleep 0.2
+  done
+  printf '%s\n' "$cur"
+}
+# guard_mut_run <tmpdir> <DOTNET_EnableDiagnostics value>: the real-PATH run, logging PATH to GUARD_LOG_MUT.
+guard_mut_run() {
+  mkdir -p "$1"
+  rm -f "$GUARD_LOG_MUT" "$1.cache.txt"
+  # Per-run cache beside the per-run TMPDIR: a shared cache would let the second run skip the probe.
+  RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" TMPDIR="$1" DOTNET_EnableDiagnostics="$2" \
     RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
     PATH="$BIN_GUARD:$ORIG_PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$DETECT" --cache "$ROOT/cache-guard-mut.txt" --quiet >/dev/null 2>&1 || true
+    bash "$DETECT" --cache "$1.cache.txt" --quiet >/dev/null 2>&1 || true
+}
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  GUARD_LOG_MUT="$ROOT/guard-path-mut.log"
+  GUARD_TMP_MUT="$ROOT/guard-tmp-mut"
+  # Precondition: a leak is only observable when BOTH dotnet and ilspycmd are on the REAL PATH
+  # (the SUT's ilspycmd smoke probe is what starts dotnet).
+  if PATH="$ORIG_PATH" command -v dotnet >/dev/null 2>&1 && PATH="$ORIG_PATH" command -v ilspycmd >/dev/null 2>&1; then
+    _ipc_pre=1
+  else
+    _ipc_pre=0
+  fi
+
+  # teeth-guard-ipc runs FIRST (each run in its own fresh TMPDIR): the diagnostics-ON mutant must reproduce
+  # a leak on this host, otherwise the no-leak case below proves nothing and degrades too.
+  # Precondition not met, or leak not reproducible (timing) → typed DEGRADED, never a FAIL/pass.
+  _ipc_reproduced=0
+  if [ "$_ipc_pre" -eq 1 ]; then
+    guard_mut_run "$ROOT/guard-tmp-mut-ipc" 1
+    _ipcm_n="$(settled_ipc_count "$ROOT/guard-tmp-mut-ipc")"; _ipcm_rc=$?
+    if [ "$_ipcm_rc" -ne 0 ]; then
+      no "teeth-guard-ipc: harness error — IPC leftovers could not be counted" "rc=$_ipcm_rc"
+    elif [ "$_ipcm_n" -gt 0 ]; then
+      _ipc_reproduced=1
+      ok "teeth-guard-ipc: diagnostics-on mutant leaves dotnet IPC files — no-leak bites" "(leftovers=$_ipcm_n)"
+    else
+      echo "  DEGRADED  teeth-guard-ipc: leak not reproducible on this host (precondition met, 0 leftovers)"
+      degraded=$((degraded+1))
+    fi
+  else
+    echo "  DEGRADED  teeth-guard-ipc: dotnet and/or ilspycmd not on real PATH — leak mutant cannot be observed (not counted as a pass)"
+    degraded=$((degraded+1))
+  fi
+
+  # teeth-guard (targets z_guard): mutant restores ":$ORIG_PATH" so SUT sees real PATH.
+  # The recorded PATH must contain at least one real system dir → z_guard bites.
+  # This is also the hardened run: diagnostics OFF in its own fresh TMPDIR.
+  guard_mut_run "$GUARD_TMP_MUT" 0
+  _ipc_n="$(settled_ipc_count "$GUARD_TMP_MUT")"; _ipc_rc=$?
+  _nl_label="teeth-guard no-leak: harness mitigation holds: DOTNET_EnableDiagnostics=0 run leaves 0 IPC files"
+  if [ "$_ipc_reproduced" -eq 0 ]; then
+    echo "  DEGRADED  teeth-guard no-leak: leak control did not reproduce a leak on this host — nothing proven (not counted as a pass)"
+    degraded=$((degraded+1))
+  elif [ "$_ipc_rc" -eq 0 ] && [ "$_ipc_n" -eq 0 ]; then
+    ok "$_nl_label" "(isolated TMPDIR)"
+  else
+    no "$_nl_label" "rc=$_ipc_rc leftovers=$_ipc_n"
+  fi
   if [ -s "$GUARD_LOG_MUT" ]; then
     _mut_path="$(head -1 "$GUARD_LOG_MUT")"
     _mut_leak=0
@@ -991,5 +1063,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+printf 'degraded: %d\n' "$degraded"
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
