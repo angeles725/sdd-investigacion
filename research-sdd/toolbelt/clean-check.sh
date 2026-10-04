@@ -2,11 +2,20 @@
 # clean-check.sh — read-only instrument: lists leftovers a run should not leave behind (kit issue
 # #1277, the NO-GARBAGE rule). Contract: clean-check.v1.md (read it first).
 #
-# Usage: clean-check.sh [--target DIR] [--tmp DIR] [--stale-hours N]
+# Usage: clean-check.sh [--target DIR] [--tmp DIR] [--stale-hours N] [--scratchpad DIR]
 #   (a) GARBAGE untracked <path>          untracked, non-ignored file in the target repo that no
 #                                         <TARGET>/.research-sdd/keep.txt glob keeps
 #   (b) GARBAGE stale-tmp <path> age=<h>h tmp.* entry directly under --tmp, older than the stale
 #                                         age (default 24 h) and owned by the current user
+#   (c) UNPRESERVED-ARTIFACT <file> cited by <block>   (kit #1207) a file in the session scratchpad
+#                                         (--scratchpad DIR, else $CLEAN_CHECK_SCRATCHPAD) whose basename or
+#                                         full path is mentioned by an .md block of the target: evidence about
+#                                         to be lost - preserve it under sources/probes/b<N>/ first
+#   (d) UNMANIFESTED-SCRIPT <file>        (kit #1207) a scratchpad script (sh ps1 py java js rb pl bat cmd
+#                                         groovy kts) whose basename is listed in no
+#                                         <TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md
+#   Scratchpad state is never a silent zero: unset -> summary `scratchpad: not set`; configured but missing
+#   -> a typed `ABSENT-SCRATCHPAD <path>` line + `scratchpad: absent`; otherwise `scratchpad: N file(s)`.
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
 # Exit: 0 clean · 1 findings · 2 usage / not a git work tree / absent dir / scan failure ·
 #       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured).
@@ -17,13 +26,14 @@ set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
 
 _err() { printf 'clean-check: ERROR: %s\n' "$1" >&2; }
-_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N]\n' "${0##*/}" >&2; }
+_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N] [--scratchpad DIR]\n' "${0##*/}" >&2; }
 
-TARGET=""; TMPD=""; STALE_H=24
+TARGET=""; TMPD=""; STALE_H=24; SCRATCH_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --target)      [ $# -ge 2 ] || { _usage; _err "--target needs a value"; exit 2; }; TARGET="$2"; shift 2 ;;
     --tmp)         [ $# -ge 2 ] || { _usage; _err "--tmp needs a value"; exit 2; }; TMPD="$2"; shift 2 ;;
+    --scratchpad)  [ $# -ge 2 ] || { _usage; _err "--scratchpad needs a value"; exit 2; }; SCRATCH_ARG="$2"; shift 2 ;;
     --stale-hours) [ $# -ge 2 ] || { _usage; _err "--stale-hours needs a value"; exit 2; }; STALE_H="$2"; shift 2 ;;
     -h|--help)     _usage; exit 0 ;;
     *)             _usage; _err "unknown argument: $1"; exit 2 ;;
@@ -61,6 +71,7 @@ TMPD="${TMPD%/}"; [ -n "$TMPD" ] || TMPD="/"
 TMPD_P="$(cd -P -- "$TMPD" && pwd -P)" || { _err "cannot enter tmp dir: $TMPD"; exit 2; }
 
 SCRATCH_P=""
+[ -n "$SCRATCH_ARG" ] && CLEAN_CHECK_SCRATCHPAD="$SCRATCH_ARG"
 if [ -n "${CLEAN_CHECK_SCRATCHPAD:-}" ]; then
   SCRATCH_P="${CLEAN_CHECK_SCRATCHPAD%/}"
   if [ -d "$SCRATCH_P" ]; then SCRATCH_P="$(cd -P -- "$SCRATCH_P" && pwd -P)"; fi
@@ -172,8 +183,71 @@ for ((_i = 0; _i < _slast; _i++)); do
   FINDINGS=$((FINDINGS + 1))
 done
 
+# ---- (c)/(d) scratchpad artifacts a block mentions, scripts with no manifest row (kit #1207) --------
+SCRATCH_STATE="not set"
+if [ -n "$SCRATCH_P" ]; then
+  if [ ! -d "$SCRATCH_P" ]; then   # CC-ABSENT
+    printf 'ABSENT-SCRATCHPAD %s\n' "$SCRATCH_P"
+    SCRATCH_STATE="absent"
+  else
+    _sf=()
+    while IFS= read -r -d '' _p; do _sf+=("$_p"); done < <(
+      find "$SCRATCH_P" -type f -print0 | sort -z
+      _pst=("${PIPESTATUS[@]}")
+      printf 'RC=%s\0' "$(( _pst[0] || _pst[1] ))"
+    )
+    _slast=$(( ${#_sf[@]} - 1 ))
+    { [ "$_slast" -ge 0 ] && [ "${_sf[$_slast]}" = "RC=0" ]; } || { _err "find failed or was truncated in scratchpad $SCRATCH_P"; exit 2; }
+    SCRATCH_STATE="$_slast file(s)"
+    # blocks: every .md of the target (tracked or untracked), minus anything below the scratchpad
+    _blk=()
+    while IFS= read -r -d '' _p; do _blk+=("$_p"); done < <(
+      git -C "$TARGET_P" ls-files -co --exclude-standard -z -- '*.md'
+      printf 'RC=%s\0' "$?"
+    )
+    _blast=$(( ${#_blk[@]} - 1 ))
+    { [ "$_blast" -ge 0 ] && [ "${_blk[$_blast]}" = "RC=0" ]; } || { _err "git ls-files failed or was truncated listing blocks in $TARGET"; exit 2; }
+    _mf=()
+    while IFS= read -r -d '' _p; do _mf+=("$_p"); done < <(
+      find "$TARGET_P/sources/probes" -type f -name SCRIPTS-MANIFEST.md -print0 2>/dev/null
+      printf 'RC=0\0'
+    )
+    for ((_i = 0; _i < _slast; _i++)); do
+      _f="${_sf[$_i]}"; _b="${_f##*/}"
+      _citer=""
+      for ((_j = 0; _j < _blast; _j++)); do
+        _bp="${_blk[$_j]}"
+        _in_scratch "$TARGET_P/$_bp" && continue
+        grep -qF -- "$_b" "$TARGET_P/$_bp"; _g=$?   # CC-CITE-GREP
+        case "$_g" in
+          0) _citer="$_bp"; break ;;
+          1) ;;
+          *) _err "grep failed reading block $_bp"; exit 2 ;;
+        esac
+      done
+      if [ -n "$_citer" ]; then
+        printf 'UNPRESERVED-ARTIFACT %s cited by %s\n' "$_f" "$_citer"
+        FINDINGS=$((FINDINGS + 1))
+      fi
+      case "$_b" in
+        *.sh|*.ps1|*.py|*.java|*.js|*.rb|*.pl|*.bat|*.cmd|*.groovy|*.kts)   # CC-SCRIPT-EXT
+          _listed=0
+          for _m in ${_mf[@]+"${_mf[@]}"}; do
+            [ "$_m" = "RC=0" ] && continue
+            grep -qF -- "$_b" "$_m"; _g=$?   # CC-MANIFEST-LOOKUP
+            case "$_g" in 0) _listed=1; break ;; 1) ;; *) _err "grep failed reading manifest $_m"; exit 2 ;; esac
+          done
+          if [ "$_listed" = 0 ]; then
+            printf 'UNMANIFESTED-SCRIPT %s\n' "$_f"
+            FINDINGS=$((FINDINGS + 1))
+          fi ;;
+      esac
+    done
+  fi
+fi
+
 # ---- summary ---------------------------------------------------------------------------------
-_scanned="untracked in $TARGET, tmp.* in $TMPD older than ${STALE_H}h, keep-list entries: $KEEP_N"
+_scanned="untracked in $TARGET, tmp.* in $TMPD older than ${STALE_H}h, keep-list entries: $KEEP_N, scratchpad: $SCRATCH_STATE"
 if [ "$FINDINGS" -eq 0 ]; then
   printf 'CLEAN-CHECK: clean (%s)\n' "$_scanned"
   exit 0
