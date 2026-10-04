@@ -10,14 +10,17 @@
 # Class-file facts header (kit issue #1205): BEFORE any engine runs, STDERR gets one line read straight from the
 # class-file bytes (no javap dependency; see corroborate_java.py classfile-facts). It is on stderr so the typed
 # result stays the first stdout line:
-#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N truncated=<none|entry-cap|byte-cap>
+#     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>
 #   major = class-file major version (52 = Java 8 ... 65 = Java 21; a range when the input mixes versions), lvt = whether
 #   method Code carries a LocalVariableTable (mixed = some classes do, some do not), resugar_risk=yes when any class is
 #   major >= 53 (Java 9+: lowered constructs such as indy string concatenation that a decompiler re-sugars).
-#   An unreadable class contributes NO fake version: it is counted in unreadable=N, and when nothing is readable the
+#   An unreadable class (no major version readable) contributes NO fake version: it is counted in unreadable=N; a class
+#   whose header was read but whose body walk failed is counted in partial=N (its major still counts). When nothing is readable the
 #   fields read unknown. Helper failures keep the SAME field set (all unknown) with a typed reason= suffix:
 #   reason=facts-unavailable (helper/python3 absent), reason=facts-timeout (killed by --timeout), reason=facts-error rc=N
-#   (helper crashed; its first stderr line follows as a WARN). An over-cap input reads truncated=entry-cap|byte-cap plus
+#   (helper crashed; its first stderr line follows as a WARN). The helper runs under its OWN budget, RSDD_CLASSFACTS_TIMEOUT
+#   or min(30, --timeout/8) seconds (at least 1; 30 when unbounded), so the worst-case extra wall time is that budget plus
+#   RSDD_KILL_AFTER, not a second full --timeout. An over-cap input reads truncated=entry-cap|byte-cap plus
 #   reason=facts-truncated:<cap>. Decompilation always continues. stderr always carries one WARN: decompiled source is a
 #   reconstruction, so syntax-level claims need bytecode evidence (`--javap` / `javap -c -p`), not the decompiled text.
 #
@@ -215,14 +218,27 @@ PRIMARY_JAR="$(engine_jar "$ENGINE")" && [ -f "$PRIMARY_JAR" ] || {
 # decompile status is typed", this suite, java-fidelity-experiment.sh logs), so stdout is unchanged. The helper runs
 # under the same timeout as the engines. Three distinct failure tokens, one field set: facts-unavailable (helper or
 # python3 absent), facts-timeout (killed by the timeout), facts-error rc=<n> (helper ran and failed; first stderr line shown).
-CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown"
+CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown"
 CF_HELPER="$HERE/corroborate_java.py"
 if [ ! -f "$CF_HELPER" ] || ! command -v python3 >/dev/null 2>&1; then
   echo "$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2
 else
+  # The helper gets its OWN small budget, not a second full engine timeout: RSDD_CLASSFACTS_TIMEOUT, else
+  # min(30, TIMEOUT/8) seconds (at least 1; 30 when the engines are unbounded). Worst-case extra wall time: that budget
+  # plus --kill-after.
+  CF_TIMEOUT="${RSDD_CLASSFACTS_TIMEOUT:-}"
+  if ! [[ "$CF_TIMEOUT" =~ ^[1-9][0-9]{0,4}$ ]]; then
+    [ -z "$CF_TIMEOUT" ] || echo "WARN: invalid RSDD_CLASSFACTS_TIMEOUT=$CF_TIMEOUT (positive seconds); using the derived default" >&2
+    CF_TIMEOUT=30
+    if [ "$TIMEOUT" -gt 0 ]; then
+      CF_TIMEOUT=$((TIMEOUT / 8))
+      [ "$CF_TIMEOUT" -ge 1 ] || CF_TIMEOUT=1
+      [ "$CF_TIMEOUT" -le 30 ] || CF_TIMEOUT=30
+    fi
+  fi
   CF_ERR="$(mktemp)"; cf_rc=0; CLASSFILE_LINE=""
-  if [ "$TIMEOUT" -gt 0 ]; then
-    CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
+  if command -v "$TIMEOUT_BIN" >/dev/null 2>&1; then
+    CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$CF_TIMEOUT" python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
   else
     CLASSFILE_LINE="$(python3 "$CF_HELPER" classfile-facts "$IN" 2>"$CF_ERR")" || cf_rc=$?
   fi

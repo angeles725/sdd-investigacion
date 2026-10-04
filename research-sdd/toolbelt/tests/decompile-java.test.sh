@@ -801,28 +801,28 @@ python3 "$ROOT/mkclass.py" jar "$ROOT/hdr.jar"
 # The CLASSFILE line goes to STDERR: consumers read the typed OK/DEGRADED/PARTIAL result as the first stdout line
 # (README/METHODOLOGY contract, java-fidelity-experiment.sh logs, every case in this suite), so stdout is unchanged.
 rt H1 "$ROOT/Hdr.class" -- --engine vineflower
-if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 truncated=none" <<<"$SE" \
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 partial=0 truncated=none" <<<"$SE" \
    && [ "$(head -1 <<<"$SO" | cut -c1-3)" = "OK:" ] && ! grep -q '^CLASSFILE' <<<"$SO"; then
   ok "H1 .class input: CLASSFILE header on stderr (major, lvt), stdout keeps the typed result as its first line"
 else no "H1 CLASSFILE header for a .class input" "rc=$RC so=[$SO] se=[$SE]"; fi
 if grep -q '^WARN: .*syntax-level.*javap -c -p' <<<"$SE"; then ok "H2 stderr warns that syntax-level claims need bytecode (javap -c -p) evidence"
 else no "H2 bytecode-evidence warning" "se=[$SE]"; fi
 rt H3 "$ROOT/hdr.jar" -- --engine vineflower
-if grep -qx "CLASSFILE major=52-65 lvt=mixed classes=2 resugar_risk=yes unreadable=0 truncated=none" <<<"$SE"; then ok "H3 jar input: major range, lvt=mixed and resugar_risk=yes aggregated over the jar"
+if grep -qx "CLASSFILE major=52-65 lvt=mixed classes=2 resugar_risk=yes unreadable=0 partial=0 truncated=none" <<<"$SE"; then ok "H3 jar input: major range, lvt=mixed and resugar_risk=yes aggregated over the jar"
 else no "H3 aggregated CLASSFILE header for a jar" "rc=$RC se=[$SE]"; fi
 rt H4 "$FAKE_CLASS" -- --engine vineflower
-if grep -qx "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 truncated=none" <<<"$SE"; then ok "H4 unreadable class: typed unknown header, never a fake major 0"
+if grep -qx "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 partial=0 truncated=none" <<<"$SE"; then ok "H4 unreadable class: typed unknown header, never a fake major 0"
 else no "H4 unreadable class header" "se=[$SE]"; fi
 # H5: helper missing (a copy of the SUT with no corroborate_java.py beside it) → typed unavailable, same field set, run continues.
 mkdir -p "$MUTANT_DIR/nohelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/nohelper/lib/"; cp "$SUT" "$MUTANT_DIR/nohelper/decompile-java.sh"
 RT_SUT="$MUTANT_DIR/nohelper/decompile-java.sh" rt H5 "$ROOT/Hdr.class" -- --engine vineflower
-if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown reason=facts-unavailable" <<<"$SE"; then ok "H5 helper missing: typed reason=facts-unavailable (full field set), decompilation still runs"
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unavailable" <<<"$SE"; then ok "H5 helper missing: typed reason=facts-unavailable (full field set), decompilation still runs"
 else no "H5 facts-unavailable header" "rc=$RC se=[$SE]"; fi
 # H6: helper present but CRASHING (rc 3 + a stderr message) → reason=facts-error rc=3, first stderr line surfaced, never "unavailable".
 mkdir -p "$MUTANT_DIR/crashhelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/crashhelper/lib/"; cp "$SUT" "$MUTANT_DIR/crashhelper/decompile-java.sh"
 printf 'import sys\nsys.stderr.write("helper exploded\\nsecond line\\n")\nsys.exit(3)\n' > "$MUTANT_DIR/crashhelper/corroborate_java.py"
 RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.sh" rt H6 "$ROOT/Hdr.class" -- --engine vineflower
-if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown reason=facts-error rc=3" <<<"$SE" \
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-error rc=3" <<<"$SE" \
    && grep -qx 'WARN: classfile-facts helper: helper exploded' <<<"$SE" && ! grep -q 'second line' <<<"$SE" && ! grep -q 'facts-unavailable' <<<"$SE"; then
   ok "H6 helper crash: reason=facts-error rc=3 plus its first stderr line, distinct from facts-unavailable"
 else no "H6 facts-error header" "rc=$RC se=[$SE]"; fi
@@ -831,9 +831,23 @@ mkdir -p "$MUTANT_DIR/slowhelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTA
 printf 'import time\ntime.sleep(30)\n' > "$MUTANT_DIR/slowhelper/corroborate_java.py"
 _t0=$SECONDS
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H7 "$ROOT/Hdr.class" -- --engine vineflower
-if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
   ok "H7 hung helper: killed by the engine timeout, typed reason=facts-timeout, run continues"
 else no "H7 facts-timeout" "rc=$RC secs=$((SECONDS - _t0)) se=[$SE]"; fi
+# H8: the helper has its OWN small budget (default min(30, TIMEOUT/8), min 1), not the engines' full timeout:
+# with --timeout 16 the hung helper is cut after ~2 s. RSDD_CLASSFACTS_TIMEOUT overrides; an invalid value warns and falls back.
+_t0=$SECONDS
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H8 "$ROOT/Hdr.class" -- --engine vineflower --timeout 16
+if grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 10 ]; then
+  ok "H8 helper budget is TIMEOUT/8 (not the full engine timeout): hung helper cut in $((SECONDS - _t0)) s with --timeout 16"
+else no "H8 helper budget derived from --timeout" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
+_t0=$SECONDS
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H9 "$ROOT/Hdr.class" RSDD_DECOMPILE_TIMEOUT=240 RSDD_CLASSFACTS_TIMEOUT=1 -- --engine vineflower
+if grep -q "reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 10 ]; then ok "H9 RSDD_CLASSFACTS_TIMEOUT=1 overrides the budget"
+else no "H9 RSDD_CLASSFACTS_TIMEOUT override" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H10 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
+if grep -q '^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=abc' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H10 invalid RSDD_CLASSFACTS_TIMEOUT: typed warning, derived default used"
+else no "H10 invalid RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
@@ -1284,11 +1298,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mCF6: mutant still said facts-timeout (or crashed) — H7 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF7: helper not run under the timeout → the hung helper is not killed (bounded here: it sleeps 30 s, then exits 0 with no line).
-  if build_mut mCF7 's/^    CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$TIMEOUT" python3 /    CLASSFILE_LINE="$(python3 /'; then
+  if build_mut mCF7 's/^    CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" python3 /    CLASSFILE_LINE="$(python3 /'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh"
     RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh" rt mCF7 "$ROOT/Hdr.class" -- --engine vineflower
     if ! grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF7: timeout-less mutant lets the hung helper run to its own end → H7 bites"
     else no "teeth-mCF7: mutant still timed the helper out — H7 has no teeth" "rc=$RC se=[$SE]"; fi
+  fi
+  # mCF8: helper budget = the engines' full timeout (not TIMEOUT/8) → H8's --timeout 16 keeps the helper for ~16 s.
+  if build_mut mCF8 's|^      CF_TIMEOUT=\$((TIMEOUT / 8))$|      CF_TIMEOUT=$TIMEOUT|'; then
+    cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF8.sh"
+    _t0=$SECONDS
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF8.sh" rt mCF8 "$ROOT/Hdr.class" -- --engine vineflower --timeout 16
+    if [ $((SECONDS - _t0)) -ge 10 ]; then ok "teeth-mCF8: full-timeout mutant keeps the hung helper $((SECONDS - _t0)) s → H8 bites"
+    else no "teeth-mCF8: mutant still cut the helper early — H8 has no teeth" "secs=$((SECONDS - _t0))"; fi
+  fi
+  # mCF9: an invalid RSDD_CLASSFACTS_TIMEOUT is silently accepted-by-ignoring (no warning) → H10 bites.
+  if build_mut mCF9 's/^    \[ -z "\$CF_TIMEOUT" \] || echo "WARN: invalid RSDD_CLASSFACTS_TIMEOUT=.*$/  :/'; then
+    cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh"
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh" rt mCF9 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
+    if ! grep -q 'invalid RSDD_CLASSFACTS_TIMEOUT' <<<"$SE" && grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF9: warning-less mutant swallows a bad RSDD_CLASSFACTS_TIMEOUT → H10 bites"
+    else no "teeth-mCF9: mutant still warned — H10 has no teeth" "se=[$SE]"; fi
   fi
 fi
 

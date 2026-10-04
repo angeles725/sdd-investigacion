@@ -82,7 +82,9 @@ unreadable class is not a version-0 class.
 
 `class_facts_summary`: `classes`, `major_versions` (sorted distinct, readable only),
 `lvt` (`yes` / `no` / `mixed` / `unknown`; `unknown` when no class gave a readable
-answer), `resugar_risk_classes`, `unreadable_classes`.
+answer), `resugar_risk_classes`, `unreadable_classes` (no major version readable: `major_version` null)
+and `partial_classes` (header read, so the major still counts, but the body walk failed:
+`truncated-body`, `bad-constant-pool-tag`).
 
 **`resugar_risk` threshold: major >= 53 (Java 9).** Java 9 is the first release whose
 javac lowering a decompiler reverses on the way back: JEP 280 compiles `a + b` string
@@ -97,14 +99,18 @@ major 52 are not flagged, but that is not a fidelity guarantee either.
 `decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
 `OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
 available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`:
-`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N truncated=<none|entry-cap|byte-cap>`,
+`CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`,
 plus a `WARN:` that syntax-level claims need bytecode evidence.
 
 The standalone mode is bounded like the main path (defaults 20000 class entries, 1 GiB
 expanded bytes, 64 MiB per class; overridable with `RSDD_CLASSFACTS_MAX_ENTRIES`,
-`RSDD_CLASSFACTS_MAX_BYTES`, `RSDD_CLASSFACTS_MAX_CLASS_BYTES`). An overflow reads
+`RSDD_CLASSFACTS_MAX_BYTES`, `RSDD_CLASSFACTS_MAX_CLASS_BYTES`; read when used, and a malformed value
+prints one `WARN: classfile-facts: invalid <VAR>=...` on stderr and uses the default, never a crash).
+An overflow reads
 `truncated=<cap>` and `reason=facts-truncated:<cap>`, never a silent partial count. The wrapper
-runs it under the engines' `--timeout`. When the helper cannot report, the line keeps the same
+runs it under its own budget, `RSDD_CLASSFACTS_TIMEOUT` or `min(30, --timeout/8)` seconds (at least 1;
+30 when the engines are unbounded; an invalid override warns and falls back), so the worst-case extra
+wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the helper cannot report, the line keeps the same
 field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
 python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
 line follows as a `WARN:`).

@@ -124,12 +124,27 @@ def jar_inventory(path: Path, max_files: int, max_bytes: int, max_classes: int) 
 # The threshold is deliberately conservative: every class at or above it is flagged. A flag means
 # "syntax-level claims need bytecode evidence", never "the decompilation is wrong".
 RESUGAR_MIN_MAJOR = 53
-MAX_CLASS_BYTES = int(os.environ.get("RSDD_CLASSFACTS_MAX_CLASS_BYTES", str(64 * 1024 * 1024)))
+DEFAULT_MAX_CLASS_BYTES = 64 * 1024 * 1024
 # Bounds for the standalone `classfile-facts` mode. They reuse the main path's defaults (--max-files 20000,
 # --max-bytes 1 GiB); the main path itself is already bounded by jar_inventory before any fact is read.
 # Overridable for tests and unusual inputs; an overflow is typed (truncated=entry-cap|byte-cap), never a silent count.
-FACTS_MAX_ENTRIES = int(os.environ.get("RSDD_CLASSFACTS_MAX_ENTRIES", "20000"))
-FACTS_MAX_EXPANDED_BYTES = int(os.environ.get("RSDD_CLASSFACTS_MAX_BYTES", str(1024 * 1024 * 1024)))
+DEFAULT_MAX_ENTRIES = 20000
+DEFAULT_MAX_EXPANDED_BYTES = 1024 * 1024 * 1024
+_WARNED: set[str] = set()
+
+
+def _env_limit(name: str, default: int) -> int:
+    """Positive-integer limit from the environment, read lazily. A malformed value warns once on stderr and falls
+    back to the default: a bad override must never crash a corroboration run."""
+    raw = os.environ.get(name, "")
+    if raw == "":
+        return default
+    value = int(raw) if raw.isdigit() else 0
+    if value <= 0:
+        if name not in _WARNED:
+            _WARNED.add(name); print(f"WARN: classfile-facts: invalid {name}={raw!r}; using default {default}", file=sys.stderr)
+        return default
+    return value
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 CLASS_HEADER_LEN = 8                                 # magic(4) + minor(2) + major(2)
 CLASS_MAJOR_OFFSET = 6                               # major_version: bytes 6-7, big-endian
@@ -218,7 +233,7 @@ def class_file_facts(data: bytes) -> dict[str, Any]:
 
 def read_class_facts(archive: zipfile.ZipFile, entry: str) -> dict[str, Any]:
     try:
-        if archive.getinfo(entry).file_size > MAX_CLASS_BYTES:
+        if archive.getinfo(entry).file_size > _env_limit("RSDD_CLASSFACTS_MAX_CLASS_BYTES", DEFAULT_MAX_CLASS_BYTES):
             return _null_facts("entry-too-large")
         return class_file_facts(archive.read(entry))
     except (zlib.error, EOFError, NotImplementedError, zipfile.BadZipFile):
@@ -234,39 +249,44 @@ def summarize_facts(records: list[dict[str, Any]]) -> dict[str, Any]:
     state = "unknown" if not lvt else "mixed" if len(lvt) == 2 else "yes" if True in lvt else "no"
     return {"classes": len(records), "major_versions": majors, "lvt": state,
             "resugar_risk_classes": sum(1 for r in records if r["resugar_risk"]),
-            "unreadable_classes": sum(1 for r in records if r["reason"] is not None)}
+            # unreadable: no major version could be read. partial: header read (major known) but the body walk failed.
+            "unreadable_classes": sum(1 for r in records if r["major_version"] is None),
+            "partial_classes": sum(1 for r in records if r["major_version"] is not None and r["reason"] is not None)}
 
 
 def classfile_facts_cli(path: Path) -> int:
     """`corroborate_java.py classfile-facts <in.jar|in.class>`: one CLASSFILE line for decompile-java.sh."""
-    fields = "classes={} resugar_risk={} unreadable={} truncated={}"
+    fields = "classes={} resugar_risk={} unreadable={} partial={} truncated={}"
+    max_entries = _env_limit("RSDD_CLASSFACTS_MAX_ENTRIES", DEFAULT_MAX_ENTRIES)
+    max_bytes = _env_limit("RSDD_CLASSFACTS_MAX_BYTES", DEFAULT_MAX_EXPANDED_BYTES)
+    max_class = _env_limit("RSDD_CLASSFACTS_MAX_CLASS_BYTES", DEFAULT_MAX_CLASS_BYTES)
     truncated = "none"
     try:
         if zipfile.is_zipfile(path):
             with zipfile.ZipFile(path) as archive:
                 names = sorted(n for n in archive.namelist() if n.endswith(".class"))
-                if len(names) > FACTS_MAX_ENTRIES:
-                    names, truncated = names[:FACTS_MAX_ENTRIES], "entry-cap"
+                if len(names) > max_entries:
+                    names, truncated = names[:max_entries], "entry-cap"
                 records, spent = [], 0
                 for name in names:
                     size = archive.getinfo(name).file_size
-                    if spent + size > FACTS_MAX_EXPANDED_BYTES:
+                    if spent + size > max_bytes:
                         truncated = "byte-cap"; break
                     spent += size; records.append(read_class_facts(archive, name))
         else:
-            if path.stat().st_size > MAX_CLASS_BYTES:
+            if path.stat().st_size > max_class:
                 records, truncated = [_null_facts("entry-too-large")], "none"
             else:
                 records = [class_file_facts(path.read_bytes())]
     except (OSError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as exc:
-        print("CLASSFILE major=unknown lvt=unknown " + fields.format("unknown", "unknown", "unknown", "unknown")
+        print("CLASSFILE major=unknown lvt=unknown " + fields.format("unknown", "unknown", "unknown", "unknown", "unknown")
               + f" reason=unreadable-input({exc.__class__.__name__})")
         return 0
     summary = summarize_facts(records)
     majors = summary["major_versions"]
     major = "unknown" if not majors else str(majors[0]) if len(majors) == 1 else f"{majors[0]}-{majors[-1]}"
     risk = "unknown" if not majors else "yes" if summary["resugar_risk_classes"] else "no"
-    line = f"CLASSFILE major={major} lvt={summary['lvt']} " + fields.format(summary["classes"], risk, summary["unreadable_classes"], truncated)
+    line = f"CLASSFILE major={major} lvt={summary['lvt']} " + fields.format(summary["classes"], risk, summary["unreadable_classes"], summary["partial_classes"], truncated)
     print(line + (f" reason=facts-truncated:{truncated}" if truncated != "none" else ""))
     return 0
 
