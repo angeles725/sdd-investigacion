@@ -417,7 +417,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # The SUT of these controls is a JSON fixture: skip the `bash -n` check (the builder below
   # round-trips through json, and a mutant that is not valid JSON crashes the checker, which the
   # --bad-lacks guard refuses to read as a bite).
-  MUTANT_SYNTAX=none
+  export MUTANT_SYNTAX=none
   _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
   mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }

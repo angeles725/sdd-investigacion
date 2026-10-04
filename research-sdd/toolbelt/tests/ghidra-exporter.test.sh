@@ -344,7 +344,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   done
   # The SUT of these controls is a JSON fixture, not a shell script: skip the `bash -n` check.
   # Each mutant is validated as JSON by its own builder (json.loads round-trip) instead.
-  MUTANT_SYNTAX=none
+  export MUTANT_SYNTAX=none
   _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
   mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
