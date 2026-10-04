@@ -181,83 +181,48 @@ fi
 # --prove-teeth mutation control
 # ---------------------------------------------------------------------------
 echo "--- mutation control ---"
-MUT_PASS=0; MUT_FAIL=0
-mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
-mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+# The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
+# dead-stage refusals still apply).
+export MUTANT_SYNTAX=none
+export RSDD_IFC_PY
 
 # Locate the outer adapter (sibling of SUT)
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/corroborate_ifc.py"
 if [ ! -f "$ORIG_PY" ]; then
   echo "  FAIL(mut)  corroborate_ifc.py not found: $ORIG_PY"
-  echo "== $pass passed · $fail failed · $MUT_PASS mut-pass · 1 mut-fail =="
+  echo "== $pass passed · $fail failed · 1 mut-fail =="
   exit 1
 fi
 
-# Create a temp toolbelt copy with ONE mutation:
-# Reverse the sort key in _build_entity_histogram from (-count, type) to (+count, type).
-# Expected: the sort-order assertion in T1 fires because items are ascending not descending.
+# ONE mutation in a temp toolbelt copy: reverse the sort key in _build_entity_histogram from
+# (-count, type) to (+count, type). The tooth runs the adapter on the valid fixture and reports the
+# histogram order; the original must report descending (rc 0) and the mutant must report broken.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-# Patch: change the negation sign on count in the sort key
-sed -i "s/-x\['count'\]/x['count']/" "$MUTDIR/corroborate_ifc.py"
-
-# Verify the patch actually changed the file (if not, sed expression needs adjustment)
-if cmp -s "$ORIG_PY" "$MUTDIR/corroborate_ifc.py"; then
-  echo "  SKIP(mut)  sed patch had no effect — adjusting mutation"
-  # Fallback: patch truncated field to always be True
-  cp "$ORIG_PY" "$MUTDIR/corroborate_ifc.py"
-  sed -i 's/cap_hit = total_types > max_types/cap_hit = True  # MUTANT/' \
-    "$MUTDIR/corroborate_ifc.py"
-fi
-
-# Build a minimal test around the mutant:
-# Run T1 via mutated toolbelt using RSDD_IFC_SCRIPT override.
-# corroborate-ifc.sh uses $HERE/corroborate_ifc.py, so we call the mutant directly.
-MUTOUT="$ROOT/mut_out"
-if RSDD_IFC_PY="$RSDD_IFC_PY" \
-   python3 "$MUTDIR/corroborate_ifc.py" \
-     --manifest-cli "$MUTDIR/analysis_manifest.py" \
-     --input "$FIXTURES/valid.ifc" \
-     --output "$MUTOUT" 2>/dev/null; then
-  # The mutant ran — check that the sort order invariant is VIOLATED
-  if python3 - "$MUTOUT/ifc-evidence.v1.json" <<'PY' 2>/dev/null
+cat > "$MUTDIR/order_check.py" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 items = d['ifc']['entity_histogram']['items']
-# Sort order must be VIOLATED by the mutation (ascending instead of descending)
-# If fixture has entities with differing counts, ascending sort puts lowest first.
-if len(items) > 1:
-    all_desc = all(items[i]['count'] >= items[i+1]['count']
-                   for i in range(len(items)-1))
-    assert not all_desc, "mutant should break descending-count sort order"
-sys.exit(0)
+desc = all(items[i]['count'] >= items[i+1]['count'] for i in range(len(items) - 1))
+print("SORT: descending" if desc else "SORT: broken")
 PY
-  then
-    # Python asserted NOT all_desc → the mutant broke the invariant (good)
-    mut_ok "sort-key mutation detected: histogram is no longer count-descending"
-  else
-    # Python assertion passed → mutation was NOT detected by sort check.
-    # Try the cap mutation instead: truncated should be True for non-capped fixture.
-    if python3 - "$MUTOUT/ifc-evidence.v1.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d['ifc']['entity_histogram']['truncated'], \
-    "cap=True mutant should set truncated=True even for small fixture"
-PY
-    then
-      mut_ok "cap=True mutation detected: truncated=True for small fixture"
-    else
-      mut_no "mutation not detected by either sort or cap check"
-    fi
-  fi
+if mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
+  if mutant_tooth "teeth: histogram sort-key mutation breaks count-descending order" 0 0 \
+      "$MUTDIR/corroborate_ifc.py" --orig "$ORIG_PY" \
+      --good-has 'SORT: descending' --bad-has 'SORT: broken' --bad-lacks 'SORT: descending' -- \
+      bash -c 'o="$(mktemp -d)" && python3 "$1" --manifest-cli "$(dirname "$1")/analysis_manifest.py" --input "$2" --output "$o/out" >/dev/null 2>&1 || { echo "RUN-FAILED"; exit 9; }; python3 "$3" "$o/out/ifc-evidence.v1.json"; rc=$?; rm -rf "$o"; exit $rc' \
+      _ @SUT@ "$FIXTURES/valid.ifc" "$MUTDIR/order_check.py"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
 else
-  # Mutant failed to run → wrong mutation, or mutation broke something structural
-  mut_no "mutant failed to run (mutation too destructive or wrong)"
+  fail=$((fail+1))
 fi
 rm -rf "$MUTDIR"
 
-pass=$((pass + MUT_PASS))
-fail=$((fail + MUT_FAIL))
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
