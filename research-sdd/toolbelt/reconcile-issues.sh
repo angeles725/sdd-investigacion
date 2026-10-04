@@ -13,11 +13,19 @@
 # Usage:
 #   reconcile-issues.sh <retro.md>  — audit one retro file
 #   reconcile-issues.sh --all       — audit every retro across all TARGETS.md targets
+#   --issues-cache <file>  — pre-fetched OPEN issue bodies (no gh call)
+#   --closed-cache <file>  — pre-fetched bodies of issues CLOSED AS COMPLETED (used with --issues-cache;
+#                            without it the closed-issue check is skipped and says so on stderr)
 #
 # Classifies each OPEN delta as (printed to stdout):
 #   tracked   — open delta HAS a matching open issue
 #   untracked — open delta with NO matching issue  (actionable gap)
 #   orphaned  — open issue whose delta row is no longer open
+#   shipped   — open delta with NO open issue whose matching issue is CLOSED as completed and still
+#               carries this retro's exact "Source retro: ..." signature (kit issue #1555): the row
+#               has shipped even though the retro marker does not list it. Reported with a proposal
+#               to update the marker by hand; never counted as untracked, never auto-edited.
+#               A closed issue not closed as completed (e.g. not planned) is NOT shipped evidence.
 #
 # propose-never-apply: REPORT ONLY.  No --apply flag; never creates, closes, or
 # edits any issue or retro marker.
@@ -32,7 +40,7 @@
 #   no-match        delta section present; no open deltas AND no orphaned issues
 #
 # §7 degraded probe: gh absent or unauthenticated → typed "degraded:" + exit 1.
-# Findings (untracked, orphaned) are WARN-only and never fail the run.
+# Findings (untracked, shipped, orphaned) are WARN-only and never fail the run.
 # Operational failures (TARGETS.md missing, lib helper missing) exit 1.
 
 set -uo pipefail
@@ -42,6 +50,7 @@ set -uo pipefail
 _mode="single"
 retro=""
 _issues_cache=""
+_closed_cache=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --all) _mode="all"; shift ;;
@@ -50,6 +59,11 @@ while [ "$#" -gt 0 ]; do
         echo "reconcile-issues: --issues-cache requires a value" >&2; exit 1
       fi
       _issues_cache="$2"; shift 2 ;;
+    --closed-cache)
+      if [ "$#" -lt 2 ]; then
+        echo "reconcile-issues: --closed-cache requires a value" >&2; exit 1
+      fi
+      _closed_cache="$2"; shift 2 ;;
     --*) echo "reconcile-issues: unknown flag '$1'" >&2; exit 1 ;;
     *)   retro="$1"; shift ;;
   esac
@@ -154,10 +168,53 @@ declare -F target_name_for_retro >/dev/null 2>&1 \
 # Fleet accumulators (used under --all to build the final summary line)
 _fleet_tracked=0
 _fleet_untracked=0
+_fleet_shipped=0
 _fleet_orphaned=0
 _fleet_degraded=0
 _fleet_outofscope=0
 _fleet_retros=0
+
+# ---------------------------------------------------------------------------
+# _fetch_closed_bodies <retro_basename> <sig-prefix>...
+#   Prints the bodies of issues closed AS COMPLETED for the signature prefix(es) (kit issue #1555).
+#   The --jq prints one record-separator line after EVERY issue, with an empty body for one closed
+#   any other way (not planned), so the cap guard counts every returned issue. A failed query or a
+#   reply that filled the --limit is a typed degraded + return 1, never a confident empty answer.
+_fetch_closed_bodies() {
+  local _rb="$1"; shift
+  local _p _out _rc _n _ef _em
+  if [ -n "$_closed_cache" ]; then
+    # RECONCILE_ISSUES_CLOSED_CACHE_READ
+    cat "$_closed_cache" 2>/dev/null || {
+      printf 'degraded: --closed-cache file not readable: %s\n' "$_closed_cache" >&2
+      return 1
+    }
+    return 0
+  fi
+  for _p in "$@"; do
+    _ef="$(mktemp 2>/dev/null)" || _ef=""
+    # RECONCILE_ISSUES_CLOSED_QUERY: --state closed, completed only (stateReason)
+    _out="$(gh issue list \
+        --repo "$_REPO" \
+        --state closed \
+        --limit "$_LIST_LIMIT" \
+        --search "\"Source retro: ${_p} ·\"" \
+        --json body,stateReason \
+        --jq '.[] | (if .stateReason == "COMPLETED" then .body else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+      if [ -n "$_ef" ]; then _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; else _em=""; fi
+      echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
+      return 1
+    fi
+    [ -z "$_ef" ] || rm -f "$_ef"
+    _n="$(printf '%s\n' "$_out" | awk '$0 == "\036" { n++ } END { print n + 0 }')"
+    if [ "$_n" -ge "$_LIST_LIMIT" ]; then
+      echo "degraded: gh issue list (closed) returned $_n results = the --limit $_LIST_LIMIT cap for $_rb — the result may be truncated (raise RECONCILE_ISSUES_LIST_LIMIT)" >&2
+      return 1
+    fi
+    printf '%s\n' "$_out" | awk '$0 != "\036"'
+  done
+}
 
 # ---------------------------------------------------------------------------
 # audit_retro <retro_path> <target_name>
@@ -176,7 +233,7 @@ audit_retro() {
     return 1
   fi
 
-  local r_tracked=0 r_untracked=0 r_orphaned=0
+  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0
   local _gh_rc _gh_stderr_file _gh_err_msg
 
   # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
@@ -425,7 +482,7 @@ ${_rln}"
   fi
 
   # --- Classify open deltas: tracked or untracked
-  local _rid
+  local _rid _closed_loaded=0 _closed_row_ids="" _cb _cpfx _cids
   if [ -n "$_open_ids" ]; then
     while IFS= read -r _rid; do
       [ -z "$_rid" ] && continue
@@ -434,10 +491,33 @@ ${_rln}"
         printf 'tracked: row %s — open issue found in %s\n' "$_rid" "$retro_basename"
         r_tracked=$((r_tracked+1))
       else
-        # RECONCILE_ISSUES_UNTRACKED_EMIT: anchor for T2 teeth — emit untracked when no issue
-        printf 'untracked: row %s — no open issue found for this delta in %s\n' \
-          "$_rid" "$retro_basename"
-        r_untracked=$((r_untracked+1))
+        # RECONCILE_ISSUES_CLOSED_LOOKUP (kit issue #1555): no OPEN issue is not yet "no issue" — the
+        # row may have shipped through an issue that was since closed as completed. Looked up lazily,
+        # once per retro, only when a row has no open issue. With --issues-cache and no --closed-cache
+        # the check cannot run: say so instead of reading it as "no closed issue".
+        if [ "$_closed_loaded" -eq 0 ]; then
+          _closed_loaded=1
+          if [ -n "$_issues_cache" ] && [ -z "$_closed_cache" ]; then
+            echo "closed-lookup: skipped for $retro_basename — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues" >&2
+          else
+            _cb="$(_fetch_closed_bodies "$retro_basename" "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"})" || return 1
+            for _cpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+              _cids="$(printf '%s\n' "$_cb" | grep -F "Source retro: ${_cpfx} · " | sed -E 's/.* · //' | grep -oE '^[A-Za-z0-9_-]+')"
+              [ -z "$_cids" ] || _closed_row_ids="${_closed_row_ids:+${_closed_row_ids}
+}${_cids}"
+            done
+          fi
+        fi
+        if [ -n "$_closed_row_ids" ] && grep -qxF "$_rid" <<<"$_closed_row_ids"; then  # RECONCILE-CLOSED-SHIPPED
+          printf 'shipped: row %s — its issue is closed as completed and cites this retro in %s; propose marking the row shipped in the retro marker (not edited here)\n' \
+            "$_rid" "$retro_basename"
+          r_shipped=$((r_shipped+1))
+        else
+          # RECONCILE_ISSUES_UNTRACKED_EMIT: anchor for T2 teeth — emit untracked when no issue
+          printf 'untracked: row %s — no open issue found for this delta in %s\n' \
+            "$_rid" "$retro_basename"
+          r_untracked=$((r_untracked+1))
+        fi
       fi
     done <<< "$_open_ids"
   fi
@@ -469,13 +549,14 @@ ${_rln}"
   fi
 
   # --- no-match: nothing actionable found at all
-  if [ "$r_tracked" -eq 0 ] && [ "$r_untracked" -eq 0 ] && [ "$r_orphaned" -eq 0 ]; then
+  if [ "$r_tracked" -eq 0 ] && [ "$r_untracked" -eq 0 ] && [ "$r_orphaned" -eq 0 ] && [ "$r_shipped" -eq 0 ]; then
     echo "no-match: no open deltas and no orphaned issues in $retro_basename" >&2
   fi
 
   # Accumulate fleet totals
   _fleet_tracked=$((_fleet_tracked + r_tracked))
   _fleet_untracked=$((_fleet_untracked + r_untracked))
+  _fleet_shipped=$((_fleet_shipped + r_shipped))
   _fleet_orphaned=$((_fleet_orphaned + r_orphaned))
   _fleet_retros=$((_fleet_retros + 1))
 
@@ -583,8 +664,8 @@ elif [ "$_mode" = "all" ]; then
     echo "empty-input: no retro files found across all targets" >&2
   fi
 
-  printf 'fleet-summary: tracked=%d untracked=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
-    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
+  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
   # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment
   # above) — only genuine operational failures (_fleet_degraded) gate the exit code.
   [ "$_fleet_degraded" -eq 0 ] || exit 1
