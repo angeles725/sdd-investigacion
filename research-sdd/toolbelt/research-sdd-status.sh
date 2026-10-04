@@ -562,6 +562,29 @@ env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/resear
 env_raw() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0}
   b { l=$0; sub(/^[[:space:]]+/,"",l); if (index(l,k":")==1) { v=substr(l,length(k)+2); sub(/^[[:space:]]+/,"",v); sub(/[[:space:]\r]+$/,"",v); print v; f=1; exit } }
   END { exit f?0:1 }' "$state"; }  # ENV-RAW
+# cov_ratio — the "N/M" of the Coverage metric FIELD in "## Coverage" (kit issue #1154), or empty when there is none.
+# The label is the field's identity: a line only counts when it STARTS with `Coverage metric` (an optional list
+# marker, bold marks, and a parenthetical qualifier such as `(this focus)` allowed) followed by `:` or `=`.
+# Matching the bare phrase anywhere in the section read any note that merely mentioned it (e.g. an Outline line
+# pointing at the field) as the gap ratio. Label forms measured on the fleet: `**Coverage metric**:` and the
+# qualified `**Coverage metric (this focus)**:`; no prefixed label (`Gap coverage metric:`) occurs.
+# Anti-silent-zero (§7): when NO line in the section matches the label at all, but a line still mentions the
+# phrase AND carries a ratio, the figure is NOT silently dropped (that would print <none> / let --sync-state
+# carry a stale envelope value forward): a typed WARN names the unrecognised line on stderr. A label line that
+# EXISTS but carries no ratio (intentionally blank, e.g. document mode) means "metric not set": no WARN, even if
+# another line mentions the phrase with a ratio.
+COVMETRIC_LABEL_RE='^[[:space:]]*([-*+][[:space:]]+)?\*{0,2}coverage metric\*{0,2}[[:space:]]*(\([^)]*\))?\*{0,2}[[:space:]]*[:=]'  # CM-LABEL-ANCHOR
+cov_ratio() {
+  local _cr_r _cr_loose _cr_nlab
+  _cr_r="$(section '## Coverage' | grep -iE "$COVMETRIC_LABEL_RE" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+  _cr_nlab="$(section '## Coverage' | grep -ciE "$COVMETRIC_LABEL_RE")"  # CM-LABEL-PRESENT
+  if [ -z "$_cr_r" ] && [ "${_cr_nlab:-0}" -eq 0 ]; then
+    _cr_loose="$(section '## Coverage' | grep -iE 'coverage metric' | grep -E '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | cut -c1-100)"  # CM-UNRECOGNISED-LABEL
+    [ -z "$_cr_loose" ] || printf 'WARN: %s: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: %s\n' "$(basename "$state")" "$_cr_loose" >&2
+  fi
+  printf '%s\n' "$_cr_r"
+}
+
 # pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
 # 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
@@ -576,40 +599,24 @@ pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$
 # Cell decoration stripped before matching: `backtick-wrap` and **bold-wrap** (BOLD-STRIP).
 # WARNs to stderr: token outside closed vocabulary, or state file absent from the index.
 #
-# W2 (kit issue #1005 round 2): the default status report calls this once per state file from the
-# campaign block AND again later from the next-step block, so a multi-focus corpus with nonconforming
-# FOCUSES.md rows printed every such WARN twice. Memoize per (ffile, sbase): the awk scan (and its
-# WARNs) runs at most once per process; every later caller — regardless of which loop — reuses the
-# cached token silently. Distinct from a wrong-answer cache: the token is still recomputed once, from
-# the same file, by the same logic; only the SECOND-and-later read within one run is served from cache.
+# Memoized per (ffile, sbase): the default report reads the token once per state file from the campaign block
+# AND again from the next-step block, and the awk scan emits its WARNs, so an unmemoized read would print every
+# nonconforming-row WARN twice. The token is still computed once, from the same file, by the same logic; only
+# the second and later reads within one run are served from the cache.
 #
-# Round 2 first tried a cache FILE (a plain in-memory array does not survive the subshell every
-# `x="$(_read_focuses_tok ...)"` capture forks). Round 3 (native RDD + Opus re-review): that file was
-# a real security bug, not just an implementation detail — a predictable, world-readable path under a
-# shared tmp dir, created with `: >` (follows symlinks), whose CONTENTS were then trusted as data.
-# Reproduced: a symlink at that path clobbering an unrelated victim file, and a planted
-# "<key>\tstopped" line silently forcing a real focus into a false STOP — the same function backs
-# `--next`, so a poisoned cache file could produce a false STOP there too (kit §7 anti-silent-zero:
-# an attacker-controlled "0 gaps left" is exactly the silent-zero this doctrine exists to prevent).
+# The cache is an in-process array and the reader is called as a PLAIN statement (never inside `$(...)`), so
+# nothing is forked, nothing is written to a shared or world-readable location, and the cache only ever holds
+# values this process computed itself. A file-backed cache would be attacker-influenceable (symlink clobber, a
+# planted "<key>\tstopped" line forcing a false STOP — a silent zero, CLAUDE.md §7). The next-step `( … )`
+# subshell inherits a COPY of the array at fork time, so entries the campaign block populated are hits there.
 #
-# The actual fix: never leave the parent shell at all. `_read_focuses_tok_into <var> <ffile> <sbase>`
-# is called as a PLAIN statement (never wrapped in `$(...)`), so it runs in the caller's own process —
-# no subshell, no file, nothing written to a shared or world-readable location. The cache only ever
-# holds values this exact process computed for itself. The `( … )` next-step subshell below still
-# benefits: it inherits a COPY of this array at fork time, so every entry the campaign block already
-# populated earlier in the same run is a cache hit there too (a subshell just can't add new entries
-# back to the parent, which this call pattern never needs it to).
-#
-# Requires bash >= 4 (`declare -A`, associative arrays) — already true for this kit: 10 other
-# toolbelt scripts on main use `declare -A`.
+# Requires bash >= 4 (`declare -A`).
+# SENTINEL-RFT-HARNESS-BEGIN (the shadowing test extracts exactly the code between BEGIN and END)
 declare -A _RSDD_FOC_TOK_CACHE=()  # W2-NO-PROBE-WRITE-ANCHOR
-# Round 4 (latent, nit): every local here is prefixed `__rft_` on purpose. `printf -v "$__rft_target"`
-# assigns to a variable NAME the caller supplies — if a caller ever named its own variable the same as
-# one of this function's OWN locals (e.g. a caller literally using `_tok` or `ffile`), `printf -v`
-# would resolve to THIS function's local instead of the caller's variable (locals shadow), silently
-# leaving the caller's real variable unset/stale. Call sites today don't collide, but the prefix makes
-# a future collision need a call site to deliberately choose a `__rft_`-prefixed name, not stumble
-# into one of five short, plausible-sounding identifiers.
+# Every local is prefixed `__rft_` on purpose. `printf -v "$__rft_target"` assigns to a variable NAME the caller
+# supplies; if that name equalled one of this function's own locals, `printf -v` would resolve to the local
+# (locals shadow) and leave the caller's variable unset or stale. The prefix makes such a collision require a
+# call site that deliberately picks a `__rft_`-prefixed name.
 _read_focuses_tok_into() {
   local __rft_target="$1" __rft_ffile="$2" __rft_sbase="$3"
   local __rft_cache_key
@@ -694,6 +701,7 @@ _read_focuses_tok_uncached() {
     }
   ' "$ffile"
 }
+# SENTINEL-RFT-HARNESS-END
 
 if [ "$mode" = "--sync-state" ]; then
   # Seed the research-state.v1 envelope in EVERY RESEARCH-STATE*.md of the corpus. §16 multi-focus corpora
@@ -836,7 +844,7 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     # declared-only figures from THIS file's prose (coverage metric X/Y), carrying the previous envelope
     # value when a figure is absent/unparseable (never invent — see pick()).
-    cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+    cov="$(cov_ratio)"
     # known_gaps: take the larger of the backlog-derived total and the coverage metric Y (issue #568).
     # Backlog-derived: captures newly-added gaps even when the coverage metric prose is stale.
     # Coverage metric Y: preserved when closed gaps are tracked only in the prose and not as backlog rows.
@@ -1806,9 +1814,80 @@ campaign_status_block() {
   fi
 }
 
+# --- document-cycle mode (kit issue #1152) ------------------------------------------------------
+# A corpus whose envelope says `method: document-cycle` (research-sdd-init.sh --document) is OUTLINE-driven:
+# its ## Gap-backlog is empty on purpose, so gap saturation and "read-only-investigable exhausted" say nothing
+# true about it. The DEFAULT REPORT then prints the Outline progress and a document-mode next step instead.
+# Only the exact value `document-cycle` counts (`document-cycle-external` is a corpus authored outside this
+# loop and keeps the gap-centric report), and only for a single-state-file corpus. `--next` is untouched.
+#
+# outline_rows — one TSV line per data row of the "## Outline" table: <#> TAB <item> TAB <status token>.
+# A data row is a pipe row whose first cell is an integer; `\|` is cell text; the status token is the first
+# word of the last non-empty cell, lowercased with bold marks stripped ("drafted (needs review)" -> drafted).
+outline_rows() {
+  section '## Outline' | awk '
+    /^[[:space:]]*\|/ {
+      line = $0; gsub(/\\\|/, "\001", line)
+      n = split(line, c, "|")
+      for (i = 1; i <= n; i++) { gsub(/\001/, "|", c[i]); gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
+      last = n; while (last > 2 && c[last] == "") last--
+      if (c[2] !~ /^[0-9]+$/ || last < 4) next
+      st = tolower(c[last]); gsub(/\*/, "", st); sub(/^[ \t]+/, "", st); split(st, w, /[ \t(]/)
+      it = c[3]; sub(/^\*\*/, "", it); sub(/\*\*$/, "", it)
+      printf "%s\t%s\t%s\n", c[2], it, w[1]
+    }'
+}
+# outline_summary — sets _ol_state (empty | unseeded | seeded) and, for seeded, the counts
+# _ol_total/_ol_cov/_ol_dra/_ol_pen/_ol_oth plus _ol_first ("<#> TAB <item>" of the first NON-covered row).
+# Three states stay distinct (§7): a heading with no data rows, a table holding only the template placeholder
+# (`<topic ...>`, which is not work), and a seeded table. A status outside covered/drafted/pending (plus the
+# ✅ / cubierto spellings hand-written corpora use) is counted as unrecognised and stays OPEN — never silently
+# covered. The caller guarantees the ## Outline heading exists (see _doc_mode).
+outline_summary() {
+  local _ol_num _ol_item _ol_tok _ol_rows=0 _ol_ph=0
+  _ol_total=0; _ol_cov=0; _ol_dra=0; _ol_pen=0; _ol_oth=0; _ol_first=""
+  while IFS=$'\t' read -r _ol_num _ol_item _ol_tok; do
+    [ -n "$_ol_num" ] || continue
+    _ol_rows=$(( _ol_rows + 1 ))
+    case "$_ol_item" in '<'*'>') _ol_ph=$(( _ol_ph + 1 )); continue ;; esac
+    _ol_total=$(( _ol_total + 1 ))
+    case "$_ol_tok" in
+      covered|done|closed|cubierto|✅) _ol_cov=$(( _ol_cov + 1 )) ;;  # DOC-COVERED-TOKENS
+      drafted) _ol_dra=$(( _ol_dra + 1 )); [ -n "$_ol_first" ] || _ol_first="${_ol_num}"$'\t'"${_ol_item}" ;;
+      pending) _ol_pen=$(( _ol_pen + 1 )); [ -n "$_ol_first" ] || _ol_first="${_ol_num}"$'\t'"${_ol_item}" ;;
+      *) _ol_oth=$(( _ol_oth + 1 )); [ -n "$_ol_first" ] || _ol_first="${_ol_num}"$'\t'"${_ol_item}" ;;  # DOC-OTHER-OPEN
+    esac
+  done < <(outline_rows)
+  if [ "$_ol_rows" -eq 0 ]; then _ol_state=empty
+  elif [ "$_ol_total" -eq 0 ]; then _ol_state=unseeded
+  else _ol_state=seeded; fi
+}
+outline_line() {
+  local pad='  outline         : '
+  case "$_ol_state" in
+    empty)    echo "${pad}(0 rows — the Outline table is empty)" ;;
+    unseeded) echo "${pad}(unseeded: only the template placeholder row)" ;;
+    *)        echo "${pad}${_ol_cov}/${_ol_total} covered · drafted=${_ol_dra} · pending=${_ol_pen}$([ "$_ol_oth" -gt 0 ] && printf ' · unrecognised=%d' "$_ol_oth")" ;;
+  esac
+}
+outline_next_step() {
+  case "$_ol_state" in
+    seeded)
+      if [ -n "$_ol_first" ]; then printf 'NEXT | outline #%s | %s\n' "${_ol_first%%$'\t'*}" "${_ol_first#*$'\t'}"
+      else printf 'STOP | outline fully covered (%d/%d)\n' "$_ol_cov" "$_ol_total"; fi ;;
+    *) echo "BOOTSTRAP | seed the ## Outline first (document cycle step 1)" ;;
+  esac
+}
+# A document-cycle corpus WITHOUT a `## Outline` heading is not Outline-driven in any way this report can read
+# (hand-authored work-lists live elsewhere), so it keeps the gap-centric verdicts and says so on the outline line.
+_doc_mode=0; _doc_noheading=0
+if [ "$(env_get method)" = "document-cycle" ] && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -le 1 ]; then  # DOC-METHOD-EXACT
+  if grep -qE '^## Outline' "$state"; then _doc_mode=1; else _doc_noheading=1; fi
+fi
+
 # --- default: structured status report ---------------------------------------------------------
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
-metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+metric="$(cov_ratio)"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 # B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
 _stpfx="$(derive_focus_prefix "$state")"
@@ -1830,6 +1909,8 @@ echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"
 echo "  stop-control    : investigable=${inv:-?} · requires-execution=${req:-?} · blocked=${blk:-?}"
+if [ "$_doc_mode" = 1 ]; then outline_summary; outline_line
+elif [ "$_doc_noheading" = 1 ]; then echo "  outline         : (no ## Outline section — gap-centric verdicts kept)"; fi
 mapfile -t ledgers < <(contra_ledgers)
 if [ "${#ledgers[@]}" -eq 0 ]; then
   echo "  contradictions  : (no ledger)"
@@ -1893,15 +1974,25 @@ remote_visibility_block() {
     esac
   done
 }
-saturation_line
+if [ "$_doc_mode" = 1 ]; then  # DOC-SAT-BRANCH
+  echo "  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)"
+else
+  saturation_line
+fi
 campaign_status_block
 remote_visibility_block
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
 # Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
-printf '  next step       : '
-(
+# Document mode (kit issue #1152): a NEXT / BOOTSTRAP from the Outline is final. STOP is only reported when the
+# gap-centric resolver ALSO has no open work: a fully covered Outline does not hide an open investigable gap.
+_ns_doc=""
+if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
+case "$_ns_doc" in
+  NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
+  *)
+_ns_gap_run() (
   _ns_skip_gaps=0
   mapfile -t _ns_states < <(list_state_files "$target")
   for state in "${_ns_states[@]}"; do
@@ -1925,6 +2016,16 @@ printf '  next step       : '
     echo "STOP | read-only-investigable exhausted (0)"
   fi
 )
+if [ -z "$_ns_doc" ]; then
+  printf '  next step       : '
+  _ns_gap_run
+else
+  _ns_gap="$(_ns_gap_run)"
+  case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
+  printf '  next step       : %s\n' "$_ns_gap"
+fi
+;;
+esac
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
 exit 0   # a stale-mirror FAIL is REPORTED in the consistency line above; it must not become our exit code (contract: 0 ok / 2 bad args)

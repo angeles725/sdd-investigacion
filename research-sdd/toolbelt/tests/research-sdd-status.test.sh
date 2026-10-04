@@ -5793,18 +5793,30 @@ echo "-- W2 round 4 (security, no teeth without this shape): a READ-ONLY TMPDIR 
 # suppress. The current design never attempts a write at all, so there is nothing to fail: exit 0,
 # and stderr is clean. Assert exactly that — not "no leftover file", but "no write was ever attempted
 # in the first place", which a read-only TMPDIR turns into an observable, checked signal.
+# ro_dir_is_readonly <dir>: chmod 500 is only a read-only directory for a non-root caller. Probe it instead of
+# assuming: when a write still succeeds (root, or a filesystem ignoring mode bits) the read-only test cannot
+# run, and it must say so loudly (SKIP) instead of passing or failing for a reason that is not the SUT's.
+ro_dir_is_readonly() {
+  if ( : > "$1/.rsdd-ro-probe" ) 2>/dev/null; then rm -f "$1/.rsdd-ro-probe"; return 1; fi
+  return 0
+}
 _w2_ro_tmpdir="$(mktemp -d)"
 chmod 500 "$_w2_ro_tmpdir"
 _w2_ro_out="$TMP/w2-readonly-stdout.txt"
 _w2_ro_err="$TMP/w2-readonly-stderr.txt"
-TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
-_w2_ro_rc=$?
-chmod 700 "$_w2_ro_tmpdir"
-rm -rf "$_w2_ro_tmpdir"
-if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
-  ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
+if ro_dir_is_readonly "$_w2_ro_tmpdir"; then
+  TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
+  _w2_ro_rc=$?
+  chmod 700 "$_w2_ro_tmpdir"
+  rm -rf "$_w2_ro_tmpdir"
+  if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
+    ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
+  else
+    no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
+  fi
 else
-  no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
+  chmod 700 "$_w2_ro_tmpdir"; rm -rf "$_w2_ro_tmpdir"
+  skip "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: chmod 500 did not make the directory read-only here (running as root?) — the check cannot bite"
 fi
 
 echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable named like one of its OLD locals --"
@@ -5818,12 +5830,11 @@ echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable n
 # SUT would run its own argv-dependent top-level logic and `exit` the harness — then call it with a
 # caller-side variable named "_tok" and confirm THAT variable receives the real token.
 _shadow_harness="$TMP/shadow-harness.sh"
-# Anchor-based extraction (kit issue #1108/#1109: research-sdd-status.sh now sources
-# lib/hook-wiring.sh near its top, which SHIFTED every later line number — a hardcoded
-# 'sed -n NNNp;MMM,KKKp' range silently grabbed the wrong slice after that shift and this
-# test went RED for the wrong reason. Anchoring on the declare line through the line before
-# '--sync-state' mode dispatch survives future line-count changes above this point.
-awk '/^if \[ "\$mode" = "--sync-state" \]/{exit} /^declare -A _RSDD_FOC_TOK_CACHE=/{p=1} p{print}' "$SUT" > "$_shadow_harness"
+# Marker-based extraction (kit issue #1023): the SUT brackets the two functions this needs with
+# SENTINEL-RFT-HARNESS-BEGIN / -END comments, so the slice survives any line shift above or below it and
+# a missing or duplicated marker is a DISTINCT failure below, never misreported as the shadowing regression.
+awk '/# SENTINEL-RFT-HARNESS-BEGIN/{p=1;next} /# SENTINEL-RFT-HARNESS-END/{p=0} p{print}' "$SUT" > "$_shadow_harness"
+_shadow_nb="$(grep -cF 'SENTINEL-RFT-HARNESS-BEGIN' "$SUT")"; _shadow_ne="$(grep -cF 'SENTINEL-RFT-HARNESS-END' "$SUT")"
 _shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
 {
   printf '# Focus Registry\n\n'
@@ -5831,14 +5842,19 @@ _shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
   printf '|---|---|---|\n'
   printf '| alpha | active | RESEARCH-STATE-alpha.md |\n'
 } > "$_shadow_dir/FOCUSES.md"
+_shadow_err="$TMP/shadow-harness.err"
 _shadow_out="$(bash -c '
   # shellcheck disable=SC1090
   source "$1"
   _tok="UNCHANGED"
   _read_focuses_tok_into _tok "$2" "RESEARCH-STATE-alpha.md"
   printf "%s" "$_tok"
-' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>/dev/null)"
-if [ "$_shadow_out" = "active" ]; then
+' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>"$_shadow_err")"
+if [ "$_shadow_nb" != 1 ] || [ "$_shadow_ne" != 1 ] || [ ! -s "$_shadow_harness" ]; then
+  no "T-RFT-NO-SHADOW: harness extraction is broken (BEGIN markers=$_shadow_nb, END markers=$_shadow_ne, harness bytes=$(wc -c < "$_shadow_harness")) — this is NOT the shadowing regression"
+elif [ -s "$_shadow_err" ]; then
+  no "T-RFT-NO-SHADOW: the extracted harness wrote to stderr — a broken extraction, NOT the shadowing regression: [$(head -c 300 "$_shadow_err")]"
+elif [ "$_shadow_out" = "active" ]; then
   ok "T-RFT-NO-SHADOW: a caller variable named '_tok' (collides with an old internal local name) still receives the correct token, not left unchanged"
 else
   no "T-RFT-NO-SHADOW: expected the caller's _tok to become 'active', got [$_shadow_out] — printf -v wrote into the function's own local instead of the caller's variable"
@@ -6308,14 +6324,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _w2_ro_mut_tmpdir="$(mktemp -d)"
       chmod 500 "$_w2_ro_mut_tmpdir"
-      _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
-      TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
-      chmod 700 "$_w2_ro_mut_tmpdir"
-      rm -rf "$_w2_ro_mut_tmpdir"
-      if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
-        ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+      if ro_dir_is_readonly "$_w2_ro_mut_tmpdir"; then
+        _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
+        TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
+        chmod 700 "$_w2_ro_mut_tmpdir"
+        rm -rf "$_w2_ro_mut_tmpdir"
+        if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
+          ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+        else
+          no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+        fi
       else
-        no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+        chmod 700 "$_w2_ro_mut_tmpdir"; rm -rf "$_w2_ro_mut_tmpdir"
+        skip "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: chmod 500 did not make the directory read-only here (running as root?) — the tooth cannot bite"
       fi
     fi
   else
@@ -6411,8 +6432,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -qF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT"; then
     grep -vF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT" > "$_sh_mutant"
     _sh_mut_out="$(bash "$_sh_mutant" "$d" 2>/dev/null)"
-    if ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
-      ok "teeth-STOP-HOOK-LINE: line removed → test 32b/32a/32c/32d go RED (line absent) — has teeth"
+    # The mutant must still print the report HEADER: an absent Stop hook line proves nothing if a crash
+    # (empty output) is what removed it (kit issue #1150 item 3).
+    if ! grep -qF '== research-sdd-status:' <<<"$_sh_mut_out"; then
+      no "teeth-STOP-HOOK-LINE: mutant printed no report header — a crash, not a line removal — THEATER" "out=[$_sh_mut_out]"
+    elif ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
+      ok "teeth-STOP-HOOK-LINE: line removed, report header intact → test 32b/32a/32c/32d go RED (line absent) — has teeth"
     else
       no "teeth-STOP-HOOK-LINE: mutant must drop the Stop hook line — THEATER" "out=[$_sh_mut_out]"
     fi
@@ -6994,6 +7019,303 @@ RUNEOF
   # declared BELOW derived must not be kept: dropping the guard keeps 1/0 instead of deriving 2/1
   t1637_t T1637-BELOW "$t1637_fx2" '/declared <= derived: the derivation is evidence/d' --good-has 'known_gaps: 2' --bad-has 'known_gaps: 1' --bad-lacks "$_t1637_crash"
 fi
+
+# ==================== kit issue #1154: the coverage metric is read from the FIELD LABEL ====================
+# The extraction used to be a loose case-insensitive grep for the phrase "coverage metric" over the whole
+# "## Coverage" section, so ANY line that merely mentioned the phrase and carried a ratio was read as
+# gaps_closed/known_gaps. Both the default report line and --sync-state must anchor on the label.
+# t1154_fx <dir> <"## Coverage" body>: a minimal valid corpus whose Coverage section is the given text.
+t1154_fx() {
+  local d="$1"; mkdir -p "$d"
+  { printf '# T1154\n> intro\n'; env_lines 0 0 0 0 0 0
+    printf '\n## Coverage\n%s\n' "$2"
+    printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+    printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+t1154_cov() { bash "$SUT" "$1" 2>/dev/null | grep -F 'coverage metric :'; }
+t1154_env() { # <dir> <key> — the envelope value after --sync-state on a COPY of <dir>
+  local w; w="$TMP/t1154-sync-$(basename "$1")"; rm -rf "$w"; cp -r "$1" "$w"
+  bash "$SUT" "$w" --sync-state >/dev/null 2>&1
+  awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$w/RESEARCH-STATE.md"
+}
+echo "-- T-1154: only the labelled field line is the coverage metric --"
+# A: a NON-label line mentions the phrase and carries a ratio; the label line itself is blank (document-cycle shape).
+t1154_a="$TMP/t1154-a"; t1154_fx "$t1154_a" '- **Outline coverage**: 2 / 5 covered   ← mirrors the Coverage metric field, which stays blank
+- **Coverage metric**: — (intentionally blank)'
+_t1154_got="$(t1154_cov "$t1154_a")"
+[ "$_t1154_got" = "  coverage metric : <none>" ] \
+  && ok "T-1154a report: a non-label line mentioning 'Coverage metric' with a ratio is NOT the metric (<none>)" \
+  || no "T-1154a report: got [$_t1154_got] want [  coverage metric : <none>]"
+_t1154_kg="$(t1154_env "$t1154_a" known_gaps)"; _t1154_gc="$(t1154_env "$t1154_a" gaps_closed)"
+[ "$_t1154_kg/$_t1154_gc" = "0/0" ] \
+  && ok "T-1154a --sync-state: envelope stays gaps_closed=0 known_gaps=0 (no outline ratio leaked in)" \
+  || no "T-1154a --sync-state: known_gaps/gaps_closed = [$_t1154_kg/$_t1154_gc] want 0/0 — the outline ratio was read as the gap ratio"
+# a present-but-blank label is "metric not set": no unrecognised-label WARN in either mode (stderr is NOT discarded)
+_t1154_err="$(bash "$SUT" "$t1154_a" 2>&1 >/dev/null)"; _t1154_err2="$(bash "$SUT" "$t1154_a" --sync-state 2>&1 >/dev/null)"
+if grep -qF 'unrecognised coverage label' <<<"$_t1154_err$_t1154_err2"; then
+  no "T-1154a stderr: a blank-but-present label must NOT trigger the unrecognised-label WARN — [$_t1154_err$_t1154_err2]"
+else ok "T-1154a stderr: no unrecognised-label WARN for a present-but-blank label (default report and --sync-state)"; fi
+# B: noise line BEFORE the real label (list edge: the real line is LAST), and a single-element section.
+t1154_b="$TMP/t1154-b"; t1154_fx "$t1154_b" '- Note: the earlier Coverage metric history read 9 / 9
+- **Coverage metric**: 3 / 7 closed'
+_t1154_got="$(t1154_cov "$t1154_b")"
+[ "$_t1154_got" = "  coverage metric : 3/7" ] \
+  && ok "T-1154b report: the labelled line wins over an earlier phrase-mentioning line (3/7)" \
+  || no "T-1154b report: got [$_t1154_got] want [  coverage metric : 3/7]"
+[ "$(t1154_env "$t1154_b" known_gaps)/$(t1154_env "$t1154_b" gaps_closed)" = "7/3" ] \
+  && ok "T-1154b --sync-state: envelope takes the labelled ratio (gaps_closed=3 known_gaps=7)" \
+  || no "T-1154b --sync-state: got [$(t1154_env "$t1154_b" known_gaps)/$(t1154_env "$t1154_b" gaps_closed)] want 7/3"
+t1154_c="$TMP/t1154-c"; t1154_fx "$t1154_c" 'Coverage metric: 4/6 closed'
+_t1154_got="$(t1154_cov "$t1154_c")"
+[ "$_t1154_got" = "  coverage metric : 4/6" ] \
+  && ok "T-1154c report: the unbulleted, unbolded 'Coverage metric:' label is still recognised (single-element section)" \
+  || no "T-1154c report: got [$_t1154_got] want [  coverage metric : 4/6]"
+t1154_d="$TMP/t1154-d"; t1154_fx "$t1154_d" '- **Coverage metric:** 1 / 2 closed
+- A later note citing the Coverage metric as 8 / 8'
+_t1154_got="$(t1154_cov "$t1154_d")"
+[ "$_t1154_got" = "  coverage metric : 1/2" ] \
+  && ok "T-1154d report: colon-inside-bold label is recognised and the first labelled line wins (1/2)" \
+  || no "T-1154d report: got [$_t1154_got] want [  coverage metric : 1/2]"
+t1154_e="$TMP/t1154-e"; t1154_fx "$t1154_e" '- Covered blocks: 0 (B1..B0)'
+_t1154_got="$(t1154_cov "$t1154_e")"
+[ "$_t1154_got" = "  coverage metric : <none>" ] \
+  && ok "T-1154e report: a Coverage section with no label at all stays <none> (no-match is not a number)" \
+  || no "T-1154e report: got [$_t1154_got] want [  coverage metric : <none>]"
+# label forms measured on the fleet: a parenthetical qualifier, and `=` as the separator
+t1154_f="$TMP/t1154-f"; t1154_fx "$t1154_f" '- **Coverage metric (this focus)**: **7 / 8** gaps closed'
+_t1154_got="$(t1154_cov "$t1154_f")"
+[ "$_t1154_got" = "  coverage metric : 7/8" ] \
+  && ok "T-1154f report: the qualified label 'Coverage metric (this focus):' (a real fleet form) is recognised (7/8)" \
+  || no "T-1154f report: got [$_t1154_got] want [  coverage metric : 7/8]"
+t1154_g="$TMP/t1154-g"; t1154_fx "$t1154_g" '- Coverage metric = 2 / 3 closed'
+_t1154_got="$(t1154_cov "$t1154_g")"
+[ "$_t1154_got" = "  coverage metric : 2/3" ] \
+  && ok "T-1154g report: '=' as the label separator is recognised (2/3)" \
+  || no "T-1154g report: got [$_t1154_got] want [  coverage metric : 2/3]"
+# a coverage-metric-looking line the anchored label rejects is a typed WARN, never a silent <none> / stale carry-over
+t1154_h="$TMP/t1154-h"; t1154_fx "$t1154_h" '- Gap coverage metric: 5 / 6 closed'
+_t1154_err="$(bash "$SUT" "$t1154_h" 2>&1 >/dev/null)"
+if grep -qF 'unrecognised coverage label' <<<"$_t1154_err" && grep -qF 'Gap coverage metric: 5 / 6' <<<"$_t1154_err" && [ "$(t1154_cov "$t1154_h")" = "  coverage metric : <none>" ]; then
+  ok "T-1154h: a prefixed label ('Gap coverage metric:') is rejected LOUDLY (typed WARN naming the line), report stays <none>"
+else no "T-1154h: stderr=[$_t1154_err]"; fi
+_t1154_err="$(bash "$SUT" "$t1154_h" --sync-state 2>&1 >/dev/null)"
+grep -qF 'unrecognised coverage label' <<<"$_t1154_err" \
+  && ok "T-1154h --sync-state: the same typed WARN is emitted (the stale envelope value is not carried forward silently)" \
+  || no "T-1154h --sync-state: stderr=[$_t1154_err]"
+_t1154_err="$(bash "$SUT" "$t1154_e" 2>&1 >/dev/null)"
+grep -qF 'unrecognised coverage label' <<<"$_t1154_err" \
+  && no "T-1154i: a section with no ratio-bearing mention must NOT warn — [$_t1154_err]" \
+  || ok "T-1154i: no false WARN when nothing in the section looks like a coverage metric"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1154: widening the label anchor back to the bare phrase must turn T-1154a/b red --"
+  _t1154_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1154_t() { # <label> <fixture> <runner-kind: report|sync> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" kind="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "/# CM-LABEL-ANCHOR\$/s/=.*/='coverage metric'  # CM-LABEL-ANCHOR/" || { fail=$((fail+1)); return; }
+    if [ "$kind" = report ]; then
+      if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+    else
+      if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash "$TMP/t1637-run.sh" @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+    fi
+  }
+  t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
+  t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
+  t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
+  mutant_chain T1154-BLANK "$SUT" "$TMP/status.T1154-BLANK.MUTANT.sh" 's/ \&\& \[ "\${_cr_nlab:-0}" -eq 0 \]//' || fail=$((fail+1))
+  if mutant_tooth T1154-BLANK 0 0 "$TMP/status.T1154-BLANK.MUTANT.sh" --good-lacks "unrecognised coverage label" --bad-has 'unrecognised coverage label' -- bash @SUT@ "$t1154_a"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  mutant_chain T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/' || fail=$((fail+1))
+  if mutant_tooth T1154-WARN 0 0 "$TMP/status.T1154-WARN.MUTANT.sh" --good-has 'unrecognised coverage label' --bad-lacks "unrecognised coverage label|$_t1154_crash" -- bash @SUT@ "$t1154_h"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+fi
+
+# ==================== kit issue #1150 item 2: a missing / broken lib/hook-wiring.sh is a loud exit 1 ====================
+# The SUT sources lib/hook-wiring.sh near its top. Absent file -> "cannot find helper"; a file that sources
+# cleanly but defines no hook_stop_wiring_state -> "failed to define hook_stop_wiring_state". Either is an
+# operational failure of the instrument (CLAUDE.md §7/§8): exit 1, a clear message, and NO report (a report
+# printed without the Stop hook line would be a silent zero for the wiring state).
+# t1150_run <sut> <mode: missing|empty> <fixture>: build a throwaway kit copy of <sut> with that lib state,
+# run it on <fixture>, print stdout+stderr, exit with the SUT's own exit code.
+cat > "$TMP/t1150-run.sh" <<'RUNEOF'
+#!/usr/bin/env bash
+sut="$1"; mode="$2"; fx="$3"; here="$(cd "$(dirname "$0")" && pwd)"
+k="$(mktemp -d)" || exit 3
+mkdir -p "$k/lib"
+cp "$sut" "$k/research-sdd-status.sh" || exit 3
+cp "$here/kit-src/verify-state.sh" "$k/verify-state.sh" || exit 3
+cp "$here/kit-src/lib/"*.sh "$k/lib/" || exit 3
+case "$mode" in
+  missing) rm -f "$k/lib/hook-wiring.sh" ;;
+  empty)   printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines nothing\n' > "$k/lib/hook-wiring.sh" ;;
+esac
+bash "$k/research-sdd-status.sh" "$fx" 2>&1; rc=$?
+rm -rf "$k"
+exit "$rc"
+RUNEOF
+mkdir -p "$TMP/kit-src/lib"; cp "$HERE/../verify-state.sh" "$TMP/kit-src/verify-state.sh"; cp "$HERE/../lib/"*.sh "$TMP/kit-src/lib/"
+t1150_fx="$TMP/t1150-fx"; mkstate "$t1150_fx" 1 "high|g1|pending"
+echo "-- T-1150-2: missing / broken lib/hook-wiring.sh --"
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" missing "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 1 ] && grep -q 'cannot find helper .*hook-wiring.sh' <<<"$_t1150_out" && ! grep -qF '== research-sdd-status:' <<<"$_t1150_out"; then
+  ok "T-1150-2a: lib/hook-wiring.sh absent -> exit 1, 'cannot find helper' message, no report printed"
+else no "T-1150-2a: absent lib: rc=$_t1150_rc out=[$_t1150_out]"; fi
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" empty "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 1 ] && grep -q 'failed to define hook_stop_wiring_state' <<<"$_t1150_out" && ! grep -qF '== research-sdd-status:' <<<"$_t1150_out"; then
+  ok "T-1150-2b: lib/hook-wiring.sh defines no hook_stop_wiring_state -> exit 1, 'failed to define' message, no report printed"
+else no "T-1150-2b: empty lib: rc=$_t1150_rc out=[$_t1150_out]"; fi
+_t1150_out="$(bash "$TMP/t1150-run.sh" "$SUT" intact "$t1150_fx")"; _t1150_rc=$?
+if [ "$_t1150_rc" = 0 ] && grep -qF '== research-sdd-status:' <<<"$_t1150_out" && grep -qF 'Stop hook       :' <<<"$_t1150_out"; then
+  ok "T-1150-2c control: the same throwaway kit with an INTACT lib exits 0 and prints the report with its Stop hook line"
+else no "T-1150-2c control: intact lib: rc=$_t1150_rc out=[$(head -c 300 <<<"$_t1150_out")]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1150-2: dropping either helper check changes the failure; the report-header guard needs the control --"
+  _t1150_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1150_t() { # <label> <mode> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" mode="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" 1 "$1" "$TMP/status.$lbl.MUTANT.sh" "${@:2}" -- bash "$TMP/t1150-run.sh" @SUT@ "$mode" "$t1150_fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  # absent lib: without the -f guard the 'cannot find helper' message is gone (the declare -F guard still fails closed with the OTHER message)
+  t1150_t T1150-MISSING-GUARD missing '/cannot find helper \$_HWLIB/d' 1 --good-has 'cannot find helper' --bad-lacks "cannot find helper|$_t1150_crash"
+  # defines-nothing lib: without the declare -F guard the run no longer fails closed (exit 0, a report with an empty Stop hook value)
+  t1150_t T1150-DEFINE-GUARD empty '/failed to define hook_stop_wiring_state/d' 0 --good-has 'failed to define hook_stop_wiring_state' --bad-has '== research-sdd-status:' --bad-lacks "$_t1150_crash"
+fi
+
+# ==================== kit issue #1152: honor `method: document-cycle` in the default report ====================
+# A document-cycle corpus (research-sdd-init.sh --document) is OUTLINE-driven: its ## Gap-backlog is empty on
+# purpose, so the gap-centric verdicts are wrong for it (a fresh scaffold read "STOP | read-only-investigable
+# exhausted (0)"; three `none` history rows read SATURATED). With the envelope field `method: document-cycle`
+# the default report prints the Outline progress and a document-mode next step instead. Every other corpus is
+# untouched (the fleet sweep is byte-identical).
+# t1152_fx <dir> <method> <outline-rows|-> <history-rows> — rows are literal table lines; `-` omits ## Outline.
+t1152_fx() {
+  local d="$1" method="$2" rows="$3" hist="$4"; mkdir -p "$d"
+  { printf '# T1152\n> intro\n<!-- research-state.v1 -->\nschema: research-state.v1\n'
+    [ "$method" = none ] || printf 'method: %s\n' "$method"
+    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n<!-- /research-state.v1 -->\n'
+    printf '\n## Coverage\n- **Covered blocks**: 0\n- **Coverage metric**: — (blank)\n'
+    if [ "$rows" != - ]; then
+      printf '\n## Outline (the work-list)\n\n| # | Outline item | Genre | Block | Status |\n|---|---|---|---|---|\n%s\n' "$rows"
+    fi
+    printf '\n## Gap-backlog\n\n## Iteration history\n\n| # | Date | Item | Block | Delegated | New gaps uncovered |\n|---|---|---|---|---|---|\n%s\n' "$hist"
+    printf '\n## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n- **Open gaps — requires-execution**: 0\n- **Open gaps — blocked**: 0\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+t1152_none_hist='| 1 | 2026-10-01 | a | B1 | no | none — document mode |
+| 2 | 2026-10-02 | b | B2 | no | none — document mode |
+| 3 | 2026-10-03 | c | B3 | no | none — document mode |'
+t1152_rep() { bash "$SUT" "$1" 2>/dev/null; }
+echo "-- T-1152: method: document-cycle replaces the gap-centric verdicts with Outline progress --"
+t1152_fresh="$TMP/t1152-fresh"; t1152_fx "$t1152_fresh" document-cycle '| 1 | <topic or step to document> | <subject \| procedure> | | pending |' ''
+_t1152_out="$(t1152_rep "$t1152_fresh")"
+if grep -qF '  next step       : BOOTSTRAP | seed the ## Outline' <<<"$_t1152_out" && ! grep -qF 'exhausted (0)' <<<"$_t1152_out"; then
+  ok "T-1152a: a fresh document scaffold (placeholder row only) reports BOOTSTRAP, not 'read-only-investigable exhausted (0)'"
+else no "T-1152a: next step = [$(grep 'next step' <<<"$_t1152_out")]"; fi
+grep -qF '  outline         : (unseeded: only the template placeholder row)' <<<"$_t1152_out" \
+  && ok "T-1152a2: the outline line says the outline is unseeded (the placeholder row is not counted as work)" \
+  || no "T-1152a2: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+t1152_sat="$TMP/t1152-sat"; t1152_fx "$t1152_sat" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | | pending |' "$t1152_none_hist"
+_t1152_out="$(t1152_rep "$t1152_sat")"
+if grep -qF '  saturation      : n/a (method: document-cycle' <<<"$_t1152_out" && ! grep -qF 'SATURATED' <<<"$_t1152_out"; then
+  ok "T-1152b: three 'none' history rows do NOT read SATURATED on a document-cycle corpus"
+else no "T-1152b: saturation = [$(grep 'saturation' <<<"$_t1152_out")]"; fi
+t1152_mix="$TMP/t1152-mix"; t1152_fx "$t1152_mix" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | **item b** | subject | B2 | **Covered** |
+| 3 | item c | subject | B3 | drafted (needs review) |
+| 4 | item d \| with pipe | procedure | | pending |
+| 5 | item e | subject | B5 | ✅ cubierto |' ''
+_t1152_out="$(t1152_rep "$t1152_mix")"
+grep -qF '  outline         : 3/5 covered · drafted=1 · pending=1' <<<"$_t1152_out" \
+  && ok "T-1152c: Outline progress counts covered / drafted / pending (bold, a trailing note and the hand-written ✅ spelling tolerated)" \
+  || no "T-1152c: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+grep -qF '  next step       : NEXT | outline #3 | item c' <<<"$_t1152_out" \
+  && ok "T-1152d: the document-mode next step is the first non-covered Outline row in file order" \
+  || no "T-1152d: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+t1152_done="$TMP/t1152-done"; t1152_fx "$t1152_done" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | B2 | covered |' ''
+_t1152_out="$(t1152_rep "$t1152_done")"
+grep -qF '  next step       : STOP | outline fully covered (2/2)' <<<"$_t1152_out" \
+  && ok "T-1152e: every Outline row covered -> STOP | outline fully covered (2/2)" \
+  || no "T-1152e: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+t1152_odd="$TMP/t1152-odd"; t1152_fx "$t1152_odd" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | | wip |' ''
+_t1152_out="$(t1152_rep "$t1152_odd")"
+if grep -qF '  outline         : 1/2 covered · drafted=0 · pending=0 · unrecognised=1' <<<"$_t1152_out" && grep -qF 'NEXT | outline #2 | item b' <<<"$_t1152_out"; then
+  ok "T-1152f: an unrecognised Outline status is counted as unrecognised and stays OPEN (never silently covered)"
+else no "T-1152f: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_abs="$TMP/t1152-abs"; t1152_fx "$t1152_abs" document-cycle - ''
+_t1152_out="$(t1152_rep "$t1152_abs")"
+if grep -qF '  outline         : (no ## Outline section — gap-centric verdicts kept)' <<<"$_t1152_out" && grep -qF 'exhausted (0)' <<<"$_t1152_out" \
+   && ! grep -qF 'n/a (method: document-cycle' <<<"$_t1152_out"; then
+  ok "T-1152g: a document-cycle corpus with NO ## Outline section keeps the gap-centric verdicts and says so (absent != empty; no fleet regression)"
+else no "T-1152g: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_zero="$TMP/t1152-zero"; t1152_fx "$t1152_zero" document-cycle '' ''
+_t1152_out="$(t1152_rep "$t1152_zero")"
+grep -qF '  outline         : (0 rows — the Outline table is empty)' <<<"$_t1152_out" \
+  && ok "T-1152h: an Outline section with no data rows is a typed empty state, distinct from absent" \
+  || no "T-1152h: outline line = [$(grep '  outline ' <<<"$_t1152_out")]"
+# non-document corpora are untouched: a normal corpus, and the OTHER method value, keep the gap-centric report.
+t1152_norm="$TMP/t1152-norm"; t1152_fx "$t1152_norm" none '| 1 | item a | subject | B1 | covered |' "$t1152_none_hist"
+t1152_ext="$TMP/t1152-ext"; t1152_fx "$t1152_ext" document-cycle-external '| 1 | item a | subject | B1 | covered |' "$t1152_none_hist"
+_t1152_n="$(t1152_rep "$t1152_norm")"; _t1152_x="$(t1152_rep "$t1152_ext")"
+if grep -qF 'SATURATED (review)' <<<"$_t1152_n" && ! grep -q '^  outline ' <<<"$_t1152_n" && grep -qF 'exhausted (0)' <<<"$_t1152_n" \
+   && grep -qF 'SATURATED (review)' <<<"$_t1152_x" && ! grep -q '^  outline ' <<<"$_t1152_x"; then
+  ok "T-1152i: no method field, and method: document-cycle-external, keep the gap-centric verdicts and print no outline line"
+else no "T-1152i: normal=[$(grep -E 'saturation|next step|  outline ' <<<"$_t1152_n")] external=[$(grep -E 'saturation|  outline ' <<<"$_t1152_x")]"; fi
+
+# a fully covered Outline must not hide open gap-centric work: STOP only when the gap resolver is exhausted too.
+t1152_gap="$TMP/t1152-gap"; t1152_fx "$t1152_gap" document-cycle '| 1 | item a | subject | B1 | covered |
+| 2 | item b | subject | B2 | covered |
+| 3 | item c | subject | B3 | covered |' ''
+sed -i '/^## Gap-backlog$/a\
+\
+| Priority | Gap | type | Status |\
+|---|---|---|---|\
+| high | g1 | web | pending |' "$t1152_gap/RESEARCH-STATE.md"
+_t1152_out="$(t1152_rep "$t1152_gap")"
+if grep -qF '  outline         : 3/3 covered' <<<"$_t1152_out" && grep -qF '  next step       : NEXT | high | g1' <<<"$_t1152_out" && ! grep -qF 'outline fully covered' <<<"$_t1152_out"; then
+  ok "T-1152j: Outline 3/3 covered + one open backlog gap -> NEXT on the gap, not STOP"
+else no "T-1152j: out = [$(grep -E '  outline |next step' <<<"$_t1152_out")]"; fi
+t1152_all="$TMP/t1152-all"; t1152_fx "$t1152_all" document-cycle '| 1 | item a | subject | B1 | covered |' ''
+_t1152_out="$(t1152_rep "$t1152_all")"
+grep -qF '  next step       : STOP | outline fully covered (1/1)' <<<"$_t1152_out" \
+  && ok "T-1152k: Outline fully covered and no open gap work -> STOP | outline fully covered (1/1)" \
+  || no "T-1152k: next step = [$(grep 'next step' <<<"$_t1152_out")]"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1152: each document-mode branch is load-bearing --"
+  _t1152_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1152_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" expr="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  t1152_t T1152-NEXT "$t1152_fresh" '/# DOC-NEXT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'BOOTSTRAP \| seed the ## Outline' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-SAT "$t1152_sat" '/# DOC-SAT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'saturation      : n/a \(method: document-cycle' --bad-has 'SATURATED \(review\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-COVERED "$t1152_mix" '/# DOC-COVERED-TOKENS$/s/covered|done|closed/never-matches/' --good-has 'outline         : 3/5 covered' --bad-has 'outline         : 1/5 covered' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-GUARD "$t1152_all" '/# DOC-STOP-GUARD/d' --good-has 'STOP \| outline fully covered \(1/1\)' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-FALLTHROUGH "$t1152_gap" 's/NEXT\*|BOOTSTRAP\*) printf/NEXT*|BOOTSTRAP*|STOP*) printf/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-STOP-ONLY-GAP-STOP "$t1152_gap" 's/case "$_ns_gap" in STOP\*)/case "$_ns_gap" in *)/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
+  t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
+fi
+
+# ==================== kit issue #1023: test follow-ups ====================
+# (the marker-based RFT extraction and the root-safe read-only TMPDIR guards live where those tests do;
+# this section checks the guard helper itself.)
+# The read-only-directory probe must tell a writable directory from a read-only one.
+_ro_w="$(mktemp -d)"
+if ro_dir_is_readonly "$_ro_w"; then no "T-1023-probe: a plain writable directory was reported read-only (the SKIP guard would never fire)"
+else ok "T-1023-probe: a writable directory is NOT read-only (a root run would SKIP, not pass or fail)"; fi
+if [ "$(id -u)" != 0 ]; then
+  chmod 500 "$_ro_w"
+  if ro_dir_is_readonly "$_ro_w"; then ok "T-1023-probe: a chmod-500 directory IS read-only for a non-root caller"
+  else no "T-1023-probe: a chmod-500 directory was reported writable for a non-root caller"; fi
+  chmod 700 "$_ro_w"
+fi
+rm -rf "$_ro_w"
 
 if [ "$skips" -gt 0 ]; then
   echo "== $pass passed · $fail failed · $skips skipped =="
