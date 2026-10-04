@@ -274,6 +274,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$ROOT/dynamic.mutant.sh"
     # Replace the cp line with a harmless no-op so preservation never happens.
     printf '%s\n' "${content/"$anchor"/: # MUTANT: preservation removed}" > "$mutant"
+    # shellcheck source=lib/mutant.sh
+    . "$HERE/lib/mutant.sh"
+    if ! mb="$(mutant_built "teeth: mutant" "$SUT" "$mutant" 2>&1)"; then
+      no "teeth: mutant built" "$mb"
+    else
     tdir="$(newtdir teeth-mutant)"
     printf '// t\n' > "$ROOT/teeth.js"
     env FRIDA_BIN="$ABSENT" "$BASH_BIN" "$mutant" frida-hook some-proc "$ROOT/teeth.js" "$tdir" >/dev/null 2>&1
@@ -282,6 +287,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: mutant does NOT preserve on absent-frida" "(case 3 has teeth)"
     else
       no "teeth: mutant does NOT preserve on absent-frida" "mutant STILL preserved — case 3 is THEATER"
+    fi
     fi
   fi
 fi

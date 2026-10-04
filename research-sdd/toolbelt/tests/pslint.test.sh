@@ -168,15 +168,16 @@ fi  # end pwsh guard
 
 # ── Teeth (--prove-teeth) ──────────────────────────────────────────────────
 if [[ "${1:-}" == "--prove-teeth" ]]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
 
   # tooth-1: neuter PL-PWSH-CHECK → pwsh absent must NOT give exit 3.
   # Proves that test 3's assertion depends on the real PL-PWSH-CHECK guard.
   echo "-- tooth-1: neuter PL-PWSH-CHECK; pwsh absent must NOT give exit 3 --"
   mut1="$TMP/pslint.M1.sh"
   if grep -q '# PL-PWSH-CHECK' "$SUT"; then
-    sed '/# PL-PWSH-CHECK/ s/.*/: # PL-PWSH-CHECK [NEUTERED]/' "$SUT" > "$mut1"
-    chmod +x "$mut1"
-    if "$BASH_BIN" -n "$mut1" 2>/dev/null; then
+    if mutant_sed "$SUT" "$mut1" '/# PL-PWSH-CHECK/ s/.*/: # PL-PWSH-CHECK [NEUTERED]/' 2>"$TMP/m1.err"; then
+      chmod +x "$mut1"
       # Same empty-PATH requirement as test 3: under PATH=/usr/bin:/bin a CI box
       # with pwsh in a system dir never removes it, so the mutant would exit
       # non-3 for the WRONG reason and this control would pass without biting.
@@ -187,7 +188,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
         no "tooth-1: neutered PL-PWSH-CHECK still gives exit 3 → test 3 is THEATER" "mrc=$mrc1"
       fi
     else
-      no "tooth-1: mutant failed bash -n (mutant is syntactically invalid)"
+      no "tooth-1: mutant refused by lib/mutant.sh" "$(cat "$TMP/m1.err")"
     fi
   else
     no "tooth-1: PL-PWSH-CHECK sentinel not found in SUT"
@@ -200,9 +201,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- tooth-2: neuter PL-FILE-CHECK; missing file must NOT emit MISS --"
   mut2="$TMP/pslint.M2.sh"
   if grep -q '# PL-FILE-CHECK' "$SUT"; then
-    sed '/# PL-FILE-CHECK/ s/.*/: # PL-FILE-CHECK [NEUTERED]/' "$SUT" > "$mut2"
-    chmod +x "$mut2"
-    if "$BASH_BIN" -n "$mut2" 2>/dev/null; then
+    if mutant_sed "$SUT" "$mut2" '/# PL-FILE-CHECK/ s/.*/: # PL-FILE-CHECK [NEUTERED]/' 2>"$TMP/m2.err"; then
+      chmod +x "$mut2"
       merr2="$TMP/merr2.txt"
       PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$mut2" "$TMP/no-such.ps1" \
         >/dev/null 2>"$merr2" || true
@@ -213,7 +213,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
            "merr=[$(cat "$merr2")]"
       fi
     else
-      no "tooth-2: mutant failed bash -n (mutant is syntactically invalid)"
+      no "tooth-2: mutant refused by lib/mutant.sh" "$(cat "$TMP/m2.err")"
     fi
   else
     no "tooth-2: PL-FILE-CHECK sentinel not found in SUT"
@@ -228,10 +228,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   else
     mut3="$TMP/pslint.M3.sh"
     if grep -q '# PL-ERRORS-CHECK' "$SUT"; then
-      sed '/# PL-ERRORS-CHECK/ s/.*/    if false; then  # PL-ERRORS-CHECK [NEUTERED]/' \
-        "$SUT" > "$mut3"
-      chmod +x "$mut3"
-      if "$BASH_BIN" -n "$mut3" 2>/dev/null; then
+      if mutant_sed "$SUT" "$mut3" '/# PL-ERRORS-CHECK/ s/.*/    if false; then  # PL-ERRORS-CHECK [NEUTERED]/' 2>"$TMP/m3.err"; then
+        chmod +x "$mut3"
         mout3="$TMP/mout3.txt"
         "$BASH_BIN" "$mut3" "$BAD_PS1" >"$mout3" 2>&1 || true
         if ! grep -q '^FAIL' "$mout3"; then
@@ -241,7 +239,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
              "mout=[$(cat "$mout3")]"
         fi
       else
-        no "tooth-3: mutant failed bash -n (mutant is syntactically invalid)"
+        no "tooth-3: mutant refused by lib/mutant.sh" "$(cat "$TMP/m3.err")"
       fi
     else
       no "tooth-3: PL-ERRORS-CHECK sentinel not found in SUT"
