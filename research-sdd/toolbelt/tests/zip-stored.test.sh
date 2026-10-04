@@ -2,10 +2,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../zip-stored.sh"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 python3 - "$ROOT" <<'PY'
 import binascii,pathlib,struct,sys
@@ -81,6 +77,10 @@ PY
 then ok "root execution refused (geteuid==0): exit 2, root-or-set-id in stderr"; else no "root refusal"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   mutant_py="$ROOT/zip_stored.MUTANT.py"   # temp dir: never beside the SUT (#1156)
   mutant_nf="$ROOT/zip_stored.NOFOLLOW.py"
   cnt_occ() { awk -v n="$1" 'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' "$2"; }

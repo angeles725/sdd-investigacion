@@ -34,11 +34,6 @@ fi
 # ---- Temp workspace ----------------------------------------------------------
 TMP="$(mktemp -d)"
 trap 'chmod -R 755 "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
 
 # Path guaranteed not to exist — simulates an absent POWERSHELL_BIN.
 ABSENT="$TMP/no-such-powershell"
@@ -200,6 +195,11 @@ chmod 755 "$OUTDIR18"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: mutants of serial-console.sh must be caught by specific assertions --"
 
   # Tooth A: redirect 'tee -- "$OUT"' to /dev/null so the evidence file is never

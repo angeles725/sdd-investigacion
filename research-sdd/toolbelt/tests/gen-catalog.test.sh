@@ -35,11 +35,6 @@ TOOLS_COPY="$KIT/../tools/gen-catalog.py"             # repo-specialized copy (p
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (gen-catalog.py is a python script)" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_built >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
-export MUTANT_SYNTAX=none   # the mutants are python source, not bash
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
@@ -171,6 +166,11 @@ else no "dual-mode (b): no-arg parent.parent did not catalog into <dir>/CATALOG.
 
 # ================================ NEGATIVE CONTROLS — prove the checks have TEETH ==========================
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_built >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  export MUTANT_SYNTAX=none   # the mutants are python source, not bash
   # TEETH A — BLOCK_RE's prefix+dash requirement is what EXCLUDES a bare `bloque9.md` (case 5) and keeps the
   # cross-check honest. Build a mutant whose BLOCK_RE drops that requirement (prefix + leading dash made
   # optional); the bare `bloque9.md` MUST then leak into the catalog. If it does NOT, case 5's exclusion does

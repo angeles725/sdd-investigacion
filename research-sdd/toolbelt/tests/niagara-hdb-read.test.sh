@@ -12,10 +12,6 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 # Fixtures are generated into the TEMP root, never into the live tests/fixtures dir (kit issue #1299
 # item 6, CLAUDE.md section 8): the kit-tree guard only tolerates identical-byte rewrites.
 FIXTURES="$ROOT/fixtures/niagara-hdb-read"
@@ -341,6 +337,10 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "-- teeth: niagara-hdb mutation controls --"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+typeset -f mutant_chain >/dev/null 2>&1 \
+  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 # ---------------------------------------------------------------------------
 MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }

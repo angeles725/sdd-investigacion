@@ -18,10 +18,6 @@ HELPER="$HERE/../lib/block-files.sh"
 . "$HELPER"
 declare -F block_file_filter >/dev/null 2>&1 || { echo "FATAL: block_file_filter not defined after sourcing" >&2; exit 2; }
 
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
 pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
@@ -287,6 +283,10 @@ echo "== $pass passed · $fail failed =="
 
 # ---- MUTATION TEETH (--prove-teeth) -------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo ""
   echo "== mutation controls =="
   t_pass=0; t_fail=0

@@ -2,10 +2,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../squashfs-extract.sh"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 # SKIP guard: all required tools must be present
@@ -136,6 +132,10 @@ echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
 # and (b) emit a WRONG message so the new message assertion goes RED.
 # Tools skip guard is re-checked; fixtures are rebuilt in a fresh subtree.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: mutation controls --"
   _tp=0; _tf=0
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }

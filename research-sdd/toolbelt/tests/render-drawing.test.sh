@@ -24,11 +24,6 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
 ok() { printf '  PASS  %-68s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-68s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
@@ -231,6 +226,11 @@ PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$TMP/test.dwg" "$TMP/out8.png" \
 # TEETH (negative control).
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
 
   # teeth-rd-ezdxf-dep: neuter RD-EZDXF-DEP-CHECK; missing ezdxf must NOT
   # produce exit 3, proving test 3 depends on the real guard.
