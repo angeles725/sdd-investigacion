@@ -890,18 +890,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _tp=0; _tf=0
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }
   _tnok(){ printf '  FAIL  %s\n' "$1"; _tf=$((_tf+1)); }
+  # Mutants are built in bash through lib/mutant.sh (refuses empty / byte-identical / live-tree /
+  # symlink OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  _vdt=''; trap 'rm -rf "$_vdt"' EXIT   # initialised before the trap: never inherit a caller's value
+  _vdt="$(mktemp -d)"
+  # _vd_mutant LABEL OLD NEW OUT -- replace the first OLD in the SUT with NEW. rc 2 = anchor absent
+  # (SUT changed), rc 3 = refused by the helper or not valid Python; the refusal text goes to stderr.
+  _vd_mutant() {
+    local c; c="$(cat "$SUT")"
+    [[ "$c" == *"$2"* ]] || { echo "MUTANT-SETUP-FAIL: $1: anchor not found -- SUT changed?" >&2; return 2; }
+    printf '%s\n' "${c/"$2"/"$3"}" > "$4"
+    MUTANT_SYNTAX=none mutant_built "$1" "$SUT" "$4" >&2 || return 3
+    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$4" 2>/dev/null \
+      || { echo "mutant $1 is not valid Python" >&2; rm -f "$4"; return 3; }
+  }
 
   # teeth-capdrop: removing "--cap-drop" from _REQUIRED_BWRAP lets argv without
   # --cap-drop pass all checks; VDP-T10a (cap-drop absent) goes red -- has teeth.
-  python3 - "$SUT" <<'PY'
+  _vd_mutant teeth-capdrop '    "--cap-drop",      # must be followed by ALL (value enforced in bwrap scan)' \
+    '    # "--cap-drop" removed  # MUTANT: cap-drop presence check removed' "$_vdt/capdrop.py"
+  if [ $? -ne 0 ]; then (exit 2); else python3 - "$SUT" "$_vdt/capdrop.py" <<'PY'
 import sys, types
 from pathlib import Path
-sut = Path(sys.argv[1]); src = sut.read_text()
-old = '    "--cap-drop",      # must be followed by ALL (value enforced in bwrap scan)'
-if old not in src:
-    print("MUTANT-SETUP-FAIL: cap-drop line not found -- SUT changed?", file=sys.stderr)
-    sys.exit(2)
-mut = src.replace(old, '    # "--cap-drop" removed  # MUTANT: cap-drop presence check removed', 1)
+sut = Path(sys.argv[1]); mut = Path(sys.argv[2]).read_text()
 m = types.ModuleType("vm_disk_policy"); m.__file__ = str(sut)
 exec(compile(mut, str(sut), "exec"), m.__dict__)
 G = m.GateError
@@ -928,6 +941,7 @@ try:
 except G:
     sys.exit(0)   # GateError still raised without mutation -- no teeth
 PY
+  fi
   case $? in
     1) _tok "teeth-capdrop: --cap-drop removal -> VDP-T10a passes mutant -> GateError assertion fires (has teeth)" ;;
     0) _tnok "teeth-capdrop: GateError still raised with --cap-drop removed from required set -- assertion has NO teeth" ;;
