@@ -707,7 +707,8 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
     return 2
   fi
-  kept_names="$(awk 'index($0,"kept-hand-edit=")==1 { print substr($0,16) }' "$state" | paste -sd, -)"
+  # Name a kept hand-edit only while that member is itself still drifted; a restored file is not blamed.
+  kept_names="$(awk -v d=",$drift_names," 'index($0,"kept-hand-edit=")==1 { k=substr($0,16); if (index(d, "," k " (")) print k }' "$state" | paste -sd, -)"
   if [ -n "$kept_names" ]; then
     printf 'verify harness=%s status=drift drifted=%s kept-hand-edit=%s\n' "$h" "$drift_names" "$kept_names"
   else
@@ -840,9 +841,9 @@ install_one() {
     fi
   fi
 
-  # 3. record the bundle digest (kit issue #1702) — only when the run succeeded AND the deployed skill
-  #    (and template) are byte-identical to what this run meant to deploy. A kept hand-edit therefore
-  #    never becomes the recorded baseline: --verify keeps reporting it as drift until it is restored.
+  # 3. record the bundle digest (kit issue #1702) — only when the run succeeded. A kept hand-edit is
+  #    recorded with the SOURCE sha this run meant to deploy plus a `kept-hand-edit=<rel>` line, so it is
+  #    never the baseline: --verify keeps reporting it as drift (and names it) until it is restored.
   if [ "$dry" != 1 ] && [ "$rc" = 0 ]; then
     local kept="" ksha
     if ! cmp -s "$src_skill" "$skill_path"; then

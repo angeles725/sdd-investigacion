@@ -2171,6 +2171,14 @@ if [ "$VRC" = 1 ] && [[ "$l" == *"drifted=prompts/research-sdd.md (modified)"* ]
   ok "V19: kept hand-edit → drift names only that member and prints kept-hand-edit=<path>"
 else no "V19: hand-edit cause not named / other members blamed (rc=$VRC) :: $l"; fi
 
+# V19b — once the kept file is restored by hand, a DIFFERENT member's drift must not name it as the cause.
+f19="$vh/.pi/agent/prompts/research-sdd.md"; sz="$(wc -c < "$f19")"; truncate -s "$((sz - 6))" "$f19"
+printf '\nother\n' >> "$vh/.pi/agent/skills/research-sdd/SKILL.md"
+_vrun "$vh" pi; l="$(_vline pi)"
+if [ "$VRC" = 1 ] && [[ "$l" == *"drifted=skills/research-sdd/SKILL.md (modified)"* ]] && [[ "$l" != *"kept-hand-edit="* ]]; then
+  ok "V19b: restored kept file is not blamed when another member drifts"
+else no "V19b: stale kept-hand-edit hint (rc=$VRC) :: $l"; fi
+
 # V20 — degraded branches: unsafe recorded profile, unreadable member, unreadable record.
 vh="$TMP/v20a-home"; mkdir -p "$vh"; _vinst "$vh" claude
 sed -i 's/^profile=.*/profile=..\/evil/' "$vh/.claude/research-sdd/.installed-bundle-state"
