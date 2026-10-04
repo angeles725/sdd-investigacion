@@ -16,7 +16,8 @@
 #   I  unconditional-summary mutant removes SENTINEL-SUMMARY-GUARD condition → AX5 regresses empty stderr (RED)
 #   J  drop-all-err-exit2    mutant removes SENTINEL-ERR-EXIT2 block → AX2 regresses exit 2→0 (RED)
 #   K  also-diverged-names   mutant removes SENTINEL-ALSO-DIVERGED → REM1 loses harness names (RED)
-# Mutants live in $ROOT/toolbelt/ (never the live tree); verified by git-status before/after.
+# Mutants are built through tests/lib/mutant.sh inside a staged mini-kit sandbox under $ROOT (never the
+# live tree); verified by git-status before/after.
 #
 # Usage: verify-skill-drift.test.sh [--prove-teeth]
 # Exit: 0 = all held · 1 = regression
@@ -30,8 +31,8 @@ FIXTURES_DIR="$HERE/fixtures"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
-ROOT="$(mktemp -d)"; MUT_F3LEAK=""; MUT_F3COMP=""
-trap 'rm -rf "$ROOT"; [ -n "$MUT_F3LEAK" ] && rm -f "$MUT_F3LEAK"; [ -n "$MUT_F3COMP" ] && rm -f "$MUT_F3COMP"' EXIT
+ROOT="$(mktemp -d)"
+trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -750,6 +751,18 @@ fi
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
 
+# Mutation-control helpers: sourced on the --prove-teeth path only. mk/tt count a refused build or
+# a failed tooth exactly ONCE (the helper prints its own FAIL line; a refused build never runs its tooth).
+if [ "$prove_teeth" -eq 1 ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  mk()  { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  tt()  { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+fi
+
 # ── PIH: pi + gentle-shell harnesses are registered and drift-checked (general profile) ──────────
 # Both default to the "general" profile, deploy under <home>/.pi/agent and <home>/.gentle-shell/agent,
 # and gentle-shell is the LAST registered harness (list-edge rule: drift in the last position must
@@ -784,21 +797,21 @@ else
   if [ "$prove_teeth" -eq 1 ]; then
     # Tooth: a sandbox kit whose adapters.sh DROPS gentle-shell from RESEARCH_SDD_HARNESSES must NOT
     # report the gentle-shell drift PIH4 detects (rc 0, name absent) — so PIH4 depends on registration.
+    # The mutated file is adapters.sh (built from the live one into the temp sandbox through the
+    # helper); the SUT copy beside it resolves that adapters.sh, so the "mutant" side is the sandbox
+    # SUT copy and the original is the live SUT.
     PIK="$ROOT/pikit"
     mkdir -p "$PIK/install" "$PIK/toolbelt" "$PIK/skills/research-sdd"
-    sed 's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/' "$HERE/../../install/adapters.sh" > "$PIK/install/adapters.sh"
     cp "$SUT" "$PIK/toolbelt/verify-skill-drift.sh"
     cp "$SRC_SKILL" "$PIK/skills/research-sdd/SKILL.md"
-    if cmp -s "$HERE/../../install/adapters.sh" "$PIK/install/adapters.sh"; then
-      no "teeth PIH: harness-dropped mutant is byte-identical to adapters.sh — mutation never applied"
-    else
+    if mk "teeth PIH harness-dropped" "$HERE/../../install/adapters.sh" "$PIK/install/adapters.sh" \
+         's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/'; then
       H_PIT="$ROOT/home_pit"; mkdir -p "$H_PIT/.gentle-shell/agent/skills/research-sdd"
       printf 'stale\n' > "$H_PIT/.gentle-shell/agent/skills/research-sdd/SKILL.md"
-      bash "$SUT" --all --home "$H_PIT" >/dev/null 2>&1; _rc_good=$?
-      bash "$PIK/toolbelt/verify-skill-drift.sh" --all --home "$H_PIT" >/dev/null 2>&1; _rc_mut=$?
-      if [ "$_rc_good" -ne 0 ] && [ "$_rc_mut" -eq 0 ]; then
-        ok "teeth PIH: dropping gentle-shell from RESEARCH_SDD_HARNESSES hides its drift (good rc=$_rc_good, mutant rc=0) → registration is load-bearing"
-      else no "teeth PIH: harness-dropped mutant not distinguishable (good rc=$_rc_good, mutant rc=$_rc_mut)"; fi
+      # GOOD_RC 1 (original reports the stale gentle-shell) / BAD_RC 0 (registration dropped → silent).
+      tt "teeth PIH" 1 0 "$PIK/toolbelt/verify-skill-drift.sh" --orig "$SUT" \
+        --good-has '^verify-skill-drift: fix: .*--harness gentle-shell ' --bad-lacks 'gentle-shell' \
+        -- bash @SUT@ --all --home "$H_PIT"
     fi
   fi
 fi
@@ -807,379 +820,273 @@ fi
 if [ "$prove_teeth" -eq 1 ]; then
   echo "-- mutation teeth --"
 
-  # Mutant sandbox: mirrors the kit directory structure so SELF_DIR-based path resolution
-  # (adapters.sh, kit root) works without writing into the live tree.
-  # Layout: $ROOT/toolbelt/ (mutants) + $ROOT/install/ + $ROOT/skills/
-  # The EXIT trap (set at test start) cleans up $ROOT including all mutants.
-  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt"
-  cp "$HERE/../../install/adapters.sh"       "$ROOT/install/adapters.sh"
-  cp "$SRC_SKILL"                            "$ROOT/skills/research-sdd/SKILL.md"
+  # Mini-kit sandbox. The SUT resolves everything relative to its OWN path (SELF_DIR →
+  # ../install/adapters.sh, KIT = the dir above install/, then $KIT/skills, $KIT/profiles,
+  # $KIT/toolbelt/render-profile.sh, $KIT/PROMPT-LOOP.md, $KIT/METHODOLOGY.md), so a mutant must sit
+  # beside those files — but lib/mutant.sh refuses any mutant written into the live tree. Both are
+  # satisfied by staging exactly those files in a temp dir ($ROOT, a mktemp dir that the EXIT trap
+  # removes) and building every mutant inside it. The ORIGINAL is staged there too (a byte-identical
+  # copy of the SUT), so original and mutant run from equivalent sandboxes — the comparison never
+  # depends on the live tree. Layout: $ROOT/toolbelt/ (SUT copy, render-profile.sh, mutants) +
+  # $ROOT/install/ + $ROOT/skills/ + $ROOT/profiles/ + $ROOT/PROMPT-LOOP.md + $ROOT/METHODOLOGY.md.
+  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt" "$ROOT/profiles"
   MUT_DIR="$ROOT/toolbelt"
+  SBX_ORIG="$MUT_DIR/verify-skill-drift.sh"
+  # stage_file LIVE_ABS SANDBOX_REL — copy one live file into the sandbox.
+  stage_file() { cp "$1" "$ROOT/$2" 2>/dev/null; }
+  stage_file "$SUT"                           toolbelt/verify-skill-drift.sh
+  stage_file "$KIT/toolbelt/render-profile.sh" toolbelt/render-profile.sh
+  stage_file "$KIT/install/adapters.sh"       install/adapters.sh
+  stage_file "$KIT/profiles/general.slots.md" profiles/general.slots.md
+  stage_file "$SRC_SKILL"                     skills/research-sdd/SKILL.md
+  stage_file "$KIT/PROMPT-LOOP.md"            PROMPT-LOOP.md
+  stage_file "$KIT/METHODOLOGY.md"            METHODOLOGY.md
+  chmod +x "$SBX_ORIG" "$MUT_DIR/render-profile.sh" 2>/dev/null
+  # Staging check: every file the SUT (and the render-profile.sh it calls) resolves relative to its
+  # own path must be present in the sandbox AND byte-identical to its live counterpart. A missing or
+  # drifted file fails loudly ONCE and the sandbox teeth are skipped, so a half-staged sandbox can
+  # never turn a crash into a "bite".
+  STAGE_OK=1
+  for _pair in "$SUT:toolbelt/verify-skill-drift.sh" \
+               "$KIT/toolbelt/render-profile.sh:toolbelt/render-profile.sh" \
+               "$KIT/install/adapters.sh:install/adapters.sh" \
+               "$KIT/profiles/general.slots.md:profiles/general.slots.md" \
+               "$SRC_SKILL:skills/research-sdd/SKILL.md" \
+               "$KIT/PROMPT-LOOP.md:PROMPT-LOOP.md" \
+               "$KIT/METHODOLOGY.md:METHODOLOGY.md"; do
+    _live="${_pair%%:*}"; _rel="${_pair#*:}"
+    if [ ! -s "$_live" ] || [ ! -s "$ROOT/$_rel" ] || ! cmp -s "$_live" "$ROOT/$_rel"; then
+      no "TEETH staging: sandbox file '$_rel' missing, empty or not byte-identical to '$_live' — mini-kit sandbox incomplete"
+      STAGE_OK=0
+    fi
+  done
+  [ "$STAGE_OK" -eq 1 ] && ok "TEETH staging: mini-kit sandbox complete (SUT copy, render-profile.sh, adapters.sh, profile slots, SKILL.md, PROMPT-LOOP.md, METHODOLOGY.md byte-identical to live)"
 
   # git-status snapshot before any mutant creation (proves no live-tree leakage after)
   _GIT_ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
   _GIT_BEFORE="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"
 
+  if [ "$STAGE_OK" -eq 1 ]; then
+  # Positional codes of every tt call below: LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV, where
+  # GOOD_RC is the exact exit code of the ORIGINAL (--orig, the sandbox copy) and BAD_RC the exact
+  # exit code of the MUTANT. A mutant that crashes or exits with any other code is theater, not teeth.
+
   # TOOTH A: in-sync-not-silent — mutant disables the cmp-s in-sync guard.
-  # Real test 6: in-sync → exit 0. Mutant: in-sync → exit 1 (assertion fails → RED).
+  # Real test 6: in-sync → exit 0 + silent. Mutant: in-sync → falls through to diverged → exit 1.
   H_TA="$ROOT/home_ta"
   make_home_copy "$H_TA" "$SRC_SKILL"
   MUT_A="$MUT_DIR/verify-skill-drift-mut-A.sh"
-  sed 's/if cmp -s "\$src" "\$deployed"; then/if false; then/' "$SUT" > "$MUT_A"
-  chmod +x "$MUT_A"
-  bash "$MUT_A" --harness claude --home "$H_TA" 2>/dev/null
-  RC_TA=$?
-  if [ "$RC_TA" -ne 0 ]; then
-    ok "TOOTH A in-sync-not-silent: mutant exits non-zero on in-sync (assertion would fail — RED)"
-  else
-    no "TOOTH A in-sync-not-silent: mutant exits 0 on in-sync — tooth has no bite"
+  if mk "TOOTH A in-sync-not-silent" "$SUT" "$MUT_A" 's/if cmp -s "\$src" "\$deployed"; then/if false; then/'; then
+    ok "TOOTH A pre-check: mutant built (cmp-s guard disabled)"
+    tt "TOOTH A in-sync-not-silent" 0 1 "$MUT_A" --orig "$SBX_ORIG" \
+      --good-lacks '.' --bad-has '^verify-skill-drift: diverged harness=claude ' \
+      -- bash @SUT@ --harness claude --home "$H_TA"
   fi
 
-  # TOOTH B: diverged-silent — mutant replaces 'exit 1' (diverged) with 'exit 0'.
-  # Real test 7: diverged → exit 1. Mutant: diverged → exit 0 (assertion fails → RED).
+  # TOOTH B: diverged-silent — mutant replaces the final bare 'exit 1' (diverged) with 'exit 0'.
+  # Real test 7: diverged → exit 1. Mutant: diverged → exit 0.
   H_TB="$ROOT/home_tb"
   make_home_stale "$H_TB" "# diverged content"
   MUT_B="$MUT_DIR/verify-skill-drift-mut-B.sh"
-  # Replace only the final bare 'exit 1' line (the diverged-path exit at end of file)
-  sed 's/^exit 1$/exit 0/' "$SUT" > "$MUT_B"
-  chmod +x "$MUT_B"
-  bash "$MUT_B" --harness claude --home "$H_TB" 2>/dev/null
-  RC_TB=$?
-  if [ "$RC_TB" -eq 0 ]; then
-    ok "TOOTH B diverged-silent: mutant exits 0 on diverged (assertion would fail — RED)"
-  else
-    no "TOOTH B diverged-silent: mutant exits non-zero — tooth has no bite (RC=$RC_TB)"
+  if mk "TOOTH B diverged-silent" "$SUT" "$MUT_B" 's/^exit 1$/exit 0/'; then
+    ok "TOOTH B pre-check: mutant built (diverged exit 1 → exit 0)"
+    tt "TOOTH B diverged-silent" 1 0 "$MUT_B" --orig "$SBX_ORIG" \
+      --good-has '^verify-skill-drift: diverged harness=claude ' \
+      -- bash @SUT@ --harness claude --home "$H_TB"
   fi
 
-  # TOOTH C: absent-confused — mutant replaces 'exit 3' in absent block with 'exit 0'.
-  # Real test 8: absent → exit 3. Mutant: absent → exit 0 (assertion fails → RED).
+  # TOOTH C: absent-confused — mutant replaces 'exit 3' in the absent block with 'exit 0'.
+  # Real test 8: absent → exit 3. Mutant: absent → exit 0 (indistinguishable from in-sync).
   H_TC="$ROOT/home_tc"
   mkdir -p "$H_TC/.claude"
   MUT_C="$MUT_DIR/verify-skill-drift-mut-C.sh"
-  sed 's/^  exit 3$/  exit 0/' "$SUT" > "$MUT_C"
-  chmod +x "$MUT_C"
-  bash "$MUT_C" --harness claude --home "$H_TC" 2>/dev/null
-  RC_TC=$?
-  if [ "$RC_TC" -eq 0 ]; then
-    ok "TOOTH C absent-confused: mutant exits 0 for absent (assertion would fail — RED)"
-  else
-    no "TOOTH C absent-confused: mutant exits non-zero for absent — tooth has no bite (RC=$RC_TC)"
+  if mk "TOOTH C absent-confused" "$SUT" "$MUT_C" 's/^  exit 3$/  exit 0/'; then
+    ok "TOOTH C pre-check: mutant built (absent exit 3 → exit 0)"
+    tt "TOOTH C absent-confused" 3 0 "$MUT_C" --orig "$SBX_ORIG" \
+      --good-has '^verify-skill-drift: absent harness=claude ' \
+      -- bash @SUT@ --harness claude --home "$H_TC"
   fi
 
-  # TOOTH D: all-last-skipped — mutant replaces the --all loop to skip the last harness.
+  # TOOTH D: all-last-skipped — mutant iterates all-but-last of RESEARCH_SDD_HARNESSES.
   # Real test PIH4: gentle-shell (last in RESEARCH_SDD_HARNESSES) diverged → exit 1.
-  # Mutant: loop iterates all-but-last (${RESEARCH_SDD_HARNESSES% *}) → misses gentle-shell → exit 0.
-  # The for-loop sentinel is the literal 'for h in $RESEARCH_SDD_HARNESSES' line in the SUT.
+  # Mutant: the loop misses gentle-shell → exit 0.
   H_TD="$ROOT/home_td"
   mkdir -p "$H_TD/.claude/skills/research-sdd"
   cp "$SRC_SKILL" "$H_TD/.claude/skills/research-sdd/SKILL.md"
   mkdir -p "$H_TD/.gentle-shell/agent/skills/research-sdd"
   printf 'stale content\n' > "$H_TD/.gentle-shell/agent/skills/research-sdd/SKILL.md"
   MUT_D="$MUT_DIR/verify-skill-drift-mut-D.sh"
-  # Mutant: change loop to skip the last harness
-  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
-    "$SUT" > "$MUT_D"
-  chmod +x "$MUT_D"
-
-  # Pre-check: confirm the sed actually changed the file (sentinel exists in SUT)
-  if diff -q "$SUT" "$MUT_D" >/dev/null 2>&1; then
-    no "TOOTH D pre-check: mutant = SUT — sed did not match 'for h in \$RESEARCH_SDD_HARNESSES; do'"
+  _TD_EXPR='s/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/'
+  # Sabotage check: if the sentinel were renamed the sed would match nothing; the helper must then
+  # refuse the build with its dead-stage code (10) instead of handing back an unchanged mutant.
+  mkdir -p "$ROOT/sab"
+  SUT_SAB="$ROOT/sab/sut-sabotaged-D.sh"
+  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for hh in $RESEARCH_SDD_HARNESSES; do/' "$SUT" > "$SUT_SAB"
+  mutant_chain "TOOTH D sabotage" "$SUT_SAB" "$ROOT/sab/mut-D-sabotaged.sh" "$_TD_EXPR" >/dev/null 2>&1; _rc_sab=$?
+  if [ "$_rc_sab" -eq 10 ]; then
+    ok "TOOTH D sabotage: renamed sentinel → mutant_chain refuses (dead stage, rc 10) → tooth would report failure"
   else
-    ok "TOOTH D pre-check: mutant differs from SUT (sentinel found)"
+    no "TOOTH D sabotage: renamed sentinel → expected mutant_chain rc 10 (dead stage); got rc=$_rc_sab"
   fi
-
-  # Sabotage check: if the sentinel were renamed, the sed would not match and the tooth
-  # would correctly report failure (mutant = SUT → no change detected).
-  SUT_SAB="$ROOT/sut-sabotaged-D.sh"
-  MUT_D_SAB="$ROOT/mut-D-sabotaged.sh"
-  # Rename loop variable from 'h' to 'hh' to break the sentinel pattern
-  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for hh in $RESEARCH_SDD_HARNESSES; do/' \
-    "$SUT" > "$SUT_SAB"
-  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
-    "$SUT_SAB" > "$MUT_D_SAB"
-  if diff -q "$SUT_SAB" "$MUT_D_SAB" >/dev/null 2>&1; then
-    ok "TOOTH D sabotage: renamed sentinel → sed finds no match → tooth would report failure"
-  else
-    no "TOOTH D sabotage: renamed sentinel → mutant differs — sabotage check inconclusive"
-  fi
-
-  # Actual tooth: mutant misses last harness (gentle-shell) diverged → exits 0 → RED
-  bash "$MUT_D" --all --home "$H_TD" 2>/dev/null
-  RC_TD=$?
-  if [ "$RC_TD" -eq 0 ]; then
-    ok "TOOTH D all-last-skipped: mutant exits 0 with gentle-shell (last) diverged — RED as expected"
-  else
-    no "TOOTH D all-last-skipped: mutant exits non-zero — tooth has no bite (RC=$RC_TD)"
+  if mk "TOOTH D all-last-skipped" "$SUT" "$MUT_D" "$_TD_EXPR"; then
+    ok "TOOTH D pre-check: mutant built (loop skips last harness)"
+    tt "TOOTH D all-last-skipped" 1 0 "$MUT_D" --orig "$SBX_ORIG" \
+      --good-has '^verify-skill-drift: fix: .*--harness gentle-shell ' --bad-lacks 'gentle-shell' \
+      -- bash @SUT@ --all --home "$H_TD"
   fi
 
   # TOOTH E: fixture-src — hardcoded src_relkit=source_a for all → harness_b in-sync falsely diverged.
   # Proves SENTINEL-SRC-RELKIT-LOOKUP is actually used (not hardcoded).
   # Uses the two-src-kit (already built above): harness_a→source_a, harness_b→source_b.
-  # Mutant MUST live in $TWO_KIT/toolbelt/ so its SELF_DIR resolves to the two-src adapters
-  # (not the real kit adapters, which would fail to find skills/source_{a,b}/SKILL.md).
-  # Mutant: replace the skill_src_relkit lookup with hardcoded "skills/source_a/SKILL.md".
+  # The mutant MUST live in $TWO_KIT/toolbelt/ so its SELF_DIR resolves to the two-src adapters
+  # (not the real kit adapters, which would fail to find skills/source_{a,b}/SKILL.md). It is built
+  # FROM the live SUT (byte-identical to SUT_SRC, the two-src original) into that temp dir.
   MUT_E="$TWO_KIT/toolbelt/verify-skill-drift-mut-E.sh"
-  # Sentinel: the --all loop line that reads skill_src_relkit dynamically (with $home as 3rd arg)
-  sed 's/src_relkit="\$(rsdd_field "\$h" skill_src_relkit "\$home")"/src_relkit="skills\/source_a\/SKILL.md"/' \
-    "$SUT_SRC" > "$MUT_E"
-  chmod +x "$MUT_E"
-
-  # Pre-check: confirm sed matched (mutant differs from SUT_SRC)
-  if diff -q "$SUT_SRC" "$MUT_E" >/dev/null 2>&1; then
-    no "TOOTH E pre-check: mutant = SUT — sed did not match skill_src_relkit lookup line"
-  else
-    ok "TOOTH E pre-check: mutant differs from SUT (sentinel found)"
+  if mk "TOOTH E fixture-src" "$SUT" "$MUT_E" \
+       's/src_relkit="\$(rsdd_field "\$h" skill_src_relkit "\$home")"/src_relkit="skills\/source_a\/SKILL.md"/'; then
+    ok "TOOTH E pre-check: mutant built (skill_src_relkit lookup hardcoded to source_a)"
+    # Control: harness_a in-sync only (harness_b absent); mutant hardcodes source_a → harness_a still in-sync
+    H_TE_CTRL="$ROOT/home_te_ctrl"
+    mkdir -p "$H_TE_CTRL/.harness_a/skills/research-sdd"
+    cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_TE_CTRL/.harness_a/skills/research-sdd/SKILL.md"
+    bash "$MUT_E" --all --home "$H_TE_CTRL" 2>/dev/null
+    RC_TE_CTRL=$?
+    if [ "$RC_TE_CTRL" -eq 0 ]; then
+      ok "TOOTH E control: harness_a in-sync (source_a) → exit 0 (mutant does not break harness_a)"
+    else
+      no "TOOTH E control: harness_a in-sync → expected exit 0; got exit=$RC_TE_CTRL (bad mutant)"
+    fi
+    # Actual tooth: SRC1 home (harness_b deployed=source_b) → original in-sync (0); mutant compares
+    # harness_b against source_a → diverged → exit 1 with harness_b's fix line.
+    tt "TOOTH E fixture-src" 0 1 "$MUT_E" --orig "$SUT_SRC" \
+      --good-lacks '.' --bad-has '^verify-skill-drift: fix: .*--harness harness_b ' \
+      -- bash @SUT@ --all --home "$H_SRC1"
   fi
 
-  # bash -n: mutant must parse cleanly
-  if bash -n "$MUT_E" 2>/dev/null; then
-    ok "TOOTH E pre-check: mutant parses (bash -n)"
-  else
-    no "TOOTH E pre-check: mutant has syntax error (bash -n failed)"
-  fi
-
-  # Control: harness_a in-sync only (harness_b absent); mutant hardcodes source_a → harness_a still in-sync
-  H_TE_CTRL="$ROOT/home_te_ctrl"
-  mkdir -p "$H_TE_CTRL/.harness_a/skills/research-sdd"
-  cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_TE_CTRL/.harness_a/skills/research-sdd/SKILL.md"
-  bash "$MUT_E" --all --home "$H_TE_CTRL" 2>/dev/null
-  RC_TE_CTRL=$?
-  if [ "$RC_TE_CTRL" -eq 0 ]; then
-    ok "TOOTH E control: harness_a in-sync (source_a) → exit 0 (mutant does not break harness_a)"
-  else
-    no "TOOTH E control: harness_a in-sync → expected exit 0; got exit=$RC_TE_CTRL (bad mutant)"
-  fi
-
-  # Actual tooth: SRC1 home (harness_b deployed=source_b) → mutant hardcodes source_a → mismatch → exit 1
-  bash "$MUT_E" --all --home "$H_SRC1" 2>/dev/null
-  RC_TE=$?
-  if [ "$RC_TE" -eq 1 ]; then
-    ok "TOOTH E fixture-src: mutant exits 1 for harness_b in-sync (wrong src) — RED as expected"
-  else
-    no "TOOTH E fixture-src: mutant exits $RC_TE for harness_b in-sync — tooth has no bite"
-  fi
-
-  # TOOTH F: dangling-symlink-single — remove SENTINEL-DANGLING-SINGLE block.
-  # Real test AX1: dangling symlink single → exit 2. Mutant: → exit 3 (absent path) → RED.
+  # TOOTH F: dangling-symlink-single — remove the SENTINEL-DANGLING-SINGLE block (sentinel + 4 lines).
+  # Real test AX1: dangling symlink single → exit 2. Mutant: falls through to the absent path → exit 3.
   MUT_F="$MUT_DIR/verify-skill-drift-mut-F.sh"
-  # Delete: # SENTINEL-DANGLING-SINGLE + next 4 lines (if/printf/exit 2/fi)
-  sed '/# SENTINEL-DANGLING-SINGLE/{N;N;N;N;d}' "$SUT" > "$MUT_F"
-  chmod +x "$MUT_F"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_F" >/dev/null 2>&1; then
-    no "TOOTH F pre-check: mutant = SUT — SENTINEL-DANGLING-SINGLE not found"
-  else
-    ok "TOOTH F pre-check: mutant differs (SENTINEL-DANGLING-SINGLE removed)"
+  if mk "TOOTH F dangling-symlink-single" "$SUT" "$MUT_F" '/# SENTINEL-DANGLING-SINGLE/{N;N;N;N;d}'; then
+    ok "TOOTH F pre-check: mutant built (SENTINEL-DANGLING-SINGLE removed)"
+    tt "TOOTH F dangling-symlink-single" 2 3 "$MUT_F" --orig "$SBX_ORIG" \
+      --good-has 'could-not-run harness=claude \(dangling symlink' \
+      --bad-has '^verify-skill-drift: absent harness=claude ' \
+      -- bash @SUT@ --harness claude --home "$H_AX1"
   fi
 
-  # Actual tooth: dangling symlink in single mode → without guard exits 3 (absent) not 2 → RED
-  bash "$MUT_F" --harness claude --home "$H_AX1" 2>/dev/null
-  RC_TF=$?
-  if [ "$RC_TF" -ne 2 ]; then
-    ok "TOOTH F dangling-symlink-single: mutant exits $RC_TF (not 2) — RED as expected"
-  else
-    no "TOOTH F dangling-symlink-single: mutant still exits 2 — tooth has no bite"
-  fi
-
-  # TOOTH G: dangling-symlink-all — remove SENTINEL-DANGLING-ALL block.
-  # Real test AX2: dangling symlink --all → exit 2. Mutant: → exit 0 (counted as absent) → RED.
+  # TOOTH G: dangling-symlink-all — remove the SENTINEL-DANGLING-ALL block (sentinel + 5 lines).
+  # Real test AX2: dangling symlink --all → exit 2. Mutant: counted as absent → exit 0.
   MUT_G="$MUT_DIR/verify-skill-drift-mut-G.sh"
-  # Delete: # SENTINEL-DANGLING-ALL + next 5 lines (if/err_count++/printf/continue/fi)
-  sed '/# SENTINEL-DANGLING-ALL/{N;N;N;N;N;d}' "$SUT" > "$MUT_G"
-  chmod +x "$MUT_G"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_G" >/dev/null 2>&1; then
-    no "TOOTH G pre-check: mutant = SUT — SENTINEL-DANGLING-ALL not found"
-  else
-    ok "TOOTH G pre-check: mutant differs (SENTINEL-DANGLING-ALL removed)"
+  if mk "TOOTH G dangling-symlink-all" "$SUT" "$MUT_G" '/# SENTINEL-DANGLING-ALL/{N;N;N;N;N;d}'; then
+    ok "TOOTH G pre-check: mutant built (SENTINEL-DANGLING-ALL removed)"
+    tt "TOOTH G dangling-symlink-all" 2 0 "$MUT_G" --orig "$SBX_ORIG" \
+      --good-has 'could-not-run harness=claude \(dangling symlink' --bad-lacks 'could-not-run' \
+      -- bash @SUT@ --all --home "$H_AX2"
   fi
 
-  # Actual tooth: dangling symlink in --all → without guard counts as absent → exit 0 → RED
-  bash "$MUT_G" --all --home "$H_AX2" 2>/dev/null
-  RC_TG=$?
-  if [ "$RC_TG" -ne 2 ]; then
-    ok "TOOTH G dangling-symlink-all: mutant exits $RC_TG (not 2) — RED as expected"
-  else
-    no "TOOTH G dangling-symlink-all: mutant still exits 2 — tooth has no bite"
-  fi
-
-  # TOOTH H: HOME-check-deleted — remove SENTINEL-HOME-CHECK block.
-  # Real test AX6: HOME unset → exit 2 + typed message. Mutant: → exit 3 (absent) → RED.
+  # TOOTH H: HOME-check-deleted — remove the SENTINEL-HOME-CHECK block (sentinel + 4 lines).
+  # Real test AX6: HOME unset → exit 2 + typed message. Mutant: home="" resolves under "" → absent → exit 3.
   MUT_H="$MUT_DIR/verify-skill-drift-mut-H.sh"
-  # Delete: # SENTINEL-HOME-CHECK + next 4 lines (if/printf/exit 2/fi)
-  sed '/# SENTINEL-HOME-CHECK/{N;N;N;N;d}' "$SUT" > "$MUT_H"
-  chmod +x "$MUT_H"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_H" >/dev/null 2>&1; then
-    no "TOOTH H pre-check: mutant = SUT — SENTINEL-HOME-CHECK not found"
-  else
-    ok "TOOTH H pre-check: mutant differs (SENTINEL-HOME-CHECK removed)"
+  if mk "TOOTH H HOME-check-deleted" "$SUT" "$MUT_H" '/# SENTINEL-HOME-CHECK/{N;N;N;N;d}'; then
+    ok "TOOTH H pre-check: mutant built (SENTINEL-HOME-CHECK removed)"
+    tt "TOOTH H HOME-check-deleted" 2 3 "$MUT_H" --orig "$SBX_ORIG" \
+      --good-has '^verify-skill-drift: could-not-run: HOME is unset' \
+      --bad-has '^verify-skill-drift: absent harness=claude ' \
+      -- env -u HOME bash @SUT@
   fi
 
-  # Actual tooth: HOME unset → without check, home="" → rsdd_field resolves under "" → absent → exit 3 → RED
-  env -u HOME bash "$MUT_H" 2>/dev/null
-  RC_TH=$?
-  if [ "$RC_TH" -ne 2 ]; then
-    ok "TOOTH H HOME-check-deleted: mutant exits $RC_TH (not 2) — RED as expected"
-  else
-    no "TOOTH H HOME-check-deleted: mutant still exits 2 — tooth has no bite"
-  fi
-
-  # TOOTH I: unconditional-summary — make SENTINEL-SUMMARY-GUARD condition always true.
-  # Real test AX5: --all in-sync → stderr empty. Mutant: summary always prints → stderr non-empty → RED.
+  # TOOTH I: unconditional-summary — make the SENTINEL-SUMMARY-GUARD condition always true.
+  # Real test AX5: --all in-sync → empty output. Mutant: the summary always prints → non-empty.
   MUT_I="$MUT_DIR/verify-skill-drift-mut-I.sh"
-  # Replace the guarded condition with 'if true; then' (summary always runs)
-  sed '/# SENTINEL-SUMMARY-GUARD/{n; s/if \[ .* -gt 0 .*/if true; then/}' "$SUT" > "$MUT_I"
-  chmod +x "$MUT_I"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_I" >/dev/null 2>&1; then
-    no "TOOTH I pre-check: mutant = SUT — SENTINEL-SUMMARY-GUARD not found or sed did not match"
-  else
-    ok "TOOTH I pre-check: mutant differs (SENTINEL-SUMMARY-GUARD condition removed)"
+  if mk "TOOTH I unconditional-summary" "$SUT" "$MUT_I" '/# SENTINEL-SUMMARY-GUARD/{n; s/if \[ .* -gt 0 .*/if true; then/}'; then
+    ok "TOOTH I pre-check: mutant built (SENTINEL-SUMMARY-GUARD condition forced true)"
+    tt "TOOTH I unconditional-summary" 0 0 "$MUT_I" --orig "$SBX_ORIG" \
+      --good-lacks '.' --bad-has '^verify-skill-drift: all: checked=3 in-sync=1 diverged=0 absent=2 could-not-run=0$' \
+      -- bash @SUT@ --all --home "$H_ALL_SYNC"
   fi
 
-  # Actual tooth: in-sync home → without guard, summary always prints → stderr non-empty → RED
-  TOOTH_I_STDERR="$(bash "$MUT_I" --all --home "$H_ALL_SYNC" 2>&1 1>/dev/null)"
-  if [ -n "$TOOTH_I_STDERR" ]; then
-    ok "TOOTH I unconditional-summary: in-sync run emits stderr (summary unconditional) — RED as expected"
-  else
-    no "TOOTH I unconditional-summary: in-sync run still silent — tooth has no bite"
-  fi
-
-  # TOOTH J: drop-all-err-exit2 — remove SENTINEL-ERR-EXIT2 block.
-  # Real test AX2: dangling symlink --all → exit 2 (err_count=1, no diverged → exit via err guard).
-  # Mutant: err guard deleted → exits 0 (no diverged_count) → RED.
+  # TOOTH J: drop-all-err-exit2 — remove the SENTINEL-ERR-EXIT2 block (sentinel + 1 line).
+  # Real test AX2: dangling symlink --all → exit 2 (err_count=1, no diverged → exits via the err guard).
+  # Mutant: err guard deleted → exit 0 (the summary still reports could-not-run=1).
   MUT_J="$MUT_DIR/verify-skill-drift-mut-J.sh"
-  # Delete: # SENTINEL-ERR-EXIT2 + next line (if [ "$err_count" ... ]; then exit 2; fi)
-  sed '/# SENTINEL-ERR-EXIT2/{N;d}' "$SUT" > "$MUT_J"
-  chmod +x "$MUT_J"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_J" >/dev/null 2>&1; then
-    no "TOOTH J pre-check: mutant = SUT — SENTINEL-ERR-EXIT2 not found"
-  else
-    ok "TOOTH J pre-check: mutant differs (SENTINEL-ERR-EXIT2 removed)"
+  if mk "TOOTH J drop-all-err-exit2" "$SUT" "$MUT_J" '/# SENTINEL-ERR-EXIT2/{N;d}'; then
+    ok "TOOTH J pre-check: mutant built (SENTINEL-ERR-EXIT2 removed)"
+    tt "TOOTH J drop-all-err-exit2" 2 0 "$MUT_J" --orig "$SBX_ORIG" \
+      --good-has 'could-not-run=1$' --bad-has '^verify-skill-drift: all: .*could-not-run=1$' \
+      -- bash @SUT@ --all --home "$H_AX2"
   fi
 
-  # Actual tooth: dangling symlink --all → err_count=1, diverged_count=0 → without err guard → exit 0 → RED
-  bash "$MUT_J" --all --home "$H_AX2" 2>/dev/null
-  RC_TJ=$?
-  if [ "$RC_TJ" -ne 2 ]; then
-    ok "TOOTH J drop-all-err-exit2: mutant exits $RC_TJ (not 2) — RED as expected"
-  else
-    no "TOOTH J drop-all-err-exit2: mutant still exits 2 — tooth has no bite"
-  fi
-
-  # TOOTH K: also-diverged-names — remove SENTINEL-ALSO-DIVERGED block.
-  # Real test REM1: all 3 diverged → pi/gentle-shell must appear in also-diverged line.
-  # Mutant: accumulator deleted → also_names stays empty → guard blocks print → names absent → RED.
+  # TOOTH K: also-diverged-names — neuter the accumulator line after SENTINEL-ALSO-DIVERGED, replacing
+  # it with a no-op ':'. DELETING it leaves an empty else branch = a bash syntax error: a crash that
+  # would read as a bite (the helper's bash -n refusal caught exactly that in the pre-migration mutant).
+  # Real test REM1: all 3 diverged → pi/gentle-shell must appear in the also-diverged line.
+  # Mutant: accumulator deleted → also_names stays empty → no names line → gentle-shell absent. Both
+  # sides exit 1 (diverged), so the discriminator is the typed also-diverged line.
   MUT_K="$MUT_DIR/verify-skill-drift-mut-K.sh"
-  # Delete: # SENTINEL-ALSO-DIVERGED + next line (also_names=...)
-  sed '/# SENTINEL-ALSO-DIVERGED/{N;d}' "$SUT" > "$MUT_K"
-  chmod +x "$MUT_K"
-
-  # Pre-check
-  if diff -q "$SUT" "$MUT_K" >/dev/null 2>&1; then
-    no "TOOTH K pre-check: mutant = SUT — SENTINEL-ALSO-DIVERGED not found"
-  else
-    ok "TOOTH K pre-check: mutant differs (SENTINEL-ALSO-DIVERGED removed)"
-  fi
-
-  # Actual tooth: all 3 diverged, but also_names missing → gentle-shell absent from output → RED
-  MUT_K_OUT="$(bash "$MUT_K" --all --home "$H_BDG3" 2>&1)"
-  if ! <<<"$MUT_K_OUT" grep -qF 'gentle-shell'; then
-    ok "TOOTH K also-diverged-names: mutant hides gentle-shell — RED as expected"
-  else
-    no "TOOTH K also-diverged-names: mutant still shows gentle-shell — tooth has no bite"
+  if mk "TOOTH K also-diverged-names" "$SUT" "$MUT_K" '/# SENTINEL-ALSO-DIVERGED/{n;s/.*/        :/}'; then
+    ok "TOOTH K pre-check: mutant built (SENTINEL-ALSO-DIVERGED removed)"
+    tt "TOOTH K also-diverged-names" 1 1 "$MUT_K" --orig "$SBX_ORIG" \
+      --good-has '^verify-skill-drift: also diverged: .*gentle-shell' \
+      --bad-has '^verify-skill-drift: all: checked=3 in-sync=0 diverged=3 ' --bad-lacks 'gentle-shell' \
+      -- bash @SUT@ --all --home "$H_BDG3"
   fi
 
   echo "-- teeth: force _vsd_resolve_src to always use the kit source (ignore profile); expect PD1a to fail --"
   # Neuters the profile branch so a NON-claude profile is silently compared against the kit
   # source instead of a fresh render — a general-profile install (which legitimately differs
-  # from the kit source) would then be misreported as diverged even when untouched.
+  # from the kit source) would then be misreported as diverged even when untouched. The sandbox
+  # carries profiles/ + render-profile.sh (staged above) so the ORIGINAL can render "general".
   MUT_PD="$MUT_DIR/verify-skill-drift-mut-PD.sh"
-  sed 's/if \[ "\$profile" = "claude" \]; then/if true; then/' "$SUT" > "$MUT_PD"
-  chmod +x "$MUT_PD"
-  # The mini-kit sandbox above never needed a profiles/ dir before (TOOTH A-K don't touch
-  # profiles); rsdd_valid_profile needs $ROOT/profiles/general.slots.md to accept "general".
-  mkdir -p "$ROOT/profiles"
-  cp "$HERE/../../profiles/general.slots.md" "$ROOT/profiles/general.slots.md" 2>/dev/null
-  if diff -q "$SUT" "$MUT_PD" >/dev/null 2>&1; then
-    no "TOOTH PD pre-check: mutant = SUT — profile branch line not found"
-  else
-    ok "TOOTH PD pre-check: mutant differs (profile branch forced true)"
-  fi
   if [ -f "$INSTALLER_PD" ]; then
-    H_PD_TEETH="$ROOT/home_pd_teeth"
-    bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness pi >/dev/null 2>&1
-    bash "$MUT_PD" --harness pi --home "$H_PD_TEETH" >/dev/null 2>&1
-    RC_MUT_PD=$?
-    if [ "$RC_MUT_PD" -eq 1 ]; then
-      ok "TOOTH PD: mutant (profile ignored) reports a fresh general install as diverged — RED as expected"
-    else
-      no "TOOTH PD: mutant still reports exit $RC_MUT_PD (expected 1) — profile-aware comparison check has no bite"
+    if mk "TOOTH PD profile-ignored" "$SUT" "$MUT_PD" 's/if \[ "\$profile" = "claude" \]; then/if true; then/'; then
+      ok "TOOTH PD pre-check: mutant built (profile branch forced true)"
+      H_PD_TEETH="$ROOT/home_pd_teeth"
+      bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness pi >/dev/null 2>&1
+      tt "TOOTH PD profile-ignored" 0 1 "$MUT_PD" --orig "$SBX_ORIG" \
+        --good-lacks '.' --bad-has '^verify-skill-drift: diverged harness=pi ' \
+        -- bash @SUT@ --harness pi --home "$H_PD_TEETH"
     fi
   else
     no "TOOTH PD: installer not found — cannot exercise this tooth"
   fi
 
-  # F3-leak/F3-completeness mutants live BESIDE the REAL SUT (never in $MUT_DIR's mini-kit
-  # sandbox, which has no render-profile.sh/profiles/): both need an ACTUAL successful render
-  # against the REAL kit to reach the code under test, unlike TOOTH PD's mutation above, which
-  # takes a fast path that skips rendering entirely.
+  # F3-leak/F3-completeness mutants need an ACTUAL successful render to reach the code under test
+  # (unlike TOOTH PD's mutation above, which takes a fast path that skips rendering entirely); the
+  # sandbox's render-profile.sh/profiles/ provide it, so they are built in the sandbox like the rest.
   echo "-- teeth: disable tmp-dir tracking append; expect F3-leak to fail --"
-  MUT_F3LEAK="$HERE/../verify-skill-drift-mut-f3leak.$$.sh"
-  sed 's/\[ -n "\$_vsd_tmp" \] && _VSD_RENDER_TMPDIRS+=("\$_vsd_tmp")/false/' "$SUT" > "$MUT_F3LEAK"
-  chmod +x "$MUT_F3LEAK"
-  if diff -q "$SUT" "$MUT_F3LEAK" >/dev/null 2>&1; then
-    no "TOOTH F3-leak pre-check: mutant = SUT — tracking-append line not found"
-  else
-    ok "TOOTH F3-leak pre-check: mutant differs (tmp-dir tracking disabled)"
-  fi
+  MUT_F3LEAK="$MUT_DIR/verify-skill-drift-mut-f3leak.sh"
   if [ -f "$INSTALLER_PD" ]; then
-    H_TF3L="$ROOT/home_tf3leak"
-    bash "$INSTALLER_PD" --home "$H_TF3L" --harness pi >/dev/null 2>&1
-    MUT_F3LEAK_TMPDIR="$ROOT/mut-f3leak-tmpdir"; mkdir -p "$MUT_F3LEAK_TMPDIR"
-    TMPDIR="$MUT_F3LEAK_TMPDIR" bash "$MUT_F3LEAK" --harness pi --home "$H_TF3L" >/dev/null 2>&1
-    LEFTOVER_TF3L="$(find "$MUT_F3LEAK_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
-    if [ -n "$LEFTOVER_TF3L" ]; then
-      ok "TOOTH F3-leak: mutant (tracking disabled) leaks a tmp dir → F3-leak check has teeth"
-    else
-      no "TOOTH F3-leak: mutant still cleaned up — F3-leak check is THEATER"
+    if mk "TOOTH F3-leak" "$SUT" "$MUT_F3LEAK" 's/\[ -n "\$_vsd_tmp" \] && _VSD_RENDER_TMPDIRS+=("\$_vsd_tmp")/false/'; then
+      ok "TOOTH F3-leak pre-check: mutant built (tmp-dir tracking disabled)"
+      H_TF3L="$ROOT/home_tf3leak"
+      bash "$INSTALLER_PD" --home "$H_TF3L" --harness pi >/dev/null 2>&1
+      # Probe: each run gets its OWN fresh dedicated TMPDIR and prints the leftover count as a typed
+      # line (F3_LEFTOVER=<n>), exiting with the SUT's own rc.
+      _F3_PROBE='sut="$1"; shift; d="$(mktemp -d)" || exit 97; TMPDIR="$d" bash "$sut" "$@"; rc=$?; n="$(find "$d" -mindepth 1 -maxdepth 1 | wc -l | tr -d " ")"; printf "F3_LEFTOVER=%s\n" "$n"; rm -rf "$d"; exit "$rc"'
+      tt "TOOTH F3-leak" 0 0 "$MUT_F3LEAK" --orig "$SBX_ORIG" \
+        --good-has '^F3_LEFTOVER=0$' --bad-has '^F3_LEFTOVER=[1-9][0-9]*$' \
+        -- bash -c "$_F3_PROBE" _ @SUT@ --harness pi --home "$H_TF3L"
     fi
   else
     no "TOOTH F3-leak: installer not found — cannot exercise this tooth"
   fi
-  rm -f "$MUT_F3LEAK"
 
   echo "-- teeth: force render-completeness to always be accepted (single-harness); expect F3-missing to fail --"
-  MUT_F3COMP="$HERE/../verify-skill-drift-mut-f3comp.$$.sh"
-  sed 's/if \[ "\$render_state" != "ok" \]; then/if false; then/' "$SUT" > "$MUT_F3COMP"
-  chmod +x "$MUT_F3COMP"
-  if diff -q "$SUT" "$MUT_F3COMP" >/dev/null 2>&1; then
-    no "TOOTH F3-completeness pre-check: mutant = SUT — render_state check line not found"
-  else
-    ok "TOOTH F3-completeness pre-check: mutant differs (single-harness completeness check disabled)"
-  fi
+  MUT_F3COMP="$MUT_DIR/verify-skill-drift-mut-f3comp.sh"
   if [ -f "$INSTALLER_PD" ]; then
-    H_TF3C="$ROOT/home_tf3comp"
-    bash "$INSTALLER_PD" --home "$H_TF3C" --harness pi >/dev/null 2>&1
-    rm -rf "$H_TF3C/.pi/agent/research-sdd/profile/general"
-    RC_TF3C=0
-    bash "$MUT_F3COMP" --harness pi --home "$H_TF3C" >/dev/null 2>&1 || RC_TF3C=$?
-    if [ "$RC_TF3C" -eq 0 ]; then
-      ok "TOOTH F3-completeness: mutant (check disabled) reports a missing render dir as in-sync → completeness check has teeth"
-    else
-      no "TOOTH F3-completeness: mutant still refused (rc=$RC_TF3C) — completeness check is THEATER"
+    if mk "TOOTH F3-completeness" "$SUT" "$MUT_F3COMP" 's/if \[ "\$render_state" != "ok" \]; then/if false; then/'; then
+      ok "TOOTH F3-completeness pre-check: mutant built (single-harness completeness check disabled)"
+      H_TF3C="$ROOT/home_tf3comp"
+      bash "$INSTALLER_PD" --home "$H_TF3C" --harness pi >/dev/null 2>&1
+      rm -rf "$H_TF3C/.pi/agent/research-sdd/profile/general"
+      # Original: missing persisted render dir → could-not-run (2). Mutant (check disabled): in-sync (0).
+      tt "TOOTH F3-completeness" 2 0 "$MUT_F3COMP" --orig "$SBX_ORIG" \
+        --good-has 'render dir missing' --bad-lacks 'render dir|could-not-run|ERROR' \
+        -- bash @SUT@ --harness pi --home "$H_TF3C"
     fi
   else
     no "TOOTH F3-completeness: installer not found — cannot exercise this tooth"
   fi
-  rm -f "$MUT_F3COMP"
 
   # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, MEDIUM). Measured directly (not asserted):
   # reverting ONLY verify-skill-drift.sh's own -P, with render-profile.sh's INDEPENDENT -P fix
@@ -1198,29 +1105,32 @@ if [ "$prove_teeth" -eq 1 ]; then
   # exact pair that jointly produced kit issue #1024's originally reported symptom — because that
   # combination is what a "SELF_DIR/KIT_INSTALL/KIT -P" reversion of verify-skill-drift.sh ALONE
   # can no longer be shown to break on its own once render-profile.sh's sibling fix stands.
+  # The two mutants are built through lib/mutant.sh into a temp dir ($ROOT/symmut) and then swapped
+  # into the synthetic mini-kit below; the observation (the mutated pair re-breaks through the
+  # symlinked toolbelt/) keeps its existing shape because a pair swapped in place does not fit
+  # mutant_tooth's single original/mutant substitution.
   echo "-- teeth SYMLINK-TOOLBELT: revert -P on verify-skill-drift.sh AND render-profile.sh together --"
-  MUT_SYM="$HERE/../verify-skill-drift-mut-sym.$$.sh"
-  sed -e 's/SELF_DIR="\$(cd -P "\$(dirname "\$0")" \&\& pwd -P)"/SELF_DIR="$(cd "$(dirname "$0")" \&\& pwd)"/' \
-      -e 's/KIT_INSTALL="\$(cd -P "\$SELF_DIR\/\.\.\/install" 2>\/dev\/null \&\& pwd -P)"/KIT_INSTALL="$(cd "$SELF_DIR\/..\/install" 2>\/dev\/null \&\& pwd)"/' \
-      -e 's/KIT="\$(cd -P "\$KIT_INSTALL\/\.\." \&\& pwd -P)"/KIT="$(cd "$KIT_INSTALL\/.." \&\& pwd)"/' \
-      "$SUT" > "$MUT_SYM"
-  chmod +x "$MUT_SYM"
-  MUT_RPS="$HERE/../render-profile-mut-sym.$$.sh"
-  sed -e 's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
-      -e 's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/' \
-      "$KIT/toolbelt/render-profile.sh" > "$MUT_RPS"
-  chmod +x "$MUT_RPS"
-  if diff -q "$SUT" "$MUT_SYM" >/dev/null 2>&1; then
-    no "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  mkdir -p "$ROOT/symmut"
+  MUT_SYM="$ROOT/symmut/verify-skill-drift-mut-sym.sh"
+  MUT_RPS="$ROOT/symmut/render-profile-mut-sym.sh"
+  _sym_ok=1
+  if mk "teeth SYMLINK-TOOLBELT verify-skill-drift.sh" "$SUT" "$MUT_SYM" \
+       's/SELF_DIR="\$(cd -P "\$(dirname "\$0")" \&\& pwd -P)"/SELF_DIR="$(cd "$(dirname "$0")" \&\& pwd)"/' \
+       's/KIT_INSTALL="\$(cd -P "\$SELF_DIR\/\.\.\/install" 2>\/dev\/null \&\& pwd -P)"/KIT_INSTALL="$(cd "$SELF_DIR\/..\/install" 2>\/dev\/null \&\& pwd)"/' \
+       's/KIT="\$(cd -P "\$KIT_INSTALL\/\.\." \&\& pwd -P)"/KIT="$(cd "$KIT_INSTALL\/.." \&\& pwd)"/'; then
+    ok "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant built (-P reverted on all 3 hops)"
   else
-    ok "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant differs (-P reverted on all 3 hops)"
+    _sym_ok=0
   fi
-  if diff -q "$KIT/toolbelt/render-profile.sh" "$MUT_RPS" >/dev/null 2>&1; then
-    no "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  if mk "teeth SYMLINK-TOOLBELT render-profile.sh" "$KIT/toolbelt/render-profile.sh" "$MUT_RPS" \
+       's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
+       's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/'; then
+    ok "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant built (-P reverted on both hops)"
   else
-    ok "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant differs (-P reverted on both hops)"
+    _sym_ok=0
   fi
 
+  if [ "$_sym_ok" -eq 1 ]; then
   # Build a fully SYNTHETIC mini-kit (mktemp -d) — never a real render, whose toolbelt/ IS the
   # real tracked toolbelt/ via F1's completion symlink; writing a mutant through that path would
   # corrupt the live scripts (the exact mistake already made once in round 3, caught via an
@@ -1269,7 +1179,8 @@ if [ "$prove_teeth" -eq 1 ]; then
   else
     no "teeth SYMLINK-TOOLBELT: mutants did not re-break — -P fix check is THEATER (rc=$RC_TSYM out=[$OUT_TSYM])"
   fi
-  rm -f "$MUT_SYM" "$MUT_RPS"
+  fi
+  fi
 
   # git-status after all teeth: confirm no files leaked into the live tree
   _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"
