@@ -135,10 +135,13 @@ mkbox() {
 #                      read as "no match" and fall through to create; it must count as failed,
 #                      exactly like listfail
 #   mode=createfail  : `gh issue list` returns empty; `gh issue create` exits 1 (API error)
-#   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
-#   (except createfail).
+#   mode=createnourl : `gh issue create` exits 0 but prints NO issue URL (kit issue #1705)
+#   In all non-noauth, non-listfail modes: `gh issue create` logs its args, remembers its --body and echoes
+#   a fake URL (except createfail). 5th arg viewmode (kit issue #1705) shapes `gh issue view <N> --json body
+#   --jq .body`: ok (default; replies the body the create sent) | nosig (a body without the signature line) |
+#   empty (exit 0, no output) | fail (exit 1).
 mk_gh_stub() {
-  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}" labelmode="${4:-exists}"
+  local box="$1" mode="${2:-nomatch}" sigpat="${3:-}" labelmode="${4:-exists}" viewmode="${5:-ok}"
   {
     printf '#!%s\n' "$BASH_BIN"
     # Log all calls for inspection
@@ -158,6 +161,23 @@ mk_gh_stub() {
       cat <<'STUBHELP'
 _sig=""; _prev=""
 for _a in "$@"; do [ "$_prev" = "--search" ] && _sig="$_a"; _prev="$_a"; done
+save_body() { local _p="" _x; for _x in "$@"; do [ "$_p" = "--body" ] && printf "%s" "$_x" > "$0.body"; _p="$_x"; done; }
+_validate_view() {
+  local _sk="" _a _n=0 _repo=0 _json=0 _jq=0
+  for _a in "$@"; do
+    if [ -n "$_sk" ]; then
+      case "$_sk" in json) [ "$_a" = body ] && _json=1 ;; jq) [ "$_a" = .body ] && _jq=1 ;; repo) _repo=1 ;; esac
+      _sk=""; continue
+    fi
+    case "$_a" in
+      issue|view) ;;
+      --repo) _sk=repo ;; --json) _sk=json ;; --jq) _sk=jq ;;
+      [0-9]*) case "$_a" in *[!0-9]*) echo "gh stub: bad issue number: $_a" >&2; return 1 ;; esac; _n=1 ;;
+      *) echo "gh stub: unknown flag: $_a" >&2; return 1 ;;
+    esac
+  done
+  [ "$_n$_repo$_json$_jq" = 1111 ] || { echo "gh stub: issue view needs <N> --repo R --json body --jq .body" >&2; return 1; }
+}
 _sig="${_sig#\"}"; _sig="${_sig%\"}"
 reply() { printf '[{"body":"Delta text\\n\\n**Target:** x\\n\\n---\\n%s\\nPart of backlog-first rollout #557","state":"%s"}]\n' "$_sig" "$1"; }
 fuzzy_other() { printf '[{"body":"Other delta\\n\\n---\\nSource retro: niagara-%s\\nPart of backlog-first rollout #557","state":"%s"}]\n' "${_sig#Source retro: }" "$1"; }
@@ -321,15 +341,24 @@ STUBHELP
       if [ "$mode" = "createfail" ]; then
         # createfail: gh issue create exits 1 to simulate an API error
         printf '  *" issue create "*) printf "ERROR: GraphQL request failed\\n"; exit 1 ;;\n'
+      elif [ "$mode" = "createnourl" ]; then
+        printf '  *" issue create "*) save_body "$@"; printf "Created!\\n"; exit 0 ;;\n'
       elif [ "$mode" = "createfailcreated" ] || [ "$mode" = "createfailrelistfail" ]; then
         printf '  *" issue create "*) : > "$0.created"; printf "ERROR: timeout after write\\n"; exit 1 ;;\n'
       elif [ "$mode" = "createfailsecond" ]; then
         # createfailsecond (kit issue #949 item 4): the FIRST create succeeds, every later one fails
         # — a mixed success/failure run (created=1 failed=1), not all-or-nothing.
-        printf '  *" issue create "*) create_alt; exit $? ;;\n'
+        printf '  *" issue create "*) save_body "$@"; create_alt; exit $? ;;\n'
       else
-        printf '  *" issue create "*) printf "https://github.com/r/issues/99\\n"; exit 0 ;;\n'
+        printf '  *" issue create "*) save_body "$@"; printf "https://github.com/r/issues/99\\n"; exit 0 ;;\n'
       fi
+      # kit issue #1705: `gh issue view <N> --json body --jq .body` — the read-back after a create.
+      case "$viewmode" in
+        ok)    printf '  *" issue view "*) _validate_view "$@" || exit 2; [ -f "$0.body" ] || { printf "gh: could not resolve to an issue\\n" >&2; exit 1; }; cat "$0.body"; printf "\\n"; exit 0 ;;\n' ;;
+        nosig) printf '  *" issue view "*) _validate_view "$@" || exit 2; printf "Some other body without the signature\\n"; exit 0 ;;\n' ;;
+        empty) printf '  *" issue view "*) _validate_view "$@" || exit 2; exit 0 ;;\n' ;;
+        fail)  printf '  *" issue view "*) _validate_view "$@" || exit 2; printf "gh: HTTP 502\\n" >&2; exit 1 ;;\n' ;;
+      esac
       printf '  *) exit 0 ;;\n'
       printf 'esac\n'
     fi
@@ -3814,18 +3843,19 @@ fi
 # 84 — UNKNOWN OUTCOME after a failed create (kit issue #1261). A `gh issue create` can fail (timeout,
 #      5xx) AFTER the issue was written; counting that as `failed` made the Stop hook report a failure
 #      for an issue that exists (observed: failed=1, rerun skipped-duplicate x2). After a failed
-#      create the dedup search is re-run: an exact hit is `unknown-outcome` (exit 0, the issue exists);
+#      create the dedup search is re-run: an exact hit is `unknown-outcome` (exit 3 since kit issue #1705: the
+#      outcome is unconfirmed, so the run is never green);
 #      no hit stays `failed`; a failing re-lookup stays `failed` (the outcome is unprovable).
 ONE_ROW='| 1 | a real delta row | CLAUDE.md | B1 | fix | HIGH |'
 box84a="$(mkbox case-create-unknown)"; mk_gh_stub "$box84a" createfailcreated
 r84a="$(mk_retro "$box84a" target-foo r84a.md '<!-- review-status: pending -->' "$ONE_ROW")"
 run "$box84a" "$r84a" --apply
-if [ "$RC" = 0 ] && grep -q '^unknown-outcome: .*row 1' <<<"$OUT" \
+if [ "$RC" = 3 ] && grep -q '^unknown-outcome: .*row 1' <<<"$OUT" \
    && grep -q 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=1 failed=0' <<<"$OUT" \
    && ! grep -q '^ERROR: gh issue create failed' <<<"$OUT" \
    && [ "$(grep -c '^gh issue list' "$box84a/bin/gh.log")" = 2 ] \
    && [ "$(grep '^gh issue list' "$box84a/bin/gh.log" | grep -c -- '--repo test-owner/test-kit')" = 2 ]; then
-  ok "84a create fails but a re-run dedup finds the issue → unknown-outcome, exit 0, failed=0" "(exit $RC)"
+  ok "84a create fails but a re-run dedup finds the issue → unknown-outcome, exit 3 (kit issue #1705), failed=0" "(exit $RC)"
 else
   no "84a unknown outcome" "exit=$RC out=[$OUT]"
 fi
@@ -4082,6 +4112,117 @@ else
   no "86g non-numeric count" "exit=$RC out=[$OUT]"
 fi
 
+
+# ---------------------------------------------------------------------------
+# 87 — WRITER OUTCOME TRIAD + READ-BACK (kit issue #1705). Every --apply row prints
+#      `mutation_outcome: confirmed|no_write|unknown (row R)` and a `mutation-summary: confirmed= no_write= unknown=` line. `confirmed` needs BOTH a printed issue URL
+#      (creation is never inferred from output text) AND a read-back (`gh issue view <N>`) whose body carries
+#      the signature line. `no_write`: nothing was written (duplicate skip, a refused row, a failed create
+#      whose re-check found nothing). `unknown`: the write may have happened and is unproven (create failed
+#      but the re-check finds the issue, the re-check itself failed, no URL printed, read-back failed or
+#      lacks the signature). An unknown row is NEVER retried, counts in the additive summary key
+#      the `mutation-summary:` line's `unknown=N`, and makes the run exit 3 (2 when a row also failed).
+box87a="$(mkbox case-outcome-confirmed)"; mk_gh_stub "$box87a" nomatch
+r87a="$(mk_retro "$box87a" target-foo r87a.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87a" "$r87a" --apply
+if [ "$RC" = 0 ] && grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" \
+   && grep -q '^gh issue view 99 --repo test-owner/test-kit --json body --jq .body$' "$box87a/bin/gh.log" \
+   && grep -q 'created=1 .* failed=0$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=1 no_write=0 unknown=0$' <<<"$OUT"; then
+  ok "87a create + read-back with the signature → mutation_outcome: confirmed, mutation-summary confirmed=1, exit 0" "(exit $RC)"
+else
+  no "87a confirmed" "exit=$RC out=[$OUT] log=[$(cat "$box87a/bin/gh.log")]"
+fi
+box87b="$(mkbox case-outcome-dup)"; mk_gh_stub "$box87b" match
+r87b="$(mk_retro "$box87b" target-foo r87b.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87b" "$r87b" --apply
+if [ "$RC" = 0 ] && grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" && ! grep -q 'issue create\|issue view' "$box87b/bin/gh.log"; then
+  ok "87b a duplicate skip → mutation_outcome: no_write, no create, no read-back" "(exit $RC)"
+else
+  no "87b duplicate no_write" "exit=$RC out=[$OUT]"
+fi
+box87c="$(mkbox case-outcome-createfail)"; mk_gh_stub "$box87c" createfail
+r87c="$(mk_retro "$box87c" target-foo r87c.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87c" "$r87c" --apply
+if [ "$RC" = 2 ] && grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=0 no_write=1 unknown=0$' <<<"$OUT"; then
+  ok "87c create fails and the re-check finds nothing → no_write (failed=1, exit 2)" "(exit $RC)"
+else
+  no "87c create fail no_write" "exit=$RC out=[$OUT]"
+fi
+box87d="$(mkbox case-outcome-recheck-hit)"; mk_gh_stub "$box87d" createfailcreated
+r87d="$(mk_retro "$box87d" target-foo r87d.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87d" "$r87d" --apply
+if [ "$RC" = 3 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'unknown-outcome=1 failed=0$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=0 no_write=0 unknown=1$' <<<"$OUT" \
+   && [ "$(grep -c '^gh issue create' "$box87d/bin/gh.log")" = 1 ] && grep -q '^mutation-unknown: 1 row' <<<"$OUT"; then
+  ok "87d create fails but the re-check finds the issue → unknown, exit 3, never retried (1 create)" "(exit $RC)"
+else
+  no "87d unknown after re-check hit" "exit=$RC out=[$OUT]"
+fi
+box87e="$(mkbox case-outcome-recheck-fail)"; mk_gh_stub "$box87e" createfailrelistfail
+r87e="$(mk_retro "$box87e" target-foo r87e.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87e" "$r87e" --apply
+if [ "$RC" = 2 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'unknown-outcome=0 failed=1$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=0 no_write=0 unknown=1$' <<<"$OUT" \
+   && [ "$(grep -c '^gh issue create' "$box87e/bin/gh.log")" = 1 ]; then
+  ok "87e create fails AND the re-check fails → unknown (failed=1 keeps exit 2), never retried" "(exit $RC)"
+else
+  no "87e unknown after re-check failure" "exit=$RC out=[$OUT]"
+fi
+box87f="$(mkbox case-outcome-nosig)"; mk_gh_stub "$box87f" nomatch "" exists nosig
+r87f="$(mk_retro "$box87f" target-foo r87f.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87f" "$r87f" --apply
+if [ "$RC" = 3 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q '^unknown-outcome: .*read-back.*signature' <<<"$OUT" \
+   && grep -q 'created=0 .* unknown-outcome=1 failed=0$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=0 no_write=0 unknown=1$' <<<"$OUT" && [ "$(grep -c '^gh issue create' "$box87f/bin/gh.log")" = 1 ] \
+   && ! grep -q '^created:' <<<"$OUT"; then
+  ok "87f read-back body without the signature → unknown, NOT counted created, exit 3, no retry" "(exit $RC)"
+else
+  no "87f read-back lacks signature" "exit=$RC out=[$OUT]"
+fi
+for vm in fail empty; do
+  box87g="$(mkbox "case-outcome-view-$vm")"; mk_gh_stub "$box87g" nomatch "" exists "$vm"
+  r87g="$(mk_retro "$box87g" target-foo r87g.md '<!-- review-status: pending -->' "$ONE_ROW")"
+  run "$box87g" "$r87g" --apply
+  if [ "$RC" = 3 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'created=0 ' <<<"$OUT" && [ "$(grep -c '^gh issue create' "$box87g/bin/gh.log")" = 1 ] \
+     && { [ "$vm" != fail ] || grep -q 'the read-back failed (gh issue view exit 1)' <<<"$OUT"; }; then
+    ok "87g read-back $vm → unknown, exit 3, created=0, one create only" "(exit $RC)"
+  else
+    no "87g read-back $vm" "exit=$RC out=[$OUT]"
+  fi
+done
+box87h="$(mkbox case-outcome-nourl)"; mk_gh_stub "$box87h" createnourl
+r87h="$(mk_retro "$box87h" target-foo r87h.md '<!-- review-status: pending -->' "$ONE_ROW")"
+run "$box87h" "$r87h" --apply
+if [ "$RC" = 3 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q '^unknown-outcome: .*no issue URL' <<<"$OUT" \
+   && grep -q 'created=0 ' <<<"$OUT" && ! grep -q 'issue view' "$box87h/bin/gh.log"; then
+  ok "87h create exits 0 but prints no issue URL → unknown (creation never inferred from output text)" "(exit $RC)"
+else
+  no "87h no URL" "exit=$RC out=[$OUT]"
+fi
+box87i="$(mkbox case-outcome-mixed)"; mk_gh_stub "$box87i" createfailsecond
+r87i="$(mk_retro "$box87i" target-foo r87i.md '<!-- review-status: pending -->' \
+"| 1 | first delta row here | CLAUDE.md | B1 | fix | HIGH |
+| 2 | second delta row here | CLAUDE.md | B2 | fix | HIGH |")"
+run "$box87i" "$r87i" --apply
+if [ "$RC" = 2 ] && grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" && grep -q '^mutation_outcome: no_write (row 2)$' <<<"$OUT" \
+   && grep -q 'created=1 .* failed=1$' <<<"$OUT" && grep -q '^mutation-summary: confirmed=1 no_write=1 unknown=0$' <<<"$OUT"; then
+  ok "87i mixed run: row 1 confirmed, row 2 no_write; one outcome line per row" "(exit $RC)"
+else
+  no "87i mixed run" "exit=$RC out=[$OUT]"
+fi
+run "$box87a" "$r87a"
+if [ "$RC" = 0 ] && ! grep -q 'mutation_outcome\|mutation-summary\|mutation-unknown' <<<"$OUT"; then
+  ok "87j dry-run prints no mutation_outcome / mutation-summary (nothing is written in a dry-run)" "(exit $RC)"
+else
+  no "87j dry-run" "exit=$RC out=[$OUT]"
+fi
+box87k="$(mkbox case-outcome-scrub-refused)"; mk_gh_stub "$box87k" nomatch
+r87k="$box87k/rh/target-foo/retros/ping-x@y.io.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'; printf '%s\n' "$ONE_ROW"; } > "$r87k"
+run "$box87k" "$r87k" --apply
+if [ "$RC" = 2 ] && grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT"; then
+  ok "87k a row refused before the write (scrub guard) → no_write" "(exit $RC)"
+else
+  no "87k refused row no_write" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -4196,7 +4337,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          -e "s/^  grep -q '\^\[\[:space:\]\]\*\\\\\[' <<<\"\\\$_r\" || return 2\$/  :/" \
          -e 's/^  _r="\$(printf .%s. "\$_r" | _exact_sig_matches "\$1")" || return 2$/  _r="$(printf "%s" "$_r" | _exact_sig_matches "$1")" || :/'; then
       run "$mbox" "$(mk_retro "$mbox" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
-      if [ "$RC" = 0 ] && grep -q 'unknown-outcome=1' <<<"$OUT"; then ok "T${_t%%:*} teeth: always-found re-check swallows a real failure (84${_t:5:1} has teeth)" "()"
+      if [ "$RC" = 3 ] && grep -q 'unknown-outcome=1' <<<"$OUT"; then ok "T${_t%%:*} teeth: always-found re-check swallows a real failure (84${_t:5:1} has teeth)" "()"
       else no "T${_t%%:*} teeth: always-found re-check must flip 84${_t:5:1}" "THEATER: exit=$RC out=[$OUT]"; fi
     else no "T${_t%%:*}: build mutant" "mutant_sed refused (vacuous/identical/broken)"; fi
   done
@@ -4278,9 +4419,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1707 apply-after-scrub apply 's/^  _body="\$(printf .%s\\n. "\$_body_raw" | scrub_issue_text)" \\$/  _body="$_body_raw" \\/'
   t1707 count-line-off count 's/^    printf .  redactions: %d\\n. "\$_redactions"$/    :/'
   t1707 sig-guard-off sig    's/^  if ! grep -qxF -- "\$_source_line" <<<"\$_body"; then$/  if false; then/'
-  t1707 rc-check-off rcfail 's/^    || { _scrub_refuse "privacy scrub failed for row \$_rid — nothing staged or written"; continue; }$/    || :/'
-  t1707 numeric-guard-off nonnum 's/^    .*\[!0-9\]\*) _scrub_refuse "privacy scrub returned/    NEVERMATCH_X) _scrub_refuse "privacy scrub returned/'
+  t1707 rc-check-off rcfail 's/^    || { _scrub_refuse "\$_rid" "privacy scrub failed for row \$_rid — nothing staged or written"; continue; }$/    || :/'
+  t1707 numeric-guard-off nonnum 's/^    .*\[!0-9\]\*) _scrub_refuse "\$_rid" "privacy scrub returned/    NEVERMATCH_X) _scrub_refuse "$_rid" "privacy scrub returned/'
   t1707 fail-closed-off nolib 's/^if \[ ! -f "\$_SC_LIB" \]; then$/if false; then/'
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth T1705: outcome triad + read-back --"
+  # t1705 <tag> <stub-mode> <view-mode> <bite-rx|rc=N> <sed-expr>: build the mutant in the sandbox (mutant_chain
+  # refuses a dead stage), run ONE row under --apply and require the mutant to show the regression the 87
+  # case guards: either its output matches <bite-rx> (grep -E) or its exit code is N.
+  t1705() {
+    local tag="$1" smode="$2" vmode="$3" bite="$4" expr="$5" mb ok=0
+    mb="$(mkbox "teeth-1705-$tag")"; mk_gh_stub "$mb" "$smode" "" exists "$vmode"
+    mutant_chain "T1705-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
+      || { fail=$((fail+1)); return 1; }
+    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
+    case "$bite" in
+      rc=*) [ "$RC" = "${bite#rc=}" ] && ok=1 ;;
+      *)    grep -qE "$bite" <<<"$OUT" && ok=1 ;;
+    esac
+    if [ "$ok" = 1 ]; then ok "T1705-$tag teeth: mutant shows [$bite]" "()"
+    else no "T1705-$tag teeth: mutant must show [$bite]" "case is THEATER: exit=$RC out=[${OUT:0:400}]"; fi
+  }
+  t1705 sig-check-off nomatch nosig '^mutation_outcome: confirmed \(row 1\)$' 's/^      if ! grep -qxF -- "\$_source_line" <<<"\$_rb"; then$/      if false; then/'
+  t1705 rc-check-off nomatch fail 'lacks the signature line' 's/^      if \[ "\$_rb_rc" -ne 0 \]; then$/      if false; then/'
+  t1705 url-required-off createnourl ok 'read-back failed' 's/^    if \[\[ "\$_url_last" =~ .*; then$/    if true; then/'
+  t1705 exit3-off createfailcreated ok 'rc=0' 's/^\[ "\$mutation_unknown" -gt 0 \] \&\& exit 3$/:/'
+  t1705 recheck-state-off createfailrelistfail ok '^mutation_outcome: no_write \(row 1\)$' 's/^        if \[ "\$_recheck_state" = "none" \]; then _row_nowrite "\$_rid"; else _row_unknown "\$_rid"; fi$/        _row_nowrite "$_rid"/'
+  t1705 confirmed-count-off nomatch ok 'mutation-summary: confirmed=0 ' 's/mutation_confirmed=\$((mutation_confirmed+1)); //'
+  t1705 dup-nowrite-off match ok 'mutation-summary: confirmed=0 no_write=0 ' 's/skipped_dedup=\$((skipped_dedup+1)); _row_nowrite "\$_rid"; continue/skipped_dedup=$((skipped_dedup+1)); continue/'
+  t1705 created-on-unknown nomatch nosig '^created: ' 's/^      if ! grep -qxF -- "\$_source_line" <<<"\$_rb"; then$/      if false; then/'
 fi
 
 echo "== $pass passed · $fail failed =="

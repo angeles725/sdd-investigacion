@@ -72,6 +72,12 @@
 #       'failed=N' at the END of the summary so existing parsers remain unaffected.
 #       A failed create whose issue a re-run dedup search then finds is NOT counted failed: it is
 #       reported `unknown-outcome: …` and tallied in the `unknown-outcome=N` field just before failed=.
+#   3   --apply completed with no failed row, but one or more rows have an UNKNOWN mutation outcome (kit issue
+#       #1705): the write may have happened and is unproven. Never retried. Each --apply row prints
+#       `mutation_outcome: confirmed|no_write|unknown (row R)`; `confirmed` needs a printed issue URL AND a
+#       read-back (`gh issue view`) whose body carries the signature line. A separate
+#       `mutation-summary: confirmed=N no_write=N unknown=N` line follows `summary:` (which is unchanged),
+#       and an unknown run prints a typed `mutation-unknown:` line to stderr.
 
 set -uo pipefail
 
@@ -901,7 +907,17 @@ skipped_dedup=0; created=0; failed=0; unknown_outcome=0; unclassifiable=0
 
 # _scrub_refuse <message>: a row the privacy scrub could not clear is refused — typed ERROR, counted failed
 # (exit 2), never written. The caller `continue`s.
-_scrub_refuse() { echo "ERROR: $1" >&2; failed=$((failed+1)); }
+_scrub_refuse() {
+  echo "ERROR: $2" >&2; failed=$((failed+1))
+  [ "$apply" -eq 0 ] || _row_nowrite "$1"
+}
+
+# Per-row mutation outcome (kit issue #1705), printed in --apply only. The triad: `confirmed` (create printed
+# an issue URL AND the read-back body carries the signature line), `no_write` (nothing was written),
+# `unknown` (a write may have happened and is unproven — NEVER retried; counted in mutation-summary unknown=).
+mutation_unknown=0; mutation_confirmed=0; mutation_nowrite=0
+_row_nowrite() { mutation_nowrite=$((mutation_nowrite+1)); echo "mutation_outcome: no_write (row $1)"; }
+_row_unknown() { mutation_unknown=$((mutation_unknown+1)); echo "mutation_outcome: unknown (row $1)"; }
 
 # STAGE_RETRO_ISSUES_MIN_TITLE (kit issue #1260 / #1492): a title shorter than this many characters is
 # a mis-read cell, never a delta summary. Measured 2026-10-03: the fleet minimum planned title is 19
@@ -958,13 +974,21 @@ title_is_unusable() {
 
 # _recheck_exists <signature>: return 0 when an exact-signature issue (any state) exists NOW, 1 when
 # the lookup succeeded and found none, 2 when the lookup itself failed or could not be parsed.
+# Also sets _recheck_state (found | none | unprovable) so the caller can tell "provably nothing written"
+# (no_write) from "could not look" (unknown) — kit issue #1705.
+_recheck_state=""
 _recheck_exists() {
   local _r
+  _recheck_state="unprovable"
   _r="$(gh issue list --state all --repo "$KIT_ISSUE_REPO" \
     --limit "$_LIST_LIMIT" --search "\"$1\"" --json state,body 2>/dev/null)" || return 2
   grep -q '^[[:space:]]*\[' <<<"$_r" || return 2
   _r="$(printf '%s' "$_r" | _exact_sig_matches "$1")" || return 2
   grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_r"
+  case $? in
+    0) _recheck_state="found"; return 0 ;;
+    *) _recheck_state="none"; return 1 ;;
+  esac
 }
 
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
@@ -995,7 +1019,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   _title_raw="$(strip_md_bold "$_delta")"
   _title="$(printf '%s\n' "$_title_raw" | scrub_issue_text)" \
     && _title_n="$(printf '%s\n' "$_title_raw" | scrub_issue_text_count)" \
-    || { _scrub_refuse "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
+    || { _scrub_refuse "$_rid" "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
   if [ "${#_title}" -gt 120 ]; then _title="${_title:0:117}..."; fi
   # STAGE_RETRO_ISSUES_TITLE_GUARD (kit issue #1260): a bare priority/type token
   # is a mis-read column (issue #1248 was titled `LOW`), never a real delta summary.
@@ -1019,15 +1043,15 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   _body_raw="$_body"
   _body="$(printf '%s\n' "$_body_raw" | scrub_issue_text)" \
     && _body_n="$(printf '%s\n' "$_body_raw" | scrub_issue_text_count)" \
-    || { _scrub_refuse "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
+    || { _scrub_refuse "$_rid" "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
   _title_n="${_title_n#redactions: }"; _body_n="${_body_n#redactions: }"
   case "$_title_n$_body_n" in
-    ''|*[!0-9]*) _scrub_refuse "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
+    ''|*[!0-9]*) _scrub_refuse "$_rid" "privacy scrub returned a non-numeric redaction count for row $_rid — nothing staged or written"
                  continue ;;
   esac
   _redactions=$((_title_n + _body_n))
   if ! grep -qxF -- "$_source_line" <<<"$_body"; then
-    _scrub_refuse "scrub altered the signature line for row $_rid — refusing to write (dedup and read-back key on it)"
+    _scrub_refuse "$_rid" "scrub altered the signature line for row $_rid — refusing to write (dedup and read-back key on it)"
     continue
   fi
 
@@ -1059,7 +1083,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # for this row instead, exactly like a failed `gh issue create` below.
     if [ "$_dedup_rc" -ne 0 ]; then
       echo "ERROR: gh issue list (dedup) failed for row $_rid: $_existing" >&2
-      failed=$((failed+1)); continue
+      failed=$((failed+1)); _row_nowrite "$_rid"; continue
     fi
     # STAGE_RETRO_ISSUES_DEDUP_EMPTY_REPLY_GUARD (kit issue #1093 item 1): `gh issue list` can
     # exit 0 with EMPTY stdout instead of the '[]' a genuinely empty JSON array reply would carry
@@ -1070,14 +1094,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # or not) before trusting a "no match" reading; anything else is a failure, not a no-match.
     if ! grep -q '^[[:space:]]*\[' <<<"$_existing"; then
       echo "ERROR: gh issue list (dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_existing" >&2
-      failed=$((failed+1)); continue
+      failed=$((failed+1)); _row_nowrite "$_rid"; continue
     fi
     # STAGE_RETRO_ISSUES_DEDUP_EXACT (kit issue #1304 item 1): keep only the hits whose body
     # carries THIS exact signature line — the search itself is a fuzzy word match.
     _raw_existing="$_existing"
     _existing="$(printf '%s' "$_raw_existing" | _exact_sig_matches "$_search_sig")" || {
       echo "ERROR: gh issue list (dedup) reply could not be parsed for row $_rid: $_raw_existing" >&2
-      failed=$((failed+1)); continue
+      failed=$((failed+1)); _row_nowrite "$_rid"; continue
     }
     # A full page is only a problem when NO exact match was found in it (a match is a match however
     # many other issues the page holds), so the verdict is deferred to just before the create below.
@@ -1085,12 +1109,12 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     if _list_filled "$_existing"; then _page_filled="primary"; fi
     if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_existing"; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
-      skipped_dedup=$((skipped_dedup+1)); continue
+      skipped_dedup=$((skipped_dedup+1)); _row_nowrite "$_rid"; continue
     fi
     # STAGE_RETRO_ISSUES_DEDUP_CHECK: anchor for T3 teeth proof — skip create when match found.
     if grep -q '"state":[[:space:]]*"CLOSED"' <<<"$_existing"; then
       echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
-      skipped_dedup=$((skipped_dedup+1)); continue
+      skipped_dedup=$((skipped_dedup+1)); _row_nowrite "$_rid"; continue
     fi
     # STAGE_RETRO_ISSUES_DEDUP_LEGACY_SIG (kit issue #1287 item 2): issues created before #1286
     # carry the legacy `<path basename>/retros/<file>` signature (e.g. `cloudflare/retros/...`,
@@ -1105,11 +1129,11 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       _legacy_rc=$?
       if [ "$_legacy_rc" -ne 0 ]; then
         echo "ERROR: gh issue list (legacy-signature dedup) failed for row $_rid: $_legacy_existing" >&2
-        failed=$((failed+1)); continue
+        failed=$((failed+1)); _row_nowrite "$_rid"; continue
       fi
       if ! grep -q '^[[:space:]]*\[' <<<"$_legacy_existing"; then
         echo "ERROR: gh issue list (legacy-signature dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_legacy_existing" >&2
-        failed=$((failed+1)); continue
+        failed=$((failed+1)); _row_nowrite "$_rid"; continue
       fi
       # Same exact-signature filter as the primary lookup (kit issue #1304 item 1): the legacy
       # signature is the one whose fuzzy search can hit ANOTHER target's issue (three.js's legacy
@@ -1117,16 +1141,16 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       _legacy_raw="$_legacy_existing"
       _legacy_existing="$(printf '%s' "$_legacy_raw" | _exact_sig_matches "$_legacy_sig")" || {
         echo "ERROR: gh issue list (legacy-signature dedup) reply could not be parsed for row $_rid: $_legacy_raw" >&2
-        failed=$((failed+1)); continue
+        failed=$((failed+1)); _row_nowrite "$_rid"; continue
       }
       if _list_filled "$_legacy_existing"; then _page_filled="legacy-signature"; fi
       if grep -q '"state":[[:space:]]*"OPEN"' <<<"$_legacy_existing"; then
         echo "skipped-duplicate: issue for row $_rid already exists (open; legacy signature matched '$_legacy_sig')"
-        skipped_dedup=$((skipped_dedup+1)); continue
+        skipped_dedup=$((skipped_dedup+1)); _row_nowrite "$_rid"; continue
       fi
       if grep -q '"state":[[:space:]]*"CLOSED"' <<<"$_legacy_existing"; then
         echo "skipped-duplicate: issue for row $_rid already exists (closed; legacy signature matched '$_legacy_sig')"
-        skipped_dedup=$((skipped_dedup+1)); continue
+        skipped_dedup=$((skipped_dedup+1)); _row_nowrite "$_rid"; continue
       fi
     fi
 
@@ -1136,7 +1160,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "ERROR: gh issue list (dedup) returned $_LIST_LIMIT results = the --limit $_LIST_LIMIT cap" \
            "for row $_rid ($_page_filled lookup) — the result may be truncated, refusing to create" \
            "(raise STAGE_RETRO_ISSUES_LIST_LIMIT or narrow the repo)" >&2
-      failed=$((failed+1)); continue
+      failed=$((failed+1)); _row_nowrite "$_rid"; continue
     fi
 
     ensure_target_label   # STAGE_RETRO_ISSUES_LABEL_PROBE_CALL: once, before the first create
@@ -1157,13 +1181,36 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         # `failed`; a lookup that itself fails leaves the outcome unprovable, so it also stays `failed`.
         if _recheck_exists "$_search_sig"; then
           echo "unknown-outcome: gh issue create failed for row $_rid but a re-run dedup search found the issue (search matched '$_search_sig'): $_url" >&2
-          unknown_outcome=$((unknown_outcome+1)); continue
+          unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
         fi
         echo "ERROR: gh issue create failed for row $_rid: $_url" >&2
+        # none = the re-check PROVED nothing was written; anything else could not look, so it is unknown.
+        if [ "$_recheck_state" = "none" ]; then _row_nowrite "$_rid"; else _row_unknown "$_rid"; fi
         failed=$((failed+1)); continue
       }
-    echo "created: $_url (row $_rid)"
-    created=$((created+1))
+    # STAGE_RETRO_ISSUES_READBACK (kit issue #1705): `confirmed` needs an issue URL in the create output
+    # (creation is never inferred from output text) AND a read-back whose body carries the signature line.
+    # Anything short of that is `unknown`: reported, counted, never retried (a retry could double-write).
+    _url_last="$(printf '%s\n' "$_url" | tail -n 1)"
+    if [[ "$_url_last" =~ ^https?://[^[:space:]]+/issues/([0-9]+)$ ]]; then
+      _issue_num="${BASH_REMATCH[1]}"
+      _rb="$(gh issue view "$_issue_num" --repo "$KIT_ISSUE_REPO" --json body --jq .body 2>&1)"; _rb_rc=$?
+      _rb="${_rb//$'\r'/}"
+      if [ "$_rb_rc" -ne 0 ]; then
+        echo "unknown-outcome: gh issue create returned $_url_last for row $_rid but the read-back failed (gh issue view exit $_rb_rc): $_rb" >&2
+        unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+      fi
+      if ! grep -qxF -- "$_source_line" <<<"$_rb"; then
+        echo "unknown-outcome: gh issue create returned $_url_last for row $_rid but the read-back body lacks the signature line '$_source_line'" >&2
+        unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+      fi
+      echo "created: $_url (row $_rid)"
+      created=$((created+1))
+      mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
+    else
+      echo "unknown-outcome: gh issue create exited 0 for row $_rid but printed no issue URL (output: $_url) — creation is not inferred from output text" >&2
+      unknown_outcome=$((unknown_outcome+1)); _row_unknown "$_rid"; continue
+    fi
   fi
 done <<< "$_rows"
 
@@ -1177,9 +1224,17 @@ if [ $apply -eq 1 ]; then
   # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
   printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unclassifiable=%d unknown-outcome=%d failed=%d\n' \
     "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$unknown_outcome" "$failed"
+  # Kit issue #1705: the outcome triad is its OWN line, so the summary: line above stays byte-compatible.
+  printf 'mutation-summary: confirmed=%d no_write=%d unknown=%d\n' "$mutation_confirmed" "$mutation_nowrite" "$mutation_unknown"
+  if [ "$mutation_unknown" -gt 0 ]; then
+    echo "mutation-unknown: $mutation_unknown row(s) with an unconfirmed mutation outcome — NOT retried; verify on GitHub before re-running" >&2
+  fi
 fi
 
 # Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).
 # Exit 0 on dry-run or a clean --apply run.
 [ "$failed" -gt 0 ] && exit 2
+# Exit 3 when no create failed but a row's mutation outcome is unknown (kit issue #1705): an unconfirmed write
+# is never a green run, and never retried.
+[ "$mutation_unknown" -gt 0 ] && exit 3
 exit 0
