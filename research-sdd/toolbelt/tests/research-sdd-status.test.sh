@@ -7379,6 +7379,42 @@ bash "$SUT" "$TMP/et-next" --emit-token >/dev/null 2>"$TMP/et-usage.err"; et_rc=
   && ok "T1706-USAGE: --emit-token without --next exits 2 with a usage line" \
   || no "T1706-USAGE: rc=$et_rc err=[$(cat "$TMP/et-usage.err")]"
 
+# kit #1726 item 1: the verdict line is picked by PREFIX, not by position. A test double (a copy of the toolbelt whose
+# inner --next output is edited through ET_REPLACE / ET_APPEND) feeds the wrapper a trailing note, a second verdict
+# and a verdict-less output — shapes the real --next never prints today, which is exactly why nothing pinned them.
+ET_INJECT='/# ET-RC-GATE$/i\
+  _et_out="${ET_REPLACE-$_et_out}${ET_APPEND:-}"'
+etx_dir="$TMP/etx-double"; mkdir -p "$etx_dir"
+cp "$HERE"/../*.sh "$etx_dir/" && cp -r "$HERE/../lib" "$etx_dir/lib" \
+  && sed -e "$ET_INJECT" "$SUT" > "$etx_dir/research-sdd-status.sh"
+cmp -s "$SUT" "$etx_dir/research-sdd-status.sh" && no "T1726-DOUBLE: the injection did not apply (dead sed expression)"
+etx_run() { # <dir> -> et_out/et_rc via the test double; ET_APPEND / ET_REPLACE from the caller's environment
+  et_out="$(bash "$etx_dir/research-sdd-status.sh" "$1" --next --emit-token 2>/dev/null)"; et_rc=$?
+}
+d="$TMP/et-next"
+ET_APPEND=$'\nnote: trailing remark' etx_run "$d"
+[ "$et_rc" = 0 ] && grep -qxF 'return-token: next: reconstruct the shader pipeline' <<<"$et_out" \
+  && ok "T1726-TRAILING-NOTE: a trailing note line after the verdict does not become the verdict" \
+  || no "T1726-TRAILING-NOTE: rc=$et_rc out=[$et_out]"
+ET_APPEND=$'\nNEXT | low | a second gap' etx_run "$d"
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1726-SEVERAL: two verdict lines are unavailable (exit 1), never the last one" || no "T1726-SEVERAL: rc=$et_rc (want 1)";;
+  *) no "T1726-SEVERAL: last=[$(et_last)] (picking one of several verdicts is the defect)";;
+esac
+ET_REPLACE='just a note, no verdict' etx_run "$d"
+case "$(et_last)" in
+  "return-token: unavailable ("*) [ "$et_rc" = 1 ] && ok "T1726-ZERO: no verdict line is unavailable (exit 1)" || no "T1726-ZERO: rc=$et_rc (want 1)";;
+  *) no "T1726-ZERO: last=[$(et_last)]";;
+esac
+# kit #1726 item 2 (decision: conservative, documented): the STOP guard counts every state file, so --focus on a
+# multi-focus corpus is unavailable even though the focus-scoped verdict is a STOP; the reason names the scope.
+d="$TMP/et-stop-multi"
+et_run "$d" --focus b --emit-token
+case "$(et_last)" in
+  "return-token: unavailable ("*"--focus/--root scope the verdict, not the campaign"*) [ "$et_rc" = 1 ] && ok "T1726-FOCUS-CONSERVATIVE: --focus on a multi-focus corpus stays unavailable and the reason names the scope" || no "T1726-FOCUS-CONSERVATIVE: rc=$et_rc (want 1)";;
+  *) no "T1726-FOCUS-CONSERVATIVE: last=[$(et_last)]";;
+esac
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1706: each --emit-token mapping and guard is load-bearing --"
   _t1706_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
@@ -7392,6 +7428,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-QUEUE-GUARD "$TMP/et-stop-queue" '/# ET-STOP-QUEUE-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
   T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-MULTI-GUARD "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
   T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-OTHER-VERDICT-GUARD "$TMP/et-retro" '/# ET-OTHER-UNAVAILABLE$/s/_et_unavail/: #/' --good-has 'return-token: unavailable \(' --bad-lacks "return-token: unavailable|$_t1706_crash"
+  # kit #1726: the good side is the SUT plus the ET_INJECT test double (a trailing note / second verdict), the bad side the
+  # same double with one mutation; both are built with mutant_chain from the real SUT (each stage must change it alone).
+  t1726_t() { # <label> <fixture> <sed-expr> <good-rc> <bad-rc> <extra --next args or ""> <mutant_tooth match args...>
+    local lbl="$1" fx="$2" expr="$3" grc="$4" brc="$5" xa="$6"; shift 6
+    mutant_chain "$lbl-good" "$SUT" "$TMP/status.$lbl.GOOD.sh" "$ET_INJECT" || { fail=$((fail+1)); return; }
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$ET_INJECT" "$expr" || { fail=$((fail+1)); return; }
+    # shellcheck disable=SC2086 # $xa is a deliberate word-split list of extra flags (empty or "--focus b")
+    if mutant_tooth "$lbl" "$grc" "$brc" "$TMP/status.$lbl.MUTANT.sh" --orig "$TMP/status.$lbl.GOOD.sh" "$@" -- bash @SUT@ "$fx" --next $xa --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  ET_APPEND=$'\nnote: trailing remark' t1726_t T1726-VERDICT-PICK "$TMP/et-next" '/# ET-VERDICT-PICK$/s/^ *"NEXT | "\*|[^)]*)/      *)/' 0 1 "" --good-has 'return-token: next: reconstruct' --bad-has 'return-token: unavailable \(' --bad-lacks "$_t1706_crash"
+  ET_APPEND=$'\nNEXT | low | a second gap' t1726_t T1726-VERDICT-ONE "$TMP/et-next" '/# ET-VERDICT-ONE$/d' 1 0 "" --good-has 'return-token: unavailable \(' --bad-has 'return-token: next: a second gap' --bad-lacks "$_t1706_crash"
+  t1726_t T1726-FOCUS-GUARD "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/d' 1 0 "--focus b" --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
+  t1726_t T1726-FOCUS-REASON "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/s/ (--focus\/--root scope the verdict, not the campaign)//' 1 1 "--focus b" --good-has 'scope the verdict, not the campaign' --bad-lacks "scope the verdict|$_t1706_crash"
 fi
 
 # ==================== kit issue #1023: test follow-ups ====================
