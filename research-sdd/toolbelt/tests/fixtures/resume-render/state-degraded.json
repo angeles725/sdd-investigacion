@@ -1,0 +1,20 @@
+{
+  "schema": "research-sdd.resume-state/v1",
+  "generated_at": "2026-10-03T12:00:00Z",
+  "repo": {"toplevel": "/r/kit", "remote": "git@example.com:o/kit.git"},
+  "base_ref": "origin/main",
+  "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "worktrees": [
+    {"path": "/r/kit", "branch": "main", "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "exists": true, "prunable": false, "dirty": 0, "untracked": 0, "ahead": 0, "behind": 0},
+    {"path": "/r/wt-feat", "branch": "feat/x", "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "exists": true, "prunable": false, "dirty": 3, "untracked": 2, "ahead": 4, "behind": 1},
+    {"path": "/r/wt-gone", "branch": "feat/gone", "head": "cccccccccccccccccccccccccccccccccccccccc", "exists": false, "prunable": true, "dirty": null, "untracked": null, "ahead": 1, "behind": 0},
+    {"path": "/r/wt-det", "branch": null, "head": "dddddddddddddddddddddddddddddddddddddddd", "exists": true, "prunable": false, "dirty": null, "untracked": null, "ahead": null, "behind": null}
+  ],
+  "branches": [
+    {"name": "loose/one", "head": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "ahead": 2, "behind": 5},
+    {"name": "loose/two", "head": "ffffffffffffffffffffffffffffffffffffffff", "ahead": null, "behind": null}
+  ],
+  "prs": null,
+  "prs_truncated": null,
+  "prs_status": "degraded:gh-timeout"
+}
