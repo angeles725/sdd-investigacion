@@ -595,7 +595,7 @@ Always read first, in this order:
          and the block to cite that path PLUS the exact reproduction commands in order (METHODOLOGY §5 "Preserved-probe convention").
          Never tell a writer to keep evidence in scratch only. When a writer runs a script, the prompt requires a SCRIPTS-MANIFEST row
          (script, run/step, block, sha256 of the preserved copy, sha256 of the remote copy if run remotely), preserved failed attempts, and
-         RECIPE labelling for any script written after the fact (METHODOLOGY §5). (verify-block enforcement: kit issue #1207 part 2.)
+         RECIPE labelling for any script written after the fact (METHODOLOGY §5). (verify-block enforcement is staged: `EPHEMERAL?` WARN by default, FAIL with `--strict-ephemeral`; FAIL-by-default planned in kit issue #1660.)
          SECRETS-SENSITIVE INLINE OVERRIDE. The file-count delegation trigger and the config-artifact
          delegation variant below are OVERRIDDEN when artifacts are SECRET-BEARING (key files, shadow
          hashes, keystores, credential configs). Stay INLINE regardless of file count: a delegated sub-
