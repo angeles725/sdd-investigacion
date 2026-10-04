@@ -1080,6 +1080,52 @@ ed_degraded silent "#1500 BAD: blind detector (no trailer) is degraded"
 ed_degraded rcfail "#1500 BAD: detector exit != 0 is degraded"
 
 # ---------------------------------------------------------------------------
+# #1608 — a File cell that is NOT the verbatim in-block token (prose prefix, a literal "(not committed)",
+# internal blanks) can never match the block text, so the LEVEL 4 cross-check misjudges it. WARN-only: the
+# finding itself never changes the exit code (the exit code below is whatever LEVEL 4 decides for the row).
+# Only rows that NAME a block are cross-check candidates; a prose cell with an empty cite cell is not flagged.
+nv_corpus() { # <name> <row...> — a corpus whose B1 exists and cites x.jar; B9 deliberately does not resolve
+  local d="$TMP/$1"; shift; mkdir -p "$d"
+  block "$d/nv-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/x.jar cited here.'
+  sources_registry "$d" "$@"
+}
+nv_row() { printf '| %s | jar | http://x | 2026-01-01 | abcd1234 | %s |' "$1" "$2"; }
+nv_check() { # <name> <want-warn 0|1> <want-rc> <label>
+  local out got n=0
+  out="$(bash "$SUT" "$TMP/$1" 2>&1)"; got=$?
+  grep -qF 'is not a verbatim in-block token' <<<"$out" && n=1
+  if [ "$got" = "$3" ] && [ "$n" = "$2" ]; then
+    printf '  PASS  %-42s (exit %s, warn=%s)\n' "$4" "$got" "$n"; pass=$((pass+1))
+  else
+    printf '  FAIL  %-42s want exit %s warn=%s, got exit %s warn=%s\n' "$4" "$3" "$2" "$got" "$n"; fail=$((fail+1))
+  fi
+}
+nv_corpus nv-whole "$(nv_row '(not committed)' B9)"
+nv_check nv-whole 1 0 "#1608 BAD: File cell is literally (not committed)"
+nv_corpus nv-nc-prefix "$(nv_row '(not committed) x.jar' B9)"
+nv_check nv-nc-prefix 1 0 "#1608 BAD: (not committed) prefix on a name"
+nv_corpus nv-prose "$(nv_row 'see x.jar' B9)"
+nv_check nv-prose 1 0 "#1608 BAD: prose-prefixed File cell"
+nv_corpus nv-paren "$(nv_row '(gone)x.jar' B9)"
+nv_check nv-paren 1 0 "#1608 BAD: parenthesised prefix, no blank"
+nv_corpus nv-ok "$(nv_row 'x.jar' B9)"
+nv_check nv-ok 0 0 "#1608 GOOD: verbatim File cell"
+nv_corpus nv-ok-bt "$(nv_row '`x.jar`' B9)"
+nv_check nv-ok-bt 0 0 "#1608 GOOD: backticked verbatim File cell"
+nv_corpus nv-ok-pad "$(nv_row '   x.jar   ' B9)"
+nv_check nv-ok-pad 0 0 "#1608 GOOD: blank-padded verbatim File cell"
+nv_corpus nv-nocite "$(nv_row '(not committed) x.jar' '—')"
+nv_check nv-nocite 0 0 "#1608 GOOD: prose cell, no block named (not checked)"
+nv_corpus nv-first "$(nv_row '(not committed) a.jar' B9)" "$(nv_row 'b.jar' B9)" "$(nv_row 'c.jar' B9)"
+nv_check nv-first 1 0 "#1608 BAD: non-verbatim cell in FIRST row"
+nv_corpus nv-last "$(nv_row 'a.jar' B9)" "$(nv_row 'b.jar' B9)" "$(nv_row '(not committed)' B9)"
+nv_check nv-last 1 0 "#1608 BAD: non-verbatim cell in LAST row"
+nv_corpus nv-fab "$(nv_row '(not committed) x.jar' B1)"
+nv_check nv-fab 1 1 "#1608 BAD: prose cell also fails LEVEL 4 (WARN + exit 1)"
+nv_corpus nv-fab-ok "$(nv_row 'x.jar' B1)"
+nv_check nv-fab-ok 0 0 "#1608 GOOD: verbatim cell, real citation"
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — every tooth builds its mutant with lib/mutant.sh (a COPY in $TMP/mutants, never
 # the live tree) and asserts the EXACT verdict of the real SUT AND of the mutant on the same fixture.
 # mutant_sed refuses an empty / byte-identical / syntax-broken / live-tree mutant (rc 3/4/5/8), so a
@@ -1195,6 +1241,20 @@ SED
   m="$TMP/mutants/ED-NOTRAILER.sh"
   mk_sed ED-NOTRAILER "$m" 's/ || \[ -n "\$_ed_trailer" \]; then/; then/' \
     && tooth "teeth ED-NOTRAILER: missing coverage trailer ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-silent:$PATH" bash @SUT@ "$TMP/ed-clean"
+  # #1608 — non-verbatim File cell WARN. Every tooth keeps both rc at 0 and discriminates on the typed line.
+  NV_ERR='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  m="$TMP/mutants/NV-OFF.sh"
+  mk_sed NV-OFF "$m" "/# NONVERBATIM-FILE-CELL\$/s/case \"\\\$_nv_cell\" in/case \"x\" in/" \
+    && tooth "teeth NV-OFF: non-verbatim cell check disabled" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"
+  m="$TMP/mutants/NV-NOPAREN.sh"
+  mk_sed NV-NOPAREN "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]\\*)\$/      *[[:blank:]]*)/" \
+    && tooth "teeth NV-NOPAREN: parenthesised-prefix arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-paren"
+  m="$TMP/mutants/NV-NOBLANK.sh"
+  mk_sed NV-NOBLANK "$m" "s/^      '('\\*|\\*\\[\\[:blank:\\]\\]\\*)\$/      '('*)/" \
+    && tooth "teeth NV-NOBLANK: internal-blank arm dropped" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"
+  m="$TMP/mutants/NV-NOCITEGATE.sh"
+  mk_sed NV-NOCITEGATE "$m" "s/^        if grep -qiE '.bB(lock|loque)? ?\\[0-9\\]+' <<< \"\\\$(printf '%s' \"\\\$bcell\" | sed 's\\/(\\[^)\\]\\*)\\/\\/g')\"; then\$/        if true; then/" \
+    && tooth "teeth NV-NOCITEGATE: flags rows that name no block" 0 0 "$m" --good-lacks 'is not a verbatim in-block token' --bad-has 'is not a verbatim in-block token' -- bash @SUT@ "$TMP/nv-nocite"
 fi
 
 echo "== $pass passed · $fail failed =="
