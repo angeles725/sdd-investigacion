@@ -10,12 +10,6 @@ SUT="$HERE/../verify-registry-hook.sh"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
-# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
-# A refused mutant is counted as a failure; the stale OUT is removed first so it can never be run in its place.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 echo "== verify-registry-hook.test.sh =="
 
@@ -65,31 +59,45 @@ OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"; RC=$?
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: hook must go red when rc-check is neutered --"
+
+  # Each tooth resets the hook copy (write_stub restores the pristine SUT) and is skipped when its mutant
+  # build is refused (already counted once by mk_mut), so a previous tooth's mutant can never run in its place.
 
   # Tooth A: mutant hook never checks rc — always takes the success path.
   # Test 3 (operational-failure → banner) must catch this and go RED.
-  mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/if \[ "\$rc" -ne 0 \]/if false/'
-  chmod +x "$TMP/mutant-hook.sh"
-  write_stub 1 "verify-registry: cannot find TARGETS.md"
-  cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"
-  if ! <<<"$MUTANT_OUT" grep -qi 'could not run\|exit 1'; then
-    ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
-  else
-    no "teeth A: mutant still emits failure banner — sed pattern may not match fixed hook"
+  rm -f "$TMP/verify-registry-hook.sh"
+  if mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/if \[ "\$rc" -ne 0 \]/if false/'; then
+    chmod +x "$TMP/mutant-hook.sh"
+    write_stub 1 "verify-registry: cannot find TARGETS.md"
+    cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
+    MUTANT_OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"; MRC=$?
+    if [ "$MRC" = 0 ] && ! <<<"$MUTANT_OUT" grep -qi 'could not run\|exit 1'; then
+      ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
+    else
+      no "teeth A: mutant rc=$MRC out=[$MUTANT_OUT] — want rc 0 and no failure banner (a crash is no bite)"
+    fi
   fi
 
   # Tooth B: revert "registry check" to "registry drift" → test 4 goes RED.
-  mk_mut "teeth B: registry drift" "$SUT" "$TMP/mutant-hook.sh" 's/registry check/registry drift/g'
-  chmod +x "$TMP/mutant-hook.sh"
-  write_stub 0 "INFO: all 18 rows match block counts"
-  cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
-  MUTANT_OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"
-  if ! <<<"$MUTANT_OUT" grep -qi 'registry check'; then
-    ok "teeth B: reverted to 'registry drift' mutant → test 4 would catch it (RED)"
-  else
-    no "teeth B: mutant still matches 'registry check' — tooth has no bite"
+  rm -f "$TMP/verify-registry-hook.sh"
+  if mk_mut "teeth B: registry drift" "$SUT" "$TMP/mutant-hook.sh" 's/registry check/registry drift/g'; then
+    chmod +x "$TMP/mutant-hook.sh"
+    write_stub 0 "INFO: all 18 rows match block counts"
+    cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
+    MUTANT_OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"; MRC=$?
+    if [ "$MRC" = 0 ] && grep -qi 'registry drift' <<<"$MUTANT_OUT" && ! <<<"$MUTANT_OUT" grep -qi 'registry check'; then
+      ok "teeth B: reverted to 'registry drift' mutant → test 4 would catch it (RED)"
+    else
+      no "teeth B: mutant rc=$MRC out=[$MUTANT_OUT] — want rc 0, the 'registry drift' header and no 'registry check'"
+    fi
   fi
 fi
 

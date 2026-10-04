@@ -14,14 +14,6 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-70s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-70s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
-# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
-# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
-# A refused mutant is counted as a failure; the kit copy of the SUT it leaves behind then makes the
-# tooth's own bite assertion fail as well.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
-mk_built(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
 
 # mkkit <name> — a fresh toolbelt/ dir with a copy of the SUT, ready for fixture files.
 mkkit() {
@@ -252,6 +244,17 @@ fi
 
 # ======================== TEETH (mutation proof) — --prove-teeth ==========================
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _mf in mutant_chain mutant_built; do
+    declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
+  done
+  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk_built(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  # Every bite below also requires the Summary line, so a crashed mutant (no output) never reads as a bite.
   echo "-- teeth: verify-tool-catalog.sh must go RED under meaningful mutations --"
 
   # Tooth A: disable the WARN emission for missing tools (simulates a broken/silenced guard).
@@ -260,14 +263,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { installed_header; printf '| typst | `brew` | already | kit | 2026-01-01T00:00:00Z | v0.15.1 |\n'; } \
     > "$kit/INSTALLED-TOOLS.md"
   printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n' > "$kit/tool-registry.md"
-  mk_mut "teeth A: WARN-emission silenced" "$SUT" "$kit/verify-tool-catalog.sh" \
-    "s/echo \"WARN  installed-but-not-cataloged/: \"WARN  installed-but-not-cataloged/"
-  chmod +x "$kit/verify-tool-catalog.sh"
-  run "$kit"
-  if ! grep -q "WARN.*'typst'" <<<"$OUT"; then
-    ok "teeth A: WARN-emission mutant silences the finding → test 5 would catch it (RED)"
-  else
-    no "teeth A: WARN-emission mutant still emitted the WARN — mutation ineffective"
+  if mk_mut "teeth A: WARN-emission silenced" "$SUT" "$kit/verify-tool-catalog.sh" \
+    "s/echo \"WARN  installed-but-not-cataloged/: \"WARN  installed-but-not-cataloged/"; then
+    chmod +x "$kit/verify-tool-catalog.sh"
+    run "$kit"
+    if ! grep -q "WARN.*'typst'" <<<"$OUT" && grep -q 'distinct tool(s)' <<<"$OUT"; then
+      ok "teeth A: WARN-emission mutant silences the finding → test 5 would catch it (RED)"
+    else
+      no "teeth A: WARN-emission mutant still emitted the WARN — mutation ineffective"
+    fi
   fi
 
   # Tooth B: break dedup (drop the awk dedup filter) — inflates the distinct-tool count.
@@ -289,13 +293,14 @@ new = 'cat'
 assert old in src, 'mutation anchor not found in SUT'
 open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
 "
-  mk_built "teeth B: dedup removed" "$SUT" "$kit/verify-tool-catalog.sh"
-  chmod +x "$kit/verify-tool-catalog.sh"
-  run "$kit"
-  if ! grep -q '2 distinct tool(s)' <<<"$OUT"; then
-    ok "teeth B: dedup-removal mutant inflates the count → test 6 would catch it (RED)"
-  else
-    no "teeth B: dedup-removal mutant still reported 2 distinct — mutation ineffective"
+  if mk_built "teeth B: dedup removed" "$SUT" "$kit/verify-tool-catalog.sh"; then
+    chmod +x "$kit/verify-tool-catalog.sh"
+    run "$kit"
+    if ! grep -q '2 distinct tool(s)' <<<"$OUT" && grep -q '[0-9] distinct tool(s)' <<<"$OUT"; then
+      ok "teeth B: dedup-removal mutant inflates the count → test 6 would catch it (RED)"
+    else
+      no "teeth B: dedup-removal mutant still reported 2 distinct — mutation ineffective"
+    fi
   fi
 
   # Tooth C: widen the registry match from whole-word (-w) to bare substring, so a short tool
@@ -313,13 +318,14 @@ new = 'grep -qiF'
 assert old in src, 'mutation anchor not found in SUT'
 open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
 "
-  mk_built "teeth C: substring match" "$SUT" "$kit/verify-tool-catalog.sh"
-  chmod +x "$kit/verify-tool-catalog.sh"
-  run "$kit"
-  if grep -q '0 not cataloged' <<<"$OUT"; then
-    ok "teeth C: substring-match mutant false-positives on 'capacity' → dedicated check catches it (RED)"
-  else
-    no "teeth C: substring-match mutant did not false-positive — mutation ineffective, cannot prove -w matters"
+  if mk_built "teeth C: substring match" "$SUT" "$kit/verify-tool-catalog.sh"; then
+    chmod +x "$kit/verify-tool-catalog.sh"
+    run "$kit"
+    if grep -q '0 not cataloged' <<<"$OUT"; then
+      ok "teeth C: substring-match mutant false-positives on 'capacity' → dedicated check catches it (RED)"
+    else
+      no "teeth C: substring-match mutant did not false-positive — mutation ineffective, cannot prove -w matters"
+    fi
   fi
 
   # Tooth D: strip the Form-2 (narrative "## <tool> (...)") extraction — those entries then vanish
@@ -334,13 +340,14 @@ open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
   # Remove both lines that reference the Form-2 variable (extraction + append). The comment uses
   # "section names" (space), so only the two code lines carry the "section_names" token.
   grep -v 'section_names' "$SUT" > "$kit/verify-tool-catalog.sh"
-  mk_built "teeth D: Form-2 extraction stripped" "$SUT" "$kit/verify-tool-catalog.sh"
-  chmod +x "$kit/verify-tool-catalog.sh"
-  run "$kit"
-  if ! grep -q "WARN.*'section-gap'" <<<"$OUT"; then
-    ok "teeth D: Form-2 extraction stripped → '## <tool>' entry vanishes → test 10 catches it (RED)"
-  else
-    no "teeth D: Form-2 stripped but section tool still seen — mutation ineffective"
+  if mk_built "teeth D: Form-2 extraction stripped" "$SUT" "$kit/verify-tool-catalog.sh"; then
+    chmod +x "$kit/verify-tool-catalog.sh"
+    run "$kit"
+    if ! grep -q "WARN.*'section-gap'" <<<"$OUT" && grep -q 'distinct tool(s)' <<<"$OUT"; then
+      ok "teeth D: Form-2 extraction stripped → '## <tool>' entry vanishes → test 10 catches it (RED)"
+    else
+      no "teeth D: Form-2 stripped but section tool still seen — mutation ineffective"
+    fi
   fi
 
   # Tooth E: strip -i from the matcher (grep -qiwF → grep -qwF) — logged lowercase tool names
@@ -359,13 +366,14 @@ new = 'grep -qwF'
 assert old in src, 'mutation anchor not found in SUT'
 open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
 "
-  mk_built "teeth E: -i stripped" "$SUT" "$kit/verify-tool-catalog.sh"
-  chmod +x "$kit/verify-tool-catalog.sh"
-  run "$kit"
-  if grep -q "WARN.*'vineflower'" <<<"$OUT"; then
-    ok "teeth E: -i stripped → case mismatch generates false WARN for 'vineflower' → case 11 catches it (RED)"
-  else
-    no "teeth E: -i stripped but WARN absent — mutation ineffective, -i not what suppresses the WARN"
+  if mk_built "teeth E: -i stripped" "$SUT" "$kit/verify-tool-catalog.sh"; then
+    chmod +x "$kit/verify-tool-catalog.sh"
+    run "$kit"
+    if grep -q "WARN.*'vineflower'" <<<"$OUT"; then
+      ok "teeth E: -i stripped → case mismatch generates false WARN for 'vineflower' → case 11 catches it (RED)"
+    else
+      no "teeth E: -i stripped but WARN absent — mutation ineffective, -i not what suppresses the WARN"
+    fi
   fi
 
   # Tooth F: alias token drives the match — removing it from the fixture must cause a WARN.

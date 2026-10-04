@@ -11,11 +11,6 @@ SUT="$HERE/../verify-kit-clean-hook.sh"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-# Mutants are built by lib/mutant.sh (kit #1299): it refuses an empty, byte-identical, syntax-broken or
-# live-tree mutant, and mutant_chain refuses a sed stage that matches nothing. It prints its own FAIL line.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 
 echo "== verify-kit-clean-hook.test.sh =="
 
@@ -97,21 +92,31 @@ OUT="$(run_hook_with_stub 2 "verify-kit-clean: not a git repo: /bad/path")"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
+  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
+  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: neutered rc-check must lose the dirty banner (test 4 goes RED) --"
 
   # Tooth A: rc-check neutered (always takes clean path) → dirty banner disappears → test 4 would fail.
   # Stage 1 is the mutation; stage 2 only points the hook at the stub (a fixture patch, not a mutation).
-  mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/rc=\$?/rc=0/' "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g" || { echo "== $pass passed · $fail failed =="; exit 1; }
-  chmod +x "$TMP/mutant-hook.sh"
-  printf '#!/usr/bin/env bash\ncat "%s"\nexit 1\n' "$TMP/stub-out.txt" > "$TMP/verify-kit-clean.sh"
-  printf '%s\n' "   working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked
+  # The mutant path is removed first and a refused build skips the tooth, so no stale mutant can ever run.
+  if mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/rc=\$?/rc=0/' "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g"; then
+    chmod +x "$TMP/mutant-hook.sh"
+    printf '#!/usr/bin/env bash\ncat "%s"\nexit 1\n' "$TMP/stub-out.txt" > "$TMP/verify-kit-clean.sh"
+    printf '%s\n' "   working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked
    verdict      : NOT clean" > "$TMP/stub-out.txt"
-  chmod +x "$TMP/verify-kit-clean.sh"
-  MUTANT_OUT="$(bash "$TMP/mutant-hook.sh" 2>&1)"
-  if ! <<<"$MUTANT_OUT" grep -qi 'NOT clean\|not clean'; then
-    ok "teeth A: rc-neutered mutant silences dirty banner → test 4 would catch it (RED)"
-  else
-    no "teeth A: mutant still emits dirty banner — tooth has no bite (sed pattern may not match)"
+    chmod +x "$TMP/verify-kit-clean.sh"
+    MUTANT_OUT="$(bash "$TMP/mutant-hook.sh" 2>&1)"; MRC=$?
+    # The hook stays exit 0 (the original does too, tests 3/4); silent output with rc 0 is the bite, any other rc is a crash.
+    if [ "$MRC" = 0 ] && ! <<<"$MUTANT_OUT" grep -qi 'NOT clean\|not clean'; then
+      ok "teeth A: rc-neutered mutant silences dirty banner → test 4 would catch it (RED)"
+    else
+      no "teeth A: mutant rc=$MRC out=[$MUTANT_OUT] — want rc 0 and no dirty banner (a crash or a still-emitting banner is no bite)"
+    fi
   fi
 fi
 
