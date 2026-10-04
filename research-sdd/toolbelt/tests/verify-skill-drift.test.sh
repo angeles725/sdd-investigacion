@@ -936,10 +936,11 @@ if [ "$prove_teeth" -eq 1 ]; then
     SUT_SAB="$ROOT/sab/sut-sabotaged-D.sh"
     sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for hh in $RESEARCH_SDD_HARNESSES; do/' "$SUT" > "$SUT_SAB"
     mutant_chain "TOOTH D sabotage" "$SUT_SAB" "$ROOT/sab/mut-D-sabotaged.sh" "$_TD_EXPR" >/dev/null 2>&1; _rc_sab=$?
-    if [ "$_rc_sab" -eq 10 ]; then
-      ok "TOOTH D sabotage: renamed sentinel → mutant_chain refuses (dead stage, rc 10) → tooth would report failure"
+    MUTANT_CHAIN_DEAD_STAGE=10   # mutant_chain's documented return code for a sed stage that matches nothing
+    if [ "$_rc_sab" -eq "$MUTANT_CHAIN_DEAD_STAGE" ]; then
+      ok "TOOTH D sabotage: renamed sentinel → mutant_chain refuses (dead stage, rc $MUTANT_CHAIN_DEAD_STAGE) → tooth would report failure"
     else
-      no "TOOTH D sabotage: renamed sentinel → expected mutant_chain rc 10 (dead stage); got rc=$_rc_sab"
+      no "TOOTH D sabotage: renamed sentinel → expected mutant_chain rc $MUTANT_CHAIN_DEAD_STAGE (dead stage); got rc=$_rc_sab"
     fi
     if mk "TOOTH D all-last-skipped" "$SUT" "$MUT_D" "$_TD_EXPR"; then
       ok "TOOTH D pre-check: mutant built (loop skips last harness)"
@@ -955,7 +956,9 @@ if [ "$prove_teeth" -eq 1 ]; then
     # (not the real kit adapters, which would fail to find skills/source_{a,b}/SKILL.md). It is built
     # FROM the live SUT (byte-identical to SUT_SRC, the two-src original) into that temp dir.
     MUT_E="$TWO_KIT/toolbelt/verify-skill-drift-mut-E.sh"
-    if mk "TOOTH E fixture-src" "$SUT" "$MUT_E" \
+    if ! cmp -s "$SUT_SRC" "$SUT"; then
+      no "TOOTH E staging: two-src original '$SUT_SRC' is not byte-identical to the live SUT — mutant/original mismatch, tooth skipped"
+    elif mk "TOOTH E fixture-src" "$SUT" "$MUT_E" \
          's/src_relkit="\$(rsdd_field "\$h" skill_src_relkit "\$home")"/src_relkit="skills\/source_a\/SKILL.md"/'; then
       ok "TOOTH E pre-check: mutant built (skill_src_relkit lookup hardcoded to source_a)"
       # Control: harness_a in-sync only (harness_b absent); mutant hardcodes source_a → harness_a still in-sync
@@ -1014,9 +1017,9 @@ if [ "$prove_teeth" -eq 1 ]; then
     if mk "TOOTH I unconditional-summary" "$SUT" "$MUT_I" '/# SENTINEL-SUMMARY-GUARD/{n; s/if \[ .* -gt 0 .*/if true; then/}'; then
       ok "TOOTH I pre-check: mutant built (SENTINEL-SUMMARY-GUARD condition forced true)"
       # The bad-side anchor pins only what the mutation flips (a summary line exists on a clean run, with
-    # diverged=0 and could-not-run=0); the harness counts are wildcards so the tooth is not coupled to
-    # how many harnesses adapters.sh registers.
-    tt "TOOTH I unconditional-summary" 0 0 "$MUT_I" --orig "$SBX_ORIG" \
+      # diverged=0 and could-not-run=0); the harness counts are wildcards so the tooth is not coupled to
+      # how many harnesses adapters.sh registers.
+      tt "TOOTH I unconditional-summary" 0 0 "$MUT_I" --orig "$SBX_ORIG" \
         --good-lacks '.' --bad-has '^verify-skill-drift: all: checked=[0-9]+ in-sync=[0-9]+ diverged=0 absent=[0-9]+ could-not-run=0$' \
         -- bash @SUT@ --all --home "$H_ALL_SYNC"
     fi
@@ -1043,7 +1046,7 @@ if [ "$prove_teeth" -eq 1 ]; then
       ok "TOOTH K pre-check: mutant built (SENTINEL-ALSO-DIVERGED accumulator replaced with a no-op)"
       tt "TOOTH K also-diverged-names" 1 1 "$MUT_K" --orig "$SBX_ORIG" \
         --good-has '^verify-skill-drift: also diverged: .*gentle-shell' \
-        --bad-has '^verify-skill-drift: all: checked=3 in-sync=0 diverged=3 ' --bad-lacks 'gentle-shell' \
+        --bad-has '^verify-skill-drift: all: checked=[0-9]+ in-sync=0 diverged=[0-9]+ ' --bad-lacks 'gentle-shell' \
         -- bash @SUT@ --all --home "$H_BDG3"
     fi
 
