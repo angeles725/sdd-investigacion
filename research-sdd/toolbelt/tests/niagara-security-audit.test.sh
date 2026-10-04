@@ -814,19 +814,24 @@ nsa_tt() {      # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
 nsa_obs() {
   local py="$1" od rc=0
   shift
-  od="$(mktemp -d "$ROOT/obs.XXXXXX")"
+  od="$(mktemp -d "$ROOT/obs.XXXXXX")" || { echo "RC=obs-setup-failed"; return 99; }
   python3 "$py" "$@" --output "$od/o.json" >/dev/null 2>"$od/err" || rc=$?
   printf 'RC=%s\n' "$rc"
   if grep -q Traceback "$od/err"; then echo "TRACEBACK=yes"; else echo "TRACEBACK=no"; fi
   if [ -f "$od/o.json" ]; then
+    # All facts are computed BEFORE anything is printed, so a malformed or partial JSON yields exactly
+    # one line (JSON=unreadable) and never a contradicting JSON=present.
     python3 - "$od/o.json" <<'PYEOF' || echo "JSON=unreadable"
 import json, sys
-d = json.load(open(sys.argv[1]))
-print("JSON=present")
-c = {x["id"]: x for x in d["checks"]}
-for k in sorted(c):
-    print("%s=%s" % (k, c[k]["verdict"]))
-print("SEC08_NOTPROVIDED=%d" % (c["SEC-08"].get("observed", "") == "not checked (no --station config.bog provided)"))
+try:
+    d = json.load(open(sys.argv[1]))
+    c = {x["id"]: x for x in d["checks"]}
+    lines = ["JSON=present"] + ["%s=%s" % (k, c[k]["verdict"]) for k in sorted(c)]
+    lines.append("SEC08_NOTPROVIDED=%d" % (c["SEC-08"].get("observed", "") == "not checked (no --station config.bog provided)"))
+except Exception:
+    print("JSON=unreadable")
+    sys.exit(0)
+print("\n".join(lines))
 PYEOF
   else
     echo "JSON=absent"

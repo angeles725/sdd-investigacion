@@ -733,12 +733,13 @@ sm_tt() {       # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
 
 # sm_obs PY VM_KB INPUT INSTALL — run one station_modules.py build into a FRESH output dir and print typed
 # fact lines (the artifact the base tests assert on is the output JSON): RC, TRACEBACK (stderr),
-# JSON=present|absent|unreadable and, when readable, STATUS / TRUNC / MP (= number of missing_parts).
+# JSON=present|absent|unreadable and, when readable, STATUS / TRUNC, plus the derived CAPPED
+# (status failed AND truncated True) and MPPOS (missing_parts non-empty).
 # Exits with the SUT's own rc, so mutant_tooth's GOOD_RC / BAD_RC are the real exit codes.
 # VM_KB non-empty runs under `ulimit -v`.
 sm_obs() {
   local py="$1" vm="$2" in="$3" inst="$4" od rc=0
-  od="$(mktemp -d "$ROOT/obs.XXXXXX")"
+  od="$(mktemp -d "$ROOT/obs.XXXXXX")" || { echo "RC=obs-setup-failed"; return 99; }
   if [ -n "$vm" ]; then
     (ulimit -v "$vm" && python3 "$py" --input "$in" --install "$inst" --output "$od/o.json" >/dev/null 2>"$od/err") || rc=$?
   else
@@ -747,17 +748,23 @@ sm_obs() {
   printf 'RC=%s\n' "$rc"
   if grep -q Traceback "$od/err"; then echo "TRACEBACK=yes"; else echo "TRACEBACK=no"; fi
   if [ -f "$od/o.json" ]; then
+    # All facts are computed BEFORE anything is printed, so a malformed or partial JSON yields exactly
+    # one line (JSON=unreadable) and never a contradicting JSON=present.
     python3 - "$od/o.json" <<'PYEOF' || echo "JSON=unreadable"
 import json, sys
-d = json.load(open(sys.argv[1]))
-print("JSON=present")
-print("STATUS=%s" % d.get("status", ""))
-print("TRUNC=%s" % d.get("truncated", ""))
-print("MP=%d" % len(d.get("missing_parts", {})))
-# Derived facts: each folds ALL conditions of one old check into one line, so no condition is printed
-# without being asserted.
-print("CAPPED=%d" % (d.get("status") == "failed" and d.get("truncated") is True))
-print("MPPOS=%d" % (len(d.get("missing_parts", {})) > 0))
+try:
+    d = json.load(open(sys.argv[1]))
+    mp = d.get("missing_parts", {})
+    lines = ["JSON=present",
+             "STATUS=%s" % d.get("status", ""),
+             "TRUNC=%s" % d.get("truncated", ""),
+             # Derived facts: each folds ALL conditions of one old check into one line.
+             "CAPPED=%d" % (d.get("status") == "failed" and d.get("truncated") is True),
+             "MPPOS=%d" % (len(mp) > 0)]
+except Exception:
+    print("JSON=unreadable")
+    sys.exit(0)
+print("\n".join(lines))
 PYEOF
   else
     echo "JSON=absent"
