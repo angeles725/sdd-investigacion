@@ -497,7 +497,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   declare -F mutant_built >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
-  # _it_mutant LABEL BOX OLD NEW -- write the SUT into BOX/install-tool.sh with the first OLD replaced
+  # _it_mutant LABEL BOX OLD NEW -- write the SUT into BOX/install-tool.sh with the (unique) OLD replaced
   # by NEW (NEW may be empty = deletion). rc 1 = anchor absent or the helper refused the mutant; the
   # failure is already counted ONCE here, so the caller must skip its tooth (no second count).
   _it_mutant() {
@@ -505,6 +505,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     c="$(cat "$SUT")"
     if [[ "$c" != *"$old"* ]]; then
       no "teeth: build $label mutant" "anchor not found — SUT drifted?"; return 1
+    fi
+    # First-match replacement is only exact when the anchor is unique: a second copy would stay unmutated
+    # while the mutant still differs from the original. Refuse an ambiguous anchor loudly.
+    local rest="${c#*"$old"}"
+    if [[ "$rest" == *"$old"* ]]; then
+      no "teeth: build $label mutant" "anchor occurs more than once — first-match mutant would be partial"; return 1
     fi
     printf '%s\n' "${c/"$old"/"$new"}" > "$box/install-tool.sh"
     if ! mutant_built "teeth: build $label mutant" "$SUT" "$box/install-tool.sh" >/dev/null; then
