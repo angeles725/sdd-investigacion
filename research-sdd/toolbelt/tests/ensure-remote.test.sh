@@ -444,6 +444,18 @@ fi
 # above would FLIP to failure — otherwise those assertions are theater.
 if [ "${1:-}" = "--prove-teeth" ]; then
   content="$(cat "$SUT")"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  # mut_sub LABEL ORIG NEW OUT — bash-substitute ORIG→NEW in the SUT text into OUT, then vet OUT with
+  # lib/mutant.sh (refuses an identical, empty, syntax-broken or live-tree mutant). A refusal records a
+  # FAIL and the run STOPS (mk_or_stop pattern), so a tooth never runs on a refused mutant path.
+  mut_sub() {
+    printf '%s\n' "${content//"$2"/"$3"}" > "$4"
+    mutant_built "$1 mutant build" "$SUT" "$4" && return 0
+    no "$1: mutant refused by lib/mutant.sh" "tooth not run"
+    echo "== $pass passed · $fail failed =="; exit 1
+  }
 
   # T1 — drop --private from the single `gh repo create`. Case 1's invariant
   #      ("every create line carries --private") must now be VIOLATED.
@@ -455,7 +467,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     reset_ctl
     box="$(mkbox teeth1-no-private)"
-    printf '%s\n' "${content//"$orig1"/"$new1"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth1" "$orig1" "$new1" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     # here-string over a captured var (not a producer pipe) to avoid pipefail EPIPE
     # under load; -n guard preserves the empty-input semantics of `grep … | grep -v`.
@@ -477,7 +489,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     reset_ctl; GH_VIS=PUBLIC
     box="$(mkbox teeth2-push-public)"
-    printf '%s\n' "${content//"$orig2"/"$new2"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth2" "$orig2" "$new2" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if has_call "$box" 'git .* push'; then
       ok "teeth2: mutant PUSHES despite PUBLIC visibility" "(case 2 has teeth)"
@@ -503,7 +515,7 @@ fi
   else
     reset_ctl; GIT_TRACKED_SECRETS="secret.pem"
     box="$(mkbox teeth3-push-tracked-secret)"
-    printf '%s\n' "${content//"$orig3"/"$new3"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth3" "$orig3" "$new3" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if has_call "$box" 'git .* push'; then
       ok "teeth3: mutant PUSHES despite a tracked *.pem" "(case 8 / FIX-1 has teeth)"
@@ -544,7 +556,7 @@ fi
   else
     reset_ctl; GIT_STATUS_DIRTY=1
     box="$(mkbox teeth5-dirty-proceeds)"
-    printf '%s\n' "${content//"$orig5"/"$new5"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth5" "$orig5" "$new5" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if [ "$RC" != 8 ]; then
       ok "teeth5: dirty-tree mutant proceeds (exit $RC, not 8) — case 14 has teeth"
@@ -565,7 +577,7 @@ fi
   else
     reset_ctl; SCAN_EXIT=3
     box="$(mkbox teethM1-scan-deg)"
-    printf '%s\n' "${content//"$origM1"/"$newM1"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth-M1" "$origM1" "$newM1" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if [ "$RC" != 7 ]; then
       ok "teeth-M1: degraded mutant proceeds (exit $RC) — case 16 has teeth"
@@ -585,7 +597,7 @@ fi
   else
     reset_ctl; SCAN_EXIT=2
     box="$(mkbox teethM2-scan-unk)"
-    printf '%s\n' "${content//"$origM2"/"$newM2"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth-M2" "$origM2" "$newM2" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if [ "$RC" != 7 ]; then
       ok "teeth-M2: wildcard mutant proceeds (exit $RC) — case 17 has teeth"
@@ -611,7 +623,7 @@ fi'
   else
     reset_ctl; GIT_STATUS_FAIL=1
     box="$(mkbox teethM3-git-status-fail)"
-    printf '%s\n' "${content//"$origM3"/"$newM3"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth-M3" "$origM3" "$newM3" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if [ "$RC" != 7 ]; then
       ok "teeth-M3: git-status-fail mutant proceeds (exit $RC) — case 18 has teeth"
@@ -629,7 +641,7 @@ fi'
   else
     reset_ctl
     box="$(mkbox teeth-m4-no-follow-tags)"
-    printf '%s\n' "${content//"$origm4"/"$newm4"}" > "$box/ensure-remote.sh"
+    mut_sub "teeth-m4" "$origm4" "$newm4" "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
     if [ "$RC" = 0 ] && ! has_call "$box" 'push .* --no-follow-tags'; then
       ok "teeth-m4: --no-follow-tags-removed mutant push lacks flag → case 19 has teeth"

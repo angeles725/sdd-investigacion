@@ -386,6 +386,17 @@ fi
 echo
 echo "-- TEETH: mutation controls --"
 
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+# A refused mutant (dead stage, identical, empty, syntax-broken, live-tree) must not be run: the
+# R3/R5/R7 assertions pass on "nothing happened", so an absent mutant would read as a bite.
+mk_or_stop() {
+  mutant_chain "$@" && return 0
+  no "$1: mutant build refused by lib/mutant.sh — tooth not run"
+  echo "== $pass passed · $fail failed =="; exit 1
+}
+
 # ── Mutant kit dir: toolbelt mirror for gate mutants (gate uses SELF_DIR-relative lib paths)
 MUT_KIT="$ROOT/mutkit"
 mkdir -p "$MUT_KIT/toolbelt/lib"
@@ -424,8 +435,10 @@ awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if f
   "$INIT_SUT" > "$MUT_INIT_SUT"
 chmod +x "$MUT_INIT_SUT"
 
-if ! grep -qF 'MUTANT: scaffold+wire SUBJECT guard neutered' "$MUT_INIT_SUT"; then
-  no "R2-TOOTH-A: could not build mutant (scaffold+wire placeholder guard line not found)"
+# lib/mutant.sh vets the awk-built mutant: refuses empty, byte-identical, syntax-broken or live-tree.
+if ! mutant_built "R2-TOOTH-A mutant build" "$INIT_SUT" "$MUT_INIT_SUT" \
+   || ! grep -qF 'MUTANT: scaffold+wire SUBJECT guard neutered' "$MUT_INIT_SUT"; then
+  no "R2-TOOTH-A: could not build mutant (scaffold+wire placeholder guard line not found or mutant refused)"
 else
   T_R2TA="$ROOT/r2-tooth-a"; mkdir -p "$T_R2TA"
   git -C "$T_R2TA" init -q -b main 2>/dev/null || git -C "$T_R2TA" init -q
@@ -474,7 +487,7 @@ fi
 # ── R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check fails ───
 # Proves R3 check catches a SUT where RETRO-DUE threshold is effectively disabled.
 MUT_STAT_R3="$MUT_STAT_KIT/research-sdd-status.sh"
-sed 's/_rd_threshold=10/_rd_threshold=999/' "$STATUS_SUT" > "$MUT_STAT_R3"
+mk_or_stop "R3-TOOTH" "$STATUS_SUT" "$MUT_STAT_R3" 's/_rd_threshold=10/_rd_threshold=999/'
 chmod +x "$MUT_STAT_R3"
 
 _r3t_out="$("$BASH_BIN" "$MUT_STAT_R3" "$T_R3" --next 2>/dev/null)"
@@ -490,8 +503,8 @@ fi
 # ── R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not called ─────────
 # Proves R5 check catches a gate that skips calling stage-retro-issues.
 MUT_GATE_R5="$MUT_KIT/toolbelt/mutant-gate-r5.sh"
-sed '/# SENTINEL-SEEDING-CALL-START/,/# SENTINEL-SEEDING-CALL-END/d' \
-  "$GATE_SUT" > "$MUT_GATE_R5"; chmod +x "$MUT_GATE_R5"
+mk_or_stop "R5-TOOTH" "$GATE_SUT" "$MUT_GATE_R5" '/# SENTINEL-SEEDING-CALL-START/,/# SENTINEL-SEEDING-CALL-END/d'
+chmod +x "$MUT_GATE_R5"
 
 rm -f "$SEED_LOG_R5"
 printf '%s' "$_r5_json" | SEED_LOG="$SEED_LOG_R5" \
@@ -509,8 +522,8 @@ fi
 # ── R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted ───────────────
 # Proves R7 check catches a gate that omits the gh-auth probe (never emits WARN).
 MUT_GATE_R7="$MUT_KIT/toolbelt/mutant-gate-r7.sh"
-sed '/# SENTINEL-GH-PROBE-START/,/# SENTINEL-GH-PROBE-END/d' \
-  "$GATE_SUT" > "$MUT_GATE_R7"; chmod +x "$MUT_GATE_R7"
+mk_or_stop "R7-TOOTH" "$GATE_SUT" "$MUT_GATE_R7" '/# SENTINEL-GH-PROBE-START/,/# SENTINEL-GH-PROBE-END/d'
+chmod +x "$MUT_GATE_R7"
 
 _r7t_errf="$ROOT/r7-tooth-err"
 _r7t_stdout="$(printf '%s' "$_r7_json" | PATH="$FAIL_AUTH_R7:$PATH" \

@@ -243,13 +243,15 @@ fi
 # ── MUTATION CONTROLS (--prove-teeth) ────────────────────────────────────────────────────────
 
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
 
   echo "-- teeth M1: tool-registry.md pointer check has teeth --"
   _m1="$TMP/mutant-m1.sh"
-  cp "$SUT" "$_m1"
-  sed -i 's/tool-registry\.md/decompile-java.sh/g' "$_m1"
-  if grep -qF "tool-registry.md" "$_m1"; then
-    no "teeth M1: could not build mutant (tool-registry.md still present after sed)"
+  if ! mutant_chain "teeth M1 mutant build" "$SUT" "$_m1" 's/tool-registry\.md/decompile-java.sh/g'; then
+    no "teeth M1: could not build mutant (anchor drifted or refused by lib/mutant.sh)"
   else
     # The green assertion: grep -qF "tool-registry.md" SUT
     # On the mutant it should return 1 (RED)
@@ -263,20 +265,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth M2: no-jq exit-0 check has teeth --"
   if [ "$_nojq_tested" -eq 1 ]; then
     _m2="$TMP/mutant-m2.sh"
-    cp "$SUT" "$_m2"
     # Mutant: disable the jq probe so it never fires
-    sed -i 's/if ! command -v jq/if false  # MUTANT: probe disabled; was: if ! command -v jq/' "$_m2"
-    if grep -qF 'MUTANT: probe disabled' "$_m2"; then
-      PATH="$_hermetic_bin" "$_bash_exe" "$_m2" </dev/null >"$TMP/m2-out.txt" 2>/dev/null
+    if mutant_chain "teeth M2 mutant build" "$SUT" "$_m2" 's/^if ! command -v jq >\/dev\/null 2>&1; then$/if false; then  # MUTANT: probe disabled; was: if ! command -v jq/'; then
+      PATH="$_hermetic_bin" "$_bash_exe" "$_m2" </dev/null >"$TMP/m2-out.txt" 2>"$TMP/m2-err.txt"
       _m2_ec=$?
-      # Without probe, jq-n fails → hook exits non-zero
-      if [ "$_m2_ec" -ne 0 ]; then
+      # Without probe, jq-n fails → hook exits non-zero. The failure must be the REAL one: the
+      # mutant is valid bash (lib/mutant.sh ran bash -n) and no longer prints the typed degraded line.
+      if [ "$_m2_ec" -ne 0 ] && ! grep -qE 'syntax error|degraded: jq missing' "$TMP/m2-err.txt"; then
         ok "teeth M2: no-jq exit-0 check RED on probe-disabled mutant (has teeth)"
       else
-        no "teeth M2: probe-disabled mutant still exits 0 — no-jq exit-0 check has no teeth"
+        no "teeth M2: probe-disabled mutant did not fail for the right reason (rc=$_m2_ec; want non-zero with no 'syntax error' / 'degraded: jq missing' on stderr)"
       fi
     else
-      no "teeth M2: could not build probe-disabled mutant"
+      no "teeth M2: could not build probe-disabled mutant (anchor drifted or refused by lib/mutant.sh)"
     fi
   else
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
@@ -286,15 +287,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _m4d="$TMP/rotation-mutant"
   mkdir -p "$_m4d/.claude/hooks"
   _m4="$_m4d/.claude/hooks/research-protocol.sh"
-  cp "$SUT" "$_m4"
   # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion clause, reverting to the
   # pre-#984 behaviour that purges a session's own state files too. Must delete the whole line
   # (not just its text) — a blank line in the `\`-continued find command would snap it in two,
   # breaking `-delete` into an invalid standalone "command", degrading the find to its default
   # -print action instead of actually reverting to the pre-fix delete.
-  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
-  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
-    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
+  if ! mutant_chain "teeth M4 mutant build" "$SUT" "$_m4" '/! -name "\.rsdd-session-\${_session_id}"/d'; then
+    no "teeth M4: could not build mutant (self-exclusion clause absent or refused by lib/mutant.sh)"
   else
     _m4_sid="m4-current-session"
     _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
@@ -310,9 +309,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth R3-001(a): write-once guard has teeth --"
   _m5="$TMP/r3a-mutant.sh"
-  sed 's/if \[ ! -s "\$_rsdd_file" \]; then/if true; then/' "$SUT" > "$_m5"
-  if ! grep -q 'if true; then' "$_m5"; then
-    no "teeth R3-001(a): anchor not found — SUT drifted?"
+  if ! mutant_chain "teeth R3-001(a) mutant build" "$SUT" "$_m5" 's/if \[ ! -s "\$_rsdd_file" \]; then/if true; then/'; then
+    no "teeth R3-001(a): anchor not found or mutant refused by lib/mutant.sh — SUT drifted?"
   else
     cp "$_m5" "$_r3d/.claude/hooks/research-protocol.sh"; _m5_sid="r3a-mutant"; _m5_file="$_r3d/.claude/.rsdd-session-${_m5_sid}"
     printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
@@ -329,9 +327,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth R3-001(b): empty-sha guard has teeth --"
   _m6="$TMP/r3b-mutant.sh"
-  sed 's/if \[ -n "\$_sha" \]; then/if true; then/' "$SUT" > "$_m6"
-  if ! grep -q 'if true; then' "$_m6"; then
-    no "teeth R3-001(b): anchor not found — SUT drifted?"
+  if ! mutant_chain "teeth R3-001(b) mutant build" "$SUT" "$_m6" 's/if \[ -n "\$_sha" \]; then/if true; then/'; then
+    no "teeth R3-001(b): anchor not found or mutant refused by lib/mutant.sh — SUT drifted?"
   else
     cp "$_m6" "$_r3bd/.claude/hooks/research-protocol.sh"; _m6_sid="r3b-mutant"   # reuse test (b)'s target
     printf '{"session_id":"%s"}' "$_m6_sid" | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
@@ -354,13 +351,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
     _m7="$_m7d/.claude/hooks/research-protocol.sh"
     printf '%s\n' "${_content_hooks/"$anchor_glob"/"$neutered_glob"}" > "$_m7"
-    _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
-    printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
-    printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
-    if [ ! -e "$_m7_unrelated" ]; then
-      ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+    if ! mutant_built "teeth glob-metachar mutant build" "$SUT" "$_m7"; then
+      no "teeth: glob-metachar mutant refused by lib/mutant.sh — tooth not run"
     else
-      no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+      _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
+      printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
+      printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
+      if [ ! -e "$_m7_unrelated" ]; then
+        ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+      else
+        no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+      fi
     fi
     # kit issue #1031: revert ONLY the backslash member of the character class → a backslash id
     # is accepted again and the mis-scoped delete returns (the backslash guard has teeth).
@@ -369,13 +370,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _m8d="$TMP/backslash-mutant"; mkdir -p "$_m8d/.claude/hooks"
     _m8="$_m8d/.claude/hooks/research-protocol.sh"
     printf '%s\n' "${_content_hooks/"$anchor_glob"/"$reverted_bs"}" > "$_m8"
-    _m8_unrelated="$_m8d/.claude/.rsdd-session-unrelated-old"
-    printf 'deadbeef\n' > "$_m8_unrelated"; touch -d '-10 days' "$_m8_unrelated"
-    printf '%s' '{"session_id":"evil\\id"}' | bash "$_m8" >/dev/null 2>/dev/null
-    if [ ! -e "$_m8_unrelated" ]; then
-      ok "teeth: backslash member removed from the guard → unrelated old file gets deleted (RED as expected)"
+    if ! mutant_built "teeth backslash mutant build" "$SUT" "$_m8"; then
+      no "teeth: backslash mutant refused by lib/mutant.sh — tooth not run"
     else
-      no "teeth: backslash member removed from the guard → unrelated old file should have been deleted" ""
+      _m8_unrelated="$_m8d/.claude/.rsdd-session-unrelated-old"
+      printf 'deadbeef\n' > "$_m8_unrelated"; touch -d '-10 days' "$_m8_unrelated"
+      printf '%s' '{"session_id":"evil\\id"}' | bash "$_m8" >/dev/null 2>/dev/null
+      if [ ! -e "$_m8_unrelated" ]; then
+        ok "teeth: backslash member removed from the guard → unrelated old file gets deleted (RED as expected)"
+      else
+        no "teeth: backslash member removed from the guard → unrelated old file should have been deleted" ""
+      fi
     fi
   fi
 
@@ -383,16 +388,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _m3d="$TMP/p8-mutant"
   mkdir -p "$_m3d/.claude/hooks"
   # Inject <KIT> into the hook so P8 fires a WARN about it
-  sed 's/\$RESEARCH_SDD_KIT/<KIT>/g' "$SUT" > "$_m3d/.claude/hooks/research-protocol.sh"
-  { printf '<!-- research-state.v1 -->\n'; printf 'schema: research-state.v1\n'
-    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
-    printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
-    printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
-  _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
-  if <<<"$_m3_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
-    ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
+  if ! mutant_chain "teeth M3 mutant build" "$SUT" "$_m3d/.claude/hooks/research-protocol.sh" 's/\$RESEARCH_SDD_KIT/<KIT>/g'; then
+    no "teeth M3: could not build <KIT> mutant (anchor drifted or refused by lib/mutant.sh) — tooth not run"
   else
-    no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+    { printf '<!-- research-state.v1 -->\n'; printf 'schema: research-state.v1\n'
+      printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
+      printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+      printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
+    _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
+    if <<<"$_m3_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+      ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
+    else
+      no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+    fi
   fi
 
 fi

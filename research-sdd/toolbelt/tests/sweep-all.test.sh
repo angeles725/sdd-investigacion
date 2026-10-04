@@ -142,13 +142,24 @@ OUT="$(RSDD_SWEEP_TIMEOUT=1 bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
 
 # ---- Teeth: prove run-all invariant catches a dropped script ----------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: early-bail mutant must be caught by run-all assertion --"
   CALL_LOG_T="$TMP/callT.log"; rm -f "$CALL_LOG_T"
   for s in "${CANONICAL[@]}"; do make_logging_stub "$s" 0 "$CALL_LOG_T"; done
   # Mutant sweep-all.sh: exits immediately after first script passes (dropping the rest).
-  sed '/^for script/a\\  break' "$FAKE/sweep-all.sh" > "$TMP/mutant-sweep-all.sh"
-  chmod +x "$TMP/mutant-sweep-all.sh"
-  bash "$TMP/mutant-sweep-all.sh" > /dev/null 2>&1 || true
+  # Built through lib/mutant.sh (refuses a dead stage, an identical/empty/syntax-broken or live-tree
+  # mutant). It lives beside the stubs in $FAKE so they resolve: the shortfall below is the `break`,
+  # not missing stubs.
+  if ! mutant_chain "teeth: early-bail mutant build" "$SUT" "$FAKE/mutant-sweep-all.sh" '/^for script/a\  break'; then
+    no "teeth: could not build early-bail mutant (anchor drifted or refused by lib/mutant.sh)"
+    echo "== $pass passed · $fail failed =="
+    exit 1
+  fi
+  chmod +x "$FAKE/mutant-sweep-all.sh"
+  bash "$FAKE/mutant-sweep-all.sh" > /dev/null 2>&1 || true
   mutant_calls="$(grep -c '^' "$CALL_LOG_T" 2>/dev/null || echo 0)"
   if [ "$mutant_calls" -lt "${#CANONICAL[@]}" ]; then
     ok "teeth: early-bail mutant calls $mutant_calls < ${#CANONICAL[@]} → run-all check would catch it (RED)"

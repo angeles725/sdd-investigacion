@@ -145,40 +145,44 @@ echo "== $pass passed · $fail failed =="
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo ""
   echo "== mutation controls =="
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 && declare -F mutant_tooth >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
   t_pass=0; t_fail=0
-  tok() { printf '  TOOTH-PASS  %s\n' "$1"; t_pass=$((t_pass+1)); }
-  tno() { printf '  TOOTH-FAIL  %s\n' "$1"; t_fail=$((t_fail+1)); }
+  # Every tooth builds a REAL mutant (a copy of the SUT, via lib/mutant.sh: refuses a dead stage, empty,
+  # identical, syntax-broken, live-tree and symlink mutants) and asserts the exact GOOD verdict on the
+  # original and the exact BAD verdict on the mutant (mutant_tooth: a crashing mutant is THEATER).
+  mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
+  # tt LABEL GOOD_RC BAD_RC MUTANT ...: the exact exit codes the ORIGINAL and the MUTANT run must return.
+  tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
+  MD="$ROOT/mutants"; mkdir -p "$MD"
+  FILTER_ARGV=(bash -c '. "$1"; printf "%s\n" "$2" | block_file_filter' _ @SUT@)
 
-  MUTANT="$(mktemp /tmp/bf-parity-mutant.XXXXXX.sh)"
-  trap 'rm -rf "$ROOT" "$MUTANT"' EXIT
+  # TOOTH-1: anchor '^' only → a nested path (has /) no longer matches; (^|/) is load-bearing.
+  mk "TOOTH-1 mutant build" "$HELPER" "$MD/t1.sh" "s#_re='(^|/)\\[^/]+-#_re='^[^/]+-#" \
+    && tt "TOOTH-1: ^-only anchor blocks nested absolute path" 0 1 "$MD/t1.sh" --orig "$HELPER" \
+         --good-has 'sub-block3\.md' --bad-lacks 'sub-block3\.md' -- "${FILTER_ARGV[@]}" "$CORPUS/retros/sub-block3.md"
 
-  # TOOTH-1: anchor '^' only → nested path (has /) no longer matches ^ alone
-  # Prove: a mutant using only ^ would fail to match '$CORPUS/retros/sub-block3.md'
-  mutant_t1_filter() { grep -E '^[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$'; }
-  nested_mut="$(printf '%s\n' "$CORPUS/retros/sub-block3.md" | mutant_t1_filter 2>/dev/null || true)"
-  [ -z "$nested_mut" ] \
-    && tok "TOOTH-1: ^-only anchor blocks nested absolute path (^|/) is load-bearing" \
-    || tno "TOOTH-1: ^-only anchor still matched nested path — TOOTH DID NOT BITE"
+  # TOOTH-2: required [^/]+- prefix dropped → block12.md (bare blockN decoy) incorrectly matches.
+  mk "TOOTH-2 mutant build" "$HELPER" "$MD/t2.sh" 's#\[^/]+-(block|bloque)#(block|bloque)#' \
+    && tt "TOOTH-2: optional-prefix mutant passes block12.md decoy" 1 0 "$MD/t2.sh" --orig "$HELPER" \
+         --good-lacks 'block12\.md' --bad-has 'block12\.md' -- "${FILTER_ARGV[@]}" "$CORPUS/block12.md"
 
-  # TOOTH-2: prefix [^/]+- optional → block12.md (bare blockN) incorrectly matches
-  # Prove: a mutant without the required prefix-dash would match '$CORPUS/block12.md'
-  mutant_t2_filter() { grep -E '(^|/)(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$'; }
-  decoy_mut="$(printf '%s\n' "$CORPUS/block12.md" | mutant_t2_filter 2>/dev/null || true)"
-  [ -n "$decoy_mut" ] \
-    && tok "TOOTH-2: optional-prefix mutant passes block12.md decoy (prefix-dash is load-bearing)" \
-    || tno "TOOTH-2: optional-prefix mutant did NOT pass block12.md — TOOTH DID NOT BITE"
-
-  # TOOTH-3: guard-absent means a broken lib lets the caller proceed silently
-  BROKEN_LIB="$(mktemp /tmp/broken-bf2.XXXXXX.sh)"
-  printf '#!/usr/bin/env bash\n# intentionally empty — no block_file_filter defined\n' > "$BROKEN_LIB"
-  # Script WITH guard exits 1:
-  bash -c ". '$BROKEN_LIB'; declare -F block_file_filter >/dev/null 2>&1 || exit 1; echo ok" >/dev/null 2>&1; rc_guarded=$?
-  # Script WITHOUT guard exits 0:
-  bash -c ". '$BROKEN_LIB'; echo ok" >/dev/null 2>&1; rc_unguarded=$?
-  rm -f "$BROKEN_LIB"
-  [ "$rc_guarded" -ne 0 ] && [ "$rc_unguarded" -eq 0 ] \
-    && tok "TOOTH-3: guard exits 1 on broken lib; without guard exits 0 (guard is load-bearing)" \
-    || tno "TOOTH-3: guard/no-guard distinction not proven (guarded rc=$rc_guarded, unguarded rc=$rc_unguarded)"
+  # TOOTH-3: a consumer's `declare -F block_file_filter` guard is what turns a broken lib into a loud
+  # exit 1. Mutant = verify-corrections.sh without the guard; both copies sit beside an empty lib.
+  # Original: rc 1 + 'failed to define block_file_filter'. Mutant: proceeds past the missing filter, finds
+  # no block files and exits 2 ('no block files') — the late, misleading failure the guard prevents.
+  mkdir -p "$MD/orig/lib" "$MD/mut/lib"
+  printf '#!/usr/bin/env bash\n# intentionally empty — no block_file_filter defined\n' > "$MD/orig/lib/block-files.sh"
+  cp "$MD/orig/lib/block-files.sh" "$MD/mut/lib/block-files.sh"
+  cp "$TOOLBELT/verify-corrections.sh" "$MD/orig/verify-corrections.sh"
+  mk "TOOTH-3 mutant build" "$TOOLBELT/verify-corrections.sh" "$MD/mut/verify-corrections.sh" \
+    '/^declare -F block_file_filter .*failed to define block_file_filter/d' \
+    && tt "TOOTH-3: guard exits 1 on broken lib; without guard it proceeds" 1 2 "$MD/mut/verify-corrections.sh" \
+         --orig "$MD/orig/verify-corrections.sh" --good-has 'failed to define block_file_filter' \
+         --bad-lacks 'failed to define block_file_filter' --bad-has 'no block files' -- bash @SUT@ "$CORPUS"
 
   echo ""
   echo "  teeth passed: $t_pass  teeth failed: $t_fail"

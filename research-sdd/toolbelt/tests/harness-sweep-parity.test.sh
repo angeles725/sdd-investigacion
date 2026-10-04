@@ -213,23 +213,32 @@ done <<< "$LIST_OUT"
 
 # ---- NEGATIVE CONTROL: prove drift detection has teeth ---------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Sourced only here: a plain run never depends on the mutation helper.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   echo "-- teeth: inject drift into each surface; parity checks must catch it --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
   # Teeth A: drop sweep-audits-hook from a temp copy of settings.json
   jq 'del(.hooks.SessionStart[0].hooks[] | select(.command | test("sweep-audits")))' \
       "$SETTINGS" > "$TMP/settings-drop.json"
-  mutant_cl="$(extract_claude "$TMP/settings-drop.json")"
-  if [ "$mutant_cl" != "$PI_SET" ]; then
+  # lib/mutant.sh vets every mutant file (JSON/text: MUTANT_SYNTAX=none skips only its `bash -n`).
+  mutant_cl=""
+  if ! MUTANT_SYNTAX=none mutant_built "teeth A: settings mutant build" "$SETTINGS" "$TMP/settings-drop.json"; then
+    no "teeth A: could not build settings mutant (refused by lib/mutant.sh)"
+  elif mutant_cl="$(extract_claude "$TMP/settings-drop.json")"; [ "$mutant_cl" != "$PI_SET" ]; then
     ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Pi"
   else
     no "teeth A: dropped hook NOT caught — cross-surface comparison is theater"
   fi
 
   # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the Pi golden
-  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$PI_GOLDEN" > "$TMP/plan-pi-mutant.txt"
-  mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"
-  if [ "$CLAUDE_SET" != "$mutant_pi" ]; then
+  mutant_pi=""
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth B: Pi golden mutant build" "$PI_GOLDEN" "$TMP/plan-pi-mutant.txt" \
+      's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
+    no "teeth B: could not build Pi golden mutant (anchor drifted or refused by lib/mutant.sh)"
+  elif mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"; [ "$CLAUDE_SET" != "$mutant_pi" ]; then
     ok "teeth B: renaming sweep-retros in the Pi golden detected as drift vs Claude"
   else
     no "teeth B: mutant Pi NOT caught — cross-surface comparison is theater"
@@ -253,9 +262,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Teeth D: rename sweep-retros.sh in a temp copy of the gentle-shell golden — the gentle-shell
   # parity check (same extractor, same canonical set) must see it as drift vs Claude.
-  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$REPO/research-sdd/install/tests/golden/plan-gentle-shell.txt" > "$TMP/plan-gs-mutant.txt"
-  mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"
-  if [ -n "$mutant_gs" ] && [ "$CLAUDE_SET" != "$mutant_gs" ]; then
+  mutant_gs=""
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth D: gentle-shell golden mutant build" \
+      "$REPO/research-sdd/install/tests/golden/plan-gentle-shell.txt" "$TMP/plan-gs-mutant.txt" \
+      's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
+    no "teeth D: could not build gentle-shell golden mutant (anchor drifted or refused by lib/mutant.sh)"
+  elif mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"; [ -n "$mutant_gs" ] && [ "$CLAUDE_SET" != "$mutant_gs" ]; then
     ok "teeth D: renaming sweep-retros in the gentle-shell golden detected as drift vs Claude"
   else
     no "teeth D: mutant gentle-shell golden NOT caught — gentle-shell parity check is theater"
