@@ -97,9 +97,11 @@ ledger_pointers=$(
         # Skip header (#), placeholder/skeleton (—), separator, or empty first cell
         if (c1 == "#" || c1 == "\342\200\224" || c1 == "-" || c1 == "" || c1 == "—") next
         how = $5
-        # Extract backtick-wrapped path:line pointer: `anything:digits`
-        if (match(how, /`[^`]+:[0-9]+`/)) {
-          ptr = substr(how, RSTART + 1, RLENGTH - 2)
+        # Extract EVERY backtick-wrapped path:line pointer in the cell (#948 F2): `anything:digits`.
+        rest = how
+        while (match(rest, /`[^`]+:[0-9]+`/)) {
+          ptr = substr(rest, RSTART + 1, RLENGTH - 2)
+          rest = substr(rest, RSTART + RLENGTH)
           # Expand portable $RESEARCH_HOME/... and ${RESEARCH_HOME}/... forms.
           # Reuses the same convention as target-paths.sh so absolute pointers keep working.
           # Use ENVIRON["_SB_RH"] instead of -v: awk -v interprets & and backslash in values,
@@ -152,16 +154,25 @@ for p in $paths; do
   corpus_tagged=0
   for bf in "${block_files[@]}"; do
     # Recognized marker: header-blockquote line ^>[[:space:]]*\*\*Breakthrough:\*\*
-    # grep -q: exit 0 if found, 1 if not — do NOT add || true (converts grep error to silent zero).
-    if grep -qE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$bf" 2>/dev/null; then
-      lineno=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$bf" 2>/dev/null \
-                 | head -1 | cut -d: -f1)
+    # Collect EVERY marker line (#948 F3): a block with several markers is indexed when the
+    # ledger points at any of them. Capture the grep status: 1 = no marker, >1 = unreadable
+    # (never a silent zero, §7); no `|| true` and no `| head`.
+    marker_out=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$bf" 2>/dev/null); grc=$?
+    if [ "$grc" -gt 1 ]; then
+      echo "WARN: block file unreadable, marker scan skipped: $bf"
+      continue
+    fi
+    if [ "$grc" -eq 0 ]; then
       corpus_tagged=$((corpus_tagged + 1))
       total_tagged=$((total_tagged + 1))
-      # Check if this block is indexed in BREAKTHROUGHS.md.
-      # Match by checking if the ledger contains the block's absolute path and line number.
-      if ! grep -qxF "${bf}:${lineno}" <<<"$ledger_pointers" 2>/dev/null; then
-        echo "WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: ${bf}:${lineno}"
+      first_lineno=""; indexed=0
+      while IFS= read -r mline; do
+        mlineno="${mline%%:*}"
+        [ -n "$first_lineno" ] || first_lineno="$mlineno"
+        if grep -qxF "${bf}:${mlineno}" <<<"$ledger_pointers" 2>/dev/null; then indexed=1; fi
+      done <<<"$marker_out"
+      if [ "$indexed" -eq 0 ]; then
+        echo "WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: ${bf}:${first_lineno}"
         warn_unindexed=$((warn_unindexed + 1))
       fi
     fi
@@ -187,6 +198,14 @@ if [ -n "$ledger_pointers" ]; then
     elif ! grep -qE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$bfile" 2>/dev/null; then
       echo "WARN: drift — indexed block no longer carries the **Breakthrough:** marker: $ptr (from BREAKTHROUGHS.md)"
       warn_drift=$((warn_drift + 1))
+    else
+      # Per-pointer line check (#948 F1): the pointed line itself must carry the marker.
+      pline="${ptr##*:}"
+      ptext=$(sed -n "${pline}p" "$bfile" 2>/dev/null)
+      if ! grep -qE '^>[[:space:]]*\*\*Breakthrough:\*\*' <<<"$ptext"; then
+        echo "WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): $ptr (from BREAKTHROUGHS.md)"
+        warn_drift=$((warn_drift + 1))
+      fi
     fi
   done <<< "$ledger_pointers"
 fi
