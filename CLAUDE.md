@@ -22,11 +22,11 @@ That string names the exact default this contract supersedes for kit-maintenance
 |---|---|
 | Decide or verify within the inline evidence budget: one parallel batch, at most 3 calls and ~10k tokens (bounded searches / line ranges, not whole large files) | Inline |
 | Anything beyond the inline budget — a second batch, further sequential lookups, or long-session mapping | Delegate one read-only explorer (handoff ≤ ~2k tokens with path:line evidence; one parent spot check) |
-| Write one mechanical, already-understood file that needs no further research | Inline |
+| Write one file whose change is already understood and needs no further research (mechanical or not) | Inline |
 | Write 2+ non-trivial files | Delegate one writer — the reading that prepares those writes goes to that writer, not the parent |
 | Broad research or context compression | Delegate |
 
-File count alone never forces a route: the budget is evidence volume (calls and tokens), not number of files. When in doubt, the budget is exceeded — delegate.
+For reading and deciding, file count never forces a route: the budget is evidence volume (calls and tokens), not number of files. The one count-based trigger is on the write side — 2+ non-trivial files go to a writer, and it wins over the inline budget. When in doubt, the budget is exceeded — delegate.
 
 ---
 
