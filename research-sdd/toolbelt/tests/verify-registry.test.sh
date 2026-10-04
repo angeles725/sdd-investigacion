@@ -47,6 +47,53 @@ pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
+# ---- mutation controls on lib/mutant.sh (kit issue #1299 item 1) --------------------------------
+# lib/mutant.sh is sourced ONLY on the --prove-teeth path: every TEETH block below starts with
+# _vr_teeth_init (idempotent), which sources it and probes EVERY helper the controls call. Mutants
+# are built from the REAL $SUT (so the helper's live-tree / identical / bash -n refusals apply) into
+# <kit>/toolbelt/verify-registry-mut.sh — beside the kit's own lib/ copy, because the SUT resolves
+# its libs and KIT relative to $0 — and compared against the kit's pristine SUT copy
+# (<kit>/toolbelt/verify-registry.sh), so original and mutant observe the SAME fixture.
+# A refused mutant build is counted exactly ONCE (vr_mut) and its tooth never runs (callers use
+# `if vr_mut …; then vr_run …; fi`, no else: "refusal already counted").
+# The SUT prints WARN/INFO prose, not KEY=value lines, so the observations pin the SAME message
+# fragments the base cases assert on; the clean verdict is anchored at line start.
+_VR_TEETH_READY=""
+_vr_teeth_init() {
+  [ -z "$_VR_TEETH_READY" ] || return 0
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  local _fn
+  for _fn in mutant_chain mutant_built mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  _VR_TEETH_READY=1
+}
+# vr_mut LABEL KIT SED_EXPR... : build the mutant of the real SUT inside KIT's toolbelt/.
+vr_mut() {
+  local label="$1" kit="$2"
+  shift 2
+  mutant_chain "$label" "$SUT" "$kit/toolbelt/verify-registry-mut.sh" "$@" || { fail=$((fail+1)); return 1; }
+}
+# vr_run LABEL KIT GOOD_RC BAD_RC [mutant_tooth opts] [-- ARGV...] : original (kit copy) vs mutant,
+# both with their EXACT exit codes; ARGV defaults to `bash @SUT@` (the SUT takes no arguments).
+vr_run() {
+  local label="$1" kit="$2" grc="$3" brc="$4" a have_argv=""
+  shift 4
+  for a in "$@"; do [ "$a" = -- ] && have_argv=1; done
+  [ -n "$have_argv" ] || set -- "$@" -- "$BASH_BIN" @SUT@
+  if mutant_tooth "$label" "$grc" "$brc" "$kit/toolbelt/verify-registry-mut.sh" \
+       --orig "$kit/toolbelt/verify-registry.sh" "$@"; then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+  fi
+}
+# Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
+VR_CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+# The clean verdict line, anchored at line start.
+VR_CLEAN='^Registry consistent with reality'
+
 # mkkit <name> : lay down a runnable COPY of the SUT and its shared helper at <ROOT>/<name>/toolbelt/
 # so KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
 mkkit() {
@@ -1045,49 +1092,43 @@ fi
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
   echo "-- teeth: neuter the drift guard (-gt tol → -gt 999999); expect the drift fixture to stop WARNing --"
   kit="$(mkkit teeth-drift)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 5 "a"
   write_targets "$kit" "$tgt::40 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q 'if \[ "\$d" -gt "\$tol" \]; then' "$mut"; then
-    sed -i 's/if \[ "\$d" -gt "\$tol" \]; then/if [ "\$d" -gt 999999 ]; then/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -q 'refresh the row' <<<"$mout"; then
-      ok "teeth: neutered drift-guard mutant emits NO drift WARN → case 2/5 have teeth" "(exit $mrc)"
-    else
-      no "teeth: neutered mutant STILL WARNs drift → drift assertion is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth: could not build mutant (drift guard line not found — did the SUT change?)"
+  if vr_mut "teeth: drift guard" "$kit" 's/if \[ "\$d" -gt "\$tol" \]; then/if [ "\$d" -gt 999999 ]; then/'; then
+    vr_run "teeth: neutered drift-guard mutant emits NO drift WARN → case 2/5 have teeth" "$kit" 0 0 \
+      --good-has 'refresh the row' --bad-lacks 'refresh the row'
   fi
 
   # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, MEDIUM): revert -P/pwd -P to plain cd/pwd on
   # the KIT= line — the ONLY difference from the fixed SUT — and confirm the self-reg WARN
-  # false-fires again when reached through a symlinked toolbelt/.
+  # false-fires again when reached through a symlinked toolbelt/. The mutant is built in the real
+  # toolbelt/ and run through the symlink; the original is the kit's pristine copy through the same
+  # symlink. mutant_chain proves the mutation applied (it replaces the old "pre-check" grep, which
+  # is why that separate pass is gone).
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   kit_tsym="$(mkkit teeth-symlink-toolbelt)"
-  mut_tsym="$kit_tsym/toolbelt/verify-registry.sh"
-  sed -i 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/' "$mut_tsym"
-  if grep -q 'cd -P "\$(dirname "\$0")/\.\."' "$mut_tsym"; then
-    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found (did the fix change shape?)"
-  else
-    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
-  fi
-  mkdir -p "$kit_tsym/profile/general"
-  ln -s "$kit_tsym/toolbelt" "$kit_tsym/profile/general/toolbelt"
-  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit_tsym"
-  } > "$kit_tsym/TARGETS.md"
-  # F1 completion (kit issue #993 WU2 + #1024 F1) symlinks TARGETS.md into the render dir too, same
-  # as toolbelt/ — without it here, the broken KIT_DIR fails earlier with "cannot find TARGETS.md",
-  # a real but different symptom of the identical bug; this mirrors the true render shape instead.
-  ln -s "$kit_tsym/TARGETS.md" "$kit_tsym/profile/general/TARGETS.md"
-  out_tsym="$("$BASH_BIN" "$kit_tsym/profile/general/toolbelt/verify-registry.sh" 2>&1)"; rc_tsym=$?
-  if [ "$rc_tsym" = 0 ] && grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$out_tsym"; then
-    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ (false self-reg WARN) → -P fix has teeth"
-  else
-    no "teeth SYMLINK-TOOLBELT: reverted mutant did not re-break — -P fix check is THEATER (rc=$rc_tsym out=[$out_tsym])"
+  if vr_mut "teeth SYMLINK-TOOLBELT" "$kit_tsym" 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/'; then
+    mkdir -p "$kit_tsym/profile/general"
+    ln -s "$kit_tsym/toolbelt" "$kit_tsym/profile/general/toolbelt"
+    { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+      printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit_tsym"
+    } > "$kit_tsym/TARGETS.md"
+    # F1 completion (kit issue #993 WU2 + #1024 F1) symlinks TARGETS.md into the render dir too, same
+    # as toolbelt/ — without it here, the broken KIT_DIR fails earlier with "cannot find TARGETS.md",
+    # a real but different symptom of the identical bug; this mirrors the true render shape instead.
+    ln -s "$kit_tsym/TARGETS.md" "$kit_tsym/profile/general/TARGETS.md"
+    if mutant_tooth "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ (false self-reg WARN) → -P fix has teeth" \
+         0 0 "$kit_tsym/profile/general/toolbelt/verify-registry-mut.sh" \
+         --orig "$kit_tsym/profile/general/toolbelt/verify-registry.sh" \
+         --good-lacks 'kit repo is NOT in its own TARGETS' --bad-has 'kit repo is NOT in its own TARGETS' \
+         -- "$BASH_BIN" @SUT@; then
+      pass=$((pass+1))
+    else
+      fail=$((fail+1))
+    fi
   fi
 
   # teeth-nc: neuter the nc-marker exemption check (replace the condition with `false`) → an
@@ -1099,19 +1140,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetNC | intermediate (1 md / nc / git no) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
   # Replace the nc-marker if-condition line (identified by '# NC-EXEMPT-CHECK' sentinel) with
   # `if false; then` so the nc path is never taken and the fallback WARN fires instead.
-  if grep -q '# NC-EXEMPT-CHECK' "$mut"; then
-    sed -i '/# NC-EXEMPT-CHECK/ s/.*/    if false; then  # NC-EXEMPT-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'corpus layout not resolvable' <<<"$mout"; then
-      ok "teeth-nc: neutered nc-marker → nc target gets 'not resolvable' WARN" "(exit $mrc)"
-    else
-      no "teeth-nc: neutered nc mutant didn't produce 'not resolvable' WARN" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-nc: NC-EXEMPT-CHECK sentinel not found in SUT (nc feature not implemented or marker missing)"
+  if vr_mut "teeth-nc" "$kit" '/# NC-EXEMPT-CHECK/ s/.*/    if false; then  # NC-EXEMPT-CHECK [MUTATED]/'; then
+    vr_run "teeth-nc: neutered nc-marker → nc target gets 'not resolvable' WARN" "$kit" 0 0 \
+      --good-lacks 'corpus layout not resolvable' --bad-has 'corpus layout not resolvable'
   fi
 
   # teeth-nc-contradiction: neuter the contradiction-check guard (replace the condition with `false`)
@@ -1123,22 +1156,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetNC | intermediate (3 md / nc / git no) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# NC-CONTRADICTION-CHECK' "$mut"; then
-    sed -i '/# NC-CONTRADICTION-CHECK/ s/.*/    if false; then  # NC-CONTRADICTION-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]]+targetNC.*RESEARCH-STATE' <<<"$mout"; then
-      ok "teeth-nc-contradiction: neutered check → nc+RESEARCH-STATE emits no contradiction WARN (test 14 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-nc-contradiction: neutered check still emits WARN or exited non-zero" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-nc-contradiction: NC-CONTRADICTION-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-nc-contradiction" "$kit" '/# NC-CONTRADICTION-CHECK/ s/.*/    if false; then  # NC-CONTRADICTION-CHECK [MUTATED]/'; then
+    vr_run "teeth-nc-contradiction: neutered check → nc+RESEARCH-STATE emits no contradiction WARN (test 14 has teeth)" "$kit" 0 0 \
+      --good-has 'WARN[[:space:]]+targetNC.*RESEARCH-STATE' --bad-lacks 'WARN[[:space:]]+targetNC.*RESEARCH-STATE'
   fi
 
   # teeth-unclassifiable: neuter the unclassifiable-check guard (identified by # UNCLASSIFIABLE-CHECK
   # sentinel in the SUT); the bare block<N>.md fixture must STOP emitting the WARN — proving test 16
-  # depends on the real guard and not on coincidental output.
+  # depends on the real guard and not on coincidental output. Pin to targetA explicitly: the kit name
+  # may contain "unclassifiable" (e.g. teeth-unclassifiable) and the self-reg gate emits
+  # `WARN  <kit-name> — kit repo is NOT...`, which would false-match a bare .*unclassifiable pattern.
   echo "-- teeth-unclassifiable: neuter UNCLASSIFIABLE-CHECK; bare block<N>.md must NOT WARN --"
   kit="$(mkkit teeth-unclassifiable)"; tgt="$kit/targetA"
   mkdir -p "$tgt"
@@ -1146,28 +1173,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     > "$tgt/RESEARCH-STATE.md"
   for i in $(seq 1 13); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
   write_targets "$kit" "$tgt::13 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# UNCLASSIFIABLE-CHECK' "$mut"; then
-    sed -i '/# UNCLASSIFIABLE-CHECK/ s/.*/    if false; then  # UNCLASSIFIABLE-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    # Assert that targetA's unclassifiable WARN is absent. Pin to targetA explicitly: the kit name
-    # may contain "unclassifiable" (e.g. teeth-unclassifiable) and the self-reg gate now emits
-    # `WARN  <kit-name> — kit repo is NOT...`, which would false-match a bare .*unclassifiable pattern.
-    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]]+targetA.*unclassifiable' <<<"$mout"; then
-      ok "teeth-unclassifiable: neutered guard → bare blocks emit NO unclassifiable WARN (test 16 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-unclassifiable: neutered mutant STILL emits unclassifiable WARN → test 16 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-unclassifiable: UNCLASSIFIABLE-CHECK sentinel not found in SUT (guard not implemented or marker missing)"
+  if vr_mut "teeth-unclassifiable" "$kit" '/# UNCLASSIFIABLE-CHECK/ s/.*/    if false; then  # UNCLASSIFIABLE-CHECK [MUTATED]/'; then
+    vr_run "teeth-unclassifiable: neutered guard → bare blocks emit NO unclassifiable WARN (test 16 has teeth)" "$kit" 0 0 \
+      --good-has 'WARN[[:space:]]+targetA.*unclassifiable' --bad-lacks 'WARN[[:space:]]+targetA.*unclassifiable'
   fi
 
   # teeth-count-subst: neuter the count+noun substitution (identified by # SUBST-COUNT-CHECK sentinel
   # in the SUT). When the substitution is a no-op, the INFO must report "0 block(s) on disk" instead
   # of "13 candidate block file(s) (unclassifiable) on disk" — proving that test 16's explicit count
   # assertion is load-bearing: deleting or breaking the substitution goes RED, not vacuously green.
-  # A marker guard (`grep -q '# SUBST-COUNT-CHECK'`) ensures a missed sed is detected and reported
-  # rather than passing vacuously.
+  # Replacing the guard with `if false; then` keeps the fi structure: _vr_effective_count stays at
+  # $real (0) and _vr_count_noun stays "block(s) on disk" — the pre-fix misleading output.
   echo "-- teeth-count-subst: neuter SUBST-COUNT-CHECK; INFO must NOT name 13 candidate files --"
   kit="$(mkkit teeth-count-subst)"; tgt="$kit/targetA"
   mkdir -p "$tgt"
@@ -1175,50 +1191,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     > "$tgt/RESEARCH-STATE.md"
   for i in $(seq 1 13); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
   write_targets "$kit" "$tgt::13 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# SUBST-COUNT-CHECK' "$mut"; then
-    # Replace the substitution guard with `if false; then` so the body never runs:
-    # _vr_effective_count stays at $real (0) and _vr_count_noun stays "block(s) on disk"
-    # — the pre-fix misleading output. Using `if false; then` preserves the fi structure.
-    sed -i '/# SUBST-COUNT-CHECK/ s/.*/      if false; then  # SUBST-COUNT-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qE 'INFO[[:space:]]+targetA.*13 candidate block file' <<<"$mout"; then
-      ok "teeth-count-subst: neutered substitution → INFO no longer names 13 candidate files (test 16 count assertion has teeth)" "(exit $mrc)"
-    else
-      no "teeth-count-subst: neutered mutant STILL names 13 candidate files → test 16 count assertion is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-count-subst: SUBST-COUNT-CHECK sentinel not found in SUT (substitution not implemented or marker missing)"
+  if vr_mut "teeth-count-subst" "$kit" '/# SUBST-COUNT-CHECK/ s/.*/      if false; then  # SUBST-COUNT-CHECK [MUTATED]/'; then
+    vr_run "teeth-count-subst: neutered substitution → INFO no longer names 13 candidate files (test 16 count assertion has teeth)" "$kit" 0 0 \
+      --good-has 'INFO[[:space:]]+targetA.*13 candidate block file' --bad-lacks 'INFO[[:space:]]+targetA.*13 candidate block file'
   fi
 
   # teeth-VR-T1: neuter declare-F for target_paths_all → broken helper lacks the specific message.
   # This proves case 20's 'failed to define target_paths_all' message assertion is load-bearing.
   # NOTE (issue #140): neutering only the target_paths_all guard leaves target_paths_pairs firing
-  # (exit 1), so the mutant may still exit non-zero — but via the OTHER guard, without the specific
-  # message. The assertion checks message absence only; exit code teeth are covered by M2 below.
+  # (exit 1), so the mutant still exits 1 — via the OTHER guard, without the specific message. That
+  # exact rc and the pairs message are pinned (a crash cannot read as a bite); exit code teeth for the
+  # all-guard itself are covered by M-all below. The whole single-line guard is replaced with a no-op.
   echo "-- teeth VR-T1: neuter declare-F for target_paths_all; 'failed to define target_paths_all' msg must vanish --"
-  _vr_tp_anchor='declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry:'
-  if ! grep -qF "$_vr_tp_anchor" "$SUT"; then
-    no "teeth VR-T1: locate declare-F target_paths_all guard in SUT" "anchor not found — SUT drifted?"
-  else
-    kit="$(mkkit teeth-vr-t1)"; tgt="$kit/targetA"
-    mkcorpus "$tgt" 3 "a"
-    write_targets "$kit" "$tgt::3 md"
-    printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
-    mut="$kit/toolbelt/verify-registry.sh"
-    # Entire single-line guard replaced with no-op; the 'failed to define target_paths_all' echo is gone.
-    sed 's/declare -F target_paths_all .*/: # __VRT1_NEUTERED__/' "$SUT" > "$mut"
-    mout_t1="$("$BASH_BIN" "$mut" 2>&1)"; mrc_t1=$?
-    # Assert: specific message is absent (proves the message assertion in case 20 has teeth).
-    # Exit code may still be non-zero (via target_paths_pairs guard) — that is expected and correct.
-    if ! grep -q 'failed to define target_paths_all' <<<"$mout_t1"; then
-      ok "teeth VR-T1: guard-neutered mutant lacks 'failed to define target_paths_all' msg (case 20 msg-assertion has teeth)" "(exit $mrc_t1)"
-    else
-      no "teeth VR-T1: mutant STILL has 'failed to define target_paths_all' msg — case 20 msg-assertion is THEATER" "rc=$mrc_t1 out=[$mout_t1]"
-    fi
+  kit="$(mkkit teeth-vr-t1)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  write_targets "$kit" "$tgt::3 md"
+  printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
+  if vr_mut "teeth VR-T1" "$kit" 's/declare -F target_paths_all .*/: # __VRT1_NEUTERED__/'; then
+    vr_run "teeth VR-T1: guard-neutered mutant lacks 'failed to define target_paths_all' msg (case 20 msg-assertion has teeth)" "$kit" 1 1 \
+      --good-has 'failed to define target_paths_all' \
+      --bad-lacks "failed to define target_paths_all|$VR_CRASH" --bad-has 'failed to define target_paths_pairs'
   fi
 
   # teeth-VR-T2: remove RESEARCH_HOME expansion → case 21 goes RED (reconciled 0 targets, not 1).
+  # The "mutant" here is a stripped target-paths LIBRARY, not a SUT script: it is built (heredoc)
+  # and verified with mutant_built against the real lib, and the tooth runs the unmodified SUT
+  # copy twice — once with the real lib installed, once with the stub (the `cp` in the ARGV).
   echo "-- teeth VR-T2: strip RESEARCH_HOME expansion; case 21 must show 0 targets reconciled --"
   kit="$(mkkit teeth-vr-t2)"
   _rh_base_vt2="$ROOT/rh_vt2_$$"
@@ -1231,8 +1229,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The stripped helper defines both functions so verify-registry.sh gets past the declare-F
   # guards. Neither function handles $RESEARCH_HOME paths (Form 1 only: absolute `/` paths).
   # With the $RESEARCH_HOME path in TARGETS.md, all_pairs is empty → zero-paths guard fires.
-  # Build stub once into a named file; Tooth VR-T-noarg sources $_vrt2_stub directly.
-  _vrt2_stub="$ROOT/vrt2-stripped-lib.sh"
+  # Build the stub once into a named file (in its OWN dir, so lib/mutant.sh's placement check — OUT
+  # must not sit in ORIG's directory when ORIG is outside a git tree — holds for the noarg mutants
+  # below, whose ORIG is this stub); Tooth VR-T-noarg sources it directly.
+  mkdir -p "$ROOT/vrt2-stub"
+  _vrt2_stub="$ROOT/vrt2-stub/vrt2-stripped-lib.sh"
   cat > "$_vrt2_stub" <<'VRT2STRIPPED'
 #!/usr/bin/env bash
 if ! declare -F target_paths_all >/dev/null 2>&1; then
@@ -1252,103 +1253,108 @@ if ! declare -F target_paths_pairs >/dev/null 2>&1; then
   }
 fi
 VRT2STRIPPED
-  cp "$_vrt2_stub" "$kit/toolbelt/lib/target-paths.sh"
-  mout_t2="$(RESEARCH_HOME="$_rh_base_vt2" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t2=$?
-  unset _rh_base_vt2
-  # Without RESEARCH_HOME expansion, all_pairs yields nothing for the $RESEARCH_HOME/rh_corpus row →
-  # zero-paths guard fires (ERROR, no Summary). Case 21 expects 'reconciled 1 target'; this mutant
-  # cannot reach it — confirming case 21 depends on RESEARCH_HOME expansion in target_paths_pairs.
-  if ! grep -q 'reconciled 1 target' <<<"$mout_t2"; then
-    ok "teeth VR-T2: stripped mutant does not reconcile 1 target → case 21 has teeth" "()"
-  else
-    no "teeth VR-T2: stripped mutant still reconciled 1 target — case 21 is THEATER" "rc=$mrc_t2 out=[$mout_t2]"
-  fi
+  if mutant_built "teeth VR-T2: stripped target-paths stub" "$TP_LIB" "$_vrt2_stub"; then
+    # Without RESEARCH_HOME expansion, all_pairs yields nothing for the $RESEARCH_HOME/rh_corpus row →
+    # zero-paths guard fires (ERROR, no Summary; the guard is WARN-only so it exits 0). Case 21 expects
+    # 'reconciled 1 target'; this mutant cannot reach it — confirming case 21 depends on RESEARCH_HOME
+    # expansion in target_paths_pairs. Positional codes: GOOD_RC 0 = original (real lib) reconciles 1
+    # target; BAD_RC 0 = the stub run ends in the zero-paths ERROR, also exit 0.
+    if mutant_tooth "teeth VR-T2: stripped mutant does not reconcile 1 target → case 21 has teeth" 0 0 "$_vrt2_stub" \
+         --orig "$TP_LIB" --good-has 'reconciled 1 target' \
+         --bad-has 'ERROR — no usable target paths' --bad-lacks "reconciled 1 target|$VR_CRASH" \
+         -- env RESEARCH_HOME="$_rh_base_vt2" "$BASH_BIN" -c \
+            'cp "$1" "$2/toolbelt/lib/target-paths.sh" && "$3" "$2/toolbelt/verify-registry.sh"' _ @SUT@ "$kit" "$BASH_BIN"; then
+      pass=$((pass+1))
+    else
+      fail=$((fail+1))
+    fi
 
-  # Tooth VR-T-noarg: VRT2STRIPPED stub ($_vrt2_stub, same file installed above) must match the
-  # real library on no-arg for BOTH target_paths_all and target_paths_pairs.  One file, no copies.
-  # Parity: call each function from $_vrt2_stub AND from the real lib with no arg; assert both
-  # exit non-zero AND that stub stderr == lib stderr for each function.
-  # Mutation: sed $_vrt2_stub to restore 'return 0' on all # TP-STUB-NOARG lines → parity breaks.
-    # Asserting lib rc non-zero for both functions: a lib that silently returns 0 with a message
-  # would pass parity (stub copies the wrong behaviour), making these checks theater (#909).
-  # Mutant ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
-  # message (not merely "not equal both"), so a mutant that stays rc=1 with any message cannot
-  # sneak past (#909 — tighten mutant check).
-echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mutant must break parity --"
-  _vrtna_lib_all_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _vrtna_lib_all_rc=$?
-  _vrtna_lib_pairs_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_pairs" 2>&1)"; _vrtna_lib_pairs_rc=$?
-  _vrtna_all_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_all" 2>&1)"; _vrtna_all_rc=$?
-  if [ "$_vrtna_lib_all_rc" != 0 ] && [ "$_vrtna_all_rc" != 0 ] && [ "$_vrtna_all_msg" = "$_vrtna_lib_all_msg" ]; then
-    ok "teeth VR-T-noarg: target_paths_all stub (exit $_vrtna_all_rc) matches lib (exit $_vrtna_lib_all_rc) on no-arg (parity)" "()"
+    # Tooth VR-T-noarg: the stub ($_vrt2_stub, same file installed above) must match the real
+    # library on no-arg for BOTH target_paths_all and target_paths_pairs. One file, no copies.
+    # Parity: call each function from the stub AND from the real lib with no arg; assert both
+    # exit non-zero AND that stub stderr == lib stderr for each function. Asserting lib rc non-zero
+    # for both functions: a lib that silently returns 0 with a message would pass parity (stub copies
+    # the wrong behaviour), making these checks theater (#909).
+    echo "-- teeth VR-T-noarg: stripped-stub no-arg parity with real lib; sed-mutant must break parity --"
+    _vrtna_lib_all_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _vrtna_lib_all_rc=$?
+    _vrtna_lib_pairs_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_pairs" 2>&1)"; _vrtna_lib_pairs_rc=$?
+    _vrtna_all_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_all" 2>&1)"; _vrtna_all_rc=$?
+    if [ "$_vrtna_lib_all_rc" != 0 ] && [ "$_vrtna_all_rc" != 0 ] && [ "$_vrtna_all_msg" = "$_vrtna_lib_all_msg" ]; then
+      ok "teeth VR-T-noarg: target_paths_all stub (exit $_vrtna_all_rc) matches lib (exit $_vrtna_lib_all_rc) on no-arg (parity)" "()"
+    else
+      no "teeth VR-T-noarg: target_paths_all stub diverges from lib on no-arg" "stub rc=$_vrtna_all_rc msg=[$_vrtna_all_msg] lib rc=$_vrtna_lib_all_rc msg=[$_vrtna_lib_all_msg]"
+    fi
+    _vrtna_pairs_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_pairs" 2>&1)"; _vrtna_pairs_rc=$?
+    if [ "$_vrtna_lib_pairs_rc" != 0 ] && [ "$_vrtna_pairs_rc" != 0 ] && [ "$_vrtna_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
+      ok "teeth VR-T-noarg: target_paths_pairs stub (exit $_vrtna_pairs_rc) matches lib (exit $_vrtna_lib_pairs_rc) on no-arg (parity)" "()"
+    else
+      no "teeth VR-T-noarg: target_paths_pairs stub diverges from lib on no-arg" "stub rc=$_vrtna_pairs_rc msg=[$_vrtna_pairs_msg] lib rc=$_vrtna_lib_pairs_rc msg=[$_vrtna_lib_pairs_msg]"
+    fi
+    # Mutation: both # TP-STUB-NOARG guards back to 'return 0' in a temp copy (one chain stage hits both
+    # lines). Tight check: the mutant must exit EXACTLY 0 where the stub exits 1 — the mutation changes
+    # 'return 1' to 'return 0', so rc 0 is the only valid evidence (a '|| msg-differs' escape hatch was
+    # a false positive, #923-B). The no-arg stub message must be present on the good side.
+    _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
+    if mutant_chain "teeth VR-T-noarg mutant" "$_vrt2_stub" "$_vrtna_mut" '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/'; then
+      for _vrtna_fn in target_paths_all target_paths_pairs; do
+        if mutant_tooth "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for $_vrtna_fn → mutation has teeth" 1 0 "$_vrtna_mut" \
+             --orig "$_vrt2_stub" --good-has 'called with no argument' --bad-lacks 'called with no argument' \
+             -- "$BASH_BIN" -c '. "$1"; "$2"' _ @SUT@ "$_vrtna_fn"; then
+          pass=$((pass+1))
+        else
+          fail=$((fail+1))
+        fi
+      done
+    else
+      fail=$((fail+1))
+    fi
+    rm -f "$_vrtna_mut"
   else
-    no "teeth VR-T-noarg: target_paths_all stub diverges from lib on no-arg" "stub rc=$_vrtna_all_rc msg=[$_vrtna_all_msg] lib rc=$_vrtna_lib_all_rc msg=[$_vrtna_lib_all_msg]"
+    # mutant_built already printed the refusal; the VR-T2 tooth and the four VR-T-noarg checks that
+    # depend on the stub cannot run — count that as exactly one failure, never a silent skip.
+    fail=$((fail+1))
+    echo "  FAIL  teeth VR-T2/VR-T-noarg: stripped stub refused — 5 dependent checks did not run"
   fi
-  _vrtna_pairs_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_pairs" 2>&1)"; _vrtna_pairs_rc=$?
-  if [ "$_vrtna_lib_pairs_rc" != 0 ] && [ "$_vrtna_pairs_rc" != 0 ] && [ "$_vrtna_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
-    ok "teeth VR-T-noarg: target_paths_pairs stub (exit $_vrtna_pairs_rc) matches lib (exit $_vrtna_lib_pairs_rc) on no-arg (parity)" "()"
-  else
-    no "teeth VR-T-noarg: target_paths_pairs stub diverges from lib on no-arg" "stub rc=$_vrtna_pairs_rc msg=[$_vrtna_pairs_msg] lib rc=$_vrtna_lib_pairs_rc msg=[$_vrtna_lib_pairs_msg]"
-  fi
-  # Mutation: sed both # TP-STUB-NOARG guards back to 'return 0' in a temp copy.
-  # Tight check: rc=0 only. The mutation changes 'return 1' to 'return 0', so the only
-  # valid evidence is rc=0. The || msg-differs escape hatch was a false positive (#923-B):
-  # any non-zero rc that also changes the message (e.g. return 2) would fire it.
-  _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
-  sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_vrt2_stub" > "$_vrtna_mut"
-  "$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_all" >/dev/null 2>&1; _vrtna_mut_all_rc=$?
-  if [ "$_vrtna_mut_all_rc" = 0 ]; then
-    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_all → mutation has teeth" "stub_rc=$_vrtna_mut_all_rc"
-  else
-    no "teeth VR-T-noarg mutant all: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_all_rc"
-  fi
-  "$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_pairs" >/dev/null 2>&1; _vrtna_mut_pairs_rc=$?
-  if [ "$_vrtna_mut_pairs_rc" = 0 ]; then
-    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_pairs → mutation has teeth" "stub_rc=$_vrtna_mut_pairs_rc"
-  else
-    no "teeth VR-T-noarg mutant pairs: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_pairs_rc"
-  fi
-  rm -f "$_vrtna_mut"
+  unset _rh_base_vt2
 
   # teeth-VR-T3: remove the zero-paths guard → case 22 must lose its specific "no usable target
   # paths" message. With the guard removed, the script now hits the ALL-ABSENT-CHECK (dir_reached=0
   # after the empty-paths loop) → exits 1, emitting a different ERROR. Test 22 asserts exit 0 +
   # the specific "no usable target paths" message; both fail on this mutant → test 22 has teeth.
+  # The deletion is an exact RESOLVED line range (the `if [ -z "$paths" ]` line through the first
+  # following `^fi$`), never an open-ended /a/,/b/d; no anchor → no mutant, counted once.
   echo "-- teeth VR-T3: remove zero-paths guard; 'no usable target paths' msg must vanish (case 22 has teeth) --"
-  _vr_zp_anchor='if \[ -z "\$paths" \]; then'
-  if ! grep -qE "$_vr_zp_anchor" "$SUT"; then
+  _vr_zp_range="$(awk '/if \[ -z "\$paths" \]/ && !n {n=NR} n && /^fi$/ {print n "," NR; exit}' "$SUT")"
+  if [ -z "$_vr_zp_range" ]; then
     no "teeth VR-T3: locate zero-paths guard in SUT" "anchor not found — SUT drifted?"
   else
     kit="$(mkkit teeth-vr-t3)"
     printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
       > "$kit/TARGETS.md"
-    sed '/if \[ -z "\$paths" \]/,/^fi$/d' "$SUT" > "$kit/toolbelt/verify-registry.sh"
-    mout_t3="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t3=$?
-    # The mutant no longer emits "no usable target paths" (zero-paths guard gone); instead
-    # ALL-ABSENT-CHECK fires. Test 22's `[ "$RC" = 0 ]` and specific-message assertions both fail.
-    if ! grep -qi 'ERROR.*no usable target paths' <<<"$mout_t3"; then
-      ok "teeth VR-T3: guard-removed mutant lacks 'no usable target paths' msg (case 22 has teeth)" "(exit $mrc_t3)"
-    else
-      no "teeth VR-T3: guard-removed mutant still shows 'no usable target paths' msg — case 22 has no teeth" "rc=$mrc_t3 out=[$mout_t3]"
+    if vr_mut "teeth VR-T3" "$kit" "${_vr_zp_range}d"; then
+      # Positional codes: GOOD_RC 0 = the original prints the ERROR but exits 0 (the zero-paths guard is
+      # WARN-only, as base case 22 asserts); BAD_RC 1 = the mutant skips it and hits ALL-ABSENT-CHECK,
+      # which exits 1.
+      vr_run "teeth VR-T3: guard-removed mutant lacks 'no usable target paths' msg (case 22 has teeth)" "$kit" 0 1 \
+        --good-has 'ERROR.*no usable target paths' --bad-lacks "ERROR.*no usable target paths|$VR_CRASH"
     fi
   fi
 
   # teeth-kit-self-reg: neuter the KIT-SELF-REG-CHECK (kit-sup #6 gate); the kit-absent fixture
   # (test 25) must STOP emitting the self-reg WARN, proving the assertion is load-bearing.
   echo "-- teeth-kit-self-reg: neuter KIT-SELF-REG-CHECK; kit-absent fixture must NOT WARN --"
-  kit="$(mkkit teeth-kit-self-reg)"; tgt="$kit/targetA"
+  # The fixture is test 25's own: a hand-written TARGETS.md WITHOUT the kit row and a target OUTSIDE the
+  # kit. write_targets cannot be used — it registers the kit itself, so the pristine SUT would stay
+  # silent too and the control would observe nothing (the earlier version of this tooth was vacuous
+  # for exactly that reason; --good-has now refuses that shape).
+  kit="$(mkkit teeth-kit-self-reg)"; tgt="$ROOT/teeth-kit-self-reg-ext-tgt"
   mkcorpus "$tgt" 3 "a"
-  write_targets "$kit" "$tgt::3 md"   # kit dir NOT in TARGETS.md (same fixture as test 25)
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# KIT-SELF-REG-CHECK' "$mut"; then
-    sed -i '/# KIT-SELF-REG-CHECK/ s/.*/  : # KIT-SELF-REG-CHECK [NEUTERED]/' "$mut"
-    mout_ksr="$("$BASH_BIN" "$mut" 2>&1)"; mrc_ksr=$?
-    if [ "$mrc_ksr" = 0 ] && ! grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$mout_ksr"; then
-      ok "teeth-kit-self-reg: neutered gate → kit-absent fixture emits NO self-reg WARN (test 25 has teeth)" "(exit $mrc_ksr)"
-    else
-      no "teeth-kit-self-reg: neutered mutant STILL emits self-reg WARN → test 25 is THEATER" "mrc=$mrc_ksr mout=[$mout_ksr]"
-    fi
-  else
-    no "teeth-kit-self-reg: KIT-SELF-REG-CHECK sentinel not found in SUT (gate not implemented or marker missing)"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"   # kit dir is NOT included in TARGETS.md — intentional
+  if vr_mut "teeth-kit-self-reg" "$kit" '/# KIT-SELF-REG-CHECK/ s/.*/  : # KIT-SELF-REG-CHECK [NEUTERED]/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-kit-self-reg: neutered gate → kit-absent fixture emits NO self-reg WARN (test 25 has teeth)" "$kit" 0 0 \
+      --good-has 'kit repo is NOT in its own TARGETS' --bad-lacks 'kit repo is NOT in its own TARGETS'
   fi
 
   # teeth-rh-rowlookup: neuter the raw-token lookup (identified by # RH-ROW-LOOKUP sentinel in the
@@ -1363,20 +1369,12 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | t1 | mature (5 md / git yes) | `$RESEARCH_HOME/rh_corpus` |\n'
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# RH-ROW-LOOKUP' "$mut"; then
-    sed -i '/# RH-ROW-LOOKUP/ s/.*/  raw_p=""  # RH-ROW-LOOKUP [MUTATED]/' "$mut"
-    mout_t23="$(RESEARCH_HOME="$_rh_base_teeth23" "$BASH_BIN" "$mut" 2>&1)"; mrc_t23=$?
-    unset _rh_base_teeth23
-    if [ "$mrc_t23" = 0 ] && grep -qE 'no claimed.*md.*count' <<<"$mout_t23"; then
-      ok "teeth-rh-rowlookup: neutered lookup → 'no claimed' WARN fires (test 23 has teeth)" "(exit $mrc_t23)"
-    else
-      no "teeth-rh-rowlookup: neutered mutant did NOT fire 'no claimed' WARN — test 23 has no teeth" "mrc=$mrc_t23 mout=[$mout_t23]"
-    fi
-  else
-    no "teeth-rh-rowlookup: RH-ROW-LOOKUP sentinel not found in SUT (fix not implemented or marker missing)"
-    unset _rh_base_teeth23
+  if vr_mut "teeth-rh-rowlookup" "$kit" '/# RH-ROW-LOOKUP/ s/.*/  raw_p=""  # RH-ROW-LOOKUP [MUTATED]/'; then
+    vr_run "teeth-rh-rowlookup: neutered lookup → 'no claimed' WARN fires (test 23 has teeth)" "$kit" 0 0 \
+      --good-lacks 'no claimed.*md.*count' --bad-has 'no claimed.*md.*count' \
+      -- env RESEARCH_HOME="$_rh_base_teeth23" "$BASH_BIN" @SUT@
   fi
+  unset _rh_base_teeth23
 
   # teeth-catalog-disc-zero: neuter the CATALOG-DISC-ZERO sentinel; the disc=0 fixture (bare
   # block<N>.md files, CATALOG=5) must STOP emitting the two-candidate reconciliation WARN —
@@ -1392,17 +1390,9 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
     printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
   } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows
   write_targets "$kit" "$tgt::5 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-DISC-ZERO' "$mut"; then
-    sed -i '/# CATALOG-DISC-ZERO/ s/.*/        : # CATALOG-DISC-ZERO [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -q 'non-canonical block naming' <<<"$mout"; then
-      ok "teeth-catalog-disc-zero: neutered → disc=0 fixture emits NO two-candidate WARN (test 30 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-catalog-disc-zero: neutered mutant STILL emits two-candidate WARN → test 30 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-catalog-disc-zero: CATALOG-DISC-ZERO sentinel not found in SUT (disc-zero branch not implemented or marker missing)"
+  if vr_mut "teeth-catalog-disc-zero" "$kit" '/# CATALOG-DISC-ZERO/ s/.*/        : # CATALOG-DISC-ZERO [MUTATED]/'; then
+    vr_run "teeth-catalog-disc-zero: neutered → disc=0 fixture emits NO two-candidate WARN (test 30 has teeth)" "$kit" 0 0 \
+      --good-has 'non-canonical block naming' --bad-lacks 'non-canonical block naming'
   fi
 
   # teeth-catalog-freshness: neuter the CATALOG-FRESHNESS-CHECK sentinel on the stale-WARN echo
@@ -1416,17 +1406,9 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
     printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
   } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 rows; disc=8 → freshness WARN fires
   write_targets "$kit" "$tgt::5 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
-    sed -i '/# CATALOG-FRESHNESS-CHECK/ s/.*/        : # CATALOG-FRESHNESS-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -q 'CATALOG may be stale' <<<"$mout"; then
-      ok "teeth-catalog-freshness: neutered check → stale fixture emits NO freshness WARN (test 27 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-catalog-freshness: neutered check STILL emits freshness WARN → test 27 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-catalog-freshness: CATALOG-FRESHNESS-CHECK sentinel not found in SUT (freshness check not implemented or marker missing)"
+  if vr_mut "teeth-catalog-freshness" "$kit" '/# CATALOG-FRESHNESS-CHECK/ s/.*/        : # CATALOG-FRESHNESS-CHECK [MUTATED]/'; then
+    vr_run "teeth-catalog-freshness: neutered check → stale fixture emits NO freshness WARN (test 27 has teeth)" "$kit" 0 0 \
+      --good-has 'CATALOG may be stale' --bad-lacks 'CATALOG may be stale'
   fi
 
   # teeth-kit-parent-match: remove the || [...$_kit_parent...] branch from the gate; a kit
@@ -1445,17 +1427,9 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26t"
   } > "$kit26t/TARGETS.md"
-  mut26t="$kit26t/toolbelt/verify-registry.sh"
-  if grep -qF '# KIT-PARENT-MATCH' "$mut26t"; then
-    sed -i 's/ || \[ "$_rv_expanded" = "$_kit_parent" \]//' "$mut26t"
-    mout26t="$("$BASH_BIN" "$mut26t" 2>&1)"; mrc26t=$?
-    if [ "$mrc26t" = 0 ] && grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$mout26t"; then
-      ok "teeth-kit-parent-match: neutered → repo-root registration fires WARN (test 26 has teeth)" "(exit $mrc26t)"
-    else
-      no "teeth-kit-parent-match: mutant did NOT fire self-reg WARN — test 26 has no teeth" "mrc=$mrc26t mout=[$mout26t]"
-    fi
-  else
-    no "teeth-kit-parent-match: KIT-PARENT-MATCH sentinel not found in SUT"
+  if vr_mut "teeth-kit-parent-match" "$kit26t" 's/ || \[ "$_rv_expanded" = "$_kit_parent" \]//'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-kit-parent-match: neutered → repo-root registration fires WARN (test 26 has teeth)" "$kit26t" 0 0 \
+      --good-lacks 'kit repo is NOT in its own TARGETS' --bad-has 'kit repo is NOT in its own TARGETS'
   fi
 fi
 
@@ -1795,6 +1769,7 @@ fi
 
 # ---- TEETH for new cases -----------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
   # teeth-retro-drift: neuter RETRO-DRIFT-CHECK sentinel; drift fixture (real=5, claim=2) must
   # stop emitting the WARN → proves test 32's WARN assertion is load-bearing.
   echo "-- teeth-retro-drift: neuter RETRO-DRIFT-CHECK; drift fixture must NOT WARN about retros --"
@@ -1803,39 +1778,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$tgt/retros"
   for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
   write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
-    sed -i '/# RETRO-DRIFT-CHECK/ s/.*/      : # RETRO-DRIFT-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$mout"; then
-      ok "teeth-retro-drift: neutered → drift fixture emits NO retro WARN (test 32 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-retro-drift: neutered mutant STILL emits retro WARN → test 32 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-retro-drift: RETRO-DRIFT-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-retro-drift" "$kit" '/# RETRO-DRIFT-CHECK/ s/.*/      : # RETRO-DRIFT-CHECK [MUTATED]/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-retro-drift: neutered → drift fixture emits NO retro WARN (test 32 has teeth)" "$kit" 0 0 \
+      --good-has 'WARN[[:space:]]+targetA.*retro' --bad-lacks 'WARN[[:space:]]+targetA.*retro'
   fi
 
   # teeth-retro-exit0: add 'exit 1' in the drift branch; test 32's exit-0 assertion must now fail →
-  # proves the '[ "$RC" = 0 ]' in test 32 is load-bearing (not vacuously true).
+  # proves the '[ "$RC" = 0 ]' in test 32 is load-bearing (not vacuously true). Positional codes:
+  # original exits 0, the exit-1 mutant exits EXACTLY 1 (after emitting the retro WARN, so the 1 is the
+  # injected exit and not a crash — a crash text is also refused).
   echo "-- teeth-retro-exit0: drift branch exits 1; test 32 exit-0 assertion must fail --"
   kit="$(mkkit teeth-retro-exit0)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
   mkdir -p "$tgt/retros"
   for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
   write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
-    # Append 'exit 1' immediately after the WARN line carrying the RETRO-DRIFT-CHECK sentinel.
-    sed -i '/# RETRO-DRIFT-CHECK/a\      exit 1' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" != 0 ]; then
-      ok "teeth-retro-exit0: exit-1 mutant exits non-zero → test 32 exit-0 check has teeth" "(exit $mrc)"
-    else
-      no "teeth-retro-exit0: exit-1 mutant still exited 0 → test 32 exit-0 check is THEATER" "mrc=$mrc"
-    fi
-  else
-    no "teeth-retro-exit0: RETRO-DRIFT-CHECK sentinel not found in SUT"
+  # Append 'exit 1' immediately after the WARN line carrying the RETRO-DRIFT-CHECK sentinel.
+  if vr_mut "teeth-retro-exit0" "$kit" '/# RETRO-DRIFT-CHECK/a\      exit 1'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-retro-exit0: exit-1 mutant exits non-zero → test 32 exit-0 check has teeth" "$kit" 0 1 \
+      --good-has 'WARN[[:space:]]+targetA.*retro' --bad-has 'WARN[[:space:]]+targetA.*retro' --bad-lacks "$VR_CRASH"
   fi
 
   # teeth-absent-vs-malformed: neuter NONCONFORM-FIELD-CHECK; 'retros: many' fixture must stop
@@ -1844,17 +1805,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   kit="$(mkkit teeth-absent-malformed)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
   write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
-    sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qiE 'not in schema' <<<"$mout"; then
-      ok "teeth-absent-vs-malformed: neutered → malformed token not flagged (test 34 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-absent-vs-malformed: neutered mutant STILL flags malformed → test 34 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-absent-vs-malformed: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-absent-vs-malformed" "$kit" '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-absent-vs-malformed: neutered → malformed token not flagged (test 34 has teeth)" "$kit" 0 0 \
+      --good-has 'not in schema' --bad-lacks 'not in schema'
   fi
 
   # teeth-unknown-field: neuter NONCONFORM-FIELD-CHECK; 'widget yes' fixture must stop WARNing →
@@ -1863,44 +1816,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   kit="$(mkkit teeth-unknown-field)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
   write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
-    sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qiE 'not in schema.*widget' <<<"$mout"; then
-      ok "teeth-unknown-field: neutered → 'widget yes' not flagged (test 35 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-unknown-field: neutered mutant STILL flags 'widget yes' → test 35 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-unknown-field: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-unknown-field" "$kit" '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-unknown-field: neutered → 'widget yes' not flagged (test 35 has teeth)" "$kit" 0 0 \
+      --good-has 'not in schema.*widget' --bad-lacks 'not in schema.*widget'
   fi
 
   # teeth-last-token: revert the tokenizer last-token fix (remove `|| [ -n "$_vr_tok" ]`) →
   # the last-position garbage fixture (test 37) must STOP emitting the schema WARN, proving
-  # test 37 depends on the fix and not on coincidental output.
+  # test 37 depends on the fix and not on coincidental output. Neuter: remove the
+  # '|| [ -n "$_vr_tok" ]' part so read's non-zero for the last unterminated line is no longer
+  # caught, silently dropping the last token again.
   echo "-- teeth-last-token: revert tokenizer fix; last-position garbage must NOT WARN --"
   kit="$(mkkit teeth-last-token)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
   write_targets_custom "$kit" "$tgt" "4 md / git yes / ABSOLUTE NONSENSE LAST TOKEN"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# TOKENIZER-LAST-TOKEN-FIX' "$mut"; then
-    # Neuter: remove the '|| [ -n "$_vr_tok" ]' part so read's non-zero for the last
-    # unterminated line is no longer caught, silently dropping the last token again.
-    sed -i 's/ || \[ -n "\$_vr_tok" \]//' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*not in schema.*ABSOLUTE NONSENSE' <<<"$mout"; then
-      ok "teeth-last-token: reverted tokenizer → last-position garbage emits NO WARN (test 37 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-last-token: reverted mutant STILL emits WARN → test 37 is THEATER" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-last-token: TOKENIZER-LAST-TOKEN-FIX sentinel not found in SUT — fix not applied or marker drifted"
+  if vr_mut "teeth-last-token" "$kit" 's/ || \[ -n "\$_vr_tok" \]//'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-last-token: reverted tokenizer → last-position garbage emits NO WARN (test 37 has teeth)" "$kit" 0 0 \
+      --good-has 'WARN[[:space:]]+targetA.*not in schema.*ABSOLUTE NONSENSE' \
+      --bad-lacks 'WARN[[:space:]]+targetA.*not in schema.*ABSOLUTE NONSENSE'
   fi
 
   # teeth-retro-unreadable: neuter RETRO-UNREADABLE-CHECK (the if-condition on the guard);
   # the unreadable-dir fixture (test 39) must produce a false drift WARN instead of the
-  # operational WARN, proving test 39's assertion is load-bearing.
+  # operational WARN, proving test 39's assertion is load-bearing. Without the guard: find on a
+  # chmod-000 dir (2>/dev/null) → 0 retros → claimed=2 vs real=0 → drift WARN. The directory is
+  # unreadable only while the two runs execute and is restored right after, mutant built or not.
   echo "-- teeth-retro-unreadable: neuter RETRO-UNREADABLE-CHECK; unreadable dir must produce false drift --"
   kit="$(mkkit teeth-retro-unreadable)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
@@ -1908,29 +1848,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# real retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
   printf '# real retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
   write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
-  chmod 000 "$tgt/retros"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# RETRO-UNREADABLE-CHECK' "$mut"; then
-    sed -i '/# RETRO-UNREADABLE-CHECK/ s/.*/  if false; then  # RETRO-UNREADABLE-CHECK [MUTATED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    chmod 755 "$tgt/retros"  # restore for cleanup
-    # Without the guard: find on chmod-000 dir (2>/dev/null) → 0 retros → claimed=2 vs real=0 → drift WARN.
-    if [ "$mrc" = 0 ] \
-       && grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$mout" \
-       && ! grep -qiE 'not accessible|permission' <<<"$mout"; then
-      ok "teeth-retro-unreadable: neutered → false drift WARN fires, no operational WARN (test 39 has teeth)" "(exit $mrc)"
-    else
-      chmod 755 "$tgt/retros" 2>/dev/null
-      no "teeth-retro-unreadable: expected false drift WARN but did not get it" "mrc=$mrc mout=[$mout]"
-    fi
-  else
+  if vr_mut "teeth-retro-unreadable" "$kit" '/# RETRO-UNREADABLE-CHECK/ s/.*/  if false; then  # RETRO-UNREADABLE-CHECK [MUTATED]/'; then
+    chmod 000 "$tgt/retros"
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-retro-unreadable: neutered → false drift WARN fires, no operational WARN (test 39 has teeth)" "$kit" 0 0 \
+      --good-has 'not accessible|permission' \
+      --bad-has 'WARN[[:space:]]+targetA.*retro' --bad-lacks 'not accessible|permission'
     chmod 755 "$tgt/retros" 2>/dev/null
-    no "teeth-retro-unreadable: RETRO-UNREADABLE-CHECK sentinel not found in SUT"
   fi
 
   # teeth-retro-exclusion: remove the retro_is_excluded gate in the retro-counting loop;
   # an excluded retro gets counted, causing the claims-1/real-2 fixture to drift —
-  # proves tests 15/36 depend on the gate (MINOR 7 mutation control).
+  # proves tests 15/36 depend on the gate (MINOR 7 mutation control). Targets the retro-counting
+  # loop specifically (uses $_vr_rfile, not $_vr_rf used by reachability). Neutered: counts 2
+  # (1 real + 1 excluded) vs claimed 1 → drift WARN fires.
   echo "-- teeth-retro-excl: remove retro_is_excluded gate; excluded retro counted → drift fires --"
   kit="$(mkkit teeth-retro-excl)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
@@ -1938,19 +1868,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# real retro\nbody\n' > "$tgt/retros/2026-01-01-real.md"
   printf '<!-- kit-retro: exclude -->\n# client retro\nbody\n' > "$tgt/retros/2026-01-02-client.md"
   write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes"
-  mut="$kit/toolbelt/verify-registry.sh"
-  # Target the retro-counting loop specifically (uses $_vr_rfile, not $_vr_rf used by reachability).
-  if grep -q 'retro_is_excluded "\$_vr_rfile" && continue' "$mut"; then
-    sed -i 's/retro_is_excluded "\$_vr_rfile" && continue/: # retro_is_excluded [NEUTERED]/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    # Neutered: counts 2 (1 real + 1 excluded) vs claimed 1 → drift WARN fires.
-    if [ "$mrc" = 0 ] && grep -qiE 'WARN[[:space:]]+targetA.*1 retro.*2 non-excluded|WARN[[:space:]]+targetA.*2 non-excluded.*1 retro' <<<"$mout"; then
-      ok "teeth-retro-excl: exclusion gate neutered → drift WARN fires (tests 15/36 have teeth)" "(exit $mrc)"
-    else
-      no "teeth-retro-excl: exclusion gate neutered but expected drift WARN not found" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-retro-excl: retro_is_excluded gate for \$_vr_rfile not found in SUT"
+  if vr_mut "teeth-retro-excl" "$kit" 's/retro_is_excluded "\$_vr_rfile" && continue/: # retro_is_excluded [NEUTERED]/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-retro-excl: exclusion gate neutered → drift WARN fires (tests 15/36 have teeth)" "$kit" 0 0 \
+      --good-lacks 'WARN[[:space:]]+targetA.*1 retro.*2 non-excluded|WARN[[:space:]]+targetA.*2 non-excluded.*1 retro' \
+      --bad-has 'WARN[[:space:]]+targetA.*1 retro.*2 non-excluded|WARN[[:space:]]+targetA.*2 non-excluded.*1 retro'
   fi
 fi
 
@@ -2048,88 +1969,62 @@ fi
 
 # ---- TEETH for op-failure tests 45-46, 48-49 (issue #140 fix) ----------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
+  # Every control below reverts one operational guard `exit 1` → `exit 0`. Positional codes:
+  # GOOD_RC 1 = the pristine SUT copy fails operationally; BAD_RC 0 = the reverted mutant exits 0
+  # (exact: a crash rc can never read as a bite). The original must also print the guard's own
+  # diagnostic, and the mutant must still print it (it reached the guard before exiting).
+
   # M1: revert the TARGETS-MISSING-CHECK guard (exit 1 → exit 0). Test 45 expects exit 1 for a
   # missing TARGETS.md; the mutant must exit 0 so the assertion goes RED — proving test 45 depends
   # on the real guard and is not vacuously green.
   echo "-- M1-targets-missing: revert TARGETS-MISSING-CHECK; missing TARGETS.md must exit 0 (test 45 RED) --"
   kit="$(mkkit teeth-m1-notargets)"   # no TARGETS.md
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# TARGETS-MISSING-CHECK' "$mut"; then
-    sed -i '/# TARGETS-MISSING-CHECK/ s/exit 1/exit 0/' "$mut"
-    mout_m1="$("$BASH_BIN" "$mut" 2>&1)"; mrc_m1=$?
-    if [ "$mrc_m1" = 0 ]; then
-      ok "M1 TARGETS-MISSING-CHECK reverted → mutant exits 0 (test 45 would fail → has teeth)" "(exit $mrc_m1)"
-    else
-      no "M1 TARGETS-MISSING-CHECK reverted but mutant still exits non-zero → test 45 has no teeth" "mrc=$mrc_m1 mout=[$mout_m1]"
-    fi
-  else
-    no "M1: TARGETS-MISSING-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  if vr_mut "M1 TARGETS-MISSING-CHECK" "$kit" '/# TARGETS-MISSING-CHECK/ s/exit 1/exit 0/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "M1 TARGETS-MISSING-CHECK reverted → mutant exits 0 (test 45 would fail → has teeth)" "$kit" 1 0 \
+      --good-has 'cannot find' --bad-has 'cannot find'
   fi
 
-  # M-all (replaces old M2): revert ONLY the line-48 VR-TP-ALL-CHECK guard (exit 1 → exit 0),
+  # M-all (replaces old M2): revert ONLY the VR-TP-ALL-CHECK guard (exit 1 → exit 0),
   # proving test 46 is load-bearing. Old M2 targeted VR-TP-FUNC-CHECK which appeared on BOTH
-  # lines 48 and 49 — collapsing two independent guards into one mutant. Now that the sentinels
-  # are differentiated (line 48: VR-TP-ALL-CHECK; line 49: VR-TP-PAIRS-CHECK), each guard has
-  # its own independent control. M-all covers test 46; M-pairs (below) covers test 49.
-  echo "-- M-all: revert VR-TP-ALL-CHECK (line 48 only); broken-helper must exit 0 (test 46 RED) --"
+  # guards — collapsing two independent guards into one mutant. Now that the sentinels
+  # are differentiated (VR-TP-ALL-CHECK / VR-TP-PAIRS-CHECK), each guard has its own independent
+  # control. M-all covers test 46; M-pairs (below) covers test 49.
+  echo "-- M-all: revert VR-TP-ALL-CHECK; broken-helper must exit 0 (test 46 RED) --"
   kit="$(mkkit teeth-m-all)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"
   write_targets "$kit" "$tgt::3 md"
   printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# VR-TP-ALL-CHECK' "$mut"; then
-    sed -i '/# VR-TP-ALL-CHECK/ s/exit 1/exit 0/' "$mut"
-    mout_ma="$("$BASH_BIN" "$mut" 2>&1)"; mrc_ma=$?
-    if [ "$mrc_ma" = 0 ]; then
-      ok "M-all: VR-TP-ALL-CHECK reverted → mutant exits 0 (test 46 has teeth)" "(exit $mrc_ma)"
-    else
-      no "M-all: reverted but mutant still exits non-zero → test 46 has no teeth" "mrc=$mrc_ma mout=[$mout_ma]"
-    fi
-  else
-    no "M-all: VR-TP-ALL-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  if vr_mut "M-all" "$kit" '/# VR-TP-ALL-CHECK/ s/exit 1/exit 0/'; then
+    vr_run "M-all: VR-TP-ALL-CHECK reverted → mutant exits 0 (test 46 has teeth)" "$kit" 1 0 \
+      --good-has 'failed to define target_paths_all' --bad-has 'failed to define target_paths_all'
   fi
 
-  # M-helper-file: revert ONLY the line-43 VR-TP-FILE-CHECK guard (exit 1 → exit 0). Test 48
+  # M-helper-file: revert ONLY the VR-TP-FILE-CHECK guard (exit 1 → exit 0). Test 48
   # expects exit 1 for a missing helper file; the mutant exits 0 immediately after the echo
-  # (exit in an if-body exits the script, so lines 46-49 never run) → test 48 RED.
-  echo "-- M-helper-file: revert VR-TP-FILE-CHECK (line 43); helper-file-absent must exit 0 (test 48 RED) --"
+  # (exit in an if-body exits the script, so the later guards never run) → test 48 RED.
+  echo "-- M-helper-file: revert VR-TP-FILE-CHECK; helper-file-absent must exit 0 (test 48 RED) --"
   kit="$(mkkit teeth-m-helper-file)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"
   write_targets "$kit" "$tgt::3 md"
   rm "$kit/toolbelt/lib/target-paths.sh"   # same fixture as test 48
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# VR-TP-FILE-CHECK' "$mut"; then
-    sed -i '/# VR-TP-FILE-CHECK/ s/exit 1/exit 0/' "$mut"
-    mout_mf="$("$BASH_BIN" "$mut" 2>&1)"; mrc_mf=$?
-    if [ "$mrc_mf" = 0 ]; then
-      ok "M-helper-file: VR-TP-FILE-CHECK reverted → mutant exits 0 (test 48 has teeth)" "(exit $mrc_mf)"
-    else
-      no "M-helper-file: reverted but mutant still exits non-zero → test 48 has no teeth" "mrc=$mrc_mf mout=[$mout_mf]"
-    fi
-  else
-    no "M-helper-file: VR-TP-FILE-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  if vr_mut "M-helper-file" "$kit" '/# VR-TP-FILE-CHECK/ s/exit 1/exit 0/'; then
+    vr_run "M-helper-file: VR-TP-FILE-CHECK reverted → mutant exits 0 (test 48 has teeth)" "$kit" 1 0 \
+      --good-has 'cannot find helper' --bad-has 'cannot find helper'
   fi
 
-  # M-pairs: revert ONLY the line-49 VR-TP-PAIRS-CHECK guard (exit 1 → exit 0). Test 49 expects
+  # M-pairs: revert ONLY the VR-TP-PAIRS-CHECK guard (exit 1 → exit 0). Test 49 expects
   # exit 1 for a helper that defines target_paths_all but not target_paths_pairs; the mutant
-  # exits 0 (line-48 guard passes, mutated line-49 exits 0 immediately) → test 49 RED.
-  echo "-- M-pairs: revert VR-TP-PAIRS-CHECK (line 49); pairs-fn-absent must exit 0 (test 49 RED) --"
+  # exits 0 (the all-guard passes, the mutated pairs-guard exits 0 immediately) → test 49 RED.
+  echo "-- M-pairs: revert VR-TP-PAIRS-CHECK; pairs-fn-absent must exit 0 (test 49 RED) --"
   kit="$(mkkit teeth-m-pairs)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"
   write_targets "$kit" "$tgt::3 md"
   printf '#!/usr/bin/env bash\n# stub: only target_paths_all defined\ntarget_paths_all() { :; }\n' \
     > "$kit/toolbelt/lib/target-paths.sh"   # same fixture as test 49
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# VR-TP-PAIRS-CHECK' "$mut"; then
-    sed -i '/# VR-TP-PAIRS-CHECK/ s/exit 1/exit 0/' "$mut"
-    mout_mp="$("$BASH_BIN" "$mut" 2>&1)"; mrc_mp=$?
-    if [ "$mrc_mp" = 0 ]; then
-      ok "M-pairs: VR-TP-PAIRS-CHECK reverted → mutant exits 0 (test 49 has teeth)" "(exit $mrc_mp)"
-    else
-      no "M-pairs: reverted but mutant still exits non-zero → test 49 has no teeth" "mrc=$mrc_mp mout=[$mout_mp]"
-    fi
-  else
-    no "M-pairs: VR-TP-PAIRS-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  if vr_mut "M-pairs" "$kit" '/# VR-TP-PAIRS-CHECK/ s/exit 1/exit 0/'; then
+    vr_run "M-pairs: VR-TP-PAIRS-CHECK reverted → mutant exits 0 (test 49 has teeth)" "$kit" 1 0 \
+      --good-has 'failed to define target_paths_pairs' --bad-has 'failed to define target_paths_pairs'
   fi
 fi
 
@@ -2174,23 +2069,22 @@ fi
 
 # ---- TEETH for all-absent guard (test 50) -----------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
   # teeth-all-absent: neuter ALL-ABSENT-CHECK (exit 1 → exit 0); the all-absent fixture must exit 0,
-  # proving test 50 depends on the real guard and is not vacuously green.
+  # proving test 50 depends on the real guard and is not vacuously green. The fixture is test 50's own
+  # (hand-written TARGETS.md with NO kit row and ONLY a nonexistent path): write_targets adds the kit
+  # row, a real directory, which would defeat the all-absent scenario — the pristine SUT would then not
+  # exit 1 and the control would observe nothing. Positional codes: original 1, mutant EXACTLY 0.
   echo "-- teeth-all-absent: neuter ALL-ABSENT-CHECK; all-absent fixture must exit 0 (test 50 RED) --"
   kit="$(mkkit teeth-all-absent)"
   nonexistent_t="$kit/corpus-that-does-not-exist"
-  write_targets "$kit" "$nonexistent_t::5 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# ALL-ABSENT-CHECK' "$mut"; then
-    sed -i '/# ALL-ABSENT-CHECK/ s/exit 1/exit 0/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ]; then
-      ok "teeth-all-absent: neutered guard → all-absent exits 0 (test 50 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-all-absent: neutered mutant still exits non-zero → test 50 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-all-absent: ALL-ABSENT-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$nonexistent_t"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-all-absent" "$kit" '/# ALL-ABSENT-CHECK/ s/exit 1/exit 0/'; then
+    MUTANT_TOOTH_ICASE=1 vr_run "teeth-all-absent: neutered guard → all-absent exits 0 (test 50 has teeth)" "$kit" 1 0 \
+      --good-has 'no registered corpus path exists' --good-lacks 'consistent with reality' \
+      --bad-has 'no registered corpus path exists'
   fi
 fi
 
@@ -2686,8 +2580,12 @@ fi
 
 # ---- TEETH for attention-gate tests 52-60 ------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
+  # Every attention-gate control below shares one shape: the pristine SUT copy exits 0 WITHOUT the
+  # clean verdict line (an attention counter / gate conjunct suppresses it); the mutant that removes
+  # that increment/conjunct exits 0 WITH the clean line again. The line is anchored ($VR_CLEAN).
+
   # teeth-attn-disc-zero: remove the attention++ after CATALOG-DISC-ZERO. Fixture isolation:
-  # NO bare block*.md files (so UNCLASSIFIABLE does NOT fire) — only DISC-ZERO (disc=0 vs CATALOG=5).
   # NO bare block*.md files (so UNCLASSIFIABLE does NOT fire) — only DISC-ZERO (disc=0 vs CATALOG=5).
   # That means attention is solely from DISC-ZERO. Removing its increment → attention=0 → clean line
   # reappears. Proves test 52 (which allows UNCLASSIFIABLE to co-fire) depends on the DISC-ZERO site.
@@ -2707,17 +2605,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-DISC-ZERO' "$mut"; then
-    sed -i '/# CATALOG-DISC-ZERO/{n;/attention=/d}' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-disc-zero: attention++ removed → disc=0 fixture regains clean line (test 52 teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-disc-zero: clean line still absent after removing attention++ — test 52 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-disc-zero: CATALOG-DISC-ZERO sentinel not found in SUT"
+  if vr_mut "teeth-attn-disc-zero" "$kit" '/# CATALOG-DISC-ZERO/{n;/attention=/d}'; then
+    vr_run "teeth-attn-disc-zero: attention++ removed → disc=0 fixture regains clean line (test 52 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-attn-freshness: remove the attention++ after CATALOG-FRESHNESS-CHECK; isolated fixture
@@ -2736,17 +2626,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
-    sed -i '/# CATALOG-FRESHNESS-CHECK/{n;/attention=/d}' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-freshness: attention++ removed → freshness fixture regains clean line (test 53 teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-freshness: clean line still absent after removing attention++ — test 53 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-freshness: CATALOG-FRESHNESS-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-attn-freshness" "$kit" '/# CATALOG-FRESHNESS-CHECK/{n;/attention=/d}'; then
+    vr_run "teeth-attn-freshness: attention++ removed → freshness fixture regains clean line (test 53 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-attn-noparse: remove the attention++ after CATALOG-NOPARSE; isolated fixture
@@ -2763,24 +2645,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-NOPARSE' "$mut"; then
-    sed -i '/# CATALOG-NOPARSE/{n;/attention=/d}' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-noparse: attention++ removed → noparse fixture regains clean line (test 54 teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-noparse: clean line still absent after removing attention++ — test 54 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-noparse: CATALOG-NOPARSE sentinel not found in SUT"
+  if vr_mut "teeth-attn-noparse" "$kit" '/# CATALOG-NOPARSE/{n;/attention=/d}'; then
+    vr_run "teeth-attn-noparse: attention++ removed → noparse fixture regains clean line (test 54 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-attn-retro-unreadable: remove the attention++ after RETRO-UNREADABLE-WARN; isolated fixture
   # (disc=4=claimed → no drift; retros/ chmod 000 → RETRO-UNREADABLE is the sole suppressor) must regain
   # the clean line → proves test 55 depends on the RETRO-UNREADABLE increment.
   # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
-  # Skipped when running as root (chmod 000 has no effect for root; same guard as test 55).
+  # Skipped when running as root (chmod 000 has no effect for root; same guard as test 55). The
+  # directory is unreadable only while the two runs execute and is restored right after.
   if [ "$EUID" -ne 0 ]; then
     echo "-- teeth-attn-retro-unreadable: remove attention++ at RETRO-UNREADABLE-WARN; test 55 fixture must regain clean line --"
     kit="$(mkkit teeth-attn-retro-unread)"; tgt="$ROOT/teeth-retro-unread-ext/targetA"
@@ -2793,19 +2668,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
       printf '| 1 | targetA | mature (4 md / 2 retros / git yes) | `%s` |\n' "$tgt"
     } > "$kit/TARGETS.md"
-    mut="$kit/toolbelt/verify-registry.sh"
-    if grep -q '# RETRO-UNREADABLE-WARN' "$mut"; then
-      sed -i '/# RETRO-UNREADABLE-WARN/{n;/attention=/d}' "$mut"
+    if vr_mut "teeth-attn-retro-unreadable" "$kit" '/# RETRO-UNREADABLE-WARN/{n;/attention=/d}'; then
       chmod 000 "$tgt/retros"
-      mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-      chmod 755 "$tgt/retros"
-      if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-        ok "teeth-attn-retro-unreadable: attention++ removed → unreadable-retros fixture regains clean line (test 55 teeth)" "(exit $mrc)"
-      else
-        no "teeth-attn-retro-unreadable: clean line still absent after removing attention++ — test 55 has no teeth" "mrc=$mrc mout=[$mout]"
-      fi
-    else
-      no "teeth-attn-retro-unreadable: RETRO-UNREADABLE-WARN sentinel not found in SUT"
+      vr_run "teeth-attn-retro-unreadable: attention++ removed → unreadable-retros fixture regains clean line (test 55 teeth)" "$kit" 0 0 \
+        --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
+      chmod 755 "$tgt/retros" 2>/dev/null
     fi
   fi
 
@@ -2813,6 +2680,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (5 bare block*.md, claimed=0=disc → no drift, no CATALOG so DISC-ZERO does not co-fire;
   # UNCLASSIFIABLE is the sole suppressor) must regain the clean line → proves test 56 depends on it.
   # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
+  # Sentinel is on the 'if' line; attention++ is two lines below (after the echo line).
   echo "-- teeth-attn-unclassifiable: remove attention++ at UNCLASSIFIABLE-CHECK; test 56 fixture must regain clean line --"
   kit="$(mkkit teeth-attn-unclassifiable)"; tgt="$ROOT/teeth-unclassifiable-ext/targetA"
   mkdir -p "$tgt"
@@ -2821,18 +2689,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
   # No CATALOG.md / gen-catalog.py — DISC-ZERO cannot co-fire; only UNCLASSIFIABLE fires → attention=1.
   write_targets "$kit" "$tgt::0 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# UNCLASSIFIABLE-CHECK' "$mut"; then
-    # Sentinel is on the 'if' line; attention++ is two lines below (after the echo line).
-    sed -i '/# UNCLASSIFIABLE-CHECK/{n;n;/attention=/d}' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-unclassifiable: attention++ removed → unclassifiable fixture regains clean line (test 56 teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-unclassifiable: clean line still absent after removing attention++ — test 56 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-unclassifiable: UNCLASSIFIABLE-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-attn-unclassifiable" "$kit" '/# UNCLASSIFIABLE-CHECK/{n;n;/attention=/d}'; then
+    vr_run "teeth-attn-unclassifiable: attention++ removed → unclassifiable fixture regains clean line (test 56 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-attn-kit-self-reg: remove the attention++ after KIT-SELF-REG-CHECK; kit-absent fixture
@@ -2844,17 +2703,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# KIT-SELF-REG-CHECK' "$mut"; then
-    sed -i '/# KIT-SELF-REG-CHECK/{n;/attention=/d}' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-kit-self-reg: attention++ removed → kit-absent regains clean line (test 57 teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-kit-self-reg: clean line still absent after removing attention++ — test 57 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-kit-self-reg: KIT-SELF-REG-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-attn-kit-self-reg" "$kit" '/# KIT-SELF-REG-CHECK/{n;/attention=/d}'; then
+    vr_run "teeth-attn-kit-self-reg: attention++ removed → kit-absent regains clean line (test 57 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-attn-gate: remove the && attention==0 conjunct; an attention fixture must regain the clean
@@ -2875,17 +2726,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '\[ "\$attention" -eq 0 \]' "$mut"; then
-    sed -i 's/ && \[ "\$attention" -eq 0 \]//' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-attn-gate: conjunct removed → CATALOG-DISC-ZERO fixture regains clean line (gate has teeth)" "(exit $mrc)"
-    else
-      no "teeth-attn-gate: gate removed but clean line still absent — gate tests have no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-attn-gate: attention==0 conjunct not found in SUT (gate not implemented)"
+  if vr_mut "teeth-attn-gate" "$kit" 's/ && \[ "\$attention" -eq 0 \]//'; then
+    vr_run "teeth-attn-gate: conjunct removed → CATALOG-DISC-ZERO fixture regains clean line (gate has teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-skipped-gate-vr: remove the && skipped_count==0 conjunct; PARTIAL fixture (test 59)
@@ -2899,17 +2742,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 1 | t1 | mature (4 md / git yes) | `%s` |\n' "$tgtA"
     printf '| 2 | t2 | mature (9 md / git yes) | `$RESEARCH_HOME/some/path/...` |\n'
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '\[ "\$skipped_count" -eq 0 \]' "$mut"; then
-    sed -i 's/ && \[ "\$skipped_count" -eq 0 \]//' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-skipped-gate-vr: conjunct removed → PARTIAL fixture regains clean line (test 59 teeth)" "(exit $mrc)"
-    else
-      no "teeth-skipped-gate-vr: gate removed but clean line still absent — test 59 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-skipped-gate-vr: skipped_count==0 conjunct not found in SUT (gate not implemented)"
+  if vr_mut "teeth-skipped-gate-vr" "$kit" 's/ && \[ "\$skipped_count" -eq 0 \]//'; then
+    vr_run "teeth-skipped-gate-vr: conjunct removed → PARTIAL fixture regains clean line (test 59 teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-rowlint-gate: remove the && rowlint==0 conjunct; an oversized-row fixture must regain
@@ -2923,17 +2758,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | targetA | mature 5 md %s | `%s` |\n' "$big" "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '\[ "\$rowlint" -eq 0 \]' "$mut"; then
-    sed -i 's/ && \[ "\$rowlint" -eq 0 \]//' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-rowlint-gate: conjunct removed → rowlint fixture regains clean line (rowlint gate bites)" "(exit $mrc)"
-    else
-      no "teeth-rowlint-gate: gate removed but clean line still absent — rowlint gate tests have no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-rowlint-gate: rowlint==0 conjunct not found in SUT (gate not implemented)"
+  if vr_mut "teeth-rowlint-gate" "$kit" 's/ && \[ "\$rowlint" -eq 0 \]//'; then
+    vr_run "teeth-rowlint-gate: conjunct removed → rowlint fixture regains clean line (rowlint gate bites)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-l154-no-double-count: inject attention++ at NONCONFORM-FIELD-CHECK; the L154 fixture
@@ -2947,17 +2774,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | targetA | mature (4 md / GARBAGE UNKNOWN FIELD / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
-    sed -i '/# NONCONFORM-FIELD-CHECK/a\      attention=$((attention+1))  # INJECTED-BY-TEETH' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -q '0 attention' <<<"$mout"; then
-      ok "teeth-l154-nodc: attention++ injected at L154 → '0 attention' no longer matches (test 60 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-l154-nodc: injected attention++ but '0 attention' still present — test 60 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-l154-nodc: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-l154-nodc" "$kit" '/# NONCONFORM-FIELD-CHECK/a\      attention=$((attention+1))  # INJECTED-BY-TEETH'; then
+    vr_run "teeth-l154-nodc: attention++ injected at L154 → '0 attention' no longer matches (test 60 has teeth)" "$kit" 0 0 \
+      --good-has '0 attention' --bad-lacks '0 attention'
   fi
 
   # teeth-catalog-selfconsistency: force the CATALOG-SELFCONSISTENCY-CHECK gate to always-false
@@ -2975,17 +2794,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '# CATALOG-SELFCONSISTENCY-CHECK' "$mut"; then
-    sed -i '/# CATALOG-SELFCONSISTENCY-CHECK/ s/if \[/if false \&\& \[/' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && ! grep -q 'stale header' <<<"$mout"; then
-      ok "teeth-catalog-selfconsistency: gate forced → stale fixture emits NO stale-header WARN (test 62 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-catalog-selfconsistency: gate forced but stale WARN still present — test 62 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-catalog-selfconsistency: CATALOG-SELFCONSISTENCY-CHECK sentinel not found in SUT"
+  if vr_mut "teeth-catalog-selfconsistency" "$kit" '/# CATALOG-SELFCONSISTENCY-CHECK/ s/if \[/if false \&\& \[/'; then
+    vr_run "teeth-catalog-selfconsistency: gate forced → stale fixture emits NO stale-header WARN (test 62 has teeth)" "$kit" 0 0 \
+      --good-has 'stale header' --bad-lacks 'stale header'
   fi
 
   # teeth-absent-paths: remove the && absent_paths==0 conjunct from the clean-line condition;
@@ -2996,17 +2807,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgt_ap" 3 "a"
   absent_ap="$ROOT/teeth-absent-paths-missing"  # NOT created
   write_targets "$kit" "$tgt_ap::3 md" "$absent_ap::5 md"
-  mut="$kit/toolbelt/verify-registry.sh"
-  if grep -q '\[ "\$absent_paths" -eq 0 \]' "$mut"; then
-    sed -i 's/ && \[ "\$absent_paths" -eq 0 \]//' "$mut"
-    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
-      ok "teeth-absent-paths: conjunct removed → absent fixture regains clean line (test 64 has teeth)" "(exit $mrc)"
-    else
-      no "teeth-absent-paths: gate removed but clean line still absent — test 64 has no teeth" "mrc=$mrc mout=[$mout]"
-    fi
-  else
-    no "teeth-absent-paths: absent_paths==0 conjunct not found in SUT (gate not implemented or marker drifted)"
+  if vr_mut "teeth-absent-paths" "$kit" 's/ && \[ "\$absent_paths" -eq 0 \]//'; then
+    vr_run "teeth-absent-paths: conjunct removed → absent fixture regains clean line (test 64 has teeth)" "$kit" 0 0 \
+      --good-lacks "$VR_CLEAN" --bad-has "$VR_CLEAN"
   fi
 
   # teeth-absent-summary: replace "absent target" in Summary with "absent MUTATED" →
@@ -3016,52 +2819,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgt_as" 2 "a"
   absent_as="$ROOT/teeth-absent-summary-missing"  # NOT created
   write_targets "$kit_as" "$tgt_as::2 md" "$absent_as::3 md"
-  mut_as="$kit_as/toolbelt/verify-registry.sh"
-  if grep -q '# ABSENT-SUMMARY-FIELD' "$mut_as"; then
-    sed -i '/# ABSENT-SUMMARY-FIELD/ s/absent target/absent MUTATED/g' "$mut_as"
-    mout_as="$("$BASH_BIN" "$mut_as" 2>&1)"; mrc_as=$?
-    if [ "$mrc_as" = 0 ] && ! grep -qE '\· [0-9]+ absent target' <<<"$mout_as"; then
-      ok "teeth-absent-summary: label mangled → Summary field assertion fails (test 64 Summary has teeth)" "(exit $mrc_as)"
-    else
-      no "teeth-absent-summary: label mangled but test 64 Summary assertion still passes — it has no teeth" "mrc=$mrc_as mout=[$mout_as]"
-    fi
-  else
-    no "teeth-absent-summary: ABSENT-SUMMARY-FIELD sentinel not found in SUT (summary field not implemented or marker drifted)"
+  if vr_mut "teeth-absent-summary" "$kit_as" '/# ABSENT-SUMMARY-FIELD/ s/absent target/absent MUTATED/g'; then
+    vr_run "teeth-absent-summary: label mangled → Summary field assertion fails (test 64 Summary has teeth)" "$kit_as" 0 0 \
+      --good-has '\· [0-9]+ absent target' --bad-lacks '\· [0-9]+ absent target'
   fi
 
-  # teeth-absent-dedup: remove the "already counted" arm of the ABSENT-ROW-DEDUP case block;
-  # the two-absent-token-same-row fixture (test 67) must show absent_paths=2 instead of 1 →
-  # proves test 67's assertion grep -qE 'INFO.*1 registered target.*absent' has teeth.
+  # teeth-absent-dedup: remove the "already counted" arm of the ABSENT-ROW-DEDUP case block (the line
+  # AFTER the sentinel) so every absent token counts; the two-absent-token-same-row fixture (test 67)
+  # must show absent_paths=2 instead of 1 → proves test 67's assertion
+  # grep -qE 'INFO.*1 registered target.*absent' has teeth.
   echo "-- teeth-absent-dedup: remove ABSENT-ROW-DEDUP guard; test 67 must see absent_paths=2 (not 1) --"
   kit_dd="$(mkkit teeth-absent-dedup)"; tgt_dd="$ROOT/teeth-absent-dedup-real"
   mkcorpus "$tgt_dd" 2 "c"
-  mut_dd="$kit_dd/toolbelt/verify-registry.sh"
   { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_dd"
     printf '| 1 | tgt | mature (2 md / git yes) | `%s` | - |\n' "$tgt_dd"
     printf '| 2 | multi | mature (5 md / git yes) | `/absent/dd-path-A` | `/absent/dd-path-B` |\n'
   } > "$kit_dd/TARGETS.md"
-  if grep -q '# ABSENT-ROW-DEDUP' "$mut_dd"; then
-    # Delete the "already counted" arm (the line AFTER the sentinel) so every absent token counts.
-    sed -i '/# ABSENT-ROW-DEDUP/{n;d}' "$mut_dd"
-    mout_dd="$("$BASH_BIN" "$mut_dd" 2>&1)"; mrc_dd=$?
-    if [ "$mrc_dd" = 0 ] && ! grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_dd"; then
-      ok "teeth-absent-dedup: guard removed → absent_paths≠1 (double-count; test 67 has teeth)" "(exit $mrc_dd)"
-    else
-      no "teeth-absent-dedup: guard removed but test 67 still passes — dedup assertion has no teeth" "mrc=$mrc_dd mout=[$mout_dd]"
-    fi
-  else
-    no "teeth-absent-dedup: ABSENT-ROW-DEDUP sentinel not found in SUT (dedup not implemented or marker drifted)"
+  if vr_mut "teeth-absent-dedup" "$kit_dd" '/# ABSENT-ROW-DEDUP/{n;d}'; then
+    vr_run "teeth-absent-dedup: guard removed → absent_paths≠1 (double-count; test 67 has teeth)" "$kit_dd" 0 0 \
+      --good-has 'INFO.*1 registered target.*absent' --bad-lacks 'INFO.*1 registered target.*absent'
   fi
 
   # teeth-rh-row-token-revert (issue #1039): revert the RH-ROW-TOKEN-MATCH extraction back to the
   # old `/[^`]+` -only form. Test 70's fixture (a row whose only real path is written in
   # `$RESEARCH_HOME/...` form, plus a `/slug` companion token) must regain the false "absent"
   # verdict — proving test 70 (and its FIRST/MIDDLE/LAST siblings 71-73) has teeth.
-  # Uses the sed r+d idiom (append replacement file contents, then delete the matched line) instead
+  # The line is replaced with the sed r+d idiom in ONE chain (append a replacement file's contents,
+  # then delete the matched line) — two stages, each of which must change the SUT on its own — instead
   # of embedding backticks/`$` inside a sed -e script string, which would collide with the outer
-  # bash double-quoting; the replacement text is written to a file via a quoted heredoc so nothing
-  # in it is expanded by this test script's own shell.
+  # bash quoting; the replacement text is written to a file via a quoted heredoc so nothing in it
+  # is expanded by this test script's own shell.
   echo "-- teeth-rh-row-token-revert: revert RH-ROW-TOKEN-MATCH to /-only; test 70 fixture must regress to absent --"
   kit_rh1="$(mkkit teeth-rh-revert)"
   _rh_base_t1="$ROOT/rh_base_teeth1_$$"
@@ -3072,22 +2860,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh1"
     printf '| 1 | tgt | mature (3 md / git yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
   } > "$kit_rh1/TARGETS.md"
-  mut_rh1="$kit_rh1/toolbelt/verify-registry.sh"
-  if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh1"; then
-    repl_rh1="$ROOT/teeth-rh-revert-repl.txt"
-    cat <<'REPL' > "$repl_rh1"
+  repl_rh1="$ROOT/teeth-rh-revert-repl.txt"
+  cat <<'REPL' > "$repl_rh1"
     for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`/[^`]+`' | tr -d '`'); do
 REPL
-    sed -i "/# RH-ROW-TOKEN-MATCH/r $repl_rh1" "$mut_rh1"
-    sed -i '/# RH-ROW-TOKEN-MATCH/d' "$mut_rh1"
-    mout_rh1="$(RESEARCH_HOME="$_rh_base_t1" "$BASH_BIN" "$mut_rh1" 2>&1)"; mrc_rh1=$?
-    if [ "$mrc_rh1" = 0 ] && grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_rh1"; then
-      ok "teeth-rh-row-token-revert: reverted regex → test 70 fixture regains false 'absent' (test 70 has teeth)" "(exit $mrc_rh1)"
-    else
-      no "teeth-rh-row-token-revert: reverted regex but fixture still NOT absent — test 70 has no teeth" "mrc=$mrc_rh1 mout=[$mout_rh1]"
-    fi
-  else
-    no "teeth-rh-row-token-revert: RH-ROW-TOKEN-MATCH sentinel not found in SUT (fix not implemented or marker drifted)"
+  if vr_mut "teeth-rh-row-token-revert" "$kit_rh1" "/# RH-ROW-TOKEN-MATCH/r $repl_rh1" '/# RH-ROW-TOKEN-MATCH/d'; then
+    vr_run "teeth-rh-row-token-revert: reverted regex → test 70 fixture regains false 'absent' (test 70 has teeth)" "$kit_rh1" 0 0 \
+      --good-lacks 'INFO.*1 registered target.*absent' --bad-has 'INFO.*1 registered target.*absent' \
+      -- env RESEARCH_HOME="$_rh_base_t1" "$BASH_BIN" @SUT@
   fi
   unset _rh_base_t1
 
@@ -3105,44 +2885,31 @@ REPL
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh2"
     printf '| 1 | tgt | mature (2 md / git yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
   } > "$kit_rh2/TARGETS.md"
-  mut_rh2="$kit_rh2/toolbelt/verify-registry.sh"
-  if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh2"; then
-    repl_rh2="$ROOT/teeth-rh-drop-braced-repl.txt"
-    cat <<'REPL' > "$repl_rh2"
+  repl_rh2="$ROOT/teeth-rh-drop-braced-repl.txt"
+  cat <<'REPL' > "$repl_rh2"
     for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$RESEARCH_HOME/)[^`]+`' | tr -d '`'); do
 REPL
-    sed -i "/# RH-ROW-TOKEN-MATCH/r $repl_rh2" "$mut_rh2"
-    sed -i '/# RH-ROW-TOKEN-MATCH/d' "$mut_rh2"
-    mout_rh2="$(RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" "$mut_rh2" 2>&1)"; mrc_rh2=$?
-    if [ "$mrc_rh2" = 0 ] && grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_rh2"; then
-      ok "teeth-rh-row-token-drop-braced: braced alt dropped → test 74 fixture regains false 'absent' (test 74 has teeth)" "(exit $mrc_rh2)"
-    else
-      no "teeth-rh-row-token-drop-braced: braced alt dropped but fixture still NOT absent — test 74 has no teeth" "mrc=$mrc_rh2 mout=[$mout_rh2]"
-    fi
-  else
-    no "teeth-rh-row-token-drop-braced: RH-ROW-TOKEN-MATCH sentinel not found in SUT (fix not implemented or marker drifted)"
+  if vr_mut "teeth-rh-row-token-drop-braced" "$kit_rh2" "/# RH-ROW-TOKEN-MATCH/r $repl_rh2" '/# RH-ROW-TOKEN-MATCH/d'; then
+    vr_run "teeth-rh-row-token-drop-braced: braced alt dropped → test 74 fixture regains false 'absent' (test 74 has teeth)" "$kit_rh2" 0 0 \
+      --good-lacks 'INFO.*1 registered target.*absent' --bad-has 'INFO.*1 registered target.*absent' \
+      -- env RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" @SUT@
   fi
   unset _rh_base_t2
 fi
 
 # --- kit issue #1108 teeth: REGISTERED-PATH MARKER CHECK + HOOK-WIRING RECONCILIATION --------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
+  # Every control below runs the kit's pristine SUT copy and the mutant on the SAME fixture (both exit
+  # 0: these checks are WARN-only); the original must show the base-case WARN state, the mutant the
+  # opposite. Message fragments are the ones the base cases assert on.
   echo "-- teeth-marker-check: neuter the REGISTERED-PATH-MARKER-CHECK guard; test 3c must regain the clean line --"
   kit="$(mkkit teeth-marker)"; tgt="$kit/targetA"
   mkcorpus "$tgt/sub/research" 4 "a"
   write_targets "$kit" "$tgt::4 md"
-  _anchor_mk='  if ! corpus_marker_present "$p" "$p/corpus"; then  # REGISTERED-PATH-MARKER-CHECK'
-  mut_mk="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# REGISTERED-PATH-MARKER-CHECK' "$mut_mk"; then
-    sed -i 's/if ! corpus_marker_present "\$p" "\$p\/corpus"; then  # REGISTERED-PATH-MARKER-CHECK/if false; then  # REGISTERED-PATH-MARKER-CHECK (mutated)/' "$mut_mk"
-    outm_mk="$("$BASH_BIN" "$mut_mk" 2>&1)"
-    if ! grep -q 'no corpus marker' <<<"$outm_mk" && grep -q 'Registry consistent with reality' <<<"$outm_mk"; then
-      ok "teeth-marker-check: neutered guard silences test 3c and regains clean line — has teeth" "()"
-    else
-      no "teeth-marker-check: neutered guard must silence test 3c — THEATER" "out=[$outm_mk]"
-    fi
-  else
-    no "teeth-marker-check: REGISTERED-PATH-MARKER-CHECK sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-marker-check" "$kit" 's/if ! corpus_marker_present "\$p" "\$p\/corpus"; then  # REGISTERED-PATH-MARKER-CHECK/if false; then  # REGISTERED-PATH-MARKER-CHECK (mutated)/'; then
+    vr_run "teeth-marker-check: neutered guard silences test 3c and regains clean line — has teeth" "$kit" 0 0 \
+      --good-has 'no corpus marker' --bad-lacks 'no corpus marker' --bad-has "$VR_CLEAN"
   fi
 
   echo "-- teeth-hook-wiring-check: neuter the HOOK-WIRING-CHECK guard; test 3f must regain the clean line --"
@@ -3151,17 +2918,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hw="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-WIRING-CHECK' "$mut_hw"; then
-    sed -i 's/if \[ "\$_vr_hook_state" != "wired" \]; then  # HOOK-WIRING-CHECK/if false; then  # HOOK-WIRING-CHECK (mutated)/' "$mut_hw"
-    outm_hw="$("$BASH_BIN" "$mut_hw" 2>&1)"
-    if ! grep -q "Stop hook is" <<<"$outm_hw"; then
-      ok "teeth-hook-wiring-check: neutered guard silences test 3f and regains clean line — has teeth" "()"
-    else
-      no "teeth-hook-wiring-check: neutered guard must silence test 3f — THEATER" "out=[$outm_hw]"
-    fi
-  else
-    no "teeth-hook-wiring-check: HOOK-WIRING-CHECK sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-wiring-check" "$kit" 's/if \[ "\$_vr_hook_state" != "wired" \]; then  # HOOK-WIRING-CHECK/if false; then  # HOOK-WIRING-CHECK (mutated)/'; then
+    vr_run "teeth-hook-wiring-check: neutered guard silences test 3f and regains clean line — has teeth" "$kit" 0 0 \
+      --good-has 'Stop hook is' --bad-lacks 'Stop hook is'
   fi
 
   echo "-- teeth-hook-claim-extract: widen HOOK-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3h ('hook no') must false-WARN --"
@@ -3170,17 +2929,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hc="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-CLAIM-EXTRACT' "$mut_hc"; then
-    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: matches any hook value)/" "$mut_hc"
-    outm_hc="$("$BASH_BIN" "$mut_hc" 2>&1)"
-    if grep -q "row claims 'hook no' but the Stop hook is" <<<"$outm_hc"; then
-      ok "teeth-hook-claim-extract: widened extraction false-fires on 'hook no' — test 3h has teeth" "()"
-    else
-      no "teeth-hook-claim-extract: widened extraction must false-fire on 'hook no' — THEATER" "out=[$outm_hc]"
-    fi
-  else
-    no "teeth-hook-claim-extract: HOOK-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-claim-extract" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: matches any hook value)/"; then
+    vr_run "teeth-hook-claim-extract: widened extraction false-fires on 'hook no' — test 3h has teeth" "$kit" 0 0 \
+      --good-lacks "row claims 'hook no' but the Stop hook is" --bad-has "row claims 'hook no' but the Stop hook is"
   fi
 
   # kit issue #1108 round 2 (RDD finding): a mutant that drops JUST the word-boundary group
@@ -3193,17 +2944,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yesterday) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hcb="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-CLAIM-EXTRACT' "$mut_hcb"; then
-    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+yes' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: boundary dropped)/" "$mut_hcb"
-    outm_hcb="$("$BASH_BIN" "$mut_hcb" 2>&1)"
-    if grep -q "row claims 'hook yesterday' but the Stop hook is" <<<"$outm_hcb"; then
-      ok "teeth-hook-claim-boundary: boundary-dropped extraction false-fires on 'hook yesterday' — test 3k has teeth" "()"
-    else
-      no "teeth-hook-claim-boundary: boundary-dropped extraction must false-fire on 'hook yesterday' — THEATER" "out=[$outm_hcb]"
-    fi
-  else
-    no "teeth-hook-claim-boundary: HOOK-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-claim-boundary" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+yes' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: boundary dropped)/"; then
+    vr_run "teeth-hook-claim-boundary: boundary-dropped extraction false-fires on 'hook yesterday' — test 3k has teeth" "$kit" 0 0 \
+      --good-lacks "row claims 'hook yesterday' but the Stop hook is" --bad-has "row claims 'hook yesterday' but the Stop hook is"
   fi
 
   # kit issue #1135: neuter the HOOK-WIRING-OFF-ROOT-CHECK guard (force its condition false) so a
@@ -3219,47 +2962,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hor="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-WIRING-OFF-ROOT-CHECK' "$mut_hor"; then
-    sed -i 's/if \[ "\$_vr_hook_state" = "wired-off-root" \]; then  # HOOK-WIRING-OFF-ROOT-CHECK/if false; then  # HOOK-WIRING-OFF-ROOT-CHECK (mutated)/' "$mut_hor"
-    outm_hor="$("$BASH_BIN" "$mut_hor" 2>&1)"
-    if grep -qE "Stop hook is wired-off-root at" <<<"$outm_hor" \
-       && ! grep -q 'Confirm which directory sessions actually launch from' <<<"$outm_hor"; then
-      ok "teeth-hook-wiring-off-root-check: neutered guard regains the generic wording for test 3l — has teeth" "()"
-    else
-      no "teeth-hook-wiring-off-root-check: neutered guard must regain the generic wording — THEATER" "out=[$outm_hor]"
-    fi
-  else
-    no "teeth-hook-wiring-off-root-check: HOOK-WIRING-OFF-ROOT-CHECK sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-wiring-off-root-check" "$kit" 's/if \[ "\$_vr_hook_state" = "wired-off-root" \]; then  # HOOK-WIRING-OFF-ROOT-CHECK/if false; then  # HOOK-WIRING-OFF-ROOT-CHECK (mutated)/'; then
+    vr_run "teeth-hook-wiring-off-root-check: neutered guard regains the generic wording for test 3l — has teeth" "$kit" 0 0 \
+      --good-has 'Confirm which directory sessions actually launch from' \
+      --bad-has 'Stop hook is wired-off-root at' --bad-lacks 'Confirm which directory sessions actually launch from'
   fi
 
   # --- kit issue #1128 teeth: SYMMETRIC HOOK-WIRING RECONCILIATION -----------------------------------
   # kit issue #1141 round-3 review: this tooth's "clean line" assertion only checked the ABSENCE of
   # the WARN substring, never the PRESENCE of the baseline WARN it mutates away, nor the presence of
   # the actual 'Registry consistent with reality' clean-verdict line its own title claims to check.
-  # Both gaps are fixed below: assert the UNMUTATED baseline WARNs first (so a broken fixture cannot
-  # silently report teeth for a mutation that never had anything to remove), then require the
-  # 'consistent' line explicitly, not merely the WARN's disappearance.
+  # Both gaps are fixed: the ORIGINAL must WARN first (--good-has, so a broken fixture cannot silently
+  # report teeth for a mutation that never had anything to remove), then the mutant must print the
+  # 'consistent' line explicitly, not merely lose the WARN.
   echo "-- teeth-hook-wiring-reverse-check: neuter the HOOK-WIRING-REVERSE-CHECK guard; test 3m must regain the clean line --"
   kit="$(mkkit teeth-hookreverse)"; tgt="$ROOT/teeth-hookreverse-tgt/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
   write_targets "$kit" "${tgt}::3 md / hook no"
-  base_hwr="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"
-  if ! grep -q "Stop hook IS wired" <<<"$base_hwr"; then
-    no "teeth-hook-wiring-reverse-check: baseline (unmutated) SUT does not WARN on this fixture — cannot prove the guard's removal changes anything" "out=[$base_hwr]"
-  else
-    mut_hwr="$kit/toolbelt/verify-registry.sh"
-    if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hwr"; then
-      sed -i 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if false; then  # HOOK-WIRING-REVERSE-CHECK (mutated)/' "$mut_hwr"
-      outm_hwr="$("$BASH_BIN" "$mut_hwr" 2>&1)"
-      if ! grep -q "Stop hook IS wired" <<<"$outm_hwr" && grep -qF 'Registry consistent with reality' <<<"$outm_hwr"; then
-        ok "teeth-hook-wiring-reverse-check: neutered guard silences test 3m and regains the 'consistent' clean line — has teeth" "()"
-      else
-        no "teeth-hook-wiring-reverse-check: neutered guard must silence test 3m and print 'Registry consistent with reality' — THEATER" "out=[$outm_hwr]"
-      fi
-    else
-      no "teeth-hook-wiring-reverse-check: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
-    fi
+  if vr_mut "teeth-hook-wiring-reverse-check" "$kit" 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if false; then  # HOOK-WIRING-REVERSE-CHECK (mutated)/'; then
+    vr_run "teeth-hook-wiring-reverse-check: neutered guard silences test 3m and regains the 'consistent' clean line — has teeth" "$kit" 0 0 \
+      --good-has 'Stop hook IS wired' --good-lacks "$VR_CLEAN" \
+      --bad-lacks 'Stop hook IS wired' --bad-has "$VR_CLEAN"
   fi
 
   echo "-- teeth-hook-no-claim-extract: widen HOOK-NO-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3p ('hook yes') must false-WARN --"
@@ -3268,17 +2991,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hnc="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnc"; then
-    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: matches any hook value)/" "$mut_hnc"
-    outm_hnc="$("$BASH_BIN" "$mut_hnc" 2>&1)"
-    if grep -q "row claims 'hook yes' but the Stop hook IS wired" <<<"$outm_hnc"; then
-      ok "teeth-hook-no-claim-extract: widened extraction false-fires on 'hook yes' — test 3p has teeth" "()"
-    else
-      no "teeth-hook-no-claim-extract: widened extraction must false-fire on 'hook yes' — THEATER" "out=[$outm_hnc]"
-    fi
-  else
-    no "teeth-hook-no-claim-extract: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-no-claim-extract" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: matches any hook value)/"; then
+    vr_run "teeth-hook-no-claim-extract: widened extraction false-fires on 'hook yes' — test 3p has teeth" "$kit" 0 0 \
+      --good-lacks "row claims 'hook yes' but the Stop hook IS wired" --bad-has "row claims 'hook yes' but the Stop hook IS wired"
   fi
 
   echo "-- teeth-hook-no-claim-boundary: drop the word-boundary group from HOOK-NO-CLAIM-EXTRACT; test 3q ('hook nonexistent') must false-WARN --"
@@ -3287,17 +3002,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook nonexistent) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hnb="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnb"; then
-    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+no' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: boundary dropped)/" "$mut_hnb"
-    outm_hnb="$("$BASH_BIN" "$mut_hnb" 2>&1)"
-    if grep -q "row claims 'hook nonexistent' but the Stop hook IS wired" <<<"$outm_hnb"; then
-      ok "teeth-hook-no-claim-boundary: boundary-dropped extraction false-fires on 'hook nonexistent' — test 3q has teeth" "()"
-    else
-      no "teeth-hook-no-claim-boundary: boundary-dropped extraction must false-fire on 'hook nonexistent' — THEATER" "out=[$outm_hnb]"
-    fi
-  else
-    no "teeth-hook-no-claim-boundary: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-no-claim-boundary" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+no' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: boundary dropped)/"; then
+    vr_run "teeth-hook-no-claim-boundary: boundary-dropped extraction false-fires on 'hook nonexistent' — test 3q has teeth" "$kit" 0 0 \
+      --good-lacks "row claims 'hook nonexistent' but the Stop hook IS wired" --bad-has "row claims 'hook nonexistent' but the Stop hook IS wired"
   fi
 
   echo "-- teeth-hook-no-claim-case: drop the '-i' flag from HOOK-NO-CLAIM-EXTRACT ('grep -iE' → 'grep -E'); test 3t (uppercase 'HOOK NO') must false-WARN — kit issue #1141 round-3 review nit: case-insensitivity previously had no dedicated fixture/tooth --"
@@ -3306,17 +3013,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hnic="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnic"; then
-    sed -i '/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE/grep -E/' "$mut_hnic"
-    outm_hnic="$("$BASH_BIN" "$mut_hnic" 2>&1)"
-    if ! grep -q "Stop hook IS wired" <<<"$outm_hnic"; then
-      ok "teeth-hook-no-claim-case: case-sensitive mutant silences test 3t (uppercase 'HOOK NO') — has teeth" "()"
-    else
-      no "teeth-hook-no-claim-case: case-sensitive mutant must silence test 3t — THEATER" "out=[$outm_hnic]"
-    fi
-  else
-    no "teeth-hook-no-claim-case: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-no-claim-case" "$kit" '/# HOOK-NO-CLAIM-EXTRACT/ s/grep -iE/grep -E/'; then
+    vr_run "teeth-hook-no-claim-case: case-sensitive mutant silences test 3t (uppercase 'HOOK NO') — has teeth" "$kit" 0 0 \
+      --good-has 'Stop hook IS wired' --bad-lacks 'Stop hook IS wired'
   fi
 
   echo "-- teeth-hook-no-claim-fileyes-scope: widen HOOK-NO-CLAIM-EXTRACT back to also match 'hook file yes' (undoes the #1141 round-3 narrowing); test 3n ('hook file yes / unregistered', own git root) must false-WARN --"
@@ -3325,17 +3024,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook file yes / unregistered) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  mut_hnfy="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnfy"; then
-    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: file-yes scope reintroduced)/" "$mut_hnfy"
-    outm_hnfy="$("$BASH_BIN" "$mut_hnfy" 2>&1)"
-    if grep -q "row claims 'hook file yes' but the Stop hook IS wired" <<<"$outm_hnfy"; then
-      ok "teeth-hook-no-claim-fileyes-scope: widened extraction false-fires on 'hook file yes' — test 3n has teeth" "()"
-    else
-      no "teeth-hook-no-claim-fileyes-scope: widened extraction must false-fire on 'hook file yes' — THEATER" "out=[$outm_hnfy]"
-    fi
-  else
-    no "teeth-hook-no-claim-fileyes-scope: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-no-claim-fileyes-scope" "$kit" "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+no(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: file-yes scope reintroduced)/"; then
+    vr_run "teeth-hook-no-claim-fileyes-scope: widened extraction false-fires on 'hook file yes' — test 3n has teeth" "$kit" 0 0 \
+      --good-lacks "row claims 'hook file yes' but the Stop hook IS wired" --bad-has "row claims 'hook file yes' but the Stop hook IS wired"
   fi
 
   # kit issue #1141 round-2 review, Blocking 2: a mutant that drops ONLY the reverse check's
@@ -3347,28 +3038,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   #
   # kit issue #1141 round-3 review, nit: the previous revision anchored this mutation by copying
   # the WHOLE 3-line if-block (sentinel + WARN echo text + attention increment) and string-
-  # replacing it verbatim — fragile, because any wording change to the WARN echo (exactly what
-  # round 3 just did) silently breaks the anchor and the tooth reports a false 'sentinel not found'
-  # rather than exercising the mutation. Anchored instead on the STABLE '# HOOK-WIRING-REVERSE-
-  # CHECK' sentinel and the block's closing 'fi', with a scoped sed address range that deletes only
-  # the attention-increment line inside — independent of the WARN wording.
+  # replacing it verbatim — fragile, because any wording change to the WARN echo silently breaks the
+  # anchor. Anchored instead on the STABLE '# HOOK-WIRING-REVERSE-CHECK' sentinel and the block's
+  # closing 'fi', with a scoped sed address range that deletes only the attention-increment line
+  # inside (mutant_chain refuses the mutant loudly if that line is not found) — independent of the
+  # WARN wording.
   echo "-- teeth-hook-wiring-reverse-attention: drop ONLY the reverse check's attention increment (WARN line untouched); test 3m must regain 'attention=0' and the false 'consistent' line --"
   kit="$(mkkit teeth-hookreverse-attn)"; tgt="$ROOT/teeth-hookreverse-attn-tgt/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
   write_targets "$kit" "${tgt}::3 md / hook no"
-  mut_hwa="$kit/toolbelt/verify-registry.sh"
-  if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hwa"; then
-    sed -i '/# HOOK-WIRING-REVERSE-CHECK/,/^    fi$/{/attention=$((attention + 1))/d}' "$mut_hwa"
-    outm_hwa="$("$BASH_BIN" "$mut_hwa" 2>&1)"
-    if grep -q "row claims 'hook no' but the Stop hook IS wired" <<<"$outm_hwa" \
-       && grep -qF '0 attention.' <<<"$outm_hwa" \
-       && grep -qF 'Registry consistent with reality' <<<"$outm_hwa"; then
-      ok "teeth-hook-wiring-reverse-attention: attention-increment-dropped mutant leaves the WARN but falsely reports 0 attention + 'consistent' — test 3m has teeth" "()"
-    else
-      no "teeth-hook-wiring-reverse-attention: attention-increment-dropped mutant must keep the WARN but lose the attention count / gain the false consistent line — THEATER" "out=[$outm_hwa]"
-    fi
-  else
-    no "teeth-hook-wiring-reverse-attention: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
+  if vr_mut "teeth-hook-wiring-reverse-attention" "$kit" '/# HOOK-WIRING-REVERSE-CHECK/,/^    fi$/{/attention=$((attention + 1))/d}'; then
+    # Three facts must hold TOGETHER (WARN kept, 'N attention.' reads 0, clean verdict printed), so
+    # the ARGV derives ONE typed FACT line from the SUT output and the tooth pins it exactly:
+    # original warn=1 zero_attention=0 clean=0, mutant warn=1 zero_attention=1 clean=1.
+    vr_run "teeth-hook-wiring-reverse-attention: attention-increment-dropped mutant leaves the WARN but falsely reports 0 attention + 'consistent' — test 3m has teeth" "$kit" 0 0 \
+      --good-has '^FACT warn=1 zero_attention=0 clean=0$' --bad-has '^FACT warn=1 zero_attention=1 clean=1$' \
+      -- "$BASH_BIN" -c 'o="$("$1" "$2" 2>&1)"; rc=$?; w=0; a=0; c=0
+         grep -q "row claims .hook no. but the Stop hook IS wired" <<<"$o" && w=1
+         grep -qF "0 attention." <<<"$o" && a=1
+         grep -qE "^Registry consistent with reality" <<<"$o" && c=1
+         printf "FACT warn=%s zero_attention=%s clean=%s\n" "$w" "$a" "$c"; exit "$rc"' _ "$BASH_BIN" @SUT@
   fi
 
   # kit issue #1141 round-2 review, Blocking 1: widen the reverse guard from strict '= "wired"' to
@@ -3378,32 +3067,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # distinguish from the baseline. Fixture 3s's row claims 'hook no' since kit issue #1141 round 3
   # (the reverse check no longer examines 'hook file yes' claims at all).
   #
-  # kit issue #1141 round-3 review, Blocking-adjacent nit: the previous revision only ECHOed SKIP
-  # on an unexpected baseline regression, which never called 'no' and so never affected the pass/
-  # fail totals — a silent pass for a broken precondition, exactly the theater this file's own
-  # doctrine (kit issue #426, §4) exists to catch. Fails closed now: an unexpected baseline WARN is
-  # a genuine test failure, not a skip.
+  # Fails closed: an unexpected baseline WARN (--good-lacks) is a genuine test failure, not a skip —
+  # lib/hook-wiring.sh's 'wired-off-root' state is missing or regressed (kit issue #1135); investigate
+  # before trusting this tooth.
   echo "-- teeth-hook-wiring-reverse-offroot-widen: widen the reverse guard to 'wired*' (accepts wired-off-root); fixture 3s must false-WARN --"
   kit="$(mkkit teeth-hookreverse-offroot)"; gitroot_t="$kit/repo"; tgt="$gitroot_t/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
   git init -q "$gitroot_t" >/dev/null 2>&1
   write_targets "$kit" "${tgt}::3 md / hook no"
-  base_hro="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"
-  if grep -q "Stop hook IS wired" <<<"$base_hro"; then
-    no "teeth-hook-wiring-reverse-offroot-widen: baseline (unmutated) SUT already WARNs on the 3s fixture — lib/hook-wiring.sh's 'wired-off-root' state is missing or regressed (kit issue #1135); investigate before trusting this tooth" "out=[$base_hro]"
-  else
-    mut_hro="$kit/toolbelt/verify-registry.sh"
-    if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hro"; then
-      sed -i 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if [[ "$_vr_hook_state2" == wired* ]]; then  # HOOK-WIRING-REVERSE-CHECK (mutated: widened to wired*)/' "$mut_hro"
-      outm_hro="$("$BASH_BIN" "$mut_hro" 2>&1)"
-      if grep -q "row claims 'hook no' but the Stop hook IS wired" <<<"$outm_hro"; then
-        ok "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening false-WARNs a wired-off-root target — fixture 3s has teeth" "()"
-      else
-        no "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening must false-WARN the wired-off-root fixture — THEATER" "out=[$outm_hro]"
-      fi
-    else
-      no "teeth-hook-wiring-reverse-offroot-widen: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
-    fi
+  if vr_mut "teeth-hook-wiring-reverse-offroot-widen" "$kit" 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if [[ "$_vr_hook_state2" == wired* ]]; then  # HOOK-WIRING-REVERSE-CHECK (mutated: widened to wired*)/'; then
+    vr_run "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening false-WARNs a wired-off-root target — fixture 3s has teeth" "$kit" 0 0 \
+      --good-lacks 'Stop hook IS wired' --bad-has "row claims 'hook no' but the Stop hook IS wired"
   fi
 fi
 
