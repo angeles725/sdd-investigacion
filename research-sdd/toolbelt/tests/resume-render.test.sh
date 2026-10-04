@@ -21,6 +21,10 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 eq(){ if [ "$2" = "$3" ]; then ok "$1"; else no "$1 — got [$2] want [$3]"; fi; }
 has(){ case "$OUT" in *"$2"*) ok "$1" ;; *) no "$1 — output lacks [$2]" ;; esac; }
 lacks(){ case "$OUT" in *"$2"*) no "$1 — output has [$2]" ;; *) ok "$1" ;; esac; }
+# linenull LABEL FRAGMENT: the OUTPUT line containing FRAGMENT must exist and must not carry the literal "null"
+# (scoped to that field line: other lines legitimately print diagnostics that mention null).
+linenull(){ L="$(printf '%s\n' "$OUT" | grep -F -- "$2" | head -n 1)"
+  case "$L" in "") no "$1 — no output line has [$2]" ;; *null*) no "$1 — line [$L] has null" ;; *) ok "$1" ;; esac; }
 # run <args...>: stdout+stderr in OUT, rc in RC (stdin closed unless the case pipes one).
 run(){ OUT="$(timeout 30 bash "$SUT" "$@" 2>&1 </dev/null)"; RC=$?; }
 
@@ -124,11 +128,13 @@ eq "3t  dash-prefixed file renders rc" "$RC" 0; has "3t1 dash-prefixed file rend
 cat "$P" "$P" > "$TMP/two.json"; run --json "$TMP/two.json"
 eq "3u  two documents rc" "$RC" 2; has "3u1 two documents typed message" "multiple JSON documents"
 jq '.worktrees[0]|=del(.path)' "$P" > "$TMP/nopath.json"; run --json "$TMP/nopath.json"
-eq "3v  worktree without path rc" "$RC" 0; has "3v1 missing path -> unknown" '- `unknown` — '; lacks "3v2 missing path never renders null" 'null'
+eq "3v  worktree without path rc" "$RC" 0; has "3v1 missing path -> unknown" '- `unknown` — '; linenull "3v2 missing path never renders null on its line" '- `unknown` — '
 jq '.branches=[{"head":"abcdef0123"}]' "$P" > "$TMP/noname.json"; run --json "$TMP/noname.json"
-has "3w  branch without name -> unknown" '- `unknown` @ abcdef0'; lacks "3w1 missing name never renders null" 'null'
+eq "3w0 branch without name rc" "$RC" 0; has "3w  branch without name -> unknown" '- `unknown` @ abcdef0'; linenull "3w1 missing name never renders null on its line" '- `unknown` @ abcdef0'
 jq '.prs[0]|=(.number=null|.branch=null|.state=null|.url=null)' "$P" > "$TMP/prnull.json"; run --json "$TMP/prnull.json"
-eq "3x  PR with null fields rc" "$RC" 0; has "3x1 null PR fields -> unknown" '- #unknown `unknown` unknown — unknown'; lacks "3x2 null PR fields never render null" 'null'
+eq "3x  PR with null fields rc" "$RC" 0; has "3x1 null PR fields -> unknown" '- #unknown `unknown` unknown — unknown'; linenull "3x2 null PR fields never render null on their line" '- #unknown'
+printf '%s\n' "$(cat "$P")" null > "$TMP/twonull.json"; run --json "$TMP/twonull.json"
+eq "3u2 stream ending in null rc" "$RC" 2; has "3u3 stream ending in null is multi-document, not malformed" "multiple JSON documents"
 
 # 4. stdin
 OUT="$(timeout 30 bash "$SUT" --json - 2>&1 <"$FX/state-prs-ok.json")"; RC=$?
@@ -214,10 +220,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt rc3-not-propagated 3 2 "$MUT/s3/m16.sh" --orig "$MUT/s3/orig.sh" --good-has 'resume-state.sh failed \(rc 3\)' --bad-has 'resume-state.sh failed \(rc 3\)' -- bash @SUT@ --no-gh
   mk dash-file-cat "$SUT" "$MUT/m17.sh" 's/^  cat -- "\$json_src" > "\$tmp"$/  cat "$json_src" > "$tmp"/' \
     && tt dash-file-cat 0 2 "$MUT/m17.sh" --good-has 'Resume handoff' --bad-has 'empty input' -- bash -c 'cd "$1" && shift && bash "$@"' _ "$TMP/dash" @SUT@ --json -state.json
-  mk multi-doc-accepted "$SUT" "$MUT/m18.sh" 's/^\[ "\$(jq -s length "\$tmp" 2>\/dev\/null)" = 1 \] ||.*$/:/' \
+  mk multi-doc-accepted "$SUT" "$MUT/m18.sh" 's/^\[ "\$ndocs" = 1 \] .*$/:/' \
     && tt multi-doc-accepted 2 2 "$MUT/m18.sh" --good-has 'multiple JSON documents' --bad-lacks 'multiple JSON documents' -- bash @SUT@ --json "$TMP/two.json"
-  mk null-identity-literal "$SUT" "$MUT/m19.sh" 's/def u(v): if v == null then "unknown" else (v|tostring) end;/def u(v): (v|tostring);/' \
-    && tt null-identity-literal 0 0 "$MUT/m19.sh" --good-lacks 'null' --bad-has 'null' -- bash @SUT@ --json "$TMP/prnull.json"
+  mk null-identity-literal "$SUT" "$MUT/m19.sh" 's/def or_unknown(v): if v == null then "unknown" else (v|tostring) end;/def or_unknown(v): (v|tostring);/' \
+    && tt null-identity-literal 0 0 "$MUT/m19.sh" --good-has '- #unknown `unknown` unknown — unknown' --bad-has '- #null `null` null — null' -- bash @SUT@ --json "$TMP/prnull.json"
 fi
 
 echo "== $pass passed · $fail failed =="

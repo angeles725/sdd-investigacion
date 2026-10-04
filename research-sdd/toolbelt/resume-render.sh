@@ -57,8 +57,10 @@ else
 fi
 
 [ -s "$tmp" ] || { echo "resume-render.sh: empty input (no JSON document)" >&2; exit 2; }
+# Count documents first (-s): a stream ending in null/false would otherwise fail `jq -e .` and read as malformed.
+ndocs="$(jq -s length "$tmp" 2>/dev/null)" || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
+[ "$ndocs" = 1 ] || { echo "resume-render.sh: multiple JSON documents in the input (want exactly one)" >&2; exit 2; }
 jq -e . "$tmp" >/dev/null 2>&1 || { echo "resume-render.sh: malformed JSON input" >&2; exit 2; }
-[ "$(jq -s length "$tmp" 2>/dev/null)" = 1 ] || { echo "resume-render.sh: multiple JSON documents in the input (want exactly one)" >&2; exit 2; }
 got="$(jq -r '.schema? // "" | tostring' "$tmp" 2>/dev/null)"
 [ "$got" = "$SCHEMA" ] || { echo "resume-render.sh: wrong schema: [$got] (want $SCHEMA)" >&2; exit 2; }
 jq -e '(.worktrees|type)=="array" and (.branches|type)=="array" and (.base_ref|type)=="string"
@@ -72,11 +74,11 @@ out="$(mktemp)" || { echo "resume-render.sh: mktemp failed" >&2; exit 2; }
 trap 'rm -f "$tmp" "$out" "$out.err"' EXIT
 jq -r '
   def cnt(l; v): if v == null then l + " unknown" else l + " " + (v|tostring) end;
-  def u(v): if v == null then "unknown" else (v|tostring) end;
+  def or_unknown(v): if v == null then "unknown" else (v|tostring) end;
   def sha(v): if v == null then "unknown" else (v|tostring|.[0:7]) end;
   def ab(o): cnt("ahead"; o.ahead) + " · " + cnt("behind"; o.behind);
   def wt:
-    "- `" + u(.path) + "` — "
+    "- `" + or_unknown(.path) + "` — "
     + (if has("branch")|not then "branch unknown"
        elif .branch == null then "detached HEAD" else "branch `" + (.branch|tostring) + "`" end)
     + " @ " + sha(.head) + " · "
@@ -91,7 +93,7 @@ jq -r '
       "PR list unknown: " + ((.prs_status // "prs_status missing")|tostring)
       + (if .prs != null then " (inconsistent: a PR list is present but its status is not ok; not trusted)" else "" end)
     elif (.prs|length) == 0 then "No open PRs (gh answered with an empty list)."
-    else ((.prs[] | "- #" + u(.number) + " `" + u(.branch) + "` " + u(.state) + " — " + u(.url)),
+    else ((.prs[] | "- #" + or_unknown(.number) + " `" + or_unknown(.branch) + "` " + or_unknown(.state) + " — " + or_unknown(.url)),
           (if .prs_truncated == true then "- PR list truncated at the gh limit: it may be incomplete."
            elif .prs_truncated == null then "- PR list completeness unknown (prs_truncated null or missing)." else empty end))
     end;
@@ -107,7 +109,7 @@ jq -r '
   "",
   "## Loose branches (" + (.branches|length|tostring) + ")",
   (if (.branches|length) == 0 then "None: every local branch is checked out in a worktree."
-   else (.branches[] | "- `" + u(.name) + "` @ " + sha(.head) + " · " + ab(.)) end),
+   else (.branches[] | "- `" + or_unknown(.name) + "` @ " + sha(.head) + " · " + ab(.)) end),
   "",
   "## Open PRs",
   prs,
