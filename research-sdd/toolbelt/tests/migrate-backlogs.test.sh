@@ -20,7 +20,14 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 echo "== migrate-backlogs.test.sh =="
 
 # tree_sum DIR — path + content digest of every file under DIR (target must be byte-identical after a run)
-tree_sum() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha1sum 2>/dev/null; find . -print | sort); }
+# A missing hash tool is a LOUD failure (never a silent empty digest that makes before == after trivially).
+SHATOOL=""
+for _c in sha1sum shasum sha256sum; do command -v "$_c" >/dev/null 2>&1 && { SHATOOL="$_c"; break; }; done
+if [ -z "$SHATOOL" ]; then
+  echo "  FAIL  no sha1sum/shasum/sha256sum on PATH — the propose-never-apply tree check cannot run (SKIP counted as FAIL)"
+  echo "== 0 passed · 1 failed =="; exit 1
+fi
+tree_sum() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 "$SHATOOL"; find . -print | sort); }
 
 # mkcorpus DIR
 mkcorpus() {
@@ -154,7 +161,7 @@ grep -qF '+| high | V1 | text | doc | pending (x) |' <<<"$o" && ok "13 5-column 
 
 # 14. a backlog-like heading over a NON-priority table: typed MANUAL, and no skeleton is stacked beside it
 mkdir -p "$TMP/matrix"
-printf '# M\n\n## Backlog (coverage matrix)\n\n| Area | Covered |\n|---|---|\n| a | yes |\n' > "$TMP/matrix/RESEARCH-STATE-m.md"
+printf '# M\n\n## Backlog\n\n| Area | Covered |\n|---|---|\n| a | yes |\n' > "$TMP/matrix/RESEARCH-STATE-m.md"
 o="$(bash "$SUT" "$TMP/matrix" 2>/dev/null)"
 if grep -q '^MANUAL m non-priority-backlog-table ' <<<"$o" && ! grep -q '^PROPOSE' <<<"$o"; then ok "14 non-priority backlog table -> MANUAL, no skeleton"; else no "14 [$o]"; fi
 
@@ -187,7 +194,7 @@ cat > "$TMP/dup/RESEARCH-STATE-a.md" <<'E'
 |---|---|---|---|
 | high | A1 | web | pending |
 
-## Backlog (old)
+## Backlog
 | Priority | Gap | Type | Status |
 |---|---|---|---|
 | high | A2 | web | pending |
@@ -195,12 +202,12 @@ E
 cat > "$TMP/dup/RESEARCH-STATE-b.md" <<'E'
 # B
 
-## Backlog one
+## Backlog
 | Priority | Gap | Type | Status |
 |---|---|---|---|
 | high | B1 | web | pending |
 
-## Gap backlog two
+## Gap backlog
 | Priority | Gap | Type | Status |
 |---|---|---|---|
 | high | B2 | web | pending |
@@ -220,6 +227,46 @@ if [ -x "$SUT" ]; then
   o="$("$SUT" "$corpus" 2>/dev/null)"; r=$?
   [ "$r" = 0 ] && grep -q '^migrate-backlogs: 5 file(s) inspected' <<<"$o" && ok "18 runs when invoked directly (executable)" || no "18 direct invocation rc=$r"
 else no "18 migrate-backlogs.sh is not executable"; fi
+
+# 19. only the documented heading variants are rename candidates; other *backlog* headings are MANUAL
+mkdir -p "$TMP/hd"
+printf '# R\n\n## Retro backlog\n\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| high | R1 | web | pending |\n' > "$TMP/hd/RESEARCH-STATE-r.md"
+printf '# K\n\n## Kit backlog (notes)\n\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| high | K1 | web | pending |\n' > "$TMP/hd/RESEARCH-STATE-k.md"
+o="$(bash "$SUT" "$TMP/hd" 2>/dev/null)"
+if grep -q '^MANUAL r unrecognised-backlog-heading ' <<<"$o" && grep -q '^MANUAL k unrecognised-backlog-heading ' <<<"$o" && ! grep -q '^PROPOSE' <<<"$o"; then
+  ok "19 'Retro backlog' / 'Kit backlog' -> MANUAL unrecognised-backlog-heading (no rename, no skeleton)"
+else no "19 [$o]"; fi
+
+# 20. an unsupported table width is ONE typed reason per table, not one malformed-row per row
+mkdir -p "$TMP/wide"
+printf '# W\n\n## Gap-backlog\n| Priority | A | B | C | D | E |\n|---|---|---|---|---|---|\n| high | 1 | 2 | 3 | 4 | open |\n| low | 1 | 2 | 3 | 4 | open |\n| low | 1 | 2 | 3 | 4 | open |\n' > "$TMP/wide/RESEARCH-STATE-w.md"
+o="$(bash "$SUT" "$TMP/wide" 2>/dev/null)"
+if grep -q '^MANUAL w unsupported-table-width cols=6 rows=1 ' <<<"$o" && ! grep -q 'malformed-row' <<<"$o"; then ok "20 unsupported width -> one typed unsupported-table-width cols=N"; else no "20 [$o]"; fi
+
+# 21. only the focus REGISTRY table in FOCUSES.md is transformed
+mkdir -p "$TMP/reg"
+cat > "$TMP/reg/FOCUSES.md" <<'E'
+# Focuses
+
+| Item | Status |
+|---|---|
+| side-note | closed |
+
+| Focus | Status | State |
+|---|---|---|
+| main | closed | RESEARCH-STATE-main.md |
+E
+printf '# M\n\n## Gap-backlog\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| high | M1 | web | pending |\n' > "$TMP/reg/RESEARCH-STATE-main.md"
+o="$(bash "$SUT" "$TMP/reg" 2>/dev/null)"
+if grep -qF '+| main | stopped | RESEARCH-STATE-main.md |' <<<"$o" && ! grep -qF '+| side-note | stopped |' <<<"$o" && ! grep -q 'unknown-focus-status' <<<"$o"; then ok "21 registry table transformed, sibling table untouched"; else no "21 [$o]"; fi
+
+# 22. a failed state-file scan is DEGRADED (exit 1), never absent-input
+mkdir -p "$TMP/degr/lib" "$TMP/degr/corpus"
+cp "$SUT" "$TMP/degr/migrate-backlogs.sh"
+printf 'list_state_files() { return 3; }\n' > "$TMP/degr/lib/state-files.sh"
+printf '# S\n' > "$TMP/degr/corpus/RESEARCH-STATE-s.md"
+o="$(bash "$TMP/degr/migrate-backlogs.sh" "$TMP/degr/corpus" 2>&1)"; r=$?
+if [ "$r" = 1 ] && grep -q '^degraded: migrate-backlogs: scanning' <<<"$o" && ! grep -q '^absent-input' <<<"$o"; then ok "22 helper failure -> typed degraded + exit 1 (not absent-input)"; else no "22 rc=$r [$o]"; fi
 
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -272,10 +319,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth L: mutant could not be built"; fi
   # M: anyhdr made file-global again -> case 17 must go red
   t="$(mk_tree M)"
-  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/if (isbl\[cur\]) anyhdr = 1/anyhdr = 1/' >/dev/null 2>&1; then
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/if (isbl\[cur\] || canon\[cur\]) anyhdr = 1/anyhdr = 1/' >/dev/null 2>&1; then
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/cq" 2>/dev/null)"
     grep -q '^MANUAL q empty-backlog-skeleton' <<<"$o" && no "teeth M: file-global mutant still proposes — THEATER" || ok "teeth M: file-global anyhdr -> case 17 has teeth"
   else no "teeth M: mutant could not be built"; fi
+  # N: any *backlog* heading becomes a rename candidate -> case 19 must go red
+  t="$(mk_tree N)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/isbl\[cur\] = (!canon\[cur\] \&\& recog(h))/isbl[cur] = (!canon[cur] \&\& tolower(h) ~ \/backlog\/)/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/hd" 2>/dev/null)"
+    grep -q '^MANUAL r unrecognised-backlog-heading' <<<"$o" && no "teeth N: loosened mutant still MANUAL — THEATER" || ok "teeth N: heading overmatch -> case 19 has teeth"
+  else no "teeth N: mutant could not be built"; fi
+  # O: width reason dropped (rows fall back to per-row malformed) -> case 20 must go red
+  t="$(mk_tree O)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/    if (width < 0) manual("unsupported-table-width cols=" nc, FNR)/    :/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/wide" 2>/dev/null)"
+    grep -q 'unsupported-table-width' <<<"$o" && no "teeth O: mutant still typed — THEATER" || ok "teeth O: width reason dropped -> case 20 has teeth"
+  else no "teeth O: mutant could not be built"; fi
+  # P: every FOCUSES table treated as the registry -> case 21 must go red
+  t="$(mk_tree P)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/    reg = (scol > 0 \&\& hasslug)$/    reg = (scol > 0)/' >/dev/null 2>&1; then
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/reg" 2>/dev/null)"
+    grep -qF '+| side-note | stopped |' <<<"$o" && ok "teeth P: any Status table transformed -> case 21 has teeth" || no "teeth P: mutant still leaves the sibling table alone — THEATER"
+  else no "teeth P: mutant could not be built"; fi
+  # Q: scan status ignored -> case 22 must go red
+  t="$(mk_tree Q)"
+  if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^\[ "\$_scan_rc" = 0 \] || .*$/:/' >/dev/null 2>&1; then
+    cp "$TMP/degr/lib/state-files.sh" "$t/lib/state-files.sh"
+    o="$(bash "$t/migrate-backlogs.sh" "$TMP/degr/corpus" 2>&1)"; r=$?
+    { [ "$r" = 1 ] && grep -q '^degraded:' <<<"$o"; } && no "teeth Q: mutant still degraded — THEATER" || ok "teeth Q: scan status ignored -> case 22 has teeth"
+  else no "teeth Q: mutant could not be built"; fi
   # I: the absent-input typed line silenced
   t="$(mk_tree I)"
   if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^  echo "absent-input: no RESEARCH-STATE.*$/  :/' >/dev/null 2>&1; then
