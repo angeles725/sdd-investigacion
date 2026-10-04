@@ -301,14 +301,36 @@ assert_state "19 embedded newline, nested in a repo → wired-off-root (path not
 #      $TMPDIR temp file; if that cannot be created `read` fails, the array stays empty and the path
 #      silently becomes '/'. The split must use parameter expansion only. Lint over executable
 #      lines (comment lines excluded) of the lib.
-if _hs_n="$(grep -v '^[[:space:]]*#' "$LIB" | grep -c '<<<')"; then _hs_rc=0; else _hs_rc=$?; fi
-if [ "$_hs_rc" -gt 1 ]; then
-  no "20 lib here-string lint could not run" "grep rc=$_hs_rc"
-elif [ "$_hs_n" -eq 0 ]; then
+# herestring_count FILE : sets HS_N to the number of here-strings on executable lines; rc 2 when
+# grep itself failed (rc > 1), so "0" can never mean "could not look". Shared by case 20 and its tooth.
+herestring_count() {
+  local rc
+  if HS_N="$(grep -v '^[[:space:]]*#' "$1" | grep -c '<<<')"; then rc=0; else rc=$?; fi
+  [ "$rc" -le 1 ] || return 2
+  return 0
+}
+if ! herestring_count "$LIB"; then
+  no "20 lib here-string lint could not run"
+elif [ "$HS_N" -eq 0 ]; then
   ok "20 lib has no here-string on executable lines (no TMPDIR-backed split)"
 else
-  no "20 lib has no here-string on executable lines" "found $_hs_n"
+  no "20 lib has no here-string on executable lines" "found $HS_N"
 fi
+
+# --- 21 — RAW-TARGET CHECK honors the ceiling (kit issue #1153, RDD review): same shape as case 18
+#      (target ".../link/.." whose spelled form owns a .git), but the collapsed path IS the ceiling.
+#      The ceiling must still win: HW_GIT_ROOT stays empty instead of echoing the collapsed path.
+d21_p="$ROOT/t21-P"; d21_q="$ROOT/t21-Q"
+mkdir -p "$d21_p/sub" "$d21_q/y/z"
+git init -q "$d21_q/y" >/dev/null 2>&1
+ln -s "$d21_q/y/z" "$d21_p/sub/link"
+_saved_ceiling21="$RSDD_HOOK_WIRING_CEILING"
+export RSDD_HOOK_WIRING_CEILING="$d21_p/sub"
+_hw_find_git_root "$d21_p/sub/link/.."
+_r21="$HW_GIT_ROOT"
+export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling21"
+if [ -z "$_r21" ]; then ok "21 raw .git target whose collapsed path is the ceiling → ceiling wins (no root)"
+else no "21 raw .git target whose collapsed path is the ceiling → ceiling wins (no root)" "HW_GIT_ROOT=[$_r21]"; fi
 
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
@@ -554,11 +576,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reintroduce a here-string on an executable line — case 20 lint must go RED --"
   mut_herestr="$ROOT/hook-wiring.MUTANT-herestring.sh"
   if mk "teeth: path-split anchor in lib (here-string)" "$LIB" "$mut_herestr" 's/local rest="\${d#\/}" last=0/local rest="${d#\/}" last=0; : <<< "$d"  # MUTANT: here-string/'; then
-    if _hm_n="$(grep -v '^[[:space:]]*#' "$mut_herestr" | grep -c '<<<')" && [ "$_hm_n" -ne 0 ]; then
-      ok "teeth: here-string lint bites on a mutant carrying one (real sourced lib)" "found $_hm_n"
+    if herestring_count "$mut_herestr" && [ "$HS_N" -ne 0 ]; then
+      ok "teeth: here-string lint bites on a mutant carrying one (real sourced lib)" "found $HS_N"
     else
-      no "teeth: here-string lint did NOT bite on a here-string mutant (theater)" "n=[${_hm_n:-}]"
+      no "teeth: here-string lint did NOT bite on a here-string mutant (theater)" "n=[${HS_N:-}]"
     fi
+  fi
+
+  echo "-- teeth: drop the ceiling clause from HOOK-WIRING-RAWGIT-CHECK — case 21 must go RED --"
+  mut_rawceil="$ROOT/hook-wiring.MUTANT-rawgit-ceiling.sh"
+  if mk "teeth: RAWGIT ceiling-clause anchor in lib" "$LIB" "$mut_rawceil" 's/if { \[ -z "\$ceiling" \] || \[ "\$d" != "\$ceiling" \]; } \&\& \[ -e/if [ -e/'; then
+    r21m="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_rawceil"
+      export RSDD_HOOK_WIRING_CEILING="$d21_p/sub"
+      _hw_find_git_root "$d21_p/sub/link/.." 2>&1; printf 'ROOT=[%s]' "$HW_GIT_ROOT"
+    )"
+    case "$r21m" in
+      'ROOT=[]') no "teeth: RAWGIT ceiling-clause mutation NOT caught (theater)" "$r21m" ;;
+      'ROOT=['*']') ok "teeth: RAWGIT ceiling-clause mutation caught (real sourced lib)" "$r21m" ;;
+      *) no "teeth: RAWGIT ceiling mutant crashed, not a bite" "$r21m" ;;
+    esac
   fi
 
   echo "-- teeth: stop absolutizing a relative target (drop the \$PWD prefix) — case 15c must go RED --"

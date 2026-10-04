@@ -160,6 +160,8 @@ if ! declare -F _hw_abspath >/dev/null 2>&1; then
 fi
 
 if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
+  # NOTE: when the target AS SPELLED owns a `.git` (RAW-TARGET CHECK below), $HW_GIT_ROOT is the
+  # collapsed target string, a comparison token only; do not read files under it.
   # _hw_find_git_root <dir> : sets $HW_GIT_ROOT to the nearest ancestor of <dir> (inclusive of
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
   # FILE, and this must recognise that too), or "" if none is found before reaching `/` or the
@@ -207,6 +209,11 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
     local _hw_raw="$1"
     case "$_hw_raw" in /*) : ;; *) _hw_raw="$PWD/$_hw_raw" ;; esac
     if { [ -z "$ceiling" ] || [ "$d" != "$ceiling" ]; } && [ -e "$_hw_raw/.git" ]; then  # HOOK-WIRING-RAWGIT-CHECK
+      # COMPARISON TOKEN, NOT A PATH TO READ UNDER: in this branch $d (the textually collapsed
+      # spelling) may name a different directory than the one that owns the `.git`. It is returned
+      # so the sole consumer (hook_stop_wiring_state_var, WIRED-OFF-ROOT-CHECK, which only compares
+      # $HW_GIT_ROOT with the same normalization of the target) sees "target is its own root".
+      # Chosen over the raw spelling because that comparison would never be equal to it.
       HW_GIT_ROOT="$d"
       return 0
     fi
