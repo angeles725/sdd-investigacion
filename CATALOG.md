@@ -2,7 +2,7 @@
 
 # Block catalog — gentle-ai SDD
 
-Total: **27 blocks**
+Total: **34 blocks**
 
 | Block | File | Title |
 |-------|------|-------|
@@ -33,3 +33,10 @@ Total: **27 blocks**
 | 25 | [sdd-mental-model-bloque25.md](sdd-mental-model-bloque25.md) | Multi-agent distribution: the 15 harnesses and the delegation models |
 | 26 | [sdd-mental-model-bloque26.md](sdd-mental-model-bloque26.md) | The `gentle-ai` configurator: install/sync/upgrade, scopes, OpenCode SDD profiles, per-phase models |
 | 27 | [sdd-mental-model-bloque27.md](sdd-mental-model-bloque27.md) | Internal architecture of the configurator: `state.json` and the per-harness adapters |
+| 28 | [sdd-mental-model-bloque28.md](sdd-mental-model-bloque28.md) | gentle-ai v2.2.0 → v4.0.0 delta: SDD retired, ODD and default-on RDD, signing, telemetry, harness changes, and a staleness map of B1–B27 |
+| 29 | [sdd-mental-model-bloque29.md](sdd-mental-model-bloque29.md) | How gentle-ai manages issues and pull requests: templates, CI gates, parse-linked-issues, size policy, labels, measured tracker, triage skills |
+| 30 | [sdd-mental-model-bloque30.md](sdd-mental-model-bloque30.md) | Automated issue generation in gentle-ai: the Provider Defect Handoff, its prompt-only nature, the local scrubbed report, and what the tracker shows |
+| 31 | [sdd-mental-model-bloque31.md](sdd-mental-model-bloque31.md) | How gentle-ai's components communicate: the review-integration contract, `next_transition`, binding tokens, acknowledge-then-burn, typed envelopes, threat model |
+| 32 | [sdd-mental-model-bloque32.md](sdd-mental-model-bloque32.md) | What gentle-ai creates and installs, its ODD working method, the bench, and release provenance and signing |
+| 33 | [sdd-mental-model-bloque33.md](sdd-mental-model-bloque33.md) | Adoption synthesis for the research-sdd kit: what to take, adapt or refuse from gentle-ai v4.0.0 |
+| 34 | [sdd-mental-model-bloque34.md](sdd-mental-model-bloque34.md) | How gentle-ai makes agents follow instructions: authority moved from prose to binary-issued argv, isolation by harness, and tests that pin prompt text |
