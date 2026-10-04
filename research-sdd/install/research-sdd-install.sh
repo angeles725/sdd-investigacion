@@ -13,6 +13,7 @@
 # HELP-START
 # Usage:
 #   research-sdd-install.sh [--harness claude|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
+#   research-sdd-install.sh --verify [--harness claude|pi|gentle-shell|all] [--home <dir>]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
@@ -20,6 +21,22 @@
 #   --force-skill when the deployed SKILL.md has diverged, back it up and overwrite with the kit source
 #   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
+#   --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
+#                 this installer manages for each harness (the deployed SKILL.md, the slash-command prompt
+#                 template, the marked research-sdd launcher block inside the shared prompt file, and the
+#                 regular files of a rendered profile) and compare it with the bundle digest the last
+#                 successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
+#                 ONE typed line per harness and writes NOTHING (no temp files, no state):
+#                   verify harness=<h> status=match bundle_sha256=<hex> files=<n>
+#                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
+#                   verify harness=<h> status=absent (not installed)
+#                   verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file)
+#                 Exit: 0 = every harness match or absent · 1 = drift in at least one harness and none
+#                 degraded · 2 = at least one harness degraded, or an operational/usage error (degraded
+#                 outranks drift: the instrument could not look, so it must not read as a clean 1).
+#                 Combining --verify with --dry-run, --force-skill or --profile is a usage error (exit 2).
+#                 An install that KEEPS a hand-edited SKILL.md/template records no new bundle digest, so a
+#                 hand-edit is never baselined as "installed": verify keeps reporting it until it is restored.
 #
 # pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
 # and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
@@ -476,6 +493,196 @@ _rsdd_deploy_skill() {
   fi
 }
 
+# --- bundle digest: record at install, verify read-only (kit issue #1702) ------------------------------
+# The bundle is a set of members, each named by a path RELATIVE to the harness config root, sorted
+# byte-wise (LC_ALL=C). Member kinds: a regular file (hashed whole), or "<prompt file>#research-sdd-section"
+# (the marked launcher block only, so user edits elsewhere in the shared prompt file never count).
+# The manifest is "<sha256><TAB><rel>\n" per member; the BUNDLE DIGEST is the sha256 of that manifest text
+# (the same sorted-path whole-bundle shape gentle-ai uses for its managed bundle). A member that does not
+# exist hashes as the literal MISSING. The record file holds the digest plus every member line so verify
+# can NAME the drifted members.
+_RSDD_SECTION_SUFFIX='#research-sdd-section'
+
+# _rsdd_have_sha256 — true iff some sha256 implementation is reachable (same chain as _rsdd_sha256_file).
+_rsdd_have_sha256() {
+  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1
+}
+
+# _rsdd_sha256_stdin — sha256 of stdin; same tool chain as _rsdd_sha256_file. rc=1 + no output on failure.
+_rsdd_sha256_stdin() {
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum 2>/dev/null | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 2>/dev/null | awk '{print $1}')"
+  elif command -v python3 >/dev/null 2>&1; then
+    out="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' 2>/dev/null)"
+  else
+    return 1
+  fi
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
+
+# _rsdd_section_text <file> — the first well-formed research-sdd marked block (markers included), exact
+# line equality like _rsdd_splice_file. rc=1 when the file or a complete block is absent.
+_rsdd_section_text() {
+  [ -f "$1" ] || return 1
+  awk -v start='<!-- research-sdd:start -->' -v end='<!-- research-sdd:end -->' '
+    !inb && $0 == start { inb=1; buf=$0 ORS; next }
+    inb { buf=buf $0 ORS; if ($0 == end) { printf "%s", buf; found=1; exit } }
+    END { exit !found }
+  ' "$1"
+}
+
+# _rsdd_member_hash <config_root> <rel> — prints the member's sha256 or MISSING. rc=1 when the member
+# exists but cannot be hashed (unreadable): the caller must report degraded, never a digest over a gap.
+_rsdd_member_hash() {
+  local root="$1" rel="$2" f text h
+  case "$rel" in
+    *"$_RSDD_SECTION_SUFFIX")
+      f="$root/${rel%"$_RSDD_SECTION_SUFFIX"}"
+      if [ -e "$f" ] && [ ! -r "$f" ]; then return 1; fi
+      if text="$(_rsdd_section_text "$f")"; then
+        h="$(printf '%s\n' "$text" | _rsdd_sha256_stdin)" || return 1
+        printf '%s\n' "$h"
+      else
+        printf 'MISSING\n'
+      fi ;;
+    *)
+      f="$root/$rel"
+      if [ -f "$f" ]; then
+        [ -r "$f" ] || return 1
+        _rsdd_sha256_file "$f" || return 1
+      else
+        printf 'MISSING\n'
+      fi ;;
+  esac
+}
+
+# _rsdd_manifest <config_root> <profile> — reads member rels on stdin, adds every regular file of the
+# rendered profile dir (non-claude profile; symlinks into the kit view are not members), de-duplicates,
+# sorts byte-wise, and prints "<sha>\t<rel>" lines. rc=1 on an unhashable member or an unsafe profile name.
+_rsdd_manifest() {
+  local root="$1" profile="$2" rels rel h rd f
+  rels="$(cat)"
+  if [ "$profile" != "claude" ]; then
+    [[ "$profile" =~ ^[a-z0-9_-]+$ ]] || return 1
+    rd="$root/research-sdd/profile/$profile"
+    if [ -d "$rd" ]; then
+      while IFS= read -r f; do
+        rels="$rels
+${f#"$root"/}"
+      done < <(find "$rd" -type f)
+    fi
+  fi
+  rels="$(printf '%s\n' "$rels" | awk 'NF' | LC_ALL=C sort -u)"
+  [ -n "$rels" ] || return 1
+  while IFS= read -r rel; do
+    h="$(_rsdd_member_hash "$root" "$rel")" || return 1
+    printf '%s\t%s\n' "$h" "$rel"
+  done <<<"$rels"
+}
+
+# _rsdd_install_members <h> <home> — the members one install deploys, one rel per line.
+_rsdd_install_members() {
+  local h="$1" home="$2" root skill tmpl pf
+  root="$(rsdd_field "$h" config_root "$home")"
+  skill="$(rsdd_field "$h" skill_path "$home")"
+  tmpl="$(rsdd_field "$h" prompt_template_path "$home")"
+  pf="$(rsdd_field "$h" prompt_file "$home")"
+  printf '%s\n' "${skill#"$root"/}" "${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
+  [ -z "$tmpl" ] || printf '%s\n' "${tmpl#"$root"/}"
+}
+
+# _rsdd_write_bundle_state <h> <home> <profile> — record what the install just deployed. Atomic (tmp +
+# mv) and refuses to record a bundle with a MISSING member: a record must describe real files.
+_rsdd_write_bundle_state() {
+  local h="$1" home="$2" profile="$3" root state manifest digest tmp
+  root="$(rsdd_field "$h" config_root "$home")"
+  state="$root/research-sdd/.installed-bundle-state"
+  manifest="$(_rsdd_install_members "$h" "$home" | _rsdd_manifest "$root" "$profile")" || return 1
+  case "$manifest" in *MISSING*) return 1 ;; esac
+  digest="$(printf '%s\n' "$manifest" | _rsdd_sha256_stdin)" || return 1
+  mkdir -p "$(dirname "$state")" || return 1
+  tmp="$(mktemp)" || return 1
+  {
+    printf 'bundle_sha256=%s\nprofile=%s\n' "$digest" "$profile"
+    printf '%s\n' "$manifest" | awk -F'\t' '{printf "file=%s  %s\n", $1, $2}'
+  } > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$state"
+}
+
+# _rsdd_verify_one <h> <home> — print the ONE typed line for this harness; return 0 match/absent,
+# 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
+_rsdd_verify_one() {
+  local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
+  local nfiles drift_names installed=0
+  root="$(rsdd_field "$h" config_root "$home")"
+  state="$root/research-sdd/.installed-bundle-state"
+  skill="$(rsdd_field "$h" skill_path "$home")"
+  tmpl="$(rsdd_field "$h" prompt_template_path "$home")"
+  pf="$(rsdd_field "$h" prompt_file "$home")"
+
+  if ! _rsdd_have_sha256; then
+    printf 'verify harness=%s status=degraded reason=no sha256 tool (sha256sum, shasum and python3 all absent)\n' "$h"
+    return 2
+  fi
+  if [ ! -e "$state" ]; then
+    [ -e "$skill" ] && installed=1
+    [ -n "$tmpl" ] && [ -e "$tmpl" ] && installed=1
+    _rsdd_section_text "$pf" >/dev/null && installed=1
+    if [ "$installed" = 1 ]; then
+      printf 'verify harness=%s status=degraded reason=installed files present but no bundle record (%s) — re-run the installer to record one\n' "$h" "$state"
+      return 2
+    fi
+    printf 'verify harness=%s status=absent (not installed)\n' "$h"
+    return 0
+  fi
+  if [ ! -f "$state" ] || [ ! -r "$state" ]; then
+    printf 'verify harness=%s status=degraded reason=bundle record unreadable (%s)\n' "$h" "$state"
+    return 2
+  fi
+  rec_digest="$(_rsdd_marker_field "$state" bundle_sha256)" || rec_digest=""
+  profile="$(_rsdd_marker_field "$state" profile)" || profile=""
+  rec_manifest="$(awk 'index($0,"file=")==1 { rest=substr($0,6); i=index(rest,"  "); if (i>0) printf "%s\t%s\n", substr(rest,1,i-1), substr(rest,i+2) }' "$state")"
+  if [ -z "$rec_digest" ] || [ -z "$profile" ] || [ -z "$rec_manifest" ]; then
+    printf 'verify harness=%s status=degraded reason=bundle record corrupt (missing bundle_sha256, profile or file lines)\n' "$h"
+    return 2
+  fi
+  cur_digest="$(printf '%s\n' "$rec_manifest" | _rsdd_sha256_stdin)" || cur_digest=""
+  if [ "$cur_digest" != "$rec_digest" ]; then
+    printf 'verify harness=%s status=degraded reason=bundle record corrupt (bundle_sha256 does not match its own file lines)\n' "$h"
+    return 2
+  fi
+  cur_manifest="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}' | _rsdd_manifest "$root" "$profile")" || {
+    printf 'verify harness=%s status=degraded reason=a bundle member could not be read or the recorded profile is unsafe\n' "$h"
+    return 2
+  }
+  cur_digest="$(printf '%s\n' "$cur_manifest" | _rsdd_sha256_stdin)" || {
+    printf 'verify harness=%s status=degraded reason=could not hash the current manifest\n' "$h"
+    return 2
+  }
+  nfiles="$(printf '%s\n' "$cur_manifest" | awk 'END{print NR}')"
+  if [ "$cur_digest" = "$rec_digest" ]; then
+    printf 'verify harness=%s status=match bundle_sha256=%s files=%s\n' "$h" "$cur_digest" "$nfiles"
+    return 0
+  fi
+  drift_names="$(awk -F'\t' '
+    NR==FNR { rec[$2]=$1; next }
+    { cur[$2]=$1 }
+    END {
+      for (p in rec) { if (!(p in cur) || cur[p]=="MISSING") print p " (missing)"; else if (cur[p]!=rec[p]) print p " (modified)" }
+      for (p in cur) if (!(p in rec) && cur[p]!="MISSING") print p " (extra)"
+    }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort | paste -sd, -)"
+  if [ -z "$drift_names" ]; then
+    printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
+    return 2
+  fi
+  printf 'verify harness=%s status=drift drifted=%s\n' "$h" "$drift_names"
+  return 1
+}
+
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" force="$4" profile="$5" profile_source="$6" rc=0
@@ -598,21 +805,34 @@ install_one() {
     else
       _rsdd_deploy_skill "$tmpl_src" "$template_dest" "$force" "slash-command prompt template" "$h" "$tmpl_marker" "template" "$config_root" || rc=1
     fi
-    [ -n "${tmpl_src:-}" ] && rm -f "$tmpl_src"
   fi
+
+  # 3. record the bundle digest (kit issue #1702) — only when the run succeeded AND the deployed skill
+  #    (and template) are byte-identical to what this run meant to deploy. A kept hand-edit therefore
+  #    never becomes the recorded baseline: --verify keeps reporting it as drift until it is restored.
+  if [ "$dry" != 1 ] && [ "$rc" = 0 ]; then
+    if ! cmp -s "$src_skill" "$skill_path" || { [ -n "$template_dest" ] && ! cmp -s "$tmpl_src" "$template_dest"; }; then
+      echo "research-sdd-install: [$h] a deployed file differs from this run's source (kept hand-edit) — bundle record left unchanged" >&2
+    elif ! _rsdd_write_bundle_state "$h" "$home" "$profile"; then
+      echo "research-sdd-install: [$h] could not write the bundle record under $config_root/research-sdd/" >&2
+      rc=1
+    fi
+  fi
+  [ -z "${tmpl_src:-}" ] || rm -f "$tmpl_src"
 
   printf '  slash_commands=%s\n' "$slash"
   return "$rc"
 }
 
 main() {
-  local harness="all" home="$HOME" dry=0 force=0 profile_flag=""
+  local harness="all" home="$HOME" dry=0 force=0 profile_flag="" verify=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --harness)     harness="${2:-}"; shift 2 ;;
       --home)        home="${2:-}"; shift 2 ;;
       --dry-run)     dry=1; shift ;;
       --force-skill) force=1; shift ;;
+      --verify)      verify=1; shift ;;
       --profile)
         if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
           echo "research-sdd-install: --profile requires a non-empty value" >&2; usage >&2; return 2
@@ -632,6 +852,24 @@ main() {
       return 2
     fi
   done
+
+  # --verify (kit issue #1702): read-only, one typed line per harness, no profile resolution (the
+  # recorded profile is read from the bundle record). Exit: 0 all match/absent · 1 drift · 2 any
+  # degraded (outranks drift). Install-mode flags make no sense here → usage error.
+  if [ "$verify" = 1 ]; then
+    if [ "$dry" = 1 ] || [ "$force" = 1 ] || [ -n "$profile_flag" ]; then
+      echo "research-sdd-install: --verify is read-only and cannot be combined with --dry-run, --force-skill or --profile" >&2
+      usage >&2; return 2
+    fi
+    local vrc=0 one drift=0 degraded=0
+    for h in $list; do
+      one=0; _rsdd_verify_one "$h" "$home" || one=$?
+      case "$one" in 0) ;; 1) drift=1 ;; *) degraded=1 ;; esac
+    done
+    [ "$degraded" = 1 ] && vrc=2
+    [ "$degraded" = 0 ] && [ "$drift" = 1 ] && vrc=1
+    return "$vrc"
+  fi
 
   # Resolve + validate the EFFECTIVE prompt profile for every harness up front (kit issue #993
   # WU2) — fail fast with one clear message before touching the filesystem, dry-run or not.
