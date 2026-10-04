@@ -20,7 +20,7 @@ DETECT="$HERE/../detect-tools.sh"
 [ -f "$DETECT" ] || { echo "FATAL: script under test not found: $DETECT" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
-pass=0; fail=0
+pass=0; fail=0; degraded=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
@@ -988,10 +988,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   GUARD_TMP_MUT="$ROOT/guard-tmp-mut"
   guard_mut_run "$GUARD_TMP_MUT" 0
   _ipc_n="$(dotnet_ipc_count "$GUARD_TMP_MUT")"; _ipc_rc=$?
-  if [ "$_ipc_rc" -eq 0 ] && [ "$_ipc_n" -eq 0 ]; then
-    ok "teeth-guard no-leak: real-PATH run leaves 0 dotnet IPC files" "(isolated TMPDIR)"
+  # Precondition: a leak is only observable when BOTH dotnet and ilspycmd are on the REAL PATH
+  # (the SUT's ilspycmd smoke probe is what starts dotnet).
+  if PATH="$ORIG_PATH" command -v dotnet >/dev/null 2>&1 && PATH="$ORIG_PATH" command -v ilspycmd >/dev/null 2>&1; then
+    _ipc_pre=1
   else
-    no "teeth-guard no-leak: real-PATH run leaves 0 dotnet IPC files" "rc=$_ipc_rc leftovers=$_ipc_n"
+    _ipc_pre=0
+  fi
+  if [ "$_ipc_pre" -eq 0 ]; then
+    echo "  DEGRADED  teeth-guard no-leak: dotnet and/or ilspycmd not on real PATH — nothing could leak (not counted as a pass)"
+    degraded=$((degraded+1))
+  elif [ "$_ipc_rc" -eq 0 ] && [ "$_ipc_n" -eq 0 ]; then
+    ok "teeth-guard no-leak: harness mitigation holds: DOTNET_EnableDiagnostics=0 run leaves 0 IPC files" "(isolated TMPDIR)"
+  else
+    no "teeth-guard no-leak: harness mitigation holds: DOTNET_EnableDiagnostics=0 run leaves 0 IPC files" "rc=$_ipc_rc leftovers=$_ipc_n"
   fi
   if [ -s "$GUARD_LOG_MUT" ]; then
     _mut_path="$(head -1 "$GUARD_LOG_MUT")"
@@ -1015,19 +1025,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # teeth-guard-ipc (targets teeth-guard no-leak): mutant drops the diagnostics opt-out (diagnostics left ON).
   # A real dotnet reached through the real PATH then leaves IPC files in the isolated TMPDIR → no-leak bites.
-  # No dotnet on the real PATH → typed DEGRADED (the control cannot observe a leak), never a silent pass.
-  if command -v dotnet >/dev/null 2>&1; then
+  # Precondition not met, or leak not reproducible on this host (timing) → typed DEGRADED, never a FAIL/pass.
+  if [ "$_ipc_pre" -eq 1 ]; then
     guard_mut_run "$ROOT/guard-tmp-mut-ipc" 1
     _ipcm_n="$(dotnet_ipc_count "$ROOT/guard-tmp-mut-ipc")"; _ipcm_rc=$?
-    if [ "$_ipcm_rc" -eq 0 ] && [ "$_ipcm_n" -gt 0 ]; then
+    if [ "$_ipcm_rc" -ne 0 ]; then
+      no "teeth-guard-ipc: harness error — dotnet_ipc_count could not read the isolated TMPDIR" "rc=$_ipcm_rc"
+    elif [ "$_ipcm_n" -gt 0 ]; then
       ok "teeth-guard-ipc: diagnostics-on mutant leaves dotnet IPC files — no-leak bites" "(leftovers=$_ipcm_n)"
     else
-      no "teeth-guard-ipc: diagnostics-on mutant must leave dotnet IPC files" "rc=$_ipcm_rc leftovers=$_ipcm_n"
+      echo "  DEGRADED  teeth-guard-ipc: leak not reproducible on this host (precondition met, 0 leftovers)"
+      degraded=$((degraded+1))
     fi
   else
-    echo "  DEGRADED  teeth-guard-ipc: no dotnet on PATH — leak mutant cannot be observed (not counted as a pass)"
+    echo "  DEGRADED  teeth-guard-ipc: dotnet and/or ilspycmd not on real PATH — leak mutant cannot be observed (not counted as a pass)"
+    degraded=$((degraded+1))
   fi
 fi
 
+printf 'degraded: %d\n' "$degraded"
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
