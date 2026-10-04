@@ -292,6 +292,51 @@ if [ "$r" = 1 ] && grep -q '^degraded: migrate-backlogs: diff failed (status 2)'
 o="$(PATH="$TMP/shim0:$PATH" bash "$SUT" "$corpus" 2>&1)"; r=$?
 if [ "$r" = 0 ] && ! grep -q '^PROPOSE' <<<"$o" && grep -q ' 0 with a mechanical proposal ' <<<"$o"; then ok "24b diff status 0 -> no PROPOSE, not counted"; else no "24b rc=$r [$o]"; fi
 
+# 25. priority case is uniform: a bare legal tier in ANY case is proposed lowercase (first/middle/last + single row)
+mkdir -p "$TMP/pcase"
+printf '# C\n\n## Gap-backlog\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| HIGH | C1 | web | pending |\n| Deferred | C2 | web | pending |\n| **Medium** | C3 | web | pending |\n| LOW | C4 | web | pending |\n' > "$TMP/pcase/RESEARCH-STATE-c.md"
+printf '# D\n\n## Gap-backlog\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| Deferred | D1 | web | pending |\n' > "$TMP/pcase/RESEARCH-STATE-d.md"
+printf '# L\n\n## Gap-backlog\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| high | L1 | web | pending |\n| ~~HIGH~~ | L2 | web | pending |\n' > "$TMP/pcase/RESEARCH-STATE-l.md"
+o="$(bash "$SUT" "$TMP/pcase" 2>/dev/null)"
+if grep -qF '+| high | C1 | web | pending |' <<<"$o" && grep -qF '+| deferred | C2 | web | pending |' <<<"$o" && grep -qF '+| medium | C3 | web | pending |' <<<"$o" \
+   && grep -qF '+| low | C4 | web | pending |' <<<"$o" && grep -qF '+| deferred | D1 | web | pending |' <<<"$o" && ! grep -q '^MANUAL [cd] ' <<<"$o"; then
+  ok "25a bare tiers HIGH/Deferred/**Medium**/LOW (first/middle/last/single) -> proposed lowercase"
+else no "25a [$o]"; fi
+grep -q '^ok l: nothing to migrate' <<<"$o" && ok "25b already-lowercase and struck-through tiers are left alone (no proposal)" || no "25b [$o]"
+
+# 26. every operational exit-1 path prints the typed `degraded:` line (stderr), never an untyped message
+degr() {  # degr <name> <expected-regex> <rc-expected> <argv...>: run, require rc + typed first-column line
+  local name="$1" re="$2" rce="$3" e r; shift 3
+  e="$("$@" 2>&1 >/dev/null)"; r=$?
+  if [ "$r" = "$rce" ] && grep -qE "^degraded: migrate-backlogs: $re" <<<"$e"; then ok "26 $name -> typed degraded + exit $rce"; else no "26 $name rc=$r [$e]"; fi
+}
+mkdir -p "$TMP/d1/corpus" "$TMP/d2/lib" "$TMP/d2/corpus" "$TMP/d3/lib" "$TMP/d3/corpus"
+printf '# S\n' > "$TMP/d1/corpus/RESEARCH-STATE-s.md"
+cp "$SUT" "$TMP/d1/migrate-backlogs.sh"   # no lib/ next to it: helper missing
+degr "missing helper lib" 'cannot find helper' 1 bash "$TMP/d1/migrate-backlogs.sh" "$TMP/d1/corpus"
+cp "$SUT" "$TMP/d2/migrate-backlogs.sh"; : > "$TMP/d2/lib/state-files.sh"
+degr "helper defines no list_state_files" 'helper .* failed to define' 1 bash "$TMP/d2/migrate-backlogs.sh" "$TMP/d1/corpus"
+# awk shims: fail only the program under test (real awk still serves the tally helpers)
+REAL_AWK="$(command -v awk)"
+mkdir -p "$TMP/shimA" "$TMP/shimD"
+printf '#!/bin/sh\ncase "$*" in *tally=*) exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$TMP/shimA/awk"; chmod +x "$TMP/shimA/awk"
+printf '#!/bin/sh\ncase "$*" in *lab=*) exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$TMP/shimD/awk"; chmod +x "$TMP/shimD/awk"
+degr "state-file awk failure" 'awk failed on ' 1 env PATH="$TMP/shimA:$PATH" bash "$SUT" "$TMP/d1/corpus"
+mkdir -p "$TMP/d4"; printf '# S\n' > "$TMP/d4/RESEARCH-STATE-x.md"; printf '| Focus | Status |\n|---|---|\n| x | active |\n' > "$TMP/d4/FOCUSES.md"
+degr "document-skip awk failure" 'awk failed reading ' 1 env PATH="$TMP/shimD:$PATH" bash "$SUT" "$TMP/d4"
+# unreadable state file / unreadable target (skipped, loudly, when the process can read anything — e.g. root)
+mkdir -p "$TMP/d5"; printf '# S\n' > "$TMP/d5/RESEARCH-STATE-u.md"; chmod 000 "$TMP/d5/RESEARCH-STATE-u.md"
+if [ -r "$TMP/d5/RESEARCH-STATE-u.md" ]; then echo "  SKIP  26 unreadable state file (process can read mode-000 files)"
+else degr "unreadable state file" 'cannot read ' 1 bash "$SUT" "$TMP/d5"; fi
+chmod 600 "$TMP/d5/RESEARCH-STATE-u.md"
+mkdir -p "$TMP/d6"; chmod 000 "$TMP/d6"
+if [ -r "$TMP/d6" ]; then echo "  SKIP  26 unreadable target (process can read mode-000 dirs)"
+else degr "unreadable target dir" '.* is not readable/traversable' 1 bash "$SUT" "$TMP/d6"; fi
+chmod 700 "$TMP/d6"
+# a required tool missing from PATH: a bin dir with every helper the script needs except awk
+mkdir -p "$TMP/nobin"; for _t in dirname diff mktemp; do ln -sf "$(command -v "$_t")" "$TMP/nobin/$_t"; done
+degr "required tool (awk) missing" "required tool 'awk' not found" 1 env PATH="$TMP/nobin" "$(command -v bash)" "$SUT" "$TMP/d1/corpus"
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
@@ -390,6 +435,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/emptydir" 2>&1)"
     grep -q '^absent-input: no RESEARCH-STATE' <<<"$o" && no "teeth I: mutant still typed — THEATER" || ok "teeth I: absent-input silenced -> case 11a has teeth"
   else no "teeth I: mutant could not be built"; fi
+  # --- lib/mutant.sh teeth for the #1657 advisories (exact rc + anchored typed line; a crash never reads as a bite)
+  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  # U: a bare legal tier is passed through unchanged again -> case 25a loses its proposal
+  t="$(mk_tree U)"
+  mk U "$SUT" "$t/migrate-backlogs.sh" 's/if (legal(q)) { np = q }/if (legal(q)) { np = p }/' \
+    && tt "teeth U: bare tier passes through unchanged -> 25a has teeth" 0 0 "$t/migrate-backlogs.sh" \
+         --good-has '^PROPOSE d ' --good-lacks '^ok d:' --bad-has '^ok d: nothing to migrate' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pcase"
+  # V: both awk-failure messages lose the typed prefix -> case 26 (state-file awk) goes red
+  t="$(mk_tree V)"
+  mk V "$SUT" "$t/migrate-backlogs.sh" 's/echo "degraded: migrate-backlogs: awk failed on/echo "migrate-backlogs: awk failed on/' \
+    && tt "teeth V: untyped awk-failure message -> 26 has teeth" 1 1 "$t/migrate-backlogs.sh" \
+         --good-has '^degraded: migrate-backlogs: awk failed on ' --bad-has '^migrate-backlogs: awk failed on ' --bad-lacks "^degraded: migrate-backlogs: awk failed on |$CRASH" \
+         -- env PATH="$TMP/shimA:$PATH" bash @SUT@ "$TMP/d1/corpus"
+  # W: the missing-helper message loses the typed prefix (mutant tree has NO lib/, like the d1 original)
+  t="$(mk_tree W)"; rm -rf "${t:?}/lib"
+  mk W "$SUT" "$t/migrate-backlogs.sh" 's/echo "degraded: migrate-backlogs: cannot find helper/echo "migrate-backlogs: cannot find helper/' \
+    && tt "teeth W: untyped missing-helper message -> 26 has teeth" 1 1 "$t/migrate-backlogs.sh" --orig "$TMP/d1/migrate-backlogs.sh" \
+         --good-has '^degraded: migrate-backlogs: cannot find helper ' --bad-has '^migrate-backlogs: cannot find helper ' --bad-lacks "^degraded: migrate-backlogs: cannot find helper |$CRASH" \
+         -- bash @SUT@ "$TMP/d1/corpus"
+  # X: the unreadable-file message loses the typed prefix (needs a process that cannot read a mode-000 file)
+  chmod 000 "$TMP/d5/RESEARCH-STATE-u.md"
+  if [ -r "$TMP/d5/RESEARCH-STATE-u.md" ]; then echo "  SKIP  teeth X (process can read mode-000 files)"
+  else
+    t="$(mk_tree X)"
+    mk X "$SUT" "$t/migrate-backlogs.sh" 's/echo "degraded: migrate-backlogs: cannot read /echo "migrate-backlogs: cannot read /' \
+      && tt "teeth X: untyped unreadable-file message -> 26 has teeth" 1 1 "$t/migrate-backlogs.sh" \
+           --good-has '^degraded: migrate-backlogs: cannot read ' --bad-has '^migrate-backlogs: cannot read ' --bad-lacks "^degraded: migrate-backlogs: cannot read |$CRASH" \
+           -- bash @SUT@ "$TMP/d5"
+  fi
+  chmod 600 "$TMP/d5/RESEARCH-STATE-u.md"
 fi
 
 echo "== $pass passed · $fail failed =="
