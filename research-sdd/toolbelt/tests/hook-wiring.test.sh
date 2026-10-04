@@ -279,12 +279,18 @@ if [ "$_had17" -eq 1 ]; then TMPDIR="$_old_tmpdir17"; export TMPDIR; else unset 
 # hook_stop_wiring_state_var against the mutated COPY proves the SOURCED implementation reacts to
 # a real code change, not that the test file's own inline stand-in behaves as scripted.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutant builds go through lib/mutant.sh (kit issue #1299). Sourced only on this path. Each
+  # mutant is built by mutant_chain, which refuses a dead sed stage, an empty/identical/unparseable
+  # mutant and a mutant placed in the live tree; a refused build is counted ONCE here and its
+  # observation never runs. The observations stay in-process (a mutated lib is sourced in a
+  # subshell and its state variable read), so they are not expressible as mutant_tooth argv runs.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: force the awk always-found (END { exit 0 }) — case 3 must go RED --"
   mut_wired="$ROOT/hook-wiring.MUTANT-always-wired.sh"
-  if ! grep -qF 'END { exit !found }' "$LIB"; then
-    no "teeth: locate 'END { exit !found }' anchor in lib — drifted?"
-  else
-    sed 's/END { exit !found }/END { exit 0 }  # MUTANT: always found/' "$LIB" > "$mut_wired"
+  if mk "teeth: 'END { exit !found }' anchor in lib" "$LIB" "$mut_wired" 's/END { exit !found }/END { exit 0 }  # MUTANT: always found/'; then
     (
       # The outer script already sourced the REAL lib, so these names are already declared in
       # this subshell (subshells inherit the parent's functions). Unset first, or the mutant
@@ -303,10 +309,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: collapse absent-settings assignment into 'unwired' — case 1 must go RED --"
   mut_absent="$ROOT/hook-wiring.MUTANT-absent-collapse.sh"
-  if ! grep -qF 'HOOK_WIRING_STATE="absent-settings"; return 0' "$LIB"; then
-    no "teeth: locate absent-settings assignment anchor in lib — drifted?"
-  else
-    sed 's/HOOK_WIRING_STATE="absent-settings"; return 0/HOOK_WIRING_STATE="unwired"; return 0  # MUTANT: collapsed/' "$LIB" > "$mut_absent"
+  if mk "teeth: absent-settings assignment anchor in lib" "$LIB" "$mut_absent" 's/HOOK_WIRING_STATE="absent-settings"; return 0/HOOK_WIRING_STATE="unwired"; return 0  # MUTANT: collapsed/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -321,10 +324,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: force hook_stop_wiring_state_var (fork-free path) to always set 'wired' — case 6 must go RED --"
   mut_var="$ROOT/hook-wiring.MUTANT-var-always-wired.sh"
-  if ! grep -qF 'HOOK_WIRING_STATE="unreadable"; return 0' "$LIB"; then
-    no "teeth: locate unreadable assignment anchor in lib — drifted?"
-  else
-    sed 's/HOOK_WIRING_STATE="unreadable"; return 0/HOOK_WIRING_STATE="wired"; return 0  # MUTANT: unreadable forced wired/' "$LIB" > "$mut_var"
+  if mk "teeth: unreadable assignment anchor in lib" "$LIB" "$mut_var" 's/HOOK_WIRING_STATE="unreadable"; return 0/HOOK_WIRING_STATE="wired"; return 0  # MUTANT: unreadable forced wired/'; then
     if [ "$(id -u)" != "0" ]; then
       # Fresh fixture — case 6's own $ROOT/t6 was already chmod-644-restored above for cleanup,
       # so reusing it here would silently test the awk path instead of the unreadable branch.
@@ -350,10 +350,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: neuter the wired-off-root downgrade assignment — case 9 must go RED (stays 'wired') --"
   mut_offroot_neuter="$ROOT/hook-wiring.MUTANT-offroot-neuter.sh"
-  if ! grep -qF 'HOOK_WIRING_STATE="wired-off-root"' "$LIB"; then
-    no "teeth: locate wired-off-root assignment anchor in lib — drifted?"
-  else
-    sed 's/HOOK_WIRING_STATE="wired-off-root"/: # MUTANT: neutered/' "$LIB" > "$mut_offroot_neuter"
+  if mk "teeth: wired-off-root assignment anchor in lib" "$LIB" "$mut_offroot_neuter" 's/HOOK_WIRING_STATE="wired-off-root"/: # MUTANT: neutered/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -370,10 +367,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: widen the git-root comparison to always-mismatch — case 8 must go RED (a clean git-root target would be misreported off-root) --"
   mut_offroot_always="$ROOT/hook-wiring.MUTANT-offroot-always.sh"
-  if ! grep -qF 'if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK' "$LIB"; then
-    no "teeth: locate WIRED-OFF-ROOT-CHECK comparison anchor in lib — drifted?"
-  else
-    sed 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ -n "$HW_GIT_ROOT" ]; then  # MUTANT: comparison dropped, always mismatches when a root is found/' "$LIB" > "$mut_offroot_always"
+  if mk "teeth: WIRED-OFF-ROOT-CHECK comparison anchor in lib" "$LIB" "$mut_offroot_always" 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ -n "$HW_GIT_ROOT" ]; then  # MUTANT: comparison dropped, always mismatches when a root is found/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -390,10 +384,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: drop the '[ -n \"\$HW_GIT_ROOT\" ]' guard — case 12 must go RED (a non-repo target would be misreported off-root) --"
   mut_hwg_guard="$ROOT/hook-wiring.MUTANT-hwgroot-null-guard.sh"
-  if ! grep -qF 'if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK' "$LIB"; then
-    no "teeth: locate WIRED-OFF-ROOT-CHECK null-guard anchor in lib — drifted?"
-  else
-    sed 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # MUTANT: null-guard dropped/' "$LIB" > "$mut_hwg_guard"
+  if mk "teeth: WIRED-OFF-ROOT-CHECK null-guard anchor in lib" "$LIB" "$mut_hwg_guard" 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # MUTANT: null-guard dropped/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -409,10 +400,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: neuter HOOK-WIRING-GITDIR-CHECK ('.git' existence test) — case 9 must go RED (off-root target never finds any git root) --"
   mut_gitdir="$ROOT/hook-wiring.MUTANT-gitdir-check.sh"
-  if ! grep -qF 'if [ -e "$d/.git" ]; then  # HOOK-WIRING-GITDIR-CHECK' "$LIB"; then
-    no "teeth: locate HOOK-WIRING-GITDIR-CHECK anchor in lib — drifted?"
-  else
-    sed 's/if \[ -e "\$d\/\.git" \]; then  # HOOK-WIRING-GITDIR-CHECK/if false; then  # MUTANT: gitdir check neutered/' "$LIB" > "$mut_gitdir"
+  if mk "teeth: HOOK-WIRING-GITDIR-CHECK anchor in lib" "$LIB" "$mut_gitdir" 's/if \[ -e "\$d\/\.git" \]; then  # HOOK-WIRING-GITDIR-CHECK/if false; then  # MUTANT: gitdir check neutered/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -429,10 +417,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: neuter HOOK-WIRING-CEILING-CHECK — case 13b must go RED (ceiling no longer stops the walk-up before the enclosing repo) --"
   mut_ceiling="$ROOT/hook-wiring.MUTANT-ceiling-check.sh"
-  if ! grep -qF 'if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK' "$LIB"; then
-    no "teeth: locate HOOK-WIRING-CEILING-CHECK anchor in lib — drifted?"
-  else
-    sed 's/if \[ -n "\$ceiling" \] \&\& \[ "\$d" = "\$ceiling" \]; then  # HOOK-WIRING-CEILING-CHECK/if false; then  # MUTANT: ceiling check neutered/' "$LIB" > "$mut_ceiling"
+  if mk "teeth: HOOK-WIRING-CEILING-CHECK anchor in lib" "$LIB" "$mut_ceiling" 's/if \[ -n "\$ceiling" \] \&\& \[ "\$d" = "\$ceiling" \]; then  # HOOK-WIRING-CEILING-CHECK/if false; then  # MUTANT: ceiling check neutered/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -456,12 +441,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: drop the dotdot-join '/' prefix AND the no-progress guard — case 15b must go RED (reproduces the original infinite loop) --"
   mut_relhang="$ROOT/hook-wiring.MUTANT-relpath-hang.sh"
-  if ! grep -qF '*)    result="$result/$part" ;;' "$LIB" || ! grep -qF '# HOOK-WIRING-NOPROGRESS-GUARD' "$LIB"; then
-    no "teeth: locate join-prefix or no-progress-guard anchor in lib — drifted?"
-  else
-    sed -e 's/\*)    result="\$result\/\$part" ;;/*)    result="$part" ;;  # MUTANT: join no longer prefixes "\/"/' \
-        -e 's/if \[ "\$_hw_next" = "\$d" \]; then  # HOOK-WIRING-NOPROGRESS-GUARD.*/if false; then  # MUTANT: no-progress guard dropped/' \
-        "$LIB" > "$mut_relhang"
+  if mk "teeth: relative-path join-prefix + no-progress-guard" "$LIB" "$mut_relhang" \
+      's/\*)    result="\$result\/\$part" ;;/*)    result="$part" ;;  # MUTANT: join no longer prefixes "\/"/' \
+      's/if \[ "\$_hw_next" = "\$d" \]; then  # HOOK-WIRING-NOPROGRESS-GUARD.*/if false; then  # MUTANT: no-progress guard dropped/'; then
     d_relhang="$ROOT/t15b-teeth-norepo"; mkdir -p "$d_relhang"
     wire_settings "$d_relhang" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
     out_relhang="$(cd "$ROOT" && timeout 10 "$BASH_BIN" -c ". \"$mut_relhang\"; hook_stop_wiring_state \"t15b-teeth-norepo\"" 2>&1)"
@@ -475,10 +457,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: stop collapsing '..' (append it as a literal component instead) — case 16 must go RED --"
   mut_dotdot="$ROOT/hook-wiring.MUTANT-dotdot-nocollapse.sh"
-  if ! grep -qF '..)   result="${result%/*}" ;;' "$LIB"; then
-    no "teeth: locate '..' collapse anchor in lib — drifted?"
-  else
-    sed 's/\.\.)   result="\${result%\/\*}" ;;/..)   result="$result\/.." ;;  # MUTANT: dotdot no longer collapsed/' "$LIB" > "$mut_dotdot"
+  if mk "teeth: '..' collapse anchor in lib" "$LIB" "$mut_dotdot" 's/\.\.)   result="\${result%\/\*}" ;;/..)   result="$result\/.." ;;  # MUTANT: dotdot no longer collapsed/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath
       # shellcheck disable=SC1090
@@ -492,10 +471,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: compare the ceiling raw (skip its _hw_abspath normalization) — case 17 must go RED --"
   mut_ceilraw="$ROOT/hook-wiring.MUTANT-ceiling-raw.sh"
-  if ! grep -qF '_hw_abspath "$RSDD_HOOK_WIRING_CEILING"; ceiling="$HW_ABS_PATH"' "$LIB"; then
-    no "teeth: locate ceiling-normalize anchor in lib — drifted?"
-  else
-    sed 's/_hw_abspath "\$RSDD_HOOK_WIRING_CEILING"; ceiling="\$HW_ABS_PATH"/ceiling="$RSDD_HOOK_WIRING_CEILING"  # MUTANT: ceiling compared raw/' "$LIB" > "$mut_ceilraw"
+  if mk "teeth: ceiling-normalize anchor in lib" "$LIB" "$mut_ceilraw" 's/_hw_abspath "\$RSDD_HOOK_WIRING_CEILING"; ceiling="\$HW_ABS_PATH"/ceiling="$RSDD_HOOK_WIRING_CEILING"  # MUTANT: ceiling compared raw/'; then
     _encl_t="$ROOT/t17-teeth-enclosing"; mkdir -p "$_encl_t/nested"; git init -q "$_encl_t" >/dev/null 2>&1
     wire_settings "$_encl_t/nested" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
     (

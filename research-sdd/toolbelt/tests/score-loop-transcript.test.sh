@@ -436,191 +436,142 @@ grep -qE '^C1 degraded date-not-supported$' <<<"$out" \
 # broken behavior.
 # ============================================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
-  mutant() {
-    local name="$1" expr="$2"
-    local out="$ROOT/score-loop-transcript.MUTANT-$name.sh"
-    sed "$expr" "$SUT" > "$out"
-    printf '%s' "$out"
+  # Mutants are built by lib/mutant.sh (kit issue #1299), sourced only on this path. mutant_chain
+  # refuses a dead sed stage, an empty/identical/unparseable mutant and one placed in the live tree;
+  # a refused build is counted ONCE (mk) and its tooth never runs. mutant_tooth runs the SAME argv on
+  # the original SUT and on the mutant (fresh corpus per run is not needed: the SUT only reads the
+  # fixtures) and demands EXACT exit codes plus an anchored typed C-line on each side. GOOD_RC/BAD_RC
+  # are the SUT's own exit codes: it is WARN-only about criteria, so both sides exit 0 and the bite
+  # is carried entirely by the anchored typed C-line asserted on each side (--good-has / --bad-has).
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_tooth; do
+    declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # mk NAME EXPR... — build $ROOT/score-loop-transcript.MUTANT-NAME.sh into $m; counts a refusal once.
+  mk() {
+    local name="$1"; shift
+    m="$ROOT/score-loop-transcript.MUTANT-$name.sh"
+    rm -f -- "$m"
+    mutant_chain "teeth-$name" "$SUT" "$m" "$@" || { fail=$((fail+1)); return 1; }
   }
+  # tt LABEL GOOD_RC BAD_RC [mutant_tooth opts] -- ARGV... — count the verdict once (mutant_tooth prints it).
+  tt() {
+    local label="$1" g="$2" b="$3"; shift 3
+    if mutant_tooth "$label" "$g" "$b" "$m" --orig "$SUT" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  }
+  # A crashing mutant must never read as a bite.
+  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|command not found'
 
   echo "-- teeth-C1: neutralise the block-commit regex match; expect C1 to report 0 commits --"
-  m="$(mutant c1 's/"\$subj" =~ \$BLOCK_COMMIT_REGEX/"$subj" =~ ^NEVERMATCH_MUTANT_XYZ$/')"
-  if grep -qF 'NEVERMATCH_MUTANT_XYZ' "$m"; then
-    mo="$(bash "$m" --corpus "$ROOT/continue" 2>&1)"
-    if grep -qE '^C1 fail 0 block commits' <<<"$mo"; then
-      ok "teeth-C1: block-commit match neutralised → C1 collapses to 0 commits"
-    else
-      no "teeth-C1: mutant did not flip C1 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C1: mutant build failed (source line not found)"
+  if mk c1 's/"\$subj" =~ \$BLOCK_COMMIT_REGEX/"$subj" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
+    tt "teeth-C1: block-commit match neutralised → C1 collapses to 0 commits" 0 0 \
+      --good-has '^C1 n/a 2 block commits in window' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
+      bash @SUT@ --corpus "$ROOT/continue"
   fi
 
   echo "-- teeth-C2: neutralise the question regex match; expect C2 to flip to pass --"
-  m="$(mutant c2 's/"\$line" =~ \$QUESTION_REGEX/"$line" =~ ^NEVERMATCH_MUTANT_XYZ$/')"
-  if grep -qF 'NEVERMATCH_MUTANT_XYZ' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/question-ending.jsonl" 2>&1)"
-    if grep -qE '^C2 pass 0 of 2' <<<"$mo"; then
-      ok "teeth-C2: question match neutralised → C2 falsely reports pass"
-    else
-      no "teeth-C2: mutant did not flip C2 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C2: mutant build failed (source line not found)"
+  if mk c2 's/"\$line" =~ \$QUESTION_REGEX/"$line" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
+    tt "teeth-C2: question match neutralised → C2 falsely reports pass" 0 0 \
+      --good-has '^C2 fail 2 of 2 final returns end in a question' --bad-has '^C2 pass 0 of 2' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/question-ending.jsonl"
   fi
 
   echo "-- teeth-C3: neutralise compaction detection; expect C3 to flip to 'no compaction' pass --"
-  m="$(mutant c3 's/"\$is_cx" == "true"/"$is_cx" == "MUTANT_NEVER"/')"
-  if grep -qF 'MUTANT_NEVER' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/compaction-survive" \
-      --transcript "$FIX/compaction-survive.jsonl" 2>&1)"
-    if grep -qE '^C3 pass no compaction' <<<"$mo"; then
-      ok "teeth-C3: compaction detection neutralised → C3 falsely reports no compaction"
-    else
-      no "teeth-C3: mutant did not flip C3 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C3: mutant build failed (source line not found)"
+  if mk c3 's/"\$is_cx" == "true"/"$is_cx" == "MUTANT_NEVER"/'; then
+    tt "teeth-C3: compaction detection neutralised → C3 falsely reports no compaction" 0 0 \
+      --good-has '^C3 pass compaction detected; 1 block commit\(s\) before, 1 after' --bad-has '^C3 pass no compaction' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/compaction-survive" \
+      --transcript "$FIX/compaction-survive.jsonl"
   fi
 
   echo "-- teeth-C4: neutralise the STOP-token regex match; expect C4 to flip to fail --"
-  m="$(mutant c4 's/"\$stop_line" =~ \$STOP_TOKEN_REGEX/"$stop_line" =~ ^NEVERMATCH_MUTANT_XYZ$/')"
-  if grep -qF 'NEVERMATCH_MUTANT_XYZ' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-    if grep -qE '^C4 fail stop_token=absent' <<<"$mo"; then
-      ok "teeth-C4: STOP-token match neutralised → C4 falsely reports fail"
-    else
-      no "teeth-C4: mutant did not flip C4 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C4: mutant build failed (source line not found)"
+  if mk c4 's/"\$stop_line" =~ \$STOP_TOKEN_REGEX/"$stop_line" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
+    tt "teeth-C4: STOP-token match neutralised → C4 falsely reports fail" 0 0 \
+      --good-has '^C4 pass STOP token present' --bad-has '^C4 fail stop_token=absent' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl"
   fi
 
   echo "-- teeth-C4-undeclared-queue: force declared_queue always true; expect the no-queue-declared corpus to stop reporting n/a --"
-  m="$(mutant c4-undeclared-queue 's/if \[\[ -n "\${pend:-}" && -n "\${act:-}" \]\]; then/if true; then/')"
-  if grep -qF 'if true; then' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-    if ! grep -qE '^C4 n/a no campaign queue declared' <<<"$mo"; then
-      ok "teeth-C4-undeclared-queue: declared_queue guard neutralised → no-queue corpus no longer reports n/a"
-    else
-      no "teeth-C4-undeclared-queue: mutant did not flip C4 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C4-undeclared-queue: mutant build failed (source line not found)"
+  if mk c4-undeclared-queue 's/if \[\[ -n "\${pend:-}" && -n "\${act:-}" \]\]; then/if true; then/'; then
+    tt "teeth-C4-undeclared-queue: declared_queue guard neutralised → no-queue corpus no longer reports n/a" 0 0 \
+      --good-has '^C4 n/a no campaign queue declared' --bad-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-lacks "^C4 n/a no campaign queue declared|$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl"
   fi
 
   echo "-- teeth-C4-multifocus: reintroduce head -n1 on the campaign-line grep; expect a sibling focus's open queue to hide behind the first labelled line --"
-  m="$(mutant c4-multifocus "s@:')\"@:' | head -n1)\"@")"
-  if grep -qF "| head -n1)\"" "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-    if grep -qE '^C4 pass' <<<"$mo"; then
-      ok "teeth-C4-multifocus: head -n1 reintroduced → beta's non-empty queue is hidden behind alpha's drained line, false pass"
-    else
-      no "teeth-C4-multifocus: mutant did not flip C4 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C4-multifocus: mutant build failed (source line not found)"
+  if mk c4-multifocus "s@:')\"@:' | head -n1)\"@"; then
+    tt "teeth-C4-multifocus: head -n1 reintroduced → beta's non-empty queue is hidden behind alpha's drained line, false pass" 0 0 \
+      --good-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-has '^C4 pass' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl"
   fi
 
   echo "-- teeth-C4-nonempty-branch: force the empty-queue branch to always fire; expect a genuinely non-empty declared queue to falsely pass --"
-  m="$(mutant c4-nonempty-branch 's/elif \[\[ "\$empty_queue" -eq 1 \]\]; then/elif true; then/')"
-  if grep -qF 'elif true; then' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-    if grep -qE '^C4 pass' <<<"$mo"; then
-      ok "teeth-C4-nonempty-branch: empty-queue check neutralised → a genuinely non-empty declared queue falsely passes"
-    else
-      no "teeth-C4-nonempty-branch: mutant did not flip C4 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-C4-nonempty-branch: mutant build failed (source line not found)"
+  if mk c4-nonempty-branch 's/elif \[\[ "\$empty_queue" -eq 1 \]\]; then/elif true; then/'; then
+    tt "teeth-C4-nonempty-branch: empty-queue check neutralised → a genuinely non-empty declared queue falsely passes" 0 0 \
+      --good-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-has '^C4 pass' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl"
   fi
 
   echo "-- teeth-operator-filter: drop the origin.kind clause; expect the false-positive noise to count as operator input again (item 9) --"
-  m="$(mutant operator-filter 's/(\.origin\.kind \/\/ \\"\\")==\\"human\\"/true/')"
-  if grep -qF '(.type==\"user\") and (true)' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/false-positive-noise.jsonl" 2>&1)"
-    if grep -qE '^C1 fail' <<<"$mo"; then
-      ok "teeth-operator-filter: origin.kind clause dropped → task-notification/tool_result noise wrongly counts as operator input again"
-    else
-      no "teeth-operator-filter: mutant did not flip C1 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-operator-filter: mutant build failed (source line not found)"
+  if mk operator-filter 's/(\.origin\.kind \/\/ \\"\\")==\\"human\\"/true/'; then
+    tt "teeth-operator-filter: origin.kind clause dropped → task-notification/tool_result noise wrongly counts as operator input again" 0 0 \
+      --good-has '^C1 pass 2 block commits, 0 operator turns' --bad-has '^C1 fail' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/false-positive-noise.jsonl"
   fi
 
   echo "-- teeth-span: neutralise the out-of-span degrade check; expect C1 to fall through to a normal (wrong) verdict --"
-  m="$(mutant span 's/"\$oos" -gt 0/"$oos" -gt 999999/g')"
-  if [ "$(grep -c '"\$oos" -gt 999999' "$m")" -ge 2 ]; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/out-of-span-repo" \
-      --transcript "$FIX/out-of-span.jsonl" --since "2026-06-01T00:00:00Z" 2>&1)"
-    if grep -qE '^C1 fail 2 block commits but 1 of 1 gap' <<<"$mo"; then
-      ok "teeth-span: span check neutralised → C1 falls through to an unwarranted fail instead of degraded"
+  # The sed is global ('g'): both source sites must be neutralised, so count the substituted lines.
+  if mk span 's/"\$oos" -gt 0/"$oos" -gt 999999/g'; then
+    if [ "$(grep -c '"\$oos" -gt 999999' "$m")" -ge 2 ]; then
+      tt "teeth-span: span check neutralised → C1 falls through to an unwarranted fail instead of degraded" 0 0 \
+        --good-has '^C1 degraded 1 of 2 block commit\(s\) outside transcript span' --bad-has '^C1 fail 2 block commits but 1 of 1 gap' --bad-lacks "$CRASH" -- \
+        env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/out-of-span-repo" \
+        --transcript "$FIX/out-of-span.jsonl" --since "2026-06-01T00:00:00Z"
     else
-      no "teeth-span: mutant did not flip C1 — no teeth ($mo)"
+      no "teeth-span: mutant build failed (both source lines not substituted)"
     fi
-  else
-    no "teeth-span: mutant build failed (both source lines not found)"
   fi
 
   echo "-- teeth-unrecognized-shape: neutralise the guard; expect a del(.origin)-shaped transcript to score a false clean pass (round 3 BLOCKER) --"
   # Neutralise both assignments that can ever set the guard to 1, forcing it to always read 0.
-  m="$(mutant unrecognized-shape 's/UNRECOGNIZED_SHAPE=1/UNRECOGNIZED_SHAPE=0/g')"
-  if [ "$(grep -c 'UNRECOGNIZED_SHAPE=0' "$m")" -ge 3 ]; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/origin-less.jsonl" 2>&1)"
-    if grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$mo"; then
-      ok "teeth-unrecognized-shape: guard neutralised → origin-less transcript falsely scores a clean C1 pass"
+  if mk unrecognized-shape 's/UNRECOGNIZED_SHAPE=1/UNRECOGNIZED_SHAPE=0/g'; then
+    if [ "$(grep -c 'UNRECOGNIZED_SHAPE=0' "$m")" -ge 3 ]; then
+      tt "teeth-unrecognized-shape: guard neutralised → origin-less transcript falsely scores a clean C1 pass" 0 0 \
+        --good-has '^C1 degraded unrecognized transcript shape' --bad-has '^C1 pass 2 block commits, 0 operator turns' --bad-lacks "$CRASH" -- \
+        env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
+        --transcript "$FIX/origin-less.jsonl"
     else
-      no "teeth-unrecognized-shape: mutant did not flip C1 — no teeth ($mo)"
+      no "teeth-unrecognized-shape: mutant build failed (source lines not substituted)"
     fi
-  else
-    no "teeth-unrecognized-shape: mutant build failed (source lines not found)"
   fi
 
   echo "-- teeth-block-prefix: drop 'block' from the accepted prefix alternation; expect block(...) subjects to stop counting --"
-  m="$(mutant block-prefix 's/\^(research|block)\\(/^(research)\\(/')"
-  if grep -qF '^(research)\(' "$m"; then
-    mo="$(bash "$m" --corpus "$ROOT/block-prefix" 2>&1)"
-    if grep -qE '^C1 fail 0 block commits' <<<"$mo"; then
-      ok "teeth-block-prefix: 'block' alternative dropped → block(...) subject no longer counts"
-    else
-      no "teeth-block-prefix: mutant did not flip C1 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-block-prefix: mutant build failed (source line not found)"
+  if mk block-prefix 's/\^(research|block)\\(/^(research)\\(/'; then
+    tt "teeth-block-prefix: 'block' alternative dropped → block(...) subject no longer counts" 0 0 \
+      --good-has '^C1 fail only 1 block commit in window' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
+      bash @SUT@ --corpus "$ROOT/block-prefix"
   fi
 
   echo "-- teeth-range-cap: drop the cap; expect the implausible B1000-B1200 range to explode N_BLOCKS to 201 --"
-  m="$(mutant range-cap 's/if \[\[ "\$span" -gt 50 \]\]; then/if [[ "$span" -gt 999999 ]]; then/')"
-  if grep -qF 'if [[ "$span" -gt 999999 ]]; then' "$m"; then
-    mo="$(bash "$m" --corpus "$ROOT/range-cap" 2>&1)"
-    if grep -qE '^C1 n/a 201 block commits' <<<"$mo"; then
-      ok "teeth-range-cap: cap dropped → the implausible range explodes N_BLOCKS to 201"
-    else
-      no "teeth-range-cap: mutant did not flip C1 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-range-cap: mutant build failed (source line not found)"
+  if mk range-cap 's/if \[\[ "\$span" -gt 50 \]\]; then/if [[ "$span" -gt 999999 ]]; then/'; then
+    tt "teeth-range-cap: cap dropped → the implausible range explodes N_BLOCKS to 201" 0 0 \
+      --good-has '^C1 fail only 1 block commit in window \(need >=2\)' --bad-has '^C1 n/a 201 block commits' --bad-lacks "$CRASH" -- \
+      bash @SUT@ --corpus "$ROOT/range-cap"
   fi
 
   echo "-- teeth-stderr-merge: re-merge status-script stderr into stdout; expect a stderr WARN to break the STOP match --"
-  m="$(mutant stderr-merge 's/2>"\$c4_err"/2>\&1/; s/2>>"\$c4_err"/2>\&1/')"
-  if grep -qF 'status_default="$(bash "$STATUS_SCRIPT" "$CORPUS" 2>&1)"' "$m"; then
-    mo="$(RSDD_STATUS_SCRIPT="$STUB_WARN_STDERR" bash "$m" --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-    if grep -qE '^C4 fail' <<<"$mo"; then
-      ok "teeth-stderr-merge: stderr re-merged into stdout → the WARN line breaks the STOP match"
-    else
-      no "teeth-stderr-merge: mutant did not flip C4 — no teeth ($mo)"
-    fi
-  else
-    no "teeth-stderr-merge: mutant build failed (source line not found)"
+  if mk stderr-merge 's/2>"\$c4_err"/2>\&1/' 's/2>>"\$c4_err"/2>\&1/'; then
+    tt "teeth-stderr-merge: stderr re-merged into stdout → the WARN line breaks the STOP match" 0 0 \
+      --good-has '^C4 pass STOP token present' --bad-has '^C4 fail stop_token=present status_next=NOT-STOP' --bad-lacks "$CRASH" -- \
+      env RSDD_STATUS_SCRIPT="$STUB_WARN_STDERR" bash @SUT@ --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl"
   fi
 fi
 

@@ -819,13 +819,30 @@ mut_no() { printf '  FAIL  [teeth] %-56s %s\n' "$1" "${2:-}"; mut_fail=$((mut_fa
 
 MUTANT_DIR="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUTANT_DIR"' EXIT
 
+# Mutant builds go through lib/mutant.sh (kit issue #1299), sourced only on this --prove-teeth path.
+# mutant_chain refuses a dead sed stage, an empty/identical/unparseable mutant and a mutant placed in
+# the live tree; a refused build is counted ONCE (mk_chain/mk_built) and its observation never runs.
+# The observations below stay as grep-on-captured-output (each mutant runs inside its own kit copy,
+# not as a bare argv run), so they are not expressible as mutant_tooth calls without a redesign.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+for _fn in mutant_chain mutant_built; do
+  declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define $_fn" >&2; exit 2; }
+done
+
+# mk_chain LABEL ORIG OUT EXPR... / mk_built LABEL ORIG OUT — count a refused build exactly once.
+# OUT is removed first so a refused (dead-stage) build can never leave a stale file for the tooth.
+mk_chain() { rm -f -- "$3"; mutant_chain "$@" || { mut_fail=$((mut_fail+1)); return 1; }; }
+mk_built() { mutant_built "$@" || { mut_fail=$((mut_fail+1)); return 1; }; }
+
+mutant_n=0
 mutate_sut() {
-  # $1=mutation_description (documentation only — not stored) $2=sed_script
-  local sscript="$2"
-  local mutant="$MUTANT_DIR/sweep-breakthroughs-mutant.sh"
-  sed "$sscript" "$SUT" > "$mutant"
+  # $1=label $2..=sed expressions (one stage each). Sets $mutant to a fresh mutant of $SUT.
+  local label="$1"; shift
+  mutant_n=$((mutant_n+1))
+  mutant="$MUTANT_DIR/sweep-breakthroughs-mutant-$mutant_n.sh"
+  mk_chain "[teeth] $label" "$SUT" "$mutant" "$@" || return 1
   chmod +x "$mutant"
-  printf '%s' "$mutant"
 }
 
 run_mutant() {
@@ -841,12 +858,13 @@ mkblock_tagged "$tgt" "pfx-block1.md"
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit"
 # Mutation: comment out the unindexed WARN line
-mutant="$(mutate_sut "remove-unindexed-warn" 's/echo "WARN: unindexed/# DISABLED: echo "WARN: unindexed/')"
-run_mutant "$mut_kit" "$mutant"
-if ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  mut_ok "M1 no-unindexed-warn → case 2 (unindexed block) goes RED" "(WARN absent on mutant)"
-else
-  mut_no "M1 no-unindexed-warn → mutation not detected by case 2" "out=[$OUT]"
+if mutate_sut "remove-unindexed-warn" 's/echo "WARN: unindexed/# DISABLED: echo "WARN: unindexed/'; then
+  run_mutant "$mut_kit" "$mutant"
+  if ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
+    mut_ok "M1 no-unindexed-warn → case 2 (unindexed block) goes RED" "(WARN absent on mutant)"
+  else
+    mut_no "M1 no-unindexed-warn → mutation not detected by case 2" "out=[$OUT]"
+  fi
 fi
 
 # M2: Remove the drift-WARN emission → case 3 must go RED (no drift WARN).
@@ -854,12 +872,13 @@ mut_kit="$(mkkit m2-drift)"; tgt="$mut_kit/targetA"
 mkblock "$tgt" "pfx-block1.md"
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:5\` | k |"
-mutant="$(mutate_sut "remove-drift-warn" 's/echo "WARN: drift/# DISABLED: echo "WARN: drift/')"
-run_mutant "$mut_kit" "$mutant"
-if ! grep -qi 'WARN.*drift' <<<"$OUT"; then
-  mut_ok "M2 no-drift-warn → case 3 (drift) goes RED" "(WARN absent on mutant)"
-else
-  mut_no "M2 no-drift-warn → mutation not detected by case 3" "out=[$OUT]"
+if mutate_sut "remove-drift-warn" 's/echo "WARN: drift/# DISABLED: echo "WARN: drift/'; then
+  run_mutant "$mut_kit" "$mutant"
+  if ! grep -qi 'WARN.*drift' <<<"$OUT"; then
+    mut_ok "M2 no-drift-warn → case 3 (drift) goes RED" "(WARN absent on mutant)"
+  else
+    mut_no "M2 no-drift-warn → mutation not detected by case 3" "out=[$OUT]"
+  fi
 fi
 
 # M3: Remove the absent-input label → absent corpus output no longer contains 'absent'.
@@ -869,13 +888,14 @@ mut_kit="$(mkkit m3-nodist)"; tgt="$mut_kit/targetX"
 # tgt not created on disk → triggers absent-input path
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit"
-mutant="$(mutate_sut "absent-label-removed" 's/(absent-input)/(DISABLED)/')"
-run_mutant "$mut_kit" "$mutant"
-# Kit name and path contain no 'absent' — only the mutated INFO label carries it.
-if ! grep -qi 'INFO.*absent' <<<"$OUT"; then
-  mut_ok "M3 absent-label removed → case 6 (absent-input) goes RED" "(absent keyword absent on mutant)"
-else
-  mut_no "M3 absent-label removed → mutation not detected by case 6" "out=[$OUT]"
+if mutate_sut "absent-label-removed" 's/(absent-input)/(DISABLED)/'; then
+  run_mutant "$mut_kit" "$mutant"
+  # Kit name and path contain no 'absent' — only the mutated INFO label carries it.
+  if ! grep -qi 'INFO.*absent' <<<"$OUT"; then
+    mut_ok "M3 absent-label removed → case 6 (absent-input) goes RED" "(absent keyword absent on mutant)"
+  else
+    mut_no "M3 absent-label removed → mutation not detected by case 6" "out=[$OUT]"
+  fi
 fi
 
 # M4: Skip marker check (never grep for Breakthrough) → tagged block reported as untagged.
@@ -886,13 +906,23 @@ ln=$(tagged_lineno "$tgt/pfx-block1.md")
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
 # Mutation: replace grep Breakthrough check with 'false' (never matches)
-mutant="$(mutate_sut "no-marker-grep" 's/grep -qE.*Breakthrough.*/false/')"
-run_mutant "$mut_kit" "$mutant"
-# With the mutation, the tagged block is never detected, so: 0 tagged, drift WARN or no-match INFO
-if ! grep -q '1 tagged' <<<"$OUT"; then
-  mut_ok "M4 no-marker-grep → case 1 (clean) goes RED (0 tagged instead of 1)" "(1 tagged absent on mutant)"
-else
-  mut_no "M4 no-marker-grep → mutation not detected by case 1" "out=[$OUT]"
+# Only the 'if grep -qE ... "$bf"' line is replaced (keeping its '; then'): the old open-ended
+# 's/grep -qE.*Breakthrough.*/false/' also ate the '; then' and produced an unparseable SUT, so the
+# tooth "passed" on a crash. The elif sibling keeps its real grep, so the mutant is valid bash.
+if mutate_sut "no-marker-grep" 's/^\( *\)if grep -qE .* "\$bf" 2>\/dev\/null; then$/\1if false; then/'; then
+  # Exactly ONE line may differ from the SUT (the anchored 'if grep -qE ... "$bf"' line, never the elif sibling).
+  m4_changed="$(diff "$SUT" "$mutant" | grep -c '^>')"
+  if [ "$m4_changed" -ne 1 ]; then
+    mut_no "M4 no-marker-grep mutant must change exactly one line" "changed=$m4_changed"
+  else
+    run_mutant "$mut_kit" "$mutant"
+    # With the mutation, the tagged block is never detected, so: 0 tagged, drift WARN or no-match INFO
+    if grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
+      mut_ok "M4 no-marker-grep → case 1 (clean) goes RED (0 tagged instead of 1)" "(1 tagged absent on mutant)"
+    else
+      mut_no "M4 no-marker-grep → mutation not detected by case 1" "out=[$OUT]"
+    fi
+  fi
 fi
 
 # M5: mute the "cannot find TARGETS_MD" echo → case 8 goes RED (no 'cannot find' in output).
@@ -903,12 +933,13 @@ fi
 mut_kit="$(mkkit m5-no-targets-echo)"
 write_breakthroughs "$mut_kit"
 # TARGETS.md absent
-mutant="$(mutate_sut "mute-targets-echo" '/sweep-breakthroughs: cannot find.*TARGETS_MD/d')"
-run_mutant "$mut_kit" "$mutant"
-if ! grep -qi 'cannot find' <<<"$OUT"; then
-  mut_ok "M5 muted-TARGETS-echo → case 8 goes RED (no 'cannot find' in output)" "(cannot find absent on mutant)"
-else
-  mut_no "M5 muted-TARGETS-echo → mutation not detected by case 8" "out=[$OUT]"
+if mutate_sut "mute-targets-echo" '/sweep-breakthroughs: cannot find.*TARGETS_MD/d'; then
+  run_mutant "$mut_kit" "$mutant"
+  if ! grep -qi 'cannot find' <<<"$OUT"; then
+    mut_ok "M5 muted-TARGETS-echo → case 8 goes RED (no 'cannot find' in output)" "(cannot find absent on mutant)"
+  else
+    mut_no "M5 muted-TARGETS-echo → mutation not detected by case 8" "out=[$OUT]"
+  fi
 fi
 
 # M6: Replace skipped_count -eq 0 with -ge 0 (always true) → sentence appears on partial runs.
@@ -922,13 +953,14 @@ ln=$(tagged_lineno "$tgtA/pfx-block1.md")
 } > "$mut_kit/TARGETS.md"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln\` | k |"
 # Mutation: change skipped_count -eq 0 to -ge 0 (always true for non-negative count)
-mutant="$(mutate_sut "ledger-skipped-guard-bypass" 's/skipped_count" -eq 0/skipped_count" -ge 0/')"
-run_mutant "$mut_kit" "$mutant"
-# With mutation, sentence appears even on partial sweeps → case 23 assertion (absent) fails
-if grep -q 'Ledger consistent' <<<"$OUT"; then
-  mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
-else
-  mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
+if mutate_sut "ledger-skipped-guard-bypass" 's/skipped_count" -eq 0/skipped_count" -ge 0/'; then
+  run_mutant "$mut_kit" "$mutant"
+  # With mutation, sentence appears even on partial sweeps → case 23 assertion (absent) fails
+  if grep -q 'Ledger consistent' <<<"$OUT"; then
+    mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
+  else
+    mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
+  fi
 fi
 
 # M7: Remove the $RESEARCH_HOME expansion from the ledger-pointer awk → portable pointers
@@ -941,16 +973,22 @@ mkblock_tagged "$tgt" "pfx-block1.md"
 lnm=$(tagged_lineno "$tgt/pfx-block1.md")
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$lnm\` | k |"
-mutant="$(mutate_sut "no-rh-expansion" '/^          pfx1 = /,/^          }$/d')"
-# Install the mutant into the kit, then run with RESEARCH_HOME set to the kit root.
-cp "$mutant" "$mut_kit/toolbelt/sweep-breakthroughs.sh"
-OUT="$(RESEARCH_HOME="$mut_kit" "$BASH_BIN" "$mut_kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-# Without expansion the ledger pointer stays raw "$RESEARCH_HOME/..." which never matches
-# the expanded bf → "unindexed" WARN must appear (and/or "drift" from file-not-found).
-if grep -qi 'WARN.*unindexed' <<<"$OUT" || grep -qi 'WARN.*drift' <<<"$OUT"; then
-  mut_ok "M7 expansion removed → case 24/27 portable pointer detects WARN on mutant" "(WARN present)"
-else
-  mut_no "M7 expansion removed → no WARN on mutant; mutation not detected" "out=[$OUT]"
+# Exact block range (first 'pfx1 =' line .. the first closing brace line after it): resolved from the
+# SUT, never an open-ended /a/,/b/d. An unresolved range counts ONE failure and the tooth never runs.
+m7_range="$(awk '/^          pfx1 = /{n=NR} n && NR>n && /^          }$/{print n "," NR; exit}' "$SUT")"
+if [ -z "$m7_range" ]; then
+  mut_no "M7 [teeth] could not resolve the pfx1..closing-brace range in the SUT (drifted?)"
+elif mutate_sut "no-rh-expansion" "${m7_range}d"; then
+  # Install the mutant into the kit, then run with RESEARCH_HOME set to the kit root.
+  cp "$mutant" "$mut_kit/toolbelt/sweep-breakthroughs.sh"
+  OUT="$(RESEARCH_HOME="$mut_kit" "$BASH_BIN" "$mut_kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  # Without expansion the ledger pointer stays raw "$RESEARCH_HOME/..." which never matches
+  # the expanded bf → "unindexed" WARN must appear (and/or "drift" from file-not-found).
+  if grep -qi 'WARN.*unindexed' <<<"$OUT" || grep -qi 'WARN.*drift' <<<"$OUT"; then
+    mut_ok "M7 expansion removed → case 24/27 portable pointer detects WARN on mutant" "(WARN present)"
+  else
+    mut_no "M7 expansion removed → no WARN on mutant; mutation not detected" "out=[$OUT]"
+  fi
 fi
 
 # M8: Re-introduce sub()-based expansion → & in RESEARCH_HOME corrupts the replacement
@@ -975,14 +1013,16 @@ awk '
   }
   { print }
 ' "$SUT" > "$mutant_m8"
-chmod +x "$mutant_m8"
-cp "$mutant_m8" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh"
-OUT="$(RESEARCH_HOME="$rh_m8" "$BASH_BIN" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-# sub() corrupts & in rh → pointer resolves to wrong path → unindexed+drift WARNs expected.
-if grep -qi 'WARN' <<<"$OUT"; then
-  mut_ok "M8 sub()-expansion with & in RESEARCH_HOME → case 28 detects WARN" "(WARN present on mutant)"
-else
-  mut_no "M8 sub()-expansion with & in RESEARCH_HOME → no WARN; mutation not detected" "out=[$OUT]"
+if mk_built "[teeth] M8 sub()-expansion awk transform" "$SUT" "$mutant_m8"; then
+  chmod +x "$mutant_m8"
+  cp "$mutant_m8" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh"
+  OUT="$(RESEARCH_HOME="$rh_m8" "$BASH_BIN" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  # sub() corrupts & in rh → pointer resolves to wrong path → unindexed+drift WARNs expected.
+  if grep -qi 'WARN' <<<"$OUT"; then
+    mut_ok "M8 sub()-expansion with & in RESEARCH_HOME → case 28 detects WARN" "(WARN present on mutant)"
+  else
+    mut_no "M8 sub()-expansion with & in RESEARCH_HOME → no WARN; mutation not detected" "out=[$OUT]"
+  fi
 fi
 
 # M9: Remove the trailing-slash normalization → RESEARCH_HOME ending with / produces //
@@ -994,15 +1034,16 @@ mkblock_tagged "$tgt_m9" "pfx-block1.md"
 ln_m9=$(tagged_lineno "$tgt_m9/pfx-block1.md")
 write_targets "$mut_kit_m9" "$tgt_m9"
 write_breakthroughs "$mut_kit_m9" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln_m9\` | k |"
-mutant_m9="$(mutate_sut "no-slash-norm" '/_sb_rh%\//d')"
-cp "$mutant_m9" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh"
-OUT="$(RESEARCH_HOME="$rh_m9" "$BASH_BIN" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-# Without normalization pointer = /path//targetA/... which does not match /path/targetA/...
-# (string comparison) → unindexed WARN fires.
-if grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  mut_ok "M9 trailing-slash not stripped → case 29 detects unindexed WARN on mutant" "(WARN present)"
-else
-  mut_no "M9 trailing-slash not stripped → no WARN; mutation not detected" "out=[$OUT]"
+if mutate_sut "no-slash-norm" '/_sb_rh%\//d'; then
+  cp "$mutant" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh"
+  OUT="$(RESEARCH_HOME="$rh_m9" "$BASH_BIN" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  # Without normalization pointer = /path//targetA/... which does not match /path/targetA/...
+  # (string comparison) → unindexed WARN fires.
+  if grep -qi 'WARN.*unindexed' <<<"$OUT"; then
+    mut_ok "M9 trailing-slash not stripped → case 29 detects unindexed WARN on mutant" "(WARN present)"
+  else
+    mut_no "M9 trailing-slash not stripped → no WARN; mutation not detected" "out=[$OUT]"
+  fi
 fi
 
 # M10: Remove rh%/ normalization from target-paths.sh → portable TARGETS.md row +
@@ -1022,21 +1063,16 @@ OUT_M10_CTRL="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep
 if grep -q '1 tagged' <<<"$OUT_M10_CTRL" && ! grep -q 'WARN' <<<"$OUT_M10_CTRL"; then
   mut_ok "M10 (d) ctrl: SUT strips trailing slash (1 tagged, no WARN)"
 else mut_no "M10 (d) ctrl: SUT does not give expected result (M10 premise broken)" "out=[$OUT_M10_CTRL]"; fi
-# Mutant target-paths.sh: remove the rh%/ normalization lines (both functions).
-sed '/rh%\//d' "$TP_LIB" > "$kit_m10/toolbelt/lib/target-paths.sh"
-# (a) mutant must differ from SUT
-if ! diff -q "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
-  mut_ok "M10 (a): mutant target-paths.sh differs from SUT"
-else mut_no "M10 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
-# (b) bash -n must pass on mutant
-_m10_bn_err=$(bash -n "$kit_m10/toolbelt/lib/target-paths.sh" 2>&1); _m10_bn_rc=$?
-if [ "$_m10_bn_rc" -eq 0 ]; then mut_ok "M10 (b): mutant target-paths.sh passes bash -n"
-else mut_no "M10 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m10_bn_err]"; fi
-OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
-  mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
-else
-  mut_no "M10 no-tp-norm → case 31 not detecting norm removal" "out=[$OUT]"
+# Mutant target-paths.sh: remove the rh%/ normalization lines (both functions). Built by
+# mutant_chain: it refuses a dead stage, an identical/empty mutant and a non-bash result, which
+# subsumes the former (a) differs-from-SUT and (b) bash -n checks (no echo assertions kept).
+if mk_chain "[teeth] M10 no-tp-norm" "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" '/rh%\//d'; then
+  OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
+    mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
+  else
+    mut_no "M10 no-tp-norm → case 31 not detecting norm removal" "out=[$OUT]"
+  fi
 fi
 
 # M11: Restore sub()-based awk expansion for pfx2 in target-paths.sh →
@@ -1057,27 +1093,20 @@ if grep -q '1 tagged' <<<"$OUT_M11_CTRL"; then
 else mut_no "M11 (d) ctrl: SUT does not give 1 tagged (M11 premise broken)" "out=[$OUT_M11_CTRL]"; fi
 # Mutant: replace substr()/length() pfx2 case with sub()-based expansion (reintroduces & bug).
 # char-class regex [$]RESEARCH_HOME[/] avoids \$ ambiguity; braces keep else branch valid.
-sed 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|' \
-  "$TP_LIB" > "$kit_m11/toolbelt/lib/target-paths.sh"
-# (a) mutant must differ from SUT
-if ! diff -q "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
-  mut_ok "M11 (a): mutant target-paths.sh differs from SUT"
-else mut_no "M11 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
-# (b) bash -n must pass on mutant
-_m11_bn_err=$(bash -n "$kit_m11/toolbelt/lib/target-paths.sh" 2>&1); _m11_bn_rc=$?
-if [ "$_m11_bn_rc" -eq 0 ]; then mut_ok "M11 (b): mutant target-paths.sh passes bash -n"
-else mut_no "M11 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m11_bn_err]"; fi
-# (c) injected awk must parse on empty input (rc 0)
-_m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
-  || _m11_awk_rc=$?
-if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
-else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
-OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-# Positive verdict: the mutant sweep must RUN to its Summary line (a crash prints none) and lose the tag.
-if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
-  mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
-else
-  mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
+if mk_chain "[teeth] M11 sub()-expansion in target-paths.sh" "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" \
+    's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|'; then
+  # (c) injected awk must parse on empty input (rc 0)
+  _m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
+    || _m11_awk_rc=$?
+  if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
+  else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
+  OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  # Positive verdict: the mutant sweep must RUN to its Summary line (a crash prints none) and lose the tag.
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
+    mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
+  else
+    mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
+  fi
 fi
 # Sabotage: old injection (no braces → orphan else) causes awk syntax error → crash.
 # Assert assertion (c) catches it: the broken program must return non-zero on parse.
@@ -1118,30 +1147,18 @@ if [ "$RC_M12_CTRL" -eq 0 ] \
 else
   mut_no "M12 (d) ctrl: SUT does not give expected WARN — M12 premise broken" "out=[$OUT_M12_CTRL]"
 fi
-# Create mutant: remove -x from grep -qxF
-mutant_m12="$(mutate_sut "remove-x-flag" 's/grep -qxF/grep -qF/')"
-# (a) mutant differs from SUT
-if ! diff -q "$SUT" "$mutant_m12" >/dev/null 2>&1; then
-  mut_ok "M12 (a): mutant differs from SUT"
-else
-  mut_no "M12 (a): sed did not change SUT — mutant == SUT (theater)"
-fi
-# (b) bash -n must pass on mutant (removing -x is syntactically valid)
-_m12_bn_err=$(bash -n "$mutant_m12" 2>&1); _m12_bn_rc=$?
-if [ "$_m12_bn_rc" -eq 0 ]; then
-  mut_ok "M12 (b): mutant passes bash -n"
-else
-  mut_no "M12 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m12_bn_err]"
-fi
-cp "$mutant_m12" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh"
-OUT="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-# Positive assertion: RC=0 AND Summary present AND WARN unindexed absent.
-# Substring match makes "file:5" find "file:57" → no WARN → bug reproduced.
-# A crash (RC≠0) or empty output must FAIL this assertion (not silently pass).
-if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  mut_ok "M12 grep -xF→-F: case 34 (:5 vs :57) goes RED (WARN absent on mutant)" "(no WARN on mutant)"
-else
-  mut_no "M12 grep -xF→-F: mutation not detected by case 34" "rc=$RC out=[$OUT]"
+# Create mutant: remove -x from grep -qxF (mutant_chain verifies it differs from SUT and parses)
+if mutate_sut "remove-x-flag" 's/grep -qxF/grep -qF/'; then
+  cp "$mutant" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh"
+  OUT="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  # Positive assertion: RC=0 AND Summary present AND WARN unindexed absent.
+  # Substring match makes "file:5" find "file:57" → no WARN → bug reproduced.
+  # A crash (RC≠0) or empty output must FAIL this assertion (not silently pass).
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
+    mut_ok "M12 grep -xF→-F: case 34 (:5 vs :57) goes RED (WARN absent on mutant)" "(no WARN on mutant)"
+  else
+    mut_no "M12 grep -xF→-F: mutation not detected by case 34" "rc=$RC out=[$OUT]"
+  fi
 fi
 # Sabotage: a crash-mutant (exit 99) must FAIL the positive assertion — proves
 # that RC=0 + Summary guards prevent crash-theater.

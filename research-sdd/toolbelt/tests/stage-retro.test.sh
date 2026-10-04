@@ -756,6 +756,18 @@ fi
 # banner and CREATES the retro/* branch on an already-resolved retro. If the mutant stayed closed
 # (no branch), case 3 would be theater — the guard would not be what protects the destructive path.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Mutant builds are verified by lib/mutant.sh (kit issue #1299), sourced only on this path. Each
+  # mutant is the sandbox repo's copy of the SUT with one anchor swapped (bash substitution, so it is
+  # "built another way": mutant_built). mutant_built refuses an empty, byte-identical (the
+  # substitution never applied) or unparseable (bash -n) mutant, and one placed in the live tree;
+  # a refused build is counted ONCE by mutant_ok and its tooth never runs. The teeth keep their own
+  # observations: each runs the mutant inside a stateful sandbox git repo (branches, upstreams,
+  # worktrees), which is not expressible as a stateless mutant_tooth argv run.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  # mutant_ok LABEL OUT — verify the mutant just written to OUT against the real SUT; one failure on refusal.
+  mutant_ok() { mutant_built "$1" "$SUT" "$2" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: neuter the fail-closed guard, expect a broken helper to fail-OPEN and BRANCH --"
   anchor='declare -F retro_review_status >/dev/null 2>&1 || { echo "stage-retro: helper $LIB failed to define retro_review_status" >&2; exit 1; }'
   content="$(cat "$SUT")"
@@ -775,20 +787,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # replacement and are unaffected either way, since an empty string has no '&' to expand.
     neutered=':'
     printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
-    # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
-    # precondition holds and the ONLY thing that can stop staging is the (neutered) guard.
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant
-    # Push mutant commit so origin/main stays in sync with local main; the fixed SUT's fetch
-    # check and the self-referential-target reachability guard (F1) must not fire before the
-    # guard under test runs (mkretro already pushed the retro itself; this push is for the
-    # mutant script edit).
-    git -C "$repo" push -q origin main 2>/dev/null
-    outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"
-    if grep -q 'staging retro for supervised review' <<<"$outm" \
-       && [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
-      ok "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "(case 3 has teeth)"
-    else
-      no "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "mutant stayed closed — case 3 is THEATER: branches=[$(branches "$repo")] [$outm]"
+    if mutant_ok "teeth: mutant build — fail-closed guard" "$mutant"; then
+      # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
+      # precondition holds and the ONLY thing that can stop staging is the (neutered) guard.
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant
+      # Push mutant commit so origin/main stays in sync with local main; the fixed SUT's fetch
+      # check and the self-referential-target reachability guard (F1) must not fire before the
+      # guard under test runs (mkretro already pushed the retro itself; this push is for the
+      # mutant script edit).
+      git -C "$repo" push -q origin main 2>/dev/null
+      outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"
+      if grep -q 'staging retro for supervised review' <<<"$outm" \
+         && [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
+        ok "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "(case 3 has teeth)"
+      else
+        no "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "mutant stayed closed — case 3 is THEATER: branches=[$(branches "$repo")] [$outm]"
+      fi
     fi
   fi
 
@@ -808,14 +822,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # the whole block. Use 'if false; then' — the body never runs, and the existing fi closes it.
     neutered='if false; then'
     printf '%s\n' "${content/"$anchor_e"/"$neutered"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-excl
-    git -C "$repo" push -q origin main 2>/dev/null
-    outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/client.md" 2>&1)"
-    if grep -q 'staging retro for supervised review' <<<"$outm" \
-       && [ "$(branches "$repo")" = "retro/targetA-client" ]; then
-      ok "teeth: excl-guard-neutered mutant stages excluded file (case 7 has teeth)" "()"
-    else
-      no "teeth: excl-guard-neutered mutant stages excluded file" "mutant stayed closed — case 7 is THEATER: branches=[$(branches "$repo")] [$outm]"
+    if mutant_ok "teeth: mutant build — exclusion guard" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-excl
+      git -C "$repo" push -q origin main 2>/dev/null
+      outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/client.md" 2>&1)"
+      if grep -q 'staging retro for supervised review' <<<"$outm" \
+         && [ "$(branches "$repo")" = "retro/targetA-client" ]; then
+        ok "teeth: excl-guard-neutered mutant stages excluded file (case 7 has teeth)" "()"
+      else
+        no "teeth: excl-guard-neutered mutant stages excluded file" "mutant stayed closed — case 7 is THEATER: branches=[$(branches "$repo")] [$outm]"
+      fi
     fi
   fi
 
@@ -837,16 +853,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Replace the tools sed range with an echo that only prints the heading — no table rows.
     neutered_t8="echo '## Tools built, adapted, or outgrown'"
     printf '%s\n' "${content/"$anchor_t8"/"$neutered_t8"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-tools
-    git -C "$repo" push -q origin main 2>/dev/null
-    outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r-tools.md" 2>&1)"
-    # The mutant outputs the heading but NOT the table rows. Case 8's row-content assertion
-    # ('tools/t.py' must appear) must FAIL — meaning the mutant goes RED on that check.
-    if grep -q 'Tools built, adapted, or outgrown' <<<"$outm" \
-       && ! grep -q 'tools/t.py' <<<"$outm"; then
-      ok "teeth: tools-range mutant prints heading but no rows (case 8 row assertion has teeth)" "()"
-    else
-      no "teeth: tools-range mutant prints heading but no rows" "row found in mutant output — case 8 row assertion is THEATER: [$outm]"
+    if mutant_ok "teeth: mutant build — tools sed range in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-tools
+      git -C "$repo" push -q origin main 2>/dev/null
+      outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r-tools.md" 2>&1)"
+      # The mutant outputs the heading but NOT the table rows. Case 8's row-content assertion
+      # ('tools/t.py' must appear) must FAIL — meaning the mutant goes RED on that check.
+      if grep -q 'Tools built, adapted, or outgrown' <<<"$outm" \
+         && ! grep -q 'tools/t.py' <<<"$outm"; then
+        ok "teeth: tools-range mutant prints heading but no rows (case 8 row assertion has teeth)" "()"
+      else
+        no "teeth: tools-range mutant prints heading but no rows" "row found in mutant output — case 8 row assertion is THEATER: [$outm]"
+      fi
     fi
   fi
 
@@ -865,19 +883,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_f='fetch -q origin 2>/dev/null || true'
     printf '%s\n' "${content/"$anchor_f"/"$neutered_f"}" > "$mutant"
-    # Commit and PUSH before breaking the remote so origin/main is in sync with local main —
-    # the FETCH guard is the one under test, and it must be the first thing to fire.
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-fetch-fail
-    git -C "$repo" push -q origin main 2>/dev/null
-    # Break the remote AFTER the push so the mutant runs with a failing fetch.
-    git -C "$repo" remote set-url origin "/nonexistent/path/does-not-exist.git"
-    out_tf="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_tf=$?
-    # Mutant swallows fetch failure → no degraded msg, exits 0 (last command is echo, not exit 6).
-    if [ "$rc_tf" = 0 ] && ! grep -q 'degraded:' <<<"$out_tf"; then
-      ok "teeth: fetch-fail guard neutered → exits 0, no degraded msg (case 9 has teeth)" "()"
-    else
-      no "teeth: fetch-fail guard neutered" \
-         "expected exit 0 + no degraded; got exit=$rc_tf out=[$out_tf]"
+    if mutant_ok "teeth: mutant build — fetch-fail guard in SUT" "$mutant"; then
+      # Commit and PUSH before breaking the remote so origin/main is in sync with local main —
+      # the FETCH guard is the one under test, and it must be the first thing to fire.
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-fetch-fail
+      git -C "$repo" push -q origin main 2>/dev/null
+      # Break the remote AFTER the push so the mutant runs with a failing fetch.
+      git -C "$repo" remote set-url origin "/nonexistent/path/does-not-exist.git"
+      out_tf="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_tf=$?
+      # Mutant swallows fetch failure → no degraded msg, exits 0 (last command is echo, not exit 6).
+      if [ "$rc_tf" = 0 ] && ! grep -q 'degraded:' <<<"$out_tf"; then
+        ok "teeth: fetch-fail guard neutered → exits 0, no degraded msg (case 9 has teeth)" "()"
+      else
+        no "teeth: fetch-fail guard neutered" \
+           "expected exit 0 + no degraded; got exit=$rc_tf out=[$out_tf]"
+      fi
     fi
   fi
 
@@ -897,32 +917,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_c='checkout -q --no-track -b "$branch"'
     printf '%s\n' "${content/"$anchor_c"/"$neutered_c"}" > "$mutant"
-    # Push mutant before adding extra remote commit so origin/main == local main at this point.
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-behind-origin
-    git -C "$repo" push -q origin main 2>/dev/null
-    local_main_sha_t="$(git -C "$repo" rev-parse main)"
-    # Now add a commit to origin only via a second clone, making origin/main ahead of local main.
-    remote_path_t="$(git -C "$repo" remote get-url origin)"
-    tmpclone_t="$ROOT/teeth-behind-origin-extra"
-    git clone -q "$remote_path_t" "$tmpclone_t" 2>/dev/null
-    git -C "$tmpclone_t" config user.email t@example.com
-    git -C "$tmpclone_t" config user.name  tester
-    printf 'extra-teeth\n' > "$tmpclone_t/extra-teeth.txt"
-    git -C "$tmpclone_t" add extra-teeth.txt
-    git -C "$tmpclone_t" commit -qm "extra remote commit for teeth"
-    git -C "$tmpclone_t" push -q origin main 2>/dev/null
-    # local_main stays at the mutant commit; origin/main is one commit ahead of it.
-    "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
-    origin_main_sha_t="$(git -C "$repo" rev-parse origin/main 2>/dev/null)"
-    branch_sha_t="$(git -C "$repo" rev-parse --verify "refs/heads/retro/targetA-r1" 2>/dev/null)"
-    # Mutant branches from local main (not origin/main); local_main != origin_main in this setup.
-    if [ -n "$branch_sha_t" ] \
-       && [ "$branch_sha_t" = "$local_main_sha_t" ] \
-       && [ "$local_main_sha_t" != "$origin_main_sha_t" ]; then
-      ok "teeth: origin/main removed → branch at local main (case 10 has teeth)" "()"
-    else
-      no "teeth: origin/main removed → branch at local main" \
-         "branch=$branch_sha_t local=$local_main_sha_t origin=$origin_main_sha_t"
+    if mutant_ok "teeth: mutant build — origin/main checkout in SUT" "$mutant"; then
+      # Push mutant before adding extra remote commit so origin/main == local main at this point.
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-behind-origin
+      git -C "$repo" push -q origin main 2>/dev/null
+      local_main_sha_t="$(git -C "$repo" rev-parse main)"
+      # Now add a commit to origin only via a second clone, making origin/main ahead of local main.
+      remote_path_t="$(git -C "$repo" remote get-url origin)"
+      tmpclone_t="$ROOT/teeth-behind-origin-extra"
+      git clone -q "$remote_path_t" "$tmpclone_t" 2>/dev/null
+      git -C "$tmpclone_t" config user.email t@example.com
+      git -C "$tmpclone_t" config user.name  tester
+      printf 'extra-teeth\n' > "$tmpclone_t/extra-teeth.txt"
+      git -C "$tmpclone_t" add extra-teeth.txt
+      git -C "$tmpclone_t" commit -qm "extra remote commit for teeth"
+      git -C "$tmpclone_t" push -q origin main 2>/dev/null
+      # local_main stays at the mutant commit; origin/main is one commit ahead of it.
+      "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
+      origin_main_sha_t="$(git -C "$repo" rev-parse origin/main 2>/dev/null)"
+      branch_sha_t="$(git -C "$repo" rev-parse --verify "refs/heads/retro/targetA-r1" 2>/dev/null)"
+      # Mutant branches from local main (not origin/main); local_main != origin_main in this setup.
+      if [ -n "$branch_sha_t" ] \
+         && [ "$branch_sha_t" = "$local_main_sha_t" ] \
+         && [ "$local_main_sha_t" != "$origin_main_sha_t" ]; then
+        ok "teeth: origin/main removed → branch at local main (case 10 has teeth)" "()"
+      else
+        no "teeth: origin/main removed → branch at local main" \
+           "branch=$branch_sha_t local=$local_main_sha_t origin=$origin_main_sha_t"
+      fi
     fi
   fi
 
@@ -936,9 +958,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_d"/"checkout -q -b \"\$branch\" origin/main"}" > "$mutant"
-    if cmp -s "$mutant" "$SUT"; then
-      no "teeth: --no-track mutant differs from SUT" "mutant identical — substitution did not apply"
-    else
+    if mutant_ok "teeth: --no-track mutant" "$mutant"; then
       git -C "$repo" add -A; git -C "$repo" commit -qm mutant-no-track
       git -C "$repo" push -q origin main 2>/dev/null
       "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
@@ -968,16 +988,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_cb='git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main'
     printf '%s\n' "${content/"$anchor_cb"/"$neutered_cb"}" > "$mutant"
-    # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
-    # precondition holds (same pattern as the other mutants above).
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-checkoutb
-    git -C "$repo" push -q origin main 2>/dev/null
-    out_cb="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_cb=$?
-    if [ "$rc_cb" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$out_cb"; then
-      ok "teeth: checkout -b error check removed → failure swallowed, false banner printed (case 11 has teeth)" "()"
-    else
-      no "teeth: checkout -b error check removed → failure swallowed, false banner printed" \
-         "expected exit 0 + banner; got exit=$rc_cb out=[$out_cb]"
+    if mutant_ok "teeth: mutant build — checkout -b error check in SUT" "$mutant"; then
+      # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
+      # precondition holds (same pattern as the other mutants above).
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-checkoutb
+      git -C "$repo" push -q origin main 2>/dev/null
+      out_cb="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_cb=$?
+      if [ "$rc_cb" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$out_cb"; then
+        ok "teeth: checkout -b error check removed → failure swallowed, false banner printed (case 11 has teeth)" "()"
+      else
+        no "teeth: checkout -b error check removed → failure swallowed, false banner printed" \
+           "expected exit 0 + banner; got exit=$rc_cb out=[$out_cb]"
+      fi
     fi
   fi
 
@@ -998,18 +1020,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutated="${content/"$anchor_p1"/"$neutered_p1"}"
     mutated="${mutated/"$anchor_p2"/"$neutered_p2"}"
     printf '%s\n' "$mutated" > "$repo/research-sdd/toolbelt/stage-retro.sh"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-nophysical
-    git -C "$repo" push -q origin main 2>/dev/null
-    _symroot_t="$ROOT/teeth-symlink-profile-root"
-    mkdir -p "$_symroot_t/research-sdd/profile/myprofile"
-    ln -s "$repo/research-sdd/toolbelt" "$_symroot_t/research-sdd/profile/myprofile/toolbelt"
-    outm_sym="$("$BASH_BIN" "$_symroot_t/research-sdd/profile/myprofile/toolbelt/stage-retro.sh" \
-      "$repo/targetA/retros/r1.md" 2>&1)"; rcm_sym=$?
-    if [ "$rcm_sym" != 0 ] && [ -z "$(branches "$repo")" ]; then
-      ok "teeth: -P dropped → symlinked invocation fails to find the real kit repo (case 12 has teeth)" "()"
-    else
-      no "teeth: -P dropped → symlinked invocation should fail but did not" \
-         "exit=$rcm_sym branches=[$(branches "$repo")] out=[$outm_sym]"
+    if mutant_ok "teeth: mutant build — -P resolutions in SUT" "$repo/research-sdd/toolbelt/stage-retro.sh"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-nophysical
+      git -C "$repo" push -q origin main 2>/dev/null
+      _symroot_t="$ROOT/teeth-symlink-profile-root"
+      mkdir -p "$_symroot_t/research-sdd/profile/myprofile"
+      ln -s "$repo/research-sdd/toolbelt" "$_symroot_t/research-sdd/profile/myprofile/toolbelt"
+      outm_sym="$("$BASH_BIN" "$_symroot_t/research-sdd/profile/myprofile/toolbelt/stage-retro.sh" \
+        "$repo/targetA/retros/r1.md" 2>&1)"; rcm_sym=$?
+      if [ "$rcm_sym" != 0 ] && [ -z "$(branches "$repo")" ]; then
+        ok "teeth: -P dropped → symlinked invocation fails to find the real kit repo (case 12 has teeth)" "()"
+      else
+        no "teeth: -P dropped → symlinked invocation should fail but did not" \
+           "exit=$rcm_sym branches=[$(branches "$repo")] out=[$outm_sym]"
+      fi
     fi
   fi
 
@@ -1065,15 +1089,17 @@ esac'
     git -C "$repo" add -A; git -C "$repo" commit -qm "add retro (unpushed)"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_f1"/}" > "$mutant"
-    # Overwriting the tracked SUT copy dirties the LOCAL-only tree; this is exactly the
-    # scenario under test (retro committed but not pushed), so do NOT push this commit.
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-guard
-    outm_f1="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f1=$?
-    if [ "$rcm_f1" != 7 ] && [ -n "$(branches "$repo")" ]; then
-      ok "teeth: F1 guard stripped → branch created despite unpushed retro, wrong exit code (case 13 has teeth)" "(exit=$rcm_f1)"
-    else
-      no "teeth: F1 guard stripped → should have created a branch with a non-7 exit" \
-         "exit=$rcm_f1 branches=[$(branches "$repo")] out=[$outm_f1]"
+    if mutant_ok "teeth: mutant build — F1 reachability guard in SUT" "$mutant"; then
+      # Overwriting the tracked SUT copy dirties the LOCAL-only tree; this is exactly the
+      # scenario under test (retro committed but not pushed), so do NOT push this commit.
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-guard
+      outm_f1="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f1=$?
+      if [ "$rcm_f1" != 7 ] && [ -n "$(branches "$repo")" ]; then
+        ok "teeth: F1 guard stripped → branch created despite unpushed retro, wrong exit code (case 13 has teeth)" "(exit=$rcm_f1)"
+      else
+        no "teeth: F1 guard stripped → should have created a branch with a non-7 exit" \
+           "exit=$rcm_f1 branches=[$(branches "$repo")] out=[$outm_f1]"
+      fi
     fi
   fi
 
@@ -1097,13 +1123,15 @@ esac'
     git -C "$repo" add -A; git -C "$repo" commit -qm "update r1.md to NEW (deliberately NOT pushed)"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_eq"/"$neutered_eq"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-existence-only
-    outm_eq="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_eq=$?
-    if [ "$rcm_eq" = 0 ] && [ -n "$(branches "$repo")" ]; then
-      ok "teeth: F1 reverted to existence-only → stale-content bug reproduces (case 16 has teeth)" "(exit=$rcm_eq)"
-    else
-      no "teeth: F1 reverted to existence-only → should have staged the stale retro at exit 0" \
-         "exit=$rcm_eq branches=[$(branches "$repo")] out=[$outm_eq]"
+    if mutant_ok "teeth: mutant build — F1 blob-equality check in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-existence-only
+      outm_eq="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_eq=$?
+      if [ "$rcm_eq" = 0 ] && [ -n "$(branches "$repo")" ]; then
+        ok "teeth: F1 reverted to existence-only → stale-content bug reproduces (case 16 has teeth)" "(exit=$rcm_eq)"
+      else
+        no "teeth: F1 reverted to existence-only → should have staged the stale retro at exit 0" \
+           "exit=$rcm_eq branches=[$(branches "$repo")] out=[$outm_eq]"
+      fi
     fi
   fi
 
@@ -1124,13 +1152,15 @@ esac'
     ln -s "$repo/targetA/retros" "$_sym_t17"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_pP"/"$neutered_pP"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-retro-abs-logical
-    outm_pP="$("$BASH_BIN" "$mutant" "$_sym_t17/r1.md" 2>&1)"; rcm_pP=$?
-    if [ "$rcm_pP" != 7 ] && [ -n "$(branches "$repo")" ]; then
-      ok "teeth: retro_abs plain-cd → symlinked guard bypass reproduces (case 17 has teeth)" "(exit=$rcm_pP)"
-    else
-      no "teeth: retro_abs plain-cd → symlinked guard bypass should have reproduced" \
-         "exit=$rcm_pP branches=[$(branches "$repo")] out=[$outm_pP]"
+    if mutant_ok "teeth: mutant build — retro_abs -P resolution in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-retro-abs-logical
+      outm_pP="$("$BASH_BIN" "$mutant" "$_sym_t17/r1.md" 2>&1)"; rcm_pP=$?
+      if [ "$rcm_pP" != 7 ] && [ -n "$(branches "$repo")" ]; then
+        ok "teeth: retro_abs plain-cd → symlinked guard bypass reproduces (case 17 has teeth)" "(exit=$rcm_pP)"
+      else
+        no "teeth: retro_abs plain-cd → symlinked guard bypass should have reproduced" \
+           "exit=$rcm_pP branches=[$(branches "$repo")] out=[$outm_pP]"
+      fi
     fi
   fi
 
@@ -1152,15 +1182,17 @@ esac'
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_f2='git -C "$KIT_REPO" checkout -q "$branch"'
     printf '%s\n' "${content/"$anchor_f2"/"$neutered_f2"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-existing-branch
-    git -C "$repo" push -q origin main 2>/dev/null
-    outm_f2="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f2=$?
-    git -C "$repo" worktree remove -f "$_wt_t14" 2>/dev/null || true
-    if [ "$rcm_f2" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$outm_f2"; then
-      ok "teeth: existing-branch checkout error check removed → false banner, exit 0 (case 14 has teeth)" "()"
-    else
-      no "teeth: existing-branch checkout error check removed → should print false banner at exit 0" \
-         "exit=$rcm_f2 out=[$outm_f2]"
+    if mutant_ok "teeth: mutant build — existing-branch checkout error check in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-existing-branch
+      git -C "$repo" push -q origin main 2>/dev/null
+      outm_f2="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f2=$?
+      git -C "$repo" worktree remove -f "$_wt_t14" 2>/dev/null || true
+      if [ "$rcm_f2" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$outm_f2"; then
+        ok "teeth: existing-branch checkout error check removed → false banner, exit 0 (case 14 has teeth)" "()"
+      else
+        no "teeth: existing-branch checkout error check removed → should print false banner at exit 0" \
+           "exit=$rcm_f2 out=[$outm_f2]"
+      fi
     fi
   fi
 
@@ -1193,14 +1225,16 @@ fi'
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_f3"/}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-stale-branch
-    git -C "$repo" push -q origin main 2>/dev/null
-    outm_f3="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f3=$?
-    if [ "$rcm_f3" = 0 ] && grep -q "can't read" <<<"$outm_f3"; then
-      ok "teeth: post-checkout readability re-check removed → sed errors leak through, exit 0 (case 15 has teeth)" "()"
-    else
-      no "teeth: post-checkout readability re-check removed → should leak sed errors at exit 0" \
-         "exit=$rcm_f3 out=[$outm_f3]"
+    if mutant_ok "teeth: mutant build — post-checkout readability re-check in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-stale-branch
+      git -C "$repo" push -q origin main 2>/dev/null
+      outm_f3="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f3=$?
+      if [ "$rcm_f3" = 0 ] && grep -q "can't read" <<<"$outm_f3"; then
+        ok "teeth: post-checkout readability re-check removed → sed errors leak through, exit 0 (case 15 has teeth)" "()"
+      else
+        no "teeth: post-checkout readability re-check removed → should leak sed errors at exit 0" \
+           "exit=$rcm_f3 out=[$outm_f3]"
+      fi
     fi
   fi
 
@@ -1218,15 +1252,17 @@ fi'
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     printf '%s\n' "${content/"$anchor_swb"/"$neutered_swb"}" > "$mutant"
-    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-exit8-no-switchback
-    git -C "$repo" push -q origin main 2>/dev/null
-    "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
-    _swb_branch_d_out="$(git -C "$repo" branch -D "retro/targetA-r1" 2>&1)"; _swb_branch_d_rc=$?
-    if [ "$_swb_branch_d_rc" != 0 ]; then
-      ok "teeth: exit-8 switch-back removed → 'branch -D' remediation now fails (case 15b has teeth)" "($_swb_branch_d_out)"
-    else
-      no "teeth: exit-8 switch-back removed → 'branch -D' remediation should have failed but succeeded" \
-         "rc=$_swb_branch_d_rc"
+    if mutant_ok "teeth: mutant build — exit-8 checkout-back-to-main in SUT" "$mutant"; then
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-exit8-no-switchback
+      git -C "$repo" push -q origin main 2>/dev/null
+      "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
+      _swb_branch_d_out="$(git -C "$repo" branch -D "retro/targetA-r1" 2>&1)"; _swb_branch_d_rc=$?
+      if [ "$_swb_branch_d_rc" != 0 ]; then
+        ok "teeth: exit-8 switch-back removed → 'branch -D' remediation now fails (case 15b has teeth)" "($_swb_branch_d_out)"
+      else
+        no "teeth: exit-8 switch-back removed → 'branch -D' remediation should have failed but succeeded" \
+           "rc=$_swb_branch_d_rc"
+      fi
     fi
   fi
 
@@ -1241,8 +1277,7 @@ fi'
       no "tooth_swap: locate anchor" "anchor not found in SUT — drifted? anchor=[$anchor]"; return 1
     fi
     printf '%s\n' "${body/"$anchor"/"$repl"}" > "$file"
-    if cmp -s "$file" "$SUT"; then no "tooth_swap: mutant" "identical to the SUT — vacuous"; return 1; fi
-    if ! "$BASH_BIN" -n "$file" 2>/dev/null; then no "tooth_swap: mutant passes bash -n" "syntax error — crash-based theater"; return 1; fi
+    mutant_ok "tooth_swap: mutant ($anchor)" "$file" || return 1
     git -C "$repo" add -A; git -C "$repo" commit -qm "mutant"; git -C "$repo" push -q origin main 2>/dev/null
     return 0
   }
@@ -1340,7 +1375,7 @@ fi'
       _body="${_body/"$_m1"/if false; then}"; _body="${_body/"$_m2"/elif false; then}"
     fi
     printf '%s\n' "$_body" > "$repo/research-sdd/toolbelt/stage-retro.sh"
-    "$BASH_BIN" -n "$repo/research-sdd/toolbelt/stage-retro.sh" || { no "teeth 1031-$_k31: mutant has a syntax error" ""; continue; }
+    mutant_ok "teeth 1031-$_k31: mutant" "$repo/research-sdd/toolbelt/stage-retro.sh" || continue
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-wording
     OUTM="$("$BASH_BIN" "$repo/research-sdd/toolbelt/stage-retro.sh" "$repo/targetA/retros/r1.md" 2>&1)"
     case "$_k31" in
