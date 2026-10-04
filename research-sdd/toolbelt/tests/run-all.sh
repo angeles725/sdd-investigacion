@@ -15,7 +15,14 @@
 #   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth|--require-teeth] [-j N]
+#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [-j N]
+#
+#   --require-clean-tmp  Exit 1 when any suite left entries in its per-suite TMPDIR (kit issue
+#                    #1277). Every run creates ONE temp root (under the caller's TMPDIR, else /tmp),
+#                    exports TMPDIR to a fresh subdir of it for each suite, removes the root on exit,
+#                    and reports `TMPDIR leftovers: N — [suite: count]` (N = total entries). Without
+#                    the flag the line is report-only; a root that could not be created or scanned is
+#                    reported as DEGRADED (and fails under the flag), never as a confident 0.
 #
 #   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
@@ -209,6 +216,7 @@ fi
 # a typo (e.g. --prove-teath) can't silently disable teeth while reporting green.
 PROVE_TEETH=""
 REQUIRE_TEETH=""
+REQUIRE_CLEAN_TMP=""
 # Opt-in parallelism (kit issue #1463): `-j N` / `-jN` / `--jobs N`, N a plain integer 1..6 (the
 # cap is deliberate: the heavy suites are CPU/IO-bound and a runaway fan-out makes timing-
 # sensitive suites flaky). Refused: bare `-j`, `-j 0`, `-j 100%`, non-numeric, N above the cap.
@@ -216,7 +224,7 @@ REQUIRE_TEETH=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [-j N]"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [-j N]"
 _parse_jobs() {  # <value> — sets JOBS or exits 2
   if [[ ! "$1" =~ ^[0-9]+$ ]] || [[ "$((10#$1))" -lt 1 ]]; then
     echo "invalid -j value '$1': need an integer 1..$MAX_JOBS (no bare -j, 0, percentages or non-numerics); $USAGE" >&2
@@ -239,6 +247,9 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
     --require-teeth)
       PROVE_TEETH="--prove-teeth"
       REQUIRE_TEETH=1
+      ;;
+    --require-clean-tmp)
+      REQUIRE_CLEAN_TMP=1
       ;;
     -j|--jobs)
       _ai=$((_ai + 1))
@@ -321,7 +332,78 @@ sh_teeth_nobanner=()   # stripped basenames: handles flag in source, 0 banners a
 sh_teeth_nohelper=()   # stripped basenames: HAS teeth (banner or flag) but never sources lib/mutant.sh (#943)
 
 tmp_out="$(mktemp)"
-trap 'rm -f "$tmp_out"' EXIT
+# --- Per-run TMPDIR root (kit issue #1277 slice 3) -----------------------------------------------
+# ONE temp root per run, created under the caller's TMPDIR (mktemp honours it, else /tmp). Each suite
+# is run with TMPDIR exported to its own fresh subdir of it, so what a suite leaves behind is
+# attributable to it by name (also under -j: the subdirs never overlap) and is removed with the root
+# on EXIT. The cleanup is ONE function the EXIT trap calls, so every temp resource of the run
+# (tmp_out, the -j PAR_DIR, the root) is removed by the same trap — extend _run_all_cleanup, never
+# re-set the trap. A root that cannot be created is DEGRADED (the suites then run with the caller's
+# TMPDIR unchanged and nothing can be reported about leftovers) — never a confident 0 (§7).
+# SENTINEL-TMPDIR-ROOT
+# Every variable the EXIT cleanup touches is initialised HERE, before the trap: PAR_DIR is a generic
+# name, so one inherited from the caller's environment must never be mistaken for a dir this run
+# created (the cleanup removes only what this run made: _par_dir_created).
+# SENTINEL-PAR-DIR-INIT
+PAR_DIR=""
+_par_dir_created=""
+RUN_TMP_ROOT=""
+TMPDIR_DEGRADED_REASON=""
+tmp_leftovers=()        # "<suite basename>: <count>"
+tmp_leftover_total=0
+tmp_scan_failed=()      # suites whose existing TMPDIR subdir could not be scanned
+tmp_create_failed=()    # suites whose per-suite TMPDIR subdir could not be CREATED (they ran on the caller's TMPDIR)
+if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]; then
+  export RUN_TMP_ROOT
+else
+  RUN_TMP_ROOT=""
+  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root could not be created ('mktemp -d' failed); suites ran with the caller's TMPDIR"
+  echo "run-all.sh: WARNING: TMPDIR leftovers DEGRADED — $TMPDIR_DEGRADED_REASON" >&2
+fi
+_run_all_cleanup() {
+  rm -f "$tmp_out"
+  [[ -n "$_par_dir_created" && -n "$PAR_DIR" ]] && rm -rf "$PAR_DIR"
+  if [[ -n "$RUN_TMP_ROOT" ]]; then
+    # A leftover the suite chmod'ed shut would defeat rm -rf; reopen it first (best effort).
+    chmod -R u+rwX "$RUN_TMP_ROOT" 2>/dev/null
+    rm -rf "$RUN_TMP_ROOT"
+  fi
+}
+trap _run_all_cleanup EXIT
+_suite_tmpdir() {   # _suite_tmpdir <index> [<suite basename>] — sets _st to the suite's TMPDIR ('' when none)
+  # Sets a global (never run in $(...)) so a creation failure can be RECORDED against the suite: a
+  # subdir that was never created must not later read as "the suite removed its own TMPDIR" (a
+  # confident 0). The -j worker records the same failure in $PAR_DIR/<idx>.tmpfail.
+  _st=""
+  [[ -n "$RUN_TMP_ROOT" ]] || return 0
+  if mkdir -p "$RUN_TMP_ROOT/$1" 2>/dev/null; then
+    _st="$RUN_TMP_ROOT/$1"
+  elif [[ -n "${2:-}" ]]; then
+    # SENTINEL-TMPDIR-CREATE-FAILED
+    tmp_create_failed+=("$2")
+  fi
+}
+_check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
+  # Entries (dotfiles included) directly inside the suite's TMPDIR subdir. Captured, rc-checked.
+  # ABSENT != ERROR: a suite that removed its own TMPDIR left nothing (0 for it). Only a find
+  # failure on an EXISTING dir (e.g. it was chmod'ed shut) is a scan failure, attributed to THAT
+  # suite (tmp_scan_failed) so the other suites' counts survive. A chmod-000 leftover dir inside is
+  # itself ONE entry — it is listed by its parent, never opened.
+  [[ -n "$RUN_TMP_ROOT" ]] || return 0
+  local _o _n
+  # A -j worker that could not create the subdir left a marker (serial records at creation time).
+  if [[ -n "${PAR_DIR:-}" && -e "$PAR_DIR/$2.tmpfail" ]]; then tmp_create_failed+=("$1"); return 0; fi
+  # SENTINEL-TMPDIR-ABSENT
+  [[ -e "$RUN_TMP_ROOT/$2" ]] || return 0
+  if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
+    tmp_scan_failed+=("$1")
+    return 0
+  fi
+  [[ -n "$_o" ]] || return 0
+  _n="$(printf '%s\n' "$_o" | wc -l)"
+  tmp_leftovers+=("$1: $((_n + 0))")
+  tmp_leftover_total=$((tmp_leftover_total + _n))
+}
 
 # Per-suite hermeticity checks, as functions so the -j batch path can run them ONCE after the
 # whole parallel batch (labelled) while the serial path runs them after every suite (by suite name).
@@ -469,7 +551,7 @@ _pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its 
   done
 }
 _attribute_batch_leaks() {
-  local _i _j _s _b _m _w _ws _we _tol _t _cmd_to
+  local _i _j _s _b _m _w _ws _we _tol _t _cmd_to _rt
   local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=() _cand=() _attr=()
   # Clean batch: no new violation of either kind -> silent, byte-identical to before.
   [[ ${#hermeticity_violations[@]} -eq $1 && ${#kit_tree_violations[@]} -eq $2 ]] && return 0
@@ -508,9 +590,11 @@ _attribute_batch_leaks() {
     _s="${all_suites[$_j]}"; _b="$(basename "$_s")"
     for _i in "${!_pend_path[@]}"; do _pend_before[_i]="$(_sig_of "${_pend_path[$_i]}")"; done
     echo "run-all.sh: -j attribution re-run: $_b" >&2
-    if [[ "$_b" == *.test.mjs ]]; then "${_cmd_to[@]}" node "$_s" >/dev/null 2>&1
-    elif [[ -n "$PROVE_TEETH" ]]; then "${_cmd_to[@]}" bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
-    else "${_cmd_to[@]}" bash "$_s" >/dev/null 2>&1; fi
+    # Re-runs get their own subdir (never scanned): their leftovers must not double-count.
+    _suite_tmpdir "attr-$_j"; _rt="${_st:-${TMPDIR:-/tmp}}"
+    if [[ "$_b" == *.test.mjs ]]; then TMPDIR="$_rt" "${_cmd_to[@]}" node "$_s" >/dev/null 2>&1
+    elif [[ -n "$PROVE_TEETH" ]]; then TMPDIR="$_rt" "${_cmd_to[@]}" bash "$_s" "$PROVE_TEETH" >/dev/null 2>&1
+    else TMPDIR="$_rt" "${_cmd_to[@]}" bash "$_s" >/dev/null 2>&1; fi
     [[ $? -eq 124 && ${#_cmd_to[@]} -gt 0 ]] && ATTRIBUTION_LINES+=("Attribution: re-run of $_b hit the ${_t}s timeout")
     for _i in "${!_pend_path[@]}"; do
       [[ -z "${_pend_done[$_i]}" ]] || continue
@@ -548,12 +632,15 @@ if [[ "$JOBS" -gt 1 ]]; then
   fi
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  PAR_DIR="$(mktemp -d)"
-  trap 'rm -f "$tmp_out"; rm -rf "$PAR_DIR"' EXIT
+  PAR_DIR="$(mktemp -d)"; _par_dir_created=1
   cat > "$PAR_DIR/run1.sh" <<'WORKER'
 #!/usr/bin/env bash
 # run1.sh <index> <suite> — run one suite, capture merged output and the suite's own exit code.
 idx="$1"; suite="$2"
+# Per-suite TMPDIR (kit issue #1277): a subdir of the run's root, named by the suite's index.
+if [[ -n "${RUN_TMP_ROOT:-}" ]]; then
+  if mkdir -p "$RUN_TMP_ROOT/$idx" 2>/dev/null; then export TMPDIR="$RUN_TMP_ROOT/$idx"; else : > "$PAR_DIR/$idx.tmpfail"; fi
+fi
 # Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
 _t0="$(date +%s.%N 2>/dev/null)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
@@ -612,14 +699,16 @@ for suite in "${all_suites[@]}"; do
     cat "$tmp_out"
   elif [[ "$base" == *.test.mjs ]]; then
     # Node ESM suite: no shebang, no +x — must be invoked via `node`.
-    node "$suite" 2>&1 | tee "$tmp_out"
+    _suite_tmpdir "$suite_idx" "$base"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
+    TMPDIR="$_st" node "$suite" 2>&1 | tee "$tmp_out"
     rc=${PIPESTATUS[0]}
   else
     # Shell suite: run with bash; forward the flag only when set.
+    _suite_tmpdir "$suite_idx" "$base"; [[ -n "$_st" ]] || _st="${TMPDIR:-/tmp}"
     if [[ -n "$PROVE_TEETH" ]]; then
-      bash "$suite" "$PROVE_TEETH" 2>&1 | tee "$tmp_out"
+      TMPDIR="$_st" bash "$suite" "$PROVE_TEETH" 2>&1 | tee "$tmp_out"
     else
-      bash "$suite" 2>&1 | tee "$tmp_out"
+      TMPDIR="$_st" bash "$suite" 2>&1 | tee "$tmp_out"
     fi
     rc=${PIPESTATUS[0]}
   fi
@@ -628,6 +717,8 @@ for suite in "${all_suites[@]}"; do
     _check_cwd_hermeticity "$base"
     _check_kit_tree_hermeticity "$base"
   fi
+  # After the suite (serial) or the whole batch (-j: its subdir is its own either way).
+  _check_tmp_leftovers "$base" "$suite_idx"
 
 
   # Parse the LAST matching summary line from the captured output.
@@ -798,6 +889,22 @@ else
     done
   fi
 fi
+# SENTINEL-TMPDIR-REPORT
+if [[ -n "$TMPDIR_DEGRADED_REASON" ]]; then
+  echo "TMPDIR leftovers: DEGRADED — $TMPDIR_DEGRADED_REASON; could not verify"
+else
+  _tl_names=""; if [[ ${#tmp_leftovers[@]} -gt 0 ]]; then _tl_names="$(printf '%s, ' "${tmp_leftovers[@]}")"; _tl_names="${_tl_names%, }"; fi
+  echo "TMPDIR leftovers: $tmp_leftover_total — [$_tl_names]"
+  if [[ "$tmp_leftover_total" -gt 0 ]]; then
+    echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
+  fi
+  if [[ ${#tmp_scan_failed[@]} -gt 0 || ${#tmp_create_failed[@]} -gt 0 ]]; then
+    _ts_names=""; _tc_names=""
+    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; fi
+    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; fi
+    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [$_ts_names]; per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR); their leftovers are unverified"
+  fi
+fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
   # Sort the tracked lists.
@@ -910,6 +1017,10 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
+  # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
+  if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
+    exit 1
+  fi
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
     exit 1
