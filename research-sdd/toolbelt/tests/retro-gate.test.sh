@@ -882,6 +882,70 @@ grep -q '3 issue create(s) failed across 1 retro(s)' <<< "$ERR_944" \
   && ok "EN3-944: exit 2 with summary → gate still allows (no block JSON)" \
   || no "EN3-944: exit 2 with summary → unexpected block JSON"
 
+# ─── (#971) typed unknown on a missing seeder summary; absent-input classified first ──────────────
+# U-cases: the seeder crashes (exit 1) and prints NO summary: line → the per-issue failure count is
+# NOT derivable, so `failed-issues=` must read `unknown` (§7), never a silent 0. A-cases: absent-input
+# together with a summary: line must still be counted as absent (typed outcome classified first).
+# mk_u_kit <dir> <seeder-body>: stub kit (libs + SUT copy + a stub seeder printing <seeder-body>).
+mk_u_kit() {
+  local d="$1" body="$2"
+  mkdir -p "$d/toolbelt/lib"
+  cp "$HERE/../lib/block-files.sh" "$HERE/../lib/retro-status.sh" "$HERE/../lib/retro-grammar.sh" "$d/toolbelt/lib/"
+  cp "$HERE/../verify-retro.sh" "$d/toolbelt/"
+  printf '#!/usr/bin/env bash\n%s\n' "$body" > "$d/toolbelt/stage-retro-issues.sh"
+  chmod +x "$d/toolbelt/stage-retro-issues.sh"
+  cp "$SUT" "$d/toolbelt/retro-gate.sh"
+}
+# mk_u_target <dir> <sid>: git target with a session, a block and one pending retro.
+mk_u_target() {
+  mkgit "$1"; mksessionfile "$1" "$2" "202609050800"
+  mkblock "$1" "u-block1.md" "2026-09-05T10:00:00"; touch -t 202609051000 "$1/u-block1.md"
+  mkretro "$1" "2026-09-05-u.md" 1; touch -t 202609051200 "$1/retros/2026-09-05-u.md"
+}
+# run_u <gate> <target> <sid> → ERR (stderr of the gate, block-once state cleared)
+run_u() {
+  local errf="$ROOT/u_err.$$"
+  rm -f "$2"/.claude/.rsdd-retro-blocked-"$3" 2>/dev/null
+  printf '%s' "$(mkjson "$3" false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$1" "$2" >/dev/null 2>"$errf"
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+U_CRASH_BODY="printf 'boom: unexpected failure\n'; exit 1"
+U_ABSENT_BODY="printf 'absent-input: retro not found\n'; printf 'summary: created=2 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 failed=0\n'; exit 1"
+U_ABSENT_ONLY_BODY="printf 'absent-input: retro not found\n'; exit 1"
+mk_u_kit "$ROOT/ukit_crash"  "$U_CRASH_BODY"
+mk_u_kit "$ROOT/ukit_absent" "$U_ABSENT_BODY"
+mk_u_kit "$ROOT/ukit_abonly" "$U_ABSENT_ONLY_BODY"
+mk_u_target "$ROOT/tu_crash" u1-sess; mk_u_target "$ROOT/tu_absent" u2-sess; mk_u_target "$ROOT/tu_abonly" u3-sess
+run_u "$ROOT/ukit_crash/toolbelt/retro-gate.sh" "$ROOT/tu_crash" u1-sess; ERR_U1="$ERR"
+grep -qE 'failed=1 failed-issues=unknown ' <<<"$ERR_U1" \
+  && ok "#971 U1: seeder crash with no summary → failed=1 failed-issues=unknown (typed, not 0)" \
+  || no "#971 U1: expected 'failed=1 failed-issues=unknown'; got: $ERR_U1"
+grep -q 'failed-issues=0' <<<"$ERR_U1" \
+  && no "#971 U1b: failed-issues=0 is a silent zero for a crash with no summary" \
+  || ok "#971 U1b: no silent failed-issues=0 line on a summary-less crash"
+grep -qE 'unknown issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_U1" \
+  && ok "#971 U1c: aggregate WARN also says unknown (not a fabricated number)" \
+  || no "#971 U1c: expected 'unknown issue create(s) failed across 1 retro(s)'; got: $ERR_U1"
+run_u "$ROOT/ukit_absent/toolbelt/retro-gate.sh" "$ROOT/tu_absent" u2-sess; ERR_U2="$ERR"
+grep -qE 'created=0 .* absent=1 failed=0 failed-issues=0 ' <<<"$ERR_U2" \
+  && ok "#971 A1: absent-input + summary line → absent=1, summary not double-counted (created=0, failed=0)" \
+  || no "#971 A1: expected absent=1 created=0 failed=0 failed-issues=0; got: $ERR_U2"
+run_u "$ROOT/ukit_abonly/toolbelt/retro-gate.sh" "$ROOT/tu_abonly" u3-sess; ERR_U3="$ERR"
+grep -qE 'absent=1 failed=0 failed-issues=0 ' <<<"$ERR_U3" \
+  && ok "#971 A2: control — absent-input alone → absent=1, failed=0 (distinct from empty/failed)" \
+  || no "#971 A2: expected absent=1 failed=0; got: $ERR_U3"
+# U4: the SECOND path to unknown — a non-zero exit with a summary: line that has NO failed= field.
+U_NOFAILED_BODY="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0\\n'; exit 2"
+mk_u_kit "$ROOT/ukit_nofailed" "$U_NOFAILED_BODY"
+mk_u_target "$ROOT/tu_nofailed" u4-sess
+run_u "$ROOT/ukit_nofailed/toolbelt/retro-gate.sh" "$ROOT/tu_nofailed" u4-sess; ERR_U4="$ERR"
+grep -qE 'created=1 .* failed=1 failed-issues=unknown ' <<<"$ERR_U4" \
+  && ok "#971 U4: exit 2 + summary without failed= → failed-issues=unknown (typed, not 0)" \
+  || no "#971 U4: expected 'failed=1 failed-issues=unknown'; got: $ERR_U4"
+grep -qE 'unknown issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_U4" \
+  && ok "#971 U4b: aggregate WARN says unknown for the summary-without-failed= path" \
+  || no "#971 U4b: expected 'unknown issue create(s) failed across 1 retro(s)'; got: $ERR_U4"
+
 # ─── #957: retro-gate uses session-start sha scope, not file mtime ───────────
 # mkretro_committed <target> <fname> <gdate>: create+commit a conforming retro
 mkretro_committed() {
@@ -3577,6 +3641,45 @@ if slmut rc-leak "s/^\\(    printf 'retro-gate: WARN: stop-log write failed.*>&2
   [ "$RC" -ne 0 ] && ok "TOOTH sl-rc-leak: a write failure that exits non-zero is caught (SL8a goes RED)" \
     || no "TOOTH sl-rc-leak: exit code still 0 — mutant not effective"
 fi
+
+# ─── #971 teeth: typed unknown on a missing seeder summary; absent-input classified first ─────────
+# Built with lib/mutant.sh (mutant_chain refuses a dead/identical/invalid mutant; mutant_tooth demands the
+# EXACT good/bad exit codes plus an anchored typed line, and a crash never reads as a bite).
+# Each mutant lives inside its own stub kit (libs + stub seeder) so SELF_DIR resolves to the mutated bytes.
+U_RUNNER="$ROOT/u_runner.sh"
+cat > "$U_RUNNER" << 'URUNEOF'
+#!/usr/bin/env bash
+# u_runner.sh <gate> <target> <sid> <mock-gh-dir>: one Stop hook run; the gate's stderr is the evidence.
+rm -f "$2"/.claude/.rsdd-retro-blocked-"$3" 2>/dev/null
+printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$3" \
+  | PATH="$4:$PATH" bash "$1" "$2" >/dev/null
+URUNEOF
+chmod +x "$U_RUNNER"
+U_CRASHES='integer expression expected|syntax error|unbound variable|command not found'
+u_mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+u_tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+# u_teeth <label> <good-kit> <target> <sid> <good-has> <bad-has> <sed-expr>: build the mutant in a copy of
+# the good kit, then tooth: good gate matches <good-has>, mutant matches <bad-has>, neither crashes.
+u_teeth() {
+  local label="$1" gkit="$2" tgt="$3" sid="$4" ghas="$5" bhas="$6" expr="$7" mk="$ROOT/ukit_mut_$1"
+  mk_u_kit "$mk" "$(sed -n '2,$p' "$gkit/toolbelt/stage-retro-issues.sh")"
+  u_mk "$label" "$SUT" "$mk/toolbelt/retro-gate.sh" "$expr" || return
+  u_tt "#971 teeth $label" 0 0 "$mk/toolbelt/retro-gate.sh" --orig "$gkit/toolbelt/retro-gate.sh" \
+    --good-has "$ghas" --good-lacks "$U_CRASHES" --bad-has "$bhas" --bad-lacks "$U_CRASHES" \
+    -- bash "$U_RUNNER" @SUT@ "$tgt" "$sid" "$MOCK_GH_DIR"
+}
+u_teeth u-unknown-dropped "$ROOT/ukit_crash" "$ROOT/tu_crash" u1-sess \
+  'failed=1 failed-issues=unknown ' 'failed=1 failed-issues=0 ' \
+  's/^        failed_issues_unknown=1$/        failed_issues_unknown=0/'
+u_teeth u-unknown-text-ignored "$ROOT/ukit_crash" "$ROOT/tu_crash" u1-sess \
+  'failed=1 failed-issues=unknown ' 'failed=1 failed-issues=0 ' \
+  's/failed_issues_txt="unknown"/failed_issues_txt="$failed_issues"/'
+u_teeth u-nofailed-coerced-zero "$ROOT/ukit_nofailed" "$ROOT/tu_nofailed" u4-sess \
+  'failed=1 failed-issues=unknown ' 'failed=1 failed-issues=0 ' \
+  's/^      _seed_failed="\$_f" .*$/      _seed_failed="${_f:-0}"/'
+u_teeth u-absent-not-first "$ROOT/ukit_absent" "$ROOT/tu_absent" u2-sess \
+  'created=0 .* absent=1 failed=0 ' 'created=2 .* absent=0 failed=0 ' \
+  's/^    if \[ "\$_absent_typed" -eq 1 \]; then$/    if [ "$_absent_typed" -eq 99 ]; then/'
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently
