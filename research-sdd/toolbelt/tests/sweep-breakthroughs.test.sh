@@ -852,6 +852,28 @@ else
   no "42 two markers, none indexed → one unindexed WARN at the first marker" "exit=$RC out=[$OUT]"
 fi
 
+# 43 — R3 (#948): a block whose marker scan fails (grep rc>1) is skipped LOUDLY: a typed WARN line, a
+# `skipped-unreadable` count in the Summary, and no "Ledger consistent" claim. A grep shim makes the
+# failure deterministic for any uid (chmod 000 would not bite as root); it fails only for the named file.
+SHIM="$ROOT/shim-bin"; mkdir -p "$SHIM"
+REAL_GREP="$(type -P grep)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *unreadable-block1.md) exit 2;; esac; done\nexec %s "$@"\n' "$REAL_GREP" > "$SHIM/grep"
+chmod +x "$SHIM/grep"
+kit="$(mkkit c43-unreadable)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"; mkblock_tagged "$tgt" "unreadable-block1.md"
+ln43=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln43\` | k |"
+OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q '^Summary:' <<<"$OUT" \
+   && grep -q "^WARN: block file unreadable, marker scan skipped: .*unreadable-block1.md\$" <<<"$OUT" \
+   && grep -q '1 skipped-unreadable' <<<"$OUT" && grep -q '1 tagged' <<<"$OUT" \
+   && ! grep -q 'Ledger consistent' <<<"$OUT"; then
+  ok "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "(exit $RC)"
+else
+  no "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -1284,6 +1306,38 @@ if mutate_sut "first-marker-only" 's/\[ -n "\$first_lineno" \] || first_lineno="
   if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '1 unindexed' <<<"$OUT"; then
     mut_ok "M15 first-marker-only → case 41 goes RED (second marker unindexed)" "(1 unindexed on mutant)"
   else mut_no "M15 first-marker-only → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+
+# M16/M17: R3 — the unreadable-block branch. Both mutants run under the grep shim from case 43 and are
+# keyed on the typed output (WARN line / Summary field), never on the exit code.
+run_mutant_shim() { # kit mutant
+  cp "$2" "$1/toolbelt/sweep-breakthroughs.sh"
+  OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+}
+echo "-- M16: unreadable WARN silenced → case 43 detects missing typed line --"
+mut_kit_m16="$(mkkit m16-silent-unreadable)"; tgt_m16="$mut_kit_m16/targetA"
+mkblock_tagged "$tgt_m16" "pfx-block1.md"; mkblock_tagged "$tgt_m16" "unreadable-block1.md"
+ln_m16=$(tagged_lineno "$tgt_m16/pfx-block1.md")
+write_targets "$mut_kit_m16" "$tgt_m16"
+write_breakthroughs "$mut_kit_m16" "| 1 | tgt | w | \`$tgt_m16/pfx-block1.md:$ln_m16\` | k |"
+if mutate_sut "silence-unreadable-warn" 's/echo "WARN: block file unreadable/: "WARN: block file unreadable/'; then
+  run_mutant_shim "$mut_kit_m16" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q 'WARN: block file unreadable' <<<"$OUT"; then
+    mut_ok "M16 silenced unreadable WARN → case 43 goes RED (typed line absent)" "(WARN absent on mutant)"
+  else mut_no "M16 silenced unreadable WARN → mutation not detected" "rc=$RC out=[$OUT]"; fi
+fi
+echo "-- M17: unreadable counter dropped → case 43 detects 0 skipped-unreadable --"
+mut_kit_m17="$(mkkit m17-no-unreadable-count)"; tgt_m17="$mut_kit_m17/targetA"
+mkblock_tagged "$tgt_m17" "pfx-block1.md"; mkblock_tagged "$tgt_m17" "unreadable-block1.md"
+ln_m17=$(tagged_lineno "$tgt_m17/pfx-block1.md")
+write_targets "$mut_kit_m17" "$tgt_m17"
+write_breakthroughs "$mut_kit_m17" "| 1 | tgt | w | \`$tgt_m17/pfx-block1.md:$ln_m17\` | k |"
+if mutate_sut "drop-unreadable-counter" 's/skipped_unreadable=\$((skipped_unreadable + 1))/:/'; then
+  run_mutant_shim "$mut_kit_m17" "$mutant"
+  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '0 skipped-unreadable' <<<"$OUT" \
+     && ! grep -q '1 skipped-unreadable' <<<"$OUT"; then
+    mut_ok "M17 dropped unreadable counter → case 43 goes RED (Summary shows 0)" "(0 skipped-unreadable on mutant)"
+  else mut_no "M17 dropped unreadable counter → mutation not detected" "rc=$RC out=[$OUT]"; fi
 fi
 
 total_fail=$(( fail + mut_fail ))
