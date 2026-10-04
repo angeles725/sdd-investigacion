@@ -6995,6 +6995,81 @@ RUNEOF
   t1637_t T1637-BELOW "$t1637_fx2" '/declared <= derived: the derivation is evidence/d' --good-has 'known_gaps: 2' --bad-has 'known_gaps: 1' --bad-lacks "$_t1637_crash"
 fi
 
+# ==================== kit issue #1154: the coverage metric is read from the FIELD LABEL ====================
+# The extraction used to be a loose case-insensitive grep for the phrase "coverage metric" over the whole
+# "## Coverage" section, so ANY line that merely mentioned the phrase and carried a ratio was read as
+# gaps_closed/known_gaps. Both the default report line and --sync-state must anchor on the label.
+# t1154_fx <dir> <"## Coverage" body>: a minimal valid corpus whose Coverage section is the given text.
+t1154_fx() {
+  local d="$1"; mkdir -p "$d"
+  { printf '# T1154\n> intro\n'; env_lines 0 0 0 0 0 0
+    printf '\n## Coverage\n%s\n' "$2"
+    printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+    printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+t1154_cov() { bash "$SUT" "$1" 2>/dev/null | grep -F 'coverage metric :'; }
+t1154_env() { # <dir> <key> — the envelope value after --sync-state on a COPY of <dir>
+  local w; w="$TMP/t1154-sync-$(basename "$1")"; rm -rf "$w"; cp -r "$1" "$w"
+  bash "$SUT" "$w" --sync-state >/dev/null 2>&1
+  awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$w/RESEARCH-STATE.md"
+}
+echo "-- T-1154: only the labelled field line is the coverage metric --"
+# A: a NON-label line mentions the phrase and carries a ratio; the label line itself is blank (document-cycle shape).
+t1154_a="$TMP/t1154-a"; t1154_fx "$t1154_a" '- **Outline coverage**: 2 / 5 covered   ← mirrors the Coverage metric field, which stays blank
+- **Coverage metric**: — (intentionally blank)'
+_t1154_got="$(t1154_cov "$t1154_a")"
+[ "$_t1154_got" = "  coverage metric : <none>" ] \
+  && ok "T-1154a report: a non-label line mentioning 'Coverage metric' with a ratio is NOT the metric (<none>)" \
+  || no "T-1154a report: got [$_t1154_got] want [  coverage metric : <none>]"
+_t1154_kg="$(t1154_env "$t1154_a" known_gaps)"; _t1154_gc="$(t1154_env "$t1154_a" gaps_closed)"
+[ "$_t1154_kg/$_t1154_gc" = "0/0" ] \
+  && ok "T-1154a --sync-state: envelope stays gaps_closed=0 known_gaps=0 (no outline ratio leaked in)" \
+  || no "T-1154a --sync-state: known_gaps/gaps_closed = [$_t1154_kg/$_t1154_gc] want 0/0 — the outline ratio was read as the gap ratio"
+# B: noise line BEFORE the real label (list edge: the real line is LAST), and a single-element section.
+t1154_b="$TMP/t1154-b"; t1154_fx "$t1154_b" '- Note: the earlier Coverage metric history read 9 / 9
+- **Coverage metric**: 3 / 7 closed'
+_t1154_got="$(t1154_cov "$t1154_b")"
+[ "$_t1154_got" = "  coverage metric : 3/7" ] \
+  && ok "T-1154b report: the labelled line wins over an earlier phrase-mentioning line (3/7)" \
+  || no "T-1154b report: got [$_t1154_got] want [  coverage metric : 3/7]"
+[ "$(t1154_env "$t1154_b" known_gaps)/$(t1154_env "$t1154_b" gaps_closed)" = "7/3" ] \
+  && ok "T-1154b --sync-state: envelope takes the labelled ratio (gaps_closed=3 known_gaps=7)" \
+  || no "T-1154b --sync-state: got [$(t1154_env "$t1154_b" known_gaps)/$(t1154_env "$t1154_b" gaps_closed)] want 7/3"
+t1154_c="$TMP/t1154-c"; t1154_fx "$t1154_c" 'Coverage metric: 4/6 closed'
+_t1154_got="$(t1154_cov "$t1154_c")"
+[ "$_t1154_got" = "  coverage metric : 4/6" ] \
+  && ok "T-1154c report: the unbulleted, unbolded 'Coverage metric:' label is still recognised (single-element section)" \
+  || no "T-1154c report: got [$_t1154_got] want [  coverage metric : 4/6]"
+t1154_d="$TMP/t1154-d"; t1154_fx "$t1154_d" '- **Coverage metric:** 1 / 2 closed
+- A later note citing the Coverage metric as 8 / 8'
+_t1154_got="$(t1154_cov "$t1154_d")"
+[ "$_t1154_got" = "  coverage metric : 1/2" ] \
+  && ok "T-1154d report: colon-inside-bold label is recognised and the first labelled line wins (1/2)" \
+  || no "T-1154d report: got [$_t1154_got] want [  coverage metric : 1/2]"
+t1154_e="$TMP/t1154-e"; t1154_fx "$t1154_e" '- Covered blocks: 0 (B1..B0)'
+_t1154_got="$(t1154_cov "$t1154_e")"
+[ "$_t1154_got" = "  coverage metric : <none>" ] \
+  && ok "T-1154e report: a Coverage section with no label at all stays <none> (no-match is not a number)" \
+  || no "T-1154e report: got [$_t1154_got] want [  coverage metric : <none>]"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-T-1154: widening the label anchor back to the bare phrase must turn T-1154a/b red --"
+  _t1154_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  t1154_t() { # <label> <fixture> <runner-kind: report|sync> <mutant_tooth good/bad args...>
+    local lbl="$1" fx="$2" kind="$3"; shift 3
+    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "/# CM-LABEL-ANCHOR\$/s/=.*/='coverage metric'  # CM-LABEL-ANCHOR/" || { fail=$((fail+1)); return; }
+    if [ "$kind" = report ]; then
+      if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+    else
+      if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash "$TMP/t1637-run.sh" @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+    fi
+  }
+  t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
+  t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
+  t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
+fi
+
 if [ "$skips" -gt 0 ]; then
   echo "== $pass passed · $fail failed · $skips skipped =="
 else

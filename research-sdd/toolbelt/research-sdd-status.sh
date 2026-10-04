@@ -562,6 +562,13 @@ env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/resear
 env_raw() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0}
   b { l=$0; sub(/^[[:space:]]+/,"",l); if (index(l,k":")==1) { v=substr(l,length(k)+2); sub(/^[[:space:]]+/,"",v); sub(/[[:space:]\r]+$/,"",v); print v; f=1; exit } }
   END { exit f?0:1 }' "$state"; }  # ENV-RAW
+# cov_ratio — the "N/M" of the Coverage metric FIELD in "## Coverage" (kit issue #1154), or empty when there is none.
+# The label is the field's identity: a line only counts when it STARTS with `Coverage metric:` (an optional list
+# marker and bold marks allowed). Matching the bare phrase anywhere in the section read any note that merely
+# mentioned it (e.g. an Outline line pointing at the field) as the gap ratio. Same label verify-state.sh keys on.
+COVMETRIC_LABEL_RE='^[[:space:]]*([-*+][[:space:]]+)?\*{0,2}coverage metric\*{0,2}[[:space:]]*:'  # CM-LABEL-ANCHOR
+cov_ratio() { section '## Coverage' | grep -iE "$COVMETRIC_LABEL_RE" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' '; }
+
 # pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
 # 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
@@ -836,7 +843,7 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     # declared-only figures from THIS file's prose (coverage metric X/Y), carrying the previous envelope
     # value when a figure is absent/unparseable (never invent — see pick()).
-    cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+    cov="$(cov_ratio)"
     # known_gaps: take the larger of the backlog-derived total and the coverage metric Y (issue #568).
     # Backlog-derived: captures newly-added gaps even when the coverage metric prose is stale.
     # Coverage metric Y: preserved when closed gaps are tracked only in the prose and not as backlog rows.
@@ -1808,7 +1815,7 @@ campaign_status_block() {
 
 # --- default: structured status report ---------------------------------------------------------
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
-metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+metric="$(cov_ratio)"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 # B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
 _stpfx="$(derive_focus_prefix "$state")"
