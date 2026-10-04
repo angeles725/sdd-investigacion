@@ -1463,6 +1463,10 @@ out="$(cd "$TMP/vcwd-plant" && bash "$TMP/vlnk-plant/verify-block.sh" "$MFD/bloc
 mkdir -p "$TMP/vnolib" "$TMP/vnolib-corpus"; cp "$SUT" "$TMP/vnolib/verify-block.sh"
 out="$(bash "$TMP/vnolib/verify-block.sh" --possibility-sweep "$TMP/vnolib-corpus" 2>&1)"; got=$?
 { [ "$got" = 0 ] && ! grep -q 'cannot find helper' <<<"$out"; } && ok "#1659: --possibility-sweep never loads the manifest helper" || no "#1659 sweep depends on lib (rc=$got): $(head -2 <<<"$out")"
+out="$(bash "$TMP/vnolib/verify-block.sh" "$TMP/mf-noscript/block.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && ! grep -q 'helper' <<<"$out"; } && ok "#1659: a block citing no preserved script runs without the helper (exit 0)" || no "#1659 no-cite block needs lib (rc=$got): $(grep -i helper <<<"$out" | head -2)"
+out="$(bash "$TMP/vnolib/verify-block.sh" "$TMP/mf-lnk/block.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'DEGRADED manifest helper unavailable' <<<"$out"; } && ok "#1659: a manifest-cited script with the helper missing is a typed DEGRADED (exit 1)" || no "#1659 helper-missing degraded (rc=$got)"
 # kit #1659: a trailing-slash target (find then yields corpus//sources/...) must resolve like the canonical form
 mf_corpus slash "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
 out="$(bash "$SUT" "$MFD/block.md" "$MFD//" 2>&1)"; got=$?

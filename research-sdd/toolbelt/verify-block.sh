@@ -692,12 +692,6 @@ else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict
 #     resolved against the directory of ITS OWN manifest (a `sources/…` cell is target-relative; the bare
 #     basename inside that same dir also matches). A row in another probes dir never lists this dir's script.
 _vb_mf_n=0; _vb_mf_deg=0
-# A helper that cannot be loaded is a typed DEGRADED (exit 1), never a quiet pass: the stub makes every manifest
-# parse below fail (-> `DEGRADED manifest parse failed`) while a corpus with no manifest still reads `INFO no SCRIPTS-MANIFEST`.
-if ! _vb_load_smlib; then
-  echo "ERROR: DEGRADED manifest helper unavailable (see above) — manifests cannot be parsed"; rc=1
-  scripts_manifest_rows() { return 2; }
-fi
 # A cite ends at a PATH TERMINATOR (kit #1659): the extension must be followed by an optional sentence period and then a
 # character outside the path alphabet (or end of line) — a trailing `\b` let `a.sh.bak` / `run.py.log` backtrack to a
 # phantom `a.sh` / `run.py`. The terminator is consumed by -o, so it is stripped (a cite always ends in an alnum).
@@ -726,6 +720,13 @@ else
     # rows: `<target-relative path>\t<sha256 lowercase>` per valid manifest row, from the SHARED parser (kit #1659,
     # lib/scripts-manifest.sh: 64-hex sha cell required, cell resolved against ITS manifest's dir, `sources/…` cells
     # target-relative, the dir/basename form emitted too). A parse failure is a typed DEGRADED, never "no rows".
+    # The helper is loaded HERE, only when a manifest exists AND a preserved script is cited: every other path (the
+    # --possibility-sweep, a block citing no script, a corpus with no manifest) never needs lib/. A helper that cannot
+    # be loaded is a typed DEGRADED (exit 1), never a quiet pass: the stub makes the parse below fail.
+    if ! _vb_load_smlib; then
+      echo "   ERROR: DEGRADED manifest helper unavailable (see above) — manifests cannot be parsed"; rc=1
+      scripts_manifest_rows() { return 2; }
+    fi
     _vb_mf_rows=""; _vb_mf_prc=0
     while IFS= read -r _vb_mf_f; do
       _vb_mf_one=$(scripts_manifest_rows "$target" "$_vb_mf_f") || { _vb_mf_prc=1; break; }   # VB-MF-PARSE
