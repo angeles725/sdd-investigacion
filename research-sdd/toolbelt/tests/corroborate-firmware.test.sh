@@ -52,14 +52,23 @@ _slow_skip=1  # default; set to 0 only when slow lane actually runs
 # ---------------------------------------------------------------------------
 if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   _slow_skip=0
-  for _cmd in binwalk bwrap; do
-    if ! command -v "$_cmd" >/dev/null 2>&1; then
-      echo "SLOW lane: '$_cmd' not found; slow-lane tests skipped." >&2
-      _slow_skip=1; break
-    fi
-  done
-  if [[ "$_slow_skip" -eq 0 ]] && [ ! -x "$SUT_SH" ]; then
+  if ! command -v bwrap >/dev/null 2>&1; then
+    echo "SLOW lane: 'bwrap' not found; slow-lane tests skipped." >&2
+    _slow_skip=1
+  elif [ ! -x "$SUT_SH" ]; then
     echo "SLOW lane: SUT shell wrapper not found: $SUT_SH" >&2; _slow_skip=1
+  fi
+  # S1-S3 need the REAL analyzer: the SUT only accepts /usr/bin/binwalk (corroborate_firmware.py:
+  # "real analyzer must be /usr/bin/binwalk") and S2 pins engine.version 2.3.3 (the version IS the
+  # assertion). A host without exactly that analyzer cannot run them: environmental, so a typed,
+  # counted SKIP (run-all counts "  SKIP  "), never a FAIL and never a silent pass (#1588).
+  # S4-S12 use RSDD_BINWALK_TEST_ONLY fakes and keep running.
+  _REAL_CASES=(S1 S2 S3)   # the real-binwalk cases a SKIP reports, one line each
+  _real_reason=""
+  if [ ! -x /usr/bin/binwalk ]; then
+    _real_reason="/usr/bin/binwalk not installed (SUT accepts only that path; PATH binwalk: $(command -v binwalk || echo none))"
+  elif _bw_help="$(/usr/bin/binwalk --help 2>&1)"; [[ "$_bw_help" != *"Binwalk v2.3.3"* ]]; then
+    _real_reason="/usr/bin/binwalk is not v2.3.3 (S2 pins engine.version 2.3.3)"
   fi
 
   if [[ "$_slow_skip" -eq 0 ]]; then
@@ -78,17 +87,20 @@ C
     gcc -O0 -o "$ROOT/fixture.bin" "$ROOT/fixture.c"
     printf '\x89PNG\r\n\x1a\n' >>"$ROOT/fixture.bin"
 
-    # S1: real Binwalk output is deterministic and target is never executed.
-    if run "$ROOT/a" && run "$ROOT/b" \
-      && cmp -s "$ROOT/a/firmware-static.v1.json" "$ROOT/b/firmware-static.v1.json" \
-      && cmp -s "$ROOT/a/engine/signatures.json" "$ROOT/b/engine/signatures.json" \
-      && cmp -s "$ROOT/a/engine/entropy.json" "$ROOT/b/engine/entropy.json" \
-      && [ ! -e "$ROOT/TARGET_EXECUTED" ]; then
-      ok "S1: real Binwalk evidence is deterministic and never executes the fixture"
-    else no "S1: real deterministic static evidence"; fi
+    if [ -n "$_real_reason" ]; then
+      for _c in "${_REAL_CASES[@]}"; do printf '  SKIP  %s real-binwalk case: %s\n' "$_c" "$_real_reason"; done
+    else
+      # S1: real Binwalk output is deterministic and target is never executed.
+      if run "$ROOT/a" && run "$ROOT/b" \
+        && cmp -s "$ROOT/a/firmware-static.v1.json" "$ROOT/b/firmware-static.v1.json" \
+        && cmp -s "$ROOT/a/engine/signatures.json" "$ROOT/b/engine/signatures.json" \
+        && cmp -s "$ROOT/a/engine/entropy.json" "$ROOT/b/engine/entropy.json" \
+        && [ ! -e "$ROOT/TARGET_EXECUTED" ]; then
+        ok "S1: real Binwalk evidence is deterministic and never executes the fixture"
+      else no "S1: real deterministic static evidence"; fi
 
-    # S2: report contract — schema, status, version, argv, isolation profile.
-    if python3 - "$ROOT/a/firmware-static.v1.json" <<'PY'
+      # S2: report contract — schema, status, version, argv, isolation profile.
+      if python3 - "$ROOT/a/firmware-static.v1.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); e = d['engine']
 assert d['schema'] == 'firmware-static.v1' and d['status'] == 'complete' and e['version'] == '2.3.3'
@@ -98,14 +110,16 @@ assert d['isolation']['profile'] == {
     'name': 'bubblewrap-static-network-denied', 'network_access': False,
     'static_only': True, 'target_execution': False}
 PY
-    then ok "S2: report binds staged launcher, fixed argv, and truthful isolation profile"
-    else no "S2: report contract"; fi
+      then ok "S2: report binds staged launcher, fixed argv, and truthful isolation profile"
+      else no "S2: report contract"; fi
 
-    # S3: manifest validates and verifies (R5 — manifest verify is SLOW only).
-    if python3 "$MAN" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
-      && python3 "$MAN" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
-      ok "S3: manifest validates and verifies"
-    else no "S3: manifest verification"; fi
+      # S3: manifest validates and verifies (R5 — manifest verify is SLOW only).
+      if python3 "$MAN" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
+        && python3 "$MAN" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
+        ok "S3: manifest validates and verifies"
+      else no "S3: manifest verification"; fi
+
+    fi
 
     # S4: preflight safety — symlink, output collision, PATH disagreement.
     ln -s "$ROOT/fixture.bin" "$ROOT/link.bin"

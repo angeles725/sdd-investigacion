@@ -17,7 +17,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 build() {
   command -v mvn >/dev/null 2>&1 || { echo "jvm-callgraph: Maven not found" >&2; exit 3; }
-  (cd "$MODULE" && mvn -o -B -ntp package)
+  # Same settings file as bootstrap: its mirror id (research-sdd-central-only) is what the local
+  # repo's _remote.repositories records, so an offline build without it cannot resolve anything.
+  (cd "$MODULE" && mvn -o -s "$MODULE/maven-central-settings.xml" -B -ntp package)
 }
 
 bootstrap() {

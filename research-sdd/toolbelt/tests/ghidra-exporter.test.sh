@@ -4,7 +4,7 @@
 # Lane contract (lib/test-lane.sh):
 #   fast (default) — fixture-based schema/cap/isolation assertions. No Ghidra spawn.
 #                    Always emits "== N passed · N failed ==".
-#   slow           — real Ghidra run; requires Ghidra 12.1.2, gcc, python3, java21.
+#   slow           — real Ghidra run; requires Ghidra 12.1.x, gcc, python3, java21.
 #   all            — both fast and slow paths.
 #
 # ANTI-#128 NOTE — do NOT remove or move these slow-only guards to fast lane:
@@ -62,6 +62,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   _JAVA21="$(rsdd_resolve_java_home 2>/dev/null || true)"
 
   _slow_skip=0
+  _SLOW_CASES=(S1 S2 S3 S4 S5 S6)   # the cases a version-gate SKIP reports, one line each
   if [ -z "$_GHIDRA_HOME" ] || [ -z "$_JAVA21" ] || ! rsdd_probe_ghidra "$_GHIDRA_HOME"; then
     echo "SLOW lane: usable Ghidra unavailable; slow-lane tests skipped." >&2
     _slow_skip=1
@@ -70,10 +71,21 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   if [[ "$_slow_skip" -eq 0 ]]; then
     _version="$(awk -F= '$1=="application.version"{print $2}' \
       "$_GHIDRA_HOME/Ghidra/application.properties")"
-    if [ "$_version" != "12.1.2" ]; then
-      no "slow: expected Ghidra 12.1.2, found $_version"
-      _slow_skip=1
-    fi
+    # The slow cases assert the exporter's behavior on a real run, not the Ghidra version
+    # string, so any 12.1.x patch release is accepted (schema v1 is authored against the 12.1
+    # program model). A different major.minor is environmental: typed SKIP, never FAIL (#1588).
+    # An empty/unreadable application.version is a broken install, not an environment gap: FAIL.
+    case "$_version" in
+      "")
+        no "slow: Ghidra application.version unreadable/empty in $_GHIDRA_HOME/Ghidra/application.properties (broken install)"
+        _slow_skip=1 ;;
+      12.1.*) ;;
+      *)
+        for _c in "${_SLOW_CASES[@]}"; do
+          printf '  SKIP  slow %s real-Ghidra case: Ghidra 12.1.x required, found %s\n' "$_c" "$_version"
+        done
+        _slow_skip=1 ;;
+    esac
   fi
 
   if [[ "$_slow_skip" -eq 0 ]]; then
