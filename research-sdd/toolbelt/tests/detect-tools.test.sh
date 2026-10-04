@@ -986,11 +986,12 @@ settled_ipc_count() {
 # guard_mut_run <tmpdir> <DOTNET_EnableDiagnostics value>: the real-PATH run, logging PATH to GUARD_LOG_MUT.
 guard_mut_run() {
   mkdir -p "$1"
-  rm -f "$GUARD_LOG_MUT"
+  rm -f "$GUARD_LOG_MUT" "$1.cache.txt"
+  # Per-run cache beside the per-run TMPDIR: a shared cache would let the second run skip the probe.
   RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" TMPDIR="$1" DOTNET_EnableDiagnostics="$2" \
     RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
     PATH="$BIN_GUARD:$ORIG_PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$DETECT" --cache "$ROOT/cache-guard-mut.txt" --quiet >/dev/null 2>&1 || true
+    bash "$DETECT" --cache "$1.cache.txt" --quiet >/dev/null 2>&1 || true
 }
 
 if [ "${1:-}" = "--prove-teeth" ]; then
