@@ -788,19 +788,18 @@ for _fn in mutant_chain mutant_tooth; do
   declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh does not define $_fn" >&2; exit 2; }
 done
 # niagara_security_audit.py imports only the standard library (see its import block), so a single-file
-# mutant copy is self-contained; the helper's bash syntax check does not apply, so nsa_pycheck does it.
+# mutant copy is self-contained; the helper's bash syntax check does not apply, so nsa_mk runs ast.parse.
 export MUTANT_SYNTAX=none
 MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }
 
-# nsa_pycheck LABEL FILE — language-native syntax check; a mutant that does not parse is removed so it
-# can never reach a tooth and read as a "bite".
-nsa_pycheck() {
-  if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$2" 2>/dev/null; then return 0; fi
-  printf '  FAIL  %s: mutant is not valid python (ast.parse)\n' "$1"; rm -f -- "$2"; return 1
-}
-# A refused build is counted exactly ONCE (its own FAIL line is printed by the helper) and the tooth never runs.
+# A refused build is counted exactly ONCE (its own FAIL line is printed by the helper) and the tooth never
+# runs. The language-native syntax check lives here too: a mutant that does not parse is removed so it can
+# never reach a tooth and read as a "bite".
 nsa_mk() {      # LABEL OUT EXPR — one sed stage over the original
-  if mutant_chain "$1" "$ORIG_PY" "$2" "$3" && nsa_pycheck "$1" "$2"; then return 0; fi
+  if mutant_chain "$1" "$ORIG_PY" "$2" "$3"; then
+    if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$2" 2>/dev/null; then return 0; fi
+    printf '  FAIL  %s: mutant is not valid python (ast.parse)\n' "$1"; rm -f -- "$2"
+  fi
   MUT_FAIL=$((MUT_FAIL+1)); return 1
 }
 nsa_tt() {      # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...
@@ -834,17 +833,16 @@ PYEOF
   fi
   return "$rc"
 }
+# A bad side that is only an exit code must lack the typed crash line: a mutant that dies with a Python
+# traceback is theater, not a bite. nsa_obs reports the crash as TRACEBACK=yes (stderr is not in its output).
 
-# Typed-line patterns that mean "the mutant crashed, it did not change behaviour" — a bad side that is
-# only an exit code must lack them (rule: a crash is theater, not a bite).
-_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
 
 # --- M1: Remove install-root symlink guard ---
 # Original rejects the symlink root (rc 2); the mutant follows it and audits (a JSON is produced).
 if nsa_mk "M1 symlink guard removed" "$MUTROOT/m1.py" \
   's/_stat\.S_ISLNK(lstat_result\.st_mode):/_stat.S_ISBLK(lstat_result.st_mode):  # MUTANT-M1/'; then
   nsa_tt "M1 symlink guard removed" 2 0 "$MUTROOT/m1.py" \
-    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks "$_crash" \
+    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks '^TRACEBACK=yes$' \
     -- nsa_obs @SUT@ "$ROOT/sym-home"
 fi
 
@@ -905,7 +903,7 @@ fi
 if nsa_mk "M8 trailing-slash not stripped" "$MUTROOT/m8.py" \
   's/home = home\.rstrip(os\.sep) or os\.sep/home = home  # MUTANT-M8/'; then
   nsa_tt "M8 trailing-slash not stripped" 2 0 "$MUTROOT/m8.py" \
-    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks "$_crash" \
+    --good-has '^JSON=absent$' --bad-has '^JSON=present$' --bad-lacks '^TRACEBACK=yes$' \
     -- nsa_obs @SUT@ "$ROOT/sym-home/"
 fi
 

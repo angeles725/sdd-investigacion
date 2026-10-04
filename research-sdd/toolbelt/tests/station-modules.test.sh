@@ -754,7 +754,8 @@ print("JSON=present")
 print("STATUS=%s" % d.get("status", ""))
 print("TRUNC=%s" % d.get("truncated", ""))
 print("MP=%d" % len(d.get("missing_parts", {})))
-# Derived facts: each carries ALL conditions of one old check, so none is printed and never asserted.
+# Derived facts: each folds ALL conditions of one old check into one line, so no condition is printed
+# without being asserted.
 print("CAPPED=%d" % (d.get("status") == "failed" and d.get("truncated") is True))
 print("MPPOS=%d" % (len(d.get("missing_parts", {})) > 0))
 PYEOF
@@ -763,17 +764,16 @@ PYEOF
   fi
   return "$rc"
 }
+# A bad side that is only an exit code must lack the typed crash line: a mutant that dies with a Python
+# traceback is theater, not a bite. sm_obs reports the crash as TRACEBACK=yes (stderr is not in its output).
 
-# Typed-line patterns that mean "the mutant crashed, it did not change behaviour" — a bad side that is
-# only an exit code must lack them (rule: a crash is theater, not a bite).
-_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
 
 # --- M1: Remove O_NOFOLLOW from _open_ro (symlink guard removed) ---
 # Original rejects the symlink (rc 2, no JSON); the mutant follows it and completes (rc 0).
 if sm_mk_sed "M1 symlink guard removed" "$MUTROOT/m1.py" \
   's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NONBLOCK/'; then
   sm_tt "M1 symlink guard removed" 2 0 "$MUTROOT/m1.py" \
-    --good-has '^JSON=absent$' --bad-has '^STATUS=complete$' --bad-lacks "$_crash" \
+    --good-has '^JSON=absent$' --bad-has '^STATUS=complete$' --bad-lacks '^TRACEBACK=yes$' \
     -- sm_obs @SUT@ "" "$ROOT/sym.bog" "$FIXTURES/fake_install"
 fi
 
@@ -852,7 +852,7 @@ fi
 if sm_mk_sed "M_PTXT plaintext cap removed" "$MUTROOT/mptxt.py" \
   's/if len(raw) > _MAX_BOG_INFLATE:/if False:  # MUTANT-MPTXT/'; then
   sm_tt "M_PTXT plaintext cap removed" 1 0 "$MUTROOT/mptxt.py" \
-    --good-has '^STATUS=failed$' --bad-has '^STATUS=complete$' --bad-lacks "$_crash" \
+    --good-has '^STATUS=failed$' --bad-has '^STATUS=complete$' --bad-lacks '^TRACEBACK=yes$' \
     -- sm_obs @SUT@ "" "$ROOT/plaintext_bomb.bog" "$FIXTURES/fake_install"
 fi
 
