@@ -1254,9 +1254,9 @@ ep_block() { # <name> <body-line...> — header legend + body
 }
 ep_check() { # <name> <want-rc> <want-count> <label>
   local f="$TMP/ep-$1.md" out got n
-  out="$(bash "$SUT" "$f" 2>&1)"; got=$?
+  out="$(bash "$SUT" --strict-ephemeral "$f" 2>&1)"; got=$?
   n="$(grep -c 'EPHEMERAL!' <<<"$out")"
-  if [ "$got" = "$2" ] && [ "$n" = "$3" ]; then ok "$4 (exit $got, $n finding(s))"
+  if [ "$got" = "$2" ] && [ "$n" = "$3" ]; then ok "$4 (strict: exit $got, $n finding(s))"
   else no "$4 :: want exit $2/$3 finding(s), got $got/$n"; fi
 }
 ep_block single "Wrapper starts the loop [CERT] \`/tmp/probe/run.sh:12\`"
@@ -1295,7 +1295,7 @@ ep_block glued "see \`src/tmp/x.c:3\` and ./tmp/y.c:4 and /home/u/tmp/z.c:5 and 
 ep_check glued 0 0 "#1207 GOOD: tmp as a middle path segment never fires"
 ep_block clean "Plain claim [CERT] \`src/ok.c:1\`"
 ep_check clean 0 0 "#1207 GOOD: block with no ephemeral path"
-out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-single.md" 2>&1)"
 if grep -qE 'EPHEMERAL!  /tmp/probe/run\.sh:12  \(line [0-9]+; session/temp path — preserve under sources/probes/b<N>/\)' <<<"$out"
 then ok "#1207: typed EPHEMERAL! line names the cited token and the preservation convention"
 else no "#1207: typed line shape :: $(grep EPHEMERAL <<<"$out" | head -1)"; fi
@@ -1303,8 +1303,45 @@ out="$(bash "$SUT" "$TMP/ep-anchored.md" 2>&1)"
 if grep -q 'INFO    ephemeral-anchored line' <<<"$out"; then ok "#1207: anchored temp view is reported as INFO, never silent"
 else no "#1207: anchored INFO line missing"; fi
 out="$(bash "$SUT" "$TMP/ep-clean.md" 2>&1)"
-if grep -q '(none — no unanchored ephemeral path cited; sha256-anchored: 0)' <<<"$out"; then ok "#1207: clean block prints an explicit none line (looked, found zero)"
+if grep -q '(none — no unanchored ephemeral path cited; sha256-anchored: 0, ephemeral-ok: 0, invalid markers: 0)' <<<"$out"; then ok "#1207: clean block prints an explicit none line (looked, found zero)"
 else no "#1207: clean none line missing"; fi
+
+
+# staged enforcement (kit #1207): default = typed WARN EPHEMERAL? (exit unchanged); --strict-ephemeral / env = FAIL.
+ep_default() { # <name> <want-warns> <label>
+  local out got n
+  out="$(bash "$SUT" "$TMP/ep-$1.md" 2>&1)"; got=$?
+  n="$(grep -c 'EPHEMERAL?' <<<"$out")"
+  if [ "$got" = 0 ] && [ "$n" = "$2" ] && ! grep -q 'EPHEMERAL!' <<<"$out"; then ok "$3 (default: exit 0, $n WARN)"
+  else no "$3 :: want exit 0 + $2 WARN, got $got/$n"; fi
+}
+ep_default single 1 "#1207 staged: /tmp cite is a WARN by default"
+ep_default twoline 2 "#1207 staged: two cites on one line are two WARNs"
+ep_default middle 1 "#1207 staged: WARN for a cite on the MIDDLE line"
+out="$(RSDD_STRICT_EPHEMERAL=1 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=1 makes it a FAIL" || no "#1207 staged: env strict (rc=$got)"
+out="$(RSDD_STRICT_EPHEMERAL=0 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && grep -q 'EPHEMERAL?' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=0 keeps the WARN" || no "#1207 staged: env 0 (rc=$got)"
+out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
+grep -q 'ephemeral-path cites: 1 (WARN' <<<"$out" && ok "#1207 staged: summary says WARN and how to go strict" || no "#1207 staged: summary line"
+# per-line marker `<!-- ephemeral-ok: <reason> -->` (mirrors `<!-- empty-digest: quoted -->`)
+ep_block mk-ok "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server <!-- ephemeral-ok: path string produced by the subject, not evidence -->"
+ep_block mk-no "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server"
+ep_block mk-empty "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok: -->"
+ep_block mk-blank "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok:    -->"
+ep_block mk-other "ok \`/tmp/a.txt\` <!-- ephemeral-ok: prose -->" "bad \`/tmp/b.txt\`"
+out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"
+{ ! grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the WARN (INFO, never silent)" || no "#1207 marker: ok"
+out="$(bash "$SUT" "$TMP/ep-mk-no.md" 2>&1)"
+grep -q 'EPHEMERAL?' <<<"$out" && ok "#1207 marker: same line without marker WARNs" || no "#1207 marker: no marker"
+out="$(bash "$SUT" "$TMP/ep-mk-empty.md" 2>&1)"
+{ grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: empty reason -> WARN still fires + typed invalid marker" || no "#1207 marker: empty"
+out="$(bash "$SUT" "$TMP/ep-mk-blank.md" 2>&1)"
+{ grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: blank reason is invalid too" || no "#1207 marker: blank"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-mk-empty.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out" && grep -q 'invalid marker' <<<"$out"; } && ok "#1207 marker: strict + invalid marker -> FAIL" || no "#1207 marker: strict invalid (rc=$got)"
+out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-mk-other.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && [ "$(grep -c 'EPHEMERAL!' <<<"$out")" = 1 ]; } && ok "#1207 marker: waives only its own line" || no "#1207 marker: scope (rc=$got)"
 
 # Anti-silent-zero: a dead or blind ephemeral detector must be a typed degraded state, not a clean pass.
 _ep_real_awk="$(command -v awk)"
@@ -1813,23 +1850,47 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # sha256 exemption dropped, exemption widened to the whole block, and a blind/failing detector read as clean.
   echo "-- teeth-ep-tmp: /tmp arm disabled --"
   if mk_sed "teeth-ep-tmp" "$MUT/ept.sh" '/# VB-EP-TMP$/s/^    scan(.*$/    # VB-EP-TMP/'; then
-    tooth "teeth-ep-tmp" 1 0 "$MUT/ept.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-single.md"
+    tooth "teeth-ep-tmp" 1 0 "$MUT/ept.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
   echo "-- teeth-ep-spad: scratchpad arm disabled --"
   if mk_sed "teeth-ep-spad" "$MUT/eps.sh" '/# VB-EP-SCRATCHPAD$/s/^    scan(.*$/    # VB-EP-SCRATCHPAD/'; then
-    tooth "teeth-ep-spad" 1 0 "$MUT/eps.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-relspad.md"
+    tooth "teeth-ep-spad" 1 0 "$MUT/eps.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-relspad.md"
   fi
   echo "-- teeth-ep-glue: preceding-path-char guard dropped --"
   if mk_sed "teeth-ep-glue" "$MUT/epg.sh" '/# VB-EP-GLUE$/s/if (before !~ glue) {/if (1) {/'; then
-    tooth "teeth-ep-glue" 0 1 "$MUT/epg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-glued.md"
+    tooth "teeth-ep-glue" 0 1 "$MUT/epg.sh" --good-has '== exit 0 ==' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-glued.md"
   fi
   echo "-- teeth-ep-anchor-off: sha256 exemption dropped --"
   if mk_sed "teeth-ep-anchor-off" "$MUT/epa.sh" '/# VB-EP-ANCHOR$/s/(index(tolower(\$0), "sha256") > 0)/0/'; then
-    tooth "teeth-ep-anchor-off" 0 1 "$MUT/epa.sh" --good-has 'ephemeral-anchored' --bad-has 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-anchored.md"
+    tooth "teeth-ep-anchor-off" 0 1 "$MUT/epa.sh" --good-has 'ephemeral-anchored' --bad-has 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored.md"
   fi
   echo "-- teeth-ep-anchor-global: sha256 anywhere in the block exempts every line --"
   if mk_sed "teeth-ep-anchor-global" "$MUT/epag.sh" '/# VB-EP-ANCHOR$/s/(index(tolower(\$0), "sha256") > 0)/1/'; then
-    tooth "teeth-ep-anchor-global" 1 0 "$MUT/epag.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-anchored-other.md"
+    tooth "teeth-ep-anchor-global" 1 0 "$MUT/epag.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-anchored-other.md"
+  fi
+  echo "-- teeth-ep-strict: --strict-ephemeral ignored (stays a WARN) --"
+  if mk_sed "teeth-ep-strict" "$MUT/epst.sh" '/# VB-EP-STRICT$/s/if (strict == "1")/if (0)/'; then
+    tooth "teeth-ep-strict" 1 0 "$MUT/epst.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-strict-flag: the flag is no longer consumed/honoured --"
+  if mk_sed "teeth-ep-strict-flag" "$MUT/epsf.sh" '/# VB-EP-STRICT-FLAG$/s/STRICT_EP=1/STRICT_EP=0/'; then
+    tooth "teeth-ep-strict-flag" 1 0 "$MUT/epsf.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-warn-rc: a default WARN flips the exit code (must stay unchanged) --"
+  if mk_sed "teeth-ep-warn-rc" "$MUT/epw.sh" 's/    W) echo "\$_vb_ep_text"; _vb_ep_n=\$((_vb_ep_n + 1)); continue;;/    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); rc=1; continue;;/'; then
+    tooth "teeth-ep-warn-rc" 0 1 "$MUT/epw.sh" --good-has 'EPHEMERAL\?' --bad-has '== exit 1 ==' -- bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-marker: marker ignored --"
+  if mk_sed "teeth-ep-marker" "$MUT/epm.sh" '/# VB-EP-MARKER$/s/index(\$0, "<!-- ephemeral-ok:")/0/'; then
+    tooth "teeth-ep-marker" 0 0 "$MUT/epm.sh" --good-lacks 'EPHEMERAL\?' --bad-has 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-ok.md"
+  fi
+  echo "-- teeth-ep-reason: empty reason accepted as a valid waiver --"
+  if mk_sed "teeth-ep-reason" "$MUT/epr.sh" '/# VB-EP-REASON$/s/if (reason != "") ok = 1/ok = 1/'; then
+    tooth "teeth-ep-reason" 0 0 "$MUT/epr.sh" --good-has 'EPHEMERAL\?' --good-has 'invalid marker' --bad-lacks 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-empty.md"
+  fi
+  echo "-- teeth-ep-invalid-line: invalid marker no longer typed --"
+  if mk_sed "teeth-ep-invalid-line" "$MUT/epi.sh" 's/if (mk > 0 \&\& !flagged\[NR\])/if (0)/'; then
+    tooth "teeth-ep-invalid-line" 0 0 "$MUT/epi.sh" --good-has 'invalid marker' --bad-lacks 'invalid marker' -- bash @SUT@ "$TMP/ep-mk-empty.md"
   fi
   echo "-- teeth-ep-norc / teeth-ep-notrailer: a failing or blind detector must read as degraded --"
   if mk_sed "teeth-ep-norc" "$MUT/eprc.sh" 's/_vb_ep_rc=\$?/_vb_ep_rc=0/'; then
@@ -1840,7 +1901,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth-ep-rc: findings no longer flip the exit code --"
   if mk_sed "teeth-ep-rc" "$MUT/eprc2.sh" 's/_vb_ep_n=\$((_vb_ep_n + 1)); rc=1/_vb_ep_n=$((_vb_ep_n + 1))/'; then
-    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has '== exit 0 ==' -- bash @SUT@ "$TMP/ep-single.md"
+    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
   # kit #1207 (b) manifest teeth: sha compare off, row lookup widened, sha64 validity dropped, FAIL rc dropped.
   echo "-- teeth-mf-sha: sha256 comparison always passes --"

@@ -11,17 +11,21 @@
 # where a from-memory self-report drifts. The token-check (does each [CERT] token appear in its source) still
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
-# Usage: verify-block.sh <block.md> [target-dir]
+# Usage: verify-block.sh [--strict-ephemeral] <block.md> [target-dir]
+#   --strict-ephemeral (or env RSDD_STRICT_EPHEMERAL=1): ephemeral-path cites FAIL (EPHEMERAL!, exit 1). WITHOUT it they are
+#       a typed WARN (EPHEMERAL?, counted and listed, exit unchanged) — the default flips to FAIL in the next minor release, kit #1207.
 #        verify-block.sh --possibility-sweep <corpus-dir>   (list existing bare feasibility verdicts; read-only)
 #   target-dir defaults to the block's own directory (file:line citations are target-relative).
 #       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target, OR a cited hash equals the digest of EMPTY
-#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR a cited
-#       path is ephemeral — under /tmp, /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite
-#       form, [CERT*] or not; only a line carrying a `sha256` anchor — the §5 beautified-temp view — is exempt, as
-#       an INFO), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
+#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR (ONLY with
+#       --strict-ephemeral; otherwise a WARN EPHEMERAL?, exit unchanged) a cited path is ephemeral — under /tmp,
+#       /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite form, [CERT*] or not; a line
+#       carrying a `sha256` anchor — the §5 beautified-temp view — is exempt, as an INFO; a line ending with
+#       `<!-- ephemeral-ok: <reason> -->` waives it per line as an INFO, the reason is mandatory and an empty one
+#       leaves the finding standing plus a typed `invalid marker` line; default flips to FAIL next minor), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
 #       sha256 differs from the file's (MANIFEST!, kit #1207; only when the corpus has >= 1 manifest — with none
 #       the line is `INFO no SCRIPTS-MANIFEST`) · 2 = bad args.
 #   SCRIPTS-MANIFEST.md (one per sources/probes/<dir>/, kit #1207) — a markdown table, one row per preserved script:
@@ -62,6 +66,10 @@ pf_scan() {
   ' "$1"
 }
 
+# --strict-ephemeral / RSDD_STRICT_EPHEMERAL=1 (kit #1207): ephemeral-path cites FAIL (EPHEMERAL!) instead of WARN (EPHEMERAL?).
+STRICT_EP=0; [ "${RSDD_STRICT_EPHEMERAL:-}" = "1" ] && STRICT_EP=1
+_vb_args=(); for _vb_a in "$@"; do if [ "$_vb_a" = "--strict-ephemeral" ]; then STRICT_EP=1; else _vb_args+=("$_vb_a"); fi; done  # VB-EP-STRICT-FLAG
+set -- ${_vb_args[@]+"${_vb_args[@]}"}
 if [ "${1:-}" = "--possibility-sweep" ]; then
   sweep_dir="${2:-}"
   [ -d "$sweep_dir" ] || { echo "usage: verify-block.sh --possibility-sweep <corpus-dir>" >&2; exit 2; }
@@ -570,11 +578,17 @@ elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equal
 #     EXCEPTION (the §5 beautified-temp view): a line that carries a `sha256` anchor is reported as `INFO
 #     ephemeral-anchored` and does not change the exit code — the temp is a working view whose identity is
 #     pinned by the hash of the ORIGINAL file. Preserve everything else under sources/probes/b<N>/.
-_vb_ep_n=0; _vb_ep_a=0; _vb_ep_deg=0
-_vb_ep_out=$(awk '
-  function scan(re, glue,   rest, tok, before, after, anchored) {
+_vb_ep_n=0; _vb_ep_a=0; _vb_ep_deg=0; _vb_ep_k=0; _vb_ep_i=0
+_vb_ep_out=$(awk -v strict="$STRICT_EP" '
+  function scan(re, glue,   rest, tok, before, after, anchored, mk, reason, ok) {
     rest = $0
     anchored = (index(tolower($0), "sha256") > 0)   # VB-EP-ANCHOR
+    ok = 0; reason = ""
+    mk = index($0, "<!-- ephemeral-ok:")   # VB-EP-MARKER
+    if (mk > 0) {
+      reason = substr($0, mk + 18); sub(/-->.*$/, "", reason); gsub(/^[[:space:]]+|[[:space:]]+$/, "", reason)
+      if (reason != "") ok = 1   # VB-EP-REASON
+    }
     while (match(rest, re)) {
       tok = substr(rest, RSTART, RLENGTH)
       before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
@@ -583,8 +597,15 @@ _vb_ep_out=$(awk '
         sub(/[.,:;]+$/, "", tok)
         if (anchored)
           printf "A\t   INFO    ephemeral-anchored line %d: %s (sha256-anchored beautified-temp view, METHODOLOGY §5)\n", NR, tok
-        else
-          printf "F\t   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)\n", tok, NR
+        else if (ok)
+          printf "K\t   INFO    ephemeral-ok line %d: %s (waived on purpose: %s)\n", NR, tok, reason
+        else {
+          if (mk > 0 && !flagged[NR]) { flagged[NR] = 1; printf "I\t   WARN    invalid marker line %d: `<!-- ephemeral-ok: <reason> -->` needs a non-empty reason — marker ignored\n", NR }
+          if (strict == "1")   # VB-EP-STRICT
+            printf "F\t   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)\n", tok, NR
+          else
+            printf "W\t   EPHEMERAL?  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/; FAIL under --strict-ephemeral, default next minor)\n", tok, NR
+        }
       }
       rest = after
     }
@@ -597,7 +618,7 @@ _vb_ep_out=$(awk '
 ' "$block")
 _vb_ep_rc=$?
 _vb_ep_trailer=""; grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_ep_out" || _vb_ep_trailer=", no scan trailer"
-echo "-- ephemeral-path cites (kit #1207: /tmp, /var/tmp, scratchpad — FAIL unless sha256-anchored) --"
+echo "-- ephemeral-path cites (kit #1207: /tmp, /var/tmp, scratchpad — WARN, FAIL with --strict-ephemeral; exempt: sha256 anchor, ephemeral-ok marker) --"
 if [ "$_vb_ep_rc" -ne 0 ] || [ -n "$_vb_ep_trailer" ]; then
   printf '   ERROR: ephemeral-path scan DEGRADED (awk exit %d%s) — block NOT checked for ephemeral cites\n' "$_vb_ep_rc" "$_vb_ep_trailer"
   rc=1; _vb_ep_deg=1
@@ -608,12 +629,17 @@ while IFS= read -r _vb_ep_line; do
   case "$_vb_ep_tag" in
     T) continue;;
     A) echo "$_vb_ep_text"; _vb_ep_a=$((_vb_ep_a + 1)); continue;;
+    K) echo "$_vb_ep_text"; _vb_ep_k=$((_vb_ep_k + 1)); continue;;
+    I) echo "$_vb_ep_text"; _vb_ep_i=$((_vb_ep_i + 1)); continue;;
+    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); continue;;
   esac
   echo "$_vb_ep_text"
-  _vb_ep_n=$((_vb_ep_n + 1)); rc=1
+  _vb_ep_n=$((_vb_ep_n + 1)); rc=1   # VB-EP-FAIL
 done <<<"$_vb_ep_out"
 if [ "$_vb_ep_deg" -eq 1 ]; then :
-elif [ "$_vb_ep_n" -eq 0 ]; then echo "   (none — no unanchored ephemeral path cited; sha256-anchored: $_vb_ep_a)"; else echo "-- ephemeral-path cites: $_vb_ep_n (FAIL)"; fi
+elif [ "$_vb_ep_n" -eq 0 ]; then echo "   (none — no unanchored ephemeral path cited; sha256-anchored: $_vb_ep_a, ephemeral-ok: $_vb_ep_k, invalid markers: $_vb_ep_i)"
+elif [ "$STRICT_EP" = 1 ]; then echo "-- ephemeral-path cites: $_vb_ep_n (FAIL)"
+else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict-ephemeral or RSDD_STRICT_EPHEMERAL=1 makes it FAIL; default flips next minor, kit #1207)"; fi
 
 # 11. SCRIPTS-MANIFEST (kit #1207) — a preserved script cited under sources/probes/ must be traceable to a row of
 #     a `sources/probes/**/SCRIPTS-MANIFEST.md` of the target, and the row's sha256 must equal the file's. Rules:
