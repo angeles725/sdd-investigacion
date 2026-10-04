@@ -180,6 +180,76 @@ fi
 # Run inner call with a clean PATH that omits file and strings; the host-independent
 # tests must still produce ≥4 passes. A suite-level guard produces 0 (exits early).
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # lib/mutant.sh is sourced only on this path (this block precedes every helper use); every helper the
+  # controls call is probed. Mutants are built into $ROOT/mut/<name>/ (under the suite's own temp root,
+  # removed by the single EXIT trap above) next to a staged stub lib/tool-env.sh, never beside the SUT.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_built mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # A refused build counts ONE failure here and its tooth is never run.
+  mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mkb(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # Crash signatures: a mutant that dies this way must never read as a bite.
+  CRASH_RE='integer expression expected|syntax error|unbound variable|Traceback|ImportError|command not found'
+  # _nn_stage DIR LIB — stage a stub lib/tool-env.sh beside a mutant SUT (it sources $HERE/lib/tool-env.sh
+  # relative to $0) and verify it; a failure is counted once here and the caller skips the build + tooth.
+  _nn_stage() {
+    if mkdir -p "$1/lib" && cp "$2" "$1/lib/tool-env.sh" && [ -s "$1/lib/tool-env.sh" ]; then return 0; fi
+    fail=$((fail+1)); printf '  FAIL  could not stage lib/tool-env.sh beside mutant dir %s\n' "$1"; return 1
+  }
+  # The _nn_* drivers each run one base scenario in a FRESH dir against the SUT path in $1 and print one
+  # anchored KEY_FACT=... line derived from the SAME record file the base test asserts on. They return the
+  # wrapper's own exit code, so mutant_tooth's GOOD_RC / BAD_RC are the wrapper's exit codes.
+  # B3: -postScript gets the basename; the caller dir is on -scriptPath.
+  _nn_b3() {
+    local d rc ps sp h=0 p=OTHER s=0; d="$(mktemp -d "$ROOT/b3.XXXXXX")"
+    mkdir -p "$d/scripts"; : >"$d/scripts/MyScript.java"
+    TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" --script "$d/scripts/MyScript.java" >/dev/null 2>"$d/err"; rc=$?
+    cat "$d/err"
+    ps="$(sed -n '/^-postScript$/{n; p; q}' "$d/args" 2>/dev/null)"
+    sp="$(sed -n '/^-scriptPath$/{n; p; q}' "$d/args" 2>/dev/null)"
+    if [ "$ps" = "MyScript.java" ]; then p=BASENAME; elif [ "$ps" = "$d/scripts/MyScript.java" ]; then p=FULLPATH; fi
+    if <<<"$sp" grep -Fq -- "$d/scripts"; then s=1; fi
+    if [ "$p" = BASENAME ] && [ "$s" -eq 1 ]; then h=1; fi
+    echo "B3_FACT=holds:$h postscript:$p scriptpath:$s"
+    return "$rc"
+  }
+  # N1: Ghidra exits 0 but writes no project files -> wrapper exits non-zero and prints no OK.
+  _nn_mn1() {
+    local d rc o=0 h=0; d="$(mktemp -d "$ROOT/mn1.XXXXXX")"
+    HEADLESS_EMPTY=1 TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" >"$d/out.txt" 2>"$d/err"; rc=$?
+    cat "$d/err"
+    if grep -q '^OK' "$d/out.txt"; then o=1; fi
+    if [ "$rc" -ne 0 ] && [ "$o" -eq 0 ]; then h=1; fi
+    echo "MN1_FACT=holds:$h ok:$o"
+    return "$rc"
+  }
+  # MX1: explicit GHIDRA_MAXMEM is forwarded as MAXMEM (the mx1 analyzeHeadless stub records it in RECORD.maxmem).
+  # MAXMEM is unset first so an ambient value can never mask a mutant that stops exporting it.
+  _nn_mx1() {
+    local d rc m h=0; d="$(mktemp -d "$ROOT/mx1.XXXXXX")"
+    env -u MAXMEM GHIDRA_MAXMEM=8g TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" >/dev/null 2>"$d/err"; rc=$?
+    cat "$d/err"
+    m="$(cat "$d/args.maxmem" 2>/dev/null)"
+    if [ "$m" = "8g" ]; then h=1; fi
+    echo "MX1_FACT=holds:$h maxmem:${m:-EMPTY}"
+    return "$rc"
+  }
+  # PDB1: --pdb stages the PDB and imports the binary from pdb-stage/; the staged copy must also exist.
+  _nn_pdb1() {
+    local d rc imp i=DIRECT st=0 h=0; d="$(mktemp -d "$ROOT/pdb1.XXXXXX")"
+    GHIDRA_MAXMEM="" TEST_ROOT="$ROOT" RECORD="$d/args" bash "$1" ghidra "$INPUT" "$d/out" --pdb "$_pdb_src" >/dev/null 2>"$d/err"; rc=$?
+    cat "$d/err"
+    imp="$(awk '/^-import$/{getline; print; exit}' "$d/args" 2>/dev/null)"
+    if <<<"$imp" grep -q 'pdb-stage'; then i=STAGE; fi
+    if [ -f "$d/out/pdb-stage/$(basename "$_pdb_src")" ]; then st=1; fi
+    if [ "$i" = STAGE ]; then h=1; fi
+    echo "PDB1_FACT=holds:$h import:$i staged:$st"
+    return "$rc"
+  }
   echo "-- teeth: per-test guard must not collapse into a suite-level skip --"
   _clean="$ROOT/clean-bin"; mkdir -p "$_clean"
   for _c in bash mktemp rm mkdir cp chmod cat sed grep wc dirname basename head; do
@@ -203,17 +273,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "M7-base: quick mode did not emit SKIP-only in clean-PATH run — guard absent or broken"
   fi
   echo "-- M7 mutation: remove else so quick-mode runs inside the then-block --"
-  # Place mutant in toolbelt/tests/ so HERE/../decompile-native.sh resolves to the SUT copy.
+  # The mutant is a copy of THIS suite, not of the SUT, so it keeps its own observation (the mutant suite's
+  # output on a tool-less PATH); only its BUILD moves to lib/mutant.sh (refuses a no-op awk). It is placed in
+  # toolbelt/tests/ so HERE/../decompile-native.sh resolves to the SUT copy.
   mkdir -p "$ROOT/toolbelt/tests"
   _m7="$ROOT/toolbelt/tests/decompile-native.M7.test.sh"
   awk '/echo "  SKIP  quick mode/{print; getline; if ($0 !~ /^else$/) print; next} {print}' \
     "$HERE/decompile-native.test.sh" > "$_m7"
-  chmod +x "$_m7"
-  _m7out="$(PATH="$_clean" bash "$_m7" 2>&1)"
-  if <<<"$_m7out" grep -qF '  FAIL  quick mode'; then
-    ok "M7-killed: else-removed mutant FAILs quick mode on tool-less PATH — M7 detected"
-  else
-    no "M7-killed: mutant did not FAIL quick mode on tool-less PATH — M7 survived (THEATER)"
+  if mkb "M7 teeth: build" "$HERE/decompile-native.test.sh" "$_m7"; then
+    chmod +x "$_m7"
+    _m7out="$(PATH="$_clean" bash "$_m7" 2>&1)"
+    if <<<"$_m7out" grep -qF '  FAIL  quick mode'; then
+      ok "M7-killed: else-removed mutant FAILs quick mode on tool-less PATH — M7 detected"
+    else
+      no "M7-killed: mutant did not FAIL quick mode on tool-less PATH — M7 survived (THEATER)"
+    fi
   fi
   echo "-- M9 mutation: revert strings pipeline to bare (no SIGPIPE guard) → must go red --"
   # Guard: file is needed for the quick-mode preamble; strings must exist on the host
@@ -241,21 +315,16 @@ _line="STUB_CONTROLLED_$(printf '%6000s' '' | tr ' ' 'A')"
 yes "$_line"
 STUBEOF
     chmod +x "$_m9_stubdir/strings"
-    # Create mutant: bare pipeline (SIGPIPE guard removed)
-    _m9="$ROOT/toolbelt/decompile-native.M9.sh"
-    sed 's/ || { _sp=.*//' "$ROOT/toolbelt/decompile-native.sh" > "$_m9"
-    chmod +x "$_m9"
-    if grep -qF 'PIPESTATUS' "$_m9"; then
-      no "M9 setup: mutant still contains PIPESTATUS — sed pattern not matched (did the fix change?)"
-    else
-      # Run mutant with stub strings in PATH.  Binary arg is /bin/true (tiny) to prove
-      # the mechanism is independent of fixture/binary size — not dependent on pipe capacity.
-      PATH="$_m9_stubdir:$PATH" "$_m9" quick /bin/true >/dev/null 2>&1; _m9rc=$?
-      if [ "$_m9rc" -ne 0 ]; then
-        ok "M9-killed: bare pipeline mutant exits non-zero ($_m9rc) via controlled stub — pipe-capacity-independent"
-      else
-        no "M9-killed: bare pipeline mutant exits 0 — M9 survived (THEATER)"
-      fi
+    # Mutant: bare pipeline (SIGPIPE guard removed). Run with the stub strings first on PATH and /bin/true
+    # as the binary (tiny) to prove the mechanism is independent of fixture/binary size. Exit codes are the
+    # wrapper's: original tolerates 141 and exits 0; the mutant dies with the pipeline's 141. The anchored
+    # section header proves both runs reached the strings stage (a crash before it is not a bite).
+    if _nn_stage "$ROOT/mut/m9" "$ROOT/toolbelt/lib/tool-env.sh" \
+       && mk "M9 teeth: build" "$SOURCE" "$ROOT/mut/m9/decompile-native.sh" 's/ || { _sp=.*//'; then
+      tt "M9-killed: bare pipeline mutant exits 141 via controlled stub — pipe-capacity-independent" 0 141 \
+        "$ROOT/mut/m9/decompile-native.sh" --orig "$SUT" \
+        --good-has '^== strings \(first 40\) ==$' --bad-has '^== strings \(first 40\) ==$' --bad-lacks "$CRASH_RE" \
+        -- env PATH="$_m9_stubdir:$PATH" bash @SUT@ quick /bin/true
     fi
   fi
   echo "-- M10 mutation: blanket || true swallows genuine strings failure → Q3 must go red --"
@@ -263,23 +332,19 @@ STUBEOF
   if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
     echo "  SKIP  M10 (tools unavailable: missing file or strings)"
   else
-    # Replaces the PIPESTATUS handler with || true, silencing genuine failure.
-    _m10="$ROOT/toolbelt/decompile-native.M10.sh"
-    sed 's/ || { _sp=.*/ || true/' "$ROOT/toolbelt/decompile-native.sh" > "$_m10"
-    chmod +x "$_m10"
-    if grep -qF '|| true' "$_m10" && ! grep -qF 'PIPESTATUS' "$_m10"; then
-      _stubdir_m10="$ROOT/stubstrings_m10"
-      mkdir -p "$_stubdir_m10"
-      printf '#!/bin/sh\necho "strings: stub" >&2\nexit 1\n' >"$_stubdir_m10/strings"
-      chmod +x "$_stubdir_m10/strings"
-      PATH="$_stubdir_m10:$PATH" "$_m10" quick /bin/true >/dev/null 2>"$ROOT/m10.err"; _m10rc=$?
-      if [ "$_m10rc" -eq 0 ] && ! grep -q 'strings failed' "$ROOT/m10.err"; then
-        ok "M10-killed: blanket || true mutant swallows genuine failure (rc=0, no diagnostic) — Q3 detection confirmed"
-      else
-        no "M10-killed: || true mutant did not swallow failure (rc=$_m10rc) — M10 survived (THEATER)"
-      fi
-    else
-      no "M10 setup: mutant not as expected (missing || true or still has PIPESTATUS)"
+    # Replaces the PIPESTATUS handler with || true, silencing genuine failure: the original exits 1 with
+    # 'strings failed (rc=1)', the mutant exits 0 with no diagnostic.
+    _stubdir_m10="$ROOT/stubstrings_m10"
+    mkdir -p "$_stubdir_m10"
+    printf '#!/bin/sh\necho "strings: stub" >&2\nexit 1\n' >"$_stubdir_m10/strings"
+    chmod +x "$_stubdir_m10/strings"
+    if _nn_stage "$ROOT/mut/m10" "$ROOT/toolbelt/lib/tool-env.sh" \
+       && mk "M10 teeth: build" "$SOURCE" "$ROOT/mut/m10/decompile-native.sh" 's/ || { _sp=.*/ || true/'; then
+      tt "M10-killed: blanket || true mutant swallows genuine failure (rc=0, no diagnostic) — Q3 detection confirmed" 1 0 \
+        "$ROOT/mut/m10/decompile-native.sh" --orig "$SUT" \
+        --good-has 'strings failed \(rc=1\)' --bad-has '^== strings \(first 40\) ==$' \
+        --bad-lacks "strings failed|$CRASH_RE" \
+        -- env PATH="$_stubdir_m10:$PATH" bash @SUT@ quick /bin/true
     fi
   fi
   echo "-- M11 mutation: revert readelf pipeline to || true → Q4 must go red --"
@@ -287,25 +352,20 @@ STUBEOF
   if ! command -v file >/dev/null 2>&1; then
     echo "  SKIP  M11 (tools unavailable: missing file)"
   else
-    _m11="$ROOT/toolbelt/decompile-native.M11.sh"
-    # Revert only the readelf guard; the strings guard (line 31) is unaffected because
-    # the address regex /readelf.*head/ matches only the readelf pipeline line.
-    sed '/readelf.*head/s/ || { _sp=.*/ || true/' "$ROOT/toolbelt/decompile-native.sh" > "$_m11"
-    chmod +x "$_m11"
-    # readelf line now has || true; strings guard still has PIPESTATUS.
-    if grep -qF '|| true' "$_m11" && grep -qF 'PIPESTATUS' "$_m11"; then
-      _stubdir_m11="$ROOT/stubreadelf_m11"
-      mkdir -p "$_stubdir_m11"
-      printf '#!/bin/sh\necho "readelf: stub" >&2\nexit 2\n' >"$_stubdir_m11/readelf"
-      chmod +x "$_stubdir_m11/readelf"
-      PATH="$_stubdir_m11:$PATH" "$_m11" quick /bin/true >/dev/null 2>"$ROOT/m11.err"; _m11rc=$?
-      if [ "$_m11rc" -eq 0 ] && ! grep -q 'readelf failed' "$ROOT/m11.err"; then
-        ok "M11-killed: blanket || true mutant swallows readelf failure (rc=0, no diagnostic) — Q4 detection confirmed"
-      else
-        no "M11-killed: || true mutant did not swallow readelf failure (rc=$_m11rc) — M11 survived (THEATER)"
-      fi
-    else
-      no "M11 setup: mutant not as expected (missing || true, or PIPESTATUS already absent)"
+    # Revert only the readelf guard; the strings guard is unaffected because the address regex
+    # /readelf.*head/ matches only the readelf pipeline line. Original: exit 2 + 'readelf failed (rc=2)';
+    # mutant: exit 0, no diagnostic, and it still reaches the strings section.
+    _stubdir_m11="$ROOT/stubreadelf_m11"
+    mkdir -p "$_stubdir_m11"
+    printf '#!/bin/sh\necho "readelf: stub" >&2\nexit 2\n' >"$_stubdir_m11/readelf"
+    chmod +x "$_stubdir_m11/readelf"
+    if _nn_stage "$ROOT/mut/m11" "$ROOT/toolbelt/lib/tool-env.sh" \
+       && mk "M11 teeth: build" "$SOURCE" "$ROOT/mut/m11/decompile-native.sh" '/readelf.*head/s/ || { _sp=.*/ || true/'; then
+      tt "M11-killed: blanket || true mutant swallows readelf failure (rc=0, no diagnostic) — Q4 detection confirmed" 2 0 \
+        "$ROOT/mut/m11/decompile-native.sh" --orig "$SUT" \
+        --good-has 'readelf failed \(rc=2\)' --bad-has '^== strings \(first 40\) ==$' \
+        --bad-lacks "readelf failed|$CRASH_RE" \
+        -- env PATH="$_stubdir_m11:$PATH" bash @SUT@ quick /bin/true
     fi
   fi
   echo "-- M9/M10/M11 absent-tools guard: restricted PATH must emit SKIP, never a false kill --"
@@ -332,45 +392,22 @@ fi
     no "M9/M10/M11-guard: absent tools did not emit expected SKIPs — guard broken"
   fi
   echo "-- B3 mutation: remove basename from -postScript; B3 must expose full path --"
-  _mutant="$ROOT/toolbelt/decompile-native.MUTANT.sh"
-  sed 's/$(basename "$_script")/$_script/' "$ROOT/toolbelt/decompile-native.sh" > "$_mutant"
-  chmod +x "$_mutant"
-  if grep -qF '$(basename "$_script")' "$_mutant"; then
-    no "B3 teeth: mutant still contains 'basename' — sed pattern not matched (did the SUT change?)"
-  else
-    mkdir -p "$ROOT/scripts_mut"
-    : >"$ROOT/scripts_mut/Mutant.java"
-    TEST_ROOT="$ROOT" RECORD="$ROOT/b3mut.args" \
-      bash "$_mutant" ghidra "$INPUT" "$ROOT/out/b3mut" --script "$ROOT/scripts_mut/Mutant.java" \
-      >/dev/null 2>&1 || true
-    if [ -s "$ROOT/b3mut.args" ]; then
-      _mps_val="$(sed -n '/^-postScript$/{n; p; q}' "$ROOT/b3mut.args")"
-      if [ "$_mps_val" != "Mutant.java" ]; then
-        ok "B3 teeth: mutant exposes full path to -postScript ('$_mps_val') — B3 detection confirmed"
-      else
-        no "B3 teeth: mutant still emits basename 'Mutant.java' — mutation had no effect (THEATER)"
-      fi
-    else
-      no "B3 teeth: mutant produced no RECORD file — cannot verify teeth"
-    fi
+  if _nn_stage "$ROOT/mut/b3" "$ROOT/toolbelt/lib/tool-env.sh" \
+     && mk "B3 teeth: build" "$SOURCE" "$ROOT/mut/b3/decompile-native.sh" 's/$(basename "$_script")/$_script/'; then
+    tt "B3 teeth: mutant exposes full path to -postScript — B3 detection confirmed" 0 0 "$ROOT/mut/b3/decompile-native.sh" \
+      --orig "$SUT" --good-has '^B3_FACT=holds:1 postscript:BASENAME scriptpath:1$' \
+      --bad-has '^B3_FACT=holds:0 postscript:FULLPATH scriptpath:1$' --bad-lacks "$CRASH_RE" -- _nn_b3 @SUT@
   fi
   echo "-- MN1 mutation: remove PROJ non-empty guard; N1 must go RED --"
-  # Mutant removes the 'find ... -mindepth' guard line from the ghidra case.
-  # Running the empty-output stub (HEADLESS_EMPTY=1) against the mutant must print OK and
-  # exit 0 — confirming N1 has teeth (the guard is the only thing that stops OK on empty PROJ).
-  _mn1="$ROOT/toolbelt/decompile-native.MN1.sh"
-  sed '/mindepth/d' "$ROOT/toolbelt/decompile-native.sh" > "$_mn1"
-  chmod +x "$_mn1"
-  if grep -q 'mindepth' "$_mn1"; then
-    no "MN1 setup: guard line still present in mutant — sed did not match (did the guard change?)"
-  else
-    HEADLESS_EMPTY=1 TEST_ROOT="$ROOT" RECORD="$ROOT/mn1.args" "$_mn1" ghidra "$INPUT" "$ROOT/out/mn1" \
-      >"$ROOT/mn1.out" 2>"$ROOT/mn1.err"; _mn1rc=$?
-    if [ "$_mn1rc" -eq 0 ] && grep -q '^OK' "$ROOT/mn1.out"; then
-      ok "MN1-killed: guard-removed mutant exits 0+OK on empty PROJ → N1 bites"
-    else
-      no "MN1-killed: guard-removed mutant must print OK on empty PROJ (got rc=$_mn1rc) — N1 has no teeth"
-    fi
+  # The mutant removes exactly the 'find ... -mindepth' guard line from the ghidra case. Running the
+  # empty-output stub (HEADLESS_EMPTY=1) against it must print OK and exit 0 (original: exit 1, no OK) —
+  # confirming N1 has teeth (the guard is the only thing that stops OK on empty PROJ).
+  if _nn_stage "$ROOT/mut/mn1" "$ROOT/toolbelt/lib/tool-env.sh" \
+     && mk "MN1 teeth: build" "$SOURCE" "$ROOT/mut/mn1/decompile-native.sh" \
+          '/^ *\[ -n "\$(find "\$PROJ" -mindepth 2 .*exit 1; }$/d'; then
+    tt "MN1-killed: guard-removed mutant exits 0+OK on empty PROJ → N1 bites" 1 0 "$ROOT/mut/mn1/decompile-native.sh" \
+      --orig "$SUT" --good-has '^MN1_FACT=holds:1 ok:0$' --bad-has '^MN1_FACT=holds:0 ok:1$' \
+      --bad-lacks "$CRASH_RE" -- _nn_mn1 @SUT@
   fi
 fi
 
@@ -436,34 +473,27 @@ _pdb2_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb2.args" 2>/dev
   || ok "PDB2: without --pdb, binary imported directly (no pdb-stage)"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # lib/mutant.sh was sourced by the first teeth block; probe every helper this block calls again.
+  for _fn in mutant_chain mutant_tooth _nn_stage _nn_mx1 _nn_pdb1; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: teeth helper $_fn is not defined" >&2; exit 2; }
+  done
   echo "-- teeth-mx1: neuter MAXMEM export; MX1 must go red --"
-  _mx1_mut="$ROOT/mx1-toolbelt/decompile-native.MX1-MUTANT.sh"
-  sed 's/export MAXMEM="\$GHIDRA_MAXMEM"/: # MX1-MAXMEM-MUTANT/' \
-    "$ROOT/toolbelt/decompile-native.sh" > "$_mx1_mut"
-  if grep -q 'export MAXMEM="\$GHIDRA_MAXMEM"' "$_mx1_mut"; then
-    no "teeth-mx1: mutant still has export MAXMEM — sentinel not matched (did the fix change?)"
-  else
-    GHIDRA_MAXMEM=8g TEST_ROOT="$ROOT" RECORD="$ROOT/mx1-mut.args" \
-      bash "$_mx1_mut" ghidra "$INPUT" "$ROOT/out/mx1-mut" >/dev/null 2>&1
-    _mx1_mut_maxmem="$(cat "${ROOT}/mx1-mut.args.maxmem" 2>/dev/null)"
-    [ "$_mx1_mut_maxmem" != "8g" ] \
-      && ok "teeth-mx1: mutant does not export MAXMEM=8g (got '${_mx1_mut_maxmem:-<empty>}') — MX1 detection confirmed" \
-      || no "teeth-mx1: mutant still exports MAXMEM=8g — MX1 has no teeth (THEATER)"
+  # Mutant dir carries the mx1 stub lib (points at mx1-gh, whose analyzeHeadless records MAXMEM).
+  if _nn_stage "$ROOT/mut/mx1" "$ROOT/mx1-toolbelt/lib/tool-env.sh" \
+     && mk "teeth-mx1: build" "$SOURCE" "$ROOT/mut/mx1/decompile-native.sh" \
+          's/export MAXMEM="\$GHIDRA_MAXMEM"/: # MX1-MAXMEM-MUTANT/'; then
+    tt "teeth-mx1: mutant does not export MAXMEM=8g — MX1 detection confirmed" 0 0 "$ROOT/mut/mx1/decompile-native.sh" \
+      --orig "$_mx1_sut" --good-has '^MX1_FACT=holds:1 maxmem:8g$' --bad-has '^MX1_FACT=holds:0 maxmem:EMPTY$' \
+      --bad-lacks "$CRASH_RE" -- _nn_mx1 @SUT@
   fi
 
   echo "-- teeth-pdb1: neuter PDB stage path; PDB1 import-path check must go red --"
-  _pdb1_mut="$ROOT/mx1-toolbelt/decompile-native.PDB1-MUTANT.sh"
-  sed 's|.*# PDB1-STAGE-PATH-SENTINEL.*|    _import_bin="$BIN"  # PDB1-STAGE-PATH-SENTINEL [MUTANT]|' \
-    "$ROOT/toolbelt/decompile-native.sh" > "$_pdb1_mut"
-  if ! grep -q 'PDB1-STAGE-PATH-SENTINEL \[MUTANT\]' "$_pdb1_mut"; then
-    no "teeth-pdb1: sentinel not found in mutant — sed pattern not matched (did the fix change?)"
-  else
-    GHIDRA_MAXMEM="" RECORD="$ROOT/pdb1-mut.args" TEST_ROOT="$ROOT" \
-      bash "$_pdb1_mut" ghidra "$INPUT" "$ROOT/out/pdb1-mut" --pdb "$_pdb_src" >/dev/null 2>&1
-    _pdb1_mut_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb1-mut.args" 2>/dev/null)"
-    <<<"$_pdb1_mut_import" grep -q 'pdb-stage' \
-      && no "teeth-pdb1: mutant still uses pdb-stage path — PDB1 import check has no teeth (THEATER)" \
-      || ok "teeth-pdb1: mutant import path '${_pdb1_mut_import}' not under pdb-stage — PDB1 detection confirmed"
+  if _nn_stage "$ROOT/mut/pdb1" "$ROOT/mx1-toolbelt/lib/tool-env.sh" \
+     && mk "teeth-pdb1: build" "$SOURCE" "$ROOT/mut/pdb1/decompile-native.sh" \
+          's|.*# PDB1-STAGE-PATH-SENTINEL.*|    _import_bin="$BIN"  # PDB1-STAGE-PATH-SENTINEL [MUTANT]|'; then
+    tt "teeth-pdb1: mutant import path not under pdb-stage — PDB1 detection confirmed" 0 0 "$ROOT/mut/pdb1/decompile-native.sh" \
+      --orig "$_mx1_sut" --good-has '^PDB1_FACT=holds:1 import:STAGE staged:1$' \
+      --bad-has '^PDB1_FACT=holds:0 import:DIRECT staged:1$' --bad-lacks "$CRASH_RE" -- _nn_pdb1 @SUT@
   fi
 fi
 

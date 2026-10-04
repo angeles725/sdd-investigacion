@@ -268,66 +268,83 @@ fi # slow | all
 # ── --prove-teeth: mutation controls ─────────────────────────────────────────
 if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth --"
-  MUTANT="$TMP/Mutant.java"
+  # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
+  # shellcheck source=lib/mutant.sh
+  source "$HERE/lib/mutant.sh"
+  for _fn in mutant_chain mutant_tooth; do
+    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
+  done
+  # The SUT is a Java file, not shell: skip the `bash -n` check. Every mutant is a one-token textual
+  # substitution that mutant_chain proves applied (and applied alone: a dead stage or a byte-identical
+  # result is refused); there is no cheap language-native parse for it (javac needs Ghidra's classpath),
+  # so each src tooth also demands the predicate's EXACT rc 1 — a crashing check (rc 2) is not a bite.
+  export MUTANT_SYNTAX=none
+  _MUT="$TMP/mut"; mkdir -p "$_MUT"   # removed by the single EXIT trap installed above
+  # A refused build counts ONE failure here and its tooth is never run.
+  mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # _ge_pred NAME ARGS... — run one check_* predicate and print an anchored fact line with its rc; the
+  # driver returns the predicate's own rc, so GOOD_RC / BAD_RC below are the predicate's exit codes
+  # (grep: 0 = pattern held, 1 = pattern absent, 2 = error — only 0 -> 1 is a bite).
+  _ge_pred() { local _n="$1" _rc; shift; "$_n" "$@"; _rc=$?; echo "PRED_FACT=$_n rc:$_rc"; return "$_rc"; }
 
   # ── Structural source teeth (always; no Ghidra) ──────────────────────────
-  # Each tooth mutates ExportDecompiledC.java and calls the REAL check function.
-  # A neutered check (always returns 0) causes the negated call to fail → exposed.
-
-  sed 's/extends GhidraScript/extends Object/' "$SCRIPT" > "$MUTANT"
-  ! ck_extends_ghidra "$MUTANT" \
-    && ok "tooth-src-1: ck_extends_ghidra goes RED on 'extends Object' mutant" \
-    || no "tooth-src-1: ck_extends_ghidra STAYS GREEN on mutant (theater)"
-
-  sed 's/"RSDD_OUT"/"RSDD_XXX_DELETED"/' "$SCRIPT" > "$MUTANT"
-  ! ck_env_var "$MUTANT" "RSDD_OUT" \
-    && ok "tooth-src-2: ck_env_var goes RED when RSDD_OUT is absent" \
-    || no "tooth-src-2: ck_env_var STAYS GREEN when RSDD_OUT is absent (theater)"
-
-  sed 's/rsdd ghidra C export/rsdd ghidra DELETED export/' "$SCRIPT" > "$MUTANT"
-  ! ck_hdr_marker "$MUTANT" \
-    && ok "tooth-src-3: ck_hdr_marker goes RED on mutant" \
-    || no "tooth-src-3: ck_hdr_marker STAYS GREEN on mutant (theater)"
-
-  sed 's|/\* FAILED:|/* REMOVED:|g' "$SCRIPT" > "$MUTANT"
-  ! ck_failed_comment "$MUTANT" \
-    && ok "tooth-src-4: ck_failed_comment goes RED on mutant" \
-    || no "tooth-src-4: ck_failed_comment STAYS GREEN on mutant (theater)"
-
-  sed 's/RSDD-EXPORT:/RSDD-DELETED:/g' "$SCRIPT" > "$MUTANT"
-  ! ck_log_prefix "$MUTANT" \
-    && ok "tooth-src-5: ck_log_prefix goes RED on mutant" \
-    || no "tooth-src-5: ck_log_prefix STAYS GREEN on mutant (theater)"
+  # Each tooth mutates ExportDecompiledC.java and calls the REAL check function on the original
+  # (must hold: rc 0) and on the mutant (must go RED: rc exactly 1).
+  # _ge_src LABEL NAME EXPR PRED [ARGS...] — build the mutant, then run the predicate on both sides.
+  _ge_src() {
+    local _l="$1" _n="$2" _e="$3" _p="$4"; shift 4
+    if mk "$_l: build" "$SCRIPT" "$_MUT/$_n.java" "$_e"; then
+      tt "$_l" 0 1 "$_MUT/$_n.java" --orig "$SCRIPT" \
+        --good-has "^PRED_FACT=$_p rc:0\$" --bad-has "^PRED_FACT=$_p rc:1\$" -- _ge_pred "$_p" @SUT@ "$@"
+    fi
+  }
+  _ge_src "tooth-src-1: ck_extends_ghidra goes RED on 'extends Object' mutant" src1 \
+    's/extends GhidraScript/extends Object/' ck_extends_ghidra
+  _ge_src "tooth-src-2: ck_env_var goes RED when RSDD_OUT is absent" src2 \
+    's/"RSDD_OUT"/"RSDD_XXX_DELETED"/' ck_env_var RSDD_OUT
+  _ge_src "tooth-src-3: ck_hdr_marker goes RED on mutant" src3 \
+    's/rsdd ghidra C export/rsdd ghidra DELETED export/' ck_hdr_marker
+  _ge_src "tooth-src-4: ck_failed_comment goes RED on mutant" src4 \
+    's|/\* FAILED:|/* REMOVED:|g' ck_failed_comment
+  _ge_src "tooth-src-5: ck_log_prefix goes RED on mutant" src5 \
+    's/RSDD-EXPORT:/RSDD-DELETED:/g' ck_log_prefix
 
   # ── Fast-lane fixture teeth (broken.json; no Ghidra required) ────────────
   # R2 exception (declared in header): proves the ASSERT bites against a synthetic
   # fixture, not that a SUT regression is caught.  Slow-lane Tooth slow-C covers that.
-  if [[ ! -f "$_BROKEN_FIX" ]]; then
-    echo "FATAL: broken fixture missing: $_BROKEN_FIX (cannot run fixture teeth)" >&2
+  # The "mutant" side is the broken fixture's extracted output (not built from a SUT file), so these
+  # teeth use mutant_tooth directly: the happy fixture must satisfy the predicate (rc 0) and the
+  # broken fixture must fail it with rc exactly 1.
+  if [[ ! -f "$_BROKEN_FIX" || ! -f "$_HAPPY_FIX" ]]; then
+    no "tooth-fix: fixture missing (happy='$_HAPPY_FIX' broken='$_BROKEN_FIX') — cannot run fixture teeth"
   else
-    python3 - "$_BROKEN_FIX" "$TMP/broken_c.txt" "$TMP/broken_log.txt" <<'PY'
+    for _w in happy:"$_HAPPY_FIX" broken:"$_BROKEN_FIX"; do
+      python3 - "${_w#*:}" "$TMP/th_${_w%%:*}_c.txt" "$TMP/th_${_w%%:*}_log.txt" <<'PY'
 import json, pathlib, sys
 d = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
 pathlib.Path(sys.argv[2]).write_text(d['c_output'])
 pathlib.Path(sys.argv[3]).write_text(d['summary_line'])
 PY
+    done
 
     # tooth-fix-1: 0 exported → ck_nonzero_exports must go RED.
-    ! ck_nonzero_exports "$TMP/broken_log.txt" \
-      && ok "tooth-fix-1: ck_nonzero_exports goes RED on broken fixture (0 exported)" \
-      || no "tooth-fix-1: ck_nonzero_exports STAYS GREEN on broken fixture (theater)"
+    tt "tooth-fix-1: ck_nonzero_exports goes RED on broken fixture (0 exported)" 0 1 "$TMP/th_broken_log.txt" \
+      --orig "$TMP/th_happy_log.txt" --good-has '^PRED_FACT=ck_nonzero_exports rc:0$' \
+      --bad-has '^PRED_FACT=ck_nonzero_exports rc:1$' -- _ge_pred ck_nonzero_exports @SUT@
 
     # tooth-fix-2: all FAILED: markers, no ';' → ck_fn_body must go RED.
-    ! ck_fn_body "$TMP/broken_c.txt" \
-      && ok "tooth-fix-2: ck_fn_body goes RED on broken fixture (no ';' in FAILED-only output)" \
-      || no "tooth-fix-2: ck_fn_body STAYS GREEN on broken fixture (theater)"
+    tt "tooth-fix-2: ck_fn_body goes RED on broken fixture (no ';' in FAILED-only output)" 0 1 "$TMP/th_broken_c.txt" \
+      --orig "$TMP/th_happy_c.txt" --good-has '^PRED_FACT=ck_fn_body rc:0$' \
+      --bad-has '^PRED_FACT=ck_fn_body rc:1$' -- _ge_pred ck_fn_body @SUT@
 
-    # tooth-fix-3: predicate-neutralization axis.
+    # tooth-fix-3: predicate-neutralization axis (the "mutant" is a redefined predicate, not a file, so it
+    # keeps its own observation and is not a mutant_tooth case).
     # Redefine ck_fn_body to always return 0 (neutralized).
     # The neutralized predicate PASSES on the broken fixture — theater.
     # This confirms the real ck_fn_body is load-bearing: removing it enables a false pass.
     _ck_fn_body_neutral() { return 0; }
-    _ck_fn_body_neutral "$TMP/broken_c.txt" \
+    _ck_fn_body_neutral "$TMP/th_broken_c.txt" \
       && ok "tooth-fix-3: neutralized ck_fn_body PASSES on broken fixture (predicate is load-bearing; removal = theater)" \
       || no "tooth-fix-3: neutralized ck_fn_body went RED — neutralization tooth logic error"
   fi
@@ -338,39 +355,43 @@ PY
 
     # ---- Tooth slow-A: RSDD_OUT-removed mutant + sandbox CWD ----
     # Proves RSDD_OUT is load-bearing at runtime.  CWD = $TMP/ta so the user.dir
-    # fallback lands in TMP and is torn down with it.
+    # fallback lands in TMP and is torn down with it.  The observation (a real Ghidra run) stays as
+    # is; only the mutant BUILD moves to lib/mutant.sh. Ghidra resolves the script by NAME, so the
+    # mutant file keeps the SUT's file name inside its own dir.
     if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/fix.elf.c" ]; then
       skip_tooth "tooth-slow-A: '$REPO_ROOT/fix.elf.c' already exists — run on a clean tree"
     else
       MUTANT_A="$TMP/mutant-a"
       mkdir -p "$MUTANT_A"
-      sed 's/"RSDD_OUT"/"RSDD_XXX_DELETED"/' "$SCRIPT" > "$MUTANT_A/ExportDecompiledC.java"
-      mkdir -p "$TMP/ta/project" "$TMP/ta/home" \
-               "$TMP/ta/xdg-cache" "$TMP/ta/xdg-config" "$TMP/ta/out"
-      ( cd "$TMP/ta" && \
-        HOME="$TMP/ta/home" XDG_CACHE_HOME="$TMP/ta/xdg-cache" \
-        XDG_CONFIG_HOME="$TMP/ta/xdg-config" \
-        JAVA_HOME="$JAVA21" JAVA_TOOL_OPTIONS="-Duser.home=$TMP/ta/home" \
-        RSDD_OUT="$TMP/ta/out" \
-        timeout 240 "$GHIDRA_HOME/support/analyzeHeadless" \
-          "$TMP/ta/project" cexport \
-          -import "$TMP/fix.elf" -analysisTimeoutPerFile 120 \
-          -scriptPath "$MUTANT_A" \
-          -postScript ExportDecompiledC.java \
-          -deleteProject \
-          >"$TMP/ta/headless.log" 2>&1 ) || true
-      # Mutant reads RSDD_XXX_DELETED → user.dir fallback → $TMP/ta/fix.elf.c.
-      # Must NOT appear in RSDD_OUT ($TMP/ta/out/) nor in the repo root.
-      if [ -f "$TMP/ta/fix.elf.c" ] && [ ! -f "$TMP/ta/out/fix.elf.c" ] \
-         && { [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/fix.elf.c" ]; }; then
-        ok "tooth-slow-A: RSDD_OUT-removed mutant writes to user.dir sandbox (env var is load-bearing)"
-      else
-        no "tooth-slow-A: RSDD_OUT-removed mutant — unexpected output location"
+      if mk "tooth-slow-A: build" "$SCRIPT" "$MUTANT_A/ExportDecompiledC.java" 's/"RSDD_OUT"/"RSDD_XXX_DELETED"/'; then
+        mkdir -p "$TMP/ta/project" "$TMP/ta/home" \
+                 "$TMP/ta/xdg-cache" "$TMP/ta/xdg-config" "$TMP/ta/out"
+        ( cd "$TMP/ta" && \
+          HOME="$TMP/ta/home" XDG_CACHE_HOME="$TMP/ta/xdg-cache" \
+          XDG_CONFIG_HOME="$TMP/ta/xdg-config" \
+          JAVA_HOME="$JAVA21" JAVA_TOOL_OPTIONS="-Duser.home=$TMP/ta/home" \
+          RSDD_OUT="$TMP/ta/out" \
+          timeout 240 "$GHIDRA_HOME/support/analyzeHeadless" \
+            "$TMP/ta/project" cexport \
+            -import "$TMP/fix.elf" -analysisTimeoutPerFile 120 \
+            -scriptPath "$MUTANT_A" \
+            -postScript ExportDecompiledC.java \
+            -deleteProject \
+            >"$TMP/ta/headless.log" 2>&1 ) || true
+        # Mutant reads RSDD_XXX_DELETED → user.dir fallback → $TMP/ta/fix.elf.c.
+        # Must NOT appear in RSDD_OUT ($TMP/ta/out/) nor in the repo root.
+        if [ -f "$TMP/ta/fix.elf.c" ] && [ ! -f "$TMP/ta/out/fix.elf.c" ] \
+           && { [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/fix.elf.c" ]; }; then
+          ok "tooth-slow-A: RSDD_OUT-removed mutant writes to user.dir sandbox (env var is load-bearing)"
+        else
+          no "tooth-slow-A: RSDD_OUT-removed mutant — unexpected output location"
+        fi
       fi
     fi
 
     # ---- Tooth slow-B: unique artifact in repo root → ck_tree_clean must go RED ----
     # Calls the REAL ck_tree_clean; a neutered version would stay GREEN and be caught.
+    # (No SUT mutant is built here — the "mutation" is a stray file — so no lib/mutant.sh builder applies.)
     if [ -n "$REPO_ROOT" ]; then
       _artifact="$REPO_ROOT/rsdd-cleanliness-tooth-$$"
       if [ -e "$_artifact" ]; then
@@ -387,21 +408,23 @@ PY
     fi
 
     # ---- Tooth slow-C: res=null mutant → export-count and body assertions must go RED ----
-    # Proves a totally broken exporter is caught; markers alone are not sufficient.
+    # Proves a totally broken exporter is caught; markers alone are not sufficient. The observation (a real
+    # Ghidra run, read through the same predicates as S4/S5) stays as is; only the BUILD moves to the helper.
     MUTANT_C="$TMP/mutant-c"
     mkdir -p "$MUTANT_C"
-    sed 's/DecompileResults res = decompiler\.decompileFunction.*/DecompileResults res = null;/' \
-      "$SCRIPT" > "$MUTANT_C/ExportDecompiledC.java"
-    run_headless_with tc "$MUTANT_C" || true
-    ! ck_nonzero_exports "$TMP/tc/headless.log" \
-      && ok "tooth-slow-C: ck_nonzero_exports goes RED when exporter always fails (res=null mutant)" \
-      || no "tooth-slow-C: ck_nonzero_exports STAYS GREEN on res=null mutant (theater)"
-    if [ -f "$TMP/tc/out/fix.elf.c" ]; then
-      ! ck_fn_body "$TMP/tc/out/fix.elf.c" \
-        && ok "tooth-slow-C: ck_fn_body goes RED when no C bodies are written (res=null mutant)" \
-        || no "tooth-slow-C: ck_fn_body STAYS GREEN on res=null mutant (theater)"
-    else
-      no "tooth-slow-C: res=null mutant produced no output file (cannot check ck_fn_body)"
+    if mk "tooth-slow-C: build" "$SCRIPT" "$MUTANT_C/ExportDecompiledC.java" \
+         's/DecompileResults res = decompiler\.decompileFunction.*/DecompileResults res = null;/'; then
+      run_headless_with tc "$MUTANT_C" || true
+      ! ck_nonzero_exports "$TMP/tc/headless.log" \
+        && ok "tooth-slow-C: ck_nonzero_exports goes RED when exporter always fails (res=null mutant)" \
+        || no "tooth-slow-C: ck_nonzero_exports STAYS GREEN on res=null mutant (theater)"
+      if [ -f "$TMP/tc/out/fix.elf.c" ]; then
+        ! ck_fn_body "$TMP/tc/out/fix.elf.c" \
+          && ok "tooth-slow-C: ck_fn_body goes RED when no C bodies are written (res=null mutant)" \
+          || no "tooth-slow-C: ck_fn_body STAYS GREEN on res=null mutant (theater)"
+      else
+        no "tooth-slow-C: res=null mutant produced no output file (cannot check ck_fn_body)"
+      fi
     fi
 
   fi # _slow_skip == 0
