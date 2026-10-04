@@ -513,8 +513,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth: build $label mutant" "anchor occurs more than once — first-match mutant would be partial"; return 1
     fi
     printf '%s\n' "${c/"$old"/"$new"}" > "$box/install-tool.sh"
-    if ! mutant_built "teeth: build $label mutant" "$SUT" "$box/install-tool.sh" >/dev/null; then
-      no "teeth: build $label mutant" "refused by lib/mutant.sh (empty / identical / not bash)"; return 1
+    local why
+    if ! why="$(mutant_built "teeth: build $label mutant" "$SUT" "$box/install-tool.sh" 2>&1)"; then
+      no "teeth: build $label mutant" "refused by lib/mutant.sh: ${why##*$'\n'}"; return 1
     fi
   }
   echo "-- teeth: mutate guard to grouped 'A || { B && exit }', expect a PRESENT tool to REINSTALL --"
