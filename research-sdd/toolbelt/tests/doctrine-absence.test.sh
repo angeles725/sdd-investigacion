@@ -14,7 +14,8 @@
 #   NOTE scope-absent <path>            a scope directory/file does not exist under ROOT (informational)
 #   doctrine-absence: files-read=N phrases=M hits=H waived=W
 #   DEGRADED <reason> ...               the walk could not look (list-absent, list-empty, list-invalid, no-files,
-#                                       grep-error, root-absent): absent / empty / no-match stay distinct and a
+#                                       grep-error, grep-output-unparsable, cd-failed, scope-find-error,
+#                                       root-absent): absent / empty / no-match / could-not-run stay distinct and a
 #                                       walk that read 0 files is a failure, never a pass (CLAUDE.md section 7).
 # Exit: 0 all held · 1 regression · 2 harness failure.
 #
@@ -60,14 +61,22 @@ walk() {
     echo "DEGRADED list-empty: $list has no active phrase"; return 2
   fi
 
-  local spec dir depth f
+  local spec dir depth f ftmp frc
+  ftmp="$(mktemp)" || { echo "DEGRADED scope-find-error: mktemp failed"; return 2; }
   if [ -f "$root/CLAUDE.md" ]; then files+=("CLAUDE.md"); else echo "NOTE scope-absent CLAUDE.md"; fi
   for spec in research-sdd:1 research-sdd/templates:99 research-sdd/skills:99 research-sdd/profiles:99 research-sdd/toolbelt:1; do
     dir="${spec%%:*}"; depth="${spec##*:}"
     if [ ! -d "$root/$dir" ]; then echo "NOTE scope-absent $dir"; continue; fi
-    while IFS= read -r -d '' f; do files+=("${f#"$root"/}"); done \
-      < <(find "$root/$dir" -maxdepth "$depth" -type f -name '*.md' -print0 | sort -z)   # SENTINEL-SCOPE
+    # find runs to a temp file (not inside a pipe) so its exit status is observed: an untraversable scope
+    # directory is a typed DEGRADED, never a silently smaller files-read (kit issue #1718).
+    find "$root/$dir" -maxdepth "$depth" -type f -name '*.md' -print0 >"$ftmp" 2>"$ftmp.err"; frc=$?   # SENTINEL-SCOPE
+    if [ "$frc" -ne 0 ]; then   # SENTINEL-FIND-RC
+      echo "DEGRADED scope-find-error: rc=$frc dir=$dir: $(head -n 1 "$ftmp.err")"
+      rm -f "$ftmp" "$ftmp.err"; return 2
+    fi
+    while IFS= read -r -d '' f; do files+=("${f#"$root"/}"); done < <(sort -z <"$ftmp")
   done
+  rm -f "$ftmp" "$ftmp.err"
   if [ "${#files[@]}" -eq 0 ]; then   # SENTINEL-NO-FILES
     echo "DEGRADED no-files: files-read=0 under $root"; return 2
   fi
@@ -75,9 +84,16 @@ walk() {
   local i out rc hits=0 waived=0 hit hf rl used
   for i in "${!phrases[@]}"; do
     ph="${phrases[$i]}"; waive="${waives[$i]}"; used=0
-    out="$(cd "$root" && grep -HnF -e "$ph" -- "${files[@]}" </dev/null)"; rc=$?   # SENTINEL-MATCH
+    # -a: a binary-looking file is searched as text, so GNU grep prints file:line instead of a bare
+    # "binary file matches" notice (no line number) that would parse as a garbage hit (kit issue #1718).
+    # exit 125 marks a failed cd: it must not alias grep's rc 1 (no match).
+    out="$(cd "$root" || exit 125; grep -aHnF -e "$ph" -- "${files[@]}" </dev/null)"; rc=$?   # SENTINEL-MATCH
+    if [ "$rc" -eq 125 ]; then echo "DEGRADED cd-failed: $root"; return 2; fi   # SENTINEL-CD-FAILED
     if [ "$rc" -gt 1 ]; then echo "DEGRADED grep-error: rc=$rc phrase=$ph"; return 2; fi
     while [ "$rc" -eq 0 ] && IFS= read -r hit; do
+      if ! [[ "$hit" =~ ^[^:]+:[0-9]+: ]]; then   # SENTINEL-PARSE
+        echo "DEGRADED grep-output-unparsable: phrase=$ph line=$hit"; return 2
+      fi
       hf="${hit%%:*}"; rl="${hit#*:}"; rl="${rl%%:*}"
       if [ -n "$waive" ] && [ "$hf" = "$waive" ]; then   # SENTINEL-WAIVE
         echo "WAIVED $hf:$rl $ph"; waived=$((waived + 1)); used=1
@@ -239,6 +255,49 @@ else no "unused waiver" "rc=$rc out=$out"; fi
 out="$(runw "$WORK/waive2" "$LIST_DEFAULT")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'hits=0' <<<"$out"; then ok "shipped list parses (clean fixture, rc 0)"; else no "shipped list parse" "rc=$rc out=$out"; fi
 
+# ---------- 10. could-not-run states stay typed (kit issue #1718)
+# 10a. untraversable scope directory -> DEGRADED scope-find-error (needs a non-root user: root ignores mode 000)
+R="$(mkroot unread)"
+mkdir -p "$R/research-sdd/templates/locked"; printf 'foo bar\n' > "$R/research-sdd/templates/locked/l.md"
+chmod 000 "$R/research-sdd/templates/locked"
+if [ "$(id -u)" -eq 0 ] || [ -r "$R/research-sdd/templates/locked" ]; then
+  UNREAD_SKIP=1; printf '  SKIP  %-60s %s\n' "untraversable scope dir: DEGRADED scope-find-error" "running as root / mode 000 not enforced"
+else
+  UNREAD_SKIP=0
+  out="$(runw "$R" "$L")"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF 'DEGRADED scope-find-error' <<<"$out" && ! grep -qF 'doctrine-absence: files-read' <<<"$out"; then
+    ok "untraversable scope dir: rc 2 DEGRADED scope-find-error (no shrunken files-read)"
+  else no "untraversable scope dir" "rc=$rc out=$out"; fi
+fi
+chmod 755 "$R/research-sdd/templates/locked"
+
+# 10b. grep rc>1 -> DEGRADED grep-error (a grep shim exits 2, so this also runs as root)
+FBE="$WORK/fakegrep-err"; mkdir -p "$FBE"; printf '#!/bin/sh\necho "grep: simulated failure" >&2\nexit 2\n' > "$FBE/grep"; chmod +x "$FBE/grep"
+R="$(mkroot clean2)"
+out="$(PATH="$FBE:$PATH" bash "$SELF" --walk "$R" "$L" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'DEGRADED grep-error: rc=2 phrase=foo bar' <<<"$out"; then ok "grep rc 2: rc 2 DEGRADED grep-error"; else no "grep-error" "rc=$rc out=$out"; fi
+
+# 10c. grep exits 0 with output that is not file:line:text -> DEGRADED grep-output-unparsable, never a garbage hit
+FBU="$WORK/fakegrep-unparsable"; mkdir -p "$FBU"; printf '#!/bin/sh\necho "Binary file x.md matches"\nexit 0\n' > "$FBU/grep"; chmod +x "$FBU/grep"
+out="$(PATH="$FBU:$PATH" bash "$SELF" --walk "$R" "$L" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'DEGRADED grep-output-unparsable' <<<"$out" && ! grep -q '^RETIRED' <<<"$out"; then
+  ok "unparsable grep output: rc 2 DEGRADED grep-output-unparsable (no RETIRED)"
+else no "unparsable grep output" "rc=$rc out=$out"; fi
+
+# 10d. a cd failure must not alias grep's no-match (rc 1): a BASH_ENV shim makes cd into R fail
+printf 'cd() { if [ "${1:-}" = "%s" ]; then return 1; fi; builtin cd "$@"; }\n' "$R" > "$WORK/cdshim.sh"
+out="$(BASH_ENV="$WORK/cdshim.sh" bash "$SELF" --walk "$R" "$L" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'DEGRADED cd-failed' <<<"$out" && ! grep -qF 'hits=0' <<<"$out"; then
+  ok "cd failure: rc 2 DEGRADED cd-failed (not a clean no-match)"
+else no "cd failure" "rc=$rc out=$out"; fi
+
+# 10e. a binary-looking file (NUL byte) is searched as text and reported with file:line
+R="$(mkroot binary)"; printf 'ab\0foo bar\n' > "$R/research-sdd/profiles/bin.md"
+out="$(runw "$R" "$L")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qxF 'RETIRED research-sdd/profiles/bin.md:1 foo bar' <<<"$out"; then
+  ok "NUL-bearing .md: RETIRED file:line (binary match is not a garbage hit)"
+else no "binary match" "rc=$rc out=$out"; fi
+
 # ==========================================================================
 # TEETH -- mutant verification (--prove-teeth only)
 # ==========================================================================
@@ -272,13 +331,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-files 2 0 '/SENTINEL-NO-FILES/s/-eq 0/-eq 99/' 'DEGRADED no-files' 'DEGRADED no-files' -- bash @SUT@ --walk "$WORK/bare" "$TL"
 
   echo "-- teeth: matching must stay literal --"
-  tooth literal 1 1 '/SENTINEL-MATCH/s/grep -HnF/grep -HnE/' 'hits=1 ' 'hits=1 ' -- bash @SUT@ --walk "$WORK/lit" "$WORK/lit.txt"
+  tooth literal 1 1 '/SENTINEL-MATCH/s/grep -aHnF/grep -aHnE/' 'hits=1 ' 'hits=1 ' -- bash @SUT@ --walk "$WORK/lit" "$WORK/lit.txt"
 
   echo "-- teeth: a waiver must stay scoped to its file --"
   tooth waive-scope 1 0 '/SENTINEL-WAIVE/s/\[ "\$hf" = "\$waive" \]/true/' 'RETIRED research-sdd/METHODOLOGY.md:2 foo bar' 'RETIRED research-sdd/METHODOLOGY.md:2 foo bar' -- bash @SUT@ --walk "$WORK/waive" "$WORK/w1.txt"
 
   echo "-- teeth: toolbelt must stay in scope --"
   tooth scope-toolbelt 1 1 's|research-sdd/toolbelt:1||' 'RETIRED research-sdd/toolbelt/tool.v1.md:2 foo bar' 'RETIRED research-sdd/toolbelt/tool.v1.md:2 foo bar' -- bash @SUT@ --walk "$TH" "$TL"
+
+  echo "-- teeth: could-not-run states (kit issue #1718) --"
+  if [ "$UNREAD_SKIP" -eq 1 ]; then
+    printf '  SKIP  %-60s %s\n' "teeth-find-rc" "running as root / mode 000 not enforced"
+  else
+    chmod 000 "$WORK/unread/research-sdd/templates/locked"
+    tooth find-rc 2 0 '/SENTINEL-FIND-RC/s/-ne 0/-eq 99/' 'DEGRADED scope-find-error' 'DEGRADED scope-find-error' -- bash @SUT@ --walk "$WORK/unread" "$TL"
+    chmod 755 "$WORK/unread/research-sdd/templates/locked"
+  fi
+  tooth cd-failed 2 0 '/SENTINEL-MATCH/s/cd "\$root" || exit 125;/cd "$root" \&\&/' 'DEGRADED cd-failed' 'DEGRADED cd-failed' -- env BASH_ENV="$WORK/cdshim.sh" bash @SUT@ --walk "$WORK/clean2" "$TL"
+  tooth binary-text 1 2 '/SENTINEL-MATCH/s/grep -aHnF/grep -HnF/' 'RETIRED research-sdd/profiles/bin.md:1 foo bar' 'RETIRED research-sdd/profiles/bin.md:1 foo bar' -- bash @SUT@ --walk "$WORK/binary" "$TL"
+  tooth parse-guard 2 1 '/SENTINEL-PARSE/s/! \[\[ "\$hit" =~ \^\[\^:\]+:\[0-9\]+: \]\]/false/' 'DEGRADED grep-output-unparsable' 'DEGRADED grep-output-unparsable' -- env PATH="$FBU:$PATH" bash @SUT@ --walk "$WORK/clean2" "$TL"
+  tooth grep-error 2 0 '/DEGRADED grep-error/s/-gt 1/-gt 99/' 'DEGRADED grep-error' 'DEGRADED grep-error' -- env PATH="$FBE:$PATH" bash @SUT@ --walk "$WORK/clean2" "$TL"
 fi
 
 # ---------- footer
