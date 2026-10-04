@@ -313,8 +313,21 @@ if [ -n "$bt_cites" ]; then
   _vb_np_cites=$(grep -E "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?   # P973-NONPATH-SPLIT
   if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""
   elif [ -n "$_vb_np_cites" ]; then
-    _vb_np_keep=$(grep -vE "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?
-    if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""; else bt_cites="$_vb_np_keep"; fi
+    # P973-NONPATH-EXISTS: a shape match is only a candidate. A token whose file EXISTS under any source root is a real
+    # cite (`analysis.v2.R`, `x.app`) and stays in bt_cites, so RANGE! / ok and the exit code are untouched.
+    _vb_np_cand="$_vb_np_cites"; _vb_np_cites=""
+    while IFS= read -r c; do
+      [ -z "$c" ] && continue
+      _vb_np_hit=0
+      for _vb_np_r in "$target" "$git_root" "$target_root" "${SOURCE_ROOT:-}"; do
+        if [ -n "$_vb_np_r" ] && [ -f "$_vb_np_r/${c%:*}" ]; then _vb_np_hit=1; break; fi
+      done
+      [ "$_vb_np_hit" = 0 ] && _vb_np_cites="${_vb_np_cites:+$_vb_np_cites$'\n'}$c"
+    done <<<"$_vb_np_cand"
+    if [ -n "$_vb_np_cites" ]; then
+      _vb_np_keep=$(grep -vxF -f <(printf '%s\n' "$_vb_np_cites") <<<"$bt_cites"); _vb_np_h=$?
+      if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""; else bt_cites="$_vb_np_keep"; fi
+    fi
   fi
 fi
 # (c) Short-form :NNN citations — a bare colon + line number where the file is named in

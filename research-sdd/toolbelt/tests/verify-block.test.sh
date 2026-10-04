@@ -1519,6 +1519,12 @@ n973 oddext standard 'Fits `n973-odd.zzq:2`; past EOF `n973-odd.zzq:9`. [CERT]'
 out="$(run "$N973")"; rrc "$N973"; got=$?
 { [ "$got" = 1 ] && grep -q '  ok  *n973-odd.zzq:2' <<<"$out" && grep -q 'RANGE!  n973-odd.zzq:9' <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
   && ok "#973 GUARD: an existing file with an unlisted extension still resolves / RANGE! (never reclassified nonpath)" || no "#973 existing odd-ext file reclassified (rc=$got) :: $(grep -iE 'zzq|nonpath' <<<"$out" | head -3)"
+# guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
+printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
+n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
+out="$(run "$N973")"; rrc "$N973"; got=$?
+{ [ "$got" = 1 ] && grep -q 'RANGE!  analysis.v2.R:9' <<<"$out" && grep -q 'RANGE!  my.v2.app:9' <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
+  && ok "#973 GUARD: existing analysis.v2.R / my.v2.app keep RANGE! (shape alone never makes a real file nonpath)" || no "#973 existing shape-matching file reclassified (rc=$got) :: $(grep -iE 'nonpath|RANGE' <<<"$out" | head -3)"
 # item 2: RANGE! / MISSING! resolved their file -> no SOURCE_ROOT hint, split named
 n973 range standard 'Past EOF `n973-real.java:99`. [CERT]'
 out="$(run "$N973")"; rrc "$N973"; got=$?
@@ -2081,6 +2087,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # a block citing only an ip:port must still read as citing NOTHING (P6 WARN), not as a non-empty bt_cites set.
     tooth "teeth-973-split" 0 0 "$MUT/np1.sh" --good-has "$NOCITE" --good-lacks 'resolved 0 of' \
       --bad-lacks "$NOCITE" -- bash @SUT@ "$TMP/n973-ip.md"
+  fi
+  if mk_sed "teeth-973-exists" "$MUT/np0.sh" 's/if \[ -n "\$_vb_np_r" \] && \[ -f "\$_vb_np_r\/\${c%:\*}" \]; then/if false; then/'; then
+    tooth "teeth-973-exists" 1 0 "$MUT/np0.sh" --good-has 'RANGE!  analysis.v2.R:9' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  analysis.v2.R:9' --bad-lacks 'RANGE!  analysis' -- bash @SUT@ "$TMP/n973-shapereal.md"
   fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \
