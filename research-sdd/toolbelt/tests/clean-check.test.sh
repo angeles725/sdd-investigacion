@@ -505,7 +505,7 @@ KL
     --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
   mt "ENOENT-only errors no longer benign" '/# CC-ENOENT-BENIGN$/s/_frc=0; fi/:; fi/' 1 2 \
     --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-benign:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-  mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/! printf .%s\\n. "\$_ferr" | grep -v .No such file or directory. | grep -q \./true/' 2 1 \
+  mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/\[ "\$_other" -eq 0 \]/true/' 2 1 \
     --good-has 'find failed' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-hard:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
 fi
 

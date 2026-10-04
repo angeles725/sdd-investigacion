@@ -205,7 +205,9 @@ if [ -n "$SCRATCH_P" ]; then
     _sraw=()
     while IFS= read -r -d '' _p; do _sraw+=("$_p"); done < <(
       { _ferr="$(find "$SCRATCH_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -type f -print0 2>&1 >&3)"; _frc=$?; } 3>&1   # CC-SCRATCH-FIND
-      if [ "$_frc" -ne 0 ] && [ -n "$_ferr" ] && ! printf '%s\n' "$_ferr" | grep -v 'No such file or directory' | grep -q .; then _frc=0; fi   # CC-ENOENT-BENIGN
+      _other=0   # any stderr line that is not an ENOENT (a vanished entry) makes the scan a real failure
+      while IFS= read -r _l; do case "$_l" in '') ;; *"No such file or directory"*) ;; *) _other=1 ;; esac; done <<<"$_ferr"
+      if [ "$_frc" -ne 0 ] && [ -n "$_ferr" ] && [ "$_other" -eq 0 ]; then _frc=0; fi   # CC-ENOENT-BENIGN
       [ "$_frc" -eq 0 ] || printf '%s\n' "$_ferr" >&2
       printf 'RC=%s\0' "$_frc"
     )
