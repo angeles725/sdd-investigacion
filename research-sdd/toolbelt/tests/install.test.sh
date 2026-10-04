@@ -382,6 +382,16 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth: setting up mutant tests --'
 
+  # Every mutant of the SUT is built through lib/mutant.sh (mutant_chain): a stage that matches
+  # nothing, an empty/byte-identical/invalid-bash mutant and a live-tree or symlink OUT are refused.
+  # A refused build prints its own FAIL line, is counted exactly once (the else branch of its
+  # `if mutant_chain`) and its tooth never runs. The observations are kept as they were: each
+  # tooth drives a generated driver script (or the CLI) over the mutant and reads the artifact the
+  # base tests assert on, so they are not expressible as one mutant_tooth argv without a redesign.
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+
   # ---- Tooth A: SENTINEL-IDEMPOTENT — disabling the strip-existing-block guard ----
   # Mutant: force _splice_has_existing=1 always, so the awk strip always runs.
   # On first call to an empty file, awk with no matching start marker = passthrough (ok).
@@ -391,36 +401,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-a: SENTINEL-IDEMPOTENT mutant (always skip strip) must produce 2 blocks --'
   MUTANT_A="$TMP/install.MUT-A.sh"
   if grep -q 'SENTINEL-IDEMPOTENT' "$SUT"; then
-    sed 's/local _splice_has_existing=0  # SENTINEL-IDEMPOTENT.*/local _splice_has_existing=0  # MUTATED-A (always 0 → never strips)/' \
-      "$SUT" > "$MUTANT_A"
-    # Now also make it so the grep update to 1 is REMOVED (it's after the sentinel line).
-    # Actually: the mutant already sets it to 0; but the next line does:
-    #   [ -f "$file" ] && grep -qF ... && _splice_has_existing=1
-    # We need to also neutralize that assignment. Use a secondary sed to change the
-    # assignment to _splice_has_existing=0 again:
-    sed -i \
-      's/\[ -f "\$file" \] && grep -qF "\$START_MARKER" "\$file" 2>\/dev\/null && _splice_has_existing=1/: # MUTATED-A (probe disabled)/' \
-      "$MUTANT_A"
+    # Two stages in ONE chain (each must change the SUT on its own): force the flag to 0, and
+    # neutralize the later `[ -f ... ] && grep ... && _splice_has_existing=1` probe so it can
+    # never flip it back. The second stage is independent of the first (different line).
+    if mutant_chain "teeth-a: install.MUT-A.sh" "$SUT" "$MUTANT_A" \
+      's/local _splice_has_existing=0  # SENTINEL-IDEMPOTENT.*/local _splice_has_existing=0  # MUTATED-A (always 0 → never strips)/' \
+      's/\[ -f "\$file" \] && grep -qF "\$START_MARKER" "\$file" 2>\/dev\/null && _splice_has_existing=1/: # MUTATED-A (probe disabled)/'; then
 
-    splice_script_a="$TMP/test-splice-mut-a.sh"
-    target_a="$TMP/bashrc-mut-a"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_A\"" \
-      "dry=0" \
-      "splice_marker \"$target_a\" 'export TEST_MUTANT=1'" \
-      "splice_marker \"$target_a\" 'export TEST_MUTANT=1'" \
-      > "$splice_script_a"
-    bash "$splice_script_a" >/dev/null 2>&1
-    mut_a_count=0
-    [ -f "$target_a" ] && mut_a_count="$(grep -cF '# research-sdd:start' "$target_a" || true)"
-    if [ "$mut_a_count" -ge 2 ]; then
-      ok "teeth-a: SENTINEL-IDEMPOTENT mutant produces $mut_a_count blocks (idempotency guard bites)"
+      splice_script_a="$TMP/test-splice-mut-a.sh"
+      target_a="$TMP/bashrc-mut-a"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_A\"" \
+        "dry=0" \
+        "splice_marker \"$target_a\" 'export TEST_MUTANT=1'" \
+        "splice_marker \"$target_a\" 'export TEST_MUTANT=1'" \
+        > "$splice_script_a"
+      bash "$splice_script_a" >/dev/null 2>&1
+      mut_a_count=0
+      [ -f "$target_a" ] && mut_a_count="$(grep -cF '# research-sdd:start' "$target_a" || true)"
+      if [ "$mut_a_count" -ge 2 ]; then
+        ok "teeth-a: SENTINEL-IDEMPOTENT mutant produces $mut_a_count blocks (idempotency guard bites)"
+      else
+        no "teeth-a: mutant produced $mut_a_count block(s); expected >=2" \
+           "file=$(cat "$target_a" 2>/dev/null)"
+      fi
     else
-      no "teeth-a: mutant produced $mut_a_count block(s); expected >=2" \
-         "file=$(cat "$target_a" 2>/dev/null)"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
+
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original still produces exactly 1
     [ "$start_count" -eq 1 ] \
       && ok "teeth-a: original still produces exactly 1 block (control confirmed)" \
@@ -436,26 +447,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-b: SENTINEL-DRY-RUN mutant (dry guard disabled) must write file --'
   MUTANT_B="$TMP/install.MUT-B.sh"
   if grep -q 'SENTINEL-DRY-RUN' "$SUT"; then
-    sed 's/local _splice_is_dry="${dry:-0}"  # SENTINEL-DRY-RUN.*/local _splice_is_dry=0  # MUTATED-B (always non-dry)/' \
-      "$SUT" > "$MUTANT_B"
+    if mutant_chain "teeth-b: install.MUT-B.sh" "$SUT" "$MUTANT_B" \
+      's/local _splice_is_dry="${dry:-0}"  # SENTINEL-DRY-RUN.*/local _splice_is_dry=0  # MUTATED-B (always non-dry)/'; then
 
-    target_b="$TMP/bashrc-mut-b"
-    splice_script_b="$TMP/test-splice-mut-b.sh"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_B\"" \
-      "dry=1" \
-      "splice_marker \"$target_b\" 'export TEST_DRY=1'" \
-      > "$splice_script_b"
-    bash "$splice_script_b" >/dev/null 2>&1
+      target_b="$TMP/bashrc-mut-b"
+      splice_script_b="$TMP/test-splice-mut-b.sh"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_B\"" \
+        "dry=1" \
+        "splice_marker \"$target_b\" 'export TEST_DRY=1'" \
+        > "$splice_script_b"
+      bash "$splice_script_b" >/dev/null 2>&1
 
-    if [ -f "$target_b" ]; then
-      ok "teeth-b: SENTINEL-DRY-RUN mutant wrote file despite dry=1 (dry guard bites)"
+      if [ -f "$target_b" ]; then
+        ok "teeth-b: SENTINEL-DRY-RUN mutant wrote file despite dry=1 (dry guard bites)"
+      else
+        no "teeth-b: mutant did NOT write file — dry guard may not be load-bearing"
+      fi
     else
-      no "teeth-b: mutant did NOT write file — dry guard may not be load-bearing"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original with dry=1 does NOT write.
     target_b_orig="$TMP/bashrc-orig-b"
     splice_script_b_orig="$TMP/test-splice-orig-b.sh"
@@ -482,28 +497,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-c: SENTINEL-APT-DRY mutant (apt dry guard disabled) must call sudo_n --'
   MUTANT_C="$TMP/install.MUT-C.sh"
   if grep -q 'SENTINEL-APT-DRY' "$SUT"; then
-    sed 's/  if \[ "\$dry" -eq 1 \]; then emit_plan "apt-get install -y \$pkg"; return 0; fi  # SENTINEL-APT-DRY/  if [ 0 -eq 1 ]; then emit_plan "apt-get install -y $pkg"; return 0; fi  # MUTATED-C/' \
-      "$SUT" > "$MUTANT_C"
+    if mutant_chain "teeth-c: install.MUT-C.sh" "$SUT" "$MUTANT_C" \
+      's/  if \[ "\$dry" -eq 1 \]; then emit_plan "apt-get install -y \$pkg"; return 0; fi  # SENTINEL-APT-DRY/  if [ 0 -eq 1 ]; then emit_plan "apt-get install -y $pkg"; return 0; fi  # MUTATED-C/'; then
 
-    sudo_log_c="$TMP/sudo-log-c.txt"
-    apt_dry_script="$TMP/test-apt-mut-c.sh"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_C\"" \
-      "dry=1" \
-      "sudo_log_c=\"$sudo_log_c\"" \
-      'sudo_n() { printf "called: %s\n" "$*" >> "$sudo_log_c"; return 100; }' \
-      'apt_have() { return 1; }' \
-      "apt_install 'fake-pkg' || true" \
-      > "$apt_dry_script"
-    bash "$apt_dry_script" >/dev/null 2>&1 || true
-    if [ -f "$sudo_log_c" ] && [ "$(wc -l < "$sudo_log_c")" -gt 0 ]; then
-      ok "teeth-c: SENTINEL-APT-DRY mutant called sudo_n in dry=1 (apt dry guard bites)"
+      sudo_log_c="$TMP/sudo-log-c.txt"
+      apt_dry_script="$TMP/test-apt-mut-c.sh"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_C\"" \
+        "dry=1" \
+        "sudo_log_c=\"$sudo_log_c\"" \
+        'sudo_n() { printf "called: %s\n" "$*" >> "$sudo_log_c"; return 100; }' \
+        'apt_have() { return 1; }' \
+        "apt_install 'fake-pkg' || true" \
+        > "$apt_dry_script"
+      bash "$apt_dry_script" >/dev/null 2>&1 || true
+      if [ -f "$sudo_log_c" ] && [ "$(wc -l < "$sudo_log_c")" -gt 0 ]; then
+        ok "teeth-c: SENTINEL-APT-DRY mutant called sudo_n in dry=1 (apt dry guard bites)"
+      else
+        no "teeth-c: mutant did not call sudo_n — apt dry guard may not be load-bearing"
+      fi
     else
-      no "teeth-c: mutant did not call sudo_n — apt dry guard may not be load-bearing"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original with dry=1 does NOT call sudo_n.
     sudo_log_c_orig="$TMP/sudo-log-c-orig.txt"
     apt_dry_orig="$TMP/test-apt-orig-c.sh"
@@ -570,21 +589,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-e: SENTINEL-PDF-DRY mutant (phase_pdf dry guard disabled) must write files --'
   MUTANT_E="$TMP/install.MUT-E.sh"
   if grep -q 'SENTINEL-PDF-DRY' "$SUT"; then
-    sed 's/if \[ "\$dry" -eq 1 \]; then  # SENTINEL-PDF-DRY/if [ 0 -eq 1 ]; then  # MUTATED-E/' \
-      "$SUT" > "$MUTANT_E"
+    if mutant_chain "teeth-e: install.MUT-E.sh" "$SUT" "$MUTANT_E" \
+      's/if \[ "\$dry" -eq 1 \]; then  # SENTINEL-PDF-DRY/if [ 0 -eq 1 ]; then  # MUTATED-E/'; then
 
-    pdf_scratch_home="$TMP/pdf-scratch-home-e"
-    pdf_kit_home="$TMP/pdf-kit-home-e"
-    mkdir -p "$pdf_scratch_home" "$pdf_kit_home"
-    HOME="$pdf_scratch_home" bash "$MUTANT_E" --dry-run --with-pdf \
-      --home "$pdf_kit_home" --harness claude >/dev/null 2>&1 || true
-    mut_e_count="$(find "$pdf_scratch_home" "$pdf_kit_home" -mindepth 1 | wc -l)"
-    if [ "$mut_e_count" -gt 0 ]; then
-      ok "teeth-e: SENTINEL-PDF-DRY mutant wrote ${mut_e_count} file(s) (pdf dry guard bites)"
+      pdf_scratch_home="$TMP/pdf-scratch-home-e"
+      pdf_kit_home="$TMP/pdf-kit-home-e"
+      mkdir -p "$pdf_scratch_home" "$pdf_kit_home"
+      HOME="$pdf_scratch_home" bash "$MUTANT_E" --dry-run --with-pdf \
+        --home "$pdf_kit_home" --harness claude >/dev/null 2>&1 || true
+      mut_e_count="$(find "$pdf_scratch_home" "$pdf_kit_home" -mindepth 1 | wc -l)"
+      if [ "$mut_e_count" -gt 0 ]; then
+        ok "teeth-e: SENTINEL-PDF-DRY mutant wrote ${mut_e_count} file(s) (pdf dry guard bites)"
+      else
+        no "teeth-e: mutant wrote 0 files — pdf dry guard may not be load-bearing"
+      fi
     else
-      no "teeth-e: mutant wrote 0 files — pdf dry guard may not be load-bearing"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original with --dry-run --with-pdf writes 0 files.
     pdf_scratch_orig="$TMP/pdf-scratch-orig-e"
     pdf_kit_orig="$TMP/pdf-kit-orig-e"
@@ -608,34 +631,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-f: SENTINEL-ORPHAN-SKIP mutant (append on orphan) must lose content by run 2 --'
   MUTANT_F="$TMP/install.MUT-F.sh"
   if grep -q 'SENTINEL-ORPHAN-SKIP' "$SUT"; then
-    sed 's/if \[ "\$_splice_aw" -eq 3 \]; then  # SENTINEL-ORPHAN-SKIP/if [ 0 -eq 3 ]; then  # MUTATED-F/' \
-      "$SUT" > "$MUTANT_F"
+    if mutant_chain "teeth-f: install.MUT-F.sh" "$SUT" "$MUTANT_F" \
+      's/if \[ "\$_splice_aw" -eq 3 \]; then  # SENTINEL-ORPHAN-SKIP/if [ 0 -eq 3 ]; then  # MUTATED-F/'; then
 
-    orphan_f="$TMP/bashrc-orphan-f"
-    printf '%s\n' \
-      'BEFORE_F=1' \
-      '# research-sdd:start' \
-      'ORPHAN_MID=1' \
-      'AFTER_F=2' \
-      > "$orphan_f"
-    orphan_f_script="$TMP/test-splice-mut-f.sh"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_F\"" \
-      "dry=0" \
-      "f=\"$orphan_f\"" \
-      "splice_marker \"\$f\" 'export MUT_F=1' || true" \
-      "splice_marker \"\$f\" 'export MUT_F=1' || true" \
-      > "$orphan_f_script"
-    bash "$orphan_f_script" >/dev/null 2>&1 || true
-    if ! grep -qF 'ORPHAN_MID=1' "$orphan_f" 2>/dev/null; then
-      ok "teeth-f: SENTINEL-ORPHAN-SKIP mutant lost ORPHAN_MID on run 2 (skip guard bites)"
+      orphan_f="$TMP/bashrc-orphan-f"
+      printf '%s\n' \
+        'BEFORE_F=1' \
+        '# research-sdd:start' \
+        'ORPHAN_MID=1' \
+        'AFTER_F=2' \
+        > "$orphan_f"
+      orphan_f_script="$TMP/test-splice-mut-f.sh"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_F\"" \
+        "dry=0" \
+        "f=\"$orphan_f\"" \
+        "splice_marker \"\$f\" 'export MUT_F=1' || true" \
+        "splice_marker \"\$f\" 'export MUT_F=1' || true" \
+        > "$orphan_f_script"
+      bash "$orphan_f_script" >/dev/null 2>&1 || true
+      if ! grep -qF 'ORPHAN_MID=1' "$orphan_f" 2>/dev/null; then
+        ok "teeth-f: SENTINEL-ORPHAN-SKIP mutant lost ORPHAN_MID on run 2 (skip guard bites)"
+      else
+        no "teeth-f: mutant still has ORPHAN_MID — orphan skip guard may not be load-bearing" \
+           "$(cat "$orphan_f" 2>/dev/null)"
+      fi
     else
-      no "teeth-f: mutant still has ORPHAN_MID — orphan skip guard may not be load-bearing" \
-         "$(cat "$orphan_f" 2>/dev/null)"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original preserves ORPHAN_MID after two runs.
     orphan_f_orig="$TMP/bashrc-orphan-f-orig"
     printf '%s\n' \
@@ -671,34 +698,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-g: SENTINEL-GREP-AV-ANCHOR mutant (un-anchored regex) must report 4|4 --'
   MUTANT_G="$TMP/install.MUT-G.sh"
   if grep -q 'SENTINEL-GREP-AV-ANCHOR' "$SUT"; then
-    sed "s/local _av_re='.*'  # SENTINEL-GREP-AV-ANCHOR/local _av_re='AVAILABLE'  # MUTATED-G/" \
-      "$SUT" > "$MUTANT_G"
+    if mutant_chain "teeth-g: install.MUT-G.sh" "$SUT" "$MUTANT_G" \
+      "s/local _av_re='.*'  # SENTINEL-GREP-AV-ANCHOR/local _av_re='AVAILABLE'  # MUTATED-G/"; then
 
-    mut_g_script="$TMP/test-summary-mut-g.sh"
-    mut_g_home="$TMP/summary-home-mut-g"
-    mkdir -p "$mut_g_home"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_G\"" \
-      "SELF=\"$stub_install8\"" \
-      "KIT=\"$stub_kit8\"" \
-      'apt_have() { return 0; }' \
-      'have()     { return 0; }' \
-      'node_ok()  { return 0; }' \
-      'sudo_n()   { return 100; }' \
-      "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
-      "main --home \"$mut_g_home\" --harness claude" \
-      > "$mut_g_script"
-    mut_g_out="$(bash "$mut_g_script" 2>/dev/null || true)"
-    if <<<"$mut_g_out" grep -qF 'AVAILABLE: 4'; then
-      ok "teeth-g: SENTINEL-GREP-AV-ANCHOR mutant reports 4 AVAILABLE (legend line counted; anchor bites)"
+      mut_g_script="$TMP/test-summary-mut-g.sh"
+      mut_g_home="$TMP/summary-home-mut-g"
+      mkdir -p "$mut_g_home"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_G\"" \
+        "SELF=\"$stub_install8\"" \
+        "KIT=\"$stub_kit8\"" \
+        'apt_have() { return 0; }' \
+        'have()     { return 0; }' \
+        'node_ok()  { return 0; }' \
+        'sudo_n()   { return 100; }' \
+        "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
+        "main --home \"$mut_g_home\" --harness claude" \
+        > "$mut_g_script"
+      mut_g_out="$(bash "$mut_g_script" 2>/dev/null || true)"
+      if <<<"$mut_g_out" grep -qF 'AVAILABLE: 4'; then
+        ok "teeth-g: SENTINEL-GREP-AV-ANCHOR mutant reports 4 AVAILABLE (legend line counted; anchor bites)"
+      else
+        mut_g_line="$(printf '%s' "$mut_g_out" | grep 'SUMMARY' || true)"
+        no "teeth-g: mutant did not report AVAILABLE: 4 — anchor may not be load-bearing" \
+           "got: $mut_g_line"
+      fi
     else
-      mut_g_line="$(printf '%s' "$mut_g_out" | grep 'SUMMARY' || true)"
-      no "teeth-g: mutant did not report AVAILABLE: 4 — anchor may not be load-bearing" \
-         "got: $mut_g_line"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original still reports 3 AVAILABLE (control).
     if <<<"$summary_out8" grep -qF 'AVAILABLE: 3'; then
       ok "teeth-g: original reports AVAILABLE: 3 (control confirmed; legend excluded)"
@@ -717,34 +748,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '%s\n' '-- teeth-h: SENTINEL-SKILL-DEPLOY mutant (|| true restored) must report BASELINE OK exit 0 --'
   MUTANT_H="$TMP/install.MUT-H.sh"
   if grep -q 'SENTINEL-SKILL-DEPLOY' "$SUT"; then
-    sed 's/|| _baseline_ok=0  # SENTINEL-SKILL-DEPLOY/|| true  # MUTATED-H/' \
-      "$SUT" > "$MUTANT_H"
+    if mutant_chain "teeth-h: install.MUT-H.sh" "$SUT" "$MUTANT_H" \
+      's/|| _baseline_ok=0  # SENTINEL-SKILL-DEPLOY/|| true  # MUTATED-H/'; then
 
-    mut_h_script="$TMP/test-summary-mut-h.sh"
-    mut_h_home="$TMP/summary-home-mut-h"
-    mkdir -p "$mut_h_home"
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -uo pipefail' \
-      "source \"$MUTANT_H\"" \
-      "SELF=\"$stub_install9\"" \
-      "KIT=\"$stub_kit8\"" \
-      'apt_have() { return 0; }' \
-      'have()     { return 0; }' \
-      'node_ok()  { return 0; }' \
-      'sudo_n()   { return 100; }' \
-      "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
-      "main --home \"$mut_h_home\" --harness claude" \
-      > "$mut_h_script"
-    mut_h_out="$(bash "$mut_h_script" 2>&1)"; mut_h_rc=$?
-    if [ "$mut_h_rc" -eq 0 ] && <<<"$mut_h_out" grep -q 'BASELINE OK'; then
-      ok "teeth-h: SENTINEL-SKILL-DEPLOY mutant reports BASELINE OK exit 0 (deploy-failure guard bites)"
+      mut_h_script="$TMP/test-summary-mut-h.sh"
+      mut_h_home="$TMP/summary-home-mut-h"
+      mkdir -p "$mut_h_home"
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -uo pipefail' \
+        "source \"$MUTANT_H\"" \
+        "SELF=\"$stub_install9\"" \
+        "KIT=\"$stub_kit8\"" \
+        'apt_have() { return 0; }' \
+        'have()     { return 0; }' \
+        'node_ok()  { return 0; }' \
+        'sudo_n()   { return 100; }' \
+        "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
+        "main --home \"$mut_h_home\" --harness claude" \
+        > "$mut_h_script"
+      mut_h_out="$(bash "$mut_h_script" 2>&1)"; mut_h_rc=$?
+      if [ "$mut_h_rc" -eq 0 ] && <<<"$mut_h_out" grep -q 'BASELINE OK'; then
+        ok "teeth-h: SENTINEL-SKILL-DEPLOY mutant reports BASELINE OK exit 0 (deploy-failure guard bites)"
+      else
+        mut_h_line="$(printf '%s' "$mut_h_out" | grep 'SUMMARY' || true)"
+        no "teeth-h: mutant did not report BASELINE OK exit 0 — deploy-failure guard may not be load-bearing" \
+           "rc=$mut_h_rc summary=$mut_h_line"
+      fi
     else
-      mut_h_line="$(printf '%s' "$mut_h_out" | grep 'SUMMARY' || true)"
-      no "teeth-h: mutant did not report BASELINE OK exit 0 — deploy-failure guard may not be load-bearing" \
-         "rc=$mut_h_rc summary=$mut_h_line"
+      fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
     fi
 
+    # Control on the ORIGINAL SUT: runs even when the mutant build was refused.
     # Confirm original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control).
     if [ "$summary_rc9" -ne 0 ] && <<<"$summary_out9" grep -q 'BASELINE DEGRADED'; then
       ok "teeth-h: original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control confirmed)"
