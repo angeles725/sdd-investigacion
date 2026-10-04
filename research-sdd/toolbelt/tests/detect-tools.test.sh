@@ -972,13 +972,15 @@ dotnet_ipc_count() {
   find "$1" -maxdepth 1 \( -name 'clr-debug-pipe-*' -o -name 'dotnet-diagnostic-*' \) | wc -l
 }
 # settled_ipc_count <dir>: stray dotnet children may outlive the SUT and create endpoints late, so re-count
-# every 0.2 s until two consecutive counts agree (max 15 polls, ~3 s). Prints the settled count; rc 2 on any
-# count failure (absent dir, find error).
+# every 0.2 s; the count is accepted only after a 1 s minimum window AND two consecutive equal counts
+# (max 15 polls, ~3 s). Prints the settled count; rc 2 on any count failure (absent dir, or a find error,
+# which the suite-wide `set -o pipefail` propagates through `| wc -l`).
 settled_ipc_count() {
-  local prev="" cur
+  local prev="" cur n=0
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     cur="$(dotnet_ipc_count "$1")" || return 2
-    [ "$cur" = "$prev" ] && break
+    n=$((n + 1))
+    [ "$n" -gt 5 ] && [ "$cur" = "$prev" ] && break
     prev="$cur"; sleep 0.2
   done
   printf '%s\n' "$cur"
