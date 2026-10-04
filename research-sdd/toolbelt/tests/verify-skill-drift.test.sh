@@ -799,18 +799,30 @@ else
     # Tooth: a sandbox kit whose adapters.sh DROPS gentle-shell from RESEARCH_SDD_HARNESSES must NOT
     # report the gentle-shell drift PIH4 detects (rc 0, name absent) — so PIH4 depends on registration.
     # The mutated file is adapters.sh (built from the live one into the temp sandbox through the
-    # helper); the SUT copy beside it resolves that adapters.sh, so the "mutant" side is the sandbox
-    # SUT copy and the original is the live SUT.
-    PIK="$ROOT/pikit"
-    mkdir -p "$PIK/install" "$PIK/toolbelt" "$PIK/skills/research-sdd"
-    cp "$SUT" "$PIK/toolbelt/verify-skill-drift.sh"
-    cp "$SRC_SKILL" "$PIK/skills/research-sdd/SKILL.md"
-    if mk "teeth PIH harness-dropped" "$HERE/../../install/adapters.sh" "$PIK/install/adapters.sh" \
+    # helper). BOTH sides run from sandboxes with an identical layout: PIO (pristine adapters.sh, the
+    # original) and PIK (mutated adapters.sh), each with a byte-identical SUT copy and SKILL.md, so
+    # adapters.sh is the ONLY difference between the two runs.
+    PIK="$ROOT/pikit"; PIO="$ROOT/pikit-orig"
+    mkdir -p "$PIK/install" "$PIK/toolbelt" "$PIK/skills/research-sdd" \
+             "$PIO/install" "$PIO/toolbelt" "$PIO/skills/research-sdd"
+    for _d in "$PIK" "$PIO"; do
+      cp "$SUT" "$_d/toolbelt/verify-skill-drift.sh"
+      cp "$SRC_SKILL" "$_d/skills/research-sdd/SKILL.md"
+      # gentle-shell defaults to the "general" profile: the original must be able to re-render it.
+      mkdir -p "$_d/profiles"
+      cp "$KIT/toolbelt/render-profile.sh" "$_d/toolbelt/render-profile.sh"
+      cp "$KIT/profiles/general.slots.md" "$_d/profiles/general.slots.md"
+      cp "$KIT/PROMPT-LOOP.md" "$KIT/METHODOLOGY.md" "$_d/"
+    done
+    cp "$HERE/../../install/adapters.sh" "$PIO/install/adapters.sh"
+    if ! cmp -s "$PIO/install/adapters.sh" "$HERE/../../install/adapters.sh"; then
+      no "teeth PIH staging: pristine sandbox adapters.sh is not byte-identical to the live one"
+    elif mk "teeth PIH harness-dropped" "$HERE/../../install/adapters.sh" "$PIK/install/adapters.sh" \
          's/^RESEARCH_SDD_HARNESSES="\(.*\) gentle-shell"/RESEARCH_SDD_HARNESSES="\1"/'; then
       H_PIT="$ROOT/home_pit"; mkdir -p "$H_PIT/.gentle-shell/agent/skills/research-sdd"
       printf 'stale\n' > "$H_PIT/.gentle-shell/agent/skills/research-sdd/SKILL.md"
       # GOOD_RC 1 (original reports the stale gentle-shell) / BAD_RC 0 (registration dropped → silent).
-      tt "teeth PIH" 1 0 "$PIK/toolbelt/verify-skill-drift.sh" --orig "$SUT" \
+      tt "teeth PIH" 1 0 "$PIK/toolbelt/verify-skill-drift.sh" --orig "$PIO/toolbelt/verify-skill-drift.sh" \
         --good-has '^verify-skill-drift: fix: .*--harness gentle-shell ' --bad-lacks 'gentle-shell' \
         -- bash @SUT@ --all --home "$H_PIT"
     fi
@@ -1001,8 +1013,11 @@ if [ "$prove_teeth" -eq 1 ]; then
     MUT_I="$MUT_DIR/verify-skill-drift-mut-I.sh"
     if mk "TOOTH I unconditional-summary" "$SUT" "$MUT_I" '/# SENTINEL-SUMMARY-GUARD/{n; s/if \[ .* -gt 0 .*/if true; then/}'; then
       ok "TOOTH I pre-check: mutant built (SENTINEL-SUMMARY-GUARD condition forced true)"
-      tt "TOOTH I unconditional-summary" 0 0 "$MUT_I" --orig "$SBX_ORIG" \
-        --good-lacks '.' --bad-has '^verify-skill-drift: all: checked=3 in-sync=1 diverged=0 absent=2 could-not-run=0$' \
+      # The bad-side anchor pins only what the mutation flips (a summary line exists on a clean run, with
+    # diverged=0 and could-not-run=0); the harness counts are wildcards so the tooth is not coupled to
+    # how many harnesses adapters.sh registers.
+    tt "TOOTH I unconditional-summary" 0 0 "$MUT_I" --orig "$SBX_ORIG" \
+        --good-lacks '.' --bad-has '^verify-skill-drift: all: checked=[0-9]+ in-sync=[0-9]+ diverged=0 absent=[0-9]+ could-not-run=0$' \
         -- bash @SUT@ --all --home "$H_ALL_SYNC"
     fi
 
