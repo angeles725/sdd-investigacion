@@ -447,21 +447,32 @@ else
   if ! grep -q '^title_is_unusable()' "$_stfn"; then no "T52 parity: extract the seeder's title_is_unusable" "harness failure: function not found in $_STAGE"
   else
     # Run BOTH sides under a UTF-8 locale AND LC_ALL=C, with multibyte titles on the 11/12-character boundary
-    # (ñ = 2 bytes, € = 3 bytes: 11 chars are 22 / 33 bytes, so a byte count would wrongly accept them). A divergence
-    # under one locale is reported as a KNOWN GAP tied to the seeder switch (the seeder is not edited here), never hidden.
-    for _loc in C.utf8 C; do
+    # (ñ = 2 bytes, € = 3 bytes: 11 chars are 22 / 33 bytes, so a byte count would wrongly accept them).
+    # t52_parity <lib> <locale> -> sets _pbad (the disagreements, empty = parity) and _pn (titles compared).
+    t52_parity() {
+      local _lib="$1" _l="$2" _tt _tr _sv _lv
       _pbad=""; _pn=0
       for _tt in 'high' 'Medium' 'bug' 'Docs' 'doc-fix' 'regression' 'documentation' 'elevenchars' 'twelve chars' 'exactly 12 c' 'a perfectly fine delta title' 'ñññññññññññ' 'ññññññññññññ' '€€€€€€€€€€€' '€€€€€€€€€€€€' 'ñ€ñ€ñ€ñ€ñ€ñ' '  padded high  ' 'féature' 'low' 'fixes' ''; do
         _pn=$((_pn+1))
         _tr="$(printf '%s' "$_tt" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-        _sv="$(LC_ALL="$_loc" "$BASH_BIN" -c '. "$1"; title_is_unusable "$2" && echo unusable || echo usable' _ "$_stfn" "$_tt" 2>/dev/null)"
-        _lv="$(LC_ALL="$_loc" "$BASH_BIN" -c '. "$1"; retro_grammar_title_has_identity "$2" && echo usable || echo unusable' _ "$RG_LIB" "$_tr" 2>/dev/null)"
+        _sv="$(LC_ALL="$_l" "$BASH_BIN" -c '. "$1"; title_is_unusable "$2" && echo unusable || echo usable' _ "$_stfn" "$_tt" 2>/dev/null)"
+        _lv="$(LC_ALL="$_l" "$BASH_BIN" -c '. "$1"; retro_grammar_title_has_identity "$2" && echo usable || echo unusable' _ "$_lib" "$_tr" 2>/dev/null)"
         [ "$_sv" = "$_lv" ] || _pbad="$_pbad [$_tt: stage=$_sv lib=$_lv]"
       done
-      if [ -z "$_pbad" ] && [ "$_pn" -ge 20 ]; then ok "T52 [$_loc] lib identity rule == stage-retro-issues title_is_unusable on $_pn titles (multibyte 11/12-char edge)" "()"
-      elif [ -n "$_pbad" ] && [ "$_loc" = C ]; then skip "T52 [$_loc] KNOWN GAP (seeder switch pending): seeder and lib disagree under LC_ALL=C" "$_pbad"
-      else no "T52 [$_loc] identity parity with the seeder" "$_pbad (n=$_pn)"; fi
-    done
+    }
+    # Probe for an installed UTF-8 locale: a name that does not exist silently falls back to C, which would make the
+    # UTF-8 iteration test the wrong thing. None installed = typed SKIP naming the degraded environment, never a pass.
+    _utf8loc="$(locale -a 2>/dev/null | grep -iE '^(C|en_US|[a-z]{2}_[A-Z]{2})\.utf-?8$' | head -n 1)"
+    if [ -n "$_utf8loc" ]; then
+      t52_parity "$RG_LIB" "$_utf8loc"
+      if [ -z "$_pbad" ] && [ "$_pn" -ge 20 ]; then ok "T52 [$_utf8loc] lib identity rule == stage-retro-issues title_is_unusable on $_pn titles (multibyte 11/12-char edge)" "()"
+      else no "T52 [$_utf8loc] identity parity with the seeder" "$_pbad (n=$_pn)"; fi
+    else
+      skip "T52 [UTF-8] no UTF-8 locale installed (degraded environment: locale -a lists none) — UTF-8 parity iteration not run" ""
+    fi
+    t52_parity "$RG_LIB" C
+    if [ -z "$_pbad" ] && [ "$_pn" -ge 20 ]; then ok "T52 [C] lib identity rule == stage-retro-issues title_is_unusable on $_pn titles (multibyte 11/12-char edge)" "()"
+    else no "T52 [C] identity parity with the seeder" "$_pbad (n=$_pn)"; fi
   fi
 fi
 
@@ -866,6 +877,12 @@ ti_mutant() {
 ti_mutant I1 's/^      high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix) return 1 ;;/      NEVERMATCHESANYTHING) return 1 ;;/'
 ti_mutant I2 's/-ge 12 \]   # RETRO_GRAMMAR_TITLE_MIN_LEN/-ge 11 ]   # RETRO_GRAMMAR_TITLE_MIN_LEN/'
 ti_mutant I3 's/tr -d .\\200-\\277. | wc -c/tr -d x | wc -c/'
+# T52 tooth: the lib counting BYTES (I3's mutant) must make the LC_ALL=C parity iteration red.
+if declare -F t52_parity >/dev/null 2>&1 && [ -f "$ROOT/ti-mut-I3.sh" ]; then
+  t52_parity "$ROOT/ti-mut-I3.sh" C
+  if [ -n "$_pbad" ]; then ok "T1811-T52C teeth: byte-counting lib mutant fails the LC_ALL=C seeder parity (T52 [C] has teeth)" "()"
+  else no "T1811-T52C teeth: byte-counting mutant must fail T52 [C]" "THEATER: no disagreement"; fi
+else no "T1811-T52C teeth: harness" "t52_parity or the I3 mutant is missing"; fi
 # rt_mutant <tag> <sed-expr> <fixture> <good>: the mutant must change what retro_grammar_row_titles prints
 rt_mutant() {
   local tag="$1" expr="$2" file="$3" good="$4" mlib="$ROOT/rt-mut-$1.sh" got
