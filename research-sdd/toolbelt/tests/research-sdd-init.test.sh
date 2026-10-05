@@ -2180,6 +2180,30 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" "$d" --wire >"$TMP/k00-f.out" 2>&1
   assert_grep "K1800-f typed NO-REMOTE" "vendor-leak: NO-REMOTE" "$TMP/k00-f.out"
   [ ! -s "$TMP/k71.gh.log" ] && ok "K1800-f no gh call without a remote" || no "K1800-f gh was called"
+  # (g) RDD: the "do this later" guidance is true for the path that printed it. On the wire path of an EXISTING corpus a plain run is
+  # refused (exit 3), so the advice is "re-run with --wire" and never "a plain run scaffolds the conf"; the scaffold path keeps its wording.
+  for _w in f:NO-REMOTE b1:PRIVATE; do
+    _f="$TMP/k00-${_w%%:*}.out"
+    assert_grep "K1800-g wire path ${_w##*:}: advice is re-run with --wire" "re-run with --wire (a plain run on an existing corpus is refused)" "$_f"
+    if grep -qF 'a plain run scaffolds the conf' "$_f"; then no "K1800-g wire path ${_w##*:}: misleading 'a plain run scaffolds the conf'"; else ok "K1800-g wire path ${_w##*:}: no misleading plain-run advice"; fi
+  done
+  d="$TMP/k00-g-nogit"; mkdir -p "$d"; : > "$d/INDEX.md"   # existing corpus that is not a work tree at all
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-g.out" 2>&1
+  assert_grep "K1800-g wire path, not a work tree: typed NO-REMOTE" "vendor-leak: NO-REMOTE" "$TMP/k00-g.out"
+  assert_grep "K1800-g wire path, not a work tree: advice is re-run with --wire" "re-run with --wire (a plain run on an existing corpus is refused)" "$TMP/k00-g.out"
+  d="$(_k71_target g-scaf)"; PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --corpus flat >"$TMP/k00-g2.out" 2>&1
+  assert_grep "K1800-g scaffold path keeps 'a plain run scaffolds the conf'" "a plain run scaffolds the conf" "$TMP/k00-g2.out"
+  # (h) RDD: with NO `timeout` binary the wire-repair probe is still bounded (bash watchdog); a stalled gh is the typed "timed out"
+  # DEGRADED, the repair finishes and exits 0.
+  _k00_noto="$TMP/k00noto"; mkdir -p "$_k00_noto"; cp -P "$K71_NOGH"/* "$_k00_noto"/; rm -f "$_k00_noto/timeout"; cp "$K71_BIN/gh" "$_k00_noto/gh"
+  d="$(_k00_target h https://example.invalid/pub.git)"; _t0=$SECONDS
+  PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=8 K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-h.out" 2>&1; _rc=$?
+  _el=$((SECONDS - _t0))
+  [ "$_rc" = 0 ] && ok "K1800-h stalled gh without timeout: --wire repair exits 0" || no "K1800-h exit $_rc"
+  [ "$_el" -lt 6 ] && ok "K1800-h the probe is bounded without timeout (${_el}s < 6s stall)" || no "K1800-h not bounded: ${_el}s"
+  assert_grep "K1800-h typed timed-out DEGRADED" "vendor-leak: DEGRADED gh timed out after 1s" "$TMP/k00-h.out"
+  assert_grep "K1800-h the repair still finished" "== done ==" "$TMP/k00-h.out"
+  [ -f "$d/.claude/settings.json" ] && ok "K1800-h the settings.json repair happened" || no "K1800-h settings.json missing"
 fi
 
 # ---- kit issue #1804: .research-sdd/plan/ is gitignored (block resume plan, #1178) — scaffold AND --wire repair ----
@@ -2223,6 +2247,22 @@ if command -v jq >/dev/null 2>&1; then
   bash "$_k04_inits" "$d" --wire >"$TMP/k04-g.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ ! -e "$d/nowhere" ]; } && ok "K1804-g symlinked .gitignore not written through (exit 0)" || no "K1804-g rc=$_rc or wrote through the link"
   assert_grep "K1804-g typed DEGRADED" "gitignore: DEGRADED" "$TMP/k04-g.out"
+  # (h) RDD: the LAST applicable rule wins (as in git). A negation AFTER the ignore re-includes the dir: typed NEGATED, never a false
+  # "already ignored", nothing appended (propose-never-apply).
+  d="$TMP/k04-h"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'a\n.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-h.before"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-h.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && cmp -s "$TMP/k04-h.before" "$d/.gitignore"; } && ok "K1804-h a later negation: exit 0 and .gitignore untouched" || no "K1804-h rc=$_rc or file changed"
+  assert_grep "K1804-h typed NEGATED naming the line" "gitignore: NEGATED line 3" "$TMP/k04-h.out"
+  if grep -qF 'already ignored' "$TMP/k04-h.out"; then no "K1804-h false 'already ignored' despite the negation"; else ok "K1804-h no false 'already ignored'"; fi
+  # (i) negation BEFORE the ignore: the ignore wins -> already ignored, untouched.
+  d="$TMP/k04-i"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '!.research-sdd/plan/\n.research-sdd/plan/\n' > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-i.before"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-i.out" 2>&1
+  cmp -s "$TMP/k04-i.before" "$d/.gitignore" && ok "K1804-i negation before the ignore: untouched" || no "K1804-i .gitignore changed"
+  assert_grep "K1804-i typed already ignored (the ignore is last)" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-i.out"
+  # (j) a negation of the PARENT after the ignore re-includes it too.
+  d="$TMP/k04-j"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/*\n' > "$d/.gitignore"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-j.out" 2>&1
+  assert_grep "K1804-j parent negation after the ignore: typed NEGATED" "gitignore: NEGATED line 2" "$TMP/k04-j.out"
 fi
 
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
@@ -3683,7 +3723,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || ok "teeth M-1271-NOTREPO: non-repo misreported without the check — K1271-l has teeth"
   else no "teeth M-1271-NOTREPO: could not build mutant"; fi
   # M-1271-ADVICE: the PRIVATE advice reverts to the old --wire-only wording.
-  if _k43_build k71ad -e 's#a plain run scaffolds the conf (--wire additionally writes the CI workflow)"$#re-run with --wire"#'; then
+  if _k43_build k71ad -e 's#^  local _vl_how="a plain run scaffolds the conf"#  local _vl_how="re-run with --wire"#'; then
     d="$(_k71t k71ad ad PRIVATE 0)"
     grep -qF 'a plain run scaffolds the conf' "$TMP/k71t.out" && no "teeth M-1271-ADVICE: wording survives — K1271-m is THEATER" \
       || ok "teeth M-1271-ADVICE: wording gone under the mutant — K1271-m has teeth"
@@ -3876,9 +3916,32 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     _k87_mpub "k00 conf" "$d" PUBLIC --wire
     grep -qF 'prefix com.keepme' "$d/.research-sdd/vendor-leak.conf" && no "teeth M-1800-CONF: user conf survives under the mutant — K1800-d is THEATER" || ok "teeth M-1800-CONF: the user's conf is clobbered without the guard — K1800-d has teeth"
   else no "teeth M-1800-CONF: could not build mutant"; fi
+  # M-1800-MSG: the wire path no longer flags itself -> the misleading "a plain run scaffolds the conf" returns.
+  if _k87_mb "k00 msg" '/^      _RSDD_WIREONLY=1$/d'; then
+    d="$(_k00_target m-msg)"; _k87_mpub "k00 msg" "$d" PUBLIC --wire
+    grep -qF 'a plain run scaffolds the conf' "$TMP/k87m.out" && ok "teeth M-1800-MSG: misleading advice returns without the path flag — K1800-g has teeth" || no "teeth M-1800-MSG: advice still correct under the mutant — K1800-g is THEATER"
+  else no "teeth M-1800-MSG: could not build mutant"; fi
+  # M-1800-WD: the watchdog never kills gh -> with no timeout binary a stalled probe is unbounded again.
+  if _k87_mb "k00 wd" 's/( sleep "\$gh_t"; kill "\$gh_pid" 2>\/dev\/null )/( sleep "$gh_t"; : )/'; then
+    d="$(_k00_target m-wd https://example.invalid/pub.git)"; _t0=$SECONDS
+    PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" "$d" --corpus flat --wire >/dev/null 2>&1
+    [ $((SECONDS - _t0)) -ge 4 ] && ok "teeth M-1800-WD: without the kill the stalled probe runs its full stall — K1800-h has teeth" || no "teeth M-1800-WD: still bounded under the mutant — K1800-h is THEATER"
+  else no "teeth M-1800-WD: could not build mutant"; fi
   # ---- kit issue #1804 teeth (a mutant that cannot be built is a FAIL, never a SKIP) ----
+  # M-1804-LAST: negations are not recognised (first match wins) -> a later negation yields a false "already ignored".
+  if _k87_mb "k04 last" 's/if \[ "\$core" = "\$l" \]; then st=ignored; else st=negated; fi/st=ignored/'; then
+    d="$TMP/k04m-last"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"
+    bash "$TMP/k43/k04 last/toolbelt/init.sh" "$d" --wire >"$TMP/k04m-last.out" 2>&1
+    grep -qF 'already ignored' "$TMP/k04m-last.out" && ok "teeth M-1804-LAST: a later negation is reported as already ignored without last-wins — K1804-h has teeth" || no "teeth M-1804-LAST: NEGATED still reported under the mutant — K1804-h is THEATER"
+  else no "teeth M-1804-LAST: could not build mutant"; fi
+  # M-1804-NEG: the NEGATED stop is dead -> the plan line is appended after the user's negation (overriding it).
+  if _k87_mb "k04 neg" '/RSDD-GI-NEG/s/return 0 ;;/;;/'; then
+    d="$TMP/k04m-neg"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"
+    bash "$TMP/k43/k04 neg/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(wc -l < "$d/.gitignore")" -gt 2 ] && ok "teeth M-1804-NEG: the user's negation is overridden without the stop — K1804-h has teeth" || no "teeth M-1804-NEG: file untouched under the mutant — K1804-h is THEATER"
+  else no "teeth M-1804-NEG: could not build mutant"; fi
   # M-1804-DEDUP: the equivalent-pattern early return is dead -> a re-run appends a duplicate line.
-  if _k87_mb "k04 dedup" '/RSDD-GI-EQUIV/s/return 0 ;;/;;/'; then
+  if _k87_mb "k04 dedup" '/^      ignored) echo/s/return 0 ;;/;;/'; then
     d="$TMP/k04m-dedup"; mkdir -p "$d"; : > "$d/INDEX.md"
     bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 2 ] && ok "teeth M-1804-DEDUP: a re-run duplicates the line without the equivalence check — K1804-d/f have teeth" || no "teeth M-1804-DEDUP: no duplicate under the mutant — K1804-d/f are THEATER"
