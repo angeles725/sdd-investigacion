@@ -21,7 +21,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../sweep-retros.sh"
+SUT="${SWEEP_RETROS_SUT:-$HERE/../sweep-retros.sh}"   # override = run the suite against another build (RED check)
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT now sources
@@ -4974,6 +4974,107 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth NR1: flag-less add-date call not detected — case 146 is THEATER" "total=$_nr1_t with-flag=$_nr1_o"
     fi
   fi
+fi
+
+
+# ---------------------------------------------------------------------------
+# JSON — opt-in --json envelope (kit issue #1711, json-envelope.v1.md). Default output must stay
+# byte-identical (golden); the envelope must carry the §7 state enum and a typed degraded on no jq.
+JGOLD="$HERE/fixtures/sweep-retros/json-envelope/default-output.golden"
+export RSDD_RETRO_AGE_DAYS=99999   # no ESCALATED tag: the golden must not depend on today's date
+
+# jfix <name> : kit with targetA (pending 3 deltas, applied, unmarked) + absent targetB; echoes the kit.
+jfix() {
+  local kit tgt; kit="$(mkkit "$1")"; tgt="$kit/targetA"
+  mkretro "$tgt" "p1.md" "<!-- review-status: pending -->" 3
+  mkretro "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
+  mkretro "$tgt" "n1.md" "-" 1
+  touch -d '2026-01-02 00:00:00 UTC' "$tgt/retros/p1.md"; touch -d '2026-01-03 00:00:00 UTC' "$tgt/retros/n1.md"
+  wire_target "$tgt"
+  write_targets "$kit" "$tgt" "$kit/targetB-absent"
+  printf '%s' "$kit"
+}
+# jrun <kit> [PATH] : run with --json; JOUT = stdout only, JERR = stderr, RC.
+jrun() {
+  local _ef; _ef="$(mktemp "$ROOT/jerr.XXXXXX")"
+  if [ -n "${2:-}" ]; then JOUT="$(PATH="$2" "$BASH_BIN" "$1/toolbelt/sweep-retros.sh" --json 2>"$_ef")"; RC=$?
+  else JOUT="$("$BASH_BIN" "$1/toolbelt/sweep-retros.sh" --json 2>"$_ef")"; RC=$?; fi
+  JERR="$(cat "$_ef")"; rm -f "$_ef"
+}
+jq_f() { printf '%s' "$JOUT" | jq -r "$1" 2>/dev/null; }
+jgolden_norm() { sed -e "s#$ROOT/[^/]*/#@KIT@/#g" -e 's/age: [0-9]*d/age: Nd/'; }
+
+command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases" >&2; exit 2; }
+
+kit="$(jfix j-golden)"; run "$kit"
+if [ -n "${SR_REGEN_GOLDEN:-}" ]; then printf '%s\n' "$OUT" | jgolden_norm > "$JGOLD"; fi
+if [ -f "$JGOLD" ] && [ "$(printf '%s\n' "$OUT" | jgolden_norm)" = "$(cat "$JGOLD")" ]; then
+  ok "JSON golden: default (no flag) output byte-identical to the frozen pre-change report" "()"
+else
+  no "JSON golden: default output drifted from $JGOLD" "$(diff <(printf '%s\n' "$OUT" | jgolden_norm) "$JGOLD" 2>&1 | head -5)"
+fi
+
+jrun "$kit"
+if [ "$RC" = 0 ] && [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ] \
+   && [ "$(jq_f .schema)" = "research-sdd.sweep-retros/v1" ] && [ "$(jq_f .state)" = ok ] && [ "$(jq_f .reason)" = null ]; then
+  ok "JSON ok: exactly one envelope, schema constant, state ok, reason null, rc 0" "()"
+else no "JSON ok: envelope shape" "rc=$RC out=[$(printf '%s' "$JOUT" | head -c 200)]"; fi
+if [ "$(jq_f '[.counts.targets,.counts.targets_absent,.counts.retros,.counts.pending,.counts.missing_retro]|join(",")')" = "2,1,3,2,0" ] \
+   && [ "$(jq_f '.items|map(.file|split("/")|last)|join(",")')" = "p1.md,n1.md" ] \
+   && [ "$(jq_f '.items[0]|[.kind,.deltas,.deltas_state,.status]|join(",")')" = "pending-retro,3,counted,pending" ] \
+   && [ "$(jq_f '.items[1]|[.kind,.deltas,.deltas_state,.status]|join(",")')" = "pending-retro,1,counted,none" ]; then
+  ok "JSON ok: counts and oldest-first items carry deltas/status (unmarked retro → status none)" "()"
+else no "JSON ok: counts/items" "$JOUT"; fi
+if ! grep -q 'PENDING\|Summary:' <<<"$JOUT"; then ok "JSON ok: human report text is absent from stdout" "()"; else no "JSON ok: human text leaked into stdout" "$JOUT"; fi
+
+kit="$(mkkit j-nomatch)"; tgt="$kit/targetA"
+mkretro "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 1; wire_target "$tgt"; write_targets "$kit" "$tgt"
+jrun "$kit"
+if [ "$(jq_f '[.state,.counts.retros,.counts.pending,(.items|length)]|join(",")')" = "no-match,1,0,0" ] && [ "$(jq_f .reason)" != null ]; then
+  ok "JSON no-match: retros exist, all closed → no-match with a reason, empty items" "()"
+else no "JSON no-match" "$JOUT"; fi
+
+kit="$(mkkit j-empty)"; tgt="$kit/targetA"; mkdir -p "$tgt/retros"; write_targets "$kit" "$tgt"
+jrun "$kit"
+if [ "$(jq_f '[.state,.counts.retros,.counts.targets_absent]|join(",")')" = "empty-input,0,0" ]; then
+  ok "JSON empty-input: corpus present, no retro files → empty-input (not no-match)" "()"
+else no "JSON empty-input" "$JOUT"; fi
+
+kit="$(mkkit j-absent)"; write_targets "$kit" "$kit/gone1" "$kit/gone2"
+jrun "$kit"
+if [ "$RC" = 0 ] && [ "$(jq_f '[.state,.counts.targets,.counts.targets_absent]|join(",")')" = "absent-input,2,2" ]; then
+  ok "JSON absent-input: every corpus directory missing → absent-input (not empty-input)" "()"
+else no "JSON absent-input" "rc=$RC $JOUT"; fi
+
+kit="$(jfix j-degraded)"; _nopath="$ROOT/j-nopath"; mkdir -p "$_nopath"
+jrun "$kit" "$_nopath"
+if [ "$RC" = 3 ] && grep -q '^DEGRADED: jq not found' <<<"$JERR" \
+   && [ "$(jq_f '[.schema,.state]|join(",")')" = "research-sdd.sweep-retros/v1,degraded" ] && [ "$(jq_f .reason)" != null ]; then
+  ok "JSON degraded: jq absent → typed degraded envelope, DEGRADED on stderr, rc 3" "()"
+else no "JSON degraded" "rc=$RC err=[$JERR] out=[$JOUT]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # jteeth <label> <sed-expr> <case-fn> : build a mutant kit and require <case-fn> to report a break.
+  jteeth() {
+    local label="$1" expr="$2" fn="$3" mk mut
+    mk="$(jfix "jt-$label")"; mut="$ROOT/jt-$label.sh"
+    mutant_sed "$SUT" "$mut" "$expr" || { no "teeth JSON-$label: build mutant" "mutant_sed refused"; return; }
+    cp "$mut" "$mk/toolbelt/sweep-retros.sh"
+    if "$fn" "$mk"; then no "teeth JSON-$label: mutant survived — case is THEATER" ""; else ok "teeth JSON-$label: mutant breaks the case (has teeth)" "()"; fi
+  }
+  # Each case-fn re-builds its own scenario around the mutated script copy; rc 0 = the case still holds.
+  jt_empty()   { local k; k="$(mkkit "$(basename "$1")-e")"; mkdir -p "$k/targetA/retros"; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .state)" = empty-input ]; }
+  jt_absent()  { local k; k="$(mkkit "$(basename "$1")-a")"; write_targets "$k" "$k/g1"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .state)" = absent-input ]; }
+  jt_nomatch() { local k; k="$(mkkit "$(basename "$1")-n")"; mkretro "$k/targetA" a.md "<!-- review-status: applied x -->" 1; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
+  jt_degr()    { jrun "$1" "$ROOT/j-nopath"; [ "$RC" = 3 ] && [ "$(jq_f .state)" = degraded ]; }
+  jt_clean()   { jrun "$1"; [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ]; }
+  jteeth empty    's/elif \$total == 0 then "empty-input"/elif $total == -1 then "empty-input"/' jt_empty
+  jteeth absent   's/\$tabsent == \$targets then/$tabsent == 999 then/' jt_absent
+  jteeth nomatch  's/elif (\$items | length) == 0 then "no-match"/elif ($items | length) == -1 then "no-match"/' jt_nomatch
+  jteeth probe    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' jt_degr
+  jteeth mute     's/exec 3>&1 >\/dev\/null/exec 3>\&1/' jt_clean
 fi
 
 echo "== $pass passed · $fail failed =="

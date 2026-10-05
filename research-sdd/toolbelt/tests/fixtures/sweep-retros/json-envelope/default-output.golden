@@ -1,0 +1,15 @@
+WARN: no review-status marker in n1.md — add '<!-- review-status: pending -->'
+INFO: corpus not found (absent-input): @KIT@/targetB-absent
+PENDING  @KIT@/targetA/retros/p1.md
+         target: @KIT@/targetA  ·  ~3 proposed deltas  ·  status: pending  ·  age: Nd
+PENDING  @KIT@/targetA/retros/n1.md
+         target: @KIT@/targetA  ·  ~1 proposed deltas  ·  status: none  ·  age: Nd
+
+Summary: 2 pending / 3 retros across targets.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.

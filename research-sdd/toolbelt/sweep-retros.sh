@@ -7,7 +7,25 @@
 # The maintainer runs this (manually or on a schedule) from anywhere; it reads the
 # target list from the kit's TARGETS.md. Read-only: it never edits anything.
 #
-# Usage: research-sdd/toolbelt/sweep-retros.sh
+# Usage: research-sdd/toolbelt/sweep-retros.sh [--json]
+#   --json  opt-in: print ONE research-sdd.sweep-retros/v1 envelope (json-envelope.v1.md) on stdout
+#           instead of the human report. Needs jq; without it a typed degraded envelope is printed
+#           and the exit code is 3. The default (no flag) output is unchanged.
+
+# --json (opt-in, json-envelope.v1.md). Parsed and probed BEFORE anything else so a missing jq is a
+# typed degraded result, never a silent pass. The human report is muted onto /dev/null (fd 3 keeps the
+# real stdout) and the envelope is the only thing written to fd 3, at the end.
+SR_JSON=0
+for _sr_a in "$@"; do [ "$_sr_a" = "--json" ] && SR_JSON=1; done
+unset _sr_a
+if [ "$SR_JSON" = 1 ]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'DEGRADED: jq not found on PATH — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.sweep-retros/v1","state":"degraded","reason":"jq not found on PATH","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  exec 3>&1 >/dev/null
+fi
 
 # -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
@@ -139,6 +157,7 @@ if [ "${RSDD_PROFILE:-0}" = "1" ]; then
 fi
 
 pending=0; missing=0; total=0
+_json_pend=""
 absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
@@ -335,6 +354,7 @@ done
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
   while IFS=$'\x1f' read -r _ep f p deltas status age_d tag delta_warn; do
+    _json_pend="${_json_pend}$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' "$f" "$p" "$deltas" "$status" "$age_d" "$tag" "$delta_warn")"$'\n'
     echo "PENDING  $f"
     if [ "$deltas" = "no delta section found (empty-input)" ]; then
       echo "         target: $p  ·  ${deltas}  ·  status: ${status}  ·  age: ${age_d}d${tag}"
@@ -448,6 +468,7 @@ for p in $paths; do
   if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ] && [ "$now" -gt "$(( nb + grace_secs ))" ]; then
     echo "MISSING-RETRO: $p advanced with no retro for the latest run"
     missing=$((missing+1))
+    _json_miss="${_json_miss}${p}"$'\n'
   fi
 done
 [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_waiv=$(( _rsdd_prof_us_waiv + _rsdd_now - _rsdd_prof_t0_waiv )); }  # RSDD_PROFILE_WAIV_ACC
@@ -521,4 +542,34 @@ if [ "$_rsdd_prof" = 1 ]; then
   printf 'profile: retro-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_rn")"   >&2
   printf 'profile: block-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_bn")"   >&2
   printf 'profile: total %s\n'             "$(_rsdd_prof_sec "$_rsdd_prof_us_total")" >&2
+fi
+
+if [ "$SR_JSON" = 1 ]; then
+  # State enum (json-envelope.v1.md): items = pending retros + missing-retro entries.
+  _sr_ntargets=$(printf '%s\n' "$paths" | grep -c .)
+  jq -n --arg pend "$_json_pend" --arg miss "$_json_miss" \
+    --argjson total "$total" --argjson pending "$pending" --argjson missing "$missing" \
+    --argjson targets "$_sr_ntargets" --argjson tabsent "$absent_targets" --argjson tskipped "$skipped_count" '
+    def lines(s): s | split("\n") | map(select(length > 0));
+    ( lines($pend) | map(split("\u001f") | {
+        kind: "pending-retro", file: .[0], target: .[1],
+        deltas: (if (.[2] | test("^[0-9]+$")) then (.[2] | tonumber) else null end),
+        deltas_state: (if (.[2] | test("^[0-9]+$")) then "counted" elif .[2] == "?" then "uncountable" else "no-section" end),
+        status: .[3], age_days: (.[4] | tonumber), escalated: (.[5] != ""),
+        warning: (if .[6] == "" then null else .[6] end) }) ) as $p
+    | ( lines($miss) | map({kind: "missing-retro", target: .}) ) as $m
+    | ($p + $m) as $items
+    | { schema: "research-sdd.sweep-retros/v1",
+        state: (if $targets > 0 and $tabsent == $targets then "absent-input"
+                elif $total == 0 then "empty-input"
+                elif ($items | length) == 0 then "no-match"
+                else "ok" end),
+        counts: { targets: $targets, targets_absent: $tabsent, targets_skipped: $tskipped,
+                  retros: $total, pending: $pending, missing_retro: $missing } }
+    | .reason = (if .state == "absent-input" then "every target corpus directory is absent"
+                 elif .state == "empty-input" then "target corpora found but no retro files under them"
+                 elif .state == "no-match" then "retros found but none pending and no missing retro"
+                 else null end)
+    | . + {items: $items}' >&3 || { echo "sweep-retros: --json envelope build failed" >&2; exit 2; }
+  exit 0
 fi
