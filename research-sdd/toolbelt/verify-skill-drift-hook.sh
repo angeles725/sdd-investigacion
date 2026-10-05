@@ -17,7 +17,19 @@ vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.s
 extra=""
 vout=""; vrc=0; extra_skip=""; vnote=""   # initialised: an inherited env value must not force the skip path
 if [ -x "$vcmd" ]; then
-  vt="${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}"
+  # Validate the timeout BEFORE any use: bash evaluates $(( )) operands recursively (an array subscript runs command
+  # substitution), and '', '.5', '10s' break it. Only 1..6 decimal digits with a value >= 1 are accepted (SENTINEL-VT-VALIDATE).
+  vt=10
+  if [ -n "${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT+x}" ]; then
+    case "$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT" in
+      ''|*[!0-9]*|???????*) vt="" ;;
+      *) vt="$((10#$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT))"; [ "$vt" -ge 1 ] || vt="" ;;
+    esac
+    if [ -z "$vt" ]; then
+      vt=10
+      vnote="verify: invalid RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT='$(printf '%s' "$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT" | tr -cd '[:alnum:]._-' | cut -c1-30)', using 10s"
+    fi
+  fi
   vf=""; vf="$(mktemp 2>/dev/null)" || vf=""
   # RESEARCH_SDD_NO_TIMEOUT_BIN=1 forces the pure-bash watchdog below (test seam: stock macOS has no `timeout`).
   if [ -z "${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" ] && command -v timeout >/dev/null 2>&1; then
@@ -32,21 +44,28 @@ if [ -x "$vcmd" ]; then
     else
       # No mktemp: still bounded for the direct child, but a stalled grandchild can hold the pipe open.
       vout="$(timeout "$vt" "$vcmd" --verify </dev/null 2>&1)"; vrc=$?
-      vnote="verify: no mktemp - a stalled grandchild of install --verify is not bounded"
+      vnote="${vnote:+$vnote$'\n'}verify: no mktemp - a stalled grandchild of install --verify is not bounded"
     fi
   elif [ -n "$vf" ]; then
-    trap 'rm -f "$vf" "$vf.fired"' EXIT
+    vpid=""; wpid=""   # cleared right after each `wait`: the EXIT trap never signals a pid that was already reaped
+    trap '[ -n "$wpid" ] && kill "$wpid" 2>/dev/null; [ -n "$vpid" ] && kill "$vpid" 2>/dev/null; rm -f "$vf" "$vf.fired" "$vf.done"' EXIT   # SENTINEL-VERIFY-EXIT-TRAP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    # Watchdog: run in the background and kill it after $vt seconds. It drops a sentinel file when it fires,
-    # so a real exit 137/143 from install is not mistaken for the kill. Its sleeper is killed on normal finish.
+    # Watchdog: a background subshell polls until the run is marked done ($vf.done) or the deadline passes. It drops a
+    # sentinel file when it fires, so a real exit 137/143 from install is not mistaken for the kill. There is no separate
+    # sleeper process and no signal is needed to stop the watchdog (#1759: a TERM sent to a just-forked child is consumed by
+    # the inherited `trap ... TERM` handler before exec, which orphaned the old sleeper and could hang `wait`); it exits
+    # within 0.1 s of $vf.done appearing. The bound is counted in poll iterations
+    # (vt*10 sleeps of 0.1 s), never wall-clock SECONDS: SECONDS granularity could fire after just over vt-1 s; drift only lengthens it.
+    vmax=$((vt * 10))
     "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
-    ( sp=""; trap 'kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$vt" & sp=$!; wait "$sp"
-      if kill -0 "$vpid" 2>/dev/null; then : >"$vf.fired"; kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
-    wait "$vpid" 2>/dev/null; vrc=$?
-    kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
+    ( vi=0; while [ ! -e "$vf.done" ] && [ "$vi" -lt "$vmax" ]; do sleep 0.1; vi=$((vi+1)); done
+      if [ ! -e "$vf.done" ]; then : >"$vf.fired"; [ -e "$vf.done" ] || kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
+    wait "$vpid" 2>/dev/null; vrc=$?; vpid=""
+    : >"$vf.done"   # SENTINEL-VERIFY-DONE
+    wait "$wpid" 2>/dev/null; wpid=""
     if [ -e "$vf.fired" ]; then vrc=124; fi
-    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired"
+    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired" "$vf.done"
   else
     extra_skip=1   # never an unbounded run
   fi
