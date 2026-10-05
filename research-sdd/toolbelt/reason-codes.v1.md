@@ -68,7 +68,8 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: git not found on PATH` | degraded | reconcile-issues.sh | git is absent, so a cited commit cannot be checked against the main ref | install git, then re-run `reconcile-issues.sh` |
 | `degraded: <v> is not a git repository` | degraded | reconcile-issues.sh | the directory used for the ancestry check is not a git repository | run from a kit checkout or set `RECONCILE_ISSUES_GIT_DIR` to one, then re-run `reconcile-issues.sh` |
 | `degraded: ref <v> is not known locally in <v> (no fetch is performed)` | degraded | reconcile-issues.sh | the main ref is not known locally and the script never fetches | run `git fetch` by hand (or set `RECONCILE_ISSUES_MAIN_REF`), then re-run `reconcile-issues.sh` |
-| `degraded: commit <v> not present locally (shallow or partial clone?)` | degraded | reconcile-issues.sh | the repository is a shallow clone and none of the commits cited in a closed issue resolves locally, so ancestry cannot be checked (the row stays borderline) | run `git fetch` (or `git fetch --unshallow`) by hand, then re-run `reconcile-issues.sh` |
+| `degraded: gh issue list (closed, old-gh fallback) failed (exit <v>)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field and the fallback closed-issue listing (number, body, comments) also failed, so the audit has no verdict | run `gh auth status` and the same `gh issue list` by hand, then re-run `reconcile-issues.sh` |
+| `degraded: gh api state_reason listing failed (this gh has no stateReason --json field)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field, so the state reasons are read from one paginated `gh api repos/<owner>/<repo>/issues?state=closed` listing and that call failed twice (one bounded retry) | run that `gh api` call by hand, fix the reported problem (auth, rate limit, network), then re-run `reconcile-issues.sh` |
 | `degraded: gh is not authenticated` | degraded | reconcile-issues.sh, stage-retro-issues.sh | gh has no usable login | run `gh auth login`, then re-run the script |
 | `degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')` | degraded | reconcile-issues.sh | the list-limit override is not a positive integer | set `RECONCILE_ISSUES_LIST_LIMIT` to a positive integer or unset it |
 | `degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')` | degraded | stage-retro-issues.sh | the list-limit override is not a positive integer | set `STAGE_RETRO_ISSUES_LIST_LIMIT` to a positive integer or unset it |
@@ -99,6 +100,23 @@ many toolbelt scripts; slice 1 registers the names and continuations but does no
 | `absent-input` | input | many toolbelt scripts (not enumerated in slice 1) | the file or directory was not found or not traversable | fix the path or restore the input, then re-run; do not read the result as zero |
 | `empty-input` | input | many toolbelt scripts (not enumerated in slice 1) | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
 | `unclassifiable` | input | many toolbelt scripts (not enumerated in slice 1) | items exist but the instrument could not classify them | inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate |
+
+## Run-level notes that are not degraded codes
+
+These prefixes are NOT `degraded:` lines, so the extraction rule never sees them and they do not fail a run.
+They are listed here so a reader of this registry finds every typed state the script can print.
+
+- `shallow-clone: <dir> is a shallow clone and no cited commit resolved locally for N row(s) (e.g. <sha>)`
+  (reconcile-issues.sh, kit issue #1773): printed once per run (single-retro and `--all`) when the closure
+  evidence of N rows cites no commit that exists locally and the checkout is shallow, so reachability
+  cannot be verified. Those rows stay `borderline`, never `shipped`, and the exit code is unchanged.
+  Continuation: run `git fetch --unshallow` (or raise the CI fetch-depth), then re-run `reconcile-issues.sh`.
+
+- `note: state_reason for issue #<n> missing from the closed-issue listing after one reload` (reconcile-issues.sh,
+  kit issue #1752): on a gh without the `stateReason` field, a closed issue found by the search is absent from
+  the batched `state_reason` listing even after one forced reload of it. Its rows are reported `borderline`
+  (the issue's evidence is not trusted) and the run is not failed. Continuation: run
+  `gh api repos/<owner>/<repo>/issues/<n> --jq .state_reason` by hand, then re-run `reconcile-issues.sh`.
 
 ## Deferred (later slices of #1704)
 
