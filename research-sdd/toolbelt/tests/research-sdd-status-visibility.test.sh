@@ -320,17 +320,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -n "$REAL_TO" ] && tooth O 's/GHV_DEFAULT_BOUND=10 //'; then
     rm -f "$hp/timeout.log"; env -u RSDD_GH_TIMEOUT PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" >/dev/null 2>&1
     [ "$(head -1 "$hp/timeout.log" 2>/dev/null)" = 20 ] && ok "teeth O: default 10 dropped -> bound 20 -> case 12b has teeth" || no "teeth O: mutant still passes 10 — THEATER"; fi
-fi
   # nolib_tree NAME: copy of mutant tree NAME with lib/gh-visibility.sh removed (prints the dir)
   nolib_tree() { local n="$MT/$1-nolib"; rm -rf "$n"; mkdir -p "$n"; cp -r "$MT/$1/lib" "$n/lib"; cp "$MT/$1"/*.sh "$n/"; rm -f "$n/lib/gh-visibility.sh"; printf '%s' "$n"; }
   # P: remote-enumeration gate removed -> the lib check fires for a no-remote target again -> case 13a goes red
   if tooth P 's/\[ "\${#_rv_arr\[@\]}" -gt 0 \] || return 0/:/'; then
     out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree P)/research-sdd-status.sh" "$TMP/gitnoremote" 2>&1)"
-    grep -q '^degraded: remote-visibility' <<<"$out" && ok "teeth P: enumeration gate removed -> no-remote target degraded -> case 13a has teeth" || no "teeth P: mutant stayed silent - THEATER"; fi
+    grep -q '^degraded: remote-visibility' <<<"$out" && ok "teeth P: enumeration gate removed -> no-remote target degraded -> case 13a has teeth" || no "teeth P: mutant stayed silent — THEATER"; fi
   # Q: the lib-missing degraded echo silenced -> a target WITH a remote passes silently -> case 13c goes red
   if tooth Q 's/echo "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/: "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/'; then
     out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree Q)/research-sdd-status.sh" "$TMP/pub" 2>&1)"
-    grep -q '^degraded: remote-visibility' <<<"$out" && no "teeth Q: mutant still degraded - THEATER" || ok "teeth Q: lib-missing line silenced -> case 13c has teeth"; fi
+    grep -q '^degraded: remote-visibility' <<<"$out" && no "teeth Q: mutant still degraded — THEATER" || ok "teeth Q: lib-missing line silenced -> case 13c has teeth"; fi
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
