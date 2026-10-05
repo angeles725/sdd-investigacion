@@ -20,8 +20,8 @@
 # Usage: ci-workflow-doc-consistency.test.sh [--prove-teeth]
 # Exit : 0 wired · 1 step missing/neutered or live findings · 2 harness error
 set -uo pipefail
-# Hermeticity (kit issue #1821 item 5): verify-doc-consistency.sh lets an ambient RESEARCH_SDD_KIT/RSDD_KIT
-# override the kit root it resolves retros/ citations against; the live-tree check must read THIS tree.
+# Hermeticity (kit issue #1821 item 5): verify-doc-consistency.sh honours the test-only RSDD_KIT override and
+# ignores RESEARCH_SDD_KIT; unset both so the live-tree check always reads THIS tree.
 unset RESEARCH_SDD_KIT RSDD_KIT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOLBELT="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
