@@ -47,7 +47,8 @@
 #
 # propose-never-apply: the only write is that marker, under <target>/.claude, never the corpus content. A failed marker
 # write is a typed stderr WARN and the block still goes out (stop_hook_active stops the loop on the next Stop).
-# Out of scope here: wiring this hook into settings / research-sdd-init.sh (follow-up).
+# WIRING: research-sdd-init.sh --wire registers this script as a second Stop hook (kit issue #1732). The transcript
+# parse is tail-bounded (RETURN_TOKEN_GATE_TAIL_BYTES) and block-once markers are pruned (age and count caps).
 
 set -uo pipefail
 
@@ -57,6 +58,28 @@ _TGT_LABEL="?"
 
 _log() { printf 'return-token-gate: %s target=%s\n' "$1" "$_TGT_LABEL" >&2; }
 _degraded_allow() { _log "state=allow branch=degraded ($1)"; exit 0; }
+
+# Prune stale block-once markers (kit issue #1732). Portable bash: no `find -printf`, no newline-delimited path parsing.
+# Only regular, non-symlink files DIRECTLY under <dir> whose whole name is the strict marker pattern are ever touched
+# (a name with a newline or any other character outside [A-Za-z0-9._-] is skipped, never deleted). Markers older than
+# <max_age> days go first; of the rest only the <keep> newest survive (ordered with the `-nt` test); <cur>, the marker just
+# written, always sorts first. Args: <dir> <max_age_days> <keep> <cur-marker-path>
+_rtg_prune_markers() {
+  local dir="$1" max_age="$2" keep="$3" cur="$4" f i j
+  local pre="$dir/.rsdd-return-token-blocked-" sorted=()
+  sorted=("$cur")
+  for f in "$pre"*; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    [ "$f" = "$cur" ] && continue
+    case "${f#"$pre"}" in ''|*[!A-Za-z0-9._-]*) continue ;; esac  # RTG-PRUNE-NAME
+    if [ -n "$(find "$f" -maxdepth 0 -mtime +"$max_age" 2>/dev/null)" ]; then rm -f -- "$f" || return 1; continue; fi  # RTG-PRUNE-AGE
+    i=1; while [ "$i" -lt "${#sorted[@]}" ] && ! [ "$f" -nt "${sorted[$i]}" ]; do i=$((i + 1)); done
+    for ((j = ${#sorted[@]}; j > i; j--)); do sorted[j]="${sorted[j-1]}"; done
+    sorted[i]="$f"
+  done
+  for ((i = keep; i < ${#sorted[@]}; i++)); do rm -f -- "${sorted[i]}" || return 1; done  # RTG-PRUNE-CAP
+  return 0
+}
 
 # ── Probe: jq is required to read the hook JSON and the transcript ───────────
 if ! command -v jq >/dev/null 2>&1; then  # RTG-JQ-PROBE
@@ -97,14 +120,23 @@ if [ -z "$_transcript" ] || [ ! -r "$_transcript" ]; then  # RTG-TRANSCRIPT-DEGR
 fi
 # Last main-thread assistant message with any text; content may be a string or a list of blocks; lines that are not
 # JSON are skipped (fromjson?) so one torn line cannot hide the report.
-_report="$(jq -Rrs '
+# BOUNDED (kit issue #1732): only the last RETURN_TOKEN_GATE_TAIL_BYTES (default 2 MiB) of the transcript are parsed, so
+# a multi-hundred-MB session transcript cannot blow the hook budget. The cut can land mid-line, so the first (partial)
+# line of a truncated tail is dropped. A report that lies wholly before the tail is "no assistant text" (typed degraded).
+_tail_bytes="${RETURN_TOKEN_GATE_TAIL_BYTES:-2097152}"
+case "$_tail_bytes" in ''|*[!0-9]*|0) _tail_bytes=2097152 ;; esac
+_tsize="$(wc -c < "$_transcript" 2>/dev/null | tr -d '[:space:]')" || _tsize=0
+case "$_tsize" in ''|*[!0-9]*) _tsize=0 ;; esac
+_tail_cmd=(cat -- "$_transcript")
+if [ "$_tsize" -gt "$_tail_bytes" ]; then _tail_cmd=(tail -c "$_tail_bytes" -- "$_transcript"); _truncated=1; else _truncated=0; fi  # RTG-TAIL-BOUND
+_report="$("${_tail_cmd[@]}" 2>/dev/null | { [ "$_truncated" = 1 ] && sed 1d || cat; } | jq -Rrs '
   split("\n") | map(fromjson? // empty) | map(select(type == "object" and .type == "assistant" and (.isSidechain != true)))  # RTG-SIDECHAIN
   | map(.message.content
         | if type == "string" then .
           elif type == "array" then map(select(type == "object" and .type == "text") | .text // "") | join("\n")
           else "" end)
-  | map(select(length > 0)) | last // empty' "$_transcript" 2>/dev/null)" || _report=""
-if [ -z "$_report" ]; then _degraded_allow "no assistant text in the transcript: $(basename "$_transcript")"; fi
+  | map(select(length > 0)) | last // empty' 2>/dev/null)" || _report=""
+if [ -z "$_report" ]; then _degraded_allow "no assistant text in the transcript: $(basename "$_transcript")$([ "$_truncated" = 1 ] && printf ' (tail-bounded to %s bytes)' "$_tail_bytes")"; fi
 
 # ── token extraction (grammar in the header) ─────────────────────────────────
 _reported=""; _override=""
@@ -194,7 +226,14 @@ $_emitted
 If the difference is deliberate, add a line 'return-token-override: <reason>'. This gate blocks once per session and token."
 fi
 if [ -n "$_sid_safe" ]; then
-  if mkdir -p "$_state_dir" 2>/dev/null && printf '%s\n' "$_emitted" >> "$_marker" 2>/dev/null; then :; else
+  if mkdir -p "$_state_dir" 2>/dev/null && printf '%s\n' "$_emitted" >> "$_marker" 2>/dev/null; then
+    # PRUNE (kit issue #1732): one marker file per session would accumulate forever. Drop markers older than
+    # RETURN_TOKEN_GATE_MARKER_MAX_AGE_DAYS (default 14), then keep only the newest RETURN_TOKEN_GATE_MARKER_KEEP
+    # (default 50). The marker just written is the newest, so it always survives. Best-effort: a failure is a typed WARN.
+    _max_age="${RETURN_TOKEN_GATE_MARKER_MAX_AGE_DAYS:-14}"; case "$_max_age" in ''|*[!0-9]*) _max_age=14 ;; esac
+    _keep="${RETURN_TOKEN_GATE_MARKER_KEEP:-50}"; case "$_keep" in ''|*[!0-9]*|0) _keep=50 ;; esac
+    _rtg_prune_markers "$_state_dir" "$_max_age" "$_keep" "$_marker" || printf 'return-token-gate: WARN: block-once marker prune failed under %s\n' "$_state_dir" >&2
+  else
     printf 'return-token-gate: WARN: block-once marker write failed (%s) — the block is still issued\n' "$_marker" >&2
   fi
 fi
