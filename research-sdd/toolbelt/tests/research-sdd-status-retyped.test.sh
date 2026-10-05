@@ -72,6 +72,20 @@ parity() { # LABEL WANT ROW...
   if [ "$s" = "$want" ] && [ "$v" = "$want" ]; then ok "5.$lab parity: status=$s verify-state=$v want=$want"
   else no "5.$lab parity: status='$s' verify-state='$v' want=$want"; fi
 }
+# warnset SCRIPT-OUTPUT — the per-row re-typed WARN lines, prefix-normalised, sorted: the set both scripts must agree on.
+warnset() { grep 're-typed row still carries' <<<"$1" | sed -E 's/^ *WARN:? *//' | sort -u; }
+wparity() { # LABEL WANT-ROWS ROW... — per-row WARN sets identical and one WARN per re-typed row, each naming its gap
+  local lab="$1" want="$2" ws wv; shift 2
+  local dd="$TMP/wpar-$lab"; mkstate "$dd" 1 "$@"
+  ws="$(warnset "$(bash "$SUT_ST" "$dd" --sync-state 2>&1)")"; wv="$(warnset "$(vs_out "$dd")")"
+  if [ "$ws" = "$wv" ] && [ "$(grep -c '\[gap: rt-' <<<"$wv")" = "$want" ]; then ok "5w.$lab per-row WARN sets identical ($want row(s), each names its gap)"
+  else no "5w.$lab per-row WARN sets differ :: status=[$ws] verify=[$wv]"; fi
+}
+wparity single 1 "$R1"
+wparity first 1 "$R1" "$PEND"
+wparity mid 1 "$PEND" "$R2" "$PEND"
+wparity last 1 "$PEND" "$R3"
+wparity three 3 "$R1" "$PEND" "$R2" "$R3"
 parity single 1 "$R1"
 parity first 1 "$R1" "$PEND"
 parity mid 1 "$PEND" "$R2" "$PEND"
@@ -106,6 +120,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     v="$(bash "$t/verify-state.sh" "$TMP/par-mid" 2>&1 | sed -n 's/^   re-typed in table : \([0-9]*\).*/\1/p')"
     [ "${v:-0}" != "$(st_n "$TMP/par-mid")" ] && ok "teeth D: token drift breaks parity -> case 5.mid bites" || no "teeth D: parity unchanged — THEATER"
   else no "teeth D: mutant unbuildable"; fi
+  t="$(mk_tree F)"
+  if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-WARN/ s/\[gap: \${_rt_gap}\]/[gap: ?]/' >/dev/null 2>&1; then
+    grep -q '\[gap: rt-first\]' <<<"$(bash "$t/verify-state.sh" "$TMP/wpar-three" 2>&1)" && no "teeth F: gap still named — THEATER" || ok "teeth F: verify-state WARN stops naming the gap -> case 5w bites"
+  else no "teeth F: mutant unbuildable"; fi
   t="$(mk_tree E)"
   if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-WARN/ s/echo .*/:  # RETYPED-WARN [NEUTERED]/' >/dev/null 2>&1; then
     grep -q 'WARN   re-typed row still carries' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth E: WARN still emitted — THEATER" || ok "teeth E: verify-state WARN neutered -> case 3b bites"
