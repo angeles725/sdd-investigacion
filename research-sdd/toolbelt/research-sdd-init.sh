@@ -232,6 +232,17 @@ _rsdd_cmd_variants_json() {
   ]'
 }
 
+# Echo the bare absolute path of a command that is exactly a bare or double-quoted absolute path to
+# return-token-gate.sh; return 1 for any other form. Used to classify STALE candidates.
+_rsdd_gate_stale_path() {
+  local c="$1" p="$1" quoted=0
+  if [[ "$c" == \"*\" && ${#c} -ge 2 ]]; then p="${c:1:${#c}-2}"; quoted=1; fi
+  case "$p" in /*/return-token-gate.sh) ;; *) return 1 ;; esac  # RSDD-GATE-STRICT
+  [[ "$p" == *[\"\$\~\`\']* || "$p" == *$'\n'* ]] && return 1
+  if [ "$quoted" = 0 ] && [[ "$p" == *[[:space:]]* ]]; then return 1; fi
+  printf '%s' "$p"
+}
+
 # kit issue #1496 (RDD round 1): ONE merge + dedup predicate for BOTH the wire-only repair and the
 # scaffold --wire path, so the two can never diverge on which already-registered forms count as the
 # same hook (they did: scaffold --wire matched exact strings only). Reads the base settings JSON on
@@ -246,26 +257,22 @@ _rsdd_cmd_variants_json() {
 # $CLAUDE_PROJECT_DIR, or an absolute path that still exists) is a working gate in another form: it is never touched, it is
 # listed in `others`, and it counts as registered (has_gate), so the current <gate-abs> is appended only when no working
 # gate exists in any form.
-# Echo the bare absolute path of a command that is exactly a bare or double-quoted absolute path to
-# return-token-gate.sh; return 1 for any other form. Used to classify STALE candidates.
-_rsdd_gate_stale_path() {
-  local c="$1" p="$1" quoted=0
-  if [[ "$c" == \"*\" && ${#c} -ge 2 ]]; then p="${c:1:${#c}-2}"; quoted=1; fi
-  case "$p" in /*/return-token-gate.sh) ;; *) return 1 ;; esac  # RSDD-GATE-STRICT
-  [[ "$p" == *[\"\$\~\`\']* || "$p" == *$'\n'* ]] && return 1
-  if [ "$quoted" = 0 ] && [[ "$p" == *[[:space:]]* ]]; then return 1; fi
-  printf '%s' "$p"
-}
+# A bare (unquoted) CURRENT gate path containing whitespace word-splits and never runs (kit issue #1757): it is NOT a current
+# form; it is rewritten to the quoted form (the kit's own entry, so safe) by listing it in `repaired` and appending the quoted one.
 _rsdd_merge_settings() {
   local sv ssv pv gv base c _gp _gpath stale='[]' others='[]'
   _gpath="${8#\"}"; _gpath="${_gpath%\"}"   # <gate-abs> arrives double-quoted; the bare path is also a CURRENT form
   sv="$(_rsdd_cmd_variants_json "$1" "$4")"; ssv="$(_rsdd_cmd_variants_json "$2" "$5")"
   pv="$(_rsdd_cmd_variants_json "$3" "$6")"
-  gv="$(jq -cn --arg g "$8" --arg p "$_gpath" '[$g, $p]')"
+  if [[ "$_gpath" == *[[:space:]]* ]]; then gv="$(jq -cn --arg g "$8" '[$g]')"   # RSDD-GATE-SPACED-BARE
+  else gv="$(jq -cn --arg g "$8" --arg p "$_gpath" '[$g, $p]')"; fi
   base="$(cat)"
   while IFS= read -r c; do
     [ "$c" = "$8" ] && continue
-    [ "$c" = "$_gpath" ] && continue
+    if [ "$c" = "$_gpath" ]; then
+      if [[ "$_gpath" == *[[:space:]]* ]]; then stale="$(jq -c --arg c "$c" '. + [$c]' <<<"$stale")"; fi
+      continue
+    fi
     if _gp="$(_rsdd_gate_stale_path "$c")" && [ "$_gp" != "$_gpath" ]; then
       [ -e "$_gp" ] || { stale="$(jq -c --arg c "$c" '. + [$c]' <<<"$stale")"; continue; }  # RSDD-GATE-STALE
     fi
