@@ -80,9 +80,13 @@ grep -qF 'unverifiable (clean-check.sh not found' <<<"$ERR" && ok "6 missing cle
 # 7 bounded: a slow clean-check is cut off and reported, never waited on
 mkdir -p "$TMP/kit7"
 for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit7/$b"; done
-printf '#!/usr/bin/env bash\nsleep 6\n' > "$TMP/kit7/clean-check.sh"
+# Timing bounds are derived, not absolute: this WSL host stalls timed waits ~3.7 s about once per 250 waits (#1770), so a
+# ceiling must be bound + 2 stalls + slack, and the child must outlive that ceiling or the case could not tell bounded
+# from unbounded. CEIL7 = 1 s timeout + 2*3.7 + 2 slack; CEIL10 adds the 5 s kill-after. Each child sleeps > its ceiling.
+STALL=4; CEIL7=$((1 + 2*STALL + 2)); CEIL10=$((CEIL7 + 5)); SLOW7=$((CEIL7 + 8)); SLOW10=$((CEIL10 + 8))
+printf '#!/usr/bin/env bash\nsleep %s\n' "$SLOW7" > "$TMP/kit7/clean-check.sh"
 t0=$SECONDS; run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$TMP/kit7/research-sdd-status.sh" "$TMP/c1" --next; el=$((SECONDS-t0))
-[ "$el" -lt 5 ] && [[ "$OUT" == STOP* ]] && [ "$RC" = 0 ] && ok "7a slow clean-check bounded (${el}s), verdict + rc intact" || no "7a ${el}s rc=$RC [$OUT]"
+[ "$el" -lt "$CEIL7" ] && [[ "$OUT" == STOP* ]] && [ "$RC" = 0 ] && ok "7a slow clean-check bounded (${el}s), verdict + rc intact" || no "7a ${el}s rc=$RC [$OUT]"
 grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "7b timeout -> typed unverifiable WARN" || no "7b [$ERR]"
 
 # 8 golden: stdout + rc of every verdict path are identical with the check on and off (the check is additive,
@@ -103,23 +107,45 @@ a="$(bash "$SUT" "$TMP/c8b" --next 2>/dev/null)"; [[ "$a" == BOOTSTRAP* ]] && ok
 mkdir -p "$TMP/kit9"
 for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit9/$b"; done
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/kit9/clean-check.sh"
-for v in 0 00 abc -3 1.5; do
+for v in 0 00 000 abc -3 1.5 0x; do
   run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT="$v" bash "$TMP/kit9/research-sdd-status.sh" "$TMP/c1" --next
   grep -qF "invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT=$v (need an integer >= 1) — using 20" <<<"$ERR" && [ "$RC" = 0 ] && ok "9 timeout=$v rejected, falls back to 20" || no "9 timeout=$v [$ERR]"
 done
-run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=7 bash "$TMP/kit9/research-sdd-status.sh" "$TMP/c1" --next
-grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$ERR" && no "9 valid timeout=7 wrongly rejected" || ok "9 valid timeout=7 accepted"
+# valid positive integers (first/middle/last shapes of the leading-zero set): accepted, no fallback WARN.
+# 007 and 005 were wrongly rejected by the old `0[0]*` glob (it matched any value starting with `00`); 01 / 10 / 7 always passed.
+for v in 7 01 10 007 005 0010; do
+  run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT="$v" bash "$TMP/kit9/research-sdd-status.sh" "$TMP/c1" --next
+  grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$ERR" && no "9 valid timeout=$v wrongly rejected [$ERR]" || ok "9 valid timeout=$v accepted"
+done
+# empty value is the documented default (${VAR:-20}): no WARN, no fallback message
+run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT= bash "$TMP/kit9/research-sdd-status.sh" "$TMP/c1" --next
+grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$ERR" && no "9 empty timeout wrongly rejected [$ERR]" || ok "9 empty timeout -> default, no WARN"
+# a leading-zero value is honoured numerically (007 -> 7s bound), not just tolerated: slow child cut off at ~1s for 001
+run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=001 bash "$TMP/kit7/research-sdd-status.sh" "$TMP/c1" --next
+grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "9 timeout=001 honoured as 1s" || no "9 timeout=001 [$ERR]"
 
 # 10 kill-after: a TERM-ignoring clean-check is killed shortly after the timeout, not waited on
 mkdir -p "$TMP/kit10"
 for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit10/$b"; done
-printf '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep 14\n' > "$TMP/kit10/clean-check.sh"
+printf '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep %s\n' "$SLOW10" >"$TMP/kit10/clean-check.sh"
 t0=$SECONDS; run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$TMP/kit10/research-sdd-status.sh" "$TMP/c1" --next; el=$((SECONDS-t0))
-[ "$el" -lt 10 ] && grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "10 TERM-ignoring child killed (${el}s)" || no "10 ${el}s [$ERR]"
+[ "$el" -lt "$CEIL10" ] && grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "10 TERM-ignoring child killed (${el}s)" || no "10 ${el}s [$ERR]"
 
 # 11 the warn is tied to the verdict the gate printed: the exhausted STOP line and the INFO line come from the same run
 mkcorpus "$TMP/c11" 0; run bash "$SUT" "$TMP/c11" --next
 [ "$OUT" = "STOP | read-only-investigable exhausted (0)" ] && grep -q 'clean-check' <<<"$ERR" && ok "11 verbatim exhausted STOP line and the warn co-occur" || no "11 [$OUT] [$ERR]"
+
+# 12 the exhausted-STOP-with-unverified-coverage call site (TC-WARN-CALL-UNVERIFIED): a retro exists, but the reconcile
+# timeout binary is forced empty -> issues_due_gate marks coverage unverified and prints the marker STOP. The clean-check
+# output must still reach stderr and the verdict/exit must be unchanged.
+mkcorpus "$TMP/c12" 0; mkdir -p "$TMP/c12/retros"; printf '# retro\n' > "$TMP/c12/retros/r1.md"
+git -C "$TMP/c12" add -A; git -C "$TMP/c12" -c user.name=t -c user.email=t@example.invalid commit -q -m retro
+printf 'x\n' > "$TMP/c12/stray.json"
+run env _IDG_TIMEOUT_BIN= bash "$SUT" "$TMP/c12" --next
+[ "$OUT" = "STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]" ] && [ "$RC" = 0 ] && ok "12a unverified-coverage STOP verdict + exit 0" || no "12a rc=$RC [$OUT]"
+grep -qF 'WARN: clean-check: GARBAGE untracked stray.json' <<<"$ERR" && ok "12b findings reach stderr from the unverified-STOP call site" || no "12b [$ERR]"
+run env _IDG_TIMEOUT_BIN= RSDD_STATUS_NO_CLEAN_CHECK=1 bash "$SUT" "$TMP/c12" --next
+grep -q 'clean-check' <<<"$ERR" && no "12c opt-out ignored at unverified site [$ERR]" || ok "12c opt-out honoured at unverified site"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"; mkcorpus "$TMP/c2x" 0; printf "x\n" > "$TMP/c2x/stray.json"
@@ -136,6 +162,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt B 's/WARN: clean-check: unverifiable (exit/DEGRADED-OFF (exit/' 0 0 --good-has 'unverifiable [(]exit' --bad-lacks 'unverifiable [(]exit' -- bash '@SUT@' "$TMP/c4" --next
   # C: the call after the STOP verdict is removed -> findings never reach stderr
   mt C 's/^  terminal_clean_warn  # TC-WARN-CALL$/  :/' 0 0 --good-has 'GARBAGE untracked' --bad-lacks 'GARBAGE untracked' -- bash '@SUT@' "$TMP/c2x" --next
+  # C2: the call after the UNVERIFIED STOP verdict is removed -> findings never reach stderr
+  mkcorpus "$TMP/c12x" 0; mkdir -p "$TMP/c12x/retros"; printf '# retro\n' > "$TMP/c12x/retros/r1.md"
+  git -C "$TMP/c12x" add -A; git -C "$TMP/c12x" -c user.name=t -c user.email=t@example.invalid commit -q -m retro; printf 'x\n' > "$TMP/c12x/stray.json"
+  mt C2 's/^    terminal_clean_warn  # TC-WARN-CALL-UNVERIFIED$/    :/' 0 0 --good-has 'GARBAGE untracked' --bad-lacks 'GARBAGE untracked' -- env _IDG_TIMEOUT_BIN= bash '@SUT@' "$TMP/c12x" --next
   # D: opt-out ignored
   mt D 's/\[ "\${RSDD_STATUS_NO_CLEAN_CHECK:-0}" = "1" \] && return 0//' 0 0 --good-lacks 'clean-check' --bad-has 'clean-check' -- env RSDD_STATUS_NO_CLEAN_CHECK=1 bash '@SUT@' "$TMP/c5" --next
   # E: timeout bound removed -> the slow clean-check runs its full 6s
@@ -143,7 +173,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_chain E "$SUT" "$m" 's/"\$_cc_to" -k 5 "\$_cc_secs" bash/bash/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit7/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
-    if [ "$el" -ge 5 ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
+    if [ "$el" -ge "$CEIL7" ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
   else fail=$((fail+1)); fi
   # F: the INFO line leaks to stdout -> the golden compare (stdout+rc, check on vs off) goes red
@@ -157,12 +187,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_chain G "$SUT" "$m" 's/"\$_cc_to" -k 5 /"$_cc_to" /'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit10/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
-    if [ "$el" -ge 12 ]; then ok "teeth G: no kill-after -> waited ${el}s -> 10 has teeth"; else no "teeth G: mutant still killed (${el}s) — THEATER"; fi
+    if [ "$el" -ge "$CEIL10" ]; then ok "teeth G: no kill-after -> waited ${el}s -> 10 has teeth"; else no "teeth G: mutant still killed (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
   else fail=$((fail+1)); fi
-  # H: zero no longer rejected -> test 9's typed fallback WARN disappears
+  # H2: leading-zero strip dropped -> '000' is no longer recognised as zero and passes through
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain H "$SUT" "$m" 's/|\*\[!0-9\]\*|0|0\[0\]\*)/|*[!0-9]*)/'; then
+  if mutant_chain H2 "$SUT" "$m" 's/^    \*) _cc_stripped=.*$/    *) _cc_stripped="$_cc_secs" ;;/'; then
+    rm -f "$MUT/clean-check.sh"; cp "$TMP/kit9/clean-check.sh" "$MUT/clean-check.sh"
+    e="$(RSDD_STATUS_CLEAN_CHECK_TIMEOUT=000 bash "$m" "$TMP/c1" --next 2>&1 >/dev/null)"
+    if grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$e"; then no "teeth H2: mutant still rejects 000 — THEATER"; else ok "teeth H2: no leading-zero strip -> 000 accepted -> 9 has teeth"; fi
+    rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
+  else fail=$((fail+1)); fi
+  # H: zero no longer rejected (empty-check disabled) -> test 9's typed fallback WARN disappears
+  m="$MUT/research-sdd-status.sh"; rm -f "$m"
+  if mutant_chain H "$SUT" "$m" 's/if \[ -z "\$_cc_stripped" \]; then/if false; then/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit9/clean-check.sh" "$MUT/clean-check.sh"
     e="$(RSDD_STATUS_CLEAN_CHECK_TIMEOUT=0 bash "$m" "$TMP/c1" --next 2>&1 >/dev/null)"
     if grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$e"; then no "teeth H: mutant still rejects 0 — THEATER"; else ok "teeth H: zero accepted -> 9 has teeth"; fi
