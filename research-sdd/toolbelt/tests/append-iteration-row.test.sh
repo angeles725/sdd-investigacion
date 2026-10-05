@@ -173,21 +173,79 @@ AIR_PRE_MV_HOOK="$TMP/hook.sh" run --apply "$F2" "$NEW"
 F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf norace)"
 AIR_PRE_MV_HOOK=/bin/true run --apply "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "$NEW" "$F2"; } && ok "an unchanged target still applies with the hook present" || no "hook no-op" "(rc=$RC $ERR)"
 
+# ---- #1793: CRLF files are refused with a typed error, never misreported as NO-HEADING ------------
+# Fleet survey (2026-10-05): 201 RESEARCH-STATE*.md files, 0 contain a CR -> refuse rather than carry a CRLF code path.
+F2="$(printf '## Iteration history\r\n\r\n%s\r\n%s\r\n%s\r\n' "$HDR" "$SEP" "$R1" | mkf crlf)"; s1="$(sum "$F2")"
+run --apply "$F2" "$NEW"
+{ [ "$RC" = 11 ] && etyped CRLF-LINE-ENDINGS && [ "$(sum "$F2")" = "$s1" ]; } && ok "CRLF file with a valid heading -> exit 11 CRLF-LINE-ENDINGS, untouched" || no "crlf" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n\n## Next\n\nstray\r\n' "$HDR" "$SEP" "$R1" | mkf crmixed)"
+run "$F2" "$NEW"; { [ "$RC" = 11 ] && etyped CRLF-LINE-ENDINGS; } && ok "a single CR anywhere (mixed endings) is refused the same way" || no "mixed crlf" "(rc=$RC $ERR)"
+F2="$(printf '# T\r\n\r\n## Coverage\r\n' | mkf crnohead)"
+run "$F2" "$NEW"; { [ "$RC" = 11 ]; } && ok "CRLF without the heading is still CRLF-LINE-ENDINGS (the line-ending error wins)" || no "crlf no heading" "(rc=$RC $ERR)"
+
+# ---- #1793: headings, tables and comment openers inside fenced code blocks are ignored --------------
+FENCE='```'
+F2="$(printf '%s\n## Iteration history\n%s\n%s\n%s\n' "$FENCE" "$HDR" "$SEP" "$FENCE" | mkf fnohead)"
+run "$F2" "$NEW"; { [ "$RC" = 4 ] && etyped NO-HEADING; } && ok "heading only inside a fenced block -> NO-HEADING" || no "fenced heading" "(rc=$RC $ERR)"
+F2="$(printf '%s\n## Iteration history\n%s\n%s\n| 0 | x | x | x | x | 0 |\n%s\n\n## Iteration history\n\n%s\n%s\n%s\n\n## Next\n' "$FENCE" "$HDR" "$SEP" "$FENCE" "$HDR" "$SEP" "$R1" | mkf freal)"
+run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT" && grep -qxF " $R1" <<<"$OUT"; } && ok "fenced example heading ignored (no AMBIGUOUS-HEADING); real table gets the row" || no "fenced then real" "(rc=$RC $OUT)"
+F2="$(printf '## Iteration history\n\n%s\n## Foo\n%s\n\n%s\n%s\n%s\n' "$FENCE" "$FENCE" "$HDR" "$SEP" "$R1" | mkf fmid)"
+run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "a heading inside a fence does not end the section; the table after the fence is used" || no "fence mid" "(rc=$RC $ERR)"
+F2="$(printf '%s\n<!--\n%s\n## Iteration history\n\n%s\n%s\n%s\n' "$FENCE" "$FENCE" "$HDR" "$SEP" "$R1" | mkf fcmt)"
+run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "a comment opener inside a fence does not open a comment" || no "fence comment" "(rc=$RC $ERR)"
+F2="$(printf '~~~\n```\n## Iteration history\n~~~\n## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf ftilde)"
+run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "a ~~~ fence is not closed by a backtick fence; closes on ~~~" || no "tilde fence" "(rc=$RC $ERR)"
+F2="$(printf '%s\n## Iteration history\n\n%s\n%s\n%s\n' "$FENCE" "$HDR" "$SEP" "$R1" | mkf funclosed)"; s1="$(sum "$F2")"
+run --apply "$F2" "$NEW"
+{ [ "$RC" = 12 ] && etyped UNCLOSED-FENCE && [ "$(sum "$F2")" = "$s1" ]; } && ok "unclosed fence that hides the heading -> exit 12 UNCLOSED-FENCE, not NO-HEADING" || no "unclosed fence" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n%s\n' "$FENCE" "$HDR" "$SEP" "$R1" | mkf fnotable)"; s1="$(sum "$F2")"
+run --apply "$F2" "$NEW"
+{ [ "$RC" = 12 ] && etyped UNCLOSED-FENCE && [ "$(sum "$F2")" = "$s1" ]; } && ok "unclosed fence between the heading and its table -> exit 12, not NO-TABLE" || no "fence hides table" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\nno table\n\n## Next\n\n%s\ncode\n' "$FENCE" | mkf fcase1)"
+run "$F2" "$NEW"; { [ "$RC" = 5 ] && etyped NO-TABLE; } && ok "unrelated unclosed fence after the NEXT heading -> still exit 5 NO-TABLE" || no "fence case 1" "(rc=$RC $ERR)"
+F2="$(printf '# T\n\n## Coverage\n\n%s\ncode\n' "$FENCE" | mkf fcase2)"
+run "$F2" "$NEW"; { [ "$RC" = 4 ] && etyped NO-HEADING; } && ok "no heading anywhere, trailing unrelated unclosed fence -> still exit 4 NO-HEADING" || no "fence case 2" "(rc=$RC $ERR)"
+F2="$(printf '# T\n\n%s\ncode\n## Iteration history\n' "$FENCE" | mkf fcase3)"
+run "$F2" "$NEW"; { [ "$RC" = 12 ] && etyped UNCLOSED-FENCE; } && ok "unclosed fence that swallows the heading, after another heading -> exit 12" || no "fence case 3" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n\n%s\ntail\n' "$HDR" "$SEP" "$R1" "$FENCE" | mkf ftail)"
+run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "an unclosed fence AFTER the table does not block the append" || no "tail fence" "(rc=$RC $ERR)"
+
+# ---- #1793: trailing-backslash handling agrees with the cell counter ------------------------------
+F="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf esc)"
+run "$F" '| 2 | d | g | B2 | no | a \\|'
+{ [ "$RC" = 0 ] && grep -qxF '+| 2 | d | g | B2 | no | a \\|' <<<"$OUT"; } && ok "row ending in an escaped backslash then a real pipe is complete (no extra pipe)" || no "escaped backslash end" "(rc=$RC $OUT $ERR)"
+run "$F" '2 | d | g | B2 | no | a \|'
+grep -qxF '+| 2 | d | g | B2 | no | a \| |' <<<"$OUT" && ok "row ending in an escaped pipe still gets its closing pipe" || no "escaped pipe end" "(rc=$RC $OUT)"
+run "$F" '2 | d | g | B2 | no | a \\\|'
+grep -qxF '+| 2 | d | g | B2 | no | a \\\| |' <<<"$OUT" && ok "three trailing backslashes (odd) = escaped pipe: closing pipe added" || no "odd backslashes" "(rc=$RC $OUT)"
+
+# ---- #1793: --apply replaces the inode, so a hard-linked target is refused -------------------------
+F="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf hl)"
+ln "$F" "$F.link"; s1="$(sum "$F")"
+run --apply "$F" "$NEW"
+{ [ "$RC" = 13 ] && etyped HARD-LINKED && [ "$(sum "$F")" = "$s1" ] && [ "$(sum "$F.link")" = "$s1" ]; } && ok "--apply on a hard-linked file -> exit 13 HARD-LINKED, both names untouched" || no "hard link" "(rc=$RC $ERR)"
+printf '#!/bin/sh\nln "$1" "$1.late"\n' > "$TMP/linkhook.sh"; chmod +x "$TMP/linkhook.sh"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf relink)"; s1="$(sum "$F2")"
+AIR_PRE_MV_HOOK="$TMP/linkhook.sh" run --apply "$F2" "$NEW"
+{ [ "$RC" = 13 ] && etyped HARD-LINKED && [ "$(sum "$F2")" = "$s1" ] && [ "$(sum "$F2.late")" = "$s1" ]; } && ok "link created after staging, before mv -> exit 13 HARD-LINKED (re-check), nothing written" || no "relink" "(rc=$RC $ERR)"
+! compgen -G "$TMP/.air.*" >/dev/null && ok "no staging file left after the re-check refusal" || no "staging residue (relink)"
+run "$F" "$NEW"; [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT" && ok "a dry run on a hard-linked file still works (it writes nothing)" || no "hard link dry" "(rc=$RC $ERR)"
+
 # ---- degraded probe ---------------------------------------------------------------------------
 SHIM="$TMP/shim"; mkdir "$SHIM"
-for t in diff mktemp mv cp cat dirname rm cmp; do p="$(type -P "$t")" && ln -s "$p" "$SHIM/$t"; done
+for t in diff mktemp mv cp cat dirname rm cmp ls; do p="$(type -P "$t")" && ln -s "$p" "$SHIM/$t"; done
 F="$(printf '## Iteration history\n%s\n%s\n' "$HDR" "$SEP" | mkf degr)"
 OUT="$(PATH="$SHIM" "$BASH_BIN" "$SUT" "$F" "$NEW" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED: awk not found"; } && ok "missing awk -> typed DEGRADED, exit 3" || no "degraded" "(rc=$RC $OUT)"
 # SHIM2: everything but cmp (a missing cmp must be DEGRADED, never a false CONCURRENT-MODIFICATION)
 SHIM2="$TMP/shim2"; mkdir "$SHIM2"
-for t in awk diff mktemp mv cp cat dirname rm; do p="$(type -P "$t")" && ln -s "$p" "$SHIM2/$t"; done
+for t in awk diff mktemp mv cp cat dirname rm ls; do p="$(type -P "$t")" && ln -s "$p" "$SHIM2/$t"; done
 F="$(printf '## Iteration history\n%s\n%s\n' "$HDR" "$SEP" | mkf nocmp)"; s1="$(sum "$F")"
 OUT="$(PATH="$SHIM2" "$BASH_BIN" "$SUT" --apply "$F" "$NEW" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED: cmp not found" && [ "$(sum "$F")" = "$s1" ]; } && ok "missing cmp -> typed DEGRADED exit 3, file untouched" || no "cmp probe" "(rc=$RC $OUT)"
 # SHIM3: a cmp that errors (rc 2) must be a typed write failure, not "changed, re-run"
 SHIM3="$TMP/shim3"; mkdir "$SHIM3"
-for t in awk diff mktemp mv cp cat dirname rm; do p="$(type -P "$t")" && ln -s "$p" "$SHIM3/$t"; done
+for t in awk diff mktemp mv cp cat dirname rm ls; do p="$(type -P "$t")" && ln -s "$p" "$SHIM3/$t"; done
 printf '#!/bin/sh\nexit 2\n' > "$SHIM3/cmp"; chmod +x "$SHIM3/cmp"
 OUT="$(PATH="$SHIM3" "$BASH_BIN" "$SUT" --apply "$F" "$NEW" 2>&1)"; RC=$?
 { [ "$RC" = 9 ] && has "WRITE-FAILED cmp could not compare" && ! has CONCURRENT && [ "$(sum "$F")" = "$s1" ]; } && ok "cmp error (rc 2) -> exit 9 WRITE-FAILED, not CONCURRENT-MODIFICATION" || no "cmp error" "(rc=$RC $OUT)"
@@ -232,19 +290,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt "inline-comment rows treated as non-rows" 's/^function istab(i) .*/function istab(i) { return (V[i] == L[i]) \&\& (L[i] ~ \/^\\|\/) }/' 0 6 -- "$BASH_BIN" @SUT@ "$I" "$NEW"
   mt "typed prefix dropped from awk errors" 's/print "append-iteration-row: ERROR: NO-HEADING/print "NO-HEADING/' 4 4 \
     --good-has 'append-iteration-row: ERROR: NO-HEADING' --bad-lacks 'append-iteration-row: ERROR: NO-HEADING' -- "$BASH_BIN" @SUT@ "$C" "$NEW"
-  mt "second shell error line restored" 's/^    4|5|6|7|8) exit "\$rc" ;;/    4|5|6|7|8) _err "awk rc=$rc"; exit "$rc" ;;/' 4 4 \
+  mt "second shell error line restored" 's/^    4|5|6|7|8|11|12) exit "\$rc" ;;/    4|5|6|7|8|11|12) _err "awk rc=$rc"; exit "$rc" ;;/' 4 4 \
     --good-lacks 'awk rc=' --bad-has 'awk rc=' -- "$BASH_BIN" @SUT@ "$C" "$NEW"
   mt "comment-delimiter row guard removed" 's/^case "\$ROW" in \*.<!--.\*.*$/:/' 2 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | 1 | <!-- oops'
   cp "$W" "$W.race"
   mt "unchanged-check (cmp) removed" 's/^cmp -s -- "\$FILE" "\$TMPD\/orig"$/true/' 10 0 -- env "AIR_PRE_MV_HOOK=$TMP/hook.sh" "$BASH_BIN" @SUT@ --apply "$W.race" "$NEW"
   M="$(printf '## Iteration history\n\n%s\n%s\n| 2 | d | g | B2 | no | 1 | <!-- start\nhidden\n-->\n' "$HDR" "$SEP" | mkf tm)"
   cp "$W" "$W.cmp"
-  mt "cmp dropped from REQUIRED_TOOLS" 's/ dirname cmp rm"/ dirname rm"/' 3 9 -- env "PATH=$SHIM2" "$BASH_BIN" @SUT@ --apply "$W.cmp" "$NEW"
+  mt "cmp dropped from REQUIRED_TOOLS" 's/ dirname cmp rm ls"/ dirname rm ls"/' 3 9 -- env "PATH=$SHIM2" "$BASH_BIN" @SUT@ --apply "$W.cmp" "$NEW"
   mt "cmp error treated as success" 's/^\[ "\$crc" -eq 0 \] || .*$/:/' 9 0 -- env "PATH=$SHIM3" "$BASH_BIN" @SUT@ --apply "$W.cmp" "$NEW"
   mt "multi-line-comment-after-last-row guard removed" 's/^  if (ES\[last\]) .*$/  ;/' 6 0 -- "$BASH_BIN" @SUT@ "$M" "$NEW"
   mt "usage text restored on typed usage error" 's/(try --help)"; exit 2; }$/(try --help)"; _usage >\&2; exit 2; }/' 2 2 \
     --good-lacks 'Usage:' --bad-has 'Usage:' -- "$BASH_BIN" @SUT@
   mt "awk probe dropped from REQUIRED_TOOLS" 's/^REQUIRED_TOOLS="awk /REQUIRED_TOOLS="/' 3 9 -- env "PATH=$SHIM" "BASH_BIN=$BASH_BIN" "$BASH_BIN" @SUT@ "$W" "$NEW"
+  CR="$(printf '## Iteration history\r\n\r\n%s\r\n%s\r\n%s\r\n' "$HDR" "$SEP" "$R1" | mkf tcr)"
+  mt "CRLF refusal removed" 's/^  if (cr) {.*$/  ;/' 11 4 -- "$BASH_BIN" @SUT@ "$CR" "$NEW"
+  FH="$(printf '%s\n## Iteration history\n%s\n%s\n%s\n' '```' "$HDR" "$SEP" '```' | mkf tfh)"
+  mt "fenced lines treated as visible" 's/^  if (fl) { V\[NR\] = ""; ES\[NR\] = 0 } else /  if (0) { V[NR] = ""; ES[NR] = 0 } else /' 4 0 -- "$BASH_BIN" @SUT@ "$FH" "$NEW"
+  FU="$(printf '%s\n## Iteration history\n\n%s\n%s\n' '```' "$HDR" "$SEP" | mkf tfu)"
+  mt "unclosed-fence error removed" 's/if (hc == 0 \&\& infence \&\& hid)/if (0)/' 12 4 -- "$BASH_BIN" @SUT@ "$FU" "$NEW"
+  FT="$(printf '~~~\n```\n## Iteration history\n~~~\n## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf tft)"
+  mt "fence close ignores the fence character" 's/c == fch \&\& FN >= fn/FN >= fn/' 0 12 -- "$BASH_BIN" @SUT@ "$FT" "$NEW"
+  mt "closing-pipe rule ignores backslash parity" 's/nb % 2 == 1/nb > 0/' 0 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | a \\|'
+  mt "closing-pipe rule drops the escaped-pipe case" 's/ || nb % 2 == 1//' 0 0 \
+    --good-has 'a \\\| \|$' --bad-lacks 'a \\\| \|$' -- "$BASH_BIN" @SUT@ "$W" '2 | d | g | B2 | no | a \|'
+  HLW="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf thl)"; ln "$HLW" "$HLW.link"
+  FN2="$(printf '## Iteration history\n\n%s\n%s\n%s\n%s\n' '```' "$HDR" "$SEP" "$R1" | mkf tfn)"
+  mt "unclosed-fence-before-table error removed" 's/^  if (!hdr \&\& infence \&\& .*$/  ;/' 12 5 -- "$BASH_BIN" @SUT@ "$FN2" "$NEW"
+  RL="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf trl)"
+  FC1="$(printf '## Iteration history\n\nno table\n\n## Next\n\n%s\ncode\n' '```' | mkf tfc1)"
+  mt "NO-TABLE blames any unclosed fence (position test dropped)" 's/ \&\& fence_start > h \&\& (nh == 0 || fence_start < nh)//' 5 12 -- "$BASH_BIN" @SUT@ "$FC1" "$NEW"
+  FC2="$(printf '# T\n\n## Coverage\n\n%s\ncode\n' '```' | mkf tfc2)"
+  mt "NO-HEADING blames any unclosed fence (hidden-heading test dropped)" 's/ \&\& infence \&\& hid) {/ \&\& infence) {/' 4 12 -- "$BASH_BIN" @SUT@ "$FC2" "$NEW"
+  mt "pre-mv link re-check removed" '/SENTINEL-RELINK-CHECK/{n;s/.*/:/;}' 13 0 -- "$BASH_BIN" -c 'f="$(mktemp -p "$3")"; cp "$2" "$f"; AIR_PRE_MV_HOOK="$4" bash "$1" --apply "$f" "$5"' _ @SUT@ "$RL" "$TMP" "$TMP/linkhook.sh" "$NEW"
+  mt "hard-link refusal removed" 's/^  \[ "\$_links" -le 1 \] || .*$/  :/' 13 0 -- "$BASH_BIN" @SUT@ --apply "$HLW" "$NEW"
 fi
 
 echo "== $pass passed · $fail failed =="
