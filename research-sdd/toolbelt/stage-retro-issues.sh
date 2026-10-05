@@ -829,6 +829,8 @@ _exact_sig_matches() { _json_issue_scan sig "$1"; }
 #   (bare digits) per issue object, then reports by mode:
 #     sig  needle = a signature line; keeps issues whose BODY has it as a whole line (see _exact_sig_matches)
 #          and prints `[{"state":"…"},…]` then `total=N`.
+#     sigs needle = a signature line; prints one `<number> <STATE>` line per issue whose BODY has it as a whole
+#          line, then `total=N` (the unclassifiable tracker lookup by signature, any title).
 #     occ  needle = a title; prints line 1 = space-separated numbers of the OPEN issues whose title EQUALS
 #          it exactly (possibly empty), then `total=N` (see _occ_find).
 _json_issue_scan() {
@@ -856,9 +858,10 @@ _json_issue_scan() {
         if (ln == needle) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
       }
       ntotal++
+      if (hit && mode == "sigs") { sigout = sigout num " " state "\n"; return }   # STAGE_RETRO_ISSUES_SIGS_MODE
       if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
     }
-    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; nocc = 0; needle = ENVIRON["_XNEEDLE"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
+    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; sigout = ""; nocc = 0; needle = ENVIRON["_XNEEDLE"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
     { s = s $0 "\n" }
     END {
       n = length(s); i = 1
@@ -918,6 +921,7 @@ _json_issue_scan() {
       }
       if (depth != 0) exit 3
       if (mode == "occ") { printf "%s\ntotal=%d\n", occout, ntotal; exit 0 }
+      if (mode == "sigs") { printf "%stotal=%d\n", sigout, ntotal; exit 0 }
       printf "[%s]\n", out
       printf "total=%d\n", ntotal      # STAGE_RETRO_ISSUES_TOTAL_LINE: how many issues the reply held (see _list_filled)
     }
@@ -1293,8 +1297,28 @@ _unc_lookup() {
   fi
   return 0
 }
+# _unc_lookup_nums <whole-line>: like _unc_lookup but asks for issue NUMBERS; sets _lk to `<number> <STATE>` lines
+# (exact whole-line body matches only, any title). rc 1 = could not look (typed ERROR, failed counted).
+_unc_lookup_nums() {
+  local _x _xr _xrc
+  _x="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$1\"" --json number,state,body 2>&1)"; _xrc=$?
+  if [ "$_xrc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_x"; then
+    echo "ERROR: gh issue list (tracker lookup) failed or returned an unexpected reply for row tracker: $_x" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  fi
+  _xr="$_x"
+  _lk="$(printf '%s' "$_xr" | _json_issue_scan sigs "$1")" || {
+    echo "ERROR: gh issue list (tracker lookup) reply could not be parsed for row tracker: $_xr" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  }
+  if ! grep -q '^[0-9][0-9]* ' <<<"$_lk" && _list_filled "$_lk"; then
+    echo "ERROR: gh issue list (tracker lookup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  fi
+  return 0
+}
 _unc_report() {
-  local _sigfp _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
+  local _open_nums _newest _sigfp _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
   if [ "$_unc_n" -eq 0 ]; then
     echo "unclassifiable-items: 0 ($1)"; return 0
   fi
@@ -1341,31 +1365,41 @@ _unc_report() {
   fi
   echo "redactions: ${_red} (row tracker)"
   _marker="<!-- stage-retro-issues:occurrence ${_sig} #${_fp} -->"
-  _occ_find "$_title" tracker || { failed=$((failed+1)); _row_nowrite tracker; return 0; }
-  if [ -n "$_occ_nums" ]; then
-    _text="$(printf 'The unclassifiable item set of this retro was re-checked (%d item(s)).\n\n%s\n%s' "$_unc_n" "$_sig" "$_marker" | scrub_issue_text)" \
-      || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
-    if ! grep -qxF -- "$_marker" <<<"$_text"; then
-      _scrub_refuse tracker "scrub altered the occurrence marker of the unclassifiable tracker — refusing to write (idempotency and the read-back key on it)"
-      return 0
-    fi
-    _occ_row_comment_all tracker "$_marker" "$_text"
-    return 0
-  fi
-  # No open tracker. CLOSED handling (kit issue #1259 RDD): a closed delta issue means "dismissed", but a closed
-  # tracker only dismissed the item set it listed. So the lookup is keyed on the ITEM-SET line: an issue (any
-  # state) carrying this exact set is skipped-duplicate; a closed/other tracker for the same retro with a DIFFERENT
-  # set means new items were lost since, so a NEW tracker is created, its title suffixed with the set checksum.
+  # Lookup order (kit issue #1259 RDD rounds 1-2). Trackers are found by the BODY signature line, never by title, so
+  # a title suffix can never hide an open tracker (that fan-out would open a new issue per changed set):
+  #   1. the exact item-set line in ANY state          -> skipped-duplicate (this set is already tracked)
+  #   2. one OPEN tracker for this retro (any suffix)   -> ONE occurrence comment on it, keyed by the set checksum
+  #   3. several OPEN trackers                          -> typed WARN naming them, comment on the newest, create nothing
+  #   4. only CLOSED trackers (a closed one dismissed only the set it listed) -> ONE new tracker, title suffixed
+  #   5. no tracker at all                              -> create (base title)
   _unc_lookup "$_sigfp" || return 0
   if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_lk"; then
     echo "skipped-duplicate: tracking issue for $_sig already exists for this item set (search matched '$_sigfp')"
     skipped_dedup=$((skipped_dedup+1)); _row_nowrite tracker; return 0
   fi
-  _unc_lookup "$_sig" || return 0
-  if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_lk"; then
-    _title="${_title} (item set ${_fp})"
-    echo "tracker-set-changed: an earlier tracker for $_sig exists but lists a different item set — creating a new tracker"
+  _unc_lookup_nums "$_sig" || return 0
+  _open_nums="$(printf '%s\n' "$_lk" | sed -n 's/^\([0-9][0-9]*\) OPEN$/\1/p' | sort -n)"
+  if [ -n "$_open_nums" ]; then
+    _newest="$(printf '%s\n' "$_open_nums" | tail -n 1)"
+    if [ "$(printf '%s\n' "$_open_nums" | wc -l)" -gt 1 ]; then
+      echo "WARN: tracker-multiple-open: $_sig has several OPEN trackers ($(printf '#%s ' $_open_nums)) — commenting on the newest (#$_newest), creating nothing; close the extras" >&2
+    fi
+    _text="$(printf 'The unclassifiable item set of this retro changed (%d item(s)).\n\n%s\n%s\n%s' "$_unc_n" "$_sig" "$_sigfp" "$_marker" | scrub_issue_text)" \
+      || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
+    if ! grep -qxF -- "$_marker" <<<"$_text"; then
+      _scrub_refuse tracker "scrub altered the occurrence marker of the unclassifiable tracker — refusing to write (idempotency and the read-back key on it)"
+      return 0
+    fi
+    _occ_nums="$_newest"
+    _occ_row_comment_all tracker "$_marker" "$_text"
+    return 0
   fi
+  if grep -q '^[0-9][0-9]* CLOSED$' <<<"$_lk"; then
+    _title="${_title} (item set ${_fp})"
+    echo "tracker-set-changed: every earlier tracker for $_sig is closed and lists a different item set — creating a new tracker"
+  fi
+  # NOTE (kit issue #1259 R2-001, deferred): the create + read-back below duplicates the delta-row create path in the
+  # main loop; that path is inline with `continue`s and shares no helper, so extracting one is its own work unit.
   ensure_target_label
   IFS=',' read -ra _lbl_arr <<< "$_labels"
   for _lbl in "${_lbl_arr[@]}"; do _lf="$_lf --label $(printf '%s' "$_lbl" | sed "s/'/'\\\\''/g")"; done
