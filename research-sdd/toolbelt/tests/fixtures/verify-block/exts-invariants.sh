@@ -8,6 +8,7 @@
 #                                                               duplicates and added nothing)
 #                                  | EXTS UNREADABLE-EXPECTED  (the expected-set fixture is missing/unreadable: could not run)
 #                                  | EXTS DIFF-ERROR           (diff itself failed, exit >= 2: could not run)
+#                                  | EXTS GREP-ERROR           (grep failed, exit >= 2, in the tlds-subset check: could not run)
 # A could-not-run state is a typed failure, never `set-preserved` (CLAUDE.md §7).
 # EXPECTED_SET defaults to exts-expected-set.txt beside this script.
 sut="$1"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +31,7 @@ else
     if [ "$r" -ge 2 ]; then nrc=$r; elif [ "$r" -eq 1 ]; then notext="$notext$e"$'\n'; fi
   done <<<"$tl"
   if [ "$nrc" -ge 2 ]; then
-    echo "EXTS DIFF-ERROR (grep rc=$nrc)"
+    echo "EXTS GREP-ERROR (grep rc=$nrc)"
   elif [ -z "$notext" ]; then
     echo "EXTS tlds-subset ($tcnt read)"
   else

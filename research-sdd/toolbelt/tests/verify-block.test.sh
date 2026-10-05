@@ -1536,7 +1536,7 @@ done
 # kit #1721 (R3): an UNRESOLVED cite whose shape matches the FQCN / host pre-split but whose last label is a known file
 # extension (`analysis.v2.R`, `notes.v1.org`) is a missing extern source cite, not a non-path: it keeps its place in M/E
 # and the P9 WARN keeps the SOURCE_ROOT hint. 
-for _t in 'analysis.v2.R:3' 'notes.v1.org:2' 'my_analysis.final.R:4' 'de.v2.report.R:6'; do
+for _t in 'analysis.v2.R:3' 'notes.v1.org:2' 'my_analysis.final.R:4' 'de.v2.report.R:6' 'data.clean.R:8'; do
   n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
   out="$(run "$N973")"
   { grep -q 'resolved 0 of 1 (1 extern, 0 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out" && grep -q "extern  $_t" <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
@@ -1549,9 +1549,9 @@ grep -q 'nonpath  javax.baja.control.BTimeTrigger:238' <<<"$out" \
   && ok "#1721 GUARD: a non-extension FQCN is still nonpath" || no "#1721 FQCN no longer nonpath :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 # round-1 R3: an unresolved Java FQCN whose class name merely spells an extension (or a lone `R`) under a package root is
 # still nonpath; the rescue is exact-case (lower-case ext) or upper-case `R` outside a package root
-# kit #1742 (item 2): the `R` rescue keys on a STRUCTURAL tell, not a package-root allowlist, so Android `R` classes under
-# ccTLD / other roots (`de.`, `uk.`, `fr.`, `me.`, `co.`) stay nonpath like `com.example.R`.
-for _t in 'com.example.R:5' 'de.example.app.R:5' 'uk.co.acme.R:7' 'fr.acme.ui.R:2' 'me.foo.bar.R:3' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x.y.Bin:6'; do
+# kit #1742 (item 2): an `R` cite stays nonpath when its first label is a known package root OR any 2-letter label (ccTLD:
+# `de.`, `uk.`, `fr.`, `me.`) and no path label is version-like; `com.example.my_app.R` (underscore) stays nonpath too.
+for _t in 'com.example.R:5' 'com.example.my_app.R:5' 'de.example.app.R:5' 'uk.co.acme.R:7' 'fr.acme.ui.R:2' 'me.foo.bar.R:3' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x.y.Bin:6'; do
   n973 "pre-${_t%%:*}" standard "Class \`$_t\`. [CERT]"
   out="$(run "$N973")"
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
@@ -2185,19 +2185,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth "teeth-1721-fqcn" 0 0 "$MUT/np24.sh" --good-has 'nonpath  org.apache.log4j.Log:12' --good-lacks 'extern  org' \
       --bad-has 'extern  org.apache.log4j.Log:12' --bad-lacks 'nonpath  org' -- bash @SUT@ "$TMP/n973-pre-org.apache.log4j.Log.md"
   fi
-  # kit #1742 (item 2): the R rescue is a structural tell. Forcing it always-on regresses ccTLD-rooted Android `R`
-  # (de.example.app.R) to extern; forcing it off makes the R-script cite `analysis.v2.R` nonpath.
-  if mk_sed "teeth-1742-rtell-on" "$MUT/np25.sh" 's/if grep -qE [^<]*<<<"\$_vb_np_labels"; then/if true; then/'; then
-    tooth "teeth-1742-rtell-on" 0 0 "$MUT/np25.sh" --good-has 'nonpath  de.example.app.R:5' --good-lacks 'extern  de' \
+  # kit #1742 (item 2): the combined R rule = (known root OR 2-letter ccTLD first label) AND no version-like label.
+  # Each branch has a tooth: dropping the known roots, the ccTLD branch, the version override, or the whole rescue.
+  if mk_sed "teeth-1742-r-roots" "$MUT/np25.sh" 's/in com|org/in org/'; then
+    tooth "teeth-1742-r-roots" 0 0 "$MUT/np25.sh" --good-has 'nonpath  com.example.my_app.R:5' --good-lacks 'extern  com' \
+      --bad-has 'extern  com.example.my_app.R:5' --bad-lacks 'nonpath  com' -- bash @SUT@ "$TMP/n973-pre-com.example.my_app.R.md"
+  fi
+  if mk_sed "teeth-1742-r-cctld" "$MUT/np29.sh" 's/|jdk|\[a-z\]\[a-z\]) _vb_np_pkg=1/|jdk) _vb_np_pkg=1/'; then
+    tooth "teeth-1742-r-cctld" 0 0 "$MUT/np29.sh" --good-has 'nonpath  de.example.app.R:5' --good-lacks 'extern  de' \
       --bad-has 'extern  de.example.app.R:5' --bad-lacks 'nonpath  de' -- bash @SUT@ "$TMP/n973-pre-de.example.app.R.md"
   fi
-  if mk_sed "teeth-1742-rtell-off" "$MUT/np27.sh" 's/if grep -qE [^<]*<<<"\$_vb_np_labels"; then/if false; then/'; then
-    tooth "teeth-1742-rtell-off" 0 0 "$MUT/np27.sh" --good-has 'extern  my_analysis.final.R:4' --good-lacks 'nonpath' \
-      --bad-has 'nonpath  my_analysis.final.R:4' --bad-lacks 'extern  my_analysis' -- bash @SUT@ "$TMP/n973-pre-my_analysis.final.R.md"
+  if mk_sed "teeth-1742-r-version" "$MUT/np27.sh" 's/; then _vb_np_pkg=0; fi/; then :; fi/'; then
+    tooth "teeth-1742-r-version" 0 0 "$MUT/np27.sh" --good-has 'extern  de.v2.report.R:6' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  de.v2.report.R:6' --bad-lacks 'extern  de' -- bash @SUT@ "$TMP/n973-pre-de.v2.report.R.md"
   fi
-  # kit #1742 (item 3): a non-extension entry added to _vb_tlds (`so`) is reported by the overlap invariant
+  if mk_sed "teeth-1742-r-rescue" "$MUT/np30.sh" 's/if \[ "\$_vb_np_pkg" = 0 \]; then _vb_np_hit=1; fi/:/'; then
+    tooth "teeth-1742-r-rescue" 0 0 "$MUT/np30.sh" --good-has 'extern  data.clean.R:8' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  data.clean.R:8' --bad-lacks 'extern  data' -- bash @SUT@ "$TMP/n973-pre-data.clean.R.md"
+  fi
+  # kit #1742 (item 3): a non-extension entry swapped into _vb_tlds (`so` for the last entry) is reported by the overlap invariant
   _vb_fx="$HERE/fixtures/verify-block/exts-invariants.sh"; _vb_exp="$HERE/fixtures/verify-block/exts-expected-set.txt"
-  if mutant_chain "teeth-1742-tlds" "$SUT" "$MUT/np28.sh" "s/^cc'\$/cc\\nso'/"; then
+  if mutant_chain "teeth-1742-tlds" "$SUT" "$MUT/np28.sh" 's/^cc\(.\)$/so\1/'; then
     tooth "teeth-1742-tlds" 0 0 "$MUT/np28.sh" --good-has 'EXTS tlds-subset' --good-lacks 'TLD-NOT-EXT' \
       --bad-has 'EXTS TLD-NOT-EXT: so' --bad-lacks 'EXTS tlds-subset' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
   else fail=$((fail+1)); fi

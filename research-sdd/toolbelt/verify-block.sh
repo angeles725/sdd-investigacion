@@ -493,12 +493,13 @@ if [ -n "$bt_cites" ]; then
       # loop reports it `extern` (WARN + SOURCE_ROOT hint), the same rule as the Class.method branch below. Exact case, so
       # a Java FQCN whose class name merely spells an extension (`org.foo.Log`, `x.y.Class`, `x.y.Bin`, `a.b.T`) stays
       # nonpath: (1) the last label is a LOWER-case known extension (`notes.v1.org`), or (2) the last label is the
-      # upper-case `R` (R scripts, `analysis.v2.R`) and a path label carries a structural tell that it is not a Java/Android
-      # package: a version-like label (`v2`) or an upper-case / `_` / `-` character (kit #1742). An all-lower-case-letters
-      # path (`com.example.R`, `de.acme.app.R`, `uk.co.acme.R`) is a package whatever its root, so it stays nonpath — there
-      # is no package-root allowlist to drift. Trade-off: an R script with an all-lower-case path reads as a package.
+      # upper-case `R` (R scripts, `analysis.v2.R`) UNLESS it reads as an Android/Java package: the first label is a known
+      # package root or any 2-letter label (a ccTLD: de, uk, fr, me, co) AND no path label is version-like (`v2`). So
+      # `com.example.my_app.R`, `de.example.app.R`, `uk.co.acme.R` stay nonpath, while `data.clean.R`, `my_analysis.final.R`,
+      # `de.v2.report.R`, `analysis.v2.R` are rescued to extern (kit #1742). Trade-off: an R script under a package-like
+      # root (`co.report.R`) reads as a package.
       # Variables: _vb_np_stem = cite without `:NNN`, _vb_np_last = its last label, _vb_np_labels = the labels before it.
-      _vb_np_stem="${c%:*}"; _vb_np_last="${_vb_np_stem##*.}"; _vb_np_labels="${_vb_np_stem%.*}"
+      _vb_np_stem="${c%:*}"; _vb_np_last="${_vb_np_stem##*.}"; _vb_np_labels="${_vb_np_stem%.*}"; _vb_np_first="${_vb_np_stem%%.*}"
       if [ "$_vb_np_hit" = 0 ]; then
         if grep -qxF "$_vb_np_last" <<<"$_vb_file_exts"; then
           _vb_np_hit=1
@@ -507,7 +508,10 @@ if [ -n "$bt_cites" ]; then
           # host:port and stays nonpath. Trade-off: a missing `x.y.org:N` file cite without a `vN` label reads as a host.
           if grep -qxF "$_vb_np_last" <<<"$_vb_tlds" && ! grep -qE '(^|\.)v[0-9]+\.' <<<"${c%:*}"; then _vb_np_hit=0; fi
         elif [ "$_vb_np_last" = R ]; then
-          if grep -qE '(^|\.)v[0-9]+(\.|$)|[A-Z_-]' <<<"$_vb_np_labels"; then _vb_np_hit=1; fi
+          _vb_np_pkg=0
+          case "$_vb_np_first" in com|org|net|io|java|javax|jakarta|android|androidx|edu|gov|kotlin|scala|sun|jdk|[a-z][a-z]) _vb_np_pkg=1 ;; esac
+          if grep -qE '(^|\.)v[0-9]+(\.|$)' <<<"$_vb_np_labels"; then _vb_np_pkg=0; fi
+          if [ "$_vb_np_pkg" = 0 ]; then _vb_np_hit=1; fi
         fi
       fi
       [ "$_vb_np_hit" = 0 ] && _vb_np_cites="${_vb_np_cites:+$_vb_np_cites$'\n'}$c"
