@@ -13,7 +13,7 @@
 #   9. Parity: sweep-all's list == the kit's registered SessionStart hook set == CANONICAL
 #  10. Real scripts: every script sweep-all lists exists and is executable in the real toolbelt
 #
-# All behavioral tests (3-8) are implemented by copying sweep-all.sh into a temp dir
+# Behavioral tests 3-8 are implemented by copying sweep-all.sh into a temp dir
 # alongside stub replacements of the canonical scripts, so sweep-all.sh's own
 # TOOLBELT=$(dirname $0) resolution finds the stubs rather than the real scripts.
 #
@@ -44,7 +44,8 @@ echo "== sweep-all.test.sh =="
 
 # ---- Bail early if SUT is missing: behavioral tests need it ----------------
 if [ ! -f "$SUT" ]; then
-  for n in 3 4 5 6 7 8 9; do
+  # Derived from this header's numbered assertion list (3 and up) so the bail count cannot drift.
+  for n in $(sed -nE 's/^#[[:space:]]+([0-9]+)\..*/\1/p' "$0" | awk '$1>=3'); do
     no "$n (skipped: sweep-all.sh missing — cannot test behavior)"
   done
   echo "== $pass passed · $fail failed =="
