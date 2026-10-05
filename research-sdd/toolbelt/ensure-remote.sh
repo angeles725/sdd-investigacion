@@ -24,7 +24,8 @@
 #      AFTER and guarded by this confirmed-private check.
 #   6. IDEMPOTENT — if `origin` already resolves, do nothing (never a duplicate repo).
 #
-# BOUNDS (kit issue #1841): every gh call is bounded and runs with GH_PROMPT_DISABLED=1. The visibility read-back and
+# BOUNDS (kit issue #1841): `gh repo create`, `gh repo edit` and the visibility read-back are bounded and run with
+# GH_PROMPT_DISABLED=1; the earlier owner lookups (`gh api user`, `gh api users/<owner>`) are not bounded yet. The read-back and
 # `gh repo edit` use RSDD_GH_TIMEOUT (default 20 s); `gh repo create` uses its own RSDD_GH_CREATE_TIMEOUT (default 60 s).
 # Both take a positive integer of seconds; anything else falls back to the default with a note. A create TIMEOUT is a
 # typed DEGRADED + PARTIAL-STATE line (local origin set/absent, remote visibility) with the exact next step; with an
