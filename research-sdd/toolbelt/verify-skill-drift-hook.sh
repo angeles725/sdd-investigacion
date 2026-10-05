@@ -35,23 +35,24 @@ if [ -x "$vcmd" ]; then
       vnote="verify: no mktemp - a stalled grandchild of install --verify is not bounded"
     fi
   elif [ -n "$vf" ]; then
-    trap 'kill -KILL "$spid" 2>/dev/null; rm -f "$vf" "$vf.fired"' EXIT
+    vpid=""; wpid=""   # cleared right after each `wait`: the EXIT trap never signals a pid that was already reaped
+    trap '[ -n "$wpid" ] && kill "$wpid" 2>/dev/null; [ -n "$vpid" ] && kill "$vpid" 2>/dev/null; rm -f "$vf" "$vf.fired" "$vf.done"' EXIT   # SENTINEL-VERIFY-EXIT-TRAP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    # Watchdog: run in the background and kill it after $vt seconds. It drops a sentinel file when it fires,
-    # so a real exit 137/143 from install is not mistaken for the kill. Its sleeper is killed on normal finish (and on EXIT).
+    # Watchdog: a background subshell polls until the run is marked done ($vf.done) or the deadline passes. It drops a
+    # sentinel file when it fires, so a real exit 137/143 from install is not mistaken for the kill. There is no separate
+    # sleeper process and no signal is needed to stop the watchdog (#1759: a TERM sent to a just-forked child is consumed by
+    # the inherited `trap ... TERM` handler before exec, which orphaned the old sleeper and could hang `wait`); it exits
+    # within 0.1 s of $vf.done appearing. The deadline is whole seconds (a fractional timeout is truncated).
+    dl=$((SECONDS + ${vt%%.*}))
     "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
-    # The sleeper is a child of THIS shell, so its pid is recorded before any signal can matter and it is killed by pid
-    # on finish with SIGKILL (#1759: root cause measured with xtrace — a TERM sent to a just-forked child is consumed by
-    # the copy of this shell's `trap ... TERM` handler it still runs before exec, so the sleeper survived the kill and
-    # `wait` hung; SIGKILL cannot be trapped). The watchdog subshell only polls for the sleeper's end, so it needs no signal.
-    sleep "$vt" >/dev/null 2>&1 & spid=$!   # SENTINEL-VERIFY-SLEEPER
-    ( while kill -0 "$spid" 2>/dev/null; do sleep 0.1; done
-      if kill -0 "$vpid" 2>/dev/null; then : >"$vf.fired"; kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
-    wait "$vpid" 2>/dev/null; vrc=$?
-    kill -KILL "$spid" 2>/dev/null; wait "$spid" 2>/dev/null; wait "$wpid" 2>/dev/null
+    ( while [ ! -e "$vf.done" ] && [ "$SECONDS" -lt "$dl" ]; do sleep 0.1; done
+      if [ ! -e "$vf.done" ]; then : >"$vf.fired"; [ -e "$vf.done" ] || kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
+    wait "$vpid" 2>/dev/null; vrc=$?; vpid=""
+    : >"$vf.done"   # SENTINEL-VERIFY-DONE
+    wait "$wpid" 2>/dev/null; wpid=""
     if [ -e "$vf.fired" ]; then vrc=124; fi
-    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired"
+    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired" "$vf.done"
   else
     extra_skip=1   # never an unbounded run
   fi

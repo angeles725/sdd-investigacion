@@ -142,7 +142,15 @@ if command -v pgrep >/dev/null 2>&1; then
     RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86311 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$HOOK_SB" >/dev/null 2>&1
   done
   if pgrep -f 'sleep 86311' >/dev/null 2>&1; then no "H4g: watchdog sleeper outlived a fast finish (20 runs)"; pkill -f 'sleep 86311' 2>/dev/null; else ok "H4g: no watchdog sleeper survives 20 fast finishes"; fi
+  # The watchdog is now a polling subshell of the hook itself (no separate sleeper): none may outlive a fast finish.
+  _left=0; for _p in $(pgrep -f "$HOOK_SB" 2>/dev/null); do [ "$_p" = "$$" ] || _left=$((_left+1)); done
+  if [ "$_left" = 0 ]; then ok "H4j: no watchdog subshell survives 20 fast finishes"; else no "H4j: $_left process(es) still running the hook after 20 fast finishes"; pkill -f "$HOOK_SB" 2>/dev/null; fi
 fi
+# After a NORMAL finish the EXIT trap must signal nothing (both children were reaped; their pids may be reused). A
+# `kill` function exported into the hook records every call.
+KLOG="$ROOT/kill.log"; : >"$KLOG"
+KLOG="$KLOG" RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" -c 'kill() { printf "%s\n" "$*" >>"$KLOG"; builtin kill "$@"; }; export -f kill; exec bash "$1"' _ "$HOOK_SB" >/dev/null 2>&1
+if [ ! -s "$KLOG" ]; then ok "H4k: no signal is sent after a normal finish (EXIT trap does not touch reaped pids)"; else no "H4k: kill called after normal finish: $(tr '\n' ';' <"$KLOG")"; fi
 # An inherited extra_skip must not force the skip path.
 HOUT_X="$(extra_skip=1 STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
 grep -q 'status=behind' <<<"$HOUT_X" && ! grep -q skipped <<<"$HOUT_X" && ok "H4h: inherited extra_skip env does not force the skip path" || no "H4h: env extra_skip leaked; out=[$HOUT_X]"
@@ -210,7 +218,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout "\$vt" "\$vcmd"/"$vcmd"/' \
     && _tt "teeth: timeout wrapper removed → a hung --verify hangs session start (observed via wall-clock cap)" 0 0 "$MB/m-g.sh" \
        --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "PATH=$SHIMPATH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "H" "$SUT" "$MB/m-h.sh" 's/: >"\$vf.fired"; kill "\$vpid" 2>\/dev\/null;/:;/' \
+  _mk "H" "$SUT" "$MB/m-h.sh" 's/: >"\$vf.fired"; \[ -e "\$vf.done" \] || kill "\$vpid" 2>\/dev\/null;/:;/' \
     && _tt "teeth: watchdog never kills the hung run → the no-timeout-binary path is unbounded and silent" 0 0 "$MB/m-h.sh" \
        --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "J" "$SUT" "$MB/m-j.sh" 's/if \[ -e "\$vf.fired" \]; then/if [ "$vrc" -ge 128 ]; then/' \
@@ -226,24 +234,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "N" "$SUT" "$MB/m-n.sh" 's/^      vnote=.*$/      extra_skip=1/' \
     && _tt "teeth: no-mktemp fallback replaced by a skip -> findings lost when mktemp fails but timeout exists" 0 0 "$MB/m-n.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIM2PATH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$BEHIND" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  # The lost-TERM race cannot be forced deterministically from outside (the window is microseconds), so the tooth
-  # pins the DESIGN statically: the sleeper must be started by the hook shell itself (pid recorded, killed by pid),
-  # never inside the watchdog subshell where a signal aimed at the subshell can orphan it (#1759).
-  _mk "O" "$SUT" "$MB/m-o.sh" 's/^    sleep "\$vt" >\/dev\/null 2>&1 & spid=\$!/    ( sleep "$vt" >\/dev\/null 2>\&1 \& spid=$! )/' \
-    && _tt "teeth: sleeper started inside a subshell -> its pid is not the hook's and a lost TERM orphans it" 0 0 "$MB/m-o.sh" \
+  # The lost-signal race (#1759) cannot be forced from outside, so teeth O and P pin the DESIGN statically (the mutants are
+  # the same file with the pinned line changed): the done marker must be written BEFORE the watchdog is waited for, and the
+  # watchdog must re-check it immediately before signalling the verify pid.
+  _mk "O" "$SUT" "$MB/m-o.sh" '/^    : >"\$vf.done"/d' \
+    && _tt "teeth: done marker not written before waiting on the watchdog -> the watchdog is never told to stop" 0 0 "$MB/m-o.sh" \
        --good-has '^order-ok$' --bad-has '^order-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
-       "$BASH_BIN" -c 'if grep -q "^    sleep .[$]vt. >/dev/null 2>&1 & spid=" "$1"; then echo order-ok; else echo order-bad; fi' _ @SUT@
-  # A TERM aimed at the just-forked sleeper is swallowed by the inherited TERM trap (the lost-kill race, #1759) and cannot
-  # be forced from outside, so the tooth pins the signal: the sleeper must die by SIGKILL, which no trap can consume.
-  _mk "P" "$SUT" "$MB/m-p.sh" 's/^    kill -KILL "\$spid"/    kill "$spid"/' \
-    && _tt "teeth: sleeper killed with TERM -> a TERM landing in the fork window is swallowed and the sleeper survives" 0 0 "$MB/m-p.sh" \
-       --good-has '^kill-ok$' --bad-has '^kill-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
-       "$BASH_BIN" -c 'if grep -q "^    kill -KILL \"\$spid\"" "$1"; then echo kill-ok; else echo kill-bad; fi' _ @SUT@
+       "$BASH_BIN" -c 'd=$(grep -n "SENTINEL-VERIFY-DONE" "$1" | cut -d: -f1); w=$(grep -n "^    wait .[$]wpid" "$1" | cut -d: -f1); if [ -n "$d" ] && [ -n "$w" ] && [ "$d" -lt "$w" ]; then echo order-ok; else echo order-bad; fi' _ @SUT@
+  _mk "P" "$SUT" "$MB/m-p.sh" 's/ \[ -e "\$vf.done" \] || kill "\$vpid"/ kill "$vpid"/' \
+    && _tt "teeth: no done re-check before signalling the verify pid -> a just-reaped pid can be signalled" 0 0 "$MB/m-p.sh" \
+       --good-has '^recheck-ok$' --bad-has '^recheck-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
+       "$BASH_BIN" -c 'if grep -qF "[ -e \"\$vf.done\" ] || kill" "$1"; then echo recheck-ok; else echo recheck-bad; fi' _ @SUT@
+  # M: pid variables not cleared after their wait -> the EXIT trap signals reaped pids (observed through the kill recorder).
+  _mk "M" "$SUT" "$MB/m-m2.sh" 's/; vpid=""$//;s/; wpid=""$//' \
+    && _tt "teeth: pid vars not cleared after wait -> EXIT trap signals reaped pids" 0 0 "$MB/m-m2.sh" \
+       --good-has '^no-kill$' --bad-has '^killed$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "KLOG=$ROOT/kill-m.log" \
+       "$BASH_BIN" -c ': >"$KLOG"; kill() { printf "%s\n" "$*" >>"$KLOG"; builtin kill "$@"; }; export -f kill; bash "$1" >/dev/null 2>&1; if [ -s "$KLOG" ]; then echo killed; else echo no-kill; fi' _ @SUT@
   if command -v pgrep >/dev/null 2>&1; then
-    _mk "L" "$SUT" "$MB/m-l.sh" 's/^    kill -KILL "\$spid" 2>\/dev\/null; wait "\$spid" 2>\/dev\/null; wait "\$wpid" 2>\/dev\/null$/    :/;s/^    trap '"'"'kill -KILL "\$spid" 2>\/dev\/null; /    trap '"'"'/' \
-      && _tt "teeth: watchdog sleeper not killed -> a stray sleep outlives a fast finish" 0 0 "$MB/m-l.sh" \
+    # L: watchdog never told to stop and never killed -> a polling subshell outlives a fast finish (until its deadline).
+    _mk "L" "$SUT" "$MB/m-l.sh" 's/^    : >"\$vf.done".*$/    :/;s/^    wait "\$wpid" 2>\/dev\/null; wpid=""$/    :/;s/\[ -n "\$wpid" \] \&\& kill "\$wpid" 2>\/dev\/null; //' \
+      && _tt "teeth: watchdog neither stopped nor killed -> a polling subshell outlives a fast finish" 0 0 "$MB/m-l.sh" \
          --good-has '^clean$' --bad-has '^leaked$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86312" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
-         "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; if pgrep -f "sleep 8631[2]" >/dev/null; then echo leaked; pkill -f "sleep 8631[2]"; else echo clean; fi' _ @SUT@
+         "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; n=0; for p in $(pgrep -f "$1"); do [ "$p" = "$$" ] || { n=$((n+1)); kill "$p"; }; done; if [ "$n" -gt 0 ]; then echo leaked; else echo clean; fi' _ @SUT@
   fi
   _mk "I" "$SUT" "$MB/m-i.sh" 's/^    extra_skip=1 /    : /' \
     && _tt "teeth: skip branch unreported → with no timeout and no mktemp the hook says nothing" 0 0 "$MB/m-i.sh" \
