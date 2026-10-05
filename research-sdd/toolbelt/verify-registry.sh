@@ -20,7 +20,8 @@
 #   --json  opt-in: print ONE research-sdd.verify-registry/v1 envelope (json-envelope.v1.md) on stdout
 #           instead of the human report. Needs jq; without it a typed degraded envelope is printed and
 #           the exit code is 3. The default (no flag) output is unchanged.
-# Exit: 0 on clean or advisory findings; 1 on operational failure (missing registry or broken lib helper).
+# Exit: 0 on clean or advisory findings; 1 on operational failure (missing registry or broken lib helper);
+#       2 on a usage error (any argument other than --json; usage on stderr, nothing on stdout).
 #       --json adds: 3 = degraded (jq missing / too old); an all-absent registry is an absent-input
 #       envelope (rc 0) and a registry with no usable path is rc 1 (the default mode keeps exit 1 / exit 0).
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
@@ -30,7 +31,14 @@ set -uo pipefail
 # typed degraded result, never a silent pass. The human report is muted onto /dev/null (fd 3 keeps the
 # real stdout) and the envelope is the only thing written to fd 3, at the end. stderr is untouched.
 VR_JSON=0
-for _vr_a in "$@"; do [ "$_vr_a" = "--json" ] && VR_JSON=1; done
+# Any other argument is a usage error (#1780): exit 2 with usage on stderr, nothing on stdout. Callers
+# (sweep-all.sh, verify-registry-hook.sh, the test suites) pass no argument or exactly --json.
+for _vr_a in "$@"; do
+  case "$_vr_a" in
+    --json) VR_JSON=1 ;;
+    *) printf 'verify-registry: unknown argument: %s\nusage: verify-registry.sh [--json]\n' "$_vr_a" >&2; exit 2 ;;
+  esac
+done
 unset _vr_a
 if [ "$VR_JSON" = 1 ]; then
   if ! command -v jq >/dev/null 2>&1; then
@@ -47,12 +55,17 @@ if [ "$VR_JSON" = 1 ]; then
   exec 3>&1 >/dev/null
 fi
 _json_items=""   # --json accumulator, initialised so an inherited env value cannot leak in
-# _vr_finding KIND SEVERITY TARGET TEXT : print the human finding line (byte-identical to the former
-# inline echo) and, under --json, record it as a named name=value row for the envelope.
-_vr_finding() {
-  printf '%s\n' "$2  $4"
+# _vr_record KIND SEVERITY TARGET TEXT : record-only — under --json append one named name=value row to the
+# envelope accumulator; prints nothing. The single owner of the row encoding.
+_vr_record() {
   [ "$VR_JSON" = 1 ] || return 0
   _json_items="${_json_items}$(printf 'kind=%s\x1fseverity=%s\x1ftarget=%s\x1fmessage=%s' "$1" "$2" "$3" "$4")"$'\n'
+}
+# _vr_finding KIND SEVERITY TARGET TEXT : print the human finding line (byte-identical to the former
+# inline echo) and record it via _vr_record.
+_vr_finding() {
+  printf '%s\n' "$2  $4"
+  _vr_record "$1" "$2" "$3" "$4"
 }
 # _vr_json_emit ALL_ABSENT : build and print the envelope on fd 3 from the accumulators and counters.
 # Accumulators go to jq as FILES (process substitution of a builtin printf), never as argv: a large
@@ -151,6 +164,7 @@ tol="${RSDD_REGISTRY_TOL:-2}"
 all_pairs=$(target_paths_pairs "$TARGETS_MD")
 paths=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep -v '\.\.\.')
 skipped=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep '\.\.\.')
+_vr_ntargets=$(printf '%s\n' "$paths" | grep -c .)   # computed once; read by _vr_json_emit
 # ANTI-SILENT-ZERO: zero usable paths is a loud error, not a silent empty reconcile.
 if [ -z "$paths" ]; then
   echo "verify-registry: ERROR — no usable target paths in $TARGETS_MD" >&2
@@ -222,7 +236,7 @@ for p in $paths; do
         *" ${_vr_dedup_key} "*) : ;;
         *)
           absent_paths=$((absent_paths + 1))
-          _json_items="${_json_items}$(printf 'kind=%s\x1fseverity=%s\x1ftarget=%s\x1fmessage=%s' "absent-target" "INFO" "$p" "registered target absent on disk — NOT checked")"$'\n'
+          _vr_record absent-target INFO "$p" "registered target absent on disk — NOT checked"
           _vr_absent_row_ids="${_vr_absent_row_ids} ${_vr_dedup_key}"
           if [ "$_vr_absent_names_shown" -lt 3 ]; then
             absent_paths_names="${absent_paths_names}${absent_paths_names:+, }${needle}"
@@ -654,7 +668,7 @@ if [ "$dir_reached" -eq 0 ]; then
   echo "verify-registry: ERROR — no registered corpus path exists as a directory on disk." >&2
   echo "verify-registry: Check RESEARCH_HOME (${RESEARCH_HOME:-(unset)}) and that corpora exist at the registered paths." >&2
   # --json: every target absent is the absent-input state (rc 0); the default mode keeps exit 1 below.
-  if [ "$VR_JSON" = 1 ]; then _vr_ntargets=$(printf '%s\n' "$paths" | grep -c .); _vr_json_emit true; exit 0; fi
+  if [ "$VR_JSON" = 1 ]; then _vr_json_emit true; exit 0; fi
   exit 1  # ALL-ABSENT-CHECK
 fi
 
@@ -718,7 +732,6 @@ fi
 
 # Advisory findings (drift, schema) are never failures. Operational failure already exited 1 above.
 if [ "$VR_JSON" = 1 ]; then
-  _vr_ntargets=$(printf '%s\n' "$paths" | grep -c .)
   _vr_json_emit false
 fi
 exit 0

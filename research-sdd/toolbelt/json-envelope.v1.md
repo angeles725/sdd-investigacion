@@ -87,7 +87,8 @@ one-to-one: `targets` (usable paths in `TARGETS.md`, absent ones included, trunc
 Process differences from the default mode, all in `--json` only: an all-absent registry is an `absent-input`
 envelope with rc 0 (the default mode exits 1 with a stderr message); a registry with no usable target path is
 rc 1 with empty stdout (the default mode exits 0 with a stderr message), so a machine caller never reads it as
-a clean pass. Stderr messages are unchanged in both modes.
+a clean pass. Stderr messages are unchanged in both modes. Any argument other than `--json` is a usage error in
+both modes: rc 2, usage on stderr, nothing on stdout (no envelope).
 
 Items, in discovery order. Every item is `{"kind","severity","target","message"}`: `severity` is `WARN` or
 `INFO` exactly as in the human line, `target` is the name the human line cites (basename, or the full path for
