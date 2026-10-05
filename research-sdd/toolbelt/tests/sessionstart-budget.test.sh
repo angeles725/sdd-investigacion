@@ -85,6 +85,14 @@ run_cases() {
 $(cat "$FX/verify-registry.raw")" ] \
     && ok "$t reg-6 --full passes instrument output unchanged" || no "$t reg-6 --full differs from instrument output"
 
+  # The absent-target remediation hint (last sentence of the long INFO line) must survive truncation.
+  grep -qF 'Verify RESEARCH_HOME (/fx/home) and that corpora exist at the registered paths.' <<<"$o" \
+    && ok "$t reg-7 absent-target remediation hint survives compact mode" || no "$t reg-7 absent-target hint truncated away"
+  # Fleet/kit-level WARNs are ranked ahead of per-target WARNs, so the cap can never hide them.
+  grep -q 'kit repo is NOT in its own TARGETS.md' <<<"$o" && grep -q 'master cell is 236 chars' <<<"$o" \
+    && ok "$t reg-8 kit-self-registration and oversized-row WARNs named under the cap" \
+    || no "$t reg-8 a kit-level WARN was hidden behind the cap"
+
   # ---- verify-tool-catalog-hook ----
   n="$(chars "$C")"
   [ "$n" -le "$CAP_CAT" ] && ok "$t cat-1 catalog hook <= $CAP_CAT chars (got $n)" || no "$t cat-1 catalog hook over cap $CAP_CAT (got $n)"
@@ -168,6 +176,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth E: mutant still accounts for every WARN line"
     fi
   fi
+
+  # reg_mut <label> <must-be-absent regex> <sed-expr> — registry mutant must LOSE the named text.
+  reg_mut() {
+    local label="$1" lost="$2" expr="$3" d="$TMP/mut-$1"
+    mkdir -p "$d"
+    if mk_mut "$label" "$TB/verify-registry-hook.sh" "$d/verify-registry-hook.sh" "$expr"; then
+      printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$FX/verify-registry.raw" > "$d/verify-registry.sh"
+      chmod +x "$d/verify-registry.sh" "$d/verify-registry-hook.sh"
+      local mo; mo="$(ctx "$d/verify-registry-hook.sh")"
+      if ! grep -qE "$lost" <<<"$mo"; then
+        ok "teeth $label: mutant lost '$lost' (reg case goes red)"
+      else
+        no "teeth $label: mutant still carries '$lost' — the assertion does not bite"
+      fi
+    fi
+  }
+  # F: ranking restored to instrument order → kit-level WARNs fall behind the cap (reg-8).
+  reg_mut "F registry-instrument-order" 'kit repo is NOT in its own' 's/pri\[++np\] = \$0; else oth/oth[++no] = $0; else oth/'
+  # G: tail-keeping neutered → plain truncation cuts the hint (reg-7).
+  reg_mut "G registry-hint-truncated" 'registered paths\.' 's/return trunc(s, hmax) " " tail/return trunc(s, 170)/'
 fi
 
 echo "== $pass passed · $fail failed =="
