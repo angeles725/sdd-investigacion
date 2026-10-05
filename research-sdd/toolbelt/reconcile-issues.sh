@@ -259,11 +259,38 @@ _fetch_closed_bodies() {
   done
 }
 
+# _SR_FILE (kit issue #1752): per-run cache of "<number> <state_reason>" lines for the repo's closed issues.
+# A FILE because the closed lookup runs inside command substitutions (a variable set there is lost).
+# Empty = not loaded yet; the first line "loaded" marks a completed load.
+_SR_FILE="$(mktemp 2>/dev/null)" || _SR_FILE=""
+[ -z "$_SR_FILE" ] || trap 'rm -f "$_SR_FILE"' EXIT
+
+# _load_state_reasons - ONE paginated `gh api repos/<repo>/issues?state=closed` call (REST items carry
+# state_reason) with one bounded retry; typed degraded + return 1 on failure. Reads no stdin.
+_load_state_reasons() {
+  local _try _out _rc _ef _em
+  [ -n "$_SR_FILE" ] || { echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field) — no temp file available" >&2; return 1; }
+  [ -s "$_SR_FILE" ] && return 0
+  for _try in 1 2; do
+    _ef="$(mktemp 2>/dev/null)" || _ef=""
+    _out="$(gh api --paginate "repos/$_REPO/issues?state=closed&per_page=100" \
+        --jq '.[] | "\(.number) \(.state_reason // "")"' </dev/null 2>"${_ef:-/dev/null}")"; _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+      [ -z "$_ef" ] || rm -f "$_ef"
+      printf 'loaded\n%s\n' "$_out" > "$_SR_FILE"
+      return 0
+    fi
+    _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
+  done
+  echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field)${_em:+ — }${_em}" >&2
+  return 1
+}
+
 # _closed_query_old_gh <sig-prefix>
 #   Kit issue #1752 fallback for a gh without the `stateReason` --json field: list number+body+comments,
-#   then read `state_reason` per issue through `gh api` and print the SAME record stream the primary query
-#   prints (body + trusted comments for a completed issue, empty body otherwise, one octal-036 line per
-#   issue). A failed per-issue lookup is a typed degraded + return 1, never a guessed state.
+#   then read `state_reason` from the one batched listing above and print the SAME record stream the
+#   primary query prints (body + trusted comments for a completed issue, empty body otherwise, one
+#   octal-036 line per issue). A failed listing, or an issue missing from it, is a typed degraded + return 1.
 _closed_query_old_gh() {
   local _p="$1" _raw _rc _sr _num _bad="" _ef _em
   _ef="$(mktemp 2>/dev/null)" || _ef=""
@@ -281,15 +308,14 @@ _closed_query_old_gh() {
   fi
   [ -z "$_ef" ] || rm -f "$_ef"
   # The issue number follows each unit-separator marker; remember the ones NOT closed as completed.
+  # The state reasons come from ONE batched, paginated listing per run (_load_state_reasons), never per issue.
+  _load_state_reasons || return 1
   while IFS= read -r _num; do
     [ -n "$_num" ] || continue
-    _ef="$(mktemp 2>/dev/null)" || _ef=""
-    _sr="$(gh api "repos/$_REPO/issues/$_num" --jq '.state_reason' 2>"${_ef:-/dev/null}")" || {
-      _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
-      echo "degraded: gh api state_reason lookup failed for issue #$_num (this gh has no stateReason --json field)${_em:+ — }${_em}" >&2
+    _sr="$(awk -v n="$_num" '$1 == n { print $2; found = 1; exit } END { exit !found }' "$_SR_FILE" 2>/dev/null)" || {
+      echo "degraded: state_reason for issue #$_num missing from the closed-issue listing (this gh has no stateReason --json field)" >&2
       return 1
     }
-    [ -z "$_ef" ] || rm -f "$_ef"
     [ "$_sr" = "completed" ] || _bad="${_bad}${_num}"$'\n'
   done < <(printf '%s\n' "$_raw" | awk '/^\037/ { print substr($0, 2) }')
   printf '%s\n' "$_raw" | _NG_BAD="$_bad" awk '
