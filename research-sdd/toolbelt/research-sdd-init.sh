@@ -606,7 +606,7 @@ _rsdd_vendor_leak_wiring() {
   fi
   # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
   # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
-  # other value falls back to 20 with a note. No `timeout` binary -> the probe runs unbounded, announced.
+  # other value falls back to 20 with a note. No `timeout` binary -> a bash watchdog (gh backgrounded, `sleep N; kill`) enforces the same bound, announced.
   local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
   case "$gh_t" in
     ''|*[!0-9]*) gh_t=0 ;;
