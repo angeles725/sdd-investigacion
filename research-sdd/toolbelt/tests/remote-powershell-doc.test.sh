@@ -76,7 +76,7 @@ check_doc "$DOC"
 demo_quoting
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- prove-teeth: each mutant of the doc must make check_doc fail --"
+  echo "-- teeth: each mutant of the doc must make check_doc fail --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh missing mutant_chain" >&2; exit 2; }
@@ -104,5 +104,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
-echo "RESULT: pass=$pass fail=$fail"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
