@@ -2665,6 +2665,17 @@ if [ "$RC" = 1 ] && grep -q '^degraded: retros directory not listable: .* — re
    && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
   ok "46t unlistable retros directory -> typed degraded + exit 1, shipped row still printed" "(exit $RC)"
 else no "46t find fails" "exit=$RC out=[$OUT]"; fi
+# 46u — a title carrying backslash sequences or a Windows path must match itself (awk -v would expand `\n`, `\t`
+# and drop `\x`): the identity is compared byte-exact, so a mangled comparison can never become a silent no-match.
+for _bt in 'handle the \n and \t escapes in titles' 'fix C:\new\temp\path handling' 'trailing backslash in title \'; do
+  box46="$(mkbox "case-46-bs-${#_bt}")"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
+  mk_retro "$box46" target-foo "$RA" "<!-- review-status: pending -->" "| 1 | ${_bt} | M | B1 | new | HIGH |" >/dev/null
+  mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" "| 3 | ${_bt} | M | B9 | new | HIGH |" >/dev/null
+  run "$box46" "$box46/rh/target-foo/retros/$RA"
+  if [ "$RC" = 0 ] && grep -qF "regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then
+    ok "46u backslash title [${_bt}] -> byte-exact match, regressed reported" "(exit $RC)"
+  else no "46u backslash title [${_bt}]" "exit=$RC out=[$OUT]"; fi
+done
 # 46s — two later retros re-propose the title: both are named (sorted by filename), one line per shipped row.
 reg_case two-later; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
   "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
@@ -3020,6 +3031,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       dismissed) st='dismissed 2026-09-11 · no' ;;
       partial-shipped) st='applied 2026-09-11 · PARTIAL — shipped: 3' ;;
       case)     title='Shipped via closed issue' ;;
+      bs)       title='fix C:\new\temp\path and \n \t escapes'
+                mk_retro "$mb" target-foo "$RA" "<!-- review-status: pending -->" "$(t46_row 1 "$title")" >/dev/null ;;
       short)    title='short title'
                 mk_retro "$mb" target-foo "$RA" "<!-- review-status: pending -->" "$(t46_row 1 "$title")" >/dev/null ;;
       bold)     title='**shipped via closed issue** — longer text' ;;
@@ -3055,7 +3068,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t46 T1709s2-a earlier appears '^regressed:' 's/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    :/'
   t46 T1709s2-b sameday appears '^regressed:' '/RECONCILE-SAMEDAY-COUNT$/s/.*/    :/;s/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    [[ "$sd" > "$cdate" || "$sd" == "$cdate" ]] || continue/'
   t46 T1709s2-c dismissed appears '^regressed:' 's/^    dismissed) return 0 ;;$/    dismissed) : ;;/'
-  t46 T1709s2-d case appears '^regressed:' 's/\$3 == t {/tolower($3) == tolower(t) {/'
+  t46 T1709s2-d case appears '^regressed:' 's/\$3 == ENVIRON\["_RG_T"\] {/tolower($3) == tolower(ENVIRON["_RG_T"]) {/'
   t46 T1709s2-e short appears '^regressed:' 's/\[ "\${#t}" -ge 12 \]/[ "${#t}" -ge 1 ]/'
   t46 T1709s2-f header gone '^regressed:' 's/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'
   t46 T1709s2-g bold gone '^regressed:' '/_dl="\$(printf/s/\\1\//\\1X\//'
@@ -3068,6 +3081,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t46 T1709s2-n oos gone '^regressed-lookup: .*marker' 's/if \[ "\$_rc" -eq 3 \]; then/if false; then/'
   t46 T1709s2-o nodate gone '^regressed-lookup: .*no YYYY-MM-DD' 's/^  if \[\[ ! "\$cb" =~ \^\[0-9\]{4}-\[0-9\]{2}-\[0-9\]{2} \]\]; then$/  if false; then/'
   t46 T1709s2-p short gone '^regressed-lookup: row 1' 's/^  if \[ -z "\$title" \] || ! _title_has_identity "\$title"; then$/  if false; then/'
+  t46 T1709s2-t bs gone '^regressed: row 1 \(closed by #7,' '/RECONCILE-AWK-ENV-TITLE$/{s/_RG_T="\$title" awk/awk -v _RG_T="$title"/;s/ENVIRON\["_RG_T"\]/_RG_T/}'
   t46 T1709s2-r sameday gone '^regressed-lookup: skipped 1 same-day' 's/^    if \[ "\$sd" = "\$cdate" \]; then _sameday=\$((_sameday + 1)); continue; fi  # RECONCILE-SAMEDAY-COUNT$/    :/'
   t46 T1709s2-s findfail rc0 '^degraded: retros directory not listable' 's/if \[ "\$_rc" -ne 0 \] || \[ -n "\$_fm" \]; then  # RECONCILE-SIBLING-LIST-CHECK/if false; then/'
   # Parity teeth: a drifted title parser must make the stage-vs-reconcile parity check fail (R2-001).

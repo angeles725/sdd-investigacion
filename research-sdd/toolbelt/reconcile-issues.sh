@@ -557,7 +557,7 @@ _reg_load_later() {
       echo "regressed-lookup: $sb has a review-status marker outside the leading-block scope — cannot tell whether its rows are open, so it was not checked for re-proposals of $cb rows" >&2
       continue
     fi
-    [ -z "$_o" ] || _reg_later="${_reg_later}$(printf '%s\n' "$_o" | awk -v s="$sb" '{ print s "\037" $0 }')"$'\n'
+    [ -z "$_o" ] || _reg_later="${_reg_later}$(printf '%s\n' "$_o" | _RG_S="$sb" awk '{ print ENVIRON["_RG_S"] "\037" $0 }')"$'\n'
   done <<<"$_list"
   if [ "$_sameday" -gt 0 ]; then
     echo "regressed-lookup: skipped $_sameday same-day retro(s) next to $cb — equal dates cannot be ordered against it, so their rows were not checked" >&2
@@ -580,13 +580,13 @@ _regressed_check() {
     return 1
   fi
   [ -n "$_reg_cur" ] || _reg_cur="$(_retro_row_titles "$cur")"
-  title="$(printf '%s\n' "$_reg_cur" | awk -F'\037' -v r="$rid" '$1 == r { print $2; exit }')"
+  title="$(printf '%s\n' "$_reg_cur" | _RG_R="$rid" awk -F'\037' '$1 == ENVIRON["_RG_R"] { print $2; exit }')"  # RECONCILE-AWK-ENV-RID
   if [ -z "$title" ] || ! _title_has_identity "$title"; then
     echo "regressed-lookup: row $rid of $cb has a title under 12 characters, empty or a bare priority/type token — no cross-retro identity, not checked" >&2
     return 1
   fi
   [ "$_reg_later_loaded" -eq 1 ] || _reg_load_later "$cur"
-  _hits="$(printf '%s' "$_reg_later" | awk -F'\037' -v t="$title" '$3 == t { printf "%s%s as row %s", (n++ ? ", " : ""), $1, $2 }')"
+  _hits="$(printf '%s' "$_reg_later" | _RG_T="$title" awk -F'\037' '$3 == ENVIRON["_RG_T"] { printf "%s%s as row %s", (n++ ? ", " : ""), $1, $2 }')"  # RECONCILE-AWK-ENV-TITLE
   [ -n "$_hits" ] || return 1
   _nums="$(printf '%s\n' "$rec" | sed -n 's/^Closed-issue-number: *\([0-9][0-9]*\) *$/#\1/p' | sort -u | paste -sd, - | sed 's/,/, /g')"
   _where="${_nums:-an issue whose number is not in the closed-issue data}"
