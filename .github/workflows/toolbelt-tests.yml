@@ -94,3 +94,9 @@ jobs:
         run: |
           shellcheck --version
           find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+
+      - name: Lint shell-portability defect classes (unquoted subst replacement, awk intervals)
+        # Unwired-mechanisms audit 2026-10-05: lint-substitution.sh (kit issue #1121/#1142) scans
+        # the kit's own toolbelt + install *.sh and exits 1 on a violation (measured 0 on 284 files).
+        # ci-workflow-lint-substitution.test.sh fails if this step is removed.
+        run: bash research-sdd/toolbelt/lint-substitution.sh
