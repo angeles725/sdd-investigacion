@@ -79,17 +79,17 @@ EOF
 degraded_control() {
   local script="$1" stub tmp rc cmd badreg
   stub="$(mktemp -d)"; tmp="$(mktemp -d)"
+  trap 'rm -rf "$stub" "$tmp"; trap - RETURN' RETURN   # cleanup on every return path
   for cmd in dirname cat sed grep tr mktemp rm; do
     command -v "$cmd" >/dev/null 2>&1 && ln -s "$(command -v "$cmd")" "$stub/$cmd"
   done
-  PATH="$stub" command -v python3 >/dev/null 2>&1 && { bad "degraded control: stub PATH still resolves python3"; rm -rf "$stub" "$tmp"; return; }
+  PATH="$stub" command -v python3 >/dev/null 2>&1 && { bad "degraded control: stub PATH still resolves python3"; return; }
   RPS_NESTED=1 PATH="$stub" "$BASH" "$script" >"$tmp/o1" 2>"$tmp/e1"; rc=$?
   [ "$rc" -eq 2 ]; chk "degraded control: python3 absent, nothing failed -> exit 2 (got $rc)" $?
   grep -q '^DEGRADED: ' "$tmp/e1"; chk "degraded control: DEGRADED line on stderr" $?
   badreg="$tmp/bad.md"; { cat "$DOC"; echo 'Single quotes inside the PowerShell source are now safe.'; } >"$badreg"
   RPS_NESTED=1 RPS_DOC="$badreg" PATH="$stub" "$BASH" "$script" >"$tmp/o2" 2>"$tmp/e2"; rc=$?
   [ "$rc" -eq 1 ]; chk "degraded control: python3 absent AND a failure -> exit 1 (got $rc)" $?
-  rm -rf "$stub" "$tmp"
 }
 
 echo "-- structural checks on REMOTE-POWERSHELL.md --"
@@ -123,13 +123,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   export RPS_DOC="$DOC"
   stooth() { # stooth LABEL SED_EXPR
     local m="$MDIR/$1.sh" out n
-    if ! mutant_chain "$1" "$HERE/$(basename "$0")" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
+    # MUTANT_SYNTAX=bash re-arms the `bash -n` refusal (the global =none above is for the markdown mutants).
+    if ! MUTANT_SYNTAX=bash mutant_chain "$1" "$HERE/$(basename "$0")" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
     out="$(degraded_control "$m")"
     n="$(printf '%s\n' "$out" | grep -c '^  FAIL  ')"
     if [ "$n" -gt 0 ]; then ok "tooth $1 bites ($n assertion(s) red)"; else bad "tooth $1: mutant stayed green"; fi
   }
   stooth degraded-exit-2-to-0 's|^  exit 2$|  exit 0|'
-  stooth degraded-failure-exit-1-dropped 's|^  \[ "\$fail" -eq 0 \] \|\| exit 1$|  [ "$fail" -eq 0 ] \|\| exit 2|'
+  stooth degraded-failure-exit-1-dropped 's#^  \[ "\$fail" -eq 0 \] [|][|] exit 1$#  [ "$fail" -eq 0 ] || exit 2#'
   stooth degraded-counter-never-bumped 's|DEGRADED=\$((DEGRADED+1)); return 0|return 0|'
   if ! command -v python3 >/dev/null 2>&1; then
     echo "  SKIP  tooth demo-damaged-heredoc: DEGRADED — python3 absent (not a pass)"; DEGRADED=$((DEGRADED+1))
