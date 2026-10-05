@@ -529,14 +529,24 @@ _retro_open_row_titles() {
 # _reg_load_later <retro_path> - fill _reg_later with "<later-retro>\037<row-id>\037<title>" for every OPEN row of every
 # strictly-later dated retro in the same directory (once per audited retro). Could-not-look cases are typed, never silent.
 _reg_load_later() {
-  local cur="$1" dir cb cdate sib sb sd _undated=0 _o _rc
+  local cur="$1" dir cb cdate sib sb sd _undated=0 _sameday=0 _o _rc _list _fe _fm=""
   dir="$(dirname "$cur")"; cb="$(basename "$cur")"; cdate="${cb:0:10}"
   _reg_later_loaded=1; _reg_later=""
+  # RECONCILE_ISSUES_SIBLING_LISTING (R4): an unlistable directory is could-not-look, never "no siblings".
+  _fe="$(mktemp 2>/dev/null)" || _fe=""
+  _list="$(find "$dir" -maxdepth 1 -name '*.md' -type f 2>"${_fe:-/dev/null}")"; _rc=$?
+  [ -z "$_fe" ] || { _fm="$(head -1 "$_fe" 2>/dev/null)"; rm -f "$_fe"; }
+  if [ "$_rc" -ne 0 ] || [ -n "$_fm" ]; then  # RECONCILE-SIBLING-LIST-CHECK
+    echo "degraded: retros directory not listable: $dir — regressed rows were not checked${_fm:+ ($_fm)}" >&2
+    _reg_degraded=1; return 0
+  fi
+  _list="$(printf '%s\n' "$_list" | sort)"
   while IFS= read -r sib; do
     [ -f "$sib" ] || continue
     sb="$(basename "$sib")"; [ "$sb" != "$cb" ] || continue
     if [[ ! "$sb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then _undated=$((_undated + 1)); continue; fi
     sd="${sb:0:10}"
+    if [ "$sd" = "$cdate" ]; then _sameday=$((_sameday + 1)); continue; fi  # RECONCILE-SAMEDAY-COUNT
     [[ "$sd" > "$cdate" ]] || continue
     if [ ! -r "$sib" ]; then
       echo "degraded: later retro not readable: $sib — regressed rows in it were not checked" >&2
@@ -548,7 +558,10 @@ _reg_load_later() {
       continue
     fi
     [ -z "$_o" ] || _reg_later="${_reg_later}$(printf '%s\n' "$_o" | awk -v s="$sb" '{ print s "\037" $0 }')"$'\n'
-  done < <(find "$dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
+  done <<<"$_list"
+  if [ "$_sameday" -gt 0 ]; then
+    echo "regressed-lookup: skipped $_sameday same-day retro(s) next to $cb — equal dates cannot be ordered against it, so their rows were not checked" >&2
+  fi
   if [ "$_undated" -gt 0 ]; then
     echo "regressed-lookup: skipped $_undated retro(s) without a YYYY-MM-DD prefix next to $cb — they cannot be ordered against it, so their rows were not checked" >&2
   fi

@@ -2518,7 +2518,8 @@ else no "46b earlier retro" "exit=$RC out=[$OUT]"; fi
 reg_case sameday; mk_retro "$box46" target-foo '2026-09-01-z.md' "<!-- review-status: pending -->" \
   "| 1 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
 run "$box46" "$box46/rh/target-foo/retros/$RA"
-if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT"; then ok "46c same-day retro cannot be ordered -> no regressed" "(exit $RC)"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT" \
+   && grep -q '^regressed-lookup: skipped 1 same-day retro(s) next to 2026-09-01-a.md' <<<"$OUT"; then ok "46c same-day retro cannot be ordered -> no regressed, typed regressed-lookup note" "(exit $RC)"
 else no "46c same day" "exit=$RC out=[$OUT]"; fi
 # 46d — the later retro is applied / dismissed: its row is not an OPEN re-proposal.
 for _m in 'applied 2026-09-11' 'dismissed 2026-09-11 · not wanted'; do
@@ -2655,6 +2656,15 @@ GH_STUB_OLD_GH=1 run "$box46" "$box46/rh/target-foo/retros/$RA"
 if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then
   ok "46r old-gh fallback keeps the closing issue number -> regressed (closed by #7)" "(exit $RC)"
 else no "46r old gh number" "exit=$RC out=[$OUT]"; fi
+# 46t — the sibling LISTING fails (a `find` that errors): could-not-look -> typed degraded + exit 1, never "no siblings".
+reg_case findfail; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+printf '#!%s\necho "find: cannot read directory: Permission denied" >&2\nexit 1\n' "$BASH_BIN" > "$box46/bin/find"; chmod +x "$box46/bin/find"
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 1 ] && grep -q '^degraded: retros directory not listable: .* — regressed rows were not checked' <<<"$OUT" \
+   && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
+  ok "46t unlistable retros directory -> typed degraded + exit 1, shipped row still printed" "(exit $RC)"
+else no "46t find fails" "exit=$RC out=[$OUT]"; fi
 # 46s — two later retros re-propose the title: both are named (sorted by filename), one line per shipped row.
 reg_case two-later; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
   "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
@@ -2664,6 +2674,39 @@ if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${R
    && [ "$(grep -c '^regressed:' <<<"$OUT")" = 1 ]; then
   ok "46s two later re-proposals -> one regressed line naming both, in filename order" "(exit $RC)"
 else no "46s two later" "exit=$RC out=[$OUT]"; fi
+
+# 47 — PARITY with the seeder (RDD round 1, R2-001). `_retro_row_titles` carries a COPY of stage-retro-issues.sh's
+# title-column parser; drift would make re-proposals invisible. This runs BOTH over the same fixture retros (table
+# positional + bold, header-named column, entry form) and requires the same titles in the same order. The stage side
+# is its own dry-run output (`planned-issue: <title>`, no network); an empty stage side is a harness FAIL, never a pass.
+STAGE_SUT="$HERE/../stage-retro-issues.sh"; SCRUB_LIB="$HERE/../lib/scrub-issue-text.sh"
+PAR_BOX="$(mkbox case-47-parity)"; mk_gh_stub "$PAR_BOX" nomatch
+cp "$STAGE_SUT" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh"; cp "$SCRUB_LIB" "$PAR_BOX/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+mk_retro "$PAR_BOX" target-foo 2026-01-01-p1.md "<!-- review-status: pending -->" \
+  "$(printf '| 1 | **bold wrapped title** — with a tail | M | B | new | HIGH |\n| 2 | plain positional title | M | B | new | HIGH |')" >/dev/null
+{
+  printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Target | Proposed change | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 3 | METHODOLOGY.md | header named column title | B | new | HIGH |\n| 4 | CLAUDE.md | **second bold header title** | B | fix | LOW |\n'
+} > "$PAR_BOX/rh/target-foo/retros/2026-01-02-p2.md"
+{
+  printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D4 — entry form delta title\n\n**Evidence**: B9\n\n### D5 — second entry form delta\n\n**Evidence**: B9\n'
+} > "$PAR_BOX/rh/target-foo/retros/2026-01-03-p3.md"
+# par_check <reconcile-issues.sh to take the title functions from> -> 0 when stage and reconcile agree on every fixture
+par_check() {
+  local sut="$1" fn="$ROOT/par-fn.sh" f st rt n=0
+  awk '/^_trim\(\) \{/ { p = 1 } /^# _title_has_identity/ { p = 0 } p' "$sut" > "$fn"
+  for f in "$PAR_BOX"/rh/target-foo/retros/2026-01-0[123]-p[123].md; do
+    st="$(PATH="$PAR_BOX/bin:$PATH" "$BASH_BIN" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh" "$f" 2>/dev/null | sed -n 's/^planned-issue: //p')"
+    # shellcheck disable=SC1090
+    rt="$( . "$RETRO_GRAMMAR_LIB"; . "$fn"; _retro_row_titles "$f" | awk -F'\037' '{ print $2 }' )"
+    [ -n "$st" ] || { echo "par_check: stage side empty for $f (harness failure)" >&2; return 2; }
+    [ "$st" = "$rt" ] || { printf 'par_check: MISMATCH %s\n stage=[%s]\n recon=[%s]\n' "$f" "$st" "$rt" >&2; return 1; }
+    n=$((n+1))
+  done
+  [ "$n" = 3 ]
+}
+if par_check "$SUT"; then ok "47 reconcile row titles == stage-retro-issues planned titles (table, bold, header-named, entry form)" "()"
+else no "47 stage/reconcile title parity" "drift between _retro_row_titles and the seeder's title extraction"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
@@ -2986,7 +3029,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       header)   ;;
       number)   ;;
       undated-sibling) mk_retro "$mb" target-foo notes.md "<!-- review-status: pending -->" "$(t46_row 3 "$title")" >/dev/null ;;
-      oos|nodate|unreadable) ;;
+      oos|nodate|unreadable|findfail) ;;
       *) no "$label teeth" "unknown scenario '$kase' (helper dispatch bug, not a THEATER result)"; return 0 ;;
     esac
     case "$kase" in
@@ -2998,6 +3041,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       *) mk_retro "$mb" target-foo "$later" "<!-- review-status: ${st} -->" "$(t46_row 3 "$title")" >/dev/null ;;
     esac
     [ "$kase" != unreadable ] || chmod 000 "$mb/rh/target-foo/retros/$RB"
+    if [ "$kase" = findfail ]; then
+      printf '#!%s\necho "find: cannot read directory: Permission denied" >&2\nexit 1\n' "$BASH_BIN" > "$mb/bin/find"; chmod +x "$mb/bin/find"
+    fi
     if [ "$kase" = oldgh ]; then GH_STUB_OLD_GH=1 run "$mb" "${args[@]}"; else run "$mb" "${args[@]}"; fi
     [ "$kase" != unreadable ] || chmod 644 "$mb/rh/target-foo/retros/$RB"
     grep -qE -- "$pat" <<<"$OUT" && hit=1
@@ -3007,7 +3053,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "$label teeth" "the $kase case is THEATER: rc=$RC out=[$OUT]"; fi
   }
   t46 T1709s2-a earlier appears '^regressed:' 's/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    :/'
-  t46 T1709s2-b sameday appears '^regressed:' 's/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    [[ "$sd" > "$cdate" || "$sd" == "$cdate" ]] || continue/'
+  t46 T1709s2-b sameday appears '^regressed:' '/RECONCILE-SAMEDAY-COUNT$/s/.*/    :/;s/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    [[ "$sd" > "$cdate" || "$sd" == "$cdate" ]] || continue/'
   t46 T1709s2-c dismissed appears '^regressed:' 's/^    dismissed) return 0 ;;$/    dismissed) : ;;/'
   t46 T1709s2-d case appears '^regressed:' 's/\$3 == t {/tolower($3) == tolower(t) {/'
   t46 T1709s2-e short appears '^regressed:' 's/\[ "\${#t}" -ge 12 \]/[ "${#t}" -ge 1 ]/'
@@ -3022,6 +3068,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t46 T1709s2-n oos gone '^regressed-lookup: .*marker' 's/if \[ "\$_rc" -eq 3 \]; then/if false; then/'
   t46 T1709s2-o nodate gone '^regressed-lookup: .*no YYYY-MM-DD' 's/^  if \[\[ ! "\$cb" =~ \^\[0-9\]{4}-\[0-9\]{2}-\[0-9\]{2} \]\]; then$/  if false; then/'
   t46 T1709s2-p short gone '^regressed-lookup: row 1' 's/^  if \[ -z "\$title" \] || ! _title_has_identity "\$title"; then$/  if false; then/'
+  t46 T1709s2-r sameday gone '^regressed-lookup: skipped 1 same-day' 's/^    if \[ "\$sd" = "\$cdate" \]; then _sameday=\$((_sameday + 1)); continue; fi  # RECONCILE-SAMEDAY-COUNT$/    :/'
+  t46 T1709s2-s findfail rc0 '^degraded: retros directory not listable' 's/if \[ "\$_rc" -ne 0 \] || \[ -n "\$_fm" \]; then  # RECONCILE-SIBLING-LIST-CHECK/if false; then/'
+  # Parity teeth: a drifted title parser must make the stage-vs-reconcile parity check fail (R2-001).
+  for _pt in "bold|/_dl=\"\\\$(printf/s/\\\\1\\//\\\\1X\\//" 'header|s/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'; do
+    _pl="${_pt%%|*}"; _pe="${_pt#*|}"; echo "-- teeth T1709s2-parity-$_pl --"
+    _pm="$ROOT/parity-mut-$_pl.sh"
+    if mutant_chain "T1709s2-parity-$_pl" "$SUT" "$_pm" "$_pe"; then
+      if par_check "$_pm" 2>/dev/null; then no "T1709s2-parity-$_pl teeth" "case 47 is THEATER: a drifted parser still passes parity"
+      else ok "T1709s2-parity-$_pl teeth: drifted title parser fails the stage parity check (47 has teeth)" "()"; fi
+    else fail=$((fail+1)); fi
+  done
   if [ "$(id -u)" != 0 ]; then
     t46 T1709s2-q unreadable rc0 '^degraded: later retro not readable' 's/_reg_degraded=1; continue$/continue/'
   fi
