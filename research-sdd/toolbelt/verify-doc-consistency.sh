@@ -21,9 +21,10 @@
 #   RSDD_SKILL        path to SKILL.md      (default: $KIT/skills/research-sdd/SKILL.md)
 #   RSDD_PROMPTLOOP   path to PROMPT-LOOP.md (default: $KIT/PROMPT-LOOP.md)
 #   RSDD_README       path to README.md      (default: $KIT/README.md)
-#   RESEARCH_SDD_KIT  kit root for resolving retros/ citations (default: $KIT); the canonical
-#                     kit-root spelling used by every other consumer (kit issue #1821)
-#   RSDD_KIT          legacy alias of RESEARCH_SDD_KIT; RESEARCH_SDD_KIT wins when both are set
+#   RSDD_KIT          TEST-ONLY override of the kit root used to resolve retros/ citations (default: $KIT).
+#                     Deliberately NOT RESEARCH_SDD_KIT: that is the launcher's pointer to the kit live
+#                     research sessions use (possibly another, stale checkout), and a checker must verify the
+#                     tree it lives in, never an ambient one (kit issue #1821 item 5, resolved by documentation).
 #   RSDD_REPO         repo root for resolving retros/ citations (default: parent of $KIT)
 set -uo pipefail
 
@@ -51,8 +52,8 @@ RSDD_README="${RSDD_README:-$KIT/README.md}"
 # Citation resolution roots: retros/ citations in SKILL.md are checked against BOTH.
 # Some retros live at the repo root (parent of KIT) rather than under the kit sub-tree;
 # either location is valid. WARN only when the path is absent in both roots.
-# Override in tests via RESEARCH_SDD_KIT (or the legacy RSDD_KIT) / RSDD_REPO to point at fixture directories.
-_cit_kit="${RESEARCH_SDD_KIT:-${RSDD_KIT:-$KIT}}"
+# Override in tests via RSDD_KIT / RSDD_REPO to point at fixture directories.
+_cit_kit="${RSDD_KIT:-$KIT}"
 _cit_repo="${RSDD_REPO:-$(cd -P "$KIT/.." && pwd -P)}"
 
 # --- Operational guards -------------------------------------------------------
