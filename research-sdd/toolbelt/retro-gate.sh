@@ -218,6 +218,14 @@ _run_issue_seeding() {
       _f="$(printf '%s' "$_summary" | grep -oE 'failed=[0-9]+' | cut -d= -f2)"
       created=$((created + ${_c:-0}))
       skipped=$((skipped + ${_s:-0}))
+      # Kit issue #1259: row-level and section-level unclassifiable items travel in the summary's unclassifiable=N;
+      # count them and point at the seeder's table + tracking-issue proposal (a dry run of the seeder prints both).
+      _u="$(printf '%s' "$_summary" | grep -oE 'unclassifiable=[0-9]+' | cut -d= -f2)"
+      if [ "${_u:-0}" -gt 0 ]; then
+        unclassifiable=$((unclassifiable + _u))
+        printf 'retro-gate: WARN: seeder: %d unclassifiable item(s) for %s — see the unclassifiable-items table and tracking issue in the seeder output (stage-retro-issues.sh <retro>) (kit issue #1259)\n' \
+          "$_u" "$(basename "$rf")" >&2
+      fi
       _seed_failed="$_f"   # empty when the summary carries no failed= field → unknown, not 0
       # no-match: may accompany summary: — all rows shipped; count as empty (no open deltas).
       # (absent-input never reaches here: it is classified first, above.)
@@ -237,7 +245,7 @@ _run_issue_seeding() {
           empty=$((empty + 1)) ;;
         *$'\n'unclassifiable:*)
           unclassifiable=$((unclassifiable + 1))
-          printf 'retro-gate: WARN: seeder: unclassifiable for %s — needs manual review, no issue auto-staged (kit issue #1111/#1129)\n' \
+          printf 'retro-gate: WARN: seeder: unclassifiable for %s — needs manual review, no issue auto-staged — see the unclassifiable-items table and tracking-issue proposal: stage-retro-issues.sh <retro> (kit issue #1111/#1129/#1259)\n' \
             "$(basename "$rf")" >&2 ;;
         *)
           # Seeder exited 0 with no recognised typed outcome and no summary: line

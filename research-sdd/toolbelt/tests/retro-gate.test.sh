@@ -623,6 +623,41 @@ ERR_U="$(cat "$errf_u")"; rm -f "$errf_u" "$ROOT/out_u.$$"
   && ok "EN3-unclassifiable: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-unclassifiable: expected ran=1 in summary; got: $ERR_U"
 
+# ─── (EN3-unc-summary, kit issue #1259) a seeder SUMMARY carrying unclassifiable=N (row-level items, or the
+# section-level item now that the seeder summarises it) must be COUNTED by the gate and name the table/tracking
+# issue — before the change only the typed `unclassifiable:` line (no summary) was counted.
+# mk_unc_summary_kit <dir> <gate-script>: fixture kit whose seeder prints a summary with unclassifiable=2.
+mk_unc_summary_kit() {
+  mkdir -p "$1/toolbelt/lib"
+  cp "$HERE/../lib/block-files.sh" "$1/toolbelt/lib/"; cp "$HERE/../lib/retro-status.sh" "$1/toolbelt/lib/"
+  cp "$HERE/../lib/retro-grammar.sh" "$1/toolbelt/lib/"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
+  cat > "$1/toolbelt/stage-retro-issues.sh" << 'FUSEOF'
+#!/usr/bin/env bash
+printf 'unclassifiable-row: row 1 has no usable title\n' >&2
+printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=2 unknown-outcome=0 failed=0\n'
+exit 0
+FUSEOF
+  chmod +x "$1/toolbelt/stage-retro-issues.sh"
+  cp "$2" "$1/toolbelt/retro-gate.sh"
+}
+# run_unc_summary <kit-dir> <name>: sets ERR_US from a gate run against a fresh git fixture.
+run_unc_summary() {
+  local t="$ROOT/$2" s="$2-sess" ef="$ROOT/err_$2.$$"
+  mkgit "$t"; mksessionfile "$t" "$s" "202609050800"
+  mkblock "$t" "$2-block1.md" "2026-09-05T10:00:00"; touch -t 202609051000 "$t/$2-block1.md"
+  mkretro "$t" "2026-09-05-$2.md" 1; touch -t 202609051200 "$t/retros/2026-09-05-$2.md"
+  printf '%s' "$(mkjson "$s" "false")" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$1/toolbelt/retro-gate.sh" "$t" >/dev/null 2>"$ef"
+  ERR_US="$(cat "$ef")"; rm -f "$ef"
+}
+mk_unc_summary_kit "$ROOT/fkit_us" "$SUT"
+run_unc_summary "$ROOT/fkit_us" tus
+<<<"$ERR_US" grep -q 'issue-seeding:.* unclassifiable=2' \
+  && ok "EN3-unc-summary: summary unclassifiable=2 is counted in the issue-seeding line" \
+  || no "EN3-unc-summary: expected unclassifiable=2 in the issue-seeding line; got: $ERR_US"
+<<<"$ERR_US" grep -q 'WARN: seeder: 2 unclassifiable item(s) for .*unclassifiable-items table and tracking issue' \
+  && ok "EN3-unc-summary: WARN names the count and points at the table / tracking issue" \
+  || no "EN3-unc-summary: expected the pointer WARN; got: $ERR_US"
+
 # ─── (EN3-absent) absent-input: typed outcome → absent=1, WARN naming retro ───
 # Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
 # RED before fix: absent-input: is folded into empty=N with no WARN (issue #940).
@@ -3160,6 +3195,25 @@ FT20EOF
   fi
 else
   no "T20-unclassifiable teeth: locate the unclassifiable: case arm" "anchor not found — SUT drifted?"
+fi
+
+# ── TOOTH T-UNC-SUMMARY (kit issue #1259): neuter the summary unclassifiable= branch; EN3-unc-summary must
+#    then read unclassifiable=0 (the summary's items silently uncounted, the pre-change behaviour).
+echo "-- teeth T-UNC-SUMMARY: neuter the summary unclassifiable branch; EN3-unc-summary must read 0 --"
+anchor_tus='      if [ "${_u:-0}" -gt 0 ]; then'
+if [[ "$sut_content_gate" == *"$anchor_tus"* ]]; then
+  mutant_tus="$MUT_KIT/toolbelt/mutant-retro-unc-summary.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_tus"/      if false; then}" > "$mutant_tus"
+  bash -n "$mutant_tus" 2>/dev/null || { no "T-UNC-SUMMARY teeth: mutant failed bash -n" ""; }
+  mk_unc_summary_kit "$ROOT/fkit_tus" "$mutant_tus"
+  run_unc_summary "$ROOT/fkit_tus" ttus
+  if <<<"$ERR_US" grep -q 'issue-seeding:.* unclassifiable=0' && ! <<<"$ERR_US" grep -q 'unclassifiable item(s)'; then
+    ok "T-UNC-SUMMARY teeth: branch neutered → unclassifiable=0, no pointer WARN (has teeth)" "()"
+  else
+    no "T-UNC-SUMMARY teeth: branch neutered → should read unclassifiable=0" "got [$ERR_US] — EN3-unc-summary is THEATER"
+  fi
+else
+  no "T-UNC-SUMMARY teeth: locate the summary branch" "anchor not found — SUT drifted?"
 fi
 
 # ── TOOTH PFX1 (kit issue #1130 finding 4/item 5): revert the out-of-scope-marker WARN wording

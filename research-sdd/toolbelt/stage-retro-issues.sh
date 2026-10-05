@@ -565,9 +565,11 @@ fi
 # (which should never happen, but must not be trusted blindly) cannot reopen its rows.
 case "$status" in
   dismissed)
-    echo "no-match: retro is 'dismissed' — all rows shipped" >&2; exit 0
+    echo "no-match: retro is 'dismissed' — all rows shipped" >&2
+    echo "unclassifiable-items: 0 (no-match: retro is 'dismissed')"; exit 0
     ;;
   applied)
+    [ $is_partial -eq 0 ] && echo "unclassifiable-items: 0 (no-match: retro is 'applied')"
     [ $is_partial -eq 0 ] && { echo "no-match: retro is 'applied' — all rows shipped" >&2; exit 0; }
     ;;
   pending|none|"")
@@ -575,6 +577,32 @@ case "$status" in
   *)
     echo "WARN: unrecognised review-status '$status' — treating all rows as open" >&2 ;;
 esac
+
+# ---------------------------------------------------------------------------
+# UNCLASSIFIABLE COLLECTOR (kit issue #1259). Everything this parser cannot classify (a whole retro section, or one
+# row with no usable title) is recorded here instead of only being counted or warned on stderr, then printed as a
+# table on stdout and proposed as ONE tracking issue per run (_unc_report, below the occurrence helpers).
+# A record is `where<US>head<US>reason`; _unc_sec counts the retro-level (section) items apart from row-level ones.
+_unc_n=0; _unc_sec=0; _unc_recs=""; _unc_early=""
+retro_basename="$(basename "$retro")"
+
+# _unc_line_of <fixed-string>: first line number of <fixed-string> in the retro, "?" when absent or empty.
+_unc_line_of() {
+  local _l=""
+  [ -n "$1" ] && _l="$(LC_ALL=C grep -nF -m1 -- "$1" "$retro" | cut -d: -f1)"
+  printf '%s' "${_l:-?}"
+}
+
+# _unc_add <section|row> <where> <head> <reason>: head is flattened to one line, `|` escaped (it lands in a
+# markdown table) and cut at 100 characters.
+_unc_add() {
+  local _h
+  _h="$(printf '%s' "$3" | tr '\r\n\t' '   ' | sed 's/|/\\|/g; s/^ *//; s/ *$//')"
+  if [ "${#_h}" -gt 100 ]; then _h="${_h:0:97}..."; fi
+  _unc_n=$((_unc_n+1))
+  [ "$1" = section ] && _unc_sec=$((_unc_sec+1))
+  _unc_recs="${_unc_recs}${2}"$'\037'"${_h}"$'\037'"${4}"$'\n'
+}
 
 # ---------------------------------------------------------------------------
 # Check for a delta section (empty-input vs unclassifiable — kit issue #1111)
@@ -592,16 +620,25 @@ if [ "$_found_field" != "1" ]; then
   _unrec_found="${_temp_unrec%%$'\001'*}"
   if [ "$_unrec_found" = "1" ]; then
     echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro — needs manual review, no issue auto-staged" >&2
+    # STAGE_RETRO_ISSUES_UNC_SECTION_RECORD (kit issue #1259): recorded for the table and the tracking issue; the run
+    # continues to _unc_finish below (the parse is skipped) instead of exiting here.
+    _h="$(LC_ALL=C grep -m1 -iE '^#{2,4} .*(delta|proposal|propuesta)' "$retro")"
+    _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "proposal-like heading not in a countable delta form"
+    _unc_early=1
   else
     echo "empty-input: no delta section found in $retro" >&2
+    echo "unclassifiable-items: 0 (empty-input: no delta section and no proposal-like heading)"
+    exit 0
   fi
-  unset _temp_depr _temp_unrec _unrec_found
-  exit 0
+  unset _temp_depr _temp_unrec _unrec_found _h
 fi
 
 # ---------------------------------------------------------------------------
 # Parse delta rows from the canonical/deprecated section
 retro_file="$retro"
+# The parse + its honest-zero / unclassifiable verdicts are skipped when the section-level unclassifiable item was
+# already recorded above (_unc_early); the block is deliberately not re-indented so the diff stays reviewable.
+if [ -z "$_unc_early" ]; then
 retro_basename="$(basename "$retro")"
 
 _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
@@ -694,6 +731,7 @@ if [ -z "$_rows" ]; then
   # "unclassifiable — needs manual review" before this check.
   if retro_grammar_has_honesty "$retro"; then
     echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro" >&2
+    echo "unclassifiable-items: 0 (empty-input: honest §18 zero, no data rows)"
     exit 0
   fi
   # A canonical/deprecated section WAS found — this is not "empty" (kit issue #1111): the
@@ -702,8 +740,11 @@ if [ -z "$_rows" ]; then
   # form), and it is not a declared honest zero either. Typed distinctly from the found=0
   # empty-input case above.
   echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro — needs manual review, no issue auto-staged" >&2
-  exit 0
+  _h="$(LC_ALL=C grep -m1 -iE '^## .*(delta|propuesta)' "$retro")"
+  _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "delta section has neither row-table rows nor '### D<N> —' entries"
+  _unc_early=1; _rows=""
 fi
+fi   # end of: if [ -z "$_unc_early" ]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1191,6 +1232,174 @@ _occ_comment() {
   return 0
 }
 
+# _occ_row_comment_all <row-id> <marker> <comment-body>: comment on every issue in _occ_nums and emit the row's ONE
+# mutation_outcome. The row flags documented at the call site are reset here. Shared by delta rows and the
+# unclassifiable tracking issue (kit issue #1259) so the outcome precedence cannot drift between them.
+_occ_row_comment_all() {
+  local _occ_n
+  _occ_row_confirmed=0; _occ_row_failed=0; _occ_row_unknown=0; _occ_row_unknown_counted=0
+  for _occ_n in $_occ_nums; do _occ_comment "$_occ_n" "$1" "$2" "$3"; done
+  if [ "$_occ_row_failed" -eq 1 ]; then failed=$((failed+1)); fi
+  if [ "$_occ_row_unknown_counted" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
+  # STAGE_RETRO_ISSUES_OCC_ROW_OUTCOME: anchor for the one-outcome-per-row teeth.
+  if [ "$_occ_row_unknown" -eq 1 ]; then _row_unknown "$1"
+  elif [ "$_occ_row_confirmed" -eq 1 ]; then
+    mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $1)"
+  else _row_nowrite "$1"; fi
+}
+
+# ---------------------------------------------------------------------------
+# UNCLASSIFIABLE TABLE + TRACKING ISSUE (kit issue #1259).
+# _unc_report <state>: prints the `unclassifiable-items: N (...)` count line (the state names WHY a 0 is a 0:
+# no-match = rows were examined and none was unclassifiable; the empty-input / no-match exits print their own line
+# earlier), and for N > 0 the table, then PROPOSES one tracking issue per run (dry-run: planned-tracking-issue;
+# --apply: the same create / dedup / occurrence-comment / read-back machinery as a delta row, row id `tracker`).
+# Signature (stable per retro file, whole line in the body): `Unclassifiable tracker: <target>/retros/<file>`.
+# Dedup: an OPEN same-target issue with the exact tracker title gets ONE occurrence comment per distinct item set
+# (marker = signature + a checksum of the items' head+reason, so an identical re-run posts nothing and a changed
+# item set adds a comment); a CLOSED/other signature hit is skipped-duplicate; only then is a new issue created.
+_unc_report() {
+  local _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
+  if [ "$_unc_n" -eq 0 ]; then
+    echo "unclassifiable-items: 0 ($1)"; return 0
+  fi
+  echo "unclassifiable-items: $_unc_n (retro-level=$_unc_sec row-level=$((_unc_n-_unc_sec)))"
+  _table="$(printf '| # | where | head | reason |\n|---|---|---|---|')"
+  while IFS=$'\037' read -r _w _h _r; do
+    [ -z "$_w$_h$_r" ] && continue
+    _i=$((_i+1))
+    _table="$(printf '%s\n| %d | %s:%s | %s | %s |' "$_table" "$_i" "$retro_basename" "$_w" "$_h" "$_r")"
+  done <<< "$_unc_recs"
+  _sig="Unclassifiable tracker: ${target_name}/retros/${retro_basename}"
+  _title="Unclassifiable retro deltas in ${target_name}/retros/${retro_basename}"
+  _body="$(printf 'stage-retro-issues.sh could not classify %d item(s) in this retro, so no delta issue was staged for them (they would otherwise be lost). Each needs manual review: restate it in the canonical row-table or `### D<N> —` entry form, or dismiss it.\n\n%s\n\n---\n%s\nPart of backlog-first rollout #557' \
+    "$_unc_n" "$_table" "$_sig")"
+  # Scrub first (kit issue #1707), exactly like a delta row: stdout, the dry-run and every gh call see the scrubbed text.
+  _tmp="$_title"
+  _title="$(printf '%s\n' "$_tmp" | scrub_issue_text)" && _red="$(printf '%s\n' "$_tmp" | scrub_issue_text_count)" \
+    || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
+  _tmp="$_body"
+  _body="$(printf '%s\n' "$_tmp" | scrub_issue_text)" && _tn="$(printf '%s\n' "$_tmp" | scrub_issue_text_count)" \
+    || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
+  _red="${_red#redactions: }"; _tn="${_tn#redactions: }"
+  if [ -z "$_red" ] || [ -z "$_tn" ] || [[ "$_red" == *[!0-9]* ]] || [[ "$_tn" == *[!0-9]* ]]; then
+    _scrub_refuse tracker "privacy scrub returned a non-numeric redaction count for the unclassifiable tracker — nothing staged or written"
+    return 0
+  fi
+  _red=$((_red + _tn))
+  if ! grep -qxF -- "$_sig" <<<"$_body"; then
+    _scrub_refuse tracker "scrub altered the signature line of the unclassifiable tracker — refusing to write (dedup and read-back key on it)"
+    return 0
+  fi
+  # The table the operator reads is the SCRUBBED one (it is what would be published).
+  printf '%s\n' "$_body" | sed -n '/^| # | where/,/^$/p'
+  _labels="status:needs-review,target:${target_name},type:docs,priority:medium"
+  if [ "$apply" -eq 0 ]; then
+    printf 'planned-tracking-issue: %s\n' "$_title"
+    printf '  labels: %s\n' "$_labels"
+    printf '  body:\n'
+    printf '%s\n' "$_body" | sed 's/^/    /'
+    printf '  redactions: %d\n\n' "$_red"
+    return 0
+  fi
+  echo "redactions: ${_red} (row tracker)"
+  _fp="$(printf '%s' "$_unc_recs" | awk -F'\037' 'NF { print $2 "\037" $3 }' | cksum | cut -d' ' -f1)"
+  _marker="<!-- stage-retro-issues:occurrence ${_sig} #${_fp} -->"
+  _occ_find "$_title" tracker || { failed=$((failed+1)); _row_nowrite tracker; return 0; }
+  if [ -n "$_occ_nums" ]; then
+    _text="$(printf 'The unclassifiable item set of this retro was re-checked (%d item(s)).\n\n%s\n%s' "$_unc_n" "$_sig" "$_marker" | scrub_issue_text)" \
+      || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
+    if ! grep -qxF -- "$_marker" <<<"$_text"; then
+      _scrub_refuse tracker "scrub altered the occurrence marker of the unclassifiable tracker — refusing to write (idempotency and the read-back key on it)"
+      return 0
+    fi
+    _occ_row_comment_all tracker "$_marker" "$_text"
+    return 0
+  fi
+  # No open tracker: look for ANY state carrying the exact signature (a closed tracker must not be re-created).
+  _ex="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$_sig\"" --json state,body 2>&1)"; _rc=$?
+  if [ "$_rc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_ex"; then
+    echo "ERROR: gh issue list (tracker dedup) failed or returned an unexpected reply for row tracker: $_ex" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 0
+  fi
+  _exr="$_ex"
+  _ex="$(printf '%s' "$_exr" | _exact_sig_matches "$_sig")" || {
+    echo "ERROR: gh issue list (tracker dedup) reply could not be parsed for row tracker: $_exr" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 0
+  }
+  if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_ex"; then
+    echo "skipped-duplicate: tracking issue for $_sig already exists (search matched '$_sig')"
+    skipped_dedup=$((skipped_dedup+1)); _row_nowrite tracker; return 0
+  fi
+  if _list_filled "$_ex"; then
+    echo "ERROR: gh issue list (tracker dedup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 0
+  fi
+  ensure_target_label
+  IFS=',' read -ra _lbl_arr <<< "$_labels"
+  for _lbl in "${_lbl_arr[@]}"; do _lf="$_lf --label $(printf '%s' "$_lbl" | sed "s/'/'\\\\''/g")"; done
+  # shellcheck disable=SC2086
+  _url="$(gh issue create --repo "$KIT_ISSUE_REPO" --title "$_title" $_lf --body "$_body" 2>&1)" || {
+    if _recheck_exists "$_sig"; then
+      echo "unknown-outcome: gh issue create failed for row tracker but a re-run dedup search found the issue (search matched '$_sig'): $_url" >&2
+      summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown tracker; return 0
+    fi
+    echo "ERROR: gh issue create failed for row tracker: $_url" >&2
+    if [ "$_recheck_state" = "none" ]; then _row_nowrite tracker; else _row_unknown tracker; fi
+    failed=$((failed+1)); return 0
+  }
+  _ul="$(printf '%s\n' "$_url" | tail -n 1)"
+  if [[ ! "$_ul" =~ ^https?://[^[:space:]]+/issues/([0-9]+)$ ]]; then
+    echo "unknown-outcome: gh issue create exited 0 for row tracker but printed no issue URL (output: $_url) — creation is not inferred from output text" >&2
+    summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown tracker; return 0
+  fi
+  _num="${BASH_REMATCH[1]}"
+  _rb="$(gh issue view "$_num" --repo "$KIT_ISSUE_REPO" --json body --jq .body 2>&1)"; _rbrc=$?
+  _rb="${_rb//$'\r'/}"
+  if [ "$_rbrc" -ne 0 ] || ! grep -qxF -- "$_sig" <<<"$_rb"; then
+    echo "unknown-outcome: gh issue create returned $_ul for row tracker but the read-back failed or the body lacks the signature line '$_sig'" >&2
+    summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown tracker; return 0
+  fi
+  echo "created: $_ul (row tracker)"
+  _occ_cache_add "$_num" "$_title"
+  created=$((created+1))
+  mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row tracker)"
+}
+
+# _print_summaries / _final_exit: the --apply summary lines and the exit-code policy, shared by the normal end of
+# the run and the section-level unclassifiable early finish.
+_print_summaries() {
+  if [ $apply -eq 1 ]; then
+    # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
+    # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
+    printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unclassifiable=%d unknown-outcome=%d failed=%d\n' \
+      "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$summary_unknown_outcome" "$failed"
+    # Kit issue #1705: the outcome triad is its OWN line, so the summary: line above stays byte-compatible.
+    printf 'mutation-summary: confirmed=%d no_write=%d unknown=%d\n' "$mutation_confirmed" "$mutation_nowrite" "$mutation_unknown"
+    # Kit issue #1708: occurrence comments are their own line too (a row commented on N issues counts N).
+    printf 'occurrence-summary: commented=%d already-present=%d\n' "$occurrence_commented" "$occurrence_present"
+    if [ "$mutation_unknown" -gt 0 ]; then
+      echo "mutation-unknown: $mutation_unknown row(s) with an unconfirmed mutation outcome — NOT retried; verify on GitHub before re-running" >&2
+    fi
+  fi
+}
+_final_exit() {
+  # Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).
+  [ "$failed" -gt 0 ] && exit 2
+  # Exit 3 when no create failed but a row's mutation outcome is unknown (kit issue #1705): an unconfirmed write
+  # is never a green run, and never retried.
+  [ "$mutation_unknown" -gt 0 ] && exit 3
+  exit 0
+}
+
+# Section-level unclassifiable (the parse was skipped): report, propose the tracker, summarise, exit.
+if [ -n "$_unc_early" ]; then
+  unclassifiable=$((unclassifiable + _unc_n))
+  _unc_report "section-level"
+  _print_summaries
+  _final_exit
+fi
+
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
   _rid="$(printf '%s' "$_rid" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   _delta="$(printf '%s' "$_delta" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -1226,7 +1435,9 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # Not created, not silently dropped: typed `unclassifiable-row:` line + summary count, exit 0.
   if title_is_unusable "$_title"; then
     echo "unclassifiable-row: row $_rid has no usable title (got '$_title': $_title_reason) — needs manual review, no issue staged" >&2
-    open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1)); continue
+    open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1))
+    _unc_add row "$(_unc_line_of "$_delta")" "$_rid: $_title_raw" "no usable title ($_title_reason)"
+    continue
   fi
 
   _type_label="$(map_type "$_type_cell")"
@@ -1393,15 +1604,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       #   _occ_row_unknown_counted  the unproven write is also reported by an `unknown-outcome:` line ->
       #                             unknown-outcome= +1 for the row (a failed comment whose re-read ALSO failed
       #                             is unknown but is counted in failed=, like a failed create)
-      _occ_row_confirmed=0; _occ_row_failed=0; _occ_row_unknown=0; _occ_row_unknown_counted=0
-      for _occ_n in $_occ_nums; do _occ_comment "$_occ_n" "$_rid" "$_occ_marker" "$_occ_text"; done
-      if [ "$_occ_row_failed" -eq 1 ]; then failed=$((failed+1)); fi
-      if [ "$_occ_row_unknown_counted" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
-      # STAGE_RETRO_ISSUES_OCC_ROW_OUTCOME: anchor for the one-outcome-per-row teeth.
-      if [ "$_occ_row_unknown" -eq 1 ]; then _row_unknown "$_rid"
-      elif [ "$_occ_row_confirmed" -eq 1 ]; then
-        mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
-      else _row_nowrite "$_rid"; fi
+      _occ_row_comment_all "$_rid" "$_occ_marker" "$_occ_text"
       continue
     fi
 
@@ -1462,24 +1665,6 @@ if [ "$open_count" -eq 0 ] && [ "$skipped_shipped" -gt 0 ] && [ "$skipped_wrong_
   echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
 fi
 
-if [ $apply -eq 1 ]; then
-  # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
-  # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
-  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d unclassifiable=%d unknown-outcome=%d failed=%d\n' \
-    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$summary_unknown_outcome" "$failed"
-  # Kit issue #1705: the outcome triad is its OWN line, so the summary: line above stays byte-compatible.
-  printf 'mutation-summary: confirmed=%d no_write=%d unknown=%d\n' "$mutation_confirmed" "$mutation_nowrite" "$mutation_unknown"
-  # Kit issue #1708: occurrence comments are their own line too (a row commented on N issues counts N).
-  printf 'occurrence-summary: commented=%d already-present=%d\n' "$occurrence_commented" "$occurrence_present"
-  if [ "$mutation_unknown" -gt 0 ]; then
-    echo "mutation-unknown: $mutation_unknown row(s) with an unconfirmed mutation outcome — NOT retried; verify on GitHub before re-running" >&2
-  fi
-fi
-
-# Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).
-# Exit 0 on dry-run or a clean --apply run.
-[ "$failed" -gt 0 ] && exit 2
-# Exit 3 when no create failed but a row's mutation outcome is unknown (kit issue #1705): an unconfirmed write
-# is never a green run, and never retried.
-[ "$mutation_unknown" -gt 0 ] && exit 3
-exit 0
+_unc_report "no-match: $((open_count + skipped_shipped + skipped_wrong_kit + unclassifiable)) row(s) examined, none unclassifiable"
+_print_summaries
+_final_exit
