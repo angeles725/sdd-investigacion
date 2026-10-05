@@ -101,6 +101,17 @@ many toolbelt scripts; slice 1 registers the names and continuations but does no
 | `empty-input` | input | many toolbelt scripts (not enumerated in slice 1) | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
 | `unclassifiable` | input | many toolbelt scripts (not enumerated in slice 1) | items exist but the instrument could not classify them | inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate |
 
+## Run-level notes that are not degraded codes
+
+These prefixes are NOT `degraded:` lines, so the extraction rule never sees them and they do not fail a run.
+They are listed here so a reader of this registry finds every typed state the script can print.
+
+- `shallow-clone: <dir> is a shallow clone and no cited commit resolved locally for N row(s) (e.g. <sha>)`
+  (reconcile-issues.sh, kit issue #1773): printed once per run (single-retro and `--all`) when the closure
+  evidence of N rows cites no commit that exists locally and the checkout is shallow, so reachability
+  cannot be verified. Those rows stay `borderline`, never `shipped`, and the exit code is unchanged.
+  Continuation: run `git fetch --unshallow` (or raise the CI fetch-depth), then re-run `reconcile-issues.sh`.
+
 ## Deferred (later slices of #1704)
 
 - `degraded: migrate-backlogs: <reason>` (its script is not scanned yet).

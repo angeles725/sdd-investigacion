@@ -273,7 +273,7 @@ _closed_query_old_gh() {
       --limit "$_LIST_LIMIT" \
       --search "\"Source retro: ${_p} ·\"" \
       --json number,body,comments \
-      --jq '.[] | "\u001f\(.number)", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body] | join("\n")), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+      --jq '.[] | "\u001f\(.number)", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body] | join("\n") | gsub("[\u001e\u001f]"; "")), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
   if [ "$_rc" -ne 0 ]; then
     _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
     echo "degraded: gh issue list (closed, old-gh fallback) failed (exit $_rc)${_em:+ — }${_em}" >&2
@@ -283,10 +283,13 @@ _closed_query_old_gh() {
   # The issue number follows each unit-separator marker; remember the ones NOT closed as completed.
   while IFS= read -r _num; do
     [ -n "$_num" ] || continue
-    _sr="$(gh api "repos/$_REPO/issues/$_num" --jq '.state_reason' 2>/dev/null)" || {
-      echo "degraded: gh api state_reason lookup failed for issue #$_num (this gh has no stateReason --json field)" >&2
+    _ef="$(mktemp 2>/dev/null)" || _ef=""
+    _sr="$(gh api "repos/$_REPO/issues/$_num" --jq '.state_reason' 2>"${_ef:-/dev/null}")" || {
+      _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
+      echo "degraded: gh api state_reason lookup failed for issue #$_num (this gh has no stateReason --json field)${_em:+ — }${_em}" >&2
       return 1
     }
+    [ -z "$_ef" ] || rm -f "$_ef"
     [ "$_sr" = "completed" ] || _bad="${_bad}${_num}"$'\n'
   done < <(printf '%s\n' "$_raw" | awk '/^\037/ { print substr($0, 2) }')
   printf '%s\n' "$_raw" | _NG_BAD="$_bad" awk '
