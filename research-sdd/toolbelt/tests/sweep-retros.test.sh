@@ -2225,24 +2225,35 @@ write_targets "$kit" "$tgt" "$tgt_wired"
 # whereas a stall hits a run at random. So the verdict is judged over a bounded number of independent runs: the case
 # passes on the first run that reconciles and fails only when ALL P68_MAX_RUNS runs miss (tooth PRWT feeds a real
 # accounting defect through the same helper). A stall must therefore land in 5 consecutive runs to flake it.
+# The retry covers SCHEDULER STALLS ONLY. Per CLAUDE.md section 3 a flake on a quiet tree is a defect to file, never
+# "load" to explain away, so every run is classified and only one class is ever retried:
+#   PASS    the timers reconcile within 15% (stop, case passes)
+#   MISS    the run was healthy but the ratio is off (retried, up to P68_MAX_RUNS; ALWAYS-MISS fails the case)
+#   BROKEN  the run exited non-zero, or a pending/waiver/total timer is absent or non-numeric (fails IMMEDIATELY,
+#           never retried: a crash or a missing profile is not a stall)
 P68_MAX_RUNS=5
-# p68_profile <kit> : run the profile up to P68_MAX_RUNS times, stopping at the first run that reconciles.
-# Leaves RC/STDOUT_P/STDERR_P (of the deciding run) and P68_RUNS, P68_RECON, P68_* timers set.
+P68_NUM='^[0-9]+\.[0-9]+$'
+# p68_profile <kit> : returns 0 PASS, 1 MISS on all P68_MAX_RUNS runs, 2 BROKEN. Leaves RC/STDOUT_P/STDERR_P of the
+# deciding run and P68_CLASS, P68_RUNS, P68_RECON, P68_PEND/WAIV/TOT set. Callers must read P68_CLASS, not just $?.
 p68_profile() {
-  P68_RUNS=0
+  P68_RUNS=0; P68_CLASS=""
   while :; do
     run_profile "$1"; P68_RUNS=$((P68_RUNS + 1))
     P68_PEND="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
     P68_WAIV="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
     P68_TOT="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
-    P68_RECON="$(awk -v p="${P68_PEND:-0}" -v w="${P68_WAIV:-0}" -v t="${P68_TOT:-0}" \
-      'BEGIN{if(t==0){print "skip";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+    if [ "$RC" != 0 ] || ! [[ "$P68_PEND" =~ $P68_NUM && "$P68_WAIV" =~ $P68_NUM && "$P68_TOT" =~ $P68_NUM ]]; then
+      P68_CLASS=BROKEN; P68_RECON="broken rc=$RC pend=[$P68_PEND] waiv=[$P68_WAIV] tot=[$P68_TOT]"; return 2
+    fi
+    P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v t="$P68_TOT" \
+      'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
              print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
-    [ "$P68_RECON" = ok ] && return 0
+    if [ "$P68_RECON" = ok ]; then P68_CLASS=PASS; return 0; fi
+    P68_CLASS=MISS
     [ "$P68_RUNS" -ge "$P68_MAX_RUNS" ] && return 1
   done
 }
-p68_profile "$kit"
+p68_profile "$kit"; _p68_class="$P68_CLASS"
 _p68_recon="$P68_RECON"
 if [ "$RC" = 0 ] \
    && ! grep -q 'profile:' <<<"$STDOUT_P" \
@@ -2251,12 +2262,24 @@ if [ "$RC" = 0 ] \
    && grep -qE '^profile: retro-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
    && grep -qE '^profile: block-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
    && grep -qE '^profile: total [0-9]+\.[0-9]+$'             <<<"$STDERR_P" \
-   && [ "$_p68_recon" = "ok" ]; then
+   && [ "$_p68_class" = PASS ] && [ "$_p68_recon" = "ok" ]; then
   ok "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" "(exit $RC)"
 else
   no "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" \
-     "RC=$RC recon=$_p68_recon runs=$P68_RUNS stderr=[$STDERR_P]"
+     "class=$_p68_class RC=$RC recon=$_p68_recon runs=$P68_RUNS stderr=[$STDERR_P]"
 fi
+
+# 68b — a BROKEN run (non-zero exit, or no profile at all) is classified BROKEN on the FIRST run and never retried
+#       as a scheduler stall (kit issue #1836 review): the multi-run verdict of case 68 must not launder a crash.
+_c68b_bad=""
+for _b in "crash:echo boom >&2; exit 3" "silent:exit 0" "partial:echo 'profile: total 0.001000' >&2; exit 0"; do
+  kit="$(mkkit "c68b-${_b%%:*}")"
+  printf '#!/usr/bin/env bash\n%s\n' "${_b#*:}" > "$kit/toolbelt/sweep-retros.sh"
+  p68_profile "$kit"; _rc68b=$?
+  if [ "$_rc68b" != 2 ] || [ "$P68_CLASS" != BROKEN ] || [ "$P68_RUNS" != 1 ]; then _c68b_bad="$_c68b_bad [${_b%%:*} rc=$_rc68b class=$P68_CLASS runs=$P68_RUNS]"; fi
+done
+if [ -z "$_c68b_bad" ]; then ok "68b crashed / profile-less / partial sweep → BROKEN on run 1, never retried as a stall" "()"
+else no "68b BROKEN runs must fail immediately, unretried" "$_c68b_bad"; fi
 
 # 69 — RSDD_PROFILE unset/0: ZERO behaviour change — no 'profile:' lines on stdout or
 #      stderr, stdout byte-identical to the baseline run without RSDD_PROFILE set.
@@ -4398,15 +4421,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "waiv=$_prwt_waiv pend=$_prwt_pend total=$_prwt_tot recon=$_prwt_recon stderr=[$STDERR_M]"
     fi
     # The bounded multi-run verdict (#1836) must not launder a REAL accounting defect: the same waiver-zeroed
-    # mutant, fed through case 68's own helper, must miss on all P68_MAX_RUNS runs and the helper must say so.
-    if p68_profile "$kit"; then
-      no "teeth PRWT-retry: waiver-zeroed mutant reconciled within $P68_RUNS run(s) — the retry masks a real defect" "recon=$P68_RECON"
-    elif [ "$P68_RUNS" = "$P68_MAX_RUNS" ]; then
-      ok "teeth PRWT-retry: waiver-zeroed mutant misses on all $P68_RUNS runs — case 68's multi-run verdict still has teeth" "()"
+    # mutant, fed through case 68's own helper, must be a healthy-but-wrong run (exit 0, profile present) that
+    # misses with the specific "fail <sum> vs <total>" verdict on ALL P68_MAX_RUNS runs (MISS, never PASS/BROKEN).
+    p68_profile "$kit"; _prwt_hrc=$?
+    if [ "$_prwt_hrc" = 1 ] && [ "$P68_CLASS" = MISS ] && [ "$P68_RUNS" = "$P68_MAX_RUNS" ] && [ "$RC" = 0 ] \
+       && [[ "$P68_RECON" == "fail "* ]] && [ "$P68_WAIV" = "0.000000" ]; then
+      ok "teeth PRWT-retry: waiver-zeroed mutant is MISS on all $P68_RUNS runs (exit 0, '$P68_RECON') — case 68's multi-run verdict still has teeth" "()"
     else
-      no "teeth PRWT-retry: helper gave up after $P68_RUNS of $P68_MAX_RUNS runs" "recon=$P68_RECON"
+      no "teeth PRWT-retry: waiver-zeroed mutant must be MISS on all $P68_MAX_RUNS runs — the retry masks a real defect or the mutant broke" \
+         "hrc=$_prwt_hrc class=$P68_CLASS runs=$P68_RUNS rc=$RC recon=[$P68_RECON]"
     fi
   fi
+
+  # Tooth P68B: drop the BROKEN guard from the helper; a crashing sweep must then be RETRIED as a stall (5 runs, MISS)
+  # instead of failing at once — case 68b goes RED. The mutant is the helper's own text with `return 2` neutered.
+  echo "-- teeth P68B: neuter the BROKEN guard; a crashing sweep must be retried like a stall (case 68b has teeth) --"
+  _p68_src="$(declare -f p68_profile)"
+  if [[ "$_p68_src" != *"return 2"* ]]; then
+    no "teeth P68B: BROKEN-guard anchor not found in p68_profile" "anchor not found — helper drifted?"
+  else
+    _p68_mut="${_p68_src/p68_profile/p68_profile_mut}"; _p68_mut="${_p68_mut//return 2/:}"
+    eval "$_p68_mut"
+    kit="$(mkkit teeth-p68b)"
+    printf '#!/usr/bin/env bash\necho boom >&2; exit 3\n' > "$kit/toolbelt/sweep-retros.sh"
+    p68_profile_mut "$kit"
+    if [ "$P68_CLASS" = MISS ] && [ "$P68_RUNS" = "$P68_MAX_RUNS" ]; then
+      ok "teeth P68B: guard-less helper retries a crashing sweep $P68_RUNS times as a 'stall' — case 68b has teeth" "()"
+    else
+      no "teeth P68B: guard-less helper still failed fast — case 68b is THEATER" "class=$P68_CLASS runs=$P68_RUNS"
+    fi
+    unset -f p68_profile_mut
+  fi
+  unset _p68_src
 
   # Tooth WS: collapse absent-settings into unwired — change the absent-settings WARN so it
   # emits the unwired message instead. Case 75 checks for 'absent-settings' in the WARN; with
