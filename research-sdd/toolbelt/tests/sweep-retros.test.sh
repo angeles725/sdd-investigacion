@@ -2235,8 +2235,14 @@ P68_MAX_RUNS=5
 P68_NUM='^[0-9]+\.[0-9]+$'
 # p68_profile <kit> : returns 0 PASS, 1 MISS on all P68_MAX_RUNS runs, 2 BROKEN. Leaves RC/STDOUT_P/STDERR_P of the
 # deciding run and P68_CLASS, P68_RUNS, P68_RECON, P68_PEND/WAIV/TOT set. Callers must read P68_CLASS, not just $?.
+# p68_note : a case that needed more than one run leaves a typed trace (CLAUDE.md section 3: a quiet-tree flake is a defect
+# to file, so a retried pass must never be silent). "  RETRIED  " is not a PASS/FAIL/SKIP line, so no runner counter sees it.
+p68_note() {
+  P68_NOTE=""
+  if [ "$P68_RUNS" -gt 1 ]; then P68_NOTE="  RETRIED  case 68 runs=$P68_RUNS (stall)"; printf '%s\n' "$P68_NOTE"; fi
+}
 p68_profile() {
-  P68_RUNS=0; P68_CLASS=""
+  P68_RUNS=0; P68_CLASS=""; P68_NOTE=""
   while :; do
     run_profile "$1"; P68_RUNS=$((P68_RUNS + 1))
     P68_PEND="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
@@ -2248,9 +2254,9 @@ p68_profile() {
     P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v t="$P68_TOT" \
       'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
              print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
-    if [ "$P68_RECON" = ok ]; then P68_CLASS=PASS; return 0; fi
+    if [ "$P68_RECON" = ok ]; then P68_CLASS=PASS; p68_note; return 0; fi
     P68_CLASS=MISS
-    [ "$P68_RUNS" -ge "$P68_MAX_RUNS" ] && return 1
+    if [ "$P68_RUNS" -ge "$P68_MAX_RUNS" ]; then p68_note; return 1; fi
   done
 }
 p68_profile "$kit"; _p68_class="$P68_CLASS"
@@ -2280,6 +2286,25 @@ for _b in "crash:echo boom >&2; exit 3" "silent:exit 0" "partial:echo 'profile: 
 done
 if [ -z "$_c68b_bad" ]; then ok "68b crashed / profile-less / partial sweep → BROKEN on run 1, never retried as a stall" "()"
 else no "68b BROKEN runs must fail immediately, unretried" "$_c68b_bad"; fi
+
+# 68c — a retried pass is NOT silent: a sweep whose first profile misses the ratio and whose second reconciles passes
+#       with a typed '  RETRIED  case 68 runs=2 (stall)' line; a first-run pass prints none.
+_c68c_stub() { # <kit> <first-total> : profile stub; run 1 reports total=<first-total>, later runs total=2.000000
+  { printf '#!/usr/bin/env bash\n'
+    printf 'f="%s/runs"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$f"\n' "$1"
+    printf 't=2.000000; [ "$n" = 1 ] && t=%s\n' "$2"
+    printf 'echo "profile: pending-pass 1.000000" >&2; echo "profile: waiver-pass 1.000000" >&2; echo "profile: total $t" >&2\n'
+  } > "$1/toolbelt/sweep-retros.sh"
+}
+kit="$(mkkit c68c-retry)"; _c68c_stub "$kit" 9.000000
+_c68c_out="$(p68_profile "$kit"; echo "class=$P68_CLASS runs=$P68_RUNS")"
+if grep -qxF '  RETRIED  case 68 runs=2 (stall)' <<<"$_c68c_out" && grep -qxF 'class=PASS runs=2' <<<"$_c68c_out"; then
+  ok "68c retried pass prints one typed RETRIED line (case 68 runs=2)" "()"
+else no "68c retried pass must print a RETRIED line" "out=[$_c68c_out]"; fi
+kit="$(mkkit c68c-clean)"; _c68c_stub "$kit" 2.000000
+_c68c_out="$(p68_profile "$kit"; echo "class=$P68_CLASS runs=$P68_RUNS")"
+if [ "$_c68c_out" = "class=PASS runs=1" ]; then ok "68c first-run pass prints no RETRIED line" "()"
+else no "68c first-run pass must be silent" "out=[$_c68c_out]"; fi
 
 # 69 — RSDD_PROFILE unset/0: ZERO behaviour change — no 'profile:' lines on stdout or
 #      stderr, stdout byte-identical to the baseline run without RSDD_PROFILE set.
@@ -4445,14 +4470,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     kit="$(mkkit teeth-p68b)"
     printf '#!/usr/bin/env bash\necho boom >&2; exit 3\n' > "$kit/toolbelt/sweep-retros.sh"
     p68_profile_mut "$kit"
-    if [ "$P68_CLASS" = MISS ] && [ "$P68_RUNS" = "$P68_MAX_RUNS" ]; then
+    if [ "$P68_CLASS" = MISS ] && [ "$P68_RUNS" = "$P68_MAX_RUNS" ] && [ "$RC" = 3 ]; then
       ok "teeth P68B: guard-less helper retries a crashing sweep $P68_RUNS times as a 'stall' — case 68b has teeth" "()"
     else
-      no "teeth P68B: guard-less helper still failed fast — case 68b is THEATER" "class=$P68_CLASS runs=$P68_RUNS"
+      no "teeth P68B: guard-less helper still failed fast — case 68b is THEATER" "class=$P68_CLASS runs=$P68_RUNS rc=$RC (the crash exit 3 must be what was retried)"
     fi
     unset -f p68_profile_mut
   fi
   unset _p68_src
+
+  # Tooth P68N: drop p68_note's printf; the retried pass of case 68c must then be silent (68c goes RED).
+  echo "-- teeth P68N: drop the RETRIED line from p68_note; a retried pass must then be silent (case 68c has teeth) --"
+  _p68n_real="$(declare -f p68_note)"; _p68n_mut="$(sed '/RETRIED/s/.*/:/' <<<"$_p68n_real")"
+  if [ "$_p68n_mut" = "$_p68n_real" ]; then no "teeth P68N: could not build a valid mutant" "anchor not found"
+  else
+    eval "$_p68n_mut"
+    kit="$(mkkit teeth-p68n)"; _c68c_stub "$kit" 9.000000
+    _p68n_out="$(p68_profile "$kit"; echo "class=$P68_CLASS runs=$P68_RUNS")"
+    eval "$_p68n_real"
+    if grep -qxF 'class=PASS runs=2' <<<"$_p68n_out" && ! grep -qF 'RETRIED' <<<"$_p68n_out"; then
+      ok "teeth P68N: note-less helper retries silently — case 68c has teeth" "()"
+    else no "teeth P68N: mutant still printed RETRIED — case 68c is THEATER" "out=[$_p68n_out]"; fi
+  fi
+  unset _p68n_real _p68n_mut
 
   # Tooth WS: collapse absent-settings into unwired — change the absent-settings WARN so it
   # emits the unwired message instead. Case 75 checks for 'absent-settings' in the WARN; with
