@@ -3931,6 +3931,32 @@ else
 fi
 unset _tmpl_live
 
+# 140p — PROVENANCE LINE (kit issue #1712): the live retro template must carry the one-line
+#        provenance (base sha · head sha · gate-run · reruns) with all four fields. The predicate
+#        is one function so the tooth (--prove-teeth) runs the SAME check on a mutant copy.
+_prov_ok() {
+  grep -E '^> \*\*Provenance:\*\* base `[^`]+` · head `[^`]+` · gate-run `[^`]+` · reruns `[^`]+`' "$1" >/dev/null
+}
+_tmpl_prov="$HERE/../../templates/retro.template.md"
+if _prov_ok "$_tmpl_prov"; then
+  ok "140p retro template carries the provenance line (base/head/gate-run/reruns)" ""
+else
+  no "140p retro template must carry the provenance line (kit issue #1712)" "template=$_tmpl_prov"
+fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  _prov_mut="$(mktemp)"
+  sed 's/ · reruns `[^`]*`//' "$_tmpl_prov" > "$_prov_mut"
+  if cmp -s "$_tmpl_prov" "$_prov_mut"; then
+    no "teeth 140p: mutant identical to template (mutation did not apply)" ""
+  elif _prov_ok "$_prov_mut"; then
+    no "teeth 140p: reruns-field-stripped mutant still passes — case 140p is THEATER" ""
+  else
+    ok "teeth 140p: reruns-field-stripped template fails the provenance check (case 140p has teeth)" ""
+  fi
+  rm -f "$_prov_mut"
+fi
+unset _tmpl_prov
+
 # 141 — SPANISH CANONICAL ALIAS (kit issue #1111): "## PROPUESTA de deltas al kit" is a real
 #       fleet form (Pancaddia corpus retro) — accepted as canonical (not deprecated: no
 #       migration WARN), so it must count table rows the same as the English heading.

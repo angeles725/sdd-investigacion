@@ -59,6 +59,15 @@ Closes #
 
 ---
 
+## Provenance
+
+<!-- REQUIRED (kit issue #1712): the commits and gate run the Test Plan claims were measured on. -->
+<!-- run-all.sh prints no run id: cite the AGGREGATE RESULT timestamp (UTC) and its Suites run/passed lines. -->
+
+Provenance: base `<base sha>` · head `<head sha>` · gate-run `<AGGREGATE timestamp (UTC) + Suites run/passed, or none>` · reruns `<none | each rerun and why>`
+
+---
+
 ## Work-Unit Budget
 
 <!-- Kit rule: ~400 authored physical touched lines per PR (CLAUDE.md §6). -->
