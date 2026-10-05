@@ -2318,6 +2318,260 @@ if command -v jq >/dev/null 2>&1; then
   done
 fi
 
+# --- kit issue #1845: --subject / --prefix fill the hook; the guard names EVERY live placeholder -----------------------
+_U7_SUBJ='<SUBJECT>'; _U7_PFX='<prefix>'; _U7_PATH='<path to binaries/decompiled output/source code of the system under study>'
+_u7_live() {  # <file> <placeholder> — live (non-comment) occurrence?
+  grep -qF -- "$2" <<<"$(grep -vE '^[[:space:]]*#' "$1")"
+}
+# run a filled hook and `jq -e` its output: valid SessionStart JSON whose context carries the literal subject on both lines
+_u7_hook_json_ok() {  # <hook> <subject>
+  bash "$1" </dev/null 2>/dev/null | jq -e --arg s "$2" '.hookSpecificOutput.hookEventName == "SessionStart"
+    and (.hookSpecificOutput.additionalContext | contains("RESEARCH PROTOCOL — " + $s + " (Research-SDD)") and contains("research of " + $s + ". Before"))' >/dev/null 2>&1
+}
+# octal mode of a file, portable: GNU `stat -c %a`, else BSD/macOS `stat -f %Lp`
+_u7_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+# a PATH holding ONLY the tools the SUT needs (symlinked into a private bin dir) and never jq, wherever jq is installed
+_u7_nojq_path() {
+  local b="$TMP/u7-nojq-bin" t p
+  if [ ! -d "$b" ]; then
+    mkdir -p "$b"
+    for t in bash sh env cp mv rm mkdir mktemp chmod cat grep sed awk dirname basename readlink git tr head tail cmp diff find sort uniq date stat sleep wc printf ls ln touch id uname cut tee xargs timeout; do
+      p="$(command -v "$t" 2>/dev/null)" && [ -x "$p" ] && ln -sf "$p" "$b/$t"
+    done
+  fi
+  printf '%s' "$b"
+}
+_u7_ss_wired() { [ -f "$1/.claude/settings.json" ] && grep -qF 'research-protocol.sh' "$1/.claude/settings.json"; }
+# a minimal custom hook with an exact set of live placeholders: $1 file, then any of S P X (subject / prefix / path)
+_u7_hook() {
+  local f="$1" k; shift; mkdir -p "$(dirname "$f")"
+  { echo '#!/usr/bin/env bash'; echo '# header comment mentions <SUBJECT> and <prefix> — comments never count'
+    echo 'CTX="'
+    for k in "$@"; do case "$k" in S) echo 'research of <SUBJECT>';; P) echo '  - <prefix>-block*.md';; X) echo '  - <path to binaries/decompiled output/source code of the system under study>';; esac; done
+    echo 'adapted line'; echo '"'; } > "$f"
+}
+_u7_wire_target() {  # <dir> then placeholder keys — an existing corpus + a hand-made hook
+  local d="$1"; shift; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"; _u7_hook "$d/.claude/hooks/research-protocol.sh" "$@"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  echo "-- #1845: --subject / --prefix fill, guard names every live placeholder --"
+  _u7_gen() {  # <name> — a kit copy whose templates/ dir is a private copy (so a variant hook template can be dropped in)
+    local k="$TMP/u7g/$1"; rm -rf "$k"; mkdir -p "$k/toolbelt/lib"
+    cp "$HERE/../lib/corpus-markers.sh" "$HERE/../lib/gh-visibility.sh" "$k/toolbelt/lib/"; cp -r "$HERE/../../templates" "$k/templates"
+    cp "$SUT" "$k/toolbelt/init.sh"; chmod +x "$k/toolbelt/init.sh"
+  }
+  # A. scaffold fills both flags; the primary-sources placeholder (no flag) stays
+  d="$TMP/u7-a"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --subject "Acme router firmware" --prefix acme >"$TMP/u7-a.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-a scaffold --subject --prefix: exit 0" || no "U7-a scaffold --subject --prefix: exit $_rc"
+  _h="$d/.claude/hooks/research-protocol.sh"
+  grep -qxF 'RESEARCH PROTOCOL — Acme router firmware (Research-SDD)' "$_h" && ok "U7-a heading line filled" || no "U7-a heading line not filled"
+  grep -qF 'READ-ONLY research of Acme router firmware. Before' "$_h" && ok "U7-a second <SUBJECT> line filled" || no "U7-a second <SUBJECT> line not filled"
+  grep -qF -- '- acme-block*.md' "$_h" && ok "U7-a <prefix> filled by --prefix" || no "U7-a <prefix> not filled"
+  _u7_live "$_h" "$_U7_SUBJ" && no "U7-a <SUBJECT> still live" || ok "U7-a no live <SUBJECT> left"
+  _u7_live "$_h" "$_U7_PFX" && no "U7-a <prefix> still live" || ok "U7-a no live <prefix> left"
+  _u7_live "$_h" "$_U7_PATH" && ok "U7-a primary-sources placeholder stays (no flag can fill it)" || no "U7-a primary-sources placeholder vanished"
+  grep -qF 'Replace <SUBJECT> and the source/tool paths' "$_h" && ok "U7-a header comment untouched" || no "U7-a header comment was rewritten"
+
+  # B. hostile subjects: / & \ | $ ` quotes, leading dash
+  for _hs in 'a/b & c\d' 'x|y $HOME `id` "q" '"'s'" '-rf \1 \n'; do
+    d="$TMP/u7-b"; rm -rf "$d"; mkdir -p "$d"
+    bash "$SUT" "$d" --corpus flat --subject "$_hs" >"$TMP/u7-b.out" 2>&1; _rc=$?
+    [ "$_rc" = 0 ] && ok "U7-b hostile subject [$_hs]: exit 0" || no "U7-b hostile subject [$_hs]: exit $_rc"
+    grep -qxF "RESEARCH PROTOCOL — $_hs (Research-SDD)" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject rendered literally [$_hs]" || no "U7-b hostile subject mangled [$_hs]"
+    grep -qF "READ-ONLY research of $_hs. Before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject literal on the 2nd line [$_hs]" || no "U7-b 2nd line mangled [$_hs]"
+    # the FILLED hook must EXECUTE and emit valid hook JSON carrying the literal subject on both lines
+    _u7_hook_json_ok "$d/.claude/hooks/research-protocol.sh" "$_hs" && ok "U7-b filled hook executes: valid SessionStart JSON with the literal subject [$_hs]" || no "U7-b filled hook does not emit valid JSON with the literal subject [$_hs]"
+  done
+
+  # C. invalid values: exit 2, nothing written
+  for _bad in "" "   " $'two\nlines' $'tab\there' $'cr\rhere' 'has <SUBJECT> in it' 'has <prefix> in it'; do
+    d="$TMP/u7-c"; rm -rf "$d"; mkdir -p "$d"
+    bash "$SUT" "$d" --corpus flat --subject "$_bad" >"$TMP/u7-c.out" 2>&1; _rc=$?
+    { [ "$_rc" = 2 ] && grep -qF 'usage: --subject' "$TMP/u7-c.out" && ! grep -qF 'unknown flag' "$TMP/u7-c.out"; } && ok "U7-c bad subject [$(printf '%q' "$_bad")]: typed usage error, exit 2" || no "U7-c bad subject [$(printf '%q' "$_bad")]: exit $_rc, no typed usage line (want 2 + 'usage: --subject')"
+    [ -z "$(find "$d" -mindepth 1 -print -quit)" ] && ok "U7-c bad subject [$(printf '%q' "$_bad")]: nothing written" || no "U7-c bad subject wrote into the target"
+  done
+  d="$TMP/u7-c"; rm -rf "$d"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --subject >/dev/null 2>&1; _rc=$?
+  [ "$_rc" = 2 ] && ok "U7-c --subject as the last arg (no value): exit 2" || no "U7-c --subject without a value: exit $_rc"
+  bash "$SUT" "$d" --corpus flat --prefix $'a\nb' >/dev/null 2>&1; _rc=$?
+  [ "$_rc" = 2 ] && ok "U7-c multi-line --prefix: exit 2" || no "U7-c multi-line --prefix: exit $_rc"
+
+  # D. guard enumerates every live placeholder — single / first / middle / last / combinations (--wire on an existing corpus)
+  _u7_case() {  # <label> <want: letters S P X that must WARN, or -> <ss-wired yes|no> <hook keys...>
+    local lbl="$1" want="$2" ssw="$3"; shift 3
+    local d="$TMP/u7-d" rc k ph
+    _u7_wire_target "$d" "$@"
+    bash "$SUT" "$d" --wire >"$TMP/u7-d.out" 2>"$TMP/u7-d.err"; rc=$?
+    [ "$rc" = 0 ] && ok "U7-d $lbl: exit 0" || no "U7-d $lbl: exit $rc"
+    for k in S P X; do
+      case "$k" in S) ph="$_U7_SUBJ";; P) ph="$_U7_PFX";; X) ph="$_U7_PATH";; esac
+      if [[ "$want" == *"$k"* ]]; then grep -qF "still contains the $ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-d.err")" && ok "U7-d $lbl: WARN names $ph" || no "U7-d $lbl: no WARN naming $ph"
+      else grep -qF "$ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-d.err")" && no "U7-d $lbl: false WARN naming $ph" || ok "U7-d $lbl: no WARN for absent $ph"; fi
+    done
+    if [ "$ssw" = yes ]; then _u7_ss_wired "$d" && ok "U7-d $lbl: SessionStart registered" || no "U7-d $lbl: SessionStart NOT registered"
+    else _u7_ss_wired "$d" && no "U7-d $lbl: SessionStart registered despite a live <SUBJECT>" || ok "U7-d $lbl: SessionStart skipped"; fi
+  }
+  _u7_case "SUBJECT only (first, single)"  S   no  S
+  _u7_case "prefix only (middle, single)"  P   yes P
+  _u7_case "path only (last, single)"      X   yes X
+  _u7_case "SUBJECT+prefix"                SP  no  S P
+  _u7_case "prefix+path"                   PX  yes P X
+  _u7_case "SUBJECT+path (not adjacent)"   SX  no  S X
+  _u7_case "all three"                     SPX no  S P X
+  _u7_case "fully adapted (none)"          -   yes
+  # the path WARN names the exact next step; the non-gating WARN states it does not block
+  _u7_wire_target "$TMP/u7-d" P X; bash "$SUT" "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
+  grep -qF 'no flag can fill it: edit the hook and list the real primary-source paths' "$TMP/u7-d.err" && ok "U7-d path WARN carries the exact next step" || no "U7-d path WARN lacks the next step"
+  grep -qF 'SessionStart wiring is NOT blocked' "$TMP/u7-d.err" && ok "U7-d non-gating WARN states it does not block SessionStart" || no "U7-d non-gating WARN does not say it is non-blocking"
+  # a placeholder only inside a COMMENT line never warns (the _u7_hook header already carries two)
+  _u7_wire_target "$TMP/u7-d"; bash "$SUT" "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
+  grep -qF 'placeholder' "$TMP/u7-d.err" && no "U7-d comment-only placeholders produced a WARN" || ok "U7-d comment-only placeholders: no WARN (already-adapted hook)"
+  # scaffold --scaffold --wire with both flags: the fillable placeholders are gone -> SessionStart registered; the path WARN remains
+  d="$TMP/u7-sw"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire --subject "Acme" --prefix ac >"$TMP/u7-sw.out" 2>"$TMP/u7-sw.err"; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-d scaffold+wire with --subject: exit 0" || no "U7-d scaffold+wire with --subject: exit $_rc"
+  _u7_ss_wired "$d" && ok "U7-d scaffold+wire with --subject: SessionStart registered" || no "U7-d scaffold+wire with --subject: SessionStart not registered"
+  grep -qF "$_U7_PATH placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-sw.err")" && ok "U7-d scaffold+wire: path placeholder still WARNs" || no "U7-d scaffold+wire: no WARN for the path placeholder"
+  d="$TMP/u7-sw2"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/u7-sw2.out" 2>"$TMP/u7-sw2.err"
+  for _ph in "$_U7_SUBJ" "$_U7_PFX" "$_U7_PATH"; do grep -qF "$_ph" <<<"$(grep -F 'WARN:' "$TMP/u7-sw2.err")" && ok "U7-d scaffold+wire without flags: WARN names $_ph" || no "U7-d scaffold+wire without flags: no WARN naming $_ph"; done
+
+  # E. existing hook: --subject/--prefix refuse (typed, nothing written) unless --force; an absent hook is created filled
+  _u7_wire_target "$TMP/u7-e" S; cp "$TMP/u7-e/.claude/hooks/research-protocol.sh" "$TMP/u7-e.before"
+  bash "$SUT" "$TMP/u7-e" --wire --subject "Acme" >"$TMP/u7-e.out" 2>"$TMP/u7-e.err"; _rc=$?
+  [ "$_rc" = 3 ] && ok "U7-e --wire --subject on an existing hook: refused (exit 3)" || no "U7-e existing hook: exit $_rc (want 3)"
+  grep -qF 'REFUSED: --subject only fills' "$TMP/u7-e.err" && ok "U7-e typed REFUSED line" || no "U7-e no typed REFUSED line"
+  cmp -s "$TMP/u7-e.before" "$TMP/u7-e/.claude/hooks/research-protocol.sh" && ok "U7-e existing hook byte-identical" || no "U7-e existing hook was modified"
+  { [ ! -e "$TMP/u7-e/.claude/settings.json" ] && [ ! -e "$TMP/u7-e/.claude/hooks/retro-gate-stop.sh" ]; } && ok "U7-e refusal wrote nothing else (no settings.json, no stop hook)" || no "U7-e refusal still wrote files"
+  # --prefix is also the block-prefix flag operators re-pass on re-wires: an existing hook is left byte-identical, with a typed note, exit 0
+  _u7_wire_target "$TMP/u7-e5" P X; bash "$SUT" "$TMP/u7-e5" --wire >/dev/null 2>&1   # first wire: already-wired target
+  cp "$TMP/u7-e5/.claude/hooks/research-protocol.sh" "$TMP/u7-e5.before"
+  bash "$SUT" "$TMP/u7-e5" --wire --prefix xx >"$TMP/u7-e5.out" 2>"$TMP/u7-e5.err"; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-e re-wire --prefix on an already-wired target: exit 0" || no "U7-e re-wire --prefix: exit $_rc (want 0)"
+  grep -qF "note: --prefix not applied to existing $TMP/u7-e5/.claude/hooks/research-protocol.sh (fill <prefix> by hand)" "$TMP/u7-e5.out" && ok "U7-e re-wire --prefix: typed note" || no "U7-e re-wire --prefix: no typed note"
+  cmp -s "$TMP/u7-e5.before" "$TMP/u7-e5/.claude/hooks/research-protocol.sh" && ok "U7-e re-wire --prefix: hook byte-identical" || no "U7-e re-wire --prefix modified the hook"
+  # a last-argument flag with no value is a typed usage error (exit 2), never a bare shift crash
+  d="$TMP/u7-e6"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --prefix >"$TMP/u7-e6.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'usage: --prefix needs a value' "$TMP/u7-e6.out"; } && ok "U7-e --prefix as the last argument: typed usage error, exit 2" || no "U7-e --prefix last arg: exit $_rc"
+  # the fill rewrites through a same-dir temp file: mode and every non-placeholder byte survive, and no temp file is left behind
+  _u7_gen mode; chmod 755 "$TMP/u7g/mode/templates/hook-sessionstart.sh"
+  d="$TMP/u7-e7"; rm -rf "$d"; mkdir -p "$d"
+  bash "$TMP/u7g/mode/toolbelt/init.sh" "$d" --corpus flat --subject "Acme" --prefix ac >/dev/null 2>&1; _rc=$?
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-e fill preserves the template mode (755)" || no "U7-e fill changed the mode: $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+  [ "$(diff "$TMP/u7g/mode/templates/hook-sessionstart.sh" "$d/.claude/hooks/research-protocol.sh" | grep -c '^>')" = 3 ] && ok "U7-e fill changed exactly the 3 placeholder lines (every other byte preserved)" || no "U7-e fill touched other lines"
+  [ -z "$(find "$d/.claude/hooks" -name '.hook.*')" ] && ok "U7-e fill left no temp file behind" || no "U7-e fill left a temp file"
+
+  # H. a flag-looking value is never swallowed as the subject/prefix (`--subject --wire`): typed usage error, exit 2, nothing written
+  for _fl in --subject --prefix; do
+    d="$TMP/u7-h"; rm -rf "$d"; mkdir -p "$d"
+    bash "$SUT" "$d" --corpus flat "$_fl" --wire >"$TMP/u7-h.out" 2>&1; _rc=$?
+    { [ "$_rc" = 2 ] && grep -qF "usage: $_fl value '--wire' starts with --" "$TMP/u7-h.out"; } && ok "U7-h $_fl --wire: typed usage error, exit 2" || no "U7-h $_fl --wire: exit $_rc, no typed usage line"
+    [ -z "$(find "$d" -mindepth 1 -print -quit)" ] && ok "U7-h $_fl --wire: nothing written" || no "U7-h $_fl --wire: wrote into the target"
+  done
+
+  # J. an existing hook with NO corpus marker: the scaffold and scaffold+wire paths follow the same rule as wire-only
+  for _jf in "" "--scaffold --wire"; do
+    d="$TMP/u7-j"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7-j.before"
+    # shellcheck disable=SC2086
+    bash "$SUT" "$d" --corpus flat $_jf --subject Acme >"$TMP/u7-j.out" 2>&1; _rc=$?
+    { [ "$_rc" = 3 ] && grep -qF 'REFUSED: --subject only fills' "$TMP/u7-j.out"; } && ok "U7-j [$_jf] --subject on an existing hook, no corpus: REFUSED (exit 3)" || no "U7-j [$_jf] --subject: exit $_rc"
+    cmp -s "$TMP/u7-j.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-j [$_jf] hook byte-identical" || no "U7-j [$_jf] hook overwritten"
+    { [ ! -e "$d/INDEX.md" ] && [ ! -e "$d/retros" ] && [ ! -e "$d/.claude/settings.json" ]; } && ok "U7-j [$_jf] refusal wrote nothing" || no "U7-j [$_jf] refusal still scaffolded"
+    rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S
+    # shellcheck disable=SC2086
+    bash "$SUT" "$d" --corpus flat $_jf --prefix pp >"$TMP/u7-j.out" 2>&1; _rc=$?
+    { [ "$_rc" = 0 ] && grep -qF 'note: --prefix not applied to existing' "$TMP/u7-j.out" && [ -e "$d/INDEX.md" ]; } && ok "U7-j [$_jf] --prefix: note, corpus scaffolded (exit 0)" || no "U7-j [$_jf] --prefix: exit $_rc"
+    cmp -s "$TMP/u7-j.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-j [$_jf] --prefix leaves the hook untouched" || no "U7-j [$_jf] --prefix overwrote the hook"
+  done
+  d="$TMP/u7-j"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S
+  bash "$SUT" "$d" --corpus flat --force --subject Acme >/dev/null 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-j --force re-scaffolds the existing hook and fills it" || no "U7-j --force: exit $_rc / not filled"
+
+  # K. a failed wire-only fill writes NOTHING (staged first): no Stop hook, settings.json intact, nothing left in TMPDIR; TERM cleans up
+  d="$TMP/u7-k"; rm -rf "$d"; mkdir -p "$d/.claude" "$d/td"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7-k.settings"
+  _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
+  TMPDIR="$d/td" PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-k.out" 2>&1; _rc=$?
+  [ "$_rc" = 2 ] && ok "U7-k wire-only fill failure: exit 2" || no "U7-k wire-only fill failure: exit $_rc"
+  { [ ! -e "$d/.claude/hooks" ] && cmp -s "$TMP/u7-k.settings" "$d/.claude/settings.json"; } && ok "U7-k wire-only fill failure: no hooks dir created, settings.json intact" || no "U7-k wire-only fill failure left a half-wired state"
+  [ -z "$(find "$d/td" -mindepth 1)" ] && ok "U7-k wire-only fill failure: staging dir and temp removed" || no "U7-k staging leftovers in TMPDIR"
+  # TERM mid-fill: a sed stub stalls the fill's rewrite; the trap must remove the staging dir and exit 143
+  _u7_slow="$TMP/u7-slow"; mkdir -p "$_u7_slow"; printf '#!/bin/sh\ncase "$2" in "/^[[:space:]]*#/!"*) sleep 3;; esac\nexec "%s" "$@"\n' "$(command -v sed)" > "$_u7_slow/sed"; chmod +x "$_u7_slow/sed"
+  d="$TMP/u7-k2"; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"
+  TMPDIR="$d/td" PATH="$_u7_slow:$PATH" bash "$SUT" "$d" --wire --subject Acme >/dev/null 2>&1 &
+  _kp=$!; sleep 1; kill -TERM "$_kp" 2>/dev/null; wait "$_kp" 2>/dev/null; _rc=$?
+  [ "$_rc" = 143 ] && ok "U7-k TERM mid-fill: exit 143" || no "U7-k TERM mid-fill: exit $_rc"
+  [ -z "$(find "$d/td" -mindepth 1)" ] && [ ! -e "$d/.claude" ] && ok "U7-k TERM mid-fill: no staging/temp left, nothing written" || no "U7-k TERM mid-fill left files"
+
+  # I. failure paths of the fill: a failing mv (stubbed) is a typed FATAL with no temp file and no half-filled hook
+  _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
+  d="$TMP/u7-i"; rm -rf "$d"; mkdir -p "$d"
+  PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --corpus flat --subject Acme >"$TMP/u7-i.out" 2>&1; _rc=$?
+  { [ "$_rc" != 0 ] && grep -qF 'FATAL: could not install the filled hook' "$TMP/u7-i.out"; } && ok "U7-i scaffold, mv fails: typed FATAL, non-zero (exit $_rc)" || no "U7-i scaffold, mv fails: exit $_rc, no typed FATAL"
+  { [ ! -e "$d/.claude" ] && [ -z "$(find "$d" -name '.hook.*')" ]; } && ok "U7-i scaffold, mv fails: rolled back, no temp file" || no "U7-i scaffold, mv fails: left files behind"
+  d="$TMP/u7-i2"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-i2.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not install the filled hook' "$TMP/u7-i2.out"; } && ok "U7-i wire-only, mv fails: typed FATAL, exit 2" || no "U7-i wire-only, mv fails: exit $_rc"
+  { [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ]; } && ok "U7-i wire-only, mv fails: no hook, no temp file" || no "U7-i wire-only, mv fails: hook or temp file left"
+  # one flag fillable and one not (template without <prefix>): nothing is half-filled
+  _u7_gen nopfx; printf '%s\n' '#!/usr/bin/env bash' 'echo "research of <SUBJECT>"' > "$TMP/u7g/nopfx/templates/hook-sessionstart.sh"
+  d="$TMP/u7-i3"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  bash "$TMP/u7g/nopfx/toolbelt/init.sh" "$d" --wire --subject Acme --prefix pp >"$TMP/u7-i3.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'carries no live <prefix> placeholder' "$TMP/u7-i3.out"; } && ok "U7-i template lacking <prefix>: typed FATAL, exit 2" || no "U7-i template lacking <prefix>: exit $_rc"
+  { [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ]; } && ok "U7-i template lacking <prefix>: no half-filled hook, no temp file" || no "U7-i template lacking <prefix>: partial hook or temp left"
+  # an ADAPTED existing hook is refused the same way (never an overwrite)
+  _u7_wire_target "$TMP/u7-e2"; cp "$TMP/u7-e2/.claude/hooks/research-protocol.sh" "$TMP/u7-e2.before"
+  bash "$SUT" "$TMP/u7-e2" --wire --subject "Acme" >/dev/null 2>&1; _rc=$?
+  { [ "$_rc" = 3 ] && cmp -s "$TMP/u7-e2.before" "$TMP/u7-e2/.claude/hooks/research-protocol.sh"; } && ok "U7-e adapted hook + --subject: refused, bytes intact" || no "U7-e adapted hook: exit $_rc or bytes changed"
+  # --force follows the script's --force semantics: re-scaffold, and the fresh hook is filled
+  bash "$SUT" "$TMP/u7-e" --corpus flat --wire --force --subject "Acme" --prefix ac >"$TMP/u7-e3.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-e --force --subject: exit 0" || no "U7-e --force --subject: exit $_rc"
+  grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$TMP/u7-e/.claude/hooks/research-protocol.sh" && ok "U7-e --force: hook re-created filled" || no "U7-e --force: hook not filled"
+  # an absent hook on the wire-only path: created and filled, SessionStart registered
+  d="$TMP/u7-e4"; mkdir -p "$d"; : > "$d/INDEX.md"
+  bash "$SUT" "$d" --wire --subject "Acme" --prefix ac >/dev/null 2>"$TMP/u7-e4.err"; _rc=$?
+  { [ "$_rc" = 0 ] && grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-e wire-only creating the hook: filled" || no "U7-e wire-only creating the hook: exit $_rc / not filled"
+  _u7_ss_wired "$d" && ok "U7-e wire-only creating a filled hook: SessionStart registered" || no "U7-e SessionStart not registered after a filled create"
+
+  # F. template-generation variants: placeholders on other lines / in another order; no line-number coupling
+  _u7_gen old
+  { for _i in 1 2 3 4 5 6 7; do echo "# padding line $_i"; done
+    echo "# SessionStart hook — Research-SDD protocol for <SUBJECT>."
+    echo "CTX='"; echo '  - <path to binaries/decompiled output/source code of the system under study>'
+    echo 'first <prefix>-block*.md then <SUBJECT>'; echo 'again <SUBJECT> end'; echo "'"; } > "$TMP/u7g/old/templates/hook-sessionstart.sh"
+  d="$TMP/u7-f"; rm -rf "$d"; mkdir -p "$d"
+  bash "$TMP/u7g/old/toolbelt/init.sh" "$d" --corpus flat --subject "S&1" --prefix pp --scaffold --wire >"$TMP/u7-f.out" 2>"$TMP/u7-f.err"; _rc=$?
+  _h="$d/.claude/hooks/research-protocol.sh"
+  [ "$_rc" = 0 ] && ok "U7-f other template generation: exit 0" || no "U7-f other template generation: exit $_rc"
+  { grep -qxF 'first pp-block*.md then S&1' "$_h" && grep -qxF 'again S&1 end' "$_h"; } && ok "U7-f placeholders filled wherever they sit (order/lines differ)" || no "U7-f other-generation fill wrong"
+  grep -qF '# SessionStart hook — Research-SDD protocol for <SUBJECT>.' "$_h" && ok "U7-f comment line untouched" || no "U7-f comment line rewritten"
+  grep -qF "$_U7_PATH placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-f.err")" && ok "U7-f other generation: path placeholder WARNs" || no "U7-f other generation: no path WARN"
+  # a template with NO live <SUBJECT> and --subject given: typed failure, never a silent no-op
+  _u7_gen nosubj; printf '%s\n' '#!/usr/bin/env bash' 'echo adapted' > "$TMP/u7g/nosubj/templates/hook-sessionstart.sh"
+  d="$TMP/u7-f2"; rm -rf "$d"; mkdir -p "$d"
+  bash "$TMP/u7g/nosubj/toolbelt/init.sh" "$d" --corpus flat --subject "Acme" >"$TMP/u7-f2.out" 2>&1; _rc=$?
+  { [ "$_rc" != 0 ] && grep -qF 'carries no live <SUBJECT> placeholder' "$TMP/u7-f2.out"; } && ok "U7-f template without <SUBJECT> + --subject: typed FATAL, non-zero" || no "U7-f template without <SUBJECT>: exit $_rc, silent no-op"
+  [ ! -e "$d/.claude" ] && ok "U7-f typed FATAL rolled the scaffold back" || no "U7-f scaffold left behind after the FATAL"
+  # G. jq ABSENT (print-only fallback): the other live placeholders are still named; --subject on an absent hook says NOT applied
+  _u7_pnojq="$(_u7_nojq_path)"
+  if PATH="$_u7_pnojq" command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  U7-g: jq still reachable on the private tool PATH"
+  else
+    _u7_wire_target "$TMP/u7-g" P X
+    PATH="$_u7_pnojq" bash "$SUT" "$TMP/u7-g" --wire >"$TMP/u7-g.out" 2>"$TMP/u7-g.err"; _rc=$?
+    [ "$_rc" = 0 ] && ok "U7-g jq-absent: exit 0" || no "U7-g jq-absent: exit $_rc"
+    for _ph in "$_U7_PFX" "$_U7_PATH"; do grep -qF "still contains the $_ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-g.err")" && ok "U7-g jq-absent: WARN names $_ph" || no "U7-g jq-absent: no WARN naming $_ph"; done
+    d="$TMP/u7-g2"; mkdir -p "$d"; : > "$d/INDEX.md"
+    PATH="$_u7_pnojq" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-g2.out" 2>"$TMP/u7-g2.err"; _rc=$?
+    grep -qF -- '--subject/--prefix NOT applied' "$TMP/u7-g2.err" && ok "U7-g jq-absent + --subject on an absent hook: typed NOT applied" || no "U7-g jq-absent: --subject silently dropped"
+    [ ! -e "$d/.claude" ] && ok "U7-g jq-absent: nothing written" || no "U7-g jq-absent wrote files"
+  fi
+  # the shared list is declared exactly once in the SUT
+  [ "$(grep -c "^_RSDD_HOOK_PLACEHOLDERS=" "$SUT")" = 1 ] && ok "U7 shared placeholder list declared exactly once" || no "U7 placeholder list not declared exactly once"
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -2778,7 +3032,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw11/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw11/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mw11/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
     mw11="$TMP/mw11/toolbelt/init.sh"
-    awk '/if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
+    # (the #1845 staging guard `if [ ! -e "$_wo_ss" ]` is forced true too, so the create path has a staged hook to install)
+    awk '/if \[ ! -e "\$_wo_ss" \]; then/ { print "if true; then"; next } /if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
     if ! grep -q 'MUTANT: always overwrite existing ss hook' "$mw11"; then
       no "teeth MW11: could not build mutant (ss kept-check line not found)"
     else
@@ -3867,6 +4122,145 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && ok "teeth M-1757-DROP: bare spaced entry survives without the drop — K1757-a has teeth" \
       || no "teeth M-1757-DROP: bare entry still removed under the mutant — K1757-a is THEATER"
   else no "teeth M-1757-DROP: could not build mutant"; fi
+  # kit issue #1845 teeth. Every mutant is a sed-built COPY of the SUT (never the live file); a tooth passes only when the
+  # ORIGINAL prints the exact good outcome AND the mutant EXITS 0 printing the exact wrong outcome (a crash is not teeth).
+  if command -v jq >/dev/null 2>&1; then
+    _u7t_hookline() { grep -m1 "$1" "$2/.claude/hooks/research-protocol.sh" 2>/dev/null; }
+    _u7t_warn() {  # <init> <hook keys> <placeholder>
+      local d="$TMP/u7t/w" rc; _u7_wire_target "$d" $2
+      bash "$1" "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      echo "rc=$rc warned=$(grep -cF "still contains the $3 placeholder" "$TMP/u7t.err")"
+    }
+    _u7t_ss() {  # <init> <hook keys>
+      local d="$TMP/u7t/s" rc; _u7_wire_target "$d" $2
+      bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc ss=$(_u7_ss_wired "$d" && echo 1 || echo 0)"
+    }
+    _u7t_fill() {  # <init> <grep anchor> <init args...>
+      local i="$1" a="$2" d="$TMP/u7t/f" rc; shift 2; rm -rf "$d"; mkdir -p "$d"
+      bash "$i" "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
+      echo "rc=$rc line=[$(_u7t_hookline "$a" "$d")]"
+    }
+    _u7t_wfill() {  # <init> <grep anchor> — --wire --subject Acme on an existing corpus whose hook is ABSENT
+      local d="$TMP/u7t/wf" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      bash "$1" "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
+      echo "rc=$rc line=[$(_u7t_hookline "$2" "$d")]"
+    }
+    _u7t_exist() {  # <init>
+      local d="$TMP/u7t/e" rc; _u7_wire_target "$d" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/e.before"
+      bash "$1" "$d" --wire --subject Acme >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      echo "rc=$rc refused=$(grep -cF 'REFUSED: --subject only fills' "$TMP/u7t.err") changed=$(cmp -s "$TMP/u7t/e.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
+    }
+    _u7t_prefix() {  # <init> — re-wire an already-wired target with --prefix: hook untouched, typed note, exit 0
+      local d="$TMP/u7t/p" rc; _u7_wire_target "$d" P X; bash "$1" "$d" --wire >/dev/null 2>&1
+      cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/p.before"
+      bash "$1" "$d" --wire --prefix xx >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc note=$(grep -cF 'note: --prefix not applied' "$TMP/u7t.out") changed=$(cmp -s "$TMP/u7t/p.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
+    }
+    _u7t_mode() {  # <init> — the fill must keep the template's mode (the mode kit's template is 755)
+      local d="$TMP/u7t/m" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --subject Acme >/dev/null 2>&1; rc=$?
+      echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_exec() {  # <init> <subject> — the FILLED hook must execute and emit valid JSON carrying the literal subject
+      local d="$TMP/u7t/x" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --subject "$2" >/dev/null 2>&1; rc=$?
+      echo "rc=$rc json=$(_u7_hook_json_ok "$d/.claude/hooks/research-protocol.sh" "$2" && echo 1 || echo 0)"
+    }
+    _u7t_abort() {  # <init> — wire-only fill failing (stub mv): exit 2, and NOTHING written: no hook, no Stop hook, settings.json intact, nothing left in TMPDIR
+      local d="$TMP/u7t/a" rc; rm -rf "$d"; mkdir -p "$d/.claude" "$d/td"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7t/a.settings"
+      TMPDIR="$d/td" PATH="$TMP/u7-stub:$PATH" bash "$1" "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
+      echo "rc=$rc hook=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0) stop=$([ -e "$d/.claude/hooks/retro-gate-stop.sh" ] && echo 1 || echo 0) settings=$(cmp -s "$TMP/u7t/a.settings" "$d/.claude/settings.json" && echo 0 || echo 1) left=$(find "$d/td" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+    }
+    _u7t_scaf() {  # <init> <flags...> — scaffold path onto a target holding a hand-adapted hook but NO corpus marker
+      local i="$1" d="$TMP/u7t/sc" rc; shift; rm -rf "$d"; mkdir -p "$d/.claude/hooks"; _u7_hook "$d/.claude/hooks/research-protocol.sh"
+      cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/sc.before"
+      bash "$i" "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
+      echo "rc=$rc changed=$(cmp -s "$TMP/u7t/sc.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1) index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
+    }
+    _u7t_nosubj() {  # <init> — scaffold --subject against the kit whose hook template has NO live <SUBJECT>
+      local d="$TMP/u7t/n" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --subject Acme >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc fatal=$(grep -cF 'carries no live <SUBJECT> placeholder' "$TMP/u7t.out")"
+    }
+    _u7t_swwarn() {  # <init> <placeholder> — scaffold+wire without flags: how often is the placeholder named
+      local d="$TMP/u7t/sw" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      echo "rc=$rc warned=$(grep -cF "still contains the $2 placeholder" "$TMP/u7t.err")"
+    }
+    _u7t_nojq() {  # <init> <placeholder> — print-only jq-absent fallback
+      local d="$TMP/u7t/j" rc; _u7_wire_target "$d" P
+      PATH="$_u7_pnojq" bash "$1" "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      echo "rc=$rc warned=$(grep -cF "still contains the $2 placeholder" "$TMP/u7t.err")"
+    }
+    _u7t_good="$SUT"
+    _u7t() {  # <label> <sed-expr> <good> <bad> <runner> [runner args...]
+      local lbl="$1" expr="$2" good="$3" bad="$4" runner="$5" g m; shift 5
+      if ! _k43_build "u7$lbl" -e "$expr"; then no "teeth M-1845-$lbl: could not build mutant"; return 0; fi
+      [ -n "${_u7t_tpl:-}" ] && { rm -f "$TMP/k43/u7$lbl/templates"; cp -r "$_u7t_tpl" "$TMP/k43/u7$lbl/templates"; }
+      g="$("$runner" "$_u7t_good" "$@")"; m="$("$runner" "$TMP/k43/u7$lbl/toolbelt/init.sh" "$@")"
+      if [ "$g" = "$good" ] && [ "$m" = "$bad" ]; then ok "teeth M-1845-$lbl: original [$g] vs mutant [$m]"
+      else no "teeth M-1845-$lbl: want original [$good] / mutant [$bad], got [$g] / [$m]"; fi
+    }
+    _u7t_hd='RESEARCH PROTOCOL'
+    # the shared list: dropping <prefix> blinds BOTH the guard (no WARN) and the fill (flag ignored)
+    _u7t LIST-PFX-WARN "s/^\\(_RSDD_HOOK_PLACEHOLDERS=.*\\) '<prefix>'/\\1/" 'rc=0 warned=1' 'rc=0 warned=0' _u7t_warn P "$_U7_PFX"
+    _u7t LIST-PFX-FILL "s/^\\(_RSDD_HOOK_PLACEHOLDERS=.*\\) '<prefix>'/\\1/" 'rc=0 line=[   - ac-block*.md]' 'rc=0 line=[   - <prefix>-block*.md]' _u7t_fill 'block\*' --prefix ac
+    _u7t LIST-PATH-WARN "s/^\\(_RSDD_HOOK_PLACEHOLDERS=.*\\) '<path to [^']*'/\\1/" 'rc=0 warned=1' 'rc=0 warned=0' _u7t_warn X "$_U7_PATH"
+    _u7t LIST-SUBJ-FILL "s/^_RSDD_HOOK_PLACEHOLDERS=(\"\\\$_RSDD_PH_SUBJECT\" /_RSDD_HOOK_PLACEHOLDERS=(/" 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
+    # the guard reads NON-comment lines only: a comment placeholder must not warn
+    _u7t COMMENT-SKIP "s/< <(grep -vE '[^']*' \"\\\$f\" 2>\\/dev\\/null)/< <(cat \"\$f\" 2>\\/dev\\/null)/" 'rc=0 warned=0' 'rc=0 warned=1' _u7t_warn "" "$_U7_PFX"
+    # SessionStart stays gated on <SUBJECT> ONLY: widening the gate stops registering a prefix-only hook; narrowing it registers an unadapted one
+    _u7t GATE-WIDE '/^_rsdd_has_live_subject_placeholder() {/c\
+_rsdd_has_live_subject_placeholder() { _rsdd_hook_has_placeholder "$1" "$_RSDD_PH_SUBJECT" || _rsdd_hook_has_placeholder "$1" "<prefix>"; }' 'rc=0 ss=1' 'rc=0 ss=0' _u7t_ss P
+    _u7t GATE-DEAD '/^_rsdd_has_live_subject_placeholder() {/c\
+_rsdd_has_live_subject_placeholder() { return 1; }' 'rc=0 ss=0' 'rc=0 ss=1' _u7t_ss S
+    # the non-gating WARN call at each site
+    _u7t WARN-WIREONLY '/^    _rsdd_warn_other_placeholders "\$_wo_ss"/d' 'rc=0 warned=1' 'rc=0 warned=0' _u7t_warn X "$_U7_PATH"
+    _u7t WARN-SCAFFOLD '/^    _rsdd_warn_other_placeholders "\$_ss_cmd"/d' 'rc=0 warned=1' 'rc=0 warned=0' _u7t_swwarn "$_U7_PATH"
+    if ! PATH="$_u7_pnojq" command -v jq >/dev/null 2>&1; then
+      _u7t WARN-NOJQ '/^      _rsdd_warn_other_placeholders "\$_wo_ss"/d' 'rc=0 warned=1' 'rc=0 warned=0' _u7t_nojq "$_U7_PFX"
+    else echo "  SKIP  teeth M-1845-WARN-NOJQ: jq still reachable after dir exclusion"; fi
+    # the fill escaping: an identity escaper turns a literal backslash-n in the subject into a newline (a truncated heading, exit 0)
+    _u7t ESC '/^_rsdd_sed_escape() /c\
+_rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 line=[RESEARCH PROTOCOL — a\nb (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — a]' _u7t_fill "$_u7t_hd" --subject 'a\nb'
+    # the post-fill check: with the sed dead the typed FATAL is the only thing between a failed fill and a silently unfilled hook
+    _u7t SURVIVE 's/^  sed "\${exprs\[@\]}" "\$f" > "\$tmp" ||/  cp "\$f" "\$tmp" ||/;s/if _rsdd_hook_has_placeholder "\$tmp" "\$ph"; then _rsdd_fill_abort/if false; then _rsdd_fill_abort/' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
+    # wire-only creating the hook: the fill call is the only thing that applies the flag there
+    _u7t FILL-WIREONLY '/^      _rsdd_fill_hook "\$_RSDD_STAGE\/hook" /d' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_wfill "$_u7t_hd"
+    # validation: without it a blank subject is rendered into the hook
+    _u7t VALIDATE '/^\[ "\$subject_given" = 1 \] && { _rsdd_check_flag_value/d' 'rc=2 line=[]' 'rc=0 line=[RESEARCH PROTOCOL —     (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject '   '
+    # existing hook: without the refusal the flag is silently dropped (exit 0, nothing said)
+    _u7t REFUSE-EXISTING '/^    _rsdd_refuse_fill_on_existing_hook "/d' 'rc=3 refused=1 changed=0' 'rc=0 refused=0 changed=0' _u7t_exist
+    # fill call sites
+    _u7t FILL-SCAFFOLD '/^_rsdd_fill_hook "\$target\/.claude\/hooks\/research-protocol.sh"/d' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
+    # template without a live <SUBJECT>: the typed refusal is the only thing between --subject and a silent no-op
+    _u7t_tpl="$TMP/u7g/nosubj/templates"; _u7t_good="$TMP/u7g/nosubj/toolbelt/init.sh"
+    _u7t NOSUBJ-TEMPLATE 's/^    if ! _rsdd_hook_has_placeholder "\$f" "\$ph"; then$/    if false; then/' 'rc=1 fatal=1' 'rc=0 fatal=0' _u7t_nosubj
+    _u7t_tpl=""; _u7t_good="$SUT"
+    # --prefix on an existing hook: refusing it again breaks `--wire --prefix <slug>` re-wires; dropping the note hides that it was skipped
+    _u7t PREFIX-REFUSE 's/^  if \[ "\$subject_given" = 1 \]; then$/  if [ "$subject_given" = 1 ] || [ -n "$prefix" ]; then/' 'rc=0 note=1 changed=0' 'rc=3 note=0 changed=0' _u7t_prefix
+    _u7t PREFIX-NOTE 's/echo "note: --prefix not applied/: "note: --prefix not applied/' 'rc=0 note=1 changed=0' 'rc=0 note=0 changed=0' _u7t_prefix
+    # an identity escaper turns a literal backslash-n into a newline: the filled hook no longer emits the literal subject
+    _u7t ESC-EXEC '/^_rsdd_sed_escape() /c\
+_rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 'a\nb'
+    # the temp-file rewrite must carry the mode over (cp -p): without it the hook becomes 600
+    _u7t_tpl="$TMP/u7g/mode/templates"; _u7t_good="$TMP/u7g/mode/toolbelt/init.sh"
+    _u7t MODE 's/^  cp -p "\$f" "\$tmp" ||/  : ||/' 'rc=0 mode=755' 'rc=0 mode=600' _u7t_mode
+    _u7t_tpl=""; _u7t_good="$SUT"
+    # a failed wire-only fill writes NOTHING (fill happens in a staging dir before any file is created)
+    _u7t ABORT-STAGE 's/^      _rsdd_fill_hook "\$_RSDD_STAGE\/hook" || exit 2$/      _rsdd_fill_hook "$_RSDD_STAGE\/hook" || :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=4 hook=1 stop=1 settings=0 left=0' _u7t_abort
+    # ...and the staging dir / temp file never outlive the run (EXIT trap)
+    _u7t STAGE-CLEAN 's/^  \[ -z "\$_RSDD_STAGE" \] || rm -rf -- "\$_RSDD_STAGE"$/  :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=2 hook=0 stop=0 settings=0 left=2' _u7t_abort
+    # the existing-hook rule on the SCAFFOLD path: without the guard a hand-adapted hook (no corpus marker) is silently overwritten
+    _u7t SCAFFOLD-REFUSE '/^  _rsdd_refuse_fill_on_existing_hook "\$target\/.claude\/hooks\/research-protocol.sh"   # scaffold path$/d' 'rc=3 changed=0 index=0' 'rc=0 changed=1 index=1' _u7t_scaf --subject Acme
+    # --prefix on that path: the hook must be kept; without the keep flag the scaffold copies the template over it
+    _u7t SCAFFOLD-KEEP 's/then _rsdd_keep_hook=1; fi/then :; fi/' 'rc=0 changed=0 index=1' 'rc=0 changed=1 index=1' _u7t_scaf --prefix pp
+    # a flag-looking value: without the check `--subject --wire` swallows --wire as the subject (exit 0, hook says "--wire")
+    _u7t_tpl=""; _u7t_good="$SUT"
+    _u7t FLAGVAL '/^  case "\$v" in --\*) echo "usage: \$name value/d' 'rc=2 line=[]' 'rc=0 line=[RESEARCH PROTOCOL — --wire (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject --wire
+    _u7t_tpl=""; _u7t_good="$SUT"
+  fi
   # kit issue #1787 / #1271 teeth. Every mutant that cannot be built is a FAIL (never a SKIP), like the M-1757 teeth.
   _k87_mb() {  # <name> <sed-expr> — mutant in a spaced kit dir with the stub drift hook and the real scanner beside it
     _k43_build "$1" -e "$2" || return 1

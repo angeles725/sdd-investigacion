@@ -19,8 +19,21 @@
 #     left behind, no green report over a broken tree.
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
-# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
-#        [--wire] [--no-wire] [--scaffold] [--document]
+# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject "<phrase>"]
+#        [--force] [--wire] [--no-wire] [--scaffold] [--document]
+# HOOK PLACEHOLDERS (kit issue #1845): hook-sessionstart.sh carries three LIVE (non-comment) placeholders, listed ONCE in
+# _RSDD_HOOK_PLACEHOLDERS and shared by the fill and the guard: <SUBJECT> (filled by --subject "<phrase>", a noun phrase read
+# as "research of <phrase>"), <prefix> (filled by --prefix) and the <path to ...> primary-sources placeholder (no flag can
+# fill it: --wire WARNs with the next step). The fill happens only when THIS run creates the hook (scaffold, or --wire creating
+# an absent one). On EVERY path (scaffold, scaffold+wire, wire-only) --subject against an EXISTING hook is REFUSED (exit 3,
+# typed REFUSED line, nothing written) — never a silent overwrite — unless --force, which (as always) re-scaffolds over the
+# corpus and hook. --prefix (also the corpus block-prefix flag, re-passed on re-wires) leaves an existing hook untouched and
+# prints a typed `note:` (exit 0). A bad value (blank, multi-line, a control character, starting with `--`, or containing a
+# placeholder token) is exit 2 before any write, on re-wires too; so is --subject/--prefix as the last argument with no value.
+# On the wire-only path the SessionStart hook is filled in a staging dir BEFORE anything is created, so a failed fill writes
+# nothing; the fill temp file and the staging dir are removed on EXIT, INT and TERM.
+# --wire still gates SessionStart registration on <SUBJECT> ONLY: the code never treated the others as blocking, and the
+# already-wired fleet carries <prefix>/<path to ...> in adapted hooks; they are named WARNs, not blockers.
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable/a newline in the target path / a dangling symlink at any path the run would write (.claude, .claude/hooks, hooks, scaffold files; settings.json only with --wire) (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
 #           valid .hooks shape or is a dangling symlink (wire-only), OR the settings.json merge/atomic install itself failed (refused/aborted,
@@ -125,11 +138,12 @@ if [ ! -f "$_ri_cm_lib" ]; then echo "research-sdd-init: cannot find helper $_ri
 declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helper $_ri_cm_lib failed to define corpus_has_marker" >&2; exit 1; }
 unset _ri_cm_lib
 
-target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0; document=0
+target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
-    --prefix)   prefix="${2:-}"; shift 2;;
+    --prefix)   [ $# -ge 2 ] || { echo "usage: --prefix needs a value" >&2; exit 2; }; prefix="$2"; shift 2;;
+    --subject)  subject="${2:-}"; subject_given=1; shift $(( $# >= 2 ? 2 : 1 ));;   # kit issue #1845: fills <SUBJECT> when the hook is created
     --force)    force=1; shift;;
     --wire)     wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
@@ -139,7 +153,7 @@ while [ $# -gt 0 ]; do
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject \"<phrase>\"] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; exit 2; }
 # kit issue #1047: --scaffold has no effect on its own — it only opts a marker-less target INTO
 # scaffolding when paired with --wire. Reject rather than silently ignore, so a typo (or a
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
@@ -214,14 +228,120 @@ _rsdd_install_settings() {
   rm -f "$tmp" "$tmp2"; return 1
 }
 
-# kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The
+# kit issue #1845: the ONE list of live placeholders of hook-sessionstart.sh. The fill (_rsdd_fill_hook) and every guard
+# (_rsdd_hook_has_placeholder / _rsdd_warn_other_placeholders) iterate THIS list, so they cannot diverge when the template
+# grows a placeholder. Never match on template line numbers: three template generations exist in the field.
+_RSDD_PH_SUBJECT='<SUBJECT>'
+_RSDD_HOOK_PLACEHOLDERS=("$_RSDD_PH_SUBJECT" '<prefix>' '<path to binaries/decompiled output/source code of the system under study>')
+
+# kit issue #1040 finding 3 (round 2 of #1038): detect a placeholder only in NON-COMMENT lines. The
 # shipped template's own header comments legitimately contain the literal token, and a real
 # adaptation that leaves those comments untouched (api-paneles repro) must not be misread as
 # unadapted — that silently blocks SessionStart forever.
-_rsdd_has_live_subject_placeholder() {
-  local f="$1"
+_rsdd_hook_has_placeholder() {
+  local f="$1" ph="$2"
   [ -f "$f" ] || return 1
-  grep -qF '<SUBJECT>' < <(grep -vE '^[[:space:]]*#' "$f" 2>/dev/null)
+  grep -qF -- "$ph" < <(grep -vE '^[[:space:]]*#' "$f" 2>/dev/null)
+}
+# SessionStart registration is gated on <SUBJECT> ONLY (see the header): this is the gate every call site uses.
+_rsdd_has_live_subject_placeholder() { _rsdd_hook_has_placeholder "$1" "$_RSDD_PH_SUBJECT"; }
+
+# kit issue #1845: WARN (stderr) naming every live placeholder OTHER than the gating <SUBJECT> one (the call sites keep
+# their own, context-specific <SUBJECT> WARN) with the exact next step. None of these blocks SessionStart wiring.
+_rsdd_warn_other_placeholders() {
+  local f="$1" ph step
+  for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
+    [ "$ph" = "$_RSDD_PH_SUBJECT" ] && continue
+    _rsdd_hook_has_placeholder "$f" "$ph" || continue
+    case "$ph" in
+      '<prefix>') step="replace it with the block-file prefix (the --prefix slug) by hand";;
+      *)          step="no flag can fill it: edit the hook and list the real primary-source paths (binaries / decompiled output / source of the system under study) under item 3";;
+    esac
+    echo "WARN: $f still contains the $ph placeholder — $step. SessionStart wiring is NOT blocked by it." >&2
+  done
+}
+
+# kit issue #1845: the value a flag supplies for one placeholder; rc 1 = no flag fills it (or it was not given).
+_rsdd_placeholder_value() {
+  case "$1" in
+    "$_RSDD_PH_SUBJECT") [ "$subject_given" = 1 ] && printf '%s' "$subject";;
+    '<prefix>')          [ -n "$prefix" ] && printf '%s' "$prefix";;
+    *)                   return 1;;
+  esac
+}
+# Escape the regex metacharacters of a LITERAL placeholder for the pattern side of `sed "s|...|...|"`.
+_rsdd_sed_pattern_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$|]/\\&/g'; }
+
+# kit issue #1845: the fill's temp file and the wire-only staging dir, removed by the trap below on EXIT, INT and TERM.
+_RSDD_FILL_TMP=""; _RSDD_STAGE=""
+_rsdd_cleanup_tmp() {
+  [ -z "$_RSDD_FILL_TMP" ] || rm -f -- "$_RSDD_FILL_TMP"
+  [ -z "$_RSDD_STAGE" ] || rm -rf -- "$_RSDD_STAGE"
+}
+trap '_rsdd_cleanup_tmp' EXIT
+trap '_rsdd_cleanup_tmp; exit 130' INT
+trap '_rsdd_cleanup_tmp; exit 143' TERM
+
+# kit issue #1845: every failed fill removes its temp file and returns 1 with a typed FATAL; the hook stays exactly as copied.
+_rsdd_fill_abort() {  # <tmp> <message>
+  rm -f "$1"
+  _RSDD_FILL_TMP=""
+  echo "FATAL: $2" >&2
+  return 1
+}
+
+# kit issue #1845: fill the flag-supplied placeholders of a freshly copied hook, NON-COMMENT lines only, in ONE rewrite: all
+# substitutions go through a single temp file in the hook's own directory (never `sed -i`, whose flag differs on BSD/macOS)
+# and are installed with one mv, so a failure at any step leaves the hook as copied (never half-filled) and no temp file.
+# A typed FATAL (rc 1, never a silent no-op) when a placeholder a flag was given for is absent from the template or survives.
+_rsdd_fill_hook() {
+  local f="$1" ph val tmp
+  local -a exprs=()
+  for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
+    val="$(_rsdd_placeholder_value "$ph")" || continue
+    if ! _rsdd_hook_has_placeholder "$f" "$ph"; then
+      echo "FATAL: the kit template $TPL/hook-sessionstart.sh carries no live $ph placeholder — nothing to fill from the flag (hook as copied: $f)" >&2; return 1
+    fi
+    exprs+=(-e "/^[[:space:]]*#/! s|$(_rsdd_sed_pattern_escape "$ph")|$(_rsdd_sed_escape "$val")|g")
+  done
+  [ "${#exprs[@]}" -gt 0 ] || return 0
+  tmp="$(mktemp "$(dirname "$f")/.hook.XXXXXX")" || { echo "FATAL: could not create a temp file beside $f (hook left as copied)" >&2; return 1; }
+  _RSDD_FILL_TMP="$tmp"   # the INT/TERM/EXIT trap removes it if the run is interrupted before the mv
+  cp -p "$f" "$tmp" || { _rsdd_fill_abort "$tmp" "could not copy $f to its temp file (hook left as copied)"; return 1; }   # carries the mode over
+  sed "${exprs[@]}" "$f" > "$tmp" || { _rsdd_fill_abort "$tmp" "sed failed filling $f (hook left as copied)"; return 1; }
+  for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
+    _rsdd_placeholder_value "$ph" >/dev/null || continue
+    if _rsdd_hook_has_placeholder "$tmp" "$ph"; then _rsdd_fill_abort "$tmp" "$ph survived the fill of $f (hook left as copied)"; return 1; fi
+  done
+  mv -f "$tmp" "$f" || { _rsdd_fill_abort "$tmp" "could not install the filled hook over $f (hook left as copied)"; return 1; }
+  _RSDD_FILL_TMP=""
+}
+
+# kit issue #1845: validate a --subject/--prefix value BEFORE any write: non-blank, one line, no control character, no leading
+# `--` (a flag swallowed as the value, e.g. `--subject --wire`), and no placeholder token (it would re-introduce a live
+# placeholder, or be re-filled by a later one).
+_rsdd_check_flag_value() {
+  local name="$1" v="$2" ph
+  if [ -z "${v//[[:space:]]/}" ]; then echo "usage: $name needs a non-blank value" >&2; return 1; fi
+  case "$v" in --*) echo "usage: $name value '$v' starts with -- and looks like another flag (a missing value?)" >&2; return 1;; esac
+  if [[ "$v" == *[[:cntrl:]]* ]]; then echo "usage: $name must be a single line without control characters (a newline or tab cannot be rendered into the hook)" >&2; return 1; fi
+  for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
+    case "$v" in *"$ph"*) echo "usage: $name must not contain the hook placeholder $ph" >&2; return 1;; esac
+  done
+}
+[ "$subject_given" = 1 ] && { _rsdd_check_flag_value --subject "$subject" || exit 2; }
+[ -n "$prefix" ] && { _rsdd_check_flag_value --prefix "$prefix" || exit 2; }
+# kit issue #1845: the flags fill only a hook THIS run creates. An existing hook is never overwritten: --subject REFUSES (exit 3,
+# before any write); --prefix is also the corpus block-prefix flag that operators re-pass on re-wires, so it is a typed note.
+_rsdd_refuse_fill_on_existing_hook() {
+  local f="$1"
+  [ -e "$f" ] || return 0
+  if [ "$subject_given" = 1 ]; then
+    echo "REFUSED: --subject only fills a hook this run creates, but $f already exists (nothing written). Edit it by hand, or pass --force to re-scaffold the WHOLE corpus (destructive: it clobbers hand-adapted hooks, INDEX.md and backlog rows, kit issue #1038)." >&2
+    exit 3
+  fi
+  [ -z "$prefix" ] || echo "note: --prefix not applied to existing $f (fill <prefix> by hand)"
+  return 0
 }
 
 # kit issue #1040 finding 1 (round 2 of #1038), extended round 3: a hook may already be
@@ -731,6 +851,8 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       echo "usage: --document has no effect here — --wire on an existing corpus (without --force) only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md (kit issue #1114). There is no in-place conversion: drop --document, or scaffold a NEW target with --document instead. --force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX.md, RESEARCH-STATE.md, SOURCES.md, hooks) and clobbers hand-adapted hooks, INDEX.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard." >&2
       exit 2
     fi
+    # kit issue #1845: refuse --subject/--prefix against an existing hook BEFORE any write.
+    _rsdd_refuse_fill_on_existing_hook "$target/.claude/hooks/research-protocol.sh"
     # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
@@ -752,10 +874,12 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       if [ ! -e "$_wo_ss" ]; then
         _wo_pre_skip_ss="true"
         echo "WARN: $_wo_ss does not exist yet — the snippet below omits SessionStart until you create and adapt it (PROMPT-LOOP §c follow-up)." >&2
+        { [ "$subject_given" = 1 ] || [ -n "$prefix" ]; } && echo "WARN: --subject/--prefix NOT applied: no hook was created (jq is absent, so nothing is written) — re-run with jq installed." >&2
       elif _rsdd_has_live_subject_placeholder "$_wo_ss"; then
         _wo_pre_skip_ss="true"
         echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — the snippet below omits SessionStart until you adapt it (PROMPT-LOOP §c follow-up)." >&2
       fi
+      _rsdd_warn_other_placeholders "$_wo_ss"
       _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_pre_skip_ss" "$target" "$_wo_pk"
       echo "== done =="
       exit 0
@@ -786,6 +910,13 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
 
     # jq is present and settings.json (if any) is valid JSON: repair absent hook files
     # (create-only — never overwrite an existing one).
+    # kit issue #1845: fill the SessionStart hook in a staging dir OUTSIDE the target BEFORE anything is created here, so a
+    # failed fill (typed FATAL, exit 2) writes nothing: no dirs, no Stop hook, no settings.json change.
+    if [ ! -e "$_wo_ss" ]; then
+      _RSDD_STAGE="$(mktemp -d)" || { echo "FATAL: could not create a staging directory for the hook (nothing written)" >&2; exit 2; }
+      cp "$TPL/hook-sessionstart.sh" "$_RSDD_STAGE/hook" || { echo "FATAL: could not stage $TPL/hook-sessionstart.sh (nothing written)" >&2; exit 2; }
+      _rsdd_fill_hook "$_RSDD_STAGE/hook" || exit 2
+    fi
     mkdir -p "$target/.claude/hooks"
     if [ -e "$_wo_stop" ]; then
       echo "kept: $_wo_stop"
@@ -798,7 +929,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     if [ -e "$_wo_ss" ]; then
       echo "kept: $_wo_ss"
     else
-      cp "$TPL/hook-sessionstart.sh" "$_wo_ss"
+      cp "$_RSDD_STAGE/hook" "$_wo_ss"   # the already-filled staged copy (see above)
       echo "created: $_wo_ss"
     fi
     # kit issue #1496: pkill-guard PreToolUse hook — create-only (a hand-adapted copy is never
@@ -822,6 +953,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       _wo_skip_ss="true"
       echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
     fi
+    _rsdd_warn_other_placeholders "$_wo_ss"   # kit issue #1845: every other live placeholder, named; none blocks SessionStart
 
     # kit issue #1040 finding 1: recognise $CLAUDE_PROJECT_DIR-relative forms as the same hook.
     # -s (non-empty), not -f: a ZERO-BYTE existing file is treated as {} (see the pre-validation
@@ -925,6 +1057,13 @@ if [ "$force" = 0 ]; then
     fi
   done
 fi
+# kit issue #1845: the same existing-hook rule as the wire-only path (a hand-adapted hook can exist without a corpus marker):
+# --subject REFUSES (exit 3, nothing written), --prefix prints the note and the hook is left untouched. --force re-scaffolds it.
+_rsdd_keep_hook=0
+if [ "$force" = 0 ]; then
+  _rsdd_refuse_fill_on_existing_hook "$target/.claude/hooks/research-protocol.sh"   # scaffold path
+  if [ -e "$target/.claude/hooks/research-protocol.sh" ] && [ -n "$prefix" ]; then _rsdd_keep_hook=1; fi
+fi
 
 # --- pre-flight writability (fail BEFORE any mutation) -----------------------
 # kit issue #1043 (2): refuse a dangling symlink at any path the scaffold writes BEFORE the first
@@ -960,7 +1099,10 @@ _state_tpl="$TPL/RESEARCH-STATE.template.md"
 [ "$document" = 1 ] && _state_tpl="$TPL/RESEARCH-STATE-document.template.md"
 cpf "$_state_tpl"                     "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
+if [ "$_rsdd_keep_hook" = 0 ]; then
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
+_rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: fill --subject/--prefix; a failed fill is a typed FATAL and the ERR trap rolls the scaffold back
+fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
 _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
@@ -1033,6 +1175,7 @@ else
 fi
 echo "  4. ADAPT + REGISTER the hook (§c follow-up): replace <SUBJECT> + real source paths in"
 echo "     $target/.claude/hooks/research-protocol.sh (matcher startup|resume|clear)."
+echo "     (--subject \"<phrase>\" / --prefix <slug> fill <SUBJECT> / <prefix> when the hook is created; the <path to ...> primary-sources placeholder is always edited by hand.)"
 echo "     Then wire it: re-run with --wire, or paste the wiring snippet below into $target/.claude/settings.json."
 [ "$rel" != "(target root, flat)" ] && echo "     For this NESTED corpus, PREFIX the hook's block/INDEX/CATALOG paths with corpus/."
 if [ -n "$prefix" ]; then
@@ -1076,6 +1219,7 @@ if [ "$wire" = 1 ]; then
       _wire_skip_ss="true"
       echo "WARN: $_ss_cmd still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
     fi
+    _rsdd_warn_other_placeholders "$_ss_cmd"   # kit issue #1845: every other live placeholder, named; none blocks SessionStart
 
     # Read existing settings or start from empty object; never corrupt if file is invalid JSON
     _wire_base='{}'
