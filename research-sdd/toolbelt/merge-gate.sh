@@ -55,29 +55,28 @@
 # DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
 # still need every PR Validation check green.
 # CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
-# each issue the PR closes (`Closes|Fixes|Resolves #M` in the PR body, at most 20) in the grammar
-# reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a `- commit: <merge sha>` line and one
-# `- test: <path>` line per test file the PR changed (research-sdd/**/tests/*.test.sh, from the paginated PR
-# files list, removed files excluded). reconcile-issues.sh trusts comments only from OWNER/MEMBER/COLLABORATOR
-# authors, so the comment must be posted from a maintainer's gh session. A PR that changes no such test file
-# posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only reads as borderline there.
-# The step can never fail the run: any gh failure after the merge prints `closure-evidence: degraded: ...`
-# and the exit stays 0. `--no-closure-evidence` opts out (`closure-evidence: skipped`). Without --merge no gh
-# call is made for this step (a default or --pr run is a pure check).
-# Closing keywords mirror .github/scripts/parse-linked-issues.cjs (kit CI): `closes|fixes|resolves` only, matched
-# case-insensitively at a word boundary (not after [A-Za-z0-9/]), optional colon, same-repo `#N` only, the number
-# ending at whitespace or Markdown punctuation; references inside fenced code, HTML comments and inline code are
-# ignored. An inline-code span is a backtick run of ANY length that closes at the next run of exactly that length
-# (across lines; an unclosed run hides nothing), as in the JS. Whitespace between keyword and `#N` may span a newline.
-# A differential test runs the same bodies through the JS (when node is present) and asserts identical issue lists.
-# Known gaps vs the JS: ASCII whitespace only; numbers with more than 9 digits are reported (`degraded`) and skipped;
-# the body is read up to 64 KiB (the GitHub body limit).
-# Before posting, the PR read must say `merged: true` and `state: closed` (else `degraded`, nothing posted).
-# At most 20 issues and at most 10 listed test files (CAP); files beyond the cap print
+# each issue the PR closes, in the grammar reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a
+# `- commit: <merge sha>` line and one `- test: <path>` line per test file the PR changed
+# (research-sdd/**/tests/*.test.sh, from the paginated PR files list, removed files excluded).
+# reconcile-issues.sh trusts comments only from OWNER/MEMBER/COLLABORATOR authors, so the comment must be posted
+# from a maintainer's gh session.
+# THE CLOSING-ISSUE LIST COMES FROM GITHUB, never from parsing the PR body: ONE bounded `gh api graphql` read
+# (lib/gh-visibility.sh gh_bounded_run, bound RSDD-style via MERGE_GATE_GH_TIMEOUT, default 30 s) of the merged PR's
+# `closingIssuesReferences(first:50)`, the same source GitHub itself uses to auto-close. The same answer must say
+# `merged == true`, `state == "MERGED"` and carry a 40-hex `mergeCommit.oid` (that oid is the sha in the comment);
+# otherwise `closure-evidence: degraded: ...` and nothing is posted. Only nodes whose repository.nameWithOwner is
+# THIS repo are posted on; a cross-repo node gets a `closure-evidence: note: ...` and is never commented. A
+# `totalCount` above 50 prints a typed degraded note naming the overflow and still posts the 50 read.
+# A PR that changes no test file posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only
+# reads as borderline in reconcile-issues.sh. At most 10 test files are listed (CAP); files beyond it print
 # `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
 # `degraded: not posted for issues: #a #b` line names them for a manual backfill.
+# The step can never fail the run: any gh failure after the merge prints `closure-evidence: degraded: ...` and the
+# exit stays 0. `--no-closure-evidence` opts out (`closure-evidence: skipped`). Without --merge no gh call is made
+# for this step (a default or --pr run is a pure check).
 # KNOWN GAP: legacy commit statuses (/status) are not read, only check runs.
 set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 say() { printf 'merge-gate: %s\n' "$*"; }
 usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>] [--no-closure-evidence]" >&2; exit 2; }
@@ -237,101 +236,42 @@ if [ "$merge_rc" -ne 0 ]; then
 fi
 say "merged: PR #$pr (head=$head cwd=$cwd)"
 
-# closing_issues: PR body on stdin -> closing issue numbers, one per line (see header; mirrors
-# parse-linked-issues.cjs). A reference with more than 9 digits is not printed as a number: it prints `BIG <n>`
-# so the caller can say so (no float precision loss, no mawk `1e+20`).
-closing_issues() {
-  head -c 65536 | awk '
-    function stripcomments(rest,   vis, e, b) {
-      vis = ""
-      for (;;) {
-        if (inc) {
-          e = index(rest, "-->")
-          if (e == 0) break
-          inc = 0; rest = substr(rest, e + 3)
-        } else {
-          b = index(rest, "<!--")
-          if (b == 0) { vis = vis rest; break }
-          vis = vis substr(rest, 1, b - 1); inc = 1; rest = substr(rest, b + 4)
-        }
-      }
-      return vis
-    }
-    # Port of the JS span rule  /(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g  replaced by " ": a maximal run of L backticks opens a
-    # span that closes at the next run of EXACTLY L backticks (not preceded or followed by a backtick), across lines.
-    # No closer: the run hides nothing and the scan moves one char on (a shorter run inside it may still match).
-    function spans(t,   out, i, n, L, j, k, ok, found) {
-      n = length(t); out = ""; i = 1
-      while (i <= n) {
-        if (substr(t, i, 1) != "`") { out = out substr(t, i, 1); i++; continue }
-        L = 0
-        while (substr(t, i + L, 1) == "`") L++
-        found = 0
-        for (j = i + L; j + L - 1 <= n; j++) {
-          if (substr(t, j - 1, 1) == "`") continue
-          ok = 1
-          for (k = 0; k < L; k++) if (substr(t, j + k, 1) != "`") { ok = 0; break }
-          if (ok && substr(t, j + L, 1) != "`") { found = 1; break }
-        }
-        if (found) { out = out " "; i = j + L } else { out = out "`"; i++ }
-      }
-      return out
-    }
-    function scan(text,   low, pos, rest, st, ln, prev, nxt, m, num, after, ok, enders) {
-      low = tolower(text); pos = 1
-      enders = " \t\n.,;:!?)}]\"" sprintf("%c", 39) "`*~"
-      while (pos <= length(low)) {
-        rest = substr(low, pos)
-        if (!match(rest, /(closes|fixes|resolves):?[ \t\n]+#[0-9]+/)) break
-        st = RSTART; ln = RLENGTH; m = substr(rest, st, ln)
-        prev = (pos + st - 2 >= 1) ? substr(low, pos + st - 2, 1) : ""
-        after = substr(low, pos + st - 1 + ln, 1); nxt = substr(low, pos + st + ln, 1)
-        ok = (prev == "" || prev !~ /[a-z0-9\/]/)
-        if (ok && !(after == "" || index(enders, after) > 0 || (after == "_" && (nxt == "" || nxt !~ /[a-z0-9_]/)))) ok = 0
-        if (ok) {
-          num = m; sub(/^[^#]*#/, "", num); sub(/^0+/, "", num)
-          if (length(num) > 9) print "BIG " num
-          else if (num != "") print num
-        }
-        pos += st - 1 + ln
-      }
-    }
-    BEGIN { fence = ""; inc = 0; buf = ""; nl = 0 }
-    {
-      line = $0; sub(/\r$/, "", line)
-      if (fence != "") {
-        t = line; sub(/^ ? ? ?/, "", t); sub(/[ \t]+$/, "", t)
-        if ((t ~ /^`+$/ || t ~ /^~+$/) && substr(t, 1, 1) == substr(fence, 1, 1) && length(t) >= length(fence)) fence = ""
-        next
-      }
-      if (!inc) {
-        t = line; sub(/^ ? ? ?/, "", t)
-        if (match(t, /^`+/) && RLENGTH >= 3) { run = substr(t, 1, RLENGTH); if (substr(t, RLENGTH + 1) !~ /`/) { fence = run; next } }
-        else if (match(t, /^~+/) && RLENGTH >= 3) { fence = substr(t, 1, RLENGTH); next }
-      }
-      vis = stripcomments(line)
-      if (!inc || vis != "" || line == "") { buf = buf (nl ? "\n" : "") vis; nl = 1 }
-    }
-    END { scan(spans(buf)) }'
-}
-
 # Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
 closure_evidence() {
-  local ev="closure-evidence" pj msha body issues files test_files n_all n_tests tline issue text rc failed=""
+  local ev="closure-evidence" lib="${MERGE_GATE_LIB:-$HERE/lib/gh-visibility.sh}" gq gj grc verdict msha repo total issues cross
+  local files test_files n_all n_tests tline issue text rc failed=""
   if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
-  pj="$(ghr api "repos/{owner}/{repo}/pulls/$pr" 2>/dev/null)" || { say "$ev: degraded: cannot read merged PR #$pr (gh api failed)"; return 0; }
-  # The PR read must say it is merged: only then is merge_commit_sha the merge RESULT (before that it is a test-merge preview).
-  if [ "$(printf '%s' "$pj" | jq -r 'if .merged == true and .state == "closed" then "yes" else "no" end' 2>/dev/null)" != "yes" ]; then
-    say "$ev: degraded: PR #$pr is not reported merged (merged!=true or state!=closed); nothing posted"; return 0
-  fi
-  msha="$(printf '%s' "$pj" | jq -r '.merge_commit_sha // empty' 2>/dev/null)"
-  if ! [[ "$msha" =~ ^[0-9a-fA-F]{40}$ ]]; then say "$ev: degraded: PR #$pr has no usable 40-hex merge commit sha"; return 0; fi
-  body="$(printf '%s' "$pj" | jq -r '.body // empty' 2>/dev/null)" || { say "$ev: degraded: PR #$pr body is unparseable"; return 0; }
-  raw_issues="$(printf '%s\n' "$body" | closing_issues)"
-  big="$(printf '%s\n' "$raw_issues" | grep -c '^BIG ')"
-  if [ "$big" -gt 0 ]; then say "$ev: degraded: ignored $big closing reference(s) with more than 9 digits"; fi
-  issues="$(printf '%s\n' "$raw_issues" | grep -E '^[0-9]+$' | sort -un | head -n 20)"
-  if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue (no Closes/Fixes/Resolves #N in its body)"; return 0; fi
+  # shellcheck source=lib/gh-visibility.sh
+  . "$lib" 2>/dev/null || { say "$ev: degraded: lib/gh-visibility.sh not found (needed for the bounded GraphQL read); nothing posted"; return 0; }
+  gq='query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged state mergeCommit{oid} closingIssuesReferences(first:50){totalCount nodes{number repository{nameWithOwner}}}}}}'
+  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner='{owner}' -F name='{repo}' -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
+  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted"; return 0; fi
+  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; fi
+  verdict="$(printf '%s' "$gj" | jq -r '
+    .data.repository as $r | $r.pullRequest as $p
+    | if ($r.nameWithOwner | type) != "string" or ($p | type) != "object" or ($p.closingIssuesReferences.nodes | type) != "array" or ($p.closingIssuesReferences.totalCount | type) != "number" then "shape"
+      elif $p.merged != true or $p.state != "MERGED" then "notmerged"
+      elif ((($p.mergeCommit.oid // "") | tostring | test("^[0-9a-fA-F]{40}$")) | not) then "nooid"
+      else "ok" end' 2>/dev/null)"
+  case "$verdict" in
+    ok) ;;
+    notmerged) say "$ev: degraded: PR #$pr is not reported merged (merged!=true or state!=MERGED); nothing posted"; return 0 ;;
+    nooid) say "$ev: degraded: PR #$pr has no usable 40-hex merge commit oid; nothing posted"; return 0 ;;
+    *) say "$ev: degraded: the GraphQL answer for PR #$pr is unparseable or off-schema; nothing posted"; return 0 ;;
+  esac
+  msha="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.mergeCommit.oid')"
+  repo="$(printf '%s' "$gj" | jq -r '.data.repository.nameWithOwner')"
+  total="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.closingIssuesReferences.totalCount')"
+  # Same-repo nodes only (GitHub names are case-insensitive); integer numbers >= 1.
+  issues="$(printf '%s' "$gj" | jq -r --arg r "$repo" '.data.repository.pullRequest.closingIssuesReferences.nodes[]
+    | select((.repository.nameWithOwner | tostring | ascii_downcase) == ($r | ascii_downcase) and (.number | type) == "number" and .number >= 1 and (.number | floor) == .number) | .number' 2>/dev/null | sort -un)"
+  cross="$(printf '%s' "$gj" | jq -r --arg r "$repo" '.data.repository.pullRequest.closingIssuesReferences.nodes[]
+    | select((.repository.nameWithOwner | tostring | ascii_downcase) != ($r | ascii_downcase)) | "\(.repository.nameWithOwner)#\(.number)"' 2>/dev/null)"
+  while IFS= read -r issue; do
+    [ -z "$issue" ] || say "$ev: note: PR #$pr also closes $issue in another repository; no evidence posted there"
+  done <<<"$cross"
+  if [ "$total" -gt 50 ]; then say "$ev: degraded: PR #$pr closes $total issues but only the first 50 were read; backfill the other $((total - 50)) by hand"; fi
+  if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue in $repo (closingIssuesReferences has none)"; return 0; fi
   files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
   # --paginate prints one JSON array per page: slurp and require every page to be an array.
   test_files="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \

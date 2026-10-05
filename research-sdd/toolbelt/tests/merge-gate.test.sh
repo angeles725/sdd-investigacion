@@ -76,6 +76,14 @@ case "$1 $2" in
     if [ -n "${STUB_CHECKS_JSON:-}" ]; then cat "$STUB_CHECKS_JSON"; exit 0; fi
     echo '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"},{"name":"toolbelt-tests","status":"completed","conclusion":"success"},{"name":"pr-validation","status":"completed","conclusion":"success"}]}'
     exit 0 ;;
+  "api graphql")
+    # closure evidence (kit issue #1812): the closing-issue read. The stub insists on the placeholders and the query text.
+    case " $* " in *"-F owner={owner} -F name={repo} -F pr="*closingIssuesReferences*) ;; *) echo "stub gh: unexpected graphql call: $*" >&2; exit 1 ;; esac
+    echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.gqlcwd"
+    [ -n "${STUB_GQL_SLEEP:-}" ] && sleep "$STUB_GQL_SLEEP"
+    [ -n "${STUB_GQL_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    [ -n "${STUB_GQL_JSON:-}" ] && cat "$STUB_GQL_JSON"
+    exit 0 ;;
   "api repos/{owner}/{repo}/pulls/"*"/files"*)
     # closure evidence (kit issue #1812): the PR files list, raw JSON pages (no --jq).
     [ -n "${STUB_FILES_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }
@@ -85,11 +93,6 @@ case "$1 $2" in
     exit 0 ;;
   "api repos/{owner}/{repo}/pulls/"*|api\ repos/*)
     [ -n "${STUB_API_FAIL:-}" ] && exit 1
-    case " $* " in *" --jq "*) ;; *)
-      # closure evidence: the merged PR read WITHOUT --jq returns the full object (merge sha + body)
-      [ -n "${STUB_PRFULL_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }
-      jq -cn --arg s "${STUB_MERGE_SHA:-}" --arg b "${STUB_PR_BODY:-}" --argjson m "${STUB_PR_MERGED:-true}" --arg st "${STUB_PR_STATE:-closed}" '{merge_commit_sha: (if $s == "" then null else $s end), body: $b, merged: $m, state: $st}'; exit 0 ;;
-    esac
     printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
   "issue comment")
     # record the issue number and the exact body (never the network); STUB_COMMENT_RC simulates a failing post
@@ -141,6 +144,7 @@ expect() { # expect <label> <rc> <regex-on-stdout>
   else no "$1 (rc=$RC want $2; out: $OUT)"; fi
 }
 ARGS=(--cwd "$REPO" --base-ref base)
+export MERGE_GATE_LIB="$HERE/../lib/gh-visibility.sh"   # mutant SUTs live in a temp dir and cannot find lib/ next to themselves
 
 # --- CI-gate helpers (kit issue #1426) ---------------------------------------------------------
 # mkchecks <file> <name:status:conclusion>...   (conclusion may be empty for an unfinished run)
@@ -455,99 +459,37 @@ mkdir -p "$ROOT/ce"
 mkfiles "$ROOT/ce/tests.json" "modified:research-sdd/toolbelt/foo.sh" "added:$CE_TEST_A" "added:$CE_TEST_B" "removed:research-sdd/toolbelt/tests/gone.test.sh"
 mkfiles "$ROOT/ce/notests.json" "modified:research-sdd/toolbelt/foo.sh" "modified:docs/x.md" "added:research-sdd/toolbelt/tests/fixtures/f.test.sh.txt"
 mkchecks "$ROOT/ck/ce.json" pr-validation:completed:success
-# runce <sut> <files-json> <pr-body> [extra sut args]  (a --merge 7 run; comments recorded in $ROOT/ce/comments)
+# mkgql <file> <merged:true|false> <state> <oid|null> <totalCount> [owner/repo#N]...   (this repo is o/r)
+mkgql() {
+  local f="$1" m="$2" st="$3" oid="$4" total="$5" a; shift 5
+  { for a in "$@"; do printf '%s\n' "$a"; done; } | jq -Rsc --argjson m "$m" --arg st "$st" --arg oid "$oid" --argjson t "$total" '
+    {data: {repository: {nameWithOwner: "o/r", pullRequest: {merged: $m, state: $st,
+      mergeCommit: (if $oid == "null" then null else {oid: $oid} end),
+      closingIssuesReferences: {totalCount: $t, nodes: (split("\n") | map(select(length > 0) | split("#") | {number: (.[1] | tonumber), repository: {nameWithOwner: .[0]}}))}}}}}' > "$f"
+}
+mkgql "$ROOT/ce/g_ok.json" true MERGED "$MSHA" 2 o/r#41 o/r#42
+mkgql "$ROOT/ce/g_one.json" true MERGED "$MSHA" 1 o/r#41
+mkgql "$ROOT/ce/g_none.json" true MERGED "$MSHA" 0
+mkgql "$ROOT/ce/g_cross.json" true MERGED "$MSHA" 3 o/r#41 other/x#9 O/R#43
+mkgql "$ROOT/ce/g_big.json" true MERGED "$MSHA" 51 o/r#41
+mkgql "$ROOT/ce/g_unmerged.json" false MERGED "$MSHA" 1 o/r#41
+mkgql "$ROOT/ce/g_open.json" true OPEN "$MSHA" 1 o/r#41
+mkgql "$ROOT/ce/g_nooid.json" true MERGED null 1 o/r#41
+mkgql "$ROOT/ce/g_shortoid.json" true MERGED abc1234 1 o/r#41
+echo '{not json' > "$ROOT/ce/g_bad.json"
+echo '{"data":{"repository":null}}' > "$ROOT/ce/g_shape.json"
+# runce <sut> <files-json> <graphql-json> [extra sut args]  (a --merge 7 run; comments recorded in $ROOT/ce/comments)
 CE_ENV=(CE_NOOP=1)   # extra VAR=value pairs for the stubs
 runce() {
-  local sut="$1" fj="$2" body="$3"; shift 3
-  : > "$ROOT/ce/comments"
+  local sut="$1" fj="$2" gj="$3"; shift 3
+  : > "$ROOT/ce/comments"; rm -f "$ROOT/ce/comments.cwd" "$ROOT/ce/comments.gqlcwd"
   OUT="$(env PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=0 \
-      STUB_MERGE_SHA="$MSHA" STUB_PR_BODY="$body" STUB_FILES_JSON="$fj" STUB_COMMENTS="$ROOT/ce/comments" STUB_LOG="$ROOT/log" \
+      STUB_GQL_JSON="$gj" STUB_FILES_JSON="$fj" STUB_COMMENTS="$ROOT/ce/comments" STUB_LOG="$ROOT/log" \
       MERGE_GATE_REQUIRED_CHECKS="" STUB_CHECKS_JSON="$ROOT/ck/ce.json" "${CE_ENV[@]}" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
 }
 n_comments() { grep -c '^ISSUE ' "$ROOT/ce/comments"; }
 # ce_issues: the issue numbers that received a comment, space-joined, in order
 ce_issues() { grep '^ISSUE ' "$ROOT/ce/comments" | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//'; }
-# ce_body_case <label> <pr-body> <expected issue list ('' = none)>
-CE_CORPUS=()   # every body run through ce_body_case; the differential test feeds them to the JS parser too
-ce_body_case() {
-  CE_CORPUS+=("$2")
-  CE_ENV=(CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "$2"
-  if [ "$(ce_issues)" = "$3" ]; then ok "closing keywords: $1"; else no "closing keywords: $1 (got [$(ce_issues)] want [$3])"; fi
-}
-# ce_differential <sut>: the SUT's closing_issues() against .github/scripts/parse-linked-issues.cjs over CE_CORPUS
-ce_differential() {
-  local js="$HERE/../../../.github/scripts/parse-linked-issues.cjs" fns i got n bad=""
-  local -a want
-  if ! command -v node >/dev/null 2>&1; then echo "  SKIP  differential vs parse-linked-issues.cjs: node is not on PATH (missing dependency: node); this is NOT a pass"; return 0; fi
-  if [ ! -f "$js" ]; then echo "  SKIP  differential vs parse-linked-issues.cjs: $js not found; this is NOT a pass"; return 0; fi
-  fns="$(awk '/^closing_issues\(\) \{/,/^}/' "$1")"
-  [ -n "$fns" ] || { no "differential: closing_issues() not found in $1"; return 0; }
-  jq -nc '$ARGS.positional' --args "${CE_CORPUS[@]}" > "$ROOT/ce/corpus.json"
-  mapfile -t want < <(node -e '
-    const { parseLinkedIssues } = require(process.argv[1]);
-    for (const b of JSON.parse(require("fs").readFileSync(0, "utf8"))) {
-      const n = [...new Set(parseLinkedIssues(b).references.filter((r) => r.kind === "closing").map((r) => r.number))].sort((x, y) => x - y);
-      console.log(n.join(" "));
-    }' "$js" < "$ROOT/ce/corpus.json")
-  n="${#CE_CORPUS[@]}"
-  if [ "${#want[@]}" -ne "$n" ]; then no "differential: JS returned ${#want[@]} answers for $n bodies"; return 0; fi
-  for ((i = 0; i < n; i++)); do
-    got="$( (eval "$fns"; printf '%s' "${CE_CORPUS[$i]}" | closing_issues) | sort -un | tr '\n' ' ' | sed 's/ $//')"
-    [ "$got" = "${want[$i]}" ] || bad="$bad [body $i: ours=($got) js=(${want[$i]})]"
-  done
-  if [ -z "$bad" ]; then ok "differential: closing_issues() == parse-linked-issues.cjs on $n bodies"; else no "differential mismatch:$bad"; fi
-}
-closure_extra_cases() {
-  S_CE="$1"
-  CE_CORPUS=()
-  ce_body_case "single" "Closes #41" "41"
-  ce_body_case "first of several" $'Closes #41\nsome prose\nmore prose' "41"
-  ce_body_case "middle" $'intro\nFixes: #41\noutro' "41"
-  ce_body_case "last" $'intro\nintro2\nResolves #41' "41"
-  ce_body_case "all three keywords, case-insensitive" "CLOSES #41, fixes #42 and Resolves #43." "41 42 43"
-  ce_body_case "substring keywords do not close (Encloses/prefixes)" "Encloses #41 and prefixes #42, Unfixes #43" ""
-  ce_body_case "path-like prefix does not close" "see docs/closes #41" ""
-  ce_body_case "fenced code ignored, later line counts" $'```\nCloses #41\n```\nCloses #42' "42"
-  ce_body_case "tilde fence ignored" $'~~~\nFixes #41\n~~~' ""
-  ce_body_case "HTML comment ignored (inline and multi-line)" $'<!-- Closes #41 --> Fixes #42\n<!--\nCloses #43\n-->\nCloses #44' "42 44"
-  ce_body_case "inline code ignored" 'use `Closes #41` but Closes #42' "42"
-  ce_body_case "double-backtick span ignored (first on the line)" '`` Closes #41 `` Fixes #47' "47"
-  ce_body_case "double-backtick span ignored (middle)" 'Fixes #48 `` Closes #49 `` Resolves #50' "48 50"
-  ce_body_case "double-backtick span ignored (last)" 'Resolves #51 `` Closes #52 ``' "51"
-  ce_body_case "double-backtick span, whole line" '`` Closes #41 ``' ""
-  ce_body_case "triple-backtick inline span is not a fence and hides its content" '``` Closes #42 ```' ""
-  ce_body_case "single backtick inside a double-backtick span" 'a `` x ` Closes #43 `` Closes #44' "44"
-  ce_body_case "unclosed run hides nothing" '`` Closes #45' "45"
-  ce_body_case "run of 3 whose inner 2-run closes later (JS backtracking)" '```x`` Closes #53 ``' "53"
-  ce_body_case "span crossing a newline hides its content" $'`` Closes #54\nstill `` Fixes #55' "55"
-  ce_body_case "keyword and number across a newline" $'Closes\n#57' "57"
-  ce_body_case "run length mismatch does not close" '`` Closes #58 ```' "58"
-  ce_body_case "closer inside a longer run is not a closer (lookbehind)" '`` Closes #59 ``` end' "59"
-  ce_body_case "cross-repo and malformed refs ignored" "Closes owner/repo#41 Closes #42/x Closes #43." "43"
-  ce_body_case "non-closing words ignored" "Refs #41, closed #42" ""
-  # more than 9 digits: skipped with a typed degraded line, never a float
-  CE_ENV=(CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "Closes #12345678901 and Closes #58"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: ignored 1 closing reference\(s\) with more than 9 digits$' && [ "$(ce_issues)" = "58" ]; then ok "closure: more than 9 digits -> degraded line, only the sane number posted"; else no "closure: >9 digits ($OUT / $(ce_issues))"; fi
-  ce_differential "$S_CE"
-  # cap: 12 test files -> 10 listed + typed note
-  local i names=()
-  for i in 01 02 03 04 05 06 07 08 09 10 11 12; do names+=("added:research-sdd/toolbelt/tests/t$i.test.sh"); done
-  mkfiles "$ROOT/ce/many.json" "${names[@]}"
-  CE_ENV=(CE_NOOP=1); runce "$S_CE" "$ROOT/ce/many.json" "Closes #41"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: 2 test file\(s\) beyond cap 10 not listed$' && [ "$(grep -c '^- test: ' "$ROOT/ce/comments")" = 10 ] && <<<"$OUT" grep -Eq 'posted: issue #41 .*tests=10\)$'; then ok "closure: cap 10 lists 10 files and prints the typed note"
-  else no "closure: cap note/listing ($OUT)"; fi
-  runce "$S_CE" "$ROOT/ce/tests.json" "Closes #41"
-  if ! <<<"$OUT" grep -q 'closure-evidence: note:'; then ok "closure: no cap note under the cap"; else no "closure: spurious cap note"; fi
-  # merged-state check: closed-but-unmerged and merged-but-open both post nothing
-  CE_ENV=(STUB_PR_MERGED=false STUB_PR_STATE=closed); runce "$S_CE" "$ROOT/ce/tests.json" "Closes #41"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged' && [ "$(n_comments)" = 0 ]; then ok "closure: merged=false -> degraded, nothing posted"; else no "closure: merged=false posted ($OUT)"; fi
-  CE_ENV=(STUB_PR_MERGED=true STUB_PR_STATE=open); runce "$S_CE" "$ROOT/ce/tests.json" "Closes #41"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged' && [ "$(n_comments)" = 0 ]; then ok "closure: state=open -> degraded, nothing posted"; else no "closure: state=open posted ($OUT)"; fi
-  # partial failure names every issue to backfill
-  CE_ENV=(STUB_COMMENT_RC=1); runce "$S_CE" "$ROOT/ce/tests.json" "Closes #41 Fixes #42"
-  expect "closure: failed comments -> backfill line lists the issues" 0 '^merge-gate: closure-evidence: degraded: not posted for issues: #41 #42 \(backfill by hand\)$'
-  CE_ENV=(CE_NOOP=1)
-}
 # ce_parse commits|test <text>: reconcile-issues.sh's OWN evidence functions, extracted verbatim (never edited, never re-implemented)
 ce_parse() {
   local RI="$HERE/../reconcile-issues.sh" fns
@@ -556,62 +498,82 @@ ce_parse() {
   (eval "$fns"
    if [ "$1" = commits ]; then _evidence_commits "$2"; elif _evidence_has_test "$2"; then echo yes; else echo no; fi)
 }
+# ce_degraded <label> <graphql-json> <regex> [env...]: a guard case = degraded line, nothing posted, exit 0, no files read
+ce_degraded() {
+  local label="$1" gj="$2" re="$3"; shift 3
+  CE_ENV=("$@" CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "$gj"
+  if [ "$RC" -eq 0 ] && <<<"$OUT" grep -Eq "$re" && [ "$(n_comments)" = 0 ]; then ok "closure: $label"; else no "closure: $label (rc=$RC comments=$(n_comments) out: $OUT)"; fi
+  CE_ENV=(CE_NOOP=1)
+}
 closure_cases() {
   local S="$1" rc_body ev_c ev_t
-  CE_ENV=(CE_NOOP=1)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41 and fixes #42. Also mentions #43."
+  S_CE="$S"; CE_ENV=(CE_NOOP=1)
+  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
   expect "closure: merged, then evidence posted" 0 '^merge-gate: merged: PR #7'
   if <<<"$OUT" grep -Eq "^merge-gate: closure-evidence: posted: issue #41 \(commit=$MSHA tests=2\)$" && <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: posted: issue #42 '; then ok "closure: typed posted lines for both closed issues"
   else no "closure: typed posted lines (out: $OUT)"; fi
-  if [ "$(n_comments)" = 2 ] && grep -q '^ISSUE 41$' "$ROOT/ce/comments" && grep -q '^ISSUE 42$' "$ROOT/ce/comments" && ! grep -q '^ISSUE 43$' "$ROOT/ce/comments"; then ok "closure: exactly one comment per CLOSED issue (the bare mention gets none)"
+  if [ "$(n_comments)" = 2 ] && [ "$(ce_issues)" = "41 42" ]; then ok "closure: exactly one comment per closed issue"
   else no "closure: comment count/targets ($(cat "$ROOT/ce/comments"))"; fi
   if grep -q "^- commit: $MSHA\$" "$ROOT/ce/comments" && grep -q "^- test: $CE_TEST_A\$" "$ROOT/ce/comments" && grep -q "^- test: $CE_TEST_B\$" "$ROOT/ce/comments" \
-     && ! grep -q 'gone.test.sh' "$ROOT/ce/comments" && ! grep -q 'f.test.sh.txt' "$ROOT/ce/comments"; then ok "closure: body carries the merge sha and every changed test (not removed/fixture files)"
+     && ! grep -q 'gone.test.sh' "$ROOT/ce/comments" && ! grep -q 'f.test.sh.txt' "$ROOT/ce/comments"; then ok "closure: body carries the merge oid and every changed test (not removed/fixture files)"
   else no "closure: comment body ($(cat "$ROOT/ce/comments"))"; fi
   # ROUND-TRIP: the produced comment must satisfy reconcile-issues.sh's own evidence parser.
   rc_body="$(awk '/^ISSUE 41$/{f=1;next} /^---$/{f=0} f' "$ROOT/ce/comments")"
   ev_c="$(ce_parse commits "$rc_body")"; ev_t="$(ce_parse test "$rc_body")"
   if [ "$ev_c" = "$MSHA" ] && [ "$ev_t" = yes ]; then ok "closure round-trip: reconcile-issues.sh parser reads the merge sha and a test from the comment"
   else no "closure round-trip: commits=[$ev_c] test=[$ev_t]"; fi
-  rm -f "$ROOT/ce/comments.cwd"; runce "$S" "$ROOT/ce/tests.json" "Closes #41"
-  if [ -f "$ROOT/ce/comments.cwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.cwd"; then ok "closure: the comment is posted by a gh bound to --cwd"; else no "closure: comment gh not bound to --cwd ($(cat "$ROOT/ce/comments.cwd" 2>&1))"; fi
-  # two --paginate pages: the only test file is on page 2
-  printf '%s\n%s\n' '[{"status":"modified","filename":"docs/x.md"}]' "[{\"status\":\"added\",\"filename\":\"$CE_TEST_A\"}]" > "$ROOT/ce/pages.json"
-  runce "$S" "$ROOT/ce/pages.json" "Closes #41"
-  expect "closure: test file only on files page 2 -> posted" 0 '^merge-gate: closure-evidence: posted: issue #41 .*tests=1\)$'
-  CE_ENV=(STUB_MERGE_SHA=)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
-  expect "closure: null merge sha -> degraded, nothing posted" 0 '^merge-gate: closure-evidence: degraded: PR #7 has no usable'
-  CE_ENV=(STUB_MERGE_SHA=abc1234)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: PR #7 has no usable' && [ "$(n_comments)" = 0 ]; then ok "closure: short merge sha -> degraded, nothing posted"; else no "closure: short sha accepted ($OUT)"; fi
-  CE_ENV=(CE_NOOP=1)
-  closure_extra_cases "$S"
-  runce "$S" "$ROOT/ce/notests.json" "Closes #41"
+  if [ -f "$ROOT/ce/comments.gqlcwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.gqlcwd"; then ok "closure: the GraphQL read runs inside --cwd"; else no "closure: GraphQL gh not bound to --cwd"; fi
+  if [ -f "$ROOT/ce/comments.cwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.cwd"; then ok "closure: the comments are posted by a gh bound to --cwd"; else no "closure: comment gh not bound to --cwd"; fi
+  # the GraphQL read is ONE call carrying the repo placeholders and the PR number
+  if [ "$(grep -c 'api graphql' "$ROOT/log")" -ge 1 ] && grep 'api graphql' "$ROOT/log" | grep -q -- '-F owner={owner} -F name={repo} -F pr=7'; then ok "closure: GraphQL read binds owner/name placeholders and the PR number"; else no "closure: GraphQL argv ($(grep 'api graphql' "$ROOT/log" | tail -1))"; fi
+  # cross-repo node: noted, never posted; case-insensitive same-repo match
+  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_cross.json"
+  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: PR #7 also closes other/x#9 in another repository; no evidence posted there$' && [ "$(ce_issues)" = "41 43" ]; then ok "closure: cross-repo node -> typed note, only same-repo issues (case-insensitive) get comments"
+  else no "closure: cross-repo ($OUT / $(ce_issues))"; fi
+  # overflow: typed degraded note, the 50 read are still posted
+  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_big.json"
+  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: PR #7 closes 51 issues but only the first 50 were read; backfill the other 1 by hand$' && [ "$(ce_issues)" = "41" ]; then ok "closure: totalCount over 50 -> degraded overflow note and still posts"
+  else no "closure: overflow ($OUT / $(ce_issues))"; fi
+  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_none.json"
+  expect "closure: no closing issue -> typed none" 0 '^merge-gate: closure-evidence: none: PR #7 closes no issue in o/r'
+  # guards: each prints a typed degraded line and posts nothing
+  ce_degraded "merged=false -> degraded, nothing posted" "$ROOT/ce/g_unmerged.json" '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged'
+  ce_degraded "state=OPEN -> degraded, nothing posted" "$ROOT/ce/g_open.json" '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged'
+  ce_degraded "null merge oid -> degraded, nothing posted" "$ROOT/ce/g_nooid.json" '^merge-gate: closure-evidence: degraded: PR #7 has no usable 40-hex merge commit oid'
+  ce_degraded "short merge oid -> degraded, nothing posted" "$ROOT/ce/g_shortoid.json" '^merge-gate: closure-evidence: degraded: PR #7 has no usable 40-hex merge commit oid'
+  ce_degraded "malformed JSON -> degraded, nothing posted" "$ROOT/ce/g_bad.json" '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable or off-schema'
+  ce_degraded "off-schema answer -> degraded, nothing posted" "$ROOT/ce/g_shape.json" '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable or off-schema'
+  ce_degraded "GraphQL failure -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 1: gh: HTTP 502\)' STUB_GQL_FAIL=1
+  ce_degraded "GraphQL timeout via the bounded runner -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: GraphQL read of PR #7 timed out' STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1
+  # test files and comments
+  runce "$S" "$ROOT/ce/notests.json" "$ROOT/ce/g_one.json"
   expect "closure: no test file -> merge ok, typed not posted" 0 '^merge-gate: closure-evidence: not posted: PR #7 changes no test file'
   if [ "$(n_comments)" = 0 ]; then ok "closure: no test file -> no comment posted"; else no "closure: comment posted despite no test file"; fi
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
-  if [ "$(n_comments)" = 1 ]; then ok "closure: single issue -> single comment"; else no "closure: single issue comment count $(n_comments)"; fi
-  CE_ENV=(STUB_COMMENT_RC=1)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
+  printf '%s\n%s\n' '[{"status":"modified","filename":"docs/x.md"}]' "[{\"status\":\"added\",\"filename\":\"$CE_TEST_A\"}]" > "$ROOT/ce/pages.json"
+  runce "$S" "$ROOT/ce/pages.json" "$ROOT/ce/g_one.json"
+  expect "closure: test file only on files page 2 -> posted" 0 '^merge-gate: closure-evidence: posted: issue #41 .*tests=1\)$'
+  CE_ENV=(STUB_COMMENT_RC=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
   expect "closure: failing comment -> degraded line, exit stays 0" 0 '^merge-gate: closure-evidence: degraded: could not comment on issue #41'
-  CE_ENV=(STUB_FILES_FAIL=1)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
+  expect "closure: failed comments -> backfill line lists the issues" 0 '^merge-gate: closure-evidence: degraded: not posted for issues: #41 #42 \(backfill by hand\)$'
+  CE_ENV=(STUB_FILES_FAIL=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json"
   expect "closure: files read failure -> degraded, exit 0" 0 '^merge-gate: closure-evidence: degraded: cannot read the files'
-  CE_ENV=(STUB_PRFULL_FAIL=1)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41"
-  expect "closure: merged-PR read failure -> degraded, exit 0" 0 '^merge-gate: closure-evidence: degraded: cannot read merged PR'
   CE_ENV=(CE_NOOP=1)
-  runce "$S" "$ROOT/ce/tests.json" "Closes #41" --no-closure-evidence
+  local i names=()
+  for i in 01 02 03 04 05 06 07 08 09 10 11 12; do names+=("added:research-sdd/toolbelt/tests/t$i.test.sh"); done
+  mkfiles "$ROOT/ce/many.json" "${names[@]}"
+  runce "$S" "$ROOT/ce/many.json" "$ROOT/ce/g_one.json"
+  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: 2 test file\(s\) beyond cap 10 not listed$' && [ "$(grep -c '^- test: ' "$ROOT/ce/comments")" = 10 ] && <<<"$OUT" grep -Eq 'posted: issue #41 .*tests=10\)$'; then ok "closure: cap 10 lists 10 files and prints the typed note"
+  else no "closure: cap note/listing ($OUT)"; fi
+  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json"
+  if ! <<<"$OUT" grep -q 'closure-evidence: note:'; then ok "closure: no cap note under the cap"; else no "closure: spurious cap note"; fi
+  : > "$ROOT/log"; runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json" --no-closure-evidence
   expect "closure: opt-out flag -> skipped line" 0 '^merge-gate: closure-evidence: skipped'
-  if [ "$(n_comments)" = 0 ]; then ok "closure: opt-out posts nothing"; else no "closure: opt-out still posted"; fi
-  runce "$S" "$ROOT/ce/tests.json" "No closing keyword here, see #41"
-  expect "closure: PR closing no issue -> typed none" 0 '^merge-gate: closure-evidence: none: PR #7 closes no issue'
+  if [ "$(n_comments)" = 0 ] && ! grep -q 'api graphql' "$ROOT/log"; then ok "closure: opt-out posts nothing and makes no GraphQL call"; else no "closure: opt-out still acted"; fi
   # default (no --merge) run stays a pure check: no closure gh call
   : > "$ROOT/log"; run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"
-  if ! grep -q 'issue comment\|/files' "$ROOT/log" && ! <<<"$OUT" grep -q closure-evidence; then ok "closure: default run makes no closure gh call"; else no "closure: default run touched closure evidence"; fi
-  runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
-  if ! <<<"$OUT" grep -q closure-evidence; then ok "closure: --pr check-only prints no closure line"; else no "closure: --pr printed closure line"; fi
+  if ! grep -q 'issue comment\|/files\|graphql' "$ROOT/log" && ! <<<"$OUT" grep -q closure-evidence; then ok "closure: default run makes no closure gh call"; else no "closure: default run touched closure evidence"; fi
+  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
+  if ! <<<"$OUT" grep -q closure-evidence && ! grep -q 'graphql' "$ROOT/log"; then ok "closure: --pr check-only prints no closure line and makes no GraphQL call"; else no "closure: --pr touched closure evidence"; fi
   : > "$ROOT/ce/comments"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 1 "${ARGS[@]}" --merge 7
   if ! <<<"$OUT" grep -q closure-evidence; then ok "closure: failed merge posts no closure evidence"; else no "closure: closure line after failed merge"; fi
 }
@@ -746,39 +708,40 @@ mutate M71-order-by-started-at-first     's/id: (\.id? \/\/ 0)/id: (.id? \/\/ 0)
 mutate M72-id-compared-as-string         's/id: (\.id? \/\/ 0)/id: ((.id? \/\/ 0) | tostring)/'
 mutate M73-first-page-only               's/\[\.\[\]\.check_runs\[\]\]/[.[0].check_runs[]]/'
 # #1812 closure-evidence mutants (mutant_sed refuses a mutant that is empty, identical or syntax-broken).
-mutate M80-optout-ignored              's/^  if \[ -n "\$no_evidence" \]; then.*/  :/'
-mutate M81-comment-failure-fails-run   's/^  done$/  done; [ "$rc" -eq 0 ] || exit 1/'
-mutate M82-posts-without-test          's/^  if \[ -z "\$test_files" \]; then say.*/  :/'
-mutate M83-removed-files-counted       's/select(\.status != "removed") | //'
-mutate M84-any-sh-counts-as-test       "s/grep -E '\\^research-sdd[^']*'/grep -E 'sh\$'/"
-mutate M85-commit-label-dropped        's/^- commit: \$msha$/- sha: $msha/'
-mutate M86-head-instead-of-merge-sha   's/^- commit: \$msha$/- commit: $head/'
-mutate M87-first-issue-only            's/sort -un | head -n 20/sort -un | head -n 1/'
-mutate M88-any-mention-closes          's/(closes|fixes|resolves):?\[ \\t\]+#/#/'
-mutate M89-sha-shape-unchecked         's/^  if ! \[\[ "\$msha" =~ .*/  :/'
-mutate M90-files-single-page           's/files?per_page=100" --paginate/files?per_page=100"/'
-mutate M91-files-first-page-only       's/\.\[\]\[\] | select(\.status/.[0][] | select(.status/'
-mutate M92-comment-failure-silent      's/^    else say "\$ev: degraded: could not comment[^;]*;/    else/'
-mutate M93-comment-gh-not-in-cwd       's/ghr issue comment/gh issue comment/'
-mutate M94-files-read-failure-ignored  's/ || { say "\$ev: degraded: cannot read the files[^}]*}//'
-mutate M95-pr-read-failure-ignored     's/ || { say "\$ev: degraded: cannot read merged PR[^}]*}//'
-mutate M96-no-issue-still-posts        's/^  if \[ -z "\$issues" \]; then say.*/  :/'
-mutate M98-boundary-dropped             's/^        ok = (prev == "" || prev !~ .*/        ok = 1/'
-mutate M99-fence-not-skipped           's/^      if (fence != "") {/      if (0) {/'
-mutate M100-comment-content-visible    's/inc = 1; rest = substr(rest, b + 4)/rest = substr(rest, b + 4)/'
-mutate M102-cap-note-dropped           's/^    say "\$ev: note: .*/    :/'
-mutate M103-cap-unlimited              's/head -n 10 | sed/cat | sed/'
-mutate M104-merged-flag-ignored        's/if \.merged == true and \.state == "closed"/if .state == "closed"/'
-mutate M105-state-ignored              's/if \.merged == true and \.state == "closed"/if .merged == true/'
-mutate M106-backfill-line-dropped      's/^  if \[ -n "\$failed" \]; then say.*/  :/'
-mutate M108-single-backtick-spans-only  's/^    END { scan(spans(buf)) }/    END { gsub(\/`[^`]*`\/, " ", buf); scan(buf) }/'
-mutate M109-closer-run-not-exact       's/if (ok \&\& substr(t, j + L, 1) != "`") { found = 1; break }/if (ok) { found = 1; break }/'
-mutate M110-closer-lookbehind-dropped  's/^          if (substr(t, j - 1, 1) == "`") continue/          if (0) continue/'
-mutate M111-unclosed-run-hides-rest    's/ else { out = out "`"; i++ }/ else { i = n + 1 }/'
-mutate M112-big-number-printed         's/if (length(num) > 9) print "BIG " num/if (0) print "BIG " num/'
-mutate M113-big-degraded-line-dropped  's/^  if \[ "\$big" -gt 0 \]; then say.*/  :/'
-mutate M114-newline-separator-dropped  's/:?\[ \\t\\n\]+#/:?[ \\t]+#/'
-mutate M97-evidence-without-merge      's/^closure_evidence$/:/'
+# The GraphQL-guard mutants are verified with `tooth` (rc 0 on both sides, the specific wrong output named); the rest with `mutate`.
+sc_ce_cross()      { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_cross.json"; }
+sc_ce_unmerged()   { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_unmerged.json"; }
+sc_ce_open()       { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_open.json"; }
+sc_ce_nooid()      { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_nooid.json"; }
+sc_ce_big()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_big.json"; }
+sc_ce_fail()       { S_CE="$1"; CE_ENV=(STUB_GQL_FAIL=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
+sc_ce_timeout()    { S_CE="$1"; CE_ENV=(STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
+sc_ce_bad()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_bad.json"; }
+tooth M80-same-repo-filter-dropped 's/^    | select((\.repository\.nameWithOwner | tostring | ascii_downcase) == (\$r | ascii_downcase) and /    | select(true and /' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #9 '
+tooth M81-merged-flag-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.state != "MERGED" then/' sc_ce_unmerged 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
+tooth M82-state-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.merged != true then/' sc_ce_open 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
+tooth M83-oid-unchecked 's/^      elif (((\$p\.mergeCommit\.oid.*/      elif false then "nooid"/' sc_ce_nooid 0 'has no usable 40-hex merge commit oid' 0 '^merge-gate: closure-evidence: posted: issue #41 \(commit=null '
+tooth M84-overflow-note-dropped 's/^  if \[ "\$total" -gt 50 \]; then say.*/  :/' sc_ce_big 0 'degraded: PR #7 closes 51 issues but only the first 50 were read' 0 '^merge-gate: closure-evidence: posted: issue #41 '
+tooth M85-cross-note-dropped 's/^    \[ -z "\$issue" \] || say "\$ev: note: PR.*/    :/' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #41 '
+tooth M86-graphql-failure-ignored 's/^  if \[ "\$grc" -ne 0 \]; then say.*/  :/' sc_ce_fail 0 'degraded: cannot read the closing issues of PR #7' 0 '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable'
+tooth M87-timeout-treated-as-generic 's/^  if \[ "\$grc" -eq 124 \]; then say.*/  :/' sc_ce_timeout 0 'degraded: GraphQL read of PR #7 timed out' 0 'degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 124'
+tooth M88-shape-unchecked 's/^    \*) say "\$ev: degraded: the GraphQL answer.*/    *) ;;/' sc_ce_bad 0 'the GraphQL answer for PR #7 is unparseable or off-schema' 0 '^merge-gate: closure-evidence: none: PR #7 closes no issue'
+mutate M89-optout-ignored              's/^  if \[ -n "\$no_evidence" \]; then.*/  :/'
+mutate M90-comment-failure-fails-run   's/^  done$/  done; [ "$rc" -eq 0 ] || exit 1/'
+mutate M91-posts-without-test          's/^  if \[ -z "\$test_files" \]; then say.*/  :/'
+mutate M92-removed-files-counted       's/select(\.status != "removed") | //'
+mutate M93-any-sh-counts-as-test       "s/grep -E '\\^research-sdd[^']*'/grep -E 'sh\$'/"
+mutate M94-commit-label-dropped        's/^- commit: \$msha$/- sha: $msha/'
+mutate M95-no-issue-still-posts        's/^  if \[ -z "\$issues" \]; then say.*/  :/'
+mutate M96-files-single-page           's/files?per_page=100" --paginate/files?per_page=100"/'
+mutate M97-comment-gh-not-in-cwd       's/ghr issue comment/gh issue comment/'
+mutate M98-cap-note-dropped            's/^    say "\$ev: note: .*/    :/'
+mutate M99-cap-unlimited               's/head -n 10 | sed/cat | sed/'
+mutate M100-backfill-line-dropped      's/^  if \[ -n "\$failed" \]; then say.*/  :/'
+mutate M101-comment-failure-silent     's/^    else say "\$ev: degraded: could not comment[^;]*;/    else/'
+mutate M102-files-read-failure-ignored 's/ || { say "\$ev: degraded: cannot read the files[^}]*}//'
+mutate M103-evidence-without-merge     's/^closure_evidence$/:/'
+mutate M104-graphql-unbound-to-cwd     's/gj="\$(cd "\$cwd" \&\& /gj="$(/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]
