@@ -47,9 +47,18 @@
 #               line names the row count and the first SHA-like token; the run is NOT failed. Every cited token is evaluated,
 #               so the outcome never depends on token order. Comment evidence counts only from an
 #               OWNER, MEMBER or COLLABORATOR author; the issue body is always trusted.
-#               NOT YET IMPLEMENTED (deferred from #1709): the `regressed` class (closed-completed plus a
-#               later retro re-lists the row) - row ids are per-retro, so "re-lists" needs a defined
-#               cross-retro identity first. When added it will be human-review only, never auto-reopen.
+#   regressed — a `shipped` row (closure-evidence rule above) whose exact title is proposed AGAIN as an OPEN delta
+#               in a LATER retro (kit issue #1709 slice 2): `regressed: row N (closed by #M, re-proposed in
+#               <later retro> as row K)`. Printed IN ADDITION to the row's `shipped:` line; human review only -
+#               never reopens, closes or edits anything. Row ids are per-retro, so the cross-retro identity is the
+#               row TITLE the seeder puts on its issue (title column named by the header, else column 2; leading
+#               **bold** unwrapped; ends trimmed; compared EXACTLY - no case folding, no fuzzy match), and a title
+#               under 12 characters or a bare priority/type token has none. "Later" = a strictly greater
+#               YYYY-MM-DD filename prefix among the retros of the SAME directory. "Open" = the later retro's row is
+#               not closed by its marker (dismissed / applied, minus a PARTIAL shipped list). Could-not-look is typed,
+#               never a silent no-match: `regressed-lookup:` notes (undated retros, a short/generic title, a later
+#               retro whose marker is out of scope) and `degraded:` + exit 1 for an unreadable later retro.
+#               The `closed by #M` number is read from the closed-issue data; a cache without numbers says so.
 #
 # propose-never-apply: REPORT ONLY.  No --apply flag; never creates, closes, or
 # edits any issue or retro marker.
@@ -194,6 +203,7 @@ _fleet_tracked=0
 _fleet_untracked=0
 _fleet_shipped=0
 _fleet_borderline=0
+_fleet_regressed=0
 _fleet_orphaned=0
 _fleet_degraded=0
 _fleet_outofscope=0
@@ -228,8 +238,8 @@ _fetch_closed_bodies() {
         --state closed \
         --limit "$_LIST_LIMIT" \
         --search "\"Source retro: ${_p} ·\"" \
-        --json body,stateReason,comments \
-        --jq '.[] | (if .stateReason == "COMPLETED" then ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body]) | join("\n") else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+        --json body,stateReason,comments,number \
+        --jq '.[] | (if .stateReason == "COMPLETED" then ("Closed-issue-number: \(.number // "")\n" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body]) | join("\n"))) else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
     if [ "$_rc" -ne 0 ]; then
       _em=""
       if [ -n "$_ef" ]; then
@@ -342,7 +352,7 @@ _closed_query_old_gh() {
   printf '%s\n' "$_raw" | _NG_BAD="$_bad" _NG_UNK="$_unk" awk '
     BEGIN { n = split(ENVIRON["_NG_BAD"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") bad[a[i]] = 1
             n = split(ENVIRON["_NG_UNK"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") unk[a[i]] = 1 }
-    /^\037/ { num = substr($0, 2); skip = (num in bad); sigonly = (num in unk); next }
+    /^\037/ { num = substr($0, 2); skip = (num in bad); sigonly = (num in unk); if (!skip) print "Closed-issue-number: " num; next }
     $0 == "\036" { print; skip = 0; sigonly = 0; next }
     { if (skip) next; if (sigonly && index($0, "Source retro: ") == 0) next; print }'
 }
@@ -426,6 +436,152 @@ _emit_shallow_note() {
 }
 
 # ---------------------------------------------------------------------------
+# Cross-retro row identity and the `regressed` class (kit issue #1709 slice 2).
+# Row ids are per-retro ("1" in two retros is two rows), so "the same delta" across retros is the row TITLE the
+# seeder (stage-retro-issues.sh) puts on its issue: the delta cell - the column the header names, else column 2 -
+# with a leading **bold** unwrapped and the ends trimmed, compared EXACTLY (no case folding, no fuzzy matching;
+# a reworded row is a different delta). A title under 12 characters or a bare priority/type token carries no
+# identity (the seeder refuses those rows too). The parser below mirrors stage-retro-issues.sh's header mapping
+# for the TITLE column only; a drift between the two would hide re-proposals, so a shared helper is the follow-up.
+# Scope: later retros of the SAME retros directory, "later" = a strictly greater YYYY-MM-DD filename prefix.
+_reg_degraded=0
+_reg_cur=""; _reg_later=""; _reg_later_loaded=0; _reg_nodate_noted=0
+
+_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+
+# _retro_row_titles <retro> - one "<row-id>\037<title>" line per delta row (table form, else the entry form).
+_retro_row_titles() {
+  local f="$1" _rows _id _dl _rest
+  _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
+    BEGIN { in_sec = 0 }
+    {
+      low = tolower($0)
+      if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ || low ~ /^## proposed delta/ ||
+          low ~ /^## delta proposals/ || low ~ /^## deltas nuevos/ || low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
+          low ~ /^## summary of proposed delta/ || low ~ /^## summary of new deltas/ || low ~ /^## delta details([[:space:]]|$)/) {
+        in_sec = 1; prev = ""; ct = 0; next
+      }
+      if (/^##[^#]/) { in_sec = 0; next }
+      if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
+        if (prev != "") {
+          hl = tolower(prev)
+          sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
+          hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
+          ct = 0
+          for (k = 2; k <= hn; k++)
+            if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
+        }
+        prev = ""; next
+      }
+      if (in_sec && /^\|/) {
+        prev = $0
+        line = $0
+        sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
+        n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+        rid = f[1]; gsub(/[[:space:]]/, "", rid)
+        if (rid ~ /^[-:]+$/) next
+        if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
+        printf "%s\037%s\n", f[1], (ct ? f[ct] : (n >= 2 ? f[2] : ""))
+      }
+    }')"
+  [ -n "$_rows" ] || _rows="$(retro_grammar_entry_rows "$f")"
+  while IFS=$'\037' read -r _id _dl _rest; do
+    _id="$(_trim "$_id")"; [ -n "$_id" ] || continue
+    _dl="$(printf '%s' "$_dl" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//')"
+    printf '%s\037%s\n' "$_id" "$(_trim "$_dl")"
+  done <<<"$_rows"
+}
+
+# _title_has_identity <title> - 0 when the title can carry a cross-retro identity (stage-retro-issues rule).
+_title_has_identity() {
+  local t
+  t="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+  case "$t" in
+    high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix) return 1 ;;
+  esac
+  [ "${#t}" -ge 12 ]
+}
+
+# _retro_open_row_titles <retro> - the "<row-id>\037<title>" lines of the rows that are OPEN in that retro, using the
+# same open-row rule as audit_retro (dismissed/applied close it; PARTIAL keeps the rows its marker does not list
+# shipped). rc 3 = a marker exists outside the shared scope: open/closed cannot be told (no rows printed).
+_retro_open_row_titles() {
+  local f="$1" _ml _st _raw _shipped="" _partial=0 _id _rest
+  _ml="$(retro_marker_scope_line "$f")"
+  if [ -z "$_ml" ] && retro_marker_out_of_scope "$f"; then return 3; fi
+  _st="$(retro_status_from_marker_line "$_ml")"
+  if retro_marker_is_partial "$_ml"; then
+    _partial=1
+    _raw="$(printf '%s' "$_ml" | grep -oiE 'shipped:[^;>]*' | head -1 | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+    [ -z "$_raw" ] || _shipped="$(retro_marker_shipped_ids "$_raw")"
+  fi
+  case "$_st" in
+    dismissed) return 0 ;;
+    applied) [ "$_partial" -eq 1 ] || return 0 ;;
+  esac
+  while IFS=$'\037' read -r _id _rest; do
+    [ -n "$_id" ] || continue
+    if [ "$_partial" -eq 1 ] && grep -qxF "$_id" <<<"$_shipped"; then continue; fi
+    printf '%s\037%s\n' "$_id" "$_rest"
+  done < <(_retro_row_titles "$f")
+}
+
+# _reg_load_later <retro_path> - fill _reg_later with "<later-retro>\037<row-id>\037<title>" for every OPEN row of every
+# strictly-later dated retro in the same directory (once per audited retro). Could-not-look cases are typed, never silent.
+_reg_load_later() {
+  local cur="$1" dir cb cdate sib sb sd _undated=0 _o _rc
+  dir="$(dirname "$cur")"; cb="$(basename "$cur")"; cdate="${cb:0:10}"
+  _reg_later_loaded=1; _reg_later=""
+  while IFS= read -r sib; do
+    [ -f "$sib" ] || continue
+    sb="$(basename "$sib")"; [ "$sb" != "$cb" ] || continue
+    if [[ ! "$sb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then _undated=$((_undated + 1)); continue; fi
+    sd="${sb:0:10}"
+    [[ "$sd" > "$cdate" ]] || continue
+    if [ ! -r "$sib" ]; then
+      echo "degraded: later retro not readable: $sib — regressed rows in it were not checked" >&2
+      _reg_degraded=1; continue
+    fi
+    _o="$(_retro_open_row_titles "$sib")"; _rc=$?
+    if [ "$_rc" -eq 3 ]; then
+      echo "regressed-lookup: $sb has a review-status marker outside the leading-block scope — cannot tell whether its rows are open, so it was not checked for re-proposals of $cb rows" >&2
+      continue
+    fi
+    [ -z "$_o" ] || _reg_later="${_reg_later}$(printf '%s\n' "$_o" | awk -v s="$sb" '{ print s "\037" $0 }')"$'\n'
+  done < <(find "$dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
+  if [ "$_undated" -gt 0 ]; then
+    echo "regressed-lookup: skipped $_undated retro(s) without a YYYY-MM-DD prefix next to $cb — they cannot be ordered against it, so their rows were not checked" >&2
+  fi
+}
+
+# _regressed_check <retro_path> <row-id> <closed-record-text> - for a `shipped` row: print `regressed:` (and return 0)
+# when its title is an OPEN row of a later retro; return 1 when nothing was reported. Report-only, nothing is edited.
+_regressed_check() {
+  local cur="$1" rid="$2" rec="$3" cb title _hits _nums _where
+  cb="$(basename "$cur")"
+  if [[ ! "$cb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+    if [ "$_reg_nodate_noted" -eq 0 ]; then
+      _reg_nodate_noted=1
+      echo "regressed-lookup: $cb has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked" >&2
+    fi
+    return 1
+  fi
+  [ -n "$_reg_cur" ] || _reg_cur="$(_retro_row_titles "$cur")"
+  title="$(printf '%s\n' "$_reg_cur" | awk -F'\037' -v r="$rid" '$1 == r { print $2; exit }')"
+  if [ -z "$title" ] || ! _title_has_identity "$title"; then
+    echo "regressed-lookup: row $rid of $cb has a title under 12 characters, empty or a bare priority/type token — no cross-retro identity, not checked" >&2
+    return 1
+  fi
+  [ "$_reg_later_loaded" -eq 1 ] || _reg_load_later "$cur"
+  _hits="$(printf '%s' "$_reg_later" | awk -F'\037' -v t="$title" '$3 == t { printf "%s%s as row %s", (n++ ? ", " : ""), $1, $2 }')"
+  [ -n "$_hits" ] || return 1
+  _nums="$(printf '%s\n' "$rec" | sed -n 's/^Closed-issue-number: *\([0-9][0-9]*\) *$/#\1/p' | sort -u | paste -sd, - | sed 's/,/, /g')"
+  _where="${_nums:-an issue whose number is not in the closed-issue data}"
+  printf 'regressed: row %s (closed by %s, re-proposed in %s) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\n' \
+    "$rid" "$_where" "$_hits"
+}
+
+# ---------------------------------------------------------------------------
 # audit_retro <retro_path> <target_name>
 #   Prints findings (tracked/untracked/orphaned) to stdout.
 #   Prints advisory messages (empty-input, no-match, WARN) to stderr.
@@ -442,7 +598,8 @@ audit_retro() {
     return 1
   fi
 
-  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0 r_borderline=0 _anc_degraded=0
+  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0 r_borderline=0 r_regressed=0 _anc_degraded=0
+  _reg_degraded=0; _reg_cur=""; _reg_later=""; _reg_later_loaded=0; _reg_nodate_noted=0
   local _gh_rc _gh_stderr_file _gh_err_msg
 
   # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
@@ -765,6 +922,8 @@ ${_rln}"
             printf 'shipped: row %s — its issue is closed as completed and cites this retro in %s; propose marking the row shipped in the retro marker (not edited here) [evidence: commit %s reachable from %s (local ref, no fetch); test cited]\n' \
               "$_rid" "$retro_basename" "$_ev_reach" "$_MAIN_REF"
             r_shipped=$((r_shipped+1))
+            # RECONCILE_ISSUES_REGRESSED (kit issue #1709 slice 2): a shipped row proposed again, open, in a later retro.
+            if _regressed_check "$retro_path" "$_rid" "$_ev_rec"; then r_regressed=$((r_regressed+1)); fi  # RECONCILE-REGRESSED-CALL
           else
             printf 'borderline: row %s — its issue is closed as completed and cites this retro in %s, but the closure evidence is incomplete (%s); human review (not shipped, not untracked, nothing edited)\n' \
               "$_rid" "$retro_basename" "$_ev_missing"
@@ -816,11 +975,14 @@ ${_rln}"
   _fleet_untracked=$((_fleet_untracked + r_untracked))
   _fleet_shipped=$((_fleet_shipped + r_shipped))
   _fleet_borderline=$((_fleet_borderline + r_borderline))
+  _fleet_regressed=$((_fleet_regressed + r_regressed))
   _fleet_orphaned=$((_fleet_orphaned + r_orphaned))
   _fleet_retros=$((_fleet_retros + 1))
 
   # An unverifiable ancestry check is a typed degraded (rows were still printed, as borderline).
   [ "$_anc_degraded" -eq 0 ] || return 1
+  # A later retro that could not be read (regressed lookup) is the same kind of typed degraded.
+  [ "$_reg_degraded" -eq 0 ] || return 1
   return 0
 }
 
@@ -928,8 +1090,8 @@ elif [ "$_mode" = "all" ]; then
   fi
 
   _emit_shallow_note
-  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
-    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_borderline" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
+  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d regressed=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_borderline" "$_fleet_regressed" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
   # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment
   # above) — only genuine operational failures (_fleet_degraded) gate the exit code.
   [ "$_fleet_degraded" -eq 0 ] || exit 1
