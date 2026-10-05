@@ -284,6 +284,7 @@ _SR_SINCE_REQ=""
 
 # _sr_install_exit_trap - remove the cache file on EXIT WITHOUT clobbering an EXIT trap that is already set (kit issue
 # #1784): the previous trap's command runs after the cleanup. `trap -p` output is re-parsed through `set --`.
+# shellcheck disable=SC2120  # "$1" is the function's own positional reused by eval "set -- <trap -p>", not a caller argument
 _sr_install_exit_trap() {
   local _prev _prev_cmd=""
   _prev="$(trap -p EXIT)"
