@@ -20,16 +20,36 @@
 #   research-sdd-archive.sh <target-dir> --dry-run                report what WOULD happen; mutate nothing
 #   research-sdd-archive.sh <target-dir> --focus <name>           scope UF gate to a single focus (RESEARCH-STATE-<name>.md)
 #   research-sdd-archive.sh <target-dir> --focus <name> --dry-run scoped dry-run
+#   research-sdd-archive.sh <target-dir> --allow-unreciprocated-corrections
+#                                                                 override the §14 reciprocity gate (see below)
 # Exit: 0 = archived (or dry-run); the GATE is the archive decision — consolidate steps are BEST-EFFORT and a
 #           failure there is reported LOUDLY (stderr + checklist) but keeps exit 0, so callers gate on 0/2/3.
 #       2 = bad args / no RESEARCH-STATE (nothing to archive) / unknown --focus slug.
-#       3 = REFUSED: a consistency gate (verify-state / verify-sources / scan-secrets / undocumented_findings / MISSING-RETRO) did not pass — reconcile first.
+#       3 = REFUSED: a consistency gate (verify-state / verify-sources / verify-corrections / scan-secrets / undocumented_findings / MISSING-RETRO) did not pass — reconcile first.
+# §14 reciprocity gate (verify-corrections.sh, issue #1790 step 4; was an advisory WARN under #1787). Verdict lines:
+#   ok                  every declared correction is reciprocated (or none declared)
+#   n/a                 no block files (nothing to check)
+#   PARTIAL — N ...     linter said ok-partial: N declared corrections had an ambiguous/missing target and were NOT
+#                       checked. Passes (a missing target is an unverifiable claim, not a one-directional one), but is
+#                       typed + WARNed on stderr, never a bare ok.
+#   FAIL — N ...        one-directional correction(s); REFUSES (exit 3), the failing pairs are listed.
+#   DEGRADED — ...      the linter said it could not look (`degraded:`); REFUSES — an unreadable instrument is not a pass.
+#   ERROR — ...         bad args / missing / non-executable / unexpected exit / exit 0 without an `ok` verdict line /
+#                       exit 1 with no findings and no `degraded:` (could not run?) / --focus prefix unresolvable; REFUSES.
+#   SIBLING — N pair(s) outside focus <slug> not enforced   (--focus only) the failing pairs all belong to sibling
+#                       focuses; typed + stderr WARN, does NOT refuse (same scoping rule as verify-state, #647).
+# Under --focus a failing pair refuses only when its TARGET block carries the focus's prefix (derive_focus_prefix of the
+# focus state file, lib/focus-prefix.sh) or the focus owns a block with the correcting block's number (conservative:
+# the linter's FAIL line names the correcting block by number only). No block file carries the focus prefix => ERROR.
+# --allow-unreciprocated-corrections turns a FAIL / DEGRADED / ERROR refusal for THIS gate into a typed
+# `OVERRIDDEN — ...` line (and a stderr WARN) and lets the close proceed; it never affects any other gate.
 set -uo pipefail
 
-target=""; dry=0; focus_slug=""
+target=""; dry=0; focus_slug=""; allow_vc=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1; shift;;
+    --allow-unreciprocated-corrections) allow_vc=1; shift;;  # AR-VCORR-OVERRIDE-FLAG
     --focus)
       focus_slug="${2:-}"
       [ -n "$focus_slug" ] || { echo "research-sdd-archive: --focus requires a focus name" >&2; exit 2; }
@@ -38,7 +58,7 @@ while [ $# -gt 0 ]; do
     *)  [ -z "$target" ] && target="$1" || { echo "research-sdd-archive: unexpected extra arg: $1" >&2; exit 2; }; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-archive.sh <target-dir> [--focus <name>] [--dry-run]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-archive.sh <target-dir> [--focus <name>] [--dry-run] [--allow-unreciprocated-corrections]" >&2; exit 2; }
 target="${target%/}"   # a trailing slash would defeat the corpus-relative prefix strip below
 # Absolutize a RELATIVE target NOW, before it seeds $state/$corpus. Left relative, `find "$corpus" ...`
 # below yields relative paths, and `git -C "$corpus" log -- "$rf"` (rsdd_added_epoch) double-resolves them
@@ -80,6 +100,16 @@ if [ ! -f "$_sflib" ]; then echo "research-sdd-archive: cannot find helper $_sfl
 declare -F list_state_files >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_sflib failed to define list_state_files" >&2; exit 1; }
 unset _sflib
+
+# Shared focus -> block-prefix derivation (single source of truth with verify-state / status) — used to scope the
+# §14 reciprocity gate under --focus. Fail-closed like the other helpers.
+_fplib="$here/lib/focus-prefix.sh"
+if [ ! -f "$_fplib" ]; then echo "research-sdd-archive: cannot find helper $_fplib" >&2; exit 1; fi
+# shellcheck source=lib/focus-prefix.sh
+. "$_fplib"
+declare -F derive_focus_prefix >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_fplib failed to define derive_focus_prefix" >&2; exit 1; }
+unset _fplib
 
 # Resolve the state file via the shared lib/state-files.sh resolver (kit issue #1818): shallowest wins, and
 # the root RESEARCH-STATE.md beats every RESEARCH-STATE-<focus>.md at that depth (a lexical `sort | head -1`
@@ -146,33 +176,88 @@ _vstate_args=()
 [ -n "$focus_slug" ] && _vstate_args=("--focus" "$focus_slug")  # AR2-VSTATE-FOCUS-SCOPE
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)" "${_vstate_args[@]}"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
-# --- ADVISORY: §14 one-directional corrections (verify-corrections.sh, issue #1787 item 4) -----------
-# WARN-ONLY by measurement, NOT a gate: on 2026-10-05 the linter exited 1 on 8 of 19 present fleet
-# targets (incl. the active niagara5-research) and a sampled finding was a false positive (blender-llm
-# B17: `corrects` and an unrelated [Block 11] cross-ref sit on the same wrapped line). Gating would newly
-# refuse healthy closes. Exit 0 = ok, 1 = findings (WARN, count surfaced, archive continues), 2 = no block
-# files (n/a) or bad args (WARN did not run; told apart by the stderr reason), anything else = linter did not run (WARN).
-_vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-ADVISORY
+# --- GATE: §14 one-directional corrections (verify-corrections.sh; advisory under #1787, gate under #1790) ----
+# Exit 0 = ok (or ok-partial -> PARTIAL), 1 = findings (FAIL) or the linter's own `degraded:` (DEGRADED), 2 = no
+# block files (n/a) or bad args (ERROR; told apart by the stderr reason), anything else = did not run (ERROR).
+# FAIL/DEGRADED/ERROR set gate_rc=1 unless --allow-unreciprocated-corrections (then a typed OVERRIDDEN line).
+# Why a gate (#1790): a §14 correction with no reciprocal backlink leaves the corrected block asserting the old
+# claim to every later reader. The advisory WARN was ignored, so archive now refuses until the backlink exists or
+# the operator overrides explicitly. Measured before promotion (2026-10-05, after #1835's false-FAIL fixes): 6 of
+# 20 present targets would be refused; each refusal names its pairs, the verify command and the override flag.
+_vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-GATE
+_vc_refuse() {  # <state-label> <detail> — refuse, or (override flag) record a typed OVERRIDDEN line
+  if [ "$allow_vc" = 1 ]; then  # AR-VCORR-OVERRIDE
+    echo "    verify-corrections : OVERRIDDEN — $2 (--allow-unreciprocated-corrections given; gate NOT enforced)"
+    echo "WARN: verify-corrections gate overridden by --allow-unreciprocated-corrections — $2." >&2
+  else
+    echo "    verify-corrections : $1 — $2 (override: --allow-unreciprocated-corrections)"
+    gate_rc=1  # vcorr-gate-refuse
+  fi
+}
 case "$_vc_rc" in
-  0) echo "    verify-corrections : ok";;
-  # Output contract (verify-corrections.sh): one `   FAIL   B<n> corrects [Block <m>] ...` line per finding.
-  # Exit 1 with ZERO parsed FAIL lines means that contract drifted — never print a self-contradicting "0".
-  1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"  # AR-VCORR-COUNT
-     if [ "$_vc_n" -gt 0 ]; then
-       echo "    verify-corrections : WARN — $_vc_n one-directional §14 correction(s) (advisory, not a gate; run verify-corrections.sh for the list)"
-       echo "WARN: verify-corrections found $_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)." >&2
+  0) if grep -q '^ *ok-partial ' <<<"$_vc_out"; then  # AR-VCORR-PARTIAL
+       _vc_u="$(sed -n 's/^ *ok-partial \([0-9][0-9]*\) .*/\1/p' <<<"$_vc_out" | head -n 1)"
+       echo "    verify-corrections : PARTIAL — ${_vc_u:-some} declared correction(s) NOT checked (ambiguous/missing target; run verify-corrections.sh for the WARN lines)"
+       echo "WARN: verify-corrections ok-partial — ${_vc_u:-some} declared correction(s) could not be checked." >&2
+     elif grep -q '^ *ok ' <<<"$_vc_out"; then  # AR-VCORR-OK-POSITIVE
+       echo "    verify-corrections : ok"
      else
-       echo "    verify-corrections : WARN — one-directional §14 correction(s) found (count unparseable; see verify-corrections.sh output)"
-       echo "WARN: verify-corrections exited 1 but its FAIL lines could not be counted — run verify-corrections.sh for the list." >&2
+       _vc_refuse ERROR "verify-corrections.sh exited 0 without an 'ok' verdict line (contract drift — the check may not have run)"
+     fi;;
+  # Output contract (verify-corrections.sh): one `   FAIL   B<n> corrects [Block <m>] but <file> has no reciprocal ...`
+  # line per finding; an instrument that could not look says `degraded:` and exits 1 with NO FAIL lines.
+  1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"  # AR-VCORR-COUNT
+     if grep -q 'degraded:' <<<"$_vc_out"; then  # AR-VCORR-DEGRADED
+       _vc_refuse DEGRADED "verify-corrections.sh reported degraded: $(grep -m1 'degraded:' <<<"$_vc_out" | sed 's/^.*degraded: *//')"
+     elif [ "$_vc_n" -gt 0 ]; then
+       _vc_fails="$(grep '^ *FAIL ' <<<"$_vc_out")"
+       _vc_infocus="$_vc_fails"; _vc_sib=0; _vc_scope_err=""
+       if [ -n "$focus_slug" ]; then  # AR-VCORR-FOCUS-SCOPE
+         _vc_fslug="$(derive_focus_prefix "$state")"; _vc_fslug="${_vc_fslug%-}"
+         _vc_fnums=" "; _vc_fcount=0
+         while IFS= read -r _vc_f; do
+           [ -n "$_vc_f" ] || continue
+           [ "$(basename "$_vc_f" | sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/')" = "$_vc_fslug" ] || continue
+           _vc_fcount=$((_vc_fcount+1))
+           _vc_fnums="$_vc_fnums$(basename "$_vc_f" | sed -E 's/.*-(block|bloque)0*([0-9]+).*/\2/') "
+         done < <(find "$corpus" -maxdepth 3 -type f -name '*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | block_file_filter)
+         if [ -z "$_vc_fslug" ] || [ "$_vc_fcount" -eq 0 ]; then
+           _vc_scope_err="cannot scope the §14 gate to focus $focus_slug (no block file carries its prefix '${_vc_fslug:-?}-'); $_vc_n finding(s) NOT classified"  # AR-VCORR-FOCUS-UNRESOLVED
+         else
+           _vc_infocus=""
+           while IFS= read -r _vc_l; do
+             _vc_c="$(sed -nE 's/^ *FAIL +B0*([0-9]+) corrects.*/\1/p' <<<"$_vc_l")"
+             _vc_t="$(sed -nE 's/^.* but ([^ ]+) has no reciprocal.*/\1/p' <<<"$_vc_l")"
+             _vc_tp="$(sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/' <<<"$_vc_t")"
+             # unparseable line => treated as in-focus (never silently dropped)
+             if [ -z "$_vc_c" ] || [ -z "$_vc_t" ] || [ "$_vc_tp" = "$_vc_fslug" ] || [[ "$_vc_fnums" == *" $_vc_c "* ]]; then  # AR-VCORR-IN-FOCUS
+               _vc_infocus="${_vc_infocus:+$_vc_infocus$'\n'}$_vc_l"
+             else _vc_sib=$((_vc_sib+1)); fi
+           done <<<"$_vc_fails"
+         fi
+       fi
+       if [ -n "$_vc_scope_err" ]; then
+         _vc_refuse ERROR "$_vc_scope_err"
+       else
+         if [ -n "$_vc_infocus" ]; then
+           _vc_nf="$(grep -c '' <<<"$_vc_infocus")"
+           _vc_refuse FAIL "$_vc_nf one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)"
+           sed 's/^ */      /' <<<"$_vc_infocus"
+         fi
+         if [ "$_vc_sib" -gt 0 ]; then
+           echo "    verify-corrections : SIBLING — $_vc_sib pair(s) outside focus $focus_slug not enforced"
+           echo "WARN: verify-corrections found $_vc_sib one-directional pair(s) outside focus $focus_slug — not enforced for this --focus close." >&2
+         fi
+       fi
+     else
+       _vc_refuse ERROR "verify-corrections exited 1 with no findings (could not run?) — see verify-corrections.sh output"
      fi;;
   2) if grep -q 'no block files' <<<"$_vc_out"; then   # exit 2 is ambiguous: no-blocks vs bad args — read the reason
        echo "    verify-corrections : n/a — no block files"
      else
-       echo "    verify-corrections : WARN — verify-corrections.sh did not run (bad args, exit 2)"
-       echo "WARN: verify-corrections.sh rejected its arguments (exit 2) — the §14 reciprocity check was NOT performed." >&2
+       _vc_refuse ERROR "verify-corrections.sh did not run (bad args, exit 2) — the §14 reciprocity check was NOT performed"
      fi;;
-  *) echo "    verify-corrections : WARN — verify-corrections.sh did not run (exit $_vc_rc) — check it exists and is executable"
-     echo "WARN: verify-corrections.sh did not run (exit $_vc_rc) — the §14 reciprocity check was NOT performed." >&2;;
+  *) _vc_refuse ERROR "verify-corrections.sh did not run (exit $_vc_rc) — check it exists and is executable";;
 esac
 # --- SECRETS GATE: the working tree + committed history, for a git-backed repo root (issue #970) ----
 # Round 2 of this gate built a mirror that re-implemented `git status -z` parsing to give
@@ -353,6 +438,7 @@ if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
   echo "    $here/verify-state.sh $corpus"
   echo "    $here/verify-sources.sh $corpus"
+  echo "    $here/verify-corrections.sh $corpus"
   # Mirror the SAME git-state classification the gate above used, INCLUDING the ambiguous-failure case
   # (#970 round 3 fix #7): a shallower re-check here previously fell through to suggesting a
   # scan-secrets command in the F3 ambiguous-git-failure case too, even though the gate refused BEFORE

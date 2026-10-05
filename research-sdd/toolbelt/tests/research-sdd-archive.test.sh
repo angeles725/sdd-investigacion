@@ -284,6 +284,7 @@ cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
 cp "$HERE/../lib/retro-status.sh" "$tb/lib/retro-status.sh"  # required helper
 cp "$HERE/../lib/state-files.sh"  "$tb/lib/state-files.sh"   # required helper (uf-gate loop)
 cp "$HERE/../lib/block-files.sh"  "$tb/lib/block-files.sh"   # required helper (block discriminator)
+cp "$HERE/../lib/focus-prefix.sh" "$tb/lib/focus-prefix.sh"  # required helper (--focus scope of the §14 gate)
 cp "$HERE/../scan-secrets.sh"     "$tb/scan-secrets.sh"       # required helper (gate)
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -868,6 +869,14 @@ mkvcorr() {
   mkgood "$1"
   printf '# Block 2 — correction\nCorrects [Block 1] §1.1 — the earlier claim was wrong.\n' > "$1/t-block2.md"
   bash "$HERE/../research-sdd-status.sh" "$1" --sync-state >/dev/null 2>&1   # keep the mirror consistent with 2 blocks
+}
+
+# mkvfocus <dir> <focus> — two-focus corpus (mkmulti) where <focus> gets a block 2 declaring "Corrects [Block 1]"
+# with no backlink (a one-directional correction INSIDE that focus); the other focus stays clean.
+mkvfocus() {
+  mkmulti "$1"
+  printf '# Block 2 — correction\nCorrects [Block 1] §1.1 — the earlier claim was wrong.\n' > "$1/$2-block2.md"
+  bash "$HERE/../research-sdd-status.sh" "$1" --sync-state --focus "$2" >/dev/null 2>&1
 }
 
 # 22 — ONE-BLOCK-PER-COMMIT detector (retro delta): a commit that lands 2+ block files in THIS run (newer
@@ -1543,7 +1552,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Every mutant is a copy of the SUT placed in $MUT, so the siblings and lib/ it resolves via $(dirname $0) are
   # copied there ONCE.
   mkdir -p "$MUT/lib"
-  cp "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$MUT/"
+  cp "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$HERE/../verify-corrections.sh" "$MUT/"
   cp "$HERE/../lib/retro-status.sh" "$HERE/../lib/focus-prefix.sh" "$HERE/../lib/state-files.sh" "$HERE/../lib/block-files.sh" "$MUT/lib/"
   REFUSE_RE='REFUSED: reconcile'   # printed by the SUT's gate on exit 3
   ARCH_RE='^  archived'            # printed by the SUT's last line on exit 0
@@ -1567,17 +1576,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          tooth "teeth: -M dropped → false WARN on rename+add under diff.renames=false → case 23b has teeth" 0 0 "$MUT/archive.NOMUTANT.sh" \
            --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-rename"; }
 
-  echo "-- teeth: AR-VCORR — neuter the linter call (force rc 0); the one-directional corpus must lose its WARN --"
-  cp "$HERE/../verify-corrections.sh" "$MUT/"
+  echo "-- teeth: AR-VCORR — neuter the linter call (force rc 0); the one-directional corpus must stop REFUSING --"
   d="$TMP/vcorr-teeth"; mkvcorr "$d"
-  mk_sed "teeth(vcorr)" "$MUT/archive.VCMUTANT.sh" 's/_vc_rc=\$?  # AR-VCORR-ADVISORY/_vc_rc=0  # MUTANT/' \
-    && tooth "teeth(vcorr): linter result ignored → one-directional corpus no longer WARNs → case AR-VCORR has teeth" 0 0 "$MUT/archive.VCMUTANT.sh" \
-         --good-has 'verify-corrections : WARN' --bad-has 'verify-corrections : ok' --bad-lacks 'verify-corrections : WARN' -- run_on_fix @SUT@ "$d" --dry-run
+  mk_sed "teeth(vcorr)" "$MUT/archive.VCMUTANT.sh" 's/_vc_rc=\$?  # AR-VCORR-GATE/_vc_rc=0; _vc_out="   ok     MUTANT"  # MUTANT/' \
+    && tooth "teeth(vcorr): linter result ignored → one-directional corpus archives with 'ok' → case AR-VCORR has teeth" 3 0 "$MUT/archive.VCMUTANT.sh" \
+         --good-has 'verify-corrections : FAIL' --bad-has 'verify-corrections : ok' --bad-lacks 'verify-corrections : FAIL' -- run_on_fix @SUT@ "$d" --dry-run
+
+  echo "-- teeth: AR-VCORR refuse — neuter ONLY the gate_rc=1 of the verify-corrections refusal; the FAIL line stays but the close proceeds --"
+  mk_sed "teeth(vcorr-ref)" "$MUT/archive.VCREFMUTANT.sh" 's/gate_rc=1  # vcorr-gate-refuse/gate_rc=0  # MUTANT-vcorr-refuse/' \
+    && tooth "teeth(vcorr-ref): refusal neutered → FAIL printed yet exit 0 → the refusal is load-bearing" 3 0 "$MUT/archive.VCREFMUTANT.sh" \
+         --good-has "$REFUSE_RE" --bad-has 'verify-corrections : FAIL' --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d" --dry-run
+
+  echo "-- teeth: AR-VCORR override — make the flag inert; with the flag the corpus must then still REFUSE --"
+  mk_sed "teeth(vcorr-ovr)" "$MUT/archive.VCOVRMUTANT.sh" 's/if \[ "\$allow_vc" = 1 \]; then  # AR-VCORR-OVERRIDE$/if false; then  # MUTANT-vcorr-override/' \
+    && tooth "teeth(vcorr-ovr): override ignored → flagged corpus still refuses → override branch has teeth" 0 3 "$MUT/archive.VCOVRMUTANT.sh" \
+         --good-has 'verify-corrections : OVERRIDDEN' --bad-has "$REFUSE_RE" --bad-lacks 'verify-corrections : OVERRIDDEN' -- run_on_fix @SUT@ "$d" --dry-run --allow-unreciprocated-corrections
+
+  echo "-- teeth: AR-VCORR partial — blind the ok-partial match; the PARTIAL corpus must then read a bare ok --"
+  d="$TMP/vcorr-teeth-partial"; mkgood "$d"
+  printf '# Block 2 — correction\nCorrects [Block 9] §1.1 — the earlier claim was wrong.\n' > "$d/t-block2.md"
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+  mk_sed "teeth(vcorr-part)" "$MUT/archive.VCPARTMUTANT.sh" "s/grep -q '^ \*ok-partial ' <<<\"\$_vc_out\"/grep -q 'ZZZ-never' <<<\"\$_vc_out\"/" "s/elif grep -q '^ \*ok ' <<<\"\$_vc_out\"; then  # AR-VCORR-OK-POSITIVE/elif true; then  # MUTANT/" \
+    && tooth "teeth(vcorr-part): ok-partial match broken → PARTIAL reads as bare ok → partial discrimination has teeth" 0 0 "$MUT/archive.VCPARTMUTANT.sh" \
+         --good-has 'verify-corrections : PARTIAL' --bad-has 'verify-corrections : ok' --bad-lacks 'verify-corrections : PARTIAL' -- run_on_fix @SUT@ "$d" --dry-run
 
   echo "-- teeth: AR-VCORR exit-2 discrimination — break the no-block-files match; the no-blocks corpus must stop reading n/a --"
   d="$TMP/vcorr-teeth-nb"; mkgood "$d"; rm -f "$d/t-block1.md"
   mk_sed "teeth(vcorr-nb)" "$MUT/archive.VCNBMUTANT.sh" "s/grep -q 'no block files' <<<\"\$_vc_out\"/grep -q 'ZZZ-never' <<<\"\$_vc_out\"/" \
-    && tooth "teeth(vcorr-nb): no-blocks match broken → n/a becomes WARN did-not-run → exit-2 discrimination has teeth" 3 3 "$MUT/archive.VCNBMUTANT.sh" \
+    && tooth "teeth(vcorr-nb): no-blocks match broken → n/a becomes ERROR did-not-run → exit-2 discrimination has teeth" 3 3 "$MUT/archive.VCNBMUTANT.sh" \
          --good-has 'verify-corrections : n/a' --bad-has 'did not run \(bad args' --bad-lacks 'verify-corrections : n/a' -- run_on_fix @SUT@ "$d" --dry-run
 
   echo "-- teeth: AR-VCORR count guard — drop the zero check; a drifted linter prefix must then print a 0 count --"
@@ -1585,9 +1611,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '#!/usr/bin/env bash\necho "ISSUE B2 corrects B1" >&2\nexit 1\n' > "$MUT/stub/verify-corrections.sh"; chmod +x "$MUT/stub/verify-corrections.sh"
   d="$TMP/vcorr-teeth-drift"; mkgood "$d"
   cp "$SUT" "$MUT/stub/archive.ORIG.sh"
-  mk_sed "teeth(vcorr-cnt)" "$MUT/stub/archive.CNTMUTANT.sh" 's/if \[ "\$_vc_n" -gt 0 \]; then/if true; then/' \
-    && tooth "teeth(vcorr-cnt): zero guard dropped → drifted linter prints a 0 count → guard has teeth" 0 0 "$MUT/stub/archive.CNTMUTANT.sh" --orig "$MUT/stub/archive.ORIG.sh" \
-         --good-has 'count unparseable' --bad-has ' 0 one-directional' --bad-lacks 'count unparseable' -- run_on_fix @SUT@ "$d" --dry-run
+  mk_sed "teeth(vcorr-cnt)" "$MUT/stub/archive.CNTMUTANT.sh" 's/elif \[ "\$_vc_n" -gt 0 \]; then/elif true; then/' \
+    && tooth "teeth(vcorr-cnt): zero guard dropped → drifted linter (exit 1, no findings) archives silently → guard has teeth" 3 0 "$MUT/stub/archive.CNTMUTANT.sh" --orig "$MUT/stub/archive.ORIG.sh" \
+         --good-has 'exited 1 with no findings' --bad-has "$ARCH_RE" --bad-lacks 'exited 1 with no findings' -- run_on_fix @SUT@ "$d" --dry-run
+
+  echo "-- teeth: AR-VCORR degraded — blind the degraded: match; a degraded linter must then read as a (zero-count) FAIL, not DEGRADED --"
+  mkdir -p "$MUT/stub2" && cp -a "$MUT/lib" "$MUT/stub2/" && cp "$MUT/verify-state.sh" "$MUT/verify-sources.sh" "$MUT/scan-secrets.sh" "$MUT/stub2/"
+  printf '#!/usr/bin/env bash\necho "verify-corrections: degraded: awk not found on PATH; the corpus was NOT checked" >&2\nexit 1\n' > "$MUT/stub2/verify-corrections.sh"; chmod +x "$MUT/stub2/verify-corrections.sh"
+  d="$TMP/vcorr-teeth-degraded"; mkgood "$d"
+  cp "$SUT" "$MUT/stub2/archive.ORIG.sh"
+  mk_sed "teeth(vcorr-deg)" "$MUT/stub2/archive.DEGMUTANT.sh" "s/if grep -q 'degraded:' <<<\"\$_vc_out\"; then  # AR-VCORR-DEGRADED/if false; then  # MUTANT/" \
+    && tooth "teeth(vcorr-deg): degraded match broken → DEGRADED reads as a generic exit-1 ERROR → degraded discrimination has teeth" 3 3 "$MUT/stub2/archive.DEGMUTANT.sh" --orig "$MUT/stub2/archive.ORIG.sh" \
+         --good-has 'verify-corrections : DEGRADED' --bad-has 'exited 1 with no findings' --bad-lacks 'verify-corrections : DEGRADED' -- run_on_fix @SUT@ "$d" --dry-run
+
+  echo "-- teeth: AR-VCORR focus scope — classify every pair in-focus; the sibling-only corpus must then refuse --"
+  d="$TMP/vcorr-teeth-sib"; mkvfocus "$d" beta
+  mk_sed "teeth(vcorr-sib)" "$MUT/archive.VCSIBMUTANT.sh" 's/if \[ -z "\$_vc_c" \] || \[ -z "\$_vc_t" \]/if true || [ -z "$_vc_t" ]/' \
+    && tooth "teeth(vcorr-sib): every pair in-focus → sibling failure refuses --focus alpha → the SIBLING classification has teeth" 0 3 "$MUT/archive.VCSIBMUTANT.sh" \
+         --good-has 'verify-corrections : SIBLING' --bad-has 'verify-corrections : FAIL' --bad-lacks 'verify-corrections : SIBLING' -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
+
+  echo "-- teeth: AR-VCORR focus scope — classify every pair as sibling; the failing focus must then stop refusing --"
+  mk_sed "teeth(vcorr-infocus)" "$MUT/archive.VCINFMUTANT.sh" 's/\[ "\$_vc_tp" = "\$_vc_fslug" \] || \[\[ "\$_vc_fnums" == \*" \$_vc_c "\* \]\]/false/' \
+    && tooth "teeth(vcorr-infocus): in-focus test neutered → failing focus beta archives → in-focus detection has teeth" 3 0 "$MUT/archive.VCINFMUTANT.sh" \
+         --good-has 'verify-corrections : FAIL' --bad-has 'verify-corrections : SIBLING' --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d" --dry-run --focus beta
+
+  echo "-- teeth: AR-VCORR focus unresolved — disable the no-focus-blocks guard; the unresolvable focus must then not read ERROR --"
+  d="$TMP/vcorr-teeth-unres"; mkvfocus "$d" alpha; rm -f "$d/beta-block1.md"
+  mk_sed "teeth(vcorr-unres)" "$MUT/archive.VCUNRMUTANT.sh" 's/\[ "\$_vc_fcount" -eq 0 \]; then/[ "$_vc_fcount" -eq 99 ]; then/' \
+    && tooth "teeth(vcorr-unres): guard disabled → unresolvable focus classified sibling instead of ERROR → guard has teeth" 3 3 "$MUT/archive.VCUNRMUTANT.sh" \
+         --good-has 'verify-corrections : ERROR — cannot scope' --bad-has 'verify-corrections : SIBLING' --bad-lacks 'verify-corrections : ERROR' -- run_on_fix @SUT@ "$d" --dry-run --focus beta
+
+  echo "-- teeth: AR-VCORR positive ok — accept any exit 0; a linter printing no ok line must then read ok --"
+  mkdir -p "$MUT/stub3" && cp -a "$MUT/lib" "$MUT/stub3/" && cp "$MUT/verify-state.sh" "$MUT/verify-sources.sh" "$MUT/scan-secrets.sh" "$MUT/stub3/"
+  printf '#!/usr/bin/env bash\necho "nothing useful"\nexit 0\n' > "$MUT/stub3/verify-corrections.sh"; chmod +x "$MUT/stub3/verify-corrections.sh"
+  d="$TMP/vcorr-teeth-bare0"; mkgood "$d"
+  cp "$SUT" "$MUT/stub3/archive.ORIG.sh"
+  mk_sed "teeth(vcorr-ok0)" "$MUT/stub3/archive.OK0MUTANT.sh" "s/elif grep -q '^ \*ok ' <<<\"\$_vc_out\"; then  # AR-VCORR-OK-POSITIVE/elif true; then  # MUTANT/" \
+    && tooth "teeth(vcorr-ok0): positive ok match dropped → verdict-less exit 0 reads ok → positive-match guard has teeth" 3 0 "$MUT/stub3/archive.OK0MUTANT.sh" --orig "$MUT/stub3/archive.ORIG.sh" \
+         --good-has 'exited 0 without an' --bad-has 'verify-corrections : ok' --bad-lacks 'exited 0 without an' -- run_on_fix @SUT@ "$d" --dry-run
 
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
@@ -1737,22 +1798,28 @@ out_ar2_foc="$(bash "$SUT" "$d" --focus alpha --dry-run 2>&1)"; rc_ar2_foc=$?
 
 # AR2 teeth — inside the --prove-teeth block (appended there separately below).
 
-# AR-VCORR — verify-corrections is an ADVISORY step (issue #1787 item 4; WARN-only by fleet measurement).
+# AR-VCORR — verify-corrections is a GATE (issue #1790 step 4; promoted from the #1787 advisory WARN).
+# A real FAIL (exit 1 with FAIL lines) REFUSES (exit 3) unless --allow-unreciprocated-corrections is given;
+# could-not-run states (DEGRADED / ERROR) refuse with a typed reason; ok-partial passes as PARTIAL.
 d="$TMP/vcorr-bad"; mkvcorr "$d"
 out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
-# control: the SAME corpus with the reciprocal note added — exit code and every non-advisory line must be identical.
-d2="$TMP/vcorr-bad-ctl"; mkvcorr "$d2"; printf 'Corrected in B2.\n' >> "$d2/t-block1.md"
-out_ctl="$(bash "$SUT" "$d2" --dry-run 2>&1)"; rc_ctl=$?
-_vc_strip() { grep -v 'verify-corrections' <<<"$1" | sed -e "s#$d2#@C@#g" -e "s#$d#@C@#g" -e 's#vcorr-bad-ctl#@N@#g' -e 's#vcorr-bad#@N@#g'; }
-if grep -q 'verify-corrections : WARN — 1 one-directional' <<<"$out_vc" && ! grep -q 'verify-corrections : ok' <<<"$out_vc" \
-   && [ "$rc_vc" = "$rc_ctl" ] && [ "$(_vc_strip "$out_vc")" = "$(_vc_strip "$out_ctl")" ]; then
-  ok "AR-VCORR: one-directional correction → WARN with count; exit code and verdict identical to the reciprocated control (rc=$rc_vc)"
-else no "AR-VCORR bad: rc=$rc_vc ctl=$rc_ctl :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : FAIL — 1 one-directional' <<<"$out_vc" \
+   && grep -q 'FAIL   B2 corrects \[Block 1\]' <<<"$out_vc" && grep -q 'REFUSED: reconcile' <<<"$out_vc" \
+   && ! grep -q 'verify-corrections : ok' <<<"$out_vc"; then
+  ok "AR-VCORR: one-directional correction → FAIL with count + failing pair, REFUSED exit 3"
+else no "AR-VCORR bad: rc=$rc_vc :: $(grep -i 'verify-corrections\|REFUSED' <<<"$out_vc" | head -3)"; fi
+
+# override: same corpus + the documented flag → typed OVERRIDDEN line, archive proceeds (exit 0).
+out_vc="$(bash "$SUT" "$d" --dry-run --allow-unreciprocated-corrections 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : OVERRIDDEN — 1 one-directional' <<<"$out_vc" \
+   && ! grep -q 'REFUSED: reconcile' <<<"$out_vc"; then
+  ok "AR-VCORR: --allow-unreciprocated-corrections → typed OVERRIDDEN line, exit 0"
+else no "AR-VCORR override: rc=$rc_vc :: $(grep -i 'verify-corrections\|REFUSED' <<<"$out_vc" | head -3)"; fi
 
 d="$TMP/vcorr-ok"; mkvcorr "$d"; printf 'Corrected in B2.\n' >> "$d/t-block1.md"
 out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
-if grep -q 'verify-corrections : ok' <<<"$out_vc" && ! grep -q 'one-directional' <<<"$out_vc"; then
-  ok "AR-VCORR: reciprocated correction → verify-corrections ok, no WARN"
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : ok' <<<"$out_vc" && ! grep -q 'one-directional' <<<"$out_vc"; then
+  ok "AR-VCORR: reciprocated correction → verify-corrections ok, no refusal"
 else no "AR-VCORR ok: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
 d="$TMP/vcorr-clean"; mkgood "$d"
@@ -1760,14 +1827,25 @@ out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"
 if grep -q 'verify-corrections : ok' <<<"$out_vc"; then ok "AR-VCORR: corpus with no corrections → ok"
 else no "AR-VCORR clean :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
-# exit 2 (no block files) must read as n/a, never a spurious ERROR/WARN-did-not-run (§7 three states).
+# ok-partial (a declared correction whose target block does not exist) is NOT a silent ok: typed PARTIAL, archive proceeds.
+d="$TMP/vcorr-partial"; mkgood "$d"
+printf '# Block 2 — correction\nCorrects [Block 9] §1.1 — the earlier claim was wrong.\n' > "$d/t-block2.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : PARTIAL — 1 declared correction(s) NOT checked' <<<"$out_vc" \
+   && ! grep -q 'verify-corrections : ok' <<<"$out_vc"; then
+  ok "AR-VCORR: ok-partial → typed PARTIAL (never a bare ok), exit 0"
+else no "AR-VCORR partial: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+# exit 2 (no block files) must read as n/a, never a spurious ERROR (§7 three states).
 d="$TMP/vcorr-noblocks"; mkgood "$d"; rm -f "$d/t-block1.md"
 out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"
-if grep -q 'verify-corrections : n/a' <<<"$out_vc" && ! grep -q 'verify-corrections : \(ERROR\|WARN\)' <<<"$out_vc"; then
+if grep -q 'verify-corrections : n/a' <<<"$out_vc" && ! grep -q 'verify-corrections : \(ERROR\|WARN\|FAIL\)' <<<"$out_vc"; then
   ok "AR-VCORR: no block files (linter exit 2) → n/a, not an ERROR"
 else no "AR-VCORR no-blocks :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
-# bad args (exit 2 WITHOUT the no-block-files reason) must NOT read as n/a; and a linter exiting 7 must WARN did-not-run.
+# could-not-run: bad args (exit 2 WITHOUT the no-block-files reason) and any other exit code are typed ERROR + REFUSED
+# (never n/a, never a silent pass); the override flag turns the refusal into a typed OVERRIDDEN line.
 AR_STUB="$TMP/vcorr-stub"; mkdir -p "$AR_STUB/lib"
 cp "$SUT" "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$AR_STUB/"
 cp "$HERE/../lib/"*.sh "$AR_STUB/lib/"
@@ -1776,25 +1854,84 @@ for _stub_rc in 7 2; do
   chmod +x "$AR_STUB/verify-corrections.sh"
   d="$TMP/vcorr-stubcorpus-$_stub_rc"; mkgood "$d"
   out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
-  if grep -q 'verify-corrections : WARN — verify-corrections.sh did not run' <<<"$out_vc" \
-     && ! grep -q 'verify-corrections : n/a' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
-    ok "AR-VCORR: linter exit $_stub_rc (not no-blocks) → WARN did-not-run, never n/a, archive exit unchanged"
+  if grep -q 'verify-corrections : ERROR — verify-corrections.sh did not run' <<<"$out_vc" \
+     && ! grep -q 'verify-corrections : n/a' <<<"$out_vc" && [ "$rc_vc" = 3 ]; then
+    ok "AR-VCORR: linter exit $_stub_rc (not no-blocks) → ERROR did-not-run, REFUSED, never n/a"
   else no "AR-VCORR stub exit $_stub_rc: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+  out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run --allow-unreciprocated-corrections 2>&1)"; rc_vc=$?
+  if grep -q 'verify-corrections : OVERRIDDEN — verify-corrections.sh did not run' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
+    ok "AR-VCORR: linter exit $_stub_rc + override flag → typed OVERRIDDEN did-not-run, exit 0"
+  else no "AR-VCORR stub override $_stub_rc: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 done
-# exit 1 with an UNEXPECTED prefix (contract drift): must WARN "count unparseable", never "0 one-directional".
+# exit 1 with an UNEXPECTED prefix and no `degraded:` (contract drift / lib failed): ERROR, never a findings claim.
 printf '#!/usr/bin/env bash\necho "ISSUE B2 corrects B1" >&2\nexit 1\n' > "$AR_STUB/verify-corrections.sh"
 chmod +x "$AR_STUB/verify-corrections.sh"
 d="$TMP/vcorr-drift"; mkgood "$d"
 out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
-if grep -q 'count unparseable' <<<"$out_vc" && ! grep -q ' 0 one-directional' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
-  ok "AR-VCORR: linter exit 1 with unexpected prefix → WARN count unparseable, no zero-count WARN"
+if grep -q 'verify-corrections : ERROR — verify-corrections exited 1 with no findings (could not run?)' <<<"$out_vc" \
+   && ! grep -q 'one-directional' <<<"$out_vc" && ! grep -q 'verify-corrections : FAIL' <<<"$out_vc" && [ "$rc_vc" = 3 ]; then
+  ok "AR-VCORR: linter exit 1 with no findings and no degraded: → ERROR (no findings claimed), REFUSED"
 else no "AR-VCORR drift: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+# exit 1 with the linter's own `degraded:` marker (instrument could not look): DEGRADED + REFUSED, not a FAIL count.
+printf '#!/usr/bin/env bash\necho "verify-corrections: degraded: awk not found on PATH; the corpus was NOT checked" >&2\nexit 1\n' > "$AR_STUB/verify-corrections.sh"
+chmod +x "$AR_STUB/verify-corrections.sh"
+d="$TMP/vcorr-degraded"; mkgood "$d"
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q 'verify-corrections : DEGRADED — ' <<<"$out_vc" && ! grep -q 'one-directional' <<<"$out_vc" && [ "$rc_vc" = 3 ]; then
+  ok "AR-VCORR: linter degraded: marker → DEGRADED (typed, not a finding count), REFUSED"
+else no "AR-VCORR degraded: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run --allow-unreciprocated-corrections 2>&1)"; rc_vc=$?
+if grep -q 'verify-corrections : OVERRIDDEN — .*degraded' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
+  ok "AR-VCORR: degraded + override flag → typed OVERRIDDEN, exit 0"
+else no "AR-VCORR degraded override: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 rm -f "$AR_STUB/verify-corrections.sh"
 d="$TMP/vcorr-missing"; mkgood "$d"
-out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"
-if grep -q 'verify-corrections : WARN — verify-corrections.sh did not run (exit 127)' <<<"$out_vc"; then
-  ok "AR-VCORR: linter script missing → WARN did-not-run (exit 127)"
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q 'verify-corrections : ERROR — verify-corrections.sh did not run (exit 127)' <<<"$out_vc" && [ "$rc_vc" = 3 ]; then
+  ok "AR-VCORR: linter script missing → ERROR did-not-run (exit 127), REFUSED"
 else no "AR-VCORR missing :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+# item 3 — a bare exit 0 must POSITIVELY match the linter's `ok` line; exit 0 with neither ok nor ok-partial is ERROR.
+printf '#!/usr/bin/env bash\necho "nothing useful"\nexit 0\n' > "$AR_STUB/verify-corrections.sh"; chmod +x "$AR_STUB/verify-corrections.sh"
+d="$TMP/vcorr-bare0"; mkgood "$d"
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q "verify-corrections : ERROR — verify-corrections.sh exited 0 without an 'ok' verdict line" <<<"$out_vc" \
+   && ! grep -q 'verify-corrections : ok' <<<"$out_vc" && [ "$rc_vc" = 3 ]; then
+  ok "AR-VCORR: bare exit 0 without an ok verdict line → ERROR, REFUSED (never a silent ok)"
+else no "AR-VCORR bare0: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+rm -f "$AR_STUB/verify-corrections.sh"
+
+# item 4 — the override flag must not mask ANOTHER gate: a stale mirror (verify-state FAIL) + a one-directional
+# correction + the flag still REFUSES (exit 3), with verify-state's FAIL and the typed OVERRIDDEN line both visible.
+d="$TMP/vcorr-ovr-other"; mkvcorr "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"
+out_vc="$(bash "$SUT" "$d" --dry-run --allow-unreciprocated-corrections 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : OVERRIDDEN' <<<"$out_vc" && grep -q 'verify-state   : FAIL' <<<"$out_vc" \
+   && grep -q 'REFUSED: reconcile' <<<"$out_vc"; then
+  ok "AR-VCORR: override flag does not mask a failing verify-state (still exit 3)"
+else no "AR-VCORR override-other: rc=$rc_vc :: $(grep -iE 'verify-state|verify-corrections|REFUSED' <<<"$out_vc" | head -4)"; fi
+
+# item 1 — --focus scoping (same rule as verify-state, #647).
+d="$TMP/vcorr-focus-sib"; mkvfocus "$d" beta
+out_vc="$(bash "$SUT" "$d" --dry-run --focus alpha 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : SIBLING — 1 pair(s) outside focus alpha not enforced' <<<"$out_vc" \
+   && ! grep -q 'verify-corrections : FAIL' <<<"$out_vc" && ! grep -q 'REFUSED: reconcile' <<<"$out_vc"; then
+  ok "AR-VCORR focus: clean focus alpha + failing sibling beta → SIBLING (typed, not enforced), exit 0"
+else no "AR-VCORR focus-sibling: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : FAIL — 1 one-directional' <<<"$out_vc"; then
+  ok "AR-VCORR focus: the same corpus WITHOUT --focus still refuses (whole-corpus gate unchanged)"
+else no "AR-VCORR focus-nofocus: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+out_vc="$(bash "$SUT" "$d" --dry-run --focus beta 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : FAIL — 1 one-directional' <<<"$out_vc" \
+   && grep -q 'FAIL   B2 corrects \[Block 1\] but beta-block1.md' <<<"$out_vc" && ! grep -q 'SIBLING' <<<"$out_vc"; then
+  ok "AR-VCORR focus: failing focus beta refuses (exit 3) naming its own pair"
+else no "AR-VCORR focus-failing: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+d="$TMP/vcorr-focus-unres"; mkvfocus "$d" alpha; rm -f "$d/beta-block1.md"
+out_vc="$(bash "$SUT" "$d" --dry-run --focus beta 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : ERROR — cannot scope the §14 gate to focus beta' <<<"$out_vc" \
+   && ! grep -q 'verify-corrections : \(SIBLING\|ok\)' <<<"$out_vc"; then
+  ok "AR-VCORR focus: focus prefix unresolvable (no block carries it) + findings → typed ERROR, REFUSED (never a silent pass)"
+else no "AR-VCORR focus-unres: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
