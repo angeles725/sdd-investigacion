@@ -237,33 +237,50 @@ _rsdd_cmd_variants_json() {
 # same hook (they did: scaffold --wire matched exact strings only). Reads the base settings JSON on
 # stdin; args: <stop-abs> <ss-abs> <pk-abs> <stop-rel> <ss-rel> <pk-rel> <skip_ss true|false> <gate-abs>
 # (kit issue #1732: the return-token gate command, an explicit argument, no global). Emits
-# {settings, has_stop, has_ss, has_pk, has_gate, repaired}; a skipped SessionStart never removes an existing entry.
-# GATE (<gate-abs> is passed double-quoted): present when a Stop command equals it, or its bare unquoted path. A Stop command whose
-# (unquoted) path ends in return-token-gate.sh, contains no `$` and does NOT exist on disk is STALE (the kit moved):
-# it is DROPPED (all of them) and listed in `repaired`; the current <gate-abs> is appended once when absent.
-# A gate at another path that still exists is left as-is.
+# {settings, has_stop, has_ss, has_pk, has_gate, has_current, repaired, others}; a skipped SessionStart never removes an
+# existing entry.
+# GATE (<gate-abs> is passed double-quoted): the CURRENT gate is a Stop command equal to it, or to its bare unquoted path.
+# STALE means ONLY a command that is exactly a bare or double-quoted ABSOLUTE path to .../return-token-gate.sh (no
+# arguments, no interpreter prefix, no `$`, no `~`) that does NOT exist on disk (the kit moved): all such entries are DROPPED
+# and listed in `repaired`. EVERY other gate-looking command (interpreter-prefixed, with arguments, relative, `~`,
+# $CLAUDE_PROJECT_DIR, or an absolute path that still exists) is a working gate in another form: it is never touched, it is
+# listed in `others`, and it counts as registered (has_gate), so the current <gate-abs> is appended only when no working
+# gate exists in any form.
+# Echo the bare absolute path of a command that is exactly a bare or double-quoted absolute path to
+# return-token-gate.sh; return 1 for any other form. Used to classify STALE candidates.
+_rsdd_gate_stale_path() {
+  local c="$1" p="$1" quoted=0
+  if [[ "$c" == \"*\" && ${#c} -ge 2 ]]; then p="${c:1:${#c}-2}"; quoted=1; fi
+  case "$p" in /*/return-token-gate.sh) ;; *) return 1 ;; esac  # RSDD-GATE-STRICT
+  [[ "$p" == *[\"\$\~\`\']* || "$p" == *$'\n'* ]] && return 1
+  if [ "$quoted" = 0 ] && [[ "$p" == *[[:space:]]* ]]; then return 1; fi
+  printf '%s' "$p"
+}
 _rsdd_merge_settings() {
-  local sv ssv pv gv base c _gp _gpath stale='[]'
+  local sv ssv pv gv base c _gp _gpath stale='[]' others='[]'
   _gpath="${8#\"}"; _gpath="${_gpath%\"}"   # <gate-abs> arrives double-quoted; the bare path is also a CURRENT form
   sv="$(_rsdd_cmd_variants_json "$1" "$4")"; ssv="$(_rsdd_cmd_variants_json "$2" "$5")"
   pv="$(_rsdd_cmd_variants_json "$3" "$6")"
   gv="$(jq -cn --arg g "$8" --arg p "$_gpath" '[$g, $p]')"
   base="$(cat)"
   while IFS= read -r c; do
-    _gp="${c#\"}"; _gp="${_gp%\"}"
-    case "$_gp" in *'$'*) continue ;; esac
-    [ "$_gp" = "$_gpath" ] && continue
-    [ -e "$_gp" ] || stale="$(jq -c --arg c "$c" '. + [$c]' <<<"$stale")"  # RSDD-GATE-STALE
-  done < <(jq -r '(.hooks.Stop // [])[]? | (.hooks // [])[]? | (.command // empty) | select(type == "string" and (rtrimstr("\"") | endswith("return-token-gate.sh")))' <<<"$base" 2>/dev/null)
+    [ "$c" = "$8" ] && continue
+    [ "$c" = "$_gpath" ] && continue
+    if _gp="$(_rsdd_gate_stale_path "$c")" && [ "$_gp" != "$_gpath" ]; then
+      [ -e "$_gp" ] || { stale="$(jq -c --arg c "$c" '. + [$c]' <<<"$stale")"; continue; }  # RSDD-GATE-STALE
+    fi
+    others="$(jq -c --arg c "$c" '. + [$c]' <<<"$others")"
+  done < <(jq -r '(.hooks.Stop // [])[]? | (.hooks // [])[]? | (.command // empty) | select(type == "string" and contains("return-token-gate.sh"))' <<<"$base" 2>/dev/null)
   jq --arg sc "$1" --arg ac "$2" --arg pc "$3" --arg gc "$8" \
     --argjson stop_variants "$sv" --argjson ss_variants "$ssv" --argjson pk_variants "$pv" \
-    --argjson gate_variants "$gv" --argjson stale "$stale" \
+    --argjson gate_variants "$gv" --argjson stale "$stale" --argjson others "$others" \
     --argjson skip_ss "$7" '
     ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
     ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
     ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
-    # kit issue #1732: the CURRENT gate command (bare or double-quoted) is present; stale paths are handled via $stale.
-    ($stop_cmds | any(. as $c | ($gate_variants | index($c)) != null)) as $has_gate |
+    # kit issue #1732: has_current = the CURRENT gate command is registered; has_gate = ANY working gate (current or another form).
+    ($stop_cmds | any(. as $c | ($gate_variants | index($c)) != null)) as $has_current |
+    ($has_current or ($others | length) > 0) as $has_gate |
     ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
     # kit issue #1509: the guard only protects Bash, so a registration counts as "present" ONLY under
     # a matcher that fires for Bash ("" / absent / "*" / a regex that fully matches "Bash"); the same
@@ -278,14 +295,14 @@ _rsdd_merge_settings() {
       + (if $has_stop then [] else [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)
       + (if $has_gate then [] else [{"matcher":"","hooks":[{"type":"command","command":$gc}]}] end))) |
     (if ($stale | length) > 0 then
-       # drop EVERY stale gate hook (the current one was appended above when absent, so exactly one results); an entry
+       # drop EVERY stale gate hook (the current one was appended above only when NO working gate exists); an entry
        # emptied by the drop is removed, every other entry is left byte-identical.
        (.hooks.Stop |= map(. as $e | ($e.hooks // []) as $h | ($h | map(select(((.command // "") | IN($stale[])) | not))) as $n
                            | if ($n | length) == ($h | length) then $e elif ($n | length) == 0 then empty else ($e | .hooks = $n) end))
      else . end) |
     (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
       else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
-    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk, has_gate: $has_gate, repaired: $stale}
+    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk, has_gate: $has_gate, has_current: $has_current, repaired: $stale, others: $others}
   ' <<<"$base"
 }
 
@@ -297,6 +314,10 @@ _rsdd_report_gate() {
     jq -r '.repaired[] | ltrimstr("\"") | rtrimstr("\"")' <<<"$out" | while IFS= read -r _old; do
       echo "  wired  : Stop return-token gate repaired (stale path $_old) in $settings"
     done
+  fi
+  if [ "$(jq -r '.has_current | not' <<<"$out")" = "true" ] && [ "$(jq -r '.others | length' <<<"$out")" != 0 ]; then
+    echo "  wired  : Stop return-token gate already wired (other form: $(jq -r '.others[0]' <<<"$out")) in $settings"
+  elif [ "$(jq -r '.repaired | length' <<<"$out")" != 0 ]; then :
   elif [ "$(jq -r '.has_gate' <<<"$out")" = "true" ]; then
     echo "  wired  : Stop return-token gate already wired in $settings"
   else
@@ -316,10 +337,11 @@ _rsdd_print_wire_snippet() {
   fi
 }
 
-# kit issue #1509: the JSON block alone, shared by the wire-only/degraded snippet above AND the
-# scaffold print-only snippet (they used to carry two hand-copied renderings of the same block).
 # JSON-escape one string value in pure bash (the degraded snippet is printed when jq is absent): backslash and quote.
 _rsdd_json_esc() { local v="${1//\\/\\\\}"; printf '%s' "${v//\"/\\\"}"; }
+
+# kit issue #1509: the JSON block alone, shared by the wire-only/degraded snippet above AND the
+# scaffold print-only snippet (they used to carry two hand-copied renderings of the same block).
 _rsdd_print_wire_block() {
   local stop_cmd ss_cmd="$2" skip_ss="$3" pk_cmd gate_cmd
   stop_cmd="$(_rsdd_json_esc "$1")"; ss_cmd="$(_rsdd_json_esc "$ss_cmd")"; pk_cmd="$(_rsdd_json_esc "$4")"; gate_cmd="$(_rsdd_json_esc "$_RSDD_GATE_CMD")"

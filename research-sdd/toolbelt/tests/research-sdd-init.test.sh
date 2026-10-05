@@ -1877,6 +1877,7 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --wire >"$TMP/1732-d2.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$TMP/otherkit/return-token-gate.sh")" = 1 ] \
     && ok "K1732-d2 an existing gate at another path is kept as-is" || no "K1732-d2 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  assert_grep "K1732-d2 reports it as another form" "already wired (other form: $TMP/otherkit/return-token-gate.sh)" "$TMP/1732-d2.out"
   # (d3) a QUOTED registration of the current gate is the same hook (not duplicated); a QUOTED stale one is repaired.
   d="$TMP/1732-d3"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "\"$_k32_gate\"" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
@@ -1913,6 +1914,27 @@ if command -v jq >/dev/null 2>&1; then
   d="$TMP/1732-f2"; mkdir -p "$d"
   bash "$_k32_sp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1732-f2.out" 2>&1
   assert_grep "K1732-f2 snippet carries the space path as an escaped JSON string" "\"command\":\"\\\"$_k32_sp/toolbelt/return-token-gate.sh\\\"\"" "$TMP/1732-f2.out"
+  # (g) a gate in ANY other working form is a registered gate: kept byte-for-byte, no second gate is added, and it is
+  # never classified stale (interpreter prefix, arguments, relative, ~ and $CLAUDE_PROJECT_DIR forms).
+  _k32_gi=0
+  # shellcheck disable=SC2088 # the literal tilde is the fixture: an unexpanded ~ command form
+  for _k32_form in 'bash /x/return-token-gate.sh' '/x/return-token-gate.sh --flag' './tools/return-token-gate.sh' \
+      '$CLAUDE_PROJECT_DIR/tools/return-token-gate.sh' '"$CLAUDE_PROJECT_DIR"/tools/return-token-gate.sh' '~/kit/return-token-gate.sh'; do
+    _k32_gi=$((_k32_gi + 1)); d="$TMP/1732-g$_k32_gi"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    jq -n --arg c "$_k32_form" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+    bash "$SUT" "$d" --wire >"$TMP/1732-g$_k32_gi.out" 2>&1
+    if [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+       && [ "$(jq -r '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh")) | .command] | first' "$d/.claude/settings.json")" = "$_k32_form" ] \
+       && grep -qF "already wired (other form: $_k32_form)" "$TMP/1732-g$_k32_gi.out"; then
+      ok "K1732-g [$_k32_form] is kept untouched, no second gate, reported as another form"
+    else no "K1732-g [$_k32_form] Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json") out: $(grep -i 'gate' "$TMP/1732-g$_k32_gi.out" | head -2)"; fi
+  done
+  # (g2) a dead bare absolute gate next to a WORKING other-form gate: the dead one is repaired away, no second gate is added.
+  d="$TMP/1732-g2"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/gone/return-token-gate.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"bash /x/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(jq -r '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh")) | .command] | join("|")' "$d/.claude/settings.json")" = "bash /x/return-token-gate.sh" ] \
+    && ok "K1732-g2 a dead gate is dropped, the working other-form gate stays, no second gate" || no "K1732-g2 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (e) print-only scaffold: the proposed snippet carries the gate and no settings.json is written.
   d="$TMP/1732-e"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat >"$TMP/1732-e.out" 2>&1
@@ -3186,6 +3208,22 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" -gt 1 ] \
       && ok "teeth M-1732-MULTI: without the stale drop several gate entries remain — K1732-d6 has teeth" || no "teeth M-1732-MULTI: still one entry under the mutant — THEATER"
   else no "teeth M-1732-MULTI: could not build mutant"; fi
+  # M-1732-STRICT: the stale classifier accepts ANY gate-looking command -> an interpreter-prefixed working hook is deleted.
+  if _k43_build k32st -e '/# RSDD-GATE-STRICT$/s/\*) return 1 ;;/*) ;;/'; then
+    d="$TMP/k43/k32st-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"./tools/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k32st/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    grep -qF './tools/return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null && no "teeth M-1732-STRICT: working hook survives under the mutant — THEATER" \
+      || ok "teeth M-1732-STRICT: a loose classifier deletes a working relative-path hook — K1732-g has teeth"
+  else no "teeth M-1732-STRICT: could not build mutant"; fi
+  # M-1732-OTHER: other-form gates do not count as registered -> a second gate is appended.
+  if _k43_build k32ot -e 's/ or (\$others | length) > 0//'; then
+    d="$TMP/k43/k32ot-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"./tools/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k32ot/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" -gt 1 ] \
+      && ok "teeth M-1732-OTHER: without counting other forms a second gate is added — K1732-g has teeth" || no "teeth M-1732-OTHER: still one gate under the mutant — THEATER"
+  else no "teeth M-1732-OTHER: could not build mutant"; fi
   # M-1732-SNIPPET: the printed snippet drops the gate entry.
   if _k43_build k32sn -e 's/^  local gate_entry=.*/  local gate_entry=""/'; then
     d="$TMP/k43/k32sn-t"; mkdir -p "$d"
