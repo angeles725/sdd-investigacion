@@ -2666,7 +2666,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     case "$label" in
       T1773-a) [ "$RC" = 1 ] && verdict=0 ;;
       T1773-b) grep -q '^shallow-clone:' <<<"$OUT" || verdict=0 ;;
-      T1773-c) grep '^shallow-clone:' <<<"$OUT" | grep -q '10261004' && verdict=0 ;;
+      T1773-c) grep -q '^shallow-clone:.*10261004' <<<"$OUT" && verdict=0 ;;
       T1773-d) [ "$(grep -c '^shallow-clone:' <<<"$OUT")" != 1 ] && verdict=0 ;;
       T1752-a) [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed) failed' <<<"$OUT" && verdict=0 ;;
       T1773-e) ! grep -q '^shallow-clone:' <<<"$OUT" && verdict=0 ;;
