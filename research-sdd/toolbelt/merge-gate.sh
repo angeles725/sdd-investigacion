@@ -64,6 +64,14 @@
 # The step can never fail the run: any gh failure after the merge prints `closure-evidence: degraded: ...`
 # and the exit stays 0. `--no-closure-evidence` opts out (`closure-evidence: skipped`). Without --merge no gh
 # call is made for this step (a default or --pr run is a pure check).
+# Closing keywords mirror .github/scripts/parse-linked-issues.cjs (kit CI): `closes|fixes|resolves` only, matched
+# case-insensitively at a word boundary (not after [A-Za-z0-9/]), optional colon, same-repo `#N` only, the number
+# ending at whitespace or Markdown punctuation; references inside fenced code, HTML comments and single-line
+# inline code are ignored. Line-based: a keyword and its `#N` on different lines do not match.
+# Before posting, the PR read must say `merged: true` and `state: closed` (else `degraded`, nothing posted).
+# At most 20 issues and at most 10 listed test files (CAP); files beyond the cap print
+# `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
+# `degraded: not posted for issues: #a #b` line names them for a manual backfill.
 # KNOWN GAP: legacy commit statuses (/status) are not read, only check runs.
 set -uo pipefail
 
@@ -225,32 +233,94 @@ if [ "$merge_rc" -ne 0 ]; then
 fi
 say "merged: PR #$pr (head=$head cwd=$cwd)"
 
+# closing_issues: PR body on stdin -> closing issue numbers (see header; mirrors parse-linked-issues.cjs).
+closing_issues() {
+  awk '
+    function stripcomments(rest,   vis, e, b) {
+      vis = ""
+      for (;;) {
+        if (inc) {
+          e = index(rest, "-->")
+          if (e == 0) break
+          inc = 0; rest = substr(rest, e + 3)
+        } else {
+          b = index(rest, "<!--")
+          if (b == 0) { vis = vis rest; break }
+          vis = vis substr(rest, 1, b - 1); inc = 1; rest = substr(rest, b + 4)
+        }
+      }
+      return vis
+    }
+    function scan(text,   low, pos, rest, st, ln, prev, nxt, m, num, after, ok, enders) {
+      low = tolower(text); pos = 1
+      enders = " \t.,;:!?)}]\"" sprintf("%c", 39) "`*~"
+      while (pos <= length(low)) {
+        rest = substr(low, pos)
+        if (!match(rest, /(closes|fixes|resolves):?[ \t]+#[0-9]+/)) break
+        st = RSTART; ln = RLENGTH; m = substr(rest, st, ln)
+        prev = (pos + st - 2 >= 1) ? substr(low, pos + st - 2, 1) : ""
+        after = substr(low, pos + st - 1 + ln, 1); nxt = substr(low, pos + st + ln, 1)
+        ok = (prev == "" || prev !~ /[a-z0-9\/]/)
+        if (ok && !(after == "" || index(enders, after) > 0 || (after == "_" && (nxt == "" || nxt !~ /[a-z0-9_]/)))) ok = 0
+        if (ok) { num = m; sub(/^[^#]*#/, "", num); if (num + 0 >= 1) print num + 0 }
+        pos += st - 1 + ln
+      }
+    }
+    BEGIN { fence = ""; inc = 0 }
+    {
+      line = $0; sub(/\r$/, "", line)
+      if (fence != "") {
+        t = line; sub(/^ ? ? ?/, "", t); sub(/[ \t]+$/, "", t)
+        if ((t ~ /^`+$/ || t ~ /^~+$/) && substr(t, 1, 1) == substr(fence, 1, 1) && length(t) >= length(fence)) fence = ""
+        next
+      }
+      if (!inc) {
+        t = line; sub(/^ ? ? ?/, "", t)
+        if (match(t, /^`+/) && RLENGTH >= 3) { run = substr(t, 1, RLENGTH); if (substr(t, RLENGTH + 1) !~ /`/) { fence = run; next } }
+        else if (match(t, /^~+/) && RLENGTH >= 3) { fence = substr(t, 1, RLENGTH); next }
+      }
+      vis = stripcomments(line)
+      gsub(/`[^`]*`/, " ", vis)
+      scan(vis)
+    }'
+}
+
 # Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
 closure_evidence() {
-  local ev="closure-evidence" pj msha body issues files tests n_tests tline issue text rc
+  local ev="closure-evidence" pj msha body issues files test_files n_all n_tests tline issue text rc failed=""
   if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
   pj="$(ghr api "repos/{owner}/{repo}/pulls/$pr" 2>/dev/null)" || { say "$ev: degraded: cannot read merged PR #$pr (gh api failed)"; return 0; }
+  # The PR read must say it is merged: only then is merge_commit_sha the merge RESULT (before that it is a test-merge preview).
+  if [ "$(printf '%s' "$pj" | jq -r 'if .merged == true and .state == "closed" then "yes" else "no" end' 2>/dev/null)" != "yes" ]; then
+    say "$ev: degraded: PR #$pr is not reported merged (merged!=true or state!=closed); nothing posted"; return 0
+  fi
   msha="$(printf '%s' "$pj" | jq -r '.merge_commit_sha // empty' 2>/dev/null)"
   if ! [[ "$msha" =~ ^[0-9a-fA-F]{40}$ ]]; then say "$ev: degraded: PR #$pr has no usable 40-hex merge commit sha"; return 0; fi
   body="$(printf '%s' "$pj" | jq -r '.body // empty' 2>/dev/null)" || { say "$ev: degraded: PR #$pr body is unparseable"; return 0; }
-  issues="$(printf '%s\n' "$body" | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? +#[0-9]+' | grep -oE '[0-9]+$' | sort -un | head -n 20)"
+  issues="$(printf '%s\n' "$body" | closing_issues | sort -un | head -n 20)"
   if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue (no Closes/Fixes/Resolves #N in its body)"; return 0; fi
   files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
   # --paginate prints one JSON array per page: slurp and require every page to be an array.
-  tests="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \
+  test_files="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \
     || { say "$ev: degraded: files of PR #$pr are unparseable or off-schema"; return 0; }
-  tests="$(printf '%s\n' "$tests" | grep -E '^research-sdd/(.+/)?tests/[^/]+\.test\.sh$' | sort -u | head -n 10)"
-  if [ -z "$tests" ]; then say "$ev: not posted: PR #$pr changes no test file (research-sdd/**/tests/*.test.sh); a commit without a test is not shipped evidence"; return 0; fi
-  n_tests="$(printf '%s\n' "$tests" | grep -c .)"
-  tline="$(printf '%s\n' "$tests" | sed 's/^/- test: /')"
+  test_files="$(printf '%s\n' "$test_files" | grep -E '^research-sdd/(.+/)?tests/[^/]+\.test\.sh$' | sort -u)"
+  if [ -z "$test_files" ]; then say "$ev: not posted: PR #$pr changes no test file (research-sdd/**/tests/*.test.sh); a commit without a test is not shipped evidence"; return 0; fi
+  n_all="$(printf '%s\n' "$test_files" | grep -c .)"
+  n_tests="$n_all"
+  if [ "$n_all" -gt 10 ]; then
+    n_tests=10
+    say "$ev: note: $((n_all - 10)) test file(s) beyond cap 10 not listed"
+  fi
+  tline="$(printf '%s\n' "$test_files" | head -n 10 | sed 's/^/- test: /')"
   text="Closure evidence (merge-gate, PR #$pr):
 - commit: $msha
 $tline"
   for issue in $issues; do
     ghr issue comment "$issue" --body "$text" >/dev/null 2>"$err_file"; rc=$?
     if [ "$rc" -eq 0 ]; then say "$ev: posted: issue #$issue (commit=$msha tests=$n_tests)"
-    else say "$ev: degraded: could not comment on issue #$issue (gh exit $rc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200))"; fi
+    else say "$ev: degraded: could not comment on issue #$issue (gh exit $rc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200))"; failed="$failed #$issue"; fi
   done
+  if [ -n "$failed" ]; then say "$ev: degraded: not posted for issues:$failed (backfill by hand)"; fi
   return 0
 }
 closure_evidence
