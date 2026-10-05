@@ -10,4 +10,9 @@ harness=claude
   | Skill file: {HOME}/.claude/skills/research-sdd/SKILL.md
   | Kit path: {KIT}
   | <!-- research-sdd:end -->
+  INSTALL {HOME}/.claude/agents/research-sdd-pr-reviewer.md (read-only agent definition)
+  INSTALL {HOME}/.claude/agents/research-sdd-readability.md (read-only agent definition)
+  INSTALL {HOME}/.claude/agents/research-sdd-reliability.md (read-only agent definition)
+  INSTALL {HOME}/.claude/agents/research-sdd-resilience.md (read-only agent definition)
+  INSTALL {HOME}/.claude/agents/research-sdd-risk.md (read-only agent definition)
   slash_commands=false

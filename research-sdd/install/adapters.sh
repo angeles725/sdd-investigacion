@@ -80,6 +80,14 @@ declare -A _RSDD_SKILL_SRC_RELKIT=(
   [pi]="skills/research-sdd/SKILL.md"
   [gentle-shell]="skills/research-sdd/SKILL.md"
 )
+# WHERE: the read-only reviewer agent definitions (kit issue #1714), as a directory RELATIVE TO the kit
+# root holding one <name>.md Claude Code subagent definition per kit review role; deployed to
+# <config_root>/agents/. Empty/absent = the harness gets none (only claude has a subagent format the
+# kit ships definitions for). Every definition must grant no Edit/Write/NotebookEdit (the install suite
+# enforces it).
+declare -A _RSDD_AGENTS_SRC_RELKIT=(
+  [claude]="agents/claude"
+)
 # WHAT: the per-harness DEFAULT prompt profile (kit issue #993 WU2) — used only when the
 # installer receives neither an explicit --profile flag nor a non-empty $RESEARCH_SDD_PROFILE
 # env var (see rsdd_resolve_profile below). "claude" is the byte-identical-to-today profile;
@@ -114,6 +122,8 @@ rsdd_field() {
     prompt_template_path)
       plug="${_RSDD_PROMPT_TEMPLATE_REL[$harness]:-}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    agents_dir)       printf '%s\n' "$root/agents" ;;
+    agents_src_relkit) printf '%s\n' "${_RSDD_AGENTS_SRC_RELKIT[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
     prompt_profile) printf '%s\n' "${_RSDD_DEFAULT_PROFILE[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;

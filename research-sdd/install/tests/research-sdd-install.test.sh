@@ -2482,6 +2482,127 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else ok "teeth: snapshot of an ABSENT root fails loudly (absent-input is not 'unchanged')"; fi
 fi
 
+
+# --- read-only reviewer agent definitions (kit issue #1714) -------------------------------------
+# research-sdd/agents/claude/*.md are Claude Code subagent definitions the installer deploys to
+# <home>/.claude/agents/ (claude harness only). Contract: every definition has frontmatter with name,
+# description, tools and model; its `tools` list grants NO write-capable tool; a same-named user file
+# that differs is kept with a typed WARNING; the files are bundle members, so --verify covers them.
+echo "-- #1714: read-only reviewer agent definitions --"
+AGENT_SRC="$KITROOT/agents/claude"
+# _agents_write_grants <dir> — prints "<file>: <tool>" for every definition whose frontmatter `tools`
+# grants a write-capable tool, or "<file>: <problem>" for a malformed definition. Silent = all read-only.
+# A definition with no tools line is a problem too: omitting `tools` makes a subagent inherit EVERY tool.
+_agents_write_grants() {
+  local d="$1" f n=0 tools front t name
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    n=$((n+1))
+    front="$(awk 'NR==1 { if ($0!="---") exit; next } $0=="---" { exit } { print }' "$f")"
+    tools="$(printf '%s\n' "$front" | awk -F: '$1=="tools" { sub(/^[^:]*:[ \t]*/, ""); print; f=1 } END { exit !f }')" \
+      || { printf '%s: no tools line (would inherit every tool)\n' "$(basename "$f")"; continue; }
+    name="$(printf '%s\n' "$front" | awk -F': *' '$1=="name" { print $2 }')"
+    [ "$name" = "$(basename "$f" .md)" ] || printf '%s: name %s does not match the file name\n' "$(basename "$f")" "${name:-<none>}"
+    grep -q '^description: .' <<<"$front" || printf '%s: no description\n' "$(basename "$f")"
+    grep -q '^model: .' <<<"$front" || printf '%s: no model\n' "$(basename "$f")"
+    for t in $(printf '%s' "$tools" | tr ',[]' '   '); do
+      case "$t" in Edit|Write|NotebookEdit|MultiEdit) printf '%s: %s\n' "$(basename "$f")" "$t" ;; esac
+    done
+  done
+  [ "$n" -gt 0 ] || printf '%s: no agent definitions found\n' "$d"
+}
+grants="$(_agents_write_grants "$AGENT_SRC")"
+if [ -z "$grants" ]; then ok "agents: every shipped definition is read-only, named after its file, with description and model"
+else no "agents: shipped definitions are not read-only/well-formed: $(printf '%s' "$grants" | tr '\n' ';')"; fi
+n_src="$(find "$AGENT_SRC" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)"
+
+home="$TMP/agents-apply"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1; rc_a=$?
+missing_a=""
+for f in "$AGENT_SRC"/*.md; do
+  [ -f "$f" ] || continue
+  cmp -s "$f" "$home/.claude/agents/$(basename "$f")" || missing_a="$missing_a $(basename "$f")"
+done
+if [ "$rc_a" = 0 ] && [ "$n_src" -gt 0 ] && [ -z "$missing_a" ]; then ok "agents: apply deploys all $n_src definitions byte-identical into <home>/.claude/agents/"
+else no "agents: apply did not deploy every definition (rc=$rc_a, src=$n_src, missing:$missing_a)"; fi
+
+before_a="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+out_a2="$(bash "$SUT" --home "$home" --harness claude 2>&1)"; rc_a2=$?
+after_a="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+if [ "$rc_a2" = 0 ] && [ "$before_a" = "$after_a" ] && ! <<<"$out_a2" grep -qi 'warning'; then ok "agents: re-apply is idempotent (no byte change, no WARNING)"
+else no "agents: re-apply changed files or warned (rc=$rc_a2): $(<<<"$out_a2" grep -i warning || true)"; fi
+
+ver_a="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"
+if <<<"$ver_a" grep -q 'status=match' && grep -q '^file=.*  agents/research-sdd-risk\.md$' "$home/.claude/research-sdd/.installed-bundle-state"; then ok "agents: definitions are bundle members and --verify matches after install"
+else no "agents: --verify/bundle record does not cover the definitions: $ver_a"; fi
+
+printf '%s\n' '# tampered' >> "$home/.claude/agents/research-sdd-risk.md"
+ver_t="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"
+if <<<"$ver_t" grep -q 'status=drift.*agents/research-sdd-risk\.md (modified)'; then ok "agents: --verify names a tampered definition as drift"
+else no "agents: --verify missed a tampered definition: $ver_t"; fi
+
+home="$TMP/agents-collide"; mkdir -p "$home/.claude/agents"
+printf 'my own reviewer\n' > "$home/.claude/agents/research-sdd-risk.md"
+out_c="$(bash "$SUT" --home "$home" --harness claude 2>&1)"; rc_c=$?
+if [ "$(cat "$home/.claude/agents/research-sdd-risk.md")" = "my own reviewer" ] \
+   && <<<"$out_c" grep -q 'WARNING.*research-sdd-risk\.md.*diverged.*kept' \
+   && cmp -s "$AGENT_SRC/research-sdd-readability.md" "$home/.claude/agents/research-sdd-readability.md"; then
+  ok "agents: a differing same-named user file is kept with a typed WARNING; the other definitions still deploy (rc=$rc_c)"
+else no "agents: user-file collision mishandled (rc=$rc_c): $out_c"; fi
+
+for hh in pi gentle-shell; do
+  home="$TMP/agents-$hh"
+  bash "$SUT" --home "$home" --harness "$hh" >/dev/null 2>&1
+  if [ ! -e "$home/.pi/agent/agents" ] && [ ! -e "$home/.gentle-shell/agent/agents" ]; then ok "agents: harness $hh deploys no agent definitions"
+  else no "agents: harness $hh unexpectedly got an agents dir"; fi
+done
+
+home="$TMP/agents-dry"
+out_d="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"
+if <<<"$out_d" grep -q 'INSTALL .*/agents/research-sdd-risk\.md (read-only agent definition)' && [ ! -e "$home/.claude" ]; then ok "agents: dry-run plans every definition and writes nothing"
+else no "agents: dry-run plan lacks the agent lines or wrote files"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: the read-only check must go red when a definition grants Edit/Write --"
+  for _g in Edit Write NotebookEdit; do
+    gd="$TMP/agents-grant-$_g"; mkdir -p "$gd"; cp "$AGENT_SRC"/*.md "$gd/"
+    # plain sed: the definitions are markdown fixtures, not bash, so the bash-only mutant helper does not apply
+    sed "s/^tools: .*/tools: Read, $_g, Grep/" "$AGENT_SRC/research-sdd-risk.md" > "$gd/research-sdd-risk.md" \
+      || no "teeth: could not build the $_g-granting definition"
+    gout="$(_agents_write_grants "$gd")"
+    if grep -q "research-sdd-risk.md: $_g" <<<"$gout"; then ok "teeth: a definition granting $_g is caught by the read-only check"
+    else no "teeth: a definition granting $_g passed the read-only check — it is THEATER"; fi
+  done
+  gd="$TMP/agents-notools"; mkdir -p "$gd"; cp "$AGENT_SRC"/*.md "$gd/"
+  sed '/^tools: /d' "$AGENT_SRC/research-sdd-risk.md" > "$gd/research-sdd-risk.md" || no "teeth: could not build the tools-less definition"
+  gout="$(_agents_write_grants "$gd")"
+  if grep -q 'no tools line' <<<"$gout"; then ok "teeth: a definition without a tools line (inherits every tool) is caught"
+  else no "teeth: a tools-less definition passed — it is THEATER"; fi
+
+  echo "-- teeth: installer mutants must break the deploy / collision / bundle assertions --"
+  M_NODEP="$MKI/research-sdd-install.MUTANT-agents-nodeploy.$$.sh"
+  mutant_sed "$SUT" "$M_NODEP" 's/_rsdd_deploy_skill "\$asrc" "\$adest"/true "$asrc" "$adest"/' \
+    || no "teeth: agents no-deploy mutant could not be built"
+  home="$TMP/agents-m1"; bash "$M_NODEP" --home "$home" --harness claude >/dev/null 2>&1
+  if [ ! -f "$home/.claude/agents/research-sdd-risk.md" ]; then ok "teeth: no-deploy mutant leaves no definition → the deploy check has teeth"
+  else no "teeth: no-deploy mutant still deployed — the deploy check is THEATER"; fi
+
+  M_CLOB="$MKI/research-sdd-install.MUTANT-agents-clobber.$$.sh"
+  mutant_sed "$SUT" "$M_CLOB" 's/"\$force" "read-only agent definition"/1 "read-only agent definition"/' \
+    || no "teeth: agents clobber mutant could not be built"
+  home="$TMP/agents-m2"; mkdir -p "$home/.claude/agents"; printf 'my own reviewer\n' > "$home/.claude/agents/research-sdd-risk.md"
+  bash "$M_CLOB" --home "$home" --harness claude >/dev/null 2>&1
+  if [ "$(cat "$home/.claude/agents/research-sdd-risk.md")" != "my own reviewer" ]; then ok "teeth: always-force mutant overwrites the user's file → the collision check has teeth"
+  else no "teeth: always-force mutant kept the user's file — the collision check is THEATER"; fi
+
+  M_NOMEM="$MKI/research-sdd-install.MUTANT-agents-nomember.$$.sh"
+  mutant_sed "$SUT" "$M_NOMEM" 's|printf .%s\\n. "agents/\$an"|true|' \
+    || no "teeth: agents no-member mutant could not be built"
+  home="$TMP/agents-m3"; bash "$M_NOMEM" --home "$home" --harness claude >/dev/null 2>&1
+  if ! grep -q '^file=.*  agents/' "$home/.claude/research-sdd/.installed-bundle-state" 2>/dev/null; then ok "teeth: no-member mutant drops the definitions from the bundle record → the --verify coverage check has teeth"
+  else no "teeth: no-member mutant still recorded the definitions — the bundle check is THEATER"; fi
+fi
+
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
 INSTALL_SNAP_AFTER="$(_install_tree_snapshot)" || INSTALL_SNAP_AFTER="<snapshot failed>"
 if [ "$INSTALL_SNAP_AFTER" = "$INSTALL_SNAP_BEFORE" ]; then

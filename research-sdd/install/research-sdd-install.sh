@@ -598,6 +598,23 @@ ${f#"$root"/}"
   done <<<"$rels"
 }
 
+# _rsdd_agent_names <h> — basenames of the kit's read-only agent definitions for this harness, one per
+# line, sorted. Empty + rc=0 when the harness ships none; rc=1 when it should but the source dir is
+# absent or holds no *.md (a silent zero would deploy nothing and look installed — CLAUDE.md §7).
+_rsdd_agent_names() {
+  local rel dir f names=""
+  rel="$(rsdd_field "$1" agents_src_relkit)"
+  [ -n "$rel" ] || return 0
+  dir="$KIT/$rel"
+  [ -d "$dir" ] || return 1
+  for f in "$dir"/*.md; do
+    [ -f "$f" ] || continue
+    names="$names${f##*/}"$'\n'
+  done
+  [ -n "$names" ] || return 1
+  printf '%s' "$names" | LC_ALL=C sort
+}
+
 # _rsdd_install_members <h> <home> — the members one install deploys, one rel per line.
 _rsdd_install_members() {
   local h="$1" home="$2" root skill tmpl pf
@@ -607,6 +624,10 @@ _rsdd_install_members() {
   pf="$(rsdd_field "$h" prompt_file "$home")"
   printf '%s\n' "${skill#"$root"/}" "${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
   [ -z "$tmpl" ] || printf '%s\n' "${tmpl#"$root"/}"
+  local an
+  while IFS= read -r an; do
+    [ -z "$an" ] || printf '%s\n' "agents/$an"
+  done < <(_rsdd_agent_names "$h")
 }
 
 # _rsdd_apply_kept <kept> — stdin manifest -> stdout manifest where each kept member's sha is replaced by
@@ -888,6 +909,29 @@ install_one() {
     fi
   fi
 
+  # 2c. read-only reviewer agent definitions (kit issue #1714): claude only (the adapter field is empty
+  #     elsewhere). One file per role, each deployed through the SAME divergence-checked helpers as the
+  #     skill: a same-named user file that differs is KEPT with a typed WARNING (never overwritten unless
+  #     --force-skill, which backs it up first). Each definition has its own marker file.
+  local agents_rel agents_dir_dest agent_names="" an asrc adest amarker
+  agents_rel="$(rsdd_field "$h" agents_src_relkit)"
+  if [ -n "$agents_rel" ]; then
+    agents_dir_dest="$(rsdd_field "$h" agents_dir "$home")"
+    if ! agent_names="$(_rsdd_agent_names "$h")"; then
+      echo "research-sdd-install: [$h] no agent definitions found in $KIT/$agents_rel" >&2; rc=1
+    else
+      while IFS= read -r an; do
+        asrc="$KIT/$agents_rel/$an"; adest="$agents_dir_dest/$an"
+        amarker="$config_root/research-sdd/.installed-agent-${an%.md}-state"
+        if [ "$dry" = 1 ]; then
+          _rsdd_dry_skill_plan "$asrc" "$adest" "$force" "read-only agent definition" "$amarker" "agent" || rc=1
+        else
+          _rsdd_deploy_skill "$asrc" "$adest" "$force" "read-only agent definition" "$h" "$amarker" "agent" "$config_root" || rc=1
+        fi
+      done <<<"$agent_names"
+    fi
+  fi
+
   # 3. record the bundle digest (kit issue #1702) — only when the run succeeded. A kept hand-edit is
   #    recorded with the SOURCE sha this run meant to deploy plus a `kept-hand-edit=<rel>` line, so it is
   #    never the baseline: --verify keeps reporting it as drift (and names it) until it is restored.
@@ -901,6 +945,14 @@ install_one() {
       ksha="$(_rsdd_sha256_file "$tmpl_src")" || ksha=""
       kept="${kept:+$kept$'\n'}${template_dest#"$config_root"/}"$'\t'"$ksha"
     fi
+    while IFS= read -r an; do
+      [ -n "$an" ] || continue
+      asrc="$KIT/$agents_rel/$an"; adest="$agents_dir_dest/$an"
+      if ! cmp -s "$asrc" "$adest"; then
+        ksha="$(_rsdd_sha256_file "$asrc")" || ksha=""
+        kept="${kept:+$kept$'\n'}agents/$an"$'\t'"$ksha"
+      fi
+    done <<<"$agent_names"
     if [[ "$kept" == *$'\t' ]] || [[ "$kept" == *$'\t\n'* ]]; then
       echo "research-sdd-install: [$h] could not hash the source of a kept hand-edit — bundle record not written" >&2
       rc=1
