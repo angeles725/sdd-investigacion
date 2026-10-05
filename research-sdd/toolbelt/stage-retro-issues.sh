@@ -818,6 +818,8 @@ _json_issue_scan() {
               if (e == "n") str = str "\n"
               else if (e == "r") str = str "\r"
               else if (e == "t") str = str "\t"
+              else if (e == "b") str = str "\b"   # STAGE_RETRO_ISSUES_JSE_READ_BF: \b / \f (kit issue #1768; Go 1.22+ emits them short)
+              else if (e == "f") str = str "\f"
               else if (e == "u") {
                 cp = hexval(substr(s, i + 2, 4))
                 if (cp >= 0 && cp < 128) str = str sprintf("%c", cp)
@@ -1083,15 +1085,42 @@ _occ_fetch() {
   _occ_cache_reply="$_o"; _occ_cache_state="ok"
 }
 
+# _json_str_escape <string>: sets _jse to the body of a strict-JSON string literal for <string> (kit issue #1768).
+# No pattern-substitution replacements: their backslash/'&' semantics differ across bash versions (5.2
+# patsub_replacement), so this walks the string byte by byte under LC_ALL=C instead. Escapes \ and ", and EVERY
+# control byte 0x01-0x1f (\n \r \t \b \f by short form, the rest as \u00XX); bytes >= 0x80 pass through unchanged, so
+# valid UTF-8 stays valid UTF-8. Sets a global, never prints: $(...) would strip trailing newlines of the title.
+_json_str_escape() {
+  local LC_ALL=C _s="$1" _c _i _h
+  _jse=""
+  case "$_s" in
+    *[\\\"$'\001'-$'\037']*) ;;   # STAGE_RETRO_ISSUES_JSE_FAST
+    *) _jse="$_s"; return 0 ;;
+  esac
+  for ((_i = 0; _i < ${#_s}; _i++)); do
+    _c="${_s:_i:1}"
+    case "$_c" in
+      '\') _jse+='\\' ;;   # STAGE_RETRO_ISSUES_JSE_BS
+      '"') _jse+='\"' ;;   # STAGE_RETRO_ISSUES_JSE_QUOTE
+      $'\n') _jse+='\n' ;;   # STAGE_RETRO_ISSUES_JSE_NL
+      $'\r') _jse+='\r' ;;
+      $'\t') _jse+='\t' ;;
+      $'\b') _jse+='\b' ;;
+      $'\f') _jse+='\f' ;;
+      [$'\001'-$'\037']) printf -v _h '%04x' "'$_c"; _jse+="\\u$_h" ;;   # STAGE_RETRO_ISSUES_JSE_CTRL
+      *) _jse+="$_c" ;;
+    esac
+  done
+}
+
 # _occ_cache_add <number> <title>: after a CONFIRMED create, append the new issue to the cached list so a later
 # row of the same retro with the same exact title gets an occurrence comment instead of a duplicate create
 # (the pre-batch per-row lookup saw it; the cached list would not).
 _occ_cache_add() {
-  local _r="$_occ_cache_reply" _t="$2" _sep=","
-  _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"
-  _t="${_t//$'\n'/\\n}"; _t="${_t//$'\r'/\\r}"; _t="${_t//$'\t'/\\t}"
+  local _r="$_occ_cache_reply" _t _sep=","
+  _json_str_escape "$2"; _t="$_jse"
   _r="${_r%"${_r##*[![:space:]]}"}"; _r="${_r%]}"
-  if [[ "$_r" =~ ^[[:space:]]*\[[[:space:]]*$ ]]; then _sep=""; fi
+  if [[ "$_r" =~ ^[[:space:]]*\[[[:space:]]*$ ]]; then _sep=""; fi   # STAGE_RETRO_ISSUES_JSE_SEP
   _occ_cache_reply="${_r}${_sep}{\"number\":$1,\"state\":\"OPEN\",\"title\":\"${_t}\"}]"
 }
 

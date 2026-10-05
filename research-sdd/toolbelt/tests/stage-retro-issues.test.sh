@@ -4969,5 +4969,101 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tocc lookup-rc-off     lookupfail 's/^  if \[ "\$_rc" -ne 0 \]; then$/  if false; then/'
 fi
 
+# ---- kit issue #1768: _occ_cache_add builds its JSON object by hand (this script has no jq: the reader is pure awk).
+# The title escape must round-trip through _json_issue_scan AND be strict JSON on every bash version. The harness
+# evals only the three functions (extracted by name) so the SUT's main flow stays out of the way. T1768_SUT lets the
+# teeth below point it at a mutant. ----
+echo "-- T1768: _occ_cache_add JSON round-trip --"
+t1768_run() {   # <reply-seed> <title> -> line 1 = the cache after the add, line 2 = the scan of it for <title>
+  "$BASH_BIN" -c '
+    eval "$(awk "/^_json_issue_scan\\(\\) \\{/,/^}/; /^_json_str_escape\\(\\) \\{/,/^}/; /^_occ_cache_add\\(\\) \\{/,/^}/" "$1")"
+    _occ_cache_reply="$2"; _occ_cache_add 7 "$3" || exit 9
+    printf "%s\n" "$_occ_cache_reply"
+    printf "%s" "$_occ_cache_reply" | _json_issue_scan occ "$3"
+  ' _ "${T1768_SUT:-$SUT}" "$1" "$2"
+}
+# t1768_case <tag> <title>: sets T1768_BAD to the number of failed checks (so teeth can read it without scraping)
+t1768_case() {
+  local tag="$1" title="$2" out cache scan
+  T1768_BAD=0
+  out="$(t1768_run '[]' "$title"; echo "rc=$?")"
+  cache="$(sed -n 1p <<<"$out")"; scan="$(sed -n 2p <<<"$out")"
+  if [ "$scan" = 7 ] && grep -q '^rc=0$' <<<"$out"; then
+    ok "T1768-$tag round-trips through _json_issue_scan" "()"
+  else
+    T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag round-trip" "scan=[$scan] cache=[${cache:0:200}]"
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d[0]["title"]==sys.argv[2]' "$cache" "$title" 2>/dev/null; then
+      ok "T1768-$tag cache is strict JSON and decodes to the title" "()"
+    else
+      T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag strict JSON" "cache=[${cache:0:200}]"
+    fi
+  else
+    T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag strict JSON" "python3 absent: the strict-JSON check could not run (a skip is not a pass)"
+  fi
+}
+T1768_TITLES=(
+  'plain|a plain title'
+  'quote|fix "quoted" thing'
+  'backslash|path C:\dir\file'
+  'trail-bs|ends with backslash\'
+  'lit-n|literal backslash-n \n stays two chars'
+  $'tab|tab\there'
+  $'newline|line1\nline2'
+  $'cr|cr\rhere'
+  $'ctrl|bell\001 bs\010 ff\014 us\037 end'
+  $'unicode|caf\303\251 \346\227\245\346\234\254 \360\237\230\200'
+  'amp|a & b \& c &&'
+  $'mixed|q" b\\ t\t n\n u\303\251 \001 &'
+)
+for _t in "${T1768_TITLES[@]}"; do t1768_case "${_t%%|*}" "${_t#*|}"; done
+# appended after an existing entry, and into a spaced empty list (both separator branches)
+out="$(t1768_run '[{"number":1,"state":"OPEN","title":"x"}]' 'second "one"'; echo "rc=$?")"
+if [ "$(sed -n 2p <<<"$out")" = 7 ] && grep -q '^rc=0$' <<<"$out" && grep -q '"number":1,' <<<"$out"; then
+  ok "T1768-append keeps earlier entries and adds the new one" "()"
+else no "T1768-append" "out=[${out:0:300}]"; fi
+out="$(t1768_run '[ ]' 'into spaced empty'; echo "rc=$?")"
+if [ "$(sed -n 2p <<<"$out")" = 7 ] && ! grep -q '\[ *,' <<<"$out"; then
+  ok "T1768-spaced-empty list gets no leading comma" "()"
+else no "T1768-spaced-empty" "out=[${out:0:300}]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth T1768: JSON escape --"
+  # tjs <tag> <case-tag> <sed-stage>...: build the mutant, run the one case that pins the stage, and require it to fail.
+  tjs() {
+    local tag="$1" ctag="$2" mb ent="" _e bite=0 pass0="$pass" fail0="$fail"
+    shift 2
+    mb="$(mktemp -d "${TMPDIR:-/tmp}/t1768.XXXXXX")" || { fail=$((fail+1)); return 1; }
+    mutant_chain "T1768-$tag" "$SUT" "$mb/sut.sh" "$@" || { fail=$((fail+1)); rm -rf "$mb"; return 1; }
+    for _e in "${T1768_TITLES[@]}"; do [ "${_e%%|*}" = "$ctag" ] && ent="$_e"; done
+    [ -n "$ent" ] || { no "T1768-$tag teeth: unknown case tag $ctag" "()"; rm -rf "$mb"; return 1; }
+    # run the case against the mutant with its PASS/FAIL lines swallowed, then restore the counters
+    T1768_SUT="$mb/sut.sh" t1768_case "$ctag" "${ent#*|}" >/dev/null
+    [ "$T1768_BAD" -gt 0 ] && bite=1
+    pass="$pass0"; fail="$fail0"
+    if [ "$bite" = 1 ]; then ok "T1768-$tag teeth: mutant breaks the $ctag case" "()"
+    else no "T1768-$tag teeth: mutant must break the $ctag case" "case is THEATER"; fi
+    rm -rf "$mb"
+  }
+  tjs backslash-off  backslash '/STAGE_RETRO_ISSUES_JSE_BS$/s/_jse+=[^;]*;;/_jse+="$_c" ;;/'
+  tjs quote-off      quote     '/STAGE_RETRO_ISSUES_JSE_QUOTE$/s/_jse+=[^;]*;;/_jse+="$_c" ;;/'
+  tjs newline-off    newline   '/STAGE_RETRO_ISSUES_JSE_NL$/s/_jse+=[^;]*;;/_jse+="$_c" ;;/'
+  tjs ctrl-off       ctrl      '/STAGE_RETRO_ISSUES_JSE_CTRL$/s/printf -v _h [^;]*; _jse+=[^;]*;;/_jse+="$_c" ;;/'
+  tjs reader-bf-off  ctrl      '/STAGE_RETRO_ISSUES_JSE_READ_BF/s/str = str "\\b"/str = str "b"/'
+  tjs fastpath-wide quote     '/STAGE_RETRO_ISSUES_JSE_FAST$/s/\[.*\]/[\\\\]/'
+  # the separator guard is not in the title table: pin it on the spaced-empty list directly
+  mb="$(mktemp -d "${TMPDIR:-/tmp}/t1768.XXXXXX")"
+  if mutant_chain "T1768-sep-off" "$SUT" "$mb/sut.sh" '/STAGE_RETRO_ISSUES_JSE_SEP$/s/then _sep=""; fi/then :; fi/'; then
+    # captured first, not piped into grep -q: an early-exiting consumer under pipefail reads as a failed producer
+    sepout="$(T1768_SUT="$mb/sut.sh" t1768_run '[ ]' 'into spaced empty')"
+    if grep -q '\[ *,' <<<"$sepout"; then ok "T1768-sep-off teeth: mutant emits a leading comma" "()"
+    else no "T1768-sep-off teeth: mutant must emit a leading comma" "case is THEATER"; fi
+  else fail=$((fail+1)); fi
+  rm -rf "$mb"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
