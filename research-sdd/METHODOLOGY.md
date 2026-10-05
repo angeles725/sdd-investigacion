@@ -975,6 +975,8 @@ longer emits it, or an emit line is in a form the extractor cannot read. `resear
 registry in a footer line whenever its remote-visibility block prints a `degraded:` line (that block only;
 other typed states are not covered by the footer); look the code up there before improvising a fix.
 
+**Scripted state-editor rules (kit issues #1173, #1189).** Section-locating state scripts match `## <heading>` line by line and are not all comment-aware (`append-iteration-row.sh` is; see `toolbelt/tests/template-heading-literal.test.sh` for the enumerated scope). Therefore: (1) no template or generated comment may contain the literal text of a heading a script matches. Name the section in prose ("the Gap-backlog section") and never begin a comment line with a heading literal; the test enforces this over `research-sdd/templates/`. (2) A scripted table-row rewrite preserves the row's cell count: replace cell contents in place, never add, drop or merge a `|` delimiter, so the row stays parseable by the §8b grammar. To add an iteration-history row use `toolbelt/append-iteration-row.sh` (kit #1606), never a hand edit.
+
 ## 8. Stopping criterion
 
 The loop stops on the FIRST of these (primary first):
@@ -3056,6 +3058,8 @@ B64→B55). Make this a habit, not an accident:
   radius of 1.5 m" was measured at 0.8 m on the real data — at 1.5 m nearly the entire population was
   falsely claimed by a shared label.
   (Source: COB-IM2/retros/2026-09-09-cob-im2-continuity-round.md D3)
+
+**Reciprocity lint at close (kit issue #1787).** `research-sdd-archive.sh` runs `verify-corrections.sh` as an ADVISORY step: a one-directional correction (a block declaring "Corrects [Block N]" with no matching "corrected in B<this>" note in block N) prints a WARN with the count and never refuses the close; a run that could not look (no block files, bad arguments, an unparseable count, linter missing) is its own typed WARN, never a silent pass. It is not a gate because of a known wrapped-line false positive and a pre-existing finding backlog in present targets; promotion to a gate is blocked on kit issue #1790.
 
 ## 15. Corpus versioning (git)
 

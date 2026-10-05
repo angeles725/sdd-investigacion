@@ -975,7 +975,10 @@ Always read first, in this order:
          demands §14 corrections on prior blocks. Budget for those corrections when scoping a
          preservation gap — do not treat them as scope creep; they are the expected second-order
          output of a careful preservation pass. (Evidence: blender-llm B15, B2/B3.)
-       - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
+       - RECORD the iteration in RESEARCH-STATE's Iteration history table (append the row with
+         `toolbelt/append-iteration-row.sh [--apply] <RESEARCH-STATE.md> "<row>"` — dry run by default, `--apply`
+         writes atomically, refuses a row whose cell count differs from the header; never hand-edit the table, which
+         can glue the row onto the next heading, kit #1606) INCLUDING the delegated? · model
          tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
          so tier-compliance stays auditable after the session ends. For an EXTERNAL-source iteration, record the
          e3 SCOUT VERDICT in the same row too (`scout: CERTIFIABLE-NOW`, or `scout: CERTIFIABLE-NOW ×N` for
