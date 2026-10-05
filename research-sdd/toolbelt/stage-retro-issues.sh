@@ -16,6 +16,14 @@
 # --apply prints `redactions: N (row R)`. A scrub failure, a non-numeric count, or a scrub that alters the
 # signature line refuses the row (typed ERROR, counted in failed=, exit 2) — nothing is written.
 #
+# Occurrence comments (kit issue #1708): when a row's exact signature is NOT tracked but an OPEN issue with
+# the `target:<name>` label already carries the row's exact (scrubbed) title, --apply adds ONE comment to
+# that issue per retro instead of creating a duplicate (one per issue when several match). Idempotent: the
+# comment holds a `<!-- stage-retro-issues:occurrence <signature> -->` marker line and a re-run finds it and
+# posts nothing. Same scrub, URL requirement and read-back as create; typed `occurrence-commented:` /
+# `occurrence-exists:` lines and a final `occurrence-summary:` line. Dry-run stays offline (no gh call), so
+# it still shows the planned issue.
+#
 # Anti-silent-zero: four states are distinguished and named (kit issue #1111 added the 4th):
 #   absent-input     retro file not found
 #   empty-input      retro found but has no delta section AND no proposal-like heading at all
@@ -758,8 +766,18 @@ strip_md_bold() {
 #   mistaken for structure. Exit 3 (and no output) on a reply it cannot parse to the end (an
 #   unterminated string, unbalanced brackets) — the caller counts that as a failed lookup, never as
 #   "no match". STAGE_RETRO_ISSUES_EXACT_SIG: anchor for the exact-match teeth proofs.
-_exact_sig_matches() {
-  _XSIG="$1" awk '
+_exact_sig_matches() { _json_issue_scan sig "$1"; }
+
+# _json_issue_scan <sig|occ> <needle>   (reads a `gh issue list --json …` reply on stdin)
+#   THE one JSON reader for every lookup in this script (kit issue #1708: a second hand-written tokenizer
+#   would let escape / \u / depth handling drift apart). It captures body, state, title (strings) and number
+#   (bare digits) per issue object, then reports by mode:
+#     sig  needle = a signature line; keeps issues whose BODY has it as a whole line (see _exact_sig_matches)
+#          and prints `[{"state":"…"},…]` then `total=N`.
+#     occ  needle = a title; prints line 1 = space-separated numbers of the OPEN issues whose title EQUALS
+#          it exactly (possibly empty), then `total=N` (see _occ_find).
+_json_issue_scan() {
+  _XMODE="$1" _XNEEDLE="$2" awk '
     function hexval(h,   k, v, d) {
       v = 0
       for (k = 1; k <= length(h); k++) {
@@ -770,17 +788,22 @@ _exact_sig_matches() {
       return v
     }
     function process_object(   nl, lines, j, ln, hit) {
+      if (mode == "occ") {
+        ntotal++
+        if (state == "OPEN" && title == needle && num ~ /^[0-9]+$/) { occout = occout (nocc++ ? " " : "") num }   # STAGE_RETRO_ISSUES_OCC_EXACT
+        return
+      }
       hit = 0
       nl = split(body, lines, "\n")
       for (j = 1; j <= nl; j++) {
         ln = lines[j]
         sub(/[ \t\r]+$/, "", ln)
-        if (ln == sig) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
+        if (ln == needle) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
       }
       ntotal++
       if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
     }
-    BEGIN { sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
+    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; nocc = 0; needle = ENVIRON["_XNEEDLE"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
     { s = s $0 "\n" }
     END {
       n = length(s); i = 1
@@ -813,12 +836,20 @@ _exact_sig_matches() {
             if (vmode) {
               if (key == "body") body = str
               else if (key == "state") state = str
+              else if (key == "title") title = str
               vmode = 0
             } else key = str
           }
           continue
         }
-        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { body = ""; state = ""; key = ""; vmode = 0 } }
+        if (depth == 2 && vmode && c ~ /[0-9]/) {   # a bare number value (the issue number)
+          tok = ""
+          while (i <= n && substr(s, i, 1) ~ /[0-9]/) { tok = tok substr(s, i, 1); i++ }
+          if (key == "number") num = tok
+          vmode = 0
+          continue
+        }
+        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { body = ""; state = ""; title = ""; num = ""; key = ""; vmode = 0 } }
         else if (c == "}" || c == "]") {
           if (c == "}" && depth == 2) process_object()
           depth--
@@ -829,6 +860,7 @@ _exact_sig_matches() {
         i++
       }
       if (depth != 0) exit 3
+      if (mode == "occ") { printf "%s\ntotal=%d\n", occout, ntotal; exit 0 }
       printf "[%s]\n", out
       printf "total=%d\n", ntotal      # STAGE_RETRO_ISSUES_TOTAL_LINE: how many issues the reply held (see _list_filled)
     }
@@ -997,6 +1029,100 @@ _recheck_exists() {
     0) _recheck_state="found"; return 0 ;;
     *) _recheck_state="none"; return 1 ;;
   esac
+}
+
+# ---------------------------------------------------------------------------
+# OCCURRENCE COMMENT (kit issue #1708). A delta whose exact (scrubbed) title is already carried by an OPEN
+# issue labelled for the same target is already tracked; filing it again is a duplicate. Under --apply the
+# row instead adds ONE occurrence comment to that issue per retro (one per issue when several match). The
+# comment carries a marker line keyed by the row's signature; a re-run that finds its own marker in the
+# issue's comments posts nothing. Same write discipline as create: the text is scrubbed first, the scrub may
+# not alter the marker, a URL is required, and a read-back must show the marker (else `unknown`, never
+# retried). Dry-run stays offline, so it cannot name occurrence targets. Closed issues are not targets.
+occurrence_commented=0; occurrence_present=0
+_occ_nums=""
+
+# _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
+# equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR already
+# printed). A failed call, a reply that is not a parseable JSON array, or a page that fills the --limit is a
+# failed lookup, never "no match" (anti-silent-zero §7).
+# STAGE_RETRO_ISSUES_OCC_LOOKUP: anchor for the occurrence-lookup teeth.
+_occ_find() {
+  local _o _rc _m _total _q
+  _occ_nums=""
+  _q="${1//\"/ }"
+  _o="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open --label "target:${target_name}" \
+    --limit "$_LIST_LIMIT" --search "\"$_q\" in:title" --json number,state,title 2>&1)"; _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    echo "ERROR: gh issue list (occurrence lookup) failed for row $2: $_o" >&2; return 2
+  fi
+  if ! grep -q '^[[:space:]]*\[' <<<"$_o"; then
+    echo "ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row $2 (expected a JSON array): $_o" >&2; return 2
+  fi
+  _m="$(printf '%s' "$_o" | _json_issue_scan occ "$1")" || {
+    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2: $_o" >&2; return 2
+  }
+  _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
+  _total="$(printf '%s\n' "$_m" | sed -n 's/^total=\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+  if [ -z "$_total" ]; then
+    echo "ERROR: gh issue list (occurrence lookup) reply could not be counted for row $2: $_o" >&2; return 2
+  fi
+  if [ "$_total" -ge "$_LIST_LIMIT" ]; then
+    echo "ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row $2 — the result may be truncated, refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
+    return 2
+  fi
+  return 0
+}
+
+# _occ_comment <issue-number> <row-id> <marker> <comment-body>: the guarded write for ONE issue. Updates the
+# per-row flags (_occ_row_*, documented and ranked at the call site) and per-issue counters; the CALLER emits the
+# row's single mutation_outcome line. Flags are only ever SET here, never cleared.
+_occ_comment() {
+  local _n="$1" _r="$2" _mk="$3" _cb="$4" _cm _cmrc _co _corc _cl _rb2 _rb2rc
+  _cm="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _cmrc=$?
+  _cm="${_cm//$'\r'/}"
+  if [ "$_cmrc" -ne 0 ]; then
+    echo "ERROR: gh issue view (occurrence comments) failed for row $_r (#$_n): $_cm" >&2
+    _occ_row_failed=1; return 0
+  fi
+  # STAGE_RETRO_ISSUES_OCC_MARKER_CHECK: anchor for the idempotency teeth (a retro comments ONCE per issue).
+  if grep -qxF -- "$_mk" <<<"$_cm"; then
+    echo "occurrence-exists: #$_n already carries this retro (row $_r)"
+    occurrence_present=$((occurrence_present+1)); return 0
+  fi
+  _co="$(gh issue comment "$_n" --repo "$KIT_ISSUE_REPO" --body "$_cb" 2>&1)"; _corc=$?
+  if [ "$_corc" -ne 0 ]; then
+    # A failed comment can still have been written (timeout after the write): look before counting a
+    # failure. A marker found = unknown; no marker on a readable view = provably nothing written.
+    _rb2="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _rb2rc=$?
+    _rb2="${_rb2//$'\r'/}"
+    if [ "$_rb2rc" -eq 0 ] && grep -qxF -- "$_mk" <<<"$_rb2"; then
+      echo "unknown-outcome: gh issue comment failed for row $_r (#$_n) but the marker is present on re-read: $_co" >&2
+      _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
+    fi
+    echo "ERROR: gh issue comment failed for row $_r (#$_n): $_co" >&2
+    if [ "$_rb2rc" -ne 0 ]; then _occ_row_unknown=1; fi
+    _occ_row_failed=1; return 0
+  fi
+  _cl="$(printf '%s\n' "$_co" | tail -n 1)"
+  if [[ ! "$_cl" =~ ^https?://[^[:space:]]+/issues/${_n}#issuecomment-[0-9]+$ ]]; then
+    echo "unknown-outcome: gh issue comment exited 0 for row $_r (#$_n) but printed no comment URL (output: $_co) — a write is not inferred from output text" >&2
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
+  fi
+  _rb2="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _rb2rc=$?
+  _rb2="${_rb2//$'\r'/}"
+  if [ "$_rb2rc" -ne 0 ]; then
+    echo "unknown-outcome: gh issue comment returned $_cl for row $_r (#$_n) but the read-back failed (gh issue view exit $_rb2rc): $_rb2" >&2
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
+  fi
+  if ! grep -qxF -- "$_mk" <<<"$_rb2"; then
+    echo "unknown-outcome: gh issue comment on #$_n returned a URL for row $_r but the read-back lacks the occurrence marker '$_mk'" >&2
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
+  fi
+  echo "occurrence-commented: #$_n (row $_r)"
+  occurrence_commented=$((occurrence_commented+1))
+  _occ_row_confirmed=1
+  return 0
 }
 
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
@@ -1176,6 +1302,43 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       failed=$((failed+1)); _row_nowrite "$_rid"; continue
     fi
 
+    # Occurrence (kit issue #1708): the exact signature is NOT tracked, but the same delta may be (an OPEN
+    # same-target issue with this exact title, filed from an earlier retro) — comment there, never duplicate.
+    _occ_find "$_title" "$_rid" || { failed=$((failed+1)); _row_nowrite "$_rid"; continue; }
+    if [ -n "$_occ_nums" ]; then
+      _occ_marker="<!-- stage-retro-issues:occurrence ${_source_line} -->"
+      _occ_text="$(printf 'Another retro carries this exact delta.\n\n%s\n%s' "$_source_line" "$_occ_marker" | scrub_issue_text)" \
+        || { _scrub_refuse "$_rid" "privacy scrub failed for row $_rid — nothing staged or written"; continue; }
+      if ! grep -qxF -- "$_occ_marker" <<<"$_occ_text"; then
+        _scrub_refuse "$_rid" "scrub altered the occurrence marker for row $_rid — refusing to write (idempotency and the read-back key on it)"
+        continue
+      fi
+      # ONE mutation_outcome per ROW (kit issue #1705 contract: mutation-summary counts rows), however many
+      # issues matched. PRECEDENCE (the only place it is defined): unknown > confirmed > no_write.
+      #   unknown    any issue's write may have happened and is unproven (a write is never retried);
+      #   confirmed  no unknown, and at least one comment was confirmed by read-back — a write DID happen, so
+      #              no_write would be false even when another issue of the row failed cleanly;
+      #   no_write   nothing was written (clean failures, or every issue already carried the marker).
+      # A clean failure still counts in failed= (exit 2) whatever the outcome. Per-issue detail stays in the
+      # occurrence-commented:/occurrence-exists: lines. The row flags (set by _occ_comment, reset per row):
+      #   _occ_row_confirmed        >=1 comment confirmed by read-back
+      #   _occ_row_failed           >=1 issue ended in a failed lookup/view/comment -> failed= +1 for the row
+      #   _occ_row_unknown          >=1 issue's write is unproven -> the row's outcome is unknown
+      #   _occ_row_unknown_counted  the unproven write is also reported by an `unknown-outcome:` line ->
+      #                             unknown-outcome= +1 for the row (a failed comment whose re-read ALSO failed
+      #                             is unknown but is counted in failed=, like a failed create)
+      _occ_row_confirmed=0; _occ_row_failed=0; _occ_row_unknown=0; _occ_row_unknown_counted=0
+      for _occ_n in $_occ_nums; do _occ_comment "$_occ_n" "$_rid" "$_occ_marker" "$_occ_text"; done
+      if [ "$_occ_row_failed" -eq 1 ]; then failed=$((failed+1)); fi
+      if [ "$_occ_row_unknown_counted" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
+      # STAGE_RETRO_ISSUES_OCC_ROW_OUTCOME: anchor for the one-outcome-per-row teeth.
+      if [ "$_occ_row_unknown" -eq 1 ]; then _row_unknown "$_rid"
+      elif [ "$_occ_row_confirmed" -eq 1 ]; then
+        mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
+      else _row_nowrite "$_rid"; fi
+      continue
+    fi
+
     ensure_target_label   # STAGE_RETRO_ISSUES_LABEL_PROBE_CALL: once, before the first create
     _label_flags=""
     IFS=',' read -ra _lbl_arr <<< "$_labels"
@@ -1239,6 +1402,8 @@ if [ $apply -eq 1 ]; then
     "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$unclassifiable" "$summary_unknown_outcome" "$failed"
   # Kit issue #1705: the outcome triad is its OWN line, so the summary: line above stays byte-compatible.
   printf 'mutation-summary: confirmed=%d no_write=%d unknown=%d\n' "$mutation_confirmed" "$mutation_nowrite" "$mutation_unknown"
+  # Kit issue #1708: occurrence comments are their own line too (a row commented on N issues counts N).
+  printf 'occurrence-summary: commented=%d already-present=%d\n' "$occurrence_commented" "$occurrence_present"
   if [ "$mutation_unknown" -gt 0 ]; then
     echo "mutation-unknown: $mutation_unknown row(s) with an unconfirmed mutation outcome — NOT retried; verify on GitHub before re-running" >&2
   fi
