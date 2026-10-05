@@ -7,7 +7,7 @@
 # `review_due_reason=already_reviewed`), so this script re-implements none of that logic.
 #
 # Usage:
-#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]
+#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>] [--no-closure-evidence]
 #
 # TRUST ASSUMPTION: a run without --pr/--merge is RANGE-ONLY. It trusts the caller's --base-ref and
 # --head and says so on its allow line; it does NOT prove the range is the whole PR. Use `--pr N`
@@ -23,6 +23,7 @@
 #   merge-gate: degraded: <why>                                                          exit 3
 #   merge-gate: usage: <why>                                                             exit 2
 #   merge-gate: merged: PR #N (head=<sha> cwd=<dir>)                                     exit 0
+#   merge-gate: closure-evidence: posted|not posted|none|skipped|degraded: ...           (after `merged:`; never changes the exit)
 #
 # A broken instrument NEVER allows (CLAUDE.md §7): missing git/jq/gentle-ai, a failing assess, an
 # unparseable or off-schema answer, an unknown not-due reason and an unreadable PR head are all
@@ -53,14 +54,39 @@
 # Same name from two different apps stays two checks.
 # DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
 # still need every PR Validation check green.
+# CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
+# each issue the PR closes, in the grammar reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a
+# `- commit: <merge sha>` line and one `- test: <path>` line per test file the PR changed
+# (research-sdd/**/tests/*.test.sh, from the paginated PR files list, removed files excluded).
+# reconcile-issues.sh trusts comments only from OWNER/MEMBER/COLLABORATOR authors, so the comment must be posted
+# from a maintainer's gh session.
+# THE CLOSING-ISSUE LIST COMES FROM GITHUB, never from parsing the PR body: ONE bounded `gh api graphql` read
+# (lib/gh-visibility.sh gh_bounded_run, bound RSDD-style via MERGE_GATE_GH_TIMEOUT, default 30 s) of the merged PR's
+# `closingIssuesReferences(first:50)`, the same source GitHub itself uses to auto-close. The same answer must say
+# `merged == true`, `state == "MERGED"` and carry a 40-hex `mergeCommit.oid` (that oid is the sha in the comment);
+# otherwise `closure-evidence: degraded: ...` and nothing is posted. Only nodes whose repository.nameWithOwner is
+# THIS repo are posted on; a cross-repo node gets a `closure-evidence: note: ...` and is never commented. A
+# `totalCount` above 50 prints a typed degraded note naming the overflow and still posts the 50 read.
+# ONE REPOSITORY for the whole step: the one `gh pr merge` used, i.e. GH_REPO when set, else the cwd remote
+# (`gh repo view`, bounded). It is passed explicitly to the GraphQL read (owner/name, never the {owner}/{repo}
+# placeholders), to the PR files read and as `--repo` to every comment; a GraphQL answer whose nameWithOwner differs
+# (case-insensitive) is `degraded` and nothing is posted.
+# A PR that changes no test file posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only
+# reads as borderline in reconcile-issues.sh. At most 10 test files are listed (CAP); files beyond it print
+# `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
+# `degraded: not posted for issues: #a #b` line names them for a manual backfill.
+# The step can never fail the run: any gh failure after the merge prints `closure-evidence: degraded: ...` and the
+# exit stays 0. `--no-closure-evidence` opts out (`closure-evidence: skipped`). Without --merge no gh call is made
+# for this step (a default or --pr run is a pure check).
 # KNOWN GAP: legacy commit statuses (/status) are not read, only check runs.
 set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 say() { printf 'merge-gate: %s\n' "$*"; }
-usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]" >&2; exit 2; }
+usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>] [--no-closure-evidence]" >&2; exit 2; }
 degraded() { say "degraded: $*"; exit 3; }
 
-cwd="" base="" want_head="" pr="" do_merge=""
+cwd="" base="" want_head="" pr="" do_merge="" no_evidence=""
 required="shellcheck,toolbelt-tests"
 [ -z "${MERGE_GATE_REQUIRED_CHECKS+x}" ] || required="$MERGE_GATE_REQUIRED_CHECKS"   # set-but-empty = opt-out
 while [ $# -gt 0 ]; do
@@ -70,6 +96,7 @@ while [ $# -gt 0 ]; do
     --base-ref) [ $# -ge 2 ] || usage "--base-ref needs a value"; base="$2"; shift 2 ;;
     --head) [ $# -ge 2 ] || usage "--head needs a value"; want_head="$2"; shift 2 ;;
     --merge) [ $# -ge 2 ] || usage "--merge needs a PR number"; pr="$2"; do_merge=1; shift 2 ;;
+    --no-closure-evidence) no_evidence=1; shift ;;
     --required-checks) [ $# -ge 2 ] || usage "--required-checks needs a value (use \"\" to opt out)"; required="$2"; shift 2 ;;
     *) usage "unknown argument: $1" ;;
   esac
@@ -212,4 +239,80 @@ if [ "$merge_rc" -ne 0 ]; then
   degraded "gh pr merge failed for PR #$pr${merge_line:+: $merge_line}"
 fi
 say "merged: PR #$pr (head=$head cwd=$cwd)"
+
+# Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
+closure_evidence() {
+  local ev="closure-evidence" lib="${MERGE_GATE_LIB:-$HERE/lib/gh-visibility.sh}" gq gj grc verdict msha repo owner name got_repo total issues cross
+  local files test_files n_all n_tests tline issue text rc failed=""
+  if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
+  # shellcheck source=lib/gh-visibility.sh
+  . "$lib" 2>/dev/null || { say "$ev: degraded: lib/gh-visibility.sh not found (needed for the bounded GraphQL read); nothing posted"; return 0; }
+  # ONE repository for the whole step: the one `gh pr merge` just used (GH_REPO when set, else the cwd remote). It is
+  # passed explicitly to the read, the files read and every comment, so they can never resolve to different repos
+  # (gh_bounded_run runs gh with GH_REPO unset, which would silently re-resolve from the cwd remote).
+  if [ -n "${GH_REPO:-}" ]; then
+    name="${GH_REPO##*/}"; owner="${GH_REPO%/*}"; owner="${owner##*/}"; repo="$owner/$name"
+  else
+    repo="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh repo view --json nameWithOwner -q .nameWithOwner 2>"$err_file")" \
+      || { say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; }
+    owner="${repo%%/*}"; name="${repo#*/}"
+  fi
+  if ! [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then say "$ev: degraded: cannot resolve the repository the merge used (got '$repo'); nothing posted"; return 0; fi
+  gq='query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged state mergeCommit{oid} closingIssuesReferences(first:50){totalCount nodes{number repository{nameWithOwner}}}}}}'
+  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
+  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted"; return 0; fi
+  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; fi
+  verdict="$(printf '%s' "$gj" | jq -r '
+    .data.repository as $r | $r.pullRequest as $p
+    | if ($r.nameWithOwner | type) != "string" or ($p | type) != "object" or ($p.closingIssuesReferences.nodes | type) != "array" or ($p.closingIssuesReferences.totalCount | type) != "number" then "shape"
+      elif $p.merged != true or $p.state != "MERGED" then "notmerged"
+      elif ((($p.mergeCommit.oid // "") | tostring | test("^[0-9a-fA-F]{40}$")) | not) then "nooid"
+      else "ok" end' 2>/dev/null)"
+  case "$verdict" in
+    ok) ;;
+    notmerged) say "$ev: degraded: PR #$pr is not reported merged (merged!=true or state!=MERGED); nothing posted"; return 0 ;;
+    nooid) say "$ev: degraded: PR #$pr has no usable 40-hex merge commit oid; nothing posted"; return 0 ;;
+    *) say "$ev: degraded: the GraphQL answer for PR #$pr is unparseable or off-schema; nothing posted"; return 0 ;;
+  esac
+  got_repo="$(printf '%s' "$gj" | jq -r '.data.repository.nameWithOwner')"
+  if [ "$(printf '%s' "$got_repo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ]; then
+    say "$ev: degraded: the GraphQL answer is for repository $got_repo but the merge used $repo; nothing posted"; return 0
+  fi
+  msha="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.mergeCommit.oid')"
+  total="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.closingIssuesReferences.totalCount')"
+  # Same-repo nodes only (GitHub names are case-insensitive); integer numbers >= 1.
+  issues="$(printf '%s' "$gj" | jq -r --arg r "$repo" '.data.repository.pullRequest.closingIssuesReferences.nodes[]
+    | select((.repository.nameWithOwner | tostring | ascii_downcase) == ($r | ascii_downcase) and (.number | type) == "number" and .number >= 1 and (.number | floor) == .number) | .number' 2>/dev/null | sort -un)"
+  cross="$(printf '%s' "$gj" | jq -r --arg r "$repo" '.data.repository.pullRequest.closingIssuesReferences.nodes[]
+    | select((.repository.nameWithOwner | tostring | ascii_downcase) != ($r | ascii_downcase)) | "\(.repository.nameWithOwner)#\(.number)"' 2>/dev/null)"
+  while IFS= read -r issue; do
+    [ -z "$issue" ] || say "$ev: note: PR #$pr also closes $issue in another repository; no evidence posted there"
+  done <<<"$cross"
+  if [ "$total" -gt 50 ]; then say "$ev: degraded: PR #$pr closes $total issues but only the first 50 were read; backfill the other $((total - 50)) by hand"; fi
+  if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue in $repo (closingIssuesReferences has none)"; return 0; fi
+  files="$(ghr api "repos/$repo/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
+  # --paginate prints one JSON array per page: slurp and require every page to be an array.
+  test_files="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \
+    || { say "$ev: degraded: files of PR #$pr are unparseable or off-schema"; return 0; }
+  test_files="$(printf '%s\n' "$test_files" | grep -E '^research-sdd/(.+/)?tests/[^/]+\.test\.sh$' | sort -u)"
+  if [ -z "$test_files" ]; then say "$ev: not posted: PR #$pr changes no test file (research-sdd/**/tests/*.test.sh); a commit without a test is not shipped evidence"; return 0; fi
+  n_all="$(printf '%s\n' "$test_files" | grep -c .)"
+  n_tests="$n_all"
+  if [ "$n_all" -gt 10 ]; then
+    n_tests=10
+    say "$ev: note: $((n_all - 10)) test file(s) beyond cap 10 not listed"
+  fi
+  tline="$(printf '%s\n' "$test_files" | head -n 10 | sed 's/^/- test: /')"
+  text="Closure evidence (merge-gate, PR #$pr):
+- commit: $msha
+$tline"
+  for issue in $issues; do
+    ghr issue comment "$issue" --repo "$repo" --body "$text" >/dev/null 2>"$err_file"; rc=$?
+    if [ "$rc" -eq 0 ]; then say "$ev: posted: issue #$issue (commit=$msha tests=$n_tests)"
+    else say "$ev: degraded: could not comment on issue #$issue (gh exit $rc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200))"; failed="$failed #$issue"; fi
+  done
+  if [ -n "$failed" ]; then say "$ev: degraded: not posted for issues:$failed (backfill by hand)"; fi
+  return 0
+}
+closure_evidence
 exit 0
