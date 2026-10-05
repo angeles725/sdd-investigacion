@@ -1,6 +1,6 @@
 # scan-vendor-leak v1 — contract
 
-Kit issue #1271 (slice 1: the scanner only; init and CI wiring are slice 2).
+Kit issue #1271 (slice 1: the scanner, PR #1523; slice 2: init wiring + CI workflow template, PRs #1568 / #1636; only the pre-commit/pre-push hook remains deferred).
 
 `scan-secrets.sh` hunts secret VALUES and excludes decompiled trees by design, so decompiled vendor source or vendor
 binaries committed to a public target are invisible to it. `scan-vendor-leak.sh` is the separate guard.
@@ -100,7 +100,10 @@ Classification by hand:
 | module-navigator | exit 2 (not a git work tree) | Typed refusal, correct. |
 | all other TARGETS rows | directory absent on this machine | Not scanned; absence is reported by the sweep harness, not by the tool. |
 
-## Slice 2 (deferred)
+## Slice 2 (delivered, except the hook)
 
-`research-sdd-init.sh` seeding of the conf and the pre-commit/pre-push hook, CI wiring when `gh repo view` reports
-PUBLIC, the registry row, and METHODOLOGY §15 text.
+Delivered: `research-sdd-init.sh` probes the push remote and, when `gh repo view` reports PUBLIC, scaffolds the stub
+conf (`templates/vendor-leak.conf.template`) and proposes the CI workflow (`templates/vendor-leak-ci.template.yml`,
+written only with `--wire`; it runs `scan-vendor-leak.sh target --tracked --strict` and fails the job on every
+non-zero exit); the registry row and the METHODOLOGY §15 text. Deferred: a pre-commit/pre-push hook template
+(`--staged`), which needs its own init wiring.
