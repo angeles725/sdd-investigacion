@@ -130,6 +130,19 @@ jt_oper() { rs "$1" --cwd "$R" --no-gh --json --base-ref no-such-ref; local a="$
 jt_flagpos() { rs "$1" --json --cwd "$R" --no-gh; local a="$OUT"; rs "$1" --cwd "$R" --no-gh --json; [ "$(jq -c 'del(.items[0].generated_at)' <<<"$a")" = "$(jq -c 'del(.items[0].generated_at)' <<<"$OUT")" ] && [ "$(jq_f .state)" = ok ]; }
 jt_human() { rs "$1" --cwd "$R" --no-gh; [ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | gold_norm)" = "$(cat "$GOLD")" ]; }
 jt_base() { rs "$1" --cwd "$R" --no-gh --json --base-ref loose; [ "$(jq_f '.items[0]|[.base_ref,.base_sha]|join(",")')" = "loose,$(git -C "$R" rev-parse loose)" ]; }
+# every scalar field of the default document (top level + repo.*) reaches the envelope's repo item with the same value:
+# a field added to one jq call and not the other cannot slip through (generated_at is a per-run clock: format only).
+jt_fields() { local d e miss
+  RS_PATH="$STUB/ok:$PATH_ORIG" rs "$1" --cwd "$R" --base-ref loose; d="$OUT"
+  RS_PATH="$STUB/ok:$PATH_ORIG" rs "$1" --cwd "$R" --base-ref loose --json; e="$OUT"
+  [ -n "$d" ] && [ -n "$e" ] || return 1
+  miss="$(jq -rn --argjson d "$d" --argjson e "$e" '
+    (($d|del(.schema,.repo,.worktrees,.branches,.prs,.generated_at)) + $d.repo) as $want | $e.items[0] as $got
+    | [($want|keys[]) as $k | select(($got|has($k)|not) or $got[$k] != $want[$k]) | $k]
+    + (if ($got.generated_at|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and ($d.generated_at|type)=="string" then [] else ["generated_at"] end)
+    | join(",")' 2>/dev/null)" || return 1
+  # non-vacuous: the compared key set is exactly the documented default fields
+  [ -z "$miss" ] && [ "$(jq -rn --argjson d "$d" '($d|del(.schema,.repo,.worktrees,.branches,.prs,.generated_at)) + $d.repo|keys|join(",")')" = "base_ref,base_sha,prs_status,prs_truncated,remote,toplevel" ]; }
 
 run_case() { local label="$1" fn="$2" detail="$3"
   if "$fn" "$SUT"; then ok "$label" "$detail"; else no "$label" "rc=$RC err=[$(printf '%s' "$ERR" | head -c 120)] out=[$(printf '%s' "$OUT" | head -c 160)]"; fi; }
@@ -148,6 +161,7 @@ run_case "json: a failing jq envelope build -> rc 2, empty stdout"           jt_
 run_case "json: operational failures (bad ref, not a repo) -> rc 2, empty stdout" jt_oper ""
 run_case "json: flag position does not matter"                               jt_flagpos ""
 run_case "json: --base-ref honoured in the repo item"                        jt_base ""
+run_case "json: every default-document field reaches the envelope repo item"   jt_fields ""
 fi
 
 # 2 — STRUCTURAL: the item kinds the SUT can emit == the kinds json-envelope.v1.md documents (both directions).
@@ -193,6 +207,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jteeth jqfail   jt_jqfail   's/envelope build failed" >&2; exit 2/envelope build failed" >\&2; exit 0/'
   jteeth agree    jt_agree    's/(\$wt|map({kind:"worktree"} + \.))/($wt|map({kind:"worktree"} + .)|reverse)/'
   jteeth human    jt_human    's/exists:\$exists, prunable:\$prunable/prunable:$prunable, exists:$exists/'
+  jteeth fbase    jt_fields   's/base_ref:\$base_ref, base_sha:\$base_sha, prs_status/base_ref:$base_ref, base_sha:$base_ref, prs_status/'
+  jteeth fremote  jt_fields   's/toplevel:\$top, remote:(if \$remote=="" then null else \$remote end),/toplevel:$top,/'
   jteeth flagpos  jt_flagpos  's/--json) json=1; shift ;;/--json) json=1; shift; json=0 ;;/'
   # Doc-side teeth: a documented kind removed / an undocumented kind added must break kinds_check against the SUT.
   _dm1="$ROOT/doc-drop.md"; _dm2="$ROOT/doc-extra.md"

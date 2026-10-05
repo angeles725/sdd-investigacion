@@ -152,12 +152,16 @@ sect="$(mktemp -d)" || { echo "resume-state.sh: mktemp failed" >&2; exit 2; }
 trap 'rm -rf "$sect"' EXIT
 printf '%s' "$wt_lines" > "$sect/wt"; printf '%s' "$br_lines" > "$sect/br"; printf '%s' "$prs_json" > "$sect/prs"
 
+# ONE argument list for both outputs: a field added here is visible to the default document and the --json envelope
+# alike (the --json cases pin that every default-document field reaches the envelope's repo item).
+jq_args=(--arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote"
+  --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated"
+  --slurpfile wt "$sect/wt" --slurpfile br "$sect/br" --slurpfile prs "$sect/prs")
+
 # --json: the same slurped sections mapped into json-envelope.v1 items (repo, worktree, branch, pr); the document
 # below is not duplicated. An unknown PR list is counts.prs_unknown=1 beside counts.prs=0, never a bare zero.
 if [ "$json" = 1 ]; then
-  jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote" \
-    --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated" \
-    --slurpfile wt "$sect/wt" --slurpfile br "$sect/br" --slurpfile prs "$sect/prs" '
+  jq -n "${jq_args[@]}" '
     ($prs[0] // []) as $p
     | ([{kind:"repo", generated_at:$generated_at, toplevel:$top, remote:(if $remote=="" then null else $remote end),
          base_ref:$base_ref, base_sha:$base_sha, prs_status:$prs_status, prs_truncated:$prs_truncated}]
@@ -170,9 +174,7 @@ if [ "$json" = 1 ]; then
   exit 0
 fi
 
-jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote" \
-  --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated" \
-  --slurpfile wt "$sect/wt" --slurpfile br "$sect/br" --slurpfile prs "$sect/prs" '
+jq -n "${jq_args[@]}" '
   {schema:"research-sdd.resume-state/v1", generated_at:$generated_at,
    repo:{toplevel:$top, remote:(if $remote=="" then null else $remote end)},
    base_ref:$base_ref, base_sha:$base_sha,
