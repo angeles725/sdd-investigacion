@@ -263,13 +263,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUT"' EXIT
-  MUTANT_SYNTAX=none
-  export MUTANT_SYNTAX
+  # python mutants: MUTANT_SYNTAX=none is scoped per mutant_chain call, never exported (#1814)
   # mp LABEL EXPR GOOD_PATTERN ARGV... : sed-mutate the .py, then require the original to match
   # GOOD_PATTERN and the mutant to LACK it (same rc 0 on both: only the verdict text flips).
   mp() {
     local label="$1" expr="$2" pat="$3" rc="${MP_RC:-0}"; shift 3
-    mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" ${MP_EXPR2:+"$MP_EXPR2"} || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" ${MP_EXPR2:+"$MP_EXPR2"} || { fail=$((fail+1)); return 1; }
     if mutant_tooth "$label" "$rc" "$rc" "$MUT/m_$$.py" --orig "$PY" --good-has "$pat" --bad-lacks "$pat" -- python3 @SUT@ "$@"; then
       pass=$((pass+1))
     else
@@ -280,7 +279,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mx LABEL EXPR GOOD_RC BAD_RC ARGV... : exit-code teeth
   mx() {
     local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
-    mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" || { fail=$((fail+1)); return 1; }
     # shellcheck disable=SC2086 # MX_PREFIX is a deliberate word-split command prefix (e.g. "timeout 5")
     if mutant_tooth "$label" "$grc" "$brc" "$MUT/m_$$.py" --orig "$PY" -- ${MX_PREFIX:-} python3 @SUT@ "$@"; then
       pass=$((pass+1))
@@ -319,7 +318,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mp "M19 hex literal branch removed" 's/\^0\[xX\]\[0-9a-fA-F\]+\$/^NOPE$/' 'hex +flags=16 +a ' show "$ROOT/num" BNum
   mp "M20 only the first |-separated numeric token decoded" 's/for part in expr\.split("|"):/for part in expr.split("|")[:1]:/' 'multi +flags=1032 ' show "$ROOT/num" BNum
   # M21 asserts the FULL printed sequence of hits (fixture walk order is zz,mm,aa; sorted is aa,mm,zz), so only the sort fixes it
-  mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
   if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m21.py"
   MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" 's/^    if not cat:$/    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo

@@ -132,11 +132,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$MUTLIB" || { echo "FATAL: mutant lib failed to source" >&2; exit 2; }
   type mutant_sed >/dev/null 2>&1 || { echo "FATAL: mutant lib lacks mutant_sed" >&2; exit 2; }
-  n=0; export MUTANT_SYNTAX=none  # markdown mutants: skip the bash -n check
+  n=0  # markdown mutants: MUTANT_SYNTAX=none is scoped per call below (#1814)
   # tooth LABEL FILE PREDICATE SED_EXPR : mutate a copy; predicate must now FAIL
   tooth() {
     local label="$1" file="$2" pred="$3" expr="$4"; n=$((n+1)); local out="$TMP/mut.$n.md"
-    mutant_sed "$file" "$out" -e "$expr" >/dev/null || { no "tooth $label: mutant refused (did not apply)"; return; }
+    MUTANT_SYNTAX=none mutant_sed "$file" "$out" -e "$expr" >/dev/null || { no "tooth $label: mutant refused (did not apply)"; return; }
     if "$pred" "$out"; then no "tooth $label: predicate stayed green on mutant"; else ok "tooth $label: red on mutant"; fi
   }
   tooth "template drops Sub-steps heading" "$TPL" tpl_sections 's/^## Sub-steps/## Steps/'

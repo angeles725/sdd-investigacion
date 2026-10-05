@@ -278,10 +278,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # substitution that mutant_chain proves applied (and applied alone: a dead stage or a byte-identical
   # result is refused); there is no cheap language-native parse for it (javac needs Ghidra's classpath),
   # so each src tooth also demands the predicate's EXACT rc 1 — a crashing check (rc 2) is not a bite.
-  export MUTANT_SYNTAX=none
+  # MUTANT_SYNTAX=none is scoped per call in mk() below, never exported (#1814)
   _MUT="$TMP/mut"; mkdir -p "$_MUT"   # removed by the single EXIT trap installed above
   # A refused build counts ONE failure here and its tooth is never run.
-  mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ MUTANT_SYNTAX=none mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # _ge_pred NAME ARGS... — run one check_* predicate and print an anchored fact line with its rc; the
   # driver returns the predicate's own rc, so GOOD_RC / BAD_RC below are the predicate's exit codes

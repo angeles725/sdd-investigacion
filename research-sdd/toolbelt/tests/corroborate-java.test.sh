@@ -461,7 +461,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
-  export MUTANT_SYNTAX=none   # python mutant: no bash -n
+  # python mutants: no bash -n (scoped per call below, never exported: #1814)
   # Scratch lives under $ROOT, so the suite's own EXIT trap (which also restores write permission
   # on trusted-tools) cleans it on every path.
   td_java="$(mktemp -d -p "$ROOT")"
@@ -502,7 +502,7 @@ PY
     return "$rc"
   }
   if [ "$_java_staged" -ne 1 ]; then :   # staging failure already counted; the tooth must not run
-  elif mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
+  elif MUTANT_SYNTAX=none mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
       '/^        if failures:$/{N;/\n            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))$/d;}'; then
     if mutant_tooth "teeth-warn-java: guard removed → stderr empty → warn-java assertion fires (has teeth)" 1 1 "$td_java/mut/corroborate_java.py" \
         --orig "$HERE/../corroborate_java.py" \
@@ -553,7 +553,7 @@ PY
     fx_tooth() {
       local name="$1" expr="$2"; shift 2
       local mut="$td_java/mut/cf-$name.py"
-      if ! mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
+      if ! MUTANT_SYNTAX=none mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
       if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks "${FX_BAD_LACKS:-Traceback|ImportError|ModuleNotFoundError}" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     }
     R=(python3 "$ROOT/facts-runner.py" @SUT@ "$FX/facts.jar")
