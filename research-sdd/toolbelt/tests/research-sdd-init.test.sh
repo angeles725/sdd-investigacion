@@ -2021,6 +2021,22 @@ if command -v jq >/dev/null 2>&1; then
   bash "$_k87_k/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1787-e.out" 2>&1
   assert_grep "K1787-e snippet carries the drift hook" "verify-skill-drift-hook.sh" "$TMP/1787-e.out"
   assert_absent "K1787-e no settings.json without --wire" "$d/.claude/settings.json"
+  # (f) RDD round 1: the drift pass is ADVISORY. A forced failure is a typed WARN, the exit code of the core wire is unchanged, and
+  # the settings the main merge wrote stay intact (wire-only path).
+  d="$TMP/1787-f"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  RSDD_TEST_DRIFT_FAIL=1 bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-f.out" 2>&1; _k87_rc=$?
+  [ "$_k87_rc" = 0 ] && ok "K1787-f a drift-pass failure leaves the core wire's exit code at 0" || no "K1787-f exit $_k87_rc (a drift failure must not be fatal)"
+  assert_grep "K1787-f2 typed WARN" "WARN   : drift hook not registered:" "$TMP/1787-f.out"
+  [ "$(_k87_all "$d/.claude/settings.json")" = 0 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1787-f3 settings from the main merge intact (gate wired, no drift entry)" || no "K1787-f3 settings: $(jq -c '.hooks' "$d/.claude/settings.json" 2>/dev/null)"
+  assert_grep "K1787-f4 the rest of the wire still reported" "== done ==" "$TMP/1787-f.out"
+  # (g) RDD round 1: a stale entry dropped while a current one remains must not print an empty "other form".
+  d="$TMP/1787-g"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k87_dq" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-g.out" 2>&1
+  assert_grep "K1787-g the stale drop is reported" "drift hook repaired (stale path /gone/kit/verify-skill-drift-hook.sh)" "$TMP/1787-g.out"
+  if grep -qF "other form: )" "$TMP/1787-g.out" || ! grep -qF "drift hook already wired in" "$TMP/1787-g.out"; then no "K1787-g misleading outcome line: $(grep 'drift hook' "$TMP/1787-g.out" | tr '\n' '|')"
+  else ok "K1787-g accurate outcome line (already wired, no empty other form)"; fi
 fi
 
 # ---- kit issue #1271 (last item): vendor-leak pre-push hook on a PUBLIC remote ----
@@ -2043,11 +2059,19 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   [ -x "$d/.git/hooks/pre-push" ] && ok "K1271-pp-b --wire writes an executable pre-push hook" || no "K1271-pp-b hook missing or not executable"
   assert_grep "K1271-pp-b typed wrote line" "vendor-leak: wrote pre-push guard" "$TMP/kpp.out"
   ( cd "$d" && git add -A >/dev/null 2>&1 && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1 )
-  ( cd "$d" && bash .git/hooks/pre-push >"$TMP/kpp-clean.out" 2>&1 ); _kpp_rc=$?
-  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b hook passes a clean tree" || no "K1271-pp-b clean tree rc=$_kpp_rc ($(head -3 "$TMP/kpp-clean.out"))"
-  : > "$d/Vendor.class"; ( cd "$d" && git add Vendor.class && git -c user.email=t@t -c user.name=t commit -qm leak ) >/dev/null 2>&1
-  ( cd "$d" && bash .git/hooks/pre-push >"$TMP/kpp-leak.out" 2>&1 ); _kpp_rc=$?
-  [ "$_kpp_rc" = 1 ] && ok "K1271-pp-b hook BLOCKS a committed vendor binary (exit 1)" || no "K1271-pp-b leak rc=$_kpp_rc ($(head -3 "$TMP/kpp-leak.out"))"
+  # Real pushes to a local bare repo: git feeds the hook the pushed refs on stdin (RDD round 1: the pushed content is scanned, not the checkout).
+  _kpp_bare="$TMP/kpp-b.bare"; git init -q --bare "$_kpp_bare" 2>/dev/null; _kpp_br="$(git -C "$d" symbolic-ref --short HEAD)"
+  ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/$_kpp_br" >"$TMP/kpp-clean.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a push of a clean tree passes" || no "K1271-pp-b clean push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-clean.out"))"
+  assert_grep "K1271-pp-b the guard really scanned the pushed commit" "scanning pushed commit" "$TMP/kpp-clean.out"
+  ( cd "$d" && git checkout -q -b leakbr && : > Vendor.class && git add Vendor.class && git -c user.email=t@t -c user.name=t commit -qm leak && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" "$_kpp_br" >"$TMP/kpp-ok2.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b pushing the clean branch while a leaking branch exists passes" || no "K1271-pp-b clean branch push rc=$_kpp_rc"
+  ( cd "$d" && git push "$_kpp_bare" leakbr >"$TMP/kpp-leak.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Vendor.class" "$TMP/kpp-leak.out" && ok "K1271-pp-b pushing a NON-checked-out branch that carries a vendor binary is BLOCKED" || no "K1271-pp-b leak push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-leak.out"))"
+  [ -z "$(git -C "$_kpp_bare" rev-parse --verify -q refs/heads/leakbr)" ] && ok "K1271-pp-b the leaking ref never reached the remote" || no "K1271-pp-b leak reached the remote"
+  ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/tmpdel" >/dev/null 2>&1; git push "$_kpp_bare" :tmpdel >"$TMP/kpp-del.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a ref deletion (zero sha) is skipped, not blocked" || no "K1271-pp-b deletion rc=$_kpp_rc"
   # (c) idempotent: our own up-to-date hook already present (the vendor-leak step runs on the scaffold path only) is left byte-identical.
   cp "$d/.git/hooks/pre-push" "$TMP/kpp-c.before"
   d="$(_k71_target pp-c https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; cp "$TMP/kpp-c.before" "$d/.git/hooks/pre-push"; chmod +x "$d/.git/hooks/pre-push"
@@ -2060,7 +2084,7 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   assert_grep "K1271-pp-d foreign hook bytes untouched" "echo mine" "$d/.git/hooks/pre-push"
   [ "$(wc -l < "$d/.git/hooks/pre-push")" = 2 ] && ok "K1271-pp-d foreign hook not appended to" || no "K1271-pp-d foreign hook modified"
   assert_grep "K1271-pp-d typed skip" "pre-push guard skipped (foreign pre-push hook)" "$TMP/kpp.out"
-  assert_grep "K1271-pp-d prints the line to add by hand" "scan-vendor-leak.sh' \"\$(git rev-parse --show-toplevel)\" --tracked || exit 1" "$TMP/kpp.out"
+  assert_grep "K1271-pp-d prints the line to add by hand" "hook-prepush-vendor-leak.sh' \"\$@\" || exit 1" "$TMP/kpp.out"
   d="$(_k71_target pp-d2 https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
   _kpp_run "$d" PUBLIC
   assert_grep "K1271-pp-d2 dry run also reports the foreign hook" "foreign pre-push hook" "$TMP/kpp.out"
@@ -2075,16 +2099,22 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   _kpp_run "$d2" PUBLIC
   assert_grep "K1271-pp-f dry run leaves the stale hook alone" "/gone/scan-vendor-leak.sh" "$d2/.git/hooks/pre-push"
   _kpp_run "$d" PUBLIC --wire --scaffold
-  assert_grep "K1271-pp-f --wire refreshes our own stale hook" "$_k87_k/toolbelt/scan-vendor-leak.sh" "$d/.git/hooks/pre-push"
+  assert_grep "K1271-pp-f --wire refreshes our own stale hook" "$_k87_k/templates/hook-prepush-vendor-leak.sh" "$d/.git/hooks/pre-push"
   # (g) core.hooksPath is honoured.
   d="$(_k71_target pp-g https://example.invalid/pub.git)"; git -C "$d" config core.hooksPath "$d/myhooks"
   _kpp_run "$d" PUBLIC --wire --scaffold
   [ -x "$d/myhooks/pre-push" ] && [ ! -e "$d/.git/hooks/pre-push" ] && ok "K1271-pp-g hook written under core.hooksPath" || no "K1271-pp-g wrong hook location"
+  # (i) RDD round 1: a drift-pass failure on the scaffold path is a WARN and the vendor-leak / pre-push step still runs; exit unchanged.
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 RSDD_TEST_DRIFT_FAIL=1 bash "$_kpp_init" "$(_k71_target pp-i2 https://example.invalid/pub.git)" --corpus flat --wire --scaffold >"$TMP/kpp-i.out" 2>&1; _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1787-i scaffold --wire with a failing drift pass exits 0" || no "K1787-i exit $_kpp_rc"
+  assert_grep "K1787-i typed WARN" "drift hook not registered:" "$TMP/kpp-i.out"
+  [ -x "$TMP/k71-pp-i2/.git/hooks/pre-push" ] && ok "K1787-i the pre-push step still ran after the drift failure" || no "K1787-i pre-push hook missing (vendor-leak step skipped?)"
   # (h) a single quote in the kit path survives into the hook.
   _k87_q="$(_k87_kit "$TMP/1271 it's kit")"; d="$(_k71_target pp-h https://example.invalid/pub.git)"
   PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >"$TMP/kpp.out" 2>&1
-  ( cd "$d" && bash .git/hooks/pre-push >"$TMP/kpp-q.out" 2>&1 ); _kpp_rc=$?
-  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-h a kit path with a single quote still runs the scanner" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
+  git init -q --bare "$TMP/kpp-h.bare" 2>/dev/null
+  ( cd "$d" && git add -A && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1; git push "$TMP/kpp-h.bare" HEAD:refs/heads/x >"$TMP/kpp-q.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && grep -qF "scanning pushed commit" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
 fi
 
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
@@ -3662,13 +3692,31 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     _k87_mpub "k71 foreign" "$d" PUBLIC --wire --scaffold
     grep -qF "echo mine" "$d/.git/hooks/pre-push" && no "teeth M-1271-FOREIGN: foreign hook still intact under the mutant — K1271-pp-d is THEATER" || ok "teeth M-1271-FOREIGN: foreign hook overwritten without the marker check — K1271-pp-d has teeth"
   else no "teeth M-1271-FOREIGN: could not build mutant"; fi
-  # M-1271-STAGED: the hook scans --staged (empty at push time) instead of --tracked -> a committed leak passes.
-  if _k87_mb "k71 staged" "s/--tracked'\$/--staged'/"; then
-    d="$(_k71_target m-staged https://example.invalid/pub.git)"; _k87_mpub "k71 staged" "$d" PUBLIC --wire --scaffold
-    : > "$d/Vendor.class"; ( cd "$d" && git add -A && git -c user.email=t@t -c user.name=t commit -qm leak ) >/dev/null 2>&1
-    ( cd "$d" && bash .git/hooks/pre-push >/dev/null 2>&1 ); _m_rc=$?
-    [ "$_m_rc" = 0 ] && ok "teeth M-1271-STAGED: a committed leak passes under --staged — K1271-pp-b has teeth" || no "teeth M-1271-STAGED: leak still blocked (rc=$_m_rc) — K1271-pp-b is THEATER"
-  else no "teeth M-1271-STAGED: could not build mutant"; fi
+  # M-1271-PUSHED: the guard scans the CURRENT CHECKOUT instead of the pushed commit -> a leaking branch that is not checked out slips through.
+  _pm="$TMP/k43/pushed"; mkdir -p "$_pm/templates" "$_pm/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pm/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pm/templates/hook-prepush-vendor-leak.sh" 's|bash "\$SCAN" "\$work" --tracked|bash "$SCAN" "$top" --tracked|'; then
+    d="$(_k71_target m-pushed https://example.invalid/pub.git)"
+    ( cd "$d" && : > ok.txt && git add -A && git -c user.email=t@t -c user.name=t commit -qm base && git checkout -q -b leakbr && : > Vendor.class && git add Vendor.class \
+        && git -c user.email=t@t -c user.name=t commit -qm leak && git checkout -q - ) >/dev/null 2>&1
+    _m_sha="$(git -C "$d" rev-parse leakbr)"
+    ( cd "$d" && printf 'refs/heads/leakbr %s refs/heads/leakbr %040d\n' "$_m_sha" 0 | bash "$_pm/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc=$?
+    ( cd "$d" && printf 'refs/heads/leakbr %s refs/heads/leakbr %040d\n' "$_m_sha" 0 | bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc_good=$?
+    [ "$_m_rc" = 0 ] && [ "$_m_rc_good" != 0 ] && ok "teeth M-1271-PUSHED: a non-checked-out leaking branch passes when the checkout is scanned (good=$_m_rc_good) — K1271-pp-b has teeth" \
+      || no "teeth M-1271-PUSHED: mutant rc=$_m_rc good rc=$_m_rc_good — K1271-pp-b push test is THEATER"
+  else no "teeth M-1271-PUSHED: could not build mutant"; fi
+  # M-1787-FATAL: the drift pass is fatal again (exit 4) -> K1787-f has teeth.
+  if _k87_mb "k87 fatal" 's/_wo_drift_out="\$(_rsdd_wire_drift "\$_wo_settings")" || :/_wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || exit 4/'; then
+    d="$TMP/k87m-fatal"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    RSDD_TEST_DRIFT_FAIL=1 bash "$TMP/k43/k87 fatal/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; _m_rc=$?
+    [ "$_m_rc" = 4 ] && ok "teeth M-1787-FATAL: a drift failure turns fatal (exit 4) without the advisory handling — K1787-f has teeth" || no "teeth M-1787-FATAL: exit $_m_rc under the mutant — K1787-f is THEATER"
+  else no "teeth M-1787-FATAL: could not build mutant"; fi
+  # M-1787-MSG: the have=1 branch of the outcome line is dead -> the misleading empty "other form" returns.
+  if _k87_mb "k87 msg" '/a stale\/requoted entry was dropped/,+2s/\[ "\$have" = 1 \]/false/'; then
+    d="$TMP/k87m-msg"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    jq -n --arg c "\"$TMP/k43/k87 msg/toolbelt/verify-skill-drift-hook.sh\"" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k87 msg/toolbelt/init.sh" "$d" --wire >"$TMP/k87m-msg.out" 2>&1
+    grep -qF "other form: )" "$TMP/k87m-msg.out" && ok "teeth M-1787-MSG: the empty other-form line returns without the have branch — K1787-g has teeth" || no "teeth M-1787-MSG: accurate line still printed under the mutant — K1787-g is THEATER"
+  else no "teeth M-1787-MSG: could not build mutant"; fi
   # M-1271-PRIVATE: the PRIVATE early return is dead -> a PRIVATE remote gets the hook.
   if _k87_mb "k71 private" '/^    PRIVATE|INTERNAL)/,/return 0 ;;/s/return 0 ;;/;;/'; then
     d="$(_k71_target m-private https://example.invalid/priv.git)"; _k87_mpub "k71 private" "$d" PRIVATE --wire --scaffold

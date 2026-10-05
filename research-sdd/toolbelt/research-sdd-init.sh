@@ -356,8 +356,12 @@ _rsdd_report_gate() {
 # Args: <settings-path>. rc 1 = could not read/merge/install (the caller must not report success).
 _rsdd_wire_drift() {
   local settings="$1" base c p quoted have=0 add=true drop='[]' others="" tmp rep=""
-  [ -s "$settings" ] || return 1
-  base="$(cat "$settings")" || return 1
+  # ADVISORY (RDD round 1): a failure here is a typed WARN on stdout + rc 1, never fatal for the core wire (the caller keeps going).
+  local w="  WARN   : drift hook not registered:"
+  # RSDD_TEST_DRIFT_FAIL is a test seam only: it forces this failure path (the real ones need a broken filesystem).
+  [ -z "${RSDD_TEST_DRIFT_FAIL:-}" ] || { echo "$w forced failure (test seam) — $settings left as the core wire wrote it"; return 1; }
+  [ -s "$settings" ] || { echo "$w $settings is missing or empty"; return 1; }
+  base="$(cat "$settings")" || { echo "$w could not read $settings"; return 1; }
   while IFS= read -r c; do
     if [ "$c" = "$_RSDD_DRIFT_CMD" ]; then have=1; continue; fi
     if [ "$c" = "$_RSDD_DRIFT_PATH" ]; then
@@ -383,18 +387,22 @@ _rsdd_wire_drift() {
     else echo "  wired  : SessionStart stale-KIT drift hook already wired (other form: $others) in $settings"; fi
     return 0
   fi
-  tmp="$(mktemp)" || return 1
+  tmp="$(mktemp)" || { echo "$w mktemp failed"; return 1; }
   if ! jq --argjson drop "$drop" --argjson add "$add" --arg cmd "$_RSDD_DRIFT_CMD" '
       (if ($drop | length) > 0 then
          (.hooks.SessionStart |= map(. as $e | ($e.hooks // []) as $h | ($h | map(select(((.command // "") | IN($drop[])) | not))) as $n
                                      | if ($n | length) == ($h | length) then $e elif ($n | length) == 0 then empty else ($e | .hooks = $n) end))
        else . end)
       | if $add then .hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$cmd,"timeout":15}]}]) else . end
-    ' <<<"$base" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then rm -f "$tmp"; return 1; fi
-  _rsdd_install_settings "$tmp" "$settings" || return 1
+    ' <<<"$base" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then rm -f "$tmp"; echo "$w jq could not edit $settings (unexpected SessionStart shape?)"; return 1; fi
+  _rsdd_install_settings "$tmp" "$settings" || { echo "$w could not write $settings (left untouched)"; return 1; }
   printf '%s' "$rep"
   if [ "$add" = true ] && [ -z "$rep" ]; then echo "  wired  : SessionStart stale-KIT drift hook registered in $settings"
-  elif [ "$add" = false ]; then echo "  wired  : SessionStart stale-KIT drift hook already wired (other form: $others) in $settings"; fi
+  elif [ "$add" = false ]; then
+    # a stale/requoted entry was dropped in this run AND a working registration remains: say which one remains (never an empty "other form")
+    if [ "$have" = 1 ]; then echo "  wired  : SessionStart stale-KIT drift hook already wired in $settings"
+    else echo "  wired  : SessionStart stale-KIT drift hook already wired (other form: $others) in $settings"; fi
+  fi
   return 0
 }
 
@@ -602,7 +610,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       # settings.json keeps its indentation instead of collapsing to one line.
       jq '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
       _rsdd_install_settings "$_wo_tmp" "$_wo_settings" || { echo "FATAL: could not write $_wo_settings" >&2; exit 4; }
-      _wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || { echo "FATAL: could not register the stale-KIT drift hook in $_wo_settings" >&2; exit 4; }
+      _wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || :   # advisory: a typed WARN line is in the output, the core wire carries on
       _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
       _wo_has_pk="$(jq -r '.has_pk' <<<"$_wo_merge_out")"
@@ -855,7 +863,7 @@ if [ "$wire" = 1 ]; then
         && [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
         && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
       _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
-      _wire_drift_out="$(_rsdd_wire_drift "$_settings")" || { echo "FATAL: could not register the stale-KIT drift hook in $_settings" >&2; exit 4; }
+      _wire_drift_out="$(_rsdd_wire_drift "$_settings")" || :   # advisory: a typed WARN line is in the output, the core wire carries on
       _wire_has_stop="$(jq -r '.has_stop' <<<"$_wire_merge_out")"
       _wire_has_ss="$(jq -r '.has_ss' <<<"$_wire_merge_out")"
       _wire_has_pk="$(jq -r '.has_pk' <<<"$_wire_merge_out")"
@@ -918,11 +926,13 @@ _RSDD_PREPUSH_MARK="# research-sdd vendor-leak guard (pre-push)"
 _rsdd_sq() { local v="$1" q="'\\''"; printf "'%s'" "${v//\'/$q}"; }   # POSIX single-quote a string
 _rsdd_prepush_content() {
   local sc
-  sc="$(_rsdd_sq "$KIT/toolbelt/scan-vendor-leak.sh")"
+  sc="$(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh")"
+  # The guard logic lives in the kit (templates/hook-prepush-vendor-leak.sh): it reads the pushed refs from stdin and scans
+  # the pushed commits' content, so a push of a non-checked-out branch is checked too. The hook only hands over to it.
   printf '%s\n' '#!/usr/bin/env bash' "$_RSDD_PREPUSH_MARK — written by research-sdd-init.sh --wire (kit issue #1271); safe to delete." \
-    "SCAN=$sc" \
-    '[ -f "$SCAN" ] || { echo "research-sdd vendor-leak guard: scanner not found at $SCAN — this push was NOT checked (reinstall the kit or delete this hook)" >&2; exit 0; }' \
-    'exec bash "$SCAN" "$(git rev-parse --show-toplevel)" --tracked'
+    "GUARD=$sc" \
+    '[ -f "$GUARD" ] || { echo "research-sdd vendor-leak guard: $GUARD not found — this push was NOT checked (reinstall the kit or delete this hook)" >&2; exit 0; }' \
+    'exec bash "$GUARD" "$@"'
 }
 _rsdd_prepush_wiring() {  # <tag>
   local tag="$1" hdir hook want line
@@ -931,7 +941,8 @@ _rsdd_prepush_wiring() {  # <tag>
   case "$hdir" in /*) ;; *) hdir="$target/$hdir" ;; esac
   hook="$hdir/pre-push"
   want="$(_rsdd_prepush_content)"
-  line="bash $(_rsdd_sq "$KIT/toolbelt/scan-vendor-leak.sh") \"\$(git rev-parse --show-toplevel)\" --tracked || exit 1"
+  # The guard reads git's ref lines on stdin: put this line BEFORE anything of yours that consumes stdin (or feed it a copy).
+  line="bash $(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh") \"\$@\" || exit 1"
   if [ -e "$hook" ] || [ -L "$hook" ]; then
     if [ -L "$hook" ] || [ ! -f "$hook" ] || ! grep -qF "$_RSDD_PREPUSH_MARK" "$hook" 2>/dev/null; then
       echo "$tag pre-push guard skipped (foreign pre-push hook) $hook — never overwritten; add this line to it by hand:"
@@ -948,7 +959,9 @@ _rsdd_prepush_wiring() {  # <tag>
   if { [ -L "$hdir" ] || { [ -e "$hdir" ] && [ ! -d "$hdir" ]; }; }; then
     echo "$tag DEGRADED $hdir is a symlink or not a directory — pre-push guard not written"; return 0
   fi
-  if mkdir -p "$hdir" && printf '%s\n' "$want" > "$hook" && chmod +x "$hook"; then
+  # atomic: write a sibling temp file, mark it executable, then rename over the destination (never a half-written hook)
+  local hook_tmp="$hook.rsdd-tmp.$$"
+  if mkdir -p "$hdir" && printf '%s\n' "$want" > "$hook_tmp" && chmod +x "$hook_tmp" && mv -f "$hook_tmp" "$hook"; then
     echo "$tag wrote pre-push guard $hook (runs scan-vendor-leak.sh --tracked before every push; delete the file to remove it)"
   else
     echo "$tag DEGRADED could not write $hook"
