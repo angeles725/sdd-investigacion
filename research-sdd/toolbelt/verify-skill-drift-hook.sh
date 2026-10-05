@@ -55,14 +55,17 @@ if [ -x "$vcmd" ]; then
     # sentinel file when it fires, so a real exit 137/143 from install is not mistaken for the kill. There is no separate
     # sleeper process and no signal is needed to stop the watchdog (#1759: a TERM sent to a just-forked child is consumed by
     # the inherited `trap ... TERM` handler before exec, which orphaned the old sleeper and could hang `wait`); it exits
-    # within 0.1 s of $vf.done appearing. The bound is counted in poll iterations
-    # (vt*10 sleeps of 0.1 s), never wall-clock SECONDS: SECONDS granularity could fire after just over vt-1 s; drift only lengthens it.
+    # within one poll (0.1 s, or 1 s on the integer-sleep fallback below) of $vf.done appearing. The bound is counted in poll
+    # iterations (vt*vper sleeps: vper=10 of 0.1 s, or 1 of 1 s), never wall-clock SECONDS: SECONDS granularity could fire after just over vt-1 s; drift only lengthens it.
     # A `sleep` that cannot do fractions (POSIX-only userland: it rejects 0.1, or reads it as 0 and returns at once) would burn
     # the whole count instantly and kill a healthy verify, so the watchdog probes `sleep 0.1` once (exit status, and elapsed when
-    # $EPOCHREALTIME exists) and otherwise polls with integer `sleep 1` x vt (#1771).
+    # $EPOCHREALTIME exists) and otherwise polls with integer `sleep 1` x vt (#1771). The fallback trades latency for safety: a
+    # healthy verify can hold session start up to 1 s past its finish. Without $EPOCHREALTIME (bash < 5) only the exit-status
+    # half runs, so a sleep that accepts 0.1 yet returns at once is not detected there.
     "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
     ( vsl=0.1; vper=10; vp0="${EPOCHREALTIME:-}"
       sleep 0.1 2>/dev/null || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-RC
+      # 50 ms threshold: a working `sleep 0.1` takes ~100 ms; one that reads 0.1 as 0 returns in <5 ms. 50 ms sits between them.
       if [ "$vper" -eq 10 ] && [ -n "$vp0" ] && [ -n "${EPOCHREALTIME:-}" ]; then   # radix may be '.' or ',' by locale
         [ $(( ${EPOCHREALTIME//[.,]/} - ${vp0//[.,]/} )) -ge 50000 ] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED
       fi
