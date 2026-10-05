@@ -74,11 +74,18 @@ got="$(run "$SUT" "$fo" --next --focus aaa)"
 
 # 7. split layout (equal rank in different dirs, resolver rc 2): accepted, C-locale-first dir wins as before
 sp="$TMP/split"; mkdir -p "$sp/a" "$sp/b"
-mk_state "$sp/a/RESEARCH-STATE-x.md" "split-a gap"; mk_state "$sp/b/RESEARCH-STATE-y.md" "split-b gap"
+mk_state "$sp/a/RESEARCH-STATE-x.md" "split-a gap"; mk_state "$sp/b/RESEARCH-STATE-y.md" "split-b gap" medium
 got="$(run "$SUT" "$sp" --next --focus x)"
 [ "$got" = "NEXT | high | split-a gap" ] && ok "7 split layout --focus x -> its file" || no "7 split --focus x: got [$got]"
 got="$(run "$SUT" "$sp" --next --focus y)"
-[ "$got" = "NEXT | high | split-b gap" ] && ok "7b split layout --focus y -> its file" || no "7b split --focus y: got [$got]"
+[ "$got" = "NEXT | medium | split-b gap" ] && ok "7b split layout --focus y -> its file" || no "7b split --focus y: got [$got]"
+# 7d. THE TIE (resolver rc 2): a default run, equal-rank files in different dirs. The C-locale-first file
+# (a/RESEARCH-STATE-x.md, high) is reported, exit 0, with the report intact (no crash, no silent drop).
+out="$(bash "$SUT" "$sp" 2>/dev/null)"; rc=$?
+[ "$rc" = 0 ] && ok "7d split tie, default run: exit 0" || no "7d split tie: exit $rc"
+got="$(nstep "$SUT" "$sp")"
+[ "$got" = "$ROOTBL" ] && ok "7e split tie, default run reports the C-locale-first file (a/, high)" || no "7e split tie: got [$got] want [$ROOTBL]"
+case "$out" in *"== research-sdd-status:"*) ok "7f split tie: report header present" ;; *) no "7f split tie: no report header" ;; esac
 got="$(run "$SUT" "$sp" --next --root)"
 case "$got" in BOOTSTRAP*) ok "7c split --root with no root -> BOOTSTRAP (unchanged)" ;; *) no "7c split --root: got [$got]" ;; esac
 
@@ -95,25 +102,72 @@ mk_state "$ne/corpus/RESEARCH-STATE.md" "nested root gap"; mk_state "$ne/corpus/
 got="$(nstep "$SUT" "$ne")"
 [ "$got" = "$ROOTBL" ] && ok "9 nested root beside focus -> root" || no "9 nested: got [$got] want [$ROOTBL]"
 
+# 10. --sync-state --focus re-pick: a resolver error (rc >= 3) is a typed error, not the generic "absent" message.
+# The stub lib delegates the FIRST resolve_state_file call (the startup pick) and fails every later one with rc 3.
+MT="$TMP/mt"; mkdir -p "$MT"
+mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
+add_stub() {  # TREE — fail resolve_state_file with rc 3 from its second call on
+  local flag="$1/.rsf-called"; rm -f "$flag"
+  {
+    echo 'eval "$(declare -f resolve_state_file | sed "1s/resolve_state_file/_real_rsf/")"'
+    printf 'resolve_state_file() { if [ -e "%s" ]; then return 3; fi; : > "%s"; _real_rsf "$@"; }\n' "$flag" "$flag"
+  } >> "$1/lib/state-files.sh"
+}
+# syncrun SUT — --sync-state --focus aaa on a throwaway copy of the flat fixture; prints "rc|stderr-first-line"
+syncrun() {
+  local c="$TMP/sync-copy"; rm -rf "$c"; cp -r "$flat" "$c"
+  local err; err="$(bash "$1" "$c" --sync-state --focus aaa 2>&1 >/dev/null)"; local rc=$?
+  printf '%s|%s' "$rc" "${err%%$'\n'*}"
+}
+got="$(syncrun "$SUT")"
+case "$got" in 0\|*) ok "10 --sync-state --focus aaa on a healthy fixture -> exit 0" ;; *) no "10 healthy sync: got [$got]" ;; esac
+t="$(mk_tree S)"; add_stub "$t"
+got="$(syncrun "$t/research-sdd-status.sh")"
+[ "$got" = "1|research-sdd-status: state-file resolution failed (rc 3)" ] && ok "10b --sync-state --focus, resolver rc 3 -> typed error, exit 1" || no "10b sync rc3: got [$got]"
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: mutation controls for the default state-file pick --"
+  echo "-- teeth: mutation controls for the state-file pick --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  MT="$TMP/mt"; mkdir -p "$MT"
-  mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
-  # A: restore the lexical `find | sort | head -1` default pick -> case 1 must go red
+  # tooth LABEL MUTANT_SUT WANT FIXTURE — the mutant must run to exit 0 AND print the WRONG file's specific
+  # backlog value WANT (positive evidence of the wrong pick); empty output / a crash / a mere "not root" fails.
+  tooth() {
+    local label="$1" sut="$2" want="$3" fx="$4" out rc got
+    bash -n "$sut" 2>/dev/null || { no "teeth $label: mutant does not parse"; return; }
+    out="$(bash "$sut" "$fx" 2>/dev/null)"; rc=$?
+    got="$(printf '%s\n' "$out" | sed -n 's/^  pending backlog : //p')"
+    if [ "$rc" = 0 ] && [ "$got" = "$want" ]; then ok "teeth $label: mutant ran (exit 0) and reported the wrong file ($got)"
+    else no "teeth $label: want exit 0 + [$want], got exit $rc + [$got] — THEATER or crashed mutant"; fi
+  }
+  # A: restore the lexical `find | sort | head -1` default pick (anchored on the assignment line itself)
   t="$(mk_tree A)"
-  if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" '/# SF-DEFAULT-PICK/{n;s/.*/  state="$(find "$target" -maxdepth 3 -name '"'"'RESEARCH-STATE*.md'"'"' -not -name '"'"'*.template.md'"'"' -not -path '"'"'*\/.git\/*'"'"' 2>\/dev\/null | sort | head -1)"; _sf_rc=0/;}' >/dev/null 2>&1; then
-    got="$(nstep "$t/research-sdd-status.sh" "$flat")"
-    [ "$got" = "$ROOTBL" ] && no "teeth A: lexical-pick mutant still reports the root — THEATER" || ok "teeth A: lexical pick restored -> case 1 has teeth (got [$got])"
-  else no "teeth A: mutant could not be built (marker absent / refused)"; fi
-  # B: the resolver's root preference removed (rank key forced to 1) -> case 1 must go red
+  if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" 's|^  state="\$(resolve_state_file "\$target")"; _sf_rc=\$?  # SF-DEFAULT-PICK$|  state="$(find "$target" -maxdepth 3 -name '"'"'RESEARCH-STATE*.md'"'"' -not -name '"'"'*.template.md'"'"' -not -path '"'"'*/.git/*'"'"' 2>/dev/null \| sort \| head -1)"; _sf_rc=0|' >/dev/null 2>&1
+  then tooth "A lexical pick restored" "$t/research-sdd-status.sh" "$FOCBL" "$flat"
+  else no "teeth A: mutant could not be built (anchor absent / refused)"; fi
+  # B: the resolver's root preference removed (rank key forced to 1)
   t="$(mk_tree B)"
-  if mutant_sed "$TB/lib/state-files.sh" "$t/lib/state-files.sh" 's/(b == "RESEARCH-STATE.md") ? 0 : 1/1/' >/dev/null 2>&1; then
-    got="$(nstep "$t/research-sdd-status.sh" "$flat")"
-    [ "$got" = "$ROOTBL" ] && no "teeth B: root preference removed but status still reports the root — THEATER" || ok "teeth B: resolver root preference removed -> case 1 has teeth (got [$got])"
+  if mutant_sed "$TB/lib/state-files.sh" "$t/lib/state-files.sh" 's/(b == "RESEARCH-STATE.md") ? 0 : 1/1/' >/dev/null 2>&1
+  then tooth "B resolver root preference removed" "$t/research-sdd-status.sh" "$FOCBL" "$flat"
   else no "teeth B: mutant could not be built (pattern absent / refused)"; fi
+  # C: rc 2 (tie) treated as fatal at the default/--focus call sites -> the tie run must go red (exit 1, typed error)
+  t="$(mk_tree C)"
+  if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" 's/\[ "\$_sf_rc" -le 2 \]/[ "$_sf_rc" -le 1 ]/' >/dev/null 2>&1; then
+    out="$(bash "$t/research-sdd-status.sh" "$sp" 2>&1)"; rc=$?
+    [ "$rc" = 1 ] && case "$out" in *"state-file resolution failed (rc 2)"*) true ;; *) false ;; esac \
+      && ok "teeth C: rc 2 treated as fatal -> tie run exits 1 with the typed error (positive evidence)" || no "teeth C: want exit 1 + typed rc-2 error, got exit $rc [$out]"
+  else no "teeth C: mutant could not be built"; fi
+  # D: the tie picks the LAST path instead of the first -> must report the other dir's file (medium)
+  t="$(mk_tree D)"
+  if mutant_sed "$TB/lib/state-files.sh" "$t/lib/state-files.sh" 's/-k3,3)"  # RSF-RANK/-k3,3r)"  # RSF-RANK/' >/dev/null 2>&1
+  then tooth "D tie picks the last path" "$t/research-sdd-status.sh" "$FOCBL" "$sp"
+  else no "teeth D: mutant could not be built (anchor absent / refused)"; fi
+  # E: --sync-state --focus ignores the resolver rc -> the typed error disappears, the generic absent message returns
+  t="$(mk_tree E)"
+  if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" 's/; _sf_rc=\$?  # SF-SYNC-FOCUS-PICK$/; _sf_rc=0  # SF-SYNC-FOCUS-PICK/' >/dev/null 2>&1; then
+    add_stub "$t"; got="$(syncrun "$t/research-sdd-status.sh")"
+    [ "$got" = "1|sync-state: no RESEARCH-STATE-aaa.md under $TMP/sync-copy" ] && ok "teeth E: rc ignored on sync re-pick -> generic absent message (positive evidence)" || no "teeth E: got [$got]"
+  else no "teeth E: mutant could not be built"; fi
 fi
 
 echo "== $pass passed, $fail failed =="

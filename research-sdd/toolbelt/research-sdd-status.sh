@@ -193,8 +193,7 @@ elif [ -n "$focus_slug" ]; then
     exit 0
   fi
 else
-  # SF-DEFAULT-PICK
-  state="$(resolve_state_file "$target")"; _sf_rc=$?
+  state="$(resolve_state_file "$target")"; _sf_rc=$?  # SF-DEFAULT-PICK
   [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
   if [ ! -f "$state" ]; then
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
@@ -866,7 +865,12 @@ if [ "$mode" = "--sync-state" ]; then
   # When --focus is given, restrict the sync to that single file only (avoids seeding siblings).
   if [ -n "$focus_slug" ] || [ "$root_flag" = 1 ]; then
     if [ "$root_flag" = 1 ]; then _focused="$state"  # ROOT-SYNC-SELECT: the root already resolved (and vetted) at startup
-    else _focused="$(resolve_state_file "$target" --focus "$focus_slug")"; fi  # rc 0/1/2: absent prints nothing -> the -f guard below; a tie keeps the first pick
+    else
+      # rc 0/2 keep the pick (a tie keeps the C-locale-first file); rc 1 prints nothing -> the -f guard below
+      # reports the absent message; rc >= 3 is a real resolver error, typed like the startup call sites.
+      _focused="$(resolve_state_file "$target" --focus "$focus_slug")"; _sf_rc=$?  # SF-SYNC-FOCUS-PICK
+      [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
+    fi
     if [ ! -f "$_focused" ]; then
       printf 'sync-state: no RESEARCH-STATE%s.md under %s\n' "${focus_slug:+-$focus_slug}" "$target" >&2; exit 1
     fi
