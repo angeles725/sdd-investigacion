@@ -216,8 +216,16 @@ mkdir -p "$T_JAVA_HOME/bin"
 cat > "$T_JAVA_HOME/bin/java" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "-version" ]; then echo 'openjdk version "21.0.1" 2023-10-17'; exit 0; fi
+# Spurious-timeout detector (kit issue #1836): this stub is "fast" unless a STUB_* knob below sends it to sleep, and every
+# sleeping path disarms this trap first. A TERM that lands while the call is still on its FAST path is therefore a host
+# stall that outlived the 1 s bound, never an intended timeout: record it so rt() can re-run the case. Armed ONLY on an
+# engine invocation (`-jar` on the command line): this stub is also copied to `javap`, whose own budgets (class facts) are
+# not what rt() retries, so a TERM sent to javap must stay a plain kill with no marker.
 args=("$@"); n=${#args[@]}; jar=""
 for ((i = 0; i < n; i++)); do [ "${args[i]}" = "-jar" ] && jar="${args[i+1]}"; done
+[ -z "$jar" ] || trap '[ -z "${STUB_LOG:-}" ] || echo "$$ ${1:-}" >> "$STUB_LOG.spurious"; exit 143' TERM
+# STUB_STALL_ONCE=<marker file>: the first call that finds the marker absent stalls 3 s on the FAST path (a simulated host stall).
+[ -n "${STUB_STALL_ONCE:-}" ] && [ ! -e "$STUB_STALL_ONCE" ] && { : > "$STUB_STALL_ONCE"; sleep 3; }
 case "$jar" in *vineflower*) eng=vineflower ;; *cfr*) eng=cfr ;; *procyon*) eng=procyon ;; *) eng=unknown ;; esac
 case "$eng" in
   vineflower) IN="${args[n-2]}"; OUT="${args[n-1]}" ;;
@@ -231,31 +239,36 @@ else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; 
 [ "$eng" = vineflower ] && [ -n "${STUB_VF_RC:-}" ] && exit "$STUB_VF_RC"
 [ "$eng" = vineflower ] && [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
 ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
-[ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && sleep "$STUB_CFR_SLEEP"
-[ "$eng" = cfr ] && [ -n "${STUB_CFR_UNIT_SLEEP:-}" ] && [[ "$IN" != *.jar ]] && sleep "$STUB_CFR_UNIT_SLEEP"
-[ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && exec sleep "${STUB_SLEEP:-3}"
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && { trap - TERM; sleep "$STUB_CFR_SLEEP"; }
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_UNIT_SLEEP:-}" ] && [[ "$IN" != *.jar ]] && { trap - TERM; sleep "$STUB_CFR_UNIT_SLEEP"; }
+[ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && { trap - TERM; exec sleep "${STUB_SLEEP:-3}"; }
 [ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
-  for c in $classes; do b="$(basename "$c" .class)"
-    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && { [ -n "${STUB_IGNORE_TERM:-}" ] && { trap '' TERM; for _ in $(seq 1 100); do sleep 0.2; done; exit 0; }; exec sleep "${STUB_SLEEP:-3}"; }; done
+  for c in $classes; do b="${c##*/}"; b="${b%.class}"
+    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && { trap - TERM; [ -n "${STUB_IGNORE_TERM:-}" ] && { trap '' TERM; for _ in $(seq 1 100); do sleep 0.2; done; exit 0; }; exec sleep "${STUB_SLEEP:-3}"; }; done
   done
 fi
+# The per-class work below is FORK-FREE (parameter expansion, no basename/dirname/grep/printf subshells): the stub is the
+# fast path under a 1 s bound, and its old per-class forks (quadratic in the '$' count of a generated-class name) took
+# long enough under CPU load to read as a vineflower timeout (kit issue #1836: S2a failed 2 of 2 loaded runs).
+nl=$'\n'; list="$nl$classes$nl"
 for c in $classes; do
-  b="$(basename "$c" .class)"
+  b="${c##*/}"; b="${b%.class}"; dn="${c%/*}"; [ "$dn" = "$c" ] && dn=.
   inner=""  # like the real engines: a '$' class is inner when ANY non-empty prefix before one of its '$' has a .class beside it
   for ((k = 1; k < ${#b}; k++)); do
     [ "${b:k:1}" = '$' ] || continue
-    pre="${b:0:k}"; grep -qx "$(dirname "$c")/$pre.class\|$pre.class" <<<"$classes" && inner=1
+    pre="${b:0:k}"; [[ "$list" == *"$nl$dn/$pre.class$nl"* || "$list" == *"$nl$pre.class$nl"* ]] && inner=1
   done
   for m in ${STUB_STANDALONE_CLASSES:-}; do [ "$b" = "$m" ] && inner=""; done
   [ -z "$inner" ] || continue
   omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
   [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
   oc="$c"; [ -z "${STUB_STRIP_LAYOUT:-}" ] || { oc="${oc#BOOT-INF/classes/}"; oc="${oc#WEB-INF/classes/}"; oc="${oc#META-INF/versions/*/}"; }
-  mkdir -p "$OUT/$(dirname "$oc")"
+  od="${oc%/*}"; [ "$od" = "$oc" ] && od=.
+  mkdir -p "$OUT/$od"
   { echo "// engine=$eng"; echo "class $b {"
     if [ "$eng" = vineflower ] || [ -n "${STUB_CFR_MARKER:-}" ]; then
-      def="$(printf '    // $VF: Couldn%st be decompiled' "'")"
+      printf -v def '    // $VF: Couldn%st be decompiled' "'"
       for m in ${STUB_MARKER_CLASSES:-}; do
         [ "$b" = "$m" ] && printf '%s\n' "${STUB_MARKER_TEXT:-$def}"
       done
@@ -271,7 +284,28 @@ cp "$T_JAVA_HOME/bin/java" "$T_JAVA_HOME/bin/javap"
 
 # rt <tag> <input> [ENV=val ...] -- [sut options]   (output dir: $ROOT/o-<tag>)
 # Sets RC, SO (stdout), SE (stderr).  RT_SUT overrides the script under test.
+# A call killed by the 1 s bound while still on the stub's FAST path is a host stall, not the timeout the case is about
+# (this WSL host stalls any timed wait ~3.7 s about once per ~250 waits, #1770; the vineflower runs of --prove-teeth failed
+# on exactly that, #1836). The stub marks such a kill in $STUB_LOG.spurious; rt() then re-runs the whole case, at most
+# RT_MAX_ATTEMPTS (default 3) times, and the deciding attempt is the one whose RC/SO/SE the case sees. RT_ATTEMPTS says how
+# many it took. A case whose stub is MEANT to sleep disarms the marker, so an intended timeout is never retried away.
+RT_MAX_ATTEMPTS_DEFAULT=3
 rt() {
+  local tag="$1" max="${RT_MAX_ATTEMPTS:-$RT_MAX_ATTEMPTS_DEFAULT}"
+  RT_ATTEMPTS=0; RT_NOTE=""
+  while :; do
+    rm -f "$ROOT/log-$tag" "$ROOT/log-$tag.spurious"
+    RT_ATTEMPTS=$((RT_ATTEMPTS + 1))
+    _rt_once "$@"
+    if [ "$RT_ATTEMPTS" -gt 1 ]; then RT_NOTE="$(printf '  RETRIED  %s attempts=%s (spurious stub TERM)' "$tag" "$RT_ATTEMPTS")"; fi
+    if [ -e "$ROOT/log-$tag.spurious" ] && [ "$RT_ATTEMPTS" -lt "$max" ]; then continue; fi
+    # A retried pass must leave a trace (CLAUDE.md section 3: a quiet-tree flake is a defect to file, not load to explain
+    # away). The prefix is neither "  PASS  " nor "  FAIL  " nor "  SKIP  ", so no runner counter ever sees it.
+    [ -z "$RT_NOTE" ] || printf '%s\n' "$RT_NOTE"
+    return 0
+  done
+}
+_rt_once() {
   local tag="$1" in="$2"; shift 2
   local -a ev=()
   while [ "${1:-}" != "--" ]; do ev+=("$1"); shift; done
@@ -308,6 +342,35 @@ if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && ! grep -q '^OK' <<<"$SO" \
 else
   no "A1 timeout → cfr fallback, DEGRADED rc=4, unit named reason=timeout" "rc=$RC so=[$SO] se=[$SE]"
 fi
+
+# A1b: an INTENDED timeout (the stub sleeps on purpose) is never retried away by rt(): it took exactly one attempt.
+[ "$RT_ATTEMPTS" = 1 ] && [ -z "$RT_NOTE" ] && ok "A1b intended timeout is not retried (1 attempt, no RETRIED line)" || no "A1b intended timeout retried" "attempts=$RT_ATTEMPTS note=[$RT_NOTE]"
+
+# A1c/A1d: a host stall on the stub's FAST path (STUB_STALL_ONCE: first call stalls 3 s under the 1 s bound) is not the
+#          timeout A1 is about. Without rt()'s retry it reads as a vineflower timeout -> cfr fallback (the control: the
+#          stall really bites); with it the case is re-run and the vineflower primary succeeds (kit issue #1836).
+rm -f "$ROOT/stall-A1d"
+RT_MAX_ATTEMPTS=1 rt A1d "$FAKE_CLASS" STUB_STALL_ONCE="$ROOT/stall-A1d" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test.*reason=timeout' <<<"$SO" && [ -e "$ROOT/log-A1d.spurious" ]; then
+  ok "A1d control: a fast-path stall with retries disabled reads as a timeout and is flagged spurious"
+else no "A1d control: stall not reproduced as a flagged timeout (the A1c case below would be vacuous)" "rc=$RC so=[$SO] se=[$SE]"; fi
+rm -f "$ROOT/stall-A1c"
+rt A1c "$FAKE_CLASS" STUB_STALL_ONCE="$ROOT/stall-A1c" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && [ "$(engine_of A1c Test.java)" = vineflower ] && [ "$RT_ATTEMPTS" = 2 ] \
+   && [ "$RT_NOTE" = "  RETRIED  A1c attempts=2 (spurious stub TERM)" ]; then
+  ok "A1c fast-path stall: rt() re-runs the case, the vineflower primary succeeds on attempt 2 and a typed RETRIED line says so"
+else no "A1c fast-path stall not recovered by the retry (or the retry left no RETRIED line)" "rc=$RC attempts=$RT_ATTEMPTS note=[$RT_NOTE] so=[$SO] se=[$SE]"; fi
+# A1e: a first-attempt pass prints no RETRIED line.
+rt A1e "$FAKE_CLASS" -- --engine vineflower
+[ "$RT_ATTEMPTS" = 1 ] && [ -z "$RT_NOTE" ] && [ "$RC" -eq 0 ] && ok "A1e first-attempt pass leaves no RETRIED line" || no "A1e clean pass reported a retry" "attempts=$RT_ATTEMPTS note=[$RT_NOTE] rc=$RC"
+# A1f: the spurious marker is armed on engine (-jar) invocations only. A javap-shaped call (no -jar) killed on its fast
+#      path leaves NO marker, so a javap budget timeout is never retried; the identical engine call does (control).
+rm -f "$ROOT/stall-A1f1" "$ROOT/stall-A1f2" "$ROOT/log-A1f1.spurious" "$ROOT/log-A1f2.spurious"
+STUB_LOG="$ROOT/log-A1f1" STUB_STALL_ONCE="$ROOT/stall-A1f1" timeout 1 "$T_JAVA_HOME/bin/javap" -p "$FAKE_CLASS" >/dev/null 2>&1
+STUB_LOG="$ROOT/log-A1f2" STUB_STALL_ONCE="$ROOT/stall-A1f2" timeout 1 "$T_JAVA_HOME/bin/java" -jar "$FAKE_VINEFLOWER" "$FAKE_CLASS" "$ROOT/o-A1f2" >/dev/null 2>&1
+if [ ! -e "$ROOT/log-A1f1.spurious" ] && [ -e "$ROOT/log-A1f2.spurious" ]; then
+  ok "A1f a javap fast-path TERM leaves no spurious marker (not retried); the same stall on an engine call does"
+else no "A1f spurious marker armed on the wrong invocation" "javap-marker=$([ -e "$ROOT/log-A1f1.spurious" ] && echo yes || echo no) engine-marker=$([ -e "$ROOT/log-A1f2.spurious" ] && echo yes || echo no)"; fi
 
 # A2: non-zero exit (not a timeout) also falls back; reason distinguishes the two.
 rt A2 "$FAKE_CLASS" STUB_VF_RC=7 -- --engine vineflower
@@ -1336,6 +1399,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh" rt mCF9 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
     if ! grep -q 'invalid RSDD_CLASSFACTS_TIMEOUT' <<<"$SE" && grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF9: warning-less mutant swallows a bad RSDD_CLASSFACTS_TIMEOUT → H10 bites"
     else no "teeth-mCF9: mutant still warned — H10 has no teeth" "se=[$SE]"; fi
+  fi
+
+  # teeth-RETRIED: drop the typed RETRIED line from rt(); the A1c scenario must then carry no note (A1c would go RED).
+  echo "-- teeth-RETRIED: drop rt()'s RETRIED line; a retried pass must then be silent (A1c has teeth) --"
+  _rt_mut="$(declare -f rt | sed '/RETRIED/s/.*/:/')"
+  if [[ "$_rt_mut" == "$(declare -f rt)" ]]; then no "teeth-RETRIED: could not build a valid mutant" "anchor not found"
+  else
+    rt_real="$(declare -f rt)"; eval "$_rt_mut"
+    rm -f "$ROOT/stall-mRT"; rt mRT "$FAKE_CLASS" STUB_STALL_ONCE="$ROOT/stall-mRT" -- --engine vineflower >/dev/null
+    _mrt_att="$RT_ATTEMPTS"; _mrt_note="$RT_NOTE"
+    eval "$rt_real"
+    if [ "$_mrt_att" = 2 ] && [ -z "$_mrt_note" ]; then ok "teeth-RETRIED: echo-less rt() retries silently -> A1c's RETRIED assertion bites"
+    else no "teeth-RETRIED: mutant still reported the retry — A1c has no teeth" "attempts=$_mrt_att note=[$_mrt_note]"; fi
+  fi
+  # teeth-JAVAP-ARM: arm the trap unconditionally in the stub; a javap-shaped stall must then leave a marker (A1f would go RED).
+  echo "-- teeth-JAVAP-ARM: arm the stub's spurious trap on every call; a javap stall must then be flagged (A1f has teeth) --"
+  mkdir -p "$ROOT/mut-javap"
+  if ! mutant_sed "$T_JAVA_HOME/bin/java" "$ROOT/mut-javap/javap" 's/^\[ -z "\$jar" \] || trap /trap /' 2>"$ROOT/mut-javap/err"; then
+    no "teeth-JAVAP-ARM: could not build a valid mutant" "$(cat "$ROOT/mut-javap/err")"
+  else
+    chmod +x "$ROOT/mut-javap/javap"; rm -f "$ROOT/stall-mJA" "$ROOT/log-mJA.spurious"
+    STUB_LOG="$ROOT/log-mJA" STUB_STALL_ONCE="$ROOT/stall-mJA" timeout 1 "$ROOT/mut-javap/javap" -p "$FAKE_CLASS" >/dev/null 2>&1
+    if [ -e "$ROOT/log-mJA.spurious" ]; then ok "teeth-JAVAP-ARM: always-armed stub flags a javap stall -> A1f bites"
+    else no "teeth-JAVAP-ARM: mutant did not flag a javap stall — A1f has no teeth" "no marker"; fi
   fi
 fi
 

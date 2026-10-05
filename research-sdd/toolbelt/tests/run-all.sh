@@ -15,7 +15,13 @@
 #   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [-j N]
+#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]
+#
+#   --lane <name>    Passthrough (kit issue #1821): exports RSDD_TEST_LANE=<name> to every suite so the
+#                    lane-aware ones (lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
+#                    both) pick it up. The value is validated with the lib's own rsdd_lane and an
+#                    unknown or missing value exits 2 before any suite runs (fail closed). Without the
+#                    flag the caller's ambient RSDD_TEST_LANE is left exactly as it was.
 #
 #   --require-clean-tmp  Exit 1 when any suite left entries in its per-suite TMPDIR (kit issue
 #                    #1277). Every run creates ONE temp root (under the caller's TMPDIR, else /tmp),
@@ -224,7 +230,27 @@ REQUIRE_CLEAN_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [-j N]"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]"
+LANE_ARG=""
+_parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
+  local v="$1" lib="$SCRIPT_DIR/../lib/test-lane.sh"
+  if [[ -z "$v" ]]; then
+    echo "invalid --lane value: missing (allowed: fast slow all); $USAGE" >&2
+    exit 2
+  fi
+  if [[ ! -f "$lib" ]]; then
+    echo "--lane needs $lib to validate the lane and it is absent; $USAGE" >&2
+    exit 2
+  fi
+  # shellcheck source=../lib/test-lane.sh
+  . "$lib"
+  if ! RSDD_TEST_LANE="$v" rsdd_lane >/dev/null; then
+    echo "invalid --lane value '$v' (allowed: fast slow all); $USAGE" >&2
+    exit 2
+  fi
+  LANE_ARG="$v"
+  export RSDD_TEST_LANE="$v"   # SENTINEL-LANE-EXPORT
+}
 _parse_jobs() {  # <value> — sets JOBS or exits 2
   if [[ ! "$1" =~ ^[0-9]+$ ]] || [[ "$((10#$1))" -lt 1 ]]; then
     echo "invalid -j value '$1': need an integer 1..$MAX_JOBS (no bare -j, 0, percentages or non-numerics); $USAGE" >&2
@@ -250,6 +276,13 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
       ;;
     --require-clean-tmp)
       REQUIRE_CLEAN_TMP=1
+      ;;
+    --lane)
+      _ai=$((_ai + 1))
+      _parse_lane "${_args[$_ai]-}"
+      ;;
+    --lane=*)
+      _parse_lane "${_a#--lane=}"
       ;;
     -j|--jobs)
       _ai=$((_ai + 1))
@@ -857,6 +890,9 @@ if [[ "$INSTALL_TESTS_DEGRADED" -eq 1 ]]; then
   echo "Corpus: install tests — ABSENT-INPUT (research-sdd/install/tests not found; NOT traversed; run exits non-zero)"
 else
   echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
+fi
+if [[ -n "$LANE_ARG" ]]; then
+  echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
   echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
