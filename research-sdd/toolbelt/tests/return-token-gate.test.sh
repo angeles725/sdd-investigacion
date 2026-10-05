@@ -217,7 +217,7 @@ rm -f "$big2" "$huge"
 echo "-- fixture helpers are BSD-portable (kit issue #1757) --"
 _pf="$TMP/portable-probe"; : > "$_pf"; touch_ago 90 "$_pf"; printf 'a\nb\n' > "$_pf.txt"; sedi 's/a/z/' "$_pf.txt"
 if [ -n "$(find "$_pf" -mmin +80 -mmin -100)" ] && [ "$(head -1 "$_pf.txt")" = z ] && [ ! -e "$_pf.txt.bak" ] \
-   && ! grep -nE "touch -d|sed -i( |$)" "$HERE/return-token-gate.test.sh" | grep -vE '^[0-9]+:[[:space:]]*#|PORT-SELFCHECK' | grep -q .; then
+   && ! awk '/touch -d|sed -i( |$)/ && !/^[[:space:]]*#/ && !/PORT-SELFCHECK/ { f = 1 } END { exit !f }' "$HERE/return-token-gate.test.sh"; then  # PORT-SELFCHECK
   ok "G-PORTABLE-FIXTURES: touch_ago sets the intended mtime, sedi leaves no .bak, and no GNU-only fixture form remains in the suite"
 else no "G-PORTABLE-FIXTURES: mtime/sed helper wrong or a GNU-only form remains"; fi
 
