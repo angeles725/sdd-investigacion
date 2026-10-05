@@ -2066,20 +2066,28 @@ _vrun "$vh" claude
   || no "V8: user edits outside the block caused a non-match (rc=$VRC) :: $(_vline claude)"
 
 # V9 — single-file bundle (list edge): a hand-written record with ONE member matches, then drifts.
+# Runs on the pi harness on purpose: since #1761 --verify unions the kit's current agent set into
+# the comparison for harnesses that ship agents (claude), so a one-member claude record would
+# (correctly) drift. pi ships no agents — guarded below so a future pi agent set fails loudly here.
+_v9_pi_agents="$(bash -c '. "$1"; rsdd_field pi agents_src_relkit /H' _ "$HERE/../adapters.sh")"
+_v9_cl_agents="$(bash -c '. "$1"; rsdd_field claude agents_src_relkit /H' _ "$HERE/../adapters.sh")"
+# Positive control: claude must report its agent source, so an empty pi value means "none", not "lookup broken".
+[ -n "$_v9_cl_agents" ] && [ -z "$_v9_pi_agents" ] && ok "V9 precondition: pi ships no agent definitions (claude does: $_v9_cl_agents)" \
+  || no "V9 precondition failed: pi agents=[$_v9_pi_agents] claude agents=[$_v9_cl_agents] — move V9 to a harness without agents"
 vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/skills/research-sdd" "$vh/.pi/agent/research-sdd"
 printf 'only file\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
 _s1="$(sha256sum "$vh/.pi/agent/skills/research-sdd/SKILL.md" | awk '{print $1}')"
 _b1="$(printf '%s\t%s\n' "$_s1" 'skills/research-sdd/SKILL.md' | sha256sum | awk '{print $1}')"
-printf 'bundle_sha256=%s\nprofile=claude\nfile=%s  %s\n' "$_b1" "$_s1" 'skills/research-sdd/SKILL.md' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
+printf 'bundle_sha256=%s\nprofile=pi\nfile=%s  %s\n' "$_b1" "$_s1" 'skills/research-sdd/SKILL.md' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
 _vrun "$vh" pi
 [ "$VRC" = 0 ] && _vhas pi 'status=match .*files=1( |$)' \
   && ok "V9: single-file recorded bundle → match (files=1), exit 0" \
-  || no "V9: single-file bundle not matched (rc=$VRC) :: $(_vline claude)"
+  || no "V9: single-file bundle not matched (rc=$VRC) :: $(_vline pi)"
 printf 'changed\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
 _vrun "$vh" pi
 [ "$VRC" = 1 ] && _vhas pi 'status=drift.*skills/research-sdd/SKILL.md' \
   && ok "V9: single-file bundle drifts when that one file changes, exit 1" \
-  || no "V9: single-file drift missed (rc=$VRC) :: $(_vline claude)"
+  || no "V9: single-file drift missed (rc=$VRC) :: $(_vline pi)"
 
 # V10 — degraded: no sha256 tool reachable → typed degraded, exit 2 (never a silent match/absent).
 vh="$TMP/v10-home"; mkdir -p "$vh"; _vinst "$vh" claude
