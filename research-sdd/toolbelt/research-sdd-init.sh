@@ -36,7 +36,9 @@
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
 #
-# VENDOR-LEAK GUARD WIRING (kit issue #1271 slice 2, full-scaffold path only): after a scaffold the script asks
+# VENDOR-LEAK GUARD WIRING (kit issue #1271 slice 2; also run by --wire on an EXISTING corpus, kit issue #1800 — a corpus that went
+# PUBLIC after it was scaffolded gets the same step, same bounded probe, same typed states; a plain run on an existing corpus stays
+# refused, so there the write needs --wire; jq-absent wire-only degrades before it and skips it): after a scaffold the script asks
 # `gh repo view` whether the target's remote is PUBLIC. PUBLIC → scaffold a stub .research-sdd/vendor-leak.conf
 # (never overwritten) and propose a CI workflow running scan-vendor-leak.sh (printed; written to
 # .github/workflows/vendor-leak.yml only with --wire, never overwritten). Typed states, all on stdout under
@@ -454,6 +456,254 @@ _rsdd_print_wire_block() {
   fi
 }
 
+# kit issue #1804 (follow-up of #1178): the block resume plan lives at .research-sdd/plan/current-plan.txt and must never be
+# committed. Belt-and-braces against a broad `git add -A`: ensure the target's .gitignore ignores .research-sdd/plan/. Idempotent
+# (an equivalent spelling already present counts: no second line), never rewrites a user line, trailing-newline safe; a
+# symlinked / non-regular .gitignore is a typed DEGRADED (never written through, NOT a pass). Shared by scaffold and --wire repair.
+_rsdd_gitignore_plan() {
+  local tag="  gitignore:" gi="$target/.gitignore" want='.research-sdd/plan/' l
+  if [ -L "$gi" ] || { [ -e "$gi" ] && [ ! -f "$gi" ]; }; then
+    echo "$tag DEGRADED $gi is a symlink or not a regular file — $want not added (NOT a pass); add it by hand"; return 0
+  fi
+  if [ -f "$gi" ]; then
+    # Like git, the LAST applicable rule wins: scan every line, remember the final ignore / negation that touches the plan dir.
+    # An ignore line is "already ignored"; a final negation (`!<plan spelling>` or a `!` on its parent) re-includes the dir, which
+    # is the user's explicit choice — typed NEGATED, nothing appended (propose-never-apply), never a false "already ignored".
+    local n=0 st="" stl="" stn=0 core
+    while IFS= read -r l || [ -n "$l" ]; do
+      n=$((n + 1)); l="${l%$'\r'}"; l="${l%"${l##*[![:space:]]}"}"
+      core="$l"; [ "${l#!}" != "$l" ] && core="${l#!}"
+      case "$core" in
+        '.research-sdd/plan/'|'/.research-sdd/plan/'|'.research-sdd/plan'|'/.research-sdd/plan'|'.research-sdd/plan/*'|'/.research-sdd/plan/*'|'.research-sdd/plan/**'|'/.research-sdd/plan/**')
+          if [ "$core" = "$l" ]; then st=ignored; else st=negated; fi; stl="$l"; stn=$n ;;   # RSDD-GI-EQUIV
+        '.research-sdd/*'|'/.research-sdd/*'|'.research-sdd/**'|'/.research-sdd/**')   # only forms matching paths INSIDE the parent; `!.research-sdd/` matches the dir itself and leaves the plan ignored
+          if [ "$core" != "$l" ] && [ "$st" = ignored ]; then st=negated; stl="$l"; stn=$n; fi ;;   # a parent-dir negation re-includes the plan dir too
+      esac
+    done < "$gi"
+    case "$st" in
+      ignored) echo "$tag $want already ignored in $gi (equivalent line $stn: $stl)"; return 0 ;;
+      negated) echo "$tag NEGATED line $stn of $gi ($stl) re-includes $want — not changed (NOT a pass); remove that line or add $want after it by hand"; return 0 ;;   # RSDD-GI-NEG
+    esac
+  fi
+  if { [ ! -s "$gi" ] || [ "$(tail -c1 "$gi" 2>/dev/null)" = "" ] || printf '\n' >> "$gi"; } && printf '%s\n' "$want" >> "$gi"; then
+    echo "$tag added $want to $gi (the block resume plan is never committed)"
+  else
+    echo "$tag DEGRADED could not write $gi — add $want by hand (NOT a pass)"
+  fi
+}
+
+# --- vendor-leak guard wiring (kit issue #1271 slice 2) -----------------------------------------
+# A PUBLIC remote makes a committed vendor binary / decompiled vendor tree a real leak that
+# scan-secrets.sh cannot see (it excludes decompiled trees). So when `gh repo view` reports the
+# target's remote as PUBLIC: scaffold a stub .research-sdd/vendor-leak.conf (never overwrite) and
+# PROPOSE a CI workflow running scan-vendor-leak.sh (written only with --wire, never overwritten).
+# Every state is typed — NO-REMOTE / PRIVATE / PUBLIC / DEGRADED — and a gh that is missing, failing or
+# answering something unrecognised is DEGRADED, never a silent pass (CLAUDE.md §7). A degraded probe
+# never fails the corpus scaffold itself (already verified above).
+# kit issue #1271 (last item): the pre-push half of the guard, for a PUBLIC remote. Content that is pushed is already COMMITTED,
+# so the hook runs the scanner with --tracked (--staged would see an empty index at push time). It is deliberately NOT --strict
+# (the CI workflow is the strict gate; a comment-only stub conf must not block every local push). It is ours only when it
+# carries the marker below: a hook the user wrote is NEVER overwritten (typed "skipped (foreign pre-push hook)" plus the line
+# to add by hand); our own hook is refreshed with --wire when the kit path changed. Honours core.hooksPath via git-path.
+_RSDD_PREPUSH_MARK="# research-sdd vendor-leak guard (pre-push)"
+_rsdd_sq() { local v="$1" q="'\\''"; printf "'%s'" "${v//\'/"$q"}"; }   # POSIX single-quote a string
+_rsdd_prepush_content() {
+  local sc
+  sc="$(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh")"
+  # The guard logic lives in the kit (templates/hook-prepush-vendor-leak.sh): it reads the pushed refs from stdin and scans
+  # the pushed commits' content, so a push of a non-checked-out branch is checked too. The hook only hands over to it.
+  printf '%s\n' '#!/usr/bin/env bash' "$_RSDD_PREPUSH_MARK — written by research-sdd-init.sh --wire (kit issue #1271); safe to delete." \
+    "GUARD=$sc" \
+    '[ -f "$GUARD" ] || { echo "research-sdd vendor-leak guard: $GUARD not found — this push was NOT checked (reinstall the kit or delete this hook)" >&2; exit 0; }' \
+    'exec bash "$GUARD" "$@"'
+}
+_rsdd_prepush_wiring() {  # <tag>
+  local tag="$1" hdir hook want line
+  hdir="$(git -C "$target" rev-parse --git-path hooks 2>/dev/null)" && [ -n "$hdir" ] \
+    || { echo "$tag DEGRADED could not resolve the git hooks directory — pre-push guard skipped (NOT a pass)"; return 0; }
+  case "$hdir" in /*) ;; *) hdir="$target/$hdir" ;; esac
+  hook="$hdir/pre-push"
+  want="$(_rsdd_prepush_content)"
+  # The guard reads git's ref lines on stdin: put this line BEFORE anything of yours that consumes stdin (or feed it a copy).
+  line="bash $(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh") \"\$@\" || exit 1"
+  if [ -e "$hook" ] || [ -L "$hook" ]; then
+    if [ -L "$hook" ] || [ ! -f "$hook" ] || ! grep -qF "$_RSDD_PREPUSH_MARK" "$hook" 2>/dev/null; then
+      echo "$tag pre-push guard skipped (foreign pre-push hook) $hook — never overwritten; add this line to it by hand:"
+      echo "    $line"
+      return 0
+    fi
+    if [ "$(cat "$hook")" = "$want" ]; then echo "$tag pre-push guard already wired in $hook"; return 0; fi
+    if [ "$wire" != 1 ]; then echo "$tag pre-push guard in $hook is ours but differs from the current kit path (re-run with --wire to refresh it)"; return 0; fi
+  elif [ "$wire" != 1 ]; then
+    echo "$tag pre-push guard (propose-never-apply: save as $hook and chmod +x, or re-run with --wire; scanner: $KIT/toolbelt/scan-vendor-leak.sh):"
+    printf '%s\n' "$want" | sed 's/^/    | /'
+    return 0
+  fi
+  if { [ -L "$hdir" ] || { [ -e "$hdir" ] && [ ! -d "$hdir" ]; }; }; then
+    echo "$tag DEGRADED $hdir is a symlink or not a directory — pre-push guard not written"; return 0
+  fi
+  # atomic: write a sibling temp file, mark it executable, then rename over the destination (never a half-written hook)
+  local hook_tmp="$hook.rsdd-tmp.$$"
+  if mkdir -p "$hdir" && printf '%s\n' "$want" > "$hook_tmp" && chmod +x "$hook_tmp" && mv -f "$hook_tmp" "$hook"; then
+    echo "$tag wrote pre-push guard $hook (runs scan-vendor-leak.sh --tracked before every push; delete the file to remove it)"
+  else
+    echo "$tag DEGRADED could not write $hook"
+  fi
+}
+
+_rsdd_vendor_leak_wiring() {
+  local tag="  vendor-leak:" remotes vis conf="$target/.research-sdd/vendor-leak.conf" wf="$target/.github/workflows/vendor-leak.yml"
+  local tpl_conf="$TPL/vendor-leak.conf.template" tpl_ci="$TPL/vendor-leak-ci.template.yml"
+  # kit issue #1800: the "what to do later" guidance must be true for the path that printed it. On an EXISTING corpus a plain run is
+  # REFUSED (exit 3), so only --wire gets here again; on the scaffold path a plain run scaffolds the conf (--wire adds the workflow).
+  local _vl_how="a plain run scaffolds the conf" _vl_sfx=" (--wire additionally writes the CI workflow)"
+  # the mode is an explicit argument (wire | scaffold), never ambient state
+  if [ "${1:-scaffold}" = wire ]; then _vl_how="re-run with --wire (a plain run on an existing corpus is refused)"; _vl_sfx=""; fi
+  # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); any other rev-parse failure (dubious
+  # ownership, corrupt metadata) is a git failure and DEGRADED — never hidden as "nothing to ask about".
+  local rp_err
+  if ! rp_err="$(git -C "$target" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then
+    case "$rp_err" in
+      *"not a git repository"*) ;;   # VL-NOTREPO
+      *) echo "$tag DEGRADED git rev-parse failed in $target — vendor-leak wiring skipped [git: ${rp_err%%$'\n'*}]"; return 0 ;;
+    esac
+    echo "$tag NO-REMOTE $target is not a git work tree — nothing scaffolded; $_vl_how once the target is a git repo with a remote$_vl_sfx"
+    return 0
+  fi
+  # kit issue #1566 R4: a SUBDIRECTORY of a repo inherits the parent's remotes, but GitHub only reads workflows from the
+  # repo root's .github/workflows — wiring here would probe the wrong repo and write a file nothing runs. Typed
+  # SUBDIR state, nothing written, no success claim. Both paths are resolved physically (symlinked roots compare equal).
+  local _vl_top _vl_here
+  _vl_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && _vl_here="$(CDPATH="" cd -- "$target" 2>/dev/null && pwd -P)" \
+    || { echo "$tag DEGRADED could not resolve the repository root of $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
+  _vl_top="$(CDPATH="" cd -- "$_vl_top" 2>/dev/null && pwd -P)" \
+    || { echo "$tag DEGRADED the repository root reported by git is not reachable from $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
+  if [ "$_vl_top" != "$_vl_here" ]; then
+    echo "$tag SUBDIR $target is a subdirectory of the repository rooted at $_vl_top — nothing probed, scaffolded or written (GitHub only runs workflows from the repo root's .github/workflows); run the vendor-leak wiring on $_vl_top, or create .research-sdd/vendor-leak.conf and the workflow there by hand (NOT a pass)"
+    return 0
+  fi
+  remotes="$(git -C "$target" remote 2>/dev/null)" || { echo "$tag DEGRADED could not list git remotes in $target — vendor-leak wiring skipped; re-run once git works"; return 0; }
+  if [ -z "$remotes" ]; then
+    echo "$tag NO-REMOTE no remote configured — nothing scaffolded; once a remote exists, $_vl_how$_vl_sfx, or create $conf by hand before making the repo public"
+    return 0
+  fi
+  # Probe the PUSH remote explicitly — a bare `gh repo view` lets gh choose (GH_REPO, set-default, upstream
+  # before origin), which may not be the repo this target publishes to. origin wins; a single other remote
+  # is used; several remotes without origin are ambiguous and DEGRADED (never guessed).
+  local remote gh_url
+  case $'\n'"$remotes"$'\n' in
+    *$'\n'origin$'\n'*) remote=origin ;;
+    *) if [ "$(printf '%s\n' "$remotes" | wc -l)" -gt 1 ]; then
+         echo "$tag DEGRADED ambiguous remote — several remotes and no 'origin' ($(printf '%s' "$remotes" | tr '\n' ' ')) — vendor-leak wiring skipped (NOT a pass)"
+         return 0
+       fi
+       remote="$remotes" ;;
+  esac
+  gh_url="$(git -C "$target" remote get-url --push "$remote" 2>/dev/null)" && [ -n "$gh_url" ] \
+    || { echo "$tag DEGRADED could not read the push URL of remote '$remote' — vendor-leak wiring skipped (NOT a pass)"; return 0; }
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
+    return 0
+  fi
+  # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
+  # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
+  # other value falls back to 20 with a note. No `timeout` binary -> a bash watchdog (gh backgrounded, `sleep N; kill`) enforces the same bound, announced.
+  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
+  case "$gh_t" in
+    ''|*[!0-9]*) gh_t=0 ;;
+    *) gh_t="${gh_t#"${gh_t%%[!0]*}"}"; gh_t="${gh_t:-0}" ;;   # strip leading zeros (all zeros -> 0)
+  esac
+  # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
+  # octal); an all-zero, non-numeric or >9-digit value is rejected. One fallback, one default.
+  if [ "${#gh_t}" -gt 9 ] || [ "$((10#$gh_t))" -eq 0 ]; then
+    echo "$tag note: RSDD_GH_TIMEOUT='${RSDD_GH_TIMEOUT-20}' is not a positive integer — using the default 20s"
+    gh_t=20
+  else
+    gh_t=$((10#$gh_t))
+  fi
+  # kit issue #1800 (RDD): --wire repair used to be local-only, so a stalled probe must never hang it — with no `timeout` binary
+  # (stock macOS) the SAME bound is enforced by a bash watchdog (gh backgrounded, `sleep N; kill`, both reaped); expiry is the
+  # existing typed "timed out" DEGRADED state (rc 124) and the caller carries on.
+  local gh_wd=0 gh_out=""
+  if command -v timeout >/dev/null 2>&1; then
+    gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
+  else
+    gh_wd=1
+    echo "$tag note: timeout not found — the gh probe is bounded by a ${gh_t}s watchdog instead"
+  fi
+  gh_err="$(mktemp 2>/dev/null)" || gh_err=/dev/null
+  if [ "$gh_wd" = 1 ]; then
+    local gh_pid gh_wdpid
+    gh_out="$(mktemp 2>/dev/null)" || { echo "$tag DEGRADED could not create a temp file for the bounded gh probe — vendor-leak wiring skipped (NOT a pass)"; return 0; }
+    ( cd "$target" && exec env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" >"$gh_out" 2>"$gh_err" ) &   # RSDD-GH-WATCHDOG
+    gh_pid=$!
+    ( sleep "$gh_t"; kill "$gh_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    gh_wdpid=$!
+    wait "$gh_pid" 2>/dev/null || gh_rc=$?
+    kill "$gh_wdpid" 2>/dev/null || :
+    wait "$gh_wdpid" 2>/dev/null || :
+    [ "$gh_rc" = 143 ] && gh_rc=124   # killed by the watchdog (SIGTERM) = timed out
+    vis="$(cat "$gh_out" 2>/dev/null)"; rm -f "$gh_out"
+  else
+    vis="$(cd "$target" && env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
+  fi
+  gh_why=""
+  [ "$gh_err" = /dev/null ] || { gh_why="$(sed -n '1p' "$gh_err" 2>/dev/null)"; rm -f "$gh_err"; }
+  [ -n "$gh_why" ] && gh_why=" [gh: $gh_why]"
+  if [ "$gh_rc" = 124 ]; then
+    echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
+    return 0
+  elif [ "$gh_rc" = 125 ]; then
+    echo "$tag DEGRADED timeout could not run gh (exit 125)$gh_why — vendor-leak wiring skipped (NOT a pass)"
+    return 0
+  elif [ "$gh_rc" != 0 ]; then
+    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote)$gh_why — vendor-leak wiring skipped (NOT a pass)"
+    return 0
+  fi
+  case "$vis" in
+    PRIVATE|INTERNAL)
+      echo "$tag PRIVATE remote '$remote' visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, $_vl_how$_vl_sfx"
+      return 0 ;;
+    PUBLIC) ;;
+    *)
+      echo "$tag DEGRADED gh reported an unrecognised visibility '$vis' — vendor-leak wiring skipped (NOT a pass)"
+      return 0 ;;
+  esac
+  if [ ! -f "$tpl_conf" ] || [ ! -f "$tpl_ci" ]; then
+    echo "$tag DEGRADED PUBLIC remote but kit templates missing ($tpl_conf / $tpl_ci) — nothing scaffolded"
+    return 0
+  fi
+  echo "$tag PUBLIC remote '$remote' is PUBLIC — vendor code (decompiled trees, *.class/*.jar/*.dll/*.so/*.exe) must never be committed"
+  if [ -e "$conf" ] || [ -L "$conf" ]; then
+    echo "$tag kept existing $conf (never overwritten)"
+  elif [ -L "$target/.research-sdd" ] || { [ -e "$target/.research-sdd" ] && [ ! -d "$target/.research-sdd" ]; }; then
+    echo "$tag DEGRADED $target/.research-sdd is a symlink or not a directory — conf not scaffolded"
+  elif mkdir -p "$target/.research-sdd" && cp "$tpl_conf" "$conf"; then
+    echo "$tag scaffolded stub $conf — declare the vendor package prefixes / paths (scan-vendor-leak.v1.md); until then only the binary rule applies"
+  else
+    echo "$tag DEGRADED could not write $conf"
+  fi
+  if [ "$wire" = 1 ]; then
+    local gh_dir="$target/.github" wf_dir="$target/.github/workflows" bad_dir=""
+    if [ -L "$gh_dir" ] || { [ -e "$gh_dir" ] && [ ! -d "$gh_dir" ]; }; then bad_dir="$gh_dir"
+    elif [ -L "$wf_dir" ] || { [ -e "$wf_dir" ] && [ ! -d "$wf_dir" ]; }; then bad_dir="$wf_dir"; fi
+    if [ -n "$bad_dir" ]; then
+      echo "$tag DEGRADED $bad_dir is a symlink or not a directory — workflow not written"
+    elif [ -e "$wf" ] || [ -L "$wf" ]; then
+      echo "$tag kept existing $wf (never overwritten)"
+    elif mkdir -p "$target/.github/workflows" && cp "$tpl_ci" "$wf"; then
+      echo "$tag wrote CI workflow $wf — fill <KIT_REPOSITORY> and <KIT_REF> before committing (an unfilled workflow fails loudly)"
+    else
+      echo "$tag DEGRADED could not write $wf"
+    fi
+  else
+    echo "$tag CI guard (propose-never-apply: save as .github/workflows/vendor-leak.yml, fill the placeholders, or re-run with --wire; scanner: $KIT/toolbelt/scan-vendor-leak.sh):"
+    sed 's/^/    | /' "$tpl_ci"
+  fi
+  _rsdd_prepush_wiring "$tag"
+}
+# (defined here, ahead of the wire-only repair path, so BOTH the scaffold path and --wire on an existing corpus run it — kit issue #1800)
+
 # --- wire-only path: --wire on an existing corpus REPAIRS absent hooks + merges settings -----
 # When --wire is given on a target that already has a corpus (and no --force is set), skip the
 # full scaffold and instead: (1) create any hook file that is ABSENT — create-only, NEVER
@@ -641,6 +891,11 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       else
         echo "  wired  : SessionStart hook registered in $_wo_settings"
       fi
+      _rsdd_gitignore_plan
+      # kit issue #1800: an existing corpus can go PUBLIC after it was scaffolded — re-probe the push remote here too (same bounded
+      # probe, propose-never-apply: conf/workflow/hook are create-only, a foreign or user-modified file is never touched). Advisory:
+      # every outcome is a typed `vendor-leak:` line and never changes the exit code.
+      _rsdd_vendor_leak_wiring wire
       echo "== done =="
       exit 0
     else
@@ -742,7 +997,7 @@ _pk_hook="$target/.claude/hooks/pkill-guard.sh"
 cpf "$TPL/hook-pretool-pkill-guard.sh" "$_pk_hook"
 chmod +x "$_pk_hook"
 
-# .gitignore guard (METHODOLOGY §15). Ensure a trailing newline first so we never fuse
+# .gitignore guard (METHODOLOGY §15; the .research-sdd/plan/ line is added by _rsdd_gitignore_plan in the report below, kit issue #1804). Ensure a trailing newline first so we never fuse
 # onto a pre-existing last line the user authored.
 gi="$target/.gitignore"
 if [ -f "$gi" ] && [ -s "$gi" ] && [ "$(tail -c1 "$gi" 2>/dev/null)" != "" ]; then printf '\n' >> "$gi"; fi
@@ -777,6 +1032,7 @@ echo "== research-sdd-init: scaffolded =="
 echo "  target : $target"
 echo "  corpus : ${rel}"
 echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · pkill-guard hook · retros/ · tools/README.md · .gitignore"
+_rsdd_gitignore_plan
 echo "  catalog: CATALOG.md is regenerated by research-sdd-archive.sh via the KIT generator (no per-target copy — eje #2)"
 if [ "$document" = 1 ]; then
   echo "  mode   : document-cycle scaffold (--document, kit issue #1114) — RESEARCH-STATE.md seeded from the OUTLINE-driven variant (METHODOLOGY §20), not the gap-discovery one"
@@ -909,192 +1165,6 @@ if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "false" "$_pk_cmd"
 fi
 
-# --- vendor-leak guard wiring (kit issue #1271 slice 2) -----------------------------------------
-# A PUBLIC remote makes a committed vendor binary / decompiled vendor tree a real leak that
-# scan-secrets.sh cannot see (it excludes decompiled trees). So when `gh repo view` reports the
-# target's remote as PUBLIC: scaffold a stub .research-sdd/vendor-leak.conf (never overwrite) and
-# PROPOSE a CI workflow running scan-vendor-leak.sh (written only with --wire, never overwritten).
-# Every state is typed — NO-REMOTE / PRIVATE / PUBLIC / DEGRADED — and a gh that is missing, failing or
-# answering something unrecognised is DEGRADED, never a silent pass (CLAUDE.md §7). A degraded probe
-# never fails the corpus scaffold itself (already verified above).
-# kit issue #1271 (last item): the pre-push half of the guard, for a PUBLIC remote. Content that is pushed is already COMMITTED,
-# so the hook runs the scanner with --tracked (--staged would see an empty index at push time). It is deliberately NOT --strict
-# (the CI workflow is the strict gate; a comment-only stub conf must not block every local push). It is ours only when it
-# carries the marker below: a hook the user wrote is NEVER overwritten (typed "skipped (foreign pre-push hook)" plus the line
-# to add by hand); our own hook is refreshed with --wire when the kit path changed. Honours core.hooksPath via git-path.
-_RSDD_PREPUSH_MARK="# research-sdd vendor-leak guard (pre-push)"
-_rsdd_sq() { local v="$1" q="'\\''"; printf "'%s'" "${v//\'/"$q"}"; }   # POSIX single-quote a string
-_rsdd_prepush_content() {
-  local sc
-  sc="$(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh")"
-  # The guard logic lives in the kit (templates/hook-prepush-vendor-leak.sh): it reads the pushed refs from stdin and scans
-  # the pushed commits' content, so a push of a non-checked-out branch is checked too. The hook only hands over to it.
-  printf '%s\n' '#!/usr/bin/env bash' "$_RSDD_PREPUSH_MARK — written by research-sdd-init.sh --wire (kit issue #1271); safe to delete." \
-    "GUARD=$sc" \
-    '[ -f "$GUARD" ] || { echo "research-sdd vendor-leak guard: $GUARD not found — this push was NOT checked (reinstall the kit or delete this hook)" >&2; exit 0; }' \
-    'exec bash "$GUARD" "$@"'
-}
-_rsdd_prepush_wiring() {  # <tag>
-  local tag="$1" hdir hook want line
-  hdir="$(git -C "$target" rev-parse --git-path hooks 2>/dev/null)" && [ -n "$hdir" ] \
-    || { echo "$tag DEGRADED could not resolve the git hooks directory — pre-push guard skipped (NOT a pass)"; return 0; }
-  case "$hdir" in /*) ;; *) hdir="$target/$hdir" ;; esac
-  hook="$hdir/pre-push"
-  want="$(_rsdd_prepush_content)"
-  # The guard reads git's ref lines on stdin: put this line BEFORE anything of yours that consumes stdin (or feed it a copy).
-  line="bash $(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh") \"\$@\" || exit 1"
-  if [ -e "$hook" ] || [ -L "$hook" ]; then
-    if [ -L "$hook" ] || [ ! -f "$hook" ] || ! grep -qF "$_RSDD_PREPUSH_MARK" "$hook" 2>/dev/null; then
-      echo "$tag pre-push guard skipped (foreign pre-push hook) $hook — never overwritten; add this line to it by hand:"
-      echo "    $line"
-      return 0
-    fi
-    if [ "$(cat "$hook")" = "$want" ]; then echo "$tag pre-push guard already wired in $hook"; return 0; fi
-    if [ "$wire" != 1 ]; then echo "$tag pre-push guard in $hook is ours but differs from the current kit path (re-run with --wire to refresh it)"; return 0; fi
-  elif [ "$wire" != 1 ]; then
-    echo "$tag pre-push guard (propose-never-apply: save as $hook and chmod +x, or re-run with --wire; scanner: $KIT/toolbelt/scan-vendor-leak.sh):"
-    printf '%s\n' "$want" | sed 's/^/    | /'
-    return 0
-  fi
-  if { [ -L "$hdir" ] || { [ -e "$hdir" ] && [ ! -d "$hdir" ]; }; }; then
-    echo "$tag DEGRADED $hdir is a symlink or not a directory — pre-push guard not written"; return 0
-  fi
-  # atomic: write a sibling temp file, mark it executable, then rename over the destination (never a half-written hook)
-  local hook_tmp="$hook.rsdd-tmp.$$"
-  if mkdir -p "$hdir" && printf '%s\n' "$want" > "$hook_tmp" && chmod +x "$hook_tmp" && mv -f "$hook_tmp" "$hook"; then
-    echo "$tag wrote pre-push guard $hook (runs scan-vendor-leak.sh --tracked before every push; delete the file to remove it)"
-  else
-    echo "$tag DEGRADED could not write $hook"
-  fi
-}
-
-_rsdd_vendor_leak_wiring() {
-  local tag="  vendor-leak:" remotes vis conf="$target/.research-sdd/vendor-leak.conf" wf="$target/.github/workflows/vendor-leak.yml"
-  local tpl_conf="$TPL/vendor-leak.conf.template" tpl_ci="$TPL/vendor-leak-ci.template.yml"
-  # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); any other rev-parse failure (dubious
-  # ownership, corrupt metadata) is a git failure and DEGRADED — never hidden as "nothing to ask about".
-  local rp_err
-  if ! rp_err="$(git -C "$target" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then
-    case "$rp_err" in
-      *"not a git repository"*) ;;   # VL-NOTREPO
-      *) echo "$tag DEGRADED git rev-parse failed in $target — vendor-leak wiring skipped [git: ${rp_err%%$'\n'*}]"; return 0 ;;
-    esac
-    echo "$tag NO-REMOTE $target is not a git work tree — nothing scaffolded; a plain run scaffolds the conf once the target is a git repo with a remote (--wire additionally writes the CI workflow)"
-    return 0
-  fi
-  # kit issue #1566 R4: a SUBDIRECTORY of a repo inherits the parent's remotes, but GitHub only reads workflows from the
-  # repo root's .github/workflows — wiring here would probe the wrong repo and write a file nothing runs. Typed
-  # SUBDIR state, nothing written, no success claim. Both paths are resolved physically (symlinked roots compare equal).
-  local _vl_top _vl_here
-  _vl_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && _vl_here="$(CDPATH="" cd -- "$target" 2>/dev/null && pwd -P)" \
-    || { echo "$tag DEGRADED could not resolve the repository root of $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  _vl_top="$(CDPATH="" cd -- "$_vl_top" 2>/dev/null && pwd -P)" \
-    || { echo "$tag DEGRADED the repository root reported by git is not reachable from $target — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  if [ "$_vl_top" != "$_vl_here" ]; then
-    echo "$tag SUBDIR $target is a subdirectory of the repository rooted at $_vl_top — nothing probed, scaffolded or written (GitHub only runs workflows from the repo root's .github/workflows); run the vendor-leak wiring on $_vl_top, or create .research-sdd/vendor-leak.conf and the workflow there by hand (NOT a pass)"
-    return 0
-  fi
-  remotes="$(git -C "$target" remote 2>/dev/null)" || { echo "$tag DEGRADED could not list git remotes in $target — vendor-leak wiring skipped; re-run once git works"; return 0; }
-  if [ -z "$remotes" ]; then
-    echo "$tag NO-REMOTE no remote configured — nothing scaffolded; once a remote exists, a plain run scaffolds the conf (--wire additionally writes the CI workflow), or create $conf by hand before making the repo public"
-    return 0
-  fi
-  # Probe the PUSH remote explicitly — a bare `gh repo view` lets gh choose (GH_REPO, set-default, upstream
-  # before origin), which may not be the repo this target publishes to. origin wins; a single other remote
-  # is used; several remotes without origin are ambiguous and DEGRADED (never guessed).
-  local remote gh_url
-  case $'\n'"$remotes"$'\n' in
-    *$'\n'origin$'\n'*) remote=origin ;;
-    *) if [ "$(printf '%s\n' "$remotes" | wc -l)" -gt 1 ]; then
-         echo "$tag DEGRADED ambiguous remote — several remotes and no 'origin' ($(printf '%s' "$remotes" | tr '\n' ' ')) — vendor-leak wiring skipped (NOT a pass)"
-         return 0
-       fi
-       remote="$remotes" ;;
-  esac
-  gh_url="$(git -C "$target" remote get-url --push "$remote" 2>/dev/null)" && [ -n "$gh_url" ] \
-    || { echo "$tag DEGRADED could not read the push URL of remote '$remote' — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
-    return 0
-  fi
-  # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
-  # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
-  # other value falls back to 20 with a note. No `timeout` binary -> the probe runs unbounded, announced.
-  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
-  case "$gh_t" in
-    ''|*[!0-9]*) gh_t=0 ;;
-    *) gh_t="${gh_t#"${gh_t%%[!0]*}"}"; gh_t="${gh_t:-0}" ;;   # strip leading zeros (all zeros -> 0)
-  esac
-  # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
-  # octal); an all-zero, non-numeric or >9-digit value is rejected. One fallback, one default.
-  if [ "${#gh_t}" -gt 9 ] || [ "$((10#$gh_t))" -eq 0 ]; then
-    echo "$tag note: RSDD_GH_TIMEOUT='${RSDD_GH_TIMEOUT-20}' is not a positive integer — using the default 20s"
-    gh_t=20
-  else
-    gh_t=$((10#$gh_t))
-  fi
-  if command -v timeout >/dev/null 2>&1; then
-    gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
-  else
-    echo "$tag note: timeout not found — the gh probe runs unbounded"
-  fi
-  gh_err="$(mktemp 2>/dev/null)" || gh_err=/dev/null
-  vis="$(cd "$target" && env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
-  gh_why=""
-  [ "$gh_err" = /dev/null ] || { gh_why="$(sed -n '1p' "$gh_err" 2>/dev/null)"; rm -f "$gh_err"; }
-  [ -n "$gh_why" ] && gh_why=" [gh: $gh_why]"
-  if [ "$gh_rc" = 124 ]; then
-    echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  elif [ "$gh_rc" = 125 ]; then
-    echo "$tag DEGRADED timeout could not run gh (exit 125)$gh_why — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  elif [ "$gh_rc" != 0 ]; then
-    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote)$gh_why — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  fi
-  case "$vis" in
-    PRIVATE|INTERNAL)
-      echo "$tag PRIVATE remote '$remote' visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, a plain run scaffolds the conf (--wire additionally writes the CI workflow)"
-      return 0 ;;
-    PUBLIC) ;;
-    *)
-      echo "$tag DEGRADED gh reported an unrecognised visibility '$vis' — vendor-leak wiring skipped (NOT a pass)"
-      return 0 ;;
-  esac
-  if [ ! -f "$tpl_conf" ] || [ ! -f "$tpl_ci" ]; then
-    echo "$tag DEGRADED PUBLIC remote but kit templates missing ($tpl_conf / $tpl_ci) — nothing scaffolded"
-    return 0
-  fi
-  echo "$tag PUBLIC remote '$remote' is PUBLIC — vendor code (decompiled trees, *.class/*.jar/*.dll/*.so/*.exe) must never be committed"
-  if [ -e "$conf" ] || [ -L "$conf" ]; then
-    echo "$tag kept existing $conf (never overwritten)"
-  elif [ -L "$target/.research-sdd" ] || { [ -e "$target/.research-sdd" ] && [ ! -d "$target/.research-sdd" ]; }; then
-    echo "$tag DEGRADED $target/.research-sdd is a symlink or not a directory — conf not scaffolded"
-  elif mkdir -p "$target/.research-sdd" && cp "$tpl_conf" "$conf"; then
-    echo "$tag scaffolded stub $conf — declare the vendor package prefixes / paths (scan-vendor-leak.v1.md); until then only the binary rule applies"
-  else
-    echo "$tag DEGRADED could not write $conf"
-  fi
-  if [ "$wire" = 1 ]; then
-    local gh_dir="$target/.github" wf_dir="$target/.github/workflows" bad_dir=""
-    if [ -L "$gh_dir" ] || { [ -e "$gh_dir" ] && [ ! -d "$gh_dir" ]; }; then bad_dir="$gh_dir"
-    elif [ -L "$wf_dir" ] || { [ -e "$wf_dir" ] && [ ! -d "$wf_dir" ]; }; then bad_dir="$wf_dir"; fi
-    if [ -n "$bad_dir" ]; then
-      echo "$tag DEGRADED $bad_dir is a symlink or not a directory — workflow not written"
-    elif [ -e "$wf" ] || [ -L "$wf" ]; then
-      echo "$tag kept existing $wf (never overwritten)"
-    elif mkdir -p "$target/.github/workflows" && cp "$tpl_ci" "$wf"; then
-      echo "$tag wrote CI workflow $wf — fill <KIT_REPOSITORY> and <KIT_REF> before committing (an unfilled workflow fails loudly)"
-    else
-      echo "$tag DEGRADED could not write $wf"
-    fi
-  else
-    echo "$tag CI guard (propose-never-apply: save as .github/workflows/vendor-leak.yml, fill the placeholders, or re-run with --wire; scanner: $KIT/toolbelt/scan-vendor-leak.sh):"
-    sed 's/^/    | /' "$tpl_ci"
-  fi
-  _rsdd_prepush_wiring "$tag"
-}
 _rsdd_vendor_leak_wiring
 
 echo "== done =="
