@@ -1900,7 +1900,7 @@ RETROEOF
   }
   echo "-- teeth T1304-1: any search hit counts as a duplicate (equality check removed) --"
   box_x1="$(xbox teeth-exact-any fuzzyother)"
-  if tooth_swap "$box_x1" stage-retro-issues.sh 'if (ln == sig)' 'if (1)'; then
+  if tooth_swap "$box_x1" stage-retro-issues.sh 'if (ln == needle)' 'if (1)'; then
     run_box "$box_x1" "$box_x1/rh/target-foo/retros/r-x.md" --apply
     if ! grep -q 'issue create' "$box_x1/bin/gh.log" 2>/dev/null; then
       ok "T1304-1 teeth: equality removed → another target's issue suppresses the create (case 9e-1 has teeth)" "()"
@@ -1910,7 +1910,7 @@ RETROEOF
   fi
   echo "-- teeth T1304-2: signature compared as a PREFIX (row 3 matches row 30) --"
   box_x2="$(xbox teeth-exact-prefix fuzzylongid)"
-  if tooth_swap "$box_x2" stage-retro-issues.sh 'if (ln == sig)' 'if (index(ln, sig) == 1)'; then
+  if tooth_swap "$box_x2" stage-retro-issues.sh 'if (ln == needle)' 'if (index(ln, needle) == 1)'; then
     run_box "$box_x2" "$box_x2/rh/target-foo/retros/r-x.md" --apply
     if ! grep -q 'issue create' "$box_x2/bin/gh.log" 2>/dev/null; then
       ok "T1304-2 teeth: prefix match → row 30 suppresses row 3 (case 9e-3 has teeth)" "()"
@@ -4552,7 +4552,9 @@ if [ "$RC" = 0 ] && grep -q '^occurrence-commented: #55 (row 1)$' <<<"$OUT" \
    && grep -q '^mutation-summary: confirmed=1 no_write=0 unknown=0$' <<<"$OUT" \
    && grep -q '^occurrence-summary: commented=1 already-present=0$' <<<"$OUT" \
    && grep -q '^summary: created=0 skipped-duplicate=0 ' <<<"$OUT" \
-   && grep -q -- '--state open --label target:target-foo ' <<<"$(grep 'number,state,title' "$box88a/bin/gh.log")"; then
+   && grep -q -- '--repo test-owner/test-kit --state open --label target:target-foo ' <<<"$(grep 'number,state,title' "$box88a/bin/gh.log")" \
+   && [ "$(grep -c '^gh issue view 55 --repo test-owner/test-kit --json comments ' "$box88a/bin/gh.log")" = "$(grep -c '^gh issue view' "$box88a/bin/gh.log")" ] \
+   && grep -q '^gh issue comment 55 --repo test-owner/test-kit --body ' "$box88a/bin/gh.log"; then
   ok "88a exact-title OPEN issue → one occurrence comment, no create, confirmed by read-back" "(exit $RC)"
 else
   no "88a occurrence comment" "exit=$RC out=[$OUT] log=[$(cat "$box88a/bin/gh.log")]"
@@ -4613,15 +4615,16 @@ else
   no "88f one per issue" "exit=$RC out=[$OUT]"
 fi
 
-# 88f2 — mixed outcomes on one row: #55 commented, #56 fails cleanly → ONE mutation_outcome (no_write: the failure
-#        outranks the confirmed write), failed counted once, per-issue detail still printed.
+# 88f2 — mixed outcomes on one row: #55 commented, #56 fails cleanly → ONE mutation_outcome, `confirmed` (no_write
+#        means "provably nothing written", and #55 was written); the clean failure still counts once in failed=
+#        and exits 2; per-issue detail still printed. Precedence: unknown > confirmed > no_write.
 box88f2="$(occ_box case-occ-mixed '55|OPEN|a real delta row' '56|OPEN|a real delta row')"; : > "$box88f2/bin/gh.commentfail.56"
 run "$box88f2" "$(mk_retro "$box88f2" target-foo r.md "$PEND" "$OCC_ROW")" --apply
 if [ "$RC" = 2 ] && grep -q '^occurrence-commented: #55 (row 1)$' <<<"$OUT" && grep -q '^ERROR: gh issue comment failed for row 1 (#56)' <<<"$OUT" \
-   && [ "$(grep -c '^mutation_outcome:' <<<"$OUT")" = 1 ] && grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" \
-   && grep -q '^mutation-summary: confirmed=0 no_write=1 unknown=0$' <<<"$OUT" && grep -q 'failed=1$' <<<"$(grep '^summary:' <<<"$OUT")" \
+   && [ "$(grep -c '^mutation_outcome:' <<<"$OUT")" = 1 ] && grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" \
+   && grep -q '^mutation-summary: confirmed=1 no_write=0 unknown=0$' <<<"$OUT" && grep -q 'failed=1$' <<<"$(grep '^summary:' <<<"$OUT")" \
    && grep -q '^occurrence-summary: commented=1 already-present=0$' <<<"$OUT"; then
-  ok "88f2 mixed confirmed + failed issues on one row → one no_write outcome, failed=1" "(exit $RC)"
+  ok "88f2 mixed confirmed + failed issues on one row → one confirmed outcome (a write happened), failed=1, exit 2" "(exit $RC)"
 else
   no "88f2 mixed outcomes" "exit=$RC out=[$OUT]"
 fi
@@ -4807,7 +4810,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     case "$sc" in
       twice)  [ "$(grep -c '^gh issue comment' "$mb/bin/gh.log")" = 2 ] && bite=1; why="a re-run posted a second comment for the same retro" ;;
       escapes) grep -q '^gh issue create' "$mb/bin/gh.log" && bite=1; why="a title sent with JSON escapes failed to match (duplicate created)" ;;
-      mixed)  grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" && bite=1; why="a row with a failed issue was reported confirmed" ;;
+      mixed)  grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" && bite=1; why="a row with a confirmed write was reported no_write" ;;
+      repolookup) grep -q -- '--repo test-owner/test-kit' <<<"$(grep 'number,state,title' "$mb/bin/gh.log")" || bite=1; why="the occurrence lookup carried no --repo" ;;
+      repoview) [ -n "$(grep '^gh issue view' "$mb/bin/gh.log" | grep -v -- '--repo test-owner/test-kit')" ] && bite=1; why="a comments view carried no --repo" ;;
+      repocomment) [ -n "$(grep '^gh issue comment' "$mb/bin/gh.log" | grep -v -- '--repo test-owner/test-kit')" ] && bite=1; why="the comment write carried no --repo" ;;
       mixedunk) grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" && bite=1; why="an unproven issue was outranked by a clean failure" ;;
       near)   grep -q '^gh issue comment' "$mb/bin/gh.log" && bite=1; why="a near-title issue received a comment" ;;
       closed) grep -q '^gh issue comment' "$mb/bin/gh.log" && bite=1; why="a CLOSED issue received a comment" ;;
@@ -4828,9 +4834,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1708-$tag teeth: mutant must show [$why]" "case is THEATER: exit=$RC out=[${OUT:0:300}]"; fi
   }
   tocc marker-check-off  twice 's/^  if grep -qxF -- "\$_mk" <<<"\$_cm"; then$/  if false; then/'
-  tocc exact-title-off   near  's/ && title == sig//'
+  tocc exact-title-off   near  's/ && title == needle//'
   tocc hex-decode-off    escapes 's/if (cp >= 0 && cp < 128) str/if (0) str/'
-  tocc row-failed-outranks-confirmed mixed 's/^      elif \[ "\$_occ_row_failed" -eq 0 \] && \[ "\$_occ_row_confirmed" -eq 1 \]; then$/      elif [ "$_occ_row_confirmed" -eq 1 ]; then/'
+  tocc row-failure-demotes-confirmed mixed 's/^      elif \[ "\$_occ_row_confirmed" -eq 1 \]; then$/      elif [ "$_occ_row_confirmed" -eq 1 ] \&\& [ "$_occ_row_failed" -eq 0 ]; then/'
+  tocc repo-lookup-off   repolookup 's/gh issue list --repo "\$KIT_ISSUE_REPO" --state open --label/gh issue list --state open --label/'
+  tocc repo-view-off     repoview 's/gh issue view "\$_n" --repo "\$KIT_ISSUE_REPO" --json comments/gh issue view "$_n" --json comments/'
+  tocc repo-comment-off  repocomment 's/gh issue comment "\$_n" --repo "\$KIT_ISSUE_REPO" --body/gh issue comment "$_n" --body/'
   tocc row-unknown-outranks mixedunk 's/^      if \[ "\$_occ_row_unknown" -eq 1 \]; then _row_unknown "\$_rid"$/      if false; then _row_unknown "$_rid"/'
   tocc open-only-off     closed 's/state == "OPEN" && //'
   tocc parse-guard-off   noend 's/^    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row \$2: \$_o" >&2; return 2$/    :/' 's/^  if \[ -z "\$_total" \]; then$/  if false; then/'

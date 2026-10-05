@@ -777,7 +777,7 @@ _exact_sig_matches() { _json_issue_scan sig "$1"; }
 #     occ  needle = a title; prints line 1 = space-separated numbers of the OPEN issues whose title EQUALS
 #          it exactly (possibly empty), then `total=N` (see _occ_find).
 _json_issue_scan() {
-  _XMODE="$1" _XSIG="$2" awk '
+  _XMODE="$1" _XNEEDLE="$2" awk '
     function hexval(h,   k, v, d) {
       v = 0
       for (k = 1; k <= length(h); k++) {
@@ -790,7 +790,7 @@ _json_issue_scan() {
     function process_object(   nl, lines, j, ln, hit) {
       if (mode == "occ") {
         ntotal++
-        if (state == "OPEN" && title == sig && num ~ /^[0-9]+$/) { occout = occout (nocc++ ? " " : "") num }   # STAGE_RETRO_ISSUES_OCC_EXACT
+        if (state == "OPEN" && title == needle && num ~ /^[0-9]+$/) { occout = occout (nocc++ ? " " : "") num }   # STAGE_RETRO_ISSUES_OCC_EXACT
         return
       }
       hit = 0
@@ -798,12 +798,12 @@ _json_issue_scan() {
       for (j = 1; j <= nl; j++) {
         ln = lines[j]
         sub(/[ \t\r]+$/, "", ln)
-        if (ln == sig) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
+        if (ln == needle) { hit = 1; break }   # STAGE_RETRO_ISSUES_EXACT_SIG_EQ
       }
       ntotal++
       if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
     }
-    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; nocc = 0; sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
+    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; nocc = 0; needle = ENVIRON["_XNEEDLE"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
     { s = s $0 "\n" }
     END {
       n = length(s); i = 1
@@ -1075,19 +1075,20 @@ _occ_find() {
 }
 
 # _occ_comment <issue-number> <row-id> <marker> <comment-body>: the guarded write for ONE issue. Updates the
-# per-row flags (_occ_row_*) and per-issue counters; the CALLER emits the row's single mutation_outcome line.
+# per-row flags (_occ_row_*, documented and ranked at the call site) and per-issue counters; the CALLER emits the
+# row's single mutation_outcome line. Flags are only ever SET here, never cleared.
 _occ_comment() {
   local _n="$1" _r="$2" _mk="$3" _cb="$4" _cm _cmrc _co _corc _cl _rb2 _rb2rc
   _cm="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _cmrc=$?
   _cm="${_cm//$'\r'/}"
   if [ "$_cmrc" -ne 0 ]; then
     echo "ERROR: gh issue view (occurrence comments) failed for row $_r (#$_n): $_cm" >&2
-    _occ_row_failed=1; _occ_row_nowrite=1; return 0
+    _occ_row_failed=1; return 0
   fi
   # STAGE_RETRO_ISSUES_OCC_MARKER_CHECK: anchor for the idempotency teeth (a retro comments ONCE per issue).
   if grep -qxF -- "$_mk" <<<"$_cm"; then
     echo "occurrence-exists: #$_n already carries this retro (row $_r)"
-    occurrence_present=$((occurrence_present+1)); _occ_row_nowrite=1; return 0
+    occurrence_present=$((occurrence_present+1)); return 0
   fi
   _co="$(gh issue comment "$_n" --repo "$KIT_ISSUE_REPO" --body "$_cb" 2>&1)"; _corc=$?
   if [ "$_corc" -ne 0 ]; then
@@ -1097,26 +1098,26 @@ _occ_comment() {
     _rb2="${_rb2//$'\r'/}"
     if [ "$_rb2rc" -eq 0 ] && grep -qxF -- "$_mk" <<<"$_rb2"; then
       echo "unknown-outcome: gh issue comment failed for row $_r (#$_n) but the marker is present on re-read: $_co" >&2
-      _occ_row_sumunk=1; _occ_row_unknown=1; return 0
+      _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
     fi
     echo "ERROR: gh issue comment failed for row $_r (#$_n): $_co" >&2
-    if [ "$_rb2rc" -eq 0 ]; then _occ_row_nowrite=1; else _occ_row_unknown=1; fi
+    if [ "$_rb2rc" -ne 0 ]; then _occ_row_unknown=1; fi
     _occ_row_failed=1; return 0
   fi
   _cl="$(printf '%s\n' "$_co" | tail -n 1)"
   if [[ ! "$_cl" =~ ^https?://[^[:space:]]+/issues/${_n}#issuecomment-[0-9]+$ ]]; then
     echo "unknown-outcome: gh issue comment exited 0 for row $_r (#$_n) but printed no comment URL (output: $_co) — a write is not inferred from output text" >&2
-    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
   fi
   _rb2="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _rb2rc=$?
   _rb2="${_rb2//$'\r'/}"
   if [ "$_rb2rc" -ne 0 ]; then
     echo "unknown-outcome: gh issue comment returned $_cl for row $_r (#$_n) but the read-back failed (gh issue view exit $_rb2rc): $_rb2" >&2
-    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
   fi
   if ! grep -qxF -- "$_mk" <<<"$_rb2"; then
     echo "unknown-outcome: gh issue comment on #$_n returned a URL for row $_r but the read-back lacks the occurrence marker '$_mk'" >&2
-    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
+    _occ_row_unknown_counted=1; _occ_row_unknown=1; return 0
   fi
   echo "occurrence-commented: #$_n (row $_r)"
   occurrence_commented=$((occurrence_commented+1))
@@ -1313,15 +1314,26 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         continue
       fi
       # ONE mutation_outcome per ROW (kit issue #1705 contract: mutation-summary counts rows), however many
-      # issues matched. Precedence: unknown > failed/no_write > confirmed; a row whose issues were all already
-      # commented is no_write. Per-issue detail stays in the occurrence-commented:/occurrence-exists: lines.
-      _occ_row_unknown=0; _occ_row_nowrite=0; _occ_row_failed=0; _occ_row_sumunk=0; _occ_row_confirmed=0
+      # issues matched. PRECEDENCE (the only place it is defined): unknown > confirmed > no_write.
+      #   unknown    any issue's write may have happened and is unproven (a write is never retried);
+      #   confirmed  no unknown, and at least one comment was confirmed by read-back — a write DID happen, so
+      #              no_write would be false even when another issue of the row failed cleanly;
+      #   no_write   nothing was written (clean failures, or every issue already carried the marker).
+      # A clean failure still counts in failed= (exit 2) whatever the outcome. Per-issue detail stays in the
+      # occurrence-commented:/occurrence-exists: lines. The row flags (set by _occ_comment, reset per row):
+      #   _occ_row_confirmed        >=1 comment confirmed by read-back
+      #   _occ_row_failed           >=1 issue ended in a failed lookup/view/comment -> failed= +1 for the row
+      #   _occ_row_unknown          >=1 issue's write is unproven -> the row's outcome is unknown
+      #   _occ_row_unknown_counted  the unproven write is also reported by an `unknown-outcome:` line ->
+      #                             unknown-outcome= +1 for the row (a failed comment whose re-read ALSO failed
+      #                             is unknown but is counted in failed=, like a failed create)
+      _occ_row_confirmed=0; _occ_row_failed=0; _occ_row_unknown=0; _occ_row_unknown_counted=0
       for _occ_n in $_occ_nums; do _occ_comment "$_occ_n" "$_rid" "$_occ_marker" "$_occ_text"; done
       if [ "$_occ_row_failed" -eq 1 ]; then failed=$((failed+1)); fi
-      if [ "$_occ_row_sumunk" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
+      if [ "$_occ_row_unknown_counted" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
       # STAGE_RETRO_ISSUES_OCC_ROW_OUTCOME: anchor for the one-outcome-per-row teeth.
       if [ "$_occ_row_unknown" -eq 1 ]; then _row_unknown "$_rid"
-      elif [ "$_occ_row_failed" -eq 0 ] && [ "$_occ_row_confirmed" -eq 1 ]; then
+      elif [ "$_occ_row_confirmed" -eq 1 ]; then
         mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
       else _row_nowrite "$_rid"; fi
       continue
