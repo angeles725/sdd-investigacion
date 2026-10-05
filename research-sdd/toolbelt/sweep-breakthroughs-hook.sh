@@ -55,6 +55,21 @@ if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
       print; next  # ABSENT-COLLAPSE-PRINT
     }
 
+    # #1816 (SessionStart budget): collapse the per-breakthrough "unindexed" WARN lines into ONE line
+    # naming up to 5 as parentdir/file:line plus a "+N more" remainder, so the count stays exact and
+    # nothing is dropped without being counted. The Summary line still carries the authoritative total.
+    /^WARN: unindexed breakthrough/ {
+      un++
+      if (un <= 5) {
+        p = $0; sub(/^.*BREAKTHROUGHS\.md: /, "", p)
+        n = split(p, seg, "/"); q = (n >= 2) ? seg[n-1] "/" seg[n] : p
+        names = names (un > 1 ? ", " : "") q
+      }
+      next  # UNINDEXED-COLLAPSE
+    }
+    /^For each unindexed breakthrough:/ { next }
+    /^[ \t]*$/ { next }
+
     # Everything else passes through unchanged.
     { print }
 
@@ -62,6 +77,7 @@ if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
     # regardless of where they appeared relative to the absent aggregate line.
     # Combined when both > 0; separate lines otherwise (anti-silent-zero §7: each state distinct).
     END {
+      if (un > 0) printf "WARN: %d unindexed breakthrough(s) not in BREAKTHROUGHS.md: %s%s — add a row each (path:line); run --full for all\n", un, names, (un > 5 ? sprintf(", +%d more", un - 5) : "")  # UNINDEXED-EMIT
       if (ei > 0 && nm > 0) printf "INFO: %d corpus(es) empty-input, %d no-match — run --full to list them\n", ei, nm  # COMBINED-COLLAPSE-EMIT
       else if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei  # EMPTY-COLLAPSE-EMIT
       else if (nm > 0) printf "INFO: %d corpus(es) no-match — run --full to list them\n", nm  # NOMATCH-COLLAPSE-EMIT

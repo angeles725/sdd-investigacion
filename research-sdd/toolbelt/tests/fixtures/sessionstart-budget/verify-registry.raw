@@ -1,0 +1,18 @@
+WARN  mini-pc — row claims 2 retro(s) but 5 non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply).
+WARN  sdd-investigacion — row claims 6 retro(s) but 7 non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply).
+WARN  sdd-investigacion — TARGETS.md row claims 27 md but the corpus has 34 real block file(s) (CATALOG.md total via local gen-catalog.py; disk-consistent: discriminator=34) (drift 7 > tol 2) — refresh the row (propose-never-apply; not auto-edited).
+WARN  niagara-research — TARGETS.md row claims 1153 md but the corpus has 1202 real block file(s) (CATALOG.md total via local gen-catalog.py; disk-consistent: discriminator=1202) (drift 49 > tol 2) — refresh the row (propose-never-apply; not auto-edited).
+WARN  niagara5-research — maturity field not in schema: 'B1..B140'; check the legend for valid forms or update the legend (propose-never-apply).
+WARN  niagara5-research — CATALOG.md header total 140 ≠ its own 147 block rows (stale header); using disk discriminator 151 — regenerate CATALOG.md.
+WARN  niagara5-research — TARGETS.md row claims 140 md but the corpus has 151 real block file(s) (drift 11 > tol 2) — refresh the row (propose-never-apply; not auto-edited).
+WARN  Pancaddia — row claims 22 retro(s) but 25 non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply).
+WARN  Pancaddia — TARGETS.md row claims 19 md but the corpus has 23 real block file(s) (drift 4 > tol 2) — refresh the row (propose-never-apply; not auto-edited).
+WARN  HotelPalace — row claims 'hook no' but the Stop hook IS wired at /fx/home/tunnel/clientes/cancun/HotelPalace/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply).
+INFO  HotelPalace — 4 block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired).
+WARN  TARGETS row pancaddia-leon-tunnel master cell is 236 chars (> 200) — collapse to one line; narrative belongs in the detail section.
+WARN  research-sdd — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate).
+
+Summary: reconciled 20 target(s) · 14 absent target(s) · 4 count drift(s) · 3 retro drift(s) · 1 unresolvable · 1 oversized row(s) · 3 attention.
+INFO: 14 registered target(s) absent on disk — NOT checked: `$RESEARCH_HOME/ALSER/Proyectos/Automatizacion/API-FACTURAS`, `$RESEARCH_HOME/Honeywell/WEB-HMI10-CF`, `$RESEARCH_HOME/TRADINGVIEW` ...and 11 more. Verify RESEARCH_HOME (/fx/home) and that corpora exist at the registered paths.
+For each count drift: recount the corpus and refresh that target's 'N md' in $KIT/TARGETS.md by hand (WARN-only; never auto-edited).
+For each retro drift: recount non-excluded retros and refresh the 'N retros' field in $KIT/TARGETS.md by hand (WARN-only; never auto-edited).

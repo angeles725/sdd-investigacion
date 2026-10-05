@@ -1,0 +1,54 @@
+INFO: corpus not found (absent-input): /fx/home/ALSER/Proyectos/Automatizacion/API-FACTURAS
+INFO: corpus exists, no block files (empty-input): /fx/home/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator
+INFO: corpus exists, no block files (empty-input): /fx/home/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help
+INFO: corpus not found (absent-input): /fx/home/Honeywell/WEB-HMI10-CF
+INFO: corpus not found (absent-input): /fx/home/TRADINGVIEW
+INFO: corpus not found (absent-input): /fx/home/investigacion/EduVolt-Designer
+INFO: corpus not found (absent-input): /fx/home/investigacion/TRANE
+INFO: corpus not found (absent-input): /fx/home/investigacion/api-openness
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/api-paneles
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/blender-llm
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/cloudflare
+INFO: corpus not found (absent-input): /fx/home/investigacion/computadoras
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/fluke-177x-datos
+INFO: corpus not found (absent-input): /fx/home/investigacion/forense
+INFO: corpus not found (absent-input): /fx/home/investigacion/gateway-ug67
+INFO: corpus not found (absent-input): /fx/home/investigacion/hifref
+INFO: corpus not found (absent-input): /fx/home/investigacion/impresora-samsung-m2070
+INFO: corpus not found (absent-input): /fx/home/investigacion/logosoft
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/mini-pc
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/nave-panccadia
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/sdd-investigacion
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/investigacion/sullair
+INFO: corpus not found (absent-input): /fx/home/kidcad-research
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block16.md:67
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block17.md:47
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block2.md:54
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block28.md:73
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block29.md:84
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block36.md:62
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block39.md:75
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block4.md:59
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block45.md:91
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block46.md:61
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block49.md:72
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block51.md:73
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block52.md:108
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block55.md:76
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block59.md:57
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block60.md:96
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block7.md:52
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: /fx/home/niagara5-research/niagara5-block9.md:73
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/panccadia-3d-viewer
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/prototipos/clientes/hisense
+INFO: corpus not found (absent-input): /fx/home/prototipos/pruebas-dashboards
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/prototipos/three.js/threejs-hvac-prototipos/research
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/tunnel/clientes/Leon-Guanajuato/Pancaddia
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/tunnel/clientes/cancun/HotelHilton
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/tunnel/clientes/cancun/HotelPalace
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fx/home/tunnel/clientes/ford
+INFO: corpus not found (absent-input): /mrdoob/three.js
+
+Summary: 21 tagged breakthrough(s) across corpora · 18 unindexed · 0 drifted · 0 skipped-unreadable.
+INFO: 15 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.

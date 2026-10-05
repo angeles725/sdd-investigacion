@@ -61,6 +61,19 @@ _vtch_warn_rc=$?
 if [ "$_vtch_warn_rc" -ge 2 ]; then
   warn_lines="(WARN-line extraction failed: grep exit $_vtch_warn_rc)"
 fi
+#
+# COMPACT (#1816, SessionStart output budget): the per-tool "installed-but-not-cataloged" WARN lines share
+# one long remediation sentence; collapse them into ONE line naming every tool (count == names listed ==
+# the summary's "not cataloged" count). Any other WARN line passes through (truncated), never dropped.
+if [ "${1:-}" != "--full" ]; then  # COMPACT-GUARD
+  names="$(printf '%s\n' "$warn_lines" | sed -n "s/^WARN  installed-but-not-cataloged: '\([^']*\)'.*/\1/p" | paste -sd, - | sed 's/,/, /g')"
+  n_names="$(printf '%s\n' "$warn_lines" | grep -c "^WARN  installed-but-not-cataloged: '")"
+  other="$(printf '%s\n' "$warn_lines" | grep -v "^WARN  installed-but-not-cataloged: '" | cut -c1-160)"
+  warn_lines="${other}"
+  if [ "${n_names:-0}" -gt 0 ]; then
+    warn_lines="${warn_lines}${warn_lines:+$'\n'}WARN  installed-but-not-cataloged (${n_names}): ${names} — add a tool-registry.md row each (propose-never-apply)."
+  fi
+fi
 detail="${warn_lines}${warn_lines:+$'\n'}${summary}"$'\n'"Run toolbelt/verify-tool-catalog.sh for the full list."
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$detail" \
