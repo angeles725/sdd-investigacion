@@ -350,7 +350,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth/mutant_cleanup_register" >&2; exit 2; }
-  export MUTANT_SYNTAX=none   # python mutant: no bash -n
+  # python mutant: no bash -n (scoped per call below, never exported: #1814)
 
   # teeth-SAFE_R2: mutate SAFE_R2 by appending '-w' via .append() →
   # the forbidden-flag check (F1) goes RED.
@@ -371,7 +371,7 @@ present = sorted(forbidden & set(m.SAFE_R2))
 print("VERDICT: SAFE_R2 forbidden flags", present)
 PY
   if mkdir -p "$_mut_dir/m" && cp -R "$TOOLBELT/lib" "$_mut_dir/m/lib" \
-     && mutant_chain "teeth-SAFE_R2" "$SUT_PY" "$_mut_dir/m/corroborate_native.py" \
+     && MUTANT_SYNTAX=none mutant_chain "teeth-SAFE_R2" "$SUT_PY" "$_mut_dir/m/corroborate_native.py" \
        '/^           "-e", "scr.interactive=false", "-c", "aaa;aflj", "input\/target.bin"\]$/a SAFE_R2.append('"'-w'"')  # mutant: inject forbidden flag'; then
     if mutant_tooth "teeth-SAFE_R2: append('-w') mutation → forbidden flag detected (bites)" 0 0 "$_mut_dir/m/corroborate_native.py" --orig "$SUT_PY" \
         --good-has '^VERDICT: SAFE_R2 forbidden flags \[\]$' --bad-has "^VERDICT: SAFE_R2 forbidden flags \\['-w'\\]\$" --bad-lacks '^VERDICT: SAFE_R2 forbidden flags \[\]$' -- \

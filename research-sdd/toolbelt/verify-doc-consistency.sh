@@ -21,7 +21,10 @@
 #   RSDD_SKILL        path to SKILL.md      (default: $KIT/skills/research-sdd/SKILL.md)
 #   RSDD_PROMPTLOOP   path to PROMPT-LOOP.md (default: $KIT/PROMPT-LOOP.md)
 #   RSDD_README       path to README.md      (default: $KIT/README.md)
-#   RSDD_KIT          kit root for resolving retros/ citations (default: $KIT)
+#   RSDD_KIT          TEST-ONLY override of the kit root used to resolve retros/ citations (default: $KIT).
+#                     Deliberately NOT RESEARCH_SDD_KIT: that is the launcher's pointer to the kit live
+#                     research sessions use (possibly another, stale checkout), and a checker must verify the
+#                     tree it lives in, never an ambient one (kit issue #1821 item 5, resolved by documentation).
 #   RSDD_REPO         repo root for resolving retros/ citations (default: parent of $KIT)
 set -uo pipefail
 

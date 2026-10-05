@@ -176,10 +176,21 @@ awk -F'\t' '{cnt[$1]++; last[$1]=$2}
             END {for(b in cnt) if(cnt[b]==1 && length(b)>=4) print b"\t"last[b]}' \
   "$TMP/all_bn.txt" | sort > "$TMP/unambig.txt"
 
-# ---------- find block files in corpus using the kit discriminator
-# Pattern: <prefix>-(block|bloque)<N>[optional-suffix].md at any depth under corpus-dir
+# ---------- find block files in corpus using the kit discriminator (kit issue #1821: the shared
+# lib/block-files.sh, not a private copy of its regex). Fail closed if the helper is not defined.
+# Resolve the script directory THROUGH a symlinked invocation (readlink -f), so lib/ is found beside the
+# real script; fall back to dirname when readlink -f is unavailable.
+_cm_self="$(readlink -f -- "$0" 2>/dev/null)" || _cm_self=""
+[ -n "$_cm_self" ] || _cm_self="$0"
+_bflib="$(cd "$(dirname "$_cm_self")" && pwd)/lib/block-files.sh"
+# shellcheck source=lib/block-files.sh
+. "$_bflib"   # source errors (missing/unreadable lib) stay visible on stderr
+if ! declare -F block_file_filter >/dev/null 2>&1; then
+  echo "coverage-map: helper lib/block-files.sh failed to define block_file_filter" >&2
+  exit 1
+fi
 find "$CORPUS_DIR" -type f -name "*.md" 2>/dev/null \
-  | grep -E '[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' \
+  | block_file_filter \
   | sort > "$TMP/blocks.txt"
 BLOCK_COUNT=$(wc -l < "$TMP/blocks.txt" | tr -d ' ')
 

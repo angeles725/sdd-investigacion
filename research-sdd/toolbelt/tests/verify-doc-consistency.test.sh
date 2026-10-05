@@ -29,6 +29,9 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# Hygiene (kit issue #1821 item 5): the SUT ignores an ambient RESEARCH_SDD_KIT by design (test 25 pins it);
+# unset it anyway so no caller kit-root variable can leak into these fixtures.
+unset RESEARCH_SDD_KIT
 SUT="$HERE/../verify-doc-consistency.sh"
 FIXTURES="$HERE/fixtures/doc-consistency"
 
@@ -424,6 +427,46 @@ else
   no "24h CHECK 5: SKILL.md-side broken appendix anchor not detected/named (out=[$OUT_24SK])"
 fi
 
+
+# 25 (kit issue #1821 item 5, resolved by documentation): RSDD_KIT is a deliberate TEST-ONLY override of
+# the kit root used to resolve retros/ citations. The ambient RESEARCH_SDD_KIT (the launcher's pointer to the
+# kit live research sessions use, possibly a stale checkout) must NOT change what the checker verifies: it
+# checks the tree it lives in. skill-clean.md cites retros/existing.md, which exists ONLY under the fixture
+# kit root (the repo root passed here is an empty directory); the fixture kit root doubles as the DECOY.
+_EMPTY_REPO_25="$(mktemp -d)"
+run_25() {  # run_25 ENV=VAL... : clean scenario with the given kit-root env, empty repo root
+  env -u RESEARCH_SDD_KIT -u RSDD_KIT "$@" \
+    RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" RSDD_PROMPTLOOP="$PROMPTLOOP" \
+    RSDD_README="$README_MATCH" RSDD_REPO="$_EMPTY_REPO_25" bash "$SUT" 2>&1
+}
+OUT_25N="$(run_25 A=1)"
+OUT_25G="$(run_25 RESEARCH_SDD_KIT=/nonexistent)"
+OUT_25D="$(run_25 RESEARCH_SDD_KIT="$KIT_ROOT")"
+OUT_25L="$(run_25 RSDD_KIT="$KIT_ROOT")"
+[ -n "$OUT_25N" ] && [ -n "$OUT_25G" ] && [ -n "$OUT_25D" ] && [ -n "$OUT_25L" ] \
+  || no "25: SUT produced no output (capture fork-fail?)"
+if [[ "$OUT_25N" == *'retros/existing.md'*'does not exist'* ]]; then
+  ok "25a control: no kit-root override + empty repo root -> retros/existing.md is WARNed (the test can see the difference)"
+else
+  no "25a control: expected a broken-citation WARN for retros/existing.md without an override (out=[$OUT_25N])"
+fi
+if [ "$OUT_25G" = "$OUT_25N" ] || [[ "$OUT_25G" == *'retros/existing.md'*'does not exist'* ]]; then
+  ok "25b ambient RESEARCH_SDD_KIT=/nonexistent does not change the result"
+else
+  no "25b ambient RESEARCH_SDD_KIT=/nonexistent changed the result (out=[$OUT_25G])"
+fi
+if [[ "$OUT_25D" == *'retros/existing.md'*'does not exist'* ]]; then
+  ok "25c ambient RESEARCH_SDD_KIT pointing at a decoy kit that HAS the retro is ignored (still WARNs)"
+else
+  no "25c ambient RESEARCH_SDD_KIT was honoured: the decoy kit masked the broken citation (out=[$OUT_25D])"
+fi
+if [[ "$OUT_25L" != *'retros/existing.md'* ]]; then
+  ok "25d RSDD_KIT (the test-only override) still resolves the retros/ citation"
+else
+  no "25d RSDD_KIT override no longer honoured (out=[$OUT_25L])"
+fi
+rm -rf "$_EMPTY_REPO_25"
+
 # =============================================================================
 # Teeth — mutation proof (one mutant per check + the readability guard)
 # =============================================================================
@@ -745,6 +788,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth SYMLINK-TOOLBELT: reverted mutant did not diverge — -P fix check is THEATER (direct=$RC_DIRECT_TSYM render=$RC_RENDER_TSYM)"
   fi
   rm -rf "$scratch_tsym"
+  echo "-- teeth #1821-5: re-adding RESEARCH_SDD_KIT to the kit-root chain must break test 25c (decoy kit masks the citation) --"
+  _tdir_1821="$(mktemp -d)"
+  if ! mutant_sed "$SUT" "$_tdir_1821/kitenv.MUT.sh" 's/_cit_kit="\${RSDD_KIT:-\$KIT}"/_cit_kit="${RESEARCH_SDD_KIT:-${RSDD_KIT:-$KIT}}"/'; then
+    no "teeth #1821-5: could not build mutant (_cit_kit chain not found, or refused by lib/mutant.sh)"
+  else
+    _e="$(mktemp -d)"
+    _o="$(env -u RSDD_KIT RESEARCH_SDD_KIT="$KIT_ROOT" \
+          RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" RSDD_PROMPTLOOP="$PROMPTLOOP" \
+          RSDD_README="$README_MATCH" RSDD_REPO="$_e" bash "$_tdir_1821/kitenv.MUT.sh" 2>&1)"
+    rm -rf "$_e"
+    if [[ "$_o" != *'retros/existing.md'*'does not exist'* ]]; then
+      ok "teeth #1821-5: mutant honouring RESEARCH_SDD_KIT lets the decoy kit mask the broken citation -> test 25c would go RED"
+    else
+      no "teeth #1821-5: mutant still WARNs -- 25c does not pin the ignored RESEARCH_SDD_KIT (THEATER) (out=[$_o])"
+    fi
+  fi
+  rm -rf "$_tdir_1821"
+
   rm -f "$mutant_tsym"
 fi
 

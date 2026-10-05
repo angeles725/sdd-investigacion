@@ -356,10 +356,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   done
   # The SUT of these controls is a JSON fixture, not a shell script: skip the `bash -n` check.
   # Each mutant is validated as JSON by its own builder (json.loads round-trip) instead.
-  export MUTANT_SYNTAX=none
+  # MUTANT_SYNTAX=none is scoped per call in mk() below, never exported (#1814)
   _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
-  mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   # Checkers: the same assertions the fast lane runs on the same fixture artifact (T1-fast and

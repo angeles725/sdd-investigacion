@@ -435,10 +435,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # The SUT of these controls is a JSON fixture: skip the `bash -n` check (the builder below
   # round-trips through json, and a mutant that is not valid JSON crashes the checker, which the
   # --bad-lacks guard refuses to read as a bite).
-  export MUTANT_SYNTAX=none
+  # (scoped per call in mk() below, never exported: #1814)
   _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
-  mk(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   # Builder: set one dotted key of a fixture copy, refusing (rc 2) unless the key currently holds
@@ -543,14 +543,12 @@ print("RESULT=ok")
   # Mutant: drop the environment probe (the mirror-id match never succeeds, so everything reads
   # as absent). On the bootstrap-tagged repo the original says "fail: bootstrap present"; the
   # mutant says "skip: ..." and would mask a real build failure as a SKIP.
-  export MUTANT_SYNTAX=bash
-  if mutant_chain tooth-probe-dropped "$_PROBE_LIB" "$_MUT/probe-mut.sh" \
+  if MUTANT_SYNTAX=bash mutant_chain tooth-probe-dropped "$_PROBE_LIB" "$_MUT/probe-mut.sh" \
        's/0) echo "fail: bootstrap present"; return 1 ;;/0) ;;/'; then
     tt "tooth-probe-dropped: probe removed -> bootstrap-present build failure masked as skip (bites)" 0 0 "$_MUT/probe-mut.sh" \
       --orig "$_PROBE_LIB" --good-has '^fail: bootstrap present$' --bad-has '^skip: ' \
       --bad-lacks '^fail: bootstrap present$' -- bash -c "$_probe_h" _ @SUT@ "$_MUT/repo-ours" "$_PSET"
   else fail=$((fail+1)); fi
-  export MUTANT_SYNTAX=none
 
   # Build-settings control (#1588, real SUT defect): `bootstrap` populates the local Maven repo
   # under the mirror id research-sdd-central-only, so an offline `build` WITHOUT the same settings
@@ -570,15 +568,13 @@ FAKE
     chmod +x "$_MUT/fakebin/mvn"
     ln -s "$TOOLBELT/lib" "$_MUT/bs-mut/lib"; ln -s "$TOOLBELT/jvm-callgraph" "$_MUT/bs-mut/jvm-callgraph"
     _build_h='PATH="$1/fakebin:$PATH" FAKE_MVN_ARGS="$1/mvn.args" bash "$2" build >/dev/null 2>&1; echo "rc=$?"; cat "$1/mvn.args" 2>/dev/null'
-    export MUTANT_SYNTAX=bash
-    if mutant_chain tooth-build-settings "$WRAPPER" "$_MUT/bs-mut/jvm-callgraph.sh" \
+    if MUTANT_SYNTAX=bash mutant_chain tooth-build-settings "$WRAPPER" "$_MUT/bs-mut/jvm-callgraph.sh" \
          's| -s "\$MODULE/maven-central-settings.xml"||'; then
       tt "tooth-build-settings: build must pass -o and -s <bootstrap settings> to mvn" 0 0 "$_MUT/bs-mut/jvm-callgraph.sh" \
         --orig "$WRAPPER" --good-has '^OFFLINE=present SETTINGS=present$' --bad-has '^OFFLINE=present SETTINGS=absent$' \
         --bad-lacks '^OFFLINE=present SETTINGS=present$' -- \
         bash -c "$_build_h" _ "$_MUT" @SUT@
     else fail=$((fail+1)); fi
-    export MUTANT_SYNTAX=none
   else
     printf '  SKIP  tooth-build-settings: no usable Java 21 (wrapper exits 3 before mvn)\n'
   fi
