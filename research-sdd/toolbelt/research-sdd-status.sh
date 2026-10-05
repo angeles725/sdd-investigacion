@@ -566,12 +566,28 @@ count_investigable() {
     [ "$tok" = "pending" ] || {
       case "$tok" in
         requires-execution*|blocked-on-*|blocked|'~~'*|'✅'*|closed|\[closed\]|covered|\[covered\]|done|\[done\]|cubierto|\[cubierto\]) ;;  # DONE-TOKENS
+        re-typed*|retyped*) printf 'WARN: re-typed row must leave the main Gap-backlog table in the same edit — move it to the Blocked-gaps section (METHODOLOGY §8b) [gap: %s]\n' "$gap" >&2 ;;  # RETYPED-WARN (#1638): uncounted by design, never silent; mirrored in verify-state.sh
         *) printf 'WARN: unrecognised Status token [%s] in gap: %s\n' "$tok" "$gap" >&2 ;;  # UNRECOG-STATUS-WARN
       esac
       continue
     }
     is_blocked "$gap" && continue
     n=$((n+1))
+  done < <(backlog_rows 2>/dev/null)
+  echo "$n"
+}
+# count_retyped_in_table — OPEN backlog rows whose leading Status token is `re-typed`/`retyped` (#1638). Such a
+# row is deliberately NOT investigable and NOT a blocked bucket (METHODOLOGY §8b: it leaves the main table in
+# the same edit) — this makes it VISIBLE so it is never counted nowhere. MIRRORS verify-state.sh's
+# derive_retyped_in_table EXACTLY (same token set, same struck-gap skip).
+count_retyped_in_table() {
+  local gap st lead tok n=0
+  while IFS=$'\t' read -r _ gap st; do
+    [ -z "$gap" ] && continue
+    case "$gap" in *'~~'*) continue ;; esac
+    lead="${st#\*\*}"; lead="${lead/\*\*/}"
+    tok="${lead%% *}"
+    case "$tok" in re-typed*|retyped*) n=$((n+1)) ;; esac  # RETYPED-COUNT RETYPED-TOKENS
   done < <(backlog_rows 2>/dev/null)
   echo "$n"
 }
@@ -2012,6 +2028,8 @@ echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"
 echo "  stop-control    : investigable=${inv:-?} · requires-execution=${req:-?} · blocked=${blk:-?}"
+_rt="$(count_retyped_in_table)"
+[ "${_rt:-0}" -gt 0 ] && echo "  re-typed in table : ${_rt} — row(s) must leave the main Gap-backlog table (METHODOLOGY §8b); counted in no bucket"  # RETYPED-VISIBLE (#1638)
 if [ "$_doc_mode" = 1 ]; then outline_summary; outline_line
 elif [ "$_doc_noheading" = 1 ]; then echo "  outline         : (no ## Outline section — gap-centric verdicts kept)"; fi
 mapfile -t ledgers < <(contra_ledgers)

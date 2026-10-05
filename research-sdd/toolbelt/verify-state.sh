@@ -215,6 +215,20 @@ derive_pending_rows() {
   done < <(_backlog_rows "$sf")
   echo "$n"
 }
+# derived retyped_in_table (#1638) = backlog rows whose leading Status token is `re-typed`/`retyped`. Uncounted by
+# design (METHODOLOGY §8b: a re-typed gap leaves the main table in the same edit) but made VISIBLE so it is never
+# counted nowhere. MIRRORS research-sdd-status.sh's count_retyped_in_table EXACTLY (same token set, same struck-gap skip).
+derive_retyped_in_table() {
+  local sf="$1" gap st lead tok n=0
+  while IFS=$'\t' read -r _ gap st; do
+    [ -z "$gap" ] && continue
+    case "$gap" in *'~~'*) continue ;; esac
+    lead="${st#\*\*}"; lead="${lead/\*\*/}"
+    tok="${lead%% *}"
+    case "$tok" in re-typed*|retyped*) n=$((n+1)) ;; esac  # RETYPED-COUNT RETYPED-TOKENS
+  done < <(_backlog_rows "$sf")
+  echo "$n"
+}
 # derived blocked_open = count of gap entries under ## Blocked gaps OR ## Non-investigable gaps
 # that carry a `needs:` token.  Three structural forms appear in the fleet:
 #
@@ -846,6 +860,11 @@ for state in "${states[@]}"; do
   echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
   echo "   backlog pending : ${pending}"
   echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
+  d_rt="$(derive_retyped_in_table "$state")"
+  if [ "${d_rt:-0}" -gt 0 ]; then  # RETYPED-VISIBLE (#1638): advisory only — no rc change
+    echo "   re-typed in table : ${d_rt} — counted in no bucket"
+    echo "   WARN   re-typed row must leave the main Gap-backlog table in the same edit — move it to the Blocked-gaps section (METHODOLOGY §8b)"  # RETYPED-WARN
+  fi
 
   # ENVELOPE CHECK A (shared-global) — attributed block count comparison (SG-CHECK-A-SKIP).
   # covered_blocks must equal blocks ATTRIBUTED to this focus (from ## Covered blocks or Iteration history);
