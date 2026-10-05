@@ -71,6 +71,16 @@ _vc_extract() {
       }
       return ""
     }
+    # A `.` ends the clause only when it ends a SENTENCE: not after a known abbreviation (EN + ES, ONE list, below)
+    # nor a single-letter initial. Byte-level, lowercase compare (the caller lowercases and runs under LC_ALL=C).
+    function abbrev(l, i,   k, tok, ab) {
+      ab = " cf e.g i.e vs fig p pp approx aprox pág pag núm num sec sect eq no "
+      k = i - 1
+      while (k >= 1 && substr(l, k, 1) !~ /[ \t(\[;,:]/) k--
+      tok = substr(l, k + 1, i - 1 - k)
+      if (tok == "") return 0
+      return (tok ~ /^[a-z]$/) || index(ab, " " tok " ") > 0
+    }
     function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp) {
       l = tolower(un); n = length(un); p = 1
       while (p <= n) {
@@ -88,7 +98,7 @@ _vc_extract() {
           else if (c == ";") break
           else if (c == "," && substr(l, i, 12) ~ /^,[ \t]+(and|but|while|y|pero)[ \t]/) break
           else if (substr(un, i, 2) == "\302\267") break
-          else if (c == "." && (i == n || substr(un, i + 1, 1) ~ /[ \t]/)) break
+          else if (c == "." && (i == n || substr(un, i + 1, 1) ~ /[ \t]/) && !abbrev(l, i)) break
         }
         cl = substr(l, ve, i - ve); r = refnum(cl); done = 0
         # A bare `B<N>` ahead of the first bracketed ref means the verb governs THAT (e.g. "CORRECTS my own B67

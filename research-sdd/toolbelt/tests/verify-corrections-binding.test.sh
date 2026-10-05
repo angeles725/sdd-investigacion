@@ -127,6 +127,20 @@ else no "dot :: binding differs across locale/awk"; fi
 [ -n "$UTF" ] || echo "  SKIP  no UTF-8 locale installed: '·' checked under LC_ALL=C only"
 [ -n "$GD" ] || echo "  SKIP  gawk not installed: '·' checked with the default awk only"
 
+# 11 — ABBREVIATIONS do not end the clause: "corrects the <abbr> framing in [Block 8]" still binds Block 8.
+d="$TMP/abbr"; blank "$d" 8
+abbr_ok=1; abbr_bad=""
+for _a in 'cf.' 'e.g.' 'i.e.' 'vs.' 'Fig.' 'p.' 'pp.' 'approx.' 'aprox.' 'pág.' 'núm.' 'Sec.' 'x.'; do
+  printf '# Block 41\n\n> This corrects the %s framing in [Block 8].\n' "$_a" > "$d/t-block41.md"
+  if ! grep -qE 'B41 corrects \[Block 8\] ' <<<"$(run "$d")"; then abbr_ok=0; abbr_bad="$abbr_bad $_a"; fi
+done
+if [ "$abbr_ok" = 1 ]; then ok "abbreviations (cf. e.g. i.e. vs. Fig. p. pp. approx. aprox. pág. núm. Sec.) and a single initial do not end the clause"
+else no "abbrev :: unbound after:$abbr_bad"; fi
+# 11b — a REAL sentence end (multi-letter word, not on the list) still splits.
+printf '# Block 41\n\n> This corrects the framing. [Block 8] is only cross-referenced.\n' > "$d/t-block41.md"
+if [ "$(code "$d")" = 0 ]; then ok "a real sentence end ('framing. [Block 8]') still ends the clause → exit 0"
+else no "sentend :: $(run "$d" | grep FAIL | tr '\n' '|')"; fi
+
 # NEGATIVE CONTROLS — each mutant disables ONE binding rule and must flip exactly the case that owns it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -210,6 +224,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         --bad-has 'B40 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL="$UTF" PATH="$GD:$PATH" bash @SUT@ "$TMP/dot"
     fi
   else echo "  SKIP  locale tooth needs gawk and a UTF-8 locale"; fi
+
+  echo "-- teeth: neuter the abbreviation list and the initial rule; 'e.g.' must end the clause --"
+  m="$TMP/vc.ABBR.sh"
+  if mk_mut "teeth: abbrev" "$SUT" "$m" 's/ab = " cf [^"]*"/ab = " "/' 's/return (tok ~ \/^\[a-z\]\$\/) || /return /'; then
+    printf '# Block 41\n\n> This corrects the e.g. framing in [Block 8].\n' > "$TMP/abbr/t-block41.md"
+    tt "teeth: no-abbreviation mutant ends the clause at 'e.g.' (loses the finding)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'B41 corrects \[Block 8\] ' --bad-lacks "B41 corrects|$CRASH" -- bash @SUT@ "$TMP/abbr"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
