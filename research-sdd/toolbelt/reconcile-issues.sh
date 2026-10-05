@@ -26,6 +26,23 @@
 #               has shipped even though the retro marker does not list it. Reported with a proposal
 #               to update the marker by hand; never counted as untracked, never auto-edited.
 #               A closed issue not closed as completed (e.g. not planned) is NOT shipped evidence.
+#               Closure-evidence rule (kit issue #1709): `shipped` additionally needs BOTH a commit AND a
+#               test cited in the closed issue (its body or comments), and a cited commit that reaches
+#               the main ref. A row closed as completed that fails any part is `borderline` instead.
+#   borderline — closed as completed with this retro's signature but the closure evidence is incomplete:
+#               no commit cited, no test cited, or no cited commit reachable from the main ref (or
+#               reachability could not be verified). Human review; never counted untracked or shipped.
+#               Evidence grammar: a COMMIT is a 7-40 char hex token containing a digit on a line that has
+#               the word commit/commits; a TEST is a path-like token (.test. / _test. / test_ / a tests/
+#               segment) on a line that has the word test/tests. Reachability is
+#               `git merge-base --is-ancestor <sha> <ref>` against the LOCALLY KNOWN ref (default
+#               origin/main, RECONCILE_ISSUES_MAIN_REF) in the kit checkout (default: this kit's root,
+#               RECONCILE_ISSUES_GIT_DIR) - NO implicit fetch: a stale local origin/main can read a
+#               just-merged commit as unreachable (borderline), never as shipped. git absent, not a
+#               repository, or the ref unknown -> typed `degraded:` + exit 1, rows still printed borderline.
+#               NOT YET IMPLEMENTED (deferred from #1709): the `regressed` class (closed-completed plus a
+#               later retro re-lists the row) - row ids are per-retro, so "re-lists" needs a defined
+#               cross-retro identity first. When added it will be human-review only, never auto-reopen.
 #
 # propose-never-apply: REPORT ONLY.  No --apply flag; never creates, closes, or
 # edits any issue or retro marker.
@@ -169,6 +186,7 @@ declare -F target_name_for_retro >/dev/null 2>&1 \
 _fleet_tracked=0
 _fleet_untracked=0
 _fleet_shipped=0
+_fleet_borderline=0
 _fleet_orphaned=0
 _fleet_degraded=0
 _fleet_outofscope=0
@@ -201,8 +219,8 @@ _fetch_closed_bodies() {
         --state closed \
         --limit "$_LIST_LIMIT" \
         --search "\"Source retro: ${_p} ·\"" \
-        --json body,stateReason \
-        --jq '.[] | (if .stateReason == "COMPLETED" then .body else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+        --json body,stateReason,comments \
+        --jq '.[] | (if .stateReason == "COMPLETED" then ([.body] + [(.comments // [])[].body]) | join("\n") else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
     if [ "$_rc" -ne 0 ]; then
       if [ -n "$_ef" ]; then _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; else _em=""; fi
       echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
@@ -214,8 +232,62 @@ _fetch_closed_bodies() {
       echo "degraded: gh issue list (closed) returned $_n results = the --limit $_LIST_LIMIT cap for $_rb — the result may be truncated (raise RECONCILE_ISSUES_LIST_LIMIT)" >&2
       return 1
     fi
-    printf '%s\n' "$_out" | awk '$0 != "\036"'
+    # Record separators are KEPT (kit issue #1709): one record per issue (body + comments), so the
+    # evidence of one issue is never credited to another.
+    printf '%s\n' "$_out"
   done
+}
+
+# _closed_record <closed-bodies> <sig-prefix> <row-id>
+#   Prints the record(s) (issues; separated by an octal-036 line) that carry the exact signature
+#   "Source retro: <prefix> · <row-id>" for this row. Empty output = no closed-completed issue for the row.
+_closed_record() {
+  _CR_PFX="Source retro: ${2} · " _CR_RID="$3" awk '
+    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; rec = ""; hit = 0 }
+    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0 }
+    $0 == "\036" { flush(); next }
+    {
+      rec = rec $0 "\n"
+      p = index($0, pfx)
+      if (p > 0) {
+        rest = substr($0, p + length(pfx))
+        if (match(rest, /^[A-Za-z0-9_-]+/) && substr(rest, 1, RLENGTH) == rid) hit = 1
+      }
+    }
+    END { flush() }' <<<"$1"
+}
+
+# _evidence_commits <record-text> - hex commit tokens (7-40 chars, at least one digit) on lines naming a commit.
+_evidence_commits() {
+  printf '%s\n' "$1" \
+    | grep -iE '(^|[^[:alnum:]])commits?([^[:alnum:]]|$)' \
+    | grep -oE '(^|[^0-9a-fA-F])[0-9a-fA-F]{7,40}([^0-9a-fA-F]|$)' \
+    | grep -oE '[0-9a-fA-F]{7,40}' | grep -E '[0-9]' | sort -u
+}
+
+# _evidence_has_test <record-text> - a path-like test token on a line naming a test.
+_evidence_has_test() {
+  printf '%s\n' "$1" \
+    | grep -iE '(^|[^[:alnum:]])tests?([^[:alnum:]]|$)' \
+    | grep -qE '[A-Za-z0-9_./-]*(\.test\.|_test\.|test_|/tests?/|^tests?/)[A-Za-z0-9_./-]*'
+}
+
+# Ancestry probe (kit issue #1709) - lazy, once per run. _GIT_STATE: "" (not probed) | ok | degraded.
+_GIT_DIR="${RECONCILE_ISSUES_GIT_DIR:-$KIT_ROOT}"
+_MAIN_REF="${RECONCILE_ISSUES_MAIN_REF:-origin/main}"
+_GIT_STATE=""
+_git_probe() {
+  [ -z "$_GIT_STATE" ] || return 0
+  if ! command -v git >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: git not found on PATH - cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  if ! git -C "$_GIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: $_GIT_DIR is not a git repository - cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  if ! git -C "$_GIT_DIR" rev-parse --verify -q "${_MAIN_REF}^{commit}" >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: ref $_MAIN_REF is not known locally in $_GIT_DIR (no fetch is performed) - cannot verify that cited commits reach it; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  _GIT_STATE=ok
 }
 
 # ---------------------------------------------------------------------------
@@ -235,7 +307,7 @@ audit_retro() {
     return 1
   fi
 
-  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0
+  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0 r_borderline=0 _anc_degraded=0
   local _gh_rc _gh_stderr_file _gh_err_msg
 
   # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
@@ -484,7 +556,7 @@ ${_rln}"
   fi
 
   # --- Classify open deltas: tracked or untracked
-  local _rid _closed_loaded=0 _closed_row_ids="" _cb _cpfx _cids
+  local _rid _closed_loaded=0 _cb="" _cpfx _crec _ev_rec _ev_commits _ev_c _ev_reach _ev_missing
   if [ -n "$_open_ids" ]; then
     while IFS= read -r _rid; do
       [ -z "$_rid" ] && continue
@@ -503,17 +575,49 @@ ${_rln}"
             echo "closed-lookup: skipped for $retro_basename — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues" >&2
           else
             _cb="$(_fetch_closed_bodies "$retro_basename" "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"})" || return 1
-            for _cpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
-              _cids="$(printf '%s\n' "$_cb" | grep -F "Source retro: ${_cpfx} · " | sed -E 's/.* · //' | grep -oE '^[A-Za-z0-9_-]+')"
-              [ -z "$_cids" ] || _closed_row_ids="${_closed_row_ids:+${_closed_row_ids}
-}${_cids}"
-            done
           fi
         fi
-        if [ -n "$_closed_row_ids" ] && grep -qxF "$_rid" <<<"$_closed_row_ids"; then  # RECONCILE-CLOSED-SHIPPED
-          printf 'shipped: row %s — its issue is closed as completed and cites this retro in %s; propose marking the row shipped in the retro marker (not edited here)\n' \
-            "$_rid" "$retro_basename"
-          r_shipped=$((r_shipped+1))
+        _ev_rec=""
+        if [ -n "$_cb" ]; then
+          for _cpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+            _crec="$(_closed_record "$_cb" "$_cpfx" "$_rid")"
+            [ -z "$_crec" ] || _ev_rec="${_ev_rec}${_crec}"$'\n'
+          done
+        fi
+        if [ -n "$_ev_rec" ]; then  # RECONCILE-CLOSED-SHIPPED
+          # RECONCILE_ISSUES_CLOSURE_EVIDENCE (kit issue #1709): closed-as-completed is not enough - shipped
+          # needs a commit AND a test cited, and a cited commit that reaches the main ref.
+          _ev_missing=""; _ev_reach=""
+          _ev_commits="$(_evidence_commits "$_ev_rec")"
+          [ -n "$_ev_commits" ] || _ev_missing="no commit cited"
+          if ! _evidence_has_test "$_ev_rec"; then  # RECONCILE-EVIDENCE-TEST
+            _ev_missing="${_ev_missing:+${_ev_missing}; }no test cited"
+          fi
+          if [ -n "$_ev_commits" ]; then
+            _git_probe
+            if [ "$_GIT_STATE" = "ok" ]; then
+              while IFS= read -r _ev_c; do
+                [ -n "$_ev_c" ] || continue
+                if git -C "$_GIT_DIR" rev-parse --verify -q "${_ev_c}^{commit}" >/dev/null 2>&1 \
+                   && git -C "$_GIT_DIR" merge-base --is-ancestor "$_ev_c" "$_MAIN_REF" >/dev/null 2>&1; then  # RECONCILE-ANCESTRY
+                  _ev_reach="$_ev_c"; break
+                fi
+              done <<<"$_ev_commits"
+              [ -n "$_ev_reach" ] || _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit reachable from local ref $_MAIN_REF (no fetch performed; a stale ref reads as unreachable)"
+            else
+              _anc_degraded=1
+              _ev_missing="${_ev_missing:+${_ev_missing}; }commit reachability could not be verified (degraded)"
+            fi
+          fi
+          if [ -z "$_ev_missing" ]; then
+            printf 'shipped: row %s — its issue is closed as completed and cites this retro in %s; propose marking the row shipped in the retro marker (not edited here) [evidence: commit %s reachable from %s (local ref, no fetch); test cited]\n' \
+              "$_rid" "$retro_basename" "$_ev_reach" "$_MAIN_REF"
+            r_shipped=$((r_shipped+1))
+          else
+            printf 'borderline: row %s — its issue is closed as completed and cites this retro in %s, but the closure evidence is incomplete (%s); human review (not shipped, not untracked, nothing edited)\n' \
+              "$_rid" "$retro_basename" "$_ev_missing"
+            r_borderline=$((r_borderline+1))
+          fi
         else
           # RECONCILE_ISSUES_UNTRACKED_EMIT: anchor for T2 teeth — emit untracked when no issue
           printf 'untracked: row %s — no open issue found for this delta in %s\n' \
@@ -551,7 +655,7 @@ ${_rln}"
   fi
 
   # --- no-match: nothing actionable found at all
-  if [ "$r_tracked" -eq 0 ] && [ "$r_untracked" -eq 0 ] && [ "$r_orphaned" -eq 0 ] && [ "$r_shipped" -eq 0 ]; then
+  if [ "$r_tracked" -eq 0 ] && [ "$r_untracked" -eq 0 ] && [ "$r_orphaned" -eq 0 ] && [ "$r_shipped" -eq 0 ] && [ "$r_borderline" -eq 0 ]; then
     echo "no-match: no open deltas and no orphaned issues in $retro_basename" >&2
   fi
 
@@ -559,9 +663,12 @@ ${_rln}"
   _fleet_tracked=$((_fleet_tracked + r_tracked))
   _fleet_untracked=$((_fleet_untracked + r_untracked))
   _fleet_shipped=$((_fleet_shipped + r_shipped))
+  _fleet_borderline=$((_fleet_borderline + r_borderline))
   _fleet_orphaned=$((_fleet_orphaned + r_orphaned))
   _fleet_retros=$((_fleet_retros + 1))
 
+  # An unverifiable ancestry check is a typed degraded (rows were still printed, as borderline).
+  [ "$_anc_degraded" -eq 0 ] || return 1
   return 0
 }
 
@@ -666,8 +773,8 @@ elif [ "$_mode" = "all" ]; then
     echo "empty-input: no retro files found across all targets" >&2
   fi
 
-  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
-    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
+  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_borderline" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
   # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment
   # above) — only genuine operational failures (_fleet_degraded) gate the exit code.
   [ "$_fleet_degraded" -eq 0 ] || exit 1

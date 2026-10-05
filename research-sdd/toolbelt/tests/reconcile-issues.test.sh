@@ -102,7 +102,7 @@ mkbox_all() {
 #   mode=orphaned-row1: issue list echoes a Source retro line for row 1 of r-orphaned.md
 #                       (a shipped row, so the script reports orphaned)
 #   mode=fail-query   : gh issue list exits non-zero (simulates real gh rejecting bad invocation)
-#   mode=closed-completed <body> / closed-notplanned <body> / closed-fail: only a --state closed list answers
+#   mode=closed-completed <body> [<comment>] / closed-notplanned <body> / closed-fail: only a --state closed list answers
 #                       (completed/notplanned run the SUT's own --jq through real jq over a JSON array)
 #                       (kit issue #1555); the open list is empty
 #   mode=nomatch (default): issue list returns empty (all untracked)
@@ -120,7 +120,7 @@ _validate_list() {
   for _a in "$@"; do
     if [ -n "$_sk" ]; then
       case "$_sk" in
-        json)  for _f in ${_a//,/ }; do case "$_f" in body|state|stateReason) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
+        json)  for _f in ${_a//,/ }; do case "$_f" in body|state|stateReason|comments) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
         limit) case "$_a" in ''|*[!0-9]*|0) echo "gh stub: invalid --limit: $_a" >&2; return 1 ;; esac ;;
         state) case "$_a" in open|closed|all) ;; *) echo "gh stub: invalid --state: $_a" >&2; return 1 ;; esac ;;
       esac
@@ -156,7 +156,8 @@ STUBHELP
         # it feeds a real JSON array to the SUT's own --jq expression (run by the real jq), so the
         # SUT's stateReason filter is what decides the output. Open-state lists see an empty reply.
         _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
-        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"body":"%s","stateReason":"%s"}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$JQ_BIN"
+        _cm=""; [ -n "${4:-}" ] && _cm="{\"body\":\"$4\"}"
+        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
         printf '  *" issue list "*) exit 0 ;;\n'
         ;;
       closed-fill)
@@ -2097,13 +2098,27 @@ fi
 # 44 — CLOSED ISSUE CITING THE RETRO READS AS SHIPPED (kit issue #1555). An open delta with no OPEN issue
 # whose issue was closed AS COMPLETED (body still carries this retro's signature) is `shipped`, not
 # `untracked`. Report only: nothing is closed or edited. Absent / not-planned / failed stay distinct.
+# Closure-evidence fixture (kit issue #1709): a throwaway git repo whose local ref origin/main contains
+# commit C_MAIN; C_SIDE sits on a side branch and is NOT reachable from origin/main. Exported so every
+# sandboxed SUT run verifies ancestry against it (RECONCILE_ISSUES_GIT_DIR) - never against the live kit repo.
+FIXGIT="$ROOT/fixrepo"; mkdir -p "$FIXGIT"
+_fg() { git -C "$FIXGIT" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+_fg init -q . >/dev/null 2>&1 || { echo "FATAL: git init failed" >&2; exit 2; }
+_fg commit -q --allow-empty -m "main commit" || { echo "FATAL: git commit failed" >&2; exit 2; }
+C_MAIN="$(_fg rev-parse HEAD)"
+_fg update-ref refs/remotes/origin/main "$C_MAIN"
+_fg checkout -q -b side && _fg commit -q --allow-empty -m "side commit" && C_SIDE="$(_fg rev-parse HEAD)"
+[ -n "$C_MAIN" ] && [ -n "$C_SIDE" ] && [ "$C_MAIN" != "$C_SIDE" ] || { echo "FATAL: fixture repo commits missing" >&2; exit 2; }
+export RECONCILE_ISSUES_GIT_DIR="$FIXGIT"
+EVTEST='Test: research-sdd/toolbelt/tests/x.test.sh'
 SIG44='Source retro: target-foo/retros/r44.md · 1'
+SIG44E="${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}"   # JSON-escaped newlines for the gh stub body
 mk44() { # <box> [retro-name] -> echoes a pending retro with rows 1 and 2
   mk_retro "$1" target-foo "${2:-r44.md}" "<!-- review-status: pending -->" \
     "$(printf '| 1 | shipped via closed issue | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | never tracked | CLAUDE.md | B2 | new | LOW |')"
 }
 # 44a — live gh path: row 1 closed-as-completed -> shipped; row 2 has no closed issue -> still untracked.
-box44a="$(mkbox case-closed-shipped)"; mk_gh_stub "$box44a" closed-completed "$SIG44"
+box44a="$(mkbox case-closed-shipped)"; mk_gh_stub "$box44a" closed-completed "$SIG44E"
 retro44a="$(mk44 "$box44a")"
 : > "$box44a/bin/gh.log"
 run "$box44a" "$retro44a"
@@ -2115,7 +2130,7 @@ else
   no "44a closed shipped" "exit=$RC out=[$OUT] log=[$(cat "$box44a/bin/gh.log" 2>&1)]"
 fi
 # 44b — closed but NOT as completed (not planned) is not shipped evidence -> untracked.
-box44b="$(mkbox case-closed-notplanned)"; mk_gh_stub "$box44b" closed-notplanned "$SIG44"
+box44b="$(mkbox case-closed-notplanned)"; mk_gh_stub "$box44b" closed-notplanned "$SIG44E"
 retro44b="$(mk44 "$box44b")"
 run "$box44b" "$retro44b"
 if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
@@ -2145,7 +2160,7 @@ fi
 box44e="$(mkbox case-closed-cache)"; mk_gh_stub "$box44e" nomatch
 retro44e="$(mk44 "$box44e")"
 printf '%s\n' 'Source retro: target-foo/retros/other.md · 7' > "$ROOT/open44e.txt"
-printf '%s\n' "$SIG44" > "$ROOT/closed44e.txt"
+printf '%s\nCommit: %s\n%s\n' "$SIG44" "$C_MAIN" "$EVTEST" > "$ROOT/closed44e.txt"
 : > "$box44e/bin/gh.log"
 run "$box44e" --issues-cache "$ROOT/open44e.txt" --closed-cache "$ROOT/closed44e.txt" "$retro44e"
 if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && grep -q '^untracked: row 2 ' <<<"$OUT" && [ ! -s "$box44e/bin/gh.log" ]; then
@@ -2189,7 +2204,7 @@ else
   no "44j closed cap" "exit=$RC out=[$OUT]"
 fi
 # 44i — --all fleet-summary names the shipped count.
-box44i="$(mkbox case-closed-fleet)"; mk_gh_stub "$box44i" closed-completed "$SIG44"
+box44i="$(mkbox case-closed-fleet)"; mk_gh_stub "$box44i" closed-completed "$SIG44E"
 mk44 "$box44i" >/dev/null
 run "$box44i" --all
 if [ "$RC" = 0 ] && grep -qE '^fleet-summary: tracked=0 untracked=1 shipped=1 ' <<<"$OUT"; then
@@ -2197,6 +2212,97 @@ if [ "$RC" = 0 ] && grep -qE '^fleet-summary: tracked=0 untracked=1 shipped=1 ' 
 else
   no "44i fleet shipped" "exit=$RC out=[$OUT]"
 fi
+
+# ---------------------------------------------------------------------------
+# 45 — CLOSURE-EVIDENCE RULE (kit issue #1709). `shipped` needs a commit AND a test cited in the closed
+# issue AND a cited commit that reaches the LOCAL origin/main ref (no fetch). Anything less is `borderline`
+# (human review); an unverifiable ancestry check is a typed degraded + exit 1. Nothing is ever closed,
+# edited or reopened (propose-never-apply). Fixture: $FIXGIT (C_MAIN reachable, C_SIDE not).
+# gh_stub_log_clean: assert no mutating gh verb ran.
+no_mutation() { ! grep -qE 'issue (close|edit|reopen|comment)' "$1/bin/gh.log"; }
+ev_case() { # <name> <body-with-\n-escapes> [comment] -> sets box45, runs the 44 retro against it
+  box45="$(mkbox "case-45-$1")"; mk_gh_stub "$box45" closed-completed "$2" "${3:-}"
+  retro45="$(mk44 "$box45")"; : > "$box45/bin/gh.log"
+  run "$box45" "$retro45"
+}
+# 45a — commit only: borderline naming the missing test; not shipped, not untracked.
+ev_case commit-only "${SIG44}\\nCommit: ${C_MAIN}"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT" \
+   && ! grep -q '^untracked: row 1 ' <<<"$OUT" && no_mutation "$box45"; then
+  ok "45a commit-only closure -> borderline (no test cited), never shipped" "(exit $RC)"
+else no "45a commit only" "exit=$RC out=[$OUT]"; fi
+# 45b — test only: borderline naming the missing commit.
+ev_case test-only "${SIG44}\\n${EVTEST}"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no commit cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45b test-only closure -> borderline (no commit cited), never shipped" "(exit $RC)"
+else no "45b test only" "exit=$RC out=[$OUT]"; fi
+# 45c — commit + test, but the commit is NOT reachable from origin/main: borderline.
+ev_case unreachable "${SIG44}\\nCommit: ${C_SIDE}\\n${EVTEST}"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no cited commit reachable from local ref origin/main' <<<"$OUT" \
+   && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45c commit not reachable from origin/main -> borderline, never shipped" "(exit $RC)"
+else no "45c unreachable commit" "exit=$RC out=[$OUT]"; fi
+# 45d — evidence living in a closing COMMENT (not the body) counts; the shipped line names commit and ref.
+ev_case comment-evidence "${SIG44}" "Fixed. Commit: ${C_MAIN} with test research-sdd/toolbelt/tests/y.test.sh"
+if [ "$RC" = 0 ] && grep -q "^shipped: row 1 .*closed as completed.*commit ${C_MAIN} reachable from origin/main (local ref, no fetch); test cited" <<<"$OUT" \
+   && grep -q -- '--json body,stateReason,comments' "$box45/bin/gh.log" && no_mutation "$box45"; then
+  ok "45d commit+test in a closing comment, commit on origin/main -> shipped (evidence named)" "(exit $RC)"
+else no "45d comment evidence" "exit=$RC out=[$OUT] log=[$(cat "$box45/bin/gh.log" 2>&1)]"; fi
+# 45e — a bare hex token without the word 'commit' is not commit evidence; a prose 'test' without a path is not test evidence.
+ev_case loose "${SIG44}\\nfixed in ${C_MAIN}\\nwe wrote a test for it"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no commit cited; no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45e loose prose (bare sha, 'a test') is not closure evidence" "(exit $RC)"
+else no "45e loose evidence" "exit=$RC out=[$OUT]"; fi
+# 45f — git directory is not a repository: typed degraded + exit 1, the row is still printed (borderline).
+box45="$(mkbox case-45-nogit)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}"
+retro45="$(mk44 "$box45")"; mkdir -p "$ROOT/notarepo45"
+RECONCILE_ISSUES_GIT_DIR="$ROOT/notarepo45" run "$box45" "$retro45"
+if [ "$RC" = 1 ] && grep -q '^degraded: .*is not a git repository' <<<"$OUT" && grep -q '^borderline: row 1 .*could not be verified' <<<"$OUT" \
+   && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45f no git repository -> typed degraded + exit 1, row borderline (never shipped)" "(exit $RC)"
+else no "45f no repo degraded" "exit=$RC out=[$OUT]"; fi
+# 45g — the main ref is unknown locally: typed degraded naming the no-fetch rule, never an implicit fetch.
+RECONCILE_ISSUES_MAIN_REF=refs/remotes/origin/nope run "$box45" "$retro45"
+if [ "$RC" = 1 ] && grep -q '^degraded: ref refs/remotes/origin/nope is not known locally.*no fetch is performed' <<<"$OUT" \
+   && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45g unknown local ref -> typed degraded (no fetch), never shipped" "(exit $RC)"
+else no "45g unknown ref degraded" "exit=$RC out=[$OUT]"; fi
+# 45h — git absent from PATH: typed degraded. A hermetic PATH (no git) carries the coreutils the SUT needs.
+box45h="$(mkbox case-45-nogit-bin)"; mk_gh_stub "$box45h" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}"
+mk_hermetic_bin "$box45h"; ln -sf "$JQ_BIN" "$box45h/bin/jq"
+for _t in mktemp cat rm sort; do ln -sf "$(type -P "$_t")" "$box45h/bin/$_t"; done
+retro45h="$(mk44 "$box45h")"
+OUT="$(PATH="$box45h/bin" "$BASH_BIN" "$box45h/research-sdd/toolbelt/reconcile-issues.sh" "$retro45h" 2>&1)"; RC=$?
+if [ "$RC" = 1 ] && grep -q '^degraded: git not found on PATH' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45h git absent -> typed degraded + exit 1, never shipped" "(exit $RC)"
+else no "45h git absent" "exit=$RC out=[$OUT]"; fi
+# 45i — a fetch/pull/remote-update is never issued (local ref only); the ancestry check really ran.
+box45="$(mkbox case-45-nofetch)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}"
+REALGIT="$(type -P git)"
+printf '#!%s\nprintf "%%s\\n" "$*" >> "%s/bin/git.log"\nexec "%s" "$@"\n' "$BASH_BIN" "$box45" "$REALGIT" > "$box45/bin/git"; chmod +x "$box45/bin/git"
+retro45="$(mk44 "$box45")"; : > "$box45/bin/git.log"
+run "$box45" "$retro45"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && grep -q 'merge-base --is-ancestor' "$box45/bin/git.log" \
+   && ! grep -qE '(^| )(fetch|pull|remote update|ls-remote)( |$)' "$box45/bin/git.log"; then
+  ok "45i ancestry uses merge-base --is-ancestor on the local ref; no fetch/pull/ls-remote" "(exit $RC)"
+else no "45i no implicit fetch" "exit=$RC out=[$OUT] gitlog=[$(cat "$box45/bin/git.log" 2>&1)]"; fi
+# 45j — per-issue evidence: with TWO closed issues in the cache (record separator between them), the commit
+# and test of issue B (row 7) are never credited to issue A (row 1, commit only).
+box45="$(mkbox case-45-isolation)"; mk_gh_stub "$box45" nomatch
+retro45="$(mk44 "$box45")"
+printf 'Source retro: target-foo/retros/other.md · 7\n' > "$ROOT/open45j.txt"
+printf '%s\nCommit: %s\n\x1e\nSource retro: target-foo/retros/r44.md · 7\nCommit: %s\n%s\n' "$SIG44" "$C_MAIN" "$C_MAIN" "$EVTEST" > "$ROOT/closed45j.txt"
+run "$box45" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45j.txt" "$retro45"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45j evidence is per closed issue: another issue's test is not credited to row 1" "(exit $RC)"
+else no "45j evidence isolation" "exit=$RC out=[$OUT]"; fi
+# 45k — --all fleet-summary counts borderline separately from shipped and untracked.
+box45="$(mkbox case-45-fleet)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_MAIN}"
+mk44 "$box45" >/dev/null
+run "$box45" --all
+if [ "$RC" = 0 ] && grep -qE '^fleet-summary: tracked=0 untracked=1 shipped=0 borderline=1 ' <<<"$OUT"; then
+  ok "45k --all fleet-summary carries borderline=1 (shipped=0, row 2 untracked)" "(exit $RC)"
+else no "45k fleet borderline" "exit=$RC out=[$OUT]"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
@@ -2255,7 +2361,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth1555() {
     local label="$1" bn="$2" mode="$3" expr="$4" expect="$5" mb mr
     echo "-- teeth $label --"
-    mb="$(mkbox "teeth-1555-$bn")"; mk_gh_stub "$mb" "$mode" "$SIG44"
+    mb="$(mkbox "teeth-1555-$bn")"; mk_gh_stub "$mb" "$mode" "$SIG44E"
     if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
       fail=$((fail+1)); return 0
     fi
@@ -2279,9 +2385,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
   }
   tooth1555 T1555-a shipped-check closed-completed \
-    's/^\(        if \)\[ -n "\$_closed_row_ids" \] && grep -qxF "\$_rid" <<<"\$_closed_row_ids"; then  # RECONCILE-CLOSED-SHIPPED$/\1false; then  # RECONCILE-CLOSED-SHIPPED/' untracked1
+    's/^\(        if \)\[ -n "\$_ev_rec" \]; then  # RECONCILE-CLOSED-SHIPPED$/\1false; then  # RECONCILE-CLOSED-SHIPPED/' untracked1
   tooth1555 T1555-b completed-filter closed-notplanned \
-    's/if \.stateReason == "COMPLETED" then \.body else "" end/.body/' shipped1
+    's/if \.stateReason == "COMPLETED" then (\[\.body\] + \[(\.comments \/\/ \[\])\[\]\.body\]) | join("\\n") else "" end/(.body)/' shipped1
   tooth1555 T1555-c closed-state closed-completed \
     's/^\(        --state \)closed \\$/\1open \\/' untracked1
   tooth1555 T1555-d skip-note closed-completed \
@@ -2299,6 +2405,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     elif [ "$RC" = 0 ] && ! grep -q '^degraded: gh issue list (closed) returned' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT"; then
       ok "T1555-f teeth: miscounted cap guard -> no typed degraded, confident untracked (case 44j has teeth)" "()"
     else no "T1555-f teeth" "case 44j is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
+
+  # ---- kit issue #1709 teeth (closure-evidence rule) ----
+  # tooth1709 <label> <box> <expr> <case> : mutant from ONE sed expr; the case's wrong reading must appear.
+  tooth1709() {
+    local label="$1" bn="$2" expr="$3" kase="$4" mb mr
+    echo "-- teeth $label --"
+    mb="$(mkbox "teeth-1709-$bn")"
+    case "$kase" in
+      commit-only) mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_MAIN}" ;;
+      test-only)   mk_gh_stub "$mb" closed-completed "${SIG44}\\n${EVTEST}" ;;
+      unreachable) mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_SIDE}\\n${EVTEST}" ;;
+      *)           mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}" ;;
+    esac
+    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
+      fail=$((fail+1)); return 0
+    fi
+    mr="$(mk44 "$mb")"
+    case "$kase" in
+      nogit) mkdir -p "$ROOT/notarepo1709"; RECONCILE_ISSUES_GIT_DIR="$ROOT/notarepo1709" run "$mb" "$mr" ;;
+      *) run "$mb" "$mr" ;;
+    esac
+    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+      no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
+    fi
+    case "$kase" in
+      nogit) if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT"; then ok "$label teeth: degraded exit swallowed (case 45f has teeth)" "()"
+             else no "$label teeth" "case 45f is THEATER: rc=$RC out=[$OUT]"; fi ;;
+      *)     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "$label teeth: mutant reads incomplete evidence as shipped (case 45 [$kase] has teeth)" "()"
+             else no "$label teeth" "case 45 [$kase] is THEATER: rc=$RC out=[$OUT]"; fi ;;
+    esac
+  }
+  # (a) commit-only accepted as shipped: the test requirement is dropped.
+  tooth1709 T1709-a no-test-req \
+    's/^\(          if \)! _evidence_has_test "\$_ev_rec"; then  # RECONCILE-EVIDENCE-TEST$/\1false; then  # RECONCILE-EVIDENCE-TEST/' commit-only
+  # (b) test-only accepted as shipped: the commit requirement is dropped.
+  tooth1709 T1709-b no-commit-req \
+    's/^\(          \)\[ -n "\$_ev_commits" \] || _ev_missing="no commit cited"$/\1:/' test-only
+  # (c) the ancestry check is skipped: an unreachable commit passes.
+  tooth1709 T1709-c no-ancestry \
+    's/&& git -C "\$_GIT_DIR" merge-base --is-ancestor "\$_ev_c" "\$_MAIN_REF" >\/dev\/null 2>&1; then  # RECONCILE-ANCESTRY/\&\& true; then  # RECONCILE-ANCESTRY/' unreachable
+  # (d) an unverifiable ancestry check no longer fails the run.
+  tooth1709 T1709-d swallowed-degraded \
+    's/^  \[ "\$_anc_degraded" -eq 0 \] || return 1$/  :/' nogit
+  # (e) record separators ignored: another issue's evidence is credited to row 1.
+  echo "-- teeth T1709-e --"
+  mbe="$(mkbox teeth-1709-records)"; mk_gh_stub "$mbe" nomatch
+  if mutant_chain T1709-e "$SUT" "$mbe/research-sdd/toolbelt/reconcile-issues.sh" \
+       's/^    \$0 == "\\036" { flush(); next }$/    $0 == "\\036" { next }/'; then
+    mre="$(mk44 "$mbe")"
+    run "$mbe" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45j.txt" "$mre"
+    if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-e teeth: mutant merges records -> row 1 wrongly shipped (case 45j has teeth)" "()"
+    else no "T1709-e teeth" "case 45j is THEATER: rc=$RC out=[$OUT]"; fi
   else fail=$((fail+1)); fi
 fi
 
