@@ -66,8 +66,12 @@
 # call is made for this step (a default or --pr run is a pure check).
 # Closing keywords mirror .github/scripts/parse-linked-issues.cjs (kit CI): `closes|fixes|resolves` only, matched
 # case-insensitively at a word boundary (not after [A-Za-z0-9/]), optional colon, same-repo `#N` only, the number
-# ending at whitespace or Markdown punctuation; references inside fenced code, HTML comments and single-line
-# inline code are ignored. Line-based: a keyword and its `#N` on different lines do not match.
+# ending at whitespace or Markdown punctuation; references inside fenced code, HTML comments and inline code are
+# ignored. An inline-code span is a backtick run of ANY length that closes at the next run of exactly that length
+# (across lines; an unclosed run hides nothing), as in the JS. Whitespace between keyword and `#N` may span a newline.
+# A differential test runs the same bodies through the JS (when node is present) and asserts identical issue lists.
+# Known gaps vs the JS: ASCII whitespace only; numbers with more than 9 digits are reported (`degraded`) and skipped;
+# the body is read up to 64 KiB (the GitHub body limit).
 # Before posting, the PR read must say `merged: true` and `state: closed` (else `degraded`, nothing posted).
 # At most 20 issues and at most 10 listed test files (CAP); files beyond the cap print
 # `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
@@ -233,9 +237,11 @@ if [ "$merge_rc" -ne 0 ]; then
 fi
 say "merged: PR #$pr (head=$head cwd=$cwd)"
 
-# closing_issues: PR body on stdin -> closing issue numbers (see header; mirrors parse-linked-issues.cjs).
+# closing_issues: PR body on stdin -> closing issue numbers, one per line (see header; mirrors
+# parse-linked-issues.cjs). A reference with more than 9 digits is not printed as a number: it prints `BIG <n>`
+# so the caller can say so (no float precision loss, no mawk `1e+20`).
 closing_issues() {
-  awk '
+  head -c 65536 | awk '
     function stripcomments(rest,   vis, e, b) {
       vis = ""
       for (;;) {
@@ -251,22 +257,46 @@ closing_issues() {
       }
       return vis
     }
+    # Port of the JS span rule  /(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g  replaced by " ": a maximal run of L backticks opens a
+    # span that closes at the next run of EXACTLY L backticks (not preceded or followed by a backtick), across lines.
+    # No closer: the run hides nothing and the scan moves one char on (a shorter run inside it may still match).
+    function spans(t,   out, i, n, L, j, k, ok, found) {
+      n = length(t); out = ""; i = 1
+      while (i <= n) {
+        if (substr(t, i, 1) != "`") { out = out substr(t, i, 1); i++; continue }
+        L = 0
+        while (substr(t, i + L, 1) == "`") L++
+        found = 0
+        for (j = i + L; j + L - 1 <= n; j++) {
+          if (substr(t, j - 1, 1) == "`") continue
+          ok = 1
+          for (k = 0; k < L; k++) if (substr(t, j + k, 1) != "`") { ok = 0; break }
+          if (ok && substr(t, j + L, 1) != "`") { found = 1; break }
+        }
+        if (found) { out = out " "; i = j + L } else { out = out "`"; i++ }
+      }
+      return out
+    }
     function scan(text,   low, pos, rest, st, ln, prev, nxt, m, num, after, ok, enders) {
       low = tolower(text); pos = 1
-      enders = " \t.,;:!?)}]\"" sprintf("%c", 39) "`*~"
+      enders = " \t\n.,;:!?)}]\"" sprintf("%c", 39) "`*~"
       while (pos <= length(low)) {
         rest = substr(low, pos)
-        if (!match(rest, /(closes|fixes|resolves):?[ \t]+#[0-9]+/)) break
+        if (!match(rest, /(closes|fixes|resolves):?[ \t\n]+#[0-9]+/)) break
         st = RSTART; ln = RLENGTH; m = substr(rest, st, ln)
         prev = (pos + st - 2 >= 1) ? substr(low, pos + st - 2, 1) : ""
         after = substr(low, pos + st - 1 + ln, 1); nxt = substr(low, pos + st + ln, 1)
         ok = (prev == "" || prev !~ /[a-z0-9\/]/)
         if (ok && !(after == "" || index(enders, after) > 0 || (after == "_" && (nxt == "" || nxt !~ /[a-z0-9_]/)))) ok = 0
-        if (ok) { num = m; sub(/^[^#]*#/, "", num); if (num + 0 >= 1) print num + 0 }
+        if (ok) {
+          num = m; sub(/^[^#]*#/, "", num); sub(/^0+/, "", num)
+          if (length(num) > 9) print "BIG " num
+          else if (num != "") print num
+        }
         pos += st - 1 + ln
       }
     }
-    BEGIN { fence = ""; inc = 0 }
+    BEGIN { fence = ""; inc = 0; buf = ""; nl = 0 }
     {
       line = $0; sub(/\r$/, "", line)
       if (fence != "") {
@@ -280,9 +310,9 @@ closing_issues() {
         else if (match(t, /^~+/) && RLENGTH >= 3) { fence = substr(t, 1, RLENGTH); next }
       }
       vis = stripcomments(line)
-      gsub(/`[^`]*`/, " ", vis)
-      scan(vis)
-    }'
+      if (!inc || vis != "" || line == "") { buf = buf (nl ? "\n" : "") vis; nl = 1 }
+    }
+    END { scan(spans(buf)) }'
 }
 
 # Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
@@ -297,7 +327,10 @@ closure_evidence() {
   msha="$(printf '%s' "$pj" | jq -r '.merge_commit_sha // empty' 2>/dev/null)"
   if ! [[ "$msha" =~ ^[0-9a-fA-F]{40}$ ]]; then say "$ev: degraded: PR #$pr has no usable 40-hex merge commit sha"; return 0; fi
   body="$(printf '%s' "$pj" | jq -r '.body // empty' 2>/dev/null)" || { say "$ev: degraded: PR #$pr body is unparseable"; return 0; }
-  issues="$(printf '%s\n' "$body" | closing_issues | sort -un | head -n 20)"
+  raw_issues="$(printf '%s\n' "$body" | closing_issues)"
+  big="$(printf '%s\n' "$raw_issues" | grep -c '^BIG ')"
+  if [ "$big" -gt 0 ]; then say "$ev: degraded: ignored $big closing reference(s) with more than 9 digits"; fi
+  issues="$(printf '%s\n' "$raw_issues" | grep -E '^[0-9]+$' | sort -un | head -n 20)"
   if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue (no Closes/Fixes/Resolves #N in its body)"; return 0; fi
   files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
   # --paginate prints one JSON array per page: slurp and require every page to be an array.

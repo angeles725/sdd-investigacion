@@ -468,12 +468,38 @@ n_comments() { grep -c '^ISSUE ' "$ROOT/ce/comments"; }
 # ce_issues: the issue numbers that received a comment, space-joined, in order
 ce_issues() { grep '^ISSUE ' "$ROOT/ce/comments" | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//'; }
 # ce_body_case <label> <pr-body> <expected issue list ('' = none)>
+CE_CORPUS=()   # every body run through ce_body_case; the differential test feeds them to the JS parser too
 ce_body_case() {
+  CE_CORPUS+=("$2")
   CE_ENV=(CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "$2"
   if [ "$(ce_issues)" = "$3" ]; then ok "closing keywords: $1"; else no "closing keywords: $1 (got [$(ce_issues)] want [$3])"; fi
 }
+# ce_differential <sut>: the SUT's closing_issues() against .github/scripts/parse-linked-issues.cjs over CE_CORPUS
+ce_differential() {
+  local js="$HERE/../../../.github/scripts/parse-linked-issues.cjs" fns i got n bad=""
+  local -a want
+  if ! command -v node >/dev/null 2>&1; then echo "  SKIP  differential vs parse-linked-issues.cjs: node is not on PATH (missing dependency: node); this is NOT a pass"; return 0; fi
+  if [ ! -f "$js" ]; then echo "  SKIP  differential vs parse-linked-issues.cjs: $js not found; this is NOT a pass"; return 0; fi
+  fns="$(awk '/^closing_issues\(\) \{/,/^}/' "$1")"
+  [ -n "$fns" ] || { no "differential: closing_issues() not found in $1"; return 0; }
+  jq -nc '$ARGS.positional' --args "${CE_CORPUS[@]}" > "$ROOT/ce/corpus.json"
+  mapfile -t want < <(node -e '
+    const { parseLinkedIssues } = require(process.argv[1]);
+    for (const b of JSON.parse(require("fs").readFileSync(0, "utf8"))) {
+      const n = [...new Set(parseLinkedIssues(b).references.filter((r) => r.kind === "closing").map((r) => r.number))].sort((x, y) => x - y);
+      console.log(n.join(" "));
+    }' "$js" < "$ROOT/ce/corpus.json")
+  n="${#CE_CORPUS[@]}"
+  if [ "${#want[@]}" -ne "$n" ]; then no "differential: JS returned ${#want[@]} answers for $n bodies"; return 0; fi
+  for ((i = 0; i < n; i++)); do
+    got="$( (eval "$fns"; printf '%s' "${CE_CORPUS[$i]}" | closing_issues) | sort -un | tr '\n' ' ' | sed 's/ $//')"
+    [ "$got" = "${want[$i]}" ] || bad="$bad [body $i: ours=($got) js=(${want[$i]})]"
+  done
+  if [ -z "$bad" ]; then ok "differential: closing_issues() == parse-linked-issues.cjs on $n bodies"; else no "differential mismatch:$bad"; fi
+}
 closure_extra_cases() {
   S_CE="$1"
+  CE_CORPUS=()
   ce_body_case "single" "Closes #41" "41"
   ce_body_case "first of several" $'Closes #41\nsome prose\nmore prose' "41"
   ce_body_case "middle" $'intro\nFixes: #41\noutro' "41"
@@ -485,8 +511,24 @@ closure_extra_cases() {
   ce_body_case "tilde fence ignored" $'~~~\nFixes #41\n~~~' ""
   ce_body_case "HTML comment ignored (inline and multi-line)" $'<!-- Closes #41 --> Fixes #42\n<!--\nCloses #43\n-->\nCloses #44' "42 44"
   ce_body_case "inline code ignored" 'use `Closes #41` but Closes #42' "42"
+  ce_body_case "double-backtick span ignored (first on the line)" '`` Closes #41 `` Fixes #47' "47"
+  ce_body_case "double-backtick span ignored (middle)" 'Fixes #48 `` Closes #49 `` Resolves #50' "48 50"
+  ce_body_case "double-backtick span ignored (last)" 'Resolves #51 `` Closes #52 ``' "51"
+  ce_body_case "double-backtick span, whole line" '`` Closes #41 ``' ""
+  ce_body_case "triple-backtick inline span is not a fence and hides its content" '``` Closes #42 ```' ""
+  ce_body_case "single backtick inside a double-backtick span" 'a `` x ` Closes #43 `` Closes #44' "44"
+  ce_body_case "unclosed run hides nothing" '`` Closes #45' "45"
+  ce_body_case "run of 3 whose inner 2-run closes later (JS backtracking)" '```x`` Closes #53 ``' "53"
+  ce_body_case "span crossing a newline hides its content" $'`` Closes #54\nstill `` Fixes #55' "55"
+  ce_body_case "keyword and number across a newline" $'Closes\n#57' "57"
+  ce_body_case "run length mismatch does not close" '`` Closes #58 ```' "58"
+  ce_body_case "closer inside a longer run is not a closer (lookbehind)" '`` Closes #59 ``` end' "59"
   ce_body_case "cross-repo and malformed refs ignored" "Closes owner/repo#41 Closes #42/x Closes #43." "43"
   ce_body_case "non-closing words ignored" "Refs #41, closed #42" ""
+  # more than 9 digits: skipped with a typed degraded line, never a float
+  CE_ENV=(CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "Closes #12345678901 and Closes #58"
+  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: ignored 1 closing reference\(s\) with more than 9 digits$' && [ "$(ce_issues)" = "58" ]; then ok "closure: more than 9 digits -> degraded line, only the sane number posted"; else no "closure: >9 digits ($OUT / $(ce_issues))"; fi
+  ce_differential "$S_CE"
   # cap: 12 test files -> 10 listed + typed note
   local i names=()
   for i in 01 02 03 04 05 06 07 08 09 10 11 12; do names+=("added:research-sdd/toolbelt/tests/t$i.test.sh"); done
@@ -724,12 +766,18 @@ mutate M96-no-issue-still-posts        's/^  if \[ -z "\$issues" \]; then say.*/
 mutate M98-boundary-dropped             's/^        ok = (prev == "" || prev !~ .*/        ok = 1/'
 mutate M99-fence-not-skipped           's/^      if (fence != "") {/      if (0) {/'
 mutate M100-comment-content-visible    's/inc = 1; rest = substr(rest, b + 4)/rest = substr(rest, b + 4)/'
-mutate M101-inline-code-not-stripped   's/^      gsub(\/`\[^`\]\*`\/, " ", vis)/      :/'
 mutate M102-cap-note-dropped           's/^    say "\$ev: note: .*/    :/'
 mutate M103-cap-unlimited              's/head -n 10 | sed/cat | sed/'
 mutate M104-merged-flag-ignored        's/if \.merged == true and \.state == "closed"/if .state == "closed"/'
 mutate M105-state-ignored              's/if \.merged == true and \.state == "closed"/if .merged == true/'
 mutate M106-backfill-line-dropped      's/^  if \[ -n "\$failed" \]; then say.*/  :/'
+mutate M108-single-backtick-spans-only  's/^    END { scan(spans(buf)) }/    END { gsub(\/`[^`]*`\/, " ", buf); scan(buf) }/'
+mutate M109-closer-run-not-exact       's/if (ok \&\& substr(t, j + L, 1) != "`") { found = 1; break }/if (ok) { found = 1; break }/'
+mutate M110-closer-lookbehind-dropped  's/^          if (substr(t, j - 1, 1) == "`") continue/          if (0) continue/'
+mutate M111-unclosed-run-hides-rest    's/ else { out = out "`"; i++ }/ else { i = n + 1 }/'
+mutate M112-big-number-printed         's/if (length(num) > 9) print "BIG " num/if (0) print "BIG " num/'
+mutate M113-big-degraded-line-dropped  's/^  if \[ "\$big" -gt 0 \]; then say.*/  :/'
+mutate M114-newline-separator-dropped  's/:?\[ \\t\\n\]+#/:?[ \\t]+#/'
 mutate M97-evidence-without-merge      's/^closure_evidence$/:/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
