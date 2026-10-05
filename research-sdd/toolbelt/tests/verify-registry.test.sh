@@ -103,6 +103,7 @@ mkkit() {
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
   cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$HERE/../lib/state-files.sh" "$kit/toolbelt/lib/state-files.sh"
   cp "$CM_LIB" "$kit/toolbelt/lib/corpus-markers.sh"  # SUT sources this for corpus_marker_present
   cp "$HW_LIB" "$kit/toolbelt/lib/hook-wiring.sh"     # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
@@ -1072,6 +1073,7 @@ cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
 cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
 cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
 cp "$HERE/../lib/block-files.sh" "$kit26/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+cp "$HERE/../lib/state-files.sh" "$kit26/toolbelt/lib/state-files.sh"
 cp "$CM_LIB" "$kit26/toolbelt/lib/corpus-markers.sh"   # SUT sources this for corpus_marker_present
 cp "$HW_LIB" "$kit26/toolbelt/lib/hook-wiring.sh"       # SUT sources this for hook_stop_wiring_state
 # Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
@@ -1444,6 +1446,7 @@ VRT2STRIPPED
   cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
   cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
   cp "$HERE/../lib/block-files.sh" "$kit26t/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$HERE/../lib/state-files.sh" "$kit26t/toolbelt/lib/state-files.sh"
   cp "$CM_LIB" "$kit26t/toolbelt/lib/corpus-markers.sh"
   cp "$HW_LIB" "$kit26t/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
@@ -3170,6 +3173,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-hook-wiring-reverse-offroot-widen" "$kit" 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if [[ "$_vr_hook_state2" == wired* ]]; then  # HOOK-WIRING-REVERSE-CHECK (mutated: widened to wired*)/'; then
     vr_run "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening false-WARNs a wired-off-root target — fixture 3s has teeth" "$kit" 0 0 \
       --good-lacks 'Stop hook IS wired' --bad-has "row claims 'hook no' but the Stop hook IS wired"
+  fi
+fi
+
+# ---- kit issue #1818: the state file is picked by lib/state-files.sh resolve_state_file (root beats
+# focus, shallowest first), NOT by a lexical sort. verify-registry reads the corpus DIRECTORY of the
+# picked file, so the fixtures put root and focus file in DIFFERENT same-depth directories with different
+# block counts: the old lexical `sort | head -1` picked a/RESEARCH-STATE-x.md (1 block), the resolver
+# picks b/RESEARCH-STATE.md (6 blocks).
+mk1818() { # <dir>  -> a/ = focus file + 1 block, b/ = root + 6 blocks
+  mkdir -p "$1/a"; printf '# focus state\n' > "$1/a/RESEARCH-STATE-x.md"; printf '# B\n' > "$1/a/a-block1.md"
+  mkcorpus "$1/b" 6 "b"
+}
+# 1818a — root beats a lexically-earlier focus file: claim 6 md == the root's corpus (6) → no drift.
+kit="$(mkkit c1818a-rootpref)"; tgt="$ROOT/c1818a-ext-tgt"; mk1818 "$tgt"
+write_targets "$kit" "$tgt::6 md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '0 count drift' <<<"$OUT" && ! grep -q 'refresh the row' <<<"$OUT" && ! grep -q 'not resolvable' <<<"$OUT"; then
+  ok "1818a root + focus in sibling dirs → the ROOT's corpus is read (claim 6 == 6, no drift)" "(exit $RC)"
+else
+  no "1818a root + focus in sibling dirs → the ROOT's corpus is read" "exit=$RC out=[$OUT]"
+fi
+# 1818a2 — the converse: claiming the FOCUS dir's count (1) must now drift against the root's 6.
+kit="$(mkkit c1818a2-rootpref)"; tgt="$ROOT/c1818a2-ext-tgt"; mk1818 "$tgt"
+write_targets "$kit" "$tgt::1 md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qE 'claims 1 md but the corpus has 6 real block' <<<"$OUT"; then
+  ok "1818a2 claim 1 vs the root's 6 → drift names 6 (not the focus dir's 1)" "(exit $RC)"
+else
+  no "1818a2 claim 1 vs the root's 6 → drift names 6" "exit=$RC out=[$OUT]"
+fi
+# 1818b — SPLIT layout (two dirs, each with a root): resolver rc 2 tie → the C-locale-first pick (a/, 2 blocks)
+# is used; no crash, no 'not resolvable', no dropped target.
+kit="$(mkkit c1818b-split)"; tgt="$ROOT/c1818b-ext-tgt"
+mkcorpus "$tgt/a" 2 "a"; mkcorpus "$tgt/b" 6 "b"
+write_targets "$kit" "$tgt::2 md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q 'Summary: reconciled 2 target' <<<"$OUT" && grep -q '0 count drift' <<<"$OUT" && ! grep -q 'not resolvable' <<<"$OUT"; then
+  ok "1818b split layout tie → first pick (a/, 2 blocks) used, target not dropped" "(exit $RC)"
+else
+  no "1818b split layout tie → first pick used, target not dropped" "exit=$RC out=[$OUT]"
+fi
+# 1818c — nc-contradiction site reads the SAME resolver: the WARN names the ROOT file, not the focus file.
+kit="$(mkkit c1818c-nc)"; tgt="$kit/targetNC"; mk1818 "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetNC | intermediate (6 md / nc / git no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qE 'a RESEARCH-STATE.md was found at .*/b/RESEARCH-STATE\.md' <<<"$OUT"; then
+  ok "1818c nc-contradiction names the ROOT file (b/RESEARCH-STATE.md), not the focus file" "(exit $RC)"
+else
+  no "1818c nc-contradiction names the ROOT file" "exit=$RC out=[$OUT]"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  _vr_teeth_init
+  echo "-- teeth-1818a: restore the lexical pick at the corpus-resolve site; the root-pref fixtures must go red --"
+  kit="$(mkkit teeth-1818a)"; tgt="$ROOT/teeth-1818a-ext-tgt"; mk1818 "$tgt"
+  write_targets "$kit" "$tgt::6 md"
+  if vr_mut "teeth-1818a" "$kit" 's#^  state="\$(resolve_state_file "\$p")".*$#  state="$(find "$p" -maxdepth 3 -name "RESEARCH-STATE*.md" -not -name "*.template.md" -not -path "*/.git/*" 2>/dev/null | sort | head -1)"#'; then
+    vr_run "teeth-1818a: lexical-pick mutant reads the focus dir (1 block) → false drift against claim 6" "$kit" 0 0 \
+      --good-has '0 count drift' --bad-has 'claims 6 md but the corpus has 1 real block'
+  fi
+  echo "-- teeth-1818c: restore the lexical pick at the nc-contradiction site --"
+  kit="$(mkkit teeth-1818c)"; tgt="$kit/targetNC"; mk1818 "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetNC | intermediate (6 md / nc / git no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-1818c" "$kit" 's#^    _nc_state="\$(resolve_state_file "\$p")".*$#    _nc_state="$(find "$p" -maxdepth 3 -name "RESEARCH-STATE*.md" -not -name "*.template.md" -not -path "*/.git/*" 2>/dev/null | sort | head -1)"#'; then
+    vr_run "teeth-1818c: lexical-pick mutant names the focus file a/RESEARCH-STATE-x.md" "$kit" 0 0 \
+      --good-has 'found at .*/b/RESEARCH-STATE\.md' --bad-has 'found at .*/a/RESEARCH-STATE-x\.md'
   fi
 fi
 

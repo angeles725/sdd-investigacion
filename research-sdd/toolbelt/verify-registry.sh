@@ -129,6 +129,14 @@ if [ ! -f "$_vr_bf_lib" ]; then echo "verify-registry: cannot find helper $_vr_b
 declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-registry: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
 unset _vr_bf_lib
 
+# Shared state-file resolver (kit issue #1818): single definition of "which RESEARCH-STATE does a consumer act on".
+_vr_sf_lib="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+if [ ! -f "$_vr_sf_lib" ]; then echo "verify-registry: cannot find helper $_vr_sf_lib" >&2; exit 1; fi
+# shellcheck source=lib/state-files.sh
+. "$_vr_sf_lib"
+declare -F resolve_state_file >/dev/null 2>&1 || { echo "verify-registry: helper lib/state-files.sh failed to define resolve_state_file" >&2; exit 1; }
+unset _vr_sf_lib
+
 # Shared corpus-marker predicate (kit issue #1108): single source of truth with
 # research-sdd-init.sh's --wire anti-implicit-scaffold guard.
 _vr_cm_lib="$(cd "$(dirname "$0")" && pwd)/lib/corpus-markers.sh"
@@ -395,7 +403,7 @@ for p in $paths; do
     # is resolvable under the target, the assertion contradicts disk — flag it so the operator
     # can correct either the row (remove nc) or the repository layout. Uses the same find params
     # as the regular state resolver; the sentinel comment is the mutation target for teeth-nc-contradiction.
-    _nc_state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+    _nc_state="$(resolve_state_file "$p")"  # rc 1 absent (empty) · rc 2 tie across dirs still yields a pick; either way the -f test below decides
     if [ -n "$_nc_state" ] && [ -f "$_nc_state" ]; then  # NC-CONTRADICTION-CHECK
       _vr_finding nc-contradiction WARN "$name" "$name — row carries the nc flag but a RESEARCH-STATE.md was found at ${_nc_state}; remove nc if this is a real corpus target."
       unresolved=$((unresolved + 1))
@@ -439,7 +447,7 @@ for p in $paths; do
   # threejs-hvac-prototipos/research/ (found via the maxdepth-3 walk below), which is precisely
   # what makes that tolerance the wrong signal for "is this row registered correctly" — see the
   # REGISTERED-PATH MARKER CHECK a few lines below, which enforces the canonical convention.
-  state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  state="$(resolve_state_file "$p")"  # rc 1 absent (empty) · rc 2 tie across dirs still yields a pick (split layout)
   if [ -z "$state" ] || [ ! -f "$state" ]; then
     _vr_finding corpus-unresolvable WARN "$p" "$p — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks."
     unresolved=$((unresolved + 1))

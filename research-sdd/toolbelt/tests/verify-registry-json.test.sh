@@ -22,7 +22,7 @@ SUT="${VRJ_SUT:-$HERE/../verify-registry.sh}"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases" >&2; exit 2; }
-for _l in retro-status target-paths block-files corpus-markers hook-wiring; do
+for _l in retro-status target-paths block-files state-files corpus-markers hook-wiring; do
   [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper not found: $HERE/../lib/$_l.sh" >&2; exit 2; }
 done
 GOLD="$HERE/fixtures/verify-registry/json-envelope/default-output.golden"
@@ -41,7 +41,7 @@ mkkit() {
   local kit="$ROOT/$1" l
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
-  for l in retro-status target-paths block-files corpus-markers hook-wiring; do cp "$HERE/../lib/$l.sh" "$kit/toolbelt/lib/$l.sh"; done
+  for l in retro-status target-paths block-files state-files corpus-markers hook-wiring; do cp "$HERE/../lib/$l.sh" "$kit/toolbelt/lib/$l.sh"; done
   printf '%s' "$kit"
 }
 # mkcorpus <dir> <n> <prefix> : RESEARCH-STATE.md plus <n> canonical block files.
