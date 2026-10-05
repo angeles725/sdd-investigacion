@@ -8,6 +8,10 @@
 #   - an emitted token that is not a registry code            -> FAIL (unlisted code)
 #   - a registry degraded row that no scanned script emits    -> FAIL (stale row)
 #   - an emitter that the row does not list                   -> FAIL (emitter mismatch)
+#   - a listed emitter that never emits that code             -> FAIL (stale emitter; kit issue #1725 item 1)
+#   - a non-comment line with `degraded: ` that is not a single-line echo/printf (continued line,
+#     heredoc, variable assignment, helper) -> FAIL (unclassifiable; the extractor cannot read it, so a
+#     clean result would be a silent zero; kit issue #1725 item 2)
 #   - a row with an empty / placeholder continuation          -> FAIL
 #   - malformed row, duplicate code, bad class, missing required input row -> FAIL
 #   - registry or script absent, unreadable, or ZERO emit lines extracted -> typed DEGRADED, exit 2
@@ -16,7 +20,8 @@
 # EXTRACTION RULE (the same text is in reason-codes.v1.md, "How a code is derived"). For every
 # non-comment line containing an `echo` or `printf` word AND the literal `degraded: `:
 #   1. start at the first `degraded: `
-#   2. replace shell expansions (${...}, $name) and %s / %d with <v>, then collapse runs of <v>
+#   2. replace shell expansions (${...}, $(...) without nested parentheses, $name, and the single-character
+#      parameters $0-$9 $? $@ $# $* $! $$) and %s / %d with <v>, then collapse runs of <v>
 #   3. cut at the first " — " (em dash), literal \n, or closing double quote
 #   4. strip trailing whitespace and trailing <v>
 # Comment lines, grep patterns (no echo/printf) and variable assignments are never emit lines.
@@ -40,7 +45,9 @@ EXTRACT_AWK='
 /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/ && index($0, "degraded: ") {
   s = substr($0, index($0, "degraded: "))
   gsub(/\$\{[^}]*\}/, "<v>", s)
+  gsub(/\$\([^)]*\)/, "<v>", s)                                           # TOOTH-CMDSUB
   gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "<v>", s)                               # TOOTH-VARSUB
+  gsub(/\$[0-9?@#*!$]/, "<v>", s)                                          # TOOTH-SPECIALSUB
   gsub(/%[sd]/, "<v>", s)
   i = index(s, " — "); if (i) s = substr(s, 1, i - 1)                      # TOOTH-EMDASH
   i = index(s, "\\n"); if (i) s = substr(s, 1, i - 1)
@@ -48,6 +55,17 @@ EXTRACT_AWK='
   while (gsub(/<v><v>/, "<v>", s));
   while (sub(/([[:space:]]+|<v>)$/, "", s));
   print s
+}'
+
+# Lines the extractor cannot classify: non-comment lines carrying `degraded: ` that are not a single-line
+# echo/printf (a trailing ` #` comment before the token excludes the line). Output: LINENO:text.
+UNCLASS_AWK='
+/^[[:space:]]*#/ {next}
+{
+  p = index($0, "degraded: "); if (!p) next
+  c = index($0, " #"); if (c && c < p) next
+  if ($0 ~ /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/) next
+  print NR ":" $0
 }'
 
 # Registry rows: lines whose first cell is a backticked code. Header/separator/prose tables have no
@@ -68,7 +86,7 @@ finding() { printf 'FINDING: %s\n' "$*"; nfind=$((nfind + 1)); }
 rc_check() {
   local reg="$1" dir="$2" rows s path toks tok req found idx i n
   local -a codes=() classes=() emits=() used=()
-  local c cl em ct lc
+  local c cl em ct lc pairs=';' uc e
   nfind=0
 
   if [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
@@ -119,6 +137,12 @@ rc_check() {
     if [ -z "$toks" ]; then                                                 # TOOTH-ZEROEXTRACT
       printf 'DEGRADED: extracted zero degraded emit lines from %s (could not look)\n' "$s"; return 2
     fi
+    uc="$(awk "$UNCLASS_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
+    if [ -n "$uc" ]; then
+      while IFS= read -r e; do
+        finding "unclassifiable degraded: line in $s:${e%%:*} (not a single-line echo/printf): ${e#*:}"   # TOOTH-UNCLASS
+      done <<<"$uc"
+    fi
     while IFS= read -r tok; do
       idx=-1
       for ((i = 0; i < n; i++)); do
@@ -129,6 +153,7 @@ rc_check() {
         continue
       fi
       used[idx]=1
+      pairs="$pairs$idx:$s;"
       em="$(printf '%s' "${emits[$idx]}" | tr -d ' ')"
       case ",$em," in
         *",$s,"*) ;;
@@ -141,6 +166,18 @@ rc_check() {
     if [ "${classes[$i]}" = "degraded" ] && [ -z "${used[$i]:-}" ]; then
       finding "stale row: degraded code never emitted by a scanned script: ${codes[$i]}"   # TOOTH-STALE
     fi
+  done
+
+  # Reverse direction (kit issue #1725 item 1): every emitter a degraded row lists must emit that code.
+  for ((i = 0; i < n; i++)); do
+    [ "${classes[$i]}" = "degraded" ] || continue
+    [ -n "${used[$i]:-}" ] || continue   # a never-emitted row is already reported as stale
+    for e in $(printf '%s' "${emits[$i]}" | tr ',' ' '); do
+      case "$pairs" in
+        *";$i:$e;"*) ;;
+        *) finding "stale emitter: row lists $e but $e never emits '${codes[$i]}'" ;;   # TOOTH-STALEEMIT
+      esac
+    done
   done
 
   [ "$nfind" -eq 0 ]
@@ -227,10 +264,11 @@ printf 'degraded: p q: %s\n' "$z"
 echo "degraded: r${_em:+ — }${_em}" >&2
 # echo "degraded: commented"
 x=1 # not an emit degraded: foo
+echo "degraded: sub $1 rc=$? at $(date +%s) end"
 grep -qE '^degraded:' file
 echo "NOTE: degraded: iconv bad — z"
 EOF
-want="$(printf '%s\n' 'degraded: a b <v> c' 'degraded: p q:' 'degraded: r' 'degraded: iconv bad')"
+want="$(printf '%s\n' 'degraded: a b <v> c' 'degraded: p q:' 'degraded: r' 'degraded: sub <v> rc=<v> at <v> end' 'degraded: iconv bad')"
 got="$(awk "$EXTRACT_AWK" "$tmp/extract.sh")"
 if [ "$got" = "$want" ]; then ok "extraction rule: placeholders, em-dash/\\n/quote cuts, comment and non-emit lines skipped"
 else no "extraction rule"; printf '        got:\n%s\n' "$got" | sed 's/^/        /'; fi
@@ -238,6 +276,14 @@ else no "extraction rule"; printf '        got:\n%s\n' "$got" | sed 's/^/       
 # --- 3. fixtures: good, then each defect --------------------------------------------------------
 mkfix good
 expect "fixture good registry is clean" 0 "$tmp/good/reg.md" "$tmp/good/scripts"
+
+# expansions beyond ${..}/$name: $(..), $1, $? all normalise to <v> (kit issue #1725 item 3)
+mkfix good_sub
+printf '\n%s\n%s' 'echo "degraded: cmd $(date +%s) end"' 'echo "degraded: pos $1 rc=$? end"' >> "$tmp/good_sub/scripts/research-sdd-init.sh"
+edit "$tmp/good_sub/reg.md" 's/^| `absent-input`/| `degraded: cmd <v> end` | degraded | research-sdd-init.sh | s1 | go |\
+| `degraded: pos <v> rc=<v> end` | degraded | research-sdd-init.sh | s2 | go |\
+| `absent-input`/'
+expect "fixture with \$(..), \$1, \$? expansions is clean" 0 "$tmp/good_sub/reg.md" "$tmp/good_sub/scripts"
 
 # unlisted code: first line, last line (no trailing newline), single-line script
 mkfix unl_first
@@ -296,6 +342,25 @@ mkfix commented
 printf '\n%s' '# echo "degraded: ghost in a comment"' >> "$tmp/commented/scripts/reconcile-issues.sh"
 expect "a commented-out emit line is ignored" 0 "$tmp/commented/reg.md" "$tmp/commented/scripts"
 
+# stale emitter (reverse direction): a row lists a scanned script that never emits the code
+mkfix stale_emit
+edit "$tmp/stale_emit/reg.md" 's/| research-sdd-init.sh | m6 |/| research-sdd-init.sh, reconcile-issues.sh | m6 |/'
+expect "a listed emitter that never emits the code fails (stale emitter)" 1 "$tmp/stale_emit/reg.md" "$tmp/stale_emit/scripts" "stale emitter: row lists reconcile-issues.sh but reconcile-issues.sh never emits 'degraded: jq failed on'"
+
+# unclassifiable emit forms: continued echo, heredoc, assignment-then-echo (each must be reported, never silent)
+mkfix unc_cont
+printf '\n%s\n%s' 'echo \' '  "degraded: split across lines"' >> "$tmp/unc_cont/scripts/reconcile-issues.sh"
+expect "echo continued onto the next line is reported unclassifiable" 1 "$tmp/unc_cont/reg.md" "$tmp/unc_cont/scripts" 'unclassifiable degraded: line in reconcile-issues.sh:[0-9]+'
+mkfix unc_here
+printf '\n%s\n%s\n%s' 'cat <<EOF' 'degraded: from a heredoc' 'EOF' >> "$tmp/unc_here/scripts/stage-retro-issues.sh"
+expect "heredoc body carrying degraded: is reported unclassifiable" 1 "$tmp/unc_here/reg.md" "$tmp/unc_here/scripts" 'unclassifiable degraded: line in stage-retro-issues.sh:[0-9]+'
+mkfix unc_assign
+printf '\n%s' 'msg="degraded: via variable"' >> "$tmp/unc_assign/scripts/research-sdd-init.sh"
+expect "assignment carrying degraded: is reported unclassifiable" 1 "$tmp/unc_assign/reg.md" "$tmp/unc_assign/scripts" 'unclassifiable degraded: line in research-sdd-init.sh:[0-9]+'
+mkfix unc_trailing
+printf '\n%s' 'x=1 # trailing note degraded: not an emit' >> "$tmp/unc_trailing/scripts/research-sdd-init.sh"
+expect "a trailing-comment mention is not unclassifiable" 0 "$tmp/unc_trailing/reg.md" "$tmp/unc_trailing/scripts"
+
 # --- 4. could-not-look is typed DEGRADED (rc 2), never clean ------------------------------------
 mkfix d_noreg
 expect "registry absent -> DEGRADED rc 2" 2 "$tmp/d_noreg/missing.md" "$tmp/d_noreg/scripts" 'DEGRADED: registry absent'
@@ -341,10 +406,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth duplicate    dup        1 0 '/# TOOTH-DUP/s/finding /: /'
   tooth badclass     badclass   1 0 '/# TOOTH-CLASS/s/finding /: /'
   tooth reqinput     reqinput   1 0 '/# TOOTH-REQINPUT/s/finding /: /'
+  tooth staleemit    stale_emit 1 0 '/# TOOTH-STALEEMIT/s/finding /: /'
+  tooth unclass      unc_cont   1 0 '/# TOOTH-UNCLASS/s/finding /: /'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
   tooth comment-skip commented  0 1 '/# TOOTH-COMMENT/d'
   tooth var-subst    good       0 1 '/# TOOTH-VARSUB/d'
+  tooth cmdsub       good_sub   0 1 '/# TOOTH-CMDSUB/d'
+  tooth specialsub   good_sub   0 1 '/# TOOTH-SPECIALSUB/d'
   tooth emdash-cut   good       0 1 '/# TOOTH-EMDASH/d'
 fi
 

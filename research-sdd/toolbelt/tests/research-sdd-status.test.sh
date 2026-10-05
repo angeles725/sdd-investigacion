@@ -3281,6 +3281,21 @@ _left="$(find "$d" -name '.rsdd-sync.*' | wc -l | tr -d ' ')"
   && ok "SX-11: failing awk → exit 1, state file byte-identical, no temp file left" \
   || no "SX-11: rc=$_rc changed=$([ "$(sx_md5 "$d/RESEARCH-STATE.md")" != "$_h" ] && echo YES || echo no) tmpleft=$_left err=[$_e]"
 
+# W6 (kit issue #1704): a printed typed `degraded:` state is followed by one footer line naming the
+# reason-code registry; a clean report (no degraded state) carries no such line.
+d="$TMP/rcfoot"; mkstate "$d" 1 "high|the gap|pending"
+git init -q "$d" >/dev/null 2>&1; git -C "$d" remote add origin "git@github.com:o/r.git"
+_rc_out="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$d" 2>&1)"
+_rc_path="$(sed -n 's/^  reason codes    : .* in \(.*reason-codes\.v1\.md\)$/\1/p' <<<"$_rc_out")"
+if grep -q '^degraded: remote-visibility: gh not found' <<<"$_rc_out" && [ -n "$_rc_path" ] && [ -f "$_rc_path" ]; then
+  ok "RC-FOOTER-1: a printed degraded state is followed by a footer naming an existing reason-codes.v1.md"
+else no "RC-FOOTER-1: footer missing or path not a file (path=[$_rc_path]): $(grep -i 'degraded\|reason' <<<"$_rc_out")"; fi
+d="$TMP/rcclean"; mkstate "$d" 1 "high|the gap|pending"
+_rc_out="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$d" 2>&1)"
+if ! grep -q 'reason-codes\.v1\.md' <<<"$_rc_out" && ! grep -q '^degraded: ' <<<"$_rc_out"; then
+  ok "RC-FOOTER-2: no degraded state -> no footer (clean report unchanged)"
+else no "RC-FOOTER-2: footer printed without a degraded state"; fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -3320,6 +3335,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mgot="$(bash "$mutant" "$d" --next 2>/dev/null)"
   if [ "$mgot" = "NEXT | low | the low one" ]; then ok "teeth: reversed mutant picks low → ordering test has teeth"
   else no "teeth: mutant picked [$mgot] — ordering not exercised (THEATER)"; fi
+
+  # RC-FOOTER tooth: delete the footer echo from a mutant; the degraded fixture must then lose the citation.
+  rcm="$TMP/status.RCF-MUTANT.sh"
+  sed '/echo "  reason codes    :/s/echo .*/:/' "$SUT" > "$rcm"
+  if ! cmp -s "$SUT" "$rcm"; then
+    _m="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$rcm" "$TMP/rcfoot" 2>&1)"
+    if grep -q '^degraded: remote-visibility' <<<"$_m" && ! grep -q 'reason-codes\.v1\.md' <<<"$_m"; then ok "teeth RC-FOOTER: mutant without the footer line loses the reason-codes citation"
+    else no "teeth RC-FOOTER: mutant still cites the registry or crashed (THEATER)"; fi
+  else no "teeth RC-FOOTER: mutation did not apply"; fi
 
   # saturation teeth: widen the threshold (-eq 0 → -ge 0) so EVERY window "saturates"; the active
   # fixture (2,0,1 → sum 3) must then WRONGLY report SATURATED, proving the threshold is exercised.

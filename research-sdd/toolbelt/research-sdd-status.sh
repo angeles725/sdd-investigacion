@@ -2040,7 +2040,16 @@ else
   saturation_line
 fi
 campaign_status_block
-remote_visibility_block
+# W6 (kit issue #1704): when a typed `degraded:` state is printed, name the registry that gives its one
+# continuation. Printed only then, so a clean report stays byte-identical. The registry path is NOT
+# resolved against the target (it lives in the kit's toolbelt, next to this script).
+_rv_out="$(remote_visibility_block)"
+if [ -n "$_rv_out" ]; then
+  printf '%s\n' "$_rv_out"
+  if grep -q '^degraded:[[:space:]]' <<<"$_rv_out"; then  # RC-FOOTER
+    echo "  reason codes    : each typed degraded state above has one continuation in $here/reason-codes.v1.md"
+  fi
+fi
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
