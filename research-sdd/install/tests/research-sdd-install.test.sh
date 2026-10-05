@@ -2507,6 +2507,11 @@ _agents_write_grants() {
     [ "$name" = "$(basename "$f" .md)" ] || printf '%s: name %s does not match the file name\n' "$(basename "$f")" "${name:-<none>}"
     grep -q '^description: .' <<<"$front" || printf '%s: no description\n' "$(basename "$f")"
     grep -q '^model: .' <<<"$front" || printf '%s: no model\n' "$(basename "$f")"
+    # An empty value (bare `tools:` or a YAML block list on the next lines) yields no tokens
+    # here, so it must be rejected explicitly or the definition would pass while granting
+    # whatever the block list holds (or every tool).
+    [ -n "$(printf '%s' "$tools" | tr -d ' \t,[]')" ] \
+      || { printf '%s: empty tools value (block list or bare key)\n' "$(basename "$f")"; continue; }
     for t in $(printf '%s' "$tools" | tr ',[]' '   '); do
       case "$t" in Read|Grep|Glob) ;; *) printf '%s: %s\n' "$(basename "$f")" "$t" ;; esac
     done
@@ -2516,6 +2521,14 @@ _agents_write_grants() {
 grants="$(_agents_write_grants "$AGENT_SRC")"
 if [ -z "$grants" ]; then ok "agents: every shipped definition is confined to the {Read, Grep, Glob} allowlist, named after its file, with description and model"
 else no "agents: shipped definitions are not read-only/well-formed: $(printf '%s' "$grants" | tr '\n' ';')"; fi
+# Empty `tools` value: a bare key and a YAML block list must both be rejected (RDD R3).
+_ae="$TMP/agents-empty-tools"; mkdir -p "$_ae"
+printf -- '---\nname: bare\ndescription: x\nmodel: sonnet\ntools:\n---\nbody\n' >"$_ae/bare.md"
+printf -- '---\nname: blk\ndescription: x\nmodel: sonnet\ntools:\n  - Bash\n---\nbody\n' >"$_ae/blk.md"
+_ae_out="$(_agents_write_grants "$_ae")"
+if grep -q '^bare.md: empty tools value' <<<"$_ae_out" && grep -q '^blk.md: empty tools value' <<<"$_ae_out"; then
+  ok "agents: an empty tools value (bare key or YAML block list) is rejected"
+else no "agents: empty tools value not rejected: $(printf '%s' "$_ae_out" | tr '\n' ';')"; fi
 n_src="$(find "$AGENT_SRC" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)"
 
 home="$TMP/agents-apply"
