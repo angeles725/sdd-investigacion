@@ -137,7 +137,7 @@ jt_fields() { local d e miss
   RS_PATH="$STUB/ok:$PATH_ORIG" rs "$1" --cwd "$R" --base-ref loose --json; e="$OUT"
   [ -n "$d" ] && [ -n "$e" ] || return 1
   miss="$(jq -rn --argjson d "$d" --argjson e "$e" '
-    ($d|del(.schema,.repo,.worktrees,.branches,.prs,.generated_at)) + $d.repo as $want | $e.items[0] as $got
+    (($d|del(.schema,.repo,.worktrees,.branches,.prs,.generated_at)) + $d.repo) as $want | $e.items[0] as $got
     | [($want|keys[]) as $k | select(($got|has($k)|not) or $got[$k] != $want[$k]) | $k]
     + (if ($got.generated_at|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and ($d.generated_at|type)=="string" then [] else ["generated_at"] end)
     | join(",")' 2>/dev/null)" || return 1
