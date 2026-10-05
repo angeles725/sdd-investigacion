@@ -2484,6 +2484,241 @@ if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no test cited' <<<"$OUT" && ! 
   ok "45r preamble before the first signature belongs to no record (typed note), not credited" "(exit $RC)"
 else no "45r preamble" "exit=$RC out=[$OUT]"; fi
 
+# ---------------------------------------------------------------------------
+# 46 — THE `regressed` CLASS (kit issue #1709 slice 2). A row that is `shipped` (closure-evidence rule) but whose
+# exact title is proposed AGAIN as an OPEN delta in a LATER retro of the same retros directory is reported
+# `regressed` for human review: never auto-reopened, nothing edited (propose-never-apply). The cross-retro identity
+# is the stage-retro-issues title (same retros dir, exact title after bold-strip + trim, >= 12 characters); "later"
+# means a STRICTLY greater YYYY-MM-DD filename prefix. No fuzzy matching: a differently worded row is not a match.
+RA='2026-09-01-a.md'; RB='2026-09-10-b.md'
+SIGRA="Source retro: target-foo/retros/${RA} · 1"
+SIGRA_E="${SIGRA}\\nCommit: ${C_MAIN}\\n${EVTEST}"
+# reg_case <name> -> box46 with the shipped retro RA (rows 1 shipped, 2 untracked); gh stub closes row 1 as completed (issue #7).
+reg_case() {
+  box46="$(mkbox "case-46-$1")"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
+  mk44 "$box46" "$RA" >/dev/null; : > "$box46/bin/gh.log"
+}
+# 46a — a later pending retro re-proposes the shipped row's title -> regressed names issue, later retro and row.
+reg_case basic; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" \
+   && grep -qF "regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT" \
+   && grep -q 'human review' <<<"$OUT" && no_mutation "$box46"; then
+  ok "46a shipped row re-proposed in a later pending retro -> regressed (closed by #7, later retro + row named)" "(exit $RC)"
+else no "46a regressed basic" "exit=$RC out=[$OUT]"; fi
+# 46b — the SAME title in an EARLIER retro is not a regression (it is the origin, not a re-proposal).
+reg_case earlier; mk_retro "$box46" target-foo '2026-08-01-c.md' "<!-- review-status: pending -->" \
+  "| 1 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
+  ok "46b same title in an EARLIER retro -> no regressed" "(exit $RC)"
+else no "46b earlier retro" "exit=$RC out=[$OUT]"; fi
+# 46c — same DATE prefix (not strictly later) cannot be ordered: no claim, and it is not an error.
+reg_case sameday; mk_retro "$box46" target-foo '2026-09-01-z.md' "<!-- review-status: pending -->" \
+  "| 1 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT" \
+   && grep -q '^regressed-lookup: skipped 1 same-day retro(s) next to 2026-09-01-a.md' <<<"$OUT"; then ok "46c same-day retro cannot be ordered -> no regressed, typed regressed-lookup note" "(exit $RC)"
+else no "46c same day" "exit=$RC out=[$OUT]"; fi
+# 46d — the later retro is applied / dismissed: its row is not an OPEN re-proposal.
+for _m in 'applied 2026-09-11' 'dismissed 2026-09-11 · not wanted'; do
+  reg_case "closed-later-${_m%% *}"; mk_retro "$box46" target-foo "$RB" "<!-- review-status: ${_m} -->" \
+    "| 3 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+  run "$box46" "$box46/rh/target-foo/retros/$RA"
+  if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT"; then ok "46d later retro ${_m%% *} -> its row is not open, no regressed" "(exit $RC)"
+  else no "46d later ${_m%% *}" "exit=$RC out=[$OUT]"; fi
+done
+# 46e — a later PARTIAL retro: the row listed shipped is not open (no regressed); an unlisted same-title row is.
+reg_case partial-shipped; mk_retro "$box46" target-foo "$RB" "<!-- review-status: applied 2026-09-11 · PARTIAL — shipped: 3 -->" \
+  "| 3 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT"; then ok "46e later PARTIAL retro listing the row shipped -> no regressed" "(exit $RC)"
+else no "46e partial shipped" "exit=$RC out=[$OUT]"; fi
+reg_case partial-open; mk_retro "$box46" target-foo "$RB" "<!-- review-status: applied 2026-09-11 · PARTIAL — shipped: 9 -->" \
+  "| 3 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then ok "46e later PARTIAL retro with the row NOT shipped -> regressed" "(exit $RC)"
+else no "46e partial open" "exit=$RC out=[$OUT]"; fi
+# 46f — borderline (incomplete closure evidence) is never regressed: only `shipped` rows are checked.
+box46="$(mkbox case-46-borderline)"; mk_gh_stub "$box46" closed-completed "$SIGRA"
+mk44 "$box46" "$RA" >/dev/null; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | METHODOLOGY.md | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
+  ok "46f borderline row re-proposed later -> not regressed (needs shipped evidence)" "(exit $RC)"
+else no "46f borderline" "exit=$RC out=[$OUT]"; fi
+# 46g — exact identity: a different wording / case is NOT a match (no fuzzy matcher); bold markup IS stripped.
+reg_case wording; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "$(printf '| 3 | Shipped via closed issue | M | B9 | new | HIGH |\n| 4 | shipped via closed issues | M | B9 | new | HIGH |')" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT"; then ok "46g different case / wording -> no regressed (exact identity, no fuzzy match)" "(exit $RC)"
+else no "46g wording" "exit=$RC out=[$OUT]"; fi
+reg_case bold; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | **shipped via closed issue** — and a longer explanation | M | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then ok "46g bold-wrapped title matches after the stage bold-strip" "(exit $RC)"
+else no "46g bold" "exit=$RC out=[$OUT]"; fi
+# 46h — the title column is found by HEADER name (stage-retro-issues rule), not assumed to be column 2.
+reg_case header; {
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | Target | Proposed change | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 3 | METHODOLOGY.md | shipped via closed issue | B9 | new | HIGH |\n'
+} > "$box46/rh/target-foo/retros/$RB"
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then ok "46h title read from the header-named column" "(exit $RC)"
+else no "46h header column" "exit=$RC out=[$OUT]"; fi
+# 46i — a later retro in the entry form (### D<N> — title) is read through the shared grammar.
+reg_case entry; {
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n### D4 — shipped via closed issue\n\n**Evidence**: B9\n'
+} > "$box46/rh/target-foo/retros/$RB"
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row D4)" <<<"$OUT"; then ok "46i entry-form later retro re-proposal -> regressed" "(exit $RC)"
+else no "46i entry form" "exit=$RC out=[$OUT]"; fi
+# 46j — a too-short title carries no identity: the lookup says so (stderr note), it never matches.
+box46="$(mkbox case-46-short)"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
+mk_retro "$box46" target-foo "$RA" "<!-- review-status: pending -->" "| 1 | short title | M | B1 | new | HIGH |" >/dev/null
+mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" "| 3 | short title | M | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT" \
+   && grep -q '^regressed-lookup: row 1 .*under 12 characters' <<<"$OUT"; then
+  ok "46j short title -> no identity, typed regressed-lookup note (not a silent no-match)" "(exit $RC)"
+else no "46j short title" "exit=$RC out=[$OUT]"; fi
+# 46k — a retro with no YYYY-MM-DD prefix cannot be ordered: typed note, no regressed, exit 0.
+box46="$(mkbox case-46-undated)"; mk_gh_stub "$box46" closed-completed "Source retro: target-foo/retros/nodate.md · 1\\nCommit: ${C_MAIN}\\n${EVTEST}"
+mk44 "$box46" nodate.md >/dev/null; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/nodate.md"
+if [ "$RC" = 0 ] && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT" \
+   && grep -q '^regressed-lookup: .*nodate.md .*no YYYY-MM-DD' <<<"$OUT"; then
+  ok "46k undated shipped retro -> typed regressed-lookup note, no regressed" "(exit $RC)"
+else no "46k undated" "exit=$RC out=[$OUT]"; fi
+# 46l — an undated SIBLING is skipped with a typed note (it might be a later retro), others are still scanned.
+reg_case undated-sibling; mk_retro "$box46" target-foo 'notes.md' "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" "| 5 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 5)" <<<"$OUT" \
+   && grep -q '^regressed-lookup: skipped 1 retro(s) without a YYYY-MM-DD prefix' <<<"$OUT" && ! grep -q 'notes.md as' <<<"$OUT"; then
+  ok "46l undated sibling skipped with a typed note; dated later retro still found" "(exit $RC)"
+else no "46l undated sibling" "exit=$RC out=[$OUT]"; fi
+# 46m — an UNREADABLE later retro is could-not-look: typed degraded + exit 1, never a confident no-regression.
+if [ "$(id -u)" != 0 ]; then
+  reg_case unreadable; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+    "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+  chmod 000 "$box46/rh/target-foo/retros/$RB"
+  run "$box46" "$box46/rh/target-foo/retros/$RA"; chmod 644 "$box46/rh/target-foo/retros/$RB"
+  if [ "$RC" = 1 ] && grep -q "^degraded: later retro not readable: .*${RB} — regressed rows in it were not checked" <<<"$OUT" \
+     && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
+    ok "46m unreadable later retro -> typed degraded + exit 1, shipped row still printed" "(exit $RC)"
+  else no "46m unreadable" "exit=$RC out=[$OUT]"; fi
+fi
+# 46n — a later retro whose marker sits OUTSIDE the scope cannot be classified open/closed: typed note, no claim.
+reg_case oos; {
+  printf '# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | T | E | Ty | P |\n|---|---|---|---|---|---|\n'
+  printf '| 3 | shipped via closed issue | M | B9 | new | HIGH |\n\n## Notes\n\n<!-- review-status: applied -->\n'
+} > "$box46/rh/target-foo/retros/$RB"
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT" && grep -q "^regressed-lookup: .*${RB} .*marker" <<<"$OUT"; then
+  ok "46n later retro with an out-of-scope marker -> typed regressed-lookup note, no claim" "(exit $RC)"
+else no "46n out-of-scope marker" "exit=$RC out=[$OUT]"; fi
+# 46o — --closed-cache carries no issue numbers: the line says so instead of inventing one.
+reg_case cache; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+printf '%s\nCommit: %s\n%s\n' "$SIGRA" "$C_MAIN" "$EVTEST" > "$ROOT/closed46o.txt"; printf 'x\n' > "$ROOT/open46o.txt"
+run "$box46" --issues-cache "$ROOT/open46o.txt" --closed-cache "$ROOT/closed46o.txt" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -qF "regressed: row 1 (closed by an issue whose number is not in the closed-issue data, re-proposed in ${RB} as row 3)" <<<"$OUT"; then
+  ok "46o cache without numbers -> regressed names the gap, no invented #N" "(exit $RC)"
+else no "46o cache" "exit=$RC out=[$OUT]"; fi
+# 46p — --all: the fleet summary carries regressed=N and the run stays exit 0 (a finding, not a failure).
+reg_case fleet; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+run "$box46" --all
+if [ "$RC" = 0 ] && grep -qE '^fleet-summary: .* shipped=1 borderline=0 regressed=1 orphaned=' <<<"$OUT"; then
+  ok "46p --all fleet-summary carries regressed=1" "(exit $RC)"
+else no "46p fleet regressed" "exit=$RC out=[$OUT]"; fi
+reg_case fleet0; run "$box46" --all
+if [ "$RC" = 0 ] && grep -qE ' regressed=0 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT" && no_mutation "$box46"; then
+  ok "46p --all without a re-proposal -> regressed=0 (explicit zero), no gh mutation verb" "(exit $RC)"
+else no "46p fleet zero" "exit=$RC out=[$OUT]"; fi
+# 46q — a --issues-cache run without --closed-cache never reaches the shipped branch: no regressed lookup, no claim.
+reg_case nocache; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+run "$box46" --issues-cache "$ROOT/open46o.txt" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && ! grep -q '^regressed:' <<<"$OUT" && grep -q '^closed-lookup: skipped' <<<"$OUT"; then
+  ok "46q closed lookup skipped -> no regressed claim (the skip stays stated)" "(exit $RC)"
+else no "46q skipped lookup" "exit=$RC out=[$OUT]"; fi
+
+# 46r — gh 2.45 (no stateReason field): the old-gh fallback carries the issue number too (closed by #7).
+reg_case oldgh; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+GH_STUB_OLD_GH=1 run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then
+  ok "46r old-gh fallback keeps the closing issue number -> regressed (closed by #7)" "(exit $RC)"
+else no "46r old gh number" "exit=$RC out=[$OUT]"; fi
+# 46t — the sibling LISTING fails (a `find` that errors): could-not-look -> typed degraded + exit 1, never "no siblings".
+reg_case findfail; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+printf '#!%s\necho "find: cannot read directory: Permission denied" >&2\nexit 1\n' "$BASH_BIN" > "$box46/bin/find"; chmod +x "$box46/bin/find"
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 1 ] && grep -q '^degraded: retros directory not listable: .* — regressed rows were not checked' <<<"$OUT" \
+   && grep -q '^shipped: row 1 ' <<<"$OUT" && ! grep -q '^regressed:' <<<"$OUT"; then
+  ok "46t unlistable retros directory -> typed degraded + exit 1, shipped row still printed" "(exit $RC)"
+else no "46t find fails" "exit=$RC out=[$OUT]"; fi
+# 46u — a title carrying backslash sequences or a Windows path must match itself (awk -v would expand `\n`, `\t`
+# and drop `\x`): the identity is compared byte-exact, so a mangled comparison can never become a silent no-match.
+for _bt in 'handle the \n and \t escapes in titles' 'fix C:\new\temp\path handling' 'trailing backslash in title \'; do
+  box46="$(mkbox "case-46-bs-${#_bt}")"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
+  mk_retro "$box46" target-foo "$RA" "<!-- review-status: pending -->" "| 1 | ${_bt} | M | B1 | new | HIGH |" >/dev/null
+  mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" "| 3 | ${_bt} | M | B9 | new | HIGH |" >/dev/null
+  run "$box46" "$box46/rh/target-foo/retros/$RA"
+  if [ "$RC" = 0 ] && grep -qF "regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3)" <<<"$OUT"; then
+    ok "46u backslash title [${_bt}] -> byte-exact match, regressed reported" "(exit $RC)"
+  else no "46u backslash title [${_bt}]" "exit=$RC out=[$OUT]"; fi
+done
+# 46s — two later retros re-propose the title: both are named (sorted by filename), one line per shipped row.
+reg_case two-later; mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" \
+  "| 3 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+mk_retro "$box46" target-foo '2026-09-20-d.md' "<!-- review-status: pending -->" "| 6 | shipped via closed issue | M | B9 | new | HIGH |" >/dev/null
+run "$box46" "$box46/rh/target-foo/retros/$RA"
+if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${RB} as row 3, 2026-09-20-d.md as row 6)" <<<"$OUT" \
+   && [ "$(grep -c '^regressed:' <<<"$OUT")" = 1 ]; then
+  ok "46s two later re-proposals -> one regressed line naming both, in filename order" "(exit $RC)"
+else no "46s two later" "exit=$RC out=[$OUT]"; fi
+
+# 47 — PARITY with the seeder (RDD round 1, R2-001). `_retro_row_titles` carries a COPY of stage-retro-issues.sh's
+# title-column parser; drift would make re-proposals invisible. This runs BOTH over the same fixture retros (table
+# positional + bold, header-named column, entry form) and requires the same titles in the same order. The stage side
+# is its own dry-run output (`planned-issue: <title>`, no network); an empty stage side is a harness FAIL, never a pass.
+STAGE_SUT="$HERE/../stage-retro-issues.sh"; SCRUB_LIB="$HERE/../lib/scrub-issue-text.sh"
+PAR_BOX="$(mkbox case-47-parity)"; mk_gh_stub "$PAR_BOX" nomatch
+cp "$STAGE_SUT" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh"; cp "$SCRUB_LIB" "$PAR_BOX/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+mk_retro "$PAR_BOX" target-foo 2026-01-01-p1.md "<!-- review-status: pending -->" \
+  "$(printf '| 1 | **bold wrapped title** — with a tail | M | B | new | HIGH |\n| 2 | plain positional title | M | B | new | HIGH |')" >/dev/null
+{
+  printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | Target | Proposed change | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 3 | METHODOLOGY.md | header named column title | B | new | HIGH |\n| 4 | CLAUDE.md | **second bold header title** | B | fix | LOW |\n'
+} > "$PAR_BOX/rh/target-foo/retros/2026-01-02-p2.md"
+{
+  printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D4 — entry form delta title\n\n**Evidence**: B9\n\n### D5 — second entry form delta\n\n**Evidence**: B9\n'
+} > "$PAR_BOX/rh/target-foo/retros/2026-01-03-p3.md"
+# par_check <reconcile-issues.sh to take the title functions from> -> 0 when stage and reconcile agree on every fixture
+par_check() {
+  local sut="$1" fn="$ROOT/par-fn.sh" f st rt n=0
+  awk '/^_trim\(\) \{/ { p = 1 } /^# _title_has_identity/ { p = 0 } p' "$sut" > "$fn"
+  for f in "$PAR_BOX"/rh/target-foo/retros/2026-01-0[123]-p[123].md; do
+    st="$(PATH="$PAR_BOX/bin:$PATH" "$BASH_BIN" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh" "$f" 2>/dev/null | sed -n 's/^planned-issue: //p')"
+    # shellcheck disable=SC1090
+    rt="$( . "$RETRO_GRAMMAR_LIB"; . "$fn"; _retro_row_titles "$f" | awk -F'\037' '{ print $2 }' )"
+    [ -n "$st" ] || { echo "par_check: stage side empty for $f (harness failure)" >&2; return 2; }
+    [ "$st" = "$rt" ] || { printf 'par_check: MISMATCH %s\n stage=[%s]\n recon=[%s]\n' "$f" "$st" "$rt" >&2; return 1; }
+    n=$((n+1))
+  done
+  [ "$n" = 3 ]
+}
+if par_check "$SUT"; then ok "47 reconcile row titles == stage-retro-issues planned titles (table, bold, header-named, entry form)" "()"
+else no "47 stage/reconcile title parity" "drift between _retro_row_titles and the seeder's title extraction"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
   # (c) shipped branch demoted below the status branch -> 43e row 1 reads the status reason instead.
@@ -2567,7 +2802,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth1555 T1555-a shipped-check closed-completed \
     's/^\(        if \)\[ -n "\$_ev_rec" \]; then  # RECONCILE-CLOSED-SHIPPED$/\1false; then  # RECONCILE-CLOSED-SHIPPED/' untracked1
   tooth1555 T1555-b completed-filter closed-notplanned \
-    's/if \.stateReason == "COMPLETED" then (\[\.body\] + \[(\.comments \/\/ \[\])\[\] | select(\.authorAssociation as \$a | \["OWNER","MEMBER","COLLABORATOR"\] | index(\$a)) | \.body\]) | join("\\n") else "" end/(.body)/' shipped1
+    's/if \.stateReason == "COMPLETED" then .* else "" end/(.body)/' shipped1
   tooth1555 T1555-c closed-state closed-completed \
     's/^\(        --state \)closed \\$/\1open \\/' untracked1
   tooth1555 T1555-d skip-note closed-completed \
@@ -2778,6 +3013,89 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-e teeth: mutant merges records -> row 1 wrongly shipped (case 45j has teeth)" "()"
     else no "T1709-e teeth" "case 45j is THEATER: rc=$RC out=[$OUT]"; fi
   else fail=$((fail+1)); fi
+
+  # ---- kit issue #1709 slice 2 teeth (the `regressed` class) - mutants built with tests/lib/mutant.sh ----
+  # t46 <label> <scenario> <effect> <sed-expr>: build the scenario against a mutant of the SUT (an unbuildable or
+  # no-op mutant is a FAIL, never a pass) and require the observable effect to flip. effect: appears|gone <grep-ere>.
+  t46_row() { printf '| %s | %s | M | B9 | new | HIGH |' "$1" "$2"; }
+  t46() {
+    local label="$1" kase="$2" effect="$3" pat="$4" expr="$5" mb args=() st="pending" later="$RB" hit=0 title='shipped via closed issue'
+    echo "-- teeth $label --"
+    mb="$(mkbox "teeth-46-$label")"; mk_gh_stub "$mb" closed-completed "$SIGRA_E"
+    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then fail=$((fail+1)); return 0; fi
+    mk44 "$mb" "$RA" >/dev/null
+    args=("$mb/rh/target-foo/retros/$RA")
+    case "$kase" in
+      earlier)  later='2026-08-01-c.md' ;;
+      sameday)  later='2026-09-01-z.md' ;;
+      dismissed) st='dismissed 2026-09-11 · no' ;;
+      partial-shipped) st='applied 2026-09-11 · PARTIAL — shipped: 3' ;;
+      case)     title='Shipped via closed issue' ;;
+      bs)       title='fix C:\new\temp\path and \n \t escapes'
+                mk_retro "$mb" target-foo "$RA" "<!-- review-status: pending -->" "$(t46_row 1 "$title")" >/dev/null ;;
+      short)    title='short title'
+                mk_retro "$mb" target-foo "$RA" "<!-- review-status: pending -->" "$(t46_row 1 "$title")" >/dev/null ;;
+      bold)     title='**shipped via closed issue** — longer text' ;;
+      borderline) mk_gh_stub "$mb" closed-completed "$SIGRA" ;;
+      fleet)    args=(--all) ;;
+      oldgh)    ;;
+      header)   ;;
+      number)   ;;
+      undated-sibling) mk_retro "$mb" target-foo notes.md "<!-- review-status: pending -->" "$(t46_row 3 "$title")" >/dev/null ;;
+      oos|nodate|unreadable|findfail) ;;
+      *) no "$label teeth" "unknown scenario '$kase' (helper dispatch bug, not a THEATER result)"; return 0 ;;
+    esac
+    case "$kase" in
+      header) { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Target | Proposed change | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 3 | M | %s | B9 | new | HIGH |\n' "$title"; } > "$mb/rh/target-foo/retros/$RB" ;;
+      oos) { printf '# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | T | E | Ty | P |\n|---|---|---|---|---|---|\n| 3 | %s | M | B9 | new | HIGH |\n\n## Notes\n\n<!-- review-status: applied -->\n' "$title"; } > "$mb/rh/target-foo/retros/$RB" ;;
+      nodate) mk_gh_stub "$mb" closed-completed "Source retro: target-foo/retros/nodate.md · 1\\nCommit: ${C_MAIN}\\n${EVTEST}"
+              mk44 "$mb" nodate.md >/dev/null; args=("$mb/rh/target-foo/retros/nodate.md")
+              mk_retro "$mb" target-foo "$RB" "<!-- review-status: pending -->" "$(t46_row 3 "$title")" >/dev/null ;;
+      *) mk_retro "$mb" target-foo "$later" "<!-- review-status: ${st} -->" "$(t46_row 3 "$title")" >/dev/null ;;
+    esac
+    [ "$kase" != unreadable ] || chmod 000 "$mb/rh/target-foo/retros/$RB"
+    if [ "$kase" = findfail ]; then
+      printf '#!%s\necho "find: cannot read directory: Permission denied" >&2\nexit 1\n' "$BASH_BIN" > "$mb/bin/find"; chmod +x "$mb/bin/find"
+    fi
+    if [ "$kase" = oldgh ]; then GH_STUB_OLD_GH=1 run "$mb" "${args[@]}"; else run "$mb" "${args[@]}"; fi
+    [ "$kase" != unreadable ] || chmod 644 "$mb/rh/target-foo/retros/$RB"
+    grep -qE -- "$pat" <<<"$OUT" && hit=1
+    if { [ "$effect" = appears ] && [ "$hit" = 1 ]; } || { [ "$effect" = gone ] && [ "$hit" = 0 ]; } \
+       || { [ "$effect" = rc0 ] && [ "$RC" = 0 ]; }; then
+      ok "$label teeth: mutant flips the $kase case (it has teeth)" "()"
+    else no "$label teeth" "the $kase case is THEATER: rc=$RC out=[$OUT]"; fi
+  }
+  t46 T1709s2-a earlier appears '^regressed:' 's/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    :/'
+  t46 T1709s2-b sameday appears '^regressed:' '/RECONCILE-SAMEDAY-COUNT$/s/.*/    :/;s/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    [[ "$sd" > "$cdate" || "$sd" == "$cdate" ]] || continue/'
+  t46 T1709s2-c dismissed appears '^regressed:' 's/^    dismissed) return 0 ;;$/    dismissed) : ;;/'
+  t46 T1709s2-d case appears '^regressed:' 's/\$3 == ENVIRON\["_RG_T"\] {/tolower($3) == tolower(ENVIRON["_RG_T"]) {/'
+  t46 T1709s2-e short appears '^regressed:' 's/\[ "\${#t}" -ge 12 \]/[ "${#t}" -ge 1 ]/'
+  t46 T1709s2-f header gone '^regressed:' 's/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'
+  t46 T1709s2-g bold gone '^regressed:' '/_dl="\$(printf/s/\\1\//\\1X\//'
+  t46 T1709s2-h partial-shipped appears '^regressed:' 's/if \[ "\$_partial" -eq 1 \] \&\& grep -qxF "\$_id" <<<"\$_shipped"; then continue; fi/:/'
+  t46 T1709s2-i borderline appears '^regressed:' 's/^\(            r_borderline=\$((r_borderline+1))\)$/\1; _regressed_check "$retro_path" "$_rid" "$_ev_rec"/'
+  t46 T1709s2-j number gone 'closed by #7,' 's/\[0-9\]\[0-9\]\*\\) \*\$\/#\\1\/p/[0-9][0-9]*x\\) *$\/#\\1\/p/'
+  t46 T1709s2-k oldgh gone 'closed by #7,' 's/; if (!skip) print "Closed-issue-number: " num; next }/; next }/'
+  t46 T1709s2-l fleet gone 'regressed=1 ' 's/_fleet_regressed=\$((_fleet_regressed + r_regressed))/_fleet_regressed=$((_fleet_regressed + 0))/'
+  t46 T1709s2-m undated-sibling gone 'regressed-lookup: skipped 1 retro' 's/if \[ "\$_undated" -gt 0 \]; then/if false; then/'
+  t46 T1709s2-n oos gone '^regressed-lookup: .*marker' 's/if \[ "\$_rc" -eq 3 \]; then/if false; then/'
+  t46 T1709s2-o nodate gone '^regressed-lookup: .*no YYYY-MM-DD' 's/^  if \[\[ ! "\$cb" =~ \^\[0-9\]{4}-\[0-9\]{2}-\[0-9\]{2} \]\]; then$/  if false; then/'
+  t46 T1709s2-p short gone '^regressed-lookup: row 1' 's/^  if \[ -z "\$title" \] || ! _title_has_identity "\$title"; then$/  if false; then/'
+  t46 T1709s2-t bs gone '^regressed: row 1 \(closed by #7,' '/RECONCILE-AWK-ENV-TITLE$/{s/_RG_T="\$title" awk/awk -v _RG_T="$title"/;s/ENVIRON\["_RG_T"\]/_RG_T/}'
+  t46 T1709s2-r sameday gone '^regressed-lookup: skipped 1 same-day' 's/^    if \[ "\$sd" = "\$cdate" \]; then _sameday=\$((_sameday + 1)); continue; fi  # RECONCILE-SAMEDAY-COUNT$/    :/'
+  t46 T1709s2-s findfail rc0 '^degraded: retros directory not listable' 's/if \[ "\$_rc" -ne 0 \] || \[ -n "\$_fm" \]; then  # RECONCILE-SIBLING-LIST-CHECK/if false; then/'
+  # Parity teeth: a drifted title parser must make the stage-vs-reconcile parity check fail (R2-001).
+  for _pt in "bold|/_dl=\"\\\$(printf/s/\\\\1\\//\\\\1X\\//" 'header|s/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'; do
+    _pl="${_pt%%|*}"; _pe="${_pt#*|}"; echo "-- teeth T1709s2-parity-$_pl --"
+    _pm="$ROOT/parity-mut-$_pl.sh"
+    if mutant_chain "T1709s2-parity-$_pl" "$SUT" "$_pm" "$_pe"; then
+      if par_check "$_pm" 2>/dev/null; then no "T1709s2-parity-$_pl teeth" "case 47 is THEATER: a drifted parser still passes parity"
+      else ok "T1709s2-parity-$_pl teeth: drifted title parser fails the stage parity check (47 has teeth)" "()"; fi
+    else fail=$((fail+1)); fi
+  done
+  if [ "$(id -u)" != 0 ]; then
+    t46 T1709s2-q unreadable rc0 '^degraded: later retro not readable' 's/_reg_degraded=1; continue$/continue/'
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

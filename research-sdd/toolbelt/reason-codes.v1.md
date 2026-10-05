@@ -68,6 +68,8 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: git not found on PATH` | degraded | reconcile-issues.sh | git is absent, so a cited commit cannot be checked against the main ref | install git, then re-run `reconcile-issues.sh` |
 | `degraded: <v> is not a git repository` | degraded | reconcile-issues.sh | the directory used for the ancestry check is not a git repository | run from a kit checkout or set `RECONCILE_ISSUES_GIT_DIR` to one, then re-run `reconcile-issues.sh` |
 | `degraded: ref <v> is not known locally in <v> (no fetch is performed)` | degraded | reconcile-issues.sh | the main ref is not known locally and the script never fetches | run `git fetch` by hand (or set `RECONCILE_ISSUES_MAIN_REF`), then re-run `reconcile-issues.sh` |
+| `degraded: retros directory not listable:` | degraded | reconcile-issues.sh | the retros directory could not be listed (find failed or reported an error), so later retros were not enumerated and the `regressed` check has no verdict | fix the directory permissions, then re-run `reconcile-issues.sh` |
+| `degraded: later retro not readable:` | degraded | reconcile-issues.sh | a later retro in the same retros directory exists but cannot be read, so re-proposals of shipped rows in it (the `regressed` class) were not checked | fix the file permissions, then re-run `reconcile-issues.sh` |
 | `degraded: gh issue list (closed, old-gh fallback) failed (exit <v>)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field and the fallback closed-issue listing (number, body, comments) also failed, so the audit has no verdict | run `gh auth status` and the same `gh issue list` by hand, then re-run `reconcile-issues.sh` |
 | `degraded: gh api state_reason listing failed (this gh has no stateReason --json field)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field, so the state reasons are read from one paginated `gh api repos/<owner>/<repo>/issues?state=closed` listing and that call failed twice (one bounded retry) | run that `gh api` call by hand, fix the reported problem (auth, rate limit, network), then re-run `reconcile-issues.sh` |
 | `degraded: gh is not authenticated` | degraded | reconcile-issues.sh, stage-retro-issues.sh | gh has no usable login | run `gh auth login`, then re-run the script |
@@ -117,6 +119,13 @@ They are listed here so a reader of this registry finds every typed state the sc
   the batched `state_reason` listing even after one forced reload of it. Its rows are reported `borderline`
   (the issue's evidence is not trusted) and the run is not failed. Continuation: run
   `gh api repos/<owner>/<repo>/issues/<n> --jq .state_reason` by hand, then re-run `reconcile-issues.sh`.
+
+- `regressed-lookup: <reason>` (reconcile-issues.sh, kit issue #1709 slice 2): the `regressed` check for a `shipped`
+  row could not look at something and says so on stderr instead of reporting a silent no-match: the shipped retro or
+  a sibling has no `YYYY-MM-DD` filename prefix, or a sibling has the same date (retros cannot be ordered), the row title is under 12 characters or a
+  bare priority/type token (no cross-retro identity), or a later retro's review-status marker sits outside the
+  leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
+  prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
 ## Deferred (later slices of #1704)
 
