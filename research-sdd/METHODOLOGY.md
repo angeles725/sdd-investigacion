@@ -903,7 +903,7 @@ enforces the gate; the researcher maintains the number.
 
 **Seeding.** The field starts at `undocumented_findings: 0` in a new RESEARCH-STATE.md.
 `--sync-state` carries the value forward (it cannot derive it from disk); if the field is
-absent from an existing envelope, `--sync-state` leaves it absent (UF-NO-INVENT, never an invented 0); only a first seed with no fence writes 0. The RESEARCH-STATE.template.md
+absent in a legacy envelope, `--sync-state` omits it. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
 **Anti-ephemeral-artifact rule.** A deliverable's SOURCE — a dashboard's code, a generated script, any
@@ -1365,7 +1365,7 @@ contain multiple `## Gap-backlog (…)` tables; all are counted together.
 **Out-of-backlog tables (#1307).** Near-miss headings (`## Gap backlog`, `## Backlog`) are still read, with a WARN. Under any non-canonical heading a table counts only if its header's first cell is priority-shaped (`Priority`, `Pr.`, `P`, `Prioridad`), so a `Severity` table is never gaps. Tiers outside §8b (`4`, `**HIGH**`, `MED`, `low-med`) are excluded with a WARN and make derived `known_gaps` a lower bound.
 
 **Migration (propose-never-apply).** Corpus edits are always the human's; tooling WARNs and never
-auto-applies (mechanical classes: `toolbelt/migrate-backlogs.sh`, propose-only). Migration classes to address:
+auto-applies. Migration classes to address:
 
 - **Qualifiers** → strip qualifier; move qualifier prose to Gap cell or Status decoration.
 - Abbreviated or compound tiers (`med`, `MED`) → a real tier; `critical` → `high`.
