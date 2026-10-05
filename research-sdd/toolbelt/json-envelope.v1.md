@@ -17,13 +17,13 @@ whether a zero count means "looked and found nothing" or "could not look".
 | `state` | string | One of the five values below. Never absent. |
 | `reason` | string or null | `null` when `state` is `ok`; otherwise one sentence saying why. |
 | `counts` | object | Integer counters; the keys are instrument-specific and documented per instrument below. May be `{}` when `state` is `degraded`. |
-| `items` | array | The findings, one object per item, each with a `kind` string. `[]` unless `state` is `ok`. |
+| `items` | array | The findings, one object per item, each with a `kind` string. Non-empty if and only if `state` is `ok`: a finding is never hidden behind another state. |
 
 ## State enum (CLAUDE.md §7)
 
 | `state` | Meaning |
 |---|---|
-| `ok` | The instrument looked and has at least one item. |
+| `ok` | The instrument produced at least one item. This wins over every other state: a partial absence (some targets missing) beside real findings is `ok`, and is visible in `counts`, never in `reason` (which stays `null`). |
 | `absent-input` | The inputs it reads were not found (every target directory missing). |
 | `empty-input` | Inputs were found and are genuinely empty (nothing to examine). |
 | `no-match` | Items were examined and none satisfied the filter (nothing to report). |
@@ -42,7 +42,7 @@ Exit codes of `--json` mode (every one it can return):
 - `degraded` exits 3, prints a `DEGRADED:` line on stderr, and still prints a valid envelope with
   `"state":"degraded"` so a machine caller sees the typed state instead of empty stdout.
 - Operational failures keep the instrument's existing behaviour: a message on stderr, exit 1, nothing on stdout.
-- The envelope is built with `jq`; the instrument probes for it before doing any work.
+- The envelope is built with `jq`; the instrument probes for it before doing any work and hands it the data as files, never argv words, so a large backlog cannot hit the per-argument size limit.
 
 ## Instruments
 
@@ -55,9 +55,9 @@ Exit codes of `--json` mode (every one it can return):
 
 ### `research-sdd.sweep-retros/v1`
 
-State precedence: `absent-input` (at least one usable target and every one of them missing on disk) →
-`empty-input` (no retro file counted under the traversed targets) → `no-match` (retros counted, no item) →
-`ok`. `counts`: `targets`, `targets_absent`, `targets_skipped` (truncated paths in `TARGETS.md`),
+State precedence: `ok` (at least one item, including a missing-retro item beside zero retros) →
+`absent-input` (at least one usable target and every one of them missing on disk) →
+`empty-input` (no retro file counted under the traversed targets) → `no-match` (retros counted, no item). `counts`: `targets`, `targets_absent`, `targets_skipped` (truncated paths in `TARGETS.md`),
 `retros`, `pending`, `missing_retro`. A sweep with skipped targets is partial; `counts.targets_skipped`
 says so, the state does not.
 
@@ -65,7 +65,7 @@ Items, oldest pending first, then missing-retro entries:
 
 - `{"kind":"pending-retro","file","target","deltas","deltas_state","status","age_days","age_state","escalated","warning"}` —
   `deltas` is an integer when `deltas_state` is `counted`, else `null` (`uncountable`: count by hand;
-  `no-section`: no delta section found; `unknown`: the value was none of the recognised forms);
+  `no-section`: no delta section found; `unknown`: the instrument did not record a state). `deltas_state` is recorded by the sweep where the delta count is decided, never re-derived from the human report text;
   `age_days` is an integer when `age_state` is `counted`, else `null` with `age_state` `unknown` (one bad
   age never kills the envelope); `status` is the marker word or `none`; `warning` is a string or `null`.
 - `{"kind":"missing-retro","target"}` — a target advanced with no retro for the latest run.

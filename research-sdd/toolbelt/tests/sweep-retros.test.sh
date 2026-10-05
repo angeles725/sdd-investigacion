@@ -5084,6 +5084,43 @@ if mutant_sed "$SUT" "$_am" "$J_AGE_EXPR"; then
   else no "JSON age guard" "rc=$RC $JOUT"; fi
 else no "JSON age: build input mutant" "mutant_sed refused (anchor drifted?)"; fi
 
+# Review round 2: (1) a >200 KiB accumulator must reach jq without argv (E2BIG); (2) deltas_state is a machine
+# field recorded at the source, `no-section` and `uncountable` pinned explicitly; (3) findings are never hidden
+# by a lower-precedence state: items non-empty => state ok.
+# jbig_kit <name> : kit whose pending-retro accumulator is far beyond MAX_ARG_STRLEN (128 KiB) for one argv word.
+jbig_kit() {
+  local kit tgt i nm; kit="$(mkkit "$1")"; tgt="$kit/targetA"; mkdir -p "$tgt/retros"
+  nm="$(printf 'a%.0s' $(seq 1 230))"
+  for i in $(seq 1 800); do
+    printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n| # | d |\n|---|---|\n| 1 | x |\n' > "$tgt/retros/$i-$nm.md"
+  done
+  wire_target "$tgt"; write_targets "$kit" "$tgt"; printf '%s' "$kit"
+}
+kit="$(jbig_kit j-big)"; jrun "$kit"
+if [ "$RC" = 0 ] && [ "$(jq_f '[.state,.counts.pending,(.items|length)]|join(",")')" = "ok,800,800" ]; then
+  ok "JSON argv: 800 pending retros (>200 KiB accumulator) → full envelope, no E2BIG" "()"
+else no "JSON argv: large accumulator" "rc=$RC err=[$(printf '%s' "$JERR" | head -c 200)] out=[$(printf '%s' "$JOUT" | head -c 100)]"; fi
+
+kit="$(mkkit j-dstate)"; tgt="$kit/targetA"; mkdir -p "$tgt/retros"
+printf '<!-- review-status: pending -->\n# r\n\nonly prose, no delta section\n' > "$tgt/retros/ns.md"
+printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\nprose, no table, no entries\n' > "$tgt/retros/uc.md"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; jrun "$kit"
+if [ "$(jq_f '.items|map(select(.file|endswith("/ns.md")))|.[0]|[.deltas_state,(.deltas|tostring)]|join(",")')" = "no-section,null" ] \
+   && [ "$(jq_f '.items|map(select(.file|endswith("/uc.md")))|.[0]|[.deltas_state,(.deltas|tostring)]|join(",")')" = "uncountable,null" ]; then
+  ok "JSON deltas_state: no-section and uncountable come from the source, not from prose matching" "()"
+else no "JSON deltas_state" "$JOUT"; fi
+
+kit="$(mkkit j-prec)"; tgt="$kit/targetA"; mkdir -p "$tgt"
+printf '# b\n' > "$tgt/t-block1.md"; touch -d '2 days ago' "$tgt/t-block1.md"
+write_targets "$kit" "$tgt"; jrun "$kit"
+if [ "$(jq_f '[.state,.counts.retros,.counts.missing_retro,(.items|map(.kind)|join("+")),(.reason|tostring)]|join(",")')" = "ok,0,1,missing-retro,null" ]; then
+  ok "JSON precedence: zero retros but a missing-retro finding → state ok (finding not hidden by empty-input)" "()"
+else no "JSON precedence: findings hidden" "$JOUT"; fi
+kit="$(jfix j-partial)"; jrun "$kit"
+if [ "$(jq_f '[.state,.counts.targets_absent,(.items|length > 0)]|join(",")')" = "ok,1,true" ]; then
+  ok "JSON precedence: one absent target beside real findings → ok, absence visible in counts" "()"
+else no "JSON precedence: partial absence" "$JOUT"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -5103,7 +5140,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jt_clean()   { jrun "$1"; [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ]; }
   jteeth empty    's/elif \$total == 0 then "empty-input"/elif $total == -1 then "empty-input"/' jt_empty
   jteeth absent   's/\$tabsent == \$targets then/$tabsent == 999 then/' jt_absent
-  jteeth nomatch  's/elif (\$items | length) == 0 then "no-match"/elif ($items | length) == -1 then "no-match"/' jt_nomatch
+  jteeth nomatch  's/else "no-match" end),/else "ok" end),/' jt_nomatch
   jteeth probe    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' jt_degr
   jteeth mute     's/exec 3>&1 >\/dev\/null/exec 3>\&1/' jt_clean
   jt_envinit()  { local k; k="$(mkkit "$(basename "$1")-i")"; mkretro "$k/targetA" a.md "<!-- review-status: applied x -->" 1; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; _json_miss="/fabricated" jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
@@ -5113,7 +5150,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jteeth exit1    's/envelope build failed" >&2; exit 1; }/envelope build failed" >\&2; exit 2; }/' jt_exit1
   # ageguard: the empty-age input mutation AND the guard removed (non-numeric goes straight to tonumber).
   jteeth ageguard "$J_AGE_EXPR
-s/then (\\.\\[4\\] | tonumber) else null end)/then (.[4] | tonumber) else (.[4] | tonumber) end)/" jt_ageguard
+s/then (\\.\\[5\\] | tonumber) else null end)/then (.[5] | tonumber) else (.[5] | tonumber) end)/" jt_ageguard
+  jt_big()   { local k; k="$(jbig_kit "$(basename "$1")-big")"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$RC" = 0 ] && [ "$(jq_f .state)" = ok ]; }
+  jt_nosec() { local k; k="$(mkkit "$(basename "$1")-ns")"; mkdir -p "$k/targetA/retros"; printf '<!-- review-status: pending -->\n# r\n\nprose\n' > "$k/targetA/retros/ns.md"; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f '.items[0].deltas_state')" = no-section ]; }
+  jt_prec()  { local k; k="$(mkkit "$(basename "$1")-pr")"; mkdir -p "$k/targetA"; printf '# b\n' > "$k/targetA/t-block1.md"; touch -d '2 days ago' "$k/targetA/t-block1.md"; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .state)" = ok ]; }
+  jteeth argv    's/--rawfile pend <(printf .%s. "\$_json_pend")/--arg pend "$_json_pend"/' jt_big
+  jteeth nosec   's/_dk=no-section/_dk=counted/' jt_nosec
+  jteeth prec    's/if (\$items | length) > 0 then "ok"/if ($items | length) > 99999 then "ok"/' jt_prec
 fi
 
 echo "== $pass passed · $fail failed =="

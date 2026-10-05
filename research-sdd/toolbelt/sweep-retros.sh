@@ -269,10 +269,10 @@ for p in $paths; do
     _sec_r="${_sec_r%%$'\001'*}"
     _sec_found="${_sec_r%%:*}"
     _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
-    delta_warn=""
+    delta_warn=""; _dk=unknown   # _dk: machine deltas_state for --json, set where deltas is decided (never re-parsed from prose)
     if [ "$_sec_found" = 1 ]; then
       case "$_sec_form" in
-        1|2) deltas="$_sec_cnt" ;;                          # form 1 (table) or form 2 (### entries)
+        1|2) deltas="$_sec_cnt"; _dk=counted ;;                          # form 1 (table) or form 2 (### entries)
         *)   # WARN-A: canonical section found, no table rows, no ###-entry sub-headings.
              # §18 honesty line (canonical section OR ## Honest verdict) is an explicit
              # countable ZERO — distinct from absent (~?) and from no-match.
@@ -285,16 +285,16 @@ for p in $paths; do
              # stripping); HV accepted only when canonical body is empty; form-3 and
              # WARN-B indicators anywhere in the file veto the zero-delta claim.
              if retro_grammar_has_honesty "$f"; then
-               deltas=0
+               deltas=0; _dk=counted
              else
                delta_warn="delta section present but not in countable form — count by hand"
-               deltas="?"                                  # WARN-A: canonical section, not pure honesty
+               deltas="?"; _dk=uncountable                 # WARN-A: canonical section, not pure honesty
              fi
              ;;
       esac
     else
       case "$_sec_form" in
-        3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
+        3)   deltas="$_sec_cnt"; _dk=counted ;;                          # form 3 (## Delta-prefixed headings)
         *)   # WARN-B or no-delta-section — check for non-canonical indicators, then honesty.
              # A § Honest verdict honesty line (no canonical section) → explicit ~0.
              # kit issue #1111: OR in the shared grammar's own unrec_found signal (Rules 1-4)
@@ -307,11 +307,11 @@ for p in $paths; do
                 || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null \
                 || [ "$_unrec_found" = "1" ]; then
                delta_warn="non-conforming delta declaration — count by hand"
-               deltas="?"                                   # WARN-B / unclassifiable
+               deltas="?"; _dk=uncountable                  # WARN-B / unclassifiable
              elif retro_grammar_has_honesty "$f"; then
-               deltas=0                                     # § Honest verdict, no canonical section
+               deltas=0; _dk=counted                        # § Honest verdict, no canonical section
              else
-               deltas="no delta section found (empty-input)"  # distinct state: no section, no indicators
+               deltas="no delta section found (empty-input)"; _dk=no-section  # distinct state: no section, no indicators
              fi
              ;;
       esac
@@ -345,16 +345,16 @@ for p in $paths; do
     # so consecutive delimiters (e.g. when $tag and/or $delta_warn are empty) are NOT collapsed
     # by IFS splitting in `read`.  A plain tab as IFS is whitespace: two consecutive tabs become
     # one separator and the empty $tag field disappears, shifting $delta_warn into the tag slot.
-    pending_rows+=("$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' \
-      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag" "$delta_warn")")
+    pending_rows+=("$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' \
+      "$epoch" "$f" "$p" "${deltas:-?}" "$_dk" "${status:-none}" "$age_d" "$tag" "$delta_warn")")
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
 [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_pend=$(( _rsdd_prof_us_pend + _rsdd_now - _rsdd_prof_t0 )); }  # pending-pass stop
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
-  while IFS=$'\x1f' read -r _ep f p deltas status age_d tag delta_warn; do
-    _json_pend="${_json_pend}$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' "$f" "$p" "$deltas" "$status" "$age_d" "$tag" "$delta_warn")"$'\n'
+  while IFS=$'\x1f' read -r _ep f p deltas _dk status age_d tag delta_warn; do
+    _json_pend="${_json_pend}$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' "$f" "$p" "$deltas" "$_dk" "$status" "$age_d" "$tag" "$delta_warn")"$'\n'
     echo "PENDING  $f"
     if [ "$deltas" = "no delta section found (empty-input)" ]; then
       echo "         target: $p  ·  ${deltas}  ·  status: ${status}  ·  age: ${age_d}d${tag}"
@@ -547,25 +547,26 @@ fi
 if [ "$SR_JSON" = 1 ]; then
   # State enum (json-envelope.v1.md): items = pending retros + missing-retro entries.
   _sr_ntargets=$(printf '%s\n' "$paths" | grep -c .)
-  jq -n --arg pend "$_json_pend" --arg miss "$_json_miss" \
+  # Accumulators go to jq as FILES (process substitution of a builtin printf), never as argv: a large
+  # backlog would exceed MAX_ARG_STRLEN (128 KiB per argument) and fail with E2BIG.
+  jq -n --rawfile pend <(printf '%s' "$_json_pend") --rawfile miss <(printf '%s' "$_json_miss") \
     --argjson total "$total" --argjson pending "$pending" --argjson missing "$missing" \
     --argjson targets "$_sr_ntargets" --argjson tabsent "$absent_targets" --argjson tskipped "$skipped_count" '
     def lines(s): s | split("\n") | map(select(length > 0));
     ( lines($pend) | map(split("\u001f") | {
         kind: "pending-retro", file: .[0], target: .[1],
         deltas: (if (.[2] | test("^[0-9]+$")) then (.[2] | tonumber) else null end),
-        deltas_state: (if (.[2] | test("^[0-9]+$")) then "counted" elif .[2] == "?" then "uncountable"
-                       elif .[2] == "no delta section found (empty-input)" then "no-section" else "unknown" end),
-        status: .[3], age_days: (if (.[4] | test("^[0-9]+$")) then (.[4] | tonumber) else null end),
-        age_state: (if (.[4] | test("^[0-9]+$")) then "counted" else "unknown" end), escalated: (.[5] != ""),
-        warning: (if .[6] == "" then null else .[6] end) }) ) as $p
+        deltas_state: (.[3] as $d | if (["counted","uncountable","no-section"] | index($d)) != null then $d else "unknown" end),
+        status: .[4], age_days: (if (.[5] | test("^[0-9]+$")) then (.[5] | tonumber) else null end),
+        age_state: (if (.[5] | test("^[0-9]+$")) then "counted" else "unknown" end), escalated: (.[6] != ""),
+        warning: (if .[7] == "" then null else .[7] end) }) ) as $p
     | ( lines($miss) | map({kind: "missing-retro", target: .}) ) as $m
     | ($p + $m) as $items
     | { schema: "research-sdd.sweep-retros/v1",
-        state: (if $targets > 0 and $tabsent == $targets then "absent-input"
+        state: (if ($items | length) > 0 then "ok"
+                elif $targets > 0 and $tabsent == $targets then "absent-input"
                 elif $total == 0 then "empty-input"
-                elif ($items | length) == 0 then "no-match"
-                else "ok" end),
+                else "no-match" end),
         counts: { targets: $targets, targets_absent: $tabsent, targets_skipped: $tskipped,
                   retros: $total, pending: $pending, missing_retro: $missing } }
     | .reason = (if .state == "absent-input" then "every target corpus directory is absent"
