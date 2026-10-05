@@ -98,7 +98,7 @@ loop_failclosed() { local p; p="$(para "$1" 'BLOCK PLAN RESUME')"; grep -q 'FAIL
 tpl_pat() { sed -n 's/^[[:space:]]*Entry-pattern: `\(.*\)`$/\1/p' "$1" | head -n1; }
 tpl_s5() { local a; a="$(awk '/^- \[[ xX]\] S5/{p=1;print;next} p&&/^- \[/{exit} p' "$1")"; grep -qF 'Entry-pattern:' <<<"$a" && grep -qi 'exactly once' <<<"$a" && grep -qi 'idempotent' <<<"$a" && grep -qi 'SAME entry-row pattern' <<<"$a"; }
 # instantiate the template's own pattern for a stem and count entry rows in a fixture file
-pat_count() { local pat; pat="$(tpl_pat "$1")"; [ -n "$pat" ] || { echo ERR; return; }; pat="${pat//<block-file-stem>/$3}"; grep -cE -- "$pat" "$2" || true; }
+pat_count() { local pat; pat="$(tpl_pat "$1")"; [ -n "$pat" ] || { echo ERR; return; }; pat="${pat//<block-file-stem>/"$3"}"; grep -cE -- "$pat" "$2" || true; }
 tpl_pattern_counts() {  # $1 template; fixture CATALOG built in $TMP
   local f="$TMP/catalog.fx"
   printf '%s\n' '|b12.md|x|' '| b12.md | spaced |' '| [b12.md](b12.md) | link |' '| b120.md | other |' 'see b12.md in prose' '| b13.md | corrects b12.md |' '- b14.md corrects b12.md' > "$f"
