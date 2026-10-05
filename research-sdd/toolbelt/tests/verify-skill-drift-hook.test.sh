@@ -16,6 +16,9 @@
 #   H  watchdog-no-kill        the pure-bash fallback never kills the hung run → no 'timed out' (no-timeout-binary path)
 #   J  watchdog-137-as-timeout the watchdog sentinel replaced by "any rc>=128" -> a real exit 137 reads as 'timed out'
 #   K  timeout-pipe-capture    the timeout path captured via command substitution -> a stalled grandchild defeats the bound
+#   M  timeout-137-as-timeout  137 mapped to 124 on the timeout path -> a real exit 137 reads as 'timed out'
+#   N  no-mktemp-skip          mktemp failing with timeout present skips instead of running bounded
+#   O  trap-after-sleeper      watchdog TERM trap installed after the sleeper starts -> early kill orphans it
 #   L  sleeper-not-killed      the watchdog sleeper outlives a fast finish -> a stray sleep per session
 #   I  skip-silent             the "skipped: no timeout available" branch removed → an unbounded/unreported run
 #
@@ -66,14 +69,19 @@ cat > "$SHIM/timeout" <<'EOS'
 [ "${1:-}" = "-k" ] && shift 2
 d="$1"; shift
 "$@" & p=$!
-( sleep "$d"; kill "$p" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+fl="${TMPDIR:-/tmp}/shim-timeout-fired.$$"; rm -f "$fl"
+( sleep "$d"; : >"$fl"; kill "$p" 2>/dev/null ) >/dev/null 2>&1 & w=$!
 wait "$p"; rc=$?
 kill "$w" 2>/dev/null
-[ "$rc" -ge 128 ] && exit 124
+if [ -e "$fl" ]; then rm -f "$fl"; exit 124; fi
 exit "$rc"
 EOS
 chmod +x "$SB"/*.sh "$SHIM/timeout"
 SHIMPATH="$SHIM:$PATH"
+# mktemp that always fails (plus the timeout shim): the hook must still run bounded, not skip.
+SHIM2="$ROOT/shim2"; mkdir -p "$SHIM2"; cp "$SHIM/timeout" "$SHIM2/timeout"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$SHIM2/mktemp"; chmod +x "$SHIM2/mktemp" "$SHIM2/timeout"
+SHIM2PATH="$SHIM2:$PATH"
 HOOK_SB="$SB/verify-skill-drift-hook.sh"
 
 # run_hook <drift_rc> <verify_rc> <verify_out> [install cmd] — sets HOUT (decoded stdout) and HRC.
@@ -117,13 +125,23 @@ for _path in timeout watchdog; do
   if [ "$_e" -le 4 ] && grep -q 'timed out' <<<"$HOUT_G"; then ok "H4e($_path): stalled grandchild holding stdout -> hook returns in ${_e}s, reported 'timed out'"
   else no "H4e($_path): bound not enforced (elapsed ${_e}s) out=[$HOUT_G]"; fi
 done
-# A real exit 137 from install is not a watchdog kill.
-HOUT_R="$(RESEARCH_SDD_NO_TIMEOUT_BIN=1 STUB_VERIFY_RC=137 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
-grep -q 'exited 137 with no typed line' <<<"$HOUT_R" && ! grep -q 'timed out' <<<"$HOUT_R" && ok "H4f: real exit 137 from install is reported as an exit, not 'timed out'" || no "H4f: 137 misread; out=[$HOUT_R]"
+# A real exit 137 from install is not a kill by the bound (any timeout value, including 1).
+for _path in timeout watchdog; do
+  _nb=""; [ "$_path" = watchdog ] && _nb=1
+  HOUT_R="$(PATH="$SHIMPATH" RESEARCH_SDD_NO_TIMEOUT_BIN="$_nb" RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 STUB_VERIFY_RC=137 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+  grep -q 'exited 137 with no typed line' <<<"$HOUT_R" && ! grep -q 'timed out' <<<"$HOUT_R" && ok "H4f($_path): real exit 137 from install is reported as an exit, not 'timed out'" || no "H4f($_path): 137 misread; out=[$HOUT_R]"
+done
+# timeout present but mktemp failing: still a bounded run that reports findings, with a typed note.
+HOUT_M="$(PATH="$SHIM2PATH" STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+grep -q 'status=behind' <<<"$HOUT_M" && grep -q 'not bounded' <<<"$HOUT_M" && ! grep -q skipped <<<"$HOUT_M" && ok "H4i: mktemp failing with timeout present → bounded run still reports findings (+ typed grandchild note)" || no "H4i: mktemp failure regressed; out=[$HOUT_M]"
+HOUT_M2="$(PATH="$SHIM2PATH" STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+grep -q 'timed out' <<<"$HOUT_M2" && ok "H4i2: mktemp failing with timeout present → hung --verify still bounded" || no "H4i2: not bounded without mktemp; out=[$HOUT_M2]"
 # Fast finish leaves no watchdog sleeper behind (unique timeout value, so it is greppable).
 if command -v pgrep >/dev/null 2>&1; then
-  RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86311 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$HOOK_SB" >/dev/null 2>&1
-  if pgrep -f 'sleep 86311' >/dev/null 2>&1; then no "H4g: watchdog sleeper outlived a fast finish"; pkill -f 'sleep 86311' 2>/dev/null; else ok "H4g: watchdog sleeper killed on normal completion"; fi
+  for _i in $(seq 20); do
+    RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86311 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$HOOK_SB" >/dev/null 2>&1
+  done
+  if pgrep -f 'sleep 86311' >/dev/null 2>&1; then no "H4g: watchdog sleeper outlived a fast finish (20 runs)"; pkill -f 'sleep 86311' 2>/dev/null; else ok "H4g: no watchdog sleeper survives 20 fast finishes"; fi
 fi
 # An inherited extra_skip must not force the skip path.
 HOUT_X="$(extra_skip=1 STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
@@ -189,7 +207,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "F" "$SUT" "$MB/m-f.sh" 's/kit status=behind)/kit status=(behind|degraded))/' \
     && _tt "teeth: kit degraded admitted → every tarball/no-upstream kit warns on every session" 0 0 "$MB/m-f.sh" \
        --good-lacks 'status=degraded' --bad-has 'kit status=degraded' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$KDEG" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout -k 1 "\$vt" "\$vcmd"/"$vcmd"/' \
+  _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout "\$vt" "\$vcmd"/"$vcmd"/' \
     && _tt "teeth: timeout wrapper removed → a hung --verify hangs session start (observed via wall-clock cap)" 0 0 "$MB/m-g.sh" \
        --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "PATH=$SHIMPATH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "H" "$SUT" "$MB/m-h.sh" 's/: >"\$vf.fired"; kill "\$vpid" 2>\/dev\/null;/:;/' \
@@ -198,12 +216,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "J" "$SUT" "$MB/m-j.sh" 's/if \[ -e "\$vf.fired" \]; then/if [ "$vrc" -ge 128 ]; then/' \
     && _tt "teeth: sentinel replaced by rc>=128 -> a real exit 137 reads as a timeout" 0 0 "$MB/m-j.sh" \
        --good-has 'exited 137' --bad-lacks "$_CRASH|exited 137" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=137" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "K" "$SUT" "$MB/m-k.sh" 's|^      timeout -k 1 "\$vt" "\$vcmd" --verify </dev/null >"\$vf" 2>&1; vrc=\$?|      vout="$(timeout -k 1 "$vt" "$vcmd" --verify 2>\&1)"; vrc=$?; echo "$vout" >"$vf"|' \
+  _mk "K" "$SUT" "$MB/m-k.sh" 's|^      timeout "\$vt" "\$vcmd" --verify </dev/null >"\$vf" 2>&1; vrc=\$?|      vout="$(timeout "$vt" "$vcmd" --verify 2>\&1)"; vrc=$?; echo "$vout" >"$vf"|' \
     && _tt "teeth: timeout path captured via command substitution -> a stalled grandchild defeats the bound" 0 0 "$MB/m-k.sh" \
        --good-has '^fast$' --bad-has '^slow$' --bad-lacks "$_CRASH" -- "$_ENV" "PATH=$SHIMPATH" "STUB_VERIFY_SLEEP=30" "STUB_VERIFY_GRANDCHILD=8" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
        "$BASH_BIN" -c 's=$SECONDS; bash "$1" "$2" >/dev/null 2>&1; [ $((SECONDS - s)) -le 4 ] && echo fast || echo slow' _ "$SB/decode.sh" @SUT@
+  _mk "M" "$SUT" "$MB/m-m.sh" 's/\(timeout "\$vt" "\$vcmd" --verify <\/dev\/null >"\$vf" 2>&1; vrc=\$?\)/\1; [ "$vrc" -eq 137 ] \&\& vrc=124/' \
+    && _tt "teeth: 137 mapped to a timeout on the timeout path -> a real exit 137 reads as 'timed out'" 0 0 "$MB/m-m.sh" \
+       --good-has 'exited 137' --bad-lacks "$_CRASH|exited 137" -- "$_ENV" "PATH=$SHIMPATH" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=137" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "N" "$SUT" "$MB/m-n.sh" 's/^      vnote=.*$/      extra_skip=1/' \
+    && _tt "teeth: no-mktemp fallback replaced by a skip -> findings lost when mktemp fails but timeout exists" 0 0 "$MB/m-n.sh" \
+       --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIM2PATH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$BEHIND" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # The kill-vs-trap race cannot be forced deterministically from outside (the window is microseconds), so the
+  # tooth pins the ORDER statically: the TERM trap must precede the sleeper start in the watchdog subshell.
+  _mk "O" "$SUT" "$MB/m-o.sh" 's/\(trap '"'"'kill "\$sp" 2>\/dev\/null; exit 0'"'"' TERM;\) \(sleep "\$vt" \& sp=\$!;\)/\2 \1/' \
+    && _tt "teeth: TERM trap installed after the sleeper starts -> an early kill orphans the sleeper" 0 0 "$MB/m-o.sh" \
+       --good-has '^order-ok$' --bad-has '^order-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
+       "$BASH_BIN" -c 'if grep -qF "TERM; sleep \"\$vt\" & sp=\$!;" "$1"; then echo order-ok; else echo order-bad; fi' _ @SUT@
   if command -v pgrep >/dev/null 2>&1; then
-    _mk "L" "$SUT" "$MB/m-l.sh" '/^      kill "\$wpid" 2>\/dev\/null; wait "\$wpid" 2>\/dev\/null$/d' \
+    _mk "L" "$SUT" "$MB/m-l.sh" '/^    kill "\$wpid" 2>\/dev\/null; wait "\$wpid" 2>\/dev\/null$/d' \
       && _tt "teeth: watchdog sleeper not killed -> a stray sleep outlives a fast finish" 0 0 "$MB/m-l.sh" \
          --good-has '^clean$' --bad-has '^leaked$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86312" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
          "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; if pgrep -f "sleep 8631[2]" >/dev/null; then echo leaked; pkill -f "sleep 8631[2]"; else echo clean; fi' _ @SUT@
