@@ -2239,5 +2239,65 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# 38 — --lane passthrough (kit issue #1821 item 2): `--lane <name>` / `--lane=<name>` exports RSDD_TEST_LANE to every
+#      suite (validated through lib/test-lane.sh, fail closed); no flag leaves the caller's ambient value untouched.
+mklane_fix(){ # workdir — a suite that records the RSDD_TEST_LANE it saw ("<unset>" when absent) and prints a valid summary
+  mkdir -p "$1/../lib"; cp "$HERE/../lib/test-lane.sh" "$1/../lib/test-lane.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%s\\n" "${RSDD_TEST_LANE-<unset>}" >> "%s"\n' "$TMP/lane-seen.txt"
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1/lane.test.sh"
+}
+w="$(newdir c38)"; mklane_fix "$w"
+_c38bad=""
+for _la in "--lane slow:slow" "--lane=all:all" "--lane fast:fast" "--prove-teeth --lane slow:slow" "-j 2 --lane all:all"; do
+  rm -f "$TMP/lane-seen.txt"; _largs="${_la%:*}"; _want="${_la##*:}"
+  # shellcheck disable=SC2086
+  out="$(env -u RSDD_TEST_LANE bash "$w/run-all.sh" $_largs 2>&1)"; rc=$?
+  _seen="$(cat "$TMP/lane-seen.txt" 2>/dev/null)"
+  # -j without GNU parallel falls back to a typed DEGRADED serial run, which must carry the lane too.
+  if [ "$rc" -ne 0 ] || [ "$_seen" != "$_want" ] || ! grep -qF "Lane: $_want" <<<"$out"; then _c38bad="$_c38bad [$_largs rc=$rc seen=$_seen]"; fi
+done
+rm -f "$TMP/lane-seen.txt"; env RSDD_TEST_LANE=slow bash "$w/run-all.sh" >/dev/null 2>&1
+[ "$(cat "$TMP/lane-seen.txt" 2>/dev/null)" = slow ] || _c38bad="$_c38bad [ambient slow not preserved]"
+rm -f "$TMP/lane-seen.txt"; env -u RSDD_TEST_LANE bash "$w/run-all.sh" >/dev/null 2>&1
+[ "$(cat "$TMP/lane-seen.txt" 2>/dev/null)" = "<unset>" ] || _c38bad="$_c38bad [no flag must not invent a lane]"
+if [ -z "$_c38bad" ]; then ok "lane: --lane <name> / --lane=<name> exports RSDD_TEST_LANE to suites (serial, teeth, -j); no flag leaves the ambient value alone"
+else no "lane passthrough regressed:$_c38bad"; fi
+# Invalid or missing value, and an absent lib, are refused with exit 2 before any suite runs.
+_c38bad=""
+for _la in "--lane garbage" "--lane=" "--lane" "--lane=SLOW" "--prove-teeth --lane"; do
+  rm -f "$TMP/lane-seen.txt"
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $_la 2>&1)"; rc=$?
+  if [ "$rc" -ne 2 ] || ! grep -qF 'invalid --lane value' <<<"$out" || [ -e "$TMP/lane-seen.txt" ]; then _c38bad="$_c38bad [$_la rc=$rc]"; fi
+done
+w2="$(newdir c38b)"; mkfix_sh "$w2/a.test.sh" 1 0 0
+out="$(bash "$w2/run-all.sh" --lane slow 2>&1)"; rc=$?
+if [ "$rc" -ne 2 ] || ! grep -qF 'is absent' <<<"$out"; then _c38bad="$_c38bad [absent lib rc=$rc]"; fi
+if [ -z "$_c38bad" ]; then ok "lane: garbage / empty / missing value and an absent lib exit 2 and run nothing (fail closed)"
+else no "lane refusal regressed:$_c38bad"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: drop the RSDD_TEST_LANE export; suites must then NOT see the lane --"
+  w="$(mut_workdir teeth-lane-export)"; mklane_fix "$w"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" '/SENTINEL-LANE-EXPORT/d' 2>"$w/mutant.err"; then
+    no "teeth-lane-export: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    rm -f "$TMP/lane-seen.txt"; env -u RSDD_TEST_LANE bash "$w/run-all.sh" --lane slow >/dev/null 2>&1
+    if [ "$(cat "$TMP/lane-seen.txt" 2>/dev/null)" = "<unset>" ]; then ok "teeth-lane-export: export-less mutant hides the lane from suites -> the passthrough has real teeth"
+    else no "teeth-lane-export: mutant still delivered the lane — mutation not exercised (THEATER)"; fi
+  fi
+  echo "-- teeth: skip lane validation; '--lane garbage' must then be ACCEPTED --"
+  w="$(mut_workdir teeth-lane-validate)"; mklane_fix "$w"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/if ! RSDD_TEST_LANE="\$v" rsdd_lane >\/dev\/null; then/if false; then/' 2>"$w/mutant.err"; then
+    no "teeth-lane-validate: could not build a valid mutant: $(cat "$w/mutant.err")"
+  else
+    bash "$w/run-all.sh" --lane garbage >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then ok "teeth-lane-validate: validation-less mutant accepts a garbage lane -> the fail-closed check has real teeth"
+    else no "teeth-lane-validate: mutant still refused (rc=$mrc) — mutation not exercised (THEATER)"; fi
+  fi
+fi
+
 echo "== $pass passed $MID $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
