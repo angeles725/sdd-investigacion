@@ -102,11 +102,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
   fi
 
-  echo "-- teeth: revert first-ref binding (drop 'head -1') so the verb governs ALL refs; the cf-fixture must FAIL --"
+  echo "-- teeth: revert first-ref binding (the verb governs EVERY ref in its clause, clause cut at neither ';' nor '. '); the cf-fixture must FAIL --"
   bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
-  if ! grep -q ' | head -1 | grep -oE' "$SUT"; then
-    no "teeth: first-ref binding line not found in SUT (did the fix change shape?)"
-  elif mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" 's/ | head -1 | grep -oE/ | grep -oE/'; then
+  if mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" \
+       's/if (r != "") { emit(r); done = 1 }/if (r != "") { emit(r); done = 1; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q)) }/' \
+       '/else if (c == ";") break/d' '/else if (c == "\." \&\&/d'; then
     d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink): original exit 0 + ok line, mutant exit 1 + FAIL
     tt "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth" 0 1 "$bmutant" --orig "$SUT" \
       --good-has 'ok +every declared correction' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
