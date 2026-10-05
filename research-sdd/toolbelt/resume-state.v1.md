@@ -1,8 +1,11 @@
 # resume-state.v1 — machine-readable resume state (kit issue #1274, slice 1)
 
-`resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh]` prints ONE JSON document to stdout, derived only
+`resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh] [--json]` prints ONE JSON document to stdout, derived only
 from git (plus open PRs from `gh` when available). It writes nothing and every field is computed: there are
 no hand-set fields. Rendering the prose handoff from this document is slice 2.
+
+`--json` (kit issue #1711 slice 3) is opt-in: it prints the json-envelope.v1 form of the same facts instead of this
+document, see `json-envelope.v1.md` § `research-sdd.resume-state/v1`. Without it this document is unchanged.
 
 ## Exit codes
 
@@ -10,7 +13,7 @@ no hand-set fields. Rendering the prose handoff from this document is slice 2.
 |---|---|
 | 0 | document printed (a degraded PR list is still rc 0 — see `prs_status`) |
 | 2 | usage error (`--help` exits 0), not a git repository, unresolvable or option-shaped (`-...`) `--base-ref`, or no `origin/main`/`main` and no `--base-ref`; also a runtime failure (`git worktree list` or `mktemp` failed) — no JSON on stdout |
-| 3 | DEGRADED: `git` or `jq` missing — a typed `DEGRADED:` line on stderr, no JSON on stdout |
+| 3 | DEGRADED: `git` or `jq` missing — a typed `DEGRADED:` line on stderr, no JSON on stdout (with `--json`: a `degraded` envelope on stdout) |
 
 ## Schema `research-sdd.resume-state/v1`
 

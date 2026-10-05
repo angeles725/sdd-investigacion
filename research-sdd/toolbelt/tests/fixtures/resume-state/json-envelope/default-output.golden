@@ -1,0 +1,73 @@
+{
+  "schema": "research-sdd.resume-state/v1",
+  "generated_at": "@T@",
+  "repo": {
+    "toplevel": "@ROOT@/r",
+    "remote": "@ROOT@/r.origin"
+  },
+  "base_ref": "origin/main",
+  "base_sha": "@SHA@",
+  "worktrees": [
+    {
+      "path": "@ROOT@/r",
+      "branch": "main",
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "path": "@ROOT@/wt-a",
+      "branch": "feat/a",
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 1,
+      "untracked": 1,
+      "ahead": 1,
+      "behind": 1
+    },
+    {
+      "path": "@ROOT@/wt-d",
+      "branch": null,
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 1
+    },
+    {
+      "path": "@ROOT@/wt-p",
+      "branch": "feat/p",
+      "head": "@SHA@",
+      "exists": false,
+      "prunable": true,
+      "dirty": null,
+      "untracked": null,
+      "ahead": 0,
+      "behind": 0
+    }
+  ],
+  "branches": [
+    {
+      "name": "ahead1",
+      "head": "@SHA@",
+      "ahead": 1,
+      "behind": 0
+    },
+    {
+      "name": "loose",
+      "head": "@SHA@",
+      "ahead": 0,
+      "behind": 1
+    }
+  ],
+  "prs": null,
+  "prs_truncated": null,
+  "prs_status": "skipped"
+}
