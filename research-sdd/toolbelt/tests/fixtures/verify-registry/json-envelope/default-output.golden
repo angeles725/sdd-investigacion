@@ -2,14 +2,14 @@ WARN  tA — maturity field not in schema: 'bogus thing'; check the legend for v
 WARN  tA — row claims 2 retro(s) but 0 non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply).
 WARN  tA — TARGETS.md row claims 40 md but the corpus has 5 real block file(s) (drift 35 > tol 2) — refresh the row (propose-never-apply; not auto-edited).
 INFO  tA — 5 block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired).
-WARN  tB — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at @ROOT@/tB or @ROOT@/tB/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply).
-WARN  @ROOT@/tB — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks.
-WARN  tD — row claims 'hook yes' but the Stop hook is absent-settings at @ROOT@/tD/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply).
+WARN  tB — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at @ROOT@/EXT/tB or @ROOT@/EXT/tB/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply).
+WARN  @ROOT@/EXT/tB — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks.
+WARN  tD — row claims 'hook yes' but the Stop hook is absent-settings at @ROOT@/EXT/tD/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply).
 INFO  tD — 3 block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired).
 WARN  TARGETS row long master cell is 260 chars (> 200) — collapse to one line; narrative belongs in the detail section.
 
 Summary: reconciled 3 target(s) · 1 absent target(s) · 1 count drift(s) · 1 retro drift(s) · 2 unresolvable · 1 oversized row(s) · 2 attention.
-INFO: 1 registered target(s) absent on disk — NOT checked: `@ROOT@/tC-gone`. Verify RESEARCH_HOME (@ROOT@
+INFO: 1 registered target(s) absent on disk — NOT checked: `@ROOT@/EXT/tC-gone`. Verify RESEARCH_HOME (@ROOT@/home) and that corpora exist at the registered paths.
 WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: trunc...ated
 For each count drift: recount the corpus and refresh that target's 'N md' in $KIT/TARGETS.md by hand (WARN-only; never auto-edited).
 For each retro drift: recount non-excluded retros and refresh the 'N retros' field in $KIT/TARGETS.md by hand (WARN-only; never auto-edited).

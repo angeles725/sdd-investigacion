@@ -7,6 +7,9 @@
 #
 # Env: VRJ_SUT=<path>        run against another copy of the script (used to execute RED against the
 #                            pre-change SUT); default is ../verify-registry.sh.
+#      The golden is FROZEN from the pre-change script, never from the SUT under test. Re-record with:
+#        git show origin/main:research-sdd/toolbelt/verify-registry.sh > /tmp/vr-main.sh   (a build WITHOUT --json)
+#        VRJ_SUT=/tmp/vr-main.sh VRJ_REGEN_GOLDEN=1 bash verify-registry-json.test.sh
 #      VRJ_REGEN_GOLDEN=1    rewrite the golden from the SUT under test — regenerate only from a build
 #                            whose default output is known good (it is not a frozen oracle then).
 #
@@ -90,7 +93,8 @@ jrun() {
   JERR="$(cat "$_ef")"; rm -f "$_ef"
 }
 jq_f() { printf '%s' "$JOUT" | jq -r "$1" 2>/dev/null; }
-gold_norm() { sed -e "s#$ROOT/[^/]*#@ROOT@#g"; }
+# Normalise only path PREFIXES (sandbox root, fixture-dir name); the rest of every line stays compared.
+gold_norm() { sed -e "s#$ROOT/home#@ROOT@/home#g" -e "s#$ROOT/[^/ ]*-ext/#@ROOT@/EXT/#g" -e "s#$ROOT#@ROOT@#g"; }
 
 echo "== verify-registry-json.test.sh (SUT: $SUT) =="
 
@@ -205,7 +209,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
   # jteeth <label> <case-fn> <sed-expr>... : build a mutant kit; the case-fn must report a break (rc != 0).
   jteeth() {
-    local label="$1" fn="$2" mk mut; shift 2
+    local label="$1" fn="$2" mk mut pk; shift 2
+    # Control: the case must HOLD on the unmutated SUT first, else "mutant breaks the case" is vacuous.
+    pk="$(mkkit "jtp-$label")"
+    "$fn" "$pk" || { no "teeth JSON-$label: case FAILS on the unmutated SUT — tooth is vacuous" ""; return; }
     mk="$(mkkit "jt-$label")"; mut="$ROOT/jt-$label.sh"
     mutant_chain "teeth JSON-$label" "$SUT" "$mut" "$@" || { fail=$((fail+1)); return; }
     cp "$mut" "$mk/toolbelt/verify-registry.sh"
@@ -215,7 +222,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   with_sut() { cp "$1/toolbelt/verify-registry.sh" "$2/toolbelt/verify-registry.sh"; }
   jt_rich()   { local k; k="$(rich_kit "$(basename "$1")-r")"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 0 ] && [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ] && [ "$(jq_f .state)" = ok ]; }
   jt_items()  { local k; k="$(rich_kit "$(basename "$1")-i")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '.items|map(select(.kind=="count-drift"))|length')" = 1 ]; }
-  jt_counts() { local k; k="$(rich_kit "$(basename "$1")-c")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.counts.reconciled,.counts.count_drift,.counts.targets_skipped]|join(",")')" = "2,1,1" ]; }
+  jt_counts() { local k; k="$(rich_kit "$(basename "$1")-c")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.counts.reconciled,.counts.count_drift,.counts.targets_skipped]|join(",")')" = "3,1,1" ]; }
   jt_nomatch(){ local k; k="$(clean_kit "$(basename "$1")-n")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
   jt_absent() { local k; k="$(mkkit "$(basename "$1")-a")"; printf '# t\n\n| # | n | m | p |\n|---|---|---|---|\n| 1 | a | mature (5 md) | `%s` |\n' "$ROOT/gone" > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 0 ] && [ "$(jq_f '[.state,(.items|length)]|join(",")')" = "absent-input,0" ]; }
   jt_degr()   { jrun "$1" "$ROOT/j-nopath"; [ "$RC" = 3 ] && [ "$(jq_f .state)" = degraded ]; }
