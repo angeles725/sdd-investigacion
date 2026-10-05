@@ -10,7 +10,7 @@
 #       3 DEGRADED (a tool in REQUIRED_TOOLS is missing — nothing measured)
 #       4 NO-HEADING · 5 NO-TABLE · 6 MALFORMED-TABLE · 7 CELL-COUNT-MISMATCH · 8 AMBIGUOUS-HEADING
 #       9 write failed (--apply) · 10 CONCURRENT-MODIFICATION · 11 CRLF-LINE-ENDINGS (any CR in the file)
-#       12 UNCLOSED-FENCE (an unclosed code fence hides the heading) · 13 HARD-LINKED (--apply only)
+#       12 UNCLOSED-FENCE (an unclosed code fence hides the heading or its table) · 13 HARD-LINKED (--apply only)
 # Every failure prints exactly one typed line `append-iteration-row: ERROR: <TYPE> ...` on stderr; usage text is
 # printed only by --help (stdout, exit 0).
 # An HTML-comment span never counts as heading or table (templates carry `## ...` inside comments, #1173).
@@ -116,10 +116,12 @@ function fenceinfo(line,   s, ch, n) {
 END {
   if (cr) { print "append-iteration-row: ERROR: CRLF-LINE-ENDINGS the file contains a carriage return; convert it to LF first (nothing written)" > "/dev/stderr"; exit 11 }
   if (hc == 0 && infence) { print "append-iteration-row: ERROR: UNCLOSED-FENCE a code fence is never closed, so no `## Iteration history` heading is visible" > "/dev/stderr"; exit 12 }
+  nofence = "append-iteration-row: ERROR: UNCLOSED-FENCE a code fence is never closed, so the table after the heading is invisible"
   if (hc == 0) { print "append-iteration-row: ERROR: NO-HEADING no `## Iteration history` heading outside an HTML comment" > "/dev/stderr"; exit 4 }
   if (hc > 1)  { print "append-iteration-row: ERROR: AMBIGUOUS-HEADING " hc " `## Iteration history` headings outside HTML comments" > "/dev/stderr"; exit 8 }
   hdr = 0
   for (i = h + 1; i <= NR; i++) { if (hd[i]) break; if (istab(i)) { hdr = i; break } }
+  if (!hdr && infence) { print nofence > "/dev/stderr"; exit 12 }
   if (!hdr) { print "append-iteration-row: ERROR: NO-TABLE no table row between the heading and the next heading" > "/dev/stderr"; exit 5 }
   if (!(hdr < NR && istab(hdr + 1) && V[hdr + 1] ~ /^\|[ \t:|-]*-[ \t:|-]*$/)) {
     print "append-iteration-row: ERROR: MALFORMED-TABLE header row at line " hdr " is not followed by a |---| separator row" > "/dev/stderr"; exit 6
@@ -157,13 +159,17 @@ fi
 
 # --apply replaces the inode (mv), so a second hard link would silently keep the OLD content: refuse (#1793).
 # Link count from `ls -ld` field 2 (portable; `stat` flags differ between GNU and BSD).
-_links="$(ls -ld -- "$FILE" 2>/dev/null | awk '{ print $2 }')"
-case "$_links" in
-  ''|*[!0-9]*) _err "WRITE-FAILED cannot read the link count of $FILE; nothing written"; exit 9 ;;
-esac
-[ "$_links" -le 1 ] || { _err "HARD-LINKED $FILE has $_links hard links; --apply replaces the file and would split them, nothing written"; exit 13; }
+# Checked twice: before staging, and again right before mv (a link made during the window is still caught).
+_check_links() {
+  _links="$(ls -ld -- "$FILE" 2>/dev/null | awk '{ print $2 }')"
+  case "$_links" in
+    ''|*[!0-9]*) _err "WRITE-FAILED cannot read the link count of $FILE; nothing written"; exit 9 ;;
+  esac
+  [ "$_links" -le 1 ] || { _err "HARD-LINKED $FILE has $_links hard links; --apply replaces the file and would split them, nothing written"; exit 13; }
+}
+_check_links
 
-# Atomic write: stage in the target directory (same filesystem), keep mode via cp -p, then mv.
+# Atomic write: stage in the target directory (same filesystem), copy metadata (see below), then mv.
 DIR="$(dirname -- "$FILE")"
 STAGE="$(mktemp "$DIR/.air.XXXXXX")" || { _err "WRITE-FAILED cannot stage in $DIR"; STAGE=""; exit 9; }
 # Best-effort metadata: GNU `cp --preserve=all` (mode, owner, timestamps, xattrs, ACLs, SELinux context), else `cp -p`.
@@ -179,6 +185,8 @@ cmp -s -- "$FILE" "$TMPD/orig"
 crc=$?
 [ "$crc" -ne 1 ] || { _err "CONCURRENT-MODIFICATION $FILE changed since it was read; nothing written, re-run"; exit 10; }
 [ "$crc" -eq 0 ] || { _err "WRITE-FAILED cmp could not compare $FILE with its snapshot (rc=$crc); nothing written"; exit 9; }
+# SENTINEL-RELINK-CHECK: second link-count check, adjacent to the cmp guard (same residual window before mv).
+_check_links
 mv -f -- "$STAGE" "$FILE" || { _err "WRITE-FAILED could not replace $FILE; original left in place"; exit 9; }
 STAGE=""
 printf 'append-iteration-row: appended 1 row to %s\n' "$FILE" >&2

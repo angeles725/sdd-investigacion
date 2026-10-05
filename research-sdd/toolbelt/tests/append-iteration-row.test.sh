@@ -198,6 +198,9 @@ run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "a ~~~
 F2="$(printf '%s\n## Iteration history\n\n%s\n%s\n%s\n' "$FENCE" "$HDR" "$SEP" "$R1" | mkf funclosed)"; s1="$(sum "$F2")"
 run --apply "$F2" "$NEW"
 { [ "$RC" = 12 ] && etyped UNCLOSED-FENCE && [ "$(sum "$F2")" = "$s1" ]; } && ok "unclosed fence that hides the heading -> exit 12 UNCLOSED-FENCE, not NO-HEADING" || no "unclosed fence" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n%s\n' "$FENCE" "$HDR" "$SEP" "$R1" | mkf fnotable)"; s1="$(sum "$F2")"
+run --apply "$F2" "$NEW"
+{ [ "$RC" = 12 ] && etyped UNCLOSED-FENCE && [ "$(sum "$F2")" = "$s1" ]; } && ok "unclosed fence between the heading and its table -> exit 12, not NO-TABLE" || no "fence hides table" "(rc=$RC $ERR)"
 F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n\n%s\ntail\n' "$HDR" "$SEP" "$R1" "$FENCE" | mkf ftail)"
 run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "an unclosed fence AFTER the table does not block the append" || no "tail fence" "(rc=$RC $ERR)"
 
@@ -215,6 +218,11 @@ F="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf hl)
 ln "$F" "$F.link"; s1="$(sum "$F")"
 run --apply "$F" "$NEW"
 { [ "$RC" = 13 ] && etyped HARD-LINKED && [ "$(sum "$F")" = "$s1" ] && [ "$(sum "$F.link")" = "$s1" ]; } && ok "--apply on a hard-linked file -> exit 13 HARD-LINKED, both names untouched" || no "hard link" "(rc=$RC $ERR)"
+printf '#!/bin/sh\nln "$1" "$1.late"\n' > "$TMP/linkhook.sh"; chmod +x "$TMP/linkhook.sh"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf relink)"; s1="$(sum "$F2")"
+AIR_PRE_MV_HOOK="$TMP/linkhook.sh" run --apply "$F2" "$NEW"
+{ [ "$RC" = 13 ] && etyped HARD-LINKED && [ "$(sum "$F2")" = "$s1" ] && [ "$(sum "$F2.late")" = "$s1" ]; } && ok "link created after staging, before mv -> exit 13 HARD-LINKED (re-check), nothing written" || no "relink" "(rc=$RC $ERR)"
+! compgen -G "$TMP/.air.*" >/dev/null && ok "no staging file left after the re-check refusal" || no "staging residue (relink)"
 run "$F" "$NEW"; [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT" && ok "a dry run on a hard-linked file still works (it writes nothing)" || no "hard link dry" "(rc=$RC $ERR)"
 
 # ---- degraded probe ---------------------------------------------------------------------------
@@ -296,12 +304,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   FU="$(printf '%s\n## Iteration history\n\n%s\n%s\n' '```' "$HDR" "$SEP" | mkf tfu)"
   mt "unclosed-fence error removed" 's/if (hc == 0 && infence)/if (0)/' 12 4 -- "$BASH_BIN" @SUT@ "$FU" "$NEW"
   FT="$(printf '~~~\n```\n## Iteration history\n~~~\n## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf tft)"
-  mt "fence close ignores the fence character" 's/c == fch \&\& FN >= fn/FN >= fn/' 0 5 -- "$BASH_BIN" @SUT@ "$FT" "$NEW"
+  mt "fence close ignores the fence character" 's/c == fch \&\& FN >= fn/FN >= fn/' 0 12 -- "$BASH_BIN" @SUT@ "$FT" "$NEW"
   mt "closing-pipe rule ignores backslash parity" 's/nb % 2 == 1/nb > 0/' 0 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | a \\|'
   mt "closing-pipe rule drops the escaped-pipe case" 's/ || nb % 2 == 1//' 0 0 \
     --good-has 'a \\\| \|$' --bad-lacks 'a \\\| \|$' -- "$BASH_BIN" @SUT@ "$W" '2 | d | g | B2 | no | a \|'
   HLW="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf thl)"; ln "$HLW" "$HLW.link"
-  mt "hard-link refusal removed" 's/^\[ "\$_links" -le 1 \] || .*$/:/' 13 0 -- "$BASH_BIN" @SUT@ --apply "$HLW" "$NEW"
+  FN2="$(printf '## Iteration history\n\n%s\n%s\n%s\n%s\n' '```' "$HDR" "$SEP" "$R1" | mkf tfn)"
+  mt "unclosed-fence-before-table error removed" 's/^  if (!hdr \&\& infence) .*$/  ;/' 12 5 -- "$BASH_BIN" @SUT@ "$FN2" "$NEW"
+  RL="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf trl)"
+  mt "pre-mv link re-check removed" '/SENTINEL-RELINK-CHECK/{n;s/.*/:/;}' 13 0 -- "$BASH_BIN" -c 'f="$(mktemp -p "$3")"; cp "$2" "$f"; AIR_PRE_MV_HOOK="$4" bash "$1" --apply "$f" "$5"' _ @SUT@ "$RL" "$TMP" "$TMP/linkhook.sh" "$NEW"
+  mt "hard-link refusal removed" 's/^  \[ "\$_links" -le 1 \] || .*$/  :/' 13 0 -- "$BASH_BIN" @SUT@ --apply "$HLW" "$NEW"
 fi
 
 echo "== $pass passed · $fail failed =="
