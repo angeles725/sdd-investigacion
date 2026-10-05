@@ -26,6 +26,7 @@
 #   R  bound-too-short         the poll bound shrinks below vt -> a verify within the bound reads as timed out
 #   S  watchdog-leaked         the watchdog subshell survives a fast finish (same defect as L, checked again after 1 s)
 #   T  probe-rc-dropped        the fractional-sleep probe ignores sleep's exit status -> a sleep rejecting 0.1 kills a healthy verify
+#   V  probe-always-falls-back the probe threshold is unreachable -> a working fractional sleep silently loses the 0.1 s poll
 #   U  probe-elapsed-dropped   the probe ignores elapsed time -> a sleep that accepts 0.1 but returns at once kills a healthy verify
 #   I  skip-silent             the "skipped: no timeout available" branch removed → an unbounded/unreported run
 #
@@ -203,6 +204,18 @@ for _sh in A B; do
   HOUT_P="$(PATH="$_pp:$PATH" RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
   grep -q 'timed out' <<<"$HOUT_P" && ok "H4q($_sh): fraction-less sleep -> a hung verify is still cut off and reported (integer fallback)" || no "H4q($_sh): hung verify not bounded with a fraction-less sleep; out=[$HOUT_P]"
 done
+# A WORKING fractional sleep must KEEP the 0.1 s poll (otherwise every healthy session start silently gains up to 1 s). Shim D
+# logs each sleep argument then runs the real sleep: the probe and the polls are '0.1', the integer fallback polls with '1'.
+# Deterministic (no timing): the stub's own sleep is 0.3, so a '1' in the log can only come from the hook's fallback.
+SHIMD="$ROOT/shimD"; mkdir -p "$SHIMD"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${1:-}" >>"$SLEEPLOG"\nexec %s "$@"\n' "$REALSLEEP" > "$SHIMD/sleep"; chmod +x "$SHIMD/sleep"
+if [ -z "$HAVE_ERT" ]; then printf '  SKIP  H4r: %s has no EPOCHREALTIME, the probe cannot run\n' "$BASH_BIN"
+else
+  SLEEPLOG="$ROOT/sleep.log"; : >"$SLEEPLOG"
+  SLEEPLOG="$SLEEPLOG" PATH="$SHIMD:$PATH" RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3 STUB_VERIFY_SLEEP=0.3 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$HOOK_SB" >/dev/null 2>&1
+  _n01="$(grep -cx '0.1' "$SLEEPLOG")"; _n1="$(grep -cx '1' "$SLEEPLOG")"
+  [ "$_n01" -ge 2 ] && [ "$_n1" = 0 ] && ok "H4r: a working fractional sleep keeps the 0.1 s poll (probe + polls = $_n01 x '0.1', no integer fallback)" || no "H4r: poll period regressed (0.1 x $_n01, 1 x $_n1): $(tr '\n' ' ' <"$SLEEPLOG")"
+fi
 # After a NORMAL finish the EXIT trap must signal nothing (both children were reaped; their pids may be reused). A
 # `kill` function exported into the hook records every call.
 KLOG="$ROOT/kill.log"; : >"$KLOG"
@@ -332,6 +345,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; sleep 1; n=0; for p in $(pgrep -f "$1"); do [ "$p" = "$$" ] || { n=$((n+1)); kill "$p"; }; done; if [ "$n" -gt 0 ]; then echo leaked; else echo clean; fi' _ @SUT@
   fi
   # T/U: the fractional-sleep probe (#1771). T drops the exit-status half (shim C rejects fractions slowly), U the elapsed half (shim B returns at once).
+  rm -f "$SHIMC"/mark.*   # a stale per-pid mark from the plain run could make shim C reject at once and void the isolation
   _mk "T" "$SUT" "$MB/m-t.sh" 's/sleep 0.1 2>\/dev\/null || { vsl=1; vper=1; }/sleep 0.1 2>\/dev\/null || :/' \
     && _tt "teeth: probe ignores sleep's exit status -> a sleep rejecting fractions kills a healthy verify" 0 0 "$MB/m-t.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIMC:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
@@ -339,6 +353,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "U" "$SUT" "$MB/m-u.sh" 's/\] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED/] || :/' \
     && _tt "teeth: probe ignores elapsed time -> a sleep that returns at once kills a healthy verify" 0 0 "$MB/m-u.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIMB:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  fi
+  # V: probe always falls back (threshold unreachable) -> a working fractional sleep silently loses the 0.1 s poll.
+  if [ -z "$HAVE_ERT" ]; then printf '  SKIP  teeth V: %s has no EPOCHREALTIME, the probe cannot run\n' "$BASH_BIN"; else
+  _mk "V" "$SUT" "$MB/m-v.sh" 's/-ge 50000 \]/-ge 50000000000 ]/' \
+    && _tt "teeth: probe always falls back -> a working fractional sleep loses the 0.1 s poll (every session start +<=1 s)" 0 0 "$MB/m-v.sh" \
+       --good-has '^fractional$' --bad-has '^integer$' --bad-lacks "$_CRASH" -- "$_ENV" "SLEEPLOG=$ROOT/sleep-v.log" "PATH=$SHIMD:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=0.3" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
+       "$BASH_BIN" -c ': >"$SLEEPLOG"; bash "$1" >/dev/null 2>&1; if grep -qx 1 "$SLEEPLOG"; then echo integer; else echo fractional; fi' _ @SUT@
   fi
   _mk "I" "$SUT" "$MB/m-i.sh" 's/^    extra_skip=1 /    : /' \
     && _tt "teeth: skip branch unreported → with no timeout and no mktemp the hook says nothing" 0 0 "$MB/m-i.sh" \
