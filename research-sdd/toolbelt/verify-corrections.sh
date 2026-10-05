@@ -16,7 +16,8 @@
 #
 # Usage: verify-corrections.sh <target-dir>
 # Exit: 0 = every declared correction is reciprocated (or none) · 1 = a one-directional correction · 2 = bad
-#       args / no block files.
+#       args / no block files. Operational failure (awk absent or the extractor failed) is a typed
+#       `degraded:` line + exit 1, never an "ok" (an unreadable instrument is not a clean corpus).
 set -uo pipefail
 
 _vc_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
@@ -41,6 +42,8 @@ blocknum() { basename "$1" | sed -E 's/.*-(block|bloque)0*([0-9]+).*/\2/'; }
 declare -A numfile
 for f in "${blocks[@]}"; do numfile["$(blocknum "$f")"]="$f"; done
 
+command -v awk >/dev/null 2>&1 || { echo "verify-corrections: degraded: awk not found on PATH; the corpus was NOT checked" >&2; exit 1; }
+
 # CORRECTION-TARGET EXTRACTOR (awk). Prints one block number per line: the [Block N]/[Bloque N] each
 # `corrects`/`corrig…` verb in the file GOVERNS. Fixed under #1790: the old per-physical-line grep bound the
 # verb to ANY bracket on the line, so a wrapped list `[Block 1] (the claim §17.7 corrects) · [Block 11] (…)`
@@ -57,7 +60,9 @@ for f in "${blocks[@]}"; do numfile["$(blocknum "$f")"]="$f"; done
 #   A verb with neither binding (or whose clause leads with a bare `B<N>`) is reported as `?` — counted and surfaced
 #   as a note by the caller, never guessed onto a neighbouring ref and never silently dropped (anti-silent-zero).
 _vc_extract() {
-  awk '
+  # LC_ALL=C: byte semantics in every awk (gawk under UTF-8 counts characters, so the 2-byte `·` compare below
+  # would never match). The program relies on ASCII classes and that one byte pair only.
+  LC_ALL=C awk '
     function flush() { if (u != "") { units[nu++] = u; u = "" } }
     function emit(n) { if (!(n in seen)) { seen[n] = 1; print n } }
     function refnum(t,   m) {          # first [Block N] in t -> N ("" when none)
@@ -123,7 +128,11 @@ rc=0; unbound=0
 echo "== verify-corrections: $(basename "$target") =="
 for f in "${blocks[@]}"; do
   c="$(blocknum "$f")"
-  mapfile -t _vc_targets < <(_vc_extract "$f")
+  if ! _vc_out="$(_vc_extract "$f")"; then
+    echo "verify-corrections: degraded: extractor (awk) failed on $(basename "$f"); the corpus was NOT checked" >&2
+    exit 1
+  fi
+  _vc_targets=(); [ -z "$_vc_out" ] || mapfile -t _vc_targets <<<"$_vc_out"
   for n in "${_vc_targets[@]}"; do
     [ -n "$n" ] || continue
     if [ "$n" = "?" ]; then unbound=$((unbound+1)); continue; fi

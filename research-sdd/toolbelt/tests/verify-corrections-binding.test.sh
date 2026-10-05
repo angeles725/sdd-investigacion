@@ -103,6 +103,30 @@ if [ "$(code "$d")" = 0 ] && grep -qE 'note +1 correction verb' <<<"$out"; then
   ok "bare 'B67' leads the clause → later [Block 34] not a target; surfaced as a note, not dropped silently"
 else no "bare :: $(tr '\n' '|' <<<"$out")"; fi
 
+# 9 — OPERATIONAL FAILURE is never "ok" (§7): a stub awk that exits 2 → typed degraded line, exit 1, no ok line.
+d="$TMP/stubdir"; mkdir -p "$d/bin"; printf '#!/bin/sh\nexit 2\n' > "$d/bin/awk"; chmod +x "$d/bin/awk"
+dd="$TMP/degr"; blank "$dd" 8
+mk "$dd" 39 '# Block 39\n\n> Corrects [Block 8].\n'
+out="$(PATH="$d/bin:$PATH" bash "$SUT" "$dd" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q 'degraded: extractor (awk) failed on t-block39.md' <<<"$out" && ! grep -qE 'ok +every declared' <<<"$out"; then
+  ok "failing awk → 'degraded:' line naming the file, exit 1, never the ok line"
+else no "degraded :: rc=$rc $(tr '\n' '|' <<<"$out")"; fi
+
+# 10 — `·` boundary is byte-deterministic: same binding under C and UTF-8 locales, and under gawk when present.
+d="$TMP/dot"; blank "$d" 8
+mk "$d" 40 '# Block 40\n\n> Corrects the earlier claim · [Block 8] is only cross-referenced here\n'
+GD=""; if command -v gawk >/dev/null 2>&1; then GD="$TMP/gawkbin"; mkdir -p "$GD"; ln -sf "$(command -v gawk)" "$GD/awk"; fi
+UTF=""; for _l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do if grep -qix "$_l" <<<"$(locale -a 2>/dev/null)"; then UTF="$_l"; break; fi; done
+dotok=1
+for _env in "LC_ALL=C" ${UTF:+"LC_ALL=$UTF"}; do
+  [ "$(env "$_env" bash "$SUT" "$d" >/dev/null 2>&1; echo $?)" = 0 ] || dotok=0
+  if [ -n "$GD" ]; then [ "$(env "$_env" PATH="$GD:$PATH" bash "$SUT" "$d" >/dev/null 2>&1; echo $?)" = 0 ] || dotok=0; fi
+done
+if [ "$dotok" = 1 ]; then ok "'·' ends the clause under LC_ALL=C${UTF:+, $UTF}${GD:+ and gawk} (no cross-dot binding)"
+else no "dot :: binding differs across locale/awk"; fi
+[ -n "$UTF" ] || echo "  SKIP  no UTF-8 locale installed: '·' checked under LC_ALL=C only"
+[ -n "$GD" ] || echo "  SKIP  gawk not installed: '·' checked with the default awk only"
+
 # NEGATIVE CONTROLS — each mutant disables ONE binding rule and must flip exactly the case that owns it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -170,6 +194,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tt "teeth: no-suppressor mutant binds [Block 34] behind 'B67'" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B38 corrects \[Block 34\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare"
   fi
+
+  echo "-- teeth: ignore the extractor's exit status; the failing-awk case must read as clean --"
+  m="$TMP/vc.RC.sh"
+  if mk_mut "teeth: awk rc" "$SUT" "$m" 's/if ! _vc_out="$(_vc_extract "$f")"; then/_vc_out="$(_vc_extract "$f")"; if false; then/'; then
+    tt "teeth: rc-ignoring mutant reports ok on a dead awk (exit 0)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'degraded: extractor' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- env PATH="$TMP/stubdir/bin:$PATH" bash @SUT@ "$TMP/degr"
+  fi
+
+  if [ -n "$GD" ] && [ -n "$UTF" ]; then
+    echo "-- teeth: drop LC_ALL=C; under gawk + UTF-8 the '·' boundary must vanish --"
+    m="$TMP/vc.LOCALE.sh"
+    if mk_mut "teeth: locale" "$SUT" "$m" 's/LC_ALL=C awk /awk /'; then
+      tt "teeth: locale-dependent mutant binds across the '·' (exit 1)" 0 1 "$m" --orig "$SUT" \
+        --bad-has 'B40 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL="$UTF" PATH="$GD:$PATH" bash @SUT@ "$TMP/dot"
+    fi
+  else echo "  SKIP  locale tooth needs gawk and a UTF-8 locale"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
