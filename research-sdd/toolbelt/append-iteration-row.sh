@@ -9,7 +9,7 @@
 # Exit: 0 diff printed (dry run) or file written (--apply) · 2 usage / absent file / not a regular file
 #       3 DEGRADED (a tool in REQUIRED_TOOLS is missing — nothing measured)
 #       4 NO-HEADING · 5 NO-TABLE · 6 MALFORMED-TABLE · 7 CELL-COUNT-MISMATCH · 8 AMBIGUOUS-HEADING
-#       9 write failed (--apply)
+#       9 write failed (--apply) · 10 CONCURRENT-MODIFICATION
 # Every failure prints one typed line `append-iteration-row: ERROR: <TYPE> ...` on stderr.
 # An HTML-comment span never counts as heading or table (templates carry `## ...` inside comments, #1173).
 
@@ -48,11 +48,14 @@ done
 
 # The row: a single non-blank line.
 case "$ROW" in *$'\n'*|*$'\r'*) _err "USAGE row must be a single line"; exit 2 ;; esac
+case "$ROW" in *'<!--'*|*'-->'*) _err "INVALID-ROW row contains an HTML comment delimiter (it could hide the rest of the file)"; exit 2 ;; esac
 case "$ROW" in *[![:space:]]*) ;; *) _err "USAGE row is empty"; exit 2 ;; esac
 
 TMPD="$(mktemp -d "${TMPDIR:-/tmp}/air.XXXXXX")" || { _err "WRITE-FAILED cannot create temp dir"; exit 9; }
 STAGE=""
 trap 'rm -rf "$TMPD"; [ -z "$STAGE" ] || rm -f "$STAGE"' EXIT
+# Snapshot: everything below (awk, diff, the unchanged-check) works from this one read of the target.
+cp -- "$FILE" "$TMPD/orig" || { _err "WRITE-FAILED cannot snapshot $FILE"; exit 9; }
 
 # SENTINEL-AWK-INSERT: one pass over the file. Comment spans are blanked out of the "visible" text
 # first, so a heading or table row inside <!-- ... --> is invisible; only fully visible lines count.
@@ -83,43 +86,43 @@ function visible(line,   out, p, q) {
   }
   return out
 }
-function istab(i) { return (V[i] == L[i]) && (L[i] ~ /^\|/) }
+function istab(i) { return V[i] ~ /^\|/ }
 {
   L[NR] = $0; V[NR] = visible($0)
   if (V[NR] ~ /^## Iteration history[ \t]*$/) { hc++; if (hc == 1) h = NR }
   if (V[NR] ~ /^#+[ \t]/) hd[NR] = 1
 }
 END {
-  if (hc == 0) { print "NO-HEADING no `## Iteration history` heading outside an HTML comment" > "/dev/stderr"; exit 4 }
-  if (hc > 1)  { print "AMBIGUOUS-HEADING " hc " `## Iteration history` headings outside HTML comments" > "/dev/stderr"; exit 8 }
+  if (hc == 0) { print "append-iteration-row: ERROR: NO-HEADING no `## Iteration history` heading outside an HTML comment" > "/dev/stderr"; exit 4 }
+  if (hc > 1)  { print "append-iteration-row: ERROR: AMBIGUOUS-HEADING " hc " `## Iteration history` headings outside HTML comments" > "/dev/stderr"; exit 8 }
   hdr = 0
   for (i = h + 1; i <= NR; i++) { if (hd[i]) break; if (istab(i)) { hdr = i; break } }
-  if (!hdr) { print "NO-TABLE no table row between the heading and the next heading" > "/dev/stderr"; exit 5 }
-  if (!(hdr < NR && istab(hdr + 1) && L[hdr + 1] ~ /^\|[ \t:|-]*-[ \t:|-]*$/)) {
-    print "MALFORMED-TABLE header row at line " hdr " is not followed by a |---| separator row" > "/dev/stderr"; exit 6
+  if (!hdr) { print "append-iteration-row: ERROR: NO-TABLE no table row between the heading and the next heading" > "/dev/stderr"; exit 5 }
+  if (!(hdr < NR && istab(hdr + 1) && V[hdr + 1] ~ /^\|[ \t:|-]*-[ \t:|-]*$/)) {
+    print "append-iteration-row: ERROR: MALFORMED-TABLE header row at line " hdr " is not followed by a |---| separator row" > "/dev/stderr"; exit 6
   }
   last = hdr + 1
   while (last < NR && istab(last + 1)) last++
   row = ENVIRON["AIR_ROW"]; sub(/^[ \t]+/, "", row); sub(/[ \t]+$/, "", row)
   if (substr(row, 1, 1) != "|") row = "| " row
   if (substr(row, length(row), 1) != "|" || substr(row, length(row) - 1, 1) == "\\") row = row " |"
-  want = cells(L[hdr]); got = cells(row)
-  if (want != got) { print "CELL-COUNT-MISMATCH row has " got " cell(s), the table header has " want > "/dev/stderr"; exit 7 }
+  want = cells(V[hdr]); got = cells(row)
+  if (want != got) { print "append-iteration-row: ERROR: CELL-COUNT-MISMATCH row has " got " cell(s), the table header has " want > "/dev/stderr"; exit 7 }
   for (i = 1; i <= last; i++) print L[i]
   print row
   if (last < NR && L[last + 1] !~ /^[ \t]*$/) print ""
   for (i = last + 1; i <= NR; i++) print L[i]
-}' "$FILE" > "$TMPD/out"
+}' "$TMPD/orig" > "$TMPD/out"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   case "$rc" in
-    4|5|6|7|8) _err "awk rc=$rc (see the typed line above); $FILE unchanged"; exit "$rc" ;;
+    4|5|6|7|8) exit "$rc" ;;
     *)         _err "WRITE-FAILED awk exited $rc; $FILE unchanged"; exit 9 ;;
   esac
 fi
 
 if [ "$APPLY" -eq 0 ]; then
-  diff -u --label "a/${FILE##*/}" --label "b/${FILE##*/}" "$FILE" "$TMPD/out"
+  diff -u --label "a/${FILE##*/}" --label "b/${FILE##*/}" "$TMPD/orig" "$TMPD/out"
   drc=$?
   [ "$drc" -le 1 ] || { _err "WRITE-FAILED diff exited $drc"; exit 9; }
   printf 'append-iteration-row: dry run, nothing written (use --apply)\n' >&2
@@ -129,8 +132,17 @@ fi
 # Atomic write: stage in the target directory (same filesystem), keep mode via cp -p, then mv.
 DIR="$(dirname -- "$FILE")"
 STAGE="$(mktemp "$DIR/.air.XXXXXX")" || { _err "WRITE-FAILED cannot stage in $DIR"; STAGE=""; exit 9; }
-{ cp -p -- "$FILE" "$STAGE" && cat -- "$TMPD/out" > "$STAGE" && mv -f -- "$STAGE" "$FILE"; } \
-  || { _err "WRITE-FAILED could not replace $FILE; original left in place"; exit 9; }
+{ cp -p -- "$FILE" "$STAGE" && cat -- "$TMPD/out" > "$STAGE"; } \
+  || { _err "WRITE-FAILED could not stage $FILE; original left in place"; exit 9; }
+# AIR_PRE_MV_HOOK: test hook (like STATE_UPDATE_VERIFY) — an executable run with the target path in the window
+# between the unchanged-check inputs being fixed and the check itself.
+[ -z "${AIR_PRE_MV_HOOK:-}" ] || "$AIR_PRE_MV_HOOK" "$FILE" || true
+# SENTINEL-UNCHANGED-CHECK: lost-update guard. The new content was computed from the snapshot taken at the start;
+# refuse when the target is no longer byte-identical to it. (A write landing between this check and mv is not
+# detectable without a lock; the window is that of one cmp + one mv.)
+cmp -s -- "$FILE" "$TMPD/orig" \
+  || { _err "CONCURRENT-MODIFICATION $FILE changed since it was read; nothing written, re-run"; exit 10; }
+mv -f -- "$STAGE" "$FILE" || { _err "WRITE-FAILED could not replace $FILE; original left in place"; exit 9; }
 STAGE=""
 printf 'append-iteration-row: appended 1 row to %s\n' "$FILE" >&2
 exit 0

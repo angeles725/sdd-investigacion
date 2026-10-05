@@ -36,6 +36,8 @@ run() {
 }
 has()  { grep -qF -- "$1" <<<"$OUT"; }
 ehas() { grep -qF -- "$1" <<<"$ERR"; }
+# etyped TYPE [TEXT] — stderr is EXACTLY one line, `append-iteration-row: ERROR: TYPE ...` (contract: one typed line per failure).
+etyped() { [ "$(grep -c . <<<"$ERR")" = 1 ] && grep -qF -- "append-iteration-row: ERROR: $1 ${2:-}" <<<"$ERR"; }
 
 HDR='| # | Date | Gap closed | Block | Delegated? | New gaps |'
 SEP='|---|---|---|---|---|---|'
@@ -98,25 +100,25 @@ run "$F" '| 2 | a \| b & c \\ d | g | B2 | no | 1 |'
 { [ "$RC" = 0 ] && has '+| 2 | a \| b & c \\ d | g | B2 | no | 1 |'; } && ok "escaped pipe is one cell; & and backslashes kept verbatim" || no "verbatim" "(rc=$RC $OUT)"
 
 # ---- cell-count validation --------------------------------------------------------------------
-run "$F" '| 2 | d | g | B2 | no |'; { [ "$RC" = 7 ] && ehas "CELL-COUNT-MISMATCH row has 5 cell(s), the table header has 6"; } && ok "too few cells -> exit 7 typed" || no "too few" "(rc=$RC $ERR)"
+run "$F" '| 2 | d | g | B2 | no |'; { [ "$RC" = 7 ] && etyped CELL-COUNT-MISMATCH "row has 5 cell(s), the table header has 6"; } && ok "too few cells -> exit 7 typed" || no "too few" "(rc=$RC $ERR)"
 run "$F" '| 2 | d | g | B2 | no | 1 | 9 |'; [ "$RC" = 7 ] && ok "too many cells -> exit 7" || no "too many cells" "(rc=$RC $ERR)"
 [ -z "$OUT" ] && ok "a refused row prints no diff" || no "diff on refusal" "($OUT)"
 
 # ---- heading / table state errors (§7: distinct typed states) ----------------------------------
 F2="$(printf '# T\n\n## Coverage\n\n%s\n%s\n' "$HDR" "$SEP" | mkf nohead)"
-run "$F2" "$NEW"; { [ "$RC" = 4 ] && ehas "NO-HEADING"; } && ok "heading absent -> exit 4 NO-HEADING" || no "no heading" "(rc=$RC $ERR)"
+run "$F2" "$NEW"; { [ "$RC" = 4 ] && etyped NO-HEADING; } && ok "heading absent -> exit 4 NO-HEADING" || no "no heading" "(rc=$RC $ERR)"
 F2="$(printf '## Iteration history\n\nno table here\n\n## Next\n\n%s\n%s\n' "$HDR" "$SEP" | mkf notable)"
-run "$F2" "$NEW"; { [ "$RC" = 5 ] && ehas "NO-TABLE"; } && ok "no table before the next heading -> exit 5 NO-TABLE (later table not used)" || no "no table" "(rc=$RC $ERR)"
+run "$F2" "$NEW"; { [ "$RC" = 5 ] && etyped NO-TABLE; } && ok "no table before the next heading -> exit 5 NO-TABLE (later table not used)" || no "no table" "(rc=$RC $ERR)"
 F2="$(printf '## Iteration history\n\n%s\n%s\n' "$HDR" "$R1" | mkf nosep)"
-run "$F2" "$NEW"; { [ "$RC" = 6 ] && ehas "MALFORMED-TABLE"; } && ok "header without separator row -> exit 6 MALFORMED-TABLE" || no "no separator" "(rc=$RC $ERR)"
+run "$F2" "$NEW"; { [ "$RC" = 6 ] && etyped MALFORMED-TABLE; } && ok "header without separator row -> exit 6 MALFORMED-TABLE" || no "no separator" "(rc=$RC $ERR)"
 F2="$(printf '## Iteration history\n\n%s\n' "$HDR" | mkf hdronly)"
 run "$F2" "$NEW"; [ "$RC" = 6 ] && ok "header as the last line (no separator) -> exit 6" || no "header last" "(rc=$RC $ERR)"
 F2="$(printf '## Iteration history\n\n%s\n%s\n\n## Iteration history\n\n%s\n%s\n' "$HDR" "$SEP" "$HDR" "$SEP" | mkf dup)"
-s1="$(sum "$F2")"; run --apply "$F2" "$NEW"; { [ "$RC" = 8 ] && ehas "AMBIGUOUS-HEADING" && [ "$(sum "$F2")" = "$s1" ]; } && ok "two headings -> exit 8, file untouched even with --apply" || no "ambiguous" "(rc=$RC $ERR)"
+s1="$(sum "$F2")"; run --apply "$F2" "$NEW"; { [ "$RC" = 8 ] && etyped AMBIGUOUS-HEADING && [ "$(sum "$F2")" = "$s1" ]; } && ok "two headings -> exit 8, file untouched even with --apply" || no "ambiguous" "(rc=$RC $ERR)"
 
 # ---- HTML-comment blindness (#1173) -----------------------------------------------------------
 F2="$(printf '<!-- doc\n## Iteration history\n%s\n%s\n-->\n\n## Coverage\n' "$HDR" "$SEP" | mkf cmtonly)"
-run "$F2" "$NEW"; { [ "$RC" = 4 ] && ehas "NO-HEADING"; } && ok "heading only inside a comment -> NO-HEADING (not matched)" || no "comment heading" "(rc=$RC $ERR)"
+run "$F2" "$NEW"; { [ "$RC" = 4 ] && etyped NO-HEADING; } && ok "heading only inside a comment -> NO-HEADING (not matched)" || no "comment heading" "(rc=$RC $ERR)"
 F2="$(printf '<!-- ex\n## Iteration history\n%s\n%s\n| 0 | x | x | x | x | 0 |\n-->\n## Iteration history\n\n%s\n%s\n%s\n\n## Blocked gaps\n' "$HDR" "$SEP" "$HDR" "$SEP" "$R1" | mkf cmtreal)"
 run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT" && grep -q '^ | 1 | 2026-01-01' <<<"$OUT"; } && ok "commented example heading ignored; the real table gets the row" || no "comment then real" "(rc=$RC $OUT)"
 F2="$(printf '## Iteration history\n\n<!--\n%s\n%s\n| 0 | x | x | x | x | 0 |\n-->\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$HDR" "$SEP" "$R1" | mkf cmttab)"
@@ -144,6 +146,32 @@ if command -v patch >/dev/null 2>&1; then
 fi
 [ "$(stat -c '%a' "$F" 2>/dev/null || stat -f '%Lp' "$F")" = 640 ] && ok "file mode preserved by --apply" || no "mode" "()"
 run --apply "$F" "$NEW"; [ "$RC" = 0 ] && [ "$(grep -cxF "$NEW" "$F")" = 2 ] && ok "a second apply appends a second row" || no "second apply" "(rc=$RC)"
+
+# ---- inline comments on table rows (RDD round 1) ----------------------------------------------
+F2="$(printf '## Iteration history\n\n%s <!-- hdr -->\n%s\n%s <!-- a | b | c -->\n| 2 | d | g | B2 | no | 1 | <!-- mid -->\n| 3 | d | g | B3 | no | 1 |<!-- last -->\n\n## Next\n' "$HDR" "$SEP" "$R1" | mkf inl)"
+run "$F2" "$NEW"
+{ [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT" && grep -q '^ | 3 | d | g | B3 | no | 1 |<!-- last -->' <<<"$OUT"; } && ok "inline comments on header, middle and last rows: row lands after the LAST row" || no "inline comments" "(rc=$RC $OUT)"
+run --apply "$F2" "$NEW"
+[ "$(grep -n -xF "$NEW" "$F2" | cut -d: -f1)" = 8 ] && ok "inline-comment table: applied row is line 8, right after the last table row" || no "inline apply" "($(cat "$F2"))"
+F2="$(printf '## Iteration history\n\n%s\n%s <!-- x -->\n%s\n' "$HDR" "$SEP" "$R1" | mkf inlsep)"
+run "$F2" "$NEW"; [ "$RC" = 0 ] && ok "separator row with an inline comment is accepted" || no "inline separator" "(rc=$RC $ERR)"
+
+# ---- a row that carries a comment delimiter is refused ------------------------------------------
+F2="$(printf '## Iteration history\n\n%s\n%s\n' "$HDR" "$SEP" | mkf cmtrow)"
+s1="$(sum "$F2")"
+run --apply "$F2" '| 2 | d | g | B2 | no | 1 | <!-- oops'
+{ [ "$RC" = 2 ] && etyped INVALID-ROW && [ "$(sum "$F2")" = "$s1" ]; } && ok "row opening a comment -> exit 2 INVALID-ROW, file untouched" || no "row with <!--" "(rc=$RC $ERR)"
+run "$F2" '| 2 | d | g | B2 | no | --> |'; { [ "$RC" = 2 ] && etyped INVALID-ROW; } && ok "row containing --> -> exit 2 INVALID-ROW" || no "row with -->" "(rc=$RC $ERR)"
+
+# ---- lost update: target changed between read and write ------------------------------------------
+printf '#!/bin/sh\nprintf "concurrent\\n" >> "$1"\n' > "$TMP/hook.sh"; chmod +x "$TMP/hook.sh"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf race)"
+AIR_PRE_MV_HOOK="$TMP/hook.sh" run --apply "$F2" "$NEW"
+{ [ "$RC" = 10 ] && etyped CONCURRENT-MODIFICATION && [ "$(tail -1 "$F2")" = concurrent ] && ! grep -qxF "$NEW" "$F2"; } \
+  && ok "target changed before mv -> exit 10 CONCURRENT-MODIFICATION, concurrent write preserved, row not written" || no "lost update" "(rc=$RC $ERR)"
+! compgen -G "$TMP/.air.*" >/dev/null && ok "no staging file left after CONCURRENT-MODIFICATION" || no "staging residue (race)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf norace)"
+AIR_PRE_MV_HOOK=/bin/true run --apply "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "$NEW" "$F2"; } && ok "an unchanged target still applies with the hook present" || no "hook no-op" "(rc=$RC $ERR)"
 
 # ---- degraded probe ---------------------------------------------------------------------------
 SHIM="$TMP/shim"; mkdir "$SHIM"
@@ -175,8 +203,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt "symlink refusal removed" 's/^\[ -L "\$FILE" \] && .*$/:/' 2 0 -- "$BASH_BIN" @SUT@ "$L" "$NEW"
   mt "outer-pipe normalisation removed" 's/if (substr(row, 1, 1) != "|") row = "| " row//' 0 0 \
     --good-has '^\+\| 1 \| 2 \|' --bad-lacks '^\+\| 1 \| 2 \|' -- "$BASH_BIN" @SUT@ "$W" '1 | 2 | 3 | 4 | 5 | 6'
-  mt "--apply no longer writes (mv dropped)" 's/ && mv -f -- "\$STAGE" "\$FILE"//' 0 0 \
+  mt "--apply no longer writes (mv dropped)" 's/^mv -f -- "\$STAGE" "\$FILE" || /true || /' 0 0 \
     --good-has 'ZZNEW' --bad-lacks 'ZZNEW' -- "$BASH_BIN" -c 'cp "$2" "$2.w" && bash "$1" --apply "$2.w" "$3" 2>/dev/null; cat "$2.w"' _ @SUT@ "$W" '| ZZNEW | d | g | B | n | 0 |'
+  I="$(printf '## Iteration history\n\n%s <!-- hdr -->\n%s\n%s <!-- c -->\n' "$HDR" "$SEP" "$R1" | mkf ti)"
+  mt "inline-comment rows treated as non-rows" 's/^function istab(i) .*/function istab(i) { return (V[i] == L[i]) \&\& (L[i] ~ \/^\\|\/) }/' 0 6 -- "$BASH_BIN" @SUT@ "$I" "$NEW"
+  mt "typed prefix dropped from awk errors" 's/print "append-iteration-row: ERROR: NO-HEADING/print "NO-HEADING/' 4 4 \
+    --good-has 'append-iteration-row: ERROR: NO-HEADING' --bad-lacks 'append-iteration-row: ERROR: NO-HEADING' -- "$BASH_BIN" @SUT@ "$C" "$NEW"
+  mt "second shell error line restored" 's/^    4|5|6|7|8) exit "\$rc" ;;/    4|5|6|7|8) _err "awk rc=$rc"; exit "$rc" ;;/' 4 4 \
+    --good-lacks 'awk rc=' --bad-has 'awk rc=' -- "$BASH_BIN" @SUT@ "$C" "$NEW"
+  mt "comment-delimiter row guard removed" 's/^case "\$ROW" in \*.<!--.\*.*$/:/' 2 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | 1 | <!-- oops'
+  cp "$W" "$W.race"
+  mt "unchanged-check (cmp) removed" 's/^cmp -s -- "\$FILE" "\$TMPD\/orig" \\$/true \\/' 10 0 -- env "AIR_PRE_MV_HOOK=$TMP/hook.sh" "$BASH_BIN" @SUT@ --apply "$W.race" "$NEW"
   mt "awk probe dropped from REQUIRED_TOOLS" 's/^REQUIRED_TOOLS="awk /REQUIRED_TOOLS="/' 3 9 -- env "PATH=$SHIM" "BASH_BIN=$BASH_BIN" "$BASH_BIN" @SUT@ "$W" "$NEW"
 fi
 
