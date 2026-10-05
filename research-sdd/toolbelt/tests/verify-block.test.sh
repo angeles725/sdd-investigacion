@@ -1535,7 +1535,7 @@ for _t in 'BAverage.calculate:12' 'ObixUtils.encode:7'; do
 done
 # kit #1721 (R3): an UNRESOLVED cite whose shape matches the FQCN / host pre-split but whose last label is a known file
 # extension (`analysis.v2.R`, `notes.v1.org`) is a missing extern source cite, not a non-path: it keeps its place in M/E
-# and the P9 WARN keeps the SOURCE_ROOT hint. Case-insensitive (`R` vs `r`).
+# and the P9 WARN keeps the SOURCE_ROOT hint. 
 for _t in 'analysis.v2.R:3' 'notes.v1.org:2'; do
   n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
   out="$(run "$N973")"
@@ -1547,11 +1547,19 @@ n973 pre-fqcn standard 'Class `javax.baja.control.BTimeTrigger:238`. [CERT]'
 out="$(run "$N973")"
 grep -q 'nonpath  javax.baja.control.BTimeTrigger:238' <<<"$out" \
   && ok "#1721 GUARD: a non-extension FQCN is still nonpath" || no "#1721 FQCN no longer nonpath :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
-# R2: the extension list has no duplicate entries (the list is read out of the SUT between its opening and closing quote)
-_vb_exts_dump(){ awk "/^_vb_file_exts='/{f=1; sub(/^_vb_file_exts='/,\"\")} f{l=\$0; e=(l ~ /'\$/); sub(/'\$/,\"\",l); print l; if(e) exit}" "$SUT"; }
-_vb_dups=$(_vb_exts_dump | sort | uniq -d); _vb_cnt=$(_vb_exts_dump | wc -l)
-{ [ -z "$_vb_dups" ] && [ "$_vb_cnt" -gt 50 ]; } \
-  && ok "#1721 GOOD: _vb_file_exts has no duplicate entries ($_vb_cnt read)" || no "#1721 _vb_file_exts duplicates or unreadable (count=$_vb_cnt) :: $(tr '\n' ' ' <<<"$_vb_dups")"
+# round-1 R3: an unresolved Java FQCN whose class name merely spells an extension (or a lone `R`) under a package root is
+# still nonpath; the rescue is exact-case (lower-case ext) or upper-case `R` outside a package root
+for _t in 'com.example.R:5' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x.y.Bin:6'; do
+  n973 "pre-${_t%%:*}" standard "Class \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
+    && ok "#1721 GUARD: unresolved FQCN $_t stays nonpath (class name spelling an extension is not a file)" || no "#1721 FQCN $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+done
+# R2/R3: the extension list has no duplicates and its SET equals the frozen origin/main set (dedupe removed only
+# duplicates). The assertion lives in a fixture script so the mutation teeth run the very same checks.
+_vb_ex="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
+{ grep -q '^EXTS no-duplicates' <<<"$_vb_ex" && grep -q '^EXTS set-preserved$' <<<"$_vb_ex" && ! grep -qE '^EXTS (DUP|SET-DIFF|UNREADABLE)' <<<"$_vb_ex"; } \
+  && ok "#1721 GOOD: _vb_file_exts has no duplicates and its set equals the frozen origin/main set" || no "#1721 _vb_file_exts invariants :: $(tr '\n' ' ' <<<"$_vb_ex")"
 # guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
 printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
 n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
@@ -2134,16 +2142,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'nonpath  x.qzv:2' --bad-lacks 'extern  x.qzv' -- bash @SUT@ "$TMP/n973-ext-x.qzv.md"
   fi
   # kit #1721: the pre-split extension check (P1721-NONPATH-EXT) and the no-duplicate-extension invariant
-  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" '/P1721-NONPATH-EXT/,/_vb_np_hit=1; fi/s/grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"/false/'; then
+  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" '/P1721-NONPATH-EXT/,+12s/grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"/false/'; then
     tooth "teeth-1721-preext" 0 0 "$MUT/np21.sh" --good-has 'extern  notes.v1.org:2' --good-lacks 'nonpath' \
       --bad-has 'nonpath  notes.v1.org:2' --bad-lacks 'extern  notes' -- bash @SUT@ "$TMP/n973-pre-notes.v1.org.md"
   fi
   if mk_sed "teeth-1721-dups" "$MUT/np22.sh" "s/^_vb_file_exts='java\$/_vb_file_exts='java\\njava/"; then
-    cat > "$TMP/dupcheck.sh" <<'DUPEOF'
-sed -n "/^_vb_file_exts='/,/'\$/p" "$1" | sed "s/^_vb_file_exts='//; s/'\$//" | sort | uniq -d | sed 's/^/DUP: /'; echo "dupcheck done"
-DUPEOF
-    tooth "teeth-1721-dups" 0 0 "$MUT/np22.sh" --good-has 'dupcheck done' --good-lacks 'DUP: ' \
-      --bad-has 'DUP: java' -- bash "$TMP/dupcheck.sh" @SUT@
+    tooth "teeth-1721-dups" 0 0 "$MUT/np22.sh" --good-has 'EXTS set-preserved' --good-lacks 'EXTS DUP' \
+      --bad-has 'EXTS DUP: java' -- bash "$HERE/fixtures/verify-block/exts-invariants.sh" @SUT@
+  fi
+  # a dropped entry (set no longer equals the frozen origin/main set) is caught by the same fixture assertion
+  if mk_sed "teeth-1721-set" "$MUT/np23.sh" '/^scala$/d'; then
+    tooth "teeth-1721-set" 0 0 "$MUT/np23.sh" --good-has 'EXTS set-preserved' --good-lacks 'SET-DIFF' \
+      --bad-has 'EXTS SET-DIFF: -scala' -- bash "$HERE/fixtures/verify-block/exts-invariants.sh" @SUT@
+  fi
+  # the exact-case / package-root narrowing: lower-casing the last label makes `org.apache.log4j.Log` extern (regression)
+  if mk_sed "teeth-1721-fqcn" "$MUT/np24.sh" 's/_vb_np_ext1="\${_vb_np_ext1##\*\.}"/_vb_np_ext1="${_vb_np_ext1##*.}"; _vb_np_ext1="${_vb_np_ext1,,}"/'; then
+    tooth "teeth-1721-fqcn" 0 0 "$MUT/np24.sh" --good-has 'nonpath  org.apache.log4j.Log:12' --good-lacks 'extern  org' \
+      --bad-has 'extern  org.apache.log4j.Log:12' --bad-lacks 'nonpath  org' -- bash @SUT@ "$TMP/n973-pre-org.apache.log4j.Log.md"
+  fi
+  if mk_sed "teeth-1721-root" "$MUT/np25.sh" 's/case "\$_vb_np_first" in com|org/case "$_vb_np_first" in zzz-none|zzz2/'; then
+    tooth "teeth-1721-root" 0 0 "$MUT/np25.sh" --good-has 'nonpath  com.example.R:5' --good-lacks 'extern  com' \
+      --bad-has 'extern  com.example.R:5' --bad-lacks 'nonpath  com' -- bash @SUT@ "$TMP/n973-pre-com.example.R.md"
   fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \

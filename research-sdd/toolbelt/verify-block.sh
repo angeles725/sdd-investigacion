@@ -474,11 +474,18 @@ if [ -n "$bt_cites" ]; then
       for _vb_np_r in "$target" "$git_root" "$target_root" "${SOURCE_ROOT:-}"; do
         if [ -n "$_vb_np_r" ] && [ -f "$_vb_np_r/${c%:*}" ]; then _vb_np_hit=1; break; fi
       done
-      # P1721-NONPATH-EXT: an unresolved shape match whose LAST label is a known file extension (`analysis.v2.R`,
-      # `notes.v1.org`) is a missing extern source cite, not a non-path: leave it in bt_cites so the loop reports it
-      # `extern` (WARN + SOURCE_ROOT hint), the same rule as the Class.method branch below.
-      _vb_np_ext1="${c%:*}"; _vb_np_ext1="${_vb_np_ext1##*.}"; _vb_np_ext1="${_vb_np_ext1,,}"
-      if [ "$_vb_np_hit" = 0 ] && grep -qxF "$_vb_np_ext1" <<<"$_vb_file_exts"; then _vb_np_hit=1; fi
+      # P1721-NONPATH-EXT: an unresolved shape match that is really a missing extern source cite stays in bt_cites so the
+      # loop reports it `extern` (WARN + SOURCE_ROOT hint), the same rule as the Class.method branch below. Exact case, so
+      # a Java FQCN whose class name merely spells an extension (`org.foo.Log`, `x.y.Class`, `x.y.Bin`, `a.b.T`) stays
+      # nonpath: (1) the last label is a LOWER-case known extension (`notes.v1.org`), or (2) the last label is the
+      # upper-case `R` (R scripts, `analysis.v2.R`) and the first label is not a package root (Android `com.example.R`).
+      _vb_np_ext1="${c%:*}"; _vb_np_first="${_vb_np_ext1%%.*}"; _vb_np_ext1="${_vb_np_ext1##*.}"
+      if [ "$_vb_np_hit" = 0 ]; then
+        if grep -qxF "$_vb_np_ext1" <<<"$_vb_file_exts"; then _vb_np_hit=1
+        elif [ "$_vb_np_ext1" = R ]; then
+          case "$_vb_np_first" in com|org|net|io|java|javax|jakarta|android|androidx|edu|gov|kotlin|scala|sun|jdk) ;; *) _vb_np_hit=1 ;; esac
+        fi
+      fi
       [ "$_vb_np_hit" = 0 ] && _vb_np_cites="${_vb_np_cites:+$_vb_np_cites$'\n'}$c"
     done <<<"$_vb_np_cand"
     if [ -n "$_vb_np_cites" ]; then
