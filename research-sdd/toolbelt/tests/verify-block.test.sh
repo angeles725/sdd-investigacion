@@ -1564,6 +1564,20 @@ for _t in 'api.example.org:443' 'cdn.v2x.example.org:8080'; do
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
     && ok "#1721 GUARD: TLD-colliding $_t stays nonpath (host:port without a vN label)" || no "#1721 $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 done
+# kit #1766: ONE version-label rule (`_vb_np_versioned`: a `vN` label at first / middle / last / only position of the labels
+# before the extension) serves BOTH the R rescue and the TLD guard. Positive = rescued to extern, negative = stays nonpath.
+for _t in 'v1.org:2' 'v1.x.org:4' 'x.v1.org:4' 'x.y.v1.org:4' 'de.v2.R:6' 'de.report.v2.R:6' 'de.v2.report.R:6'; do
+  n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q "extern  $_t" <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
+    && ok "#1766 GOOD: $_t (vN label at any position) is rescued to extern by the single version-label rule" || no "#1766 $_t not rescued :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+done
+for _t in 'x.v1x.org:4' 'de.v2x.report.R:6' 'qc.summary.R:3'; do
+  n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q "nonpath  $_t" <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
+    && ok "#1766 GUARD: $_t (no real vN label) stays nonpath (known ambiguity: 2-letter first label reads as a package root)" || no "#1766 $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+done
 # R2/R3: the extension list has no duplicates and its SET equals the expected set (tests/fixtures/verify-block/exts-expected-set.txt, seeded from origin/main; the dedupe removed only
 # duplicates). The assertion lives in a fixture script so the mutation teeth run the very same checks.
 _vb_ex="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
@@ -2168,7 +2182,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth "teeth-1721-preext" 0 0 "$MUT/np21.sh" --good-has 'extern  notes.v1.org:2' --good-lacks 'nonpath' \
       --bad-has 'nonpath  notes.v1.org:2' --bad-lacks 'extern  notes' -- bash @SUT@ "$TMP/n973-pre-notes.v1.org.md"
   fi
-  if mk_sed "teeth-1721-tld" "$MUT/np26.sh" 's/&& ! grep -qE .(^|\\.)v\[0-9\]+\\.. <<<"\${c%:\*}"; then _vb_np_hit=0; fi/\&\& false; then _vb_np_hit=0; fi/'; then
+  if mk_sed "teeth-1721-tld" "$MUT/np26.sh" 's/&& ! _vb_np_versioned "\$_vb_np_labels"; then _vb_np_hit=0; fi/\&\& false; then _vb_np_hit=0; fi/'; then
     tooth "teeth-1721-tld" 0 0 "$MUT/np26.sh" --good-has 'nonpath  api.example.org:443' --good-lacks 'extern  api' \
       --bad-has 'extern  api.example.org:443' --bad-lacks 'nonpath  api' -- bash @SUT@ "$TMP/n973-pre-api.example.org.md"
   fi
@@ -2203,6 +2217,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-1742-r-rescue" "$MUT/np30.sh" 's/if \[ "\$_vb_np_pkg" = 0 \]; then _vb_np_hit=1; fi/:/'; then
     tooth "teeth-1742-r-rescue" 0 0 "$MUT/np30.sh" --good-has 'extern  data.clean.R:8' --good-lacks 'nonpath' \
       --bad-has 'nonpath  data.clean.R:8' --bad-lacks 'extern  data' -- bash @SUT@ "$TMP/n973-pre-data.clean.R.md"
+  fi
+  # kit #1766: the single version-label helper. Dropping the end-of-string alternative loses a trailing `vN` label; dropping
+  # the start anchor loses a lone/first `vN` label; making it always-true defeats the TLD host:port guard.
+  if mk_sed "teeth-1766-end" "$MUT/np32.sh" 's/\^|\\.)v\[0-9\]+(\\.|\$)/^|\\.)v[0-9]+(\\.)/'; then
+    tooth "teeth-1766-end" 0 0 "$MUT/np32.sh" --good-has 'extern  de.report.v2.R:6' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  de.report.v2.R:6' --bad-lacks 'extern  de' -- bash @SUT@ "$TMP/n973-pre-de.report.v2.R.md"
+  fi
+  if mk_sed "teeth-1766-start" "$MUT/np33.sh" 's/(\^|\\.)v\[0-9\]+(\\.|\$)/(\\.)v[0-9]+(\\.|$)/'; then
+    tooth "teeth-1766-start" 0 0 "$MUT/np33.sh" --good-has 'extern  v1.x.org:4' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  v1.x.org:4' --bad-lacks 'extern  v1' -- bash @SUT@ "$TMP/n973-pre-v1.x.org.md"
+  fi
+  if mk_sed "teeth-1766-always" "$MUT/np34.sh" 's/^_vb_np_versioned() { grep -qE .*$/_vb_np_versioned() { return 0; }/'; then
+    tooth "teeth-1766-always" 0 0 "$MUT/np34.sh" --good-has 'nonpath  api.example.org:443' --good-lacks 'extern  api' \
+      --bad-has 'extern  api.example.org:443' --bad-lacks 'nonpath  api' -- bash @SUT@ "$TMP/n973-pre-api.example.org.md"
   fi
   # kit #1742 (item 3): a non-extension entry swapped into _vb_tlds (`so` for the last entry) is reported by the overlap invariant
   _vb_fx="$HERE/fixtures/verify-block/exts-invariants.sh"; _vb_exp="$HERE/fixtures/verify-block/exts-expected-set.txt"

@@ -476,6 +476,10 @@ xhtml
 pyw
 pyi
 pyx'
+# P1766-VERSION-LABEL: the ONE definition of "version-like label" (`v1`, `v2`: a whole dot-separated label) shared by the R rescue
+# and the TLD guard below. Argument = the dotted labels BEFORE the extension; a `vN` label at the first, middle, last or only
+# position counts (end-of-string accepted), so `notes.v1.org`, `v1.org` and `de.report.v2.R` agree. `v2x` is not version-like.
+_vb_np_versioned() { grep -qE '(^|\.)v[0-9]+(\.|$)' <<<"$1"; }
 if [ -n "$bt_cites" ]; then
   _vb_np_cites=$(grep -E "$_vb_np_re" <<<"$bt_cites"); _vb_np_h=$?   # P973-NONPATH-SPLIT
   if [ "$_vb_np_h" -ge 2 ]; then _vb_np_err=$_vb_np_h; _vb_np_cites=""
@@ -506,11 +510,11 @@ if [ -n "$bt_cites" ]; then
           # P1721-TLD-GUARD: an extension that is ALSO a TLD (the overlap of _vb_file_exts and _vb_tlds: org, pl, md, ...)
           # is rescued only when a label is version-like (`v1`, as in `notes.v1.org`); `api.example.org:443` is a
           # host:port and stays nonpath. Trade-off: a missing `x.y.org:N` file cite without a `vN` label reads as a host.
-          if grep -qxF "$_vb_np_last" <<<"$_vb_tlds" && ! grep -qE '(^|\.)v[0-9]+\.' <<<"${c%:*}"; then _vb_np_hit=0; fi
+          if grep -qxF "$_vb_np_last" <<<"$_vb_tlds" && ! _vb_np_versioned "$_vb_np_labels"; then _vb_np_hit=0; fi
         elif [ "$_vb_np_last" = R ]; then
           _vb_np_pkg=0
           case "$_vb_np_first" in com|org|net|io|java|javax|jakarta|android|androidx|edu|gov|kotlin|scala|sun|jdk|[a-z][a-z]) _vb_np_pkg=1 ;; esac
-          if grep -qE '(^|\.)v[0-9]+(\.|$)' <<<"$_vb_np_labels"; then _vb_np_pkg=0; fi
+          if _vb_np_versioned "$_vb_np_labels"; then _vb_np_pkg=0; fi
           if [ "$_vb_np_pkg" = 0 ]; then _vb_np_hit=1; fi
         fi
       fi
