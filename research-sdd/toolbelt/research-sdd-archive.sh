@@ -141,9 +141,16 @@ gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-s
 _vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-ADVISORY
 case "$_vc_rc" in
   0) echo "    verify-corrections : ok";;
-  1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"
-     echo "    verify-corrections : WARN — $_vc_n one-directional §14 correction(s) (advisory, not a gate; run verify-corrections.sh for the list)"
-     echo "WARN: verify-corrections found $_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)." >&2;;
+  # Output contract (verify-corrections.sh): one `   FAIL   B<n> corrects [Block <m>] ...` line per finding.
+  # Exit 1 with ZERO parsed FAIL lines means that contract drifted — never print a self-contradicting "0".
+  1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"  # AR-VCORR-COUNT
+     if [ "$_vc_n" -gt 0 ]; then
+       echo "    verify-corrections : WARN — $_vc_n one-directional §14 correction(s) (advisory, not a gate; run verify-corrections.sh for the list)"
+       echo "WARN: verify-corrections found $_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)." >&2
+     else
+       echo "    verify-corrections : WARN — one-directional §14 correction(s) found (count unparseable; see verify-corrections.sh output)"
+       echo "WARN: verify-corrections exited 1 but its FAIL lines could not be counted — run verify-corrections.sh for the list." >&2
+     fi;;
   2) if grep -q 'no block files' <<<"$_vc_out"; then   # exit 2 is ambiguous: no-blocks vs bad args — read the reason
        echo "    verify-corrections : n/a — no block files"
      else

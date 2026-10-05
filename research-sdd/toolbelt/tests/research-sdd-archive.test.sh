@@ -1568,6 +1568,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth(vcorr-nb): no-blocks match broken → n/a becomes WARN did-not-run → exit-2 discrimination has teeth" 3 3 "$MUT/archive.VCNBMUTANT.sh" \
          --good-has 'verify-corrections : n/a' --bad-has 'did not run \(bad args' --bad-lacks 'verify-corrections : n/a' -- run_on_fix @SUT@ "$d" --dry-run
 
+  echo "-- teeth: AR-VCORR count guard — drop the zero check; a drifted linter prefix must then print a 0 count --"
+  mkdir -p "$MUT/stub" && cp -a "$MUT/lib" "$MUT/stub/" && cp "$MUT/verify-state.sh" "$MUT/verify-sources.sh" "$MUT/scan-secrets.sh" "$MUT/stub/"
+  printf '#!/usr/bin/env bash\necho "ISSUE B2 corrects B1" >&2\nexit 1\n' > "$MUT/stub/verify-corrections.sh"; chmod +x "$MUT/stub/verify-corrections.sh"
+  d="$TMP/vcorr-teeth-drift"; mkgood "$d"
+  cp "$SUT" "$MUT/stub/archive.ORIG.sh"
+  mk_sed "teeth(vcorr-cnt)" "$MUT/stub/archive.CNTMUTANT.sh" 's/if \[ "\$_vc_n" -gt 0 \]; then/if true; then/' \
+    && tooth "teeth(vcorr-cnt): zero guard dropped → drifted linter prints a 0 count → guard has teeth" 0 0 "$MUT/stub/archive.CNTMUTANT.sh" --orig "$MUT/stub/archive.ORIG.sh" \
+         --good-has 'count unparseable' --bad-has ' 0 one-directional' --bad-lacks 'count unparseable' -- run_on_fix @SUT@ "$d" --dry-run
+
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
@@ -1755,6 +1764,14 @@ for _stub_rc in 7 2; do
     ok "AR-VCORR: linter exit $_stub_rc (not no-blocks) → WARN did-not-run, never n/a, archive exit unchanged"
   else no "AR-VCORR stub exit $_stub_rc: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 done
+# exit 1 with an UNEXPECTED prefix (contract drift): must WARN "count unparseable", never "0 one-directional".
+printf '#!/usr/bin/env bash\necho "ISSUE B2 corrects B1" >&2\nexit 1\n' > "$AR_STUB/verify-corrections.sh"
+chmod +x "$AR_STUB/verify-corrections.sh"
+d="$TMP/vcorr-drift"; mkgood "$d"
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q 'count unparseable' <<<"$out_vc" && ! grep -q ' 0 one-directional' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
+  ok "AR-VCORR: linter exit 1 with unexpected prefix → WARN count unparseable, no zero-count WARN"
+else no "AR-VCORR drift: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 rm -f "$AR_STUB/verify-corrections.sh"
 d="$TMP/vcorr-missing"; mkgood "$d"
 out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"
