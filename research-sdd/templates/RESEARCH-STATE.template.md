@@ -9,7 +9,7 @@
      GATED vs DECLARED — be honest about which is machine-validated:
        • FAIL-gated against ground truth by verify-state.sh (a stale value BLOCKS the loop): covered_blocks
          (block files on disk) · investigable_open (pending non-blocked backlog rows = the STOP-critical
-         count) · blocked_open (## Blocked gaps entries). These cannot drift without a hard FAIL.
+         count) · blocked_open (Blocked-gaps section entries). These cannot drift without a hard FAIL.
        • BACKLOG-ANCHORED WHEN MARKED — requires_execution_open (the §19 build-loop STOP counter): mark each
          OPEN build/PoC gap as a backlog row whose Status column carries `requires-execution` (see the example
          row below); verify-state then derives the open count from those rows and FAILs ONLY the premature
@@ -32,7 +32,7 @@
          Omit for the common case (§16 per-focus prefix layout — each focus has its own block prefix).
          Set to 'shared-global' when ALL focuses share ONE corpus-wide block-file prefix (e.g. niagara-
          mental-model-bloque). Under shared-global, covered_blocks = blocks ATTRIBUTED to this focus
-         (from a '## Covered blocks' list, else distinct B<n> ids in '## Iteration history' Block column);
+         (from a 'Covered blocks' list, else distinct B<n> ids in 'Iteration history' Block column);
          the corpus-wide total is printed as INFO only. When no attributed ids are found, CHECK A reports
          'unverifiable' as INFO — never FAIL against the corpus total (§7 three-state rule). Legal values:
          'per-focus' | 'shared-global'. Present but empty, or any other value, is a hard FAIL — absent
@@ -74,7 +74,7 @@ last_iteration_ts:
 
 <!-- Cell grammar declared in METHODOLOGY §8b. Priority: high | medium | low | deferred | — | ~~tier~~.
      Status leading token: pending (enters investigable_open) | requires-execution | blocked-on-<reason> |
-     ✅ | ~~ (closed). Qualifiers in Priority are non-conforming. Heading grammar is closed: ## Gap-backlog, optionally one parenthetical descriptor. -->
+     ✅ | ~~ (closed). Qualifiers in Priority are non-conforming. Heading grammar is closed: the Gap-backlog heading, optionally one parenthetical descriptor. -->
 
 <!-- OPEN requires-execution (§19 build/PoC) gaps: keep them as backlog rows whose STATUS column carries
      `requires-execution` (the example row below, modeled on three.js's G41). That marker is what makes the
@@ -151,7 +151,7 @@ last_iteration_ts:
 - none
 
 <!--
-## Campaign queue
+Campaign queue (section heading, absent until created)
 
 BOOTSTRAP: this section does not exist until the first focus-STOP audit enqueues an entry (§8c).
 The loop creates this section on the first focus STOP that finds enqueued > 0; it never exists

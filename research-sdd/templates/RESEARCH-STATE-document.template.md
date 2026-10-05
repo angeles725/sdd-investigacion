@@ -7,16 +7,16 @@
      by the PROMPT-LOOP DOCUMENT CYCLE preflight when a NEW target is registered for `document` mode
      (METHODOLOGY §20). Document mode CAPTURES knowledge already in hand — it is OUTLINE-driven and
      NEVER runs gap-discovery (BOOTSTRAP step e / METHODOLOGY §13). The real work-list lives in the
-     "## Outline" section below, seeded up front (PROMPT-LOOP DOCUMENT CYCLE step 1) — NOT in
-     "## Gap-backlog", which stays present-but-empty on purpose (see that section for why).
+     "Outline" section below, seeded up front (PROMPT-LOOP DOCUMENT CYCLE step 1) — NOT in
+     "Gap-backlog", which stays present-but-empty on purpose (see that section for why).
 
      State envelope (research-state.v1) — SAME schema the NORMAL CYCLE uses, so verify-state.sh's
      structural checks (GB-PRESENT-CHECK, envelope CHECK A-H, SC-CROSS-CHECK) all still apply and pass.
      BUT research-sdd-status.sh's headline VERDICTS (next-step STOP/NEXT, saturation) are gap-centric —
-     they read `## Gap-backlog`, which is intentionally empty here — so they are NOT meaningful signals
+     they read `Gap-backlog`, which is intentionally empty here — so they are NOT meaningful signals
      for a document-cycle corpus: a fresh scaffold reports `STOP | read-only-investigable exhausted (0)`
      even though the run has not started, and 3+ Iteration-history rows can report SATURATED. Neither
-     means anything in document mode; the "## Outline" section below is this mode's real completion
+     means anything in document mode; the "Outline" section below is this mode's real completion
      signal (PROMPT-LOOP DOCUMENT CYCLE step 7). Teaching research-sdd-status.sh to honor
      `method: document-cycle` and suppress those gap-centric verdicts is tracked separately as kit issue
      #1152 — not implemented here. Seed/refresh the envelope MECHANICALLY — never hand-edit the ints — with:
@@ -27,7 +27,7 @@
      corpus authored by a bespoke workflow OUTSIDE this loop entirely). A document-cycle corpus IS
      driven by this loop (PROMPT-LOOP's DOCUMENT CYCLE), just not gap-driven.
 
-     Every count below starts at 0 because "## Gap-backlog" and "## Blocked gaps" start empty — this
+     Every count below starts at 0 because "Gap-backlog" and "Blocked gaps" start empty — this
      is CONTRACT-VALID from the first scaffold, same design goal as the NORMAL CYCLE template's seeded
      placeholder rows, just with an empty backlog instead of example gaps (document mode has none to
      seed). Field semantics (gated vs declared vs manually-maintained) are UNCHANGED from the NORMAL
@@ -61,13 +61,13 @@ last_iteration_ts:
 
 <!-- THIS is document mode's work-list, seeded UP FRONT from three sources: (a) what the user already
      knows, (b) their notes, (c) RECONSTRUCTing the steps of the session just lived. There is NO
-     discovery here — unlike "## Gap-backlog" below, nothing is added to this table by uncovering
+     discovery here — unlike "Gap-backlog" below, nothing is added to this table by uncovering
      gaps; it is filled once at BOOTSTRAP/seed time and then worked off. ONE OUTLINE ITEM = ONE BLOCK
      (step 2). Genre decides the evidence base: documenting how the SUBJECT works → ordinary [CERT]
      file:line; documenting a PROCEDURE/how-to → the session itself is the evidence, preserved under
      sources/probes/ and cited [CERT-hw]/[CERT-live] (METHODOLOGY §20, same markers §12 already uses —
      no new marker is introduced). STOP fires when every row below is `covered` (step 7) — the outline
-     is the terminator, never gap-exhaustion. The "## Stop control" section further below in THIS file
+     is the terminator, never gap-exhaustion. The "Stop control" section further below in THIS file
      keeps the legacy "Open gaps" lines only for research-state.v1 envelope compatibility with shared
      kit tooling — they are always 0 here and are NOT this mode's completion signal; this table is. -->
 
@@ -77,7 +77,7 @@ last_iteration_ts:
 
 ## Gap-backlog
 
-<!-- INTENTIONALLY EMPTY — document mode does not use gap-discovery (see "## Outline" above for the
+<!-- INTENTIONALLY EMPTY — document mode does not use gap-discovery (see "Outline" above for the
      real work-list; PROMPT-LOOP DOCUMENT CYCLE preflight explicitly skips BOOTSTRAP step e). This
      heading stays PRESENT so verify-state.sh's GB-PRESENT-CHECK is satisfied (absent ≠ empty, kit
      CLAUDE.md §7 anti-silent-zero) and investigable_open/requires_execution_open/deferred_open stay
@@ -91,7 +91,7 @@ last_iteration_ts:
 <!-- Every "New gaps uncovered" cell reads `none` because document mode never discovers new gaps
      (§20) — expect research-sdd-status.sh to report SATURATED after 3+ such rows. That verdict is
      gap-discovery vocabulary leaking through the shared envelope (kit issue #1152); it does not mean
-     this document-cycle run should stop or is unhealthy. Only the "## Outline" table above decides
+     this document-cycle run should stop or is unhealthy. Only the "Outline" table above decides
      when this run is done. -->
 | # | Date | Outline item covered | Block | Delegated? · model tier | New gaps uncovered |
 |---|---|---|---|---|---|
@@ -123,7 +123,7 @@ last_iteration_ts:
 
 <!-- Populated during BOOTSTRAP step a2 (census-target.sh) exactly as the NORMAL CYCLE does — the
      document-cycle preflight still runs step a2. Every file type starred by the census (>= 5 files OR
-     >= 1 MB aggregate) must be either covered by an "## Outline" item or dismissed here with a stated
+     >= 1 MB aggregate) must be either covered by an "Outline" item or dismissed here with a stated
      reason. Format: `- .<ext> — <N> files · <M> MB — dismissed: <reason>`. If no types are dismissed,
      write: none -->
 
