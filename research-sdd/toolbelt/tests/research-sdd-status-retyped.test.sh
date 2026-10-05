@@ -129,5 +129,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     grep -q 'WARN   re-typed row still carries' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth E: WARN still emitted — THEATER" || ok "teeth E: verify-state WARN neutered -> case 3b bites"
   else no "teeth E: mutant unbuildable"; fi
 fi
-echo "-- $pass passed, $fail failed --"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
