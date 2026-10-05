@@ -1001,7 +1001,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # dismissed branch reopens rows instead of yielding no-match.
   echo "-- teeth T6: neuter 'dismissed always wins' guard; dismissed+PARTIAL must reopen rows (case 50/51 have teeth) --"
   anchor_t6='  dismissed)
-    echo "no-match: retro is '"'"'dismissed'"'"' — all rows shipped" >&2; exit 0
+    echo "no-match: retro is '"'"'dismissed'"'"' — all rows shipped" >&2
+    echo "unclassifiable-items: 0 (retro-closed: dismissed)"; exit 0
     ;;'
   if [[ "$sut_content" == *"$anchor_t6"* ]]; then
     box_t6="$(mkbox teeth-dismissed-wins)"
@@ -1596,6 +1597,7 @@ RETROEOF
   echo "-- teeth H1: drop the honesty check; case 62 (honest empty) must flip to unclassifiable --"
   anchor_h1='  if retro_grammar_has_honesty "$retro"; then
     echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro" >&2
+    echo "unclassifiable-items: 0 (empty-input: honest §18 zero, no data rows)"
     exit 0
   fi'
   if [[ "$sut_content" == *"$anchor_h1"* ]]; then
@@ -1631,7 +1633,7 @@ RETROEOF
     printf '%s\n' "${sut_content/"$anchor_h2"/:}" > "$mutant_h2"
     "$BASH_BIN" -n "$mutant_h2" 2>/dev/null || no "teeth H2: mutant syntax check" "bash -n failed"
     out_h2="$(PATH="$box_h2/bin:$PATH" "$BASH_BIN" "$mutant_h2" "$retro_h2" 2>&1)"
-    if ! grep -qi 'unclassifiable' <<<"$out_h2"; then
+    if ! grep -qi '^unclassifiable:' <<<"$out_h2"; then
       ok "teeth H2: unclassifiable echo silenced → case 63's typed message gone (has teeth)" "()"
     else
       no "teeth H2: unclassifiable echo silenced → message should be gone" "case 63 is THEATER: out=[$out_h2]"
@@ -3145,7 +3147,7 @@ retro59="$box59/rh/target-foo/retros/r-spanish.md"
   printf '| 1 | delta uno fixture row | CLAUDE.md | B1 | new | HIGH |\n'
 } > "$retro59"
 run "$box59" "$retro59"
-if [ "$RC" = 0 ] && grep -q '^planned-issue:' <<<"$OUT" && ! grep -qi 'empty-input\|unclassifiable' <<<"$OUT"; then
+if [ "$RC" = 0 ] && grep -q '^planned-issue:' <<<"$OUT" && ! grep -qi 'empty-input\|^unclassifiable\(-row\)\?:' <<<"$OUT"; then
   ok "59 Spanish canonical alias 'PROPUESTA de deltas al kit' → row staged, not empty/unclassifiable" "(exit $RC)"
 else
   no "59 Spanish canonical alias → expected row staged" "exit=$RC out=[$OUT]"
@@ -3196,7 +3198,7 @@ retro62="$box62/rh/target-foo/retros/r-honest-empty.md"
 } > "$retro62"
 run "$box62" "$retro62"
 if [ "$RC" = 0 ] && grep -qi '^empty-input:' <<<"$OUT" \
-  && ! grep -qi 'unclassifiable' <<<"$OUT"; then
+  && ! grep -qi '^unclassifiable\(-row\)\?:' <<<"$OUT"; then
   ok "62 honest empty (§18 honesty line, no rows) → empty-input, not unclassifiable" "(exit $RC)"
 else
   no "62 honest empty (§18 honesty line, no rows) → expected empty-input, not unclassifiable" "exit=$RC out=[$OUT]"
@@ -3626,7 +3628,7 @@ ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
 box77="$(mkbox case-entry-form)"; mk_gh_stub "$box77" nomatch
 cp "$ENTRY_FIX" "$box77/rh/target-foo/retros/r77a.md"
 run "$box77" "$box77/rh/target-foo/retros/r77a.md"
-if [ "$RC" = 0 ] && grep -q "^no-match: retro is 'applied'" <<<"$OUT" && ! grep -q 'unclassifiable' <<<"$OUT"; then
+if [ "$RC" = 0 ] && grep -q "^no-match: retro is 'applied'" <<<"$OUT" && ! grep -q '^unclassifiable\(-row\)\?:' <<<"$OUT"; then
   ok "77a applied entry-form retro → no-match (same file reconcile reports as no open deltas)" "(exit $RC)"
 else
   no "77a applied entry-form retro" "exit=$RC out=[$OUT]"
@@ -3644,7 +3646,7 @@ if [ "$RC" = 0 ] && [ "$(grep -c '^planned-issue:' <<<"$OUT")" = 3 ] \
    && grep -q '^planned-issue: A tool ships no export script; a bridge script covers it$' <<<"$OUT" \
    && grep -q 'Source retro: target-foo/retros/r78.md · D1$' <<<"$OUT" \
    && grep -q 'Source retro: target-foo/retros/r78.md · D3$' <<<"$OUT" \
-   && ! grep -q 'unclassifiable' <<<"$OUT"; then
+   && ! grep -q '^unclassifiable\(-row\)\?:' <<<"$OUT"; then
   ok "78a dry-run pending entry-form retro: 3 planned issues, title after the dash, signature · D<N>" "(exit $RC)"
 else
   no "78a dry-run entry-form" "exit=$RC out=[$OUT]"
@@ -4029,9 +4031,9 @@ r85f="$(mk_retro "$box85f" target-foo r85f.md '<!-- review-status: pending -->' 
 | 2 | A perfectly fine title | CLAUDE.md | B1 | fix | HIGH |")"
 run "$box85f" "$r85f" --apply
 creates85f="$(grep -c 'gh issue create' "$box85f/bin/gh.log")"
-if [ "$RC" = 0 ] && [ "$creates85f" = 1 ] \
-   && grep -q 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=1 unknown-outcome=0 failed=0' <<<"$OUT"; then
-  ok "85f --apply: guarded row not created, unclassifiable=1 in the summary, exit 0" "(exit $RC creates=$creates85f)"
+if [ "$RC" = 0 ] && [ "$creates85f" = 2 ] \
+   && grep -q 'summary: created=2 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=1 unknown-outcome=0 failed=0' <<<"$OUT"; then
+  ok "85f --apply: guarded row not created (the tracker is, see 90*), unclassifiable=1 in the summary, exit 0" "(exit $RC creates=$creates85f)"
 else
   no "85f guard under --apply" "exit=$RC creates=$creates85f out=[$OUT]"
 fi
@@ -4468,9 +4470,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
               { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'; printf '%s\n' "$ONE_ROW"; } > "$rs"
               run "$mb" "$rs" --apply
               grep -q 'gh issue create' "$mb/bin/gh.log" && bite=1; why="a mangled-signature row was written" ;;
-      rcfail) printf '%s\n' 'scrub_issue_text() { return 1; }' 'scrub_issue_text_count() { echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+      # The scrub fails ONLY on the row's own title text, so the row-level refusal is the sole failure: the good SUT
+      # exits 2 (refused row counted failed=); the mutant (rc check off) skips the refusal, the empty title becomes an
+      # unclassifiable row whose tracker scrubs fine, and the run exits 0. The exact rc 2 is therefore asserted, and the
+      # message too (a tracker-scrub exit 2 would not carry the row text).
+      rcfail) printf '%s\n' 'scrub_issue_text() { local x; x="$(cat)"; [ "$x" = "a real delta row" ] && return 1; printf "%s\n" "$x"; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
-              [ "$RC" = 2 ] || bite=1; why="a failing scrub did not fail the run" ;;
+              { [ "$RC" = 2 ] && grep -q 'privacy scrub failed for row 1' <<<"$OUT"; } || bite=1; why="a failing scrub did not fail the run with exit 2" ;;
       nonnum) printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: lots"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
               [ "$RC" = 2 ] || bite=1; why="a non-numeric count was read as zero" ;;
@@ -4518,7 +4524,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1705 sig-check-off nomatch nosig '^mutation_outcome: confirmed \(row 1\)$' 's/^      if ! grep -qxF -- "\$_source_line" <<<"\$_rb"; then$/      if false; then/'
   t1705 rc-check-off nomatch fail 'lacks the signature line' 's/^      if \[ "\$_rb_rc" -ne 0 \]; then$/      if false; then/'
   t1705 url-required-off createnourl ok 'read-back failed' 's/^    if \[\[ "\$_url_last" =~ .*; then$/    if true; then/'
-  t1705 exit3-off createfailcreated ok 'rc=0' 's/^\[ "\$mutation_unknown" -gt 0 \] \&\& exit 3$/:/'
+  t1705 exit3-off createfailcreated ok 'rc=0' 's/^  \[ "\$mutation_unknown" -gt 0 \] \&\& exit 3$/  :/'
   t1705 recheck-state-off createfailrelistfail ok '^mutation_outcome: no_write \(row 1\)$' 's/^        if \[ "\$_recheck_state" = "none" \]; then _row_nowrite "\$_rid"; else _row_unknown "\$_rid"; fi$/        _row_nowrite "$_rid"/'
   t1705 confirmed-count-off nomatch ok 'mutation-summary: confirmed=0 ' 's/mutation_confirmed=\$((mutation_confirmed+1)); //'
   t1705 dup-nowrite-off match ok 'mutation-summary: confirmed=0 no_write=0 ' 's/skipped_dedup=\$((skipped_dedup+1)); _row_nowrite "\$_rid"; continue/skipped_dedup=$((skipped_dedup+1)); continue/'
@@ -4942,11 +4948,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tocc marker-check-off  twice 's/^  if grep -qxF -- "\$_mk" <<<"\$_cm"; then$/  if false; then/'
   tocc exact-title-off   near  's/ && title == needle//'
   tocc hex-decode-off    escapes 's/if (cp >= 0 && cp < 128) str/if (0) str/'
-  tocc row-failure-demotes-confirmed mixed 's/^      elif \[ "\$_occ_row_confirmed" -eq 1 \]; then$/      elif [ "$_occ_row_confirmed" -eq 1 ] \&\& [ "$_occ_row_failed" -eq 0 ]; then/'
+  tocc row-failure-demotes-confirmed mixed 's/^  elif \[ "\$_occ_row_confirmed" -eq 1 \]; then$/  elif [ "$_occ_row_confirmed" -eq 1 ] \&\& [ "$_occ_row_failed" -eq 0 ]; then/'
   tocc repo-lookup-off   repolookup 's/gh issue list --repo "\$KIT_ISSUE_REPO" --state open --label/gh issue list --state open --label/'
   tocc repo-view-off     repoview 's/gh issue view "\$_n" --repo "\$KIT_ISSUE_REPO" --json comments/gh issue view "$_n" --json comments/'
   tocc repo-comment-off  repocomment 's/gh issue comment "\$_n" --repo "\$KIT_ISSUE_REPO" --body/gh issue comment "$_n" --body/'
-  tocc row-unknown-outranks mixedunk 's/^      if \[ "\$_occ_row_unknown" -eq 1 \]; then _row_unknown "\$_rid"$/      if false; then _row_unknown "$_rid"/'
+  tocc row-unknown-outranks mixedunk 's/^  if \[ "\$_occ_row_unknown" -eq 1 \]; then _row_unknown "\$1"$/  if false; then _row_unknown "$1"/'
   tocc open-only-off     closed 's/state == "OPEN" && //'
   tocc parse-guard-off   noend 's/^    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be parsed for row @ROW@: \$_o"; return 0$/    :/' 's/^  if \[ -z "\$_total" \]; then$/  if false; then/' 's/^    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row \$2" >\&2; return 2$/    :/'
   tocc unknown-on-landed-off failwrote 's/^    if \[ "\$_rb2rc" -eq 0 \] && grep -qxF -- "\$_mk" <<<"\$_rb2"; then$/    if false; then/'
