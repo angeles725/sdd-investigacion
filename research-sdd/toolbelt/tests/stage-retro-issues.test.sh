@@ -226,6 +226,9 @@ page2_reply() {
 # write is NOT recorded yet the exit is 0 and a URL prints); `gh issue view <N> --json comments` replays
 # $0.comments (fails when $0.viewfail exists).
 occ_list() {
+  # $0.occ2: from the SECOND list call on, reply this instead (a create whose outcome was unknown had landed).
+  local _on; _on="$(cat "$0.occn" 2>/dev/null || echo 0)"; _on=$((_on+1)); echo "$_on" > "$0.occn"
+  [ "$_on" -ge 2 ] && [ -f "$0.occ2" ] && { cat "$0.occ2"; return 0; }
   [ -f "$0.occfail" ] && { printf 'gh: occurrence lookup failed\n' >&2; return 1; }
   [ -f "$0.occnoend" ] && { printf '[{"number":55,"state":"OPEN","title":"cut off here\n'; return 0; }
   if [ -f "$0.occ" ]; then cat "$0.occ"; else printf '[]\n'; fi
@@ -238,6 +241,8 @@ occ_comment() {
     case "$_x" in [0-9]*) _n="$_x" ;; esac
     _p="$_x"
   done
+  # $0.commentfailwrote: the write LANDS (recorded) but the call still exits 1 (a timeout after the write).
+  [ -f "$0.commentfailwrote" ] && { printf '%s\n' "$_b" >> "$0.comments.$_n"; printf 'gh: timeout\n' >&2; return 1; }
   [ -f "$0.commentfail" ] || [ -f "$0.commentfail.$_n" ] && { printf 'gh: comment failed\n' >&2; return 1; }
   [ -f "$0.commentghost" ] || [ -f "$0.commentghost.$_n" ] || printf '%s\n' "$_b" >> "$0.comments.$_n"
   [ -f "$0.commentnourl" ] && { printf 'done\n'; return 0; }
@@ -247,6 +252,11 @@ occ_view() {
   local _n="" _x
   for _x in "$@"; do case "$_x" in [0-9]*) _n="$_x" ;; esac; done
   [ -f "$0.viewfail" ] && { printf 'gh: HTTP 502\n' >&2; return 1; }
+  # $0.viewfailafter holds K: the K-th and later comment views fail (view 1 = pre-write check, 2 = re-read/read-back).
+  if [ -f "$0.viewfailafter" ]; then
+    local _vc; _vc="$(cat "$0.vcnt" 2>/dev/null || echo 0)"; _vc=$((_vc+1)); echo "$_vc" > "$0.vcnt"
+    [ "$_vc" -ge "$(cat "$0.viewfailafter")" ] && { printf 'gh: HTTP 502\n' >&2; return 1; }
+  fi
   [ -f "$0.comments.$_n" ] && cat "$0.comments.$_n"
   return 0
 }
@@ -4523,7 +4533,8 @@ fi
 #      nothing. Same safety path as create: scrub before the write, URL required, read-back of the marker.
 #      Dry-run stays offline. The gh stub here is the shared mk_gh_stub with its #1708 occurrence arms.
 OCC_MARK='<!-- stage-retro-issues:occurrence Source retro: target-foo/retros/r.md · 1 -->'
-# occ_box <name> [occ-lines...]: sandbox + nomatch stub; each extra arg becomes one raw M line (TAB-separated).
+# occ_box <name> [occ-lines...]: sandbox + nomatch stub; each extra arg becomes one issue object in the JSON array
+# the occurrence lookup replies; each arg is `number|state|title`, written to $b/bin/gh.occ (no args = `[]`).
 occ_box() {
   local name="$1" b; shift
   b="$(mkbox "$name")"; mk_gh_stub "$b" nomatch
@@ -4669,6 +4680,7 @@ box88g3="$(occ_box case-occ-capped '55|OPEN|some other title')"
 r88g3="$(mk_retro "$box88g3" target-foo r.md "$PEND" "$OCC_ROW")"
 OUT="$(STAGE_RETRO_ISSUES_LIST_LIMIT=1 PATH="$box88g3/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit "$BASH_BIN" "$box88g3/research-sdd/toolbelt/stage-retro-issues.sh" "$r88g3" --apply 2>&1)"; RC=$?
 if [ "$RC" = 2 ] && grep -q '^ERROR: gh issue list (occurrence lookup) returned 1 results = the --limit 1 cap for row 1' <<<"$OUT" \
+   && grep -q 'covers ALL open issues of the target:target-foo label' <<<"$OUT" && grep -q 'raise STAGE_RETRO_ISSUES_LIST_LIMIT' <<<"$OUT" \
    && ! grep -q 'gh issue create' "$box88g3/bin/gh.log"; then
   ok "88g3 occurrence page that fills --limit → failed (truncation), never create" "(exit $RC)"
 else
@@ -4768,6 +4780,86 @@ else
   no "88n no comment URL" "exit=$RC out=[$OUT]"
 fi
 
+# 88q — comment write exits 1 but LANDED (marker present on re-read) → unknown-outcome, counted once, exit 3.
+box88q="$(occ_box case-occ-failwrote '55|OPEN|a real delta row')"; : > "$box88q/bin/gh.commentfailwrote"
+run "$box88q" "$(mk_retro "$box88q" target-foo r.md "$PEND" "$OCC_ROW")" --apply
+if [ "$RC" = 3 ] && grep -q '^unknown-outcome: gh issue comment failed for row 1 (#55) but the marker is present on re-read' <<<"$OUT" \
+   && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'unknown-outcome=1' <<<"$OUT" \
+   && [ "$(grep -c '^gh issue comment' "$box88q/bin/gh.log")" = 1 ]; then
+  ok "88q failed comment whose marker is on re-read → unknown-outcome=1, exit 3, one attempt" "(exit $RC)"
+else
+  no "88q failed-but-landed comment" "exit=$RC out=[$OUT]"
+fi
+
+# 88r — comment write fails AND the re-read fails → row unknown + failed=1, NOT counted in unknown-outcome.
+box88r="$(occ_box case-occ-failreread '55|OPEN|a real delta row')"; : > "$box88r/bin/gh.commentfail"; echo 2 > "$box88r/bin/gh.viewfailafter"
+run "$box88r" "$(mk_retro "$box88r" target-foo r.md "$PEND" "$OCC_ROW")" --apply
+if [ "$RC" = 2 ] && grep -q '^ERROR: gh issue comment failed for row 1 (#55)' <<<"$OUT" \
+   && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'unknown-outcome=0' <<<"$OUT" && grep -q 'failed=1' <<<"$OUT" \
+   && ! grep -q '^unknown-outcome:' <<<"$OUT"; then
+  ok "88r failed comment + failed re-read → row unknown, failed=1, unknown-outcome=0" "(exit $RC)"
+else
+  no "88r failed comment, failed re-read" "exit=$RC out=[$OUT]"
+fi
+
+# 88s — comment returns a URL but the read-back VIEW fails → unknown-outcome (never confirmed).
+box88s="$(occ_box case-occ-readbackfail '55|OPEN|a real delta row')"; echo 2 > "$box88s/bin/gh.viewfailafter"
+run "$box88s" "$(mk_retro "$box88s" target-foo r.md "$PEND" "$OCC_ROW")" --apply
+if [ "$RC" = 3 ] && grep -q '^unknown-outcome: gh issue comment returned .* for row 1 (#55) but the read-back failed' <<<"$OUT" \
+   && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" && grep -q 'unknown-outcome=1' <<<"$OUT" \
+   && ! grep -q '^occurrence-commented:' <<<"$OUT"; then
+  ok "88s comment URL but read-back view fails → unknown-outcome, exit 3, not confirmed" "(exit $RC)"
+else
+  no "88s read-back failure" "exit=$RC out=[$OUT]"
+fi
+
+# 88t — search rate budget: ONE occurrence lookup per retro, however many rows (kit issue #1753). The pre-change
+# script made one `gh issue list --search` per untracked row (3 rows → 3 calls).
+box88t="$(occ_box case-occ-budget '55|OPEN|a real delta row')"
+OCC3="$OCC_ROW"$'\n''| 2 | second untracked delta | CLAUDE.md | B1 | fix | HIGH |'$'\n''| 3 | third untracked delta | CLAUDE.md | B1 | fix | HIGH |'
+run "$box88t" "$(mk_retro "$box88t" target-foo r.md "$PEND" "$OCC3")" --apply
+n88t="$(grep -c 'number,state,title' "$box88t/bin/gh.log")"
+if [ "$n88t" = 1 ] && grep -q '^occurrence-commented: #55 (row 1)$' <<<"$OUT" && [ "$(grep -c '^gh issue create' "$box88t/bin/gh.log")" = 2 ] \
+   && ! grep -q -- '--search' <<<"$(grep 'number,state,title' "$box88t/bin/gh.log")"; then
+  ok "88t three rows → one batched occurrence lookup (no per-row search), titles matched locally" "(lookups=$n88t)"
+else
+  no "88t lookup budget" "lookups=$n88t exit=$RC out=[$OUT] log=[$(cat "$box88t/bin/gh.log")]"
+fi
+
+# 88u — a failed batched lookup fails EVERY untracked row (typed, exit 2) with still ONE call and no create.
+box88u="$(occ_box case-occ-budgetfail)"; : > "$box88u/bin/gh.occfail"
+run "$box88u" "$(mk_retro "$box88u" target-foo r.md "$PEND" "$OCC3")" --apply
+if [ "$RC" = 2 ] && [ "$(grep -c 'number,state,title' "$box88u/bin/gh.log")" = 1 ] && ! grep -q '^gh issue create' "$box88u/bin/gh.log" \
+   && grep -q '^ERROR: gh issue list (occurrence lookup) failed for row 1' <<<"$OUT" && grep -q '^ERROR: gh issue list (occurrence lookup) failed for row 3' <<<"$OUT"; then
+  ok "88u failed batched lookup → every row failed (typed), one call, nothing created" "(exit $RC)"
+else
+  no "88u batched lookup failure" "exit=$RC out=[$OUT] log=[$(cat "$box88u/bin/gh.log")]"
+fi
+
+# 88v — two untracked rows with the SAME exact title in one retro: the first creates, the second must find that
+# just-created issue (cached list is appended after a confirmed create) and comment instead of duplicating (#1753).
+box88v="$(occ_box case-occ-samerun)"
+OCC2="| 1 | same delta twice | CLAUDE.md | B1 | fix | HIGH |"$'\n''| 2 | same delta twice | CLAUDE.md | B1 | fix | HIGH |'
+run "$box88v" "$(mk_retro "$box88v" target-foo r.md "$PEND" "$OCC2")" --apply
+if [ "$RC" = 0 ] && [ "$(grep -c '^gh issue create' "$box88v/bin/gh.log")" = 1 ] && [ "$(grep -c '^gh issue comment 99 ' "$box88v/bin/gh.log")" = 1 ] \
+   && [ "$(grep -c 'number,state,title' "$box88v/bin/gh.log")" = 1 ] && grep -q '^occurrence-commented: #99 (row 2)$' <<<"$OUT"; then
+  ok "88v same-title rows in one retro → one create + one occurrence comment, one lookup" "(exit $RC)"
+else
+  no "88v same-run duplicate" "exit=$RC out=[$OUT] log=[$(cat "$box88v/bin/gh.log")]"
+fi
+
+# 88x — a create with UNKNOWN outcome (exit 0, no URL) may have landed: the cache is invalidated, so the next
+# same-title row re-lists live, finds the landed issue and comments instead of creating a duplicate (#1753).
+box88x="$(mkbox case-occ-unkcreate)"; mk_gh_stub "$box88x" createnourl
+printf '[{"number":99,"state":"OPEN","title":"same delta twice"}]\n' > "$box88x/bin/gh.occ2"
+run "$box88x" "$(mk_retro "$box88x" target-foo r.md "$PEND" "$OCC2")" --apply
+if [ "$RC" = 3 ] && [ "$(grep -c '^gh issue create' "$box88x/bin/gh.log")" = 1 ] && [ "$(grep -c 'number,state,title' "$box88x/bin/gh.log")" = 2 ] \
+   && [ "$(grep -c '^gh issue comment 99 ' "$box88x/bin/gh.log")" = 1 ] && grep -q '^occurrence-commented: #99 (row 2)$' <<<"$OUT"; then
+  ok "88x unknown-outcome create → cache invalidated, same-title row re-lists and comments (no duplicate)" "(exit $RC)"
+else
+  no "88x unknown create cache" "exit=$RC out=[$OUT] log=[$(cat "$box88x/bin/gh.log")]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -4791,6 +4883,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       noend)     : > "$mb/bin/gh.occnoend" ;;
       emptyreply) : > "$mb/bin/gh.occ" ;;
       ghost)     : > "$mb/bin/gh.commentghost" ;;
+      failwrote) : > "$mb/bin/gh.commentfailwrote" ;;
+      failreread) : > "$mb/bin/gh.commentfail"; echo 2 > "$mb/bin/gh.viewfailafter" ;;
+      readbackfail) echo 2 > "$mb/bin/gh.viewfailafter" ;;
+      budgetfail) : > "$mb/bin/gh.occfail" ;;
+      unkcreate) mk_gh_stub "$mb" createnourl; printf '[{"number":99,"state":"OPEN","title":"same delta twice"}]\n' > "$mb/bin/gh.occ2" ;;
       nourl)     : > "$mb/bin/gh.commentnourl" ;;
       viewfail)  : > "$mb/bin/gh.viewfail" ;;
       lookupfail) : > "$mb/bin/gh.occfail" ;;
@@ -4800,6 +4897,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant_chain "T1708-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
       || { fail=$((fail+1)); return 1; }
     if [ "$sc" = "escapes" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" '| 1 | fix "quoted" <tag> here | CLAUDE.md | B1 | fix | HIGH |')"
+    elif [ "$sc" = "samerun" ] || [ "$sc" = "unkcreate" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC2")"
+    elif [ "$sc" = "budget" ] || [ "$sc" = "budgetfail" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC3")"
     else rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC_ROW")"; fi
     if [ "$sc" = "cap" ]; then
       OUT="$(STAGE_RETRO_ISSUES_LIST_LIMIT=1 PATH="$mb/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit "$BASH_BIN" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$rt" --apply 2>&1)"; RC=$?
@@ -4821,6 +4920,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       emptyreply) [ "$RC" != 2 ] && bite=1; why="an empty lookup reply was read as no-match" ;;
       cap)    [ "$RC" != 2 ] && bite=1; why="a lookup page that filled --limit was trusted" ;;
       ghost)  [ "$RC" = 0 ] && bite=1; why="a comment with no marker on read-back was reported confirmed" ;;
+      failwrote) [ "$RC" != 3 ] && bite=1; why="a failed comment whose marker landed was not reported unknown-outcome" ;;
+      failreread) grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" || bite=1; why="a failed comment with an unreadable re-read was not row-unknown" ;;
+      readbackfail) grep -q 'but the read-back failed' <<<"$OUT" || bite=1; why="a failed read-back view was not reported as a read-back failure" ;;
+      unkcreate) [ "$(grep -c '^gh issue create' "$mb/bin/gh.log")" = 2 ] && bite=1; why="a same-title row after an unknown-outcome create used the stale cache and created a duplicate" ;;
+      samerun) [ "$(grep -c '^gh issue create' "$mb/bin/gh.log")" = 2 ] && bite=1; why="a same-title row in one retro created a duplicate instead of commenting" ;;
+      budget) [ "$(grep -c 'number,state,title' "$mb/bin/gh.log")" != 1 ] && bite=1; why="the occurrence lookup ran more than once per retro" ;;
+      budgetfail) [ "$(grep -c 'number,state,title' "$mb/bin/gh.log")" != 1 ] && bite=1; why="a failed lookup was retried per row" ;;
       nourl)  [ "$RC" != 3 ] && bite=1; why="a comment without a URL was not unknown" ;;
       scrub)  grep -q 'carries this exact delta' "$mb/bin/gh.comments.55" && bite=1; why="the comment body was written unscrubbed" ;;
       markerscrub) grep -q '^gh issue comment' "$mb/bin/gh.log" && bite=1; why="a comment was posted although the scrub altered the marker" ;;
@@ -4842,7 +4948,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tocc repo-comment-off  repocomment 's/gh issue comment "\$_n" --repo "\$KIT_ISSUE_REPO" --body/gh issue comment "$_n" --body/'
   tocc row-unknown-outranks mixedunk 's/^      if \[ "\$_occ_row_unknown" -eq 1 \]; then _row_unknown "\$_rid"$/      if false; then _row_unknown "$_rid"/'
   tocc open-only-off     closed 's/state == "OPEN" && //'
-  tocc parse-guard-off   noend 's/^    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row \$2: \$_o" >&2; return 2$/    :/' 's/^  if \[ -z "\$_total" \]; then$/  if false; then/'
+  tocc parse-guard-off   noend 's/^    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be parsed for row @ROW@: \$_o"; return 0$/    :/' 's/^  if \[ -z "\$_total" \]; then$/  if false; then/' 's/^    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row \$2" >\&2; return 2$/    :/'
+  tocc unknown-on-landed-off failwrote 's/^    if \[ "\$_rb2rc" -eq 0 \] && grep -qxF -- "\$_mk" <<<"\$_rb2"; then$/    if false; then/'
+  tocc unknown-on-reread-off failreread 's/^    if \[ "\$_rb2rc" -ne 0 \]; then _occ_row_unknown=1; fi$/    :/'
+  tocc readback-rc-off   readbackfail 's/^  if \[ "\$_rb2rc" -ne 0 \]; then$/  if false; then/'
+  tocc cache-invalidate-off unkcreate 's/^  _occ_cache_state=""   # STAGE_RETRO_ISSUES_OCC_CACHE_INVALIDATE$/  :/'
+  tocc cache-add-off     samerun 's/^      _occ_cache_add "\$_issue_num" "\$_title"   # STAGE_RETRO_ISSUES_OCC_CACHE_ADD$/      :/'
+  tocc batch-cache-off   budget 's/^  \[ -z "\$_occ_cache_state" \] \&\& _occ_fetch$/  _occ_fetch/'
+  tocc fail-cache-off    budgetfail 's/^  _occ_cache_state="failed"$/  _occ_cache_state=""/'
   tocc array-guard-off   emptyreply 's/^  if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_o"; then$/  if false; then/'
   tocc cap-guard-off     cap   's/^  if \[ "\$_total" -ge "\$_LIST_LIMIT" \]; then$/  if false; then/'
   tocc readback-off      ghost 's/^  if ! grep -qxF -- "\$_mk" <<<"\$_rb2"; then$/  if false; then/'

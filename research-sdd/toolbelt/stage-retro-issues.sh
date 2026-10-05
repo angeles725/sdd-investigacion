@@ -957,7 +957,12 @@ _scrub_refuse() {
 # `unknown` (a write may have happened and is unproven — NEVER retried; counted in mutation-summary unknown=).
 mutation_unknown=0; mutation_confirmed=0; mutation_nowrite=0
 _row_nowrite() { mutation_nowrite=$((mutation_nowrite+1)); echo "mutation_outcome: no_write (row $1)"; }
-_row_unknown() { mutation_unknown=$((mutation_unknown+1)); echo "mutation_outcome: unknown (row $1)"; }
+# An unknown outcome may have landed a new issue the cached occurrence list (see _occ_fetch) cannot contain, so
+# the cache is invalidated: the next row re-runs the lookup live (kit issue #1753; one extra list call, only here).
+_row_unknown() {
+  mutation_unknown=$((mutation_unknown+1)); echo "mutation_outcome: unknown (row $1)"
+  _occ_cache_state=""   # STAGE_RETRO_ISSUES_OCC_CACHE_INVALIDATE
+}
 
 # STAGE_RETRO_ISSUES_MIN_TITLE (kit issue #1260 / #1492): a title shorter than this many characters is
 # a mis-read cell, never a delta summary. Measured 2026-10-03: the fleet minimum planned title is 19
@@ -1042,35 +1047,67 @@ _recheck_exists() {
 occurrence_commented=0; occurrence_present=0
 _occ_nums=""
 
-# _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
-# equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR already
-# printed). A failed call, a reply that is not a parseable JSON array, or a page that fills the --limit is a
-# failed lookup, never "no match" (anti-silent-zero §7).
+# _occ_fetch: the ONE occurrence lookup per retro (kit issue #1753). The pre-change script ran one
+# `gh issue list --search` per untracked row, which hits GitHub's search secondary rate limit (~30 req/min) on a
+# large retro. This lists the OPEN issues carrying the target label ONCE (no --search, so it is not a search call)
+# and caches the reply; _occ_find then matches exact titles locally through _json_issue_scan. A failed call, a reply
+# that is not a parseable JSON array, or a page that fills the --limit is a failed lookup (anti-silent-zero §7): the
+# typed ERROR is cached with an @ROW@ placeholder and replayed for every row, never "no match".
 # STAGE_RETRO_ISSUES_OCC_LOOKUP: anchor for the occurrence-lookup teeth.
-_occ_find() {
-  local _o _rc _m _total _q
-  _occ_nums=""
-  _q="${1//\"/ }"
+_occ_cache_state=""   # "" = not fetched yet; ok | failed
+_occ_cache_reply=""; _occ_cache_msg=""
+_occ_fetch() {
+  local _o _rc _m _total
+  _occ_cache_state="failed"
   _o="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open --label "target:${target_name}" \
-    --limit "$_LIST_LIMIT" --search "\"$_q\" in:title" --json number,state,title 2>&1)"; _rc=$?
+    --limit "$_LIST_LIMIT" --json number,state,title 2>&1)"; _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    echo "ERROR: gh issue list (occurrence lookup) failed for row $2: $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) failed for row @ROW@: $_o"; return 0
   fi
   if ! grep -q '^[[:space:]]*\[' <<<"$_o"; then
-    echo "ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row $2 (expected a JSON array): $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row @ROW@ (expected a JSON array): $_o"; return 0
   fi
-  _m="$(printf '%s' "$_o" | _json_issue_scan occ "$1")" || {
-    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2: $_o" >&2; return 2
+  _m="$(printf '%s' "$_o" | _json_issue_scan occ "")" || {
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be parsed for row @ROW@: $_o"; return 0
   }
-  _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
   _total="$(printf '%s\n' "$_m" | sed -n 's/^total=\([0-9][0-9]*\)$/\1/p' | head -n 1)"
   if [ -z "$_total" ]; then
-    echo "ERROR: gh issue list (occurrence lookup) reply could not be counted for row $2: $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be counted for row @ROW@: $_o"; return 0
   fi
   if [ "$_total" -ge "$_LIST_LIMIT" ]; then
-    echo "ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row $2 — the result may be truncated, refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
-    return 2
+    # Measured 2026-10-04 (open issues per target label): sdd-investigacion 10, niagara-research 14,
+    # niagara5-research 29 — far below the 1000 default, so no pagination is needed.
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row @ROW@ — this cap now covers ALL open issues of the target:${target_name} label (not one title search), so the result may be truncated; refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)"
+    return 0
   fi
+  _occ_cache_reply="$_o"; _occ_cache_state="ok"
+}
+
+# _occ_cache_add <number> <title>: after a CONFIRMED create, append the new issue to the cached list so a later
+# row of the same retro with the same exact title gets an occurrence comment instead of a duplicate create
+# (the pre-batch per-row lookup saw it; the cached list would not).
+_occ_cache_add() {
+  local _r="$_occ_cache_reply" _t="$2" _sep=","
+  _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"
+  _t="${_t//$'\n'/\\n}"; _t="${_t//$'\r'/\\r}"; _t="${_t//$'\t'/\\t}"
+  _r="${_r%"${_r##*[![:space:]]}"}"; _r="${_r%]}"
+  if [[ "$_r" =~ ^[[:space:]]*\[[[:space:]]*$ ]]; then _sep=""; fi
+  _occ_cache_reply="${_r}${_sep}{\"number\":$1,\"state\":\"OPEN\",\"title\":\"${_t}\"}]"
+}
+
+# _occ_find <title> <row-id> (an empty title never matches: _title is non-empty for every staged row): sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
+# equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR printed).
+_occ_find() {
+  local _m
+  _occ_nums=""
+  [ -z "$_occ_cache_state" ] && _occ_fetch
+  if [ "$_occ_cache_state" != "ok" ]; then
+    echo "${_occ_cache_msg//@ROW@/"$2"}" >&2; return 2
+  fi
+  _m="$(printf '%s' "$_occ_cache_reply" | _json_issue_scan occ "$1")" || {
+    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2" >&2; return 2
+  }
+  _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
   return 0
 }
 
@@ -1381,6 +1418,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
       fi
       echo "created: $_url (row $_rid)"
+      _occ_cache_add "$_issue_num" "$_title"   # STAGE_RETRO_ISSUES_OCC_CACHE_ADD
       created=$((created+1))
       mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
     else
