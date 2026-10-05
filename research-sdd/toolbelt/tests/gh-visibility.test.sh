@@ -39,6 +39,7 @@ mkbin() {
       printf 'echo "PROMPT=${GH_PROMPT_DISABLED-UNSET} REPO=${GH_REPO-UNSET} ARGS=$* PWD=$PWD" >> "%s/gh.log"\n' "$b"
       cat <<'EOF'
 [ -n "${GH_ERR:-}" ] && echo "$GH_ERR" >&2
+[ -n "${GH_IGNORE_TERM:-}" ] && { trap '' TERM; i=0; while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done; }
 [ -n "${GH_SLEEP:-}" ] && exec sleep "$GH_SLEEP"
 [ -n "${GH_OUT:-}" ] && echo "$GH_OUT"
 exit "${GH_RC:-0}"
@@ -125,6 +126,55 @@ c_dflt() { # LIB — a caller-set GHV_DEFAULT_BOUND (status: 10) is the default 
 }
 c_dflt "$LIB" && ok "11 GHV_DEFAULT_BOUND overrides the default (and the garbage fallback); RSDD_GH_TIMEOUT still wins" || no "11 caller default bound"
 
+# --- gh_bounded_run (kit issue #1841): the same bound for any other gh call, output passed through ------------
+# brun LIB BIN [args...] — run `gh_bounded_run gh <args...>` under the hermetic PATH; one result line, then the
+# passthrough output (stdout+stderr of gh) after "OUT:".
+brun() {
+  local lib="$1" bin="$2" of="$TMP/brun.out"; shift 2
+  PATH="$bin" "$BASH_BIN" -c '. "$1"; of="$2"; shift 2; gh_bounded_run gh "$@" >"$of" 2>&1; rc=$?; printf "rc=%s STATE=%s RC=%s BOUND=%s BY=%s BAD=%s\n" "$rc" "$GHV_STATE" "$GHV_RC" "$GHV_BOUND" "$GHV_BOUNDED_BY" "$GHV_BAD_TIMEOUT"; printf "OUT:"; cat "$of"' _ "$lib" "$of" "$@" 2>&1
+}
+c_run_ok() { # LIB — success: rc 0, STATE=OK, stdout/stderr pass through, GH_PROMPT_DISABLED=1, GH_REPO unset, argv intact
+  local lib="$1" r log; : > "$B_TO/gh.log"
+  r="$(GH_REPO=evil/x GH_PROMPT_DISABLED=0 GH_OUT=created GH_ERR=chatter brun "$lib" "$B_TO" repo create o/r --private)"; log="$(cat "$B_TO/gh.log")"
+  has "$r" "rc=0 STATE=OK RC=0 " && has "$r" "created" && has "$r" "chatter" \
+    && has "$log" "PROMPT=1 REPO=UNSET ARGS=repo create o/r --private "
+}
+c_run_ok "$LIB" && ok "12 gh_bounded_run: success passes output through, PROMPT=1, GH_REPO unset" || no "12 bounded-run success"
+c_run_err() { local r; r="$(GH_RC=3 GH_ERR='boom' brun "$1" "$B_TO" repo edit o/r)"; has "$r" "rc=3 STATE=GH_ERROR RC=3 " && has "$r" "boom"; }
+c_run_err "$LIB" && ok "13 gh_bounded_run: failing gh -> its exit code, STATE=GH_ERROR (not TIMEOUT)" || no "13 bounded-run error"
+c_run_miss() { local r; r="$(brun "$1" "$B_NOGH" repo edit o/r)"; has "$r" "rc=127 STATE=GH_MISSING "; }
+c_run_miss "$LIB" && ok "14 gh_bounded_run: gh missing -> rc 127, GH_MISSING" || no "14 bounded-run gh missing"
+c_run_slow() { # LIB BIN BY — a stalled gh with RSDD_GH_TIMEOUT=1 -> rc 124 STATE=TIMEOUT inside 15s, BY as named
+  local r t0=$SECONDS; r="$(GH_SLEEP=30 RSDD_GH_TIMEOUT=1 brun "$1" "$2" repo create o/r)"
+  [ $((SECONDS-t0)) -lt 15 ] && has "$r" "rc=124 STATE=TIMEOUT RC=124 BOUND=1 BY=$3 "
+}
+c_run_slow_to() { c_run_slow "$1" "$B_TO" timeout; }
+c_run_slow_wd() { c_run_slow "$1" "$B_NONE" watchdog; }
+if [ -z "$REAL_TO" ]; then no "15-17 need a real timeout binary on the host to build the hermetic PATHs"; else
+  c_run_slow_to "$LIB"                 && ok "15 gh_bounded_run: stalled gh + timeout -> TIMEOUT (BY=timeout)"          || no "15 bounded-run timeout"
+  c_run_slow "$LIB" "$B_GT" gtimeout   && ok "16 gh_bounded_run: stalled gh + only gtimeout -> TIMEOUT"                 || no "16 bounded-run gtimeout"
+  c_run_slow_wd "$LIB"                 && ok "17 gh_bounded_run: stalled gh + no timeout binary -> TIMEOUT via watchdog" || no "17 bounded-run watchdog"
+fi
+c_run_term() { # LIB BIN BY — a gh that IGNORES TERM is still cut off (KILL after the grace), well inside 15s
+  local r t0=$SECONDS; r="$(GH_IGNORE_TERM=1 RSDD_GH_TIMEOUT=1 brun "$1" "$2" repo create o/r)"
+  [ $((SECONDS-t0)) -lt 15 ] && has "$r" "rc=124 STATE=TIMEOUT RC=124 BOUND=1 BY=$3 "
+}
+c_run_term_to() { c_run_term "$1" "$B_TO" timeout; }
+c_run_term_wd() { c_run_term "$1" "$B_NONE" watchdog; }
+if [ -n "$REAL_TO" ]; then
+  c_run_term_to "$LIB" && ok "19 gh_bounded_run: TERM-ignoring gh + timeout -> KILLed after grace, TIMEOUT"   || no "19 bounded-run term-ignoring (timeout)"
+  c_run_term_wd "$LIB" && ok "20 gh_bounded_run: TERM-ignoring gh + watchdog -> KILLed after grace, TIMEOUT" || no "20 bounded-run term-ignoring (watchdog)"
+fi
+c_run_knob() { # LIB — GHV_BOUND_ENV/GHV_BOUND_DEFAULT: own knob, own default, same validation; RSDD_GH_TIMEOUT ignored
+  local lib="$1" r
+  r="$(unset MYB; GHV_BOUND_ENV=MYB GHV_BOUND_DEFAULT=60 RSDD_GH_TIMEOUT=3 GH_OUT=x brun "$lib" "$B_TO" repo create o/r)"; has "$r" "BOUND=60 " && has "$r" "BAD=0" || return 1
+  r="$(MYB=7 GHV_BOUND_ENV=MYB GHV_BOUND_DEFAULT=60 RSDD_GH_TIMEOUT=3 GH_OUT=x brun "$lib" "$B_TO" repo create o/r)"; has "$r" "BOUND=7 " && has "$r" "BAD=0" || return 1
+  r="$(MYB=abc GHV_BOUND_ENV=MYB GHV_BOUND_DEFAULT=60 GH_OUT=x brun "$lib" "$B_TO" repo create o/r)"; has "$r" "BOUND=60 " && has "$r" "BAD=1"
+}
+c_run_knob "$LIB" && ok "21 gh_bounded_run: GHV_BOUND_ENV / GHV_BOUND_DEFAULT select a separate validated knob" || no "21 bounded-run own knob"
+c_run_bad() { local r; r="$(RSDD_GH_TIMEOUT=abc GH_OUT=x brun "$1" "$B_TO" repo create o/r)"; has "$r" "rc=0 STATE=OK RC=0 BOUND=20 " && has "$r" "BAD=1"; }
+c_run_bad "$LIB" && ok "18 gh_bounded_run: garbage RSDD_GH_TIMEOUT -> default 20, BAD=1 (shared validation)" || no "18 bounded-run bad timeout"
+
 # ------------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -146,7 +196,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth dflt-ignored     c_dflt    's/dflt="\${GHV_DEFAULT_BOUND:-20}"/dflt=20/'
   tooth prompt-dropped   c_env     's/GH_PROMPT_DISABLED=1/GH_X_DISABLED=1/g'
   tooth ghrepo-kept      c_env     's/env -u GH_REPO /env /g'
+  tooth run-prompt-dropped c_run_ok  's/GH_PROMPT_DISABLED=1 "\$@"/GH_X_DISABLED=1 "$@"/;s/GH_PROMPT_DISABLED=1 "\$bounder"/GH_X_DISABLED=1 "$bounder"/'
+  tooth run-error-lost     c_run_err 's/elif \[ "\$rc" != 0 \]; then GHV_STATE=GH_ERROR$/elif false; then GHV_STATE=GH_ERROR/'
+  tooth run-missing-ok     c_run_miss 's/GHV_STATE=GH_MISSING; GHV_RC=127; return 127/GHV_STATE=GH_MISSING; GHV_RC=127; return 0/'
+  tooth run-ghrepo-kept    c_run_ok  's/env -u GH_REPO GH_PROMPT_DISABLED=1 "\$@"/env GH_PROMPT_DISABLED=1 "$@"/;s/env -u GH_REPO GH_PROMPT_DISABLED=1 "\$bounder"/env GH_PROMPT_DISABLED=1 "$bounder"/'
   if [ -n "$REAL_TO" ]; then
+    tooth run-timeout-state c_run_slow_to 's/if \[ "\$rc" = 124 \]; then GHV_STATE=TIMEOUT$/if false; then GHV_STATE=TIMEOUT/'
+    tooth run-watchdog-143  c_run_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124$/:/'
+    tooth run-watchdog-nokill c_run_slow_wd 's/wait "\$sp"; kill "\$1" 2>\/dev\/null$/wait "$sp"; :/;s/kill -KILL "\$1" 2>\/dev\/null/:/'
+    tooth run-no-kill-escalation c_run_term_wd 's/kill -KILL "\$1" 2>\/dev\/null/:/'
+    tooth run-no-k-flag      c_run_term_to 's/"\$bounder" -k 2 "\$t"/"$bounder" "$t"/'
+    tooth run-knob-ignored   c_run_knob 's/benv="\${GHV_BOUND_ENV:-RSDD_GH_TIMEOUT}"/benv=RSDD_GH_TIMEOUT/'
     tooth timeout-124-map  c_slow_to 's/\[ "\$rc" = 124 \]/[ "$rc" = 999 ]/'
     tooth gtimeout-gone    c_slow_gt 's/gtimeout/gtimeoutX/g'
     tooth watchdog-143     c_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124/:/'

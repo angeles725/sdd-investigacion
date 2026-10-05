@@ -24,6 +24,13 @@
 #      AFTER and guarded by this confirmed-private check.
 #   6. IDEMPOTENT — if `origin` already resolves, do nothing (never a duplicate repo).
 #
+# BOUNDS (kit issue #1841): `gh repo create`, `gh repo edit` and the visibility read-back are bounded and run with
+# GH_PROMPT_DISABLED=1; the earlier owner lookups (`gh api user`, `gh api users/<owner>`) are not bounded yet. The read-back and
+# `gh repo edit` use RSDD_GH_TIMEOUT (default 20 s); `gh repo create` uses its own RSDD_GH_CREATE_TIMEOUT (default 60 s).
+# Both take a positive integer of seconds; anything else falls back to the default with a note. A create TIMEOUT is a
+# typed DEGRADED + PARTIAL-STATE line (local origin set/absent, remote visibility) with the exact next step; with an
+# origin already added the normal verify-then-push guard adopts the repo, otherwise exit 7 (or 6 if it is not private).
+#
 # Usage: ensure-remote.sh <target-dir> [--yes] [--name <repo>]
 #   default repo name: research-<basename-of-target-dir>, slugified to [a-z0-9-].
 # Exit: 0 = remote present (created+pushed, or already existed) · 2 = bad args / not a git repo ·
@@ -173,17 +180,65 @@ fi
 
 # --- LAYER 1 + 5: create PRIVATE, then VERIFY visibility BEFORE ANY push -----------------------------
 echo ">> creating PRIVATE remote $owner/$repo"
-if ! gh repo create "$owner/$repo" --private --source "$target" --remote origin --disable-wiki; then
-  echo "REFUSED: gh repo create failed." >&2; exit 7
-fi
-
 # read_vis prints PUBLIC|PRIVATE|INTERNAL when decided, else UNKNOWN(<typed state>) — a stalled, failing or
 # unrecognised probe is NEVER PRIVATE (the guard below only passes on a literal PRIVATE).
 read_vis() { if gh_visibility_probe gh "$owner/$repo"; then printf '%s' "$GHV_STATE"; else printf 'UNKNOWN(%s)' "$GHV_STATE"; fi; }
+
+# `gh repo create` is bounded (kit issue #1841) by its OWN knob: RSDD_GH_CREATE_TIMEOUT seconds (a positive integer;
+# default 60, larger than the read-only visibility probe's RSDD_GH_TIMEOUT default of 20 because a create is a write
+# plus a remote add; anything else falls back to 60 with a note). GH_PROMPT_DISABLED=1 as for every bounded gh call.
+GHV_BOUND_ENV=RSDD_GH_CREATE_TIMEOUT GHV_BOUND_DEFAULT=60 gh_bounded_run gh repo create "$owner/$repo" --private --source "$target" --remote origin --disable-wiki
+create_rc=$?
+if [ "${GHV_BAD_TIMEOUT:-0}" = 1 ]; then echo "   note: RSDD_GH_CREATE_TIMEOUT='${RSDD_GH_CREATE_TIMEOUT-60}' is not a positive integer — using the default 60s" >&2; fi
+if [ "$create_rc" != 0 ]; then
+  if [ "$GHV_STATE" != TIMEOUT ]; then
+    echo "REFUSED: gh repo create failed." >&2; exit 7
+  fi
+  # A TIMEOUT leaves the outcome UNKNOWN: the repo may exist on GitHub and `--source --remote origin` may already have
+  # added the local origin. Observe both READ-ONLY, name the partial state, and never assume either way.
+  if cur_origin="$(git -C "$target" remote get-url origin 2>/dev/null)" && [ -n "$cur_origin" ]; then have_origin=configured; else have_origin=absent; fi
+  tvis="$(read_vis)"
+  echo "DEGRADED: gh repo create timed out after ${GHV_BOUND}s — PARTIAL-STATE local origin=$have_origin, remote $owner/$repo visibility=$tvis" >&2
+  case "$tvis" in
+    UNKNOWN*)
+      # Visibility could not be read: the repo may exist with ANY visibility. Never adopt it and never call a re-run safe.
+      # Remove the origin the create may have added so a re-run cannot short-circuit onto an unverified repo.
+      [ "$have_origin" = configured ] && git -C "$target" remote remove origin >/dev/null 2>&1
+      echo "   PARTIAL-STATE UNKNOWN: the repo $owner/$repo may exist with an unknown visibility; any local origin was removed; nothing pushed." >&2
+      echo "   Next: check https://github.com/$owner/$repo by hand (delete it, or set it private) BEFORE re-running ensure-remote.sh — a re-run is NOT safe until its visibility is known." >&2
+      exit 7 ;;
+  esac
+  if [ "$have_origin" = configured ]; then
+    # Adopt: fall through to the SAME create-then-verify guard below. It re-reads visibility, forces private once,
+    # hard-aborts (exit 6, origin removed, no push) unless the repo is confirmed PRIVATE, and only then pushes. A re-run
+    # after any abort starts clean (no origin left behind), so it can never short-circuit onto an unverified repo.
+    echo "   next: local origin is configured — verifying the existing remote below; it is pushed ONLY if confirmed PRIVATE." >&2
+  else
+    case "$tvis" in
+      PRIVATE)
+        echo "   the repo exists PRIVATE but no local origin was added. Nothing pushed. Next: git -C \"$target\" remote add origin https://github.com/$owner/$repo.git" >&2
+        echo "   and push it yourself (git push -u origin HEAD --no-follow-tags); re-running this script would fail on 'repo already exists'." >&2
+        exit 7 ;;
+      *)
+        echo "!! HARD ABORT: a non-private repo ($tvis) exists at https://github.com/$owner/$repo — DELETE IT MANUALLY" >&2
+        echo "   (this wrapper has NO delete_repo scope). Nothing pushed; no local origin was added." >&2
+        exit 6 ;;
+    esac
+  fi
+fi
+
 vis="$(read_vis)"
 if [ "$vis" != "PRIVATE" ]; then
   echo "   visibility read back as '$vis' — forcing --visibility private once" >&2
-  gh repo edit "$owner/$repo" --visibility private >/dev/null 2>&1 || true
+  # Bounded (kit issue #1841). The outcome is deliberately NOT trusted either way: a timed-out or failed edit is typed
+  # DEGRADED and the re-read below is the only authority on what the repo is now.
+  if ! gh_bounded_run gh repo edit "$owner/$repo" --visibility private >/dev/null 2>&1; then
+    if [ "$GHV_STATE" = TIMEOUT ]; then
+      echo "   DEGRADED: gh repo edit timed out after ${GHV_BOUND}s — outcome unknown, re-reading visibility" >&2
+    else
+      echo "   DEGRADED: gh repo edit failed (exit ${GHV_RC}) — re-reading visibility" >&2
+    fi
+  fi
   vis="$(read_vis)"
 fi
 if [ "$vis" != "PRIVATE" ]; then
