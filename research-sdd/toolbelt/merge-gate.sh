@@ -7,7 +7,7 @@
 # `review_due_reason=already_reviewed`), so this script re-implements none of that logic.
 #
 # Usage:
-#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]
+#   merge-gate.sh --cwd <repo|worktree> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>] [--no-closure-evidence]
 #
 # TRUST ASSUMPTION: a run without --pr/--merge is RANGE-ONLY. It trusts the caller's --base-ref and
 # --head and says so on its allow line; it does NOT prove the range is the whole PR. Use `--pr N`
@@ -23,6 +23,7 @@
 #   merge-gate: degraded: <why>                                                          exit 3
 #   merge-gate: usage: <why>                                                             exit 2
 #   merge-gate: merged: PR #N (head=<sha> cwd=<dir>)                                     exit 0
+#   merge-gate: closure-evidence: posted|not posted|none|skipped|degraded: ...           (after `merged:`; never changes the exit)
 #
 # A broken instrument NEVER allows (CLAUDE.md §7): missing git/jq/gentle-ai, a failing assess, an
 # unparseable or off-schema answer, an unknown not-due reason and an unreadable PR head are all
@@ -53,14 +54,24 @@
 # Same name from two different apps stays two checks.
 # DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
 # still need every PR Validation check green.
+# CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
+# each issue the PR closes (`Closes|Fixes|Resolves #M` in the PR body, at most 20) in the grammar
+# reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a `- commit: <merge sha>` line and one
+# `- test: <path>` line per test file the PR changed (research-sdd/**/tests/*.test.sh, from the paginated PR
+# files list, removed files excluded). reconcile-issues.sh trusts comments only from OWNER/MEMBER/COLLABORATOR
+# authors, so the comment must be posted from a maintainer's gh session. A PR that changes no such test file
+# posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only reads as borderline there.
+# The step can never fail the run: any gh failure after the merge prints `closure-evidence: degraded: ...`
+# and the exit stays 0. `--no-closure-evidence` opts out (`closure-evidence: skipped`). Without --merge no gh
+# call is made for this step (a default or --pr run is a pure check).
 # KNOWN GAP: legacy commit statuses (/status) are not read, only check runs.
 set -uo pipefail
 
 say() { printf 'merge-gate: %s\n' "$*"; }
-usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>]" >&2; exit 2; }
+usage() { say "usage: $*"; echo "usage: merge-gate.sh --cwd <dir> --base-ref <ref> [--head <sha>] [--pr <PR#> | --merge <PR#>] [--required-checks <a,b,...>] [--no-closure-evidence]" >&2; exit 2; }
 degraded() { say "degraded: $*"; exit 3; }
 
-cwd="" base="" want_head="" pr="" do_merge=""
+cwd="" base="" want_head="" pr="" do_merge="" no_evidence=""
 required="shellcheck,toolbelt-tests"
 [ -z "${MERGE_GATE_REQUIRED_CHECKS+x}" ] || required="$MERGE_GATE_REQUIRED_CHECKS"   # set-but-empty = opt-out
 while [ $# -gt 0 ]; do
@@ -70,6 +81,7 @@ while [ $# -gt 0 ]; do
     --base-ref) [ $# -ge 2 ] || usage "--base-ref needs a value"; base="$2"; shift 2 ;;
     --head) [ $# -ge 2 ] || usage "--head needs a value"; want_head="$2"; shift 2 ;;
     --merge) [ $# -ge 2 ] || usage "--merge needs a PR number"; pr="$2"; do_merge=1; shift 2 ;;
+    --no-closure-evidence) no_evidence=1; shift ;;
     --required-checks) [ $# -ge 2 ] || usage "--required-checks needs a value (use \"\" to opt out)"; required="$2"; shift 2 ;;
     *) usage "unknown argument: $1" ;;
   esac
@@ -212,4 +224,34 @@ if [ "$merge_rc" -ne 0 ]; then
   degraded "gh pr merge failed for PR #$pr${merge_line:+: $merge_line}"
 fi
 say "merged: PR #$pr (head=$head cwd=$cwd)"
+
+# Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
+closure_evidence() {
+  local ev="closure-evidence" pj msha body issues files tests n_tests tline issue text rc
+  if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
+  pj="$(ghr api "repos/{owner}/{repo}/pulls/$pr" 2>/dev/null)" || { say "$ev: degraded: cannot read merged PR #$pr (gh api failed)"; return 0; }
+  msha="$(printf '%s' "$pj" | jq -r '.merge_commit_sha // empty' 2>/dev/null)"
+  if ! [[ "$msha" =~ ^[0-9a-fA-F]{40}$ ]]; then say "$ev: degraded: PR #$pr has no usable 40-hex merge commit sha"; return 0; fi
+  body="$(printf '%s' "$pj" | jq -r '.body // empty' 2>/dev/null)" || { say "$ev: degraded: PR #$pr body is unparseable"; return 0; }
+  issues="$(printf '%s\n' "$body" | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? +#[0-9]+' | grep -oE '[0-9]+$' | sort -un | head -n 20)"
+  if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue (no Closes/Fixes/Resolves #N in its body)"; return 0; fi
+  files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
+  # --paginate prints one JSON array per page: slurp and require every page to be an array.
+  tests="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \
+    || { say "$ev: degraded: files of PR #$pr are unparseable or off-schema"; return 0; }
+  tests="$(printf '%s\n' "$tests" | grep -E '^research-sdd/(.+/)?tests/[^/]+\.test\.sh$' | sort -u | head -n 10)"
+  if [ -z "$tests" ]; then say "$ev: not posted: PR #$pr changes no test file (research-sdd/**/tests/*.test.sh); a commit without a test is not shipped evidence"; return 0; fi
+  n_tests="$(printf '%s\n' "$tests" | grep -c .)"
+  tline="$(printf '%s\n' "$tests" | sed 's/^/- test: /')"
+  text="Closure evidence (merge-gate, PR #$pr):
+- commit: $msha
+$tline"
+  for issue in $issues; do
+    ghr issue comment "$issue" --body "$text" >/dev/null 2>"$err_file"; rc=$?
+    if [ "$rc" -eq 0 ]; then say "$ev: posted: issue #$issue (commit=$msha tests=$n_tests)"
+    else say "$ev: degraded: could not comment on issue #$issue (gh exit $rc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200))"; fi
+  done
+  return 0
+}
+closure_evidence
 exit 0
