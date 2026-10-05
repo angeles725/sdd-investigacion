@@ -2040,16 +2040,25 @@ else
   saturation_line
 fi
 campaign_status_block
-# W6 (kit issue #1704): when a typed `degraded:` state is printed, name the registry that gives its one
-# continuation. Printed only then, so a clean report stays byte-identical. The registry path is NOT
-# resolved against the target (it lives in the kit's toolbelt, next to this script).
-_rv_out="$(remote_visibility_block)"
-if [ -n "$_rv_out" ]; then
-  printf '%s\n' "$_rv_out"
-  if grep -q '^degraded:[[:space:]]' <<<"$_rv_out"; then  # RC-FOOTER
-    echo "  reason codes    : each typed degraded state above has one continuation in $here/reason-codes.v1.md"
+# W6 (kit issue #1704): when remote_visibility_block prints a typed `degraded:` line, name the registry that
+# gives its one continuation. SCOPE: this footer covers the remote-visibility block ONLY; other blocks that
+# print a typed state are not covered. The block runs in the CURRENT shell (stdout redirected to a temp file,
+# then replayed byte-for-byte), never inside $(...), which would lose its variables and trailing newlines.
+# Printed only when a degraded line was emitted, so a clean report stays byte-identical. The registry lives in
+# the kit's toolbelt next to this script, not under the target.
+# RC-WIRE-BEGIN
+_rv_f="$(mktemp 2>/dev/null)" || _rv_f=""
+if [ -n "$_rv_f" ]; then
+  remote_visibility_block >"$_rv_f"
+  cat "$_rv_f"
+  if grep -q '^degraded:[[:space:]]' "$_rv_f"; then  # RC-FOOTER
+    echo "  reason codes    : each typed remote-visibility degraded state above has one continuation in $here/reason-codes.v1.md"
   fi
+  rm -f "$_rv_f"
+else
+  remote_visibility_block
 fi
+# RC-WIRE-END
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.

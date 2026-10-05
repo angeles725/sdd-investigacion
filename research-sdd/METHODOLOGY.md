@@ -972,7 +972,8 @@ prints a typed `degraded: ...` state, never a silent zero. `toolbelt/reason-code
 registry of those states: each code has exactly one runnable continuation, and
 `toolbelt/tests/reason-codes.test.sh` fails when an emitted code is unregistered, a listed emitter no
 longer emits it, or an emit line is in a form the extractor cannot read. `research-sdd-status.sh` names the
-registry in a footer line whenever it prints a `degraded:` state; look the code up there before improvising a fix.
+registry in a footer line whenever its remote-visibility block prints a `degraded:` line (that block only;
+other typed states are not covered by the footer); look the code up there before improvising a fix.
 
 ## 8. Stopping criterion
 

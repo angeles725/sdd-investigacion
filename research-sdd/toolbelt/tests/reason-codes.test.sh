@@ -10,7 +10,7 @@
 #   - an emitter that the row does not list                   -> FAIL (emitter mismatch)
 #   - a listed emitter that never emits that code             -> FAIL (stale emitter; kit issue #1725 item 1)
 #   - a non-comment line with `degraded: ` that is not a single-line echo/printf (continued line,
-#     heredoc, variable assignment, helper) -> FAIL (unclassifiable; the extractor cannot read it, so a
+#     heredoc, variable assignment, helper, trailing-comment or quoted-hash mention) -> FAIL (unclassifiable; the extractor cannot read it, so a
 #     clean result would be a silent zero; kit issue #1725 item 2)
 #   - a row with an empty / placeholder continuation          -> FAIL
 #   - malformed row, duplicate code, bad class, missing required input row -> FAIL
@@ -58,12 +58,12 @@ EXTRACT_AWK='
 }'
 
 # Lines the extractor cannot classify: non-comment lines carrying `degraded: ` that are not a single-line
-# echo/printf (a trailing ` #` comment before the token excludes the line). Output: LINENO:text.
+# echo/printf. ONLY a line that starts with a comment is excluded: a ` #` before the token (even inside a
+# quoted string, e.g. "see #2 degraded: x") is NOT a comment boundary here. Output: LINENO:text.
 UNCLASS_AWK='
 /^[[:space:]]*#/ {next}
 {
   p = index($0, "degraded: "); if (!p) next
-  c = index($0, " #"); if (c && c < p) next
   if ($0 ~ /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/) next
   print NR ":" $0
 }'
@@ -359,7 +359,10 @@ printf '\n%s' 'msg="degraded: via variable"' >> "$tmp/unc_assign/scripts/researc
 expect "assignment carrying degraded: is reported unclassifiable" 1 "$tmp/unc_assign/reg.md" "$tmp/unc_assign/scripts" 'unclassifiable degraded: line in research-sdd-init.sh:[0-9]+'
 mkfix unc_trailing
 printf '\n%s' 'x=1 # trailing note degraded: not an emit' >> "$tmp/unc_trailing/scripts/research-sdd-init.sh"
-expect "a trailing-comment mention is not unclassifiable" 0 "$tmp/unc_trailing/reg.md" "$tmp/unc_trailing/scripts"
+expect "a trailing-comment mention is reported (only whole-line comments are excluded)" 1 "$tmp/unc_trailing/reg.md" "$tmp/unc_trailing/scripts" 'unclassifiable degraded: line in research-sdd-init.sh:[0-9]+'
+mkfix unc_hash
+printf '\n%s' 'msg="see #2 degraded: via quoted hash"' >> "$tmp/unc_hash/scripts/research-sdd-init.sh"
+expect "a quoted ' #' before degraded: is reported unclassifiable (not read as a comment)" 1 "$tmp/unc_hash/reg.md" "$tmp/unc_hash/scripts" 'unclassifiable degraded: line in research-sdd-init.sh:[0-9]+'
 
 # --- 4. could-not-look is typed DEGRADED (rc 2), never clean ------------------------------------
 mkfix d_noreg
@@ -408,6 +411,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth reqinput     reqinput   1 0 '/# TOOTH-REQINPUT/s/finding /: /'
   tooth staleemit    stale_emit 1 0 '/# TOOTH-STALEEMIT/s/finding /: /'
   tooth unclass      unc_cont   1 0 '/# TOOTH-UNCLASS/s/finding /: /'
+  tooth unclass-hash unc_hash   1 0 '/^  p = index(\$0, "degraded: "); if (!p) next/a\
+  c = index($0, " #"); if (c \&\& c < p) next'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
   tooth comment-skip commented  0 1 '/# TOOTH-COMMENT/d'

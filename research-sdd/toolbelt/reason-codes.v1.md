@@ -31,7 +31,7 @@ The test checks both directions: every emitted code must be a registry row, and 
 row lists must really emit that code (a stale emitter fails). A non-comment line carrying `degraded: ` that
 is not a single-line `echo` / `printf` (a continued line, a heredoc body, an assignment, a helper that
 adds the prefix) is reported as unclassifiable and fails the test: the extractor cannot read it, so a
-clean result would be a silent zero. A ` #` trailing comment before the token excludes the line. The scan
+clean result would be a silent zero. Only a line that starts with a comment is excluded; a ` #` before the token (trailing comment, or inside a quoted string) is still reported. The scan
 is line-based; a `degraded: ` hidden in a string built across lines without that literal is invisible. Scanned scripts today:
 `research-sdd-status.sh`, `reconcile-issues.sh`, `stage-retro-issues.sh`, `research-sdd-init.sh`.
 
