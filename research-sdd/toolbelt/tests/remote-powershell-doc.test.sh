@@ -23,24 +23,49 @@ ok()  { echo "  PASS  $1"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $1"; fail=$((fail+1)); }
 chk() { if [ "$2" -eq 0 ]; then ok "$1"; else bad "$1"; fi; }   # chk LABEL RC
 
+has() { if [[ "$2" == *"$3"* ]]; then ok "$1"; else bad "$1"; fi; }   # has LABEL HAYSTACK NEEDLE
+
 # check_doc FILE — emits PASS/FAIL lines (and bumps the counters of the calling shell).
 check_doc() {
-  local f="$1" sec2
+  local f="$1" sec2 flat
   if grep -qF 'Single quotes inside the PowerShell source are now safe' "$f"; then
     bad "false 'now safe' sentence absent"; else ok "false 'now safe' sentence absent"; fi
   # SENTINEL-REMOTE-PS-LOCAL-QUOTING
   grep -qF '<!-- SENTINEL-REMOTE-PS-LOCAL-QUOTING -->' "$f"; chk "local-quoting sentinel present" $?
   sec2="$(sed -n '/^## 2\./,/^## 3\./p' "$f")"
-  [[ "$sec2" == *"<<'EOF'"* ]]; chk "section 2 prescribes the quoted-heredoc form" $?
-  [[ "${sec2,,}" == *"before encoding"* ]]; chk "section 2 says the break happens before encoding" $?
+  has "section 2 prescribes the quoted-heredoc form" "$sec2" "<<'EOF'"
+  has "section 2 says the break happens before encoding" "${sec2,,}" "before encoding"
   # SENTINEL-REMOTE-PS-NESTED-HOP
   grep -qF '<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->' "$f"; chk "nested-hop sentinel present" $?
   grep -qiE 'nested.*powershell -Command|powershell -Command.*nested' <<<"$sec2"; chk "section 2 names the nested powershell -Command hop" $?
-  grep -qiE 'nested -EncodedCommand|remote script file' <<<"$sec2"; chk "section 2 prescribes nested -EncodedCommand or a remote script file" $?
+  flat="$(tr '\n`' '  ' <<<"$sec2" | tr -s ' ')"   # join wrapped lines, drop markdown backticks
+  has "section 2 prescribes a nested -EncodedCommand" "${flat,,}" "nested -encodedcommand"
+  has "section 2 prescribes a remote script file" "${flat,,}" "remote script file"
+}
+
+# Behavioural demonstration quoted in the doc, run locally: bash + python3 UTF-16LE base64 + decode.
+# DEMO_MUTANT=1 (teeth only) feeds the heredoc case the damaged text, which must turn an assertion red.
+demo_quoting() {
+  local ps_bad ps_good dec_bad dec_good
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  SKIP  quoting demonstration: python3 absent (not a pass)"; return 0
+  fi
+  enc() { python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('utf-16-le')).decode())" "$1"; }
+  dec() { python3 -c "import sys,base64;print(base64.b64decode(sys.stdin.read()).decode('utf-16-le'),end='')"; }
+  ps_bad='Write-Output ((Get-Date).ToString('s'))'
+  ps_good=$(cat <<'EOF'
+Write-Output ((Get-Date).ToString('s'))
+EOF
+)
+  [ "${DEMO_MUTANT:-0}" = 1 ] && ps_good="$ps_bad"
+  dec_bad="$(enc "$ps_bad" | dec)"; dec_good="$(enc "$ps_good" | dec)"
+  [ "$dec_bad" = 'Write-Output ((Get-Date).ToString(s))' ]; chk "demo: single-quoted assignment drops inner quotes before encoding" $?
+  [ "$dec_good" = "Write-Output ((Get-Date).ToString('s'))" ]; chk "demo: quoted heredoc decodes intact" $?
 }
 
 echo "-- structural checks on REMOTE-POWERSHELL.md --"
 check_doc "$DOC"
+demo_quoting
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- prove-teeth: each mutant of the doc must make check_doc fail --"
@@ -59,7 +84,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth reintroduce-false-claim 's|^<!-- SENTINEL-REMOTE-PS-LOCAL-QUOTING -->$|Single quotes inside the PowerShell source are now safe.|'
   tooth drop-heredoc-form "s|<<'EOF'|<<EOF|g"
   tooth drop-nested-sentinel 's|^<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->$||'
-  tooth drop-nested-fix 's|[Nn]ested -EncodedCommand|nested form|g;s|remote script file|remote thing|g'
+  tooth drop-nested-encodedcommand 's|^`-EncodedCommand` (encode|`-EncodedCmd` (encode|'
+  tooth drop-remote-script-file 's|remote script file|remote thing|g'
+  out="$(DEMO_MUTANT=1 demo_quoting)"
+  if grep -q '^  FAIL  demo' <<<"$out"; then ok "tooth demo-damaged-heredoc bites"; else bad "tooth demo-damaged-heredoc: stayed green"; fi
 fi
 
 echo "RESULT: pass=$pass fail=$fail"
