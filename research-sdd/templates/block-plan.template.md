@@ -13,7 +13,8 @@ Block: `<block-file-stem>.md` · Gap: <one-line gap id/title, copied from RESEAR
 - Holds ONLY the sub-steps of THIS block. No other blocks, gaps, backlog, queue or "next" items.
 - Tick `[x]` only when the item's artifact is on disk. After a cut, a ticked item whose artifact is
   missing is unticked again; resume at the first unticked item.
-- Delete this file at the block's commit. It is never staged or committed.
+- Delete this file BEFORE staging the block's commit: delete the plan, then stage and commit. It is never staged or committed.
+- Stale plan: if the block is already committed (its commit is in `git log` or the block file is tracked), the plan is stale - delete it and resume from RESEARCH-STATE; never re-run its steps.
 - NO-COLLISION: RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration
   history and "what's next". This is not an ODD task document (`odd/tasks/*.md`, kit-maintenance only).
   The return-token gate and `research-sdd-status.sh --next` are unchanged and ignore this file.
@@ -31,5 +32,5 @@ Block: `<block-file-stem>.md` · Gap: <one-line gap id/title, copied from RESEAR
       Artifact: <path of the self-verify output / report>
 - [ ] S5 — Update catalog / index / state
       Artifact: CATALOG / INDEX / RESEARCH-STATE edits on disk
-- [ ] S6 — Commit, then delete this plan
-      Artifact: the commit; this file removed from the working tree
+- [ ] S6 — Delete this plan, then stage and commit
+      Artifact: this file removed from the working tree, then the commit

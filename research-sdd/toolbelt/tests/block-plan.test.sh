@@ -55,7 +55,16 @@ meth_ok() {  # METHODOLOGY §20 (non-HOT-CORE) paragraph: path, commit deletion,
   grep -q 'RESEARCH-STATE.md' <<<"$p" &&
   grep -q 'odd/tasks' <<<"$p" &&
   grep -qi 'return-token' <<<"$p" &&
-  grep -qi 'no checker' <<<"$p"
+  grep -qi 'no checker' <<<"$p" &&
+  grep -qi 'BEFORE staging' <<<"$p" &&
+  grep -qi 'stale' <<<"$p"
+}
+# delete-before-stage order in the template: S6 deletes first, no commit-then-delete wording anywhere
+tpl_order() {
+  grep -qi 'BEFORE staging' "$1" &&
+  grep -q 'Delete this plan, then stage and commit' "$1" &&
+  ! grep -qi 'commit, then delete' "$1" &&
+  grep -qi 'stale plan' "$1"
 }
 # the template Rules repeat the no-collision rule, ODD exclusion, return-token gate, no checker
 tpl_rules() {
@@ -72,7 +81,8 @@ loop_ok() { # each loop anchor paragraph names the plan; the close one says dele
     grep -q 'current-plan\.txt' <<<"$p" || return 1
   done
   p="$(para "$1" "BLOCK PLAN CLOSE")"
-  grep -qi 'delete' <<<"$p"
+  grep -qi 'delete' <<<"$p" && grep -qi 'BEFORE staging' <<<"$p" &&
+  grep -q 'STALE' <<<"$(para "$1" "BLOCK PLAN RESUME")"
 }
 readme_ok() { grep -q 'block-plan.template.md' "$1"; }
 
@@ -80,6 +90,7 @@ if tpl_sections "$TPL"; then ok "template has Rules and Sub-steps sections"; els
 if tpl_items "$TPL"; then ok "template has >=5 sub-step items, each with an Artifact: line"; else no "template sub-step items incomplete"; fi
 if tpl_header "$TPL"; then ok "template header states no checker yet and names RESEARCH-STATE.md"; else no "template header incomplete"; fi
 if meth_ok "$METH"; then ok "METHODOLOGY §20 names the plan, commit deletion, no-collision rule, no checker"; else no "METHODOLOGY §20 block-plan paragraph incomplete or absent"; fi
+if tpl_order "$TPL"; then ok "template says delete-before-stage and a stale-plan rule"; else no "template delete-before-stage/stale wording incomplete"; fi
 if tpl_rules "$TPL"; then ok "template Rules carry NO-COLLISION, ODD exclusion, return-token gate, no checker"; else no "template Rules incomplete"; fi
 if loop_ok "$LOOP"; then ok "PROMPT-LOOP names the plan at open, commit (delete) and RESUME"; else no "PROMPT-LOOP block-plan text incomplete or absent"; fi
 if readme_ok "$README"; then ok "templates/README.md lists the template"; else no "templates/README.md must list the template"; fi
@@ -99,7 +110,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if "$pred" "$out"; then no "tooth $label: predicate stayed green on mutant"; else ok "tooth $label: red on mutant"; fi
   }
   tooth "template drops Sub-steps heading" "$TPL" tpl_sections 's/^## Sub-steps/## Steps/'
-  tooth "template drops an Artifact line" "$TPL" tpl_items '0,/^ *Artifact:/{/^ *Artifact:/d}'
+  tooth "template drops an Artifact line" "$TPL" tpl_items '/S1 — Sweep/{n;d;}'
   tooth "template drops no-checker header" "$TPL" tpl_header 's/No checker script exists yet/A checker exists/'
   tooth "doctrine drops commit deletion" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/deleted at the block.s commit/kept/I'
   tooth "doctrine drops no-collision rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/NO-COLLISION/NOTE/'
@@ -108,6 +119,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "doctrine drops return-token clause" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/return-token/gate/I'
   tooth "template Rules drop ODD exclusion" "$TPL" tpl_rules 's#odd/tasks#other#'
   tooth "template Rules drop return-token clause" "$TPL" tpl_rules 's/return-token/gate/I'
+  tooth "template reverted to commit-then-delete" "$TPL" tpl_order 's/Delete this plan, then stage and commit/Commit, then delete this plan/'
+  tooth "doctrine drops delete-before-stage" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/BEFORE staging/after committing/'
+  tooth "doctrine drops stale-plan rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/stale/fresh/'
+  tooth "loop close drops delete-before-stage" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/BEFORE staging/after staging/'
+  tooth "loop resume drops stale rule" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/STALE/NOTE/'
   tooth "loop drops commit deletion" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/[Dd][Ee][Ll][Ee][Tt][Ee]/keep/g'
   tooth "loop drops RESUME plan mention" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/current-plan\.txt/x.txt/g'
   tooth "README drops template row" "$README" readme_ok 's/block-plan\.template\.md/x.md/g'

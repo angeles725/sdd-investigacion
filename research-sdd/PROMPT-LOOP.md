@@ -1581,7 +1581,7 @@ HARD RULES:
     before re-launching it — resume from real state (lesson: niagara B76/B122).
     See METHODOLOGY §17.
     BLOCK PLAN RESUME: if a `$TARGET/.research-sdd/plan/current-plan.txt` exists for the in-progress block, verify each ticked item's artifact exists
-    (a ticked item without its artifact is unticked again), then continue at its first unticked item (METHODOLOGY §20, "Block plan").
+    (a ticked item without its artifact is unticked again), then continue at its first unticked item. STALE: if the block is already committed (commit in `git log`, or the block file tracked), delete the plan and resume from RESEARCH-STATE.md — never re-run its steps (METHODOLOGY §20, "Block plan").
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the
