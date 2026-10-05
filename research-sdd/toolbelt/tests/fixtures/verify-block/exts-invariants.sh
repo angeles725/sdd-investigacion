@@ -4,7 +4,9 @@
 #   EXTS no-duplicates (N read)    | EXTS DUP: <entry>        (no entry appears twice)
 #   EXTS tlds-subset (N read)      | EXTS TLD-NOT-EXT: <entry> (every `_vb_tlds` entry is also in `_vb_file_exts`: the list
 #                                                               holds only the overlap)
-#   EXTS set-preserved             | EXTS SET-DIFF: <+/-entry> (the SET equals the expected set: the dedupe removed only
+#   EXTS tlds-complete (N overlap...) | EXTS TLD-MISSING: <entry> (every TLD of a frozen common-TLD list that is also an
+#                                                               extension is in `_vb_tlds`)
+#   EXTS set-preserved           | EXTS SET-DIFF: <+/-entry> (the SET equals the expected set: the dedupe removed only
 #                                                               duplicates and added nothing)
 #                                  | EXTS UNREADABLE-EXPECTED  (the expected-set fixture is missing/unreadable: could not run)
 #                                  | EXTS DIFF-ERROR           (diff itself failed, exit >= 2: could not run)
@@ -36,6 +38,24 @@ else
     echo "EXTS tlds-subset ($tcnt read)"
   else
     printf '%s' "$notext" | sed 's/^/EXTS TLD-NOT-EXT: /'
+  fi
+  # Other direction (kit #1742): every TLD of a FROZEN list of common TLDs that IS a known extension must be in
+  # `_vb_tlds`, so a future extension that doubles as a TLD cannot slip past P1721-TLD-GUARD. The list is deliberately
+  # short and frozen; extend it by hand (and `_vb_tlds` if the new TLD is also an extension), never derive it.
+  frozen_tlds='com net org io dev app ai co me tv cc pl md rs sh sc ml tf so us uk de fr es it nl ru ch'
+  missing=""; overlap=0
+  for t in $frozen_tlds; do
+    if grep -qxF "$t" <<<"$dump"; then
+      overlap=$((overlap+1))
+      if ! grep -qxF "$t" <<<"$tl"; then missing="$missing$t"$'\n'; fi
+    fi
+  done
+  if [ "$overlap" -lt 1 ]; then
+    echo "EXTS UNREADABLE (frozen TLD overlap=$overlap)"
+  elif [ -z "$missing" ]; then
+    echo "EXTS tlds-complete ($overlap overlap entries)"
+  else
+    printf '%s' "$missing" | sed 's/^/EXTS TLD-MISSING: /'
   fi
 fi
 if [ ! -f "$expected" ] || [ ! -r "$expected" ]; then echo "EXTS UNREADABLE-EXPECTED ($expected)"; exit 0; fi

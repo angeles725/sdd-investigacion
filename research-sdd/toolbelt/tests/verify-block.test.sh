@@ -1570,8 +1570,9 @@ _vb_ex="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
 { grep -q '^EXTS no-duplicates' <<<"$_vb_ex" && grep -q '^EXTS set-preserved$' <<<"$_vb_ex" && ! grep -qE '^EXTS (DUP|SET-DIFF|UNREADABLE)' <<<"$_vb_ex"; } \
   && ok "#1721 GOOD: _vb_file_exts has no duplicates and its set equals the expected set" || no "#1721 _vb_file_exts invariants (intentional extension change? update tests/fixtures/verify-block/exts-expected-set.txt) :: $(tr '\n' ' ' <<<"$_vb_ex")"
 # kit #1742 (item 3): `_vb_tlds` holds only the overlap with `_vb_file_exts` (the sole thing P1721-TLD-GUARD reads it for)
-{ grep -q '^EXTS tlds-subset' <<<"$_vb_ex" && ! grep -q '^EXTS TLD-NOT-EXT' <<<"$_vb_ex"; } \
-  && ok "#1742 GOOD: every _vb_tlds entry is also a _vb_file_exts entry (overlap only)" || no "#1742 _vb_tlds drift :: $(tr '\n' ' ' <<<"$_vb_ex")"
+{ grep -q '^EXTS tlds-subset' <<<"$_vb_ex" && ! grep -q '^EXTS TLD-NOT-EXT' <<<"$_vb_ex" \
+  && grep -q '^EXTS tlds-complete' <<<"$_vb_ex" && ! grep -qE '^EXTS (TLD-MISSING|UNREADABLE|GREP-ERROR)' <<<"$_vb_ex"; } \
+  && ok "#1742 GOOD: _vb_tlds is exactly the overlap with _vb_file_exts (subset, and complete for the frozen TLD list)" || no "#1742 _vb_tlds drift :: $(tr '\n' ' ' <<<"$_vb_ex")"
 # kit #1742 (item 1): the set-preserved check must FAIL CLOSED (typed, never a pass) when the expected-set fixture is
 # missing or `diff` itself cannot run (exit 2, empty stdout) — could-not-run is not a pass (CLAUDE.md §7).
 _vb_ex2="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT" "$TMP/no-such-expected-set.txt")"
@@ -2209,12 +2210,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth "teeth-1742-tlds" 0 0 "$MUT/np28.sh" --good-has 'EXTS tlds-subset' --good-lacks 'TLD-NOT-EXT' \
       --bad-has 'EXTS TLD-NOT-EXT: so' --bad-lacks 'EXTS tlds-subset' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
   else fail=$((fail+1)); fi
+  # kit #1742 (round 2): the reverse direction — an overlap entry (`tf`) removed from _vb_tlds is reported as missing
+  if mutant_chain "teeth-1742-tlds-complete" "$SUT" "$MUT/np31.sh" '/^_vb_tlds=/,/^cc/{/^tf$/d}'; then
+    tooth "teeth-1742-tlds-complete" 0 0 "$MUT/np31.sh" --good-has 'EXTS tlds-complete' --good-lacks 'TLD-MISSING' \
+      --bad-has 'EXTS TLD-MISSING: tf' --bad-lacks 'EXTS tlds-complete' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
+  else fail=$((fail+1)); fi
   # kit #1742 (item 1): the set-preserved check fails closed. The mutants are of the FIXTURE (--orig), run against the
   # real SUT: without the existence test a missing expected set is no longer UNREADABLE-EXPECTED; without the diff
   # status test a diff that exits 2 with empty stdout reads `set-preserved` again (the original fail-open).
   if mutant_chain "teeth-1742-exp-exists" "$_vb_fx" "$MUT/fx1.sh" 's/if \[ ! -f "\$expected" \] || \[ ! -r "\$expected" \]; then/if false; then/'; then
     tooth "teeth-1742-exp-exists" 0 0 "$MUT/fx1.sh" --orig "$_vb_fx" --good-has 'EXTS UNREADABLE-EXPECTED' --good-lacks 'set-preserved' \
-      --bad-lacks 'EXTS UNREADABLE-EXPECTED' --bad-has 'EXTS (DIFF-ERROR|set-preserved)' -- bash @SUT@ "$SUT" "$TMP/no-such-expected-set.txt"
+      --bad-lacks 'EXTS UNREADABLE-EXPECTED' --bad-has 'EXTS DIFF-ERROR' --bad-lacks 'EXTS set-preserved' -- bash @SUT@ "$SUT" "$TMP/no-such-expected-set.txt"
   else fail=$((fail+1)); fi
   if mutant_chain "teeth-1742-diff-rc" "$_vb_fx" "$MUT/fx2.sh" 's/if \[ "\$drc" -ge 2 \]; then/if false; then/'; then
     tooth "teeth-1742-diff-rc" 0 0 "$MUT/fx2.sh" --orig "$_vb_fx" --good-has 'EXTS DIFF-ERROR' --good-lacks 'set-preserved' \
