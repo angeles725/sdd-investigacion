@@ -8,7 +8,8 @@
 # Env: RSJ_SUT=<path>        run against another copy of the script (used to execute RED against the
 #                            pre-change SUT); default is ../resume-state.sh.
 #      The golden is FROZEN from the pre-change script, never from the SUT under test. Re-record with:
-#        git show origin/main:research-sdd/toolbelt/resume-state.sh > /tmp/rs-main.sh   (a build WITHOUT --json)
+#        git show 3b1e6c6bc408537969428563f903416a5e137314:research-sdd/toolbelt/resume-state.sh > /tmp/rs-main.sh
+#        (the fixed pre-change commit, a build WITHOUT --json; origin/main gains --json once this merges)
 #        RSJ_SUT=/tmp/rs-main.sh RSJ_REGEN_GOLDEN=1 bash resume-state-json.test.sh
 #
 # Usage: resume-state-json.test.sh [--prove-teeth]
