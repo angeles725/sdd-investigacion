@@ -29,6 +29,8 @@
 #                 regular files of a rendered profile) and compare it with the bundle digest the last
 #                 successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
 #                 ONE typed line per harness and writes NOTHING (no temp files, no state):
+#                 The comparison set is the recorded members PLUS the kit's CURRENT agent definitions (#1761), so a
+#                 pre-#1714 record shows undeployed agents as drift (missing), never match.
 #                   verify harness=<h> status=match bundle_sha256=<hex> files=<n>
 #                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
 #                   verify harness=<h> status=absent (not installed)
@@ -753,12 +755,24 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=bundle record corrupt (bundle_sha256 does not match its own file lines)\n' "$h"
     return 2
   fi
-  if ! _rsdd_agent_names "$h" >/dev/null; then
+  local kit_agents rec_paths cur_set an
+  if ! kit_agents="$(_rsdd_agent_names "$h")"; then
     printf 'verify harness=%s status=degraded reason=the kit has no readable agent definitions to compare against (%s)\n' "$h" "$KIT/$(rsdd_field "$h" agents_src_relkit)"
     return 2
   fi
   mrc=0
-  cur_manifest="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}' | _rsdd_manifest "$root" "$profile")" || mrc=$?
+  # Comparison set = recorded members UNION the kit's CURRENT agent set (kit issue #1761): a record written
+  # before #1714 has no agents/ members, and comparing only against it would call a bundle with no
+  # deployed agent definitions a match. An unrecorded kit agent hashes MISSING (or is "extra" if present).
+  rec_paths="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}')"
+  cur_set="$(
+    printf '%s\n' "$rec_paths"
+    while IFS= read -r an; do
+      [ -z "$an" ] || printf 'agents/%s\n' "$an"
+    done <<<"$kit_agents"
+  )"
+  cur_set="$(printf '%s\n' "$cur_set" | LC_ALL=C awk 'NF && !seen[$0]++')"
+  cur_manifest="$(printf '%s\n' "$cur_set" | _rsdd_manifest "$root" "$profile")" || mrc=$?
   if [ "$mrc" = 3 ]; then
     printf 'verify harness=%s status=degraded reason=the rendered profile dir could not be traversed\n' "$h"
     return 2
@@ -780,7 +794,7 @@ _rsdd_verify_one() {
     { cur[$2]=$1 }
     END {
       for (p in rec) { if (!(p in cur) || cur[p]=="MISSING") print p " (missing)"; else if (cur[p]!=rec[p]) print p " (modified)" }
-      for (p in cur) if (!(p in rec) && cur[p]!="MISSING") print p " (extra)"
+      for (p in cur) if (!(p in rec)) print p (cur[p]=="MISSING" ? " (missing)" : " (extra)")
     }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort | paste -sd, -)"
   if [ -z "$drift_names" ]; then
     printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
