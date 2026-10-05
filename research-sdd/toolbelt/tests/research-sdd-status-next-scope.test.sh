@@ -47,12 +47,14 @@ fxB="$TMP/B"; mkdir -p "$fxB"; mk_state "$fxB/RESEARCH-STATE.md" pending 1 root;
 # Fixture C (RETRO-DUE scope): both files have work, only the FOCUS file is past the retro threshold (11 > 10).
 fxC="$TMP/C"; mkdir -p "$fxC"; mk_state "$fxC/RESEARCH-STATE.md" pending 1 root; mk_state "$fxC/RESEARCH-STATE-act.md" pending 1 act 11
 
+STOP_LINE="STOP | read-only-investigable exhausted (0)"
+
 # nx SUT FIXTURE ARGS... -> the single --next verdict line (stdout only; stderr dropped)
 nx() { local s="$1" f="$2"; shift 2; bash "$s" "$f" --next "$@" 2>/dev/null | head -1; }
 want_next() { # LABEL GOT GAPNAME — GOT must be the NEXT line naming exactly that gap
   if [ "$2" = "NEXT | high | the $3 gap" ]; then ok "$1 -> NEXT the $3 gap"; else no "$1: want [NEXT | high | the $3 gap], got [$2]"; fi; }
-want_not_next() { # LABEL GOT — a verdict, but not a NEXT (the picked file has nothing to do)
-  case "$2" in NEXT*) no "$1: scoped to an exhausted file yet reported [$2]" ;; ?*) ok "$1 -> non-NEXT verdict [$2]" ;; *) no "$1: empty output (silent zero)" ;; esac; }
+want_stop() { # LABEL GOT — the picked file is exhausted: exactly the STOP verdict, nothing else
+  if [ "$2" = "$STOP_LINE" ]; then ok "$1 -> $STOP_LINE"; else no "$1: want [$STOP_LINE], got [$2]"; fi; }
 
 # 0. fixture guard: both files are really picked by their flag (else every case below is vacuous)
 [ "$(bash "$SUT" "$fxA" --root 2>/dev/null | sed -n 's/^  pending backlog : //p')" = "high=0 medium=0 low=0" ] \
@@ -64,11 +66,11 @@ want_not_next() { # LABEL GOT — a verdict, but not a NEXT (the picked file has
 want_next "1a no flag, root exhausted" "$(nx "$SUT" "$fxA")" act
 want_next "1b no flag, focus exhausted" "$(nx "$SUT" "$fxB")" root
 # 2. --root: scoped to the root file
-want_not_next "2a --root, root exhausted (focus has work)" "$(nx "$SUT" "$fxA" --root)"
+want_stop "2a --root, root exhausted (focus has work)" "$(nx "$SUT" "$fxA" --root)"
 want_next "2b --root, root has work" "$(nx "$SUT" "$fxB" --root)" root
 # 3. --focus act: scoped to that focus (behaviour before #1837, pinned so a regression cannot slip through)
 want_next "3a --focus act, focus has work" "$(nx "$SUT" "$fxA" --focus act)" act
-want_not_next "3b --focus act, focus exhausted (root has work)" "$(nx "$SUT" "$fxB" --focus act)"
+want_stop "3b --focus act, focus exhausted (root has work)" "$(nx "$SUT" "$fxB" --focus act)"
 # 4. --all: explicit corpus-wide form == the aggregate
 want_next "4a --all, root exhausted" "$(nx "$SUT" "$fxA" --all)" act
 want_next "4b --all, focus exhausted" "$(nx "$SUT" "$fxB" --all)" root
@@ -100,9 +102,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # C: the scoped predicate is always true -> the no-flag aggregate is lost -> case 1a goes red
   if mutate C 's/^  _ns_scoped=0  # NEXT-SCOPE-DEFAULT$/  _ns_scoped=1  # NEXT-SCOPE-DEFAULT/'; then
     case "$(nx "$MUT" "$fxA")" in NEXT*) no "teeth C: mutant still aggregates — THEATER" ;; *) ok "teeth C: aggregate lost for the no-flag form -> case 1a has teeth" ;; esac; fi
-  # D: --all behaves as --root -> case 4a goes red (the explicit corpus-wide form must stay corpus-wide)
-  if mutate D 's/^    --all) all_flag=1; shift ;;$/    --all) all_flag=1; root_flag=1; shift ;;/'; then
-    case "$(nx "$MUT" "$fxA" --all)" in "NEXT | high | the act gap") no "teeth D: mutant still corpus-wide — THEATER" ;; *) ok "teeth D: --all scoped to the root -> case 4a has teeth" ;; esac; fi
+  # D: --all behaves as --root (the mutant keeps exit 0: all_flag cleared, so the --all/--root exclusion never fires).
+  #    Fixture A gives DIFFERENT verdicts for the two: real --all -> NEXT the act gap, --root -> STOP. The mutant must
+  #    print exactly the --root verdict, so a crash or empty output cannot pass for a bite -> case 4a goes red.
+  if mutate D 's/^    --all) all_flag=1; shift ;;$/    --all) all_flag=0; root_flag=1; shift ;;/'; then
+    got="$(nx "$MUT" "$fxA" --all)"
+    [ "$(nx "$SUT" "$fxA" --all)" != "$(nx "$SUT" "$fxA" --root)" ] || no "teeth D: fixture A gives --all and --root the same verdict - vacuous"
+    if [ "$got" = "$STOP_LINE" ]; then ok "teeth D: --all scoped to the root -> exactly the --root verdict -> case 4a has teeth"
+    else no "teeth D: want the --root verdict [$STOP_LINE], got [$got] - THEATER or crashed mutant"; fi; fi
   # E: the RETRO-DUE check ignores the scope and walks every state file -> case 5b goes red
   if mutate E 's/^  if \[ "\$_ns_scoped" = 1 \]; then$/  if false; then/'; then
     case "$(nx "$MUT" "$fxC" --root)" in "RETRO-DUE |"*) ok "teeth E: RETRO-DUE scope dropped -> case 5b has teeth" ;; *) no "teeth E: mutant stayed scoped — THEATER" ;; esac; fi
