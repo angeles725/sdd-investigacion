@@ -2386,6 +2386,24 @@ if command -v git >/dev/null 2>&1 && [ -d "$KCL/.git" ]; then
   [[ "$KLINE" == "verify kit status=degraded reason=git not found"* ]] && ok "K10: git absent → typed degraded naming git" || no "K10: expected degraded git-not-found; line=[$KLINE]"
   # --help documents the kit line.
   grep -q 'verify kit status=behind' <<<"$(bash "$SUT" --help 2>&1)" && ok "K11: --help documents the kit staleness line" || no "K11: --help lacks the kit line"
+  # K12 — a kit dir nested inside an UNRELATED enclosing repo must not report that repo's status.
+  mkdir -p "$KCL/a/b/research-sdd"; _krun "$KCL/a/b/research-sdd"
+  [[ "$KLINE" == "verify kit status=degraded reason=not the kit checkout root"* ]] && ok "K12: kit dir nested in an unrelated enclosing repo → degraded 'not the kit checkout root' (not that repo's status)" \
+    || no "K12: nested kit dir took the enclosing repo's status; line=[$KLINE]"
+  # K13 — the standard layout (<repo>/research-sdd) is accepted.
+  mkdir -p "$KCL/research-sdd"; _krun "$KCL/research-sdd"
+  [[ "$KLINE" == *"status=behind"* ]] && ok "K13: kit at <repo>/research-sdd resolves to that repo's status" || no "K13: <repo>/research-sdd layout rejected; line=[$KLINE]"
+  # K14 — production default: RESEARCH_SDD_KIT_DIR UNSET, the installer run from inside a real checkout fixture
+  # (<repo>/research-sdd/install/…), so $KIT is what resolves the kit dir.
+  KUP2="$TMP/kv-up2"; KDF="$TMP/kv-default"
+  mkdir -p "$KUP2/research-sdd"; cp -R "$KITROOT/install" "$KUP2/research-sdd/install"; _kg init -q -b main "$KUP2" >/dev/null 2>&1
+  _kg -C "$KUP2" add -A >/dev/null 2>&1; _kg -C "$KUP2" commit -q -m base >/dev/null 2>&1
+  _kg clone -q "$KUP2" "$KDF" >/dev/null 2>&1; _kc "$KUP2" tip; _kg -C "$KDF" fetch -q >/dev/null 2>&1
+  _kdef() { VOUT="$(env -u RESEARCH_SDD_KIT_DIR "$(command -v bash)" "$KDF/research-sdd/install/research-sdd-install.sh" --verify --home "$TMP/kv-home" --harness claude 2>&1)"; VRC=$?
+            KLINE="$(awk 'index($0,"verify kit ")==1' <<<"$VOUT")"; }
+  _kdef
+  [[ "$KLINE" == "verify kit status=behind ref=origin/main behind=1 "* ]] && [ "$VRC" = 0 ] && ok "K14: production default (no RESEARCH_SDD_KIT_DIR) resolves \$KIT to the real checkout and reports behind=1" \
+    || no "K14: default \$KIT resolution failed; rc=$VRC line=[$KLINE] out=[$VOUT]"
 else
   no "K0: git or fixture clone unavailable — kit staleness tests could not run (typed, not skipped)"
 fi
@@ -2403,6 +2421,13 @@ if [ "${1:-}" = "--prove-teeth" ] && [ -d "$KCL/.git" ]; then
     && _vtt "teeth: an implicit fetch sneaks in → the unfetched upstream commit becomes visible (network side effect)" 0 0 "$MKI/k-t4.sh" --good-has 'verify kit status=current' --bad-has 'verify kit status=behind' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL4" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
   _vmk "teeth: K-T5 kit line not called" "$SUT" "$MKI/k-t5.sh" 's/_rsdd_verify_kit  # SENTINEL-VERIFY-KIT/:/' \
     && _vtt "teeth: kit check never called → --verify stays silent about a stale checkout" 0 0 "$MKI/k-t5.sh" --good-has 'verify kit status=' --bad-lacks "$_CRASH|verify kit status=" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+fi
+
+if [ "${1:-}" = "--prove-teeth" ] && [ -d "${KDF:-/nonexistent}/.git" ]; then
+  _vmk "teeth: K-T6 kit root check removed" "$SUT" "$MKI/k-t6.sh" 's/^  if \[ -z "\$d" \] .*SENTINEL-KIT-ROOT$/  if false; then/' \
+    && _vtt "teeth: root check removed → a nested kit dir reports the enclosing repo's status" 0 0 "$MKI/k-t6.sh" --good-has 'reason=not the kit checkout root' --bad-has 'status=behind' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL/a/b/research-sdd" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T7 default kit dir wrong" "$SUT" "$MKI/k-t7.sh" 's/RESEARCH_SDD_KIT_DIR:-\$KIT/RESEARCH_SDD_KIT_DIR:-\/nonexistent/' \
+    && _vtt "teeth: default \$KIT no longer used → the production path inspects the wrong dir" 0 0 "$MKI/k-t7.sh" --good-has 'verify kit status=behind' --bad-has 'status=degraded' --bad-lacks "$_CRASH" -- "$_BASH" -c 'cp "$1" "$2/research-sdd/install/research-sdd-install.sh"; env -u RESEARCH_SDD_KIT_DIR bash "$2/research-sdd/install/research-sdd-install.sh" --verify --home "$3" --harness claude' _ @SUT@ "$KDF" "$TMP/kv-home"
 fi
 
 # Teeth for the hermeticity check itself: the snapshot must register a NEW, a MODIFIED and a

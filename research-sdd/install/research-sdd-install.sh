@@ -651,8 +651,15 @@ _rsdd_verify_kit() {
   if ! command -v git >/dev/null 2>&1; then
     printf 'verify kit status=degraded reason=git not found; cannot tell whether the kit checkout is behind its upstream\n'; return 0
   fi
-  if ! git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  local top d t
+  if ! top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || [ -z "$top" ]; then
     printf 'verify kit status=degraded reason=kit dir is not a git checkout (%s); cannot tell whether it is behind its upstream\n' "$dir"; return 0
+  fi
+  # The kit lives at the repo root or one level down (<repo>/research-sdd). A kit dir nested deeper inside
+  # an UNRELATED enclosing repo would otherwise report that repo's upstream status as the kit's.
+  d="$(cd -P "$dir" 2>/dev/null && pwd -P)"; t="$(cd -P "$top" 2>/dev/null && pwd -P)"
+  if [ -z "$d" ] || [ -z "$t" ] || { [ "$t" != "$d" ] && [ "$t" != "$(dirname "$d")" ]; }; then # SENTINEL-KIT-ROOT
+    printf 'verify kit status=degraded reason=not the kit checkout root (%s sits inside the unrelated repo %s)\n' "$dir" "$top"; return 0
   fi
   if ref="$(git -C "$dir" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$ref" ]; then :
   elif git -C "$dir" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then ref="origin/main"

@@ -37,6 +37,7 @@ EOF
 cat > "$SB/install-verify-stub.sh" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = "--verify" ] || { echo "stub: expected --verify" >&2; exit 64; }
+[ -z "${STUB_VERIFY_SLEEP:-}" ] || sleep "$STUB_VERIFY_SLEEP"
 [ -z "${STUB_VERIFY_OUT:-}" ] || printf '%s\n' "$STUB_VERIFY_OUT"
 exit "${STUB_VERIFY_RC:-0}"
 EOF
@@ -74,8 +75,15 @@ if command -v jq >/dev/null 2>&1; then
     && ok "H3b: raw output is valid SessionStart JSON" || no "H3b: raw output is not valid SessionStart JSON"
 fi
 
-run_hook 0 2 'verify kit status=degraded reason=git not found; cannot tell whether the kit checkout is behind its upstream'
-grep -q 'status=degraded' <<<"$HOUT" && ok "H4: degraded kit line (no git/upstream) is surfaced, never a silent pass" || no "H4: degraded not surfaced; out=[$HOUT]"
+KDEG='verify kit status=degraded reason=git not found; cannot tell whether the kit checkout is behind its upstream'
+run_hook 0 0 "$KDEG"
+[ "$HRC" = 0 ] && [ -z "$HOUT" ] && ok "H4: kit 'degraded' (tarball/no upstream) is NOT a session-start finding — it stays visible in install --verify only" || no "H4: kit degraded leaked into the hook; rc=$HRC out=[$HOUT]"
+run_hook 0 2 'verify harness=pi status=degraded reason=installed files present but no bundle record'
+grep -q 'harness=pi status=degraded' <<<"$HOUT" && ok "H4b: a HARNESS degraded line is still surfaced (never a silent pass)" || no "H4b: harness degraded not surfaced; out=[$HOUT]"
+HOUT_T="$(STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+if command -v timeout >/dev/null 2>&1; then
+  grep -q 'timed out' <<<"$HOUT_T" && ok "H4c: a hung install --verify is cut off and reported (typed 'timed out')" || no "H4c: hung --verify not bounded/reported; out=[$HOUT_T]"
+fi
 
 run_hook 0 1 'verify harness=claude status=drift drifted=skills/research-sdd/SKILL.md (modified)'
 grep -q 'status=drift' <<<"$HOUT" && ok "H5: bundle drift line is surfaced" || no "H5: bundle drift not surfaced; out=[$HOUT]"
@@ -110,7 +118,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   _ENV="$(command -v env)"
   # Mutants live in the sandbox beside the stubs (the hook finds its drift script via its own dir).
-  _mk "A" "$SUT" "$MB/m-a.sh" 's/(drift|degraded|behind)/(drift|degraded)/' \
+  _mk "A" "$SUT" "$MB/m-a.sh" 's/|kit status=behind)/)/' \
     && _tt "teeth: behind dropped from the filter → a stale kit checkout is silent" 0 0 "$MB/m-a.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$BEHIND" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "B" "$SUT" "$MB/m-b.sh" 's/ | head -4)"/)"/' \
@@ -126,6 +134,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "E" "$SUT" "$MB/m-e.sh" 's/^if \[ -x "\$vcmd" \]; then/if true; then/' \
     && _tt "teeth: not-executable branch removed → a missing install script is mislabelled" 0 0 "$MB/m-e.sh" \
        --good-has 'could not run' --bad-lacks "$_CRASH|could not run" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/nope.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "F" "$SUT" "$MB/m-f.sh" 's/kit status=behind)/kit status=(behind|degraded))/' \
+    && _tt "teeth: kit degraded admitted → every tarball/no-upstream kit warns on every session" 0 0 "$MB/m-f.sh" \
+       --good-lacks 'status=degraded' --bad-has 'kit status=degraded' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$KDEG" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout "\${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}" "\$vcmd"/"$vcmd"/' \
+    && _tt "teeth: timeout wrapper removed → a hung --verify hangs session start (observed via wall-clock cap)" 0 0 "$MB/m-g.sh" \
+       --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="

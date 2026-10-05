@@ -16,11 +16,20 @@ out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
 vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"
 extra=""
 if [ -x "$vcmd" ]; then
-  vout="$("$vcmd" --verify 2>&1)"; vrc=$?
-  # Only findings: drift / degraded / behind lines. match, absent and current stay silent.
-  extra="$(printf '%s\n' "$vout" | grep -E '^verify .*status=(drift|degraded|behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  if command -v timeout >/dev/null 2>&1; then
+    vout="$(timeout "${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}" "$vcmd" --verify 2>&1)"; vrc=$?   # SENTINEL-VERIFY-TIMEOUT
+  else
+    vout="$("$vcmd" --verify 2>&1)"; vrc=$?
+  fi
+  # Only findings: harness drift / degraded and kit behind. match, absent, current stay silent; a kit
+  # `degraded` (tarball install, no upstream) is un-clearable at session start, so it stays visible only
+  # in `research-sdd-install.sh --verify` itself (SENTINEL-KIT-BEHIND-ONLY).
+  extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=(drift|degraded)|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
   # Anti-silent-zero: a failing --verify that printed no typed finding must still be surfaced.
-  if [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
+  if [ "$vrc" -eq 124 ]; then
+    extra="verify: install --verify timed out (RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT, default 10s)${extra:+
+$extra}"
+  elif [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
     extra="verify: install --verify exited $vrc with no typed line"
   fi
 else
