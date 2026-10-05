@@ -10,6 +10,9 @@
 # Exit: 0 = clean (committed + pushed, or no upstream to push to) · 1 = dirty tree OR unpushed commits ·
 #       2 = not a git repo / bad args.
 set -uo pipefail
+# Read-only at SessionStart (kit issue #1820): no git call may refresh the index or take an optional lock
+# (index.lock) while a sibling session commits — the same guarantee resume-state.sh gives.
+export GIT_OPTIONAL_LOCKS=0
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="${1:-$here}"
 [ -d "$repo" ] || { echo "usage: verify-kit-clean.sh [<kit-repo>]" >&2; exit 2; }
