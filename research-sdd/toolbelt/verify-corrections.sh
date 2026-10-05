@@ -105,6 +105,18 @@ _vc_extract() {
         rest = substr(rest, st + ln)
       }
     }
+    # noundecl(rest): 1 when the text after a corrigendum noun is `[tag] <preposition> [the] [tag] [Block N]` (the ref
+    # directly after an explicit preposition; a tag is a short bracket that is NOT itself a block ref), else 0.
+    function noundecl(rest,   tail, tg) {
+      if (!match(rest, /^[ \t]*(`?\[[^]\[]*\]`?)?[ \t]*(al|a|to|of|for)[ \t]+(the[ \t]+)?/)) return 0
+      tail = substr(rest, RLENGTH + 1)
+      if (tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) return 1
+      if (match(tail, /^`?\[[^]\[]*\]`?[ \t]*/)) {
+        tg = substr(tail, 1, RLENGTH); tail = substr(tail, RLENGTH + 1)
+        if (tg !~ /(block|bloque)[ \t]*[0-9]/ && tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) return 1
+      }
+      return 0
+    }
     function abbrev(l, i,   k, tok, ab) {
       ab = " cf e.g i.e vs fig p pp approx aprox pág pag núm num sec sect eq no "
       k = i - 1
@@ -123,19 +135,24 @@ _vc_extract() {
         ve = ms + RLENGTH
         if (substr(l, vs, 8) == "corrects" && substr(l, ve, 1) ~ /[a-z0-9_]/) { p = ve; continue }
         tok = substr(l, vs, ve - vs)
-        # `corrigendum`/`corrigenda` is a NOUN. ONLY the bare noun directly followed by a ref (`CORRIGENDUM [Bloque N]`) is a
-        # BACKLINK and declares nothing. Every other corrigendum is never dropped silently (§7): a ref after a preposition or
-        # punctuation (`for`/`to`/`to the`/`of`/`al`/`a`/`:`/`(`, optional short tag such as `[CERT]`) DECLARES that block
-        # (niagara-research bloque107/108), and one with no ref in its clause is counted as unbound (`?`) below.
-        # `CORRIGENDUM [Bloque 33] al [Bloque 32]`: a ref-shaped "tag" before the preposition is skipped; 32 is the target.
+        # `corrigendum`/`corrigenda` is a NOUN, handled by its own STRICT rule (never the verb clause scan, which bound the first
+        # ref even inside a parenthetical and turned backlinks and prose into false FAILs):
+        #   - bare noun directly followed by a ref (`CORRIGENDUM [Bloque N]`) = BACKLINK: declares nothing;
+        #   - an explicit PREPOSITION right before the ref (`al`/`a`/`to`/`to the`/`of`/`for`, optional short non-ref tag such as
+        #     `[CERT]` before the preposition or after it) = DECLARATION of that block (niagara-research bloque107/108);
+        #   - `CORRIGENDUM [Bloque 33] al [Bloque 32]`: the leading ref-shaped "tag" is skipped; 32 is the target;
+        #   - EVERY OTHER noun form (colon, em dash, parenthetical, "see", a ref later in the clause, prose) prints `?`: counted in
+        #     the unbound note, never a declaration and never silently dropped (§7). That includes the accepted, surfaced false
+        #     negative `Corrigendum: [Block 8] §2 was wrong`.
         isnoun = 0
         if (tok ~ /^corrigend/) {
           isnoun = 1; rest = substr(l, ve)
           if (match(rest, /^[ \t]*\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
             rl = RLENGTH
-            if (substr(rest, rl + 1) ~ /^[ \t]*(al|a|to|of)[ \t]+\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) ve += rl
+            if (substr(rest, rl + 1) ~ /^[ \t]*(al|a|to|of|for)[ \t]+(the[ \t]+)?\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) ve += rl
             else { p = ve; continue }
           }
+          else if (!noundecl(rest)) { print "?"; p = ve; continue }
         }
         # NON-ASSERTIVE forms declare nothing (#1835 item 5): passive/conditional `se corrige` (incl. `si no se
         # corrige`) and past-tense narrative `corrigió`/`corrigieron`. Counted and surfaced, never silently dropped.

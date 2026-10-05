@@ -277,14 +277,32 @@ if grep -qE 'B80 corrects \[Block 1\] ' <<<"$out" && ! grep -qE 'B80 corrects \[
 else no "join-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 
 # 18 — CORRIGENDUM NEVER VANISHES (round 3, §7): only the bare noun directly followed by a ref is a backlink. Every other
-#      corrigendum either declares (a ref follows after a preposition/punctuation) or is counted as unbound.
+#      corrigendum either declares (an explicit PREPOSITION right before the ref, round 4) or is counted as unbound.
 cgd_ok=1; cgd_bad=""
-for _s in 'CORRIGENDUM for [Block 8]: §8.2 overstated.' 'Corrigendum: [Block 8] §2 was wrong.' 'CORRIGENDUM to the [Block 8]' 'CORRIGENDUM (to [Block 8])'; do
+for _s in 'CORRIGENDUM for [Block 8]: §8.2 overstated.' 'CORRIGENDUM to the [Block 8]' 'CORRIGENDUM to `[CERT]` [Block 8]' 'Corrigenda of [Bloque 8].'; do
   d="$TMP/cgd"; rm -rf "$d"; blank "$d" 8; mk "$d" 90 '# Block 90\n\n%s\n' "$_s"
   grep -qE 'FAIL +B90 corrects \[Block 8\] ' <<<"$(run "$d")" || { cgd_ok=0; cgd_bad="$cgd_bad [$_s]"; }
 done
-if [ "$cgd_ok" = 1 ]; then ok "corrigendum + for/':'/to the/'(to' + [Block 8] all DECLARE (no silent drop)"
+if [ "$cgd_ok" = 1 ]; then ok "corrigendum + for / to the / to <tag> / of + [Block 8] all DECLARE (no silent drop)"
 else no "corrigendum-forms :: lost:$cgd_bad"; fi
+# 18d — ROUND 4: a corrigendum NOUN declares only via an explicit preposition right before the ref. Every other form
+#      (colon, em dash, parenthetical, "see", a ref later in the clause, prose) is a BACKLINK or prose: no FAIL, but it is
+#      counted in the unbound note (accepted, surfaced false negative), never a declaration and never dropped silently.
+# (a) forms living in the CORRECTED block 8, reciprocated by block 33 (a false FAIL here would be B8→33).
+cgn_ok=1; cgn_bad=""; i=0
+for _s in 'Corrigendum (see [Block 33]).' 'CORRIGENDUM: [Block 33] revises §8.2.' 'CORRIGENDUM — [Bloque 33]' 'Corrigendum: [Block 33] §2 was wrong.' 'CORRIGENDUM (to [Block 33])'; do
+  i=$((i+1)); d="$TMP/cgn$i"; rm -rf "$d"; mk "$d" 8 '# Block 8\n\n> %s\n' "$_s"; mk "$d" 33 '# Block 33\n\n> Corrects [Block 8].\n'
+  out="$(run "$d")"
+  { [ "$(code "$d")" = 0 ] && ! grep -qE '^ *FAIL' <<<"$out" && grep -qE 'note +1 correction verb' <<<"$out"; } || { cgn_ok=0; cgn_bad="$cgn_bad [$_s]"; }
+done
+# (b) prose in a block with unannotated targets 12 / 5.
+for _s in 'No corrigendum was needed for [Block 12].' 'The corrigendum policy in [Block 5] applies.'; do
+  i=$((i+1)); d="$TMP/cgn$i"; rm -rf "$d"; blank "$d" 12 5; mk "$d" 90 '# Block 90\n\n%s\n' "$_s"
+  out="$(run "$d")"
+  { [ "$(code "$d")" = 0 ] && ! grep -qE '^ *FAIL' <<<"$out" && grep -qE 'note +1 correction verb' <<<"$out"; } || { cgn_ok=0; cgn_bad="$cgn_bad [$_s]"; }
+done
+if [ "$cgn_ok" = 1 ]; then ok "noun forms with ':' / '—' / '(' / 'see' / later ref / prose: exit 0, no FAIL, counted in the unbound note"
+else no "corrigendum-noun-neg :: wrong:$cgn_bad"; fi
 # 18b — a corrigendum with NO ref after it is counted in the unbound note, never dropped; the bare backlink adds nothing.
 d="$TMP/cgd-unb"; blank "$d" 8; mk "$d" 91 '# Block 91\n\nThe corrigendum table lists nothing yet.\n'
 out="$(run "$d")"
@@ -479,6 +497,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'FAIL +B90 corrects \[Block 8\] ' --bad-lacks 'B90 corrects|awk: ' -- bash @SUT@ "$TMP/cgd"
     tt "teeth: silent-drop mutant omits the unbound note for a ref-less corrigendum" 0 0 "$m" --orig "$SUT" \
       --good-has 'note +1 correction verb' --bad-lacks 'note +1 correction verb|awk: ' -- bash @SUT@ "$TMP/cgd-unb"
+  fi
+  m="$TMP/vc.NOUNSCAN.sh"
+  if mk_mut "teeth: noun clause scan" "$SUT" "$m" '/else if (!noundecl(rest))/d'; then
+    tt "teeth: noun-clause-scan mutant turns 'Corrigendum (see [Block 33])' into a false B8→33 FAIL" 0 1 "$m" --orig "$SUT" \
+      --good-has 'note +1 correction verb' --bad-has 'FAIL +B8 corrects \[Block 33\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cgn1"
+    tt "teeth: noun-clause-scan mutant turns 'No corrigendum was needed for [Block 12]' into a false FAIL" 0 1 "$m" --orig "$SUT" \
+      --good-has 'note +1 correction verb' --bad-has 'FAIL +B90 corrects \[Block 12\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cgn6"
   fi
   m="$TMP/vc.CGTWO.sh"
   if mk_mut "teeth: corrigendum two refs" "$SUT" "$m" 's/ve += rl$/ve += 0/'; then
