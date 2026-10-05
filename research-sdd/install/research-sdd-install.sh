@@ -18,19 +18,21 @@
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
 #   --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
-#   --force-skill when the deployed SKILL.md has diverged, back it up and overwrite with the kit source
+#   --force-skill when a deployed file this installer manages has diverged (the skill, the slash-command
+#                 prompt template, AND the shipped read-only agent definitions under <config_root>/agents/),
+#                 back it up as <file>.local-backup and overwrite it with the kit source
 #   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
 #   --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
 #                 this installer manages for each harness (the deployed SKILL.md, the slash-command prompt
-#                 template, the marked research-sdd launcher block inside the shared prompt file, and the
+#                 template, the claude read-only agent definitions, the marked research-sdd launcher block inside the shared prompt file, and the
 #                 regular files of a rendered profile) and compare it with the bundle digest the last
 #                 successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
 #                 ONE typed line per harness and writes NOTHING (no temp files, no state):
 #                   verify harness=<h> status=match bundle_sha256=<hex> files=<n>
 #                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
 #                   verify harness=<h> status=absent (not installed)
-#                   verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file)
+#                   verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file, kit agent source missing)
 #                 After the harness lines, ONE kit-checkout staleness line (advisory: it never changes the exit
 #                 code), because deployed Stop hooks exec toolbelt scripts from THIS checkout:
 #                   verify kit status=current ref=<upstream> behind=0
@@ -598,6 +600,23 @@ ${f#"$root"/}"
   done <<<"$rels"
 }
 
+# _rsdd_agent_names <h> — basenames of the kit's read-only agent definitions for this harness, one per
+# line, sorted. Empty + rc=0 when the harness ships none; rc=1 when it should but the source dir is
+# absent or holds no *.md (a silent zero would deploy nothing and look installed — CLAUDE.md §7).
+_rsdd_agent_names() {
+  local rel dir f names=""
+  rel="$(rsdd_field "$1" agents_src_relkit)"
+  [ -n "$rel" ] || return 0
+  dir="$KIT/$rel"
+  [ -d "$dir" ] || return 1
+  for f in "$dir"/*.md; do
+    [ -f "$f" ] || continue
+    names="$names${f##*/}"$'\n'
+  done
+  [ -n "$names" ] || return 1
+  printf '%s' "$names" | LC_ALL=C sort
+}
+
 # _rsdd_install_members <h> <home> — the members one install deploys, one rel per line.
 _rsdd_install_members() {
   local h="$1" home="$2" root skill tmpl pf
@@ -607,6 +626,13 @@ _rsdd_install_members() {
   pf="$(rsdd_field "$h" prompt_file "$home")"
   printf '%s\n' "${skill#"$root"/}" "${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
   [ -z "$tmpl" ] || printf '%s\n' "${tmpl#"$root"/}"
+  # Capture the names AND the rc first: a process substitution would swallow rc=1 (agent source dir
+  # missing/empty) and hand callers a member list silently lacking the agents (CLAUDE.md §7).
+  local an names
+  names="$(_rsdd_agent_names "$h")" || return 1
+  while IFS= read -r an; do
+    [ -z "$an" ] || printf '%s\n' "agents/$an"
+  done <<<"$names"
 }
 
 # _rsdd_apply_kept <kept> — stdin manifest -> stdout manifest where each kept member's sha is replaced by
@@ -628,7 +654,9 @@ _rsdd_write_bundle_state() {
   local h="$1" home="$2" profile="$3" kept="${4:-}" root state manifest digest tmp rel
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
-  manifest="$(_rsdd_install_members "$h" "$home" | _rsdd_manifest "$root" "$profile")" || return 1
+  local members
+  members="$(_rsdd_install_members "$h" "$home")" || return 1
+  manifest="$(printf '%s\n' "$members" | _rsdd_manifest "$root" "$profile")" || return 1
   if awk -F'\t' '$1=="MISSING" { f=1 } END { exit !f }' <<<"$manifest"; then return 1; fi
   manifest="$(printf '%s\n' "$manifest" | _rsdd_apply_kept "$kept")" || return 1
   digest="$(printf '%s\n' "$manifest" | _rsdd_sha256_stdin)" || return 1
@@ -723,6 +751,10 @@ _rsdd_verify_one() {
   rec_calc="$(printf '%s\n' "$rec_manifest" | _rsdd_sha256_stdin)" || rec_calc=""
   if [ "$rec_calc" != "$rec_digest" ]; then
     printf 'verify harness=%s status=degraded reason=bundle record corrupt (bundle_sha256 does not match its own file lines)\n' "$h"
+    return 2
+  fi
+  if ! _rsdd_agent_names "$h" >/dev/null; then
+    printf 'verify harness=%s status=degraded reason=the kit has no readable agent definitions to compare against (%s)\n' "$h" "$KIT/$(rsdd_field "$h" agents_src_relkit)"
     return 2
   fi
   mrc=0
@@ -888,6 +920,29 @@ install_one() {
     fi
   fi
 
+  # 2c. read-only reviewer agent definitions (kit issue #1714): claude only (the adapter field is empty
+  #     elsewhere). One file per role, each deployed through the SAME divergence-checked helpers as the
+  #     skill: a same-named user file that differs is KEPT with a typed WARNING (never overwritten unless
+  #     --force-skill, which backs it up first). Each definition has its own marker file.
+  local agents_rel agents_dir_dest agent_names="" an asrc adest amarker
+  agents_rel="$(rsdd_field "$h" agents_src_relkit)"
+  if [ -n "$agents_rel" ]; then
+    agents_dir_dest="$(rsdd_field "$h" agents_dir "$home")"
+    if ! agent_names="$(_rsdd_agent_names "$h")"; then
+      echo "research-sdd-install: [$h] no agent definitions found in $KIT/$agents_rel" >&2; rc=1
+    else
+      while IFS= read -r an; do
+        asrc="$KIT/$agents_rel/$an"; adest="$agents_dir_dest/$an"
+        amarker="$config_root/research-sdd/.installed-agent-${an%.md}-state"
+        if [ "$dry" = 1 ]; then
+          _rsdd_dry_skill_plan "$asrc" "$adest" "$force" "read-only agent definition" "$amarker" "agent" || rc=1
+        else
+          _rsdd_deploy_skill "$asrc" "$adest" "$force" "read-only agent definition" "$h" "$amarker" "agent" "$config_root" || rc=1
+        fi
+      done <<<"$agent_names"
+    fi
+  fi
+
   # 3. record the bundle digest (kit issue #1702) — only when the run succeeded. A kept hand-edit is
   #    recorded with the SOURCE sha this run meant to deploy plus a `kept-hand-edit=<rel>` line, so it is
   #    never the baseline: --verify keeps reporting it as drift (and names it) until it is restored.
@@ -901,6 +956,14 @@ install_one() {
       ksha="$(_rsdd_sha256_file "$tmpl_src")" || ksha=""
       kept="${kept:+$kept$'\n'}${template_dest#"$config_root"/}"$'\t'"$ksha"
     fi
+    while IFS= read -r an; do
+      [ -n "$an" ] || continue
+      asrc="$KIT/$agents_rel/$an"; adest="$agents_dir_dest/$an"
+      if ! cmp -s "$asrc" "$adest"; then
+        ksha="$(_rsdd_sha256_file "$asrc")" || ksha=""
+        kept="${kept:+$kept$'\n'}agents/$an"$'\t'"$ksha"
+      fi
+    done <<<"$agent_names"
     if [[ "$kept" == *$'\t' ]] || [[ "$kept" == *$'\t\n'* ]]; then
       echo "research-sdd-install: [$h] could not hash the source of a kept hand-edit — bundle record not written" >&2
       rc=1
