@@ -1,4 +1,4 @@
-# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slice 1)
+# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-2)
 
 A read-only instrument that implements this contract accepts `--json` and then prints exactly ONE JSON
 document on stdout instead of its human report. Without `--json` its output is unchanged (byte-identical;
@@ -51,7 +51,7 @@ Exit codes of `--json` mode (every one it can return):
 | Instrument | Status | Schema |
 |---|---|---|
 | `sweep-retros.sh` | implemented (slice 1, kit issue #1711) | `research-sdd.sweep-retros/v1` |
-| `verify-registry.sh` | not yet | — |
+| `verify-registry.sh` | implemented (slice 2, kit issue #1711) | `research-sdd.verify-registry/v1` |
 | `resume-state.sh` | not yet | — |
 | `retro-gate.sh` | not yet | — |
 
@@ -74,3 +74,51 @@ Items, oldest pending first, then missing-retro entries:
 
 The envelope reports the review-status MARKER, not whether each delta is open work (same caveat as the
 human report). The wiring pass of the human report is not part of this envelope.
+
+### `research-sdd.verify-registry/v1`
+
+State precedence: `absent-input` (every registered target directory is absent on disk) → `ok` (at least one
+item) → `no-match` (targets reconciled, no item). `empty-input` is never emitted: a `TARGETS.md` with no usable
+target path is an operational failure (rc 1), not an empty result. `counts` mirror the human `Summary:` line
+one-to-one: `targets` (usable paths in `TARGETS.md`, absent ones included, truncated `...` ones excluded),
+`targets_absent`, `targets_skipped` (truncated paths), `reconciled`, `count_drift`, `retro_drift`,
+`unresolved` (the "unresolvable" figure), `oversized_rows`, `attention`.
+
+Process differences from the default mode, all in `--json` only: an all-absent registry is an `absent-input`
+envelope with rc 0 (the default mode exits 1 with a stderr message); a registry with no usable target path is
+rc 1 with empty stdout (the default mode exits 0 with a stderr message), so a machine caller never reads it as
+a clean pass. Stderr messages are unchanged in both modes.
+
+Items, in discovery order. Every item is `{"kind","severity","target","message"}`: `severity` is `WARN` or
+`INFO` exactly as in the human line, `target` is the name the human line cites (basename, or the full path for
+`corpus-unresolvable` and `absent-target`, or the row name for `oversized-row`), `message` is the human line
+without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` finding line, plus one
+`absent-target` item per absent target (the human report lists at most three of them, in one aggregate line).
+
+| `kind` | Finding |
+|---|---|
+| `nonconform-field` | a maturity-cell field not in the legend schema |
+| `hook-unwired` | row claims `hook yes` but the Stop hook is not wired at the checked path |
+| `hook-off-root` | row claims `hook yes`; wired, but the path is not its own git root |
+| `hook-wired-contradiction` | row claims `hook no` but the Stop hook is wired |
+| `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
+| `nc-no-count` | `nc` row without a claimed `N md` count |
+| `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |
+| `no-corpus-marker` | registered path has no corpus marker (`INDEX.md`/`CATALOG.md`/`RESEARCH-STATE*.md`) |
+| `corpus-unresolvable` | no `RESEARCH-STATE*.md` under the target, blocks cannot be recounted |
+| `catalog-stale-header` | `CATALOG.md` header total disagrees with its own rows |
+| `catalog-disc-zero` | discriminator found 0 blocks while `CATALOG.md` claims some |
+| `catalog-stale` | `CATALOG.md` total differs from the on-disk discriminator beyond the tolerance |
+| `catalog-unparseable` | `CATALOG.md` present but no parseable total |
+| `retros-unreadable` | `retros/` is not accessible, the retro count cannot be verified |
+| `retro-drift` | claimed `N retros` differs from the non-excluded retro files found |
+| `no-claimed-count` | row has no claimed `<N> md` count |
+| `unclassifiable-blocks` | `block`/`bloque` files the canonical discriminator does not count |
+| `no-retros-wired` | `INFO`: blocks on disk but no `retros/*.md` reachable (§18 feedback not wired) |
+| `oversized-row` | a `TARGETS.md` master cell longer than `RSDD_ROW_MAXLEN` |
+| `kit-not-registered` | the kit repo is not in its own `TARGETS.md` |
+| `absent-target` | `INFO`: a registered target directory is absent on disk, not checked |
+
+The envelope reports the findings of the default report, nothing wider: `ok` with `counts.targets_absent > 0`
+is a partial reconcile, visible in `counts`, not in `reason`. The aggregate hint lines of the human report
+(absent and skipped notes, the "refresh by hand" reminders) are carried by `counts` and are not items.

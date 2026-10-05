@@ -16,10 +16,66 @@
 # maturity schema) are advisory — exit is 0. OPERATIONAL failures (TARGETS.md absent, a lib/ helper that
 # fails to define its required function) exit 1, matching the sibling sweeps' contract (issue #140).
 #
-# Usage: verify-registry.sh
+# Usage: verify-registry.sh [--json]
+#   --json  opt-in: print ONE research-sdd.verify-registry/v1 envelope (json-envelope.v1.md) on stdout
+#           instead of the human report. Needs jq; without it a typed degraded envelope is printed and
+#           the exit code is 3. The default (no flag) output is unchanged.
 # Exit: 0 on clean or advisory findings; 1 on operational failure (missing registry or broken lib helper).
+#       --json adds: 3 = degraded (jq missing / too old); an all-absent registry is an absent-input
+#       envelope (rc 0) and a registry with no usable path is rc 1 (the default mode keeps exit 1 / exit 0).
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
 set -uo pipefail
+
+# --json (opt-in, json-envelope.v1.md). Parsed and probed BEFORE anything else so a missing jq is a
+# typed degraded result, never a silent pass. The human report is muted onto /dev/null (fd 3 keeps the
+# real stdout) and the envelope is the only thing written to fd 3, at the end. stderr is untouched.
+VR_JSON=0
+for _vr_a in "$@"; do [ "$_vr_a" = "--json" ] && VR_JSON=1; done
+unset _vr_a
+if [ "$VR_JSON" = 1 ]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'DEGRADED: jq not found on PATH — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.verify-registry/v1","state":"degraded","reason":"jq not found on PATH","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  # Capability probe: the envelope hands data to jq with --rawfile (jq >= 1.6); presence alone is not enough.
+  if ! jq -n --rawfile _vr_probe /dev/null 1 >/dev/null 2>&1; then
+    printf 'DEGRADED: jq lacks --rawfile (jq >= 1.6 required) — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.verify-registry/v1","state":"degraded","reason":"jq lacks --rawfile (jq >= 1.6 required)","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  exec 3>&1 >/dev/null
+fi
+_json_items=""   # --json accumulator, initialised so an inherited env value cannot leak in
+# _vr_finding KIND SEVERITY TARGET TEXT : print the human finding line (byte-identical to the former
+# inline echo) and, under --json, record it as a named name=value row for the envelope.
+_vr_finding() {
+  printf '%s\n' "$2  $4"
+  [ "$VR_JSON" = 1 ] || return 0
+  _json_items="${_json_items}$(printf 'kind=%s\x1fseverity=%s\x1ftarget=%s\x1fmessage=%s' "$1" "$2" "$3" "$4")"$'\n'
+}
+# _vr_json_emit ALL_ABSENT : build and print the envelope on fd 3 from the accumulators and counters.
+# Accumulators go to jq as FILES (process substitution of a builtin printf), never as argv: a large
+# backlog would exceed MAX_ARG_STRLEN (128 KiB per argument) and fail with E2BIG.
+_vr_json_emit() {
+  jq -n --rawfile items <(printf '%s' "$_json_items") --argjson allabsent "$1" \
+    --argjson targets "$_vr_ntargets" --argjson tabsent "$absent_paths" --argjson tskipped "$skipped_count" \
+    --argjson checked "$checked" --argjson drift "$drift" --argjson rdrift "$retro_drift" \
+    --argjson unres "$unresolved" --argjson rowlint "${rowlint:-0}" --argjson attention "$attention" '
+    def lines(s): s | split("\n") | map(select(length > 0));
+    def row: split("\u001f") | map(capture("^(?<k>[^=]*)=(?<v>.*)$"; "s") | {(.k): .v}) | add;
+    ( lines($items) | map(row | {kind: .kind, severity: .severity, target: .target, message: .message}) ) as $it
+    | { schema: "research-sdd.verify-registry/v1",
+        state: (if $allabsent then "absent-input" elif ($it | length) > 0 then "ok" else "no-match" end),
+        counts: { targets: $targets, targets_absent: $tabsent, targets_skipped: $tskipped, reconciled: $checked,
+                  count_drift: $drift, retro_drift: $rdrift, unresolved: $unres, oversized_rows: $rowlint,
+                  attention: $attention } }
+    | .reason = (if .state == "absent-input" then "every registered target directory is absent on disk"
+                 elif .state == "no-match" then "targets reconciled, no findings"
+                 else null end)
+    | . + {items: (if .state == "absent-input" then [] else $it end)}' >&3 \
+    || { echo "verify-registry: --json envelope build failed" >&2; exit 1; }
+}
 
 # -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
 # #1024). Reproduced here specifically: without -P, KIT landed one level short of the real kit
@@ -99,6 +155,7 @@ skipped=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep '\.\.\.')
 if [ -z "$paths" ]; then
   echo "verify-registry: ERROR — no usable target paths in $TARGETS_MD" >&2
   echo "verify-registry: check TARGETS.md has backtick-wrapped absolute or \$RESEARCH_HOME/... paths" >&2
+  [ "$VR_JSON" = 1 ] && exit 1  # --json: a machine caller must not read "no usable path" as a clean pass (json-envelope.v1.md)
   exit 0  # WARN-only contract: never signals failure, but the error is explicit.
 fi
 
@@ -165,6 +222,7 @@ for p in $paths; do
         *" ${_vr_dedup_key} "*) : ;;
         *)
           absent_paths=$((absent_paths + 1))
+          _json_items="${_json_items}$(printf 'kind=%s\x1fseverity=%s\x1ftarget=%s\x1fmessage=%s' "absent-target" "INFO" "$p" "registered target absent on disk — NOT checked")"$'\n'
           _vr_absent_row_ids="${_vr_absent_row_ids} ${_vr_dedup_key}"
           if [ "$_vr_absent_names_shown" -lt 3 ]; then
             absent_paths_names="${absent_paths_names}${absent_paths_names:+, }${needle}"
@@ -222,7 +280,7 @@ for p in $paths; do
       # unregistered
       [ "$_vr_tok" = "unregistered" ] && continue
       # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
-      echo "WARN  $(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
+      _vr_finding nonconform-field WARN "$(basename "$p")" "$(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
       unresolved=$((unresolved + 1))
     done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
   fi
@@ -258,10 +316,10 @@ for p in $paths; do
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
     if [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook is expected to fire only for a session launched in exactly that directory (observed Claude Code behavior, not a cited spec; kit issue #1134). Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
+      _vr_finding hook-off-root WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook is expected to fire only for a session launched in exactly that directory (observed Claude Code behavior, not a cited spec; kit issue #1134). Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
+      _vr_finding hook-unwired WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
       attention=$((attention + 1))
     fi
   fi
@@ -303,7 +361,7 @@ for p in $paths; do
   if [ -n "$_vr_hook_no_claim" ]; then
     _vr_hook_state2="$(hook_stop_wiring_state "$p")"
     if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply)."
+      _vr_finding hook-wired-contradiction WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply)."
       attention=$((attention + 1))
     fi
   fi
@@ -325,18 +383,18 @@ for p in $paths; do
     # as the regular state resolver; the sentinel comment is the mutation target for teeth-nc-contradiction.
     _nc_state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
     if [ -n "$_nc_state" ] && [ -f "$_nc_state" ]; then  # NC-CONTRADICTION-CHECK
-      echo "WARN  $name — row carries the nc flag but a RESEARCH-STATE.md was found at ${_nc_state}; remove nc if this is a real corpus target."
+      _vr_finding nc-contradiction WARN "$name" "$name — row carries the nc flag but a RESEARCH-STATE.md was found at ${_nc_state}; remove nc if this is a real corpus target."
       unresolved=$((unresolved + 1))
       continue
     fi
     real="$(find "$p" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
     if [ -z "$claimed" ]; then
-      echo "WARN  $name — non-corpus (nc) target has no claimed 'N md' count in TARGETS.md row (real root-level: $real); add the count."
+      _vr_finding nc-no-count WARN "$name" "$name — non-corpus (nc) target has no claimed 'N md' count in TARGETS.md row (real root-level: $real); add the count."
       unresolved=$((unresolved + 1))
     else
       d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
       if [ "$d" -gt "$tol" ]; then
-        echo "WARN  $name — TARGETS.md row claims ${claimed} md but the non-corpus target has ${real} real .md file(s) at root (drift ${d} > tol ${tol}) — refresh the row."
+        _vr_finding count-drift WARN "$name" "$name — TARGETS.md row claims ${claimed} md but the non-corpus target has ${real} real .md file(s) at root (drift ${d} > tol ${tol}) — refresh the row."
         drift=$((drift + 1))
       fi
     fi
@@ -355,7 +413,7 @@ for p in $paths; do
   # registered; the real corpus lives two levels deeper, under a nested git repo's own research/).
   # WARN-only; never fires for nc rows (already handled and `continue`d above).
   if ! corpus_marker_present "$p" "$p/corpus"; then  # REGISTERED-PATH-MARKER-CHECK
-    echo "WARN  $(basename "$p") — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at ${p} or ${p}/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply)."
+    _vr_finding no-corpus-marker WARN "$(basename "$p")" "$(basename "$p") — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at ${p} or ${p}/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply)."
     attention=$((attention + 1))
   fi
 
@@ -369,7 +427,7 @@ for p in $paths; do
   # REGISTERED-PATH MARKER CHECK a few lines below, which enforces the canonical convention.
   state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
   if [ -z "$state" ] || [ ! -f "$state" ]; then
-    echo "WARN  $p — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks."
+    _vr_finding corpus-unresolvable WARN "$p" "$p — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks."
     unresolved=$((unresolved + 1))
     continue
   fi
@@ -428,7 +486,7 @@ for p in $paths; do
       [ "$cat_rows" -lt 0 ] && cat_rows=0
       if [ "${cat_total}" != "${cat_rows}" ]; then  # CATALOG-SELFCONSISTENCY-CHECK
         # Stale header: CATALOG.md header total disagrees with its own row count. Do NOT adopt.
-        echo "WARN  $_cat_name — CATALOG.md header total ${cat_total} ≠ its own ${cat_rows} block rows (stale header); using disk discriminator ${_cat_discriminator} — regenerate CATALOG.md."  # CATALOG-STALE-HEADER
+        _vr_finding catalog-stale-header WARN "$_cat_name" "$_cat_name — CATALOG.md header total ${cat_total} ≠ its own ${cat_rows} block rows (stale header); using disk discriminator ${_cat_discriminator} — regenerate CATALOG.md."  # CATALOG-STALE-HEADER
         attention=$((attention + 1))
         # cat_authority left empty; real stays at disk discriminator (_cat_discriminator)
       else
@@ -442,12 +500,12 @@ for p in $paths; do
           # fixes with a rename; a stale CATALOG fixes with regeneration. Asserting either without proof
           # is false inference — state the discrepancy and name both. Leave cat_authority empty so the
           # unclassifiable guard can run and provide concrete file-level evidence.
-          echo "WARN  $_cat_name — discriminator found 0 classifiable blocks; CATALOG.md claims ${cat_total}; possible causes: non-canonical block naming (discriminator requires <prefix>-(block|bloque)<N>.md) or stale CATALOG — verify before trusting this count."  # CATALOG-DISC-ZERO
+          _vr_finding catalog-disc-zero WARN "$_cat_name" "$_cat_name — discriminator found 0 classifiable blocks; CATALOG.md claims ${cat_total}; possible causes: non-canonical block naming (discriminator requires <prefix>-(block|bloque)<N>.md) or stale CATALOG — verify before trusting this count."  # CATALOG-DISC-ZERO
           attention=$((attention + 1))
           _vr_disc_was_zero=1  # tell the unclassifiable guard to run despite real > 0
           # cat_authority intentionally left empty so the unclassifiable guard condition triggers
         else
-          echo "WARN  $_cat_name — CATALOG.md total ${cat_total} vs on-disk discriminator ${_cat_discriminator} (diff ${_cat_diff} > tol ${tol}); CATALOG may be stale — regenerate and recheck before trusting this count."  # CATALOG-FRESHNESS-CHECK
+          _vr_finding catalog-stale WARN "$_cat_name" "$_cat_name — CATALOG.md total ${cat_total} vs on-disk discriminator ${_cat_discriminator} (diff ${_cat_diff} > tol ${tol}); CATALOG may be stale — regenerate and recheck before trusting this count."  # CATALOG-FRESHNESS-CHECK
           attention=$((attention + 1))
           cat_authority=" (CATALOG.md total via local gen-catalog.py; catalog-disk diff=${_cat_diff} — verify freshness)"
         fi
@@ -455,7 +513,7 @@ for p in $paths; do
       fi
     else
       # CATALOG.md present but no parseable total — freshness undeterminable; use discriminator.
-      echo "WARN  $_cat_name — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (${_cat_discriminator})."  # CATALOG-NOPARSE
+      _vr_finding catalog-unparseable WARN "$_cat_name" "$_cat_name — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (${_cat_discriminator})."  # CATALOG-NOPARSE
       attention=$((attention + 1))
     fi
   fi
@@ -478,7 +536,7 @@ for p in $paths; do
     # confident zero, manufacturing false drift (or false pass when claimed=0 but retros exist).
     if [ -d "$_vr_retros_dir" ] && { [ ! -r "$_vr_retros_dir" ] || [ ! -x "$_vr_retros_dir" ]; }; then  # RETRO-UNREADABLE-CHECK
       # Unreadable: surface as a distinct WARN; skip reconciliation so no false count fires.
-      echo "WARN  $name — retros/ at ${_vr_retros_dir} is not accessible (permission error); retro count cannot be verified — check filesystem permissions."  # RETRO-UNREADABLE-WARN
+      _vr_finding retros-unreadable WARN "$name" "$name — retros/ at ${_vr_retros_dir} is not accessible (permission error); retro count cannot be verified — check filesystem permissions."  # RETRO-UNREADABLE-WARN
       attention=$((attention + 1))
     else
       # Absent (legitimately 0 retros found), empty, or readable: count non-excluded retros.
@@ -491,14 +549,14 @@ for p in $paths; do
         _vr_retro_real=$((_vr_retro_real + 1))
       done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
       if [ "$_vr_retro_real" -ne "${_vr_retro_claimed:-0}" ]; then
-        echo "WARN  $name — row claims ${_vr_retro_claimed} retro(s) but ${_vr_retro_real} non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply)."  # RETRO-DRIFT-CHECK
+        _vr_finding retro-drift WARN "$name" "$name — row claims ${_vr_retro_claimed} retro(s) but ${_vr_retro_real} non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply)."  # RETRO-DRIFT-CHECK
         retro_drift=$((retro_drift + 1))
       fi
     fi
   fi
 
   if [ -z "$claimed" ]; then
-    echo "WARN  $name — no claimed '<N> md' count in its TARGETS.md row (real: $real blocks); add the count so it can be reconciled."
+    _vr_finding no-claimed-count WARN "$name" "$name — no claimed '<N> md' count in its TARGETS.md row (real: $real blocks); add the count so it can be reconciled."
     unresolved=$((unresolved + 1))
     continue
   fi
@@ -507,7 +565,7 @@ for p in $paths; do
   # misparsed as octal by bash arithmetic, which would error/misdrift on 08/09.
   d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
   if [ "$d" -gt "$tol" ]; then
-    echo "WARN  $name — TARGETS.md row claims ${claimed} md but the corpus has ${real} real block file(s)${cat_authority} (drift ${d} > tol ${tol}) — refresh the row (propose-never-apply; not auto-edited)."
+    _vr_finding count-drift WARN "$name" "$name — TARGETS.md row claims ${claimed} md but the corpus has ${real} real block file(s)${cat_authority} (drift ${d} > tol ${tol}) — refresh the row (propose-never-apply; not auto-edited)."
     drift=$((drift + 1))
   fi
 
@@ -547,7 +605,7 @@ for p in $paths; do
       | wc -l | tr -d ' ')"
     unclassifiable="${unclassifiable:-0}"
     if [ "$unclassifiable" -gt 0 ]; then  # UNCLASSIFIABLE-CHECK
-      echo "WARN  $name — ${unclassifiable} unclassifiable candidate block file(s): names contain 'block'/'bloque' but do not match the canonical discriminator (<prefix>-(block|bloque)<N>.md); the block counter returns 0 — rename to make them visible to drift and §18 checks."
+      _vr_finding unclassifiable-blocks WARN "$name" "$name — ${unclassifiable} unclassifiable candidate block file(s): names contain 'block'/'bloque' but do not match the canonical discriminator (<prefix>-(block|bloque)<N>.md); the block counter returns 0 — rename to make them visible to drift and §18 checks."
       attention=$((attention + 1))
     fi
   fi
@@ -580,7 +638,7 @@ for p in $paths; do
         _vr_effective_count="$unclassifiable"
         _vr_count_noun="candidate block file(s) (unclassifiable) on disk"
       fi
-      echo "INFO  $name — ${_vr_effective_count} ${_vr_count_noun} but no retros/*.md reachable under the target (§18 feedback not wired)."
+      _vr_finding no-retros-wired INFO "$name" "$name — ${_vr_effective_count} ${_vr_count_noun} but no retros/*.md reachable under the target (§18 feedback not wired)."
     fi
   fi
 done
@@ -595,6 +653,8 @@ done
 if [ "$dir_reached" -eq 0 ]; then
   echo "verify-registry: ERROR — no registered corpus path exists as a directory on disk." >&2
   echo "verify-registry: Check RESEARCH_HOME (${RESEARCH_HOME:-(unset)}) and that corpora exist at the registered paths." >&2
+  # --json: every target absent is the absent-input state (rc 0); the default mode keeps exit 1 below.
+  if [ "$VR_JSON" = 1 ]; then _vr_ntargets=$(printf '%s\n' "$paths" | grep -c .); _vr_json_emit true; exit 0; fi
   exit 1  # ALL-ABSENT-CHECK
 fi
 
@@ -617,7 +677,7 @@ while IFS= read -r line; do
       for (i=2;i<=NF;i++){ c=$i; gsub(/^ +| +$/,"",c); if (length(c) > max){ print name "\t" length(c); exit } } }')"
   if [ -n "$reported" ]; then
     rname="${reported%%$'\t'*}"; rlen="${reported##*$'\t'}"
-    echo "WARN  TARGETS row ${rname:-?} master cell is ${rlen} chars (> ${row_max}) — collapse to one line; narrative belongs in the detail section."
+    _vr_finding oversized-row WARN "${rname:-?}" "TARGETS row ${rname:-?} master cell is ${rlen} chars (> ${row_max}) — collapse to one line; narrative belongs in the detail section."
     rowlint=$((rowlint + 1))
   fi
 done < "$TARGETS_MD"
@@ -631,7 +691,7 @@ while IFS=$'\t' read -r _rv_raw _rv_expanded; do
   { [ "$_rv_expanded" = "$KIT" ] || [ "$_rv_expanded" = "$_kit_parent" ]; } && { _kit_found=1; break; }  # KIT-PARENT-MATCH
 done <<< "$all_pairs"
 if [ "$_kit_found" -eq 0 ]; then
-  echo "WARN  $(basename "$KIT") — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate)."  # KIT-SELF-REG-CHECK
+  _vr_finding kit-not-registered WARN "$(basename "$KIT")" "$(basename "$KIT") — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate)."  # KIT-SELF-REG-CHECK
   attention=$((attention + 1))
 fi
 
@@ -657,4 +717,8 @@ else
 fi
 
 # Advisory findings (drift, schema) are never failures. Operational failure already exited 1 above.
+if [ "$VR_JSON" = 1 ]; then
+  _vr_ntargets=$(printf '%s\n' "$paths" | grep -c .)
+  _vr_json_emit false
+fi
 exit 0
