@@ -1536,7 +1536,7 @@ done
 # kit #1721 (R3): an UNRESOLVED cite whose shape matches the FQCN / host pre-split but whose last label is a known file
 # extension (`analysis.v2.R`, `notes.v1.org`) is a missing extern source cite, not a non-path: it keeps its place in M/E
 # and the P9 WARN keeps the SOURCE_ROOT hint. 
-for _t in 'analysis.v2.R:3' 'notes.v1.org:2'; do
+for _t in 'analysis.v2.R:3' 'notes.v1.org:2' 'my_analysis.final.R:4' 'de.v2.report.R:6' 'data.clean.R:8'; do
   n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
   out="$(run "$N973")"
   { grep -q 'resolved 0 of 1 (1 extern, 0 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out" && grep -q "extern  $_t" <<<"$out" && ! grep -q 'nonpath' <<<"$out"; } \
@@ -1549,7 +1549,9 @@ grep -q 'nonpath  javax.baja.control.BTimeTrigger:238' <<<"$out" \
   && ok "#1721 GUARD: a non-extension FQCN is still nonpath" || no "#1721 FQCN no longer nonpath :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 # round-1 R3: an unresolved Java FQCN whose class name merely spells an extension (or a lone `R`) under a package root is
 # still nonpath; the rescue is exact-case (lower-case ext) or upper-case `R` outside a package root
-for _t in 'com.example.R:5' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x.y.Bin:6'; do
+# kit #1742 (item 2): an `R` cite stays nonpath when its first label is a known package root OR any 2-letter label (ccTLD:
+# `de.`, `uk.`, `fr.`, `me.`) and no path label is version-like; `com.example.my_app.R` (underscore) stays nonpath too.
+for _t in 'com.example.R:5' 'com.example.my_app.R:5' 'de.example.app.R:5' 'uk.co.acme.R:7' 'fr.acme.ui.R:2' 'me.foo.bar.R:3' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x.y.Bin:6'; do
   n973 "pre-${_t%%:*}" standard "Class \`$_t\`. [CERT]"
   out="$(run "$N973")"
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
@@ -1567,6 +1569,19 @@ done
 _vb_ex="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
 { grep -q '^EXTS no-duplicates' <<<"$_vb_ex" && grep -q '^EXTS set-preserved$' <<<"$_vb_ex" && ! grep -qE '^EXTS (DUP|SET-DIFF|UNREADABLE)' <<<"$_vb_ex"; } \
   && ok "#1721 GOOD: _vb_file_exts has no duplicates and its set equals the expected set" || no "#1721 _vb_file_exts invariants (intentional extension change? update tests/fixtures/verify-block/exts-expected-set.txt) :: $(tr '\n' ' ' <<<"$_vb_ex")"
+# kit #1742 (item 3): `_vb_tlds` holds only the overlap with `_vb_file_exts` (the sole thing P1721-TLD-GUARD reads it for)
+{ grep -q '^EXTS tlds-subset' <<<"$_vb_ex" && ! grep -q '^EXTS TLD-NOT-EXT' <<<"$_vb_ex" \
+  && grep -q '^EXTS tlds-complete' <<<"$_vb_ex" && ! grep -qE '^EXTS (TLD-MISSING|UNREADABLE|GREP-ERROR)' <<<"$_vb_ex"; } \
+  && ok "#1742 GOOD: _vb_tlds is exactly the overlap with _vb_file_exts (subset, and complete for the frozen TLD list)" || no "#1742 _vb_tlds drift :: $(tr '\n' ' ' <<<"$_vb_ex")"
+# kit #1742 (item 1): the set-preserved check must FAIL CLOSED (typed, never a pass) when the expected-set fixture is
+# missing or `diff` itself cannot run (exit 2, empty stdout) — could-not-run is not a pass (CLAUDE.md §7).
+_vb_ex2="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT" "$TMP/no-such-expected-set.txt")"
+{ grep -q '^EXTS UNREADABLE-EXPECTED' <<<"$_vb_ex2" && ! grep -q '^EXTS set-preserved' <<<"$_vb_ex2"; } \
+  && ok "#1742 GOOD: a missing expected-set fixture is a typed failure, not set-preserved" || no "#1742 missing expected set did not fail closed :: $(tr '\n' ' ' <<<"$_vb_ex2")"
+mkdir -p "$TMP/stub-diff"; printf '#!/bin/sh\nexit 2\n' > "$TMP/stub-diff/diff"; chmod +x "$TMP/stub-diff/diff"
+_vb_ex3="$(PATH="$TMP/stub-diff:$PATH" bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
+{ grep -q '^EXTS DIFF-ERROR' <<<"$_vb_ex3" && ! grep -q '^EXTS set-preserved' <<<"$_vb_ex3"; } \
+  && ok "#1742 GOOD: a diff that exits 2 with empty stdout is a typed failure, not set-preserved" || no "#1742 diff failure did not fail closed :: $(tr '\n' ' ' <<<"$_vb_ex3")"
 # guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
 printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
 n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
@@ -2149,7 +2164,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'nonpath  x.qzv:2' --bad-lacks 'extern  x.qzv' -- bash @SUT@ "$TMP/n973-ext-x.qzv.md"
   fi
   # kit #1721: the pre-split extension check (P1721-NONPATH-EXT) and the no-duplicate-extension invariant
-  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" 's/if grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"; then$/if false; then/'; then
+  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" 's/if grep -qxF "\$_vb_np_last" <<<"\$_vb_file_exts"; then$/if false; then/'; then
     tooth "teeth-1721-preext" 0 0 "$MUT/np21.sh" --good-has 'extern  notes.v1.org:2' --good-lacks 'nonpath' \
       --bad-has 'nonpath  notes.v1.org:2' --bad-lacks 'extern  notes' -- bash @SUT@ "$TMP/n973-pre-notes.v1.org.md"
   fi
@@ -2167,14 +2182,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'EXTS SET-DIFF: -scala' -- bash "$HERE/fixtures/verify-block/exts-invariants.sh" @SUT@
   fi
   # the exact-case / package-root narrowing: lower-casing the last label makes `org.apache.log4j.Log` extern (regression)
-  if mk_sed "teeth-1721-fqcn" "$MUT/np24.sh" 's/_vb_np_ext1="\${_vb_np_ext1##\*\.}"/_vb_np_ext1="${_vb_np_ext1##*.}"; _vb_np_ext1="${_vb_np_ext1,,}"/'; then
+  if mk_sed "teeth-1721-fqcn" "$MUT/np24.sh" 's/_vb_np_last="\${_vb_np_stem##\*\.}"/_vb_np_last="${_vb_np_stem##*.}"; _vb_np_last="${_vb_np_last,,}"/'; then
     tooth "teeth-1721-fqcn" 0 0 "$MUT/np24.sh" --good-has 'nonpath  org.apache.log4j.Log:12' --good-lacks 'extern  org' \
       --bad-has 'extern  org.apache.log4j.Log:12' --bad-lacks 'nonpath  org' -- bash @SUT@ "$TMP/n973-pre-org.apache.log4j.Log.md"
   fi
-  if mk_sed "teeth-1721-root" "$MUT/np25.sh" 's/case "\$_vb_np_first" in com|org/case "$_vb_np_first" in zzz-none|zzz2/'; then
-    tooth "teeth-1721-root" 0 0 "$MUT/np25.sh" --good-has 'nonpath  com.example.R:5' --good-lacks 'extern  com' \
-      --bad-has 'extern  com.example.R:5' --bad-lacks 'nonpath  com' -- bash @SUT@ "$TMP/n973-pre-com.example.R.md"
+  # kit #1742 (item 2): the combined R rule = (known root OR 2-letter ccTLD first label) AND no version-like label.
+  # Each branch has a tooth: dropping the known roots, the ccTLD branch, the version override, or the whole rescue.
+  if mk_sed "teeth-1742-r-roots" "$MUT/np25.sh" 's/in com|org/in org/'; then
+    tooth "teeth-1742-r-roots" 0 0 "$MUT/np25.sh" --good-has 'nonpath  com.example.my_app.R:5' --good-lacks 'extern  com' \
+      --bad-has 'extern  com.example.my_app.R:5' --bad-lacks 'nonpath  com' -- bash @SUT@ "$TMP/n973-pre-com.example.my_app.R.md"
   fi
+  if mk_sed "teeth-1742-r-cctld" "$MUT/np29.sh" 's/|jdk|\[a-z\]\[a-z\]) _vb_np_pkg=1/|jdk) _vb_np_pkg=1/'; then
+    tooth "teeth-1742-r-cctld" 0 0 "$MUT/np29.sh" --good-has 'nonpath  de.example.app.R:5' --good-lacks 'extern  de' \
+      --bad-has 'extern  de.example.app.R:5' --bad-lacks 'nonpath  de' -- bash @SUT@ "$TMP/n973-pre-de.example.app.R.md"
+  fi
+  if mk_sed "teeth-1742-r-version" "$MUT/np27.sh" 's/; then _vb_np_pkg=0; fi/; then :; fi/'; then
+    tooth "teeth-1742-r-version" 0 0 "$MUT/np27.sh" --good-has 'extern  de.v2.report.R:6' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  de.v2.report.R:6' --bad-lacks 'extern  de' -- bash @SUT@ "$TMP/n973-pre-de.v2.report.R.md"
+  fi
+  if mk_sed "teeth-1742-r-rescue" "$MUT/np30.sh" 's/if \[ "\$_vb_np_pkg" = 0 \]; then _vb_np_hit=1; fi/:/'; then
+    tooth "teeth-1742-r-rescue" 0 0 "$MUT/np30.sh" --good-has 'extern  data.clean.R:8' --good-lacks 'nonpath' \
+      --bad-has 'nonpath  data.clean.R:8' --bad-lacks 'extern  data' -- bash @SUT@ "$TMP/n973-pre-data.clean.R.md"
+  fi
+  # kit #1742 (item 3): a non-extension entry swapped into _vb_tlds (`so` for the last entry) is reported by the overlap invariant
+  _vb_fx="$HERE/fixtures/verify-block/exts-invariants.sh"; _vb_exp="$HERE/fixtures/verify-block/exts-expected-set.txt"
+  if mutant_chain "teeth-1742-tlds" "$SUT" "$MUT/np28.sh" 's/^cc\(.\)$/so\1/'; then
+    tooth "teeth-1742-tlds" 0 0 "$MUT/np28.sh" --good-has 'EXTS tlds-subset' --good-lacks 'TLD-NOT-EXT' \
+      --bad-has 'EXTS TLD-NOT-EXT: so' --bad-lacks 'EXTS tlds-subset' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
+  else fail=$((fail+1)); fi
+  # kit #1742 (round 2): the reverse direction — an overlap entry (`tf`) removed from _vb_tlds is reported as missing
+  if mutant_chain "teeth-1742-tlds-complete" "$SUT" "$MUT/np31.sh" '/^_vb_tlds=/,/^cc/{/^tf$/d}'; then
+    tooth "teeth-1742-tlds-complete" 0 0 "$MUT/np31.sh" --good-has 'EXTS tlds-complete' --good-lacks 'TLD-MISSING' \
+      --bad-has 'EXTS TLD-MISSING: tf' --bad-lacks 'EXTS tlds-complete' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
+  else fail=$((fail+1)); fi
+  # kit #1742 (item 1): the set-preserved check fails closed. The mutants are of the FIXTURE (--orig), run against the
+  # real SUT: without the existence test a missing expected set is no longer UNREADABLE-EXPECTED; without the diff
+  # status test a diff that exits 2 with empty stdout reads `set-preserved` again (the original fail-open).
+  if mutant_chain "teeth-1742-exp-exists" "$_vb_fx" "$MUT/fx1.sh" 's/if \[ ! -f "\$expected" \] || \[ ! -r "\$expected" \]; then/if false; then/'; then
+    tooth "teeth-1742-exp-exists" 0 0 "$MUT/fx1.sh" --orig "$_vb_fx" --good-has 'EXTS UNREADABLE-EXPECTED' --good-lacks 'set-preserved' \
+      --bad-lacks 'EXTS UNREADABLE-EXPECTED' --bad-has 'EXTS DIFF-ERROR' --bad-lacks 'EXTS set-preserved' -- bash @SUT@ "$SUT" "$TMP/no-such-expected-set.txt"
+  else fail=$((fail+1)); fi
+  if mutant_chain "teeth-1742-diff-rc" "$_vb_fx" "$MUT/fx2.sh" 's/if \[ "\$drc" -ge 2 \]; then/if false; then/'; then
+    tooth "teeth-1742-diff-rc" 0 0 "$MUT/fx2.sh" --orig "$_vb_fx" --good-has 'EXTS DIFF-ERROR' --good-lacks 'set-preserved' \
+      --bad-has 'EXTS set-preserved' --bad-lacks 'EXTS DIFF-ERROR' -- env "PATH=$TMP/stub-diff:$PATH" bash @SUT@ "$SUT" "$_vb_exp"
+  else fail=$((fail+1)); fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \
       --bad-has 'resolved 0 of 1' --bad-lacks 'INFO +0 file citations' -- bash @SUT@ "$TMP/n973-methodonly.md"
