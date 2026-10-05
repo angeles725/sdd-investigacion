@@ -105,9 +105,10 @@ function fenceinfo(line,   s, ch, n) {
   if (!inc) {
     c = fenceinfo($0)
     if (infence) {
+      if ($0 ~ /^## Iteration history[ \t]*$/) hid = 1
       if (c != "" && c == fch && FN >= fn && FR ~ /^[ \t]*$/) infence = 0
       fl = 1
-    } else if (c != "" && (c == "~" || FR !~ /`/)) { infence = 1; fch = c; fn = FN; fl = 1 }
+    } else if (c != "" && (c == "~" || FR !~ /`/)) { infence = 1; fch = c; fn = FN; fl = 1; fence_start = NR; hid = 0 }
   }
   if (fl) { V[NR] = ""; ES[NR] = 0 } else { V[NR] = visible($0); ES[NR] = inc }
   if (V[NR] ~ /^## Iteration history[ \t]*$/) { hc++; if (hc == 1) h = NR }
@@ -115,13 +116,17 @@ function fenceinfo(line,   s, ch, n) {
 }
 END {
   if (cr) { print "append-iteration-row: ERROR: CRLF-LINE-ENDINGS the file contains a carriage return; convert it to LF first (nothing written)" > "/dev/stderr"; exit 11 }
-  if (hc == 0 && infence) { print "append-iteration-row: ERROR: UNCLOSED-FENCE a code fence is never closed, so no `## Iteration history` heading is visible" > "/dev/stderr"; exit 12 }
+  # An unclosed fence is only blamed when it could have hidden what is missing: for NO-HEADING, a line inside the
+  # still-open fence is the heading; for NO-TABLE, the fence opened after the heading and before the next heading.
+  if (hc == 0 && infence && hid) { print "append-iteration-row: ERROR: UNCLOSED-FENCE a code fence is never closed, so no `## Iteration history` heading is visible" > "/dev/stderr"; exit 12 }
   nofence = "append-iteration-row: ERROR: UNCLOSED-FENCE a code fence is never closed, so the table after the heading is invisible"
   if (hc == 0) { print "append-iteration-row: ERROR: NO-HEADING no `## Iteration history` heading outside an HTML comment" > "/dev/stderr"; exit 4 }
   if (hc > 1)  { print "append-iteration-row: ERROR: AMBIGUOUS-HEADING " hc " `## Iteration history` headings outside HTML comments" > "/dev/stderr"; exit 8 }
   hdr = 0
   for (i = h + 1; i <= NR; i++) { if (hd[i]) break; if (istab(i)) { hdr = i; break } }
-  if (!hdr && infence) { print nofence > "/dev/stderr"; exit 12 }
+  nh = 0
+  for (i = h + 1; i <= NR; i++) if (hd[i]) { nh = i; break }
+  if (!hdr && infence && fence_start > h && (nh == 0 || fence_start < nh)) { print nofence > "/dev/stderr"; exit 12 }
   if (!hdr) { print "append-iteration-row: ERROR: NO-TABLE no table row between the heading and the next heading" > "/dev/stderr"; exit 5 }
   if (!(hdr < NR && istab(hdr + 1) && V[hdr + 1] ~ /^\|[ \t:|-]*-[ \t:|-]*$/)) {
     print "append-iteration-row: ERROR: MALFORMED-TABLE header row at line " hdr " is not followed by a |---| separator row" > "/dev/stderr"; exit 6
