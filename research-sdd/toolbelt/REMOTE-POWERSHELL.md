@@ -49,7 +49,49 @@ B64=$(python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('u
 ./connect-ssh.sh "powershell -NoProfile -EncodedCommand $B64"
 ```
 
-Nothing is re-parsed. Single quotes inside the PowerShell source are now safe.
+On the remote hop nothing is re-parsed: the payload is plain base64, so it contains no quote, `$` or
+`|` for the remote shell to touch.
+
+<!-- SENTINEL-REMOTE-PS-LOCAL-QUOTING -->
+**Where quoting still breaks: the LOCAL bash layer, before encoding.** Encoding protects the remote
+hop only. The PowerShell text first has to get into a bash variable, and a bash single-quoted string
+cannot contain a single quote. The example above is safe only because its source has none (it uses
+`"s"`). Write the `.ToString('s')` form into `PS='...'` and bash silently drops the inner quotes
+before encoding; `-EncodedCommand` then ships the already-damaged text and the failure surfaces on the
+remote host (e.g. `Get-CimInstance : Consulta no válida`, 0x80041017), not as a local error. Measured
+locally (bash + `base64`/`iconv` UTF-16LE round-trip, no remote host):
+
+```
+PS='Write-Output ((Get-Date).ToString('s'))'        # inner quotes end and restart the string
+decoded payload: [Write-Output ((Get-Date).ToString(s))]       # quotes gone before encoding
+```
+
+**Rule:** never type PowerShell that contains `'` into a bash single-quoted string. Take the source from
+a quoted heredoc (`<<'EOF'`, which disables all local expansion) or from a script file:
+
+```bash
+PS=$(cat <<'EOF'
+Write-Output ((Get-Date).ToString('s'))
+EOF
+)
+B64=$(python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('utf-16-le')).decode())" "$PS")
+# or, from a file: PS=$(cat remote-script.ps1)
+```
+
+The same demonstration with the heredoc decodes to `Write-Output ((Get-Date).ToString('s'))`, intact.
+Safe forms: a quoted heredoc, or a file read with `cat`/`<`. Unsafe forms: a `'...'` assignment or
+argument containing `'`, and an unquoted heredoc (`<<EOF`), which still expands `$` and backticks
+locally. (The kit ships no wrapper that does this for you; the encoding step is the one-liner above.)
+
+<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->
+**Second hop: a nested `powershell -Command "…"` re-introduces the problem.** `-EncodedCommand`
+covers the SSH-to-remote-shell hop only. If your script, once running inside the remote PowerShell
+session, itself launches `powershell -Command "…"` (or `-c`), that inner string is parsed by the OUTER
+interpreter first: `$_`, `$LASTEXITCODE` and other variables expand in the outer scope before they reach
+the inner `-Command`, so they arrive empty. Same defect, one hop deeper. Fix: do not nest; run the code
+in-process (`& { … }` or a script block). If a child process is required, pass it a nested
+`-EncodedCommand` (encode the inner source as UTF-16LE base64 inside the outer script) or write it to a
+remote script file and run `powershell -File`.
 
 ## 3. Tag your output lines and filter for the tag
 
