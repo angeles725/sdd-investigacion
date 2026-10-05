@@ -43,6 +43,8 @@ Exit codes of `--json` mode (every one it can return):
   `"state":"degraded"` so a machine caller sees the typed state instead of empty stdout.
 - Operational failures keep the instrument's existing behaviour: a message on stderr, exit 1, nothing on stdout.
 - The envelope is built with `jq`; the instrument probes for it before doing any work and hands it the data as files, never argv words, so a large backlog cannot hit the per-argument size limit.
+- The probe covers the capability, not just presence: the data is passed with `jq --rawfile` (jq >= 1.6), so a jq that lacks it is `degraded` (exit 3, reason `jq lacks --rawfile (jq >= 1.6 required)`), never a late exit 1.
+- Pending-retro rows travel from the sweep to the jq builder as named `name=value` fields, so the builder reads each field by name, not by position.
 
 ## Instruments
 

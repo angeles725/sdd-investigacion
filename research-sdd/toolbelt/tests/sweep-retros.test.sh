@@ -5065,7 +5065,7 @@ if [ "$(jq_f '[.state,.counts.missing_retro,(.items|length)]|join(",")')" = "no-
 else no "JSON env: inherited _json_miss leaked" "$JOUT"; fi
 
 kit="$(jfix j-jqfail)"; _stub="$ROOT/j-stub"; mkdir -p "$_stub"
-printf '#!/bin/sh\nexit 1\n' > "$_stub/jq"; chmod +x "$_stub/jq"
+printf '#!/bin/sh\ncase "$*" in *_sr_probe*) exit 0;; esac\nexit 1\n' > "$_stub/jq"; chmod +x "$_stub/jq"
 jrun "$kit" "$_stub:$PATH"
 if [ "$RC" = 1 ] && [ -z "$JOUT" ] && grep -q 'envelope build failed' <<<"$JERR"; then
   ok "JSON jq-failure: envelope build failure → rc 1, stderr message, empty stdout" "()"
@@ -5121,6 +5121,45 @@ if [ "$(jq_f '[.state,.counts.targets_absent,(.items|length > 0)]|join(",")')" =
   ok "JSON precedence: one absent target beside real findings → ok, absence visible in counts" "()"
 else no "JSON precedence: partial absence" "$JOUT"; fi
 
+# Issue #1755: (1) a jq without --rawfile (< 1.6) is a typed degraded envelope (rc 3), probed up front, not a
+# late rc 1; (2) EVERY documented field carries a value assertion, incl. counts.targets_skipped.
+kit="$(jfix j-oldjq)"; _oj="$ROOT/j-oldjq-bin"; mkdir -p "$_oj"; _realjq="$(command -v jq)"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = "--rawfile" ] && { echo "jq: Unknown option --rawfile" >&2; exit 2; }; done\nexec "%s" "$@"\n' "$_realjq" > "$_oj/jq"; chmod +x "$_oj/jq"
+jrun "$kit" "$_oj:$PATH"
+if [ "$RC" = 3 ] && grep -q '^DEGRADED: jq lacks --rawfile' <<<"$JERR" \
+   && [ "$(jq_f '[.schema,.state]|join(",")')" = "research-sdd.sweep-retros/v1,degraded" ] && [ "$(jq_f .reason)" != null ] \
+   && [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ]; then
+  ok "JSON old-jq: jq without --rawfile → typed degraded envelope, DEGRADED on stderr, rc 3" "()"
+else no "JSON old-jq" "rc=$RC err=[$JERR] out=[$JOUT]"; fi
+
+# jfull_kit <name>: two pending retros (countable + uncountable) and a '...' target (skipped).
+jfull_kit() {
+  local kit tgt; kit="$(mkkit "$1")"; tgt="$kit/targetA"
+  mkretro "$tgt" "p1.md" "<!-- review-status: pending -->" 3
+  printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\nprose, no table, no entries\n' > "$tgt/retros/uc.md"
+  touch -d '2026-01-02 00:00:00 UTC' "$tgt/retros/p1.md"; touch -d '2026-01-03 00:00:00 UTC' "$tgt/retros/uc.md"
+  wire_target "$tgt"; write_targets "$kit" "$tgt" "$kit/trunc...ated"
+  printf '%s' "$kit"
+}
+kit="$(jfull_kit j-full)"; jrun "$kit"
+if [ "$RC" = 0 ] \
+   && [ "$(jq_f '[.counts.targets,.counts.targets_absent,.counts.targets_skipped,.counts.retros,.counts.pending,.counts.missing_retro]|join(",")')" = "1,0,1,2,2,0" ] \
+   && [ "$(jq_f '.items[0]|[.kind,(.file|split("/")|last),(.target|split("/")|last),.deltas,.deltas_state,.status,(.age_days|type),.age_state,.escalated,(.warning|tostring)]|join(",")')" = "pending-retro,p1.md,targetA,3,counted,pending,number,counted,false,null" ] \
+   && [ "$(jq_f '.items[1]|[(.file|split("/")|last),(.deltas|tostring),.deltas_state,.status,.escalated,.warning]|join(",")')" = "uc.md,null,uncountable,pending,false,delta section present but not in countable form — count by hand" ]; then
+  ok "JSON fields: every documented count and item field carries its value (targets_skipped=1, warning text, deltas null)" "()"
+else no "JSON fields" "rc=$RC $JOUT"; fi
+kit="$(jfull_kit j-esc)"; RSDD_RETRO_AGE_DAYS=1 jrun "$kit"
+if [ "$(jq_f '[.items[]|select(.kind=="pending-retro")|.escalated]|join(",")')" = "true,true" ]; then
+  ok "JSON fields: escalated true for retros older than the threshold" "()"
+else no "JSON fields: escalated" "$JOUT"; fi
+kit="$(jfix j-badage)"; _bm="$ROOT/j-badage.sh"
+if mutant_sed "$SUT" "$_bm" "$J_AGE_EXPR"; then
+  cp "$_bm" "$kit/toolbelt/sweep-retros.sh"; jrun "$kit"
+  if [ "$(jq_f '.items[0]|[.age_state,(.deltas|tostring),.status]|join(",")')" = "unknown,3,pending" ]; then
+    ok "JSON fields: a blank age leaves the other named fields (deltas, status) intact" "()"
+  else no "JSON fields: blank age shifted other fields" "$JOUT"; fi
+else no "JSON fields: build mutant" "mutant_sed refused"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -5141,22 +5180,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jteeth empty    's/elif \$total == 0 then "empty-input"/elif $total == -1 then "empty-input"/' jt_empty
   jteeth absent   's/\$tabsent == \$targets then/$tabsent == 999 then/' jt_absent
   jteeth nomatch  's/else "no-match" end),/else "ok" end),/' jt_nomatch
-  jteeth probe    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' jt_degr
+  jteeth probe    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/
+s/if ! jq -n --rawfile _sr_probe \/dev\/null 1 >\/dev\/null 2>&1; then/if false; then/' jt_degr
   jteeth mute     's/exec 3>&1 >\/dev\/null/exec 3>\&1/' jt_clean
   jt_envinit()  { local k; k="$(mkkit "$(basename "$1")-i")"; mkretro "$k/targetA" a.md "<!-- review-status: applied x -->" 1; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; _json_miss="/fabricated" jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
-  jt_exit1()    { local s="$ROOT/j-stub2"; mkdir -p "$s"; printf '#!/bin/sh\nexit 1\n' > "$s/jq"; chmod +x "$s/jq"; jrun "$1" "$s:$PATH"; [ "$RC" = 1 ]; }
+  jt_exit1()    { local s="$ROOT/j-stub2"; mkdir -p "$s"; printf '#!/bin/sh\ncase "$*" in *_sr_probe*) exit 0;; esac\nexit 1\n' > "$s/jq"; chmod +x "$s/jq"; jrun "$1" "$s:$PATH"; [ "$RC" = 1 ]; }
   jt_ageguard() { jrun "$1"; [ "$(jq_f '.items|length')" = 2 ]; }
   jteeth envinit  's/^_json_pend=""; _json_miss=""/_json_pend=""/' jt_envinit
   jteeth exit1    's/envelope build failed" >&2; exit 1; }/envelope build failed" >\&2; exit 2; }/' jt_exit1
   # ageguard: the empty-age input mutation AND the guard removed (non-numeric goes straight to tonumber).
   jteeth ageguard "$J_AGE_EXPR
-s/then (\\.\\[5\\] | tonumber) else null end)/then (.[5] | tonumber) else (.[5] | tonumber) end)/" jt_ageguard
+s/then (\\.age | tonumber) else null end)/then (.age | tonumber) else (.age | tonumber) end)/" jt_ageguard
   jt_big()   { local k; k="$(jbig_kit "$(basename "$1")-big")"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$RC" = 0 ] && [ "$(jq_f .state)" = ok ]; }
   jt_nosec() { local k; k="$(mkkit "$(basename "$1")-ns")"; mkdir -p "$k/targetA/retros"; printf '<!-- review-status: pending -->\n# r\n\nprose\n' > "$k/targetA/retros/ns.md"; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f '.items[0].deltas_state')" = no-section ]; }
   jt_prec()  { local k; k="$(mkkit "$(basename "$1")-pr")"; mkdir -p "$k/targetA"; printf '# b\n' > "$k/targetA/t-block1.md"; touch -d '2 days ago' "$k/targetA/t-block1.md"; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .state)" = ok ]; }
   jteeth argv    's/--rawfile pend <(printf .%s. "\$_json_pend")/--arg pend "$_json_pend"/' jt_big
   jteeth nosec   's/_dk=no-section/_dk=counted/' jt_nosec
   jteeth prec    's/if (\$items | length) > 0 then "ok"/if ($items | length) > 99999 then "ok"/' jt_prec
+  jt_oldjq()   { local o="$ROOT/j-oldjq-bin"; jrun "$1" "$o:$PATH"; [ "$RC" = 3 ] && [ "$(jq_f .state)" = degraded ]; }
+  jt_skipped() { local k; k="$(jfull_kit "$(basename "$1")-sk")"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f .counts.targets_skipped)" = 1 ]; }
+  jt_warn()    { local k; k="$(jfull_kit "$(basename "$1")-wn")"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; jrun "$k"; [ "$(jq_f '.items[1].warning')" != null ]; }
+  jt_esc()     { local k; k="$(jfull_kit "$(basename "$1")-es")"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; RSDD_RETRO_AGE_DAYS=1 jrun "$k"; [ "$(jq_f '.items[0].escalated')" = true ]; }
+  jteeth oldjq   's/if ! jq -n --rawfile _sr_probe \/dev\/null 1/if ! jq -n 1/' jt_oldjq
+  jteeth skipped 's/targets_skipped: \$tskipped/targets_skipped: 0/' jt_skipped
+  jteeth warning 's/warning: (if \.warning == "" then null else \.warning end)/warning: null/' jt_warn
+  jteeth escaped 's/escalated: (\.tag != "")/escalated: false/' jt_esc
 fi
 
 echo "== $pass passed · $fail failed =="
