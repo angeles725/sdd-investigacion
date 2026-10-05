@@ -766,8 +766,18 @@ strip_md_bold() {
 #   mistaken for structure. Exit 3 (and no output) on a reply it cannot parse to the end (an
 #   unterminated string, unbalanced brackets) — the caller counts that as a failed lookup, never as
 #   "no match". STAGE_RETRO_ISSUES_EXACT_SIG: anchor for the exact-match teeth proofs.
-_exact_sig_matches() {
-  _XSIG="$1" awk '
+_exact_sig_matches() { _json_issue_scan sig "$1"; }
+
+# _json_issue_scan <sig|occ> <needle>   (reads a `gh issue list --json …` reply on stdin)
+#   THE one JSON reader for every lookup in this script (kit issue #1708: a second hand-written tokenizer
+#   would let escape / \u / depth handling drift apart). It captures body, state, title (strings) and number
+#   (bare digits) per issue object, then reports by mode:
+#     sig  needle = a signature line; keeps issues whose BODY has it as a whole line (see _exact_sig_matches)
+#          and prints `[{"state":"…"},…]` then `total=N`.
+#     occ  needle = a title; prints line 1 = space-separated numbers of the OPEN issues whose title EQUALS
+#          it exactly (possibly empty), then `total=N` (see _occ_find).
+_json_issue_scan() {
+  _XMODE="$1" _XSIG="$2" awk '
     function hexval(h,   k, v, d) {
       v = 0
       for (k = 1; k <= length(h); k++) {
@@ -778,6 +788,11 @@ _exact_sig_matches() {
       return v
     }
     function process_object(   nl, lines, j, ln, hit) {
+      if (mode == "occ") {
+        ntotal++
+        if (state == "OPEN" && title == sig && num ~ /^[0-9]+$/) { occout = occout (nocc++ ? " " : "") num }   # STAGE_RETRO_ISSUES_OCC_EXACT
+        return
+      }
       hit = 0
       nl = split(body, lines, "\n")
       for (j = 1; j <= nl; j++) {
@@ -788,7 +803,7 @@ _exact_sig_matches() {
       ntotal++
       if (hit) { out = out (nout++ ? "," : "") "{\"state\":\"" state "\"}" }
     }
-    BEGIN { sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
+    BEGIN { mode = ENVIRON["_XMODE"]; occout = ""; nocc = 0; sig = ENVIRON["_XSIG"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
     { s = s $0 "\n" }
     END {
       n = length(s); i = 1
@@ -821,12 +836,20 @@ _exact_sig_matches() {
             if (vmode) {
               if (key == "body") body = str
               else if (key == "state") state = str
+              else if (key == "title") title = str
               vmode = 0
             } else key = str
           }
           continue
         }
-        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { body = ""; state = ""; key = ""; vmode = 0 } }
+        if (depth == 2 && vmode && c ~ /[0-9]/) {   # a bare number value (the issue number)
+          tok = ""
+          while (i <= n && substr(s, i, 1) ~ /[0-9]/) { tok = tok substr(s, i, 1); i++ }
+          if (key == "number") num = tok
+          vmode = 0
+          continue
+        }
+        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { body = ""; state = ""; title = ""; num = ""; key = ""; vmode = 0 } }
         else if (c == "}" || c == "]") {
           if (c == "}" && depth == 2) process_object()
           depth--
@@ -837,6 +860,7 @@ _exact_sig_matches() {
         i++
       }
       if (depth != 0) exit 3
+      if (mode == "occ") { printf "%s\ntotal=%d\n", occout, ntotal; exit 0 }
       printf "[%s]\n", out
       printf "total=%d\n", ntotal      # STAGE_RETRO_ISSUES_TOTAL_LINE: how many issues the reply held (see _list_filled)
     }
@@ -1018,88 +1042,6 @@ _recheck_exists() {
 occurrence_commented=0; occurrence_present=0
 _occ_nums=""
 
-# _occ_matches <title>   (reads a `gh issue list --json number,state,title` reply on stdin)
-#   Pure-awk JSON reader (same string/escape/depth tracking as _exact_sig_matches, plus bare-number values).
-#   Prints line 1 = the space-separated numbers of the OPEN issues whose title EQUALS <title> exactly
-#   (possibly empty), line 2 = `total=<N>` (how many issues the reply held). Exit 3 and no output on a reply
-#   it cannot parse to the end. STAGE_RETRO_ISSUES_OCC_MATCH: anchor for the exact-title teeth.
-_occ_matches() {
-  _XTITLE="$1" awk '
-    function hexval(h,   k, v, d) {
-      v = 0
-      for (k = 1; k <= length(h); k++) {
-        d = index("0123456789abcdef", tolower(substr(h, k, 1)))
-        if (d == 0) return -1
-        v = v * 16 + d - 1
-      }
-      return v
-    }
-    function process_object() {
-      ntotal++
-      if (state == "OPEN" && title == want && num ~ /^[0-9]+$/) { out = out (nout++ ? " " : "") num }   # STAGE_RETRO_ISSUES_OCC_EXACT
-    }
-    BEGIN { want = ENVIRON["_XTITLE"]; depth = 0; vmode = 0; nout = 0; ntotal = 0; out = ""; s = "" }
-    { s = s $0 "\n" }
-    END {
-      n = length(s); i = 1
-      while (i <= n) {
-        c = substr(s, i, 1)
-        if (c == "\"") {
-          str = ""; i++; closed = 0
-          while (i <= n) {
-            c = substr(s, i, 1)
-            if (c == "\\") {
-              e = substr(s, i + 1, 1)
-              if (e == "n") str = str "\n"
-              else if (e == "r") str = str "\r"
-              else if (e == "t") str = str "\t"
-              else if (e == "u") {
-                cp = hexval(substr(s, i + 2, 4))
-                if (cp >= 0 && cp < 128) str = str sprintf("%c", cp)
-                else if (cp == 183) str = str "·"
-                else str = str "?"
-                i += 4
-              } else str = str e
-              i += 2; continue
-            }
-            if (c == "\"") { closed = 1; break }
-            str = str c; i++
-          }
-          if (!closed) exit 3
-          i++
-          if (depth == 2) {
-            if (vmode) {
-              if (key == "title") title = str
-              else if (key == "state") state = str
-              vmode = 0
-            } else key = str
-          }
-          continue
-        }
-        if (depth == 2 && vmode && c ~ /[0-9]/) {
-          tok = ""
-          while (i <= n && substr(s, i, 1) ~ /[0-9]/) { tok = tok substr(s, i, 1); i++ }
-          if (key == "number") num = tok
-          vmode = 0
-          continue
-        }
-        if (c == "{" || c == "[") { depth++; if (c == "{" && depth == 2) { title = ""; state = ""; num = ""; key = ""; vmode = 0 } }
-        else if (c == "}" || c == "]") {
-          if (c == "}" && depth == 2) process_object()
-          depth--
-          if (depth < 0) exit 3
-        }
-        else if (c == ":" && depth == 2) vmode = 1
-        else if (c == "," && depth == 2) vmode = 0
-        i++
-      }
-      if (depth != 0) exit 3
-      printf "%s\n", out
-      printf "total=%d\n", ntotal
-    }
-  '
-}
-
 # _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
 # equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR already
 # printed). A failed call, a reply that is not a parseable JSON array, or a page that fills the --limit is a
@@ -1117,7 +1059,7 @@ _occ_find() {
   if ! grep -q '^[[:space:]]*\[' <<<"$_o"; then
     echo "ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row $2 (expected a JSON array): $_o" >&2; return 2
   fi
-  _m="$(printf '%s' "$_o" | _occ_matches "$1")" || {
+  _m="$(printf '%s' "$_o" | _json_issue_scan occ "$1")" || {
     echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2: $_o" >&2; return 2
   }
   _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
@@ -1133,19 +1075,19 @@ _occ_find() {
 }
 
 # _occ_comment <issue-number> <row-id> <marker> <comment-body>: the guarded write for ONE issue. Updates the
-# outcome counters; every path ends in exactly one mutation_outcome line.
+# per-row flags (_occ_row_*) and per-issue counters; the CALLER emits the row's single mutation_outcome line.
 _occ_comment() {
   local _n="$1" _r="$2" _mk="$3" _cb="$4" _cm _cmrc _co _corc _cl _rb2 _rb2rc
   _cm="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _cmrc=$?
   _cm="${_cm//$'\r'/}"
   if [ "$_cmrc" -ne 0 ]; then
     echo "ERROR: gh issue view (occurrence comments) failed for row $_r (#$_n): $_cm" >&2
-    failed=$((failed+1)); _row_nowrite "$_r"; return 0
+    _occ_row_failed=1; _occ_row_nowrite=1; return 0
   fi
   # STAGE_RETRO_ISSUES_OCC_MARKER_CHECK: anchor for the idempotency teeth (a retro comments ONCE per issue).
   if grep -qxF -- "$_mk" <<<"$_cm"; then
     echo "occurrence-exists: #$_n already carries this retro (row $_r)"
-    occurrence_present=$((occurrence_present+1)); _row_nowrite "$_r"; return 0
+    occurrence_present=$((occurrence_present+1)); _occ_row_nowrite=1; return 0
   fi
   _co="$(gh issue comment "$_n" --repo "$KIT_ISSUE_REPO" --body "$_cb" 2>&1)"; _corc=$?
   if [ "$_corc" -ne 0 ]; then
@@ -1155,30 +1097,30 @@ _occ_comment() {
     _rb2="${_rb2//$'\r'/}"
     if [ "$_rb2rc" -eq 0 ] && grep -qxF -- "$_mk" <<<"$_rb2"; then
       echo "unknown-outcome: gh issue comment failed for row $_r (#$_n) but the marker is present on re-read: $_co" >&2
-      summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_r"; return 0
+      _occ_row_sumunk=1; _occ_row_unknown=1; return 0
     fi
     echo "ERROR: gh issue comment failed for row $_r (#$_n): $_co" >&2
-    if [ "$_rb2rc" -eq 0 ]; then _row_nowrite "$_r"; else _row_unknown "$_r"; fi
-    failed=$((failed+1)); return 0
+    if [ "$_rb2rc" -eq 0 ]; then _occ_row_nowrite=1; else _occ_row_unknown=1; fi
+    _occ_row_failed=1; return 0
   fi
   _cl="$(printf '%s\n' "$_co" | tail -n 1)"
   if [[ ! "$_cl" =~ ^https?://[^[:space:]]+/issues/${_n}#issuecomment-[0-9]+$ ]]; then
     echo "unknown-outcome: gh issue comment exited 0 for row $_r (#$_n) but printed no comment URL (output: $_co) — a write is not inferred from output text" >&2
-    summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_r"; return 0
+    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
   fi
   _rb2="$(gh issue view "$_n" --repo "$KIT_ISSUE_REPO" --json comments --jq '.comments[].body' 2>&1)"; _rb2rc=$?
   _rb2="${_rb2//$'\r'/}"
   if [ "$_rb2rc" -ne 0 ]; then
     echo "unknown-outcome: gh issue comment returned $_cl for row $_r (#$_n) but the read-back failed (gh issue view exit $_rb2rc): $_rb2" >&2
-    summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_r"; return 0
+    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
   fi
   if ! grep -qxF -- "$_mk" <<<"$_rb2"; then
     echo "unknown-outcome: gh issue comment on #$_n returned a URL for row $_r but the read-back lacks the occurrence marker '$_mk'" >&2
-    summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_r"; return 0
+    _occ_row_sumunk=1; _occ_row_unknown=1; return 0
   fi
   echo "occurrence-commented: #$_n (row $_r)"
   occurrence_commented=$((occurrence_commented+1))
-  mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_r)"
+  _occ_row_confirmed=1
   return 0
 }
 
@@ -1370,7 +1312,18 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         _scrub_refuse "$_rid" "scrub altered the occurrence marker for row $_rid — refusing to write (idempotency and the read-back key on it)"
         continue
       fi
+      # ONE mutation_outcome per ROW (kit issue #1705 contract: mutation-summary counts rows), however many
+      # issues matched. Precedence: unknown > failed/no_write > confirmed; a row whose issues were all already
+      # commented is no_write. Per-issue detail stays in the occurrence-commented:/occurrence-exists: lines.
+      _occ_row_unknown=0; _occ_row_nowrite=0; _occ_row_failed=0; _occ_row_sumunk=0; _occ_row_confirmed=0
       for _occ_n in $_occ_nums; do _occ_comment "$_occ_n" "$_rid" "$_occ_marker" "$_occ_text"; done
+      if [ "$_occ_row_failed" -eq 1 ]; then failed=$((failed+1)); fi
+      if [ "$_occ_row_sumunk" -eq 1 ]; then summary_unknown_outcome=$((summary_unknown_outcome+1)); fi
+      # STAGE_RETRO_ISSUES_OCC_ROW_OUTCOME: anchor for the one-outcome-per-row teeth.
+      if [ "$_occ_row_unknown" -eq 1 ]; then _row_unknown "$_rid"
+      elif [ "$_occ_row_failed" -eq 0 ] && [ "$_occ_row_confirmed" -eq 1 ]; then
+        mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
+      else _row_nowrite "$_rid"; fi
       continue
     fi
 

@@ -238,8 +238,8 @@ occ_comment() {
     case "$_x" in [0-9]*) _n="$_x" ;; esac
     _p="$_x"
   done
-  [ -f "$0.commentfail" ] && { printf 'gh: comment failed\n' >&2; return 1; }
-  [ -f "$0.commentghost" ] || printf '%s\n' "$_b" >> "$0.comments.$_n"
+  [ -f "$0.commentfail" ] || [ -f "$0.commentfail.$_n" ] && { printf 'gh: comment failed\n' >&2; return 1; }
+  [ -f "$0.commentghost" ] || [ -f "$0.commentghost.$_n" ] || printf '%s\n' "$_b" >> "$0.comments.$_n"
   [ -f "$0.commentnourl" ] && { printf 'done\n'; return 0; }
   printf 'https://github.com/r/issues/%s#issuecomment-1\n' "$_n"
 }
@@ -4605,10 +4605,36 @@ fi
 box88f="$(occ_box case-occ-two '55|OPEN|a real delta row' '56|OPEN|a real delta row')"
 run "$box88f" "$(mk_retro "$box88f" target-foo r.md "$PEND" "$OCC_ROW")" --apply
 if [ "$RC" = 0 ] && grep -q '^gh issue comment 55 ' "$box88f/bin/gh.log" && grep -q '^gh issue comment 56 ' "$box88f/bin/gh.log" \
-   && [ "$(grep -c '^gh issue comment' "$box88f/bin/gh.log")" = 2 ] && grep -q '^occurrence-summary: commented=2 ' <<<"$OUT"; then
-  ok "88f two exact OPEN issues → exactly one comment per issue" "(exit $RC)"
+   && [ "$(grep -c '^gh issue comment' "$box88f/bin/gh.log")" = 2 ] && grep -q '^occurrence-summary: commented=2 ' <<<"$OUT" \
+   && [ "$(grep -c '^mutation_outcome:' <<<"$OUT")" = 1 ] && grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" \
+   && grep -q '^mutation-summary: confirmed=1 no_write=0 unknown=0$' <<<"$OUT"; then
+  ok "88f two exact OPEN issues → one comment per issue, ONE row outcome (mutation-summary counts the row once)" "(exit $RC)"
 else
   no "88f one per issue" "exit=$RC out=[$OUT]"
+fi
+
+# 88f2 — mixed outcomes on one row: #55 commented, #56 fails cleanly → ONE mutation_outcome (no_write: the failure
+#        outranks the confirmed write), failed counted once, per-issue detail still printed.
+box88f2="$(occ_box case-occ-mixed '55|OPEN|a real delta row' '56|OPEN|a real delta row')"; : > "$box88f2/bin/gh.commentfail.56"
+run "$box88f2" "$(mk_retro "$box88f2" target-foo r.md "$PEND" "$OCC_ROW")" --apply
+if [ "$RC" = 2 ] && grep -q '^occurrence-commented: #55 (row 1)$' <<<"$OUT" && grep -q '^ERROR: gh issue comment failed for row 1 (#56)' <<<"$OUT" \
+   && [ "$(grep -c '^mutation_outcome:' <<<"$OUT")" = 1 ] && grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" \
+   && grep -q '^mutation-summary: confirmed=0 no_write=1 unknown=0$' <<<"$OUT" && grep -q 'failed=1$' <<<"$(grep '^summary:' <<<"$OUT")" \
+   && grep -q '^occurrence-summary: commented=1 already-present=0$' <<<"$OUT"; then
+  ok "88f2 mixed confirmed + failed issues on one row → one no_write outcome, failed=1" "(exit $RC)"
+else
+  no "88f2 mixed outcomes" "exit=$RC out=[$OUT]"
+fi
+
+# 88f3 — #55 fails cleanly, #56 is unproven (URL, no marker): unknown outranks no_write; still ONE outcome.
+box88f3="$(occ_box case-occ-mixed-unknown '55|OPEN|a real delta row' '56|OPEN|a real delta row')"
+: > "$box88f3/bin/gh.commentfail.55"; : > "$box88f3/bin/gh.commentghost.56"
+run "$box88f3" "$(mk_retro "$box88f3" target-foo r.md "$PEND" "$OCC_ROW")" --apply
+if [ "$(grep -c '^mutation_outcome:' <<<"$OUT")" = 1 ] && grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" \
+   && grep -q '^mutation-summary: confirmed=0 no_write=0 unknown=1$' <<<"$OUT" && [ "$RC" = 2 ]; then
+  ok "88f3 failed + unproven issues on one row → one unknown outcome (unknown outranks no_write)" "(exit $RC)"
+else
+  no "88f3 unknown precedence" "exit=$RC out=[$OUT]"
 fi
 
 # 88g — the occurrence lookup FAILS or returns a truncated/unterminated reply: failed (exit 2), never create.
@@ -4708,12 +4734,26 @@ fi
 
 # 88o — a title with quotes and a Go-style < escape in the reply still matches EXACTLY (a false miss would
 #       file the duplicate this feature exists to prevent).
-box88o="$(occ_box case-occ-escapes '55|OPEN|fix \"quoted\" <tag> here')"
+#       The reply bytes below carry REAL JSON escapes (backslash-quote, backslash-u003c/u003e), built from a
+#       BS variable so no tool or editor can fold them into the literal characters.
+BS='\'; U_LT="${BS}u003c"; U_GT="${BS}u003e"; U_EACUTE="${BS}u00e9"
+box88o="$(occ_box case-occ-escapes "55|OPEN|fix ${BS}\"quoted${BS}\" ${U_LT}tag${U_GT} here")"
+if grep -qF -- "$U_LT" "$box88o/bin/gh.occ"; then ok "88o precondition: the stub reply really contains a backslash-u escape" "()"
+else no "88o precondition" "stub reply has no escape: $(cat "$box88o/bin/gh.occ")"; fi
 run "$box88o" "$(mk_retro "$box88o" target-foo r.md "$PEND" '| 1 | fix "quoted" <tag> here | CLAUDE.md | B1 | fix | HIGH |')" --apply
 if [ "$RC" = 0 ] && grep -q '^occurrence-commented: #55 (row 1)$' <<<"$OUT" && ! grep -q 'gh issue create' "$box88o/bin/gh.log"; then
-  ok "88o escaped quotes and \\u003c in the reply title still match the row title exactly" "(exit $RC)"
+  ok "88o escaped quotes and u003c/u003e in the reply title decode and match the row title exactly" "(exit $RC)"
 else
   no "88o escaped title" "exit=$RC out=[$OUT]"
+fi
+# 88p — a non-ASCII char sent as an escape decodes to '?' (documented limit): no match → the row is created, not
+#       commented, and nothing crashes.
+box88p="$(occ_box case-occ-eacute "55|OPEN|caf${U_EACUTE} handling")"
+run "$box88p" "$(mk_retro "$box88p" target-foo r.md "$PEND" '| 1 | caf'$'\303\251'' handling | CLAUDE.md | B1 | fix | HIGH |')" --apply
+if [ "$RC" = 0 ] && grep -q '^created: ' <<<"$OUT" && ! grep -q 'gh issue comment' "$box88p/bin/gh.log"; then
+  ok "88p non-ASCII escape decodes to '?' → no false match, row created" "(exit $RC)"
+else
+  no "88p non-ASCII escape" "exit=$RC out=[$OUT]"
 fi
 
 # 88n — exit 0 but NO comment URL: a write is never inferred from output text → unknown, exit 3.
@@ -4737,11 +4777,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     case "$sc" in
       near)   mb="$(occ_box "teeth-1708-$tag" '55|OPEN|a real delta row extended')" ;;
       closed) mb="$(occ_box "teeth-1708-$tag" '55|CLOSED|a real delta row')" ;;
-      two)    mb="$(occ_box "teeth-1708-$tag" '55|OPEN|a real delta row' '56|OPEN|a real delta row')" ;;
+      two|mixed|mixedunk) mb="$(occ_box "teeth-1708-$tag" '55|OPEN|a real delta row' '56|OPEN|a real delta row')" ;;
+      escapes) mb="$(occ_box "teeth-1708-$tag" "55|OPEN|fix ${BS}\"quoted${BS}\" ${U_LT}tag${U_GT} here")" ;;
       cap)    mb="$(occ_box "teeth-1708-$tag" '55|OPEN|some other title')" ;;
       *)      mb="$(occ_box "teeth-1708-$tag" '55|OPEN|a real delta row')" ;;
     esac
     case "$sc" in
+      mixed)     : > "$mb/bin/gh.commentfail.56" ;;
+      mixedunk)  : > "$mb/bin/gh.commentfail.55"; : > "$mb/bin/gh.commentghost.56" ;;
       noend)     : > "$mb/bin/gh.occnoend" ;;
       emptyreply) : > "$mb/bin/gh.occ" ;;
       ghost)     : > "$mb/bin/gh.commentghost" ;;
@@ -4753,7 +4796,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
     mutant_chain "T1708-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
       || { fail=$((fail+1)); return 1; }
-    rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC_ROW")"
+    if [ "$sc" = "escapes" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" '| 1 | fix "quoted" <tag> here | CLAUDE.md | B1 | fix | HIGH |')"
+    else rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC_ROW")"; fi
     if [ "$sc" = "cap" ]; then
       OUT="$(STAGE_RETRO_ISSUES_LIST_LIMIT=1 PATH="$mb/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit "$BASH_BIN" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$rt" --apply 2>&1)"; RC=$?
     else
@@ -4762,6 +4806,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
     case "$sc" in
       twice)  [ "$(grep -c '^gh issue comment' "$mb/bin/gh.log")" = 2 ] && bite=1; why="a re-run posted a second comment for the same retro" ;;
+      escapes) grep -q '^gh issue create' "$mb/bin/gh.log" && bite=1; why="a title sent with JSON escapes failed to match (duplicate created)" ;;
+      mixed)  grep -q '^mutation_outcome: confirmed (row 1)$' <<<"$OUT" && bite=1; why="a row with a failed issue was reported confirmed" ;;
+      mixedunk) grep -q '^mutation_outcome: no_write (row 1)$' <<<"$OUT" && bite=1; why="an unproven issue was outranked by a clean failure" ;;
       near)   grep -q '^gh issue comment' "$mb/bin/gh.log" && bite=1; why="a near-title issue received a comment" ;;
       closed) grep -q '^gh issue comment' "$mb/bin/gh.log" && bite=1; why="a CLOSED issue received a comment" ;;
       noend)  [ "$RC" != 2 ] && bite=1; why="an unparseable lookup reply was trusted" ;;
@@ -4781,7 +4828,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "T1708-$tag teeth: mutant must show [$why]" "case is THEATER: exit=$RC out=[${OUT:0:300}]"; fi
   }
   tocc marker-check-off  twice 's/^  if grep -qxF -- "\$_mk" <<<"\$_cm"; then$/  if false; then/'
-  tocc exact-title-off   near  's/ && title == want//'
+  tocc exact-title-off   near  's/ && title == sig//'
+  tocc hex-decode-off    escapes 's/if (cp >= 0 && cp < 128) str/if (0) str/'
+  tocc row-failed-outranks-confirmed mixed 's/^      elif \[ "\$_occ_row_failed" -eq 0 \] && \[ "\$_occ_row_confirmed" -eq 1 \]; then$/      elif [ "$_occ_row_confirmed" -eq 1 ]; then/'
+  tocc row-unknown-outranks mixedunk 's/^      if \[ "\$_occ_row_unknown" -eq 1 \]; then _row_unknown "\$_rid"$/      if false; then _row_unknown "$_rid"/'
   tocc open-only-off     closed 's/state == "OPEN" && //'
   tocc parse-guard-off   noend 's/^    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row \$2: \$_o" >&2; return 2$/    :/' 's/^  if \[ -z "\$_total" \]; then$/  if false; then/'
   tocc array-guard-off   emptyreply 's/^  if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_o"; then$/  if false; then/'
