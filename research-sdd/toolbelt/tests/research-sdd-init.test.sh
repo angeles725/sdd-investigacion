@@ -654,7 +654,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     "kept: $d/.claude/hooks/retro-gate-stop.sh" "$_j_out2"
   assert_grep "1038-(j) idempotent: second run reports 'kept:' for research-protocol.sh" \
     "kept: $d/.claude/hooks/research-protocol.sh" "$_j_out2"
-  _j_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+  _j_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
   [ "$_j_stop_n" = 1 ] && ok "1038-(j) idempotent: Stop still has exactly 1 entry after re-run" \
                          || no "1038-(j) idempotent: Stop count=$_j_stop_n (expected 1)"
 
@@ -718,7 +718,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/retro-gate-stop.sh"
     chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
     bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
-    _1040l_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+    _1040l_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
     _1040l_ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
     [ "$_1040l_stop_n" = 1 ] && ok "1040-(l) [$_1040l_form]: Stop stays at exactly 1 entry (no duplicate)" \
                               || no "1040-(l) [$_1040l_form]: Stop count=$_1040l_stop_n (expected 1 — duplicated)"
@@ -970,7 +970,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   d="$TMP/en2a-d-wire"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
-  _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' \
+  _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | endswith("return-token-gate.sh") | not)] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
@@ -1518,7 +1518,7 @@ if command -v jq >/dev/null 2>&1; then
   [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
     && ok "K1496-i scaffold --wire dedups a non-canonical PreToolUse form" \
     || no "K1496-i scaffold --wire double-registered the pkill-guard"
-  [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
+  [ "$(jq '[.hooks.Stop[].hooks[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
     && ok "K1496-i scaffold --wire dedups a non-canonical Stop form" \
     || no "K1496-i scaffold --wire double-registered the Stop hook"
   # (j) a kept hand-adapted guard that is not executable draws a WARN (wire-only).
@@ -1841,6 +1841,42 @@ GITEOF
   assert_absent "K1271-n missing template: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
 fi
 
+
+# ---- kit issue #1732: the return-token Stop gate is wired (second Stop entry) by --wire and in the snippet ------
+if command -v jq >/dev/null 2>&1; then
+  _k32_kit="$(cd -P "$HERE/../.." && pwd -P)"; _k32_gate="$_k32_kit/toolbelt/return-token-gate.sh"
+  # <settings> <command> -> how many Stop registrations carry exactly that command
+  _k32_n() { jq --arg c "$2" '[.hooks.Stop[]? | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null; }
+  # (a) scaffold + wire registers the retro gate AND the return-token gate once each; reports it.
+  d="$TMP/1732-a"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1732-a.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$d/.claude/hooks/retro-gate-stop.sh")" = 1 ] \
+    && ok "K1732-a --scaffold --wire registers the return-token gate and keeps the retro gate (once each)" \
+    || no "K1732-a Stop registrations wrong: $(jq -c '.hooks.Stop' "$d/.claude/settings.json" 2>&1)"
+  assert_grep "K1732-a reports the return-token gate registered" "Stop return-token gate registered" "$TMP/1732-a.out"
+  # (b) a wire-only re-run is idempotent and says so.
+  bash "$SUT" "$d" --wire >"$TMP/1732-b.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && ok "K1732-b re-run does not duplicate the gate" || no "K1732-b gate registered $(_k32_n "$d/.claude/settings.json" "$_k32_gate") times after a re-run"
+  assert_grep "K1732-b re-run reports already wired" "Stop return-token gate already wired" "$TMP/1732-b.out"
+  # (c) wire-only repair preserves a hand-made Stop hook and adds the gate.
+  d="$TMP/1732-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] \
+    && ok "K1732-c wire-only keeps the existing Stop hook and adds the gate" || no "K1732-c Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json" 2>&1)"
+  # (d) a gate already registered from ANOTHER kit path (same script name) is the same hook: not duplicated.
+  d="$TMP/1732-d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/other/kit/toolbelt/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >"$TMP/1732-d.out" 2>&1
+  [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1732-d a gate registered from another kit path is not duplicated" || no "K1732-d duplicated: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  assert_grep "K1732-d reports already wired" "Stop return-token gate already wired" "$TMP/1732-d.out"
+  # (e) print-only scaffold: the proposed snippet carries the gate and no settings.json is written.
+  d="$TMP/1732-e"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat >"$TMP/1732-e.out" 2>&1
+  assert_grep "K1732-e printed snippet carries the return-token gate" "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_k32_gate\"}]}" "$TMP/1732-e.out"
+  assert_absent "K1732-e propose-never-apply: no settings.json without --wire" "$d/.claude/settings.json"
+fi
 
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -2284,7 +2320,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf 'INDEX\n' > "$dmw10/INDEX.md"
       bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
       bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
-      _mw10_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$dmw10/.claude/settings.json" 2>/dev/null)
+      _mw10_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$dmw10/.claude/settings.json" 2>/dev/null)
       if [ "$_mw10_n" != 1 ]; then
         ok "teeth MW10: mutant duplicates Stop on re-run (count=$_mw10_n) → 1038-(j) idempotency assertion has teeth"
       else
@@ -2349,7 +2385,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '#!/usr/bin/env bash\necho adapted\n' > "$dmw12/.claude/hooks/research-protocol.sh"
       printf '#!/usr/bin/env bash\nexit 0\n' > "$dmw12/.claude/hooks/retro-gate-stop.sh"
       bash "$mw12" "$dmw12" --corpus flat --wire >/dev/null 2>/dev/null
-      _mw12_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$dmw12/.claude/settings.json" 2>/dev/null)
+      _mw12_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$dmw12/.claude/settings.json" 2>/dev/null)
       if [ "$_mw12_n" != 1 ]; then
         ok "teeth MW12(a): mutant duplicates the unquoted \$CLAUDE_PROJECT_DIR-form entry (count=$_mw12_n) → 1040-(l) has teeth"
       else
@@ -3068,6 +3104,27 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF "refusing to report success" "$TMP/k99mm.err" && no "teeth M-1509-MERGE-FAIL-MSG: message still present — THEATER" \
       || ok "teeth M-1509-MERGE-FAIL-MSG: typed message gone — K1509-f has teeth"
   else no "teeth M-1509-MERGE-FAIL-MSG: could not build mutant"; fi
+  # M-1732-DEDUP: the gate dedup is removed -> a re-run registers it twice.
+  if _k43_build k32dd -e '/as \$has_gate |$/s/.*/    false as $has_gate |/'; then
+    d="$TMP/k43/k32dd-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    bash "$TMP/k43/k32dd/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k32dd/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" = 2 ] \
+      && ok "teeth M-1732-DEDUP: without the dedup a re-run double-registers — K1732-b has teeth" || no "teeth M-1732-DEDUP: still once under the mutant — K1732-b is THEATER"
+  else no "teeth M-1732-DEDUP: could not build mutant"; fi
+  # M-1732-ADD: the gate is never appended -> settings.json lacks it.
+  if _k43_build k32add -e 's/if \$has_gate then \[\] else/if true then [] else/'; then
+    d="$TMP/k43/k32add-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    bash "$TMP/k43/k32add/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    grep -qF 'return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null && no "teeth M-1732-ADD: gate still registered under the mutant — THEATER" \
+      || ok "teeth M-1732-ADD: gate absent without the append — K1732-a/c have teeth"
+  else no "teeth M-1732-ADD: could not build mutant"; fi
+  # M-1732-SNIPPET: the printed snippet drops the gate entry.
+  if _k43_build k32sn -e 's/^  local gate_entry=.*/  local gate_entry=""/'; then
+    d="$TMP/k43/k32sn-t"; mkdir -p "$d"
+    bash "$TMP/k43/k32sn/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k32sn.out" 2>&1
+    grep -qF 'return-token-gate.sh' "$TMP/k32sn.out" && no "teeth M-1732-SNIPPET: gate still printed under the mutant — THEATER" \
+      || ok "teeth M-1732-SNIPPET: gate missing from the snippet — K1732-e has teeth"
+  else no "teeth M-1732-SNIPPET: could not build mutant"; fi
   # M-1496-WO-MERGE: wire-only merge no longer adds the PreToolUse entry.
   if _k43_build k96wm -e 's/(\.hooks\.PreToolUse = (if \$has_pk then/(.hooks.PreToolUse = (if true then/'; then
     d="$TMP/k43/k96wm-t"; mkdir -p "$d"; : > "$d/INDEX.md"
@@ -3095,7 +3152,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     local d="$TMP/k43/$1-t"; mkdir -p "$d/.claude"
     printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
     bash "$TMP/k43/$1/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
-    printf '%s %s' "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)"
+    printf '%s %s' "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" "$(jq '[.hooks.Stop[].hooks[] | select(.command | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)"
   }
   # M-1496-SCAFFOLD-PK-REL: the scaffold path loses the guard's relative form → exact-string dedup again.
   if _k43_build k96pr -e 's|^_pk_rel=".claude/hooks/pkill-guard.sh"$|_pk_rel="nope-pk"|'; then

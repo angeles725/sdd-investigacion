@@ -178,6 +178,37 @@ else
   ok "G-DEGRADED-TIMEOUT: skipped (no timeout command)"
 fi
 
+echo "-- bounded transcript parse (kit issue #1732) --"
+pad() { head -c "$1" /dev/zero | tr '\0' 'x' | fold -w "$2" | sed 's/^/{"type":"user","message":{"content":"/; s/$/"}}/'; }
+# [match report][big padding]: the report lies wholly before the tail window, so it is NOT parsed
+# (typed degraded, tail-bounded) -- proof the gate does not read the whole file.
+big="$TMP/big-before.jsonl"; { cat "$(tr_ match.jsonl)"; pad 600000 200; } > "$big"
+c="$(fresh corpus-next)"; RETURN_TOKEN_GATE_TAIL_BYTES=4096 run_gate "$c" "$big" s1
+{ [ -z "$g_out" ] && grep -q 'branch=degraded (no assistant text.*tail-bounded to 4096 bytes' <<<"$g_err"; } \
+  && ok "G-TAIL-BOUND: a report lying wholly before the tail window is not parsed (typed degraded, tail-bounded)" \
+  || no "G-TAIL-BOUND: out=[$g_out] err=[$g_err]"
+# [mismatch report][padding][match report]: the final report is inside the window; the stale head is never read.
+big2="$TMP/big-after.jsonl"; { cat "$(tr_ mismatch.jsonl)"; pad 600000 200; cat "$(tr_ match.jsonl)"; } > "$big2"
+c="$(fresh corpus-next)"; RETURN_TOKEN_GATE_TAIL_BYTES=4096 run_gate "$c" "$big2" s1
+expect_allow "G-TAIL-FINAL-IN-WINDOW: the final report inside the tail window is still read (partial first line dropped)" match
+# a ~25 MB transcript with the default window completes quickly and reads the final report
+huge="$TMP/huge.jsonl"; { pad 25000000 500; cat "$(tr_ match.jsonl)"; } > "$huge"
+c="$(fresh corpus-next)"; _t0=$SECONDS; run_gate "$c" "$huge" s1; _dt=$((SECONDS - _t0))
+if [ "$_dt" -le 10 ]; then expect_allow "G-HUGE-TRANSCRIPT: a ~25 MB transcript is read via the default tail window (${_dt}s)" match; else no "G-HUGE-TRANSCRIPT: took ${_dt}s"; fi
+rm -f "$big2" "$huge"
+
+echo "-- block-once marker pruning (kit issue #1732) --"
+c="$(fresh corpus-next)"; mkdir -p "$c/.claude"
+for i in 1 2 3 4 5 6; do : > "$c/.claude/.rsdd-return-token-blocked-old$i"; touch -d "$((i + 1)) minutes ago" "$c/.claude/.rsdd-return-token-blocked-old$i"; done
+: > "$c/.claude/.rsdd-return-token-blocked-ancient"; touch -d '60 days ago' "$c/.claude/.rsdd-return-token-blocked-ancient"
+: > "$c/.claude/unrelated.txt"; touch -d '60 days ago' "$c/.claude/unrelated.txt"
+RETURN_TOKEN_GATE_MARKER_KEEP=3 run_gate "$c" "$(tr_ mismatch.jsonl)" s-prune
+_n="$(find "$c/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
+if is_block && [ "$_n" = 3 ] && [ -f "$c/.claude/.rsdd-return-token-blocked-s-prune" ] && [ ! -e "$c/.claude/.rsdd-return-token-blocked-ancient" ] \
+   && [ -f "$c/.claude/.rsdd-return-token-blocked-old1" ] && [ ! -e "$c/.claude/.rsdd-return-token-blocked-old6" ] && [ -f "$c/.claude/unrelated.txt" ]; then
+  ok "G-PRUNE: markers past the age cap and beyond the count cap are removed; the new marker and unrelated files survive"
+else no "G-PRUNE: count=$_n err=[$g_err] ls=$(ls -A "$c/.claude" | tr '\n' ' ')"; fi
+
 echo "-- hermetic: the only write under the target is the block-once marker --"
 c="$(fresh corpus-next)"; ( cd "$c" && find . -path ./.claude -prune -o -type f -print | sort ) > "$TMP/before.lst"
 run_gate "$c" "$(tr_ mismatch.jsonl)" s-herm
@@ -199,6 +230,10 @@ gate="$1" src="$2" tr="$3" sid="$4"
 w="$(mktemp -d)"; cp -r "$src/." "$w/"
 [ -z "${RTG_STOPONLY:-}" ] || sed -i '/^## Campaign queue/,$d' "$w/RESEARCH-STATE.md"
 j="$(jq -n --arg s "$sid" --arg t "$tr" --arg c "$w" --argjson a "${RTG_ACTIVE:-false}" '{session_id:$s,transcript_path:$t,cwd:$c,stop_hook_active:$a}')"
+if [ -n "${RTG_MARKERS:-}" ]; then
+  mkdir -p "$w/.claude"; k=0
+  while [ "$k" -lt "$RTG_MARKERS" ]; do k=$((k+1)); : > "$w/.claude/.rsdd-return-token-blocked-old$k"; touch -d "${RTG_MARKER_AGE:-$k minutes} ago" "$w/.claude/.rsdd-return-token-blocked-old$k"; done
+fi
 runs=1; [ -z "${RTG_TWICE:-}" ] || runs=2
 i=0
 while [ "$i" -lt "$runs" ]; do
@@ -208,6 +243,7 @@ while [ "$i" -lt "$runs" ]; do
   echo "gate-rc=$?"
   [ -z "${RTG_BETWEEN:-}" ] || sed -i 's/reconstruct the shader pipeline/a different next gap/' "$w/RESEARCH-STATE.md"
 done
+[ -z "${RTG_MARKERS:-}" ] || echo "markers=$(find "$w/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
 rm -rf "$w"
 RUN
   # a second toolbelt copy whose status script always fails (for the status-degraded tooth)
@@ -258,6 +294,12 @@ RUN
     --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
   rtg_t RTG-TRIM '/# RTG-TRIM/d' 0 0 "$NX" "$(tr_ match-decorated.jsonl)" s1 \
     --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
+  RETURN_TOKEN_GATE_TAIL_BYTES=4096 rtg_t RTG-TAIL-BOUND '/# RTG-TAIL-BOUND$/s/-gt "\$_tail_bytes"/-gt 999999999999/' 0 0 "$NX" "$TMP/big-before.jsonl" s1 \
+    --good-has 'tail-bounded' --bad-has 'branch=match' --bad-lacks "tail-bounded|$RTG_CRASH"
+  RTG_MARKERS=5 RETURN_TOKEN_GATE_MARKER_KEEP=2 rtg_t RTG-PRUNE-COUNT '/tail -n +"\$((_keep + 1))"/s/tail -n +"\$((_keep + 1))"/tail -n +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+    --good-has 'markers=2' --bad-has 'markers=6' --bad-lacks "markers=2|$RTG_CRASH"
+  RTG_MARKERS=3 RTG_MARKER_AGE='60 days' rtg_t RTG-PRUNE-AGE '/-mtime +/s/-mtime +"\$_max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+    --good-has 'markers=1' --bad-has 'markers=4' --bad-lacks "markers=1|$RTG_CRASH"
   RTG_STOPONLY=1 rtg_t RTG-STOP-PATTERN '/# RTG-TOKEN-PATTERN$/s/"STOP: campaign"\*/"STOP: nothing"*/' 0 0 "$SQ" "$(tr_ stop-token.jsonl)" s1 \
     --good-has 'branch=match' --bad-has 'branch=missing' --bad-lacks "branch=match|$RTG_CRASH"
 fi

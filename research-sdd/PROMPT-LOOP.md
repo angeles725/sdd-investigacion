@@ -1713,6 +1713,7 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
           partition check reports no genuinely unchartered unit),
         `STOP: campaign-bound-reached: <which>` — when a declared campaign bound fires.
       When `research-sdd-status.sh <target> --next --emit-token` is available, copy its `return-token:` line verbatim; never compose the token by hand. If it prints `return-token: unavailable (<reason>)` (exit 1), that line is NOT a token: resolve the named state first (RETRO-DUE, ISSUES-DUE, STALE, BOOTSTRAP per their rules) and re-run; for a multi-focus or campaign-queue STOP, derive `next-entry:` / `STOP: campaign` from the §8c queue as this contract defines.
+      Enforcement: once wired (kit issue #1732, `research-sdd-init.sh --wire`), `$KIT/toolbelt/return-token-gate.sh` runs as a second Stop hook and blocks the session ONCE when the final report's token is missing or differs from the provider-issued one, quoting the exact line to copy; a deliberate difference needs a `return-token-override: <reason>` line.
       A report that ends without any token is a halted-but-silent stop: the operator has no
       signal to distinguish "checkpoint, continuing" from "stopped". Never substitute a question
       ("shall I continue?", "want me to go on?", or any variant) for the continuation token —

@@ -100,6 +100,9 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 # not the symlink path — intentional, not a regression to work around.
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
+# kit issue #1732: the return-token Stop gate is NOT copied into the target (it needs no per-target placeholder and
+# must track the kit): the second Stop entry points at the kit script itself, which defaults its target to the hook cwd.
+_RSDD_GATE_CMD="$KIT/toolbelt/return-token-gate.sh"
 
 # Shared corpus-marker predicate (kit issue #1108): single source of truth with
 # verify-registry.sh's registered-path marker check — see lib/corpus-markers.sh for why.
@@ -231,17 +234,19 @@ _rsdd_cmd_variants_json() {
 # scaffold --wire path, so the two can never diverge on which already-registered forms count as the
 # same hook (they did: scaffold --wire matched exact strings only). Reads the base settings JSON on
 # stdin; args: <stop-abs> <ss-abs> <pk-abs> <stop-rel> <ss-rel> <pk-rel> <skip_ss true|false>. Emits
-# {settings, has_stop, has_ss, has_pk}; a skipped SessionStart never removes an existing entry.
+# {settings, has_stop, has_ss, has_pk, has_gate}; a skipped SessionStart never removes an existing entry.
 _rsdd_merge_settings() {
   local sv ssv pv
   sv="$(_rsdd_cmd_variants_json "$1" "$4")"; ssv="$(_rsdd_cmd_variants_json "$2" "$5")"
   pv="$(_rsdd_cmd_variants_json "$3" "$6")"
-  jq --arg sc "$1" --arg ac "$2" --arg pc "$3" \
+  jq --arg sc "$1" --arg ac "$2" --arg pc "$3" --arg gc "$_RSDD_GATE_CMD" \
     --argjson stop_variants "$sv" --argjson ss_variants "$ssv" --argjson pk_variants "$pv" \
     --argjson skip_ss "$7" '
     ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
     ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
     ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
+    # kit issue #1732: the return-token gate counts as present under ANY kit path (matched by script name).
+    ($stop_cmds | any(. as $c | ($c | tostring | endswith("return-token-gate.sh")))) as $has_gate |
     ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
     # kit issue #1509: the guard only protects Bash, so a registration counts as "present" ONLY under
     # a matcher that fires for Bash ("" / absent / "*" / a regex that fully matches "Bash"); the same
@@ -252,11 +257,12 @@ _rsdd_merge_settings() {
     ($pk_cmds | any(. as $c | ($pk_variants | index($c)) != null)) as $has_pk |
     (.hooks.PreToolUse = (if $has_pk then (.hooks.PreToolUse // [])
       else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
-    (.hooks.Stop = (if $has_stop then (.hooks.Stop // [])
-      else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)) |
+    (.hooks.Stop = ((.hooks.Stop // [])
+      + (if $has_stop then [] else [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)
+      + (if $has_gate then [] else [{"matcher":"","hooks":[{"type":"command","command":$gc}]}] end))) |
     (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
       else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
-    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk}
+    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk, has_gate: $has_gate}
   '
 }
 
@@ -281,17 +287,18 @@ _rsdd_print_wire_block() {
   local pk_entry="      {\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$pk_cmd\"}]}"
   local stop_entry="      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}"
   local ss_entry="      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$ss_cmd\"}]}"
+  local gate_entry="      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_RSDD_GATE_CMD\"}]}"
   if [ "$skip_ss" = "true" ]; then
     printf '%s\n' '{' \
       '  "hooks": {' \
-      '    "Stop": [' "$stop_entry" '    ],' \
+      '    "Stop": [' "$stop_entry," "$gate_entry" '    ],' \
       '    "PreToolUse": [' "$pk_entry" '    ]' \
       '  }' \
       '}'
   else
     printf '%s\n' '{' \
       '  "hooks": {' \
-      '    "Stop": [' "$stop_entry" '    ],' \
+      '    "Stop": [' "$stop_entry," "$gate_entry" '    ],' \
       '    "PreToolUse": [' "$pk_entry" '    ],' \
       '    "SessionStart": [' "$ss_entry" '    ]' \
       '  }' \
@@ -458,6 +465,12 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
       _wo_has_pk="$(jq -r '.has_pk' <<<"$_wo_merge_out")"
+      _wo_has_gate="$(jq -r '.has_gate' <<<"$_wo_merge_out")"
+      if [ "$_wo_has_gate" = "true" ]; then
+        echo "  wired  : Stop return-token gate already wired in $_wo_settings"
+      else
+        echo "  wired  : Stop return-token gate registered in $_wo_settings"
+      fi
       if [ "$_wo_has_pk" = "true" ]; then
         echo "  wired  : PreToolUse pkill-guard hook already wired in $_wo_settings"
       else
@@ -708,6 +721,12 @@ if [ "$wire" = 1 ]; then
       _wire_has_stop="$(jq -r '.has_stop' <<<"$_wire_merge_out")"
       _wire_has_ss="$(jq -r '.has_ss' <<<"$_wire_merge_out")"
       _wire_has_pk="$(jq -r '.has_pk' <<<"$_wire_merge_out")"
+      _wire_has_gate="$(jq -r '.has_gate' <<<"$_wire_merge_out")"
+      if [ "$_wire_has_gate" = "true" ]; then
+        echo "  wired  : Stop return-token gate already wired in $_settings"
+      else
+        echo "  wired  : Stop return-token gate registered in $_settings"
+      fi
       if [ "$_wire_has_pk" = "true" ]; then
         echo "  wired  : PreToolUse pkill-guard hook already wired in $_settings"
       else
