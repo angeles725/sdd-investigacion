@@ -65,10 +65,12 @@ fi
 # COMPACT (#1816, SessionStart output budget): the per-tool "installed-but-not-cataloged" WARN lines share
 # one long remediation sentence; collapse them into ONE line naming every tool (count == names listed ==
 # the summary's "not cataloged" count). Any other WARN line passes through (truncated), never dropped.
+# cut -c counts BYTES, so it can split a multibyte character; drop an incomplete UTF-8 sequence at end of line.
+_utf8_trim() { LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'; }
 if [ "${1:-}" != "--full" ]; then  # COMPACT-GUARD
   names="$(printf '%s\n' "$warn_lines" | sed -n "s/^WARN  installed-but-not-cataloged: '\([^']*\)'.*/\1/p" | paste -sd, - | sed 's/,/, /g')"
   n_names="$(printf '%s\n' "$warn_lines" | grep -c "^WARN  installed-but-not-cataloged: '")"
-  other="$(printf '%s\n' "$warn_lines" | grep -v "^WARN  installed-but-not-cataloged: '" | cut -c1-160)"
+  other="$(printf '%s\n' "$warn_lines" | grep -v "^WARN  installed-but-not-cataloged: '" | cut -c1-160 | _utf8_trim)"
   warn_lines="${other}"
   if [ "${n_names:-0}" -gt 0 ]; then
     warn_lines="${warn_lines}${warn_lines:+$'\n'}WARN  installed-but-not-cataloged (${n_names}): ${names} — add a tool-registry.md row each (propose-never-apply)."

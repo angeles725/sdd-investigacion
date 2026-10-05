@@ -28,6 +28,11 @@ fi
 # nothing is dropped without a count — WARN lines past the cap are counted, per-row INFO lines are counted,
 # the Summary line (which carries every drift/absent/unresolvable count) always passes through whole, and any
 # line this filter does not recognise passes through unchanged rather than vanishing.
+# awk length/substr count BYTES on mawk or in a non-UTF-8 locale, so a cut can split a multibyte character
+# (em dash, ≠) and hand invalid UTF-8 to jq. Every cut ends in "..." (or end of line), so drop an INCOMPLETE
+# UTF-8 sequence sitting right before it, byte-wise and independent of the awk implementation / locale.
+_utf8_trim() { LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})(\.\.\.|$)/\2/g'; }
+
 if [ "$_full" = 0 ]; then  # COMPACT-GUARD
   out="$(printf '%s\n' "$out" | awk -v maxwarn=6 -v wmax=100 -v imax=230 -v hmax=110 '
     function trunc(s, n) { return (length(s) > n) ? substr(s, 1, n - 3) "..." : s }
@@ -61,7 +66,7 @@ if [ "$_full" = 0 ]; then  # COMPACT-GUARD
       if (ri > 0) printf "INFO: %d per-row INFO line(s) omitted\n", ri
       print "Full detail: toolbelt/verify-registry.sh (or this hook with --full)."
     }
-  ')"
+  ' | _utf8_trim)"  # UTF8-TRIM
 fi
 
 if command -v jq >/dev/null 2>&1; then
