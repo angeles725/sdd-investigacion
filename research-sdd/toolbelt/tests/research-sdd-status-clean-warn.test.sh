@@ -80,9 +80,13 @@ grep -qF 'unverifiable (clean-check.sh not found' <<<"$ERR" && ok "6 missing cle
 # 7 bounded: a slow clean-check is cut off and reported, never waited on
 mkdir -p "$TMP/kit7"
 for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit7/$b"; done
-printf '#!/usr/bin/env bash\nsleep 6\n' > "$TMP/kit7/clean-check.sh"
+# Timing bounds are derived, not absolute: this WSL host stalls timed waits ~3.7 s about once per 250 waits (#1770), so a
+# ceiling must be bound + 2 stalls + slack, and the child must outlive that ceiling or the case could not tell bounded
+# from unbounded. CEIL7 = 1 s timeout + 2*3.7 + 2 slack; CEIL10 adds the 5 s kill-after. Each child sleeps > its ceiling.
+STALL=4; CEIL7=$((1 + 2*STALL + 2)); CEIL10=$((CEIL7 + 5)); SLOW7=$((CEIL7 + 8)); SLOW10=$((CEIL10 + 8))
+printf '#!/usr/bin/env bash\nsleep %s\n' "$SLOW7" > "$TMP/kit7/clean-check.sh"
 t0=$SECONDS; run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$TMP/kit7/research-sdd-status.sh" "$TMP/c1" --next; el=$((SECONDS-t0))
-[ "$el" -lt 5 ] && [[ "$OUT" == STOP* ]] && [ "$RC" = 0 ] && ok "7a slow clean-check bounded (${el}s), verdict + rc intact" || no "7a ${el}s rc=$RC [$OUT]"
+[ "$el" -lt "$CEIL7" ] && [[ "$OUT" == STOP* ]] && [ "$RC" = 0 ] && ok "7a slow clean-check bounded (${el}s), verdict + rc intact" || no "7a ${el}s rc=$RC [$OUT]"
 grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "7b timeout -> typed unverifiable WARN" || no "7b [$ERR]"
 
 # 8 golden: stdout + rc of every verdict path are identical with the check on and off (the check is additive,
@@ -123,9 +127,9 @@ grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "9 timeout=001 hono
 # 10 kill-after: a TERM-ignoring clean-check is killed shortly after the timeout, not waited on
 mkdir -p "$TMP/kit10"
 for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit10/$b"; done
-printf '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep 14\n' > "$TMP/kit10/clean-check.sh"
+printf '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep %s\n' "$SLOW10" >"$TMP/kit10/clean-check.sh"
 t0=$SECONDS; run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$TMP/kit10/research-sdd-status.sh" "$TMP/c1" --next; el=$((SECONDS-t0))
-[ "$el" -lt 10 ] && grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "10 TERM-ignoring child killed (${el}s)" || no "10 ${el}s [$ERR]"
+[ "$el" -lt "$CEIL10" ] && grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "10 TERM-ignoring child killed (${el}s)" || no "10 ${el}s [$ERR]"
 
 # 11 the warn is tied to the verdict the gate printed: the exhausted STOP line and the INFO line come from the same run
 mkcorpus "$TMP/c11" 0; run bash "$SUT" "$TMP/c11" --next
@@ -169,7 +173,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_chain E "$SUT" "$m" 's/"\$_cc_to" -k 5 "\$_cc_secs" bash/bash/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit7/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
-    if [ "$el" -ge 5 ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
+    if [ "$el" -ge "$CEIL7" ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
   else fail=$((fail+1)); fi
   # F: the INFO line leaks to stdout -> the golden compare (stdout+rc, check on vs off) goes red
@@ -183,7 +187,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_chain G "$SUT" "$m" 's/"\$_cc_to" -k 5 /"$_cc_to" /'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit10/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
-    if [ "$el" -ge 12 ]; then ok "teeth G: no kill-after -> waited ${el}s -> 10 has teeth"; else no "teeth G: mutant still killed (${el}s) — THEATER"; fi
+    if [ "$el" -ge "$CEIL10" ]; then ok "teeth G: no kill-after -> waited ${el}s -> 10 has teeth"; else no "teeth G: mutant still killed (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
   else fail=$((fail+1)); fi
   # H2: leading-zero strip dropped -> '000' is no longer recognised as zero and passes through
