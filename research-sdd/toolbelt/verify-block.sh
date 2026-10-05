@@ -235,6 +235,29 @@ bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+(-[0-9]+)?`' "$block"
 # structural tell; it is classified in the loop only when no root holds the file (P973-NONPATH-METHOD).
 _vb_np_re='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.(com|io|net|org|dev|edu|gov|mx|local|lan|internal|cloud|app):|^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\.[A-Z][A-Za-z0-9_]*:'
 _vb_np_cites=""; _vb_np_n=0; _vb_np_err=0
+# Short TLD list: only its overlap with _vb_file_exts matters (P1721-TLD-GUARD); keep it to real TLDs that are also extensions.
+_vb_tlds='com
+io
+net
+org
+dev
+edu
+gov
+mx
+local
+lan
+internal
+cloud
+app
+pl
+md
+rs
+sh
+sc
+ml
+tf
+so
+cc'
 # Known file extensions (lower-case, one per line, compared case-insensitively). A path-less `name.ext:NNN` token whose
 # file is not found is read as `Class.method:NNN` (P973-NONPATH-METHOD) ONLY when ALL hold: the ext is NOT in this list,
 # the ext is a method-like identifier (starts lower-case, letters/digits, not digits-only), and the name carries an
@@ -481,7 +504,12 @@ if [ -n "$bt_cites" ]; then
       # upper-case `R` (R scripts, `analysis.v2.R`) and the first label is not a package root (Android `com.example.R`).
       _vb_np_ext1="${c%:*}"; _vb_np_first="${_vb_np_ext1%%.*}"; _vb_np_ext1="${_vb_np_ext1##*.}"
       if [ "$_vb_np_hit" = 0 ]; then
-        if grep -qxF "$_vb_np_ext1" <<<"$_vb_file_exts"; then _vb_np_hit=1
+        if grep -qxF "$_vb_np_ext1" <<<"$_vb_file_exts"; then
+          _vb_np_hit=1
+          # P1721-TLD-GUARD: an extension that is ALSO a TLD (the overlap of _vb_file_exts and _vb_tlds: org, pl, md, ...)
+          # is rescued only when a label is version-like (`v1`, as in `notes.v1.org`); `api.example.org:443` is a
+          # host:port and stays nonpath. Trade-off: a missing `x.y.org:N` file cite without a `vN` label reads as a host.
+          if grep -qxF "$_vb_np_ext1" <<<"$_vb_tlds" && ! grep -qE '(^|\.)v[0-9]+\.' <<<"${c%:*}"; then _vb_np_hit=0; fi
         elif [ "$_vb_np_ext1" = R ]; then
           case "$_vb_np_first" in com|org|net|io|java|javax|jakarta|android|androidx|edu|gov|kotlin|scala|sun|jdk) ;; *) _vb_np_hit=1 ;; esac
         fi

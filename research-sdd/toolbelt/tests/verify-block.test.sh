@@ -1555,11 +1555,18 @@ for _t in 'com.example.R:5' 'org.apache.log4j.Log:12' 'a.b.T:3' 'x.y.Class:4' 'x
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q 'Set SOURCE_ROOT' <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
     && ok "#1721 GUARD: unresolved FQCN $_t stays nonpath (class name spelling an extension is not a file)" || no "#1721 FQCN $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 done
-# R2/R3: the extension list has no duplicates and its SET equals the frozen origin/main set (dedupe removed only
+# round-2 R3: an extension that is also a TLD (org) is a host:port unless a version-like label is present
+for _t in 'api.example.org:443' 'cdn.v2x.example.org:8080'; do
+  n973 "pre-${_t%%:*}" standard "Tunnel \`$_t\`. [CERT]"
+  out="$(run "$N973")"
+  { grep -q "nonpath  $_t" <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
+    && ok "#1721 GUARD: TLD-colliding $_t stays nonpath (host:port without a vN label)" || no "#1721 $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+done
+# R2/R3: the extension list has no duplicates and its SET equals the expected set (tests/fixtures/verify-block/exts-expected-set.txt, seeded from origin/main; the dedupe removed only
 # duplicates). The assertion lives in a fixture script so the mutation teeth run the very same checks.
 _vb_ex="$(bash "$HERE/fixtures/verify-block/exts-invariants.sh" "$SUT")"
 { grep -q '^EXTS no-duplicates' <<<"$_vb_ex" && grep -q '^EXTS set-preserved$' <<<"$_vb_ex" && ! grep -qE '^EXTS (DUP|SET-DIFF|UNREADABLE)' <<<"$_vb_ex"; } \
-  && ok "#1721 GOOD: _vb_file_exts has no duplicates and its set equals the frozen origin/main set" || no "#1721 _vb_file_exts invariants :: $(tr '\n' ' ' <<<"$_vb_ex")"
+  && ok "#1721 GOOD: _vb_file_exts has no duplicates and its set equals the expected set" || no "#1721 _vb_file_exts invariants (intentional extension change? update tests/fixtures/verify-block/exts-expected-set.txt) :: $(tr '\n' ' ' <<<"$_vb_ex")"
 # guard: a shape match (FQCN-like `analysis.v2.R`, TLD-like `my.v2.app`) whose file EXISTS is a real cite -> RANGE!, rc 1
 printf 'a\nb\nc\n' > "$TMP/analysis.v2.R"; printf 'a\nb\nc\n' > "$TMP/my.v2.app"
 n973 shapereal standard 'Past EOF `analysis.v2.R:9` and `my.v2.app:9`. [CERT]'
@@ -2142,15 +2149,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'nonpath  x.qzv:2' --bad-lacks 'extern  x.qzv' -- bash @SUT@ "$TMP/n973-ext-x.qzv.md"
   fi
   # kit #1721: the pre-split extension check (P1721-NONPATH-EXT) and the no-duplicate-extension invariant
-  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" '/P1721-NONPATH-EXT/,+12s/grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"/false/'; then
+  if mk_sed "teeth-1721-preext" "$MUT/np21.sh" 's/if grep -qxF "\$_vb_np_ext1" <<<"\$_vb_file_exts"; then$/if false; then/'; then
     tooth "teeth-1721-preext" 0 0 "$MUT/np21.sh" --good-has 'extern  notes.v1.org:2' --good-lacks 'nonpath' \
       --bad-has 'nonpath  notes.v1.org:2' --bad-lacks 'extern  notes' -- bash @SUT@ "$TMP/n973-pre-notes.v1.org.md"
+  fi
+  if mk_sed "teeth-1721-tld" "$MUT/np26.sh" 's/&& ! grep -qE .(^|\\.)v\[0-9\]+\\.. <<<"\${c%:\*}"; then _vb_np_hit=0; fi/\&\& false; then _vb_np_hit=0; fi/'; then
+    tooth "teeth-1721-tld" 0 0 "$MUT/np26.sh" --good-has 'nonpath  api.example.org:443' --good-lacks 'extern  api' \
+      --bad-has 'extern  api.example.org:443' --bad-lacks 'nonpath  api' -- bash @SUT@ "$TMP/n973-pre-api.example.org.md"
   fi
   if mk_sed "teeth-1721-dups" "$MUT/np22.sh" "s/^_vb_file_exts='java\$/_vb_file_exts='java\\njava/"; then
     tooth "teeth-1721-dups" 0 0 "$MUT/np22.sh" --good-has 'EXTS set-preserved' --good-lacks 'EXTS DUP' \
       --bad-has 'EXTS DUP: java' -- bash "$HERE/fixtures/verify-block/exts-invariants.sh" @SUT@
   fi
-  # a dropped entry (set no longer equals the frozen origin/main set) is caught by the same fixture assertion
+  # a dropped entry (set no longer equals the expected set) is caught by the same fixture assertion
   if mk_sed "teeth-1721-set" "$MUT/np23.sh" '/^scala$/d'; then
     tooth "teeth-1721-set" 0 0 "$MUT/np23.sh" --good-has 'EXTS set-preserved' --good-lacks 'SET-DIFF' \
       --bad-has 'EXTS SET-DIFF: -scala' -- bash "$HERE/fixtures/verify-block/exts-invariants.sh" @SUT@
