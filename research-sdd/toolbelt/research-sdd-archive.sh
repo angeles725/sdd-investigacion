@@ -137,14 +137,19 @@ gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-s
 # targets (incl. the active niagara5-research) and a sampled finding was a false positive (blender-llm
 # B17: `corrects` and an unrelated [Block 11] cross-ref sit on the same wrapped line). Gating would newly
 # refuse healthy closes. Exit 0 = ok, 1 = findings (WARN, count surfaced, archive continues), 2 = no block
-# files (n/a — reported distinctly, never a spurious ERROR), anything else = linter did not run (WARN).
+# files (n/a) or bad args (WARN did not run; told apart by the stderr reason), anything else = linter did not run (WARN).
 _vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-ADVISORY
 case "$_vc_rc" in
   0) echo "    verify-corrections : ok";;
   1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"
      echo "    verify-corrections : WARN — $_vc_n one-directional §14 correction(s) (advisory, not a gate; run verify-corrections.sh for the list)"
      echo "WARN: verify-corrections found $_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)." >&2;;
-  2) echo "    verify-corrections : n/a — no block files / bad args (exit 2)";;
+  2) if grep -q 'no block files' <<<"$_vc_out"; then   # exit 2 is ambiguous: no-blocks vs bad args — read the reason
+       echo "    verify-corrections : n/a — no block files"
+     else
+       echo "    verify-corrections : WARN — verify-corrections.sh did not run (bad args, exit 2)"
+       echo "WARN: verify-corrections.sh rejected its arguments (exit 2) — the §14 reciprocity check was NOT performed." >&2
+     fi;;
   *) echo "    verify-corrections : WARN — verify-corrections.sh did not run (exit $_vc_rc) — check it exists and is executable"
      echo "WARN: verify-corrections.sh did not run (exit $_vc_rc) — the §14 reciprocity check was NOT performed." >&2;;
 esac

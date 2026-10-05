@@ -1562,6 +1562,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth(vcorr): linter result ignored → one-directional corpus no longer WARNs → case AR-VCORR has teeth" 0 0 "$MUT/archive.VCMUTANT.sh" \
          --good-has 'verify-corrections : WARN' --bad-has 'verify-corrections : ok' --bad-lacks 'verify-corrections : WARN' -- run_on_fix @SUT@ "$d" --dry-run
 
+  echo "-- teeth: AR-VCORR exit-2 discrimination — break the no-block-files match; the no-blocks corpus must stop reading n/a --"
+  d="$TMP/vcorr-teeth-nb"; mkgood "$d"; rm -f "$d/t-block1.md"
+  mk_sed "teeth(vcorr-nb)" "$MUT/archive.VCNBMUTANT.sh" "s/grep -q 'no block files' <<<\"\$_vc_out\"/grep -q 'ZZZ-never' <<<\"\$_vc_out\"/" \
+    && tooth "teeth(vcorr-nb): no-blocks match broken → n/a becomes WARN did-not-run → exit-2 discrimination has teeth" 3 3 "$MUT/archive.VCNBMUTANT.sh" \
+         --good-has 'verify-corrections : n/a' --bad-has 'did not run \(bad args' --bad-lacks 'verify-corrections : n/a' -- run_on_fix @SUT@ "$d" --dry-run
+
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
@@ -1708,10 +1714,14 @@ out_ar2_foc="$(bash "$SUT" "$d" --focus alpha --dry-run 2>&1)"; rc_ar2_foc=$?
 # AR-VCORR — verify-corrections is an ADVISORY step (issue #1787 item 4; WARN-only by fleet measurement).
 d="$TMP/vcorr-bad"; mkvcorr "$d"
 out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
-if grep -q 'verify-corrections : WARN — 1 one-directional' <<<"$out_vc" && [ "$rc_vc" != 3 ] \
-   && ! grep -q 'verify-corrections : ok' <<<"$out_vc"; then
-  ok "AR-VCORR: one-directional correction → WARN naming the count, archive NOT refused (rc=$rc_vc)"
-else no "AR-VCORR bad: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+# control: the SAME corpus with the reciprocal note added — exit code and every non-advisory line must be identical.
+d2="$TMP/vcorr-bad-ctl"; mkvcorr "$d2"; printf 'Corrected in B2.\n' >> "$d2/t-block1.md"
+out_ctl="$(bash "$SUT" "$d2" --dry-run 2>&1)"; rc_ctl=$?
+_vc_strip() { grep -v 'verify-corrections' <<<"$1" | sed -e "s#$d2#@C@#g" -e "s#$d#@C@#g" -e 's#vcorr-bad-ctl#@N@#g' -e 's#vcorr-bad#@N@#g'; }
+if grep -q 'verify-corrections : WARN — 1 one-directional' <<<"$out_vc" && ! grep -q 'verify-corrections : ok' <<<"$out_vc" \
+   && [ "$rc_vc" = "$rc_ctl" ] && [ "$(_vc_strip "$out_vc")" = "$(_vc_strip "$out_ctl")" ]; then
+  ok "AR-VCORR: one-directional correction → WARN with count; exit code and verdict identical to the reciprocated control (rc=$rc_vc)"
+else no "AR-VCORR bad: rc=$rc_vc ctl=$rc_ctl :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
 d="$TMP/vcorr-ok"; mkvcorr "$d"; printf 'Corrected in B2.\n' >> "$d/t-block1.md"
 out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
@@ -1730,6 +1740,27 @@ out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"
 if grep -q 'verify-corrections : n/a' <<<"$out_vc" && ! grep -q 'verify-corrections : \(ERROR\|WARN\)' <<<"$out_vc"; then
   ok "AR-VCORR: no block files (linter exit 2) → n/a, not an ERROR"
 else no "AR-VCORR no-blocks :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+# bad args (exit 2 WITHOUT the no-block-files reason) must NOT read as n/a; and a linter exiting 7 must WARN did-not-run.
+AR_STUB="$TMP/vcorr-stub"; mkdir -p "$AR_STUB/lib"
+cp "$SUT" "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$AR_STUB/"
+cp "$HERE/../lib/"*.sh "$AR_STUB/lib/"
+for _stub_rc in 7 2; do
+  printf '#!/usr/bin/env bash\necho "usage: verify-corrections.sh <target-dir>" >&2\nexit %s\n' "$_stub_rc" > "$AR_STUB/verify-corrections.sh"
+  chmod +x "$AR_STUB/verify-corrections.sh"
+  d="$TMP/vcorr-stubcorpus-$_stub_rc"; mkgood "$d"
+  out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"; rc_vc=$?
+  if grep -q 'verify-corrections : WARN — verify-corrections.sh did not run' <<<"$out_vc" \
+     && ! grep -q 'verify-corrections : n/a' <<<"$out_vc" && [ "$rc_vc" = 0 ]; then
+    ok "AR-VCORR: linter exit $_stub_rc (not no-blocks) → WARN did-not-run, never n/a, archive exit unchanged"
+  else no "AR-VCORR stub exit $_stub_rc: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+done
+rm -f "$AR_STUB/verify-corrections.sh"
+d="$TMP/vcorr-missing"; mkgood "$d"
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run 2>&1)"
+if grep -q 'verify-corrections : WARN — verify-corrections.sh did not run (exit 127)' <<<"$out_vc"; then
+  ok "AR-VCORR: linter script missing → WARN did-not-run (exit 127)"
+else no "AR-VCORR missing :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
