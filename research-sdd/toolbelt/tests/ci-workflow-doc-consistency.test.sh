@@ -9,9 +9,11 @@
 # enabled step runs the script AND turns a WARN line into a non-zero exit.
 #
 # Contract: the `shellcheck` job of .github/workflows/toolbelt-tests.yml has a step whose `run:`
-# contains (a) a line that IS the command `[bash ]research-sdd/toolbelt/verify-doc-consistency.sh`,
-# optionally piped to tee, and (b) a line that greps for `^WARN` (the script's finding prefix); with
-# no `if:` other than a literal true and no `continue-on-error: true` on the step or the job. The
+# contains, in order: `set -o pipefail` (a script exit 1 fails the step); the command
+# `[bash ]research-sdd/toolbelt/verify-doc-consistency.sh 2>&1 | tee LOG` (stdout AND stderr are
+# captured); and the exact gate `if grep -q '^WARN' LOG; then ... exit 1; fi` as the step's last
+# command (same LOG; no `|| true`, `-v`, or ignored grep passes). The step has no `if:` other than
+# a literal true and there is no `continue-on-error: true` on the step or the job. The
 # live kit tree must currently have 0 findings. Anti-silent-zero (CLAUDE.md section 7): absent
 # workflow or absent ruby = exit 2 (harness error), never a pass.
 #
@@ -41,11 +43,21 @@ job = (d["jobs"] || {})["shellcheck"]
 (warn "no shellcheck job"; exit 1) unless job.is_a?(Hash)
 off = ->(h) { h["continue-on-error"].to_s == "true" || (h.key?("if") && h["if"].to_s.strip != "true") }
 (warn "shellcheck job disabled or continue-on-error"; exit 1) if off.(job)
-cmd = /\A(bash\s+)?(\.\/)?research-sdd\/toolbelt\/verify-doc-consistency\.sh(\s*\|.*)?\z/
+pf  = /\Aset -o pipefail\z/
+cmd = /\A(?:bash\s+)?(?:\.\/)?research-sdd\/toolbelt\/verify-doc-consistency\.sh 2>&1 \| tee (\S+)\z/
+gate = /\Aif grep -q \x27\^WARN\x27 (\S+); then\z/
 hit = (job["steps"] || []).any? { |s|
-  s.is_a?(Hash) && s["run"].is_a?(String) && !off.(s) && s["run"].lines.any? { |l| l.strip =~ cmd } && s["run"].lines.any? { |l| l =~ /grep\s.*\^WARN/ }
+  next false unless s.is_a?(Hash) && s["run"].is_a?(String) && !off.(s)
+  ls = s["run"].lines.map(&:strip).reject(&:empty?)
+  ip = ls.index { |l| l =~ pf }
+  ic = ls.index { |l| l =~ cmd }
+  ig = ls.index { |l| l =~ gate }
+  next false unless ip && ic && ig && ip < ic && ic < ig
+  # same log file is written by tee and read by the gate; the if-block must exit 1 and close the step
+  next false unless ls[ic][cmd, 1] == ls[ig][gate, 1]
+  ls[ig + 1..-1].include?("exit 1") && ls.last == "fi"
 }
-(warn "no enabled step runs the command AND fails on a ^WARN grep"; exit 1) unless hit
+(warn "no enabled step has: set -o pipefail; script 2>&1 | tee LOG; if grep -q ^WARN LOG; then ... exit 1; fi"; exit 1) unless hit
 '
 wired() { ruby -ryaml -e "$WIRED_RB" "$1"; }
 
@@ -94,6 +106,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mut "D echo mention"            's|^\([[:space:]]*\)bash research-sdd/toolbelt/verify-doc-consistency\.sh|\1echo research-sdd/toolbelt/verify-doc-consistency.sh|'
   mut "E if: false"               '/- name: Check kit doc consistency/a\        if: false'
   mut "F continue-on-error"       '/- name: Check kit doc consistency/a\        continue-on-error: true'
+  mut "G stderr not merged"       's|verify-doc-consistency\.sh 2>&1 \||verify-doc-consistency.sh \||'
+  mut "H pipefail dropped"        '/Check kit doc consistency/,$s/set -o pipefail/true/'
+  mut "I gate || true"            "s/^\\([[:space:]]*\\)if grep -q '\\^WARN' \\(.*\\); then/\\1if grep -q '^WARN' \\2 || true; then/"
+  mut "J gate inverted (-v)"      "s/grep -q '\\^WARN'/grep -qv '^WARN'/"
+  mut "K grep result ignored"     "s/^\\([[:space:]]*\\)if grep -q '\\^WARN' \\(.*\\); then/\\1grep -q '^WARN' \\2 || true\\n\\1if false; then/"
+  mut "M exit 1 neutered"         '/doc-consistency\.log"; then/,/^[[:space:]]*fi$/s/exit 1/true/'
+  mut "N tee/grep log differ"     's/doc-consistency\.log"; then/other.log"; then/'
 
   # Teeth L: a broken citation injected into a COPY of SKILL.md must surface as a WARN line, so the
   # live-tree case above can actually go red.

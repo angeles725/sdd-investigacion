@@ -104,10 +104,14 @@ jobs:
       - name: Check kit doc consistency (METHODOLOGY vs SKILL/PROMPT-LOOP/README)
         # Unwired-mechanisms audit 2026-10-05 (kit issue #1817): verify-doc-consistency.sh is WARN-only
         # (exit 0 on findings, 1 only on operational failure), so this step fails on any WARN line
-        # explicitly. Measured 0 findings on the real tree after the SKILL.md example-path rewording.
-        # ci-workflow-doc-consistency.test.sh fails if this step is removed.
+        # explicitly. WARN findings go to stdout (stderr carries only operational errors); 2>&1 captures
+        # both anyway, and pipefail makes an operational failure (script exit 1) fail the step instead
+        # of reading as clean. Measured 0 findings on the real tree after the SKILL.md example-path
+        # rewording. ci-workflow-doc-consistency.test.sh fails if this step is removed or weakened.
         run: |
           set -o pipefail
-          bash research-sdd/toolbelt/verify-doc-consistency.sh | tee "$RUNNER_TEMP/doc-consistency.log"
-          ! grep -q '^WARN' "$RUNNER_TEMP/doc-consistency.log" \
-            || { echo "::error::verify-doc-consistency reported findings (see WARN lines above)"; exit 1; }
+          bash research-sdd/toolbelt/verify-doc-consistency.sh 2>&1 | tee "$RUNNER_TEMP/doc-consistency.log"
+          if grep -q '^WARN' "$RUNNER_TEMP/doc-consistency.log"; then
+            echo "::error::verify-doc-consistency reported findings (see WARN lines above)"
+            exit 1
+          fi
