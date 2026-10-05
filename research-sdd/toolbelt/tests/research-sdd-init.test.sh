@@ -2321,7 +2321,7 @@ fi
 # --- kit issue #1845: --subject / --prefix fill the hook; the guard names EVERY live placeholder -----------------------
 _U7_SUBJ='<SUBJECT>'; _U7_PFX='<prefix>'; _U7_PATH='<path to binaries/decompiled output/source code of the system under study>'
 _u7_live() {  # <file> <placeholder> — live (non-comment) occurrence?
-  grep -vE '^[[:space:]]*#' "$1" | grep -qF -- "$2"
+  grep -qF -- "$2" <<<"$(grep -vE '^[[:space:]]*#' "$1")"
 }
 # run a filled hook and `jq -e` its output: valid SessionStart JSON whose context carries the literal subject on both lines
 _u7_hook_json_ok() {  # <hook> <subject>
@@ -2407,8 +2407,8 @@ if command -v jq >/dev/null 2>&1; then
     [ "$rc" = 0 ] && ok "U7-d $lbl: exit 0" || no "U7-d $lbl: exit $rc"
     for k in S P X; do
       case "$k" in S) ph="$_U7_SUBJ";; P) ph="$_U7_PFX";; X) ph="$_U7_PATH";; esac
-      if [[ "$want" == *"$k"* ]]; then grep -F 'WARN:' "$TMP/u7-d.err" | grep -qF "still contains the $ph placeholder" && ok "U7-d $lbl: WARN names $ph" || no "U7-d $lbl: no WARN naming $ph"
-      else grep -F 'WARN:' "$TMP/u7-d.err" | grep -qF "$ph placeholder" && no "U7-d $lbl: false WARN naming $ph" || ok "U7-d $lbl: no WARN for absent $ph"; fi
+      if [[ "$want" == *"$k"* ]]; then grep -qF "still contains the $ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-d.err")" && ok "U7-d $lbl: WARN names $ph" || no "U7-d $lbl: no WARN naming $ph"
+      else grep -qF "$ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-d.err")" && no "U7-d $lbl: false WARN naming $ph" || ok "U7-d $lbl: no WARN for absent $ph"; fi
     done
     if [ "$ssw" = yes ]; then _u7_ss_wired "$d" && ok "U7-d $lbl: SessionStart registered" || no "U7-d $lbl: SessionStart NOT registered"
     else _u7_ss_wired "$d" && no "U7-d $lbl: SessionStart registered despite a live <SUBJECT>" || ok "U7-d $lbl: SessionStart skipped"; fi
@@ -2433,10 +2433,10 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --corpus flat --scaffold --wire --subject "Acme" --prefix ac >"$TMP/u7-sw.out" 2>"$TMP/u7-sw.err"; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-d scaffold+wire with --subject: exit 0" || no "U7-d scaffold+wire with --subject: exit $_rc"
   _u7_ss_wired "$d" && ok "U7-d scaffold+wire with --subject: SessionStart registered" || no "U7-d scaffold+wire with --subject: SessionStart not registered"
-  grep -F 'WARN:' "$TMP/u7-sw.err" | grep -qF "$_U7_PATH placeholder" && ok "U7-d scaffold+wire: path placeholder still WARNs" || no "U7-d scaffold+wire: no WARN for the path placeholder"
+  grep -qF "$_U7_PATH placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-sw.err")" && ok "U7-d scaffold+wire: path placeholder still WARNs" || no "U7-d scaffold+wire: no WARN for the path placeholder"
   d="$TMP/u7-sw2"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/u7-sw2.out" 2>"$TMP/u7-sw2.err"
-  for _ph in "$_U7_SUBJ" "$_U7_PFX" "$_U7_PATH"; do grep -F 'WARN:' "$TMP/u7-sw2.err" | grep -qF "$_ph" && ok "U7-d scaffold+wire without flags: WARN names $_ph" || no "U7-d scaffold+wire without flags: no WARN naming $_ph"; done
+  for _ph in "$_U7_SUBJ" "$_U7_PFX" "$_U7_PATH"; do grep -qF "$_ph" <<<"$(grep -F 'WARN:' "$TMP/u7-sw2.err")" && ok "U7-d scaffold+wire without flags: WARN names $_ph" || no "U7-d scaffold+wire without flags: no WARN naming $_ph"; done
 
   # E. existing hook: --subject/--prefix refuse (typed, nothing written) unless --force; an absent hook is created filled
   _u7_wire_target "$TMP/u7-e" S; cp "$TMP/u7-e/.claude/hooks/research-protocol.sh" "$TMP/u7-e.before"
@@ -2547,7 +2547,7 @@ if command -v jq >/dev/null 2>&1; then
   [ "$_rc" = 0 ] && ok "U7-f other template generation: exit 0" || no "U7-f other template generation: exit $_rc"
   { grep -qxF 'first pp-block*.md then S&1' "$_h" && grep -qxF 'again S&1 end' "$_h"; } && ok "U7-f placeholders filled wherever they sit (order/lines differ)" || no "U7-f other-generation fill wrong"
   grep -qF '# SessionStart hook — Research-SDD protocol for <SUBJECT>.' "$_h" && ok "U7-f comment line untouched" || no "U7-f comment line rewritten"
-  grep -F 'WARN:' "$TMP/u7-f.err" | grep -qF "$_U7_PATH placeholder" && ok "U7-f other generation: path placeholder WARNs" || no "U7-f other generation: no path WARN"
+  grep -qF "$_U7_PATH placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-f.err")" && ok "U7-f other generation: path placeholder WARNs" || no "U7-f other generation: no path WARN"
   # a template with NO live <SUBJECT> and --subject given: typed failure, never a silent no-op
   _u7_gen nosubj; printf '%s\n' '#!/usr/bin/env bash' 'echo adapted' > "$TMP/u7g/nosubj/templates/hook-sessionstart.sh"
   d="$TMP/u7-f2"; rm -rf "$d"; mkdir -p "$d"
@@ -2562,7 +2562,7 @@ if command -v jq >/dev/null 2>&1; then
     _u7_wire_target "$TMP/u7-g" P X
     PATH="$_u7_pnojq" bash "$SUT" "$TMP/u7-g" --wire >"$TMP/u7-g.out" 2>"$TMP/u7-g.err"; _rc=$?
     [ "$_rc" = 0 ] && ok "U7-g jq-absent: exit 0" || no "U7-g jq-absent: exit $_rc"
-    for _ph in "$_U7_PFX" "$_U7_PATH"; do grep -F 'WARN:' "$TMP/u7-g.err" | grep -qF "still contains the $_ph placeholder" && ok "U7-g jq-absent: WARN names $_ph" || no "U7-g jq-absent: no WARN naming $_ph"; done
+    for _ph in "$_U7_PFX" "$_U7_PATH"; do grep -qF "still contains the $_ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-g.err")" && ok "U7-g jq-absent: WARN names $_ph" || no "U7-g jq-absent: no WARN naming $_ph"; done
     d="$TMP/u7-g2"; mkdir -p "$d"; : > "$d/INDEX.md"
     PATH="$_u7_pnojq" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-g2.out" 2>"$TMP/u7-g2.err"; _rc=$?
     grep -qF -- '--subject/--prefix NOT applied' "$TMP/u7-g2.err" && ok "U7-g jq-absent + --subject on an absent hook: typed NOT applied" || no "U7-g jq-absent: --subject silently dropped"
