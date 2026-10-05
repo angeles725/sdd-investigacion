@@ -67,6 +67,10 @@
 # otherwise `closure-evidence: degraded: ...` and nothing is posted. Only nodes whose repository.nameWithOwner is
 # THIS repo are posted on; a cross-repo node gets a `closure-evidence: note: ...` and is never commented. A
 # `totalCount` above 50 prints a typed degraded note naming the overflow and still posts the 50 read.
+# ONE REPOSITORY for the whole step: the one `gh pr merge` used, i.e. GH_REPO when set, else the cwd remote
+# (`gh repo view`, bounded). It is passed explicitly to the GraphQL read (owner/name, never the {owner}/{repo}
+# placeholders), to the PR files read and as `--repo` to every comment; a GraphQL answer whose nameWithOwner differs
+# (case-insensitive) is `degraded` and nothing is posted.
 # A PR that changes no test file posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only
 # reads as borderline in reconcile-issues.sh. At most 10 test files are listed (CAP); files beyond it print
 # `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
@@ -238,13 +242,24 @@ say "merged: PR #$pr (head=$head cwd=$cwd)"
 
 # Closure evidence (see header). Every failure prints a typed line and returns 0: the merge already happened.
 closure_evidence() {
-  local ev="closure-evidence" lib="${MERGE_GATE_LIB:-$HERE/lib/gh-visibility.sh}" gq gj grc verdict msha repo total issues cross
+  local ev="closure-evidence" lib="${MERGE_GATE_LIB:-$HERE/lib/gh-visibility.sh}" gq gj grc verdict msha repo owner name got_repo total issues cross
   local files test_files n_all n_tests tline issue text rc failed=""
   if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
   # shellcheck source=lib/gh-visibility.sh
   . "$lib" 2>/dev/null || { say "$ev: degraded: lib/gh-visibility.sh not found (needed for the bounded GraphQL read); nothing posted"; return 0; }
+  # ONE repository for the whole step: the one `gh pr merge` just used (GH_REPO when set, else the cwd remote). It is
+  # passed explicitly to the read, the files read and every comment, so they can never resolve to different repos
+  # (gh_bounded_run runs gh with GH_REPO unset, which would silently re-resolve from the cwd remote).
+  if [ -n "${GH_REPO:-}" ]; then
+    name="${GH_REPO##*/}"; owner="${GH_REPO%/*}"; owner="${owner##*/}"; repo="$owner/$name"
+  else
+    repo="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh repo view --json nameWithOwner -q .nameWithOwner 2>"$err_file")" \
+      || { say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; }
+    owner="${repo%%/*}"; name="${repo#*/}"
+  fi
+  if ! [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then say "$ev: degraded: cannot resolve the repository the merge used (got '$repo'); nothing posted"; return 0; fi
   gq='query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged state mergeCommit{oid} closingIssuesReferences(first:50){totalCount nodes{number repository{nameWithOwner}}}}}}'
-  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner='{owner}' -F name='{repo}' -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
+  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
   if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted"; return 0; fi
   if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; fi
   verdict="$(printf '%s' "$gj" | jq -r '
@@ -259,8 +274,11 @@ closure_evidence() {
     nooid) say "$ev: degraded: PR #$pr has no usable 40-hex merge commit oid; nothing posted"; return 0 ;;
     *) say "$ev: degraded: the GraphQL answer for PR #$pr is unparseable or off-schema; nothing posted"; return 0 ;;
   esac
+  got_repo="$(printf '%s' "$gj" | jq -r '.data.repository.nameWithOwner')"
+  if [ "$(printf '%s' "$got_repo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ]; then
+    say "$ev: degraded: the GraphQL answer is for repository $got_repo but the merge used $repo; nothing posted"; return 0
+  fi
   msha="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.mergeCommit.oid')"
-  repo="$(printf '%s' "$gj" | jq -r '.data.repository.nameWithOwner')"
   total="$(printf '%s' "$gj" | jq -r '.data.repository.pullRequest.closingIssuesReferences.totalCount')"
   # Same-repo nodes only (GitHub names are case-insensitive); integer numbers >= 1.
   issues="$(printf '%s' "$gj" | jq -r --arg r "$repo" '.data.repository.pullRequest.closingIssuesReferences.nodes[]
@@ -272,7 +290,7 @@ closure_evidence() {
   done <<<"$cross"
   if [ "$total" -gt 50 ]; then say "$ev: degraded: PR #$pr closes $total issues but only the first 50 were read; backfill the other $((total - 50)) by hand"; fi
   if [ -z "$issues" ]; then say "$ev: none: PR #$pr closes no issue in $repo (closingIssuesReferences has none)"; return 0; fi
-  files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
+  files="$(ghr api "repos/$repo/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" || { say "$ev: degraded: cannot read the files of PR #$pr (gh api failed)"; return 0; }
   # --paginate prints one JSON array per page: slurp and require every page to be an array.
   test_files="$(printf '%s' "$files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | select(.status != "removed") | .filename else error("shape") end' 2>/dev/null)" \
     || { say "$ev: degraded: files of PR #$pr are unparseable or off-schema"; return 0; }
@@ -289,7 +307,7 @@ closure_evidence() {
 - commit: $msha
 $tline"
   for issue in $issues; do
-    ghr issue comment "$issue" --body "$text" >/dev/null 2>"$err_file"; rc=$?
+    ghr issue comment "$issue" --repo "$repo" --body "$text" >/dev/null 2>"$err_file"; rc=$?
     if [ "$rc" -eq 0 ]; then say "$ev: posted: issue #$issue (commit=$msha tests=$n_tests)"
     else say "$ev: degraded: could not comment on issue #$issue (gh exit $rc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200))"; failed="$failed #$issue"; fi
   done

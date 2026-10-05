@@ -77,14 +77,22 @@ case "$1 $2" in
     echo '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"},{"name":"toolbelt-tests","status":"completed","conclusion":"success"},{"name":"pr-validation","status":"completed","conclusion":"success"}]}'
     exit 0 ;;
   "api graphql")
-    # closure evidence (kit issue #1812): the closing-issue read. The stub insists on the placeholders and the query text.
-    case " $* " in *"-F owner={owner} -F name={repo} -F pr="*closingIssuesReferences*) ;; *) echo "stub gh: unexpected graphql call: $*" >&2; exit 1 ;; esac
+    # closure evidence (kit issue #1812): the closing-issue read. The stub insists on EXPLICIT owner/name (never the
+    # {owner}/{repo} placeholders, which re-resolve from the cwd remote) and on the query text; it records the repo asked.
+    case " $* " in *"-F owner={owner}"*|*"-F name={repo}"*) echo "stub gh: graphql used placeholders: $*" >&2; exit 1 ;; esac
+    case " $* " in *" -F owner="*" -F name="*" -F pr="*closingIssuesReferences*) ;; *) echo "stub gh: unexpected graphql call: $*" >&2; exit 1 ;; esac
+    printf '%s\n' "$*" | sed -n 's/.* -F owner=\([^ ]*\) -F name=\([^ ]*\) -F pr=.*/\1\/\2/p' >> "${STUB_COMMENTS:-/dev/null}.gqlrepo"
     echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.gqlcwd"
     [ -n "${STUB_GQL_SLEEP:-}" ] && sleep "$STUB_GQL_SLEEP"
     [ -n "${STUB_GQL_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
     [ -n "${STUB_GQL_JSON:-}" ] && cat "$STUB_GQL_JSON"
     exit 0 ;;
-  "api repos/{owner}/{repo}/pulls/"*"/files"*)
+  "repo view")
+    # the cwd-remote resolution used when GH_REPO is unset
+    [ "${STUB_REPO_VIEW_RC:-0}" -ne 0 ] && { echo "gh: repo view failed" >&2; exit "$STUB_REPO_VIEW_RC"; }
+    echo "${STUB_REPO_VIEW:-o/r}"; exit 0 ;;
+  "api repos/"*"/pulls/"*"/files"*)
+    echo "$2" >> "${STUB_COMMENTS:-/dev/null}.filesrepo"
     # closure evidence (kit issue #1812): the PR files list, raw JSON pages (no --jq).
     [ -n "${STUB_FILES_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }
     case " $* " in *" --jq "*) echo "stub gh: files read with --jq" >&2; exit 1 ;; esac
@@ -96,7 +104,8 @@ case "$1 $2" in
     printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
   "issue comment")
     # record the issue number and the exact body (never the network); STUB_COMMENT_RC simulates a failing post
-    n="$3"; shift 3; body=""; while [ $# -gt 0 ]; do case "$1" in --body) body="$2"; shift 2 ;; *) shift ;; esac; done
+    n="$3"; shift 3; body=""; crepo="(none)"; while [ $# -gt 0 ]; do case "$1" in --body) body="$2"; shift 2 ;; --repo) crepo="$2"; shift 2 ;; *) shift ;; esac; done
+    echo "$crepo" >> "${STUB_COMMENTS:-/dev/null}.repo"
     printf 'ISSUE %s\n%s\n---\n' "$n" "$body" >> "${STUB_COMMENTS:-/dev/null}"
     echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.cwd"
     [ "${STUB_COMMENT_RC:-0}" -ne 0 ] && echo "gh: HTTP 403 forbidden" >&2
@@ -462,8 +471,8 @@ mkchecks "$ROOT/ck/ce.json" pr-validation:completed:success
 # mkgql <file> <merged:true|false> <state> <oid|null> <totalCount> [owner/repo#N]...   (this repo is o/r)
 mkgql() {
   local f="$1" m="$2" st="$3" oid="$4" total="$5" a; shift 5
-  { for a in "$@"; do printf '%s\n' "$a"; done; } | jq -Rsc --argjson m "$m" --arg st "$st" --arg oid "$oid" --argjson t "$total" '
-    {data: {repository: {nameWithOwner: "o/r", pullRequest: {merged: $m, state: $st,
+  { for a in "$@"; do printf '%s\n' "$a"; done; } | jq -Rsc --argjson m "$m" --arg st "$st" --arg oid "$oid" --argjson t "$total" --arg repo "${CE_GQL_REPO:-o/r}" '
+    {data: {repository: {nameWithOwner: $repo, pullRequest: {merged: $m, state: $st,
       mergeCommit: (if $oid == "null" then null else {oid: $oid} end),
       closingIssuesReferences: {totalCount: $t, nodes: (split("\n") | map(select(length > 0) | split("#") | {number: (.[1] | tonumber), repository: {nameWithOwner: .[0]}}))}}}}}' > "$f"
 }
@@ -476,13 +485,16 @@ mkgql "$ROOT/ce/g_unmerged.json" false MERGED "$MSHA" 1 o/r#41
 mkgql "$ROOT/ce/g_open.json" true OPEN "$MSHA" 1 o/r#41
 mkgql "$ROOT/ce/g_nooid.json" true MERGED null 1 o/r#41
 mkgql "$ROOT/ce/g_shortoid.json" true MERGED abc1234 1 o/r#41
+CE_GQL_REPO=acme/fork mkgql "$ROOT/ce/g_fork.json" true MERGED "$MSHA" 2 acme/fork#41 acme/fork#42
+mkgql "$ROOT/ce/g_liar.json" true MERGED "$MSHA" 1 acme/fork#41
+CE_GQL_REPO=other/y mkgql "$ROOT/ce/g_other.json" true MERGED "$MSHA" 1 other/y#41
 echo '{not json' > "$ROOT/ce/g_bad.json"
 echo '{"data":{"repository":null}}' > "$ROOT/ce/g_shape.json"
 # runce <sut> <files-json> <graphql-json> [extra sut args]  (a --merge 7 run; comments recorded in $ROOT/ce/comments)
 CE_ENV=(CE_NOOP=1)   # extra VAR=value pairs for the stubs
 runce() {
   local sut="$1" fj="$2" gj="$3"; shift 3
-  : > "$ROOT/ce/comments"; rm -f "$ROOT/ce/comments.cwd" "$ROOT/ce/comments.gqlcwd"
+  : > "$ROOT/ce/comments"; rm -f "$ROOT/ce/comments.cwd" "$ROOT/ce/comments.gqlcwd" "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo"
   OUT="$(env PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=0 \
       STUB_GQL_JSON="$gj" STUB_FILES_JSON="$fj" STUB_COMMENTS="$ROOT/ce/comments" STUB_LOG="$ROOT/log" \
       MERGE_GATE_REQUIRED_CHECKS="" STUB_CHECKS_JSON="$ROOT/ck/ce.json" "${CE_ENV[@]}" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
@@ -525,7 +537,19 @@ closure_cases() {
   if [ -f "$ROOT/ce/comments.gqlcwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.gqlcwd"; then ok "closure: the GraphQL read runs inside --cwd"; else no "closure: GraphQL gh not bound to --cwd"; fi
   if [ -f "$ROOT/ce/comments.cwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.cwd"; then ok "closure: the comments are posted by a gh bound to --cwd"; else no "closure: comment gh not bound to --cwd"; fi
   # the GraphQL read is ONE call carrying the repo placeholders and the PR number
-  if [ "$(grep -c 'api graphql' "$ROOT/log")" -ge 1 ] && grep 'api graphql' "$ROOT/log" | grep -q -- '-F owner={owner} -F name={repo} -F pr=7'; then ok "closure: GraphQL read binds owner/name placeholders and the PR number"; else no "closure: GraphQL argv ($(grep 'api graphql' "$ROOT/log" | tail -1))"; fi
+  if grep -Fxq 'o/r' "$ROOT/ce/comments.gqlrepo" && [ "$(sort -u "$ROOT/ce/comments.repo")" = "o/r" ] && grep -Fxq 'repos/o/r/pulls/7/files?per_page=100' "$ROOT/ce/comments.filesrepo"; then ok "closure: read, files read and every comment target the resolved repo (cwd remote)"; else no "closure: repo targeting ($(cat "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo" 2>&1 | tr '\n' ' '))"; fi
+  # GH_REPO differs from the cwd remote: the merge used acme/fork, so ONLY acme/fork is read and commented on
+  CE_ENV=(GH_REPO=acme/fork STUB_REPO_VIEW=o/r); : > "$ROOT/log"; runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_fork.json"
+  if [ "$(ce_issues)" = "41 42" ] && [ "$(sort -u "$ROOT/ce/comments.gqlrepo")" = "acme/fork" ] && [ "$(sort -u "$ROOT/ce/comments.repo")" = "acme/fork" ] \
+     && grep -Fxq 'repos/acme/fork/pulls/7/files?per_page=100' "$ROOT/ce/comments.filesrepo" && ! grep -q 'repo view' "$ROOT/log"; then ok "closure: GH_REPO differing from the cwd remote -> read, files and comments all target GH_REPO, nothing else"
+  else no "closure: GH_REPO targeting ($(cat "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo" 2>&1 | tr '\n' ' ') / $OUT)"; fi
+  # the old failure: the answer is for the cwd-remote repo while the merge used GH_REPO -> degraded, nothing posted
+  CE_ENV=(GH_REPO=acme/fork); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
+  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: the GraphQL answer is for repository o/r but the merge used acme/fork; nothing posted$' && [ "$(n_comments)" = 0 ]; then ok "closure: answer for another repo than the merge used -> degraded, nothing posted"; else no "closure: repo mismatch ($OUT)"; fi
+  CE_ENV=(CE_NOOP=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_other.json"
+  if <<<"$OUT" grep -Eq 'degraded: the GraphQL answer is for repository other/y but the merge used o/r' && [ "$(n_comments)" = 0 ]; then ok "closure: mismatch without GH_REPO -> degraded, nothing posted"; else no "closure: mismatch ($OUT)"; fi
+  ce_degraded "repo view failure -> degraded, nothing posted" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: cannot resolve the repository the merge used \(gh repo view: gh: repo view failed\)' STUB_REPO_VIEW_RC=1
+  ce_degraded "repo view garbage -> degraded, nothing posted" "$ROOT/ce/g_ok.json" "^merge-gate: closure-evidence: degraded: cannot resolve the repository the merge used \\(got 'not a repo'\\)" "STUB_REPO_VIEW=not a repo"
   # cross-repo node: noted, never posted; case-insensitive same-repo match
   runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_cross.json"
   if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: PR #7 also closes other/x#9 in another repository; no evidence posted there$' && [ "$(ce_issues)" = "41 43" ]; then ok "closure: cross-repo node -> typed note, only same-repo issues (case-insensitive) get comments"
@@ -717,6 +741,15 @@ sc_ce_big()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.j
 sc_ce_fail()       { S_CE="$1"; CE_ENV=(STUB_GQL_FAIL=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
 sc_ce_timeout()    { S_CE="$1"; CE_ENV=(STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
 sc_ce_bad()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_bad.json"; }
+sc_ce_ghrepo_comment() { S_CE="$1"; CE_ENV=(GH_REPO=acme/fork); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_fork.json"; OUT="$OUT"$'\n'"comment-repo: $(sort -u "$ROOT/ce/comments.repo" | tr '\n' ' ')"; CE_ENV=(CE_NOOP=1); }
+sc_ce_mismatch()       { S_CE="$1"; CE_ENV=(GH_REPO=acme/fork); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_liar.json"; CE_ENV=(CE_NOOP=1); }
+tooth M105-comment-repo-flag-dropped 's/ghr issue comment "\$issue" --repo "\$repo" --body/ghr issue comment "$issue" --body/' sc_ce_ghrepo_comment 0 'comment-repo: acme/fork $' 0 'comment-repo: \(none\) $'
+tooth M106-repo-mismatch-unchecked 's/^  if \[ "\$(printf .%s. "\$got_repo".*/  if false; then/' sc_ce_mismatch 0 'degraded: the GraphQL answer is for repository o/r but the merge used acme/fork' 0 '^merge-gate: closure-evidence: posted: issue #41 '
+mutate M107-files-read-placeholder 's/repos\/\$repo\/pulls\/\$pr\/files/repos\/{owner}\/{repo}\/pulls\/$pr\/files/'
+mutate M108-graphql-owner-name-fixed 's/-F owner="\$owner" -F name="\$name"/-F owner=o -F name=r/'
+mutate M109-gh-repo-env-ignored 's/^  if \[ -n "\${GH_REPO:-}" \]; then/  if false; then/'
+mutate M110-repo-view-failure-ignored 's/^      || { say "\$ev: degraded: cannot resolve the repository the merge used (gh repo view.*/      || :/'
+mutate M111-repo-shape-unchecked 's/^  if ! \[\[ "\$repo" =~ .*/  :/'
 tooth M80-same-repo-filter-dropped 's/^    | select((\.repository\.nameWithOwner | tostring | ascii_downcase) == (\$r | ascii_downcase) and /    | select(true and /' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #9 '
 tooth M81-merged-flag-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.state != "MERGED" then/' sc_ce_unmerged 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
 tooth M82-state-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.merged != true then/' sc_ce_open 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
