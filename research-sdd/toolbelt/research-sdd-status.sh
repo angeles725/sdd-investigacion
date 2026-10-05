@@ -321,10 +321,19 @@ terminal_clean_warn() {
   # Bounded (RSDD_STATUS_CLEAN_CHECK_TIMEOUT seconds, default 20): --next also runs from the Stop hook. No timeout/gtimeout =
   # typed unverifiable WARN, never an unbounded run.
   local _cc_to _cc_secs="${RSDD_STATUS_CLEAN_CHECK_TIMEOUT:-20}"
+  # Exact positive-integer test (#1277 follow-up): digits only, and non-zero once leading zeros are stripped. The old
+  # `0|0[0]*` glob rejected 005/007 (any `00`-prefixed value) yet accepted 01. GNU timeout treats 0 as "no limit", so a
+  # zero value is never passed through; a valid value is normalised (010 -> 10).
+  local _cc_stripped
   case "$_cc_secs" in
-    ''|*[!0-9]*|0|0[0]*) # not a positive integer: GNU timeout treats 0 as "no limit", so never pass it through
-      printf 'WARN: clean-check: invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT=%s (need an integer >= 1) — using 20\n' "$_cc_secs" >&2; _cc_secs=20 ;;
+    ''|*[!0-9]*) _cc_stripped="" ;;
+    *) _cc_stripped="${_cc_secs#"${_cc_secs%%[!0]*}"}" ;;
   esac
+  if [ -z "$_cc_stripped" ]; then
+    printf 'WARN: clean-check: invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT=%s (need an integer >= 1) — using 20\n' "$_cc_secs" >&2; _cc_secs=20
+  else
+    _cc_secs="$_cc_stripped"
+  fi
   _cc_to="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
   if [ -z "$_cc_to" ]; then
     printf 'WARN: clean-check: unverifiable (timeout/gtimeout not found, unbounded run refused) — terminal no-garbage check NOT run\n' >&2
