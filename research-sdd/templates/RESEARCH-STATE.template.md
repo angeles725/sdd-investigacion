@@ -151,7 +151,10 @@ last_iteration_ts:
 - none
 
 <!--
-Campaign queue (section heading, absent until created)
+Campaign queue (scaffold only; do NOT uncomment or copy this block). The loop creates this section
+itself, per METHODOLOGY §8c and PROMPT-LOOP (creating the queue section if it does not exist). When
+created, it MUST be a level-2 heading (two "#" characters, a space, then the text) whose text is exactly
+"Campaign queue" — the section greps match that heading text only; any other spelling is missed.
 
 BOOTSTRAP: this section does not exist until the first focus-STOP audit enqueues an entry (§8c).
 The loop creates this section on the first focus STOP that finds enqueued > 0; it never exists

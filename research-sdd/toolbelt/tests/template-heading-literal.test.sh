@@ -105,6 +105,22 @@ viol="$(printf '%s' "$viol" | awk 'NF')"
 if [ -z "$viol" ]; then ok "H1: no script-matched heading literal inside any template comment"
 else no "H1: script-matched heading literal(s) inside template comments:"; printf '%s\n' "$viol" | sed 's/^/        /'; fi
 
+# H2: a commented-out scaffold section must name the exact heading text to create (in words, since the
+# literal is banned inside comments), so a copy of it cannot silently lose the heading.
+# Entries: "<file>|<heading text>" for every scaffold section reworded under #1173.
+SCAFFOLDS=("RESEARCH-STATE.template.md|Campaign queue")
+scaffold_documented() {  # FILE TEXT — rc 0 when FILE says: level-2 heading ... whose text is exactly "TEXT"
+  local flat
+  flat="$(tr '\n' ' ' <"$1")"
+  grep -qF "level-2 heading" <<<"$flat" && grep -qF "whose text is exactly \"$2\"" <<<"$flat"
+}
+for e in "${SCAFFOLDS[@]}"; do
+  sf="${e%%|*}"; st="${e#*|}"
+  if [ ! -f "$TPL/$sf" ]; then no "H2: scaffold template absent: $sf"
+  elif scaffold_documented "$TPL/$sf" "$st"; then ok "H2: $sf documents the exact heading text \"$st\" for its commented scaffold"
+  else no "H2: $sf does not state the exact level-2 heading text \"$st\" for its commented scaffold"; fi
+done
+
 # --- teeth -----------------------------------------------------------------------------------
 if [ "$PROVE" -eq 1 ]; then
   # shellcheck source=lib/mutant.sh
@@ -126,9 +142,15 @@ if [ "$PROVE" -eq 1 ]; then
   # historical offender #2 (document template header) re-inserted
   tooth_scan old-doc-outline "$D" '"## Outline"' 's/the "Outline" section below/the "## Outline" section below/'
   # a heading literal at column 0 inside a multi-line comment (the Campaign-queue shape)
-  tooth_scan multiline-col0 "$S" '"## Campaign queue"' 's/^Campaign queue (section heading, absent until created)/## Campaign queue/'
+  tooth_scan multiline-col0 "$S" '"## Campaign queue"' 's/^Campaign queue (scaffold only; do NOT uncomment or copy this block)\./## Campaign queue./'
   # three-hash form, second comment on the same line as a first
   tooth_scan h3-second-on-line "$S" '"## Stop control"' 's/^## Coverage$/<!-- a --> <!-- see ### Stop control -->\n&/'
+  # H2 tooth: dropping the exact-heading sentence from the scaffold must turn H2 red
+  mutant_chain "h2-drop" "$S" "$MUT/h2-drop.md" 's/^"Campaign queue" — the section greps.*$/(heading text omitted)/' || fail=$((fail+1))
+  if [ -f "$MUT/h2-drop.md" ]; then
+    if scaffold_documented "$S" "Campaign queue" && ! scaffold_documented "$MUT/h2-drop.md" "Campaign queue"; then ok "teeth-h2-drop: scaffold without the exact heading text is red"
+    else no "teeth-h2-drop: H2 did not distinguish the mutant"; fi
+  fi
   # a real, non-fenced heading OUTSIDE a comment must stay green (the comment rule has a tooth that does not over-fire)
   mutant_chain "outside-green" "$S" "$MUT/outside-green.md" 's/^## Coverage$/&\n\n## Gap-backlog extra/' || fail=$((fail+1))
   if [ -f "$MUT/outside-green.md" ]; then
