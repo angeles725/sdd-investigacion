@@ -585,7 +585,7 @@ if [ -n "$synth_refs" ]; then
   synth_found=1
 fi
 # P9-TYPE-PARSE-EARLY: parse Type: token once, shared by P6 (zero-citation WARN) and P9 (resolved-N-of-M WARN).
-# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision
+# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied
 # Strip is ORDER-INDEPENDENT: leading spaces, asterisks, backticks removed in any combination — see P6-TYPE-STRIP.
 _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
 _type_token=""
@@ -619,7 +619,7 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
       # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
       # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
       case "$_type_token" in
-        synthesis|capture|document|absence-centred|decision)  # P6-TYPE-CLASSIFY
+        synthesis|capture|document|absence-centred|decision|design-applied)  # P6-TYPE-CLASSIFY
           echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
           ;;
         standard|evidence|mixed|collaborative|audit)
@@ -629,10 +629,10 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
           if [ -n "$_type_raw" ]; then  # P6-TYPE-UNRECOGNISED
             # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
             _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
-            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
+            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."
           else
             echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
-            echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
+            echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."
           fi
           ;;
       esac
@@ -779,7 +779,7 @@ if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
       echo "   INFO    resolved 0 of $_vb_m — doc-grade markers only; file:line citations not expected."
     else
       case "$_type_token" in
-        synthesis|capture|document|absence-centred|decision)  # P9-TYPE-CLASSIFY
+        synthesis|capture|document|absence-centred|decision|design-applied)  # P9-TYPE-CLASSIFY
           echo "   INFO    resolved 0 of $_vb_m — expected for declared type $_type_token."
           ;;
         standard|evidence|mixed|collaborative|audit)
@@ -791,7 +791,7 @@ if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
             echo "   WARN    resolved 0 of $_vb_m — unrecognised Type: '$_type_warn_name'; $_p9_why"
           else
             echo "   WARN    resolved 0 of $_vb_m — $_p9_why"
-            echo "   HINT    Declare a Type: token to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."  # P9-NO-TYPE-HINT
+            echo "   HINT    Declare a Type: token to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."  # P9-NO-TYPE-HINT
           fi
           ;;
       esac
