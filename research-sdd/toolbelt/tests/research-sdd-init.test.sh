@@ -17,6 +17,12 @@ SUT="$HERE/../research-sdd-init.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
+# #1691 TMPDIR hygiene: when the caller gave a private TMPDIR (run-all does), snapshot it so the
+# end-of-suite check can prove nothing but $TMP itself was added to it (a mutant's stray mktemp file
+# used to survive there). Skipped when TMPDIR is unset or the shared /tmp (other processes write there).
+_tmpd_snap() { find "$TMPDIR" -mindepth 1 -maxdepth 1 ! -path "$TMP" 2>/dev/null | sort; }
+_TMPD_CHECK=0; [ -n "${TMPDIR:-}" ] && [ "$TMPDIR" != /tmp ] && [ -d "$TMPDIR" ] && _TMPD_CHECK=1
+[ "$_TMPD_CHECK" -eq 1 ] && _TMPD_PRE="$(_tmpd_snap)"
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 assert_exit()   { local w="$1" l="$2"; shift 2; local g; bash "$SUT" "$@" >/dev/null 2>&1; g=$?; [ "$g" = "$w" ] && ok "$l (exit $g)" || no "$l — expected $w, got $g"; }
@@ -2137,7 +2143,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW1: could not build mutant (mv line still present)"
     else
       dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
-      bash "$mw1" "$dmw1" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
+      # #1691: the mutant skips the install step that removes its mktemp file; keep that file inside $TMP (trap-cleaned), not the caller TMPDIR.
+      TMPDIR="$TMP" bash "$mw1" "$dmw1" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
       if [ ! -f "$dmw1/.claude/settings.json" ]; then
         ok "teeth MW1: mutant → settings.json absent → wire test has teeth"
       else
@@ -3450,6 +3457,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || no "teeth M-1271-CONFDIR: nothing written under the mutant — K1271-r is THEATER"
   else no "teeth M-1271-CONFDIR: could not build mutant"; fi
   fi
+fi
+
+if [ "$_TMPD_CHECK" -eq 1 ]; then
+  _tmpd_post="$(_tmpd_snap)"
+  [ "$_tmpd_post" = "$_TMPD_PRE" ] && ok "tmpdir hygiene (#1691): suite left no stray entries in the caller's private TMPDIR" \
+    || no "tmpdir hygiene (#1691): stray entries left in TMPDIR: $(diff <(printf '%s\n' "$_TMPD_PRE") <(printf '%s\n' "$_tmpd_post") | grep '^>' | tr '\n' ' ')"
+else
+  echo "  SKIP  tmpdir hygiene (#1691): TMPDIR unset or shared /tmp — not checkable"
 fi
 
 echo "== $pass passed · $fail failed =="
