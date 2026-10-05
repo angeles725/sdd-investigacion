@@ -274,6 +274,50 @@ else
   chmod 644 "$C17/proj-bloque1.md"
 fi
 
+# ---- 25. (kit issue #1821 item 1) block-file selection comes from lib/block-files.sh, not a private regex
+# 25a: the shared discriminator keeps its established behaviour here: a nested block file with a suffix
+#      counts; the decoys `blocked-notes.md` / `block12.md` (no `<prefix>-` before block<N>) do not.
+S25="$ROOT/s25"; C25="$ROOT/c25"
+mk_unit "$S25" "alpha" "UniqueAlpha.java"
+mk_unit "$S25" "beta"  "UniqueBeta.java"
+mk_corpus "$C25/sub/deeper" "proj-bloque2-notes.md" "UniqueAlpha.java is referenced here"
+mk_corpus "$C25" "blocked-notes.md" "UniqueBeta.java appears only in a decoy"
+mk_corpus "$C25" "block12.md" "UniqueBeta.java appears only in a decoy"
+out="$(run "$C25" --subject "$S25")"
+if <<<"$out" grep -q 'modules: 1/2 cited'; then
+  ok "25a block selection: nested suffixed block counts, decoys (blocked-notes.md, block12.md) do not"
+else
+  no "25a block selection: expected 'modules: 1/2 cited'" "out=$out"
+fi
+# 25b: the SUT consumes the shared helper. A kit copy whose lib/block-files.sh ALSO accepts
+#      `-chunk<N>.md` must count a corpus that holds only proj-chunk1.md; the real lib must not. A SUT
+#      with its own private regex ignores the lib and reports the same thing under both.
+K25="$ROOT/kit25"; mkdir -p "$K25/real/lib" "$K25/chunk/lib"
+cp "$SUT" "$K25/real/coverage-map.sh"; cp "$SUT" "$K25/chunk/coverage-map.sh"
+cp "$HERE/../lib/block-files.sh" "$K25/real/lib/block-files.sh"
+sed 's/(block|bloque)/(block|bloque|chunk)/' "$HERE/../lib/block-files.sh" > "$K25/chunk/lib/block-files.sh"
+C25B="$ROOT/c25b"; mk_corpus "$C25B" "proj-chunk1.md" "UniqueAlpha.java is referenced here"
+if ! cmp -s "$HERE/../lib/block-files.sh" "$K25/chunk/lib/block-files.sh"; then
+  out_real="$(bash "$K25/real/coverage-map.sh" "$C25B" --subject "$S25" 2>/dev/null)"
+  out_chunk="$(bash "$K25/chunk/coverage-map.sh" "$C25B" --subject "$S25" 2>/dev/null)"
+  if <<<"$out_real" grep -q 'corpus: empty-input' && <<<"$out_chunk" grep -q 'modules: 1/2 cited'; then
+    ok "25b SUT follows lib/block-files.sh (a widened lib widens the block set; the real lib does not)"
+  else
+    no "25b SUT ignores lib/block-files.sh" "real=$out_real chunk=$out_chunk"
+  fi
+else
+  no "25b could not widen the lib copy (regex sentinel not found in lib/block-files.sh)"
+fi
+# 25c: fail closed (CLAUDE.md §7): a lib that does not define block_file_filter is an operational
+#      failure (exit 1, named on stderr), never a silent "0 block files".
+mkdir -p "$K25/broken/lib"; cp "$SUT" "$K25/broken/coverage-map.sh"; : > "$K25/broken/lib/block-files.sh"
+out="$(bash "$K25/broken/coverage-map.sh" "$C25" --subject "$S25" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && <<<"$out" grep -q 'block_file_filter'; then
+  ok "25c lib without block_file_filter -> exit 1 naming the helper (not a silent empty corpus)"
+else
+  no "25c expected exit 1 naming block_file_filter" "rc=$rc out=$out"
+fi
+
 # ==========================================================================
 # TEETH — mutant verification (--prove-teeth only)
 # ==========================================================================
@@ -297,6 +341,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local msg
     msg="$(mutant_built "teeth: ${1##*/}" "$SUT" "$1")" || { printf '%s\n' "$msg" >&2; return 1; }
   }
+  # The SUT sources lib/block-files.sh from its own directory (kit issue #1821), so every mutant copy
+  # built in $ROOT needs the helper beside it.
+  mkdir -p "$ROOT/lib" && cp "$HERE/../lib/block-files.sh" "$ROOT/lib/block-files.sh" || { echo "FATAL: cannot stage lib/block-files.sh for mutants" >&2; exit 2; }
   echo "-- teeth: setting up shared fixture --"
   # Shared fixture: alpha (cited via UniqueAlpha.java), beta (uncited), Shared (ambiguous)
   # METHODOLOGY §3: corpus writes extension-bearing token UniqueAlpha.java
@@ -569,6 +616,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-j: SENTINEL-CORPUS-WARN: anchor missing in SUT or mutant refused by lib/mutant.sh (reason above)"
   fi
+  # ---- tooth (#1821-1): revert to a private block regex -> test 25b must go red
+  echo "-- teeth-#1821-1: private block regex instead of block_file_filter; 25b must go red --"
+  MUTANT_L="$ROOT/cov-map.MUT-L.sh"
+  MUT_L_EXPR='s#| block_file_filter#| grep -E "[^/]+-(block|bloque)[0-9]+\\.md$"#'
+  if mutant_chain "teeth: MUT-L" "$K25/real/coverage-map.sh" "$MUTANT_L" "$MUT_L_EXPR"; then
+    cp "$MUTANT_L" "$K25/chunk/coverage-map.sh"
+    mout_l="$(bash "$K25/chunk/coverage-map.sh" "$C25B" --subject "$S25" 2>/dev/null)"
+    if <<<"$mout_l" grep -q 'corpus: empty-input'; then
+      ok "teeth-#1821-1: private-regex mutant ignores the widened lib -> 25b would go RED"
+    else
+      no "teeth-#1821-1: mutant still follows the lib (THEATER)" "out=$mout_l"
+    fi
+  else
+    no "teeth-#1821-1: could not build mutant (block_file_filter call not found, or refused by lib/mutant.sh)"
+  fi
+
 fi
 
 # ---------- footer
