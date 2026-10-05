@@ -202,6 +202,80 @@ if [ "$RC" = 0 ] && [ "$(jq_f '[.state,(.items|map(select(.kind=="nonconform-fie
   ok "JSON argv: a ~200 KB finding (> MAX_ARG_STRLEN) → full envelope, no E2BIG" "()"
 else no "JSON argv: large accumulator" "rc=$RC err=[$(printf '%s' "$JERR" | head -c 200)] out=[$(printf '%s' "$JOUT" | head -c 100)]"; fi
 
+# 9 — STRUCTURAL: the kinds the SUT can emit == the kinds json-envelope.v1.md documents (both directions),
+#     and every `_vr_finding` call passes a kind and a SEV of WARN|INFO. kinds_check <sut> <doc> : rc 0 = holds.
+DOC="$HERE/../json-envelope.v1.md"
+[ -f "$DOC" ] || { echo "FATAL: contract doc not found: $DOC" >&2; exit 2; }
+kinds_check() {
+  local sut="$1" doc="$2" calls wellformed code docd
+  # calls = every `_vr_finding` invocation (definition and comments excluded); wellformed = those of the exact shape KIND SEV "...
+  calls="$(grep -E '^[[:space:]]*_vr_finding[[:space:]]' "$sut" | grep -vc '_vr_finding()')"
+  wellformed="$(grep -cE '^[[:space:]]*_vr_finding [a-z][a-z-]* (WARN|INFO) "' "$sut")"
+  [ "$calls" -gt 0 ] && [ "$calls" = "$wellformed" ] || return 1
+  code="$( { grep -E '^[[:space:]]*_vr_finding [a-z]' "$sut" | sed -E 's/^[[:space:]]*_vr_finding ([a-z-]+) .*/\1/'
+             grep -oE '"absent-target" "INFO"' "$sut" | head -1 | sed 's/"absent-target".*/absent-target/'; } | sort -u)"
+  docd="$(awk '/^### `research-sdd.verify-registry\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
+            | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
+  [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
+}
+if kinds_check "$SUT" "$DOC"; then
+  ok "kinds: SUT _vr_finding kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(grep -cE '^[[:space:]]*_vr_finding [a-z]' "$SUT") call sites)"
+else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(grep -oE '^[[:space:]]*_vr_finding [a-z-]+' "$SUT" | awk '{print $2}' | sort -u | tr '\n' ' ')]"; fi
+
+# 10 — ENVELOPE per kind: one small fixture per kind that case 2 does not already cover (case 2 pins nonconform-field,
+#      hook-unwired, count-drift, no-corpus-marker, corpus-unresolvable, no-retros-wired, retro-drift, oversized-row,
+#      absent-target). kcase <kind> <severity> <target-basename> <kit> asserts one item with that kind/severity/target.
+kcase() {
+  jrun "$4"
+  if [ "$RC" = 0 ] \
+     && [ "$(printf '%s' "$JOUT" | jq -r --arg k "$1" '[.items[]|select(.kind==$k)][0]|[.severity,.target]|join(",")' 2>/dev/null)" = "$2,$3" ]; then
+    ok "JSON kind $1: item with severity $2 and target $3" "()"
+  else no "JSON kind $1" "rc=$RC err=[$JERR] items=$(printf '%s' "$JOUT" | jq -c '[.items[]|[.kind,.severity,.target]]' 2>/dev/null | head -c 400)"; fi
+}
+# hook-off-root: wired hook, but the target is not its own git root (a git root one level up).
+kit="$(mkkit k-offroot)"; ext="$ROOT/k-offroot-ext"; mkcorpus "$ext/repo/tA" 3 a; wire_hook() { mkdir -p "$1/.claude"; printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}' > "$1/.claude/settings.json"; }
+wire_hook "$ext/repo/tA"; git init -q "$ext/repo" >/dev/null 2>&1; mkdir -p "$ext/repo/tA/retros"; printf '# r\n' > "$ext/repo/tA/retros/r1.md"
+write_targets "$kit" "$ext/repo/tA::3 md / hook yes"; kcase hook-off-root WARN tA "$kit"
+# hook-wired-contradiction: row says hook no, the Stop hook is wired (target is its own git root).
+kit="$(mkkit k-hookno)"; ext="$ROOT/k-hookno-ext"; mkcorpus "$ext/tA" 3 a; wire_hook "$ext/tA"; git init -q "$ext/tA" >/dev/null 2>&1
+mkdir -p "$ext/tA/retros"; printf '# r\n' > "$ext/tA/retros/r1.md"
+write_targets "$kit" "$ext/tA::3 md / hook no"; kcase hook-wired-contradiction WARN tA "$kit"
+# nc-contradiction: the kit row carries nc but a RESEARCH-STATE.md sits under the kit dir.
+kit="$(mkkit k-nccontra)"; mkcorpus "$kit/tA" 3 a; write_targets "$kit"; kcase nc-contradiction WARN "$(basename "$kit")" "$kit"
+# nc-no-count / nc count-drift: nc rows (hand-written) without a count, and with a count far from the .md files at root.
+kit="$(mkkit k-ncnocount)"; ext="$ROOT/k-ncnocount-ext"; mkdir -p "$ext/n1"; printf '# a\n' > "$ext/n1/a.md"
+write_targets "$kit"; printf '| 5 | n1 | mature (git yes / nc) | `%s` |\n' "$ext/n1" >> "$kit/TARGETS.md"; kcase nc-no-count WARN n1 "$kit"
+kit="$(mkkit k-ncdrift)"; ext="$ROOT/k-ncdrift-ext"; mkdir -p "$ext/n1"; printf '# a\n' > "$ext/n1/a.md"
+write_targets "$kit"; printf '| 5 | n1 | mature (40 md / nc / git yes) | `%s` |\n' "$ext/n1" >> "$kit/TARGETS.md"; kcase count-drift WARN n1 "$kit"
+# catalog-*: a local gen-catalog.py plus a CATALOG.md. rows <n> prints n data rows.
+cat_fix() { # <name> <blocks-on-disk> <catalog-text-before-table|-> <rows> ; echo kit
+  local kit ext i; kit="$(mkkit "$1")"; ext="$ROOT/$1-ext"
+  if [ "$2" -gt 0 ]; then mkcorpus "$ext/tA" "$2" a; else mkdir -p "$ext/tA"; printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research-state.v1 -->\n' > "$ext/tA/RESEARCH-STATE.md"; fi
+  mkdir -p "$ext/tA/tools" "$ext/tA/retros"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$ext/tA/tools/gen-catalog.py"; printf '# r\n' > "$ext/tA/retros/r1.md"
+  { printf '# Catalogo\n\n%s\n\n| # | file | title |\n|---|---|---|\n' "$3"; i=0; while [ "$i" -lt "$4" ]; do i=$((i+1)); printf '| %d | f%d.md | T%d |\n' "$i" "$i" "$i"; done; } > "$ext/tA/CATALOG.md"
+  write_targets "$kit" "$ext/tA::5 md"; printf '%s' "$kit"
+}
+kcase catalog-stale-header WARN tA "$(cat_fix k-cathead 5 'Total: **9 bloques**' 3)"
+kcase catalog-stale WARN tA "$(cat_fix k-catstale 8 'Total: **5 bloques**' 5)"
+kcase catalog-disc-zero WARN tA "$(cat_fix k-catdisc 0 'Total: **5 bloques**' 5)"
+kcase catalog-unparseable WARN tA "$(cat_fix k-catnoparse 5 '(no count line here)' 1)"
+# retros-unreadable: retros/ chmod 000 (a root user ignores the mode, so the case is skipped there with a reason).
+kit="$(mkkit k-unread)"; ext="$ROOT/k-unread-ext"; mkcorpus "$ext/tA" 4 a; mkdir -p "$ext/tA/retros"; printf '# r\n' > "$ext/tA/retros/r1.md"
+write_targets "$kit" "$ext/tA::4 md / 2 retros"; chmod 000 "$ext/tA/retros"
+if [ "$(id -u)" = 0 ]; then ok "JSON kind retros-unreadable: SKIPPED — running as root, chmod 000 is not enforced" "()"; else kcase retros-unreadable WARN tA "$kit"; fi
+chmod 755 "$ext/tA/retros"
+# no-claimed-count: corpus row without any 'N md' claim.
+kit="$(mkkit k-noclaim)"; ext="$ROOT/k-noclaim-ext"; mkcorpus "$ext/tA" 3 a; mkdir -p "$ext/tA/retros"; printf '# r\n' > "$ext/tA/retros/r1.md"
+write_targets "$kit" "$ext/tA::git yes"; kcase no-claimed-count WARN tA "$kit"
+# unclassifiable-blocks: block<N>.md names the canonical discriminator does not count (real 0).
+kit="$(mkkit k-unclass)"; ext="$ROOT/k-unclass-ext"; mkdir -p "$ext/tA/retros"; printf '# s\n' > "$ext/tA/RESEARCH-STATE.md"; printf '# r\n' > "$ext/tA/retros/r1.md"
+for _i in 1 2 3; do printf '# b\n' > "$ext/tA/block${_i}.md"; done
+write_targets "$kit" "$ext/tA::0 md"; kcase unclassifiable-blocks WARN tA "$kit"
+# kit-not-registered: TARGETS.md without the kit's own row.
+kit="$(mkkit k-notreg)"; ext="$ROOT/k-notreg-ext"; mkcorpus "$ext/tA" 3 a; mkdir -p "$ext/tA/retros"; printf '# r\n' > "$ext/tA/retros/r1.md"
+printf '# t\n\n| # | name | maturity | path |\n|---|---|---|---|\n| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$ext/tA" > "$kit/TARGETS.md"
+kcase kit-not-registered WARN "$(basename "$kit")" "$kit"
+
 # --- TEETH (--prove-teeth): each mutant of the SUT must break the case that pins it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -233,7 +307,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jt_nopaths(){ local k; k="$(mkkit "$(basename "$1")-p")"; printf '# t\n\n| # | name |\n|---|---|\n| 1 | nothing |\n' > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 1 ] && [ -z "$JOUT" ]; }
   jt_human()  { local k; k="$(rich_kit "$(basename "$1")-h")"; with_sut "$1" "$k"; run "$k"; [ "$(printf '%s\n' "$OUT" | gold_norm)" = "$(cat "$GOLD")" ]; }
   jt_absitem(){ local k; k="$(rich_kit "$(basename "$1")-ai")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '.items|map(select(.kind=="absent-target"))|length')" = 1 ]; }
-  jteeth mute      jt_rich    's/^  exec 3>&1 >\/dev\/null$/  exec 3>\&1/'
+  jt_kinds()  { kinds_check "$1/toolbelt/verify-registry.sh" "$DOC"; }
+  jt_kcat()   { local k; k="$(cat_fix "$(basename "$1")-kc" 8 'Total: **5 bloques**' 5)"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.items[]|select(.kind=="catalog-stale")]|length')" = 1 ]; }
+  jt_knotreg(){ local k e; k="$(mkkit "$(basename "$1")-kn")"; e="$ROOT/$(basename "$1")-kn-ext"; mkcorpus "$e/tA" 3 a; mkdir -p "$e/tA/retros"; printf '# r\n' > "$e/tA/retros/r1.md"
+                printf '# t\n\n| # | name | maturity | path |\n|---|---|---|---|\n| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$e/tA" > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.items[]|select(.kind=="kit-not-registered")]|length')" = 1 ]; }
+  jteeth kindcode  jt_kinds   's/_vr_finding hook-unwired WARN/_vr_finding hook-unwired-x WARN/'
+  jteeth kindsev   jt_kinds   's/_vr_finding count-drift WARN/_vr_finding count-drift ERR/'
+  jteeth kindabs   jt_kinds   's/"absent-target" "INFO"/"absent-target-x" "INFO"/'
+  jteeth kindcat   jt_kcat    's/_vr_finding catalog-stale WARN/_vr_finding catalog-stale-x WARN/'
+  jteeth kindnotreg jt_knotreg 's/_vr_finding kit-not-registered WARN/_vr_finding kit-not-registered-x WARN/'
+  # Doc-side teeth: a documented kind removed / an undocumented kind added must break kinds_check against the SUT.
+  _dm1="$ROOT/doc-drop.md"; _dm2="$ROOT/doc-extra.md"
+  sed '/^| `kit-not-registered` |/d' "$DOC" > "$_dm1"
+  sed 's/^| `kit-not-registered` |/| `ghost-kind` | invented |\n| `kit-not-registered` |/' "$DOC" > "$_dm2"
+  if ! cmp -s "$DOC" "$_dm1" && ! kinds_check "$SUT" "$_dm1"; then ok "teeth JSON-docdrop: a kind missing from the doc breaks the structural case" "()"; else no "teeth JSON-docdrop: mutant survived — structural case is THEATER" ""; fi
+  if ! cmp -s "$DOC" "$_dm2" && ! kinds_check "$SUT" "$_dm2"; then ok "teeth JSON-docextra: an undocumented-in-code kind in the doc breaks the structural case" "()"; else no "teeth JSON-docextra: mutant survived — structural case is THEATER" ""; fi
+  jteeth mute      jt_rich   's/^  exec 3>&1 >\/dev\/null$/  exec 3>\&1/'
   jteeth probe     jt_degr    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' 's/if ! jq -n --rawfile _vr_probe \/dev\/null 1 >\/dev\/null 2>&1; then/if false; then/'
   jteeth oldjq     jt_oldjq   's/if ! jq -n --rawfile _vr_probe \/dev\/null 1/if ! jq -n 1/'
   jteeth record    jt_items   's/^  \[ "\$VR_JSON" = 1 \] || return 0$/  return 0/'
