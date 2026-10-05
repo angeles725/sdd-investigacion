@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# sweep-all.sh — aggregator: run all seven canonical Research-SDD session-start sweep scripts
+# sweep-all.sh — aggregator: run all eight canonical Research-SDD session-start sweep scripts
 # in sequence, capture each exit status, print a clear per-script PASS/FAIL banner, and exit
 # non-zero if ANY script failed.
 #
 # WHY THIS EXISTS (U-A20): Pi and gentle-shell have no session-start hook, so the sweep scripts must be
-# run manually. This shim collapses seven commands into one, raising compliance probability.
-# Claude runs the same seven scripts automatically via its session-start hook —
+# run manually. This shim collapses eight commands into one, raising compliance probability.
+# Claude runs the same eight scripts automatically via its session-start hook —
 # this aggregator is intended for manual, Pi or gentle-shell use; it is harmless (but redundant) in Claude.
 # (OpenCode support was dropped on 2026-09-23 #954.)
 #
 # Each script runs INDEPENDENTLY: a failure or timeout is captured and reported, but NEVER
-# aborts the remaining scripts. All seven always run. Exit is non-zero if ANY failed.
+# aborts the remaining scripts. All eight always run. Exit is non-zero if ANY failed.
 #
 # Timeout: each script is run under `timeout $RSDD_SWEEP_TIMEOUT` (default 30 s, mirroring
 # the Claude SessionStart hook timeouts of 15–30 s).
 # A killed script is reported as FAIL (timed out) and the remaining scripts still run.
 #
 # Read-only / degrade-to-silence invariants:
-#   - All seven underlying scripts are read-only audits; sweep-all.sh never mutates anything.
+#   - All eight underlying scripts are read-only audits; sweep-all.sh never mutates anything.
 #   - A missing or non-executable script is reported as FAIL; the others still run.
 #   - Stderr from each script is merged into stdout so all output is visible.
 #
 # Usage: toolbelt/sweep-all.sh
-# Exit : 0 all seven scripts passed · non-zero at least one script failed or timed out
+# Exit : 0 all eight scripts passed · non-zero at least one script failed or timed out
 # Env  : RSDD_SWEEP_TIMEOUT  per-script timeout in seconds (default 30)
 
 set -uo pipefail
@@ -37,6 +37,7 @@ SCRIPTS=(
   "$TOOLBELT/verify-kit-clean.sh"
   "$TOOLBELT/sweep-tools.sh"
   "$TOOLBELT/verify-tool-catalog.sh"
+  "$TOOLBELT/verify-skill-drift.sh"
 )
 
 TIMEOUT="${RSDD_SWEEP_TIMEOUT:-30}"
