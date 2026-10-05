@@ -51,6 +51,7 @@ WSL2 runs in an isolated NAT network (`172.x`), so it does NOT reach the host's 
 - Reopening Claude Code or the terminal does NOT restart the WSL VM. Only `wsl --shutdown` (with the
   VM fully released) re-reads `.wslconfig`.
 - To revert: remove `networkingMode=mirrored` and `wsl --shutdown` again.
+- **WSL `/mnt/c` is slow and carries NTFS modes (kit issues #1179, #1096).** Copy a module off `/mnt/c` into the Linux filesystem before tight compile loops (measured ~16x slower on `/mnt/c`). Files copied from NTFS arrive as mode `100755`: check and fix the executable bit (`git ls-files -s`, `chmod -x`/`git update-index --chmod=-x`) BEFORE `git add`, or every file lands as a mode change.
 - **WSL PATH clobber (LOW).** A Bash step can lose its `PATH` mid-run so core tools (`rg`, `head`,
   `tr`, etc.) report "command not found" unexpectedly. Defensively prepend
   `export PATH=/usr/local/bin:/usr/bin:/bin` at the top of each Bash invocation on WSL targets.
