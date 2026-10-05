@@ -81,7 +81,15 @@ B64=$(python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('u
 The same demonstration with the heredoc decodes to `Write-Output ((Get-Date).ToString('s'))`, intact.
 Safe forms: a quoted heredoc, or a file read with `cat`/`<`. Unsafe forms: a `'...'` assignment or
 argument containing `'`, and an unquoted heredoc (`<<EOF`), which still expands `$` and backticks
-locally. (The kit ships no wrapper that does this for you; the encoding step is the one-liner above.)
+locally.
+
+<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->
+**Length caveat for file-sourced scripts.** UTF-16LE doubles the byte count and base64 adds a third,
+so the payload is about 2.67x the source character count (4/3 x 2). Windows OpenSSH's default command
+shell is `cmd.exe`, which caps a command line at 8191 characters. 8191 / 2.67 is about 3070, and the
+`powershell -NoProfile -EncodedCommand ` prefix takes about 40 more, so keep the source under roughly
+3 KB. A larger script does not fit: copy it to the remote with `scp` and run it there with `powershell -File <path>`.
+(The kit ships no wrapper that does this for you; the encoding step is the one-liner above.)
 
 <!-- SENTINEL-REMOTE-PS-NESTED-HOP -->
 **Second hop: a nested `powershell -Command "…"` re-introduces the problem.** `-EncodedCommand`

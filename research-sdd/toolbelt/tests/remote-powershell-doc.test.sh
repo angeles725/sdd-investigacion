@@ -41,12 +41,18 @@ check_doc() {
   flat="$(tr '\n`' '  ' <<<"$sec2" | tr -s ' ')"   # join wrapped lines, drop markdown backticks
   has "section 2 prescribes a nested -EncodedCommand" "${flat,,}" "nested -encodedcommand"
   has "section 2 prescribes a remote script file" "${flat,,}" "remote script file"
+  # SENTINEL-REMOTE-PS-LENGTH-CAVEAT
+  grep -qF '<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->' "$f"; chk "length-caveat sentinel present" $?
+  has "length caveat names the cmd.exe 8191 limit" "$flat" "8191"
+  has "length caveat names the 2.67x ratio" "$flat" "2.67x"
+  has "length caveat gives the ~3 KB source budget" "$flat" "3 KB"
+  has "length caveat prescribes scp + powershell -File" "$flat" "powershell -File <path>"
 }
 
 # Behavioural demonstration quoted in the doc, run locally: bash + python3 UTF-16LE base64 + decode.
 # DEMO_MUTANT=1 (teeth only) feeds the heredoc case the damaged text, which must turn an assertion red.
 demo_quoting() {
-  local ps_bad ps_good dec_bad dec_good
+  local ps_bad ps_good dec_bad dec_good ratio
   if ! command -v python3 >/dev/null 2>&1; then
     echo "  SKIP  quoting demonstration: python3 absent (not a pass)"; return 0
   fi
@@ -58,6 +64,8 @@ Write-Output ((Get-Date).ToString('s'))
 EOF
 )
   [ "${DEMO_MUTANT:-0}" = 1 ] && ps_good="$ps_bad"
+  ratio="$(python3 -c "import sys,base64;s='x'*3000;print(round(len(base64.b64encode(s.encode('utf-16-le')))/len(s),2))")"
+  if [ "$ratio" = 2.67 ]; then ok "demo: UTF-16LE+base64 ratio is 2.67x (measured $ratio)"; else bad "demo: UTF-16LE+base64 ratio is 2.67x (measured $ratio)"; fi
   dec_bad="$(enc "$ps_bad" | dec)"; dec_good="$(enc "$ps_good" | dec)"
   [ "$dec_bad" = 'Write-Output ((Get-Date).ToString(s))' ]; chk "demo: single-quoted assignment drops inner quotes before encoding" $?
   [ "$dec_good" = "Write-Output ((Get-Date).ToString('s'))" ]; chk "demo: quoted heredoc decodes intact" $?
@@ -85,9 +93,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth drop-heredoc-form "s|<<'EOF'|<<EOF|g"
   tooth drop-nested-sentinel 's|^<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->$||'
   tooth drop-nested-encodedcommand 's|^`-EncodedCommand` (encode|`-EncodedCmd` (encode|'
+  tooth drop-length-caveat 's|8191|N|g'
+  tooth wrong-ratio 's|2\.67x|3x|g'
+  tooth drop-length-sentinel 's|^<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->$||'
   tooth drop-remote-script-file 's|remote script file|remote thing|g'
+  if ! command -v python3 >/dev/null 2>&1; then echo "  SKIP  tooth demo-damaged-heredoc: python3 absent"
+  else
   out="$(DEMO_MUTANT=1 demo_quoting)"
   if grep -q '^  FAIL  demo' <<<"$out"; then ok "tooth demo-damaged-heredoc bites"; else bad "tooth demo-damaged-heredoc: stayed green"; fi
+  fi
 fi
 
 echo "RESULT: pass=$pass fail=$fail"
