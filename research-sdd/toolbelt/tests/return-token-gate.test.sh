@@ -222,6 +222,7 @@ if [ -n "$(find "$_pf" -mmin +80 -mmin -100)" ] && [ "$(head -1 "$_pf.txt")" = z
 else no "G-PORTABLE-FIXTURES: mtime/sed helper wrong or a GNU-only form remains"; fi
 
 echo "-- block-once marker pruning (kit issue #1732) --"
+# touch_ago takes MINUTES: 86400 min = 60 days, safely past the gate's default max-age cap.
 c="$(fresh corpus-next)"; mkdir -p "$c/.claude"
 for i in 1 2 3 4 5 6; do : > "$c/.claude/.rsdd-return-token-blocked-old$i"; touch_ago "$((i + 1))" "$c/.claude/.rsdd-return-token-blocked-old$i"; done
 : > "$c/.claude/.rsdd-return-token-blocked-ancient"; touch_ago 86400 "$c/.claude/.rsdd-return-token-blocked-ancient"
