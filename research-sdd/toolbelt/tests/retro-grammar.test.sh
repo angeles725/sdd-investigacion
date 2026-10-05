@@ -417,6 +417,68 @@ _got="$(retro_grammar_entry_rows "$_hp" | awk -F'\037' '{printf "%s=%s,", $1, $6
   && ok "T37 heading priority read; look-alikes ignored; body **Priority** wins; first/last edges" "($_got)" \
   || no "T37 heading priority" "got=[$_got] want=[D1=high,D2=MEDIUM,D3=,D4=,D5=HIGH,D6=LOW,]"
 
+# ── retro_grammar_title_has_identity / retro_grammar_row_titles (kit issues #1811, #1784) ──────────────────────
+# The cross-retro row-identity rule (bare priority/type tokens and a 12-CHARACTER floor) and the title-column parser,
+# shared by reconcile-issues.sh. stage-retro-issues.sh still carries its own copy of the rule (title_is_unusable);
+# T52 extracts THAT function and requires the same verdict on every title below, so a drift in either copy is red.
+echo "-- retro_grammar_title_has_identity: bare tokens, 12-character floor, UTF-8 characters not bytes (T50-T52) --"
+if ! declare -F retro_grammar_title_has_identity >/dev/null 2>&1; then
+  no "T50 retro_grammar_title_has_identity is defined" "function missing after sourcing the lib"
+else
+  _ti_bad=""
+  for _ti in 'high|1' 'HIGH|1' 'Doc-Fix|1' 'regression|1' 'documentation|1' 'short|1' 'elevenchars|1' 'twelve chars|0' 'a perfectly fine delta title|0' \
+             'ñññññññññññ|1' 'ññññññññññññ|0' 'x|1' '|1'; do
+    _tt="${_ti%|*}"; _want="${_ti##*|}"
+    retro_grammar_title_has_identity "$_tt"; _rc=$?
+    [ "$_rc" = "$_want" ] || _ti_bad="$_ti_bad [$_tt: rc=$_rc want=$_want]"
+  done
+  [ -z "$_ti_bad" ] && ok "T50 identity verdicts: token list, 11/12 char edge, 11/12 UTF-8 char edge, empty" "()" || no "T50 identity verdicts" "$_ti_bad"
+  _ti_bad=""
+  for _ti in 'ññññññññññññ|0' 'ñññññññññññ|1'; do
+    _tt="${_ti%|*}"; _want="${_ti##*|}"
+    LC_ALL=C retro_grammar_title_has_identity "$_tt"; _rc=$?
+    [ "$_rc" = "$_want" ] || _ti_bad="$_ti_bad [$_tt: rc=$_rc want=$_want]"
+  done
+  [ -z "$_ti_bad" ] && ok "T51 characters are counted, not bytes, under LC_ALL=C" "()" || no "T51 char count under LC_ALL=C" "$_ti_bad"
+  # T52 parity with the seeder's own rule (extracted from stage-retro-issues.sh, never sourced whole: it runs on source).
+  _STAGE="$HERE/../stage-retro-issues.sh"
+  _stfn="$ROOT/stage-title-fn.sh"
+  awk '/^_MIN_TITLE_LEN=/ { p = 1 } p { print } p && seen && /^}/ { exit } /^title_is_unusable\(\) \{/ { seen = 1 }' "$_STAGE" > "$_stfn"
+  if ! grep -q '^title_is_unusable()' "$_stfn"; then no "T52 parity: extract the seeder's title_is_unusable" "harness failure: function not found in $_STAGE"
+  else
+    _pbad=""; _pn=0
+    for _tt in 'high' 'Medium' 'bug' 'Docs' 'doc-fix' 'regression' 'documentation' 'elevenchars' 'twelve chars' 'exactly 12 c' 'a perfectly fine delta title' 'ñññññññññññ' 'ññññññññññññ' '  padded high  ' 'féature' 'low' 'fixes' ''; do
+      _pn=$((_pn+1))
+      _tr="$(printf '%s' "$_tt" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      _sv="$("$BASH_BIN" -c '. "$1"; title_is_unusable "$2" && echo unusable || echo usable' _ "$_stfn" "$_tt" 2>/dev/null)"
+      retro_grammar_title_has_identity "$_tr" && _lv=usable || _lv=unusable
+      [ "$_sv" = "$_lv" ] || _pbad="$_pbad [$_tt: stage=$_sv lib=$_lv]"
+    done
+    [ -z "$_pbad" ] && [ "$_pn" -ge 15 ] && ok "T52 lib identity rule == stage-retro-issues title_is_unusable on $_pn titles" "()" || no "T52 identity parity with the seeder" "$_pbad (n=$_pn)"
+  fi
+fi
+
+echo "-- retro_grammar_row_titles: title column per header, bold unwrap, entry form (T53-T55) --"
+if ! declare -F retro_grammar_row_titles >/dev/null 2>&1; then
+  no "T53 retro_grammar_row_titles is defined" "function missing after sourcing the lib"
+else
+  _rt="$ROOT/rowtitles-table.md"
+  { printf '# r\n\n## Proposed kit deltas\n\n| # | Target | Proposed change | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+    printf '| 3 | METHODOLOGY.md | header named column title | B | new | HIGH |\n| 4 | CLAUDE.md | **second bold header title** | B | fix | LOW |\n| 5 | X | **bold** with a tail | B | fix | LOW |\n'
+  } > "$_rt"
+  _got="$(retro_grammar_row_titles "$_rt" | tr '\037\n' '|,')"
+  [ "$_got" = "3|header named column title,4|second bold header title,5|bold," ] \
+    && ok "T53 header-named column wins; bold unwrapped; first/middle/last rows" "($_got)" || no "T53 header-named title column" "got=[$_got]"
+  printf '# r\n\n## Proposed kit deltas\n\n| # | Delta | Evidence |\n|---|---|---|\n| 1 | **positional bold title** — tail | B |\n| 2 | plain positional title | B |' > "$ROOT/rowtitles-pos.md"
+  _got="$(retro_grammar_row_titles "$ROOT/rowtitles-pos.md" | tr '\037\n' '|,')"
+  [ "$_got" = "1|positional bold title,2|plain positional title," ] \
+    && ok "T54 named column 'Delta', bold unwrapped, last row without a trailing newline" "($_got)" || no "T54 named/positional title" "got=[$_got]"
+  printf '# r\n\n## Proposed kit deltas\n\n### D4 — entry form delta title\n\n**Evidence**: B9\n\n### D5 — second entry form delta\n' > "$ROOT/rowtitles-entry.md"
+  _got="$(retro_grammar_row_titles "$ROOT/rowtitles-entry.md" | tr '\037\n' '|,')"
+  [ "$_got" = "D4|entry form delta title,D5|second entry form delta," ] \
+    && ok "T55 entry form (### D<N> — title) yields the entry titles" "($_got)" || no "T55 entry-form titles" "got=[$_got]"
+fi
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -639,6 +701,7 @@ else
     ln -s "$HERE/../lib"             "$_sf_mirror/lib"
     ln -s "$HERE/../sweep-retros.sh" "$_sf_mirror/sweep-retros.sh"
     ln -s "$HERE/../verify-retro.sh" "$_sf_mirror/verify-retro.sh"
+    ln -s "$HERE/../stage-retro-issues.sh" "$_sf_mirror/stage-retro-issues.sh"   # T52 extracts the seeder's identity rule
     # Sabotage check: unmutated copy in mirror tree must still show SKIP.
     # Proves the mirror tree setup is sound — only the mutation changes behavior.
     _sf_sab="$_sf_mirror/tests/retro-grammar-sab.sh"
@@ -780,6 +843,33 @@ else
   if ! grep -q 'cannot read' <<<"$_uerr"; then ok "T1403-U1 teeth: unreadable check removed → silent zero again (T40a has teeth)" "()"
   else no "T1403-U1 teeth: removing the check must flip T40a" "THEATER: err=[$_uerr]"; fi
 fi
+
+# ── teeth for the shared row-identity helpers (kit issues #1811, #1784) — mutants via tests/lib/mutant.sh ──
+echo "-- teeth T1811: retro_grammar_title_has_identity / retro_grammar_row_titles mutants (T50-T55 must flip) --"
+_ti_titles=('high' 'documentation' 'elevenchars' 'twelve chars' 'ñññññññññññ' 'ññññññññññññ')
+_ti_good="1,1,1,0,1,0,"
+# ti_mutant <tag> <sed-expr>: the mutant must change the identity verdicts the T50 list pins
+ti_mutant() {
+  local tag="$1" expr="$2" mlib="$ROOT/ti-mut-$1.sh" got
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1811-$tag: build mutant" "mutant_sed refused"; return; fi
+  got="$("$BASH_BIN" -c '. "$1"; shift; for t in "$@"; do retro_grammar_title_has_identity "$t"; printf "%s," "$?"; done' _ "$mlib" "${_ti_titles[@]}" 2>/dev/null)"
+  if [ "$got" != "$_ti_good" ]; then ok "T1811-$tag teeth: mutant changes the identity verdicts → T50/T51 have teeth" "(got $got)"
+  else no "T1811-$tag teeth: mutant must change the verdicts" "THEATER: got=[$got]"; fi
+}
+ti_mutant I1 's/^      high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix) return 1 ;;/      NEVERMATCHESANYTHING) return 1 ;;/'
+ti_mutant I2 's/-ge 12 \]   # RETRO_GRAMMAR_TITLE_MIN_LEN/-ge 11 ]   # RETRO_GRAMMAR_TITLE_MIN_LEN/'
+ti_mutant I3 's/tr -d .\\200-\\277. | wc -c/tr -d x | wc -c/'
+# rt_mutant <tag> <sed-expr> <fixture> <good>: the mutant must change what retro_grammar_row_titles prints
+rt_mutant() {
+  local tag="$1" expr="$2" file="$3" good="$4" mlib="$ROOT/rt-mut-$1.sh" got
+  if ! mutant_sed "$RG_LIB" "$mlib" -e "$expr"; then no "T1811-$tag: build mutant" "mutant_sed refused"; return; fi
+  got="$("$BASH_BIN" -c '. "$1"; retro_grammar_row_titles "$2"' _ "$mlib" "$file" 2>/dev/null | tr '\037\n' '|,')"
+  if [ "$got" != "$good" ]; then ok "T1811-$tag teeth: mutant changes the row titles → T53-T55 have teeth" "(got $got)"
+  else no "T1811-$tag teeth: mutant must change the row titles" "THEATER: got=[$got]"; fi
+}
+rt_mutant T1 's/(proposed change|proposed delta|proposal/(NEVERMATCH|proposed delta|proposal/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
+rt_mutant T2 '/sed -E .s\/\^\\\*\\\*/s/.*/      _dl="$_dl"/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
+rt_mutant T3 's/\[ -n "\$_rows" \] || _rows="\$(retro_grammar_entry_rows/: || _rows="$(retro_grammar_entry_rows/' "$ROOT/rowtitles-entry.md" "D4|entry form delta title,D5|second entry form delta,"
 
 echo ""
 echo "== $pass passed · $fail failed =="

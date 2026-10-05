@@ -602,3 +602,83 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
     ' "$1"
   }
 fi
+
+# ---------------------------------------------------------------------------
+# Cross-retro row identity (kit issues #1709 slice 2, #1811). reconcile-issues.sh compares a row's TITLE across
+# retros; the rule that makes a title an identity lives HERE so it has one home. stage-retro-issues.sh still carries
+# its own copy (title_is_unusable / _MIN_TITLE_LEN) until it calls these helpers; tests/retro-grammar.test.sh T52
+# extracts that function and requires the same verdict on a title list, and reconcile-issues.test.sh case 47
+# requires the same titles from the title-column parser, so a drift in either copy is a red test.
+
+# retro_grammar_title_has_identity <title> - rc 0 when the (already trimmed) title can carry a cross-retro identity:
+# not a bare priority/type token (any length, case-insensitive) and at least 12 CHARACTERS. Characters, not bytes,
+# whatever the locale: under LC_ALL=C every byte except a UTF-8 continuation byte (0x80-0xBF) starts one character;
+# input that is not valid UTF-8 is counted in bytes so it is never undercounted into a false refusal. A missing
+# iconv skips the validity probe (the continuation-byte strip is then used for every title), silently: the seeder
+# owns the NOTE about it.
+if ! typeset -f retro_grammar_title_has_identity >/dev/null 2>&1; then
+  retro_grammar_title_has_identity() {
+    local t _n
+    t="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+    case "$t" in   # RETRO_GRAMMAR_TITLE_TOKEN_CLAUSE
+      high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix) return 1 ;;
+    esac
+    if ! command -v iconv >/dev/null 2>&1 || printf '%s' "$t" | LC_ALL=C iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+      _n="$(printf '%s' "$t" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+    else
+      _n="$(printf '%s' "$t" | LC_ALL=C wc -c)"
+    fi
+    [ "$((_n + 0))" -ge 12 ]   # RETRO_GRAMMAR_TITLE_MIN_LEN
+  }
+fi
+
+# retro_grammar_row_titles <file> - one "<row-id>\037<title>" line per delta row (table form, else the entry form).
+# The title is the delta cell: the column the header names (proposed change / delta / title / gist / ...), else
+# column 2, with a leading **bold** unwrapped and the ends trimmed. Mirrors stage-retro-issues.sh's header mapping
+# for the TITLE column only. Returns 1 (no output) when the file is absent or unreadable.
+if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
+  retro_grammar_row_titles() {
+    local f="${1:-}" _rows _id _dl _rest
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
+      BEGIN { in_sec = 0 }
+      {
+        low = tolower($0)
+        if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ || low ~ /^## proposed delta/ ||
+            low ~ /^## delta proposals/ || low ~ /^## deltas nuevos/ || low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
+            low ~ /^## summary of proposed delta/ || low ~ /^## summary of new deltas/ || low ~ /^## delta details([[:space:]]|$)/) {
+          in_sec = 1; prev = ""; ct = 0; next
+        }
+        if (/^##[^#]/) { in_sec = 0; next }
+        if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
+          if (prev != "") {
+            hl = tolower(prev)
+            sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
+            hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
+            ct = 0
+            for (k = 2; k <= hn; k++)
+              if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
+          }
+          prev = ""; next
+        }
+        if (in_sec && /^\|/) {
+          prev = $0
+          line = $0
+          sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
+          n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+          rid = f[1]; gsub(/[[:space:]]/, "", rid)
+          if (rid ~ /^[-:]+$/) next
+          if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
+          printf "%s\037%s\n", f[1], (ct ? f[ct] : (n >= 2 ? f[2] : ""))
+        }
+      }')"
+    [ -n "$_rows" ] || _rows="$(retro_grammar_entry_rows "$f")"
+    while IFS=$'\037' read -r _id _dl _rest; do
+      _id="${_id#"${_id%%[![:space:]]*}"}"; _id="${_id%"${_id##*[![:space:]]}"}"
+      [ -n "$_id" ] || continue
+      _dl="$(printf '%s' "$_dl" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//')"
+      _dl="${_dl#"${_dl%%[![:space:]]*}"}"; _dl="${_dl%"${_dl##*[![:space:]]}"}"
+      printf '%s\037%s\n' "$_id" "$_dl"
+    done <<<"$_rows"
+  }
+fi
