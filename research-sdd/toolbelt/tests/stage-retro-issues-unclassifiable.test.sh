@@ -128,12 +128,22 @@ c_dry_row() {
 c_zero_states() {
   local b r; b="$(mkbox "zero$1")" || return 1
   r="$(row_retro "$b" ok.md "$GOOD")"; run "$b" "$r"
-  [ "$RC" = 0 ] && grep -qxF 'unclassifiable-items: 0 (no-match: 1 row(s) examined, none unclassifiable)' <<<"$OUT" \
+  [ "$RC" = 0 ] && grep -qxF 'unclassifiable-items: 0 (none: 1 row(s) examined)' <<<"$OUT" \
     && ! grep -q '^planned-tracking-issue:' <<<"$OUT" || { echo "no-match: rc=$RC out=[${OUT:0:500}]"; return 1; }
   printf '%s\n# retro\n\nNo proposed deltas here.\n' "$PEND" > "$b/rh/target-foo/retros/empty.md"
   run "$b" "$b/rh/target-foo/retros/empty.md"
   [ "$RC" = 0 ] && grep -qE '^unclassifiable-items: 0 \(empty-input' <<<"$OUT" && return 0
   echo "empty-input: rc=$RC out=[${OUT:0:500}]"; return 1
+}
+# A normal run that stages/creates an issue must carry NO outcome word of the retro-gate classifier: the zero-state
+# label of the count line is `none:` / `retro-closed:` / `empty-input:`, never `no-match:` (kit issue #1259 final).
+c_normal_no_outcome_word() {
+  local b r; b="$(mkbox "normal$1")" || return 1; r="$(row_retro "$b" r.md "$GOOD")"
+  run "$b" "$r"
+  [ "$RC" = 0 ] && grep -qxF 'unclassifiable-items: 0 (none: 1 row(s) examined)' <<<"$OUT" && ! grep -q 'no-match' <<<"$OUT" || { echo "dry: rc=$RC out=[${OUT:0:500}]"; return 1; }
+  run "$b" "$r" --apply
+  [ "$RC" = 0 ] && grep -q '^created: ' <<<"$OUT" && ! grep -q 'no-match' <<<"$OUT" && return 0
+  echo "apply: rc=$RC out=[${OUT:0:500}]"; return 1
 }
 c_apply_create() {
   local b r; b="$(mkbox "apply$1")" || return 1; r="$(sec_retro "$b" r.md)"
@@ -178,7 +188,8 @@ c_apply_fanout() {
   run "$b" "$r" --apply
   [ "$RC" = 0 ] && grep -qF 'occurrence-commented: #60 (row tracker)' <<<"$OUT" \
     && ! grep -q 'gh issue create' "$b/bin/gh.log" && ! grep -q 'tracker-set-changed' <<<"$OUT" \
-    && [ "$(grep -c 'stage-retro-issues:occurrence' "$b/bin/gh.comments.60")" = 1 ] && return 0
+    && [ "$(grep -c 'stage-retro-issues:occurrence' "$b/bin/gh.comments.60")" = 1 ] \
+    && grep -qF '| 1 | r.md:' "$b/bin/gh.comments.60" && grep -qF 'proposal-like heading not in a countable delta form' "$b/bin/gh.comments.60" && return 0
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
 }
 # Several OPEN trackers for one retro: typed WARN naming them, ONE comment on the newest, nothing created.
@@ -243,7 +254,7 @@ c_scrub() {
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
 }
 
-CHECKS="c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_closed_changed c_apply_fanout c_apply_multi_open c_scrub_fail c_row_line c_apply_createfail c_apply_readback c_scrub"
+CHECKS="c_normal_no_outcome_word c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_closed_changed c_apply_fanout c_apply_multi_open c_scrub_fail c_row_line c_apply_createfail c_apply_readback c_scrub"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -260,6 +271,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth $label: mutant breaks $chk" "()"; fi
     MUT=()
   }
+  tooth c_normal_no_outcome_word zero-label-no-match 's/(\$1)"; return 0/(\$1)"; return 0/;s/"none: \$((open_count/"no-match: $((open_count/'
   tooth c_dry_section    sec-record   '/"proposal-like heading not in a countable delta form"$/s/.*/    :/'
   tooth c_dry_row        row-record   '/"no usable title (\$_title_reason)"$/s/.*/    :/'
   tooth c_zero_states    zero-line    '/^    echo "unclassifiable-items: 0 (\$1)"; return 0$/s/.*/    return 0/'
@@ -269,9 +281,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_apply_occurrence fingerprint 's/ #\${_fp} -->/ -->/'
   tooth c_apply_readback readback     's/ || ! grep -qxF -- "\$_sig" <<<"\$_rb"; then/; then/'
   tooth c_apply_fanout   title-lookup   '/^  _open_nums=/s/.*/  _open_nums=""/'
+  tooth c_apply_fanout   comment-table-off 's/(%d item(s)):\\n\\n%s\\n\\n%s\\n%s\\n%s/(%d item(s)):\\n\\n%.0s\\n\\n%s\\n%s\\n%s/'
   tooth c_apply_multi_open oldest-not-newest '/^    _newest=/s/tail -n 1/head -n 1/'
   tooth c_apply_multi_open multi-warn-off '/^    if \[ "\$(printf .%s\\n. "\$_open_nums" | wc -l)" -gt 1 \]; then$/s/.*/    if false; then/'
-  tooth c_apply_closed_changed closed-set-ignored '/^  _unc_lookup "\$_sigfp" || return 0$/s/.*/  _lk="[{\\"state\\":\\"CLOSED\\"}]"/'
+  tooth c_apply_closed_changed closed-set-ignored '/^  _unc_lookup sig "\$_sigfp" || return 0$/s/.*/  _lk="[{\\"state\\":\\"CLOSED\\"}]"/'
   tooth c_scrub_fail     failed-uncounted '/^  echo "ERROR: \$2" >&2; failed=\$((failed+1))$/s/; failed=.*//'
   tooth c_row_line       row-line-anywhere 's/_unc_add row "\$(_unc_row_line "\$_rid" "\$_delta")"/_unc_add row "$(_unc_line_of "$_delta")"/'
   tooth c_scrub          scrub-body   's/"\$_tmp" | scrub_issue_text)" && _tn=/"$_tmp" | cat)" \&\& _tn=/'

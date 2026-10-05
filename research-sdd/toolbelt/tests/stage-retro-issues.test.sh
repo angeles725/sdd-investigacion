@@ -1002,7 +1002,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T6: neuter 'dismissed always wins' guard; dismissed+PARTIAL must reopen rows (case 50/51 have teeth) --"
   anchor_t6='  dismissed)
     echo "no-match: retro is '"'"'dismissed'"'"' — all rows shipped" >&2
-    echo "unclassifiable-items: 0 (no-match: retro is '"'"'dismissed'"'"')"; exit 0
+    echo "unclassifiable-items: 0 (retro-closed: dismissed)"; exit 0
     ;;'
   if [[ "$sut_content" == *"$anchor_t6"* ]]; then
     box_t6="$(mkbox teeth-dismissed-wins)"

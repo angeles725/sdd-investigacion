@@ -566,10 +566,10 @@ fi
 case "$status" in
   dismissed)
     echo "no-match: retro is 'dismissed' — all rows shipped" >&2
-    echo "unclassifiable-items: 0 (no-match: retro is 'dismissed')"; exit 0
+    echo "unclassifiable-items: 0 (retro-closed: dismissed)"; exit 0
     ;;
   applied)
-    [ $is_partial -eq 0 ] && echo "unclassifiable-items: 0 (no-match: retro is 'applied')"
+    [ $is_partial -eq 0 ] && echo "unclassifiable-items: 0 (retro-closed: applied)"
     [ $is_partial -eq 0 ] && { echo "no-match: retro is 'applied' — all rows shipped" >&2; exit 0; }
     ;;
   pending|none|"")
@@ -1269,56 +1269,42 @@ _occ_row_comment_all() {
 # ---------------------------------------------------------------------------
 # UNCLASSIFIABLE TABLE + TRACKING ISSUE (kit issue #1259).
 # _unc_report <state>: prints the `unclassifiable-items: N (...)` count line (the state names WHY a 0 is a 0:
-# no-match = rows were examined and none was unclassifiable; the empty-input / no-match exits print their own line
-# earlier), and for N > 0 the table, then PROPOSES one tracking issue per run (dry-run: planned-tracking-issue;
+# `none: N row(s) examined` = rows were examined and none was unclassifiable; the empty-input / retro-closed exits
+# print their own line earlier). The zero-state tokens deliberately reuse NO outcome word (`no-match:` etc.) that
+# retro-gate.sh or another consumer classifies a run by. For N > 0 the table, then PROPOSES one tracking issue per run (dry-run: planned-tracking-issue;
 # --apply: the same create / dedup / occurrence-comment / read-back machinery as a delta row, row id `tracker`).
 # Signature (stable per retro file, whole line in the body): `Unclassifiable tracker: <target>/retros/<file>`.
-# Dedup: an OPEN same-target issue with the exact tracker title gets ONE occurrence comment per distinct item set
-# (marker = signature + a checksum of the items' head+reason, so an identical re-run posts nothing and a changed
-# item set adds a comment); an issue (any state) carrying the exact item-set line is skipped-duplicate; a closed
+# Dedup: trackers are found by the BODY signature line, never by title (a title suffix must not hide one). One OPEN
+# tracker for the retro gets ONE occurrence comment per distinct item set, carrying the item table (marker =
+# signature + a checksum of the items' head+reason, so an identical re-run posts nothing and a changed item set
+# adds a comment); an issue (any state) carrying the exact item-set line is skipped-duplicate; a closed
 # tracker for the same retro with a DIFFERENT set gets a NEW tracker titled `… (item set <checksum>)`; else create.
-# _unc_lookup <whole-line>: search ALL states for an issue whose body carries <whole-line>; sets _lk to the
-# exact-match reply. rc 1 = could not look (typed ERROR printed, failed counted): never "no match".
+# _unc_lookup <sig|sigs> <whole-line>: search ALL states for issues whose body carries <whole-line> as a whole line;
+# sets _lk to the exact-match reply. Mode `sig` asks for state,body and yields `[{"state":..}]` (is there a hit?);
+# mode `sigs` also asks for the number and yields `<number> <STATE>` lines (which issues?). One helper, so the gh
+# error / bad-reply / parse / --limit-truncation handling cannot drift between the two lookups.
+# rc 1 = could not look (typed ERROR printed, failed counted): never "no match".
 _unc_lookup() {
-  local _x _xr _xrc
-  _x="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$1\"" --json state,body 2>&1)"; _xrc=$?
-  if [ "$_xrc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_x"; then
-    echo "ERROR: gh issue list (tracker dedup) failed or returned an unexpected reply for row tracker: $_x" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 1
-  fi
-  _xr="$_x"
-  _lk="$(printf '%s' "$_xr" | _exact_sig_matches "$1")" || {
-    echo "ERROR: gh issue list (tracker dedup) reply could not be parsed for row tracker: $_xr" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 1
-  }
-  if ! grep -q '"state":' <<<"$_lk" && _list_filled "$_lk"; then
-    echo "ERROR: gh issue list (tracker dedup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 1
-  fi
-  return 0
-}
-# _unc_lookup_nums <whole-line>: like _unc_lookup but asks for issue NUMBERS; sets _lk to `<number> <STATE>` lines
-# (exact whole-line body matches only, any title). rc 1 = could not look (typed ERROR, failed counted).
-_unc_lookup_nums() {
-  local _x _xr _xrc
-  _x="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$1\"" --json number,state,body 2>&1)"; _xrc=$?
+  local _x _xr _xrc _fields="state,body" _hit='"state":'
+  if [ "$1" = sigs ]; then _fields="number,state,body"; _hit='^[0-9][0-9]* '; fi
+  _x="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$2\"" --json "$_fields" 2>&1)"; _xrc=$?
   if [ "$_xrc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_x"; then
     echo "ERROR: gh issue list (tracker lookup) failed or returned an unexpected reply for row tracker: $_x" >&2
     failed=$((failed+1)); _row_nowrite tracker; return 1
   fi
   _xr="$_x"
-  _lk="$(printf '%s' "$_xr" | _json_issue_scan sigs "$1")" || {
+  _lk="$(printf '%s' "$_xr" | _json_issue_scan "$1" "$2")" || {
     echo "ERROR: gh issue list (tracker lookup) reply could not be parsed for row tracker: $_xr" >&2
     failed=$((failed+1)); _row_nowrite tracker; return 1
   }
-  if ! grep -q '^[0-9][0-9]* ' <<<"$_lk" && _list_filled "$_lk"; then
+  if ! grep -q "$_hit" <<<"$_lk" && _list_filled "$_lk"; then
     echo "ERROR: gh issue list (tracker lookup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
     failed=$((failed+1)); _row_nowrite tracker; return 1
   fi
   return 0
 }
 _unc_report() {
-  local _open_nums _newest _sigfp _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
+  local _stable _open_nums _newest _sigfp _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
   if [ "$_unc_n" -eq 0 ]; then
     echo "unclassifiable-items: 0 ($1)"; return 0
   fi
@@ -1372,19 +1358,20 @@ _unc_report() {
   #   3. several OPEN trackers                          -> typed WARN naming them, comment on the newest, create nothing
   #   4. only CLOSED trackers (a closed one dismissed only the set it listed) -> ONE new tracker, title suffixed
   #   5. no tracker at all                              -> create (base title)
-  _unc_lookup "$_sigfp" || return 0
+  _unc_lookup sig "$_sigfp" || return 0
   if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_lk"; then
     echo "skipped-duplicate: tracking issue for $_sig already exists for this item set (search matched '$_sigfp')"
     skipped_dedup=$((skipped_dedup+1)); _row_nowrite tracker; return 0
   fi
-  _unc_lookup_nums "$_sig" || return 0
+  _unc_lookup sigs "$_sig" || return 0
   _open_nums="$(printf '%s\n' "$_lk" | sed -n 's/^\([0-9][0-9]*\) OPEN$/\1/p' | sort -n)"
   if [ -n "$_open_nums" ]; then
     _newest="$(printf '%s\n' "$_open_nums" | tail -n 1)"
     if [ "$(printf '%s\n' "$_open_nums" | wc -l)" -gt 1 ]; then
       echo "WARN: tracker-multiple-open: $_sig has several OPEN trackers ($(printf '#%s ' $_open_nums)) — commenting on the newest (#$_newest), creating nothing; close the extras" >&2
     fi
-    _text="$(printf 'The unclassifiable item set of this retro changed (%d item(s)).\n\n%s\n%s\n%s' "$_unc_n" "$_sig" "$_sigfp" "$_marker" | scrub_issue_text)" \
+    _stable="$(printf '%s\n' "$_body" | sed -n '/^| # | where/,/^$/p')"   # the already-scrubbed table
+    _text="$(printf 'The unclassifiable item set of this retro changed (%d item(s)):\n\n%s\n\n%s\n%s\n%s' "$_unc_n" "$_stable" "$_sig" "$_sigfp" "$_marker" | scrub_issue_text)" \
       || { _scrub_refuse tracker "privacy scrub failed for the unclassifiable tracker — nothing staged or written"; return 0; }
     if ! grep -qxF -- "$_marker" <<<"$_text"; then
       _scrub_refuse tracker "scrub altered the occurrence marker of the unclassifiable tracker — refusing to write (idempotency and the read-back key on it)"
@@ -1730,6 +1717,6 @@ if [ "$open_count" -eq 0 ] && [ "$skipped_shipped" -gt 0 ] && [ "$skipped_wrong_
   echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
 fi
 
-_unc_report "no-match: $((open_count + skipped_shipped + skipped_wrong_kit + unclassifiable)) row(s) examined, none unclassifiable"
+_unc_report "none: $((open_count + skipped_shipped + skipped_wrong_kit + unclassifiable)) row(s) examined"
 _print_summaries
 _final_exit

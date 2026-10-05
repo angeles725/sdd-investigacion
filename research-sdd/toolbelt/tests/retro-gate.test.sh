@@ -673,6 +673,30 @@ run_unc_summary "$ROOT/fkit_usb" tusb
   && ok "EN3-unc-both: typed line + summary unclassifiable=1 are counted once (unclassifiable=1, not 2)" \
   || no "EN3-unc-both: expected unclassifiable=1 exactly; got: $ERR_US"
 
+# ─── (EN3-zero-label, kit issue #1259 final) the seeder's `unclassifiable-items: 0 (...)` count line must not change
+# the gate's classification of an ordinary run: counted exactly as the same run WITHOUT that line.
+mk_zero_label_kit() {   # <dir> <seeder-body>
+  mkdir -p "$1/toolbelt/lib"
+  cp "$HERE/../lib/block-files.sh" "$1/toolbelt/lib/"; cp "$HERE/../lib/retro-status.sh" "$1/toolbelt/lib/"
+  cp "$HERE/../lib/retro-grammar.sh" "$1/toolbelt/lib/"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
+  printf '#!/usr/bin/env bash\n%s\nexit 0\n' "$2" > "$1/toolbelt/stage-retro-issues.sh"
+  chmod +x "$1/toolbelt/stage-retro-issues.sh"
+  cp "$SUT" "$1/toolbelt/retro-gate.sh"
+}
+ZL_SUM="printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=0\\n'"
+mk_zero_label_kit "$ROOT/fkit_zl_a" "printf 'unclassifiable-items: 0 (none: 3 row(s) examined)\\n'; $ZL_SUM"
+mk_zero_label_kit "$ROOT/fkit_zl_b" "$ZL_SUM"
+run_unc_summary "$ROOT/fkit_zl_a" tzla; ERR_ZA="$(sed 's/ [^ ]*tzla[^ ]*//g' <<<"$ERR_US" | grep 'issue-seeding:' | sed 's/target=[^ ]*//')"
+run_unc_summary "$ROOT/fkit_zl_b" tzlb; ERR_ZB="$(sed 's/ [^ ]*tzlb[^ ]*//g' <<<"$ERR_US" | grep 'issue-seeding:' | sed 's/target=[^ ]*//')"
+[ -n "$ERR_ZA" ] && [ "$ERR_ZA" = "$ERR_ZB" ] && <<<"$ERR_ZA" grep -q 'created=1 .*empty=0 unclassifiable=0' \
+  && ok "EN3-zero-label: a normal run with the zero-state count line is classified exactly like one without it" \
+  || no "EN3-zero-label: classification changed by the count line; with=[$ERR_ZA] without=[$ERR_ZB]"
+mk_zero_label_kit "$ROOT/fkit_zl_c" "printf 'unclassifiable-items: 0 (retro-closed: applied)\\n' ; printf 'no-match: retro is applied\\n' >&2"
+run_unc_summary "$ROOT/fkit_zl_c" tzlc
+<<<"$ERR_US" grep -q 'issue-seeding:.* empty=1 ' \
+  && ok "EN3-zero-label: a closed retro (retro-closed line + no-match:) is still counted empty=1" \
+  || no "EN3-zero-label: closed retro should count empty=1; got: $ERR_US"
+
 # ─── (EN3-absent) absent-input: typed outcome → absent=1, WARN naming retro ───
 # Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
 # RED before fix: absent-input: is folded into empty=N with no WARN (issue #940).
