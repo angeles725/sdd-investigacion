@@ -113,7 +113,7 @@ _vc_extract() {
       if (tok == "") return 0
       return (tok ~ /^[a-z]$/) || index(ab, " " tok " ") > 0
     }
-    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp, tok) {
+    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp, tok, isnoun, rl) {
       l = tolower(un); n = length(un); p = 1
       while (p <= n) {
         rest = substr(l, p)
@@ -123,16 +123,24 @@ _vc_extract() {
         ve = ms + RLENGTH
         if (substr(l, vs, 8) == "corrects" && substr(l, ve, 1) ~ /[a-z0-9_]/) { p = ve; continue }
         tok = substr(l, vs, ve - vs)
-        # `corrigendum`/`corrigenda` is a NOUN (the backlink vocabulary itself): a bare `CORRIGENDUM [Bloque N]` is a
-        # backlink, never a declaration. But `CORRIGENDUM [`CERT`] al [Bloque 32]` (optional short tag, then al/a/to/of,
-        # then the ref) DECLARES a correction of that block (niagara-research bloque107/108) and falls through.
+        # `corrigendum`/`corrigenda` is a NOUN. ONLY the bare noun directly followed by a ref (`CORRIGENDUM [Bloque N]`) is a
+        # BACKLINK and declares nothing. Every other corrigendum is never dropped silently (§7): a ref after a preposition or
+        # punctuation (`for`/`to`/`to the`/`of`/`al`/`a`/`:`/`(`, optional short tag such as `[CERT]`) DECLARES that block
+        # (niagara-research bloque107/108), and one with no ref in its clause is counted as unbound (`?`) below.
+        # `CORRIGENDUM [Bloque 33] al [Bloque 32]`: a ref-shaped "tag" before the preposition is skipped; 32 is the target.
+        isnoun = 0
         if (tok ~ /^corrigend/) {
-          if (substr(l, ve) !~ /^[ \t]*(`?\[[^]\[]*\]`?)?[ \t]*(al|a|to|of)[ \t]+\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) { p = ve; continue }
+          isnoun = 1; rest = substr(l, ve)
+          if (match(rest, /^[ \t]*\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
+            rl = RLENGTH
+            if (substr(rest, rl + 1) ~ /^[ \t]*(al|a|to|of)[ \t]+\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) ve += rl
+            else { p = ve; continue }
+          }
         }
         # NON-ASSERTIVE forms declare nothing (#1835 item 5): passive/conditional `se corrige` (incl. `si no se
         # corrige`) and past-tense narrative `corrigió`/`corrigieron`. Counted and surfaced, never silently dropped.
         pre = substr(l, 1, vs - 1)
-        if (pre ~ /(^|[^a-z0-9_])se[ \t]+$/ || tok == "corrigieron" || tok == "corrigio" || (tok == "corrigi" && substr(l, ve, 2) == "\303\263")) {
+        if (pre ~ /(^|[^a-z0-9_])se[ \t]+$/ || tok == "corrigieron" || tok == "corrigio" || (tok == "corrigi" && (substr(l, ve, 2) == "\303\263" || substr(l, ve, 2) == "\303\223"))) {
           print "~"; p = ve; continue
         }
         d = 0; bd = ""
@@ -153,7 +161,7 @@ _vc_extract() {
           if (bp <= RSTART) r = ""
         }
         if (r != "") { emit(r); more(cl); done = 1 }
-        else if (!done && bd == "close") {
+        else if (!done && !isnoun && bd == "close") {
           d = 0
           for (j = vs - 1; j >= 1; j--) {
             c = substr(un, j, 1)
@@ -179,7 +187,7 @@ _vc_extract() {
   ' "$1"
 }
 
-rc=0; unbound=0; skipped=0
+rc=0; unbound=0; skipped=0; unchecked=0
 echo "== verify-corrections: $(basename "$target") =="
 for f in "${blocks[@]}"; do
   c="$(blocknum "$f")"
@@ -200,11 +208,12 @@ for f in "${blocks[@]}"; do
         0) ;;
         1) tgt="${numany[$n]}" ;;
         *) echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists in its prefix '$(blockprefix "$f")' and the number is ambiguous across ${numcnt[$n]} other prefixes; NOT checked"
-           continue ;;
+           unchecked=$((unchecked+1)); continue ;;
       esac
     fi
     if [ -z "$tgt" ]; then
       echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists on disk"
+      unchecked=$((unchecked+1))
       continue
     fi
     # Reciprocal backlink: the target file must mention "corrected in"/"corregido en" AND B<c>/Block <c>.
@@ -220,6 +229,9 @@ done
 
 [ "$unbound" -eq 0 ] || echo "   note   $unbound correction verb(s) governed no bracketed [Block N] ref in their own clause (bare B<N> or unbound) and were NOT checked (#1790)"
 [ "$skipped" -eq 0 ] || echo "   note   $skipped correction verb(s) in a non-assertive form (passive 'se corrige', conditional, or past tense) were skipped, not treated as declarations (#1835)"
-[ "$rc" -eq 0 ] && echo "   ok     every declared correction has its reciprocal 'corrected in BN' backlink."
+if [ "$rc" -eq 0 ]; then
+  if [ "$unchecked" -eq 0 ]; then echo "   ok     every declared correction has its reciprocal 'corrected in BN' backlink."
+  else echo "   ok-partial $unchecked declared correction(s) NOT checked (ambiguous/missing target) — see WARN above"; fi
+fi
 echo "== exit $rc =="
 exit $rc

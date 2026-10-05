@@ -171,8 +171,16 @@ else no "pfx-uniq :: $(run "$d" | tr '\n' '|')"; fi
 d="$TMP/pfx-amb"
 pmk "$d" cc 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$d" aa 1 '# Block 1\n\nNo note.\n'; pmk "$d" zz 1 '# Block 1\n\nNo note.\n'
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && grep -qE 'WARN +B4 .*ambiguous across 2 other prefixes' <<<"$out"; then ok "ambiguous across prefixes → typed WARN, nothing guessed (exit 0)"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN +B4 .*ambiguous across 2 other prefixes' <<<"$out" \
+   && ! grep -qE 'ok +every declared' <<<"$out" && grep -qE 'ok-partial +1 declared correction\(s\) NOT checked' <<<"$out"; then
+  ok "ambiguous across prefixes → typed WARN, nothing guessed, NO unqualified ok line, 'ok-partial' instead (exit 0)"
 else no "pfx-amb :: $(tr '\n' '|' <<<"$out")"; fi
+# 12e — a MISSING target file is the same unchecked state: qualified line, not the plain ok (§7).
+d="$TMP/missing"; mk "$d" 33 '# Block 33\n\n> Corrects [Block 99].\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN +B33 .*no block-99 file' <<<"$out" && ! grep -qE 'ok +every declared' <<<"$out" \
+   && grep -qE 'ok-partial +1 declared correction\(s\) NOT checked' <<<"$out"; then ok "missing target file → WARN + 'ok-partial', never the unqualified ok"
+else no "missing :: $(tr '\n' '|' <<<"$out")"; fi
 
 # 13 — BACKLINK VOCABULARY (#1835 item 2): every accepted marker satisfies the reciprocal check.
 vocab_ok=1; vocab_bad=""
@@ -198,6 +206,15 @@ mk "$d" 60 '# Block 60\n\n> Corrects [Block 6] §6.3–6.4 and [Block 5] §5.4.\
 out="$(run "$d")"
 if grep -qE 'B60 corrects \[Block 6\] ' <<<"$out" && grep -qE 'B60 corrects \[Block 5\] ' <<<"$out"; then ok "'[Block 6] §6.3–6.4 and [Block 5] §5.4' → both targets checked"
 else no "multi-and :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+# 14a — LIST EDGES: 3- and 4-element `and` lists reach FIRST, MIDDLE and LAST positions (`while`→`if` keeps only 2).
+d="$TMP/multi-3"; blank "$d" 1 2 3 4
+mk "$d" 64 '# Block 64\n\n> Corrects [Block 1] and [Block 2] and [Block 3].\n'
+mk "$d" 65 '# Block 65\n\n> Corrects [Block 1] and [Block 2] and [Block 3] and [Block 4].\n'
+out="$(run "$d")"; l_ok=1
+for _n in 1 2 3; do grep -qE "B64 corrects \[Block $_n\] " <<<"$out" || l_ok=0; done
+for _n in 1 2 3 4; do grep -qE "B65 corrects \[Block $_n\] " <<<"$out" || l_ok=0; done
+if [ "$l_ok" = 1 ]; then ok "3- and 4-element 'and' lists → every position (first, middle, last) is a target"
+else no "multi-3 :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 d="$TMP/multi-y"; blank "$d" 7 8
 mk "$d" 62 '# Block 62\n\n> Corrige [Block 7] y [Bloque 8].\n'
 out="$(run "$d")"
@@ -259,6 +276,35 @@ if grep -qE 'B80 corrects \[Block 1\] ' <<<"$out" && ! grep -qE 'B80 corrects \[
   ok "'/', '+' and a bare comma do not join targets: only the first ref binds (incl. the real bloque717 citation list)"
 else no "join-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 
+# 18 — CORRIGENDUM NEVER VANISHES (round 3, §7): only the bare noun directly followed by a ref is a backlink. Every other
+#      corrigendum either declares (a ref follows after a preposition/punctuation) or is counted as unbound.
+cgd_ok=1; cgd_bad=""
+for _s in 'CORRIGENDUM for [Block 8]: §8.2 overstated.' 'Corrigendum: [Block 8] §2 was wrong.' 'CORRIGENDUM to the [Block 8]' 'CORRIGENDUM (to [Block 8])'; do
+  d="$TMP/cgd"; rm -rf "$d"; blank "$d" 8; mk "$d" 90 '# Block 90\n\n%s\n' "$_s"
+  grep -qE 'FAIL +B90 corrects \[Block 8\] ' <<<"$(run "$d")" || { cgd_ok=0; cgd_bad="$cgd_bad [$_s]"; }
+done
+if [ "$cgd_ok" = 1 ]; then ok "corrigendum + for/':'/to the/'(to' + [Block 8] all DECLARE (no silent drop)"
+else no "corrigendum-forms :: lost:$cgd_bad"; fi
+# 18b — a corrigendum with NO ref after it is counted in the unbound note, never dropped; the bare backlink adds nothing.
+d="$TMP/cgd-unb"; blank "$d" 8; mk "$d" 91 '# Block 91\n\nThe corrigendum table lists nothing yet.\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'note +1 correction verb' <<<"$out"; then ok "ref-less corrigendum → surfaced in the unbound note (not silent)"
+else no "corrigendum-unbound :: $(tr '\n' '|' <<<"$out")"; fi
+d="$TMP/cgd-bare"; pmk "$d" t 82 '# Block 82\n\n> Corrects [Block 21].\n'; pmk "$d" t 21 '# Block 21\n\nCORRIGENDUM [Bloque 82] — see there.\n'
+if ! grep -qE 'note +[0-9]+ correction verb' <<<"$(run "$d")"; then ok "bare backlink 'CORRIGENDUM [Bloque 82]' adds no unbound note"
+else no "corrigendum-bare-note"; fi
+# 18c — (round 3 item 4) `CORRIGENDUM [Bloque 33] al [Bloque 32]`: the target is the ref AFTER the preposition.
+d="$TMP/cgd-two"; blank "$d" 32 33; mk "$d" 92 '# Block 92\n\nCORRIGENDUM [Bloque 33] al [Bloque 32].\n'
+out="$(run "$d")"
+if grep -qE 'B92 corrects \[Block 32\] ' <<<"$out" && ! grep -qE 'B92 corrects \[Block 33\]' <<<"$out"; then ok "block-ref 'tag' before the preposition is not the target: binds [Bloque 32], not 33"
+else no "corrigendum-two :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+
+# 19 — (round 3 item 5) upper-case Ó under LC_ALL=C: tolower does not fold its bytes, yet `CORRIGIÓ` is still past tense.
+d="$TMP/upper"; blank "$d" 8; mk "$d" 93 '# Block 93\n\nCORRIGIÓ [Bloque 8] hace tiempo.\n'; mk "$d" 94 '# Block 94\n\nCORRIGIERON [Bloque 8] hace tiempo.\n'
+out="$(LC_ALL=C bash "$SUT" "$d" 2>&1)"
+if ! grep -qE 'B9[34] corrects' <<<"$out" && grep -qE 'note +2 correction verb\(s\) in a non-assertive form' <<<"$out"; then ok "'CORRIGIÓ' / 'CORRIGIERON' (upper-case, C locale) are past tense → skipped and counted"
+else no "upper-past :: $(tr '\n' '|' <<<"$out")"; fi
+
 # NEGATIVE CONTROLS — each mutant disables ONE binding rule and must flip exactly the case that owns it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -273,7 +319,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: drop the postfix binding; the real blender fixture must lose both findings --"
   m="$TMP/vc.POSTFIX.sh"
-  if mk_mut "teeth: postfix" "$SUT" "$m" 's/else if (!done \&\& bd == "close")/else if (0)/'; then
+  if mk_mut "teeth: postfix" "$SUT" "$m" 's/else if (!done \&\& !isnoun \&\& bd == "close")/else if (0)/'; then
     tt "teeth: no-postfix mutant misses B17→Block 1 (real shape)" 1 0 "$m" --orig "$SUT" \
       --good-has 'B17 corrects \[Block 1\] ' --bad-lacks 'B17 corrects \[Block 1\] |awk: ' -- bash @SUT@ "$TMP/real"
   fi
@@ -369,7 +415,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835 round 2): corrigendum+preposition must stay a declaration; '/' and '+' must not join targets --"
   m="$TMP/vc.CGDECL.sh"
-  if mk_mut "teeth: corrigendum declaration" "$SUT" "$m" 's/^          if (substr(l, ve) !~ .*{ p = ve; continue }$/          { p = ve; continue }/'; then
+  if mk_mut "teeth: corrigendum declaration" "$SUT" "$m" 's/^          isnoun = 1; rest = substr(l, ve)$/          isnoun = 1; rest = substr(l, ve); p = ve; continue/'; then
     tt "teeth: always-noun mutant loses 'CORRIGENDUM … of [Block 32]'" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B107 corrects \[Block 32\] ' --bad-lacks 'B107 corrects|awk: ' -- bash @SUT@ "$TMP/cg"
   fi
@@ -415,12 +461,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth (#1835): drop the past-tense guard; 'corrigió' / 'corrigieron' must declare --"
   m="$TMP/vc.PAST.sh"
-  if mk_mut "teeth: past tense" "$SUT" "$m" 's/ || tok == "corrigieron".*"\\303\\263")) {/) {/'; then
+  if mk_mut "teeth: past tense" "$SUT" "$m" 's/ || tok == "corrigieron".*"\\303\\223"))) {/) {/'; then
     tt "teeth: no-past-guard mutant treats 'corrigió' as a declaration" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na3"
     tt "teeth: no-past-guard mutant treats 'corrigieron' as a declaration" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na4"
   fi
+  echo "-- teeth (round 3): list edges, corrigendum never silent, two-ref corrigendum, upper-case Ó, ok-partial --"
+  m="$TMP/vc.WHILE.sh"
+  if mk_mut "teeth: while to if" "$SUT" "$m" 's/while (match(rest, /if (match(rest, /'; then
+    tt "teeth: single-step list mutant keeps only 2 targets (loses [Block 3] of a 3-list)" 1 1 "$m" --orig "$SUT" \
+      --good-has 'B64 corrects \[Block 3\] ' --bad-has 'B64 corrects \[Block 2\] ' --bad-lacks 'B64 corrects \[Block 3\] |awk: ' -- bash @SUT@ "$TMP/multi-3"
+  fi
+  m="$TMP/vc.CGDROP.sh"
+  if mk_mut "teeth: corrigendum silent drop" "$SUT" "$m" 's/^          isnoun = 1; rest = substr(l, ve)$/          isnoun = 1; rest = substr(l, ve); p = ve; continue/'; then
+    tt "teeth: silent-drop mutant loses 'CORRIGENDUM (to [Block 8])' (exit 1 to 0)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B90 corrects \[Block 8\] ' --bad-lacks 'B90 corrects|awk: ' -- bash @SUT@ "$TMP/cgd"
+    tt "teeth: silent-drop mutant omits the unbound note for a ref-less corrigendum" 0 0 "$m" --orig "$SUT" \
+      --good-has 'note +1 correction verb' --bad-lacks 'note +1 correction verb|awk: ' -- bash @SUT@ "$TMP/cgd-unb"
+  fi
+  m="$TMP/vc.CGTWO.sh"
+  if mk_mut "teeth: corrigendum two refs" "$SUT" "$m" 's/ve += rl$/ve += 0/'; then
+    tt "teeth: tag-skip mutant binds [Bloque 33] instead of 32" 1 1 "$m" --orig "$SUT" \
+      --good-has 'B92 corrects \[Block 32\] ' --bad-has 'B92 corrects \[Block 33\]' --bad-lacks 'B92 corrects \[Block 32\] |awk: ' -- bash @SUT@ "$TMP/cgd-two"
+  fi
+  m="$TMP/vc.UPPERO.sh"
+  if mk_mut "teeth: upper O acute" "$SUT" "$m" 's/ || substr(l, ve, 2) == "\\303\\223"//'; then
+    tt "teeth: lower-only mutant lets 'CORRIGIÓ' declare a correction" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'B93 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/upper"
+  fi
+  m="$TMP/vc.PARTIAL.sh"
+  if mk_mut "teeth: ok-partial" "$SUT" "$m" 's/unchecked=$((unchecked+1))/:/'; then
+    tt "teeth: no-counter mutant prints the plain ok after an ambiguous WARN" 0 0 "$m" --orig "$SUT" \
+      --good-has 'ok-partial' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-amb"
+    tt "teeth: no-counter mutant prints the plain ok after a missing-file WARN" 0 0 "$m" --orig "$SUT" \
+      --good-has 'ok-partial' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/missing"
+  fi
+
   echo "-- teeth (#1835): drop the noun exclusion; a 'CORRIGENDUM [Bloque 90]' line must become a declaration --"
   m="$TMP/vc.NOUN.sh"
   if mk_mut "teeth: corrigendum noun" "$SUT" "$m" 's/if (tok ~ \/^corrigend\/) {/if (0) {/'; then
