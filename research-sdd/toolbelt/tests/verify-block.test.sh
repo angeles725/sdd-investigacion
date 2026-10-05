@@ -1573,10 +1573,15 @@ for _t in 'v1.org:2' 'v1.x.org:4' 'x.v1.org:4' 'x.y.v1.org:4' 'de.v2.R:6' 'de.re
     && ok "#1766 GOOD: $_t (vN label at any position) is rescued to extern by the single version-label rule" || no "#1766 $_t not rescued :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 done
 for _t in 'x.v1x.org:4' 'de.v2x.report.R:6' 'qc.summary.R:3'; do
+  case "$_t" in
+    x.v1x.org:*) _why="TLD host:port guard: the extension also a TLD and no whole vN label (v1x is not one)" ;;
+    de.v2x.report.R:*) _why="package-root heuristic: 2-letter first label (ccTLD) and no whole vN label (v2x is not one)" ;;
+    *) _why="package-root heuristic: 2-letter first label reads as a package root, no version label (known ambiguity with R scripts)" ;;
+  esac
   n973 "pre-${_t%%:*}" standard "Missing \`$_t\`. [CERT]"
   out="$(run "$N973")"
   { grep -q "nonpath  $_t" <<<"$out" && ! grep -q "extern  $_t" <<<"$out"; } \
-    && ok "#1766 GUARD: $_t (no real vN label) stays nonpath (known ambiguity: 2-letter first label reads as a package root)" || no "#1766 $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
+    && ok "#1766 GUARD: $_t stays nonpath — $_why" || no "#1766 $_t became extern :: $(grep -iE 'nonpath|extern' <<<"$out" | head -2)"
 done
 # R2/R3: the extension list has no duplicates and its SET equals the expected set (tests/fixtures/verify-block/exts-expected-set.txt, seeded from origin/main; the dedupe removed only
 # duplicates). The assertion lives in a fixture script so the mutation teeth run the very same checks.
