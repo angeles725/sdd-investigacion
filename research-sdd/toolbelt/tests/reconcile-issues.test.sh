@@ -69,6 +69,8 @@ mkbox() {
   cp "$RETRO_STATUS_LIB"  "$box/research-sdd/toolbelt/lib/retro-status.sh"
   cp "$RETRO_GRAMMAR_LIB" "$box/research-sdd/toolbelt/lib/retro-grammar.sh"
   cp "$TARGET_PATHS_LIB"  "$box/research-sdd/toolbelt/lib/target-paths.sh"
+  # `sleep` stub (kit issue #1784): never really waits; logs its argument so a test can read the backoff.
+  printf '#!%s\nprintf "%%s\\n" "$1" >> "%s/bin/sleep.log"\n' "$BASH_BIN" "$box" > "$box/bin/sleep"; chmod +x "$box/bin/sleep"
   {
     printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
     printf '| 1 | %s | `%s` |\n' "$tgt" "$box/rh/$tgt"
@@ -88,6 +90,8 @@ mkbox_all() {
   cp "$RETRO_STATUS_LIB"  "$box/research-sdd/toolbelt/lib/retro-status.sh"
   cp "$RETRO_GRAMMAR_LIB" "$box/research-sdd/toolbelt/lib/retro-grammar.sh"
   cp "$TARGET_PATHS_LIB"  "$box/research-sdd/toolbelt/lib/target-paths.sh"
+  # `sleep` stub (kit issue #1784): never really waits; logs its argument so a test can read the backoff.
+  printf '#!%s\nprintf "%%s\\n" "$1" >> "%s/bin/sleep.log"\n' "$BASH_BIN" "$box" > "$box/bin/sleep"; chmod +x "$box/bin/sleep"
   {
     printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
     printf '| 1 | alpha-target | `%s` |\n' "$box/rh/alpha-target"
@@ -158,9 +162,9 @@ STUBHELP
         _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
         _srl="completed"; [ "$mode" = "closed-notplanned" ] && _srl="not_planned"
         # gh api (the old-gh fallback reads state_reason from ONE batched listing): GH_STUB_API_FAIL makes it fail.
-        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }; printf "7 %%s\\n" "%s"; exit 0 ;;\n' "$_srl"
+        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "${GH_STUB_API_FAIL_MSG:-gh: HTTP 500}" >&2; exit 1; }; if [ -n "${GH_STUB_API_UPDATED:-}" ]; then _s=""; case "$*" in *since=*) _a="$*"; _s="${_a##*since=}"; _s="${_s// */}" ;; esac; if [ -n "$_s" ] && [[ "$GH_STUB_API_UPDATED" < "$_s" ]]; then exit 0; fi; fi; printf "7 %%s\\n" "%s"; exit 0 ;;\n' "$_srl"
         _cm=""; [ -n "${4:-}" ] && _cm="{\"body\":\"$4\",\"authorAssociation\":\"${5:-OWNER}\"}"
-        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"number":7,"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
+        printf '  *" issue list "*" --state closed "*) if [ -n "${GH_STUB_OLDGH_LIST_FAIL:-}" ]; then case " $* " in *stateReason*) ;; *) echo "gh: HTTP 502" >&2; exit 1 ;; esac; fi; _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"number":7,"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
         printf '  *" issue list "*) exit 0 ;;\n'
         ;;
       closed-fill)
@@ -172,7 +176,7 @@ STUBHELP
       closed-multi)
         # kit issue #1752 round 1: SEVERAL closed issues with mixed state_reason. $3 = JSON array file
         # (objects with number/body/comments); `gh api` answers not_planned for issue 8, completed otherwise.
-        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "gh: HTTP 403 rate limit exceeded" >&2; exit 1; }; printf "7 completed\\n8 not_planned\\n9 completed\\n"; exit 0 ;;\n'
+        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "${GH_STUB_API_FAIL_MSG:-gh: HTTP 403 rate limit exceeded}" >&2; exit 1; }; printf "7 completed\\n8 not_planned\\n9 completed\\n"; exit 0 ;;\n'
         printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; "%s" -r "$_jq" < "%s"; exit 0 ;;\n' "$JQ_BIN" "${3:-/dev/null}"
         printf '  *" issue list "*) exit 0 ;;\n'
         ;;
@@ -2246,6 +2250,107 @@ if [ "$RC" = 1 ] && grep -q '^degraded: gh api state_reason listing failed .* �
    && [ "$(grep -c ' api ' "$box44m/bin/gh.log")" = 2 ]; then   # one bounded retry
   ok "44m old gh + state_reason lookup failure -> typed degraded + exit 1" "(exit $RC)"
 else no "44m api fail" "exit=$RC out=[$OUT]"; fi
+# 44n — old gh and the FALLBACK's own `gh issue list` (number/body/comments) fails (kit issue #1784): the typed
+# degraded names the fallback and carries gh's message, exit 1, the generic closed-listing line is suppressed, no
+# state_reason lookup is attempted and no row is classified.
+box44n="$(mkbox case-1784-fallback-list-fail)"; mk_gh_stub "$box44n" closed-completed "$SIG44E"
+GH_STUB_OLD_GH=1 GH_STUB_OLDGH_LIST_FAIL=1 run "$box44n" "$(mk44 "$box44n")"
+if [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed, old-gh fallback) failed (exit 1) — gh: HTTP 502' <<<"$OUT" \
+   && ! grep -q '^degraded: gh issue list (closed) failed' <<<"$OUT" && ! grep -qE '^(shipped|untracked|borderline):' <<<"$OUT" \
+   && ! grep -q ' api ' "$box44n/bin/gh.log"; then
+  ok "44n old-gh fallback listing failure -> typed fallback degraded, generic line suppressed, exit 1" "(exit $RC)"
+else no "44n fallback list failure" "exit=$RC out=[$OUT] log=[$(cat "$box44n/bin/gh.log" 2>&1)]"; fi
+# 44o..44r — retry backoff of the batched state_reason listing (kit issue #1784): the ONE retry waits first. The wait
+# honours a Retry-After (seconds) or X-RateLimit-Reset (epoch) hint found in gh's stderr, else
+# RECONCILE_ISSUES_RETRY_BACKOFF (default 2); it is bounded by RECONCILE_ISSUES_RETRY_MAX_WAIT (default 30), at
+# least 1, and there is NO sleep after the final failure. The box's `sleep` stub logs its argument (bin/sleep.log).
+# backoff_case <name> <stderr-msg> [env...] -> box44b with the sleep log; runs the failing old-gh listing.
+backoff_run() { # <box> <stderr-msg> [env...] -> sets BO_SLEEPS / BO_APIS from the box's logs
+  local box="$1" msg="$2"; shift 2
+  env "$@" GH_STUB_OLD_GH=1 GH_STUB_API_FAIL=1 GH_STUB_API_FAIL_MSG="$msg" PATH="$box/bin:$PATH" \
+    "$BASH_BIN" "$box/research-sdd/toolbelt/reconcile-issues.sh" "$(mk44 "$box")" >/dev/null 2>&1
+  BO_SLEEPS="$(tr '\n' ' ' < "$box/bin/sleep.log" 2>/dev/null | sed 's/ $//')"
+  BO_APIS="$(grep -c ' api ' "$box/bin/gh.log")"
+}
+backoff_case() {
+  local name="$1" msg="$2"; shift 2
+  box44b="$(mkbox "case-1784-backoff-$name")"; mk_gh_stub "$box44b" closed-completed "$SIG44E"
+  backoff_run "$box44b" "$msg" "$@"
+}
+backoff_case retry-after 'gh: HTTP 429 Retry-After: 7' X=1
+if [ "$BO_SLEEPS" = 7 ] && [ "$BO_APIS" = 2 ]; then ok "44o Retry-After: 7 -> one wait of 7s between the two attempts (none after the last)" "(sleeps=[$BO_SLEEPS])"
+else no "44o Retry-After backoff" "sleeps=[$BO_SLEEPS] apis=$BO_APIS"; fi
+backoff_case reset "gh: HTTP 403 X-RateLimit-Reset: $(( $(date +%s) + 5 ))" X=1
+if [ "$BO_SLEEPS" -ge 1 ] 2>/dev/null && [ "$BO_SLEEPS" -le 5 ] && [ "$BO_APIS" = 2 ]; then ok "44p X-RateLimit-Reset (epoch now+5) -> wait of 1..5s" "(sleeps=[$BO_SLEEPS])"
+else no "44p X-RateLimit-Reset backoff" "sleeps=[$BO_SLEEPS] apis=$BO_APIS"; fi
+backoff_case reset-past 'gh: HTTP 403 x-ratelimit-reset: 1000' X=1
+if [ "$BO_SLEEPS" = 1 ]; then ok "44p2 a reset epoch already in the past -> minimum wait of 1s" "(sleeps=[$BO_SLEEPS])"
+else no "44p2 past reset" "sleeps=[$BO_SLEEPS]"; fi
+backoff_case clamp 'gh: HTTP 429 Retry-After: 9999' X=1
+c1="$BO_SLEEPS"; backoff_case clamp-env 'gh: HTTP 429 Retry-After: 9999' RECONCILE_ISSUES_RETRY_MAX_WAIT=9
+if [ "$c1" = 30 ] && [ "$BO_SLEEPS" = 9 ]; then ok "44q a huge hint is bounded: 30s default cap, RECONCILE_ISSUES_RETRY_MAX_WAIT overrides" "(default=$c1 env=$BO_SLEEPS)"
+else no "44q bounded wait" "default=[$c1] env=[$BO_SLEEPS]"; fi
+backoff_case nohint 'gh: HTTP 500' X=1
+d1="$BO_SLEEPS"; backoff_case nohint-env 'gh: HTTP 500' RECONCILE_ISSUES_RETRY_BACKOFF=4
+d2="$BO_SLEEPS"; backoff_case nohint-bad 'gh: HTTP 500' RECONCILE_ISSUES_RETRY_BACKOFF=abc
+if [ "$d1" = 2 ] && [ "$d2" = 4 ] && [ "$BO_SLEEPS" = 2 ]; then ok "44r no hint -> default 2s; RECONCILE_ISSUES_RETRY_BACKOFF overrides; a non-number falls back to 2" "(default=$d1 env=$d2 bad=$BO_SLEEPS)"
+else no "44r default backoff" "default=[$d1] env=[$d2] bad=[$BO_SLEEPS]"; fi
+# 44s — bounded closed listing (kit issue #1784): the batched listing carries `since=<oldest retro date>T00:00:00Z`
+# (a closed issue seeded from a retro was updated on/after the retro's date), so history older than the retro is never
+# paginated. A retro without a YYYY-MM-DD filename prefix has no bound (the whole listing, as before).
+box44s="$(mkbox case-1784-since)"; mk_gh_stub "$box44s" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+GH_STUB_OLD_GH=1 run "$box44s" "$(mk44 "$box44s" 2026-03-04-a.md)"
+box44t="$(mkbox case-1784-since-none)"; mk_gh_stub "$box44t" closed-completed "$SIG44E"
+GH_STUB_OLD_GH=1 run "$box44t" "$(mk44 "$box44t")"
+if grep -q ' api .*since=2026-03-02T00:00:00Z' "$box44s/bin/gh.log" && grep -q ' api ' "$box44t/bin/gh.log" && ! grep -q 'since=' "$box44t/bin/gh.log"; then
+  ok "44s old-gh listing is bounded by since=<retro date>; an undated retro is unbounded" "()"
+else no "44s since bound" "dated=[$(grep ' api ' "$box44s/bin/gh.log")] undated=[$(grep ' api ' "$box44t/bin/gh.log")]"; fi
+# 44v — the since= bound keeps a safety margin (kit issue #1784, RDD): the retro filename date is the author's LOCAL
+# date, updated_at is UTC, so an issue seeded early on local day D east of UTC is stamped D-1 (here 20:00Z) and must
+# still be listed. The stub drops an issue whose updated_at is older than the since= it was asked for.
+since_margin_case() { # <box-name> -> OUT/RC from a run whose closed issue #7 was updated 2026-03-03T20:00:00Z (retro dated 2026-03-04)
+  box44v="$(mkbox "$1")"; mk_gh_stub "$box44v" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+  GH_STUB_OLD_GH=1 GH_STUB_API_UPDATED=2026-03-03T20:00:00Z run "$box44v" "$(mk44 "$box44v" 2026-03-04-a.md)"
+}
+since_margin_case case-1784-margin
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q 'missing from the closed-issue listing' <<<"$OUT"; then
+  ok "44v an issue updated on D-1 (20:00Z) is still listed for a retro dated D (since= keeps a 2-day margin)" "(exit $RC)"
+else no "44v since margin" "exit=$RC out=[$OUT] log=[$(grep ' api ' "$box44v/bin/gh.log")]"; fi
+# 44u — the cache file cleanup must not clobber an EXIT trap that is already installed (kit issue #1784): run the
+# SUT's own _sr_install_exit_trap in a shell that already has one; both the earlier trap and the cleanup must run.
+sr_trap_unit() { # <sut-file> -> "<previous-trap marker> <cache file removed yes|no>"
+  local _fns _f="$ROOT/sr-trap-file"; : > "$_f"
+  _fns="$(awk '/^_sr_install_exit_trap\(\) \{/,/^\}/' "$1")"
+  "$BASH_BIN" -c 'eval "$1"; _SR_FILE="$2"; trap "echo PREV-TRAP-RAN" EXIT; _sr_install_exit_trap' _ "$_fns" "$_f" 2>&1 | tr '\n' ' '
+  [ -e "$_f" ] && echo no || echo yes
+}
+SR_TRAP_WANT="PREV-TRAP-RAN yes"   # the one real output: the trap's line (newline -> one space) then the removed flag; shared by 44u and its tooth
+sr_trap="$(sr_trap_unit "$SUT")"
+if [ "$sr_trap" = "$SR_TRAP_WANT" ]; then ok "44u an existing EXIT trap still runs, and the cache file is removed" "($sr_trap)"
+else no "44u exit-trap chain" "got [$sr_trap]"; fi
+# 44t — the cache honours the bound: a listing loaded SINCE a date serves a request for a newer/equal date, an older
+# date (or an unbounded request) reloads it with the older bound, and an unbounded cache serves everything.
+sr_since_unit() { # <sut-file> -> "<api calls after each request>" for since: 05-01, 06-01, 03-01, 04-01, none, 02-01
+  local _fns; _fns="$(awk '/^_load_state_reasons\(\) \{/,/^\}/' "$1")"
+  "$BASH_BIN" -c '
+    eval "$1"; _SR_FILE="$(mktemp)"; _CNT="$_SR_FILE.n"; : > "$_CNT"; _REPO=A
+    gh() { echo "$*" >> "$_CNT"; printf "7 completed\n"; }
+    sleep() { :; }
+    for s in 2026-05-01T00:00:00Z 2026-06-01T00:00:00Z 2026-03-01T00:00:00Z 2026-04-01T00:00:00Z none 2026-02-01T00:00:00Z; do
+      if [ "$s" = none ]; then _SR_SINCE_REQ=""; else _SR_SINCE_REQ="$s"; fi
+      _load_state_reasons; printf "%s " "$(wc -l < "$_CNT" | tr -d " ")"
+    done
+    printf "| %s" "$(grep -c "since=2026-03-01T00:00:00Z" "$_CNT" | tr -d " ")"
+    # a FORCED reload (stale cache) with a newer request keeps the OLDER bound it was loaded with
+    : > "$_SR_FILE"; : > "$_CNT"
+    _SR_SINCE_REQ=2026-03-01T00:00:00Z; _load_state_reasons
+    _SR_SINCE_REQ=2026-05-01T00:00:00Z; _load_state_reasons force
+    printf " | %s" "$(grep -c "since=2026-03-01T00:00:00Z" "$_CNT" | tr -d " ")"
+    rm -f "$_SR_FILE" "$_CNT"' _ "$_fns" 2>&1
+}
+sr_since="$(sr_since_unit "$SUT")"
+if [ "$sr_since" = "1 1 2 2 3 3 | 1 | 2" ]; then ok "44t since cache: newer date reuses, older reloads, unbounded reloads once and then serves everything; a forced reload keeps the older bound" "($sr_since)"
+else no "44t since cache" "got [$sr_since] want [1 1 2 2 3 3 | 1 | 2]"; fi
 
 # ---------------------------------------------------------------------------
 # 45 — CLOSURE-EVIDENCE RULE (kit issue #1709). `shipped` needs a commit AND a test cited in the closed
@@ -2667,8 +2772,9 @@ if [ "$RC" = 1 ] && grep -q '^degraded: retros directory not listable: .* — re
 else no "46t find fails" "exit=$RC out=[$OUT]"; fi
 # 46u — a title carrying backslash sequences or a Windows path must match itself (awk -v would expand `\n`, `\t`
 # and drop `\x`): the identity is compared byte-exact, so a mangled comparison can never become a silent no-match.
+_bsn=0
 for _bt in 'handle the \n and \t escapes in titles' 'fix C:\new\temp\path handling' 'trailing backslash in title \'; do
-  box46="$(mkbox "case-46-bs-${#_bt}")"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
+  _bsn=$((_bsn+1)); box46="$(mkbox "case-46-bs-${_bsn}-${#_bt}")"; mk_gh_stub "$box46" closed-completed "$SIGRA_E"
   mk_retro "$box46" target-foo "$RA" "<!-- review-status: pending -->" "| 1 | ${_bt} | M | B1 | new | HIGH |" >/dev/null
   mk_retro "$box46" target-foo "$RB" "<!-- review-status: pending -->" "| 3 | ${_bt} | M | B9 | new | HIGH |" >/dev/null
   run "$box46" "$box46/rh/target-foo/retros/$RA"
@@ -2686,7 +2792,7 @@ if [ "$RC" = 0 ] && grep -q "^regressed: row 1 (closed by #7, re-proposed in ${R
   ok "46s two later re-proposals -> one regressed line naming both, in filename order" "(exit $RC)"
 else no "46s two later" "exit=$RC out=[$OUT]"; fi
 
-# 47 — PARITY with the seeder (RDD round 1, R2-001). `_retro_row_titles` carries a COPY of stage-retro-issues.sh's
+# 47 — PARITY with the seeder (RDD round 1, R2-001). `retro_grammar_row_titles` (lib) mirrors stage-retro-issues.sh's
 # title-column parser; drift would make re-proposals invisible. This runs BOTH over the same fixture retros (table
 # positional + bold, header-named column, entry form) and requires the same titles in the same order. The stage side
 # is its own dry-run output (`planned-issue: <title>`, no network); an empty stage side is a harness FAIL, never a pass.
@@ -2702,22 +2808,21 @@ mk_retro "$PAR_BOX" target-foo 2026-01-01-p1.md "<!-- review-status: pending -->
 {
   printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D4 — entry form delta title\n\n**Evidence**: B9\n\n### D5 — second entry form delta\n\n**Evidence**: B9\n'
 } > "$PAR_BOX/rh/target-foo/retros/2026-01-03-p3.md"
-# par_check <reconcile-issues.sh to take the title functions from> -> 0 when stage and reconcile agree on every fixture
+# par_check <retro-grammar.sh to take the title parser from> -> 0 when stage and the shared helper agree on every fixture
 par_check() {
-  local sut="$1" fn="$ROOT/par-fn.sh" f st rt n=0
-  awk '/^_trim\(\) \{/ { p = 1 } /^# _title_has_identity/ { p = 0 } p' "$sut" > "$fn"
+  local lib="$1" f st rt n=0
   for f in "$PAR_BOX"/rh/target-foo/retros/2026-01-0[123]-p[123].md; do
     st="$(PATH="$PAR_BOX/bin:$PATH" "$BASH_BIN" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh" "$f" 2>/dev/null | sed -n 's/^planned-issue: //p')"
     # shellcheck disable=SC1090
-    rt="$( . "$RETRO_GRAMMAR_LIB"; . "$fn"; _retro_row_titles "$f" | awk -F'\037' '{ print $2 }' )"
+    rt="$( . "$lib"; retro_grammar_row_titles "$f" | awk -F'\037' '{ print $2 }' )"
     [ -n "$st" ] || { echo "par_check: stage side empty for $f (harness failure)" >&2; return 2; }
     [ "$st" = "$rt" ] || { printf 'par_check: MISMATCH %s\n stage=[%s]\n recon=[%s]\n' "$f" "$st" "$rt" >&2; return 1; }
     n=$((n+1))
   done
   [ "$n" = 3 ]
 }
-if par_check "$SUT"; then ok "47 reconcile row titles == stage-retro-issues planned titles (table, bold, header-named, entry form)" "()"
-else no "47 stage/reconcile title parity" "drift between _retro_row_titles and the seeder's title extraction"; fi
+if par_check "$RETRO_GRAMMAR_LIB"; then ok "47 shared row titles == stage-retro-issues planned titles (table, bold, header-named, entry form)" "()"
+else no "47 stage/reconcile title parity" "drift between retro_grammar_row_titles and the seeder's title extraction"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
@@ -2975,6 +3080,58 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$sr_mut" != "completed not_planned" ]; then ok "T1752-i teeth: repo key dropped -> B resolved against A's listing (45v1 has teeth)" "()"
     else no "T1752-i teeth" "45v1 is THEATER: got [$sr_mut]"; fi
   else fail=$((fail+1)); fi
+  # ---- kit issue #1784 teeth: each mutant must break the case that pins the behaviour (unbuildable = FAIL) ----
+  # tooth1784 <label> <kase> <sed-expr>. kase: listfail (44n) | pause:<msg>:<env> (44o-r, expect sleeps differ from
+  # <want>) | since (44s) | cache (44t) | trap (44u). The verdict is "the pinned good behaviour is GONE".
+  tooth1784() {
+    local label="$1" kase="$2" expr="$3" want="${4:-}" mb good=1 menv
+    echo "-- teeth $label --"
+    mb="$(mkbox "teeth-1784-$label")"; mk_gh_stub "$mb" closed-completed "$SIG44E"
+    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then fail=$((fail+1)); return 0; fi
+    case "$kase" in
+      listfail)
+        GH_STUB_OLD_GH=1 GH_STUB_OLDGH_LIST_FAIL=1 run "$mb" "$(mk44 "$mb")"
+        [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed, old-gh fallback) failed (exit 1) — gh: HTTP 502' <<<"$OUT" \
+          && ! grep -q '^degraded: gh issue list (closed) failed' <<<"$OUT" || good=0 ;;
+      pause:*)   # pause:<stderr msg>:<ENV=VAL or X=1>, $want = the sleep log the good SUT produces
+        menv="${kase#pause:}"; backoff_run "$mb" "${menv%:*}" "${menv##*:}"
+        [ "$BO_SLEEPS" = "$want" ] || good=0 ;;
+      since)
+        mk_gh_stub "$mb" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+        GH_STUB_OLD_GH=1 run "$mb" "$(mk44 "$mb" 2026-03-04-a.md)"
+        grep -q ' api .*since=2026-03-02T00:00:00Z' "$mb/bin/gh.log" || good=0 ;;
+      margin)
+        mk_gh_stub "$mb" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+        GH_STUB_OLD_GH=1 GH_STUB_API_UPDATED=2026-03-03T20:00:00Z run "$mb" "$(mk44 "$mb" 2026-03-04-a.md)"
+        { [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q 'missing from the closed-issue listing' <<<"$OUT"; } || good=0 ;;
+      cache) [ "$(sr_since_unit "$mb/research-sdd/toolbelt/reconcile-issues.sh")" = "1 1 2 2 3 3 | 1 | 2" ] || good=0 ;;
+      trap)  [ "$(sr_trap_unit "$mb/research-sdd/toolbelt/reconcile-issues.sh")" = "$SR_TRAP_WANT" ] || good=0 ;;
+      *) no "$label teeth" "unknown tooth kase '$kase' (helper dispatch bug, not a THEATER result)"; return 0 ;;
+    esac
+    if [ "$good" = 0 ]; then ok "$label teeth: mutant breaks the pinned behaviour (the $kase case has teeth)" "()"
+    else no "$label teeth" "the $kase case is THEATER: the mutant still behaves as pinned (rc=${RC:-} sleeps=[${BO_SLEEPS:-}])"; fi
+  }
+  tooth1784 T1784-a listfail 's/^    echo "degraded: gh issue list (closed, old-gh fallback) failed/    : "degraded: gh issue list (closed, old-gh fallback) failed/'
+  tooth1784 T1784-b listfail 's/then rm -f "\$_ef"; return 1; fi   # the fallback printed its own typed degraded/then rm -f "$_ef"; fi/'
+  tooth1784 T1784-c 'pause:gh: HTTP 429 Retry-After: 7:X=1' 's/\[ "\$_try" != 1 \] || _retry_pause "\$_ef"/:/' 7
+  tooth1784 T1784-d 'pause:gh: HTTP 429 Retry-After: 7:X=1' '/RECONCILE_ISSUES_RETRY_AFTER$/s/if \[\[/if false \&\& [[/' 7
+  tooth1784 T1784-e 'pause:gh: HTTP 429 Retry-After: 9999:X=1' '/RECONCILE_ISSUES_RETRY_CAP$/s/.*/  :/' 30
+  tooth1784 T1784-f 'pause:gh: HTTP 403 x-ratelimit-reset: 1000:X=1' 's/^  \[ "\$_w" -ge 1 \] || _w=1$/  :/' 1
+  tooth1784 T1784-g 'pause:gh: HTTP 500:RECONCILE_ISSUES_RETRY_BACKOFF=4' 's/_def="\${RECONCILE_ISSUES_RETRY_BACKOFF:-2}"; case "\$_def" in/_def=2; case "$_def" in/' 4
+  tooth1784 T1784-h since 's/\${_eff:+&since=\$_eff}//'
+  tooth1784 T1784-i since '/RECONCILE_ISSUES_SINCE_DERIVE$/s/if \[\[ .*\]\]; then/if false; then/'
+  tooth1784 T1784-j cache 's/{ \[ -n "\${_SR_SINCE_REQ:-}" \] && \[\[ ! "\${_SR_SINCE_REQ}" < "\$_cached" \]\]; } || _covers=0/:/'
+  tooth1784 T1784-k cache 's/then _eff="\$_cached"; fi/then :; fi/'
+  tooth1784 T1784-n margin 's/ -2 days"/ +0 days"/'
+  tooth1784 T1784-l trap 's/"\${_prev_cmd:+; \$_prev_cmd}"//'
+  # T1784-m: X-RateLimit-Reset read as an absolute number of seconds (the subtraction of "now" dropped).
+  echo "-- teeth T1784-m --"
+  mbm="$(mkbox teeth-1784-m)"; mk_gh_stub "$mbm" closed-completed "$SIG44E"
+  if mutant_chain T1784-m "$SUT" "$mbm/research-sdd/toolbelt/reconcile-issues.sh" 's/_w=\$(( BASH_REMATCH\[1\] - _now ))/_w=$(( BASH_REMATCH[1] ))/'; then
+    backoff_run "$mbm" "gh: HTTP 403 X-RateLimit-Reset: $(( $(date +%s) + 5 ))" X=1
+    if [ "$BO_SLEEPS" -gt 5 ] 2>/dev/null; then ok "T1784-m teeth: reset epoch used as a duration -> wait out of range (44p has teeth)" "(sleeps=[$BO_SLEEPS])"
+    else no "T1784-m teeth" "44p is THEATER: sleeps=[$BO_SLEEPS]"; fi
+  else fail=$((fail+1)); fi
   # (j) token extraction consumes boundaries (space kept inside a token): 45q's lists lose a SHA.
   echo "-- teeth T1709-j --"
   mbj="$(mkbox teeth-1709-lists)"; mk_gh_stub "$mbj" closed-completed "${SIG44}\\nCommits: ${C_SIDE} ${C_MAIN}\\n${EVTEST}"
@@ -3018,11 +3175,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # t46 <label> <scenario> <effect> <sed-expr>: build the scenario against a mutant of the SUT (an unbuildable or
   # no-op mutant is a FAIL, never a pass) and require the observable effect to flip. effect: appears|gone <grep-ere>.
   t46_row() { printf '| %s | %s | M | B9 | new | HIGH |' "$1" "$2"; }
-  t46() {
-    local label="$1" kase="$2" effect="$3" pat="$4" expr="$5" mb args=() st="pending" later="$RB" hit=0 title='shipped via closed issue'
+  t46() {   # optional 6th arg "lib": the mutant is built from lib/retro-grammar.sh (shared title parser / identity rule) instead of the SUT
+    local label="$1" kase="$2" effect="$3" pat="$4" expr="$5" mtarget="${6:-sut}" mb msrc="$SUT" mdst=reconcile-issues.sh args=() st="pending" later="$RB" hit=0 title='shipped via closed issue'
     echo "-- teeth $label --"
     mb="$(mkbox "teeth-46-$label")"; mk_gh_stub "$mb" closed-completed "$SIGRA_E"
-    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then fail=$((fail+1)); return 0; fi
+    [ "$mtarget" != lib ] || { msrc="$RETRO_GRAMMAR_LIB"; mdst=lib/retro-grammar.sh; }
+    if ! mutant_chain "$label" "$msrc" "$mb/research-sdd/toolbelt/$mdst" "$expr"; then fail=$((fail+1)); return 0; fi
     mk44 "$mb" "$RA" >/dev/null
     args=("$mb/rh/target-foo/retros/$RA")
     case "$kase" in
@@ -3069,9 +3227,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t46 T1709s2-b sameday appears '^regressed:' '/RECONCILE-SAMEDAY-COUNT$/s/.*/    :/;s/^    \[\[ "\$sd" > "\$cdate" \]\] || continue$/    [[ "$sd" > "$cdate" || "$sd" == "$cdate" ]] || continue/'
   t46 T1709s2-c dismissed appears '^regressed:' 's/^    dismissed) return 0 ;;$/    dismissed) : ;;/'
   t46 T1709s2-d case appears '^regressed:' 's/\$3 == ENVIRON\["_RG_T"\] {/tolower($3) == tolower(ENVIRON["_RG_T"]) {/'
-  t46 T1709s2-e short appears '^regressed:' 's/\[ "\${#t}" -ge 12 \]/[ "${#t}" -ge 1 ]/'
-  t46 T1709s2-f header gone '^regressed:' 's/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'
-  t46 T1709s2-g bold gone '^regressed:' '/_dl="\$(printf/s/\\1\//\\1X\//'
+  t46 T1709s2-e short appears '^regressed:' 's/-ge 12 \]   # RETRO_GRAMMAR_TITLE_MIN_LEN/-ge 1 ]   # RETRO_GRAMMAR_TITLE_MIN_LEN/' lib
+  t46 T1709s2-f header gone '^regressed:' 's/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/' lib
+  t46 T1709s2-g bold gone '^regressed:' '/_dl="\$(printf/s/\\1\//\\1X\//' lib
+  # kit issue #1811: the wrappers that bind this script to the shared helpers must be live (a stubbed wrapper = no row titles / no identity gate).
+  t46 T1811-a number gone '^regressed:' 's/^_retro_row_titles() { .*/_retro_row_titles() { return 0; }/'
+  t46 T1811-b short appears '^regressed:' 's/^_title_has_identity() { .*/_title_has_identity() { return 0; }/'
   t46 T1709s2-h partial-shipped appears '^regressed:' 's/if \[ "\$_partial" -eq 1 \] \&\& grep -qxF "\$_id" <<<"\$_shipped"; then continue; fi/:/'
   t46 T1709s2-i borderline appears '^regressed:' 's/^\(            r_borderline=\$((r_borderline+1))\)$/\1; _regressed_check "$retro_path" "$_rid" "$_ev_rec"/'
   t46 T1709s2-j number gone 'closed by #7,' 's/\[0-9\]\[0-9\]\*\\) \*\$\/#\\1\/p/[0-9][0-9]*x\\) *$\/#\\1\/p/'
@@ -3088,7 +3249,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for _pt in "bold|/_dl=\"\\\$(printf/s/\\\\1\\//\\\\1X\\//" 'header|s/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'; do
     _pl="${_pt%%|*}"; _pe="${_pt#*|}"; echo "-- teeth T1709s2-parity-$_pl --"
     _pm="$ROOT/parity-mut-$_pl.sh"
-    if mutant_chain "T1709s2-parity-$_pl" "$SUT" "$_pm" "$_pe"; then
+    if mutant_chain "T1709s2-parity-$_pl" "$RETRO_GRAMMAR_LIB" "$_pm" "$_pe"; then
       if par_check "$_pm" 2>/dev/null; then no "T1709s2-parity-$_pl teeth" "case 47 is THEATER: a drifted parser still passes parity"
       else ok "T1709s2-parity-$_pl teeth: drifted title parser fails the stage parity check (47 has teeth)" "()"; fi
     else fail=$((fail+1)); fi

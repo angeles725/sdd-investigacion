@@ -177,6 +177,10 @@ declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_row_titles >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_row_titles" >&2; exit 1; }
+declare -F retro_grammar_title_has_identity >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_title_has_identity" >&2; exit 1; }
 
 # RECONCILE_ISSUES_LIST_LIMIT (kit issue #1369 c): the open-issues `gh issue list` carries an explicit
 # --limit (gh's own default is 30, which silently truncated a busy repo and read tracked rows as
@@ -274,25 +278,83 @@ _fetch_closed_bodies() {
 # Empty = not loaded yet; the first line "loaded <repo>" marks a completed load FOR THAT REPO (a different
 # $_REPO reloads, so a listing never resolves another repository's issues).
 _SR_FILE="$(mktemp 2>/dev/null)" || _SR_FILE=""
-[ -z "$_SR_FILE" ] || trap 'rm -f "$_SR_FILE"' EXIT
+# _SR_SINCE_REQ (kit issue #1784): the oldest retro date the current lookup needs, as an ISO instant ("" = unbounded).
+# Set by _closed_query_old_gh before it asks for state reasons; the listing is bounded by it (see _load_state_reasons).
+_SR_SINCE_REQ=""
+
+# _sr_install_exit_trap - remove the cache file on EXIT WITHOUT clobbering an EXIT trap that is already set (kit issue
+# #1784): the previous trap's command runs after the cleanup. `trap -p` output is re-parsed through `set --`.
+# shellcheck disable=SC2120  # "$1" is the function's own positional reused by eval "set -- <trap -p>", not a caller argument
+_sr_install_exit_trap() {
+  local _prev _prev_cmd=""
+  _prev="$(trap -p EXIT)"
+  if [ -n "$_prev" ]; then eval "set -- ${_prev#trap -- }"; _prev_cmd="${1:-}"; fi
+  # shellcheck disable=SC2064
+  trap 'rm -f "$_SR_FILE"'"${_prev_cmd:+; $_prev_cmd}" EXIT   # RECONCILE_ISSUES_EXIT_TRAP_CHAIN
+}
+[ -z "$_SR_FILE" ] || _sr_install_exit_trap
+
+# _retry_pause <stderr-file> - wait before the ONE retry of the batched listing (kit issue #1784): an immediate retry
+# of a rate-limited call (HTTP 403/429) fails the same way. The wait is, in order: a Retry-After (seconds) found in
+# gh's stderr; else the seconds until an X-RateLimit-Reset (epoch) found there; else RECONCILE_ISSUES_RETRY_BACKOFF
+# (default 2). It is at least 1s and at most RECONCILE_ISSUES_RETRY_MAX_WAIT (default 30; 0 = never wait), so a hostile
+# or buggy header can never stall the run. A non-numeric env value falls back to its default. gh prints those headers
+# on stderr only in some modes (GH_DEBUG=api, --include); without them the default backoff applies.
+_retry_pause() {
+  local _f="${1:-}" _t="" _w _def _max _now
+  _def="${RECONCILE_ISSUES_RETRY_BACKOFF:-2}"; case "$_def" in ''|*[!0-9]*) _def=2 ;; esac
+  _max="${RECONCILE_ISSUES_RETRY_MAX_WAIT:-30}"; case "$_max" in ''|*[!0-9]*) _max=30 ;; esac
+  _w="$_def"
+  if [ -n "$_f" ] && [ -r "$_f" ]; then
+    _t="$(tr 'A-Z' 'a-z' < "$_f" 2>/dev/null)"
+    if [[ "$_t" =~ retry-after[:=\ ]+([0-9]{1,12})([^0-9]|$) ]]; then   # RECONCILE_ISSUES_RETRY_AFTER
+      _w="${BASH_REMATCH[1]}"
+    elif [[ "$_t" =~ x-ratelimit-reset[:=\ ]+([0-9]{1,12})([^0-9]|$) ]]; then
+      _now="$(date +%s 2>/dev/null)"
+      case "$_now" in ''|*[!0-9]*) ;; *) _w=$(( BASH_REMATCH[1] - _now )) ;; esac
+    fi
+  fi
+  [ "$_w" -ge 1 ] || _w=1
+  [ "$_w" -le "$_max" ] || _w="$_max"   # RECONCILE_ISSUES_RETRY_CAP
+  [ "$_w" -ge 1 ] || return 0
+  echo "note: gh api state_reason listing failed — retrying once in ${_w}s" >&2
+  sleep "$_w"
+}
 
 # _load_state_reasons - ONE paginated `gh api repos/<repo>/issues?state=closed` call (REST items carry
-# state_reason) with one bounded retry; typed degraded + return 1 on failure. Reads no stdin.
+# state_reason) with one bounded retry (after _retry_pause); typed degraded + return 1 on failure. Reads no stdin.
 # _load_state_reasons [force]: a cached listing for the CURRENT repo is reused unless "force" is given.
+# Bounded listing (kit issue #1784): when _SR_SINCE_REQ is set the call carries `&since=<it>` (the REST filter is on
+# updated_at, and a closed issue seeded from a retro was updated on/after that retro's date), so closed history older
+# than the oldest retro is never paginated. The cache records the bound it was loaded with ("since <iso|none>" on line
+# 2) and serves a request only when it covers it (an equal or newer bound, or "none"); an older or unbounded request
+# reloads with the OLDER bound, so one run never thrashes. No bound (undated retro) = the whole closed listing.
 _load_state_reasons() {
-  local _try _out _rc _ef _em
+  local _try _out _rc _ef _em _cached _covers=1 _eff _url
   [ -n "$_SR_FILE" ] || { echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field) — no temp file available" >&2; return 1; }
-  [ "${1:-}" = force ] || [ "$(head -1 "$_SR_FILE" 2>/dev/null)" != "loaded $_REPO" ] || return 0
+  _cached="$(sed -n '2s/^since //p' "$_SR_FILE" 2>/dev/null)"
+  if [ -n "$_cached" ] && [ "$_cached" != none ]; then
+    { [ -n "${_SR_SINCE_REQ:-}" ] && [[ ! "${_SR_SINCE_REQ}" < "$_cached" ]]; } || _covers=0
+  fi
+  [ "${1:-}" = force ] || [ "$_covers" = 0 ] || [ "$(head -1 "$_SR_FILE" 2>/dev/null)" != "loaded $_REPO" ] || return 0
+  _eff="${_SR_SINCE_REQ:-}"
+  if [ -n "$_cached" ] && [ "$(head -1 "$_SR_FILE" 2>/dev/null)" = "loaded $_REPO" ]; then
+    if [ "$_cached" = none ]; then _eff=""
+    elif [ -n "$_eff" ] && [[ "$_cached" < "$_eff" ]]; then _eff="$_cached"; fi
+  fi
+  _url="repos/$_REPO/issues?state=closed&per_page=100${_eff:+&since=$_eff}"   # RECONCILE_ISSUES_CLOSED_SINCE
   for _try in 1 2; do
     _ef="$(mktemp 2>/dev/null)" || _ef=""
-    _out="$(gh api --paginate "repos/$_REPO/issues?state=closed&per_page=100" \
+    _out="$(gh api --paginate "$_url" \
         --jq '.[] | "\(.number) \(.state_reason // "")"' </dev/null 2>"${_ef:-/dev/null}")"; _rc=$?
     if [ "$_rc" -eq 0 ]; then
       [ -z "$_ef" ] || rm -f "$_ef"
-      printf 'loaded %s\n%s\n' "$_REPO" "$_out" > "$_SR_FILE"
+      printf 'loaded %s\nsince %s\n%s\n' "$_REPO" "${_eff:-none}" "$_out" > "$_SR_FILE"
       return 0
     fi
-    _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
+    _em=""; [ -z "$_ef" ] || _em="$(head -1 "$_ef" 2>/dev/null)"
+    [ "$_try" != 1 ] || _retry_pause "$_ef"   # RECONCILE_ISSUES_RETRY_PAUSE: no wait after the final failure
+    [ -z "$_ef" ] || rm -f "$_ef"
   done
   echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field)${_em:+ — }${_em}" >&2
   return 1
@@ -305,7 +367,7 @@ _state_reason_of() {
   local _n="$1" _sr _i
   _load_state_reasons || return 2
   for _i in 1 2; do
-    if _sr="$(awk -v n="$_n" 'NR > 1 && $1 == n { print $2; found = 1; exit } END { exit !found }' "$_SR_FILE" 2>/dev/null)"; then
+    if _sr="$(awk -v n="$_n" 'NR > 2 && $1 == n { print $2; found = 1; exit } END { exit !found }' "$_SR_FILE" 2>/dev/null)"; then
       printf '%s\n' "$_sr"; return 0
     fi
     [ "$_i" = 1 ] || break
@@ -321,7 +383,21 @@ _state_reason_of() {
 #   octal-036 line per issue). A failed listing is a typed degraded + return 1; an issue still missing
 #   after one reload keeps only its signature lines (its rows read borderline) plus a typed note.
 _closed_query_old_gh() {
-  local _p="$1" _raw _rc _sr _num _bad="" _unk="" _ef _em
+  local _p="$1" _raw _rc _sr _num _bad="" _unk="" _ef _em _d _sd=""
+  # Bound the batched state_reason listing by this retro's date (kit issue #1784); an undated retro is unbounded.
+  _SR_SINCE_REQ=""
+  _d="${_p##*/}"
+  # The bound is the retro filename's date MINUS TWO DAYS at 00:00:00Z. The filename carries the author's LOCAL date
+  # while updated_at is UTC: east of UTC (up to UTC+14) an issue seeded early on local day D is stamped D-1 UTC, and a
+  # bound of D 00:00Z would exclude it (and the forced reload would reuse that bound). One day of margin covers the
+  # offset; the second absorbs a retro seeded the day before its filename date. Date arithmetic is GNU `date -d`, else
+  # BSD `date -v`; with neither, the listing is unbounded and a typed note says so (never a silent wrong bound).
+  if [[ "$_d" =~ ^([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))([^0-9]|$) ]]; then   # RECONCILE_ISSUES_SINCE_DERIVE
+    _sd="$(date -u -d "${BASH_REMATCH[1]} -2 days" +%Y-%m-%d 2>/dev/null)" \
+      || _sd="$(date -u -j -v-2d -f %Y-%m-%d "${BASH_REMATCH[1]}" +%Y-%m-%d 2>/dev/null)" || _sd=""
+    if [[ "$_sd" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then _SR_SINCE_REQ="${_sd}T00:00:00Z"   # RECONCILE_ISSUES_SINCE_MARGIN
+    else echo "note: date arithmetic unavailable — the closed-issue listing for ${_d} is not bounded by a retro date" >&2; fi
+  fi
   _ef="$(mktemp 2>/dev/null)" || _ef=""
   _raw="$(gh issue list \
       --repo "$_REPO" \
@@ -441,66 +517,18 @@ _emit_shallow_note() {
 # seeder (stage-retro-issues.sh) puts on its issue: the delta cell - the column the header names, else column 2 -
 # with a leading **bold** unwrapped and the ends trimmed, compared EXACTLY (no case folding, no fuzzy matching;
 # a reworded row is a different delta). A title under 12 characters or a bare priority/type token carries no
-# identity (the seeder refuses those rows too). The parser below mirrors stage-retro-issues.sh's header mapping
-# for the TITLE column only; a drift between the two would hide re-proposals, so a shared helper is the follow-up.
+# identity (the seeder refuses those rows too). The parser and the rule are the shared helpers
+# retro_grammar_row_titles / retro_grammar_title_has_identity (lib/retro-grammar.sh, kit issue #1811). They mirror
+# stage-retro-issues.sh's header mapping and title_is_unusable until the seeder calls them; a drift between the two
+# would hide re-proposals, so tests/reconcile-issues.test.sh case 47 and tests/retro-grammar.test.sh T52 guard both.
 # Scope: later retros of the SAME retros directory, "later" = a strictly greater YYYY-MM-DD filename prefix.
 _reg_degraded=0
 _reg_cur=""; _reg_later=""; _reg_later_loaded=0; _reg_nodate_noted=0
 
-_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
-
-# _retro_row_titles <retro> - one "<row-id>\037<title>" line per delta row (table form, else the entry form).
-_retro_row_titles() {
-  local f="$1" _rows _id _dl _rest
-  _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
-    BEGIN { in_sec = 0 }
-    {
-      low = tolower($0)
-      if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ || low ~ /^## proposed delta/ ||
-          low ~ /^## delta proposals/ || low ~ /^## deltas nuevos/ || low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
-          low ~ /^## summary of proposed delta/ || low ~ /^## summary of new deltas/ || low ~ /^## delta details([[:space:]]|$)/) {
-        in_sec = 1; prev = ""; ct = 0; next
-      }
-      if (/^##[^#]/) { in_sec = 0; next }
-      if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
-        if (prev != "") {
-          hl = tolower(prev)
-          sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
-          hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
-          ct = 0
-          for (k = 2; k <= hn; k++)
-            if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
-        }
-        prev = ""; next
-      }
-      if (in_sec && /^\|/) {
-        prev = $0
-        line = $0
-        sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
-        n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
-        rid = f[1]; gsub(/[[:space:]]/, "", rid)
-        if (rid ~ /^[-:]+$/) next
-        if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
-        printf "%s\037%s\n", f[1], (ct ? f[ct] : (n >= 2 ? f[2] : ""))
-      }
-    }')"
-  [ -n "$_rows" ] || _rows="$(retro_grammar_entry_rows "$f")"
-  while IFS=$'\037' read -r _id _dl _rest; do
-    _id="$(_trim "$_id")"; [ -n "$_id" ] || continue
-    _dl="$(printf '%s' "$_dl" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//')"
-    printf '%s\037%s\n' "$_id" "$(_trim "$_dl")"
-  done <<<"$_rows"
-}
-
-# _title_has_identity <title> - 0 when the title can carry a cross-retro identity (stage-retro-issues rule).
-_title_has_identity() {
-  local t
-  t="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
-  case "$t" in
-    high|medium|low|feature|bug|fix|bugfix|defect|regression|doc|docs|documentation|doc-fix|docfix) return 1 ;;
-  esac
-  [ "${#t}" -ge 12 ]
-}
+# The title-column parser and the identity rule live in lib/retro-grammar.sh (kit issue #1811); these are the
+# names the rest of this script calls. A retro that cannot be read returns 1 (no rows), never a silent zero.
+_retro_row_titles() { retro_grammar_row_titles "$1"; }
+_title_has_identity() { retro_grammar_title_has_identity "$1"; }
 
 # _retro_open_row_titles <retro> - the "<row-id>\037<title>" lines of the rows that are OPEN in that retro, using the
 # same open-row rule as audit_retro (dismissed/applied close it; PARTIAL keeps the rows its marker does not list
