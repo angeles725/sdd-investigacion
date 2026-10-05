@@ -2554,7 +2554,8 @@ else no "agents: user-file collision mishandled (rc=$rc_c): $out_c"; fi
 
 # --help text must say --force-skill reaches the agent definitions too (it overwrites user files there).
 help_out="$(bash "$SUT" --help 2>&1)"
-if grep -A3 -- '--force-skill when' <<<"$help_out" | grep -qi 'agent definitions'; then ok "agents: --help says --force-skill also covers the shipped agent definitions"
+help_fs="$(grep -A3 -- '--force-skill when' <<<"$help_out")"
+if grep -qi 'agent definitions' <<<"$help_fs"; then ok "agents: --help says --force-skill also covers the shipped agent definitions"
 else no "agents: --help hides that --force-skill overwrites agent definitions"; fi
 
 # A kit whose agent source is gone: install fails loudly, and --verify never reports match.
