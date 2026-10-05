@@ -758,7 +758,7 @@ tooth M84-overflow-note-dropped 's/^  if \[ "\$total" -gt 50 \]; then say.*/  :/
 tooth M85-cross-note-dropped 's/^    \[ -z "\$issue" \] || say "\$ev: note: PR.*/    :/' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #41 '
 tooth M86-graphql-failure-ignored 's/^  if \[ "\$grc" -ne 0 \]; then say.*/  :/' sc_ce_fail 0 'degraded: cannot read the closing issues of PR #7' 0 '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable'
 tooth M87-timeout-treated-as-generic 's/^  if \[ "\$grc" -eq 124 \]; then say.*/  :/' sc_ce_timeout 0 'degraded: GraphQL read of PR #7 timed out' 0 'degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 124'
-tooth M88-shape-unchecked 's/^    \*) say "\$ev: degraded: the GraphQL answer.*/    *) ;;/' sc_ce_bad 0 'the GraphQL answer for PR #7 is unparseable or off-schema' 0 '^merge-gate: closure-evidence: none: PR #7 closes no issue'
+tooth M88-shape-unchecked 's/^    \*) say "\$ev: degraded: the GraphQL answer.*/    *) ;;/' sc_ce_bad 0 'the GraphQL answer for PR #7 is unparseable or off-schema' 0 '^merge-gate: closure-evidence: degraded: the GraphQL answer is for repository  but the merge used o/r'
 mutate M89-optout-ignored              's/^  if \[ -n "\$no_evidence" \]; then.*/  :/'
 mutate M90-comment-failure-fails-run   's/^  done$/  done; [ "$rc" -eq 0 ] || exit 1/'
 mutate M91-posts-without-test          's/^  if \[ -z "\$test_files" \]; then say.*/  :/'
