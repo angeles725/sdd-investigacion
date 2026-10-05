@@ -80,6 +80,15 @@ Changed lines: __ / 400
 
 ---
 
+## Close Checklist
+
+<!-- Kit close steps (research-sdd/PROMPT-LOOP.md, "Kit work-unit close checklist"). -->
+
+- [ ] Over ~400 changed lines: ran `research-sdd/toolbelt/plan-review-slices.sh --cwd <worktree> --base-ref origin/main` and split along its slices (n/a if under budget)
+- [ ] Merging with `research-sdd/toolbelt/merge-gate.sh --cwd <worktree at the PR head> --base-ref origin/main --merge <PR#>` instead of a bare `gh pr merge`
+
+---
+
 ## Contributor Checklist
 
 - [ ] Commit title follows [conventional commits](https://www.conventionalcommits.org/) format (e.g. `fix(scope): ...`)

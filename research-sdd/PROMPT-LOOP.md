@@ -1726,6 +1726,13 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
 ## Operational notes
 
 - **One iteration = one block.** The value of the loop is disciplined accumulation, not haste.
+- **Kit work-unit close checklist** (run in order; the PR template carries the same boxes):
+  1. Before opening a PR whose diff is over the ~400-line budget:
+     `$KIT/toolbelt/plan-review-slices.sh --cwd <worktree> --base-ref origin/main [--max-lines N]`
+     (report-only; each slice is a candidate PR/review unit; an `UNSPLITTABLE` commit is a human decision).
+  2. Before merging: `$KIT/toolbelt/merge-gate.sh --cwd <worktree at the PR head> --base-ref origin/main --merge <PR#>`
+     instead of a bare `gh pr merge`; merge only on an `allow` bound to the PR, and treat `refuse:` or
+     `degraded` (exit 3) as a stop. Semantics: `PROMPT-LOOP-APPENDIX.md#review-and-delivery`.
 - **The backlog feeds itself**: investigating a gap almost always uncovers others; that is why the
   stopping criterion requires 2 empty iterations in a row.
 - **Mature targets** (e.g. `niagara-research`) already have INDEX/hook: the loop continues from their
