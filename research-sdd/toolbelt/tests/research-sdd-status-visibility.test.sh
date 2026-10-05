@@ -198,12 +198,13 @@ fi
 # 12. kit issue #1820 latency budget: N stalled remotes cost ONE bound (later remotes are skipped with a typed line),
 #     and status keeps its historical 10 s default bound (the shared lib default is 20).
 d2="$TMP/slow2"; mkstate "$d2"; mkgit "$d2" origin=https://github.com/o/r.git up=https://github.com/o/r2.git third=https://github.com/o/r3.git
-ms() { date +%s%N | cut -c1-13; }
-t0=$(ms); RSDD_GH_TIMEOUT=1 status "$dd" "$g/gh" >/dev/null; el1=$(( $(ms)-t0 ))
-t0=$(ms); out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$g/gh")"; el2=$(( $(ms)-t0 ))
+# Deterministic (no clocks): a counting stalled gh records every invocation; three stalled remotes must cost exactly ONE probe.
+gc="$TMP/g-count"; mkdir -p "$gc"
+printf '#!/usr/bin/env bash\necho call >> "%s/calls.log"\nsleep 30\necho PRIVATE\n' "$gc" > "$gc/gh"; chmod +x "$gc/gh"
+: > "$gc/calls.log"; out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$gc/gh")"; ncalls="$(grep -c . "$gc/calls.log")"
 nto="$(grep -c '^degraded: remote-visibility: gh timed out' <<<"$out")"; nsk="$(grep -c '^degraded: remote-visibility: skipped after timeout for remote' <<<"$out")"
-if [ "$nto" = 1 ] && [ "$nsk" = 2 ] && [ $((el2-el1)) -lt 700 ]; then ok "12a three stalled remotes under a 1s bound -> one timeout + two skip lines, ~1 bound (+$((el2-el1))ms vs one remote)"
-else no "12a latency budget: timeouts=$nto skips=$nsk el1=${el1}ms el2=${el2}ms out=[$(grep -i remote <<<"$out")]"; fi
+if [ "$ncalls" = 1 ] && [ "$nto" = 1 ] && [ "$nsk" = 2 ]; then ok "12a three stalled remotes -> exactly one gh probe, one timeout line, two skip lines"
+else no "12a latency budget: gh calls=$ncalls timeouts=$nto skips=$nsk out=[$(grep -i remote <<<"$out")]"; fi
 if [ -n "$REAL_TO" ]; then
   hp="$(mkpath "$TMP/path-to10" none)"
   printf '#!%s\necho "$1" >> "%s/timeout.log"\nexec "%s" "$@"\n' "$(command -v bash)" "$hp" "$REAL_TO" > "$hp/timeout"; chmod +x "$hp/timeout"
@@ -296,9 +297,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ -s "$TMP/path-gt/gtimeout.log" ] && no "teeth M: mutant still used gtimeout — THEATER" || ok "teeth M: gtimeout fallback removed -> case 11c has teeth"; fi
   # N: skip-after-timeout removed -> every stalled remote waits its own bound -> case 12a goes red
   if tooth N 's/if \[ "\$_rv_stalled" = 1 \]; then/if false; then/'; then
-    t0=$(ms); out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$g/gh")"; el2=$(( $(ms)-t0 ))
-    if [ "$(grep -c 'skipped after timeout' <<<"$out")" = 0 ] && [ "$el2" -ge 2500 ]; then ok "teeth N: no skip -> 3 stalled remotes cost ${el2}ms -> case 12a has teeth"
-    else no "teeth N: mutant still skipped / fast (${el2}ms) — THEATER"; fi; fi
+    : > "$gc/calls.log"; out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$gc/gh")"; ncalls="$(grep -c . "$gc/calls.log")"
+    if [ "$ncalls" = 3 ] && [ "$(grep -c 'skipped after timeout' <<<"$out")" = 0 ]; then ok "teeth N: no skip -> 3 gh probes for 3 stalled remotes -> case 12a has teeth"
+    else no "teeth N: mutant still skipped (gh calls=$ncalls) — THEATER"; fi; fi
   # O: status's own 10s default dropped (lib default 20 leaks through) -> case 12b goes red
   if [ -n "$REAL_TO" ] && tooth O 's/GHV_DEFAULT_BOUND=10 //'; then
     rm -f "$hp/timeout.log"; env -u RSDD_GH_TIMEOUT PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" >/dev/null 2>&1
