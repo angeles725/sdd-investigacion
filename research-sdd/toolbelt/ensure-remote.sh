@@ -48,6 +48,9 @@ target="$(cd "$target" && pwd)"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCAN="$HERE/scan-secrets.sh"
+# Shared bounded visibility probe (kit issue #1820): one default, GH_PROMPT_DISABLED=1, typed non-decided results.
+# shellcheck source=lib/gh-visibility.sh
+. "$HERE/lib/gh-visibility.sh" 2>/dev/null || { echo "REFUSED: lib/gh-visibility.sh not found next to this script — cannot verify visibility before push." >&2; exit 7; }
 
 # target must already be a git repo (research-sdd-init.sh runs `git init` in the target — §15).
 git -C "$target" rev-parse --git-dir >/dev/null 2>&1 || {
@@ -174,7 +177,9 @@ if ! gh repo create "$owner/$repo" --private --source "$target" --remote origin 
   echo "REFUSED: gh repo create failed." >&2; exit 7
 fi
 
-read_vis() { gh repo view "$owner/$repo" --json visibility -q .visibility 2>/dev/null | tr '[:lower:]' '[:upper:]'; }
+# read_vis prints PUBLIC|PRIVATE|INTERNAL when decided, else UNKNOWN(<typed state>) — a stalled, failing or
+# unrecognised probe is NEVER PRIVATE (the guard below only passes on a literal PRIVATE).
+read_vis() { if gh_visibility_probe gh "$owner/$repo"; then printf '%s' "$GHV_STATE"; else printf 'UNKNOWN(%s)' "$GHV_STATE"; fi; }
 vis="$(read_vis)"
 if [ "$vis" != "PRIVATE" ]; then
   echo "   visibility read back as '$vis' — forcing --visibility private once" >&2

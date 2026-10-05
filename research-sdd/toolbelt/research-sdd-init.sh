@@ -101,6 +101,7 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 # now the PHYSICALLY resolved kit path, following any symlink in this script's own invocation
 # path. If the kit checkout is reached through a symlink, these name the symlink's REAL target,
 # not the symlink path — intentional, not a regression to work around.
+_RSDD_TB="$(cd -P "$(dirname "$0")" && pwd -P)"   # toolbelt dir, resolved ONCE (a later cwd change must not break $0-relative lookups)
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 # kit issue #1732: the return-token Stop gate is NOT copied into the target (it needs no per-target placeholder and
@@ -601,65 +602,39 @@ _rsdd_vendor_leak_wiring() {
   esac
   gh_url="$(git -C "$target" remote get-url --push "$remote" 2>/dev/null)" && [ -n "$gh_url" ] \
     || { echo "$tag DEGRADED could not read the push URL of remote '$remote' — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
-    return 0
-  fi
-  # The probe is bounded (RSDD_GH_TIMEOUT seconds, a positive integer; default 20) and never prompts
-  # (GH_PROMPT_DISABLED=1). 0 would DISABLE GNU timeout's bound and garbage makes timeout exit 125, so any
-  # other value falls back to 20 with a note. No `timeout` binary -> a bash watchdog (gh backgrounded, `sleep N; kill`) enforces the same bound, announced.
-  local gh_rc=0 gh_t="${RSDD_GH_TIMEOUT-20}" gh_err gh_why gh_cmd=(gh repo view "$gh_url" --json visibility --jq .visibility)
-  case "$gh_t" in
-    ''|*[!0-9]*) gh_t=0 ;;
-    *) gh_t="${gh_t#"${gh_t%%[!0]*}"}"; gh_t="${gh_t:-0}" ;;   # strip leading zeros (all zeros -> 0)
+  # The probe is the shared bounded one (kit issue #1820, lib/gh-visibility.sh): RSDD_GH_TIMEOUT seconds (a positive
+  # integer; default 20; anything else falls back to 20 with a note), GH_PROMPT_DISABLED=1, and with no `timeout`/`gtimeout`
+  # a bash watchdog enforces the same bound (kit issue #1800: --wire repair must never hang). Any non-decided result is
+  # a typed DEGRADED state and the caller carries on (never read as PRIVATE).
+  local _ghv_lib gh_why gh_t vis
+  _ghv_lib="$_RSDD_TB/lib/gh-visibility.sh"
+  # shellcheck source=lib/gh-visibility.sh
+  . "$_ghv_lib" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
+    || { echo "$tag DEGRADED lib/gh-visibility.sh unavailable — cannot probe the remote visibility; vendor-leak wiring skipped (NOT a pass)"; return 0; }
+  gh_visibility_probe gh "$gh_url" "$target" || :
+  gh_t="$GHV_BOUND"
+  [ "$GHV_BAD_TIMEOUT" = 1 ] && echo "$tag note: RSDD_GH_TIMEOUT='${RSDD_GH_TIMEOUT-20}' is not a positive integer — using the default 20s"
+  [ "$GHV_BOUNDED_BY" = watchdog ] && echo "$tag note: timeout not found — the gh probe is bounded by a ${gh_t}s watchdog instead"
+  gh_why=""; [ -n "$GHV_WHY" ] && gh_why=" [gh: $GHV_WHY]"
+  case "$GHV_STATE" in
+    PROBE_FAILED)
+      echo "$tag DEGRADED could not create a temp file for the bounded gh probe — vendor-leak wiring skipped (NOT a pass)"
+      return 0 ;;
+    TIMEOUT)
+      echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
+      return 0 ;;
+    GH_ERROR)
+      if [ "$GHV_RC" = 125 ]; then
+        echo "$tag DEGRADED timeout could not run gh (exit 125)$gh_why — vendor-leak wiring skipped (NOT a pass)"
+      else
+        echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote)$gh_why — vendor-leak wiring skipped (NOT a pass)"
+      fi
+      return 0 ;;
+    GH_MISSING)
+      echo "$tag DEGRADED gh not found — cannot tell whether the remote is PUBLIC; vendor-leak wiring skipped (NOT a pass). Install gh and re-run, or scaffold $conf by hand"
+      return 0 ;;
   esac
-  # Leading zeros are still a positive integer (kit issue #1566): normalise as DECIMAL (10# — a bare 010 would be
-  # octal); an all-zero, non-numeric or >9-digit value is rejected. One fallback, one default.
-  if [ "${#gh_t}" -gt 9 ] || [ "$((10#$gh_t))" -eq 0 ]; then
-    echo "$tag note: RSDD_GH_TIMEOUT='${RSDD_GH_TIMEOUT-20}' is not a positive integer — using the default 20s"
-    gh_t=20
-  else
-    gh_t=$((10#$gh_t))
-  fi
-  # kit issue #1800 (RDD): --wire repair used to be local-only, so a stalled probe must never hang it — with no `timeout` binary
-  # (stock macOS) the SAME bound is enforced by a bash watchdog (gh backgrounded, `sleep N; kill`, both reaped); expiry is the
-  # existing typed "timed out" DEGRADED state (rc 124) and the caller carries on.
-  local gh_wd=0 gh_out=""
-  if command -v timeout >/dev/null 2>&1; then
-    gh_cmd=(timeout "$gh_t" "${gh_cmd[@]}")
-  else
-    gh_wd=1
-    echo "$tag note: timeout not found — the gh probe is bounded by a ${gh_t}s watchdog instead"
-  fi
-  gh_err="$(mktemp 2>/dev/null)" || gh_err=/dev/null
-  if [ "$gh_wd" = 1 ]; then
-    local gh_pid gh_wdpid
-    gh_out="$(mktemp 2>/dev/null)" || { echo "$tag DEGRADED could not create a temp file for the bounded gh probe — vendor-leak wiring skipped (NOT a pass)"; return 0; }
-    ( cd "$target" && exec env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" >"$gh_out" 2>"$gh_err" ) &   # RSDD-GH-WATCHDOG
-    gh_pid=$!
-    ( sleep "$gh_t"; kill "$gh_pid" 2>/dev/null ) >/dev/null 2>&1 &
-    gh_wdpid=$!
-    wait "$gh_pid" 2>/dev/null || gh_rc=$?
-    kill "$gh_wdpid" 2>/dev/null || :
-    wait "$gh_wdpid" 2>/dev/null || :
-    [ "$gh_rc" = 143 ] && gh_rc=124   # killed by the watchdog (SIGTERM) = timed out
-    vis="$(cat "$gh_out" 2>/dev/null)"; rm -f "$gh_out"
-  else
-    vis="$(cd "$target" && env -u GH_REPO GH_PROMPT_DISABLED=1 "${gh_cmd[@]}" 2>"$gh_err")" || gh_rc=$?
-  fi
-  gh_why=""
-  [ "$gh_err" = /dev/null ] || { gh_why="$(sed -n '1p' "$gh_err" 2>/dev/null)"; rm -f "$gh_err"; }
-  [ -n "$gh_why" ] && gh_why=" [gh: $gh_why]"
-  if [ "$gh_rc" = 124 ]; then
-    echo "$tag DEGRADED gh timed out after ${gh_t}s — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  elif [ "$gh_rc" = 125 ]; then
-    echo "$tag DEGRADED timeout could not run gh (exit 125)$gh_why — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  elif [ "$gh_rc" != 0 ]; then
-    echo "$tag DEGRADED gh repo view failed (auth, network or non-GitHub remote)$gh_why — vendor-leak wiring skipped (NOT a pass)"
-    return 0
-  fi
+  vis="$GHV_RAW"
   case "$vis" in
     PRIVATE|INTERNAL)
       echo "$tag PRIVATE remote '$remote' visibility is $vis — no vendor-leak scaffold written; if it ever becomes PUBLIC, $_vl_how$_vl_sfx"
@@ -1021,7 +996,7 @@ trap - ERR   # scaffold verified — disarm rollback
 # (covered_blocks/investigable_open/blocked_open matching the seeded backlog), i.e. verify-state.sh passes
 # and --next never opens on a STALE gate. Best-effort: if the seeder is unavailable (e.g. a copied-toolbelt
 # test tree without status.sh), the placeholder envelope still stands — never fail the scaffold over it.
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF_DIR="$_RSDD_TB"
 if [ -x "$SELF_DIR/research-sdd-status.sh" ] || [ -f "$SELF_DIR/research-sdd-status.sh" ]; then
   bash "$SELF_DIR/research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1 || echo "  note: could not seed the research-state.v1 envelope (run --sync-state manually)"
 fi

@@ -91,7 +91,7 @@ out="$(status "$d" "$TMP/g-fail/gh")"
 if grep -qE '^degraded: remote-visibility: .*origin' <<<"$out" && ! grep -q 'public-remote' <<<"$out"; then ok "5b gh failing -> typed degraded (not WARN, not silent)"; else no "5b gh failure mishandled: $(grep -i remote <<<"$out")"; fi
 stub_gh "$TMP/g-junk" "banana"
 out="$(status "$d" "$TMP/g-junk/gh")"
-if grep -qE '^degraded: remote-visibility: .*banana.*origin' <<<"$out"; then ok "5c unrecognised answer -> typed degraded echoing it"; else no "5c junk answer mishandled: $(grep -i remote <<<"$out")"; fi
+if grep -qiE '^degraded: remote-visibility: .*banana.*origin' <<<"$out"; then ok "5c unrecognised answer -> typed degraded echoing it"; else no "5c junk answer mishandled: $(grep -i remote <<<"$out")"; fi
 stub_gh "$TMP/g-empty" ""
 out="$(status "$d" "$TMP/g-empty/gh")"
 if grep -qE '^degraded: remote-visibility: .*origin' <<<"$out"; then ok "5d empty answer -> typed degraded"; else no "5d empty answer was silent"; fi
@@ -176,18 +176,41 @@ mkpath() { # DIR with-gtimeout|none — prints DIR
   for t in bash env git grep sed awk cat cut tr sort uniq head tail wc date find xargs ls mkdir rm mktemp dirname \
            basename sha1sum sha256sum stat sleep readlink realpath mv cp diff expr id uname tee comm printf jq python3 gh; do
     p="$(command -v "$t" 2>/dev/null)" && [ -f "$p" ] && ln -sf "$p" "$pd/$t"; done
-  if [ "$2" = with-gtimeout ]; then ln -s "$REAL_TO" "$pd/gtimeout"; fi
+  # gtimeout is a RECORDING wrapper (kit issue #1820: the shared probe falls back to a bash watchdog, so a bound alone
+  # no longer proves the gtimeout binary was used) — case 11c asserts the wrapper really ran.
+  if [ "$2" = with-gtimeout ]; then printf '#!%s\necho used >> "%s/gtimeout.log"\nexec "%s" "$@"\n' "$(command -v bash)" "$pd" "$REAL_TO" > "$pd/gtimeout"; chmod +x "$pd/gtimeout"; fi
   printf '%s' "$pd"
 }
 if [ -z "$REAL_TO" ]; then no "11c/11d need a real timeout binary to build the hermetic PATH"; else
   hp="$(mkpath "$TMP/path-gt" with-gtimeout)"
   t0=$SECONDS; out="$(PATH="$hp" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT" "$TMP/slow" 2>&1)"; el=$((SECONDS-t0))
-  if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for remote origin' <<<"$out"; then ok "11c timeout absent, gtimeout present -> still bounded (timed out in ${el}s)"
+  if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for remote origin' <<<"$out" && [ -s "$hp/gtimeout.log" ]; then ok "11c timeout absent, gtimeout present -> bounded THROUGH gtimeout (timed out in ${el}s)"
   else no "11c gtimeout fallback: ${el}s out=[$(grep -i remote <<<"$out")]"; fi
   hp="$(mkpath "$TMP/path-none" none)"
-  out="$(PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT" "$TMP/pub" 2>&1)"
-  if grep -qE '^degraded: remote-visibility: timeout/gtimeout not found' <<<"$out" && ! grep -q '^WARN public-remote' <<<"$out"; then ok "11d neither timeout nor gtimeout -> typed degraded"
-  else no "11d no-timeout branch: out=[$(grep -i remote <<<"$out")]"; fi
+  # 11d (kit issue #1820): neither timeout nor gtimeout is no longer a degraded state — the shared probe is bounded by a
+  # bash watchdog instead: a stalled gh is still the typed 'timed out' line, and a PUBLIC answer is still decided.
+  t0=$SECONDS; out="$(PATH="$hp" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT" "$TMP/slow" 2>&1)"; el=$((SECONDS-t0))
+  outp="$(PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT" "$TMP/pub" 2>&1)"
+  if [ "$el" -lt 15 ] && grep -qE '^degraded: remote-visibility: gh timed out for remote origin' <<<"$out" && grep -q '^WARN public-remote' <<<"$outp"; then ok "11d neither timeout nor gtimeout -> still bounded (watchdog, ${el}s), PUBLIC still decided"
+  else no "11d no-timeout branch: ${el}s out=[$(grep -i remote <<<"$out")] pub=[$(grep -i remote <<<"$outp")]"; fi
+fi
+
+# 12. kit issue #1820 latency budget: N stalled remotes cost ONE bound (later remotes are skipped with a typed line),
+#     and status keeps its historical 10 s default bound (the shared lib default is 20).
+d2="$TMP/slow2"; mkstate "$d2"; mkgit "$d2" origin=https://github.com/o/r.git up=https://github.com/o/r2.git third=https://github.com/o/r3.git
+# Deterministic (no clocks): a counting stalled gh records every invocation; three stalled remotes must cost exactly ONE probe.
+gc="$TMP/g-count"; mkdir -p "$gc"
+printf '#!/usr/bin/env bash\necho call >> "%s/calls.log"\nsleep 30\necho PRIVATE\n' "$gc" > "$gc/gh"; chmod +x "$gc/gh"
+: > "$gc/calls.log"; out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$gc/gh")"; ncalls="$(grep -c . "$gc/calls.log")"
+nto="$(grep -c '^degraded: remote-visibility: gh timed out' <<<"$out")"; nsk="$(grep -c '^degraded: remote-visibility: skipped after timeout for remote' <<<"$out")"
+if [ "$ncalls" = 1 ] && [ "$nto" = 1 ] && [ "$nsk" = 2 ]; then ok "12a three stalled remotes -> exactly one gh probe, one timeout line, two skip lines"
+else no "12a latency budget: gh calls=$ncalls timeouts=$nto skips=$nsk out=[$(grep -i remote <<<"$out")]"; fi
+if [ -n "$REAL_TO" ]; then
+  hp="$(mkpath "$TMP/path-to10" none)"
+  printf '#!%s\necho "$1" >> "%s/timeout.log"\nexec "%s" "$@"\n' "$(command -v bash)" "$hp" "$REAL_TO" > "$hp/timeout"; chmod +x "$hp/timeout"
+  out="$(env -u RSDD_GH_TIMEOUT PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT" "$TMP/pub" 2>&1)"
+  if [ "$(head -1 "$hp/timeout.log" 2>/dev/null)" = 10 ]; then ok "12b status default bound is 10s (RSDD_GH_TIMEOUT unset)"
+  else no "12b status default bound: timeout got '$(head -1 "$hp/timeout.log" 2>/dev/null)' (want 10)"; fi
 fi
 
 # ---- Teeth ------------------------------------------------------------------
@@ -204,6 +227,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     t="$(mk_tree "$name")"
     if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" "$expr" >/dev/null 2>&1; then SUT_UNDER_TEST="$t/research-sdd-status.sh"; return 0; fi
     no "teeth $name: mutant could not be built (pattern absent / refused by lib/mutant.sh)"; return 1
+  }
+  # toothlib NAME SEDEXPR: like tooth, but the mutation targets lib/gh-visibility.sh (kit issue #1820: the probe lives there)
+  toothlib() {
+    local name="$1" expr="$2" t
+    t="$(mk_tree "$name")"
+    if mutant_sed "$TB/lib/gh-visibility.sh" "$t/lib/gh-visibility.sh" "$expr" >/dev/null 2>&1; then SUT_UNDER_TEST="$t/research-sdd-status.sh"; return 0; fi
+    no "teeth $name: lib mutant could not be built (pattern absent / refused by lib/mutant.sh)"; return 1
   }
   # A: PUBLIC comparison neutered -> a PUBLIC remote false-passes
   if tooth A 's/PUBLIC) echo "WARN/NEVER-MATCHES) echo "WARN/'; then
@@ -230,7 +260,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     out="$(status "$TMP/edge-last" "$TMP/gm-last/gh")"
     grep -q '^WARN public-remote:' <<<"$out" && no "teeth F: first-only mutant still sees the last remote — THEATER" || ok "teeth F: loop truncated -> list-edge case 6 has teeth"; fi
   # G: the URL (with credentials) goes to gh again instead of owner/repo
-  if tooth G 's/"\$_rv_gh" repo view "\$_rv_slug"/"$_rv_gh" repo view "$_rv_url"/'; then
+  if tooth G 's/gh_visibility_probe "\$_rv_gh" "\$_rv_slug"/gh_visibility_probe "$_rv_gh" "$_rv_url"/'; then
     stub_gh "$TMP/g-tG" PRIVATE; rm -f "$TMP/g-tG/gh.argv"; mkstate "$TMP/tG"; mkgit "$TMP/tG" origin='https://user:SECRETTOKEN@github.com/o/r.git'
     status "$TMP/tG" "$TMP/g-tG/gh" >/dev/null
     grep -q SECRETTOKEN "$TMP/g-tG/gh.argv" && ok "teeth G: URL to gh -> credential case 9 has teeth" || no "teeth G: mutant stayed clean — THEATER"; fi
@@ -244,26 +274,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   g="$TMP/g-slow4"; mkdir -p "$g"; printf '#!/usr/bin/env bash\nsleep 4\necho PRIVATE\n' > "$g/gh"; chmod +x "$g/gh"
   SUT_UNDER_TEST=""; t0=$SECONDS; base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$((SECONDS-t0))
   if ! { [ "$elb" -lt 4 ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I: unmutated script did not pass the timeout case (${elb}s) — control invalid"
-  elif tooth I 's/"\$_rv_to" "\${RSDD_GH_TIMEOUT:-10}" //'; then
+  elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
     t0=$SECONDS; out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$((SECONDS-t0))
     if [ "$el" -ge 4 ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I: unbounded gh ran ${el}s, no 'timed out' -> case 11a has teeth"
     else no "teeth I: mutant still bounded (${el}s) — THEATER"; fi; fi
   # J: GH_PROMPT_DISABLED dropped
-  if tooth J 's/GH_PROMPT_DISABLED=1 //'; then
+  if toothlib J 's/GH_PROMPT_DISABLED=1 //g'; then
     rm -f "$TMP/g-slow/prompt.env"; RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$TMP/g-slow/gh" >/dev/null
     [ "$(cat "$TMP/g-slow/prompt.env" 2>/dev/null)" = 1 ] && no "teeth J: mutant still sets it — THEATER" || ok "teeth J: prompt guard dropped -> case 11b has teeth"; fi
   # K: the 'url empty' message text is rewritten (guard and its continue stay) -> case 10's degraded-line assertion goes red
   if tooth K 's/url empty/DEG-OFF/'; then
     out="$(status "$TMP/emptyurl" "$TMP/g-empty-url/gh")"
     grep -qE 'url empty' <<<"$out" && no "teeth K: mutant still degraded — THEATER" || ok "teeth K: empty-url branch silenced -> case 10 has teeth"; fi
-  # L: no-timeout degraded message rewritten -> case 11d goes red
-  if [ -n "$REAL_TO" ] && tooth L 's/gtimeout not found/DEG-OFF/'; then
-    out="$(PATH="$TMP/path-none" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" 2>&1)"
-    grep -q 'timeout/gtimeout not found' <<<"$out" && no "teeth L: mutant still degraded — THEATER" || ok "teeth L: no-timeout branch silenced -> case 11d has teeth"; fi
-  # M: gtimeout fallback removed -> case 11c goes red (degraded 'timeout/gtimeout not found' instead of 'timed out')
-  if [ -n "$REAL_TO" ] && tooth M 's/gtimeout/gtimeout-REMOVED/g'; then
-    out="$(PATH="$TMP/path-gt" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT_UNDER_TEST" "$TMP/slow" 2>&1)"
-    grep -q 'timed out' <<<"$out" && no "teeth M: mutant still bounded via gtimeout — THEATER" || ok "teeth M: gtimeout fallback removed -> case 11c has teeth"; fi
+  # L: the watchdog's SIGTERM->124 normalisation removed -> a stalled gh with no timeout binary is a generic failure -> case 11d goes red
+  if [ -n "$REAL_TO" ] && toothlib L 's/\[ "\$rc" = 143 \] \&\& rc=124/:/'; then
+    out="$(PATH="$TMP/path-none" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT_UNDER_TEST" "$TMP/slow" 2>&1)"
+    grep -q 'gh timed out' <<<"$out" && no "teeth L: mutant still reports a timeout — THEATER" || ok "teeth L: watchdog normalisation removed -> case 11d has teeth"; fi
+  # M: gtimeout fallback removed -> the recording wrapper is never used -> case 11c goes red
+  if [ -n "$REAL_TO" ] && toothlib M 's/gtimeout/gtimeout-REMOVED/g'; then
+    rm -f "$TMP/path-gt/gtimeout.log"
+    PATH="$TMP/path-gt" RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$TMP/g-slow/gh" bash "$SUT_UNDER_TEST" "$TMP/slow" >/dev/null 2>&1
+    [ -s "$TMP/path-gt/gtimeout.log" ] && no "teeth M: mutant still used gtimeout — THEATER" || ok "teeth M: gtimeout fallback removed -> case 11c has teeth"; fi
+  # N: skip-after-timeout removed -> every stalled remote waits its own bound -> case 12a goes red
+  if tooth N 's/if \[ "\$_rv_stalled" = 1 \]; then/if false; then/'; then
+    : > "$gc/calls.log"; out="$(RSDD_GH_TIMEOUT=1 status "$d2" "$gc/gh")"; ncalls="$(grep -c . "$gc/calls.log")"
+    if [ "$ncalls" = 3 ] && [ "$(grep -c 'skipped after timeout' <<<"$out")" = 0 ]; then ok "teeth N: no skip -> 3 gh probes for 3 stalled remotes -> case 12a has teeth"
+    else no "teeth N: mutant still skipped (gh calls=$ncalls) — THEATER"; fi; fi
+  # O: status's own 10s default dropped (lib default 20 leaks through) -> case 12b goes red
+  if [ -n "$REAL_TO" ] && tooth O 's/GHV_DEFAULT_BOUND=10 //'; then
+    rm -f "$hp/timeout.log"; env -u RSDD_GH_TIMEOUT PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" >/dev/null 2>&1
+    [ "$(head -1 "$hp/timeout.log" 2>/dev/null)" = 20 ] && ok "teeth O: default 10 dropped -> bound 20 -> case 12b has teeth" || no "teeth O: mutant still passes 10 — THEATER"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

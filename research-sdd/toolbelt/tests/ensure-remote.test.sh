@@ -29,7 +29,7 @@ SUT="$HERE/../ensure-remote.sh"
 
 # --- resolve real binaries ONCE, before we restrict the PATH ----------------
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
-CORE_UTILS=(dirname basename tr sed grep tail)   # every external cmd the covered paths invoke
+CORE_UTILS=(dirname basename tr sed grep tail mktemp cat rm env sleep)   # every external cmd the covered paths invoke
 CORE_PATHS=()
 for u in "${CORE_UTILS[@]}"; do
   p="$(type -P "$u")"; [ -n "$p" ] || { echo "FATAL: required coreutil '$u' not on PATH" >&2; exit 2; }
@@ -95,7 +95,8 @@ mk_gh_stub() {
     cat <<'EOF'
 case " $* " in
   *" repo create "*) exit "${GH_CREATE_EXIT:-0}" ;;
-  *" repo view "*)   echo "${GH_VIS:-PRIVATE}"; exit 0 ;;
+  *" repo view "*)   [ -n "${GH_VIEW_SLEEP:-}" ] && exec sleep "$GH_VIEW_SLEEP"
+                     echo "${GH_VIS:-PRIVATE}"; exit 0 ;;
   *" repo edit "*)   exit 0 ;;
   *" api users/"*)   echo "${GH_OWNER_TYPE:-User}"; exit "${GH_USERS_EXIT:-0}" ;;
   *" api user "*)    echo "${GH_OWNER:-tester}"; exit 0 ;;
@@ -113,6 +114,7 @@ mkbox() {
   local box="$ROOT/$1" i
   mkdir -p "$box/bin" "$box/home" "$box/target"
   cp "$SUT" "$box/ensure-remote.sh"
+  mkdir -p "$box/lib"; cp "$HERE/../lib/gh-visibility.sh" "$box/lib/gh-visibility.sh" 2>/dev/null || true
   : > "$box/calls.log"
   { printf '#!%s\n' "$BASH_BIN"
     printf 'echo "scan-secrets $*" >> "%s/calls.log"\n' "$box"
@@ -414,6 +416,7 @@ else
   box_E1="$ROOT/e1-box"
   mkdir -p "$box_E1/bin" "$box_E1/home"
   cp "$SUT" "$box_E1/ensure-remote.sh"
+  mkdir -p "$box_E1/lib"; cp "$HERE/../lib/gh-visibility.sh" "$box_E1/lib/gh-visibility.sh" 2>/dev/null || true
   cp "$SCAN_SUT" "$box_E1/scan-secrets.sh"
   : > "$box_E1/calls.log"
   for i in "${!CORE_UTILS[@]}"; do ln -s "${CORE_PATHS[$i]}" "$box_E1/bin/${CORE_UTILS[$i]}"; done
@@ -437,6 +440,27 @@ else
   else
     no "20 E1 end-to-end: git replace M1" "exit=$RC_E1(want 5) calls=[$(cat "$box_E1/calls.log" 2>/dev/null | tr '\n' '|')]"
   fi
+fi
+
+# 21 — kit issue #1820: a STALLED `gh repo view` must not hang the visibility read-back. The probe is bounded
+#      (RSDD_GH_TIMEOUT); an unreadable visibility is UNKNOWN, never PRIVATE -> the SUT HARD-ABORTS (exit 6),
+#      drops origin and never pushes. The SUT runs under a harness cap so a hung (pre-fix) SUT is a FAIL, not a hang.
+reset_ctl
+box="$(mkbox c21-stalled-gh)"
+OUT21="$box/out.txt"; T21=$SECONDS
+GH_VIEW_SLEEP=30 RSDD_GH_TIMEOUT=1 PATH="$box/bin" HOME="$box/home" GIT_HAS_ORIGIN=0 GH_OWNER=tester GH_OWNER_TYPE=User \
+  GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS="" GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 \
+  GIT_STATUS_DIRTY=0 GIT_STATUS_FAIL=0 "$BASH_BIN" "$box/ensure-remote.sh" "$box/target" --yes >"$OUT21" 2>&1 &
+P21=$!
+( sleep 20; kill -9 "$P21" 2>/dev/null ) >/dev/null 2>&1 &
+W21=$!
+wait "$P21" 2>/dev/null; RC21=$?
+kill "$W21" 2>/dev/null; wait "$W21" 2>/dev/null
+EL21=$((SECONDS-T21))
+if [ "$RC21" = 6 ] && [ "$EL21" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'TIMEOUT' "$OUT21"; then
+  ok "21 stalled gh -> bounded, UNKNOWN != PRIVATE -> abort 6, no push" "(exit $RC21, ${EL21}s)"
+else
+  no "21 stalled gh -> bounded, UNKNOWN != PRIVATE -> abort 6, no push" "exit=$RC21(want 6) ${EL21}s push=$(has_call "$box" 'git .* push' && echo YES || echo no) out=[$(tr '\n' '|' <"$OUT21")]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -648,6 +672,29 @@ fi'
     else
       no "teeth-m4: mutant still carries --no-follow-tags (rc=$RC) — case 19 is THEATER; calls=[$(calls "$box")]"
     fi
+  fi
+
+  # T6 (kit issue #1820) — revert read_vis to the pre-fix UNBOUNDED probe; case 21's stalled gh must now hang
+  #      (killed by the harness cap) instead of aborting 6 — proves the bound is what case 21 pins.
+  echo "-- teeth 21: unbounded read_vis, expect case 21's stalled gh to HANG (harness-killed) --"
+  orig21='read_vis() { if gh_visibility_probe gh "$owner/$repo"; then printf '"'"'%s'"'"' "$GHV_STATE"; else printf '"'"'UNKNOWN(%s)'"'"' "$GHV_STATE"; fi; }'
+  new21='read_vis() { gh repo view "$owner/$repo" --json visibility -q .visibility 2>/dev/null | tr '"'"'[:lower:]'"'"' '"'"'[:upper:]'"'"'; }'
+  if [[ "$content" != *"$orig21"* ]]; then
+    no "teeth21: build unbounded-probe mutant" "read_vis anchor not found — SUT drifted?"
+  else
+    reset_ctl
+    box="$(mkbox teeth21-unbounded)"
+    mut_sub "teeth21" "$orig21" "$new21" "$box/ensure-remote.sh"
+    GH_VIEW_SLEEP=30 RSDD_GH_TIMEOUT=1 PATH="$box/bin" HOME="$box/home" GIT_HAS_ORIGIN=0 GH_OWNER=tester GH_OWNER_TYPE=User \
+      GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS="" GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 \
+      GIT_STATUS_DIRTY=0 GIT_STATUS_FAIL=0 "$BASH_BIN" "$box/ensure-remote.sh" "$box/target" --yes >"$box/out.txt" 2>&1 &
+    PT=$!
+    ( sleep 8; kill -9 "$PT" 2>/dev/null ) >/dev/null 2>&1 &
+    WT=$!
+    wait "$PT" 2>/dev/null; RCT=$?
+    kill "$WT" 2>/dev/null; wait "$WT" 2>/dev/null
+    if [ "$RCT" = 137 ]; then ok "teeth21: unbounded probe hangs (killed rc=137) — case 21 has teeth"
+    else no "teeth21: unbounded mutant did not hang (rc=$RCT) — case 21 is THEATER"; fi
   fi
 fi
 

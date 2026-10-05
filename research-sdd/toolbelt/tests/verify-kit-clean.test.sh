@@ -173,6 +173,27 @@ else
   no "12 count-FAILED WARN missing (out=[$out12])"
 fi
 
+# 13 — kit issue #1820: every git read carries GIT_OPTIONAL_LOCKS=0 (a SessionStart read must never take
+#       index.lock while a sibling session commits). A recording PATH-stub git logs the env it receives and
+#       delegates to the real git; the dirty + upstream fixture drives the status, diff, ls-files and rev-list reads.
+_stub13="$TMP/stub-bin-13"; mkdir -p "$_stub13"
+_REALGIT="$(type -P git)"
+cat > "$_stub13/git" << STUB13
+#!/usr/bin/env bash
+printf 'LOCKS=%s :: %s\n' "\${GIT_OPTIONAL_LOCKS-UNSET}" "\$*" >> "$TMP/git13.log"
+exec "$_REALGIT" "\$@"
+STUB13
+chmod +x "$_stub13/git"
+d13="$TMP/locks"; mkrepo "$d13"; echo "changed" > "$d13/f.txt"; echo n > "$d13/new.txt"
+: > "$TMP/git13.log"
+env -u GIT_OPTIONAL_LOCKS PATH="$_stub13:$PATH" bash "$SUT" "$d13" >/dev/null 2>&1
+n13="$(grep -c . "$TMP/git13.log")"; bad13="$(grep -vc 'LOCKS=0 ::' "$TMP/git13.log")"
+if [ "$n13" -ge 4 ] && [ "$bad13" = 0 ] && grep -q ' status ' "$TMP/git13.log" && grep -q ' diff ' "$TMP/git13.log"; then
+  ok "13 every git read carries GIT_OPTIONAL_LOCKS=0 ($n13 calls)"
+else
+  no "13 git reads without GIT_OPTIONAL_LOCKS=0: calls=$n13 unlocked=$bad13 :: $(grep -v 'LOCKS=0 ::' "$TMP/git13.log" | head -3 | tr '\n' '|')"
+fi
+
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
@@ -223,6 +244,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: || true mutant tooth failed (orig rc=$rc_o3, mutant rc=$rc_m3) — WARNs not silenced on a still-DIRTY report"
     fi
+  fi
+
+  # Tooth (kit issue #1820): drop the GIT_OPTIONAL_LOCKS export -> case 13's recorded git calls lose LOCKS=0.
+  echo "-- teeth: drop the GIT_OPTIONAL_LOCKS=0 export, expect git reads WITHOUT it (case 13 RED) --"
+  mutant4="$TMP/verify-kit-clean.MUTANT4.sh"
+  if mk_mut "teeth: optional-locks-dropped" "$SUT" "$mutant4" 's/^export GIT_OPTIONAL_LOCKS=0$/:/'; then
+    : > "$TMP/git13.log"
+    env -u GIT_OPTIONAL_LOCKS PATH="$_stub13:$PATH" bash "$mutant4" "$d13" >/dev/null 2>&1
+    if grep -q 'LOCKS=UNSET ::' "$TMP/git13.log"; then ok "teeth: mutant's git reads lack GIT_OPTIONAL_LOCKS → case 13 has teeth"
+    else no "teeth: mutant still carries GIT_OPTIONAL_LOCKS=0 — case 13 is THEATER"; fi
   fi
 fi
 
