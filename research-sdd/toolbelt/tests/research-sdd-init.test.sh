@@ -2323,6 +2323,11 @@ _U7_SUBJ='<SUBJECT>'; _U7_PFX='<prefix>'; _U7_PATH='<path to binaries/decompiled
 _u7_live() {  # <file> <placeholder> — live (non-comment) occurrence?
   grep -vE '^[[:space:]]*#' "$1" | grep -qF -- "$2"
 }
+# run a filled hook and `jq -e` its output: valid SessionStart JSON whose context carries the literal subject on both lines
+_u7_hook_json_ok() {  # <hook> <subject>
+  bash "$1" </dev/null 2>/dev/null | jq -e --arg s "$2" '.hookSpecificOutput.hookEventName == "SessionStart"
+    and (.hookSpecificOutput.additionalContext | contains("RESEARCH PROTOCOL — " + $s + " (Research-SDD)") and contains("research of " + $s + ". Before"))' >/dev/null 2>&1
+}
 _u7_ss_wired() { [ -f "$1/.claude/settings.json" ] && grep -qF 'research-protocol.sh' "$1/.claude/settings.json"; }
 # a minimal custom hook with an exact set of live placeholders: $1 file, then any of S P X (subject / prefix / path)
 _u7_hook() {
@@ -2338,6 +2343,11 @@ _u7_wire_target() {  # <dir> then placeholder keys — an existing corpus + a ha
 
 if command -v jq >/dev/null 2>&1; then
   echo "-- #1845: --subject / --prefix fill, guard names every live placeholder --"
+  _u7_gen() {  # <name> — a kit copy whose templates/ dir is a private copy (so a variant hook template can be dropped in)
+    local k="$TMP/u7g/$1"; rm -rf "$k"; mkdir -p "$k/toolbelt/lib"
+    cp "$HERE/../lib/corpus-markers.sh" "$HERE/../lib/gh-visibility.sh" "$k/toolbelt/lib/"; cp -r "$HERE/../../templates" "$k/templates"
+    cp "$SUT" "$k/toolbelt/init.sh"; chmod +x "$k/toolbelt/init.sh"
+  }
   # A. scaffold fills both flags; the primary-sources placeholder (no flag) stays
   d="$TMP/u7-a"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --subject "Acme router firmware" --prefix acme >"$TMP/u7-a.out" 2>&1; _rc=$?
@@ -2358,10 +2368,9 @@ if command -v jq >/dev/null 2>&1; then
     [ "$_rc" = 0 ] && ok "U7-b hostile subject [$_hs]: exit 0" || no "U7-b hostile subject [$_hs]: exit $_rc"
     grep -qxF "RESEARCH PROTOCOL — $_hs (Research-SDD)" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject rendered literally [$_hs]" || no "U7-b hostile subject mangled [$_hs]"
     grep -qF "READ-ONLY research of $_hs. Before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject literal on the 2nd line [$_hs]" || no "U7-b 2nd line mangled [$_hs]"
+    # the FILLED hook must EXECUTE and emit valid hook JSON carrying the literal subject on both lines
+    _u7_hook_json_ok "$d/.claude/hooks/research-protocol.sh" "$_hs" && ok "U7-b filled hook executes: valid SessionStart JSON with the literal subject [$_hs]" || no "U7-b filled hook does not emit valid JSON with the literal subject [$_hs]"
   done
-  # the filled hook still emits valid JSON carrying the subject (last loop value)
-  _jo="$(bash "$TMP/u7-b/.claude/hooks/research-protocol.sh" </dev/null 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | head -1)"
-  [ "$_jo" = 'RESEARCH PROTOCOL — -rf \1 \n (Research-SDD)' ] && ok "U7-b filled hook still emits valid hook JSON with the literal subject" || no "U7-b filled hook output wrong: [$_jo]"
 
   # C. invalid values: exit 2, nothing written
   for _bad in "" "   " $'two\nlines' $'tab\there' $'cr\rhere' 'has <SUBJECT> in it' 'has <prefix> in it'; do
@@ -2420,11 +2429,27 @@ if command -v jq >/dev/null 2>&1; then
   _u7_wire_target "$TMP/u7-e" S; cp "$TMP/u7-e/.claude/hooks/research-protocol.sh" "$TMP/u7-e.before"
   bash "$SUT" "$TMP/u7-e" --wire --subject "Acme" >"$TMP/u7-e.out" 2>"$TMP/u7-e.err"; _rc=$?
   [ "$_rc" = 3 ] && ok "U7-e --wire --subject on an existing hook: refused (exit 3)" || no "U7-e existing hook: exit $_rc (want 3)"
-  grep -qF 'REFUSED: --subject/--prefix' "$TMP/u7-e.err" && ok "U7-e typed REFUSED line" || no "U7-e no typed REFUSED line"
+  grep -qF 'REFUSED: --subject only fills' "$TMP/u7-e.err" && ok "U7-e typed REFUSED line" || no "U7-e no typed REFUSED line"
   cmp -s "$TMP/u7-e.before" "$TMP/u7-e/.claude/hooks/research-protocol.sh" && ok "U7-e existing hook byte-identical" || no "U7-e existing hook was modified"
   { [ ! -e "$TMP/u7-e/.claude/settings.json" ] && [ ! -e "$TMP/u7-e/.claude/hooks/retro-gate-stop.sh" ]; } && ok "U7-e refusal wrote nothing else (no settings.json, no stop hook)" || no "U7-e refusal still wrote files"
-  bash "$SUT" "$TMP/u7-e" --wire --prefix ac >/dev/null 2>&1; _rc=$?
-  [ "$_rc" = 3 ] && ok "U7-e --prefix on an existing hook: refused too (exit 3)" || no "U7-e --prefix on an existing hook: exit $_rc"
+  # --prefix is also the block-prefix flag operators re-pass on re-wires: an existing hook is left byte-identical, with a typed note, exit 0
+  _u7_wire_target "$TMP/u7-e5" P X; bash "$SUT" "$TMP/u7-e5" --wire >/dev/null 2>&1   # first wire: already-wired target
+  cp "$TMP/u7-e5/.claude/hooks/research-protocol.sh" "$TMP/u7-e5.before"
+  bash "$SUT" "$TMP/u7-e5" --wire --prefix xx >"$TMP/u7-e5.out" 2>"$TMP/u7-e5.err"; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-e re-wire --prefix on an already-wired target: exit 0" || no "U7-e re-wire --prefix: exit $_rc (want 0)"
+  grep -qF "note: --prefix not applied to existing $TMP/u7-e5/.claude/hooks/research-protocol.sh (fill <prefix> by hand)" "$TMP/u7-e5.out" && ok "U7-e re-wire --prefix: typed note" || no "U7-e re-wire --prefix: no typed note"
+  cmp -s "$TMP/u7-e5.before" "$TMP/u7-e5/.claude/hooks/research-protocol.sh" && ok "U7-e re-wire --prefix: hook byte-identical" || no "U7-e re-wire --prefix modified the hook"
+  # a last-argument flag with no value is a typed usage error (exit 2), never a bare shift crash
+  d="$TMP/u7-e6"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --prefix >"$TMP/u7-e6.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'usage: --prefix needs a value' "$TMP/u7-e6.out"; } && ok "U7-e --prefix as the last argument: typed usage error, exit 2" || no "U7-e --prefix last arg: exit $_rc"
+  # the fill rewrites through a same-dir temp file: mode and every non-placeholder byte survive, and no temp file is left behind
+  _u7_gen mode; chmod 755 "$TMP/u7g/mode/templates/hook-sessionstart.sh"
+  d="$TMP/u7-e7"; rm -rf "$d"; mkdir -p "$d"
+  bash "$TMP/u7g/mode/toolbelt/init.sh" "$d" --corpus flat --subject "Acme" --prefix ac >/dev/null 2>&1; _rc=$?
+  [ "$(stat -c %a "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-e fill preserves the template mode (755)" || no "U7-e fill changed the mode: $(stat -c %a "$d/.claude/hooks/research-protocol.sh")"
+  [ "$(diff "$TMP/u7g/mode/templates/hook-sessionstart.sh" "$d/.claude/hooks/research-protocol.sh" | grep -c '^>')" = 3 ] && ok "U7-e fill changed exactly the 3 placeholder lines (every other byte preserved)" || no "U7-e fill touched other lines"
+  [ -z "$(find "$d/.claude/hooks" -name '.hook.*')" ] && ok "U7-e fill left no temp file behind" || no "U7-e fill left a temp file"
   # an ADAPTED existing hook is refused the same way (never an overwrite)
   _u7_wire_target "$TMP/u7-e2"; cp "$TMP/u7-e2/.claude/hooks/research-protocol.sh" "$TMP/u7-e2.before"
   bash "$SUT" "$TMP/u7-e2" --wire --subject "Acme" >/dev/null 2>&1; _rc=$?
@@ -2440,11 +2465,6 @@ if command -v jq >/dev/null 2>&1; then
   _u7_ss_wired "$d" && ok "U7-e wire-only creating a filled hook: SessionStart registered" || no "U7-e SessionStart not registered after a filled create"
 
   # F. template-generation variants: placeholders on other lines / in another order; no line-number coupling
-  _u7_gen() {  # <name> — a kit copy whose templates/ dir is a private copy (so a variant hook template can be dropped in)
-    local k="$TMP/u7g/$1"; rm -rf "$k"; mkdir -p "$k/toolbelt/lib"
-    cp "$HERE/../lib/corpus-markers.sh" "$HERE/../lib/gh-visibility.sh" "$k/toolbelt/lib/"; cp -r "$HERE/../../templates" "$k/templates"
-    cp "$SUT" "$k/toolbelt/init.sh"; chmod +x "$k/toolbelt/init.sh"
-  }
   _u7_gen old
   { for _i in 1 2 3 4 5 6 7; do echo "# padding line $_i"; done
     echo "# SessionStart hook — Research-SDD protocol for <SUBJECT>."
@@ -4057,7 +4077,23 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     _u7t_exist() {  # <init>
       local d="$TMP/u7t/e" rc; _u7_wire_target "$d" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/e.before"
       bash "$1" "$d" --wire --subject Acme >/dev/null 2>"$TMP/u7t.err"; rc=$?
-      echo "rc=$rc refused=$(grep -cF 'REFUSED: --subject/--prefix' "$TMP/u7t.err") changed=$(cmp -s "$TMP/u7t/e.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
+      echo "rc=$rc refused=$(grep -cF 'REFUSED: --subject only fills' "$TMP/u7t.err") changed=$(cmp -s "$TMP/u7t/e.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
+    }
+    _u7t_prefix() {  # <init> — re-wire an already-wired target with --prefix: hook untouched, typed note, exit 0
+      local d="$TMP/u7t/p" rc; _u7_wire_target "$d" P X; bash "$1" "$d" --wire >/dev/null 2>&1
+      cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/p.before"
+      bash "$1" "$d" --wire --prefix xx >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc note=$(grep -cF 'note: --prefix not applied' "$TMP/u7t.out") changed=$(cmp -s "$TMP/u7t/p.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
+    }
+    _u7t_mode() {  # <init> — the fill must keep the template's mode (the mode kit's template is 755)
+      local d="$TMP/u7t/m" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --subject Acme >/dev/null 2>&1; rc=$?
+      echo "rc=$rc mode=$(stat -c %a "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_exec() {  # <init> <subject> — the FILLED hook must execute and emit valid JSON carrying the literal subject
+      local d="$TMP/u7t/x" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --subject "$2" >/dev/null 2>&1; rc=$?
+      echo "rc=$rc json=$(_u7_hook_json_ok "$d/.claude/hooks/research-protocol.sh" "$2" && echo 1 || echo 0)"
     }
     _u7t_nosubj() {  # <init> — scaffold --subject against the kit whose hook template has NO live <SUBJECT>
       local d="$TMP/u7t/n" rc; rm -rf "$d"; mkdir -p "$d"
@@ -4106,7 +4142,7 @@ _rsdd_has_live_subject_placeholder() { return 1; }' 'rc=0 ss=0' 'rc=0 ss=1' _u7t
     _u7t ESC '/^_rsdd_sed_escape() /c\
 _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 line=[RESEARCH PROTOCOL — a\nb (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — a]' _u7t_fill "$_u7t_hd" --subject 'a\nb'
     # the post-fill check: with the sed dead the typed FATAL is the only thing between a failed fill and a silently unfilled hook
-    _u7t SURVIVE 's/^    sed -i "\/\^\[\[:space:\]\]\*#\/! s|.*$/    : # sed dead/;s/^    if _rsdd_hook_has_placeholder "\$f" "\$ph"; then echo "FATAL: \$ph survived/    if false; then echo "FATAL: $ph survived/' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
+    _u7t SURVIVE 's/ > "\$tmp" \&\& mv -f/ > \/dev\/null \&\& cp "\$f" "\$tmp" \&\& mv -f/;s/^    if _rsdd_hook_has_placeholder "\$f" "\$ph"; then echo "FATAL: \$ph survived/    if false; then echo "FATAL: $ph survived/' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
     # wire-only creating the hook: the fill call is the only thing that applies the flag there
     _u7t FILL-WIREONLY '/^      _rsdd_fill_hook "\$_wo_ss" /d' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_wfill "$_u7t_hd"
     # validation: without it a blank subject is rendered into the hook
@@ -4118,6 +4154,16 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 line=[RESEARCH PROTOCOL — a\nb
     # template without a live <SUBJECT>: the typed refusal is the only thing between --subject and a silent no-op
     _u7t_tpl="$TMP/u7g/nosubj/templates"; _u7t_good="$TMP/u7g/nosubj/toolbelt/init.sh"
     _u7t NOSUBJ-TEMPLATE 's/^    if ! _rsdd_hook_has_placeholder "\$f" "\$ph"; then$/    if false; then/' 'rc=1 fatal=1' 'rc=0 fatal=0' _u7t_nosubj
+    _u7t_tpl=""; _u7t_good="$SUT"
+    # --prefix on an existing hook: refusing it again breaks `--wire --prefix <slug>` re-wires; dropping the note hides that it was skipped
+    _u7t PREFIX-REFUSE 's/^  if \[ "\$subject_given" = 1 \]; then$/  if [ "$subject_given" = 1 ] || [ -n "$prefix" ]; then/' 'rc=0 note=1 changed=0' 'rc=3 note=0 changed=0' _u7t_prefix
+    _u7t PREFIX-NOTE 's/echo "note: --prefix not applied/: "note: --prefix not applied/' 'rc=0 note=1 changed=0' 'rc=0 note=0 changed=0' _u7t_prefix
+    # an identity escaper turns a literal backslash-n into a newline: the filled hook no longer emits the literal subject
+    _u7t ESC-EXEC '/^_rsdd_sed_escape() /c\
+_rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 'a\nb'
+    # the temp-file rewrite must carry the mode over (cp -p): without it the hook becomes 600
+    _u7t_tpl="$TMP/u7g/mode/templates"; _u7t_good="$TMP/u7g/mode/toolbelt/init.sh"
+    _u7t MODE 's/ && cp -p "\$f" "\$tmp" \\$/ \\/' 'rc=0 mode=755' 'rc=0 mode=600' _u7t_mode
     _u7t_tpl=""; _u7t_good="$SUT"
   fi
   # kit issue #1787 / #1271 teeth. Every mutant that cannot be built is a FAIL (never a SKIP), like the M-1757 teeth.

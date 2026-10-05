@@ -25,9 +25,11 @@
 # _RSDD_HOOK_PLACEHOLDERS and shared by the fill and the guard: <SUBJECT> (filled by --subject "<phrase>", a noun phrase read
 # as "research of <phrase>"), <prefix> (filled by --prefix) and the <path to ...> primary-sources placeholder (no flag can
 # fill it: --wire WARNs with the next step). The fill happens only when THIS run creates the hook (scaffold, or --wire creating
-# an absent one). --subject/--prefix against an EXISTING hook are REFUSED (exit 3, typed REFUSED line, nothing written) —
-# never a silent overwrite — unless --force, which (as always) re-scaffolds over the existing corpus and hook. A bad value
-# (blank, multi-line, a control character, or one containing a placeholder token) is exit 2 before any write.
+# an absent one). --subject against an EXISTING hook is REFUSED (exit 3, typed REFUSED line, nothing written) — never a
+# silent overwrite — unless --force, which (as always) re-scaffolds over the existing corpus and hook. --prefix (also the
+# corpus block-prefix flag, re-passed on re-wires) leaves an existing hook untouched and prints a typed `note:` (exit 0).
+# A bad value (blank, multi-line, a control character, or one containing a placeholder token) is exit 2 before any write;
+# so is --subject/--prefix as the last argument with no value.
 # --wire still gates SessionStart registration on <SUBJECT> ONLY: the code never treated the others as blocking, and the
 # already-wired fleet carries <prefix>/<path to ...> in adapted hooks; they are named WARNs, not blockers.
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable/a newline in the target path / a dangling symlink at any path the run would write (.claude, .claude/hooks, hooks, scaffold files; settings.json only with --wire) (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
@@ -138,7 +140,7 @@ target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; 
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
-    --prefix)   prefix="${2:-}"; shift 2;;
+    --prefix)   [ $# -ge 2 ] || { echo "usage: --prefix needs a value" >&2; exit 2; }; prefix="$2"; shift 2;;
     --subject)  subject="${2:-}"; subject_given=1; shift $(( $# >= 2 ? 2 : 1 ));;   # kit issue #1845: fills <SUBJECT> when the hook is created
     --force)    force=1; shift;;
     --wire)     wire=1; shift;;
@@ -250,7 +252,7 @@ _rsdd_warn_other_placeholders() {
     [ "$ph" = "$_RSDD_PH_SUBJECT" ] && continue
     _rsdd_hook_has_placeholder "$f" "$ph" || continue
     case "$ph" in
-      '<prefix>') step="replace it with the block-file prefix (the --prefix slug) so the block glob resolves; a hook this run did not create is edited by hand";;
+      '<prefix>') step="replace it with the block-file prefix (the --prefix slug) by hand";;
       *)          step="no flag can fill it: edit the hook and list the real primary-source paths (binaries / decompiled output / source of the system under study) under item 3";;
     esac
     echo "WARN: $f still contains the $ph placeholder — $step. SessionStart wiring is NOT blocked by it." >&2
@@ -271,13 +273,16 @@ _rsdd_sed_pattern_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$|]/\\&/g'; }
 # kit issue #1845: fill the flag-supplied placeholders of a freshly copied hook, NON-COMMENT lines only. A typed failure
 # (rc 1, never a silent no-op) when a placeholder a flag was given for is absent from the template or survives the fill.
 _rsdd_fill_hook() {
-  local f="$1" ph val
+  local f="$1" ph val tmp
   for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
     val="$(_rsdd_placeholder_value "$ph")" || continue
     if ! _rsdd_hook_has_placeholder "$f" "$ph"; then
       echo "FATAL: the kit template $TPL/hook-sessionstart.sh carries no live $ph placeholder — nothing to fill from the flag (hook as copied: $f)" >&2; return 1
     fi
-    sed -i "/^[[:space:]]*#/! s|$(_rsdd_sed_pattern_escape "$ph")|$(_rsdd_sed_escape "$val")|g" "$f"
+    # temp file in the SAME directory + mv (never `sed -i`, whose flag differs on BSD/macOS); cp -p carries the mode over
+    tmp="$(mktemp "$(dirname "$f")/.hook.XXXXXX")" && cp -p "$f" "$tmp" \
+      && sed "/^[[:space:]]*#/! s|$(_rsdd_sed_pattern_escape "$ph")|$(_rsdd_sed_escape "$val")|g" "$f" > "$tmp" && mv -f "$tmp" "$f" \
+      || { [ -z "${tmp:-}" ] || rm -f "$tmp"; echo "FATAL: could not rewrite $f for $ph" >&2; return 1; }
     if _rsdd_hook_has_placeholder "$f" "$ph"; then echo "FATAL: $ph survived the fill in $f" >&2; return 1; fi
   done
 }
@@ -294,13 +299,17 @@ _rsdd_check_flag_value() {
 }
 [ "$subject_given" = 1 ] && { _rsdd_check_flag_value --subject "$subject" || exit 2; }
 [ -n "$prefix" ] && { _rsdd_check_flag_value --prefix "$prefix" || exit 2; }
-# kit issue #1845: --subject/--prefix fill only a hook THIS run creates; against an existing one they refuse (typed, before
-# any write) — a silent overwrite of a hand-adapted hook is exactly what the create-only copy exists to prevent.
+# kit issue #1845: the flags fill only a hook THIS run creates. An existing hook is never overwritten: --subject REFUSES (exit 3,
+# before any write); --prefix is also the corpus block-prefix flag that operators re-pass on re-wires, so it is a typed note.
 _rsdd_refuse_fill_on_existing_hook() {
   local f="$1"
-  { [ "$subject_given" = 1 ] || [ -n "$prefix" ]; } && [ -e "$f" ] || return 0
-  echo "REFUSED: --subject/--prefix only fill a hook this run creates, but $f already exists (nothing written). Edit it by hand, or pass --force to re-scaffold the WHOLE corpus (destructive: it clobbers hand-adapted hooks, INDEX.md and backlog rows, kit issue #1038)." >&2
-  exit 3
+  [ -e "$f" ] || return 0
+  if [ "$subject_given" = 1 ]; then
+    echo "REFUSED: --subject only fills a hook this run creates, but $f already exists (nothing written). Edit it by hand, or pass --force to re-scaffold the WHOLE corpus (destructive: it clobbers hand-adapted hooks, INDEX.md and backlog rows, kit issue #1038)." >&2
+    exit 3
+  fi
+  [ -z "$prefix" ] || echo "note: --prefix not applied to existing $f (fill <prefix> by hand)"
+  return 0
 }
 
 # kit issue #1040 finding 1 (round 2 of #1038), extended round 3: a hook may already be
