@@ -2063,13 +2063,24 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   _kpp_bare="$TMP/kpp-b.bare"; git init -q --bare "$_kpp_bare" 2>/dev/null; _kpp_br="$(git -C "$d" symbolic-ref --short HEAD)"
   ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/$_kpp_br" >"$TMP/kpp-clean.out" 2>&1 ); _kpp_rc=$?
   [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a push of a clean tree passes" || no "K1271-pp-b clean push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-clean.out"))"
-  assert_grep "K1271-pp-b the guard really scanned the pushed commit" "scanning pushed commit" "$TMP/kpp-clean.out"
+  assert_grep "K1271-pp-b the guard really scanned the pushed commit" "pushed file version" "$TMP/kpp-clean.out"
   ( cd "$d" && git checkout -q -b leakbr && : > Vendor.class && git add Vendor.class && git -c user.email=t@t -c user.name=t commit -qm leak && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
   ( cd "$d" && git push "$_kpp_bare" "$_kpp_br" >"$TMP/kpp-ok2.out" 2>&1 ); _kpp_rc=$?
   [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b pushing the clean branch while a leaking branch exists passes" || no "K1271-pp-b clean branch push rc=$_kpp_rc"
   ( cd "$d" && git push "$_kpp_bare" leakbr >"$TMP/kpp-leak.out" 2>&1 ); _kpp_rc=$?
   [ "$_kpp_rc" != 0 ] && grep -qF "Vendor.class" "$TMP/kpp-leak.out" && ok "K1271-pp-b pushing a NON-checked-out branch that carries a vendor binary is BLOCKED" || no "K1271-pp-b leak push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-leak.out"))"
   [ -z "$(git -C "$_kpp_bare" rev-parse --verify -q refs/heads/leakbr)" ] && ok "K1271-pp-b the leaking ref never reached the remote" || no "K1271-pp-b leak reached the remote"
+  assert_grep "K1271-pp-b a blocked push says BLOCKED (distinct from the NOT checked path)" "push BLOCKED" "$TMP/kpp-leak.out"
+  # RDD round 2: a vendor binary added in one commit and DELETED in the next still reaches the public history; the whole pushed range is scanned.
+  ( cd "$d" && git checkout -q -b delbr "$_kpp_br" && : > Gone.jar && git add Gone.jar && git -c user.email=t@t -c user.name=t commit -qm "add jar" \
+      && git rm -q Gone.jar && git -c user.email=t@t -c user.name=t commit -qm "drop jar" && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" delbr >"$TMP/kpp-del2.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Gone.jar" "$TMP/kpp-del2.out" && ok "K1271-pp-b a leak added then deleted inside the pushed range is BLOCKED" || no "K1271-pp-b add-then-delete rc=$_kpp_rc ($(tail -3 "$TMP/kpp-del2.out"))"
+  # a path with TWO pushed versions: the first (flagged) one is scanned too, not only the last.
+  ( cd "$d" && git checkout -q -b verbr "$_kpp_br" && : > Two.dll && git add Two.dll && git -c user.email=t@t -c user.name=t commit -qm v1 \
+      && printf x > Two.dll && git -c user.email=t@t -c user.name=t commit -qam v2 && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" verbr >"$TMP/kpp-ver.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Two.dll" "$TMP/kpp-ver.out" && ok "K1271-pp-b a path pushed in several versions is scanned (round 1 and 2)" || no "K1271-pp-b multi-version rc=$_kpp_rc"
   ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/tmpdel" >/dev/null 2>&1; git push "$_kpp_bare" :tmpdel >"$TMP/kpp-del.out" 2>&1 ); _kpp_rc=$?
   [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a ref deletion (zero sha) is skipped, not blocked" || no "K1271-pp-b deletion rc=$_kpp_rc"
   # (c) idempotent: our own up-to-date hook already present (the vendor-leak step runs on the scaffold path only) is left byte-identical.
@@ -2114,7 +2125,7 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >"$TMP/kpp.out" 2>&1
   git init -q --bare "$TMP/kpp-h.bare" 2>/dev/null
   ( cd "$d" && git add -A && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1; git push "$TMP/kpp-h.bare" HEAD:refs/heads/x >"$TMP/kpp-q.out" 2>&1 ); _kpp_rc=$?
-  [ "$_kpp_rc" = 0 ] && grep -qF "scanning pushed commit" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
+  [ "$_kpp_rc" = 0 ] && grep -qF "pushed file version" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
 fi
 
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
@@ -3704,6 +3715,27 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$_m_rc" = 0 ] && [ "$_m_rc_good" != 0 ] && ok "teeth M-1271-PUSHED: a non-checked-out leaking branch passes when the checkout is scanned (good=$_m_rc_good) — K1271-pp-b has teeth" \
       || no "teeth M-1271-PUSHED: mutant rc=$_m_rc good rc=$_m_rc_good — K1271-pp-b push test is THEATER"
   else no "teeth M-1271-PUSHED: could not build mutant"; fi
+  # M-1271-TIPONLY: only the tip commit's changes are scanned -> a leak added then deleted inside the pushed range passes.
+  _pt="$TMP/k43/tiponly"; mkdir -p "$_pt/templates" "$_pt/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pt/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pt/templates/hook-prepush-vendor-leak.sh" 's|rev-list "\$lsha" --not|rev-list -1 "$lsha" --not|g'; then
+    d="$(_k71_target m-tip https://example.invalid/pub.git)"
+    ( cd "$d" && : > ok.txt && git add -A && git -c user.email=t@t -c user.name=t commit -qm base && git checkout -q -b delbr && : > Gone.jar && git add Gone.jar \
+        && git -c user.email=t@t -c user.name=t commit -qm add && git rm -q Gone.jar && git -c user.email=t@t -c user.name=t commit -qm drop && git checkout -q - ) >/dev/null 2>&1
+    _m_sha="$(git -C "$d" rev-parse delbr)"
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | bash "$_pt/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc=$?
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc_good=$?
+    [ "$_m_rc" = 0 ] && [ "$_m_rc_good" != 0 ] && ok "teeth M-1271-TIPONLY: add-then-delete passes when only the tip is scanned (good=$_m_rc_good) — K1271-pp-b range test has teeth" \
+      || no "teeth M-1271-TIPONLY: mutant rc=$_m_rc good rc=$_m_rc_good — the range test is THEATER"
+  else no "teeth M-1271-TIPONLY: could not build mutant"; fi
+  # M-1271-TRAP: the temp-dir cleanup trap is gone -> a blocked run leaves its temp dir behind (TMPDIR hygiene).
+  _pr="$TMP/k43/notrap"; mkdir -p "$_pr/templates" "$_pr/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pr/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pr/templates/hook-prepush-vendor-leak.sh" "/^trap 'rm -rf/d"; then
+    mkdir -p "$TMP/trap-good" "$TMP/trap-bad"
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | TMPDIR="$TMP/trap-good" bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 )
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | TMPDIR="$TMP/trap-bad" bash "$_pr/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 )
+    [ -z "$(ls -A "$TMP/trap-good")" ] && ok "K1271-pp-trap the guard leaves no temp dir behind after a blocked run" || no "K1271-pp-trap leftovers: $(ls "$TMP/trap-good")"
+    [ -n "$(ls -A "$TMP/trap-bad")" ] && ok "teeth M-1271-TRAP: without the trap the temp dir is left behind — K1271-pp-trap has teeth" || no "teeth M-1271-TRAP: no leftover under the mutant — K1271-pp-trap is THEATER"
+  else no "teeth M-1271-TRAP: could not build mutant"; fi
   # M-1787-FATAL: the drift pass is fatal again (exit 4) -> K1787-f has teeth.
   if _k87_mb "k87 fatal" 's/_wo_drift_out="\$(_rsdd_wire_drift "\$_wo_settings")" || :/_wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || exit 4/'; then
     d="$TMP/k87m-fatal"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
