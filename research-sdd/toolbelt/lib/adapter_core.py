@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Shared adapter-core primitives for Research-SDD toolbelt adapters.
 
+Contract: lib/adapter-core.v1.md
+
 All primitives that were duplicated across corroborate_*.py are centralised
 here so that item-24 can migrate adapters via pure deletion + import.
 

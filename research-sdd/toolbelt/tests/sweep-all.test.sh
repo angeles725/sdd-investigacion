@@ -4,15 +4,17 @@
 # Assertions (in order):
 #   1. sweep-all.sh exists on disk
 #   2. sweep-all.sh is executable
-#   3. All-pass: all 7 stubs exit 0 → sweep-all exits 0
+#   3. All-pass: all canonical stubs exit 0 → sweep-all exits 0
 #   4. One-fail: one stub exits 1 → sweep-all exits non-zero
-#   5. Run-all: even when one stub fails, all 7 stubs are called (no early bail)
+#   5. Run-all: even when one stub fails, all canonical stubs are called (no early bail)
 #   6. Banners: PASS banner for passing script; FAIL banner for failing script
 #   7. Timeout: a hanging stub is killed after timeout → sweep-all exits non-zero
 #   8. Timeout-banner: the FAIL banner includes a timeout indication for the killed script
+#   9. Parity: sweep-all's list == the kit's registered SessionStart hook set == CANONICAL
+#  10. Real scripts: every script sweep-all lists exists and is executable in the real toolbelt
 #
-# All behavioral tests (3-8) are implemented by copying sweep-all.sh into a temp dir
-# alongside stub replacements of the seven canonical scripts, so sweep-all.sh's own
+# Behavioral tests 3-8 are implemented by copying sweep-all.sh into a temp dir
+# alongside stub replacements of the canonical scripts, so sweep-all.sh's own
 # TOOLBELT=$(dirname $0) resolution finds the stubs rather than the real scripts.
 #
 # Usage: sweep-all.test.sh
@@ -42,7 +44,8 @@ echo "== sweep-all.test.sh =="
 
 # ---- Bail early if SUT is missing: behavioral tests need it ----------------
 if [ ! -f "$SUT" ]; then
-  for n in 3 4 5 6 7 8; do
+  # Derived from this header's numbered assertion list (3 and up) so the bail count cannot drift.
+  for n in $(sed -nE 's/^#[[:space:]]+([0-9]+)\..*/\1/p' "$0" | awk '$1>=3'); do
     no "$n (skipped: sweep-all.sh missing — cannot test behavior)"
   done
   echo "== $pass passed · $fail failed =="
@@ -56,7 +59,7 @@ mkdir -p "$FAKE"
 cp "$SUT" "$FAKE/sweep-all.sh"
 chmod +x "$FAKE/sweep-all.sh"
 
-CANONICAL=(sweep-retros.sh sweep-audits.sh sweep-breakthroughs.sh verify-registry.sh verify-kit-clean.sh sweep-tools.sh verify-tool-catalog.sh)
+CANONICAL=(sweep-retros.sh sweep-audits.sh sweep-breakthroughs.sh verify-registry.sh verify-kit-clean.sh sweep-tools.sh verify-tool-catalog.sh verify-skill-drift.sh)
 
 # make_stub <name> <exit_code> — write a stub script that logs its name then exits
 make_stub() {
@@ -85,7 +88,7 @@ make_hanging_stub() {
 for s in "${CANONICAL[@]}"; do make_stub "$s" 0; done
 OUT="$(bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] \
-  && ok "3 all-pass: all 7 stubs pass → sweep-all exits 0" \
+  && ok "3 all-pass: all ${#CANONICAL[@]} stubs pass → sweep-all exits 0" \
   || no "3 all-pass: expected exit 0 got $RC (out=[$OUT])"
 
 # ---- 4. One-fail → exit non-zero ------------------------------------------
@@ -140,6 +143,60 @@ OUT="$(RSDD_SWEEP_TIMEOUT=1 bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
   && ok "8 timeout-banner: FAIL banner mentions timeout for killed script" \
   || no "8 timeout-banner: expected FAIL+timeout indication (out=[$OUT])"
 
+# ---- 9. SessionStart-set parity (both directions) --------------------------
+# sweep-all.sh is the manual stand-in for Claude's SessionStart hooks, so its script list must equal
+# the set the kit's own .claude/settings.json registers (each <name>-hook.sh maps to <name>.sh). A hook
+# added without a sweep-all entry (or the reverse) is exactly how verify-skill-drift went unwired.
+SETTINGS="$TOOLBELT/../../.claude/settings.json"
+# parity_diff <sweep-all-path> — prints the divergence ("registered-only=[..] sweep-all-only=[..]");
+# empty output means the two sets are equal. rc 2 = could not extract a set (never a silent pass).
+parity_diff() {
+  local sut="$1" reg mine only_reg only_sa
+  reg="$(python3 - "$SETTINGS" <<'PY'
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+for grp in d.get("hooks", {}).get("SessionStart", []):
+    for h in grp.get("hooks", []):
+        m = re.search(r"toolbelt/([A-Za-z0-9_.-]+)-hook\.sh", h.get("command", ""))
+        if m:
+            print(m.group(1) + ".sh")
+PY
+)"
+  reg="$(printf '%s\n' "$reg" | sort -u)"
+  mine="$(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$sut" | sed 's#^\$TOOLBELT/##' | sort -u)"
+  if [ -z "$reg" ] || [ -z "$mine" ]; then
+    echo "could not extract a set (registered=[${reg//$'\n'/ }] sweep-all=[${mine//$'\n'/ }])"; return 2
+  fi
+  only_reg="$(comm -23 <(printf '%s\n' "$reg") <(printf '%s\n' "$mine") | tr '\n' ' ')"
+  only_sa="$(comm -13 <(printf '%s\n' "$reg") <(printf '%s\n' "$mine") | tr '\n' ' ')"
+  [ -z "$only_reg" ] && [ -z "$only_sa" ] || echo "registered-only=[$only_reg] sweep-all-only=[$only_sa]"
+}
+if [ ! -f "$SETTINGS" ]; then
+  no "9 parity: $SETTINGS not found (cannot prove the SessionStart set)"
+else
+  diff9="$(parity_diff "$SUT")"; rc9=$?
+  canon="$(printf '%s\n' "${CANONICAL[@]}" | sort -u)"
+  mine9="$(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$SUT" | sed 's#^\$TOOLBELT/##' | sort -u)"
+  [ "$rc9" -eq 0 ] && [ -z "$diff9" ] && [ "$canon" = "$mine9" ] \
+    && ok "9 parity: sweep-all script list == registered SessionStart hook set == test CANONICAL" \
+    || no "9 parity: $diff9 (rc=$rc9, canonical-equals-sut=$([ "$canon" = "$mine9" ] && echo y || echo n))"
+fi
+
+# ---- 10. Every listed script exists + is executable in the REAL toolbelt -----
+# Tests 3-8 stub every script, so nothing else proves the real list resolves; a missing script would
+# FAIL every real sweep. missing_real <sweep-all-path> lists the entries absent / non-executable here.
+missing_real() {
+  local f
+  while IFS= read -r f; do
+    [ -f "$TOOLBELT/$f" ] && [ -x "$TOOLBELT/$f" ] || printf '%s ' "$f"
+  done < <(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$1" | sed 's#^\$TOOLBELT/##' | sort -u)
+}
+listed10="$(grep -cE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$SUT")"
+miss10="$(missing_real "$SUT")"
+[ "$listed10" -gt 0 ] && [ -z "$miss10" ] \
+  && ok "10 real-scripts: all $listed10 listed scripts exist and are executable in the real toolbelt" \
+  || no "10 real-scripts: listed=$listed10 missing-or-not-executable=[$miss10]"
+
 # ---- Teeth: prove run-all invariant catches a dropped script ----------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Sourced only here: a plain run never depends on the mutation helper.
@@ -166,6 +223,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth: mutant called $mutant_calls scripts — run-all check is THEATER"
   fi
+  # Parity teeth: dropping one script (the original gap) and adding an unregistered one must each diverge.
+  if mutant_chain "teeth: parity drop-script mutant build" "$SUT" "$FAKE/mutant-drop.sh" '/verify-skill-drift\.sh"/d'; then
+    d="$(parity_diff "$FAKE/mutant-drop.sh")"
+    [ -n "$d" ] && ok "teeth: dropped script is reported by parity ($d)" || no "teeth: parity did not notice a dropped script — THEATER"
+  else no "teeth: could not build parity drop mutant"; fi
+  if mutant_chain "teeth: parity extra-script mutant build" "$SUT" "$FAKE/mutant-extra.sh" '/verify-skill-drift\.sh"/a\  "$TOOLBELT/not-a-hook.sh"'; then
+    d="$(parity_diff "$FAKE/mutant-extra.sh")"
+    [ -n "$d" ] && ok "teeth: extra script is reported by parity ($d)" || no "teeth: parity did not notice an extra script — THEATER"
+  else no "teeth: could not build parity extra mutant"; fi
+  if mutant_chain "teeth: missing-script mutant build" "$SUT" "$FAKE/mutant-missing.sh" '/verify-skill-drift\.sh"/a\  "$TOOLBELT/does-not-exist.sh"'; then
+    d="$(missing_real "$FAKE/mutant-missing.sh")"
+    [ -n "$d" ] && ok "teeth: nonexistent listed script is reported by real-script check ($d)" || no "teeth: real-script check did not notice a missing script — THEATER"
+  else no "teeth: could not build missing-script mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Shared higher-level adapter helpers for Research-SDD toolbelt adapters.
 
+Contract: lib/adapter-helpers.v1.md
+
 Built on top of adapter_core primitives.  New adapters (unblob, floss, capa,
 kaitai) import from here instead of re-deriving the evidence envelope, the
 manifest-CLI tail, and the format parsers that are duplicated across the
