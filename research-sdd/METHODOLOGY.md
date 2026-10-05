@@ -903,7 +903,7 @@ enforces the gate; the researcher maintains the number.
 
 **Seeding.** The field starts at `undocumented_findings: 0` in a new RESEARCH-STATE.md.
 `--sync-state` carries the value forward (it cannot derive it from disk); if the field is
-absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
+absent from an existing envelope, `--sync-state` leaves it absent (UF-NO-INVENT, never an invented 0); only a first seed with no fence writes 0. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
 **Anti-ephemeral-artifact rule.** A deliverable's SOURCE — a dashboard's code, a generated script, any
@@ -1365,7 +1365,7 @@ contain multiple `## Gap-backlog (…)` tables; all are counted together.
 **Out-of-backlog tables (#1307).** Near-miss headings (`## Gap backlog`, `## Backlog`) are still read, with a WARN. Under any non-canonical heading a table counts only if its header's first cell is priority-shaped (`Priority`, `Pr.`, `P`, `Prioridad`), so a `Severity` table is never gaps. Tiers outside §8b (`4`, `**HIGH**`, `MED`, `low-med`) are excluded with a WARN and make derived `known_gaps` a lower bound.
 
 **Migration (propose-never-apply).** Corpus edits are always the human's; tooling WARNs and never
-auto-applies. Migration classes to address:
+auto-applies (mechanical classes: `toolbelt/migrate-backlogs.sh`, propose-only). Migration classes to address:
 
 - **Qualifiers** → strip qualifier; move qualifier prose to Gap cell or Status decoration.
 - Abbreviated or compound tiers (`med`, `MED`) → a real tier; `critical` → `high`.
@@ -2213,7 +2213,7 @@ niagara-tools fold campaign 2026-10-02 — two writers ran ~900 tests serially a
 `read-only investigable: N` number in line with what `verify-state.sh` recomputes from disk. The human applies the
 diff (propose-never-apply); it never proposes `known_gaps`, `gaps_closed` or any hand-set field. Its last stderr
 line (`state-update: checked= skipped= changed= degraded= unproposed=`) counts the verify-state FAIL lines it does
-not own: exit 0 means "no change proposed", not "verify-state passes".
+not own: exit 0 means "no change proposed", not "verify-state passes". One owner per field: `research-sdd-status.sh --sync-state` is the operator-invoked writer the loop runs on its own corpus (PROMPT-LOOP UPDATE STATE) and the only tool that writes `known_gaps` / `gaps_closed`; `state-update.sh` writes nothing, is the diff to review, and alone proposes the Stop-control `read-only investigable: N` number.
 
 ## 12. Dynamic phase (validation against a live system)
 

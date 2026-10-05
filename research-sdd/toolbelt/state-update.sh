@@ -16,9 +16,11 @@
 # file (other lines keep their text and position). The proposal therefore cannot disagree with the lint, and
 # a counter verify-state does not flag (e.g. a shared-global focus it reports INFO "unverifiable") is never
 # proposed. The cost is a contract on verify-state's message wording; the suite pins every parsed form.
-# (research-sdd-status.sh --sync-state was evaluated as the engine and rejected: it re-derives known_gaps /
-# gaps_closed from the backlog table, which undercounts closed gaps tracked in prose — 65 -> 35 on a real
-# focus — and seeds covered_blocks=0 for shared-global focuses, where verify-state certifies nothing.)
+# (research-sdd-status.sh --sync-state was evaluated as the engine and rejected: it is an in-place writer, not
+# a diff, and it re-derives known_gaps / gaps_closed from the backlog table, which undercounted closed gaps
+# tracked in prose — 65 -> 35 on a real focus; since kit #1637 it keeps a higher declared pair, but a diff
+# engine must still never propose those fields. Ownership: --sync-state is the operator-invoked writer the
+# loop runs on its own corpus; this script is the propose-only diff for review.)
 #
 # Usage: state-update.sh <target-dir>
 # Exit: 0 = no change proposed · 1 = change proposed (diff on stdout) · 2 = usage / no state file

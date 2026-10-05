@@ -996,6 +996,9 @@ Always read first, in this order:
          later lints them (verify-state.sh, steps 5/7). SCRIPTS-LANE note: if `--sync-state`'s count and
          `verify-state.sh`'s ever DISAGREE, that reconcile is a scripts-lane concern (route to the peer who
          owns those scripts), out of scope for this doctrine.
+         Ownership (kit #1819): `--sync-state` is the in-place writer the loop runs on its OWN corpus and the only
+         writer of known_gaps / gaps_closed; `state-update.sh` is the propose-only diff for review (it also alone
+         proposes the Stop-control `read-only investigable: N` number) — never hand-edit either way.
        - EDGE-TRIGGERED LINT (in-edit, scoped — these are the AGENT'S OWN calculators, exactly like step 5's
          verify-block, NOT orchestrator gates; see METHODOLOGY §11): right after editing the RESEARCH-STATE
          summary, run `$KIT/toolbelt/verify-state.sh $CORPUS --focus <focus-slug>` (cheap — one file;
