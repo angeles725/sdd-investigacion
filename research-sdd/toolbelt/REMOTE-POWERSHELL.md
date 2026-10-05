@@ -59,7 +59,7 @@ cannot contain a single quote. The example above is safe only because its source
 `"s"`). Write the `.ToString('s')` form into `PS='...'` and bash silently drops the inner quotes
 before encoding; `-EncodedCommand` then ships the already-damaged text and the failure surfaces on the
 remote host (e.g. `Get-CimInstance : Consulta no válida`, 0x80041017), not as a local error. Measured
-locally (bash + `base64`/`iconv` UTF-16LE round-trip, no remote host):
+locally (bash + `python3` UTF-16LE base64 encode/decode round-trip, no remote host):
 
 ```
 PS='Write-Output ((Get-Date).ToString('s'))'        # inner quotes end and restart the string

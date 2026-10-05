@@ -11,14 +11,14 @@
 #
 # Usage: remote-powershell-doc.test.sh                (run the suite)
 #        remote-powershell-doc.test.sh --prove-teeth  (suite + mutation controls)
-# Exit: 0 = held · 1 = regression · 2 = harness error.
+# Exit: 0 = held · 1 = regression · 2 = harness error or DEGRADED (python3 absent: demo could not run).
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DOC="$HERE/../REMOTE-POWERSHELL.md"
 [ -s "$DOC" ] || { echo "FATAL: doc under test missing or empty: $DOC" >&2; exit 2; }
 
-pass=0; fail=0
+pass=0; fail=0; DEGRADED=0   # DEGRADED: checks that could not run (missing runtime dependency) — never a pass (§7)
 ok()  { echo "  PASS  $1"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $1"; fail=$((fail+1)); }
 chk() { if [ "$2" -eq 0 ]; then ok "$1"; else bad "$1"; fi; }   # chk LABEL RC
@@ -54,7 +54,8 @@ check_doc() {
 demo_quoting() {
   local ps_bad ps_good dec_bad dec_good ratio
   if ! command -v python3 >/dev/null 2>&1; then
-    echo "  SKIP  quoting demonstration: python3 absent (not a pass)"; return 0
+    echo "  SKIP  quoting demonstration: DEGRADED — python3 absent (not a pass)"
+    DEGRADED=$((DEGRADED+1)); return 0
   fi
   enc() { python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('utf-16-le')).decode())" "$1"; }
   dec() { python3 -c "import sys,base64;print(base64.b64decode(sys.stdin.read()).decode('utf-16-le'),end='')"; }
@@ -97,7 +98,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth wrong-ratio 's|2\.67x|3x|g'
   tooth drop-length-sentinel 's|^<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->$||'
   tooth drop-remote-script-file 's|remote script file|remote thing|g'
-  if ! command -v python3 >/dev/null 2>&1; then echo "  SKIP  tooth demo-damaged-heredoc: python3 absent"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  SKIP  tooth demo-damaged-heredoc: DEGRADED — python3 absent (not a pass)"; DEGRADED=$((DEGRADED+1))
   else
   out="$(DEMO_MUTANT=1 demo_quoting)"
   if grep -q '^  FAIL  demo' <<<"$out"; then ok "tooth demo-damaged-heredoc bites"; else bad "tooth demo-damaged-heredoc: stayed green"; fi
@@ -105,4 +107,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 echo "== $pass passed · $fail failed =="
+if [ "$DEGRADED" -gt 0 ]; then
+  echo "DEGRADED: $DEGRADED check(s) could not run (python3 absent) — the doc's measured claims are unverified; exit 2, not a pass" >&2
+  [ "$fail" -eq 0 ] || exit 1
+  exit 2
+fi
 [ "$fail" -eq 0 ]
