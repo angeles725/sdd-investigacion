@@ -957,7 +957,12 @@ _scrub_refuse() {
 # `unknown` (a write may have happened and is unproven — NEVER retried; counted in mutation-summary unknown=).
 mutation_unknown=0; mutation_confirmed=0; mutation_nowrite=0
 _row_nowrite() { mutation_nowrite=$((mutation_nowrite+1)); echo "mutation_outcome: no_write (row $1)"; }
-_row_unknown() { mutation_unknown=$((mutation_unknown+1)); echo "mutation_outcome: unknown (row $1)"; }
+# An unknown outcome may have landed a new issue the cached occurrence list (see _occ_fetch) cannot contain, so
+# the cache is invalidated: the next row re-runs the lookup live (kit issue #1753; one extra list call, only here).
+_row_unknown() {
+  mutation_unknown=$((mutation_unknown+1)); echo "mutation_outcome: unknown (row $1)"
+  _occ_cache_state=""   # STAGE_RETRO_ISSUES_OCC_CACHE_INVALIDATE
+}
 
 # STAGE_RETRO_ISSUES_MIN_TITLE (kit issue #1260 / #1492): a title shorter than this many characters is
 # a mis-read cell, never a delta summary. Measured 2026-10-03: the fleet minimum planned title is 19
@@ -1084,6 +1089,7 @@ _occ_fetch() {
 _occ_cache_add() {
   local _r="$_occ_cache_reply" _t="$2" _sep=","
   _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"
+  _t="${_t//$'\n'/\\n}"; _t="${_t//$'\r'/\\r}"; _t="${_t//$'\t'/\\t}"
   _r="${_r%"${_r##*[![:space:]]}"}"; _r="${_r%]}"
   if [[ "$_r" =~ ^[[:space:]]*\[[[:space:]]*$ ]]; then _sep=""; fi
   _occ_cache_reply="${_r}${_sep}{\"number\":$1,\"state\":\"OPEN\",\"title\":\"${_t}\"}]"
