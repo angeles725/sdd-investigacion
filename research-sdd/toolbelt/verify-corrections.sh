@@ -88,8 +88,11 @@ _vc_extract() {
     # A `.` ends the clause only when it ends a SENTENCE: not after a known abbreviation (EN + ES, ONE list, below)
     # nor a single-letter initial. Byte-level, lowercase compare (the caller lowercases and runs under LC_ALL=C).
     # MULTI-TARGET (#1835 item 3): after the first bound ref, further [Block N] refs in the SAME clause are targets
-    # too, but only when joined to the previous one by `and`/`y`/`e`/`&`/`/`/`+` (optionally with section locators
+    # too, but only when joined to the previous one by the WORD `and`/`y`/`e` or `&` (optionally with section locators
     # such as `§6.3–6.4` between them). Any other text between two refs ends the list: a cross-reference is not a target.
+    # Deliberately NOT joiners: `/` and `+` (a `([Block 537]/[Block 538]/[Block 545])` run is an evidence citation, measured
+    # on niagara-research bloque717: 1 FAIL became 3) and a bare comma (`[Block 3], [Block 4] is related` could false-bind a
+    # cross-reference; tests/verify-corrections-binding.test.sh case 17 pins both). A `, and` already ends the clause above.
     function more(cl,   rest, g, m, st, ln) {
       if (!match(cl, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) return
       rest = substr(cl, RSTART + RLENGTH)
@@ -97,7 +100,7 @@ _vc_extract() {
         st = RSTART; ln = RLENGTH
         g = substr(rest, 1, st - 1); m = substr(rest, st, ln)
         gsub("\302\247", "", g); gsub("\342\200\223", "-", g)
-        if (g !~ /^[ \t0-9.,-]*(and|y|e|&|\/|\+)[ \t0-9.,-]*$/) return
+        if (g !~ /^[ \t0-9.,-]*(and|y|e|&)[ \t0-9.,-]*$/) return
         gsub(/[^0-9]/, "", m); emit(m)
         rest = substr(rest, st + ln)
       }
@@ -120,8 +123,12 @@ _vc_extract() {
         ve = ms + RLENGTH
         if (substr(l, vs, 8) == "corrects" && substr(l, ve, 1) ~ /[a-z0-9_]/) { p = ve; continue }
         tok = substr(l, vs, ve - vs)
-        # `corrigendum`/`corrigenda` is a NOUN (the backlink vocabulary itself), never a correction verb.
-        if (tok ~ /^corrigend/) { p = ve; continue }
+        # `corrigendum`/`corrigenda` is a NOUN (the backlink vocabulary itself): a bare `CORRIGENDUM [Bloque N]` is a
+        # backlink, never a declaration. But `CORRIGENDUM [`CERT`] al [Bloque 32]` (optional short tag, then al/a/to/of,
+        # then the ref) DECLARES a correction of that block (niagara-research bloque107/108) and falls through.
+        if (tok ~ /^corrigend/) {
+          if (substr(l, ve) !~ /^[ \t]*(`?\[[^]\[]*\]`?)?[ \t]*(al|a|to|of)[ \t]+\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) { p = ve; continue }
+        }
         # NON-ASSERTIVE forms declare nothing (#1835 item 5): passive/conditional `se corrige` (incl. `si no se
         # corrige`) and past-tense narrative `corrigió`/`corrigieron`. Counted and surfaced, never silently dropped.
         pre = substr(l, 1, vs - 1)
@@ -205,7 +212,7 @@ for f in "${blocks[@]}"; do
     if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then
       : # reciprocated
     else
-      echo "   FAIL   B$c corrects [Block $n] but $(basename "$tgt") has no reciprocal 'corrected in B$c' backlink (§14)"
+      echo "   FAIL   B$c corrects [Block $n] but $(basename "$tgt") has no reciprocal backlink to B$c (accepted: 'corrected in'/'corregido en'/corrigendum/erratum naming it) (§14)"
       rc=1
     fi
   done

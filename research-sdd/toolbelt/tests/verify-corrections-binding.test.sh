@@ -198,12 +198,6 @@ mk "$d" 60 '# Block 60\n\n> Corrects [Block 6] §6.3–6.4 and [Block 5] §5.4.\
 out="$(run "$d")"
 if grep -qE 'B60 corrects \[Block 6\] ' <<<"$out" && grep -qE 'B60 corrects \[Block 5\] ' <<<"$out"; then ok "'[Block 6] §6.3–6.4 and [Block 5] §5.4' → both targets checked"
 else no "multi-and :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
-d="$TMP/multi-slash"; blank "$d" 1 2 3
-mk "$d" 61 '# Block 61\n\n> Corrects [Block 1]/[Block 2]/[Block 3].\n'
-out="$(run "$d")"; slash_ok=1
-for _n in 1 2 3; do grep -qE "B61 corrects \[Block $_n\] " <<<"$out" || slash_ok=0; done
-if [ "$slash_ok" = 1 ]; then ok "'[Block 1]/[Block 2]/[Block 3]' → first, middle and last all checked"
-else no "multi-slash :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 d="$TMP/multi-y"; blank "$d" 7 8
 mk "$d" 62 '# Block 62\n\n> Corrige [Block 7] y [Bloque 8].\n'
 out="$(run "$d")"
@@ -234,6 +228,36 @@ for _s in 'Corrige [Block 8] §2.' 'Este bloque corrige [Block 8] §2.' 'Aquel p
 done
 if [ "$pa_ok" = 1 ]; then ok "assertive 'Corrige/corrige' (not preceded by 'se') still declares the correction"
 else no "non-assertive control: an assertive verb was dropped"; fi
+
+# 16 — CORRIGENDUM AS DECLARATION (correction round): `CORRIGENDUM [`CERT`] al [Bloque 32]` (the real niagara-research
+#      bloque107/108 shape) declares a correction; a BARE `CORRIGENDUM [Bloque N]` (noun right before the ref) stays a backlink.
+cg_ok=1; cg_bad=""
+for _s in 'CORRIGENDUM `[CERT]` al [Bloque 32] §2.' 'CORRIGENDUM al [Bloque 32].' 'Corrigenda a [Block 32].' 'CORRIGENDUM [CERT] to [Block 32].' 'corrigendum of [Block 32].'; do
+  d="$TMP/cg"; rm -rf "$d"; blank "$d" 32; mk "$d" 107 '# Block 107\n\n%s\n' "$_s"
+  grep -qE 'FAIL +B107 corrects \[Block 32\] ' <<<"$(run "$d")" || { cg_ok=0; cg_bad="$cg_bad [$_s]"; }
+done
+if [ "$cg_ok" = 1 ]; then ok "'CORRIGENDUM [tag] al/a/to/of [Bloque N]' is a DECLARATION (true FAIL, not silently lost)"
+else no "corrigendum-decl :: lost:$cg_bad"; fi
+# 16b — both forms in one corpus: B82's bare backlink in block21 satisfies B82→21 AND does not declare B21→B82.
+d="$TMP/cg-both"; pmk "$d" t 82 '# Block 82\n\n> Corrects [Block 21].\n'; pmk "$d" t 21 '# Block 21\n\nCORRIGENDUM [Bloque 82] — see there.\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'B21 corrects' <<<"$out"; then ok "bare 'CORRIGENDUM [Bloque 82]' stays a backlink (B82→21 ok) and declares nothing"
+else no "corrigendum-bare :: $(tr '\n' '|' <<<"$out")"; fi
+
+# 17 — `/`, `+` and comma are NOT joiners (correction round): slash lists are evidence citations, comma-only lists could
+#      false-bind a cross-reference. Only the FIRST ref of each is a target.
+d="$TMP/join-neg"; blank "$d" 1 2 3 537 538 545
+mk "$d" 80 '# Block 80\n\n> Corrects [Block 1]/[Block 2].\n'
+mk "$d" 81 '# Block 81\n\n> Corrects [Block 3] + [Block 2].\n'
+mk "$d" 82 '# Block 82\n\n> Corrects [Block 3], [Block 2] is related.\n'
+mk "$d" 83 "# Block 83\\n\\n> corrects this focus's bootstrap remittance — kitControl is DONE ([Block 537]/[Block 538]/[Block 545])\\n"
+out="$(run "$d")"
+if grep -qE 'B80 corrects \[Block 1\] ' <<<"$out" && ! grep -qE 'B80 corrects \[Block 2\]' <<<"$out" \
+   && ! grep -qE 'B81 corrects \[Block 2\]' <<<"$out" && ! grep -qE 'B82 corrects \[Block 2\]' <<<"$out" \
+   && grep -qE 'B82 corrects \[Block 3\] ' <<<"$out" \
+   && grep -qE 'B83 corrects \[Block 537\] ' <<<"$out" && ! grep -qE 'B83 corrects \[Block (538|545)\]' <<<"$out"; then
+  ok "'/', '+' and a bare comma do not join targets: only the first ref binds (incl. the real bloque717 citation list)"
+else no "join-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 
 # NEGATIVE CONTROLS — each mutant disables ONE binding rule and must flip exactly the case that owns it.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -333,6 +357,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tt "teeth: number-only mutant checks zz-block1 for aa's B4 (false FAIL)" 0 1 "$m" --orig "$SUT" \
       --bad-has 'FAIL +B4 corrects \[Block 1\] but zz-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-aa"
   fi
+  # ORDER-INDEPENDENCE: a last-wins mutant only bites when the colliding prefix sorts AFTER the own one (pfx-aa); a
+  # first-wins mutant only bites when it sorts BEFORE (pfx-zz). Both directions are pinned, so the prefix tooth cannot
+  # pass on iteration order alone.
+  m="$TMP/vc.PREFIX1.sh"
+  if mk_mut "teeth: prefix scope (first-wins)" "$SUT" "$m" 's#tgt="${numfile\["$(blockprefix "$f")|$n"\]:-}"#tgt="${numany[$n]:-}"#' \
+       's#numany\["$_vc_n"\]="$f"#[ -n "${numany[$_vc_n]:-}" ] || numany["$_vc_n"]="$f"#'; then
+    tt "teeth: first-wins number-only mutant checks aa-block1 for zz's B4 (false FAIL)" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B4 corrects \[Block 1\] but aa-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-zz"
+  fi
+
+  echo "-- teeth (#1835 round 2): corrigendum+preposition must stay a declaration; '/' and '+' must not join targets --"
+  m="$TMP/vc.CGDECL.sh"
+  if mk_mut "teeth: corrigendum declaration" "$SUT" "$m" 's/^          if (substr(l, ve) !~ .*{ p = ve; continue }$/          { p = ve; continue }/'; then
+    tt "teeth: always-noun mutant loses 'CORRIGENDUM … of [Block 32]'" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B107 corrects \[Block 32\] ' --bad-lacks 'B107 corrects|awk: ' -- bash @SUT@ "$TMP/cg"
+  fi
+  m="$TMP/vc.SLASH.sh"
+  if mk_mut "teeth: slash joiner" "$SUT" "$m" 's#(and|y|e|&)#(and|y|e|\&|\\/|\\+)#'; then
+    tt "teeth: slash-joiner mutant binds [Block 2] behind '[Block 1]/'" 1 1 "$m" --orig "$SUT" \
+      --good-lacks 'B80 corrects \[Block 2\]' --bad-has 'B80 corrects \[Block 2\]' --bad-lacks 'awk: ' -- bash @SUT@ "$TMP/join-neg"
+  fi
+  m="$TMP/vc.COMMA.sh"
+  if mk_mut "teeth: comma-only list" "$SUT" "$m" 's#(and|y|e|&)\[#(and|y|e|\&)?[#'; then
+    tt "teeth: connector-optional mutant joins '[Block 3], [Block 2]' (comma-only list)" 1 1 "$m" --orig "$SUT" \
+      --good-lacks 'B82 corrects \[Block 2\]' --bad-has 'B82 corrects \[Block 2\]' --bad-lacks 'awk: ' -- bash @SUT@ "$TMP/join-neg"
+  fi
 
   echo "-- teeth (#1835): shrink the backlink vocabulary back to corrected|corregido --"
   m="$TMP/vc.VOCAB.sh"
@@ -373,7 +423,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth (#1835): drop the noun exclusion; a 'CORRIGENDUM [Bloque 90]' line must become a declaration --"
   m="$TMP/vc.NOUN.sh"
-  if mk_mut "teeth: corrigendum noun" "$SUT" "$m" '/if (tok ~ \/\^corrigend\/)/d'; then
+  if mk_mut "teeth: corrigendum noun" "$SUT" "$m" 's/if (tok ~ \/^corrigend\/) {/if (0) {/'; then
     tt "teeth: no-noun-guard mutant reads the backlink line as B21→B90" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B21 corrects \[Block 90\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/vocab-noun"
   fi
