@@ -863,6 +863,13 @@ EOF
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
 }
 
+# mkvcorr <dir> — good corpus + block 2 declares "Corrects [Block 1]" while block 1 has no backlink.
+mkvcorr() {
+  mkgood "$1"
+  printf '# Block 2 — correction\nCorrects [Block 1] §1.1 — the earlier claim was wrong.\n' > "$1/t-block2.md"
+  bash "$HERE/../research-sdd-status.sh" "$1" --sync-state >/dev/null 2>&1   # keep the mirror consistent with 2 blocks
+}
+
 # 22 — ONE-BLOCK-PER-COMMIT detector (retro delta): a commit that lands 2+ block files in THIS run (newer
 #      than the newest retro) → advisory WARN + checklist follow-up, exit STILL 0 (never rewrites history).
 d="$TMP/one-block-violation"; mkrun_git "$d" together
@@ -1548,6 +1555,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          tooth "teeth: -M dropped → false WARN on rename+add under diff.renames=false → case 23b has teeth" 0 0 "$MUT/archive.NOMUTANT.sh" \
            --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-rename"; }
 
+  echo "-- teeth: AR-VCORR — neuter the linter call (force rc 0); the one-directional corpus must lose its WARN --"
+  cp "$HERE/../verify-corrections.sh" "$MUT/"
+  d="$TMP/vcorr-teeth"; mkvcorr "$d"
+  mk_sed "teeth(vcorr)" "$MUT/archive.VCMUTANT.sh" 's/_vc_rc=\$?  # AR-VCORR-ADVISORY/_vc_rc=0  # MUTANT/' \
+    && tooth "teeth(vcorr): linter result ignored → one-directional corpus no longer WARNs → case AR-VCORR has teeth" 0 0 "$MUT/archive.VCMUTANT.sh" \
+         --good-has 'verify-corrections : WARN' --bad-has 'verify-corrections : ok' --bad-lacks 'verify-corrections : WARN' -- run_on_fix @SUT@ "$d" --dry-run
+
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
@@ -1690,6 +1704,32 @@ out_ar2_foc="$(bash "$SUT" "$d" --focus alpha --dry-run 2>&1)"; rc_ar2_foc=$?
   || no "AR2: --focus alpha: exit=$rc_ar2_foc (want 0) — verify-state gate not scoped to focus :: $(grep -iE 'verify-state|fail|refuse' <<<"$out_ar2_foc" | head -2)"
 
 # AR2 teeth — inside the --prove-teeth block (appended there separately below).
+
+# AR-VCORR — verify-corrections is an ADVISORY step (issue #1787 item 4; WARN-only by fleet measurement).
+d="$TMP/vcorr-bad"; mkvcorr "$d"
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q 'verify-corrections : WARN — 1 one-directional' <<<"$out_vc" && [ "$rc_vc" != 3 ] \
+   && ! grep -q 'verify-corrections : ok' <<<"$out_vc"; then
+  ok "AR-VCORR: one-directional correction → WARN naming the count, archive NOT refused (rc=$rc_vc)"
+else no "AR-VCORR bad: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+d="$TMP/vcorr-ok"; mkvcorr "$d"; printf 'Corrected in B2.\n' >> "$d/t-block1.md"
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
+if grep -q 'verify-corrections : ok' <<<"$out_vc" && ! grep -q 'one-directional' <<<"$out_vc"; then
+  ok "AR-VCORR: reciprocated correction → verify-corrections ok, no WARN"
+else no "AR-VCORR ok: rc=$rc_vc :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+d="$TMP/vcorr-clean"; mkgood "$d"
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"
+if grep -q 'verify-corrections : ok' <<<"$out_vc"; then ok "AR-VCORR: corpus with no corrections → ok"
+else no "AR-VCORR clean :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
+
+# exit 2 (no block files) must read as n/a, never a spurious ERROR/WARN-did-not-run (§7 three states).
+d="$TMP/vcorr-noblocks"; mkgood "$d"; rm -f "$d/t-block1.md"
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"
+if grep -q 'verify-corrections : n/a' <<<"$out_vc" && ! grep -q 'verify-corrections : \(ERROR\|WARN\)' <<<"$out_vc"; then
+  ok "AR-VCORR: no block files (linter exit 2) → n/a, not an ERROR"
+else no "AR-VCORR no-blocks :: $(grep -i 'verify-corrections' <<<"$out_vc" | head -2)"; fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

@@ -132,6 +132,22 @@ _vstate_args=()
 [ -n "$focus_slug" ] && _vstate_args=("--focus" "$focus_slug")  # AR2-VSTATE-FOCUS-SCOPE
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)" "${_vstate_args[@]}"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
+# --- ADVISORY: §14 one-directional corrections (verify-corrections.sh, issue #1787 item 4) -----------
+# WARN-ONLY by measurement, NOT a gate: on 2026-10-05 the linter exited 1 on 8 of 19 present fleet
+# targets (incl. the active niagara5-research) and a sampled finding was a false positive (blender-llm
+# B17: `corrects` and an unrelated [Block 11] cross-ref sit on the same wrapped line). Gating would newly
+# refuse healthy closes. Exit 0 = ok, 1 = findings (WARN, count surfaced, archive continues), 2 = no block
+# files (n/a — reported distinctly, never a spurious ERROR), anything else = linter did not run (WARN).
+_vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-ADVISORY
+case "$_vc_rc" in
+  0) echo "    verify-corrections : ok";;
+  1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"
+     echo "    verify-corrections : WARN — $_vc_n one-directional §14 correction(s) (advisory, not a gate; run verify-corrections.sh for the list)"
+     echo "WARN: verify-corrections found $_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)." >&2;;
+  2) echo "    verify-corrections : n/a — no block files / bad args (exit 2)";;
+  *) echo "    verify-corrections : WARN — verify-corrections.sh did not run (exit $_vc_rc) — check it exists and is executable"
+     echo "WARN: verify-corrections.sh did not run (exit $_vc_rc) — the §14 reciprocity check was NOT performed." >&2;;
+esac
 # --- SECRETS GATE: the working tree + committed history, for a git-backed repo root (issue #970) ----
 # Round 2 of this gate built a mirror that re-implemented `git status -z` parsing to give
 # scan-secrets.sh a delta of just the dirty/untracked paths. REMOVED (round 3, Opus re-review):
