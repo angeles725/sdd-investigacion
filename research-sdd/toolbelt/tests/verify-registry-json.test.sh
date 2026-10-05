@@ -209,11 +209,11 @@ DOC="$HERE/../json-envelope.v1.md"
 kinds_check() {
   local sut="$1" doc="$2" calls wellformed code docd
   # calls = every `_vr_finding` invocation (definition and comments excluded); wellformed = those of the exact shape KIND SEV "...
-  calls="$(grep -E '^[[:space:]]*_vr_finding[[:space:]]' "$sut" | grep -vc '_vr_finding()')"
-  wellformed="$(grep -cE '^[[:space:]]*_vr_finding [a-z][a-z-]* (WARN|INFO) "' "$sut")"
+  # _vr_record is the record-only helper (#1780): the absent-target item calls it directly; _vr_finding wraps it.
+  calls="$(grep -E '^[[:space:]]*_vr_(finding|record)[[:space:]]' "$sut" | grep -vcE '_vr_(finding|record)\(\)|^[[:space:]]*_vr_record "\$1" "\$2" "\$3" "\$4"$')"
+  wellformed="$(grep -cE '^[[:space:]]*_vr_(finding|record) [a-z][a-z-]* (WARN|INFO) "' "$sut")"
   [ "$calls" -gt 0 ] && [ "$calls" = "$wellformed" ] || return 1
-  code="$( { grep -E '^[[:space:]]*_vr_finding [a-z]' "$sut" | sed -E 's/^[[:space:]]*_vr_finding ([a-z-]+) .*/\1/'
-             grep -oE '"absent-target" "INFO"' "$sut" | head -1 | sed 's/"absent-target".*/absent-target/'; } | sort -u)"
+  code="$(grep -E '^[[:space:]]*_vr_(finding|record) [a-z]' "$sut" | sed -E 's/^[[:space:]]*_vr_(finding|record) ([a-z-]+) .*/\2/' | sort -u)"
   docd="$(awk '/^### `research-sdd.verify-registry\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
             | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
@@ -221,6 +221,30 @@ kinds_check() {
 if kinds_check "$SUT" "$DOC"; then
   ok "kinds: SUT _vr_finding kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(grep -cE '^[[:space:]]*_vr_finding [a-z]' "$SUT") call sites)"
 else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(grep -oE '^[[:space:]]*_vr_finding [a-z-]+' "$SUT" | awk '{print $2}' | sort -u | tr '\n' ' ')]"; fi
+
+# 9b — #1780: unknown arguments are a usage error (exit 2, nothing on stdout, usage on stderr); the accumulator
+#      row encoding lives in ONE helper (_vr_record) and the target count is computed ONCE.
+argrej() { # argrej <kit> <args...> : rc 2, empty stdout, "usage" on stderr
+  local k="$1" _ef; shift; _ef="$(mktemp "$ROOT/aerr.XXXXXX")"
+  AOUT="$("$BASH_BIN" "$k/toolbelt/verify-registry.sh" "$@" 2>"$_ef")"; RC=$?; AERR="$(cat "$_ef")"; rm -f "$_ef"
+  [ "$RC" = 2 ] && [ -z "$AOUT" ] && [[ "$AERR" == *"usage: verify-registry.sh"* ]]
+}
+structural_check() { # structural_check <sut> : one record writer, one count assignment, _vr_record defined
+  local sut="$1"
+  [ "$(grep -c '^_vr_record()' "$sut")" = 1 ] \
+    && [ "$(grep -c '_json_items="\${_json_items}' "$sut")" = 1 ] \
+    && [ "$(grep -c '_vr_ntargets=\$(' "$sut")" = 1 ]
+}
+kit="$(rich_kit j-argrej)"
+if argrej "$kit" --bogus && argrej "$kit" --json --bogus && argrej "$kit" positional && argrej "$kit" --JSON; then
+  ok "args: unknown / extra arguments → usage error, exit 2, empty stdout (also alongside --json)" "()"
+else no "args: unknown argument not rejected" "rc=$RC out=[$AOUT] err=[$AERR]"; fi
+run "$kit"; _plain="$OUT"; jrun "$kit"
+if [ "$RC" = 0 ] && [ "$(jq_f .schema)" = "research-sdd.verify-registry/v1" ] && [ "$(printf '%s\n' "$_plain" | grep -c .)" -gt 0 ]; then
+  ok "args: no argument and --json keep working after the usage check" "()"
+else no "args: valid invocations broke" "rc=$RC"; fi
+if structural_check "$SUT"; then ok "structural: one _vr_record helper, one accumulator writer, one target-count assignment" "()"
+else no "structural: _vr_record missing, accumulator encoding duplicated, or target count computed twice" ""; fi
 
 # 10 — ENVELOPE per kind: one small fixture per kind that case 2 does not already cover (case 2 pins nonconform-field,
 #      hook-unwired, count-drift, no-corpus-marker, corpus-unresolvable, no-retros-wired, retro-drift, oversized-row,
@@ -313,7 +337,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                 printf '# t\n\n| # | name | maturity | path |\n|---|---|---|---|\n| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$e/tA" > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.items[]|select(.kind=="kit-not-registered")]|length')" = 1 ]; }
   jteeth kindcode  jt_kinds   's/_vr_finding hook-unwired WARN/_vr_finding hook-unwired-x WARN/'
   jteeth kindsev   jt_kinds   's/_vr_finding count-drift WARN/_vr_finding count-drift ERR/'
-  jteeth kindabs   jt_kinds   's/"absent-target" "INFO"/"absent-target-x" "INFO"/'
+  jteeth kindabs   jt_kinds   's/_vr_record absent-target INFO "/_vr_record absent-target-x INFO "/'
   jteeth kindcat   jt_kcat    's/_vr_finding catalog-stale WARN/_vr_finding catalog-stale-x WARN/'
   jteeth kindnotreg jt_knotreg 's/_vr_finding kit-not-registered WARN/_vr_finding kit-not-registered-x WARN/'
   # Doc-side teeth: a documented kind removed / an undocumented kind added must break kinds_check against the SUT.
@@ -334,7 +358,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jteeth exit1     jt_exit1   's/--json envelope build failed" >&2; exit 1; }/--json envelope build failed" >\&2; exit 2; }/'
   jteeth envinit   jt_envinit 's/^_json_items=""   # --json accumulator.*$/: # no init/'
   jteeth nopaths   jt_nopaths 's/^  \[ "\$VR_JSON" = 1 \] && exit 1  # --json: a machine caller.*$/  : # mutated/'
-  jteeth absitem   jt_absitem '/"absent-target"/s/_json_items="\${_json_items}\$(printf/: "\${_json_items}$(printf/'
+  jteeth absitem   jt_absitem 's/^          _vr_record absent-target INFO /          : absent-target INFO /'
+  jt_argrej() { local k; k="$(rich_kit "$(basename "$1")-ar")"; with_sut "$1" "$k"; argrej "$k" --bogus && argrej "$k" --json --bogus; }
+  jt_struct() { structural_check "$1/toolbelt/verify-registry.sh"; }
+  jteeth argrej    jt_argrej  's/ exit 2 ;;$/ ;;/'
+  jteeth argrejmsg jt_argrej  's/usage: verify-registry.sh \[--json\]/help: verify-registry.sh/'
+  jteeth structenc jt_struct  's/^          _vr_record absent-target INFO .*$/          _json_items="${_json_items}x"/'
+  jteeth structcnt jt_struct  's/^  if \[ "\$VR_JSON" = 1 \]; then _vr_json_emit true; exit 0; fi/  if [ "$VR_JSON" = 1 ]; then _vr_ntargets=$(true); _vr_json_emit true; exit 0; fi/'
+  jteeth structrec jt_struct  's/^_vr_record() {/_vr_recordx() {/'
   jteeth finding   jt_human   's/^  printf .%s\\n. "\$2  \$4"$/  printf "%s\\n" "\$2 \$4"/'
 fi
 
