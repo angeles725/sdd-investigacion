@@ -903,7 +903,7 @@ enforces the gate; the researcher maintains the number.
 
 **Seeding.** The field starts at `undocumented_findings: 0` in a new RESEARCH-STATE.md.
 `--sync-state` carries the value forward (it cannot derive it from disk); if the field is
-absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
+absent in a legacy envelope, `--sync-state` omits it. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
 **Anti-ephemeral-artifact rule.** A deliverable's SOURCE — a dashboard's code, a generated script, any
@@ -2213,7 +2213,7 @@ niagara-tools fold campaign 2026-10-02 — two writers ran ~900 tests serially a
 `read-only investigable: N` number in line with what `verify-state.sh` recomputes from disk. The human applies the
 diff (propose-never-apply); it never proposes `known_gaps`, `gaps_closed` or any hand-set field. Its last stderr
 line (`state-update: checked= skipped= changed= degraded= unproposed=`) counts the verify-state FAIL lines it does
-not own: exit 0 means "no change proposed", not "verify-state passes".
+not own: exit 0 means "no change proposed", not "verify-state passes". One owner per field: `research-sdd-status.sh --sync-state` is the operator-invoked writer the loop runs on its own corpus (PROMPT-LOOP UPDATE STATE) and the only tool that writes `known_gaps` / `gaps_closed`; `state-update.sh` writes nothing, is the diff to review, and alone proposes the Stop-control `read-only investigable: N` number.
 
 ## 12. Dynamic phase (validation against a live system)
 
@@ -3157,9 +3157,11 @@ public is invisible to it. [`toolbelt/scan-vendor-leak.sh`](toolbelt/scan-vendor
 Before the remote becomes PUBLIC, declare the vendor package prefixes and paths in
 `<TARGET>/.research-sdd/vendor-leak.conf` (`prefix` / `path` / `allow`; `allow` wins). `research-sdd-init.sh`
 probes the push remote's visibility after a full scaffold: on PUBLIC it scaffolds a stub conf and proposes a CI
-workflow (written only with `--wire`). Known gap (issue #1566): a stub with no declarations is `EMPTY-CONF`,
+workflow (written only with `--wire`), and, with `--wire`, writes a `pre-push` hook (into the git hooks directory, honouring `core.hooksPath`) that scans every pushed commit with `scan-vendor-leak.sh`. A `pre-push` hook the kit did not write is never overwritten: it is reported as `skipped (foreign pre-push hook)` with the line to add by hand. Known gap (issue #1566): a stub with no declarations is `EMPTY-CONF`,
 exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*.so` `*.so.N` `*.exe`) — a clean run
 over an undeclared stub says nothing about decompiled vendor source.
+
+**Stale-kit drift hook (kit issue #1787).** `research-sdd-init.sh --wire` also registers `$KIT/toolbelt/verify-skill-drift-hook.sh` (double-quoted path, timeout 15) under the target's SessionStart, so a target session running hooks from a shared kit checkout that is behind origin/main is told so. A bare spaced path is requoted and an absolute path that no longer exists is dropped as stale; any other working form is kept; a re-run that changes nothing writes nothing.
 
 **No-garbage rule and terminal check (report-only).** Every run writes only to a declared place: the session
 scratchpad, or `<target>/.../_evidence/<task>/`; never loose in a repo or worktree root or in `/tmp`. A rollback
@@ -3439,7 +3441,7 @@ judgment, not the driver's own rationalizations). The retro agent:
    ref (`git merge-base --is-ancestor`, default `origin/main`, never fetched). Anything less is `borderline`
    (human review). No git, no repository, an unknown ref, or a shallow clone in which no cited commit resolves is a
    typed `degraded` (exit 1; rows still printed as `borderline`); a cited token that is not a commit object locally
-   is simply not evidence. Comment evidence counts only from an OWNER, MEMBER or COLLABORATOR author. Nothing is closed or reopened. A `regressed` class is NOT implemented (row ids are per-retro).
+   is simply not evidence. Comment evidence counts only from an OWNER, MEMBER or COLLABORATOR author. Nothing is closed or reopened. `reconcile-issues.sh` also reports `regressed` (kit issue #1709 slice 2): `regressed: row N (closed by #M, re-proposed in <later retro> as row K)` for a `shipped` row whose exact title is proposed again as an OPEN delta in a later retro of the same retros directory. It is printed in addition to the `shipped:` line, is for human review only and makes no gh mutation call. Row ids are per-retro, so the cross-retro identity is the row title the seeder puts on its issue: the delta cell named by the header (else column 2), a leading `**bold**` unwrapped, ends trimmed, compared exactly, with no case folding and no fuzzy matching. A title under 12 characters has no identity. "Later" means a strictly greater `YYYY-MM-DD` filename prefix; same-day and undated retros are not ordered and make no claim. "Open" means the later retro's row is not closed by its marker (dismissed or applied, minus a PARTIAL shipped list). Could-not-look stays distinct from no-match: `regressed-lookup:` notes cover undated retros, short or generic titles and out-of-scope markers, and an unreadable later retro is `degraded:` with exit 1. `--all` reports `regressed=N` in `fleet-summary`. A reworded re-proposal is not detected. (Pinned by `reconcile-issues.test.sh` case 46 and its a-s sub-cases.)
 
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
@@ -3460,6 +3462,7 @@ judgment, not the driver's own rationalizations). The retro agent:
    folded into `empty-input`; `sweep-retros.sh`, `stage-retro-issues.sh`, and `reconcile-issues.sh` all report
    it typed as `unclassifiable`/`non-conforming delta declaration — count by hand` instead, so it stays visible
    for manual review rather than silently reading as nothing to do.
+   **Unclassifiable items are never only a stderr count (kit issue #1259).** `stage-retro-issues.sh` prints them as a table (`retro:line`, raw head, reason) with a typed `unclassifiable-items: N (…)` line whose zero names the state (`empty-input` / `none: N row(s) examined`). It proposes one tracking issue per retro per run (signature `Unclassifiable tracker: <target>/retros/<file>`; an OPEN tracker for the retro gets one occurrence comment per distinct item set, keyed to its checksum, and a re-run with the same set posts nothing). Under `--apply` only, the tracker is created through the same scrub, create and read-back path as delta issues. `retro-gate.sh` counts the summary's `unclassifiable=N` and points at the table. (Pinned by `stage-retro-issues-unclassifiable.test.sh` and `retro-gate.test.sh` EN3-unc-summary.)
    Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
    `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
    The `retro_grammar_has_honesty` predicate (updated kit issue #912) exempts the LEADING BLOCKQUOTE BLOCK
