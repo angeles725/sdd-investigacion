@@ -2128,6 +2128,49 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   [ "$_kpp_rc" = 0 ] && grep -qF "pushed file version" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
 fi
 
+# ---- kit issue #1804: .research-sdd/plan/ is gitignored (block resume plan, #1178) — scaffold AND --wire repair ----
+_k04_cnt() { [ -f "$1" ] || { echo 0; return 0; }; grep -cxF '.research-sdd/plan/' "$1" 2>/dev/null || true; }
+_k04_inits="$(_k87_kit "$TMP/1804 kit sp")/toolbelt/init.sh"
+# (a) fresh scaffold: the line is present exactly once, next to the existing patterns; typed report line.
+d="$TMP/k04-a"; mkdir -p "$d"
+bash "$_k04_inits" "$d" --corpus flat >"$TMP/k04-a.out" 2>&1
+[ "$(_k04_cnt "$d/.gitignore")" = 1 ] && ok "K1804-a fresh scaffold ignores .research-sdd/plan/ exactly once" || no "K1804-a count=$(_k04_cnt "$d/.gitignore") ($(tr '\n' '|' < "$d/.gitignore"))"
+assert_grep "K1804-a typed gitignore line" "gitignore: added .research-sdd/plan/" "$TMP/k04-a.out"
+# (b) scaffold into a target whose .gitignore already carries an equivalent pattern: no duplicate, typed already-ignored.
+d="$TMP/k04-b"; mkdir -p "$d"; printf 'node_modules/\n/.research-sdd/plan\n' > "$d/.gitignore"
+bash "$_k04_inits" "$d" --corpus flat >"$TMP/k04-b.out" 2>&1
+[ "$(_k04_cnt "$d/.gitignore")" = 0 ] && grep -qxF '/.research-sdd/plan' "$d/.gitignore" && ok "K1804-b scaffold respects an equivalent pattern (no second line)" || no "K1804-b gitignore: $(tr '\n' '|' < "$d/.gitignore")"
+assert_grep "K1804-b typed already-ignored line" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-b.out"
+if command -v jq >/dev/null 2>&1; then
+  # (c) --wire repair on an existing corpus whose .gitignore has no trailing newline: appended on its own line, user lines intact.
+  d="$TMP/k04-c"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'node_modules/\n*.log' > "$d/.gitignore"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-c.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "K1804-c --wire repair exits 0" || no "K1804-c exit $_rc"
+  [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && grep -qxF '*.log' "$d/.gitignore" && grep -qxF 'node_modules/' "$d/.gitignore" \
+    && ok "K1804-c --wire adds the line on its own row, user lines untouched" || no "K1804-c gitignore: $(tr '\n' '|' < "$d/.gitignore")"
+  assert_grep "K1804-c typed gitignore line" "gitignore: added .research-sdd/plan/" "$TMP/k04-c.out"
+  # (d) idempotent: a re-run is byte-identical and reports already ignored.
+  cp "$d/.gitignore" "$TMP/k04-c.before"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-d.out" 2>&1
+  cmp -s "$TMP/k04-c.before" "$d/.gitignore" && ok "K1804-d re-run leaves .gitignore byte-identical" || no "K1804-d .gitignore changed on a re-run"
+  assert_grep "K1804-d typed already-ignored line" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-d.out"
+  # (e) no .gitignore at all: --wire creates one with just the line.
+  d="$TMP/k04-e"; mkdir -p "$d"; : > "$d/INDEX.md"
+  bash "$_k04_inits" "$d" --wire >/dev/null 2>&1
+  [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && ok "K1804-e --wire creates .gitignore with the plan line" || no "K1804-e no .gitignore line"
+  # (f) equivalent spellings are respected (no append).
+  for _pat in '/.research-sdd/plan/' '.research-sdd/plan' '.research-sdd/plan/*' '.research-sdd/plan/**'; do
+    d="$TMP/k04-f"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'a\n%s\n' "$_pat" > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-f.before"
+    bash "$_k04_inits" "$d" --wire >/dev/null 2>&1
+    cmp -s "$TMP/k04-f.before" "$d/.gitignore" && ok "K1804-f equivalent pattern '$_pat' respected (file untouched)" || no "K1804-f '$_pat': .gitignore rewritten: $(tr '\n' '|' < "$d/.gitignore")"
+  done
+  # (g) a dangling-symlink .gitignore is a typed DEGRADED, never written through.
+  d="$TMP/k04-g"; mkdir -p "$d"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.gitignore"
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-g.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && [ ! -e "$d/nowhere" ]; } && ok "K1804-g symlinked .gitignore not written through (exit 0)" || no "K1804-g rc=$_rc or wrote through the link"
+  assert_grep "K1804-g typed DEGRADED" "gitignore: DEGRADED" "$TMP/k04-g.out"
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -3762,6 +3805,35 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     ( cd "$d" && bash .git/hooks/pre-push >/dev/null 2>&1 ); _m_rc=$?
     [ "$_m_rc" != 0 ] && ok "teeth M-1271-QUOTE: the hook breaks on a quoted kit path without the escaper — K1271-pp-h has teeth" || no "teeth M-1271-QUOTE: hook still runs under the mutant — K1271-pp-h is THEATER"
   else no "teeth M-1271-QUOTE: could not build mutant"; fi
+  # ---- kit issue #1804 teeth (a mutant that cannot be built is a FAIL, never a SKIP) ----
+  # M-1804-DEDUP: the equivalent-pattern early return is dead -> a re-run appends a duplicate line.
+  if _k87_mb "k04 dedup" '/RSDD-GI-EQUIV/s/return 0 ;;/;;/'; then
+    d="$TMP/k04m-dedup"; mkdir -p "$d"; : > "$d/INDEX.md"
+    bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k04_cnt "$d/.gitignore")" = 2 ] && ok "teeth M-1804-DEDUP: a re-run duplicates the line without the equivalence check — K1804-d/f have teeth" || no "teeth M-1804-DEDUP: no duplicate under the mutant — K1804-d/f are THEATER"
+  else no "teeth M-1804-DEDUP: could not build mutant"; fi
+  # M-1804-NEWLINE: the trailing-newline repair is gone -> the line fuses onto the user's last line.
+  if _k87_mb "k04 nl" "s/ || printf '\\\\n' >> \"\\\$gi\"//"; then
+    d="$TMP/k04m-nl"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'node_modules/\n*.log' > "$d/.gitignore"
+    bash "$TMP/k43/k04 nl/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && no "teeth M-1804-NEWLINE: plan line still on its own row under the mutant — K1804-c is THEATER" || ok "teeth M-1804-NEWLINE: without the newline repair the plan line is not added on its own row — K1804-c has teeth"
+  else no "teeth M-1804-NEWLINE: could not build mutant"; fi
+  # M-1804-SYMLINK: the symlink refusal is dead -> the append writes through a dangling link.
+  if _k87_mb "k04 sym" 's/if \[ -L "\$gi" \] ||/if false ||/'; then
+    d="$TMP/k04m-sym"; mkdir -p "$d"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.gitignore"
+    bash "$TMP/k43/k04 sym/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ -e "$d/nowhere" ] && ok "teeth M-1804-SYMLINK: the dangling link is written through without the refusal — K1804-g has teeth" || no "teeth M-1804-SYMLINK: nothing written through under the mutant — K1804-g is THEATER"
+  else no "teeth M-1804-SYMLINK: could not build mutant"; fi
+  # M-1804-SCAFFOLD: the scaffold path no longer calls the helper -> a fresh corpus ignores no plan dir.
+  if _k87_mb "k04 sc" '/^_rsdd_gitignore_plan$/d'; then
+    d="$TMP/k04m-sc"; mkdir -p "$d"; bash "$TMP/k43/k04 sc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
+    [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && ok "teeth M-1804-SCAFFOLD: no plan line on a fresh scaffold without the call — K1804-a has teeth" || no "teeth M-1804-SCAFFOLD: line present under the mutant — K1804-a is THEATER"
+  else no "teeth M-1804-SCAFFOLD: could not build mutant"; fi
+  # M-1804-WIRE: the --wire repair path no longer calls the helper.
+  if _k87_mb "k04 wr" '/^      _rsdd_gitignore_plan$/d'; then
+    d="$TMP/k04m-wr"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k04 wr/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && ok "teeth M-1804-WIRE: no plan line from --wire repair without the call — K1804-c/e have teeth" || no "teeth M-1804-WIRE: line present under the mutant — K1804-c/e are THEATER"
+  else no "teeth M-1804-WIRE: could not build mutant"; fi
   fi
 fi
 
