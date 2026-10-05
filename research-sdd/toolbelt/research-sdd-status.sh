@@ -2067,11 +2067,14 @@ fi
 #   gh absent / failing / empty or unrecognised answer -> typed `degraded: remote-visibility: ...`
 #   (§7: a read-back that could not run is never a silent pass).
 # RSDD_GH_BIN overrides the gh binary (tests stub it; no network). Only the remote NAME is printed and
-# only OWNER/REPO reaches gh's argv: a remote URL may embed credentials. Empty / non-github URL, missing
-# `timeout`, or a gh call over RSDD_GH_TIMEOUT seconds (default 10; GH_PROMPT_DISABLED=1) -> typed degraded.
+# only OWNER/REPO reaches gh's argv: a remote URL may embed credentials. Empty / non-github URL,
+# or a gh call over RSDD_GH_TIMEOUT seconds (default 20, shared lib/gh-visibility.sh; GH_PROMPT_DISABLED=1) -> typed degraded.
 remote_visibility_block() {
   [ -e "$target/.git" ] || return 0
-  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis _rv_rc
+  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis
+  # shellcheck source=lib/gh-visibility.sh
+  . "$here/lib/gh-visibility.sh" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
+    || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: lib/gh-visibility.sh unavailable — cannot probe the visibility of the remotes of $target"; return 0; }
   command -v git >/dev/null 2>&1 || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
   mapfile -t _rv_arr < <(git -C "$target" remote 2>/dev/null)
   [ "${#_rv_arr[@]}" -gt 0 ] || return 0
@@ -2093,20 +2096,16 @@ remote_visibility_block() {
     if [ -z "$_rv_slug" ]; then
       _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
     fi
-    # GNU `timeout`, else `gtimeout` (macOS coreutils); only when neither exists is the check degraded.
-    _rv_to=""
-    if command -v timeout >/dev/null 2>&1; then _rv_to=timeout
-    elif command -v gtimeout >/dev/null 2>&1; then _rv_to=gtimeout; fi
-    if [ -z "$_rv_to" ]; then
-      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: timeout/gtimeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
-    fi
-    _rv_vis="$(GH_PROMPT_DISABLED=1 "$_rv_to" "${RSDD_GH_TIMEOUT:-10}" "$_rv_gh" repo view "$_rv_slug" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
-    if [ "$_rv_rc" -eq 124 ]; then
-      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue
-    fi
-    if [ "$_rv_rc" -ne 0 ]; then
-      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh failed (rc=$_rv_rc) for remote $_rv_r — visibility unverified"; continue
-    fi
+    # The bounded probe is the shared one (kit issue #1820, lib/gh-visibility.sh): RSDD_GH_TIMEOUT seconds (default 20,
+    # same as init / ensure-remote), GH_PROMPT_DISABLED=1; `timeout`, else `gtimeout`, else a bash watchdog. Any
+    # non-decided result is a typed degraded line — never read as PRIVATE.
+    gh_visibility_probe "$_rv_gh" "$_rv_slug" || :
+    case "$GHV_STATE" in
+      TIMEOUT) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue ;;
+      GH_ERROR) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh failed (rc=$GHV_RC) for remote $_rv_r — visibility unverified"; continue ;;
+      GH_MISSING|PROBE_FAILED) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh probe could not run ($GHV_STATE) for remote $_rv_r — visibility unverified"; continue ;;
+    esac
+    _rv_vis="$GHV_RAW"
     case "$_rv_vis" in
       PUBLIC) echo "WARN public-remote: $_rv_r is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it." ;;
       PRIVATE|INTERNAL) ;;
