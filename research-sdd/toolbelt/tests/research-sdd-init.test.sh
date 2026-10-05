@@ -725,7 +725,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
     bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
     _1040l_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
-    _1040l_ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+    _1040l_ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
     [ "$_1040l_stop_n" = 1 ] && ok "1040-(l) [$_1040l_form]: Stop stays at exactly 1 entry (no duplicate)" \
                               || no "1040-(l) [$_1040l_form]: Stop count=$_1040l_stop_n (expected 1 — duplicated)"
     [ "$_1040l_ss_n" = 1 ] && ok "1040-(l) [$_1040l_form]: SessionStart stays at exactly 1 entry (no duplicate)" \
@@ -749,7 +749,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: absolute-path form written
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # second run: must dedup against it
-  _1040l_ctl_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+  _1040l_ctl_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
   [ "$_1040l_ctl_n" = 1 ] && ok "1040-(l) control: absolute-path form still dedups (no regression)" \
                            || no "1040-(l) control: absolute-path SessionStart count=$_1040l_ctl_n (expected 1)"
 
@@ -930,7 +930,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
       printf 'INDEX\n' > "$d/INDEX.md"   # no .claude/hooks/ at all — research-protocol.sh absent
       _r_out="$TMP/1040-r.out"; _r_err="$TMP/1040-r.err"
       PATH="$_1040r_pnojq" bash "$SUT" "$d" --corpus flat --wire > "$_r_out" 2>"$_r_err"
-      if grep -qF '"SessionStart"' "$_r_out"; then
+      if grep -qF 'research-protocol.sh\"' "$_r_out"; then
         no "1040-(r) jq-absent + absent ss hook: snippet WRONGLY offers SessionStart"
       else
         ok "1040-(r) jq-absent + absent ss hook: snippet omits SessionStart"
@@ -965,7 +965,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     else
       ok "1040-(s) skip-but-present: does not say 'NOT registered'"
     fi
-    _s_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+    _s_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
     [ "$_s_n" = 1 ] && ok "1040-(s) skip-but-present: the pre-existing entry survives, uncounted twice" \
                      || no "1040-(s) skip-but-present: SessionStart count=$_s_n (expected 1)"
   fi
@@ -978,7 +978,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
   _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
-  _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' \
+  _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   [ "$_sc_n" = 1 ] && ok "EN2a-(d-wire) idempotent: Stop has exactly 1 entry" \
                     || no "EN2a-(d-wire) idempotent: Stop count=$_sc_n (expected 1)"
@@ -1970,6 +1970,164 @@ if command -v jq >/dev/null 2>&1; then
   assert_absent "K1732-e propose-never-apply: no settings.json without --wire" "$d/.claude/settings.json"
 fi
 
+# ---- kit issue #1787 item 1: the stale-KIT drift hook is wired into a target's SessionStart ----
+# A kit under a path with a SPACE and a runnable drift-hook stub: the registered command must survive word-splitting.
+_k87_kit() {  # <dir> — builds <dir>/research-sdd/{toolbelt,templates} and prints the kit root
+  local k="$1/research-sdd"
+  mkdir -p "$k/toolbelt/lib"; cp "$HERE/../research-sdd-init.sh" "$k/toolbelt/init.sh"; cp "$HERE/../lib/corpus-markers.sh" "$k/toolbelt/lib/"
+  ln -s "$HERE/../../templates" "$k/templates"; cp "$HERE/../scan-vendor-leak.sh" "$k/toolbelt/"
+  printf '#!/bin/sh\necho drift-ran\n' > "$k/toolbelt/verify-skill-drift-hook.sh"; chmod +x "$k/toolbelt/verify-skill-drift-hook.sh"
+  printf '%s' "$k"
+}
+_k87_n() { jq --arg c "$2" '[.hooks.SessionStart[]? | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null; }
+_k87_all() { jq '[.hooks.SessionStart[]? | .hooks[]? | select((.command // "") | contains("verify-skill-drift-hook.sh"))] | length' "$1" 2>/dev/null; }
+if command -v jq >/dev/null 2>&1; then
+  _k87_k="$(_k87_kit "$TMP/1787 kit sp")"; _k87_dp="$_k87_k/toolbelt/verify-skill-drift-hook.sh"; _k87_dq="\"$_k87_dp\""
+  # (a) scaffold --wire: registered once, double-quoted, runs through the shell; the live <SUBJECT> SessionStart skip does not block it.
+  d="$TMP/1787-a"; mkdir -p "$d"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >"$TMP/1787-a.out" 2>&1
+  _k87_cmd="$(jq -r '[.hooks.SessionStart[]? | .hooks[]? | .command | select(contains("verify-skill-drift-hook.sh"))] | first // empty' "$d/.claude/settings.json" 2>/dev/null)"
+  [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1787-a scaffold --wire registers the drift hook once, double-quoted (spaced kit path)" || no "K1787-a SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json" 2>/dev/null)"
+  [ "$(sh -c "$_k87_cmd" 2>&1)" = "drift-ran" ] && ok "K1787-a2 the registered command runs through the shell" || no "K1787-a2 does not run: [$_k87_cmd]"
+  assert_grep "K1787-a3 typed registered line" "SessionStart stale-KIT drift hook registered" "$TMP/1787-a.out"
+  # (b) re-run (wire-only path): a no-op on the bytes, reported as already wired.
+  cp "$d/.claude/settings.json" "$TMP/1787-a.before"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-b.out" 2>&1
+  cmp -s "$TMP/1787-a.before" "$d/.claude/settings.json" && ok "K1787-b re-run leaves settings.json byte-identical" || no "K1787-b settings.json changed on a re-run"
+  assert_grep "K1787-b2 re-run reports already wired" "SessionStart stale-KIT drift hook already wired" "$TMP/1787-b.out"
+  # (c) a user's SessionStart hook is preserved; a STALE absolute drift path is repaired; a still-existing OTHER form is kept untouched.
+  d="$TMP/1787-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/verify-skill-drift-hook.sh\""},{"type":"command","command":"/x/other.sh"}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-c.out" 2>&1
+  [ "$(_k87_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] && [ "$(_k87_n "$d/.claude/settings.json" "/x/other.sh")" = 1 ] \
+    && [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1787-c user hooks preserved, stale drift path replaced by exactly one current entry" || no "K1787-c SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
+  assert_grep "K1787-c2 the repair is reported" "stale-KIT drift hook repaired (stale path /gone/kit/verify-skill-drift-hook.sh)" "$TMP/1787-c.out"
+  d="$TMP/1787-c3"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "\$CLAUDE_PROJECT_DIR/kit/verify-skill-drift-hook.sh" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-c3.out" 2>&1
+  [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] && assert_grep "K1787-c3 a working registration in another form is kept, nothing is added next to it" "already wired (other form:" "$TMP/1787-c3.out" \
+    || no "K1787-c3 duplicate next to another form: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
+  # (d) a bare spaced current path word-splits: rewritten to the quoted form (one entry).
+  d="$TMP/1787-d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k87_dp" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-d.out" 2>&1
+  [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1787-d a bare spaced drift path is rewritten to the quoted form (one entry)" || no "K1787-d SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
+  assert_grep "K1787-d2 reported as requoted" "stale-KIT drift hook requoted" "$TMP/1787-d.out"
+  # (e) propose-never-apply: the plain run prints the drift entry and writes no settings.json.
+  d="$TMP/1787-e"; mkdir -p "$d"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1787-e.out" 2>&1
+  assert_grep "K1787-e snippet carries the drift hook" "verify-skill-drift-hook.sh" "$TMP/1787-e.out"
+  assert_absent "K1787-e no settings.json without --wire" "$d/.claude/settings.json"
+  # (f) RDD round 1: the drift pass is ADVISORY. A forced failure is a typed WARN, the exit code of the core wire is unchanged, and
+  # the settings the main merge wrote stay intact (wire-only path).
+  d="$TMP/1787-f"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  RSDD_TEST_DRIFT_FAIL=1 bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-f.out" 2>&1; _k87_rc=$?
+  [ "$_k87_rc" = 0 ] && ok "K1787-f a drift-pass failure leaves the core wire's exit code at 0" || no "K1787-f exit $_k87_rc (a drift failure must not be fatal)"
+  assert_grep "K1787-f2 typed WARN" "WARN   : drift hook not registered:" "$TMP/1787-f.out"
+  [ "$(_k87_all "$d/.claude/settings.json")" = 0 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1787-f3 settings from the main merge intact (gate wired, no drift entry)" || no "K1787-f3 settings: $(jq -c '.hooks' "$d/.claude/settings.json" 2>/dev/null)"
+  assert_grep "K1787-f4 the rest of the wire still reported" "== done ==" "$TMP/1787-f.out"
+  # (g) RDD round 1: a stale entry dropped while a current one remains must not print an empty "other form".
+  d="$TMP/1787-g"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k87_dq" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-g.out" 2>&1
+  assert_grep "K1787-g the stale drop is reported" "drift hook repaired (stale path /gone/kit/verify-skill-drift-hook.sh)" "$TMP/1787-g.out"
+  if grep -qF "other form: )" "$TMP/1787-g.out" || ! grep -qF "drift hook already wired in" "$TMP/1787-g.out"; then no "K1787-g misleading outcome line: $(grep 'drift hook' "$TMP/1787-g.out" | tr '\n' '|')"
+  else ok "K1787-g accurate outcome line (already wired, no empty other form)"; fi
+fi
+
+# ---- kit issue #1271 (last item): vendor-leak pre-push hook on a PUBLIC remote ----
+if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K71_BIN:-}" ]; then
+  _k87_k="$(_k87_kit "$TMP/1271 kit sp")"; _kpp_init="$_k87_k/toolbelt/init.sh"
+  _kpp_run() {  # <target> <vis> [init args…] — spaced kit, stubbed gh
+    local d="$1" vis="$2"; shift 2
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC=0 bash "$_kpp_init" "$d" --corpus flat "$@" >"$TMP/kpp.out" 2>&1
+    return 0
+  }
+  # (a) PUBLIC, plain run: proposed, NOT written.
+  d="$(_k71_target pp-a https://example.invalid/pub.git)"
+  _kpp_run "$d" PUBLIC
+  assert_absent "K1271-pp-a dry run writes no pre-push hook" "$d/.git/hooks/pre-push"
+  assert_grep "K1271-pp-a dry run proposes the hook (scanner --tracked)" "exec bash" "$TMP/kpp.out"
+  assert_grep "K1271-pp-a dry run names how to apply it" "pre-push guard (propose-never-apply" "$TMP/kpp.out"
+  # (b) PUBLIC --wire: written, executable, blocks a committed vendor binary, passes a clean tree — through a SPACED kit path.
+  d="$(_k71_target pp-b https://example.invalid/pub.git)"
+  _kpp_run "$d" PUBLIC --wire --scaffold
+  [ -x "$d/.git/hooks/pre-push" ] && ok "K1271-pp-b --wire writes an executable pre-push hook" || no "K1271-pp-b hook missing or not executable"
+  assert_grep "K1271-pp-b typed wrote line" "vendor-leak: wrote pre-push guard" "$TMP/kpp.out"
+  ( cd "$d" && git add -A >/dev/null 2>&1 && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1 )
+  # Real pushes to a local bare repo: git feeds the hook the pushed refs on stdin (RDD round 1: the pushed content is scanned, not the checkout).
+  _kpp_bare="$TMP/kpp-b.bare"; git init -q --bare "$_kpp_bare" 2>/dev/null; _kpp_br="$(git -C "$d" symbolic-ref --short HEAD)"
+  ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/$_kpp_br" >"$TMP/kpp-clean.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a push of a clean tree passes" || no "K1271-pp-b clean push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-clean.out"))"
+  assert_grep "K1271-pp-b the guard really scanned the pushed commit" "pushed file version" "$TMP/kpp-clean.out"
+  ( cd "$d" && git checkout -q -b leakbr && : > Vendor.class && git add Vendor.class && git -c user.email=t@t -c user.name=t commit -qm leak && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" "$_kpp_br" >"$TMP/kpp-ok2.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b pushing the clean branch while a leaking branch exists passes" || no "K1271-pp-b clean branch push rc=$_kpp_rc"
+  ( cd "$d" && git push "$_kpp_bare" leakbr >"$TMP/kpp-leak.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Vendor.class" "$TMP/kpp-leak.out" && ok "K1271-pp-b pushing a NON-checked-out branch that carries a vendor binary is BLOCKED" || no "K1271-pp-b leak push rc=$_kpp_rc ($(tail -3 "$TMP/kpp-leak.out"))"
+  [ -z "$(git -C "$_kpp_bare" rev-parse --verify -q refs/heads/leakbr)" ] && ok "K1271-pp-b the leaking ref never reached the remote" || no "K1271-pp-b leak reached the remote"
+  assert_grep "K1271-pp-b a blocked push says BLOCKED (distinct from the NOT checked path)" "push BLOCKED" "$TMP/kpp-leak.out"
+  # RDD round 2: a vendor binary added in one commit and DELETED in the next still reaches the public history; the whole pushed range is scanned.
+  ( cd "$d" && git checkout -q -b delbr "$_kpp_br" && : > Gone.jar && git add Gone.jar && git -c user.email=t@t -c user.name=t commit -qm "add jar" \
+      && git rm -q Gone.jar && git -c user.email=t@t -c user.name=t commit -qm "drop jar" && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" delbr >"$TMP/kpp-del2.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Gone.jar" "$TMP/kpp-del2.out" && ok "K1271-pp-b a leak added then deleted inside the pushed range is BLOCKED" || no "K1271-pp-b add-then-delete rc=$_kpp_rc ($(tail -3 "$TMP/kpp-del2.out"))"
+  # a path with TWO pushed versions: the first (flagged) one is scanned too, not only the last.
+  ( cd "$d" && git checkout -q -b verbr "$_kpp_br" && : > Two.dll && git add Two.dll && git -c user.email=t@t -c user.name=t commit -qm v1 \
+      && printf x > Two.dll && git -c user.email=t@t -c user.name=t commit -qam v2 && git checkout -q "$_kpp_br" ) >/dev/null 2>&1
+  ( cd "$d" && git push "$_kpp_bare" verbr >"$TMP/kpp-ver.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" != 0 ] && grep -qF "Two.dll" "$TMP/kpp-ver.out" && ok "K1271-pp-b a path pushed in several versions is scanned (round 1 and 2)" || no "K1271-pp-b multi-version rc=$_kpp_rc"
+  ( cd "$d" && git push "$_kpp_bare" "HEAD:refs/heads/tmpdel" >/dev/null 2>&1; git push "$_kpp_bare" :tmpdel >"$TMP/kpp-del.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1271-pp-b a ref deletion (zero sha) is skipped, not blocked" || no "K1271-pp-b deletion rc=$_kpp_rc"
+  # (c) idempotent: our own up-to-date hook already present (the vendor-leak step runs on the scaffold path only) is left byte-identical.
+  cp "$d/.git/hooks/pre-push" "$TMP/kpp-c.before"
+  d="$(_k71_target pp-c https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; cp "$TMP/kpp-c.before" "$d/.git/hooks/pre-push"; chmod +x "$d/.git/hooks/pre-push"
+  _kpp_run "$d" PUBLIC --wire --scaffold
+  cmp -s "$TMP/kpp-c.before" "$d/.git/hooks/pre-push" && ok "K1271-pp-c re-run keeps the hook byte-identical" || no "K1271-pp-c hook changed on a re-run"
+  assert_grep "K1271-pp-c typed already-wired line" "pre-push guard already wired" "$TMP/kpp.out"
+  # (d) a FOREIGN hook is never overwritten: typed skip + the line to add by hand (dry run and --wire alike).
+  d="$(_k71_target pp-d https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
+  _kpp_run "$d" PUBLIC --wire --scaffold
+  assert_grep "K1271-pp-d foreign hook bytes untouched" "echo mine" "$d/.git/hooks/pre-push"
+  [ "$(wc -l < "$d/.git/hooks/pre-push")" = 2 ] && ok "K1271-pp-d foreign hook not appended to" || no "K1271-pp-d foreign hook modified"
+  assert_grep "K1271-pp-d typed skip" "pre-push guard skipped (foreign pre-push hook)" "$TMP/kpp.out"
+  assert_grep "K1271-pp-d prints the line to add by hand" "hook-prepush-vendor-leak.sh' \"\$@\" || exit 1" "$TMP/kpp.out"
+  d="$(_k71_target pp-d2 https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
+  _kpp_run "$d" PUBLIC
+  assert_grep "K1271-pp-d2 dry run also reports the foreign hook" "foreign pre-push hook" "$TMP/kpp.out"
+  # (e) PRIVATE remote -> no pre-push hook at all.
+  d="$(_k71_target pp-e https://example.invalid/priv.git)"
+  _kpp_run "$d" PRIVATE --wire --scaffold
+  assert_absent "K1271-pp-e PRIVATE: no pre-push hook" "$d/.git/hooks/pre-push"
+  # (f) our own hook with a stale kit path is refreshed by --wire (and only proposed without it).
+  d="$(_k71_target pp-f https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"
+  printf '#!/usr/bin/env bash\n# research-sdd vendor-leak guard (pre-push) — old\nSCAN='"'"'/gone/scan-vendor-leak.sh'"'"'\n' > "$d/.git/hooks/pre-push"; chmod +x "$d/.git/hooks/pre-push"
+  d2="$(_k71_target pp-f2 https://example.invalid/pub.git)"; mkdir -p "$d2/.git/hooks"; cp "$d/.git/hooks/pre-push" "$d2/.git/hooks/pre-push"
+  _kpp_run "$d2" PUBLIC
+  assert_grep "K1271-pp-f dry run leaves the stale hook alone" "/gone/scan-vendor-leak.sh" "$d2/.git/hooks/pre-push"
+  _kpp_run "$d" PUBLIC --wire --scaffold
+  assert_grep "K1271-pp-f --wire refreshes our own stale hook" "$_k87_k/templates/hook-prepush-vendor-leak.sh" "$d/.git/hooks/pre-push"
+  # (g) core.hooksPath is honoured.
+  d="$(_k71_target pp-g https://example.invalid/pub.git)"; git -C "$d" config core.hooksPath "$d/myhooks"
+  _kpp_run "$d" PUBLIC --wire --scaffold
+  [ -x "$d/myhooks/pre-push" ] && [ ! -e "$d/.git/hooks/pre-push" ] && ok "K1271-pp-g hook written under core.hooksPath" || no "K1271-pp-g wrong hook location"
+  # (i) RDD round 1: a drift-pass failure on the scaffold path is a WARN and the vendor-leak / pre-push step still runs; exit unchanged.
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 RSDD_TEST_DRIFT_FAIL=1 bash "$_kpp_init" "$(_k71_target pp-i2 https://example.invalid/pub.git)" --corpus flat --wire --scaffold >"$TMP/kpp-i.out" 2>&1; _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && ok "K1787-i scaffold --wire with a failing drift pass exits 0" || no "K1787-i exit $_kpp_rc"
+  assert_grep "K1787-i typed WARN" "drift hook not registered:" "$TMP/kpp-i.out"
+  [ -x "$TMP/k71-pp-i2/.git/hooks/pre-push" ] && ok "K1787-i the pre-push step still ran after the drift failure" || no "K1787-i pre-push hook missing (vendor-leak step skipped?)"
+  # (h) a single quote in the kit path survives into the hook.
+  _k87_q="$(_k87_kit "$TMP/1271 it's kit")"; d="$(_k71_target pp-h https://example.invalid/pub.git)"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >"$TMP/kpp.out" 2>&1
+  git init -q --bare "$TMP/kpp-h.bare" 2>/dev/null
+  ( cd "$d" && git add -A && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1; git push "$TMP/kpp-h.bare" HEAD:refs/heads/x >"$TMP/kpp-q.out" 2>&1 ); _kpp_rc=$?
+  [ "$_kpp_rc" = 0 ] && grep -qF "pushed file version" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -2491,7 +2649,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         > "$dmw12b/.claude/settings.json"
       printf '#!/usr/bin/env bash\necho adapted\n' > "$dmw12b/.claude/hooks/research-protocol.sh"
       bash "$mw12" "$dmw12b" --corpus flat --wire >/dev/null 2>/dev/null
-      _mw12b_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$dmw12b/.claude/settings.json" 2>/dev/null)
+      _mw12b_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$dmw12b/.claude/settings.json" 2>/dev/null)
       if [ "$_mw12b_n" != 1 ]; then
         ok "teeth MW12(b): mutant duplicates the whole-quoted \$CLAUDE_PROJECT_DIR-form entry (count=$_mw12b_n) → 1040-(l) has teeth"
       else
@@ -2605,6 +2763,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     awk '{
       if ($0 ~ /jq .\.settings. <<<\"\$_wo_merge_out\" > \"\$_wo_tmp\"/) {
         print "      jq -c \x27.settings\x27 <<<\"$_wo_merge_out\" > \"$_wo_tmp\"  # MUTANT: compact"
+      } else if ($0 ~ /_wo_drift_out="\$\(_rsdd_wire_drift/) {
+        # the drift pass (#1787) re-pretty-prints settings.json; neutralise it so only the settings write above is under test
+        print "      _wo_drift_out=\"\"  # MUTANT: no drift pass"
       } else { print }
     }' "$SUT" > "$mw16"
     if ! grep -qF 'MUTANT: compact' "$mw16"; then
@@ -3501,6 +3662,106 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && ok "teeth M-1757-DROP: bare spaced entry survives without the drop — K1757-a has teeth" \
       || no "teeth M-1757-DROP: bare entry still removed under the mutant — K1757-a is THEATER"
   else no "teeth M-1757-DROP: could not build mutant"; fi
+  # kit issue #1787 / #1271 teeth. Every mutant that cannot be built is a FAIL (never a SKIP), like the M-1757 teeth.
+  _k87_mb() {  # <name> <sed-expr> — mutant in a spaced kit dir with the stub drift hook and the real scanner beside it
+    _k43_build "$1" -e "$2" || return 1
+    cp "$HERE/../scan-vendor-leak.sh" "$TMP/k43/$1/toolbelt/"
+    printf '#!/bin/sh\necho drift-ran\n' > "$TMP/k43/$1/toolbelt/verify-skill-drift-hook.sh"; chmod +x "$TMP/k43/$1/toolbelt/verify-skill-drift-hook.sh"
+  }
+  _k87_mpub() {  # <name> <target> <vis> [init args…] — run the mutant against a stubbed-gh target
+    local n="$1" t="$2" v="$3"; shift 3
+    PATH="$K71_BIN:$PATH" K71_VIS="$v" K71_RC=0 bash "$TMP/k43/$n/toolbelt/init.sh" "$t" --corpus flat "$@" >"$TMP/k87m.out" 2>&1
+  }
+  # M-1787-ADD: the drift entry is never appended -> K1787-a finds no registration.
+  if _k87_mb "k87 add" 's/| if \$add then \.hooks\.SessionStart/| if false then .hooks.SessionStart/'; then
+    d="$TMP/k87m-add"; mkdir -p "$d"; bash "$TMP/k43/k87 add/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    [ "$(_k87_all "$d/.claude/settings.json")" = 0 ] && ok "teeth M-1787-ADD: no drift entry without the append — K1787-a has teeth" || no "teeth M-1787-ADD: entry still registered under the mutant — K1787-a is THEATER"
+  else no "teeth M-1787-ADD: could not build mutant"; fi
+  # M-1787-IDEMP: the registered-or-other-form check is dead -> a re-run appends a duplicate.
+  if _k87_mb "k87 idemp" 's/then add=false; fi$/then add=true; fi/'; then
+    d="$TMP/k87m-idemp"; mkdir -p "$d"; bash "$TMP/k43/k87 idemp/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    bash "$TMP/k43/k87 idemp/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k87_all "$d/.claude/settings.json")" = 2 ] && ok "teeth M-1787-IDEMP: a re-run duplicates the entry without the check — K1787-b has teeth" || no "teeth M-1787-IDEMP: no duplicate under the mutant — K1787-b is THEATER"
+  else no "teeth M-1787-IDEMP: could not build mutant"; fi
+  # M-1787-STALE: the stale predicate no longer matches -> a dead absolute drift path survives.
+  if _k87_mb "k87 stale" '/RSDD-DRIFT-STALE/s/! -e "\$p" \]\]/-e "$p" ]]/;s/&& ! -e "\$p" \]\] \\$/\&\& -e "$p" ]] \\/'; then
+    d="$TMP/k87m-stale"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '%s' '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/verify-skill-drift-hook.sh\""}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k87 stale/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k87_n "$d/.claude/settings.json" '"/gone/kit/verify-skill-drift-hook.sh"')" = 1 ] && ok "teeth M-1787-STALE: dead path survives without the stale predicate — K1787-c has teeth" || no "teeth M-1787-STALE: dead path still dropped under the mutant — K1787-c is THEATER"
+  else no "teeth M-1787-STALE: could not build mutant"; fi
+  # M-1787-SPACED: the whitespace predicate is dead -> a bare spaced current path counts as registered and stays unrunnable.
+  if _k87_mb "k87 spaced" '/RSDD-DRIFT-SPACED-BARE/s/\[\[ "\$c" == \*\[\[:space:\]\]\* \]\]/false/'; then
+    d="$TMP/k87m-spaced"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    jq -n --arg c "$TMP/k43/k87 spaced/toolbelt/verify-skill-drift-hook.sh" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k87 spaced/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    [ "$(_k87_n "$d/.claude/settings.json" "$TMP/k43/k87 spaced/toolbelt/verify-skill-drift-hook.sh")" = 1 ] && ok "teeth M-1787-SPACED: bare spaced path kept without the predicate — K1787-d has teeth" || no "teeth M-1787-SPACED: bare path still rewritten under the mutant — K1787-d is THEATER"
+  else no "teeth M-1787-SPACED: could not build mutant"; fi
+  # M-1271-FOREIGN: the ownership marker check is dead -> a foreign pre-push hook is overwritten.
+  if _k87_mb "k71 foreign" 's/\] || ! grep -qF "\$_RSDD_PREPUSH_MARK" "\$hook" 2>\/dev\/null; then/] || false; then/'; then
+    d="$(_k71_target m-foreign https://example.invalid/pub.git)"; mkdir -p "$d/.git/hooks"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
+    _k87_mpub "k71 foreign" "$d" PUBLIC --wire --scaffold
+    grep -qF "echo mine" "$d/.git/hooks/pre-push" && no "teeth M-1271-FOREIGN: foreign hook still intact under the mutant — K1271-pp-d is THEATER" || ok "teeth M-1271-FOREIGN: foreign hook overwritten without the marker check — K1271-pp-d has teeth"
+  else no "teeth M-1271-FOREIGN: could not build mutant"; fi
+  # M-1271-PUSHED: the guard scans the CURRENT CHECKOUT instead of the pushed commit -> a leaking branch that is not checked out slips through.
+  _pm="$TMP/k43/pushed"; mkdir -p "$_pm/templates" "$_pm/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pm/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pm/templates/hook-prepush-vendor-leak.sh" 's|bash "\$SCAN" "\$work" --tracked|bash "$SCAN" "$top" --tracked|'; then
+    d="$(_k71_target m-pushed https://example.invalid/pub.git)"
+    ( cd "$d" && : > ok.txt && git add -A && git -c user.email=t@t -c user.name=t commit -qm base && git checkout -q -b leakbr && : > Vendor.class && git add Vendor.class \
+        && git -c user.email=t@t -c user.name=t commit -qm leak && git checkout -q - ) >/dev/null 2>&1
+    _m_sha="$(git -C "$d" rev-parse leakbr)"
+    ( cd "$d" && printf 'refs/heads/leakbr %s refs/heads/leakbr %040d\n' "$_m_sha" 0 | bash "$_pm/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc=$?
+    ( cd "$d" && printf 'refs/heads/leakbr %s refs/heads/leakbr %040d\n' "$_m_sha" 0 | bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc_good=$?
+    [ "$_m_rc" = 0 ] && [ "$_m_rc_good" != 0 ] && ok "teeth M-1271-PUSHED: a non-checked-out leaking branch passes when the checkout is scanned (good=$_m_rc_good) — K1271-pp-b has teeth" \
+      || no "teeth M-1271-PUSHED: mutant rc=$_m_rc good rc=$_m_rc_good — K1271-pp-b push test is THEATER"
+  else no "teeth M-1271-PUSHED: could not build mutant"; fi
+  # M-1271-TIPONLY: only the tip commit's changes are scanned -> a leak added then deleted inside the pushed range passes.
+  _pt="$TMP/k43/tiponly"; mkdir -p "$_pt/templates" "$_pt/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pt/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pt/templates/hook-prepush-vendor-leak.sh" 's|rev-list "\$lsha" --not|rev-list -1 "$lsha" --not|g'; then
+    d="$(_k71_target m-tip https://example.invalid/pub.git)"
+    ( cd "$d" && : > ok.txt && git add -A && git -c user.email=t@t -c user.name=t commit -qm base && git checkout -q -b delbr && : > Gone.jar && git add Gone.jar \
+        && git -c user.email=t@t -c user.name=t commit -qm add && git rm -q Gone.jar && git -c user.email=t@t -c user.name=t commit -qm drop && git checkout -q - ) >/dev/null 2>&1
+    _m_sha="$(git -C "$d" rev-parse delbr)"
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | bash "$_pt/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc=$?
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 ); _m_rc_good=$?
+    [ "$_m_rc" = 0 ] && [ "$_m_rc_good" != 0 ] && ok "teeth M-1271-TIPONLY: add-then-delete passes when only the tip is scanned (good=$_m_rc_good) — K1271-pp-b range test has teeth" \
+      || no "teeth M-1271-TIPONLY: mutant rc=$_m_rc good rc=$_m_rc_good — the range test is THEATER"
+  else no "teeth M-1271-TIPONLY: could not build mutant"; fi
+  # M-1271-TRAP: the temp-dir cleanup trap is gone -> a blocked run leaves its temp dir behind (TMPDIR hygiene).
+  _pr="$TMP/k43/notrap"; mkdir -p "$_pr/templates" "$_pr/toolbelt"; cp "$HERE/../scan-vendor-leak.sh" "$_pr/toolbelt/"
+  if mutant_sed "$HERE/../../templates/hook-prepush-vendor-leak.sh" "$_pr/templates/hook-prepush-vendor-leak.sh" "/^trap 'rm -rf/d"; then
+    mkdir -p "$TMP/trap-good" "$TMP/trap-bad"
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | TMPDIR="$TMP/trap-good" bash "$HERE/../../templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 )
+    ( cd "$d" && printf 'refs/heads/delbr %s refs/heads/delbr %040d\n' "$_m_sha" 0 | TMPDIR="$TMP/trap-bad" bash "$_pr/templates/hook-prepush-vendor-leak.sh" >/dev/null 2>&1 )
+    [ -z "$(ls -A "$TMP/trap-good")" ] && ok "K1271-pp-trap the guard leaves no temp dir behind after a blocked run" || no "K1271-pp-trap leftovers: $(ls "$TMP/trap-good")"
+    [ -n "$(ls -A "$TMP/trap-bad")" ] && ok "teeth M-1271-TRAP: without the trap the temp dir is left behind — K1271-pp-trap has teeth" || no "teeth M-1271-TRAP: no leftover under the mutant — K1271-pp-trap is THEATER"
+  else no "teeth M-1271-TRAP: could not build mutant"; fi
+  # M-1787-FATAL: the drift pass is fatal again (exit 4) -> K1787-f has teeth.
+  if _k87_mb "k87 fatal" 's/_wo_drift_out="\$(_rsdd_wire_drift "\$_wo_settings")" || :/_wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || exit 4/'; then
+    d="$TMP/k87m-fatal"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    RSDD_TEST_DRIFT_FAIL=1 bash "$TMP/k43/k87 fatal/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; _m_rc=$?
+    [ "$_m_rc" = 4 ] && ok "teeth M-1787-FATAL: a drift failure turns fatal (exit 4) without the advisory handling — K1787-f has teeth" || no "teeth M-1787-FATAL: exit $_m_rc under the mutant — K1787-f is THEATER"
+  else no "teeth M-1787-FATAL: could not build mutant"; fi
+  # M-1787-MSG: the have=1 branch of the outcome line is dead -> the misleading empty "other form" returns.
+  if _k87_mb "k87 msg" '/a stale\/requoted entry was dropped/,+2s/\[ "\$have" = 1 \]/false/'; then
+    d="$TMP/k87m-msg"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    jq -n --arg c "\"$TMP/k43/k87 msg/toolbelt/verify-skill-drift-hook.sh\"" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k87 msg/toolbelt/init.sh" "$d" --wire >"$TMP/k87m-msg.out" 2>&1
+    grep -qF "other form: )" "$TMP/k87m-msg.out" && ok "teeth M-1787-MSG: the empty other-form line returns without the have branch — K1787-g has teeth" || no "teeth M-1787-MSG: accurate line still printed under the mutant — K1787-g is THEATER"
+  else no "teeth M-1787-MSG: could not build mutant"; fi
+  # M-1271-PRIVATE: the PRIVATE early return is dead -> a PRIVATE remote gets the hook.
+  if _k87_mb "k71 private" '/^    PRIVATE|INTERNAL)/,/return 0 ;;/s/return 0 ;;/;;/'; then
+    d="$(_k71_target m-private https://example.invalid/priv.git)"; _k87_mpub "k71 private" "$d" PRIVATE --wire --scaffold
+    [ -e "$d/.git/hooks/pre-push" ] && ok "teeth M-1271-PRIVATE: a PRIVATE remote gets the hook without the early return — K1271-pp-e has teeth" || no "teeth M-1271-PRIVATE: no hook under the mutant — K1271-pp-e is THEATER"
+  else no "teeth M-1271-PRIVATE: could not build mutant"; fi
+  # M-1271-QUOTE: the single-quote escaper is the identity -> a kit path with a quote breaks the hook.
+  if _k87_mb "k71 quote" 's|^_rsdd_sq() .*|_rsdd_sq() { printf "'"'"'%s'"'"'" "$1"; }|'; then
+    _k87_q="$(_k87_kit "$TMP/m1271 it's kit")"; mkdir -p "$_k87_q/toolbelt/lib"; cp "$TMP/k43/k71 quote/toolbelt/init.sh" "$_k87_q/toolbelt/init.sh"
+    d="$(_k71_target m-quote https://example.invalid/pub.git)"
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+    ( cd "$d" && bash .git/hooks/pre-push >/dev/null 2>&1 ); _m_rc=$?
+    [ "$_m_rc" != 0 ] && ok "teeth M-1271-QUOTE: the hook breaks on a quoted kit path without the escaper — K1271-pp-h has teeth" || no "teeth M-1271-QUOTE: hook still runs under the mutant — K1271-pp-h is THEATER"
+  else no "teeth M-1271-QUOTE: could not build mutant"; fi
   fi
 fi
 

@@ -202,7 +202,7 @@ _r2_err1="$ROOT/r2-phase1.err"
 _r2_stop_cmd1="" ; _r2_ss_cmd1=""
 if [ -f "$_r2_settings" ]; then
   _r2_stop_cmd1="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
-  _r2_ss_cmd1="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+  _r2_ss_cmd1="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
 if <<<"$_r2_stop_cmd1" grep -q 'retro-gate-stop.sh'; then
@@ -232,7 +232,7 @@ sed 's/<SUBJECT>/the-real-subject/g' "$_r2_ss_hook" > "$_r2_ss_hook.tmp" && mv "
 _r2_stop_cmd2="" ; _r2_ss_cmd2=""
 if [ -f "$_r2_settings" ]; then
   _r2_stop_cmd2="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
-  _r2_ss_cmd2="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+  _r2_ss_cmd2="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
 if <<<"$_r2_stop_cmd2" grep -q 'retro-gate-stop.sh' && \
