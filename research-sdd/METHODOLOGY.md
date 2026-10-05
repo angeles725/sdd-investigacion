@@ -3336,25 +3336,25 @@ disjoint directories launched as 4+3 waves, B370-B376. Source: niagara-research/
 
 ## 17. Incident & resume (after a kill / crash / interruption)
 
-Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76
-and B122 both did). Before re-launching an interrupted iteration:
+Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76 and B122 both did). Before re-launching an interrupted iteration:
 
-1. **Check real state first** — after a kill/crash AND after ANY delegated block (a "delivered" handback can fail to arrive; kit #1197, §16).
-   Run `git -C $TARGET log --oneline -5` and read the on-disk artifacts (block header, self-verify, child-gaps,
-   CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration committed its work.
-2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running
-   risks overwriting good work or duplicating a block. Pick up from the actual committed state: verify
-   it self-verified correctly, then continue with the next gap.
-3. **If it only partially landed** (e.g. block written but state/CATALOG not updated), finish the
-   remaining archive steps rather than restarting the whole iteration.
-4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the
-   on-disk truth before continuing — files are the source of truth, engram is the mirror.
-5. **Assumptions inherited from a compaction are hypotheses until re-verified.** A post-compaction summary
-   may present a prior finding as established fact because it was established in the session that was
-   compacted. Before building on any load-bearing claim a recovered summary presents as settled,
-   re-verify it against the primary source — the summary cannot distinguish a verified claim from an
-   unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
+1. **Check real state first** — after a kill/crash AND after ANY delegated block (a "delivered" handback can fail to arrive; kit #1197, §16). Run `git -C $TARGET log
+   --oneline -5` and read the on-disk artifacts (block header, self-verify, child-gaps, CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration committed its work.
+2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running risks overwriting good work or duplicating a block. Pick up from the
+   actual committed state: verify it self-verified correctly, then continue with the next gap.
+3. **If it only partially landed** (e.g. block written but state/CATALOG not updated), finish the remaining archive steps rather than restarting the whole iteration.
+4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the on-disk truth before continuing — files are the source of truth,
+   engram is the mirror.
+5. **Assumptions inherited from a compaction are hypotheses until re-verified.** A post-compaction summary may present a prior finding as established fact because it was
+   established in the session that was compacted. Before building on any load-bearing claim a recovered summary presents as settled, re-verify it against the primary
+   source — the summary cannot distinguish a verified claim from an unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
    2026-09-13-camino-b-end-to-end-completo)
+6. **Block plan — step-level resume inside ONE long block.** At block open write `<block-file-stem>.plan.md` beside the block
+   (`$KIT/templates/block-plan.template.md`): that block's sub-steps only (sweep → corroborate → write → self-verify → update catalog/index/state → commit), each ticked
+   `[x]` only when its artifact is on disk. After a cut, verify every ticked item's artifact (missing → unticked again) and continue at the first unticked item. The plan
+   is deleted at the block's commit and never committed. NO-COLLISION: RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration history and
+   "what's next"; the plan lists nothing but this block's sub-steps, is not an ODD task document (`odd/tasks/*.md`, kit-maintenance only), and leaves the return-token
+   gate and `--next` unchanged. No checker yet (later slice). (#1178)
 ## 18. Self-retrospective (the kit learns from its own runs)
 
 The engine improves by observing real runs — not by guesswork. Every improvement in this kit so far was
