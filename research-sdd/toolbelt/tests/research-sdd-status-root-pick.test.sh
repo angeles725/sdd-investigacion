@@ -42,6 +42,8 @@ run() { local s="$1"; shift; bash "$s" "$@" 2>/dev/null; }
 # The root's gap is high, the focus file's is medium.
 nstep() { local s="$1"; shift; bash "$s" "$@" 2>/dev/null | sed -n 's/^  pending backlog : //p'; }
 ROOTBL="high=1 medium=0 low=0"; FOCBL="high=0 medium=1 low=0"
+# split-tie fixture has NO root: its expected value is the C-locale-first FOCUS file (a/RESEARCH-STATE-x.md, high gap)
+TIEBL="high=1 medium=0 low=0"
 
 flat="$TMP/flat"; mkdir -p "$flat"
 mk_state "$flat/RESEARCH-STATE.md" "root gap"
@@ -84,7 +86,7 @@ got="$(run "$SUT" "$sp" --next --focus y)"
 out="$(bash "$SUT" "$sp" 2>/dev/null)"; rc=$?
 [ "$rc" = 0 ] && ok "7d split tie, default run: exit 0" || no "7d split tie: exit $rc"
 got="$(nstep "$SUT" "$sp")"
-[ "$got" = "$ROOTBL" ] && ok "7e split tie, default run reports the C-locale-first file (a/, high)" || no "7e split tie: got [$got] want [$ROOTBL]"
+[ "$got" = "$TIEBL" ] && ok "7e split tie, default run reports the C-locale-first file (a/, high)" || no "7e split tie: got [$got] want [$TIEBL]"
 case "$out" in *"== research-sdd-status:"*) ok "7f split tie: report header present" ;; *) no "7f split tie: no report header" ;; esac
 got="$(run "$SUT" "$sp" --next --root)"
 case "$got" in BOOTSTRAP*) ok "7c split --root with no root -> BOOTSTRAP (unchanged)" ;; *) no "7c split --root: got [$got]" ;; esac
@@ -195,5 +197,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth E: mutant could not be built"; fi
 fi
 
-echo "== $pass passed, $fail failed =="
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
