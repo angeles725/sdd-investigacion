@@ -4993,16 +4993,23 @@ t1768_case() {
   else
     T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag round-trip" "scan=[$scan] cache=[${cache:0:200}]"
   fi
-  if command -v python3 >/dev/null 2>&1; then
+  # host-independent strict-JSON subset: no raw control byte 0x01-0x1f may appear in the cache line
+  if [[ "$cache" == *[$'\001'-$'\037']* ]]; then
+    T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag no raw control bytes in cache" "cache=[${cache:0:200}]"
+  else
+    ok "T1768-$tag no raw control bytes in cache" "()"
+  fi
+  if [ "$T1768_PY" = 1 ]; then
     if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d[0]["title"]==sys.argv[2]' "$cache" "$title" 2>/dev/null; then
       ok "T1768-$tag cache is strict JSON and decodes to the title" "()"
     else
       T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag strict JSON" "cache=[${cache:0:200}]"
     fi
-  else
-    T1768_BAD=$((T1768_BAD+1)); no "T1768-$tag strict JSON" "python3 absent: the strict-JSON check could not run (a skip is not a pass)"
   fi
 }
+# python3 is only an extra oracle (the SUT does not need it): probe once, say so visibly, never fail on its absence
+if command -v python3 >/dev/null 2>&1; then T1768_PY=1
+else T1768_PY=0; echo "  SKIP  T1768 strict-JSON decode (degraded: python3 absent — strict-JSON check not run; awk round-trip + raw-control-byte checks still run)"; fi
 T1768_TITLES=(
   'plain|a plain title'
   'quote|fix "quoted" thing'
@@ -5053,7 +5060,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tjs newline-off    newline   '/STAGE_RETRO_ISSUES_JSE_NL$/s/_jse+=[^;]*;;/_jse+="$_c" ;;/'
   tjs ctrl-off       ctrl      '/STAGE_RETRO_ISSUES_JSE_CTRL$/s/printf -v _h [^;]*; _jse+=[^;]*;;/_jse+="$_c" ;;/'
   tjs reader-bf-off  ctrl      '/STAGE_RETRO_ISSUES_JSE_READ_BF/s/str = str "\\b"/str = str "b"/'
-  tjs fastpath-wide quote     '/STAGE_RETRO_ISSUES_JSE_FAST$/s/\[.*\]/[\\\\]/'
+  tjs reader-f-off   ctrl      '/STAGE_RETRO_ISSUES_JSE_READ_BF/{n;s/str = str "\\f"/str = str "f"/;}'
+  tjs fastpath-wide  quote   '/STAGE_RETRO_ISSUES_JSE_FAST$/s/\[.*\]/[\\\\]/'
   # the separator guard is not in the title table: pin it on the spaced-empty list directly
   mb="$(mktemp -d "${TMPDIR:-/tmp}/t1768.XXXXXX")"
   if mutant_chain "T1768-sep-off" "$SUT" "$mb/sut.sh" '/STAGE_RETRO_ISSUES_JSE_SEP$/s/then _sep=""; fi/then :; fi/'; then
