@@ -29,16 +29,38 @@ ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 G() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
 
+# Ambient GIT_* variables (e.g. from a git hook) would redirect every fixture and SUT git call elsewhere.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_NAMESPACE
 # Throwaway repo: origin/main exists; a dirty feature worktree, a prunable one, a detached one, two loose branches.
+# Every step is checked: a failure aborts the suite with a typed FAIL naming the step (never a partial fixture).
 R="$ROOT/r"; mkdir -p "$R"
-( cd "$R" && git init -q -b main . && echo a > a && git add a && G commit -q -m c1 \
-  && git init -q --bare "$R.origin" && git remote add origin "$R.origin" && git push -q origin main && git fetch -q origin \
-  && git worktree add -q -b feat/a "$ROOT/wt-a" main && ( cd "$ROOT/wt-a" && echo x > x && git add x && G commit -q -m a1 \
-       && echo dirty >> a && echo u1 > u1 ) \
-  && echo m > m && git add m && G commit -q -m m2 && git push -q origin main && git branch loose main~1 && git branch ahead1 main \
-  && git checkout -q ahead1 && echo z > z && git add z && G commit -q -m z1 && git checkout -q main \
-  && git worktree add -q --detach "$ROOT/wt-d" main~1 \
-  && git worktree add -q -b feat/p "$ROOT/wt-p" main ) >/dev/null 2>&1
+step() { local name="$1"; shift; local out
+  out="$("$@" 2>&1)" || { printf '  FAIL  fixture setup: step "%s" failed (rc %s): %s\n' "$name" "$?" "$(printf '%s' "$out" | head -c 300)"; exit 2; }; }
+inR() { ( cd "$R" && "$@" ); }
+inW() { local d="$1"; shift; ( cd "$d" && "$@" ); }
+step init          inR git init -q .
+step head-main     inR git symbolic-ref HEAD refs/heads/main
+step c1            inR sh -c 'echo a > a && git add a'
+step commit-c1     inR G commit -q -m c1
+step bare-origin   git init -q --bare "$R.origin"
+step add-remote    inR git remote add origin "$R.origin"
+step push-c1       inR git push -q origin main
+step fetch         inR git fetch -q origin
+step wt-a          inR git worktree add -q -b feat/a "$ROOT/wt-a" main
+step wt-a-files    inW "$ROOT/wt-a" sh -c 'echo x > x && git add x'
+step wt-a-commit   inW "$ROOT/wt-a" G commit -q -m a1
+step wt-a-dirty    inW "$ROOT/wt-a" sh -c 'echo dirty >> a && echo u1 > u1'
+step m2-files      inR sh -c 'echo m > m && git add m'
+step commit-m2     inR G commit -q -m m2
+step push-m2       inR git push -q origin main
+step br-loose      inR git branch loose main~1
+step br-ahead1     inR git branch ahead1 main
+step co-ahead1     inR git checkout -q ahead1
+step z-files       inR sh -c 'echo z > z && git add z'
+step commit-z1     inR G commit -q -m z1
+step co-main       inR git checkout -q main
+step wt-detached   inR git worktree add -q --detach "$ROOT/wt-d" main~1
+step wt-p          inR git worktree add -q -b feat/p "$ROOT/wt-p" main
 rm -rf "$ROOT/wt-p"   # prunable: directory gone, entry not pruned
 
 # PATH scenarios: stub gh variants, and tool-symlink dirs without jq / without git.
@@ -94,14 +116,14 @@ jt_dirty() { rs "$1" --cwd "$R" --no-gh --json; [ "$(jq_f '.counts.worktrees_dir
 jt_prs() { RS_PATH="$STUB/ok:$PATH_ORIG" rs "$1" --cwd "$R" --json; local r1="$RC" a b
   a="$(jq_f '[.counts.prs,.counts.prs_unknown,.items[0].prs_status,.items[0].prs_truncated]|map(tostring)|join(",")')"
   b="$(jq_f '[.items[]|select(.kind=="pr")|[.number,.branch,.state,.url]|map(tostring)|join("|")]|join(",")')"
-  RS_PATH="" ; [ "$r1" = 0 ] && [ "$a" = "2,0,ok,false" ] && [ "$b" = "7|feat/a|OPEN|https://x/7,9|loose|OPEN|https://x/9" ]; }
-jt_prsunk() { RS_PATH="$STUB/bad:$PATH_ORIG" rs "$1" --cwd "$R" --json; RS_PATH=""
+  [ "$r1" = 0 ] && [ "$a" = "2,0,ok,false" ] && [ "$b" = "7|feat/a|OPEN|https://x/7,9|loose|OPEN|https://x/9" ]; }
+jt_prsunk() { RS_PATH="$STUB/bad:$PATH_ORIG" rs "$1" --cwd "$R" --json
   [ "$RC" = 0 ] && [ "$(jq_f '[.counts.prs,.counts.prs_unknown,.items[0].prs_status,.state]|map(tostring)|join(",")')" = "0,1,degraded:gh-failed,ok" ]; }
 jt_degr() { RS_PATH="$ROOT/nojq" rs "$1" --cwd "$R" --no-gh --json; local a; a="$RC|$(printf "%s" "$ERR" | grep -c DEGRADED)|$(printf "%s" "$OUT" | grep -c "\"state\":\"degraded\"")"
-  RS_PATH="$ROOT/nogit" rs "$1" --cwd "$R" --no-gh --json; RS_PATH=""
+  RS_PATH="$ROOT/nogit" rs "$1" --cwd "$R" --no-gh --json
   [ "$a" = "3|1|1" ] && [ "$RC" = 3 ] && [ "$(jq_f '[.schema,.state,(.reason|type),(.counts|length),(.items|length)]|map(tostring)|join(",")')" = "research-sdd.resume-state/v1,degraded,string,0,0" ]; }
-jt_degr_plain() { RS_PATH="$ROOT/nojq" rs "$1" --cwd "$R" --no-gh; RS_PATH=""; [ "$RC" = 3 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; }
-jt_jqfail() { RS_PATH="$ROOT/badjq-p" rs "$1" --cwd "$R" --no-gh --json; RS_PATH=""; [ "$RC" = 2 ] && [ -z "$OUT" ] && [[ "$ERR" == *'envelope build failed'* ]]; }
+jt_degr_plain() { RS_PATH="$ROOT/nojq" rs "$1" --cwd "$R" --no-gh; [ "$RC" = 3 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; }
+jt_jqfail() { RS_PATH="$ROOT/badjq-p" rs "$1" --cwd "$R" --no-gh --json; [ "$RC" = 2 ] && [ -z "$OUT" ] && [[ "$ERR" == *'envelope build failed'* ]]; }
 jt_oper() { rs "$1" --cwd "$R" --no-gh --json --base-ref no-such-ref; local a="$RC|${#OUT}"
   mkdir -p "$ROOT/plain"; rs "$1" --cwd "$ROOT/plain" --json; [ "$a" = "2|0" ] && [ "$RC" = 2 ] && [ -z "$OUT" ]; }
 jt_flagpos() { rs "$1" --json --cwd "$R" --no-gh; local a="$OUT"; rs "$1" --cwd "$R" --no-gh --json; [ "$(jq -c 'del(.items[0].generated_at)' <<<"$a")" = "$(jq -c 'del(.items[0].generated_at)' <<<"$OUT")" ] && [ "$(jq_f .state)" = ok ]; }

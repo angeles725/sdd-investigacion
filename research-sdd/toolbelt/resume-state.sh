@@ -14,7 +14,7 @@
 #                   {schema,state,reason,counts,items}; without it the document above is printed unchanged.
 #
 # Exit: 0 ok · 2 usage / not a repository / unresolvable ref / runtime failure (git worktree list or mktemp
-#       failed — no JSON) · 3 DEGRADED (git or jq missing — no JSON). A missing gh or timeout is NOT an exit:
+#       failed — no JSON) · 3 DEGRADED (git or jq missing — no document; --json prints a degraded envelope). A missing gh or timeout is NOT an exit:
 #       it is reported inside the document as prs_status degraded:gh-missing / degraded:timeout-missing.
 #       With --json rc 3 still prints a valid envelope ("state":"degraded") on stdout; rc 2 stays empty stdout.
 #
