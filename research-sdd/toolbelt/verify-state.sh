@@ -863,7 +863,7 @@ for state in "${states[@]}"; do
   d_rt="$(derive_retyped_in_table "$state")"
   if [ "${d_rt:-0}" -gt 0 ]; then  # RETYPED-VISIBLE (#1638): advisory only — no rc change
     echo "   re-typed in table : ${d_rt} — counted in no bucket"
-    echo "   WARN   re-typed row must leave the main Gap-backlog table in the same edit — move it to the Blocked-gaps section (METHODOLOGY §8b)"  # RETYPED-WARN
+    echo "   WARN   re-typed row still carries 're-typed' — write its Status as the re-typed form 'blocked (requires-<what>)' per METHODOLOGY §8b (or move it to the Blocked-gaps section)"  # RETYPED-WARN
   fi
 
   # ENVELOPE CHECK A (shared-global) — attributed block count comparison (SG-CHECK-A-SKIP).

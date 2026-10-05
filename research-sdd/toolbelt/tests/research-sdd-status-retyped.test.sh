@@ -50,7 +50,7 @@ o="$(st_out "$d")"
 sy="$(bash "$SUT_ST" "$d" --sync-state 2>&1)"
 grep -q '^  re-typed in table : 1' <<<"$o" && ok "1a status shows visible re-typed count" || no "1a status count line missing"
 grep -q 'unrecognised Status token \[re-typed\]' <<<"$sy" && no "1c --sync-state still emits the generic unrecognised WARN" || ok "1c --sync-state no longer calls re-typed 'unrecognised'"
-grep -q 'WARN: re-typed row must leave the main Gap-backlog table' <<<"$sy" && ok "1d --sync-state emits the actionable WARN" || no "1d --sync-state WARN missing"
+grep -q 'WARN: re-typed row still carries' <<<"$sy" && ok "1d --sync-state emits the actionable WARN" || no "1d --sync-state WARN missing"
 # 2. no new bucket: investigable stays 1
 d="$TMP/a2"; mkstate "$d" 1 "$PEND" "$R1"
 grep -qE 'investigable=1 ' <<<"$(st_out "$d")" && ok "2 investigable unchanged (no new bucket)" || no "2 investigable shifted"
@@ -58,7 +58,7 @@ grep -qE 'investigable=1 ' <<<"$(st_out "$d")" && ok "2 investigable unchanged (
 d="$TMP/a3"; mkstate "$d" 1 "$PEND" "$R1"
 vo="$(vs_out "$d")"; vrc=0; bash "$SUT_VS" "$d" >/dev/null 2>&1 || vrc=$?
 grep -q '^   re-typed in table : 1' <<<"$vo" && ok "3a verify-state shows visible count" || no "3a verify-state count missing"
-grep -q 'WARN   re-typed row must leave the main Gap-backlog table' <<<"$vo" && ok "3b verify-state WARN is actionable" || no "3b verify-state WARN missing"
+grep -q 'WARN   re-typed row still carries' <<<"$vo" && ok "3b verify-state WARN is actionable" || no "3b verify-state WARN missing"
 [ "$vrc" = 0 ] && ok "3c re-typed row is a WARN, not a FAIL (rc 0)" || no "3c verify-state rc=$vrc"
 # 4. none -> silent in both (byte-stable output for corpora without re-typed rows)
 d="$TMP/none"; mkstate "$d" 1 "$PEND"
@@ -91,7 +91,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   d="$TMP/a"
   t="$(mk_tree A)"
   if mutant_sed "$ST" "$t/research-sdd-status.sh" '/RETYPED-WARN/ s/printf .*/: ;;  # RETYPED-WARN [NEUTERED]/' >/dev/null 2>&1; then
-    grep -q 'WARN: re-typed row must leave' <<<"$(bash "$t/research-sdd-status.sh" "$d" --sync-state 2>&1)" && no "teeth A: WARN still emitted — THEATER" || ok "teeth A: status WARN neutered -> case 1d bites"
+    grep -q 'WARN: re-typed row still carries' <<<"$(bash "$t/research-sdd-status.sh" "$d" --sync-state 2>&1)" && no "teeth A: WARN still emitted — THEATER" || ok "teeth A: status WARN neutered -> case 1d bites"
   else no "teeth A: mutant unbuildable"; fi
   t="$(mk_tree B)"
   if mutant_sed "$ST" "$t/research-sdd-status.sh" '/RETYPED-COUNT/ s/n=\$((n+1))/:/' >/dev/null 2>&1; then
@@ -108,7 +108,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth D: mutant unbuildable"; fi
   t="$(mk_tree E)"
   if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-WARN/ s/echo .*/:  # RETYPED-WARN [NEUTERED]/' >/dev/null 2>&1; then
-    grep -q 'WARN   re-typed row must leave' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth E: WARN still emitted — THEATER" || ok "teeth E: verify-state WARN neutered -> case 3b bites"
+    grep -q 'WARN   re-typed row still carries' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth E: WARN still emitted — THEATER" || ok "teeth E: verify-state WARN neutered -> case 3b bites"
   else no "teeth E: mutant unbuildable"; fi
 fi
 echo "-- $pass passed, $fail failed --"

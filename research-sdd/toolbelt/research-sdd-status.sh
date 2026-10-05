@@ -566,7 +566,7 @@ count_investigable() {
     [ "$tok" = "pending" ] || {
       case "$tok" in
         requires-execution*|blocked-on-*|blocked|'~~'*|'✅'*|closed|\[closed\]|covered|\[covered\]|done|\[done\]|cubierto|\[cubierto\]) ;;  # DONE-TOKENS
-        re-typed*|retyped*) printf 'WARN: re-typed row must leave the main Gap-backlog table in the same edit — move it to the Blocked-gaps section (METHODOLOGY §8b) [gap: %s]\n' "$gap" >&2 ;;  # RETYPED-WARN (#1638): uncounted by design, never silent; mirrored in verify-state.sh
+        re-typed*|retyped*) printf 'WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: %s]\n' "$gap" >&2 ;;  # RETYPED-WARN (#1638): uncounted by design, never silent; mirrored in verify-state.sh
         *) printf 'WARN: unrecognised Status token [%s] in gap: %s\n' "$tok" "$gap" >&2 ;;  # UNRECOG-STATUS-WARN
       esac
       continue
@@ -2029,7 +2029,7 @@ echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"
 echo "  stop-control    : investigable=${inv:-?} · requires-execution=${req:-?} · blocked=${blk:-?}"
 _rt="$(count_retyped_in_table)"
-[ "${_rt:-0}" -gt 0 ] && echo "  re-typed in table : ${_rt} — row(s) must leave the main Gap-backlog table (METHODOLOGY §8b); counted in no bucket"  # RETYPED-VISIBLE (#1638)
+[ "${_rt:-0}" -gt 0 ] && echo "  re-typed in table : ${_rt} — row(s) carry the literal 're-typed' Status — use 'blocked (requires-<what>)' (METHODOLOGY §8b); counted in no bucket"  # RETYPED-VISIBLE (#1638)
 if [ "$_doc_mode" = 1 ]; then outline_summary; outline_line
 elif [ "$_doc_noheading" = 1 ]; then echo "  outline         : (no ## Outline section — gap-centric verdicts kept)"; fi
 mapfile -t ledgers < <(contra_ledgers)
