@@ -16,7 +16,7 @@
 # shrink. Remove an entry in the same change that scopes that suite's calls.
 #
 # Detected forms (code part of a line, text after the first `#` ignored):
-#   export MUTANT_SYNTAX[=v]   ·   MUTANT_SYNTAX=v; export MUTANT_SYNTAX   ·   declare|typeset -x MUTANT_SYNTAX
+#   export [-opts] MUTANT_SYNTAX[=v] (not `export -n`, which UN-exports)   ·   MUTANT_SYNTAX=v; export MUTANT_SYNTAX   ·   declare|typeset -x MUTANT_SYNTAX
 # Not detected (stated, not claimed): `set -a` followed by an assignment, `env`/`eval` indirection.
 #
 # Env seams: LINT_SCAN_DIR (default: this directory) · LINT_WAIVE=0 (ignore WAIVED, used by the planted-
@@ -70,7 +70,7 @@ lint_dir() {
     case "${f##*/}" in *export-lint*) continue ;; esac   # this suite (and its mutants) quote the forms
     n=$((n+1))
     awk -v re="$LINT_RE" -v name="${f##*/}" '
-      { code=$0; sub(/#.*/, "", code); if (code ~ re) { sub(/\.test\.sh$/, "", name); printf "%s:%d: %s\n", name, FNR, $0 } }
+      { code=$0; sub(/#.*/, "", code); if (code ~ re && code !~ /export[ \t]+-[a-zA-Z]*n/) { sub(/\.test\.sh$/, "", name); printf "%s:%d: %s\n", name, FNR, $0 } }
     ' "$f"
   done
   [ "$n" -gt 0 ] || return 2
@@ -117,12 +117,16 @@ mkp semi        'MUTANT_SYNTAX=none; export MUTANT_SYNTAX'
 mkp chained     'n=0; export MUTANT_SYNTAX=none'
 mkp declx       'declare -x MUTANT_SYNTAX=none'
 mkp other       'export MUTANT_SYNTAX_EXTRA=1'
+mkp unexport    'export -n MUTANT_SYNTAX'
+mkp declr       'declare -r MUTANT_SYNTAX=none'
+mkp typex       'typeset -x MUTANT_SYNTAX=none'
+mkp declrx      'declare -rx MUTANT_SYNTAX=none'
 mkp_hits="$(lint_dir "$PLANT")"
-for s in plain bare semi chained declx; do
+for s in plain bare semi chained declx typex declrx; do
   if grep -q "^$s:1:" <<<"$mkp_hits"; then ok "3 detector flags the '$s' export form"
   else no "3 detector missed the '$s' export form (hits=[$mkp_hits])"; fi
 done
-for s in clean comment trailing other; do
+for s in clean comment trailing other unexport declr; do
   if grep -q "^$s:" <<<"$mkp_hits"; then no "3 detector false-positive on '$s' (hits=[$mkp_hits])"
   else ok "3 detector ignores '$s' (scoped call / comment / other variable)"; fi
 done

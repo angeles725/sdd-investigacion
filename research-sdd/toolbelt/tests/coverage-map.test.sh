@@ -318,6 +318,24 @@ else
   no "25c expected exit 1 naming block_file_filter" "rc=$rc out=$out"
 fi
 
+# 25d: invoked THROUGH A SYMLINK (e.g. ~/bin/coverage-map), lib/ must still be found beside the real script.
+mkdir -p "$ROOT/lnk"; ln -s "$SUT" "$ROOT/lnk/cm-link.sh"
+out_direct="$(run "$C25" --subject "$S25")"
+out_link="$(bash "$ROOT/lnk/cm-link.sh" "$C25" --subject "$S25" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -n "$out_link" ] && [ "$out_link" = "$out_direct" ]; then
+  ok "25d symlinked invocation resolves lib/ beside the real script (output identical to a direct run)"
+else
+  no "25d symlinked invocation differs from direct run" "rc=$rc link=$out_link direct=$out_direct"
+fi
+# 25e: a MISSING lib is a named operational failure with the shell's own source error left visible.
+mkdir -p "$K25/nolib"; cp "$SUT" "$K25/nolib/coverage-map.sh"
+out="$(bash "$K25/nolib/coverage-map.sh" "$C25" --subject "$S25" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && <<<"$out" grep -q 'block-files.sh' && <<<"$out" grep -qi 'no such file'; then
+  ok "25e missing lib -> exit 1 with the source error visible on stderr"
+else
+  no "25e expected exit 1 + visible source error for a missing lib" "rc=$rc out=$out"
+fi
+
 # ==========================================================================
 # TEETH — mutant verification (--prove-teeth only)
 # ==========================================================================
@@ -630,6 +648,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-#1821-1: could not build mutant (block_file_filter call not found, or refused by lib/mutant.sh)"
+  fi
+
+  # ---- tooth (#1821-1b): resolve the script dir without following the symlink -> 25d must go red
+  echo "-- teeth-#1821-1b: no readlink -f (dirname of the symlink); 25d must go red --"
+  MUTANT_R="$ROOT/cov-map.MUT-R.sh"
+  if mutant_chain "teeth: MUT-R" "$SUT" "$MUTANT_R" 's#readlink -f -- "\$0"#echo "$0"#'; then
+    ln -sf "$MUTANT_R" "$ROOT/lnk/cm-link-mut.sh"
+    mout_r="$(bash "$ROOT/lnk/cm-link-mut.sh" "$C25" --subject "$S25" 2>&1)"; mrc_r=$?
+    if [ "$mrc_r" -eq 1 ] && ! <<<"$mout_r" grep -q 'modules:'; then
+      ok "teeth-#1821-1b: non-following resolution cannot find lib/ through a symlink -> 25d would go RED"
+    else
+      no "teeth-#1821-1b: mutant still works through a symlink (THEATER)" "rc=$mrc_r out=$mout_r"
+    fi
+  else
+    no "teeth-#1821-1b: could not build mutant (readlink -f not found, or refused by lib/mutant.sh)"
   fi
 
 fi

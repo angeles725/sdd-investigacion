@@ -178,9 +178,13 @@ awk -F'\t' '{cnt[$1]++; last[$1]=$2}
 
 # ---------- find block files in corpus using the kit discriminator (kit issue #1821: the shared
 # lib/block-files.sh, not a private copy of its regex). Fail closed if the helper is not defined.
-_bflib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/block-files.sh"
+# Resolve the script directory THROUGH a symlinked invocation (readlink -f), so lib/ is found beside the
+# real script; fall back to dirname when readlink -f is unavailable.
+_cm_self="$(readlink -f -- "$0" 2>/dev/null)" || _cm_self=""
+[ -n "$_cm_self" ] || _cm_self="$0"
+_bflib="$(cd "$(dirname "$_cm_self")" && pwd)/lib/block-files.sh"
 # shellcheck source=lib/block-files.sh
-. "$_bflib" 2>/dev/null
+. "$_bflib"   # source errors (missing/unreadable lib) stay visible on stderr
 if ! declare -F block_file_filter >/dev/null 2>&1; then
   echo "coverage-map: helper lib/block-files.sh failed to define block_file_filter" >&2
   exit 1
