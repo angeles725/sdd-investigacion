@@ -25,11 +25,13 @@
 # _RSDD_HOOK_PLACEHOLDERS and shared by the fill and the guard: <SUBJECT> (filled by --subject "<phrase>", a noun phrase read
 # as "research of <phrase>"), <prefix> (filled by --prefix) and the <path to ...> primary-sources placeholder (no flag can
 # fill it: --wire WARNs with the next step). The fill happens only when THIS run creates the hook (scaffold, or --wire creating
-# an absent one). --subject against an EXISTING hook is REFUSED (exit 3, typed REFUSED line, nothing written) — never a
-# silent overwrite — unless --force, which (as always) re-scaffolds over the existing corpus and hook. --prefix (also the
-# corpus block-prefix flag, re-passed on re-wires) leaves an existing hook untouched and prints a typed `note:` (exit 0).
-# A bad value (blank, multi-line, a control character, or one containing a placeholder token) is exit 2 before any write;
-# so is --subject/--prefix as the last argument with no value.
+# an absent one). On EVERY path (scaffold, scaffold+wire, wire-only) --subject against an EXISTING hook is REFUSED (exit 3,
+# typed REFUSED line, nothing written) — never a silent overwrite — unless --force, which (as always) re-scaffolds over the
+# corpus and hook. --prefix (also the corpus block-prefix flag, re-passed on re-wires) leaves an existing hook untouched and
+# prints a typed `note:` (exit 0). A bad value (blank, multi-line, a control character, starting with `--`, or containing a
+# placeholder token) is exit 2 before any write, on re-wires too; so is --subject/--prefix as the last argument with no value.
+# On the wire-only path the SessionStart hook is filled in a staging dir BEFORE anything is created, so a failed fill writes
+# nothing; the fill temp file and the staging dir are removed on EXIT, INT and TERM.
 # --wire still gates SessionStart registration on <SUBJECT> ONLY: the code never treated the others as blocking, and the
 # already-wired fleet carries <prefix>/<path to ...> in adapted hooks; they are named WARNs, not blockers.
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable/a newline in the target path / a dangling symlink at any path the run would write (.claude, .claude/hooks, hooks, scaffold files; settings.json only with --wire) (kit issue #1043: refused before any write) · 3 = corpus already exists (refused) ·
@@ -270,9 +272,20 @@ _rsdd_placeholder_value() {
 # Escape the regex metacharacters of a LITERAL placeholder for the pattern side of `sed "s|...|...|"`.
 _rsdd_sed_pattern_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$|]/\\&/g'; }
 
+# kit issue #1845: the fill's temp file and the wire-only staging dir, removed by the trap below on EXIT, INT and TERM.
+_RSDD_FILL_TMP=""; _RSDD_STAGE=""
+_rsdd_cleanup_tmp() {
+  [ -z "$_RSDD_FILL_TMP" ] || rm -f -- "$_RSDD_FILL_TMP"
+  [ -z "$_RSDD_STAGE" ] || rm -rf -- "$_RSDD_STAGE"
+}
+trap '_rsdd_cleanup_tmp' EXIT
+trap '_rsdd_cleanup_tmp; exit 130' INT
+trap '_rsdd_cleanup_tmp; exit 143' TERM
+
 # kit issue #1845: every failed fill removes its temp file and returns 1 with a typed FATAL; the hook stays exactly as copied.
 _rsdd_fill_abort() {  # <tmp> <message>
   rm -f "$1"
+  _RSDD_FILL_TMP=""
   echo "FATAL: $2" >&2
   return 1
 }
@@ -293,6 +306,7 @@ _rsdd_fill_hook() {
   done
   [ "${#exprs[@]}" -gt 0 ] || return 0
   tmp="$(mktemp "$(dirname "$f")/.hook.XXXXXX")" || { echo "FATAL: could not create a temp file beside $f (hook left as copied)" >&2; return 1; }
+  _RSDD_FILL_TMP="$tmp"   # the INT/TERM/EXIT trap removes it if the run is interrupted before the mv
   cp -p "$f" "$tmp" || { _rsdd_fill_abort "$tmp" "could not copy $f to its temp file (hook left as copied)"; return 1; }   # carries the mode over
   sed "${exprs[@]}" "$f" > "$tmp" || { _rsdd_fill_abort "$tmp" "sed failed filling $f (hook left as copied)"; return 1; }
   for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
@@ -300,6 +314,7 @@ _rsdd_fill_hook() {
     if _rsdd_hook_has_placeholder "$tmp" "$ph"; then _rsdd_fill_abort "$tmp" "$ph survived the fill of $f (hook left as copied)"; return 1; fi
   done
   mv -f "$tmp" "$f" || { _rsdd_fill_abort "$tmp" "could not install the filled hook over $f (hook left as copied)"; return 1; }
+  _RSDD_FILL_TMP=""
 }
 
 # kit issue #1845: validate a --subject/--prefix value BEFORE any write: non-blank, one line, no control character, no leading
@@ -895,6 +910,13 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
 
     # jq is present and settings.json (if any) is valid JSON: repair absent hook files
     # (create-only — never overwrite an existing one).
+    # kit issue #1845: fill the SessionStart hook in a staging dir OUTSIDE the target BEFORE anything is created here, so a
+    # failed fill (typed FATAL, exit 2) writes nothing: no dirs, no Stop hook, no settings.json change.
+    if [ ! -e "$_wo_ss" ]; then
+      _RSDD_STAGE="$(mktemp -d)" || { echo "FATAL: could not create a staging directory for the hook (nothing written)" >&2; exit 2; }
+      cp "$TPL/hook-sessionstart.sh" "$_RSDD_STAGE/hook" || { echo "FATAL: could not stage $TPL/hook-sessionstart.sh (nothing written)" >&2; exit 2; }
+      _rsdd_fill_hook "$_RSDD_STAGE/hook" || exit 2
+    fi
     mkdir -p "$target/.claude/hooks"
     if [ -e "$_wo_stop" ]; then
       echo "kept: $_wo_stop"
@@ -907,9 +929,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     if [ -e "$_wo_ss" ]; then
       echo "kept: $_wo_ss"
     else
-      cp "$TPL/hook-sessionstart.sh" "$_wo_ss"
-      # kit issue #1845: fill the flags into the hook THIS run just created; a failed fill removes it again (typed FATAL, exit 2).
-      _rsdd_fill_hook "$_wo_ss" || { rm -f "$_wo_ss"; exit 2; }
+      cp "$_RSDD_STAGE/hook" "$_wo_ss"   # the already-filled staged copy (see above)
       echo "created: $_wo_ss"
     fi
     # kit issue #1496: pkill-guard PreToolUse hook — create-only (a hand-adapted copy is never
@@ -1037,6 +1057,13 @@ if [ "$force" = 0 ]; then
     fi
   done
 fi
+# kit issue #1845: the same existing-hook rule as the wire-only path (a hand-adapted hook can exist without a corpus marker):
+# --subject REFUSES (exit 3, nothing written), --prefix prints the note and the hook is left untouched. --force re-scaffolds it.
+_rsdd_keep_hook=0
+if [ "$force" = 0 ]; then
+  _rsdd_refuse_fill_on_existing_hook "$target/.claude/hooks/research-protocol.sh"   # scaffold path
+  if [ -e "$target/.claude/hooks/research-protocol.sh" ] && [ -n "$prefix" ]; then _rsdd_keep_hook=1; fi
+fi
 
 # --- pre-flight writability (fail BEFORE any mutation) -----------------------
 # kit issue #1043 (2): refuse a dangling symlink at any path the scaffold writes BEFORE the first
@@ -1072,8 +1099,10 @@ _state_tpl="$TPL/RESEARCH-STATE.template.md"
 [ "$document" = 1 ] && _state_tpl="$TPL/RESEARCH-STATE-document.template.md"
 cpf "$_state_tpl"                     "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
+if [ "$_rsdd_keep_hook" = 0 ]; then
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
 _rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: fill --subject/--prefix; a failed fill is a typed FATAL and the ERR trap rolls the scaffold back
+fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
 _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
