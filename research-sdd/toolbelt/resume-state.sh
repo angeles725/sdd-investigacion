@@ -6,14 +6,17 @@
 # and open PRs from `gh` when available. Nothing is hand-set and nothing is written (propose-never-apply):
 # every git call is read-only. Rendering the prose handoff from this document is slice 2.
 #
-# Usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh]
+# Usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh] [--json]
 #   --cwd DIR       repository (or any directory inside it) to read; default: the current directory
 #   --base-ref REF  ref ahead/behind is measured against; default: origin/main, else main
 #   --no-gh         do not call gh; prs is null with prs_status "skipped"
+#   --json          opt-in json-envelope.v1 form (kit issue #1711 slice 3): the same facts as typed items under
+#                   {schema,state,reason,counts,items}; without it the document above is printed unchanged.
 #
 # Exit: 0 ok · 2 usage / not a repository / unresolvable ref / runtime failure (git worktree list or mktemp
-#       failed — no JSON) · 3 DEGRADED (git or jq missing — no JSON). A missing gh or timeout is NOT an exit:
+#       failed — no JSON) · 3 DEGRADED (git or jq missing — no document; --json prints a degraded envelope). A missing gh or timeout is NOT an exit:
 #       it is reported inside the document as prs_status degraded:gh-missing / degraded:timeout-missing.
+#       With --json rc 3 still prints a valid envelope ("state":"degraded") on stdout; rc 2 stays empty stdout.
 #
 # Read-only guarantee: GIT_OPTIONAL_LOCKS=0 is exported so no git call refreshes an index or takes optional locks.
 #
@@ -21,23 +24,31 @@
 # (not 0); an unknown PR list is prs=null plus a typed prs_status, never an empty array.
 set -uo pipefail
 
-usage_text="usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh]"
+usage_text="usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh] [--json]"
 usage() { echo "$usage_text" >&2; exit 2; }
 GH_LIMIT=1000
 
-cwd="."; base_ref=""; use_gh=1
+cwd="."; base_ref=""; use_gh=1; json=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --cwd) [ $# -ge 2 ] || usage; cwd="$2"; shift 2 ;;
     --base-ref) [ $# -ge 2 ] || usage; base_ref="$2"; shift 2 ;;
     --no-gh) use_gh=0; shift ;;
+    --json) json=1; shift ;;
     -h|--help) echo "$usage_text"; exit 0 ;;
     *) echo "resume-state.sh: unknown argument: $1" >&2; usage ;;
   esac
 done
 
-command -v git >/dev/null 2>&1 || { echo "DEGRADED: git not found; cannot derive resume state" >&2; exit 3; }
-command -v jq >/dev/null 2>&1 || { echo "DEGRADED: jq not found; cannot build the JSON document" >&2; exit 3; }
+# degraded <reason> : typed DEGRADED line on stderr, exit 3; --json also prints a hand-built envelope (jq may be the
+# missing tool) so a machine caller reads a typed state instead of empty stdout.
+degraded() {
+  echo "DEGRADED: $1" >&2
+  [ "$json" = 1 ] && printf '{"schema":"research-sdd.resume-state/v1","state":"degraded","reason":"%s","counts":{},"items":[]}\n' "$1"
+  exit 3
+}
+command -v git >/dev/null 2>&1 || degraded "git not found; cannot derive resume state"
+command -v jq >/dev/null 2>&1 || degraded "jq not found; cannot build the JSON document"
 
 [ -d "$cwd" ] || { echo "resume-state.sh: not a directory: $cwd" >&2; exit 2; }
 # Ambient GIT_* variables would redirect every call below to another repository.
@@ -140,6 +151,24 @@ fi
 sect="$(mktemp -d)" || { echo "resume-state.sh: mktemp failed" >&2; exit 2; }
 trap 'rm -rf "$sect"' EXIT
 printf '%s' "$wt_lines" > "$sect/wt"; printf '%s' "$br_lines" > "$sect/br"; printf '%s' "$prs_json" > "$sect/prs"
+
+# --json: the same slurped sections mapped into json-envelope.v1 items (repo, worktree, branch, pr); the document
+# below is not duplicated. An unknown PR list is counts.prs_unknown=1 beside counts.prs=0, never a bare zero.
+if [ "$json" = 1 ]; then
+  jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote" \
+    --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated" \
+    --slurpfile wt "$sect/wt" --slurpfile br "$sect/br" --slurpfile prs "$sect/prs" '
+    ($prs[0] // []) as $p
+    | ([{kind:"repo", generated_at:$generated_at, toplevel:$top, remote:(if $remote=="" then null else $remote end),
+         base_ref:$base_ref, base_sha:$base_sha, prs_status:$prs_status, prs_truncated:$prs_truncated}]
+       + ($wt|map({kind:"worktree"} + .)) + ($br|map({kind:"branch"} + .)) + ($p|map({kind:"pr"} + .))) as $items
+    | {schema:"research-sdd.resume-state/v1", state:"ok", reason:null,
+       counts:{worktrees:($wt|length), worktrees_missing:($wt|map(select(.exists==false))|length),
+               worktrees_dirty:($wt|map(select((.dirty // 0) > 0))|length), branches:($br|length),
+               prs:($p|length), prs_unknown:(if $prs[0]==null then 1 else 0 end)},
+       items:$items}' || { echo "resume-state.sh: --json envelope build failed" >&2; exit 2; }
+  exit 0
+fi
 
 jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg top "$top" --arg remote "$remote" \
   --arg base_ref "$base_ref" --arg base_sha "$base_sha" --arg prs_status "$prs_status" --argjson prs_truncated "$prs_truncated" \

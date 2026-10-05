@@ -1,4 +1,4 @@
-# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-2)
+# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-3)
 
 A read-only instrument that implements this contract accepts `--json` and then prints exactly ONE JSON
 document on stdout instead of its human report. Without `--json` its output is unchanged (byte-identical;
@@ -52,7 +52,7 @@ Exit codes of `--json` mode (every one it can return):
 |---|---|---|
 | `sweep-retros.sh` | implemented (slice 1, kit issue #1711) | `research-sdd.sweep-retros/v1` |
 | `verify-registry.sh` | implemented (slice 2, kit issue #1711) | `research-sdd.verify-registry/v1` |
-| `resume-state.sh` | not yet | — |
+| `resume-state.sh` | implemented (slice 3, kit issue #1711) | `research-sdd.resume-state/v1` |
 | `retro-gate.sh` | not yet | — |
 
 ### `research-sdd.sweep-retros/v1`
@@ -122,3 +122,36 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 The envelope reports the findings of the default report, nothing wider: `ok` with `counts.targets_absent > 0`
 is a partial reconcile, visible in `counts`, not in `reason`. The aggregate hint lines of the human report
 (absent and skipped notes, the "refresh by hand" reminders) are carried by `counts` and are not items.
+
+### `research-sdd.resume-state/v1`
+
+`resume-state.sh` already prints a JSON document by default (see `resume-state.v1.md`). `--json` maps the same
+facts into this envelope and does not duplicate them: the default document is unchanged and stays the
+default. Both shapes carry the schema id `research-sdd.resume-state/v1`; they are told apart by the flag the
+caller passed, and the envelope has `state`/`counts`/`items` where the default document has `worktrees`/`branches`/`prs`.
+
+State precedence: `degraded` (git or jq missing, rc 3) → `ok`. The `repo` item is always present on a run
+that completes, so `absent-input`, `empty-input` and `no-match` are never emitted: a repository whose lists are
+empty is still a real answer, and an unreadable repository is an operational failure (rc 2, no stdout), not a state.
+
+`counts`: `worktrees`, `worktrees_missing` (directory gone, `exists:false`), `worktrees_dirty` (tracked-file
+changes > 0), `branches` (local branches not checked out in any worktree), `prs` (open PR items), `prs_unknown`
+(`1` when the PR list is unknown: `--no-gh` or any non-`ok` `prs_status`; `0` when gh answered). `prs:0` beside
+`prs_unknown:1` means "not looked at", never "no open PRs". A `degraded` envelope has `counts:{}`.
+
+Process differences from the default mode, all in `--json` only: rc 3 (git or jq missing) prints a hand-built
+`degraded` envelope on stdout beside the `DEGRADED:` stderr line (the default mode prints nothing on stdout); an
+envelope build failure is rc 2 with empty stdout. Operational failures keep the instrument's existing code, **2**
+(not the contract-wide 1): usage error, not a repository, unresolvable `--base-ref`, `git worktree list` or
+`mktemp` failed — a message on stderr, nothing on stdout, in both modes.
+
+Items, in this order (`repo`, then worktrees in `git worktree list` order, then branches, then PRs):
+
+| `kind` | Fields |
+|---|---|
+| `repo` | `generated_at`, `toplevel`, `remote` (null when unset), `base_ref`, `base_sha`, `prs_status` (as in `resume-state.v1.md`), `prs_truncated` (bool or null when the list is unknown) |
+| `worktree` | `path`, `branch` (null when detached), `head`, `exists`, `prunable`, `dirty` and `untracked` (int or null), `ahead`, `behind` |
+| `branch` | `name`, `head`, `ahead`, `behind` (a local branch outside every worktree) |
+| `pr` | `number`, `branch`, `state`, `url` (only when `prs_status` is `ok`) |
+
+Every field keeps the meaning and null semantics documented in `resume-state.v1.md`.
