@@ -270,28 +270,45 @@ _rsdd_placeholder_value() {
 # Escape the regex metacharacters of a LITERAL placeholder for the pattern side of `sed "s|...|...|"`.
 _rsdd_sed_pattern_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$|]/\\&/g'; }
 
-# kit issue #1845: fill the flag-supplied placeholders of a freshly copied hook, NON-COMMENT lines only. A typed failure
-# (rc 1, never a silent no-op) when a placeholder a flag was given for is absent from the template or survives the fill.
+# kit issue #1845: every failed fill removes its temp file and returns 1 with a typed FATAL; the hook stays exactly as copied.
+_rsdd_fill_abort() {  # <tmp> <message>
+  rm -f "$1"
+  echo "FATAL: $2" >&2
+  return 1
+}
+
+# kit issue #1845: fill the flag-supplied placeholders of a freshly copied hook, NON-COMMENT lines only, in ONE rewrite: all
+# substitutions go through a single temp file in the hook's own directory (never `sed -i`, whose flag differs on BSD/macOS)
+# and are installed with one mv, so a failure at any step leaves the hook as copied (never half-filled) and no temp file.
+# A typed FATAL (rc 1, never a silent no-op) when a placeholder a flag was given for is absent from the template or survives.
 _rsdd_fill_hook() {
   local f="$1" ph val tmp
+  local -a exprs=()
   for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
     val="$(_rsdd_placeholder_value "$ph")" || continue
     if ! _rsdd_hook_has_placeholder "$f" "$ph"; then
       echo "FATAL: the kit template $TPL/hook-sessionstart.sh carries no live $ph placeholder — nothing to fill from the flag (hook as copied: $f)" >&2; return 1
     fi
-    # temp file in the SAME directory + mv (never `sed -i`, whose flag differs on BSD/macOS); cp -p carries the mode over
-    tmp="$(mktemp "$(dirname "$f")/.hook.XXXXXX")" && cp -p "$f" "$tmp" \
-      && sed "/^[[:space:]]*#/! s|$(_rsdd_sed_pattern_escape "$ph")|$(_rsdd_sed_escape "$val")|g" "$f" > "$tmp" && mv -f "$tmp" "$f" \
-      || { [ -z "${tmp:-}" ] || rm -f "$tmp"; echo "FATAL: could not rewrite $f for $ph" >&2; return 1; }
-    if _rsdd_hook_has_placeholder "$f" "$ph"; then echo "FATAL: $ph survived the fill in $f" >&2; return 1; fi
+    exprs+=(-e "/^[[:space:]]*#/! s|$(_rsdd_sed_pattern_escape "$ph")|$(_rsdd_sed_escape "$val")|g")
   done
+  [ "${#exprs[@]}" -gt 0 ] || return 0
+  tmp="$(mktemp "$(dirname "$f")/.hook.XXXXXX")" || { echo "FATAL: could not create a temp file beside $f (hook left as copied)" >&2; return 1; }
+  cp -p "$f" "$tmp" || { _rsdd_fill_abort "$tmp" "could not copy $f to its temp file (hook left as copied)"; return 1; }   # carries the mode over
+  sed "${exprs[@]}" "$f" > "$tmp" || { _rsdd_fill_abort "$tmp" "sed failed filling $f (hook left as copied)"; return 1; }
+  for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
+    _rsdd_placeholder_value "$ph" >/dev/null || continue
+    if _rsdd_hook_has_placeholder "$tmp" "$ph"; then _rsdd_fill_abort "$tmp" "$ph survived the fill of $f (hook left as copied)"; return 1; fi
+  done
+  mv -f "$tmp" "$f" || { _rsdd_fill_abort "$tmp" "could not install the filled hook over $f (hook left as copied)"; return 1; }
 }
 
-# kit issue #1845: validate a --subject/--prefix value BEFORE any write: non-blank, one line, no control character, and no
-# placeholder token (it would re-introduce a live placeholder, or be re-filled by a later one).
+# kit issue #1845: validate a --subject/--prefix value BEFORE any write: non-blank, one line, no control character, no leading
+# `--` (a flag swallowed as the value, e.g. `--subject --wire`), and no placeholder token (it would re-introduce a live
+# placeholder, or be re-filled by a later one).
 _rsdd_check_flag_value() {
   local name="$1" v="$2" ph
   if [ -z "${v//[[:space:]]/}" ]; then echo "usage: $name needs a non-blank value" >&2; return 1; fi
+  case "$v" in --*) echo "usage: $name value '$v' starts with -- and looks like another flag (a missing value?)" >&2; return 1;; esac
   if [[ "$v" == *[[:cntrl:]]* ]]; then echo "usage: $name must be a single line without control characters (a newline or tab cannot be rendered into the hook)" >&2; return 1; fi
   for ph in "${_RSDD_HOOK_PLACEHOLDERS[@]}"; do
     case "$v" in *"$ph"*) echo "usage: $name must not contain the hook placeholder $ph" >&2; return 1;; esac
@@ -1056,7 +1073,7 @@ _state_tpl="$TPL/RESEARCH-STATE.template.md"
 cpf "$_state_tpl"                     "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
-_rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: --subject/--prefix (a typed FATAL here rolls the scaffold back)
+_rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: fill --subject/--prefix; a failed fill is a typed FATAL and the ERR trap rolls the scaffold back
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
 _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
