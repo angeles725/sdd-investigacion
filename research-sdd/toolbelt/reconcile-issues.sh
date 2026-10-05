@@ -267,9 +267,10 @@ _evidence_commits() {
 
 # _evidence_has_test <record-text> - a path-like test token on a line naming a test.
 _evidence_has_test() {
-  printf '%s\n' "$1" \
-    | grep -iE '(^|[^[:alnum:]])tests?([^[:alnum:]]|$)' \
-    | grep -qE '[A-Za-z0-9_./-]*(\.test\.|_test\.|test_|/tests?/|^tests?/)[A-Za-z0-9_./-]*'
+  # Captured, then matched through a here-string: `producer | grep -q` races SIGPIPE under pipefail.
+  local _tl
+  _tl="$(printf '%s\n' "$1" | grep -iE '(^|[^[:alnum:]])tests?([^[:alnum:]]|$)')"
+  grep -qE '(\.test\.|_test\.|test_|/tests?/|(^|[^[:alnum:]])tests?/)' <<<"$_tl"
 }
 
 # Ancestry probe (kit issue #1709) - lazy, once per run. _GIT_STATE: "" (not probed) | ok | degraded.
@@ -279,13 +280,13 @@ _GIT_STATE=""
 _git_probe() {
   [ -z "$_GIT_STATE" ] || return 0
   if ! command -v git >/dev/null 2>&1; then
-    _GIT_STATE=degraded; echo "degraded: git not found on PATH - cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+    _GIT_STATE=degraded; echo "degraded: git not found on PATH — cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
   fi
   if ! git -C "$_GIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    _GIT_STATE=degraded; echo "degraded: $_GIT_DIR is not a git repository - cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+    _GIT_STATE=degraded; echo "degraded: $_GIT_DIR is not a git repository — cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
   fi
   if ! git -C "$_GIT_DIR" rev-parse --verify -q "${_MAIN_REF}^{commit}" >/dev/null 2>&1; then
-    _GIT_STATE=degraded; echo "degraded: ref $_MAIN_REF is not known locally in $_GIT_DIR (no fetch is performed) - cannot verify that cited commits reach it; rows are reported borderline, not shipped" >&2; return 0
+    _GIT_STATE=degraded; echo "degraded: ref $_MAIN_REF is not known locally in $_GIT_DIR (no fetch is performed) — cannot verify that cited commits reach it; rows are reported borderline, not shipped" >&2; return 0
   fi
   _GIT_STATE=ok
 }
