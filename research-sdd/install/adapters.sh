@@ -224,8 +224,11 @@ rsdd_render_section() {
   printf '%s\n' "Kit path: $kit_rel"
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
-    printf '%s\n' 'Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session'
-    printf '%s\n' 'start; all read-only, degrade to silence on failure):'
+    printf '%s\n' 'MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta'
+    printf '%s\n' 'auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.'
+    printf '%s\n' ''
+    printf '%s\n' 'Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at'
+    printf '%s\n' 'session start; all read-only, degrade to silence on failure):'
     printf '%s\n' '  Single command (recommended): `toolbelt/sweep-all.sh`'
     printf '%s\n' '  Individual scripts (canonical; sweep-all.sh runs these in sequence):'
     printf '%s\n' '  - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals'
@@ -236,6 +239,10 @@ rsdd_render_section() {
     printf '%s\n' '  - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets'
     printf '%s\n' '  - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry'
     printf '%s\n' '  - `toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source'
+    printf '%s\n' ''
+    printf '%s\n' 'Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is'
+    printf '%s\n' 'not over until the retro exists. Once it is written, seed its deltas by hand:'
+    printf '%s\n' '  `toolbelt/stage-retro-issues.sh <retro> --apply`'
   fi
   printf '%s\n' '<!-- research-sdd:end -->'
 }

@@ -201,6 +201,27 @@ if grep -q 'sweep-retros.sh' "$cx" && grep -q 'verify-registry.sh' "$cx"; then o
 else no "pi sweep-fallback doc missing in $cx"; fi
 grep -q 'sweep-retros.sh' "$cl" && no "claude section wrongly carries sweep fallback (has a hook)" || ok "claude section omits sweep fallback (hook fires instead)"
 
+# 8b — kit issue #1110: pi + gentle-shell get MANDATORY session-start and session-end steps (they have no
+#      hooks), and the text says enforcement is Claude-only; claude (hooked) carries none of it.
+for pair in "pi:.pi/agent" "gentle-shell:.gentle-shell/agent"; do
+  h8="${pair%%:*}"; pf8="$home/${pair#*:}/AGENTS.md"
+  if grep -q 'MANDATORY' "$pf8" && grep -qF 'toolbelt/sweep-all.sh' "$pf8" \
+     && grep -qF 'toolbelt/stage-retro-issues.sh <retro> --apply' "$pf8" \
+     && grep -q 'Claude Code only' "$pf8"; then ok "$h8 AGENTS.md carries mandatory session-start + session-end steps (Claude-only enforcement stated)"
+  else no "$h8 AGENTS.md lacks mandatory session-start/session-end steps (#1110) in $pf8"; fi
+done
+grep -q 'stage-retro-issues.sh' "$cl" && no "claude section wrongly carries manual session-end step (Stop hook fires)" || ok "claude section omits manual session-end step"
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: pi/gentle-shell mandatory session-end step (kit issue #1110) --"
+  MSE="$MKI/adapters.MUTANT-SESSIONEND.$$.sh"
+  if mutant_chain "teeth: SESSIONEND" "$HERE/../adapters.sh" "$MSE" '/Session-end retro (MANDATORY/,/stage-retro-issues.sh <retro> --apply/d'; then
+    out_se="$(bash -c '. "$1"; rsdd_render_section pi /h /h/kit' _ "$MSE" 2>&1)"
+    <<<"$out_se" grep -q 'stage-retro-issues.sh' \
+      && no "teeth: session-end-less mutant still renders the step — check is THEATER" \
+      || ok "teeth: removing the session-end step makes the rendered AGENTS.md lose stage-retro-issues.sh → the 8b assertion bites"
+  fi
+fi
+
 # 10 — the install loop carries ZERO per-harness case arms (all divergence lives in the adapter table).
 #      A case arm is a harness name at a statement boundary followed by `|` or `)` (e.g. `claude)`);
 #      prose mentions like "(opencode)" in a comment are ignored.
