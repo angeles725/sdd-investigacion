@@ -333,6 +333,15 @@ checks. (Kit issues #895, #1176, #1217, #1272, #1276.) The merge-order rule has 
          blocks force-push, publish the reviewed commits on a new branch and open a superseding PR
          that links the one it replaces, instead of rewriting; otherwise follow kit CLAUDE.md
          section 12.2 (rebase --onto and retarget).
+         REVIEW PREFLIGHT VS OTHER AGENTS' FILES (#1175). The gentle-ai review preflight refuses while
+         another agent's uncommitted files are in the worktree. Review from a clean, isolated worktree
+         (the pattern every kit work unit uses), never the shared checkout.
+         STOPPED CORRECTION => FRESH CANDIDATE (#1185). When a review correction stops incomplete,
+         start a NEW test-first (RED then GREEN) commit as a fresh review candidate instead of resuming
+         the stopped lineage. The RDD skill (`rdd-defect-workflow`: "findings require a new candidate")
+         and the review-ledger contract ("Do not start another lineage ... or perform ambient recovery";
+         `staged_workspace_overlay_recovery_unavailable`: "start fresh") cover adjacent cases but state
+         this one only by implication, so it is recorded here.
          PR LABELS. When the repo's pr-check requires exactly one `type:*` label, attach exactly
          one before expecting the check to pass; zero or two fail it.
 ```

@@ -61,7 +61,7 @@ each delegation carries:
       (2) runs the NEXT-ITERATION ARCHIVE AUDIT (step 6); (3) owns ALL git operations — commit, push,
       INDEX/RESEARCH-STATE flips — the sub-agent does NOT commit. This keeps driver context lean across
       dozens of iterations with no compaction stall. The driver trusts the sub-agent's self-report
-      (§11); spot-check only when a report smells off. (Proven: ~30 delegated sub-agents in the
+      (§11), but CENTRAL-CLAIM CHECK: before integrating a delegated block it re-reads the source behind the block's headline claim and logs one line recording that check (kit issue #1208); other spot-checks only when a report smells off. (Proven: ~30 delegated sub-agents in the
       n4-distribution campaign — 2026-09-18 — with no parent-context compaction.)
     At iteration 1 of any orchestrated run, ANNOUNCE the sub-mode: "I am in supervised mode — prompt
     me to continue after each block" or "I am in auto mode — I will chain until STOP." Without the
@@ -808,7 +808,7 @@ Always read first, in this order:
   5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
      Bash gatekeepers, it TRUSTS this report. Per-block orchestrator Bash re-checks cost permission prompts
      and — proven on the protocols run — caught NOTHING; the real error capture mechanism is cross-block
-     correction §14, not a per-iteration re-verify. Only spot-check when a report smells off). Before closing,
+     correction §14, not a per-iteration re-verify. Beyond the one-line CENTRAL-CLAIM CHECK of a delegated block's headline claim (see ORCHESTRATED-AUTO-AT-SCALE), only spot-check when a report smells off). Before closing,
      DO and REPORT:
        - MECHANIZE the counting: run `$KIT/toolbelt/verify-block.sh <block>` and paste its output — the
          marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
@@ -1589,7 +1589,7 @@ HARD RULES:
     before re-launching it — resume from real state (lesson: niagara B76/B122).
     See METHODOLOGY §17.
     BLOCK PLAN RESUME: if a `$TARGET/.research-sdd/plan/current-plan.txt` exists for the in-progress block, verify each ticked item's artifact exists
-    (a ticked item without its artifact is unticked again), then continue at its first unticked item. STALE only if `git -C $TARGET log <opened-at>..HEAD -- <block file>` is non-empty (`opened-at` and the block file are recorded in the plan header; a merely tracked block file is NOT staleness): delete the plan and resume from RESEARCH-STATE.md — never re-run its steps (METHODOLOGY §20, "Block plan").
+    (a ticked item without its artifact is unticked again), then continue at its first unticked item. STALE only if `git -C $TARGET log <opened-at>..HEAD -- <block file>` is non-empty (`opened-at` and the block file are recorded in the plan header; a merely tracked block file is NOT staleness): delete the plan and resume from RESEARCH-STATE.md — never re-run its steps (METHODOLOGY §20, "Block plan"). FAIL CLOSED: if that `git log` cannot run (unresolvable `opened-at`, unfilled placeholder, no repo), staleness is unknown — stop and ask; never treat the plan as fresh or stale. S5's artifact is its grep-checkable catalog/index/state keys, and S5 is idempotent (edit in place, never append twice).
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the

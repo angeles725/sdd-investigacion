@@ -14,7 +14,7 @@ Block: `<block-file-stem>.md` · Block file path: <path> · opened-at: <HEAD sha
 - Tick `[x]` only when the item's artifact is on disk. After a cut, a ticked item whose artifact is
   missing is unticked again; resume at the first unticked item.
 - Delete this file BEFORE staging the block's commit: delete the plan, then stage and commit. It is never staged or committed.
-- Stale plan: stale only if `git log <opened-at>..HEAD -- <block file>` is non-empty (a commit after `opened-at` touched the block). Then delete it and resume from RESEARCH-STATE; never re-run its steps. A merely tracked block file is NOT staleness (a long revision of a tracked block keeps its plan).
+- Stale plan: stale only if `git log <opened-at>..HEAD -- <block file>` is non-empty (a commit after `opened-at` touched the block). Then delete it and resume from RESEARCH-STATE; never re-run its steps. Fail CLOSED: if that `git log` cannot run (`opened-at` unresolvable after an amend/rebase, the header placeholder never filled in, no repo), staleness is UNKNOWN — stop and ask the operator; never treat the plan as fresh or as stale. A merely tracked block file is NOT staleness (a long revision of a tracked block keeps its plan).
 - Belt and braces: the target's `.gitignore` ignores `.research-sdd/plan/` (init wiring of that line is a later slice).
 - NO-COLLISION: RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration
   history and "what's next". This is not an ODD task document (`odd/tasks/*.md`, kit-maintenance only).
@@ -31,7 +31,9 @@ Block: `<block-file-stem>.md` · Block file path: <path> · opened-at: <HEAD sha
       Artifact: `<block-file-stem>.md`
 - [ ] S4 — Self-verify: `verify-block.sh` on the block
       Artifact: <path of the self-verify output / report>
-- [ ] S5 — Update catalog / index / state
-      Artifact: CATALOG / INDEX / RESEARCH-STATE edits on disk
+- [ ] S5 — Update catalog / index / state (idempotent: probe with the SAME entry-row pattern as the Artifact below; edit an existing entry row in place, never append a second one, never touch another block's row)
+      Artifact: checkable on disk — the block's ENTRY row is the table/list line whose FIRST cell/item names `<block-file-stem>.md`; a later cell or prose line mentioning it (another block's "corrects" row, a cross-reference) is not an entry. It must appear exactly once in CATALOG and exactly once in INDEX (0 = not done, 2+ = done twice), counted per file with `grep -cE` and:
+      Entry-pattern: `^[[:space:]]*([|][[:space:]]*([^|]*[^A-Za-z0-9_.|-])?|[*-][[:space:]]+[[(*_]*)<block-file-stem>\.md([^A-Za-z0-9_.-]|$)`
+      Also RESEARCH-STATE.md names `<block-file-stem>` as the last block. Record the three paths here.
 - [ ] S6 — Delete this plan, then stage and commit
       Artifact: this file removed from the working tree, then the commit
