@@ -3363,6 +3363,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/gh-visibility.sh" "$TMP/lib/gh-visibility.sh"  # kit #1820: the remote-visibility probe lives in the shared lib
   # kit #1637: DECLARED-KEEP (a declared counter above the derivation is carried forward) shadows every control
   # whose mutant bites by clobbering such a counter or by changing the derivation that the keep now masks. Those
   # mechanisms are still load-bearing for fixtures with declared <= derived and for --only, so their mutants are
