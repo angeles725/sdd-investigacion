@@ -1,0 +1,12 @@
+# forbidden.txt — kind|text|reason  (kit issue #1713)
+# kind=heading : an exact heading line (level 1-2, outside code fences) that must never appear.
+# kind=string  : a case-insensitive fixed substring that must never appear anywhere in a rendered file.
+# Every entry was verified absent from the current renders; an entry is a tripwire, not a to-do.
+heading|## OpenCode adapter|OpenCode support was dropped (2026-09-23); its section must not reappear
+heading|## Codex adapter|Codex support was dropped (2026-10-03); its section must not reappear
+heading|## Reasonix adapter|Reasonix support was dropped (2026-10-03); its section must not reappear
+string|opencode|dropped harness; a rendered prompt must not advertise it
+string|reasonix|dropped harness; a rendered prompt must not advertise it
+string|codex|dropped harness; a rendered prompt must not advertise it
+string|SENTINEL-|test/instrument anchor comments are internal and must not leak into a rendered prompt
+string|RSDD_KIT_DIR|test-only renderer override env var must not leak into a rendered prompt

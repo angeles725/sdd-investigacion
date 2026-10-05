@@ -1,0 +1,4 @@
+# PROMPT-LOOP — Research-SDD
+## How to use it
+## OPERATIONAL PROMPT (this is what goes into `/loop`)
+## Operational notes

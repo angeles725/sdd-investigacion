@@ -1,0 +1,32 @@
+# Research-SDD — Methodology
+## Purpose
+## 1. Guiding principle
+## 2. The SDD-R phases (mapping from gentle-ai's SDD)
+## 3. Provenance markers (certainty system)
+## 3b. Anatomy of a corpus (directory layout)
+## 4. Anatomy of a block
+## 5. Managing external sources (`sources/`)
+## 6. Research tools
+## 7. State and memory (hybrid)
+## 7b. State-envelope instruments (situational)
+## 8. Stopping criterion
+## 8b. Gap-backlog cell grammar (issue #147)
+## 8c. Campaign queue
+## 9. Golden rules
+## 10. Self-provisioning (tool installation)
+## 11. Self-verification contract (in-block gatekeeping)
+## 11a. Measurement and data-pipeline heuristics (situational)
+## 11b. Verifying the verifier and the kit test-lane contract
+## 12. Dynamic phase (validation against a live system)
+## 13. Audit mode (re-verify an existing corpus)
+## 14. Cross-block consistency
+## 15. Corpus versioning (git)
+## 16. Multi-focus corpus (parallel focuses under one target)
+## 17. Incident & resume (after a kill / crash / interruption)
+## 18. Self-retrospective (the kit learns from its own runs)
+## 19. Build/PoC loop (the requires-execution phase)
+## 20. Document mode (CAPTURE what you already know or just did)
+## 20b. Modo bloque vs. modo diario
+## 21. Wall protocol (blocked-artifact handling)
+## 22. Breakthrough ledger (the decisive-solution index)
+## 23. Three-session template for kit changes (coordinator / researcher / QA)

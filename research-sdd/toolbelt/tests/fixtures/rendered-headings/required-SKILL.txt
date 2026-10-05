@@ -1,0 +1,9 @@
+# Research-SDD launcher
+## Who drives the loop
+## Resolving the kit path
+## Arguments
+## Key terms (quick reference)
+## Intent & depth — TRIAGE first, then RECOMMEND and PROCEED (do NOT interrogate)
+## What to do (in order) — EXHAUSTIVE/HEAVY mode (and continue)
+## Execution mode
+## Boundaries
