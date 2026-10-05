@@ -57,14 +57,18 @@ meth_ok() {  # METHODOLOGY §20 (non-HOT-CORE) paragraph: path, commit deletion,
   grep -qi 'return-token' <<<"$p" &&
   grep -qi 'no checker' <<<"$p" &&
   grep -qi 'BEFORE staging' <<<"$p" &&
-  grep -qi 'stale' <<<"$p"
+  grep -qi 'stale' <<<"$p" &&
+  grep -q 'opened-at' <<<"$p" && grep -q '\.\.HEAD' <<<"$p" &&
+  grep -q 'gitignore' <<<"$p"
 }
 # delete-before-stage order in the template: S6 deletes first, no commit-then-delete wording anywhere
 tpl_order() {
   grep -qi 'BEFORE staging' "$1" &&
   grep -q 'Delete this plan, then stage and commit' "$1" &&
   ! grep -qi 'commit, then delete' "$1" &&
-  grep -qi 'stale plan' "$1"
+  grep -qi 'stale plan' "$1" &&
+  grep -q 'opened-at' "$1" && grep -q '\.\.HEAD' "$1" &&
+  grep -q 'gitignore' "$1"
 }
 # the template Rules repeat the no-collision rule, ODD exclusion, return-token gate, no checker
 tpl_rules() {
@@ -82,7 +86,9 @@ loop_ok() { # each loop anchor paragraph names the plan; the close one says dele
   done
   p="$(para "$1" "BLOCK PLAN CLOSE")"
   grep -qi 'delete' <<<"$p" && grep -qi 'BEFORE staging' <<<"$p" &&
-  grep -q 'STALE' <<<"$(para "$1" "BLOCK PLAN RESUME")"
+  p="$(para "$1" "BLOCK PLAN RESUME")"
+  grep -q 'STALE' <<<"$p" && grep -q 'opened-at' <<<"$p" && grep -q '\.\.HEAD' <<<"$p" &&
+  p="$(para "$1" "BLOCK PLAN CLOSE")" && grep -q 'S5' <<<"$p" && grep -q 'S6' <<<"$p"
 }
 readme_ok() { grep -q 'block-plan.template.md' "$1"; }
 
@@ -121,8 +127,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "template Rules drop return-token clause" "$TPL" tpl_rules 's/return-token/gate/I'
   tooth "template reverted to commit-then-delete" "$TPL" tpl_order 's/Delete this plan, then stage and commit/Commit, then delete this plan/'
   tooth "doctrine drops delete-before-stage" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/BEFORE staging/after committing/'
-  tooth "doctrine drops stale-plan rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/stale/fresh/'
+  tooth "doctrine drops stale-plan rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/[Ss]tale/fresh/g'
   tooth "loop close drops delete-before-stage" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/BEFORE staging/after staging/'
+  tooth "template reverted to tracked-file staleness" "$TPL" tpl_order 's/\.\.HEAD/ (block file tracked)/'
+  tooth "doctrine reverted to tracked-file staleness" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/\.\.HEAD/ tracked/'
+  tooth "doctrine drops gitignore rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/gitignore/ignore/'
+  tooth "loop resume reverted to tracked-file staleness" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/\.\.HEAD/ tracked/'
+  tooth "loop close drops S5/S6 numbering" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/S6/the last step/'
   tooth "loop resume drops stale rule" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/STALE/NOTE/'
   tooth "loop drops commit deletion" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/[Dd][Ee][Ll][Ee][Tt][Ee]/keep/g'
   tooth "loop drops RESUME plan mention" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/current-plan\.txt/x.txt/g'
