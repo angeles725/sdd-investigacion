@@ -38,9 +38,23 @@ mapfile -t blocks < <(find "$target" -maxdepth 3 -type f -name '*.md' -not -name
 # Trailing block NUMBER from a block filename (t-block33.md → 33; ug67-bloque8-foo.md → 8).
 blocknum() { basename "$1" | sed -E 's/.*-(block|bloque)0*([0-9]+).*/\2/'; }
 
-# number → file map (last one wins; corpora keep one file per block number).
-declare -A numfile
-for f in "${blocks[@]}"; do numfile["$(blocknum "$f")"]="$f"; done
+# Filename PREFIX of a block file (hh-block4.md → hh; ug67-bloque8-foo.md → ug67). Multi-focus corpora keep
+# several prefixes whose block numbers collide, so a number alone does not identify a block (#1835 item 1).
+blockprefix() { basename "$1" | sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/'; }
+
+# (prefix,number) → file map (last one wins WITHIN a prefix; corpora keep one file per block number per prefix).
+# numany/numcnt: the same number across ALL prefixes, used only as a fallback when the correcting block's own
+# prefix lacks the target: a UNIQUE other-prefix match is taken, an ambiguous one is surfaced, never guessed.
+declare -A numfile numany numcnt
+for f in "${blocks[@]}"; do
+  _vc_p="$(blockprefix "$f")"; _vc_n="$(blocknum "$f")"
+  if [ -z "${numfile["$_vc_p|$_vc_n"]:-}" ]; then numcnt["$_vc_n"]=$(( ${numcnt["$_vc_n"]:-0} + 1 )); fi
+  numfile["$_vc_p|$_vc_n"]="$f"; numany["$_vc_n"]="$f"
+done
+
+# Backlink vocabulary: a target block "carries the note" when a line matches this AND names the correcting block
+# (#1835 item 2). English/Spanish past participles plus the corrigendum/erratum noun forms (case-insensitive).
+_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)'
 
 command -v awk >/dev/null 2>&1 || { echo "verify-corrections: degraded: awk not found on PATH; the corpus was NOT checked" >&2; exit 1; }
 
@@ -73,6 +87,21 @@ _vc_extract() {
     }
     # A `.` ends the clause only when it ends a SENTENCE: not after a known abbreviation (EN + ES, ONE list, below)
     # nor a single-letter initial. Byte-level, lowercase compare (the caller lowercases and runs under LC_ALL=C).
+    # MULTI-TARGET (#1835 item 3): after the first bound ref, further [Block N] refs in the SAME clause are targets
+    # too, but only when joined to the previous one by `and`/`y`/`e`/`&`/`/`/`+` (optionally with section locators
+    # such as `§6.3–6.4` between them). Any other text between two refs ends the list: a cross-reference is not a target.
+    function more(cl,   rest, g, m, st, ln) {
+      if (!match(cl, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) return
+      rest = substr(cl, RSTART + RLENGTH)
+      while (match(rest, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
+        st = RSTART; ln = RLENGTH
+        g = substr(rest, 1, st - 1); m = substr(rest, st, ln)
+        gsub("\302\247", "", g); gsub("\342\200\223", "-", g)
+        if (g !~ /^[ \t0-9.,-]*(and|y|e|&|\/|\+)[ \t0-9.,-]*$/) return
+        gsub(/[^0-9]/, "", m); emit(m)
+        rest = substr(rest, st + ln)
+      }
+    }
     function abbrev(l, i,   k, tok, ab) {
       ab = " cf e.g i.e vs fig p pp approx aprox pág pag núm num sec sect eq no "
       k = i - 1
@@ -81,7 +110,7 @@ _vc_extract() {
       if (tok == "") return 0
       return (tok ~ /^[a-z]$/) || index(ab, " " tok " ") > 0
     }
-    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp) {
+    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp, tok) {
       l = tolower(un); n = length(un); p = 1
       while (p <= n) {
         rest = substr(l, p)
@@ -90,6 +119,15 @@ _vc_extract() {
         vs = (substr(l, ms, 1) ~ /[a-z]/) ? ms : ms + 1
         ve = ms + RLENGTH
         if (substr(l, vs, 8) == "corrects" && substr(l, ve, 1) ~ /[a-z0-9_]/) { p = ve; continue }
+        tok = substr(l, vs, ve - vs)
+        # `corrigendum`/`corrigenda` is a NOUN (the backlink vocabulary itself), never a correction verb.
+        if (tok ~ /^corrigend/) { p = ve; continue }
+        # NON-ASSERTIVE forms declare nothing (#1835 item 5): passive/conditional `se corrige` (incl. `si no se
+        # corrige`) and past-tense narrative `corrigió`/`corrigieron`. Counted and surfaced, never silently dropped.
+        pre = substr(l, 1, vs - 1)
+        if (pre ~ /(^|[^a-z0-9_])se[ \t]+$/ || tok == "corrigieron" || tok == "corrigio" || (tok == "corrigi" && substr(l, ve, 2) == "\303\263")) {
+          print "~"; p = ve; continue
+        }
         d = 0; bd = ""
         for (i = ve; i <= n; i++) {
           c = substr(un, i, 1)
@@ -107,7 +145,7 @@ _vc_extract() {
           bp = RSTART; match(cl, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)
           if (bp <= RSTART) r = ""
         }
-        if (r != "") { emit(r); done = 1 }
+        if (r != "") { emit(r); more(cl); done = 1 }
         else if (!done && bd == "close") {
           d = 0
           for (j = vs - 1; j >= 1; j--) {
@@ -134,7 +172,7 @@ _vc_extract() {
   ' "$1"
 }
 
-rc=0; unbound=0
+rc=0; unbound=0; skipped=0
 echo "== verify-corrections: $(basename "$target") =="
 for f in "${blocks[@]}"; do
   c="$(blocknum "$f")"
@@ -143,19 +181,28 @@ for f in "${blocks[@]}"; do
     exit 1
   fi
   _vc_targets=(); [ -z "$_vc_out" ] || mapfile -t _vc_targets <<<"$_vc_out"
-  for n in "${_vc_targets[@]}"; do
+  for n in ${_vc_targets[@]+"${_vc_targets[@]}"}; do
     [ -n "$n" ] || continue
     if [ "$n" = "?" ]; then unbound=$((unbound+1)); continue; fi
+    if [ "$n" = "~" ]; then skipped=$((skipped+1)); continue; fi
     n="$((10#$n))"                      # normalize any zero-padding
     [ "$n" = "$c" ] && continue         # a block correcting itself is not a cross-block backlink
-    tgt="${numfile[$n]:-}"
+    tgt="${numfile["$(blockprefix "$f")|$n"]:-}"     # the correcting block's OWN prefix first (#1835 item 1)
+    if [ -z "$tgt" ]; then
+      case "${numcnt[$n]:-0}" in
+        0) ;;
+        1) tgt="${numany[$n]}" ;;
+        *) echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists in its prefix '$(blockprefix "$f")' and the number is ambiguous across ${numcnt[$n]} other prefixes; NOT checked"
+           continue ;;
+      esac
+    fi
     if [ -z "$tgt" ]; then
       echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists on disk"
       continue
     fi
     # Reciprocal backlink: the target file must mention "corrected in"/"corregido en" AND B<c>/Block <c>.
     # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
-    if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE 'corrected|corregido' "$tgt" 2>/dev/null); then
+    if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then
       : # reciprocated
     else
       echo "   FAIL   B$c corrects [Block $n] but $(basename "$tgt") has no reciprocal 'corrected in B$c' backlink (§14)"
@@ -165,6 +212,7 @@ for f in "${blocks[@]}"; do
 done
 
 [ "$unbound" -eq 0 ] || echo "   note   $unbound correction verb(s) governed no bracketed [Block N] ref in their own clause (bare B<N> or unbound) and were NOT checked (#1790)"
+[ "$skipped" -eq 0 ] || echo "   note   $skipped correction verb(s) in a non-assertive form (passive 'se corrige', conditional, or past tense) were skipped, not treated as declarations (#1835)"
 [ "$rc" -eq 0 ] && echo "   ok     every declared correction has its reciprocal 'corrected in BN' backlink."
 echo "== exit $rc =="
 exit $rc

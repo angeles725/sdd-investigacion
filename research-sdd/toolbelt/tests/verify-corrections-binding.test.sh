@@ -22,7 +22,7 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 run(){ bash "$SUT" "$1" 2>&1; }
 code(){ bash "$SUT" "$1" >/dev/null 2>&1; echo $?; }
 # mk <dir> <num> <printf-format> — write t-block<num>.md (format is a printf format; no trailing newline added).
-mk(){ mkdir -p "$1"; printf "$3" > "$1/t-block$2.md"; }
+mk(){ mkdir -p "$1"; printf "$3" "${@:4}" > "$1/t-block$2.md"; }
 # blank <dir> <num>... — create unannotated target blocks (no backlink anywhere).
 blank(){ local d="$1"; shift; local n; mkdir -p "$d"; for n in "$@"; do printf '# Block %s\n\nOriginal claim.\n' "$n" > "$d/t-block$n.md"; done; }
 
@@ -141,6 +141,100 @@ printf '# Block 41\n\n> This corrects the framing. [Block 8] is only cross-refer
 if [ "$(code "$d")" = 0 ]; then ok "a real sentence end ('framing. [Block 8]') still ends the clause → exit 0"
 else no "sentend :: $(run "$d" | grep FAIL | tr '\n' '|')"; fi
 
+# ---- #1835 precision follow-ups: prefix scope (12), backlink vocabulary (13), multi-target (14), non-assertive (15) ----
+# pmk <dir> <prefix> <num> <printf-format> — write <prefix>-block<num>.md.
+pmk(){ mkdir -p "$1"; printf "$4" "${@:5}" > "$1/$2-block$3.md"; }
+
+# 12 — PREFIX SCOPE (#1835 item 1): two focus prefixes share block numbers. The target is resolved in the correcting
+#      block's OWN prefix, whichever prefix sorts first/last (list edges): `aa` and `zz` both play "own" and "other".
+for _own in aa zz; do
+  _oth=zz; [ "$_own" = zz ] && _oth=aa
+  d="$TMP/pfx-$_own"
+  pmk "$d" "$_own" 4 '# Block 4\n\n> Corrects [Block 1] §1.2.\n'
+  pmk "$d" "$_own" 1 '# Block 1\n\nOriginal.\n\n> corrected in B4.\n'
+  pmk "$d" "$_oth" 1 '# Block 1\n\nOther focus, never annotated.\n'
+  if [ "$(code "$d")" = 0 ]; then ok "prefix scope: '$_own' B4→B1 checks $_own-block1, not the colliding $_oth-block1 (exit 0)"
+  else no "pfx-$_own :: $(run "$d" | grep FAIL | tr '\n' '|')"; fi
+done
+# 12b — the same scoping still FAILs a real gap, naming the OWN-prefix file.
+d="$TMP/pfx-gap"
+pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$d" aa 1 '# Block 1\n\nNo note.\n'; pmk "$d" zz 1 '# Block 1\n\nnote: corrected in B4.\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +B4 corrects \[Block 1\] but aa-block1\.md ' <<<"$out"; then ok "prefix scope: a real gap in the own-prefix file still FAILs (and names aa-block1.md)"
+else no "pfx-gap :: $(tr '\n' '|' <<<"$out")"; fi
+# 12c — own prefix lacks the target and exactly ONE other prefix has it → that one is used.
+d="$TMP/pfx-uniq"
+pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 9].\n'; pmk "$d" zz 9 '# Block 9\n\nNo note.\n'
+if grep -qE 'FAIL +B4 corrects \[Block 9\] but zz-block9\.md ' <<<"$(run "$d")"; then ok "own prefix lacks the target, one other prefix has it → unique fallback is checked"
+else no "pfx-uniq :: $(run "$d" | tr '\n' '|')"; fi
+# 12d — own prefix lacks it and SEVERAL others have it → ambiguous: WARN, not guessed, not a FAIL.
+d="$TMP/pfx-amb"
+pmk "$d" cc 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$d" aa 1 '# Block 1\n\nNo note.\n'; pmk "$d" zz 1 '# Block 1\n\nNo note.\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN +B4 .*ambiguous across 2 other prefixes' <<<"$out"; then ok "ambiguous across prefixes → typed WARN, nothing guessed (exit 0)"
+else no "pfx-amb :: $(tr '\n' '|' <<<"$out")"; fi
+
+# 13 — BACKLINK VOCABULARY (#1835 item 2): every accepted marker satisfies the reciprocal check.
+vocab_ok=1; vocab_bad=""
+for _w in 'CORRIGENDUM [Bloque 82]' 'Corrigenda: see B82' 'Erratum (B82)' 'Errata — Block 82' 'Corregida en B82' 'corregidos por Bloque 82' 'corrected in B82' 'corregido en B82'; do
+  d="$TMP/vocab"; rm -rf "$d"; pmk "$d" t 82 '# Block 82\n\n> Corrects [Block 21].\n'; pmk "$d" t 21 '# Block 21\n\nOriginal.\n\n> %s\n' "$_w"
+  [ "$(code "$d")" = 0 ] || { vocab_ok=0; vocab_bad="$vocab_bad [$_w]"; }
+done
+if [ "$vocab_ok" = 1 ]; then ok "backlink vocabulary: corrigendum/corrigenda/erratum/errata/corregida/corregidos/corrected/corregido all reciprocate"
+else no "vocab :: rejected:$vocab_bad"; fi
+# 13b — vocabulary without the correcting block's number is still no backlink.
+d="$TMP/vocab-none"; pmk "$d" t 82 '# Block 82\n\n> Corrects [Block 21].\n'; pmk "$d" t 21 '# Block 21\n\nCORRIGENDUM [Bloque 90]\n'
+if [ "$(code "$d")" = 1 ]; then ok "a corrigendum naming a DIFFERENT block is not a backlink to B82 → FAIL"
+else no "vocab-none: exit $(code "$d")"; fi
+# 13c — `corrigendum` is a noun, not a correction verb: the backlink line in block 21 must not declare B21→B90.
+d="$TMP/vocab-noun"; pmk "$d" t 21 '# Block 21\n\nCORRIGENDUM [Bloque 90] — see there.\n'; pmk "$d" t 90 '# Block 90\n\nOriginal.\n'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'B21 corrects' <<<"$out"; then ok "'CORRIGENDUM [Bloque 90]' is a noun, not a correction declaration → exit 0"
+else no "vocab-noun :: $(tr '\n' '|' <<<"$out")"; fi
+
+# 14 — MULTIPLE TARGETS in one clause (#1835 item 3). FIRST / MIDDLE / LAST positions are all checked.
+d="$TMP/multi-and"; blank "$d" 5 6
+mk "$d" 60 '# Block 60\n\n> Corrects [Block 6] §6.3–6.4 and [Block 5] §5.4.\n'
+out="$(run "$d")"
+if grep -qE 'B60 corrects \[Block 6\] ' <<<"$out" && grep -qE 'B60 corrects \[Block 5\] ' <<<"$out"; then ok "'[Block 6] §6.3–6.4 and [Block 5] §5.4' → both targets checked"
+else no "multi-and :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+d="$TMP/multi-slash"; blank "$d" 1 2 3
+mk "$d" 61 '# Block 61\n\n> Corrects [Block 1]/[Block 2]/[Block 3].\n'
+out="$(run "$d")"; slash_ok=1
+for _n in 1 2 3; do grep -qE "B61 corrects \[Block $_n\] " <<<"$out" || slash_ok=0; done
+if [ "$slash_ok" = 1 ]; then ok "'[Block 1]/[Block 2]/[Block 3]' → first, middle and last all checked"
+else no "multi-slash :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+d="$TMP/multi-y"; blank "$d" 7 8
+mk "$d" 62 '# Block 62\n\n> Corrige [Block 7] y [Bloque 8].\n'
+out="$(run "$d")"
+if grep -qE 'B62 corrects \[Block 7\] ' <<<"$out" && grep -qE 'B62 corrects \[Block 8\] ' <<<"$out"; then ok "Spanish 'y' joins two targets"
+else no "multi-y :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+# 14b — NEGATIVE: prose between refs ends the list; a joined ref after a cross-reference word is not a target.
+d="$TMP/multi-neg"; blank "$d" 6 7
+mk "$d" 63 '# Block 63\n\n> Corrects [Block 6] and independently notes [Block 7].\n'
+out="$(run "$d")"
+if grep -qE 'B63 corrects \[Block 6\] ' <<<"$out" && ! grep -qE 'B63 corrects \[Block 7\]' <<<"$out"; then ok "'and independently notes [Block 7]' is prose, not a joined target"
+else no "multi-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
+
+# 15 — NON-ASSERTIVE verbs (#1835 item 5): passive/conditional/past narrative declares nothing; surfaced as a note.
+na_ok=1; na_bad=""
+i=0
+for _s in 'Se corrige [Block 8] en la siguiente iteración.' 'Si no se corrige [Block 8], el error persiste.' 'El bloque anterior corrigió [Block 8] en su momento.' 'Los autores corrigieron [Block 8] después.'; do
+  i=$((i+1)); d="$TMP/na$i"; blank "$d" 8; mk "$d" 70 '# Block 70\n\n> %s\n' "$_s"
+  out="$(run "$d")"
+  { [ "$(code "$d")" = 0 ] && grep -qE 'note +1 correction verb\(s\) in a non-assertive form' <<<"$out"; } || { na_ok=0; na_bad="$na_bad [$_s]"; }
+done
+if [ "$na_ok" = 1 ]; then ok "'se corrige' / 'si no se corrige' / 'corrigió' / 'corrigieron' declare nothing (exit 0) and are counted in a note"
+else no "non-assertive :: still declared:$na_bad"; fi
+# 15b — POSITIVE CONTROL: assertive present-tense forms (incl. one whose word merely ENDS in 'se') still bind.
+pa_ok=1
+for _s in 'Corrige [Block 8] §2.' 'Este bloque corrige [Block 8] §2.' 'Aquel pase corrige [Block 8].'; do
+  d="$TMP/pa"; rm -rf "$d"; blank "$d" 8; mk "$d" 71 '# Block 71\n\n> %s\n' "$_s"
+  grep -qE 'B71 corrects \[Block 8\] ' <<<"$(run "$d")" || pa_ok=0
+done
+if [ "$pa_ok" = 1 ]; then ok "assertive 'Corrige/corrige' (not preceded by 'se') still declares the correction"
+else no "non-assertive control: an assertive verb was dropped"; fi
+
 # NEGATIVE CONTROLS — each mutant disables ONE binding rule and must flip exactly the case that owns it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -231,6 +325,57 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '# Block 41\n\n> This corrects the e.g. framing in [Block 8].\n' > "$TMP/abbr/t-block41.md"
     tt "teeth: no-abbreviation mutant ends the clause at 'e.g.' (loses the finding)" 1 0 "$m" --orig "$SUT" \
       --good-has 'B41 corrects \[Block 8\] ' --bad-lacks "B41 corrects|$CRASH" -- bash @SUT@ "$TMP/abbr"
+  fi
+
+  echo "-- teeth (#1835): resolve the target by number alone (last-wins across prefixes); the colliding focus must be checked --"
+  m="$TMP/vc.PREFIX.sh"
+  if mk_mut "teeth: prefix scope" "$SUT" "$m" 's#tgt="${numfile\["$(blockprefix "$f")|$n"\]:-}"#tgt="${numany[$n]:-}"#'; then
+    tt "teeth: number-only mutant checks zz-block1 for aa's B4 (false FAIL)" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B4 corrects \[Block 1\] but zz-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-aa"
+  fi
+
+  echo "-- teeth (#1835): shrink the backlink vocabulary back to corrected|corregido --"
+  m="$TMP/vc.VOCAB.sh"
+  vd="$TMP/vocabfix"; pmk "$vd" t 82 '# Block 82\n\n> Corrects [Block 21].\n'; pmk "$vd" t 21 '# Block 21\n\nOriginal.\n\n> CORRIGENDUM [Bloque 82]\n'
+  if mk_mut "teeth: vocabulary" "$SUT" "$m" "s/^_vc_backlink_re=.*/_vc_backlink_re='corrected|corregido'/"; then
+    tt "teeth: narrow-vocabulary mutant rejects the CORRIGENDUM backlink (false FAIL)" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B82 corrects \[Block 21\]' --bad-lacks "$CRASH" -- bash @SUT@ "$vd"
+  fi
+
+  echo "-- teeth (#1835): keep only the first ref of a clause; the second joined target must vanish --"
+  m="$TMP/vc.MULTI.sh"
+  if mk_mut "teeth: multi-target" "$SUT" "$m" 's/emit(r); more(cl); done = 1/emit(r); done = 1/'; then
+    tt "teeth: first-ref-only mutant drops [Block 5] from '[Block 6] … and [Block 5]'" 1 1 "$m" --orig "$SUT" \
+      --good-has 'B60 corrects \[Block 5\] ' --bad-has 'B60 corrects \[Block 6\] ' --bad-lacks 'B60 corrects \[Block 5\] |awk: ' -- bash @SUT@ "$TMP/multi-and"
+  fi
+  echo "-- teeth (#1835): drop the connector gate; prose-separated refs must become false targets --"
+  m="$TMP/vc.MULTIGATE.sh"
+  if mk_mut "teeth: connector gate" "$SUT" "$m" 's/if (g !~ \/\^.*\/) return/if (0) return/'; then
+    tt "teeth: ungated mutant binds [Block 7] behind 'and independently notes'" 1 1 "$m" --orig "$SUT" \
+      --good-lacks 'B63 corrects \[Block 7\]' --bad-has 'B63 corrects \[Block 7\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/multi-neg"
+  fi
+
+  echo "-- teeth (#1835): drop the passive guard; 'Se corrige [Block 8]' / 'si no se corrige' must declare --"
+  m="$TMP/vc.PASSIVE.sh"
+  if mk_mut "teeth: passive" "$SUT" "$m" 's/pre ~ \/(^|\[^a-z0-9_\])se\[ \\t\]+\$\/ || //'; then
+    tt "teeth: no-passive-guard mutant treats 'se corrige' as a declaration" 0 1 "$m" --orig "$SUT" \
+      --good-has 'note +1 correction verb\(s\) in a non-assertive' --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na1"
+    tt "teeth: no-passive-guard mutant treats 'si no se corrige' as a declaration" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na2"
+  fi
+  echo "-- teeth (#1835): drop the past-tense guard; 'corrigió' / 'corrigieron' must declare --"
+  m="$TMP/vc.PAST.sh"
+  if mk_mut "teeth: past tense" "$SUT" "$m" 's/ || tok == "corrigieron".*"\\303\\263")) {/) {/'; then
+    tt "teeth: no-past-guard mutant treats 'corrigió' as a declaration" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na3"
+    tt "teeth: no-past-guard mutant treats 'corrigieron' as a declaration" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na4"
+  fi
+  echo "-- teeth (#1835): drop the noun exclusion; a 'CORRIGENDUM [Bloque 90]' line must become a declaration --"
+  m="$TMP/vc.NOUN.sh"
+  if mk_mut "teeth: corrigendum noun" "$SUT" "$m" '/if (tok ~ \/\^corrigend\/)/d'; then
+    tt "teeth: no-noun-guard mutant reads the backlink line as B21→B90" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'B21 corrects \[Block 90\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/vocab-noun"
   fi
 fi
 

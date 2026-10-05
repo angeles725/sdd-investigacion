@@ -77,6 +77,24 @@ if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out";
   ok "verb governs only the first ref: 'Corrects [8] … cf. [12]' → 12 not a target → exit 0"
 else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
+# 7 — EMPTY-ARRAY EXPANSION GUARD (#1840). Most block files have no correction verb, so `_vc_targets` is
+#     usually empty, and on bash 4.0–4.3 `"${_vc_targets[@]}"` under `set -u` aborts with "unbound variable".
+#     A bash-4.3 interpreter is not reliably available, so the contract is pinned two ways: (a) BEHAVIOUR — a
+#     corpus where NO block has a verb runs to its ok line (true on any bash); (b) STATIC — every expansion of
+#     the array is the guarded `${arr[@]+"${arr[@]}"}` form, and at least one expansion exists (a count of 0
+#     could not prove the lint looked, §7).
+unguarded_count(){ grep -cE '(^|[^+])"\$\{_vc_targets\[@\]\}"' "$1"; }
+expansion_count(){ grep -cE '\$\{_vc_targets\[@\]' "$1"; }
+d="$TMP/noverb"; mkdir -p "$d"
+printf '# Block 1\n\nNothing declared here.\n' > "$d/t-block1.md"; printf '# Block 2\n\nNor here.\n' > "$d/t-block2.md"
+out="$(bash "$SUT" "$d" 2>&1)"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out" && ! grep -q 'unbound variable' <<<"$out"; then
+  ok "corpus with no correction verb at all → ok line, no 'unbound variable' (empty-array path)"
+else no "noverb: exit $(code "$d") :: $(tr '\n' '|' <<<"$out")"; fi
+if [ "$(unguarded_count "$SUT")" = 0 ] && [ "$(expansion_count "$SUT")" -ge 1 ]; then
+  ok "every \${_vc_targets[@]} expansion is the nounset-safe guarded form (and at least one exists)"
+else no "guard: $(unguarded_count "$SUT") unguarded of $(expansion_count "$SUT") expansion(s)"; fi
+
 # NEGATIVE CONTROL — neuter the FAIL in a mutant; the one-directional fixture must then pass (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
@@ -105,11 +123,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: revert first-ref binding (the verb governs EVERY ref in its clause, clause cut at neither ';' nor '. '); the cf-fixture must FAIL --"
   bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
   if mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" \
-       's/if (r != "") { emit(r); done = 1 }/if (r != "") { emit(r); done = 1; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q)) }/' \
+       's/if (r != "") { emit(r); more(cl); done = 1 }/if (r != "") { emit(r); more(cl); done = 1; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q)) }/' \
        '/else if (c == ";") break/d' '/else if (c == "\." \&\&/d'; then
     d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink): original exit 0 + ok line, mutant exit 1 + FAIL
     tt "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth" 0 1 "$bmutant" --orig "$SUT" \
       --good-has 'ok +every declared correction' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
+  fi
+
+  echo "-- teeth: revert the empty-array guard (#1840); the static check must count an unguarded expansion --"
+  gmutant="$TMP/verify-corrections.GUARDMUTANT.sh"
+  if mk_mut "teeth: array guard" "$SUT" "$gmutant" 's/\${_vc_targets\[@\]+"\${_vc_targets\[@\]}"}/"${_vc_targets[@]}"/'; then
+    tt "teeth: unguarded mutant is counted by the static check (0 → 1)" 0 0 "$gmutant" --orig "$SUT" \
+      --good-has '^0$' --bad-has '^1$' --bad-lacks "$CRASH" -- bash -c 'grep -cE "(^|[^+])\"\\\$\{_vc_targets\[@\]\}\"" "$1"; exit 0' _ @SUT@
   fi
 fi
 
