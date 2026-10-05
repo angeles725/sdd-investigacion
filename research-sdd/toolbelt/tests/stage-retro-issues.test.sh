@@ -4470,9 +4470,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
               { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'; printf '%s\n' "$ONE_ROW"; } > "$rs"
               run "$mb" "$rs" --apply
               grep -q 'gh issue create' "$mb/bin/gh.log" && bite=1; why="a mangled-signature row was written" ;;
-      rcfail) printf '%s\n' 'scrub_issue_text() { return 1; }' 'scrub_issue_text_count() { echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+      # The scrub fails ONLY on the row's own title text, so the row-level refusal is the sole failure: the good SUT
+      # exits 2 (refused row counted failed=); the mutant (rc check off) skips the refusal, the empty title becomes an
+      # unclassifiable row whose tracker scrubs fine, and the run exits 0. The exact rc 2 is therefore asserted, and the
+      # message too (a tracker-scrub exit 2 would not carry the row text).
+      rcfail) printf '%s\n' 'scrub_issue_text() { local x; x="$(cat)"; [ "$x" = "a real delta row" ] && return 1; printf "%s\n" "$x"; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
-              grep -q 'privacy scrub failed for row 1' <<<"$OUT" || bite=1; why="a failing scrub was not refused as a row" ;;
+              { [ "$RC" = 2 ] && grep -q 'privacy scrub failed for row 1' <<<"$OUT"; } || bite=1; why="a failing scrub did not fail the run with exit 2" ;;
       nonnum) printf '%s\n' 'scrub_issue_text() { cat; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: lots"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh"
               run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
               [ "$RC" = 2 ] || bite=1; why="a non-numeric count was read as zero" ;;

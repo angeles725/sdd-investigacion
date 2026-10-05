@@ -593,6 +593,20 @@ _unc_line_of() {
   printf '%s' "${_l:-?}"
 }
 
+# _unc_row_line <row-id> <delta-cell>: line of the table row whose FIRST cell is <row-id> and that contains
+# <delta-cell>, searched only in lines that start with `|` (never prose, never another section). "?" when there is
+# no such row or more than one (a wrong line number is worse than none).
+_unc_row_line() {
+  local _l=""
+  [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk '
+    /^[[:space:]]*\|/ {
+      c = $0; sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c)
+      if (c == ENVIRON["_R"] && index($0, ENVIRON["_D"]) > 0) { n++; if (n == 1) first = NR }
+    }
+    END { if (n == 1) print first }' "$retro")"
+  printf '%s' "${_l:-?}"
+}
+
 # _unc_add <section|row> <where> <head> <reason>: head is flattened to one line, `|` escaped (it lands in a
 # markdown table) and cut at 100 characters.
 _unc_add() {
@@ -1257,9 +1271,30 @@ _occ_row_comment_all() {
 # Signature (stable per retro file, whole line in the body): `Unclassifiable tracker: <target>/retros/<file>`.
 # Dedup: an OPEN same-target issue with the exact tracker title gets ONE occurrence comment per distinct item set
 # (marker = signature + a checksum of the items' head+reason, so an identical re-run posts nothing and a changed
-# item set adds a comment); a CLOSED/other signature hit is skipped-duplicate; only then is a new issue created.
+# item set adds a comment); an issue (any state) carrying the exact item-set line is skipped-duplicate; a closed
+# tracker for the same retro with a DIFFERENT set gets a NEW tracker titled `… (item set <checksum>)`; else create.
+# _unc_lookup <whole-line>: search ALL states for an issue whose body carries <whole-line>; sets _lk to the
+# exact-match reply. rc 1 = could not look (typed ERROR printed, failed counted): never "no match".
+_unc_lookup() {
+  local _x _xr _xrc
+  _x="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$1\"" --json state,body 2>&1)"; _xrc=$?
+  if [ "$_xrc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_x"; then
+    echo "ERROR: gh issue list (tracker dedup) failed or returned an unexpected reply for row tracker: $_x" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  fi
+  _xr="$_x"
+  _lk="$(printf '%s' "$_xr" | _exact_sig_matches "$1")" || {
+    echo "ERROR: gh issue list (tracker dedup) reply could not be parsed for row tracker: $_xr" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  }
+  if ! grep -q '"state":' <<<"$_lk" && _list_filled "$_lk"; then
+    echo "ERROR: gh issue list (tracker dedup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
+    failed=$((failed+1)); _row_nowrite tracker; return 1
+  fi
+  return 0
+}
 _unc_report() {
-  local _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
+  local _sigfp _table _i=0 _w _h _r _title _body _sig _fp _labels _tn _red _ex _exr _rc _marker _text _url _ul _num _rb _rbrc _lbl _lf="" _tmp
   if [ "$_unc_n" -eq 0 ]; then
     echo "unclassifiable-items: 0 ($1)"; return 0
   fi
@@ -1270,10 +1305,12 @@ _unc_report() {
     _i=$((_i+1))
     _table="$(printf '%s\n| %d | %s:%s | %s | %s |' "$_table" "$_i" "$retro_basename" "$_w" "$_h" "$_r")"
   done <<< "$_unc_recs"
+  _fp="$(printf '%s' "$_unc_recs" | awk -F'\037' 'NF { print $2 "\037" $3 }' | cksum | cut -d' ' -f1)"
   _sig="Unclassifiable tracker: ${target_name}/retros/${retro_basename}"
+  _sigfp="Unclassifiable item set: ${_fp}"
   _title="Unclassifiable retro deltas in ${target_name}/retros/${retro_basename}"
-  _body="$(printf 'stage-retro-issues.sh could not classify %d item(s) in this retro, so no delta issue was staged for them (they would otherwise be lost). Each needs manual review: restate it in the canonical row-table or `### D<N> —` entry form, or dismiss it.\n\n%s\n\n---\n%s\nPart of backlog-first rollout #557' \
-    "$_unc_n" "$_table" "$_sig")"
+  _body="$(printf 'stage-retro-issues.sh could not classify %d item(s) in this retro, so no delta issue was staged for them (they would otherwise be lost). Each needs manual review: restate it in the canonical row-table or `### D<N> —` entry form, or dismiss it.\n\n%s\n\n---\n%s\n%s\nPart of backlog-first rollout #557' \
+    "$_unc_n" "$_table" "$_sig" "$_sigfp")"
   # Scrub first (kit issue #1707), exactly like a delta row: stdout, the dry-run and every gh call see the scrubbed text.
   _tmp="$_title"
   _title="$(printf '%s\n' "$_tmp" | scrub_issue_text)" && _red="$(printf '%s\n' "$_tmp" | scrub_issue_text_count)" \
@@ -1287,7 +1324,7 @@ _unc_report() {
     return 0
   fi
   _red=$((_red + _tn))
-  if ! grep -qxF -- "$_sig" <<<"$_body"; then
+  if ! grep -qxF -- "$_sig" <<<"$_body" || ! grep -qxF -- "$_sigfp" <<<"$_body"; then
     _scrub_refuse tracker "scrub altered the signature line of the unclassifiable tracker — refusing to write (dedup and read-back key on it)"
     return 0
   fi
@@ -1303,7 +1340,6 @@ _unc_report() {
     return 0
   fi
   echo "redactions: ${_red} (row tracker)"
-  _fp="$(printf '%s' "$_unc_recs" | awk -F'\037' 'NF { print $2 "\037" $3 }' | cksum | cut -d' ' -f1)"
   _marker="<!-- stage-retro-issues:occurrence ${_sig} #${_fp} -->"
   _occ_find "$_title" tracker || { failed=$((failed+1)); _row_nowrite tracker; return 0; }
   if [ -n "$_occ_nums" ]; then
@@ -1316,32 +1352,27 @@ _unc_report() {
     _occ_row_comment_all tracker "$_marker" "$_text"
     return 0
   fi
-  # No open tracker: look for ANY state carrying the exact signature (a closed tracker must not be re-created).
-  _ex="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all --limit "$_LIST_LIMIT" --search "\"$_sig\"" --json state,body 2>&1)"; _rc=$?
-  if [ "$_rc" -ne 0 ] || ! grep -q '^[[:space:]]*\[' <<<"$_ex"; then
-    echo "ERROR: gh issue list (tracker dedup) failed or returned an unexpected reply for row tracker: $_ex" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 0
-  fi
-  _exr="$_ex"
-  _ex="$(printf '%s' "$_exr" | _exact_sig_matches "$_sig")" || {
-    echo "ERROR: gh issue list (tracker dedup) reply could not be parsed for row tracker: $_exr" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 0
-  }
-  if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_ex"; then
-    echo "skipped-duplicate: tracking issue for $_sig already exists (search matched '$_sig')"
+  # No open tracker. CLOSED handling (kit issue #1259 RDD): a closed delta issue means "dismissed", but a closed
+  # tracker only dismissed the item set it listed. So the lookup is keyed on the ITEM-SET line: an issue (any
+  # state) carrying this exact set is skipped-duplicate; a closed/other tracker for the same retro with a DIFFERENT
+  # set means new items were lost since, so a NEW tracker is created, its title suffixed with the set checksum.
+  _unc_lookup "$_sigfp" || return 0
+  if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_lk"; then
+    echo "skipped-duplicate: tracking issue for $_sig already exists for this item set (search matched '$_sigfp')"
     skipped_dedup=$((skipped_dedup+1)); _row_nowrite tracker; return 0
   fi
-  if _list_filled "$_ex"; then
-    echo "ERROR: gh issue list (tracker dedup) returned $_LIST_LIMIT results = the --limit cap for row tracker — the result may be truncated, refusing to create (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
-    failed=$((failed+1)); _row_nowrite tracker; return 0
+  _unc_lookup "$_sig" || return 0
+  if grep -q '"state":[[:space:]]*"\(OPEN\|CLOSED\)"' <<<"$_lk"; then
+    _title="${_title} (item set ${_fp})"
+    echo "tracker-set-changed: an earlier tracker for $_sig exists but lists a different item set — creating a new tracker"
   fi
   ensure_target_label
   IFS=',' read -ra _lbl_arr <<< "$_labels"
   for _lbl in "${_lbl_arr[@]}"; do _lf="$_lf --label $(printf '%s' "$_lbl" | sed "s/'/'\\\\''/g")"; done
   # shellcheck disable=SC2086
   _url="$(gh issue create --repo "$KIT_ISSUE_REPO" --title "$_title" $_lf --body "$_body" 2>&1)" || {
-    if _recheck_exists "$_sig"; then
-      echo "unknown-outcome: gh issue create failed for row tracker but a re-run dedup search found the issue (search matched '$_sig'): $_url" >&2
+    if _recheck_exists "$_sigfp"; then
+      echo "unknown-outcome: gh issue create failed for row tracker but a re-run dedup search found the issue (search matched '$_sigfp'): $_url" >&2
       summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown tracker; return 0
     fi
     echo "ERROR: gh issue create failed for row tracker: $_url" >&2
@@ -1436,7 +1467,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   if title_is_unusable "$_title"; then
     echo "unclassifiable-row: row $_rid has no usable title (got '$_title': $_title_reason) — needs manual review, no issue staged" >&2
     open_count=$((open_count-1)); unclassifiable=$((unclassifiable+1))
-    _unc_add row "$(_unc_line_of "$_delta")" "$_rid: $_title_raw" "no usable title ($_title_reason)"
+    _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: $_title_raw" "no usable title ($_title_reason)"
     continue
   fi
 

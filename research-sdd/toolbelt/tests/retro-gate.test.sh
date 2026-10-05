@@ -627,7 +627,7 @@ ERR_U="$(cat "$errf_u")"; rm -f "$errf_u" "$ROOT/out_u.$$"
 # section-level item now that the seeder summarises it) must be COUNTED by the gate and name the table/tracking
 # issue — before the change only the typed `unclassifiable:` line (no summary) was counted.
 # mk_unc_summary_kit <dir> <gate-script>: fixture kit whose seeder prints a summary with unclassifiable=2.
-mk_unc_summary_kit() {
+mk_unc_summary_kit() {   # optional 3rd arg "both": the seeder ALSO prints the typed `unclassifiable:` line (section-level case)
   mkdir -p "$1/toolbelt/lib"
   cp "$HERE/../lib/block-files.sh" "$1/toolbelt/lib/"; cp "$HERE/../lib/retro-status.sh" "$1/toolbelt/lib/"
   cp "$HERE/../lib/retro-grammar.sh" "$1/toolbelt/lib/"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
@@ -637,6 +637,14 @@ printf 'unclassifiable-row: row 1 has no usable title\n' >&2
 printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=2 unknown-outcome=0 failed=0\n'
 exit 0
 FUSEOF
+  if [ "${3:-}" = both ]; then
+    cat > "$1/toolbelt/stage-retro-issues.sh" << 'FUBEOF'
+#!/usr/bin/env bash
+printf 'unclassifiable: proposal-like heading found but not in a countable delta form in retro.md — needs manual review, no issue auto-staged\n' >&2
+printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=1 unknown-outcome=0 failed=0\n'
+exit 0
+FUBEOF
+  fi
   chmod +x "$1/toolbelt/stage-retro-issues.sh"
   cp "$2" "$1/toolbelt/retro-gate.sh"
 }
@@ -657,6 +665,13 @@ run_unc_summary "$ROOT/fkit_us" tus
 <<<"$ERR_US" grep -q 'WARN: seeder: 2 unclassifiable item(s) for .*unclassifiable-items table and tracking issue' \
   && ok "EN3-unc-summary: WARN names the count and points at the table / tracking issue" \
   || no "EN3-unc-summary: expected the pointer WARN; got: $ERR_US"
+
+# Both signals at once (the section-level case: typed line AND summary): counted ONCE (single source = the summary).
+mk_unc_summary_kit "$ROOT/fkit_usb" "$SUT" both
+run_unc_summary "$ROOT/fkit_usb" tusb
+<<<"$ERR_US" grep -q 'issue-seeding:.* unclassifiable=1 ' \
+  && ok "EN3-unc-both: typed line + summary unclassifiable=1 are counted once (unclassifiable=1, not 2)" \
+  || no "EN3-unc-both: expected unclassifiable=1 exactly; got: $ERR_US"
 
 # ─── (EN3-absent) absent-input: typed outcome → absent=1, WARN naming retro ───
 # Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
@@ -3214,6 +3229,25 @@ if [[ "$sut_content_gate" == *"$anchor_tus"* ]]; then
   fi
 else
   no "T-UNC-SUMMARY teeth: locate the summary branch" "anchor not found — SUT drifted?"
+fi
+
+# ── TOOTH T-UNC-BOTH (kit issue #1259 RDD): split the if/elif chain so the typed-line arm also runs when a summary
+#    is present; EN3-unc-both must then double count (unclassifiable=2).
+echo "-- teeth T-UNC-BOTH: split the seeder-outcome chain; EN3-unc-both must read 2 --"
+anchor_tub='    elif [ "$seed_rc" -eq 0 ]; then'
+if [[ "$sut_content_gate" == *"$anchor_tub"* ]]; then
+  mutant_tub="$MUT_KIT/toolbelt/mutant-retro-unc-both.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_tub"/    fi; if [ "\$seed_rc" -eq 0 ]; then}" > "$mutant_tub"
+  bash -n "$mutant_tub" 2>/dev/null || { no "T-UNC-BOTH teeth: mutant failed bash -n" ""; }
+  mk_unc_summary_kit "$ROOT/fkit_tub" "$mutant_tub" both
+  run_unc_summary "$ROOT/fkit_tub" ttub
+  if <<<"$ERR_US" grep -q 'issue-seeding:.* unclassifiable=2 '; then
+    ok "T-UNC-BOTH teeth: chain split → double count unclassifiable=2 (has teeth)" "()"
+  else
+    no "T-UNC-BOTH teeth: chain split → should double count" "got [$ERR_US] — EN3-unc-both is THEATER"
+  fi
+else
+  no "T-UNC-BOTH teeth: locate the outcome chain" "anchor not found — SUT drifted?"
 fi
 
 # ── TOOTH PFX1 (kit issue #1130 finding 4/item 5): revert the out-of-scope-marker WARN wording

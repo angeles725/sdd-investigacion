@@ -41,7 +41,7 @@ mkbox() {
 }
 
 # mkstub <box>: a compact gh stub. State files live next to it ($0.*): .occ (occurrence list reply), .dedup (signature
-# search reply), .createfail, .nosigview (read-back body lacks the signature), .body (last created body),
+# search reply), .fphit (the item-set search finds a CLOSED issue), .createfail, .nosigview (read-back body lacks the signature), .body (last created body),
 # .comments.N (comments of issue N), .log (every call).
 mkstub() {
   cat > "$1/bin/gh" <<'STUB'
@@ -51,6 +51,9 @@ case " $* " in
   *" auth status "*) exit 0 ;;
   *" label list "*) s=""; p=""; for a in "$@"; do [ "$p" = "--search" ] && s="$a"; p="$a"; done; printf '[{"name":"%s"}]\n' "$s"; exit 0 ;;
   *" issue list "*" number,state,title "*) if [ -f "$0.occ" ]; then cat "$0.occ"; else echo '[]'; fi; exit 0 ;;
+  *" issue list "*"item set"*)   # the item-set lookup: $0.fphit = a CLOSED issue carrying the searched set line
+    s=""; p=""; for a in "$@"; do [ "$p" = "--search" ] && s="$a"; p="$a"; done; s="${s#\"}"; s="${s%\"}"
+    if [ -f "$0.fphit" ]; then printf '[{"state":"CLOSED","body":"x\\n%s"}]\n' "$s"; else echo '[]'; fi; exit 0 ;;
   *" issue list "*) if [ -f "$0.dedup" ]; then cat "$0.dedup"; else echo '[]'; fi; exit 0 ;;
   *" issue create "*)
     [ -f "$0.createfail" ] && { echo "gh: create failed" >&2; exit 1; }
@@ -157,10 +160,45 @@ c_apply_occurrence() {
 c_apply_closed() {
   local b r; b="$(mkbox "closed$1")" || return 1; r="$(sec_retro "$b" r.md)"
   printf '[{"state":"CLOSED","body":"x\\n\\n---\\nUnclassifiable tracker: target-foo/retros/r.md\\nPart of backlog-first rollout #557"}]\n' > "$b/bin/gh.dedup"
+  : > "$b/bin/gh.fphit"    # the closed tracker lists exactly this item set
   run "$b" "$r" --apply
-  [ "$RC" = 0 ] && grep -qF 'skipped-duplicate: tracking issue for Unclassifiable tracker: target-foo/retros/r.md already exists' <<<"$OUT" \
+  [ "$RC" = 0 ] && grep -qF 'skipped-duplicate: tracking issue for Unclassifiable tracker: target-foo/retros/r.md already exists for this item set' <<<"$OUT" \
     && ! grep -q 'gh issue create' "$b/bin/gh.log" && return 0
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
+}
+# A CLOSED tracker that lists a DIFFERENT item set must not suppress new lost items: a new tracker is created.
+c_apply_closed_changed() {
+  local b r; b="$(mkbox "closedchg$1")" || return 1; r="$(sec_retro "$b" r.md)"
+  printf '[{"state":"CLOSED","body":"x\\n\\n---\\nUnclassifiable tracker: target-foo/retros/r.md\\nPart of backlog-first rollout #557"}]\n' > "$b/bin/gh.dedup"
+  run "$b" "$r" --apply
+  [ "$RC" = 0 ] && grep -qF 'tracker-set-changed:' <<<"$OUT" && grep -qF 'created: https://github.com/o/r/issues/77 (row tracker)' <<<"$OUT" \
+    && grep -qE -- '--title Unclassifiable retro deltas in target-foo/retros/r\.md \(item set [0-9]+\)' "$b/bin/gh.log" \
+    && grep -qE '^Unclassifiable item set: [0-9]+$' "$b/bin/gh.body" && return 0
+  echo "rc=$RC out=[${OUT:0:600}]"; return 1
+}
+# The privacy scrub failing on the tracker is a refusal that FAILS the run: exit 2, failed=1, nothing written.
+c_scrub_fail() {
+  local b r; b="$(mkbox "scrubfail$1")" || return 1; r="$(sec_retro "$b" r.md)"
+  printf '%s\n' 'scrub_issue_text() { cat >/dev/null; return 1; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$b/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+  run "$b" "$r" --apply
+  [ "$RC" = 2 ] && grep -qF 'privacy scrub failed for the unclassifiable tracker' <<<"$OUT" && grep -qF 'failed=1' <<<"$OUT" \
+    && ! grep -q 'gh issue create' "$b/bin/gh.log" && return 0
+  echo "rc=$RC out=[${OUT:0:600}]"; return 1
+}
+# Row-level line lookup is confined to the table rows: a bare token like LOW in prose above the table is not the
+# row, and an ambiguous (repeated) row prints `?` instead of a wrong line.
+c_row_line() {
+  local b r ln f; b="$(mkbox "rowline$1")" || return 1
+  f="$b/rh/target-foo/retros/r.md"
+  { printf '%s\n# retro\n\nPriority LOW items are tracked elsewhere; 1 | LOW mention in prose.\n\n## Proposed kit deltas\n\n%s\n|---|---|---|---|---|---|\n' "$PEND" "$HDR"
+    printf '%s\n' "$BAD1"; } > "$f"
+  ln="$(grep -n '^| 1 | LOW' "$f" | cut -d: -f1)"
+  run "$b" "$f"
+  grep -qE "^\| 1 \| r\.md:$ln \|" <<<"$OUT" || { echo "unique: ln=$ln out=[${OUT:0:500}]"; return 1; }
+  printf '%s\n' "$BAD1" >> "$f"      # the same row twice: ambiguous
+  run "$b" "$f"
+  grep -qE '^\| 1 \| r\.md:\? \|' <<<"$OUT" && return 0
+  echo "ambiguous: out=[${OUT:0:500}]"; return 1
 }
 c_apply_createfail() {
   local b r; b="$(mkbox "cfail$1")" || return 1; r="$(sec_retro "$b" r.md)"; : > "$b/bin/gh.createfail"
@@ -181,7 +219,7 @@ c_scrub() {
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
 }
 
-CHECKS="c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_createfail c_apply_readback c_scrub"
+CHECKS="c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_closed_changed c_scrub_fail c_row_line c_apply_createfail c_apply_readback c_scrub"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -202,10 +240,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_dry_row        row-record   '/"no usable title (\$_title_reason)"$/s/.*/    :/'
   tooth c_zero_states    zero-line    '/^    echo "unclassifiable-items: 0 (\$1)"; return 0$/s/.*/    return 0/'
   tooth c_dry_section    dry-banner   "s/planned-tracking-issue: /planned-tracker: /"
-  tooth c_apply_closed   closed-dedup '/^  if grep -q .*OPEN.*CLOSED.*<<<"\$_ex"; then$/s/.*/  if false; then/'
+  tooth c_apply_closed   closed-dedup '/^  if grep -q .*OPEN.*CLOSED.*<<<"\$_lk"; then$/s/.*/  if false; then/'
   tooth c_apply_occurrence occ-find   '/^  if \[ -n "\$_occ_nums" \]; then$/s/.*/  if false; then/'
   tooth c_apply_occurrence fingerprint 's/ #\${_fp} -->/ -->/'
   tooth c_apply_readback readback     's/ || ! grep -qxF -- "\$_sig" <<<"\$_rb"; then/; then/'
+  tooth c_apply_closed_changed closed-set-ignored '/^  _unc_lookup "\$_sigfp" || return 0$/s/.*/  _lk="[{\\"state\\":\\"CLOSED\\"}]"/'
+  tooth c_scrub_fail     failed-uncounted '/^  echo "ERROR: \$2" >&2; failed=\$((failed+1))$/s/; failed=.*//'
+  tooth c_row_line       row-line-anywhere 's/_unc_add row "\$(_unc_row_line "\$_rid" "\$_delta")"/_unc_add row "$(_unc_line_of "$_delta")"/'
   tooth c_scrub          scrub-body   's/"\$_tmp" | scrub_issue_text)" && _tn=/"$_tmp" | cat)" \&\& _tn=/'
   echo "-- prove-teeth done --"
 fi

@@ -218,6 +218,9 @@ _run_issue_seeding() {
       _f="$(printf '%s' "$_summary" | grep -oE 'failed=[0-9]+' | cut -d= -f2)"
       created=$((created + ${_c:-0}))
       skipped=$((skipped + ${_s:-0}))
+      # SINGLE SOURCE (kit issue #1259): when a summary: line is present, ITS unclassifiable=N is the only count — this
+      # branch and the typed-`unclassifiable:` branch below are mutually exclusive arms of one if/elif chain, so a seeder
+      # that prints both the typed line and the summary (the section-level case) is counted once, never twice.
       # Kit issue #1259: row-level and section-level unclassifiable items travel in the summary's unclassifiable=N;
       # count them and point at the seeder's table + tracking-issue proposal (a dry run of the seeder prints both).
       _u="$(printf '%s' "$_summary" | grep -oE 'unclassifiable=[0-9]+' | cut -d= -f2)"
