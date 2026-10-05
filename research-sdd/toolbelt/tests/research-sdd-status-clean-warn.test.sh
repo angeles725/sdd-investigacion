@@ -76,6 +76,28 @@ for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b"
 run bash "$TMP/kit6/research-sdd-status.sh" "$TMP/c1" --next
 grep -qF 'unverifiable (clean-check.sh not found' <<<"$ERR" && ok "6 missing clean-check.sh -> typed unverifiable WARN" || no "6 [$ERR]"
 
+
+# 7 bounded: a slow clean-check is cut off and reported, never waited on
+mkdir -p "$TMP/kit7"
+for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = clean-check.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$TMP/kit7/$b"; done
+printf '#!/usr/bin/env bash\nsleep 6\n' > "$TMP/kit7/clean-check.sh"
+t0=$SECONDS; run env RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$TMP/kit7/research-sdd-status.sh" "$TMP/c1" --next; el=$((SECONDS-t0))
+[ "$el" -lt 5 ] && [[ "$OUT" == STOP* ]] && [ "$RC" = 0 ] && ok "7a slow clean-check bounded (${el}s), verdict + rc intact" || no "7a ${el}s rc=$RC [$OUT]"
+grep -qF 'unverifiable (timed out after 1s)' <<<"$ERR" && ok "7b timeout -> typed unverifiable WARN" || no "7b [$ERR]"
+
+# 8 golden: stdout + rc of every verdict path are identical with the check on and off (the check is additive,
+# stderr-only, called after the verdict is printed; the gate function itself is not wrapped or run in a subshell).
+mkdir -p "$TMP/c8s" "$TMP/c8b"; sed 's/^investigable_open: 0/investigable_open: 5/' "$TMP/c1/RESEARCH-STATE.md" > "$TMP/c8s/RESEARCH-STATE.md"
+g_ok=1
+for d in c1 c2 c3 c8s c8b; do
+  a="$(bash "$SUT" "$TMP/$d" --next 2>/dev/null; echo "rc=$?")"
+  b="$(RSDD_STATUS_NO_CLEAN_CHECK=1 bash "$SUT" "$TMP/$d" --next 2>/dev/null; echo "rc=$?")"
+  [ "$a" = "$b" ] || { g_ok=0; no "8 golden $d differs [$a] vs [$b]"; }
+done
+[ "$g_ok" = 1 ] && ok "8a golden: stdout+rc identical with the check on and off" || true
+a="$(bash "$SUT" "$TMP/c8s" --next 2>/dev/null)"; [[ "$a" == STALE* ]] && ok "8b STALE fixture really is STALE" || no "8b [$a]"
+a="$(bash "$SUT" "$TMP/c8b" --next 2>/dev/null)"; [[ "$a" == BOOTSTRAP* ]] && ok "8c BOOTSTRAP fixture really is BOOTSTRAP" || no "8c [$a]"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"; mkcorpus "$TMP/c2x" 0; printf "x\n" > "$TMP/c2x/stray.json"
   for f in "$TB"/*; do b="$(basename "$f")"; { [ "$b" = research-sdd-status.sh ] || [ "$b" = tests ]; } || ln -s "$f" "$MUT/$b"; done
@@ -90,9 +112,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # B: unverifiable branch silenced
   mt B 's/WARN: clean-check: unverifiable (exit/DEGRADED-OFF (exit/' 0 0 --good-has 'unverifiable [(]exit' --bad-lacks 'unverifiable [(]exit' -- bash '@SUT@' "$TMP/c4" --next
   # C: the call after the STOP verdict is removed -> findings never reach stderr
-  mt C 's/^  terminal_clean_warn "\$_tc_out"  # TC-WARN-CALL$/  :/' 0 0 --good-has 'GARBAGE untracked' --bad-lacks 'GARBAGE untracked' -- bash '@SUT@' "$TMP/c2x" --next
+  mt C 's/^  terminal_clean_warn "STOP | read-only-investigable exhausted (0)"  # TC-WARN-CALL$/  :/' 0 0 --good-has 'GARBAGE untracked' --bad-lacks 'GARBAGE untracked' -- bash '@SUT@' "$TMP/c2x" --next
   # D: opt-out ignored
   mt D 's/\[ "\${RSDD_STATUS_NO_CLEAN_CHECK:-0}" = "1" \] && return 0//' 0 0 --good-lacks 'clean-check' --bad-has 'clean-check' -- env RSDD_STATUS_NO_CLEAN_CHECK=1 bash '@SUT@' "$TMP/c5" --next
+  # E: timeout bound removed -> the slow clean-check runs its full 6s
+  m="$MUT/research-sdd-status.sh"; rm -f "$m"
+  if mutant_chain E "$SUT" "$m" 's/"\$_cc_to" "\$_cc_secs" bash/bash/'; then
+    rm -f "$MUT/clean-check.sh"; cp "$TMP/kit7/clean-check.sh" "$MUT/clean-check.sh"
+    t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
+    if [ "$el" -ge 5 ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
+    rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
+  else fail=$((fail+1)); fi
+  # F: the INFO line leaks to stdout -> the golden compare (stdout+rc, check on vs off) goes red
+  m="$MUT/research-sdd-status.sh"; rm -f "$m"
+  if mutant_chain F "$SUT" "$m" "s/at terminal STOP.n' >&2 ;;/at terminal STOP\\n' ;;/"; then
+    a="$(bash "$m" "$TMP/c1" --next 2>/dev/null)"; b="$(RSDD_STATUS_NO_CLEAN_CHECK=1 bash "$m" "$TMP/c1" --next 2>/dev/null)"
+    if [ "$a" != "$b" ]; then ok "teeth F: stdout leak -> golden differs -> 8a has teeth"; else no "teeth F: mutant still identical — THEATER"; fi
+  else fail=$((fail+1)); fi
 fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

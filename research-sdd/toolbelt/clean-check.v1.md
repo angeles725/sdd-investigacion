@@ -125,7 +125,7 @@ exhausted `STOP | read-only-investigable exhausted (0)`, and reports on STDERR o
 terminal STOP` (exit 0), `WARN: clean-check: findings at terminal STOP` plus one `WARN: clean-check: <line>` per output
 line (exit 1), or `WARN: clean-check: unverifiable (exit N: ...)` (exit 2/3, e.g. a corpus that is not a git work tree) /
 `unverifiable (clean-check.sh not found ...)`. Report-only: the status stdout, verdict, `--emit-token` and exit code
-are unchanged. `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. Suite: `tests/research-sdd-status-clean-warn.test.sh`.
+are unchanged. `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it; `RSDD_STATUS_CLEAN_CHECK_TIMEOUT` (default 20 s) bounds it (`unverifiable (timed out after Ns)`). Suite: `tests/research-sdd-status-clean-warn.test.sh`.
 
 ## Test hook
 

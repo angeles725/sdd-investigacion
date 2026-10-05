@@ -317,8 +317,18 @@ terminal_clean_warn() {
     printf 'WARN: clean-check: unverifiable (clean-check.sh not found beside research-sdd-status.sh) — terminal no-garbage check NOT run\n' >&2
     return 0
   fi
-  _cc_out="$(bash "$_cc_script" --target "$target" 2>&1)"; _cc_rc=$?
+  # Bounded (RSDD_STATUS_CLEAN_CHECK_TIMEOUT seconds, default 20): --next also runs from the Stop hook. No timeout/gtimeout =
+  # typed unverifiable WARN, never an unbounded run.
+  local _cc_to _cc_secs="${RSDD_STATUS_CLEAN_CHECK_TIMEOUT:-20}"
+  case "$_cc_secs" in ''|*[!0-9]*) _cc_secs=20 ;; esac
+  _cc_to="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+  if [ -z "$_cc_to" ]; then
+    printf 'WARN: clean-check: unverifiable (timeout/gtimeout not found, unbounded run refused) — terminal no-garbage check NOT run\n' >&2
+    return 0
+  fi
+  _cc_out="$("$_cc_to" "$_cc_secs" bash "$_cc_script" --target "$target" 2>&1)"; _cc_rc=$?
   case "$_cc_rc" in
+    124) printf 'WARN: clean-check: unverifiable (timed out after %ss) — terminal no-garbage check NOT confirmed\n' "$_cc_secs" >&2 ;;
     0) printf 'INFO: clean-check: clean at terminal STOP\n' >&2 ;;
     1) printf 'WARN: clean-check: findings at terminal STOP — resolve or declare in <target>/.research-sdd/keep.txt before closing\n' >&2
        while IFS= read -r _cc_ln; do printf 'WARN: clean-check: %s\n' "$_cc_ln" >&2; done <<<"$_cc_out" ;;
@@ -1142,7 +1152,7 @@ _stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)\n'; }
 #                 specific cause is reported on stderr by the branch that set _idg_had_unverified.
 # Operational failure: non-degraded reconcile error → DISTINCT WARN naming the real failure.
 # PERF: retros with applied/dismissed marker are skipped (zero gh calls per such retro).
-_issues_due_gate_core() {
+issues_due_gate() {
   local -a _idg_retros
   local _idg_had_unverified _idg_total _idg_can_probe
   local _ri _ri_out _ri_rc _n _n_rc _n_rev _ri_rev_out _ri_rev_rc _idg_retro _find_rc _sort_rc
@@ -1404,18 +1414,12 @@ _issues_due_gate_core() {
   # Untracked wins over unverified (ISSUES-DUE already returned above when >0).
   if [ "$_idg_had_unverified" -gt 0 ]; then
     printf 'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]\n'  # IDG-UNVERIFIED-MARKER
+    terminal_clean_warn "STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]"  # TC-WARN-CALL-UNVERIFIED
     return
   fi
   # no-match: retros exist, all deltas tracked (or empty retros with clean find) → verified-clean STOP
   _stop_exhausted
-}
-
-# issues_due_gate: the --next STOP gate. Every call site (single-state loop and the --focus arm) goes through this
-# wrapper, so the terminal no-garbage WARN (kit #1277 slice 2) fires on exactly the exhausted-STOP verdicts.
-issues_due_gate() {
-  local _tc_out
-  _tc_out="$(_issues_due_gate_core)"; printf '%s\n' "$_tc_out"
-  terminal_clean_warn "$_tc_out"  # TC-WARN-CALL
+  terminal_clean_warn "STOP | read-only-investigable exhausted (0)"  # TC-WARN-CALL
 }
 
 if [ "$mode" = "--next" ]; then
