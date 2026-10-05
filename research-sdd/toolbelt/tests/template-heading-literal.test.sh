@@ -16,8 +16,8 @@
 #                toolbelt scripts, (c) every real '## X' heading line of the templates themselves
 #                (parenthetical descriptor stripped)
 #   excluded   : headings outside comments (they are the real structure); non-HTML comment syntaxes
-#                (the .yml / .conf / .sh / .py templates are listed as scanned-but-comment-free for
-#                this grammar, see the coverage line)
+#                (the .yml / .conf / .sh / .py templates are scanned too but only <!-- --> comments
+#                are parsed; their own comment syntaxes are NOT covered)
 #   coverage   : the run prints files scanned, comment segments seen and heading names enumerated;
 #                zero of any of them is exit 2 (could-not-run), never a pass.
 #
@@ -42,7 +42,13 @@ no() { fail=$((fail+1)); printf '  FAIL  %s\n' "$1"; }
 # --- heading-name enumeration ---------------------------------------------------------------
 NAMES="$(mktemp)"; trap 'rm -f "$NAMES"' EXIT
 {
-  # (a) static: headings the toolbelt matches that no template necessarily carries as a real heading
+  # (a) static: headings the toolbelt matches that no template necessarily carries as a real heading.
+  #     Gap-backlog..Campaign queue/Dismissed file types/History: matched by verify-state.sh,
+  #     research-sdd-status.sh, migrate-backlogs.sh, census-target.sh, research-sdd-archive.sh
+  #     (some via patterns the section-arg grep in (b) cannot see, e.g. awk /^## .../ regexes).
+  #     Proposed kit deltas / Tools built... / Proposed delta / Summary of proposed delta: retro
+  #     headings matched by stage-retro.sh, verify-retro.sh and lib/retro-grammar.sh.
+  #     Stop control / Stretch goal: real state-template headings read by status/verify scripts.
   printf '%s\n' 'Gap-backlog' 'Iteration history' 'Blocked gaps' 'Non-investigable gaps' 'Blocked /' \
     'Child gaps surfaced at close' 'Covered blocks' 'Coverage' 'Outline' 'Campaign queue' \
     'Dismissed file types' 'History' 'Stop control' 'Stretch goal' \
@@ -64,7 +70,7 @@ scan_file() {
         else { p = index(line, "<!--"); if (p) { line = substr(line, p+4); inc = 1; continue } else break }
         segs++
         rest = seg
-        while (match(rest, /#{2,3}[ \t]+[^ \t]/)) {
+        while (match(rest, /###?[ \t]+[^ \t]/)) {  # interval-free: mawk treats {n,m} literally
           tail = substr(rest, RSTART + RLENGTH - 1)
           for (i = 1; i <= n; i++) if (index(tail, nm[i]) == 1) { printf "%s:%d: heading literal \"## %s\" inside a comment\n", F, NR, nm[i]; break }
           rest = substr(rest, RSTART + RLENGTH)
@@ -74,6 +80,14 @@ scan_file() {
     }
     END { printf "SEGS %d\n", segs + 0 }' "$1"
 }
+
+# Positive control: the scanner must flag a known violation on THIS awk, else the regex is dead
+# (e.g. mawk ignoring intervals) and every later pass would be vacuous.
+PC="$(mktemp)"; printf '<!-- see ## Gap-backlog here -->\n' >"$PC"
+pc_out="$(scan_file "$PC")"; rm -f "$PC"
+if ! grep -q 'heading literal' <<<"$pc_out"; then
+  echo "could not run: scanner positive control found no violation on this awk (silent zero refused)"; exit 2
+fi
 
 total_segs=0; nfiles=0; viol=""
 for f in "$TPL"/*; do
