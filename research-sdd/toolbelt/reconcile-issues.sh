@@ -195,6 +195,8 @@ _fleet_retros=0
 # ---------------------------------------------------------------------------
 # _fetch_closed_bodies <retro_basename> <sig-prefix>...
 #   Prints the bodies of issues closed AS COMPLETED for the signature prefix(es) (kit issue #1555).
+#   Comment evidence is trusted only from an OWNER, MEMBER or COLLABORATOR author (kit issue #1709, RDD r1:
+#   any commenter could otherwise flip a row to shipped); the issue body is always trusted.
 #   The --jq prints one record-separator line after EVERY issue, with an empty body for one closed
 #   any other way (not planned), so the cap guard counts every returned issue: --limit truncates the
 #   TOTAL gh returns, so a full page of not-planned issues can hide a completed one and must degrade
@@ -220,7 +222,7 @@ _fetch_closed_bodies() {
         --limit "$_LIST_LIMIT" \
         --search "\"Source retro: ${_p} ·\"" \
         --json body,stateReason,comments \
-        --jq '.[] | (if .stateReason == "COMPLETED" then ([.body] + [(.comments // [])[].body]) | join("\n") else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+        --jq '.[] | (if .stateReason == "COMPLETED" then ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body]) | join("\n") else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
     if [ "$_rc" -ne 0 ]; then
       if [ -n "$_ef" ]; then _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; else _em=""; fi
       echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
@@ -243,10 +245,16 @@ _fetch_closed_bodies() {
 #   "Source retro: <prefix> · <row-id>" for this row. Empty output = no closed-completed issue for the row.
 _closed_record() {
   _CR_PFX="Source retro: ${2} · " _CR_RID="$3" awk '
-    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; rec = ""; hit = 0 }
-    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0 }
+    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; rec = ""; hit = 0; sig = 0 }
+    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0; sig = 0 }
     $0 == "\036" { flush(); next }
     {
+      # A signature line ("Source retro: ...") also starts a new record when the current one already has
+      # one, so a separator-less cache (pre-#1709 shape) still splits per issue (RDD r1).
+      if (index($0, "Source retro: ") > 0) {  # RECONCILE-RECORD-SIGSPLIT
+        if (sig) flush()
+        sig = 1
+      }
       rec = rec $0 "\n"
       p = index($0, pfx)
       if (p > 0) {
@@ -599,6 +607,10 @@ ${_rln}"
             if [ "$_GIT_STATE" = "ok" ]; then
               while IFS= read -r _ev_c; do
                 [ -n "$_ev_c" ] || continue
+                if ! git -C "$_GIT_DIR" cat-file -e "${_ev_c}^{commit}" >/dev/null 2>&1; then  # RECONCILE-COMMIT-PRESENT
+                  echo "degraded: commit $_ev_c not present locally (shallow or partial clone?)" >&2
+                  _anc_degraded=1; continue
+                fi
                 if git -C "$_GIT_DIR" rev-parse --verify -q "${_ev_c}^{commit}" >/dev/null 2>&1 \
                    && git -C "$_GIT_DIR" merge-base --is-ancestor "$_ev_c" "$_MAIN_REF" >/dev/null 2>&1; then  # RECONCILE-ANCESTRY
                   _ev_reach="$_ev_c"; break
