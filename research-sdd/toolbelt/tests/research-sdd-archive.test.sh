@@ -1248,7 +1248,7 @@ cp "$HERE/../lib/retro-status.sh" "$tbE/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$tbE/lib/focus-prefix.sh"
 cp "$HERE/../lib/block-files.sh"  "$tbE/lib/block-files.sh"   # required helper (block discriminator)
 # STUB: enumeration returns nothing, as a permission-denied find would.
-printf '%s\n' '# shellcheck disable=SC2148' 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
+printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
 out="$(bash "$tbE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 3 ] && grep -qiE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out"; then
   ok "33 empty state-file enumeration → REFUSED (exit 3), reported distinctly — gate cannot silently no-op"
@@ -1273,7 +1273,7 @@ cp "$HERE/../lib/focus-prefix.sh" "$tbNE/lib/focus-prefix.sh"
 cp "$HERE/../lib/block-files.sh"  "$tbNE/lib/block-files.sh"  # required helper (block discriminator)
 # STUB: enumeration returns two paths that do not exist — simulates paths that vanished
 # between the find scan and the inspection loop, or a broken enumerator outputting garbage.
-printf '%s\n' '# shellcheck disable=SC2148' \
+printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" \
   "list_state_files() { printf '%s\n' \"$d/DOES-NOT-EXIST-1.md\" \"$d/DOES-NOT-EXIST-2.md\"; }" \
   > "$tbNE/lib/state-files.sh"
 out="$(bash "$tbNE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -1496,6 +1496,18 @@ out40="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40=$?
   && ok "40 T-AR1 regression: no --focus → archive proceeds normally (exit 0)" \
   || no "40 T-AR1 regression: no --focus: exit=$rc40 (want 0) :: $(head -2 <<<"$out40")"
 
+# 40b — kit issue #1818: a FLAT multi-focus corpus (root + RESEARCH-STATE-aaa.md). Without --focus archive must act
+# on the ROOT, not on the focus file that sorts before it (C-locale '-' < '.'). The two files carry DIFFERENT
+# iteration-history row counts (root 1, focus 2), so the mirror-facts line names which file was read.
+d="$TMP/ar-1818-rootpref"; mkgood "$d"
+cp "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-aaa.md"
+sed -i '/^| 1 | 2026/a | 2 | 2026-07-08 | second | B1 | no · inline | 0 |' "$d/RESEARCH-STATE-aaa.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus aaa >/dev/null 2>&1
+out40b="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40b=$?
+[ "$rc40b" = 0 ] && grep -q 'iteration-history rows: 1$' <<<"$out40b" \
+  && ok "40b #1818: flat root + focus, no --focus → archive acts on the ROOT (history rows 1, not the focus file's 2)" \
+  || no "40b #1818: rc=$rc40b :: $(grep -E 'iteration-history|REFUSE|FAIL' <<<"$out40b" | head -3)"
+
 # NEGATIVE CONTROLS (--prove-teeth) — every mutant is a COPY of the SUT built by lib/mutant.sh (kit issues #943, #1299),
 # which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant. Each tooth asserts the exact GOOD verdict
 # (rc + positive output) on the ORIGINAL against the same fixture AND the specific BAD verdict (rc + positive output)
@@ -1592,6 +1604,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth(uf-split)" "$MUT/archive.SPLITMUTANT.sh" 's/|| list_state_files "\$target"  # AR1-FOCUS-SCOPE/|| list_state_files "\$corpus"  # AR1-FOCUS-SCOPE  # MUTANT-uf-split/' \
     && tooth "teeth(uf-split): scope-reversion mutant → split-layout UF=1 archives (exit 0) — \$target scope is load-bearing" 3 0 "$MUT/archive.SPLITMUTANT.sh" \
          --good-has "$UF_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d"
+
+  echo "-- teeth(root-pref): restoring the lexical 'sort | head -1' pick must make archive act on the focus file (#1818) --"
+  mk_sed "teeth(root-pref)" "$MUT/archive.ROOTPREF-MUTANT.sh" 's#^  state="\$(resolve_state_file "\$target")"; _rsf_rc=\$?$#  state="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE*.md" -not -name "*.template.md" -not -path "*/.git/*" 2>/dev/null | sort | head -1)"; _rsf_rc=0  \# MUTANT-root-pref#' \
+    && tooth "teeth(root-pref): lexical-pick mutant → reads the focus file (history rows 2) instead of the root (rows 1)" 0 0 "$MUT/archive.ROOTPREF-MUTANT.sh" \
+         --good-has 'iteration-history rows: 1$' --bad-has 'iteration-history rows: 2$' -- run_on_fix @SUT@ "$TMP/ar-1818-rootpref" --dry-run
 
   echo "-- teeth(mf-uf): multi-focus uf gate — UF=1 in one focus must refuse; neutered mutant must archive --"
   d="$TMP/mf-uf-teeth"; mkmulti "$d"

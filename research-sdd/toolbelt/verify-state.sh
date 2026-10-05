@@ -36,6 +36,14 @@ if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2;
 declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-state: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
 unset _BFLIB
 
+# Shared state-file resolver (kit issue #1818); -H preserves this script's `find -H` symlink semantics.
+_SFLIB="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+if [ ! -f "$_SFLIB" ]; then echo "verify-state: cannot find helper $_SFLIB" >&2; exit 1; fi
+# shellcheck source=lib/state-files.sh
+. "$_SFLIB"
+declare -F resolve_state_file >/dev/null 2>&1 || { echo "verify-state: helper lib/state-files.sh failed to define resolve_state_file" >&2; exit 1; }
+unset _SFLIB
+
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-state.sh <target-dir> [--focus <slug>]" >&2; exit 2; }
 shift  # consume the target-dir positional arg; remaining args are optional flags
@@ -50,8 +58,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 if [ -n "$focus_slug" ]; then  # FOCUS-FILTER
-  _focused="$(find -H "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" \
-    -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  _focused="$(resolve_state_file -H "$target" --focus "$focus_slug")"  # rc 2 (same slug in two dirs) still yields the C-locale-first pick, as the old sort|head did
   if [ ! -f "$_focused" ]; then
     echo "verify-state: no RESEARCH-STATE-${focus_slug}.md found under $target" >&2; exit 2
   fi

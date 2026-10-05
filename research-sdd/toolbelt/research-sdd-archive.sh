@@ -81,18 +81,32 @@ declare -F list_state_files >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_sflib failed to define list_state_files" >&2; exit 1; }
 unset _sflib
 
-# Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
-# (No -e: a non-zero from find on an unreadable subtree is discarded, not fatal — the value is still correct.)
-state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
-[ -n "$state" ] && [ -f "$state" ] || { echo "research-sdd-archive: no RESEARCH-STATE*.md under $target — nothing to archive (run research-sdd-init.sh)" >&2; exit 2; }
-# T-AR1: when --focus <slug> was given, override $state to the focus-specific state file.
+# Resolve the state file via the shared lib/state-files.sh resolver (kit issue #1818): shallowest wins, and
+# the root RESEARCH-STATE.md beats every RESEARCH-STATE-<focus>.md at that depth (a lexical `sort | head -1`
+# picked a focus file first). Typed outcomes: 1 absent · 2 tie across directories (split layout) · 3 unusable input.
+declare -F resolve_state_file >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper lib/state-files.sh failed to define resolve_state_file" >&2; exit 1; }
+# T-AR1: when --focus <slug> was given, select the focus-specific state file.
 # Exit 2 when the requested focus does not exist under $target.
 if [ -n "$focus_slug" ]; then
-  _focus_state="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
-  [ -n "$_focus_state" ] && [ -f "$_focus_state" ] \
-    || { echo "research-sdd-archive: focus '$focus_slug' not found under $target (no RESEARCH-STATE-${focus_slug}.md)" >&2; exit 2; }
-  state="$_focus_state"
-fi  # AR1-FOCUS-SCOPE
+  state="$(resolve_state_file "$target" --focus "$focus_slug")"; _rsf_rc=$?
+  if [ "$_rsf_rc" = 1 ]; then
+    if [ -z "$(list_state_files "$target")" ]; then
+      echo "research-sdd-archive: no RESEARCH-STATE*.md under $target — nothing to archive (run research-sdd-init.sh)" >&2; exit 2
+    fi
+    echo "research-sdd-archive: focus '$focus_slug' not found under $target (no RESEARCH-STATE-${focus_slug}.md)" >&2; exit 2
+  fi
+else
+  state="$(resolve_state_file "$target")"; _rsf_rc=$?
+  [ "$_rsf_rc" != 1 ] \
+    || { echo "research-sdd-archive: no RESEARCH-STATE*.md under $target — nothing to archive (run research-sdd-init.sh)" >&2; exit 2; }
+fi
+
+# rc 2 (equal-rank candidates in different directories) is the legitimate SPLIT layout — one corpus dir per
+# focus; the resolver's deterministic first pick is the corpus and the UF gate scopes to $target (below).
+# Any other non-zero status (3 = unusable input) is a loud refusal, never a silent pick.
+{ [ "$_rsf_rc" = 0 ] || [ "$_rsf_rc" = 2 ]; } && [ -n "$state" ] && [ -f "$state" ] \
+  || { echo "research-sdd-archive: cannot resolve a RESEARCH-STATE file under $target (resolver status $_rsf_rc)" >&2; exit 2; }
 corpus="$(dirname "$state")"
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 
@@ -289,7 +303,7 @@ done < <(_uf_sf_src)
 if [ -n "$focus_slug" ]; then
   echo "    undocumented_findings: scoped to focus $focus_slug — $_uf_sf_count of $(list_state_files "$target" | wc -l | tr -d ' ') state file(s) inspected"
 fi
-# Fail-closed invariant: $target was verified above (find at line ~70 resolved a RESEARCH-STATE*.md
+# Fail-closed invariant: $target was verified above (resolve_state_file above resolved a RESEARCH-STATE*.md
 # under it), so ZERO inspected files here is an IMPOSSIBLE state — the enumerator malfunctioned
 # (returned nothing or only non-existent paths) rather than debt being absent. Report as a toolchain
 # ERROR (distinct from a content FAIL, following the established gate() convention) so a broken

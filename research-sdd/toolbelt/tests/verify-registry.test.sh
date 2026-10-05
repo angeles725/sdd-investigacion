@@ -103,6 +103,7 @@ mkkit() {
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
   cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$HERE/../lib/state-files.sh" "$kit/toolbelt/lib/state-files.sh"
   cp "$CM_LIB" "$kit/toolbelt/lib/corpus-markers.sh"  # SUT sources this for corpus_marker_present
   cp "$HW_LIB" "$kit/toolbelt/lib/hook-wiring.sh"     # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
@@ -1072,6 +1073,7 @@ cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
 cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
 cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
 cp "$HERE/../lib/block-files.sh" "$kit26/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+cp "$HERE/../lib/state-files.sh" "$kit26/toolbelt/lib/state-files.sh"
 cp "$CM_LIB" "$kit26/toolbelt/lib/corpus-markers.sh"   # SUT sources this for corpus_marker_present
 cp "$HW_LIB" "$kit26/toolbelt/lib/hook-wiring.sh"       # SUT sources this for hook_stop_wiring_state
 # Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
@@ -1444,6 +1446,7 @@ VRT2STRIPPED
   cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
   cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
   cp "$HERE/../lib/block-files.sh" "$kit26t/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$HERE/../lib/state-files.sh" "$kit26t/toolbelt/lib/state-files.sh"
   cp "$CM_LIB" "$kit26t/toolbelt/lib/corpus-markers.sh"
   cp "$HW_LIB" "$kit26t/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
