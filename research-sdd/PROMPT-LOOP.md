@@ -796,6 +796,11 @@ Always read first, in this order:
      gate at the per-block cite-point so a sub-agent does not have to remember the §5 policy
      independently. (Evidence: B336 `e975837`.)
      Include the Connections section linking related [Block K].
+     BLOCK PLAN OPEN (long, multi-step blocks only): at block open, BEFORE the first sub-step, copy
+     `$KIT/templates/block-plan.template.md` to `$TARGET/.research-sdd/plan/current-plan.txt` and record `opened-at: <HEAD sha>` plus the block file path in its header, then list THIS block's sub-steps (sweep → corroborate →
+     write → self-verify → update catalog/index/state → commit). Tick each `[x]` only when its artifact is on disk. The plan holds sub-steps
+     of the current block ONLY — gaps, backlog, queue and "what's next" stay in RESEARCH-STATE.md (METHODOLOGY §20 "Block plan"). Not an ODD task document (`odd/tasks/*.md`); the return-token gate and `--next` are unchanged; the file lives outside every block glob (hidden dir, no "block" in its name).
+
      For doc-synthesis blocks (where `[CERT-doc]` is the primary source), OPTIONALLY add a closing
      section — e.g. "§N.x — What this doc does not resolve" — listing findings the official document
      is silent about, cross-referencing corpus blocks whose evidence the guide omits. Vendor guides
@@ -1009,6 +1014,9 @@ Always read first, in this order:
          bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
          part of THIS archive step if not. Distinct from §14 (audits claims) and §17 (resume after a crash):
          this catches archive-bookkeeping drift between one iteration's close and the next's open.
+       - BLOCK PLAN CLOSE (only when a `$TARGET/.research-sdd/plan/current-plan.txt` was opened at step 4): once S5
+         (update catalog/index/state) is ticked, do S6 exactly as the template numbers it: DELETE the plan BEFORE staging, then stage and commit the block — it is never committed and never
+         outlives the iteration. It is not registered in INDEX/CATALOG/RESEARCH-STATE.
   7. STOPPING (primary = investigable exhaustion, per METHODOLOGY §8): if the INVESTIGABLE count is now
      0 — every open gap is blocked on a missing/incompatible tool, a live server, or hardware — STOP.
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
@@ -1577,6 +1585,8 @@ HARD RULES:
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state (lesson: niagara B76/B122).
     See METHODOLOGY §17.
+    BLOCK PLAN RESUME: if a `$TARGET/.research-sdd/plan/current-plan.txt` exists for the in-progress block, verify each ticked item's artifact exists
+    (a ticked item without its artifact is unticked again), then continue at its first unticked item. STALE only if `git -C $TARGET log <opened-at>..HEAD -- <block file>` is non-empty (`opened-at` and the block file are recorded in the plan header; a merely tracked block file is NOT staleness): delete the plan and resume from RESEARCH-STATE.md — never re-run its steps (METHODOLOGY §20, "Block plan").
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the
