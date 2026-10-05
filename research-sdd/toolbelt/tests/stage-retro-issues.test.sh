@@ -4677,6 +4677,7 @@ box88g3="$(occ_box case-occ-capped '55|OPEN|some other title')"
 r88g3="$(mk_retro "$box88g3" target-foo r.md "$PEND" "$OCC_ROW")"
 OUT="$(STAGE_RETRO_ISSUES_LIST_LIMIT=1 PATH="$box88g3/bin:$PATH" RESEARCH_SDD_ISSUE_REPO=test-owner/test-kit "$BASH_BIN" "$box88g3/research-sdd/toolbelt/stage-retro-issues.sh" "$r88g3" --apply 2>&1)"; RC=$?
 if [ "$RC" = 2 ] && grep -q '^ERROR: gh issue list (occurrence lookup) returned 1 results = the --limit 1 cap for row 1' <<<"$OUT" \
+   && grep -q 'covers ALL open issues of the target:target-foo label' <<<"$OUT" && grep -q 'raise STAGE_RETRO_ISSUES_LIST_LIMIT' <<<"$OUT" \
    && ! grep -q 'gh issue create' "$box88g3/bin/gh.log"; then
   ok "88g3 occurrence page that fills --limit → failed (truncation), never create" "(exit $RC)"
 else
@@ -4832,6 +4833,18 @@ else
   no "88u batched lookup failure" "exit=$RC out=[$OUT] log=[$(cat "$box88u/bin/gh.log")]"
 fi
 
+# 88v — two untracked rows with the SAME exact title in one retro: the first creates, the second must find that
+# just-created issue (cached list is appended after a confirmed create) and comment instead of duplicating (#1753).
+box88v="$(occ_box case-occ-samerun)"
+OCC2="| 1 | same delta twice | CLAUDE.md | B1 | fix | HIGH |"$'\n''| 2 | same delta twice | CLAUDE.md | B1 | fix | HIGH |'
+run "$box88v" "$(mk_retro "$box88v" target-foo r.md "$PEND" "$OCC2")" --apply
+if [ "$RC" = 0 ] && [ "$(grep -c '^gh issue create' "$box88v/bin/gh.log")" = 1 ] && [ "$(grep -c '^gh issue comment 99 ' "$box88v/bin/gh.log")" = 1 ] \
+   && [ "$(grep -c 'number,state,title' "$box88v/bin/gh.log")" = 1 ] && grep -q '^occurrence-commented: #99 (row 2)$' <<<"$OUT"; then
+  ok "88v same-title rows in one retro → one create + one occurrence comment, one lookup" "(exit $RC)"
+else
+  no "88v same-run duplicate" "exit=$RC out=[$OUT] log=[$(cat "$box88v/bin/gh.log")]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -4868,6 +4881,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant_chain "T1708-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
       || { fail=$((fail+1)); return 1; }
     if [ "$sc" = "escapes" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" '| 1 | fix "quoted" <tag> here | CLAUDE.md | B1 | fix | HIGH |')"
+    elif [ "$sc" = "samerun" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC2")"
     elif [ "$sc" = "budget" ] || [ "$sc" = "budgetfail" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC3")"
     else rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC_ROW")"; fi
     if [ "$sc" = "cap" ]; then
@@ -4893,6 +4907,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       failwrote) [ "$RC" != 3 ] && bite=1; why="a failed comment whose marker landed was not reported unknown-outcome" ;;
       failreread) grep -q '^mutation_outcome: unknown (row 1)$' <<<"$OUT" || bite=1; why="a failed comment with an unreadable re-read was not row-unknown" ;;
       readbackfail) grep -q 'but the read-back failed' <<<"$OUT" || bite=1; why="a failed read-back view was not reported as a read-back failure" ;;
+      samerun) [ "$(grep -c '^gh issue create' "$mb/bin/gh.log")" = 2 ] && bite=1; why="a same-title row in one retro created a duplicate instead of commenting" ;;
       budget) [ "$(grep -c 'number,state,title' "$mb/bin/gh.log")" != 1 ] && bite=1; why="the occurrence lookup ran more than once per retro" ;;
       budgetfail) [ "$(grep -c 'number,state,title' "$mb/bin/gh.log")" != 1 ] && bite=1; why="a failed lookup was retried per row" ;;
       nourl)  [ "$RC" != 3 ] && bite=1; why="a comment without a URL was not unknown" ;;
@@ -4920,6 +4935,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tocc unknown-on-landed-off failwrote 's/^    if \[ "\$_rb2rc" -eq 0 \] && grep -qxF -- "\$_mk" <<<"\$_rb2"; then$/    if false; then/'
   tocc unknown-on-reread-off failreread 's/^    if \[ "\$_rb2rc" -ne 0 \]; then _occ_row_unknown=1; fi$/    :/'
   tocc readback-rc-off   readbackfail 's/^  if \[ "\$_rb2rc" -ne 0 \]; then$/  if false; then/'
+  tocc cache-add-off     samerun 's/^      _occ_cache_add "\$_issue_num" "\$_title"   # STAGE_RETRO_ISSUES_OCC_CACHE_ADD$/      :/'
   tocc batch-cache-off   budget 's/^  \[ -z "\$_occ_cache_state" \] \&\& _occ_fetch$/  _occ_fetch/'
   tocc fail-cache-off    budgetfail 's/^  _occ_cache_state="failed"$/  _occ_cache_state=""/'
   tocc array-guard-off   emptyreply 's/^  if ! grep -q .^\[\[:space:\]\]\*\\\[. <<<"\$_o"; then$/  if false; then/'

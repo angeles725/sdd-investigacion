@@ -1070,13 +1070,26 @@ _occ_fetch() {
     _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be counted for row @ROW@: $_o"; return 0
   fi
   if [ "$_total" -ge "$_LIST_LIMIT" ]; then
-    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row @ROW@ — the result may be truncated, refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)"
+    # Measured 2026-10-04 (open issues per target label): sdd-investigacion 10, niagara-research 14,
+    # niagara5-research 29 — far below the 1000 default, so no pagination is needed.
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row @ROW@ — this cap now covers ALL open issues of the target:${target_name} label (not one title search), so the result may be truncated; refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)"
     return 0
   fi
   _occ_cache_reply="$_o"; _occ_cache_state="ok"
 }
 
-# _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
+# _occ_cache_add <number> <title>: after a CONFIRMED create, append the new issue to the cached list so a later
+# row of the same retro with the same exact title gets an occurrence comment instead of a duplicate create
+# (the pre-batch per-row lookup saw it; the cached list would not).
+_occ_cache_add() {
+  local _r="$_occ_cache_reply" _t="$2" _sep=","
+  _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"
+  _r="${_r%"${_r##*[![:space:]]}"}"; _r="${_r%]}"
+  if [[ "$_r" =~ ^[[:space:]]*\[[[:space:]]*$ ]]; then _sep=""; fi
+  _occ_cache_reply="${_r}${_sep}{\"number\":$1,\"state\":\"OPEN\",\"title\":\"${_t}\"}]"
+}
+
+# _occ_find <title> <row-id> (an empty title never matches: _title is non-empty for every staged row): sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
 # equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR printed).
 _occ_find() {
   local _m
@@ -1399,6 +1412,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
         summary_unknown_outcome=$((summary_unknown_outcome+1)); _row_unknown "$_rid"; continue
       fi
       echo "created: $_url (row $_rid)"
+      _occ_cache_add "$_issue_num" "$_title"   # STAGE_RETRO_ISSUES_OCC_CACHE_ADD
       created=$((created+1))
       mutation_confirmed=$((mutation_confirmed+1)); echo "mutation_outcome: confirmed (row $_rid)"
     else
