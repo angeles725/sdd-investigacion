@@ -9,6 +9,9 @@
 #   --focus <slug> -> NEXT/STOP from RESEARCH-STATE-<slug>.md only (already true before #1837; pinned here)
 #   --all          -> explicit corpus-wide form (#1543), same as the no-flag aggregate
 #
+# NOT scoped by --root: the STALE gate (verify-state over the whole target). Only --focus narrows it (#1543), so an
+# active stale sibling still makes `--root --next` print STALE (case 6d pins that boundary).
+#
 # Two flat-corpus fixtures with opposite shapes, so a mode that picked the wrong file is visible either way:
 #   A: root EXHAUSTED (covered), focus `act` has a pending gap  -> only the aggregate / --focus can say NEXT
 #   B: root has a pending gap, focus `act` EXHAUSTED            -> only the aggregate / --root can say NEXT
@@ -80,6 +83,16 @@ case "$(nx "$SUT" "$fxC")" in "RETRO-DUE |"*) ok "5a no flag -> RETRO-DUE from t
 want_next "5b --root ignores the focus file's retro debt" "$(nx "$SUT" "$fxC" --root)" root
 case "$(nx "$SUT" "$fxC" --focus act)" in "RETRO-DUE |"*) ok "5c --focus act -> RETRO-DUE from the picked focus" ;; *) no "5c --focus act: want RETRO-DUE, got [$(nx "$SUT" "$fxC" --focus act)]" ;; esac
 
+# 6. the picked root must survive the STALE-bypass loop (a multi-focus corpus whose only non-root file is a STOPPED
+#    focus with a stale envelope reassigns the global $state to the sibling; --root must still report the ROOT).
+fxD="$TMP/D"; mkdir -p "$fxD/z"; mk_state "$fxD/RESEARCH-STATE.md" pending 1 root; mk_state "$fxD/z/RESEARCH-STATE-x.md" pending 0 x
+printf '| focus | status |\n|---|---|\n| x | stopped |\n' > "$fxD/z/FOCUSES.md"
+want_next "6a --root with a stopped stale sibling in a subdir" "$(nx "$SUT" "$fxD" --root)" root
+want_next "6b no flag (aggregate) with the same corpus" "$(nx "$SUT" "$fxD")" root
+# 6d: an ACTIVE stale sibling is still a corpus-wide STALE even under --root (documented non-scoping)
+fxE="$TMP/E"; mkdir -p "$fxE"; mk_state "$fxE/RESEARCH-STATE.md" pending 1 root; mk_state "$fxE/RESEARCH-STATE-act.md" pending 0 act
+case "$(nx "$SUT" "$fxE" --root)" in "STALE |"*) ok "6d active stale sibling -> --root --next still prints STALE (gate is corpus-wide)" ;; *) no "6d: want STALE, got [$(nx "$SUT" "$fxE" --root)]" ;; esac
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for the --next scope --"
@@ -113,6 +126,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # E: the RETRO-DUE check ignores the scope and walks every state file -> case 5b goes red
   if mutate E 's/^  if \[ "\$_ns_scoped" = 1 \]; then$/  if false; then/'; then
     case "$(nx "$MUT" "$fxC" --root)" in "RETRO-DUE |"*) ok "teeth E: RETRO-DUE scope dropped -> case 5b has teeth" ;; *) no "teeth E: mutant stayed scoped — THEATER" ;; esac; fi
+  # F: the scoped --next uses the clobbered global $state instead of the saved pick -> case 6a goes red. The mutant
+  #    must exit 0 and print the SIBLING's verdict (not crash).
+  if mutate F 's/^    _rd_states=("\$_ns_pick")  # NEXT-PICK-RD$/    _rd_states=("$state")  # NEXT-PICK-RD/'; then
+    got="$(nx "$MUT" "$fxD" --root)"; bash "$MUT" "$fxD" --next --root >/dev/null 2>&1; rc=$?
+    if [ "$rc" = 0 ] && [ "$got" = "NEXT | high | the x gap" ]; then ok "teeth F: saved pick unused -> sibling's verdict [$got] -> case 6a has teeth"
+    else no "teeth F: want exit 0 + the sibling's verdict, got rc=$rc [$got] — THEATER or crashed mutant"; fi; fi
 fi
 
 echo "== $pass passed · $fail failed =="

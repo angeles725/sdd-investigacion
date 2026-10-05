@@ -41,8 +41,9 @@
 #        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
 #        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
 #   --root / --focus <slug> (with --next) also scope the NEXT/STOP verdict (and the RETRO-DUE check) to the PICKED
-#        state file (kit #1837); only the no-flag form and --all aggregate over every state file. The --root STALE
-#        gate stays corpus-wide (only --focus narrows it, #1543).
+#        state file (kit #1837); only the no-flag form and --all aggregate over every state file. NOT scoped: the
+#        --root STALE gate stays corpus-wide (only --focus narrows it, #1543), so an active stale sibling focus
+#        still makes `--root --next` print STALE.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
 # Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
@@ -1465,6 +1466,9 @@ issues_due_gate() {
 }
 
 if [ "$mode" = "--next" ]; then
+  # kit issue #1837: the state file the --root / --focus picker chose. The STALE-bypass loop below reassigns the
+  # global $state (count_investigable / env_get read it), so a scoped --next must read THIS copy, never $state.
+  _ns_pick="$state"  # NEXT-PICK-SAVE
   # Refuse to hand out work on an internally inconsistent state (summary claims done while backlog
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
   # Use $target (not $corpus) so the STALE gate covers the same scope as the aggregation below: scanning
@@ -1568,7 +1572,8 @@ if [ "$mode" = "--next" ]; then
   [ "$root_flag" = 1 ] && _ns_scoped=1  # NEXT-ROOT-SCOPE
   _rd_threshold=10
   if [ "$_ns_scoped" = 1 ]; then
-    _rd_states=("$state")
+    # The RETRO-DUE loop below leaves the global $state on this file, which is what resolve_next reads afterwards.
+    _rd_states=("$_ns_pick")  # NEXT-PICK-RD
   else
     mapfile -t _rd_states < <(list_state_files "$target")
   fi
