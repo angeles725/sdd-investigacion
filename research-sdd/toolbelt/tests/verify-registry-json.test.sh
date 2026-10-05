@@ -203,7 +203,7 @@ if [ "$RC" = 0 ] && [ "$(jq_f '[.state,(.items|map(select(.kind=="nonconform-fie
 else no "JSON argv: large accumulator" "rc=$RC err=[$(printf '%s' "$JERR" | head -c 200)] out=[$(printf '%s' "$JOUT" | head -c 100)]"; fi
 
 # 9 — STRUCTURAL: the kinds the SUT can emit == the kinds json-envelope.v1.md documents (both directions),
-#     and every `_vr_finding` call passes a kind and a SEV of WARN|INFO. kinds_check <sut> <doc> : rc 0 = holds.
+#     and every `_vr_finding`/`_vr_record` call passes a kind and a SEV of WARN|INFO. kinds_check <sut> <doc> : rc 0 = holds.
 DOC="$HERE/../json-envelope.v1.md"
 [ -f "$DOC" ] || { echo "FATAL: contract doc not found: $DOC" >&2; exit 2; }
 kinds_check() {
@@ -219,8 +219,8 @@ kinds_check() {
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
 }
 if kinds_check "$SUT" "$DOC"; then
-  ok "kinds: SUT _vr_finding kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(grep -cE '^[[:space:]]*_vr_finding [a-z]' "$SUT") call sites)"
-else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(grep -oE '^[[:space:]]*_vr_finding [a-z-]+' "$SUT" | awk '{print $2}' | sort -u | tr '\n' ' ')]"; fi
+  ok "kinds: SUT _vr_finding/_vr_record kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(grep -cE '^[[:space:]]*_vr_(finding|record) [a-z]' "$SUT") call sites)"
+else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(grep -oE '^[[:space:]]*_vr_(finding|record) [a-z-]+' "$SUT" | awk '{print $2}' | sort -u | tr '\n' ' ')]"; fi
 
 # 9b — #1780: unknown arguments are a usage error (exit 2, nothing on stdout, usage on stderr); the accumulator
 #      row encoding lives in ONE helper (_vr_record) and the target count is computed ONCE.
