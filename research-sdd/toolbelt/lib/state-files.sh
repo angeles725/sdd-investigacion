@@ -30,13 +30,10 @@
 # the canonical pattern in verify-state.sh:33, which predates this library and is
 # the authoritative reference for the exclusion set.
 #
-# Scope of this rule: gate/aggregation consumers (--sync-state seeding, --next
-# multi-focus scan, archive enumeration). ROOT DISCOVERY (the single `find | head -1`
-# that determines $corpus at startup) uses the SAME incantation but occurs before this
-# library is sourced (the lib path uses $here which is computed after $corpus); it is
-# therefore the one legitimate exception — same flags, different ordering constraint.
-# The --focus <slug> selection (searches for a SPECIFIC filename) is a semantically
-# different operation and is NOT governed by this rule.
+# Scope of this rule: every consumer that enumerates (list_state_files: --sync-state seeding,
+# --next multi-focus scan, archive enumeration) or picks (resolve_state_file: the one file to act
+# on, including research-sdd-status.sh's startup pick and its --focus <slug> selection) state
+# files. There is no exception: status.sh sources this library before it picks.
 #
 # Idempotent: safe to source more than once (multiple consumers may pull it in
 # the same shell; declare -F guard prevents double-definition). Follow the pattern
