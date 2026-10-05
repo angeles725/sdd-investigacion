@@ -40,6 +40,10 @@
 #        corpus-wide gate is the safe default and single-focus output is byte-identical). --all excludes
 #        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
 #        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
+#   --root / --focus <slug> (with --next) also scope the NEXT/STOP verdict (and the RETRO-DUE check) to the PICKED
+#        state file (kit #1837); only the no-flag form and --all aggregate over every state file. NOT scoped: the
+#        --root STALE gate stays corpus-wide (only --focus narrows it, #1543), so an active stale sibling focus
+#        still makes `--root --next` print STALE.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
 # Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
@@ -1462,6 +1466,9 @@ issues_due_gate() {
 }
 
 if [ "$mode" = "--next" ]; then
+  # kit issue #1837: the state file the --root / --focus picker chose. The STALE-bypass loop below reassigns the
+  # global $state (count_investigable / env_get read it), so a scoped --next must read THIS copy, never $state.
+  _ns_pick="$state"  # NEXT-PICK-SAVE
   # Refuse to hand out work on an internally inconsistent state (summary claims done while backlog
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
   # Use $target (not $corpus) so the STALE gate covers the same scope as the aggregation below: scanning
@@ -1558,9 +1565,15 @@ if [ "$mode" = "--next" ]; then
   # RETRO-DUE (§18 cadence): after STALE passes, check for blocks_since_retro > 10.
   # Check the relevant state file(s): just $state for single-focus, all active files for multi-focus.
   # Emits RETRO-DUE and exits before NEXT/STOP so the cadence advisory reaches the caller.  # RD-BLOCKS-SINCE-RETRO-CHECK
+  # kit issue #1837: --root and --focus both PICK one state file ($state, resolved above); --next then reports from
+  # that file alone. The no-flag form (and --all, which excludes both flags) keeps the corpus-wide aggregate.
+  _ns_scoped=0  # NEXT-SCOPE-DEFAULT
+  [ -n "$focus_slug" ] && _ns_scoped=1  # NEXT-FOCUS-SCOPE
+  [ "$root_flag" = 1 ] && _ns_scoped=1  # NEXT-ROOT-SCOPE
   _rd_threshold=10
-  if [ -n "$focus_slug" ]; then
-    _rd_states=("$state")
+  if [ "$_ns_scoped" = 1 ]; then
+    # The RETRO-DUE loop below leaves the global $state on this file, which is what resolve_next reads afterwards.
+    _rd_states=("$_ns_pick")  # NEXT-PICK-RD
   else
     mapfile -t _rd_states < <(list_state_files "$target")
   fi
@@ -1575,7 +1588,7 @@ if [ "$mode" = "--next" ]; then
       exit 0
     fi
   done
-  if [ -z "$focus_slug" ]; then
+  if [ "$_ns_scoped" = 0 ]; then
     # Multi-focus guard (chihuahua/px-chart-classic regression + BLOCKER 2 split-layout): iterate every
     # state file under $target (not just $corpus=dirname(first)), so focuses in sibling subdirectories are
     # not missed. Return NEXT from the first active focus; only emit STOP when ALL focuses are stopped.
@@ -2072,12 +2085,14 @@ fi
 remote_visibility_block() {
   [ -e "$target/.git" ] || return 0
   local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis _rv_stalled=0
-  # shellcheck source=lib/gh-visibility.sh
-  . "$here/lib/gh-visibility.sh" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
-    || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: lib/gh-visibility.sh unavailable — cannot probe the visibility of the remotes of $target"; return 0; }
   command -v git >/dev/null 2>&1 || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
   mapfile -t _rv_arr < <(git -C "$target" remote 2>/dev/null)
   [ "${#_rv_arr[@]}" -gt 0 ] || return 0
+  # Remotes are enumerated BEFORE the lib check (kit issue #1843): a target with no remote needs no probe, so a
+  # missing lib/gh-visibility.sh is only worth a degraded line when there is something to probe.
+  # shellcheck source=lib/gh-visibility.sh
+  . "$here/lib/gh-visibility.sh" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
+    || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: lib/gh-visibility.sh unavailable — cannot probe the visibility of the remotes of $target"; return 0; }
   for _rv_r in "${_rv_arr[@]}"; do
     [ -n "$_rv_r" ] || continue
     if ! command -v "$_rv_gh" >/dev/null 2>&1; then
