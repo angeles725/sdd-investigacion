@@ -3094,7 +3094,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
-  if vr_mut "teeth-nonconform-field-warn" "$kit" '/# NONCONFORM-FIELD-CHECK/ s/echo "WARN/: "WARN/'; then
+  if vr_mut "teeth-nonconform-field-warn" "$kit" '/# NONCONFORM-FIELD-CHECK/ s/_vr_finding nonconform-field WARN/: nonconform-field WARN/'; then
     vr_run "teeth-nonconform-field-warn: silenced WARN loses 'not in schema' — test 3t0 control has teeth" "$kit" 0 0 \
       --good-has 'not in schema' --bad-lacks "not in schema|$VR_CRASH"
   fi
