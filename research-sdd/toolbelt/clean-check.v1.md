@@ -118,6 +118,15 @@ its own, so a truncated or failed `git`, `find` or `sort` cannot read as an empt
 stderr is shown, and a `git rev-parse` failure reports git's reason (for example dubious ownership)
 instead of "not a work tree"; stderr noise from a `git rev-parse` that succeeds is ignored (only its stdout is compared).
 
+## Terminal-trigger wiring (slice 2)
+
+`research-sdd-status.sh <target> --next` runs this script (`--target <target>`, default `--tmp`) when its verdict is an
+exhausted `STOP | read-only-investigable exhausted (0)`, and reports on STDERR only: `INFO: clean-check: clean at
+terminal STOP` (exit 0), `WARN: clean-check: findings at terminal STOP` plus one `WARN: clean-check: <line>` per output
+line (exit 1), or `WARN: clean-check: unverifiable (exit N: ...)` (exit 2/3, e.g. a corpus that is not a git work tree) /
+`unverifiable (clean-check.sh not found ...)`. Report-only: the status stdout, verdict, `--emit-token` and exit code
+are unchanged. `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. Suite: `tests/research-sdd-status-clean-warn.test.sh`.
+
 ## Test hook
 
 `CLEAN_CHECK_UID` overrides the uid used for the ownership filter (default `id -u`); the suite

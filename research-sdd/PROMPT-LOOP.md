@@ -1120,6 +1120,11 @@ Always read first, in this order:
          —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO pending §8c queue entry AND no safe next phase ends silent.
+       - NO-GARBAGE CHECK (kit #1277, METHODOLOGY §15; report-only): at every exhausted STOP, `research-sdd-status.sh
+         <target> --next` runs `toolbelt/clean-check.sh` and prints its result on STDERR (`INFO: clean-check: clean ...`,
+         `WARN: clean-check: ...` per finding, or `WARN: clean-check: unverifiable (...)`). It is a loud WARN, not a gate,
+         and it deletes nothing: before declaring STOP, resolve each finding by hand or declare it in
+         `<TARGET>/.research-sdd/keep.txt`. An `unverifiable` line means the target was NOT confirmed clean — say so.
        - OUT-OF-TREE APPLIED DELIVERABLE (a requires-execution close whose deliverable lands OUTSIDE $TARGET —
          a skill, plugin, or installed tool): reference it by PATH + SHA-IDENTITY (a manifest hash of the file
          set), NEVER copy it into the corpus; when there is no "original bytes" to diff against, an EXTERNAL

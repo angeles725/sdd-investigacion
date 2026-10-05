@@ -3152,14 +3152,28 @@ workflow (written only with `--wire`). Known gap (issue #1566): a stub with no d
 exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*.so` `*.so.N` `*.exe`) — a clean run
 over an undeclared stub says nothing about decompiled vendor source.
 
-**Terminal no-garbage check (report-only).** Before closing a focus or campaign (§8 STOP), run
-[`toolbelt/clean-check.sh`](toolbelt/clean-check.sh) `--target <target>` (kit issue #1277, contract
+**No-garbage rule and terminal check (report-only).** Every run writes only to a declared place: the session
+scratchpad, or `<target>/.../_evidence/<task>/`; never loose in a repo or worktree root or in `/tmp`. A rollback
+backup carries a retention note and is deleted once its task's results are merged. A tool or test that makes a
+temp dir removes it (trap/tearDown) and its suite asserts no leftover; `run-all.sh` enforces the latter by
+reporting `TMPDIR leftovers: N` per run (`--require-clean-tmp` makes it a gate). Before closing a focus or campaign
+(§8 STOP), run [`toolbelt/clean-check.sh`](toolbelt/clean-check.sh) `--target <target>` (kit issue #1277, contract
 `toolbelt/clean-check.v1.md`). It lists untracked, non-ignored files that no `<TARGET>/.research-sdd/keep.txt`
 glob keeps (`GARBAGE untracked`) and stale user-owned `tmp.*` entries (`GARBAGE stale-tmp`); it deletes and
 writes nothing, so the human decides each finding (propose-never-apply). Declare intentional untracked files
-in `keep.txt` (one glob per line, optional ` # reason`); `ABSENT-KEEPLIST` says no keep file exists. The
-terminal-trigger WIRING is not built: no STOP hook, archive gate or loop step invokes it yet, so the
-operator or loop runs it by hand — a close without the run is not evidence the target is clean.
+in `keep.txt` (one glob per line, optional ` # reason`); `ABSENT-KEEPLIST` says no keep file exists. A terminal
+close requires empty findings or a keep-list that covers them.
+
+Wiring (kit issue #1277 slice 2): `research-sdd-status.sh <target> --next` runs `clean-check.sh` itself whenever it
+resolves to an exhausted `STOP | read-only-investigable exhausted (0)` (the §8 terminal trigger) and echoes the
+result to STDERR: `INFO: clean-check: clean at terminal STOP`, or `WARN: clean-check: findings at terminal STOP`
+followed by one `WARN: clean-check: <line>` per finding, or a typed `WARN: clean-check: unverifiable (...)` when
+the script is missing or exits 2/3 (a non-git corpus is exit 2). It is a loud WARN, not a gate: the maintainer
+decided slice 1 as report-only and no gate was decided, so stdout, the verdict, `--emit-token` and the exit code
+are unchanged and a close can still proceed over a WARN. Honoring it is the loop's step: resolve or keep-list
+every finding before declaring STOP. `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. A non-terminal verdict (`NEXT`,
+`ISSUES-DUE`, `STOP | no active focus`) does not run the check. Not built: stale worktrees, merged branches and
+`_evidence` retention scans (see `clean-check.v1.md` known limits) and a hard gate.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
