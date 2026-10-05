@@ -24,6 +24,13 @@ if [ "$SR_JSON" = 1 ]; then
     printf '{"schema":"research-sdd.sweep-retros/v1","state":"degraded","reason":"jq not found on PATH","counts":{},"items":[]}\n'
     exit 3
   fi
+  # Capability probe (kit issue #1755): the envelope hands data to jq with --rawfile (jq >= 1.6). An older
+  # jq passes the presence check above and would only fail after the whole sweep ran.
+  if ! jq -n --rawfile _sr_probe /dev/null 1 >/dev/null 2>&1; then
+    printf 'DEGRADED: jq lacks --rawfile (jq >= 1.6 required) — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.sweep-retros/v1","state":"degraded","reason":"jq lacks --rawfile (jq >= 1.6 required)","counts":{},"items":[]}\n'
+    exit 3
+  fi
   exec 3>&1 >/dev/null
 fi
 
@@ -354,7 +361,8 @@ done
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
   while IFS=$'\x1f' read -r _ep f p deltas _dk status age_d tag delta_warn; do
-    _json_pend="${_json_pend}$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' "$f" "$p" "$deltas" "$_dk" "$status" "$age_d" "$tag" "$delta_warn")"$'\n'
+    # Keyed fields (name=value, \x1f-separated): the jq builder reads them by NAME, so a reorder here cannot shift values.
+    _json_pend="${_json_pend}$(printf 'file=%s\x1ftarget=%s\x1fdeltas=%s\x1fdeltas_state=%s\x1fstatus=%s\x1fage=%s\x1ftag=%s\x1fwarning=%s' "$f" "$p" "$deltas" "$_dk" "$status" "$age_d" "$tag" "$delta_warn")"$'\n'
     echo "PENDING  $f"
     if [ "$deltas" = "no delta section found (empty-input)" ]; then
       echo "         target: $p  ·  ${deltas}  ·  status: ${status}  ·  age: ${age_d}d${tag}"
@@ -553,13 +561,14 @@ if [ "$SR_JSON" = 1 ]; then
     --argjson total "$total" --argjson pending "$pending" --argjson missing "$missing" \
     --argjson targets "$_sr_ntargets" --argjson tabsent "$absent_targets" --argjson tskipped "$skipped_count" '
     def lines(s): s | split("\n") | map(select(length > 0));
-    ( lines($pend) | map(split("\u001f") | {
-        kind: "pending-retro", file: .[0], target: .[1],
-        deltas: (if (.[2] | test("^[0-9]+$")) then (.[2] | tonumber) else null end),
-        deltas_state: (.[3] as $d | if (["counted","uncountable","no-section"] | index($d)) != null then $d else "unknown" end),
-        status: .[4], age_days: (if (.[5] | test("^[0-9]+$")) then (.[5] | tonumber) else null end),
-        age_state: (if (.[5] | test("^[0-9]+$")) then "counted" else "unknown" end), escalated: (.[6] != ""),
-        warning: (if .[7] == "" then null else .[7] end) }) ) as $p
+    def row: split("\u001f") | map(capture("^(?<k>[^=]*)=(?<v>.*)$"; "s") | {(.k): .v}) | add;
+    ( lines($pend) | map(row | {
+        kind: "pending-retro", file: .file, target: .target,
+        deltas: (if (.deltas | test("^[0-9]+$")) then (.deltas | tonumber) else null end),
+        deltas_state: (.deltas_state as $d | if (["counted","uncountable","no-section"] | index($d)) != null then $d else "unknown" end),
+        status: .status, age_days: (if (.age | test("^[0-9]+$")) then (.age | tonumber) else null end),
+        age_state: (if (.age | test("^[0-9]+$")) then "counted" else "unknown" end), escalated: (.tag != ""),
+        warning: (if .warning == "" then null else .warning end) }) ) as $p
     | ( lines($miss) | map({kind: "missing-retro", target: .}) ) as $m
     | ($p + $m) as $items
     | { schema: "research-sdd.sweep-retros/v1",
