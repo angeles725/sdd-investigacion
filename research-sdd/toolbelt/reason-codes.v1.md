@@ -18,9 +18,10 @@ scanned scripts that contains the literal `degraded: `:
 1. Start at the first `degraded: ` on the line.
 2. Replace each shell expansion and each `%s` / `%d` conversion with `<v>`, then collapse runs of `<v>`.
    The expansions rewritten are exactly: `${...}`, `$(...)` (no nested parentheses), `$name`, and the
-   single-character parameters `$0`-`$9`, `$?`, `$@`, `$#`, `$*`, `$!`, `$$`. Anything else (a nested
-   `$(... $(...) ...)`, arithmetic `$((...))`) is NOT normalised: it stays in the code text and will fail
-   as an unlisted code until the emit line is simplified.
+   single-character parameters `$0`-`$9`, `$?`, `$@`, `$#`, `$*`, `$!`, `$$`. The `$(...)` pattern is
+   `\$\([^)]*\)`, so it stops at the FIRST `)`: a nested `$(... $(...) ...)` or an arithmetic `$((...))`
+   is only partially rewritten (the `$(` up to the first `)` becomes `<v>`; the remainder, including the
+   trailing `)`, stays in the code text) and will fail as an unlisted code until the emit line is simplified.
 3. Cut at the first ` — ` (em dash, the prose separator), literal `\n`, or closing `"`.
 4. Strip trailing whitespace and trailing `<v>`.
 
@@ -29,10 +30,14 @@ re-worded prefixes; it cannot see a change in prose after the cut point.
 
 The test checks both directions: every emitted code must be a registry row, and every emitter a degraded
 row lists must really emit that code (a stale emitter fails). A non-comment line carrying `degraded: ` that
-is not a single-line `echo` / `printf` (a continued line, a heredoc body, an assignment, a helper that
-adds the prefix) is reported as unclassifiable and fails the test: the extractor cannot read it, so a
-clean result would be a silent zero. Only a line that starts with a comment is excluded; a ` #` before the token (trailing comment, or inside a quoted string) is still reported. The scan
-is line-based; a `degraded: ` hidden in a string built across lines without that literal is invisible. Scanned scripts today:
+contains no `echo` / `printf` token (a continuation line of a multi-line emit, a heredoc body, an
+assignment) is reported as unclassifiable and fails the test: the extractor cannot read it, so a clean
+result would be a silent zero. The scan keys only on the literal `degraded: ` and on the `echo` / `printf`
+token: a line that has both is read as an emit line even if it is part of a continued command, and a helper
+that adds the prefix itself (its call sites carry no literal) is NOT reported, because no scanned line
+contains the literal. Only a line that starts with a comment is excluded; a ` #` before the token (trailing
+comment, or inside a quoted string) is still reported. The scan is line-based; a `degraded: ` hidden in a
+string built across lines without that literal is invisible. Scanned scripts today:
 `research-sdd-status.sh`, `reconcile-issues.sh`, `stage-retro-issues.sh`, `research-sdd-init.sh`.
 
 ## Columns
