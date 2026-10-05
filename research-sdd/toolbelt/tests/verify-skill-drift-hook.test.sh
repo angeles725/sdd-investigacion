@@ -226,14 +226,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "N" "$SUT" "$MB/m-n.sh" 's/^      vnote=.*$/      extra_skip=1/' \
     && _tt "teeth: no-mktemp fallback replaced by a skip -> findings lost when mktemp fails but timeout exists" 0 0 "$MB/m-n.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIM2PATH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$BEHIND" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  # The kill-vs-trap race cannot be forced deterministically from outside (the window is microseconds), so the
-  # tooth pins the ORDER statically: the TERM trap must precede the sleeper start in the watchdog subshell.
-  _mk "O" "$SUT" "$MB/m-o.sh" 's/\(trap '"'"'kill "\$sp" 2>\/dev\/null; exit 0'"'"' TERM;\) \(sleep "\$vt" \& sp=\$!;\)/\2 \1/' \
-    && _tt "teeth: TERM trap installed after the sleeper starts -> an early kill orphans the sleeper" 0 0 "$MB/m-o.sh" \
+  # The lost-TERM race cannot be forced deterministically from outside (the window is microseconds), so the tooth
+  # pins the DESIGN statically: the sleeper must be started by the hook shell itself (pid recorded, killed by pid),
+  # never inside the watchdog subshell where a signal aimed at the subshell can orphan it (#1759).
+  _mk "O" "$SUT" "$MB/m-o.sh" 's/^    sleep "\$vt" >\/dev\/null 2>&1 & spid=\$!/    ( sleep "$vt" >\/dev\/null 2>\&1 \& spid=$! )/' \
+    && _tt "teeth: sleeper started inside a subshell -> its pid is not the hook's and a lost TERM orphans it" 0 0 "$MB/m-o.sh" \
        --good-has '^order-ok$' --bad-has '^order-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
-       "$BASH_BIN" -c 'if grep -qF "TERM; sleep \"\$vt\" & sp=\$!;" "$1"; then echo order-ok; else echo order-bad; fi' _ @SUT@
+       "$BASH_BIN" -c 'if grep -q "^    sleep .[$]vt. >/dev/null 2>&1 & spid=" "$1"; then echo order-ok; else echo order-bad; fi' _ @SUT@
+  # A TERM aimed at the just-forked sleeper is swallowed by the inherited TERM trap (the lost-kill race, #1759) and cannot
+  # be forced from outside, so the tooth pins the signal: the sleeper must die by SIGKILL, which no trap can consume.
+  _mk "P" "$SUT" "$MB/m-p.sh" 's/^    kill -KILL "\$spid"/    kill "$spid"/' \
+    && _tt "teeth: sleeper killed with TERM -> a TERM landing in the fork window is swallowed and the sleeper survives" 0 0 "$MB/m-p.sh" \
+       --good-has '^kill-ok$' --bad-has '^kill-bad$' --bad-lacks "$_CRASH" -- "$_ENV" \
+       "$BASH_BIN" -c 'if grep -q "^    kill -KILL \"\$spid\"" "$1"; then echo kill-ok; else echo kill-bad; fi' _ @SUT@
   if command -v pgrep >/dev/null 2>&1; then
-    _mk "L" "$SUT" "$MB/m-l.sh" '/^    kill "\$wpid" 2>\/dev\/null; wait "\$wpid" 2>\/dev\/null$/d' \
+    _mk "L" "$SUT" "$MB/m-l.sh" 's/^    kill -KILL "\$spid" 2>\/dev\/null; wait "\$spid" 2>\/dev\/null; wait "\$wpid" 2>\/dev\/null$/    :/;s/^    trap '"'"'kill -KILL "\$spid" 2>\/dev\/null; /    trap '"'"'/' \
       && _tt "teeth: watchdog sleeper not killed -> a stray sleep outlives a fast finish" 0 0 "$MB/m-l.sh" \
          --good-has '^clean$' --bad-has '^leaked$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=86312" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
          "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; if pgrep -f "sleep 8631[2]" >/dev/null; then echo leaked; pkill -f "sleep 8631[2]"; else echo clean; fi' _ @SUT@

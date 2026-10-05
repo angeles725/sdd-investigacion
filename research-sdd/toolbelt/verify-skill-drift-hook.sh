@@ -35,16 +35,21 @@ if [ -x "$vcmd" ]; then
       vnote="verify: no mktemp - a stalled grandchild of install --verify is not bounded"
     fi
   elif [ -n "$vf" ]; then
-    trap 'rm -f "$vf" "$vf.fired"' EXIT
+    trap 'kill -KILL "$spid" 2>/dev/null; rm -f "$vf" "$vf.fired"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     # Watchdog: run in the background and kill it after $vt seconds. It drops a sentinel file when it fires,
-    # so a real exit 137/143 from install is not mistaken for the kill. Its sleeper is killed on normal finish.
+    # so a real exit 137/143 from install is not mistaken for the kill. Its sleeper is killed on normal finish (and on EXIT).
     "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
-    ( sp=""; trap 'kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$vt" & sp=$!; wait "$sp"
+    # The sleeper is a child of THIS shell, so its pid is recorded before any signal can matter and it is killed by pid
+    # on finish with SIGKILL (#1759: root cause measured with xtrace — a TERM sent to a just-forked child is consumed by
+    # the copy of this shell's `trap ... TERM` handler it still runs before exec, so the sleeper survived the kill and
+    # `wait` hung; SIGKILL cannot be trapped). The watchdog subshell only polls for the sleeper's end, so it needs no signal.
+    sleep "$vt" >/dev/null 2>&1 & spid=$!   # SENTINEL-VERIFY-SLEEPER
+    ( while kill -0 "$spid" 2>/dev/null; do sleep 0.1; done
       if kill -0 "$vpid" 2>/dev/null; then : >"$vf.fired"; kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
     wait "$vpid" 2>/dev/null; vrc=$?
-    kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
+    kill -KILL "$spid" 2>/dev/null; wait "$spid" 2>/dev/null; wait "$wpid" 2>/dev/null
     if [ -e "$vf.fired" ]; then vrc=124; fi
     vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired"
   else
