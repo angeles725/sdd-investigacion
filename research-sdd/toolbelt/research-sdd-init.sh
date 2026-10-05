@@ -476,7 +476,7 @@ _rsdd_gitignore_plan() {
       case "$core" in
         '.research-sdd/plan/'|'/.research-sdd/plan/'|'.research-sdd/plan'|'/.research-sdd/plan'|'.research-sdd/plan/*'|'/.research-sdd/plan/*'|'.research-sdd/plan/**'|'/.research-sdd/plan/**')
           if [ "$core" = "$l" ]; then st=ignored; else st=negated; fi; stl="$l"; stn=$n ;;   # RSDD-GI-EQUIV
-        '.research-sdd/'|'/.research-sdd/'|'.research-sdd'|'/.research-sdd'|'.research-sdd/*'|'/.research-sdd/*')
+        '.research-sdd/*'|'/.research-sdd/*'|'.research-sdd/**'|'/.research-sdd/**')   # only forms matching paths INSIDE the parent; `!.research-sdd/` matches the dir itself and leaves the plan ignored
           if [ "$core" != "$l" ] && [ "$st" = ignored ]; then st=negated; stl="$l"; stn=$n; fi ;;   # a parent-dir negation re-includes the plan dir too
       esac
     done < "$gi"
@@ -557,7 +557,8 @@ _rsdd_vendor_leak_wiring() {
   # kit issue #1800: the "what to do later" guidance must be true for the path that printed it. On an EXISTING corpus a plain run is
   # REFUSED (exit 3), so only --wire gets here again; on the scaffold path a plain run scaffolds the conf (--wire adds the workflow).
   local _vl_how="a plain run scaffolds the conf" _vl_sfx=" (--wire additionally writes the CI workflow)"
-  if [ "${_RSDD_WIREONLY:-0}" = 1 ]; then _vl_how="re-run with --wire (a plain run on an existing corpus is refused)"; _vl_sfx=""; fi
+  # the mode is an explicit argument (wire | scaffold), never ambient state
+  if [ "${1:-scaffold}" = wire ]; then _vl_how="re-run with --wire (a plain run on an existing corpus is refused)"; _vl_sfx=""; fi
   # Not inside a git work tree → there is no remote to ask about (NO-REMOTE); any other rev-parse failure (dubious
   # ownership, corrupt metadata) is a git failure and DEGRADED — never hidden as "nothing to ask about".
   local rp_err
@@ -894,8 +895,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       # kit issue #1800: an existing corpus can go PUBLIC after it was scaffolded — re-probe the push remote here too (same bounded
       # probe, propose-never-apply: conf/workflow/hook are create-only, a foreign or user-modified file is never touched). Advisory:
       # every outcome is a typed `vendor-leak:` line and never changes the exit code.
-      _RSDD_WIREONLY=1
-      _rsdd_vendor_leak_wiring
+      _rsdd_vendor_leak_wiring wire
       echo "== done =="
       exit 0
     else
