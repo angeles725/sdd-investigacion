@@ -164,6 +164,10 @@ gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-s
 # Exit 0 = ok (or ok-partial -> PARTIAL), 1 = findings (FAIL) or the linter's own `degraded:` (DEGRADED), 2 = no
 # block files (n/a) or bad args (ERROR; told apart by the stderr reason), anything else = did not run (ERROR).
 # FAIL/DEGRADED/ERROR set gate_rc=1 unless --allow-unreciprocated-corrections (then a typed OVERRIDDEN line).
+# Why a gate (#1790): a §14 correction with no reciprocal backlink leaves the corrected block asserting the old
+# claim to every later reader. The advisory WARN was ignored, so archive now refuses until the backlink exists or
+# the operator overrides explicitly. Measured before promotion (2026-10-05, after #1835's false-FAIL fixes): 6 of
+# 20 present targets would be refused; each refusal names its pairs, the verify command and the override flag.
 _vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-GATE
 _vc_refuse() {  # <state-label> <detail> — refuse, or (override flag) record a typed OVERRIDDEN line
   if [ "$allow_vc" = 1 ]; then  # AR-VCORR-OVERRIDE
