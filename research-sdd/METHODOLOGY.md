@@ -3171,7 +3171,7 @@ followed by one `WARN: clean-check: <line>` per finding, or a typed `WARN: clean
 the script is missing or exits 2/3 (a non-git corpus is exit 2). It is a loud WARN, not a gate: the maintainer
 decided slice 1 as report-only and no gate was decided, so stdout, the verdict, `--emit-token` and the exit code
 are unchanged and a close can still proceed over a WARN. Honoring it is the loop's step: resolve or keep-list
-every finding before declaring STOP. The run is bounded by `timeout` (`RSDD_STATUS_CLEAN_CHECK_TIMEOUT` seconds, default 20; a timeout or a missing `timeout`/`gtimeout` is a typed `unverifiable` WARN). `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. A non-terminal verdict (`NEXT`,
+every finding before declaring STOP. The run is bounded by `timeout` (`RSDD_STATUS_CLEAN_CHECK_TIMEOUT` seconds, an integer >= 1, default 20, anything else falls back to 20 with a WARN; a TERM-ignoring run is killed 5 s later; a timeout or a missing `timeout`/`gtimeout` is a typed `unverifiable` WARN). `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. A non-terminal verdict (`NEXT`,
 `ISSUES-DUE`, `STOP | no active focus`) does not run the check. Not built: stale worktrees, merged branches and
 `_evidence` retention scans (see `clean-check.v1.md` known limits) and a hard gate.
 
