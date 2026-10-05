@@ -1642,6 +1642,21 @@ GHEOF
     K71_RC_OUT=$?
   }
 
+  # K1820-rel (R3): the toolbelt dir is resolved ONCE at startup. A kit copy whose init does `cd /` right after the startup lib loads (so a
+  # later `dirname $0` lookup of a RELATIVE $0 would miss) and is invoked via a relative path from another cwd must still
+  # reach the visibility probe (a PUBLIC answer scaffolds the conf), not DEGRADE with "lib/gh-visibility.sh unavailable".
+  _k71_relkit() {  # <name> [extra sed -e …] — kit copy with `cd /` injected after the startup lib loads; echoes the kit dir
+    local kd="$TMP/k71rel-$1"; shift; rm -rf "$kd"; mkdir -p "$kd/toolbelt/lib"
+    cp "$HERE/../lib/corpus-markers.sh" "$HERE/../lib/gh-visibility.sh" "$kd/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$kd/templates"
+    sed -e '/^unset _ri_cm_lib$/a cd /' "$@" "$SUT" > "$kd/toolbelt/init.sh"; chmod +x "$kd/toolbelt/init.sh"; printf '%s' "$kd"
+  }
+  _k71_relrun() {  # <kitdir> <target> → init output in $TMP/k71rel.out, run via a RELATIVE path from the kit's parent dir
+    ( cd "$(dirname "$1")" && PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$(basename "$1")/toolbelt/init.sh" "$2" --corpus flat >"$TMP/k71rel.out" 2>&1 )
+  }
+  kd="$(_k71_relkit ok)"; d="$(_k71_target relok https://example.invalid/pub.git)"; _k71_relrun "$kd" "$d"
+  assert_grep "K1820-rel relative \$0 + cwd change: the probe ran (typed PUBLIC line)" "vendor-leak: PUBLIC" "$TMP/k71rel.out"
+  grep -qF "gh-visibility.sh unavailable" "$TMP/k71rel.out" && no "K1820-rel relative \$0 + cwd change: DEGRADED lib-missing" || ok "K1820-rel relative \$0 + cwd change: not DEGRADED lib-missing"
+
   # K1271-a PUBLIC remote → stub conf scaffolded, typed line, CI snippet proposed (not written without --wire)
   d="$(_k71_target a https://example.invalid/pub.git)"; : > "$TMP/k71.gh.log"
   _k71_run "$d" PUBLIC 0
@@ -3648,6 +3663,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ -e "$d/.research-sdd/vendor-leak.conf" ] && ok "teeth M-1271-PRIVATE: PRIVATE scaffolds under the mutant — K1271-d has teeth" \
       || no "teeth M-1271-PRIVATE: no scaffold under the mutant — K1271-d is THEATER"
   else no "teeth M-1271-PRIVATE: could not build mutant"; fi
+  # M-1820-REL: the lib is looked up via a call-time `dirname $0` again -> after a cwd change a relative $0 misses it.
+  if declare -F _k71_relkit >/dev/null; then
+    kd="$(_k71_relkit mrel -e 's#^  _ghv_lib="\$_RSDD_TB/lib/gh-visibility.sh"#  _ghv_lib="$(cd "$(dirname "$0")" \&\& pwd)/lib/gh-visibility.sh"#')"
+    d="$(_k71_target relmut https://example.invalid/pub.git)"; _k71_relrun "$kd" "$d"
+    # the call-time lookup either degrades or aborts the step (set -e on the failed cd): either way the probe never ran
+    grep -qF 'vendor-leak: PUBLIC' "$TMP/k71rel.out" && no "teeth M-1820-REL: mutant still reached the probe — K1820-rel is THEATER" \
+      || ok "teeth M-1820-REL: call-time dirname \$0 lookup loses the probe after a cwd change — K1820-rel has teeth"
+  fi
   # M-1271-GHFAIL: a failing gh is read as PUBLIC (silent misclassification) → stub appears.
   if _k43_buildlib k71gf -e 's#2>"\$err")" || rc=\$?#2>"$err")" || { out=PUBLIC; rc=0; }#'; then
     d="$(_k71t k71gf gf "" 1)"

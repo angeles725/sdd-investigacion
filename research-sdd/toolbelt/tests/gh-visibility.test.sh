@@ -117,6 +117,14 @@ c_env() { # LIB — GH_PROMPT_DISABLED=1, GH_REPO unset even when exported, repo
 }
 c_env "$LIB" && ok "10 GH_PROMPT_DISABLED=1, GH_REPO unset, argv + cwd as documented" || no "10 environment contract"
 
+c_dflt() { # LIB — a caller-set GHV_DEFAULT_BOUND (status: 10) is the default AND the garbage fallback
+  local lib="$1" r
+  r="$(unset RSDD_GH_TIMEOUT; GHV_DEFAULT_BOUND=10 GH_OUT=PRIVATE probe "$lib" "$B_TO")"; has "$r" "BOUND=10 " && has "$r" "BAD=0 " || return 1
+  r="$(GHV_DEFAULT_BOUND=10 RSDD_GH_TIMEOUT=abc GH_OUT=PRIVATE probe "$lib" "$B_TO")"; has "$r" "BOUND=10 " && has "$r" "BAD=1 " || return 1
+  r="$(GHV_DEFAULT_BOUND=10 RSDD_GH_TIMEOUT=3 GH_OUT=PRIVATE probe "$lib" "$B_TO")"; has "$r" "BOUND=3 "
+}
+c_dflt "$LIB" && ok "11 GHV_DEFAULT_BOUND overrides the default (and the garbage fallback); RSDD_GH_TIMEOUT still wins" || no "11 caller default bound"
+
 # ------------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -135,6 +143,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth unrec-failopen   c_unrec   's/\*) GHV_STATE=UNRECOGNISED; return 1 ;;/*) GHV_STATE=PRIVATE; return 0 ;;/'
   tooth decided-lost     c_decided 's/PUBLIC|PRIVATE|INTERNAL) GHV_STATE="\$GHV_RAW"; return 0 ;;/PUBLIC|PRIVATE) GHV_STATE="$GHV_RAW"; return 0 ;;/'
   tooth bound-zero-ok    c_bound   's/-eq 0 \]; then GHV_BAD_TIMEOUT=1/-eq 99 ]; then GHV_BAD_TIMEOUT=1/'
+  tooth dflt-ignored     c_dflt    's/dflt="\${GHV_DEFAULT_BOUND:-20}"/dflt=20/'
   tooth prompt-dropped   c_env     's/GH_PROMPT_DISABLED=1/GH_X_DISABLED=1/g'
   tooth ghrepo-kept      c_env     's/env -u GH_REPO /env /g'
   if [ -n "$REAL_TO" ]; then

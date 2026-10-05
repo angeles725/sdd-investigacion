@@ -2068,10 +2068,10 @@ fi
 #   (§7: a read-back that could not run is never a silent pass).
 # RSDD_GH_BIN overrides the gh binary (tests stub it; no network). Only the remote NAME is printed and
 # only OWNER/REPO reaches gh's argv: a remote URL may embed credentials. Empty / non-github URL,
-# or a gh call over RSDD_GH_TIMEOUT seconds (default 20, shared lib/gh-visibility.sh; GH_PROMPT_DISABLED=1) -> typed degraded.
+# or a gh call over RSDD_GH_TIMEOUT seconds (default 10 here, 20 in the shared lib/gh-visibility.sh; later remotes are skipped after the first timeout; GH_PROMPT_DISABLED=1) -> typed degraded.
 remote_visibility_block() {
   [ -e "$target/.git" ] || return 0
-  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis
+  local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis _rv_stalled=0
   # shellcheck source=lib/gh-visibility.sh
   . "$here/lib/gh-visibility.sh" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
     || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: lib/gh-visibility.sh unavailable — cannot probe the visibility of the remotes of $target"; return 0; }
@@ -2096,12 +2096,17 @@ remote_visibility_block() {
     if [ -z "$_rv_slug" ]; then
       _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
     fi
-    # The bounded probe is the shared one (kit issue #1820, lib/gh-visibility.sh): RSDD_GH_TIMEOUT seconds (default 20,
-    # same as init / ensure-remote), GH_PROMPT_DISABLED=1; `timeout`, else `gtimeout`, else a bash watchdog. Any
+    # The bounded probe is the shared one (kit issue #1820, lib/gh-visibility.sh): RSDD_GH_TIMEOUT seconds (default 10 here,
+    # 20 in init / ensure-remote), GH_PROMPT_DISABLED=1; `timeout`, else `gtimeout`, else a bash watchdog. Any
     # non-decided result is a typed degraded line — never read as PRIVATE.
-    gh_visibility_probe "$_rv_gh" "$_rv_slug" || :
+    # Latency budget (status runs from the stop/terminal path): historical 10 s default (RSDD_GH_TIMEOUT overrides), and
+    # after the FIRST timeout the remaining remotes are not probed — N stalled remotes cost one bound, not N.
+    if [ "$_rv_stalled" = 1 ]; then
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: skipped after timeout for remote $_rv_r — visibility unverified"; continue
+    fi
+    GHV_DEFAULT_BOUND=10 gh_visibility_probe "$_rv_gh" "$_rv_slug" || :
     case "$GHV_STATE" in
-      TIMEOUT) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue ;;
+      TIMEOUT) _rv_stalled=1; _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue ;;
       GH_ERROR) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh failed (rc=$GHV_RC) for remote $_rv_r — visibility unverified"; continue ;;
       GH_MISSING|PROBE_FAILED) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh probe could not run ($GHV_STATE) for remote $_rv_r — visibility unverified"; continue ;;
     esac

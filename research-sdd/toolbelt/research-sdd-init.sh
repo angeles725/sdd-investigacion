@@ -101,6 +101,7 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 # now the PHYSICALLY resolved kit path, following any symlink in this script's own invocation
 # path. If the kit checkout is reached through a symlink, these name the symlink's REAL target,
 # not the symlink path — intentional, not a regression to work around.
+_RSDD_TB="$(cd -P "$(dirname "$0")" && pwd -P)"   # toolbelt dir, resolved ONCE (a later cwd change must not break $0-relative lookups)
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 # kit issue #1732: the return-token Stop gate is NOT copied into the target (it needs no per-target placeholder and
@@ -606,7 +607,7 @@ _rsdd_vendor_leak_wiring() {
   # a bash watchdog enforces the same bound (kit issue #1800: --wire repair must never hang). Any non-decided result is
   # a typed DEGRADED state and the caller carries on (never read as PRIVATE).
   local _ghv_lib gh_why gh_t vis
-  _ghv_lib="$(cd "$(dirname "$0")" && pwd)/lib/gh-visibility.sh"
+  _ghv_lib="$_RSDD_TB/lib/gh-visibility.sh"
   # shellcheck source=lib/gh-visibility.sh
   . "$_ghv_lib" 2>/dev/null && declare -F gh_visibility_probe >/dev/null 2>&1 \
     || { echo "$tag DEGRADED lib/gh-visibility.sh unavailable — cannot probe the remote visibility; vendor-leak wiring skipped (NOT a pass)"; return 0; }
@@ -995,7 +996,7 @@ trap - ERR   # scaffold verified — disarm rollback
 # (covered_blocks/investigable_open/blocked_open matching the seeded backlog), i.e. verify-state.sh passes
 # and --next never opens on a STALE gate. Best-effort: if the seeder is unavailable (e.g. a copied-toolbelt
 # test tree without status.sh), the placeholder envelope still stands — never fail the scaffold over it.
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF_DIR="$_RSDD_TB"
 if [ -x "$SELF_DIR/research-sdd-status.sh" ] || [ -f "$SELF_DIR/research-sdd-status.sh" ]; then
   bash "$SELF_DIR/research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1 || echo "  note: could not seed the research-state.v1 envelope (run --sync-state manually)"
 fi

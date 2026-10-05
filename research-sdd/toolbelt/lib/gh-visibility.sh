@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # gh-visibility.sh — shared helper: ONE bounded `gh repo view --json visibility` probe (kit issue #1820).
-# Sourced by ensure-remote.sh (and, when migrated, research-sdd-init.sh / research-sdd-status.sh) so every
-# caller shares one default, one validation and one failure vocabulary. Never a silent empty.
+# Sourced by ensure-remote.sh, research-sdd-init.sh (vendor-leak step) and research-sdd-status.sh (remote-visibility
+# block) so every caller shares one default, one validation and one failure vocabulary. Never a silent empty.
 #
 #   gh_visibility_probe <gh-bin> <repo-arg> [<cwd>]
 #     Runs `<gh-bin> repo view <repo-arg> --json visibility --jq .visibility` bounded by RSDD_GH_TIMEOUT
-#     seconds (a positive integer; default 20; unset -> 20 silently; empty/garbage/0/>9 digits -> 20 and
+#     seconds (a positive integer; default $GHV_DEFAULT_BOUND, itself 20 unless the caller sets it — status sets 10 to keep
+#     its latency budget; unset -> default silently; empty/garbage/0/>9 digits -> default and
 #     GHV_BAD_TIMEOUT=1). GH_PROMPT_DISABLED=1, GH_REPO unset. Bound enforced by `timeout`, else `gtimeout`,
 #     else a bash watchdog (gh backgrounded, `sleep N; kill`; GHV_BOUNDED_BY=watchdog).
 #     Optional <cwd>: the probe runs inside it.
@@ -27,14 +28,15 @@
 if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
   gh_visibility_probe() {
     local ghbin="$1" repo="$2" cwd="${3:-}"
-    GHV_STATE="" GHV_RC=0 GHV_WHY="" GHV_RAW="" GHV_BOUND=20 GHV_BOUNDED_BY="" GHV_BAD_TIMEOUT=0
+    GHV_STATE="" GHV_RC=0 GHV_WHY="" GHV_RAW="" GHV_BOUND=${GHV_DEFAULT_BOUND:-20} GHV_BOUNDED_BY="" GHV_BAD_TIMEOUT=0
     if ! command -v "$ghbin" >/dev/null 2>&1; then GHV_STATE=GH_MISSING; return 1; fi
-    local t="${RSDD_GH_TIMEOUT-20}"
+    local dflt="${GHV_DEFAULT_BOUND:-20}" t
+    t="${RSDD_GH_TIMEOUT-$dflt}"
     case "$t" in
       ''|*[!0-9]*) t=0 ;;
       *) t="${t#"${t%%[!0]*}"}"; t="${t:-0}" ;;
     esac
-    if [ "${#t}" -gt 9 ] || [ "$((10#$t))" -eq 0 ]; then GHV_BAD_TIMEOUT=1; t=20; else t=$((10#$t)); fi
+    if [ "${#t}" -gt 9 ] || [ "$((10#$t))" -eq 0 ]; then GHV_BAD_TIMEOUT=1; t="$dflt"; else t=$((10#$t)); fi
     GHV_BOUND="$t"
     local cmd=("$ghbin" repo view "$repo" --json visibility --jq .visibility) bounder=""
     if command -v timeout >/dev/null 2>&1; then bounder=timeout
