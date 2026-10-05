@@ -24,19 +24,19 @@ touches any other file (the auto-commit part of #1198 is deliberately out of sco
 
 ## Exit codes and typed errors
 
-Every failure prints exactly ONE line, `append-iteration-row: ERROR: <TYPE> ...`, on stderr (the DEGRADED probe uses `append-iteration-row: DEGRADED: ...`) and leaves the file untouched.
+Every failure prints exactly ONE line, `append-iteration-row: ERROR: <TYPE> ...`, on stderr, usage failures included (the DEGRADED probe uses `append-iteration-row: DEGRADED: ...`) and leaves the file untouched. Usage text is printed only by `--help` (stdout, exit 0), never on a failure.
 
 | Exit | Type | Meaning |
 |---|---|---|
 | 0 | | Diff printed (dry run) or file written (`--apply`). |
 | 2 | `USAGE` / `INVALID-ROW` / `ABSENT-FILE` / `NOT-REGULAR-FILE` | Bad arguments, blank or multi-line row, missing path, directory, unreadable file or symlink. |
-| 3 | `DEGRADED` | A required tool (`awk diff mktemp mv cp cat dirname`) is missing; nothing was measured. |
+| 3 | `DEGRADED` | A required tool (`awk diff mktemp mv cp cat dirname cmp rm`) is missing; nothing was measured. |
 | 4 | `NO-HEADING` | No `## Iteration history` heading outside an HTML comment. |
 | 5 | `NO-TABLE` | Heading found, no table row before the next heading. |
-| 6 | `MALFORMED-TABLE` | Header row not followed by a `\|---\|` separator row. |
+| 6 | `MALFORMED-TABLE` | Header row not followed by a `\|---\|` separator row, or the last table row opens an HTML comment that closes on a later line (a row appended after it would be hidden). |
 | 7 | `CELL-COUNT-MISMATCH` | Row cell count differs from the header's. |
 | 8 | `AMBIGUOUS-HEADING` | More than one heading outside comments; the tool will not guess. |
-| 9 | `WRITE-FAILED` | Staging, `diff` or `mv` failed (`--apply`), or awk crashed. |
+| 9 | `WRITE-FAILED` | Staging, `diff`, `cmp` (rc >= 2, not "differs") or `mv` failed (`--apply`), or awk crashed. |
 | 10 | `CONCURRENT-MODIFICATION` | `--apply` only: the target is no longer byte-identical to the snapshot the new content was computed from; nothing is written, re-run. |
 
 Absent file (2), missing heading (4), missing table (5) and malformed table (6) are distinct states, never

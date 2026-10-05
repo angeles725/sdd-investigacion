@@ -10,18 +10,19 @@
 #       3 DEGRADED (a tool in REQUIRED_TOOLS is missing — nothing measured)
 #       4 NO-HEADING · 5 NO-TABLE · 6 MALFORMED-TABLE · 7 CELL-COUNT-MISMATCH · 8 AMBIGUOUS-HEADING
 #       9 write failed (--apply) · 10 CONCURRENT-MODIFICATION
-# Every failure prints one typed line `append-iteration-row: ERROR: <TYPE> ...` on stderr.
+# Every failure prints exactly one typed line `append-iteration-row: ERROR: <TYPE> ...` on stderr; usage text is
+# printed only by --help (stdout, exit 0).
 # An HTML-comment span never counts as heading or table (templates carry `## ...` inside comments, #1173).
 
 set -uo pipefail
 
 _err() { printf 'append-iteration-row: ERROR: %s\n' "$1" >&2; }
-_usage() { printf 'Usage: %s [--apply] <RESEARCH-STATE.md> "<row>"\n' "${0##*/}" >&2; }
+_usage() { printf 'Usage: %s [--apply] <RESEARCH-STATE.md> "<row>"\n' "${0##*/}"; }
 
 APPLY=0; FILE=""; ROW=""; NPOS=0
 _pos() {
   if [ "$NPOS" -eq 0 ]; then FILE="$1"; elif [ "$NPOS" -eq 1 ]; then ROW="$1"
-  else _usage; _err "USAGE too many arguments"; exit 2; fi
+  else _err "USAGE too many arguments (try --help)"; exit 2; fi
   NPOS=$((NPOS+1))
 }
 while [ $# -gt 0 ]; do
@@ -29,15 +30,15 @@ while [ $# -gt 0 ]; do
     --apply)   APPLY=1; shift ;;
     -h|--help) _usage; exit 0 ;;
     --)        shift; break ;;
-    -*)        _usage; _err "USAGE unknown argument: $1"; exit 2 ;;
+    -*)        _err "USAGE unknown argument: $1 (try --help)"; exit 2 ;;
     *)         _pos "$1"; shift ;;
   esac
 done
 while [ $# -gt 0 ]; do _pos "$1"; shift; done
-[ "$NPOS" -eq 2 ] || { _usage; _err "USAGE needs <RESEARCH-STATE.md> and <row>"; exit 2; }
+[ "$NPOS" -eq 2 ] || { _err "USAGE needs <RESEARCH-STATE.md> and <row> (try --help)"; exit 2; }
 
 # SENTINEL-DEGRADED-PROBE: a missing dependency is a typed DEGRADED, never a quiet success (§7).
-REQUIRED_TOOLS="awk diff mktemp mv cp cat dirname"
+REQUIRED_TOOLS="awk diff mktemp mv cp cat dirname cmp rm"
 for _tool in $REQUIRED_TOOLS; do
   command -v "$_tool" >/dev/null 2>&1 || { printf 'append-iteration-row: DEGRADED: %s not found on PATH; nothing was measured\n' "$_tool" >&2; exit 3; }
 done
@@ -88,7 +89,7 @@ function visible(line,   out, p, q) {
 }
 function istab(i) { return V[i] ~ /^\|/ }
 {
-  L[NR] = $0; V[NR] = visible($0)
+  L[NR] = $0; V[NR] = visible($0); ES[NR] = inc
   if (V[NR] ~ /^## Iteration history[ \t]*$/) { hc++; if (hc == 1) h = NR }
   if (V[NR] ~ /^#+[ \t]/) hd[NR] = 1
 }
@@ -103,6 +104,7 @@ END {
   }
   last = hdr + 1
   while (last < NR && istab(last + 1)) last++
+  if (ES[last]) { print "append-iteration-row: ERROR: MALFORMED-TABLE last table row at line " last " opens an HTML comment that closes on a later line; a row appended after it would be hidden" > "/dev/stderr"; exit 6 }
   row = ENVIRON["AIR_ROW"]; sub(/^[ \t]+/, "", row); sub(/[ \t]+$/, "", row)
   if (substr(row, 1, 1) != "|") row = "| " row
   if (substr(row, length(row), 1) != "|" || substr(row, length(row) - 1, 1) == "\\") row = row " |"
@@ -140,8 +142,10 @@ STAGE="$(mktemp "$DIR/.air.XXXXXX")" || { _err "WRITE-FAILED cannot stage in $DI
 # SENTINEL-UNCHANGED-CHECK: lost-update guard. The new content was computed from the snapshot taken at the start;
 # refuse when the target is no longer byte-identical to it. (A write landing between this check and mv is not
 # detectable without a lock; the window is that of one cmp + one mv.)
-cmp -s -- "$FILE" "$TMPD/orig" \
-  || { _err "CONCURRENT-MODIFICATION $FILE changed since it was read; nothing written, re-run"; exit 10; }
+cmp -s -- "$FILE" "$TMPD/orig"
+crc=$?
+[ "$crc" -ne 1 ] || { _err "CONCURRENT-MODIFICATION $FILE changed since it was read; nothing written, re-run"; exit 10; }
+[ "$crc" -eq 0 ] || { _err "WRITE-FAILED cmp could not compare $FILE with its snapshot (rc=$crc); nothing written"; exit 9; }
 mv -f -- "$STAGE" "$FILE" || { _err "WRITE-FAILED could not replace $FILE; original left in place"; exit 9; }
 STAGE=""
 printf 'append-iteration-row: appended 1 row to %s\n' "$FILE" >&2

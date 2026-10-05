@@ -51,13 +51,13 @@ sum() { cksum < "$1"; }
 echo "== append-iteration-row.test.sh (SUT: $(basename "$SUT")) =="
 
 # ---- usage / absent / not regular -------------------------------------------------------------
-run; [ "$RC" = 2 ] && ok "no args -> exit 2" || no "no args" "(rc=$RC)"
-run --bogus a b; { [ "$RC" = 2 ] && ehas "USAGE unknown argument"; } && ok "unknown flag -> exit 2 typed" || no "unknown flag" "(rc=$RC $ERR)"
-run a b c; { [ "$RC" = 2 ] && ehas "too many arguments"; } && ok "three positionals -> exit 2" || no "too many" "(rc=$RC $ERR)"
+run; { [ "$RC" = 2 ] && etyped USAGE; } && ok "no args -> exit 2, one typed line" || no "no args" "(rc=$RC $ERR)"
+run --bogus a b; { [ "$RC" = 2 ] && etyped USAGE "unknown argument: --bogus"; } && ok "unknown flag -> exit 2 typed" || no "unknown flag" "(rc=$RC $ERR)"
+run a b c; { [ "$RC" = 2 ] && etyped USAGE "too many arguments"; } && ok "three positionals -> exit 2" || no "too many" "(rc=$RC $ERR)"
 run "$TMP/nope.md" "$R1"; { [ "$RC" = 2 ] && ehas "ABSENT-FILE"; } && ok "absent file -> exit 2 ABSENT-FILE" || no "absent file" "(rc=$RC $ERR)"
 F="$(printf '## Iteration history\n\n%s\n%s\n' "$HDR" "$SEP" | mkf usage)"
-run "$F" "   "; { [ "$RC" = 2 ] && ehas "row is empty"; } && ok "blank row -> exit 2" || no "blank row" "(rc=$RC $ERR)"
-run "$F" "$(printf 'a\nb')"; { [ "$RC" = 2 ] && ehas "single line"; } && ok "multi-line row -> exit 2" || no "multi-line row" "(rc=$RC $ERR)"
+run "$F" "   "; { [ "$RC" = 2 ] && etyped USAGE "row is empty"; } && ok "blank row -> exit 2" || no "blank row" "(rc=$RC $ERR)"
+run "$F" "$(printf 'a\nb')"; { [ "$RC" = 2 ] && etyped USAGE "row must be a single line"; } && ok "multi-line row -> exit 2" || no "multi-line row" "(rc=$RC $ERR)"
 ln -s "$F" "$TMP/link.md"
 run "$TMP/link.md" "$R1"; { [ "$RC" = 2 ] && ehas "NOT-REGULAR-FILE"; } && ok "symlink target refused" || no "symlink" "(rc=$RC $ERR)"
 mkdir "$TMP/adir"; run "$TMP/adir" "$R1"; { [ "$RC" = 2 ] && ehas "NOT-REGULAR-FILE"; } && ok "directory refused" || no "directory" "(rc=$RC $ERR)"
@@ -175,10 +175,33 @@ AIR_PRE_MV_HOOK=/bin/true run --apply "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF
 
 # ---- degraded probe ---------------------------------------------------------------------------
 SHIM="$TMP/shim"; mkdir "$SHIM"
-for t in diff mktemp mv cp cat dirname rm; do p="$(type -P "$t")" && ln -s "$p" "$SHIM/$t"; done
+for t in diff mktemp mv cp cat dirname rm cmp; do p="$(type -P "$t")" && ln -s "$p" "$SHIM/$t"; done
 F="$(printf '## Iteration history\n%s\n%s\n' "$HDR" "$SEP" | mkf degr)"
 OUT="$(PATH="$SHIM" "$BASH_BIN" "$SUT" "$F" "$NEW" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED: awk not found"; } && ok "missing awk -> typed DEGRADED, exit 3" || no "degraded" "(rc=$RC $OUT)"
+# SHIM2: everything but cmp (a missing cmp must be DEGRADED, never a false CONCURRENT-MODIFICATION)
+SHIM2="$TMP/shim2"; mkdir "$SHIM2"
+for t in awk diff mktemp mv cp cat dirname rm; do p="$(type -P "$t")" && ln -s "$p" "$SHIM2/$t"; done
+F="$(printf '## Iteration history\n%s\n%s\n' "$HDR" "$SEP" | mkf nocmp)"; s1="$(sum "$F")"
+OUT="$(PATH="$SHIM2" "$BASH_BIN" "$SUT" --apply "$F" "$NEW" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED: cmp not found" && [ "$(sum "$F")" = "$s1" ]; } && ok "missing cmp -> typed DEGRADED exit 3, file untouched" || no "cmp probe" "(rc=$RC $OUT)"
+# SHIM3: a cmp that errors (rc 2) must be a typed write failure, not "changed, re-run"
+SHIM3="$TMP/shim3"; mkdir "$SHIM3"
+for t in awk diff mktemp mv cp cat dirname rm; do p="$(type -P "$t")" && ln -s "$p" "$SHIM3/$t"; done
+printf '#!/bin/sh\nexit 2\n' > "$SHIM3/cmp"; chmod +x "$SHIM3/cmp"
+OUT="$(PATH="$SHIM3" "$BASH_BIN" "$SUT" --apply "$F" "$NEW" 2>&1)"; RC=$?
+{ [ "$RC" = 9 ] && has "WRITE-FAILED cmp could not compare" && ! has CONCURRENT && [ "$(sum "$F")" = "$s1" ]; } && ok "cmp error (rc 2) -> exit 9 WRITE-FAILED, not CONCURRENT-MODIFICATION" || no "cmp error" "(rc=$RC $OUT)"
+
+# ---- --help is the only usage text; failures are one typed line ----------------------------------
+run --help; { [ "$RC" = 0 ] && has "Usage:" && [ -z "$ERR" ]; } && ok "--help prints usage on stdout, exit 0, stderr empty" || no "help" "(rc=$RC $OUT / $ERR)"
+run "$TMP/nope.md" "$R1"; etyped ABSENT-FILE && ok "ABSENT-FILE is exactly one typed line" || no "absent one line" "($ERR)"
+
+# ---- last row opens a comment that closes on a later line ----------------------------------------
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n| 2 | d | g | B2 | no | 1 | <!-- start\nhidden\n-->\n\n## Next\n' "$HDR" "$SEP" "$R1" | mkf mlc)"; s1="$(sum "$F2")"
+run --apply "$F2" "$NEW"
+{ [ "$RC" = 6 ] && etyped MALFORMED-TABLE "last table row at line 6 opens an HTML comment" && [ "$(sum "$F2")" = "$s1" ]; } && ok "last row opening a multi-line comment -> exit 6, file untouched" || no "multiline comment" "(rc=$RC $ERR)"
+F2="$(printf '## Iteration history\n\n%s\n%s\n%s <!-- one-line -->\n\n## Next\n' "$HDR" "$SEP" "$R1" | mkf slc)"
+run "$F2" "$NEW"; [ "$RC" = 0 ] && ok "a comment that closes on the same line is still fine" || no "single-line comment last" "(rc=$RC $ERR)"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
@@ -213,7 +236,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-lacks 'awk rc=' --bad-has 'awk rc=' -- "$BASH_BIN" @SUT@ "$C" "$NEW"
   mt "comment-delimiter row guard removed" 's/^case "\$ROW" in \*.<!--.\*.*$/:/' 2 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | 1 | <!-- oops'
   cp "$W" "$W.race"
-  mt "unchanged-check (cmp) removed" 's/^cmp -s -- "\$FILE" "\$TMPD\/orig" \\$/true \\/' 10 0 -- env "AIR_PRE_MV_HOOK=$TMP/hook.sh" "$BASH_BIN" @SUT@ --apply "$W.race" "$NEW"
+  mt "unchanged-check (cmp) removed" 's/^cmp -s -- "\$FILE" "\$TMPD\/orig"$/true/' 10 0 -- env "AIR_PRE_MV_HOOK=$TMP/hook.sh" "$BASH_BIN" @SUT@ --apply "$W.race" "$NEW"
+  M="$(printf '## Iteration history\n\n%s\n%s\n| 2 | d | g | B2 | no | 1 | <!-- start\nhidden\n-->\n' "$HDR" "$SEP" | mkf tm)"
+  cp "$W" "$W.cmp"
+  mt "cmp dropped from REQUIRED_TOOLS" 's/ dirname cmp rm"/ dirname rm"/' 3 9 -- env "PATH=$SHIM2" "$BASH_BIN" @SUT@ --apply "$W.cmp" "$NEW"
+  mt "cmp error treated as success" 's/^\[ "\$crc" -eq 0 \] || .*$/:/' 9 0 -- env "PATH=$SHIM3" "$BASH_BIN" @SUT@ --apply "$W.cmp" "$NEW"
+  mt "multi-line-comment-after-last-row guard removed" 's/^  if (ES\[last\]) .*$/  ;/' 6 0 -- "$BASH_BIN" @SUT@ "$M" "$NEW"
+  mt "usage text restored on typed usage error" 's/(try --help)"; exit 2; }$/(try --help)"; _usage >\&2; exit 2; }/' 2 2 \
+    --good-lacks 'Usage:' --bad-has 'Usage:' -- "$BASH_BIN" @SUT@
   mt "awk probe dropped from REQUIRED_TOOLS" 's/^REQUIRED_TOOLS="awk /REQUIRED_TOOLS="/' 3 9 -- env "PATH=$SHIM" "BASH_BIN=$BASH_BIN" "$BASH_BIN" @SUT@ "$W" "$NEW"
 fi
 
