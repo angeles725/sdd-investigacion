@@ -27,7 +27,11 @@ if [ -x "$vcmd" ]; then
     esac
     if [ -z "$vt" ]; then
       vt=10
-      vnote="verify: invalid RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT='$(printf '%s' "$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT" | tr -cd '[:alnum:]._-' | cut -c1-30)', using 10s"
+      if [ -z "$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT" ]; then   # set-but-empty reads better as '(empty)' than as =''
+        vnote="verify: invalid RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT (empty), using 10s"
+      else
+        vnote="verify: invalid RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT='$(printf '%s' "$RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT" | tr -cd '[:alnum:]._-' | cut -c1-30)', using 10s"
+      fi
     fi
   fi
   vf=""; vf="$(mktemp 2>/dev/null)" || vf=""
