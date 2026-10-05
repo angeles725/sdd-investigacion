@@ -43,7 +43,8 @@ die() { printf 'FATAL (exit 2, could not run): %s\n' "$1" >&2; exit 2; }
 [ -x "$RENDERER" ] || die "render-profile.sh missing or not executable: $RENDERER"
 [ -d "$PROFILES_DIR" ] || die "profiles directory not found: $PROFILES_DIR"
 command -v python3 >/dev/null || die "python3 required"
-[ -f "$FORBIDDEN" ] || die "forbidden list not found: $FORBIDDEN"
+[ -s "$FORBIDDEN" ] || die "forbidden list missing or empty: $FORBIDDEN"
+grep -qvE '^[[:space:]]*(#|$)' "$FORBIDDEN" || die "forbidden list has no entries (anti-silent-zero): $FORBIDDEN"
 for f in SKILL PROMPT-LOOP METHODOLOGY; do
   [ -s "$FIX/required-$f.txt" ] || die "required-heading list missing or empty: $FIX/required-$f.txt"
 done
@@ -67,14 +68,16 @@ echo "== rendered-headings.test.sh =="
 list_headings() {
   python3 - "$1" <<'PYEOF'
 import re, sys
-fence = None
+# CommonMark fence rule: an opening fence is 3+ backticks or tildes (an info string is allowed);
+# it closes only on the SAME char, at least as long, with nothing but whitespace after it.
+fence = None  # (char, length) while inside a fence
 for line in open(sys.argv[1], encoding='utf-8').read().split('\n'):
-    m = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+    m = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
     if m:
-        marker = m.group(1)
+        marker, rest = m.group(1), m.group(2)
         if fence is None:
-            fence = marker[0] * 3
-        elif marker[0] == fence[0]:
+            fence = (marker[0], len(marker))
+        elif marker[0] == fence[0] and len(marker) >= fence[1] and rest.strip() == '':
             fence = None
         continue
     if fence is None and re.match(r'^#{1,2} ', line):
@@ -170,7 +173,14 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   }
   tooth dup-first-heading  "^H1: '# Research-SDD launcher' appears 2 times" 's/^# Research-SDD launcher$/&\n\n# Research-SDD launcher/'
   tooth dup-last-heading   "^H1: '## Boundaries' appears 2 times"           's/^## Boundaries$/&\n\n## Boundaries/'
-  tooth dup-unlisted       "^H2: duplicated heading '## Arguments'"         's/^## Arguments$/&\n\nx\n\n## Arguments/'
+  # '## Zz unlisted probe' is in NO required list, so only H2 can catch its duplication.
+  mutant_chain "dup-unlisted" "$ORIG" "$MUT/dup-unlisted.md" 's/^## Arguments$/&\n\n## Zz unlisted probe\n\nx\n\n## Zz unlisted probe/' || fail=$((fail+1))
+  out="$(check_file "$MUT/dup-unlisted.md" "$REQ")"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q "^H2: duplicated heading '## Zz unlisted probe'" <<<"$out" && ! grep -q '^H1:' <<<"$out"; then
+    ok "teeth-dup-unlisted: H2 (and only H2) catches a duplicate heading absent from the required list"
+  else
+    no "teeth-dup-unlisted: rc=$rc out='$out' — expected H2 for an unlisted heading and no H1"
+  fi
   tooth missing-first      "^H1: '# Research-SDD launcher' appears 0 times" '/^# Research-SDD launcher$/d'
   tooth missing-last       "^H1: '## Boundaries' appears 0 times"           '/^## Boundaries$/d'
   tooth forbidden-heading  "^H3: forbidden heading '## OpenCode adapter'"   's/^## Arguments$/&\n\n## OpenCode adapter/'
@@ -201,6 +211,42 @@ RSDD_KIT_DIR=/x'
     else
       no "teeth-fenced-only: rc=$rc out='$out'"
     fi
+  else fail=$((fail+1)); fi
+
+  # Fence close rule: a "closing" fence with an info string, or a shorter one, does NOT close the block,
+  # so the heading after it is still fenced (not counted); a proper longer close does close it.
+  fence_green() {  # LABEL BODY — append BODY to the SKILL render; check_file must stay green (fence never closed early).
+    mutant_chain "$1" "$ORIG" "$MUT/$1.md" "$2" || { fail=$((fail+1)); return 1; }
+    if check_file "$MUT/$1.md" "$REQ" >/dev/null 2>&1; then ok "teeth-$1: fence not closed early (headings inside stay ignored)"
+    else no "teeth-$1: a non-closing fence line closed the block and its headings were counted"; fi
+  }
+  fence_green fence-info-close '$a\
+\
+```\
+```text\
+## Zz unlisted probe\
+## Zz unlisted probe\
+```'
+  fence_green fence-short-close '$a\
+\
+````\
+```\
+## Zz unlisted probe\
+## Zz unlisted probe\
+````'
+  if mutant_chain "fence-long-close" "$ORIG" "$MUT/fence-long-close.md" '$a\
+\
+```\
+x\
+`````\
+\
+## Zz unlisted probe\
+\
+## Zz unlisted probe'; then
+    out="$(check_file "$MUT/fence-long-close.md" "$REQ")"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q "^H2: duplicated heading '## Zz unlisted probe'" <<<"$out"; then
+      ok "teeth-fence-long-close: a longer same-char fence closes the block (later headings count)"
+    else no "teeth-fence-long-close: rc=$rc out='$out'"; fi
   else fail=$((fail+1)); fi
 
   # Anti-silent-zero: a render with no headings at all is a failure, never a clean zero.
