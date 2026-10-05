@@ -15,23 +15,40 @@ out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
 
 vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"
 extra=""
+vout=""; vrc=0; extra_skip=""; vnote=""   # initialised: an inherited env value must not force the skip path
 if [ -x "$vcmd" ]; then
   vt="${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}"
+  vf=""; vf="$(mktemp 2>/dev/null)" || vf=""
   # RESEARCH_SDD_NO_TIMEOUT_BIN=1 forces the pure-bash watchdog below (test seam: stock macOS has no `timeout`).
   if [ -z "${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" ] && command -v timeout >/dev/null 2>&1; then
-    vout="$(timeout "$vt" "$vcmd" --verify 2>&1)"; vrc=$?   # SENTINEL-VERIFY-TIMEOUT
-  elif vf="$(mktemp 2>/dev/null)" && [ -n "$vf" ]; then
-    # Watchdog: run in the background writing to a temp FILE (a command substitution would also wait on any
-    # orphaned grandchild), kill it after $vt seconds, and map the kill to the same rc 124 as `timeout`.
-    "$vcmd" --verify >"$vf" 2>&1 & vpid=$!
-    ( sleep "$vt"; kill "$vpid" 2>/dev/null ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
+    if [ -n "$vf" ]; then
+      # Capture into a temp FILE, never a command substitution: a stalled grandchild (git rev-list, a hashing
+      # pipe) keeps a pipe open and bash would wait on it, so the bound would not hold.
+      trap 'rm -f "$vf" "$vf.fired"' EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      timeout "$vt" "$vcmd" --verify </dev/null >"$vf" 2>&1; vrc=$?   # SENTINEL-VERIFY-TIMEOUT
+      vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf"
+    else
+      # No mktemp: still bounded for the direct child, but a stalled grandchild can hold the pipe open.
+      vout="$(timeout "$vt" "$vcmd" --verify </dev/null 2>&1)"; vrc=$?
+      vnote="verify: no mktemp - a stalled grandchild of install --verify is not bounded"
+    fi
+  elif [ -n "$vf" ]; then
+    trap 'rm -f "$vf" "$vf.fired"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    # Watchdog: run in the background and kill it after $vt seconds. It drops a sentinel file when it fires,
+    # so a real exit 137/143 from install is not mistaken for the kill. Its sleeper is killed on normal finish.
+    "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
+    ( sp=""; trap 'kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$vt" & sp=$!; wait "$sp"
+      if kill -0 "$vpid" 2>/dev/null; then : >"$vf.fired"; kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
     wait "$vpid" 2>/dev/null; vrc=$?
     kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
-    case "$vrc" in 137|143) vrc=124 ;; esac
-    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf"
+    if [ -e "$vf.fired" ]; then vrc=124; fi
+    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf" "$vf.fired"
   else
-    vout="verify: install --verify skipped: no timeout available"; vrc=0   # never an unbounded run
-    extra_skip=1
+    extra_skip=1   # never an unbounded run
   fi
   # Only findings: harness drift / degraded and kit behind. match, absent, current stay silent; a kit
   # `degraded` (tarball install, no upstream) is un-clearable at session start, so it stays visible only
@@ -46,6 +63,8 @@ $extra}"
   elif [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
     extra="verify: install --verify exited $vrc with no typed line"
   fi
+  [ -n "$vnote" ] && [ -z "$extra_skip" ] && extra="${extra:+$extra
+}$vnote"
 else
   extra="verify: install --verify could not run (not executable: ${vcmd##*/})"
 fi
