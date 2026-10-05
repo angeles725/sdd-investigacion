@@ -11,6 +11,10 @@
 #   C  width-cap-removed       `cut -c1-170` dropped → over-long lines pass through
 #   D  silent-failure          the exit-code fallback removed → a --verify crash with no typed line is silent
 #   E  unrunnable-silent       the not-executable branch removed → a missing install script is mislabelled
+#   F  kit-degraded-admitted   regex admits `kit status=degraded` → every tarball/no-upstream kit warns each session
+#   G  timeout-removed         the `timeout` wrapper removed → a hung install --verify hangs session start
+#   H  watchdog-no-kill        the pure-bash fallback never kills the hung run → no 'timed out' (no-timeout-binary path)
+#   I  skip-silent             the "skipped: no timeout available" branch removed → an unbounded/unreported run
 #
 # Usage: verify-skill-drift-hook.test.sh [--prove-teeth]
 # Exit: 0 = all held · 1 = regression
@@ -81,9 +85,17 @@ run_hook 0 0 "$KDEG"
 run_hook 0 2 'verify harness=pi status=degraded reason=installed files present but no bundle record'
 grep -q 'harness=pi status=degraded' <<<"$HOUT" && ok "H4b: a HARNESS degraded line is still surfaced (never a silent pass)" || no "H4b: harness degraded not surfaced; out=[$HOUT]"
 HOUT_T="$(STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
-if command -v timeout >/dev/null 2>&1; then
-  grep -q 'timed out' <<<"$HOUT_T" && ok "H4c: a hung install --verify is cut off and reported (typed 'timed out')" || no "H4c: hung --verify not bounded/reported; out=[$HOUT_T]"
-fi
+grep -q 'timed out' <<<"$HOUT_T" && ok "H4c: a hung install --verify is cut off and reported (typed 'timed out'; timeout binary when present)" || no "H4c: hung --verify not bounded/reported; out=[$HOUT_T]"
+HOUT_W="$(STUB_VERIFY_SLEEP=5 RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+grep -q 'timed out' <<<"$HOUT_W" && ok "H4c2: pure-bash watchdog path (no timeout binary) also cuts off and reports a hung --verify" || no "H4c2: watchdog path did not bound/report; out=[$HOUT_W]"
+run_hook 0 0 "$BEHIND"
+HOUT_N="$(RESEARCH_SDD_NO_TIMEOUT_BIN=1 STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+grep -q 'status=behind' <<<"$HOUT_N" && ok "H4c3: watchdog path still returns the findings of a fast --verify" || no "H4c3: watchdog path lost the findings; out=[$HOUT_N]"
+# No timeout binary AND no mktemp → never an unbounded run: a typed 'skipped' line.
+NOMK="$ROOT/nomk"; mkdir -p "$NOMK"
+for _t in dirname grep cut head cat jq rm sleep bash; do _p="$(command -v "$_t" 2>/dev/null)"; case "$_p" in /*) ln -sf "$_p" "$NOMK/$_t" ;; esac; done
+HOUT_S="$(PATH="$NOMK" RESEARCH_SDD_NO_TIMEOUT_BIN=1 STUB_VERIFY_SLEEP=3 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+grep -q 'skipped: no timeout available' <<<"$HOUT_S" && ok "H4d: no timeout binary and no mktemp → typed 'skipped', never an unbounded run" || no "H4d: expected typed skip; out=[$HOUT_S]"
 
 run_hook 0 1 'verify harness=claude status=drift drifted=skills/research-sdd/SKILL.md (modified)'
 grep -q 'status=drift' <<<"$HOUT" && ok "H5: bundle drift line is surfaced" || no "H5: bundle drift not surfaced; out=[$HOUT]"
@@ -137,9 +149,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "F" "$SUT" "$MB/m-f.sh" 's/kit status=behind)/kit status=(behind|degraded))/' \
     && _tt "teeth: kit degraded admitted → every tarball/no-upstream kit warns on every session" 0 0 "$MB/m-f.sh" \
        --good-lacks 'status=degraded' --bad-has 'kit status=degraded' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_OUT=$KDEG" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout "\${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}" "\$vcmd"/"$vcmd"/' \
+  _mk "G" "$SUT" "$MB/m-g.sh" 's/timeout "\$vt" "\$vcmd"/"$vcmd"/' \
     && _tt "teeth: timeout wrapper removed → a hung --verify hangs session start (observed via wall-clock cap)" 0 0 "$MB/m-g.sh" \
        --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "H" "$SUT" "$MB/m-h.sh" 's/( sleep "\$vt"; kill "\$vpid" 2>\/dev\/null )/( sleep "$vt"; : )/' \
+    && _tt "teeth: watchdog never kills the hung run → the no-timeout-binary path is unbounded and silent" 0 0 "$MB/m-h.sh" \
+       --good-has 'timed out' --bad-lacks "$_CRASH|timed out" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=3" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "I" "$SUT" "$MB/m-i.sh" 's/^    extra_skip=1$/    :/' \
+    && _tt "teeth: skip branch unreported → with no timeout and no mktemp the hook says nothing" 0 0 "$MB/m-i.sh" \
+       --good-has 'skipped: no timeout available' --bad-lacks "$_CRASH|skipped" -- "$_ENV" "PATH=$NOMK" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="

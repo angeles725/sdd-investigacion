@@ -670,7 +670,13 @@ _rsdd_verify_kit() {
     printf 'verify kit status=degraded reason=could not count HEAD..%s in %s\n' "$ref" "$dir"; return 0
   fi
   if [ "$n" -gt 0 ]; then
-    printf 'verify kit status=behind ref=%s behind=%s (local ref, no fetch — may understate) fix: git -C %s pull --ff-only\n' "$ref" "$n" "$dir"
+    local ahead
+    ahead="$(git -C "$dir" rev-list --count "$ref..HEAD" 2>/dev/null)" || ahead=""
+    if [[ "$ahead" =~ ^[0-9]+$ ]] && [ "$ahead" -gt 0 ]; then  # SENTINEL-KIT-DIVERGED
+      printf 'verify kit status=behind ref=%s behind=%s ahead=%s (diverged: local commits, a fast-forward is not possible — reconcile by hand; local ref, no fetch)\n' "$ref" "$n" "$ahead"
+    else
+      printf 'verify kit status=behind ref=%s behind=%s (local ref, no fetch — may understate) fix: git -C %s pull --ff-only\n' "$ref" "$n" "$dir"
+    fi
   else
     printf 'verify kit status=current ref=%s behind=0 (local ref, no fetch)\n' "$ref"
   fi

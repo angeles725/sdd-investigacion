@@ -2404,6 +2404,11 @@ if command -v git >/dev/null 2>&1 && [ -d "$KCL/.git" ]; then
   _kdef
   [[ "$KLINE" == "verify kit status=behind ref=origin/main behind=1 "* ]] && [ "$VRC" = 0 ] && ok "K14: production default (no RESEARCH_SDD_KIT_DIR) resolves \$KIT to the real checkout and reports behind=1" \
     || no "K14: default \$KIT resolution failed; rc=$VRC line=[$KLINE] out=[$VOUT]"
+  # K15 — local commits AHEAD as well as behind: a fast-forward is impossible, so no ff-only hint.
+  _kc "$KCL2" localwork; _krun "$KCL2"
+  if [[ "$KLINE" == "verify kit status=behind ref=origin/main behind=2 ahead=1 "* ]] && [[ "$KLINE" == *diverged* ]] && [[ "$KLINE" != *"pull --ff-only"* ]]; then
+    ok "K15: checkout both ahead and behind → status=behind with ahead=1, 'diverged', and NO ff-only fix hint"
+  else no "K15: diverged checkout mislabelled; line=[$KLINE]"; fi
 else
   no "K0: git or fixture clone unavailable — kit staleness tests could not run (typed, not skipped)"
 fi
@@ -2426,6 +2431,8 @@ fi
 if [ "${1:-}" = "--prove-teeth" ] && [ -d "${KDF:-/nonexistent}/.git" ]; then
   _vmk "teeth: K-T6 kit root check removed" "$SUT" "$MKI/k-t6.sh" 's/^  if \[ -z "\$d" \] .*SENTINEL-KIT-ROOT$/  if false; then/' \
     && _vtt "teeth: root check removed → a nested kit dir reports the enclosing repo's status" 0 0 "$MKI/k-t6.sh" --good-has 'reason=not the kit checkout root' --bad-has 'status=behind' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL/a/b/research-sdd" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
+  _vmk "teeth: K-T8 diverged branch removed" "$SUT" "$MKI/k-t8.sh" 's/^    if \[\[ "\$ahead" .*SENTINEL-KIT-DIVERGED$/    if false; then/' \
+    && _vtt "teeth: diverged branch removed → a checkout with local commits is told to ff-only pull" 0 0 "$MKI/k-t8.sh" --good-has 'ahead=1' --bad-has 'pull --ff-only' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_DIR=$KCL2" "$_BASH" @SUT@ --verify --home "$TMP/kv-home" --harness claude
   _vmk "teeth: K-T7 default kit dir wrong" "$SUT" "$MKI/k-t7.sh" 's/RESEARCH_SDD_KIT_DIR:-\$KIT/RESEARCH_SDD_KIT_DIR:-\/nonexistent/' \
     && _vtt "teeth: default \$KIT no longer used → the production path inspects the wrong dir" 0 0 "$MKI/k-t7.sh" --good-has 'verify kit status=behind' --bad-has 'status=degraded' --bad-lacks "$_CRASH" -- "$_BASH" -c 'cp "$1" "$2/research-sdd/install/research-sdd-install.sh"; env -u RESEARCH_SDD_KIT_DIR bash "$2/research-sdd/install/research-sdd-install.sh" --verify --home "$3" --harness claude' _ @SUT@ "$KDF" "$TMP/kv-home"
 fi

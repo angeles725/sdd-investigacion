@@ -16,17 +16,31 @@ out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
 vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"
 extra=""
 if [ -x "$vcmd" ]; then
-  if command -v timeout >/dev/null 2>&1; then
-    vout="$(timeout "${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}" "$vcmd" --verify 2>&1)"; vrc=$?   # SENTINEL-VERIFY-TIMEOUT
+  vt="${RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT:-10}"
+  # RESEARCH_SDD_NO_TIMEOUT_BIN=1 forces the pure-bash watchdog below (test seam: stock macOS has no `timeout`).
+  if [ -z "${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" ] && command -v timeout >/dev/null 2>&1; then
+    vout="$(timeout "$vt" "$vcmd" --verify 2>&1)"; vrc=$?   # SENTINEL-VERIFY-TIMEOUT
+  elif vf="$(mktemp 2>/dev/null)" && [ -n "$vf" ]; then
+    # Watchdog: run in the background writing to a temp FILE (a command substitution would also wait on any
+    # orphaned grandchild), kill it after $vt seconds, and map the kill to the same rc 124 as `timeout`.
+    "$vcmd" --verify >"$vf" 2>&1 & vpid=$!
+    ( sleep "$vt"; kill "$vpid" 2>/dev/null ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
+    wait "$vpid" 2>/dev/null; vrc=$?
+    kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
+    case "$vrc" in 137|143) vrc=124 ;; esac
+    vout="$(cat "$vf" 2>/dev/null)"; rm -f "$vf"
   else
-    vout="$("$vcmd" --verify 2>&1)"; vrc=$?
+    vout="verify: install --verify skipped: no timeout available"; vrc=0   # never an unbounded run
+    extra_skip=1
   fi
   # Only findings: harness drift / degraded and kit behind. match, absent, current stay silent; a kit
   # `degraded` (tarball install, no upstream) is un-clearable at session start, so it stays visible only
   # in `research-sdd-install.sh --verify` itself (SENTINEL-KIT-BEHIND-ONLY).
   extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=(drift|degraded)|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
   # Anti-silent-zero: a failing --verify that printed no typed finding must still be surfaced.
-  if [ "$vrc" -eq 124 ]; then
+  if [ -n "${extra_skip:-}" ]; then
+    extra="verify: install --verify skipped: no timeout available (no timeout binary, no mktemp)"
+  elif [ "$vrc" -eq 124 ]; then
     extra="verify: install --verify timed out (RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT, default 10s)${extra:+
 $extra}"
   elif [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
