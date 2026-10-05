@@ -2230,7 +2230,7 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   printf '#!/usr/bin/env bash\necho $$ >> "${K34_PIDS:?}"\nexec "%s" "$@"\n' "$_k34_real_sleep" > "$_k34_bin/sleep"; chmod +x "$_k34_bin/sleep"
   _k34_run() {  # <name> <init.sh> — PUBLIC answered at once, no timeout binary; sets _k34_rc/_k34_el, output $TMP/k34-<name>.out, pids $TMP/k34-<name>.pids
     local d; d="$(_k00_target "k34-$1" https://example.invalid/pub.git)"; : > "$TMP/k34-$1.pids"; local t0=$SECONDS
-    PATH="$_k34_bin" RSDD_GH_TIMEOUT=8 K34_PIDS="$TMP/k34-$1.pids" K71_VIS=PUBLIC K71_RC=0 bash "$2" "$d" --wire >"$TMP/k34-$1.out" 2>&1; _k34_rc=$?
+    PATH="$_k34_bin" RSDD_GH_TIMEOUT=8 K71_SLEEP=1 K34_PIDS="$TMP/k34-$1.pids" K71_VIS=PUBLIC K71_RC=0 bash "$2" "$d" --wire >"$TMP/k34-$1.out" 2>&1; _k34_rc=$?
     _k34_el=$((SECONDS - t0))
   }
   _k34_alive() {  # <pidfile> — prints the recorded pids still alive after a 2s grace for the kernel to reap them
@@ -3995,7 +3995,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'a plain run scaffolds the conf' "$TMP/k87m.out" && ok "teeth M-1800-MSG: misleading advice returns without the path flag — K1800-g has teeth" || no "teeth M-1800-MSG: advice still correct under the mutant — K1800-g is THEATER"
   else no "teeth M-1800-MSG: could not build mutant"; fi
   # M-1800-WD: the watchdog never kills gh -> with no timeout binary a stalled probe is unbounded again.
-  if _k87_mbl "k00 wd" 's/wait "\$sp"; kill "\$1" 2>\/dev\/null/wait "$sp"; :/'; then
+  if _k87_mbl "k00 wd" 's/wait "\$sp"; kill "\$1" 2>\/dev\/null$/wait "$sp"; :/;s/kill -KILL "\$1" 2>\/dev\/null/:/'; then
     d="$(_k00_target m-wd https://example.invalid/pub.git)"; _t0=$SECONDS
     PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" "$d" --corpus flat --wire >/dev/null 2>&1
     [ $((SECONDS - _t0)) -ge 4 ] && ok "teeth M-1800-WD: without the kill the stalled probe runs its full stall — K1800-h has teeth" || no "teeth M-1800-WD: still bounded under the mutant — K1800-h is THEATER"
@@ -4008,10 +4008,10 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       && ok "teeth M-1834-ALWAYS-TIMEOUT: an always-timed-out probe loses the PUBLIC answer — K1834-i has teeth" || no "teeth M-1834-ALWAYS-TIMEOUT: PUBLIC still reported under the mutant — K1834-i is THEATER"
   else no "teeth M-1834-ALWAYS-TIMEOUT: could not build mutant"; fi
   # M-1834-LEAK: the watchdog's TERM trap no longer kills its sleep -> the pre-fix orphaned sleep survives the run.
-  if _k87_mbl "k34 leak" 's/trap '"'"'kill "\$sp" 2>\/dev\/null; exit 0'"'"' TERM/trap '"'"'exit 0'"'"' TERM/'; then
+  if _k87_mbl "k34 leak" 's/|| kill "\$sp" 2>\/dev\/null; exit 0/|| :; exit 0/'; then
     _k34_run m-leak "$TMP/k43/k34 leak/toolbelt/init.sh"
     [ -n "$(_k34_alive "$TMP/k34-m-leak.pids")" ] && ok "teeth M-1834-LEAK: an unreaped watchdog sleep survives the run — K1834-i has teeth" || no "teeth M-1834-LEAK: no sleep survived under the mutant — K1834-i is THEATER"
-    "$_k34_real_sleep" 0 ; while read -r _p; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done < "$TMP/k34-m-leak.pids"   # tidy the deliberately leaked sleeps
+    while read -r _p; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done < "$TMP/k34-m-leak.pids"   # tidy the deliberately leaked sleeps
   else no "teeth M-1834-LEAK: could not build mutant"; fi
   # M-1834-NODISARM: the watchdog is never stopped after gh answers -> the run waits out the whole bound.
   if _k87_mbl "k34 nodisarm" '/^      kill "\$wdpid" 2>\/dev\/null || :$/s/.*/      :/'; then

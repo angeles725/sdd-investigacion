@@ -62,10 +62,13 @@ mk_git_stub() {
   {
     printf '#!%s\n' "$BASH_BIN"
     printf 'echo "git $*" >> "%s/calls.log"\n' "$box"
+    printf 'BOX="%s"\n' "$box"
     cat <<'EOF'
 case " $* " in
   *" rev-parse "*) exit 0 ;;
+  *" remote remove "*) rm -f "$BOX/origin-added"; exit 0 ;;
   *" get-url "*)
+    if [ -e "$BOX/origin-added" ]; then echo "https://github.com/tester/research-target.git"; exit 0; fi
     if [ "${GIT_HAS_ORIGIN:-0}" = 1 ]; then
       echo "https://github.com/tester/research-target.git"; exit 0
     else
@@ -96,14 +99,16 @@ mk_gh_stub() {
     cat <<'EOF'
 case " $* " in
   *" repo create "*) echo "create PROMPT=${GH_PROMPT_DISABLED-UNSET}" >> "$BOX/env.log"
-                     [ -n "${GH_CREATE_SLEEP:-}" ] && exec sleep "$GH_CREATE_SLEEP"
+                     [ -n "${GH_CREATE_ADDS_ORIGIN:-}" ] && : > "$BOX/origin-added"
+                     [ -n "${GH_CREATE_SLEEP:-}" ] && { echo $$ >> "$BOX/stub.pids"; exec sleep "$GH_CREATE_SLEEP"; }
                      exit "${GH_CREATE_EXIT:-0}" ;;
-  *" repo view "*)   [ -n "${GH_VIEW_SLEEP:-}" ] && exec sleep "$GH_VIEW_SLEEP"
+  *" repo view "*)   [ -n "${GH_VIEW_SLEEP:-}" ] && { echo $$ >> "$BOX/stub.pids"; exec sleep "$GH_VIEW_SLEEP"; }
+                     [ -n "${GH_VIEW_EXIT:-}" ] && exit "$GH_VIEW_EXIT"
                      if [ -e "$BOX/edited" ] && [ -n "${GH_VIS_AFTER_EDIT:-}" ]; then echo "$GH_VIS_AFTER_EDIT"; exit 0; fi
                      echo "${GH_VIS:-PRIVATE}"; exit 0 ;;
   *" repo edit "*)   echo "edit PROMPT=${GH_PROMPT_DISABLED-UNSET}" >> "$BOX/env.log"
                      : > "$BOX/edited"
-                     [ -n "${GH_EDIT_SLEEP:-}" ] && exec sleep "$GH_EDIT_SLEEP"
+                     [ -n "${GH_EDIT_SLEEP:-}" ] && { echo $$ >> "$BOX/stub.pids"; exec sleep "$GH_EDIT_SLEEP"; }
                      exit "${GH_EDIT_EXIT:-0}" ;;
   *" api users/"*)   echo "${GH_OWNER_TYPE:-User}"; exit "${GH_USERS_EXIT:-0}" ;;
   *" api user "*)    echo "${GH_OWNER:-tester}"; exit 0 ;;
@@ -149,6 +154,8 @@ run() {
         "$BASH_BIN" "$box/ensure-remote.sh" "$@" 2>&1)"; RC=$?
 }
 
+# reap_stubs <box> — kill any stub `sleep` a killed/hung SUT left behind (the stubs record their pid before exec).
+reap_stubs() { local q; [ -f "$1/stub.pids" ] || return 0; while read -r q; do [ -n "$q" ] && kill "$q" 2>/dev/null; done < "$1/stub.pids"; : > "$1/stub.pids"; }
 calls()          { cat "$1/calls.log" 2>/dev/null; }
 has_call()       { grep -q "$2" "$1/calls.log" 2>/dev/null; }               # box, needle
 # a `gh repo create` was logged AND every create line carries --private.
@@ -464,6 +471,7 @@ W21=$!
 wait "$P21" 2>/dev/null; RC21=$?
 kill "$W21" 2>/dev/null; wait "$W21" 2>/dev/null
 EL21=$((SECONDS-T21))
+reap_stubs "$box"
 if [ "$RC21" = 6 ] && [ "$EL21" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'TIMEOUT' "$OUT21"; then
   ok "21 stalled gh -> bounded, UNKNOWN != PRIVATE -> abort 6, no push" "(exit $RC21, ${EL21}s)"
 else
@@ -483,17 +491,80 @@ run_capped() {
   wait "$p" 2>/dev/null; RCX=$?
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   ELX=$((SECONDS-t0))
+  reap_stubs "$box"
 }
 
-# 22 — kit issue #1841: a STALLED `gh repo create` is bounded (typed DEGRADED, exit 7), never a hang, never a push.
+# 22 — kit issue #1841: a STALLED `gh repo create` is bounded by ITS OWN knob (RSDD_GH_CREATE_TIMEOUT), typed DEGRADED
+#      with the observed PARTIAL-STATE, never a hang, never a push. Nothing created (no origin, repo not found) -> exit 7.
 reset_ctl
 box="$(mkbox c22-create-stall)"
-GH_CREATE_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
-if [ "$RCX" = 7 ] && [ "$ELX" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt" && grep -q 'gh repo create' "$box/out.txt"; then
-  ok "22 stalled gh repo create -> bounded, DEGRADED, exit 7, no push" "(exit $RCX, ${ELX}s)"
+GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+if [ "$RCX" = 7 ] && [ "$ELX" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt" && grep -q 'gh repo create' "$box/out.txt" \
+   && grep -q 'PARTIAL-STATE local origin=absent, remote tester/research-target visibility=UNKNOWN' "$box/out.txt" && grep -q 're-run ensure-remote.sh' "$box/out.txt"; then
+  ok "22 stalled gh repo create, nothing created -> bounded, PARTIAL-STATE named, exit 7, no push" "(exit $RCX, ${ELX}s)"
 else
-  no "22 stalled gh repo create -> bounded, DEGRADED, exit 7, no push" "exit=$RCX(want 7) ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"
+  no "22 stalled gh repo create, nothing created -> bounded, PARTIAL-STATE named, exit 7, no push" "exit=$RCX(want 7) ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"
 fi
+# 22f — re-run on that partial state (no stall now) is safe and completes: creates, verifies PRIVATE, pushes once.
+GH_VIS=PRIVATE run_capped "$box"
+if [ "$RCX" = 0 ] && [ "$(grep -c 'git .* push' "$box/calls.log")" = 1 ]; then ok "22f re-run after a nothing-created timeout -> completes, exactly one push" "(exit $RCX)"
+else no "22f re-run after a nothing-created timeout -> completes, exactly one push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22b — create timed out AFTER adding the local origin, repo is PRIVATE -> the existing repo is adopted: verified, then pushed.
+reset_ctl
+box="$(mkbox c22b-origin-private)"
+GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PRIVATE run_capped "$box"
+if [ "$RCX" = 0 ] && has_call "$box" 'git .* push' && grep -q 'PARTIAL-STATE local origin=configured, remote tester/research-target visibility=PRIVATE' "$box/out.txt"; then
+  ok "22b origin added + repo PRIVATE -> adopted, pushed, exit 0" "(exit $RCX, ${ELX}s)"
+else
+  no "22b origin added + repo PRIVATE -> adopted, pushed, exit 0" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+# 22b2 — and a re-run on the adopted state is the idempotent no-op (origin already set, no second create/push).
+GH_VIS=PRIVATE run_capped "$box"
+if [ "$RCX" = 0 ] && grep -q 'origin already set' "$box/out.txt" && [ "$(grep -c 'repo create' "$box/calls.log")" = 1 ] && [ "$(grep -c 'git .* push' "$box/calls.log")" = 1 ]; then
+  ok "22b2 re-run on the adopted state -> idempotent no-op" "(exit $RCX)"
+else no "22b2 re-run on the adopted state -> idempotent no-op" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22c — origin added + repo PUBLIC -> HARD ABORT 6, origin removed, NEVER a push; a re-run starts clean (no stale origin).
+reset_ctl
+box="$(mkbox c22c-origin-public)"
+GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PUBLIC run_capped "$box"
+if [ "$RCX" = 6 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* remote remove origin' \
+   && grep -q 'PARTIAL-STATE local origin=configured, remote tester/research-target visibility=PUBLIC' "$box/out.txt" && grep -q 'DELETE IT MANUALLY' "$box/out.txt"; then
+  ok "22c origin added + repo PUBLIC -> abort 6, origin removed, no push" "(exit $RCX, ${ELX}s)"
+else
+  no "22c origin added + repo PUBLIC -> abort 6, origin removed, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+GH_VIS=PUBLIC run_capped "$box"
+if [ "$RCX" = 6 ] && ! has_call "$box" 'git .* push' && ! grep -q 'origin already set' "$box/out.txt"; then
+  ok "22c2 re-run on a still-PUBLIC repo -> aborts 6 again, never pushes, never short-circuits on a stale origin" "(exit $RCX)"
+else no "22c2 re-run on a still-PUBLIC repo -> aborts 6 again, never pushes" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22d — create timed out, repo exists PRIVATE but the local origin was NOT added -> exit 7 with the exact manual step, no push.
+reset_ctl
+box="$(mkbox c22d-noorigin-private)"
+GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PRIVATE run_capped "$box"
+if [ "$RCX" = 7 ] && ! has_call "$box" 'git .* push' && grep -q 'PARTIAL-STATE local origin=absent, remote tester/research-target visibility=PRIVATE' "$box/out.txt" \
+   && grep -q 'remote add origin https://github.com/tester/research-target.git' "$box/out.txt"; then
+  ok "22d no origin + repo PRIVATE -> exit 7, exact manual next step, no push" "(exit $RCX)"
+else no "22d no origin + repo PRIVATE -> exit 7, exact manual next step, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22e — create timed out, repo exists PUBLIC (no local origin) -> abort 6, no push.
+reset_ctl
+box="$(mkbox c22e-noorigin-public)"
+GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PUBLIC run_capped "$box"
+if [ "$RCX" = 6 ] && ! has_call "$box" 'git .* push' && grep -q 'PARTIAL-STATE local origin=absent, remote tester/research-target visibility=PUBLIC' "$box/out.txt" && grep -q 'DELETE IT MANUALLY' "$box/out.txt"; then
+  ok "22e no origin + repo PUBLIC -> abort 6, no push" "(exit $RCX)"
+else no "22e no origin + repo PUBLIC -> abort 6, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22g — the create bound is its OWN knob: RSDD_GH_TIMEOUT=1 (the probe's) does NOT cut a 3 s create (default 60 s);
+#       a garbage RSDD_GH_CREATE_TIMEOUT falls back to the default with a note.
+reset_ctl
+box="$(mkbox c22g-create-knob)"
+GH_CREATE_SLEEP=3 RSDD_GH_TIMEOUT=1 RSDD_GH_CREATE_TIMEOUT=abc GH_VIS=PRIVATE run_capped "$box"
+if [ "$RCX" = 0 ] && has_call "$box" 'git .* push' && grep -q "RSDD_GH_CREATE_TIMEOUT='abc' is not a positive integer — using the default 60s" "$box/out.txt"; then
+  ok "22g create uses RSDD_GH_CREATE_TIMEOUT (default 60), not the probe's RSDD_GH_TIMEOUT; garbage -> default + note" "(exit $RCX, ${ELX}s)"
+else no "22g create uses RSDD_GH_CREATE_TIMEOUT (default 60), not the probe's RSDD_GH_TIMEOUT" "exit=$RCX ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
 
 # 23 — kit issue #1841: a STALLED `gh repo edit` is bounded and typed DEGRADED, visibility is RE-READ after it
 #      (no assumption the edit did or did not land); still PUBLIC -> HARD-ABORT 6, no push.
@@ -767,11 +838,12 @@ fi'
     WT=$!
     wait "$PT" 2>/dev/null; RCT=$?
     kill "$WT" 2>/dev/null; wait "$WT" 2>/dev/null
+    reap_stubs "$box"
     if [ "$RCT" = 137 ]; then ok "teeth21: unbounded probe hangs (killed rc=137) — case 21 has teeth"
     else no "teeth21: unbounded mutant did not hang (rc=$RCT) — case 21 is THEATER"; fi
   fi
 
-  # T7-T9 (kit issue #1841) — each mutant is run through the SAME run_capped as cases 22/23 on a box whose SUT
+  # teeth 22-24 (kit issue #1841) — each mutant is run through the SAME run_capped as cases 22/23 on a box whose SUT
   #      copy is the mutant; the case's invariant must now be VIOLATED.
   # teeth_box LABEL ORIG NEW — fresh box named after LABEL, SUT copy replaced by the vetted mutant. Sets TBOX.
   teeth_box() {
@@ -779,14 +851,14 @@ fi'
     mut_sub "$1" "$2" "$3" "$b/ensure-remote.sh"
     TBOX="$b"
   }
-  origC='if ! gh_bounded_run gh repo create'
+  origC='GHV_BOUND_DEFAULT=60 gh_bounded_run gh repo create'
   origE='if ! gh_bounded_run gh repo edit'
   if [[ "$content" != *"$origC"* || "$content" != *"$origE"* ]]; then
     no "teeth22/23: build unbounded create/edit mutants" "gh_bounded_run anchors not found — SUT drifted?"
   else
     echo "-- teeth 22: unbounded gh repo create, expect case 22's stalled create to HANG (harness-killed) --"
-    teeth_box teeth22-create-unbounded "$origC" 'if ! gh repo create'; box="$TBOX"
-    GH_CREATE_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+    teeth_box teeth22-create-unbounded "$origC" 'GHV_BOUND_DEFAULT=60 gh repo create'; box="$TBOX"
+    GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 run_capped "$box"
     if [ "$RCX" = 137 ]; then ok "teeth22: unbounded create hangs (killed rc=137) — case 22 has teeth"
     else no "teeth22: unbounded create did not hang (rc=$RCX) — case 22 is THEATER"; fi
     echo "-- teeth 23: unbounded gh repo edit, expect case 23's stalled edit to HANG (harness-killed) --"
@@ -807,6 +879,45 @@ fi'
     GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
     if has_call "$box" 'git .* push'; then ok "teeth24: without the re-read a PUBLIC repo is pushed — case 23 has teeth"
     else no "teeth24: mutant did not push (rc=$RCX) — case 23 is THEATER"; fi
+  fi
+
+  # teeth 25 — adopt a timed-out create WITHOUT verifying: treat origin=configured as PRIVATE (skip the guard). A PUBLIC
+  #   repo with an added origin must now be PUSHED (case 22c's invariant violated).
+  echo "-- teeth 25: adopt the timed-out create unverified, expect a PUSH to a PUBLIC repo --"
+  origA=$'    echo "   next: local origin is configured'
+  if [[ "$content" != *"$origA"* ]]; then
+    no "teeth25: build adopt-unverified mutant" "adopt anchor not found — SUT drifted?"
+  else
+    teeth_box teeth25-adopt-unverified "$origA" $'    vis=PRIVATE; skip_guard=1\n    echo "   next: local origin is configured'; box="$TBOX"
+    # the guard below compares "$vis"; recompute it only when skip_guard is unset
+    printf '%s\n' "$(sed 's|^vis="\$(read_vis)"$|[ -n "${skip_guard:-}" ] \|\| vis="$(read_vis)"|' "$box/ensure-remote.sh")" > "$box/ensure-remote.sh"
+    GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PUBLIC run_capped "$box"
+    if has_call "$box" 'git .* push'; then ok "teeth25: an unverified adopt pushes a PUBLIC repo — case 22c has teeth"
+    else no "teeth25: mutant did not push (rc=$RCX) — case 22c is THEATER"; fi
+  fi
+
+  # teeth 26 — a create timeout with NO origin and a PUBLIC repo falls to the generic exit 7 instead of the hard abort 6.
+  echo "-- teeth 26: no-origin PUBLIC repo is not a hard abort, expect exit != 6 --"
+  origP=$'      *)\n        echo "!! HARD ABORT: a non-private repo ($tvis)'
+  if [[ "$content" != *"$origP"* ]]; then
+    no "teeth26: build public-not-aborted mutant" "PUBLIC anchor not found — SUT drifted?"
+  else
+    teeth_box teeth26-public-soft "$origP" $'      *)\n        exit 7\n        echo "!! HARD ABORT: a non-private repo ($tvis)'; box="$TBOX"
+    GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PUBLIC run_capped "$box"
+    if [ "$RCX" != 6 ]; then ok "teeth26: soft-failing a PUBLIC repo loses abort 6 — case 22e has teeth"
+    else no "teeth26: mutant still aborts 6 — case 22e is THEATER"; fi
+  fi
+
+  # teeth 27 — the create bound reuses the probe's knob (RSDD_GH_TIMEOUT): case 22g's 3 s create must now be cut off.
+  echo "-- teeth 27: create bound taken from RSDD_GH_TIMEOUT, expect case 22g's create to time out --"
+  origK='GHV_BOUND_ENV=RSDD_GH_CREATE_TIMEOUT GHV_BOUND_DEFAULT=60 gh_bounded_run gh repo create'
+  if [[ "$content" != *"$origK"* ]]; then
+    no "teeth27: build shared-knob mutant" "create knob anchor not found — SUT drifted?"
+  else
+    teeth_box teeth27-shared-knob "$origK" 'gh_bounded_run gh repo create'; box="$TBOX"
+    GH_CREATE_SLEEP=3 RSDD_GH_TIMEOUT=1 GH_VIS=PRIVATE run_capped "$box"
+    if [ "$RCX" != 0 ]; then ok "teeth27: a shared knob cuts the 3 s create (exit $RCX) — case 22g has teeth"
+    else no "teeth27: create still completes under the mutant — case 22g is THEATER"; fi
   fi
 fi
 
