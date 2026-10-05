@@ -923,7 +923,7 @@ fi
 # carries the marker below: a hook the user wrote is NEVER overwritten (typed "skipped (foreign pre-push hook)" plus the line
 # to add by hand); our own hook is refreshed with --wire when the kit path changed. Honours core.hooksPath via git-path.
 _RSDD_PREPUSH_MARK="# research-sdd vendor-leak guard (pre-push)"
-_rsdd_sq() { local v="$1" q="'\\''"; printf "'%s'" "${v//\'/$q}"; }   # POSIX single-quote a string
+_rsdd_sq() { local v="$1" q="'\\''"; printf "'%s'" "${v//\'/"$q"}"; }   # POSIX single-quote a string
 _rsdd_prepush_content() {
   local sc
   sc="$(_rsdd_sq "$KIT/templates/hook-prepush-vendor-leak.sh")"
