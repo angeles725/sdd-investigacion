@@ -95,7 +95,22 @@ tpl_failclosed()  { grep -qi 'fail closed' "$1" && grep -qi 'stop and ask' "$1";
 meth_failclosed() { local p; p="$(para "$1" 'Block plan (resume inside ONE long block).**')"; grep -qi 'fails closed' <<<"$p" && grep -qi 'stop and ask' <<<"$p"; }
 loop_failclosed() { local p; p="$(para "$1" 'BLOCK PLAN RESUME')"; grep -q 'FAIL CLOSED' <<<"$p" && grep -qi 'stop and ask' <<<"$p"; }
 # S5 carries a checkable artifact (grep key), not "edits on disk"
-tpl_s5() { local a; a="$(awk '/^- \[[ xX]\] S5/{p=1;next} p&&/Artifact:/{print;exit}' "$1")"; grep -qF 'grep -cE' <<<"$a" && grep -qF '\.md([^A-Za-z0-9_-]|$)' <<<"$a" && grep -qi 'exactly once' <<<"$a" && grep -qi 'idempotent' "$1"; }
+tpl_pat() { sed -n 's/^[[:space:]]*Entry-pattern: `\(.*\)`$/\1/p' "$1" | head -n1; }
+tpl_s5() { local a; a="$(awk '/^- \[[ xX]\] S5/{p=1;print;next} p&&/^- \[/{exit} p' "$1")"; grep -qF 'Entry-pattern:' <<<"$a" && grep -qi 'exactly once' <<<"$a" && grep -qi 'idempotent' <<<"$a" && grep -qi 'SAME entry-row pattern' <<<"$a"; }
+# instantiate the template's own pattern for a stem and count entry rows in a fixture file
+pat_count() { local pat; pat="$(tpl_pat "$1")"; [ -n "$pat" ] || { echo ERR; return; }; pat="${pat//<block-file-stem>/$3}"; grep -cE -- "$pat" "$2" || true; }
+tpl_pattern_counts() {  # $1 template; fixture CATALOG built in $TMP
+  local f="$TMP/catalog.fx"
+  printf '%s\n' '|b12.md|x|' '| b12.md | spaced |' '| [b12.md](b12.md) | link |' '| b120.md | other |' 'see b12.md in prose' '| b13.md | corrects b12.md |' '- b14.md corrects b12.md' > "$f"
+  [ "$(pat_count "$1" "$f" b12)" = 3 ] || return 1      # compact + spaced + link rows only
+  [ "$(pat_count "$1" "$f" b120)" = 1 ] || return 1
+  [ "$(pat_count "$1" "$f" b13)" = 1 ] || return 1      # b13's own row only
+  [ "$(pat_count "$1" "$f" b14)" = 1 ] || return 1      # list item naming its own file first
+  printf '%s\n' '| b12.md | one |' '| b12.md | dup |' > "$f"
+  [ "$(pat_count "$1" "$f" b12)" = 2 ] || return 1      # duplicate entry row
+  printf '%s\n' 'see b12.md' '| b13.md | b12.md |' '| b120.md | x |' '| ab12.md | prefix |' '| b12.md.bak | suffix |' > "$f"
+  [ "$(pat_count "$1" "$f" b12)" = 0 ]                  # prose, later cell, longer stem
+}
 readme_ok() { grep -q 'block-plan.template.md' "$1"; }
 
 if tpl_sections "$TPL"; then ok "template has Rules and Sub-steps sections"; else no "template lacks Rules/Sub-steps sections"; fi
@@ -107,6 +122,7 @@ if tpl_rules "$TPL"; then ok "template Rules carry NO-COLLISION, ODD exclusion, 
 if loop_ok "$LOOP"; then ok "PROMPT-LOOP names the plan at open, commit (delete) and RESUME"; else no "PROMPT-LOOP block-plan text incomplete or absent"; fi
 if tpl_failclosed "$TPL" && meth_failclosed "$METH" && loop_failclosed "$LOOP"; then ok "staleness check fails CLOSED in template, METHODOLOGY and PROMPT-LOOP"; else no "fail-closed staleness rule incomplete"; fi
 if tpl_s5 "$TPL"; then ok "template S5 has a grep-checkable artifact and is idempotent"; else no "template S5 artifact not checkable"; fi
+if tpl_pattern_counts "$TPL"; then ok "template entry-pattern counts fixture rows exactly (compact/spaced/link 1; b120, prose, later cell 0; dup 2)"; else no "template entry-pattern miscounts the fixture"; fi
 if readme_ok "$README"; then ok "templates/README.md lists the template"; else no "templates/README.md must list the template"; fi
 
 # --- teeth: each mutant is a COPY with one load-bearing piece broken; the predicate must go red ---
@@ -148,9 +164,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "template drops fail-closed" "$TPL" tpl_failclosed 's/Fail CLOSED/Fail open/'
   tooth "doctrine drops fail-closed" "$METH" meth_failclosed '/Block plan (resume inside ONE long block)/,/^$/s/FAILS CLOSED/passes/'
   tooth "loop drops fail-closed" "$LOOP" loop_failclosed '/BLOCK PLAN RESUME/,/^$/s/FAIL CLOSED/NOTE/'
-  tooth "template S5 artifact back to unverifiable" "$TPL" tpl_s5 's/grep -cE/edits on disk/'
-  tooth "template S5 back to bare substring grep" "$TPL" tpl_s5 's/\\\.md(\[^A-Za-z0-9_-\]|\$)//'
-  tooth "template S5 drops exactly-once rule" "$TPL" tpl_s5 's/exactly once/at least once/'
+  tooth "template S5 drops entry-pattern line" "$TPL" tpl_s5 's/Entry-pattern:/Pattern:/'
+  tooth "template S5 drops exactly-once rule" "$TPL" tpl_s5 's/exactly once/at least once/g'
+  tooth "template S5 probe back to bare stem" "$TPL" tpl_s5 's/SAME entry-row pattern/bare stem/'
+  tooth "pattern drops the trailing boundary (b12.md.bak counted)" "$TPL" tpl_pattern_counts 's/\\\.md(\[^A-Za-z0-9_.-\]|\$)/\\.md/'
+  tooth "pattern drops the leading boundary (ab12.md counted)" "$TPL" tpl_pattern_counts 's/\(\[^|\]\*\[^A-Za-z0-9_.|-\]\)\?<block/([^|]*)?<block/'
+  tooth "pattern drops first-cell anchor (later cell counted)" "$TPL" tpl_pattern_counts 's/\[^|\]\*\[^A-Za-z0-9_.|-\]/.*[^A-Za-z0-9_.-]/'
   tooth "README drops template row" "$README" readme_ok 's/block-plan\.template\.md/x.md/g'
 fi
 

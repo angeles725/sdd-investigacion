@@ -31,7 +31,9 @@ Block: `<block-file-stem>.md` · Block file path: <path> · opened-at: <HEAD sha
       Artifact: `<block-file-stem>.md`
 - [ ] S4 — Self-verify: `verify-block.sh` on the block
       Artifact: <path of the self-verify output / report>
-- [ ] S5 — Update catalog / index / state (idempotent: grep for the block stem first; edit an existing row in place, never append a second one)
-      Artifact: checkable on disk — "registered" means the block's ENTRY row (a table or list line) in CATALOG and in INDEX appears exactly once; other mentions (cross-references in prose) do not count. Count entry rows with `grep -cE '^[[:space:]]*[|*-].*[^A-Za-z0-9_-]<block-file-stem>\.md([^A-Za-z0-9_-]|$)' <CATALOG path> <INDEX path>` (full file name, delimited, so `b12` never matches `b120`): exactly 1 per file (0 = not done, 2+ = done twice). RESEARCH-STATE.md names `<block-file-stem>` as the last block. Record the three paths here.
+- [ ] S5 — Update catalog / index / state (idempotent: probe with the SAME entry-row pattern as the Artifact below; edit an existing entry row in place, never append a second one, never touch another block's row)
+      Artifact: checkable on disk — the block's ENTRY row is the table/list line whose FIRST cell/item names `<block-file-stem>.md`; a later cell or prose line mentioning it (another block's "corrects" row, a cross-reference) is not an entry. It must appear exactly once in CATALOG and exactly once in INDEX (0 = not done, 2+ = done twice), counted per file with `grep -cE` and:
+      Entry-pattern: `^[[:space:]]*([|][[:space:]]*([^|]*[^A-Za-z0-9_.|-])?|[*-][[:space:]]+[[(*_]*)<block-file-stem>\.md([^A-Za-z0-9_.-]|$)`
+      Also RESEARCH-STATE.md names `<block-file-stem>` as the last block. Record the three paths here.
 - [ ] S6 — Delete this plan, then stage and commit
       Artifact: this file removed from the working tree, then the commit
