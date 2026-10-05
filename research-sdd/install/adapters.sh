@@ -83,8 +83,8 @@ declare -A _RSDD_SKILL_SRC_RELKIT=(
 # WHERE: the read-only reviewer agent definitions (kit issue #1714), as a directory RELATIVE TO the kit
 # root holding one <name>.md Claude Code subagent definition per kit review role; deployed to
 # <config_root>/agents/. Empty/absent = the harness gets none (only claude has a subagent format the
-# kit ships definitions for). Every definition must grant no Edit/Write/NotebookEdit (the install suite
-# enforces it).
+# kit ships definitions for). Every definition's `tools` must be a subset of the ALLOWLIST
+# {Read, Grep, Glob} (the install suite enforces it; anything else, Bash/Task/WebFetch/mcp__* included, fails).
 declare -A _RSDD_AGENTS_SRC_RELKIT=(
   [claude]="agents/claude"
 )

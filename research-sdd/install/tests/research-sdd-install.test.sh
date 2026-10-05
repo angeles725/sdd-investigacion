@@ -2486,12 +2486,14 @@ fi
 # --- read-only reviewer agent definitions (kit issue #1714) -------------------------------------
 # research-sdd/agents/claude/*.md are Claude Code subagent definitions the installer deploys to
 # <home>/.claude/agents/ (claude harness only). Contract: every definition has frontmatter with name,
-# description, tools and model; its `tools` list grants NO write-capable tool; a same-named user file
+# description, tools and model; its `tools` list is a subset of the ALLOWLIST {Read, Grep, Glob} (a denylist
+# would pass Bash, Task, WebFetch and mcp__* tools as "read-only"); a same-named user file
 # that differs is kept with a typed WARNING; the files are bundle members, so --verify covers them.
 echo "-- #1714: read-only reviewer agent definitions --"
 AGENT_SRC="$KITROOT/agents/claude"
-# _agents_write_grants <dir> — prints "<file>: <tool>" for every definition whose frontmatter `tools`
-# grants a write-capable tool, or "<file>: <problem>" for a malformed definition. Silent = all read-only.
+# _agents_write_grants <dir> — prints "<file>: <tool>" for every tool in a definition's frontmatter `tools`
+# that is outside the allowlist {Read, Grep, Glob}, or "<file>: <problem>" for a malformed definition.
+# Silent = every definition is confined to the allowlist.
 # A definition with no tools line is a problem too: omitting `tools` makes a subagent inherit EVERY tool.
 _agents_write_grants() {
   local d="$1" f n=0 tools front t name
@@ -2506,13 +2508,13 @@ _agents_write_grants() {
     grep -q '^description: .' <<<"$front" || printf '%s: no description\n' "$(basename "$f")"
     grep -q '^model: .' <<<"$front" || printf '%s: no model\n' "$(basename "$f")"
     for t in $(printf '%s' "$tools" | tr ',[]' '   '); do
-      case "$t" in Edit|Write|NotebookEdit|MultiEdit) printf '%s: %s\n' "$(basename "$f")" "$t" ;; esac
+      case "$t" in Read|Grep|Glob) ;; *) printf '%s: %s\n' "$(basename "$f")" "$t" ;; esac
     done
   done
   [ "$n" -gt 0 ] || printf '%s: no agent definitions found\n' "$d"
 }
 grants="$(_agents_write_grants "$AGENT_SRC")"
-if [ -z "$grants" ]; then ok "agents: every shipped definition is read-only, named after its file, with description and model"
+if [ -z "$grants" ]; then ok "agents: every shipped definition is confined to the {Read, Grep, Glob} allowlist, named after its file, with description and model"
 else no "agents: shipped definitions are not read-only/well-formed: $(printf '%s' "$grants" | tr '\n' ';')"; fi
 n_src="$(find "$AGENT_SRC" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)"
 
@@ -2550,6 +2552,31 @@ if [ "$(cat "$home/.claude/agents/research-sdd-risk.md")" = "my own reviewer" ] 
   ok "agents: a differing same-named user file is kept with a typed WARNING; the other definitions still deploy (rc=$rc_c)"
 else no "agents: user-file collision mishandled (rc=$rc_c): $out_c"; fi
 
+# --help text must say --force-skill reaches the agent definitions too (it overwrites user files there).
+help_out="$(bash "$SUT" --help 2>&1)"
+if grep -A3 -- '--force-skill when' <<<"$help_out" | grep -qi 'agent definitions'; then ok "agents: --help says --force-skill also covers the shipped agent definitions"
+else no "agents: --help hides that --force-skill overwrites agent definitions"; fi
+
+# A kit whose agent source is gone: install fails loudly, and --verify never reports match.
+NA="$TMP/kit-noagents"; mkdir -p "$NA/install"
+for _f in "$KITROOT/install"/*; do
+  [ "$_f" = "$KITROOT/install/tests" ] && continue
+  cp -R "$_f" "$NA/install/"
+done
+for _f in "$KITROOT"/*; do
+  [ -e "$_f" ] || continue
+  case "$_f" in "$KITROOT/install"|"$KITROOT/agents") continue ;; esac
+  ln -s "$_f" "$NA/$(basename "$_f")"
+done
+home="$TMP/agents-nokit"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+out_na="$(bash "$NA/install/research-sdd-install.sh" --home "$TMP/agents-nokit2" --harness claude 2>&1)"; rc_na=$?
+if [ "$rc_na" != 0 ] && grep -q 'no agent definitions found' <<<"$out_na"; then ok "agents: a kit without agent sources fails the install loudly (rc=$rc_na)"
+else no "agents: kit without agent sources did not fail the install (rc=$rc_na): $out_na"; fi
+ver_na="$(bash "$NA/install/research-sdd-install.sh" --verify --home "$home" --harness claude 2>&1)"; rc_vna=$?
+if [ "$rc_vna" = 2 ] && grep -q 'harness=claude status=degraded reason=.*agent definitions' <<<"$ver_na"; then ok "agents: --verify against a kit without agent sources is degraded (exit 2), never match"
+else no "agents: --verify passed or mis-typed with the agent source missing (rc=$rc_vna): $ver_na"; fi
+
 for hh in pi gentle-shell; do
   home="$TMP/agents-$hh"
   bash "$SUT" --home "$home" --harness "$hh" >/dev/null 2>&1
@@ -2563,8 +2590,8 @@ if <<<"$out_d" grep -q 'INSTALL .*/agents/research-sdd-risk\.md (read-only agent
 else no "agents: dry-run plan lacks the agent lines or wrote files"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: the read-only check must go red when a definition grants Edit/Write --"
-  for _g in Edit Write NotebookEdit; do
+  echo "-- teeth: the allowlist check must go red when a definition grants anything outside Read/Grep/Glob --"
+  for _g in Edit Write NotebookEdit Bash Task WebFetch mcp__engram__mem_save; do
     gd="$TMP/agents-grant-$_g"; mkdir -p "$gd"; cp "$AGENT_SRC"/*.md "$gd/"
     # plain sed: the definitions are markdown fixtures, not bash, so the bash-only mutant helper does not apply
     sed "s/^tools: .*/tools: Read, $_g, Grep/" "$AGENT_SRC/research-sdd-risk.md" > "$gd/research-sdd-risk.md" \
@@ -2594,6 +2621,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash "$M_CLOB" --home "$home" --harness claude >/dev/null 2>&1
   if [ "$(cat "$home/.claude/agents/research-sdd-risk.md")" != "my own reviewer" ]; then ok "teeth: always-force mutant overwrites the user's file → the collision check has teeth"
   else no "teeth: always-force mutant kept the user's file — the collision check is THEATER"; fi
+
+  M_NOVER="$NA/install/research-sdd-install.MUTANT-agents-noverify.$$.sh"
+  mutant_sed "$SUT" "$M_NOVER" 's/if ! _rsdd_agent_names "\$h" >\/dev\/null; then/if false; then/' \
+    || no "teeth: agents no-verify-check mutant could not be built"
+  ver_m="$(bash "$M_NOVER" --verify --home "$TMP/agents-nokit" --harness claude 2>&1)"
+  if grep -q 'harness=claude status=match' <<<"$ver_m"; then ok "teeth: without the agent-source check --verify wrongly reports match → the check has teeth"
+  else no "teeth: removing the agent-source check did not change the verdict — the degraded check is THEATER"; fi
 
   M_NOMEM="$MKI/research-sdd-install.MUTANT-agents-nomember.$$.sh"
   mutant_sed "$SUT" "$M_NOMEM" 's|printf .%s\\n. "agents/\$an"|true|' \
