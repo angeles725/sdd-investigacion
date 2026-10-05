@@ -11,8 +11,11 @@ harness=gentle-shell
   | Skill file: {HOME}/.gentle-shell/agent/skills/research-sdd/SKILL.md
   | Kit path: ~/.gentle-shell/agent/research-sdd/profile/general
   | 
-  | Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session
-  | start; all read-only, degrade to silence on failure):
+  | MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta
+  | auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.
+  | 
+  | Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at
+  | session start; all read-only, degrade to silence on failure):
   |   Single command (recommended): `toolbelt/sweep-all.sh`
   |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
   |   - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals
@@ -23,6 +26,10 @@ harness=gentle-shell
   |   - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets
   |   - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry
   |   - `toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source
+  | 
+  | Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is
+  | not over until the retro exists. Once it is written, seed its deltas by hand:
+  |   `toolbelt/stage-retro-issues.sh <retro> --apply`
   | <!-- research-sdd:end -->
   INSTALL {HOME}/.gentle-shell/agent/prompts/research-sdd.md (slash-command prompt template)
   | ---
