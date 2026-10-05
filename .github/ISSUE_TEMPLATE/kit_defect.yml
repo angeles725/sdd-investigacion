@@ -82,6 +82,17 @@ body:
       required: true
 
   - type: textarea
+    id: adjacent-issues
+    attributes:
+      label: "Adjacent issues checked"
+      description: Open and closed issues with the same signature (same symptom, instrument, or root cause) that you checked before filing, each with its number and the outcome (duplicate, related, or distinct). Write "none found" with the search terms used if there were none.
+      placeholder: |
+        #NNNN open - same instrument, different symptom (distinct)
+        searched: "<terms>" in open+closed issues
+    validations:
+      required: true
+
+  - type: textarea
     id: evidence
     attributes:
       label: "Evidence"

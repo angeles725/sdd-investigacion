@@ -1153,6 +1153,9 @@ Always read first, in this order:
          Then run `$KIT/toolbelt/stage-retro-issues.sh <retro>` (dry-run to preview, then `--apply`) so each OPEN
          delta becomes a `status:needs-review` issue on the kit repo as it is proposed — backlog-first, dedup-guarded
          (§18). It is read-only without `--apply` and emits `degraded` when `gh` is absent.
+         Under `--apply`, a delta whose exact title already matches an OPEN issue gets one idempotent occurrence
+         comment instead of a duplicate issue (#1708); output lines `occurrence-commented: #N (row R)`,
+         `occurrence-exists: #N already carries this retro (row R)`, and `occurrence-summary: commented=N already-present=N`.
          Free-form session notes, "lessons" lists, or a heading of your own are NOT a retro (measured 2026-09-05:
          3 targets advanced with no retro; 7 of 12 new retros were unmarked, wrongly headed, or empty). Before the
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
@@ -1171,6 +1174,8 @@ Always read first, in this order:
          harness (pi, gentle-shell), so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
          pi/gentle-shell, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
          retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
+         No SessionStart hook fires there either: on pi/gentle-shell also run `$KIT/toolbelt/sweep-all.sh`
+         at session start.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
