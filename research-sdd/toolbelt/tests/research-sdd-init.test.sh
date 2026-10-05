@@ -1920,6 +1920,28 @@ if command -v jq >/dev/null 2>&1; then
   d="$TMP/1732-f2"; mkdir -p "$d"
   bash "$_k32_sp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1732-f2.out" 2>&1
   assert_grep "K1732-f2 snippet carries the space path as an escaped JSON string" "\"command\":\"\\\"$_k32_sp/toolbelt/return-token-gate.sh\\\"\"" "$TMP/1732-f2.out"
+  # (f3) kit issue #1757: a BARE (unquoted) registration of the current kit gate path that contains a space word-splits and
+  # never runs, so it is NOT "already wired": it is rewritten to the quoted form (one entry, runnable), reported as requoted.
+  _k57_gate="$_k32_sp/toolbelt/return-token-gate.sh"
+  d="$TMP/1757-a"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k57_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --wire >"$TMP/1757-a.out" 2>&1
+  _k57_cmd="$(jq -r '[.hooks.Stop[]? | .hooks[]? | .command | select(contains("return-token-gate.sh"))] | first // empty' "$d/.claude/settings.json" 2>/dev/null)"
+  [ "$(_k32_n "$d/.claude/settings.json" "\"$_k57_gate\"")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k57_gate")" = 0 ] \
+    && ok "K1757-a a bare spaced current gate is rewritten to the quoted form (one entry, no bare leftover)" \
+    || no "K1757-a Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  [ "$(sh -c "$_k57_cmd" 2>&1)" = "gate-ran" ] && ok "K1757-a2 the rewritten gate command runs through the shell" || no "K1757-a2 command does not run: [$_k57_cmd]"
+  assert_grep "K1757-a3 the rewrite is reported as requoted (not stale, not 'already wired')" "Stop return-token gate requoted (unquoted path with whitespace $_k57_gate would word-split)" "$TMP/1757-a.out"
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --wire >"$TMP/1757-b.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "\"$_k57_gate\"")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1757-b a re-run after the rewrite keeps exactly one quoted gate" || no "K1757-b Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  assert_grep "K1757-b2 the re-run reports already wired" "Stop return-token gate already wired" "$TMP/1757-b.out"
+  # (f4) control: a bare current gate WITHOUT whitespace is still a current form (runs fine): left byte-for-byte, no duplicate.
+  d="$TMP/1757-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k32_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >"$TMP/1757-c.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 0 ] \
+    && ok "K1757-c a bare gate path without whitespace stays as-is (still a current form)" || no "K1757-c Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (g) a gate in ANY other working form is a registered gate: kept byte-for-byte, no second gate is added, and it is
   # never classified stale (interpreter prefix, arguments, relative, ~ and $CLAUDE_PROJECT_DIR forms).
   _k32_gi=0
@@ -3208,7 +3230,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || ok "teeth M-1732-QUOTE: a bare gate command breaks on a space path — K1732-f has teeth"
   else no "teeth M-1732-QUOTE: could not build mutant"; fi
   # M-1732-MULTI: stale gate entries are not dropped -> several gate entries remain.
-  if _k43_build k32mu -e 's/^    (if (\$stale | length) > 0 then$/    (if false then/'; then
+  if _k43_build k32mu -e 's/^    (if (\$drop | length) > 0 then$/    (if false then/'; then
     d="$TMP/k43/k32mu-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/gone/a/return-token-gate.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"/gone/b/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
     bash "$TMP/k43/k32mu/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
@@ -3456,6 +3478,29 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     [ -e "$TMP/k71-cd-out/vendor-leak.conf" ] && ok "teeth M-1271-CONFDIR: written through the symlink without the guard — K1271-r has teeth" \
       || no "teeth M-1271-CONFDIR: nothing written under the mutant — K1271-r is THEATER"
   else no "teeth M-1271-CONFDIR: could not build mutant"; fi
+  # kit issue #1757 teeth. Each mutant lives under a spaced kit path with a runnable gate stub, so K1757-a's fixture applies.
+  _k57_run() {  # <name> -> target dir after a --wire run of the mutant over a bare spaced current gate
+    local n="$1" g="$TMP/k43/$1/toolbelt/return-token-gate.sh" t="$TMP/k57t-$1"
+    printf '#!/bin/sh\necho gate-ran\n' > "$g"; chmod +x "$g"; mkdir -p "$t/.claude"; : > "$t/INDEX.md"
+    jq -n --arg c "$g" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$t/.claude/settings.json"
+    bash "$TMP/k43/$n/toolbelt/init.sh" "$t" --wire >/dev/null 2>&1
+    printf '%s\n' "$t"
+  }
+  # M-1757-BARE: the single spaced_bare predicate is neutered -> the bare spaced path counts as current again and is the ONLY gate
+  # left (kept bare, no quoted entry, exactly one gate entry).
+  if _k43_build "k57a sp" -e '/# RSDD-GATE-SPACED-BARE:/s/&& spaced_bare=1/\&\& spaced_bare=0/'; then
+    t="$(_k57_run "k57a sp")"; g="$TMP/k43/k57a sp/toolbelt/return-token-gate.sh"
+    [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && [ "$(_k32_n "$t/.claude/settings.json" "\"$g\"")" = 0 ] \
+      && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$t/.claude/settings.json")" = 1 ] \
+      && ok "teeth M-1757-BARE: bare spaced gate kept as the only gate without the predicate — K1757-a has teeth" \
+      || no "teeth M-1757-BARE: bare gate not kept as the only gate under the mutant ($(jq -c '.hooks.Stop' "$t/.claude/settings.json")) — K1757-a is THEATER"
+  else no "teeth M-1757-BARE: could not build mutant"; fi
+  # M-1757-DROP: the bare spaced entry is no longer queued for removal -> the unrunnable bare entry survives next to the quoted one.
+  if _k43_build "k57b sp" -e 's/then requoted="\$(jq -c --arg c "\$c" .\. + \[\$c\]. <<<"\$requoted")"; fi$/then :; fi/'; then
+    t="$(_k57_run "k57b sp")"; g="$TMP/k43/k57b sp/toolbelt/return-token-gate.sh"
+    [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && ok "teeth M-1757-DROP: bare spaced entry survives without the drop — K1757-a has teeth" \
+      || no "teeth M-1757-DROP: bare entry still removed under the mutant — K1757-a is THEATER"
+  else no "teeth M-1757-DROP: could not build mutant"; fi
   fi
 fi
 

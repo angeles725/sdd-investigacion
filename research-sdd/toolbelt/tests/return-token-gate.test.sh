@@ -33,6 +33,23 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 TB="$TMP/tb"; mkdir -p "$TB"
 cp "$HERE"/../*.sh "$TB/" && cp -r "$HERE/../lib" "$TB/lib" || { echo "FATAL: could not copy the toolbelt" >&2; exit 2; }
 
+# BSD/macOS-portable fixture helpers (kit issue #1757): `touch -d 'N minutes ago'` and `sed -i` without a suffix are
+# GNU-only. touch_ago computes a `touch -t` stamp from epoch seconds (GNU `date -d @N`, else BSD `date -r N`); sedi
+# uses `-i.bak` + rm. Written to a file so the standalone rtg-run.sh driver sources the very same definitions.
+PORT="$TMP/portable.sh"
+cat > "$PORT" <<'PORTABLE'
+touch_ago() { # <minutes> <file...>
+  local m="$1" ts n; shift
+  n=$(( $(date +%s) - m * 60 ))
+  ts="$(date -d "@$n" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$n" +%Y%m%d%H%M.%S)" || return 1
+  touch -t "$ts" "$@"
+}
+sedi() { local e="$1" f="$2"; sed -i.bak "$e" "$f" && rm -f "$f.bak"; }
+PORTABLE
+# shellcheck source=/dev/null
+. "$PORT"
+export RTG_PORT="$PORT"
+
 NEXT_TOKEN='return-token: next: reconstruct the shader pipeline'
 STOP_TOKEN='return-token: STOP: campaign — read-only-investigable exhausted (0)'
 
@@ -40,7 +57,7 @@ fresh() { # <corpus fixture name> -> prints the path of a fresh copy
   local d; d="$(mktemp -d "$TMP/c.XXXXXX")"; cp -r "$FX/$1/." "$d/"; printf '%s\n' "$d"
 }
 fresh_stop() { # a single state file, no campaign queue: the one shape whose STOP maps to a token
-  local d; d="$(fresh corpus-stop-queue)"; sed -i '/^## Campaign queue/,$d' "$d/RESEARCH-STATE.md"; printf '%s\n' "$d"
+  local d; d="$(fresh corpus-stop-queue)"; sedi '/^## Campaign queue/,$d' "$d/RESEARCH-STATE.md"; printf '%s\n' "$d"
 }
 tr_() { printf '%s\n' "$FX/transcripts/$1"; }
 # run_gate <target> <transcript> <session> [gate] -> g_out (stdout) g_err (stderr) g_rc ; RTG_ACTIVE=true sets stop_hook_active
@@ -107,7 +124,7 @@ run_gate "$c" "$(tr_ mismatch.jsonl)" s-once
 { [ "$first_block" = 1 ] && expect_allow "G-BLOCK-ONCE: the SAME session and emitted token is not blocked a second time" block-once; } || no "G-BLOCK-ONCE: first run did not block"
 run_gate "$c" "$(tr_ mismatch.jsonl)" s-other
 is_block && ok "G-ONCE-PER-SESSION: another session is blocked again" || no "G-ONCE-PER-SESSION: out=[$g_out] err=[$g_err]"
-sed -i 's/reconstruct the shader pipeline/a different next gap/' "$c/RESEARCH-STATE.md"
+sedi 's/reconstruct the shader pipeline/a different next gap/' "$c/RESEARCH-STATE.md"
 run_gate "$c" "$(tr_ mismatch.jsonl)" s-once
 is_block && grep -qxF 'return-token: next: a different next gap' <<<"$(reason)" \
   && ok "G-ONCE-PER-CANDIDATE: in the same session a NEW emitted token (the corpus moved on) is blocked once more" \
@@ -197,11 +214,19 @@ c="$(fresh corpus-next)"; _t0=$SECONDS; run_gate "$c" "$huge" s1; _dt=$((SECONDS
 if [ "$_dt" -le 10 ]; then expect_allow "G-HUGE-TRANSCRIPT: a ~25 MB transcript is read via the default tail window (${_dt}s)" match; else no "G-HUGE-TRANSCRIPT: took ${_dt}s"; fi
 rm -f "$big2" "$huge"
 
+echo "-- fixture helpers are BSD-portable (kit issue #1757) --"
+_pf="$TMP/portable-probe"; : > "$_pf"; touch_ago 90 "$_pf"; printf 'a\nb\n' > "$_pf.txt"; sedi 's/a/z/' "$_pf.txt"
+if [ -n "$(find "$_pf" -mmin +80 -mmin -100)" ] && [ "$(head -1 "$_pf.txt")" = z ] && [ ! -e "$_pf.txt.bak" ] \
+   && ! awk '/touch -d|sed -i( |$)/ && !/^[[:space:]]*#/ && !/PORT-SELFCHECK/ { f = 1 } END { exit !f }' "$HERE/return-token-gate.test.sh"; then  # PORT-SELFCHECK
+  ok "G-PORTABLE-FIXTURES: touch_ago sets the intended mtime, sedi leaves no .bak, and no GNU-only fixture form remains in the suite"
+else no "G-PORTABLE-FIXTURES: mtime/sed helper wrong or a GNU-only form remains"; fi
+
 echo "-- block-once marker pruning (kit issue #1732) --"
+# touch_ago takes MINUTES: 86400 min = 60 days, safely past the gate's default max-age cap.
 c="$(fresh corpus-next)"; mkdir -p "$c/.claude"
-for i in 1 2 3 4 5 6; do : > "$c/.claude/.rsdd-return-token-blocked-old$i"; touch -d "$((i + 1)) minutes ago" "$c/.claude/.rsdd-return-token-blocked-old$i"; done
-: > "$c/.claude/.rsdd-return-token-blocked-ancient"; touch -d '60 days ago' "$c/.claude/.rsdd-return-token-blocked-ancient"
-: > "$c/.claude/unrelated.txt"; touch -d '60 days ago' "$c/.claude/unrelated.txt"
+for i in 1 2 3 4 5 6; do : > "$c/.claude/.rsdd-return-token-blocked-old$i"; touch_ago "$((i + 1))" "$c/.claude/.rsdd-return-token-blocked-old$i"; done
+: > "$c/.claude/.rsdd-return-token-blocked-ancient"; touch_ago 86400 "$c/.claude/.rsdd-return-token-blocked-ancient"
+: > "$c/.claude/unrelated.txt"; touch_ago 86400 "$c/.claude/unrelated.txt"
 RETURN_TOKEN_GATE_MARKER_KEEP=3 run_gate "$c" "$(tr_ mismatch.jsonl)" s-prune
 _n="$(find "$c/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
 if is_block && [ "$_n" = 3 ] && [ -f "$c/.claude/.rsdd-return-token-blocked-s-prune" ] && [ ! -e "$c/.claude/.rsdd-return-token-blocked-ancient" ] \
@@ -212,7 +237,7 @@ else no "G-PRUNE: count=$_n err=[$g_err] ls=$(ls -A "$c/.claude" | tr '\n' ' ')"
 # newline in a marker name must never steer a delete outside the marker set: line 2 of the name is a relative path
 # that the old newline-delimited parser handed to `rm` (cwd-relative). Run the gate from a dir holding that victim.
 c="$(fresh corpus-next)"; mkdir -p "$c/.claude" "$TMP/cwd-victim"; : > "$TMP/cwd-victim/victim"
-: > "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"; touch -d '3 minutes ago' "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"
+: > "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"; touch_ago 3 "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"
 ( cd "$TMP/cwd-victim" && RETURN_TOKEN_GATE_MARKER_KEEP=1 run_gate "$c" "$(tr_ mismatch.jsonl)" s-nl; printf '%s\n' "$g_rc" > "$TMP/nl.rc" )
 if [ -f "$TMP/cwd-victim/victim" ] && [ -f "$c/.claude/.rsdd-return-token-blocked-s-nl" ] && [ "$(cat "$TMP/nl.rc")" = 0 ]; then
   ok "G-PRUNE-NEWLINE: a marker name containing a newline never deletes a file outside the marker set"
@@ -221,7 +246,7 @@ else no "G-PRUNE-NEWLINE: victim deleted or marker missing"; fi
 shim="$TMP/find-noprintf"; mkdir -p "$shim"; realfind="$(type -P find)"
 printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = -printf ] && { echo "find: unknown primary -printf" >&2; exit 1; }; done\nexec %q "$@"\n' "$realfind" > "$shim/find"; chmod +x "$shim/find"
 c="$(fresh corpus-next)"; mkdir -p "$c/.claude"
-for i in 1 2 3 4 5; do : > "$c/.claude/.rsdd-return-token-blocked-p$i"; touch -d "$((i + 1)) minutes ago" "$c/.claude/.rsdd-return-token-blocked-p$i"; done
+for i in 1 2 3 4 5; do : > "$c/.claude/.rsdd-return-token-blocked-p$i"; touch_ago "$((i + 1))" "$c/.claude/.rsdd-return-token-blocked-p$i"; done
 PATH="$shim:$PATH" RETURN_TOKEN_GATE_MARKER_KEEP=2 run_gate "$c" "$(tr_ mismatch.jsonl)" s-noprintf
 _n="$(find "$c/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
 if is_block && [ "$_n" = 2 ] && [ -f "$c/.claude/.rsdd-return-token-blocked-p1" ] && ! grep -q 'prune failed' <<<"$g_err"; then
@@ -246,15 +271,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cat > "$TMP/rtg-run.sh" <<'RUN'
 #!/usr/bin/env bash
 gate="$1" src="$2" tr="$3" sid="$4"
+. "$RTG_PORT"
 w="$(mktemp -d)"; cp -r "$src/." "$w/"
-[ -z "${RTG_STOPONLY:-}" ] || sed -i '/^## Campaign queue/,$d' "$w/RESEARCH-STATE.md"
+[ -z "${RTG_STOPONLY:-}" ] || sedi '/^## Campaign queue/,$d' "$w/RESEARCH-STATE.md"
 j="$(jq -n --arg s "$sid" --arg t "$tr" --arg c "$w" --argjson a "${RTG_ACTIVE:-false}" '{session_id:$s,transcript_path:$t,cwd:$c,stop_hook_active:$a}')"
 if [ -n "${RTG_MARKERS:-}" ]; then
   mkdir -p "$w/.claude"; k=0
-  while [ "$k" -lt "$RTG_MARKERS" ]; do k=$((k+1)); : > "$w/.claude/.rsdd-return-token-blocked-old$k"; touch -d "${RTG_MARKER_AGE:-$k minutes} ago" "$w/.claude/.rsdd-return-token-blocked-old$k"; done
+  while [ "$k" -lt "$RTG_MARKERS" ]; do k=$((k+1)); : > "$w/.claude/.rsdd-return-token-blocked-old$k"; touch_ago "${RTG_MARKER_AGE_MIN:-$k}" "$w/.claude/.rsdd-return-token-blocked-old$k"; done
 fi
 if [ -n "${RTG_NLFILE:-}" ]; then
-  mkdir -p "$w/.claude"; : > "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"; touch -d '5 minutes ago' "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"
+  mkdir -p "$w/.claude"; : > "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"; touch_ago 5 "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"
 fi
 runs=1; [ -z "${RTG_TWICE:-}" ] || runs=2
 i=0
@@ -263,7 +289,7 @@ while [ "$i" -lt "$runs" ]; do
   if [ -n "${RTG_PATH:-}" ]; then printf '%s' "$j" | PATH="$RTG_PATH" "$(type -P bash)" "$gate" "$w" 2>&1
   else printf '%s' "$j" | bash "$gate" "$w" 2>&1; fi
   echo "gate-rc=$?"
-  [ -z "${RTG_BETWEEN:-}" ] || sed -i 's/reconstruct the shader pipeline/a different next gap/' "$w/RESEARCH-STATE.md"
+  [ -z "${RTG_BETWEEN:-}" ] || sedi 's/reconstruct the shader pipeline/a different next gap/' "$w/RESEARCH-STATE.md"
 done
 [ -z "${RTG_MARKERS:-}" ] || echo "markers=$(find "$w/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
 [ -z "${RTG_NLFILE:-}" ] || { [ -e "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x" ] && echo "weird=kept" || echo "weird=gone"; }
@@ -321,7 +347,7 @@ RUN
     --good-has 'tail-bounded' --bad-has 'branch=match' --bad-lacks "tail-bounded|$RTG_CRASH"
   RTG_MARKERS=5 RETURN_TOKEN_GATE_MARKER_KEEP=2 rtg_t RTG-PRUNE-COUNT '/# RTG-PRUNE-CAP$/s/i = keep/i = 99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
     --good-has 'markers=2' --bad-has 'markers=6' --bad-lacks "markers=2|$RTG_CRASH"
-  RTG_MARKERS=3 RTG_MARKER_AGE='60 days' rtg_t RTG-PRUNE-AGE '/# RTG-PRUNE-AGE$/s/-mtime +"\$max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+  RTG_MARKERS=3 RTG_MARKER_AGE_MIN=86400 rtg_t RTG-PRUNE-AGE '/# RTG-PRUNE-AGE$/s/-mtime +"\$max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
     --good-has 'markers=1' --bad-has 'markers=4' --bad-lacks "markers=1|$RTG_CRASH"
   RTG_NLFILE=1 RETURN_TOKEN_GATE_MARKER_KEEP=1 rtg_t RTG-PRUNE-NAME '/# RTG-PRUNE-NAME$/d' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
     --good-has 'weird=kept' --bad-has 'weird=gone' --bad-lacks "weird=kept|$RTG_CRASH"
