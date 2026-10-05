@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# remote-powershell-doc.test.sh — structural guard for REMOTE-POWERSHELL.md §2 (kit issues #1394, #1388).
+#
+# WHY. §2 once said "Single quotes inside the PowerShell source are now safe". That is false at the LOCAL
+# bash layer: a PowerShell source held in a bash single-quoted string cannot contain a single quote — bash
+# strips it BEFORE base64/UTF-16LE encoding, so -EncodedCommand faithfully ships the already-damaged text
+# (symptom seen live: `Get-CimInstance : Consulta no válida`, 0x80041017). The doc must (1) not carry the
+# false sentence, (2) name where quoting breaks and prescribe a heredoc / script file, and (3) name the
+# nested `powershell -Command` second hop and its fix. This is a structural (prose) test anchored by
+# sentinel comments in the doc; the behavioural demonstration is quoted in the doc itself.
+#
+# Usage: remote-powershell-doc.test.sh                (run the suite)
+#        remote-powershell-doc.test.sh --prove-teeth  (suite + mutation controls)
+# Exit: 0 = held · 1 = regression · 2 = harness error.
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DOC="$HERE/../REMOTE-POWERSHELL.md"
+[ -s "$DOC" ] || { echo "FATAL: doc under test missing or empty: $DOC" >&2; exit 2; }
+
+pass=0; fail=0
+ok()  { echo "  PASS  $1"; pass=$((pass+1)); }
+bad() { echo "  FAIL  $1"; fail=$((fail+1)); }
+chk() { if [ "$2" -eq 0 ]; then ok "$1"; else bad "$1"; fi; }   # chk LABEL RC
+
+has() { if [[ "$2" == *"$3"* ]]; then ok "$1"; else bad "$1"; fi; }   # has LABEL HAYSTACK NEEDLE
+
+# check_doc FILE — emits PASS/FAIL lines (and bumps the counters of the calling shell).
+check_doc() {
+  local f="$1" sec2 flat
+  if grep -qF 'Single quotes inside the PowerShell source are now safe' "$f"; then
+    bad "false 'now safe' sentence absent"; else ok "false 'now safe' sentence absent"; fi
+  # SENTINEL-REMOTE-PS-LOCAL-QUOTING
+  grep -qF '<!-- SENTINEL-REMOTE-PS-LOCAL-QUOTING -->' "$f"; chk "local-quoting sentinel present" $?
+  sec2="$(sed -n '/^## 2\./,/^## 3\./p' "$f")"
+  has "section 2 prescribes the quoted-heredoc form" "$sec2" "<<'EOF'"
+  has "section 2 says the break happens before encoding" "${sec2,,}" "before encoding"
+  # SENTINEL-REMOTE-PS-NESTED-HOP
+  grep -qF '<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->' "$f"; chk "nested-hop sentinel present" $?
+  grep -qiE 'nested.*powershell -Command|powershell -Command.*nested' <<<"$sec2"; chk "section 2 names the nested powershell -Command hop" $?
+  flat="$(tr '\n`' '  ' <<<"$sec2" | tr -s ' ')"   # join wrapped lines, drop markdown backticks
+  has "section 2 prescribes a nested -EncodedCommand" "${flat,,}" "nested -encodedcommand"
+  has "section 2 prescribes a remote script file" "${flat,,}" "remote script file"
+  # SENTINEL-REMOTE-PS-LENGTH-CAVEAT
+  grep -qF '<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->' "$f"; chk "length-caveat sentinel present" $?
+  has "length caveat names the cmd.exe 8191 limit" "$flat" "8191"
+  has "length caveat names the 2.67x ratio" "$flat" "2.67x"
+  has "length caveat gives the ~3 KB source budget" "$flat" "3 KB"
+  has "length caveat prescribes scp + powershell -File" "$flat" "powershell -File <path>"
+}
+
+# Behavioural demonstration quoted in the doc, run locally: bash + python3 UTF-16LE base64 + decode.
+# DEMO_MUTANT=1 (teeth only) feeds the heredoc case the damaged text, which must turn an assertion red.
+demo_quoting() {
+  local ps_bad ps_good dec_bad dec_good ratio
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  SKIP  quoting demonstration: python3 absent (not a pass)"; return 0
+  fi
+  enc() { python3 -c "import sys,base64;print(base64.b64encode(sys.argv[1].encode('utf-16-le')).decode())" "$1"; }
+  dec() { python3 -c "import sys,base64;print(base64.b64decode(sys.stdin.read()).decode('utf-16-le'),end='')"; }
+  ps_bad='Write-Output ((Get-Date).ToString('s'))'
+  ps_good=$(cat <<'EOF'
+Write-Output ((Get-Date).ToString('s'))
+EOF
+)
+  [ "${DEMO_MUTANT:-0}" = 1 ] && ps_good="$ps_bad"
+  ratio="$(python3 -c "import sys,base64;s='x'*3000;print(round(len(base64.b64encode(s.encode('utf-16-le')))/len(s),2))")"
+  if [ "$ratio" = 2.67 ]; then ok "demo: UTF-16LE+base64 ratio is 2.67x (measured $ratio)"; else bad "demo: UTF-16LE+base64 ratio is 2.67x (measured $ratio)"; fi
+  dec_bad="$(enc "$ps_bad" | dec)"; dec_good="$(enc "$ps_good" | dec)"
+  [ "$dec_bad" = 'Write-Output ((Get-Date).ToString(s))' ]; chk "demo: single-quoted assignment drops inner quotes before encoding" $?
+  [ "$dec_good" = "Write-Output ((Get-Date).ToString('s'))" ]; chk "demo: quoted heredoc decodes intact" $?
+}
+
+echo "-- structural checks on REMOTE-POWERSHELL.md --"
+check_doc "$DOC"
+demo_quoting
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: each mutant of the doc must make check_doc fail --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  typeset -f mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh missing mutant_chain" >&2; exit 2; }
+  export MUTANT_SYNTAX=none   # mutants are markdown, not bash
+  MDIR="$(mktemp -d)"; mutant_cleanup_register "$MDIR"
+  tooth() { # tooth LABEL SED_EXPR
+    local m="$MDIR/$1.md" out n
+    if ! mutant_chain "$1" "$DOC" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
+    out="$(check_doc "$m")"            # subshell: the mutant's FAILs do not pollute our counters
+    n="$(printf '%s\n' "$out" | grep -c '^  FAIL  ')"
+    if [ "$n" -gt 0 ]; then ok "tooth $1 bites ($n assertion(s) red)"; else bad "tooth $1: mutant stayed green"; fi
+  }
+  tooth reintroduce-false-claim 's|^<!-- SENTINEL-REMOTE-PS-LOCAL-QUOTING -->$|Single quotes inside the PowerShell source are now safe.|'
+  tooth drop-heredoc-form "s|<<'EOF'|<<EOF|g"
+  tooth drop-nested-sentinel 's|^<!-- SENTINEL-REMOTE-PS-NESTED-HOP -->$||'
+  tooth drop-nested-encodedcommand 's|^`-EncodedCommand` (encode|`-EncodedCmd` (encode|'
+  tooth drop-length-caveat 's|8191|N|g'
+  tooth wrong-ratio 's|2\.67x|3x|g'
+  tooth drop-length-sentinel 's|^<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->$||'
+  tooth drop-remote-script-file 's|remote script file|remote thing|g'
+  if ! command -v python3 >/dev/null 2>&1; then echo "  SKIP  tooth demo-damaged-heredoc: python3 absent"
+  else
+  out="$(DEMO_MUTANT=1 demo_quoting)"
+  if grep -q '^  FAIL  demo' <<<"$out"; then ok "tooth demo-damaged-heredoc bites"; else bad "tooth demo-damaged-heredoc: stayed green"; fi
+  fi
+fi
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
