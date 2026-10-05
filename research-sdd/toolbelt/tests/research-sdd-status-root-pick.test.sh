@@ -37,8 +37,10 @@ mk_state() {
 # run SUT_PATH ARGS... -> stdout (stderr dropped)
 run() { local s="$1"; shift; bash "$s" "$@" 2>/dev/null; }
 # nstep SUT_PATH ARGS... -> the plain report's "pending backlog" line, which is read from the PICKED state file.
-# NOTE: `--next` and the report's "next step" aggregate over EVERY state file (first active focus wins) by
-# design, so the pick is observable in per-file fields; the fixtures differ in the pending priority.
+# NOTE: the no-flag `--next` and the report's "next step" aggregate over EVERY state file (first active focus
+# wins) by design (`--root` / `--focus` scope `--next` to the picked file since #1837, see
+# research-sdd-status-next-scope.test.sh), so the pick is observable in per-file fields; the fixtures differ in
+# the pending priority.
 # The root's gap is high, the focus file's is medium.
 nstep() { local s="$1"; shift; bash "$s" "$@" 2>/dev/null | sed -n 's/^  pending backlog : //p'; }
 ROOTBL="high=1 medium=0 low=0"; FOCBL="high=0 medium=1 low=0"

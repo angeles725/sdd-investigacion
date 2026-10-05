@@ -213,6 +213,22 @@ if [ -n "$REAL_TO" ]; then
   else no "12b status default bound: timeout got '$(head -1 "$hp/timeout.log" 2>/dev/null)' (want 10)"; fi
 fi
 
+# 13. kit issue #1843: the lib check happens AFTER the remotes are enumerated. A kit copy WITHOUT lib/gh-visibility.sh
+#     (nolib tree) must stay silent for a target with no remote (nothing to probe) and must still print the typed
+#     degraded line for a target that HAS a remote (the probe could not run - never a silent pass).
+NOLIB="$TMP/nolib"; mkdir -p "$NOLIB"; cp -r "$HERE/../lib" "$NOLIB/lib"; cp "$HERE"/../*.sh "$NOLIB/"; rm -f "$NOLIB/lib/gh-visibility.sh"
+status_nolib() { RSDD_GH_BIN="$TMP/g-pub/gh" bash "$NOLIB/research-sdd-status.sh" "$1" 2>&1; }
+out="$(status_nolib "$TMP/gitnoremote")"
+if ! grep -qE 'public-remote|remote-visibility|reason codes' <<<"$out"; then ok "13a missing lib + repo with NO remote -> silent (no degraded line, no reason-codes footer)"
+else no "13a no-remote target printed a lib-missing line: $(grep -iE 'remote|reason' <<<"$out")"; fi
+out="$(status_nolib "$TMP/nogit")"
+if ! grep -qE 'public-remote|remote-visibility' <<<"$out"; then ok "13b missing lib + no .git -> silent"; else no "13b no-git target printed a visibility line"; fi
+out="$(status_nolib "$TMP/pub")"
+if grep -qE '^degraded: remote-visibility: lib/gh-visibility.sh unavailable' <<<"$out" && grep -q 'reason codes' <<<"$out"; then ok "13c missing lib + a remote -> typed degraded line + reason-codes footer"
+else no "13c missing lib with a remote was silent: $(grep -iE 'remote|reason' <<<"$out")"; fi
+out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT" "$TMP/gitnoremote" 2>&1)"
+if ! grep -qE 'public-remote|remote-visibility' <<<"$out"; then ok "13d lib present + no remote -> still silent (control)"; else no "13d control printed a visibility line"; fi
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for the remote-visibility check --"
@@ -305,6 +321,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     rm -f "$hp/timeout.log"; env -u RSDD_GH_TIMEOUT PATH="$hp" RSDD_GH_BIN="$TMP/g-pub/gh" bash "$SUT_UNDER_TEST" "$TMP/pub" >/dev/null 2>&1
     [ "$(head -1 "$hp/timeout.log" 2>/dev/null)" = 20 ] && ok "teeth O: default 10 dropped -> bound 20 -> case 12b has teeth" || no "teeth O: mutant still passes 10 — THEATER"; fi
 fi
+  # nolib_tree NAME: copy of mutant tree NAME with lib/gh-visibility.sh removed (prints the dir)
+  nolib_tree() { local n="$MT/$1-nolib"; rm -rf "$n"; mkdir -p "$n"; cp -r "$MT/$1/lib" "$n/lib"; cp "$MT/$1"/*.sh "$n/"; rm -f "$n/lib/gh-visibility.sh"; printf '%s' "$n"; }
+  # P: remote-enumeration gate removed -> the lib check fires for a no-remote target again -> case 13a goes red
+  if tooth P 's/\[ "\${#_rv_arr\[@\]}" -gt 0 \] || return 0/:/'; then
+    out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree P)/research-sdd-status.sh" "$TMP/gitnoremote" 2>&1)"
+    grep -q '^degraded: remote-visibility' <<<"$out" && ok "teeth P: enumeration gate removed -> no-remote target degraded -> case 13a has teeth" || no "teeth P: mutant stayed silent - THEATER"; fi
+  # Q: the lib-missing degraded echo silenced -> a target WITH a remote passes silently -> case 13c goes red
+  if tooth Q 's/echo "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/: "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/'; then
+    out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree Q)/research-sdd-status.sh" "$TMP/pub" 2>&1)"
+    grep -q '^degraded: remote-visibility' <<<"$out" && no "teeth Q: mutant still degraded - THEATER" || ok "teeth Q: lib-missing line silenced -> case 13c has teeth"; fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
