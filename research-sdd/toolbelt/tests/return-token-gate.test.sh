@@ -209,6 +209,25 @@ if is_block && [ "$_n" = 3 ] && [ -f "$c/.claude/.rsdd-return-token-blocked-s-pr
   ok "G-PRUNE: markers past the age cap and beyond the count cap are removed; the new marker and unrelated files survive"
 else no "G-PRUNE: count=$_n err=[$g_err] ls=$(ls -A "$c/.claude" | tr '\n' ' ')"; fi
 
+# newline in a marker name must never steer a delete outside the marker set: line 2 of the name is a relative path
+# that the old newline-delimited parser handed to `rm` (cwd-relative). Run the gate from a dir holding that victim.
+c="$(fresh corpus-next)"; mkdir -p "$c/.claude" "$TMP/cwd-victim"; : > "$TMP/cwd-victim/victim"
+: > "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"; touch -d '3 minutes ago' "$c/.claude/.rsdd-return-token-blocked-a"$'\n'"victim"
+( cd "$TMP/cwd-victim" && RETURN_TOKEN_GATE_MARKER_KEEP=1 run_gate "$c" "$(tr_ mismatch.jsonl)" s-nl; printf '%s\n' "$g_rc" > "$TMP/nl.rc" )
+if [ -f "$TMP/cwd-victim/victim" ] && [ -f "$c/.claude/.rsdd-return-token-blocked-s-nl" ] && [ "$(cat "$TMP/nl.rc")" = 0 ]; then
+  ok "G-PRUNE-NEWLINE: a marker name containing a newline never deletes a file outside the marker set"
+else no "G-PRUNE-NEWLINE: victim deleted or marker missing"; fi
+# portability: a `find` without -printf (BSD/macOS) must not break the count cap
+shim="$TMP/find-noprintf"; mkdir -p "$shim"; realfind="$(type -P find)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = -printf ] && { echo "find: unknown primary -printf" >&2; exit 1; }; done\nexec %q "$@"\n' "$realfind" > "$shim/find"; chmod +x "$shim/find"
+c="$(fresh corpus-next)"; mkdir -p "$c/.claude"
+for i in 1 2 3 4 5; do : > "$c/.claude/.rsdd-return-token-blocked-p$i"; touch -d "$((i + 1)) minutes ago" "$c/.claude/.rsdd-return-token-blocked-p$i"; done
+PATH="$shim:$PATH" RETURN_TOKEN_GATE_MARKER_KEEP=2 run_gate "$c" "$(tr_ mismatch.jsonl)" s-noprintf
+_n="$(find "$c/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
+if is_block && [ "$_n" = 2 ] && [ -f "$c/.claude/.rsdd-return-token-blocked-p1" ] && ! grep -q 'prune failed' <<<"$g_err"; then
+  ok "G-PRUNE-PORTABLE: the count cap works with a find that has no -printf, no prune WARN"
+else no "G-PRUNE-PORTABLE: count=$_n err=[$g_err]"; fi
+
 echo "-- hermetic: the only write under the target is the block-once marker --"
 c="$(fresh corpus-next)"; ( cd "$c" && find . -path ./.claude -prune -o -type f -print | sort ) > "$TMP/before.lst"
 run_gate "$c" "$(tr_ mismatch.jsonl)" s-herm
@@ -234,6 +253,9 @@ if [ -n "${RTG_MARKERS:-}" ]; then
   mkdir -p "$w/.claude"; k=0
   while [ "$k" -lt "$RTG_MARKERS" ]; do k=$((k+1)); : > "$w/.claude/.rsdd-return-token-blocked-old$k"; touch -d "${RTG_MARKER_AGE:-$k minutes} ago" "$w/.claude/.rsdd-return-token-blocked-old$k"; done
 fi
+if [ -n "${RTG_NLFILE:-}" ]; then
+  mkdir -p "$w/.claude"; : > "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"; touch -d '5 minutes ago' "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"
+fi
 runs=1; [ -z "${RTG_TWICE:-}" ] || runs=2
 i=0
 while [ "$i" -lt "$runs" ]; do
@@ -244,6 +266,7 @@ while [ "$i" -lt "$runs" ]; do
   [ -z "${RTG_BETWEEN:-}" ] || sed -i 's/reconstruct the shader pipeline/a different next gap/' "$w/RESEARCH-STATE.md"
 done
 [ -z "${RTG_MARKERS:-}" ] || echo "markers=$(find "$w/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
+[ -z "${RTG_NLFILE:-}" ] || { [ -e "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x" ] && echo "weird=kept" || echo "weird=gone"; }
 rm -rf "$w"
 RUN
   # a second toolbelt copy whose status script always fails (for the status-degraded tooth)
@@ -296,10 +319,12 @@ RUN
     --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
   RETURN_TOKEN_GATE_TAIL_BYTES=4096 rtg_t RTG-TAIL-BOUND '/# RTG-TAIL-BOUND$/s/-gt "\$_tail_bytes"/-gt 999999999999/' 0 0 "$NX" "$TMP/big-before.jsonl" s1 \
     --good-has 'tail-bounded' --bad-has 'branch=match' --bad-lacks "tail-bounded|$RTG_CRASH"
-  RTG_MARKERS=5 RETURN_TOKEN_GATE_MARKER_KEEP=2 rtg_t RTG-PRUNE-COUNT '/tail -n +"\$((_keep + 1))"/s/tail -n +"\$((_keep + 1))"/tail -n +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+  RTG_MARKERS=5 RETURN_TOKEN_GATE_MARKER_KEEP=2 rtg_t RTG-PRUNE-COUNT '/# RTG-PRUNE-CAP$/s/i = keep/i = 99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
     --good-has 'markers=2' --bad-has 'markers=6' --bad-lacks "markers=2|$RTG_CRASH"
-  RTG_MARKERS=3 RTG_MARKER_AGE='60 days' rtg_t RTG-PRUNE-AGE '/-mtime +/s/-mtime +"\$_max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+  RTG_MARKERS=3 RTG_MARKER_AGE='60 days' rtg_t RTG-PRUNE-AGE '/# RTG-PRUNE-AGE$/s/-mtime +"\$max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
     --good-has 'markers=1' --bad-has 'markers=4' --bad-lacks "markers=1|$RTG_CRASH"
+  RTG_NLFILE=1 RETURN_TOKEN_GATE_MARKER_KEEP=1 rtg_t RTG-PRUNE-NAME '/# RTG-PRUNE-NAME$/d' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
+    --good-has 'weird=kept' --bad-has 'weird=gone' --bad-lacks "weird=kept|$RTG_CRASH"
   RTG_STOPONLY=1 rtg_t RTG-STOP-PATTERN '/# RTG-TOKEN-PATTERN$/s/"STOP: campaign"\*/"STOP: nothing"*/' 0 0 "$SQ" "$(tr_ stop-token.jsonl)" s1 \
     --good-has 'branch=match' --bad-has 'branch=missing' --bad-lacks "branch=match|$RTG_CRASH"
 fi

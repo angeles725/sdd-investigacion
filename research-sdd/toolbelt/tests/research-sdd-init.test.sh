@@ -1864,13 +1864,36 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] \
     && ok "K1732-c wire-only keeps the existing Stop hook and adds the gate" || no "K1732-c Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json" 2>&1)"
-  # (d) a gate already registered from ANOTHER kit path (same script name) is the same hook: not duplicated.
+  # (d) a gate registered from a kit path that NO LONGER EXISTS is stale: it is replaced by the current one and reported.
   d="$TMP/1732-d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/other/kit/toolbelt/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
   bash "$SUT" "$d" --wire >"$TMP/1732-d.out" 2>&1
-  [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
-    && ok "K1732-d a gate registered from another kit path is not duplicated" || no "K1732-d duplicated: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
-  assert_grep "K1732-d reports already wired" "Stop return-token gate already wired" "$TMP/1732-d.out"
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]?] | map(select(.command | endswith("return-token-gate.sh"))) | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1732-d a stale gate path is replaced by the current kit path (one entry)" || no "K1732-d Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  assert_grep "K1732-d reports the repair with the old path" "Stop return-token gate repaired (stale path /other/kit/toolbelt/return-token-gate.sh)" "$TMP/1732-d.out"
+  # (d2) a gate at ANOTHER kit path that still exists is left alone (never rewritten behind the operator's back).
+  d="$TMP/1732-d2"; mkdir -p "$d/.claude" "$TMP/otherkit"; : > "$d/INDEX.md"; printf '#!/bin/sh\n' > "$TMP/otherkit/return-token-gate.sh"
+  printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"%s"}]}]}}' "$TMP/otherkit/return-token-gate.sh" > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >"$TMP/1732-d2.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$TMP/otherkit/return-token-gate.sh")" = 1 ] \
+    && ok "K1732-d2 an existing gate at another path is kept as-is" || no "K1732-d2 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  # (d3) a QUOTED registration of the current gate is the same hook (not duplicated); a QUOTED stale one is repaired.
+  d="$TMP/1732-d3"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "\"$_k32_gate\"" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >"$TMP/1732-d3.out" 2>&1
+  [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh\"") or endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1732-d3 a quoted current gate is not duplicated" || no "K1732-d3 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  d="$TMP/1732-d4"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/toolbelt/return-token-gate.sh\""}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >"$TMP/1732-d4.out" 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && ok "K1732-d4 a quoted stale gate is replaced by the current path" || no "K1732-d4 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
+  assert_grep "K1732-d4 reports the repair with the unquoted old path" "repaired (stale path /gone/kit/toolbelt/return-token-gate.sh)" "$TMP/1732-d4.out"
+  # (d5) stale AND current both registered: the stale one is dropped, the current kept once.
+  d="$TMP/1732-d5"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+  jq -n --arg c "$_k32_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:"/gone/return-token-gate.sh"}]},{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
+    && ok "K1732-d5 a stale gate next to the current one is dropped" || no "K1732-d5 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (e) print-only scaffold: the proposed snippet carries the gate and no settings.json is written.
   d="$TMP/1732-e"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat >"$TMP/1732-e.out" 2>&1
@@ -3112,12 +3135,20 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       && ok "teeth M-1732-DEDUP: without the dedup a re-run double-registers — K1732-b has teeth" || no "teeth M-1732-DEDUP: still once under the mutant — K1732-b is THEATER"
   else no "teeth M-1732-DEDUP: could not build mutant"; fi
   # M-1732-ADD: the gate is never appended -> settings.json lacks it.
-  if _k43_build k32add -e 's/if \$has_gate then \[\] else/if true then [] else/'; then
+  if _k43_build k32add -e 's/if \$gate_ok then \[\] else/if true then [] else/'; then
     d="$TMP/k43/k32add-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     bash "$TMP/k43/k32add/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     grep -qF 'return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null && no "teeth M-1732-ADD: gate still registered under the mutant — THEATER" \
       || ok "teeth M-1732-ADD: gate absent without the append — K1732-a/c have teeth"
   else no "teeth M-1732-ADD: could not build mutant"; fi
+  # M-1732-REPAIR: stale detection never finds a stale path -> the stale entry stays and no repair is reported.
+  if _k43_build k32rp -e '/# RSDD-GATE-STALE$/s/\[ -e "\$_gp" \]/true/'; then
+    d="$TMP/k43/k32rp-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/other/kit/toolbelt/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
+    bash "$TMP/k43/k32rp/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
+    grep -qF '/other/kit/toolbelt/return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null \
+      && ok "teeth M-1732-REPAIR: without stale detection the dead path survives — K1732-d has teeth" || no "teeth M-1732-REPAIR: stale path still repaired under the mutant — THEATER"
+  else no "teeth M-1732-REPAIR: could not build mutant"; fi
   # M-1732-SNIPPET: the printed snippet drops the gate entry.
   if _k43_build k32sn -e 's/^  local gate_entry=.*/  local gate_entry=""/'; then
     d="$TMP/k43/k32sn-t"; mkdir -p "$d"

@@ -233,20 +233,35 @@ _rsdd_cmd_variants_json() {
 # kit issue #1496 (RDD round 1): ONE merge + dedup predicate for BOTH the wire-only repair and the
 # scaffold --wire path, so the two can never diverge on which already-registered forms count as the
 # same hook (they did: scaffold --wire matched exact strings only). Reads the base settings JSON on
-# stdin; args: <stop-abs> <ss-abs> <pk-abs> <stop-rel> <ss-rel> <pk-rel> <skip_ss true|false>. Emits
-# {settings, has_stop, has_ss, has_pk, has_gate}; a skipped SessionStart never removes an existing entry.
+# stdin; args: <stop-abs> <ss-abs> <pk-abs> <stop-rel> <ss-rel> <pk-rel> <skip_ss true|false> <gate-abs>
+# (kit issue #1732: the return-token gate command, an explicit argument, no global). Emits
+# {settings, has_stop, has_ss, has_pk, has_gate, repaired}; a skipped SessionStart never removes an existing entry.
+# GATE: present when a Stop command equals <gate-abs>, bare or wrapped in double quotes. A Stop command whose
+# (unquoted) path ends in return-token-gate.sh, contains no `$` and does NOT exist on disk is STALE (the kit moved):
+# it is replaced by <gate-abs> (or dropped when the current gate is also registered) and listed in `repaired`.
+# A gate at another path that still exists is left as-is.
 _rsdd_merge_settings() {
-  local sv ssv pv
+  local sv ssv pv gv base c _gp stale='[]'
   sv="$(_rsdd_cmd_variants_json "$1" "$4")"; ssv="$(_rsdd_cmd_variants_json "$2" "$5")"
   pv="$(_rsdd_cmd_variants_json "$3" "$6")"
-  jq --arg sc "$1" --arg ac "$2" --arg pc "$3" --arg gc "$_RSDD_GATE_CMD" \
+  gv="$(jq -cn --arg g "$8" '[$g, ("\"" + $g + "\"")]')"
+  base="$(cat)"
+  while IFS= read -r c; do
+    _gp="${c#\"}"; _gp="${_gp%\"}"
+    case "$_gp" in *'$'*) continue ;; esac
+    [ "$_gp" = "$8" ] && continue
+    [ -e "$_gp" ] || stale="$(jq -c --arg c "$c" '. + [$c]' <<<"$stale")"  # RSDD-GATE-STALE
+  done < <(jq -r '(.hooks.Stop // [])[]? | (.hooks // [])[]? | (.command // empty) | select(type == "string" and (rtrimstr("\"") | endswith("return-token-gate.sh")))' <<<"$base" 2>/dev/null)
+  jq --arg sc "$1" --arg ac "$2" --arg pc "$3" --arg gc "$8" \
     --argjson stop_variants "$sv" --argjson ss_variants "$ssv" --argjson pk_variants "$pv" \
+    --argjson gate_variants "$gv" --argjson stale "$stale" \
     --argjson skip_ss "$7" '
     ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
     ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
     ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
-    # kit issue #1732: the return-token gate counts as present under ANY kit path (matched by script name).
-    ($stop_cmds | any(. as $c | ($c | tostring | endswith("return-token-gate.sh")))) as $has_gate |
+    # kit issue #1732: the CURRENT gate command (bare or double-quoted) is present; stale paths are handled via $stale.
+    ($stop_cmds | any(. as $c | ($gate_variants | index($c)) != null)) as $has_gate |
+    ($has_gate or ($stale | length) > 0) as $gate_ok |
     ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
     # kit issue #1509: the guard only protects Bash, so a registration counts as "present" ONLY under
     # a matcher that fires for Bash ("" / absent / "*" / a regex that fully matches "Bash"); the same
@@ -259,11 +274,15 @@ _rsdd_merge_settings() {
       else (.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":$pc}]}] end)) |
     (.hooks.Stop = ((.hooks.Stop // [])
       + (if $has_stop then [] else [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)
-      + (if $has_gate then [] else [{"matcher":"","hooks":[{"type":"command","command":$gc}]}] end))) |
+      + (if $gate_ok then [] else [{"matcher":"","hooks":[{"type":"command","command":$gc}]}] end))) |
+    (if ($stale | length) > 0 then
+       (.hooks.Stop |= (map(.hooks = [(.hooks // [])[] | if ((.command // "") | IN($stale[])) then (if $has_gate then empty else (.command = $gc) end) else . end])
+                        | map(select((.hooks | length) > 0))))
+     else . end) |
     (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
       else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
-    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk, has_gate: $has_gate}
-  '
+    {settings: ., has_stop: $has_stop, has_ss: $has_ss, has_pk: $has_pk, has_gate: $has_gate, repaired: $stale}
+  ' <<<"$base"
 }
 
 # kit issue #1040 finding 2 (round 2 of #1038): the print-only fallback — jq absent, or jq
@@ -457,7 +476,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)"
     if _wo_merge_out="$(printf '%s' "$_wo_base" | _rsdd_merge_settings "$_wo_stop" "$_wo_ss" "$_wo_pk" \
-        "$_wo_stop_rel" "$_wo_ss_rel" "$_wo_pk_rel" "$_wo_skip_ss" 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
+        "$_wo_stop_rel" "$_wo_ss_rel" "$_wo_pk_rel" "$_wo_skip_ss" "$_RSDD_GATE_CMD" 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
       # settings.json keeps its indentation instead of collapsing to one line.
       jq '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
@@ -466,7 +485,11 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
       _wo_has_pk="$(jq -r '.has_pk' <<<"$_wo_merge_out")"
       _wo_has_gate="$(jq -r '.has_gate' <<<"$_wo_merge_out")"
-      if [ "$_wo_has_gate" = "true" ]; then
+      if [ "$(jq -r '.repaired | length' <<<"$_wo_merge_out")" != 0 ]; then
+        jq -r '.repaired[] | ltrimstr("\"") | rtrimstr("\"")' <<<"$_wo_merge_out" | while IFS= read -r _old; do
+          echo "  wired  : Stop return-token gate repaired (stale path $_old) in $_wo_settings"
+        done
+      elif [ "$_wo_has_gate" = "true" ]; then
         echo "  wired  : Stop return-token gate already wired in $_wo_settings"
       else
         echo "  wired  : Stop return-token gate registered in $_wo_settings"
@@ -714,7 +737,7 @@ if [ "$wire" = 1 ]; then
     # The merge sits INSIDE the if-guard (as in the wire-only path): under `set -e` an unguarded
     # failing assignment would abort with jq's raw exit code (5) and no typed message (kit issue #1509).
     if _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
-        "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" 2>/dev/null)" \
+        "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" "$_RSDD_GATE_CMD" 2>/dev/null)" \
         && [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
         && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
       _rsdd_install_settings "$_tmp_settings" "$_settings" || { echo "FATAL: could not write $_settings" >&2; exit 4; }
@@ -722,7 +745,11 @@ if [ "$wire" = 1 ]; then
       _wire_has_ss="$(jq -r '.has_ss' <<<"$_wire_merge_out")"
       _wire_has_pk="$(jq -r '.has_pk' <<<"$_wire_merge_out")"
       _wire_has_gate="$(jq -r '.has_gate' <<<"$_wire_merge_out")"
-      if [ "$_wire_has_gate" = "true" ]; then
+      if [ "$(jq -r '.repaired | length' <<<"$_wire_merge_out")" != 0 ]; then
+        jq -r '.repaired[] | ltrimstr("\"") | rtrimstr("\"")' <<<"$_wire_merge_out" | while IFS= read -r _old; do
+          echo "  wired  : Stop return-token gate repaired (stale path $_old) in $_settings"
+        done
+      elif [ "$_wire_has_gate" = "true" ]; then
         echo "  wired  : Stop return-token gate already wired in $_settings"
       else
         echo "  wired  : Stop return-token gate registered in $_settings"

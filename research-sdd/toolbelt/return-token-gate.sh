@@ -59,6 +59,28 @@ _TGT_LABEL="?"
 _log() { printf 'return-token-gate: %s target=%s\n' "$1" "$_TGT_LABEL" >&2; }
 _degraded_allow() { _log "state=allow branch=degraded ($1)"; exit 0; }
 
+# Prune stale block-once markers (kit issue #1732). Portable bash: no `find -printf`, no newline-delimited path parsing.
+# Only regular, non-symlink files DIRECTLY under <dir> whose whole name is the strict marker pattern are ever touched
+# (a name with a newline or any other character outside [A-Za-z0-9._-] is skipped, never deleted). Markers older than
+# <max_age> days go first; of the rest only the <keep> newest survive (ordered with the `-nt` test); <cur>, the marker just
+# written, always sorts first. Args: <dir> <max_age_days> <keep> <cur-marker-path>
+_rtg_prune_markers() {
+  local dir="$1" max_age="$2" keep="$3" cur="$4" f i j
+  local pre="$dir/.rsdd-return-token-blocked-" sorted=()
+  sorted=("$cur")
+  for f in "$pre"*; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    [ "$f" = "$cur" ] && continue
+    case "${f#"$pre"}" in ''|*[!A-Za-z0-9._-]*) continue ;; esac  # RTG-PRUNE-NAME
+    if [ -n "$(find "$f" -maxdepth 0 -mtime +"$max_age" 2>/dev/null)" ]; then rm -f -- "$f" || return 1; continue; fi  # RTG-PRUNE-AGE
+    i=1; while [ "$i" -lt "${#sorted[@]}" ] && ! [ "$f" -nt "${sorted[$i]}" ]; do i=$((i + 1)); done
+    for ((j = ${#sorted[@]}; j > i; j--)); do sorted[j]="${sorted[j-1]}"; done
+    sorted[i]="$f"
+  done
+  for ((i = keep; i < ${#sorted[@]}; i++)); do rm -f -- "${sorted[i]}" || return 1; done  # RTG-PRUNE-CAP
+  return 0
+}
+
 # ── Probe: jq is required to read the hook JSON and the transcript ───────────
 if ! command -v jq >/dev/null 2>&1; then  # RTG-JQ-PROBE
   _degraded_allow "jq missing — cannot read hook JSON"
@@ -210,11 +232,7 @@ if [ -n "$_sid_safe" ]; then
     # (default 50). The marker just written is the newest, so it always survives. Best-effort: a failure is a typed WARN.
     _max_age="${RETURN_TOKEN_GATE_MARKER_MAX_AGE_DAYS:-14}"; case "$_max_age" in ''|*[!0-9]*) _max_age=14 ;; esac
     _keep="${RETURN_TOKEN_GATE_MARKER_KEEP:-50}"; case "$_keep" in ''|*[!0-9]*|0) _keep=50 ;; esac
-    if find "$_state_dir" -maxdepth 1 -type f -name '.rsdd-return-token-blocked-*' -mtime +"$_max_age" -delete 2>/dev/null \
-       && { find "$_state_dir" -maxdepth 1 -type f -name '.rsdd-return-token-blocked-*' -printf '%T@ %p\n' 2>/dev/null \
-            | sort -rn | tail -n +"$((_keep + 1))" | cut -d' ' -f2- | while IFS= read -r _old; do rm -f -- "$_old"; done; }; then :; else  # RTG-PRUNE
-      printf 'return-token-gate: WARN: block-once marker prune failed under %s\n' "$_state_dir" >&2
-    fi
+    _rtg_prune_markers "$_state_dir" "$_max_age" "$_keep" "$_marker" || printf 'return-token-gate: WARN: block-once marker prune failed under %s\n' "$_state_dir" >&2
   else
     printf 'return-token-gate: WARN: block-once marker write failed (%s) — the block is still issued\n' "$_marker" >&2
   fi
