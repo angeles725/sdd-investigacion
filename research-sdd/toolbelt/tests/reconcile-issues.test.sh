@@ -2310,14 +2310,46 @@ ev_case untrusted-comment "${SIG44}" "Fixed. Commit: ${C_MAIN} with test researc
 if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no commit cited; no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
   ok "45l commit+test in an untrusted-association comment -> borderline, never shipped" "(exit $RC)"
 else no "45l untrusted comment" "exit=$RC out=[$OUT]"; fi
-# 45m — a cited commit absent from the local object store is a typed degraded (not a silent "not ancestor");
-# exit 1, the row stays borderline.
+# 45m — a cited token that is not a commit object locally (here a well-formed but unknown SHA) is simply NOT
+# evidence: no degraded, exit 0, the row stays borderline (RDD r2: it used to degrade and exit 1).
 C_ABSENT="1234567890abcdef1234567890abcdef12345678"
 ev_case absent-commit "${SIG44}\\nCommit: ${C_ABSENT}\\n${EVTEST}"
+if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT" && grep -q '^borderline: row 1 .*no cited commit reachable' <<<"$OUT" \
+   && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45m unresolvable cited token -> not evidence: borderline, no degraded, exit 0" "(exit $RC)"
+else no "45m absent commit" "exit=$RC out=[$OUT]"; fi
+# 45o — a date-like token and a real reachable SHA on one commit line: shipped whatever the token order
+# (00000001 sorts before and fffffff1 after any real SHA; every token is evaluated, none stops the scan).
+ev_case junk-tokens "${SIG44}\\nCommit: 00000001 ${C_MAIN} fffffff1 (merged 20261004)\\n${EVTEST}"
+if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT" && grep -q "^shipped: row 1 .*commit ${C_MAIN} reachable" <<<"$OUT"; then
+  ok "45o junk tokens around a real reachable SHA -> shipped, exit 0, order-independent" "(exit $RC)"
+else no "45o junk tokens" "exit=$RC out=[$OUT]"; fi
+# 45p — shallow clone where NO cited commit resolves: typed degraded + exit 1, row borderline. A resolvable
+# cited commit in the same clone stays evidence (no degraded).
+SHALLOW="$ROOT/shallowrepo"
+git clone -q --depth 1 --no-local "$FIXGIT" "$SHALLOW" >/dev/null 2>&1 || { echo "FATAL: shallow clone failed" >&2; exit 2; }
+git -C "$SHALLOW" update-ref refs/remotes/origin/main HEAD
+box45="$(mkbox case-45-shallow)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_ABSENT}\\n${EVTEST}"
+retro45="$(mk44 "$box45")"
+RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$box45" "$retro45"
 if [ "$RC" = 1 ] && grep -q "^degraded: commit ${C_ABSENT} not present locally (shallow or partial clone?)" <<<"$OUT" \
    && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
-  ok "45m commit absent locally -> typed degraded + exit 1, row borderline" "(exit $RC)"
-else no "45m absent commit" "exit=$RC out=[$OUT]"; fi
+  ok "45p shallow clone, nothing resolves -> typed degraded + exit 1, row borderline" "(exit $RC)"
+else no "45p shallow degraded" "exit=$RC out=[$OUT]"; fi
+box45="$(mkbox case-45-shallow-ok)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_ABSENT} $(git -C "$SHALLOW" rev-parse HEAD)\\n${EVTEST}"
+retro45="$(mk44 "$box45")"
+RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$box45" "$retro45"
+if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT"; then
+  ok "45p2 shallow clone, one cited commit resolves -> no degraded" "(exit $RC)"
+else no "45p2 shallow resolved" "exit=$RC out=[$OUT]"; fi
+# 45q — several commits on one line (space and comma lists, both orders): the boundary between tokens is
+# never consumed, so the reachable one is found wherever it sits.
+for _lst in "${C_SIDE} ${C_MAIN}" "${C_MAIN} ${C_SIDE}" "${C_SIDE},${C_MAIN}" "${C_MAIN},${C_SIDE}"; do
+  ev_case "list-${#_lst}-${_lst:0:3}" "${SIG44}\\nCommits: ${_lst}\\n${EVTEST}"
+  if [ "$RC" = 0 ] && grep -q "^shipped: row 1 .*commit ${C_MAIN} reachable" <<<"$OUT"; then
+    ok "45q commit list [${_lst:0:7}..${_lst: -7}] -> both tokens extracted, shipped" "(exit $RC)"
+  else no "45q commit list [${_lst:0:7}..${_lst: -7}]" "exit=$RC out=[$OUT]"; fi
+done
 # 45n — a separator-less --closed-cache with TWO issues splits per signature line: issue B's commit and
 # test (row 7) are never credited to issue A (row 1, commit only).
 box45="$(mkbox case-45-nosep)"; mk_gh_stub "$box45" nomatch
@@ -2327,6 +2359,16 @@ run "$box45" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45n.
 if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
   ok "45n separator-less multi-issue cache splits per signature: no cross-credit" "(exit $RC)"
 else no "45n separator-less cache" "exit=$RC out=[$OUT]"; fi
+# 45r — a separator-less cache: lines BEFORE the first signature belong to no record (typed note), so a
+# preamble naming a test is never credited to the first issue.
+box45="$(mkbox case-45-preamble)"; mk_gh_stub "$box45" nomatch
+retro45="$(mk44 "$box45")"
+printf 'stray header\n%s\n%s\nCommit: %s\n' "$EVTEST" "$SIG44" "$C_MAIN" > "$ROOT/closed45r.txt"
+run "$box45" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45r.txt" "$retro45"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 .*no test cited' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT" \
+   && grep -q '^note: closed-cache: 2 line(s) before the first signature line belong to no record' <<<"$OUT"; then
+  ok "45r preamble before the first signature belongs to no record (typed note), not credited" "(exit $RC)"
+else no "45r preamble" "exit=$RC out=[$OUT]"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"
@@ -2442,6 +2484,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       test-only)   mk_gh_stub "$mb" closed-completed "${SIG44}\\n${EVTEST}" ;;
       unreachable) mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_SIDE}\\n${EVTEST}" ;;
       untrusted)   mk_gh_stub "$mb" closed-completed "${SIG44}" "Commit: ${C_MAIN} test research-sdd/toolbelt/tests/y.test.sh" NONE ;;
+      junk)        mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: 00000001 ${C_MAIN} fffffff1\\n${EVTEST}" ;;
       absent)      mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: 1234567890abcdef1234567890abcdef12345678\\n${EVTEST}" ;;
       *)           mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}" ;;
     esac
@@ -2457,8 +2500,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
     fi
     case "$kase" in
-      absent) if grep -q '^degraded: commit .* not present locally' <<<"$OUT"; then no "$label teeth" "case 45m is THEATER: rc=$RC out=[$OUT]"
-              else ok "$label teeth: absent-commit check removed -> no typed degraded (case 45m has teeth)" "()"; fi ;;
+      junk)   if [ "$RC" = 1 ] || grep -q '^degraded:' <<<"$OUT"; then ok "$label teeth: unresolvable token degrades the run (cases 45m/45o have teeth)" "()"
+              else no "$label teeth" "case 45o is THEATER: rc=$RC out=[$OUT]"; fi ;;
       nogit) if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT"; then ok "$label teeth: degraded exit swallowed (case 45f has teeth)" "()"
              else no "$label teeth" "case 45f is THEATER: rc=$RC out=[$OUT]"; fi ;;
       *)     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "$label teeth: mutant reads incomplete evidence as shipped (case 45 [$kase] has teeth)" "()"
@@ -2480,14 +2523,41 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (f) comment trust filter removed: an untrusted commenter's evidence flips the row to shipped.
   tooth1709 T1709-f no-trust-filter \
     's/ | select(\.authorAssociation as \$a | \["OWNER","MEMBER","COLLABORATOR"\] | index(\$a))//' untrusted
-  # (g) the local-presence check is disabled: an absent commit is silently "not an ancestor".
-  tooth1709 T1709-g no-presence-check \
-    's/if ! git -C "\$_GIT_DIR" cat-file -e "\${_ev_c}^{commit}" >\/dev\/null 2>&1; then  # RECONCILE-COMMIT-PRESENT/if false; then  # RECONCILE-COMMIT-PRESENT/' absent
+  # (g) an unresolvable cited token degrades the run again (the pre-r2 behaviour): 45m / 45o go red.
+  tooth1709 T1709-g token-degrades \
+    '/RECONCILE-COMMIT-PRESENT/{n;s/continue/_anc_degraded=1; continue/}' junk
+  # (i) the shallow-clone degraded no longer fails the run: 45p must see exit 0 from the mutant.
+  echo "-- teeth T1709-i --"
+  mbi="$(mkbox teeth-1709-shallow)"; mk_gh_stub "$mbi" closed-completed "${SIG44}\\nCommit: ${C_ABSENT}\\n${EVTEST}"
+  if mutant_chain T1709-i "$SUT" "$mbi/research-sdd/toolbelt/reconcile-issues.sh" \
+       '/RECONCILE-SHALLOW-DEGRADED/,/^              fi$/s/^                _anc_degraded=1$/                :/'; then
+    RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$mbi" "$(mk44 "$mbi")"
+    if [ "$RC" = 0 ] && ! grep -q '^shipped:' <<<"$OUT"; then ok "T1709-i teeth: shallow degraded swallowed -> exit 0 (case 45p has teeth)" "()"
+    else no "T1709-i teeth" "case 45p is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
+  # (j) token extraction consumes boundaries (space kept inside a token): 45q's lists lose a SHA.
+  echo "-- teeth T1709-j --"
+  mbj="$(mkbox teeth-1709-lists)"; mk_gh_stub "$mbj" closed-completed "${SIG44}\\nCommits: ${C_SIDE} ${C_MAIN}\\n${EVTEST}"
+  if mutant_chain T1709-j "$SUT" "$mbj/research-sdd/toolbelt/reconcile-issues.sh" \
+       "s/| tr -c '0-9a-fA-F\\\\n' '\\\\n' \\\\/| tr -c '0-9a-fA-F, \\\\n' '\\\\n' \\\\/"; then
+    run "$mbj" "$(mk44 "$mbj")"
+    if ! grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-j teeth: delimiters kept in tokens -> list evidence lost (case 45q has teeth)" "()"
+    else no "T1709-j teeth" "case 45q is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
+  # (k) lines before the first signature are no longer dropped: 45r's preamble test is credited.
+  echo "-- teeth T1709-k --"
+  mbk="$(mkbox teeth-1709-preamble)"; mk_gh_stub "$mbk" nomatch
+  if mutant_chain T1709-k "$SUT" "$mbk/research-sdd/toolbelt/reconcile-issues.sh" \
+       's/^        if (!started) { ignored++; next }  # RECONCILE-RECORD-PREAMBLE$/        if (0) { ignored++; next }/'; then
+    run "$mbk" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45r.txt" "$(mk44 "$mbk")"
+    if ! grep -q '^note: closed-cache: .* belong to no record' <<<"$OUT"; then ok "T1709-k teeth: preamble no longer detected -> typed note lost (case 45r has teeth)" "()"
+    else no "T1709-k teeth" "case 45r is THEATER: rc=$RC out=[$OUT]"; fi
+  else fail=$((fail+1)); fi
   # (h) signature lines no longer split records: a separator-less cache merges two issues.
   echo "-- teeth T1709-h --"
   mbh="$(mkbox teeth-1709-sigsplit)"; mk_gh_stub "$mbh" nomatch
   if mutant_chain T1709-h "$SUT" "$mbh/research-sdd/toolbelt/reconcile-issues.sh" \
-       's/^        if (sig) flush()$/        if (0) flush()/'; then
+       's/^          flush(); started = 1$/          started = 1/'; then
     mrh="$(mk44 "$mbh")"
     run "$mbh" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45n.txt" "$mrh"
     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-h teeth: mutant merges separator-less records -> row 1 wrongly shipped (case 45n has teeth)" "()"

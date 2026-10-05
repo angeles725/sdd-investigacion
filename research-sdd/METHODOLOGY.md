@@ -3414,8 +3414,9 @@ judgment, not the driver's own rationalizations). The retro agent:
    **Closure-evidence rule (kit issue #1709).** `reconcile-issues.sh` reads a row as `shipped` only when its issue
    is closed as completed AND cites BOTH a commit and a test AND a cited commit is an ancestor of the LOCAL main
    ref (`git merge-base --is-ancestor`, default `origin/main`, never fetched). Anything less is `borderline`
-   (human review). No git, no repository or an unknown ref is a typed `degraded` (exit 1; rows still printed as
-   `borderline`). Nothing is closed or reopened. A `regressed` class is NOT implemented (row ids are per-retro).
+   (human review). No git, no repository, an unknown ref, or a shallow clone in which no cited commit resolves is a
+   typed `degraded` (exit 1; rows still printed as `borderline`); a cited token that is not a commit object locally
+   is simply not evidence. Comment evidence counts only from an OWNER, MEMBER or COLLABORATOR author. Nothing is closed or reopened. A `regressed` class is NOT implemented (row ids are per-retro).
 
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).

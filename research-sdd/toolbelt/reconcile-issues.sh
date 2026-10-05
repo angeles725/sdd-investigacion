@@ -40,6 +40,12 @@
 #               RECONCILE_ISSUES_GIT_DIR) - NO implicit fetch: a stale local origin/main can read a
 #               just-merged commit as unreachable (borderline), never as shipped. git absent, not a
 #               repository, or the ref unknown -> typed `degraded:` + exit 1, rows still printed borderline.
+#               A cited token that is not a commit object locally (a date, a PR number, a fork SHA, an
+#               ambiguous short SHA) is simply NOT evidence: no degraded, no exit change. A typed degraded
+#               is emitted only when NO cited token resolved AND the repository is a shallow clone (a
+#               shallow clone cannot tell "absent" from "not fetched"). Every cited token is evaluated,
+#               so the outcome never depends on token order. Comment evidence counts only from an
+#               OWNER, MEMBER or COLLABORATOR author; the issue body is always trusted.
 #               NOT YET IMPLEMENTED (deferred from #1709): the `regressed` class (closed-completed plus a
 #               later retro re-lists the row) - row ids are per-retro, so "re-lists" needs a defined
 #               cross-retro identity first. When added it will be human-review only, never auto-reopen.
@@ -244,16 +250,23 @@ _fetch_closed_bodies() {
 #   Prints the record(s) (issues; separated by an octal-036 line) that carry the exact signature
 #   "Source retro: <prefix> · <row-id>" for this row. Empty output = no closed-completed issue for the row.
 _closed_record() {
-  _CR_PFX="Source retro: ${2} · " _CR_RID="$3" awk '
-    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; rec = ""; hit = 0; sig = 0 }
-    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0; sig = 0 }
+  # With NO octal-036 line anywhere (a pre-#1709 --closed-cache) records are split by signature line:
+  # a record runs from one "Source retro: " line up to (not including) the next, and lines before the
+  # first signature belong to no record (typed note). With separators present they alone split issues
+  # (a real issue body carries its signature as a footer, so signature-first splitting would be wrong).
+  local _sep=0
+  grep -q $'^\036$' <<<"$1" && _sep=1
+  _CR_SEP="$_sep" _CR_PFX="Source retro: ${2} · " _CR_RID="$3" awk '
+    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; sep = ENVIRON["_CR_SEP"] + 0
+            rec = ""; hit = 0; started = 0; ignored = 0 }
+    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0 }
     $0 == "\036" { flush(); next }
     {
-      # A signature line ("Source retro: ...") also starts a new record when the current one already has
-      # one, so a separator-less cache (pre-#1709 shape) still splits per issue (RDD r1).
-      if (index($0, "Source retro: ") > 0) {  # RECONCILE-RECORD-SIGSPLIT
-        if (sig) flush()
-        sig = 1
+      if (!sep) {
+        if (index($0, "Source retro: ") > 0) {  # RECONCILE-RECORD-SIGSPLIT
+          flush(); started = 1
+        }
+        if (!started) { ignored++; next }  # RECONCILE-RECORD-PREAMBLE
       }
       rec = rec $0 "\n"
       p = index($0, pfx)
@@ -262,15 +275,18 @@ _closed_record() {
         if (match(rest, /^[A-Za-z0-9_-]+/) && substr(rest, 1, RLENGTH) == rid) hit = 1
       }
     }
-    END { flush() }' <<<"$1"
+    END {
+      flush()
+      if (ignored > 0) printf "note: closed-cache: %d line(s) before the first signature line belong to no record (ignored)\n", ignored > "/dev/stderr"
+    }' <<<"$1"
 }
 
 # _evidence_commits <record-text> - hex commit tokens (7-40 chars, at least one digit) on lines naming a commit.
 _evidence_commits() {
   printf '%s\n' "$1" \
     | grep -iE '(^|[^[:alnum:]])commits?([^[:alnum:]]|$)' \
-    | grep -oE '(^|[^0-9a-fA-F])[0-9a-fA-F]{7,40}([^0-9a-fA-F]|$)' \
-    | grep -oE '[0-9a-fA-F]{7,40}' | grep -E '[0-9]' | sort -u
+    | tr -c '0-9a-fA-F\n' '\n' \
+    | grep -E '^[0-9a-fA-F]{7,40}$' | grep -E '[0-9]' | sort -u
 }
 
 # _evidence_has_test <record-text> - a path-like test token on a line naming a test.
@@ -605,17 +621,25 @@ ${_rln}"
           if [ -n "$_ev_commits" ]; then
             _git_probe
             if [ "$_GIT_STATE" = "ok" ]; then
+              # EVERY cited token is evaluated (no early stop), so the result never depends on sort order.
+              _ev_resolved=0; _ev_first=""
               while IFS= read -r _ev_c; do
                 [ -n "$_ev_c" ] || continue
+                [ -n "$_ev_first" ] || _ev_first="$_ev_c"
+                # Not a commit object locally (date, PR number, fork SHA, ambiguous short SHA): not evidence.
                 if ! git -C "$_GIT_DIR" cat-file -e "${_ev_c}^{commit}" >/dev/null 2>&1; then  # RECONCILE-COMMIT-PRESENT
-                  echo "degraded: commit $_ev_c not present locally (shallow or partial clone?)" >&2
-                  _anc_degraded=1; continue
+                  continue
                 fi
-                if git -C "$_GIT_DIR" rev-parse --verify -q "${_ev_c}^{commit}" >/dev/null 2>&1 \
-                   && git -C "$_GIT_DIR" merge-base --is-ancestor "$_ev_c" "$_MAIN_REF" >/dev/null 2>&1; then  # RECONCILE-ANCESTRY
-                  _ev_reach="$_ev_c"; break
+                _ev_resolved=1
+                if [ -z "$_ev_reach" ] && git -C "$_GIT_DIR" merge-base --is-ancestor "$_ev_c" "$_MAIN_REF" >/dev/null 2>&1; then  # RECONCILE-ANCESTRY
+                  _ev_reach="$_ev_c"
                 fi
               done <<<"$_ev_commits"
+              # Nothing resolved in a shallow clone: "absent" cannot be told from "not fetched" -> degraded.
+              if [ "$_ev_resolved" -eq 0 ] && [ "$(git -C "$_GIT_DIR" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then  # RECONCILE-SHALLOW-DEGRADED
+                echo "degraded: commit $_ev_first not present locally (shallow or partial clone?)" >&2
+                _anc_degraded=1
+              fi
               [ -n "$_ev_reach" ] || _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit reachable from local ref $_MAIN_REF (no fetch performed; a stale ref reads as unreachable)"
             else
               _anc_degraded=1
