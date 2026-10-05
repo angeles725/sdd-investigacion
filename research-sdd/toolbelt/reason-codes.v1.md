@@ -70,7 +70,6 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: ref <v> is not known locally in <v> (no fetch is performed)` | degraded | reconcile-issues.sh | the main ref is not known locally and the script never fetches | run `git fetch` by hand (or set `RECONCILE_ISSUES_MAIN_REF`), then re-run `reconcile-issues.sh` |
 | `degraded: gh issue list (closed, old-gh fallback) failed (exit <v>)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field and the fallback closed-issue listing (number, body, comments) also failed, so the audit has no verdict | run `gh auth status` and the same `gh issue list` by hand, then re-run `reconcile-issues.sh` |
 | `degraded: gh api state_reason listing failed (this gh has no stateReason --json field)` | degraded | reconcile-issues.sh | this gh has no `stateReason` --json field, so the state reasons are read from one paginated `gh api repos/<owner>/<repo>/issues?state=closed` listing and that call failed twice (one bounded retry) | run that `gh api` call by hand, fix the reported problem (auth, rate limit, network), then re-run `reconcile-issues.sh` |
-| `degraded: state_reason for issue #<v> missing from the closed-issue listing (this gh has no stateReason --json field)` | degraded | reconcile-issues.sh | a closed issue found by the search is absent from the batched listing, so its state cannot be established | run `gh api repos/<owner>/<repo>/issues/<n> --jq .state_reason` by hand to see why, then re-run `reconcile-issues.sh` |
 | `degraded: gh is not authenticated` | degraded | reconcile-issues.sh, stage-retro-issues.sh | gh has no usable login | run `gh auth login`, then re-run the script |
 | `degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')` | degraded | reconcile-issues.sh | the list-limit override is not a positive integer | set `RECONCILE_ISSUES_LIST_LIMIT` to a positive integer or unset it |
 | `degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')` | degraded | stage-retro-issues.sh | the list-limit override is not a positive integer | set `STAGE_RETRO_ISSUES_LIST_LIMIT` to a positive integer or unset it |
@@ -112,6 +111,12 @@ They are listed here so a reader of this registry finds every typed state the sc
   evidence of N rows cites no commit that exists locally and the checkout is shallow, so reachability
   cannot be verified. Those rows stay `borderline`, never `shipped`, and the exit code is unchanged.
   Continuation: run `git fetch --unshallow` (or raise the CI fetch-depth), then re-run `reconcile-issues.sh`.
+
+- `note: state_reason for issue #<n> missing from the closed-issue listing after one reload` (reconcile-issues.sh,
+  kit issue #1752): on a gh without the `stateReason` field, a closed issue found by the search is absent from
+  the batched `state_reason` listing even after one forced reload of it. Its rows are reported `borderline`
+  (the issue's evidence is not trusted) and the run is not failed. Continuation: run
+  `gh api repos/<owner>/<repo>/issues/<n> --jq .state_reason` by hand, then re-run `reconcile-issues.sh`.
 
 ## Deferred (later slices of #1704)
 

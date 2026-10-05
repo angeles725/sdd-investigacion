@@ -157,7 +157,7 @@ STUBHELP
         # SUT's stateReason filter is what decides the output. Open-state lists see an empty reply.
         _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
         _srl="completed"; [ "$mode" = "closed-notplanned" ] && _srl="not_planned"
-        # gh api (the old-gh fallback reads state_reason per issue): GH_STUB_API_FAIL makes it fail.
+        # gh api (the old-gh fallback reads state_reason from ONE batched listing): GH_STUB_API_FAIL makes it fail.
         printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }; printf "7 %%s\\n" "%s"; exit 0 ;;\n' "$_srl"
         _cm=""; [ -n "${4:-}" ] && _cm="{\"body\":\"$4\",\"authorAssociation\":\"${5:-OWNER}\"}"
         printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"number":7,"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
@@ -2239,7 +2239,7 @@ GH_STUB_OLD_GH=1 run "$box44l" "$(mk44 "$box44l")"
 if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -qE '^(shipped|borderline|degraded):' <<<"$OUT"; then
   ok "44l old gh + not-planned closure -> untracked" "(exit $RC)"
 else no "44l old gh not-planned" "exit=$RC out=[$OUT]"; fi
-# 44m — old gh and the per-issue state_reason lookup FAILS: typed degraded naming the lookup, exit 1.
+# 44m — old gh and the batched state_reason listing FAILS (after one retry): typed degraded naming the listing, exit 1.
 box44m="$(mkbox case-1752-api-fail)"; mk_gh_stub "$box44m" closed-completed "$SIG44E"
 GH_STUB_OLD_GH=1 GH_STUB_API_FAIL=1 run "$box44m" "$(mk44 "$box44m")"
 if [ "$RC" = 1 ] && grep -q '^degraded: gh api state_reason listing failed .* — gh: HTTP 500' <<<"$OUT" && ! grep -qE '^(shipped|untracked):' <<<"$OUT" \
@@ -2423,14 +2423,39 @@ if [ "$RC" = 0 ] && [ "$(grep -c ' api ' "$box45/bin/gh.log")" = 1 ] && grep -q 
    && [ "$(grep -c '^borderline: row 1 ' <<<"$OUT")" = 2 ]; then
   ok "45t two retros under old gh -> exactly one paginated gh api call, shared" "(exit $RC)"
 else no "45t batched lookup" "exit=$RC out=[$OUT] log=[$(cat "$box45/bin/gh.log" 2>&1)]"; fi
-# 45u — a closed issue absent from the batched listing is a typed degraded, never a guessed state.
-printf '[{"number":99,"body":"%s","comments":[]}]\n' "${SIG44}" > "$ROOT/missing45.json"
+# 45u — a closed issue absent from the batched listing (stale cache): the listing is reloaded ONCE for the
+# repo; still missing -> the run is NOT failed: a typed note, and the row reads borderline (its evidence is
+# not trusted, so a body citing commit+test never ships it).
+printf '[{"number":99,"body":"%s\\nCommit: %s\\n%s","comments":[]}]\n' "${SIG44}" "${C_MAIN}" "${EVTEST}" > "$ROOT/missing45.json"
 box45="$(mkbox case-45-missing)"; mk_gh_stub "$box45" closed-multi "$ROOT/missing45.json"
 GH_STUB_OLD_GH=1 run "$box45" "$(mk44 "$box45")"
-if [ "$RC" = 1 ] && grep -q '^degraded: state_reason for issue #99 missing from the closed-issue listing' <<<"$OUT" \
-   && ! grep -qE '^(shipped|borderline|untracked):' <<<"$OUT"; then
-  ok "45u issue missing from the batched listing -> typed degraded + exit 1" "(exit $RC)"
-else no "45u missing state_reason" "exit=$RC out=[$OUT]"; fi
+if [ "$RC" = 0 ] && grep -q '^note: state_reason for issue #99 missing from the closed-issue listing after one reload' <<<"$OUT" \
+   && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -qE '^(shipped|degraded):' <<<"$OUT" \
+   && [ "$(grep -c ' api ' "$box45/bin/gh.log")" = 2 ]; then
+  ok "45u issue missing from the batched listing -> reloaded once, then row borderline + typed note, exit 0" "(exit $RC)"
+else no "45u missing state_reason" "exit=$RC out=[$OUT] log=[$(cat "$box45/bin/gh.log" 2>&1)]"; fi
+# 45v — unit checks of the state_reason cache, run on the SUT's own functions (extracted, so a mutant of the
+# SUT is exercised too): (1) the cache is keyed by repo - repo B is never resolved against repo A's listing
+# (the stub answers a different state_reason per repo); (2) a stale cache reloads once and then finds the issue.
+sr_unit() { # <sut-file> <repo|stale> -> prints the observations on one line
+  local _fns; _fns="$(awk '/^_load_state_reasons\(\) \{/,/^\}/; /^_state_reason_of\(\) \{/,/^\}/' "$1")"
+  "$BASH_BIN" -c '
+    eval "$1"; _SR_FILE="$(mktemp)"; _CNT="$_SR_FILE.n"; : > "$_CNT"
+    gh() { echo x >> "$_CNT"
+      case "$*" in
+        *repos/A/*) printf "7 completed\n" ;;
+        *repos/B/*) printf "7 not_planned\n" ;;
+        *repos/S/*) if [ "$(wc -l < "$_CNT")" -le 1 ]; then printf "7 completed\n"; else printf "7 completed\n8 not_planned\n"; fi ;;
+      esac; }
+    if [ "$2" = repo ]; then _REPO=A; a="$(_state_reason_of 7)"; _REPO=B; b="$(_state_reason_of 7)"; echo "$a $b"
+    else _REPO=S; r="$(_state_reason_of 8)"; echo "$r $(wc -l < "$_CNT" | tr -d " ")"; fi
+    rm -f "$_SR_FILE" "$_CNT"' _ "$_fns" "$2" 2>&1
+}
+sr_repo="$(sr_unit "$SUT" repo)"; sr_stale="$(sr_unit "$SUT" stale)"
+if [ "$sr_repo" = "completed not_planned" ]; then ok "45v1 state_reason cache is keyed by repo (A->completed, B->not_planned)" "()"
+else no "45v1 repo-keyed cache" "got [$sr_repo]"; fi
+if [ "$sr_stale" = "not_planned 2" ]; then ok "45v2 stale cache reloads once and then resolves the issue" "()"
+else no "45v2 stale reload" "got [$sr_stale]"; fi
 # 45q — several commits on one line (space and comma lists, both orders): the boundary between tokens is
 # never consumed, so the reachable one is found wherever it sits.
 for _lst in "${C_SIDE} ${C_MAIN}" "${C_MAIN} ${C_SIDE}" "${C_SIDE},${C_MAIN}" "${C_MAIN},${C_SIDE}"; do
@@ -2636,7 +2661,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       *) no "$label teeth" "unknown tooth fixture '$kase' (helper dispatch bug, not a THEATER result)"; return 0 ;;
     esac
     case "$label" in
-      T1773-[a-e]|T1752-[a-g]) ;;
+      T1773-[a-e]|T1752-[a-h]) ;;
       *) no "$label teeth" "unknown tooth label (helper dispatch bug, not a THEATER result)"; return 0 ;;
     esac
     mb="$(mkbox "teeth-1773-$bn")"
@@ -2674,7 +2699,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       T1752-d) ! grep -q 'HTTP 500' <<<"$OUT" && verdict=0 ;;
       T1752-e) [ "$(grep -c ' api ' "$mb/bin/gh.log")" != 2 ] && verdict=0 ;;   # retry removed
       T1752-f) [ "$(grep -c ' api ' "$mb/bin/gh.log")" != 1 ] && verdict=0 ;;   # per-run cache dropped
-      T1752-g) ! grep -q '^degraded: state_reason for issue #99 missing' <<<"$OUT" && verdict=0 ;;
+      T1752-g) [ "$(grep -c ' api ' "$mb/bin/gh.log")" != 2 ] && verdict=0 ;;   # reload dropped
+      T1752-h) grep -q "^shipped: row 1 " <<<"$OUT" && verdict=0 ;;   # unknown-state evidence trusted
       T1752-b) grep -q '^untracked: row 1 ' <<<"$OUT" || verdict=0 ;;
     esac
     if [ "$verdict" -eq 0 ]; then ok "$label teeth: mutant changes behaviour (the $kase case has teeth)" "()"
@@ -2701,9 +2727,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth1773 T1752-e retry-removed \
     's/for _try in 1 2; do/for _try in 1; do/' apifail
   tooth1773 T1752-f cache-dropped \
-    's/^  \[ -s "\$_SR_FILE" \] && return 0$/  :/' batch
-  tooth1773 T1752-g missing-treated-completed \
-    's/found = 1; exit } END { exit !found }/found = 1; exit } END { print "completed" }/' missing
+    's/ != "loaded \$_REPO" \] || return 0$/ != "loaded $_REPO" ] || :/' batch
+  tooth1773 T1752-g reload-dropped \
+    's/^    \[ "\$_i" = 1 \] || break$/    break/' missing
+  tooth1773 T1752-h unknown-evidence-trusted \
+    's/sigonly = (num in unk)/sigonly = 0/' missing
+  # T1752-i: the repo key dropped from the cache check -> 45v1 (repo B resolved against repo A's listing) must go red.
+  echo "-- teeth T1752-i --"
+  mbi="$ROOT/teeth-1752-i.sh"
+  if mutant_chain T1752-i "$SUT" "$mbi" 's/\[ "\$(head -1 "\$_SR_FILE" 2>\/dev\/null)" != "loaded \$_REPO" \]/[ "$(head -1 "$_SR_FILE" 2>\/dev\/null | cut -c1-6)" != "loaded" ]/'; then
+    sr_mut="$(sr_unit "$mbi" repo)"
+    if [ "$sr_mut" != "completed not_planned" ]; then ok "T1752-i teeth: repo key dropped -> B resolved against A's listing (45v1 has teeth)" "()"
+    else no "T1752-i teeth" "45v1 is THEATER: got [$sr_mut]"; fi
+  else fail=$((fail+1)); fi
   # (j) token extraction consumes boundaries (space kept inside a token): 45q's lists lose a SHA.
   echo "-- teeth T1709-j --"
   mbj="$(mkbox teeth-1709-lists)"; mk_gh_stub "$mbj" closed-completed "${SIG44}\\nCommits: ${C_SIDE} ${C_MAIN}\\n${EVTEST}"
