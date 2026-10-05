@@ -1042,35 +1042,53 @@ _recheck_exists() {
 occurrence_commented=0; occurrence_present=0
 _occ_nums=""
 
-# _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
-# equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR already
-# printed). A failed call, a reply that is not a parseable JSON array, or a page that fills the --limit is a
-# failed lookup, never "no match" (anti-silent-zero §7).
+# _occ_fetch: the ONE occurrence lookup per retro (kit issue #1753). The pre-change script ran one
+# `gh issue list --search` per untracked row, which hits GitHub's search secondary rate limit (~30 req/min) on a
+# large retro. This lists the OPEN issues carrying the target label ONCE (no --search, so it is not a search call)
+# and caches the reply; _occ_find then matches exact titles locally through _json_issue_scan. A failed call, a reply
+# that is not a parseable JSON array, or a page that fills the --limit is a failed lookup (anti-silent-zero §7): the
+# typed ERROR is cached with an @ROW@ placeholder and replayed for every row, never "no match".
 # STAGE_RETRO_ISSUES_OCC_LOOKUP: anchor for the occurrence-lookup teeth.
-_occ_find() {
-  local _o _rc _m _total _q
-  _occ_nums=""
-  _q="${1//\"/ }"
+_occ_cache_state=""   # "" = not fetched yet; ok | failed
+_occ_cache_reply=""; _occ_cache_msg=""
+_occ_fetch() {
+  local _o _rc _m _total
+  _occ_cache_state="failed"
   _o="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open --label "target:${target_name}" \
-    --limit "$_LIST_LIMIT" --search "\"$_q\" in:title" --json number,state,title 2>&1)"; _rc=$?
+    --limit "$_LIST_LIMIT" --json number,state,title 2>&1)"; _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    echo "ERROR: gh issue list (occurrence lookup) failed for row $2: $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) failed for row @ROW@: $_o"; return 0
   fi
   if ! grep -q '^[[:space:]]*\[' <<<"$_o"; then
-    echo "ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row $2 (expected a JSON array): $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned an unexpected reply for row @ROW@ (expected a JSON array): $_o"; return 0
   fi
-  _m="$(printf '%s' "$_o" | _json_issue_scan occ "$1")" || {
-    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2: $_o" >&2; return 2
+  _m="$(printf '%s' "$_o" | _json_issue_scan occ "")" || {
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be parsed for row @ROW@: $_o"; return 0
   }
-  _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
   _total="$(printf '%s\n' "$_m" | sed -n 's/^total=\([0-9][0-9]*\)$/\1/p' | head -n 1)"
   if [ -z "$_total" ]; then
-    echo "ERROR: gh issue list (occurrence lookup) reply could not be counted for row $2: $_o" >&2; return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) reply could not be counted for row @ROW@: $_o"; return 0
   fi
   if [ "$_total" -ge "$_LIST_LIMIT" ]; then
-    echo "ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row $2 — the result may be truncated, refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)" >&2
-    return 2
+    _occ_cache_msg="ERROR: gh issue list (occurrence lookup) returned $_total results = the --limit $_LIST_LIMIT cap for row @ROW@ — the result may be truncated, refusing to create or comment (raise STAGE_RETRO_ISSUES_LIST_LIMIT)"
+    return 0
   fi
+  _occ_cache_reply="$_o"; _occ_cache_state="ok"
+}
+
+# _occ_find <title> <row-id>: sets _occ_nums (space-separated numbers of OPEN same-target issues whose title
+# equals <title> exactly); rc 0 = looked (possibly none), rc 2 = could not look (typed ERROR printed).
+_occ_find() {
+  local _m
+  _occ_nums=""
+  [ -z "$_occ_cache_state" ] && _occ_fetch
+  if [ "$_occ_cache_state" != "ok" ]; then
+    echo "${_occ_cache_msg//@ROW@/"$2"}" >&2; return 2
+  fi
+  _m="$(printf '%s' "$_occ_cache_reply" | _json_issue_scan occ "$1")" || {
+    echo "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row $2" >&2; return 2
+  }
+  _occ_nums="$(printf '%s\n' "$_m" | sed -n '1p')"
   return 0
 }
 
