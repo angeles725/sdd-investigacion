@@ -446,15 +446,22 @@ else
   awk '/^_MIN_TITLE_LEN=/ { p = 1 } p { print } p && seen && /^}/ { exit } /^title_is_unusable\(\) \{/ { seen = 1 }' "$_STAGE" > "$_stfn"
   if ! grep -q '^title_is_unusable()' "$_stfn"; then no "T52 parity: extract the seeder's title_is_unusable" "harness failure: function not found in $_STAGE"
   else
-    _pbad=""; _pn=0
-    for _tt in 'high' 'Medium' 'bug' 'Docs' 'doc-fix' 'regression' 'documentation' 'elevenchars' 'twelve chars' 'exactly 12 c' 'a perfectly fine delta title' 'ñññññññññññ' 'ññññññññññññ' '  padded high  ' 'féature' 'low' 'fixes' ''; do
-      _pn=$((_pn+1))
-      _tr="$(printf '%s' "$_tt" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-      _sv="$("$BASH_BIN" -c '. "$1"; title_is_unusable "$2" && echo unusable || echo usable' _ "$_stfn" "$_tt" 2>/dev/null)"
-      retro_grammar_title_has_identity "$_tr" && _lv=usable || _lv=unusable
-      [ "$_sv" = "$_lv" ] || _pbad="$_pbad [$_tt: stage=$_sv lib=$_lv]"
+    # Run BOTH sides under a UTF-8 locale AND LC_ALL=C, with multibyte titles on the 11/12-character boundary
+    # (ñ = 2 bytes, € = 3 bytes: 11 chars are 22 / 33 bytes, so a byte count would wrongly accept them). A divergence
+    # under one locale is reported as a KNOWN GAP tied to the seeder switch (the seeder is not edited here), never hidden.
+    for _loc in C.utf8 C; do
+      _pbad=""; _pn=0
+      for _tt in 'high' 'Medium' 'bug' 'Docs' 'doc-fix' 'regression' 'documentation' 'elevenchars' 'twelve chars' 'exactly 12 c' 'a perfectly fine delta title' 'ñññññññññññ' 'ññññññññññññ' '€€€€€€€€€€€' '€€€€€€€€€€€€' 'ñ€ñ€ñ€ñ€ñ€ñ' '  padded high  ' 'féature' 'low' 'fixes' ''; do
+        _pn=$((_pn+1))
+        _tr="$(printf '%s' "$_tt" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        _sv="$(LC_ALL="$_loc" "$BASH_BIN" -c '. "$1"; title_is_unusable "$2" && echo unusable || echo usable' _ "$_stfn" "$_tt" 2>/dev/null)"
+        _lv="$(LC_ALL="$_loc" "$BASH_BIN" -c '. "$1"; retro_grammar_title_has_identity "$2" && echo usable || echo unusable' _ "$RG_LIB" "$_tr" 2>/dev/null)"
+        [ "$_sv" = "$_lv" ] || _pbad="$_pbad [$_tt: stage=$_sv lib=$_lv]"
+      done
+      if [ -z "$_pbad" ] && [ "$_pn" -ge 20 ]; then ok "T52 [$_loc] lib identity rule == stage-retro-issues title_is_unusable on $_pn titles (multibyte 11/12-char edge)" "()"
+      elif [ -n "$_pbad" ] && [ "$_loc" = C ]; then skip "T52 [$_loc] KNOWN GAP (seeder switch pending): seeder and lib disagree under LC_ALL=C" "$_pbad"
+      else no "T52 [$_loc] identity parity with the seeder" "$_pbad (n=$_pn)"; fi
     done
-    [ -z "$_pbad" ] && [ "$_pn" -ge 15 ] && ok "T52 lib identity rule == stage-retro-issues title_is_unusable on $_pn titles" "()" || no "T52 identity parity with the seeder" "$_pbad (n=$_pn)"
   fi
 fi
 

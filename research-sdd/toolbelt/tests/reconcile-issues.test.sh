@@ -162,7 +162,7 @@ STUBHELP
         _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
         _srl="completed"; [ "$mode" = "closed-notplanned" ] && _srl="not_planned"
         # gh api (the old-gh fallback reads state_reason from ONE batched listing): GH_STUB_API_FAIL makes it fail.
-        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "${GH_STUB_API_FAIL_MSG:-gh: HTTP 500}" >&2; exit 1; }; printf "7 %%s\\n" "%s"; exit 0 ;;\n' "$_srl"
+        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "${GH_STUB_API_FAIL_MSG:-gh: HTTP 500}" >&2; exit 1; }; if [ -n "${GH_STUB_API_UPDATED:-}" ]; then _s=""; case "$*" in *since=*) _a="$*"; _s="${_a##*since=}"; _s="${_s// */}" ;; esac; if [ -n "$_s" ] && [[ "$GH_STUB_API_UPDATED" < "$_s" ]]; then exit 0; fi; fi; printf "7 %%s\\n" "%s"; exit 0 ;;\n' "$_srl"
         _cm=""; [ -n "${4:-}" ] && _cm="{\"body\":\"$4\",\"authorAssociation\":\"${5:-OWNER}\"}"
         printf '  *" issue list "*" --state closed "*) if [ -n "${GH_STUB_OLDGH_LIST_FAIL:-}" ]; then case " $* " in *stateReason*) ;; *) echo "gh: HTTP 502" >&2; exit 1 ;; esac; fi; _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"number":7,"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
         printf '  *" issue list "*) exit 0 ;;\n'
@@ -2302,9 +2302,20 @@ box44s="$(mkbox case-1784-since)"; mk_gh_stub "$box44s" closed-completed "Source
 GH_STUB_OLD_GH=1 run "$box44s" "$(mk44 "$box44s" 2026-03-04-a.md)"
 box44t="$(mkbox case-1784-since-none)"; mk_gh_stub "$box44t" closed-completed "$SIG44E"
 GH_STUB_OLD_GH=1 run "$box44t" "$(mk44 "$box44t")"
-if grep -q ' api .*since=2026-03-04T00:00:00Z' "$box44s/bin/gh.log" && grep -q ' api ' "$box44t/bin/gh.log" && ! grep -q 'since=' "$box44t/bin/gh.log"; then
+if grep -q ' api .*since=2026-03-02T00:00:00Z' "$box44s/bin/gh.log" && grep -q ' api ' "$box44t/bin/gh.log" && ! grep -q 'since=' "$box44t/bin/gh.log"; then
   ok "44s old-gh listing is bounded by since=<retro date>; an undated retro is unbounded" "()"
 else no "44s since bound" "dated=[$(grep ' api ' "$box44s/bin/gh.log")] undated=[$(grep ' api ' "$box44t/bin/gh.log")]"; fi
+# 44v — the since= bound keeps a safety margin (kit issue #1784, RDD): the retro filename date is the author's LOCAL
+# date, updated_at is UTC, so an issue seeded early on local day D east of UTC is stamped D-1 (here 20:00Z) and must
+# still be listed. The stub drops an issue whose updated_at is older than the since= it was asked for.
+since_margin_case() { # <box-name> -> OUT/RC from a run whose closed issue #7 was updated 2026-03-03T20:00:00Z (retro dated 2026-03-04)
+  box44v="$(mkbox "$1")"; mk_gh_stub "$box44v" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+  GH_STUB_OLD_GH=1 GH_STUB_API_UPDATED=2026-03-03T20:00:00Z run "$box44v" "$(mk44 "$box44v" 2026-03-04-a.md)"
+}
+since_margin_case case-1784-margin
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q 'missing from the closed-issue listing' <<<"$OUT"; then
+  ok "44v an issue updated on D-1 (20:00Z) is still listed for a retro dated D (since= keeps a 2-day margin)" "(exit $RC)"
+else no "44v since margin" "exit=$RC out=[$OUT] log=[$(grep ' api ' "$box44v/bin/gh.log")]"; fi
 # 44u — the cache file cleanup must not clobber an EXIT trap that is already installed (kit issue #1784): run the
 # SUT's own _sr_install_exit_trap in a shell that already has one; both the earlier trap and the cleanup must run.
 sr_trap_unit() { # <sut-file> -> "<previous-trap marker> <cache file removed yes|no>"
@@ -2313,8 +2324,9 @@ sr_trap_unit() { # <sut-file> -> "<previous-trap marker> <cache file removed yes
   "$BASH_BIN" -c 'eval "$1"; _SR_FILE="$2"; trap "echo PREV-TRAP-RAN" EXIT; _sr_install_exit_trap' _ "$_fns" "$_f" 2>&1 | tr '\n' ' '
   [ -e "$_f" ] && echo no || echo yes
 }
+SR_TRAP_WANT="PREV-TRAP-RAN yes"   # the one real output: the trap's line (newline -> one space) then the removed flag; shared by 44u and its tooth
 sr_trap="$(sr_trap_unit "$SUT")"
-if [ "$sr_trap" = "PREV-TRAP-RAN  yes" ] || [ "$sr_trap" = "PREV-TRAP-RAN yes" ]; then ok "44u an existing EXIT trap still runs, and the cache file is removed" "($sr_trap)"
+if [ "$sr_trap" = "$SR_TRAP_WANT" ]; then ok "44u an existing EXIT trap still runs, and the cache file is removed" "($sr_trap)"
 else no "44u exit-trap chain" "got [$sr_trap]"; fi
 # 44t — the cache honours the bound: a listing loaded SINCE a date serves a request for a newer/equal date, an older
 # date (or an unbounded request) reloads it with the older bound, and an unbounded cache serves everything.
@@ -3087,9 +3099,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       since)
         mk_gh_stub "$mb" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
         GH_STUB_OLD_GH=1 run "$mb" "$(mk44 "$mb" 2026-03-04-a.md)"
-        grep -q ' api .*since=2026-03-04T00:00:00Z' "$mb/bin/gh.log" || good=0 ;;
+        grep -q ' api .*since=2026-03-02T00:00:00Z' "$mb/bin/gh.log" || good=0 ;;
+      margin)
+        mk_gh_stub "$mb" closed-completed "Source retro: target-foo/retros/2026-03-04-a.md · 1"
+        GH_STUB_OLD_GH=1 GH_STUB_API_UPDATED=2026-03-03T20:00:00Z run "$mb" "$(mk44 "$mb" 2026-03-04-a.md)"
+        { [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q 'missing from the closed-issue listing' <<<"$OUT"; } || good=0 ;;
       cache) [ "$(sr_since_unit "$mb/research-sdd/toolbelt/reconcile-issues.sh")" = "1 1 2 2 3 3 | 1 | 2" ] || good=0 ;;
-      trap)  [ "$(sr_trap_unit "$mb/research-sdd/toolbelt/reconcile-issues.sh")" = "PREV-TRAP-RAN yes" ] || good=0 ;;
+      trap)  [ "$(sr_trap_unit "$mb/research-sdd/toolbelt/reconcile-issues.sh")" = "$SR_TRAP_WANT" ] || good=0 ;;
       *) no "$label teeth" "unknown tooth kase '$kase' (helper dispatch bug, not a THEATER result)"; return 0 ;;
     esac
     if [ "$good" = 0 ]; then ok "$label teeth: mutant breaks the pinned behaviour (the $kase case has teeth)" "()"
@@ -3103,9 +3119,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth1784 T1784-f 'pause:gh: HTTP 403 x-ratelimit-reset: 1000:X=1' 's/^  \[ "\$_w" -ge 1 \] || _w=1$/  :/' 1
   tooth1784 T1784-g 'pause:gh: HTTP 500:RECONCILE_ISSUES_RETRY_BACKOFF=4' 's/_def="\${RECONCILE_ISSUES_RETRY_BACKOFF:-2}"; case "\$_def" in/_def=2; case "$_def" in/' 4
   tooth1784 T1784-h since 's/\${_eff:+&since=\$_eff}//'
-  tooth1784 T1784-i since '/RECONCILE_ISSUES_SINCE_DERIVE$/s/.*/  :/'
+  tooth1784 T1784-i since '/RECONCILE_ISSUES_SINCE_DERIVE$/s/if \[\[ .*\]\]; then/if false; then/'
   tooth1784 T1784-j cache 's/{ \[ -n "\${_SR_SINCE_REQ:-}" \] && \[\[ ! "\${_SR_SINCE_REQ}" < "\$_cached" \]\]; } || _covers=0/:/'
   tooth1784 T1784-k cache 's/then _eff="\$_cached"; fi/then :; fi/'
+  tooth1784 T1784-n margin 's/ -2 days"/ +0 days"/'
   tooth1784 T1784-l trap 's/"\${_prev_cmd:+; \$_prev_cmd}"//'
   # T1784-m: X-RateLimit-Reset read as an absolute number of seconds (the subtraction of "now" dropped).
   echo "-- teeth T1784-m --"

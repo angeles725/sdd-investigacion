@@ -382,11 +382,21 @@ _state_reason_of() {
 #   octal-036 line per issue). A failed listing is a typed degraded + return 1; an issue still missing
 #   after one reload keeps only its signature lines (its rows read borderline) plus a typed note.
 _closed_query_old_gh() {
-  local _p="$1" _raw _rc _sr _num _bad="" _unk="" _ef _em _d
+  local _p="$1" _raw _rc _sr _num _bad="" _unk="" _ef _em _d _sd=""
   # Bound the batched state_reason listing by this retro's date (kit issue #1784); an undated retro is unbounded.
   _SR_SINCE_REQ=""
   _d="${_p##*/}"
-  if [[ "$_d" =~ ^([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))([^0-9]|$) ]]; then _SR_SINCE_REQ="${BASH_REMATCH[1]}T00:00:00Z"; fi   # RECONCILE_ISSUES_SINCE_DERIVE
+  # The bound is the retro filename's date MINUS TWO DAYS at 00:00:00Z. The filename carries the author's LOCAL date
+  # while updated_at is UTC: east of UTC (up to UTC+14) an issue seeded early on local day D is stamped D-1 UTC, and a
+  # bound of D 00:00Z would exclude it (and the forced reload would reuse that bound). One day of margin covers the
+  # offset; the second absorbs a retro seeded the day before its filename date. Date arithmetic is GNU `date -d`, else
+  # BSD `date -v`; with neither, the listing is unbounded and a typed note says so (never a silent wrong bound).
+  if [[ "$_d" =~ ^([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))([^0-9]|$) ]]; then   # RECONCILE_ISSUES_SINCE_DERIVE
+    _sd="$(date -u -d "${BASH_REMATCH[1]} -2 days" +%Y-%m-%d 2>/dev/null)" \
+      || _sd="$(date -u -j -v-2d -f %Y-%m-%d "${BASH_REMATCH[1]}" +%Y-%m-%d 2>/dev/null)" || _sd=""
+    if [[ "$_sd" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then _SR_SINCE_REQ="${_sd}T00:00:00Z"   # RECONCILE_ISSUES_SINCE_MARGIN
+    else echo "note: date arithmetic unavailable — the closed-issue listing for ${_d} is not bounded by a retro date" >&2; fi
+  fi
   _ef="$(mktemp 2>/dev/null)" || _ef=""
   _raw="$(gh issue list \
       --repo "$_REPO" \
