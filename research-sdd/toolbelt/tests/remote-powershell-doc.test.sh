@@ -15,7 +15,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DOC="$HERE/../REMOTE-POWERSHELL.md"
+DOC="${RPS_DOC:-$HERE/../REMOTE-POWERSHELL.md}"   # RPS_DOC: test seam for the nested degraded-exit control
 [ -s "$DOC" ] || { echo "FATAL: doc under test missing or empty: $DOC" >&2; exit 2; }
 
 pass=0; fail=0; DEGRADED=0   # DEGRADED: checks that could not run (missing runtime dependency) — never a pass (§7)
@@ -72,9 +72,30 @@ EOF
   [ "$dec_good" = "Write-Output ((Get-Date).ToString('s'))" ]; chk "demo: quoted heredoc decodes intact" $?
 }
 
+# degraded_control SCRIPT — runs SCRIPT (this suite, or a mutant copy) as a nested process with python3
+# absent from a hermetic PATH and asserts the exit contract: DEGRADED alone -> exit 2 + DEGRADED stderr
+# line; DEGRADED plus a real failure -> exit 1. RPS_NESTED=1 stops the nested run from recursing.
+# DEGRADED is only ever incremented in the main shell (the demo's python3 probe runs un-subshelled).
+degraded_control() {
+  local script="$1" stub tmp rc cmd badreg
+  stub="$(mktemp -d)"; tmp="$(mktemp -d)"
+  for cmd in dirname cat sed grep tr mktemp rm; do
+    command -v "$cmd" >/dev/null 2>&1 && ln -s "$(command -v "$cmd")" "$stub/$cmd"
+  done
+  PATH="$stub" command -v python3 >/dev/null 2>&1 && { bad "degraded control: stub PATH still resolves python3"; rm -rf "$stub" "$tmp"; return; }
+  RPS_NESTED=1 PATH="$stub" "$BASH" "$script" >"$tmp/o1" 2>"$tmp/e1"; rc=$?
+  [ "$rc" -eq 2 ]; chk "degraded control: python3 absent, nothing failed -> exit 2 (got $rc)" $?
+  grep -q '^DEGRADED: ' "$tmp/e1"; chk "degraded control: DEGRADED line on stderr" $?
+  badreg="$tmp/bad.md"; { cat "$DOC"; echo 'Single quotes inside the PowerShell source are now safe.'; } >"$badreg"
+  RPS_NESTED=1 RPS_DOC="$badreg" PATH="$stub" "$BASH" "$script" >"$tmp/o2" 2>"$tmp/e2"; rc=$?
+  [ "$rc" -eq 1 ]; chk "degraded control: python3 absent AND a failure -> exit 1 (got $rc)" $?
+  rm -rf "$stub" "$tmp"
+}
+
 echo "-- structural checks on REMOTE-POWERSHELL.md --"
 check_doc "$DOC"
 demo_quoting
+[ -n "${RPS_NESTED:-}" ] || degraded_control "$HERE/$(basename "$0")"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the doc must make check_doc fail --"
@@ -98,6 +119,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth wrong-ratio 's|2\.67x|3x|g'
   tooth drop-length-sentinel 's|^<!-- SENTINEL-REMOTE-PS-LENGTH-CAVEAT -->$||'
   tooth drop-remote-script-file 's|remote script file|remote thing|g'
+  # Mutants of THIS script: each must make degraded_control go red (nested runs read the real doc via RPS_DOC).
+  export RPS_DOC="$DOC"
+  stooth() { # stooth LABEL SED_EXPR
+    local m="$MDIR/$1.sh" out n
+    if ! mutant_chain "$1" "$HERE/$(basename "$0")" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
+    out="$(degraded_control "$m")"
+    n="$(printf '%s\n' "$out" | grep -c '^  FAIL  ')"
+    if [ "$n" -gt 0 ]; then ok "tooth $1 bites ($n assertion(s) red)"; else bad "tooth $1: mutant stayed green"; fi
+  }
+  stooth degraded-exit-2-to-0 's|^  exit 2$|  exit 0|'
+  stooth degraded-failure-exit-1-dropped 's|^  \[ "\$fail" -eq 0 \] \|\| exit 1$|  [ "$fail" -eq 0 ] \|\| exit 2|'
+  stooth degraded-counter-never-bumped 's|DEGRADED=\$((DEGRADED+1)); return 0|return 0|'
   if ! command -v python3 >/dev/null 2>&1; then
     echo "  SKIP  tooth demo-damaged-heredoc: DEGRADED — python3 absent (not a pass)"; DEGRADED=$((DEGRADED+1))
   else
