@@ -160,8 +160,9 @@ if ! declare -F _hw_abspath >/dev/null 2>&1; then
 fi
 
 if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
-  # NOTE: when the target AS SPELLED owns a `.git` (RAW-TARGET CHECK below), $HW_GIT_ROOT is the
-  # collapsed target string, a comparison token only; do not read files under it.
+  # NOTE: $HW_GIT_ROOT is always a real git-root path or "" (kit issue #1696). When the target AS
+  # SPELLED owns a `.git` (RAW-TARGET CHECK below) it is that spelled path and $HW_TARGET_IS_ROOT is
+  # "1"; in every other outcome $HW_TARGET_IS_ROOT is "0".
   # _hw_find_git_root <dir> : sets $HW_GIT_ROOT to the nearest ancestor of <dir> (inclusive of
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
   # FILE, and this must recognise that too), or "" if none is found before reaching `/` or the
@@ -194,6 +195,7 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # would pay for a case that has not occurred.
   _hw_find_git_root() {
     local d ceiling="" _hw_next
+    HW_TARGET_IS_ROOT=0
     _hw_abspath "$1"; d="$HW_ABS_PATH"
     # kit r3 review, M3: $ceiling used to be compared TEXTUALLY against $RSDD_HOOK_WIRING_CEILING
     # as-is, so a value with a trailing slash never matched $d (always trailing-slash-free after
@@ -209,12 +211,11 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
     local _hw_raw="$1"
     case "$_hw_raw" in /*) : ;; *) _hw_raw="$PWD/$_hw_raw" ;; esac
     if { [ -z "$ceiling" ] || [ "$d" != "$ceiling" ]; } && [ -e "$_hw_raw/.git" ]; then  # HOOK-WIRING-RAWGIT-CHECK
-      # COMPARISON TOKEN, NOT A PATH TO READ UNDER: in this branch $d (the textually collapsed
-      # spelling) may name a different directory than the one that owns the `.git`. It is returned
-      # so the sole consumer (hook_stop_wiring_state_var, WIRED-OFF-ROOT-CHECK, which only compares
-      # $HW_GIT_ROOT with the same normalization of the target) sees "target is its own root".
-      # Chosen over the raw spelling because that comparison would never be equal to it.
-      HW_GIT_ROOT="$d"
+      # The sole consumer (hook_stop_wiring_state_var, WIRED-OFF-ROOT-CHECK) reads the flag, not a
+      # string comparison: the collapsed $d may name a directory that owns no `.git` at all, so it
+      # is never returned as the root. The spelled path owns the `.git`, so it is a real root.
+      HW_TARGET_IS_ROOT=1
+      HW_GIT_ROOT="$_hw_raw"
       return 0
     fi
     while :; do
@@ -286,7 +287,7 @@ if ! declare -F hook_stop_wiring_state_var >/dev/null 2>&1; then
       local _hw_target_norm
       _hw_abspath "$target"; _hw_target_norm="$HW_ABS_PATH"  # same normalization as _hw_find_git_root below
       _hw_find_git_root "$target"
-      if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK
+      if [ "$HW_TARGET_IS_ROOT" != "1" ] && [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK
         HOOK_WIRING_STATE="wired-off-root"
       fi
     fi

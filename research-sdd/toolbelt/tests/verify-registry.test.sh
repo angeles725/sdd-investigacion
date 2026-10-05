@@ -516,6 +516,21 @@ else
   no "3s nested off-git-root target, wired, 'hook no' claim → no reverse WARN (off-root exclusion still applies)" "exit=$RC out=[$OUT]"
 fi
 
+# 3t0 — POSITIVE CONTROL for 3t's negative check (kit issue #1696): the old 'HOOK NO' (uppercase)
+#      row DOES trip NONCONFORM-FIELD-CHECK ('not in schema'), so 3t's `! grep 'not in schema'`
+#      provably bites — without this a renamed WARN would leave 3t passing vacuously.
+kit="$(mkkit c3t0-hooknouppercase-control)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if grep -q 'not in schema' <<<"$OUT"; then
+  ok "3t0 'HOOK NO' (uppercase) row → NONCONFORM 'not in schema' WARN (positive control for 3t)" "(exit $RC)"
+else
+  no "3t0 'HOOK NO' (uppercase) row → NONCONFORM 'not in schema' WARN (positive control for 3t)" "exit=$RC out=[$OUT]"
+fi
+
 # 3t — REVERSE HOOK-CLAIM case-insensitivity (kit issue #1141 round-3 review nit): row claims
 #      'hook NO' (uppercase value) but the target's Stop hook IS actually wired → WARN still fires.
 #      Case-insensitivity previously had no dedicated fixture or mutation tooth — 'grep -iE' →
@@ -2395,7 +2410,7 @@ write_targets "$kit" "$absent_single::5 md"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
-   && grep -qE '\· 1 absent target' <<<"$OUT" \
+   && grep -qE '· 1 absent target' <<<"$OUT" \
    && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
   ok "66 single absent target → absent_paths=1, INFO, Summary field, exit 0" "(exit $RC)"
 else
@@ -2417,7 +2432,7 @@ run "$kit"
 # Must count the "multi" row exactly ONCE as absent (not twice), so absent_paths=1.
 if [ "$RC" = 0 ] \
    && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
-   && grep -qE '\· 1 absent target' <<<"$OUT"; then
+   && grep -qE '· 1 absent target' <<<"$OUT"; then
   ok "67 two absent tokens same row → counted ONCE (dedup prevents double-count)" "(exit $RC)"
 else
   no "67 two absent tokens same row → expected exactly 1 absent" "exit=$RC out=[$OUT]"
@@ -2578,7 +2593,7 @@ OUT="$(RESEARCH_HOME="$_rh_base_75" "$BASH_BIN" "$kit/toolbelt/verify-registry.s
 unset _rh_base_75
 if [ "$RC" = 0 ] \
    && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
-   && grep -qE '\· 1 absent target' <<<"$OUT" \
+   && grep -qE '· 1 absent target' <<<"$OUT" \
    && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
   ok "75 \$RESEARCH_HOME token + absent slug, both absent → counted ONCE (§7 guard survives)" "(exit $RC)"
 else
@@ -2602,7 +2617,7 @@ mkdir -p "$_rh_base_76" "$_cwd_76"'/$OTHER_VAR/real'
 OUT="$(cd "$_cwd_76" && RESEARCH_HOME="$_rh_base_76" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
    && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
-   && grep -qE '\· 1 absent target' <<<"$OUT"; then
+   && grep -qE '· 1 absent target' <<<"$OUT"; then
   ok "76 \$OTHER_VAR token (literal dir exists) is NOT a row path → row stays absent (#1044)" "(exit $RC)"
 else
   no "76 \$OTHER_VAR token (literal dir exists) is NOT a row path → row stays absent (#1044)" "exit=$RC out=[$OUT]"
@@ -3071,6 +3086,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     vr_run "teeth-hook-no-claim-case: case-sensitive mutant silences test 3t (uppercase 'hook NO') — has teeth" "$kit" 0 0 \
       --good-has 'Stop hook IS wired' --good-lacks 'not in schema' \
       --bad-lacks "Stop hook IS wired|$VR_CRASH"
+  fi
+
+  echo "-- teeth-nonconform-field-warn: silence the NONCONFORM-FIELD-CHECK WARN; test 3t0 (uppercase 'HOOK NO' positive control) must lose its 'not in schema' WARN (kit issue #1696) --"
+  kit="$(mkkit teeth-nonconformwarn)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / HOOK NO) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-nonconform-field-warn" "$kit" '/# NONCONFORM-FIELD-CHECK/ s/echo "WARN/: "WARN/'; then
+    vr_run "teeth-nonconform-field-warn: silenced WARN loses 'not in schema' — test 3t0 control has teeth" "$kit" 0 0 \
+      --good-has 'not in schema' --bad-lacks "not in schema|$VR_CRASH"
   fi
 
   echo "-- teeth-hook-no-claim-fileyes-scope: widen HOOK-NO-CLAIM-EXTRACT back to also match 'hook file yes' (undoes the #1141 round-3 narrowing); test 3n ('hook file yes / unregistered', own git root) must false-WARN --"

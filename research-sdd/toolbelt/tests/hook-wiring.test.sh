@@ -337,6 +337,37 @@ export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling21"
 if [ -z "$_r21" ]; then ok "21 raw .git target whose collapsed path is the ceiling → ceiling wins (no root)"
 else no "21 raw .git target whose collapsed path is the ceiling → ceiling wins (no root)" "HW_GIT_ROOT=[$_r21]"; fi
 
+# --- 22 — HW_TARGET_IS_ROOT FLAG (kit issue #1696): in the RAW-TARGET branch HW_GIT_ROOT used to be
+#      the textually collapsed target, which can name a directory with NO .git. It must now be a real
+#      git-root path (here: the spelled target, which owns the .git) and the "target is its own root"
+#      answer travels in HW_TARGET_IS_ROOT. The ordinary walk and the ceiling leave the flag 0.
+d22_p="$ROOT/t22-P"; d22_q="$ROOT/t22-Q"
+mkdir -p "$d22_p/sub" "$d22_q/y/z"
+git init -q "$d22_p" >/dev/null 2>&1; git init -q "$d22_q/y" >/dev/null 2>&1
+ln -s "$d22_q/y/z" "$d22_p/sub/link"
+_hw_find_git_root "$d22_p/sub/link/.."
+_r22="$HW_GIT_ROOT"; _f22="$HW_TARGET_IS_ROOT"
+if [ "$_f22" = "1" ] && [ -e "$_r22/.git" ]; then ok "22a raw .git target → HW_TARGET_IS_ROOT=1 and HW_GIT_ROOT owns a .git"
+else no "22a raw .git target → flag set, HW_GIT_ROOT is a real git root" "flag=[$_f22] root=[$_r22]"; fi
+_hw_find_git_root "$d22_p/sub"
+if [ "$HW_TARGET_IS_ROOT" = "0" ] && [ "$HW_GIT_ROOT" = "$d22_p" ]; then ok "22b ordinary walk → flag 0, root is the enclosing repo"
+else no "22b ordinary walk → flag 0, root is the enclosing repo" "flag=[$HW_TARGET_IS_ROOT] root=[$HW_GIT_ROOT]"; fi
+_saved_ceiling22="$RSDD_HOOK_WIRING_CEILING"
+export RSDD_HOOK_WIRING_CEILING="$d22_p/sub"
+_hw_find_git_root "$d22_p/sub/link/.."
+export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling22"
+if [ "$HW_TARGET_IS_ROOT" = "0" ] && [ -z "$HW_GIT_ROOT" ]; then ok "22c ceiling wins → flag 0 and empty root"
+else no "22c ceiling wins → flag 0 and empty root" "flag=[$HW_TARGET_IS_ROOT] root=[$HW_GIT_ROOT]"; fi
+
+# --- 23 — the string comparison stays reachable (kit issue #1696): spelled target ".../link/.." has
+#      no .git, but its collapsed path (the directory holding the link) is a git root equal to the
+#      normalized target string → flag 0, root == collapsed → plain 'wired'.
+d23_p="$ROOT/t23-P"; mkdir -p "$d23_p" "$ROOT/t23-Q/y/z"
+git init -q "$d23_p" >/dev/null 2>&1
+ln -s "$ROOT/t23-Q/y/z" "$d23_p/link"
+wire_settings "$d23_p/link/.." '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+assert_state "23 spelled target without .git, collapsed path is a git root → wired (flag 0, comparison equal)" "$d23_p/link/.." "wired"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -429,26 +460,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ $? -eq 0 ]; then ok "teeth: wired-off-root downgrade-neuter mutation caught (real sourced lib)"; else no "teeth: wired-off-root downgrade-neuter mutation NOT caught (theater)"; fi
   fi
 
-  echo "-- teeth: widen the git-root comparison to always-mismatch — case 8 must go RED (a clean git-root target would be misreported off-root) --"
+  echo "-- teeth: widen the git-root comparison to always-mismatch — case 23 must go RED (a collapsed-root-equals-target shape would be misreported off-root) --"
   mut_offroot_always="$ROOT/hook-wiring.MUTANT-offroot-always.sh"
-  if mk "teeth: WIRED-OFF-ROOT-CHECK comparison anchor in lib" "$LIB" "$mut_offroot_always" 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ -n "$HW_GIT_ROOT" ]; then  # MUTANT: comparison dropped, always mismatches when a root is found/'; then
+  if mk "teeth: WIRED-OFF-ROOT-CHECK comparison anchor in lib" "$LIB" "$mut_offroot_always" 's/\[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/[ -n "$HW_GIT_ROOT" ]; then  # MUTANT: comparison dropped/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
       . "$mut_offroot_always"
-      d="$ROOT/t8-teeth-always"; mkdir -p "$d"
-      git init -q "$d" >/dev/null 2>&1
+      # Since kit issue #1696 a target that owns a .git is answered by the flag, so the string
+      # comparison is only reachable when the spelled target has NO .git while its collapsed path
+      # does (case 23 shape): collapsed root == normalized target, so the baseline stays 'wired'.
+      d_p="$ROOT/t8-teeth-always-P"; mkdir -p "$d_p" "$ROOT/t8-teeth-always-Q/y/z"
+      git init -q "$d_p" >/dev/null 2>&1
+      ln -s "$ROOT/t8-teeth-always-Q/y/z" "$d_p/link"
+      d="$d_p/link/.."
       wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
       r="$(hook_stop_wiring_state "$d")"
       if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
-      else echo "  PASS  teeth: mutant correctly breaks case 8 (clean git-root target misreported [$r])"; exit 0; fi
+      else echo "  PASS  teeth: mutant correctly breaks case 23 (collapsed-root target misreported [$r])"; exit 0; fi
     )
     if [ $? -eq 0 ]; then ok "teeth: git-root comparison always-mismatch mutation caught (real sourced lib)"; else no "teeth: git-root comparison always-mismatch mutation NOT caught (theater)"; fi
   fi
 
   echo "-- teeth: drop the '[ -n \"\$HW_GIT_ROOT\" ]' guard — case 12 must go RED (a non-repo target would be misreported off-root) --"
   mut_hwg_guard="$ROOT/hook-wiring.MUTANT-hwgroot-null-guard.sh"
-  if mk "teeth: WIRED-OFF-ROOT-CHECK null-guard anchor in lib" "$LIB" "$mut_hwg_guard" 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # MUTANT: null-guard dropped/'; then
+  if mk "teeth: WIRED-OFF-ROOT-CHECK null-guard anchor in lib" "$LIB" "$mut_hwg_guard" 's/\[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/[ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # MUTANT: null-guard dropped/'; then
     (
       unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
@@ -602,6 +638,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       'ROOT=[]') no "teeth: RAWGIT ceiling-clause mutation NOT caught (theater)" "$r21m" ;;
       'ROOT=['*']') ok "teeth: RAWGIT ceiling-clause mutation caught (real sourced lib)" "$r21m" ;;
       *) no "teeth: RAWGIT ceiling mutant crashed, not a bite" "$r21m" ;;
+    esac
+  fi
+
+  echo "-- teeth: drop the HW_TARGET_IS_ROOT flag from WIRED-OFF-ROOT-CHECK — case 18 must go RED (false off-root returns) --"
+  mut_flagdrop="$ROOT/hook-wiring.MUTANT-flag-drop.sh"
+  if mk "teeth: WIRED-OFF-ROOT-CHECK flag anchor in lib" "$LIB" "$mut_flagdrop" 's/\[ "\$HW_TARGET_IS_ROOT" != "1" \] \&\& \[ -n "\$HW_GIT_ROOT" \]/[ -n "$HW_GIT_ROOT" ]/'; then
+    tooth_state "target-is-root flag ignored" "$mut_flagdrop" "wired" "$d18_p/sub/link/.." "case 18"
+  fi
+
+  echo "-- teeth: return the collapsed path as HW_GIT_ROOT in the raw branch — case 22a must go RED --"
+  mut_rawcollapsed="$ROOT/hook-wiring.MUTANT-raw-collapsed-root.sh"
+  if mk "teeth: raw-branch HW_GIT_ROOT anchor in lib" "$LIB" "$mut_rawcollapsed" 's/      HW_GIT_ROOT="\$_hw_raw"/      HW_GIT_ROOT="$d"  # MUTANT: collapsed path as root/'; then
+    r22m="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_rawcollapsed"
+      _hw_find_git_root "$d22_p/sub/link/.." 2>&1; if [ -e "$HW_GIT_ROOT/.git" ]; then printf 'REAL'; else printf 'FAKE[%s]' "$HW_GIT_ROOT"; fi
+    )"
+    case "$r22m" in
+      REAL) no "teeth: collapsed-path-as-root mutation NOT caught (theater)" "$r22m" ;;
+      FAKE*) ok "teeth: collapsed-path-as-root mutation caught (real sourced lib)" "$r22m" ;;
+      *) no "teeth: collapsed-root mutant crashed, not a bite" "$r22m" ;;
     esac
   fi
 
