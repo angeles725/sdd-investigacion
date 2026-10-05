@@ -146,6 +146,17 @@ if [ "$emit_token" = 1 ]; then
   esac
 fi
 
+# The default / --focus pick goes through lib/state-files.sh resolve_state_file (kit #1818): root first,
+# shallowest first, one definition shared with archive / verify-state / verify-registry. Sourced HERE, before
+# the pick, because the pick decides $corpus that everything below derives from.
+_SFLIB="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+if [ ! -f "$_SFLIB" ]; then
+  echo "research-sdd-status: cannot find helper $_SFLIB" >&2; exit 1
+fi
+# shellcheck source=lib/state-files.sh
+. "$_SFLIB"
+declare -F list_state_files >/dev/null 2>&1 && declare -F resolve_state_file >/dev/null 2>&1 || { echo "research-sdd-status: helper $_SFLIB failed to define list_state_files/resolve_state_file" >&2; exit 1; }
+
 if [ "$root_flag" = 1 ]; then
   # --root: select exactly the un-suffixed RESEARCH-STATE.md, ignoring every RESEARCH-STATE-<focus>.md.
   # A root is the TOP-LEVEL file, or the sole nested one that sits beside RESEARCH-STATE-<focus>.md
@@ -174,13 +185,17 @@ if [ "$root_flag" = 1 ]; then
   fi
 elif [ -n "$focus_slug" ]; then
   # --focus <slug>: select exactly RESEARCH-STATE-<slug>.md, ignoring sibling focuses.
-  state="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  # rc 2 (same slug in two same-depth dirs) is accepted: the C-locale-first pick is what this always chose.
+  state="$(resolve_state_file "$target" --focus "$focus_slug")"; _sf_rc=$?  # SF-FOCUS-PICK
+  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
   if [ ! -f "$state" ]; then
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE-${focus_slug}.md under $target" || echo "no RESEARCH-STATE-${focus_slug}.md under $target — run research-sdd-init.sh"
     exit 0
   fi
 else
-  state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  # SF-DEFAULT-PICK
+  state="$(resolve_state_file "$target")"; _sf_rc=$?
+  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
   if [ ! -f "$state" ]; then
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
     exit 0
@@ -202,18 +217,9 @@ fi
 # swallowed and every focus-prefix call would silently return empty, mis-counting blocks. Abort early.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 
-# Shared state-file enumeration — single definition of the "enumerate RESEARCH-STATE*.md" incantation
-# (WARNING 4: lib/state-files.sh was declared the SINGLE definition, but gate/aggregation consumers in
-# this file copy-pasted the find command instead of sourcing it; a change to the exclusion set in the
-# lib would silently diverge from those consumers on day one of the changeset). Sourcing here eliminates
-# the drift without changing the exclusion set — verify-state.sh:33 remains the authoritative reference.
-_SFLIB="$here/lib/state-files.sh"
-if [ ! -f "$_SFLIB" ]; then
-  echo "research-sdd-status: cannot find helper $_SFLIB" >&2; exit 1
-fi
-# shellcheck source=lib/state-files.sh
-. "$_SFLIB"
-declare -F list_state_files >/dev/null 2>&1 || { echo "research-sdd-status: helper $_SFLIB failed to define list_state_files" >&2; exit 1; }
+# lib/state-files.sh (list_state_files / resolve_state_file) was already sourced above, before the pick
+# that decides $corpus — the single definition of the "enumerate RESEARCH-STATE*.md" incantation
+# (verify-state.sh:33 remains the authoritative reference for the exclusion set).
 
 _BFLIB="$here/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "research-sdd-status: cannot find helper $_BFLIB" >&2; exit 1; fi
@@ -860,7 +866,7 @@ if [ "$mode" = "--sync-state" ]; then
   # When --focus is given, restrict the sync to that single file only (avoids seeding siblings).
   if [ -n "$focus_slug" ] || [ "$root_flag" = 1 ]; then
     if [ "$root_flag" = 1 ]; then _focused="$state"  # ROOT-SYNC-SELECT: the root already resolved (and vetted) at startup
-    else _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"; fi
+    else _focused="$(resolve_state_file "$target" --focus "$focus_slug")"; fi  # rc 0/1/2: absent prints nothing -> the -f guard below; a tie keeps the first pick
     if [ ! -f "$_focused" ]; then
       printf 'sync-state: no RESEARCH-STATE%s.md under %s\n' "${focus_slug:+-$focus_slug}" "$target" >&2; exit 1
     fi
