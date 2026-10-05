@@ -2218,15 +2218,32 @@ tgt_wired="$kit/targetB-wired"; mkdir -p "$tgt_wired"
 git init -q "$tgt_wired" >/dev/null 2>&1
 wire_target "$tgt_wired"
 write_targets "$kit" "$tgt" "$tgt_wired"
-run_profile "$kit"
-_p68_pend="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
-_p68_waiv="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
-_p68_rn="$(  grep '^profile: retro-newest-pass ' <<<"$STDERR_P" | awk '{print $NF}')"
-_p68_bn="$(  grep '^profile: block-newest-pass ' <<<"$STDERR_P" | awk '{print $NF}')"
-_p68_tot="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
-_p68_recon="$(awk -v p="${_p68_pend:-0}" -v w="${_p68_waiv:-0}" -v t="${_p68_tot:-0}" \
-  'BEGIN{if(t==0){print "skip";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
-         print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
+# Load robustness (kit issue #1836): the reconciliation is a RATIO of wall-clock timers over a fixture whose whole
+# sweep takes milliseconds, so ONE scheduler stall in the un-named gap (the wired-target pass, the summary print) moves
+# it past 15% by itself. This host stalls any timed wait for ~3.7 s about once per ~250 waits (#1770). The defect this
+# case guards (a phase timer that is dropped or double-counted) is DETERMINISTIC: it fails the ratio on every run,
+# whereas a stall hits a run at random. So the verdict is judged over a bounded number of independent runs: the case
+# passes on the first run that reconciles and fails only when ALL P68_MAX_RUNS runs miss (tooth PRWT feeds a real
+# accounting defect through the same helper). A stall must therefore land in 5 consecutive runs to flake it.
+P68_MAX_RUNS=5
+# p68_profile <kit> : run the profile up to P68_MAX_RUNS times, stopping at the first run that reconciles.
+# Leaves RC/STDOUT_P/STDERR_P (of the deciding run) and P68_RUNS, P68_RECON, P68_* timers set.
+p68_profile() {
+  P68_RUNS=0
+  while :; do
+    run_profile "$1"; P68_RUNS=$((P68_RUNS + 1))
+    P68_PEND="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
+    P68_WAIV="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
+    P68_TOT="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
+    P68_RECON="$(awk -v p="${P68_PEND:-0}" -v w="${P68_WAIV:-0}" -v t="${P68_TOT:-0}" \
+      'BEGIN{if(t==0){print "skip";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+             print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
+    [ "$P68_RECON" = ok ] && return 0
+    [ "$P68_RUNS" -ge "$P68_MAX_RUNS" ] && return 1
+  done
+}
+p68_profile "$kit"
+_p68_recon="$P68_RECON"
 if [ "$RC" = 0 ] \
    && ! grep -q 'profile:' <<<"$STDOUT_P" \
    && grep -qE '^profile: pending-pass [0-9]+\.[0-9]+$'      <<<"$STDERR_P" \
@@ -2238,7 +2255,7 @@ if [ "$RC" = 0 ] \
   ok "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" "(exit $RC)"
 else
   no "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" \
-     "RC=$RC recon=$_p68_recon stderr=[$STDERR_P]"
+     "RC=$RC recon=$_p68_recon runs=$P68_RUNS stderr=[$STDERR_P]"
 fi
 
 # 69 — RSDD_PROFILE unset/0: ZERO behaviour change — no 'profile:' lines on stdout or
@@ -4379,6 +4396,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth PRWT: waiver-zeroed mutant must break reconciliation — case 68 is THEATER" \
          "waiv=$_prwt_waiv pend=$_prwt_pend total=$_prwt_tot recon=$_prwt_recon stderr=[$STDERR_M]"
+    fi
+    # The bounded multi-run verdict (#1836) must not launder a REAL accounting defect: the same waiver-zeroed
+    # mutant, fed through case 68's own helper, must miss on all P68_MAX_RUNS runs and the helper must say so.
+    if p68_profile "$kit"; then
+      no "teeth PRWT-retry: waiver-zeroed mutant reconciled within $P68_RUNS run(s) — the retry masks a real defect" "recon=$P68_RECON"
+    elif [ "$P68_RUNS" = "$P68_MAX_RUNS" ]; then
+      ok "teeth PRWT-retry: waiver-zeroed mutant misses on all $P68_RUNS runs — case 68's multi-run verdict still has teeth" "()"
+    else
+      no "teeth PRWT-retry: helper gave up after $P68_RUNS of $P68_MAX_RUNS runs" "recon=$P68_RECON"
     fi
   fi
 

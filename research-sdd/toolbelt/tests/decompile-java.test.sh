@@ -216,6 +216,12 @@ mkdir -p "$T_JAVA_HOME/bin"
 cat > "$T_JAVA_HOME/bin/java" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "-version" ]; then echo 'openjdk version "21.0.1" 2023-10-17'; exit 0; fi
+# Spurious-timeout detector (kit issue #1836): this stub is "fast" unless a STUB_* knob below sends it to sleep, and every
+# sleeping path disarms this trap first. A TERM that lands while the call is still on its FAST path is therefore a host
+# stall that outlived the 1 s bound, never an intended timeout: record it so rt() can re-run the case.
+trap '[ -z "${STUB_LOG:-}" ] || echo "$$ ${1:-}" >> "$STUB_LOG.spurious"; exit 143' TERM
+# STUB_STALL_ONCE=<marker file>: the first call that finds the marker absent stalls 3 s on the FAST path (a simulated host stall).
+[ -n "${STUB_STALL_ONCE:-}" ] && [ ! -e "$STUB_STALL_ONCE" ] && { : > "$STUB_STALL_ONCE"; sleep 3; }
 args=("$@"); n=${#args[@]}; jar=""
 for ((i = 0; i < n; i++)); do [ "${args[i]}" = "-jar" ] && jar="${args[i+1]}"; done
 case "$jar" in *vineflower*) eng=vineflower ;; *cfr*) eng=cfr ;; *procyon*) eng=procyon ;; *) eng=unknown ;; esac
@@ -231,31 +237,36 @@ else r="${IN#*/ext/}"; [ "$r" = "$IN" ] && r="$(basename "$IN")"; classes="$r"; 
 [ "$eng" = vineflower ] && [ -n "${STUB_VF_RC:-}" ] && exit "$STUB_VF_RC"
 [ "$eng" = vineflower ] && [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
 ncls="$(printf '%s\n' "$classes" | grep -vc '\$')"
-[ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && sleep "$STUB_CFR_SLEEP"
-[ "$eng" = cfr ] && [ -n "${STUB_CFR_UNIT_SLEEP:-}" ] && [[ "$IN" != *.jar ]] && sleep "$STUB_CFR_UNIT_SLEEP"
-[ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && exec sleep "${STUB_SLEEP:-3}"
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_SLEEP:-}" ] && { trap - TERM; sleep "$STUB_CFR_SLEEP"; }
+[ "$eng" = cfr ] && [ -n "${STUB_CFR_UNIT_SLEEP:-}" ] && [[ "$IN" != *.jar ]] && { trap - TERM; sleep "$STUB_CFR_UNIT_SLEEP"; }
+[ "$eng" = vineflower ] && [ -n "${STUB_SLEEP_MIN:-}" ] && [ "$ncls" -ge "$STUB_SLEEP_MIN" ] && { trap - TERM; exec sleep "${STUB_SLEEP:-3}"; }
 [ "$eng" = vineflower ] && [ -n "${STUB_EMPTY_MIN:-}" ] && [ -d "$IN" ] && [ "$ncls" -ge "$STUB_EMPTY_MIN" ] && exit 0
 if [ "$eng" = vineflower ]; then
-  for c in $classes; do b="$(basename "$c" .class)"
-    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && { [ -n "${STUB_IGNORE_TERM:-}" ] && { trap '' TERM; for _ in $(seq 1 100); do sleep 0.2; done; exit 0; }; exec sleep "${STUB_SLEEP:-3}"; }; done
+  for c in $classes; do b="${c##*/}"; b="${b%.class}"
+    for s in ${STUB_SLEEP_CLASSES:-}; do [ "$b" = "$s" ] && { trap - TERM; [ -n "${STUB_IGNORE_TERM:-}" ] && { trap '' TERM; for _ in $(seq 1 100); do sleep 0.2; done; exit 0; }; exec sleep "${STUB_SLEEP:-3}"; }; done
   done
 fi
+# The per-class work below is FORK-FREE (parameter expansion, no basename/dirname/grep/printf subshells): the stub is the
+# fast path under a 1 s bound, and its old per-class forks (quadratic in the '$' count of a generated-class name) took
+# long enough under CPU load to read as a vineflower timeout (kit issue #1836: S2a failed 2 of 2 loaded runs).
+nl=$'\n'; list="$nl$classes$nl"
 for c in $classes; do
-  b="$(basename "$c" .class)"
+  b="${c##*/}"; b="${b%.class}"; dn="${c%/*}"; [ "$dn" = "$c" ] && dn=.
   inner=""  # like the real engines: a '$' class is inner when ANY non-empty prefix before one of its '$' has a .class beside it
   for ((k = 1; k < ${#b}; k++)); do
     [ "${b:k:1}" = '$' ] || continue
-    pre="${b:0:k}"; grep -qx "$(dirname "$c")/$pre.class\|$pre.class" <<<"$classes" && inner=1
+    pre="${b:0:k}"; [[ "$list" == *"$nl$dn/$pre.class$nl"* || "$list" == *"$nl$pre.class$nl"* ]] && inner=1
   done
   for m in ${STUB_STANDALONE_CLASSES:-}; do [ "$b" = "$m" ] && inner=""; done
   [ -z "$inner" ] || continue
   omit=""; for m in ${STUB_OMIT_CLASSES:-}; do [ "$b" = "$m" ] && omit=1; done
   [ "$eng" = vineflower ] && [ -n "$omit" ] && continue
   oc="$c"; [ -z "${STUB_STRIP_LAYOUT:-}" ] || { oc="${oc#BOOT-INF/classes/}"; oc="${oc#WEB-INF/classes/}"; oc="${oc#META-INF/versions/*/}"; }
-  mkdir -p "$OUT/$(dirname "$oc")"
+  od="${oc%/*}"; [ "$od" = "$oc" ] && od=.
+  mkdir -p "$OUT/$od"
   { echo "// engine=$eng"; echo "class $b {"
     if [ "$eng" = vineflower ] || [ -n "${STUB_CFR_MARKER:-}" ]; then
-      def="$(printf '    // $VF: Couldn%st be decompiled' "'")"
+      printf -v def '    // $VF: Couldn%st be decompiled' "'"
       for m in ${STUB_MARKER_CLASSES:-}; do
         [ "$b" = "$m" ] && printf '%s\n' "${STUB_MARKER_TEXT:-$def}"
       done
@@ -271,7 +282,24 @@ cp "$T_JAVA_HOME/bin/java" "$T_JAVA_HOME/bin/javap"
 
 # rt <tag> <input> [ENV=val ...] -- [sut options]   (output dir: $ROOT/o-<tag>)
 # Sets RC, SO (stdout), SE (stderr).  RT_SUT overrides the script under test.
+# A call killed by the 1 s bound while still on the stub's FAST path is a host stall, not the timeout the case is about
+# (this WSL host stalls any timed wait ~3.7 s about once per ~250 waits, #1770; the vineflower runs of --prove-teeth failed
+# on exactly that, #1836). The stub marks such a kill in $STUB_LOG.spurious; rt() then re-runs the whole case, at most
+# RT_MAX_ATTEMPTS (default 3) times, and the deciding attempt is the one whose RC/SO/SE the case sees. RT_ATTEMPTS says how
+# many it took. A case whose stub is MEANT to sleep disarms the marker, so an intended timeout is never retried away.
+RT_MAX_ATTEMPTS_DEFAULT=3
 rt() {
+  local tag="$1" max="${RT_MAX_ATTEMPTS:-$RT_MAX_ATTEMPTS_DEFAULT}"
+  RT_ATTEMPTS=0
+  while :; do
+    rm -f "$ROOT/log-$tag" "$ROOT/log-$tag.spurious"
+    RT_ATTEMPTS=$((RT_ATTEMPTS + 1))
+    _rt_once "$@"
+    [ -e "$ROOT/log-$tag.spurious" ] || return 0
+    [ "$RT_ATTEMPTS" -ge "$max" ] && return 0
+  done
+}
+_rt_once() {
   local tag="$1" in="$2"; shift 2
   local -a ev=()
   while [ "${1:-}" != "--" ]; do ev+=("$1"); shift; done
@@ -308,6 +336,23 @@ if [ "$RC" -eq 4 ] && grep -q '^DEGRADED' <<<"$SO" && ! grep -q '^OK' <<<"$SO" \
 else
   no "A1 timeout → cfr fallback, DEGRADED rc=4, unit named reason=timeout" "rc=$RC so=[$SO] se=[$SE]"
 fi
+
+# A1b: an INTENDED timeout (the stub sleeps on purpose) is never retried away by rt(): it took exactly one attempt.
+[ "$RT_ATTEMPTS" = 1 ] && ok "A1b intended timeout is not retried (1 attempt)" || no "A1b intended timeout retried" "attempts=$RT_ATTEMPTS"
+
+# A1c/A1d: a host stall on the stub's FAST path (STUB_STALL_ONCE: first call stalls 3 s under the 1 s bound) is not the
+#          timeout A1 is about. Without rt()'s retry it reads as a vineflower timeout -> cfr fallback (the control: the
+#          stall really bites); with it the case is re-run and the vineflower primary succeeds (kit issue #1836).
+rm -f "$ROOT/stall-A1d"
+RT_MAX_ATTEMPTS=1 rt A1d "$FAKE_CLASS" STUB_STALL_ONCE="$ROOT/stall-A1d" -- --engine vineflower
+if [ "$RC" -eq 4 ] && grep -q '^UNIT: Test.*reason=timeout' <<<"$SO" && [ -e "$ROOT/log-A1d.spurious" ]; then
+  ok "A1d control: a fast-path stall with retries disabled reads as a timeout and is flagged spurious"
+else no "A1d control: stall not reproduced as a flagged timeout (the A1c case below would be vacuous)" "rc=$RC so=[$SO] se=[$SE]"; fi
+rm -f "$ROOT/stall-A1c"
+rt A1c "$FAKE_CLASS" STUB_STALL_ONCE="$ROOT/stall-A1c" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -q '^OK' <<<"$SO" && [ "$(engine_of A1c Test.java)" = vineflower ] && [ "$RT_ATTEMPTS" = 2 ]; then
+  ok "A1c fast-path stall: rt() re-runs the case, the vineflower primary succeeds on attempt 2"
+else no "A1c fast-path stall not recovered by the retry" "rc=$RC attempts=$RT_ATTEMPTS so=[$SO] se=[$SE]"; fi
 
 # A2: non-zero exit (not a timeout) also falls back; reason distinguishes the two.
 rt A2 "$FAKE_CLASS" STUB_VF_RC=7 -- --engine vineflower
