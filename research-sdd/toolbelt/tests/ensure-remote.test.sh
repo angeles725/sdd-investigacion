@@ -92,12 +92,19 @@ mk_gh_stub() {
   {
     printf '#!%s\n' "$BASH_BIN"
     printf 'echo "gh $*" >> "%s/calls.log"\n' "$box"
+    printf 'BOX="%s"\n' "$box"
     cat <<'EOF'
 case " $* " in
-  *" repo create "*) exit "${GH_CREATE_EXIT:-0}" ;;
+  *" repo create "*) echo "create PROMPT=${GH_PROMPT_DISABLED-UNSET}" >> "$BOX/env.log"
+                     [ -n "${GH_CREATE_SLEEP:-}" ] && exec sleep "$GH_CREATE_SLEEP"
+                     exit "${GH_CREATE_EXIT:-0}" ;;
   *" repo view "*)   [ -n "${GH_VIEW_SLEEP:-}" ] && exec sleep "$GH_VIEW_SLEEP"
+                     if [ -e "$BOX/edited" ] && [ -n "${GH_VIS_AFTER_EDIT:-}" ]; then echo "$GH_VIS_AFTER_EDIT"; exit 0; fi
                      echo "${GH_VIS:-PRIVATE}"; exit 0 ;;
-  *" repo edit "*)   exit 0 ;;
+  *" repo edit "*)   echo "edit PROMPT=${GH_PROMPT_DISABLED-UNSET}" >> "$BOX/env.log"
+                     : > "$BOX/edited"
+                     [ -n "${GH_EDIT_SLEEP:-}" ] && exec sleep "$GH_EDIT_SLEEP"
+                     exit "${GH_EDIT_EXIT:-0}" ;;
   *" api users/"*)   echo "${GH_OWNER_TYPE:-User}"; exit "${GH_USERS_EXIT:-0}" ;;
   *" api user "*)    echo "${GH_OWNER:-tester}"; exit 0 ;;
   *) exit 0 ;;
@@ -463,6 +470,73 @@ else
   no "21 stalled gh -> bounded, UNKNOWN != PRIVATE -> abort 6, no push" "exit=$RC21(want 6) ${EL21}s push=$(has_call "$box" 'git .* push' && echo YES || echo no) out=[$(tr '\n' '|' <"$OUT21")]"
 fi
 
+# run_capped <box> — run the SUT with the stall knobs inherited from the caller's env prefix, under a 20 s
+#   harness cap (a hung SUT is a FAIL, not a hang). Output -> $box/out.txt, exit -> RCX, elapsed seconds -> ELX.
+run_capped() {
+  local box="$1" t0=$SECONDS p w
+  PATH="$box/bin" HOME="$box/home" GIT_HAS_ORIGIN=0 GH_OWNER=tester GH_OWNER_TYPE=User SCAN_EXIT=0 \
+    GIT_TRACKED_SECRETS="" GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 GIT_STATUS_DIRTY=0 GIT_STATUS_FAIL=0 \
+    "$BASH_BIN" "$box/ensure-remote.sh" "$box/target" --yes >"$box/out.txt" 2>&1 &
+  p=$!
+  ( sleep 20; kill -9 "$p" 2>/dev/null ) >/dev/null 2>&1 &
+  w=$!
+  wait "$p" 2>/dev/null; RCX=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  ELX=$((SECONDS-t0))
+}
+
+# 22 — kit issue #1841: a STALLED `gh repo create` is bounded (typed DEGRADED, exit 7), never a hang, never a push.
+reset_ctl
+box="$(mkbox c22-create-stall)"
+GH_CREATE_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+if [ "$RCX" = 7 ] && [ "$ELX" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt" && grep -q 'gh repo create' "$box/out.txt"; then
+  ok "22 stalled gh repo create -> bounded, DEGRADED, exit 7, no push" "(exit $RCX, ${ELX}s)"
+else
+  no "22 stalled gh repo create -> bounded, DEGRADED, exit 7, no push" "exit=$RCX(want 7) ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+
+# 23 — kit issue #1841: a STALLED `gh repo edit` is bounded and typed DEGRADED, visibility is RE-READ after it
+#      (no assumption the edit did or did not land); still PUBLIC -> HARD-ABORT 6, no push.
+reset_ctl
+box="$(mkbox c23-edit-stall-public)"
+GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+if [ "$RCX" = 6 ] && [ "$ELX" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt" \
+   && grep -q 'gh repo edit' "$box/out.txt" && [ "$(grep -c 'gh repo view' "$box/calls.log")" -ge 2 ]; then
+  ok "23 stalled gh repo edit -> bounded, DEGRADED, re-read, still PUBLIC -> abort 6" "(exit $RCX, ${ELX}s)"
+else
+  no "23 stalled gh repo edit -> bounded, DEGRADED, re-read, still PUBLIC -> abort 6" "exit=$RCX(want 6) ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+
+# 24 — kit issue #1841: the edit timed out but LANDED (re-read says PRIVATE) -> the re-read, not the timeout, decides: push.
+reset_ctl
+box="$(mkbox c24-edit-stall-landed)"
+GH_VIS=PUBLIC GH_VIS_AFTER_EDIT=PRIVATE GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+if [ "$RCX" = 0 ] && has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt"; then
+  ok "24 edit timed out but landed (re-read PRIVATE) -> pushes, exit 0" "(exit $RCX, ${ELX}s)"
+else
+  no "24 edit timed out but landed (re-read PRIVATE) -> pushes, exit 0" "exit=$RCX(want 0) out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+
+# 25 — kit issue #1841: create and edit run with GH_PROMPT_DISABLED=1 (even when the caller exported 0).
+reset_ctl
+box="$(mkbox c25-prompt-disabled)"
+GH_PROMPT_DISABLED=0 GH_VIS=PUBLIC GH_VIS_AFTER_EDIT=PRIVATE run_capped "$box"
+if [ "$RCX" = 0 ] && grep -qx 'create PROMPT=1' "$box/env.log" && grep -qx 'edit PROMPT=1' "$box/env.log"; then
+  ok "25 gh repo create/edit run with GH_PROMPT_DISABLED=1" "(exit $RCX)"
+else
+  no "25 gh repo create/edit run with GH_PROMPT_DISABLED=1" "exit=$RCX env.log=[$(tr '\n' '|' <"$box/env.log" 2>/dev/null)]"
+fi
+
+# 26 — a fast-failing `gh repo create` stays the old refusal (exit 7), not reported as a timeout.
+reset_ctl
+box="$(mkbox c26-create-fails)"
+GH_CREATE_EXIT=1 run_capped "$box"
+if [ "$RCX" = 7 ] && grep -q 'gh repo create failed' "$box/out.txt" && ! grep -q 'timed out' "$box/out.txt"; then
+  ok "26 failing gh repo create -> exit 7, not reported as a timeout" "(exit $RCX)"
+else
+  no "26 failing gh repo create -> exit 7, not reported as a timeout" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
@@ -695,6 +769,44 @@ fi'
     kill "$WT" 2>/dev/null; wait "$WT" 2>/dev/null
     if [ "$RCT" = 137 ]; then ok "teeth21: unbounded probe hangs (killed rc=137) — case 21 has teeth"
     else no "teeth21: unbounded mutant did not hang (rc=$RCT) — case 21 is THEATER"; fi
+  fi
+
+  # T7-T9 (kit issue #1841) — each mutant is run through the SAME run_capped as cases 22/23 on a box whose SUT
+  #      copy is the mutant; the case's invariant must now be VIOLATED.
+  # teeth_box LABEL ORIG NEW — fresh box named after LABEL, SUT copy replaced by the vetted mutant. Sets TBOX.
+  teeth_box() {
+    local b; reset_ctl; b="$ROOT/$1"; mkbox "$1" >/dev/null
+    mut_sub "$1" "$2" "$3" "$b/ensure-remote.sh"
+    TBOX="$b"
+  }
+  origC='if ! gh_bounded_run gh repo create'
+  origE='if ! gh_bounded_run gh repo edit'
+  if [[ "$content" != *"$origC"* || "$content" != *"$origE"* ]]; then
+    no "teeth22/23: build unbounded create/edit mutants" "gh_bounded_run anchors not found — SUT drifted?"
+  else
+    echo "-- teeth 22: unbounded gh repo create, expect case 22's stalled create to HANG (harness-killed) --"
+    teeth_box teeth22-create-unbounded "$origC" 'if ! gh repo create'; box="$TBOX"
+    GH_CREATE_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+    if [ "$RCX" = 137 ]; then ok "teeth22: unbounded create hangs (killed rc=137) — case 22 has teeth"
+    else no "teeth22: unbounded create did not hang (rc=$RCX) — case 22 is THEATER"; fi
+    echo "-- teeth 23: unbounded gh repo edit, expect case 23's stalled edit to HANG (harness-killed) --"
+    teeth_box teeth23-edit-unbounded "$origE" 'if ! gh repo edit'; box="$TBOX"
+    GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+    if [ "$RCX" = 137 ]; then ok "teeth23: unbounded edit hangs (killed rc=137) — case 23 has teeth"
+    else no "teeth23: unbounded edit did not hang (rc=$RCX) — case 23 is THEATER"; fi
+  fi
+
+  # T10 — trust the edit without re-reading (vis=PRIVATE after the edit): case 23's still-PUBLIC repo must now be PUSHED.
+  echo "-- teeth 24: assume the edit landed (no re-read), expect a PUSH to a still-PUBLIC repo --"
+  origR=$'  fi\n  vis="$(read_vis)"\nfi'
+  newR=$'  fi\n  vis=PRIVATE\nfi'
+  if [[ "$content" != *"$origR"* ]]; then
+    no "teeth24: build no-reread mutant" "re-read anchor not found — SUT drifted?"
+  else
+    teeth_box teeth24-no-reread "$origR" "$newR"; box="$TBOX"
+    GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+    if has_call "$box" 'git .* push'; then ok "teeth24: without the re-read a PUBLIC repo is pushed — case 23 has teeth"
+    else no "teeth24: mutant did not push (rc=$RCX) — case 23 is THEATER"; fi
   fi
 fi
 

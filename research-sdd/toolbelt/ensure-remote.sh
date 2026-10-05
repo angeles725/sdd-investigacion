@@ -173,8 +173,15 @@ fi
 
 # --- LAYER 1 + 5: create PRIVATE, then VERIFY visibility BEFORE ANY push -----------------------------
 echo ">> creating PRIVATE remote $owner/$repo"
-if ! gh repo create "$owner/$repo" --private --source "$target" --remote origin --disable-wiki; then
-  echo "REFUSED: gh repo create failed." >&2; exit 7
+# Bounded like the visibility probe (kit issue #1841): RSDD_GH_TIMEOUT seconds, GH_PROMPT_DISABLED=1. A TIMEOUT leaves
+# the remote state UNKNOWN (the repo may or may not exist) — typed DEGRADED, refuse, never assume either way.
+if ! gh_bounded_run gh repo create "$owner/$repo" --private --source "$target" --remote origin --disable-wiki; then
+  if [ "$GHV_STATE" = TIMEOUT ]; then
+    echo "DEGRADED: gh repo create timed out after ${GHV_BOUND}s — remote state UNKNOWN; nothing pushed. Check https://github.com/$owner/$repo by hand (delete it if it exists and is not private), then re-run." >&2
+  else
+    echo "REFUSED: gh repo create failed." >&2
+  fi
+  exit 7
 fi
 
 # read_vis prints PUBLIC|PRIVATE|INTERNAL when decided, else UNKNOWN(<typed state>) — a stalled, failing or
@@ -183,7 +190,15 @@ read_vis() { if gh_visibility_probe gh "$owner/$repo"; then printf '%s' "$GHV_ST
 vis="$(read_vis)"
 if [ "$vis" != "PRIVATE" ]; then
   echo "   visibility read back as '$vis' — forcing --visibility private once" >&2
-  gh repo edit "$owner/$repo" --visibility private >/dev/null 2>&1 || true
+  # Bounded (kit issue #1841). The outcome is deliberately NOT trusted either way: a timed-out or failed edit is typed
+  # DEGRADED and the re-read below is the only authority on what the repo is now.
+  if ! gh_bounded_run gh repo edit "$owner/$repo" --visibility private >/dev/null 2>&1; then
+    if [ "$GHV_STATE" = TIMEOUT ]; then
+      echo "   DEGRADED: gh repo edit timed out after ${GHV_BOUND}s — outcome unknown, re-reading visibility" >&2
+    else
+      echo "   DEGRADED: gh repo edit failed (exit ${GHV_RC}) — re-reading visibility" >&2
+    fi
+  fi
   vis="$(read_vis)"
 fi
 if [ "$vis" != "PRIVATE" ]; then

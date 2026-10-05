@@ -2222,6 +2222,33 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   assert_grep "K1800-h typed timed-out DEGRADED" "vendor-leak: DEGRADED gh timed out after 1s" "$TMP/k00-h.out"
   assert_grep "K1800-h the repair still finished" "== done ==" "$TMP/k00-h.out"
   [ -f "$d/.claude/settings.json" ] && ok "K1800-h the settings.json repair happened" || no "K1800-h settings.json missing"
+  # (i) kit issue #1834: the SUCCESS path of the no-`timeout` watchdog. gh answers PUBLIC at once -> the real visibility is used
+  # (not a typed timeout), the run is fast, and the watchdog is reaped: a pid-recording `sleep` shim proves, with kill -0, that no
+  # watchdog `sleep` survives the run (the bound is 8s; a leaked sleep is still alive right after the run).
+  _k34_real_sleep="$(command -v sleep)"; _k34_bin="$TMP/k34bin"; mkdir -p "$_k34_bin"; cp -P "$_k00_noto"/* "$_k34_bin"/ 2>/dev/null
+  rm -f "$_k34_bin/timeout" "$_k34_bin/gtimeout" "$_k34_bin/sleep"
+  printf '#!/usr/bin/env bash\necho $$ >> "${K34_PIDS:?}"\nexec "%s" "$@"\n' "$_k34_real_sleep" > "$_k34_bin/sleep"; chmod +x "$_k34_bin/sleep"
+  _k34_run() {  # <name> <init.sh> — PUBLIC answered at once, no timeout binary; sets _k34_rc/_k34_el, output $TMP/k34-<name>.out, pids $TMP/k34-<name>.pids
+    local d; d="$(_k00_target "k34-$1" https://example.invalid/pub.git)"; : > "$TMP/k34-$1.pids"; local t0=$SECONDS
+    PATH="$_k34_bin" RSDD_GH_TIMEOUT=8 K34_PIDS="$TMP/k34-$1.pids" K71_VIS=PUBLIC K71_RC=0 bash "$2" "$d" --wire >"$TMP/k34-$1.out" 2>&1; _k34_rc=$?
+    _k34_el=$((SECONDS - t0))
+  }
+  _k34_alive() {  # <pidfile> — prints the recorded pids still alive after a 2s grace for the kernel to reap them
+    local p live
+    for _ in 1 2 3 4; do
+      live=""; while read -r p; do [ -n "$p" ] && kill -0 "$p" 2>/dev/null && live="$live $p"; done < "$1"
+      [ -z "$live" ] && break; "$_k34_real_sleep" 0.5
+    done
+    printf '%s' "${live# }"
+  }
+  _k34_run i "$_kpp_init"
+  [ "$_k34_rc" = 0 ] && ok "K1834-i watchdog success: --wire exits 0" || no "K1834-i exit $_k34_rc"
+  assert_grep "K1834-i the real PUBLIC answer was used" "vendor-leak: PUBLIC" "$TMP/k34-i.out"
+  assert_grep "K1834-i bounded by the watchdog (no timeout binary)" "bounded by a 8s watchdog" "$TMP/k34-i.out"
+  if grep -qF 'timed out' "$TMP/k34-i.out"; then no "K1834-i a successful probe was reported as timed out"; else ok "K1834-i no typed timeout on the success path"; fi
+  [ "$_k34_el" -lt 7 ] && ok "K1834-i the success path did not wait for the bound (${_k34_el}s < 8s)" || no "K1834-i waited ${_k34_el}s"
+  [ -s "$TMP/k34-i.pids" ] && ok "K1834-i the watchdog sleep ran through the pid-recording shim" || no "K1834-i no sleep pid recorded — the shim was bypassed"
+  [ -z "$(_k34_alive "$TMP/k34-i.pids")" ] && ok "K1834-i no watchdog sleep survives the run (kill -0)" || no "K1834-i leaked watchdog sleep pid(s): $(_k34_alive "$TMP/k34-i.pids")"
 fi
 
 # ---- kit issue #1804: .research-sdd/plan/ is gitignored (block resume plan, #1178) — scaffold AND --wire repair ----
@@ -3968,11 +3995,29 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF 'a plain run scaffolds the conf' "$TMP/k87m.out" && ok "teeth M-1800-MSG: misleading advice returns without the path flag — K1800-g has teeth" || no "teeth M-1800-MSG: advice still correct under the mutant — K1800-g is THEATER"
   else no "teeth M-1800-MSG: could not build mutant"; fi
   # M-1800-WD: the watchdog never kills gh -> with no timeout binary a stalled probe is unbounded again.
-  if _k87_mbl "k00 wd" 's/( sleep "\$t"; kill "\$pid" 2>\/dev\/null )/( sleep "$t"; : )/'; then
+  if _k87_mbl "k00 wd" 's/wait "\$sp"; kill "\$1" 2>\/dev\/null/wait "$sp"; :/'; then
     d="$(_k00_target m-wd https://example.invalid/pub.git)"; _t0=$SECONDS
     PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" "$d" --corpus flat --wire >/dev/null 2>&1
     [ $((SECONDS - _t0)) -ge 4 ] && ok "teeth M-1800-WD: without the kill the stalled probe runs its full stall — K1800-h has teeth" || no "teeth M-1800-WD: still bounded under the mutant — K1800-h is THEATER"
   else no "teeth M-1800-WD: could not build mutant"; fi
+  # ---- kit issue #1834 teeth: the watchdog SUCCESS path (K1834-i) ----
+  # M-1834-ALWAYS-TIMEOUT: the wait result is overwritten with 124 -> a gh that answered PUBLIC is reported as a timeout.
+  if _k87_mbl "k34 always" 's/wait "\$pid" 2>\/dev\/null || rc=\$?/wait "$pid" 2>\/dev\/null; rc=124/'; then
+    _k34_run m-always "$TMP/k43/k34 always/toolbelt/init.sh"
+    grep -qF 'timed out' "$TMP/k34-m-always.out" && ! grep -qF 'vendor-leak: PUBLIC' "$TMP/k34-m-always.out" \
+      && ok "teeth M-1834-ALWAYS-TIMEOUT: an always-timed-out probe loses the PUBLIC answer — K1834-i has teeth" || no "teeth M-1834-ALWAYS-TIMEOUT: PUBLIC still reported under the mutant — K1834-i is THEATER"
+  else no "teeth M-1834-ALWAYS-TIMEOUT: could not build mutant"; fi
+  # M-1834-LEAK: the watchdog's TERM trap no longer kills its sleep -> the pre-fix orphaned sleep survives the run.
+  if _k87_mbl "k34 leak" 's/trap '"'"'kill "\$sp" 2>\/dev\/null; exit 0'"'"' TERM/trap '"'"'exit 0'"'"' TERM/'; then
+    _k34_run m-leak "$TMP/k43/k34 leak/toolbelt/init.sh"
+    [ -n "$(_k34_alive "$TMP/k34-m-leak.pids")" ] && ok "teeth M-1834-LEAK: an unreaped watchdog sleep survives the run — K1834-i has teeth" || no "teeth M-1834-LEAK: no sleep survived under the mutant — K1834-i is THEATER"
+    "$_k34_real_sleep" 0 ; while read -r _p; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done < "$TMP/k34-m-leak.pids"   # tidy the deliberately leaked sleeps
+  else no "teeth M-1834-LEAK: could not build mutant"; fi
+  # M-1834-NODISARM: the watchdog is never stopped after gh answers -> the run waits out the whole bound.
+  if _k87_mbl "k34 nodisarm" '/^      kill "\$wdpid" 2>\/dev\/null || :$/s/.*/      :/'; then
+    _k34_run m-nodisarm "$TMP/k43/k34 nodisarm/toolbelt/init.sh"
+    [ "$_k34_el" -ge 7 ] && ok "teeth M-1834-NODISARM: without disarming, the success path waits the bound (${_k34_el}s) — K1834-i has teeth" || no "teeth M-1834-NODISARM: still fast under the mutant (${_k34_el}s) — K1834-i is THEATER"
+  else no "teeth M-1834-NODISARM: could not build mutant"; fi
   # ---- kit issue #1804 teeth (a mutant that cannot be built is a FAIL, never a SKIP) ----
   # M-1804-PARENT: `!.research-sdd/` (the dir itself) counts as re-including the plan -> a false NEGATED.
   if _k87_mb "k04 parent" "s#^        '\\.research-sdd/\\*'|#        '.research-sdd/'|'.research-sdd/*'|#"; then
