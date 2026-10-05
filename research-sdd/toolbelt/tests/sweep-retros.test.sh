@@ -4980,6 +4980,8 @@ fi
 # ---------------------------------------------------------------------------
 # JSON — opt-in --json envelope (kit issue #1711, json-envelope.v1.md). Default output must stay
 # byte-identical (golden); the envelope must carry the §7 state enum and a typed degraded on no jq.
+# The golden was recorded ONCE from the pre-change script. SR_REGEN_GOLDEN=1 rewrites it from the SUT under
+# test, so regenerate only from a build whose default output is known good (it is not a frozen oracle then).
 JGOLD="$HERE/fixtures/sweep-retros/json-envelope/default-output.golden"
 export RSDD_RETRO_AGE_DAYS=99999   # no ESCALATED tag: the golden must not depend on today's date
 
@@ -5009,7 +5011,7 @@ command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases
 kit="$(jfix j-golden)"; run "$kit"
 if [ -n "${SR_REGEN_GOLDEN:-}" ]; then printf '%s\n' "$OUT" | jgolden_norm > "$JGOLD"; fi
 if [ -f "$JGOLD" ] && [ "$(printf '%s\n' "$OUT" | jgolden_norm)" = "$(cat "$JGOLD")" ]; then
-  ok "JSON golden: default (no flag) output byte-identical to the frozen pre-change report" "()"
+  ok "JSON golden: default (no flag) output byte-identical to the recorded pre-change report" "()"
 else
   no "JSON golden: default output drifted from $JGOLD" "$(diff <(printf '%s\n' "$OUT" | jgolden_norm) "$JGOLD" 2>&1 | head -5)"
 fi
@@ -5053,6 +5055,35 @@ if [ "$RC" = 3 ] && grep -q '^DEGRADED: jq not found' <<<"$JERR" \
   ok "JSON degraded: jq absent → typed degraded envelope, DEGRADED on stderr, rc 3" "()"
 else no "JSON degraded" "rc=$RC err=[$JERR] out=[$JOUT]"; fi
 
+# Review round 1: (1) an inherited _json_miss must not inject items; (2) a failing jq is rc 1 with empty
+# stdout (contract table); (3) one non-numeric age must not kill the envelope.
+kit="$(mkkit j-nomatch2)"; tgt="$kit/targetA"
+mkretro "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 1; wire_target "$tgt"; write_targets "$kit" "$tgt"
+export _json_miss="/fabricated/target"; jrun "$kit"; unset _json_miss
+if [ "$(jq_f '[.state,.counts.missing_retro,(.items|length)]|join(",")')" = "no-match,0,0" ]; then
+  ok "JSON env: inherited _json_miss does not inject missing-retro items (state stays no-match)" "()"
+else no "JSON env: inherited _json_miss leaked" "$JOUT"; fi
+
+kit="$(jfix j-jqfail)"; _stub="$ROOT/j-stub"; mkdir -p "$_stub"
+printf '#!/bin/sh\nexit 1\n' > "$_stub/jq"; chmod +x "$_stub/jq"
+jrun "$kit" "$_stub:$PATH"
+if [ "$RC" = 1 ] && [ -z "$JOUT" ] && grep -q 'envelope build failed' <<<"$JERR"; then
+  ok "JSON jq-failure: envelope build failure → rc 1, stderr message, empty stdout" "()"
+else no "JSON jq-failure" "rc=$RC out=[$JOUT] err=[$JERR]"; fi
+
+# The age input is mutated to EMPTY in a copy of the SUT (age_d is arithmetic, so no fixture can make it empty).
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+J_AGE_EXPR='s/^    age_d=\$(( age_s \/ 86400 ))$/    age_d=""/'
+kit="$(jfix j-age)"; _am="$ROOT/j-age.sh"
+if mutant_sed "$SUT" "$_am" "$J_AGE_EXPR"; then
+  cp "$_am" "$kit/toolbelt/sweep-retros.sh"; jrun "$kit"
+  if [ "$RC" = 0 ] && [ "$(jq_f '.items[0]|[.age_days,.age_state]|map(tostring)|join(",")')" = "null,unknown" ] \
+     && [ "$(jq_f '.items|length')" = 2 ]; then
+    ok "JSON age: an empty age → age_days null + age_state unknown, the rest of the envelope intact" "()"
+  else no "JSON age guard" "rc=$RC $JOUT"; fi
+else no "JSON age: build input mutant" "mutant_sed refused (anchor drifted?)"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -5075,6 +5106,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   jteeth nomatch  's/elif (\$items | length) == 0 then "no-match"/elif ($items | length) == -1 then "no-match"/' jt_nomatch
   jteeth probe    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' jt_degr
   jteeth mute     's/exec 3>&1 >\/dev\/null/exec 3>\&1/' jt_clean
+  jt_envinit()  { local k; k="$(mkkit "$(basename "$1")-i")"; mkretro "$k/targetA" a.md "<!-- review-status: applied x -->" 1; write_targets "$k" "$k/targetA"; cp "$1/toolbelt/sweep-retros.sh" "$k/toolbelt/"; _json_miss="/fabricated" jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
+  jt_exit1()    { local s="$ROOT/j-stub2"; mkdir -p "$s"; printf '#!/bin/sh\nexit 1\n' > "$s/jq"; chmod +x "$s/jq"; jrun "$1" "$s:$PATH"; [ "$RC" = 1 ]; }
+  jt_ageguard() { jrun "$1"; [ "$(jq_f '.items|length')" = 2 ]; }
+  jteeth envinit  's/^_json_pend=""; _json_miss=""/_json_pend=""/' jt_envinit
+  jteeth exit1    's/envelope build failed" >&2; exit 1; }/envelope build failed" >\&2; exit 2; }/' jt_exit1
+  # ageguard: the empty-age input mutation AND the guard removed (non-numeric goes straight to tonumber).
+  jteeth ageguard "$J_AGE_EXPR
+s/then (\\.\\[4\\] | tonumber) else null end)/then (.[4] | tonumber) else (.[4] | tonumber) end)/" jt_ageguard
 fi
 
 echo "== $pass passed · $fail failed =="

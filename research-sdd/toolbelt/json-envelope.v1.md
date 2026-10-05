@@ -31,11 +31,17 @@ whether a zero count means "looked and found nothing" or "could not look".
 
 ## Process contract
 
-- Exit 0 for every state except `degraded`; a finding is advisory and never changes the exit code.
+Exit codes of `--json` mode (every one it can return):
+
+| rc | Meaning | stdout |
+|---|---|---|
+| 0 | envelope printed, any state except `degraded` (a finding is advisory and never changes the exit code) | one envelope |
+| 1 | operational failure: unreadable `TARGETS.md`, no usable target path, a helper failed to load, or the `jq` envelope build itself failed | nothing |
+| 3 | `degraded` (a runtime dependency is missing) | one envelope with `"state":"degraded"` |
+
 - `degraded` exits 3, prints a `DEGRADED:` line on stderr, and still prints a valid envelope with
   `"state":"degraded"` so a machine caller sees the typed state instead of empty stdout.
-- Operational failures (unreadable `TARGETS.md`, a helper failing to define its function) keep the
-  instrument's existing behaviour: a message on stderr, exit 1, nothing on stdout.
+- Operational failures keep the instrument's existing behaviour: a message on stderr, exit 1, nothing on stdout.
 - The envelope is built with `jq`; the instrument probes for it before doing any work.
 
 ## Instruments
@@ -57,9 +63,11 @@ says so, the state does not.
 
 Items, oldest pending first, then missing-retro entries:
 
-- `{"kind":"pending-retro","file","target","deltas","deltas_state","status","age_days","escalated","warning"}` —
+- `{"kind":"pending-retro","file","target","deltas","deltas_state","status","age_days","age_state","escalated","warning"}` —
   `deltas` is an integer when `deltas_state` is `counted`, else `null` (`uncountable`: count by hand;
-  `no-section`: no delta section found); `status` is the marker word or `none`; `warning` is a string or `null`.
+  `no-section`: no delta section found; `unknown`: the value was none of the recognised forms);
+  `age_days` is an integer when `age_state` is `counted`, else `null` with `age_state` `unknown` (one bad
+  age never kills the envelope); `status` is the marker word or `none`; `warning` is a string or `null`.
 - `{"kind":"missing-retro","target"}` — a target advanced with no retro for the latest run.
 
 The envelope reports the review-status MARKER, not whether each delta is open work (same caveat as the

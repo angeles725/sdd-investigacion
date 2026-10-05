@@ -157,7 +157,7 @@ if [ "${RSDD_PROFILE:-0}" = "1" ]; then
 fi
 
 pending=0; missing=0; total=0
-_json_pend=""
+_json_pend=""; _json_miss=""   # --json accumulators; both initialised so an inherited env value cannot leak in
 absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
@@ -554,8 +554,10 @@ if [ "$SR_JSON" = 1 ]; then
     ( lines($pend) | map(split("\u001f") | {
         kind: "pending-retro", file: .[0], target: .[1],
         deltas: (if (.[2] | test("^[0-9]+$")) then (.[2] | tonumber) else null end),
-        deltas_state: (if (.[2] | test("^[0-9]+$")) then "counted" elif .[2] == "?" then "uncountable" else "no-section" end),
-        status: .[3], age_days: (.[4] | tonumber), escalated: (.[5] != ""),
+        deltas_state: (if (.[2] | test("^[0-9]+$")) then "counted" elif .[2] == "?" then "uncountable"
+                       elif .[2] == "no delta section found (empty-input)" then "no-section" else "unknown" end),
+        status: .[3], age_days: (if (.[4] | test("^[0-9]+$")) then (.[4] | tonumber) else null end),
+        age_state: (if (.[4] | test("^[0-9]+$")) then "counted" else "unknown" end), escalated: (.[5] != ""),
         warning: (if .[6] == "" then null else .[6] end) }) ) as $p
     | ( lines($miss) | map({kind: "missing-retro", target: .}) ) as $m
     | ($p + $m) as $items
@@ -570,6 +572,6 @@ if [ "$SR_JSON" = 1 ]; then
                  elif .state == "empty-input" then "target corpora found but no retro files under them"
                  elif .state == "no-match" then "retros found but none pending and no missing retro"
                  else null end)
-    | . + {items: $items}' >&3 || { echo "sweep-retros: --json envelope build failed" >&2; exit 2; }
+    | . + {items: $items}' >&3 || { echo "sweep-retros: --json envelope build failed" >&2; exit 1; }
   exit 0
 fi
