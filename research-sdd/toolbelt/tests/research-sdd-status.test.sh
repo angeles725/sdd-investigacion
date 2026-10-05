@@ -3281,6 +3281,77 @@ _left="$(find "$d" -name '.rsdd-sync.*' | wc -l | tr -d ' ')"
   && ok "SX-11: failing awk → exit 1, state file byte-identical, no temp file left" \
   || no "SX-11: rc=$_rc changed=$([ "$(sx_md5 "$d/RESEARCH-STATE.md")" != "$_h" ] && echo YES || echo no) tmpleft=$_left err=[$_e]"
 
+# W6 (kit issue #1704): a printed typed `degraded:` state is followed by one footer line naming the
+# reason-code registry; a clean report (no degraded state) carries no such line.
+d="$TMP/rcfoot"; mkstate "$d" 1 "high|the gap|pending"
+git init -q "$d" >/dev/null 2>&1; git -C "$d" remote add origin "git@github.com:o/r.git"
+_rc_out="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$d" 2>&1)"
+_rc_path="$(sed -n 's/^  reason codes    : .* in \(.*reason-codes\.v1\.md\)$/\1/p' <<<"$_rc_out")"
+if grep -q '^degraded: remote-visibility: gh not found' <<<"$_rc_out" && [ -n "$_rc_path" ] && [ -f "$_rc_path" ]; then
+  ok "RC-FOOTER-1: a printed degraded state is followed by a footer naming an existing reason-codes.v1.md"
+else no "RC-FOOTER-1: footer missing or path not a file (path=[$_rc_path]): $(grep -i 'degraded\|reason' <<<"$_rc_out")"; fi
+d="$TMP/rcclean"; mkstate "$d" 1 "high|the gap|pending"
+_rc_out="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$d" 2>&1)"
+if ! grep -q 'reason-codes\.v1\.md' <<<"$_rc_out" && ! grep -q '^degraded: ' <<<"$_rc_out"; then
+  ok "RC-FOOTER-2: no degraded state -> no footer (clean report unchanged)"
+else no "RC-FOOTER-2: footer printed without a degraded state"; fi
+
+# RC-GOLDEN: the wiring must not change a clean report. The baseline is the SUT with the RC-WIRE region
+# replaced by the original bare call (symlinked beside the kit so $here resolves to the same toolbelt).
+if ! grep -q '\$(remote_visibility_block)' "$SUT"; then ok "RC-WIRE-1: remote_visibility_block is not run inside a command substitution"
+else no "RC-WIRE-1: remote_visibility_block still runs inside \$(...) (loses its variables and trailing newlines)"; fi
+mkdir -p "$TMP/rcbase"
+for _f in "$HERE"/../*; do [ "$(basename "$_f")" = "research-sdd-status.sh" ] || ln -s "$_f" "$TMP/rcbase/$(basename "$_f")"; done
+sed '/^# RC-WIRE-BEGIN$/,/^# RC-WIRE-END$/c\
+remote_visibility_block' "$SUT" > "$TMP/rcbase/research-sdd-status.sh"
+printf '#!/usr/bin/env bash\necho PRIVATE\n' > "$TMP/rcgh"; chmod +x "$TMP/rcgh"
+d="$TMP/rcpriv"; mkstate "$d" 1 "high|the gap|pending"
+git init -q "$d" >/dev/null 2>&1; git -C "$d" remote add origin "git@github.com:o/r.git"
+_gd_ok=1
+for _fx in "$TMP/rcclean:$TMP/no-such-gh" "$d:$TMP/rcgh"; do
+  _g_new="$(RSDD_GH_BIN="${_fx#*:}" bash "$SUT" "${_fx%%:*}" 2>&1; echo END)"
+  _g_old="$(RSDD_GH_BIN="${_fx#*:}" bash "$TMP/rcbase/research-sdd-status.sh" "${_fx%%:*}" 2>&1; echo END)"
+  [ "$_g_new" = "$_g_old" ] && [ "$_g_new" != "END" ] || { _gd_ok=0; echo "        golden mismatch for ${_fx%%:*}"; }
+done
+if [ "$_gd_ok" = 1 ]; then ok "RC-GOLDEN-1: clean reports (no git; git + PRIVATE remote) are byte-identical to the pre-wire script"
+else no "RC-GOLDEN-1: a clean report differs from the pre-wire script"; fi
+_g_new="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$TMP/rcfoot" 2>&1)"
+_g_old="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$TMP/rcbase/research-sdd-status.sh" "$TMP/rcfoot" 2>&1)"
+if [ "$(grep -v '^  reason codes    : ' <<<"$_g_new")" = "$_g_old" ] && [ "$(grep -c '^  reason codes    : ' <<<"$_g_new")" = 1 ]; then
+  ok "RC-GOLDEN-2: a degraded report differs from the pre-wire script by exactly one footer line"
+else no "RC-GOLDEN-2: degraded report differs beyond the single footer line"; fi
+
+# RC-WIRE-2/3: every degraded echo of the block sets the flag (structural, covers paths a fixture cannot
+# reach: git absent, timeout absent, empty url), and the wire region buffers nothing.
+_n_echo="$(grep -c 'echo "degraded: remote-visibility:' "$SUT")"
+_n_flag="$(grep -c '_RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility:' "$SUT")"
+if [ "$_n_echo" -gt 0 ] && [ "$_n_echo" = "$_n_flag" ]; then ok "RC-WIRE-2: all $_n_echo degraded echoes of the block set the flag on the same line"
+else no "RC-WIRE-2: $_n_echo degraded echoes but $_n_flag set the flag"; fi
+_wire_region="$(sed -n '/^# RC-WIRE-BEGIN$/,/^# RC-WIRE-END$/p' "$SUT")"
+if [ -n "$_wire_region" ] && ! grep -qE 'mktemp|\$\(|tee |>"' <<<"$_wire_region"; then ok "RC-WIRE-3: the wire region has no temp file, subshell or redirect"
+else no "RC-WIRE-3: the wire region buffers or forks"; fi
+# RC-FOOTER per reachable path: each prints exactly one footer
+_rc_paths_ok=1
+mkdir -p "$TMP/rcp"
+printf '#!/usr/bin/env bash\necho boom >&2\nexit 1\n' > "$TMP/rcp/gh-fail"; chmod +x "$TMP/rcp/gh-fail"
+printf '#!/usr/bin/env bash\necho banana\n' > "$TMP/rcp/gh-junk"; chmod +x "$TMP/rcp/gh-junk"
+printf '#!/usr/bin/env bash\nsleep 5\n' > "$TMP/rcp/gh-slow"; chmod +x "$TMP/rcp/gh-slow"
+d_nongh="$TMP/rcnongh"; mkstate "$d_nongh" 1 "high|the gap|pending"
+git init -q "$d_nongh" >/dev/null 2>&1; git -C "$d_nongh" remote add origin "https://example.com/o/r.git"
+for _pc in "gh-absent:$TMP/rcfoot:$TMP/no-such-gh" "gh-failed:$TMP/rcfoot:$TMP/rcp/gh-fail" "unrecognised:$TMP/rcfoot:$TMP/rcp/gh-junk" "timed-out:$TMP/rcfoot:$TMP/rcp/gh-slow" "not-github:$d_nongh:$TMP/rcgh"; do
+  IFS=: read -r _pn _pd _pg <<<"$_pc"
+  _po="$(RSDD_GH_TIMEOUT=1 RSDD_GH_BIN="$_pg" bash "$SUT" "$_pd" 2>&1)"
+  if [ "$(grep -c '^degraded: remote-visibility' <<<"$_po")" -ge 1 ] && [ "$(grep -c '^  reason codes    : ' <<<"$_po")" = 1 ]; then :
+  else _rc_paths_ok=0; echo "        footer wrong on path $_pn"; fi
+done
+if [ "$_rc_paths_ok" = 1 ]; then ok "RC-FOOTER-3: gh absent / failed / unrecognised / timed out / non-github each print exactly one footer"
+else no "RC-FOOTER-3: a degraded path lacks the footer"; fi
+# RC-GOLDEN-3: merged 2>&1 output (stderr interleaving) of a degraded run equals the baseline plus one footer line
+_g_new="$(RSDD_GH_BIN="$TMP/rcp/gh-fail" bash "$SUT" "$TMP/rcfoot" 2>&1)"
+_g_old="$(RSDD_GH_BIN="$TMP/rcp/gh-fail" bash "$TMP/rcbase/research-sdd-status.sh" "$TMP/rcfoot" 2>&1)"
+if [ "$(grep -v '^  reason codes    : ' <<<"$_g_new")" = "$_g_old" ]; then ok "RC-GOLDEN-3: 2>&1 order with a stderr-writing gh matches the pre-wire script (plus one footer)"
+else no "RC-GOLDEN-3: merged stdout/stderr order differs from the pre-wire script"; fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -3320,6 +3391,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mgot="$(bash "$mutant" "$d" --next 2>/dev/null)"
   if [ "$mgot" = "NEXT | low | the low one" ]; then ok "teeth: reversed mutant picks low → ordering test has teeth"
   else no "teeth: mutant picked [$mgot] — ordering not exercised (THEATER)"; fi
+
+  # RC-FOOTER tooth: delete the footer echo from a mutant; the degraded fixture must then lose the citation.
+  rcm="$TMP/status.RCF-MUTANT.sh"
+  sed '/echo "  reason codes    :/s/echo .*/:/' "$SUT" > "$rcm"
+  if ! cmp -s "$SUT" "$rcm"; then
+    _m="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$rcm" "$TMP/rcfoot" 2>&1)"
+    if grep -q '^degraded: remote-visibility' <<<"$_m" && ! grep -q 'reason-codes\.v1\.md' <<<"$_m"; then ok "teeth RC-FOOTER: mutant without the footer line loses the reason-codes citation"
+    else no "teeth RC-FOOTER: mutant still cites the registry or crashed (THEATER)"; fi
+  else no "teeth RC-FOOTER: mutation did not apply"; fi
+
+  # RC-GOLDEN tooth: print the footer unconditionally -> the clean-report golden comparison must go RED.
+  rcg="$TMP/status.RCG-MUTANT.sh"
+  sed '/# RC-FOOTER$/s/if \[ .*\]; then/if true; then/' "$SUT" > "$rcg"
+  if ! cmp -s "$SUT" "$rcg"; then
+    _m="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$rcg" "$TMP/rcclean" 2>&1)"
+    _o="$(RSDD_GH_BIN="$TMP/no-such-gh" bash "$SUT" "$TMP/rcclean" 2>&1)"
+    if [ "$_m" != "$_o" ] && grep -q 'reason-codes\.v1\.md' <<<"$_m"; then ok "teeth RC-GOLDEN: an unconditional footer changes the clean report (golden would go RED)"
+    else no "teeth RC-GOLDEN: mutant did not alter the clean report (THEATER)"; fi
+  else no "teeth RC-GOLDEN: mutation did not apply"; fi
+
+  # RC-FLAG tooth: drop the flag on the gh-failed path -> that path loses its footer.
+  rcf="$TMP/status.RCFLAG-MUTANT.sh"
+  sed '/echo "degraded: remote-visibility: gh failed/s/_RC_DEGRADED_PRINTED=1; //' "$SUT" > "$rcf"
+  if ! cmp -s "$SUT" "$rcf"; then
+    _m="$(RSDD_GH_BIN="$TMP/rcp/gh-fail" bash "$rcf" "$TMP/rcfoot" 2>&1)"
+    if grep -q '^degraded: remote-visibility: gh failed' <<<"$_m" && ! grep -q 'reason-codes\.v1\.md' <<<"$_m"; then ok "teeth RC-FLAG: a path that does not set the flag prints no footer (RC-FOOTER-3 would go RED)"
+    else no "teeth RC-FLAG: mutant still printed the footer or crashed (THEATER)"; fi
+  else no "teeth RC-FLAG: mutation did not apply"; fi
 
   # saturation teeth: widen the threshold (-eq 0 → -ge 0) so EVERY window "saturates"; the active
   # fixture (2,0,1 → sum 3) must then WRONGLY report SATURATED, proving the threshold is exercised.

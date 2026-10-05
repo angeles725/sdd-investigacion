@@ -1992,17 +1992,17 @@ fi
 remote_visibility_block() {
   [ -e "$target/.git" ] || return 0
   local _rv_gh="${RSDD_GH_BIN:-gh}" _rv_arr=() _rv_r _rv_url _rv_slug _rv_vis _rv_rc
-  command -v git >/dev/null 2>&1 || { echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
+  command -v git >/dev/null 2>&1 || { _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: git not found — cannot read the remotes of $target"; return 0; }
   mapfile -t _rv_arr < <(git -C "$target" remote 2>/dev/null)
   [ "${#_rv_arr[@]}" -gt 0 ] || return 0
   for _rv_r in "${_rv_arr[@]}"; do
     [ -n "$_rv_r" ] || continue
     if ! command -v "$_rv_gh" >/dev/null 2>&1; then
-      echo "degraded: remote-visibility: gh not found — cannot verify the visibility of remote $_rv_r"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh not found — cannot verify the visibility of remote $_rv_r"; continue
     fi
     _rv_url="$(git -C "$target" remote get-url "$_rv_r" 2>/dev/null)" || _rv_url=""
     if [ -z "$_rv_url" ]; then
-      echo "degraded: remote-visibility: $_rv_r url empty or unreadable — visibility unverified"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: $_rv_r url empty or unreadable — visibility unverified"; continue
     fi
     # Reduce the URL to OWNER/REPO (scheme + userinfo + host stripped) so no credential reaches gh's argv;
     # anything that is not a github.com owner/repo is never handed to gh (it could resolve the cwd repo).
@@ -2011,26 +2011,26 @@ remote_visibility_block() {
       _rv_slug="${BASH_REMATCH[3]}/${BASH_REMATCH[4]%.git}"
     fi
     if [ -z "$_rv_slug" ]; then
-      echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: $_rv_r not a github owner/repo — visibility unverified"; continue
     fi
     # GNU `timeout`, else `gtimeout` (macOS coreutils); only when neither exists is the check degraded.
     _rv_to=""
     if command -v timeout >/dev/null 2>&1; then _rv_to=timeout
     elif command -v gtimeout >/dev/null 2>&1; then _rv_to=gtimeout; fi
     if [ -z "$_rv_to" ]; then
-      echo "degraded: remote-visibility: timeout/gtimeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: timeout/gtimeout not found — cannot bound the gh call for remote $_rv_r; visibility unverified"; continue
     fi
     _rv_vis="$(GH_PROMPT_DISABLED=1 "$_rv_to" "${RSDD_GH_TIMEOUT:-10}" "$_rv_gh" repo view "$_rv_slug" --json visibility -q .visibility 2>/dev/null)"; _rv_rc=$?
     if [ "$_rv_rc" -eq 124 ]; then
-      echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh timed out for remote $_rv_r — visibility unverified"; continue
     fi
     if [ "$_rv_rc" -ne 0 ]; then
-      echo "degraded: remote-visibility: gh failed (rc=$_rv_rc) for remote $_rv_r — visibility unverified"; continue
+      _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: gh failed (rc=$_rv_rc) for remote $_rv_r — visibility unverified"; continue
     fi
     case "$_rv_vis" in
       PUBLIC) echo "WARN public-remote: $_rv_r is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it." ;;
       PRIVATE|INTERNAL) ;;
-      *) echo "degraded: remote-visibility: unrecognised gh answer [$_rv_vis] for remote $_rv_r — visibility unverified" ;;
+      *) _RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility: unrecognised gh answer [$_rv_vis] for remote $_rv_r — visibility unverified" ;;
     esac
   done
 }
@@ -2040,7 +2040,19 @@ else
   saturation_line
 fi
 campaign_status_block
+# W6 (kit issue #1704): when remote_visibility_block prints a typed `degraded:` line, name the registry that
+# gives its one continuation. SCOPE: this footer covers the remote-visibility block ONLY; other blocks that
+# print a typed state are not covered. The block runs directly (no subshell, no buffering, stdout/stderr order
+# untouched) and sets _RC_DEGRADED_PRINTED=1 on the same line as each of its `degraded:` echoes. Printed only
+# when the flag is set, so a clean report stays byte-identical. The registry lives in the kit's toolbelt next
+# to this script, not under the target.
+# RC-WIRE-BEGIN
+_RC_DEGRADED_PRINTED=0
 remote_visibility_block
+if [ "$_RC_DEGRADED_PRINTED" = 1 ]; then  # RC-FOOTER
+  echo "  reason codes    : each typed remote-visibility degraded state above has one continuation in $here/reason-codes.v1.md"
+fi
+# RC-WIRE-END
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.

@@ -967,6 +967,14 @@ is 0 while other-prefix blocks exist, `verify-state` emits a distinguishing FAIL
 `block_scope: shared-global` as the declaration to add — rather than a bare "≠ 0 block file(s)"
 that hides which condition was actually hit.
 
+**Typed reason codes (anti-silent-zero, kit issue #1704).** A toolbelt instrument that could not look
+prints a typed `degraded: ...` state, never a silent zero. `toolbelt/reason-codes.v1.md` is the closed
+registry of those states: each code has exactly one runnable continuation, and
+`toolbelt/tests/reason-codes.test.sh` fails when an emitted code is unregistered, a listed emitter no
+longer emits it, or an emit line is in a form the extractor cannot read. `research-sdd-status.sh` names the
+registry in a footer line whenever its remote-visibility block prints a `degraded:` line (that block only;
+other typed states are not covered by the footer); look the code up there before improvising a fix.
+
 ## 8. Stopping criterion
 
 The loop stops on the FIRST of these (primary first):
