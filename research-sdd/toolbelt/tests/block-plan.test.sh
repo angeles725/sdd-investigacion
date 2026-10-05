@@ -90,12 +90,12 @@ loop_ok() { # each loop anchor paragraph names the plan; the close one says dele
   grep -q 'STALE' <<<"$p" && grep -q 'opened-at' <<<"$p" && grep -q '\.\.HEAD' <<<"$p" &&
   p="$(para "$1" "BLOCK PLAN CLOSE")" && grep -q 'S5' <<<"$p" && grep -q 'S6' <<<"$p"
 }
-# fail-CLOSED staleness (kit issue #1808): an unrunnable `git log` is unknown, never fresh/stale
+# fail-CLOSED staleness (kit issue #1808, follow-up of #1178): an unrunnable `git log` is unknown, never fresh/stale
 tpl_failclosed()  { grep -qi 'fail closed' "$1" && grep -qi 'stop and ask' "$1"; }
 meth_failclosed() { local p; p="$(para "$1" 'Block plan (resume inside ONE long block).**')"; grep -qi 'fails closed' <<<"$p" && grep -qi 'stop and ask' <<<"$p"; }
 loop_failclosed() { local p; p="$(para "$1" 'BLOCK PLAN RESUME')"; grep -q 'FAIL CLOSED' <<<"$p" && grep -qi 'stop and ask' <<<"$p"; }
 # S5 carries a checkable artifact (grep key), not "edits on disk"
-tpl_s5() { local a; a="$(awk '/^- \[[ xX]\] S5/{p=1;next} p&&/Artifact:/{print;exit}' "$1")"; grep -q "grep -c" <<<"$a" && grep -qi 'idempotent' "$1"; }
+tpl_s5() { local a; a="$(awk '/^- \[[ xX]\] S5/{p=1;next} p&&/Artifact:/{print;exit}' "$1")"; grep -qF 'grep -cE' <<<"$a" && grep -qF '\.md([^A-Za-z0-9_-]|$)' <<<"$a" && grep -qi 'exactly once' <<<"$a" && grep -qi 'idempotent' "$1"; }
 readme_ok() { grep -q 'block-plan.template.md' "$1"; }
 
 if tpl_sections "$TPL"; then ok "template has Rules and Sub-steps sections"; else no "template lacks Rules/Sub-steps sections"; fi
@@ -148,7 +148,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "template drops fail-closed" "$TPL" tpl_failclosed 's/Fail CLOSED/Fail open/'
   tooth "doctrine drops fail-closed" "$METH" meth_failclosed '/Block plan (resume inside ONE long block)/,/^$/s/FAILS CLOSED/passes/'
   tooth "loop drops fail-closed" "$LOOP" loop_failclosed '/BLOCK PLAN RESUME/,/^$/s/FAIL CLOSED/NOTE/'
-  tooth "template S5 artifact back to unverifiable" "$TPL" tpl_s5 's/grep -c/edits on disk/'
+  tooth "template S5 artifact back to unverifiable" "$TPL" tpl_s5 's/grep -cE/edits on disk/'
+  tooth "template S5 back to bare substring grep" "$TPL" tpl_s5 's/\\\.md(\[^A-Za-z0-9_-\]|\$)//'
+  tooth "template S5 drops exactly-once rule" "$TPL" tpl_s5 's/exactly once/at least once/'
   tooth "README drops template row" "$README" readme_ok 's/block-plan\.template\.md/x.md/g'
 fi
 

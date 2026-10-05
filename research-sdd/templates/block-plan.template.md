@@ -32,6 +32,6 @@ Block: `<block-file-stem>.md` · Block file path: <path> · opened-at: <HEAD sha
 - [ ] S4 — Self-verify: `verify-block.sh` on the block
       Artifact: <path of the self-verify output / report>
 - [ ] S5 — Update catalog / index / state (idempotent: grep for the block stem first; edit an existing row in place, never append a second one)
-      Artifact: checkable on disk — `grep -c '<block-file-stem>' <CATALOG path> <INDEX path>` is exactly 1 per file, and RESEARCH-STATE.md names `<block-file-stem>` as the last block (record the three paths + keys here)
+      Artifact: checkable on disk — "registered" means the block's ENTRY row (a table or list line) in CATALOG and in INDEX appears exactly once; other mentions (cross-references in prose) do not count. Count entry rows with `grep -cE '^[[:space:]]*[|*-].*[^A-Za-z0-9_-]<block-file-stem>\.md([^A-Za-z0-9_-]|$)' <CATALOG path> <INDEX path>` (full file name, delimited, so `b12` never matches `b120`): exactly 1 per file (0 = not done, 2+ = done twice). RESEARCH-STATE.md names `<block-file-stem>` as the last block. Record the three paths here.
 - [ ] S6 — Delete this plan, then stage and commit
       Artifact: this file removed from the working tree, then the commit
