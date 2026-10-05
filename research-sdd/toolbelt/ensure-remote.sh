@@ -198,6 +198,15 @@ if [ "$create_rc" != 0 ]; then
   if cur_origin="$(git -C "$target" remote get-url origin 2>/dev/null)" && [ -n "$cur_origin" ]; then have_origin=configured; else have_origin=absent; fi
   tvis="$(read_vis)"
   echo "DEGRADED: gh repo create timed out after ${GHV_BOUND}s — PARTIAL-STATE local origin=$have_origin, remote $owner/$repo visibility=$tvis" >&2
+  case "$tvis" in
+    UNKNOWN*)
+      # Visibility could not be read: the repo may exist with ANY visibility. Never adopt it and never call a re-run safe.
+      # Remove the origin the create may have added so a re-run cannot short-circuit onto an unverified repo.
+      [ "$have_origin" = configured ] && git -C "$target" remote remove origin >/dev/null 2>&1
+      echo "   PARTIAL-STATE UNKNOWN: the repo $owner/$repo may exist with an unknown visibility; any local origin was removed; nothing pushed." >&2
+      echo "   Next: check https://github.com/$owner/$repo by hand (delete it, or set it private) BEFORE re-running ensure-remote.sh — a re-run is NOT safe until its visibility is known." >&2
+      exit 7 ;;
+  esac
   if [ "$have_origin" = configured ]; then
     # Adopt: fall through to the SAME create-then-verify guard below. It re-reads visibility, forces private once,
     # hard-aborts (exit 6, origin removed, no push) unless the repo is confirmed PRIVATE, and only then pushes. A re-run
@@ -208,9 +217,6 @@ if [ "$create_rc" != 0 ]; then
       PRIVATE)
         echo "   the repo exists PRIVATE but no local origin was added. Nothing pushed. Next: git -C \"$target\" remote add origin https://github.com/$owner/$repo.git" >&2
         echo "   and push it yourself (git push -u origin HEAD --no-follow-tags); re-running this script would fail on 'repo already exists'." >&2
-        exit 7 ;;
-      UNKNOWN*)
-        echo "   nothing observed on GitHub and no local origin: nothing was created that we can see. Nothing pushed. Next: re-run ensure-remote.sh \"$target\" --yes (safe)." >&2
         exit 7 ;;
       *)
         echo "!! HARD ABORT: a non-private repo ($tvis) exists at https://github.com/$owner/$repo — DELETE IT MANUALLY" >&2

@@ -500,7 +500,8 @@ reset_ctl
 box="$(mkbox c22-create-stall)"
 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
 if [ "$RCX" = 7 ] && [ "$ELX" -lt 18 ] && ! has_call "$box" 'git .* push' && grep -q 'DEGRADED' "$box/out.txt" && grep -q 'gh repo create' "$box/out.txt" \
-   && grep -q 'PARTIAL-STATE local origin=absent, remote tester/research-target visibility=UNKNOWN' "$box/out.txt" && grep -q 're-run ensure-remote.sh' "$box/out.txt"; then
+   && grep -q 'PARTIAL-STATE local origin=absent, remote tester/research-target visibility=UNKNOWN' "$box/out.txt" && grep -q 'PARTIAL-STATE UNKNOWN' "$box/out.txt" \
+   && grep -q 'BEFORE re-running' "$box/out.txt" && ! grep -qi '(safe)' "$box/out.txt"; then
   ok "22 stalled gh repo create, nothing created -> bounded, PARTIAL-STATE named, exit 7, no push" "(exit $RCX, ${ELX}s)"
 else
   no "22 stalled gh repo create, nothing created -> bounded, PARTIAL-STATE named, exit 7, no push" "exit=$RCX(want 7) ${ELX}s out=[$(tr '\n' '|' <"$box/out.txt")]"
@@ -509,6 +510,16 @@ fi
 GH_VIS=PRIVATE run_capped "$box"
 if [ "$RCX" = 0 ] && [ "$(grep -c 'git .* push' "$box/calls.log")" = 1 ]; then ok "22f re-run after a nothing-created timeout -> completes, exactly one push" "(exit $RCX)"
 else no "22f re-run after a nothing-created timeout -> completes, exactly one push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
+# 22h — create timed out AFTER adding the origin and the visibility CANNOT be read -> typed UNKNOWN, origin REMOVED, no push,
+#       no "safe" re-run advice.
+reset_ctl
+box="$(mkbox c22h-origin-unknown)"
+GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+if [ "$RCX" = 7 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* remote remove origin' && grep -q 'PARTIAL-STATE UNKNOWN' "$box/out.txt" \
+   && grep -q 'BEFORE re-running' "$box/out.txt" && ! grep -qi '(safe)' "$box/out.txt"; then
+  ok "22h origin added + visibility unreadable -> UNKNOWN, origin removed, no push, no safe-rerun claim" "(exit $RCX)"
+else no "22h origin added + visibility unreadable -> UNKNOWN, origin removed, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
 
 # 22b — create timed out AFTER adding the local origin, repo is PRIVATE -> the existing repo is adopted: verified, then pushed.
 reset_ctl
@@ -906,6 +917,30 @@ fi'
     GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIS=PUBLIC run_capped "$box"
     if [ "$RCX" != 6 ]; then ok "teeth26: soft-failing a PUBLIC repo loses abort 6 — case 22e has teeth"
     else no "teeth26: mutant still aborts 6 — case 22e is THEATER"; fi
+  fi
+
+  # teeth 28 — the UNKNOWN branch keeps the origin (drop the removal): case 22h must go red.
+  echo "-- teeth 28: UNKNOWN partial state keeps the origin, expect no 'remote remove origin' --"
+  origU='[ "$have_origin" = configured ] && git -C "$target" remote remove origin >/dev/null 2>&1'
+  if [[ "$content" != *"$origU"* ]]; then
+    no "teeth28: build keep-origin mutant" "UNKNOWN anchor not found — SUT drifted?"
+  else
+    teeth_box teeth28-unknown-keeps-origin "$origU" ':'; box="$TBOX"
+    GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+    if ! has_call "$box" 'git .* remote remove origin'; then ok "teeth28: without the removal the origin stays — case 22h has teeth"
+    else no "teeth28: origin still removed under the mutant — case 22h is THEATER"; fi
+  fi
+  # teeth 29 — the UNKNOWN branch is dead (falls through to adopt/safe-rerun wording): case 22 must go red.
+  echo "-- teeth 29: UNKNOWN branch dead, expect the 'PARTIAL-STATE UNKNOWN' line to vanish --"
+  origV='    UNKNOWN*)
+      # Visibility could not be read'
+  if [[ "$content" != *"$origV"* ]]; then
+    no "teeth29: build dead-unknown mutant" "UNKNOWN case anchor not found — SUT drifted?"
+  else
+    teeth_box teeth29-unknown-dead "$origV" $'    NEVERMATCH_UNKNOWN)\n      # Visibility could not be read'; box="$TBOX"
+    GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+    if ! grep -q 'PARTIAL-STATE UNKNOWN' "$box/out.txt"; then ok "teeth29: without the UNKNOWN branch the typed state is lost — case 22 has teeth"
+    else no "teeth29: UNKNOWN line still printed — case 22 is THEATER"; fi
   fi
 
   # teeth 27 — the create bound reuses the probe's knob (RSDD_GH_TIMEOUT): case 22g's 3 s create must now be cut off.
