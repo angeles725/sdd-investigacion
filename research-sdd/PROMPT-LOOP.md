@@ -1652,7 +1652,7 @@ HARD RULES:
     rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
-    user-approved language override (currently: logosoft → Spanish, for continuity of its mature
+    user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
     Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
     BOOTSTRAP commits the language in the TARGETS.md row (BOOTSTRAP step b). A mid-run switch is
     a structured override: refresh the TARGETS.md row and note the transition block number and
