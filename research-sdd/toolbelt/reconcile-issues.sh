@@ -41,9 +41,10 @@
 #               just-merged commit as unreachable (borderline), never as shipped. git absent, not a
 #               repository, or the ref unknown -> typed `degraded:` + exit 1, rows still printed borderline.
 #               A cited token that is not a commit object locally (a date, a PR number, a fork SHA, an
-#               ambiguous short SHA) is simply NOT evidence: no degraded, no exit change. A typed degraded
-#               is emitted only when NO cited token resolved AND the repository is a shallow clone (a
-#               shallow clone cannot tell "absent" from "not fetched"). Every cited token is evaluated,
+#               ambiguous short SHA) is simply NOT evidence: no degraded, no exit change. When NO cited token
+#               resolved AND the repository is a shallow clone (it cannot tell "absent" from "not fetched",
+#               kit issue #1773), the row stays borderline with that reason and ONE run-level `shallow-clone:`
+#               line names the row count and the first SHA-like token; the run is NOT failed. Every cited token is evaluated,
 #               so the outcome never depends on token order. Comment evidence counts only from an
 #               OWNER, MEMBER or COLLABORATOR author; the issue body is always trusted.
 #               NOT YET IMPLEMENTED (deferred from #1709): the `regressed` class (closed-completed plus a
@@ -230,9 +231,21 @@ _fetch_closed_bodies() {
         --json body,stateReason,comments \
         --jq '.[] | (if .stateReason == "COMPLETED" then ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body]) | join("\n") else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
     if [ "$_rc" -ne 0 ]; then
-      if [ -n "$_ef" ]; then _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; else _em=""; fi
-      echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
-      return 1
+      _em=""
+      if [ -n "$_ef" ]; then
+        _em="$(head -1 "$_ef" 2>/dev/null)"
+        # RECONCILE_ISSUES_OLD_GH_FALLBACK (kit issue #1752): older gh (2.45) has no `stateReason` --json
+        # field. That exact rejection is not a failed lookup: read the state reason per issue instead.
+        if grep -q 'Unknown JSON field.*stateReason' "$_ef" 2>/dev/null; then
+          _out="$(_closed_query_old_gh "$_p")" && _rc=0 || _rc=$?
+          if [ "$_rc" -ne 0 ]; then rm -f "$_ef"; return 1; fi   # the fallback printed its own typed degraded
+        fi
+      fi
+      if [ "$_rc" -ne 0 ]; then
+        [ -z "$_ef" ] || rm -f "$_ef"
+        echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
+        return 1
+      fi
     fi
     [ -z "$_ef" ] || rm -f "$_ef"
     _n="$(printf '%s\n' "$_out" | awk '$0 == "\036" { n++ } END { print n + 0 }')"
@@ -244,6 +257,43 @@ _fetch_closed_bodies() {
     # evidence of one issue is never credited to another.
     printf '%s\n' "$_out"
   done
+}
+
+# _closed_query_old_gh <sig-prefix>
+#   Kit issue #1752 fallback for a gh without the `stateReason` --json field: list number+body+comments,
+#   then read `state_reason` per issue through `gh api` and print the SAME record stream the primary query
+#   prints (body + trusted comments for a completed issue, empty body otherwise, one octal-036 line per
+#   issue). A failed per-issue lookup is a typed degraded + return 1, never a guessed state.
+_closed_query_old_gh() {
+  local _p="$1" _raw _rc _sr _num _bad="" _ef _em
+  _ef="$(mktemp 2>/dev/null)" || _ef=""
+  _raw="$(gh issue list \
+      --repo "$_REPO" \
+      --state closed \
+      --limit "$_LIST_LIMIT" \
+      --search "\"Source retro: ${_p} ·\"" \
+      --json number,body,comments \
+      --jq '.[] | "\u001f\(.number)", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body] | join("\n")), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
+    echo "degraded: gh issue list (closed, old-gh fallback) failed (exit $_rc)${_em:+ — }${_em}" >&2
+    return 1
+  fi
+  [ -z "$_ef" ] || rm -f "$_ef"
+  # The issue number follows each unit-separator marker; remember the ones NOT closed as completed.
+  while IFS= read -r _num; do
+    [ -n "$_num" ] || continue
+    _sr="$(gh api "repos/$_REPO/issues/$_num" --jq '.state_reason' 2>/dev/null)" || {
+      echo "degraded: gh api state_reason lookup failed for issue #$_num (this gh has no stateReason --json field)" >&2
+      return 1
+    }
+    [ "$_sr" = "completed" ] || _bad="${_bad}${_num}"$'\n'
+  done < <(printf '%s\n' "$_raw" | awk '/^\037/ { print substr($0, 2) }')
+  printf '%s\n' "$_raw" | _NG_BAD="$_bad" awk '
+    BEGIN { n = split(ENVIRON["_NG_BAD"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") bad[a[i]] = 1 }
+    /^\037/ { skip = (substr($0, 2) in bad); next }
+    $0 == "\036" { print; skip = 0; next }
+    { if (!skip) print }'
 }
 
 # _closed_record <closed-bodies> <sig-prefix> <row-id>
@@ -313,6 +363,15 @@ _git_probe() {
     _GIT_STATE=degraded; echo "degraded: ref $_MAIN_REF is not known locally in $_GIT_DIR (no fetch is performed) — cannot verify that cited commits reach it; rows are reported borderline, not shipped" >&2; return 0
   fi
   _GIT_STATE=ok
+}
+
+# Shallow-clone note (kit issue #1773): rows whose cited commits all failed to resolve in a shallow clone.
+# Reported once per run, not per row; never fails the run (the rows are already printed as borderline).
+_SHALLOW_ROWS=0
+_SHALLOW_EG=""
+_emit_shallow_note() {
+  [ "$_SHALLOW_ROWS" -gt 0 ] || return 0
+  echo "shallow-clone: $_GIT_DIR is a shallow clone and no cited commit resolved locally for $_SHALLOW_ROWS row(s)${_SHALLOW_EG:+ (e.g. $_SHALLOW_EG)}; those rows stay borderline, not shipped — run 'git fetch --unshallow' (or raise the CI fetch-depth) to verify them" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -622,10 +681,11 @@ ${_rln}"
             _git_probe
             if [ "$_GIT_STATE" = "ok" ]; then
               # EVERY cited token is evaluated (no early stop), so the result never depends on sort order.
-              _ev_resolved=0; _ev_first=""
+              _ev_resolved=0; _ev_eg=""
               while IFS= read -r _ev_c; do
                 [ -n "$_ev_c" ] || continue
-                [ -n "$_ev_first" ] || _ev_first="$_ev_c"
+                # First SHA-looking token (has an a-f letter; a date or PR number does not) to name in the shallow note.
+                if [ -z "$_ev_eg" ] && [[ "$_ev_c" == *[a-fA-F]* ]]; then _ev_eg="$_ev_c"; fi
                 # Not a commit object locally (date, PR number, fork SHA, ambiguous short SHA): not evidence.
                 if ! git -C "$_GIT_DIR" cat-file -e "${_ev_c}^{commit}" >/dev/null 2>&1; then  # RECONCILE-COMMIT-PRESENT
                   continue
@@ -635,12 +695,16 @@ ${_rln}"
                   _ev_reach="$_ev_c"
                 fi
               done <<<"$_ev_commits"
-              # Nothing resolved in a shallow clone: "absent" cannot be told from "not fetched" -> degraded.
-              if [ "$_ev_resolved" -eq 0 ] && [ "$(git -C "$_GIT_DIR" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then  # RECONCILE-SHALLOW-DEGRADED
-                echo "degraded: commit $_ev_first not present locally (shallow or partial clone?)" >&2
-                _anc_degraded=1
+              # Nothing resolved in a shallow clone: "absent" cannot be told from "not fetched" (kit issue #1773).
+              # Counted and reported ONCE per run (_emit_shallow_note); the row stays borderline with its own
+              # typed reason and the run is not failed (a depth-1 CI checkout would otherwise fail every run).
+              if [ "$_ev_resolved" -eq 0 ] && [ "$(git -C "$_GIT_DIR" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then  # RECONCILE-SHALLOW-NOTE
+                _SHALLOW_ROWS=$((_SHALLOW_ROWS+1))
+                [ -n "$_SHALLOW_EG" ] || _SHALLOW_EG="$_ev_eg"
+                _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit resolves in this shallow clone (not fetched, so reachability cannot be verified)"
+              elif [ -z "$_ev_reach" ]; then
+                _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit reachable from local ref $_MAIN_REF (no fetch performed; a stale ref reads as unreachable)"
               fi
-              [ -n "$_ev_reach" ] || _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit reachable from local ref $_MAIN_REF (no fetch performed; a stale ref reads as unreachable)"
             else
               _anc_degraded=1
               _ev_missing="${_ev_missing:+${_ev_missing}; }commit reachability could not be verified (degraded)"
@@ -747,7 +811,9 @@ if [ "$_mode" = "single" ]; then
   fi
 
   audit_retro "$retro" "$_tgt_name"
-  exit $?
+  _single_rc=$?
+  _emit_shallow_note
+  exit "$_single_rc"
 
 elif [ "$_mode" = "all" ]; then
   if [ ! -f "$TARGETS_MD" ]; then
@@ -810,6 +876,7 @@ elif [ "$_mode" = "all" ]; then
     echo "empty-input: no retro files found across all targets" >&2
   fi
 
+  _emit_shallow_note
   printf 'fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
     "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_borderline" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
   # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment

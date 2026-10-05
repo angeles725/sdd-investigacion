@@ -120,7 +120,7 @@ _validate_list() {
   for _a in "$@"; do
     if [ -n "$_sk" ]; then
       case "$_sk" in
-        json)  for _f in ${_a//,/ }; do case "$_f" in body|state|stateReason|comments) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
+        json)  for _f in ${_a//,/ }; do case "$_f" in stateReason) if [ -n "${GH_STUB_OLD_GH:-}" ]; then echo "Unknown JSON field: \"stateReason\"" >&2; return 1; fi ;; body|state|number|comments) ;; *) echo "gh stub: unknown JSON field: $_f" >&2; return 1 ;; esac; done ;;
         limit) case "$_a" in ''|*[!0-9]*|0) echo "gh stub: invalid --limit: $_a" >&2; return 1 ;; esac ;;
         state) case "$_a" in open|closed|all) ;; *) echo "gh stub: invalid --state: $_a" >&2; return 1 ;; esac ;;
       esac
@@ -156,8 +156,11 @@ STUBHELP
         # it feeds a real JSON array to the SUT's own --jq expression (run by the real jq), so the
         # SUT's stateReason filter is what decides the output. Open-state lists see an empty reply.
         _sr="COMPLETED"; [ "$mode" = "closed-notplanned" ] && _sr="NOT_PLANNED"
+        _srl="completed"; [ "$mode" = "closed-notplanned" ] && _srl="not_planned"
+        # gh api (the old-gh fallback reads state_reason per issue): GH_STUB_API_FAIL makes it fail.
+        printf '  *" api "*) [ -n "${GH_STUB_API_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }; printf "%%s\\n" "%s"; exit 0 ;;\n' "$_srl"
         _cm=""; [ -n "${4:-}" ] && _cm="{\"body\":\"$4\",\"authorAssociation\":\"${5:-OWNER}\"}"
-        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
+        printf '  *" issue list "*" --state closed "*) _jq=""; _p=""; for _a in "$@"; do [ "$_p" = "--jq" ] && _jq="$_a"; _p="$_a"; done; printf %%s '"'"'[{"number":7,"body":"%s","stateReason":"%s","comments":[%s]}]'"'"' | "%s" -r "$_jq"; exit 0 ;;\n' "${3:-}" "$_sr" "$_cm" "$JQ_BIN"
         printf '  *" issue list "*) exit 0 ;;\n'
         ;;
       closed-fill)
@@ -2213,6 +2216,29 @@ else
   no "44i fleet shipped" "exit=$RC out=[$OUT]"
 fi
 
+# 44k — kit issue #1752: gh 2.45 has no `stateReason` --json field. The closed lookup must still work: the
+# stub rejects the field exactly like gh 2.45 (GH_STUB_OLD_GH) and answers `gh api` with state_reason.
+# completed -> the row is classified (borderline here: no commit/test cited), never degraded.
+box44k="$(mkbox case-1752-old-gh)"; mk_gh_stub "$box44k" closed-completed "$SIG44"
+retro44k="$(mk44 "$box44k")"
+GH_STUB_OLD_GH=1 run "$box44k" "$retro44k"
+if [ "$RC" = 0 ] && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q '^degraded:' <<<"$OUT" \
+   && grep -q 'api repos/' "$box44k/bin/gh.log"; then
+  ok "44k old gh (no stateReason field) -> closed lookup works via gh api state_reason" "(exit $RC)"
+else no "44k old gh" "exit=$RC out=[$OUT] log=[$(cat "$box44k/bin/gh.log" 2>&1)]"; fi
+# 44l — old gh + not-planned: still not evidence (row stays untracked), the state_reason filter is applied.
+box44l="$(mkbox case-1752-old-gh-notplanned)"; mk_gh_stub "$box44l" closed-notplanned "$SIG44E"
+GH_STUB_OLD_GH=1 run "$box44l" "$(mk44 "$box44l")"
+if [ "$RC" = 0 ] && grep -q '^untracked: row 1 ' <<<"$OUT" && ! grep -qE '^(shipped|borderline|degraded):' <<<"$OUT"; then
+  ok "44l old gh + not-planned closure -> untracked" "(exit $RC)"
+else no "44l old gh not-planned" "exit=$RC out=[$OUT]"; fi
+# 44m — old gh and the per-issue state_reason lookup FAILS: typed degraded naming the lookup, exit 1.
+box44m="$(mkbox case-1752-api-fail)"; mk_gh_stub "$box44m" closed-completed "$SIG44E"
+GH_STUB_OLD_GH=1 GH_STUB_API_FAIL=1 run "$box44m" "$(mk44 "$box44m")"
+if [ "$RC" = 1 ] && grep -q '^degraded: gh api state_reason lookup failed for issue #7' <<<"$OUT" && ! grep -qE '^(shipped|untracked):' <<<"$OUT"; then
+  ok "44m old gh + state_reason lookup failure -> typed degraded + exit 1" "(exit $RC)"
+else no "44m api fail" "exit=$RC out=[$OUT]"; fi
+
 # ---------------------------------------------------------------------------
 # 45 — CLOSURE-EVIDENCE RULE (kit issue #1709). `shipped` needs a commit AND a test cited in the closed
 # issue AND a cited commit that reaches the LOCAL origin/main ref (no fetch). Anything less is `borderline`
@@ -2320,7 +2346,7 @@ if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT" && grep -q '^borderline: ro
 else no "45m absent commit" "exit=$RC out=[$OUT]"; fi
 # 45o — a date-like token and a real reachable SHA on one commit line: shipped whatever the token order
 # (00000001 sorts before and fffffff1 after any real SHA; every token is evaluated, none stops the scan).
-ev_case junk-tokens "${SIG44}\\nCommit: 00000001 ${C_MAIN} fffffff1 (merged 20261004)\\n${EVTEST}"
+ev_case junk-tokens "${SIG44}\\nCommit: 00000001 ${C_MAIN} fffffff1 (merged 10261004)\\n${EVTEST}"
 if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT" && grep -q "^shipped: row 1 .*commit ${C_MAIN} reachable" <<<"$OUT"; then
   ok "45o junk tokens around a real reachable SHA -> shipped, exit 0, order-independent" "(exit $RC)"
 else no "45o junk tokens" "exit=$RC out=[$OUT]"; fi
@@ -2329,17 +2355,21 @@ else no "45o junk tokens" "exit=$RC out=[$OUT]"; fi
 SHALLOW="$ROOT/shallowrepo"
 git clone -q --depth 1 --no-local "$FIXGIT" "$SHALLOW" >/dev/null 2>&1 || { echo "FATAL: shallow clone failed" >&2; exit 2; }
 git -C "$SHALLOW" update-ref refs/remotes/origin/main HEAD
-box45="$(mkbox case-45-shallow)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_ABSENT}\\n${EVTEST}"
+box45="$(mkbox case-45-shallow)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\n${SIG44/· 1/· 2}\\nCommit: 10261004 ${C_ABSENT}\\n${EVTEST}"
 retro45="$(mk44 "$box45")"
 RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$box45" "$retro45"
-if [ "$RC" = 1 ] && grep -q "^degraded: commit ${C_ABSENT} not present locally (shallow or partial clone?)" <<<"$OUT" \
-   && grep -q '^borderline: row 1 ' <<<"$OUT" && ! grep -q '^shipped:' <<<"$OUT"; then
-  ok "45p shallow clone, nothing resolves -> typed degraded + exit 1, row borderline" "(exit $RC)"
-else no "45p shallow degraded" "exit=$RC out=[$OUT]"; fi
+# Kit issue #1773: a shallow checkout is handled once per RUN (not per row), names the first SHA-like token
+# (never the date that sorts first), keeps the rows borderline and does NOT fail the run.
+if [ "$RC" = 0 ] && [ "$(grep -c '^shallow-clone:' <<<"$OUT")" = 1 ] \
+   && grep -q "^shallow-clone: .*2 row(s).*e\.g\. ${C_ABSENT}" <<<"$OUT" && ! grep -q '10261004' <<<"$(grep '^shallow-clone:' <<<"$OUT")" \
+   && ! grep -q '^degraded:' <<<"$OUT" \
+   && [ "$(grep -c '^borderline: row [12] .*shallow clone' <<<"$OUT")" = 2 ] && ! grep -q '^shipped:' <<<"$OUT"; then
+  ok "45p shallow clone, nothing resolves -> one run-level shallow-clone line (SHA-like token), rows borderline, exit 0" "(exit $RC)"
+else no "45p shallow clone" "exit=$RC out=[$OUT]"; fi
 box45="$(mkbox case-45-shallow-ok)"; mk_gh_stub "$box45" closed-completed "${SIG44}\\nCommit: ${C_ABSENT} $(git -C "$SHALLOW" rev-parse HEAD)\\n${EVTEST}"
 retro45="$(mk44 "$box45")"
 RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$box45" "$retro45"
-if [ "$RC" = 0 ] && ! grep -q '^degraded:' <<<"$OUT"; then
+if [ "$RC" = 0 ] && ! grep -qE '^(degraded|shallow-clone):' <<<"$OUT"; then
   ok "45p2 shallow clone, one cited commit resolves -> no degraded" "(exit $RC)"
 else no "45p2 shallow resolved" "exit=$RC out=[$OUT]"; fi
 # 45q — several commits on one line (space and comma lists, both orders): the boundary between tokens is
@@ -2526,15 +2556,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (g) an unresolvable cited token degrades the run again (the pre-r2 behaviour): 45m / 45o go red.
   tooth1709 T1709-g token-degrades \
     '/RECONCILE-COMMIT-PRESENT/{n;s/continue/_anc_degraded=1; continue/}' junk
-  # (i) the shallow-clone degraded no longer fails the run: 45p must see exit 0 from the mutant.
-  echo "-- teeth T1709-i --"
-  mbi="$(mkbox teeth-1709-shallow)"; mk_gh_stub "$mbi" closed-completed "${SIG44}\\nCommit: ${C_ABSENT}\\n${EVTEST}"
-  if mutant_chain T1709-i "$SUT" "$mbi/research-sdd/toolbelt/reconcile-issues.sh" \
-       '/RECONCILE-SHALLOW-DEGRADED/,/^              fi$/s/^                _anc_degraded=1$/                :/'; then
-    RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$mbi" "$(mk44 "$mbi")"
-    if [ "$RC" = 0 ] && ! grep -q '^shipped:' <<<"$OUT"; then ok "T1709-i teeth: shallow degraded swallowed -> exit 0 (case 45p has teeth)" "()"
-    else no "T1709-i teeth" "case 45p is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  # Kit issues #1773 / #1752 teeth (the old T1709-i "shallow degraded swallowed" tooth is superseded: a
+  # shallow checkout no longer fails the run). Shallow cases run the 45p fixture; old-gh cases the 44k/44l stubs.
+  tooth1773() { # <label> <name> <sed-expr> <shallow|oldgh-np|oldgh>
+    local label="$1" bn="$2" expr="$3" kase="$4" mb mr verdict
+    echo "-- teeth $label --"
+    mb="$(mkbox "teeth-1773-$bn")"
+    case "$kase" in
+      shallow) mk_gh_stub "$mb" closed-completed "${SIG44}\\n${SIG44/· 1/· 2}\\nCommit: 10261004 ${C_ABSENT}\\n${EVTEST}" ;;
+      oldgh-np) mk_gh_stub "$mb" closed-notplanned "$SIG44E" ;;
+      *) mk_gh_stub "$mb" closed-completed "$SIG44" ;;
+    esac
+    mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr" || { fail=$((fail+1)); return 0; }
+    mr="$(mk44 "$mb")"
+    case "$kase" in
+      shallow) RECONCILE_ISSUES_GIT_DIR="$SHALLOW" run "$mb" "$mr" ;;
+      *) GH_STUB_OLD_GH=1 run "$mb" "$mr" ;;
+    esac
+    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+      no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
+    fi
+    verdict=1
+    case "$label" in
+      T1773-a) [ "$RC" = 1 ] && verdict=0 ;;
+      T1773-b) grep -q '^shallow-clone:' <<<"$OUT" || verdict=0 ;;
+      T1773-c) grep '^shallow-clone:' <<<"$OUT" | grep -q '10261004' && verdict=0 ;;
+      T1773-d) [ "$(grep -c '^shallow-clone:' <<<"$OUT")" != 1 ] && verdict=0 ;;
+      T1752-a) [ "$RC" = 1 ] && grep -q '^degraded: gh issue list (closed) failed' <<<"$OUT" && verdict=0 ;;
+      T1752-b) grep -q '^untracked: row 1 ' <<<"$OUT" || verdict=0 ;;
+    esac
+    if [ "$verdict" -eq 0 ]; then ok "$label teeth: mutant changes behaviour (the $kase case has teeth)" "()"
+    else no "$label teeth" "the $kase case is THEATER: rc=$RC out=[$OUT]"; fi
+  }
+  tooth1773 T1773-a shallow-fails-run \
+    's/^\(                _SHALLOW_ROWS=\$((_SHALLOW_ROWS+1))\)$/\1; _anc_degraded=1/' shallow
+  tooth1773 T1773-b no-note \
+    's/^_emit_shallow_note() {$/_emit_shallow_note() { return 0/' shallow
+  tooth1773 T1773-c junk-token-named \
+    's/\[\[ "\$_ev_c" == \*\[a-fA-F\]\* \]\]/[ -n "$_ev_c" ]/' shallow
+  tooth1773 T1773-d per-row-note \
+    's/^\(                _SHALLOW_ROWS=\$((_SHALLOW_ROWS+1))\)$/\1; _emit_shallow_note/' shallow
+  tooth1773 T1752-a fallback-dead \
+    's/Unknown JSON field\.\*stateReason/Unknown JSON field.*NEVERMATCHES/' oldgh
+  tooth1773 T1752-b state-filter-dropped \
+    's/|| _bad="${_bad}${_num}"/|| _bad_unused="${_num}"/' oldgh-np
   # (j) token extraction consumes boundaries (space kept inside a token): 45q's lists lose a SHA.
   echo "-- teeth T1709-j --"
   mbj="$(mkbox teeth-1709-lists)"; mk_gh_stub "$mbj" closed-completed "${SIG44}\\nCommits: ${C_SIDE} ${C_MAIN}\\n${EVTEST}"
