@@ -2066,18 +2066,18 @@ _vrun "$vh" claude
   || no "V8: user edits outside the block caused a non-match (rc=$VRC) :: $(_vline claude)"
 
 # V9 — single-file bundle (list edge): a hand-written record with ONE member matches, then drifts.
-vh="$TMP/v9-home"; mkdir -p "$vh/.claude/skills/research-sdd" "$vh/.claude/research-sdd"
-printf 'only file\n' > "$vh/.claude/skills/research-sdd/SKILL.md"
-_s1="$(sha256sum "$vh/.claude/skills/research-sdd/SKILL.md" | awk '{print $1}')"
+vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/skills/research-sdd" "$vh/.pi/agent/research-sdd"
+printf 'only file\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
+_s1="$(sha256sum "$vh/.pi/agent/skills/research-sdd/SKILL.md" | awk '{print $1}')"
 _b1="$(printf '%s\t%s\n' "$_s1" 'skills/research-sdd/SKILL.md' | sha256sum | awk '{print $1}')"
-printf 'bundle_sha256=%s\nprofile=claude\nfile=%s  %s\n' "$_b1" "$_s1" 'skills/research-sdd/SKILL.md' > "$vh/.claude/research-sdd/.installed-bundle-state"
-_vrun "$vh" claude
-[ "$VRC" = 0 ] && _vhas claude 'status=match .*files=1( |$)' \
+printf 'bundle_sha256=%s\nprofile=claude\nfile=%s  %s\n' "$_b1" "$_s1" 'skills/research-sdd/SKILL.md' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
+_vrun "$vh" pi
+[ "$VRC" = 0 ] && _vhas pi 'status=match .*files=1( |$)' \
   && ok "V9: single-file recorded bundle → match (files=1), exit 0" \
   || no "V9: single-file bundle not matched (rc=$VRC) :: $(_vline claude)"
-printf 'changed\n' > "$vh/.claude/skills/research-sdd/SKILL.md"
-_vrun "$vh" claude
-[ "$VRC" = 1 ] && _vhas claude 'status=drift.*skills/research-sdd/SKILL.md' \
+printf 'changed\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
+_vrun "$vh" pi
+[ "$VRC" = 1 ] && _vhas pi 'status=drift.*skills/research-sdd/SKILL.md' \
   && ok "V9: single-file bundle drifts when that one file changes, exit 1" \
   || no "V9: single-file drift missed (rc=$VRC) :: $(_vline claude)"
 
@@ -2565,6 +2565,33 @@ if [ "$(cat "$home/.claude/agents/research-sdd-risk.md")" = "my own reviewer" ] 
   ok "agents: a differing same-named user file is kept with a typed WARNING; the other definitions still deploy (rc=$rc_c)"
 else no "agents: user-file collision mishandled (rc=$rc_c): $out_c"; fi
 
+# #1761: the kept user file is a recorded bundle member whose record carries the SOURCE sha, so --verify
+# reports it as drift and names it as a kept-hand-edit; a later tamper of another definition is named too.
+ver_k="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"; rc_vk=$?
+if [ "$rc_c" = 0 ] && [ "$rc_vk" = 1 ] && grep -q 'harness=claude status=drift drifted=agents/research-sdd-risk\.md (modified) kept-hand-edit=agents/research-sdd-risk\.md$' <<<"$ver_k"; then
+  ok "agents: --verify after a kept user file reports drift naming the kept-hand-edit member (install rc=$rc_c)"
+else no "agents: kept-hand-edit record path not reported (install rc=$rc_c, verify rc=$rc_vk): $ver_k"; fi
+printf '%s\n' '# tampered' >> "$home/.claude/agents/research-sdd-readability.md"
+ver_k2="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"
+if grep -q 'status=drift.*agents/research-sdd-readability\.md (modified)' <<<"$ver_k2" && grep -q 'kept-hand-edit=agents/research-sdd-risk\.md' <<<"$ver_k2"; then
+  ok "agents: a later tamper is named as drift alongside the kept-hand-edit"
+else no "agents: later tamper after a kept hand-edit not reported: $ver_k2"; fi
+
+# #1761: a bundle record written BEFORE #1714 (no agents/ members, self-consistent digest) must not
+# verify as match while the kit ships agent definitions: the comparison set is the kit's CURRENT set.
+home="$TMP/agents-prerecord"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+st_p="$home/.claude/research-sdd/.installed-bundle-state"
+grep -v '^file=.*  agents/' "$st_p" > "$st_p.new"
+dg_p="$(awk 'index($0,"file=")==1 { rest=substr($0,6); i=index(rest,"  "); printf "%s\t%s\n", substr(rest,1,i-1), substr(rest,i+2) }' "$st_p.new" | sha256sum | awk '{print $1}')"
+sed -i "s/^bundle_sha256=.*/bundle_sha256=$dg_p/" "$st_p.new" && mv "$st_p.new" "$st_p"
+rm -rf "$home/.claude/agents"
+ver_p="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"; rc_vp=$?
+if [ "$rc_vp" = 1 ] && grep -q 'harness=claude status=drift drifted=.*agents/research-sdd-risk\.md (missing)' <<<"$ver_p" \
+   && ! grep -q 'status=match' <<<"$ver_p"; then
+  ok "agents: a pre-#1714 bundle record reports the kit's missing agent definitions as typed drift, not match"
+else no "agents: pre-#1714 record verified without the agent definitions (rc=$rc_vp): $ver_p"; fi
+
 # --help text must say --force-skill reaches the agent definitions too (it overwrites user files there).
 help_out="$(bash "$SUT" --help 2>&1)"
 help_fs="$(grep -A3 -- '--force-skill when' <<<"$help_out")"
@@ -2637,11 +2664,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth: always-force mutant kept the user's file — the collision check is THEATER"; fi
 
   M_NOVER="$NA/install/research-sdd-install.MUTANT-agents-noverify.$$.sh"
-  mutant_sed "$SUT" "$M_NOVER" 's/if ! _rsdd_agent_names "\$h" >\/dev\/null; then/if false; then/' \
+  mutant_sed "$SUT" "$M_NOVER" 's/if ! kit_agents="\$(_rsdd_agent_names "\$h")"; then/if false; then/' \
     || no "teeth: agents no-verify-check mutant could not be built"
   ver_m="$(bash "$M_NOVER" --verify --home "$TMP/agents-nokit" --harness claude 2>&1)"
   if grep -q 'harness=claude status=match' <<<"$ver_m"; then ok "teeth: without the agent-source check --verify wrongly reports match → the check has teeth"
   else no "teeth: removing the agent-source check did not change the verdict — the degraded check is THEATER"; fi
+
+  M_NOCUR="$MKI/research-sdd-install.MUTANT-agents-nocurrentset.$$.sh"
+  mutant_sed "$SUT" "$M_NOCUR" 's/^  cur_set="\$(printf .*awk.*$/  cur_set="$rec_paths"/' \
+    || no "teeth: agents no-current-set mutant could not be built"
+  ver_mc="$(bash "$M_NOCUR" --verify --home "$TMP/agents-prerecord" --harness claude 2>&1)"
+  if grep -q 'harness=claude status=match' <<<"$ver_mc"; then ok "teeth: comparing only the recorded manifest reports match for a pre-#1714 record → the current-set check has teeth"
+  else no "teeth: dropping the current-set union did not change the verdict — the pre-#1714 check is THEATER"; fi
 
   M_NOMEM="$MKI/research-sdd-install.MUTANT-agents-nomember.$$.sh"
   mutant_sed "$SUT" "$M_NOMEM" 's|printf .%s\\n. "agents/\$an"|true|' \
