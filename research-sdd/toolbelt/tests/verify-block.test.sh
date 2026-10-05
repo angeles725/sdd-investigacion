@@ -849,6 +849,55 @@ else
   no "64 T-VB2 P6-TYPE-CLASSIFY: decision not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert|cert.*zero|unrecogni' <<<"$out" | head -2)"
 fi
 
+# 64b — #1613: declared 'design-applied' block (METHODOLOGY §4) → INFO on P6 (zero citations) and P9
+# (resolved 0 of M), never the unrecognised-Type WARN; the accepted list in remaining WARNs names it.
+d="$TMP/p6-type-design-applied.md"
+{ echo "# Block 64b — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** design-applied — delivery layer"; echo
+  echo "---"; echo
+  echo "## Delivery [CERT]"; echo "The layer is wired as described. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type design-applied' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|unrecogni' <<<"$out"; then
+  ok "64b #1613 P6-TYPE-CLASSIFY: declared design-applied → INFO (not WARN/unrecognised)"
+else
+  no "64b #1613 P6-TYPE-CLASSIFY: design-applied not graded INFO :: $(grep -iE 'INFO|WARN|unrecogni' <<<"$out" | head -2)"
+fi
+d="$TMP/p9-type-design-applied.md"
+{ echo "# Block 64c — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** design-applied"; echo
+  echo "---"; echo
+  echo 'As seen in `NonExistent.java:10`. `[CERT]`'; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*resolved 0 of.*expected for declared type design-applied' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "64c #1613 P9-TYPE-CLASSIFY: declared design-applied + extern cite → INFO (not WARN)"
+else
+  no "64c #1613 P9-TYPE-CLASSIFY: design-applied not graded INFO :: $(grep -iE 'INFO|WARN.*resolved|unrecogni' <<<"$out" | head -2)"
+fi
+d="$TMP/p6-type-unrec-lists-design-applied.md"
+{ echo "# Block 64d — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** bogus-type"; echo
+  echo "---"; echo
+  echo "## X [CERT]"; echo "y. [CERT]"; } > "$d"
+out="$(run "$d")"
+if [ "$(grep -c 'design-applied' <<<"$out")" -ge 1 ] && grep -q "unrecognised Type: token 'bogus-type'; accepted:.*design-applied" <<<"$out"; then
+  ok "64d #1613: unrecognised-Type WARN lists design-applied among accepted tokens"
+else
+  no "64d #1613: accepted list omits design-applied :: $(grep -i 'accepted' <<<"$out" | head -1)"
+fi
+d="$TMP/p6-no-type-hint-design-applied.md"
+{ echo "# Block 64e — t"; echo
+  echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "## X [CERT]"; echo "y. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qE 'HINT.*decision \| design-applied' <<<"$out"; then
+  ok "64e #1613: no-Type HINT lists design-applied"
+else
+  no "64e #1613: no-Type HINT omits design-applied :: $(grep -i 'HINT' <<<"$out" | head -1)"
+fi
+
 # ---- SOURCE_ROOT: resolve [CERT] backtick citations into a decompiled/organized source tree -----
 # Retro 2026-09-20 (wb-vendor-ux wave-3, issue #853): all 12 wave-3 blocks cite into
 # `organized/*/vineflower/...` paths. Without SOURCE_ROOT, every backtick cite resolves `extern`.
@@ -1804,6 +1853,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     vbtype "$TMP/p6-type-decision-teeth.md" '> **Type:** decision' "## Decision [CERT]" "Chose approach A over B. [CERT]"
     tooth "teeth-p6-type-classify-decision" 0 0 "$MUT/tdec.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
       --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-decision-teeth.md"
+  fi
+
+  echo "-- teeth-p6-type-classify-design-applied: remove design-applied from P6-TYPE-CLASSIFY; block must revert to unrecognised WARN --"
+  if mk_sed "teeth-p6-type-classify-design-applied" "$MUT/tda6.sh" '/# P6-TYPE-CLASSIFY/ s/|design-applied//'; then
+    vbtype "$TMP/p6-type-da-teeth.md" '> **Type:** design-applied' "## Delivery [CERT]" "The layer is wired. [CERT]"
+    tooth "teeth-p6-type-classify-design-applied" 0 0 "$MUT/tda6.sh" --good-has 'INFO.*declared type design-applied' --good-lacks "WARN.*$NOCITE" \
+      --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-da-teeth.md"
+  fi
+
+  echo "-- teeth-p9-type-classify-design-applied: remove design-applied from P9-TYPE-CLASSIFY; extern cite must revert to WARN --"
+  if mk_sed "teeth-p9-type-classify-design-applied" "$MUT/tda9.sh" '/# P9-TYPE-CLASSIFY/ s/|design-applied//'; then
+    vbtype "$TMP/p9-type-da-teeth.md" '> **Type:** design-applied' "As seen in \`NonExistent.java:10\`. \`[CERT]\`"
+    tooth "teeth-p9-type-classify-design-applied" 0 0 "$MUT/tda9.sh" --good-has 'INFO.*resolved 0 of' --good-lacks 'WARN.*resolved 0 of' \
+      --bad-has 'WARN.*resolved 0 of' --bad-lacks 'INFO.*resolved' -- bash @SUT@ "$TMP/p9-type-da-teeth.md"
   fi
 
   echo "-- teeth-p6-nonresolvable: neuter P6-NONRESOLVABLE-GUARD; jar-only block must revert to P6 WARN --"
