@@ -1921,7 +1921,7 @@ if command -v jq >/dev/null 2>&1; then
   bash "$_k32_sp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1732-f2.out" 2>&1
   assert_grep "K1732-f2 snippet carries the space path as an escaped JSON string" "\"command\":\"\\\"$_k32_sp/toolbelt/return-token-gate.sh\\\"\"" "$TMP/1732-f2.out"
   # (f3) kit issue #1757: a BARE (unquoted) registration of the current kit gate path that contains a space word-splits and
-  # never runs, so it is NOT "already wired": it is rewritten to the quoted form (one entry, runnable), reported as repaired.
+  # never runs, so it is NOT "already wired": it is rewritten to the quoted form (one entry, runnable), reported as requoted.
   _k57_gate="$_k32_sp/toolbelt/return-token-gate.sh"
   d="$TMP/1757-a"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k57_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
@@ -3488,19 +3488,19 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   }
   # M-1757-BARE: the single spaced_bare predicate is neutered -> the bare spaced path counts as current again and is the ONLY gate
   # left (kept bare, no quoted entry, exactly one gate entry).
-  if command -v jq >/dev/null 2>&1 && _k43_build "k57a sp" -e '/# RSDD-GATE-SPACED-BARE:/s/&& spaced_bare=1/\&\& spaced_bare=0/'; then
+  if _k43_build "k57a sp" -e '/# RSDD-GATE-SPACED-BARE:/s/&& spaced_bare=1/\&\& spaced_bare=0/'; then
     t="$(_k57_run "k57a sp")"; g="$TMP/k43/k57a sp/toolbelt/return-token-gate.sh"
     [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && [ "$(_k32_n "$t/.claude/settings.json" "\"$g\"")" = 0 ] \
       && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$t/.claude/settings.json")" = 1 ] \
       && ok "teeth M-1757-BARE: bare spaced gate kept as the only gate without the predicate — K1757-a has teeth" \
       || no "teeth M-1757-BARE: bare gate not kept as the only gate under the mutant ($(jq -c '.hooks.Stop' "$t/.claude/settings.json")) — K1757-a is THEATER"
-  else echo "  SKIP  teeth M-1757-BARE: no jq or mutant not buildable"; fi
+  else no "teeth M-1757-BARE: could not build mutant"; fi
   # M-1757-DROP: the bare spaced entry is no longer queued for removal -> the unrunnable bare entry survives next to the quoted one.
-  if command -v jq >/dev/null 2>&1 && _k43_build "k57b sp" -e 's/then requoted="\$(jq -c --arg c "\$c" .\. + \[\$c\]. <<<"\$requoted")"; fi$/then :; fi/'; then
+  if _k43_build "k57b sp" -e 's/then requoted="\$(jq -c --arg c "\$c" .\. + \[\$c\]. <<<"\$requoted")"; fi$/then :; fi/'; then
     t="$(_k57_run "k57b sp")"; g="$TMP/k43/k57b sp/toolbelt/return-token-gate.sh"
     [ "$(_k32_n "$t/.claude/settings.json" "$g")" = 1 ] && ok "teeth M-1757-DROP: bare spaced entry survives without the drop — K1757-a has teeth" \
       || no "teeth M-1757-DROP: bare entry still removed under the mutant — K1757-a is THEATER"
-  else echo "  SKIP  teeth M-1757-DROP: no jq or mutant not buildable"; fi
+  else no "teeth M-1757-DROP: could not build mutant"; fi
   fi
 fi
 
