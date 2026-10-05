@@ -34,7 +34,13 @@
 #                       typed + WARNed on stderr, never a bare ok.
 #   FAIL — N ...        one-directional correction(s); REFUSES (exit 3), the failing pairs are listed.
 #   DEGRADED — ...      the linter said it could not look (`degraded:`); REFUSES — an unreadable instrument is not a pass.
-#   ERROR — ... did not run   bad args / missing / non-executable / unexpected exit; REFUSES.
+#   ERROR — ...         bad args / missing / non-executable / unexpected exit / exit 0 without an `ok` verdict line /
+#                       exit 1 with no findings and no `degraded:` (could not run?) / --focus prefix unresolvable; REFUSES.
+#   SIBLING — N pair(s) outside focus <slug> not enforced   (--focus only) the failing pairs all belong to sibling
+#                       focuses; typed + stderr WARN, does NOT refuse (same scoping rule as verify-state, #647).
+# Under --focus a failing pair refuses only when its TARGET block carries the focus's prefix (derive_focus_prefix of the
+# focus state file, lib/focus-prefix.sh) or the focus owns a block with the correcting block's number (conservative:
+# the linter's FAIL line names the correcting block by number only). No block file carries the focus prefix => ERROR.
 # --allow-unreciprocated-corrections turns a FAIL / DEGRADED / ERROR refusal for THIS gate into a typed
 # `OVERRIDDEN — ...` line (and a stderr WARN) and lets the close proceed; it never affects any other gate.
 set -uo pipefail
@@ -94,6 +100,16 @@ if [ ! -f "$_sflib" ]; then echo "research-sdd-archive: cannot find helper $_sfl
 declare -F list_state_files >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_sflib failed to define list_state_files" >&2; exit 1; }
 unset _sflib
+
+# Shared focus -> block-prefix derivation (single source of truth with verify-state / status) — used to scope the
+# §14 reciprocity gate under --focus. Fail-closed like the other helpers.
+_fplib="$here/lib/focus-prefix.sh"
+if [ ! -f "$_fplib" ]; then echo "research-sdd-archive: cannot find helper $_fplib" >&2; exit 1; fi
+# shellcheck source=lib/focus-prefix.sh
+. "$_fplib"
+declare -F derive_focus_prefix >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_fplib failed to define derive_focus_prefix" >&2; exit 1; }
+unset _fplib
 
 # Resolve the state file via the shared lib/state-files.sh resolver (kit issue #1818): shallowest wins, and
 # the root RESEARCH-STATE.md beats every RESEARCH-STATE-<focus>.md at that depth (a lexical `sort | head -1`
@@ -183,17 +199,58 @@ case "$_vc_rc" in
        _vc_u="$(sed -n 's/^ *ok-partial \([0-9][0-9]*\) .*/\1/p' <<<"$_vc_out" | head -n 1)"
        echo "    verify-corrections : PARTIAL — ${_vc_u:-some} declared correction(s) NOT checked (ambiguous/missing target; run verify-corrections.sh for the WARN lines)"
        echo "WARN: verify-corrections ok-partial — ${_vc_u:-some} declared correction(s) could not be checked." >&2
-     else echo "    verify-corrections : ok"; fi;;
-  # Output contract (verify-corrections.sh): one `   FAIL   B<n> corrects [Block <m>] ...` line per finding;
-  # an instrument that could not look says `degraded:` and exits 1 with NO FAIL lines.
+     elif grep -q '^ *ok ' <<<"$_vc_out"; then  # AR-VCORR-OK-POSITIVE
+       echo "    verify-corrections : ok"
+     else
+       _vc_refuse ERROR "verify-corrections.sh exited 0 without an 'ok' verdict line (contract drift — the check may not have run)"
+     fi;;
+  # Output contract (verify-corrections.sh): one `   FAIL   B<n> corrects [Block <m>] but <file> has no reciprocal ...`
+  # line per finding; an instrument that could not look says `degraded:` and exits 1 with NO FAIL lines.
   1) _vc_n="$(grep -c '^ *FAIL ' <<<"$_vc_out")"  # AR-VCORR-COUNT
      if grep -q 'degraded:' <<<"$_vc_out"; then  # AR-VCORR-DEGRADED
        _vc_refuse DEGRADED "verify-corrections.sh reported degraded: $(grep -m1 'degraded:' <<<"$_vc_out" | sed 's/^.*degraded: *//')"
      elif [ "$_vc_n" -gt 0 ]; then
-       _vc_refuse FAIL "$_vc_n one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)"
-       grep '^ *FAIL ' <<<"$_vc_out" | sed 's/^ */      /'
+       _vc_fails="$(grep '^ *FAIL ' <<<"$_vc_out")"
+       _vc_infocus="$_vc_fails"; _vc_sib=0; _vc_scope_err=""
+       if [ -n "$focus_slug" ]; then  # AR-VCORR-FOCUS-SCOPE
+         _vc_fslug="$(derive_focus_prefix "$state")"; _vc_fslug="${_vc_fslug%-}"
+         _vc_fnums=" "; _vc_fcount=0
+         while IFS= read -r _vc_f; do
+           [ -n "$_vc_f" ] || continue
+           [ "$(basename "$_vc_f" | sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/')" = "$_vc_fslug" ] || continue
+           _vc_fcount=$((_vc_fcount+1))
+           _vc_fnums="$_vc_fnums$(basename "$_vc_f" | sed -E 's/.*-(block|bloque)0*([0-9]+).*/\2/') "
+         done < <(find "$corpus" -maxdepth 3 -type f -name '*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | block_file_filter)
+         if [ -z "$_vc_fslug" ] || [ "$_vc_fcount" -eq 0 ]; then
+           _vc_scope_err="cannot scope the §14 gate to focus $focus_slug (no block file carries its prefix '${_vc_fslug:-?}-'); $_vc_n finding(s) NOT classified"  # AR-VCORR-FOCUS-UNRESOLVED
+         else
+           _vc_infocus=""
+           while IFS= read -r _vc_l; do
+             _vc_c="$(sed -nE 's/^ *FAIL +B0*([0-9]+) corrects.*/\1/p' <<<"$_vc_l")"
+             _vc_t="$(sed -nE 's/^.* but ([^ ]+) has no reciprocal.*/\1/p' <<<"$_vc_l")"
+             _vc_tp="$(sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/' <<<"$_vc_t")"
+             # unparseable line => treated as in-focus (never silently dropped)
+             if [ -z "$_vc_c" ] || [ -z "$_vc_t" ] || [ "$_vc_tp" = "$_vc_fslug" ] || [[ "$_vc_fnums" == *" $_vc_c "* ]]; then  # AR-VCORR-IN-FOCUS
+               _vc_infocus="${_vc_infocus:+$_vc_infocus$'\n'}$_vc_l"
+             else _vc_sib=$((_vc_sib+1)); fi
+           done <<<"$_vc_fails"
+         fi
+       fi
+       if [ -n "$_vc_scope_err" ]; then
+         _vc_refuse ERROR "$_vc_scope_err"
+       else
+         if [ -n "$_vc_infocus" ]; then
+           _vc_nf="$(grep -c '' <<<"$_vc_infocus")"
+           _vc_refuse FAIL "$_vc_nf one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s)"
+           sed 's/^ */      /' <<<"$_vc_infocus"
+         fi
+         if [ "$_vc_sib" -gt 0 ]; then
+           echo "    verify-corrections : SIBLING — $_vc_sib pair(s) outside focus $focus_slug not enforced"
+           echo "WARN: verify-corrections found $_vc_sib one-directional pair(s) outside focus $focus_slug — not enforced for this --focus close." >&2
+         fi
+       fi
      else
-       _vc_refuse FAIL "one-directional §14 correction(s) found (count unparseable; see verify-corrections.sh output)"
+       _vc_refuse ERROR "verify-corrections exited 1 with no findings (could not run?) — see verify-corrections.sh output"
      fi;;
   2) if grep -q 'no block files' <<<"$_vc_out"; then   # exit 2 is ambiguous: no-blocks vs bad args — read the reason
        echo "    verify-corrections : n/a — no block files"
