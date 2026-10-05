@@ -56,11 +56,10 @@ triage: #1613→#1802 · #1606→#1795 · #1173→#1799 · #1394/#1388→#1798 �
 - [x] F6 #1790 clause binding (false FAILs 18→6, 10 true findings unmasked) → #1838 (refs #1790; backlinks proposed as a comment; follow-ups #1835 #1840).
 - [x] S2 #1818 slice 2 (status.sh) → #1839.
 
-### In flight
-- [ ] V1 #1820 — `lib/gh-visibility.sh` for init/status/ensure-remote + `GIT_OPTIONAL_LOCKS=0` in verify-kit-clean (writer).
+- [x] V1 #1820 — `lib/gh-visibility.sh` (bounded `timeout`→`gtimeout`→watchdog; status keeps 10 s and skips remaining remotes after the first timeout) for init/status/ensure-remote + `GIT_OPTIONAL_LOCKS=0` in verify-kit-clean → #1842 (follow-ups #1841 #1843).
 
 ### Backlog (filed, not started)
-#1214 (rule pack under #1365) · #1821 (small unwired items) · #1834 · #1835 · #1836 · #1840 ·
+#1214 (rule pack under #1365) · #1821 (small unwired items) · #1834 · #1835 · #1836 · #1840 · #1841 · #1843 ·
 needs-review for the maintainer: #1812 (closure-evidence rule → shipped=0), #1814 (MUTANT_SYNTAX export), #1837 (`--root/--focus --next` scope) ·
 #1790 step 4 (promote verify-corrections to an archive gate, after #1835).
 
@@ -71,8 +70,8 @@ Dismissed/deferred (6): #896 #1180 #1610 #1255 #1256 #1262.
 
 ## Audit 2026-10-05 (read-only, origin/main 99d72bf1) → issues
 #1816 SessionStart budget (merged #1827) · #1817 doc-consistency unwired (merged #1826) · #1818 state resolver
-(merged #1833 + #1839) · #1819 envelope-counter doctrine (merged #1832) · #1820 gh visibility probes (in flight) ·
-#1821 small items (backlog).
+(merged #1833 + #1839) · #1819 envelope-counter doctrine (merged #1832) ·
+#1821 small items (backlog). #1820 gh visibility probes → merged #1842.
 
 ## Findings worth keeping
 - Verify reviewer claims by execution on the SAME environment as CI: a local refutation (jq 1.8.2) was wrong; two reviewer claims were refuted correctly with code evidence (catalog sentinel existed; `here` uses the same `dirname "$0"`).
@@ -84,9 +83,10 @@ Dismissed/deferred (6): #896 #1180 #1610 #1255 #1256 #1262.
 - Doc-only PRs: map each behavioural sentence to a pinning test; delete unpinned ones.
 
 ## Close
-Merged today: the morning wave listed above, plus 18 after compaction (#1807 #1810 #1813 #1815 #1822 #1823 #1824 #1825 #1826 #1827
-#1828 #1829 #1830 #1831 #1832 #1833 #1838 #1839). Remaining: V1 #1820 in flight; W3c manual; backlog above.
+Merged today: the morning wave listed above, plus 19 after compaction (#1842 #1807 #1810 #1813 #1815 #1822 #1823 #1824 #1825 #1826 #1827
+#1828 #1829 #1830 #1831 #1832 #1833 #1838 #1839). Remaining: W3c manual; backlog above. All writers finished; no unit in flight.
 
 ## Next step
-Ship V1 (#1820) through RDD → merge-gate; then the next session starts from the backlog (W3c per target, #1835,
-#1836, #1834/#1840, maintainer decisions on #1812/#1814/#1837).
+Next session starts from the backlog: W3c per target (adapt `<SUBJECT>` in 12 targets), commit the
+`.research-sdd/plan/` `.gitignore` line in the 17 target repos (maintainer), #1835, #1836, #1834/#1840/#1841/#1843,
+and maintainer decisions on #1812/#1814/#1837.
