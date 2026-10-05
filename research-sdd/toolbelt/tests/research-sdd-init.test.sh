@@ -2128,6 +2128,60 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   [ "$_kpp_rc" = 0 ] && grep -qF "pushed file version" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
 fi
 
+# ---- kit issue #1800: the vendor-leak step also runs on the --wire repair path of an EXISTING corpus (PRIVATE -> PUBLIC) ----
+if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K71_BIN:-}" ]; then
+  _k00_target() {  # <name> [remote-url] — an existing corpus (INDEX.md marker) in a git repo
+    local t; t="$(_k71_target "k00-$1" "${2:-}")"; : > "$t/INDEX.md"; printf '%s' "$t"
+  }
+  _k00_vl() { printf '%s %s %s' "$([ -e "$1/.research-sdd/vendor-leak.conf" ] && echo conf)" "$([ -e "$1/.github/workflows/vendor-leak.yml" ] && echo wf)" "$([ -e "$1/.git/hooks/pre-push" ] && echo hook)"; }
+  # (a) PUBLIC: --wire on an existing corpus scaffolds the conf, writes the CI workflow and the pre-push hook.
+  d="$(_k00_target a https://example.invalid/pub.git)"; : > "$TMP/k71.gh.log"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" "$d" --wire >"$TMP/k00-a.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "K1800-a --wire on an existing PUBLIC corpus exits 0" || no "K1800-a exit $_rc"
+  [ "$(_k00_vl "$d")" = "conf wf hook" ] && ok "K1800-a conf + CI workflow + pre-push hook written" || no "K1800-a wiring: [$(_k00_vl "$d")]"
+  [ -x "$d/.git/hooks/pre-push" ] && ok "K1800-a pre-push hook is executable" || no "K1800-a pre-push hook not executable"
+  assert_grep "K1800-a typed PUBLIC line" "vendor-leak: PUBLIC" "$TMP/k00-a.out"
+  assert_grep "K1800-a typed pre-push line" "vendor-leak: wrote pre-push guard" "$TMP/k00-a.out"
+  assert_grep "K1800-a reuses the bounded gh visibility probe" "repo view" "$TMP/k71.gh.log"
+  assert_grep "K1800-a the corpus step still finishes (== done ==)" "== done ==" "$TMP/k00-a.out"
+  # (b) PRIVATE first (typed, nothing written), then the repo goes PUBLIC and the same --wire now installs everything.
+  d="$(_k00_target b https://example.invalid/priv.git)"
+  PATH="$K71_BIN:$PATH" K71_VIS=PRIVATE K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-b1.out" 2>&1
+  [ "$(_k00_vl "$d")" = "  " ] && ok "K1800-b PRIVATE: nothing vendor-leak written" || no "K1800-b PRIVATE wrote: [$(_k00_vl "$d")]"
+  assert_grep "K1800-b PRIVATE typed line" "vendor-leak: PRIVATE" "$TMP/k00-b1.out"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-b2.out" 2>&1
+  [ "$(_k00_vl "$d")" = "conf wf hook" ] && ok "K1800-b PRIVATE -> PUBLIC: a later --wire installs conf + workflow + hook" || no "K1800-b after PUBLIC: [$(_k00_vl "$d")]"
+  # (c) idempotent: a third run changes no byte and reports kept / already wired.
+  cp "$d/.research-sdd/vendor-leak.conf" "$TMP/k00-c.conf"; cp "$d/.github/workflows/vendor-leak.yml" "$TMP/k00-c.wf"; cp "$d/.git/hooks/pre-push" "$TMP/k00-c.hook"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-c.out" 2>&1
+  { cmp -s "$TMP/k00-c.conf" "$d/.research-sdd/vendor-leak.conf" && cmp -s "$TMP/k00-c.wf" "$d/.github/workflows/vendor-leak.yml" && cmp -s "$TMP/k00-c.hook" "$d/.git/hooks/pre-push"; } \
+    && ok "K1800-c re-run leaves conf, workflow and hook byte-identical" || no "K1800-c a file changed on a re-run"
+  assert_grep "K1800-c typed kept-existing line" "kept existing" "$TMP/k00-c.out"
+  assert_grep "K1800-c typed already-wired hook line" "pre-push guard already wired" "$TMP/k00-c.out"
+  # (d) user-modified / foreign files are never overwritten (propose instead): conf, workflow, foreign pre-push hook.
+  d="$(_k00_target d https://example.invalid/pub.git)"; mkdir -p "$d/.research-sdd" "$d/.github/workflows" "$d/.git/hooks"
+  printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"; printf 'hand-written\n' > "$d/.github/workflows/vendor-leak.yml"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-d.out" 2>&1
+  assert_grep "K1800-d user conf untouched" "prefix com.keepme" "$d/.research-sdd/vendor-leak.conf"
+  assert_grep "K1800-d user workflow untouched" "hand-written" "$d/.github/workflows/vendor-leak.yml"
+  { [ "$(wc -l < "$d/.git/hooks/pre-push")" = 2 ] && grep -qF 'echo mine' "$d/.git/hooks/pre-push"; } && ok "K1800-d foreign pre-push hook untouched" || no "K1800-d foreign hook modified"
+  assert_grep "K1800-d typed foreign-hook skip with the line to add by hand" "pre-push guard skipped (foreign pre-push hook)" "$TMP/k00-d.out"
+  # (e) visibility unknowable: typed DEGRADED (never a silent pass), nothing written, the wire itself still succeeds.
+  d="$(_k00_target e https://example.invalid/pub.git)"
+  PATH="$K71_BIN:$PATH" K71_VIS='' K71_RC=1 K71_ERR="gh: not logged in" bash "$_kpp_init" "$d" --wire >"$TMP/k00-e.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "K1800-e gh failing: --wire still exits 0" || no "K1800-e exit $_rc"
+  assert_grep "K1800-e typed DEGRADED" "vendor-leak: DEGRADED" "$TMP/k00-e.out"
+  [ "$(_k00_vl "$d")" = "  " ] && ok "K1800-e DEGRADED: nothing written" || no "K1800-e DEGRADED wrote: [$(_k00_vl "$d")]"
+  d="$(_k00_target e2 https://example.invalid/pub.git)"
+  PATH="$K71_NOGH" bash "$_kpp_init" "$d" --wire >"$TMP/k00-e2.out" 2>&1
+  assert_grep "K1800-e2 gh missing: typed DEGRADED" "vendor-leak: DEGRADED gh not found" "$TMP/k00-e2.out"
+  # (f) no remote: typed NO-REMOTE, gh never asked.
+  d="$(_k00_target f)"; : > "$TMP/k71.gh.log"
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" "$d" --wire >"$TMP/k00-f.out" 2>&1
+  assert_grep "K1800-f typed NO-REMOTE" "vendor-leak: NO-REMOTE" "$TMP/k00-f.out"
+  [ ! -s "$TMP/k71.gh.log" ] && ok "K1800-f no gh call without a remote" || no "K1800-f gh was called"
+fi
+
 # ---- kit issue #1804: .research-sdd/plan/ is gitignored (block resume plan, #1178) — scaffold AND --wire repair ----
 _k04_cnt() { [ -f "$1" ] || { echo 0; return 0; }; grep -cxF '.research-sdd/plan/' "$1" 2>/dev/null || true; }
 _k04_inits="$(_k87_kit "$TMP/1804 kit sp")/toolbelt/init.sh"
@@ -3805,6 +3859,23 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     ( cd "$d" && bash .git/hooks/pre-push >/dev/null 2>&1 ); _m_rc=$?
     [ "$_m_rc" != 0 ] && ok "teeth M-1271-QUOTE: the hook breaks on a quoted kit path without the escaper — K1271-pp-h has teeth" || no "teeth M-1271-QUOTE: hook still runs under the mutant — K1271-pp-h is THEATER"
   else no "teeth M-1271-QUOTE: could not build mutant"; fi
+  # ---- kit issue #1800 teeth (the --wire repair path of an existing corpus) ----
+  # M-1800-CALL: the wire-only path no longer runs the vendor-leak step -> a PUBLIC existing corpus gets nothing.
+  if _k87_mb "k00 call" '/^      _rsdd_vendor_leak_wiring$/d'; then
+    d="$(_k00_target m-call https://example.invalid/pub.git)"; _k87_mpub "k00 call" "$d" PUBLIC --wire
+    [ "$(_k00_vl "$d")" = "  " ] && ok "teeth M-1800-CALL: nothing wired on a PUBLIC existing corpus without the call — K1800-a/b have teeth" || no "teeth M-1800-CALL: still wired under the mutant [$(_k00_vl "$d")] — K1800-a/b are THEATER"
+  else no "teeth M-1800-CALL: could not build mutant"; fi
+  # M-1800-PRIVATE: the PRIVATE early return is dead -> a PRIVATE existing corpus gets the hook.
+  if _k87_mb "k00 private" '/^    PRIVATE|INTERNAL)/,/return 0 ;;/s/return 0 ;;/;;/'; then
+    d="$(_k00_target m-priv https://example.invalid/priv.git)"; _k87_mpub "k00 private" "$d" PRIVATE --wire
+    [ -e "$d/.git/hooks/pre-push" ] && ok "teeth M-1800-PRIVATE: a PRIVATE existing corpus is wired without the early return — K1800-b has teeth" || no "teeth M-1800-PRIVATE: nothing wired under the mutant — K1800-b is THEATER"
+  else no "teeth M-1800-PRIVATE: could not build mutant"; fi
+  # M-1800-CONF: the never-overwrite guard on the conf is dead -> a user's conf is clobbered.
+  if _k87_mb "k00 conf" 's/^  if \[ -e "\$conf" \] || \[ -L "\$conf" \]; then$/  if false; then/'; then
+    d="$(_k00_target m-conf https://example.invalid/pub.git)"; mkdir -p "$d/.research-sdd"; printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"
+    _k87_mpub "k00 conf" "$d" PUBLIC --wire
+    grep -qF 'prefix com.keepme' "$d/.research-sdd/vendor-leak.conf" && no "teeth M-1800-CONF: user conf survives under the mutant — K1800-d is THEATER" || ok "teeth M-1800-CONF: the user's conf is clobbered without the guard — K1800-d has teeth"
+  else no "teeth M-1800-CONF: could not build mutant"; fi
   # ---- kit issue #1804 teeth (a mutant that cannot be built is a FAIL, never a SKIP) ----
   # M-1804-DEDUP: the equivalent-pattern early return is dead -> a re-run appends a duplicate line.
   if _k87_mb "k04 dedup" '/RSDD-GI-EQUIV/s/return 0 ;;/;;/'; then
