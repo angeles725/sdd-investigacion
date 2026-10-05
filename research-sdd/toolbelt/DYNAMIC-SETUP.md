@@ -201,6 +201,16 @@ does not fit it. Gotchas from the first web dynamic phase:
 - **`page.screenshot` times out on a live WebGL scene under software GL** — use CDP
   `Page.captureScreenshot` as the fallback (no stability wait; fires immediately).
   Alternatively, switch off the WebGL tab and screenshot a non-3D view first.
+- **Pause the render loop before scripted `evaluate()` / clicks — the screenshot fallback above does
+  NOT cover this.** A distinct symptom of the same software-GL environment: a continuous
+  `requestAnimationFrame` render loop competes for the page thread, so one `page.evaluate()` or click
+  can take 5-6 minutes (measured once, on one target). CDP `Page.captureScreenshot` (previous bullet)
+  fixes only the screenshot call and does not speed these up. The one mitigation with evidence: the
+  target exposed a mock-only page hook (`__qaStopRender`) that stops the loop, called once at the start
+  of the run, which brought the whole run down to seconds. Whether it is the hook or the loop being
+  stopped that matters, and whether other targets behave the same, was not isolated; where a target
+  has no such hook, adding one (mock/test builds only) is the untested analogue. Source:
+  pancaddia-leon-tunnel/retros/2026-09-25-jace-comp-alarms-document-mode.md (#1, #2; issues #1389, #1390).
 - **Relaunch the browser per viewport** — never reuse a Playwright browser context across viewport
   changes; context reuse reliably throws "Failed to open a new tab" on the software-GL path. One
   `chromium.launch()` per viewport measurement.
