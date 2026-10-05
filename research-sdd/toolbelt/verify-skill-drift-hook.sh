@@ -57,9 +57,17 @@ if [ -x "$vcmd" ]; then
     # the inherited `trap ... TERM` handler before exec, which orphaned the old sleeper and could hang `wait`); it exits
     # within 0.1 s of $vf.done appearing. The bound is counted in poll iterations
     # (vt*10 sleeps of 0.1 s), never wall-clock SECONDS: SECONDS granularity could fire after just over vt-1 s; drift only lengthens it.
-    vmax=$((vt * 10))
+    # A `sleep` that cannot do fractions (POSIX-only userland: it rejects 0.1, or reads it as 0 and returns at once) would burn
+    # the whole count instantly and kill a healthy verify, so the watchdog probes `sleep 0.1` once (exit status, and elapsed when
+    # $EPOCHREALTIME exists) and otherwise polls with integer `sleep 1` x vt (#1771).
     "$vcmd" --verify </dev/null >"$vf" 2>&1 & vpid=$!
-    ( vi=0; while [ ! -e "$vf.done" ] && [ "$vi" -lt "$vmax" ]; do sleep 0.1; vi=$((vi+1)); done
+    ( vsl=0.1; vper=10; vp0="${EPOCHREALTIME:-}"
+      sleep 0.1 2>/dev/null || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-RC
+      if [ "$vper" -eq 10 ] && [ -n "$vp0" ] && [ -n "${EPOCHREALTIME:-}" ]; then   # radix may be '.' or ',' by locale
+        [ $(( ${EPOCHREALTIME//[.,]/} - ${vp0//[.,]/} )) -ge 50000 ] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED
+      fi
+      vmax=$((vt * vper)); vi=0
+      while [ ! -e "$vf.done" ] && [ "$vi" -lt "$vmax" ]; do sleep "$vsl"; vi=$((vi+1)); done
       if [ ! -e "$vf.done" ]; then : >"$vf.fired"; [ -e "$vf.done" ] || kill "$vpid" 2>/dev/null; fi ) >/dev/null 2>&1 & wpid=$!   # SENTINEL-VERIFY-WATCHDOG
     wait "$vpid" 2>/dev/null; vrc=$?; vpid=""
     : >"$vf.done"   # SENTINEL-VERIFY-DONE

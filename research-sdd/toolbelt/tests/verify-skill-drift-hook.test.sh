@@ -16,13 +16,17 @@
 #   H  watchdog-no-kill        the pure-bash fallback never kills the hung run → no 'timed out' (no-timeout-binary path)
 #   J  watchdog-137-as-timeout the watchdog sentinel replaced by "any rc>=128" -> a real exit 137 reads as 'timed out'
 #   K  timeout-pipe-capture    the timeout path captured via command substitution -> a stalled grandchild defeats the bound
-#   M  timeout-137-as-timeout  137 mapped to 124 on the timeout path -> a real exit 137 reads as 'timed out'
+#   M  timeout-137-as-timeout  137 mapped to 124 on the timeout path -> a real exit 137 reads as 'timed out' (a second M
+#                              mutant: pid vars not cleared after their wait -> the EXIT trap signals reaped pids)
 #   N  no-mktemp-skip          mktemp failing with timeout present skips instead of running bounded
-#   O  trap-after-sleeper      watchdog TERM trap installed after the sleeper starts -> early kill orphans it
-#   L  sleeper-not-killed      the watchdog sleeper outlives a fast finish -> a stray sleep per session
+#   O  done-marker-order       the done marker is not written before waiting on the watchdog -> it is never told to stop
+#   P  no-done-recheck         the watchdog signals the verify pid without re-checking the done marker -> a reaped pid is signalled
+#   L  watchdog-not-stopped    watchdog neither stopped nor killed -> a polling subshell outlives a fast finish (pgrep, no wait)
 #   Q  vt-unvalidated          the timeout value reaches $(( )) -> command substitution runs at session start
 #   R  bound-too-short         the poll bound shrinks below vt -> a verify within the bound reads as timed out
-#   S  watchdog-leaked         the watchdog subshell survives a fast finish (checked again after 1 s)
+#   S  watchdog-leaked         the watchdog subshell survives a fast finish (same defect as L, checked again after 1 s)
+#   T  probe-rc-dropped        the fractional-sleep probe ignores sleep's exit status -> a sleep rejecting 0.1 kills a healthy verify
+#   U  probe-elapsed-dropped   the probe ignores elapsed time -> a sleep that accepts 0.1 but returns at once kills a healthy verify
 #   I  skip-silent             the "skipped: no timeout available" branch removed → an unbounded/unreported run
 #
 # Usage: verify-skill-drift-hook.test.sh [--prove-teeth]
@@ -119,13 +123,15 @@ HOUT_T="$(PATH="$SHIMPATH" STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEO
 grep -q 'timed out' <<<"$HOUT_T" && ok "H4c: a hung install --verify is cut off and reported (typed 'timed out'; timeout binary when present)" || no "H4c: hung --verify not bounded/reported; out=[$HOUT_T]"
 HOUT_W="$(STUB_VERIFY_SLEEP=5 RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
 grep -q 'timed out' <<<"$HOUT_W" && ok "H4c2: pure-bash watchdog path (no timeout binary) also cuts off and reports a hung --verify" || no "H4c2: watchdog path did not bound/report; out=[$HOUT_W]"
-# Stalled grandchild holding stdout: the bound must still hold on BOTH paths (timeout ~1 s + slack).
+# Stalled grandchild holding stdout: the bound must still hold on BOTH paths. The property is "the hook does not wait for the
+# grandchild" (20 s), not an absolute 4 s: this WSL host stalls ANY timed wait (sleep, `read -t`, no fork involved) for ~3.7 s about
+# once per ~250 waits (#1770), so a tight bound flaked ~3%. The ceiling is the 1 s timeout + that measured stall, doubled for margin.
 for _path in timeout watchdog; do
   _nb=""; [ "$_path" = watchdog ] && _nb=1
   _s=$SECONDS
-  HOUT_G="$(PATH="$SHIMPATH" RESEARCH_SDD_NO_TIMEOUT_BIN="$_nb" STUB_VERIFY_SLEEP=30 STUB_VERIFY_GRANDCHILD=6 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+  HOUT_G="$(PATH="$SHIMPATH" RESEARCH_SDD_NO_TIMEOUT_BIN="$_nb" STUB_VERIFY_SLEEP=30 STUB_VERIFY_GRANDCHILD=20 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
   _e=$((SECONDS - _s))
-  if [ "$_e" -le 4 ] && grep -q 'timed out' <<<"$HOUT_G"; then ok "H4e($_path): stalled grandchild holding stdout -> hook returns in ${_e}s, reported 'timed out'"
+  if [ "$_e" -le 10 ] && grep -q 'timed out' <<<"$HOUT_G"; then ok "H4e($_path): stalled grandchild holding stdout -> hook returns in ${_e}s, reported 'timed out'"
   else no "H4e($_path): bound not enforced (elapsed ${_e}s) out=[$HOUT_G]"; fi
 done
 # A real exit 137 from install is not a kill by the bound (any timeout value, including 1).
@@ -151,8 +157,11 @@ if command -v pgrep >/dev/null 2>&1; then
   if [ "$_l1" = 0 ] && [ "$_l2" = 0 ]; then ok "H4g: no descendant of the hook survives 10 fast finishes (checked at 0 s and +1 s)"
   else no "H4g: hook descendants survive a fast finish (now=$_l1 after1s=$_l2)"; pkill -f 'verify-skill-drift-hook.leak-1759.sh' 2>/dev/null; fi
   # The watchdog is now a polling subshell of the hook itself (no separate sleeper): none may outlive a fast finish.
+  for _i in $(seq 10); do
+    RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=30 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$HOOK_SB" >/dev/null 2>&1
+  done
   _left=0; for _p in $(pgrep -f "$HOOK_SB" 2>/dev/null); do [ "$_p" = "$$" ] || _left=$((_left+1)); done
-  if [ "$_left" = 0 ]; then ok "H4j: no watchdog subshell survives 20 fast finishes"; else no "H4j: $_left process(es) still running the hook after 20 fast finishes"; pkill -f "$HOOK_SB" 2>/dev/null; fi
+  if [ "$_left" = 0 ]; then ok "H4j: no watchdog subshell of the sandbox hook survives 10 fast finishes"; else no "H4j: $_left process(es) still running the hook after 10 fast finishes"; pkill -f "$HOOK_SB" 2>/dev/null; fi
 fi
 # RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT is validated before any arithmetic: invalid -> default 10 s + a typed note, never evaluated.
 for _path in timeout watchdog; do
@@ -173,6 +182,23 @@ for _i in $(seq 10); do
   grep -q 'timed out' <<<"$HOUT_Q" && _ft=$((_ft+1))
 done
 [ "$_ft" = 0 ] && ok "H4o: a 0.7 s verify under a 1 s bound is never reported timed out (10 runs)" || no "H4o: $_ft/10 false timeouts"
+# Fractional-sleep probe (#1771): a `sleep` that cannot do fractions must not make the watchdog burn its whole count at once.
+# Shim A rejects fractions at once (exit 2, like a POSIX-only sleep); shim B accepts them but returns at once (rc 0); shim C
+# rejects them only on the FIRST call per caller (after a real 0.1 s, so the elapsed half of the probe passes it) and at once afterwards:
+# only the exit-status half of the probe can catch it (tooth T).
+REALSLEEP="$(command -v sleep)"
+SHIMA="$ROOT/shimA"; SHIMB="$ROOT/shimB"; SHIMC="$ROOT/shimC"; mkdir -p "$SHIMA" "$SHIMB" "$SHIMC"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) echo "sleep: invalid time interval" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$REALSLEEP" > "$SHIMA/sleep"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) exit 0 ;; esac\nexec %s "$@"\n' "$REALSLEEP" > "$SHIMB/sleep"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) m="%s/mark.$PPID"; if [ ! -e "$m" ]; then : >"$m"; %s 0.1; fi; echo "sleep: invalid time interval" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$SHIMC" "$REALSLEEP" "$REALSLEEP" > "$SHIMC/sleep"
+chmod +x "$SHIMA/sleep" "$SHIMB/sleep" "$SHIMC/sleep"
+for _sh in A B; do
+  case "$_sh" in A) _pp="$SHIMA" ;; *) _pp="$SHIMB" ;; esac
+  HOUT_P="$(PATH="$_pp:$PATH" RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3 STUB_VERIFY_SLEEP=1 STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+  grep -q 'status=behind' <<<"$HOUT_P" && ! grep -q 'timed out' <<<"$HOUT_P" && ok "H4p($_sh): fraction-less sleep -> a 1 s verify under a 3 s bound is not killed" || no "H4p($_sh): healthy verify killed by the watchdog; out=[$HOUT_P]"
+  HOUT_P="$(PATH="$_pp:$PATH" RESEARCH_SDD_NO_TIMEOUT_BIN=1 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
+  grep -q 'timed out' <<<"$HOUT_P" && ok "H4q($_sh): fraction-less sleep -> a hung verify is still cut off and reported (integer fallback)" || no "H4q($_sh): hung verify not bounded with a fraction-less sleep; out=[$HOUT_P]"
+done
 # After a NORMAL finish the EXIT trap must signal nothing (both children were reaped; their pids may be reused). A
 # `kill` function exported into the hook records every call.
 KLOG="$ROOT/kill.log"; : >"$KLOG"
@@ -253,8 +279,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        --good-has 'exited 137' --bad-lacks "$_CRASH|exited 137" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=137" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "K" "$SUT" "$MB/m-k.sh" 's|^      timeout "\$vt" "\$vcmd" --verify </dev/null >"\$vf" 2>&1; vrc=\$?|      vout="$(timeout "$vt" "$vcmd" --verify 2>\&1)"; vrc=$?; echo "$vout" >"$vf"|' \
     && _tt "teeth: timeout path captured via command substitution -> a stalled grandchild defeats the bound" 0 0 "$MB/m-k.sh" \
-       --good-has '^fast$' --bad-has '^slow$' --bad-lacks "$_CRASH" -- "$_ENV" "PATH=$SHIMPATH" "STUB_VERIFY_SLEEP=30" "STUB_VERIFY_GRANDCHILD=8" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
-       "$BASH_BIN" -c 's=$SECONDS; bash "$1" "$2" >/dev/null 2>&1; [ $((SECONDS - s)) -le 4 ] && echo fast || echo slow' _ "$SB/decode.sh" @SUT@
+       --good-has '^fast$' --bad-has '^slow$' --bad-lacks "$_CRASH" -- "$_ENV" "PATH=$SHIMPATH" "STUB_VERIFY_SLEEP=30" "STUB_VERIFY_GRANDCHILD=20" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
+       "$BASH_BIN" -c 's=$SECONDS; bash "$1" "$2" >/dev/null 2>&1; [ $((SECONDS - s)) -le 10 ] && echo fast || echo slow' _ "$SB/decode.sh" @SUT@
   _mk "M" "$SUT" "$MB/m-m.sh" 's/\(timeout "\$vt" "\$vcmd" --verify <\/dev\/null >"\$vf" 2>&1; vrc=\$?\)/\1; [ "$vrc" -eq 137 ] \&\& vrc=124/' \
     && _tt "teeth: 137 mapped to a timeout on the timeout path -> a real exit 137 reads as 'timed out'" 0 0 "$MB/m-m.sh" \
        --good-has 'exited 137' --bad-lacks "$_CRASH|exited 137" -- "$_ENV" "PATH=$SHIMPATH" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=137" "$BASH_BIN" "$SB/decode.sh" @SUT@
@@ -290,7 +316,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        --good-has '^safe$' --bad-has '^pwned$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "PW=$ROOT/vt-pwned-q" \
        "$BASH_BIN" -c 'rm -f "$PW"; RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT="a[\$(touch $PW)]" bash "$1" >/dev/null 2>&1; if [ -e "$PW" ]; then echo pwned; else echo safe; fi' _ @SUT@
   # R: bound shorter than vt -> a verify finishing inside the bound can be reported timed out.
-  _mk "R" "$SUT" "$MB/m-r.sh" 's/vmax=\$((vt \* 10))/vmax=$((vt * 4))/' \
+  _mk "R" "$SUT" "$MB/m-r.sh" 's/vmax=\$((vt \* vper))/vmax=$((vt * 4))/' \
     && _tt "teeth: bound shorter than vt -> a verify within the bound is reported timed out" 0 0 "$MB/m-r.sh" \
        --good-has '^0$' --bad-lacks "$_CRASH|^0$" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "STUB_VERIFY_SLEEP=0.7" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
        "$BASH_BIN" -c 'bash "$1" "$2" 2>/dev/null | grep -c "timed out"; :' _ "$SB/decode.sh" @SUT@
@@ -301,6 +327,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has '^clean$' --bad-has '^leaked$' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=30" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
          "$BASH_BIN" -c 'bash "$1" >/dev/null 2>&1; sleep 1; n=0; for p in $(pgrep -f "$1"); do [ "$p" = "$$" ] || { n=$((n+1)); kill "$p"; }; done; if [ "$n" -gt 0 ]; then echo leaked; else echo clean; fi' _ @SUT@
   fi
+  # T/U: the fractional-sleep probe (#1771). T drops the exit-status half (shim C rejects fractions slowly), U the elapsed half (shim B returns at once).
+  _mk "T" "$SUT" "$MB/m-t.sh" 's/sleep 0.1 2>\/dev\/null || { vsl=1; vper=1; }/sleep 0.1 2>\/dev\/null || :/' \
+    && _tt "teeth: probe ignores sleep's exit status -> a sleep rejecting fractions kills a healthy verify" 0 0 "$MB/m-t.sh" \
+       --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIMC:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "U" "$SUT" "$MB/m-u.sh" 's/\] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED/] || :/' \
+    && _tt "teeth: probe ignores elapsed time -> a sleep that returns at once kills a healthy verify" 0 0 "$MB/m-u.sh" \
+       --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIMB:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "I" "$SUT" "$MB/m-i.sh" 's/^    extra_skip=1 /    : /' \
     && _tt "teeth: skip branch unreported → with no timeout and no mktemp the hook says nothing" 0 0 "$MB/m-i.sh" \
        --good-has 'skipped: no timeout available' --bad-lacks "$_CRASH|skipped" -- "$_ENV" "PATH=$NOMK" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
