@@ -106,8 +106,9 @@ got="$(nstep "$SUT" "$ne")"
 # The stub lib delegates the FIRST resolve_state_file call (the startup pick) and fails every later one with rc 3.
 MT="$TMP/mt"; mkdir -p "$MT"
 mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
-add_stub() {  # TREE — fail resolve_state_file with rc 3 from its second call on
+add_stub() {  # TREE [all] — fail resolve_state_file with rc 3 from its second call on (with `all`: from the FIRST call)
   local flag="$1/.rsf-called"; rm -f "$flag"
+  [ "${2:-}" = all ] && : > "$flag"
   {
     echo 'eval "$(declare -f resolve_state_file | sed "1s/resolve_state_file/_real_rsf/")"'
     printf 'resolve_state_file() { if [ -e "%s" ]; then return 3; fi; : > "%s"; _real_rsf "$@"; }\n' "$flag" "$flag"
@@ -124,6 +125,19 @@ case "$got" in 0\|*) ok "10 --sync-state --focus aaa on a healthy fixture -> exi
 t="$(mk_tree S)"; add_stub "$t"
 got="$(syncrun "$t/research-sdd-status.sh")"
 [ "$got" = "1|research-sdd-status: state-file resolution failed (rc 3)" ] && ok "10b --sync-state --focus, resolver rc 3 -> typed error, exit 1" || no "10b sync rc3: got [$got]"
+# 10c/10d. STARTUP pick sites: the resolver fails with rc 3 on the FIRST call -> typed error, exit 1, no report body.
+# startrun SUT ARGS... — prints "rc|stdout|first-stderr-line" ("-" for an empty part)
+startrun() {
+  local s="$1"; shift; local o e rc ef="$TMP/startrun.err"
+  o="$(bash "$s" "$flat" "$@" 2>"$ef")"; rc=$?; e="$(sed -n 1p "$ef")"
+  printf '%s|%s|%s' "$rc" "${o:--}" "${e:--}"
+}
+TYPED3="1|-|research-sdd-status: state-file resolution failed (rc 3)"
+t="$(mk_tree SD)"; add_stub "$t" all
+got="$(startrun "$t/research-sdd-status.sh")"
+[ "$got" = "$TYPED3" ] && ok "10c default pick, resolver rc 3 -> typed error, exit 1, no report body" || no "10c default pick rc3: got [$got]"
+got="$(startrun "$t/research-sdd-status.sh" --focus aaa)"
+[ "$got" = "$TYPED3" ] && ok "10d --focus pick, resolver rc 3 -> typed error, exit 1, no report body" || no "10d --focus pick rc3: got [$got]"
 
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -162,6 +176,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_sed "$TB/lib/state-files.sh" "$t/lib/state-files.sh" 's/-k3,3)"  # RSF-RANK/-k3,3r)"  # RSF-RANK/' >/dev/null 2>&1
   then tooth "D tie picks the last path" "$t/research-sdd-status.sh" "$FOCBL" "$sp"
   else no "teeth D: mutant could not be built (anchor absent / refused)"; fi
+  # F/G: the rc >= 3 guard dropped at a startup site -> the run falls through to the generic absent line, exit 0
+  # (positive evidence of the wrong behaviour: exit 0 + the "no RESEARCH-STATE" line, not the typed error)
+  for site in DEFAULT FOCUS; do
+    t="$(mk_tree "G$site")"
+    if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" "s/^  \\[ \"\\\$_sf_rc\" -le 2 \\] || {.*# SF-$site-GUARD\$/  :  # SF-$site-GUARD/" >/dev/null 2>&1; then
+      add_stub "$t" all
+      if [ "$site" = FOCUS ]; then got="$(startrun "$t/research-sdd-status.sh" --focus aaa)"; want="0|no RESEARCH-STATE-aaa.md under $flat — run research-sdd-init.sh|-"
+      else got="$(startrun "$t/research-sdd-status.sh")"; want="0|no RESEARCH-STATE under $flat — run research-sdd-init.sh|-"; fi
+      [ "$got" = "$want" ] && ok "teeth $site-guard: guard dropped -> falls through to the generic absent line, exit 0 (positive evidence)" || no "teeth $site-guard: got [$got] want [$want]"
+    else no "teeth $site-guard: mutant could not be built (anchor absent / refused)"; fi
+  done
   # E: --sync-state --focus ignores the resolver rc -> the typed error disappears, the generic absent message returns
   t="$(mk_tree E)"
   if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" 's/; _sf_rc=\$?  # SF-SYNC-FOCUS-PICK$/; _sf_rc=0  # SF-SYNC-FOCUS-PICK/' >/dev/null 2>&1; then

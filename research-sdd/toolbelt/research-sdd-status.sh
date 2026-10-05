@@ -187,14 +187,14 @@ elif [ -n "$focus_slug" ]; then
   # --focus <slug>: select exactly RESEARCH-STATE-<slug>.md, ignoring sibling focuses.
   # rc 2 (same slug in two same-depth dirs) is accepted: the C-locale-first pick is what this always chose.
   state="$(resolve_state_file "$target" --focus "$focus_slug")"; _sf_rc=$?  # SF-FOCUS-PICK
-  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
+  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }  # SF-FOCUS-GUARD
   if [ ! -f "$state" ]; then
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE-${focus_slug}.md under $target" || echo "no RESEARCH-STATE-${focus_slug}.md under $target — run research-sdd-init.sh"
     exit 0
   fi
 else
   state="$(resolve_state_file "$target")"; _sf_rc=$?  # SF-DEFAULT-PICK
-  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }
+  [ "$_sf_rc" -le 2 ] || { echo "research-sdd-status: state-file resolution failed (rc $_sf_rc)" >&2; exit 1; }  # SF-DEFAULT-GUARD
   if [ ! -f "$state" ]; then
     [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
     exit 0
