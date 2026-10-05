@@ -1174,9 +1174,8 @@ Always read first, in this order:
          harness (pi, gentle-shell), so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
          pi/gentle-shell, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
          retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
-         On pi and gentle-shell no hook fires: run `toolbelt/sweep-all.sh` at session start and
-         `toolbelt/stage-retro-issues.sh <retro> --apply` once the retro is written; the retro gate and auto-seeding
-         are enforced by Claude Code only (#1110).
+         No SessionStart hook fires there either: on pi/gentle-shell also run `$KIT/toolbelt/sweep-all.sh`
+         at session start.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
