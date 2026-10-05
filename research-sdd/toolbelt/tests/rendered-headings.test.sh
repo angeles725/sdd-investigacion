@@ -80,8 +80,15 @@ for line in open(sys.argv[1], encoding='utf-8').read().split('\n'):
         elif marker[0] == fence[0] and len(marker) >= fence[1] and rest.strip() == '':
             fence = None
         continue
-    if fence is None and re.match(r'^#{1,2} ', line):
-        print(line.rstrip())
+    if fence is not None:
+        continue
+    # CommonMark ATX level 1-2: 0-3 leading spaces (4+ is code), hashes, then a space/tab or end of
+    # line (a bare '#' / '##' is a heading, '###' is not). Normalised to '<hashes> <text>': whitespace
+    # after the hashes collapsed, optional closing '#' sequence and trailing whitespace stripped.
+    h = re.match(r'^ {0,3}(#{1,2})(?=[ \t]|$)(.*)$', line)
+    if h:
+        text = re.sub(r'(^|[ \t]+)#+[ \t]*$', '', h.group(2)).strip(' \t')
+        print(h.group(1) + (' ' + text if text else ''))
 PYEOF
 }
 
@@ -247,6 +254,18 @@ x\
     if [ "$rc" -eq 1 ] && grep -q "^H2: duplicated heading '## Zz unlisted probe'" <<<"$out"; then
       ok "teeth-fence-long-close: a longer same-char fence closes the block (later headings count)"
     else no "teeth-fence-long-close: rc=$rc out='$out'"; fi
+  else fail=$((fail+1)); fi
+
+  # CommonMark ATX variants: each must be normalised and counted; 4+ leading spaces is code, not a heading.
+  tooth indented-dup        "^H1: '## Arguments' appears 2 times"          's/^## Arguments$/&\n\n  ## Arguments/'
+  tooth tab-forbidden       "^H3: forbidden heading '## OpenCode adapter'" 's/^## Arguments$/&\n\n##\tOpenCode adapter/'
+  tooth closing-hash-dup    "^H1: '## Boundaries' appears 2 times"         's/^## Boundaries$/&\n\n## Boundaries ##/'
+  tooth multispace-dup      "^H1: '## Boundaries' appears 2 times"         's/^## Boundaries$/&\n\n##    Boundaries   /'
+  tooth bare-hash-dup       "^H2: duplicated heading '#'"                  's/^## Arguments$/&\n\n#\n\nx\n\n#/'
+  if mutant_chain "indent4-code" "$ORIG" "$MUT/indent4-code.md" 's/^## Boundaries$/&\n\n    ## Boundaries/'; then
+    if check_file "$MUT/indent4-code.md" "$REQ" >/dev/null 2>&1; then
+      ok "teeth-indent4-code: a 4-space-indented '## x' line is code, not a heading (stays green)"
+    else no "teeth-indent4-code: a 4-space-indented line was counted as a heading"; fi
   else fail=$((fail+1)); fi
 
   # Anti-silent-zero: a render with no headings at all is a failure, never a clean zero.
