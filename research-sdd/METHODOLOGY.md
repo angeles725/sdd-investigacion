@@ -3336,25 +3336,25 @@ disjoint directories launched as 4+3 waves, B370-B376. Source: niagara-research/
 
 ## 17. Incident & resume (after a kill / crash / interruption)
 
-Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76 and B122 both did). Before re-launching an interrupted iteration:
+Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76
+and B122 both did). Before re-launching an interrupted iteration:
 
-1. **Check real state first** — after a kill/crash AND after ANY delegated block (a "delivered" handback can fail to arrive; kit #1197, §16). Run `git -C $TARGET log
-   --oneline -5` and read the on-disk artifacts (block header, self-verify, child-gaps, CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration committed its work.
-2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running risks overwriting good work or duplicating a block. Pick up from the
-   actual committed state: verify it self-verified correctly, then continue with the next gap.
-3. **If it only partially landed** (e.g. block written but state/CATALOG not updated), finish the remaining archive steps rather than restarting the whole iteration.
-4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the on-disk truth before continuing — files are the source of truth,
-   engram is the mirror.
-5. **Assumptions inherited from a compaction are hypotheses until re-verified.** A post-compaction summary may present a prior finding as established fact because it was
-   established in the session that was compacted. Before building on any load-bearing claim a recovered summary presents as settled, re-verify it against the primary
-   source — the summary cannot distinguish a verified claim from an unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
+1. **Check real state first** — after a kill/crash AND after ANY delegated block (a "delivered" handback can fail to arrive; kit #1197, §16).
+   Run `git -C $TARGET log --oneline -5` and read the on-disk artifacts (block header, self-verify, child-gaps,
+   CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration committed its work.
+2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running
+   risks overwriting good work or duplicating a block. Pick up from the actual committed state: verify
+   it self-verified correctly, then continue with the next gap.
+3. **If it only partially landed** (e.g. block written but state/CATALOG not updated), finish the
+   remaining archive steps rather than restarting the whole iteration.
+4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the
+   on-disk truth before continuing — files are the source of truth, engram is the mirror.
+5. **Assumptions inherited from a compaction are hypotheses until re-verified.** A post-compaction summary
+   may present a prior finding as established fact because it was established in the session that was
+   compacted. Before building on any load-bearing claim a recovered summary presents as settled,
+   re-verify it against the primary source — the summary cannot distinguish a verified claim from an
+   unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
    2026-09-13-camino-b-end-to-end-completo)
-6. **Block plan — step-level resume inside ONE long block.** At block open write `<block-file-stem>.plan.md` beside the block
-   (`$KIT/templates/block-plan.template.md`): that block's sub-steps only (sweep → corroborate → write → self-verify → update catalog/index/state → commit), each ticked
-   `[x]` only when its artifact is on disk. After a cut, verify every ticked item's artifact (missing → unticked again) and continue at the first unticked item. The plan
-   is deleted at the block's commit and never committed. NO-COLLISION: RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration history and
-   "what's next"; the plan lists nothing but this block's sub-steps, is not an ODD task document (`odd/tasks/*.md`, kit-maintenance only), and leaves the return-token
-   gate and `--next` unchanged. No checker yet (later slice). (#1178)
 ## 18. Self-retrospective (the kit learns from its own runs)
 
 The engine improves by observing real runs — not by guesswork. Every improvement in this kit so far was
@@ -4029,6 +4029,8 @@ pins its RESOLVED location (or the resolver command that produced it) in the cit
 **Pipeline-repo subjects.** When the subject's data directories are REWRITTEN by each pipeline run, the snapshot rule has a specific form: cite only committed blob references (`git show <sha>:<path>`) for any measurement that enters the corpus — never a working-tree path as primary evidence. Three failure modes recur: (1) *stale table* — a prior run's output survives at the current path and reads as fresh data; (2) *phantom regression* — a mid-run snapshot captures an intermediate state and produces a plausible-wrong number; (3) *working-tree drift* — the directory is rewritten while the block is being written, so citations diverge. Enforcement path: per-artifact sha256 execution-provenance stamp in the block header + a `--allow-unpinned` build guard that rejects working-tree paths without an explicit override.
 
 **LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. **Exception:** once a section is marked settled (`[CERT]`/`[CERT-live]`), a later refutation follows §14's transparent correction (quote the retracted claim, add a "corrected" note), not a silent rewrite. (Source: niagara relayed-cert-live retro.)
+
+**Block plan (resume inside ONE long block).** For a long, multi-step block, write the ephemeral `$TARGET/.research-sdd/plan/current-plan.txt` at block open (before the first sub-step; template `$KIT/templates/block-plan.template.md`): a checklist of THAT block's sub-steps only (sweep → corroborate → write → self-verify → update catalog/index/state → commit), each ticked `[x]` only when its artifact is on disk. After a cut (§17), if the plan exists, verify every ticked item's artifact (a ticked item without its artifact is unticked again) and continue at the first unticked item. The plan is deleted at the block's commit and never committed, so it never outlives the iteration. The path is a hidden directory and its name carries no "block"/"bloque", so no block enumerator matches it. NO-COLLISION RULE: the plan is not a state document — RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration history and "what's next"; the plan lists nothing but this block's sub-steps; it is not an ODD task document (`odd/tasks/*.md` is kit-maintenance only); the return-token gate and `research-sdd-status.sh --next` are unchanged and ignore it. Doctrine first: no checker script yet (a later slice). (Kit issue #1178; related #1614, #1274.)
 
 **The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
 something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an

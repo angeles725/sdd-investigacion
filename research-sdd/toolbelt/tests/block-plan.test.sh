@@ -2,7 +2,7 @@
 # block-plan.test.sh — structural check of the ephemeral block-plan doctrine and template (kit issue #1178).
 #
 # Pins: (a) templates/block-plan.template.md exists with its required sections and sub-step items, each
-# carrying an `Artifact:` line; (b) METHODOLOGY §17 names the plan, its deletion at commit, the
+# carrying an `Artifact:` line; (b) METHODOLOGY §20 names the plan, its deletion at commit, the
 # no-collision rule and the "no checker yet" statement, anchored on a sentinel (not a line number);
 # (c) PROMPT-LOOP names the plan at block open, at the commit step and in RESUME; (d) templates/README.md
 # lists the template. Validates the doctrine and TEMPLATE only, not plans copied from it.
@@ -46,9 +46,9 @@ tpl_header()    { grep -qi 'no checker' "$1" && grep -q 'RESEARCH-STATE.md' "$1"
 # paragraph = the line carrying the sentinel (and following lines up to a blank line)
 #   ...or up to the next list item (a bullet or "N. " line), so list-embedded paragraphs stay bounded.
 para() { awk -v s="$2" 'index($0,s){p=1; print; next} p&&(/^[[:space:]]*$/||/^[[:space:]]*(-|[0-9]+\.) /){exit} p{print}' "$1"; }
-meth_ok() {
-  local p; p="$(para "$1" 'Block plan — step-level resume')"; [ -n "$p" ] || return 1
-  grep -q '\.plan\.md' <<<"$p" &&
+meth_ok() {  # METHODOLOGY §20 (non-HOT-CORE) paragraph: path, commit deletion, no-collision, ODD, return-token, no checker
+  local p; p="$(para "$1" 'Block plan (resume inside ONE long block).**')"; [ -n "$p" ] || return 1
+  grep -q '\.research-sdd/plan/current-plan\.txt' <<<"$p" &&
   grep -qi 'deleted at the block.s commit' <<<"$p" &&
   grep -qi 'never committed' <<<"$p" &&
   grep -qi 'NO-COLLISION' <<<"$p" &&
@@ -57,11 +57,19 @@ meth_ok() {
   grep -qi 'return-token' <<<"$p" &&
   grep -qi 'no checker' <<<"$p"
 }
+# the template Rules repeat the no-collision rule, ODD exclusion, return-token gate, no checker
+tpl_rules() {
+  local r; r="$(awk '/^## Rules/{p=1;next} /^## /{p=0} p' "$1")"; [ -n "$r" ] || return 1
+  grep -q 'odd/tasks' <<<"$r" &&
+  grep -qi 'return-token' <<<"$r" &&
+  grep -qi 'no checker' <<<"$r" &&
+  grep -qi 'NO-COLLISION' <<<"$r"
+}
 loop_ok() { # each loop anchor paragraph names the plan; the close one says delete
   local s p
   for s in "BLOCK PLAN OPEN" "BLOCK PLAN CLOSE" "BLOCK PLAN RESUME"; do
     p="$(para "$1" "$s")"; [ -n "$p" ] || return 1
-    grep -q '\.plan\.md' <<<"$p" || return 1
+    grep -q 'current-plan\.txt' <<<"$p" || return 1
   done
   p="$(para "$1" "BLOCK PLAN CLOSE")"
   grep -qi 'delete' <<<"$p"
@@ -71,7 +79,8 @@ readme_ok() { grep -q 'block-plan.template.md' "$1"; }
 if tpl_sections "$TPL"; then ok "template has Rules and Sub-steps sections"; else no "template lacks Rules/Sub-steps sections"; fi
 if tpl_items "$TPL"; then ok "template has >=5 sub-step items, each with an Artifact: line"; else no "template sub-step items incomplete"; fi
 if tpl_header "$TPL"; then ok "template header states no checker yet and names RESEARCH-STATE.md"; else no "template header incomplete"; fi
-if meth_ok "$METH"; then ok "METHODOLOGY §17 names the plan, commit deletion, no-collision rule, no checker"; else no "METHODOLOGY §17 block-plan paragraph incomplete or absent"; fi
+if meth_ok "$METH"; then ok "METHODOLOGY §20 names the plan, commit deletion, no-collision rule, no checker"; else no "METHODOLOGY §20 block-plan paragraph incomplete or absent"; fi
+if tpl_rules "$TPL"; then ok "template Rules carry NO-COLLISION, ODD exclusion, return-token gate, no checker"; else no "template Rules incomplete"; fi
 if loop_ok "$LOOP"; then ok "PROMPT-LOOP names the plan at open, commit (delete) and RESUME"; else no "PROMPT-LOOP block-plan text incomplete or absent"; fi
 if readme_ok "$README"; then ok "templates/README.md lists the template"; else no "templates/README.md must list the template"; fi
 
@@ -92,12 +101,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "template drops Sub-steps heading" "$TPL" tpl_sections 's/^## Sub-steps/## Steps/'
   tooth "template drops an Artifact line" "$TPL" tpl_items '0,/^ *Artifact:/{/^ *Artifact:/d}'
   tooth "template drops no-checker header" "$TPL" tpl_header 's/No checker script exists yet/A checker exists/'
-  tooth "doctrine drops commit deletion" "$METH" meth_ok '/Block plan — step-level resume/,/^$/s/deleted at the block.s commit/kept/I'
-  tooth "doctrine drops no-collision rule" "$METH" meth_ok '/Block plan — step-level resume/,/^$/s/NO-COLLISION/NOTE/'
-  tooth "doctrine drops ODD exclusion" "$METH" meth_ok '/Block plan — step-level resume/,/^$/s#odd/tasks#other#'
-  tooth "doctrine drops return-token clause" "$METH" meth_ok '/Block plan — step-level resume/,/^$/s/return-token/gate/I'
+  tooth "doctrine drops commit deletion" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/deleted at the block.s commit/kept/I'
+  tooth "doctrine drops no-collision rule" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/NO-COLLISION/NOTE/'
+  tooth "doctrine drops plan path" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s#\.research-sdd/plan/current-plan\.txt#plan.txt#'
+  tooth "doctrine drops ODD exclusion" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s#odd/tasks#other#'
+  tooth "doctrine drops return-token clause" "$METH" meth_ok '/Block plan (resume inside ONE long block)/,/^$/s/return-token/gate/I'
+  tooth "template Rules drop ODD exclusion" "$TPL" tpl_rules 's#odd/tasks#other#'
+  tooth "template Rules drop return-token clause" "$TPL" tpl_rules 's/return-token/gate/I'
   tooth "loop drops commit deletion" "$LOOP" loop_ok '/BLOCK PLAN CLOSE/,/^$/s/[Dd][Ee][Ll][Ee][Tt][Ee]/keep/g'
-  tooth "loop drops RESUME plan mention" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/\.plan\.md/.txt/g'
+  tooth "loop drops RESUME plan mention" "$LOOP" loop_ok '/BLOCK PLAN RESUME/,/^$/s/current-plan\.txt/x.txt/g'
   tooth "README drops template row" "$README" readme_ok 's/block-plan\.template\.md/x.md/g'
 fi
 
