@@ -329,7 +329,7 @@ else
 fi
 # 25e: a MISSING lib is a named operational failure with the shell's own source error left visible.
 mkdir -p "$K25/nolib"; cp "$SUT" "$K25/nolib/coverage-map.sh"
-out="$(bash "$K25/nolib/coverage-map.sh" "$C25" --subject "$S25" 2>&1)"; rc=$?
+out="$(LC_ALL=C LANG=C LANGUAGE=C bash "$K25/nolib/coverage-map.sh" "$C25" --subject "$S25" 2>&1)"; rc=$?   # C locale: the shell's source error is translated otherwise
 if [ "$rc" -eq 1 ] && <<<"$out" grep -q 'block-files.sh' && <<<"$out" grep -qi 'no such file'; then
   ok "25e missing lib -> exit 1 with the source error visible on stderr"
 else

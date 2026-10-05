@@ -8,6 +8,9 @@
 #
 # Usage: research-sdd-install.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 setup.
 set -uo pipefail
+# Hermeticity (kit issue #1821 item 5): the kit-vs-render check F1e runs verify-doc-consistency.sh, which
+# honours an ambient RESEARCH_SDD_KIT/RSDD_KIT as the citation root; both runs must resolve against their own tree.
+unset RESEARCH_SDD_KIT RSDD_KIT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
