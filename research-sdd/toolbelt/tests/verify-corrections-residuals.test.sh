@@ -44,7 +44,8 @@ else no "real noun backlink :: $(grep -E 'B292' <<<"$rout" | tr '\n' '|')"; fi
 nb_ok=1; nb_bad=""; i=0
 for _s in '> **CORRECCIÓN (2026-07-26) — [Block 99].** body.' 'A correction of the earlier claim was considered, see B4.' \
           '> Correction: the claim was revised; see the history of [Block 4] for details.' '> Correction (2026-01-01) of B4 is pending.' \
-          'Correction: [Block 4] was wrong about the default.' 'Correction — [Block 4] was wrong about the default.' 'A miscorrection — [Block 4].'; do
+          'Correction: [Block 4] was wrong about the default.' 'Correction — [Block 4] was wrong about the default.' 'A miscorrection — [Block 4].' \
+          'Correction — [Block 4]: the default was wrong.' 'Correction — [Block 4], which overstated the default.'; do
   i=$((i+1)); d="$TMP/nb-neg$i"; pblank "$d" t 8; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 8] §1.\n'
   printf '\n%s\n' "$_s" >> "$d/t-block8.md"
   grep -qE 'FAIL +B4 corrects \[Block 8\] ' < <(run "$d") || { nb_ok=0; nb_bad="$nb_bad [$i]"; }
@@ -120,12 +121,13 @@ if [ "$ng_ok" = 1 ]; then ok "6 negation shapes (EN/ES, leading and trailing) de
 # 3a — SWALLOWED DECLARATIONS (Opus gate): `no`/`nothing` right after the verb that does NOT negate it must stay a declaration.
 sw_ok=1; sw_bad=""; i=0
 for _s in 'Corrects no longer valid claim in [Block 21].' 'Corrects nothing but the date in [Block 21].' 'Corrige no solo [Bloque 21] sino también [Bloque 22].' \
-          'Corrects no fewer than three claims in [Block 21].' 'Corrige nada excepto la fecha de [Block 21].' 'Corrects none other than [Block 21].'; do
+          'Corrects no fewer than three claims in [Block 21].' 'Corrige nada excepto la fecha de [Block 21].' 'Corrects none other than [Block 21].' \
+          'No corrige nada salvo la fecha de [Bloque 21].' 'No corrige nada excepto la fecha de [Bloque 21].' 'It never corrects anything but the date in [Block 21].'; do
   i=$((i+1)); d="$TMP/swal$i"; pblank "$d" t 21 22; pmk "$d" t 4 '# Block 4\n\n> %s\n' "$_s"
   out="$(run "$d")"
   { grep -qE 'FAIL +B4 corrects \[Block 21\] ' <<<"$out" && ! grep -q 'negated' <<<"$out"; } || { sw_ok=0; sw_bad="$sw_bad [$i]"; }
 done
-if [ "$sw_ok" = 1 ]; then ok "6 shapes where no/nothing does not negate the verb ('no longer', 'nothing but', 'no solo', 'no fewer', 'excepto') stay declarations (FAIL)"; else no "swallowed :: $sw_bad"; fi
+if [ "$sw_ok" = 1 ]; then ok "9 shapes where no/nothing does not negate the verb ('no longer', 'nothing but', 'no solo', 'no fewer', 'excepto', 'No corrige nada salvo', 'never … anything but') stay declarations (FAIL)"; else no "swallowed :: $sw_bad"; fi
 # 3b — a negation word that does NOT negate the verb must not hide a real declaration.
 nn_ok=1; nn_bad=""; i=0
 for _s in 'Corrects [Block 8] §1, no longer valid.' 'No further notes; corrects [Block 8] §1.' 'Corrige [Block 8], nada más.'; do
@@ -234,7 +236,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1874 item 3): negations --"
   m="$TMP/vc.NONEG.sh"
-  if mk_mut "teeth: negation" "$SUT" "$m" 's/if (!isnoun \&\& (pre ~/if (0 \&\& (pre ~/'; then
+  if mk_mut "teeth: negation" "$SUT" "$m" 's/if (!isnoun \&\& ((pre ~/if (0 \&\& ((pre ~/'; then
     tt "teeth: negation-blind mutant reads 'corrects nothing in B21' as a declaration again" 0 0 "$m" --orig "$SUT" \
       --good-lacks 'B406 corrects' --bad-has 'AMBIG +B406 corrects \[Block 21\]' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
   fi
@@ -264,6 +266,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_mut "teeth: noun left boundary" "$SUT" "$m" 's/^_vc_noun_re=.(^|\[^\[:alnum:\]_\])/_vc_noun_re='"'"'/'; then
     tt "teeth: boundary-less mutant accepts 'A miscorrection — [Block 4].' as a backlink" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg7"
+  fi
+
+  m="$TMP/vc.NOEXC.sh"
+  if mk_mut "teeth: pre-negation exception" "$SUT" "$m" 's/ \&\& !excpost(substr(l, ve))//'; then
+    tt "teeth: exception-blind pre-negation swallows 'No corrige nada salvo la fecha de [Bloque 21]'" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 21\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/swal7"
+  fi
+  m="$TMP/vc.WIDECLOSE.sh"
+  if mk_mut "teeth: noun closer" "$SUT" "$m" 's/^_vc_noun_tail=.*/_vc_noun_tail="[[:space:]]*\\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.,;:)]|$)"/'; then
+    tt "teeth: wide-closer mutant accepts 'Correction — [Block 4]: …' as a backlink" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg8"
+    tt "teeth: wide-closer mutant accepts 'Correction — [Block 4], which …' as a backlink" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg9"
   fi
 
   echo "-- teeth (#1874 item 4): bracketed ref after a leading bare ref --"

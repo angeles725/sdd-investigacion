@@ -65,9 +65,9 @@ _vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:
 # Both cases of the accented capital are spelled out: `grep -i` does not fold `Ó` under every locale.
 # Three guards keep it from reading a FORWARD correction as a backlink (`Correction: [Block 8] was wrong` says the target
 # corrects block 8): a left word boundary (no `miscorrection`), no colon (a colon introduces the corrected thing), and a CUE
-# after the ref: it must close its sentence or be followed by a `§` locator (`— [Block 292].**`, `— [Block 292] §292.5.**`).
+# after the ref: it must close its sentence (`.`, `;` or the end of the line) or be followed by a `§` locator; a `:` or `,` after the ref continues the sentence (`— [Block 292].**`, `— [Block 292] §292.5.**`).
 _vc_noun_re='(^|[^[:alnum:]_])(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
-_vc_noun_tail='[[:space:]]*\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.,;:)]|$)'
+_vc_noun_tail='[[:space:]]*\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.;]|$)'
 
 # FOCUSES.md (anywhere under the target, depth <= 3): focus slug -> block prefix, so a cross-focus qualifier such as
 # "corrects `integration` [Block 5]" resolves to the focus's own prefix (#1868 item 1). Row shape:
@@ -247,9 +247,12 @@ _vc_extract() {
     # negpost(post): 1 when the text right after the verb NEGATES it (#1874 item 3, narrowed after the Opus gate). `nothing`/`none`/`nada`
     # negate unless followed by an exception (`nothing but`, `none other than`, `nada excepto`, `nada más que`); `no`/`ninguna?`
     # negate only as `no <noun> in/of/en/de` (`no claim in [Block 8]`), never `no longer`, `no only`, `no solo`, `no fewer/less/more`.
+    function excpost(post) {   # 1 when the text after the verb is `nothing/anything but …`: an exception, so the verb still declares
+      return (post ~ /^[ \t]+(nothing|none|nada|anything)[ \t]+(but|except|salvo|excepto|other|m[^ \t]*s[ \t]+que)/)
+    }
     function negpost(post,   w) {
       if (match(post, /^[ \t]+(nothing|none|nada)([ \t,.;]|$)/)) {
-        return !(post ~ /^[ \t]+(nothing|none|nada)[ \t]+(but|except|salvo|excepto|other|m[^ \t]*s[ \t]+que)/)
+        return !excpost(post)
       }
       if (match(post, /^[ \t]+(no|ninguna?)[ \t]+[^ \t]+[ \t]+(in|of|en|de|del|about|sobre)[ \t]/)) {
         w = substr(post, RSTART, RLENGTH); sub(/^[ \t]+(no|ninguna?)[ \t]+/, "", w); sub(/[ \t].*$/, "", w)
@@ -331,7 +334,7 @@ _vc_extract() {
         # NEGATIONS declare nothing (#1874 item 3): `corrects nothing in B21`, `Corrects no claim in B402`, `no corrige`,
         # `never corrects`. Only the word right before / right after the VERB negates it (the corrigendum noun has its own rule above) ("no longer valid" later in the
         # sentence does not). Counted and surfaced as a note by the caller, like the non-assertive forms.
-        if (!isnoun && (pre ~ /(^|[^a-z0-9_\200-\377])(no|nunca|never|tampoco)[ \t]+$/ || negpost(substr(l, ve)))) {
+        if (!isnoun && ((pre ~ /(^|[^a-z0-9_\200-\377])(no|nunca|never|tampoco)[ \t]+$/ && !excpost(substr(l, ve))) || negpost(substr(l, ve)))) {
           print "N"; p = ve; continue
         }
         d = 0; bd = ""
