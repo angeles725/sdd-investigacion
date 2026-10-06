@@ -61,10 +61,13 @@
 # `pull_request.paths` filter matches none of the PR's changed files (`gh api .../pulls/N/files --paginate`, read only when some
 # required check is absent). Such a check is dropped from the required set and printed as `merge-gate: note: required check <c>
 # skipped by path filter (<workflow> pull_request.paths matches none of the N changed files)` — never a pass, never missing. The
-# check's name is the job's `name:` (else its id), found in the HEAD tree's .github/workflows/*.y(a)ml by a line scanner that
-# understands block-style `paths:` lists only. A check that SHOULD have run stays ci_missing, and so does anything not evaluable
-# (no workflow carries the job, no pull_request trigger, `paths-ignore`, a flow-style or negated pattern, unreadable workflows,
-# unreadable or empty PR files): those print `note: required check <c> not evaluated against path filters: <why>; stays required`
+# check's name is the job's `name:` (else its id); EVERY .github/workflows/*.y(a)ml carrying that name is read (a line scanner that
+# understands block-style `paths:` lists only) and the check is skipped only when ALL carriers skip, in BOTH the PR base tree and
+# the head tree (a PR that narrows its own filter cannot exempt itself), and never when the PR changes anything under
+# .github/workflows. Patterns are matched only in the forms emulated exactly (letters, digits, `_ . / @ -`, `*`, `?`, a trailing
+# `/**`); a PR files list at the 3000-entry API cap is never trusted. A check that SHOULD have run stays ci_missing, and so does
+# anything not evaluable (no workflow carries the job, no pull_request trigger, `paths-ignore`, a flow-style, negated or
+# unsupported pattern, an unreadable workflow, unreadable, empty or capped PR files): those print `note: required check <c> not evaluated against path filters: <why>; stays required`
 # (or `note: path filters not evaluated: cannot read the files of PR #N ...`). Reported checks are always judged on their result.
 # DOC-ONLY PRs whose workflows have no readable path filter still need `--required-checks ""`, and
 # still need every PR Validation check green.
@@ -149,32 +152,60 @@ sec == "jobs" && ind == 2 { id = line; sub(/:.*/, "", id); name[id] = id; ids[++
 sec == "jobs" && ind == 4 && line ~ /^name:/ { v = line; sub(/^name:/, "", v); name[cur] = strip(v); next }
 END { found = 0; for (i = 1; i <= n; i++) if (name[ids[i]] == chk) found = 1
   print "JOB " found; print "PR " (pr ? 1 : 0); if (ignore) print "IGNORE"; if (flow) print "FLOW" }'
-# ci_pf_eval <check> <changed-files>: prints `skip <workflow> <n>` | `run` (the check should have run) | `unknown <why>`.
-ci_pf_eval() {
-  local chk="$1" files="$2" wf scan pats="" pr=0 ign=0 flow=0 job="" pat re n hit=0 wfs
-  wfs="$(git -C "$cwd" ls-tree --name-only "$head" .github/workflows/ 2>/dev/null | grep -E '\.ya?ml$')"
-  [ -n "$wfs" ] || { echo "unknown no workflow files at HEAD (.github/workflows)"; return 0; }
+# ci_pf_pat_ok <pattern>: succeeds only for the forms ci_glob_re emulates exactly: letters, digits, `_ . / @ -`, `*`, `?`, and `**`
+# solely as a trailing `/**`. Anything else (a leading `**/`, `/**/`, `**x`, classes, `+`, `{}`, `!`, spaces, ...) is never guessed.
+ci_pf_pat_ok() {
+  local p="$1" ok_re='^[A-Za-z0-9_.*?/@-]+$'
+  [[ "$p" =~ $ok_re ]] || return 1
+  p="${p%/\*\*}"
+  case "$p" in *'**'*) return 1 ;; esac
+  return 0
+}
+# ci_pf_tree <tree> <label> <check> <changed-files>: judges ONE tree. Every workflow in it that carries a job named <check> is
+# read and decides; the check is skipped only when ALL carriers skip. Prints `skip <wf>[,<wf>...]` | `run` | `unknown <why>`.
+ci_pf_tree() {
+  local tree="$1" label="$2" chk="$3" files="$4" wf wfs src scan pr ign flow pats pat re hit bad carriers=0 anyrun=0 skipped=""
+  wfs="$(git -C "$cwd" ls-tree --name-only "$tree" .github/workflows/ 2>/dev/null | grep -E '\.ya?ml$')"
+  [ -n "$wfs" ] || { echo "unknown no workflow files in the $label tree (.github/workflows)"; return 0; }
   while IFS= read -r wf; do
-    scan="$(git -C "$cwd" show "$head:$wf" 2>/dev/null | awk -v chk="$chk" "$CI_WF_AWK")" || continue
+    src="$(git -C "$cwd" show "$tree:$wf" 2>/dev/null)" || { echo "unknown cannot read $wf in the $label tree"; return 0; }
+    scan="$(printf '%s\n' "$src" | awk -v chk="$chk" "$CI_WF_AWK" 2>/dev/null)" || { echo "unknown cannot parse $wf in the $label tree"; return 0; }
     [ "$(printf '%s\n' "$scan" | sed -n 's/^JOB //p')" = "1" ] || continue
-    job="$wf"; pr="$(printf '%s\n' "$scan" | sed -n 's/^PR //p')"
+    carriers=$((carriers + 1))
+    pr="$(printf '%s\n' "$scan" | sed -n 's/^PR //p')"
     ign="$(printf '%s\n' "$scan" | grep -c '^IGNORE$')"; flow="$(printf '%s\n' "$scan" | grep -c '^FLOW$')"
     pats="$(printf '%s\n' "$scan" | sed -n 's/^PAT //p')"
-    break
+    [ "$pr" = "1" ] || { echo "unknown no pull_request trigger in $wf ($label tree)"; return 0; }
+    [ "$ign" = "0" ] || { echo "unknown $wf uses paths-ignore ($label tree)"; return 0; }
+    [ "$flow" = "0" ] || { echo "unknown $wf lists its paths inline (flow style, $label tree)"; return 0; }
+    if [ -z "$pats" ]; then anyrun=1; continue; fi
+    hit=0; bad=""
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
+      case "$pat" in '!'*) echo "unknown $wf has a negated path pattern ($pat, $label tree)"; return 0 ;; esac
+      if ! ci_pf_pat_ok "$pat"; then bad="${bad:-$pat}"; continue; fi
+      re="$(ci_glob_re "$pat")"
+      if grep -Eq "^${re}\$" <<<"$files"; then hit=1; break; fi
+    done <<<"$pats"
+    if [ "$hit" -eq 1 ]; then anyrun=1
+    elif [ -n "$bad" ]; then echo "unknown $wf has an unsupported path pattern ($bad, $label tree)"; return 0
+    else skipped="${skipped:+$skipped,}$wf"; fi
   done <<<"$wfs"
-  [ -n "$job" ] || { echo "unknown no workflow job named $chk"; return 0; }
-  [ "$pr" = "1" ] || { echo "unknown no pull_request trigger in $job"; return 0; }
-  [ "$ign" = "0" ] || { echo "unknown $job uses paths-ignore"; return 0; }
-  [ "$flow" = "0" ] || { echo "unknown $job lists its paths inline (flow style)"; return 0; }
-  [ -n "$pats" ] || { echo "run"; return 0; }
+  [ "$carriers" -gt 0 ] || { echo "unknown no workflow job named $chk in the $label tree"; return 0; }
+  if [ "$anyrun" -eq 1 ]; then echo "run"; else echo "skip $skipped"; fi
+}
+# ci_pf_eval <check> <changed-files>: prints `skip <workflows> <n>` | `run` (the check should have run) | `unknown <why>`. The check
+# is skipped only when it is skipped under BOTH the PR base tree and the head tree (a PR that narrows its own `paths` must not
+# exempt itself), and never when the PR changes anything under .github/workflows.
+ci_pf_eval() {
+  local chk="$1" files="$2" h b n
+  if grep -Eq '^\.github/workflows/' <<<"$files"; then echo "unknown the PR changes .github/workflows (its own filters cannot exempt it)"; return 0; fi
+  h="$(ci_pf_tree "$head" head "$chk" "$files")"
+  case "$h" in skip\ *) ;; *) echo "$h"; return 0 ;; esac
+  b="$(ci_pf_tree "$pr_base" base "$chk" "$files")"
+  case "$b" in skip\ *) ;; *) echo "$b"; return 0 ;; esac
   n="$(printf '%s\n' "$files" | grep -c .)"
-  while IFS= read -r pat; do
-    [ -n "$pat" ] || continue
-    case "$pat" in '!'*) echo "unknown $job has a negated path pattern ($pat)"; return 0 ;; esac
-    re="$(ci_glob_re "$pat")"
-    if grep -Eq "^${re}\$" <<<"$files"; then hit=1; break; fi
-  done <<<"$pats"
-  if [ "$hit" -eq 1 ]; then echo "run"; else echo "skip $job $n"; fi
+  echo "$h $n"
 }
 
 git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1 || degraded "--cwd is not a git repo/worktree: $cwd"
@@ -264,7 +295,8 @@ if [ -n "$do_merge" ]; then
   }
   # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
   ci_all="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
-    | map({name, status, conclusion, app_id: (.app.id? // null), id: (.id? // 0)})' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+    | if all(.[]; (.id | type) == "number") then . else error("shape") end
+    | map({name, status, conclusion, app_id: (.app.id? // null), id})' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
   # Superseded cancelled runs (kit issue #1864): an older CANCELLED run next to a newer run of the same (name, app id), e.g. a
   # push cancelled an in-flight run under the per-ref concurrency group and a later run replaced it. Reported as a typed note
   # (never a pass, never a failure); the latest run alone decides below, so a cancelled LATEST run stays ci_failed.
@@ -278,14 +310,19 @@ if [ -n "$do_merge" ]; then
   ci_absent="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '([.[].name] as $seen | $req | map(select(. as $r | $seen | index($r) | not)))[]' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   if [ -n "$ci_absent" ]; then
     ci_pf_why=""
+    ci_nf=0
     ci_files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" \
-      && ci_files="$(printf '%s' "$ci_files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | .filename, (.previous_filename // empty) else error("shape") end' 2>/dev/null)" \
+      && ci_nf="$(printf '%s' "$ci_files" | jq -s 'if length > 0 and all(.[]; type == "array") then [.[][]] | length else error("shape") end' 2>/dev/null)" \
+      && ci_files="$(printf '%s' "$ci_files" | jq -r -s '.[][] | .filename, (.previous_filename // empty)' 2>/dev/null)" \
       || { ci_files=""; ci_pf_why="path filters not evaluated: cannot read the files of PR #$pr (gh api failed or unparseable); missing required checks stay ci_missing"; }
+    # GitHub caps the PR files list at 3000 entries: at the cap the list may be truncated, so nothing can be skipped on it.
     ci_skipped=""
     while IFS= read -r ci_chk; do
       [ -n "$ci_chk" ] || continue
       if [ -n "$ci_pf_why" ]; then ci_notes="${ci_notes:+$ci_notes$'\n'}$ci_pf_why"; break; fi
-      if [ -z "$ci_files" ]; then ci_pf_res="unknown the PR reports no changed files"; else ci_pf_res="$(ci_pf_eval "$ci_chk" "$ci_files")"; fi
+      if [ -z "$ci_files" ]; then ci_pf_res="unknown the PR reports no changed files"
+      elif [ "$ci_nf" -ge 3000 ]; then ci_pf_res="unknown the PR lists $ci_nf changed files (GitHub caps the files list at 3000, so it may be truncated)"
+      else ci_pf_res="$(ci_pf_eval "$ci_chk" "$ci_files")"; fi
       case "$ci_pf_res" in
         skip\ *) ci_wf="${ci_pf_res#skip }"; ci_n="${ci_wf##* }"; ci_wf="${ci_wf% *}"
           ci_notes="${ci_notes:+$ci_notes$'\n'}required check $ci_chk skipped by path filter ($ci_wf pull_request.paths matches none of the $ci_n changed files)"
