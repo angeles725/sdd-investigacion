@@ -1631,7 +1631,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has 'verify-corrections : SIBLING' --bad-has 'verify-corrections : FAIL' --bad-lacks 'verify-corrections : SIBLING' -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
 
   echo "-- teeth: AR-VCORR focus scope — classify every pair as sibling; the failing focus must then stop refusing --"
-  mk_sed "teeth(vcorr-infocus)" "$MUT/archive.VCINFMUTANT.sh" 's/\[ "\$_vc_tp" = "\$_vc_fslug" \] || \[\[ "\$_vc_fnums" == \*" \$_vc_c "\* \]\]/false/' \
+  mk_sed "teeth(vcorr-infocus)" "$MUT/archive.VCINFMUTANT.sh" 's/\[ "\$_vc_tp" = "\$_vc_fslug" \] || \[ "\$_vc_cp" = "\$_vc_fslug" \]/false/' \
     && tooth "teeth(vcorr-infocus): in-focus test neutered → failing focus beta archives → in-focus detection has teeth" 3 0 "$MUT/archive.VCINFMUTANT.sh" \
          --good-has 'verify-corrections : FAIL' --bad-has 'verify-corrections : SIBLING' --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d" --dry-run --focus beta
 
@@ -1640,6 +1640,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth(vcorr-unres)" "$MUT/archive.VCUNRMUTANT.sh" 's/\[ "\$_vc_fcount" -eq 0 \]; then/[ "$_vc_fcount" -eq 99 ]; then/' \
     && tooth "teeth(vcorr-unres): guard disabled → unresolvable focus classified sibling instead of ERROR → guard has teeth" 3 3 "$MUT/archive.VCUNRMUTANT.sh" \
          --good-has 'verify-corrections : ERROR — cannot scope' --bad-has 'verify-corrections : SIBLING' --bad-lacks 'verify-corrections : ERROR' -- run_on_fix @SUT@ "$d" --dry-run --focus beta
+
+  echo "-- teeth (#1857): focus ownership by the correcting block's file prefix --"
+  d="$TMP/vcorr-teeth-xcorr"; mkmulti "$d"
+  printf '# Alpha Block 7\nCorrects `beta` [Block 1] §1.1 — the earlier claim was wrong.\n' > "$d/alpha-block7.md"
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
+  mk_sed "teeth(vcorr-cp)" "$MUT/archive.VCCPMUTANT.sh" 's/ || \[ "\$_vc_cp" = "\$_vc_fslug" \]//' \
+    && tooth "teeth(vcorr-cp): correcting-prefix test dropped → alpha's own correction of beta reads SIBLING → ownership by correcting file has teeth" 3 0 "$MUT/archive.VCCPMUTANT.sh" \
+         --good-has 'FAIL   B7 corrects \[Block 1\] but beta-block1.md' --bad-has 'verify-corrections : SIBLING' --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
+  d="$TMP/vcorr-teeth-num"; mkvfocus "$d" beta
+  printf '# Alpha Block 2\nBody.\n' > "$d/alpha-block2.md"; bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
+  mk_sed "teeth(vcorr-ownall)" "$MUT/archive.VCOWNMUTANT.sh" 's/ || \[ "\$_vc_cp" = "\$_vc_fslug" \]; then  # AR-VCORR-IN-FOCUS/ || true; then  # AR-VCORR-IN-FOCUS/' \
+    && tooth "teeth(vcorr-ownall): correcting-prefix test always true (the old over-broad ownership) → beta's own pair refuses --focus alpha" 0 3 "$MUT/archive.VCOWNMUTANT.sh" \
+         --good-has 'verify-corrections : SIBLING' --bad-has 'verify-corrections : FAIL' --bad-lacks 'verify-corrections : SIBLING' -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
+  d="$TMP/alpha-block9-dir-teeth/corpus"; mkdir -p "$TMP/alpha-block9-dir-teeth"; mkvfocus "$d" beta
+  mk_sed "teeth(vcorr-base)" "$MUT/archive.VCBASEMUTANT.sh" 's/^_vc_pfx() { basename "\$1" | sed/_vc_pfx() { printf "%s\\n" "$1" | sed/' \
+    && tooth "teeth(vcorr-base): prefix read from the full path → a prefix-named directory breaks the focus scope → basename read has teeth" 0 3 "$MUT/archive.VCBASEMUTANT.sh" \
+         --good-has 'verify-corrections : SIBLING' --bad-has 'verify-corrections : ERROR — cannot scope' --bad-lacks 'verify-corrections : SIBLING' -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
+  mkdir -p "$MUT/stub4" && cp -a "$MUT/lib" "$MUT/stub4/" && cp "$MUT/verify-state.sh" "$MUT/verify-sources.sh" "$MUT/scan-secrets.sh" "$MUT/stub4/"
+  printf '#!/usr/bin/env bash\necho "   FAIL   B2 corrects [Block 1] but beta-block1.md has no reciprocal backlink to B2 (§14)"\nexit 1\n' > "$MUT/stub4/verify-corrections.sh"; chmod +x "$MUT/stub4/verify-corrections.sh"
+  d="$TMP/vcorr-teeth-nocf"; mkvfocus "$d" beta
+  cp "$SUT" "$MUT/stub4/archive.ORIG.sh"
+  mk_sed "teeth(vcorr-nocf)" "$MUT/stub4/archive.NOCFMUTANT.sh" 's/ || \[ -z "\$_vc_cf" \]//' \
+    && tooth "teeth(vcorr-nocf): unnamed correcting file no longer conservative → the pair reads SIBLING and archives → conservative default has teeth" 3 0 "$MUT/stub4/archive.NOCFMUTANT.sh" --orig "$MUT/stub4/archive.ORIG.sh" \
+         --good-has 'verify-corrections : FAIL' --bad-has 'verify-corrections : SIBLING' --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$d" --dry-run --focus alpha
+
+  echo "-- teeth (#1868): the PARTIAL line counts typed AMBIG lines --"
+  d="$TMP/vcorr-teeth-ambig"; mkgood "$d"
+  printf '# Block 2 — correction\nCorrects B1 §1.1 — the earlier claim was wrong.\n' > "$d/t-block2.md"
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+  mk_sed "teeth(vcorr-amb)" "$MUT/archive.VCAMBMUTANT.sh" 's/^\(       _vc_amb=\).*/\1""/' \
+    && tooth "teeth(vcorr-amb): AMBIG count dropped → PARTIAL line reports 0 typed ambiguous → the count has teeth" 0 0 "$MUT/archive.VCAMBMUTANT.sh" \
+         --good-has '\(1 typed ambiguous' --bad-lacks '\(1 typed ambiguous' -- run_on_fix @SUT@ "$d" --dry-run
 
   echo "-- teeth: AR-VCORR positive ok — accept any exit 0; a linter printing no ok line must then read ok --"
   mkdir -p "$MUT/stub3" && cp -a "$MUT/lib" "$MUT/stub3/" && cp "$MUT/verify-state.sh" "$MUT/verify-sources.sh" "$MUT/scan-secrets.sh" "$MUT/stub3/"
@@ -1932,6 +1964,48 @@ if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : ERROR — cannot scope the 
    && ! grep -q 'verify-corrections : \(SIBLING\|ok\)' <<<"$out_vc"; then
   ok "AR-VCORR focus: focus prefix unresolvable (no block carries it) + findings → typed ERROR, REFUSED (never a silent pass)"
 else no "AR-VCORR focus-unres: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+
+# #1857 — focus ownership is decided by the CORRECTING block's file prefix (the linter now ends every FAIL line with
+# `[correcting: <file>]`), not by "the focus owns some block with the same number", and the prefix test reads the BASENAME.
+# (a) beta's block 2 corrects beta's block 1; alpha ALSO owns a block 2 (old rule: "owns number 2" → in-focus → refused).
+d="$TMP/vcorr-focus-num"; mkvfocus "$d" beta
+printf '# Alpha Block 2\nBody.\n' > "$d/alpha-block2.md"; bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
+out_vc="$(bash "$SUT" "$d" --dry-run --focus alpha 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : SIBLING — 1 pair(s) outside focus alpha not enforced' <<<"$out_vc" && ! grep -q 'verify-corrections : FAIL' <<<"$out_vc"; then
+  ok "AR-VCORR focus #1857: beta's B2→beta-B1 is a SIBLING pair even though alpha also owns a block numbered 2"
+else no "AR-VCORR focus-number: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+# (b) the correcting block belongs to the focus and corrects a block of the sibling focus: in-focus by the correcting prefix.
+d="$TMP/vcorr-focus-xcorr"; mkmulti "$d"
+printf '# Alpha Block 7\nCorrects `beta` [Block 1] §1.1 — the earlier claim was wrong.\n' > "$d/alpha-block7.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
+out_vc="$(bash "$SUT" "$d" --dry-run --focus alpha 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'FAIL   B7 corrects \[Block 1\] but beta-block1.md' <<<"$out_vc" && ! grep -q 'SIBLING' <<<"$out_vc"; then
+  ok "AR-VCORR focus #1857: alpha's own block correcting beta's block is IN focus alpha (refused)"
+else no "AR-VCORR focus-xcorr: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+# (c) a corpus whose DIRECTORY name carries a focus prefix: the pair is classified from the file BASENAMES only.
+d="$TMP/alpha-block9-dir/corpus"; mkdir -p "$TMP/alpha-block9-dir"; mkvfocus "$d" beta
+out_vc="$(bash "$SUT" "$d" --dry-run --focus alpha 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : SIBLING — 1 pair(s)' <<<"$out_vc"; then
+  ok "AR-VCORR focus #1857: a directory named like a focus prefix does not turn a sibling pair in-focus"
+else no "AR-VCORR focus-dirname: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+# (d) a linter that does not name the correcting file (older output) is never silently dropped: in-focus (conservative).
+printf '#!/usr/bin/env bash\necho "   FAIL   B2 corrects [Block 1] but beta-block1.md has no reciprocal backlink to B2 (§14)"\nexit 1\n' > "$AR_STUB/verify-corrections.sh"
+chmod +x "$AR_STUB/verify-corrections.sh"
+d="$TMP/vcorr-focus-nocf"; mkvfocus "$d" beta
+out_vc="$(bash "$AR_STUB/research-sdd-archive.sh" "$d" --dry-run --focus alpha 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 3 ] && grep -q 'verify-corrections : FAIL — 1 one-directional' <<<"$out_vc" && ! grep -q 'SIBLING' <<<"$out_vc"; then
+  ok "AR-VCORR focus #1857: a FAIL line without [correcting: …] is treated as in-focus (refused), never dropped"
+else no "AR-VCORR focus-nocf: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+rm -f "$AR_STUB/verify-corrections.sh"
+# (e) #1868: typed AMBIG lines (here a bare `B1`) never refuse; the PARTIAL line counts them.
+d="$TMP/vcorr-ambig"; mkgood "$d"
+printf '# Block 2 — correction\nCorrects B1 §1.1 — the earlier claim was wrong.\n' > "$d/t-block2.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+out_vc="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_vc=$?
+if [ "$rc_vc" = 0 ] && grep -q 'verify-corrections : PARTIAL — 1 declared correction(s) NOT checked (1 typed ambiguous' <<<"$out_vc" && ! grep -q 'verify-corrections : FAIL' <<<"$out_vc"; then
+  ok "AR-VCORR #1868: an AMBIG line is a typed PARTIAL naming its count, never a refusal (exit 0)"
+else no "AR-VCORR ambig: rc=$rc_vc :: $(grep -iE 'verify-corrections|REFUSED' <<<"$out_vc" | head -3)"; fi
+
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
