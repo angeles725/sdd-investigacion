@@ -57,7 +57,16 @@
 # by id M)` before the verdict line, on the allow and the refuse path alike. A cancelled LATEST run stays ci_failed. Ordering is
 # the check-run id, not completed_at/started_at: ids are unique and strictly increasing (so ties cannot occur) while a queued
 # rerun has null timestamps.
-# DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
+# PATH-FILTERED CHECKS (kit issue #1867): a required check that never reported is not "missing" when its workflow's
+# `pull_request.paths` filter matches none of the PR's changed files (`gh api .../pulls/N/files --paginate`, read only when some
+# required check is absent). Such a check is dropped from the required set and printed as `merge-gate: note: required check <c>
+# skipped by path filter (<workflow> pull_request.paths matches none of the N changed files)` — never a pass, never missing. The
+# check's name is the job's `name:` (else its id), found in the HEAD tree's .github/workflows/*.y(a)ml by a line scanner that
+# understands block-style `paths:` lists only. A check that SHOULD have run stays ci_missing, and so does anything not evaluable
+# (no workflow carries the job, no pull_request trigger, `paths-ignore`, a flow-style or negated pattern, unreadable workflows,
+# unreadable or empty PR files): those print `note: required check <c> not evaluated against path filters: <why>; stays required`
+# (or `note: path filters not evaluated: cannot read the files of PR #N ...`). Reported checks are always judged on their result.
+# DOC-ONLY PRs whose workflows have no readable path filter still need `--required-checks ""`, and
 # still need every PR Validation check green.
 # CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
 # each issue the PR closes, in the grammar reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a
@@ -117,6 +126,56 @@ command -v gentle-ai >/dev/null 2>&1 || degraded "gentle-ai not found on PATH"
 if [ -n "$pr" ]; then command -v gh >/dev/null 2>&1 || degraded "gh not found on PATH (needed for --pr/--merge)"; fi
 
 ghr() { (cd "$cwd" && gh "$@"); }   # gh bound to the repo under test, never the caller's cwd
+
+# PATH FILTERS (kit issue #1867, --merge only): a required check whose workflow never ran for this PR's changed files is not
+# "missing". Read-only and bound to the verified head: workflow files come from the HEAD tree of --cwd (never the worktree),
+# changed files from the PR files list. ci_glob_re turns a GitHub path pattern into an anchored ERE (`**` crosses
+# directories, `*` and `?` do not, everything else is literal).
+ci_glob_re() { printf '%s' "$1" | sed -e 's/[][(){}.+^$|\\]/\\&/g' -e 's|\*\*|@@DS@@|g' -e 's|\*|[^/]*|g' -e 's|@@DS@@|.*|g' -e 's|?|[^/]|g'; }
+# The line scanner understands exactly the block shapes this repo's workflows use; anything else is reported, never guessed.
+# Emits: PAT <pattern> (pull_request.paths items), JOB 0|1 (a job whose check name == chk), PR 0|1, IGNORE, FLOW.
+CI_WF_AWK='
+function strip(v) { sub(/[ \t]+#.*$/, "", v); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) v = substr(v, 2, length(v) - 2); return v }
+/^[ \t]*(#|$)/ { next }
+{ match($0, /^ */); ind = RLENGTH; line = substr($0, ind + 1) }
+ind == 0 { sec = ""; if (line ~ /^on:/) { sec = "on"; if (strip(substr(line, 4)) ~ /pull_request/) pr = 1 } else if (line ~ /^jobs:/) sec = "jobs"; next }
+sec == "on" && ind == 2 { ev = line; sub(/:.*/, "", ev); mode = ""; if (ev == "pull_request") pr = 1; next }
+sec == "on" && ev == "pull_request" && ind == 4 && line !~ /^-/ {
+  key = line; sub(/:.*/, "", key); val = line; sub(/^[^:]*:/, "", val); val = strip(val); mode = ""
+  if (key == "paths") { if (val != "") flow = 1; else mode = "paths" } else if (key == "paths-ignore") ignore = 1
+  next }
+sec == "on" && ev == "pull_request" && mode == "paths" && line ~ /^-/ { v = line; sub(/^-[ \t]*/, "", v); print "PAT " strip(v); next }
+sec == "jobs" && ind == 2 { id = line; sub(/:.*/, "", id); name[id] = id; ids[++n] = id; cur = id; next }
+sec == "jobs" && ind == 4 && line ~ /^name:/ { v = line; sub(/^name:/, "", v); name[cur] = strip(v); next }
+END { found = 0; for (i = 1; i <= n; i++) if (name[ids[i]] == chk) found = 1
+  print "JOB " found; print "PR " (pr ? 1 : 0); if (ignore) print "IGNORE"; if (flow) print "FLOW" }'
+# ci_pf_eval <check> <changed-files>: prints `skip <workflow> <n>` | `run` (the check should have run) | `unknown <why>`.
+ci_pf_eval() {
+  local chk="$1" files="$2" wf scan pats="" pr=0 ign=0 flow=0 job="" pat re n hit=0 wfs
+  wfs="$(git -C "$cwd" ls-tree --name-only "$head" .github/workflows/ 2>/dev/null | grep -E '\.ya?ml$')"
+  [ -n "$wfs" ] || { echo "unknown no workflow files at HEAD (.github/workflows)"; return 0; }
+  while IFS= read -r wf; do
+    scan="$(git -C "$cwd" show "$head:$wf" 2>/dev/null | awk -v chk="$chk" "$CI_WF_AWK")" || continue
+    [ "$(printf '%s\n' "$scan" | sed -n 's/^JOB //p')" = "1" ] || continue
+    job="$wf"; pr="$(printf '%s\n' "$scan" | sed -n 's/^PR //p')"
+    ign="$(printf '%s\n' "$scan" | grep -c '^IGNORE$')"; flow="$(printf '%s\n' "$scan" | grep -c '^FLOW$')"
+    pats="$(printf '%s\n' "$scan" | sed -n 's/^PAT //p')"
+    break
+  done <<<"$wfs"
+  [ -n "$job" ] || { echo "unknown no workflow job named $chk"; return 0; }
+  [ "$pr" = "1" ] || { echo "unknown no pull_request trigger in $job"; return 0; }
+  [ "$ign" = "0" ] || { echo "unknown $job uses paths-ignore"; return 0; }
+  [ "$flow" = "0" ] || { echo "unknown $job lists its paths inline (flow style)"; return 0; }
+  [ -n "$pats" ] || { echo "run"; return 0; }
+  n="$(printf '%s\n' "$files" | grep -c .)"
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue
+    case "$pat" in '!'*) echo "unknown $job has a negated path pattern ($pat)"; return 0 ;; esac
+    re="$(ci_glob_re "$pat")"
+    if grep -Eq "^${re}\$" <<<"$files"; then hit=1; break; fi
+  done <<<"$pats"
+  if [ "$hit" -eq 1 ]; then echo "run"; else echo "skip $job $n"; fi
+}
 
 git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1 || degraded "--cwd is not a git repo/worktree: $cwd"
 head="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || degraded "cannot resolve HEAD in $cwd"
@@ -214,6 +273,28 @@ if [ -n "$do_merge" ]; then
     | "superseded cancelled run of \(.name) (check-run id \(.id), superseded by id \($l.id))"' 2>/dev/null)" || degraded "cannot evaluate superseded check runs for head $head"
   ci_norm="$(printf '%s' "$ci_all" | jq -c 'group_by([.name, .app_id]) | map(max_by(.id))' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   ci_req="$(jq -cn --arg s "$required" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' 2>/dev/null)" || degraded "cannot parse --required-checks list"
+  # Required checks that never reported: when the PR's changed files match none of the workflow's pull_request.paths the check
+  # never ran (kit issue #1867) — noted and dropped from the required set. Anything not evaluable stays required (ci_missing).
+  ci_absent="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '([.[].name] as $seen | $req | map(select(. as $r | $seen | index($r) | not)))[]' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
+  if [ -n "$ci_absent" ]; then
+    ci_pf_why=""
+    ci_files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" \
+      && ci_files="$(printf '%s' "$ci_files" | jq -r -s 'if length > 0 and all(.[]; type == "array") then .[][] | .filename, (.previous_filename // empty) else error("shape") end' 2>/dev/null)" \
+      || { ci_files=""; ci_pf_why="path filters not evaluated: cannot read the files of PR #$pr (gh api failed or unparseable); missing required checks stay ci_missing"; }
+    ci_skipped=""
+    while IFS= read -r ci_chk; do
+      [ -n "$ci_chk" ] || continue
+      if [ -n "$ci_pf_why" ]; then ci_notes="${ci_notes:+$ci_notes$'\n'}$ci_pf_why"; break; fi
+      if [ -z "$ci_files" ]; then ci_pf_res="unknown the PR reports no changed files"; else ci_pf_res="$(ci_pf_eval "$ci_chk" "$ci_files")"; fi
+      case "$ci_pf_res" in
+        skip\ *) ci_wf="${ci_pf_res#skip }"; ci_n="${ci_wf##* }"; ci_wf="${ci_wf% *}"
+          ci_notes="${ci_notes:+$ci_notes$'\n'}required check $ci_chk skipped by path filter ($ci_wf pull_request.paths matches none of the $ci_n changed files)"
+          ci_skipped="${ci_skipped:+$ci_skipped$'\n'}$ci_chk" ;;
+        unknown\ *) ci_notes="${ci_notes:+$ci_notes$'\n'}required check $ci_chk not evaluated against path filters: ${ci_pf_res#unknown }; stays required" ;;
+      esac
+    done <<<"$ci_absent"
+    if [ -n "$ci_skipped" ]; then ci_req="$(printf '%s' "$ci_req" | jq -c --arg s "$ci_skipped" '. - ($s | split("\n"))' 2>/dev/null)" || degraded "cannot apply path-filter skips to the required list"; fi
+  fi
   ci_verdict="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '
     (map(select(.status == "completed" and ((.conclusion // "") | IN("success", "skipped", "neutral") | not)) | .name) | unique) as $failed
     | (map(select(.status != "completed") | .name) | unique) as $pending

@@ -176,6 +176,25 @@ runck() {
       STUB_CHECKS_JSON="$cj" STUB_CHECKS_FAIL="${CKFAIL:-}" STUB_LOG="$ROOT/log" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
 }
 mkdir -p "$ROOT/ck"
+# --- path-filter helpers (kit issue #1867) ---
+# mkwfrepo <name> <fixture>: a repo whose HEAD carries .github/workflows/toolbelt-tests.yml from tests/fixtures/merge-gate/<fixture>
+FIXD="$HERE/fixtures/merge-gate"
+mkwfrepo() {
+  local d="$ROOT/wf-$1"
+  { git init -q -b main "$d" && gc "$d" c0 && git -C "$d" tag base && mkdir -p "$d/.github/workflows" \
+    && cp "$FIXD/$2" "$d/.github/workflows/toolbelt-tests.yml" && git -C "$d" add -A && gc "$d" head; } >/dev/null 2>&1 || { echo "FATAL: cannot build wf repo $1" >&2; exit 2; }
+}
+mkwfrepo real wf-real-toolbelt-tests.yml; mkwfrepo paths wf-paths.yml; mkwfrepo ignore wf-ignore.yml; mkwfrepo negation wf-negation.yml; mkwfrepo nofilter wf-nofilter.yml; mkwfrepo pushonly wf-push-only.yml
+# runwf <sut> <wf-repo-name> <checks-file> <files-json-file> [sut args]: a --merge run inside that repo, PR files served from the json file
+runwf() {
+  local sut="$1" wr="$ROOT/wf-$2" cj="$3" fj="$4" sH="$HEAD_SHA" sB="$BASE_SHA"; shift 4
+  local sA=("${ARGS[@]}")
+  ARGS=(--cwd "$wr" --base-ref base); HEAD_SHA="$(git -C "$wr" rev-parse HEAD)"; BASE_SHA="$(git -C "$wr" rev-parse base)"
+  export STUB_FILES_JSON="$fj"
+  runck "$sut" "$cj" "$@"
+  unset STUB_FILES_JSON
+  ARGS=("${sA[@]}"); HEAD_SHA="$sH"; BASE_SHA="$sB"
+}
 
 suite() { # suite <sut> — the whole behavioural suite, reusable against mutants
   local S="$1"
@@ -488,6 +507,116 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t1:10
   runck "$S" "$ROOT/ck/c.json"
   if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI all green prints no superseded note"; else no "CI all green printed a note ($OUT)"; fi
+  # --- #1867: a required check whose workflow's pull_request.paths filter matches none of the PR's changed files never ran ---
+  # It is a typed note (skipped by path filter), never a pass and never ci_missing; a check that should have run stays ci_missing.
+  CKREQ="shellcheck,toolbelt-tests"
+  mkchecks "$ROOT/ck/wfdoc.json" pr-validation:completed:success
+  mkfiles "$ROOT/ce/f_docs.json" "added:odd/tasks/x.md" "modified:docs/yy.md"
+  mkfiles "$ROOT/ce/f_tool.json" "modified:research-sdd/toolbelt/merge-gate.sh"
+  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: docs-only diff, both filtered checks absent -> merges" 0 '^merge-gate: merged: PR #7'
+  expect "CI path filter: note names shellcheck" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
+  expect "CI path filter: note names toolbelt-tests" 0 '^merge-gate: note: required check toolbelt-tests skipped by path filter'
+  if grep -q "^gh api repos/{owner}/{repo}/pulls/7/files" "$ROOT/log"; then ok "CI path filter reads the PR files (read-only)"; else no "CI path filter did not read PR files ($(cat "$ROOT/log"))"; fi
+  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
+  expect "CI path filter: toolbelt diff, checks absent -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'; ck_nomerge "CI path filter toolbelt diff"
+  for pos in first middle last; do
+    case "$pos" in
+      first)  mkfiles "$ROOT/ce/f_mix.json" "modified:tools/gen.py" "added:docs/a.md" "added:odd/b.md" ;;
+      middle) mkfiles "$ROOT/ce/f_mix.json" "added:docs/a.md" "modified:tools/gen.py" "added:odd/b.md" ;;
+      last)   mkfiles "$ROOT/ce/f_mix.json" "added:docs/a.md" "added:odd/b.md" "modified:tools/gen.py" ;;
+    esac
+    runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_mix.json"
+    expect "CI path filter: mixed diff (matching file $pos), checks absent -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  done
+  mkfiles "$ROOT/ce/f_one.json" "modified:research-sdd/toolbelt/x.sh"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: single matching file -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  mkfiles "$ROOT/ce/f_one.json" "added:docs/qq.md"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: single non-matching file -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:docs/ab.md"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: '?' matches exactly one character (docs/ab.md does not match docs/?.md) -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:docs/a.md"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: docs/a.md matches docs/?.md -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGY.md"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: an exact-file pattern matches -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGY.mdx"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: patterns are anchored and '.' is literal (METHODOLOGY.mdx) -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGYxmd"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: '.' in a pattern is literal (METHODOLOGYxmd vs METHODOLOGY.md) -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:x/research-sdd/toolbelt/y.sh"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: patterns are anchored at the root -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:configs/a/b.cfg"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: '*' does not cross directories (configs/a/b.cfg vs configs/*.cfg) -> merges" 0 '^merge-gate: merged: PR #7'
+  mkfiles "$ROOT/ce/f_one.json" "added:configs/a.cfg"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: '*' matches within one directory (configs/a.cfg) -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  mkfiles "$ROOT/ce/f_one.json" "added:tools/a/b/c.py"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: '**' crosses directories, single-quoted pattern parsed -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  # frozen copy of the repo's real toolbelt-tests.yml (multi-event, commented, 20+ patterns): the scanner must read it, not just the fixtures
+  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: real workflow copy, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
+  expect "CI path filter: real workflow copy names the real file and 2 files" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
+  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
+  expect "CI path filter: real workflow copy, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/profiles/p.md"
+  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
+  expect "CI path filter: real workflow copy, a pattern late in the list matches -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  # one filtered check absent (skippable), the other REPORTED: a reported check is judged on its own result
+  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:success toolbelt-tests:completed:success
+  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: one required check reported green, other filtered -> merges" 0 '^merge-gate: merged: PR #7'
+  expect "CI path filter: only the absent check is noted" 0 '^merge-gate: note: required check shellcheck skipped by path filter'
+  if ! <<<"$OUT" grep -q 'required check toolbelt-tests skipped'; then ok "CI path filter: a reported check is never noted as skipped"; else no "CI path filter noted a reported check ($OUT)"; fi
+  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:success toolbelt-tests:completed:failure
+  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: a reported failed check still refuses ci_failed" 1 '^merge-gate: refuse: ci_failed \(toolbelt-tests\)'
+  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:failure
+  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: docs-only diff but a PR-validation check failed -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(pr-validation\)'
+  mkchecks "$ROOT/ck/wfone.json" pr-validation:in_progress:
+  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: docs-only diff but a check pending -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(pr-validation\)'
+  # a required name that no workflow job carries is never skippable
+  CKREQ="shellcheck,nope"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: a required name no workflow job carries -> ci_missing (nope)" 1 '^merge-gate: refuse: ci_missing \(nope\)'
+  expect "CI path filter: ... and says why it was not evaluated" 1 '^merge-gate: note: required check nope not evaluated against path filters: no workflow job'
+  CKREQ="shellcheck,toolbelt-tests"
+  # cannot evaluate -> strict ci_missing plus a typed note naming the cause
+  runwf "$S" ignore "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: paths-ignore is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  expect "CI path filter: paths-ignore note" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: .*paths-ignore'
+  runwf "$S" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: a negated pattern is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  expect "CI path filter: negation note" 1 'not evaluated against path filters: .*negated'
+  runwf "$S" nofilter "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: a pull_request trigger without paths always runs -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  runwf "$S" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
+  expect "CI path filter: a workflow with no pull_request trigger is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  expect "CI path filter: no-pull_request note" 1 'not evaluated against path filters: .*no pull_request trigger'
+  export STUB_FILES_JSON="$ROOT/ce/f_docs.json"; runck "$S" "$ROOT/ck/wfdoc.json"; unset STUB_FILES_JSON
+  expect "CI path filter: no workflows at HEAD -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  expect "CI path filter: no-workflows note" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: .*no workflow'
+  mkfiles "$ROOT/ce/f_empty.json"
+  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_empty.json"
+  expect "CI path filter: a PR reporting no changed files is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
+  expect "CI path filter: no-changed-files note" 1 'not evaluated against path filters: .*no changed files'
+  export STUB_FILES_FAIL=1; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; unset STUB_FILES_FAIL
+  expect "CI path filter: unreadable PR files -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  expect "CI path filter: unreadable-files note" 1 '^merge-gate: note: path filters not evaluated: cannot read the files of PR #7'
+  # nothing missing -> the files are never read
+  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/pass.json" "$ROOT/ce/f_docs.json"
+  if ! grep -q "pulls/7/files" "$ROOT/log"; then ok "CI path filter: no missing check -> PR files never read"; else no "CI path filter read the PR files with nothing missing"; fi
+  CKREQ="shellcheck"   # the two-page paginate cases below expect this
   # two-page --paginate output: two JSON objects concatenated; a gate that reads only page 1 must not pass
   printf '%s\n%s\n' '{"total_count":3,"check_runs":[{"name":"pr-validation","status":"completed","conclusion":"success"}]}' \
     '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/pages.json"
@@ -824,6 +953,33 @@ mutate M113-note-for-latest-cancelled    's/ and \.id != \$l\.id)/)/'
 mutate M114-note-for-any-conclusion      's/ and \.conclusion == "cancelled" and \.id != \$l\.id)/ and .id != $l.id)/'
 mutate M115-note-ignores-app-id          's/group_by(\[\.name, \.app_id\])\[\]/group_by([.name])[]/'
 mutate M116-cancelled-passes             's/IN("success", "skipped", "neutral")/IN("success", "skipped", "neutral", "cancelled")/'
+# #1867 path-filter mutants (scenarios run on the check/file fixtures the suite wrote under $ROOT)
+sc_pf_docs()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
+sc_pf_empty() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_empty.json"; }
+sc_pf_ign()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" ignore "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
+sc_pf_neg()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
+sc_pf_star()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_star.json" "added:configs/a/b.cfg"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_star.json"; }
+sc_pf_q()     { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_q.json" "added:docs/ab.md"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_q.json"; }
+sc_pf_anch()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_a.json" "added:research-sdd/METHODOLOGY.mdx"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_a.json"; }
+sc_pf_hit()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"; }
+sc_pf_nofl()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
+sc_pf_clean() { CKREQ="shellcheck,toolbelt-tests"; : > "$ROOT/log"; runwf "$1" paths "$ROOT/ck/pass.json" "$ROOT/ce/f_docs.json"; OUT="$OUT"$'\n'"read-files: $(grep -c 'pulls/7/files' "$ROOT/log")"; }
+tooth M120-skipped-checks-stay-required 's/^    if \[ -n "\$ci_skipped" \]; then ci_req=/    if false; then ci_req=/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
+tooth M121-everything-skipped           's/if \[ "\$hit" -eq 1 \]; then echo "run"; else echo "skip/if [ "$hit" -eq 0 ]; then echo "run"; else echo "skip/' sc_pf_hit 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
+tooth M122-star-crosses-directories     '/^ci_glob_re/s|\[^/\]\*|.*|' sc_pf_star 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
+tooth M123-question-matches-anything    '/^ci_glob_re/s/|?|\[^\/\]|g/|?|.*|g/' sc_pf_q 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
+tooth M124-pattern-unanchored           's/grep -Eq "\^\${re}\\\$"/grep -Eq "${re}"/' sc_pf_anch 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
+tooth M125-empty-files-skip-all         's/if \[ -z "\$ci_files" \]; then ci_pf_res=.unknown the PR reports no changed files.; else /if false; then :; else /' sc_pf_empty 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
+tooth M126-negation-evaluated           's/^    case "\$pat" in .!.\*).*/    :/' sc_pf_neg 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
+tooth M127-paths-ignore-as-no-filter    's/^  \[ "\$ign" = "0" \] || .*/  :/' sc_pf_ign 1 'not evaluated against path filters: .*paths-ignore' 1 '^merge-gate: refuse: ci_missing'
+tooth M128-push-paths-used-for-pr       's/^  \[ "\$pr" = "1" \] || .*/  :/' sc_pf_nofl 1 'no pull_request trigger' 1 '^merge-gate: refuse: ci_missing'
+tooth M129-files-read-unconditionally   's/^  if \[ -n "\$ci_absent" \]; then/  if true; then/' sc_pf_clean 0 'read-files: 0$' 0 'read-files: 1$'
+mutate M130-job-name-ignored            's/name\[cur\] = strip(v)/name[cur] = cur/'
+mutate M131-files-failure-silent        's/^      || { ci_files=""; ci_pf_why=.*/      || { ci_files=""; }/'
+mutate M132-skip-note-dropped           's/skipped by path filter (/skipped (/'
+mutate M133-unknown-note-dropped        's/ not evaluated against path filters: / not evaluated: /'
+sc_pf_dot()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_d.json" "added:research-sdd/METHODOLOGYxmd"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_d.json"; }
+tooth M134-dot-unescaped               '/^ci_glob_re/s/{}\.+/{}+/' sc_pf_dot 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]

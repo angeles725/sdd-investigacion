@@ -1,0 +1,28 @@
+name: toolbelt tests
+
+on:
+  push:
+    paths:
+      - "research-sdd/push-only/**"
+  pull_request:
+    paths:
+      - "research-sdd/toolbelt/**"   # inline comment
+      - 'tools/**'
+      - .github/workflows/toolbelt-tests.yml
+      - "research-sdd/METHODOLOGY.md"
+      - "docs/?.md"
+      - "configs/*.cfg"
+
+jobs:
+  toolbelt-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+  lint:
+    name: "shellcheck"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
