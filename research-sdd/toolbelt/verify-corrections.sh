@@ -59,6 +59,16 @@ done
 # never as a bare word: "Refinement planned, see B12" is not a note that B12 refined this block (#1868 review).
 _vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:space:]]+(in|by|at|as|per)|refinad[oa]s?[[:space:]]+(en|por)|§14[[:space:]]+refinement|refinement[[:space:]]*\(|refinamiento[[:space:]]*(\(|§14)'
 
+# The corrigendum NOUN as a backlink (#1874 item 1): `**CORRECCIÓN (2026-07-26) — [Block 292].**` in the corrected block. The
+# noun alone is prose ("a correction was considered"), so the shape is strict: `corrección`/`correction`, an optional
+# parenthetical tag, an optional dash/colon, then DIRECTLY the `[Block N]` ref of the correcting block (N is appended per pair).
+# Both cases of the accented capital are spelled out: `grep -i` does not fold `Ó` under every locale.
+# Three guards keep it from reading a FORWARD correction as a backlink (`Correction: [Block 8] was wrong` says the target
+# corrects block 8): a left word boundary (no `miscorrection`), no colon (a colon introduces the corrected thing), and a CUE
+# after the ref: it must close its sentence (`.`, `;` or the end of the line) or be followed by a `§` locator; a `:` or `,` after the ref continues the sentence (`— [Block 292].**`, `— [Block 292] §292.5.**`).
+_vc_noun_re='(^|[^[:alnum:]_])(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
+_vc_noun_tail='[[:space:]]*\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.;]|$)'
+
 # FOCUSES.md (anywhere under the target, depth <= 3): focus slug -> block prefix, so a cross-focus qualifier such as
 # "corrects `integration` [Block 5]" resolves to the focus's own prefix (#1868 item 1). Row shape:
 # | `slug` | status | state | `prefix-blockN.md` | question |   (the prefix is the `<prefix>-blockN` token of any cell).
@@ -96,7 +106,10 @@ command -v awk >/dev/null 2>&1 || { echo "verify-corrections: degraded: awk not 
 #      The first ref wins, so a trailing cross-reference is never a target.
 #   3. POSTFIX (`[Block 1] (the claim §17.7 corrects) · [Block 11] (…)`): the verb sits inside a parenthetical and
 #      no ref follows it before that parenthetical closes, so it governs the ref the parenthetical annotates,
-#      i.e. the [Block N] immediately before its opening `(`.
+#      i.e. the [Block N] immediately before its opening `(`. When that ref ends a JOINED list (`[Block 50]/[Block 51]
+#      (corrige …)`, joiners as in 2., the walk back stopping at a `;`, `·` or sentence-ending `. `), the clause attaches
+#      to the list as a whole: only the FIRST ref of the list is the declaration and every later one is `A list <n>`
+#      (#1874 item 2; see postlist).
 #   Output: one typed record per line (the caller owns the wording), never a bare number:
 #     `T <n>`            a plain declared target
 #     `Q <n> <slug>`     a target qualified by a focus slug (`corrects \`integration\` [Block 5]`, #1868 item 1)
@@ -107,6 +120,9 @@ command -v awk >/dev/null 2>&1 || { echo "verify-corrections: degraded: awk not 
 #     `U`                a verb that binds to no bracketed ref in its clause: counted and surfaced as a note by the
 #                        caller, never guessed onto a neighbouring ref and never silently dropped (anti-silent-zero)
 #     `S`                a non-assertive form (passive/conditional/past tense) that declares nothing
+#     `N`                a NEGATED verb (`corrects nothing in B21`, `no corrige`, #1874 item 3): declares nothing, counted in a note
+#     (`A list <n>` = a later ref of a joined list followed by the verb's parenthetical; `A mixed <n>` = a bracketed ref joined
+#      to a leading bare list: both advisory, #1874 items 2 and 4)
 #   WORD BOUNDARY (#1847): the program runs under LC_ALL=C, so a non-ASCII letter is two bytes >= 0x80. Every word-char
 #   class below therefore includes \200-\377: `ñcorrige`, `corrigeñ` and `ñse corrige` are other words, not the verb
 #   or the passive guard.
@@ -116,7 +132,8 @@ _vc_extract() {
   LC_ALL=C awk '
     function flush() { if (u != "") { units[nu++] = u; u = "" } }
     # qcur/qkind: the focus qualifier of the clause (`hard` = an explicit focus reference, `soft` = a backticked token after
-    # in/of/en/de that may just be a file name). EVERY ref of a joined list inherits it (#1868 review).
+    # in/of/en/de that may just be a file name, `lead` = a backticked token right before the ref that may just be a code
+    # identifier, #1874 item 7: soft and lead fall back to the strict unqualified lookup when they name no focus). EVERY ref of a joined list inherits it (#1868 review).
     function emit(n,   k) {
       k = cls "|" qcur "|" n
       if (!(k in seen)) {
@@ -137,13 +154,22 @@ _vc_extract() {
       return ""
     }
     # moreb(t): every further bare `B<N>` joined to the previous one by and/y/e/&/`/` (same list rule as more()); emits each.
-    function moreb(t,   rest, tok, nx) {
+    # Then (#1874 item 4) every BRACKETED [Block N] joined to that list by the same joiner rule is emitted as class `mixed`
+    # (`Corrects B6 and [Block 12] §3`): checked as an advisory exactly like a bare ref, never a refusal and never dropped.
+    function moreb(t,   rest, tok, nx, gm, gp, sv) {
       rest = substr(t, BE + 1)
       while (match(rest, /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t]*b[0-9]+/)) {
         tok = substr(rest, 1, RLENGTH); nx = substr(rest, RLENGTH + 1)
-        if (nx ~ /^[a-z_\200-\377]/ || nx ~ /^-[a-z][0-9]/) return
+        if (nx ~ /^[a-z_\200-\377]/ || nx ~ /^-[a-z][0-9]/) break
         gsub(/.*b/, "", tok); emit(tok)
         rest = nx
+      }
+      while (match(rest, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
+        gm = substr(rest, RSTART, RLENGTH); gp = substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART + RLENGTH)
+        gsub("\302\247", "", gp); gsub("\342\200\223", "-", gp)
+        if (gp !~ /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t0-9.,-]*$/) return
+        gsub(/[^0-9]/, "", gm)
+        sv = cls; cls = "mixed"; emit(gm); cls = sv
       }
     }
     # Inferential classes decided from the text between the verb and the ref (pre) / the whole clause object (obj).
@@ -151,9 +177,10 @@ _vc_extract() {
       if (pre ~ /(assumption|expectation|suposici[^ ]*)[ \t]+(behind|underlying|detr[^ ]*|subyacente)[ \t]*(the[ \t]+|el[ \t]+|la[ \t]+)?$/) return "assumption"
       if (pre ~ /(junto[ \t]+a|together[ \t]+with|alongside|along[ \t]+with)[ \t]*(the[ \t]+|el[ \t]+|la[ \t]+)?$/) return "locator"
       # object: a gap label (B50-G6) in the object, or the possessive of a PROCESS noun (focus, caller, backlog, queue, session, run:
-      # the measured shapes). A possessive of a code artifact (decompiler, parser: a reading in the cited block) is a claim of
-      # that block and stays a plain declaration.
-      if (pre ~ /(^|[^a-z0-9_\200-\377])(this|that|the|our|my)[ \t]+(focus|caller|backlog|queue|session|run)(\047|\342\200\231)s[ \t]/ || pre ~ /(^|[^a-z0-9_\200-\377])b[0-9]+-[a-z][0-9]+/) return "object"
+      # the measured shapes) AT THE START of the object: a possessive inside an aside (a `per this run` review clause before
+      # the claim in [Block 8]) is not the object of the verb (#1874 item 6). A possessive of a code artifact (decompiler,
+      # parser: a reading in the cited block) is a claim of that block and stays a plain declaration.
+      if (pre ~ /^[ \t]*(this|that|the|our|my)[ \t]+(focus|caller|backlog|queue|session|run)(\047|\342\200\231)s[ \t]/ || pre ~ /(^|[^a-z0-9_\200-\377])b[0-9]+-[a-z][0-9]+/) return "object"
       return ""
     }
     function refnum(t,   m) {          # first [Block N] in t -> N ("" when none)
@@ -195,6 +222,43 @@ _vc_extract() {
         pos += st + ln - 1; rest = substr(rest, st + ln)
       }
       return pos + 1
+    }
+    # postlist(t): the verb sat in a parenthetical that follows t (the text before its opening paren, ending in a ref). The paren
+    # annotates the WHOLE joined list that ends there (`[Block 50]/[Block 51] (corrige …)`): the clause cannot say WHICH member
+    # it corrects, so only the FIRST ref of the list is a declaration and every later one is a typed `list` ambiguity (#1874
+    # item 2; unlike a FORWARD list, where the verb precedes the refs and governs all of them).
+    function postlist(t,   rest, off, nn, adv, v, first, g, k, sv) {
+      rest = t; off = 0; nn = 0
+      while (match(rest, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
+        nn++; lrs[nn] = off + RSTART; lre[nn] = off + RSTART + RLENGTH - 1
+        v = substr(rest, RSTART, RLENGTH); gsub(/[^0-9]/, "", v); lrn[nn] = v
+        adv = RSTART + RLENGTH - 1; off += adv; rest = substr(rest, adv + 1)
+      }
+      first = nn
+      while (first > 1) {
+        g = substr(t, lre[first - 1] + 1, lrs[first] - lre[first - 1] - 1)
+        if (g ~ /\.[ \t]/ || g ~ /;/ || index(g, "\302\267")) break     # a sentence break ends the list, as in the forward scan
+        gsub("\302\247", "", g); gsub("\342\200\223", "-", g)
+        if (g ~ /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t0-9.,-]*$/) first--; else break
+      }
+      emit(lrn[first])
+      for (k = first + 1; k <= nn; k++) { sv = cls; if (cls == "") cls = "list"; emit(lrn[k]); cls = sv }
+    }
+    # negpost(post): 1 when the text right after the verb NEGATES it (#1874 item 3, narrowed after the Opus gate). `nothing`/`none`/`nada`
+    # negate unless followed by an exception (`nothing but`, `none other than`, `nada excepto`, `nada más que`); `no`/`ninguna?`
+    # negate only as `no <noun> in/of/en/de` (`no claim in [Block 8]`), never `no longer`, `no only`, `no solo`, `no fewer/less/more`.
+    function excpost(post) {   # 1 when the text after the verb is `nothing/anything but …`: an exception, so the verb still declares
+      return (post ~ /^[ \t]+(nothing|none|nada|anything)[ \t]+(but|except|salvo|excepto|other|m[^ \t]*s[ \t]+que)/)
+    }
+    function negpost(post,   w) {
+      if (match(post, /^[ \t]+(nothing|none|nada)([ \t,.;]|$)/)) {
+        return !excpost(post)
+      }
+      if (match(post, /^[ \t]+(no|ninguna?)[ \t]+[^ \t]+[ \t]+(in|of|en|de|del|about|sobre)[ \t]/)) {
+        w = substr(post, RSTART, RLENGTH); sub(/^[ \t]+(no|ninguna?)[ \t]+/, "", w); sub(/[ \t].*$/, "", w)
+        return !(w ~ /^(longer|only|solo|fewer|less|menos|more|than|further|m[^ \t]*s|s[^ \t]*lo)$/)
+      }
+      return 0
     }
     # trailq(post): 1 (and sets qcur/qkind) when post starts with a focus qualifier `of the focus `x``/`of the `x` focus`/`in `x``.
     function trailq(post,   qm, qt) {
@@ -267,6 +331,12 @@ _vc_extract() {
         if (pre ~ /(^|[^a-z0-9_\200-\377])se[ \t]+$/ || tok == "corrigieron" || tok == "corrigio" || past) {
           print "S"; p = ve; continue
         }
+        # NEGATIONS declare nothing (#1874 item 3): `corrects nothing in B21`, `Corrects no claim in B402`, `no corrige`,
+        # `never corrects`. Only the word right before / right after the VERB negates it (the corrigendum noun has its own rule above) ("no longer valid" later in the
+        # sentence does not). Counted and surfaced as a note by the caller, like the non-assertive forms.
+        if (!isnoun && ((pre ~ /(^|[^a-z0-9_\200-\377])(no|nunca|never|tampoco)[ \t]+$/ && !excpost(substr(l, ve))) || negpost(substr(l, ve)))) {
+          print "N"; p = ve; continue
+        }
         d = 0; bd = ""
         for (i = ve; i <= n; i++) {
           c = substr(un, i, 1)
@@ -288,7 +358,7 @@ _vc_extract() {
           pre = substr(cl, 1, rs - 1); cls = classify(pre)
           qcur = ""; qkind = ""
           if (cls == "") {
-            if (match(pre, /`[a-z0-9._-]+`[ \t]*$/)) { qm = substr(pre, RSTART, RLENGTH); gsub(/[` \t]/, "", qm); qcur = qm; qkind = "hard" }
+            if (match(pre, /`[a-z0-9._-]+`[ \t]*$/)) { qm = substr(pre, RSTART, RLENGTH); gsub(/[` \t]/, "", qm); qcur = qm; qkind = "lead" }
             else {
               post = substr(cl, rs)
               if (match(post, /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) post = substr(post, RLENGTH + 1)
@@ -307,7 +377,7 @@ _vc_extract() {
           }
           if (j >= 1) {
             pre = substr(l, 1, j - 1); sub(/[ \t]+$/, "", pre)
-            if (match(pre, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]$/)) { cls = classify(cl); emit(refnum(substr(pre, RSTART))); done = 1 }
+            if (match(pre, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]$/)) { cls = classify(cl); postlist(pre); done = 1 }
           }
         }
         if (!done) print "U"          # a correction verb that binds to no bracketed ref: surfaced, never guessed
@@ -324,7 +394,7 @@ _vc_extract() {
   ' "$1"
 }
 
-rc=0; unbound=0; skipped=0; unchecked=0; ambiguous=0; skipnames=""
+rc=0; unbound=0; negated=0; negnames=""; skipped=0; unchecked=0; ambiguous=0; skipnames=""
 # amb <class-text> — one typed AMBIG line (#1868): an inferential binding the linter will not turn into a refusal. The
 # caller (research-sdd-archive.sh) tells these apart from FAIL lines by the `AMBIG` token and counts them as PARTIAL.
 amb() { echo "   AMBIG  B$c corrects [Block $n] — $1; NOT checked as a declaration (typed ambiguous, not a refusal) [correcting: $(basename "$f")]"; ambiguous=$((ambiguous+1)); }
@@ -337,29 +407,34 @@ for f in "${blocks[@]}"; do
   fi
   _vc_targets=(); [ -z "$_vc_out" ] || mapfile -t _vc_targets <<<"$_vc_out"
   for _vc_i in ${_vc_targets[@]+"${!_vc_targets[@]}"}; do
-    rec="${_vc_targets[$_vc_i]}"; cls=""; qual=""
+    rec="${_vc_targets[$_vc_i]}"; cls=""; qual=""; _vc_soft=""
     [ -n "$rec" ] || continue
     case "$rec" in
       U) unbound=$((unbound+1)); continue ;;
       S) skipped=$((skipped+1)); skipnames="${skipnames:+$skipnames, }B$c"; continue ;;
+      N) negated=$((negated+1)); negnames="${negnames:+$negnames, }B$c"; continue ;;
       T\ *) n="${rec#T }" ;;
       Q\ *) read -r _ n qual qkind <<<"$rec" ;;
       A\ *) read -r _ cls n <<<"$rec" ;;
       *) echo "verify-corrections: degraded: extractor emitted an unknown record '$rec' for $(basename "$f"); the corpus was NOT checked" >&2; exit 1 ;;
     esac
     n="$((10#$n))"                      # normalize any zero-padding
+    _vc_rd="bare B$n reference"; _vc_adv="bare"
+    [ "$cls" != mixed ] || { _vc_rd="bracketed [Block $n] joined to a leading bare B<N> list (#1874)"; _vc_adv="joined bracketed"; }
     case "$cls" in
       object)     amb "the verb governs a non-block object (a possessive or a gap label), not this block"; continue ;;
       locator)    amb "locator reference: the block only LOCATES the thing corrected ('junto a'/'alongside [Block $n]'), it carries no claim of its own"; continue ;;
       assumption) amb "a reader-assumption correction ('the assumption behind [Block $n]'), not a claim the cited block makes"; continue ;;
+      list)       amb "joined-list reference: the correction clause follows the whole list, so only its FIRST ref is checked and this later one is not guessed"; continue ;;
     esac
     _vc_own="$(blockprefix "$f")"
     _vc_qp=""
     if [ -n "$qual" ]; then
       _vc_qp="$(resolve_slug "$qual")"
-      # A SOFT qualifier (a backticked token after in/of/en/de with no `focus` word: probably a file name) that names no focus
-      # falls back to the strict unqualified lookup (#1868 review); only a HARD one is a typed ambiguity.
-      if [ -z "$_vc_qp" ] && [ "$qkind" = soft ]; then qual=""; fi
+      # A SOFT qualifier (a backticked token after in/of/en/de with no `focus` word: probably a file name) or a LEAD one (a
+      # backticked token right before the ref: probably a code identifier, #1874 item 7) that names no focus falls back to the
+      # strict unqualified lookup (#1868 review); only a HARD one is a typed ambiguity.
+      if [ -z "$_vc_qp" ] && { [ "$qkind" = soft ] || [ "$qkind" = lead ]; }; then _vc_soft="$qual"; qual=""; fi
     fi
     if [ -n "$qual" ]; then
       # An explicit focus qualifier (#1868 item 1): the target lives in THAT focus, never in the own prefix.
@@ -377,13 +452,13 @@ for f in "${blocks[@]}"; do
         case "${numcnt[$n]:-0}" in
           0) ;;
           1) tgt="${numany[$n]}" ;;
-          *) if [ "$cls" = bare ]; then amb "bare B$n reference, number ambiguous across ${numcnt[$n]} other prefixes (advisory)"; continue; fi
+          *) if [ "$cls" = bare ] || [ "$cls" = mixed ]; then amb "$_vc_rd, number ambiguous across ${numcnt[$n]} other prefixes (advisory)"; continue; fi
              echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists in its prefix '$_vc_own' and the number is ambiguous across ${numcnt[$n]} other prefixes; NOT checked"
              unchecked=$((unchecked+1)); continue ;;
         esac
       fi
       if [ -z "$tgt" ]; then
-        if [ "$cls" = bare ]; then amb "bare B$n reference, no block-$n file exists on disk (advisory)"; continue; fi
+        if [ "$cls" = bare ] || [ "$cls" = mixed ]; then amb "$_vc_rd, no block-$n file exists on disk (advisory)"; continue; fi
         echo "   WARN   B$c declares a correction of [Block $n] but no block-$n file exists on disk"
         unchecked=$((unchecked+1))
         continue
@@ -396,21 +471,24 @@ for f in "${blocks[@]}"; do
     # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
     if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then
       : # reciprocated
-    elif [ "$cls" = bare ]; then
-      amb "bare B$n reference with no reciprocal backlink in $(basename "$tgt") (advisory: a bare ref is checked, never refused)"
+    elif grep -qiE "${_vc_noun_re}${c}${_vc_noun_tail}" "$tgt" 2>/dev/null; then
+      : # reciprocated by the corrigendum NOUN shape (#1874 item 1)
+    elif [ "$cls" = bare ] || [ "$cls" = mixed ]; then
+      amb "$_vc_rd with no reciprocal backlink in $(basename "$tgt") (advisory: a ${_vc_adv} ref is checked, never refused)"
     else
-      echo "   FAIL   B$c corrects [Block $n] but $(basename "$tgt") has no reciprocal backlink to B$c (accepted: 'corrected in'/'corregido en'/'refined in'/corrigendum/erratum naming it) (§14) [correcting: $(basename "$f")]"
+      echo "   FAIL   B$c corrects [Block $n] but $(basename "$tgt") has no reciprocal backlink to B$c (accepted: 'corrected in'/'corregido en'/'refined in'/corrigendum/erratum/'CORRECCIÓN — [Block $c]' naming it) (§14) [correcting: $(basename "$f")]${_vc_soft:+ — hint: the backticked token \`$_vc_soft\` named no focus (no block prefix, no FOCUSES.md row), so the own prefix was searched; add a FOCUSES.md row for it, or write the word \`focus\` next to it (of the \`$_vc_soft\` focus) to resolve it}"
       rc=1
     fi
   done
 done
 
 [ "$unbound" -eq 0 ] || echo "   note   $unbound correction verb(s) governed no bracketed [Block N] ref in their own clause (unbound, or a word that merely contains the verb) and were NOT checked (#1790)"
+[ "$negated" -eq 0 ] || echo "   note   $negated correction verb(s) were negated ('corrects nothing in B21', 'no corrige') and declare nothing (#1874): $negnames"
 [ "$skipped" -eq 0 ] || echo "   note   $skipped correction verb(s) in a non-assertive form (passive 'se corrige', conditional, or past tense) were skipped, not treated as declarations (#1835): $skipnames"
 if [ "$rc" -eq 0 ]; then
-  _vc_partial=$((unchecked+ambiguous))
+  _vc_partial=$((unchecked+ambiguous+negated))
   if [ "$_vc_partial" -eq 0 ]; then echo "   ok     every declared correction has its reciprocal 'corrected in BN' backlink."
-  else echo "   ok-partial $_vc_partial declared correction(s) NOT checked (ambiguous/missing target: $ambiguous AMBIG, $unchecked WARN) — see WARN/AMBIG above"; fi
+  else echo "   ok-partial $_vc_partial declared correction(s) NOT checked (ambiguous/missing target: $ambiguous AMBIG, $unchecked WARN; $negated negated) — see WARN/AMBIG above"; fi
 fi
 echo "== exit $rc =="
 exit $rc

@@ -60,7 +60,7 @@ for _own in aa zz; do
 done
 # 1d — an UNRESOLVABLE qualifier is a typed ambiguous line, never a guess and never a refusal.
 d="$TMP/q-ghost"
-pmk "$d" aa 4 '# Block 4\n\n> Corrects `ghost` [Block 1].\n'; pblank "$d" aa 1; pblank "$d" zz 1
+pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1] of the `ghost` focus.\n'; pblank "$d" aa 1; pblank "$d" zz 1   # explicit `focus` word (a bare leading `ghost` is a code identifier since #1874)
 out="$(run "$d")"
 if [ "$(code "$d")" = 0 ] && grep -qE '^ *AMBIG +B4 corrects \[Block 1\] .*cross-focus' <<<"$out" && ! grep -qE '^ *FAIL' <<<"$out" \
    && grep -qE 'ok-partial +1 declared correction\(s\) NOT checked' <<<"$out"; then
@@ -209,7 +209,7 @@ d="$TMP/self-ctl"; pmk "$d" aa 3 '# Block 3\n\n> Corrects [Block 3] §3.1 (my ow
 if [ "$(code "$d")" = 0 ] && ! grep -qE 'FAIL|AMBIG' <<<"$(run "$d")"; then ok "unqualified same-number ref is still a self-correction (skipped) even with a colliding prefix"
 else no "self-ctl :: $(run "$d" | tr '\n' '|')"; fi
 # 12d — tabs inside the FOCUSES.md slug cell are stripped.
-d="$TMP/self-tab"; pmk "$d" pi5 8 '# Block 8\n\n> Corrects `integration` [Block 5].\n'; pblank "$d" hb 5
+d="$TMP/self-tab"; pmk "$d" pi5 8 '# Block 8\n\n> Corrects `integration` [Block 5].\n'; pblank "$d" hb 5 ; pblank "$d" pi5 5   # pi5-block5 collides: an unresolved slug would check IT
 printf '| Focus | S | State | Block prefix | Q |\n|---|---|---|---|---|\n|\t`integration`\t| x | y | `hb-blockN.md` | q |\n' > "$d/FOCUSES.md"
 if grep -qE 'FAIL +B8 corrects \[Block 5\] but hb-block5\.md ' <<<"$(run "$d")"; then ok "a tab-padded slug cell in FOCUSES.md still resolves"
 else no "self-tab :: $(run "$d" | tr '\n' '|')"; fi
@@ -327,7 +327,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   m="$TMP/vc.NOFOCUSES.sh"
   if mk_mut "teeth: FOCUSES.md lookup" "$SUT" "$m" '/^  \[ -z "${focuspfx\[$s\]:-}" \] || /d'; then
     tt "teeth: FOCUSES-blind mutant cannot resolve 'integration' (AMBIG instead of a verdict)" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'AMBIG +B8 ' --bad-has 'AMBIG +B8 corrects \[Block 5\] .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
+      --good-lacks 'AMBIG +B8 ' --bad-has 'FAIL +B8 corrects \[Block 5\] but pi5-decoding-block5' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
   fi
   m="$TMP/vc.GUESS.sh"
   if mk_mut "teeth: unresolved qualifier" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \]; then/if false; then/'; then
@@ -354,7 +354,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-lacks 'FAIL +B139 ' --bad-has 'FAIL +B139 corrects \[Block 1\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
   fi
   m="$TMP/vc.NOOBJPOST.sh"
-  if mk_mut "teeth: postfix object" "$SUT" "$m" 's/cls = classify(cl); emit(refnum/cls = ""; emit(refnum/'; then
+  if mk_mut "teeth: postfix object" "$SUT" "$m" 's/cls = classify(cl); postlist(pre)/cls = ""; postlist(pre)/'; then
     tt "teeth: postfix-blind mutant FAILs B74→B50 (verb inside the parenthetical)" 1 1 "$m" --orig "$SUT" \
       --good-lacks 'FAIL +B74 ' --bad-has 'FAIL +B74 corrects \[Block 50\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
   fi
@@ -380,12 +380,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'AMBIG +B300 corrects \[Block 292\] ' --bad-lacks 'AMBIG +B300|awk: ' -- bash @SUT@ "$TMP/bare"
   fi
   m="$TMP/vc.BAREREFUSE.sh"
-  if mk_mut "teeth: bare advisory" "$SUT" "$m" 's/^    elif \[ "$cls" = bare \]; then$/    elif false; then/'; then
+  if mk_mut "teeth: bare advisory" "$SUT" "$m" 's/^    elif \[ "$cls" = bare \] || \[ "$cls" = mixed \]; then$/    elif false; then/'; then
     tt "teeth: refusing mutant turns the advisory bare ref into a FAIL (exit 1)" 0 1 "$m" --orig "$SUT" \
       --bad-has 'FAIL +B300 corrects \[Block 292\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare"
   fi
   m="$TMP/vc.PARTIAL.sh"
-  if mk_mut "teeth: ambiguous counts as partial" "$SUT" "$m" 's/_vc_partial=$((unchecked+ambiguous))/_vc_partial=$unchecked/'; then
+  if mk_mut "teeth: ambiguous counts as partial" "$SUT" "$m" 's/_vc_partial=$((unchecked+ambiguous+negated))/_vc_partial=$unchecked/'; then
     tt "teeth: ambiguous-blind verdict reads an unqualified ok over an AMBIG line" 0 0 "$m" --orig "$SUT" \
       --good-has 'ok-partial' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/q-ghost"
   fi
@@ -448,7 +448,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'FAIL +B3 corrects \[Block 3\] but aa-block3' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/self-ctl"
   fi
   m="$TMP/vc.NOSOFT.sh"
-  if mk_mut "teeth: soft slug fallback" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \] \&\& \[ "$qkind" = soft \]; then qual=""; fi/:/'; then
+  if mk_mut "teeth: soft slug fallback" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \] \&\& { \[ "$qkind" = soft \] || \[ "$qkind" = lead \]; }; then _vc_soft="$qual"; qual=""; fi/:/'; then
     tt "teeth: no-fallback mutant turns \"[Block 8] del \`loader\`\" into AMBIG cross-focus (was FAIL)" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B90 corrects \[Block 8\] ' --bad-has 'AMBIG +B90 .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/soft"
   fi
@@ -463,7 +463,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'but zz-block3\.md' --bad-lacks 'but zz-block3\.md|awk: ' -- bash @SUT@ "$TMP/qlist"
   fi
   m="$TMP/vc.BROADPOSS.sh"
-  if mk_mut "teeth: broad possessive" "$SUT" "$m" 's/(^|\[^a-z0-9_\\200-\\377\])(this|that|the|our|my)\[ \\t\]+(focus|caller|backlog|queue|session|run)(\\047/[a-z](\\047/'; then
+  if mk_mut "teeth: broad possessive" "$SUT" "$m" 's/\^\[ \\t\]\*(this|that|the|our|my)\[ \\t\]+(focus|caller|backlog|queue|session|run)(\\047/[a-z](\\047/'; then
     tt "teeth: any-possessive mutant makes \"the decompiler's reading in [Block 8]\" AMBIG" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B91 corrects \[Block 8\] ' --bad-has 'AMBIG +B91 .*object' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/poss"
   fi
@@ -494,13 +494,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   m="$TMP/vc.TABSLUG.sh"
   if mk_mut "teeth: tab slug" "$SUT" "$m" 's/\*\[:space:\]\]/* ]/'; then
-    tt "teeth: tab-blind mutant cannot resolve a tab-padded FOCUSES.md slug" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B8 corrects \[Block 5\] but hb-block5' --bad-has 'AMBIG +B8 .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/self-tab"
+    tt "teeth: tab-blind mutant cannot resolve a tab-padded FOCUSES.md slug (falls back to the colliding own prefix)" 1 1 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B8 corrects \[Block 5\] but hb-block5' --bad-has 'FAIL +B8 corrects \[Block 5\] but pi5-block5' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-tab"
   fi
   m="$TMP/vc.REALFILE.sh"
   if mk_mut "teeth: real file names in FOCUSES" "$SUT" "$m" 's/(block|bloque)(N|\[0-9\]+)/(block|bloque)N/'; then
     tt "teeth: placeholder-only mutant cannot read a real <prefix>-block<N>.md cell" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-has 'AMBIG +B5 .*cross-focus' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-focuses"
+      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-has 'ok +every declared' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-focuses"
   fi
 
   echo "-- teeth (round 2): trailing list qualifier, no silent n==c drop --"
