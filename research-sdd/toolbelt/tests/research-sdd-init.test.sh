@@ -934,8 +934,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   if [ -z "$_1040r_jq_found" ]; then
     echo "  SKIP  1040-(r): jq not on PATH (cannot construct PATH-without-jq)"
   else
-    _1040r_jq_dir="$(dirname "$_1040r_jq_found")"
-    _1040r_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_1040r_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    _1040r_pnojq="$(_u7_nojq_path)"
     if PATH="$_1040r_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  1040-(r): jq still reachable after dir exclusion (multiple jq copies on PATH)"
     else
@@ -1016,8 +1015,7 @@ _jq_found="$(command -v jq 2>/dev/null)"
 if [ -z "$_jq_found" ]; then
   echo "  SKIP  EN2a-(e): jq not on PATH (cannot construct PATH-without-jq)"
 else
-  _jq_dir="$(dirname "$_jq_found")"
-  _path_nojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+  _path_nojq="$(_u7_nojq_path)"
   if PATH="$_path_nojq" command -v jq >/dev/null 2>&1; then
     echo "  SKIP  EN2a-(e): jq still reachable after dir exclusion (multiple jq copies on PATH)"
   else
@@ -1505,8 +1503,7 @@ else
     || no "K1496-f merge lost or mangled the existing PreToolUse entry"
 
   # (g) jq absent: wire-only prints a snippet that carries PreToolUse and writes NOTHING (no hook file).
-  _g_jqdir="$(dirname "$(command -v jq)")"
-  _g_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_g_jqdir" | tr '\n' ':' | sed 's/:$//')"
+  _g_pnojq="$(_u7_nojq_path)"
   if PATH="$_g_pnojq" command -v jq >/dev/null 2>&1; then
     echo "  SKIP  K1496-g: jq still reachable after dir exclusion"
   else
@@ -2825,8 +2822,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$_mw3_jq_found" ]; then
     echo "  SKIP  teeth MW3: jq not on PATH"
   else
-    _mw3_jq_dir="$(dirname "$_mw3_jq_found")"
-    _mw3_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_mw3_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    _mw3_pnojq="$(_u7_nojq_path)"
     if PATH="$_mw3_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW3: cannot exclude jq from PATH (multiple copies)"
     else
@@ -2964,8 +2960,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$_mw9_jq_found" ]; then
     echo "  SKIP  teeth MW9: jq not on PATH"
   else
-    _mw9_jq_dir="$(dirname "$_mw9_jq_found")"
-    _mw9_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_mw9_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    _mw9_pnojq="$(_u7_nojq_path)"
     if PATH="$_mw9_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW9: cannot exclude jq from PATH (multiple copies)"
     else
@@ -3236,8 +3231,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -z "$_mw17_jq_found" ]; then
     echo "  SKIP  teeth MW17: jq not on PATH"
   else
-    _mw17_jq_dir="$(dirname "$_mw17_jq_found")"
-    _mw17_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_mw17_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    _mw17_pnojq="$(_u7_nojq_path)"
     if PATH="$_mw17_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW17: cannot exclude jq from PATH (multiple copies)"
     else
