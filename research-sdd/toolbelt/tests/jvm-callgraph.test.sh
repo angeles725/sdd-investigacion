@@ -68,8 +68,8 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   # Resolve Java home via shared helper.
   # shellcheck source=../lib/tool-env.sh
   source "$TOOLBELT/lib/tool-env.sh"
-  # shellcheck source=../lib/jvm-offline-probe.sh
-  source "$TOOLBELT/lib/jvm-offline-probe.sh"
+  # shellcheck source=lib/jvm-offline-probe.sh
+  source "$HERE/lib/jvm-offline-probe.sh"
   _JAVA21="$(rsdd_resolve_java_home 2>/dev/null || true)"
   _JAVAC_MAJOR="$([ -x "${_JAVA21:-}/bin/javac" ] && \
     "$_JAVA21/bin/javac" -version 2>&1 | grep -oE '[0-9]+' | head -1 || echo 0)"
@@ -94,7 +94,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     elif _verdict="$(rsdd_jvm_build_verdict)"; [[ "$_verdict" == skip:* ]]; then
       # The host never ran `jvm-callgraph.sh bootstrap` (needs network): no maven-compiler-plugin
       # artifact in the local Maven repo is tagged with the bootstrap mirror id from
-      # maven-central-settings.xml (lib/jvm-offline-probe.sh; the verdict comes from the
+      # maven-central-settings.xml (tests/lib/jvm-offline-probe.sh; the verdict comes from the
       # environment, never from the build log). Typed SKIP, one line per analyzer case, so
       # run-all's skipped total is exact. S9/S10/S12 would otherwise "fail closed" vacuously on a
       # missing jar (analyzer-missing exit 3). Never a FAIL and never a silent pass (#1588).
@@ -512,8 +512,8 @@ print("RESULT=ok")
 
   # Environment-probe controls (#1588): the S1 SKIP-vs-FAIL verdict comes from the environment
   # (was bootstrap ever run?). Fixture repos: EMPTY dir vs a dir holding the compiler-plugin jar.
-  _PROBE_LIB="$TOOLBELT/lib/jvm-offline-probe.sh"
-  # shellcheck source=../lib/jvm-offline-probe.sh
+  _PROBE_LIB="$HERE/lib/jvm-offline-probe.sh"
+  # shellcheck source=lib/jvm-offline-probe.sh
   source "$_PROBE_LIB"
   _PD=org/apache/maven/plugins/maven-compiler-plugin/3.13.0
   mkdir -p "$_MUT/repo-empty" "$_MUT/repo-foreign/$_PD" "$_MUT/repo-ours/$_PD" "$_MUT/repo-noremote/$_PD"
