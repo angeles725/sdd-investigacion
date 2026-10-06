@@ -1,0 +1,13 @@
+name: t
+on:
+  pull_request:
+    paths:
+      - "nothing-here/**"
+  pull_request_target:
+    paths:
+      - "nothing-here/**"
+jobs:
+  toolbelt-tests:
+    runs-on: x
+  shellcheck:
+    runs-on: x

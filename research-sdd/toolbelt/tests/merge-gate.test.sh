@@ -211,7 +211,11 @@ LIB
 mkwfrepo2 selfx wf-paths.yml wf-narrow.yml; mkwfrepo bothnarrow wf-narrow.yml
 mkwfmulti multi-ab wf-paths.yml wf-docs-paths.yml; mkwfmulti multi-ba wf-docs-paths.yml wf-paths.yml; mkwfmulti multi-bothskip wf-paths.yml wf-paths.yml
 mkwfmulti multi-gitlink wf-paths.yml wf-paths.yml gitlink; mkwfmulti multi-nopr wf-paths.yml wf-push-only.yml
-PF_BAD=('**/x.md' 'a/**/b' 'docs/[a-z]*.md' 'docs/+x' 'docs/{a,b}' '**.md' 'docs/**/x' 'docs/a b')
+PF_BAD=('**/x.md' 'a/**/b' 'docs/[a-z]*.md' 'docs/+x' 'docs/{a,b}' '**.md' 'docs/**/x' 'docs/a b' 'docs/?.md' 'docs/a?')
+# jobs/trigger shapes the scanner does not parse (typed unknown, never "not a carrier") and PR-like triggers it does not model
+mkwfrepo quotedid wf-quoted-id.yml; mkwfrepo nameexpr wf-name-expr.yml; mkwfrepo jobsflow wf-jobs-flow.yml; mkwfrepo jobs4 wf-jobs4.yml
+mkwfrepo prt wf-prt.yml; mkwfrepo mergegroup wf-merge-group.yml; mkwfrepo inlineon wf-inline.yml
+mkwfmulti real2 wf-real-toolbelt-tests.yml wf-real-pr-check.yml
 for i in "${!PF_BAD[@]}"; do mkwfpat "bad$i" "${PF_BAD[$i]}"; done
 mkwfrepo real wf-real-toolbelt-tests.yml; mkwfrepo paths wf-paths.yml; mkwfrepo ignore wf-ignore.yml; mkwfrepo negation wf-negation.yml; mkwfrepo nofilter wf-nofilter.yml; mkwfrepo pushonly wf-push-only.yml
 # runwf <sut> <wf-repo-name> <checks-file> <files-json-file> [sut args]: a --merge run inside that repo, PR files served from the json file
@@ -564,12 +568,6 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   mkfiles "$ROOT/ce/f_one.json" "added:docs/qq.md"
   runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
   expect "CI path filter: single non-matching file -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:docs/ab.md"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: '?' matches exactly one character (docs/ab.md does not match docs/?.md) -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:docs/a.md"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: docs/a.md matches docs/?.md -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
   mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGY.md"
   runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
   expect "CI path filter: an exact-file pattern matches -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
@@ -642,6 +640,27 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
     expect "CI path filter: unsupported pattern '${PF_BAD[$i]}' -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
     expect "CI path filter: unsupported pattern '${PF_BAD[$i]}' note" 1 'not evaluated against path filters: .*unsupported path pattern'
   done
+  # (2b) a workflow whose jobs shape is not parsed is unknown, never "not a carrier"; 4-space indentation IS parsed
+  for r in quotedid nameexpr jobsflow; do
+    runwf "$S" "$r" "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
+    expect "CI path filter: unparsed jobs shape ($r) -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+    expect "CI path filter: unparsed jobs shape ($r) note" 1 'not evaluated against path filters: cannot parse the jobs of \.github/workflows/toolbelt-tests\.yml'
+  done
+  runwf "$S" jobs4 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
+  expect "CI path filter: 4-space indentation is parsed (job name key, docs-only) -> merges" 0 '^merge-gate: merged: PR #7'
+  runwf "$S" jobs4 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
+  expect "CI path filter: 4-space indentation, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+  # (3c) another PR-like trigger next to pull_request is not modelled
+  for r in prt mergegroup inlineon; do
+    runwf "$S" "$r" "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
+    expect "CI path filter: another PR-like trigger ($r) -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
+    expect "CI path filter: another PR-like trigger ($r) note" 1 'not evaluated against path filters: .*has another PR-like trigger'
+  done
+  # (3d) the repo's two real workflows side by side (frozen copies): both parse, the filtered checks skip on a docs diff
+  runwf "$S" real2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
+  expect "CI path filter: real toolbelt-tests + pr-check copies, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
+  runwf "$S" real2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
+  expect "CI path filter: real toolbelt-tests + pr-check copies, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
   # (3b) push-only patterns never count for a pull_request trigger (the fixture lists differ)
   mkfiles "$ROOT/ce/f_push.json" "added:research-sdd/push-only/a.sh"
   runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_push.json"
@@ -1055,7 +1074,6 @@ sc_pf_empty() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wf
 sc_pf_ign()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" ignore "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
 sc_pf_neg()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
 sc_pf_star()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_star.json" "added:configs/a/b.cfg"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_star.json"; }
-sc_pf_q()     { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_q.json" "added:docs/ab.md"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_q.json"; }
 sc_pf_anch()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_a.json" "added:research-sdd/METHODOLOGY.mdx"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_a.json"; }
 sc_pf_hit()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"; }
 sc_pf_nofl()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
@@ -1063,7 +1081,6 @@ sc_pf_clean() { CKREQ="shellcheck,toolbelt-tests"; : > "$ROOT/log"; runwf "$1" p
 tooth M120-skipped-checks-stay-required 's/^    if \[ -n "\$ci_skipped" \]; then ci_req=/    if false; then ci_req=/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M121-hit-inverted                 's/^    if \[ "\$hit" -eq 1 \]; then anyrun=1/    if [ "$hit" -eq 0 ]; then anyrun=1/' sc_pf_hit 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
 tooth M122-star-crosses-directories     '/^ci_glob_re/s|\[^/\]\*|.*|' sc_pf_star 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-tooth M123-question-matches-anything    '/^ci_glob_re/s/|?|\[^\/\]|g/|?|.*|g/' sc_pf_q 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M124-pattern-unanchored           's/grep -Eq "\^\${re}\\\$"/grep -Eq "${re}"/' sc_pf_anch 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M125-empty-files-skip-all         's/if \[ -z "\$ci_files" \]; then ci_pf_res="unknown the PR reports no changed files"/if false; then ci_pf_res=x/' sc_pf_empty 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
 tooth M127-paths-ignore-as-no-filter    's/^    \[ "\$ign" = "0" \] || .*/    :/' sc_pf_ign 1 'not evaluated against path filters: .*paths-ignore' 1 '^merge-gate: refuse: ci_missing'
@@ -1078,10 +1095,10 @@ sc_pf_3000()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/
 sc_pf_form()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad0 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
 sc_pf_formchar() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
 sc_pf_noid()    { CKREQ="shellcheck"; printf '%s\n' '{"total_count":1,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"; runck "$1" "$ROOT/ck/noid.json"; }
-tooth M130-job-name-ignored            's/name\[cur\] = strip(v)/name[cur] = cur/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
+tooth M130-job-name-ignored            's/else name\[cur\] = v/else name[cur] = cur/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M131-files-failure-silent        's/^      || { ci_files=""; ci_pf_why=.*/      || { ci_files=""; }/' sc_pf_filesfail 1 '^merge-gate: note: path filters not evaluated: cannot read the files of PR #7' 1 'not evaluated against path filters: the PR reports no changed files'
 tooth M135-comment-not-stripped        's/sub(\/\[ \\t\]+#\.\*\$\/, "", v); //' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 'unsupported path pattern'
-mutate M136-push-patterns-counted       's/ev == "pull_request" \&\& //g'
+mutate M136-push-patterns-counted       's/if (ev != "pull_request") next/if (0) next/'
 tooth M137-base-tree-not-judged        's/^  b="\$(ci_pf_tree "\$pr_base".*/  b="skip x"/' sc_pf_selfx 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
 tooth M138-workflow-change-guard-gone  's/^  if grep -Eq .\^\\\.github\/workflows\/. <<<"\$files"; then.*/  :/' sc_pf_wfchg 1 'the PR changes \.github/workflows' 0 '^merge-gate: merged: PR #7'
 tooth M139-run-carrier-not-counted     's/^    if \[ "\$hit" -eq 1 \]; then anyrun=1/    if [ "$hit" -eq 1 ]; then :/' sc_pf_multi 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
@@ -1096,7 +1113,20 @@ tooth M145-ghv-note-dropped            's/^  ghv_note() {.*/  ghv_note() { :; }/
 tooth M146-graphql-signal-ignored      '/the caller was signalled during the GraphQL/d' sc_ce_gsig 0 'the caller was signalled during the GraphQL read' 0 'the GraphQL answer for PR #7 is unparseable or off-schema'
 tooth M147-repo-signal-ignored         '/the caller was signalled while the repository/d' sc_ce_rsig 0 'the caller was signalled while the repository was being resolved' 0 "cannot resolve the repository the merge used \\(got ''\\)"
 mutate M148-bounded-call-in-subshell    's/GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "\$@" >/( GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" ) >/'
-tooth M144-id-not-required-numeric    '/(\.id | type) == "number"/d' sc_pf_noid 3 '^merge-gate: degraded: check runs for head' 0 '^merge-gate: merged: PR #7'
+# round 2 (fail-closed): `?` unsupported, unparsed jobs shapes unknown, other PR-like triggers unknown
+sc_pf_qid()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" quotedid "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
+sc_pf_qpat()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad8 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
+sc_pf_nexp()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" nameexpr "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
+sc_pf_prt()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" prt "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
+tooth M149-unparsed-jobs-ignored       '/cannot parse the jobs of/d' sc_pf_qid 1 'not evaluated against path filters: cannot parse the jobs of' 1 'shellcheck skipped by path filter'
+tooth M150-question-mark-emulated      's/ok_re=.\^\[A-Za-z0-9_\.\*\/@-\]+\$./ok_re="^[A-Za-z0-9_.*?\/@-]+\$"/' sc_pf_qpat 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
+tooth M151-name-expression-as-name     's/unsup("job name shape of " cur); else name\[cur\] = v/name[cur] = v/' sc_pf_nexp 1 'cannot parse the jobs of' 1 'no workflow job named shellcheck'
+tooth M152-other-pr-trigger-ignored    '/^  if (other != "") print "OTHER " other/d' sc_pf_prt 1 'has another PR-like trigger' 0 '^merge-gate: merged: PR #7'
+mutate M153-inline-on-not-flagged       's/other = "pull_request or merge_group inside an inline on: value"/other = ""/'
+mutate M154-jobs-indent-fixed-at-2      's/if (jind == 0) jind = ind/jind = 2/'
+mutate M155-flow-jobs-not-flagged       's/if (strip(substr(line, 6)) != "") unsup("jobs is not a block mapping")//'
+mutate M156-job-key-shape-unchecked     's/if (line !~ \/\^\[A-Za-z0-9_-\]+:\/) {/if (0) {/'
+tooth M144-id-not-required-numeric   '/(\.id | type) == "number"/d' sc_pf_noid 3 '^merge-gate: degraded: check runs for head' 0 '^merge-gate: merged: PR #7'
 mutate M132-skip-note-dropped           's/skipped by path filter (/skipped (/'
 mutate M133-unknown-note-dropped        's/ not evaluated against path filters: / not evaluated: /'
 sc_pf_dot()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_d.json" "added:research-sdd/METHODOLOGYxmd"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_d.json"; }

@@ -64,7 +64,7 @@
 # check's name is the job's `name:` (else its id); EVERY .github/workflows/*.y(a)ml carrying that name is read (a line scanner that
 # understands block-style `paths:` lists only) and the check is skipped only when ALL carriers skip, in BOTH the PR base tree and
 # the head tree (a PR that narrows its own filter cannot exempt itself), and never when the PR changes anything under
-# .github/workflows. Patterns are matched only in the forms emulated exactly (letters, digits, `_ . / @ -`, `*`, `?`, a trailing
+# .github/workflows. Patterns are matched only in the forms emulated exactly (letters, digits, `_ . / @ -`, `*`, a trailing
 # `/**`); a PR files list at the 3000-entry API cap is never trusted. A check that SHOULD have run stays ci_missing, and so does
 # anything not evaluable (no workflow carries the job, no pull_request trigger, `paths-ignore`, a flow-style, negated or
 # unsupported pattern, an unreadable workflow, unreadable, empty or capped PR files): those print `note: required check <c> not evaluated against path filters: <why>; stays required`
@@ -136,29 +136,57 @@ ghr() { (cd "$cwd" && gh "$@"); }   # gh bound to the repo under test, never the
 # PATH FILTERS (kit issue #1867, --merge only): a required check whose workflow never ran for this PR's changed files is not
 # "missing". Read-only and bound to the verified head: workflow files come from the HEAD tree of --cwd (never the worktree),
 # changed files from the PR files list. ci_glob_re turns a GitHub path pattern into an anchored ERE (`**` crosses
-# directories, `*` and `?` do not, everything else is literal).
-ci_glob_re() { printf '%s' "$1" | sed -e 's/[][(){}.+^$|\\]/\\&/g' -e 's|\*\*|@@DS@@|g' -e 's|\*|[^/]*|g' -e 's|@@DS@@|.*|g' -e 's|?|[^/]|g'; }
-# The line scanner understands exactly the block shapes this repo's workflows use; anything else is reported, never guessed.
-# Emits: PAT <pattern> (pull_request.paths items), JOB 0|1 (a job whose check name == chk), PR 0|1, IGNORE, FLOW.
+# directories, `*` does not, everything else is literal; GitHub's `?` means "zero or one of the preceding character", which is NOT
+# emulated: a pattern containing `?` is unsupported).
+ci_glob_re() { printf '%s' "$1" | sed -e 's/[][(){}.+^$|?\\]/\\&/g' -e 's|\*\*|@@DS@@|g' -e 's|\*|[^/]*|g' -e 's|@@DS@@|.*|g'; }
+# The line scanner understands exactly the block shapes this repo's workflows use; any other shape is reported (UNSUP / OTHER),
+# never guessed. Emits: PAT <pattern> (pull_request.paths items), JOB 0|1 (a job whose check name == chk), PR 0|1, IGNORE, FLOW,
+# OTHER <why> (another PR-like trigger), UNSUP <why> (a jobs/job-key/job-name shape it does not parse).
 CI_WF_AWK='
 function strip(v) { sub(/[ \t]+#.*$/, "", v); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) v = substr(v, 2, length(v) - 2); return v }
+function unsup(w) { if (un == "") un = w }
 /^[ \t]*(#|$)/ { next }
 { match($0, /^ */); ind = RLENGTH; line = substr($0, ind + 1) }
-ind == 0 { sec = ""; if (line ~ /^on:/) { sec = "on"; if (strip(substr(line, 4)) ~ /pull_request/) pr = 1 } else if (line ~ /^jobs:/) sec = "jobs"; next }
-sec == "on" && ind == 2 { ev = line; sub(/:.*/, "", ev); mode = ""; if (ev == "pull_request") pr = 1; next }
-sec == "on" && ev == "pull_request" && ind == 4 && line !~ /^-/ {
-  key = line; sub(/:.*/, "", key); val = line; sub(/^[^:]*:/, "", val); val = strip(val); mode = ""
-  if (key == "paths") { if (val != "") flow = 1; else mode = "paths" } else if (key == "paths-ignore") ignore = 1
+ind == 0 {
+  sec = ""; eind = 0; ev = ""; kind = 0; mode = ""; jind = 0; cur = ""; cind = 0
+  if (line ~ /^on:/) { sec = "on"; rest = strip(substr(line, 4))
+    if (rest == "pull_request") pr = 1
+    else if (rest ~ /pull_request|merge_group/) { pr = 1; other = "pull_request or merge_group inside an inline on: value" } }
+  else if (line ~ /^jobs:/) { sec = "jobs"; seenjobs = 1; if (strip(substr(line, 6)) != "") unsup("jobs is not a block mapping") }
   next }
-sec == "on" && ev == "pull_request" && mode == "paths" && line ~ /^-/ { v = line; sub(/^-[ \t]*/, "", v); print "PAT " strip(v); next }
-sec == "jobs" && ind == 2 { id = line; sub(/:.*/, "", id); name[id] = id; ids[++n] = id; cur = id; next }
-sec == "jobs" && ind == 4 && line ~ /^name:/ { v = line; sub(/^name:/, "", v); name[cur] = strip(v); next }
+sec == "on" {
+  if (eind == 0) eind = ind
+  if (ind == eind) { ev = line; sub(/:.*/, "", ev); ev = strip(ev); mode = ""; kind = 0
+    if (ev == "pull_request") { pr = 1; rv = line; sub(/^[^:]*:/, "", rv); if (strip(rv) != "") flow = 1 }
+    else if (ev == "pull_request_target" || ev == "merge_group") other = ev " trigger"
+    next }
+  if (ev != "pull_request") next
+  if (kind == 0 && line !~ /^-/) kind = ind
+  if (ind == kind && line !~ /^-/) {
+    key = line; sub(/:.*/, "", key); val = line; sub(/^[^:]*:/, "", val); val = strip(val); mode = ""
+    if (key == "paths") { if (val != "") flow = 1; else mode = "paths" } else if (key == "paths-ignore") ignore = 1
+    next }
+  if (mode == "paths" && line ~ /^-/) { v = line; sub(/^-[ \t]*/, "", v); print "PAT " strip(v) }
+  next }
+sec == "jobs" {
+  if (jind == 0) jind = ind
+  if (ind == jind) {
+    if (line !~ /^[A-Za-z0-9_-]+:/) { unsup("job key shape: " line); cur = ""; next }
+    id = line; sub(/:.*/, "", id); name[id] = id; ids[++n] = id; cur = id; cind = 0; next }
+  if (cur != "") {
+    if (cind == 0) cind = ind
+    if (ind == cind && line ~ /^name:/) { v = line; sub(/^name:/, "", v); v = strip(v)
+      if (v == "" || v ~ /\$\{\{/ || v ~ /^[>|&*!]/) unsup("job name shape of " cur); else name[cur] = v } }
+  next }
 END { found = 0; for (i = 1; i <= n; i++) if (name[ids[i]] == chk) found = 1
-  print "JOB " found; print "PR " (pr ? 1 : 0); if (ignore) print "IGNORE"; if (flow) print "FLOW" }'
-# ci_pf_pat_ok <pattern>: succeeds only for the forms ci_glob_re emulates exactly: letters, digits, `_ . / @ -`, `*`, `?`, and `**`
+  print "JOB " found; print "PR " (pr ? 1 : 0); if (ignore) print "IGNORE"; if (flow) print "FLOW"
+  if (other != "") print "OTHER " other
+  if (!seenjobs) unsup("no jobs: block")
+  if (un != "") print "UNSUP " un }'
+# ci_pf_pat_ok <pattern>: succeeds only for the forms ci_glob_re emulates exactly: letters, digits, `_ . / @ -`, `*`, and `**`
 # solely as a trailing `/**`. Anything else (a leading `**/`, `/**/`, `**x`, classes, `+`, `{}`, `!`, spaces, ...) is never guessed.
 ci_pf_pat_ok() {
-  local p="$1" ok_re='^[A-Za-z0-9_.*?/@-]+$'
+  local p="$1" ok_re='^[A-Za-z0-9_.*/@-]+$'
   [[ "$p" =~ $ok_re ]] || return 1
   p="${p%/\*\*}"
   case "$p" in *'**'*) return 1 ;; esac
@@ -167,14 +195,18 @@ ci_pf_pat_ok() {
 # ci_pf_tree <tree> <label> <check> <changed-files>: judges ONE tree. Every workflow in it that carries a job named <check> is
 # read and decides; the check is skipped only when ALL carriers skip. Prints `skip <wf>[,<wf>...]` | `run` | `unknown <why>`.
 ci_pf_tree() {
-  local tree="$1" label="$2" chk="$3" files="$4" wf wfs src scan pr ign flow pats pat re hit bad carriers=0 anyrun=0 skipped=""
+  local tree="$1" label="$2" chk="$3" files="$4" wf wfs src scan uns oth pr ign flow pats pat re hit bad carriers=0 anyrun=0 skipped=""
   wfs="$(git -C "$cwd" ls-tree --name-only "$tree" .github/workflows/ 2>/dev/null | grep -E '\.ya?ml$')"
   [ -n "$wfs" ] || { echo "unknown no workflow files in the $label tree (.github/workflows)"; return 0; }
   while IFS= read -r wf; do
     src="$(git -C "$cwd" show "$tree:$wf" 2>/dev/null)" || { echo "unknown cannot read $wf in the $label tree"; return 0; }
     scan="$(printf '%s\n' "$src" | awk -v chk="$chk" "$CI_WF_AWK" 2>/dev/null)" || { echo "unknown cannot parse $wf in the $label tree"; return 0; }
+    uns="$(printf '%s\n' "$scan" | sed -n 's/^UNSUP //p')"
+    [ -z "$uns" ] || { echo "unknown cannot parse the jobs of $wf ($uns, $label tree)"; return 0; }
     [ "$(printf '%s\n' "$scan" | sed -n 's/^JOB //p')" = "1" ] || continue
     carriers=$((carriers + 1))
+    oth="$(printf '%s\n' "$scan" | sed -n 's/^OTHER //p')"
+    [ -z "$oth" ] || { echo "unknown $wf has another PR-like trigger ($oth, $label tree)"; return 0; }
     pr="$(printf '%s\n' "$scan" | sed -n 's/^PR //p')"
     ign="$(printf '%s\n' "$scan" | grep -c '^IGNORE$')"; flow="$(printf '%s\n' "$scan" | grep -c '^FLOW$')"
     pats="$(printf '%s\n' "$scan" | sed -n 's/^PAT //p')"

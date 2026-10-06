@@ -1,0 +1,11 @@
+name: t
+on:
+  pull_request:
+    paths:
+      - "nothing-here/**"
+jobs:
+  toolbelt-tests:
+    runs-on: x
+  lint:
+    name: ${{ matrix.n }}
+    runs-on: x

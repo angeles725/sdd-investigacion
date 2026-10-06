@@ -10,7 +10,6 @@ on:
       - 'tools/**'
       - .github/workflows/toolbelt-tests.yml
       - "research-sdd/METHODOLOGY.md"
-      - "docs/?.md"
       - "configs/*.cfg"
 
 jobs:

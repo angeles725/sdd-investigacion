@@ -1,0 +1,7 @@
+name: t
+on: [push, pull_request]
+jobs:
+  toolbelt-tests:
+    runs-on: x
+  shellcheck:
+    runs-on: x
