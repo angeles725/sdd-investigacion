@@ -192,6 +192,80 @@ else no "na-name :: $(grep note <<<"$out" | tr '\n' '|')"; fi
 if grep -qE 'FAIL +B23 corrects \[Block 9\] but fluke-block9\.md .*\[correcting: fluke-block23\.md\]' <<<"$rout"; then ok "FAIL lines end with '[correcting: <file>]' (exact focus ownership for the archive gate)"
 else no "correcting-file :: $(grep -E 'B23' <<<"$rout" | head -1)"; fi
 
+# ---- Opus PR gate round (#1868): qualifier vs self-skip, soft slugs, list inheritance, narrow object, bare lists, refine shapes ----
+
+# 12 — SELF-SKIP ON THE RESOLVED FILE: `Corrects `zz` [Block 3]` inside aa-block3 targets zz-block3, not itself.
+d="$TMP/self-q"; pmk "$d" aa 3 '# Block 3\n\n> Corrects `zz` [Block 3] §3.1.\n'; pblank "$d" zz 3
+out="$(run "$d")"
+if grep -qE 'FAIL +B3 corrects \[Block 3\] but zz-block3\.md ' <<<"$out"; then ok "qualified ref to the SAME number in another focus is checked (not skipped as self-correction)"
+else no "self-q :: $(tr '\n' '|' <<<"$out")"; fi
+# 12b — the same through FOCUSES.md (the real HotelHilton shape: pi5-decoding-block5 → `integration` [Block 5]).
+d="$TMP/self-focuses"; pmk "$d" pi5 5 '# Block 5\n\n> Corrects `integration` [Block 5].\n'; pblank "$d" hb 5
+printf '| Focus | S | State | Block prefix | Q |\n|---|---|---|---|---|\n| `integration` | x | y | `hb-block5.md` | q |\n' > "$d/FOCUSES.md"
+if grep -qE 'FAIL +B5 corrects \[Block 5\] but hb-block5\.md ' <<<"$(run "$d")"; then ok "FOCUSES.md row with a real <prefix>-block<N>.md file name resolves the slug; same-number cross-focus ref is checked"
+else no "self-focuses :: $(run "$d" | tr '\n' '|')"; fi
+# 12c — CONTROLS: a genuine self-correction (unqualified) stays skipped, even when another prefix owns the same number.
+d="$TMP/self-ctl"; pmk "$d" aa 3 '# Block 3\n\n> Corrects [Block 3] §3.1 (my own earlier paragraph).\n'; pblank "$d" zz 3
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'FAIL|AMBIG' <<<"$(run "$d")"; then ok "unqualified same-number ref is still a self-correction (skipped) even with a colliding prefix"
+else no "self-ctl :: $(run "$d" | tr '\n' '|')"; fi
+# 12d — tabs inside the FOCUSES.md slug cell are stripped.
+d="$TMP/self-tab"; pmk "$d" pi5 8 '# Block 8\n\n> Corrects `integration` [Block 5].\n'; pblank "$d" hb 5
+printf '| Focus | S | State | Block prefix | Q |\n|---|---|---|---|---|\n|\t`integration`\t| x | y | `hb-blockN.md` | q |\n' > "$d/FOCUSES.md"
+if grep -qE 'FAIL +B8 corrects \[Block 5\] but hb-block5\.md ' <<<"$(run "$d")"; then ok "a tab-padded slug cell in FOCUSES.md still resolves"
+else no "self-tab :: $(run "$d" | tr '\n' '|')"; fi
+
+# 13 — SOFT SLUGS: a backticked token after in/of/en/de with no `focus` word that names no focus is just a file name.
+sl_ok=1; sl_bad=""
+for _s in 'Corrects [Block 8] in `parser.c`.' 'Corrige [Block 8] en `parser.c`.' 'Corrects [Block 8] of `verify.sh` §2.' 'Corrige [Block 8] del `loader`.'; do
+  d="$TMP/soft"; rm -rf "$d"; pblank "$d" t 8; pmk "$d" t 90 '# Block 90\n\n> %s\n' "$_s"
+  out="$(run "$d")"
+  { grep -qE 'FAIL +B90 corrects \[Block 8\] ' <<<"$out" && ! grep -qE 'AMBIG' <<<"$out"; } || { sl_ok=0; sl_bad="$sl_bad [$_s]"; }
+done
+if [ "$sl_ok" = 1 ]; then ok "'] in/en/of/del \`file\`' (EN + ES) falls back to the strict own-prefix lookup (FAIL, never AMBIG)"
+else no "soft-slug :: $sl_bad"; fi
+# 13b — a soft token that DOES name a focus qualifies; a HARD one (`focus` word) that names none is AMBIG.
+d="$TMP/soft-res"; pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1] in `zz`.\n'; pmk "$d" aa 1 '# Block 1\n\nOwn, annotated.\n\n> corrected in B4.\n'; pmk "$d" zz 1 '# Block 1\n\nOther, never annotated.\n'
+if grep -qE 'FAIL +B4 corrects \[Block 1\] but zz-block1\.md ' <<<"$(run "$d")"; then ok "soft token that names a prefix still qualifies (zz-block1 is the target)"
+else no "soft-res :: $(run "$d" | tr '\n' '|')"; fi
+d="$TMP/hard-ghost"; pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1] of the `ghost` focus.\n'; pblank "$d" aa 1; pblank "$d" zz 1
+if grep -qE '^ *AMBIG +B4 corrects \[Block 1\] .*cross-focus' <<<"$(run "$d")"; then ok "'of the \`ghost\` focus' (explicit focus word) that resolves to nothing stays a typed AMBIG"
+else no "hard-ghost :: $(run "$d" | tr '\n' '|')"; fi
+
+# 14 — LIST INHERITS THE QUALIFIER: every later ref of a joined list resolves in the qualifier's focus.
+d="$TMP/qlist"; pmk "$d" aa 4 '# Block 4\n\n> Corrects `zz` [Block 1] and [Block 2] and [Block 3].\n'
+pmk "$d" aa 1 '# Block 1\n\n> corrected in B4.\n'; pmk "$d" aa 2 '# Block 2\n\n> corrected in B4.\n'; pmk "$d" aa 3 '# Block 3\n\n> corrected in B4.\n'
+pblank "$d" zz 1 2 3
+out="$(run "$d")"; q_ok=1
+for _n in 1 2 3; do grep -qE "FAIL +B4 corrects \[Block $_n\] but zz-block$_n\.md " <<<"$out" || q_ok=0; done
+if [ "$q_ok" = 1 ]; then ok "'\`zz\` [Block 1] and [Block 2] and [Block 3]': first, middle and last all resolve in zz"
+else no "qlist :: $(grep -E 'FAIL|WARN|AMBIG' <<<"$out" | tr '\n' '|')"; fi
+
+# 15 — NARROW OBJECT: a possessive of a CODE artifact is a claim of the cited block, not a non-block object.
+d="$TMP/poss"; pblank "$d" t 8; pmk "$d" t 91 "# Block 91\\n\\n> Corrects the decompiler's reading in [Block 8].\\n"
+out="$(run "$d")"
+if grep -qE 'FAIL +B91 corrects \[Block 8\] ' <<<"$out" && ! grep -qE 'AMBIG' <<<"$out"; then ok "\"the decompiler's reading in [Block 8]\" is a plain declaration (FAIL), not AMBIG object"
+else no "poss :: $(tr '\n' '|' <<<"$out")"; fi
+
+# 16 — EVERY LEADING BARE REF is checked (first, middle, last), joined by and / y / e / & / '/'.
+d="$TMP/bare-list"; pblank "$d" t 6 12 15 20
+pmk "$d" t 100 '# Block 100\n\n> Corrects B6/B12 and B15.\n'; pmk "$d" t 101 '# Block 101\n\n> Corrige B20 y B6.\n'
+out="$(run "$d")"; b_ok=1
+for _n in 6 12 15; do grep -qE "AMBIG +B100 corrects \[Block $_n\] .*bare" <<<"$out" || b_ok=0; done
+for _n in 20 6; do grep -qE "AMBIG +B101 corrects \[Block $_n\] .*bare" <<<"$out" || b_ok=0; done
+if [ "$b_ok" = 1 ] && [ "$(code "$d")" = 0 ]; then ok "bare lists 'B6/B12 and B15' / 'B20 y B6': every ref is checked (AMBIG bare each), exit 0"
+else no "bare-list :: $(grep -E 'AMBIG|FAIL' <<<"$out" | cut -c1-70 | tr '\n' '|')"; fi
+d="$TMP/bare-stop"; pblank "$d" t 6 7; pmk "$d" t 102 '# Block 102\n\n> Corrects B6 (see also B7) here.\n'
+if ! grep -qE 'AMBIG +B102 corrects \[Block 7\]' <<<"$(run "$d")"; then ok "prose between bare refs ('(see also B7)') ends the list (B7 is not a target)"
+else no "bare-stop"; fi
+
+# 17 — REFINE words count only in a backlink SHAPE.
+d="$TMP/refine-neg"; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$d" t 1 '# Block 1\n\nRefinement planned, see B4.\n'
+if [ "$(code "$d")" = 1 ]; then ok "'Refinement planned, see B4' is not a backlink (still FAILs)"
+else no "refine-neg"; fi
+d="$TMP/refine-pos"; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$d" t 1 '# Block 1\n\n> **§14 refinement (2026-09-27, [Block 4]):** narrower.\n'
+if [ "$(code "$d")" = 0 ]; then ok "'§14 refinement ([Block 4])' is a backlink shape"
+else no "refine-pos"; fi
+
 # NEGATIVE CONTROLS — each mutant disables ONE rule and must flip exactly the case that owns it (a mutant that crashes, or
 # that merely differs, is theater: lib/mutant.sh refuses it).
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -207,7 +281,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1868 item 1): cross-focus qualifier --"
   m="$TMP/vc.NOQUAL.sh"
-  if mk_mut "teeth: qualifier ignored" "$SUT" "$m" 's/if (qual != "") emitq(r, qual); else emit(r)/emit(r)/'; then
+  if mk_mut "teeth: qualifier ignored" "$SUT" "$m" 's/else if (qcur != "") print "Q " n " " qcur " " qkind/else if (0) print "Q " n " " qcur " " qkind/'; then
     tt "teeth: qualifier-blind mutant binds B8 to the colliding pi5-decoding-block5 (the real false FAIL)" 1 1 "$m" --orig "$SUT" \
       --good-lacks 'B8 corrects \[Block 5\] but pi5-decoding' --bad-has 'B8 corrects \[Block 5\] but pi5-decoding-block5' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
     tt "teeth: qualifier-blind mutant checks aa-block1 for 'Corrects \`zz\` [Block 1]' (loses the zz gap)" 1 0 "$m" --orig "$SUT" \
@@ -264,7 +338,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835 item 4): bare B<N> --"
   m="$TMP/vc.NOBARE.sh"
-  if mk_mut "teeth: bare class" "$SUT" "$m" 's/{ cls = "bare"; emit(bn); done = 1 }/{ done = 0 }/'; then
+  if mk_mut "teeth: bare class" "$SUT" "$m" 's/{ cls = "bare"; emit(bn); moreb(cl); done = 1 }/{ done = 0 }/'; then
     tt "teeth: bare-blind mutant drops the AMBIG line for 'Corrects B292'" 0 0 "$m" --orig "$SUT" \
       --good-has 'AMBIG +B300 corrects \[Block 292\] ' --bad-lacks 'AMBIG +B300|awk: ' -- bash @SUT@ "$TMP/bare"
   fi
@@ -321,6 +395,75 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_mut "teeth: correcting file" "$SUT" "$m" 's/ \[correcting: $(basename "$f")\]//'; then
     tt "teeth: file-less mutant drops '[correcting: <file>]' from the FAIL line" 1 1 "$m" --orig "$SUT" \
       --good-has '\[correcting: fluke-block23\.md\]' --bad-lacks '\[correcting: |awk: ' -- bash @SUT@ "$REAL"
+  fi
+
+  echo "-- teeth (PR gate round): self-skip on the resolved file, soft slugs, list inheritance, narrow object, bare lists, refine shapes --"
+  m="$TMP/vc.SELFNUM.sh"
+  if mk_mut "teeth: self-skip by number" "$SUT" "$m" 's/\[ "$tgt" = "$f" \] \&\& continue/[ "$n" = "$c" ] \&\& continue/'; then
+    tt "teeth: number-based self-skip silently drops 'Corrects \`zz\` [Block 3]' inside aa-block3 (ok instead of FAIL)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B3 corrects \[Block 3\] but zz-block3' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/self-q"
+    tt "teeth: number-based self-skip drops the FOCUSES.md same-number ref too" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/self-focuses"
+  fi
+  m="$TMP/vc.NOSELF.sh"
+  if mk_mut "teeth: no self-skip" "$SUT" "$m" 's/\[ "$tgt" = "$f" \] \&\& continue/:/'; then
+    tt "teeth: no-self-skip mutant FAILs a genuine self-correction" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B3 corrects \[Block 3\] but aa-block3' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/self-ctl"
+  fi
+  m="$TMP/vc.NOSOFT.sh"
+  if mk_mut "teeth: soft slug fallback" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \] \&\& \[ "$qkind" = soft \]; then qual=""; fi/:/'; then
+    tt "teeth: no-fallback mutant turns \"[Block 8] del \`loader\`\" into AMBIG cross-focus (was FAIL)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B90 corrects \[Block 8\] ' --bad-has 'AMBIG +B90 .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/soft"
+  fi
+  m="$TMP/vc.ALLSOFT.sh"
+  if mk_mut "teeth: hard kind" "$SUT" "$m" 's/qkind = (qt ~ \/focus\/) ? "hard" : "soft"/qkind = "soft"/'; then
+    tt "teeth: all-soft mutant loses the AMBIG for an explicit 'of the \`ghost\` focus'" 0 1 "$m" --orig "$SUT" \
+      --good-has 'AMBIG +B4 .*cross-focus' --bad-has 'FAIL +B4 corrects \[Block 1\] but aa-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/hard-ghost"
+  fi
+  m="$TMP/vc.QLIST.sh"
+  if mk_mut "teeth: list inherits qualifier" "$SUT" "$m" 's/more(cl); done = 1; qcur = ""; qkind = ""/qcur = ""; qkind = ""; more(cl); done = 1/'; then
+    tt "teeth: non-inheriting mutant resolves the LATER refs of '\`zz\` [Block 1] and [Block 2]' in the own prefix" 1 1 "$m" --orig "$SUT" \
+      --good-has 'but zz-block3\.md' --bad-lacks 'but zz-block3\.md|awk: ' -- bash @SUT@ "$TMP/qlist"
+  fi
+  m="$TMP/vc.BROADPOSS.sh"
+  if mk_mut "teeth: broad possessive" "$SUT" "$m" 's/(^|\[^a-z0-9_\\200-\\377\])(this|that|the|our|my)\[ \\t\]+(focus|caller|backlog|queue|session|run)(\\047/[a-z](\\047/'; then
+    tt "teeth: any-possessive mutant makes \"the decompiler's reading in [Block 8]\" AMBIG" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B91 corrects \[Block 8\] ' --bad-has 'AMBIG +B91 .*object' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/poss"
+  fi
+  m="$TMP/vc.NARROWPOSS.sh"
+  if mk_mut "teeth: process-noun possessive" "$SUT" "$m" 's/(focus|caller|backlog|queue|session|run)/(zzz)/'; then
+    tt "teeth: over-narrow mutant FAILs the bloque717 citation list again" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B83 corrects \[Block 537\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/obj717"
+  fi
+  m="$TMP/vc.NOBARELIST.sh"
+  if mk_mut "teeth: bare list" "$SUT" "$m" 's/ moreb(cl); done = 1 }/ done = 1 }/'; then
+    tt "teeth: first-bare-only mutant drops B12 and B15 of 'Corrects B6/B12 and B15'" 0 0 "$m" --orig "$SUT" \
+      --good-has 'AMBIG +B100 corrects \[Block 15\] ' --bad-lacks 'AMBIG +B100 corrects \[Block 15\] |awk: ' -- bash @SUT@ "$TMP/bare-list"
+  fi
+  m="$TMP/vc.BARESLASH.sh"
+  if mk_mut "teeth: bare list slash" "$SUT" "$m" 's/(and|y|e|&|.\{2\})\[ \\t\]\*b\[0-9\]/(and|y|e|\&)[ \\t]*b[0-9]/'; then
+    tt "teeth: slash-less bare list loses B12 of 'B6/B12'" 0 0 "$m" --orig "$SUT" \
+      --good-has 'AMBIG +B100 corrects \[Block 12\] ' --bad-lacks 'AMBIG +B100 corrects \[Block 12\] |awk: ' -- bash @SUT@ "$TMP/bare-list"
+  fi
+  m="$TMP/vc.BARESTOP.sh"
+  if mk_mut "teeth: bare list gap" "$SUT" "$m" 's/\^\[ \\t0-9.,-\]\*(and|y|e|&|.\{2\})\[ \\t\]\*b\[0-9\]+/[^b]*b[0-9]+/'; then
+    tt "teeth: gap-less bare list binds B7 behind '(see also'" 0 0 "$m" --orig "$SUT" \
+      --good-lacks 'AMBIG +B102 corrects \[Block 7\]' --bad-has 'AMBIG +B102 corrects \[Block 7\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare-stop"
+  fi
+  m="$TMP/vc.BAREREFINE.sh"
+  if mk_mut "teeth: refine shapes" "$SUT" "$m" "s/^_vc_backlink_re=.*/_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined|refinement|refinad[oa]s?|refinamiento'/"; then
+    tt "teeth: bare-word refine vocabulary accepts 'Refinement planned, see B4' as a backlink" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 1\] ' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/refine-neg"
+  fi
+  m="$TMP/vc.TABSLUG.sh"
+  if mk_mut "teeth: tab slug" "$SUT" "$m" 's/\*\[:space:\]\]/* ]/'; then
+    tt "teeth: tab-blind mutant cannot resolve a tab-padded FOCUSES.md slug" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B8 corrects \[Block 5\] but hb-block5' --bad-has 'AMBIG +B8 .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/self-tab"
+  fi
+  m="$TMP/vc.REALFILE.sh"
+  if mk_mut "teeth: real file names in FOCUSES" "$SUT" "$m" 's/(block|bloque)(N|\[0-9\]+)/(block|bloque)N/'; then
+    tt "teeth: placeholder-only mutant cannot read a real <prefix>-block<N>.md cell" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-has 'AMBIG +B5 .*cross-focus' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-focuses"
   fi
 fi
 

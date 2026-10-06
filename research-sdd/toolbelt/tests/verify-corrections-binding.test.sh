@@ -460,7 +460,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835): keep only the first ref of a clause; the second joined target must vanish --"
   m="$TMP/vc.MULTI.sh"
-  if mk_mut "teeth: multi-target" "$SUT" "$m" 's/^          more(cl); done = 1$/          done = 1/'; then
+  if mk_mut "teeth: multi-target" "$SUT" "$m" 's/^          more(cl); done = 1; qcur = ""; qkind = ""$/          done = 1/'; then
     tt "teeth: first-ref-only mutant drops [Block 5] from '[Block 6] … and [Block 5]'" 1 1 "$m" --orig "$SUT" \
       --good-has 'B60 corrects \[Block 5\] ' --bad-has 'B60 corrects \[Block 6\] ' --bad-lacks 'B60 corrects \[Block 5\] |awk: ' -- bash @SUT@ "$TMP/multi-and"
   fi

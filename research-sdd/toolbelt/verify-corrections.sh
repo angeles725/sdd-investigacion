@@ -55,7 +55,9 @@ done
 # Backlink vocabulary: a target block "carries the note" when a line matches this AND names the correcting block
 # (#1835 item 2, #1868 item 6; decided in METHODOLOGY §14). English/Spanish past participles, the corrigendum/erratum
 # noun forms and the refinement forms a scope-narrowing correction uses (case-insensitive).
-_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined|refinement|refinad[oa]s?|refinamiento'
+# The refine words only count in a BACKLINK SHAPE (`refined in B4`, `§14 refinement (…)`, `refinado en`, `Refinamiento (B4)`),
+# never as a bare word: "Refinement planned, see B12" is not a note that B12 refined this block (#1868 review).
+_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:space:]]+(in|by|at|as|per)|refinad[oa]s?[[:space:]]+(en|por)|§14[[:space:]]+refinement|refinement[[:space:]]*\(|refinamiento[[:space:]]*(\(|§14)'
 
 # FOCUSES.md (anywhere under the target, depth <= 3): focus slug -> block prefix, so a cross-focus qualifier such as
 # "corrects `integration` [Block 5]" resolves to the focus's own prefix (#1868 item 1). Row shape:
@@ -64,10 +66,10 @@ declare -A focuspfx
 while IFS= read -r _vc_fm; do
   while IFS='|' read -r -a _vc_cols; do
     [ "${#_vc_cols[@]}" -ge 3 ] || continue
-    _vc_slug="${_vc_cols[1]//[\`* ]/}"; _vc_slug="${_vc_slug,,}"
+    _vc_slug="${_vc_cols[1]//[\`*[:space:]]/}"; _vc_slug="${_vc_slug,,}"
     [ -n "$_vc_slug" ] || continue
     for _vc_cell in "${_vc_cols[@]:2}"; do
-      if [[ "$_vc_cell" =~ ([A-Za-z0-9][A-Za-z0-9._-]*)-(block|bloque)N ]]; then focuspfx["$_vc_slug"]="${BASH_REMATCH[1]}"; break; fi
+      if [[ "$_vc_cell" =~ ([A-Za-z0-9][A-Za-z0-9._-]*)-(block|bloque)(N|[0-9]+) ]]; then focuspfx["$_vc_slug"]="${BASH_REMATCH[1]}"; break; fi
     done
   done < <(grep -E '^[[:space:]]*\|' "$_vc_fm" 2>/dev/null)
 done < <(find "$target" -maxdepth 3 -type f -name 'FOCUSES.md' -not -path '*/.git/*' 2>/dev/null | sort)
@@ -113,26 +115,45 @@ _vc_extract() {
   # would never match). The program relies on ASCII classes, byte ranges and that one byte pair only.
   LC_ALL=C awk '
     function flush() { if (u != "") { units[nu++] = u; u = "" } }
+    # qcur/qkind: the focus qualifier of the clause (`hard` = an explicit focus reference, `soft` = a backticked token after
+    # in/of/en/de that may just be a file name). EVERY ref of a joined list inherits it (#1868 review).
     function emit(n,   k) {
-      k = cls "|" n
-      if (!(k in seen)) { seen[k] = 1; print (cls == "" ? "T " n : "A " cls " " n) }
+      k = cls "|" qcur "|" n
+      if (!(k in seen)) {
+        seen[k] = 1
+        if (cls != "") print "A " cls " " n
+        else if (qcur != "") print "Q " n " " qcur " " qkind
+        else print "T " n
+      }
     }
-    function emitq(n, q,   k) { k = "Q|" n "|" q; if (!(k in seen)) { seen[k] = 1; print "Q " n " " q } }
     # first bare `B<N>` (not a gap label such as B50-G6, not part of a longer word) in t -> N ("" when none); BP = its start.
     function barenum(t,   rest, off, m, nx) {
-      rest = t; off = 0; BP = 0
+      rest = t; off = 0; BP = 0; BE = 0
       while (match(rest, /(^|[^a-z0-9_\200-\377])b[0-9]+/)) {
         m = substr(rest, RSTART, RLENGTH); nx = substr(rest, RSTART + RLENGTH)
-        if (nx !~ /^[a-z_\200-\377]/ && nx !~ /^-[a-z][0-9]/) { BP = off + RSTART; gsub(/[^0-9]/, "", m); return m }
+        if (nx !~ /^[a-z_\200-\377]/ && nx !~ /^-[a-z][0-9]/) { BP = off + RSTART; BE = off + RSTART + RLENGTH - 1; gsub(/[^0-9]/, "", m); return m }
         off += RSTART + RLENGTH - 1; rest = nx
       }
       return ""
+    }
+    # moreb(t): every further bare `B<N>` joined to the previous one by and/y/e/&/`/` (same list rule as more()); emits each.
+    function moreb(t,   rest, tok, nx) {
+      rest = substr(t, BE + 1)
+      while (match(rest, /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t]*b[0-9]+/)) {
+        tok = substr(rest, 1, RLENGTH); nx = substr(rest, RLENGTH + 1)
+        if (nx ~ /^[a-z_\200-\377]/ || nx ~ /^-[a-z][0-9]/) return
+        gsub(/.*b/, "", tok); emit(tok)
+        rest = nx
+      }
     }
     # Inferential classes decided from the text between the verb and the ref (pre) / the whole clause object (obj).
     function classify(pre,   c) {
       if (pre ~ /(assumption|expectation|suposici[^ ]*)[ \t]+(behind|underlying|detr[^ ]*|subyacente)[ \t]*(the[ \t]+|el[ \t]+|la[ \t]+)?$/) return "assumption"
       if (pre ~ /(junto[ \t]+a|together[ \t]+with|alongside|along[ \t]+with)[ \t]*(the[ \t]+|el[ \t]+|la[ \t]+)?$/) return "locator"
-      if (pre ~ /[a-z](\047|\342\200\231)s[ \t]/ || pre ~ /(^|[^a-z0-9_\200-\377])b[0-9]+-[a-z][0-9]+/) return "object"
+      # object: a gap label (B50-G6) in the object, or the possessive of a PROCESS noun (focus, caller, backlog, queue, session, run:
+      # the measured shapes). A possessive of a code artifact (decompiler, parser: a reading in the cited block) is a claim of
+      # that block and stays a plain declaration.
+      if (pre ~ /(^|[^a-z0-9_\200-\377])(this|that|the|our|my)[ \t]+(focus|caller|backlog|queue|session|run)(\047|\342\200\231)s[ \t]/ || pre ~ /(^|[^a-z0-9_\200-\377])b[0-9]+-[a-z][0-9]+/) return "object"
       return ""
     }
     function refnum(t,   m) {          # first [Block N] in t -> N ("" when none)
@@ -184,7 +205,7 @@ _vc_extract() {
       if (tok == "") return 0
       return (tok ~ /^[a-z]$/) || index(ab, " " tok " ") > 0
     }
-    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp, tok, isnoun, rl, nb, past, bn, rs, post, qual, qm) {
+    function scan(un,   l, n, p, rest, ms, vs, ve, i, c, d, bd, cl, r, j, pre, done, bp, tok, isnoun, rl, nb, past, bn, rs, post, qual, qm, qt) {
       l = tolower(un); n = length(un); p = 1
       while (p <= n) {
         rest = substr(l, p)
@@ -193,7 +214,7 @@ _vc_extract() {
         vs = (substr(l, ms, 1) ~ /[a-z]/) ? ms : ms + 1
         ve = ms + RLENGTH
         if (substr(l, vs, 8) == "corrects" && substr(l, ve, 1) ~ /[a-z0-9_\200-\377]/) { p = ve; continue }
-        tok = substr(l, vs, ve - vs); cls = ""
+        tok = substr(l, vs, ve - vs); cls = ""; qcur = ""; qkind = ""
         # `corrigendum`/`corrigenda` is a NOUN, handled by its own STRICT rule (never the verb clause scan, which bound the first
         # ref even inside a parenthetical and turned backlinks and prose into false FAILs):
         #   - bare noun directly followed by a ref (`CORRIGENDUM [Bloque N]`) = BACKLINK: declares nothing;
@@ -243,20 +264,20 @@ _vc_extract() {
         # A bare `B<N>` ahead of the first bracketed ref means the verb governs THAT (e.g. "CORRECTS my own B67
         # §67.7, which walked into a trap [Block 34] had described") — the later bracket is not its target. Since #1868
         # (#1835 item 4) it is a typed `bare` target, checked as advisory by the caller, not an anonymous unbound note.
-        if (bn != "" && (r == "" || BP < rs)) { cls = "bare"; emit(bn); done = 1 }
+        if (bn != "" && (r == "" || BP < rs)) { cls = "bare"; emit(bn); moreb(cl); done = 1 }
         else if (r != "") {
           pre = substr(cl, 1, rs - 1); cls = classify(pre)
-          qual = ""
+          qcur = ""; qkind = ""
           if (cls == "") {
-            if (match(pre, /`[a-z0-9._-]+`[ \t]*$/)) { qm = substr(pre, RSTART, RLENGTH); gsub(/[` \t]/, "", qm); qual = qm }
+            if (match(pre, /`[a-z0-9._-]+`[ \t]*$/)) { qm = substr(pre, RSTART, RLENGTH); gsub(/[` \t]/, "", qm); qcur = qm; qkind = "hard" }
             else {
               post = substr(cl, rs)
               if (match(post, /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) post = substr(post, RLENGTH + 1)
-              if (match(post, /^[ \t]*(of|del|de|in|en)[ \t]+(the[ \t]+|el[ \t]+)?(focus[ \t]+)?`[a-z0-9._-]+`/)) { qm = substr(post, RSTART, RLENGTH); sub(/^[^`]*`/, "", qm); sub(/`$/, "", qm); qual = qm }
+              if (match(post, /^[ \t]*(of|del|de|in|en)[ \t]+(the[ \t]+|el[ \t]+)?(focus[ \t]+)?`[a-z0-9._-]+`([ \t]+focus)?/)) { qm = substr(post, RSTART, RLENGTH); qt = qm; sub(/`[^`]*`/, "", qt); qkind = (qt ~ /focus/) ? "hard" : "soft"; sub(/^[^`]*`/, "", qm); sub(/`.*$/, "", qm); qcur = qm }
             }
           }
-          if (qual != "") emitq(r, qual); else emit(r)
-          more(cl); done = 1
+          emit(r)
+          more(cl); done = 1; qcur = ""; qkind = ""
         }
         else if (!isnoun && bd == "close") {
           d = 0
@@ -303,21 +324,29 @@ for f in "${blocks[@]}"; do
       U) unbound=$((unbound+1)); continue ;;
       S) skipped=$((skipped+1)); skipnames="${skipnames:+$skipnames, }B$c"; continue ;;
       T\ *) n="${rec#T }" ;;
-      Q\ *) read -r _ n qual <<<"$rec" ;;
+      Q\ *) read -r _ n qual qkind <<<"$rec" ;;
       A\ *) read -r _ cls n <<<"$rec" ;;
       *) echo "verify-corrections: degraded: extractor emitted an unknown record '$rec' for $(basename "$f"); the corpus was NOT checked" >&2; exit 1 ;;
     esac
     n="$((10#$n))"                      # normalize any zero-padding
-    [ "$n" = "$c" ] && continue         # a block correcting itself is not a cross-block backlink
+    case "$cls" in
+      object|locator|assumption) [ "$n" = "$c" ] && continue ;;   # the correcting block's own number: not a cross-block declaration
+    esac
     case "$cls" in
       object)     amb "the verb governs a non-block object (a possessive or a gap label), not this block"; continue ;;
       locator)    amb "locator reference: the block only LOCATES the thing corrected ('junto a'/'alongside [Block $n]'), it carries no claim of its own"; continue ;;
       assumption) amb "a reader-assumption correction ('the assumption behind [Block $n]'), not a claim the cited block makes"; continue ;;
     esac
     _vc_own="$(blockprefix "$f")"
+    _vc_qp=""
+    if [ -n "$qual" ]; then
+      _vc_qp="$(resolve_slug "$qual")"
+      # A SOFT qualifier (a backticked token after in/of/en/de with no `focus` word: probably a file name) that names no focus
+      # falls back to the strict unqualified lookup (#1868 review); only a HARD one is a typed ambiguity.
+      if [ -z "$_vc_qp" ] && [ "$qkind" = soft ]; then qual=""; fi
+    fi
     if [ -n "$qual" ]; then
       # An explicit focus qualifier (#1868 item 1): the target lives in THAT focus, never in the own prefix.
-      _vc_qp="$(resolve_slug "$qual")"
       if [ -z "$_vc_qp" ]; then
         amb "cross-focus qualifier \`$qual\` names no focus prefix (no block file carries it, no FOCUSES.md row maps it); target NOT guessed"; continue
       fi
@@ -344,6 +373,9 @@ for f in "${blocks[@]}"; do
         continue
       fi
     fi
+    # A block correcting ITSELF (the RESOLVED target is this very file) is not a cross-block backlink. Decided on the resolved
+    # file, not on the bare number: `Corrects `integration` [Block 5]` inside pi5-decoding-block5 targets ANOTHER focus's block 5.
+    [ "$tgt" = "$f" ] && continue
     # Reciprocal backlink: the target file must carry a backlink-vocabulary word AND name B<c>/Block <c>.
     # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
     if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then

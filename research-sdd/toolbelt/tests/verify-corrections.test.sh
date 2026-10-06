@@ -123,7 +123,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: revert first-ref binding (the verb governs EVERY ref in its clause, clause cut at neither ';' nor '. '); the cf-fixture must FAIL --"
   bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
   if mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" \
-       's/^          more(cl); done = 1$/          more(cl); done = 1; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q))/' \
+       's/^          more(cl); done = 1; qcur = ""; qkind = ""$/          more(cl); done = 1; qcur = ""; qkind = ""; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q))/' \
        '/else if (c == ";") break/d' '/else if (c == "\." \&\&/d'; then
     d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink): original exit 0 + ok line, mutant exit 1 + FAIL
     tt "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth" 0 1 "$bmutant" --orig "$SUT" \
