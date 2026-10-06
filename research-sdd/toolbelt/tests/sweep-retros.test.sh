@@ -2277,13 +2277,19 @@ fi
 
 # 68b — a BROKEN run (non-zero exit, or no profile at all) is classified BROKEN on the FIRST run and never retried
 #       as a scheduler stall (kit issue #1836 review): the multi-run verdict of case 68 must not launder a crash.
-_c68b_bad=""
+# Isolation (kit issue #1862): every stub is written ONLY inside this suite's $ROOT (mktemp) copy of the kit; the guard
+# refuses any path outside it, the stub replaces the copy via rm+write (never writes through a link), and the real SUT's
+# bytes are compared before/after so a stub that reached the kit tree is a failure, not a silent clobber.
+_c68b_bad=""; _c68b_sut_sha="$(sha1sum "$SUT" | awk '{print $1}')"
 for _b in "crash:echo boom >&2; exit 3" "silent:exit 0" "partial:echo 'profile: total 0.001000' >&2; exit 0"; do
   kit="$(mkkit "c68b-${_b%%:*}")"
+  case "$kit/toolbelt/sweep-retros.sh" in "$ROOT"/*) ;; *) _c68b_bad="$_c68b_bad [${_b%%:*} stub path outside \$ROOT]"; continue ;; esac
+  rm -f "$kit/toolbelt/sweep-retros.sh"
   printf '#!/usr/bin/env bash\n%s\n' "${_b#*:}" > "$kit/toolbelt/sweep-retros.sh"
   p68_profile "$kit"; _rc68b=$?
   if [ "$_rc68b" != 2 ] || [ "$P68_CLASS" != BROKEN ] || [ "$P68_RUNS" != 1 ]; then _c68b_bad="$_c68b_bad [${_b%%:*} rc=$_rc68b class=$P68_CLASS runs=$P68_RUNS]"; fi
 done
+[ "$(sha1sum "$SUT" | awk '{print $1}')" = "$_c68b_sut_sha" ] || _c68b_bad="$_c68b_bad [real SUT modified]"
 if [ -z "$_c68b_bad" ]; then ok "68b crashed / profile-less / partial sweep → BROKEN on run 1, never retried as a stall" "()"
 else no "68b BROKEN runs must fail immediately, unretried" "$_c68b_bad"; fi
 
