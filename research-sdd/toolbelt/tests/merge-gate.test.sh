@@ -685,7 +685,7 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   expect "CI path filter: paths-ignore note" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: .*paths-ignore'
   runwf "$S" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
   expect "CI path filter: a negated pattern is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: negation note" 1 'not evaluated against path filters: .*negated'
+  expect "CI path filter: negation note" 1 'not evaluated against path filters: .*unsupported path pattern \(!research-sdd/docs/\*\*'
   runwf "$S" nofilter "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
   expect "CI path filter: a pull_request trigger without paths always runs -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
   runwf "$S" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
@@ -1016,7 +1016,7 @@ tooth M106-repo-mismatch-unchecked 's/^  if \[ "\$(printf .%s. "\$got_repo".*/  
 mutate M107-files-read-placeholder 's/repos\/\$repo\/pulls\/\$pr\/files/repos\/{owner}\/{repo}\/pulls\/$pr\/files/'
 mutate M108-graphql-owner-name-fixed 's/-F owner="\$owner" -F name="\$name"/-F owner=o -F name=r/'
 mutate M109-gh-repo-env-ignored 's/^  if \[ -n "\${GH_REPO:-}" \]; then/  if false; then/'
-mutate M110-repo-view-failure-ignored 's/^      || { say "\$ev: degraded: cannot resolve the repository the merge used (gh repo view.*/      || :/'
+mutate M110-repo-view-failure-ignored '/cannot resolve the repository the merge used (gh repo view/d'
 mutate M111-repo-shape-unchecked 's/^  if ! \[\[ "\$repo" =~ .*/  :/'
 tooth M80-same-repo-filter-dropped 's/^    | select((\.repository\.nameWithOwner | tostring | ascii_downcase) == (\$r | ascii_downcase) and /    | select(true and /' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #9 '
 tooth M81-merged-flag-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.state != "MERGED" then/' sc_ce_unmerged 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
@@ -1042,7 +1042,7 @@ mutate M100-backfill-line-dropped      's/^  if \[ -n "\$failed" \]; then say.*/
 mutate M101-comment-failure-silent     's/^    else say "\$ev: degraded: could not comment[^;]*;/    else/'
 mutate M102-files-read-failure-ignored 's/ || { say "\$ev: degraded: cannot read the files[^}]*}//'
 mutate M103-evidence-without-merge     's/^closure_evidence$/:/'
-mutate M104-graphql-unbound-to-cwd     's/gj="\$(cd "\$cwd" \&\& /gj="$(/'
+mutate M104-bounded-gh-unbound-to-cwd  's/pushd "\$cwd" >\/dev\/null 2>&1 || return 1; //;s/; { popd >\/dev\/null 2>&1 || :; }//'
 # #1864 superseded-cancelled-note mutants
 mutate M112-superseded-note-dropped      's/^  while IFS= read -r ci_note; do.*/  :/'
 mutate M113-note-for-latest-cancelled    's/ and \.id != \$l\.id)/)/'
@@ -1066,7 +1066,6 @@ tooth M122-star-crosses-directories     '/^ci_glob_re/s|\[^/\]\*|.*|' sc_pf_star
 tooth M123-question-matches-anything    '/^ci_glob_re/s/|?|\[^\/\]|g/|?|.*|g/' sc_pf_q 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M124-pattern-unanchored           's/grep -Eq "\^\${re}\\\$"/grep -Eq "${re}"/' sc_pf_anch 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M125-empty-files-skip-all         's/if \[ -z "\$ci_files" \]; then ci_pf_res="unknown the PR reports no changed files"/if false; then ci_pf_res=x/' sc_pf_empty 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
-tooth M126-negation-evaluated           's/^      case "\$pat" in .!.\*).*/      :/' sc_pf_neg 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
 tooth M127-paths-ignore-as-no-filter    's/^    \[ "\$ign" = "0" \] || .*/    :/' sc_pf_ign 1 'not evaluated against path filters: .*paths-ignore' 1 '^merge-gate: refuse: ci_missing'
 tooth M128-push-paths-used-for-pr       's/^    \[ "\$pr" = "1" \] || .*/    :/' sc_pf_nofl 1 'no pull_request trigger' 1 '^merge-gate: refuse: ci_missing'
 tooth M129-files-read-unconditionally   's/^  if \[ -n "\$ci_absent" \]; then/  if true; then/' sc_pf_clean 0 'read-files: 0$' 0 'read-files: 1$'
@@ -1078,7 +1077,7 @@ sc_pf_gitlink() { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_dm3.jso
 sc_pf_3000()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_3000.json"; }
 sc_pf_form()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad0 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
 sc_pf_formchar() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_noid()    { CKREQ="shellcheck,toolbelt-tests"; printf '%s\n' '{"total_count":1,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"; runck "$1" "$ROOT/ck/noid.json"; }
+sc_pf_noid()    { CKREQ="shellcheck"; printf '%s\n' '{"total_count":1,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"; runck "$1" "$ROOT/ck/noid.json"; }
 tooth M130-job-name-ignored            's/name\[cur\] = strip(v)/name[cur] = cur/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
 tooth M131-files-failure-silent        's/^      || { ci_files=""; ci_pf_why=.*/      || { ci_files=""; }/' sc_pf_filesfail 1 '^merge-gate: note: path filters not evaluated: cannot read the files of PR #7' 1 'not evaluated against path filters: the PR reports no changed files'
 tooth M135-comment-not-stripped        's/sub(\/\[ \\t\]+#\.\*\$\/, "", v); //' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 'unsupported path pattern'

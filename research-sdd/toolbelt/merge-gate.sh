@@ -185,7 +185,6 @@ ci_pf_tree() {
     hit=0; bad=""
     while IFS= read -r pat; do
       [ -n "$pat" ] || continue
-      case "$pat" in '!'*) echo "unknown $wf has a negated path pattern ($pat, $label tree)"; return 0 ;; esac
       if ! ci_pf_pat_ok "$pat"; then bad="${bad:-$pat}"; continue; fi
       re="$(ci_glob_re "$pat")"
       if grep -Eq "^${re}\$" <<<"$files"; then hit=1; break; fi
@@ -383,9 +382,8 @@ closure_evidence() {
   # The bounded calls run in THIS shell (never inside $(...)), so GHV_STATE / GHV_NOTE survive: stdout goes to a file, stderr to
   # $err_file. A non-empty GHV_NOTE (the watchdog could not group-kill: DEGRADED) is appended to the timeout/degraded lines.
   gh_out="$(mktemp 2>/dev/null)" || { say "$ev: degraded: mktemp failed; nothing posted"; return 0; }
-  ghb() { local o="$1"; shift; GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" >"$o" 2>"$err_file"; }
+  ghb() { local o="$1" brc; shift; pushd "$cwd" >/dev/null 2>&1 || return 1; GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" >"$o" 2>"$err_file"; brc=$?; { popd >/dev/null 2>&1 || :; }; return "$brc"; }
   ghv_note() { if [ -n "${GHV_NOTE:-}" ]; then printf ' [%s]' "$GHV_NOTE"; fi; }
-  cd "$cwd" 2>/dev/null || { say "$ev: degraded: cannot enter $cwd; nothing posted"; return 0; }
   # ONE repository for the whole step: the one `gh pr merge` just used (GH_REPO when set, else the cwd remote). It is
   # passed explicitly to the read, the files read and every comment, so they can never resolve to different repos
   # (gh_bounded_run runs gh with GH_REPO unset, which would silently re-resolve from the cwd remote).
