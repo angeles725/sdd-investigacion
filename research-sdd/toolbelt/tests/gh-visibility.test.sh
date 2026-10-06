@@ -36,6 +36,7 @@ mkbin() {
   case "$mode" in *-setsid*) ln -sf "$(type -P setsid)" "$b/setsid" ;; esac
   case "$mode" in *-ps*) ln -sf "$(type -P ps)" "$b/ps" ;; esac
   case "$mode" in *-fakeps*) printf '#!%s\necho 1\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
+  case "$mode" in *-slowps*) printf '#!%s\nsleep 0.3\necho 999999\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-nogh) ;; *)
     {
       printf '#!%s\n' "$BASH_BIN"
@@ -44,6 +45,7 @@ mkbin() {
 [ -n "${GH_ERR:-}" ] && echo "$GH_ERR" >&2
 [ -n "${GH_IGNORE_TERM:-}" ] && { trap '' TERM; i=0; while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done; }
 [ -n "${GH_GRANDCHILD:-}" ] && { if [ -n "${GH_GC_IGNORE_TERM:-}" ]; then ( trap '' TERM; exec sleep 300 ) & else sleep 300 & fi; echo $! > "$GH_GC_PID_FILE"; wait; }
+[ -n "${GH_DELAY:-}" ] && sleep "$GH_DELAY"
 [ -n "${GH_SLEEP:-}" ] && exec sleep "$GH_SLEEP"
 [ -n "${GH_OUT:-}" ] && echo "$GH_OUT"
 exit "${GH_RC:-0}"
@@ -65,7 +67,7 @@ B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-n
 HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
 HAVE_PS=0; [ -n "$(type -P ps)" ] && HAVE_PS=1
 if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then B_WDG="$(mkbin b-wdg none-setsid-ps)"; fi
-[ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; }
+[ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; B_SLOWPS="$(mkbin b-slowps none-setsid-slowps)"; }
 
 echo "== gh-visibility.test.sh =="
 
@@ -210,11 +212,11 @@ c_gc_term() { # LIB — a grandchild that IGNORES TERM is swept with KILL once t
 }
 c_gc_mode() { # LIB — GHV_GROUP names the mode: setsid when group kill is on; child-only + a typed DEGRADED note when not
   local lib="$1" r
-  r="$(PATH="$B_WDG" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+  r="$(PATH="$B_WDG" GH_SLEEP=1 "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
   has "$r" "GROUP=setsid NOTE=" && ! has "$r" "DEGRADED" || return 1
   r="$(PATH="$B_NONE" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
   has "$r" "GROUP=child-only NOTE=DEGRADED" || return 1
-  r="$(PATH="$B_WDG" GH_OUT=PRIVATE "$BASH_BIN" -c 'set -m; . "$1"; gh_visibility_probe gh o/r; echo "STATE=$GHV_STATE GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+  r="$(PATH="$B_WDG" GH_DELAY=1 GH_OUT=PRIVATE "$BASH_BIN" -c 'set -m; . "$1"; gh_visibility_probe gh o/r; echo "STATE=$GHV_STATE GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
   has "$r" "STATE=PRIVATE GROUP=child-only NOTE=DEGRADED"
 }
 c_gc_timeout_path() { # LIB — a real timeout binary on PATH: no watchdog, so no group note
@@ -253,24 +255,50 @@ c_pgid_verify() { # LIB — setsid present but pgid cannot be verified (no ps) o
     has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "pgid" || return 1
   done
 }
-c_sig() { # LIB — SIGTERM/SIGHUP to the CALLER during a watchdog-bounded run kills the group (no orphaned grandchild)
-  local lib="$1" sg pf="$TMP/gc-sig.pid" bp i
-  for sg in TERM HUP; do
-    rm -f "$pf"
-    GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=60 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r' _ "$lib" >/dev/null 2>&1 &
-    bp=$!; i=0
-    while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
-    kill -"$sg" "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
-    gone "$pf" || return 1
-  done
+# sleeps_gone N — poll ~3s for NO process `sleep N` (the watchdog's own sleep, N = the unique RSDD_GH_TIMEOUT of the case);
+# always reaps what is left, so a failing case never leaves a live watchdog behind.
+sleeps_gone() {
+  local n="$1" i=0
+  while pgrep -f "^sleep $n\$" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+  if pgrep -f "^sleep $n\$" >/dev/null 2>&1; then pkill -KILL -f "^sleep $n\$" 2>/dev/null; return 1; fi
+  return 0
 }
-c_sig_probe() { # LIB — the same for gh_visibility_probe
-  local lib="$1" pf="$TMP/gc-sigp.pid" bp i; rm -f "$pf"
-  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=60 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; gh_visibility_probe gh o/r' _ "$lib" >/dev/null 2>&1 &
+# sigcase LIB CALL N SIG — run CALL (a lib call) under the watchdog with bound N, signal the CALLER with SIG once the grandchild
+# is up; return 0 only when the grandchild AND the watchdog's sleep are gone. Cleans up on every exit.
+sigcase() {
+  local lib="$1" call="$2" n="$3" sg="$4" pf="$TMP/gc-sig-$3.pid" bp i rc=0; rm -f "$pf"
+  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; '"$call" _ "$lib" >/dev/null 2>&1 &
   bp=$!; i=0
   while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
-  kill -TERM "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
-  gone "$pf"
+  kill -"$sg" "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+  gone "$pf" || rc=1
+  sleeps_gone "$n" || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+c_sig() { # LIB — SIGTERM/SIGHUP to the CALLER during a watchdog-bounded run kills the group AND disarms the watchdog
+  sigcase "$1" 'gh_bounded_run gh repo create o/r' 61 TERM && sigcase "$1" 'gh_bounded_run gh repo create o/r' 62 HUP
+}
+c_sig_probe() { # LIB — the same for gh_visibility_probe
+  sigcase "$1" 'gh_visibility_probe gh o/r' 63 TERM
+}
+c_sig_subst() { # LIB — a signal to a run INSIDE $(...) must not kill the top-level shell (re-raise on BASHPID, not $$)
+  local lib="$1" pf="$TMP/gc-sub.pid" of="$TMP/sub.out" bp sp i rc=0; rm -f "$pf" "$of"
+  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=64 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; x="$(gh_bounded_run gh repo create o/r)"; echo AFTER' _ "$lib" >"$of" 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+  sp="$(pgrep -P "$bp" 2>/dev/null | head -n 1)"
+  if [ -n "$sp" ]; then kill -TERM "$sp" 2>/dev/null; else rc=1; fi
+  wait "$bp" 2>/dev/null
+  grep -q AFTER "$of" 2>/dev/null || rc=1
+  gone "$pf" || rc=1
+  sleeps_gone 64 || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+c_gone_unverified() { # LIB — a leader that is already gone is NOT a verified group: child-only (nothing to sweep)
+  local r; r="$(PATH="$B_SLOWPS" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$1" 2>&1)"
+  has "$r" "GROUP=child-only NOTE=DEGRADED"
 }
 c_trap_restored() { # LIB — a caller's own TERM trap is intact after a watchdog-bounded run, and no lib trap is left behind
   local r; r="$(PATH="$B_WDG" GH_OUT=x "$BASH_BIN" -c 'trap "echo mine" TERM; . "$1"; gh_bounded_run gh repo create o/r >/dev/null; trap -p TERM; trap -p INT; trap -p HUP' _ "$1" 2>&1)"
@@ -280,8 +308,11 @@ if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
   c_nobare "$LIB"            && ok "27 group mode: no bare-pid TERM/KILL after the leader is reaped; the sweep signals the group only" || no "27 bare-pid kill after reap"
   c_nosweep_childonly "$LIB" && ok "28 child-only mode: no post-bound sweep at all" || no "28 child-only sweep"
   c_pgid_verify "$LIB"       && ok "29 setsid but pgid unverifiable / wrong -> child-only + typed DEGRADED note naming pgid" || no "29 pgid verification"
-  c_sig "$LIB"               && ok "30 SIGTERM/SIGHUP to the caller kills the group of a watchdog-bounded gh_bounded_run" || no "30 signal trap (bounded-run)"
+  c_sig "$LIB"               && ok "30 SIGTERM/SIGHUP to the caller kills the group of a watchdog-bounded gh_bounded_run and disarms the watchdog" || no "30 signal trap (bounded-run)"
   c_sig_probe "$LIB"         && ok "31 SIGTERM to the caller kills the group of a watchdog-bounded probe" || no "31 signal trap (probe)"
+  command -v pgrep >/dev/null 2>&1 || no "30-33 need pgrep on the host to prove the watchdog is disarmed"
+  c_sig_subst "$LIB"         && ok "33 a signal inside \$(...) kills only that subshell, not the top-level shell; watchdog and group gone" || no "33 re-raise inside command substitution"
+  c_gone_unverified "$LIB"   && ok "34 leader already gone -> unverified -> child-only + DEGRADED note" || no "34 gone leader treated as verified"
   c_trap_restored "$LIB"     && ok "32 the caller's own traps are restored after the run" || no "32 trap restore"
 fi
 
@@ -322,8 +353,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       tooth sweep-childonly-runs c_nosweep_childonly 's/\[ -n "\$2" \] || return 0/:/'
       tooth verify-skipped       c_pgid_verify 's/if \[ -n "\$grpflag" \] \&\& ! _ghv_verify_group "\$pid"; then/if false; then/g'
       tooth verify-no-compare    c_pgid_verify 's/\[ "\$pg" = "\$1" \] \&\& return 0/return 0/'
-      tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag"$/      :/'
-      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag"$/      :/'
+      tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
+      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
+      tooth handler-no-disarm    c_sig      's/^    kill "\$4" 2>\/dev\/null || :/    :/'
+      tooth handler-no-disarm-p  c_sig_probe 's/^    kill "\$4" 2>\/dev\/null || :/    :/'
+      tooth reraise-dollar-dollar c_sig_subst 's/kill -s "\$1" "\$BASHPID"/kill -s "$1" "$$"/'
+      tooth gone-is-verified     c_gone_unverified 's/kill -0 "\$1" 2>\/dev\/null || return 1/kill -0 "$1" 2>\/dev\/null || return 0/'
       tooth trap-not-restored    c_trap_restored 's/^      _ghv_restore_traps$/      :/'
       tooth group-flag-dropped   c_gc_run   's/grpflag=group/grpflag=""/g'
       tooth group-flag-dropped-p c_gc_probe 's/grpflag=group/grpflag=""/g'

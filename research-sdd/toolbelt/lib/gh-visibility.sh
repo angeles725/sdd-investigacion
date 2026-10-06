@@ -91,8 +91,8 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     [ -n "$2" ] || return 0
     kill -KILL -- "-$1" 2>/dev/null || :
   }
-  # _ghv_verify_group <pid> — 0 when the launched leader's pgid is verified == pid (setsid took effect and did not fork),
-  # or the leader is already gone (nothing left to signal); 1 when ps is missing or the pgid never matches. Polls ~2s
+  # _ghv_verify_group <pid> — 0 only when the launched leader's pgid is verified == pid (setsid took effect and did not
+  # fork); 1 when ps is missing, the pgid never matches, or the leader is already gone (unverified). Polls ~2s
   # because the backgrounded subshell only becomes a group leader once it has exec'd setsid.
   _ghv_verify_group() {
     local pg i=0
@@ -100,7 +100,7 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     while [ "$i" -lt 20 ]; do
       pg="$(ps -o pgid= -p "$1" 2>/dev/null)"; pg="${pg//[[:space:]]/}"
       [ "$pg" = "$1" ] && return 0
-      kill -0 "$1" 2>/dev/null || return 0
+      kill -0 "$1" 2>/dev/null || return 1   # leader already gone: nothing was verified, so no group sweep either
       sleep 0.1; i=$((i+1))
     done
     return 1
@@ -108,24 +108,26 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
   # _ghv_set_traps <pid> <group|""> / _ghv_restore_traps — a new session detaches the command from the terminal's
   # Ctrl-C / SIGHUP, so the caller's INT/TERM/HUP must take the group down. The previous traps are saved and restored;
   # the handler restores them first and then re-raises the signal so the caller's own disposition still applies.
+  # <pid> <group|""> <watchdog pid>: the handler also disarms the watchdog, else it would later TERM/KILL a recycled pid/pgid.
   _ghv_set_traps() {
     _GHV_PT_INT="$(trap -p INT)"; _GHV_PT_TERM="$(trap -p TERM)"; _GHV_PT_HUP="$(trap -p HUP)"
     # shellcheck disable=SC2064  # pid/group are deliberately expanded NOW
-    trap "_ghv_on_signal INT $1 '$2'" INT
+    trap "_ghv_on_signal INT $1 '$2' $3" INT
     # shellcheck disable=SC2064
-    trap "_ghv_on_signal TERM $1 '$2'" TERM
+    trap "_ghv_on_signal TERM $1 '$2' $3" TERM
     # shellcheck disable=SC2064
-    trap "_ghv_on_signal HUP $1 '$2'" HUP
+    trap "_ghv_on_signal HUP $1 '$2' $3" HUP
   }
   _ghv_restore_traps() {
     if [ -n "$_GHV_PT_INT" ]; then eval "$_GHV_PT_INT"; else trap - INT; fi
     if [ -n "$_GHV_PT_TERM" ]; then eval "$_GHV_PT_TERM"; else trap - TERM; fi
     if [ -n "$_GHV_PT_HUP" ]; then eval "$_GHV_PT_HUP"; else trap - HUP; fi
   }
-  _ghv_on_signal() { # <SIG> <pid> <group>
+  _ghv_on_signal() { # <SIG> <pid> <group> <watchdog pid>
     _ghv_sig KILL "$2" "$3"
+    kill "$4" 2>/dev/null || :   # the watchdog's TERM trap kills its own sleep first
     _ghv_restore_traps
-    kill -s "$1" "$$"
+    kill -s "$1" "$BASHPID"      # BASHPID, not $$: inside $(...) $$ is the TOP-LEVEL shell
   }
   # _ghv_arm_watchdog <pid> <seconds> [group] — background watchdog: after <seconds> it kills <pid>. Sets GHV_WDPID.
   # Disarming it is `kill "$GHV_WDPID"`: the TERM trap kills the watchdog's own `sleep` child first, so a stopped
@@ -161,7 +163,7 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
       fi
       _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
-      _ghv_set_traps "$pid" "$grpflag"
+      _ghv_set_traps "$pid" "$grpflag" "$wdpid"
       wait "$pid" 2>/dev/null || rc=$?
       _ghv_restore_traps
       kill "$wdpid" 2>/dev/null || :
@@ -207,7 +209,7 @@ if ! declare -F gh_bounded_run >/dev/null 2>&1; then
       fi
       _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
-      _ghv_set_traps "$pid" "$grpflag"
+      _ghv_set_traps "$pid" "$grpflag" "$wdpid"
       wait "$pid" 2>/dev/null || rc=$?
       _ghv_restore_traps
       kill "$wdpid" 2>/dev/null || :
