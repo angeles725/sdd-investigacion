@@ -114,7 +114,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     case "$(nx "$MUT" "$fxB" --focus act)" in NEXT*) ok "teeth B: --focus scoping dropped -> case 3b has teeth" ;; *) no "teeth B: mutant stayed scoped — THEATER" ;; esac; fi
   # C: the scoped predicate is always true -> the no-flag aggregate is lost -> case 1a goes red
   if mutate C 's/^  _ns_scoped=0  # NEXT-SCOPE-DEFAULT$/  _ns_scoped=1  # NEXT-SCOPE-DEFAULT/'; then
-    case "$(nx "$MUT" "$fxA")" in NEXT*) no "teeth C: mutant still aggregates — THEATER" ;; *) ok "teeth C: aggregate lost for the no-flag form -> case 1a has teeth" ;; esac; fi
+    #    Fixture A: real no-flag -> NEXT the act gap; the mutant treats the no-flag form as scoped to the (exhausted)
+    #    root, so it must exit 0 and print exactly the STOP verdict - a crash or empty output cannot pass for a bite.
+    got="$(nx "$MUT" "$fxA")"; bash "$MUT" "$fxA" --next >/dev/null 2>&1; rc=$?
+    [ "$(nx "$SUT" "$fxA")" != "$STOP_LINE" ] || no "teeth C: real no-flag verdict equals the mutant's - vacuous"
+    if [ "$rc" = 0 ] && [ "$got" = "$STOP_LINE" ]; then ok "teeth C: no-flag form scoped to the root -> exit 0 + exactly the STOP verdict -> case 1a has teeth"
+    else no "teeth C: want exit 0 + [$STOP_LINE], got rc=$rc [$got] - THEATER or crashed mutant"; fi; fi
   # D: --all behaves as --root (the mutant keeps exit 0: all_flag cleared, so the --all/--root exclusion never fires).
   #    Fixture A gives DIFFERENT verdicts for the two: real --all -> NEXT the act gap, --root -> STOP. The mutant must
   #    print exactly the --root verdict, so a crash or empty output cannot pass for a bite -> case 4a goes red.

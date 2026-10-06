@@ -261,8 +261,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     grep -q '^WARN public-remote:' <<<"$out" && ok "teeth B: private-as-public -> case 4 has teeth" || no "teeth B: mutant stayed quiet — THEATER"; fi
   # C: gh-failure degraded branch silenced
   if tooth C 's/degraded: remote-visibility: gh failed/DEG-OFF/'; then
-    out="$(status "$TMP/absent" "$TMP/g-fail/gh")"
-    grep -q '^degraded: remote-visibility' <<<"$out" && no "teeth C: mutant still degraded — THEATER" || ok "teeth C: failure branch silenced -> case 5b has teeth"; fi
+    # The mutant must exit 0 and print the intact report WITHOUT the degraded line (the exact wrong verdict); a crash
+    # or empty output is not a bite. The real SUT must differ on the same fixture (it prints the degraded line).
+    out="$(status "$TMP/absent" "$TMP/g-fail/gh")"; rc=$?
+    real="$(SUT_UNDER_TEST=""; status "$TMP/absent" "$TMP/g-fail/gh")"
+    grep -q '^degraded: remote-visibility: gh failed' <<<"$real" && [ "$real" != "$out" ] || no "teeth C: real SUT and mutant agree on the fixture - vacuous"
+    if [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth C: failure branch silenced -> exit 0, intact report, no degraded line -> case 5b has teeth"
+    else no "teeth C: want exit 0 + intact report without the degraded line, got rc=$rc — THEATER or crashed mutant"; fi; fi
   # D: gh-absent degraded branch silenced
   if tooth D 's/degraded: remote-visibility: gh not found/DEG-OFF/'; then
     out="$(status "$TMP/absent")"
@@ -284,16 +289,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth H 's/not a github owner\/repo/DEG-OFF/'; then
     out="$(status "$TMP/ng-local" "$TMP/g-ng-local/gh")"
     grep -q 'not a github owner/repo' <<<"$out" && no "teeth H: mutant still degraded — THEATER" || ok "teeth H: not-github branch silenced -> case 9 has teeth"; fi
-  # I: timeout bound removed -> the hung gh is not converted to degraded. The control first proves the
-  # UNMUTATED script passes the timeout case through the same status helper + gh stub, then the mutant
-  # must run the full stub sleep (positive signal: elapsed >= 4s) and lose the 'timed out' line.
-  g="$TMP/g-slow4"; mkdir -p "$g"; printf '#!/usr/bin/env bash\nsleep 4\necho PRIVATE\n' > "$g/gh"; chmod +x "$g/gh"
-  SUT_UNDER_TEST=""; t0=$SECONDS; base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$((SECONDS-t0))
-  if ! { [ "$elb" -lt 4 ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I: unmutated script did not pass the timeout case (${elb}s) — control invalid"
+  # I: timeout bound removed -> the hung gh is not converted to degraded. The stub stalls for STALL_MS (well above the
+  # 1 s bound); wall time is judged in MILLISECONDS (whole-second SECONDS flaked, kit issue #1853), with the ceiling
+  # derived from the stall: CEIL_MS = STALL_MS - 500. The control first proves the UNMUTATED script returns below
+  # CEIL_MS with the 'timed out' line; the mutant must then run the full stall (>= CEIL_MS) and lose that line.
+  now_ms() { echo $(( 10#$(date +%s%N) / 1000000 )); }
+  STALL_S=6; CEIL_MS=$((STALL_S*1000 - 500))
+  g="$TMP/g-slow4"; mkdir -p "$g"; printf '#!/usr/bin/env bash\nsleep %s\necho PRIVATE\n' "$STALL_S" > "$g/gh"; chmod +x "$g/gh"
+  SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$(( $(now_ms) - t0 ))
+  if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
   elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
-    t0=$SECONDS; out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$((SECONDS-t0))
-    if [ "$el" -ge 4 ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I: unbounded gh ran ${el}s, no 'timed out' -> case 11a has teeth"
-    else no "teeth I: mutant still bounded (${el}s) — THEATER"; fi; fi
+    t0=$(now_ms); out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$(( $(now_ms) - t0 ))
+    if [ "$el" -ge "$CEIL_MS" ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I: unbounded gh ran ${el}ms (>= ${CEIL_MS}ms), no 'timed out' -> case 11a has teeth"
+    else no "teeth I: mutant still bounded (${el}ms) — THEATER"; fi; fi
   # J: GH_PROMPT_DISABLED dropped
   if toothlib J 's/GH_PROMPT_DISABLED=1 //g'; then
     rm -f "$TMP/g-slow/prompt.env"; RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$TMP/g-slow/gh" >/dev/null
@@ -328,8 +336,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     grep -q '^degraded: remote-visibility' <<<"$out" && ok "teeth P: enumeration gate removed -> no-remote target degraded -> case 13a has teeth" || no "teeth P: mutant stayed silent — THEATER"; fi
   # Q: the lib-missing degraded echo silenced -> a target WITH a remote passes silently -> case 13c goes red
   if tooth Q 's/echo "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/: "degraded: remote-visibility: lib\/gh-visibility.sh unavailable/'; then
-    out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree Q)/research-sdd-status.sh" "$TMP/pub" 2>&1)"
-    grep -q '^degraded: remote-visibility' <<<"$out" && no "teeth Q: mutant still degraded — THEATER" || ok "teeth Q: lib-missing line silenced -> case 13c has teeth"; fi
+    # Exact wrong verdict: exit 0, intact report, no degraded line. Real SUT without the lib prints the degraded line.
+    out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree Q)/research-sdd-status.sh" "$TMP/pub" 2>&1)"; rc=$?
+    real="$(status_nolib "$TMP/pub")"
+    grep -q '^degraded: remote-visibility: lib/gh-visibility.sh unavailable' <<<"$real" && [ "$real" != "$out" ] || no "teeth Q: real SUT and mutant agree on the fixture - vacuous"
+    if [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth Q: lib-missing line silenced -> exit 0, intact report, no degraded line -> case 13c has teeth"
+    else no "teeth Q: want exit 0 + intact report without the degraded line, got rc=$rc — THEATER or crashed mutant"; fi; fi
 fi
 
 echo "== $pass passed · $fail failed =="
