@@ -100,6 +100,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   MT="$TMP/mt"; mkdir -p "$MT"
   mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
+  # nx_rc SUT FIXTURE ARGS... -> sets got (first verdict line) and rc (the SUT's exit code) from ONE invocation
+  nx_rc() { local s="$1" f="$2" raw; shift 2; raw="$(bash "$s" "$f" --next "$@" 2>/dev/null; echo "rc=$?")"; got="$(head -1 <<<"$raw")"; rc="${raw##*rc=}"; }
   # mutate NAME SEDEXPR -> sets MUT to the mutant SUT (or records a build failure)
   mutate() {
     local t; t="$(mk_tree "$1")"
@@ -116,17 +118,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutate C 's/^  _ns_scoped=0  # NEXT-SCOPE-DEFAULT$/  _ns_scoped=1  # NEXT-SCOPE-DEFAULT/'; then
     #    Fixture A: real no-flag -> NEXT the act gap; the mutant treats the no-flag form as scoped to the (exhausted)
     #    root, so it must exit 0 and print exactly the STOP verdict - a crash or empty output cannot pass for a bite.
-    got="$(nx "$MUT" "$fxA")"; bash "$MUT" "$fxA" --next >/dev/null 2>&1; rc=$?
-    [ "$(nx "$SUT" "$fxA")" != "$STOP_LINE" ] || no "teeth C: real no-flag verdict equals the mutant's - vacuous"
-    if [ "$rc" = 0 ] && [ "$got" = "$STOP_LINE" ]; then ok "teeth C: no-flag form scoped to the root -> exit 0 + exactly the STOP verdict -> case 1a has teeth"
+    nx_rc "$MUT" "$fxA"
+    if [ "$(nx "$SUT" "$fxA")" = "$STOP_LINE" ]; then no "teeth C: real no-flag verdict equals the mutant's - vacuous"
+    elif [ "$rc" = 0 ] && [ "$got" = "$STOP_LINE" ]; then ok "teeth C: no-flag form scoped to the root -> exit 0 + exactly the STOP verdict -> case 1a has teeth"
     else no "teeth C: want exit 0 + [$STOP_LINE], got rc=$rc [$got] - THEATER or crashed mutant"; fi; fi
   # D: --all behaves as --root (the mutant keeps exit 0: all_flag cleared, so the --all/--root exclusion never fires).
   #    Fixture A gives DIFFERENT verdicts for the two: real --all -> NEXT the act gap, --root -> STOP. The mutant must
   #    print exactly the --root verdict, so a crash or empty output cannot pass for a bite -> case 4a goes red.
   if mutate D 's/^    --all) all_flag=1; shift ;;$/    --all) all_flag=0; root_flag=1; shift ;;/'; then
     got="$(nx "$MUT" "$fxA" --all)"
-    [ "$(nx "$SUT" "$fxA" --all)" != "$(nx "$SUT" "$fxA" --root)" ] || no "teeth D: fixture A gives --all and --root the same verdict - vacuous"
-    if [ "$got" = "$STOP_LINE" ]; then ok "teeth D: --all scoped to the root -> exactly the --root verdict -> case 4a has teeth"
+    if [ "$(nx "$SUT" "$fxA" --all)" = "$(nx "$SUT" "$fxA" --root)" ]; then no "teeth D: fixture A gives --all and --root the same verdict - vacuous"
+    elif [ "$got" = "$STOP_LINE" ]; then ok "teeth D: --all scoped to the root -> exactly the --root verdict -> case 4a has teeth"
     else no "teeth D: want the --root verdict [$STOP_LINE], got [$got] - THEATER or crashed mutant"; fi; fi
   # E: the RETRO-DUE check ignores the scope and walks every state file -> case 5b goes red
   if mutate E 's/^  if \[ "\$_ns_scoped" = 1 \]; then$/  if false; then/'; then
@@ -134,7 +136,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # F: the scoped --next uses the clobbered global $state instead of the saved pick -> case 6a goes red. The mutant
   #    must exit 0 and print the SIBLING's verdict (not crash).
   if mutate F 's/^    _rd_states=("\$_ns_pick")  # NEXT-PICK-RD$/    _rd_states=("$state")  # NEXT-PICK-RD/'; then
-    got="$(nx "$MUT" "$fxD" --root)"; bash "$MUT" "$fxD" --next --root >/dev/null 2>&1; rc=$?
+    nx_rc "$MUT" "$fxD" --root
     if [ "$rc" = 0 ] && [ "$got" = "NEXT | high | the x gap" ]; then ok "teeth F: saved pick unused -> sibling's verdict [$got] -> case 6a has teeth"
     else no "teeth F: want exit 0 + the sibling's verdict, got rc=$rc [$got] — THEATER or crashed mutant"; fi; fi
 fi

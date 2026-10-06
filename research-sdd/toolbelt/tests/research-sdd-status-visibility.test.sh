@@ -265,8 +265,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # or empty output is not a bite. The real SUT must differ on the same fixture (it prints the degraded line).
     out="$(status "$TMP/absent" "$TMP/g-fail/gh")"; rc=$?
     real="$(SUT_UNDER_TEST=""; status "$TMP/absent" "$TMP/g-fail/gh")"
-    grep -q '^degraded: remote-visibility: gh failed' <<<"$real" && [ "$real" != "$out" ] || no "teeth C: real SUT and mutant agree on the fixture - vacuous"
-    if [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth C: failure branch silenced -> exit 0, intact report, no degraded line -> case 5b has teeth"
+    if ! { grep -q '^degraded: remote-visibility: gh failed' <<<"$real" && [ "$real" != "$out" ]; }; then no "teeth C: real SUT and mutant agree on the fixture - vacuous"
+    elif [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth C: failure branch silenced -> exit 0, intact report, no degraded line -> case 5b has teeth"
     else no "teeth C: want exit 0 + intact report without the degraded line, got rc=$rc — THEATER or crashed mutant"; fi; fi
   # D: gh-absent degraded branch silenced
   if tooth D 's/degraded: remote-visibility: gh not found/DEG-OFF/'; then
@@ -293,15 +293,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # 1 s bound); wall time is judged in MILLISECONDS (whole-second SECONDS flaked, kit issue #1853), with the ceiling
   # derived from the stall: CEIL_MS = STALL_MS - 500. The control first proves the UNMUTATED script returns below
   # CEIL_MS with the 'timed out' line; the mutant must then run the full stall (>= CEIL_MS) and lose that line.
-  now_ms() { echo $(( 10#$(date +%s%N) / 1000000 )); }
-  STALL_S=6; CEIL_MS=$((STALL_S*1000 - 500))
+  # Clock: probe once. Sub-second epoch ms from GNU date %N, else python3, else perl; only when none exists (or the
+  # test forces it with clkmode=coarse) fall back to whole-second $SECONDS, where the ceiling is widened by one second
+  # so the tooth stays valid (control < stall-1 s; the mutant ran the full stall, so its whole-second diff is
+  # >= stall-1 s). Never a silent pass: the PASS line names the clock used.
+  pick_clock() { # auto|coarse -> sets CLK and CEIL_MS
+    CLK=coarse
+    if [ "$1" != coarse ]; then
+      nsec="$(date +%N 2>/dev/null)"; case "$nsec" in *[!0-9]*|'') ;; *) CLK=gnu-date ;; esac
+      if [ "$CLK" = coarse ] && command -v python3 >/dev/null 2>&1; then CLK=py3
+      elif [ "$CLK" = coarse ] && command -v perl >/dev/null 2>&1; then CLK=perl5; fi
+    fi
+    if [ "$CLK" = coarse ]; then CEIL_MS=$((STALL_S*1000 - 1000)); else CEIL_MS=$((STALL_S*1000 - 500)); fi
+  }
+  now_ms() {
+    case "$CLK" in
+      gnu-date) echo $(( 10#$(date +%s%N) / 1000000 )) ;;
+      py3) python3 -c 'import time;print(int(time.time()*1000))' ;;
+      perl5) perl -MTime::HiRes=time -e 'printf "%d\n", time()*1000' ;;
+      *) echo $((SECONDS*1000)) ;;
+    esac; }
+  STALL_S=6
   g="$TMP/g-slow4"; mkdir -p "$g"; printf '#!/usr/bin/env bash\nsleep %s\necho PRIVATE\n' "$STALL_S" > "$g/gh"; chmod +x "$g/gh"
-  SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$(( $(now_ms) - t0 ))
-  if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
-  elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
-    t0=$(now_ms); out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$(( $(now_ms) - t0 ))
-    if [ "$el" -ge "$CEIL_MS" ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I: unbounded gh ran ${el}ms (>= ${CEIL_MS}ms), no 'timed out' -> case 11a has teeth"
-    else no "teeth I: mutant still bounded (${el}ms) — THEATER"; fi; fi
+  # the second pass FORCES the coarse fallback so that path is exercised on every machine
+  for clkmode in auto coarse; do
+    pick_clock "$clkmode"
+    SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$(( $(now_ms) - t0 ))
+    if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I [$CLK clock]: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
+    elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
+      t0=$(now_ms); out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$(( $(now_ms) - t0 ))
+      if [ "$el" -ge "$CEIL_MS" ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I [$CLK clock, mode=$clkmode]: unbounded gh ran ${el}ms (>= ${CEIL_MS}ms), no 'timed out' -> case 11a has teeth"
+      else no "teeth I [$CLK clock]: mutant still bounded (${el}ms) — THEATER"; fi; fi
+  done
   # J: GH_PROMPT_DISABLED dropped
   if toothlib J 's/GH_PROMPT_DISABLED=1 //g'; then
     rm -f "$TMP/g-slow/prompt.env"; RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$TMP/g-slow/gh" >/dev/null
@@ -339,8 +362,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Exact wrong verdict: exit 0, intact report, no degraded line. Real SUT without the lib prints the degraded line.
     out="$(RSDD_GH_BIN="$TMP/g-pub/gh" bash "$(nolib_tree Q)/research-sdd-status.sh" "$TMP/pub" 2>&1)"; rc=$?
     real="$(status_nolib "$TMP/pub")"
-    grep -q '^degraded: remote-visibility: lib/gh-visibility.sh unavailable' <<<"$real" && [ "$real" != "$out" ] || no "teeth Q: real SUT and mutant agree on the fixture - vacuous"
-    if [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth Q: lib-missing line silenced -> exit 0, intact report, no degraded line -> case 13c has teeth"
+    if ! { grep -q '^degraded: remote-visibility: lib/gh-visibility.sh unavailable' <<<"$real" && [ "$real" != "$out" ]; }; then no "teeth Q: real SUT and mutant agree on the fixture - vacuous"
+    elif [ "$rc" = 0 ] && grep -q 'consistency (verify-state.sh)' <<<"$out" && ! grep -q '^degraded: remote-visibility' <<<"$out"; then ok "teeth Q: lib-missing line silenced -> exit 0, intact report, no degraded line -> case 13c has teeth"
     else no "teeth Q: want exit 0 + intact report without the degraded line, got rc=$rc — THEATER or crashed mutant"; fi; fi
 fi
 
