@@ -4,7 +4,8 @@
 # `gentle-ai review start`, the real assess, or real GitHub. Fixtures are built in a temp root
 # (kit issue #1156): nothing is written into the live tree.
 #   merge-gate.test.sh                 run the suite
-#   merge-gate.test.sh --prove-teeth   run the suite + mutation controls
+#   merge-gate.test.sh --prove-teeth   run the suite + mutation controls (sharded over MG_TEETH_JOBS processes, default
+#                                      min(nproc, 4), 1 = serial; a mutant is detected at its first failing case)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../merge-gate.sh"
@@ -14,7 +15,8 @@ command -v git >/dev/null 2>&1 || { echo "FATAL: git not found" >&2; exit 2; }
 
 pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
-no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
+# MUT_FF (set only inside a mutant's subshell, see mutate): the first failing case already proves the mutant detected, so stop there.
+no(){ echo "  FAIL  $1"; fail=$((fail+1)); if [ -n "${MUT_FF:-}" ]; then exit 0; fi; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 
@@ -903,17 +905,45 @@ echo "-- teeth: merge-gate mutation controls --"
 . "$HERE/lib/mutant.sh"
 MUT_PASS=0; MUT_FAIL=0
 MD="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MD"' EXIT
+# SHARDING (CI wall time): every mutation control reruns this suite or scenarios, and serially they took ~17 min. The parent
+# process forks N shard children (MG_TEETH_JOBS, default min(nproc, 4); 1 = serial); child k/N owns every N-th mutant
+# (mut_mine) in its own ROOT/MD, so no state is shared. The parent keeps the plain suite verdict above, then prints the
+# children's PASS(mut)/FAIL(mut) lines in shard order and the summed totals; a child without a result line is a failure.
+if [ -z "${MG_TEETH_SHARD:-}" ]; then
+  MG_N="${MG_TEETH_JOBS:-$(nproc 2>/dev/null || echo 2)}"
+  case "$MG_N" in ''|*[!0-9]*) MG_N=1 ;; esac
+  [ "$MG_N" -le 4 ] || MG_N=4
+  if [ "$MG_N" -gt 1 ]; then
+    MG_SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
+    for ((k = 0; k < MG_N; k++)); do
+      MG_TEETH_SHARD="$k/$MG_N" bash "$MG_SELF" --prove-teeth >"$MD/shard.$k" 2>&1 &
+    done
+    wait
+    for ((k = 0; k < MG_N; k++)); do
+      grep -E '^  (PASS|FAIL)\(mut\)' "$MD/shard.$k"
+      res="$(sed -n 's/^mutants: \([0-9]*\) detected · \([0-9]*\) missed$/\1 \2/p' "$MD/shard.$k")"
+      if [ -z "$res" ]; then echo "  FAIL(mut)  shard $k/$MG_N produced no result"; MUT_FAIL=$((MUT_FAIL+1))
+      else MUT_PASS=$((MUT_PASS + ${res% *})); MUT_FAIL=$((MUT_FAIL + ${res#* })); fi
+    done
+    echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
+    echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
+    [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]; exit $?
+  fi
+fi
+MUT_SEQ=0
+# mut_mine: in a shard child (MG_TEETH_SHARD=k/N) only every N-th mutant belongs to this process.
+mut_mine() { MUT_SEQ=$((MUT_SEQ+1)); [ -z "${MG_TEETH_SHARD:-}" ] || [ $((MUT_SEQ % ${MG_TEETH_SHARD#*/})) -eq "${MG_TEETH_SHARD%/*}" ]; }
 # mutate <name> <sed-expr>: the mutated SUT must make the suite report at least one FAIL line.
 mutate() {
-  local name="$1" expr="$2" mut="$MD/$1.sh" rcm n pass_save fail_save
+  local name="$1" expr="$2" mut="$MD/$1.sh" rcm n
+  mut_mine || return 0
   mutant_sed "$SUT" "$mut" "$expr"; rcm=$?
   if [ "$rcm" -ne 0 ]; then echo "  FAIL(mut)  $name: mutant refused (rc=$rcm)"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
   chmod +x "$mut"
-  pass_save="$pass"; fail_save="$fail"
-  suite "$mut" >"$MD/$name.out" 2>&1
+  # Fail-fast in a subshell (its counters die with it): a mutant is detected iff ANY case fails, so the first FAIL ends the run.
+  ( MUT_FF=1; suite "$mut" ) >"$MD/$name.out" 2>&1
   n="$(grep -c '^  FAIL  ' "$MD/$name.out")"
-  pass="$pass_save"; fail="$fail_save"   # suite() bumps the globals; keep the real-suite totals
-  if [ "$n" -gt 0 ]; then echo "  PASS(mut)  $name detected ($n failing cases)"; MUT_PASS=$((MUT_PASS+1))
+  if [ "$n" -gt 0 ]; then echo "  PASS(mut)  $name detected (first failing case ends the run)"; MUT_PASS=$((MUT_PASS+1))
   else echo "  FAIL(mut)  $name: suite stayed green"; MUT_FAIL=$((MUT_FAIL+1)); fi
 }
 # M01 (kit issue #1367): the old single mutant `s/^  exit 1$/  exit 0/` matched exactly ONE of the five
@@ -930,6 +960,7 @@ sc_cwd_not_repo()   { run "$1" "$ROOT/j/passive.json" --cwd "$ROOT/not-a-repo" -
 # tooth <name> <sed-expr> <scenario> <good-rc> <good-regex> <bad-rc> <bad-regex>
 tooth() {
   local name="$1" expr="$2" sc="$3" grc="$4" gre="$5" brc="$6" bre="$7" mut="$MD/$1.sh" rcm
+  mut_mine || return 0
   "$sc" "$SUT"
   if [ "$RC" -ne "$grc" ] || ! <<<"$OUT" grep -Eq "$gre"; then
     echo "  FAIL(mut)  $name: original gave rc=$RC out=[$OUT], wanted rc=$grc /$gre/"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
