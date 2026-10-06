@@ -709,7 +709,6 @@ for _fn in mutant_chain mutant_built mutant_tooth; do
 done
 # station_modules.py imports only the standard library (see its import block), so a single-file mutant
 # copy is self-contained; it is not Python-syntax-checked by the helper, so sm_pycheck does that.
-export MUTANT_SYNTAX=none
 MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }
 
 # sm_pycheck LABEL FILE — language-native syntax check (MUTANT_SYNTAX=none disables the bash one). A
@@ -720,11 +719,11 @@ sm_pycheck() {
 }
 # Builders print their own FAIL line; the suite counts a refused build exactly ONCE and its tooth never runs.
 sm_mk_sed() {   # LABEL OUT EXPR — one sed stage
-  if mutant_chain "$1" "$ORIG_PY" "$2" "$3" && sm_pycheck "$1" "$2"; then return 0; fi
+  if MUTANT_SYNTAX=none mutant_chain "$1" "$ORIG_PY" "$2" "$3" && sm_pycheck "$1" "$2"; then return 0; fi
   MUT_FAIL=$((MUT_FAIL+1)); return 1
 }
 sm_mk_built() { # LABEL OUT — mutant already written by a python edit
-  if mutant_built "$1" "$ORIG_PY" "$2" && sm_pycheck "$1" "$2"; then return 0; fi
+  if MUTANT_SYNTAX=none mutant_built "$1" "$ORIG_PY" "$2" && sm_pycheck "$1" "$2"; then return 0; fi
   MUT_FAIL=$((MUT_FAIL+1)); return 1
 }
 sm_tt() {       # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...

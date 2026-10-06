@@ -260,11 +260,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
   # The mutants are python files: skip the bash -n check (empty, identical, live-tree, symlink
   # and dead-stage refusals still apply).
-  export MUTANT_SYNTAX=none
   _mut_dir="$(mktemp -d)"
   if [[ ! -f "$_FIX_DISHONEST" ]]; then
     no "teeth-validate-curated: fixture missing: $_FIX_DISHONEST (run regen first)"
-  elif mutant_chain "teeth-validate-curated" "$SUT_PY" "$_mut_dir/corroborate_ghidra.py" \
+  elif MUTANT_SYNTAX=none mutant_chain "teeth-validate-curated" "$SUT_PY" "$_mut_dir/corroborate_ghidra.py" \
       's/if (value\["status"\] == "partial") != partial: raise ValueError/pass  # mutant: status==partial check disabled/'; then
     cat > "$_mut_dir/harness.py" <<'PY'
 import sys, importlib.util
@@ -317,7 +316,7 @@ PY
     # Delete exactly the two-line inline guard: the `if` line AND the line right after it, only when that next
     # line is the warn_evidence( call. Any other shape leaves the file unchanged and mutant_chain refuses the
     # byte-identical mutant loudly — the deletion can never silently grow.
-    mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
+    MUTANT_SYNTAX=none mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
       '/if completeness not in ("complete","partial"):/{N;/\n[[:space:]]*warn_evidence(/d;}'
     mut_rc=$?
     if [ "$mut_rc" -eq 0 ]; then

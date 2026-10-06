@@ -76,14 +76,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
-  export MUTANT_SYNTAX=none
   # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
   export -f _has_claude_profile _has_opus_55 _has_sonnet_5 _has_haiku_45_200k
   # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant (mutant_chain);
   # PREDICATE must hold on the original (rc 0) and must NOT hold on the mutant (rc 1) — mutant_tooth.
   tooth() {
     local label="$1" pred="$2" expr="$3" out="$TT/$1.md" line
-    mutant_chain "$label" "$DOC" "$out" "$expr" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain "$label" "$DOC" "$out" "$expr" || { fail=$((fail+1)); return 1; }
     if line="$(mutant_tooth "$label: $pred" 0 1 "$out" --orig "$DOC" -- bash -c "$pred"' "$1"' _ @SUT@)"; then
       pass=$((pass+1)); printf '%s\n' "$line"
     else

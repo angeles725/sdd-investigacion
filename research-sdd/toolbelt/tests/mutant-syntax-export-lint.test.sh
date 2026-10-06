@@ -10,15 +10,15 @@
 #
 # SCOPE / DEVIATION. #1814 asks for a report-only `--require-teeth` line in run-all.sh; run-all.sh was
 # owned by another writer in this work unit, so the same detection lives here as a normal suite that
-# the default gate already runs. Suites that still export it for a WHOLE-FILE single kind of mutant
-# (every mutant python or markdown, no bash mutant after the export) are listed in WAIVED below as
-# visible debt: a waiver for a suite that no longer exports is STALE and fails, so the list can only
-# shrink. Remove an entry in the same change that scopes that suite's calls.
+# the default gate already runs. WAIVED (below) is empty since #1849 (all 22 suites migrated); it stays as
+# the escape hatch for visible, temporary debt: a waiver for a suite that no longer exports is STALE and
+# fails, so the list can only shrink. Remove an entry in the same change that scopes that suite's calls.
 #
 # Detected forms, per STATEMENT (a line is split on ; & |; a `#` starts a comment only at line start or after
 # whitespace, so `${#a[@]}` does not cut the line):
-#   export [-opts] [NAME...] MUTANT_SYNTAX[=v], quoted or not (`export -n` / `export -p` are skipped: they
-#   un-export / only print) · MUTANT_SYNTAX=v; export MUTANT_SYNTAX · declare|typeset|local with an -x
+#   export [-opts] [NAME...] MUTANT_SYNTAX[=v], quoted or not (a statement that STARTS with `export -n` /
+#   `export -p` is skipped: it un-exports / only prints; an `export -n` text elsewhere in the statement
+#   does not hide a real export) · MUTANT_SYNTAX=v; export MUTANT_SYNTAX · declare|typeset|local with an -x
 #   option cluster (also split as `-g -x`) and MUTANT_SYNTAX among the names.
 # Scanned: tests/*.test.sh, tests/lib/*.sh and ../../install/tests/*.test.sh (this suite excluded).
 # Not detected (stated, not claimed): `set -a` followed by an assignment; `env`/`eval`/`printf -v`
@@ -34,32 +34,14 @@ SCAN_DIR="${LINT_SCAN_DIR:-$HERE}"
 
 # SENTINEL-EXPORT-RE: the detector; the teeth neuter this one line.
 LINT_RE="(^|[^[:alnum:]_])export[[:space:]]+([^;]*[[:space:]\"'])?MUTANT_SYNTAX([^[:alnum:]_]|\$)"
+# SENTINEL-UNEXPORT-RE: the -n/-p exclusion, anchored to the statement's own export (optional leading
+# if/then/do/else/!/{ keywords), never "anywhere in the statement".
+LINT_RE_SKIP="^[[:space:]]*((if|then|do|else|elif|while|until|!|[{])[[:space:]]+)*export[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-[a-zA-Z]*[np][a-zA-Z]*([[:space:]]|\$)"
 LINT_RE_DECL="(^|[^[:alnum:]_])(declare|typeset|local)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-[a-zA-Z]*x[a-zA-Z]*[[:space:]]+([^;[:space:]]+[[:space:]]+)*[\"']?MUTANT_SYNTAX([^[:alnum:]_]|\$)"
 
-# Suites that still export it (single-kind mutants for the whole file). Debt, not a pass.
+# Suites that still export it. Empty since #1849: every suite scopes MUTANT_SYNTAX per call. Add a name
+# here only as visible, temporary debt; a waiver for a suite that no longer exports is STALE and fails.
 WAIVED="
-bog-nav
-capa
-corroborate-firmware
-corroborate-ghidra
-corroborate-ifc
-detonate-exec
-floss
-kaitai
-model-tiers-doc
-niagara-security-audit
-profile-invariants
-px-render
-qnx6-read
-remote-powershell-doc
-rendered-headings
-skill-invariants
-station-modules
-template-heading-literal
-templates
-trace-exec
-unblob
-wall-protocol-doctrine
 "
 
 pass=0; fail=0
@@ -74,12 +56,12 @@ lint_files() {
     [ -f "$f" ] || continue
     case "${f##*/}" in *export-lint*) continue ;; esac
     n=$((n+1)); name="${f##*/}"; name="${name%.test.sh}"; name="${name%.sh}"
-    awk -v re="$LINT_RE" -v dre="$LINT_RE_DECL" -v name="$name" '
+    awk -v re="$LINT_RE" -v dre="$LINT_RE_DECL" -v skip="$LINT_RE_SKIP" -v name="$name" '
       { code=$0
         if (match(code, /(^|[ \t])#/)) code=substr(code, 1, RSTART-1)
         k=split(code, st, /[;&|]/)
         for (i=1; i<=k; i++) {
-          if ((st[i] ~ re && st[i] !~ /export[ \t]+-[a-zA-Z]*[np]/) || st[i] ~ dre) { printf "%s:%d: %s\n", name, FNR, $0; break }
+          if ((st[i] ~ re && st[i] !~ skip) || st[i] ~ dre) { printf "%s:%d: %s\n", name, FNR, $0; break }
         }
       }
     ' "$f"
@@ -153,12 +135,14 @@ mkp localx      'local -x MUTANT_SYNTAX=none'
 mkp useval      'export FOO="$MUTANT_SYNTAX"'
 mkp exportp     'export -p MUTANT_SYNTAX'
 mkp commentws   'x=1 # export MUTANT_SYNTAX=none'
+mkp unexport3   'if x; then export -n MUTANT_SYNTAX; fi'
+mkp unexportlate 'export MUTANT_SYNTAX=none FOO="a export -n b"'
 mkp_hits="$(lint_dir "$PLANT")"
-for s in plain bare semi chained declx typex declrx unexport2 lenhash quoted declnames declgx localx; do
+for s in plain bare semi chained declx typex declrx unexport2 lenhash quoted declnames declgx localx unexportlate; do
   if grep -q "^$s:1:" <<<"$mkp_hits"; then ok "3 detector flags the '$s' export form"
   else no "3 detector missed the '$s' export form (hits=[$mkp_hits])"; fi
 done
-for s in clean comment trailing other unexport declr useval exportp commentws; do
+for s in clean comment trailing other unexport declr useval exportp commentws unexport3; do
   if grep -q "^$s:" <<<"$mkp_hits"; then no "3 detector false-positive on '$s' (hits=[$mkp_hits])"
   else ok "3 detector ignores '$s' (scoped call / comment / other variable)"; fi
 done
@@ -181,7 +165,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-  MT="$(mktemp -d)"; mutant_cleanup_register "$MT"
+  declare -F mutant_cleanup_register >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_cleanup_register" >&2; exit 2; }
+  MT="$(mktemp -d)"
+  mutant_cleanup_register "$MT" || { rm -rf "$MT"; echo "FATAL: mutant_cleanup_register refused $MT" >&2; exit 2; }
   echo "-- teeth: detector regex that never matches must make the planted-export controls fail --"
   if mutant_chain "teeth: never-match" "$HERE/$SELF" "$MT/export-lint.MUT.test.sh" \
        "/SENTINEL-EXPORT-RE/{n;s/^LINT_RE=.*/LINT_RE='(^\$)NEVER(\$)'/}"; then
@@ -196,7 +182,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth: a waiver list that silently covers everything must be caught by the stale-waiver check --"
   if mutant_chain "teeth: waive-all" "$HERE/$SELF" "$MT/export-lint.MUT2.test.sh" \
-       's/^bog-nav$/bog-nav\nnot-a-suite-at-all/'; then
+       '/^WAIVED="$/s/$/\nnot-a-suite-at-all/'; then
     mout2="$(cd "$MT" && LINT_SCAN_DIR="$HERE" bash "$MT/export-lint.MUT2.test.sh" 2>&1)"; mrc2=$?
     if [ "$mrc2" -ne 0 ] && grep -q '^  FAIL  2 stale waiver' <<<"$mout2"; then
       ok "teeth stale-waiver: a waiver naming a non-exporting suite fails check 2"
@@ -218,6 +204,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth waive-everything: could not build mutant (is_waived sentinel not found, or refused by lib/mutant.sh)"
+  fi
+  echo "-- teeth: an un-anchored -n/-p exclusion must miss a real export that merely mentions 'export -n' (check 3 red) --"
+  if mutant_chain "teeth: unanchored-skip" "$HERE/$SELF" "$MT/export-lint.MUT4.test.sh" \
+       "/^LINT_RE_SKIP=/s/.*/LINT_RE_SKIP='export[[:space:]]+-[a-zA-Z]*[np]'/"; then
+    mout4="$(cd "$MT" && LINT_NESTED=1 bash "$MT/export-lint.MUT4.test.sh" 2>&1)"
+    if grep -q "^  FAIL  3 detector missed the 'unexportlate'" <<<"$mout4"; then
+      ok "teeth unanchored-skip: the line-wide exclusion hides 'unexportlate' -> check 3 pins the anchored skip"
+    else
+      no "teeth unanchored-skip: mutant stayed green (THEATER)"
+    fi
+  else
+    no "teeth unanchored-skip: could not build mutant (LINT_RE_SKIP line not found, or refused by lib/mutant.sh)"
   fi
 fi
 

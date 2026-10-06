@@ -789,14 +789,13 @@ for _fn in mutant_chain mutant_tooth; do
 done
 # niagara_security_audit.py imports only the standard library (see its import block), so a single-file
 # mutant copy is self-contained; the helper's bash syntax check does not apply, so nsa_mk runs ast.parse.
-export MUTANT_SYNTAX=none
 MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }
 
 # A refused build is counted exactly ONCE (its own FAIL line is printed by the helper) and the tooth never
 # runs. The language-native syntax check lives here too: a mutant that does not parse is removed so it can
 # never reach a tooth and read as a "bite".
 nsa_mk() {      # LABEL OUT EXPR — one sed stage over the original
-  if mutant_chain "$1" "$ORIG_PY" "$2" "$3"; then
+  if MUTANT_SYNTAX=none mutant_chain "$1" "$ORIG_PY" "$2" "$3"; then
     if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$2" 2>/dev/null; then return 0; fi
     printf '  FAIL  %s: mutant is not valid python (ast.parse)\n' "$1"; rm -f -- "$2"
   fi

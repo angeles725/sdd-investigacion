@@ -187,7 +187,6 @@ typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>
   || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
 # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
 # dead-stage refusals still apply).
-export MUTANT_SYNTAX=none
 export RSDD_IFC_PY
 
 # Locate the outer adapter (sibling of SUT)
@@ -223,7 +222,7 @@ if ! python3 "$1" --manifest-cli "$(dirname "$1")/analysis_manifest.py" --input 
 fi
 python3 "$3" "$o/out/ifc-evidence.v1.json"
 SH
-if mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
+if MUTANT_SYNTAX=none mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
   if mutant_tooth "teeth: histogram sort-key mutation breaks count-descending order" 0 0 \
       "$MUTDIR/corroborate_ifc.py" --orig "$ORIG_PY" \
       --good-has 'SORT: descending' --bad-has 'SORT: broken' --bad-lacks 'SORT: descending' -- \

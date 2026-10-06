@@ -52,7 +52,6 @@ done
 . "$HERE/lib/mutant.sh"
 typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
   || die "lib/mutant.sh did not define mutant_chain/mutant_built"
-export MUTANT_SYNTAX=none
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -170,7 +169,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # tooth LABEL WANT_RE EXPR — mutate ORIG with one sed EXPR; check_file must exit 1 and mention WANT_RE.
   tooth() {
     local label="$1" want="$2" expr="$3" out rc
-    mutant_chain "$label" "$ORIG" "$MUT/$label.md" "$expr" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain "$label" "$ORIG" "$MUT/$label.md" "$expr" || { fail=$((fail+1)); return 1; }
     out="$(check_file "$MUT/$label.md" "$REQ")"; rc=$?
     if [ "$rc" -eq 1 ] && grep -qE -- "$want" <<<"$out"; then
       ok "teeth-$label: check_file goes RED ($want)"
@@ -181,7 +180,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   tooth dup-first-heading  "^H1: '# Research-SDD launcher' appears 2 times" 's/^# Research-SDD launcher$/&\n\n# Research-SDD launcher/'
   tooth dup-last-heading   "^H1: '## Boundaries' appears 2 times"           's/^## Boundaries$/&\n\n## Boundaries/'
   # '## Zz unlisted probe' is in NO required list, so only H2 can catch its duplication.
-  mutant_chain "dup-unlisted" "$ORIG" "$MUT/dup-unlisted.md" 's/^## Arguments$/&\n\n## Zz unlisted probe\n\nx\n\n## Zz unlisted probe/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain "dup-unlisted" "$ORIG" "$MUT/dup-unlisted.md" 's/^## Arguments$/&\n\n## Zz unlisted probe\n\nx\n\n## Zz unlisted probe/' || fail=$((fail+1))
   out="$(check_file "$MUT/dup-unlisted.md" "$REQ")"; rc=$?
   if [ "$rc" -eq 1 ] && grep -q "^H2: duplicated heading '## Zz unlisted probe'" <<<"$out" && ! grep -q '^H1:' <<<"$out"; then
     ok "teeth-dup-unlisted: H2 (and only H2) catches a duplicate heading absent from the required list"
@@ -197,7 +196,7 @@ RSDD_KIT_DIR=/x'
 
   # Fence rule: a fenced '## Boundaries' is not a heading — appending one must stay GREEN, and
   # deleting the real one while a fenced copy remains must still go RED (H1 ... 0 times).
-  if mutant_chain "fenced-dup" "$ORIG" "$MUT/fenced-dup.md" '$a\
+  if MUTANT_SYNTAX=none mutant_chain "fenced-dup" "$ORIG" "$MUT/fenced-dup.md" '$a\
 \
 ```\
 ## Boundaries\
@@ -208,7 +207,7 @@ RSDD_KIT_DIR=/x'
       no "teeth-fenced-dup: a heading inside a code fence was counted"
     fi
   else fail=$((fail+1)); fi
-  if mutant_chain "fenced-only" "$ORIG" "$MUT/fenced-only.md" '/^## Boundaries$/c\
+  if MUTANT_SYNTAX=none mutant_chain "fenced-only" "$ORIG" "$MUT/fenced-only.md" '/^## Boundaries$/c\
 ```\
 ## Boundaries\
 ```'; then
@@ -223,7 +222,7 @@ RSDD_KIT_DIR=/x'
   # Fence close rule: a "closing" fence with an info string, or a shorter one, does NOT close the block,
   # so the heading after it is still fenced (not counted); a proper longer close does close it.
   fence_green() {  # LABEL BODY — append BODY to the SKILL render; check_file must stay green (fence never closed early).
-    mutant_chain "$1" "$ORIG" "$MUT/$1.md" "$2" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain "$1" "$ORIG" "$MUT/$1.md" "$2" || { fail=$((fail+1)); return 1; }
     if check_file "$MUT/$1.md" "$REQ" >/dev/null 2>&1; then ok "teeth-$1: fence not closed early (headings inside stay ignored)"
     else no "teeth-$1: a non-closing fence line closed the block and its headings were counted"; fi
   }
@@ -241,7 +240,7 @@ RSDD_KIT_DIR=/x'
 ## Zz unlisted probe\
 ## Zz unlisted probe\
 ````'
-  if mutant_chain "fence-long-close" "$ORIG" "$MUT/fence-long-close.md" '$a\
+  if MUTANT_SYNTAX=none mutant_chain "fence-long-close" "$ORIG" "$MUT/fence-long-close.md" '$a\
 \
 ```\
 x\
@@ -262,7 +261,7 @@ x\
   tooth closing-hash-dup    "^H1: '## Boundaries' appears 2 times"         's/^## Boundaries$/&\n\n## Boundaries ##/'
   tooth multispace-dup      "^H1: '## Boundaries' appears 2 times"         's/^## Boundaries$/&\n\n##    Boundaries   /'
   tooth bare-hash-dup       "^H2: duplicated heading '#'"                  's/^## Arguments$/&\n\n#\n\nx\n\n#/'
-  if mutant_chain "indent4-code" "$ORIG" "$MUT/indent4-code.md" 's/^## Boundaries$/&\n\n    ## Boundaries/'; then
+  if MUTANT_SYNTAX=none mutant_chain "indent4-code" "$ORIG" "$MUT/indent4-code.md" 's/^## Boundaries$/&\n\n    ## Boundaries/'; then
     if check_file "$MUT/indent4-code.md" "$REQ" >/dev/null 2>&1; then
       ok "teeth-indent4-code: a 4-space-indented '## x' line is code, not a heading (stays green)"
     else no "teeth-indent4-code: a 4-space-indented line was counted as a heading"; fi

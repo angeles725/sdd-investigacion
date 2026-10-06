@@ -775,7 +775,6 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 for _fn in mutant_chain mutant_tooth; do
   declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_fn" >&2; exit 2; }
 done
-export MUTANT_SYNTAX=none   # the mutants are Python; syntax is checked with ast.parse in mut_build
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/px_render.py"
@@ -797,7 +796,7 @@ MUTPY=""
 mut_build(){
   local label="$1" id="$2"; shift 2
   MUTPY="$MUTBASE/$id/px_render.py"; mkdir -p "$MUTBASE/$id"
-  if ! mutant_chain "$label" "$ORIG_PY" "$MUTPY" "$@"; then
+  if ! MUTANT_SYNTAX=none mutant_chain "$label" "$ORIG_PY" "$MUTPY" "$@"; then
     mut_no "$label: mutant refused by lib/mutant.sh (refusal counted here once; tooth not run)"; return 1
   fi
   if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$MUTPY" 2>/dev/null; then

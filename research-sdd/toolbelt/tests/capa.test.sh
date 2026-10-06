@@ -411,11 +411,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
   # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
   # dead-stage refusals still apply).
-  export MUTANT_SYNTAX=none
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_capa.py"
 
-  if mutant_chain "teeth-1" "$TOOLBELT/corroborate_capa.py" "$_MUT_PY" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth-1" "$TOOLBELT/corroborate_capa.py" "$_MUT_PY" \
       's|raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc|return  # mutant: scope guard disabled|g'; then
     cat > "$_MUT_DIR/harness.py" <<'PY'
 import sys, importlib.util

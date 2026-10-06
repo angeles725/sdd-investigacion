@@ -541,8 +541,6 @@ if [ "$PROVE_TEETH" = 1 ]; then
   # test calls (or the same grep anchor) on the mutant copy.
   # The inner `sed did not take (no teeth)` greps below are now defensive only: mutant_chain already
   # refuses an unchanged mutant, so they cannot be reached on a refused build.
-  MUTANT_SYNTAX=none
-  export MUTANT_SYNTAX
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   for _fn in mutant_chain mutant_built; do
@@ -551,7 +549,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A1: remove 'the 7 markers' → A1 positive check must go RED.
   mutant1="$TMP/SKILL.mutant1.md"
-  if mutant_chain "teeth: SKILL.mutant1.md" "$SKILL" "$mutant1" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant1.md" "$SKILL" "$mutant1" \
     's/the 7 markers/the N markers/g'; then
     if grep -qF 'the 7 markers' "$mutant1"; then
       no "teeth-A1: mutant still has 'the 7 markers' — sed did not take (no teeth)"
@@ -564,7 +562,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A1-neg: inject 'the 5 markers' → A1-neg check must go RED.
   mutant1n="$TMP/SKILL.mutant1n.md"
-  if mutant_chain "teeth: SKILL.mutant1n.md" "$SKILL" "$mutant1n" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant1n.md" "$SKILL" "$mutant1n" \
     's/the 7 markers/the 5 markers/g'; then
     if grep -qF 'the 5 markers' "$mutant1n"; then
       ok "teeth-A1-neg: A1-neg assertion goes RED on mutant ('the 5 markers' injected)"
@@ -577,7 +575,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A10: remove 'HOT-CORE' → A10 must go RED.
   mutant10="$TMP/SKILL.mutant10.md"
-  if mutant_chain "teeth: SKILL.mutant10.md" "$SKILL" "$mutant10" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant10.md" "$SKILL" "$mutant10" \
     's/HOT-CORE/HOT_CORE_REMOVED/g'; then
     if grep -qF 'HOT-CORE' "$mutant10"; then
       no "teeth-A10: mutant still has 'HOT-CORE' — sed did not take (no teeth)"
@@ -590,7 +588,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A11: replace 'kaitai-struct-compiler' → A11 must go RED.
   mutant11="$TMP/SKILL.mutant11.md"
-  if mutant_chain "teeth: SKILL.mutant11.md" "$SKILL" "$mutant11" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant11.md" "$SKILL" "$mutant11" \
     's/kaitai-struct-compiler/ksc-binary/g'; then
     if grep -qF 'kaitai-struct-compiler' "$mutant11"; then
       no "teeth-A11: mutant still has 'kaitai-struct-compiler' — sed did not take (no teeth)"
@@ -603,7 +601,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A12a: remove propose-never-apply from toolchain routing only → A12a RED, A12b stays GREEN.
   mutant12a="$TMP/SKILL.mutant12a.md"
-  if mutant_chain "teeth: SKILL.mutant12a.md" "$SKILL" "$mutant12a" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant12a.md" "$SKILL" "$mutant12a" \
     's/never applied from inside a run (§18 propose-never-apply)/never applied from inside a run/g'; then
     if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$mutant12a"; then
       no "teeth-A12a: mutant still has toolchain-routing propose-never-apply — sed did not take (no teeth)"
@@ -616,7 +614,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A12b: remove propose-never-apply from tool-cataloging only → A12b RED, A12a stays GREEN.
   mutant12b="$TMP/SKILL.mutant12b.md"
-  if mutant_chain "teeth: SKILL.mutant12b.md" "$SKILL" "$mutant12b" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant12b.md" "$SKILL" "$mutant12b" \
     's/propose-never-apply). Provisioning is complete/propose-never-XPPLY). Provisioning is complete/g'; then
     if grep -qF 'propose-never-apply). Provisioning is complete' "$mutant12b"; then
       no "teeth-A12b: mutant still has tool-cataloging propose-never-apply — sed did not take (no teeth)"
@@ -629,7 +627,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A13: replace 'Dynamic is recommended' → A13 must go RED.
   mutant13="$TMP/SKILL.mutant13.md"
-  if mutant_chain "teeth: SKILL.mutant13.md" "$SKILL" "$mutant13" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant13.md" "$SKILL" "$mutant13" \
     's/Dynamic is recommended for unattended runs/Fixed-interval is recommended for unattended runs/g'; then
     if grep -qF 'Dynamic is recommended for unattended runs' "$mutant13"; then
       no "teeth-A13: mutant still has 'Dynamic is recommended for unattended runs' — sed did not take (no teeth)"
@@ -642,7 +640,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A14: inject 'guarantees the cadence' → A14 negative check must go RED.
   mutant14="$TMP/SKILL.mutant14.md"
-  if mutant_chain "teeth: SKILL.mutant14.md" "$SKILL" "$mutant14" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant14.md" "$SKILL" "$mutant14" \
     '1s|^|/loop guarantees the cadence\n|'; then
     if grep -qF 'guarantees the cadence' "$mutant14"; then
       ok "teeth-A14: A14 negative check goes RED on mutant ('guarantees' injected)"
@@ -655,7 +653,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth A15: replace 're-invoker is already active' → A15 must go RED.
   mutant15="$TMP/SKILL.mutant15.md"
-  if mutant_chain "teeth: SKILL.mutant15.md" "$SKILL" "$mutant15" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutant15.md" "$SKILL" "$mutant15" \
     's/re-invoker is already active/re-invoker X already active/g'; then
     if grep -qF 're-invoker is already active' "$mutant15"; then
       no "teeth-A15: mutant still has 're-invoker is already active' — sed did not take (no teeth)"
@@ -668,7 +666,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth B1a: remove 'dynamic self-paced, no interval' → B1 must go RED (first condition fails).
   mutantB1a="$TMP/PROMPTLOOP.mutantB1a.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantB1a.md" "$PROMPTLOOP" "$mutantB1a" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantB1a.md" "$PROMPTLOOP" "$mutantB1a" \
     's/dynamic self-paced, no interval/dynamic, no interval/g'; then
     if grep -qF 'dynamic self-paced, no interval' "$mutantB1a"; then
       no "teeth-B1a: mutant still has 'dynamic self-paced, no interval' — sed did not take (no teeth)"
@@ -681,7 +679,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth B1b: remove '/loop 5m  <paste' → B1 must go RED (second condition fails).
   mutantB1b="$TMP/PROMPTLOOP.mutantB1b.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantB1b.md" "$PROMPTLOOP" "$mutantB1b" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantB1b.md" "$PROMPTLOOP" "$mutantB1b" \
     's|/loop 5m  <paste|/loop-5m <paste|g'; then
     if grep -qF '/loop 5m  <paste' "$mutantB1b"; then
       no "teeth-B1b: mutant still has '/loop 5m  <paste' — sed did not take (no teeth)"
@@ -694,7 +692,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth B2: replace 'Do NOT issue ScheduleWakeup' → B2 must go RED.
   mutantB2="$TMP/PROMPTLOOP.mutantB2.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantB2.md" "$PROMPTLOOP" "$mutantB2" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantB2.md" "$PROMPTLOOP" "$mutantB2" \
     's/Do NOT issue ScheduleWakeup/Do NOT use ScheduleWakeup_REMOVED/g'; then
     if grep -qF 'Do NOT issue ScheduleWakeup' "$mutantB2"; then
       no "teeth-B2: mutant still has 'Do NOT issue ScheduleWakeup' — sed did not take (no teeth)"
@@ -707,7 +705,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth B3: replace 'CronDelete' → B3 must go RED.
   mutantB3="$TMP/PROMPTLOOP.mutantB3.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantB3.md" "$PROMPTLOOP" "$mutantB3" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantB3.md" "$PROMPTLOOP" "$mutantB3" \
     's/CronDelete/DisarmJob/g'; then
     if grep -qF 'CronDelete' "$mutantB3"; then
       no "teeth-B3: mutant still has 'CronDelete' — sed did not take (no teeth)"
@@ -722,7 +720,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C1: replace anchor → assert_C1 must go RED.
   mutantC1="$TMP/METHODOLOGY.mutantC1.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC1.md" "$METHODOLOGY" "$mutantC1" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC1.md" "$METHODOLOGY" "$mutantC1" \
     's/A focus stop does not end the campaign/A focus stop DOES end the campaign/g'; then
     if assert_C1 "$mutantC1"; then
       no "teeth-C1: assert_C1 passed on mutant — no teeth"
@@ -735,7 +733,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C2: replace 'no entry is `pending` or `active`' anchor → assert_C2 must go RED.
   mutantC2="$TMP/METHODOLOGY.mutantC2.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC2.md" "$METHODOLOGY" "$mutantC2" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC2.md" "$METHODOLOGY" "$mutantC2" \
     's/no entry is `pending` or `active`/no entry is pending or active/g'; then
     if assert_C2 "$mutantC2"; then
       no "teeth-C2: assert_C2 passed on mutant — no teeth"
@@ -748,7 +746,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C3: replace 'campaign-bound-reached:' → assert_C3 must go RED.
   mutantC3="$TMP/METHODOLOGY.mutantC3.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC3.md" "$METHODOLOGY" "$mutantC3" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC3.md" "$METHODOLOGY" "$mutantC3" \
     's/campaign-bound-reached:/campaign-bound-X:/g'; then
     if assert_C3 "$mutantC3"; then
       no "teeth-C3: assert_C3 passed on mutant — no teeth"
@@ -761,7 +759,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C4: replace 'Teardown runs at campaign STOP' → assert_C4 must go RED.
   mutantC4="$TMP/PROMPTLOOP.mutantC4.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC4.md" "$PROMPTLOOP" "$mutantC4" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC4.md" "$PROMPTLOOP" "$mutantC4" \
     's/Teardown runs at campaign STOP/Teardown runs at focus STOP/g'; then
     if assert_C4 "$mutantC4"; then
       no "teeth-C4: assert_C4 passed on mutant — no teeth"
@@ -776,7 +774,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C5: mutate '<N>h' → '<Nh>' (drop closing bracket) — breaks wall-clock grammar.
   mutantC5="$TMP/METHODOLOGY.mutantC5.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC5.md" "$METHODOLOGY" "$mutantC5" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC5.md" "$METHODOLOGY" "$mutantC5" \
     's/wall-clock=<N>h/wall-clock=<Nh>/g'; then
     if assert_C5 "$mutantC5"; then
       no "teeth-C5: assert_C5 passed on mutant — no teeth"
@@ -789,7 +787,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C6: replace depth anchor → C6 must go RED.
   mutantC6="$TMP/METHODOLOGY.mutantC6.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC6.md" "$METHODOLOGY" "$mutantC6" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC6.md" "$METHODOLOGY" "$mutantC6" \
     's/depth is the length of the parent chain from root/depth is unspecified/g'; then
     if assert_C6 "$mutantC6"; then
       no "teeth-C6: assert_C6 passed on mutant — no teeth"
@@ -802,7 +800,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C7: replace 'campaign_stop: campaign-bound-reached:' → C7 must go RED.
   mutantC7="$TMP/METHODOLOGY.mutantC7.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC7.md" "$METHODOLOGY" "$mutantC7" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC7.md" "$METHODOLOGY" "$mutantC7" \
     's/campaign_stop: campaign-bound-reached:/campaign_stop: bound-reached:/g'; then
     if assert_C7 "$mutantC7"; then
       no "teeth-C7: assert_C7 passed on mutant — no teeth"
@@ -815,7 +813,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C8: mutate 'enqueued=<N>' → 'enqueued=N' (remove angle brackets) — breaks grammar.
   mutantC8="$TMP/METHODOLOGY.mutantC8.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC8.md" "$METHODOLOGY" "$mutantC8" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC8.md" "$METHODOLOGY" "$mutantC8" \
     's/enqueued=<N>/enqueued=N/g'; then
     if assert_C8 "$mutantC8"; then
       no "teeth-C8: assert_C8 passed on mutant — no teeth"
@@ -830,7 +828,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C9: replace 'next-entry: <queue-name>' in PROMPTLOOP → C9 must go RED.
   mutantC9="$TMP/PROMPTLOOP.mutantC9.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC9.md" "$PROMPTLOOP" "$mutantC9" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC9.md" "$PROMPTLOOP" "$mutantC9" \
     's/next-entry: <queue-name>/next-entry: <X>/g'; then
     if assert_C9 "$mutantC9"; then
       no "teeth-C9: assert_C9 passed on mutant — no teeth"
@@ -843,7 +841,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C10: replace resume anchor → C10 must go RED.
   mutantC10="$TMP/METHODOLOGY.mutantC10.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC10.md" "$METHODOLOGY" "$mutantC10" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC10.md" "$METHODOLOGY" "$mutantC10" \
     's/first continue any entry left `active`/first pop the next `pending` entry/g'; then
     if assert_C10 "$mutantC10"; then
       no "teeth-C10: assert_C10 passed on mutant — no teeth"
@@ -856,7 +854,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C11a: replace 'campaign_started:' → C11 compound assertion must go RED.
   mutantC11a="$TMP/METHODOLOGY.mutantC11a.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC11a.md" "$METHODOLOGY" "$mutantC11a" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC11a.md" "$METHODOLOGY" "$mutantC11a" \
     's/campaign_started:/campaign_STARTED_X:/g'; then
     if assert_C11 "$mutantC11a"; then
       no "teeth-C11a: assert_C11 passed on mutant — no teeth"
@@ -869,7 +867,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C11b: replace 'campaign_iterations:' → C11 compound assertion must go RED.
   mutantC11b="$TMP/METHODOLOGY.mutantC11b.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC11b.md" "$METHODOLOGY" "$mutantC11b" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC11b.md" "$METHODOLOGY" "$mutantC11b" \
     's/campaign_iterations:/campaign_ITERATIONS_X:/g'; then
     if assert_C11 "$mutantC11b"; then
       no "teeth-C11b: assert_C11 passed on mutant — no teeth"
@@ -882,7 +880,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C12: replace 'Single-focus corpora' → C12 must go RED.
   mutantC12="$TMP/METHODOLOGY.mutantC12.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC12.md" "$METHODOLOGY" "$mutantC12" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC12.md" "$METHODOLOGY" "$mutantC12" \
     's/Single-focus corpora/Multi-focus corpora/g'; then
     if assert_C12 "$mutantC12"; then
       no "teeth-C12: assert_C12 passed on mutant — no teeth"
@@ -895,7 +893,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C13: replace '`rejected`' in METHODOLOGY → C13 must go RED.
   mutantC13="$TMP/METHODOLOGY.mutantC13.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantC13.md" "$METHODOLOGY" "$mutantC13" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantC13.md" "$METHODOLOGY" "$mutantC13" \
     's/`rejected`/`REJECTED_X`/g'; then
     if assert_C13 "$mutantC13"; then
       no "teeth-C13: assert_C13 passed on mutant — no teeth"
@@ -908,7 +906,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C14: replace 'do not ask which mode' in SKILL → C14 must go RED.
   mutantC14="$TMP/SKILL.mutantC14.md"
-  if mutant_chain "teeth: SKILL.mutantC14.md" "$SKILL" "$mutantC14" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: SKILL.mutantC14.md" "$SKILL" "$mutantC14" \
     's/do not ask which mode/do not DETERMINE which mode/g'; then
     if assert_C14 "$mutantC14"; then
       no "teeth-C14: assert_C14 passed on mutant — no teeth"
@@ -921,7 +919,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C15: replace 'A RUN ends only on campaign STOP' → C15 must go RED.
   mutantC15="$TMP/PROMPTLOOP.mutantC15.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC15.md" "$PROMPTLOOP" "$mutantC15" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC15.md" "$PROMPTLOOP" "$mutantC15" \
     's/A RUN ends only on campaign STOP/A turn ends only on campaign STOP/g'; then
     if assert_C15 "$mutantC15"; then
       no "teeth-C15: assert_C15 passed on mutant — no teeth"
@@ -934,7 +932,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C16 (absence): inject stale text → assert_C16 must return 1 (text found = fail).
   mutantC16="$TMP/PROMPTLOOP.mutantC16.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC16.md" "$PROMPTLOOP" "$mutantC16" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC16.md" "$PROMPTLOOP" "$mutantC16" \
     '1s|^|an autonomous run must stop at convergence\n|'; then
     if assert_C16 "$mutantC16"; then
       no "teeth-C16: assert_C16 passed on mutant — no teeth"
@@ -947,7 +945,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C17 (absence): inject stale text → assert_C17 must return 1 (text found = fail).
   mutantC17="$TMP/PROMPTLOOP.mutantC17.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC17.md" "$PROMPTLOOP" "$mutantC17" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC17.md" "$PROMPTLOOP" "$mutantC17" \
     '1s|^|A turn ends only on\n|'; then
     if assert_C17 "$mutantC17"; then
       no "teeth-C17: assert_C17 passed on mutant — no teeth"
@@ -962,7 +960,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C18: replace 'STOP: campaign — ' → C18 must go RED.
   mutantC18="$TMP/PROMPTLOOP.mutantC18.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC18.md" "$PROMPTLOOP" "$mutantC18" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC18.md" "$PROMPTLOOP" "$mutantC18" \
     's/STOP: campaign — /STOP: campaign X/g'; then
     if assert_C18 "$mutantC18"; then
       no "teeth-C18: assert_C18 passed on mutant — no teeth"
@@ -975,7 +973,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth C19 (absence): inject 'signal "continue"' → assert_C19 must return 1.
   mutantC19="$TMP/PROMPTLOOP.mutantC19.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantC19.md" "$PROMPTLOOP" "$mutantC19" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantC19.md" "$PROMPTLOOP" "$mutantC19" \
     '1s|^|signal "continue"\n|'; then
     if assert_C19 "$mutantC19"; then
       no "teeth-C19: assert_C19 passed on mutant — no teeth"
@@ -992,7 +990,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
   mutantD1="$TMP/TEMPLATE.mutantD1.md"
   # Append a live Campaign queue heading outside comments to the copy
   { cat "$TEMPLATE"; printf '\n## Campaign queue\n\n| Name | Parent | Kind | Seed | Convergence | State |\n|---|---|---|---|---|---|\n| injected | root | focus | seed | done | pending |\n'; } > "$mutantD1"
-  if mutant_built "teeth: TEMPLATE.mutantD1.md" "$TEMPLATE" "$mutantD1"; then
+  if MUTANT_SYNTAX=none mutant_built "teeth: TEMPLATE.mutantD1.md" "$TEMPLATE" "$mutantD1"; then
     if assert_D1 "$mutantD1"; then
       no "teeth-D1: assert_D1 passed on mutant — no teeth (live heading not detected)"
     else
@@ -1006,7 +1004,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth E1a: remove 'required for conclusion-bearing' from METHODOLOGY → E1a must go RED.
   mutantE1a="$TMP/METHODOLOGY.mutantE1a.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantE1a.md" "$METHODOLOGY" "$mutantE1a" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantE1a.md" "$METHODOLOGY" "$mutantE1a" \
     's/required for conclusion-bearing/required for X-bearing/g'; then
     if grep -qF 'required for conclusion-bearing' "$mutantE1a"; then
       no "teeth-E1a: mutant still has 'required for conclusion-bearing' — sed did not take (no teeth)"
@@ -1019,7 +1017,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth E1b: inject 'OPT-IN selective seal' into METHODOLOGY → E1b must go RED.
   mutantE1b="$TMP/METHODOLOGY.mutantE1b.md"
-  if mutant_chain "teeth: METHODOLOGY.mutantE1b.md" "$METHODOLOGY" "$mutantE1b" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: METHODOLOGY.mutantE1b.md" "$METHODOLOGY" "$mutantE1b" \
     '1s|^|OPT-IN selective seal\n|'; then
     if grep -qF 'OPT-IN selective seal' "$mutantE1b"; then
       ok "teeth-E1b: E1b negative check goes RED on mutant ('OPT-IN selective seal' injected)"
@@ -1032,7 +1030,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth E1c: inject 'OPT-IN selective seal' into PROMPT-LOOP → E1c must go RED.
   mutantE1c="$TMP/PROMPTLOOP.mutantE1c.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantE1c.md" "$PROMPTLOOP" "$mutantE1c" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantE1c.md" "$PROMPTLOOP" "$mutantE1c" \
     '1s|^|OPT-IN selective seal\n|'; then
     if grep -qF 'OPT-IN selective seal' "$mutantE1c"; then
       ok "teeth-E1c: E1c negative check goes RED on mutant ('OPT-IN selective seal' injected)"
@@ -1045,7 +1043,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth E2a: replace '§7b' with '§7X' in PROMPT-LOOP → E2a must go RED.
   mutantE2a="$TMP/PROMPTLOOP.mutantE2a.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantE2a.md" "$PROMPTLOOP" "$mutantE2a" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantE2a.md" "$PROMPTLOOP" "$mutantE2a" \
     's/§7b/§7X/g'; then
     if grep -qF '§7b' "$mutantE2a"; then
       no "teeth-E2a: mutant still has '§7b' — sed did not take (no teeth)"
@@ -1058,7 +1056,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   # Teeth E2b: replace '§11a' with '§11X' in PROMPT-LOOP → E2b must go RED.
   mutantE2b="$TMP/PROMPTLOOP.mutantE2b.md"
-  if mutant_chain "teeth: PROMPTLOOP.mutantE2b.md" "$PROMPTLOOP" "$mutantE2b" \
+  if MUTANT_SYNTAX=none mutant_chain "teeth: PROMPTLOOP.mutantE2b.md" "$PROMPTLOOP" "$mutantE2b" \
     's/§11a/§11X/g'; then
     if grep -qF '§11a' "$mutantE2b"; then
       no "teeth-E2b: mutant still has '§11a' — sed did not take (no teeth)"

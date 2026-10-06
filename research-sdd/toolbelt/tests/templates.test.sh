@@ -74,10 +74,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$MUTLIB" || { echo "FATAL: sourcing $MUTLIB failed" >&2; exit 2; }
   declare -F mutant_sed >/dev/null || { echo "FATAL: $MUTLIB did not define mutant_sed" >&2; exit 2; }
-  export MUTANT_SYNTAX=none
   tooth() { # tooth NAME FILE PREDICATE SED_EXPR — the mutated FILE must fail PREDICATE (check|header_ok|readme_ok)
     local name="$1" file="$2" pred="$3" expr="$4" m="$TMP/$1.md"
-    if mutant_sed "$file" "$m" "$expr" >/dev/null 2>&1; then
+    if MUTANT_SYNTAX=none mutant_sed "$file" "$m" "$expr" >/dev/null 2>&1; then
       if "$pred" "$m" >/dev/null; then no "teeth $name: mutant still passes — THEATER"; else ok "teeth $name: mutant fails the check"; fi
     else no "teeth $name: mutant could not be built (pattern absent / refused)"; fi
   }

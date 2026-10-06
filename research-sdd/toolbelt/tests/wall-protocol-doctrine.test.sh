@@ -170,13 +170,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
-  export MUTANT_SYNTAX=none
   # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
   export -f order_state section21_of s21_has
   # tt LABEL GOOD_RC BAD_RC MUTANT [mutant_tooth opts] -- ARGV  count the shared mutant_tooth verdict.
   tt() { local line; if line="$(mutant_tooth "$@")"; then pass=$((pass+1)); else fail=$((fail+1)); fi; printf '%s\n' "$line"; }
   # mk LABEL OUT EXPR...  build OUT from $METHODOLOGY (mutant_chain: every stage must apply on its own).
-  mk() { local label="$1" out="$2"; shift 2; mutant_chain "$label" "$METHODOLOGY" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
+  mk() { local label="$1" out="$2"; shift 2; MUTANT_SYNTAX=none mutant_chain "$label" "$METHODOLOGY" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
 
   # teeth-M1: delete EVERY line mentioning 'blocked-on-tool' (§21 has two occurrences; removing only the
   # first leaves the whole-file check GREEN). GOOD: original has the token (rc 0); BAD: mutant lacks it (rc 1).
