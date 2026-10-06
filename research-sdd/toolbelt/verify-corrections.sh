@@ -184,6 +184,25 @@ _vc_extract() {
         rest = substr(rest, st + ln)
       }
     }
+    # listend(cl): index just past the LAST ref of the joined list that starts at the first ref of the clause (same joiner rule as more()).
+    function listend(cl,   rest, g, st, ln, pos) {
+      match(cl, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/); pos = RSTART + RLENGTH - 1
+      rest = substr(cl, pos + 1)
+      while (match(rest, /\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
+        st = RSTART; ln = RLENGTH; g = substr(rest, 1, st - 1)
+        gsub("\302\247", "", g); gsub("\342\200\223", "-", g)
+        if (g !~ /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t0-9.,-]*$/) break
+        pos += st + ln - 1; rest = substr(rest, st + ln)
+      }
+      return pos + 1
+    }
+    # trailq(post): 1 (and sets qcur/qkind) when post starts with a focus qualifier `of the focus `x``/`of the `x` focus`/`in `x``.
+    function trailq(post,   qm, qt) {
+      if (!match(post, /^[ \t]*(of|del|de|in|en)[ \t]+(the[ \t]+|el[ \t]+)?(focus[ \t]+)?`[a-z0-9._-]+`([ \t]+focus)?/)) return 0
+      qm = substr(post, RSTART, RLENGTH); qt = qm; sub(/`[^`]*`/, "", qt)
+      qkind = (qt ~ /focus/) ? "hard" : "soft"; sub(/^[^`]*`/, "", qm); sub(/`.*$/, "", qm); qcur = qm
+      return 1
+    }
     # noundecl(rest): 1 when the text after a corrigendum noun is `[tag] <preposition> [the] [tag] [Block N]` (the ref
     # directly after an explicit preposition; a tag is a short bracket that is NOT itself a block ref), else 0.
     function noundecl(rest,   tail, tg) {
@@ -273,7 +292,7 @@ _vc_extract() {
             else {
               post = substr(cl, rs)
               if (match(post, /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) post = substr(post, RLENGTH + 1)
-              if (match(post, /^[ \t]*(of|del|de|in|en)[ \t]+(the[ \t]+|el[ \t]+)?(focus[ \t]+)?`[a-z0-9._-]+`([ \t]+focus)?/)) { qm = substr(post, RSTART, RLENGTH); qt = qm; sub(/`[^`]*`/, "", qt); qkind = (qt ~ /focus/) ? "hard" : "soft"; sub(/^[^`]*`/, "", qm); sub(/`.*$/, "", qm); qcur = qm }
+              if (!trailq(post)) trailq(substr(cl, listend(cl)))   # qualifier right after the FIRST ref, else after the LAST joined ref
             }
           }
           emit(r)
@@ -329,9 +348,6 @@ for f in "${blocks[@]}"; do
       *) echo "verify-corrections: degraded: extractor emitted an unknown record '$rec' for $(basename "$f"); the corpus was NOT checked" >&2; exit 1 ;;
     esac
     n="$((10#$n))"                      # normalize any zero-padding
-    case "$cls" in
-      object|locator|assumption) [ "$n" = "$c" ] && continue ;;   # the correcting block's own number: not a cross-block declaration
-    esac
     case "$cls" in
       object)     amb "the verb governs a non-block object (a possessive or a gap label), not this block"; continue ;;
       locator)    amb "locator reference: the block only LOCATES the thing corrected ('junto a'/'alongside [Block $n]'), it carries no claim of its own"; continue ;;

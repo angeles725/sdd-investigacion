@@ -266,6 +266,43 @@ d="$TMP/refine-pos"; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 1].\n'; pmk "$
 if [ "$(code "$d")" = 0 ]; then ok "'§14 refinement ([Block 4])' is a backlink shape"
 else no "refine-pos"; fi
 
+# ---- Opus round 2 (#1868): trailing list qualifier, no silent n==c drop for the AMBIG classes ----
+
+# 18 — A qualifier AFTER THE LAST ref of a joined list applies to the whole list (both prefix orders; 2- and 3-element lists),
+#      and one right after the FIRST ref of a longer list still applies to all of it.
+for _own in aa zz; do
+  _oth=zz; [ "$_own" = zz ] && _oth=aa
+  d="$TMP/tq-$_own"
+  pmk "$d" "$_own" 4 '# Block 4\n\n> Corrects [Block 1] and [Block 2] of the `%s` focus.\n' "$_oth"
+  pmk "$d" "$_own" 1 '# Block 1\n\n> corrected in B4.\n'; pmk "$d" "$_own" 2 '# Block 2\n\n> corrected in B4.\n'; pblank "$d" "$_oth" 1 2
+  out="$(run "$d")"
+  if grep -qE "FAIL +B4 corrects \[Block 1\] but $_oth-block1\.md " <<<"$out" && grep -qE "FAIL +B4 corrects \[Block 2\] but $_oth-block2\.md " <<<"$out"; then
+    ok "trailing qualifier after the last ref of a 2-list ($_own → $_oth): both refs resolve in $_oth"
+  else no "tq-$_own :: $(grep -E 'FAIL|WARN|AMBIG|ok' <<<"$out" | cut -c1-90 | tr '\n' '|')"; fi
+done
+d="$TMP/tq-3"; pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1]/[Block 2]/[Block 3] of the `zz` focus.\n'
+for _n in 1 2 3; do pmk "$d" aa $_n '# Block %s\n\n> corrected in B4.\n' "$_n"; done; pblank "$d" zz 1 2 3
+out="$(run "$d")"; t3=1
+for _n in 1 2 3; do grep -qE "FAIL +B4 corrects \[Block $_n\] but zz-block$_n\.md " <<<"$out" || t3=0; done
+if [ "$t3" = 1 ]; then ok "trailing qualifier after a 3-element slash list: first, middle and last all resolve in zz"
+else no "tq-3 :: $(grep -E 'FAIL|WARN|AMBIG' <<<"$out" | cut -c1-90 | tr '\n' '|')"; fi
+d="$TMP/tq-mid"; pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 1] of the `zz` focus and [Block 2].\n'
+pmk "$d" aa 1 '# Block 1\n\n> corrected in B4.\n'; pmk "$d" aa 2 '# Block 2\n\n> corrected in B4.\n'; pblank "$d" zz 1 2
+out="$(run "$d")"
+if grep -qE 'FAIL +B4 corrects \[Block 1\] but zz-block1\.md ' <<<"$out" && ! grep -qE 'B4 corrects \[Block 2\]' <<<"$out"; then ok "qualifier after the FIRST ref: it binds that ref in zz; the prose after it ends the list (no [Block 2] target)"
+else no "tq-mid :: $(grep -E 'FAIL|WARN|AMBIG' <<<"$out" | cut -c1-90 | tr '\n' '|')"; fi
+
+# 19 — the AMBIG classes never vanish when the declared number is the correcting block's own: AMBIG line, counted in ok-partial.
+sn_ok=1; sn_bad=""
+i=0
+for _s in "Corrects this focus's remittance in [Block 5] of the \`zz\` focus." "Corrige la implementación junto a [Block 5]." "This corrects the assumption behind [Block 5]'s packaging."; do
+  i=$((i+1)); d="$TMP/selfamb$i"; rm -rf "$d"; pblank "$d" zz 5; pmk "$d" aa 5 '# Block 5\n\n> %s\n' "$_s"
+  out="$(run "$d")"
+  { [ "$(code "$d")" = 0 ] && grep -qE '^ *AMBIG +B5 corrects \[Block 5\] ' <<<"$out" && grep -qE 'ok-partial +1 declared correction' <<<"$out"; } || { sn_ok=0; sn_bad="$sn_bad [$i]"; }
+done
+if [ "$sn_ok" = 1 ]; then ok "object / locator / assumption with the correcting block's own number → AMBIG line + ok-partial (never a silent drop)"
+else no "self-amb :: $sn_bad"; fi
+
 # NEGATIVE CONTROLS — each mutant disables ONE rule and must flip exactly the case that owns it (a mutant that crashes, or
 # that merely differs, is theater: lib/mutant.sh refuses it).
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -464,6 +501,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_mut "teeth: real file names in FOCUSES" "$SUT" "$m" 's/(block|bloque)(N|\[0-9\]+)/(block|bloque)N/'; then
     tt "teeth: placeholder-only mutant cannot read a real <prefix>-block<N>.md cell" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-has 'AMBIG +B5 .*cross-focus' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-focuses"
+  fi
+
+  echo "-- teeth (round 2): trailing list qualifier, no silent n==c drop --"
+  m="$TMP/vc.NOTRAILQ.sh"
+  if mk_mut "teeth: trailing qualifier" "$SUT" "$m" 's/if (!trailq(post)) trailq(substr(cl, listend(cl)))/trailq(post)/'; then
+    tt "teeth: first-ref-only qualifier lookup resolves the 2-list '[Block 1] and [Block 2] of the \`zz\` focus' in the own prefix" 1 0 "$m" --orig "$SUT" \
+      --good-has 'but zz-block2\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-aa"
+    tt "teeth: first-ref-only qualifier lookup, other prefix order (zz → aa)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'but aa-block2\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-zz"
+  fi
+  m="$TMP/vc.NOLISTEND.sh"
+  if mk_mut "teeth: listend walk" "$SUT" "$m" 's/pos += st + ln - 1; rest = substr(rest, st + ln)/break/'; then
+    tt "teeth: list-end walk stops at the first ref, so a 3-element list loses its trailing qualifier" 1 0 "$m" --orig "$SUT" \
+      --good-has 'but zz-block3\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-3"
+  fi
+  m="$TMP/vc.SILENTSELF.sh"
+  if mk_mut "teeth: own-number AMBIG" "$SUT" "$m" 's/^amb() { echo/amb() { [ "$n" = "$c" ] \&\& return 0; echo/'; then
+    tt "teeth: number-based drop makes the own-number AMBIG object vanish (ok instead of ok-partial)" 0 0 "$m" --orig "$SUT" \
+      --good-has 'ok-partial +1 declared correction' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/selfamb1"
   fi
 fi
 

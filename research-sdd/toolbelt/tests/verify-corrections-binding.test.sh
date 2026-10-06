@@ -489,7 +489,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth (round 3): list edges, corrigendum never silent, two-ref corrigendum, upper-case Ó, ok-partial --"
   m="$TMP/vc.WHILE.sh"
-  if mk_mut "teeth: while to if" "$SUT" "$m" 's/while (match(rest, /if (match(rest, /'; then
+  if mk_mut "teeth: while to if" "$SUT" "$m" '/function more(cl/,/^    }/ s/while (match(rest, /if (match(rest, /'; then
     tt "teeth: single-step list mutant keeps only 2 targets (loses [Block 3] of a 3-list)" 1 1 "$m" --orig "$SUT" \
       --good-has 'B64 corrects \[Block 3\] ' --bad-has 'B64 corrects \[Block 2\] ' --bad-lacks 'B64 corrects \[Block 3\] |awk: ' -- bash @SUT@ "$TMP/multi-3"
   fi
