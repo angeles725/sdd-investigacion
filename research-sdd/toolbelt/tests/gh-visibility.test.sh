@@ -255,6 +255,9 @@ c_pgid_verify() { # LIB — setsid present but pgid cannot be verified (no ps) o
     has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "pgid" || return 1
   done
 }
+# RUNB — per-run unique base for the watchdog bounds (6 digits, so it passes the RSDD_GH_TIMEOUT validation): the `sleep N`
+# patterns below cannot match a sibling worktree's run, and nothing outside this run's own N is ever pkilled.
+RUNB=$((600000 + RANDOM))
 # sleeps_gone N — poll ~3s for NO process `sleep N` (the watchdog's own sleep, N = the unique RSDD_GH_TIMEOUT of the case);
 # always reaps what is left, so a failing case never leaves a live watchdog behind.
 sleeps_gone() {
@@ -277,14 +280,14 @@ sigcase() {
   return "$rc"
 }
 c_sig() { # LIB — SIGTERM/SIGHUP to the CALLER during a watchdog-bounded run kills the group AND disarms the watchdog
-  sigcase "$1" 'gh_bounded_run gh repo create o/r' 61 TERM && sigcase "$1" 'gh_bounded_run gh repo create o/r' 62 HUP
+  sigcase "$1" 'gh_bounded_run gh repo create o/r' $((RUNB+1)) TERM && sigcase "$1" 'gh_bounded_run gh repo create o/r' $((RUNB+2)) HUP
 }
 c_sig_probe() { # LIB — the same for gh_visibility_probe
-  sigcase "$1" 'gh_visibility_probe gh o/r' 63 TERM
+  sigcase "$1" 'gh_visibility_probe gh o/r' $((RUNB+3)) TERM
 }
 c_sig_subst() { # LIB — a signal to a run INSIDE $(...) must not kill the top-level shell (re-raise on BASHPID, not $$)
   local lib="$1" pf="$TMP/gc-sub.pid" of="$TMP/sub.out" bp sp i rc=0; rm -f "$pf" "$of"
-  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=64 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; x="$(gh_bounded_run gh repo create o/r)"; echo AFTER' _ "$lib" >"$of" 2>&1 &
+  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=$((RUNB+4)) PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; x="$(gh_bounded_run gh repo create o/r)"; echo AFTER' _ "$lib" >"$of" 2>&1 &
   bp=$!; i=0
   while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
   sp="$(pgrep -P "$bp" 2>/dev/null | head -n 1)"
@@ -292,13 +295,26 @@ c_sig_subst() { # LIB — a signal to a run INSIDE $(...) must not kill the top-
   wait "$bp" 2>/dev/null
   grep -q AFTER "$of" 2>/dev/null || rc=1
   gone "$pf" || rc=1
-  sleeps_gone 64 || rc=1
+  sleeps_gone $((RUNB+4)) || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+c_sig_nonexit() { # LIB — the caller's restored trap does NOT exit: typed CALLER_SIGNALLED, never TIMEOUT; group + watchdog gone
+  local lib="$1" pf="$TMP/gc-nx.pid" of="$TMP/nx.out" bp i rc=0 n=$((RUNB+5)); rm -f "$pf" "$of"
+  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_WDG" "$BASH_BIN" -c 'trap "echo CAUGHT" TERM; . "$1"; gh_bounded_run gh repo create o/r; echo "STATE=$GHV_STATE"' _ "$lib" >"$of" 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+  kill -TERM "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+  has "$(cat "$of" 2>/dev/null)" "STATE=CALLER_SIGNALLED" || rc=1
+  ! has "$(cat "$of" 2>/dev/null)" "STATE=TIMEOUT" || rc=1
+  gone "$pf" || rc=1
+  sleeps_gone "$n" || rc=1
   kill -KILL "$bp" 2>/dev/null
   return "$rc"
 }
 c_gone_unverified() { # LIB — a leader that is already gone is NOT a verified group: child-only (nothing to sweep)
   local r; r="$(PATH="$B_SLOWPS" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$1" 2>&1)"
-  has "$r" "GROUP=child-only NOTE=DEGRADED"
+  has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "already exited" && ! has "$r" "could not verify"
 }
 c_trap_restored() { # LIB — a caller's own TERM trap is intact after a watchdog-bounded run, and no lib trap is left behind
   local r; r="$(PATH="$B_WDG" GH_OUT=x "$BASH_BIN" -c 'trap "echo mine" TERM; . "$1"; gh_bounded_run gh repo create o/r >/dev/null; trap -p TERM; trap -p INT; trap -p HUP' _ "$1" 2>&1)"
@@ -312,6 +328,7 @@ if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
   c_sig_probe "$LIB"         && ok "31 SIGTERM to the caller kills the group of a watchdog-bounded probe" || no "31 signal trap (probe)"
   command -v pgrep >/dev/null 2>&1 || no "30-33 need pgrep on the host to prove the watchdog is disarmed"
   c_sig_subst "$LIB"         && ok "33 a signal inside \$(...) kills only that subshell, not the top-level shell; watchdog and group gone" || no "33 re-raise inside command substitution"
+  c_sig_nonexit "$LIB"       && ok "35 caller trap that does not exit -> CALLER_SIGNALLED (not TIMEOUT), group and watchdog gone" || no "35 non-exiting caller trap"
   c_gone_unverified "$LIB"   && ok "34 leader already gone -> unverified -> child-only + DEGRADED note" || no "34 gone leader treated as verified"
   c_trap_restored "$LIB"     && ok "32 the caller's own traps are restored after the run" || no "32 trap restore"
 fi
@@ -344,21 +361,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -n "$REAL_TO" ]; then
     tooth run-timeout-state c_run_slow_to 's/if \[ "\$rc" = 124 \]; then GHV_STATE=TIMEOUT$/if false; then GHV_STATE=TIMEOUT/'
     tooth run-watchdog-143  c_run_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124$/:/'
-    tooth run-watchdog-nokill c_run_slow_wd 's/wait "\$sp"; _ghv_sig TERM "\$1" "\$3"$/wait "$sp"; :/;s/_ghv_sig KILL "\$1" "\$3" )/: )/'
+    tooth run-watchdog-nokill c_run_slow_wd 's/& wait; _ghv_sig TERM "\$1" "\$3"$/\& wait; :/;s/_ghv_sig KILL "\$1" "\$3" )/: )/'
     tooth run-no-kill-escalation c_run_term_wd 's/_ghv_sig KILL "\$1" "\$3" )/: )/'
     tooth run-no-k-flag      c_run_term_to 's/"\$bounder" -k 2 "\$t"/"$bounder" "$t"/'
     tooth run-knob-ignored   c_run_knob 's/benv="\${GHV_BOUND_ENV:-RSDD_GH_TIMEOUT}"/benv=RSDD_GH_TIMEOUT/'
     if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
       tooth sweep-bare-fallback  c_nobare   's/kill -KILL -- "-\$1" 2>\/dev\/null || :/kill -KILL -- "-$1" 2>\/dev\/null || kill -KILL "$1" 2>\/dev\/null/'
       tooth sweep-childonly-runs c_nosweep_childonly 's/\[ -n "\$2" \] || return 0/:/'
-      tooth verify-skipped       c_pgid_verify 's/if \[ -n "\$grpflag" \] \&\& ! _ghv_verify_group "\$pid"; then/if false; then/g'
+      tooth verify-skipped       c_pgid_verify 's/_ghv_verify_group "\$pid" || {/true || {/g'
       tooth verify-no-compare    c_pgid_verify 's/\[ "\$pg" = "\$1" \] \&\& return 0/return 0/'
       tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
       tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
       tooth handler-no-disarm    c_sig      's/^    kill "\$4" 2>\/dev\/null || :/    :/'
       tooth handler-no-disarm-p  c_sig_probe 's/^    kill "\$4" 2>\/dev\/null || :/    :/'
       tooth reraise-dollar-dollar c_sig_subst 's/kill -s "\$1" "\$BASHPID"/kill -s "$1" "$$"/'
-      tooth gone-is-verified     c_gone_unverified 's/kill -0 "\$1" 2>\/dev\/null || return 1/kill -0 "$1" 2>\/dev\/null || return 0/'
+      tooth gone-is-verified     c_gone_unverified 's/kill -0 "\$1" 2>\/dev\/null || return 2/kill -0 "$1" 2>\/dev\/null || return 0/'
+      tooth gone-check-deleted   c_gone_unverified 's/^      kill -0 "\$1" 2>\/dev\/null || return 2.*$/      :/'
+      tooth signalled-flag-lost  c_sig_nonexit 's/^    _GHV_SIGNALLED="\$1" .*$/    :/'
+      tooth watchdog-trap-no-jobs c_sig    's/kill \$(jobs -p) 2>\/dev\/null; exit 0/exit 0/'
       tooth trap-not-restored    c_trap_restored 's/^      _ghv_restore_traps$/      :/'
       tooth group-flag-dropped   c_gc_run   's/grpflag=group/grpflag=""/g'
       tooth group-flag-dropped-p c_gc_probe 's/grpflag=group/grpflag=""/g'
