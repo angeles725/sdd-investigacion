@@ -43,7 +43,8 @@ else no "real noun backlink :: $(grep -E 'B292' <<<"$rout" | tr '\n' '|')"; fi
 #      word `correction` in prose, or the noun with the right ref only later in the line are NOT backlinks.
 nb_ok=1; nb_bad=""; i=0
 for _s in '> **CORRECCIÓN (2026-07-26) — [Block 99].** body.' 'A correction of the earlier claim was considered, see B4.' \
-          '> Correction: the claim was revised; see the history of [Block 4] for details.' '> Correction (2026-01-01) of B4 is pending.'; do
+          '> Correction: the claim was revised; see the history of [Block 4] for details.' '> Correction (2026-01-01) of B4 is pending.' \
+          'Correction: [Block 4] was wrong about the default.' 'Correction — [Block 4] was wrong about the default.' 'A miscorrection — [Block 4].'; do
   i=$((i+1)); d="$TMP/nb-neg$i"; pblank "$d" t 8; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 8] §1.\n'
   printf '\n%s\n' "$_s" >> "$d/t-block8.md"
   grep -qE 'FAIL +B4 corrects \[Block 8\] ' < <(run "$d") || { nb_ok=0; nb_bad="$nb_bad [$i]"; }
@@ -53,7 +54,7 @@ else no "noun-neg :: $nb_bad"; fi
 # 1c — the accepted noun shapes, in FIRST / MIDDLE / LAST line position (no trailing newline on the last), Spanish + English,
 #      with and without the parenthetical tag, separator and bold markers.
 nb_ok=1; nb_bad=""; i=0
-for _s in '**CORRECCIÓN (2026-07-26) — [Block 4].** body' 'Correction (2026-01-01): [Block 4] revised this.' '> Corrección — [Bloque 4] §4.2' 'CORRECTION [Block 4].' 'correcci\303\263n - [Block 04]'; do
+for _s in '**CORRECCIÓN (2026-07-26) — [Block 4].** body' 'Correction (2026-01-01) — [Block 4].' '> Corrección — [Bloque 4] §4.2' 'CORRECTION [Block 4].' 'correcci\303\263n - [Block 04]'; do
   i=$((i+1))
   for _pos in first middle last; do
     d="$TMP/nb-pos$i$_pos"; mkdir -p "$d"; pmk "$d" t 4 '# Block 4\n\n> Corrects [Block 8] §1.\n'
@@ -95,17 +96,36 @@ out="$(run "$d")"
 if grep -qE 'FAIL +B9 corrects \[Block 5\] ' <<<"$out" && grep -qE 'FAIL +B9 corrects \[Block 6\] ' <<<"$out"; then ok "forward joined list: every ref still checked (FAIL x2)"
 else no "jl-fwd :: $(tr '\n' '|' <<<"$out")"; fi
 
+# 2e — the backward walk of a postfix list stops at a sentence break (`. `, `;`, `·`): `Per [Block 3]. And [Block 1] (which corrects §2)`
+#      declares [Block 1] only; [Block 3] is a different sentence.
+sb_ok=1; sb_bad=""; i=0
+for _s in 'Per [Block 3]. And [Block 1] (which corrects §2).' 'Per [Block 3]; and [Block 1] (which corrects §2).' 'Per [Block 3] · and [Block 1] (which corrects §2).'; do
+  i=$((i+1)); d="$TMP/sb$i"; pblank "$d" t 1 3; pmk "$d" t 9 '# Block 9\n\n> %s\n' "$_s"
+  out="$(run "$d")"
+  { grep -qE 'FAIL +B9 corrects \[Block 1\] ' <<<"$out" && ! grep -qE 'B9 corrects \[Block 3\]' <<<"$out"; } || { sb_ok=0; sb_bad="$sb_bad [$i]"; }
+done
+if [ "$sb_ok" = 1 ]; then ok "postfix list walk stops at '. ' / ';' / '·': the earlier sentence's ref is not the declaration"; else no "sentence-break :: $sb_bad"; fi
+
 # 3 — NEGATIONS (real niagara-mental-model-bloque406.md:406, bloque408.md:538): declare nothing, not even AMBIG.
-if ! grep -qE 'B406|B408' <<<"$(grep -E '^ *(FAIL|AMBIG|WARN)' <<<"$rout")" && grep -qE 'negated' <<<"$rout"; then
-  ok "real B406/B408: 'corrects nothing in B21' / 'Corrects no claim in B402' → no FAIL/AMBIG/WARN, counted in a typed note"
+if ! grep -qE 'B406|B408' <<<"$(grep -E '^ *(FAIL|AMBIG|WARN)' <<<"$rout")" && grep -qE 'negated.*: B406, B408' <<<"$rout" && grep -qE 'ok-partial +3 declared' <<<"$rout"; then
+  ok "real B406/B408: 'corrects nothing in B21' / 'Corrects no claim in B402' → no FAIL/AMBIG/WARN; a note names B406, B408 and ok-partial counts them"
 else no "real negation :: $(grep -E 'B406|B408|negat' <<<"$rout" | tr '\n' '|')"; fi
 ng_ok=1; ng_bad=""; i=0
 for _s in 'This corrects nothing in [Block 8].' 'Corrects no claim in [Block 8].' 'No corrige nada en [Block 8].' 'Esto no corrige [Block 8].' 'It never corrects [Block 8].' 'Corrige ninguna afirmación de [Block 8].'; do
   i=$((i+1)); d="$TMP/neg$i"; pblank "$d" t 8; pmk "$d" t 4 '# Block 4\n\n> %s\n' "$_s"
   out="$(run "$d")"
-  { [ "$(code "$d")" = 0 ] && ! grep -qE '^ *(FAIL|AMBIG|WARN)' <<<"$out" && grep -qE 'ok +every declared' <<<"$out"; } || { ng_ok=0; ng_bad="$ng_bad [$i]"; }
+  { [ "$(code "$d")" = 0 ] && ! grep -qE '^ *(FAIL|AMBIG|WARN)' <<<"$out" && grep -qE 'negated.*: B4$' <<<"$out" && grep -qE 'ok-partial +1 declared' <<<"$out"; } || { ng_ok=0; ng_bad="$ng_bad [$i]"; }
 done
-if [ "$ng_ok" = 1 ]; then ok "6 negation shapes (EN/ES, leading and trailing) declare nothing: exit 0, plain ok, no FAIL/AMBIG/WARN"; else no "neg :: $ng_bad"; fi
+if [ "$ng_ok" = 1 ]; then ok "6 negation shapes (EN/ES, leading and trailing) declare nothing: exit 0, no FAIL/AMBIG/WARN, named in the note and counted in ok-partial"; else no "neg :: $ng_bad"; fi
+# 3a — SWALLOWED DECLARATIONS (Opus gate): `no`/`nothing` right after the verb that does NOT negate it must stay a declaration.
+sw_ok=1; sw_bad=""; i=0
+for _s in 'Corrects no longer valid claim in [Block 21].' 'Corrects nothing but the date in [Block 21].' 'Corrige no solo [Bloque 21] sino también [Bloque 22].' \
+          'Corrects no fewer than three claims in [Block 21].' 'Corrige nada excepto la fecha de [Block 21].' 'Corrects none other than [Block 21].'; do
+  i=$((i+1)); d="$TMP/swal$i"; pblank "$d" t 21 22; pmk "$d" t 4 '# Block 4\n\n> %s\n' "$_s"
+  out="$(run "$d")"
+  { grep -qE 'FAIL +B4 corrects \[Block 21\] ' <<<"$out" && ! grep -q 'negated' <<<"$out"; } || { sw_ok=0; sw_bad="$sw_bad [$i]"; }
+done
+if [ "$sw_ok" = 1 ]; then ok "6 shapes where no/nothing does not negate the verb ('no longer', 'nothing but', 'no solo', 'no fewer', 'excepto') stay declarations (FAIL)"; else no "swallowed :: $sw_bad"; fi
 # 3b — a negation word that does NOT negate the verb must not hide a real declaration.
 nn_ok=1; nn_bad=""; i=0
 for _s in 'Corrects [Block 8] §1, no longer valid.' 'No further notes; corrects [Block 8] §1.' 'Corrige [Block 8], nada más.'; do
@@ -221,7 +241,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   m="$TMP/vc.NEGPRE.sh"
   if mk_mut "teeth: leading negation" "$SUT" "$m" 's/(no|nunca|never|tampoco)\[ \\t\]+\$/(zzzz)[ \\t]+$/'; then
     tt "teeth: pre-verb-blind mutant loses 'Esto no corrige [Block 8]'" 0 1 "$m" --orig "$SUT" \
-      --good-has 'ok +every declared' --bad-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/neg4"
+      --good-has 'ok-partial +1 declared' --bad-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/neg4"
+  fi
+
+  echo "-- teeth (Opus gate): narrowed negation, sentence-bounded list walk, noun cue --"
+  m="$TMP/vc.WIDENEG.sh"
+  if mk_mut "teeth: narrow negation" "$SUT" "$m" 's/function negpost(post,   w) {/function negpost(post,   w) { if (post ~ \/^[ \\t]+(nothing|no|none|nada)[ \\t]\/) return 1/'; then
+    tt "teeth: wide-negation mutant swallows 'Corrects nothing but the date in [Block 21]'" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 21\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/swal2"
+  fi
+  m="$TMP/vc.NOBREAK.sh"
+  if mk_mut "teeth: list walk break" "$SUT" "$m" 's/if (g ~ \/\\.\[ \\t\]\/ || g ~ \/;\/ || index(g, "\\302\\267")) break/if (0) break/'; then
+    tt "teeth: break-less walk makes the earlier sentence's [Block 3] the declaration" 1 1 "$m" --orig "$SUT" \
+      --good-lacks 'B9 corrects \[Block 3\]' --bad-has 'FAIL +B9 corrects \[Block 3\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/sb1"
+  fi
+  m="$TMP/vc.NOCUE.sh"
+  if mk_mut "teeth: noun cue" "$SUT" "$m" 's/^_vc_noun_tail=.*/_vc_noun_tail="[[:space:]]*\\]"/'; then
+    tt "teeth: cue-less mutant accepts 'Correction — [Block 4] was wrong' as a backlink (the pair stops failing)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg6"
+  fi
+  m="$TMP/vc.NOLEFTB.sh"
+  if mk_mut "teeth: noun left boundary" "$SUT" "$m" 's/^_vc_noun_re=.(^|\[^\[:alnum:\]_\])/_vc_noun_re='"'"'/'; then
+    tt "teeth: boundary-less mutant accepts 'A miscorrection — [Block 4].' as a backlink" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg7"
   fi
 
   echo "-- teeth (#1874 item 4): bracketed ref after a leading bare ref --"

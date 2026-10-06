@@ -385,7 +385,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --bad-has 'FAIL +B300 corrects \[Block 292\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare"
   fi
   m="$TMP/vc.PARTIAL.sh"
-  if mk_mut "teeth: ambiguous counts as partial" "$SUT" "$m" 's/_vc_partial=$((unchecked+ambiguous))/_vc_partial=$unchecked/'; then
+  if mk_mut "teeth: ambiguous counts as partial" "$SUT" "$m" 's/_vc_partial=$((unchecked+ambiguous+negated))/_vc_partial=$unchecked/'; then
     tt "teeth: ambiguous-blind verdict reads an unqualified ok over an AMBIG line" 0 0 "$m" --orig "$SUT" \
       --good-has 'ok-partial' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/q-ghost"
   fi

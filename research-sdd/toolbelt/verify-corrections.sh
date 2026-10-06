@@ -63,7 +63,11 @@ _vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:
 # noun alone is prose ("a correction was considered"), so the shape is strict: `corrección`/`correction`, an optional
 # parenthetical tag, an optional dash/colon, then DIRECTLY the `[Block N]` ref of the correcting block (N is appended per pair).
 # Both cases of the accented capital are spelled out: `grep -i` does not fold `Ó` under every locale.
-_vc_noun_re='(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-|:)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
+# Three guards keep it from reading a FORWARD correction as a backlink (`Correction: [Block 8] was wrong` says the target
+# corrects block 8): a left word boundary (no `miscorrection`), no colon (a colon introduces the corrected thing), and a CUE
+# after the ref: it must close its sentence or be followed by a `§` locator (`— [Block 292].**`, `— [Block 292] §292.5.**`).
+_vc_noun_re='(^|[^[:alnum:]_])(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
+_vc_noun_tail='[[:space:]]*\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.,;:)]|$)'
 
 # FOCUSES.md (anywhere under the target, depth <= 3): focus slug -> block prefix, so a cross-focus qualifier such as
 # "corrects `integration` [Block 5]" resolves to the focus's own prefix (#1868 item 1). Row shape:
@@ -102,7 +106,10 @@ command -v awk >/dev/null 2>&1 || { echo "verify-corrections: degraded: awk not 
 #      The first ref wins, so a trailing cross-reference is never a target.
 #   3. POSTFIX (`[Block 1] (the claim §17.7 corrects) · [Block 11] (…)`): the verb sits inside a parenthetical and
 #      no ref follows it before that parenthetical closes, so it governs the ref the parenthetical annotates,
-#      i.e. the [Block N] immediately before its opening `(`.
+#      i.e. the [Block N] immediately before its opening `(`. When that ref ends a JOINED list (`[Block 50]/[Block 51]
+#      (corrige …)`, joiners as in 2., the walk back stopping at a `;`, `·` or sentence-ending `. `), the clause attaches
+#      to the list as a whole: only the FIRST ref of the list is the declaration and every later one is `A list <n>`
+#      (#1874 item 2; see postlist).
 #   Output: one typed record per line (the caller owns the wording), never a bare number:
 #     `T <n>`            a plain declared target
 #     `Q <n> <slug>`     a target qualified by a focus slug (`corrects \`integration\` [Block 5]`, #1868 item 1)
@@ -230,11 +237,25 @@ _vc_extract() {
       first = nn
       while (first > 1) {
         g = substr(t, lre[first - 1] + 1, lrs[first] - lre[first - 1] - 1)
+        if (g ~ /\.[ \t]/ || g ~ /;/ || index(g, "\302\267")) break     # a sentence break ends the list, as in the forward scan
         gsub("\302\247", "", g); gsub("\342\200\223", "-", g)
         if (g ~ /^[ \t0-9.,-]*(and|y|e|&|\/)[ \t0-9.,-]*$/) first--; else break
       }
       emit(lrn[first])
       for (k = first + 1; k <= nn; k++) { sv = cls; if (cls == "") cls = "list"; emit(lrn[k]); cls = sv }
+    }
+    # negpost(post): 1 when the text right after the verb NEGATES it (#1874 item 3, narrowed after the Opus gate). `nothing`/`none`/`nada`
+    # negate unless followed by an exception (`nothing but`, `none other than`, `nada excepto`, `nada más que`); `no`/`ninguna?`
+    # negate only as `no <noun> in/of/en/de` (`no claim in [Block 8]`), never `no longer`, `no only`, `no solo`, `no fewer/less/more`.
+    function negpost(post,   w) {
+      if (match(post, /^[ \t]+(nothing|none|nada)([ \t,.;]|$)/)) {
+        return !(post ~ /^[ \t]+(nothing|none|nada)[ \t]+(but|except|salvo|excepto|other|m[^ \t]*s[ \t]+que)/)
+      }
+      if (match(post, /^[ \t]+(no|ninguna?)[ \t]+[^ \t]+[ \t]+(in|of|en|de|del|about|sobre)[ \t]/)) {
+        w = substr(post, RSTART, RLENGTH); sub(/^[ \t]+(no|ninguna?)[ \t]+/, "", w); sub(/[ \t].*$/, "", w)
+        return !(w ~ /^(longer|only|solo|fewer|less|menos|more|than|further|m[^ \t]*s|s[^ \t]*lo)$/)
+      }
+      return 0
     }
     # trailq(post): 1 (and sets qcur/qkind) when post starts with a focus qualifier `of the focus `x``/`of the `x` focus`/`in `x``.
     function trailq(post,   qm, qt) {
@@ -310,7 +331,7 @@ _vc_extract() {
         # NEGATIONS declare nothing (#1874 item 3): `corrects nothing in B21`, `Corrects no claim in B402`, `no corrige`,
         # `never corrects`. Only the word right before / right after the VERB negates it (the corrigendum noun has its own rule above) ("no longer valid" later in the
         # sentence does not). Counted and surfaced as a note by the caller, like the non-assertive forms.
-        if (!isnoun && (pre ~ /(^|[^a-z0-9_\200-\377])(no|nunca|never|tampoco)[ \t]+$/ || substr(l, ve) ~ /^[ \t]+(nothing|no|none|nada|ninguna?)[ \t]/)) {
+        if (!isnoun && (pre ~ /(^|[^a-z0-9_\200-\377])(no|nunca|never|tampoco)[ \t]+$/ || negpost(substr(l, ve)))) {
           print "N"; p = ve; continue
         }
         d = 0; bd = ""
@@ -370,7 +391,7 @@ _vc_extract() {
   ' "$1"
 }
 
-rc=0; unbound=0; negated=0; skipped=0; unchecked=0; ambiguous=0; skipnames=""
+rc=0; unbound=0; negated=0; negnames=""; skipped=0; unchecked=0; ambiguous=0; skipnames=""
 # amb <class-text> — one typed AMBIG line (#1868): an inferential binding the linter will not turn into a refusal. The
 # caller (research-sdd-archive.sh) tells these apart from FAIL lines by the `AMBIG` token and counts them as PARTIAL.
 amb() { echo "   AMBIG  B$c corrects [Block $n] — $1; NOT checked as a declaration (typed ambiguous, not a refusal) [correcting: $(basename "$f")]"; ambiguous=$((ambiguous+1)); }
@@ -388,7 +409,7 @@ for f in "${blocks[@]}"; do
     case "$rec" in
       U) unbound=$((unbound+1)); continue ;;
       S) skipped=$((skipped+1)); skipnames="${skipnames:+$skipnames, }B$c"; continue ;;
-      N) negated=$((negated+1)); continue ;;
+      N) negated=$((negated+1)); negnames="${negnames:+$negnames, }B$c"; continue ;;
       T\ *) n="${rec#T }" ;;
       Q\ *) read -r _ n qual qkind <<<"$rec" ;;
       A\ *) read -r _ cls n <<<"$rec" ;;
@@ -447,7 +468,7 @@ for f in "${blocks[@]}"; do
     # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
     if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then
       : # reciprocated
-    elif grep -qiE "${_vc_noun_re}${c}[[:space:]]*\\]" "$tgt" 2>/dev/null; then
+    elif grep -qiE "${_vc_noun_re}${c}${_vc_noun_tail}" "$tgt" 2>/dev/null; then
       : # reciprocated by the corrigendum NOUN shape (#1874 item 1)
     elif [ "$cls" = bare ] || [ "$cls" = mixed ]; then
       amb "$_vc_rd with no reciprocal backlink in $(basename "$tgt") (advisory: a ${_vc_adv} ref is checked, never refused)"
@@ -459,12 +480,12 @@ for f in "${blocks[@]}"; do
 done
 
 [ "$unbound" -eq 0 ] || echo "   note   $unbound correction verb(s) governed no bracketed [Block N] ref in their own clause (unbound, or a word that merely contains the verb) and were NOT checked (#1790)"
-[ "$negated" -eq 0 ] || echo "   note   $negated correction verb(s) were negated ('corrects nothing in B21', 'no corrige') and declare nothing (#1874)"
+[ "$negated" -eq 0 ] || echo "   note   $negated correction verb(s) were negated ('corrects nothing in B21', 'no corrige') and declare nothing (#1874): $negnames"
 [ "$skipped" -eq 0 ] || echo "   note   $skipped correction verb(s) in a non-assertive form (passive 'se corrige', conditional, or past tense) were skipped, not treated as declarations (#1835): $skipnames"
 if [ "$rc" -eq 0 ]; then
-  _vc_partial=$((unchecked+ambiguous))
+  _vc_partial=$((unchecked+ambiguous+negated))
   if [ "$_vc_partial" -eq 0 ]; then echo "   ok     every declared correction has its reciprocal 'corrected in BN' backlink."
-  else echo "   ok-partial $_vc_partial declared correction(s) NOT checked (ambiguous/missing target: $ambiguous AMBIG, $unchecked WARN) — see WARN/AMBIG above"; fi
+  else echo "   ok-partial $_vc_partial declared correction(s) NOT checked (ambiguous/missing target: $ambiguous AMBIG, $unchecked WARN; $negated negated) — see WARN/AMBIG above"; fi
 fi
 echo "== exit $rc =="
 exit $rc
