@@ -423,7 +423,6 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth/mutant_cleanup_register/mutant_*_or_count" >&2; exit 2; }
   # The mutants are python/json files: skip the bash -n check (empty, identical, live-tree,
   # symlink and dead-stage refusals still apply).
-  export MUTANT_SYNTAX=none
   # The lane's own EXIT trap (ROOT cleanup) is chained by the registry, never replaced.
   _MUT="$(mktemp -d)"; mutant_cleanup_register "$_MUT"
   _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
@@ -433,7 +432,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # (counted as a failure) when the mutant was refused, so its tooth never runs.
   mut_py() {
     if ! { mkdir -p "$_MUT/$2" && cp -R "$TOOLBELT/lib" "$_MUT/$2/lib"; }; then fail=$((fail+1)); return 1; fi
-    mutant_chain_or_count fail "$1" "$SUT_PY" "$_MUT/$2/corroborate_firmware.py" "$3"   # counts a refusal exactly once
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$1" "$SUT_PY" "$_MUT/$2/corroborate_firmware.py" "$3"   # counts a refusal exactly once
   }
 
   # tooth-require_private: remove 'ext4' from PRIVATE_FS so an ext4 mount is rejected instead of
@@ -491,7 +490,7 @@ import json, sys
 t = json.load(open(sys.argv[1])).get("counts", {}).get("findings_total")
 print("VERDICT: F5 holds" if t == 3 else f"VERDICT: F5 RED findings_total={t}")
 PY
-    if mutant_built_or_count fail "tooth-cap-line-239" "$_FIX_CAPPED" "$_MUT/mutant-capped.json"; then
+    if MUTANT_SYNTAX=none mutant_built_or_count fail "tooth-cap-line-239" "$_FIX_CAPPED" "$_MUT/mutant-capped.json"; then
       _tt "tooth-cap-line-239: mutant fixture (total=emitted=2) → F5 total==3 assertion RED (bites)" 0 0 "$_MUT/mutant-capped.json" --orig "$_FIX_CAPPED" \
         --good-has '^VERDICT: F5 holds$' --bad-has '^VERDICT: F5 RED findings_total=2$' --bad-lacks '^VERDICT: F5 holds$' -- \
         python3 "$_MUT/h3.py" @SUT@

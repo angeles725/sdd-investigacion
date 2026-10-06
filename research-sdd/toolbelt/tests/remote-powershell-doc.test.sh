@@ -102,11 +102,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh missing mutant_chain" >&2; exit 2; }
-  export MUTANT_SYNTAX=none   # mutants are markdown, not bash
   MDIR="$(mktemp -d)"; mutant_cleanup_register "$MDIR"
   tooth() { # tooth LABEL SED_EXPR
     local m="$MDIR/$1.md" out n
-    if ! mutant_chain "$1" "$DOC" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
+    if ! MUTANT_SYNTAX=none mutant_chain "$1" "$DOC" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi   # markdown mutant: =none skips bash -n
     out="$(check_doc "$m")"            # subshell: the mutant's FAILs do not pollute our counters
     n="$(printf '%s\n' "$out" | grep -c '^  FAIL  ')"
     if [ "$n" -gt 0 ]; then ok "tooth $1 bites ($n assertion(s) red)"; else bad "tooth $1: mutant stayed green"; fi
@@ -123,7 +122,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   export RPS_DOC="$DOC"
   stooth() { # stooth LABEL SED_EXPR
     local m="$MDIR/$1.sh" out n
-    # MUTANT_SYNTAX=bash re-arms the `bash -n` refusal (the global =none above is for the markdown mutants).
+    # MUTANT_SYNTAX=bash keeps the `bash -n` refusal for these shell mutants (markdown mutants scope =none per call).
     if ! MUTANT_SYNTAX=bash mutant_chain "$1" "$HERE/$(basename "$0")" "$m" "$2"; then bad "tooth $1: mutant refused"; return; fi
     out="$(degraded_control "$m")"
     n="$(printf '%s\n' "$out" | grep -c '^  FAIL  ')"

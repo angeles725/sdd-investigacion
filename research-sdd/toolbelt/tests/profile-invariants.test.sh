@@ -107,7 +107,6 @@ source "$LIB"
 . "$HERE/lib/mutant.sh"
 typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
   || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built ($HERE/lib/mutant.sh)" >&2; exit 2; }
-export MUTANT_SYNTAX=none
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -575,13 +574,13 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # mk_sed_from ORIG LABEL OUT EXPR  build OUT from ORIG with one sed EXPR (mutant_chain); false (and a FAIL) when refused.
   mk_sed_from() {
     local orig="$1" label="$2" out="$3" e="$4"
-    mutant_chain "$label" "$orig" "$out" "$e" && return 0
+    MUTANT_SYNTAX=none mutant_chain "$label" "$orig" "$out" "$e" && return 0
     fail=$((fail+1)); return 1
   }
   # mk_verify_from ORIG LABEL OUT  validate a mutant built another way (python3, append) with the same refusals.
   mk_verify_from() {
     local orig="$1" label="$2" out="$3"
-    mutant_built "$label" "$orig" "$out" && return 0
+    MUTANT_SYNTAX=none mutant_built "$label" "$orig" "$out" && return 0
     fail=$((fail+1)); return 1
   }
 

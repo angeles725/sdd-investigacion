@@ -1042,7 +1042,6 @@ py_rc=$?
 for _f in mutant_chain mutant_tooth; do
   declare -F "$_f" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_f" >&2; exit 2; }
 done
-export MUTANT_SYNTAX=none   # Python SUT: bash -n does not apply; compile() below instead
 py_p=0; py_f=0
 if [ -r "$TEETH_COUNTS" ] && read -r py_p py_f <"$TEETH_COUNTS" && [[ "$py_p" =~ ^[0-9]+$ && "$py_f" =~ ^[0-9]+$ ]]; then :; else
   echo "  FAIL  teeth: python section left no counts file [$TEETH_COUNTS]"; py_p=0; py_f=1
@@ -1060,7 +1059,7 @@ stage() {  # stage <name>: copy lib/*.py and the top-level modules into $MUT/<na
 # skips the tooth.
 build() {
   if ! stage "$2"; then echo "  FAIL  $1: staging the mini-tree failed"; b_fail=$((b_fail+1)); return 1; fi
-  if ! mutant_chain "$1" "$CORE" "$MUT/$2/lib/vm_boot_core.py" "$3"; then b_fail=$((b_fail+1)); return 1; fi
+  if ! MUTANT_SYNTAX=none mutant_chain "$1" "$CORE" "$MUT/$2/lib/vm_boot_core.py" "$3"; then b_fail=$((b_fail+1)); return 1; fi
   if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$MUT/$2/lib/vm_boot_core.py"; then
     echo "  FAIL  $1: mutant does not compile"; b_fail=$((b_fail+1)); return 1
   fi
