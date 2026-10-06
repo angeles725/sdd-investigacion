@@ -445,6 +445,49 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   # ids compare as numbers, not strings (9 < 10)
   mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::9 shellcheck:completed:success:1::10
   runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: ids compare numerically (10 beats 9)" 0 '^merge-gate: merged: PR #7'
+  # --- #1864: a superseded CANCELLED run (concurrency-group cancel, then a rerun) is a typed note, never a pass or a failure ---
+  # The latest run per (name, app.id) decides; an older cancelled run next to it only prints `note: superseded cancelled run ...`.
+  NOTE1='^merge-gate: note: superseded cancelled run of shellcheck \(check-run id 10, superseded by id 20\)$'
+  for pos in first middle last; do
+    old="shellcheck:completed:cancelled:1:t1:10"; new="shellcheck:completed:success:1:t2:20"
+    pad1="pr-validation:completed:success:1:t0:1"; pad2="other:completed:success:1:t0:2"
+    case "$pos" in
+      first)  mkchecks "$ROOT/ck/c.json" "$old" "$pad1" "$pad2" "$new" ;;
+      middle) mkchecks "$ROOT/ck/c.json" "$pad1" "$old" "$pad2" "$new" ;;
+      last)   mkchecks "$ROOT/ck/c.json" "$pad1" "$pad2" "$new" "$old" ;;
+    esac
+    runck "$S" "$ROOT/ck/c.json"
+    expect "CI cancelled-then-success -> merges (cancelled listed $pos)" 0 '^merge-gate: merged: PR #7'
+    expect "CI cancelled-then-success prints the superseded note (listed $pos)" 0 "$NOTE1"
+  done
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t2:20 shellcheck:completed:cancelled:1:t1:10
+  runck "$S" "$ROOT/ck/c.json"; expect "CI cancelled-then-success, newer listed first -> merges" 0 '^merge-gate: merged: PR #7'
+  expect "CI cancelled-then-success, newer listed first -> note" 0 "$NOTE1"
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t1:10 shellcheck:completed:cancelled:1:t2:20
+  : > "$ROOT/log"; runck "$S" "$ROOT/ck/c.json"
+  expect "CI success-then-cancelled -> ci_failed (latest run cancelled)" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI success-then-cancelled"
+  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI success-then-cancelled prints no superseded note (the cancelled run is the latest)"; else no "CI success-then-cancelled printed a note ($OUT)"; fi
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:1:t1:10
+  : > "$ROOT/log"; runck "$S" "$ROOT/ck/c.json"
+  expect "CI only-cancelled -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI only-cancelled"
+  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI only-cancelled prints no superseded note"; else no "CI only-cancelled printed a note ($OUT)"; fi
+  # a superseded cancelled run does not hide a genuine failure elsewhere, and the note still prints on the refuse path
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:1:t1:10 shellcheck:completed:success:1:t2:20 pr-validation:completed:failure:1:t0:1
+  runck "$S" "$ROOT/ck/c.json"
+  expect "CI superseded cancelled + other check failed -> ci_failed (pr-validation only)" 1 '^merge-gate: refuse: ci_failed \(pr-validation\)'
+  expect "CI note also printed on the refuse path" 1 "$NOTE1"
+  # a cancelled run of ANOTHER app is not superseded by this app's success: same name, two apps stay two checks
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:2:t1:10 shellcheck:completed:success:1:t2:20
+  runck "$S" "$ROOT/ck/c.json"; expect "CI cancelled run of a different app is not superseded -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
+  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI different-app cancelled run prints no superseded note"; else no "CI different-app cancelled printed a note ($OUT)"; fi
+  # only CANCELLED supersession is noted: an older failure replaced by a newer success is judged silently
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:failure:1:t1:10 shellcheck:completed:success:1:t2:20
+  runck "$S" "$ROOT/ck/c.json"
+  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI older failure + newer success prints no cancelled note"; else no "CI older failure printed a note ($OUT)"; fi
+  # a green-only run prints no note at all
+  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t1:10
+  runck "$S" "$ROOT/ck/c.json"
+  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI all green prints no superseded note"; else no "CI all green printed a note ($OUT)"; fi
   # two-page --paginate output: two JSON objects concatenated; a gate that reads only page 1 must not pass
   printf '%s\n%s\n' '{"total_count":3,"check_runs":[{"name":"pr-validation","status":"completed","conclusion":"success"}]}' \
     '{"total_count":3,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/pages.json"
@@ -725,7 +768,7 @@ mutate M63-gh-error-ignored              's/^    degraded "cannot read check run
 mutate M64-shape-unchecked               's/error("shape")/[]/g'
 mutate M66-unpaginated-single-page       's/ --paginate//'
 mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'
-mutate M68-dedup-removed                 's/^    | group_by(\[\.name, \.app_id\]) | map(max_by(\.id))/    | .   /'
+mutate M68-dedup-removed                 's/jq -c .group_by(\[\.name, \.app_id\]) | map(max_by(\.id))./jq -c ./'
 mutate M69-dedup-picks-oldest            's/map(max_by(\.id))/map(min_by(.id))/'
 mutate M70-app-id-ignored-in-key         's/group_by(\[\.name, \.app_id\])/group_by([.name])/'
 mutate M71-order-by-started-at-first     's/id: (\.id? \/\/ 0)/id: (.id? \/\/ 0), started_at: (.started_at? \/\/ "")/;s/map(max_by(\.id))/map(max_by([.started_at, .id]))/'
@@ -775,6 +818,12 @@ mutate M101-comment-failure-silent     's/^    else say "\$ev: degraded: could n
 mutate M102-files-read-failure-ignored 's/ || { say "\$ev: degraded: cannot read the files[^}]*}//'
 mutate M103-evidence-without-merge     's/^closure_evidence$/:/'
 mutate M104-graphql-unbound-to-cwd     's/gj="\$(cd "\$cwd" \&\& /gj="$(/'
+# #1864 superseded-cancelled-note mutants
+mutate M112-superseded-note-dropped      's/^  while IFS= read -r ci_note; do.*/  :/'
+mutate M113-note-for-latest-cancelled    's/ and \.id != \$l\.id)/)/'
+mutate M114-note-for-any-conclusion      's/ and \.conclusion == "cancelled" and \.id != \$l\.id)/ and .id != $l.id)/'
+mutate M115-note-ignores-app-id          's/group_by(\[\.name, \.app_id\])\[\]/group_by([.name])[]/'
+mutate M116-cancelled-passes             's/IN("success", "skipped", "neutral")/IN("success", "skipped", "neutral", "cancelled")/'
 echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
 echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
 [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]

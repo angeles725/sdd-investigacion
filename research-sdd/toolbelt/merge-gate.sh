@@ -52,6 +52,11 @@
 # so a rerun always gets a higher id). started_at is deliberately NOT used: a freshly queued rerun has a
 # null started_at and would lose to an older, finished run, allowing a merge while CI is pending.
 # Same name from two different apps stays two checks.
+# SUPERSEDED CANCELLED RUNS (kit issue #1864): an older cancelled run next to a newer run of the same (name, app id) is not
+# judged (the latest run decides) and prints `merge-gate: note: superseded cancelled run of <name> (check-run id N, superseded
+# by id M)` before the verdict line, on the allow and the refuse path alike. A cancelled LATEST run stays ci_failed. Ordering is
+# the check-run id, not completed_at/started_at: ids are unique and strictly increasing (so ties cannot occur) while a queued
+# rerun has null timestamps.
 # DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
 # still need every PR Validation check green.
 # CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
@@ -199,9 +204,15 @@ if [ -n "$do_merge" ]; then
     degraded "cannot read check runs for head $head (gh api failed${ci_err:+: $ci_err})"
   }
   # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
-  ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
-    | map({name, status, conclusion, app_id: (.app.id? // null), id: (.id? // 0)})
-    | group_by([.name, .app_id]) | map(max_by(.id))' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  ci_all="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
+    | map({name, status, conclusion, app_id: (.app.id? // null), id: (.id? // 0)})' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  # Superseded cancelled runs (kit issue #1864): an older CANCELLED run next to a newer run of the same (name, app id), e.g. a
+  # push cancelled an in-flight run under the per-ref concurrency group and a later run replaced it. Reported as a typed note
+  # (never a pass, never a failure); the latest run alone decides below, so a cancelled LATEST run stays ci_failed.
+  ci_notes="$(printf '%s' "$ci_all" | jq -r 'group_by([.name, .app_id])[] | (max_by(.id)) as $l | .[]
+    | select(.status == "completed" and .conclusion == "cancelled" and .id != $l.id)
+    | "superseded cancelled run of \(.name) (check-run id \(.id), superseded by id \($l.id))"' 2>/dev/null)" || degraded "cannot evaluate superseded check runs for head $head"
+  ci_norm="$(printf '%s' "$ci_all" | jq -c 'group_by([.name, .app_id]) | map(max_by(.id))' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   ci_req="$(jq -cn --arg s "$required" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' 2>/dev/null)" || degraded "cannot parse --required-checks list"
   ci_verdict="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '
     (map(select(.status == "completed" and ((.conclusion // "") | IN("success", "skipped", "neutral") | not)) | .name) | unique) as $failed
@@ -213,6 +224,7 @@ if [ -n "$do_merge" ]; then
       elif ($missing | length) > 0 then "ci_missing (\($missing | join(",")))"
       else "ok" end' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   [ -n "$ci_verdict" ] || degraded "cannot evaluate check runs for head $head"
+  while IFS= read -r ci_note; do [ -z "$ci_note" ] || say "note: $ci_note"; done <<<"$ci_notes"
   if [ "$ci_verdict" != "ok" ]; then
     say "refuse: $ci_verdict (head=$head) — CI for this exact head must be green before merging"
     exit 1
