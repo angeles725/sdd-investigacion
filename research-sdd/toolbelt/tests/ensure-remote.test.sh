@@ -66,7 +66,7 @@ mk_git_stub() {
     cat <<'EOF'
 case " $* " in
   *" rev-parse "*) exit 0 ;;
-  *" remote remove "*) rm -f "$BOX/origin-added"; exit 0 ;;
+  *" remote remove "*) [ -n "${GIT_REMOTE_REMOVE_FAIL:-}" ] && exit 1; rm -f "$BOX/origin-added"; exit 0 ;;
   *" get-url "*)
     if [ -e "$BOX/origin-added" ]; then echo "https://github.com/tester/research-target.git"; exit 0; fi
     if [ "${GIT_HAS_ORIGIN:-0}" = 1 ]; then
@@ -521,6 +521,17 @@ if [ "$RCX" = 7 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* 
   ok "22h origin added + visibility unreadable -> UNKNOWN, origin removed, no push, no safe-rerun claim" "(exit $RCX)"
 else no "22h origin added + visibility unreadable -> UNKNOWN, origin removed, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
 
+# 22i — kit issue #1854: the same UNKNOWN path, but the origin removal FAILS -> the origin is still configured, so the
+#       script must say so (typed ORIGIN-LEFT line naming the url), must NOT claim it was removed, still refuses 7, no push.
+reset_ctl
+box="$(mkbox c22i-origin-left)"
+GIT_REMOTE_REMOVE_FAIL=1 GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+if [ "$RCX" = 7 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* remote remove origin' \
+   && grep -q 'PARTIAL-STATE ORIGIN-LEFT: .*https://github.com/tester/research-target.git' "$box/out.txt" \
+   && ! grep -q 'any local origin was removed' "$box/out.txt" && grep -q 'BEFORE re-running' "$box/out.txt"; then
+  ok "22i origin removal fails -> typed ORIGIN-LEFT naming the url, no 'removed' claim, exit 7, no push" "(exit $RCX)"
+else no "22i origin removal fails -> typed ORIGIN-LEFT naming the url, no 'removed' claim, exit 7, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
 # 22b — create timed out AFTER adding the local origin, repo is PRIVATE -> the existing repo is adopted: verified, then pushed.
 reset_ctl
 box="$(mkbox c22b-origin-private)"
@@ -921,7 +932,7 @@ fi'
 
   # teeth 28 — the UNKNOWN branch keeps the origin (drop the removal): case 22h must go red.
   echo "-- teeth 28: UNKNOWN partial state keeps the origin, expect no 'remote remove origin' --"
-  origU='[ "$have_origin" = configured ] && git -C "$target" remote remove origin >/dev/null 2>&1'
+  origU='if ! git -C "$target" remote remove origin >/dev/null 2>&1; then origin_left=1; fi'
   if [[ "$content" != *"$origU"* ]]; then
     no "teeth28: build keep-origin mutant" "UNKNOWN anchor not found — SUT drifted?"
   else
@@ -941,6 +952,18 @@ fi'
     GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
     if ! grep -q 'PARTIAL-STATE UNKNOWN' "$box/out.txt"; then ok "teeth29: without the UNKNOWN branch the typed state is lost — case 22 has teeth"
     else no "teeth29: UNKNOWN line still printed — case 22 is THEATER"; fi
+  fi
+
+  # teeth 30 (kit issue #1854) — the removal's exit status is ignored again (message claims removal): case 22i must go red.
+  echo "-- teeth 30: removal failure ignored, expect the ORIGIN-LEFT line to vanish --"
+  origR='if ! git -C "$target" remote remove origin >/dev/null 2>&1; then'
+  if [[ "$content" != *"$origR"* ]]; then
+    no "teeth30: build ignored-removal mutant" "removal-check anchor not found — SUT drifted?"
+  else
+    teeth_box teeth30-removal-unchecked "$origR" 'if false; then'; box="$TBOX"
+    GIT_REMOTE_REMOVE_FAIL=1 GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+    if ! grep -q 'PARTIAL-STATE ORIGIN-LEFT' "$box/out.txt"; then ok "teeth30: an unchecked removal loses the typed leftover line — case 22i has teeth"
+    else no "teeth30: ORIGIN-LEFT still printed under the mutant — case 22i is THEATER"; fi
   fi
 
   # teeth 27 — the create bound reuses the probe's knob (RSDD_GH_TIMEOUT): case 22g's 3 s create must now be cut off.

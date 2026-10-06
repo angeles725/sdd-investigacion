@@ -33,6 +33,7 @@ mkbin() {
     timeout*)  [ -n "$REAL_TO" ] && ln -sf "$REAL_TO" "$b/timeout" ;;
     gtimeout*) [ -n "$REAL_TO" ] && ln -sf "$REAL_TO" "$b/gtimeout" ;;
   esac
+  case "$mode" in *-setsid*) ln -sf "$(type -P setsid)" "$b/setsid" ;; esac
   case "$mode" in *-nogh) ;; *)
     {
       printf '#!%s\n' "$BASH_BIN"
@@ -40,6 +41,7 @@ mkbin() {
       cat <<'EOF'
 [ -n "${GH_ERR:-}" ] && echo "$GH_ERR" >&2
 [ -n "${GH_IGNORE_TERM:-}" ] && { trap '' TERM; i=0; while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done; }
+[ -n "${GH_GRANDCHILD:-}" ] && { if [ -n "${GH_GC_IGNORE_TERM:-}" ]; then ( trap '' TERM; exec sleep 300 ) & else sleep 300 & fi; echo $! > "$GH_GC_PID_FILE"; wait; }
 [ -n "${GH_SLEEP:-}" ] && exec sleep "$GH_SLEEP"
 [ -n "${GH_OUT:-}" ] && echo "$GH_OUT"
 exit "${GH_RC:-0}"
@@ -58,6 +60,8 @@ probe() {
 has() { grep -qF -- "$2" <<<"$1"; }
 
 B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-none none)"; B_NOGH="$(mkbin b-nogh none-nogh)"
+HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
+[ "$HAVE_SETSID" = 1 ] && B_WDG="$(mkbin b-wdg none-setsid)"
 
 echo "== gh-visibility.test.sh =="
 
@@ -175,6 +179,52 @@ c_run_knob "$LIB" && ok "21 gh_bounded_run: GHV_BOUND_ENV / GHV_BOUND_DEFAULT se
 c_run_bad() { local r; r="$(RSDD_GH_TIMEOUT=abc GH_OUT=x brun "$1" "$B_TO" repo create o/r)"; has "$r" "rc=0 STATE=OK RC=0 BOUND=20 " && has "$r" "BAD=1"; }
 c_run_bad "$LIB" && ok "18 gh_bounded_run: garbage RSDD_GH_TIMEOUT -> default 20, BAD=1 (shared validation)" || no "18 bounded-run bad timeout"
 
+# --- kit issue #1854: the watchdog kills the whole PROCESS GROUP, so a grandchild cannot outlive the bound ----------
+# The stub gh spawns a long-lived `sleep` grandchild (pid recorded) and waits on it; on the bound it is TERMed. With
+# only the direct child killed the grandchild survives (orphaned); with the group killed it is gone.
+# gone PIDFILE — poll up to ~2s for the recorded grandchild to disappear; ALWAYS reap it afterwards (hermetic).
+gone() {
+  local pf="$1" pid i=0; pid="$(cat "$pf" 2>/dev/null)"; [ -n "$pid" ] || return 1
+  while kill -0 "$pid" 2>/dev/null && [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null; return 1; fi
+  return 0
+}
+c_gc_run() { # LIB — gh_bounded_run over the watchdog: a grandchild of the bounded command is gone after the timeout
+  local pf="$TMP/gc-run.pid" r; rm -f "$pf"
+  r="$(GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=1 brun "$1" "$B_WDG" repo create o/r)"
+  has "$r" "rc=124 STATE=TIMEOUT " && gone "$pf"
+}
+c_gc_probe() { # LIB — gh_visibility_probe over the watchdog: same invariant
+  local pf="$TMP/gc-probe.pid" r; rm -f "$pf"
+  r="$(GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=1 probe "$1" "$B_WDG")"
+  has "$r" "STATE=TIMEOUT " && gone "$pf"
+}
+c_gc_term() { # LIB — a grandchild that IGNORES TERM is swept with KILL once the leader is gone (watchdog disarmed after wait)
+  local pf="$TMP/gc-term.pid" r; rm -f "$pf"
+  r="$(GH_GRANDCHILD=1 GH_GC_IGNORE_TERM=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=1 brun "$1" "$B_WDG" repo create o/r)"
+  has "$r" "rc=124 STATE=TIMEOUT " && gone "$pf"
+}
+c_gc_mode() { # LIB — GHV_GROUP names the mode: setsid when group kill is on; child-only + a typed DEGRADED note when not
+  local lib="$1" r
+  r="$(PATH="$B_WDG" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+  has "$r" "GROUP=setsid NOTE=" && ! has "$r" "DEGRADED" || return 1
+  r="$(PATH="$B_NONE" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+  has "$r" "GROUP=child-only NOTE=DEGRADED" || return 1
+  r="$(PATH="$B_WDG" GH_OUT=PRIVATE "$BASH_BIN" -c 'set -m; . "$1"; gh_visibility_probe gh o/r; echo "STATE=$GHV_STATE GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+  has "$r" "STATE=PRIVATE GROUP=child-only NOTE=DEGRADED"
+}
+c_gc_timeout_path() { # LIB — a real timeout binary on PATH: no watchdog, so no group note
+  local r; r="$(PATH="$B_TO" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=[$GHV_GROUP] NOTE=[$GHV_NOTE]"' _ "$1" 2>&1)"
+  has "$r" "GROUP=[] NOTE=[]"
+}
+if [ "$HAVE_SETSID" != 1 ]; then no "22-24 need setsid on the host to build the group-kill PATH"; else
+  c_gc_run "$LIB"   && ok "22 gh_bounded_run watchdog: a grandchild of the bounded command is killed with the group" || no "22 bounded-run grandchild survives"
+  c_gc_probe "$LIB" && ok "23 gh_visibility_probe watchdog: a grandchild of the probe is killed with the group"      || no "23 probe grandchild survives"
+  c_gc_mode "$LIB"  && ok "24 GHV_GROUP=setsid with group kill; child-only + DEGRADED note without setsid / under job control" || no "24 group mode / degraded note"
+fi
+[ "$HAVE_SETSID" = 1 ] && { c_gc_term "$LIB" && ok "26 a TERM-ignoring grandchild is KILLed by the post-bound group sweep" || no "26 TERM-ignoring grandchild survives"; }
+c_gc_timeout_path "$LIB" && ok "25 timeout/gtimeout path leaves GHV_GROUP and GHV_NOTE empty" || no "25 timeout path group globals"
+
 # ------------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -203,10 +253,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -n "$REAL_TO" ]; then
     tooth run-timeout-state c_run_slow_to 's/if \[ "\$rc" = 124 \]; then GHV_STATE=TIMEOUT$/if false; then GHV_STATE=TIMEOUT/'
     tooth run-watchdog-143  c_run_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124$/:/'
-    tooth run-watchdog-nokill c_run_slow_wd 's/wait "\$sp"; kill "\$1" 2>\/dev\/null$/wait "$sp"; :/;s/kill -KILL "\$1" 2>\/dev\/null/:/'
-    tooth run-no-kill-escalation c_run_term_wd 's/kill -KILL "\$1" 2>\/dev\/null/:/'
+    tooth run-watchdog-nokill c_run_slow_wd 's/wait "\$sp"; _ghv_sig TERM "\$1" "\$3"$/wait "$sp"; :/;s/_ghv_sig KILL "\$1" "\$3" )/: )/'
+    tooth run-no-kill-escalation c_run_term_wd 's/_ghv_sig KILL "\$1" "\$3" )/: )/'
     tooth run-no-k-flag      c_run_term_to 's/"\$bounder" -k 2 "\$t"/"$bounder" "$t"/'
     tooth run-knob-ignored   c_run_knob 's/benv="\${GHV_BOUND_ENV:-RSDD_GH_TIMEOUT}"/benv=RSDD_GH_TIMEOUT/'
+    if [ "$HAVE_SETSID" = 1 ]; then
+      tooth group-flag-dropped   c_gc_run   's/grpflag=group/grpflag=""/g'
+      tooth group-flag-dropped-p c_gc_probe 's/grpflag=group/grpflag=""/g'
+      tooth no-setsid-launch     c_gc_run   's/grp=(setsid)/grp=()/g'
+      tooth no-post-bound-sweep  c_gc_term  's/then _ghv_sig KILL "\$pid" "\$grpflag"; fi/then :; fi/'
+      tooth degraded-note-lost   c_gc_mode  's/GHV_NOTE="DEGRADED: no setsid[^"]*"/GHV_NOTE=""/'
+      tooth job-control-ignored  c_gc_mode  's/case "\$-" in \*m\*)/case "$-" in *NEVERM*)/'
+    fi
     tooth timeout-124-map  c_slow_to 's/\[ "\$rc" = 124 \]/[ "$rc" = 999 ]/'
     tooth gtimeout-gone    c_slow_gt 's/gtimeout/gtimeoutX/g'
     tooth watchdog-143     c_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124/:/'

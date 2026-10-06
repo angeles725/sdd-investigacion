@@ -35,6 +35,15 @@
 #     The bound knob is overridable per call: `GHV_BOUND_ENV=<VAR> GHV_BOUND_DEFAULT=<n> gh_bounded_run ...` reads the
 #     bound from $VAR (same validation, garbage -> <n> + GHV_BAD_TIMEOUT=1) instead of RSDD_GH_TIMEOUT. A command that
 #     ignores the TERM sent at the bound is KILLed after a 2 s grace (reported as the same 124 / TIMEOUT).
+#
+#   Process-group kill on the watchdog path (kit issue #1854): the bounded command runs under `setsid` (own session, so
+#   pgid == pid) and the watchdog signals the whole GROUP (`kill -- -PID`), so a helper process spawned by gh cannot
+#   outlive the bound. Two more globals, set ONLY when the watchdog is the bounder (empty with timeout/gtimeout):
+#       GHV_GROUP   setsid | child-only     how the watchdog signals (child-only = direct child only)
+#       GHV_NOTE    "" | DEGRADED: ...      typed note when group kill is unavailable (no `setsid` on PATH, or the caller
+#                                           shell has job control on, where a backgrounded setsid would fork and detach)
+#   child-only is the documented limit: a grandchild of the bounded command may outlive the kill. Callers should print
+#   GHV_NOTE when it is non-empty and the state is TIMEOUT.
 # shellcheck disable=SC2034  # GHV_* are the lib's result globals, read by the sourcing callers
 if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
   # _ghv_resolve_bound — sets GHV_BOUND (seconds) and GHV_BAD_TIMEOUT from RSDD_GH_TIMEOUT / GHV_DEFAULT_BOUND.
@@ -55,20 +64,35 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then printf 'timeout'
     elif command -v gtimeout >/dev/null 2>&1; then printf 'gtimeout'; fi
   }
-  # _ghv_arm_watchdog <pid> <seconds> — background watchdog: after <seconds> it kills <pid>. Sets GHV_WDPID.
+  # _ghv_group_mode — sets GHV_GROUP (setsid | child-only) and GHV_NOTE for the watchdog path (kit issue #1854).
+  _ghv_group_mode() {
+    GHV_GROUP=setsid GHV_NOTE=""
+    if ! command -v setsid >/dev/null 2>&1; then
+      GHV_GROUP=child-only GHV_NOTE="DEGRADED: no setsid on PATH — the watchdog kills only the direct child; a grandchild of the bounded command may outlive the bound"
+    else
+      case "$-" in *m*)
+        GHV_GROUP=child-only GHV_NOTE="DEGRADED: job control is on (set -m) — a backgrounded setsid would fork and detach; the watchdog kills only the direct child, a grandchild may outlive the bound" ;;
+      esac
+    fi
+  }
+  # _ghv_sig <signal> <pid> <group|""> — signal the whole process group when <group> is set (falls back to the pid).
+  _ghv_sig() {
+    if [ -n "$3" ]; then kill "-$1" -- "-$2" 2>/dev/null || kill "-$1" "$2" 2>/dev/null; else kill "-$1" "$2" 2>/dev/null; fi
+  }
+  # _ghv_arm_watchdog <pid> <seconds> [group] — background watchdog: after <seconds> it kills <pid>. Sets GHV_WDPID.
   # Disarming it is `kill "$GHV_WDPID"`: the TERM trap kills the watchdog's own `sleep` child first, so a stopped
   # watchdog never leaves a stray sleep running for the rest of the bound (kit issue #1834: a plain `kill` of the
   # subshell orphaned its sleep).
   _ghv_arm_watchdog() {
-    ( sp=""; trap '[ -z "$sp" ] || kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$2" & sp=$!; wait "$sp"; kill "$1" 2>/dev/null
-      sleep 2 & sp=$!; wait "$sp"; kill -KILL "$1" 2>/dev/null ) >/dev/null 2>&1 &   # RSDD-GH-WATCHDOG-ARM
+    ( sp=""; trap '[ -z "$sp" ] || kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$2" & sp=$!; wait "$sp"; _ghv_sig TERM "$1" "$3"
+      sleep 2 & sp=$!; wait "$sp"; _ghv_sig KILL "$1" "$3" ) >/dev/null 2>&1 &   # RSDD-GH-WATCHDOG-ARM
     GHV_WDPID=$!
   }
 fi
 if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
   gh_visibility_probe() {
     local ghbin="$1" repo="$2" cwd="${3:-}"
-    GHV_STATE="" GHV_RC=0 GHV_WHY="" GHV_RAW="" GHV_BOUND=${GHV_DEFAULT_BOUND:-20} GHV_BOUNDED_BY="" GHV_BAD_TIMEOUT=0
+    GHV_STATE="" GHV_RC=0 GHV_WHY="" GHV_RAW="" GHV_BOUND=${GHV_DEFAULT_BOUND:-20} GHV_BOUNDED_BY="" GHV_BAD_TIMEOUT=0 GHV_GROUP="" GHV_NOTE=""
     if ! command -v "$ghbin" >/dev/null 2>&1; then GHV_STATE=GH_MISSING; return 1; fi
     _ghv_resolve_bound
     local t="$GHV_BOUND"
@@ -78,15 +102,19 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
     local err out="" rc=0 run_dir="${cwd:-.}"
     err="$(mktemp 2>/dev/null)" || { GHV_STATE=PROBE_FAILED; return 1; }
     if [ "$GHV_BOUNDED_BY" = watchdog ]; then
-      local outf pid wdpid
+      local outf pid wdpid grp=() grpflag=""
       outf="$(mktemp 2>/dev/null)" || { rm -f "$err"; GHV_STATE=PROBE_FAILED; return 1; }
-      ( cd "$run_dir" && exec env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" >"$outf" 2>"$err" ) &   # RSDD-GH-WATCHDOG
+      _ghv_group_mode
+      if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
+      ( cd "$run_dir" && exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" >"$outf" 2>"$err" ) &   # RSDD-GH-WATCHDOG
       pid=$!
-      _ghv_arm_watchdog "$pid" "$t"
+      _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
       wait "$pid" 2>/dev/null || rc=$?
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
+      # the bound fired (TERM/KILL of the leader): sweep the group once more so a TERM-ignoring grandchild cannot linger
+      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sig KILL "$pid" "$grpflag"; fi
       [ "$rc" = 143 ] && rc=124
       out="$(cat "$outf" 2>/dev/null)"; rm -f "$outf"
     else
@@ -109,20 +137,24 @@ if ! declare -F gh_bounded_run >/dev/null 2>&1; then
     GHV_STATE="" GHV_RC=0 GHV_BOUND=${GHV_DEFAULT_BOUND:-20} GHV_BOUNDED_BY="" GHV_BAD_TIMEOUT=0
     if [ "$#" -eq 0 ] || ! command -v "$1" >/dev/null 2>&1; then GHV_STATE=GH_MISSING; GHV_RC=127; return 127; fi
     _ghv_resolve_bound
-    local t="$GHV_BOUND" bounder rc=0 pid wdpid
+    local t="$GHV_BOUND" bounder rc=0 pid wdpid grp=() grpflag=""
+    GHV_GROUP="" GHV_NOTE=""
     bounder="$(_ghv_pick_bounder)"
     if [ -n "$bounder" ]; then
       GHV_BOUNDED_BY="$bounder"
       env -u GH_REPO GH_PROMPT_DISABLED=1 "$bounder" -k 2 "$t" "$@" || rc=$?
     else
       GHV_BOUNDED_BY=watchdog
-      ( exec env -u GH_REPO GH_PROMPT_DISABLED=1 "$@" ) &   # RSDD-GH-WATCHDOG-RUN
+      _ghv_group_mode
+      if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
+      ( exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "$@" ) &   # RSDD-GH-WATCHDOG-RUN
       pid=$!
-      _ghv_arm_watchdog "$pid" "$t"
+      _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
       wait "$pid" 2>/dev/null || rc=$?
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
+      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sig KILL "$pid" "$grpflag"; fi
       [ "$rc" = 143 ] && rc=124
     fi
     [ "$rc" = 137 ] && rc=124   # the bound's KILL escalation (command ignored TERM)
