@@ -1004,7 +1004,8 @@ fi'
   else
     teeth_box teeth31-create-note-dropped "$origN" ':'; box="$TBOX"
     GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
-    if ! grep -A1 'gh repo create timed out' "$box/out.txt" | grep -q 'DEGRADED: no setsid'; then ok "teeth31: without the print the note is lost — case 22j has teeth"
+    ctx="$(grep -A1 'gh repo create timed out' "$box/out.txt")"
+    if ! grep -q 'DEGRADED: no setsid' <<<"$ctx"; then ok "teeth31: without the print the note is lost — case 22j has teeth"
     else no "teeth31: note still printed under the mutant — case 22j is THEATER"; fi
   fi
   echo "-- teeth 32: edit-timeout note dropped, expect case 22k to go red --"
@@ -1014,7 +1015,8 @@ fi'
   else
     teeth_box teeth32-edit-note-dropped "$origM" ':'; box="$TBOX"
     GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
-    if ! grep -A1 'gh repo edit timed out' "$box/out.txt" | grep -q 'DEGRADED: no setsid'; then ok "teeth32: without the print the edit note is lost — case 22k has teeth"
+    ctx="$(grep -A1 'gh repo edit timed out' "$box/out.txt")"
+    if ! grep -q 'DEGRADED: no setsid' <<<"$ctx"; then ok "teeth32: without the print the edit note is lost — case 22k has teeth"
     else no "teeth32: note still printed under the mutant — case 22k is THEATER"; fi
   fi
   echo "-- teeth 33: abort-path removal status ignored, expect the ORIGIN-LEFT line to vanish (case 22l) --"

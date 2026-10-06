@@ -135,6 +135,8 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     _GHV_SIGNALLED="$1"          # read after `wait` if the caller's restored trap does not exit
     _ghv_sig KILL "$2" "$3"
     kill "$4" 2>/dev/null || :   # the watchdog's TERM trap kills its own sleep first
+    # shellcheck disable=SC2086  # a space-separated list of the probe's own mktemp paths (no whitespace in mktemp names)
+    [ -z "${_GHV_TMPFILES:-}" ] || rm -f $_GHV_TMPFILES   # the caller dies right after: the probe's temp files would leak
     _ghv_restore_traps
     kill -s "$1" "$BASHPID"      # BASHPID, not $$: inside $(...) $$ is the TOP-LEVEL shell
   }
@@ -164,6 +166,7 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
     if [ "$GHV_BOUNDED_BY" = watchdog ]; then
       local outf pid wdpid vrc grp=() grpflag=""
       outf="$(mktemp 2>/dev/null)" || { rm -f "$err"; GHV_STATE=PROBE_FAILED; return 1; }
+      _GHV_TMPFILES="$outf $err"
       _ghv_group_mode
       if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
       ( cd "$run_dir" && exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" >"$outf" 2>"$err" ) &   # RSDD-GH-WATCHDOG
@@ -180,19 +183,19 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
       if [ -n "$_GHV_SIGNALLED" ]; then
         # the caller's own trap did not exit: group and watchdog were already handled in the handler; the group and the
         # leader are reaped, so no sweep, no watchdog kill and NO TIMEOUT mapping — a typed caller-signal state instead
-        rm -f "$outf" "$err"; GHV_RC="$rc"; GHV_STATE=CALLER_SIGNALLED; return 1
+        rm -f "$outf" "$err"; _GHV_TMPFILES=""; GHV_RC="$rc"; GHV_STATE=CALLER_SIGNALLED; return 1
       fi
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
       # the bound fired (TERM/KILL of the leader): sweep the GROUP once more so a TERM-ignoring grandchild cannot linger
       if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sweep "$pid" "$grpflag"; fi
       [ "$rc" = 143 ] && rc=124
-      out="$(cat "$outf" 2>/dev/null)"; rm -f "$outf"
+      out="$(cat "$outf" 2>/dev/null)"; rm -f "$outf"; _GHV_TMPFILES="$err"
     else
       out="$(cd "$run_dir" && env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" 2>"$err")" || rc=$?
     fi
     GHV_RC="$rc"
-    GHV_WHY="$(sed -n '1p' "$err" 2>/dev/null)"; rm -f "$err"
+    GHV_WHY="$(sed -n '1p' "$err" 2>/dev/null)"; rm -f "$err"; _GHV_TMPFILES=""
     GHV_RAW="$(printf '%s' "$out" | tr '[:lower:]' '[:upper:]')"
     if [ "$rc" = 124 ]; then GHV_STATE=TIMEOUT; return 1; fi
     if [ "$rc" != 0 ]; then GHV_STATE=GH_ERROR; return 1; fi

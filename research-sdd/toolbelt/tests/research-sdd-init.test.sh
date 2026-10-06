@@ -4383,7 +4383,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     grep -qF 'a plain run scaffolds the conf' "$TMP/k87m.out" && ok "teeth M-1800-MSG: misleading advice returns without the path flag — K1800-g has teeth" || no "teeth M-1800-MSG: advice still correct under the mutant — K1800-g is THEATER"
   else no "teeth M-1800-MSG: could not build mutant"; fi
   # M-1800-WD: the watchdog never kills gh -> with no timeout binary a stalled probe is unbounded again.
-  if _k87_mbl "k00 wd" 's/wait "\$sp"; kill "\$1" 2>\/dev\/null$/wait "$sp"; :/;s/kill -KILL "\$1" 2>\/dev\/null/:/'; then
+  if _k87_mbl "k00 wd" 's/& wait; _ghv_sig TERM "\$1" "\$3"$/\& wait; :/;s/_ghv_sig KILL "\$1" "\$3" )/: )/'; then
     d="$(_k00_target m-wd https://example.invalid/pub.git)"; _t0=$SECONDS
     PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" "$d" --corpus flat --wire >/dev/null 2>&1
     [ $((SECONDS - _t0)) -ge 4 ] && ok "teeth M-1800-WD: without the kill the stalled probe runs its full stall — K1800-h has teeth" || no "teeth M-1800-WD: still bounded under the mutant — K1800-h is THEATER"
@@ -4396,7 +4396,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
       && ok "teeth M-1834-ALWAYS-TIMEOUT: an always-timed-out probe loses the PUBLIC answer — K1834-i has teeth" || no "teeth M-1834-ALWAYS-TIMEOUT: PUBLIC still reported under the mutant — K1834-i is THEATER"
   else no "teeth M-1834-ALWAYS-TIMEOUT: could not build mutant"; fi
   # M-1834-LEAK: the watchdog's TERM trap no longer kills its sleep -> the pre-fix orphaned sleep survives the run.
-  if _k87_mbl "k34 leak" 's/|| kill "\$sp" 2>\/dev\/null; exit 0/|| :; exit 0/'; then
+  if _k87_mbl "k34 leak" 's/kill \$(jobs -p) 2>\/dev\/null; exit 0/exit 0/'; then
     _k34_run m-leak "$TMP/k43/k34 leak/toolbelt/init.sh"
     [ -n "$(_k34_alive "$TMP/k34-m-leak.pids")" ] && ok "teeth M-1834-LEAK: an unreaped watchdog sleep survives the run — K1834-i has teeth" || no "teeth M-1834-LEAK: no sleep survived under the mutant — K1834-i is THEATER"
     while read -r _p; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done < "$TMP/k34-m-leak.pids"   # tidy the deliberately leaked sleeps

@@ -269,13 +269,14 @@ sleeps_gone() {
 # sigcase LIB CALL N SIG — run CALL (a lib call) under the watchdog with bound N, signal the CALLER with SIG once the grandchild
 # is up; return 0 only when the grandchild AND the watchdog's sleep are gone. Cleans up on every exit.
 sigcase() {
-  local lib="$1" call="$2" n="$3" sg="$4" pf="$TMP/gc-sig-$3.pid" bp i rc=0; rm -f "$pf"
-  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; '"$call" _ "$lib" >/dev/null 2>&1 &
+  local lib="$1" call="$2" n="$3" sg="$4" pf="$TMP/gc-sig-$3.pid" td="$TMP/td-$3-$4" bp i rc=0; rm -f "$pf"; mkdir -p "$td"
+  TMPDIR="$td" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; '"$call" _ "$lib" >/dev/null 2>&1 &
   bp=$!; i=0
   while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
   kill -"$sg" "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
   gone "$pf" || rc=1
   sleeps_gone "$n" || rc=1
+  [ -z "$(ls -A "$td" 2>/dev/null)" ] || rc=1   # the signalled run must not leave its mktemp files behind
   kill -KILL "$bp" 2>/dev/null
   return "$rc"
 }
@@ -379,6 +380,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       tooth gone-check-deleted   c_gone_unverified 's/^      kill -0 "\$1" 2>\/dev\/null || return 2.*$/      :/'
       tooth signalled-flag-lost  c_sig_nonexit 's/^    _GHV_SIGNALLED="\$1" .*$/    :/'
       tooth watchdog-trap-no-jobs c_sig    's/kill \$(jobs -p) 2>\/dev\/null; exit 0/exit 0/'
+      tooth handler-leaks-tmp    c_sig_probe 's/^    \[ -z "\${_GHV_TMPFILES:-}" \] || rm -f \$_GHV_TMPFILES.*$/    :/'
       tooth trap-not-restored    c_trap_restored 's/^      _ghv_restore_traps$/      :/'
       tooth group-flag-dropped   c_gc_run   's/grpflag=group/grpflag=""/g'
       tooth group-flag-dropped-p c_gc_probe 's/grpflag=group/grpflag=""/g'
