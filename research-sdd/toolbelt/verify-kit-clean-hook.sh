@@ -3,6 +3,8 @@
 # as additionalContext so a DIRTY / unpushed kit surfaces when the supervisor project opens (alongside the
 # retro sweep). A clean kit emits nothing — no session-start noise. Read-only. Wired from .claude/settings.json.
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh"
 out="$("$here/verify-kit-clean.sh" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && exit 0                         # clean → stay silent
 # Distinguish a real dirty/unpushed state (rc=1) from a gate that could not run (rc=2: not a git repo /
@@ -12,9 +14,4 @@ if [ "$rc" = 1 ]; then
 else
   hdr="Research-SDD kit-clean check could not run (exit $rc — misconfigured path or not a git repo):"
 fi
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg h "$hdr" --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-else
-  printf '%s\n%s\n' "$hdr" "$out"
-fi
+rsdd_hook_emit "$hdr" "$out"

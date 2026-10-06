@@ -40,6 +40,7 @@ write_stub() {
     > "$TMP/sweep-tools.sh"
   chmod +x "$TMP/sweep-tools.sh"
   cp "$SUT" "$TMP/sweep-tools-hook.sh"
+  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/sweep-tools-hook.sh"
 }
 
@@ -158,6 +159,7 @@ tooth(){
 hook_tooth(){
   local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
   cp "$TMP/sweep-tools.sh" "$(dirname "$mut")/sweep-tools.sh"
+  mkdir -p "$(dirname "$mut")/lib" && cp "$HERE/../lib/hook-emit.sh" "$(dirname "$mut")/lib/hook-emit.sh"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
   tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-tools-hook.sh" "$@"
 }
 
@@ -202,6 +204,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && hook_tooth "teeth D: _sth_info_absent_out zeroed → INFO gone, unrecorded still present (test 10 has teeth)" 0 0 "$MUT/D/$H" \
          --good-has 'INFO:.*not traversed' --bad-lacks 'INFO:.*not traversed' \
          --bad-has 'unrecorded' -- bash @SUT@
+
+  # Tooth E (call site, #1877): the failure-banner call sites hand the header to lib/hook-emit.sh; a mutant
+  # that prints the body alone keeps the sweep output but loses the 'could not run' banner → test 5 RED.
+  # (The envelope itself is mutated in tests/hook-emit.test.sh; this pins that the hook still uses it.)
+  echo "-- teeth E: header dropped at the emit call site; failure fixture must lose its banner → test 5 RED --"
+  write_stub 3 "boom: sweep failed"
+  mk_sed "teeth E" "$MUT/E/$H" 's/rsdd_hook_emit "\$hdr" "\$out"/printf "%s\\n" "$out"/' \
+    && hook_tooth "teeth E: emit call drops the header → banner gone, sweep output still present (test 5 has teeth)" 0 0 "$MUT/E/$H" \
+         --good-has 'could not run' --bad-lacks 'could not run' \
+         --bad-has 'boom' -- bash @SUT@
 fi
 
 echo "== $pass passed · $fail failed =="

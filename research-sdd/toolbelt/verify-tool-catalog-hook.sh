@@ -4,17 +4,14 @@
 # When drift exists: emits WARN lines + summary. Wired from .claude/settings.json (SessionStart).
 # Read-only. Twin of sweep-tools-hook.sh.
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh"
 out="$("$here/verify-tool-catalog.sh" 2>&1)"; rc=$?
 
 # Operational failure: the guard could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
   hdr="Research-SDD tool catalog check could not run (exit $rc — check INSTALLED-TOOLS.md and tool-registry.md):"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -29,12 +26,7 @@ if [ -z "$summary" ]; then
     exit 0  # legitimate empty-input state: nothing to reconcile, stay silent
   fi
   hdr="Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -45,12 +37,7 @@ missing="$(printf '%s\n' "$summary" | grep -oE '[0-9]+ not cataloged' | grep -oE
 if [ "${missing:-0}" = "0" ]; then
   logged="$(printf '%s\n' "$summary" | grep -oE 'Summary: [0-9]+' | grep -oE '[0-9]+$')"
   sentinel="Research-SDD tool catalog: clean (${logged:-?} logged tools, 0 uncataloged)."  # CLEAN-SENTINEL
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg c "$sentinel" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'
-  else
-    printf '%s\n' "$sentinel"
-  fi
+  rsdd_hook_emit "$sentinel"
   exit 0
 fi
 
@@ -77,9 +64,4 @@ if [ "${1:-}" != "--full" ]; then  # COMPACT-GUARD
   fi
 fi
 detail="${warn_lines}${warn_lines:+$'\n'}${summary}"$'\n'"Run toolbelt/verify-tool-catalog.sh for the full list."
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg c "$detail" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool catalog drift (installed but not cataloged):\n"+$c)}}'
-else
-  printf 'Research-SDD tool catalog drift (installed but not cataloged):\n%s\n' "$detail"
-fi
+rsdd_hook_emit "Research-SDD tool catalog drift (installed but not cataloged):" "$detail"

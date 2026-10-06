@@ -62,6 +62,7 @@ run_hook_with_stub() {
   sed "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g" \
     "$SUT" > "$TMP/hook-under-test.sh"
   chmod +x "$TMP/hook-under-test.sh"
+  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # hook-under-test.sh sources lib/hook-emit.sh beside itself (#1877)
   bash "$TMP/hook-under-test.sh" 2>&1
 }
 

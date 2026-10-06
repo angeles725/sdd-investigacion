@@ -39,6 +39,7 @@ write_stub() {
     > "$TMP/verify-registry.sh"
   chmod +x "$TMP/verify-registry.sh"
   cp "$SUT" "$TMP/verify-registry-hook.sh"
+  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/verify-registry-hook.sh"
 }
 

@@ -11,6 +11,8 @@
 # install --verify part contributes at most 4 typed lines of at most 170 chars each (SENTINEL-VERIFY-CAP).
 # $RESEARCH_SDD_INSTALL_VERIFY_CMD overrides the install --verify command (test seam).
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh"
 out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
 
 vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"
@@ -113,9 +115,4 @@ esac
 [ -n "$extra" ] && out="${out:+$out
 }$extra"
 
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg h "$msg" --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-else
-  printf '%s\n%s\n' "$msg" "$out"
-fi
+rsdd_hook_emit "$msg" "$out"

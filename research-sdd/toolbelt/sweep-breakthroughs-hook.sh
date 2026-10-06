@@ -5,6 +5,8 @@
 # Pass --full to emit the complete sweep output unchanged (byte-identical to sweep script output).
 # Wired from .claude/settings.json (SessionStart). Read-only. Twin of sweep-retros-hook.sh.
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh"
 
 # Parse --full flag (any position).
 _full=0
@@ -17,12 +19,7 @@ out="$("$here/sweep-breakthroughs.sh" 2>&1)"; rc=$?
 # Operational failure: the sweep could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
   hdr="Research-SDD breakthroughs sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -85,10 +82,4 @@ if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
   ')"
 fi
 
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD breakthrough ledger sweep (§22):\n"+$c)}}'
-else
-  # jq missing: fall back to a plain print (still shows in transcript).
-  printf 'Research-SDD breakthrough ledger sweep (§22):\n%s\n' "$out"
-fi
+rsdd_hook_emit "Research-SDD breakthrough ledger sweep (§22):" "$out"

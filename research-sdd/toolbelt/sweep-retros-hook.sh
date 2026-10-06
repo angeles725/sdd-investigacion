@@ -5,6 +5,8 @@
 # Pass --full to emit the complete sweep output unchanged (byte-identical to old default).
 # Wired from .claude/settings.json (SessionStart). Read-only.
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh"
 
 # Parse --full flag (any position).
 _full=0
@@ -17,12 +19,7 @@ out="$("$here/sweep-retros.sh" 2>&1)"; rc=$?
 # Operational failure: the sweep could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
   hdr="Research-SDD retro sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -74,10 +71,4 @@ if [ "$_full" = 0 ]; then
   ')"
 fi
 
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD retro sweep (supervisor project):\n"+$c)}}'
-else
-  # jq missing: fall back to a plain systemMessage-free print (still shows in transcript).
-  printf 'Research-SDD retro sweep (supervisor project):\n%s\n' "$out"
-fi
+rsdd_hook_emit "Research-SDD retro sweep (supervisor project):" "$out"

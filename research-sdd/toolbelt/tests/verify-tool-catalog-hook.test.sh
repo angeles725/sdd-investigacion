@@ -40,6 +40,7 @@ write_stub() {
     > "$TMP/verify-tool-catalog.sh"
   chmod +x "$TMP/verify-tool-catalog.sh"
   cp "$SUT" "$TMP/verify-tool-catalog-hook.sh"
+  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/verify-tool-catalog-hook.sh"
 }
 

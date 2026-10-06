@@ -38,6 +38,7 @@ stage() {
   local hook="$1" instr="$2" raw="$3" d="$TMP/$4"
   mkdir -p "$d"
   cp "$hook" "$d/$(basename "$hook")"
+  mkdir -p "$d/lib" && cp "$(dirname "$hook")/lib/hook-emit.sh" "$d/lib/hook-emit.sh"   # the hook sources lib/hook-emit.sh beside itself (#1877)
   write_stub "$d/$instr" "$raw"
   chmod +x "$d/$(basename "$hook")"
 }
@@ -170,7 +171,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # to a stub instrument replaying <raw>; sets MUT_HOOK. rc 1 when the build was refused (counted once by mk_mut).
   mut_stage() {
     local label="$1" hb="$2" instr="$3" raw="$4" expr="$5" d="$TMP/mut-$1"
-    mkdir -p "$d"
+    mkdir -p "$d/lib" && cp "$TB/lib/hook-emit.sh" "$d/lib/hook-emit.sh"   # the mutant sources lib/hook-emit.sh beside itself (#1877)
     mk_mut "$label" "$TB/$hb" "$d/$hb" "$expr" || return 1
     write_stub "$d/$instr" "$raw"
     chmod +x "$d/$hb"
