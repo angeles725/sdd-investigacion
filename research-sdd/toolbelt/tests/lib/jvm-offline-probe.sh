@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# jvm-offline-probe.sh — was `jvm-callgraph.sh bootstrap` ever run on this host? (kit issue #1588)
+# tests/lib/jvm-offline-probe.sh — TEST-ONLY scaffolding (moved from lib/, kit issue #1821 item 3): was `jvm-callgraph.sh bootstrap` ever run on this host? (kit issue #1588)
 # Sourced (never executed); defines: rsdd_jvm_build_verdict.
 #
 # What the probe checks (coarse, environment-only; no POM parsing, no build-log matching):
@@ -34,7 +34,7 @@ _RSDD_JVM_PROBE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! declare -F rsdd_jvm_build_verdict >/dev/null 2>&1; then
   rsdd_jvm_build_verdict() {
     local repo="${1:-${RSDD_M2_REPO:-${MAVEN_REPO_LOCAL:-}}}"
-    local settings="${2:-$_RSDD_JVM_PROBE_DIR/../jvm-callgraph/maven-central-settings.xml}"
+    local settings="${2:-$_RSDD_JVM_PROBE_DIR/../../jvm-callgraph/maven-central-settings.xml}"
     [ -n "$repo" ] || repo="${HOME:-}/.m2/repository"
     if [ -z "${HOME:-}" ] && [ -z "${1:-}${RSDD_M2_REPO:-}${MAVEN_REPO_LOCAL:-}" ]; then
       echo "fail: probe error: no HOME and no repo path given"; return 2
