@@ -1,0 +1,117 @@
+name: toolbelt tests
+
+on:
+  push:
+    paths:
+      - "research-sdd/toolbelt/**"
+      - "research-sdd/install/**"
+      # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
+      # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
+      - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
+      - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
+      - ".github/workflows/toolbelt-tests.yml"
+      # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
+      # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
+      - ".claude/settings.json"
+      # Doctrine files that suites read from the real tree (verify-doc-consistency, skill-invariants,
+      # hotcore-budget, profile-invariants, verify-skill-drift, ...). Chosen over a separate light job:
+      # those suites are spread across many files, so a hand-picked subset would itself drift; the
+      # whole-suite cost on doc PRs (~15-20 min) is accepted. Derived and enforced by
+      # ci-path-filter-coverage.test.sh (doc-consistency section).
+      - "research-sdd/METHODOLOGY.md"
+      - "research-sdd/PROMPT-LOOP.md"
+      - "research-sdd/PROMPT-LOOP-APPENDIX.md"
+      - "research-sdd/skills/**"
+      - "research-sdd/profiles/**"
+  pull_request:
+    paths:
+      - "research-sdd/toolbelt/**"
+      - "research-sdd/install/**"
+      - "research-sdd/templates/**"
+      - "tools/**"
+      - ".github/workflows/toolbelt-tests.yml"
+      - ".claude/settings.json"
+      - "research-sdd/METHODOLOGY.md"
+      - "research-sdd/PROMPT-LOOP.md"
+      - "research-sdd/PROMPT-LOOP-APPENDIX.md"
+      - "research-sdd/skills/**"
+      - "research-sdd/profiles/**"
+
+jobs:
+  toolbelt-tests:
+    runs-on: ubuntu-latest
+    # kit issue #1144: run-all.sh now discovers AND runs research-sdd/install/tests/*.test.sh
+    # itself (a separate "Corpus: install tests" line in its aggregate), so the install suite's
+    # ~11-13s moved INTO this step instead of running a second time in its own step below. Raised
+    # from 10 -> 12 for headroom: the toolbelt-only step was already measured at 7:44-8:15 against
+    # the old 10-minute cap before the install suite's time moved in here.
+    # 12 -> 20 (2026-10-01): successful runs had reached 11:12-11:29 and every run after the
+    # merge-gate / lint-block / retro-gate suites landed was cancelled at the 12-minute cap
+    # (main included) — a cancelled gate proves nothing. Runtime budget tracked separately.
+    # 20 -> 35 (2026-10-02, #1437): successful runs took 14-20 min and 5 of 13 runs were cancelled
+    # at the 20-minute cap, including PR #1435 at 20:17 while the same head passed in 14:00.
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Sanity-check python3
+        run: python3 --version
+
+      - name: Install GNU parallel
+        # run-all.sh -j needs GNU parallel; without it the run degrades to serial with a typed
+        # DEGRADED line (kit issue #1672) — the check step below makes that a hard failure here.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq parallel && parallel --version | head -n 1
+
+      - name: Run toolbelt + install test suites
+        # research-sdd/install/tests/*.test.sh runs INLINE here (kit issue #1126/#1144) — no
+        # separate step; a stand-alone "Run install test suite" step here would just re-run the
+        # exact same suite a second time for no additional coverage.
+        # -j 4 (kit issue #1672): the serial run reached the 35-minute cap (both runs of PR #1670
+        # cancelled at 35:00). GitHub-hosted ubuntu runners have 4 vCPUs. The serial run stays the
+        # reference for the local quiet-tree gate (CLAUDE.md section 5); CI is not that gate.
+        run: |
+          set -o pipefail
+          bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 2>&1 | tee "$RUNNER_TEMP/run-all.log"
+          # A silent fallback to serial would hide the cap problem again: require the Parallel line
+          # (printed by run-all.sh only in -j mode; search 'echo "Parallel: -j' there).
+          grep -q '^Parallel: -j 4' "$RUNNER_TEMP/run-all.log" \
+            || { echo "::error::run-all did not run in parallel mode (see DEGRADED line above)"; exit 1; }
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Lint toolbelt shell scripts (warning+)
+        run: |
+          shellcheck --version
+          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+
+      - name: Lint shell-portability defect classes (unquoted subst replacement, awk intervals)
+        # Unwired-mechanisms audit 2026-10-05: lint-substitution.sh (kit issue #1121/#1142) scans
+        # the kit's own toolbelt + install *.sh and exits 1 on a violation (measured 0 on 284 files).
+        # ci-workflow-lint-substitution.test.sh fails if this step is removed.
+        run: bash research-sdd/toolbelt/lint-substitution.sh
+
+      - name: Check kit doc consistency (METHODOLOGY vs SKILL/PROMPT-LOOP/README)
+        # Unwired-mechanisms audit 2026-10-05 (kit issue #1817): verify-doc-consistency.sh is WARN-only
+        # (exit 0 on findings, 1 only on operational failure), so this step fails on any WARN line
+        # explicitly. WARN findings go to stdout (stderr carries only operational errors); 2>&1 captures
+        # both anyway, and pipefail makes an operational failure (script exit 1) fail the step instead
+        # of reading as clean. Measured 0 findings on the real tree after the SKILL.md example-path
+        # rewording. ci-workflow-doc-consistency.test.sh fails if this step is removed or weakened.
+        run: |
+          set -o pipefail
+          bash research-sdd/toolbelt/verify-doc-consistency.sh 2>&1 | tee "$RUNNER_TEMP/doc-consistency.log"
+          if grep -q '^WARN' "$RUNNER_TEMP/doc-consistency.log"; then
+            echo "::error::verify-doc-consistency reported findings (see WARN lines above)"
+            exit 1
+          fi

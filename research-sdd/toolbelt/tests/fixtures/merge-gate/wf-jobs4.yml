@@ -1,0 +1,11 @@
+name: t
+on:
+    pull_request:
+        paths:
+            - "research-sdd/toolbelt/**"
+jobs:
+    toolbelt-tests:
+        runs-on: x
+    lint:
+        name: shellcheck
+        runs-on: x

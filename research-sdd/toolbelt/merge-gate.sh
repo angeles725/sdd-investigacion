@@ -52,7 +52,24 @@
 # so a rerun always gets a higher id). started_at is deliberately NOT used: a freshly queued rerun has a
 # null started_at and would lose to an older, finished run, allowing a merge while CI is pending.
 # Same name from two different apps stays two checks.
-# DOC-ONLY PRs (only PR Validation runs, no shellcheck/toolbelt-tests) need `--required-checks ""`, and
+# SUPERSEDED CANCELLED RUNS (kit issue #1864): an older cancelled run next to a newer run of the same (name, app id) is not
+# judged (the latest run decides) and prints `merge-gate: note: superseded cancelled run of <name> (check-run id N, superseded
+# by id M)` before the verdict line, on the allow and the refuse path alike. A cancelled LATEST run stays ci_failed. Ordering is
+# the check-run id, not completed_at/started_at: ids are unique and strictly increasing (so ties cannot occur) while a queued
+# rerun has null timestamps.
+# PATH-FILTERED CHECKS (kit issue #1867): a required check that never reported is not "missing" when its workflow's
+# `pull_request.paths` filter matches none of the PR's changed files (`gh api .../pulls/N/files --paginate`, read only when some
+# required check is absent). Such a check is dropped from the required set and printed as `merge-gate: note: required check <c>
+# skipped by path filter (<workflow> pull_request.paths matches none of the N changed files)` — never a pass, never missing. The
+# check's name is the job's `name:` (else its id); EVERY .github/workflows/*.y(a)ml carrying that name is read (a line scanner that
+# understands block-style `paths:` lists only) and the check is skipped only when ALL carriers skip, in BOTH the PR base tree and
+# the head tree (a PR that narrows its own filter cannot exempt itself), and never when the PR changes anything under
+# .github/workflows. Patterns are matched only in the forms emulated exactly (letters, digits, `_ . / @ -`, `*`, a trailing
+# `/**`); a PR files list at the 3000-entry API cap is never trusted. A check that SHOULD have run stays ci_missing, and so does
+# anything not evaluable (no workflow carries the job, no pull_request trigger, `paths-ignore`, a flow-style, negated or
+# unsupported pattern, an unreadable workflow, unreadable, empty or capped PR files): those print `note: required check <c> not evaluated against path filters: <why>; stays required`
+# (or `note: path filters not evaluated: cannot read the files of PR #N ...`). Reported checks are always judged on their result.
+# DOC-ONLY PRs whose workflows have no readable path filter still need `--required-checks ""`, and
 # still need every PR Validation check green.
 # CLOSURE EVIDENCE (kit issue #1812, --merge only): after a SUCCESSFUL `gh pr merge`, ONE comment is posted on
 # each issue the PR closes, in the grammar reconcile-issues.sh accepts as shipped evidence (kit issue #1709): a
@@ -71,6 +88,9 @@
 # (`gh repo view`, bounded). It is passed explicitly to the GraphQL read (owner/name, never the {owner}/{repo}
 # placeholders), to the PR files read and as `--repo` to every comment; a GraphQL answer whose nameWithOwner differs
 # (case-insensitive) is `degraded` and nothing is posted.
+# The bounded calls run in the current shell (never inside $(...)) so the lib's GHV_NOTE (the watchdog could not group-kill:
+# DEGRADED) is appended to the timeout / degraded lines as ` [<note>]`, and GHV_STATE=CALLER_SIGNALLED (the caller was
+# signalled while gh ran) is `degraded` with nothing posted, whatever the return code (kit issue #1854).
 # A PR that changes no test file posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only
 # reads as borderline in reconcile-issues.sh. At most 10 test files are listed (CAP); files beyond it print
 # `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
@@ -112,6 +132,115 @@ command -v gentle-ai >/dev/null 2>&1 || degraded "gentle-ai not found on PATH"
 if [ -n "$pr" ]; then command -v gh >/dev/null 2>&1 || degraded "gh not found on PATH (needed for --pr/--merge)"; fi
 
 ghr() { (cd "$cwd" && gh "$@"); }   # gh bound to the repo under test, never the caller's cwd
+
+# PATH FILTERS (kit issue #1867, --merge only): a required check whose workflow never ran for this PR's changed files is not
+# "missing". Read-only and bound to the verified head: workflow files come from the HEAD tree of --cwd (never the worktree),
+# changed files from the PR files list. ci_glob_re turns a GitHub path pattern into an anchored ERE (`**` crosses
+# directories, `*` does not, everything else is literal; GitHub's `?` means "zero or one of the preceding character", which is NOT
+# emulated: a pattern containing `?` is unsupported).
+ci_glob_re() { printf '%s' "$1" | sed -e 's/[][(){}.+^$|?\\]/\\&/g' -e 's|\*\*|@@DS@@|g' -e 's|\*|[^/]*|g' -e 's|@@DS@@|.*|g'; }
+# The line scanner understands exactly the block shapes this repo's workflows use; any other shape is reported (UNSUP / OTHER),
+# never guessed. Emits: PAT <pattern> (pull_request.paths items), JOB 0|1 (a job whose check name == chk), PR 0|1, IGNORE, FLOW,
+# OTHER <why> (another PR-like trigger), UNSUP <why> (a jobs/job-key/job-name shape it does not parse).
+CI_WF_AWK='
+function strip(v) { sub(/[ \t]+#.*$/, "", v); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) v = substr(v, 2, length(v) - 2); return v }
+function unsup(w) { if (un == "") un = w }
+/^[ \t]*(#|$)/ { next }
+{ match($0, /^ */); ind = RLENGTH; line = substr($0, ind + 1) }
+ind == 0 {
+  sec = ""; eind = 0; ev = ""; kind = 0; mode = ""; jind = 0; cur = ""; cind = 0
+  if (line ~ /^on:/) { sec = "on"; rest = strip(substr(line, 4))
+    if (rest == "pull_request") pr = 1
+    else if (rest ~ /pull_request|merge_group/) { pr = 1; other = "pull_request or merge_group inside an inline on: value" } }
+  else if (line ~ /^jobs:/) { sec = "jobs"; seenjobs = 1; if (strip(substr(line, 6)) != "") unsup("jobs is not a block mapping") }
+  next }
+sec == "on" {
+  if (eind == 0) eind = ind
+  if (ind == eind) { ev = line; sub(/:.*/, "", ev); ev = strip(ev); mode = ""; kind = 0
+    if (ev == "pull_request") { pr = 1; rv = line; sub(/^[^:]*:/, "", rv); if (strip(rv) != "") flow = 1 }
+    else if (ev == "pull_request_target" || ev == "merge_group") other = ev " trigger"
+    next }
+  if (ev != "pull_request") next
+  if (kind == 0 && line !~ /^-/) kind = ind
+  if (ind == kind && line !~ /^-/) {
+    key = line; sub(/:.*/, "", key); val = line; sub(/^[^:]*:/, "", val); val = strip(val); mode = ""
+    if (key == "paths") { if (val != "") flow = 1; else mode = "paths" } else if (key == "paths-ignore") ignore = 1
+    next }
+  if (mode == "paths" && line ~ /^-/) { v = line; sub(/^-[ \t]*/, "", v); print "PAT " strip(v) }
+  next }
+sec == "jobs" {
+  if (jind == 0) jind = ind
+  if (ind == jind) {
+    if (line !~ /^[A-Za-z0-9_-]+:/) { unsup("job key shape: " line); cur = ""; next }
+    id = line; sub(/:.*/, "", id); name[id] = id; ids[++n] = id; cur = id; cind = 0; next }
+  if (cur != "") {
+    if (cind == 0) cind = ind
+    if (ind == cind && line ~ /^name:/) { v = line; sub(/^name:/, "", v); v = strip(v)
+      if (v == "" || v ~ /\$\{\{/ || v ~ /^[>|&*!]/) unsup("job name shape of " cur); else name[cur] = v } }
+  next }
+END { found = 0; for (i = 1; i <= n; i++) if (name[ids[i]] == chk) found = 1
+  print "JOB " found; print "PR " (pr ? 1 : 0); if (ignore) print "IGNORE"; if (flow) print "FLOW"
+  if (other != "") print "OTHER " other
+  if (!seenjobs) unsup("no jobs: block")
+  if (un != "") print "UNSUP " un }'
+# ci_pf_pat_ok <pattern>: succeeds only for the forms ci_glob_re emulates exactly: letters, digits, `_ . / @ -`, `*`, and `**`
+# solely as a trailing `/**`. Anything else (a leading `**/`, `/**/`, `**x`, classes, `+`, `{}`, `!`, spaces, ...) is never guessed.
+ci_pf_pat_ok() {
+  local p="$1" ok_re='^[A-Za-z0-9_.*/@-]+$'
+  [[ "$p" =~ $ok_re ]] || return 1
+  p="${p%/\*\*}"
+  case "$p" in *'**'*) return 1 ;; esac
+  return 0
+}
+# ci_pf_tree <tree> <label> <check> <changed-files>: judges ONE tree. Every workflow in it that carries a job named <check> is
+# read and decides; the check is skipped only when ALL carriers skip. Prints `skip <wf>[,<wf>...]` | `run` | `unknown <why>`.
+ci_pf_tree() {
+  local tree="$1" label="$2" chk="$3" files="$4" wf wfs src scan uns oth pr ign flow pats pat re hit bad carriers=0 anyrun=0 skipped=""
+  wfs="$(git -C "$cwd" ls-tree --name-only "$tree" .github/workflows/ 2>/dev/null | grep -E '\.ya?ml$')"
+  [ -n "$wfs" ] || { echo "unknown no workflow files in the $label tree (.github/workflows)"; return 0; }
+  while IFS= read -r wf; do
+    src="$(git -C "$cwd" show "$tree:$wf" 2>/dev/null)" || { echo "unknown cannot read $wf in the $label tree"; return 0; }
+    scan="$(printf '%s\n' "$src" | awk -v chk="$chk" "$CI_WF_AWK" 2>/dev/null)" || { echo "unknown cannot parse $wf in the $label tree"; return 0; }
+    uns="$(printf '%s\n' "$scan" | sed -n 's/^UNSUP //p')"
+    [ -z "$uns" ] || { echo "unknown cannot parse the jobs of $wf ($uns, $label tree)"; return 0; }
+    [ "$(printf '%s\n' "$scan" | sed -n 's/^JOB //p')" = "1" ] || continue
+    carriers=$((carriers + 1))
+    oth="$(printf '%s\n' "$scan" | sed -n 's/^OTHER //p')"
+    [ -z "$oth" ] || { echo "unknown $wf has another PR-like trigger ($oth, $label tree)"; return 0; }
+    pr="$(printf '%s\n' "$scan" | sed -n 's/^PR //p')"
+    ign="$(printf '%s\n' "$scan" | grep -c '^IGNORE$')"; flow="$(printf '%s\n' "$scan" | grep -c '^FLOW$')"
+    pats="$(printf '%s\n' "$scan" | sed -n 's/^PAT //p')"
+    [ "$pr" = "1" ] || { echo "unknown no pull_request trigger in $wf ($label tree)"; return 0; }
+    [ "$ign" = "0" ] || { echo "unknown $wf uses paths-ignore ($label tree)"; return 0; }
+    [ "$flow" = "0" ] || { echo "unknown $wf lists its paths inline (flow style, $label tree)"; return 0; }
+    if [ -z "$pats" ]; then anyrun=1; continue; fi
+    hit=0; bad=""
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
+      if ! ci_pf_pat_ok "$pat"; then bad="${bad:-$pat}"; continue; fi
+      re="$(ci_glob_re "$pat")"
+      if grep -Eq "^${re}\$" <<<"$files"; then hit=1; break; fi
+    done <<<"$pats"
+    if [ "$hit" -eq 1 ]; then anyrun=1
+    elif [ -n "$bad" ]; then echo "unknown $wf has an unsupported path pattern ($bad, $label tree)"; return 0
+    else skipped="${skipped:+$skipped,}$wf"; fi
+  done <<<"$wfs"
+  [ "$carriers" -gt 0 ] || { echo "unknown no workflow job named $chk in the $label tree"; return 0; }
+  if [ "$anyrun" -eq 1 ]; then echo "run"; else echo "skip $skipped"; fi
+}
+# ci_pf_eval <check> <changed-files>: prints `skip <workflows> <n>` | `run` (the check should have run) | `unknown <why>`. The check
+# is skipped only when it is skipped under BOTH the PR base tree and the head tree (a PR that narrows its own `paths` must not
+# exempt itself), and never when the PR changes anything under .github/workflows.
+ci_pf_eval() {
+  local chk="$1" files="$2" h b n
+  if grep -Eq '^\.github/workflows/' <<<"$files"; then echo "unknown the PR changes .github/workflows (its own filters cannot exempt it)"; return 0; fi
+  h="$(ci_pf_tree "$head" head "$chk" "$files")"
+  case "$h" in skip\ *) ;; *) echo "$h"; return 0 ;; esac
+  b="$(ci_pf_tree "$pr_base" base "$chk" "$files")"
+  case "$b" in skip\ *) ;; *) echo "$b"; return 0 ;; esac
+  n="$(printf '%s\n' "$files" | grep -c .)"
+  echo "$h $n"
+}
 
 git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1 || degraded "--cwd is not a git repo/worktree: $cwd"
 head="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || degraded "cannot resolve HEAD in $cwd"
@@ -161,7 +290,7 @@ fi
 # Ask gentle-ai. Capture stdout and the exit status separately; a non-zero assess is degraded
 # even when its stdout happens to look like an allow.
 err_file="$(mktemp 2>/dev/null)" || degraded "mktemp failed"
-trap 'rm -f "$err_file"' EXIT
+trap 'rm -f "$err_file" ${gh_out:+"$gh_out"}' EXIT
 assess_out="$(gentle-ai review assess --cwd "$cwd" --base-ref "$mb" --committed-only --json 2>"$err_file")"
 assess_rc=$?
 if [ "$assess_rc" -ne 0 ]; then
@@ -199,10 +328,44 @@ if [ -n "$do_merge" ]; then
     degraded "cannot read check runs for head $head (gh api failed${ci_err:+: $ci_err})"
   }
   # --paginate prints one JSON object per page: slurp, require every page to carry a check_runs array of named, statused runs.
-  ci_norm="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
-    | map({name, status, conclusion, app_id: (.app.id? // null), id: (.id? // 0)})
-    | group_by([.name, .app_id]) | map(max_by(.id))' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  ci_all="$(printf '%s' "$ci_raw" | jq -c -s 'if length > 0 and all(.[]; type == "object" and (.check_runs | type) == "array") then [.[].check_runs[]] else error("shape") end | if all(.[]; type == "object" and (.name | type) == "string" and (.status | type) == "string") then . else error("shape") end
+    | if all(.[]; (.id | type) == "number") then . else error("shape") end
+    | map({name, status, conclusion, app_id: (.app.id? // null), id})' 2>/dev/null)" || degraded "check runs for head $head are unparseable or off-schema"
+  # Superseded cancelled runs (kit issue #1864): an older CANCELLED run next to a newer run of the same (name, app id), e.g. a
+  # push cancelled an in-flight run under the per-ref concurrency group and a later run replaced it. Reported as a typed note
+  # (never a pass, never a failure); the latest run alone decides below, so a cancelled LATEST run stays ci_failed.
+  ci_notes="$(printf '%s' "$ci_all" | jq -r 'group_by([.name, .app_id])[] | (max_by(.id)) as $l | .[]
+    | select(.status == "completed" and .conclusion == "cancelled" and .id != $l.id)
+    | "superseded cancelled run of \(.name) (check-run id \(.id), superseded by id \($l.id))"' 2>/dev/null)" || degraded "cannot evaluate superseded check runs for head $head"
+  ci_norm="$(printf '%s' "$ci_all" | jq -c 'group_by([.name, .app_id]) | map(max_by(.id))' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   ci_req="$(jq -cn --arg s "$required" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' 2>/dev/null)" || degraded "cannot parse --required-checks list"
+  # Required checks that never reported: when the PR's changed files match none of the workflow's pull_request.paths the check
+  # never ran (kit issue #1867) — noted and dropped from the required set. Anything not evaluable stays required (ci_missing).
+  ci_absent="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '([.[].name] as $seen | $req | map(select(. as $r | $seen | index($r) | not)))[]' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
+  if [ -n "$ci_absent" ]; then
+    ci_pf_why=""
+    ci_nf=0
+    ci_files="$(ghr api "repos/{owner}/{repo}/pulls/$pr/files?per_page=100" --paginate 2>/dev/null)" \
+      && ci_nf="$(printf '%s' "$ci_files" | jq -s 'if length > 0 and all(.[]; type == "array") then [.[][]] | length else error("shape") end' 2>/dev/null)" \
+      && ci_files="$(printf '%s' "$ci_files" | jq -r -s '.[][] | .filename, (.previous_filename // empty)' 2>/dev/null)" \
+      || { ci_files=""; ci_pf_why="path filters not evaluated: cannot read the files of PR #$pr (gh api failed or unparseable); missing required checks stay ci_missing"; }
+    # GitHub caps the PR files list at 3000 entries: at the cap the list may be truncated, so nothing can be skipped on it.
+    ci_skipped=""
+    while IFS= read -r ci_chk; do
+      [ -n "$ci_chk" ] || continue
+      if [ -n "$ci_pf_why" ]; then ci_notes="${ci_notes:+$ci_notes$'\n'}$ci_pf_why"; break; fi
+      if [ -z "$ci_files" ]; then ci_pf_res="unknown the PR reports no changed files"
+      elif [ "$ci_nf" -ge 3000 ]; then ci_pf_res="unknown the PR lists $ci_nf changed files (GitHub caps the files list at 3000, so it may be truncated)"
+      else ci_pf_res="$(ci_pf_eval "$ci_chk" "$ci_files")"; fi
+      case "$ci_pf_res" in
+        skip\ *) ci_wf="${ci_pf_res#skip }"; ci_n="${ci_wf##* }"; ci_wf="${ci_wf% *}"
+          ci_notes="${ci_notes:+$ci_notes$'\n'}required check $ci_chk skipped by path filter ($ci_wf pull_request.paths matches none of the $ci_n changed files)"
+          ci_skipped="${ci_skipped:+$ci_skipped$'\n'}$ci_chk" ;;
+        unknown\ *) ci_notes="${ci_notes:+$ci_notes$'\n'}required check $ci_chk not evaluated against path filters: ${ci_pf_res#unknown }; stays required" ;;
+      esac
+    done <<<"$ci_absent"
+    if [ -n "$ci_skipped" ]; then ci_req="$(printf '%s' "$ci_req" | jq -c --arg s "$ci_skipped" '. - ($s | split("\n"))' 2>/dev/null)" || degraded "cannot apply path-filter skips to the required list"; fi
+  fi
   ci_verdict="$(printf '%s' "$ci_norm" | jq -r --argjson req "$ci_req" '
     (map(select(.status == "completed" and ((.conclusion // "") | IN("success", "skipped", "neutral") | not)) | .name) | unique) as $failed
     | (map(select(.status != "completed") | .name) | unique) as $pending
@@ -213,6 +376,7 @@ if [ -n "$do_merge" ]; then
       elif ($missing | length) > 0 then "ci_missing (\($missing | join(",")))"
       else "ok" end' 2>/dev/null)" || degraded "cannot evaluate check runs for head $head"
   [ -n "$ci_verdict" ] || degraded "cannot evaluate check runs for head $head"
+  while IFS= read -r ci_note; do [ -z "$ci_note" ] || say "note: $ci_note"; done <<<"$ci_notes"
   if [ "$ci_verdict" != "ok" ]; then
     say "refuse: $ci_verdict (head=$head) — CI for this exact head must be green before merging"
     exit 1
@@ -247,21 +411,30 @@ closure_evidence() {
   if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
   # shellcheck source=lib/gh-visibility.sh
   . "$lib" 2>/dev/null || { say "$ev: degraded: lib/gh-visibility.sh not found (needed for the bounded GraphQL read); nothing posted"; return 0; }
+  # The bounded calls run in THIS shell (never inside $(...)), so GHV_STATE / GHV_NOTE survive: stdout goes to a file, stderr to
+  # $err_file. A non-empty GHV_NOTE (the watchdog could not group-kill: DEGRADED) is appended to the timeout/degraded lines.
+  gh_out="$(mktemp 2>/dev/null)" || { say "$ev: degraded: mktemp failed; nothing posted"; return 0; }
+  ghb() { local o="$1" brc; shift; pushd "$cwd" >/dev/null 2>&1 || return 1; GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" >"$o" 2>"$err_file"; brc=$?; { popd >/dev/null 2>&1 || :; }; return "$brc"; }
+  ghv_note() { if [ -n "${GHV_NOTE:-}" ]; then printf ' [%s]' "$GHV_NOTE"; fi; }
   # ONE repository for the whole step: the one `gh pr merge` just used (GH_REPO when set, else the cwd remote). It is
   # passed explicitly to the read, the files read and every comment, so they can never resolve to different repos
   # (gh_bounded_run runs gh with GH_REPO unset, which would silently re-resolve from the cwd remote).
   if [ -n "${GH_REPO:-}" ]; then
     name="${GH_REPO##*/}"; owner="${GH_REPO%/*}"; owner="${owner##*/}"; repo="$owner/$name"
   else
-    repo="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh repo view --json nameWithOwner -q .nameWithOwner 2>"$err_file")" \
-      || { say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; }
+    ghb "$gh_out" gh repo view --json nameWithOwner -q .nameWithOwner; grc=$?
+    repo="$(cat "$gh_out" 2>/dev/null)"
+    if [ "${GHV_STATE:-}" = CALLER_SIGNALLED ]; then say "$ev: degraded: the caller was signalled while the repository was being resolved; nothing posted$(ghv_note)"; return 0; fi
+    if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted$(ghv_note)"; return 0; fi
     owner="${repo%%/*}"; name="${repo#*/}"
   fi
   if ! [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then say "$ev: degraded: cannot resolve the repository the merge used (got '$repo'); nothing posted"; return 0; fi
   gq='query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged state mergeCommit{oid} closingIssuesReferences(first:50){totalCount nodes{number repository{nameWithOwner}}}}}}'
-  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
-  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted"; return 0; fi
-  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; fi
+  ghb "$gh_out" gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq"; grc=$?
+  gj="$(cat "$gh_out" 2>/dev/null)"
+  if [ "${GHV_STATE:-}" = CALLER_SIGNALLED ]; then say "$ev: degraded: the caller was signalled during the GraphQL read of PR #$pr; nothing posted$(ghv_note)"; return 0; fi
+  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted$(ghv_note)"; return 0; fi
+  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted$(ghv_note)"; return 0; fi
   verdict="$(printf '%s' "$gj" | jq -r '
     .data.repository as $r | $r.pullRequest as $p
     | if ($r.nameWithOwner | type) != "string" or ($p | type) != "object" or ($p.closingIssuesReferences.nodes | type) != "array" or ($p.closingIssuesReferences.totalCount | type) != "number" then "shape"

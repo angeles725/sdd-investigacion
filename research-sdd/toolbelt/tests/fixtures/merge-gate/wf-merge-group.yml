@@ -1,0 +1,11 @@
+name: t
+on:
+  pull_request:
+    paths:
+      - "nothing-here/**"
+  merge_group:
+jobs:
+  toolbelt-tests:
+    runs-on: x
+  shellcheck:
+    runs-on: x
