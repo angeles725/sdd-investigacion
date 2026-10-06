@@ -30,8 +30,9 @@
 #   ok                  every declared correction is reciprocated (or none declared)
 #   n/a                 no block files (nothing to check)
 #   PARTIAL — N ...     linter said ok-partial: N declared corrections had an ambiguous/missing target and were NOT
-#                       checked. Passes (a missing target is an unverifiable claim, not a one-directional one), but is
-#                       typed + WARNed on stderr, never a bare ok.
+#                       checked (K of them typed `AMBIG` lines: object/locator/assumption/cross-focus/bare, #1868).
+#                       Passes (an unverifiable claim is not a one-directional one), but is typed + WARNed on stderr,
+#                       never a bare ok.
 #   FAIL — N ...        one-directional correction(s); REFUSES (exit 3), the failing pairs are listed.
 #   DEGRADED — ...      the linter said it could not look (`degraded:`); REFUSES — an unreadable instrument is not a pass.
 #   ERROR — ...         bad args / missing / non-executable / unexpected exit / exit 0 without an `ok` verdict line /
@@ -185,6 +186,7 @@ gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-s
 # the operator overrides explicitly. Measured before promotion (2026-10-05, after #1835's false-FAIL fixes): 6 of
 # 20 present targets would be refused; each refusal names its pairs, the verify command and the override flag.
 _vc_out="$("$here/verify-corrections.sh" "$corpus" 2>&1)"; _vc_rc=$?  # AR-VCORR-GATE
+_vc_pfx() { basename "$1" | sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/'; }  # block filename -> focus prefix (BASENAME only, #1857)
 _vc_refuse() {  # <state-label> <detail> — refuse, or (override flag) record a typed OVERRIDDEN line
   if [ "$allow_vc" = 1 ]; then  # AR-VCORR-OVERRIDE
     echo "    verify-corrections : OVERRIDDEN — $2 (--allow-unreciprocated-corrections given; gate NOT enforced)"
@@ -197,7 +199,8 @@ _vc_refuse() {  # <state-label> <detail> — refuse, or (override flag) record a
 case "$_vc_rc" in
   0) if grep -q '^ *ok-partial ' <<<"$_vc_out"; then  # AR-VCORR-PARTIAL
        _vc_u="$(sed -n 's/^ *ok-partial \([0-9][0-9]*\) .*/\1/p' <<<"$_vc_out" | head -n 1)"
-       echo "    verify-corrections : PARTIAL — ${_vc_u:-some} declared correction(s) NOT checked (ambiguous/missing target; run verify-corrections.sh for the WARN lines)"
+       _vc_amb="$(grep -c '^ *AMBIG ' <<<"$_vc_out")"  # AR-VCORR-AMBIG-COUNT (typed ambiguous lines, #1868; never a refusal)
+       echo "    verify-corrections : PARTIAL — ${_vc_u:-some} declared correction(s) NOT checked (${_vc_amb:-0} typed ambiguous, rest ambiguous/missing target; run verify-corrections.sh for the AMBIG/WARN lines)"
        echo "WARN: verify-corrections ok-partial — ${_vc_u:-some} declared correction(s) could not be checked." >&2
      elif grep -q '^ *ok ' <<<"$_vc_out"; then  # AR-VCORR-OK-POSITIVE
        echo "    verify-corrections : ok"
@@ -214,12 +217,11 @@ case "$_vc_rc" in
        _vc_infocus="$_vc_fails"; _vc_sib=0; _vc_scope_err=""
        if [ -n "$focus_slug" ]; then  # AR-VCORR-FOCUS-SCOPE
          _vc_fslug="$(derive_focus_prefix "$state")"; _vc_fslug="${_vc_fslug%-}"
-         _vc_fnums=" "; _vc_fcount=0
+         _vc_fcount=0
          while IFS= read -r _vc_f; do
            [ -n "$_vc_f" ] || continue
-           [ "$(basename "$_vc_f" | sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/')" = "$_vc_fslug" ] || continue
+           [ "$(_vc_pfx "$_vc_f")" = "$_vc_fslug" ] || continue
            _vc_fcount=$((_vc_fcount+1))
-           _vc_fnums="$_vc_fnums$(basename "$_vc_f" | sed -E 's/.*-(block|bloque)0*([0-9]+).*/\2/') "
          done < <(find "$corpus" -maxdepth 3 -type f -name '*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | block_file_filter)
          if [ -z "$_vc_fslug" ] || [ "$_vc_fcount" -eq 0 ]; then
            _vc_scope_err="cannot scope the §14 gate to focus $focus_slug (no block file carries its prefix '${_vc_fslug:-?}-'); $_vc_n finding(s) NOT classified"  # AR-VCORR-FOCUS-UNRESOLVED
@@ -228,9 +230,13 @@ case "$_vc_rc" in
            while IFS= read -r _vc_l; do
              _vc_c="$(sed -nE 's/^ *FAIL +B0*([0-9]+) corrects.*/\1/p' <<<"$_vc_l")"
              _vc_t="$(sed -nE 's/^.* but ([^ ]+) has no reciprocal.*/\1/p' <<<"$_vc_l")"
-             _vc_tp="$(sed -E 's/^(.*)-(block|bloque)0*[0-9]+.*/\1/' <<<"$_vc_t")"
-             # unparseable line => treated as in-focus (never silently dropped)
-             if [ -z "$_vc_c" ] || [ -z "$_vc_t" ] || [ "$_vc_tp" = "$_vc_fslug" ] || [[ "$_vc_fnums" == *" $_vc_c "* ]]; then  # AR-VCORR-IN-FOCUS
+             _vc_tp="$(_vc_pfx "$_vc_t")"
+             # The correcting block's OWN file (`[correcting: <file>]`, #1857) decides ownership by prefix: a focus that merely
+             # owns another block with the same NUMBER does not own this pair. Unparseable line (or a linter that does not
+             # name the correcting file) => treated as in-focus (never silently dropped).
+             _vc_cf="$(sed -nE 's/^.*\[correcting: ([^]]+)\] *$/\1/p' <<<"$_vc_l")"
+             _vc_cp=""; [ -z "$_vc_cf" ] || _vc_cp="$(_vc_pfx "$_vc_cf")"
+             if [ -z "$_vc_c" ] || [ -z "$_vc_t" ] || [ -z "$_vc_cf" ] || [ "$_vc_tp" = "$_vc_fslug" ] || [ "$_vc_cp" = "$_vc_fslug" ]; then  # AR-VCORR-IN-FOCUS
                _vc_infocus="${_vc_infocus:+$_vc_infocus$'\n'}$_vc_l"
              else _vc_sib=$((_vc_sib+1)); fi
            done <<<"$_vc_fails"

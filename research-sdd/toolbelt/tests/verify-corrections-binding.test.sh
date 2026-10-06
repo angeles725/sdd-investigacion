@@ -83,7 +83,7 @@ else no "para :: $(run "$d" | grep -E 'FAIL' | tr '\n' '|')"; fi
 
 # 6 — conjunction ends the clause: `CORRECTS the backlog's statement, and independently corroborates [Block 5].`
 d="$TMP/conj"; blank "$d" 5
-mk "$d" 36 "# Block 36\n\n> **Block type: EVIDENCE.** CORRECTS the backlog's statement of G4, and\n> independently corroborates [Block 5].\n"
+mk "$d" 36 "# Block 36\n\n> **Block type: EVIDENCE.** CORRECTS the backlog statement of G4, and\n> independently corroborates [Block 5].\n"
 out="$(run "$d")"
 if [ "$(code "$d")" = 0 ] && grep -qE 'note +1 correction verb' <<<"$out"; then
   ok "', and <other verb> [Block 5]' → Block 5 is not a target; the unbound verb is surfaced as a note"
@@ -95,12 +95,13 @@ mk "$d" 37 '# Block 37\n\n- **[Block 53]** — both bounded it; this block\n  co
 if [ "$(code "$d")" = 0 ]; then ok "ref in the NEXT sentence is not a target → exit 0"
 else no "sent :: $(run "$d" | grep -E 'FAIL' | tr '\n' '|')"; fi
 
-# 8 — bare B<N> leads the clause: the later bracket is not the target (nor is it guessed); note emitted.
+# 8 — bare B<N> leads the clause: the later bracket is not the target (nor is it guessed); since #1868 (#1835 item 4) the
+#     bare ref itself is a typed AMBIG (bare) line — here B67 has no block file, so it is named, not dropped.
 d="$TMP/bare"; blank "$d" 34
 mk "$d" 38 '# Block 38\n\n# x — and §14 CORRECTS my own B67 §67.7, which walked into a trap [Block 34] had described\n'
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && grep -qE 'note +1 correction verb' <<<"$out"; then
-  ok "bare 'B67' leads the clause → later [Block 34] not a target; surfaced as a note, not dropped silently"
+if [ "$(code "$d")" = 0 ] && grep -qE 'AMBIG +B38 corrects \[Block 67\] .*bare' <<<"$out" && ! grep -qE 'B38 corrects \[Block 34\]' <<<"$out"; then
+  ok "bare 'B67' leads the clause → later [Block 34] not a target; the bare ref is surfaced as an AMBIG line, not dropped silently"
 else no "bare :: $(tr '\n' '|' <<<"$out")"; fi
 
 # 9 — OPERATIONAL FAILURE is never "ok" (§7): a stub awk that exits 2 → typed degraded line, exit 1, no ok line.
@@ -165,7 +166,7 @@ else no "pfx-gap :: $(tr '\n' '|' <<<"$out")"; fi
 # 12c — own prefix lacks the target and exactly ONE other prefix has it → that one is used.
 d="$TMP/pfx-uniq"
 pmk "$d" aa 4 '# Block 4\n\n> Corrects [Block 9].\n'; pmk "$d" zz 9 '# Block 9\n\nNo note.\n'
-if grep -qE 'FAIL +B4 corrects \[Block 9\] but zz-block9\.md ' <<<"$(run "$d")"; then ok "own prefix lacks the target, one other prefix has it → unique fallback is checked"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +B4 corrects \[Block 9\] but zz-block9\.md ' <<<"$(run "$d")"; then ok "own prefix lacks the target, one other prefix has it → unique fallback is checked (exit 1 asserted, #1847)"
 else no "pfx-uniq :: $(run "$d" | tr '\n' '|')"; fi
 # 12d — own prefix lacks it and SEVERAL others have it → ambiguous: WARN, not guessed, not a FAIL.
 d="$TMP/pfx-amb"
@@ -261,10 +262,11 @@ out="$(run "$d")"
 if [ "$(code "$d")" = 0 ] && ! grep -qE 'B21 corrects' <<<"$out"; then ok "bare 'CORRIGENDUM [Bloque 82]' stays a backlink (B82→21 ok) and declares nothing"
 else no "corrigendum-bare :: $(tr '\n' '|' <<<"$out")"; fi
 
-# 17 — `/`, `+` and comma are NOT joiners (correction round): slash lists are evidence citations, comma-only lists could
-#      false-bind a cross-reference. Only the FIRST ref of each is a target.
+# 17 — `+` and comma are NOT joiners (correction round): comma-only lists could false-bind a cross-reference, `+` joins
+#      unrelated things. Only the FIRST ref of each is a target. `/` joins since #1868 (pinned in the precision suite); the
+#      bloque717 evidence-citation list that made it unsafe is now typed AMBIG (object), asserted below.
 d="$TMP/join-neg"; blank "$d" 1 2 3 537 538 545
-mk "$d" 80 '# Block 80\n\n> Corrects [Block 1]/[Block 2].\n'
+mk "$d" 80 '# Block 80\n\n> Corrects [Block 1] + [Block 2].\n'
 mk "$d" 81 '# Block 81\n\n> Corrects [Block 3] + [Block 2].\n'
 mk "$d" 82 '# Block 82\n\n> Corrects [Block 3], [Block 2] is related.\n'
 mk "$d" 83 "# Block 83\\n\\n> corrects this focus's bootstrap remittance — kitControl is DONE ([Block 537]/[Block 538]/[Block 545])\\n"
@@ -272,8 +274,8 @@ out="$(run "$d")"
 if grep -qE 'B80 corrects \[Block 1\] ' <<<"$out" && ! grep -qE 'B80 corrects \[Block 2\]' <<<"$out" \
    && ! grep -qE 'B81 corrects \[Block 2\]' <<<"$out" && ! grep -qE 'B82 corrects \[Block 2\]' <<<"$out" \
    && grep -qE 'B82 corrects \[Block 3\] ' <<<"$out" \
-   && grep -qE 'B83 corrects \[Block 537\] ' <<<"$out" && ! grep -qE 'B83 corrects \[Block (538|545)\]' <<<"$out"; then
-  ok "'/', '+' and a bare comma do not join targets: only the first ref binds (incl. the real bloque717 citation list)"
+   && ! grep -qE 'FAIL +B83 ' <<<"$out" && grep -qE 'AMBIG +B83 corrects \[Block 537\] .*object' <<<"$out"; then
+  ok "'+' and a bare comma do not join targets: only the first ref binds; the real bloque717 citation list is AMBIG (object), not a FAIL"
 else no "join-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 
 # 18 — CORRIGENDUM NEVER VANISHES (round 3, §7): only the bare noun directly followed by a ref is a backlink. Every other
@@ -337,7 +339,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: drop the postfix binding; the real blender fixture must lose both findings --"
   m="$TMP/vc.POSTFIX.sh"
-  if mk_mut "teeth: postfix" "$SUT" "$m" 's/else if (!done \&\& !isnoun \&\& bd == "close")/else if (0)/'; then
+  if mk_mut "teeth: postfix" "$SUT" "$m" 's/else if (!isnoun \&\& bd == "close")/else if (0)/'; then
     tt "teeth: no-postfix mutant misses B17→Block 1 (real shape)" 1 0 "$m" --orig "$SUT" \
       --good-has 'B17 corrects \[Block 1\] ' --bad-lacks 'B17 corrects \[Block 1\] |awk: ' -- bash @SUT@ "$TMP/real"
   fi
@@ -386,7 +388,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: drop the bare-B suppressor; the later bracket must become a false target --"
   m="$TMP/vc.BARE.sh"
-  if mk_mut "teeth: bare" "$SUT" "$m" 's/if (bp <= RSTART) r = ""/if (0) r = ""/'; then
+  if mk_mut "teeth: bare" "$SUT" "$m" 's/if (bn != "" \&\& (r == "" || BP < rs)) {/if (0) {/'; then
     tt "teeth: no-suppressor mutant binds [Block 34] behind 'B67'" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B38 corrects \[Block 34\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare"
   fi
@@ -401,7 +403,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -n "$GD" ] && [ -n "$UTF" ]; then
     echo "-- teeth: drop LC_ALL=C; under gawk + UTF-8 the '·' boundary must vanish --"
     m="$TMP/vc.LOCALE.sh"
-    if mk_mut "teeth: locale" "$SUT" "$m" 's/LC_ALL=C awk /awk /'; then
+    if mk_mut "teeth: locale" "$SUT" "$m" 's/LC_ALL=C awk /awk /' 's/\\200-\\377//g'; then
       tt "teeth: locale-dependent mutant binds across the '·' (exit 1)" 0 1 "$m" --orig "$SUT" \
         --bad-has 'B40 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL="$UTF" PATH="$GD:$PATH" bash @SUT@ "$TMP/dot"
     fi
@@ -417,7 +419,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835): resolve the target by number alone (last-wins across prefixes); the colliding focus must be checked --"
   m="$TMP/vc.PREFIX.sh"
-  if mk_mut "teeth: prefix scope" "$SUT" "$m" 's#tgt="${numfile\["$(blockprefix "$f")|$n"\]:-}"#tgt="${numany[$n]:-}"#'; then
+  if mk_mut "teeth: prefix scope" "$SUT" "$m" 's#tgt="${numfile\["$_vc_own|$n"\]:-}"#tgt="${numany[$n]:-}"#'; then
     tt "teeth: number-only mutant checks zz-block1 for aa's B4 (false FAIL)" 0 1 "$m" --orig "$SUT" \
       --bad-has 'FAIL +B4 corrects \[Block 1\] but zz-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-aa"
   fi
@@ -425,7 +427,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # first-wins mutant only bites when it sorts BEFORE (pfx-zz). Both directions are pinned, so the prefix tooth cannot
   # pass on iteration order alone.
   m="$TMP/vc.PREFIX1.sh"
-  if mk_mut "teeth: prefix scope (first-wins)" "$SUT" "$m" 's#tgt="${numfile\["$(blockprefix "$f")|$n"\]:-}"#tgt="${numany[$n]:-}"#' \
+  if mk_mut "teeth: prefix scope (first-wins)" "$SUT" "$m" 's#tgt="${numfile\["$_vc_own|$n"\]:-}"#tgt="${numany[$n]:-}"#' \
        's#numany\["$_vc_n"\]="$f"#[ -n "${numany[$_vc_n]:-}" ] || numany["$_vc_n"]="$f"#'; then
     tt "teeth: first-wins number-only mutant checks aa-block1 for zz's B4 (false FAIL)" 0 1 "$m" --orig "$SUT" \
       --bad-has 'FAIL +B4 corrects \[Block 1\] but aa-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/pfx-zz"
@@ -437,13 +439,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tt "teeth: always-noun mutant loses 'CORRIGENDUM … of [Block 32]'" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B107 corrects \[Block 32\] ' --bad-lacks 'B107 corrects|awk: ' -- bash @SUT@ "$TMP/cg"
   fi
-  m="$TMP/vc.SLASH.sh"
-  if mk_mut "teeth: slash joiner" "$SUT" "$m" 's#(and|y|e|&)#(and|y|e|\&|\\/|\\+)#'; then
-    tt "teeth: slash-joiner mutant binds [Block 2] behind '[Block 1]/'" 1 1 "$m" --orig "$SUT" \
+  m="$TMP/vc.PLUS.sh"
+  if mk_mut "teeth: plus joiner" "$SUT" "$m" 's#(and|y|e|&|.\{2\})#(and|y|e|\&|\\/|\\+)#'; then
+    tt "teeth: plus-joiner mutant binds [Block 2] behind '[Block 1] +'" 1 1 "$m" --orig "$SUT" \
       --good-lacks 'B80 corrects \[Block 2\]' --bad-has 'B80 corrects \[Block 2\]' --bad-lacks 'awk: ' -- bash @SUT@ "$TMP/join-neg"
   fi
   m="$TMP/vc.COMMA.sh"
-  if mk_mut "teeth: comma-only list" "$SUT" "$m" 's#(and|y|e|&)\[#(and|y|e|\&)?[#'; then
+  if mk_mut "teeth: comma-only list" "$SUT" "$m" 's#(and|y|e|&|.\{2\})\[#(and|y|e|\&|\\/)?[#'; then
     tt "teeth: connector-optional mutant joins '[Block 3], [Block 2]' (comma-only list)" 1 1 "$m" --orig "$SUT" \
       --good-lacks 'B82 corrects \[Block 2\]' --bad-has 'B82 corrects \[Block 2\]' --bad-lacks 'awk: ' -- bash @SUT@ "$TMP/join-neg"
   fi
@@ -458,7 +460,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835): keep only the first ref of a clause; the second joined target must vanish --"
   m="$TMP/vc.MULTI.sh"
-  if mk_mut "teeth: multi-target" "$SUT" "$m" 's/emit(r); more(cl); done = 1/emit(r); done = 1/'; then
+  if mk_mut "teeth: multi-target" "$SUT" "$m" 's/^          more(cl); done = 1; qcur = ""; qkind = ""$/          done = 1/'; then
     tt "teeth: first-ref-only mutant drops [Block 5] from '[Block 6] … and [Block 5]'" 1 1 "$m" --orig "$SUT" \
       --good-has 'B60 corrects \[Block 5\] ' --bad-has 'B60 corrects \[Block 6\] ' --bad-lacks 'B60 corrects \[Block 5\] |awk: ' -- bash @SUT@ "$TMP/multi-and"
   fi
@@ -471,7 +473,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1835): drop the passive guard; 'Se corrige [Block 8]' / 'si no se corrige' must declare --"
   m="$TMP/vc.PASSIVE.sh"
-  if mk_mut "teeth: passive" "$SUT" "$m" 's/pre ~ \/(^|\[^a-z0-9_\])se\[ \\t\]+\$\/ || //'; then
+  if mk_mut "teeth: passive" "$SUT" "$m" 's/pre ~ \/(^|\[^a-z0-9_\\200-\\377\])se\[ \\t\]+\$\/ || //'; then
     tt "teeth: no-passive-guard mutant treats 'se corrige' as a declaration" 0 1 "$m" --orig "$SUT" \
       --good-has 'note +1 correction verb\(s\) in a non-assertive' --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na1"
     tt "teeth: no-passive-guard mutant treats 'si no se corrige' as a declaration" 0 1 "$m" --orig "$SUT" \
@@ -479,7 +481,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth (#1835): drop the past-tense guard; 'corrigió' / 'corrigieron' must declare --"
   m="$TMP/vc.PAST.sh"
-  if mk_mut "teeth: past tense" "$SUT" "$m" 's/ || tok == "corrigieron".*"\\303\\223"))) {/) {/'; then
+  if mk_mut "teeth: past tense" "$SUT" "$m" 's/ || tok == "corrigieron" || tok == "corrigio" || past) {/) {/'; then
     tt "teeth: no-past-guard mutant treats 'corrigió' as a declaration" 0 1 "$m" --orig "$SUT" \
       --bad-has 'B70 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/na3"
     tt "teeth: no-past-guard mutant treats 'corrigieron' as a declaration" 0 1 "$m" --orig "$SUT" \
@@ -487,7 +489,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth (round 3): list edges, corrigendum never silent, two-ref corrigendum, upper-case Ó, ok-partial --"
   m="$TMP/vc.WHILE.sh"
-  if mk_mut "teeth: while to if" "$SUT" "$m" 's/while (match(rest, /if (match(rest, /'; then
+  if mk_mut "teeth: while to if" "$SUT" "$m" '/function more(cl/,/^    }/ s/while (match(rest, /if (match(rest, /'; then
     tt "teeth: single-step list mutant keeps only 2 targets (loses [Block 3] of a 3-list)" 1 1 "$m" --orig "$SUT" \
       --good-has 'B64 corrects \[Block 3\] ' --bad-has 'B64 corrects \[Block 2\] ' --bad-lacks 'B64 corrects \[Block 3\] |awk: ' -- bash @SUT@ "$TMP/multi-3"
   fi
@@ -512,8 +514,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   m="$TMP/vc.UPPERO.sh"
   if mk_mut "teeth: upper O acute" "$SUT" "$m" 's/ || substr(l, ve, 2) == "\\303\\223"//'; then
-    tt "teeth: lower-only mutant lets 'CORRIGIÓ' declare a correction" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'B93 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/upper"
+    # Since #1847 an unrecognised accented form is surfaced as unbound (exit 0), no longer bound as a verb: the tooth bites
+    # on the missing non-assertive count instead of a FAIL.
+    tt "teeth: lower-only mutant stops counting 'CORRIGIÓ' as past tense" 0 0 "$m" --orig "$SUT" \
+      --good-has 'note +2 correction verb\(s\) in a non-assertive form' --bad-lacks 'note +2 correction verb\(s\) in a non-assertive form|awk: ' -- bash @SUT@ "$TMP/upper"
   fi
   m="$TMP/vc.PARTIAL.sh"
   if mk_mut "teeth: ok-partial" "$SUT" "$m" 's/unchecked=$((unchecked+1))/:/'; then
