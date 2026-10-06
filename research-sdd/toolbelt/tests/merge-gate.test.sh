@@ -200,6 +200,14 @@ mkwfpat() { # mkwfpat <name> <pattern>: a single pull_request.paths pattern in b
   printf 'name: t\non:\n  pull_request:\n    paths:\n      - "%s"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n' "$2" > "$ROOT/pat-$1.yml"
   mkwfrepo "$1" "$ROOT/pat-$1.yml"
 }
+# FAKELIB: stands in for lib/gh-visibility.sh so a test can force the lib's result globals (GHV_STATE / GHV_NOTE / return code)
+FAKELIB="$ROOT/fakelib.sh"
+cat > "$FAKELIB" <<'LIB'
+gh_bounded_run() {
+  GHV_NOTE="${FAKE_NOTE:-}"; GHV_STATE="${FAKE_STATE:-OK}"; GHV_RC="${FAKE_RC:-0}"
+  case "$GHV_STATE" in OK) "$@"; return $? ;; *) return "${FAKE_RC:-0}" ;; esac
+}
+LIB
 mkwfrepo2 selfx wf-paths.yml wf-narrow.yml; mkwfrepo bothnarrow wf-narrow.yml
 mkwfmulti multi-ab wf-paths.yml wf-docs-paths.yml; mkwfmulti multi-ba wf-docs-paths.yml wf-paths.yml; mkwfmulti multi-bothskip wf-paths.yml wf-paths.yml
 mkwfmulti multi-gitlink wf-paths.yml wf-paths.yml gitlink; mkwfmulti multi-nopr wf-paths.yml wf-push-only.yml
@@ -821,6 +829,14 @@ closure_cases() {
   ce_degraded "off-schema answer -> degraded, nothing posted" "$ROOT/ce/g_shape.json" '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable or off-schema'
   ce_degraded "GraphQL failure -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 1: gh: HTTP 502\)' STUB_GQL_FAIL=1
   ce_degraded "GraphQL timeout via the bounded runner -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: GraphQL read of PR #7 timed out' STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1
+  # kit issue #1854: the lib's watchdog note is printed, and a signalled caller is never an allow (a fake lib stands in for the real states)
+  FK="MERGE_GATE_LIB=$FAKELIB"
+  ce_degraded "GraphQL timeout with a watchdog note -> note appended" "$ROOT/ce/g_ok.json" 'GraphQL read of PR #7 timed out \(bound MERGE_GATE_GH_TIMEOUT, default 30 s\); nothing posted \[DEGRADED: no setsid\]$' "$FK" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: no setsid"
+  ce_degraded "GraphQL timeout without a note -> no brackets" "$ROOT/ce/g_ok.json" 'GraphQL read of PR #7 timed out \(bound MERGE_GATE_GH_TIMEOUT, default 30 s\); nothing posted$' "$FK" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124
+  ce_degraded "GraphQL gh error with a note -> note appended" "$ROOT/ce/g_ok.json" 'cannot read the closing issues of PR #7 \(gh api graphql exit 1: .*\); nothing posted \[DEGRADED: no setsid\]$' "$FK" GH_REPO=o/r FAKE_STATE=GH_ERROR FAKE_RC=1 "FAKE_NOTE=DEGRADED: no setsid"
+  ce_degraded "GraphQL read with a signalled caller (rc 0) -> degraded, nothing posted" "$ROOT/ce/g_ok.json" 'degraded: the caller was signalled during the GraphQL read of PR #7; nothing posted \[DEGRADED: x\]$' "$FK" GH_REPO=o/r FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0 "FAKE_NOTE=DEGRADED: x"
+  ce_degraded "repo resolution timeout with a note -> note appended" "$ROOT/ce/g_ok.json" 'cannot resolve the repository the merge used \(gh repo view: .*\); nothing posted \[DEGRADED: no setsid\]$' "$FK" FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: no setsid"
+  ce_degraded "repo resolution with a signalled caller (rc 0) -> degraded, nothing posted" "$ROOT/ce/g_ok.json" 'degraded: the caller was signalled while the repository was being resolved; nothing posted$' "$FK" FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0
   # test files and comments
   runce "$S" "$ROOT/ce/notests.json" "$ROOT/ce/g_one.json"
   expect "closure: no test file -> merge ok, typed not posted" 0 '^merge-gate: closure-evidence: not posted: PR #7 changes no test file'
@@ -980,8 +996,8 @@ mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2
 mutate M68-dedup-removed                 's/jq -c .group_by(\[\.name, \.app_id\]) | map(max_by(\.id))./jq -c ./'
 mutate M69-dedup-picks-oldest            's/map(max_by(\.id))/map(min_by(.id))/'
 mutate M70-app-id-ignored-in-key         's/group_by(\[\.name, \.app_id\])/group_by([.name])/'
-mutate M71-order-by-started-at-first     's/id: (\.id? \/\/ 0)/id: (.id? \/\/ 0), started_at: (.started_at? \/\/ "")/;s/map(max_by(\.id))/map(max_by([.started_at, .id]))/'
-mutate M72-id-compared-as-string         's/id: (\.id? \/\/ 0)/id: ((.id? \/\/ 0) | tostring)/'
+mutate M71-order-by-started-at-first     's/app_id: (\.app\.id? \/\/ null), id})/app_id: (.app.id? \/\/ null), id, started_at: (.started_at? \/\/ "")})/;s/map(max_by(\.id))/map(max_by([.started_at, .id]))/'
+mutate M72-id-compared-as-string         's/app_id: (\.app\.id? \/\/ null), id})/app_id: (.app.id? \/\/ null), id: (.id | tostring)})/'
 mutate M73-first-page-only               's/\[\.\[\]\.check_runs\[\]\]/[.[0].check_runs[]]/'
 # #1812 closure-evidence mutants (mutant_sed refuses a mutant that is empty, identical or syntax-broken).
 # The GraphQL-guard mutants are verified with `tooth` (rc 0 on both sides, the specific wrong output named); the rest with `mutate`.
@@ -1074,7 +1090,14 @@ tooth M140-unreadable-workflow-skipped 's/^    src="\$(git -C "\$cwd" show .*/  
 tooth M141-pattern-charset-unchecked   's/^  \[\[ "\$p" =~ \$ok_re \]\] || return 1/  :/' sc_pf_formchar 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
 tooth M142-double-star-unchecked       's/^  case "\$p" in \*.\*\*.\*) return 1 ;; esac/  :/' sc_pf_form 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
 tooth M143-3000-cap-ignored            's/elif \[ "\$ci_nf" -ge 3000 \]/elif false/' sc_pf_3000 1 '3000 changed files' 0 '^merge-gate: merged: PR #7'
-tooth M144-id-not-required-numeric     '/(\.id | type) == "number"/d' sc_pf_noid 3 '^merge-gate: degraded: check runs for head' 0 '^merge-gate: merged: PR #7'
+sc_ce_gnote()  { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: x"); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
+sc_ce_gsig()   { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" GH_REPO=o/r FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
+sc_ce_rsig()   { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
+tooth M145-ghv-note-dropped            's/^  ghv_note() {.*/  ghv_note() { :; }/' sc_ce_gnote 0 'timed out .*nothing posted \[DEGRADED: x\]$' 0 'timed out .*nothing posted$'
+tooth M146-graphql-signal-ignored      '/the caller was signalled during the GraphQL/d' sc_ce_gsig 0 'the caller was signalled during the GraphQL read' 0 'the GraphQL answer for PR #7 is unparseable or off-schema'
+tooth M147-repo-signal-ignored         '/the caller was signalled while the repository/d' sc_ce_rsig 0 'the caller was signalled while the repository was being resolved' 0 "cannot resolve the repository the merge used \\(got ''\\)"
+mutate M148-bounded-call-in-subshell    's/GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "\$@" >/( GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" ) >/'
+tooth M144-id-not-required-numeric    '/(\.id | type) == "number"/d' sc_pf_noid 3 '^merge-gate: degraded: check runs for head' 0 '^merge-gate: merged: PR #7'
 mutate M132-skip-note-dropped           's/skipped by path filter (/skipped (/'
 mutate M133-unknown-note-dropped        's/ not evaluated against path filters: / not evaluated: /'
 sc_pf_dot()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_d.json" "added:research-sdd/METHODOLOGYxmd"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_d.json"; }

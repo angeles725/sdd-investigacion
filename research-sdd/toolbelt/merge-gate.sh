@@ -88,6 +88,9 @@
 # (`gh repo view`, bounded). It is passed explicitly to the GraphQL read (owner/name, never the {owner}/{repo}
 # placeholders), to the PR files read and as `--repo` to every comment; a GraphQL answer whose nameWithOwner differs
 # (case-insensitive) is `degraded` and nothing is posted.
+# The bounded calls run in the current shell (never inside $(...)) so the lib's GHV_NOTE (the watchdog could not group-kill:
+# DEGRADED) is appended to the timeout / degraded lines as ` [<note>]`, and GHV_STATE=CALLER_SIGNALLED (the caller was
+# signalled while gh ran) is `degraded` with nothing posted, whatever the return code (kit issue #1854).
 # A PR that changes no test file posts NOTHING (`closure-evidence: not posted: ...`): a commit without a test only
 # reads as borderline in reconcile-issues.sh. At most 10 test files are listed (CAP); files beyond it print
 # `closure-evidence: note: N test file(s) beyond cap 10 not listed`. When some comments fail, a final
@@ -256,7 +259,7 @@ fi
 # Ask gentle-ai. Capture stdout and the exit status separately; a non-zero assess is degraded
 # even when its stdout happens to look like an allow.
 err_file="$(mktemp 2>/dev/null)" || degraded "mktemp failed"
-trap 'rm -f "$err_file"' EXIT
+trap 'rm -f "$err_file" ${gh_out:+"$gh_out"}' EXIT
 assess_out="$(gentle-ai review assess --cwd "$cwd" --base-ref "$mb" --committed-only --json 2>"$err_file")"
 assess_rc=$?
 if [ "$assess_rc" -ne 0 ]; then
@@ -377,21 +380,31 @@ closure_evidence() {
   if [ -n "$no_evidence" ]; then say "$ev: skipped: --no-closure-evidence"; return 0; fi
   # shellcheck source=lib/gh-visibility.sh
   . "$lib" 2>/dev/null || { say "$ev: degraded: lib/gh-visibility.sh not found (needed for the bounded GraphQL read); nothing posted"; return 0; }
+  # The bounded calls run in THIS shell (never inside $(...)), so GHV_STATE / GHV_NOTE survive: stdout goes to a file, stderr to
+  # $err_file. A non-empty GHV_NOTE (the watchdog could not group-kill: DEGRADED) is appended to the timeout/degraded lines.
+  gh_out="$(mktemp 2>/dev/null)" || { say "$ev: degraded: mktemp failed; nothing posted"; return 0; }
+  ghb() { local o="$1"; shift; GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" >"$o" 2>"$err_file"; }
+  ghv_note() { if [ -n "${GHV_NOTE:-}" ]; then printf ' [%s]' "$GHV_NOTE"; fi; }
+  cd "$cwd" 2>/dev/null || { say "$ev: degraded: cannot enter $cwd; nothing posted"; return 0; }
   # ONE repository for the whole step: the one `gh pr merge` just used (GH_REPO when set, else the cwd remote). It is
   # passed explicitly to the read, the files read and every comment, so they can never resolve to different repos
   # (gh_bounded_run runs gh with GH_REPO unset, which would silently re-resolve from the cwd remote).
   if [ -n "${GH_REPO:-}" ]; then
     name="${GH_REPO##*/}"; owner="${GH_REPO%/*}"; owner="${owner##*/}"; repo="$owner/$name"
   else
-    repo="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh repo view --json nameWithOwner -q .nameWithOwner 2>"$err_file")" \
-      || { say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; }
+    ghb "$gh_out" gh repo view --json nameWithOwner -q .nameWithOwner; grc=$?
+    repo="$(cat "$gh_out" 2>/dev/null)"
+    if [ "${GHV_STATE:-}" = CALLER_SIGNALLED ]; then say "$ev: degraded: the caller was signalled while the repository was being resolved; nothing posted$(ghv_note)"; return 0; fi
+    if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot resolve the repository the merge used (gh repo view: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted$(ghv_note)"; return 0; fi
     owner="${repo%%/*}"; name="${repo#*/}"
   fi
   if ! [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then say "$ev: degraded: cannot resolve the repository the merge used (got '$repo'); nothing posted"; return 0; fi
   gq='query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged state mergeCommit{oid} closingIssuesReferences(first:50){totalCount nodes{number repository{nameWithOwner}}}}}}'
-  gj="$(cd "$cwd" && GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq" 2>"$err_file")"; grc=$?
-  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted"; return 0; fi
-  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted"; return 0; fi
+  ghb "$gh_out" gh api graphql -F owner="$owner" -F name="$name" -F pr="$pr" -f query="$gq"; grc=$?
+  gj="$(cat "$gh_out" 2>/dev/null)"
+  if [ "${GHV_STATE:-}" = CALLER_SIGNALLED ]; then say "$ev: degraded: the caller was signalled during the GraphQL read of PR #$pr; nothing posted$(ghv_note)"; return 0; fi
+  if [ "$grc" -eq 124 ]; then say "$ev: degraded: GraphQL read of PR #$pr timed out (bound MERGE_GATE_GH_TIMEOUT, default 30 s); nothing posted$(ghv_note)"; return 0; fi
+  if [ "$grc" -ne 0 ]; then say "$ev: degraded: cannot read the closing issues of PR #$pr (gh api graphql exit $grc: $(head -n 1 "$err_file" 2>/dev/null | cut -c1-200)); nothing posted$(ghv_note)"; return 0; fi
   verdict="$(printf '%s' "$gj" | jq -r '
     .data.repository as $r | $r.pullRequest as $p
     | if ($r.nameWithOwner | type) != "string" or ($p | type) != "object" or ($p.closingIssuesReferences.nodes | type) != "array" or ($p.closingIssuesReferences.totalCount | type) != "number" then "shape"
