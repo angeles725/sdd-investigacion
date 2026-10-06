@@ -119,7 +119,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     #    Fixture A: real no-flag -> NEXT the act gap; the mutant treats the no-flag form as scoped to the (exhausted)
     #    root, so it must exit 0 and print exactly the STOP verdict - a crash or empty output cannot pass for a bite.
     nx_rc "$MUT" "$fxA"
-    if [ "$(nx "$SUT" "$fxA")" = "$STOP_LINE" ]; then no "teeth C: real no-flag verdict equals the mutant's - vacuous"
+    if [ "$(nx "$SUT" "$fxA")" != "NEXT | high | the act gap" ]; then no "teeth C: real no-flag verdict is not the expected NEXT act gap - vacuous"
     elif [ "$rc" = 0 ] && [ "$got" = "$STOP_LINE" ]; then ok "teeth C: no-flag form scoped to the root -> exit 0 + exactly the STOP verdict -> case 1a has teeth"
     else no "teeth C: want exit 0 + [$STOP_LINE], got rc=$rc [$got] - THEATER or crashed mutant"; fi; fi
   # D: --all behaves as --root (the mutant keeps exit 0: all_flag cleared, so the --all/--root exclusion never fires).
@@ -127,7 +127,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   #    print exactly the --root verdict, so a crash or empty output cannot pass for a bite -> case 4a goes red.
   if mutate D 's/^    --all) all_flag=1; shift ;;$/    --all) all_flag=0; root_flag=1; shift ;;/'; then
     got="$(nx "$MUT" "$fxA" --all)"
-    if [ "$(nx "$SUT" "$fxA" --all)" = "$(nx "$SUT" "$fxA" --root)" ]; then no "teeth D: fixture A gives --all and --root the same verdict - vacuous"
+    if [ "$(nx "$SUT" "$fxA" --all)" != "NEXT | high | the act gap" ] || [ "$(nx "$SUT" "$fxA" --root)" != "$STOP_LINE" ]; then no "teeth D: real --all/--root verdicts are not the expected NEXT act gap / STOP - vacuous"
     elif [ "$got" = "$STOP_LINE" ]; then ok "teeth D: --all scoped to the root -> exactly the --root verdict -> case 4a has teeth"
     else no "teeth D: want the --root verdict [$STOP_LINE], got [$got] - THEATER or crashed mutant"; fi; fi
   # E: the RETRO-DUE check ignores the scope and walks every state file -> case 5b goes red

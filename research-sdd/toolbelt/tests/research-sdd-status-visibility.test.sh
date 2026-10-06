@@ -289,10 +289,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth H 's/not a github owner\/repo/DEG-OFF/'; then
     out="$(status "$TMP/ng-local" "$TMP/g-ng-local/gh")"
     grep -q 'not a github owner/repo' <<<"$out" && no "teeth H: mutant still degraded — THEATER" || ok "teeth H: not-github branch silenced -> case 9 has teeth"; fi
-  # I: timeout bound removed -> the hung gh is not converted to degraded. The stub stalls for STALL_MS (well above the
+  # I: timeout bound removed -> the hung gh is not converted to degraded. The stub stalls for STALL_S seconds (well above the
   # 1 s bound); wall time is judged in MILLISECONDS (whole-second SECONDS flaked, kit issue #1853), with the ceiling
-  # derived from the stall: CEIL_MS = STALL_MS - 500. The control first proves the UNMUTATED script returns below
-  # CEIL_MS with the 'timed out' line; the mutant must then run the full stall (>= CEIL_MS) and lose that line.
+  # derived from the stall: CEIL_MS = STALL_S*1000 - 500 on a hi-res clock, - 1000 on the coarse fallback. The control
+  # first proves the UNMUTATED script returns below CEIL_MS with the 'timed out' line; the mutant must then run the
+  # full stall (>= CEIL_MS) and lose that line.
   # Clock: probe once. Sub-second epoch ms from GNU date %N, else python3, else perl; only when none exists (or the
   # test forces it with clkmode=coarse) fall back to whole-second $SECONDS, where the ceiling is widened by one second
   # so the tooth stays valid (control < stall-1 s; the mutant ran the full stall, so its whole-second diff is
@@ -301,8 +302,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     CLK=coarse
     if [ "$1" != coarse ]; then
       nsec="$(date +%N 2>/dev/null)"; case "$nsec" in *[!0-9]*|'') ;; *) CLK=gnu-date ;; esac
-      if [ "$CLK" = coarse ] && command -v python3 >/dev/null 2>&1; then CLK=py3
-      elif [ "$CLK" = coarse ] && command -v perl >/dev/null 2>&1; then CLK=perl5; fi
+      # a candidate counts only if ONE real now_ms call prints digits (an installed-but-broken python3/perl falls through)
+      if [ "$CLK" = coarse ] && command -v python3 >/dev/null 2>&1; then CLK=py3; probe="$(now_ms 2>/dev/null)"; case "$probe" in ''|*[!0-9]*) CLK=coarse ;; esac; fi
+      if [ "$CLK" = coarse ] && command -v perl >/dev/null 2>&1; then CLK=perl5; probe="$(now_ms 2>/dev/null)"; case "$probe" in ''|*[!0-9]*) CLK=coarse ;; esac; fi
     fi
     if [ "$CLK" = coarse ]; then CEIL_MS=$((STALL_S*1000 - 1000)); else CEIL_MS=$((STALL_S*1000 - 500)); fi
   }
@@ -319,11 +321,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for clkmode in auto coarse; do
     pick_clock "$clkmode"
     SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$(( $(now_ms) - t0 ))
-    if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I [$CLK clock]: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
+    if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I [$CLK clock, mode=$clkmode]: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
     elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
       t0=$(now_ms); out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$(( $(now_ms) - t0 ))
       if [ "$el" -ge "$CEIL_MS" ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I [$CLK clock, mode=$clkmode]: unbounded gh ran ${el}ms (>= ${CEIL_MS}ms), no 'timed out' -> case 11a has teeth"
-      else no "teeth I [$CLK clock]: mutant still bounded (${el}ms) — THEATER"; fi; fi
+      else no "teeth I [$CLK clock, mode=$clkmode]: mutant still bounded (${el}ms) — THEATER"; fi; fi
   done
   # J: GH_PROMPT_DISABLED dropped
   if toothlib J 's/GH_PROMPT_DISABLED=1 //g'; then
