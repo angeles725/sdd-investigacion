@@ -75,6 +75,22 @@ if [ "$r1$r2" = "00" ]; then ok "8 rsdd_hook_emit returns 0 (jq and no-jq)"; els
 if ( . "$LIB"; . "$LIB"; declare -F rsdd_hook_emit >/dev/null ) 2>"$TMP/dbl.err" && [ ! -s "$TMP/dbl.err" ]; then
   ok "9 double source is silent and keeps the function"; else no "9 double source failed or printed: $(cat "$TMP/dbl.err")"; fi
 
+# 8b. a failing write (closed stdout) must not make the helper fail: the explicit `return 0` is the contract
+emit "$LIB" nojq "H" "b" >&- 2>/dev/null; r3=$?
+if [ "$r3" = 0 ]; then ok "8b rsdd_hook_emit returns 0 even when the write fails (stdout closed)"; else no "8b write failure leaked as rc=$r3"; fi
+
+# 10. every hook that sources the lib must ANNOUNCE a missing lib (plain text, rc 0), never go silent.
+TB="$HERE/.."
+for hk in sweep-audits sweep-breakthroughs sweep-retros sweep-tools verify-kit-clean verify-registry verify-skill-drift verify-tool-catalog; do
+  d="$TMP/nolib-$hk"; mkdir -p "$d"; cp "$TB/$hk-hook.sh" "$d/$hk-hook.sh"   # no lib/ beside it
+  got="$(bash "$d/$hk-hook.sh" 2>/dev/null)"; grc=$?
+  if [ "$grc" = 0 ] && [ "$got" = "Research-SDD hook: lib/hook-emit.sh missing beside $d/$hk-hook.sh" ]; then
+    ok "10 $hk-hook.sh with no lib/ → announces the missing lib (rc 0)"
+  else
+    no "10 $hk-hook.sh with no lib/ → rc=$grc out=[$got]"
+  fi
+done
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -103,6 +119,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_mut "teeth D: headerless fallback no newline" "$LIB" "$TMP/mutD.sh" "s/printf '%s\\\\n' \"\\\$1\"/printf '%s' \"\\\$1\"/"; then
     if [ "$(emit "$TMP/mutD.sh" nojq "just the body"; echo x)" != $'just the body\nx' ]; then
       ok "teeth D: headerless fallback without newline → case 6 would go RED"; else no "teeth D: mutant still passes case 6"; fi
+  fi
+  # E: the two-argument branch test loosened to one argument → a headerless call joins an empty body → case 4.
+  if mk_mut "teeth E: -ge 2 loosened to -ge 1" "$LIB" "$TMP/mutE.sh" 's/"\$#" -ge 2/"$#" -ge 1/g'; then
+    if [ "$(got_json "$TMP/mutE.sh" jq "just the body" 2>/dev/null)" != "$(want_json 'just the body')" ]; then
+      ok "teeth E: headerless call treated as headered → case 4 would go RED"; else no "teeth E: mutant still passes case 4"; fi
+  fi
+  # F: the forced `return 0` removed → a failed write leaks its status → case 8b.
+  if mk_mut "teeth F: return 0 removed" "$LIB" "$TMP/mutF.sh" '/^    return 0$/d'; then
+    emit "$TMP/mutF.sh" nojq "H" "b" >&- 2>/dev/null; mrc=$?
+    if [ "$mrc" != 0 ]; then ok "teeth F: write failure leaks a non-zero rc (got $mrc) → case 8b would go RED"; else no "teeth F: mutant still returns 0"; fi
+  fi
+  # G: the missing-lib guard stripped from a hook copy → no announcement → case 10.
+  mkdir -p "$TMP/mutG"
+  if mk_mut "teeth G: guard removed" "$TB/verify-kit-clean-hook.sh" "$TMP/mutG/verify-kit-clean-hook.sh" 's/ 2>\/dev\/null || { printf .*exit 0; }//'; then
+    gotg="$(bash "$TMP/mutG/verify-kit-clean-hook.sh" 2>/dev/null)"
+    if [ "$gotg" != "Research-SDD hook: lib/hook-emit.sh missing beside $TMP/mutG/verify-kit-clean-hook.sh" ]; then
+      ok "teeth G: unguarded hook no longer announces a missing lib → case 10 would go RED"; else no "teeth G: mutant still announces"; fi
   fi
 fi
 

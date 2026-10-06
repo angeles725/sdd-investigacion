@@ -4,7 +4,7 @@
 # retro sweep). A clean kit emits nothing — no session-start noise. Read-only. Wired from .claude/settings.json.
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/hook-emit.sh
-. "$here/lib/hook-emit.sh"
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 out="$("$here/verify-kit-clean.sh" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && exit 0                         # clean → stay silent
 # Distinguish a real dirty/unpushed state (rc=1) from a gate that could not run (rc=2: not a git repo /

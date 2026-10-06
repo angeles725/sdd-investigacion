@@ -4,7 +4,7 @@
 # project opens. Wired from .claude/settings.json (SessionStart). Read-only. Twin of sweep-audits-hook.sh.
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/hook-emit.sh
-. "$here/lib/hook-emit.sh"
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 # Default: COMPACT mode (#1816 — SessionStart output budget, openspec/specs/kit-session-cost). Pass --full
 # to emit verify-registry.sh output unchanged.
 _full=0

@@ -32,24 +32,6 @@ fi
 # ---- Temp workspace ---------------------------------------------------------
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# write_stub <exit_code> <output_text> — creates a stub verify-kit-clean.sh + refreshes hook copy.
-write_stub() {
-  local rc="$1" txt="$2"
-  printf '%s\n' "$txt" > "$TMP/stub-out.txt"
-  printf '#!/usr/bin/env bash\ncat "%s"\nexit %s\n' "$TMP/stub-out.txt" "$rc" \
-    > "$TMP/verify-kit-clean.sh"
-  chmod +x "$TMP/verify-kit-clean.sh"
-  cp "$SUT" "$TMP/verify-kit-clean-hook.sh"
-  # Patch the copy to call the stub instead of the real verify-kit-clean.sh.
-  sed "s|here/verify-kit-clean.sh|here/verify-kit-clean.sh\nhere=\"$TMP\"|" \
-    "$SUT" > "$TMP/verify-kit-clean-hook.sh" 2>/dev/null || cp "$SUT" "$TMP/verify-kit-clean-hook.sh"
-  # Simpler: just override via PATH — place stub first.
-  mkdir -p "$TMP/bin"
-  cp "$TMP/verify-kit-clean.sh" "$TMP/bin/verify-kit-clean.sh"
-  chmod +x "$TMP/bin/verify-kit-clean.sh"
-  chmod +x "$TMP/verify-kit-clean-hook.sh"
-}
-
 # Helper: run hook from TMP/bin with stub on PATH.
 run_hook_with_stub() {
   local stub_rc="$1" stub_out="$2"
@@ -107,6 +89,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant path is removed first and a refused build skips the tooth, so no stale mutant can ever run.
   if mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/rc=\$?/rc=0/' "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g"; then
     chmod +x "$TMP/mutant-hook.sh"
+    mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"   # own lib: no order dependence on run_hook_with_stub (#1877)
     printf '#!/usr/bin/env bash\ncat "%s"\nexit 1\n' "$TMP/stub-out.txt" > "$TMP/verify-kit-clean.sh"
     printf '%s\n' "   working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked
    verdict      : NOT clean" > "$TMP/stub-out.txt"

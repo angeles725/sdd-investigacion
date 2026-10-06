@@ -12,7 +12,7 @@
 # $RESEARCH_SDD_INSTALL_VERIFY_CMD overrides the install --verify command (test seam).
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/hook-emit.sh
-. "$here/lib/hook-emit.sh"
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 out="$("$here/verify-skill-drift.sh" --all 2>&1)"; rc=$?
 
 vcmd="${RESEARCH_SDD_INSTALL_VERIFY_CMD:-$here/../install/research-sdd-install.sh}"

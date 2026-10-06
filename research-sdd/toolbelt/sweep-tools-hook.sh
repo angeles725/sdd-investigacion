@@ -7,7 +7,7 @@
 # Wired from .claude/settings.json (SessionStart). Read-only.
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/hook-emit.sh
-. "$here/lib/hook-emit.sh"
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 out="$("$here/sweep-tools.sh" 2>&1)"; rc=$?
 
 # Operational failure: the sweep could not run — surface rather than pass silently.
