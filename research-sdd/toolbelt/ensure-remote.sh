@@ -246,6 +246,7 @@ if [ "$vis" != "PRIVATE" ]; then
   if ! gh_bounded_run gh repo edit "$owner/$repo" --visibility private >/dev/null 2>&1; then
     if [ "$GHV_STATE" = TIMEOUT ]; then
       echo "   DEGRADED: gh repo edit timed out after ${GHV_BOUND}s — outcome unknown, re-reading visibility" >&2
+      if [ -n "${GHV_NOTE:-}" ]; then echo "   $GHV_NOTE" >&2; fi
     else
       echo "   DEGRADED: gh repo edit failed (exit ${GHV_RC}) — re-reading visibility" >&2
     fi
@@ -254,8 +255,13 @@ if [ "$vis" != "PRIVATE" ]; then
 fi
 if [ "$vis" != "PRIVATE" ]; then
   echo "!! HARD ABORT: a non-private repo exists at https://github.com/$owner/$repo — DELETE IT MANUALLY" >&2
-  echo "   (this wrapper has NO delete_repo scope). Removing the origin remote and NOT pushing." >&2
-  git -C "$target" remote remove origin >/dev/null 2>&1 || true
+  echo "   (this wrapper has NO delete_repo scope). Attempting to remove the origin remote; NOT pushing." >&2
+  # The removal's status is CHECKED (kit issue #1854), exactly as on the UNKNOWN path: a failed removal that leaves an
+  # origin behind is named, never silent. (A failed removal with no origin left is the old silent no-op.)
+  git -C "$target" remote remove origin >/dev/null 2>&1; abort_rm_rc=$?
+  if [ "$abort_rm_rc" != 0 ] && left_origin="$(git -C "$target" remote get-url origin 2>/dev/null)" && [ -n "$left_origin" ]; then
+    echo "   PARTIAL-STATE ORIGIN-LEFT: 'git remote remove origin' FAILED — the local origin $left_origin is STILL configured and points at a NON-PRIVATE repo. Remove it by hand (git -C \"$target\" remote remove origin)." >&2
+  fi
   exit 6
 fi
 

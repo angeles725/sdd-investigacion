@@ -532,6 +532,36 @@ if [ "$RCX" = 7 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* 
   ok "22i origin removal fails -> typed ORIGIN-LEFT naming the url, no 'removed' claim, exit 7, no push" "(exit $RCX)"
 else no "22i origin removal fails -> typed ORIGIN-LEFT naming the url, no 'removed' claim, exit 7, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
 
+# 22j — kit issue #1854: the create-timeout DEGRADED line carries the watchdog's typed GHV_NOTE (the hermetic box has no
+#       timeout/setsid, so the bound is the child-only watchdog and the lib says so).
+reset_ctl
+box="$(mkbox c22j-create-note)"
+GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+ctx="$(grep -A1 'gh repo create timed out' "$box/out.txt")"
+if [ "$RCX" = 7 ] && grep -q 'DEGRADED: no setsid' <<<"$ctx"; then
+  ok "22j create-timeout DEGRADED line is followed by the watchdog's GHV_NOTE" "(exit $RCX)"
+else no "22j create-timeout DEGRADED line is followed by the watchdog's GHV_NOTE" "exit=$RCX ctx=[$(tr '\n' '|' <<<"$ctx")]"; fi
+
+# 22k — kit issue #1854: the edit-timeout DEGRADED line carries GHV_NOTE too.
+reset_ctl
+box="$(mkbox c22k-edit-note)"
+GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+ctx="$(grep -A1 'gh repo edit timed out' "$box/out.txt")"
+if [ "$RCX" = 6 ] && grep -q 'DEGRADED: no setsid' <<<"$ctx"; then
+  ok "22k edit-timeout DEGRADED line is followed by the watchdog's GHV_NOTE" "(exit $RCX)"
+else no "22k edit-timeout DEGRADED line is followed by the watchdog's GHV_NOTE" "exit=$RCX ctx=[$(tr '\n' '|' <<<"$ctx")]"; fi
+
+# 22l — kit issue #1854: the exit-6 hard abort checks its origin removal too: a failed removal -> typed ORIGIN-LEFT naming the
+#       url, no "removing" claim as fact, still exit 6, no push.
+reset_ctl
+box="$(mkbox c22l-abort-origin-left)"
+GIT_REMOTE_REMOVE_FAIL=1 GH_CREATE_ADDS_ORIGIN=1 GH_VIS=PUBLIC run_capped "$box"
+if [ "$RCX" = 6 ] && ! has_call "$box" 'git .* push' && has_call "$box" 'git .* remote remove origin' \
+   && grep -q 'PARTIAL-STATE ORIGIN-LEFT: .*https://github.com/tester/research-target.git' "$box/out.txt" \
+   && ! grep -q 'Removing the origin remote' "$box/out.txt"; then
+  ok "22l hard abort + origin removal fails -> typed ORIGIN-LEFT naming the url, exit 6, no push" "(exit $RCX)"
+else no "22l hard abort + origin removal fails -> typed ORIGIN-LEFT naming the url, exit 6, no push" "exit=$RCX out=[$(tr '\n' '|' <"$box/out.txt")]"; fi
+
 # 22b — create timed out AFTER adding the local origin, repo is PRIVATE -> the existing repo is adopted: verified, then pushed.
 reset_ctl
 box="$(mkbox c22b-origin-private)"
@@ -960,10 +990,42 @@ fi'
   if [[ "$content" != *"$origR"* ]]; then
     no "teeth30: build ignored-removal mutant" "removal-check anchor not found — SUT drifted?"
   else
-    teeth_box teeth30-removal-unchecked "$origR" 'if false; then'; box="$TBOX"
+    teeth_box teeth30-removal-unchecked "$origR" 'git -C "$target" remote remove origin >/dev/null 2>&1 || :; if false; then'; box="$TBOX"
     GIT_REMOTE_REMOVE_FAIL=1 GH_CREATE_ADDS_ORIGIN=1 GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
     if ! grep -q 'PARTIAL-STATE ORIGIN-LEFT' "$box/out.txt"; then ok "teeth30: an unchecked removal loses the typed leftover line — case 22i has teeth"
     else no "teeth30: ORIGIN-LEFT still printed under the mutant — case 22i is THEATER"; fi
+  fi
+
+  # teeth 31-33 (kit issue #1854, review round)
+  echo "-- teeth 31: create-timeout note dropped, expect case 22j to go red --"
+  origN='[ -n "${GHV_NOTE:-}" ] && echo "   $GHV_NOTE" >&2'
+  if [[ "$content" != *"$origN"* ]]; then
+    no "teeth31: build dropped-note mutant" "create-note anchor not found — SUT drifted?"
+  else
+    teeth_box teeth31-create-note-dropped "$origN" ':'; box="$TBOX"
+    GH_CREATE_SLEEP=30 RSDD_GH_CREATE_TIMEOUT=1 GH_VIEW_EXIT=1 run_capped "$box"
+    if ! grep -A1 'gh repo create timed out' "$box/out.txt" | grep -q 'DEGRADED: no setsid'; then ok "teeth31: without the print the note is lost — case 22j has teeth"
+    else no "teeth31: note still printed under the mutant — case 22j is THEATER"; fi
+  fi
+  echo "-- teeth 32: edit-timeout note dropped, expect case 22k to go red --"
+  origM='if [ -n "${GHV_NOTE:-}" ]; then echo "   $GHV_NOTE" >&2; fi'
+  if [[ "$content" != *"$origM"* ]]; then
+    no "teeth32: build dropped-edit-note mutant" "edit-note anchor not found — SUT drifted?"
+  else
+    teeth_box teeth32-edit-note-dropped "$origM" ':'; box="$TBOX"
+    GH_VIS=PUBLIC GH_EDIT_SLEEP=30 RSDD_GH_TIMEOUT=1 run_capped "$box"
+    if ! grep -A1 'gh repo edit timed out' "$box/out.txt" | grep -q 'DEGRADED: no setsid'; then ok "teeth32: without the print the edit note is lost — case 22k has teeth"
+    else no "teeth32: note still printed under the mutant — case 22k is THEATER"; fi
+  fi
+  echo "-- teeth 33: abort-path removal status ignored, expect the ORIGIN-LEFT line to vanish (case 22l) --"
+  origA='>/dev/null 2>&1; abort_rm_rc=$?'
+  if [[ "$content" != *"$origA"* ]]; then
+    no "teeth33: build ignored-abort-removal mutant" "abort-removal anchor not found — SUT drifted?"
+  else
+    teeth_box teeth33-abort-removal-unchecked "$origA" '>/dev/null 2>&1; abort_rm_rc=0'; box="$TBOX"
+    GIT_REMOTE_REMOVE_FAIL=1 GH_CREATE_ADDS_ORIGIN=1 GH_VIS=PUBLIC run_capped "$box"
+    if ! grep -q 'PARTIAL-STATE ORIGIN-LEFT' "$box/out.txt"; then ok "teeth33: an unchecked abort-path removal loses the typed line — case 22l has teeth"
+    else no "teeth33: ORIGIN-LEFT still printed under the mutant — case 22l is THEATER"; fi
   fi
 
   # teeth 27 — the create bound reuses the probe's knob (RSDD_GH_TIMEOUT): case 22g's 3 s create must now be cut off.

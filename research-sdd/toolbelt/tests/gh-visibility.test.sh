@@ -34,6 +34,8 @@ mkbin() {
     gtimeout*) [ -n "$REAL_TO" ] && ln -sf "$REAL_TO" "$b/gtimeout" ;;
   esac
   case "$mode" in *-setsid*) ln -sf "$(type -P setsid)" "$b/setsid" ;; esac
+  case "$mode" in *-ps*) ln -sf "$(type -P ps)" "$b/ps" ;; esac
+  case "$mode" in *-fakeps*) printf '#!%s\necho 1\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-nogh) ;; *)
     {
       printf '#!%s\n' "$BASH_BIN"
@@ -61,7 +63,9 @@ has() { grep -qF -- "$2" <<<"$1"; }
 
 B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-none none)"; B_NOGH="$(mkbin b-nogh none-nogh)"
 HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
-[ "$HAVE_SETSID" = 1 ] && B_WDG="$(mkbin b-wdg none-setsid)"
+HAVE_PS=0; [ -n "$(type -P ps)" ] && HAVE_PS=1
+if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then B_WDG="$(mkbin b-wdg none-setsid-ps)"; fi
+[ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; }
 
 echo "== gh-visibility.test.sh =="
 
@@ -217,13 +221,69 @@ c_gc_timeout_path() { # LIB — a real timeout binary on PATH: no watchdog, so n
   local r; r="$(PATH="$B_TO" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=[$GHV_GROUP] NOTE=[$GHV_NOTE]"' _ "$1" 2>&1)"
   has "$r" "GROUP=[] NOTE=[]"
 }
-if [ "$HAVE_SETSID" != 1 ]; then no "22-24 need setsid on the host to build the group-kill PATH"; else
+if [ "$HAVE_SETSID" != 1 ] || [ "$HAVE_PS" != 1 ]; then no "22-24 need setsid on the host to build the group-kill PATH"; else
   c_gc_run "$LIB"   && ok "22 gh_bounded_run watchdog: a grandchild of the bounded command is killed with the group" || no "22 bounded-run grandchild survives"
   c_gc_probe "$LIB" && ok "23 gh_visibility_probe watchdog: a grandchild of the probe is killed with the group"      || no "23 probe grandchild survives"
   c_gc_mode "$LIB"  && ok "24 GHV_GROUP=setsid with group kill; child-only + DEGRADED note without setsid / under job control" || no "24 group mode / degraded note"
 fi
-[ "$HAVE_SETSID" = 1 ] && { c_gc_term "$LIB" && ok "26 a TERM-ignoring grandchild is KILLed by the post-bound group sweep" || no "26 TERM-ignoring grandchild survives"; }
+[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && { c_gc_term "$LIB" && ok "26 a TERM-ignoring grandchild is KILLed by the post-bound group sweep" || no "26 TERM-ignoring grandchild survives"; }
 c_gc_timeout_path "$LIB" && ok "25 timeout/gtimeout path leaves GHV_GROUP and GHV_NOTE empty" || no "25 timeout path group globals"
+
+# --- kit issue #1854 (review round): no bare-pid kill after reap, verified pgid, signal trap ------------------------
+# ktrace LIB BIN — run a TIMED-OUT gh_bounded_run (stub gh just sleeps, so its group is EMPTY once the leader dies) with
+# `kill` wrapped to log "$*"; prints the log. A KILL/TERM aimed at a BARE numeric pid after the leader was reaped could hit
+# a recycled pid, so only the group form (`-KILL -- -PID`) may appear in group mode.
+ktrace() {
+  local lib="$1" bin="$2" lf="$TMP/ktrace.log"; : > "$lf"
+  GH_SLEEP=30 RSDD_GH_TIMEOUT=1 PATH="$bin" "$BASH_BIN" -c '. "$1"; KLOG="$2"; kill() { printf "%s\n" "$*" >> "$KLOG"; builtin kill "$@"; }; gh_bounded_run gh repo create o/r' _ "$lib" "$lf" >/dev/null 2>&1
+  cat "$lf"
+}
+c_nobare() { # LIB — group mode: no bare-pid TERM/KILL ever; the post-bound sweep is the group form only
+  local r; r="$(ktrace "$1" "$B_WDG")"
+  ! grep -qE '^-(KILL|TERM) [0-9]+$' <<<"$r" && grep -qE '^-KILL -- -[0-9]+$' <<<"$r"
+}
+c_nosweep_childonly() { # LIB — child-only mode: no sweep at all after the reap (no KILL), the pre-reap TERM is the only signal
+  local r; r="$(ktrace "$1" "$B_NONE")"
+  ! grep -q -- '-KILL' <<<"$r" && grep -qE '^-TERM [0-9]+$' <<<"$r"
+}
+c_pgid_verify() { # LIB — setsid present but pgid cannot be verified (no ps) or disagrees (fake ps) -> child-only + typed note
+  local lib="$1" r b
+  for b in "$B_NOPS" "$B_FAKEPS"; do
+    r="$(PATH="$b" GH_SLEEP=3 RSDD_GH_TIMEOUT=1 "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$lib" 2>&1)"
+    has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "pgid" || return 1
+  done
+}
+c_sig() { # LIB — SIGTERM/SIGHUP to the CALLER during a watchdog-bounded run kills the group (no orphaned grandchild)
+  local lib="$1" sg pf="$TMP/gc-sig.pid" bp i
+  for sg in TERM HUP; do
+    rm -f "$pf"
+    GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=60 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r' _ "$lib" >/dev/null 2>&1 &
+    bp=$!; i=0
+    while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+    kill -"$sg" "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+    gone "$pf" || return 1
+  done
+}
+c_sig_probe() { # LIB — the same for gh_visibility_probe
+  local lib="$1" pf="$TMP/gc-sigp.pid" bp i; rm -f "$pf"
+  GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT=60 PATH="$B_WDG" "$BASH_BIN" -c '. "$1"; gh_visibility_probe gh o/r' _ "$lib" >/dev/null 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+  kill -TERM "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+  gone "$pf"
+}
+c_trap_restored() { # LIB — a caller's own TERM trap is intact after a watchdog-bounded run, and no lib trap is left behind
+  local r; r="$(PATH="$B_WDG" GH_OUT=x "$BASH_BIN" -c 'trap "echo mine" TERM; . "$1"; gh_bounded_run gh repo create o/r >/dev/null; trap -p TERM; trap -p INT; trap -p HUP' _ "$1" 2>&1)"
+  has "$r" "echo mine" && ! has "$r" "_ghv"
+}
+if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
+  c_nobare "$LIB"            && ok "27 group mode: no bare-pid TERM/KILL after the leader is reaped; the sweep signals the group only" || no "27 bare-pid kill after reap"
+  c_nosweep_childonly "$LIB" && ok "28 child-only mode: no post-bound sweep at all" || no "28 child-only sweep"
+  c_pgid_verify "$LIB"       && ok "29 setsid but pgid unverifiable / wrong -> child-only + typed DEGRADED note naming pgid" || no "29 pgid verification"
+  c_sig "$LIB"               && ok "30 SIGTERM/SIGHUP to the caller kills the group of a watchdog-bounded gh_bounded_run" || no "30 signal trap (bounded-run)"
+  c_sig_probe "$LIB"         && ok "31 SIGTERM to the caller kills the group of a watchdog-bounded probe" || no "31 signal trap (probe)"
+  c_trap_restored "$LIB"     && ok "32 the caller's own traps are restored after the run" || no "32 trap restore"
+fi
 
 # ------------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -257,11 +317,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth run-no-kill-escalation c_run_term_wd 's/_ghv_sig KILL "\$1" "\$3" )/: )/'
     tooth run-no-k-flag      c_run_term_to 's/"\$bounder" -k 2 "\$t"/"$bounder" "$t"/'
     tooth run-knob-ignored   c_run_knob 's/benv="\${GHV_BOUND_ENV:-RSDD_GH_TIMEOUT}"/benv=RSDD_GH_TIMEOUT/'
-    if [ "$HAVE_SETSID" = 1 ]; then
+    if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
+      tooth sweep-bare-fallback  c_nobare   's/kill -KILL -- "-\$1" 2>\/dev\/null || :/kill -KILL -- "-$1" 2>\/dev\/null || kill -KILL "$1" 2>\/dev\/null/'
+      tooth sweep-childonly-runs c_nosweep_childonly 's/\[ -n "\$2" \] || return 0/:/'
+      tooth verify-skipped       c_pgid_verify 's/if \[ -n "\$grpflag" \] \&\& ! _ghv_verify_group "\$pid"; then/if false; then/g'
+      tooth verify-no-compare    c_pgid_verify 's/\[ "\$pg" = "\$1" \] \&\& return 0/return 0/'
+      tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag"$/      :/'
+      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag"$/      :/'
+      tooth trap-not-restored    c_trap_restored 's/^      _ghv_restore_traps$/      :/'
       tooth group-flag-dropped   c_gc_run   's/grpflag=group/grpflag=""/g'
       tooth group-flag-dropped-p c_gc_probe 's/grpflag=group/grpflag=""/g'
       tooth no-setsid-launch     c_gc_run   's/grp=(setsid)/grp=()/g'
-      tooth no-post-bound-sweep  c_gc_term  's/then _ghv_sig KILL "\$pid" "\$grpflag"; fi/then :; fi/'
+      tooth no-post-bound-sweep  c_gc_term  's/then _ghv_sweep "\$pid" "\$grpflag"; fi/then :; fi/'
       tooth degraded-note-lost   c_gc_mode  's/GHV_NOTE="DEGRADED: no setsid[^"]*"/GHV_NOTE=""/'
       tooth job-control-ignored  c_gc_mode  's/case "\$-" in \*m\*)/case "$-" in *NEVERM*)/'
     fi

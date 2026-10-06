@@ -42,6 +42,10 @@
 #       GHV_GROUP   setsid | child-only     how the watchdog signals (child-only = direct child only)
 #       GHV_NOTE    "" | DEGRADED: ...      typed note when group kill is unavailable (no `setsid` on PATH, or the caller
 #                                           shell has job control on, where a backgrounded setsid would fork and detach)
+#   The group (pgid == pid) is VERIFIED with `ps -o pgid=` after launch; a missing ps or a mismatch also degrades to
+#   child-only with a typed note naming the pgid. The post-bound sweep signals the group only (never a bare, possibly
+#   recycled, pid) and is skipped in child-only mode. While the watchdog waits, the caller's INT/TERM/HUP traps kill the
+#   group (setsid detaches it from the terminal) and then re-raise; the caller's previous traps are restored afterwards.
 #   child-only is the documented limit: a grandchild of the bounded command may outlive the kill. Callers should print
 #   GHV_NOTE when it is non-empty and the state is TIMEOUT.
 # shellcheck disable=SC2034  # GHV_* are the lib's result globals, read by the sourcing callers
@@ -75,9 +79,53 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
       esac
     fi
   }
-  # _ghv_sig <signal> <pid> <group|""> — signal the whole process group when <group> is set (falls back to the pid).
+  # _ghv_sig <signal> <pid> <group|""> — signal the whole process group when <group> is set, else just the pid. In
+  # group mode there is NO bare-pid fallback: the group was verified (pgid == pid) at launch, and a bare kill of a pid
+  # whose leader was already reaped could hit a recycled pid.
   _ghv_sig() {
-    if [ -n "$3" ]; then kill "-$1" -- "-$2" 2>/dev/null || kill "-$1" "$2" 2>/dev/null; else kill "-$1" "$2" 2>/dev/null; fi
+    if [ -n "$3" ]; then kill "-$1" -- "-$2" 2>/dev/null || :; else kill "-$1" "$2" 2>/dev/null || :; fi
+  }
+  # _ghv_sweep <pid> <group|""> — post-bound KILL sweep of the GROUP, after the leader was reaped. Child-only mode has
+  # nothing safe to signal (a reaped pid may be recycled), so it does nothing.
+  _ghv_sweep() {
+    [ -n "$2" ] || return 0
+    kill -KILL -- "-$1" 2>/dev/null || :
+  }
+  # _ghv_verify_group <pid> — 0 when the launched leader's pgid is verified == pid (setsid took effect and did not fork),
+  # or the leader is already gone (nothing left to signal); 1 when ps is missing or the pgid never matches. Polls ~2s
+  # because the backgrounded subshell only becomes a group leader once it has exec'd setsid.
+  _ghv_verify_group() {
+    local pg i=0
+    command -v ps >/dev/null 2>&1 || return 1
+    while [ "$i" -lt 20 ]; do
+      pg="$(ps -o pgid= -p "$1" 2>/dev/null)"; pg="${pg//[[:space:]]/}"
+      [ "$pg" = "$1" ] && return 0
+      kill -0 "$1" 2>/dev/null || return 0
+      sleep 0.1; i=$((i+1))
+    done
+    return 1
+  }
+  # _ghv_set_traps <pid> <group|""> / _ghv_restore_traps — a new session detaches the command from the terminal's
+  # Ctrl-C / SIGHUP, so the caller's INT/TERM/HUP must take the group down. The previous traps are saved and restored;
+  # the handler restores them first and then re-raises the signal so the caller's own disposition still applies.
+  _ghv_set_traps() {
+    _GHV_PT_INT="$(trap -p INT)"; _GHV_PT_TERM="$(trap -p TERM)"; _GHV_PT_HUP="$(trap -p HUP)"
+    # shellcheck disable=SC2064  # pid/group are deliberately expanded NOW
+    trap "_ghv_on_signal INT $1 '$2'" INT
+    # shellcheck disable=SC2064
+    trap "_ghv_on_signal TERM $1 '$2'" TERM
+    # shellcheck disable=SC2064
+    trap "_ghv_on_signal HUP $1 '$2'" HUP
+  }
+  _ghv_restore_traps() {
+    if [ -n "$_GHV_PT_INT" ]; then eval "$_GHV_PT_INT"; else trap - INT; fi
+    if [ -n "$_GHV_PT_TERM" ]; then eval "$_GHV_PT_TERM"; else trap - TERM; fi
+    if [ -n "$_GHV_PT_HUP" ]; then eval "$_GHV_PT_HUP"; else trap - HUP; fi
+  }
+  _ghv_on_signal() { # <SIG> <pid> <group>
+    _ghv_sig KILL "$2" "$3"
+    _ghv_restore_traps
+    kill -s "$1" "$$"
   }
   # _ghv_arm_watchdog <pid> <seconds> [group] — background watchdog: after <seconds> it kills <pid>. Sets GHV_WDPID.
   # Disarming it is `kill "$GHV_WDPID"`: the TERM trap kills the watchdog's own `sleep` child first, so a stopped
@@ -108,13 +156,18 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
       if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
       ( cd "$run_dir" && exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" >"$outf" 2>"$err" ) &   # RSDD-GH-WATCHDOG
       pid=$!
+      if [ -n "$grpflag" ] && ! _ghv_verify_group "$pid"; then
+        grpflag=""; GHV_GROUP=child-only GHV_NOTE="DEGRADED: could not verify the command's pgid == pid (ps missing or disagrees) — the watchdog kills only the direct child; a grandchild may outlive the bound"
+      fi
       _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
+      _ghv_set_traps "$pid" "$grpflag"
       wait "$pid" 2>/dev/null || rc=$?
+      _ghv_restore_traps
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
-      # the bound fired (TERM/KILL of the leader): sweep the group once more so a TERM-ignoring grandchild cannot linger
-      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sig KILL "$pid" "$grpflag"; fi
+      # the bound fired (TERM/KILL of the leader): sweep the GROUP once more so a TERM-ignoring grandchild cannot linger
+      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sweep "$pid" "$grpflag"; fi
       [ "$rc" = 143 ] && rc=124
       out="$(cat "$outf" 2>/dev/null)"; rm -f "$outf"
     else
@@ -149,12 +202,17 @@ if ! declare -F gh_bounded_run >/dev/null 2>&1; then
       if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
       ( exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "$@" ) &   # RSDD-GH-WATCHDOG-RUN
       pid=$!
+      if [ -n "$grpflag" ] && ! _ghv_verify_group "$pid"; then
+        grpflag=""; GHV_GROUP=child-only GHV_NOTE="DEGRADED: could not verify the command's pgid == pid (ps missing or disagrees) — the watchdog kills only the direct child; a grandchild may outlive the bound"
+      fi
       _ghv_arm_watchdog "$pid" "$t" "$grpflag"
       wdpid="$GHV_WDPID"
+      _ghv_set_traps "$pid" "$grpflag"
       wait "$pid" 2>/dev/null || rc=$?
+      _ghv_restore_traps
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
-      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sig KILL "$pid" "$grpflag"; fi
+      if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sweep "$pid" "$grpflag"; fi
       [ "$rc" = 143 ] && rc=124
     fi
     [ "$rc" = 137 ] && rc=124   # the bound's KILL escalation (command ignored TERM)
