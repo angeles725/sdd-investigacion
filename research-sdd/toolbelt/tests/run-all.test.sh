@@ -2272,9 +2272,19 @@ for _la in "--lane garbage" "--lane=" "--lane" "--lane=SLOW" "--prove-teeth --la
   out="$(bash "$w/run-all.sh" $_la 2>&1)"; rc=$?
   if [ "$rc" -ne 2 ] || ! grep -qF 'invalid --lane value' <<<"$out" || [ -e "$TMP/lane-seen.txt" ]; then _c38bad="$_c38bad [$_la rc=$rc]"; fi
 done
-w2="$(newdir c38b)"; mkfix_sh "$w2/a.test.sh" 1 0 0
+# Isolation (kit issue #1862): build a complete isolated toolbelt copy under $TMP (lib included), then remove the lib
+# THERE; the real lib is never moved or hidden. The $TMP path guard is defensive only (lexical; newdir always builds under
+# $TMP); the REAL check is the sha1 of the real lib before/after. Unique dir: c38b is case 38b's leaky-suite directory.
+w2="$(newdir c38-lane-absent-lib)"; mkfix_sh "$w2/a.test.sh" 1 0 0
+_real_lane_lib="$HERE/../lib/test-lane.sh"
+_real_lane_sha="$(sha1sum "$_real_lane_lib" | awk '{print $1}')"
+mkdir -p "$w2/../lib"; cp "$_real_lane_lib" "$w2/../lib/test-lane.sh"
+case "$w2/../lib/test-lane.sh" in "$TMP"/*) rm -f "$w2/../lib/test-lane.sh" ;; *) _c38bad="$_c38bad [isolated lib path outside \$TMP]" ;; esac
 out="$(bash "$w2/run-all.sh" --lane slow 2>&1)"; rc=$?
+[ "$(sha1sum "$_real_lane_lib" | awk '{print $1}')" = "$_real_lane_sha" ] || _c38bad="$_c38bad [real lib modified]"
 if [ "$rc" -ne 2 ] || ! grep -qF 'is absent' <<<"$out"; then _c38bad="$_c38bad [absent lib rc=$rc]"; fi
+# run nothing: the refusal precedes every suite, so no aggregate block and no suite banner may appear
+if grep -qF 'AGGREGATE RESULT' <<<"$out" || grep -qF 'a.test.sh' <<<"$out"; then _c38bad="$_c38bad [absent lib: a suite ran]"; fi
 if [ -z "$_c38bad" ]; then ok "lane: garbage / empty / missing value and an absent lib exit 2 and run nothing (fail closed)"
 else no "lane refusal regressed:$_c38bad"; fi
 
