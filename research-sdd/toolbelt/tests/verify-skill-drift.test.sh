@@ -34,6 +34,8 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
+# Every hook copy below lives directly under $ROOT and sources lib/hook-emit.sh beside itself (#1877).
+mkdir -p "$ROOT/lib" && cp "$HERE/../lib/hook-emit.sh" "$ROOT/lib/hook-emit.sh"
 # The hook also calls research-sdd-install.sh --verify (W1). These cases pin the SKILL.md-drift half only,
 # so pin that call to a silent stub: never the real install against the operator's real $HOME. The
 # install --verify half has its own suite: verify-skill-drift-hook.test.sh.

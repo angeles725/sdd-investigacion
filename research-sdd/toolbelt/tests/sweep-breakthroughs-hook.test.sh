@@ -42,6 +42,7 @@ write_stub() {
     > "$TMP/sweep-breakthroughs.sh"
   chmod +x "$TMP/sweep-breakthroughs.sh"
   cp "$SUT" "$TMP/sweep-breakthroughs-hook.sh"
+  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/sweep-breakthroughs-hook.sh"
 }
 
@@ -259,6 +260,7 @@ tooth(){
 hook_tooth(){
   local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
   cp "$TMP/sweep-breakthroughs.sh" "$(dirname "$mut")/sweep-breakthroughs.sh"
+  mkdir -p "$(dirname "$mut")/lib" && cp "$HERE/../lib/hook-emit.sh" "$(dirname "$mut")/lib/hook-emit.sh"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
   tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-breakthroughs-hook.sh" "$@"
 }
 

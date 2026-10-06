@@ -50,6 +50,7 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # Sandbox: the hook copy + a stub drift script (rc/out from env) + a stub install --verify (rc/out from env).
 SB="$ROOT/sb"; mkdir -p "$SB"
 cp "$HOOK" "$SB/verify-skill-drift-hook.sh"
+mkdir -p "$SB/lib" && cp "$HERE/../lib/hook-emit.sh" "$SB/lib/hook-emit.sh"   # the hook (and its HOOK_U copy) source lib/hook-emit.sh beside themselves (#1877)
 cat > "$SB/verify-skill-drift.sh" <<'EOF'
 #!/usr/bin/env bash
 [ -z "${STUB_DRIFT_OUT:-}" ] || printf '%s\n' "$STUB_DRIFT_OUT"
@@ -276,7 +277,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook mutants (lib/mutant.sh) --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh" || { echo "FATAL: mutant helper missing" >&2; exit 2; }
-  SUT="$HOOK_SB"; MB="$ROOT/mb"; mkdir -p "$MB"; cp "$SB/verify-skill-drift.sh" "$SB/install-verify-stub.sh" "$SB/decode.sh" "$MB/"   # mutants run beside their own stubs, NOT beside the SUT (mutant.sh refuses that)
+  SUT="$HOOK_SB"; MB="$ROOT/mb"; mkdir -p "$MB" "$MB/lib"; cp "$HERE/../lib/hook-emit.sh" "$MB/lib/hook-emit.sh"; cp "$SB/verify-skill-drift.sh" "$SB/install-verify-stub.sh" "$SB/decode.sh" "$MB/"   # mutants run beside their own stubs, NOT beside the SUT (mutant.sh refuses that)
   _CRASH='syntax error|unbound variable|command not found'
   _mk() { mutant_chain "$@" || fail=$((fail+1)); }
   _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }

@@ -5,6 +5,8 @@
 # Default: SUMMARY mode — per-target absent-input INFO lines collapsed to one counted line.
 # Pass --full to emit the complete sweep output unchanged (byte-identical to sweep script output).
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 
 # Parse --full flag (any position).
 _full=0
@@ -17,12 +19,7 @@ out="$("$here/sweep-audits.sh" 2>&1)"; rc=$?
 # Operational failure: the sweep could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
   hdr="Research-SDD audits sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -59,10 +56,4 @@ if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
   ')"
 fi
 
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD pending audits (per-target §13):\n"+$c)}}'
-else
-  # jq missing: fall back to a plain print (still shows in transcript).
-  printf 'Research-SDD pending audits (per-target §13):\n%s\n' "$out"
-fi
+rsdd_hook_emit "Research-SDD pending audits (per-target §13):" "$out"

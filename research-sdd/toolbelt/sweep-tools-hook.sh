@@ -6,17 +6,14 @@
 # needs the headline so per-target lines do not flood the context.
 # Wired from .claude/settings.json (SessionStart). Read-only.
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/hook-emit.sh
+. "$here/lib/hook-emit.sh" 2>/dev/null || { printf 'Research-SDD hook: lib/hook-emit.sh missing beside %s\n' "$0"; exit 0; }   # SENTINEL-HOOK-EMIT-GUARD: a missing lib must announce itself, never mean empty stdout (#1877)
 out="$("$here/sweep-tools.sh" 2>&1)"; rc=$?
 
 # Operational failure: the sweep could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
   hdr="Research-SDD tools sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -27,12 +24,7 @@ summary="$(printf '%s\n' "$out" | grep '^Summary:')"
 # surface it rather than treating a broken instrument as "clean".
 if [ -z "$summary" ]; then
   hdr="Research-SDD tools sweep: missing Summary line — unexpected output from sweep-tools.sh:"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg h "$hdr" --arg c "$out" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
-  else
-    printf '%s\n%s\n' "$hdr" "$out"
-  fi
+  rsdd_hook_emit "$hdr" "$out"
   exit 0
 fi
 
@@ -61,20 +53,10 @@ fi
 if [ "${unrecorded:-0}" = "0" ]; then
   # Targets not traversed but no unrecorded tools: surface the not-traversed INFO.
   detail="${summary}"$'\n'"${info_absent}${warn_line:+$'\n'$warn_line}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg c "$detail" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool ledger (targets not traversed):\n"+$c)}}'
-  else
-    printf 'Research-SDD tool ledger (targets not traversed):\n%s\n' "$detail"
-  fi
+  rsdd_hook_emit "Research-SDD tool ledger (targets not traversed):" "$detail"
 else
   # Unrecorded tools found — emit summary + WARN (if any) + not-traversed INFO (if any) + prompt.
   _sth_info_absent_out="${info_absent}"  # STH-UNRECORDED-ABSENT-FIELD — isolated for mutation testing
   detail="${summary}${warn_line:+$'\n'$warn_line}${_sth_info_absent_out:+$'\n'$_sth_info_absent_out}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg c "$detail" \
-      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool ledger (unrecorded tools found):\n"+$c)}}'
-  else
-    printf 'Research-SDD tool ledger (unrecorded tools found):\n%s\n' "$detail"
-  fi
+  rsdd_hook_emit "Research-SDD tool ledger (unrecorded tools found):" "$detail"
 fi
