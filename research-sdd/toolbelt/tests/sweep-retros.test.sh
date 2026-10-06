@@ -2277,9 +2277,9 @@ fi
 
 # 68b — a BROKEN run (non-zero exit, or no profile at all) is classified BROKEN on the FIRST run and never retried
 #       as a scheduler stall (kit issue #1836 review): the multi-run verdict of case 68 must not launder a crash.
-# Isolation (kit issue #1862): every stub is written ONLY inside this suite's $ROOT (mktemp) copy of the kit; the guard
-# refuses any path outside it, the stub replaces the copy via rm+write (never writes through a link), and the real SUT's
-# bytes are compared before/after so a stub that reached the kit tree is a failure, not a silent clobber.
+# Isolation (kit issue #1862): every stub is written ONLY inside this suite's $ROOT (mktemp) copy of the kit. The path
+# guard below is defensive only (lexical; mkkit always builds under $ROOT, so it cannot fire today). The REAL check is the
+# sha1 comparison of the real SUT before/after: a stub that reached the kit tree fails the case, not a silent clobber.
 _c68b_bad=""; _c68b_sut_sha="$(sha1sum "$SUT" | awk '{print $1}')"
 for _b in "crash:echo boom >&2; exit 3" "silent:exit 0" "partial:echo 'profile: total 0.001000' >&2; exit 0"; do
   kit="$(mkkit "c68b-${_b%%:*}")"
