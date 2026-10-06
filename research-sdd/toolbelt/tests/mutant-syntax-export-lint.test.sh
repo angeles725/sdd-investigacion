@@ -22,7 +22,10 @@
 #   option cluster (also split as `-g -x`) and MUTANT_SYNTAX among the names.
 # Scanned: tests/*.test.sh, tests/lib/*.sh and ../../install/tests/*.test.sh (this suite excluded).
 # Not detected (stated, not claimed): `set -a` followed by an assignment; `env`/`eval`/`printf -v`
-# indirection; a `#` that follows whitespace inside a quoted string; a name built from variables.
+# indirection; a `#` that follows whitespace inside a quoted string; a name built from variables; line
+# continuations (`export \` or `declare -x \` followed by the name on the next line, since the scan is
+# per physical line); a plain or `local` assignment `MUTANT_SYNTAX=none` with no export (mutant_verify
+# reads the shell variable, so it still poisons every later bash mutant in that process).
 #
 # Env seams: LINT_SCAN_DIR (default: this directory) · LINT_WAIVE=0 (ignore WAIVED, used by the planted-
 # export controls).
