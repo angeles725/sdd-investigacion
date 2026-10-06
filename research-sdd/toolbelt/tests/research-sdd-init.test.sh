@@ -25,6 +25,20 @@ _TMPD_CHECK=0; [ -n "${TMPDIR:-}" ] && [ "$TMPDIR" != /tmp ] && [ -d "$TMPDIR" ]
 [ "$_TMPD_CHECK" -eq 1 ] && _TMPD_PRE="$(_tmpd_snap)"
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# shared helpers (hoisted from the U7 block so every earlier test can use them)
+# octal mode of a file, portable: GNU `stat -c %a`, else BSD/macOS `stat -f %Lp`
+_u7_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+# a PATH holding ONLY the tools the SUT needs (symlinked into a private bin dir) and never jq, wherever jq is installed
+_u7_nojq_path() {
+  local b="$TMP/u7-nojq-bin" t p
+  if [ ! -d "$b" ]; then
+    mkdir -p "$b"
+    for t in bash sh env cp mv rm mkdir mktemp chmod cat grep sed awk dirname basename readlink git tr head tail cmp diff find sort uniq date stat sleep wc printf ls ln touch id uname cut tee xargs timeout; do
+      p="$(command -v "$t" 2>/dev/null)" && [ -x "$p" ] && ln -sf "$p" "$b/$t"
+    done
+  fi
+  printf '%s' "$b"
+}
 assert_exit()   { local w="$1" l="$2"; shift 2; local g; bash "$SUT" "$@" >/dev/null 2>&1; g=$?; [ "$g" = "$w" ] && ok "$l (exit $g)" || no "$l — expected $w, got $g"; }
 assert_file()   { [ -f "$2" ] && ok "$1" || no "$1 (missing: $2)"; }
 assert_absent() { [ ! -e "$2" ] && ok "$1" || no "$1 (should NOT exist: $2)"; }
@@ -671,8 +685,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   if [ -z "$_1038k_jq_found" ]; then
     echo "  SKIP  1038-(k): jq not on PATH (cannot construct PATH-without-jq)"
   else
-    _1038k_jq_dir="$(dirname "$_1038k_jq_found")"
-    _1038k_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_1038k_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    _1038k_pnojq="$(_u7_nojq_path)"
     if PATH="$_1038k_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  1038-(k): jq still reachable after dir exclusion (multiple jq copies on PATH)"
     else
@@ -1345,7 +1358,7 @@ assert_absent "K1043-2 scaffold: NO retros/ left behind"  "$d/retros"
 d="$TMP/k3w"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
 printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
 bash "$SUT" "$d" --wire >/dev/null 2>&1
-_k3_mode="$(stat -c %a "$d/.claude/settings.json" 2>/dev/null)"
+_k3_mode="$(_u7_mode "$d/.claude/settings.json")"
 [ "$_k3_mode" = 644 ] && ok "K1043-3 wire-only: settings.json mode preserved (644)" \
   || no "K1043-3 wire-only: settings.json mode became $_k3_mode"
 grep -qF 'retro-gate-stop.sh' "$d/.claude/settings.json" && ok "K1043-3 wire-only: merge still applied" || no "K1043-3 wire-only: merge missing"
@@ -1357,13 +1370,13 @@ bash "$SUT" "$d" --wire >/dev/null 2>&1
   || no "K1043-3 wire-only: symlink replaced by a regular file"
 grep -qF 'retro-gate-stop.sh' "$d/real/settings.json" && ok "K1043-3 wire-only: merge landed in the link target" \
   || no "K1043-3 wire-only: link target not updated"
-[ "$(stat -c %a "$d/real/settings.json")" = 640 ] && ok "K1043-3 wire-only: link target mode preserved (640)" \
-  || no "K1043-3 wire-only: link target mode became $(stat -c %a "$d/real/settings.json")"
+[ "$(_u7_mode "$d/real/settings.json")" = 640 ] && ok "K1043-3 wire-only: link target mode preserved (640)" \
+  || no "K1043-3 wire-only: link target mode became $(_u7_mode "$d/real/settings.json")"
 d="$TMP/k3s"; mkdir -p "$d/.claude"
 printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
 bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
-[ "$(stat -c %a "$d/.claude/settings.json" 2>/dev/null)" = 644 ] && ok "K1043-3 scaffold+wire: settings.json mode preserved (644)" \
-  || no "K1043-3 scaffold+wire: settings.json mode became $(stat -c %a "$d/.claude/settings.json" 2>/dev/null)"
+[ "$(_u7_mode "$d/.claude/settings.json")" = 644 ] && ok "K1043-3 scaffold+wire: settings.json mode preserved (644)" \
+  || no "K1043-3 scaffold+wire: settings.json mode became $(_u7_mode "$d/.claude/settings.json")"
 d="$TMP/k3sl"; mkdir -p "$d/.claude" "$d/real"
 printf '{"permissions":{}}\n' > "$d/real/settings.json"
 ln -s "$d/real/settings.json" "$d/.claude/settings.json"
@@ -1396,7 +1409,7 @@ chmod +x "$_k4a_shim/cat"
 ( PATH="$_k4a_shim:$PATH" bash "$SUT" "$d" --wire >/dev/null 2>&1 ); _k4a_rc=$?
 [ "$_k4a_rc" != 0 ] && ok "K1043-B atomic: failed write exits non-zero (exit $_k4a_rc)" || no "K1043-B atomic: failed write reported success"
 [ "$(sha256sum "$d/.claude/settings.json")" = "$_k4a_before" ] && ok "K1043-B atomic: original settings.json bytes survive a mid-write failure" \
-  || no "K1043-B atomic: settings.json was truncated/modified ($(stat -c %s "$d/.claude/settings.json") bytes)"
+  || no "K1043-B atomic: settings.json was truncated/modified ($(wc -c < "$d/.claude/settings.json") bytes)"
 _k4a_tmp="$(find "$d/.claude" -maxdepth 1 -name '.settings.*' | wc -l)"
 [ "$_k4a_tmp" = 0 ] && ok "K1043-B atomic: no temp file left behind" || no "K1043-B atomic: $_k4a_tmp temp file(s) left in .claude"
 
@@ -2327,19 +2340,6 @@ _u7_live() {  # <file> <placeholder> — live (non-comment) occurrence?
 _u7_hook_json_ok() {  # <hook> <subject>
   bash "$1" </dev/null 2>/dev/null | jq -e --arg s "$2" '.hookSpecificOutput.hookEventName == "SessionStart"
     and (.hookSpecificOutput.additionalContext | contains("RESEARCH PROTOCOL — " + $s + " (Research-SDD)") and contains("research of " + $s + ". Before"))' >/dev/null 2>&1
-}
-# octal mode of a file, portable: GNU `stat -c %a`, else BSD/macOS `stat -f %Lp`
-_u7_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
-# a PATH holding ONLY the tools the SUT needs (symlinked into a private bin dir) and never jq, wherever jq is installed
-_u7_nojq_path() {
-  local b="$TMP/u7-nojq-bin" t p
-  if [ ! -d "$b" ]; then
-    mkdir -p "$b"
-    for t in bash sh env cp mv rm mkdir mktemp chmod cat grep sed awk dirname basename readlink git tr head tail cmp diff find sort uniq date stat sleep wc printf ls ln touch id uname cut tee xargs timeout; do
-      p="$(command -v "$t" 2>/dev/null)" && [ -x "$p" ] && ln -sf "$p" "$b/$t"
-    done
-  fi
-  printf '%s' "$b"
 }
 _u7_ss_wired() { [ -f "$1/.claude/settings.json" ] && grep -qF 'research-protocol.sh' "$1/.claude/settings.json"; }
 # a minimal custom hook with an exact set of live placeholders: $1 file, then any of S P X (subject / prefix / path)
@@ -3698,7 +3698,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/k43/mode-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '{}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
     bash "$TMP/k43/mode/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
-    if [ "$(stat -c %a "$d/.claude/settings.json")" = 600 ]; then
+    if [ "$(_u7_mode "$d/.claude/settings.json")" = 600 ]; then
       ok "teeth M-1043-MODE: without the mode copy settings.json becomes 600 — mode assertion has teeth"
     else no "teeth M-1043-MODE: mode survived the mutant — THEATER"; fi
   else no "teeth M-1043-MODE: could not build mutant"; fi
