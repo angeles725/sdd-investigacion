@@ -298,6 +298,13 @@ test('block starts interrupt the paragraph, so a span never reaches past them', 
   assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n## h `y`'), ok(closing(5)));
   assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n> q `y`'), ok(closing(5)));
   assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n---\n`y`'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\n1. b\nCloses #5\n`y`'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\n===\nCloses #5 `y'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\n-\nCloses #5 `y'), ok(closing(5)));
+  // A non-1 ordered item and an empty item do NOT interrupt a paragraph: still one span, reference hidden.
+  assert.deepEqual(parseLinkedIssues('a `x\n2. Closes #1 `y'), ok());
+  assert.deepEqual(parseLinkedIssues('a `x\n+\nCloses #1 `y'), ok());
+  assert.deepEqual(parseLinkedIssues('a `x\n1.\nCloses #1 `y'), ok());
 });
 
 test('a genuinely commented or fenced reference is still ignored next to inline-code comment markers', () => {

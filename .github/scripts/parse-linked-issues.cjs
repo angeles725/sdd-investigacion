@@ -64,7 +64,7 @@ const FENCE_OPEN = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
 // CommonMark block starts that interrupt a paragraph, and so end any code span still open: an HTML block
 // start (`<!--`), ATX heading, list item, blockquote, thematic break. (Indented code is out of scope.)
 const PARAGRAPH_INTERRUPT =
-  /^ {0,3}(?:<!--|#{1,6}(?:\s|$)|(?:[-+*]|\d{1,9}[.)])(?:\s|$)|>|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/;
+  /^ {0,3}(?:<!--|#{1,6}(?:\s|$)|(?:[-+*]|0{0,8}1[.)])[ \t]+\S|(?:=+|-+)[ \t]*$|>|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/;
 
 // Find a closing backtick run of exactly `n` on lines[i] from `col`, then on following lines of the same
 // paragraph. Returns {line, end} (index just after the closer) or null.
