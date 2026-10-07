@@ -80,16 +80,15 @@
 # is reported as an explicit, named exception (ALLOWED) rather than a failure (HIT) — an empty or
 # missing reason after the marker does not count and the line still fails as a HIT.
 #
-# DEFAULT SCOPE excludes tests/ (kit issue #1024 round 5, Opus finding 1): a *.test.sh suite's own
+# DEFAULT SCOPE prunes only the `*.test.sh` suites under tests/ (kit issue #1024 round 5, Opus
+# finding 1; narrowed from the whole tests/ directory by kit issue #1033 L2): a suite's own
 # mutation-tooth fixtures routinely hold the UNMARKED bad pattern as literal text inside a heredoc
 # or a quoted string (proving detection, or reconstructing a "neutered" mutant) — the scanner is
 # quote- and substitution-aware WITHIN a line (kit issue #1921) but not heredoc-aware, so heredoc
-# body text still reads as source code to it. Excluding
-# tests/ from the default (no-argument) scan keeps a bare `verify-cd-physical.sh` run clean on
-# this kit's real, shipped scripts; passing an explicit tests/ directory (or any path) as an
-# argument still scans it in full — this is a DEFAULT-SCOPE decision, not a capability limit. KNOWN
-# GAP (kit issue #1033 L2, deferred): the prune also drops tests/ infrastructure scripts (run-all.sh,
-# lib/*.sh), which hold two real bare-`cd` climbs today; prune only *.test.sh once those are fixed.
+# body text still reads as source code to it. Test INFRASTRUCTURE (tests/run-all.sh, tests/lib/*.sh,
+# tests/fixtures/**/*.sh) is NOT pruned: it derives real kit paths (run-all.sh's KIT_TREE=) and is
+# linted like any other script. Passing an explicit tests/ directory (or any path) as an argument
+# still scans it in full, `*.test.sh` included — this is a DEFAULT-SCOPE decision, not a capability limit.
 #
 # UNCLASSIFIABLE (kit issue #1921 review): a physical line holding `cd` and `pwd` whose quote /
 # substitution context is still open at end of line, or that holds a `)` closing nothing (an
@@ -105,7 +104,7 @@
 # Usage: verify-cd-physical.sh [<dir> ...]
 #   No args: scans this kit's own toolbelt/ and install/ (resolved from THIS script's own
 #            physically-resolved location — see the -P this checker requires of everyone else),
-#            EXCLUDING any tests/ subdirectory (see DEFAULT SCOPE above).
+#            EXCLUDING `*.test.sh` suites under tests/ (see DEFAULT SCOPE above).
 # Exit: 0 clean (zero HITs; ALLOWED entries do not fail the run)
 #       1 one or more un-allow-marked HITs
 #       2 operational failure (no scan directory found, or no *.sh files under any given directory)
@@ -141,12 +140,9 @@ done < <(
   for d in "${dirs[@]}"; do
     [ -d "$d" ] || continue
     if [ "$_default_scope" -eq 1 ]; then
-      # DEFAULT SCOPE excludes tests/ — see the header comment. -path/-prune keeps this a single
-      # find invocation rather than a separate filter pass.
-      # DEFERRED (kit issue #1033 L2): pruning only *.test.sh would also scan tests/run-all.sh, whose
-      # the `KIT_TREE=` and `INSTALL_TESTS_DIR=` assignments are real bare-`cd` climbs from SCRIPT_DIR
-      # (measured 2026-10-07; cite by search term, the line numbers drift); fix those first, then narrow this prune.
-      find "$d" -type d -name tests -prune -o -type f -name '*.sh' -print 2>/dev/null
+      # DEFAULT SCOPE prunes only `*.test.sh` files that live under a tests/ directory — see the header
+      # comment (kit issue #1033 L2). One find invocation: a tests/-anchored path test, not a directory prune.
+      find "$d" -type f -name '*.sh' -not \( -path '*/tests/*' -name '*.test.sh' \) -print 2>/dev/null
     else
       find "$d" -type f -name '*.sh' 2>/dev/null
     fi

@@ -165,7 +165,7 @@ fi
 # research-sdd/ is scanned (a leak elsewhere in the repo is outside this enumerator); a suite that
 # rewrites a file and restores the original bytes before exiting is invisible. Like the cwd guard, a scan
 # that cannot run is DEGRADED and fails the run — never a confident 0 (§7).
-KIT_TREE="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)"
+KIT_TREE="$(cd -P "$SCRIPT_DIR/../.." 2>/dev/null && pwd -P)"
 kit_tree_violations=()   # "<suite basename> leaked: <relpath> (new|modified|removed)"
 KIT_TREE_DEGRADED=0
 KIT_TREE_DEGRADED_REASON=""
@@ -313,7 +313,7 @@ shopt -u nullglob
 # Resolved relative to this script (research-sdd/toolbelt/tests -> research-sdd/install/tests),
 # never assumed from the caller's cwd. Declared distinctly from the toolbelt corpus below (§7:
 # absent-input for this tree is reported loudly, not silently folded into "0 more suites").
-INSTALL_TESTS_DIR="$(cd "$SCRIPT_DIR/../../install/tests" 2>/dev/null && pwd)"
+INSTALL_TESTS_DIR="$(cd -P "$SCRIPT_DIR/../../install/tests" 2>/dev/null && pwd -P)"
 install_sh_suites=()
 install_mjs_suites=()
 INSTALL_TESTS_DEGRADED=0
