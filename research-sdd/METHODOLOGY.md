@@ -4147,8 +4147,8 @@ verified first. This is the canonical shape for problem-entries inside a documen
 improvise a shorter form that drops root cause or verification. A problem entry missing any of the six fields
 is incomplete, not "short". The operative form is PROMPT-LOOP's DOCUMENT CYCLE step 2 PROBLEM-ENTRY MOLD (kit
 #1889) — it states the same six fields and is authoritative for the run; this paragraph restates the fields only
-as rationale, and PROMPT-LOOP step 2 is operative. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
-delta #1.)
+as rationale, and PROMPT-LOOP step 2 is operative.
+(Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.)
 
 **Pending-live registration (kit #1893).** A `[PENDING-live]` marker (retro example: the Spanish
 `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included, is a claim nobody has validated yet, and a
@@ -4186,8 +4186,8 @@ delegation prompt commonly tells the sub-agent NOT to touch `RESEARCH-STATE.md` 
 race). That instruction leaves the state file at its BOOTSTRAP-seeded placeholder values after authoring
 unless someone explicitly closes the loop — the driver, immediately after the sub-agent returns, is the
 one who populates the document-cycle state (see PROMPT-LOOP DOCUMENT CYCLE step 1 STATE OWNERSHIP) from what
-was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an orphan
-step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
+was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an
+orphan step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
 (kit #1888); this paragraph adds only the rationale.
 (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
 
@@ -4337,7 +4337,7 @@ blocked, is recorded in ONE of two forms in the SAME edit; both are accepted wit
 `## Blocked gaps` as a `- <gap> — needs: …` bullet. They do not count the same way. Only (b) raises `blocked_open`
 (it is derived from the `## Blocked gaps` / `## Non-investigable gaps` sections). An in-place (a) row merely
 leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` can still count it as
-CLOSED in `gaps_closed`; prefer (b). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+CLOSED in `gaps_closed`; prefer (b) (tool bucketing tracked in kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
 leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
 WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
 the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is
