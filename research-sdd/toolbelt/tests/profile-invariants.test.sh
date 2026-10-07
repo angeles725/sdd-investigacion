@@ -268,6 +268,7 @@ import re, sys
 text = open(sys.argv[1], encoding='utf-8').read()
 TOKEN_RE = re.compile(r'<!--\s*slot:([A-Za-z0-9_-]+)\s*-->|<!--\s*/slot\s*-->')
 open_at = None
+spans = 0
 for m in TOKEN_RE.finditer(text):
     if m.group(1) is not None:
         open_at = m.end()
@@ -275,6 +276,9 @@ for m in TOKEN_RE.finditer(text):
         sys.stdout.write(text[open_at:m.start()])
         sys.stdout.write("\n")
         open_at = None
+        spans += 1
+# Zero spans means nothing was scanned: exit 3 so the caller cannot read the empty text as "clean".
+sys.exit(0 if spans else 3)
 PYEOF
 }
 
@@ -285,7 +289,10 @@ PYEOF
 # (see its comment — return code, not a side-channel global).
 scan_source_file() {
   local file="$1" spans hits rc
-  spans="$(scan_source_slot_spans "$file")"
+  # The python stage's own exit code is checked (kit issue #1025): an unreadable source or one with
+  # zero slot spans is "could not look" (rc 2), never an empty span text that greps clean.
+  spans="$(scan_source_slot_spans "$file")" || {
+    printf 'FATAL: scan_source_file — slot-span extraction failed or found zero spans in %s\n' "$file" >&2; return 2; }
   hits="$(grep -E "$FORBIDDEN_PATTERN" <<<"$spans")"; rc=$?
   case "$rc" in
     0) printf '%s\n' "$hits"; return 0 ;;
@@ -303,6 +310,18 @@ for f in "${profile_files[@]}"; do
     *) no "T1/$name: grep ERRORED (rc>=2) while scanning $(basename "$f") — treated as FAIL, never a silent pass" ;;
   esac
 done
+
+# T2b — the source scanner must fail LOUDLY (rc 2) when it could not look: an unreadable/absent source
+# (python raises) and a source with ZERO slot spans (nothing was scanned) are both "could not prove
+# clean", never a silent clean verdict (kit issue #1025, CLAUDE.md §7).
+_t2b_absent="$TMP/t2b-does-not-exist.md"
+scan_source_file "$_t2b_absent" >/dev/null 2>&1; _t2b_rc=$?
+[ "$_t2b_rc" -eq 2 ] && ok "T2b/absent: an unreadable source file makes scan_source_file return 2 (not a silent clean 1)" \
+  || no "T2b/absent: unreadable source returned rc=$_t2b_rc (want 2) — the python stage's failure is being swallowed"
+printf '# no slot markers here\nplain text\n' > "$TMP/t2b-no-spans.md"
+scan_source_file "$TMP/t2b-no-spans.md" >/dev/null 2>&1; _t2b_rc=$?
+[ "$_t2b_rc" -eq 2 ] && ok "T2b/zero-spans: a source with no slot spans makes scan_source_file return 2 (nothing scanned is not clean)" \
+  || no "T2b/zero-spans: zero-span source returned rc=$_t2b_rc (want 2) — an empty scan reads as clean"
 
 for f in "$SKILL" "$PROMPTLOOP"; do
   label="$(basename "$f")"
