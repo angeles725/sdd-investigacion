@@ -29,6 +29,7 @@ fi
 # false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
+declare -F focus_range_block_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
 _BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
@@ -820,6 +821,7 @@ for state in "${states[@]}"; do
   #    FOCUSES.md for the legacy RESEARCH-STATE.md case) and filter to only that focus's blocks.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
   _fpfx="$(derive_focus_prefix "$state")"
+  _frange=""; [ -z "$_fpfx" ] && _frange="$(derive_focus_range "$state")"   # kit #906: FOCUSES.md block RANGE cell (a prefix wins)
   # block_scope: optional envelope field — 'per-focus' (default when absent) or 'shared-global'.
   # Present but neither legal value (including empty) is a hard FAIL: the gate must know which mode applies.
   # This is the §7 three-state rule: absent ≠ empty ≠ illegal value.
@@ -844,9 +846,12 @@ for state in "${states[@]}"; do
   elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
+  elif [ -n "$_frange" ] && [ "${_frange#!}" = "$_frange" ]; then
+    ondisk="$(focus_range_block_count "$(dirname "$state")" "$_frange")"  # RANGE-VERIFY-COUNT
   else
     ondisk="$_ondisk_global"
   fi
+  case "$_frange" in '!'*) echo "   WARN   FOCUSES.md block-scope cell [${_frange#!}] is range-shaped but unreadable (a > b) — it scopes nothing, the root keeps the corpus-wide block count (METHODOLOGY §16 Block-scope cell grammar)" ;; esac  # RANGE-MALFORMED-WARN
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
   d_inv="$(derive_investigable "$state")"

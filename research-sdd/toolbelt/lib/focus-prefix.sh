@@ -36,6 +36,62 @@ if ! declare -F derive_focus_prefix >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------------------------------------------
+# FOCUSES.md block RANGE cell (kit #906) — METHODOLOGY §16 "Block-scope cell grammar".
+#
+#   derive_focus_range <state-file>
+#     RESEARCH-STATE.md only (a suffixed state file takes its prefix from its filename): reads the un-suffixed root's
+#     FOCUSES.md row and returns the first cell right of the State-file cell shaped `B<a>–B<b>` (en dash or hyphen).
+#       stdout "<a>-<b>"    a readable range (a <= b)
+#       stdout "!<cell>"    range-SHAPED but unreadable (a > b) — a typed malformed state, distinct from absent
+#       stdout ""           no FOCUSES.md / no root row / no range-shaped cell (the prefix path or the corpus-wide count applies)
+#     Always returns 0. A prefix-shaped cell is returned by derive_focus_prefix, which callers consult FIRST.
+#   block_range_filter [-n] <lo> <hi>
+#     stdin: candidate paths (already canonical block files); stdout: those whose block number is in [lo, hi], inclusive
+#     (-n: the block numbers instead of the paths).
+#   focus_range_block_count <dir> <lo-hi>
+#     The number of DISTINCT block numbers in the range among the canonical block files directly under <dir>
+#     (needs lib/block-files.sh): files of two families that share a number are one block id.
+if ! declare -F derive_focus_range >/dev/null 2>&1; then
+  derive_focus_range() {
+    local sf="$1" base fm; base="$(basename "$sf")"
+    [ "$base" = "RESEARCH-STATE.md" ] || return 0  # RANGE-ROOT-ONLY
+    fm="$(dirname "$sf")/FOCUSES.md"
+    [ -f "$fm" ] || return 0
+    LC_ALL=C awk -F'|' '
+      /^\|/ {
+        sfcol=$4; gsub(/^[[:blank:]`]+|[[:blank:]`]+$/,"",sfcol)
+        if (sfcol ~ /^\[/) { sub(/^\[/,"",sfcol); sfcol=substr(sfcol,1,index(sfcol,"]")-1) }
+        if (sfcol!="RESEARCH-STATE.md") next
+        for (i=5; i<NF; i++) {
+          c=$i; gsub(/^[[:blank:]`*]+|[[:blank:]`*]+$/,"",c)
+          if (c !~ /^[Bb][0-9]+(–|-)[Bb][0-9]+$/) continue
+          orig=c
+          sub(/–/,"-",c)  # RANGE-ENDASH
+          gsub(/[Bb]/,"",c); split(c,r,"-")
+          if (r[1]+0 <= r[2]+0) print (r[1]+0) "-" (r[2]+0)
+          else print "!" orig  # RANGE-MALFORMED
+          exit
+        }
+      }' "$fm"
+  }
+  block_range_filter() {
+    local _num=0; if [ "${1:-}" = "-n" ]; then _num=1; shift; fi
+    LC_ALL=C awk -v lo="$1" -v hi="$2" -v num="$_num" '
+      { n=$0; sub(/.*\//,"",n)
+        if (!match(n,/-(block|bloque)[0-9]+/)) next
+        v=substr(n,RSTART,RLENGTH); sub(/^-(block|bloque)/,"",v)
+        if (v+0 >= lo+0) {  # RANGE-LO-BOUND
+          if (v+0 <= hi+0) { if (num) print v+0; else print }  # RANGE-HI-BOUND
+        } }'
+  }
+  focus_range_block_count() {
+    # DISTINCT block numbers: two filename families that share low numbers (niagara: `…-mental-model-bloque4.md` and
+    # `…-reflow-block4.md`) are one block id B4, so the count never exceeds the range size.
+    find "$1" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | block_range_filter -n "${2%-*}" "${2#*-}" | sort -un | wc -l | tr -d ' '  # RANGE-DISTINCT
+  }
+fi
+
+# ---------------------------------------------------------------------------------------------------------------
 # In-place blocked bucket (kit #1915) — shared by research-sdd-status.sh (--sync-state) and verify-state.sh (CHECK H).
 # Lives in THIS file on purpose: it is the one lib every harness that copies either tool already copies, so the
 # bucket has ONE definition without every mock kit growing a new file to copy.

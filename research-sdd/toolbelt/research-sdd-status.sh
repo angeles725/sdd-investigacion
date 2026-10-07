@@ -225,6 +225,7 @@ fi
 # swallowed and every focus-prefix call would silently return empty, mis-counting blocks. Abort early.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
+declare -F focus_range_block_count >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
 # lib/state-files.sh (list_state_files / resolve_state_file) was already sourced above, before the pick
 # that decides $corpus — the single definition of the "enumerate RESEARCH-STATE*.md" incantation
@@ -952,6 +953,8 @@ if [ "$mode" = "--sync-state" ]; then
     # verify-state.sh (single definition rule, prevents dual-authority drift on this count).
     # B5 FIX: focus-prefix filter for multi-focus corpora; shared-global path mirrors BS-SHARED-GLOBAL-ONDISK.
     _sfpfx="$(derive_focus_prefix "$state")"
+    _sfrange=""; [ -z "$_sfpfx" ] && _sfrange="$(derive_focus_range "$state")"   # kit #906: FOCUSES.md block RANGE cell (a prefix wins)
+    case "$_sfrange" in '!'*) printf 'sync-state: WARN: %s: FOCUSES.md block-scope cell [%s] is range-shaped but unreadable (a > b) — it scopes nothing (METHODOLOGY §16 Block-scope cell grammar).\n' "$(basename "$state")" "${_sfrange#!}" >&2; _sfrange="" ;; esac  # RANGE-MALFORMED-WARN
     if [ "$_e_bs" = "shared-global" ]; then
       # block_scope: shared-global → use attributed B<n> count (mirrors verify-state.sh CHECK A via
       # count_attributed_sg / _derive_attributed_sg respectively, so the two scripts always agree).
@@ -970,6 +973,8 @@ if [ "$mode" = "--sync-state" ]; then
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
+    elif [ -n "$_sfrange" ]; then
+      cb="$(focus_range_block_count "$(dirname "$state")" "$_sfrange")"  # RANGE-SYNC-COUNT
     else
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter | wc -l | tr -d ' ')"
@@ -978,7 +983,7 @@ if [ "$mode" = "--sync-state" ]; then
     # corpus-wide block count — not its own scope. Flag it; the reconciliation below KEEPS a declared value
     # unless covered_blocks is named in --only, and says so.
     _cw=0
-    if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ "$_e_bs" != "shared-global" ] \
+    if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ -z "$_sfrange" ] && [ "$_e_bs" != "shared-global" ] \
        && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then _cw=1; fi  # ROOT-CORPUS-WIDE
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
@@ -2091,9 +2096,13 @@ metric="$(cov_ratio)"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 # B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
 _stpfx="$(derive_focus_prefix "$state")"
+_strange=""; [ -z "$_stpfx" ] && _strange="$(derive_focus_range "$state")"   # kit #906
+case "$_strange" in '!'*) echo "WARN: FOCUSES.md block-scope cell [${_strange#!}] is range-shaped but unreadable (a > b) — it scopes nothing (METHODOLOGY §16 Block-scope cell grammar)" >&2; _strange="" ;; esac  # RANGE-MALFORMED-WARN
 if [ -n "$_stpfx" ]; then
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter "${_stpfx}" | wc -l | tr -d ' ')"
+elif [ -n "$_strange" ]; then
+  ondisk="$(focus_range_block_count "$corpus" "$_strange")"  # RANGE-DISPLAY-COUNT
 else
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter | wc -l | tr -d ' ')"

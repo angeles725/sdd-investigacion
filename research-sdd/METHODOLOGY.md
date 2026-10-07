@@ -3260,6 +3260,19 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   A **planned** focus is one whose RESEARCH-STATE + backlog are already committed but which has 0 blocks yet;
   because it is already initialized, the loop must NOT re-BOOTSTRAP it as a duplicate — it picks up the
   existing state and writes its first block.
+  **Block-scope cell grammar (closed, kit #906).** The cell that scopes a focus to its blocks is read by SHAPE,
+  after stripping backticks, `**` and surrounding blanks, and is exactly one of: a **prefix** `<prefix>-` (the
+  `RESEARCH-STATE-<focus>.md` convention; for the un-suffixed root the cell right of the State-file cell, decorated
+  with `block*.md` allowed) or a **range** `B<a>–B<b>` (en dash or ASCII hyphen, `a ≤ b`, e.g. `B1–B130`). A range
+  scopes a focus that shares the corpus-wide block numbering and filename prefix with its siblings (the niagara-research
+  base focus): its blocks are the canonical block files (`lib/block-files.sh`) whose number lies in `[a, b]`, whatever
+  their filename prefix, counted as DISTINCT block numbers (two filename families sharing a number are one block id,
+  so `covered_blocks` never exceeds `b - a + 1`). A range is read only for the un-suffixed root row (a `RESEARCH-STATE-<focus>.md` always takes its
+  prefix from its own filename), in any cell to the right of the State-file cell, and a prefix-shaped cell wins over a range
+  in the same row. A cell that is range-shaped but unreadable (`B9–B3`, `a > b`) is reported by `verify-state.sh` and
+  `research-sdd-status.sh` and scopes nothing (the root then falls back to the corpus-wide count, WARNed as before);
+  anything else in that cell scopes nothing. `verify-state.sh` and `research-sdd-status.sh` (display and `--sync-state`)
+  count `covered_blocks` through the same helper (`lib/focus-prefix.sh`), so the two agree.
 - **Focus-status cell grammar (closed vocabulary, §8b style).** The status cell is read by its LEADING token,
   after stripping at most one leading `**`; everything after the token is free decoration (a parenthetical
   ratio such as `stopped (12/12; +B556)` is the convention). Legal tokens:
