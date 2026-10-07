@@ -445,6 +445,34 @@ out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-post
 grep -qE '^C4 pass STOP token present' <<<"$out" \
   && ok "1017-1: an explicit --until bound is the operator's choice and is respected by C4" || no "1017-1: explicit --until ($out)"
 
+# Correction round (#1017 gate): a block committed in the SAME second as STOP counts; a commit seconds after
+# STOP fails; a commit far after STOP and outside the transcript span is another session's work — typed
+# `after_stop_unwitnessed=N`, C4 degraded (never fail); RSDD_C4_AFTER_STOP_GRACE (minutes) bounds "seconds after".
+mkrepo "$ROOT/samesec" \
+  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
+  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b" \
+  "2026-06-01T00:25:00Z" "research(demo): B3 gap-c"
+out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/samesec" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+grep -qE '^C4 fail .*commits_after_stop=1' <<<"$out" \
+  && ok "1017-B2: a block committed in the same second as STOP counts as after STOP" || no "1017-B2: same-second ($out)"
+mkrepo "$ROOT/much-later" \
+  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
+  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b" \
+  "2026-06-05T00:00:00Z" "research(demo): B3 other-session"
+out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+grep -qE '^C4 degraded .*after_stop_unwitnessed=1' <<<"$out" && ! grep -qE '^C4 fail' <<<"$out" \
+  && ok "1017-B1: a commit days after STOP, outside the transcript span → degraded after_stop_unwitnessed=1, not fail" \
+  || no "1017-B1: unwitnessed commit ($out)"
+out="$(RSDD_C4_AFTER_STOP_GRACE=0 RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+grep -qE '^C4 degraded .*after_stop_unwitnessed=1' <<<"$out" \
+  && ok "1017-B1: grace 0 → a commit 5 min after STOP is unwitnessed (grace is the bound)" || no "1017-B1: grace 0 ($out)"
+out="$(RSDD_C4_AFTER_STOP_GRACE=10000 RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+grep -qE '^C4 fail .*commits_after_stop=1' <<<"$out" \
+  && ok "1017-B1: a wide grace makes the late commit count as after STOP" || no "1017-B1: wide grace ($out)"
+out="$(RSDD_C4_AFTER_STOP_GRACE=abc bash "$SUT" --corpus "$ROOT/continue" 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'RSDD_C4_AFTER_STOP_GRACE' <<<"$out" \
+  && ok "1017-B1: a non-integer RSDD_C4_AFTER_STOP_GRACE is a bad-args exit 2" || no "1017-B1: bad grace rc=$rc ($out)"
+
 # Item 2: the unrecognized-shape guard must outrank C1's empty-window fast path, and arm 2 (zero
 # operator AND zero assistant records) must fire on its own when some record does carry .origin.
 mkrepo "$ROOT/zero-blocks" "2026-06-01T00:10:00Z" "chore: nothing block-shaped"
@@ -766,6 +794,38 @@ LENIENT
       env RSDD_STATUS_SCRIPT="$STUB_FAILING" bash @SUT@ --corpus "$ROOT/continue" \
       --transcript "$FIX/continue-clean.jsonl"
   fi
+  # --- #1017 correction round: after-STOP grace / unwitnessed / same-second ---------------------
+  echo "-- teeth-1017-unwitnessed: classify every post-STOP commit as after STOP; expect the days-later commit to fail C4 --"
+  if mk 1017-unwitnessed 's/^    if \[\[ "\$WINDOW_EXPLICIT" -eq 1 || "\$e" -le "\$grace_end" || "\$e" -le "\$TRANSCRIPT_LAST_EPOCH" \]\]; then$/    if true; then/'; then
+    tt "teeth-1017-unwitnessed: no unwitnessed class → a days-later commit fails C4 instead of degrading" 0 0 \
+      --good-has '^C4 degraded .*after_stop_unwitnessed=1' --bad-has '^C4 fail' --bad-lacks '^C4 degraded' -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl"
+  fi
+  echo "-- teeth-1017-grace: ignore the grace window; expect a commit 5 min after STOP to read as unwitnessed --"
+  if mk 1017-grace 's/ || "\$e" -le "\$grace_end" || / || /'; then
+    tt "teeth-1017-grace: grace ignored → a commit 5 min after STOP degrades instead of failing" 0 0 \
+      --good-has '^C4 fail .*commits_after_stop=1' --bad-has '^C4 degraded' --bad-lacks '^C4 fail' -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl"
+  fi
+  echo "-- teeth-1017-degrade: drop the unwitnessed degrade branch; expect a silent pass --"
+  if mk 1017-degrade 's/"\$unwitnessed" -gt 0 \]\]; then/"$unwitnessed" -gt 999999 ]]; then/'; then
+    tt "teeth-1017-degrade: branch removed → the unwitnessed commit is silently ignored (C4 n/a/pass)" 0 0 \
+      --good-has '^C4 degraded .*after_stop_unwitnessed=1' --bad-lacks '^C4 degraded' --bad-has '^C4 (pass|n/a)' -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl"
+  fi
+  echo "-- teeth-1017-same-second: strict -gt; expect the same-second commit to be missed --"
+  if mk 1017-same-second 's/^    \[\[ "\$e" -ge "\$stop_epoch" \]\] || continue$/    [[ "$e" -gt "$stop_epoch" ]] || continue/'; then
+    tt "teeth-1017-same-second: -gt → a block committed in the same second as STOP is not counted" 0 0 \
+      --good-has '^C4 fail .*commits_after_stop=1' --bad-has '^C4 pass' --bad-lacks '^C4 fail' -- \
+      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/samesec" --transcript "$FIX/continue-clean.jsonl"
+  fi
+  echo "-- teeth-1017-grace-validate: drop the RSDD_C4_AFTER_STOP_GRACE integer check --"
+  if mk 1017-grace-validate 's/^if \[\[ ! "\$C4_GRACE_MIN" =~ \^\[0-9\]+\$ \]\]; then$/if false; then/'; then
+    tt "teeth-1017-grace-validate: check removed → a non-integer grace is no longer a bad-args exit 2" 2 0 \
+      --good-has 'RSDD_C4_AFTER_STOP_GRACE must be' --bad-lacks 'RSDD_C4_AFTER_STOP_GRACE must be' -- \
+      env RSDD_C4_AFTER_STOP_GRACE=abc bash @SUT@ --corpus "$ROOT/continue"
+  fi
+
 fi
 
 echo "== $pass passed · $fail failed =="

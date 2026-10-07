@@ -180,7 +180,9 @@
 # C4 and the window: C4's "block commits after STOP" count is NOT bounded by the default transcript-span
 # window (that bound would hide a block committed seconds after the final STOP): with no explicit
 # --base-ref/--since/--until, C4 asks `git log` again with no upper bound (kit issue #1017 item 1). An
-# explicit window is the operator's choice and bounds C4 as given.
+# explicit window is the operator's choice and bounds C4 as given. A later commit is only the run's own
+# within RSDD_C4_AFTER_STOP_GRACE minutes (default 10) of STOP or inside the transcript span; one beyond
+# both is unwitnessed (a later session's work): `after_stop_unwitnessed=N`, C4 degraded, never fail.
 #
 # Output: one line per criterion — `C<n> pass|fail|n/a|degraded <evidence>` — then one
 # `SUMMARY pass=<n> fail=<n> n/a=<n> degraded=<n>` line.
@@ -219,6 +221,10 @@
 #                             ((.origin.kind // "")=="human")` — see "Operator input" above.
 #   RSDD_BLOCK_RANGE_CAP      non-negative integer (default 50): a B<n>-B<m> range wider than this counts
 #                             as ONE block with a WARN (see "Range weight cap"); non-integer → exit 2.
+#   RSDD_C4_AFTER_STOP_GRACE  non-negative integer, minutes (default 10): a block commit after the final STOP
+#                             counts against C4 only within this grace window or inside the transcript span;
+#                             a later one outside the span is reported as `after_stop_unwitnessed=N` (C4
+#                             degraded, not fail — it may be another session's work). Non-integer → exit 2.
 #   RSDD_COMPACT_JQ           jq boolean filter identifying a compaction-boundary record.
 #                             Default: `(.type=="system" and (.subtype // "")=="compact_boundary")
 #                             or (.isCompactSummary // false)` — see "Compaction detection" above.
@@ -291,6 +297,12 @@ WINDOW_EXPLICIT=0
 
 # Range weight cap (see header): a B<n>-B<m> range wider than this counts as ONE block. Named and
 # overridable (kit issue #1017 item 7); default 50.
+# C4 after-STOP grace, minutes (default 10): see c4().
+C4_GRACE_MIN="${RSDD_C4_AFTER_STOP_GRACE:-10}"
+if [[ ! "$C4_GRACE_MIN" =~ ^[0-9]+$ ]]; then
+  echo "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: $C4_GRACE_MIN" >&2
+  exit 2
+fi
 RANGE_CAP="${RSDD_BLOCK_RANGE_CAP:-50}"
 if [[ ! "$RANGE_CAP" =~ ^[0-9]+$ ]]; then
   echo "score-loop-transcript.sh: RSDD_BLOCK_RANGE_CAP must be a non-negative integer, got: $RANGE_CAP" >&2
@@ -526,7 +538,7 @@ scan_block_commits() {
 
   local git_out git_err rc
   git_out="$(mktemp)"; git_err="$(mktemp)"
-  git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' "${extra[@]}" "$range" -- . >"$git_out" 2>"$git_err"
+  git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' ${extra[@]+"${extra[@]}"} "$range" -- . >"$git_out" 2>"$git_err"
   rc=$?
   if [[ "$rc" -ne 0 ]]; then
     echo "score-loop-transcript.sh: git log failed (exit $rc) for window '$range': $(tr '\n' ' ' < "$git_err")" >&2
@@ -865,19 +877,31 @@ c4() {
   # The default window ends at the transcript's last record, so a block committed seconds after a final
   # STOP would read as "0 after STOP" (kit issue #1017 item 1, claiming more than was checked, §7). When
   # the window is the derived default, ask git again with no upper bound. An explicit window is the
-  # operator's own choice and is respected as given.
+  # operator's own choice and is respected as given. A commit after STOP counts against the run only
+  # inside the grace window (RSDD_C4_AFTER_STOP_GRACE minutes) or inside the transcript span; one later
+  # than that AND outside the span is unwitnessed (possibly another session's work): typed
+  # after_stop_unwitnessed=N, C4 degraded, never a fail.
   local -a after_epochs=("${BLOCK_EPOCH[@]:-}")
   if [[ "$WINDOW_EXPLICIT" -eq 0 ]]; then
-    scan_block_commits "$stop_epoch" ""
+    scan_block_commits "@$stop_epoch" ""
     after_epochs=("${SCAN_EPOCH[@]:-}")
   fi
-  local after_stop=0 e
+  local after_stop=0 unwitnessed=0 e grace_end=$((stop_epoch + C4_GRACE_MIN * 60))
   for e in "${after_epochs[@]:-}"; do
     [[ -z "$e" ]] && continue
-    [[ "$e" -gt "$stop_epoch" ]] && after_stop=$((after_stop + 1))
+    [[ "$e" -ge "$stop_epoch" ]] || continue
+    if [[ "$WINDOW_EXPLICIT" -eq 1 || "$e" -le "$grace_end" || "$e" -le "$TRANSCRIPT_LAST_EPOCH" ]]; then
+      after_stop=$((after_stop + 1))
+    else
+      unwitnessed=$((unwitnessed + 1))
+    fi
   done
+  local unwitnessed_note=""
+  [[ "$unwitnessed" -eq 0 ]] || unwitnessed_note=" after_stop_unwitnessed=$unwitnessed"
 
-  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
+  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 && "$unwitnessed" -gt 0 ]]; then
+    emit C4 degraded "STOP honored inside the transcript but${unwitnessed_note}: block commit(s) landed more than ${C4_GRACE_MIN} min after STOP and outside the transcript span — cannot attribute them to this run"
+  elif [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
     if [[ "$declared_queue" -eq 0 ]]; then
       # KNOWN LIMIT (kit issue #1107): "campaign queue empty" is unverifiable with no queue to
       # inspect — reporting pass here would be true only by construction, never by evidence.
@@ -888,7 +912,7 @@ c4() {
       emit C4 fail "stop_token=present status_next=STOP queue=$queue_state commits_after_stop=0"
     fi
   else
-    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$queue_state commits_after_stop=$after_stop"
+    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$queue_state commits_after_stop=$after_stop${unwitnessed_note}"
   fi
 }
 
