@@ -1483,18 +1483,35 @@ if [ "$mode" = "--next" ]; then
   # _stale_line: the STALE line. In a MULTI-focus corpus (corpus-wide mode) it also names the focus(es)
   # whose own verify-state fails, so the operator sees WHICH legacy focus bricks --next (kit #1543).
   # Single-focus corpora and --focus runs print the pre-#1543 line byte-for-byte.
+  # kit #1544: the line also carries the FIRST failing verify-state check and the file it belongs to
+  # (`[first failure: <file>: <check>]`), so the operator need not re-run the full report to find it.
+  # _first_failure <verify-state args...>: first `   FAIL   ` line, prefixed by the `== verify-state: <file> (`
+  # header it sits under; prints nothing when verify-state shows no FAIL (e.g. it crashed) — never a guess.
+  _first_failure() {
+    local _ff_out; _ff_out="$("$here/verify-state.sh" "$@" 2>/dev/null)"
+    awk '
+      /^== verify-state: / { f=$0; sub(/^== verify-state: /,"",f); sub(/ \(target: .*$/,"",f); next }
+      /^   FAIL   / { c=$0; sub(/^   FAIL   /,"",c); if (length(c)>160) c=substr(c,1,157) "..."; print (f==""?"?":f) ": " c; exit }
+    ' <<<"$_ff_out"  # STALE-FIRST-FAILURE
+  }
   _stale_line() {
     local _sl_line="STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
-    local _sl_files _sl_f _sl_b _sl_names=""
+    local _sl_files _sl_f _sl_b _sl_names="" _sl_first="" _sl_ff=""
     mapfile -t _sl_files < <(list_state_files "$target")
     if [ "${#_sl_files[@]}" -ge 2 ] && [ -z "$focus_slug" ]; then
       for _sl_f in "${_sl_files[@]}"; do
         _sl_b="$(basename "$_sl_f" .md)"
         case "$_sl_b" in RESEARCH-STATE-?*) _sl_b="${_sl_b#RESEARCH-STATE-}" ;; *) continue ;; esac
-        "$here/verify-state.sh" "$target" --focus "$_sl_b" >/dev/null 2>&1 || _sl_names="${_sl_names:+$_sl_names,}$_sl_b"
+        "$here/verify-state.sh" "$target" --focus "$_sl_b" >/dev/null 2>&1 || { _sl_names="${_sl_names:+$_sl_names,}$_sl_b"; [ -n "$_sl_first" ] || _sl_first="$_sl_b"; }
       done
       [ -n "$_sl_names" ] && _sl_line="$_sl_line [failing focus: $_sl_names]"
+      [ -n "$_sl_first" ] && _sl_ff="$(_first_failure "$target" --focus "$_sl_first")"
+    elif [ -n "$focus_slug" ]; then
+      _sl_ff="$(_first_failure "$target" --focus "$focus_slug")"
+    else
+      _sl_ff="$(_first_failure "$target")"
     fi
+    [ -n "$_sl_ff" ] && _sl_line="$_sl_line [first failure: $_sl_ff]"
     printf '%s\n' "$_sl_line"
   }
   if ! _gate_verify; then
@@ -2055,7 +2072,8 @@ blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
-echo "  Stop hook       : $(hook_stop_wiring_state "$target")"
+_chk_abs="$(cd "$target" 2>/dev/null && pwd)"  # kit #1150 item 1: name the directory the wiring was checked at
+echo "  Stop hook       : $(hook_stop_wiring_state "$target") (checked: ${_chk_abs:-$target})"
 echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"

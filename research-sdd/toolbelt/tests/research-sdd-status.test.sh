@@ -6529,8 +6529,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$d/.claude"
   printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
   _sh_mutant="$TMP/status.STOP-HOOK.MUTANT.sh"
-  if grep -qF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT"; then
-    grep -vF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT" > "$_sh_mutant"
+  if grep -qF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")' "$SUT"; then
+    grep -vF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")' "$SUT" > "$_sh_mutant"
     _sh_mut_out="$(bash "$_sh_mutant" "$d" 2>/dev/null)"
     # The mutant must still print the report HEADER: an absent Stop hook line proves nothing if a crash
     # (empty output) is what removed it (kit issue #1150 item 3).

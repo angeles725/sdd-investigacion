@@ -64,7 +64,9 @@ out="$(status "$d")"
 if ! grep -qE 'public-remote|remote-visibility' <<<"$out"; then ok "1b git repo with no remote -> no visibility output"; else no "1b no-remote target leaked a visibility line"; fi
 
 # 2. byte-identical to the pre-check snapshot (frozen fixture, target path normalised)
-snap="$(status "$TMP/nogit" | sed "s#$TMP/nogit#<TARGET>#g")"
+# kit #1150 item 1 added `(checked: <path>)` to the Stop hook line AFTER this snapshot was frozen; that one
+# suffix is stripped here so every OTHER byte of the report is still held against the frozen fixture.
+snap="$(status "$TMP/nogit" | sed -e "s#$TMP/nogit#<TARGET>#g" -e 's#^\(  Stop hook       : [a-z-]*\) (checked: <TARGET>)$#\1#')"
 if [ "$snap" = "$(cat "$FX/baseline-nogit.out")" ]; then ok "2 status output byte-identical to the pre-check snapshot fixture"
 else no "2 status output drifted from the frozen snapshot"; diff <(printf '%s\n' "$snap") "$FX/baseline-nogit.out" | head -5; fi
 
