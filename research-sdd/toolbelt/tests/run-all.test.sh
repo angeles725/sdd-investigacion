@@ -1052,6 +1052,23 @@ mkbin_without(){
   printf '%s' "$d"
 }
 
+# mkfix_leaky <file> — a suite that writes install/leak.MUTANT.sh in its kit tree and then sleeps 1s, so its
+# -j run window brackets the write. Every attribution case builds its OWN copy (no cross-case fixture reuse).
+mkfix_leaky(){
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'sleep 1\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+# mkfix_slow <file> — a passing fixture that sleeps 1s; fails loudly when the edit did not apply, so a
+# changed mkfix_sh shape cannot silently leave a fast fixture behind.
+mkfix_slow(){
+  mkfix_sh "$1" 1 0 0; sed -i 's/^exit 0$/sleep 1; exit 0/' "$1"
+  grep -q '^sleep 1; exit 0$' "$1" || { echo "mkfix_slow: sed edit did not apply to $1" >&2; return 1; }
+}
+
 # j1 — refusals: bare -j, -j 0, -j 100%, non-numeric, above the cap are exit 2 with a named reason.
 w="$(newdir j1)"; mkfix_sh "$w/a.test.sh" 1 0 0
 _j1bad=""
@@ -1200,13 +1217,8 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   # j12 — bound (kit issue #1491 review R4/R3-002): only the suites whose run window held the leak's
   #       mtime are re-run — never the whole corpus.
   w="$(newdir j12)"; _j12kit="${w%/toolbelt/tests}"; mkdir -p "$_j12kit/install"
-  { printf '#!/usr/bin/env bash\n'
-    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
-    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
-    printf 'sleep 1\n'
-    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
-  } > "$w/a-leaky.test.sh"
-  mkfix_sh "$w/b-slow.test.sh" 1 0 0; sed -i 's/^exit 0$/sleep 1; exit 0/' "$w/b-slow.test.sh"
+  mkfix_leaky "$w/a-leaky.test.sh"
+  mkfix_slow "$w/b-slow.test.sh" || no "-j attribution bound: fixture build failed"
   for n in c1 c2 c3 c4; do mkfix_sh "$w/$n.test.sh" 1 0 0; done
   _j12cwd="$TMP/j12-cwd"; mkdir -p "$_j12cwd"; _j12err="$TMP/j12.err"
   out="$(cd "$_j12cwd" && bash "$w/run-all.sh" -j 2 2>"$_j12err")"; rc=$?
@@ -1216,10 +1228,11 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
      && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
      && grep -qE '^Attribution: re-ran [12] candidate suite\(s\) of 6' <<<"$out"; then
     ok "-j attribution is bounded: $_j12n candidate suite(s) of 6 re-run, the Attribution line states the bound"
-  else no "-j attribution bound failed: rc=$rc n=$_j12n :: $(grep -E 'attribution|Attribution|leaked' "$_j12err" <<<"$out" | tr '\n' '|')"; fi
+  else _j12diag="$(cat "$_j12err"; printf '%s\n' "$out")"
+    no "-j attribution bound failed: rc=$rc n=$_j12n :: $(grep -E 'attribution|Attribution|leaked' <<<"$_j12diag" | tr '\n' '|')"; fi
   # j13 — a missing stat is a typed DEGRADED attribution, not a silent batch label.
   w="$(newdir j13)"; _j13kit="${w%/toolbelt/tests}"; mkdir -p "$_j13kit/install"
-  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_leaky "$w/a-leaky.test.sh"
   mkfix_sh "$w/b-clean.test.sh" 1 0 0
   _j13bin="$(mkbin_without "$TMP/j13-bin" stat)"; _j13cwd="$TMP/j13-cwd"; mkdir -p "$_j13cwd"
   out="$(cd "$_j13cwd" && PATH="$_j13bin" "$_j13bin/bash" "$w/run-all.sh" -j 2 2>&1)"; rc=$?
@@ -1246,7 +1259,7 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   # j15 — an invalid RUN_ALL_ATTRIBUTION_TIMEOUT (not a positive integer) must not make `timeout` fail
   #       every re-run silently: it is a typed Attribution line and the default is used (kit issue #1536).
   w="$(newdir j15)"; _j15kit="${w%/toolbelt/tests}"; mkdir -p "$_j15kit/install"
-  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_leaky "$w/a-leaky.test.sh"
   mkfix_sh "$w/b-clean.test.sh" 1 0 0
   _j15cwd="$TMP/j15-cwd"; mkdir -p "$_j15cwd"
   out="$(cd "$_j15cwd" && RUN_ALL_ATTRIBUTION_TIMEOUT=abc bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
@@ -1257,7 +1270,7 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   # j16 — a `date` without %N (BSD/macOS prints a literal N) must not kill the run windows: the worker
   #       falls back to whole seconds and the match tolerance widens to a second.
   w="$(newdir j16)"; _j16kit="${w%/toolbelt/tests}"; mkdir -p "$_j16kit/install"
-  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_leaky "$w/a-leaky.test.sh"
   mkfix_sh "$w/b-clean.test.sh" 1 0 0
   _j16cwd="$TMP/j16-cwd"; mkdir -p "$_j16cwd"; _j16bin="$TMP/j16-bin"; mkdir -p "$_j16bin"
   { printf '#!/bin/sh\n'
@@ -1269,7 +1282,7 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
      && ! grep -qF 'no suite run window' <<<"$out"; then
     ok "-j attribution: a date without %N falls back to whole-second windows and the offender is still named"
   else no "-j no-%N date failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
-else skip_j "-j leak attribution (j6/j9/j10/j11)"; fi
+else skip_j "-j leak attribution (j6/j9/j10/j11/j12/j13/j14/j15/j16)"; fi
 
 # j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
 #      so a hung suite (started, never done) is nameable; the aggregate block is unaffected.
@@ -1516,7 +1529,9 @@ out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"
 if ! grep -qF 'TMPDIR kept' <<<"$out" && [ -z "$(ls -A "$_c38root")" ]; then
   ok "tmpdir-keep: without --keep-tmp no 'TMPDIR kept' line and the root is removed"
 else no "tmpdir default cleanup changed: [$(ls -A "$_c38root" | tr '\n' ' ')]"; fi
-out="$(PATH="$_c38ebin:$PATH" bash "$w/run-all.sh" --keep-tmp 2>&1)"; rc=$?
+# The uncreatable-root run executes the suites on the CALLER's TMPDIR, so point it at a throwaway one:
+# the leaking fixture would otherwise leave its entries in the test's own TMPDIR.
+out="$(PATH="$_c38ebin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" --keep-tmp 2>&1)"; rc=$?
 if grep -qF 'TMPDIR kept: none' <<<"$out"; then
   ok "tmpdir-keep: --keep-tmp with an uncreatable root says nothing was kept (typed, not silent)"
 else no "tmpdir --keep-tmp (no root) failed: rc=$rc :: $(grep -F 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
@@ -2172,20 +2187,15 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
   # Mutation (review R4/R3-002): widen the candidate filter to every suite; the bound must disappear.
   echo "-- teeth: drop the attribution window filter; every suite must then be re-run --"
   w="$(mut_workdir teeth-j-bound)"; _tbkit="${w%/toolbelt/tests}"; mkdir -p "$_tbkit/install"
-  { printf '#!/usr/bin/env bash\n'
-    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
-    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
-    printf 'sleep 1\n'
-    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
-  } > "$w/a-leaky.test.sh"
-  mkfix_sh "$w/b-slow.test.sh" 1 0 0; sed -i 's/^exit 0$/sleep 1; exit 0/' "$w/b-slow.test.sh"
+  mkfix_leaky "$w/a-leaky.test.sh"
+  mkfix_slow "$w/b-slow.test.sh" || no "teeth-j-bound: fixture build failed"
   for n in c1 c2 c3 c4; do mkfix_sh "$w/$n.test.sh" 1 0 0; done
   if ! mutant_sed "$SUT" "$w/run-all.sh" "s/BEGIN { exit !(m + 0 >= s - t \&\& m + 0 <= e + t) }/BEGIN { exit 0 }/" 2>"$w/mutant.err"; then
     no "teeth-j-bound: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mout="$(cd "$TMP" && bash "$w/run-all.sh" -j 2 2>&1)"
     rm -f "$_tbkit/install/leak.MUTANT.sh"
-    if grep -qE 'attribution re-run: c[0-9]' <<<"$mout" || grep -qE 'attribution re-run: c[0-9]' "$TMP/teeth-j-bound.err" 2>/dev/null; then
+    if grep -qE 'attribution re-run: c[0-9]' <<<"$mout"; then
       ok "teeth-j-bound: filter-less mutant re-runs clean suites → the bound has real teeth"
     else no "teeth-j-bound: mutant did not widen the re-run — mutation not exercised (THEATER)"; fi
   fi
@@ -2344,7 +2354,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
     echo "-- teeth: accept any RUN_ALL_ATTRIBUTION_TIMEOUT; the typed invalid-value line must then vanish (case j15) --"
     w="$(mut_workdir teeth-j-timeout)"; mkdir -p "${w%/toolbelt/tests}/install"
-    cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+    mkfix_leaky "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
     if ! mutant_sed "$SUT" "$w/run-all.sh" 's/\^\[1-9\]\[0-9\]\*\$/./' 2>"$w/mutant.err"; then
       no "teeth-j-timeout: could not build a valid mutant: $(cat "$w/mutant.err")"
     else
@@ -2354,7 +2364,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
     echo "-- teeth: drop the whole-second window fallback; a %N-less date must then DEGRADE the attribution (case j16) --"
     w="$(mut_workdir teeth-j-datefb)"; mkdir -p "${w%/toolbelt/tests}/install"
-    cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+    mkfix_leaky "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
     if ! mutant_sed "$SUT" "$w/run-all.sh" 's/\*\[!0-9\.\]\*) _v="\$(date +%s 2>\/dev\/null)" ;;/*[!0-9.]*) ;;/' 2>"$w/mutant.err"; then
       no "teeth-j-datefb: could not build a valid mutant: $(cat "$w/mutant.err")"
     else
