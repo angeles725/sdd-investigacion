@@ -1674,6 +1674,89 @@ out="$(run "$N973")"
 { grep -q 'resolved 0 of 2 (1 extern, 1 failed)' <<<"$out" && grep -q 'Set SOURCE_ROOT' <<<"$out"; } \
   && ok "#973 GOOD: extern + RANGE! mix keeps the hint (extern cites may still be fixable)" || no "#973 mixed hint wrong :: $(grep -iE 'resolved|SOURCE_ROOT' <<<"$out" | head -3)"
 
+# --- kit #1906: --extern-check verifies ABSOLUTE extern cites (outside the target) WITHOUT ever printing file content ---
+# Without the flag an absolute cite is `extern` and nothing is read (unchanged). With it, an absolute cite whose file is a
+# regular readable file is verified (ok / RANGE!) by counting lines only; NOTHING from the cited file reaches stdout, so a
+# secret-shaped line (or a prompt-injected cite aimed at a sensitive file) can never be pulled into the agent's context.
+XS="$TMP/xs"; mkdir -p "$XS/ext" "$XS/tgt"
+CANARY='ZZCANARY-secret-ZZ'
+seq 1 30 | sed "s/^/line $CANARY /" > "$XS/ext/plain.txt"
+printf '%s\n' 'host=db1' 'password=hunter2' 'AKIAABCDEFGHIJKLMNOP' "$CANARY" > "$XS/ext/secrets.txt"
+printf 'one %s\r\ntwo\r\nthree\r\n' "$CANARY" > "$XS/ext/crlf.txt"
+printf 'a\nb %s' "$CANARY" > "$XS/ext/nonl.txt"
+printf 'x %s\n' "$CANARY" > "$XS/ext/noread.txt"; chmod 000 "$XS/ext/noread.txt"
+mkdir -p "$XS/ext/dir.txt"
+xsblock(){ local f="$XS/tgt/$1"; shift; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }
+xsrun(){ bash "$SUT" "$@" 2>&1; echo "== exit $? =="; }
+xsblock single.md "Cite \`$XS/ext/plain.txt:2\`. [CERT]"
+out="$(xsrun "$XS/tgt/single.md" "$XS/tgt")"
+{ grep -q 'extern  ' <<<"$out" && grep -q '1 extern, 0 failed' <<<"$out" && ! grep -q 'extern-check' <<<"$out" && ! grep -q 'ok extern' <<<"$out"; } \
+  && ok "#1906 default (no flag): absolute cite stays extern, no extern-check line" || no "#1906 default changed :: $(grep -E 'extern|resolved' <<<"$out" | head -3)"
+out="$(xsrun --extern-check "$XS/tgt/single.md" "$XS/tgt")"
+{ grep -qE 'ok extern .*plain.txt:2$' <<<"$out" && grep -q 'resolved 1 of 1 (0 extern, 0 failed)' <<<"$out" \
+  && grep -q 'extern-check: verified 1 of 1 absolute backticked name.ext:N cite(s); 0 relative cite(s) cannot be resolved' <<<"$out" \
+  && grep -q '== exit 0 ==' <<<"$out"; } \
+  && ok "#1906 --extern-check: in-range absolute cite verified (ok extern), counted resolved, summary reworded" || no "#1906 single cite :: $(grep -E 'extern|resolved' <<<"$out" | head -4)"
+{ ! grep -q "$CANARY" <<<"$out" && ! grep -q 'line [0-9]*: ' <<<"$out"; } \
+  && ok "#1906 NEVER prints file content: canary from the cited line absent" || no "#1906 FILE CONTENT LEAKED :: $out"
+# start != end range: end verified against the line count; flag position free
+xsblock range.md "Cite \`$XS/ext/plain.txt:3-5\`. [CERT]"
+out="$(xsrun "$XS/tgt/range.md" "$XS/tgt" --extern-check)"
+{ grep -qE 'ok extern .*plain.txt:3-5  \(range end verified; file has 30 lines\)' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+  && ok "#1906 range 3-5 verified against 30 lines (flag position free), no content" || no "#1906 range :: $(grep -E 'extern' <<<"$out" | head -3)"
+xsblock rangepast.md "Cite \`$XS/ext/plain.txt:25-31\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/rangepast.md" "$XS/tgt")"
+{ grep -q 'RANGE!  .*plain.txt:25-31' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
+  && ok "#1906 range whose END is past EOF -> RANGE! + exit 1" || no "#1906 range end past EOF :: $(grep -E 'RANGE|exit' <<<"$out")"
+# past EOF single
+xsblock past.md "Cite \`$XS/ext/plain.txt:31\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/past.md" "$XS/tgt")"
+{ grep -q 'RANGE!  .*plain.txt:31' <<<"$out" && grep -q '0 extern, 1 failed' <<<"$out" && grep -q '== exit 1 ==' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+  && ok "#1906 past-EOF absolute cite -> RANGE! + exit 1, no content" || no "#1906 past EOF :: $(grep -E 'RANGE|resolved|exit' <<<"$out" | head -3)"
+# missing / directory / relative: stay extern with a reason, exit 0
+xsblock gone.md "Gone \`$XS/ext/nope.txt:3\`, dir \`$XS/ext/dir.txt:1\`, rel \`sources/x.txt:4\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/gone.md" "$XS/tgt")"
+{ grep -q 'extern  .*nope.txt:3.*not found or unreadable' <<<"$out" && grep -q 'extern  .*dir.txt:1.*not found or unreadable' <<<"$out" \
+  && grep -q '3 extern, 0 failed' <<<"$out" && grep -q 'verified 0 of 2 absolute' <<<"$out" && grep -q '1 relative' <<<"$out" && grep -q '== exit 0 ==' <<<"$out"; } \
+  && ok "#1906 missing file and directory stay typed extern; relative counted unresolvable; exit 0" || no "#1906 missing/dir :: $(grep -E 'extern|exit' <<<"$out" | head -5)"
+# unreadable regular file (chmod 000): typed extern, never read. Meaningless as root / when the mode does not bite.
+if [ "$(id -u)" = 0 ] || [ -r "$XS/ext/noread.txt" ]; then
+  echo "  SKIP  #1906 unreadable file (running as root or mode 000 still readable)"
+else
+  xsblock noread.md "Cite \`$XS/ext/noread.txt:1\`. [CERT]"
+  out="$(xsrun --extern-check "$XS/tgt/noread.md" "$XS/tgt")"
+  { grep -q 'extern  .*noread.txt:1.*not found or unreadable' <<<"$out" && grep -q 'verified 0 of 1 absolute' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+    && ok "#1906 unreadable file stays typed extern (never read)" || no "#1906 unreadable :: $(grep -E 'extern|exit' <<<"$out" | head -3)"
+fi
+# CRLF file: 3 lines; :3 is in range, :4 is past EOF (the \r never inflates or deflates the count)
+xsblock crlf.md "A \`$XS/ext/crlf.txt:3\` B \`$XS/ext/crlf.txt:4\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/crlf.md" "$XS/tgt")"
+{ grep -qE 'ok extern .*crlf.txt:3$' <<<"$out" && grep -q 'RANGE!  .*crlf.txt:4  (file has 3 lines)' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+  && ok "#1906 CRLF file counts 3 lines: :3 ok, :4 RANGE!" || no "#1906 CRLF :: $(grep -E 'crlf' <<<"$out")"
+# last line WITHOUT a trailing newline still counts (2 lines)
+xsblock nonl.md "A \`$XS/ext/nonl.txt:2\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/nonl.md" "$XS/tgt")"
+{ grep -qE 'ok extern .*nonl.txt:2$' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+  && ok "#1906 unterminated last line counts (2 lines, :2 ok)" || no "#1906 no trailing newline :: $(grep -E 'nonl|RANGE' <<<"$out")"
+# list edges: first / middle / middle / last position — ok, RANGE!, missing, ok; single-cite case is covered above
+xsblock edges.md "A \`$XS/ext/plain.txt:1\` B \`$XS/ext/plain.txt:99\` C \`$XS/ext/nope.txt:1\` D \`$XS/ext/plain.txt:30\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/edges.md" "$XS/tgt")"
+{ grep -qE 'ok extern .*plain.txt:1$' <<<"$out" && grep -q 'RANGE!  .*plain.txt:99' <<<"$out" && grep -q 'nope.txt:1' <<<"$out" \
+  && grep -qE 'ok extern .*plain.txt:30$' <<<"$out" && grep -q 'resolved 2 of 4 (1 extern, 1 failed)' <<<"$out" && grep -q 'verified 3 of 4 absolute' <<<"$out"; } \
+  && ok "#1906 list edges: first/last ok, middle RANGE!/missing; resolved 2 of 4 (1 extern, 1 failed), verified 3 of 4" || no "#1906 edges :: $(grep -E 'ok|RANGE|extern|resolved' <<<"$out" | head -8)"
+# a secret-shaped file cited by range: only the verdict is printed
+xsblock sec.md "Cite \`$XS/ext/secrets.txt:1-4\`. [CERT]"
+out="$(xsrun --extern-check "$XS/tgt/sec.md" "$XS/tgt")"
+{ grep -qE 'ok extern .*secrets.txt:1-4' <<<"$out" && ! grep -qE "hunter2|AKIA|$CANARY|host=db1" <<<"$out"; } \
+  && ok "#1906 secret-shaped file verified without any of its content in the output" || no "#1906 secrets leaked :: $out"
+# usage: the flag alone is a usage error; usage text names the flag and the target-dir rule (#1905)
+out="$(bash "$SUT" --extern-check 2>&1; echo "== exit $? ==")"
+{ grep -q '== exit 2 ==' <<<"$out" && grep -q -- '--extern-check' <<<"$out"; } \
+  && ok "#1906 usage line names --extern-check; flag without a block -> exit 2" || no "#1906 usage :: $out"
+hdr="$(sed -n '1,45p' "$SUT")"
+{ grep -q -- '--extern-check' <<<"$hdr" && grep -qi 'NESTED' <<<"$hdr" && grep -q 'sources/' <<<"$hdr"; } \
+  && ok "#1905 header documents sources/ cites resolving against target-dir and NESTED corpora passing the corpus root" || no "#1905 header lacks the nested-corpus target-dir rule"
+
 # NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
@@ -2355,6 +2438,67 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-mf-nomf: absence of any manifest is no longer announced --"
   if mk_sed "teeth-mf-nomf" "$MUT/mfn.sh" 's/echo "   INFO    no SCRIPTS-MANIFEST under/echo "   (silent) under/'; then
     tooth "teeth-mf-nomf" 0 0 "$MUT/mfn.sh" --good-has 'INFO    no SCRIPTS-MANIFEST' --bad-lacks 'no SCRIPTS-MANIFEST' -- bash @SUT@ "$TMP/mf-nomf/block.md"
+  fi
+  echo "-- teeth-1906: --extern-check (flag, default, range, edges, counters, NO content) --"
+  # the flag is parsed: neutered, it is swallowed and the cite stays plain extern
+  if mk_sed "teeth-1906-flag" "$MUT/xs1.sh" '/# VB-EXTERN-CHECK-FLAG/ s/EXTERN_CHECK=1 ;;/: ;;/'; then
+    tooth "teeth-1906-flag" 0 0 "$MUT/xs1.sh" --good-has 'ok extern .*plain.txt:2' --bad-lacks 'ok extern' --bad-has '1 extern, 0 failed' \
+      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+  fi
+  # the default is OFF: flipped on, a plain run would verify files and print an extern-check line
+  if mk_sed "teeth-1906-default" "$MUT/xs2.sh" 's/^EXTERN_CHECK=0/EXTERN_CHECK=1/'; then
+    tooth "teeth-1906-default" 0 0 "$MUT/xs2.sh" --good-lacks 'extern-check' --bad-has 'extern-check: verified 1 of 1' \
+      -- bash @SUT@ "$XS/tgt/single.md" "$XS/tgt"
+  fi
+  # NEVER print file content: a mutant that prints the cited line leaks the canary
+  if mk_sed "teeth-1906-no-content" "$MUT/xs3.sh" '/^        _vb_ok=\$((_vb_ok+1))$/ s/$/; sed -n "${start}p" "$f"/'; then
+    tooth "teeth-1906-no-content" 0 0 "$MUT/xs3.sh" --good-lacks 'ZZCANARY' --bad-has 'ZZCANARY' \
+      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+  fi
+  # past EOF is a defect (exit 1); neutered, the cite reads as ok and the exit flips to 0
+  if mk_sed "teeth-1906-range-rc" "$MUT/xs4.sh" '/VB-EXTERN-CHECK (kit/,/^      fi$/ s/rc=1; //'; then
+    tooth "teeth-1906-range-rc" 1 0 "$MUT/xs4.sh" --good-has 'RANGE!  .*plain.txt:31' --bad-has "$EXIT0" \
+      -- bash @SUT@ --extern-check "$XS/tgt/past.md" "$XS/tgt"
+  fi
+  # LAST-line edge: line 30 of a 30-line file is in range; an off-by-one bound reports it as RANGE!
+  if mk_sed "teeth-1906-last-line" "$MUT/xs5.sh" 's/if \[ "\$end" -gt "\$total" \]; then/if [ "$end" -ge "$total" ]; then/'; then
+    tooth "teeth-1906-last-line" 1 1 "$MUT/xs5.sh" --good-has 'resolved 2 of 4 \(1 extern, 1 failed\)' --bad-has 'resolved 1 of 4 \(1 extern, 2 failed\)' \
+      -- bash @SUT@ --extern-check "$XS/tgt/edges.md" "$XS/tgt"
+  fi
+  # a range is judged by its END: neutered to the start, :25-31 reads as ok
+  if mk_sed "teeth-1906-range-end" "$MUT/xs6.sh" 's/if \[ "\$end" -gt "\$total" \]; then/if [ "$start" -gt "$total" ]; then/'; then
+    tooth "teeth-1906-range-end" 1 0 "$MUT/xs6.sh" --good-has 'RANGE!  .*plain.txt:25-31' --bad-lacks 'RANGE!' \
+      -- bash @SUT@ --extern-check "$XS/tgt/rangepast.md" "$XS/tgt"
+  fi
+  # missing file / directory stay extern; neutered, they are "verified"
+  if mk_sed "teeth-1906-missing" "$MUT/xs7.sh" 's/if \[ ! -f "\$f" \] || \[ ! -r "\$f" \]; then/if false; then/'; then
+    tooth "teeth-1906-missing" 0 1 "$MUT/xs7.sh" --good-has 'not found or unreadable' --bad-lacks 'not found or unreadable' \
+      -- bash @SUT@ --extern-check "$XS/tgt/gone.md" "$XS/tgt"
+  fi
+  # unreadable file: neutering only the readability test turns the typed extern into a verdict (skipped as root)
+  if [ "$(id -u)" != 0 ] && [ ! -r "$XS/ext/noread.txt" ]; then
+    if mk_sed "teeth-1906-unreadable" "$MUT/xs8.sh" 's/\[ ! -f "\$f" \] || \[ ! -r "\$f" \]/[ ! -f "$f" ]/'; then
+      tooth "teeth-1906-unreadable" 0 0 "$MUT/xs8.sh" --good-has 'noread.txt:1.*not found or unreadable' --bad-lacks 'not found or unreadable' \
+        -- bash @SUT@ --extern-check "$XS/tgt/noread.md" "$XS/tgt"
+    fi
+  else echo "  SKIP  teeth-1906-unreadable (root or mode 000 still readable)"; fi
+  # line counting counts an unterminated last line (wc -l would not) and ignores CR
+  if mk_sed "teeth-1906-count" "$MUT/xs9.sh" 's/total=\$(awk .END{print NR}. "\$f")/total=$(wc -l < "$f")/'; then
+    tooth "teeth-1906-count" 0 1 "$MUT/xs9.sh" --good-has 'ok extern .*nonl.txt:2' --bad-has 'RANGE!  .*nonl.txt:2' \
+      -- bash @SUT@ --extern-check "$XS/tgt/nonl.md" "$XS/tgt"
+  fi
+  # counters: absolute seen, relative seen, verified
+  if mk_sed "teeth-1906-cnt-abs" "$MUT/xs10.sh" 's/_vb_xa=\$((_vb_xa+1))/_vb_xa=$((_vb_xa+0))/'; then
+    tooth "teeth-1906-cnt-abs" 1 1 "$MUT/xs10.sh" --good-has 'verified 3 of 4 absolute' --bad-has 'verified 3 of 0 absolute' \
+      -- bash @SUT@ --extern-check "$XS/tgt/edges.md" "$XS/tgt"
+  fi
+  if mk_sed "teeth-1906-cnt-rel" "$MUT/xs11.sh" 's/_vb_xrel=\$((_vb_xrel+1))/_vb_xrel=$((_vb_xrel+0))/'; then
+    tooth "teeth-1906-cnt-rel" 0 0 "$MUT/xs11.sh" --good-has '; 1 relative' --bad-has '; 0 relative' \
+      -- bash @SUT@ --extern-check "$XS/tgt/gone.md" "$XS/tgt"
+  fi
+  if mk_sed "teeth-1906-cnt-ver" "$MUT/xs12.sh" 's/_vb_xr=\$((_vb_xr+1))/_vb_xr=$((_vb_xr+0))/'; then
+    tooth "teeth-1906-cnt-ver" 0 0 "$MUT/xs12.sh" --good-has 'verified 1 of 1 absolute' --bad-has 'verified 0 of 1 absolute' \
+      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
 fi
 
