@@ -11,9 +11,12 @@
 # where a from-memory self-report drifts. The token-check (does each [CERT] token appear in its source) still
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
-# Usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]
-#   --strict-ephemeral (or env RSDD_STRICT_EPHEMERAL=1): ephemeral-path cites FAIL (EPHEMERAL!, exit 1). WITHOUT it they are
-#       a typed WARN (EPHEMERAL?, counted and listed, exit unchanged) — the default flips to FAIL in the next minor release, kit #1207.
+# Usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] <block.md> [target-dir]
+#   Ephemeral-path cites FAIL by default (EPHEMERAL!, exit 1; kit #1660, the end of the kit #1207 staged rollout).
+#   Opt-out, for a corpus not yet cleaned: `--ephemeral=warn` or env RSDD_STRICT_EPHEMERAL=0 — each cite is then a typed WARN
+#   (EPHEMERAL?, counted and listed, exit unchanged). `--strict-ephemeral` / `--ephemeral=fail` / RSDD_STRICT_EPHEMERAL=1 force the
+#   FAIL. Precedence: the last flag, then the env (only the exact value 0 opts out), then the default (FAIL). An unknown
+#   --ephemeral value is a usage error (exit 2).
 #        verify-block.sh --possibility-sweep <corpus-dir>   (list existing bare feasibility verdicts; read-only)
 #   target-dir defaults to the block's own directory (file:line citations are target-relative). `sources/…`
 #       cites resolve against the target-dir, so for a NESTED corpus (`$TARGET/corpus/…`) pass the CORPUS ROOT as
@@ -30,13 +33,13 @@
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target, OR a cited hash equals the digest of EMPTY
-#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR (ONLY with
-#       --strict-ephemeral; otherwise a WARN EPHEMERAL?, exit unchanged) a cited path is ephemeral — under /tmp,
+#       input (EMPTYHASH!, #1487; waive a quoted digest per line with `<!-- empty-digest: quoted -->`), OR (a WARN EPHEMERAL?, exit
+#       unchanged, ONLY under the --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 opt-out) a cited path is ephemeral — under /tmp,
 #       /var/tmp, $TMPDIR or a session scratchpad/ (EPHEMERAL!, kit #1207; any cite form, [CERT*] or not; a line
 #       carrying a REAL sha256 anchor — the word `sha256` AND a 64-hex digest on that same line, the word alone
 #       is NOT an anchor — the §5 beautified-temp view, is exempt, as an INFO; a line ending with
 #       `<!-- ephemeral-ok: <reason> -->` waives it per line as an INFO, the reason is mandatory and an empty one
-#       leaves the finding standing plus a typed `invalid marker` line; default flips to FAIL next minor), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
+#       leaves the finding standing plus a typed `invalid marker` line), OR a preserved script cited under sources/probes/ has no valid SCRIPTS-MANIFEST row / a row whose
 #       sha256 differs from the file's (MANIFEST!, kit #1207; only when the corpus has >= 1 manifest — with none
 #       the line is `INFO no SCRIPTS-MANIFEST`; a failed manifest scan is the typed `DEGRADED manifest scan failed`
 #       line with exit 1, like the other operational degraded states here — never read as "no manifest") · 2 = bad args.
@@ -96,12 +99,15 @@ pf_scan() {
   ' "$1"
 }
 
-# --strict-ephemeral / RSDD_STRICT_EPHEMERAL=1 (kit #1207): ephemeral-path cites FAIL (EPHEMERAL!) instead of WARN (EPHEMERAL?).
-STRICT_EP=0; [ "${RSDD_STRICT_EPHEMERAL:-}" = "1" ] && STRICT_EP=1
+# Ephemeral-path cites FAIL (EPHEMERAL!) by default (kit #1660); the opt-out is a WARN (EPHEMERAL?, exit unchanged):
+# `--ephemeral=warn` or RSDD_STRICT_EPHEMERAL=0 (exact value; anything else keeps the default). A flag beats the env.
+STRICT_EP=1; [ "${RSDD_STRICT_EPHEMERAL:-}" = "0" ] && STRICT_EP=0   # VB-EP-DEFAULT
 EXTERN_CHECK=0  # kit #1906: opt-in, no env form (it reads and counts files outside the target and never prints their content)
 _vb_args=(); for _vb_a in "$@"; do
   case "$_vb_a" in
-    --strict-ephemeral) STRICT_EP=1 ;;  # VB-EP-STRICT-FLAG
+    --strict-ephemeral|--ephemeral=fail) STRICT_EP=1 ;;  # VB-EP-STRICT-FLAG
+    --ephemeral=warn) STRICT_EP=0 ;;  # VB-EP-WARN-FLAG
+    --ephemeral|--ephemeral=*) echo "verify-block.sh: unknown --ephemeral value '${_vb_a#--ephemeral}' (expected --ephemeral=warn or --ephemeral=fail)" >&2; exit 2 ;;  # VB-EP-BADVALUE
     --extern-check) EXTERN_CHECK=1 ;;  # VB-EXTERN-CHECK-FLAG
     *) _vb_args+=("$_vb_a") ;;
   esac
@@ -124,7 +130,7 @@ if [ "${1:-}" = "--possibility-sweep" ]; then
 fi
 
 block="${1:-}"
-[ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
+[ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
 # VB-LINECOUNT (kit #1919): the ONE line counter for every cite path (artifact, backtick, --extern-check). awk NR counts an
 # UNTERMINATED last line (`wc -l` counts newline characters and was one short; CR is not a line terminator: CRLF counts like LF).
@@ -991,12 +997,12 @@ elif [ "$_vb_eh_n" -eq 0 ]; then echo "   (none — no unwaived cited hash equal
 # 10. EPHEMERAL-PATH CITES (kit #1207, METHODOLOGY §5/§7 anti-ephemeral-artifact) — a cited path under /tmp,
 #     /var/tmp (also /private/tmp, /private/var/tmp, $TMPDIR/, ${TMPDIR}/) or a session `scratchpad/` dir is
 #     evidence that will not exist in the next session: FAIL (rc=1), one typed `EPHEMERAL!` line per occurrence
-#     with the block line number (WARN `EPHEMERAL?` unless strict, see STAGING). Enumerated cite forms — ALL covered because the scan reads every path-shaped
+#     with the block line number (WARN `EPHEMERAL?` only under the opt-out, see POLICY). Enumerated cite forms — ALL covered because the scan reads every path-shaped
 #     token on every line, whatever wraps it: `file:N`, `file:N-M`, bare backticked path, parenthetical path,
 #     table cell, prose, code fence, `[CERT*]`-marked or not. The tmp prefix must not be glued to a preceding
 #     path char (so `src/tmp/x` and `./tmp/x` never fire). Verification is NOT limited to [CERT*] lines.
-#     STAGING: by default each hit is a WARN `EPHEMERAL?` (counted, listed, exit unchanged); with --strict-ephemeral /
-#     RSDD_STRICT_EPHEMERAL=1 it is a FAIL `EPHEMERAL!` (rc=1). The default flips to FAIL in the next minor release.
+#     POLICY (kit #1660): by default each hit is a FAIL `EPHEMERAL!` (rc=1). The opt-out `--ephemeral=warn` /
+#     RSDD_STRICT_EPHEMERAL=0 makes it a WARN `EPHEMERAL?` (counted, listed, exit unchanged); the flag beats the env.
 #     EXCEPTION (the §5 beautified-temp view): a line carrying a REAL sha256 anchor (the word `sha256` plus a 64-hex
 #     digest on the same line — the word alone is not an anchor) is reported as `INFO
 #     ephemeral-anchored` and does not change the exit code — the temp is a working view whose identity is
@@ -1044,7 +1050,7 @@ _vb_ep_out=$(awk -v strict="$STRICT_EP" '
           if (strict == "1")   # VB-EP-STRICT
             printf "F\t   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)\n", tok, NR
           else
-            printf "W\t   EPHEMERAL?  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/; FAIL under --strict-ephemeral, default next minor)\n", tok, NR
+            printf "W\t   EPHEMERAL?  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/; opt-out --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 is active, the default is FAIL)\n", tok, NR
         }
       }
       rest = after
@@ -1058,7 +1064,7 @@ _vb_ep_out=$(awk -v strict="$STRICT_EP" '
 ' "$block")
 _vb_ep_rc=$?
 _vb_ep_trailer=""; grep -q $'^T\t@@scanned [0-9][0-9]*$' <<<"$_vb_ep_out" || _vb_ep_trailer=", no scan trailer"
-echo "-- ephemeral-path cites (kit #1207: /tmp, /var/tmp, scratchpad — WARN, FAIL with --strict-ephemeral; exempt: sha256 anchor, ephemeral-ok marker) --"
+echo "-- ephemeral-path cites (kit #1207/#1660: /tmp, /var/tmp, scratchpad — FAIL by default, WARN under --ephemeral=warn; exempt: sha256 anchor, ephemeral-ok marker) --"
 if [ "$_vb_ep_rc" -ne 0 ] || [ -n "$_vb_ep_trailer" ]; then
   printf '   ERROR: ephemeral-path scan DEGRADED (awk exit %d%s) — block NOT checked for ephemeral cites\n' "$_vb_ep_rc" "$_vb_ep_trailer"
   rc=1; _vb_ep_deg=1
@@ -1079,7 +1085,7 @@ done <<<"$_vb_ep_out"
 if [ "$_vb_ep_deg" -eq 1 ]; then :
 elif [ "$_vb_ep_n" -eq 0 ]; then echo "   (none — no unanchored ephemeral path cited; sha256-anchored: $_vb_ep_a, ephemeral-ok: $_vb_ep_k, invalid markers: $_vb_ep_i)"
 elif [ "$STRICT_EP" = 1 ]; then echo "-- ephemeral-path cites: $_vb_ep_n (FAIL)"
-else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; --strict-ephemeral or RSDD_STRICT_EPHEMERAL=1 makes it FAIL; default flips next minor, kit #1207)"; fi
+else echo "-- ephemeral-path cites: $_vb_ep_n (WARN — exit unchanged; opt-out --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 in force, the default is FAIL, kit #1660)"; fi
 
 # 11. SCRIPTS-MANIFEST (kit #1207) — a preserved script cited under sources/probes/ must be traceable to a row of
 #     a `sources/probes/**/SCRIPTS-MANIFEST.md` of the target, and the row's sha256 must equal the file's. Rules:
