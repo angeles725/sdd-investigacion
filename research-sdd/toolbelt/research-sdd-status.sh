@@ -953,8 +953,8 @@ if [ "$mode" = "--sync-state" ]; then
     # verify-state.sh (single definition rule, prevents dual-authority drift on this count).
     # B5 FIX: focus-prefix filter for multi-focus corpora; shared-global path mirrors BS-SHARED-GLOBAL-ONDISK.
     _sfpfx="$(derive_focus_prefix "$state")"
-    _sfrange=""; [ -z "$_sfpfx" ] && _sfrange="$(derive_focus_range "$state")"   # kit #906: FOCUSES.md block RANGE cell (a prefix wins)
-    case "$_sfrange" in '!'*) printf 'sync-state: WARN: %s: FOCUSES.md block-scope cell [%s] is range-shaped but unreadable (a > b) — it scopes nothing (METHODOLOGY §16 Block-scope cell grammar).\n' "$(basename "$state")" "${_sfrange#!}" >&2; _sfrange="" ;; esac  # RANGE-MALFORMED-WARN
+    _sfrange=""   # kit #906: FOCUSES.md block RANGE cell (a prefix wins); malformed/multi/family/missing diagnostics from the shared report
+    if [ -z "$_sfpfx" ]; then _sfrange="$(derive_focus_range "$state")"; focus_range_report "$state" 'sync-state: %s: RESEARCH-STATE.md: %s\n' >&2; case "$_sfrange" in '!'*) _sfrange="" ;; esac; fi  # RANGE-REPORT
     if [ "$_e_bs" = "shared-global" ]; then
       # block_scope: shared-global → use attributed B<n> count (mirrors verify-state.sh CHECK A via
       # count_attributed_sg / _derive_attributed_sg respectively, so the two scripts always agree).
@@ -974,7 +974,7 @@ if [ "$mode" = "--sync-state" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
     elif [ -n "$_sfrange" ]; then
-      cb="$(focus_range_block_count "$(dirname "$state")" "$_sfrange")"  # RANGE-SYNC-COUNT
+      cb="$(focus_range_block_count "$(dirname "$state")" "$_sfrange" "$state")"  # RANGE-SYNC-COUNT
     else
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter | wc -l | tr -d ' ')"
@@ -1152,10 +1152,10 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     if [ "$_cw" = 1 ] && only_has covered_blocks; then  # ROOT-CORPUS-WIDE-WARN
       if [ -n "$_cw_kept" ]; then
-        printf 'sync-state: WARN: %s: covered_blocks would be %s, the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md), not this focus'"'"'s number — KEPT the declared %s; name covered_blocks in --only to write it.\n' \
+        printf 'sync-state: WARN: %s: covered_blocks would be %s, the CORPUS-WIDE block count (no block prefix or B<a>–B<b> range for the root focus in FOCUSES.md), not this focus'"'"'s number — KEPT the declared %s; name covered_blocks in --only to write it.\n' \
           "$(basename "$state")" "$_cw_kept" "$cb" >&2
       else
-        printf 'sync-state: WARN: %s: covered_blocks=%s written is the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md) — not scoped to this focus; verify it.\n' \
+        printf 'sync-state: WARN: %s: covered_blocks=%s written is the CORPUS-WIDE block count (no block prefix or B<a>–B<b> range for the root focus in FOCUSES.md) — not scoped to this focus; verify it.\n' \
           "$(basename "$state")" "$cb" >&2
       fi
     fi
@@ -2096,13 +2096,13 @@ metric="$(cov_ratio)"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 # B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
 _stpfx="$(derive_focus_prefix "$state")"
-_strange=""; [ -z "$_stpfx" ] && _strange="$(derive_focus_range "$state")"   # kit #906
-case "$_strange" in '!'*) echo "WARN: FOCUSES.md block-scope cell [${_strange#!}] is range-shaped but unreadable (a > b) — it scopes nothing (METHODOLOGY §16 Block-scope cell grammar)" >&2; _strange="" ;; esac  # RANGE-MALFORMED-WARN
+_strange=""   # kit #906
+if [ -z "$_stpfx" ]; then _strange="$(derive_focus_range "$state")"; focus_range_report "$state" 'status: %s: %s\n' >&2; case "$_strange" in '!'*) _strange="" ;; esac; fi  # RANGE-REPORT
 if [ -n "$_stpfx" ]; then
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter "${_stpfx}" | wc -l | tr -d ' ')"
 elif [ -n "$_strange" ]; then
-  ondisk="$(focus_range_block_count "$corpus" "$_strange")"  # RANGE-DISPLAY-COUNT
+  ondisk="$(focus_range_block_count "$corpus" "$_strange" "$state")"  # RANGE-DISPLAY-COUNT
 else
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter | wc -l | tr -d ' ')"
