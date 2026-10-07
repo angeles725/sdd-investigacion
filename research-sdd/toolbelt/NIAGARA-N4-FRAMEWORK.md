@@ -244,6 +244,29 @@ Evidence: B1215 §1215.1-§1215.4.
 METHODOLOGY.md is owned by another writer in this chain, so the cross-link from §12 to this
 section should be added when that file is next touched.
 
+
+## 9. Live-session access recipe — REQUIRED capture at run start `[#1931]`
+
+For a live-install Niagara target, the three access channels below must be recorded at the START of the run
+(before the first live probe), as a block or a `sources/probes/` note — not re-derived each session.
+PROMPT-LOOP HARD RULES (LIVE-SESSION ACCESS RECIPE) enforces the capture. Record host/port/URI STRUCTURE
+only; never credentials (SECRETS DISCIPLINE).
+
+| Channel | Recipe (as reported in kit #1931) |
+|---|---|
+| Workbench (`wb`) launch | Start it through a scheduled task: `schtasks ... /RU <interactive user> /IT /RL HIGHEST`, running a launcher `.cmd` that CLEARS the rival-posture machine environment variables per process. Without the clear, the N4 JVM dies before boot. |
+| Station (fox) | URI `foxs://<host>:4911` (TLS) — evidenced in the incident run (`plugin-st-stderr.txt`: FOXS 4911). The issue reports UDP 1911 as discovery-only on that host `[unverified]`. |
+| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. |
+
+- **Unverified here:** the exact `schtasks` argument list and the names of the cleared variables are not in the
+  issue text; copy them from the run's own `wb-session.log` / launcher `.cmd` rather than from this table.
+- **Why required:** the recipe was not documented after the 2026-10-03/04 sessions, the incident recurred on
+  2026-10-07, and about 40 minutes were lost re-deriving ports and URIs.
+- **How to cite:** preserve the launcher `.cmd`, the session log and the stderr capture of the station connect
+  under `sources/probes/` and cite them `[CERT-live]` (the FOXS 4911 evidence is `plugin-st-stderr.txt`).
+
+Evidence: kit issue #1931 (retro 2026-10-06 reflow-bypass-bench item 5; `wb-session.log`, `plugin-st-stderr.txt`).
+
 ---
 
 ## Self-verify

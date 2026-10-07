@@ -231,6 +231,7 @@ Always read first, in this order:
      with an `unblock:` plan (METHODOLOGY §21.1), never silently dropped. The stretch is an ambition record, not
      evidence or a coverage claim: unexecuted routes toward it stay [INFER]/proposed (§3). It is the reference
      for the pre-STOP POSSIBILITY AUDIT (step 7; METHODOLOGY §8c). `verify-state.sh` does not parse the section.
+     CROSS-VERSION REPLICATION (kit #1937): the replication checklist's enumerated "known unknowns" are seeded as typed backlog gaps (`blocked-on-<reason>` / `requires-execution` with an `unblock:` plan) for the next-version focus, not left as checklist prose; see METHODOLOGY (kit #1937).
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (or `deferred` for a parked gap; not
      translated); Status must start with `pending` for a gap to be treated as investigable. The awk
@@ -1568,6 +1569,11 @@ HARD RULES:
     to the operator's own environment (`~/.cloudflared/`, shell dotfiles, keyrings) and to relayed peer
     material (a config a colleague sent). The rule is unchanged; only the trigger broadens.
     (Source: 2026-09-03-obix-and-loginless-dashboard-runbooks-retro.md D2)
+  - LIVE-SESSION ACCESS RECIPE (live-install / Niagara targets; kit #1931) — at run START, before the first live
+    probe, capture and record the access recipe for each live channel in use (workbench launch, station fox
+    URI, platform daemon port) per toolbelt/NIAGARA-N4-FRAMEWORK.md §9, as a block or `sources/probes/` note
+    (host/port/URI STRUCTURE only; never credentials, SECRETS DISCIPLINE above). A run that closes without it
+    makes the next session re-derive ports and URIs from scratch (a ~40 min loss recurred on 2026-10-07).
     REDACTED-FILE GENERATION WORKFLOW. When preserving a REDACTED copy in `sources/probes/`: (1) generate
     in scratchpad, never directly in `sources/`; (2) verify the mask worked with a SILENT count: `grep -c
     '<secret-pattern>' <masked-temp>` must return `0` — do NOT use bare `grep <pattern>` (no `-c`), which
