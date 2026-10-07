@@ -189,7 +189,7 @@ bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 # a directory name with no usable character is a typed degraded state, never an empty project_name
 d="$TMP/___"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat >"$TMP/eng-c.out" 2>&1; _rc=$?
-{ [ "$_rc" = 0 ] && [ ! -e "$d/.engram/config.json" ] && grep -qF 'degraded: engram: could not derive a project_name' "$TMP/eng-c.out"; } && ok "  engram: underivable name -> typed degraded, no config, scaffold still succeeds" || no "  engram: underivable name: exit $_rc / config written / no degraded line"
+{ [ "$_rc" = 0 ] && [ ! -e "$d/.engram/config.json" ] && grep -qF 'WARN: engram: could not derive a project_name' "$TMP/eng-c.out"; } && ok "  engram: underivable name -> typed WARN, no config, scaffold still succeeds" || no "  engram: underivable name: exit $_rc / config written / no degraded line"
 # the usage text carries the same MCP caveat
 bash "$SUT" >/dev/null 2>"$TMP/eng-usage.err"
 assert_grep "  engram: usage text names mem_session_start" "mem_session_start" "$TMP/eng-usage.err"
@@ -4508,6 +4508,12 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     _u7t COPY-MODE-BSD 's/^  m="\$(stat -c %a "\$1" 2>\/dev\/null)" || m="\$(stat -f %Lp "\$1" 2>\/dev\/null)" || return 1$/  m="$(stat -c %a "$1" 2>\/dev\/null)" || return 1/' 'rc=0 mode=755' 'rc=2 mode=' _u7t_bsdstat
     _u7t ENGRAM-WRITE '/^    mk "\$target\/.engram"$/d' 'rc=0 name=engt step=1' 'rc=1 name= step=0' _u7t_eng
     _u7t ENGRAM-CREATE-ONLY 's/^if \[ -e "\$_eng_cfg" \] || \[ -L "\$_eng_cfg" \]; then$/if false; then/' 'rc=0 name=mine step=1' 'rc=0 name=engt step=1' _u7t_eng keep
+    _u7t_engnone() {  # <init> — a directory name with no usable character: config written or typed WARN?
+      local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0) warn=$(grep -cF 'WARN: engram: could not derive' "$TMP/u7t.out")"
+    }
+    _u7t ENGRAM-UNDERIVABLE 's/^  if \[ -z "\$_eng_name" \]; then$/  if false; then/' 'rc=0 cfg=0 warn=1' 'rc=0 cfg=1 warn=0' _u7t_engnone
     _u7t ENGRAM-STEP '/^echo "  6\. ENGRAM (agent step/d' 'rc=0 name=engt step=1' 'rc=0 name=engt step=0' _u7t_eng
     _u7t ENGRAM-DANGLE 's/^_rsdd_scaffold_paths+=("\$target\/.engram" "\$target\/.engram\/config.json")/_rsdd_scaffold_paths+=()/' 'rc=2 index=0' 'rc=0 index=1' _u7t_engdangle
     _u7t ENGRAM-INFRA 's/|\.atl|\.engram) ;;/|.atl) ;;/' 'root=1 nested=0' 'root=0 nested=1' _u7t_engauto
