@@ -57,7 +57,11 @@ done
 # noun forms and the refinement forms a scope-narrowing correction uses (case-insensitive).
 # The refine words only count in a BACKLINK SHAPE (`refined in B4`, `§14 refinement (…)`, `refinado en`, `Refinamiento (B4)`),
 # never as a bare word: "Refinement planned, see B12" is not a note that B12 refined this block (#1868 review).
+_vc_hi="$(printf '\200-\377')"   # the non-ASCII BYTE range: grep runs under LC_ALL=C below, so a multi-byte letter is word text (#1847)
 _vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:space:]]+(in|by|at|as|per)|refinad[oa]s?[[:space:]]+(en|por)|§14[[:space:]]+refinement|refinement[[:space:]]*\(|refinamiento[[:space:]]*(\(|§14)'
+# Left word boundary (#1835 follow-up): `uncorrected`/`miscorrected`/`pañcorrected` contain `corrected` but are not the note.
+# `_` is NOT word text here: markdown italics `_corrected in B33_` is a real note. Applied to the whole alternation.
+_vc_backlink_pre="(^|[^[:alnum:]${_vc_hi}])("
 
 # The corrigendum NOUN as a backlink (#1874 item 1): `**CORRECCIÓN (2026-07-26) — [Block 292].**` in the corrected block. The
 # noun alone is prose ("a correction was considered"), so the shape is strict: `corrección`/`correction`, an optional
@@ -66,7 +70,7 @@ _vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined[[:
 # Three guards keep it from reading a FORWARD correction as a backlink (`Correction: [Block 8] was wrong` says the target
 # corrects block 8): a left word boundary (no `miscorrection`), no colon (a colon introduces the corrected thing), and a CUE
 # after the ref: it must close its sentence (`.`, `;` or the end of the line) or be followed by a `§` locator; a `:` or `,` after the ref continues the sentence (`— [Block 292].**`, `— [Block 292] §292.5.**`).
-_vc_noun_re='(^|[^[:alnum:]_])(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
+_vc_noun_re="(^|[^[:alnum:]_${_vc_hi}])"'(correcci(ó|Ó|o)n|correction)[[:space:]*]*(\([^)]*\))?[[:space:]*]*(—|–|-)?[[:space:]*]*\[[[:space:]]*(block|bloque)[[:space:]]*0*'
 _vc_noun_tail='[[:space:]]*\][[:space:]*]*(§[[:space:]]*[0-9][0-9.]*)?[[:space:]*]*([.;]|$)'
 
 # FOCUSES.md (anywhere under the target, depth <= 3): focus slug -> block prefix, so a cross-focus qualifier such as
@@ -130,6 +134,9 @@ _vc_extract() {
   # LC_ALL=C: byte semantics in every awk (gawk under UTF-8 counts characters, so the 2-byte `·` compare below
   # would never match). The program relies on ASCII classes, byte ranges and that one byte pair only.
   LC_ALL=C awk '
+    # PREP: the ONE preposition grammar of a corrigendum declaration (used by noundecl and the leading-ref form); TAGMAX: the
+    # longest `[tag]` (characters between the brackets) still read as a short tag rather than a prose aside.
+    BEGIN { PREP = "(al|a|to|of|for)"; TAGMAX = 24 }
     function flush() { if (u != "") { units[nu++] = u; u = "" } }
     # qcur/qkind: the focus qualifier of the clause (`hard` = an explicit focus reference, `soft` = a backticked token after
     # in/of/en/de that may just be a file name, `lead` = a backticked token right before the ref that may just be a code
@@ -269,14 +276,21 @@ _vc_extract() {
     }
     # noundecl(rest): 1 when the text after a corrigendum noun is `[tag] <preposition> [the] [tag] [Block N]` (the ref
     # directly after an explicit preposition; a tag is a short bracket that is NOT itself a block ref), else 0.
-    function noundecl(rest,   tail, tg) {
-      if (!match(rest, /^[ \t]*(`?\[[^]\[]*\]`?)?[ \t]*(al|a|to|of|for)[ \t]+(the[ \t]+)?/)) return 0
-      if (substr(rest, 1, RLENGTH) ~ /(block|bloque)[ \t]*[0-9]/) return 0     # the LEADING tag is itself a block ref (#1847)
-      tail = substr(rest, RLENGTH + 1)
-      if (tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) return 1
+    # A tag is SHORT: at most TAGMAX characters between the brackets; longer is a prose aside. A bare `of` (no tag at all) is
+    # the POSSESSIVE (`see the corrigendum of [Block 33]` inside the corrected file), not a declaration; `of` needs a tag.
+    function tagok(t,   inner) {         # t = a bracket tag incl. brackets/backticks: 1 when it is short and not a block ref
+      inner = t; gsub(/^`?\[|\]`?[ \t]*$/, "", inner)
+      return (length(inner) <= TAGMAX && inner !~ /(block|bloque)[ \t]*[0-9]/)
+    }
+    function noundecl(rest,   lead, hasl, tail, tg) {
+      if (!match(rest, "^[ \t]*(`?\\[[^]\\[]*\\]`?)?[ \t]*" PREP "[ \t]+(the[ \t]+)?")) return 0
+      lead = substr(rest, 1, RLENGTH); tail = substr(rest, RLENGTH + 1)
+      hasl = match(lead, /`?\[[^]\[]*\]`?/)
+      if (hasl && !tagok(substr(lead, RSTART, RLENGTH))) return 0       # the LEADING tag is a block ref (#1847) or not short
+      if (tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) { return (!hasl && lead ~ /(^|[^a-z0-9])of[ \t]+(the[ \t]+)?$/) ? 0 : 1 }
       if (match(tail, /^`?\[[^]\[]*\]`?[ \t]*/)) {
         tg = substr(tail, 1, RLENGTH); tail = substr(tail, RLENGTH + 1)
-        if (tg !~ /(block|bloque)[ \t]*[0-9]/ && tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) return 1
+        if (tagok(tg) && tail ~ /^\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) return 1
       }
       return 0
     }
@@ -312,7 +326,7 @@ _vc_extract() {
           isnoun = 1; rest = substr(l, ve)
           if (match(rest, /^[ \t]*\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/)) {
             rl = RLENGTH
-            if (substr(rest, rl + 1) ~ /^[ \t]*(al|a|to|of|for)[ \t]+(the[ \t]+)?\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\]/) ve += rl
+            if (substr(rest, rl + 1) ~ ("^[ \t]*" PREP "[ \t]+(the[ \t]+)?\\[[ \t]*(block|bloque)[ \t]*[0-9]+[ \t]*\\]")) ve += rl
             else { p = ve; continue }
           }
           else if (!noundecl(rest)) { print "U"; p = ve; continue }
@@ -469,9 +483,9 @@ for f in "${blocks[@]}"; do
     [ "$tgt" = "$f" ] && continue
     # Reciprocal backlink: the target file must carry a backlink-vocabulary word AND name B<c>/Block <c>.
     # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
-    if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(grep -iE "$_vc_backlink_re" "$tgt" 2>/dev/null); then
+    if grep -qiE "\bb0*$c\b|\bblock[[:space:]]*0*$c\b|\bbloque[[:space:]]*0*$c\b" < <(LC_ALL=C grep -iE "${_vc_backlink_pre}${_vc_backlink_re})" "$tgt" 2>/dev/null); then
       : # reciprocated
-    elif grep -qiE "${_vc_noun_re}${c}${_vc_noun_tail}" "$tgt" 2>/dev/null; then
+    elif LC_ALL=C grep -qiE "${_vc_noun_re}${c}${_vc_noun_tail}" "$tgt" 2>/dev/null; then
       : # reciprocated by the corrigendum NOUN shape (#1874 item 1)
     elif [ "$cls" = bare ] || [ "$cls" = mixed ]; then
       amb "$_vc_rd with no reciprocal backlink in $(basename "$tgt") (advisory: a ${_vc_adv} ref is checked, never refused)"
