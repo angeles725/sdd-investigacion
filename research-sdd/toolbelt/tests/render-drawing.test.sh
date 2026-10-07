@@ -237,16 +237,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-rd-ezdxf-dep: neuter RD-EZDXF-DEP-CHECK; missing ezdxf must NOT give exit 3 --"
   rdmut1="$TMP/render-drawing.M1.sh"
   if grep -q '# RD-EZDXF-DEP-CHECK' "$SUT"; then
-    mk_sed "teeth-rd-ezdxf-dep" "$rdmut1" '/# RD-EZDXF-DEP-CHECK/ s/.*/: # RD-EZDXF-DEP-CHECK [NEUTERED]/' && chmod +x "$rdmut1"
-    mrc1=99
-    [ ! -f "$rdmut1" ] || { mrc1=0; FAKE_EZDXF_RC=1 PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut1" \
-      "$TMP/valid.dxf" "$TMP/out_m1.png" >/dev/null 2>&1 || mrc1=$?; }
-    if [ ! -f "$rdmut1" ]; then
-      :  # refusal already counted by mk_sed
-    elif [ "$mrc1" != 3 ]; then
-      ok "teeth-rd-ezdxf-dep: neutered guard → missing ezdxf no longer gives exit 3 (test 3 has teeth)"
-    else
-      no "teeth-rd-ezdxf-dep: neutered guard STILL gives exit 3 → test 3 is THEATER" "mrc=$mrc1"
+    # Gate on the BUILD result (mk_sed counts a refusal itself), not on a sentinel rc (kit issue #1576).
+    if mk_sed "teeth-rd-ezdxf-dep" "$rdmut1" '/# RD-EZDXF-DEP-CHECK/ s/.*/: # RD-EZDXF-DEP-CHECK [NEUTERED]/'; then
+      chmod +x "$rdmut1"
+      mrc1=0
+      FAKE_EZDXF_RC=1 PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut1" \
+        "$TMP/valid.dxf" "$TMP/out_m1.png" >/dev/null 2>&1 || mrc1=$?
+      # Exact BAD verdict: with the guard gone the stub render succeeds, so the mutant exits 0. Any other
+      # code (a crash, 3 = guard intact, 4 = render failure) is not the verdict this tooth is about.
+      if [ "$mrc1" = 0 ]; then
+        ok "teeth-rd-ezdxf-dep: neutered guard → missing ezdxf no longer gives exit 3, mutant exits exactly 0 (test 3 has teeth)"
+      elif [ "$mrc1" = 3 ]; then
+        no "teeth-rd-ezdxf-dep: neutered guard STILL gives exit 3 → test 3 is THEATER" "mrc=$mrc1"
+      else
+        no "teeth-rd-ezdxf-dep: neutered guard gave exit $mrc1, expected exactly 0 (crash or other failure, not a bite)" "mrc=$mrc1"
+      fi
     fi
   else
     no "teeth-rd-ezdxf-dep: RD-EZDXF-DEP-CHECK sentinel not found in SUT"
@@ -257,16 +262,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-rd-file-check: neuter RD-FILE-CHECK; missing file must NOT give exit 2 --"
   rdmut2="$TMP/render-drawing.M2.sh"
   if grep -q '# RD-FILE-CHECK' "$SUT"; then
-    mk_sed "teeth-rd-file-check" "$rdmut2" '/# RD-FILE-CHECK/ s/.*/: # RD-FILE-CHECK [NEUTERED]/' && chmod +x "$rdmut2"
-    mrc2=99
-    [ ! -f "$rdmut2" ] || { mrc2=0; PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut2" "$TMP/no-such.dxf" "$TMP/out_m2.png" \
-      >/dev/null 2>&1 || mrc2=$?; }
-    if [ ! -f "$rdmut2" ]; then
-      :  # refusal already counted by mk_sed
-    elif [ "$mrc2" != 2 ]; then
-      ok "teeth-rd-file-check: neutered guard → missing file no longer gives exit 2 (test 2 has teeth)"
-    else
-      no "teeth-rd-file-check: neutered guard STILL gives exit 2 → test 2 is THEATER" "mrc=$mrc2"
+    if mk_sed "teeth-rd-file-check" "$rdmut2" '/# RD-FILE-CHECK/ s/.*/: # RD-FILE-CHECK [NEUTERED]/'; then
+      chmod +x "$rdmut2"
+      mrc2=0
+      PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$rdmut2" "$TMP/no-such.dxf" "$TMP/out_m2.png" \
+        >/dev/null 2>&1 || mrc2=$?
+      # Exact BAD verdict: guard gone, the stub render proceeds → exactly 0 (see teeth-rd-ezdxf-dep).
+      if [ "$mrc2" = 0 ]; then
+        ok "teeth-rd-file-check: neutered guard → missing file no longer gives exit 2, mutant exits exactly 0 (test 2 has teeth)"
+      elif [ "$mrc2" = 2 ]; then
+        no "teeth-rd-file-check: neutered guard STILL gives exit 2 → test 2 is THEATER" "mrc=$mrc2"
+      else
+        no "teeth-rd-file-check: neutered guard gave exit $mrc2, expected exactly 0 (crash or other failure, not a bite)" "mrc=$mrc2"
+      fi
     fi
   else
     no "teeth-rd-file-check: RD-FILE-CHECK sentinel not found in SUT"

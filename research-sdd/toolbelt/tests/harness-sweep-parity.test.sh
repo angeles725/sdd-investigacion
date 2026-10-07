@@ -227,10 +227,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant_cl=""
   if ! MUTANT_SYNTAX=none mutant_built "teeth A: settings mutant build" "$SETTINGS" "$TMP/settings-drop.json"; then
     no "teeth A: could not build settings mutant (refused by lib/mutant.sh)"
-  elif mutant_cl="$(extract_claude "$TMP/settings-drop.json")"; [ "$mutant_cl" != "$PI_SET" ]; then
-    ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Pi"
+  elif mutant_cl="$(extract_claude "$TMP/settings-drop.json")"; \
+       expect_a="$(printf '%s\n' "$PI_SET" | grep -vx 'sweep-audits')"; \
+       [ "$mutant_cl" != "$PI_SET" ] && [ "$mutant_cl" = "$expect_a" ]; then
+    # Exact BAD verdict (kit issue #1576): the set differs from Pi by exactly the dropped script, not by
+    # any other parse accident.
+    ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Pi (set differs by exactly sweep-audits)"
   else
-    no "teeth A: dropped hook NOT caught — cross-surface comparison is theater"
+    no "teeth A: dropped hook NOT caught, or the divergence is not exactly sweep-audits — cross-surface comparison is theater (got: $(printf '%s' "$mutant_cl" | tr '\n' ' '))"
   fi
 
   # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the Pi golden
@@ -238,26 +242,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! MUTANT_SYNTAX=none mutant_chain "teeth B: Pi golden mutant build" "$PI_GOLDEN" "$TMP/plan-pi-mutant.txt" \
       's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
     no "teeth B: could not build Pi golden mutant (anchor drifted or refused by lib/mutant.sh)"
-  elif mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"; [ "$CLAUDE_SET" != "$mutant_pi" ]; then
-    ok "teeth B: renaming sweep-retros in the Pi golden detected as drift vs Claude"
+  elif mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"; \
+       expect_b="$(printf '%s\n' "$PI_SET" | sed 's/^sweep-retros$/sweep-MUTANT/' | sort)"; \
+       [ "$CLAUDE_SET" != "$mutant_pi" ] && [ "$mutant_pi" = "$expect_b" ]; then
+    ok "teeth B: renaming sweep-retros in the Pi golden detected as drift vs Claude (set differs by exactly the rename)"
   else
-    no "teeth B: mutant Pi NOT caught — cross-surface comparison is theater"
+    no "teeth B: mutant Pi NOT caught, or the divergence is not exactly the rename — cross-surface comparison is theater (got: $(printf '%s' "$mutant_pi" | tr '\n' ' '))"
   fi
 
-  # Teeth C: prove the quote-stripping test has teeth.
-  # Simulate the pre-fix parser (no sed quote strip) against the quoted fixture;
-  # it must produce output DIFFERENT from the correct canonical set.
-  # If it produces the correct set, the fixture is not catching the bug and
-  # the assertion would pass vacuously even with a broken parser.
-  mutant_cl_quoted="$(jq -r '.hooks.SessionStart[0].hooks[].command' "$FIXTURE_QUOTED" \
-      | while IFS= read -r cmd; do
-          base="$(basename "$cmd")"
-          echo "${base%-hook.sh}"   # intentionally no quote stripping — simulates the old bug
-        done | sort)"
-  if [ "$mutant_cl_quoted" != "$EXPECTED_QUOTED" ]; then
-    ok "teeth C: un-stripped parser yields wrong names from quoted fixture (quote-strip fix has teeth)"
+  # Teeth C: prove the quote-stripping test has teeth. The mutant is a REAL file mutant of this suite
+  # (kit issue #1576): lib/mutant.sh builds a copy with extract_claude's quote-strip stage deleted, the
+  # mutant's own extract_claude definition is loaded from that file, and run against the quoted fixture.
+  # GOOD verdict (original): EXPECTED_QUOTED, asserted by the quoted-commands check above. BAD verdict
+  # (mutant): every name keeps the quote glued to a never-stripped "-hook.sh" suffix, exactly
+  # EXPECTED_BAD_QUOTED below; any other output (a crash, an empty parse) is not the bite.
+  EXPECTED_BAD_QUOTED="$(printf 'sweep-audits-hook.sh"\nsweep-retros-hook.sh"\nverify-kit-clean-hook.sh"\nverify-registry-hook.sh"')"
+  if ! MUTANT_SYNTAX=none mutant_chain "teeth C: quote-strip mutant build" "$HERE/harness-sweep-parity.test.sh" \
+      "$TMP/hsp-mutant-c.sh" "/sed 's\\/\\^\"\\/\\/; s\\/\"\\\$\\/\\/'/d"; then
+    no "teeth C: could not build quote-strip mutant (anchor drifted or refused by lib/mutant.sh)"
   else
-    no "teeth C: un-stripped parser passed — the fixture does not catch the bug (quoted-commands assertion is theater)"
+    sed -n '/^extract_claude() {/,/^}/p' "$TMP/hsp-mutant-c.sh" > "$TMP/hsp-mutant-c-fn.sh"
+    mutant_cl_quoted="$(bash -c '. "$1"; extract_claude "$2"' _ "$TMP/hsp-mutant-c-fn.sh" "$FIXTURE_QUOTED" 2>/dev/null)"
+    if [ "$mutant_cl_quoted" = "$EXPECTED_BAD_QUOTED" ]; then
+      ok "teeth C: file mutant without quote-stripping yields exactly the wrong quoted names (quote-strip fix has teeth)"
+    elif [ "$mutant_cl_quoted" = "$EXPECTED_QUOTED" ]; then
+      no "teeth C: un-stripped parser passed — the fixture does not catch the bug (quoted-commands assertion is theater)"
+    else
+      no "teeth C: quote-strip mutant gave neither the correct nor the exact wrong set (crash or parse accident): $(printf '%s' "$mutant_cl_quoted" | tr '\n' ' ')"
+    fi
   fi
 
   # Teeth D: rename sweep-retros.sh in a temp copy of the gentle-shell golden — the gentle-shell
@@ -267,10 +279,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "$REPO/research-sdd/install/tests/golden/plan-gentle-shell.txt" "$TMP/plan-gs-mutant.txt" \
       's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
     no "teeth D: could not build gentle-shell golden mutant (anchor drifted or refused by lib/mutant.sh)"
-  elif mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"; [ -n "$mutant_gs" ] && [ "$CLAUDE_SET" != "$mutant_gs" ]; then
-    ok "teeth D: renaming sweep-retros in the gentle-shell golden detected as drift vs Claude"
+  elif mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"; \
+       expect_d="$(printf '%s\n' "$CLAUDE_SET" | sed 's/^sweep-retros$/sweep-MUTANT/' | sort)"; \
+       [ -n "$mutant_gs" ] && [ "$CLAUDE_SET" != "$mutant_gs" ] && [ "$mutant_gs" = "$expect_d" ]; then
+    ok "teeth D: renaming sweep-retros in the gentle-shell golden detected as drift vs Claude (set differs by exactly the rename)"
   else
-    no "teeth D: mutant gentle-shell golden NOT caught — gentle-shell parity check is theater"
+    no "teeth D: mutant gentle-shell golden NOT caught, or the divergence is not exactly the rename — gentle-shell parity check is theater (got: $(printf '%s' "$mutant_gs" | tr '\n' ' '))"
   fi
 fi
 

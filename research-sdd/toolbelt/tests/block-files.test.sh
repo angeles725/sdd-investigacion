@@ -293,35 +293,71 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tok() { printf '  TOOTH-PASS  %s\n' "$1"; t_pass=$((t_pass+1)); }
   tno() { printf '  TOOTH-FAIL  %s\n' "$1"; t_fail=$((t_fail+1)); }
 
-  MUTANT="$(mktemp /tmp/block-files-mutant.XXXXXX.sh)"
-  trap 'rm -f "$MUTANT"' EXIT
+  # TOOTH-1..3 are sed mutants of the REAL helpers (kit issue #1576; they used to be synthetic grep
+  # one-liners and a hand-written fragment that never ran the SUT). Each asserts the exact GOOD verdict on
+  # the original and the exact BAD verdict on the mutant, so a crashing mutant cannot read as a bite.
+  # filter_via <helper-file> <input-line> — run the helper's REAL block_file_filter on one line in a
+  # fresh shell; prints "rc=<n> out=<stdout>" (a crash shows up as rc 2/127 or a stderr-free empty out).
+  filter_via() {
+    local o r=0
+    o="$(bash -c '. "$1"; printf "%s\n" "$2" | block_file_filter' _ "$1" "$2" 2>/dev/null)" || r=$?
+    printf 'rc=%s out=%s' "$r" "$o"
+  }
 
-  # TOOTH-1: anchor '^' only → absolute paths like /corpus/prefix-block1.md no longer match
-  # (^|/) matches the '/' before the basename; bare '^' cannot match inside an absolute path.
-  mutant_t1() { grep -E '^[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$'; }
-  out_t1="$(printf '%s\n' '/corpus/prefix-block1.md' | mutant_t1 2>/dev/null || true)"
-  [ -z "$out_t1" ] && tok "TOOTH-1: ^-only mutant blocks absolute path ((^|/) is load-bearing)" \
-                   || tno "TOOTH-1: ^-only mutant still passed absolute path — TOOTH DID NOT BITE"
+  # TOOTH-1: anchor '(^|/)' -> '^' in the no-prefix regex: absolute paths no longer match.
+  # GOOD: /corpus/prefix-block1.md passes (rc=0). BAD: filtered out cleanly (grep no-match, rc=1, empty).
+  M1="$(mktemp "${TMPDIR:-/tmp}/block-files-t1.XXXXXX.sh")"
+  if ! mutant_chain "TOOTH-1 build" "$HELPER" "$M1" "s#_re='(^|/)\[^/\]+-#_re='^[^/]+-#"; then
+    tno "TOOTH-1: mutant refused by lib/mutant.sh (TOOTH NOT BUILT)"
+  else
+    good_t1="$(filter_via "$HELPER" '/corpus/prefix-block1.md')"
+    bad_t1="$(filter_via "$M1" '/corpus/prefix-block1.md')"
+    if [ "$good_t1" = "rc=0 out=/corpus/prefix-block1.md" ] && [ "$bad_t1" = "rc=1 out=" ]; then
+      tok "TOOTH-1: ^-only mutant blocks absolute path ((^|/) is load-bearing; original [$good_t1], mutant [$bad_t1])"
+    else
+      tno "TOOTH-1: expected original [rc=0 out=/corpus/prefix-block1.md] and mutant [rc=1 out=], got original [$good_t1] mutant [$bad_t1]"
+    fi
+  fi
+  rm -f "$M1"
 
-  # TOOTH-2: prefix [^/]+- optional → block12.md decoy passes
-  # Prove: a mutant without the required prefix-dash would match bare 'block12.md'
-  mutant_t2() { grep -E '(^|/)(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$'; }
-  out_t2="$(printf '%s\n' '/corpus/block12.md' | mutant_t2 2>/dev/null || true)"
-  [ -n "$out_t2" ] && tok "TOOTH-2: optional-prefix mutant passes block12.md decoy (prefix is load-bearing)" \
-                   || tno "TOOTH-2: optional-prefix mutant did NOT pass block12.md — TOOTH DID NOT BITE"
+  # TOOTH-2: the required '[^/]+-' prefix removed in the no-prefix regex: the bare block12.md decoy passes.
+  # GOOD: blocked (rc=1, empty). BAD: passes through (rc=0).
+  M2="$(mktemp "${TMPDIR:-/tmp}/block-files-t2.XXXXXX.sh")"
+  if ! mutant_chain "TOOTH-2 build" "$HELPER" "$M2" "s#_re='(^|/)\[^/\]+-(block#_re='(^|/)(block#"; then
+    tno "TOOTH-2: mutant refused by lib/mutant.sh (TOOTH NOT BUILT)"
+  else
+    good_t2="$(filter_via "$HELPER" '/corpus/block12.md')"
+    bad_t2="$(filter_via "$M2" '/corpus/block12.md')"
+    if [ "$good_t2" = "rc=1 out=" ] && [ "$bad_t2" = "rc=0 out=/corpus/block12.md" ]; then
+      tok "TOOTH-2: optional-prefix mutant passes block12.md decoy (prefix is load-bearing; original [$good_t2], mutant [$bad_t2])"
+    else
+      tno "TOOTH-2: expected original [rc=1 out=] and mutant [rc=0 out=/corpus/block12.md], got original [$good_t2] mutant [$bad_t2]"
+    fi
+  fi
+  rm -f "$M2"
 
-  # TOOTH-3: remove declare -F guard in verify-parity.sh → broken lib no longer exits 1
-  # Simulate: source a lib that does NOT define block_file_filter, then run the guard-stripped script fragment
-  BROKEN_LIB="$(mktemp /tmp/broken-bf.XXXXXX.sh)"
-  printf '#!/usr/bin/env bash\n# intentionally empty\n' > "$BROKEN_LIB"
-  GUARD_STRIPPED="$(mktemp /tmp/guard-stripped.XXXXXX.sh)"
-  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "%s"\necho "guard absent — no exit 1"\n' "$BROKEN_LIB" > "$GUARD_STRIPPED"
-  bash "$GUARD_STRIPPED" >/dev/null 2>&1; rc=$?
-  # With guard removed the script exits 0 (no error), so we expect exit 0 = the PROBLEM
-  # The tooth proves that adding the guard WOULD catch it; without the guard, rc is 0 (bad)
-  [ "$rc" -eq 0 ] && tok "TOOTH-3: guard-absent fragment exits 0 (proves guard is load-bearing)" \
-                  || tno "TOOTH-3: guard-absent fragment did NOT exit 0 (tooth logic error)"
-  rm -f "$BROKEN_LIB" "$GUARD_STRIPPED"
+  # TOOTH-3: the declare -F guard in the REAL verify-parity.sh. A mini-kit holds a broken block-files.sh
+  # (defines nothing). GOOD: the real script exits 1 with the guard message. BAD: the guard-stripped
+  # mutant never prints it and carries on (the deliverable has no hex, so it ends rc=0).
+  VP="$HERE/../verify-parity.sh"
+  T3KIT="$(mktemp -d "${TMPDIR:-/tmp}/block-files-t3.XXXXXX")"
+  mkdir -p "$T3KIT/toolbelt/lib"
+  printf '#!/usr/bin/env bash\n# intentionally empty\n' > "$T3KIT/toolbelt/lib/block-files.sh"
+  printf 'no colors here\n' > "$T3KIT/deliv.txt"; printf 'block\n' > "$T3KIT/block.md"
+  cp "$VP" "$T3KIT/toolbelt/verify-parity-good.sh"
+  if ! mutant_chain "TOOTH-3 build" "$VP" "$T3KIT/toolbelt/verify-parity-bad.sh" '/failed to define block_file_filter/d'; then
+    tno "TOOTH-3: mutant refused by lib/mutant.sh (TOOTH NOT BUILT)"
+  else
+    rc_g=0; out_g="$(bash "$T3KIT/toolbelt/verify-parity-good.sh" "$T3KIT/deliv.txt" "$T3KIT/block.md" 2>&1)" || rc_g=$?
+    rc_b=0; out_b="$(bash "$T3KIT/toolbelt/verify-parity-bad.sh" "$T3KIT/deliv.txt" "$T3KIT/block.md" 2>&1)" || rc_b=$?
+    if [ "$rc_g" -eq 1 ] && <<<"$out_g" grep -qF 'failed to define block_file_filter' \
+       && [ "$rc_b" -eq 0 ] && ! <<<"$out_b" grep -qF 'failed to define block_file_filter'; then
+      tok "TOOTH-3: guard-stripped verify-parity exits 0 silently while the real one exits 1 with the guard message (guard is load-bearing)"
+    else
+      tno "TOOTH-3: expected real rc=1 + guard message and mutant rc=0 + no message, got real rc=$rc_g [$out_g] mutant rc=$rc_b [$out_b]"
+    fi
+  fi
+  rm -rf "$T3KIT"
 
   # TOOTH-4..11 (#1223, #1301): sed mutants of the REAL helper file. Each must (a) differ from the
   # original (a no-op sed is theater) and (b) make its checker (nw_checks, or nw_real_checks when named) report the named failure.
