@@ -1205,7 +1205,7 @@ else
       rm -f -- "$_eng_tmp"; _RSDD_FILL_TMP=""
       if [ -e "$_eng_cfg" ] || [ -L "$_eng_cfg" ]; then _eng_state="kept"
       else echo "FATAL: could not install $_eng_cfg" >&2; rollback; exit 2; fi
-    else chmod 644 "$_eng_cfg"; created+=("$_eng_cfg"); _eng_state="created"; fi   # mktemp makes 0600; tracked for the ERR rollback only once it is really ours
+    else created+=("$_eng_cfg"); chmod 644 "$_eng_cfg"; _eng_state="created"; fi   # mktemp makes 0600; tracked for the ERR rollback only once it is really ours
     _RSDD_FILL_TMP=""
   fi
 fi

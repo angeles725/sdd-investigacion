@@ -4595,7 +4595,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     }
     _u7t ENGRAM-MV-FATAL 's/^      else echo "FATAL: could not install \$_eng_cfg" >&2; rollback; exit 2; fi/      else _eng_state="kept"; fi/' 'rc=2 fatal=1 kept=0' 'rc=0 fatal=0 kept=1' _u7t_engmv
     _u7t ENGRAM-MODE 's/chmod 644 "\$_eng_cfg"; //' 'mode=644' 'mode=600' _u7t_engmode
-    _u7t ENGRAM-ROLLBACK 's/; created+=("\$_eng_cfg")//' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
+    _u7t ENGRAM-ROLLBACK 's/else created+=("\$_eng_cfg"); /else /' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
     _u7t ENGRAM-STEP-COND 's/^if \[ "\$_eng_state" = underivable \]; then$/if false; then/' 'rc=0 claims=0' 'rc=0 claims=1' _u7t_engstep
     _u7t ENGRAM-MUST-LINE '/^                 echo "  engram: project_name=\$_eng_name (derived/d' 'rc=0 must=1' 'rc=0 must=0' _u7t_engmust
     _u7t ENGRAM-LOWER "s/ | LC_ALL=C tr '\\[:upper:\\]' '\\[:lower:\\]'//" 'rc=0 name=engt step=1' 'rc=0 name=ng step=1' _u7t_eng
