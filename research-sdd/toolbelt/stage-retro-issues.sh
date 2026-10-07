@@ -425,6 +425,8 @@ declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 declare -F retro_grammar_entry_rows >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
 declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
@@ -632,7 +634,13 @@ if [ "$_found_field" != "1" ]; then
   _temp_depr="${_grammar_info#*$'\001'}"
   _temp_unrec="${_temp_depr#*$'\001'}"
   _unrec_found="${_temp_unrec%%$'\001'*}"
-  if [ "$_unrec_found" = "1" ]; then
+  # T18 (kit issues #1895 #1932 #1933 #1934 #1938 #1939): a heading the canonical grammar does not know can still carry
+  # a delta form the shared lib recognises (`## Delta A — HIGH — …` entries, a `### Proposals` numbered list). Only a
+  # form with items stops the unclassifiable record; prose that matches no form stays typed unclassifiable below.
+  _alt_early="$(retro_grammar_alt_entry_rows "$retro")"   # STAGE_RETRO_ISSUES_ALT_EARLY
+  if [ "$_unrec_found" = "1" ] && [ -n "$_alt_early" ]; then
+    :   # delta items found: the parse below classifies them
+  elif [ "$_unrec_found" = "1" ]; then
     echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro — needs manual review, no issue auto-staged" >&2
     # STAGE_RETRO_ISSUES_UNC_SECTION_RECORD (kit issue #1259): recorded for the table and the tracking issue; the run
     # continues to _unc_finish below (the parse is skipped) instead of exiting here.
@@ -712,7 +720,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
       rid = f[1]; gsub(/[[:space:]]/, "", rid)
       if (rid ~ /^[-:]+$/) next
-      if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
+      if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/ && rid !~ /^[A-Z][A-Z0-9]*-[A-Z0-9]+$/) next   # STAGE_RETRO_ISSUES_LETTERED_ID: SPKI-A is a row id, a header word is not
       if (ct) {
         printf "%s\037%s\037%s\037%s\037%s\037%s\n", f[1], f[ct],
           (cg ? f[cg] : ""), (ce ? f[ce] : ""), (cy ? f[cy] : ""), (cp ? f[cp] : "")
@@ -734,6 +742,10 @@ if [ -z "$_rows" ]; then
   # STAGE_RETRO_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
   [ -z "$_rows" ] || retro_grammar_entry_warn "$retro_file" >&2
 fi
+
+# T18: no table and no `### D<N> —` entry -> the fleet's other real forms (numbered prose items, `## Delta <ID> —`
+# entries, a `### Proposals` list), classified by the shared grammar lib; ids are the item number / the delta id.
+[ -n "$_rows" ] || _rows="$(retro_grammar_alt_entry_rows "$retro_file")"   # STAGE_RETRO_ISSUES_ALT_FALLBACK
 
 if [ -z "$_rows" ]; then
   # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose

@@ -357,6 +357,103 @@ if ! typeset -f retro_grammar_entry_warn >/dev/null 2>&1; then
   }
 fi
 
+# ─── retro_grammar_alt_entry_rows ─────────────────────────────────────────────
+# The delta forms real fleet retros use that are neither a row table nor a `### D<N> —` entry (kit issues
+# #1895 #1932 #1933 #1934 #1938 #1939; measured on the 243-retro fleet, see the T18 retro). Consulted by
+# stage-retro-issues.sh ONLY after the table and `### D<N> —` forms yielded nothing, so a canonical retro never
+# changes reading. Three forms, nothing else:
+#   1. NUMBERED ITEMS (`1. **Title.** prose`, also `1)`) at column 0 under a canonical delta heading
+#      (is_canonical_heading) — id is the item number, title the leading bold span (else the first
+#      sentence, cut at 100 characters), evidence the rest of that first line, target the text after a
+#      `PROPOSED ` marker on a later line of the item (up to the first `:`).
+#   2. The same numbered items under a standalone `### Proposals …` H3 outside a canonical section (the
+#      shape delta_info's Rule 4 reports as unrecognised). The H3 ends at the next `##`/`###` heading.
+#   3. `## Delta <ID> — [HIGH|MED|MEDIUM|LOW —] title` H2 entries outside a canonical section (sweep-retros
+#      form 3). <ID> is upper-case, at most 8 characters: `A`, `R1`, `SO2`, `SPKI-A`; `## Delta rationale —`
+#      is not an ID. MED is normalised to MEDIUM (the seeder's priority map knows only the full word).
+# Deliberately NOT forms: bullets (`- **Lesson:**`), a numbered list under any other heading (`## Evidence`,
+# `## What happened`), a `## Kit-delta proposals` section holding prose. Those stay typed unclassifiable in the
+# seeder: a lessons list is not a delta list, and over-matching would invent issues.
+# Output: one record per item, \037-separated, the same shape as retro_grammar_entry_rows
+# (id, change, target, evidence, type, priority). Returns 1 (no output) for an absent/unreadable file.
+if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
+  retro_grammar_alt_entry_rows() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
+      function flush() {
+        if (have) printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
+        have=0
+      }
+      function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+      function start_item(n, text,    t, p, rest) {
+        flush(); id=n; tg=""; ev=""; pr=""; rest=""
+        t=trim(text)
+        if (t ~ /^\*\*/) {
+          sub(/^\*\*/, "", t); p=index(t, "**")
+          if (p > 0) { rest=substr(t, p + 2); t=substr(t, 1, p - 1) }
+        } else {
+          p=index(t, ". ")
+          if (p > 0 && p <= 100) { rest=substr(t, p + 2); t=substr(t, 1, p - 1) }
+          else if (length(t) > 100) t=substr(t, 1, 100)
+        }
+        sub(/[.:[:space:]]+$/, "", t)
+        title=trim(t); ev=trim(rest)
+        if (length(ev) > 300) ev=substr(ev, 1, 297) "..."
+        have=(title != "")
+      }
+      BEGIN { mode=""; have=0; blank=0 }
+      { low=tolower($0) }
+      is_canonical_heading(low) { flush(); mode="canon"; next }
+      /^##[^#]/ {
+        flush(); mode=""
+        if (low ~ /^## delta /) {   # ALT_H2_DELTA
+          t=$0; sub(/^## [Dd]elta +/, "", t)
+          d=index(t, "—")
+          if (d > 0) {
+            tok=trim(substr(t, 1, d - 1))
+            if (tok ~ /^[A-Z][A-Z0-9]*(-[A-Z0-9]+)?$/ && length(tok) <= 8) {
+              rest=trim(substr(t, d + length("—"))); pr=""; title=rest
+              p=index(rest, " — ")
+              if (p > 0) {
+                lv=toupper(trim(substr(rest, 1, p - 1)))
+                if (lv ~ /^(HIGH|MEDIUM|MED|LOW)$/) {
+                  pr=lv; title=trim(substr(rest, p + length(" — ")))
+                  if (pr == "MED") pr = "MEDIUM"   # ALT_PRIORITY_MED
+                }
+              }
+              id=tok; tg=""; ev=""; have=(title != "")
+              mode="h2d"
+            }
+          }
+        }
+        next
+      }
+      /^###[^#]/ {
+        if (mode == "canon") { flush(); next }
+        flush(); mode=""
+        if (low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) mode="h3"   # ALT_H3_PROPOSALS
+        next
+      }
+      /^[[:space:]]*$/ { blank=1; next }
+      mode == "canon" || mode == "h3" {   # ALT_NUMBERED_GATE
+        if (match($0, /^[0-9]+[.)][[:space:]]+/)) {   # ALT_NUMBERED_ITEM
+          n=substr($0, 1, RLENGTH); sub(/[.)][[:space:]]+$/, "", n)
+          start_item(n, substr($0, RLENGTH + 1)); blank=0; next
+        }
+        if (have && blank && $0 !~ /^[[:space:]]/) flush()
+        if (have && tg == "" && (p=index($0, "PROPOSED ")) > 0) {
+          t=substr($0, p + 9); q=index(t, ":")
+          if (q > 0 && q <= 120) tg=trim(substr(t, 1, q - 1))
+        }
+        blank=0; next
+      }
+      { blank=0 }
+      END { flush() }
+    '
+  }
+fi
+
 # ─── retro_grammar_has_honesty ────────────────────────────────────────────────
 # Predicate: does file $1 carry a §18 honesty line in a PURE accepted location?
 #
