@@ -15,7 +15,7 @@
 #   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]
+#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
 #
 #   --lane <name>    Passthrough (kit issue #1821): exports RSDD_TEST_LANE=<name> to every suite so the
 #                    lane-aware ones (lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
@@ -29,6 +29,11 @@
 #                    and reports `TMPDIR leftovers: N — [suite: count]` (N = total entries). Without
 #                    the flag the line is report-only; a root that could not be created or scanned is
 #                    reported as DEGRADED (and fails under the flag), never as a confident 0.
+#
+#   --keep-tmp       Do not remove the per-run temp root on exit (kit issue #1645): its kept path is
+#                    printed as `TMPDIR kept: <path>` (or `TMPDIR kept: none (...)` when no root could
+#                    be created) so a failing run's debugging leftovers can be inspected. Opt-in; the
+#                    default still removes the root.
 #
 #   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
@@ -223,6 +228,7 @@ fi
 PROVE_TEETH=""
 REQUIRE_TEETH=""
 REQUIRE_CLEAN_TMP=""
+KEEP_TMP=""
 # Opt-in parallelism (kit issue #1463): `-j N` / `-jN` / `--jobs N`, N a plain integer 1..6 (the
 # cap is deliberate: the heavy suites are CPU/IO-bound and a runaway fan-out makes timing-
 # sensitive suites flaky). Refused: bare `-j`, `-j 0`, `-j 100%`, non-numeric, N above the cap.
@@ -230,7 +236,7 @@ REQUIRE_CLEAN_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]"
 LANE_ARG=""
 _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
   local v="$1" lib="$SCRIPT_DIR/../lib/test-lane.sh"
@@ -276,6 +282,9 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
       ;;
     --require-clean-tmp)
       REQUIRE_CLEAN_TMP=1
+      ;;
+    --keep-tmp)
+      KEEP_TMP=1
       ;;
     --lane)
       _ai=$((_ai + 1))
@@ -396,7 +405,7 @@ fi
 _run_all_cleanup() {
   rm -f "$tmp_out"
   [[ -n "$_par_dir_created" && -n "$PAR_DIR" ]] && rm -rf "$PAR_DIR"
-  if [[ -n "$RUN_TMP_ROOT" ]]; then
+  if [[ -n "$RUN_TMP_ROOT" && -z "$KEEP_TMP" ]]; then
     # A leftover the suite chmod'ed shut would defeat rm -rf; reopen it first (best effort).
     chmod -R u+rwX "$RUN_TMP_ROOT" 2>/dev/null
     rm -rf "$RUN_TMP_ROOT"
@@ -428,12 +437,14 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
   if [[ -n "${PAR_DIR:-}" && -e "$PAR_DIR/$2.tmpfail" ]]; then tmp_create_failed+=("$1"); return 0; fi
   # SENTINEL-TMPDIR-ABSENT
   [[ -e "$RUN_TMP_ROOT/$2" ]] || return 0
-  if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
+  # One "." per entry (-exec printf), counted by length: a name containing a newline is ONE entry
+  # (kit issue #1645), and find's own rc is still the scan verdict.
+  if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 -exec printf '.%.0s' {} + 2>/dev/null)"; then
     tmp_scan_failed+=("$1")
     return 0
   fi
   [[ -n "$_o" ]] || return 0
-  _n="$(printf '%s\n' "$_o" | wc -l)"
+  _n=${#_o}
   tmp_leftovers+=("$1: $((_n + 0))")
   tmp_leftover_total=$((tmp_leftover_total + _n))
 }
@@ -967,11 +978,17 @@ else
     echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
   fi
   if [[ ${#tmp_scan_failed[@]} -gt 0 || ${#tmp_create_failed[@]} -gt 0 ]]; then
-    _ts_names=""; _tc_names=""
-    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; fi
-    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; fi
-    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [$_ts_names]; per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR); their leftovers are unverified"
+    _ts_names=""; _tc_names=""; _td_parts=()
+    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; _td_parts+=("could not scan the TMPDIR of [$_ts_names]"); fi
+    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; _td_parts+=("per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR)"); fi
+    # Only the clauses that apply (kit issue #1645): an empty [] clause is noise that reads as a finding.
+    echo "TMPDIR scan: DEGRADED — $(printf '%s; ' "${_td_parts[@]}")their leftovers are unverified"
   fi
+fi
+# SENTINEL-TMPDIR-KEPT
+if [[ -n "$KEEP_TMP" ]]; then
+  if [[ -n "$RUN_TMP_ROOT" ]]; then echo "TMPDIR kept: $RUN_TMP_ROOT"
+  else echo "TMPDIR kept: none (no per-run TMPDIR root was created, so there is nothing to keep)"; fi
 fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then

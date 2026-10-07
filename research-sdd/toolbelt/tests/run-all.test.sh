@@ -1472,6 +1472,58 @@ if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: DEGRADED — ' <<<"$out" && gr
   ok "tmpdir-degraded: an uncreatable per-run root is DEGRADED (not a confident 0); --require-clean-tmp fails it"
 else no "tmpdir degraded failed: rc=$rc rc2=$rc2 :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
 
+# 38k — the DEGRADED scan line names ONLY the clauses that apply (kit issue #1645): creation failures alone
+#       must not print 'could not scan the TMPDIR of []', scan failures alone must not print the
+#       creation clause.
+w="$(newdir c38k)"; _c38root="$TMP/c38k-calltmp"; mkdir -p "$_c38root"
+tmpfix_clean "$w/a-first.test.sh"; tmpfix_clean "$w/b-second.test.sh"
+out="$(PATH="$_c38gbin:$PATH" TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+_c38kl="$(grep -F 'TMPDIR scan: DEGRADED' <<<"$out")"
+if [[ "$_c38kl" == *'created for [b-second.test.sh]'* ]] && [[ "$_c38kl" != *'could not scan'* ]]; then
+  ok "tmpdir-degraded-clauses: a creation failure alone prints only the creation clause"
+else no "tmpdir degraded clauses (create only) failed: [$_c38kl]"; fi
+if [ "$(id -u)" -eq 0 ]; then
+  printf '  SKIP  %s (root ignores permission bits)\n' "tmpdir-degraded-clauses (scan only)"
+else
+  w="$(newdir c38k2)"; _c38root="$TMP/c38k2-calltmp"; mkdir -p "$_c38root"
+  { printf '#!/usr/bin/env bash\n'; printf 'chmod 000 "$TMPDIR"\n'; printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/a-shut.test.sh"
+  out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  _c38kl="$(grep -F 'TMPDIR scan: DEGRADED' <<<"$out")"
+  if [[ "$_c38kl" == *'scan the TMPDIR of [a-shut.test.sh]'* ]] && [[ "$_c38kl" != *'could not be created'* ]]; then
+    ok "tmpdir-degraded-clauses: a scan failure alone prints only the scan clause"
+  else no "tmpdir degraded clauses (scan only) failed: rc=$rc [$_c38kl]"; fi
+  chmod -R u+rwX "$_c38root" 2>/dev/null || true
+fi
+# 38l — a leftover whose NAME contains a newline is ONE entry (kit issue #1645): `find | wc -l` counted two.
+w="$(newdir c38l)"; _c38root="$TMP/c38l-calltmp"; mkdir -p "$_c38root"
+{ printf '#!/usr/bin/env bash\n'; printf 'touch "$TMPDIR/a\nb"\n'; printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/x.test.sh"
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: 1 — [x.test.sh: 1]' <<<"$out"; then
+  ok "tmpdir-newline-name: a leftover with a newline in its name counts as one entry"
+else no "tmpdir newline name failed: rc=$rc :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+# 38m — --keep-tmp (kit issue #1645): the per-run root is NOT removed on exit and its path is printed as
+#       `TMPDIR kept: <path>` so the debugging leftovers survive; without the flag nothing is kept.
+w="$(newdir c38m)"; _c38root="$TMP/c38m-calltmp"; mkdir -p "$_c38root"
+tmpfix_leak "$w/a-leaky.test.sh" 2
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" --keep-tmp 2>&1)"; rc=$?
+_c38mp="$(sed -n 's/^TMPDIR kept: //p' <<<"$out")"
+if [ "$rc" -eq 0 ] && [ -n "$_c38mp" ] && [ -d "$_c38mp" ] && [ -n "$(ls -A "$_c38mp/1" 2>/dev/null)" ] \
+   && [[ "$_c38mp" == "$_c38root"/* ]]; then
+  ok "tmpdir-keep: --keep-tmp keeps the root, prints its path, and the suite's leftovers are inside"
+else no "tmpdir --keep-tmp failed: rc=$rc kept=[$_c38mp] :: $(grep -F 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
+rm -rf "$_c38root"; mkdir -p "$_c38root"
+out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" 2>&1)"
+if ! grep -qF 'TMPDIR kept' <<<"$out" && [ -z "$(ls -A "$_c38root")" ]; then
+  ok "tmpdir-keep: without --keep-tmp no 'TMPDIR kept' line and the root is removed"
+else no "tmpdir default cleanup changed: [$(ls -A "$_c38root" | tr '\n' ' ')]"; fi
+out="$(PATH="$_c38ebin:$PATH" bash "$w/run-all.sh" --keep-tmp 2>&1)"; rc=$?
+if grep -qF 'TMPDIR kept: none' <<<"$out"; then
+  ok "tmpdir-keep: --keep-tmp with an uncreatable root says nothing was kept (typed, not silent)"
+else no "tmpdir --keep-tmp (no root) failed: rc=$rc :: $(grep -F 'TMPDIR' <<<"$out" | tr '\n' '|')"; fi
+out="$(bash "$w/run-all.sh" --bogus-flag 2>&1)"
+if grep -qF -- '--keep-tmp' <<<"$out"; then ok "tmpdir-keep: the usage text documents --keep-tmp"
+else no "usage text lacks --keep-tmp :: $out"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -2249,11 +2301,47 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if tmpd_mut teeth-tmpd-node 's/TMPDIR="\$_st" node/node/'; then
       { printf "console.log('TMPDIR_SEEN=' + process.env.TMPDIR);\n"; printf "console.log('== 1 passed %s 0 failed ==');\n" "$MID"; } > "$w/n.test.mjs"
       tmpd_run teeth-tmpd-node
-      if ! grep -q "TMPDIR_SEEN=$_tr/tmp\.[^/]*/[0-9]" <<<"$mout"; then ok "teeth-tmpd-node: export-less node branch sees the caller's TMPDIR → the node export has real teeth"
+      # Positive: the export-less node suite sees EXACTLY the caller's TMPDIR (the run's own root path),
+      # not a negated GNU-mktemp-shaped pattern that could never match elsewhere (kit issue #1645).
+      if grep -qE "^TMPDIR_SEEN=${_tr}\$" <<<"$mout"; then ok "teeth-tmpd-node: export-less node branch sees the caller's TMPDIR → the node export has real teeth"
       else no "teeth-tmpd-node: mutant still isolates the node suite — mutation not exercised (THEATER)"; fi
     fi
   fi
+  echo "-- teeth: --keep-tmp ignored in the cleanup; the kept path must then not exist (case 38m) --"
+  if tmpd_mut teeth-tmpd-keep 's/^  if \[\[ -n "\$RUN_TMP_ROOT" && -z "\$KEEP_TMP" \]\]; then$/  if [[ -n "$RUN_TMP_ROOT" ]]; then/'; then
+    tmpfix_leak "$w/a-leaky.test.sh" 2
+    tmpd_run teeth-tmpd-keep --keep-tmp
+    _tkp="$(sed -n 's/^TMPDIR kept: //p' <<<"$mout")"
+    if [ -n "$_tkp" ] && [ ! -e "$_tkp" ]; then ok "teeth-tmpd-keep: keep-less mutant removes the root it names → the --keep-tmp guard has real teeth"
+    else no "teeth-tmpd-keep: mutant still kept the root — mutation not exercised (THEATER)"; fi
+    rm -rf "$_tr"
+  fi
+  echo "-- teeth: count leftovers by lines again; a newline-named entry must then count twice (case 38l) --"
+  if tmpd_mut teeth-tmpd-count "s/-exec printf '\.%\.0s' {} +/-print/;s/^  _n=\${#_o}\$/  _n=\"\$(printf '%s\\\\n' \"\$_o\" | wc -l)\"/"; then
+    { printf '#!/usr/bin/env bash\n'; printf 'touch "$TMPDIR/a\nb"\n'; printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/x.test.sh"
+    tmpd_run teeth-tmpd-count
+    if grep -qF 'TMPDIR leftovers: 2 — [x.test.sh: 2]' <<<"$mout"; then ok "teeth-tmpd-count: line-counting mutant counts the newline name twice → the one-entry-per-name count has real teeth"
+    else no "teeth-tmpd-count: mutant still counts one — mutation not exercised (THEATER) :: $(grep -F 'TMPDIR leftovers' <<<"$mout")"; fi
+  fi
+  echo "-- teeth: print the scan clause unconditionally; a creation failure alone must then show 'could not scan ... []' (case 38k) --"
+  if tmpd_mut teeth-tmpd-clauses 's/^    if \[\[ \${#tmp_scan_failed\[@\]} -gt 0 \]\]; then _ts_names=/    if true; then _ts_names=/'; then
+    tmpfix_clean "$w/a-first.test.sh"; tmpfix_clean "$w/b-second.test.sh"
+    _tcbin="$TMP/teeth-tmpd-clauses-bin"; mkdir -p "$_tcbin"
+    { printf '#!/bin/sh\n'; printf 'case "$*" in */2) exit 1 ;; esac\n'; printf 'exec %s "$@"\n' "$(command -v mkdir)"; } > "$_tcbin/mkdir"; chmod +x "$_tcbin/mkdir"
+    mout="$(PATH="$_tcbin:$PATH" bash "$w/run-all.sh" 2>&1)"
+    if grep -qF 'could not scan the TMPDIR of []' <<<"$mout"; then ok "teeth-tmpd-clauses: unconditional-clause mutant prints the empty scan clause → the only-applicable-clauses guard has real teeth"
+    else no "teeth-tmpd-clauses: mutant still omits the empty clause — mutation not exercised (THEATER)"; fi
+  fi
   if [ "$have_gnu_parallel" -eq 1 ]; then
+    echo "-- teeth: drop the -j worker's .tmpfail marker; a creation failure under -j must then read as clean (case 38g) --"
+    if tmpd_mut teeth-tmpd-tmpfail 's/else : > "\$PAR_DIR\/\$idx\.tmpfail"; fi/else :; fi/'; then
+      tmpfix_clean "$w/a-first.test.sh"; tmpfix_clean "$w/b-second.test.sh"
+      _tcbin="$TMP/teeth-tmpd-tmpfail-bin"; mkdir -p "$_tcbin"
+      { printf '#!/bin/sh\n'; printf 'case "$*" in */2) exit 1 ;; esac\n'; printf 'exec %s "$@"\n' "$(command -v mkdir)"; } > "$_tcbin/mkdir"; chmod +x "$_tcbin/mkdir"
+      mout="$(PATH="$_tcbin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"
+      if ! grep -qF 'TMPDIR scan: DEGRADED' <<<"$mout"; then ok "teeth-tmpd-tmpfail: marker-less -j worker hides the creation failure → the .tmpfail marker has real teeth"
+      else no "teeth-tmpd-tmpfail: mutant still reports DEGRADED — mutation not exercised (THEATER)"; fi
+    fi
     echo "-- teeth: accept any RUN_ALL_ATTRIBUTION_TIMEOUT; the typed invalid-value line must then vanish (case j15) --"
     w="$(mut_workdir teeth-j-timeout)"; mkdir -p "${w%/toolbelt/tests}/install"
     cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
@@ -2274,7 +2362,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if grep -qF 'no suite run window' <<<"$mout" || grep -qF "no suite window matches" <<<"$mout"; then ok "teeth-j-datefb: fallback-less mutant loses the run windows → the whole-second fallback has real teeth"
       else no "teeth-j-datefb: mutant still attributes — mutation not exercised (THEATER)"; fi
     fi
-  else skip_j "teeth-j-timeout / teeth-j-datefb"; fi
+  else skip_j "teeth-tmpd-tmpfail / teeth-j-timeout / teeth-j-datefb"; fi
   echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
   if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
     mkfix_sh "$w/a.test.sh" 1 0 0
