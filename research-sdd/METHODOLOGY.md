@@ -913,7 +913,7 @@ artifact worth keeping — must be moved into the repo/corpus BEFORE the session
 in a scratchpad temp. A scratchpad is a working area, not storage: one session's dashboard source lived only
 under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it is worth citing or reusing
 later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
-the rescue to close-out. KNOWLEDGE (findings, decisions, measured values) is rescued the same way (kit #1891). A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
+the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
 investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.)
 
 ## 7b. State-envelope instruments (situational)
