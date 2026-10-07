@@ -787,7 +787,10 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitInflate"
   profileInflate="$kitInflate/profiles/general.slots.md"
   if [ -f "$profileInflate" ] && require_anchor "$profileInflate" 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not'; then
-    padding="$(printf 'x%.0s' $(seq 1 20000))"
+    # Pad past the Z1 budget whatever the rendered size: 20% of the claude total plus a margin. A fixed
+    # 20000 stopped exceeding the +10% budget once PROMPT-LOOP grew past ~200 KB.
+    pad_n=$(( ( $(wc -c < "${OUTDIR[claude]}/skills/research-sdd/SKILL.md") + $(wc -c < "${OUTDIR[claude]}/PROMPT-LOOP.md") ) * 20 / 100 + 1000 ))
+    padding="$(printf "%${pad_n}s" '' | tr ' ' x)"
     mk_sed_from "$PROFILES_DIR/general.slots.md" "teeth-inflate-slot-past-budget" "$profileInflate" "s/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not ${padding}/"
     outInflateClaude="$TMP/outInflateClaude"; outInflateGeneral="$TMP/outInflateGeneral"
     if RSDD_KIT_DIR="$kitInflate" "$RENDERER" claude "$outInflateClaude" >/dev/null 2>&1 \

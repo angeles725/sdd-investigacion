@@ -145,6 +145,102 @@ assert_grep "  document: envelope corruption fixture applied (pre-check)" "inves
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
 assert_grep "  document: --sync-state re-seeds investigable_open back to 0 from the empty backlog" "investigable_open: 0" "$d/RESEARCH-STATE.md"
 
+# GOOD 6e (kit issue #1886 script half) — the --document scaffold is contract-valid from the FIRST write: the
+# envelope's gap counters are 0 straight out of init (no --sync-state needed) and the Gap-backlog carries no
+# example rows (the discovery template's placeholder gap row is what left investigable_open:3 behind).
+assert_grep "  document: fresh scaffold envelope investigable_open is 0" "investigable_open: 0" "$d/RESEARCH-STATE.md"
+for _f in known_gaps gaps_closed undocumented_findings; do
+  assert_grep "  document: fresh scaffold envelope $_f is 0" "$_f: 0" "$d/RESEARCH-STATE.md"
+done
+if grep -qE '^\| *(high|medium|low) *\|.*\| *(pending|blocked|deferred) *\|' "$d/RESEARCH-STATE.md"; then
+  no "  document: fresh scaffold must carry NO example gap-backlog row"
+else
+  ok "  document: fresh scaffold must carry NO example gap-backlog row"
+fi
+
+# GOOD 6f (kit issue #1903) — a new target is made Engram-writable: .engram/config.json carries project_name
+# (derived from the directory name), is create-only (an existing config is kept byte-for-byte), and the report tells
+# the agent the one step init cannot do itself (mem_session_start — init cannot call MCP).
+d="$TMP/My Target_1"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-a.out" 2>&1
+assert_file "  engram: .engram/config.json created" "$d/.engram/config.json"
+assert_grep "  engram: project_name derived from the directory name" '"project_name": "my-target-1"' "$d/.engram/config.json"
+if command -v jq >/dev/null 2>&1; then
+  [ "$(jq -r .project_name "$d/.engram/config.json" 2>/dev/null)" = "my-target-1" ] && ok "  engram: config.json is valid JSON with project_name" || no "  engram: config.json is not valid JSON / lacks project_name"
+fi
+assert_grep "  engram: report names the created config" "created: $d/.engram/config.json" "$TMP/eng-a.out"
+assert_grep "  engram: report tells the agent to call mem_session_start with the target directory" "mem_session_start(directory=$d)" "$TMP/eng-a.out"
+assert_grep "  engram: report says init cannot call MCP" "init cannot call MCP" "$TMP/eng-a.out"
+assert_grep "  engram: report orders it before the first section-20 mirror" "before the first" "$TMP/eng-a.out"
+# create-only: a hand-written config survives byte-for-byte and is reported kept
+d="$TMP/eng-keep"; mkdir -p "$d/.engram"; printf '{"project_name": "mine"}\n' > "$d/.engram/config.json"; cp "$d/.engram/config.json" "$TMP/eng-keep.before"
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-b.out" 2>&1; _rc=$?
+{ [ "$_rc" = 0 ] && cmp -s "$TMP/eng-keep.before" "$d/.engram/config.json"; } && ok "  engram: existing config.json kept byte-for-byte (exit 0)" || no "  engram: existing config.json was changed or the scaffold failed (exit $_rc)"
+assert_grep "  engram: existing config reported kept" "kept: $d/.engram/config.json" "$TMP/eng-b.out"
+# .engram/ is infra, not subject material: a target holding only it still auto-classifies FLAT (the scaffold's own config must not
+# make a re-run nest the corpus)
+d="$TMP/eng-onlyengram"; mkdir -p "$d/.engram"; printf '{"project_name": "x"}\n' > "$d/.engram/config.json"
+assert_exit 0 "  engram: auto on a target holding only .engram/" "$d" --corpus auto
+assert_file "  engram: only-.engram target scaffolds FLAT (root INDEX.md)" "$d/INDEX.md"
+# a dangling symlink at the config path is refused BEFORE any write (nothing scaffolded)
+d="$TMP/eng-dangle"; mkdir -p "$d/.engram"; ln -s "$d/nowhere" "$d/.engram/config.json"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && [ ! -e "$d/INDEX.md" ]; } && ok "  engram: dangling .engram/config.json symlink refused before any write (exit 2)" || no "  engram: dangling config symlink: exit $_rc / INDEX.md written"
+# a directory name with no usable character is a typed degraded state, never an empty project_name
+d="$TMP/___"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-c.out" 2>&1; _rc=$?
+{ [ "$_rc" = 0 ] && [ ! -e "$d/.engram/config.json" ] && grep -qF 'WARN: engram: could not derive a project_name' "$TMP/eng-c.out"; } && ok "  engram: underivable name -> typed WARN, no config, scaffold still succeeds" || no "  engram: underivable name: exit $_rc / config written / no degraded line"
+# --- T8 correction round 1 (Opus gate) ---------------------------------------------------------------------------------
+# (1) --engram-project <name>: the registered TARGETS.md name, written verbatim (the basename may differ from it)
+d="$TMP/_ESTANDAR-TUNELES"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --engram-project tunnel-estandar >"$TMP/eng-p.out" 2>&1; _rc=$?
+{ [ "$_rc" = 0 ] && grep -qF '"project_name": "tunnel-estandar"' "$d/.engram/config.json" 2>/dev/null; } && ok "  engram: --engram-project value written verbatim (exit 0)" || no "  engram: --engram-project not honoured (exit $_rc)"
+assert_grep "  engram: report names the --engram-project source" "from --engram-project" "$TMP/eng-p.out"
+# (1b) without the flag: the derived name is flagged as a MUST-match prominently
+mkdir -p "$TMP/Eng Derived"
+bash "$SUT" "$TMP/Eng Derived" --corpus flat >"$TMP/eng-q.out" 2>&1
+assert_grep "  engram: derived name carries the must-equal-TARGETS warning" "MUST equal the TARGETS.md name you pass as project:" "$TMP/eng-q.out"
+assert_grep "  engram: derived name warning names the derived value" "engram: project_name=eng-derived (derived from the directory name)" "$TMP/eng-q.out"
+# (1c) invalid values: typed usage error, exit 2, nothing written
+for _bad in 'Upper' '-lead' 'has space' '' 'a/b' '--wire'; do
+  d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --engram-project "$_bad" >"$TMP/eng-bad.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out" && [ ! -e "$d/INDEX.md" ] && [ ! -e "$d/.engram" ]; } && ok "  engram: invalid --engram-project [$_bad]: typed usage error, exit 2, nothing written" || no "  engram: invalid --engram-project [$_bad]: exit $_rc"
+done
+d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --engram-project >"$TMP/eng-bad.out" 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out"; } && ok "  engram: --engram-project as the last argument: typed usage error, exit 2" || no "  engram: --engram-project last arg: exit $_rc"
+# (3) rollback: an ERR after the config write removes the config (a pre-existing .engram/ dir is kept); no temp file is left
+_eng_bin="$TMP/eng-gitfail"; mkdir -p "$_eng_bin"
+printf '#!/bin/sh\ncase "$*" in *" init "*|"init "*) exit 1;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$_eng_bin/git"; chmod +x "$_eng_bin/git"
+d="$TMP/eng-rollback"; rm -rf "$d"; mkdir -p "$d/.engram"
+PATH="$_eng_bin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-r.out" 2>&1; _rc=$?
+{ [ "$_rc" != 0 ] && grep -qF 'rolling back' "$TMP/eng-r.out" && [ ! -e "$d/.engram/config.json" ] && [ -d "$d/.engram" ] && [ -z "$(find "$d/.engram" -mindepth 1 2>/dev/null)" ]; } && ok "  engram: ERR after the config write rolls the config back (pre-existing .engram/ kept, no temp left)" || no "  engram: rollback left $(find "$d/.engram" -mindepth 1 2>/dev/null | tr '\n' ' ') (exit $_rc)"
+# round 2 (1): an mv that fails WITHOUT creating the config is a typed FATAL (exit 2, rolled back), never `kept:`
+_eng_mvbin="$TMP/eng-mvfail"; mkdir -p "$_eng_mvbin"
+printf '#!/bin/sh\ncase "$*" in *config.json*) echo "mv: cannot move: Input/output error" >&2; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v mv)" > "$_eng_mvbin/mv"; chmod +x "$_eng_mvbin/mv"
+d="$TMP/eng-mvfail-t"; rm -rf "$d"; mkdir -p "$d"
+PATH="$_eng_mvbin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-mv.out" 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.engram/config.json" "$TMP/eng-mv.out" && ! grep -qF 'kept:' "$TMP/eng-mv.out"; } && ok "  engram: failing mv without a destination: typed FATAL, exit 2, not kept:" || no "  engram: failing mv: exit $_rc ($(grep -F engram "$TMP/eng-mv.out" | head -2 | tr '\n' ' '))"
+{ [ ! -e "$d/.engram/config.json" ] && [ -z "$(find "$d/.engram" -name '.config.*' 2>/dev/null)" ] && [ ! -e "$d/INDEX.md" ]; } && ok "  engram: failing mv: no config, no temp, scaffold rolled back" || no "  engram: failing mv left files: $(find "$d" -mindepth 1 -not -path '*/.git*' 2>/dev/null | head -5 | tr '\n' ' ')"
+# round 2 (3): the config is world-readable like any checked-in file (mktemp makes 0600)
+d="$TMP/eng-mode"; rm -rf "$d"; mkdir -p "$d"; bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
+[ "$(_u7_mode "$d/.engram/config.json")" = 644 ] && ok "  engram: config.json mode is 644" || no "  engram: config.json mode is $(_u7_mode "$d/.engram/config.json") (want 644)"
+# round 2 (4): one label format in the report
+if grep -qF 'engram :' "$TMP/eng-q.out"; then no "  engram: report mixes 'engram :' and 'engram:' labels"; else ok "  engram: report uses the single 'engram:' label"; fi
+# (4) step 6 is conditional: in the underivable state it must not claim the config exists
+d="$TMP/___"; rm -rf "$d"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-u.out" 2>&1
+if grep -qF 'config above makes the project known' "$TMP/eng-u.out"; then no "  engram: underivable report still claims the config makes the project known"; else ok "  engram: underivable report does not claim a config exists"; fi
+assert_grep "  engram: underivable step 6 says write the config by hand first" "write it by hand" "$TMP/eng-u.out"
+# (5) locale-independent derivation: a non-ASCII directory name derives identically under the C locale and a UTF-8 one
+d="$TMP/Ünï Tárget"; rm -rf "$d"; mkdir -p "$d"
+LC_ALL=C.UTF-8 bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
+assert_grep "  engram: non-ASCII dir name derives byte-wise (C locale rules)" '"project_name": "n-t-rget"' "$d/.engram/config.json"
+# the usage text carries the same MCP caveat
+bash "$SUT" >/dev/null 2>"$TMP/eng-usage.err"
+assert_grep "  engram: usage text names mem_session_start" "mem_session_start" "$TMP/eng-usage.err"
+
 # GOOD 7 (kit issue #1114) — omitting --document leaves the default scaffold UNCHANGED: no document-cycle
 # marker leaks into RESEARCH-STATE.md, and the init report never mentions document-cycle mode.
 d="$TMP/good-default-unchanged"; mkdir -p "$d"
@@ -1576,6 +1672,16 @@ if command -v jq >/dev/null 2>&1; then
         || no "K1509-c ($_k9_mode, matcher [$_k9_m]) Bash-covering registration was double-registered"
     done
   done
+  # (c2) kit issue #1550 R3-invalid-regex-matcher-untested: a matcher that is not a valid regex counts as NOT covering Bash
+  # (the guard is appended; the merge must not die on the regex error) and the user's own entry is left untouched.
+  for _k9_mode in wireonly scaffold; do
+    d="$TMP/1509-c2-$_k9_mode"; mkdir -p "$d/.claude"; [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
+    printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
+    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; _k9_rc=$?; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?; fi
+    { [ "$_k9_rc" = 0 ] && [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "1" ] && [ "$(jq '[.hooks.PreToolUse[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "2" ]; } \
+      && ok "K1550-c2 ($_k9_mode) invalid-regex matcher is not counted as covering Bash: guard appended, exit 0" \
+      || no "K1550-c2 ($_k9_mode) invalid-regex matcher: exit $_k9_rc, Bash-covering count $(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")"
+  done
   # (d) scaffold --wire reports each hook's state: fresh -> registered; already present -> already wired.
   d="$TMP/1509-d"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d1.out" 2>&1
@@ -2571,6 +2677,33 @@ if command -v jq >/dev/null 2>&1; then
   _u7_wire_target "$TMP/u7-l11" X
   TMPDIR="$TMP/u7-l11/none" bash "$SUT" "$TMP/u7-l11" --wire >"$TMP/u7-l11.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not create a temp file for the settings.json merge' "$TMP/u7-l11.out"; } && ok "U7-l11 unusable TMPDIR at the settings merge: typed FATAL, exit 2" || no "U7-l11 settings-merge mktemp failure: exit $_rc, no typed FATAL"
+
+  # L12. kit issue #1914 review (a): a signal between the exclusive create and the filled+chmod'd hook must not leave an
+  # empty/truncated hook that a later --wire reports as `kept:`. The chmod stub TERMs its parent (the init) then stalls, so the
+  # signal lands exactly between the create and the chmod; the trap must remove the owned dest.
+  _u7_chmodterm="$TMP/u7-chmodterm"; mkdir -p "$_u7_chmodterm"
+  printf '#!/bin/sh\ncase "$1" in --reference=*) kill -TERM "$PPID"; sleep 1; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v chmod)" > "$_u7_chmodterm/chmod"; chmod +x "$_u7_chmodterm/chmod"
+  d="$TMP/u7-l12"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l12.out" 2>&1; _rc=$?
+  [ "$_rc" = 143 ] && ok "U7-l12 TERM between the exclusive create and the chmod: exit 143" || no "U7-l12 interrupted install: exit $_rc (want 143)"
+  [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && ok "U7-l12 interrupted install: no empty/truncated hook left at the dest" || no "U7-l12 interrupted install LEFT $(wc -c < "$d/.claude/hooks/research-protocol.sh") bytes at the hook path"
+  [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ] && ok "U7-l12 interrupted install: no temp file left" || no "U7-l12 interrupted install left a temp file"
+  bash "$SUT" "$d" --wire >"$TMP/u7-l12b.out" 2>&1
+  { grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l12b.out" && [ -s "$d/.claude/hooks/research-protocol.sh" ]; } && ok "U7-l12 re-run after the interruption CREATES the hook (never kept: an empty file)" || no "U7-l12 re-run after the interruption: not created ($(grep -F research-protocol.sh "$TMP/u7-l12b.out" | head -1))"
+  # L13. kit issue #1914 review (b): a chmod without --reference (BSD) on a GNU-stat userland still carries the mode — the
+  # fallback must pick the stat dialect that exists, never feed GNU `stat -f` (filesystem status) to chmod
+  _u7_noref="$TMP/u7-noref"; mkdir -p "$_u7_noref"
+  printf '#!/bin/sh\ncase "$1" in --reference=*) echo "chmod: unrecognized option" >&2; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v chmod)" > "$_u7_noref/chmod"; chmod +x "$_u7_noref/chmod"
+  d="$TMP/u7-l13"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_noref:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l13.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l13.out"; } && ok "U7-l13 chmod without --reference (GNU stat): fallback installs the hook, exit 0" || no "U7-l13 no-chmod--reference fallback: exit $_rc ($(grep -F FATAL "$TMP/u7-l13.out" | head -1))"
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l13 chmod without --reference: mode 755 carried" || no "U7-l13 mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+  # L14. the same on a BSD userland: `stat -c` is rejected, `stat -f %Lp` answers
+  _u7_bsdstat="$TMP/u7-bsdstat"; mkdir -p "$_u7_bsdstat"
+  printf '#!/bin/sh\ncase "$1" in -c) echo "stat: illegal option -- c" >&2; exit 1;; -f) [ "$2" = %%Lp ] && exec "%s" -c %%a "$3";; esac\nexec "%s" "$@"\n' "$(command -v stat)" "$(command -v stat)" > "$_u7_bsdstat/stat"; chmod +x "$_u7_bsdstat/stat"
+  d="$TMP/u7-l14"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l14.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ]; } && ok "U7-l14 BSD stat dialect: fallback carries mode 755, exit 0" || no "U7-l14 BSD stat fallback: exit $_rc, mode $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
 
   # I. failure paths of the fill: a failing mv (stubbed) is a typed FATAL with no temp file and no half-filled hook
   _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
@@ -4379,6 +4512,102 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     else echo "  SKIP  teeth M-1845-NO-DEST-FATAL: running as root"; fi
     _u7t MODE-CP 's/^  cp -p "\$src" "\$tmp" ||/  cp "$src" "$tmp" ||/' 'mode=755' 'mode=600' _u7t_modess
     _u7t EF-CHECK 's/^    if ! \[ "\$tmp" -ef "\$dest" \]; then/    if false; then/' 'rc=0 kept=1 inside=0' 'rc=0 kept=0 inside=1' _u7t_racedirr
+    # kit issue #1914 review + #1903 + #1550 runners and mutants
+    _u7t_term() {  # <init> — TERM between the exclusive create and the mode copy: is an owned dest left behind?
+      local d="$TMP/u7t/term" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc left=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
+    }
+    _u7t_noref() {  # <init> — chmod without --reference on a GNU-stat userland, no hard links
+      local d="$TMP/u7t/noref" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_noref:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_bsdstat() {  # <init> — the same with a BSD-only stat dialect
+      local d="$TMP/u7t/bsdstat" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_eng() {  # <init> [preexisting-config] — scaffold a fresh target named EngT: is the Engram config written / kept?
+      local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
+      [ -n "${2:-}" ] && { mkdir -p "$d/.engram"; printf '{"project_name": "mine"}\n' > "$d/.engram/config.json"; }
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc name=$(sed -n 's/.*"project_name": "\(.*\)".*/\1/p' "$d/.engram/config.json" 2>/dev/null) step=$(grep -cF 'init cannot call MCP' "$TMP/u7t.out")"
+    }
+    _u7t_engdangle() {  # <init> — a dangling symlink at .engram/config.json
+      local d="$TMP/u7t/engd" rc; rm -rf "$d"; mkdir -p "$d/.engram"; ln -s "$d/nowhere" "$d/.engram/config.json"
+      bash "$1" "$d" --corpus flat >/dev/null 2>&1; rc=$?
+      echo "rc=$rc index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
+    }
+    _u7t_engauto() {  # <init> — a target holding only .engram/: flat or nested?
+      local d="$TMP/u7t/enga"; rm -rf "$d"; mkdir -p "$d/.engram"; printf '{"project_name": "x"}\n' > "$d/.engram/config.json"
+      bash "$1" "$d" --corpus auto >/dev/null 2>&1
+      echo "root=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0) nested=$([ -e "$d/corpus/INDEX.md" ] && echo 1 || echo 0)"
+    }
+    _u7t_badre() {  # <init> — a PreToolUse entry whose matcher is an invalid regex: is the guard still appended?
+      local d="$TMP/u7t/badre"; rm -rf "$d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+      printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
+      bash "$1" "$d" --wire >/dev/null 2>&1
+      echo "entries=$(jq '[.hooks.PreToolUse[]] | length' "$d/.claude/settings.json" 2>/dev/null)"
+    }
+    _u7t OWNED-TRAP '/^  \[ -z "\$_RSDD_OWNED_DEST" \] || rm -f -- "\$_RSDD_OWNED_DEST"/d' 'rc=143 left=0' 'rc=143 left=1' _u7t_term
+    _u7t COPY-MODE-STAT 's/^  m="\$(stat -c %a "\$1" 2>\/dev\/null)" || m=/  m=/' 'rc=0 mode=755' 'rc=2 mode=' _u7t_noref
+    _u7t COPY-MODE-BSD 's/^  m="\$(stat -c %a "\$1" 2>\/dev\/null)" || m="\$(stat -f %Lp "\$1" 2>\/dev\/null)" || return 1$/  m="$(stat -c %a "$1" 2>\/dev\/null)" || return 1/' 'rc=0 mode=755' 'rc=2 mode=' _u7t_bsdstat
+    _u7t ENGRAM-WRITE '/^    mk "\$target\/.engram"$/d' 'rc=0 name=engt step=1' 'rc=1 name= step=0' _u7t_eng
+    _u7t ENGRAM-CREATE-ONLY 's/^if \[ -e "\$_eng_cfg" \] || \[ -L "\$_eng_cfg" \]; then$/if false; then/;s/mv -n -- /mv -f -- /' 'rc=0 name=mine step=1' 'rc=0 name=engt step=1' _u7t_eng keep
+    _u7t_engnone() {  # <init> — a directory name with no usable character: config written or typed WARN?
+      local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0) warn=$(grep -cF 'WARN: engram: could not derive' "$TMP/u7t.out")"
+    }
+    _u7t ENGRAM-UNDERIVABLE 's/^  if \[ -z "\$_eng_name" \]; then$/  if false; then/' 'rc=0 cfg=0 warn=1' 'rc=0 cfg=1 warn=0' _u7t_engnone
+    _u7t_engflag() {  # <init> <flag value> — --engram-project: written verbatim? invalid value refused?
+      local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --engram-project "$2" >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc name=$(sed -n 's/.*"project_name": "\(.*\)".*/\1/p' "$d/.engram/config.json" 2>/dev/null) index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
+    }
+    _u7t_engroll() {  # <init> — ERR after the config write (git init fails) with a pre-existing .engram/: config rolled back?
+      local d="$TMP/u7t/engr" rc; rm -rf "$d"; mkdir -p "$d/.engram"
+      PATH="$_eng_bin:$PATH" bash "$1" "$d" --corpus flat >/dev/null 2>&1; rc=$?
+      echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0)"
+    }
+    _u7t_engstep() {  # <init> — underivable state: does step 6 still claim the config exists?
+      local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc claims=$(grep -cF 'config above makes the project known' "$TMP/u7t.out")"
+    }
+    _u7t_engmust() {  # <init> — derived name: is the must-equal-TARGETS warning printed?
+      local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc must=$(grep -cF 'MUST equal the TARGETS.md name you pass as project:' "$TMP/u7t.out")"
+    }
+    _u7t ENGRAM-FLAG-IGNORED 's/^  if \[ "\$engram_project_given" = 1 \]; then _eng_name=/  if false; then _eng_name=/' 'rc=0 name=custom-name index=1' 'rc=0 name=engt index=1' _u7t_engflag custom-name
+    _u7t ENGRAM-FLAG-VALIDATE 's/^if \[ "\$engram_project_given" = 1 \] \&\& ! \[\[/if false \&\& ! [[/' 'rc=2 name= index=0' 'rc=0 name=Bad Name index=1' _u7t_engflag 'Bad Name'
+    _u7t_engmv() {  # <init> — mv fails without creating the config: typed FATAL or a false kept:?
+      local d="$TMP/u7t/engmv" rc; rm -rf "$d"; mkdir -p "$d"
+      PATH="$_eng_mvbin:$PATH" bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc fatal=$(grep -cF 'FATAL: could not install' "$TMP/u7t.out") kept=$(grep -cF 'kept:' "$TMP/u7t.out")"
+    }
+    _u7t_engmode() {  # <init> — mode of the written config
+      local d="$TMP/u7t/engmo"; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >/dev/null 2>&1
+      echo "mode=$(_u7_mode "$d/.engram/config.json")"
+    }
+    _u7t ENGRAM-MV-FATAL 's/^      else echo "FATAL: could not install \$_eng_cfg" >&2; rollback; exit 2; fi/      else _eng_state="kept"; fi/' 'rc=2 fatal=1 kept=0' 'rc=0 fatal=0 kept=1' _u7t_engmv
+    _u7t ENGRAM-MODE 's/chmod 644 "\$_eng_cfg"; //' 'mode=644' 'mode=600' _u7t_engmode
+    _u7t ENGRAM-ROLLBACK 's/else created+=("\$_eng_cfg"); /else /' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
+    _u7t ENGRAM-STEP-COND 's/^if \[ "\$_eng_state" = underivable \]; then$/if false; then/' 'rc=0 claims=0' 'rc=0 claims=1' _u7t_engstep
+    _u7t ENGRAM-MUST-LINE '/^                 echo "  engram: project_name=\$_eng_name (derived/d' 'rc=0 must=1' 'rc=0 must=0' _u7t_engmust
+    _u7t ENGRAM-LOWER "s/ | LC_ALL=C tr '\\[:upper:\\]' '\\[:lower:\\]'//" 'rc=0 name=engt step=1' 'rc=0 name=ng step=1' _u7t_eng
+    _u7t ENGRAM-CONTENT '/^    printf .{.n  "project_name"/c\
+    : > "$_eng_tmp"' 'rc=0 name=engt step=1' 'rc=0 name= step=1' _u7t_eng
+    _u7t ENGRAM-STEP '/^  echo "  6\. ENGRAM (agent step — init cannot call MCP): call mem_session_start/c\
+  :' 'rc=0 name=engt step=1' 'rc=0 name=engt step=0' _u7t_eng
+    _u7t ENGRAM-DANGLE 's/^_rsdd_scaffold_paths+=("\$target\/.engram" "\$target\/.engram\/config.json")/_rsdd_scaffold_paths+=()/' 'rc=2 index=0' 'rc=0 index=1' _u7t_engdangle
+    _u7t ENGRAM-INFRA 's/|\.atl|\.engram) ;;/|.atl) ;;/' 'root=1 nested=0' 'root=0 nested=1' _u7t_engauto
+    if command -v jq >/dev/null 2>&1; then
+      _u7t BADRE-CATCH 's/catch false))/catch true))/' 'entries=2' 'entries=1' _u7t_badre
+    fi
     # (hermetic: the empty-stage mutant points _RSDD_STAGE at a nonexistent path under $TMP, never at /hook)
     _u7t STAGE-GUARD "s#^      \\[ -n \"\\\$_RSDD_STAGE\" \\] || _rsdd_stage_hook\$#      _RSDD_STAGE=\"$TMP/nostage\"#" 'rc=0 created=1' 'rc=2 created=0' _u7t_gone
     _u7t SUCCESS-CLEAN '/^    if \[ -n "\$_RSDD_STAGE" \]; then rm -rf -- "\$_RSDD_STAGE"; _RSDD_STAGE=""; fi$/d' 'rc=0 clean=1' 'rc=0 clean=0' _u7t_tl

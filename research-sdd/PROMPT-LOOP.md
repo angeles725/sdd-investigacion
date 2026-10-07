@@ -204,7 +204,7 @@ Always read first, in this order:
       DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Evidence: B611–B619.) (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
-     `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
+     `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name>`. It resolves
      $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
      the SessionStart hook · retros/ · tools/ + tools/README.md · .gitignore, and `git init`s the TARGET — all from
      $KIT/templates. It REFUSES over an existing corpus, so it can never duplicate one (--force overrides).
@@ -216,6 +216,13 @@ Always read first, in this order:
      The init already scaffolds `$TARGET/tools/` + `$TARGET/tools/README.md` (columns: name · path · WHY —
      used/adapted/downloaded/created/updated) — do NOT recreate them. RECORD every tool acquired during the run AT THE MOMENT
      of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
+     ENGRAM-WRITABLE (kit #1903): the init also writes `$TARGET/.engram/config.json` (create-only). Pass
+     `--engram-project <the TARGETS.md name from step b>` to the init: that exact name is what `mem_save(project=...)`
+     uses, and a name derived from the directory differs whenever the directory name differs from the registered
+     one (the report says the derived name MUST equal it). Init cannot call MCP, so the AGENT MUST call
+     `mem_session_start(directory=$TARGET)` before the first §20 mirror / `mem_save` — without it
+     `mem_save(project=<new>)` fails `unknown_project`. If init printed `WARN: engram: could not derive a
+     project_name`, write `.engram/config.json` by hand first.
   e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
@@ -1220,7 +1227,7 @@ Always read first, in this order:
   create intent for a new target → run BOOTSTRAP steps a, a2, b (TARGETS.md registration), and c — scaffold
   via:
 
-    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --document
+    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name> --document
 
   (kit issue #1114). **`--document` is REQUIRED here** — omitting it seeds the generic gap-discovery
   RESEARCH-STATE (placeholder `## Gap-backlog` rows this mode never discovers or closes) instead of the
@@ -1229,6 +1236,8 @@ Always read first, in this order:
   marker, and why that differs from `method: document-cycle-external`). Step e (gap-seeding) is explicitly
   skipped — this preflight is the mechanical registration and scaffolding only; it does not seed a
   discovery backlog and does not change this mode's outline-driven contract.
+  The `--document` scaffold already seeds the envelope at 0 with no Gap-backlog rows — do not hand-correct
+  those counters (kit #1886).
   1. SEED THE OUTLINE (replaces gap-discovery). Instead of uncovering gaps, seed the FULL list of
      topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
      the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
