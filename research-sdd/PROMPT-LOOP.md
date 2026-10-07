@@ -204,7 +204,7 @@ Always read first, in this order:
       DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Evidence: B611–B619.) (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
-     `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
+     `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name>`. It resolves
      $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
      the SessionStart hook · retros/ · tools/ + tools/README.md · .gitignore, and `git init`s the TARGET — all from
      $KIT/templates. It REFUSES over an existing corpus, so it can never duplicate one (--force overrides).
@@ -1226,7 +1226,7 @@ Always read first, in this order:
   create intent for a new target → run BOOTSTRAP steps a, a2, b (TARGETS.md registration), and c — scaffold
   via:
 
-    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --document
+    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name> --document
 
   (kit issue #1114). **`--document` is REQUIRED here** — omitting it seeds the generic gap-discovery
   RESEARCH-STATE (placeholder `## Gap-backlog` rows this mode never discovers or closes) instead of the

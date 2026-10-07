@@ -216,6 +216,18 @@ printf '#!/bin/sh\ncase "$*" in *" init "*|"init "*) exit 1;; esac\nexec "%s" "$
 d="$TMP/eng-rollback"; rm -rf "$d"; mkdir -p "$d/.engram"
 PATH="$_eng_bin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-r.out" 2>&1; _rc=$?
 { [ "$_rc" != 0 ] && grep -qF 'rolling back' "$TMP/eng-r.out" && [ ! -e "$d/.engram/config.json" ] && [ -d "$d/.engram" ] && [ -z "$(find "$d/.engram" -mindepth 1 2>/dev/null)" ]; } && ok "  engram: ERR after the config write rolls the config back (pre-existing .engram/ kept, no temp left)" || no "  engram: rollback left $(find "$d/.engram" -mindepth 1 2>/dev/null | tr '\n' ' ') (exit $_rc)"
+# round 2 (1): an mv that fails WITHOUT creating the config is a typed FATAL (exit 2, rolled back), never `kept:`
+_eng_mvbin="$TMP/eng-mvfail"; mkdir -p "$_eng_mvbin"
+printf '#!/bin/sh\ncase "$*" in *config.json*) echo "mv: cannot move: Input/output error" >&2; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v mv)" > "$_eng_mvbin/mv"; chmod +x "$_eng_mvbin/mv"
+d="$TMP/eng-mvfail-t"; rm -rf "$d"; mkdir -p "$d"
+PATH="$_eng_mvbin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-mv.out" 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.engram/config.json" "$TMP/eng-mv.out" && ! grep -qF 'kept:' "$TMP/eng-mv.out"; } && ok "  engram: failing mv without a destination: typed FATAL, exit 2, not kept:" || no "  engram: failing mv: exit $_rc ($(grep -F engram "$TMP/eng-mv.out" | head -2 | tr '\n' ' '))"
+{ [ ! -e "$d/.engram/config.json" ] && [ -z "$(find "$d/.engram" -name '.config.*' 2>/dev/null)" ] && [ ! -e "$d/INDEX.md" ]; } && ok "  engram: failing mv: no config, no temp, scaffold rolled back" || no "  engram: failing mv left files: $(find "$d" -mindepth 1 -not -path '*/.git*' 2>/dev/null | head -5 | tr '\n' ' ')"
+# round 2 (3): the config is world-readable like any checked-in file (mktemp makes 0600)
+d="$TMP/eng-mode"; rm -rf "$d"; mkdir -p "$d"; bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
+[ "$(_u7_mode "$d/.engram/config.json")" = 644 ] && ok "  engram: config.json mode is 644" || no "  engram: config.json mode is $(_u7_mode "$d/.engram/config.json") (want 644)"
+# round 2 (4): one label format in the report
+if grep -qF 'engram :' "$TMP/eng-q.out"; then no "  engram: report mixes 'engram :' and 'engram:' labels"; else ok "  engram: report uses the single 'engram:' label"; fi
 # (4) step 6 is conditional: in the underivable state it must not claim the config exists
 d="$TMP/___"; rm -rf "$d"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat >"$TMP/eng-u.out" 2>&1
@@ -4571,7 +4583,19 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     }
     _u7t ENGRAM-FLAG-IGNORED 's/^  if \[ "\$engram_project_given" = 1 \]; then _eng_name=/  if false; then _eng_name=/' 'rc=0 name=custom-name index=1' 'rc=0 name=engt index=1' _u7t_engflag custom-name
     _u7t ENGRAM-FLAG-VALIDATE 's/^if \[ "\$engram_project_given" = 1 \] \&\& ! \[\[/if false \&\& ! [[/' 'rc=2 name= index=0' 'rc=0 name=Bad Name index=1' _u7t_engflag 'Bad Name'
-    _u7t ENGRAM-ROLLBACK 's/else created+=("\$_eng_cfg"); /else /' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
+    _u7t_engmv() {  # <init> — mv fails without creating the config: typed FATAL or a false kept:?
+      local d="$TMP/u7t/engmv" rc; rm -rf "$d"; mkdir -p "$d"
+      PATH="$_eng_mvbin:$PATH" bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc fatal=$(grep -cF 'FATAL: could not install' "$TMP/u7t.out") kept=$(grep -cF 'kept:' "$TMP/u7t.out")"
+    }
+    _u7t_engmode() {  # <init> — mode of the written config
+      local d="$TMP/u7t/engmo"; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >/dev/null 2>&1
+      echo "mode=$(_u7_mode "$d/.engram/config.json")"
+    }
+    _u7t ENGRAM-MV-FATAL 's/^      else echo "FATAL: could not install \$_eng_cfg" >&2; rollback; exit 2; fi/      else _eng_state="kept"; fi/' 'rc=2 fatal=1 kept=0' 'rc=0 fatal=0 kept=1' _u7t_engmv
+    _u7t ENGRAM-MODE 's/chmod 644 "\$_eng_cfg"; //' 'mode=644' 'mode=600' _u7t_engmode
+    _u7t ENGRAM-ROLLBACK 's/; created+=("\$_eng_cfg")//' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
     _u7t ENGRAM-STEP-COND 's/^if \[ "\$_eng_state" = underivable \]; then$/if false; then/' 'rc=0 claims=0' 'rc=0 claims=1' _u7t_engstep
     _u7t ENGRAM-MUST-LINE '/^                 echo "  engram: project_name=\$_eng_name (derived/d' 'rc=0 must=1' 'rc=0 must=0' _u7t_engmust
     _u7t ENGRAM-LOWER "s/ | LC_ALL=C tr '\\[:upper:\\]' '\\[:lower:\\]'//" 'rc=0 name=engt step=1' 'rc=0 name=ng step=1' _u7t_eng

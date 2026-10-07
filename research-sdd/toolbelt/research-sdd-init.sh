@@ -1201,8 +1201,11 @@ else
     _RSDD_FILL_TMP="$_eng_tmp"   # the EXIT/INT/TERM trap removes the temp if the run dies before the move
     printf '{\n  "project_name": "%s"\n}\n' "$_eng_name" > "$_eng_tmp"
     mv -n -- "$_eng_tmp" "$_eng_cfg" || :   # no-clobber (coreutils >= 9.2 exits 1 when it skips): a config that appeared since the check survives
-    if [ -e "$_eng_tmp" ]; then rm -f -- "$_eng_tmp"; _eng_state="kept"   # lost a race: not ours, so never rolled back
-    else created+=("$_eng_cfg"); _eng_state="created"; fi   # tracked for the ERR rollback only once it is really ours
+    if [ -e "$_eng_tmp" ]; then   # the move did not consume the temp: a config that appeared since the check (lost race: not ours, never rolled back) is kept, anything else is a failed install
+      rm -f -- "$_eng_tmp"; _RSDD_FILL_TMP=""
+      if [ -e "$_eng_cfg" ] || [ -L "$_eng_cfg" ]; then _eng_state="kept"
+      else echo "FATAL: could not install $_eng_cfg" >&2; rollback; exit 2; fi
+    else chmod 644 "$_eng_cfg"; created+=("$_eng_cfg"); _eng_state="created"; fi   # mktemp makes 0600; tracked for the ERR rollback only once it is really ours
     _RSDD_FILL_TMP=""
   fi
 fi
@@ -1253,12 +1256,12 @@ echo "  corpus : ${rel}"
 echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · pkill-guard hook · retros/ · tools/README.md · .gitignore"
 _rsdd_gitignore_plan
 case "$_eng_state" in
-  created)     if [ "$engram_project_given" = 1 ]; then echo "  engram : created: $_eng_cfg (project_name=$_eng_name, from --engram-project)"
+  created)     if [ "$engram_project_given" = 1 ]; then echo "  engram: created: $_eng_cfg (project_name=$_eng_name, from --engram-project)"
                else
-                 echo "  engram : created: $_eng_cfg (project_name=$_eng_name)"
+                 echo "  engram: created: $_eng_cfg (project_name=$_eng_name)"
                  echo "  engram: project_name=$_eng_name (derived from the directory name) — it MUST equal the TARGETS.md name you pass as project:; pass --engram-project <name> at scaffold time, or edit $_eng_cfg, if it differs (two directory names can also fold to the same name)"
                fi;;
-  kept)        echo "  engram : kept: $_eng_cfg (existing config, not overwritten$([ "$engram_project_given" = 1 ] && echo "; --engram-project not applied"))"
+  kept)        echo "  engram: kept: $_eng_cfg (existing config, not overwritten$([ "$engram_project_given" = 1 ] && echo "; --engram-project not applied"))"
                echo "  engram: check that its project_name equals the TARGETS.md name you pass as project:";;
   underivable) echo "WARN: engram: could not derive a project_name from the directory name of $target — write $_eng_cfg by hand ({\"project_name\": \"<name>\"}); mem_save(project=<new>) fails unknown_project without it" >&2;;
 esac
