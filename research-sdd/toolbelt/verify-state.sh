@@ -821,6 +821,7 @@ for state in "${states[@]}"; do
   #    FOCUSES.md for the legacy RESEARCH-STATE.md case) and filter to only that focus's blocks.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
   _fpfx="$(derive_focus_prefix "$state")"
+  _ondisk_unit="block file(s) on disk"  # the unit of ${ondisk} in every message below; the range path counts distinct ids instead
   _frange=""   # kit #906: FOCUSES.md block RANGE cell (a prefix wins)
   if [ -z "$_fpfx" ]; then _frange="$(derive_focus_range "$state")"; focus_range_report "$state" '   %s   %s\n'; case "$_frange" in '!'*) _frange="" ;; esac; fi  # RANGE-REPORT
   # block_scope: optional envelope field — 'per-focus' (default when absent) or 'shared-global'.
@@ -849,7 +850,7 @@ for state in "${states[@]}"; do
       | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
   elif [ -n "$_frange" ] && [ "${_frange#!}" = "$_frange" ]; then
     ondisk="$(focus_range_block_count "$(dirname "$state")" "$_frange" "$state")"  # RANGE-VERIFY-COUNT
-    _frfiles="$(focus_range_stat "$(dirname "$state")" "$_frange" "$state" FILES)"; _frname="B${_frange%-*}–B${_frange#*-}"
+    _frfiles="$(focus_range_stat "$(dirname "$state")" "$_frange" "$state" FILES)"; _frname="B${_frange%-*}–B${_frange#*-}"; _ondisk_unit="distinct block id(s) in ${_frname}"  # RANGE-UNIT
   else
     ondisk="$_ondisk_global"
   fi
@@ -884,7 +885,7 @@ for state in "${states[@]}"; do
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"
-  echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
+  echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} ${_ondisk_unit}"  # UNIT-SUMMARY
   echo "   backlog pending : ${pending}"
   echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
   d_rt="$(derive_retyped_in_table "$state")"
@@ -1069,7 +1070,7 @@ for state in "${states[@]}"; do
       if _ksw_has "p7-index-placeholder"; then  # KSW-P7-SUPPRESS
         echo "   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)"
       else
-        echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
+        echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk ${_ondisk_unit} — update the corpus index."
       fi
     fi
   fi
@@ -1118,7 +1119,7 @@ for state in "${states[@]}"; do
     if _ksw_has "check-2-covered-blocks"; then  # KSW-CHECK2-SUPPRESS
       echo "   INFO   covered-blocks mismatch WARN suppressed (known_stale_warns: check-2-covered-blocks)"
     else
-      echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
+      echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk ${_ondisk_unit} — refresh the mirror."
     fi
   fi
 

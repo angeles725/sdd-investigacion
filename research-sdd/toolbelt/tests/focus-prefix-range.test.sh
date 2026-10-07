@@ -121,6 +121,25 @@ grep -qF 'NOTE|B1–B30 spans 30 block ids, 5 present, 25 missing (span - distin
 mkdir -p "$TMP/cs"; cp "$TMP/cl/FOCUSES.md" "$TMP/cs/FOCUSES.md"; sed -i 's/B1–B6/B50–B60/' "$TMP/cs/FOCUSES.md"; : > "$TMP/cs/RESEARCH-STATE.md"; for f in 1 2 3; do : > "$TMP/cs/q-bloque$f.md"; done
 grep -qF 'WARN|no block file is numbered within B50–B60 while 3 block file(s) exist outside it' <<<"$(rep "$TMP/cs")" && ok "7i.7 a range matching nothing while blocks exist -> cannot-see WARN" || no "7i.7 got: $(rep "$TMP/cs")"
 
+# --- 7j. header vocabulary: whole-cell RANGE header vs PREFIX header (COB-IM2 layout carries BOTH columns)
+mkdir -p "$TMP/cob"
+{ echo '| Focus | Status | State file | Block prefix | Blocks | Summary |'; echo '|-------|--------|-----------|--------------|--------|---------|'
+  echo '| hvac | stopped (34/38 closed) | RESEARCH-STATE.md | cob-block | B1–B38 | HVAC duct network |'
+  echo '| architecture | stopped | RESEARCH-STATE-architecture.md | cob-block | B39–B50 | Building shell |'; } > "$TMP/cob/FOCUSES.md"
+: > "$TMP/cob/RESEARCH-STATE.md"; for f in $(seq 1 50); do : > "$TMP/cob/cob-block$f.md"; done
+[ "$(fr "$TMP/cob")" = "1-38" ] && ok "7j.1 COB-IM2 layout (Block prefix AND Blocks columns): the Blocks cell is the range -> 1-38" || no "7j.1 got '$(fr "$TMP/cob")'"
+[ "$(focus_range_block_count "$TMP/cob" 1-38 "$TMP/cob/RESEARCH-STATE.md")" = 38 ] && ok "7j.2 38 ids counted (B39–B50 belongs to the architecture row)" || no "7j.2 got $(focus_range_block_count "$TMP/cob" 1-38 "$TMP/cob/RESEARCH-STATE.md")"
+[ -z "$(rep "$TMP/cob")" ] && ok "7j.3 the COB-IM2 layout is clean: no diagnostics" || no "7j.3 got: $(rep "$TMP/cob")"
+mkdir -p "$TMP/bk"
+{ echo '| Focus | Estado | State file | Blocked by | Notes |'; echo '|---|---|---|---|---|'
+  echo "| (base) | stopped | $RT | none | B5–B9 |"; } > "$TMP/bk/FOCUSES.md"; : > "$TMP/bk/RESEARCH-STATE.md"
+[ "$(fr "$TMP/bk")" = "5-9" ] && [ -z "$(rep "$TMP/bk")" ] && ok "7j.4 a 'Blocked by' header is not the range column: the range-shaped cell is read, no fallback WARN" || no "7j.4 got '$(fr "$TMP/bk")' / $(rep "$TMP/bk")"
+mkdir -p "$TMP/fb"
+{ echo '| Focus | Estado | State file | Blocks | Notes |'; echo '|---|---|---|---|---|'
+  echo "| (base) | stopped | $RT | see notes | B2–B4 |"; } > "$TMP/fb/FOCUSES.md"; : > "$TMP/fb/RESEARCH-STATE.md"
+[ "$(fr "$TMP/fb")" = "2-4" ] && ok "7j.5 header-chosen cell not range-shaped, another is: that one is read" || no "7j.5 got '$(fr "$TMP/fb")'"
+grep -qF 'WARN|FOCUSES.md range column cell is not range-shaped; read the range-shaped cell [B2–B4] found elsewhere in the root row' <<<"$(rep "$TMP/fb")" && ok "7j.6 ... and WARNed with the cell" || no "7j.6 got: $(rep "$TMP/fb")"
+
 # --- 8. integration: status --sync-state and verify-state count the range ---------------------------------------------
 mkcorpus() { local d="$1" cb="$2"; mkdir -p "$d"
   { echo '# Focus index'; echo; echo '| Focus | Estado | RESEARCH-STATE | Ámbito | Bloques |'; echo '|---|---|---|---|---|'
@@ -161,6 +180,12 @@ grep -qF 'FAIL   envelope covered_blocks=4: no block file is numbered within B50
 d="$TMP/c7"; mkcorpus "$d" 0; sed -i 's/B2–B4/B50–B60/' "$d/FOCUSES.md"
 o="$(bash "$VS" "$d" 2>/dev/null)"
 grep -qF 'WARN   envelope covered_blocks=0: declared 0 matches 0 in-range on-disk — but 8 block file(s) exist outside B50–B60' <<<"$o" && ok "8i declared 0 on an empty range with blocks outside: pass-path WARN" || no "8i got: $(grep 'covered_blocks=0' <<<"$o" | head -2)"
+# 8k. verify-state names the right unit everywhere ondisk is printed on the range path
+d="$TMP/c9"; mkcorpus "$d" 3; printf '%s\n' 'Covered blocks: 9' >> "$d/RESEARCH-STATE.md"; printf '%s\n' '# Index' '<SUBJECT> placeholder' > "$d/INDEX.md"
+o="$(bash "$VS" "$d" 2>/dev/null)"
+grep -qF 'covered blocks  : 9 claimed · 3 distinct block id(s) in B2–B4' <<<"$o" && ok "8k.1 summary line says 'distinct block id(s) in B2–B4'" || no "8k.1 got: $(grep 'covered blocks' <<<"$o")"
+grep -qF 'placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while 3 distinct block id(s) in B2–B4 — update' <<<"$o" && ok "8k.2 INDEX.md WARN uses the unit" || no "8k.2 got: $(grep INDEX <<<"$o")"
+grep -qF "'Covered blocks: 9' disagrees with 3 distinct block id(s) in B2–B4 — refresh" <<<"$o" && ok "8k.3 Covered-blocks WARN uses the unit" || no "8k.3 got: $(grep 'Covered blocks' <<<"$o")"
 # 8j. the status corpus-wide text names the range alternative
 d="$TMP/c8"; mkcorpus "$d" 0; sed -i 's/B2–B4/free text/' "$d/FOCUSES.md"
 o="$(bash "$ST" "$d" --sync-state --root 2>&1)"
@@ -198,6 +223,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   lib_tooth MN 's/\[ "\${miss:-0}" -gt 0 \] \&\& \[ "\${cnt:-0}" -gt 0 \]/false/' "$P_REP | grep -c 'missing'" 0
   lib_tooth ML 's/if (miss<=10)/if (miss<=11)/' "focus_range_report '$TMP/mm/RESEARCH-STATE.md' '%s|%s\\n' | grep -c ': 6,7,8,9,10,11,12,13,14,15, '" 0
   lib_tooth CN 's/\[ "\${cnt:-0}" -eq 0 \] \&\& \[ "\${out:-0}" -gt 0 \]/false/' "focus_range_report '$TMP/cs/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'exist outside'" 0
+  lib_tooth HV '/RANGE-HDR-VOCAB/ s/(bloques?|/(block prefix|bloques?|/' "focus_range_report '$TMP/cob/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'found elsewhere'" 1
+  lib_tooth HB '/RANGE-HDR-VOCAB/ s/|rango)\$/|rango|blocked.*)$/' "focus_range_report '$TMP/bk/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'found elsewhere'" 1
+  lib_tooth HF '/RANGE-HDR-FALLBACK/ s/fb=1//' "focus_range_report '$TMP/fb/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'found elsewhere'" 0
   lib_tooth R '/RANGE-ROOT-ONLY/ s/RESEARCH-STATE.md/RESEARCH-STATE-o.md/' "$P_RANGE" ""
   # site_tooth NAME FILE SEDEXPR MODE(sync|display|verify) CB MALFORMED(0|1) PATTERN — the mutated TOOL must print PATTERN
   # (the wrong behaviour); each pattern is also what the unmutated tool does NOT print on the same fixture (asserted above).
@@ -221,6 +249,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   site_tooth VE verify-state.sh '/RANGE-VERIFY-COUNT/ s/ondisk=.*/ondisk=99/' verify 3 0 'covered_blocks=3 != 99'
   site_tooth WS research-sdd-status.sh '/# RANGE-REPORT/ s/focus_range_report [^;]*;/:;/' sync 0 1 'ABSENT:B9–B3'
   site_tooth WV verify-state.sh '/# RANGE-REPORT/ s/focus_range_report [^;]*;/:;/' verify 7 1 'ABSENT:B9–B3'
+  site_tooth UN verify-state.sh '/# UNIT-SUMMARY/ s/\${_ondisk_unit}/block file(s) on disk/' verify 3 0 'ABSENT:distinct block id(s) in B2–B4'
   site_tooth CW research-sdd-status.sh 's/\[ -z "\$_sfpfx" \] \&\& \[ -z "\$_sfrange" \] \&\&/[ -z "$_sfpfx" ] \&\&/' sync 0 0 'CORPUS-WIDE'
   FXSED='s/B2–B4/B50–B60/' site_tooth CS verify-state.sh '/RANGE-CANNOT-SEE-COND/ s/-gt 0 \]/-gt 999 ]/g' verify 4 0 'ABSENT:covered_blocks=4: no block file is numbered within'
   site_tooth CM verify-state.sh '/RANGE-CHECK-A-MSG/ s/distinct block ids in/block file(s) on disk in/' verify 7 0 'ABSENT:distinct block ids in B2–B4 (4 block file(s))'

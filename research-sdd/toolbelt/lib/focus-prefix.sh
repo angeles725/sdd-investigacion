@@ -40,9 +40,11 @@ fi
 #
 #   derive_focus_range <state-file>
 #     RESEARCH-STATE.md only (a suffixed state file takes its prefix from its filename): reads the un-suffixed root's
-#     FOCUSES.md row. The cell is chosen by HEADER vocabulary (Bloques / Blocks / Block prefix / Block range / Prefijo /
-#     Prefix / Rango) when the table has a header row naming such a column, else it is the first range-shaped cell right
-#     of the State-file cell (a last cell without a closing pipe is a cell).
+#     FOCUSES.md row. The cell is chosen by the RANGE header (whole cell: Bloques / Blocks / Block range / Rango; a
+#     "Block prefix" / Prefijo / Prefix column is the PREFIX column, never the range one, and "Blocked …" matches neither)
+#     when the table has one, else it is the first range-shaped cell right of the State-file cell (a last cell without a
+#     closing pipe is a cell). If the header-chosen cell is not range-shaped but another cell is, that one is read and
+#     focus_range_report WARNs.
 #       stdout "<a>-<b>"    a readable range B<a>–B<b> (en dash or hyphen, a <= b)
 #       stdout "!<cell>"    range-SHAPED but not the exact grammar (a > b, em dash, U+2011, minus, spaces around the dash,
 #                           `B1–130`, open-ended `B1157–`, lists `B841–B861, B866`): typed malformed, never silent empty
@@ -74,8 +76,10 @@ if ! declare -F derive_focus_range >/dev/null 2>&1; then
       /^\|/ {
         line=$0; endi = (line ~ /\|[[:blank:]]*$/) ? NF-1 : NF
         c2s=trim($2)
-        if (c2s ~ /^:?-+:?$/) { n=split(prev,pf,"|"); hdr=0
-          for (i=2;i<=n && !hdr;i++) if (tolower(trim(pf[i])) ~ /^(bloques?|blocks?|block prefix|block range|prefijo|prefix|rango)/) hdr=i
+        if (c2s ~ /^:?-+:?$/) { n=split(prev,pf,"|"); hdr=0; hdrp=0
+          for (i=2;i<=n;i++) { h=tolower(trim(pf[i]))
+            if (!hdr && h ~ /^(bloques?|blocks?|block range|rango)$/) hdr=i  # RANGE-HDR-VOCAB
+            if (!hdrp && h ~ /^(block prefix|prefijo|prefix)$/) hdrp=i }
           prev=""; next }
         prev=line
         sfcol=$4; gsub(/^[[:blank:]`]+|[[:blank:]`]+$/,"",sfcol)
@@ -83,15 +87,19 @@ if ! declare -F derive_focus_range >/dev/null 2>&1; then
         if (sfcol !~ /^RESEARCH-STATE.*\.md$/) next
         nsh=0; first=""
         for (i=5;i<=endi;i++) { c=trim($i); if (near(c)) { nsh++; if (first=="") first=c } }
-        chosen=first; if (hdr>=5 && hdr<=endi) chosen=trim($hdr)
+        chosen=first; fb=0
+        if (hdr>=5 && hdr<=endi) { chosen=trim($hdr); if (!near(chosen) && first!="") { chosen=first; fb=1 } }  # RANGE-HDR-FALLBACK
         if (mode=="root") {
           if (sfcol!="RESEARCH-STATE.md" || done) next
           done=1
           if (strict(chosen)) print "V\t" norm(chosen); else if (near(chosen)) print "V\t!" chosen
           if (nsh>1) print "M\t" nsh
+          if (fb) print "F\t" chosen
         } else if (sfcol!="RESEARCH-STATE.md") {
           if (strict(chosen)) { v=norm(chosen); if (v !~ /^!/) { split(v,q,"-"); print "R\t" q[1] "\t" q[2] } }
-          else { bp=trim((hdr>=5 && hdr<=endi) ? $hdr : $5); sub(/block[A-Za-z0-9]*\.md.*/,"",bp); if (bp ~ /^[A-Za-z].*-$/) print "P\t" bp }
+          else { bp=trim((hdrp>=5 && hdrp<=endi) ? $hdrp : $5); sub(/block[A-Za-z0-9]*\.md.*/,"",bp)
+            if (bp !~ /^[A-Za-z].*-$/ && hdr>=5 && hdr<=endi) { bp=trim($hdr); sub(/block[A-Za-z0-9]*\.md.*/,"",bp) }  # prefix written under the range header
+            if (bp ~ /^[A-Za-z].*-$/) print "P\t" bp }
         }
       }' "$2"
   }
@@ -141,12 +149,14 @@ if ! declare -F derive_focus_range >/dev/null 2>&1; then
   focus_range_block_count() { focus_range_stat "$1" "$2" "${3:-}" COUNT; }
   # shellcheck disable=SC2059
   focus_range_report() {
-    local sf="$1" fmt="$2" fm rows v m rng scan fams nf cnt span miss lst out
+    local sf="$1" fmt="$2" fm rows v m f rng scan fams nf cnt span miss lst out
     [ "$(basename "$sf")" = "RESEARCH-STATE.md" ] || return 0
     fm="$(dirname "$sf")/FOCUSES.md"; [ -f "$fm" ] || return 0
     rows="$(_focus_range_awk root "$fm")"
     v="$(printf '%s\n' "$rows" | sed -n 's/^V\t//p' | head -1)"
     m="$(printf '%s\n' "$rows" | sed -n 's/^M\t//p' | head -1)"
+    f="$(printf '%s\n' "$rows" | sed -n 's/^F\t//p' | head -1)"
+    [ -z "$f" ] || printf "$fmt" WARN "FOCUSES.md range column cell is not range-shaped; read the range-shaped cell [$f] found elsewhere in the root row — put the range under the Blocks/Bloques header"
     [ -z "$m" ] || printf "$fmt" WARN "FOCUSES.md root row holds $m range-shaped cells — only the header-named (else first) one is read; keep exactly one B<a>–B<b> cell"
     case "$v" in
       '') return 0 ;;
