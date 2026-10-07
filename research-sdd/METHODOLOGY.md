@@ -147,16 +147,16 @@ taxonomy, so they were decided together:
   response you provoked) — a cached or replayed response is `[CERT-doc]` at best.
 - **When `[CERT-live]` and `[CERT-doc]` disagree, the live response wins** — then fix the doc citation and
   record the disagreement (§14). A runtime behaviour derived from code (`[CERT]`) wants a `[CERT-live]`
-  cross-check whenever a live oracle exists; the two ranks answer different questions.
+  cross-check whenever a live oracle exists; the two ranks answer different questions. Dashboard menu-path cites carry their capture date, and a `[CERT-doc]` snapshot is preferred over an older path in a repo document; a mismatch is a §14 disagreement (repo said "Zero Trust > Networks > Tunnels", the current doc says "Networking > Tunnels"; kit #1898).
 - **Numeric constants are `[CERT]` only with a fresh `file:line` grep in the same session** — a number copied
-  from a prior block inherits that block's citation, not a new `[CERT]`.
+  from a prior block inherits that block's citation, not a new `[CERT]`. A live stack-trace line number names the SHIPPED line and outranks a decompiled variant's line (`verifyCacertsSignature` at 1410 live vs `:928` / `:958` in two variants): record the divergence as evidence, do not silently cite the tree, and never write a trace line number in `filename:line` form or the citation classifier treats it as a resolvable path (B139 §139.6; kit #1619).
 - **No git, no problem — but say so:** when the subject has no version control, the file `mtime` (or the
   artifact `sha256`) is the `Subject version` stamp, declared as such.
 
 **Usage rules:**
 - Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
 - **Negative-existence claims carry the same open-it obligation as positive ones.** A negative existence claim about a named artifact ("no `com.tridium.niagarad.license.*` exists in `niagarad.jar`") is `[CERT]` ONLY if that EXACT named artifact was opened/decompiled. An agent asserting absence about an artifact it did NOT open is `[INFER]`, never `[CERT]` — the same discipline that requires a positive claim to cite the opened source applies symmetrically to absence.
-- A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor.
+- A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor. A tool's summary row certifies only the row it prints, not its sibling fields: `[expires: never]` in a license listing was the FILE header while 148 per-feature expirations sat beneath it (B1206 §1206.4; kit #1541).
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
@@ -813,6 +813,8 @@ firmware (uImage/IFS/gzip/lzo) retains a container/header magic that binwalk cat
 entropy PLUS zero binwalk signatures across the whole image** ⇒ encrypted is the strong reading. Keep the
 verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and the gap becomes a blocked
 child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
+
+**JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not. (Evidence: B139 §139.1/§139.2.)
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
@@ -1892,7 +1894,9 @@ Same family as UNANIMITY: a confident number is verified by a second path. (kit 
 
 **TYPE-GATED FIELD SEMANTICS (sub-case of the rule above).** One column's meaning can depend on a discriminator/type column in the SAME row, so confirming it for one record type does NOT confirm it for the others: check each type independently before the field enters an aggregate or a display. (Evidence: `events.residual_v` is residual RMS V for `Interrupción`/`Caída`, a signed ΔV for `RVC`, a signed peak V for `Forma de onda` — three quantities under one name, found only by checking every event type.)
 
-**SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.)
+**AGGREGATE MATCH ≠ EXAMPLE VALID (sibling of the rule above, at row level).** When cross-checking an external document against local data, a matching HEADLINE AGGREGATE (totals, counts, medians, section-level statistics) does NOT validate the document's individual WORKED EXAMPLES (specific cited rows or timestamps). Spot-check every cited example independently: locate where its exact value triple occurs in the local data, and do not assume it is correct because the surrounding aggregate matches. A plausible name and a plausible example are both unproven until checked against the answer key. (Evidence: B16 §16.2 vs §16.3 — all headline statistics matched, but the study's worked example (17/09 08:30, L2 = 63.12 A) did not: the local data at 08:30 shows 85.9 A, and the matching triple (63.06 A) occurs at 09:04, found only by searching for where the cited values occur; kit #1885.)
+
+**SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.) **The same rule binds SHIPPED DELIVERABLE CODE, not only investigator probes.** Every config-mutating command inside a deliverable script (installer, provisioning step) is followed by a read-back of the resulting state, and the step FAILS on mismatch; an exit code or an "OK" log line is never the success signal. When the read-back parses localized output, match the locale-invariant token (the value), not the translated label. (Evidence: B17 §17.3–17.4 — `netsh ... set interface name=` printed a usage error, exited 0, the script logged OK and the flag stayed `disabled`; the fix read `show interface store=persistent` and matched the value token, because the label was Spanish on that host; kit #1883.)
 
 **RECOMPUTE-BLINDNESS: at least one check must read consumer state, not derived state.** When a pipeline both APPLIES and ASSUMES a transform, an analysis that recomputes the expected transform cannot detect one that is wrong — both sides agree by construction. At least one check must read the state the CONSUMER reads (the render, the export, the downstream tool output), not the state the analysis derives. A passing registration residual and coverage metric will not detect a 45 km parent offset; only the render — returning empty — will. (Source: blender-llm B44 §44.4.)
 
@@ -2378,7 +2382,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   → settle window → independent read-back → byte-identical restore-to-original (see backup-before-destroy
   and cross-protocol oracle rules); (c) a bare `200 OK` is NOT verification — a malformed response body
   can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
-  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
+  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient. For write commands inside shipped deliverable code, the same read-back duty applies (§11a SILENT-SKIP HAZARD; kit #1883).
   (Evidence: panccadia B22/B23.)
 - **OFFENSIVE / DUAL-USE EXECUTION IS OUT OF DEFAULT SCOPE.** Building or running dual-use/offensive
   tooling to CLOSE a gap — a license or authentication BYPASS, a tamper that forces a verifier to accept
@@ -3953,6 +3957,7 @@ hard-stops, never blind.
   (a scoped re-judgment) BEFORE the terminal verdict. This is not ceremony — a round of fixes, each with a
   green directed test, has introduced 2 NEW CRITICAL defects that only the scoped re-judgment on the delta
   caught. The fixer's own tests certify the fix they aimed at, not the new surface the fix created.
+  The re-verification scope after a fix is the FIX DELTA PLUS EVERY DOWNSTREAM STEP WHOSE PRECONDITION THE FIX CHANGED: re-run the whole pipeline end to end, not only the check that failed. A fix that changes system state can unmask a latent defect in unchanged code (B17 §17.5: once DHCP stayed on, the untouched `ipconfig /renew -Wait` blocked for over 120 s on a bench with no DHCP server; only the full rerun caught it; kit #1884).
 - **Consumer-run-before-review.** Before adversarially reviewing an applied deliverable, RUN A REAL CONSUMER
   first — a fresh agent USING the deliverable as intended (not inspecting it) — and feed its friction findings
   to the reviewers as SEED claims. A review seeded by real usage friction finds spec-gap defects that blind
