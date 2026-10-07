@@ -2341,7 +2341,9 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   and are never echoed, and verification uses a scratch object, a dry-run surface, or rung (1) discovery —
   never a real production write. A mutation performed "to see what happens" during verification is a §12
   incident to record, not evidence; the cutover retro that produced this rule had to prove afterwards that
-  nothing had moved.
+  nothing had moved. Credential-store hardening on the target side (what an operator with local file access can
+  recover from a Niagara host's own configuration, and how to reduce it) is in
+  `toolbelt/NIAGARA-N4-FRAMEWORK.md` §8.
   **Minimal-privilege principal — a surface-dependent capability, not a universal step.** When a live
   write is required, check first for existing low-privilege accounts before attempting to mint a
   minimal-privilege ephemeral principal. Minting is a SURFACE-DEPENDENT capability: cloud SaaS
@@ -3315,6 +3317,13 @@ one that first found it. (Source: niagara-research/retros/2026-08-07-signing-pki
 
 **Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block. (Source: 2026-08-29-ports-focus-retro.md DELTA-2)
 
+**Resuming a mature multi-focus corpus (kit #1557; §17 step 1, §8).** Before the first `--next` on a corpus that
+has run for many sessions, run `verify-state.sh` over EVERY focus first and budget a reconciliation pass: stale
+state envelopes are invisible until the `--next` STALE-gate refuses ("bricks") the focus that happens to be
+picked, and the cost then lands in the middle of a block instead of at the planning step. Reconcile each focus
+with `research-sdd-status.sh --sync-state --focus <slug>`, re-run `verify-state.sh`, and only then resume the
+loop. (Retro: niagara-research 2026-10-14, corpus-gate-reconciliation, R3.)
+
 **Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
 
 **Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations. (Source: 2026-08-30-alarm-webhook-focus-retro.md D2)
@@ -3440,6 +3449,14 @@ trigger, not "a focus stopped".
 (§11), so a block added or closed without touching that file never fires it and `covered_blocks` can drift for
 commits and retros (20 recorded vs 23 on disk). The retro pass is the backstop: run it whether or not
 `RESEARCH-STATE` was edited this run. (retro: pancaddia-leon-tunnel, #1383)
+
+**Document after EVERY verification or change, not only at close (kit #1890).** "Done" (§8) is not only a closing
+act, so the retro is not the first place a run's changes are written down. After each verification, fix or change
+made during the run, record it at once in the block (a problem or lesson uses the §20 problem-entry template) and
+mirror it to Engram; a change or verification with no written trace is not done, and the retro cannot reconstruct
+what was never recorded. The operative rule is PROMPT-LOOP's DOCUMENT CYCLE step 4 DOCUMENT AFTER EVERY
+VERIFICATION OR CHANGE; the retro then reviews that the traces exist instead of creating them. Operator-fixed as
+a permanent norm (retro: mini-pc 2026-09-14, doctrina-documentar-problemas, delta #2).
 
 **§18 is a batch pass over the run; it does not replace per-change documentation (§8).** The retrospective
 consolidates lessons at the terminal — it is not where a fix's symptom/cause/verification first gets
@@ -4065,6 +4082,15 @@ for the evidence trail. A finding that exists only in a tool's docstring or in e
 it is not cited, not verified, not connected to other blocks, and invisible to any reader of the corpus.
 Without this step, a productive build phase silently drains the corpus of its own discoveries.
 
+**Executed build recipes are replayable units, not only prose (kit #1639).** Probe captures are preserved under
+`sources/probes/`; an executed BUILD recipe (keys, certs, jar or archive surgery, repack, sign) is the same class of
+asset and must not live only in block prose or session scratch space. Persist it as a runnable script in the
+target's `tools/` or `codegen/` in the SAME commit as its block, and cite that path with the block's exact
+reproduction commands. Evidence: a prior target's committed toolkit made a later lane re-derivable in minutes,
+while a four-step local build documented only in prose had to be re-assembled by hand. The operative statement is
+PROMPT-LOOP's SCRIPTS-MANIFEST / PRESERVE paragraph (kit #1639, #1207); the staged verify-block enforcement
+(`EPHEMERAL?` WARN, `--strict-ephemeral`) is described there.
+
 ## 20. Document mode (CAPTURE what you already know or just did)
 
 The static loop (§1–§11) **DISCOVERS** — "what IS this system", gap-driven, AUDIT-FIRST — and self-feeds a
@@ -4118,8 +4144,22 @@ date + commit sha + `file:line` when applicable; (6) **verification** — the ev
 resolved (counts, a DRY-RUN, a live check), tagged `[CERT-live]` (verified live) or `[CERT]` (verified by
 reading code). Golden rule: an unverified claim is not documented as fact — it is marked a hypothesis or
 verified first. This is the canonical shape for problem-entries inside a document-cycle block (§4); do not
-improvise a shorter form that drops root cause or verification. (Source:
-investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.)
+improvise a shorter form that drops root cause or verification. A problem entry missing any of the six fields
+is incomplete, not "short". The operative form is PROMPT-LOOP's DOCUMENT CYCLE step 2 PROBLEM-ENTRY MOLD (kit
+#1889) — it states the same six fields and is authoritative for the run; this paragraph restates the fields only
+as rationale, and PROMPT-LOOP step 2 is operative.
+(Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.)
+
+**Pending-live registration (kit #1893).** A `[PENDING-live]` marker (retro example: the Spanish
+`[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included, is a claim nobody has validated yet, and a
+document-cycle run never reaches the §13 gap backlog that would otherwise track it. It must therefore be registered
+in RESEARCH-STATE in the SAME commit as the block; the mechanics (a `## Blocked gaps` bullet
+`- <claim> — needs: first live run`, with `known_gaps` bumped so the identity of §8 keeps holding) are PROMPT-LOOP's
+DOCUMENT CYCLE step 2 PENDING-LIVE REGISTRATION. A dedicated pending-validation section is not defined and no tool
+counts one: the bullet IS the registration. A deliverable must not make an unvalidated mode its DEFAULT unless that
+bullet names the first live run as the validation. Evidence: a coexistence mode tagged pending-live in a block
+header but unlisted in state shipped as the kit default and failed on first real use, 17 days later. (Retro:
+mini-pc 2026-10-03, b17-coexistence-netsh.)
 
 **Evidence in document-mode blocks — three clarifications.**
 
@@ -4145,9 +4185,11 @@ produced by a delegated per-section-agent (§16 large-scale pattern) rather than
 delegation prompt commonly tells the sub-agent NOT to touch `RESEARCH-STATE.md` (to avoid a shared-state
 race). That instruction leaves the state file at its BOOTSTRAP-seeded placeholder values after authoring
 unless someone explicitly closes the loop — the driver, immediately after the sub-agent returns, is the
-one who populates the document-cycle state (covered blocks, iteration history) from what was actually
-written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an orphan
-step that silently never runs. (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
+one who populates the document-cycle state (see PROMPT-LOOP DOCUMENT CYCLE step 1 STATE OWNERSHIP) from what
+was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an
+orphan step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
+(kit #1888); this paragraph adds only the rationale.
+(Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
 
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
@@ -4288,6 +4330,18 @@ is executed and its measured result cited (§3). `refused` is never laundered: i
 authorization. `not-buildable` stays the ONLY state that means *stop asking*: its plan names a different
 instrument class that could still answer, or reads `unblock: none — every instrument class tried (<list>)`.
 `verify-state.sh` does not check for the `unblock:` line (doctrine first; no instrument yet).
+
+**Re-typed or newly blocked backlog rows (kit #1638; grammar §8b).** A gap whose type changes, or that becomes
+blocked, is recorded in ONE of two forms in the SAME edit; both are accepted without a WARN: (a) in place, Status
+`blocked (requires-<what>)` with its `tried:` / `needs:` clauses; or (b) moved out of the main table into
+`## Blocked gaps` as a `- <gap> — needs: …` bullet. They do not count the same way. Only (b) raises `blocked_open`
+(it is derived from the `## Blocked gaps` / `## Non-investigable gaps` sections). An in-place (a) row merely
+leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` can still count it as
+CLOSED in `gaps_closed`; prefer (b) (tool bucketing tracked in kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
+WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
+the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is
+PROMPT-LOOP BOOTSTRAP's RE-TYPED / BLOCKED TRANSITION.
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
