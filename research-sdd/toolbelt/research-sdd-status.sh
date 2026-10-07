@@ -224,6 +224,8 @@ fi
 # Fail closed: this script does NOT use `set -e`, so a failed/partial/syntax-broken source would be
 # swallowed and every focus-prefix call would silently return empty, mis-counting blocks. Abort early.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
+declare -F focus_range_block_count >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
 # lib/state-files.sh (list_state_files / resolve_state_file) was already sourced above, before the pick
 # that decides $corpus — the single definition of the "enumerate RESEARCH-STATE*.md" incantation
@@ -620,47 +622,6 @@ warn_inplace_blocked() {
   [ "${2:-0}" -gt 0 ] || return 0
   printf 'sync-state: WARN: %s: %d in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.\n' "$1" "$2" >&2
 }
-# gap_id TEXT — normalised leading ID token of a gap cell / bullet: `**` and a trailing `.`/`:` stripped, upcased
-# (`AB.`, `AB`, `ab:` all give `AB`). ID-shaped = [A-Za-z0-9][A-Za-z0-9.-]* that holds a digit or is at most 3
-# characters; empty otherwise (a plain word like `Builders` is never an ID).
-gap_id() {
-  local t="${1#"${1%%[![:space:]]*}"}"; t="${t#\*\*}"; t="${t%%[[:space:]]*}"; t="${t%\*\*}"; t="${t%[.:]}"
-  case "$t" in ''|*[!A-Za-z0-9.-]*) return 0 ;; esac
-  case "$t" in [A-Za-z0-9]*) ;; *) return 0 ;; esac
-  case "$t" in *[0-9]*) ;; *) [ "${#t}" -le 3 ] || return 0 ;; esac
-  printf '%s\n' "${t^^}"
-}
-# count_inplace_blocked — OPEN backlog rows whose leading Status token is `blocked` / `blocked:` / `blocked,` /
-# `blocked-on-*` (the in-place form of METHODOLOGY §21.1) that are NOT also listed under a Blocked-gaps section (#1915).
-# Such a row is excluded from investigable_open (DONE-TOKENS) and is not in blocked_open (section-derived, mirrored by
-# verify-state CHECK C), so without this bucket the KG-BACKLOG gaps_closed derivation counted it CLOSED (§7).
-# A typed separate bucket: subtracted from gaps_closed and named in a WARN; blocked_open is deliberately unchanged.
-# Closed rows (struck gap, ~~/✅ in the status) are skipped; `requires-execution*` has its own counter.
-# Only a bullet that blocked_open actually counts (it carries `needs:`) may suppress a row: a needs-less bullet
-# raises no bucket, so the row must stay counted here.
-count_inplace_blocked() {
-  local gap st lead tok n=0 _ipb_id _blk_ids _blk_names _bn
-  _blk_names="$(blocked_body | grep -iE '^[[:space:]]*-[[:space:]].*needs:' | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
-    | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-  # gap IDs of those bullets: the in-place row's Gap cell and the bullet rarely share the full text
-  # (fleet: `AB. Builders de config … — offsets` vs `**AB. Offsets de campo …**`), so match by leading ID token.
-  _blk_ids="$(while IFS= read -r _bn; do gap_id "$_bn"; done <<<"$_blk_names")"
-  while IFS=$'\t' read -r _ gap st; do
-    [ -z "$gap" ] && continue
-    case "$gap" in *'~~'*) continue ;; esac
-    case "$st" in *'~~'*|*'✅'*) continue ;; esac
-    lead="${st#\*\*}"; lead="${lead/\*\*/}"
-    tok="${lead%% *}"
-    case "$tok" in blocked-on-*|blocked|blocked:|blocked,) ;; *) continue ;; esac  # INPLACE-BLOCKED-TOKENS
-    case $'\n'"$_blk_names"$'\n' in *$'\n'"$gap"$'\n'*) continue ;; esac  # INPLACE-DUAL-GUARD: already counted once by the Blocked-gaps section
-    _ipb_id="$(gap_id "$gap")"
-    if [ -n "$_ipb_id" ]; then  # INPLACE-DUAL-ID: same gap ID as a counted Blocked-gaps bullet (IDs hold only [A-Z0-9.-], so no glob chars)
-      case $'\n'"$_blk_ids"$'\n' in *$'\n'"$_ipb_id"$'\n'*) continue ;; esac  # INPLACE-DUAL-ID-CASE
-    fi
-    n=$((n+1))
-  done < <(backlog_rows 2>/dev/null)
-  echo "$n"
-}
 # derived requires_execution_open — MIRRORS verify-state.sh's derive_requires_execution EXACTLY (same
 # deliberate lockstep as count_investigable): OPEN backlog rows whose STATUS column (tolower'd by
 # backlog_rows) is ANCHORED to the LEADING token `requires-execution` (mirrors count_investigable's
@@ -992,6 +953,8 @@ if [ "$mode" = "--sync-state" ]; then
     # verify-state.sh (single definition rule, prevents dual-authority drift on this count).
     # B5 FIX: focus-prefix filter for multi-focus corpora; shared-global path mirrors BS-SHARED-GLOBAL-ONDISK.
     _sfpfx="$(derive_focus_prefix "$state")"
+    _sfrange=""   # kit #906: FOCUSES.md block RANGE cell (a prefix wins); malformed/multi/family/missing diagnostics from the shared report
+    if [ -z "$_sfpfx" ]; then _sfrange="$(derive_focus_range "$state")"; focus_range_report "$state" 'sync-state: %s: RESEARCH-STATE.md: %s\n' >&2; case "$_sfrange" in '!'*) _sfrange="" ;; esac; fi  # RANGE-REPORT
     if [ "$_e_bs" = "shared-global" ]; then
       # block_scope: shared-global → use attributed B<n> count (mirrors verify-state.sh CHECK A via
       # count_attributed_sg / _derive_attributed_sg respectively, so the two scripts always agree).
@@ -1010,6 +973,8 @@ if [ "$mode" = "--sync-state" ]; then
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
+    elif [ -n "$_sfrange" ]; then
+      cb="$(focus_range_block_count "$(dirname "$state")" "$_sfrange" "$state")"  # RANGE-SYNC-COUNT
     else
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter | wc -l | tr -d ' ')"
@@ -1018,12 +983,12 @@ if [ "$mode" = "--sync-state" ]; then
     # corpus-wide block count — not its own scope. Flag it; the reconciliation below KEEPS a declared value
     # unless covered_blocks is named in --only, and says so.
     _cw=0
-    if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ "$_e_bs" != "shared-global" ] \
+    if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ -z "$_sfrange" ] && [ "$_e_bs" != "shared-global" ] \
        && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then _cw=1; fi  # ROOT-CORPUS-WIDE
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
     def="$(count_deferred)"
-    _ipb="$(count_inplace_blocked)"   # in-place blocked rows (#1915): open, in no other bucket — never closed
+    _ipb="$(backlog_rows 2>/dev/null | inplace_blocked_count "$(blocked_body)")"   # in-place blocked rows (#1915; shared lib/focus-prefix.sh helper, mirrored by verify-state CHECK H): open, in no other bucket — never closed
     # requires_execution_open: compute BEFORE cov/kg so KG-BACKLOG-GC can use dreq.
     # PREFERS the backlog-derived count (rows whose Status carries the `requires-execution` marker →
     # disk-anchored, in lockstep with verify-state.sh's CHECK E) and only falls back to the prose
@@ -1187,10 +1152,10 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     if [ "$_cw" = 1 ] && only_has covered_blocks; then  # ROOT-CORPUS-WIDE-WARN
       if [ -n "$_cw_kept" ]; then
-        printf 'sync-state: WARN: %s: covered_blocks would be %s, the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md), not this focus'"'"'s number — KEPT the declared %s; name covered_blocks in --only to write it.\n' \
+        printf 'sync-state: WARN: %s: covered_blocks would be %s, the CORPUS-WIDE block count (no block prefix or B<a>–B<b> range for the root focus in FOCUSES.md), not this focus'"'"'s number — KEPT the declared %s; name covered_blocks in --only to write it.\n' \
           "$(basename "$state")" "$_cw_kept" "$cb" >&2
       else
-        printf 'sync-state: WARN: %s: covered_blocks=%s written is the CORPUS-WIDE block count (no block prefix for the root focus in FOCUSES.md) — not scoped to this focus; verify it.\n' \
+        printf 'sync-state: WARN: %s: covered_blocks=%s written is the CORPUS-WIDE block count (no block prefix or B<a>–B<b> range for the root focus in FOCUSES.md) — not scoped to this focus; verify it.\n' \
           "$(basename "$state")" "$cb" >&2
       fi
     fi
@@ -2131,9 +2096,13 @@ metric="$(cov_ratio)"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 # B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
 _stpfx="$(derive_focus_prefix "$state")"
+_strange=""   # kit #906
+if [ -z "$_stpfx" ]; then _strange="$(derive_focus_range "$state")"; focus_range_report "$state" 'status: %s: %s\n' >&2; case "$_strange" in '!'*) _strange="" ;; esac; fi  # RANGE-REPORT
 if [ -n "$_stpfx" ]; then
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter "${_stpfx}" | wc -l | tr -d ' ')"
+elif [ -n "$_strange" ]; then
+  ondisk="$(focus_range_block_count "$corpus" "$_strange" "$state")"  # RANGE-DISPLAY-COUNT
 else
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter | wc -l | tr -d ' ')"

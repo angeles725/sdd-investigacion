@@ -1172,7 +1172,7 @@ estimate the number of unresolved gaps; instead use `investigable_open` (which e
 blocked, and requires-execution entries) as the relevant forward-work count.
 (Source: niagara-research/retros/2026-08-29-ports-focus-retro.md DELTA-4)
 
-**`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` at every point in the run; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: an absence-closed gap exits the `- name — needs:` row form — transformed to a non-bullet prose note (never a `- … needs:` line), or removed — so `derive_blocked` no longer counts it; it is credited to `gaps_closed`, not `blocked_open`. A row still carrying `needs:` is by definition still blocked (open), not closed. (See the `tried:` clause paragraph, search term `tried: clause for blocked`.) (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is now partially enforced: a new WARN-only CHECK H (search `IDENTITY-SUM-CHECK` in `verify-state.sh`) flags declared-identity drift when the sum of the five DECLARED envelope counters `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open ≠ known_gaps` (all declared fields; derived disk counts are CHECK B/C/E/F's job; absent OR non-integer `deferred_open` is treated as 0 (CHECK F's is_int split)), though it remains advisory (WARN, not FAIL). (Source: niagara module-mechanics-closeout)
+**`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` (+ in-place blocked, §21.1) always; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: an absence-closed gap exits the `- name — needs:` row form — transformed to a non-bullet prose note (never a `- … needs:` line), or removed — so `derive_blocked` no longer counts it; it is credited to `gaps_closed`, not `blocked_open`. A row still carrying `needs:` is by definition still blocked (open), not closed. (See the `tried:` clause paragraph, search term `tried: clause for blocked`.) (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is now partially enforced: a new WARN-only CHECK H (search `IDENTITY-SUM-CHECK` in `verify-state.sh`) flags drift in this identity (it adds the derived in-place-blocked term of §21.1; absent OR non-integer `deferred_open` is treated as 0), though it remains advisory (WARN, not FAIL). (Source: niagara module-mechanics-closeout)
 
 **PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
 the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
@@ -3260,6 +3260,26 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   A **planned** focus is one whose RESEARCH-STATE + backlog are already committed but which has 0 blocks yet;
   because it is already initialized, the loop must NOT re-BOOTSTRAP it as a duplicate — it picks up the
   existing state and writes its first block.
+  **Block-scope cell grammar (closed, kit #906).** The cell that scopes a focus to its blocks is read by SHAPE,
+  after stripping backticks, `**` and surrounding blanks, and is exactly one of: a **prefix** `<prefix>-` (the
+  `RESEARCH-STATE-<focus>.md` convention; for the un-suffixed root the cell right of the State-file cell, decorated
+  with `block*.md` allowed) or a **range** `B<a>–B<b>` (en dash or ASCII hyphen, `a ≤ b`, e.g. `B1–B130`). A range
+  scopes a focus that shares the corpus-wide block numbering and filename prefix with its siblings (the niagara-research
+  base focus): its blocks are the canonical block files (`lib/block-files.sh`) whose number lies in `[a, b]`, counted as
+  DISTINCT block numbers and NOT counting any file another FOCUSES.md row claims (that row's prefix, or a number inside
+  that row's own range). A file no row claims is counted whatever its filename family, and a range fed by more than one
+  such family is WARNed with each family's file count; missing numbers (`b - a + 1` minus distinct) are NOTEd, first 10
+  listed. The cell is chosen by the RANGE header (whole cell: Bloques / Blocks / Block range / Rango; a `Block prefix` /
+  Prefijo / Prefix column is the prefix column, and `Blocked …` matches neither); with no such header it is the first
+  range-shaped cell right of the State-file cell. If the header-chosen cell is not range-shaped but another cell of the
+  root row is, that one is read and WARNed; more than one range-shaped cell is WARNed. A range is read only for the
+  un-suffixed root row (a `RESEARCH-STATE-<focus>.md` always takes its prefix from its own filename), and a
+  prefix-shaped cell wins over a range in the same row. A cell that is range-shaped but not exactly that grammar (`B9–B3`, em dash, U+2011, minus, spaces around
+  the dash, `B1–130`, open-ended `B1157–`, lists `B841–B861, B866`) is reported by `verify-state.sh` and
+  `research-sdd-status.sh` and scopes nothing (the root then falls back to the corpus-wide count, WARNed as before);
+  anything else in that cell scopes nothing. `verify-state.sh` and `research-sdd-status.sh` (display and `--sync-state`)
+  count `covered_blocks` through the same helper (`lib/focus-prefix.sh`), as does `state-update.sh` (it withholds the
+  root's count only when neither a prefix nor a readable range scopes it), so they agree.
 - **Focus-status cell grammar (closed vocabulary, §8b style).** The status cell is read by its LEADING token,
   after stripping at most one leading `**`; everything after the token is free decoration (a parenthetical
   ratio such as `stopped (12/12; +B556)` is the convention). Legal tokens:
@@ -4411,8 +4431,9 @@ blocked, is recorded in ONE of two forms in the SAME edit: (a) in place, Status
 leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` keeps it OUT of
 `gaps_closed` as a separate in-place-blocked bucket and prints `sync-state: WARN: … N in-place blocked row(s) …` asking
 you to move it to `## Blocked gaps`. A row that is also listed there is counted once, as (b): its Gap cell equals the
-bullet's name or shares the bullet's leading gap ID (`AB.`, `**` stripped). `verify-state.sh` does not yet mirror the
-in-place bucket, so until it does the CHECK H identity sum is short by that count (kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+bullet's name or shares the bullet's leading gap ID (`AB.`, `**` stripped). `verify-state.sh` mirrors the
+in-place bucket through the same shared helper (`lib/focus-prefix.sh`): its CHECK H identity sum adds the derived
+in-place count as a sixth term, since the envelope has no field for it (kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
 leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
 WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
 the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is

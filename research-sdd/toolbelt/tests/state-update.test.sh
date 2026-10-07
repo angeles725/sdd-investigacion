@@ -186,6 +186,17 @@ state "$d/RESEARCH-STATE.md" 1 2 2; state "$d/RESEARCH-STATE-x.md" 2 2 2
 run "$d"; expect "21 root of a multi-state corpus: corpus-wide covered_blocks withheld, NOTE names it, and it is COUNTED (#1534)" 0 "changed=0" "covered_blocks withheld" "unproposed=1"
 lacks "21b no covered_blocks hunk for the root" "-covered_blocks" "+covered_blocks"
 
+# 21c. same shape, but FOCUSES.md gives the root a readable range B1–B2: covered_blocks IS proposed (the count is the
+#      focus's own: the sibling's x-* files are claimed by its prefix row, so only proj-block1/2 count), not withheld.
+d="$TMP/rootrng"; blocks "$d" proj-block1.md proj-block2.md x-block1.md x-block2.md
+state "$d/RESEARCH-STATE.md" 1 2 2; state "$d/RESEARCH-STATE-x.md" 2 2 2
+printf '%s\n' '| Focus | Estado | RESEARCH-STATE | Ámbito | Bloques |' '|---|---|---|---|---|' '| (base) | stopped | `RESEARCH-STATE.md` | root | B1–B2 |' '| x | active | `RESEARCH-STATE-x.md` | sib | x- |' > "$d/FOCUSES.md"
+run "$d"; expect "21c root with a FOCUSES.md range: covered_blocks proposed 1 -> 2 (SU-ROOT-CORPUS-WIDE accepts a range)" 1 "-covered_blocks: 1" "+covered_blocks: 2"
+lacks "21d no withholding NOTE for a range-scoped root" "covered_blocks withheld"
+# 21e. a MALFORMED range counts as absent: withheld exactly like case 21
+d="$TMP/rootrngbad"; cp -r "$TMP/rootrng" "$d"; sed -i 's/B1–B2/B2–B1/' "$d/FOCUSES.md"
+run "$d"; expect "21e malformed range (B2–B1) counts as absent: covered_blocks withheld" 0 "covered_blocks withheld" "unproposed=1"
+
 # 22. verify-state flags a stale stop-control number but no rewritable line exists: counted, never dropped.
 d="$TMP/prosegone"; blocks "$d" proj-block1.md proj-block2.md; state "$d/RESEARCH-STATE.md" 2 2 2; sed -i '/read-only investigable/d' "$d/RESEARCH-STATE.md"
 printf '#!/usr/bin/env bash\necho "== verify-state: RESEARCH-STATE.md (target: x) =="\necho "   FAIL   stop-control prose '"'"'read-only-investigable: 1'"'"' but backlog derives 2 investigable gap(s) — refresh"\nexit 1\n' > "$TMP/stub-prose.sh"
@@ -267,6 +278,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt summary-trap          's/^trap _summary EXIT$/trap : EXIT/' "$TMP/empty" 2 2 --good-has 'checked=' --bad-lacks 'checked='
   tt dup-basename          's/^if \[ -n "\$dups" \]; then/if false; then/' "$TMP/dup" 3 1
   # (#1534) withheld-counted (case 21), cmp-probe (25a), diff-rc-gate (25b, 25d), cmp-rc-gate (25c), sg-tab-class (26): each mutant removes one guard and its named case must notice.
+  tt root-range            's/=~ \^\[0-9\]+-\[0-9\]+\$/=~ ^NEVER$/' "$TMP/rootrng" 1 0 --good-has '[+]covered_blocks: 2' --bad-lacks '[+]covered_blocks: 2'
   tt withheld-counted      '/SU-WITHHELD-COUNTED/d' "$TMP/rootcw" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
   STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" tt sg-tab-class 's/\^\[\[:space:\]\]\*block_scope:\[\[:space:\]\]\*/^[ \\t]*block_scope:[ \\t]*/' "$TMP/sgtab" 1 0
   m="$MUT/state-update.sh"

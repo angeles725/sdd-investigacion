@@ -28,6 +28,8 @@ fi
 # be swallowed and every derive_focus_prefix call would silently return empty (count ALL blocks — a
 # false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
+declare -F focus_range_block_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
 _BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
@@ -195,6 +197,7 @@ _blocked_names() {                                  # one exact blocked gap NAME
 # derived investigable_open = pending (LEADING-TOKEN) backlog rows whose gap is NOT blocked. This is
 # resolve_next's NEXT-eligibility set by construction — the STOP-CRITICAL number that closes the
 # premature-STOP class: if the envelope under-declares it, verify-state FAILs → --next returns STALE.
+_blocked_body() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; }; }  # the text blocked_open is derived from (mirrors status.sh blocked_body)
 derive_investigable() {
   local sf="$1" blk gap st n=0 b hit
   blk="$(_blocked_names "$sf")"
@@ -818,6 +821,9 @@ for state in "${states[@]}"; do
   #    FOCUSES.md for the legacy RESEARCH-STATE.md case) and filter to only that focus's blocks.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
   _fpfx="$(derive_focus_prefix "$state")"
+  _ondisk_unit="block file(s) on disk"  # the unit of ${ondisk} in every message below; the range path counts distinct ids instead
+  _frange=""   # kit #906: FOCUSES.md block RANGE cell (a prefix wins)
+  if [ -z "$_fpfx" ]; then _frange="$(derive_focus_range "$state")"; focus_range_report "$state" '   %s   %s\n'; case "$_frange" in '!'*) _frange="" ;; esac; fi  # RANGE-REPORT
   # block_scope: optional envelope field — 'per-focus' (default when absent) or 'shared-global'.
   # Present but neither legal value (including empty) is a hard FAIL: the gate must know which mode applies.
   # This is the §7 three-state rule: absent ≠ empty ≠ illegal value.
@@ -842,6 +848,9 @@ for state in "${states[@]}"; do
   elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
+  elif [ -n "$_frange" ] && [ "${_frange#!}" = "$_frange" ]; then
+    ondisk="$(focus_range_block_count "$(dirname "$state")" "$_frange" "$state")"  # RANGE-VERIFY-COUNT
+    _frfiles="$(focus_range_stat "$(dirname "$state")" "$_frange" "$state" FILES)"; _frname="B${_frange%-*}–B${_frange#*-}"; _ondisk_unit="distinct block id(s) in ${_frname}"  # RANGE-UNIT
   else
     ondisk="$_ondisk_global"
   fi
@@ -876,7 +885,7 @@ for state in "${states[@]}"; do
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"
-  echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
+  echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} ${_ondisk_unit}"  # UNIT-SUMMARY
   echo "   backlog pending : ${pending}"
   echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
   d_rt="$(derive_retyped_in_table "$state")"
@@ -905,6 +914,10 @@ for state in "${states[@]}"; do
   if [ "$_sg_check_a_done" = 0 ] && { ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; }; then  # SG-CHECK-A-SKIP
     if [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-COND
       echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file matches prefix '${_fpfx}' — ${_ondisk_global} block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state"
+    elif [ -n "$_frange" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # RANGE-CANNOT-SEE-COND
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file is numbered within ${_frname} (FOCUSES.md range) — ${_ondisk_global} block file(s) exist outside it; fix the range cell or declare block_scope: shared-global, then re-seed: --sync-state"
+    elif [ -n "$_frange" ]; then
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} distinct block ids in ${_frname} (${_frfiles:-0} block file(s)) — re-seed: --sync-state"  # RANGE-CHECK-A-MSG
     else
       echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} block file(s) on disk — re-seed: --sync-state"
     fi
@@ -915,6 +928,9 @@ for state in "${states[@]}"; do
   # because no block file matched the focus prefix. Advisory WARN per §8 (finding, not operational failure).
   if is_int "$e_covered" && [ "$e_covered" = "$ondisk" ] && [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-PASS
     echo "   WARN   envelope covered_blocks=0: declared 0 matches 0 focus-filtered on-disk — but ${_ondisk_global} block file(s) exist under other prefixes (focus '${_fpfx}' matches none); if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state"
+  fi
+  if is_int "$e_covered" && [ "$e_covered" = "$ondisk" ] && [ -n "$_frange" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # RANGE-CANNOT-SEE-PASS
+    echo "   WARN   envelope covered_blocks=0: declared 0 matches 0 in-range on-disk — but ${_ondisk_global} block file(s) exist outside ${_frname} (the range scopes none of them); fix the range cell or declare block_scope: shared-global, then re-seed: --sync-state"
   fi
   # ENVELOPE CHECK B (FAIL, STOP-CRITICAL) — declared investigable_open must equal the NEXT-eligible set.
   # This is the check that closes the premature-STOP class BY CONSTRUCTION: an under-declared count here
@@ -965,13 +981,13 @@ for state in "${states[@]}"; do
     echo "   WARN   envelope deferred_open missing while $d_def deferred backlog gap(s) found — seed it: --sync-state"
   fi
 
-  # ENVELOPE CHECK H (WARN-ONLY) — known_gaps declared identity: declared known_gaps must equal the sum
-  # of its five DECLARED constituent terms (all from the envelope, not derived from disk):
-  #   gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open == known_gaps
-  # This is an INTERNAL-CONSISTENCY check on the declared envelope fields. Disk-vs-declared staleness for
-  # each individual term is already CHECK B/C/E/F's job — mixing derived values here conflates two invariants
-  # and causes false positives on prose-tracked corpora (e.g. e_req=1 declared but d_req=0 → declared sum
-  # correct but a derived-counter check would false-fire). Using declared counters matches §8 doctrine exactly.
+  # ENVELOPE CHECK H (WARN-ONLY) — known_gaps declared identity: known_gaps must equal the sum of FIVE DECLARED
+  # envelope terms plus ONE DERIVED term (METHODOLOGY §21.1 in-place blocked bucket, kit #1915):
+  #   gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open + in_place_blocked == known_gaps
+  # The five declared terms are compared as declared: disk-vs-declared staleness for each is already CHECK B/C/E/F's job,
+  # and mixing derived values for them causes false positives on prose-tracked corpora (e_req=1 declared but d_req=0).
+  # in_place_blocked is the one exception because the envelope has NO field for it: --sync-state subtracts it from
+  # gaps_closed, so the identity can only hold when it is added back from disk (same shared helper as the writer).
   # LEGACY ENVELOPES: deferred_open predates some envelopes. Treat absent as 0 (mirrors CHECK F: "both sides
   # zero → no mismatch, silent" — same reasoning: pre-field corpora have 0 deferred rows by construction).
   # Do NOT apply absent-as-0 to any other field: e_inv/e_blocked/e_req absent means malformed envelope
@@ -989,9 +1005,16 @@ for state in "${states[@]}"; do
   # (present-but-malformed field is already caught by the individual field-presence checks).
   _h_def=0; is_int "$e_def" && _h_def="$e_def"  # IDENTITY-DEF-ABSENT-AS-ZERO: absent OR non-integer deferred_open ⇒ 0 (CHECK F's is_int split)
   if is_int "$e_gc" && is_int "$e_kg" && is_int "$e_inv" && is_int "$e_blocked" && is_int "$e_req"; then  # IDENTITY-INT-GUARD
-    _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req ))  # IDENTITY-REQ-VAR
+    # in_place_blocked (#1915) has NO envelope field: --sync-state subtracts it from gaps_closed, so it is the one
+    # DERIVED term of the identity (same shared helper as the writer). 0 when the corpus has no such row.
+    d_ipb="$(_backlog_rows "$state" | inplace_blocked_count "$(_blocked_body "$state")")"; is_int "$d_ipb" || d_ipb=0  # INPLACE-IDENTITY-TERM
+    _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req + d_ipb ))  # IDENTITY-REQ-VAR
     if [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
-      echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=$_identity_sum — stale denominator; reconcile."
+      if [ "$d_ipb" -gt 0 ]; then
+        echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)+in_place_blocked(derived: $d_ipb open blocked backlog row(s) not in blocked_open)=$_identity_sum — stale denominator; reconcile."
+      else
+        echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=$_identity_sum — stale denominator; reconcile."
+      fi
     fi
   fi
 
@@ -1047,7 +1070,7 @@ for state in "${states[@]}"; do
       if _ksw_has "p7-index-placeholder"; then  # KSW-P7-SUPPRESS
         echo "   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)"
       else
-        echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
+        echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk ${_ondisk_unit} — update the corpus index."
       fi
     fi
   fi
@@ -1096,7 +1119,7 @@ for state in "${states[@]}"; do
     if _ksw_has "check-2-covered-blocks"; then  # KSW-CHECK2-SUPPRESS
       echo "   INFO   covered-blocks mismatch WARN suppressed (known_stale_warns: check-2-covered-blocks)"
     else
-      echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
+      echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk ${_ondisk_unit} — refresh the mirror."
     fi
   fi
 
