@@ -89,6 +89,8 @@
 # tests/fixtures/**/*.sh) is NOT pruned: it derives real kit paths (run-all.sh's KIT_TREE=) and is
 # linted like any other script. Passing an explicit tests/ directory (or any path) as an argument
 # still scans it in full, `*.test.sh` included — this is a DEFAULT-SCOPE decision, not a capability limit.
+# Fixture authors: build a deliberately bad cd fixture in $TMP at test time (as this suite does), or
+# mark it `# LINT-CD-PHYSICAL-OK: <reason>` — a bad non-*.test.sh file under tests/fixtures/ now HITs.
 #
 # UNCLASSIFIABLE (kit issue #1921 review): a physical line holding `cd` and `pwd` whose quote /
 # substitution context is still open at end of line, or that holds a `)` closing nothing (an

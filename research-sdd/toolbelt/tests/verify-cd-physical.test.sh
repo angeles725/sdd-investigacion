@@ -638,7 +638,7 @@ fi
 
 # ── 15c. Default scope prunes only *.test.sh, so test INFRASTRUCTURE is linted (kit issue #1033 L2).
 #         A fake kit tree: a COPY of the SUT inside a temp toolbelt/ (the default scope resolves from the
-#         SUT's own physical location), a bad *.test.sh and a bad tests/lib/infra.sh and tests/run-all.sh.
+#         SUT's own physical location), a bad *.test.sh and a bad tests/lib/infra.sh and tests/runner.sh.
 #         The bare default run must HIT the infrastructure scripts only — the *.test.sh stays pruned.
 kit15c="$TMP/kit15c"; mkdir -p "$kit15c/toolbelt/tests/lib" "$kit15c/install"
 cp "$SUT" "$kit15c/toolbelt/verify-cd-physical.sh"
