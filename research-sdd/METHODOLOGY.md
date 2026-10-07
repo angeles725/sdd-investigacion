@@ -433,7 +433,8 @@ multi-FOCUS-within-one-target case (§16) both keep evidence inside one target; 
 
 **A zero-hit literal search is a LEXICAL miss, not absence.** A cross-target / cross-corpus literal-string search
 (a target-local `corpus-nav.py find`, `rg`, any grep-for-a-fact tool) that returns nothing proves only
-that THAT token shape is absent. A prior corpus may have recorded the same fact in prose under a different shape than the code symbol.
+that THAT token shape is absent. A prior corpus may have recorded the same fact in prose under a different
+shape than the code symbol.
 Before writing "no hits ⇒ absent / new here", retry the term as hyphenated, camelCase, snake_case and spaced
 forms (`CapacityLicensing` → `capacity-licensing`, `capacity licensing`); until then record the finding as
 `[INFER]` corpus-absence, never as absence in the subject. (retro: niagara5, #1193)
