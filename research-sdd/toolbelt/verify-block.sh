@@ -791,7 +791,7 @@ if [ -n "$bt_cites" ]; then
           echo "   extern  $c  (absolute path not found or unreadable — not script-verifiable)"; _vb_e=$((_vb_e+1)); continue
         fi
         # The file is only COUNTED (awk NR: an unterminated last line counts, CR is not a line terminator); no byte of it is ever echoed.
-        # awk stops at the cited END line (`print e`), so an in-range cite does not read the rest of the file; past EOF it
+        # awk exits at the cited END line (NR then equals END), so an in-range cite does not read the rest of the file; past EOF it
         # prints the full count. A counter that fails (non-zero status, or no number) is NEVER a verdict: typed DEGRADED, exit 1.
         total=$(_vb_lines "$f" "$end") || {  # VB-LINECOUNT-EXTERN
           echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_d=$((_vb_d+1)); continue
