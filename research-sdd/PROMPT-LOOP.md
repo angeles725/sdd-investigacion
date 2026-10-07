@@ -216,8 +216,10 @@ Always read first, in this order:
      The init already scaffolds `$TARGET/tools/` + `$TARGET/tools/README.md` (columns: name · path · WHY —
      used/adapted/downloaded/created/updated) — do NOT recreate them. RECORD every tool acquired during the run AT THE MOMENT
      of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
-     ENGRAM-WRITABLE (kit #1903): the init also writes `$TARGET/.engram/config.json` (`project_name` from the
-     directory name; create-only). Init cannot call MCP, so the AGENT MUST call
+     ENGRAM-WRITABLE (kit #1903): the init also writes `$TARGET/.engram/config.json` (create-only). Pass
+     `--engram-project <the TARGETS.md name from step b>` to the init: that exact name is what `mem_save(project=...)`
+     uses, and a name derived from the directory differs whenever the directory name differs from the registered
+     one (the report says the derived name MUST equal it). Init cannot call MCP, so the AGENT MUST call
      `mem_session_start(directory=$TARGET)` before the first §20 mirror / `mem_save` — without it
      `mem_save(project=<new>)` fails `unknown_project`. If init printed `WARN: engram: could not derive a
      project_name`, write `.engram/config.json` by hand first.

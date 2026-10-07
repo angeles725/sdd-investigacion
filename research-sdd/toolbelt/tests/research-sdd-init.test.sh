@@ -190,6 +190,41 @@ bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 d="$TMP/___"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat >"$TMP/eng-c.out" 2>&1; _rc=$?
 { [ "$_rc" = 0 ] && [ ! -e "$d/.engram/config.json" ] && grep -qF 'WARN: engram: could not derive a project_name' "$TMP/eng-c.out"; } && ok "  engram: underivable name -> typed WARN, no config, scaffold still succeeds" || no "  engram: underivable name: exit $_rc / config written / no degraded line"
+# --- T8 correction round 1 (Opus gate) ---------------------------------------------------------------------------------
+# (1) --engram-project <name>: the registered TARGETS.md name, written verbatim (the basename may differ from it)
+d="$TMP/_ESTANDAR-TUNELES"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --engram-project tunnel-estandar >"$TMP/eng-p.out" 2>&1; _rc=$?
+{ [ "$_rc" = 0 ] && grep -qF '"project_name": "tunnel-estandar"' "$d/.engram/config.json" 2>/dev/null; } && ok "  engram: --engram-project value written verbatim (exit 0)" || no "  engram: --engram-project not honoured (exit $_rc)"
+assert_grep "  engram: report names the --engram-project source" "from --engram-project" "$TMP/eng-p.out"
+# (1b) without the flag: the derived name is flagged as a MUST-match prominently
+mkdir -p "$TMP/Eng Derived"
+bash "$SUT" "$TMP/Eng Derived" --corpus flat >"$TMP/eng-q.out" 2>&1
+assert_grep "  engram: derived name carries the must-equal-TARGETS warning" "MUST equal the TARGETS.md name you pass as project:" "$TMP/eng-q.out"
+assert_grep "  engram: derived name warning names the derived value" "engram: project_name=eng-derived (derived from the directory name)" "$TMP/eng-q.out"
+# (1c) invalid values: typed usage error, exit 2, nothing written
+for _bad in 'Upper' '-lead' 'has space' '' 'a/b' '--wire'; do
+  d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --engram-project "$_bad" >"$TMP/eng-bad.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out" && [ ! -e "$d/INDEX.md" ] && [ ! -e "$d/.engram" ]; } && ok "  engram: invalid --engram-project [$_bad]: typed usage error, exit 2, nothing written" || no "  engram: invalid --engram-project [$_bad]: exit $_rc"
+done
+d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --engram-project >"$TMP/eng-bad.out" 2>&1; _rc=$?
+{ [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out"; } && ok "  engram: --engram-project as the last argument: typed usage error, exit 2" || no "  engram: --engram-project last arg: exit $_rc"
+# (3) rollback: an ERR after the config write removes the config (a pre-existing .engram/ dir is kept); no temp file is left
+_eng_bin="$TMP/eng-gitfail"; mkdir -p "$_eng_bin"
+printf '#!/bin/sh\ncase "$*" in *" init "*|"init "*) exit 1;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$_eng_bin/git"; chmod +x "$_eng_bin/git"
+d="$TMP/eng-rollback"; rm -rf "$d"; mkdir -p "$d/.engram"
+PATH="$_eng_bin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-r.out" 2>&1; _rc=$?
+{ [ "$_rc" != 0 ] && grep -qF 'rolling back' "$TMP/eng-r.out" && [ ! -e "$d/.engram/config.json" ] && [ -d "$d/.engram" ] && [ -z "$(find "$d/.engram" -mindepth 1 2>/dev/null)" ]; } && ok "  engram: ERR after the config write rolls the config back (pre-existing .engram/ kept, no temp left)" || no "  engram: rollback left $(find "$d/.engram" -mindepth 1 2>/dev/null | tr '\n' ' ') (exit $_rc)"
+# (4) step 6 is conditional: in the underivable state it must not claim the config exists
+d="$TMP/___"; rm -rf "$d"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-u.out" 2>&1
+if grep -qF 'config above makes the project known' "$TMP/eng-u.out"; then no "  engram: underivable report still claims the config makes the project known"; else ok "  engram: underivable report does not claim a config exists"; fi
+assert_grep "  engram: underivable step 6 says write the config by hand first" "write it by hand" "$TMP/eng-u.out"
+# (5) locale-independent derivation: a non-ASCII directory name derives identically under the C locale and a UTF-8 one
+d="$TMP/Ünï Tárget"; rm -rf "$d"; mkdir -p "$d"
+LC_ALL=C.UTF-8 bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
+assert_grep "  engram: non-ASCII dir name derives byte-wise (C locale rules)" '"project_name": "n-t-rget"' "$d/.engram/config.json"
 # the usage text carries the same MCP caveat
 bash "$SUT" >/dev/null 2>"$TMP/eng-usage.err"
 assert_grep "  engram: usage text names mem_session_start" "mem_session_start" "$TMP/eng-usage.err"
@@ -4507,14 +4542,43 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     _u7t COPY-MODE-STAT 's/^  m="\$(stat -c %a "\$1" 2>\/dev\/null)" || m=/  m=/' 'rc=0 mode=755' 'rc=2 mode=' _u7t_noref
     _u7t COPY-MODE-BSD 's/^  m="\$(stat -c %a "\$1" 2>\/dev\/null)" || m="\$(stat -f %Lp "\$1" 2>\/dev\/null)" || return 1$/  m="$(stat -c %a "$1" 2>\/dev\/null)" || return 1/' 'rc=0 mode=755' 'rc=2 mode=' _u7t_bsdstat
     _u7t ENGRAM-WRITE '/^    mk "\$target\/.engram"$/d' 'rc=0 name=engt step=1' 'rc=1 name= step=0' _u7t_eng
-    _u7t ENGRAM-CREATE-ONLY 's/^if \[ -e "\$_eng_cfg" \] || \[ -L "\$_eng_cfg" \]; then$/if false; then/' 'rc=0 name=mine step=1' 'rc=0 name=engt step=1' _u7t_eng keep
+    _u7t ENGRAM-CREATE-ONLY 's/^if \[ -e "\$_eng_cfg" \] || \[ -L "\$_eng_cfg" \]; then$/if false; then/;s/mv -n -- /mv -f -- /' 'rc=0 name=mine step=1' 'rc=0 name=engt step=1' _u7t_eng keep
     _u7t_engnone() {  # <init> — a directory name with no usable character: config written or typed WARN?
       local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
       bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0) warn=$(grep -cF 'WARN: engram: could not derive' "$TMP/u7t.out")"
     }
     _u7t ENGRAM-UNDERIVABLE 's/^  if \[ -z "\$_eng_name" \]; then$/  if false; then/' 'rc=0 cfg=0 warn=1' 'rc=0 cfg=1 warn=0' _u7t_engnone
-    _u7t ENGRAM-STEP '/^echo "  6\. ENGRAM (agent step/d' 'rc=0 name=engt step=1' 'rc=0 name=engt step=0' _u7t_eng
+    _u7t_engflag() {  # <init> <flag value> — --engram-project: written verbatim? invalid value refused?
+      local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat --engram-project "$2" >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc name=$(sed -n 's/.*"project_name": "\(.*\)".*/\1/p' "$d/.engram/config.json" 2>/dev/null) index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
+    }
+    _u7t_engroll() {  # <init> — ERR after the config write (git init fails) with a pre-existing .engram/: config rolled back?
+      local d="$TMP/u7t/engr" rc; rm -rf "$d"; mkdir -p "$d/.engram"
+      PATH="$_eng_bin:$PATH" bash "$1" "$d" --corpus flat >/dev/null 2>&1; rc=$?
+      echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0)"
+    }
+    _u7t_engstep() {  # <init> — underivable state: does step 6 still claim the config exists?
+      local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc claims=$(grep -cF 'config above makes the project known' "$TMP/u7t.out")"
+    }
+    _u7t_engmust() {  # <init> — derived name: is the must-equal-TARGETS warning printed?
+      local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc must=$(grep -cF 'MUST equal the TARGETS.md name you pass as project:' "$TMP/u7t.out")"
+    }
+    _u7t ENGRAM-FLAG-IGNORED 's/^  if \[ "\$engram_project_given" = 1 \]; then _eng_name=/  if false; then _eng_name=/' 'rc=0 name=custom-name index=1' 'rc=0 name=engt index=1' _u7t_engflag custom-name
+    _u7t ENGRAM-FLAG-VALIDATE 's/^if \[ "\$engram_project_given" = 1 \] \&\& ! \[\[/if false \&\& ! [[/' 'rc=2 name= index=0' 'rc=0 name=Bad Name index=1' _u7t_engflag 'Bad Name'
+    _u7t ENGRAM-ROLLBACK 's/else created+=("\$_eng_cfg"); /else /' 'rc=1 cfg=0' 'rc=1 cfg=1' _u7t_engroll
+    _u7t ENGRAM-STEP-COND 's/^if \[ "\$_eng_state" = underivable \]; then$/if false; then/' 'rc=0 claims=0' 'rc=0 claims=1' _u7t_engstep
+    _u7t ENGRAM-MUST-LINE '/^                 echo "  engram: project_name=\$_eng_name (derived/d' 'rc=0 must=1' 'rc=0 must=0' _u7t_engmust
+    _u7t ENGRAM-LOWER "s/ | LC_ALL=C tr '\\[:upper:\\]' '\\[:lower:\\]'//" 'rc=0 name=engt step=1' 'rc=0 name=ng step=1' _u7t_eng
+    _u7t ENGRAM-CONTENT '/^    printf .{.n  "project_name"/c\
+    : > "$_eng_tmp"' 'rc=0 name=engt step=1' 'rc=0 name= step=1' _u7t_eng
+    _u7t ENGRAM-STEP '/^  echo "  6\. ENGRAM (agent step — init cannot call MCP): call mem_session_start/c\
+  :' 'rc=0 name=engt step=1' 'rc=0 name=engt step=0' _u7t_eng
     _u7t ENGRAM-DANGLE 's/^_rsdd_scaffold_paths+=("\$target\/.engram" "\$target\/.engram\/config.json")/_rsdd_scaffold_paths+=()/' 'rc=2 index=0' 'rc=0 index=1' _u7t_engdangle
     _u7t ENGRAM-INFRA 's/|\.atl|\.engram) ;;/|.atl) ;;/' 'root=1 nested=0' 'root=0 nested=1' _u7t_engauto
     if command -v jq >/dev/null 2>&1; then
