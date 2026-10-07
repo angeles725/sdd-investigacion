@@ -267,6 +267,24 @@ test('a comment marker inside an inline code span does not unbalance backticks a
   assert.deepEqual(parseLinkedIssues('Use `<!-- x -->` here.\n\nCloses #5\n\nAnd `code` later.'), ok(closing(5)));
 });
 
+// #1964 review: code spans and comments are one tokenization in document order.
+test('whichever of code span and comment opens first wins, in both directions', () => {
+  // Real comment after a code span / after an in-span marker: the commented reference stays hidden.
+  assert.deepEqual(parseLinkedIssues('`<!--` <!-- Closes #1 -->'), ok());
+  assert.deepEqual(parseLinkedIssues('`a` <!-- Closes #1 -->'), ok());
+  // Span wraps lines; a real comment after its close hides its content.
+  assert.deepEqual(parseLinkedIssues('a `code\nmore` <!-- ` Closes #1 -->'), ok());
+  // A span that wraps lines may contain a comment opener.
+  assert.deepEqual(parseLinkedIssues('Use `foo\n<!-- bar` here.\n\nCloses #5'), ok(closing(5)));
+  // A longer run containing a shorter run and a marker.
+  assert.deepEqual(parseLinkedIssues('``a `<!--` b``\n\nCloses #5'), ok(closing(5)));
+});
+
+test('an unmatched backtick run is literal and never opens a span across a blank line', () => {
+  assert.deepEqual(parseLinkedIssues('Literal `` here.\n\nCloses #5\n\nand `code`.'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `b\n\nCloses #5\n\nc `d`'), ok(closing(5)));
+});
+
 test('a genuinely commented or fenced reference is still ignored next to inline-code comment markers', () => {
   const body = 'See `<!-- x -->`.\n<!-- Closes #1 -->\n```\nCloses #2\n```\nCloses #3';
   assert.deepEqual(parseLinkedIssues(body), ok(closing(3)));
