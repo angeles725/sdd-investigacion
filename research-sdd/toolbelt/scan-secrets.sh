@@ -326,18 +326,12 @@ length($0) > 0 {
   rm -f "$_blob_tmp"; _blob_tmp=""
 fi
 
-# Corpus root (mirror verify-sources.sh): prefer the target root when it directly holds blocks, else the
-# shallowest subdir that does (deterministic: depth, then lexical).
-# In --committed mode the narrowing is SKIPPED — we scan the entire committed repo at HEAD.
+# Scan root. Default mode scans the WHOLE target (kit issue #1015): it used to narrow to the shallowest
+# directory holding a `*block*.md`, so an authored note OUTSIDE that directory (an untracked notes.md, docs/)
+# holding a secret passed clean — a fail-open hole for the archive/push gates. Vendored and decompiled trees
+# stay excluded by EXCL below, so widening adds no decompiled-protocol false positives.
+# --committed mode always scanned the entire committed repo at HEAD.
 corpus="$target"
-if [ "$committed" = 0 ]; then
-  # fixed under #1444: `[ -z "$(find ... -print -quit)" ]`, no pipe, so no SIGPIPE race is possible.
-  if [ -z "$(find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -print -quit 2>/dev/null)" ]; then
-    anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
-              | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
-    [ -n "$anchor" ] && corpus="$(dirname "$anchor")"
-  fi
-fi
 
 # File scope — grep flags for default mode. --committed mode uses the awk filter in the probe block.
 INCL=(--include='*.md' --include='*.env' --include='.env*' --include='*.conf' --include='*.ini'
@@ -350,7 +344,6 @@ if [ "$committed" = 1 ]; then
   echo "-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)"
 else
   echo "== scan-secrets: $(basename "$target") =="
-  [ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/"
 fi
 # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
 if grep -qi 'live-install' < <(grep -iE "\b$(basename "$target")\b" "$KIT/TARGETS.md" 2>/dev/null); then

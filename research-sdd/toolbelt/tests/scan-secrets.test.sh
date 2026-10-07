@@ -183,6 +183,24 @@ d="$TMP/no-template"; mkdir -p "$d/corpus"
 printf '# Block 1\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/corpus/foo-block1.md"
 [ "$(runrc "$d")" = 1 ] && ok "POSITIVE: template-free corpus scans + catches the key (exit 1)" || no "no-template corpus exit=$(runrc "$d") (want 1)"
 
+# 24b — OUTSIDE-NARROWED-ROOT (kit issue #1015, fail-OPEN): the target root has no block file, so the old
+#       default-mode narrowing anchored on corpus/ and an authored note OUTSIDE it (notes.md at the target
+#       root, docs/ nested) holding a real AWS key passed clean. The secrets gate must scan the WHOLE target.
+d="$TMP/outside-narrowed"; mkdir -p "$d/corpus" "$d/docs"
+printf '# Block 1\n\nclean block, no secret here.\n' > "$d/corpus/foo-block1.md"
+printf 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+printf 'slack = xoxb-1234567890-abcdefghij\n' > "$d/docs/other.md"
+out24b="$(runout "$d")"
+if [ "$(runrc "$d")" = 1 ] && grep -q 'notes.md' <<<"$out24b" && grep -q 'docs/other.md' <<<"$out24b" \
+   && ! grep -q 'corpus root:' <<<"$out24b"; then
+  ok "OUTSIDE-NARROWED-ROOT: secrets outside the block dir are caught (whole target scanned, #1015)"
+else no "outside-narrowed-root: exit $(runrc "$d") (want 1) :: $(grep -E 'LEAK|corpus root' <<<"$out24b" | head -3)"; fi
+# 24c — NEGATIVE control: the same layout with no secret outside stays clean (the widening is not a blanket FAIL).
+d="$TMP/outside-narrowed-clean"; mkdir -p "$d/corpus"
+printf '# Block 1\n\nclean.\n' > "$d/corpus/foo-block1.md"; printf 'plain note\n' > "$d/notes.md"
+[ "$(runrc "$d")" = 0 ] && ok "OUTSIDE-NARROWED-ROOT negative: clean target outside the block dir → exit 0" \
+  || no "outside-narrowed-root negative: exit $(runrc "$d") (want 0)"
+
 # 25 — NUL-scan producer failure (grep exit ≥2) must emit a SCAN-FAILURE WARN, never silently read as 0.
 #      Stubs grep so that any call carrying the '\x00' pattern exits 2 (ENOMEM-class error); all other
 #      grep calls are forwarded to the real binary so the rest of the scan still runs.
@@ -219,8 +237,8 @@ grep -qiE 'NUL-byte count FAILED|count unavailable' <<<"$out_nc" \
   || no "26 NUL-byte count grep exit-2 not reported as failure :: $out_nc"
 
 # 27 — --committed mode: a GitHub token in committed root NOTES.md is flagged even when the corpus
-#      subdir is clean (Repro 1 from #955: default scan covers the corpus working-tree subdir only;
-#      `git push` sends the entire committed HEAD, including root-level files the scan never sees).
+#      subdir is clean (Repro 1 from #955: `git push` sends the entire committed HEAD, including
+#      root-level files). Since #1015 the default scan covers the whole target too, so BOTH modes catch it.
 d="$TMP/committed-root-token"
 mkdir -p "$d/corpus"
 git -C "$d" init -q 2>/dev/null
@@ -230,10 +248,10 @@ printf 'token: ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d/NOTES.md"
 git -C "$d" add corpus/t-block1.md NOTES.md && git -C "$d" commit -q -m "init" 2>/dev/null
 wt_rc27="$(runrc "$d")"
 cm_rc27="$(bash "$SUT" --committed "$d" >/dev/null 2>&1; echo $?)"
-if [ "$wt_rc27" = 0 ] && [ "$cm_rc27" = 1 ]; then
-  ok "27 --committed catches root NOTES.md token missed by default (Repro 1 #955)"
+if [ "$wt_rc27" = 1 ] && [ "$cm_rc27" = 1 ]; then
+  ok "27 root NOTES.md token caught by default (whole target, #1015) AND by --committed (Repro 1 #955)"
 else
-  no "27 repro-1: wt_rc=$wt_rc27 (want 0, default misses it) cm_rc=$cm_rc27 (want 1, committed catches it)"
+  no "27 repro-1: wt_rc=$wt_rc27 (want 1, whole target) cm_rc=$cm_rc27 (want 1, committed catches it)"
 fi
 
 # 28 — --committed mode: a secret redacted ONLY in the working tree without committing is still
@@ -357,6 +375,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { echo "-----BEGIN OPENSSH PRIVATE KEY-----"; echo "b3BlbnNzaC1rZXk"; echo "-----END OPENSSH PRIVATE KEY-----"; } >> "$d/t-block1.md"
   mk_sed "teeth" "$mutant" 's/PRIVATE KEY/PRIVATE_KEY_NOMATCH/g' \
     && tooth "teeth: PEM-neutered mutant stops flagging the key → detector has teeth" 1 0 "$mutant" -- bash @SUT@ "$d"
+
+  # #1015: restoring a narrowed scan root must make the outside-the-block-dir secret pass again.
+  echo "-- teeth: narrow the default scan root back to corpus/ (#1015), expect the outside secret to pass --"
+  mutant_nr="$MUT/scan-secrets.MUTANT-narrow.sh"
+  d_nr="$TMP/teeth-narrow"; mkdir -p "$d_nr/corpus"
+  printf '# Block 1\n\nclean.\n' > "$d_nr/corpus/foo-block1.md"; printf 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d_nr/notes.md"
+  mk_sed "teeth-narrow" "$mutant_nr" 's|^corpus="\$target"$|corpus="$target/corpus"|' \
+    && tooth "teeth-narrow: narrowed-root mutant misses the outside secret → whole-target scan has teeth" 1 0 "$mutant_nr" -- bash @SUT@ "$d_nr"
 
   # Additional mutation control: neuter the NUL-scan rc-check; the producer-fail case must then NOT WARN.
   echo "-- teeth: neuter the _nul_rc check, expect producer exit-2 to pass silently as 0 --"
