@@ -686,6 +686,116 @@ if [ "$rc" = 3 ] && grep -qi 'WARN: history not scanned' <<<"$out" && grep -qiE 
   ok "17k F4 negative: nested target WITH a secret → still REFUSED (exit 3), WARN still printed, never the misleading generic error"
 else no "17k F4 nested-secret: exit=$rc :: $(grep -iE 'WARN|scan-secrets|git/awk/tr' <<<"$out" | head -3)"; fi
 
+# --- T15a (kit issues #1015 + #1014): the secrets gate scans EXACTLY what the archive packages ------------------
+# 17m — #1015: scan-secrets.sh's default mode narrows to the shallowest block directory, so a secret-bearing
+#       notes.md OUTSIDE it was skipped although the archive packages it. The corpus root here holds
+#       RESEARCH-STATE.md but its only block lives in blocks/ (the narrowing trigger). Must REFUSE; the same
+#       fixture without the secret must archive (no false refusal). RED before the fix: archived (exit 0).
+d="$TMP/narrow-notes"; mkgood "$d"; mkdir -p "$d/blocks"; mv "$d/t-block1.md" "$d/blocks/t-block1.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d" --dry-run >/dev/null 2>&1; rc_c=$?
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+bash "$HERE/../scan-secrets.sh" "$d" >/dev/null 2>&1; _narrow_rc=$?
+[ "$_narrow_rc" = 0 ] && ok "17m precondition: scan-secrets default mode narrows to blocks/ and misses notes.md (exit 0) — the fixture exercises #1015" \
+  || no "17m precondition: default-mode scan exit=$_narrow_rc (want 0) — fixture does not exercise the narrowing"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc_c" = 0 ] && [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
+  ok "17m #1015: secret in notes.md outside the shallowest block dir → REFUSED (exit 3); same corpus without it passes (exit 0)"
+else no "17m #1015: with-secret exit=$rc (want 3) / without-secret exit=$rc_c (want 0) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+unset rc_c _narrow_rc
+
+# 17n — #1015 (no FALSE refusal): scan-secrets' own scope still applies to the packaging list — a secret in a
+#       file the scanner never reads (a .txt) and one inside a vendored node_modules/ tree must not refuse.
+d="$TMP/narrow-scope"; mkgood "$d"; mkdir -p "$d/node_modules/pkg"
+printf 'AKIAIOSFODNN7EXAMPLE\n' > "$d/node_modules/pkg/readme.md"; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$d/scratch.txt"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out"; then
+  ok "17n #1015: secret only in an out-of-scope .txt and a vendored node_modules/ file → no false refusal (exit 0)"
+else no "17n scope: exit=$rc (want 0) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+
+# 17o — #1014 item 1: a repo root reached THROUGH A SYMLINK must not read as "nested" (the archive's logical
+#       `pwd` differs from git's physical --show-toplevel). Repo root with a history-only secret, archived via a
+#       symlinked parent dir: the direct path refuses (17b) and so must the link path (no false "history not
+#       scanned" WARN + exit 0). A clean repo reached through a link must not WARN either.
+mkdir -p "$TMP/symparent/hs"; d="$TMP/symparent/hs"; mkgood_git_clean "$d"
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/leaked-notes.md"
+git -C "$d" add leaked-notes.md; git -C "$d" commit -q -m "add leaked-notes.md (secret)"
+git -C "$d" rm -q leaked-notes.md; git -C "$d" commit -q -m "remove leaked-notes.md"
+ln -s "$TMP/symparent" "$TMP/symparent-link"
+out="$(bash "$SUT" "$TMP/symparent-link/hs" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*committed history' <<<"$out" && ! grep -qi 'history not scanned' <<<"$out"; then
+  ok "17o #1014.1: symlinked repo root with a history-only secret → REFUSED (exit 3), no false nested WARN"
+else no "17o symlinked root: exit=$rc (want 3, FAIL naming committed history, no nested WARN) :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+mkdir -p "$TMP/symclean/hs"; mkgood_git_clean "$TMP/symclean/hs"; ln -s "$TMP/symclean" "$TMP/symclean-link"
+out="$(bash "$SUT" "$TMP/symclean-link/hs" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qi 'history not scanned' <<<"$out" && grep -qE 'scan-secrets .*: ok$' <<<"$out"; then
+  ok "17o #1014.1: clean repo through a symlinked root → plain 'ok' (history scanned, no nested WARN)"
+else no "17o clean symlinked root: exit=$rc :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+
+# 17p — #1014 item 2: `git init` with NO commit (research-sdd-init.sh's shape; the corpus commit comes after
+#       archive) must archive with a typed WARN and a working-tree scan — not refuse on "no commits". A secret in
+#       the working tree of that unborn repo must still REFUSE.
+d="$TMP/unborn"; mkgood "$d"; git -C "$d" init -q -b main
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qF 'WARN: history not scanned — repository has no commits yet' <<<"$out" && grep -qE 'scan-secrets .*: ok .*no commits yet' <<<"$out"; then
+  ok "17p #1014.2: repo with no commits → typed WARN + working-tree scan, archives (exit 0)"
+else no "17p unborn repo: exit=$rc (want 0 with the no-commits WARN) :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+d="$TMP/unborn-secret"; mkgood "$d"; git -C "$d" init -q -b main; printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*the working tree' <<<"$out" && grep -qF 'no commits yet' <<<"$out"; then
+  ok "17p #1014.2: unborn repo WITH a working-tree secret → still REFUSED (exit 3)"
+else no "17p unborn secret: exit=$rc (want 3) :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+
+# 17q — fail-closed packaging list (#1015). A `find` shim answers ONLY the packaging-list invocation (the one
+#       carrying `-prune -o -type f -print0`) and delegates everything else to the real find: (1) it fails →
+#       the list cannot be computed → typed ERROR + REFUSE; (2) it prints nothing → EMPTY list → typed ERROR +
+#       REFUSE (a scan that looked at nothing is not a pass); (3) it lists everything but reports "Permission
+#       denied" for an unreadable subtree → tolerated, disclosed on the verdict line + stderr WARN, exit 0.
+_real_find="$(command -v find)"; mkdir -p "$TMP/findstub-fail" "$TMP/findstub-empty" "$TMP/findstub-perm" "$TMP/findstub-other"
+for _m in fail empty perm other; do
+  {
+    printf '#!/bin/bash\n'
+    printf 'case " $* " in *" -prune -o -type f -print0 "*)\n'
+    case "$_m" in
+      fail)  printf '  echo "find: simulated failure" >&2; exit 1;;\n';;
+      empty) printf '  exit 0;;\n';;
+      perm)  printf '  "%s" "$@"; echo "find: ./locked: Permission denied" >&2; exit 1;;\n' "$_real_find";;
+      other) printf '  "%s" "$@"; echo "find: ./x: Input/output error" >&2; exit 1;;\n' "$_real_find";;
+    esac
+    printf 'esac\nexec "%s" "$@"\n' "$_real_find"
+  } > "$TMP/findstub-$_m/find"; chmod +x "$TMP/findstub-$_m/find"
+done
+d="$TMP/listfail"; mkgood "$d"
+out="$(PATH="$TMP/findstub-fail:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — the packaging list could not be computed' <<<"$out"; then
+  ok "17q packaging list cannot be computed → typed ERROR, REFUSED (exit 3) — fail closed"
+else no "17q list failure: exit=$rc (want 3 + typed ERROR) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+out="$(PATH="$TMP/findstub-empty:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — the packaging list is EMPTY' <<<"$out"; then
+  ok "17q packaging list EMPTY → typed ERROR, REFUSED (exit 3) — a scan that looked at nothing is not a pass"
+else no "17q empty list: exit=$rc (want 3 + typed ERROR) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+out="$(PATH="$TMP/findstub-perm:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE 'scan-secrets +: ok, 1 unreadable path\(s\) not scanned' <<<"$out" && grep -qF 'WARN: scan-secrets packaging list skipped 1 unreadable path(s)' <<<"$out"; then
+  ok "17q unreadable subtree (Permission denied) → tolerated: disclosed on the verdict line + WARN, exit 0"
+else no "17q partial list: exit=$rc :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+out="$(PATH="$TMP/findstub-other:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — the packaging list could not be computed' <<<"$out"; then
+  ok "17q a find error that is NOT 'Permission denied' (even with a partial list) → list not computed, REFUSED (exit 3)"
+else no "17q non-permission find error: exit=$rc (want 3 + typed ERROR) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+d="$TMP/listfail-git"; mkgood_git_clean "$d"
+out="$(PATH="$TMP/findstub-fail:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — the packaging list could not be computed' <<<"$out"; then
+  ok "17q list failure on a repo-root target → typed ERROR, REFUSED (exit 3), not 'clean' on the history half alone"
+else no "17q repo-root list failure: exit=$rc :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+
+# 17r — #1014 item 3 (output pins): the refusal hint block names the packaging-list command, and the nested
+#       WARN names the enclosing repo (mutation controls for both live in --prove-teeth).
+d="$TMP/hintfix"; mkgood_git_clean "$d"; printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qF -- '-print0 | ' <<<"$out" && grep -qF -- 'scan-secrets.sh --files-from -' <<<"$out" && grep -qF -- 'scan-secrets.sh --committed' <<<"$out"; then
+  ok "17r refusal hint (repo root): names the packaging-list scan (--files-from) AND the --committed history scan"
+else no "17r hint: exit=$rc :: $(grep -iE 'scan-secrets|print0' <<<"$out" | head -3)"; fi
+
 # 17l (REMOVED, round 3): tested a corrupted `.git/index` making a dedicated `git status -z`
 # enumeration fail. That enumeration no longer exists — round 3 removed the mirror it fed, and neither
 # (a) `scan-secrets.sh $corpus` (a plain filesystem walk, no git) nor (b) `scan-secrets.sh --committed`
@@ -1757,7 +1867,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # fires when $target is confirmed NOT a git repo (case 16's fixture, "secret", is a plain non-git
   # mkgood corpus with a leaked AWS key). Must then archive clean, proving the fallback call is load-bearing.
   echo "-- teeth(secrets-nongit): neuter the non-git fallback call; a non-git corpus with a leaked secret must then archive --"
-  mk_sed "teeth(secrets-nongit)" "$MUT/archive.NONGIT-MUTANT.sh" 's/gate "scan-secrets " scan-secrets\.sh.*/:  # MUTANT-non-git-fallback/' \
+  mk_sed "teeth(secrets-nongit)" "$MUT/archive.NONGIT-MUTANT.sh" 's/^    _ss_wt_only_verdict ""$/    :  # MUTANT-non-git-fallback/' \
     && tooth "teeth(secrets-nongit): non-git fallback neutered → non-git corpus with a leaked secret archives (exit 0) — the fallback call is load-bearing" 3 0 "$MUT/archive.NONGIT-MUTANT.sh" \
          --good-has 'scan-secrets +: FAIL' --bad-has "$ARCH_RE" --bad-lacks 'scan-secrets +: FAIL' -- run_on_fix @SUT@ "$TMP/secret"
 
@@ -1765,7 +1875,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # gitignored-.env fixture (17f-opus2) can ONLY be caught by (a) — (b) `--committed` never saw an
   # uncommitted file — so with (a) neutered, the mutant must archive a corpus that objectively has a leaked secret on disk.
   echo "-- teeth(secrets-plain-scan): neuter (a), the plain scan-secrets.sh \$corpus call; a gitignored secret must then archive --"
-  mk_sed "teeth(secrets-plain-scan)" "$MUT/archive.PLAINSCAN-MUTANT.sh" 's/"\$here\/scan-secrets\.sh" "\$corpus" >\/dev\/null 2>&1; _ss_wt_rc=\$?/_ss_wt_rc=0  # MUTANT-plain-scan-skipped/' \
+  mk_sed "teeth(secrets-plain-scan)" "$MUT/archive.PLAINSCAN-MUTANT.sh" 's/"\$here\/scan-secrets\.sh" --files-from "\$_ss_list" "\$_ss_phys" >\/dev\/null 2>&1; _ss_wt_rc=\$?/_ss_wt_rc=0/' \
     && tooth "teeth(secrets-plain-scan): (a) neutered → gitignored-secret fixture archives (exit 0) — the plain filesystem scan is load-bearing" 3 0 "$MUT/archive.PLAINSCAN-MUTANT.sh" \
          --good-has 'scan-secrets' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$TMP/gitignored-env"
 
@@ -1791,6 +1901,42 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth(secrets-committed)" "$MUT/archive.COMMITTED-MUTANT.sh" 's/scan-secrets\.sh" --committed "\$target"/scan-secrets.sh" "$corpus"/' \
     && tooth "teeth(secrets-committed): --committed reverted to a plain \$corpus scan → history-only secret archives (exit 0) — --committed \$target is load-bearing" 3 0 "$MUT/archive.COMMITTED-MUTANT.sh" \
          --good-has "$REFUSE_RE" --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix @SUT@ "$TMP/committed-deleted-secret"
+
+  # ---- T15a teeth (#1015 #1014): every new branch of the secrets gate has a mutant that flips its fixture ----
+  echo "-- teeth(T15a): packaging-list scope, physical nested compare, unborn branch, fail-closed list, WARN/hint output --"
+  mk_sed "teeth(narrow)" "$MUT/archive.NARROW-MUTANT.sh" 's/find "\$_ss_phys" /find "$_ss_phys\/blocks" /' \
+    && tooth "teeth(narrow): packaging list narrowed to blocks/ → notes.md secret archives (exit 0) — scanning the WHOLE target is load-bearing (#1015)" 3 0 "$MUT/archive.NARROW-MUTANT.sh" \
+         --good-has 'scan-secrets +: FAIL' --bad-has "$ARCH_RE" --bad-lacks 'scan-secrets +: FAIL' -- run_on_fix @SUT@ "$TMP/narrow-notes"
+  mk_sed "teeth(nested-logical)" "$MUT/archive.NESTLOGICAL-MUTANT.sh" 's/\[ "\$(cd -P "\$_ss_top_out" 2>\/dev\/null \&\& pwd -P)" != "\$_ss_phys" \]/[ "$_ss_top_out" != "$target" ]/' \
+    && tooth "teeth(nested-logical): logical compare → symlinked parent reads as nested, history-only secret archives (exit 0) — physical compare is load-bearing (#1014.1)" 3 0 "$MUT/archive.NESTLOGICAL-MUTANT.sh" \
+         --good-has 'scan-secrets +: FAIL' --bad-has 'history not scanned' --bad-lacks 'scan-secrets +: FAIL' -- bash @SUT@ "$TMP/symparent-link/hs" --dry-run
+  mk_sed "teeth(nested-warn)" "$MUT/archive.NESTWARN-MUTANT.sh" 's/^    echo "WARN: history not scanned — target is inside.*# SS-NESTED-WARN$/    :/' \
+    && tooth "teeth(nested-warn): nested WARN deleted → nested target archives silently — the WARN is load-bearing (#1014.3)" 0 0 "$MUT/archive.NESTWARN-MUTANT.sh" \
+         --good-has 'WARN: history not scanned — target is inside enclosing repo' --bad-lacks 'history not scanned' -- bash @SUT@ "$d_nested" --dry-run
+  mk_sed "teeth(unborn-branch)" "$MUT/archive.UNBORN-MUTANT.sh" 's/\[ -z "\$_ss_refs" \]; then/[ -z "x$_ss_refs" ]; then/' \
+    && tooth "teeth(unborn-branch): unborn branch disabled → no-commit repo refuses again (exit 3) — the branch is load-bearing (#1014.2)" 0 3 "$MUT/archive.UNBORN-MUTANT.sh" \
+         --good-has 'no commits yet' --bad-has "$REFUSE_RE" -- bash @SUT@ "$TMP/unborn" --dry-run
+  mk_sed "teeth(unborn-warn)" "$MUT/archive.UNBORNWARN-MUTANT.sh" 's/^    echo "WARN: history not scanned — repository has no commits yet".*$/    :/' \
+    && tooth "teeth(unborn-warn): WARN deleted → the unborn downgrade is silent on stderr — the WARN is load-bearing (#1014.3)" 0 0 "$MUT/archive.UNBORNWARN-MUTANT.sh" \
+         --good-has 'WARN: history not scanned — repository has no commits yet' --bad-lacks 'WARN: history not scanned' -- bash @SUT@ "$TMP/unborn" --dry-run
+  mk_sed "teeth(list-fail)" "$MUT/archive.LISTFAIL-MUTANT.sh" 's/_ss_wt_rc=90; /_ss_wt_rc=0; /' \
+    && tooth "teeth(list-fail): not-computable list treated as clean → archives (exit 0) — the fail-closed refusal is load-bearing" 3 0 "$MUT/archive.LISTFAIL-MUTANT.sh" \
+         --good-has 'packaging list could not be computed' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/findstub-fail:$PATH" @SUT@ "$TMP/listfail"
+  mk_sed "teeth(list-empty)" "$MUT/archive.LISTEMPTY-MUTANT.sh" 's/_ss_wt_rc=91; /_ss_wt_rc=0; /' \
+    && tooth "teeth(list-empty): EMPTY list treated as clean → archives (exit 0) — the empty-input refusal is load-bearing" 3 0 "$MUT/archive.LISTEMPTY-MUTANT.sh" \
+         --good-has 'packaging list is EMPTY' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/findstub-empty:$PATH" @SUT@ "$TMP/listfail"
+  mk_sed "teeth(list-other-error)" "$MUT/archive.LISTOTHER-MUTANT.sh" 's/if grep -qv .Permission denied. "\$_ss_ferr"; then return 1; fi/:/' \
+    && tooth "teeth(list-other-error): any find error tolerated → a non-permission error with a partial list archives (exit 0) — the tolerance is narrow on purpose" 3 0 "$MUT/archive.LISTOTHER-MUTANT.sh" \
+         --good-has 'packaging list could not be computed' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/findstub-other:$PATH" @SUT@ "$TMP/listfail"
+  mk_sed "teeth(unreadable-note)" "$MUT/archive.UNREADNOTE-MUTANT.sh" "s/printf ', %s unreadable path(s) not scanned' \"\\\$_ss_unreadable\"/:/" \
+    && tooth "teeth(unreadable-note): verdict-line disclosure removed → a partial scan reads as a bare ok" 0 0 "$MUT/archive.UNREADNOTE-MUTANT.sh" \
+         --good-has 'ok, 1 unreadable path\(s\) not scanned' --bad-lacks 'unreadable path\(s\) not scanned' -- run_on_fix PATH="$TMP/findstub-perm:$PATH" @SUT@ "$TMP/listfail"
+  mk_sed "teeth(unreadable-warn)" "$MUT/archive.UNREADWARN-MUTANT.sh" 's/^    echo "WARN: scan-secrets packaging list skipped.*$/    :/' \
+    && tooth "teeth(unreadable-warn): stderr WARN removed → the skipped paths are not announced" 0 0 "$MUT/archive.UNREADWARN-MUTANT.sh" \
+         --good-has 'WARN: scan-secrets packaging list skipped' --bad-lacks 'WARN: scan-secrets packaging list skipped' -- run_on_fix PATH="$TMP/findstub-perm:$PATH" @SUT@ "$TMP/listfail"
+  mk_sed "teeth(hint)" "$MUT/archive.HINT-MUTANT.sh" 's/^      echo "    \$_hint_wt   # working tree (dirty.*$/      :/' \
+    && tooth "teeth(hint): packaging-list hint line removed from the refusal block (#1014.3)" 3 3 "$MUT/archive.HINT-MUTANT.sh" \
+         --good-has 'scan-secrets.sh --files-from -' --bad-lacks 'scan-secrets.sh --files-from -' -- run_on_fix @SUT@ "$TMP/hintfix"
 fi
 
 # ==================== AR2 — --focus scopes the verify-state gate (#647) ====================

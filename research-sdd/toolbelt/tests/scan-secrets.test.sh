@@ -349,6 +349,70 @@ else
   no "35 --committed log --raw fail: rc=$cm_rc35 (want 3) out=$cm_out35"
 fi
 
+# --- --files-from <list> (kit issue #1015): scan EXACTLY an explicit NUL-delimited file set -------------------
+# The archive secrets gate hands scan-secrets the file set it packages. Default mode narrows to the shallowest
+# block directory (unchanged, pinned by FF1); --files-from does not narrow and refuses empty/absent lists
+# distinctly (§7: absent-input exit 2 · empty-input exit 3 · no-match exit 0 with a typed line).
+ff_root="$TMP/ff"; mkdir -p "$ff_root/blocks" "$ff_root/other"
+printf '# Block 1\nBody.\n' > "$ff_root/blocks/t-block1.md"
+printf 'note: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/notes.md"
+printf 'clean\n' > "$ff_root/other/clean.md"
+ff_list="$TMP/ff.list"
+printf '%s\0%s\0%s\0' "$ff_root/blocks/t-block1.md" "$ff_root/notes.md" "$ff_root/other/clean.md" > "$ff_list"
+[ "$(runrc "$ff_root")" = 0 ] && ok "FF1 default mode unchanged: notes.md outside the narrowed block dir is NOT scanned (exit 0)" \
+  || no "FF1 default mode changed (exit $(runrc "$ff_root"))"
+bash "$SUT" --files-from "$ff_list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF2 --files-from scans the listed notes.md outside the block dir → exit 1" || no "FF2 files-from missed notes.md (exit $rc)"
+printf '%s\0%s\0' "$ff_root/blocks/t-block1.md" "$ff_root/other/clean.md" > "$TMP/ff-excl.list"
+bash "$SUT" --files-from "$TMP/ff-excl.list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "FF3 --files-from scans EXACTLY the list: unlisted notes.md is not read (exit 0)" || no "FF3 scanned an unlisted file (exit $rc)"
+out="$(bash "$SUT" --files-from "$TMP/no-such.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'list file not found' <<<"$out" && ok "FF4 absent list file → exit 2 (absent-input)" || no "FF4 absent list: exit $rc (want 2)"
+: > "$TMP/empty.list"
+out="$(bash "$SUT" --files-from "$TMP/empty.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED.*empty' <<<"$out" && ok "FF5 empty list → exit 3 DEGRADED naming 'empty' (empty-input, distinct from absent)" \
+  || no "FF5 empty list: exit $rc :: $(head -2 <<<"$out")"
+out="$(bash "$SUT" --files-from 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'requires a list' <<<"$out" && ok "FF6 --files-from with no value → exit 2" || no "FF6 value-less --files-from: exit $rc"
+out="$(bash "$SUT" --committed --files-from "$ff_list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'cannot be combined' <<<"$out" && ok "FF7 --files-from combined with --committed → exit 2" || no "FF7 files-from+committed: exit $rc (want 2)"
+printf '%s\0' "$ff_root/gone.md" > "$TMP/ff-gone.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-gone.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED' <<<"$out" && ok "FF8 listed path that does not exist → exit 3 DEGRADED (never a silent clean)" || no "FF8 vanished entry: exit $rc"
+mkdir -p "$TMP/ff-outside"; printf 'x: AKIAIOSFODNN7EXAMPLE\n' > "$TMP/ff-outside/o.md"
+printf '%s\0' "$TMP/ff-outside/o.md" > "$TMP/ff-out.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-out.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED.*outside' <<<"$out" && ok "FF9 listed path outside the target → exit 3 DEGRADED" || no "FF9 outside entry: exit $rc :: $(head -2 <<<"$out")"
+mkdir -p "$ff_root/node_modules/pkg" "$ff_root/notscope"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/node_modules/pkg/v.md"; printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/notscope/s.txt"
+printf '%s\0%s\0' "$ff_root/node_modules/pkg/v.md" "$ff_root/notscope/s.txt" > "$TMP/ff-scope.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-scope.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -qE 'file set: 2 listed · 0 in scope' <<<"$out" \
+  && ok "FF10 vendored dir + out-of-scope extension are filtered by scan-secrets' own scope; zero in scope is a TYPED no-match line (exit 0)" \
+  || no "FF10 scope filter: exit $rc :: $(grep -E 'file set|LEAK' <<<"$out" | head -2)"
+printf '%s\0' "$ff_root/notes.md" | bash "$SUT" --files-from - "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF11 --files-from - reads the list from stdin" || no "FF11 stdin list: exit $rc"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/other/new
+line.md"
+printf '%s\0' "$ff_root/other/new
+line.md" > "$TMP/ff-nl.list"
+bash "$SUT" --files-from "$TMP/ff-nl.list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF12 NUL-delimited list: a filename containing a newline is scanned (exit 1)" || no "FF12 newline filename: exit $rc"
+ln -s "$TMP/ff-outside/o.md" "$ff_root/other/link.md"
+printf '%s\0' "$ff_root/other/link.md" > "$TMP/ff-ln.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-ln.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -qE '1 skipped \(not a regular file\)' <<<"$out" \
+  && ok "FF13 a listed symlink is never dereferenced: skipped and counted (exit 0, parity with grep -r)" \
+  || no "FF13 symlink entry: exit $rc :: $(grep -E 'file set|LEAK' <<<"$out" | head -2)"
+printf 'password = Zq8xK2mP9vRt\n' > "$ff_root/other/adv.md"
+printf '%s\0' "$ff_root/other/adv.md" > "$TMP/ff-adv.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-adv.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'WARN ' <<<"$out" && ok "FF14 advisory tier works over a list: WARN, exit 0" || no "FF14 advisory over list: exit $rc"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n\0\n' > "$ff_root/other/nul.md"
+printf '%s\0' "$ff_root/other/nul.md" > "$TMP/ff-nul.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-nul.list" "$ff_root" 2>&1)"
+grep -qE '1 in-scope file\(s\) contain a NUL byte' <<<"$out" && ok "FF15 NUL-byte skip report works over a list" || no "FF15 NUL report missing :: $(grep -E 'NUL|summary' <<<"$out")"
+
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"
@@ -1771,6 +1835,26 @@ PYEOF_TR70
         --orig "$_t71_prog" -- awk -f @SUT@ "$_t73_in_trail"
     fi
   fi
+
+  # ---- --files-from teeth (#1015): each branch of the explicit-file-set mode flips a fixture when neutered ----
+  echo "-- teeth(files-from): empty/absent/outside/vanished/scope/symlink/combination branches --"
+  ff_t(){ # LABEL GOOD BAD SED-EXPR LIST [--good-has RE --bad-has RE ...]
+    local l="$1" g="$2" b="$3" e="$4" lst="$5"; shift 5
+    mk_sed "teeth($l)" "$MUT/ss.$l.sh" "$e" \
+      && tooth "teeth($l)" "$g" "$b" "$MUT/ss.$l.sh" "$@" -- bash @SUT@ --files-from "$lst" "$ff_root"
+  }
+  ff_t ff-empty 3 0 's/\[ -s "\$_ff_in" \] || { echo "DEGRADED: --files-from list is empty[^}]*}/:/' "$TMP/empty.list"
+  ff_t ff-absent 2 3 's/\[ -f "\$_ff_in" \] \&\& \[ -r "\$_ff_in" \] || {[^}]*}/:/' "$TMP/no-such.list"
+  ff_t ff-outside 3 0 's/echo "DEGRADED: --files-from entry is outside the target (\$_ff_root): \$_ff_f" >&2; exit 3/continue/' "$TMP/ff-out.list"
+  ff_t ff-vanished 3 0 's/vanished since the list was built?): \$_ff_f" >&2; exit 3/vanished): $_ff_f" >\&2; continue/' "$TMP/ff-gone.list"
+  ff_t ff-vendored 0 1 's/\*\/\.git\/\*|\*\/node_modules\/\*|/*\/.git\/*|/' "$TMP/ff-scope.list"
+  ff_t ff-name-scope 1 0 's/^      \*\.md|\*\.env|/      *.env|/' "$ff_list"
+  ff_t ff-symlink 0 1 's/if \[ -L "\$_ff_f" \]; then ff_nonreg=\$((ff_nonreg+1)); continue; fi/:/' "$TMP/ff-ln.list"
+  ff_t ff-typed-line 0 0 's/^  \[ -z "\$files_from" \] || echo "-- file set:.*$/  :/' "$TMP/ff-scope.list" \
+    --good-has 'file set: 2 listed' --bad-lacks 'file set:'
+  mk_sed "teeth(ff-combine)" "$MUT/ss.ff-combine.sh" 's/^\[ -z "\$files_from" \] || \[ "\$committed" = 0 \] || .*$/:/' \
+    && tooth "teeth(ff-combine): --files-from + --committed accepted → no longer a usage error" 2 3 "$MUT/ss.ff-combine.sh" \
+         -- bash @SUT@ --committed --files-from "$ff_list" "$ff_root"
 
   # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
   # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
