@@ -504,7 +504,10 @@ _r3t_rc=0; _r3t_out="$("$BASH_BIN" "$MUT_STAT_R3" "$T_R3" --next 2>/dev/null)" |
 _r3t_pass=1
 case "$_r3t_out" in RETRO-DUE*) _r3t_pass=0 ;; esac
 
-if [ "$_r3t_pass" -eq 1 ] && [ "$_r3t_rc" -eq "$_r3c_rc" ] && [ "$_r3t_out" = "$_r3c_out" ]; then
+# The control itself must be a healthy answer (NEXT/STOP), or equal-but-failed outputs would pass.
+_r3c_healthy=0
+case "$_r3c_out" in "NEXT | "*|"STOP | "*) _r3c_healthy=1 ;; esac
+if [ "$_r3c_healthy" -eq 1 ] && [ "$_r3t_pass" -eq 1 ] && [ "$_r3t_rc" -eq "$_r3c_rc" ] && [ "$_r3t_out" = "$_r3c_out" ]; then
   ok "R3-TOOTH: mutant (threshold=999) at bsr=11 behaves exactly like the real status at bsr=0 (rc=$_r3t_rc, no RETRO-DUE) → R3 check would FAIL (bites)"
 else
   no "R3-TOOTH: mutant (threshold=999) should match the below-threshold control (rc=$_r3c_rc out=[$_r3c_out]) but got rc=$_r3t_rc out=[$_r3t_out]"
@@ -529,10 +532,14 @@ _r5t_pass=1
 # shell-crash text on stderr, so the missing seeder call is the only difference.
 _r5t_crash=0
 grep -qE 'syntax error|command not found|unbound variable|unexpected' "$_r5t_errf" && _r5t_crash=1
-if [ "$_r5t_pass" -eq 1 ] && [ "$_r5t_crash" -eq 0 ] && [ "$_r5t_rc" -eq "$_r5_rc" ] && [ "$_r5t_stdout" = "$_r5_stdout" ]; then
+# The mutant must also have taken the target branch (retro-conforming), not retro-gate's no-verifier
+# branch, which likewise exits 0 with empty stdout and no seeder call.
+_r5t_branch=0
+grep -qF 'branch=retro-conforming' "$_r5t_errf" && _r5t_branch=1
+if [ "$_r5t_branch" -eq 1 ] && [ "$_r5t_pass" -eq 1 ] && [ "$_r5t_crash" -eq 0 ] && [ "$_r5t_rc" -eq "$_r5_rc" ] && [ "$_r5t_stdout" = "$_r5_stdout" ]; then
   ok "R5-TOOTH: mutant (seeding-call stripped) → seeder not called, gate otherwise identical (rc=$_r5t_rc) → R5 check would FAIL (bites)"
 else
-  no "R5-TOOTH: mutant with seeding-call removed should skip --apply and otherwise match the real gate (real rc=$_r5_rc, mutant rc=$_r5t_rc, apply-logged=$([ "$_r5t_pass" -eq 1 ] && echo no || echo yes), crash=$_r5t_crash)"
+  no "R5-TOOTH: mutant with seeding-call removed should skip --apply and otherwise match the real gate (real rc=$_r5_rc, mutant rc=$_r5t_rc, retro-conforming-branch=$_r5t_branch, apply-logged=$([ "$_r5t_pass" -eq 1 ] && echo no || echo yes), crash=$_r5t_crash)"
 fi
 
 # ── R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted ───────────────
@@ -543,7 +550,8 @@ chmod +x "$MUT_GATE_R7"
 
 _r7t_errf="$ROOT/r7-tooth-err"
 _r7t_rc=0
-_r7t_stdout="$(printf '%s' "$_r7_json" | PATH="$FAIL_AUTH_R7:$PATH" \
+_r7t_seed="$ROOT/r7-tooth-seed.log"; rm -f "$_r7t_seed"
+_r7t_stdout="$(printf '%s' "$_r7_json" | SEED_LOG="$_r7t_seed" PATH="$FAIL_AUTH_R7:$PATH" \
   "$BASH_BIN" "$MUT_GATE_R7" "$T_R7" 2>"$_r7t_errf")" || _r7t_rc=$?
 _r7t_stderr="$(cat "$_r7t_errf")"
 
@@ -554,10 +562,16 @@ _r7t_has_ghprobe_warn=0
 # shell-crash text on stderr, so the missing gh-auth WARN is the only difference.
 _r7t_crash=0
 <<<"$_r7t_stderr" grep -qE 'syntax error|command not found|unbound variable|unexpected' && _r7t_crash=1
-if [ "$_r7t_has_ghprobe_warn" -eq 0 ] && [ "$_r7t_crash" -eq 0 ] && [ "$_r7t_rc" -eq "$_r7_rc" ] && [ "$_r7t_stdout" = "$_r7_stdout" ]; then
+# Target branch (retro-conforming, not no-verifier) and the stub seeder having run prove the gate got
+# past the verifier and reached the seeding step the gh probe guards.
+_r7t_branch=0
+<<<"$_r7t_stderr" grep -qF 'branch=retro-conforming' && _r7t_branch=1
+_r7t_seeded=0
+[ -f "$_r7t_seed" ] && _r7t_seeded=1
+if [ "$_r7t_branch" -eq 1 ] && [ "$_r7t_seeded" -eq 1 ] && [ "$_r7t_has_ghprobe_warn" -eq 0 ] && [ "$_r7t_crash" -eq 0 ] && [ "$_r7t_rc" -eq "$_r7_rc" ] && [ "$_r7t_stdout" = "$_r7_stdout" ]; then
   ok "R7-TOOTH: mutant (gh-probe stripped) → no gh-auth WARN, gate otherwise identical (rc=$_r7t_rc) → R7 check would FAIL (bites)"
 else
-  no "R7-TOOTH: mutant with gh-probe removed should skip the gh-auth WARN and otherwise match the real gate (real rc=$_r7_rc, mutant rc=$_r7t_rc, warn-emitted=$_r7t_has_ghprobe_warn, crash=$_r7t_crash); stderr=[$_r7t_stderr]"
+  no "R7-TOOTH: mutant with gh-probe removed should skip the gh-auth WARN and otherwise match the real gate (real rc=$_r7_rc, mutant rc=$_r7t_rc, warn-emitted=$_r7t_has_ghprobe_warn, retro-conforming-branch=$_r7t_branch, seeder-ran=$_r7t_seeded, crash=$_r7t_crash); stderr=[$_r7t_stderr]"
 fi
 
 echo

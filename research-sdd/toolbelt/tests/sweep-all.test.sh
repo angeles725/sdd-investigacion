@@ -211,7 +211,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: early-bail mutant must be caught by run-all assertion --"
   CALL_LOG_T="$TMP/callT.log"; rm -f "$CALL_LOG_T"
   for s in "${CANONICAL[@]}"; do make_logging_stub "$s" 0 "$CALL_LOG_T"; done
-  # Mutant sweep-all.sh: exits immediately after first script passes (dropping the rest).
+  # Mutant sweep-all.sh: `break`s at the top of the loop, so no script runs at all (dropping every one).
   # Built through lib/mutant.sh (refuses a dead stage, an identical/empty/syntax-broken or live-tree
   # mutant). It lives beside the stubs in $FAKE so they resolve: the shortfall below is the `break`,
   # not missing stubs.
@@ -225,7 +225,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # before calling any stub also logs 0 calls and would read as a bite (kit issue #1576). A clean
   # early-bail runs to the end: exit 0 (nothing failed), the summary header printed, and no per-script
   # PASS/FAIL line (the loop body never ran).
+  # sweep-all.sh reads "${results[@]}" under set -u, which is an unbound-variable error on bash < 4.4 when
+  # nothing ran; that is the same early-bail shape, so accept rc 1 only with that exact message.
   mutant_out="$(bash "$FAKE/mutant-sweep-all.sh" 2>&1)"; mutant_rc=$?
+  if [ "$mutant_rc" -eq 1 ] && <<<"$mutant_out" grep -qF 'results[@]: unbound variable'; then mutant_rc=0; fi
   mutant_calls="$(grep -c '^' "$CALL_LOG_T" 2>/dev/null || echo 0)"
   mutant_banners="$(printf '%s\n' "$mutant_out" | grep -cE '^(PASS|FAIL)  ')"
   if [ "$mutant_rc" -eq 0 ] && [ "$mutant_banners" -eq 0 ] \

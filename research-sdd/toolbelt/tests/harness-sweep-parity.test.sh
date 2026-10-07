@@ -257,7 +257,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (mutant): every name keeps the quote glued to a never-stripped "-hook.sh" suffix, exactly
   # EXPECTED_BAD_QUOTED below; any other output (a crash, an empty parse) is not the bite.
   EXPECTED_BAD_QUOTED="$(printf 'sweep-audits-hook.sh"\nsweep-retros-hook.sh"\nverify-kit-clean-hook.sh"\nverify-registry-hook.sh"')"
-  if ! MUTANT_SYNTAX=none mutant_chain "teeth C: quote-strip mutant build" "$HERE/harness-sweep-parity.test.sh" \
+  if ! mutant_chain "teeth C: quote-strip mutant build" "$HERE/harness-sweep-parity.test.sh" \
       "$TMP/hsp-mutant-c.sh" "/sed 's\\/\\^\"\\/\\/; s\\/\"\\\$\\/\\/'/d"; then
     no "teeth C: could not build quote-strip mutant (anchor drifted or refused by lib/mutant.sh)"
   else
