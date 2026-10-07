@@ -64,7 +64,10 @@ SUBJECT_VERSION_NEW   = <vA.B.C | commit | date — the version you are refreshi
    report. Do NOT touch INDEX.md, CATALOG.md, or any other block.
 
 5. SELF-VERIFY: run `$KIT/toolbelt/verify-block.sh <block>` and confirm it exits 0. Fix any
-   marker/citation errors before declaring done.
+   marker/citation errors before declaring done. An `EPHEMERAL!` line on a PRESERVED claim's
+   cite (a /tmp or scratchpad path, #1650-#1656) is not yours to fix: do not rewrite the kept
+   claim; re-run with `--ephemeral=warn` (or `RSDD_STRICT_EPHEMERAL=0`) and REPORT the
+   remaining EPHEMERAL cites to the operator instead.
 
 RULES:
   - READ-ONLY on the entire corpus EXCEPT the one target block.

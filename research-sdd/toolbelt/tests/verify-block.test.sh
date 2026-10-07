@@ -1411,6 +1411,28 @@ out="$(bash "$SUT" --ephemeral= "$TMP/ep-single.md" 2>&1)"; got=$?
 [ "$got" = 2 ] && ok "#1660: an empty --ephemeral= value is a usage error (exit 2)" || no "#1660: empty value (rc=$got)"
 out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
 grep -q 'ephemeral-path cites: 1 (FAIL' <<<"$out" && ok "#1660: default summary says FAIL" || no "#1660: default summary line"
+out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
+{ grep -qF 'ephemeral-path cites: 1 (FAIL — preserve under sources/probes/b<N>/, waive a non-evidence line with <!-- ephemeral-ok: <reason> -->, or opt out with --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 while the corpus is cleaned, kit #1660)' <<<"$out"; } && ok "#1660: the FAIL summary names all three remedies (preserve, ephemeral-ok marker, opt-out)" || no "#1660: FAIL summary remedies :: $(grep 'ephemeral-path cites' <<<"$out")"
+{ grep -q -- '^-- ephemeral-path cites (kit #1207/#1660: .*RSDD_STRICT_EPHEMERAL=0.*ephemeral-ok' <<<"$out"; } && ok "#1660: the section header names the env opt-out and the marker" || no "#1660: section header :: $(grep '^-- ephemeral-path cites (' <<<"$out")"
+# a malformed RSDD_STRICT_EPHEMERAL (set to anything but exactly 0/1) must not be silent: one stderr notice, default FAIL kept
+ep_envnotice() { # <label> <value> — expects one notice on stderr naming the variable and the value, and the FAIL default
+  local out err got
+  err="$(RSDD_STRICT_EPHEMERAL="$2" bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+  out="$(RSDD_STRICT_EPHEMERAL="$2" bash "$SUT" "$TMP/ep-single.md" 2>/dev/null)"; got=$?
+  if [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out" \
+     && [ "$(grep -c 'RSDD_STRICT_EPHEMERAL' <<<"$err")" = 1 ] && grep -qF "RSDD_STRICT_EPHEMERAL='$2' is not 0 or 1" <<<"$err"
+  then ok "$1 (one stderr notice, FAIL kept)"; else no "$1 :: rc=$got err=[$err]"; fi
+}
+ep_envnotice "#1660 env: a junk value (yes) is noticed" yes
+ep_envnotice "#1660 env: an EMPTY value is noticed" ""
+ep_envnotice "#1660 env: 00 is noticed (only the exact 0 opts out)" 00
+ep_envnotice "#1660 env: a space-padded ' 0' is noticed" " 0"
+for _ev in 0 1; do
+  err="$(RSDD_STRICT_EPHEMERAL=$_ev bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+  [ -z "$err" ] && ok "#1660 env: the valid value $_ev prints no notice" || no "#1660 env: valid value $_ev noticed :: $err"
+done
+err="$(env -u RSDD_STRICT_EPHEMERAL bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+[ -z "$err" ] && ok "#1660 env: an unset variable prints no notice" || no "#1660 env: unset noticed :: $err"
 out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-single.md" 2>&1)"
 { grep -q 'ephemeral-path cites: 1 (WARN' <<<"$out" && grep -q -- '--ephemeral=warn' <<<"$out"; } && ok "#1660: opt-out summary says WARN and names the opt-out in force" || no "#1660: opt-out summary line"
 # per-line marker `<!-- ephemeral-ok: <reason> -->` (mirrors `<!-- empty-digest: quoted -->`)
@@ -1419,8 +1441,8 @@ ep_block mk-no "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` fro
 ep_block mk-empty "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok: -->"
 ep_block mk-blank "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok:    -->"
 ep_block mk-other "ok \`/tmp/a.txt\` <!-- ephemeral-ok: prose -->" "bad \`/tmp/b.txt\`"
-out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"
-{ ! grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the WARN (INFO, never silent)" || no "#1207 marker: ok"
+out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && ! grep -qE 'EPHEMERAL[!?]' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the finding under the DEFAULT (exit 0, INFO, never silent)" || no "#1207 marker: ok (rc=$got)"
 out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-mk-no.md" 2>&1)"
 grep -q 'EPHEMERAL?' <<<"$out" && ok "#1207 marker: same line without marker WARNs" || no "#1207 marker: no marker"
 out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-mk-empty.md" 2>&1)"
@@ -2391,6 +2413,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-ep-badvalue" "$MUT/epbv.sh" '/# VB-EP-BADVALUE$/s/--ephemeral|--ephemeral=\*)/--ephemeral-never)/'; then
     tooth "teeth-ep-badvalue" 2 2 "$MUT/epbv.sh" --good-has 'unknown --ephemeral value' --bad-lacks 'unknown --ephemeral value' -- bash @SUT@ --ephemeral=bogus "$TMP/ep-single.md"
   fi
+  echo "-- teeth-ep-envnotice (#1660): a malformed RSDD_STRICT_EPHEMERAL stops being noticed --"
+  if mk_sed "teeth-ep-envnotice" "$MUT/epen.sh" '/# VB-EP-ENVNOTICE$/s/if \[ -n/if false \&\& [ -n/'; then
+    tooth "teeth-ep-envnotice" 1 1 "$MUT/epen.sh" --good-has "RSDD_STRICT_EPHEMERAL='yes' is not 0 or 1" --bad-lacks 'is not 0 or 1' -- env RSDD_STRICT_EPHEMERAL=yes bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-remedies (#1660): the FAIL summary loses its remedies --"
+  if mk_sed "teeth-ep-remedies" "$MUT/eprm.sh" 's/(FAIL — preserve under sources[^"]*"/(FAIL)"/'; then
+    tooth "teeth-ep-remedies" 1 1 "$MUT/eprm.sh" --good-has 'ephemeral-ok: <reason> -->, or opt out with --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0' --bad-lacks 'opt out with' -- bash @SUT@ "$TMP/ep-single.md"
+  fi
   echo "-- teeth-ep-warn-rc: a default WARN flips the exit code (must stay unchanged) --"
   if mk_sed "teeth-ep-warn-rc" "$MUT/epw.sh" 's/    W) echo "\$_vb_ep_text"; _vb_ep_n=\$((_vb_ep_n + 1)); continue;;/    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); rc=1; continue;;/'; then
     tooth "teeth-ep-warn-rc" 0 1 "$MUT/epw.sh" --good-has 'EPHEMERAL\?' --bad-has '== exit 1 ==' -- bash @SUT@ --ephemeral=warn "$TMP/ep-single.md"
@@ -2416,7 +2446,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth-ep-rc: findings no longer flip the exit code --"
   if mk_sed "teeth-ep-rc" "$MUT/eprc2.sh" 's/_vb_ep_n=\$((_vb_ep_n + 1)); rc=1/_vb_ep_n=$((_vb_ep_n + 1))/'; then
-    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
   # kit #1207 (b) manifest teeth: sha compare off, row lookup widened, sha64 validity dropped, FAIL rc dropped.
   echo "-- teeth-mf-sha: sha256 comparison always passes --"
@@ -2460,7 +2490,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth-ep-owned: scratchpad arm also claims /tmp-owned tokens (double count) --"
   if mk_sed "teeth-ep-owned" "$MUT/epo.sh" '/# VB-EP-OWNED$/s/return 1/return 0/'; then
-    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has 'ephemeral-path cites: 2 \(FAIL\)' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
+    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL' --bad-has 'ephemeral-path cites: 2 \(FAIL' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
   fi
   echo "-- kit #973 teeth: non-path split, Class.method, extension list, listing, extern/failed split, hint scope --"
   # fixtures n973-*.md come from the plain #973 section above; every control pins its exact rc and an anchored line
