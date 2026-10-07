@@ -1002,6 +1002,108 @@ if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*tried:' <<<"$out"; then
   ok "P23: blocked gap with tried: present → no WARN, exit 0"
 else no "P23-ok: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
 
+# ---- kit #1361 item 2: `unblock:` line on walls + `## Stretch goal` shape (METHODOLOGY §21.1 / §8c) ----
+# Doctrine: every recorded wall ends with `unblock: <route> · owner: <who> · cost: <estimate>`; the
+# `## Stretch goal` section (PROMPT-LOOP BOOTSTRAP, kit #1268) carries `realistic:` and `stretch:` lines.
+# Both are WARN-only findings (exit stays 0). An ABSENT `## Stretch goal` is silent: the section is
+# per-new-focus doctrine, older corpora legitimately lack it (the possibility audit records `stretch: not declared`).
+# ub_state <dir> <n-blocked-bullets> <n-inplace-rows> <body-line...>
+#   body lines are appended verbatim after the backlog; the envelope is ground-truth for the given counts.
+ub_state(){
+  local d="$1" nb="$2" nr="$3"; shift 3; mkdir -p "$d"
+  { echo '# T — Research State'; echo
+    env9 0 3 $((4+nb+nr)) 1 0 "$nb" 0; echo
+    echo '## Coverage'; echo "- **Coverage metric**: 3 / $((4+nb+nr)) closed"
+    echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+    echo '| high | active gap | web | pending |'
+    local i=0; while [ "$i" -lt "$nr" ]; do i=$((i+1)); echo "| low | R$i wall gap | web | ${UB_ROWSTATUS:-blocked-on-operator} |"; done; echo
+    printf '%s\n' "$@"
+  } > "$d/RESEARCH-STATE.md"
+}
+ub_warn_n(){ grep -E 'WARN.*missing an unblock:' <<<"$1" | grep -oE '[0-9]+ blocked' | head -1 | grep -oE '[0-9]+'; }
+UBOK='unblock: add a ssh route · owner: operator · cost: 1h'
+# list edges: the unblock-less bullet in FIRST / MIDDLE / LAST position, and the SINGLE-element list.
+d="$TMP/ub-first"; ub_state "$d" 3 0 '## Blocked gaps' "- a — needs: x; tried: y" "- b — needs: x; tried: y; $UBOK" "- c — needs: x; tried: y; $UBOK"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-first: unblock-less FIRST bullet → exactly 1 WARN, exit 0"
+else no "1361-first: exit $(code "$d") n=$(ub_warn_n "$out") :: $out"; fi
+d="$TMP/ub-middle"; ub_state "$d" 3 0 '## Blocked gaps' "- a — needs: x; tried: y; $UBOK" "- b — needs: x; tried: y" "- c — needs: x; tried: y; $UBOK"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-middle: unblock-less MIDDLE bullet → exactly 1 WARN, exit 0"
+else no "1361-middle: exit $(code "$d") n=$(ub_warn_n "$out") :: $out"; fi
+d="$TMP/ub-last"; ub_state "$d" 3 0 '## Blocked gaps' "- a — needs: x; tried: y; $UBOK" "- b — needs: x; tried: y; $UBOK" "- c — needs: x; tried: y"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-last: unblock-less LAST bullet → exactly 1 WARN, exit 0"
+else no "1361-last: exit $(code "$d") n=$(ub_warn_n "$out") :: $out"; fi
+# LAST bullet is also the last line of the FILE with no trailing newline (the §7 list-edge read() trap).
+d="$TMP/ub-last-nonl"; ub_state "$d" 2 0 '## Blocked gaps' "- a — needs: x; tried: y; $UBOK" "- c — needs: x; tried: y"
+printf '%s' "$(cat "$d/RESEARCH-STATE.md")" > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-last-nonl: unblock-less final line without trailing newline → 1 WARN"
+else no "1361-last-nonl: exit $(code "$d") n=$(ub_warn_n "$out") :: $out"; fi
+d="$TMP/ub-single"; ub_state "$d" 1 0 '## Blocked gaps' "- a — needs: x; tried: y"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-single: single unblock-less bullet → 1 WARN, exit 0"
+else no "1361-single: exit $(code "$d") n=$(ub_warn_n "$out") :: $out"; fi
+d="$TMP/ub-single-ok"; ub_state "$d" 1 0 '## Blocked gaps' "- a — needs: x; tried: y; $UBOK"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN.*unblock:' <<<"$out"; then ok "1361-single-ok: single bullet with unblock: → no WARN"
+else no "1361-single-ok: exit $(code "$d") :: $(grep -E 'unblock' <<<"$out")"; fi
+d="$TMP/ub-two"; ub_state "$d" 3 0 '## Blocked gaps' "- a — needs: x; tried: y" "- b — needs: x; tried: y; $UBOK" "- c — needs: x; tried: y"
+out="$(run "$d")"
+if [ "$(ub_warn_n "$out")" = 2 ]; then ok "1361-two: two unblock-less bullets → counted as 2"
+else no "1361-two: n=$(ub_warn_n "$out") :: $out"; fi
+# continuation-line form: the unblock: plan sits on the line after the bullet → NOT missing.
+d="$TMP/ub-cont"; ub_state "$d" 1 0 '## Blocked gaps' "- a — needs: x; tried: y" "  $UBOK"
+out="$(run "$d")"
+if ! grep -qE 'WARN.*unblock:' <<<"$out"; then ok "1361-cont: unblock: on a continuation line of the bullet → no WARN"
+else no "1361-cont: $(grep -E 'unblock' <<<"$out")"; fi
+# a plan on the NEXT bullet must not be credited to the previous one (entry boundary).
+d="$TMP/ub-bound"; ub_state "$d" 2 0 '## Blocked gaps' "- a — needs: x; tried: y" "- b — needs: x; tried: y; $UBOK"
+out="$(run "$d")"
+if [ "$(ub_warn_n "$out")" = 1 ]; then ok "1361-boundary: the next bullet's unblock: is not credited to the previous entry"
+else no "1361-boundary: n=$(ub_warn_n "$out")"; fi
+# backlog ROWS: a wall-typed Status without unblock: WARNs; with it, or pointing at the Blocked gaps bullet, it does not.
+d="$TMP/ub-row"; ub_state "$d" 0 1 '## Stop control'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*1 wall backlog row\(s\) missing an unblock:' <<<"$out"; then ok "1361-row: blocked-on-* backlog row without unblock: → WARN, exit 0"
+else no "1361-row: exit $(code "$d") :: $out"; fi
+d="$TMP/ub-row-ok"; UB_ROWSTATUS="blocked-on-operator · $UBOK" ub_state "$d" 0 1 '## Stop control'
+out="$(run "$d")"
+if ! grep -qE 'WARN.*unblock:' <<<"$out"; then ok "1361-row-ok: backlog row ending in unblock: → no WARN"
+else no "1361-row-ok: $(grep -E 'unblock' <<<"$out")"; fi
+d="$TMP/ub-row-ptr"; UB_ROWSTATUS="blocked-on-operator → see ## Blocked gaps" ub_state "$d" 0 1 '## Stop control'
+out="$(run "$d")"
+if ! grep -qE 'WARN.*unblock:' <<<"$out"; then ok "1361-row-ptr: row pointing at the Blocked gaps bullet → no WARN (the bullet carries the plan)"
+else no "1361-row-ptr: $(grep -E 'unblock' <<<"$out")"; fi
+# ## Stretch goal: present-and-complete is silent; each missing line WARNs; absent is silent.
+d="$TMP/sg-ok"; ub_state "$d" 0 0 '## Stretch goal' 'realistic: map the API surface' 'stretch: full protocol reimplementation'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN.*Stretch goal' <<<"$out"; then ok "1361-sg-ok: complete ## Stretch goal → no WARN"
+else no "1361-sg-ok: exit $(code "$d") :: $(grep -E 'Stretch' <<<"$out")"; fi
+d="$TMP/sg-nostretch"; ub_state "$d" 0 0 '## Stretch goal' 'realistic: map the API surface'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*Stretch goal.*stretch:' <<<"$out" && ! grep -qE 'WARN.*Stretch goal.*realistic:' <<<"$out"; then ok "1361-sg-nostretch: section lacking stretch: → WARN naming stretch:, exit 0"
+else no "1361-sg-nostretch: exit $(code "$d") :: $(grep -E 'Stretch' <<<"$out")"; fi
+d="$TMP/sg-norealistic"; ub_state "$d" 0 0 '## Stretch goal' 'stretch: full protocol reimplementation'
+out="$(run "$d")"
+if grep -qE 'WARN.*Stretch goal.*realistic:' <<<"$out" && ! grep -qE 'WARN.*Stretch goal.*stretch:' <<<"$out"; then ok "1361-sg-norealistic: section lacking realistic: → WARN naming realistic:"
+else no "1361-sg-norealistic: $(grep -E 'Stretch' <<<"$out")"; fi
+d="$TMP/sg-empty"; ub_state "$d" 0 0 '## Stretch goal' '' '## Stop control'
+out="$(run "$d")"
+if grep -qE 'WARN.*Stretch goal.*realistic:.*stretch:' <<<"$out"; then ok "1361-sg-empty: empty ## Stretch goal → WARN naming both lines"
+else no "1361-sg-empty: $(grep -E 'Stretch' <<<"$out")"; fi
+d="$TMP/sg-absent"; ub_state "$d" 0 0 '## Stop control'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN.*Stretch goal' <<<"$out"; then ok "1361-sg-absent: no ## Stretch goal section → silent (per-new-focus doctrine)"
+else no "1361-sg-absent: exit $(code "$d") :: $(grep -E 'Stretch' <<<"$out")"; fi
+# section is the LAST in the file and the stretch line is the LAST line without a trailing newline.
+d="$TMP/sg-last-nonl"; ub_state "$d" 0 0 '## Stretch goal' 'realistic: map the API surface' 'stretch: full protocol reimplementation'
+printf '%s' "$(cat "$d/RESEARCH-STATE.md")" > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if ! grep -qE 'WARN.*Stretch goal' <<<"$out"; then ok "1361-sg-last-nonl: stretch: as the final line without newline is recognised → no WARN"
+else no "1361-sg-last-nonl: $(grep -E 'Stretch' <<<"$out")"; fi
+
 # ---- Prose-paragraph form of blocked gaps (§7 false negative — RSDD-PROSE-BLOCKED-ANCHOR) ----
 # Real corpora (e.g. blender-llm) write blocked gaps as multi-line prose paragraphs:
 #   G54 — description. **needs:** something.
@@ -5501,6 +5603,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-1034-H: without find -H a symlinked target exits 2 → the symlink-target assertion has teeth"
     else no "teeth-1034-H: mutant exit $_k34rc (want 2) — assertion is THEATER"; fi
   else no "teeth-1034-H: could not build mutant"; fi
+fi
+
+# teeth for kit #1361 item 2 (unblock: line on walls + ## Stretch goal shape), built with the shared mutant helper (kit issue #943).
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # ub_mut <label> <fixture-dir> <warn-regex> <sed-expr>: the mutant must stop emitting the WARN the plain suite asserts.
+  ub_mut(){
+    local label="$1" fx="$2" rx="$3" expr="$4" m="$TMP/verify-state.UB.MUTANT.sh" o
+    echo "-- teeth-1361-$label --"
+    if mutant_sed "$SUT" "$m" -e "$expr"; then
+      o="$(bash "$m" "$fx" 2>/dev/null)"
+      if ! grep -qE "$rx" <<<"$o"; then ok "teeth-1361-$label: mutant loses the WARN → the assertion has teeth"
+      else no "teeth-1361-$label: mutant still WARNs — assertion is THEATER"; fi
+    else no "teeth-1361-$label: could not build mutant"; fi
+  }
+  ub_mut BULLET-GATE "$TMP/ub-single" 'WARN.*missing an unblock:' 's|if \[ "\${d_missing_unblock:-0}" -gt 0 \]|if false|'
+  ub_mut ROW-GATE "$TMP/ub-row" 'WARN.*wall backlog row' 's|if \[ "\${d_missing_unblock_rows:-0}" -gt 0 \]|if false|'
+  ub_mut STRETCH-GATE "$TMP/sg-nostretch" 'WARN.*Stretch goal' 's|if \[ -n "\$d_stretch_missing" \] \&\& \[ "\$d_stretch_missing" != absent \]|if false|'
+  # list edge: without the END flush the LAST entry is never judged.
+  ub_mut LAST-FLUSH "$TMP/ub-last-nonl" 'WARN.*missing an unblock:' 's|END { flush(); print miss+0 }|END { print miss+0 }|'
+  # entry boundary: without the per-bullet flush the previous bullet inherits the next bullet unblock: (and FIRST/MIDDLE are missed).
+  ub_mut BULLET-BOUNDARY "$TMP/ub-first" 'WARN.*missing an unblock:' 's|^    /\^\[\[:space:\]\]\*-\[\[:space:\]\]/ { flush() }$|    /^[[:space:]]*-[[:space:]]/ { }|'
+  # stretch: the stretch: probe neutered → a section lacking only stretch: stops being reported.
+  ub_mut STRETCH-PROBE "$TMP/sg-nostretch" 'WARN.*Stretch goal' 's|l ~ /\^\[\[:space:\]\]\*(-\[\[:space:\]\]\*)?stretch:/   { s=1 }|{ s=1 }|'
+  # row pointer exemption removed → the pointer row false-WARNs.
+  echo "-- teeth-1361-ROW-PTR --"
+  if mutant_sed "$SUT" "$TMP/verify-state.UB.MUTANT.sh" -e 's# || l ~ /blocked gaps/ || l ~ /§ \*blocked/##'; then
+    _ubo="$(bash "$TMP/verify-state.UB.MUTANT.sh" "$TMP/ub-row-ptr" 2>/dev/null)"
+    if grep -qE 'WARN.*wall backlog row' <<<"$_ubo"; then ok "teeth-1361-ROW-PTR: mutant false-WARNs the pointer row → the exemption assertion has teeth"
+    else no "teeth-1361-ROW-PTR: mutant still silent — assertion is THEATER"; fi
+  else no "teeth-1361-ROW-PTR: could not build mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

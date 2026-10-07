@@ -312,6 +312,52 @@ derive_missing_tried() {
     }
   '
 }
+# kit #1361 item 2 (METHODOLOGY §21.1): every recorded wall ends with `unblock: <route> · owner: <who> · cost: <estimate>`.
+# derive_missing_unblock counts wall ENTRIES in the blocked sections (same three headings as blocked_open) that carry
+# `needs:` but no `unblock:` anywhere in the entry. An entry = a bullet line plus its continuation lines, ended by a
+# blank line, the next bullet or the end of input; so a plan on a continuation line counts and a plan on the NEXT
+# bullet is never credited to the previous one. END flushes the last entry (no trailing newline / last-bullet edge).
+derive_missing_unblock() {
+  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
+  | awk '
+    function flush() { if (need && !unb) miss++; need=0; unb=0 }
+    BEGIN { miss=0; need=0; unb=0 }
+    /^[[:space:]]*$/ { flush(); next }
+    /^[[:space:]]*-[[:space:]]/ { flush() }
+    { l=tolower($0); if (l ~ /needs:/) need=1; if (l ~ /unblock:/) unb=1 }
+    END { flush(); print miss+0 }
+  '
+}
+# kit #1361 item 2: wall-typed rows of the Gap-backlog table (Status = last cell, starting blocked-on-* / blocked (...) /
+# not-buildable / refused) that end without `unblock:`. Closed (struck-through) rows and rows whose Status points at the
+# `## Blocked gaps` bullet (which carries the plan) are skipped. Only rows inside the backlog section are read, so
+# wall words in a block-log table elsewhere are never counted.
+derive_missing_unblock_rows() {
+  _section "$1" '## Gap-backlog' | awk -F'|' '
+    BEGIN { miss=0 }
+    /^[[:space:]]*\|/ {
+      n=NF-1; if (n<4) next
+      p=$2; gsub(/^[ \t]+|[ \t]+$/,"",p); if (p ~ /^~~/) next
+      s=$(NF-1); gsub(/^[ \t]+|[ \t]+$/,"",s); l=tolower(s)
+      if (l !~ /^(blocked-on-|blocked \(|not-buildable|refused)/) next
+      if (l ~ /unblock:/ || l ~ /blocked gaps/ || l ~ /§ *blocked/) next
+      miss++
+    }
+    END { print miss+0 }
+  '
+}
+# kit #1361 item 2 (PROMPT-LOOP BOOTSTRAP, STRETCH GOAL): a PRESENT `## Stretch goal` section must carry `realistic:` and
+# `stretch:` lines. Prints the missing line names space-separated; prints nothing when complete; prints "absent" when
+# the section is not there (absent is legitimate: older corpora, "stretch: not declared" — the caller stays silent).
+derive_stretch_missing() {
+  grep -q '^## Stretch goal' "$1" || { echo absent; return 0; }
+  _section "$1" '## Stretch goal' | awk '
+    { l=tolower($0); gsub(/\*/,"",l) }
+    l ~ /^[[:space:]]*(-[[:space:]]*)?realistic:/ { r=1 }
+    l ~ /^[[:space:]]*(-[[:space:]]*)?stretch:/   { s=1 }
+    END { out=""; if (!r) out="realistic:"; if (!s) out=(out==""?"":out" ") "stretch:"; if (out!="") print out }
+  '
+}
 # B3b: derived deferred_open = count of OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware/keys). Closed rows (~~, ✅) excluded.
 # Mirrors count_deferred() in research-sdd-status.sh (same lockstep as the other derivations above).
@@ -1024,6 +1070,21 @@ for state in "${states[@]}"; do
   d_missing_tried="$(derive_missing_tried "$state")"
   if [ "${d_missing_tried:-0}" -gt 0 ]; then  # P23-MISSING-TRIED-WARN
     echo "   WARN   $d_missing_tried blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input."
+  fi
+
+  # kit #1361 item 2: wall entries without an `unblock:` plan (METHODOLOGY §21.1) and a malformed `## Stretch goal`.
+  # WARN-only findings — they never change the exit code (doctrine landed after most corpora were written).
+  d_missing_unblock="$(derive_missing_unblock "$state")"
+  if [ "${d_missing_unblock:-0}" -gt 0 ]; then  # UNBLOCK-BULLET-WARN
+    echo "   WARN   $d_missing_unblock blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>) — a wall is a waypoint; METHODOLOGY §21.1."
+  fi
+  d_missing_unblock_rows="$(derive_missing_unblock_rows "$state")"
+  if [ "${d_missing_unblock_rows:-0}" -gt 0 ]; then  # UNBLOCK-ROW-WARN
+    echo "   WARN   $d_missing_unblock_rows wall backlog row(s) missing an unblock: plan at the end of the Status cell (or a pointer to its ## Blocked gaps bullet) — METHODOLOGY §21.1."
+  fi
+  d_stretch_missing="$(derive_stretch_missing "$state")"
+  if [ -n "$d_stretch_missing" ] && [ "$d_stretch_missing" != absent ]; then  # STRETCH-WARN
+    echo "   WARN   ## Stretch goal section present but missing ${d_stretch_missing// / and } line(s) — add them per the PROMPT-LOOP BOOTSTRAP template (kit #1268)."
   fi
 
   # ENVELOPE CHECK G — undocumented_findings: value validation then threshold gates.
