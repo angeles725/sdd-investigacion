@@ -96,6 +96,16 @@
 # a BROAD refusal (any one of the two conditions is enough) — CLAUDE.md §7's "could it see what
 # it was looking at" question, not just "did it look".
 #
+# Known limits of that guard (kit issue #1017 items 4-5, documented rather than fixed):
+#   - A transcript with ZERO human turns (a headless / scheduled run) has no `.origin` on any record,
+#     so it lands in the first condition above: every criterion is `degraded unrecognized transcript
+#     shape` (degraded x4). That is the instrument saying it cannot attribute turns, not a failure.
+#   - A PARTIAL `.origin` — stripped from the human turn only, kept on other records — passes the
+#     guard, and the stripped human turn is then invisible as operator input, so such a transcript can
+#     score a clean 4x pass. The scorer cannot know a turn was human once its marker is gone.
+#   - RSDD_OPERATOR_INPUT_JQ cannot make a Codex/Qwen-style transcript scoreable: the `.origin` presence
+#     check and the assistant `.type` test are hardcoded outside it.
+#
 # Transcript span: the transcript's own [first_ts, last_ts] is the earliest and latest
 # `.timestamp` across EVERY record it contains (any type — assistant, user, system boundary
 # markers, attachments, ...), not just the operator/assistant subset. A block commit outside
@@ -167,6 +177,15 @@
 # transcript's own coverage; that is now an opt-in widening, not the default. With none of the
 # three and NO transcript, the window is the corpus's full history (unchanged).
 #
+# C4 and the window: C4's "block commits after STOP" count is NOT bounded by the default transcript-span
+# window (that bound would hide a block committed seconds after the final STOP): with no explicit
+# --base-ref/--since/--until, C4 asks `git log` again with no upper bound (kit issue #1017 item 1). An
+# explicit window is the operator's choice and bounds C4 as given. A later commit is only the run's own
+# within RSDD_C4_AFTER_STOP_GRACE minutes (default 10) of STOP or inside the transcript span; one beyond
+# both is unwitnessed (a later session's work): `after_stop_unwitnessed=N`, C4 degraded, never fail.
+# A block committed in the SAME second as STOP counts as after STOP (git has 1 s resolution, so it cannot
+# be ordered before it; pinned by test 1017-B2).
+#
 # Output: one line per criterion — `C<n> pass|fail|n/a|degraded <evidence>` — then one
 # `SUMMARY pass=<n> fail=<n> n/a=<n> degraded=<n>` line.
 #
@@ -202,6 +221,12 @@
 #   RSDD_OPERATOR_INPUT_JQ    jq boolean filter (applied to one parsed JSONL record) identifying
 #                             a genuine human turn. Default: `.type=="user" and
 #                             ((.origin.kind // "")=="human")` — see "Operator input" above.
+#   RSDD_BLOCK_RANGE_CAP      non-negative integer (default 50): a B<n>-B<m> range wider than this counts
+#                             as ONE block with a WARN (see "Range weight cap"); non-integer → exit 2.
+#   RSDD_C4_AFTER_STOP_GRACE  non-negative integer, minutes (default 10): a block commit after the final STOP
+#                             counts against C4 only within this grace window or inside the transcript span;
+#                             a later one outside the span is reported as `after_stop_unwitnessed=N` (C4
+#                             degraded, not fail — it may be another session's work). Non-integer → exit 2.
 #   RSDD_COMPACT_JQ           jq boolean filter identifying a compaction-boundary record.
 #                             Default: `(.type=="system" and (.subtype // "")=="compact_boundary")
 #                             or (.isCompactSummary // false)` — see "Compaction detection" above.
@@ -272,6 +297,20 @@ fi
 WINDOW_EXPLICIT=0
 [[ -n "$BASE_REF" || -n "$SINCE" || -n "$UNTIL" ]] && WINDOW_EXPLICIT=1
 
+# Range weight cap (see header): a B<n>-B<m> range wider than this counts as ONE block. Named and
+# overridable (kit issue #1017 item 7); default 50.
+# C4 after-STOP grace, minutes (default 10): see c4().
+C4_GRACE_MIN="${RSDD_C4_AFTER_STOP_GRACE:-10}"
+if [[ ! "$C4_GRACE_MIN" =~ ^[0-9]+$ ]]; then
+  echo "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: $C4_GRACE_MIN" >&2
+  exit 2
+fi
+RANGE_CAP="${RSDD_BLOCK_RANGE_CAP:-50}"
+if [[ ! "$RANGE_CAP" =~ ^[0-9]+$ ]]; then
+  echo "score-loop-transcript.sh: RSDD_BLOCK_RANGE_CAP must be a non-negative integer, got: $RANGE_CAP" >&2
+  exit 2
+fi
+
 # --- Overridable defaults (see header) --------------------------------------------------------
 BLOCK_COMMIT_REGEX="${RSDD_BLOCK_COMMIT_REGEX:-^(research|block)\([^)]+\): (.*)$}"  # RSDD-SLT-BLOCK-REGEX
 BLOCK_ID_REGEX="${RSDD_BLOCK_ID_REGEX:-B([0-9]+)(-B([0-9]+))?}"                # RSDD-SLT-BLOCKID-REGEX
@@ -308,9 +347,16 @@ if ! git -C "$CORPUS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+# Transcript parsing needs jq (records) and base64 (last-paragraph round trip); either missing degrades
+# every transcript criterion with the tool named (kit issue #1017 item 7: base64 used to be unprobed).
 JQ_AVAILABLE=1
-if [[ -n "$TRANSCRIPT" ]] && ! command -v jq >/dev/null 2>&1; then
-  JQ_AVAILABLE=0
+MISSING_TOOL=""
+if [[ -n "$TRANSCRIPT" ]]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    JQ_AVAILABLE=0; MISSING_TOOL=jq
+  elif ! command -v base64 >/dev/null 2>&1; then
+    JQ_AVAILABLE=0; MISSING_TOOL=base64
+  fi
 fi
 
 iso_epoch() {
@@ -345,8 +391,8 @@ TRANSCRIPT_LAST_ISO=""
 ANY_ORIGIN_PRESENT=1
 
 if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
-  TRANSCRIPT_TSV="$(mktemp)"
-  trap 'rm -f "$TRANSCRIPT_TSV"' EXIT
+  TRANSCRIPT_TSV="$(mktemp)"; TS_LIST="$(mktemp)"; TS_EPOCHS="$(mktemp)"
+  trap 'rm -f "$TRANSCRIPT_TSV" "$TS_LIST" "$TS_EPOCHS"' EXIT
   # last_para is emitted as @base64, not @tsv-escaped raw text: @tsv's own escaping (\t/\n/\r/\\
   # as two-character sequences) cannot be reversed unambiguously in bash for text that itself
   # contains a literal backslash next to one of those letters (a real "\n" typed by a model, a
@@ -387,12 +433,30 @@ if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
     TRANSCRIPT_PARSE_WARN=1
   fi
 
+  # Batch the timestamp conversion: ONE `date -f` for the whole transcript instead of one `date -d` per
+  # record (kit issue #1017 item 6: 36-84 s on real transcripts). `date -f` prints nothing for a line it
+  # cannot parse, which would shift every later epoch, so the batch is trusted only when it returned
+  # exactly one epoch per input line; otherwise fall back to the per-record conversion (correct, slow).
+  BATCH_EPOCHS=0
+  if [[ -s "$TRANSCRIPT_TSV" ]]; then
+    cut -f1 "$TRANSCRIPT_TSV" >"$TS_LIST"
+    if date -f "$TS_LIST" +%s >"$TS_EPOCHS" 2>/dev/null \
+       && [[ "$(wc -l <"$TS_EPOCHS")" -eq "$(wc -l <"$TS_LIST")" ]]; then
+      BATCH_EPOCHS=1
+    fi
+  fi
+  [[ "$BATCH_EPOCHS" -eq 1 ]] && exec 4<"$TS_EPOCHS"
+
   pending_epoch=""
   pending_para=""
   have_pending=0
   while IFS=$'\t' read -r ts typ is_op is_cx last_para_b64; do
     [[ -z "$ts" ]] && continue
-    epoch="$(iso_epoch "$ts")"
+    if [[ "$BATCH_EPOCHS" -eq 1 ]]; then
+      read -r -u 4 epoch || epoch=""
+    else
+      epoch="$(iso_epoch "$ts")"
+    fi
     [[ -z "$epoch" ]] && continue
     last_para="$(printf '%s' "$last_para_b64" | base64 -d 2>/dev/null)"
 
@@ -420,6 +484,7 @@ if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
       have_pending=1
     fi
   done < "$TRANSCRIPT_TSV"
+  [[ "$BATCH_EPOCHS" -eq 1 ]] && exec 4<&-
   if [[ "$have_pending" -eq 1 ]]; then
     FINAL_EPOCH+=("$pending_epoch")
     FINAL_PARA+=("$pending_para")
@@ -459,16 +524,23 @@ CANDIDATE_COMMITS_EXAMINED=0
 BLOCK_TS_PARSE_ERRORS=0
 declare -a BLOCK_EPOCH=()
 
-load_block_commits() {
+# scan_block_commits <since> <until> — fills SCAN_EPOCH / SCAN_EXAMINED / SCAN_TS_ERRORS for the
+# block commits git log returns for [<since>, <until>] (either may be empty = unbounded). The
+# window's own scan and C4's unbounded after-STOP scan (kit issue #1017 item 1) share it.
+declare -a SCAN_EPOCH=()
+SCAN_EXAMINED=0
+SCAN_TS_ERRORS=0
+scan_block_commits() {
+  SCAN_EPOCH=(); SCAN_EXAMINED=0; SCAN_TS_ERRORS=0
   local range="HEAD"
   [[ -n "$BASE_REF" ]] && range="${BASE_REF}..HEAD"
   local extra=()
-  [[ -n "$SINCE" ]] && extra+=(--since="$SINCE")
-  [[ -n "$UNTIL" ]] && extra+=(--until="$UNTIL")
+  [[ -n "$1" ]] && extra+=(--since="$1")
+  [[ -n "$2" ]] && extra+=(--until="$2")
 
   local git_out git_err rc
   git_out="$(mktemp)"; git_err="$(mktemp)"
-  git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' "${extra[@]}" "$range" -- . >"$git_out" 2>"$git_err"
+  git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' ${extra[@]+"${extra[@]}"} "$range" -- . >"$git_out" 2>"$git_err"
   rc=$?
   if [[ "$rc" -ne 0 ]]; then
     echo "score-loop-transcript.sh: git log failed (exit $rc) for window '$range': $(tr '\n' ' ' < "$git_err")" >&2
@@ -480,7 +552,7 @@ load_block_commits() {
   local sha ciso subj rest region start end span weight epoch w
   while IFS=$'\t' read -r sha ciso subj; do
     [[ -z "$sha" ]] && continue
-    CANDIDATE_COMMITS_EXAMINED=$((CANDIDATE_COMMITS_EXAMINED + 1))
+    SCAN_EXAMINED=$((SCAN_EXAMINED + 1))
     [[ "$subj" =~ $BLOCK_COMMIT_REGEX ]] || continue
     rest="${BASH_REMATCH[2]}"
     region="$(block_id_region "$rest")"
@@ -488,8 +560,8 @@ load_block_commits() {
     start="${BASH_REMATCH[1]}"
     end="${BASH_REMATCH[3]:-$start}"
     span=$(( 10#$end - 10#$start ))
-    if [[ "$span" -gt 50 ]]; then
-      echo "score-loop-transcript.sh: WARN: implausible block range B$start-B$end in commit $sha (span >50) — counting as 1 block" >&2
+    if [[ "$span" -gt "$RANGE_CAP" ]]; then
+      echo "score-loop-transcript.sh: WARN: implausible block range B$start-B$end in commit $sha (span >$RANGE_CAP) — counting as 1 block" >&2
       weight=1
     elif [[ "$span" -lt 0 ]]; then
       weight=1
@@ -498,18 +570,24 @@ load_block_commits() {
     fi
     epoch="$(iso_epoch "$ciso")"
     if [[ -z "$epoch" ]]; then
-      BLOCK_TS_PARSE_ERRORS=$((BLOCK_TS_PARSE_ERRORS + 1))
+      SCAN_TS_ERRORS=$((SCAN_TS_ERRORS + 1))
       continue
     fi
     for ((w = 0; w < weight; w++)); do
-      BLOCK_EPOCH+=("$epoch")
+      SCAN_EPOCH+=("$epoch")
     done
   done < "$git_out"
   rm -f "$git_out"
 
-  if [[ ${#BLOCK_EPOCH[@]} -gt 0 ]]; then
-    mapfile -t BLOCK_EPOCH < <(printf '%s\n' "${BLOCK_EPOCH[@]}" | sort -n)
+  if [[ ${#SCAN_EPOCH[@]} -gt 0 ]]; then
+    mapfile -t SCAN_EPOCH < <(printf '%s\n' "${SCAN_EPOCH[@]}" | sort -n)
   fi
+}
+load_block_commits() {
+  scan_block_commits "$SINCE" "$UNTIL"
+  BLOCK_EPOCH=("${SCAN_EPOCH[@]}")
+  CANDIDATE_COMMITS_EXAMINED=$SCAN_EXAMINED
+  BLOCK_TS_PARSE_ERRORS=$SCAN_TS_ERRORS
 }
 load_block_commits
 N_BLOCKS=${#BLOCK_EPOCH[@]}
@@ -548,7 +626,7 @@ transcript_unusable_reason() {
   if [[ -z "$TRANSCRIPT" ]]; then
     printf 'no transcript'
   elif [[ "$JQ_AVAILABLE" -eq 0 ]]; then
-    printf 'degraded: jq not found in PATH — transcript parsing unavailable'
+    printf 'degraded: %s not found in PATH — transcript parsing unavailable' "$MISSING_TOOL"
   elif [[ "$TRANSCRIPT_PARSE_WARN" -eq 1 ]]; then
     printf 'degraded: transcript did not parse cleanly as JSON'
   else
@@ -748,11 +826,15 @@ c4() {
   c4_err="$(mktemp)"
   status_default="$(bash "$STATUS_SCRIPT" "$CORPUS" 2>"$c4_err")"; rc_default=$?
   status_next="$(bash "$STATUS_SCRIPT" "$CORPUS" --next 2>>"$c4_err")"; rc_next=$?
-  rm -f "$c4_err"
   if [[ "$rc_default" -ne 0 || "$rc_next" -ne 0 ]]; then
-    emit C4 degraded "research-sdd-status.sh failed (default exit=$rc_default, --next exit=$rc_next)"
+    # Keep the status script's own stderr (first line, bounded) in the evidence (kit issue #1017 item 7).
+    local err_first
+    err_first="$(head -n1 "$c4_err" | cut -c1-200)"
+    rm -f "$c4_err"
+    emit C4 degraded "research-sdd-status.sh failed (default exit=$rc_default, --next exit=$rc_next)${err_first:+: $err_first}"
     return
   fi
+  rm -f "$c4_err"
   if [[ "$status_next" =~ ^STALE ]]; then
     emit C4 degraded "research-sdd-status.sh --next reports STALE: $status_next"
     return
@@ -794,13 +876,34 @@ c4() {
   local queue_state=undeclared
   [[ "$declared_queue" -eq 1 ]] && queue_state=$([ "$empty_queue" -eq 1 ] && echo empty || echo non-empty)
 
-  local after_stop=0 e
-  for e in "${BLOCK_EPOCH[@]:-}"; do
+  # The default window ends at the transcript's last record, so a block committed seconds after a final
+  # STOP would read as "0 after STOP" (kit issue #1017 item 1, claiming more than was checked, §7). When
+  # the window is the derived default, ask git again with no upper bound. An explicit window is the
+  # operator's own choice and is respected as given. A commit after STOP counts against the run only
+  # inside the grace window (RSDD_C4_AFTER_STOP_GRACE minutes) or inside the transcript span; one later
+  # than that AND outside the span is unwitnessed (possibly another session's work): typed
+  # after_stop_unwitnessed=N, C4 degraded, never a fail.
+  local -a after_epochs=("${BLOCK_EPOCH[@]:-}")
+  if [[ "$WINDOW_EXPLICIT" -eq 0 ]]; then
+    scan_block_commits "@$stop_epoch" ""
+    after_epochs=("${SCAN_EPOCH[@]:-}")
+  fi
+  local after_stop=0 unwitnessed=0 e grace_end=$((stop_epoch + C4_GRACE_MIN * 60))
+  for e in "${after_epochs[@]:-}"; do
     [[ -z "$e" ]] && continue
-    [[ "$e" -gt "$stop_epoch" ]] && after_stop=$((after_stop + 1))
+    [[ "$e" -ge "$stop_epoch" ]] || continue
+    if [[ "$WINDOW_EXPLICIT" -eq 1 || "$e" -le "$grace_end" || "$e" -le "$TRANSCRIPT_LAST_EPOCH" ]]; then
+      after_stop=$((after_stop + 1))
+    else
+      unwitnessed=$((unwitnessed + 1))
+    fi
   done
+  local unwitnessed_note=""
+  [[ "$unwitnessed" -eq 0 ]] || unwitnessed_note=" after_stop_unwitnessed=$unwitnessed"
 
-  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
+  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 && "$unwitnessed" -gt 0 ]]; then
+    emit C4 degraded "STOP honored inside the transcript but${unwitnessed_note}: block commit(s) landed more than ${C4_GRACE_MIN} min after STOP and outside the transcript span — cannot attribute them to this run"
+  elif [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
     if [[ "$declared_queue" -eq 0 ]]; then
       # KNOWN LIMIT (kit issue #1107): "campaign queue empty" is unverifiable with no queue to
       # inspect — reporting pass here would be true only by construction, never by evidence.
@@ -811,7 +914,7 @@ c4() {
       emit C4 fail "stop_token=present status_next=STOP queue=$queue_state commits_after_stop=0"
     fi
   else
-    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$queue_state commits_after_stop=$after_stop"
+    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$queue_state commits_after_stop=$after_stop${unwitnessed_note}"
   fi
 }
 

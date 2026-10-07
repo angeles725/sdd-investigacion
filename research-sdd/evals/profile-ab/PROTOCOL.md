@@ -141,11 +141,12 @@ and risking drift):
   a Qwen/reasonix cell run through score-loop-transcript.sh unmodified will DEGRADE cleanly, not
   silently misscore, which is the safe default but not a usable eval result. Before running
   cells C/D for the first time: confirm the harness's actual transcript shape (repeat the same
-  read-only `jq`-over-real-records inspection this kit did for Claude Code and Codex), then
-  either point `RSDD_OPERATOR_INPUT_JQ`/`RSDD_COMPACT_JQ` at the CORRECT (possibly nested) field
-  path for that shape, or accept that cells C/D will read `degraded` for every criterion and
-  are not comparable to A/B until that override is written and verified against real data — not
-  guessed.
+  read-only `jq`-over-real-records inspection this kit did for Claude Code and Codex). The
+  `RSDD_OPERATOR_INPUT_JQ`/`RSDD_COMPACT_JQ` overrides CANNOT make such a transcript scoreable:
+  the top-level `.origin` presence check and the assistant `.type` test are hardcoded outside
+  them (kit issue #1017 item 3), so only a script change verified against real data can add a
+  new shape. Until then cells C/D will read `degraded` for every criterion and are not
+  comparable to A/B — not guessed.
 - **Without a transcript, C1 is `n/a`, not a usable fallback signal.** A prior draft of this
   protocol suggested relying on "C1's transcript-independent count" for cells C/D if Qwen's
   transcript shape turns out to be unusable. That undersells what happens: with no transcript
