@@ -21,6 +21,9 @@
 #   5g   cheap shape: a `local`/`export` prefix before the variable name is recognised
 #   5h   the `;`-split cannot glob-expand a line holding a literal glob metacharacter (RDD
 #        R4-unquoted-split-globs)
+#   5h2  a bare `*` statement is never glob-expanded into a filename-shaped assignment (#1033)
+#   5m   a later bare `cd ..` after a compliant `cd -P` climb is flagged (#1033)
+#   5n   keyword-like identifiers (`exported_dir`, `localdir`) keep their whole name (#1033)
 #   5i   climb_seen (formerly the misleadingly-named pattern_seen): an all-compliant file is NOT
 #        reported as no-match — the construct was seen, it just happened to pass
 #   5j   one-line function body `f(){ local K=...; }` is recognised (issue #1033 L1)
@@ -195,10 +198,10 @@ local KIT="$(cd "$(dirname "$0")/.." && pwd)"
 export KIT2="$(cd "$KIT/.." && pwd)"
 EOF
 OUT5G="$(bash "$SUT" "$box5g" 2>&1)"; RC5G=$?
-if [ "$RC5G" -eq 1 ] && <<<"$OUT5G" grep -q 'HIT.*fixed\.sh:2'; then
-  ok "5g cheap shape: a 'local' prefix before the variable name is recognised"
+if [ "$RC5G" -eq 1 ] && <<<"$OUT5G" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5G" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5g cheap shape: 'local' and 'export' prefixes before the variable name are both recognised"
 else
-  no "5g cheap shape: 'local KIT=...' was not recognised (rc=$RC5G out=[$OUT5G])"
+  no "5g cheap shape: 'local KIT=...' / 'export KIT2=...' was not recognised (rc=$RC5G out=[$OUT5G])"
 fi
 
 # ── 5h. Unquoted split cannot glob (kit issue #1024 round 5, Opus finding 2, RDD
@@ -218,6 +221,53 @@ if [ "$RC5H" -eq 1 ] && <<<"$OUT5H" grep -q 'HIT.*fixed\.sh:3' \
   ok "5h unquoted-split-globs: a glob-metachar-bearing line is handled correctly, no glob expansion leaked"
 else
   no "5h unquoted-split-globs: glob metacharacters affected the result (rc=$RC5H out=[$OUT5H])"
+fi
+
+# ── 5h2. Discriminating glob test (issue #1033 follow-up): 5h's fixture holds its glob characters in a
+#        stripped comment, so a glob-expanding split would pass it too. Here a statement that is a bare
+#        `*` runs with the box as cwd, where a FILE is named like a flaggable assignment. A glob-expanding
+#        split turns the `*` into that filename and reports a bogus HIT; `read -ra` must not.
+box5h2="$(mkbox case-glob-discriminating)"
+: > "$box5h2/"'K="$(cd "$(dirname "$0")" && cd .. && pwd)"'
+printf '%s\n' '#!/usr/bin/env bash' ': cd pwd;*' > "$box5h2/fixed.sh"
+OUT5H2="$(cd "$box5h2" && bash "$SUT" "$box5h2" 2>&1)"; RC5H2=$?
+if [ "$RC5H2" -eq 0 ] && ! <<<"$OUT5H2" grep -q 'HIT'; then
+  ok "5h2 a bare '*' statement is never glob-expanded into a filename-shaped assignment (no bogus HIT)"
+else
+  no "5h2 glob expansion leaked a filename into the statement scan (rc=$RC5H2 out=[$OUT5H2])"
+fi
+
+# ── 5m. A LATER non-compliant climb after a compliant one on the same line is still flagged
+#        (issue #1033 follow-up: the per-segment loop used to stop at the FIRST climbing segment).
+box5m="$(mkbox case-second-climb)"
+cat > "$box5m/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.." && cd .. && pwd)"
+OK2="$(cd -P "$(dirname "$0")/.." && cd -P .. && pwd)"
+EOF
+OUT5M="$(bash "$SUT" "$box5m" 2>&1)"; RC5M=$?
+if [ "$RC5M" -eq 1 ] && <<<"$OUT5M" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5M" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5m a later bare 'cd ..' after a compliant 'cd -P' climb is flagged; an all -P'd chain is not"
+else
+  no "5m later non-compliant climb missed or compliant chain flagged (rc=$RC5M out=[$OUT5M])"
+fi
+
+# ── 5n. Keyword prefix must not steal identifier characters (#1033 follow-up R3-prefix-regex-steals-
+#        identifier): `exported_dir=` / `localdir=` start with a keyword but are plain names, so the
+#        tracked name stays whole and a chained unsafe climb through them is still flagged.
+box5n="$(mkbox case-keyword-like-identifier)"
+cat > "$box5n/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+exported_dir="$(cd "$(dirname "$0")" && pwd)"
+K="$(cd "$exported_dir/.." && pwd)"
+localdir="$(cd "$(dirname "$0")" && pwd)"
+K2="$(cd "$localdir/.." && pwd)"
+EOF
+OUT5N="$(bash "$SUT" "$box5n" 2>&1)"; RC5N=$?
+if [ "$RC5N" -eq 1 ] && <<<"$OUT5N" grep -q 'HIT.*fixed\.sh:3' && <<<"$OUT5N" grep -q 'HIT.*fixed\.sh:5'; then
+  ok "5n keyword-like identifiers (exported_dir, localdir) keep their whole name — chained climbs flagged"
+else
+  no "5n keyword-like identifier was truncated by the prefix group (rc=$RC5N out=[$OUT5N])"
 fi
 
 # ── 5i. climb_seen (formerly the misleadingly-named pattern_seen, kit issue #1024 round 5,
@@ -481,6 +531,25 @@ EOF
       fail=$((fail+1))
     fi
   }
+  # #1033 follow-ups: each fixed behaviour gets a mutant that reverts exactly it.
+  fu_tooth() { # <label> <fixture-box> <hit-line> <sed-expr> [<mutant-rc>]
+    if mutant_chain "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
+      tt "teeth FU: $1 reverted makes the fixture lose that HIT" 1 "${5:-0}" "$TMP/l1-mut/$1.sh" \
+        --good-has "HIT .*fixed\.sh:$3" --bad-lacks "HIT .*fixed\.sh:$3|$CRASH_RE" -- bash @SUT@ "$2"
+    else
+      fail=$((fail+1))
+    fi
+  }
+  # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
+  fu_tooth export-prefix "$box5g" 3 's/(local|export|/(local|/' 1
+  fu_tooth second-climb "$box5m" 2 's/^          _climb_ok=1$/          _climb_ok=1; break/'
+  # 5h2: the glob-expanding split (the pre-round-5 code) must bite when the box is the cwd.
+  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's/read -ra _stmts <<< "\$line"/_stmts=($line)/'; then
+    tt "teeth FU: glob-expanding split makes the filename-shaped file a bogus HIT" 0 1 "$TMP/l1-mut/glob-split.sh" \
+      --bad-has 'HIT .*fixed\.sh:2' -- bash -c 'cd "$1" && bash "$2" "$1"' _ "$box5h2" @SUT@
+  else
+    fail=$((fail+1))
+  fi
   l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
   l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'
   # BRE: `|` is a literal here (`\|` would be GNU alternation and match everywhere), so it is unescaped.

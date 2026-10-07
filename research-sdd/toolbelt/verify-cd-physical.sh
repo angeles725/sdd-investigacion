@@ -211,16 +211,26 @@ _lint_scan_file() {
       # every instance is correctly fixed), never only "seen when it was a violation": the latter
       # is exactly the `pattern_seen`/no-match confusion this checker corrected in round 5 (a fully
       # -P'd codebase must never be reported as "no climbing construct found").
+      # EVERY climbing segment is checked (kit issue #1033 follow-up: stopping at the first one let a
+      # later bare `cd ..` after a compliant `cd -P ..` escape). One line is emitted per statement: the
+      # first non-compliant climb wins ("climbing derivation lacks cd -P"); otherwise "ok" if at
+      # least one climb was seen and all were compliant.
+      local _climb_ok=0 _climb_bad=0
       while IFS= read -r seg; do
         [[ "$seg" == *".."* ]] || continue
         [[ "$seg" =~ cd[[:space:]] || "$seg" == *'cd"'* || "$seg" == *'cd-P'* ]] || continue
         if [[ "$seg" =~ cd[[:space:]]+-P([[:space:]]|\") ]]; then
-          printf '%d\tok\n' "$lineno"
+          _climb_ok=1
         else
-          printf '%d\tclimbing derivation lacks cd -P\n' "$lineno"
+          _climb_bad=1
+          break
         fi
-        break
       done <<< "${code//&&/$'\n'}"
+      if [ "$_climb_bad" -eq 1 ]; then
+        printf '%d\tclimbing derivation lacks cd -P\n' "$lineno"
+      elif [ "$_climb_ok" -eq 1 ]; then
+        printf '%d\tok\n' "$lineno"
+      fi
 
       tainted["$var"]=1
     done
