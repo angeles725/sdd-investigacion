@@ -255,8 +255,8 @@ only; never credentials (SECRETS DISCIPLINE).
 | Channel | Recipe (as reported in kit #1931) |
 |---|---|
 | Workbench (`wb`) launch | Start it through a scheduled task: `schtasks ... /RU <interactive user> /IT /RL HIGHEST`, running a launcher `.cmd` that CLEARS the rival-posture machine environment variables per process. Without the clear, the N4 JVM dies before boot. |
-| Station (fox) | URI `foxs://<host>:4911` (TLS). UDP 1911 is discovery only, never the station connection. |
-| Platform | The platform daemon port: N4 `1911`, N5 `3011` (`platformssl`). |
+| Station (fox) | URI `foxs://<host>:4911` (TLS) — evidenced in the incident run (`plugin-st-stderr.txt`: FOXS 4911). The issue reports UDP 1911 as discovery-only on that host `[unverified]`. |
+| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. |
 
 - **Unverified here:** the exact `schtasks` argument list and the names of the cleared variables are not in the
   issue text; copy them from the run's own `wb-session.log` / launcher `.cmd` rather than from this table.
