@@ -263,7 +263,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg6"
   fi
   m="$TMP/vc.NOLEFTB.sh"
-  if mk_mut "teeth: noun left boundary" "$SUT" "$m" 's/^_vc_noun_re=.(^|\[^\[:alnum:\]_\])/_vc_noun_re='"'"'/'; then
+  if mk_mut "teeth: noun left boundary" "$SUT" "$m" 's/^_vc_noun_re="[^"]*"/_vc_noun_re=""/'; then
     tt "teeth: boundary-less mutant accepts 'A miscorrection — [Block 4].' as a backlink" 1 0 "$m" --orig "$SUT" \
       --good-has 'FAIL +B4 corrects \[Block 8\]' --bad-lacks "$CRASH|FAIL +B4" -- bash @SUT@ "$TMP/nb-neg7"
   fi

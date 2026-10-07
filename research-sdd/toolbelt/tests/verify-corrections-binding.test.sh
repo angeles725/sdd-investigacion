@@ -250,7 +250,7 @@ else no "non-assertive control: an assertive verb was dropped"; fi
 # 16 — CORRIGENDUM AS DECLARATION (correction round): `CORRIGENDUM [`CERT`] al [Bloque 32]` (the real niagara-research
 #      bloque107/108 shape) declares a correction; a BARE `CORRIGENDUM [Bloque N]` (noun right before the ref) stays a backlink.
 cg_ok=1; cg_bad=""
-for _s in 'CORRIGENDUM `[CERT]` al [Bloque 32] §2.' 'CORRIGENDUM al [Bloque 32].' 'Corrigenda a [Block 32].' 'CORRIGENDUM [CERT] to [Block 32].' 'corrigendum of [Block 32].'; do
+for _s in 'CORRIGENDUM `[CERT]` al [Bloque 32] §2.' 'CORRIGENDUM al [Bloque 32].' 'Corrigenda a [Block 32].' 'CORRIGENDUM [CERT] to [Block 32].' 'corrigendum of `[CERT]` [Block 32].'; do
   d="$TMP/cg"; rm -rf "$d"; blank "$d" 32; mk "$d" 107 '# Block 107\n\n%s\n' "$_s"
   grep -qE 'FAIL +B107 corrects \[Block 32\] ' <<<"$(run "$d")" || { cg_ok=0; cg_bad="$cg_bad [$_s]"; }
 done
@@ -281,7 +281,7 @@ else no "join-neg :: $(grep -E 'FAIL|WARN' <<<"$out" | tr '\n' '|')"; fi
 # 18 — CORRIGENDUM NEVER VANISHES (round 3, §7): only the bare noun directly followed by a ref is a backlink. Every other
 #      corrigendum either declares (an explicit PREPOSITION right before the ref, round 4) or is counted as unbound.
 cgd_ok=1; cgd_bad=""
-for _s in 'CORRIGENDUM for [Block 8]: §8.2 overstated.' 'CORRIGENDUM to the [Block 8]' 'CORRIGENDUM to `[CERT]` [Block 8]' 'Corrigenda of [Bloque 8].'; do
+for _s in 'CORRIGENDUM for [Block 8]: §8.2 overstated.' 'CORRIGENDUM to the [Block 8]' 'CORRIGENDUM to `[CERT]` [Block 8]' 'Corrigenda of `[CERT]` [Bloque 8].'; do
   d="$TMP/cgd"; rm -rf "$d"; blank "$d" 8; mk "$d" 90 '# Block 90\n\n%s\n' "$_s"
   grep -qE 'FAIL +B90 corrects \[Block 8\] ' <<<"$(run "$d")" || { cgd_ok=0; cgd_bad="$cgd_bad [$_s]"; }
 done
@@ -501,7 +501,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'note +1 correction verb' --bad-lacks 'note +1 correction verb|awk: ' -- bash @SUT@ "$TMP/cgd-unb"
   fi
   m="$TMP/vc.NOUNSCAN.sh"
-  if mk_mut "teeth: noun clause scan" "$SUT" "$m" '/else if (!noundecl(rest))/d'; then
+  if mk_mut "teeth: noun clause scan" "$SUT" "$m" '/else if ((nd = noundecl(rest)) == 2)/d' '/else if (!nd) { print "U"/d'; then
     tt "teeth: noun-clause-scan mutant turns 'Corrigendum (see [Block 33])' into a false B8→33 FAIL" 0 1 "$m" --orig "$SUT" \
       --good-has 'note +1 correction verb' --bad-has 'FAIL +B8 corrects \[Block 33\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cgn1"
     tt "teeth: noun-clause-scan mutant turns 'No corrigendum was needed for [Block 12]' into a false FAIL" 0 1 "$m" --orig "$SUT" \

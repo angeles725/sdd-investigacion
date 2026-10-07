@@ -303,6 +303,75 @@ done
 if [ "$sn_ok" = 1 ]; then ok "object / locator / assumption with the correcting block's own number → AMBIG line + ok-partial (never a silent drop)"
 else no "self-amb :: $sn_bad"; fi
 
+# ---- T12 (#1847 review items, #1835 follow-ups from the PR #1848 reviews): corrigendum `of`, tag bound, backlink word boundary ----
+
+# 20 — POSSESSIVE `of` (Opus PASS review of #1848): `See the corrigendum of [Block 33].` in a CORRECTED file is a possessive reference
+#      to block 33's corrigendum, not a declaration. A bare `of` is a typed AMBIG (possessive) counted toward ok-partial, never an unqualified
+#      ok; `of` with a tag before OR after it (`[CERT] of [Block N]`, `of [CERT] [Block N]`) and the directional `al`/`a`/`to`/`for` still declare.
+d="$TMP/cg-of"; pmk "$d" t 8 '# Block 8\n\nSee the corrigendum of [Block 33].\n'; pmk "$d" t 33 '# Block 33\n\nCorrects [Block 8].\n'
+out="$(run "$d")"
+if ! grep -qE 'FAIL +B8 corrects' <<<"$out" && grep -qE 'AMBIG +B8 corrects \[Block 33\] — possessive' <<<"$out" && grep -qE 'ok-partial +1 declared' <<<"$out" && ! grep -qE 'ok +every declared' <<<"$out"; then ok "bare 'corrigendum of [Block 33]' is a possessive reference: typed AMBIG + ok-partial (never an unqualified ok), no false FAIL"
+else no "cg-of :: $(tr '\n' '|' <<<"$out")"; fi
+d="$TMP/cg-oftag"; pblank "$d" t 32; pmk "$d" t 107 '# Block 107\n\nCORRIGENDUM `[CERT]` of [Block 32].\n'   # stable fixture for the teeth below
+cof_ok=1
+for _s in 'CORRIGENDUM `[CERT]` of [Block 32].' 'CORRIGENDUM of [CERT] [Block 32].' 'CORRIGENDUM al [Block 32].' 'Corrigenda for [Block 32].'; do
+  d="$TMP/cg-of2"; rm -rf "$d"; pblank "$d" t 32; pmk "$d" t 107 '# Block 107\n\n%s\n' "$_s"
+  grep -qE 'FAIL +B107 corrects \[Block 32\] ' <<<"$(run "$d")" || cof_ok=0
+done
+if [ "$cof_ok" = 1 ]; then ok "'of' with a tag before or after it, and the directional al / for still declare the correction"
+else no "cg-of2: a tagged/directional corrigendum declaration was lost"; fi
+
+# 21 — TAG LENGTH BOUND (Opus PASS review of #1848): the 'short' tag before the preposition is at most 24 BYTES (the extractor runs under LC_ALL=C); a long bracketed
+#      aside is prose, not a tag, so the clause is surfaced as unbound instead of declaring a correction.
+d="$TMP/cg-longtag"; pblank "$d" t 32; pmk "$d" t 109 '# Block 109\n\nCORRIGENDUM [a long bracketed aside about something else entirely] to [Block 32].\n'
+out="$(run "$d")"
+if ! grep -qE 'FAIL +B109 corrects \[Block 32\] ' <<<"$out" && grep -qE 'note +1 correction verb' <<<"$out"; then ok "a tag longer than 24 bytes is prose: surfaced unbound, not a declaration"
+else no "cg-longtag :: $(tr '\n' '|' <<<"$out")"; fi
+d="$TMP/cg-shorttag"; pblank "$d" t 32; pmk "$d" t 110 '# Block 110\n\nCORRIGENDUM [CERT-2026-07-26] to [Block 32].\n'
+if grep -qE 'FAIL +B110 corrects \[Block 32\] ' <<<"$(run "$d")"; then ok "a short tag (<= 24 bytes) still declares"
+else no "cg-shorttag :: $(run "$d" | tr '\n' '|')"; fi
+
+# 23 — UTF-8 PUNCTUATION IS A BOUNDARY (Opus gate on T12): a typographic mark directly before the note (`—corrected in B33`,
+#      `“corrected in B33”`, `«corregido en B33»`, `¿corregido?`, `–`, `‘`, `¡`, `·`) is not word text, in the backlink rule AND the
+#      noun rule. Single forms, plus ONE fixture holding them first/middle/last; C and UTF-8 locales. Letters stay word text (case 22).
+pun_forms=('\342\200\224corrected in B33' '\342\200\234corrected in B33\342\200\235' '\302\253corregido en B33\302\273' '\302\277corregido en B33?' '\342\200\223corrected in B33' '\342\200\230corrected in B33' '\302\241corregido en B33' '\302\267corrected in B33')
+for _loc in C C.utf8; do
+  pu_ok=1; pu_bad=""
+  for _s in "${pun_forms[@]}"; do
+    d="$TMP/pun1"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\n'"$_s"'\n'
+    out="$(runl "$_loc" "$d")"; grep -qE 'FAIL' <<<"$out" && { pu_ok=0; pu_bad="$pu_bad [$_s]"; }
+  done
+  d="$TMP/pun-all"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'
+  pmk "$d" t 8 '# Block 8\n\n\342\200\224corrected in B33 first\nmid \342\200\234corrected in B33\342\200\235 middle\nlast \302\253corregido en B33\302\273'
+  grep -qE 'FAIL' <<<"$(runl "$_loc" "$d")" && { pu_ok=0; pu_bad="$pu_bad [all]"; }
+  d="$TMP/pun-noun"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\n\342\200\234CORRECCI\303\223N \342\200\224 [Block 33].\342\200\235\n'
+  grep -qE 'FAIL' <<<"$(runl "$_loc" "$d")" && { pu_ok=0; pu_bad="$pu_bad [noun]"; }
+  if [ "$pu_ok" = 1 ]; then ok "UTF-8 punctuation before the note is a boundary [$_loc]: dash / curly quotes / guillemets / inverted marks / middle dot still reciprocate (backlink + noun rule)"
+  else no "punct-boundary [$_loc] :: $pu_bad"; fi
+done
+
+# 22 — BACKLINK WORD BOUNDARY (#1835 comment, pre-existing): `uncorrected` / `miscorrected` / `ñcorrected` contain the word `corrected` but
+#      are not the note `corrected in B33`. FIRST / MIDDLE / LAST position of the line, under a C and a UTF-8 locale.
+for _loc in C C.utf8; do
+  bl_ok=1; bl_bad=""
+  for _s in 'uncorrected in B33 text' 'This was uncorrected in B33' 'Left as uncorrected, see B33' 'pa\0303\0261corrected in B33' 'stays miscorrected by B33'; do
+    d="$TMP/bl-neg"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\n%b' "$_s"
+    grep -qE 'FAIL +B33 corrects \[Block 8\] ' <<<"$(runl "$_loc" "$d")" || { bl_ok=0; bl_bad="$bl_bad [$_s]"; }
+  done
+  for _s in 'corrected in B33' 'Note: corrected in B33' '> **Corrected** (B33)' 'was (corrected in B33)' '_corrected_ in B33'; do
+    d="$TMP/bl-pos"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\n%b' "$_s"
+    grep -qE 'FAIL' <<<"$(runl "$_loc" "$d")" && { bl_ok=0; bl_bad="$bl_bad +[$_s]"; }
+  done
+  # stable fixtures for the teeth below: a non-ASCII letter right before the word (C locale: two bytes >= 0x80), and a plain prefix
+  d="$TMP/bl-n"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\npa\303\261corrected in B33'
+  grep -qE 'FAIL +B33 corrects \[Block 8\] ' <<<"$(runl "$_loc" "$d")" || { bl_ok=0; bl_bad="$bl_bad [ñcorrected fixture]"; }
+  d="$TMP/bl-u"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\nuncorrected in B33'
+  d="$TMP/bl-nn"; rm -rf "$d"; pmk "$d" t 33 '# Block 33\n\n> Corrects [Block 8].\n'; pmk "$d" t 8 '# Block 8\n\npa\303\261correcci\303\263n \342\200\224 [Block 33].\n'
+  grep -qE 'FAIL +B33 corrects \[Block 8\] ' <<<"$(runl "$_loc" "$d")" || { bl_ok=0; bl_bad="$bl_bad [ñcorrección noun fixture]"; }
+  if [ "$bl_ok" = 1 ]; then ok "backlink vocabulary has a left word boundary [$_loc]: un-/mis-/ñ-corrected is not the note; real forms still reciprocate"
+  else no "backlink-boundary [$_loc] :: $bl_bad"; fi
+done
+
 # NEGATIVE CONTROLS — each mutant disables ONE rule and must flip exactly the case that owns it (a mutant that crashes, or
 # that merely differs, is theater: lib/mutant.sh refuses it).
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -419,7 +488,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth (#1847 suggestions): corrigendum tag, named skipped note, correcting file --"
   m="$TMP/vc.CGTAG.sh"
-  if mk_mut "teeth: corrigendum leading tag" "$SUT" "$m" '/the LEADING tag is itself a block ref/d'; then
+  if mk_mut "teeth: corrigendum leading tag" "$SUT" "$m" 's/ \&\& inner !~ \/(block|bloque)\[ \\t\]\*\[0-9\]\///'; then
     tt "teeth: tag-blind mutant declares the tag block (B90→B5) from 'CORRIGENDUM \`[Block 5]\` al [Block 6]'" 0 0 "$m" --orig "$SUT" \
       --good-lacks 'B90 declares a correction of \[Block 5\]' --bad-has 'B90 declares a correction of \[Block 5\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-tag"
   fi
@@ -520,6 +589,53 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_mut "teeth: own-number AMBIG" "$SUT" "$m" 's/^amb() { echo/amb() { [ "$n" = "$c" ] \&\& return 0; echo/'; then
     tt "teeth: number-based drop makes the own-number AMBIG object vanish (ok instead of ok-partial)" 0 0 "$m" --orig "$SUT" \
       --good-has 'ok-partial +1 declared correction' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/selfamb1"
+  fi
+
+  echo "-- teeth (T12): corrigendum possessive of, tag bound, backlink word boundary --"
+  m="$TMP/vc.OFPOSS.sh"
+  if mk_mut "teeth: bare of" "$SUT" "$m" 's/if (!hasl \&\& lead ~/if (0 \&\& lead ~/'; then
+    tt "teeth: possessive-blind mutant declares B8→B33 from 'the corrigendum of [Block 33]'" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B8 corrects \[Block 33\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-of"
+  fi
+  m="$TMP/vc.POSSTYPED.sh"
+  if mk_mut "teeth: possessive typed" "$SUT" "$m" 's/print "A possessive " NDN; p = ve; continue/print "U"; p = ve; continue/'; then
+    tt "teeth: untyped mutant reads the possessive as bare unbound: ok-partial becomes an unqualified ok" 0 0 "$m" --orig "$SUT" \
+      --good-has 'ok-partial +1 declared' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-of"
+  fi
+  m="$TMP/vc.PUNALT.sh"
+  if mk_mut "teeth: punctuation alternatives" "$SUT" "$m" 's/^_vc_pun="$(printf .*$/_vc_pun="NOPUNCT"/'; then
+    tt "teeth: punctuation-blind mutant FAILs '—corrected in B33' (and the typographic forms)" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL=C bash @SUT@ "$TMP/pun-all"
+  fi
+  m="$TMP/vc.PUNNOUN.sh"
+  if mk_mut "teeth: punctuation noun" "$SUT" "$m" 's/^_vc_noun_re="(^|\[^\[:alnum:\]_${_vc_hi}\]|${_vc_pun})"/_vc_noun_re="(^|[^[:alnum:]_${_vc_hi}])"/'; then
+    tt "teeth: punctuation-blind noun rule FAILs a quoted 'CORRECCION - [Block 33].'" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL=C bash @SUT@ "$TMP/pun-noun"
+  fi
+  m="$TMP/vc.OFTAG.sh"
+  if mk_mut "teeth: tagged of dropped" "$SUT" "$m" 's/PREP = "(al|a|to|of|for)"/PREP = "(al|a|to|for)"/'; then
+    tt "teeth: a preposition list without 'of' loses the tagged 'CORRIGENDUM [CERT] of [Block 32]'" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B107 corrects \[Block 32\] ' --bad-lacks 'B107 corrects|awk: ' -- bash @SUT@ "$TMP/cg-oftag"
+  fi
+  m="$TMP/vc.TAGMAX.sh"
+  if mk_mut "teeth: tag bound" "$SUT" "$m" 's/length(inner) <= TAGMAX/1/'; then
+    tt "teeth: unbounded-tag mutant declares B109→B32 from a long bracketed aside" 0 1 "$m" --orig "$SUT" \
+      --bad-has 'FAIL +B109 corrects \[Block 32\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-longtag"
+  fi
+  m="$TMP/vc.BLLEFT.sh"
+  if mk_mut "teeth: backlink left boundary" "$SUT" "$m" 's/^_vc_backlink_pre=.*$/_vc_backlink_pre="("/'; then
+    tt "teeth: boundary-less mutant reads 'uncorrected in B33' as the note (loses the FAIL)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- bash @SUT@ "$TMP/bl-u"
+  fi
+  m="$TMP/vc.BLHI.sh"
+  if mk_mut "teeth: backlink non-ASCII byte" "$SUT" "$m" 's/^_vc_backlink_pre=.*$/_vc_backlink_pre="(^|[^[:alnum:]])("/'; then
+    tt "teeth: byte-blind mutant reads 'pañcorrected in B33' as the note under LC_ALL=C (loses the FAIL)" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- env LC_ALL=C bash @SUT@ "$TMP/bl-n"
+  fi
+  m="$TMP/vc.NOUNHI.sh"
+  if mk_mut "teeth: noun non-ASCII byte" "$SUT" "$m" 's/_vc_noun_re="(^|\[^\[:alnum:\]_${_vc_hi}\]/_vc_noun_re="(^|[^[:alnum:]_]/'; then
+    tt "teeth: byte-blind noun mutant reads 'pañcorrección — [Block 33]' as the backlink under LC_ALL=C" 1 0 "$m" --orig "$SUT" \
+      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- env LC_ALL=C bash @SUT@ "$TMP/bl-nn"
   fi
 fi
 

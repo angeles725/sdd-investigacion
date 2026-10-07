@@ -83,7 +83,9 @@ else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 #     corpus where NO block has a verb runs to its ok line (true on any bash); (b) STATIC — every expansion of
 #     the array is the guarded `${arr[@]+"${arr[@]}"}` form, and at least one expansion exists (a count of 0
 #     could not prove the lint looked, §7).
-unguarded_count(){ grep -cE '(^|[^+])"\$\{_vc_targets\[@\]\}"' "$1"; }
+# ONE definition of "unguarded": the static check and its tooth below both use it (the tooth used to copy the regex, so the two could drift).
+UNGUARDED_RE='(^|[^+])"\$\{!?_vc_targets\[@\]\}"'
+unguarded_count(){ grep -cE "$UNGUARDED_RE" "$1"; }
 expansion_count(){ grep -cE '\$\{_vc_targets\[@\]' "$1"; }
 d="$TMP/noverb"; mkdir -p "$d"
 printf '# Block 1\n\nNothing declared here.\n' > "$d/t-block1.md"; printf '# Block 2\n\nNor here.\n' > "$d/t-block2.md"
@@ -134,7 +136,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   gmutant="$TMP/verify-corrections.GUARDMUTANT.sh"
   if mk_mut "teeth: array guard" "$SUT" "$gmutant" 's/\${_vc_targets\[@\]+"\${!_vc_targets\[@\]}"}/"${!_vc_targets[@]}"/'; then
     tt "teeth: unguarded mutant is counted by the static check (0 → 1)" 0 0 "$gmutant" --orig "$SUT" \
-      --good-has '^0$' --bad-has '^1$' --bad-lacks "$CRASH" -- bash -c 'grep -cE "(^|[^+])\"\\\$\{!?_vc_targets\[@\]\}\"" "$1"; exit 0' _ @SUT@
+      --good-has '^0$' --bad-has '^1$' --bad-lacks "$CRASH" -- env UG="$UNGUARDED_RE" bash -c 'grep -cE "$UG" "$1"; exit 0' _ @SUT@
   fi
 fi
 
