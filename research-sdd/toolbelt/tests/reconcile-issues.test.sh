@@ -1150,7 +1150,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth H2: the surviving unclassifiable echo itself — silence it, case 26 must go quiet.
   echo "-- teeth H2: silence the unclassifiable echo; case 26 must go quiet (no unclassifiable line) --"
-  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries in $retro_path — needs manual review" >&2'
+  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries (nor numbered items directly under the heading, nor '"'"'## Delta <ID> —'"'"' entries) in $retro_path — needs manual review" >&2'
   if [[ "$sut_content_h1" == *"$anchor_h2"* ]]; then
     box_h2="$(mkbox teeth-h2)"
     mk_gh_stub "$box_h2" nomatch

@@ -85,6 +85,28 @@ function is_depr_heading(low) {
 }
 '
 
+# ─── Delta-ID rule shared by every parser of table rows and `## Delta <ID> —` headings ─────────
+# rg_delta_id(tok): 1 when <tok> is a delta id written in capitals: one capital letter (`A`), or at most 8
+# characters of capitals/digits that carry a digit or a hyphen (`R1`, `SO2`, `SPKI-A`). A bare multi-letter
+# word (`ID`, `DELTA`, `TOTAL`, `RATIONALE`) is NOT an id. rg_table_id_skip(rid): 1 when a table row's first
+# cell is a header word or separator debris and not a row id; digit-bearing cells (`1`, `D1`, `B12`) were never
+# skipped. ONE rule for stage-retro-issues.sh, reconcile-issues.sh and the `## Delta` form (kit issue #1934
+# #1938: `SPKI-A` was dropped by the old per-tool guard). A header row is additionally dropped by position (the
+# row directly above a separator), so an upper-case hyphenated header cell (`ITEM-ID`) never becomes a delta.
+_RG_AWK_ID_FN='
+function rg_delta_id(tok) {
+  if (tok !~ /^[A-Z][A-Z0-9]*(-[A-Z0-9]+)?$/) return 0
+  if (length(tok) > 8) return 0
+  if (tok !~ /[0-9-]/ && length(tok) > 1) return 0
+  return 1
+}
+function rg_table_id_skip(rid) {
+  if (rid ~ /^[-:]+$/) return 1
+  if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/ && !rg_delta_id(rid)) return 1
+  return 0
+}
+'
+
 # ─── retro_grammar_defenced <file> ───────────────────────────────────────────
 # Prints the file WITHOUT its fenced code blocks (kit issues #1356 item 1, #1369 b): a
 # `### D99 —` entry, a `**Priority**` field or a `## Proposed kit deltas` heading written inside a
@@ -359,52 +381,87 @@ fi
 
 # ─── retro_grammar_alt_entry_rows ─────────────────────────────────────────────
 # The delta forms real fleet retros use that are neither a row table nor a `### D<N> —` entry (kit issues
-# #1895 #1932 #1933 #1934 #1938 #1939; measured on the 243-retro fleet, see the T18 retro). Consulted by
-# stage-retro-issues.sh ONLY after the table and `### D<N> —` forms yielded nothing, so a canonical retro never
+# #1895 #1932 #1933 #1934 #1938 #1939; measured on the 243-retro fleet). Consulted by stage-retro-issues.sh and
+# reconcile-issues.sh ONLY after the table and `### D<N> —` forms yielded nothing, so a canonical retro never
 # changes reading. Three forms, nothing else:
-#   1. NUMBERED ITEMS (`1. **Title.** prose`, also `1)`) at column 0 under a canonical delta heading
-#      (is_canonical_heading) — id is the item number, title the leading bold span (else the first
-#      sentence, cut at 100 characters), evidence the rest of that first line, target the text after a
+#   1. NUMBERED ITEMS (`1. **Title.** prose`, also `1)`) at column 0 directly under a canonical delta heading
+#      (is_canonical_heading), before any `###` sub-heading — id is the item number, title the leading bold
+#      span (else the first sentence), evidence the rest of that first line, target the text after a
 #      `PROPOSED ` marker on a later line of the item (up to the first `:`).
-#   2. The same numbered items under a standalone `### Proposals …` H3 outside a canonical section (the
-#      shape delta_info's Rule 4 reports as unrecognised). The H3 ends at the next `##`/`###` heading.
+#   2. The same numbered items under a `### Proposals …` H3 (inside a canonical section or not). The H3 ends at
+#      the next `##`/`###` heading.
 #   3. `## Delta <ID> — [HIGH|MED|MEDIUM|LOW —] title` H2 entries outside a canonical section (sweep-retros
-#      form 3). <ID> is upper-case, at most 8 characters: `A`, `R1`, `SO2`, `SPKI-A`; `## Delta rationale —`
-#      is not an ID. MED is normalised to MEDIUM (the seeder's priority map knows only the full word).
-# Deliberately NOT forms: bullets (`- **Lesson:**`), a numbered list under any other heading (`## Evidence`,
-# `## What happened`), a `## Kit-delta proposals` section holding prose. Those stay typed unclassifiable in the
-# seeder: a lessons list is not a delta list, and over-matching would invent issues.
+#      form 3). <ID> follows rg_delta_id (below). MED is normalised to MEDIUM (the seeder's priority map knows
+#      only the full word).
+# Any other `###` heading inside a canonical section (`### Considered and rejected`, `### Evidence`) ENDS the
+# item scope: a numbered list under it is not a delta list. Bullets (`- **Lesson:**`), a numbered list under any
+# other heading (`## Evidence`, `## What happened`) and a `## Kit-delta proposals` section holding prose are
+# deliberately NOT forms: they stay typed unclassifiable in the consumers.
+# Title rules: a sentence ends at ". " followed by a non-lowercase character and not after an abbreviation
+# (`e.g.`, `i.e.`, `etc.`, a single letter); the title is capped at 100 bytes on a character boundary (the
+# awk runs in the C locale and never splits a UTF-8 sequence) and the cut-off text moves to the evidence
+# (capped at 300); an unclosed `**` is plain text.
 # Output: one record per item, \037-separated, the same shape as retro_grammar_entry_rows
-# (id, change, target, evidence, type, priority). Returns 1 (no output) for an absent/unreadable file.
+# (id, change, target, evidence, type, priority). With a second argument `heads` the output is instead the
+# raw source heading line of every group that produced at least one item (one per line, in file order) — the
+# consumers use it to tell a proposal-like heading that produced items from one that produced none.
+# Returns 1 (no output) for an absent/unreadable file. Duplicate ids across two lists are NOT resolved here:
+# consumers check retro_grammar_dup_ids and type the retro unclassifiable (a signature is keyed on the id).
 if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
   retro_grammar_alt_entry_rows() {
-    local f="${1:-}"
+    local f="${1:-}" want="${2:-rows}"
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
+    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | LC_ALL=C awk -v want="$want" "$_RG_AWK_CANONICAL_FN$_RG_AWK_ID_FN"'
       function flush() {
-        if (have) printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
+        if (have) {
+          if (want == "heads") { if (!(src in shown)) { shown[src] = 1; print src } }   # ALT_HEADS_UNIQ
+          else printf "%s\037%s\037%s\037%s\037\037%s\n", id, title, tg, ev, pr
+        }
         have=0
       }
       function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
-      function start_item(n, text,    t, p, rest) {
+      # cut_at(s, n): the largest k <= n that does not split a UTF-8 sequence (C locale: bytes)
+      function cut_at(s, n,    k) {
+        if (length(s) <= n) return length(s)
+        k = n
+        while (k > 0 && substr(s, k + 1, 1) ~ /[\200-\277]/) k--   # ALT_CUT_BACKOFF
+        return (k > 0) ? k : n
+      }
+      # sentence_end(t): position of the "." ending the first sentence, 0 when there is none
+      function sentence_end(t,    off, r, p, pos, nxt, w, skip) {
+        off = 0; r = t
+        while ((p = index(r, ". ")) > 0) {
+          pos = off + p; nxt = substr(t, pos + 2, 1)
+          w = substr(t, 1, pos - 1); sub(/^.*[[:space:]]/, "", w)
+          skip = 0
+          if (nxt ~ /[a-z]/) skip = 1   # ALT_SENT_LOWER: a lower-case word continues the sentence
+          if (tolower(w) ~ /^(e\.g|i\.e|etc|vs|cf|approx|incl)$/ || w ~ /^[A-Za-z]$/) skip = 1   # ALT_SENT_ABBREV
+          if (!skip) return pos
+          off = pos + 1; r = substr(t, off + 1)
+        }
+        return 0
+      }
+      function start_item(n, text,    t, u, p, e, rest, k) {
         flush(); id=n; tg=""; ev=""; pr=""; rest=""
         t=trim(text)
         if (t ~ /^\*\*/) {
-          sub(/^\*\*/, "", t); p=index(t, "**")
-          if (p > 0) { rest=substr(t, p + 2); t=substr(t, 1, p - 1) }
-        } else {
-          p=index(t, ". ")
-          if (p > 0 && p <= 100) { rest=substr(t, p + 2); t=substr(t, 1, p - 1) }
-          else if (length(t) > 100) t=substr(t, 1, 100)
+          u=substr(t, 3); p=index(u, "**")
+          if (p > 0) { rest=substr(u, p + 2); t=substr(u, 1, p - 1) }
+          else t=u     # unclosed bold: plain text
         }
-        sub(/[.:[:space:]]+$/, "", t)
+        if (rest == "") {
+          e=sentence_end(t)
+          if (e > 0) { rest=substr(t, e + 2); t=substr(t, 1, e - 1) }
+        }
+        if (length(t) > 100) { k=cut_at(t, 100); rest=substr(t, k + 1) " " rest; t=substr(t, 1, k) }   # ALT_TITLE_CAP
+        sub(/[.:[:space:]]+$/, "", t)   # ALT_TITLE_STRIP
         title=trim(t); ev=trim(rest)
-        if (length(ev) > 300) ev=substr(ev, 1, 297) "..."
+        if (length(ev) > 300) { k=cut_at(ev, 297); ev=substr(ev, 1, k) "..." }
         have=(title != "")
       }
-      BEGIN { mode=""; have=0; blank=0 }
+      BEGIN { mode=""; have=0; blank=0; src="" }
       { low=tolower($0) }
-      is_canonical_heading(low) { flush(); mode="canon"; next }
+      is_canonical_heading(low) { flush(); mode="canon"; src=$0; next }
       /^##[^#]/ {
         flush(); mode=""
         if (low ~ /^## delta /) {   # ALT_H2_DELTA
@@ -412,7 +469,7 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
           d=index(t, "—")
           if (d > 0) {
             tok=trim(substr(t, 1, d - 1))
-            if (tok ~ /^[A-Z][A-Z0-9]*(-[A-Z0-9]+)?$/ && length(tok) <= 8) {
+            if (rg_delta_id(tok)) {
               rest=trim(substr(t, d + length("—"))); pr=""; title=rest
               p=index(rest, " — ")
               if (p > 0) {
@@ -422,7 +479,7 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
                   if (pr == "MED") pr = "MEDIUM"   # ALT_PRIORITY_MED
                 }
               }
-              id=tok; tg=""; ev=""; have=(title != "")
+              id=tok; tg=""; ev=""; have=(title != ""); src=$0
               mode="h2d"
             }
           }
@@ -430,9 +487,9 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
         next
       }
       /^###[^#]/ {
-        if (mode == "canon") { flush(); next }
-        flush(); mode=""
-        if (low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) mode="h3"   # ALT_H3_PROPOSALS
+        if (mode == "h2d") next
+        flush(); mode=""   # ALT_H3_RESET: any other ### ends the item scope
+        if (low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) { mode="h3"; src=$0 }   # ALT_H3_PROPOSALS
         next
       }
       /^[[:space:]]*$/ { blank=1; next }
@@ -441,8 +498,8 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
           n=substr($0, 1, RLENGTH); sub(/[.)][[:space:]]+$/, "", n)
           start_item(n, substr($0, RLENGTH + 1)); blank=0; next
         }
-        if (have && blank && $0 !~ /^[[:space:]]/) flush()
-        if (have && tg == "" && (p=index($0, "PROPOSED ")) > 0) {
+        if (have && blank && $0 !~ /^[[:space:]]/) flush()   # ALT_BLANK_FLUSH
+        if (have && tg == "" && (p=index($0, "PROPOSED ")) > 0) {   # ALT_PROPOSED_TARGET
           t=substr($0, p + 9); q=index(t, ":")
           if (q > 0 && q <= 120) tg=trim(substr(t, 1, q - 1))
         }
@@ -452,6 +509,13 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
       END { flush() }
     '
   }
+fi
+
+# retro_grammar_dup_ids — reads item ids on stdin (one per line), prints the ids that occur more than once.
+# A numbered list restarts at 1, so two lists under one retro collide on the id and the issue signature
+# (keyed on the id) would silently merge them; the consumers type such a retro unclassifiable instead.
+if ! typeset -f retro_grammar_dup_ids >/dev/null 2>&1; then
+  retro_grammar_dup_ids() { sort | uniq -d; }
 fi
 
 # ─── retro_grammar_has_honesty ────────────────────────────────────────────────
