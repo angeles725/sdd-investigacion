@@ -1243,6 +1243,32 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   if [ "$rc" -eq 1 ] && grep -qF 'a-restore.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out"; then
     ok "-j attribution: a suite that rewrites the path and restores its mtime is named via the content hash"
   else no "-j restored-mtime failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
+  # j15 — an invalid RUN_ALL_ATTRIBUTION_TIMEOUT (not a positive integer) must not make `timeout` fail
+  #       every re-run silently: it is a typed Attribution line and the default is used (kit issue #1536).
+  w="$(newdir j15)"; _j15kit="${w%/toolbelt/tests}"; mkdir -p "$_j15kit/install"
+  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j15cwd="$TMP/j15-cwd"; mkdir -p "$_j15cwd"
+  out="$(cd "$_j15cwd" && RUN_ALL_ATTRIBUTION_TIMEOUT=abc bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF "Attribution: RUN_ALL_ATTRIBUTION_TIMEOUT='abc' is not a positive integer; using 600" <<<"$out" \
+     && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out"; then
+    ok "-j attribution: an invalid RUN_ALL_ATTRIBUTION_TIMEOUT is a typed line, the default applies and the offender is still named"
+  else no "-j invalid timeout failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
+  # j16 — a `date` without %N (BSD/macOS prints a literal N) must not kill the run windows: the worker
+  #       falls back to whole seconds and the match tolerance widens to a second.
+  w="$(newdir j16)"; _j16kit="${w%/toolbelt/tests}"; mkdir -p "$_j16kit/install"
+  cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"
+  mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j16cwd="$TMP/j16-cwd"; mkdir -p "$_j16cwd"; _j16bin="$TMP/j16-bin"; mkdir -p "$_j16bin"
+  { printf '#!/bin/sh\n'
+    printf 'case "$*" in *%%N*) echo "$(%s +%%s).N"; exit 0 ;; esac\n' "$(command -v date)"
+    printf 'exec %s "$@"\n' "$(command -v date)"
+  } > "$_j16bin/date"; chmod +x "$_j16bin/date"
+  out="$(cd "$_j16cwd" && PATH="$_j16bin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'a-leaky.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out" \
+     && ! grep -qF 'no suite run window' <<<"$out"; then
+    ok "-j attribution: a date without %N falls back to whole-second windows and the offender is still named"
+  else no "-j no-%N date failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
 else skip_j "-j leak attribution (j6/j9/j10/j11)"; fi
 
 # j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
@@ -2227,6 +2253,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else no "teeth-tmpd-node: mutant still isolates the node suite — mutation not exercised (THEATER)"; fi
     fi
   fi
+  if [ "$have_gnu_parallel" -eq 1 ]; then
+    echo "-- teeth: accept any RUN_ALL_ATTRIBUTION_TIMEOUT; the typed invalid-value line must then vanish (case j15) --"
+    w="$(mut_workdir teeth-j-timeout)"; mkdir -p "${w%/toolbelt/tests}/install"
+    cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+    if ! mutant_sed "$SUT" "$w/run-all.sh" 's/\^\[1-9\]\[0-9\]\*\$/./' 2>"$w/mutant.err"; then
+      no "teeth-j-timeout: could not build a valid mutant: $(cat "$w/mutant.err")"
+    else
+      mout="$(cd "$TMP" && RUN_ALL_ATTRIBUTION_TIMEOUT=abc bash "$w/run-all.sh" -j 2 2>&1)"
+      if ! grep -qF 'is not a positive integer' <<<"$mout"; then ok "teeth-j-timeout: validation-less mutant loses the typed line → the timeout validation has real teeth"
+      else no "teeth-j-timeout: mutant still validates — mutation not exercised (THEATER)"; fi
+    fi
+    echo "-- teeth: drop the whole-second window fallback; a %N-less date must then DEGRADE the attribution (case j16) --"
+    w="$(mut_workdir teeth-j-datefb)"; mkdir -p "${w%/toolbelt/tests}/install"
+    cp "$_j12kit/toolbelt/tests/a-leaky.test.sh" "$w/a-leaky.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+    if ! mutant_sed "$SUT" "$w/run-all.sh" 's/\*\[!0-9\.\]\*) _v="\$(date +%s 2>\/dev\/null)" ;;/*[!0-9.]*) ;;/' 2>"$w/mutant.err"; then
+      no "teeth-j-datefb: could not build a valid mutant: $(cat "$w/mutant.err")"
+    else
+      mout="$(cd "$TMP" && PATH="$_j16bin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"
+      if grep -qF 'no suite run window' <<<"$mout" || grep -qF "no suite window matches" <<<"$mout"; then ok "teeth-j-datefb: fallback-less mutant loses the run windows → the whole-second fallback has real teeth"
+      else no "teeth-j-datefb: mutant still attributes — mutation not exercised (THEATER)"; fi
+    fi
+  else skip_j "teeth-j-timeout / teeth-j-datefb"; fi
   echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
   if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
     mkfix_sh "$w/a.test.sh" 1 0 0

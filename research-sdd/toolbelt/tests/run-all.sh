@@ -34,7 +34,7 @@
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
 #                    Hermeticity guards snapshot once around the batch; a leak found there triggers
 #                    a serial re-run of only the candidate suites (those whose run window held the
-#                    leaked path's mtime) names the suite; otherwise a typed batch label plus an
+#                    leaked path's mtime) to name the offender; otherwise a typed batch label plus an
 #                    `Attribution:` line saying why, never silently.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
@@ -554,6 +554,8 @@ _parallel_gnu_ok() {
 # or date capability) keeps the typed batch label AND gets a typed `Attribution:` line saying why
 # — never a silent label. Side effects of a re-run are the suite's own (the same as the first run).
 ATTRIBUTION_LINES=()
+ATTR_TOL_FINE=0.05     # seconds: sub-second (GNU stat %.9Y) mtime vs a fractional run window
+ATTR_TOL_COARSE=1      # seconds: whole-second mtime (BSD stat -f %m) or whole-second run window
 _STAT_MODE=""
 _probe_stat() {
   local _v _f="${PAR_DIR:-$SCRIPT_DIR}/run1.sh"
@@ -574,7 +576,7 @@ _sig_of() {     # _sig_of <path>: "<mtime>|<sha1 of a regular file>"
   [[ -f "$1" ]] && _h="$(sha1sum -- "$1" 2>/dev/null)" && _h="${_h%% *}"
   printf '%s|%s' "$(_mtime_of "$1")" "$_h"
 }
-_pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its new/modified batch entries
+_pend_add() {   # _pend_add <violations-array-name> <src-tag> <root> <first-new-index>: queue the new/modified batch entries from <first-new-index> on
   local -n _pv="$1"; local _from="$4" _i _e _kind _path
   for ((_i = _from; _i < ${#_pv[@]}; _i++)); do
     _e="${_pv[$_i]#"$PARALLEL_LABEL leaked: "}"
@@ -584,7 +586,7 @@ _pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its 
   done
 }
 _attribute_batch_leaks() {
-  local _i _j _s _b _m _w _ws _we _tol _t _cmd_to _rt
+  local _i _j _s _b _m _w _ws _we _wt _tol _t _cmd_to _rt
   local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=() _cand=() _attr=()
   # Clean batch: no new violation of either kind -> silent, byte-identical to before.
   [[ ${#hermeticity_violations[@]} -eq $1 && ${#kit_tree_violations[@]} -eq $2 ]] && return 0
@@ -597,7 +599,7 @@ _attribute_batch_leaks() {
     echo "run-all.sh: -j attribution DEGRADED — no usable stat; leaks keep the batch label" >&2
     return 0
   fi
-  _tol=0.05; [[ "$_STAT_MODE" == bsd ]] && _tol=1
+  _tol="$ATTR_TOL_FINE"; [[ "$_STAT_MODE" == bsd ]] && _tol="$ATTR_TOL_COARSE"
   # Candidate suites: those whose recorded window contains a leaked path's mtime.
   for _i in "${!_pend_path[@]}"; do
     _m="$(_mtime_of "${_pend_path[$_i]}")"
@@ -605,7 +607,10 @@ _attribute_batch_leaks() {
     for _j in "${!all_suites[@]}"; do
       [[ -f "$PAR_DIR/$((_j + 1)).win" ]] || continue
       read -r _ws _we < "$PAR_DIR/$((_j + 1)).win"
-      if awk -v m="$_m" -v s="$_ws" -v e="$_we" -v t="$_tol" 'BEGIN { exit !(m + 0 >= s - t && m + 0 <= e + t) }'; then
+      # Whole-second window records (a `date` without %N) widen the tolerance: the stat mtime keeps
+      # its fraction, so [floor(start), floor(end)] alone would miss a write in the last second.
+      _wt="$_tol"; [[ "$_ws$_we" == *.* ]] || _wt="$ATTR_TOL_COARSE"
+      if awk -v m="$_m" -v s="$_ws" -v e="$_we" -v t="$_wt" 'BEGIN { exit !(m + 0 >= s - t && m + 0 <= e + t) }'; then
         [[ " ${_cand[*]} " == *" $_j "* ]] || _cand+=("$_j")
       fi
     done
@@ -617,6 +622,12 @@ _attribute_batch_leaks() {
   fi
   mapfile -t _cand < <(printf '%s\n' "${_cand[@]}" | sort -n)
   _t="${RUN_ALL_ATTRIBUTION_TIMEOUT:-600}"; _cmd_to=()
+  # `timeout abc` exits 125 without running the suite: every re-run would then "reproduce nothing"
+  # silently. Validate once, say so, and fall back to the default.
+  if ! [[ "$_t" =~ ^[1-9][0-9]*$ ]]; then
+    ATTRIBUTION_LINES+=("Attribution: RUN_ALL_ATTRIBUTION_TIMEOUT='$_t' is not a positive integer; using 600")
+    _t=600
+  fi
   command -v timeout >/dev/null 2>&1 && _cmd_to=(timeout "$_t")
   echo "run-all.sh: -j leak detected in the batch; re-running ${#_cand[@]} candidate suite(s) of ${#all_suites[@]} serially to name the offender" >&2
   for _j in "${_cand[@]}"; do
@@ -675,7 +686,8 @@ if [[ -n "${RUN_TMP_ROOT:-}" ]]; then
   if mkdir -p "$RUN_TMP_ROOT/$idx" 2>/dev/null; then export TMPDIR="$RUN_TMP_ROOT/$idx"; else : > "$PAR_DIR/$idx.tmpfail"; fi
 fi
 # Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
-_t0="$(date +%s.%N 2>/dev/null)"
+_now() { local _v; _v="$(date +%s.%N 2>/dev/null)"; case "$_v" in ""|*[!0-9.]*) _v="$(date +%s 2>/dev/null)" ;; esac; printf '%s' "$_v"; }
+_t0="$(_now)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
 # with a "started" line and no "done" line.
 echo "run-all.sh: -j started: $(basename "$suite")" >&2
@@ -687,7 +699,7 @@ else
   bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
 fi
 rc=$?
-_t1="$(date +%s.%N 2>/dev/null)"
+_t1="$(_now)"
 case "$_t0$_t1" in *[!0-9.]*|"") ;; *) echo "$_t0 $_t1" > "$PAR_DIR/$idx.win" ;; esac
 echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
 echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
