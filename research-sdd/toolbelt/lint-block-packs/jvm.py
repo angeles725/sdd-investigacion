@@ -4,7 +4,9 @@
       lambda, ...) with an adoption verb and no bytecode/docSource evidence token in the same clause.
       A decompiler resugars, so "the source uses X" is not evidence that the class file does.
   R5  a fail-open / bypass / null-Context permission claim with no `dispatch:` clause naming the
-      resolved override. Scoped to clauses that are about permissions/security.
+      resolved override (or an inline `cited-absence:` clause citing that none exists). Scoped to clauses
+      that are about permissions/security; a unit made only of `>` blockquote lines (restated gap text)
+      is skipped and counted as `quoted-skipped=` in the SUMMARY.
   R7  a dead/unused/unreferenced-constant or shadow-literal/hardcoded-duplicate claim without a
       compile-time-constant-inlining evidence token (javac inlines constants: "never read" in the
       decompiled code does not mean unreferenced in the class file).
@@ -49,6 +51,9 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 R5_PERM_CONTEXT_RE = re.compile(
     r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth\w*\b|\bnull[\s-]+context\b)"
     r"|\bContext\b|\bcx\b")
+# Clearing forms: a resolved `dispatch:` clause, or an inline `cited-absence:` clause (the override was
+# searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").
+R5_CLEARED_RE = re.compile(r"dispatch:|cited-absence:", re.IGNORECASE)
 
 R7_TRIGGER_RE = re.compile("|".join([
     r"\b(?:dead|unused|unreferenced)\s+constants?\b",
@@ -74,7 +79,8 @@ def build(api):
         ("R1", mk("R1", lambda c: R1_FEATURE_RE.search(c) and R1_VERB_RE.search(c),
                   R1_EVIDENCE_RE.search, "syntax-adoption claim without bytecode/docSource evidence")),
         ("R5", mk("R5", lambda c: R5_CONSEQUENCE_RE.search(c) and R5_PERM_CONTEXT_RE.search(c),
-                  lambda c: "dispatch:" in c.lower(), "permission consequence claim without a resolved dispatch: target")),
+                  R5_CLEARED_RE.search, "permission consequence claim without a resolved dispatch: target",
+                  skip_quoted=True)),
         ("R7", mk("R7", R7_TRIGGER_RE.search, R7_EVIDENCE_RE.search,
                   "constant-inlining claim without bytecode/docSource evidence")),
     ]

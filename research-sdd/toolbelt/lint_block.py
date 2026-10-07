@@ -62,7 +62,9 @@ import sys
 import types
 from collections import defaultdict, namedtuple
 
-Unit = namedtuple("Unit", "text line kind")  # kind: para | item (list item) | row | header | heading
+# kind: para | item (list item) | row | header | heading. `quoted`: every source line of the unit was a
+# `>` blockquote line (a restatement of someone else's text, e.g. a gap), set by extract_units.
+Unit = namedtuple("Unit", "text line kind quoted", defaults=(False,))
 
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 TABLE_SEP_RE = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
@@ -129,14 +131,16 @@ def extract_units(lines, fenced):
     """
     units = []
     buf = []
+    buf_quoted = []
     buf_start = None
     buf_kind = "para"
 
     def flush():
-        nonlocal buf, buf_start, buf_kind
+        nonlocal buf, buf_quoted, buf_start, buf_kind
         if buf:
-            units.append(Unit(" ".join(buf).strip(), buf_start, buf_kind))
+            units.append(Unit(" ".join(buf).strip(), buf_start, buf_kind, all(buf_quoted)))
         buf = []
+        buf_quoted = []
         buf_start = None
         buf_kind = "para"
 
@@ -153,15 +157,15 @@ def extract_units(lines, fenced):
             flush()
             if units and units[-1].kind == "row" and units[-1].line == i - 1:
                 prev = units.pop()
-                units.append(Unit(prev.text, prev.line, "header"))
+                units.append(Unit(prev.text, prev.line, "header", prev.quoted))
             continue
         if TABLE_ROW_RE.match(content):
             flush()
-            units.append(Unit(stripped, i, "row"))
+            units.append(Unit(stripped, i, "row", bool(BLOCKQUOTE_RE.match(raw))))
             continue
         if HEADING_RE.match(content):
             flush()
-            units.append(Unit(stripped, i, "heading"))
+            units.append(Unit(stripped, i, "heading", bool(BLOCKQUOTE_RE.match(raw))))
             continue
         if LIST_ITEM_RE.match(content) and buf:
             flush()
@@ -169,6 +173,7 @@ def extract_units(lines, fenced):
             buf_start = i
             buf_kind = "item" if LIST_ITEM_RE.match(content) else "para"
         buf.append(stripped)
+        buf_quoted.append(bool(BLOCKQUOTE_RE.match(raw)))
     flush()
     return units
 
@@ -464,11 +469,14 @@ def clauses(text):
     return parts or [text]
 
 
-def make_claim_rule(rule_id, is_claim, is_cleared, message):
+def make_claim_rule(rule_id, is_claim, is_cleared, message, skip_quoted=False):
     """Rule factory for the common pack shape: a clause that makes a claim (`is_claim`) and carries no
     clearing evidence (`is_cleared`) is a finding unless the unit holds a valid waiver for `rule_id`.
     Bumps `r<N>_triggers` for every claim clause seen (cleared or not), so the SUMMARY proves it looked.
-    At most ONE finding per unit (the first uncleared claim clause); later clauses are not examined."""
+    At most ONE finding per unit (the first uncleared claim clause); later clauses are not examined.
+    `skip_quoted=True` skips a unit made only of `>` blockquote lines (restated gap text, not the block's
+    own claim); each skipped claim clause is counted in `quoted_skipped`, printed as `quoted-skipped=` in
+    the SUMMARY, so the skip is visible rather than silent."""
     covkey = rule_id.lower() + "_triggers"  # e.g. "r1_triggers", printed as `r1-triggers=` in SUMMARY
 
     def rule(doc):
@@ -478,6 +486,9 @@ def make_claim_rule(rule_id, is_claim, is_cleared, message):
                 continue
             for clause in clauses(u.text):
                 if not is_claim(clause):
+                    continue
+                if skip_quoted and u.quoted:
+                    doc.cov["quoted_skipped"] += 1
                     continue
                 doc.cov[covkey] += 1
                 # Evidence is clause-scoped: it clears only the claim in its own clause. A waiver is
@@ -640,6 +651,8 @@ def main(argv):
     if LOADED_PACKS:
         pack_trigger_fields = " ".join(f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS)
         pack_cov = f" packs={','.join(LOADED_PACKS)} {pack_trigger_fields}"
+    if LOADED_PACKS and cov["quoted_skipped"]:
+        pack_cov += f" quoted-skipped={cov['quoted_skipped']}"
     crashed_cov = f" crashed={crashed}" if crashed else ""
     inspected = (f"selfverify-sections={cov['selfverify_sections']} cert-hw-live-items={cov['cert_hw_live_items']} "
                  f"r6-trigger-clauses={cov['r6_trigger_clauses']} cert-inline-items={cov['cert_inline_items']}")

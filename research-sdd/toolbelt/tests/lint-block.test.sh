@@ -376,6 +376,12 @@ LINT_BLOCK_PACKS_DIR="$TMP/pk-listpair" run --pack demo "$FX/pack-single.md"
 LINT_BLOCK_PACKS_DIR="$TMP/pk-noniter" run --audit --pack demo "$FX/pack-single.md"
 [ "$RC" -eq 2 ] && grep -qF 'failed to load' <<< "$OUT" && ! grep -qF 'Traceback' <<< "$OUT" && ! grep -qF 'SUMMARY' <<< "$OUT" && ok "22h a non-iterable build() return -> exit 2, nothing linted" || no "22h non-iterable (rc=$RC out=[$OUT])"
 
+# 23. R5 (kit #1548 / #1607): quoted gap text is skipped; an inline cited-absence form clears
+run --pack jvm "$FX/pack-r5-quote.md"
+want="$(grep -nE 'R5Q-(BAD|MIXED-BAD|NOABSENCE-BAD)' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R5 "$OUT" "$FX/pack-r5-quote.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "23a R5: unit made only of '>' blockquote lines (gap-text restatement) is skipped; a mixed quoted/unquoted unit, plain prose and a clause without cited absence still flag; an inline cited-absence clears ($want)" || no "23a R5 blockquote / cited-absence (want=[$want] got=[$got])"
+grep -qE 'quoted-skipped=2( |$)' <<< "$OUT" && ok "23b SUMMARY proves the skip (quoted-skipped=2): the quoted claims were seen, not silently dropped" || no "23b quoted-skipped (out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -565,7 +571,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$MRC" -eq 1 ] && ok "teeth X3: ~~~ fence recognition removed -> tilde-fenced row FALSE-FLAGS -> case 14e has teeth" || no "teeth X3: mutant still clean (rc=$MRC) — THEATER"
   fi
   tooth_set Y1 lint_block.py 's#^    return BLOCKQUOTE_RE.sub("", line, count=1)#    return line#' "$FX/r3-quoted.md" R3
-  if tooth_build Y2 lint_block.py 's#units.append(Unit(prev.text, prev.line, "header"))#units.append(Unit(prev.text, prev.line, "row"))#'; then
+  if tooth_build Y2 lint_block.py 's#units.append(Unit(prev.text, prev.line, "header", prev.quoted))#units.append(Unit(prev.text, prev.line, "row", prev.quoted))#'; then
     mrun "$FX/r3-header.md"
     [ "$MRC" -eq 1 ] && ok "teeth Y2: header row demoted to a plain row -> its legend text FALSE-FLAGS -> case 14h has teeth" || no "teeth Y2: mutant still clean (rc=$MRC) — THEATER"
   fi
@@ -716,6 +722,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth M5 lint-block-packs/multi-version.py 's#(?<!\[\\d.\])##' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth M6 lint-block-packs/multi-version.py 's#4\\.15(?!\\d)#4\\.15#' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth N11 lint-block-packs/native-binary.py 's#(?=\[0-9A-Fa-f\]\*\\d)##' "$FX/pack-adv-r9.md" R9 ADV-R9-BAD native-binary
+  # kit #1548 / #1607: quoted-gap skip and inline cited-absence
+  r5q_want="$(grep -nE 'R5Q-(BAD|MIXED-BAD|NOABSENCE-BAD)' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
+  if tooth_build RQ1 lint_block.py 's#if skip_quoted and u.quoted:#if False and u.quoted:#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_want" ] && no "teeth RQ1: quoted skip disabled but R5 set unchanged [$got] — THEATER" || ok "teeth RQ1: quoted skip disabled -> R5 reports [$got] instead of [$r5q_want] -> case 23a has teeth"
+  fi
+  if tooth_build RQ2 lint-block-packs/jvm.py 's#dispatch:|cited-absence:#dispatch:#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_want" ] && no "teeth RQ2: cited-absence form removed but R5 set unchanged [$got] — THEATER" || ok "teeth RQ2: cited-absence form removed -> R5 reports [$got] -> case 23a has teeth"
+  fi
+  if tooth_build RQ3 lint_block.py 's#            doc.cov\["quoted_skipped"\] += 1#            pass#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"
+    grep -qE 'quoted-skipped=' <<< "$MOUT" && no "teeth RQ3: skip counter dropped but SUMMARY still shows it — THEATER" || ok "teeth RQ3: skip counter dropped -> quoted-skipped= vanishes -> case 23b has teeth"
+  fi
   if tooth_build L1 lint_block.py 's#if not (isinstance(rule,#if False and not (isinstance(rule,#'; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
     grep -qF 'malformed rule' <<< "$MOUT" && no "teeth L1: mutant still reports 'malformed rule' — THEATER" || ok "teeth L1: shape guard removed -> malformed pack entry no longer reported cleanly (rc=$MRC) -> case 22e has teeth"
@@ -743,7 +763,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # jvm pack
   ptooth J1 lint-block-packs/jvm.py 's#r"\\bjavap\\b", ##' "$FX/pack-jvm.md" R1 R1- jvm
   ptooth J2 lint-block-packs/jvm.py 's#r"text\\s+block", ##' "$FX/pack-jvm.md" R1 R1- jvm
-  ptooth J3 lint-block-packs/jvm.py 's#lambda c: "dispatch:" in c.lower()#lambda c: False#' "$FX/pack-jvm.md" R5 R5- jvm
+  ptooth J3 lint-block-packs/jvm.py 's#R5_CLEARED_RE.search, "permission#lambda c: False, "permission#' "$FX/pack-jvm.md" R5 R5- jvm
   ptooth J4 lint-block-packs/jvm.py 's# and R5_PERM_CONTEXT_RE.search(c)# and True#' "$FX/pack-jvm.md" R5 R5- jvm
   ptooth J5 lint-block-packs/jvm.py 's#r"compile-time constant", ##' "$FX/pack-jvm.md" R7 R7- jvm
   ptooth J6 lint-block-packs/jvm.py 's#r"\\bhardcod\\w\*\\b.{0,80}\\binstead of\\b.{0,40}\\bconstant\\b",##' "$FX/pack-jvm.md" R7 R7- jvm

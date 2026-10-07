@@ -14,7 +14,8 @@ import re
 
 R8_TRIGGER_RE = re.compile(
     r"N5-only|new in N5|added in N5|introduced in N5|absent from N4", re.IGNORECASE)
-# `4.15` also covers "N4.15"; the digit/dot guards stop "14.15" / "4.150" / "4.15.1x" from reading as a baseline.
+# `4.15` also covers "N4.15" and a dotted patch release such as "4.15.1" (still the 4.15 baseline); the
+# leading digit/dot guard stops "14.15" and "3.4.15", and the trailing digit guard stops "4.150".
 R8_BASELINE_RE = re.compile(r"(?<![\d.])4\.15(?!\d)|PowerB", re.IGNORECASE)
 R8_SURFACE_RE = re.compile(
     r"\.jar\b|\.class\b|\bjars?\b|\bclass(?:es)?\b|\bmodules?\b|\bpackages?\b|\bfeatures?\b|\bAPI\b",
