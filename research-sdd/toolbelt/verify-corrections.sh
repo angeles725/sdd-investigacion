@@ -279,8 +279,8 @@ _vc_extract() {
       return 1
     }
     # noundecl(rest): 1 when the text after a corrigendum noun is `[tag] <preposition> [the] [tag] [Block N]` (the ref
-    # directly after an explicit preposition; a tag is a short bracket that is NOT itself a block ref), else 0.
-    # A tag is SHORT: at most TAGMAX characters between the brackets; longer is a prose aside. A `of` with no tag before OR after it (a bare `of [Block N]`) is
+    # directly after an explicit preposition; a tag is a short bracket that is NOT itself a block ref); 2 for a bare possessive `of` (ref number in NDN); else 0.
+    # A tag is SHORT: at most TAGMAX bytes between the brackets; longer is a prose aside. A `of` with no tag before OR after it (a bare `of [Block N]`) is
     # the POSSESSIVE (`see the corrigendum of [Block 33]` inside the corrected file), not a declaration; `of` needs a tag (returns 2, with the ref number in NDN).
     function tagok(t,   inner) {         # t = a bracket tag incl. brackets/backticks: 1 when it is short and not a block ref
       inner = t; gsub(/^`?\[|\]`?[ \t]*$/, "", inner)
