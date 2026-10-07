@@ -986,12 +986,12 @@ Always read first, in this order:
          the session, even though authoring was gated on it.
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
-         RE-TYPED / BLOCKED TRANSITION (kit #1638): a gap that is re-typed or becomes blocked LEAVES the
-         main backlog table in the SAME edit — move the row to `## Blocked gaps` (or the destination
-         block) and write `re-typed → <where>`; never mark it in place with a free-form Status such as
-         `re-typed [Block N] — blocked-pending-…`: that yields `WARN: unrecognised Status token` and
-         the row is counted by no counter while it still sits in the main table. (The `re-typed → <where>`
-         token itself is not yet accepted by the tooling — tracked in #1638.)
+         RE-TYPED / BLOCKED TRANSITION (kit #1638): a gap whose type changes or that becomes blocked is
+         recorded in ONE of two tool-recognised forms in the SAME edit: (a) in place, Status
+         `blocked (requires-<what>)` with its `tried:` / `needs:` clauses; or (b) moved out of the main
+         table to `## Blocked gaps` as a `- <gap> — needs: …` bullet. A Status whose leading token is
+         `re-typed` is warned about by `research-sdd-status.sh` and `verify-state.sh` and is not
+         counted (METHODOLOGY §8b).
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
        - WRITE the coverage counts with the tool, never hand-edit them: run
          `$KIT/toolbelt/research-sdd-status.sh $TARGET --sync-state` to (re)write the state envelope's
@@ -1240,8 +1240,10 @@ Always read first, in this order:
          written to be redone (evidence: a tunnel how-to found at its B9 forced B6 to upgrade 3
          `[INFER]` claims to `[CERT]`).
        - MEMORY-ONLY FINDINGS (kit #1894): `mem_search` the target (project + topic `research/<target>/`)
-         for findings that have NO block (memory-only). Fold each into the deliverable with an explicit
-         `engram #<id>, no block` marker, or open a block for it — never let it surface only through
+         for findings that have NO block (memory-only). Open a block for each one that the deliverable
+         will state; until that block exists the finding is undocumented, so raise
+         `undocumented_findings` in RESEARCH-STATE (a temporary state a later block must close). Never
+         cite memory directly from the deliverable, and never let such findings surface only through
          `mem_save` conflict candidates after the deliverable is drafted. This is the intake side of
          the HARD RULE MEMORY IS A MIRROR, NEVER A SUBSTITUTE.
      LARGE-SCALE §20 (outline > ~15 items — per-section-agent pattern): the sequential
@@ -1255,6 +1257,7 @@ Always read first, in this order:
      step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
      This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
      changes is that N agents run in one dispatch round rather than N sequential iterations.
+     (Evidence: api-openness.)
      COMMIT EXEMPTION (kit #1887): because N blocks are produced in ONE dispatch, a single import
      commit holding the dispatch's blocks is legitimate for a per-section-agent run — ONE-BLOCK-PER-COMMIT
      (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
@@ -1263,8 +1266,7 @@ Always read first, in this order:
      not yet honor it — tracked in #1887.)
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
-     blocks land; an unassigned owner leaves the template state orphaned.
-     (Evidence: api-openness.)
+     blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
      depends on GENRE:
        - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
@@ -1276,14 +1278,14 @@ Always read first, in this order:
          uses ONE canonical shape: symptom → cause → fix → why it works → when/where (commit) →
          verification + marker (`[CERT-*]`). A problem entry missing any element is incomplete, not
          "short". (Evidence: six traceable, reproducible problem entries in one block used this mold.)
-       - PENDING-LIVE REGISTRATION (kit #1893): a `[PENDIENTE-live]` / pending-live marker in ANY block
-         (a `Type: document` runbook included — it never runs the §13 gap backlog) must ALSO appear as a
-         row in a RESEARCH-STATE pending-validation list, in the SAME commit (same rule as the
-         SYNTHESIS-BLOCK REGISTRATION RULE: a marker living only in block prose is invisible to
-         `verify-state.sh`). A deliverable must NOT make an unvalidated mode its DEFAULT unless that row
-         names the first live run as the validation. (Evidence: a coexistence mode tagged pending-live
-         in a block header, unlisted in state, shipped as the kit default and failed on first real use.
-         The `verify-state.sh` count and the METHODOLOGY document-cycle rule are tracked in #1893.)
+       - PENDING-LIVE REGISTRATION (kit #1893): a `[PENDING-live]` marker (the retro's example was the
+         Spanish `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included (it never runs the
+         §13 gap backlog), must ALSO be registered in RESEARCH-STATE in the SAME commit, as a
+         `## Blocked gaps` bullet `- <claim> — needs: first live run`. A dedicated pending-validation
+         section is NOT defined yet and no tool counts one (Refs #1893). A deliverable must NOT make an
+         unvalidated mode its DEFAULT unless that bullet names the first live run as the validation.
+         (Evidence: a coexistence mode tagged pending-live in a block header, unlisted in state, shipped
+         as the kit default and failed on first real use.)
   3. AUTO-ROUTE the write destination by knowledge TYPE (the MODE decides — the user does NOT specify per
      call), PER CLAIM, not per block: one block may hold subject claims AND toolchain claims, so route
      each claim separately (the toolchain half proposed via the retro, not left only inside the block).
@@ -1309,11 +1311,11 @@ Always read first, in this order:
      DOCUMENT AFTER EVERY VERIFICATION OR CHANGE (kit #1890): "done" is not only a closing act. After
      EVERY verification, fix or change made during the run, record it immediately in the block (using
      the problem-entry mold of step 2) and mirror it (step 5) — do not batch the write-up to the end
-     of the run. A change or verification with no written trace is not done. METHODOLOGY §8/§18 should
-     carry the matching rule (tracked in #1890).
-     STATE SYNC PER BLOCK (kit #1899, prompt half): in the SAME commit as each block, run
-     `$KIT/toolbelt/research-sdd-status.sh $TARGET --sync-state` and `verify-state.sh`, so the
-     RESEARCH-STATE envelope's `covered_blocks` never lags the block files and INDEX.
+     of the run. A change or verification with no written trace is not done (see also METHODOLOGY §8, §18).
+     STATE SYNC PER BLOCK (kit #1899, prompt half): in the SAME commit as each block (per-section-agent
+     runs: once, in the import commit), run `$KIT/toolbelt/research-sdd-status.sh $CORPUS --sync-state
+     --focus <slug>` and `$KIT/toolbelt/verify-state.sh $CORPUS --focus <slug>`, so the RESEARCH-STATE
+     envelope's `covered_blocks` never lags the block files and INDEX.
   5. MANDATORY ENGRAM MIRROR (non-negotiable — this is the whole point of the mode). Mirror EVERYTHING
      documented to Engram as topic pointers so the doc is always recall-findable: subject knowledge under
      `research/<target>/<topic>`, toolchain knowledge under a kit-level pointer. This exists because a real
