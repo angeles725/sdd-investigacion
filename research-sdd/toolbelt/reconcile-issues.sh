@@ -717,17 +717,20 @@ audit_retro() {
     _temp_unrec="${_temp_depr#*$'\001'}"
     _unrec_found="${_temp_unrec%%$'\001'*}"
     # Kit issues #1895 #1932 #1933 #1934 #1938 #1939 (same rule as stage-retro-issues.sh): the very heading delta_info
-    # reported may carry a form the shared lib recognises (`## Delta A — …` entries, a `### Proposals` list); only a
-    # heading that produced items is classified. A prose heading is still reported, and items elsewhere in the file
-    # are then reconciled too.
-    local _unrec_missing="" _uh _alt_items _alt_heads
+    # reported may carry a form the shared lib recognises (`## Delta A — …` entries, a `### Proposals` list); the file
+    # is classified only when EVERY unrecognised heading produced items. A prose heading is still reported, and
+    # items elsewhere in the file are then reconciled too.
+    local _unrec_missing="" _unrec_list _uh _alt_items _alt_heads
     _alt_items="$(retro_grammar_alt_entry_rows "$retro_path")"
     _alt_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
     # delta_info reports only the FIRST unrecognised heading; every one must have produced items.
+    _unrec_list="$(retro_grammar_unrec_headings "$retro_path")" || _unrec_list=""
     while IFS= read -r _uh; do
       [ -n "$_uh" ] || continue
       grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # RECONCILE_ISSUES_UNREC_ALL
-    done <<<"$(retro_grammar_unrec_headings "$retro_path")"
+    done <<<"$_unrec_list"
+    # Fail closed (same as the seeder): an empty or failed list while delta_info saw a heading keeps the record.
+    if [ "$_unrec_found" = "1" ] && [ -z "$_unrec_list" ]; then _unrec_missing="unavailable"; fi   # RECONCILE_ISSUES_UNREC_FAILCLOSED
     if [ "$_unrec_found" = "1" ] && [ -n "$_alt_items" ] && [ -z "$_unrec_missing" ]; then   # RECONCILE_ISSUES_ALT_HEADING_MATCH
       :   # every unrecognised heading produced delta items: the parse below reconciles them
     elif [ "$_unrec_found" = "1" ]; then
@@ -836,7 +839,7 @@ audit_retro() {
   fi
 
   # --- Build _open_ids: row-ids that are currently open (not shipped)
-  local _open_ids="" _rln
+  local _open_ids="" _rln _rstate
   if [ "$_has_open_rows" -eq 1 ]; then
     while IFS= read -r _rln; do
       [ -z "$_rln" ] && continue
@@ -1053,6 +1056,9 @@ ${_rln}"
           _orphan_why=" — the retro marker lists it shipped; propose closing the issue (not closed here)"
         elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_ORPHAN
           _orphan_why=" — the retro marker lists it dismissed; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_ORPHAN
+          # The marker's DISMISSED list is unreadable: whether this row is dismissed cannot be told, so NO close proposal.
+          _orphan_why=" — marker DISMISSED list malformed; cannot tell"
         elif grep -qxF "$_irid" <<<"$_all_row_ids"; then
           case "$_status" in
             applied|dismissed) _orphan_why=" — the retro review-status is ${_status}; propose closing the issue (not closed here)" ;;  # RECONCILE-STATUS-REASON

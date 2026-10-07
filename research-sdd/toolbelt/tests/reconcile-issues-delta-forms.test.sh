@@ -119,7 +119,14 @@ c_two_tables() {
   req '^untracked: row 1 '; req '^tracked: row 2 '; req '^untracked: row 3 '; req '^untracked: row 4 '; forbid 'row (Proposed|#)'; verdict
 }
 
-CHECKS="c_list_first c_two_tables c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
+c_unrec_list_failed() {   # fail closed: an unavailable unrecognised-heading list keeps the record
+  local b; b="$(mkbox "ulf$1")" || return 1
+  printf '\nretro_grammar_unrec_headings() { return 1; }\n' >> "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
+  run "$b" mixed-prose-and-list.md 1; MSG=""
+  req '^unclassifiable: proposal-like heading found'; req '^tracked: row 1 '; verdict
+}
+
+CHECKS="c_unrec_list_failed c_list_first c_two_tables c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -144,6 +151,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_dup_ids    dup-check-off    'MISSING: ^unclassifiable: delta items in' sut 's/^    if \[ -n "\$_alt_dups" \]; then$/    if false; then/'
   tooth c_mixed      heading-match-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
   tooth c_canon_empty canon-heading-off 'MISSING: ^unclassifiable: delta section found but it produced no items' sut '/RECONCILE_ISSUES_ALT_CANON_HEADING/s/if \[ -n "\$_canon_h" \] \&\& ! grep -qxF -- "\$_canon_h" <<<"\$_canon_heads"; then/if false; then/'
+  tooth c_unrec_list_failed fail-closed-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_UNREC_FAILCLOSED/s/.*/    :/'
   tooth c_list_first unrec-all-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_UNREC_ALL/s/.*/    _unrec_missing=""/'
   tooth c_rejected_h3 h3-reset-off    'MISSING: ^tracked: row 1 ' lib '/ALT_H3_RESET/s/.*/        flush()/'
   echo "-- prove-teeth done --"

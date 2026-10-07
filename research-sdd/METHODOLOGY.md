@@ -3566,7 +3566,8 @@ judgment, not the driver's own rationalizations). The retro agent:
    `shipped|dismissed|open|not-partial|malformed`. The seeder skips a dismissed row with a typed
    `no-match: dismissed (row N)` line and never seeds it; reconcile treats it as resolved and still reports an open
    issue for it as `orphaned`. A `DISMISSED:` list with no usable id is `malformed`: the rows it leaves unresolved
-   are reported (`unclassifiable-row`) and never seeded. (Pinned by `retro-status.test.sh` cases 86-105,
+   are reported (`unclassifiable-row`) and never seeded. Reconcile reports an open issue for such a row as
+   `orphaned … — marker DISMISSED list malformed; cannot tell`, with no proposal to close it. (Pinned by `retro-status.test.sh` cases 86-105,
    `stage-retro-issues-dismissed.test.sh` and `reconcile-issues-dismissed.test.sh`.)
    **Unclassifiable items are never only a stderr count (kit issue #1259).** `stage-retro-issues.sh` prints them as a table (`retro:line`, raw head, reason) with a typed `unclassifiable-items: N (…)` line whose zero names the state (`empty-input` / `none: N row(s) examined`). It proposes one tracking issue per retro per run (signature `Unclassifiable tracker: <target>/retros/<file>`; an OPEN tracker for the retro gets one occurrence comment per distinct item set, keyed to its checksum, and a re-run with the same set posts nothing). Under `--apply` only, the tracker is created through the same scrub, create and read-back path as delta issues. `retro-gate.sh` counts the summary's `unclassifiable=N` and points at the table. (Pinned by `stage-retro-issues-unclassifiable.test.sh` and `retro-gate.test.sh` EN3-unc-summary.)
    Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns

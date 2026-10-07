@@ -649,18 +649,22 @@ if [ "$_found_field" != "1" ]; then
   _unrec_found="${_temp_unrec%%$'\001'*}"
   # Kit issues #1895 #1932 #1933 #1934 #1938 #1939: a heading the canonical grammar does not know can still carry a
   # delta form the shared lib recognises (`## Delta A — HIGH — …` entries, a `### Proposals` numbered list). The
-  # unclassifiable record is suppressed ONLY when the very heading delta_info reported (field 5) produced items;
-  # a prose heading is still recorded even when an unrelated list elsewhere in the file classifies, and that
-  # list is then parsed below (_unc_early stays empty).
+  # unclassifiable record is suppressed ONLY when EVERY unrecognised heading (retro_grammar_unrec_headings) produced
+  # items; a prose heading is still recorded even when an unrelated list elsewhere in the file classifies, and
+  # that list is then parsed below (_unc_early stays empty).
   _alt_early="$(retro_grammar_alt_entry_rows "$retro")"   # STAGE_RETRO_ISSUES_ALT_EARLY
   _alt_heads="$(retro_grammar_alt_entry_rows "$retro" heads)"
   # delta_info reports only the FIRST unrecognised heading; EVERY one must have produced items, else the first
   # that did not is the one reported (a list first and a prose heading second cannot hide the prose one).
   _unrec_missing=""
+  _unrec_list="$(retro_grammar_unrec_headings "$retro")" || _unrec_list=""
   while IFS= read -r _uh; do
     [ -n "$_uh" ] || continue
     grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # STAGE_RETRO_ISSUES_UNREC_ALL
-  done <<<"$(retro_grammar_unrec_headings "$retro")"
+  done <<<"$_unrec_list"
+  # Fail closed: delta_info saw an unrecognised heading but the list is empty or failed -> nothing is proven to have
+  # produced items, so the record is kept (never suppressed because "nothing was missing").
+  if [ "$_unrec_found" = "1" ] && [ -z "$_unrec_list" ]; then _unrec_missing="${_grammar_info##*$'\001'}"; _unrec_missing="${_unrec_missing:-<unrecognised heading list unavailable>}"; fi   # STAGE_RETRO_ISSUES_UNREC_FAILCLOSED
   if [ "$_unrec_found" = "1" ] && [ -n "$_alt_early" ] && [ -z "$_unrec_missing" ]; then   # STAGE_RETRO_ISSUES_ALT_HEADING_MATCH
     :   # every unrecognised heading produced delta items: the parse below classifies them
   elif [ "$_unrec_found" = "1" ]; then
@@ -675,7 +679,7 @@ if [ "$_found_field" != "1" ]; then
     echo "unclassifiable-items: 0 (empty-input: no delta section and no proposal-like heading)"
     exit 0
   fi
-  unset _temp_depr _temp_unrec _unrec_found _unrec_missing _uh _h
+  unset _temp_depr _temp_unrec _unrec_found _unrec_missing _unrec_list _uh _h
 fi
 
 # ---------------------------------------------------------------------------

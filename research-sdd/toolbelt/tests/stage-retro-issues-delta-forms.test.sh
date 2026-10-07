@@ -141,7 +141,16 @@ c_two_tables() {
   count 4; req 'two-tables.md · 1'; req 'two-tables.md · 2'; req 'two-tables.md · 3'; req 'two-tables.md · 4'; forbid 'Proposed change'; req 'unclassifiable-items: 0'; verdict
 }
 
-CHECKS="c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
+# Fail closed: when the list of unrecognised headings is unavailable (helper failure) while delta_info saw one, the
+# record is KEPT, never suppressed because "nothing was missing".
+c_unrec_list_failed() {
+  local b; b="$(mkbox "ulf$1")" || return 1
+  printf '\nretro_grammar_unrec_headings() { return 1; }\n' >> "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
+  run "$b" mixed-prose-and-list.md; MSG=""
+  count 2; req 'unclassifiable-items: 1'; req 'retro-level=1'; verdict
+}
+
+CHECKS="c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -171,6 +180,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_evidence_stays_unc evidence-matched 'PLANNED: 2 != 0' lib '/ALT_NUMBERED_GATE/s/.*/      1 {/'
   tooth c_mixed         heading-match-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
   tooth c_canon_empty   canon-heading-off 'MISSING: unclassifiable-items: 1' sut 's/if \[ "\$_found_field" = "1" \] \&\& \[ -n "\$_h" \] \&\& ! grep -qxF -- "\$_h" <<<"\$_alt_heads"; then/if false; then/'
+  tooth c_unrec_list_failed fail-closed-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_UNREC_FAILCLOSED/s/.*/  :/'
   tooth c_list_first    unrec-all-off     'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_UNREC_ALL/s/.*/  _unrec_missing=""/'
   tooth c_rejected_h3   h3-reset-off      'PLANNED: 0 != 2'  lib '/ALT_H3_RESET/s/.*/        flush()/'
   tooth c_dup_ids       dup-check-off     'PLANNED: 4 != 0'  sut 's/^    if \[ -n "\$_dups" \]; then$/    if false; then/'
