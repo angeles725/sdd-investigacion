@@ -382,6 +382,20 @@ want="$(grep -nE 'R5Q-(BAD|MIXED-BAD|NOABSENCE-BAD)' "$FX/pack-r5-quote.md" | cu
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "23a R5: unit made only of '>' blockquote lines (gap-text restatement) is skipped; a mixed quoted/unquoted unit, plain prose and a clause without cited absence still flag; an inline cited-absence clears ($want)" || no "23a R5 blockquote / cited-absence (want=[$want] got=[$got])"
 grep -qE 'quoted-skipped=2( |$)' <<< "$OUT" && ok "23b SUMMARY proves the skip (quoted-skipped=2): the quoted claims were seen, not silently dropped" || no "23b quoted-skipped (out=[$OUT])"
 
+# 24. Calibration (kit #1548): R1 prose false positives, R5 'auth' breadth, R8 negation/question, R9 heading-only units
+run --pack jvm "$FX/pack-cal-jvm.md"
+want="$(lines_of CAL-R1-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R1 "$OUT" "$FX/pack-cal-jvm.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24a R1: 'var-length', 'for each' and 'sealed envelope' (English prose) are not syntax-adoption features; \`var\`, the var keyword, sealed interfaces and for-each still are ($want)" || no "24a R1 prose false positives (want=[$want] got=[$got])"
+want="$(lines_of CAL-R5-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R5 "$OUT" "$FX/pack-cal-jvm.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24b R5: 'authored' is not permission scope; authentication, authorization, auth and authz still are ($want)" || no "24b R5 auth breadth (want=[$want] got=[$got])"
+run --pack multi-version "$FX/pack-cal-r8.md"
+want="$(lines_of CAL-R8-BAD "$FX/pack-cal-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-cal-r8.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24c R8: a negated ('not new in N5'), question ('Is ... N5-only?') or 'whether' clause is not an attribution claim; affirmative claims still flag ($want)" || no "24c R8 negation/question (want=[$want] got=[$got])"
+run --pack native-binary "$FX/pack-cal-r9.md"
+want="$(grep -nE 'CAL-R9-(ROW-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R9 "$OUT" "$FX/pack-cal-r9.md")"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24d R9: a heading-only unit carries no evidence by construction and is skipped; paragraph and row claims still flag ($want)" || no "24d R9 heading-only (want=[$want] got=[$got])"
+grep -qE 'r9-headings-skipped=1( |$)' <<< "$OUT" && ok "24e SUMMARY proves the R9 heading skip (r9-headings-skipped=1)" || no "24e r9-headings-skipped (out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -736,6 +750,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun --pack jvm "$FX/pack-r5-quote.md"
     grep -qE 'quoted-skipped=' <<< "$MOUT" && no "teeth RQ3: skip counter dropped but SUMMARY still shows it — THEATER" || ok "teeth RQ3: skip counter dropped -> quoted-skipped= vanishes -> case 23b has teeth"
   fi
+  # kit #1548 calibration: each narrowed vocabulary / filter has its own mutant
+  ptooth CR1 lint-block-packs/jvm.py 's#r"`var`", r"\\bvar\\s+(?:keyword|declarations?|inference)\\b", #r"\\bvar\\b", #' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
+  ptooth CR2 lint-block-packs/jvm.py 's#r"\\bsealed\\s+(?:classes|class|interfaces|interface|hierarch\\w\*|types?)\\b",#r"\\bsealed\\b",#' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
+  ptooth CR3 lint-block-packs/jvm.py 's#r"for-each", #r"for-each", r"for\\s+each", #' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
+  ptooth CR4 lint-block-packs/jvm.py 's#|\\bauth(?:n|z)?\\b|\\bauthenticat\\w\*|\\bauthoris\\w\*|\\bauthoriz\\w\*#|\\bauth\\w*\\b#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR5 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and not R8_NEGATION_RE.search(before):#if True:#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR6 lint-block-packs/multi-version.py 's#|^\\s\*(?:(?:\\d+\\.|\[-\*\])\\s+)?(?:is|are|was|were|does|did)\\b##' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR7 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and #if #' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR10 lint-block-packs/multi-version.py 's#R8_WHETHER_RE.search(before)#R8_WHETHER_RE.search(clause)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR11 lint-block-packs/jvm.py 's#r"\\brecords?\\s\*/\\s\*sealed\\b", ##' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
+  cal_r9_want="$(grep -nE 'CAL-R9-(ROW-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
+  if tooth_build CR8 lint-block-packs/native-binary.py 's#if u.kind == "heading":#if False:#'; then
+    mrun --pack native-binary "$FX/pack-cal-r9.md"; got="$(reported R9 "$MOUT" "$FX/pack-cal-r9.md")"
+    [ "$got" = "$cal_r9_want" ] && no "teeth CR8: heading skip disabled but R9 set unchanged [$got] — THEATER" || ok "teeth CR8: heading skip disabled -> R9 reports [$got] instead of [$cal_r9_want] -> case 24d has teeth"
+  fi
+  if tooth_build CR9 lint-block-packs/native-binary.py 's#doc.cov\["r9_headings_skipped"\] += 1#pass#'; then
+    mrun --pack native-binary "$FX/pack-cal-r9.md"
+    grep -qF 'r9-headings-skipped=' <<< "$MOUT" && no "teeth CR9: skip counter dropped but SUMMARY still shows it — THEATER" || ok "teeth CR9: skip counter dropped -> r9-headings-skipped= vanishes -> case 24e has teeth"
+  fi
   if tooth_build L1 lint_block.py 's#if not (isinstance(rule,#if False and not (isinstance(rule,#'; then
     MOUT="$(LINT_BLOCK_PACKS_DIR="$TMP/pk-shape" bash "$MT/lint-block.sh" --audit --pack demo "$FX/pack-single.md" 2>&1)"; MRC=$?
     grep -qF 'malformed rule' <<< "$MOUT" && no "teeth L1: mutant still reports 'malformed rule' — THEATER" || ok "teeth L1: shape guard removed -> malformed pack entry no longer reported cleanly (rc=$MRC) -> case 22e has teeth"
@@ -767,7 +800,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth J4 lint-block-packs/jvm.py 's# and R5_PERM_CONTEXT_RE.search(c)# and True#' "$FX/pack-jvm.md" R5 R5- jvm
   ptooth J5 lint-block-packs/jvm.py 's#r"compile-time constant", ##' "$FX/pack-jvm.md" R7 R7- jvm
   ptooth J6 lint-block-packs/jvm.py 's#r"\\bhardcod\\w\*\\b.{0,80}\\binstead of\\b.{0,40}\\bconstant\\b",##' "$FX/pack-jvm.md" R7 R7- jvm
-  ptooth J7 lint-block-packs/jvm.py 's#r"\\bsealed\\b",##' "$FX/pack-jvm.md" R1 R1- jvm
+  ptooth J7 lint-block-packs/jvm.py 's#r"\\bsealed\\s+(?:classes|class|interfaces|interface|hierarch\\w\*|types?)\\b",##' "$FX/pack-jvm.md" R1 R1- jvm
   # multi-version pack
   ptooth M1 lint-block-packs/multi-version.py 's#^R8_BASELINE_RE = .*#R8_BASELINE_RE = re.compile(r"(?!)")#' "$FX/pack-r8.md" R8 R8- multi-version
   ptooth M2 lint-block-packs/multi-version.py 's#\\bclass(?:es)?\\b#\\bclasses?\\b#' "$FX/pack-r8.md" R8 R8- multi-version

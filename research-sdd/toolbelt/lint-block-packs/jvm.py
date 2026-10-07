@@ -18,8 +18,12 @@ import re
 
 R1_FEATURE_RE = re.compile("|".join([
     r"pattern-\s*match(?:ing)?", r"instanceof\s+pattern", r"JEP\s*394", r"switch\s+expression",
-    r"arrow\s+switch", r"text\s+block", r"\bvar\b", r"record\s+pattern", r"\bsealed\b",
-    r"enhanced\s+for", r"for-each", r"for\s+each", r"\blambda\b",
+    r"arrow\s+switch", r"text\s+block", r"record\s+pattern",
+    # Bare `var`, `sealed` and "for each" are ordinary English ("var-length", "sealed envelope", "for each
+    # record"): they count only in their Java-feature forms (kit #1548 calibration, fleet FP rate 20/30).
+    r"\brecords?\s*/\s*sealed\b", r"`var`", r"\bvar\s+(?:keyword|declarations?|inference)\b", r"local[\s-]+variable\s+type\s+inference",
+    r"\bsealed\s+(?:classes|class|interfaces|interface|hierarch\w*|types?)\b",
+    r"enhanced\s+for", r"for-each", r"\blambda\b",
 ]), re.IGNORECASE)
 R1_VERB_RE = re.compile("|".join([
     r"\buses?\b", r"\badopts?\b", r"\badopted\b", r"\badoption\b",
@@ -49,7 +53,7 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 # ordinary English word ("in the test context") and must not make a clause permission-scoped; the
 # phrase "null context" / "null-context" (the permission-bypass idiom) stays in scope in any case.
 R5_PERM_CONTEXT_RE = re.compile(
-    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth\w*\b|\bnull[\s-]+context\b)"
+    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth(?:n|z)?\b|\bauthenticat\w*|\bauthoris\w*|\bauthoriz\w*|\bnull[\s-]+context\b)"
     r"|\bContext\b|\bcx\b")
 # Clearing forms: a resolved `dispatch:` clause, or an inline `cited-absence:` clause (the override was
 # searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").

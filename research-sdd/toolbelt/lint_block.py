@@ -653,6 +653,8 @@ def main(argv):
         pack_cov = f" packs={','.join(LOADED_PACKS)} {pack_trigger_fields}"
     if LOADED_PACKS and cov["quoted_skipped"]:
         pack_cov += f" quoted-skipped={cov['quoted_skipped']}"
+    if LOADED_PACKS and cov["r9_headings_skipped"]:
+        pack_cov += f" r9-headings-skipped={cov['r9_headings_skipped']}"
     crashed_cov = f" crashed={crashed}" if crashed else ""
     inspected = (f"selfverify-sections={cov['selfverify_sections']} cert-hw-live-items={cov['cert_hw_live_items']} "
                  f"r6-trigger-clauses={cov['r6_trigger_clauses']} cert-inline-items={cov['cert_inline_items']}")

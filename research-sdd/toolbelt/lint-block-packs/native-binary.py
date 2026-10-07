@@ -4,7 +4,8 @@
       file name, or the words PE32 / ELF / Mach-O / "PE binary|file|image|header|section" /
       Authenticode) whose paragraph, list item or table row lacks any of: the binary's sha256 (64 hex),
       an address anchor (`0x` + 3 or more hex digits, or VA/RVA/offset followed by hex), and two
-      distinct instruments from the allowlist below.
+      distinct instruments from the allowlist below. A heading-only unit is skipped (and counted as
+      `r9-headings-skipped=`): its evidence lives in the body under it.
 
 Trigger is per clause; the requirement is per UNIT because the sha256 / address / instruments of one
 claim routinely sit in neighbouring sentences or cells. [CERT-doc] / [CERT-web] / [INFER] make no byte
@@ -58,6 +59,13 @@ def build(api):
         out = []
         for u in doc.units:
             if u.kind not in api.CLAIM_KINDS:
+                continue
+            if u.kind == "heading":
+                # A heading is a unit of its own: the sha256 / address / instruments live in the body
+                # below it, so a heading can never satisfy the per-unit requirement (kit #1548: ~20% of
+                # the fleet sample). Count the skip so the SUMMARY shows it was seen, not lost.
+                if any(R9_MARKER_RE.search(c) and R9_NATIVE_RE.search(c) for c in api.clauses(u.text)):
+                    doc.cov["r9_headings_skipped"] += 1
                 continue
             # Trigger: some clause pairs an evidence marker with native-binary context. The three
             # requirements below are then checked over the WHOLE unit (they sit in neighbouring clauses).
