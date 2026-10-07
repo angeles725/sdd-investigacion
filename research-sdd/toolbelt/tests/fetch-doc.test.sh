@@ -21,6 +21,9 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
+# slug_of <url> — the snapshot stem the SUT writes: asks the SUT's own web_slug (sourced), never a copied rule (#1904).
+# shellcheck source=../fetch-doc.sh
+slug_of(){ ( set +e; source "$SUT" >/dev/null 2>&1; web_slug "$1" ); }
 # runreg <script> <sdir> <file> <kind> <origin> <sha> — call reg() from <script> in an isolated subshell
 # (source defines the function; the guarded main never runs; set +e keeps a reg failure from killing us).
 # shellcheck source=../fetch-doc.sh
@@ -396,7 +399,7 @@ d15="$TMP/rr-15/target"; mkdir -p "$d15"
 STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'
 export STUB_ROUTES
 runchain web "$d15" "http://s15.example/a"
-slug15="$(echo "http://s15.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug15="$(slug_of "http://s15.example/a")"
 got15="$(origin_of "$d15/sources/SOURCES.md" "$slug15")"
 if [ "$got15" = "http://s15.example/moved" ]; then
   ok "web: R1 — same permanent-redirect resolution applies in web mode (wiring)"
@@ -448,7 +451,7 @@ STUB_ROUTES='http://s18b.example/a 301 http://s18b.example/resolved'; STUB_DOWNL
 export STUB_ROUTES STUB_DOWNLOAD_FAIL
 runchain web "$d18b" "http://s18b.example/a"
 unset STUB_DOWNLOAD_FAIL
-slug18b="$(echo "http://s18b.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug18b="$(slug_of "http://s18b.example/a")"
 got18b="$(origin_of "$d18b/sources/SOURCES.md" "$slug18b")"
 if [ "$got18b" = "http://s18b.example/a" ] && grep -qi 'wget fallback' "$TMP/runchain.err"; then
   ok "web: S2 — wget fallback registers the typed URL and announces the reversion on stderr"
@@ -720,7 +723,7 @@ printf '#!/usr/bin/env bash\nr="$(%s "$@")" || exit $?\nprintf "%%s\\n" "$r" >> 
 MKTEMP_LOG="$TMP/mklog37b.txt" PATH="$mklog37b:$PATH" TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
 _made37b="$(awk -v p="$d37b_tmpdir/" 'index($0,p)==1{n++} END{print n+0}' "$TMP/mklog37b.txt")"
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-slug37b="$(echo "http://s37b.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug37b="$(slug_of "http://s37b.example/a")"
 _row37b=false
 [ -f "$d37b/sources/SOURCES.md" ] && grep -q "$slug37b" "$d37b/sources/SOURCES.md" && _row37b=true
 _leaked37b="$(find "$d37b_tmpdir" -type f 2>/dev/null | wc -l | tr -d ' ')"
@@ -870,7 +873,7 @@ exit 1
 STUBEOF
 chmod +x "$wfail/pandoc" "$wfail/cp"
 d44w="$TMP/rr-44w/target"; mkdir -p "$d44w/sources/web-snapshots"
-slug44w="$(echo "http://s44w.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug44w="$(slug_of "http://s44w.example/a")"
 f44w="$d44w/sources/web-snapshots/$slug44w.md"; printf 'REGISTERED-EVIDENCE\n' > "$f44w"
 STUB_ROUTES=""; export STUB_ROUTES
 _rc44w=0; PATH="$wfail:$stubbin:$PATH" bash "$SUT" --replace web "http://s44w.example/a" "$d44w" >/dev/null 2>"$TMP/err44w.txt" || _rc44w=$?
@@ -1038,6 +1041,74 @@ else
     no "doc-pdf-reg: PDF not saved or not registered (datasheets: $(ls "$d/sources/datasheets/" 2>/dev/null || echo MISSING); SOURCES: $([ -f "$d/sources/SOURCES.md" ] && echo present || echo MISSING))"
   fi
 fi
+
+# 71 — #1904/#1897: web snapshot names must not collide when two URLs share a long prefix. Two URLs that
+#      agree on the first 80 slug chars used to map to ONE name (second fetch refused, names opaque). Now:
+#      distinct names (readable head+tail + 12 hex of sha256(full URL)), deterministic, short URLs unchanged.
+long71="http://s71.example/$(printf 'p%.0s' $(seq 1 90))"
+d71="$TMP/r71/target"; STUB_ROUTES=""; export STUB_ROUTES
+_rc71a=0; runchain web "$d71" "${long71}/first" || _rc71a=$?
+_rc71b=0; runchain web "$d71" "${long71}/second" || _rc71b=$?
+n71="$(find "$d71/sources/web-snapshots" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+rows71="$(grep -c 'web-snapshot' "$d71/sources/SOURCES.md" 2>/dev/null || true)"
+if [ "$_rc71a" -eq 0 ] && [ "$_rc71b" -eq 0 ] && [ "$n71" = "2" ] && [ "$rows71" = "2" ]; then
+  ok "web: #1904 — two URLs sharing an 80-char prefix get two distinct snapshots, two rows"
+else no "R71: rc=$_rc71a/$_rc71b files=$n71 rows=$rows71 :: $(cat "$TMP/runchain.err")"; fi
+# 71b — deterministic: re-fetching the SAME long URL targets the SAME name (typed refusal exit 4, not a new file)
+_rc71c=0; runchain web "$d71" "${long71}/first" || _rc71c=$?
+n71c="$(find "$d71/sources/web-snapshots" -type f -name '*.md' | wc -l | tr -d ' ')"
+if [ "$_rc71c" -eq 4 ] && [ "$n71c" = "2" ]; then ok "web: #1904 — the same long URL maps to the same name (deterministic; refused, nothing new)"
+else no "R71b: rc=$_rc71c files=$n71c"; fi
+# 71c — edge: a short URL keeps the legacy name (no hash suffix)
+d71d="$TMP/r71d/target"; runchain web "$d71d" "http://s71d.example/a" || true
+if [ -f "$d71d/sources/web-snapshots/s71d.example_a.md" ]; then ok "web: #1904 — a short URL keeps its legacy snapshot name"
+else no "R71c: legacy short name missing: $(ls "$d71d/sources/web-snapshots" 2>/dev/null)"; fi
+# 71d — edge: the name keeps the URL TAIL readable and stays within a bounded length
+tail71="$(find "$d71/sources/web-snapshots" -type f -name '*second*' | head -1)"
+if [ -n "$tail71" ] && [ "$(basename "$tail71" | wc -c)" -le 90 ]; then ok "web: #1904 — long-URL name keeps the tail ('second') and a bounded length"
+else no "R71d: tail not readable or name too long: $(ls "$d71/sources/web-snapshots")"; fi
+# 71e — the HASH must carry the distinction: two long URLs that share the first 46 AND last 20 slug chars and
+#       differ only in the middle (a=1 vs a=2) collide on head+tail alone; only the hash separates them.
+mid71="http://s71e.example/$(printf 'p%.0s' $(seq 1 90))?a=%s&$(printf 'q%.0s' $(seq 1 30))/end"
+d71e="$TMP/r71e/target"; STUB_ROUTES=""; export STUB_ROUTES
+_rc71e1=0; runchain web "$d71e" "$(printf "$mid71" 1)" || _rc71e1=$?
+_rc71e2=0; runchain web "$d71e" "$(printf "$mid71" 2)" || _rc71e2=$?
+n71e="$(find "$d71e/sources/web-snapshots" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+rows71e="$(grep -c 'web-snapshot' "$d71e/sources/SOURCES.md" 2>/dev/null || true)"
+if [ "$_rc71e1" -eq 0 ] && [ "$_rc71e2" -eq 0 ] && [ "$n71e" = "2" ] && [ "$rows71e" = "2" ]; then
+  ok "web: #1904 — URLs differing only in the MIDDLE (same head and tail) get distinct snapshots via the hash"
+else no "R71e: rc=$_rc71e1/$_rc71e2 files=$n71e rows=$rows71e :: $(cat "$TMP/runchain.err")"; fi
+unset STUB_ROUTES
+# 71f — boundary: a slug of exactly 80 chars is unchanged (no -<hex>); exactly 81 is hashed and the name is 80 chars
+x80="$(printf 'a%.0s' $(seq 1 80))"
+s80="$(slug_of "http://$x80")"; s81="$(slug_of "http://${x80}a")"
+if [ "$s80" = "$x80" ] && [ "${#s81}" -eq 80 ] && [[ "$s81" =~ -[0-9a-f]{12}$ ]] && [ "$s81" != "${x80:0:80}" ]; then
+  ok "web: #1904 — 80-char slug unchanged, 81-char slug hashed to an 80-char name"
+else no "R71f: s80='$s80' s81='$s81' (${#s81})"; fi
+# 71g — the scheme is dropped from the slug but hashed: http vs https long URLs get different names
+if [ "$(slug_of "http://$x80/z")" != "$(slug_of "https://$x80/z")" ]; then ok "web: #1904 — scheme is part of the hash (http/https long URLs differ)"
+else no "R71g: http and https long URLs share a name"; fi
+# 71h — no sha256 tool (sha256sum AND shasum hidden): typed DEGRADED, exit 3, nothing written, BEFORE any write
+nosha="$TMP/nosha-bin"; mkdir -p "$nosha"
+for _t in bash mkdir basename sed cut date awk mktemp mv rm file grep cat dirname tr; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$nosha/$_t"
+done
+ln -sf "$stubbin/curl" "$nosha/curl"
+for _m in "web http://s71h.example/a" "doc http://s71h.example/a.pdf"; do
+  d71h="$TMP/r71h-${_m%% *}/target"; mkdir -p "$d71h"
+  _rc71h=0; PATH="$nosha" "$nosha/bash" "$SUT" ${_m%% *} "${_m#* }" "$d71h" >/dev/null 2>"$TMP/err71h.txt" || _rc71h=$?
+  if [ "$_rc71h" -eq 3 ] && grep -q 'DEGRADED: no sha256 tool' "$TMP/err71h.txt" \
+     && [ -z "$(find "$d71h" -type f)" ]; then ok "${_m%% *}: #1904 — no sha256 tool → typed DEGRADED, exit 3, nothing written"
+  else no "R71h(${_m%% *}): rc=$_rc71h err='$(cat "$TMP/err71h.txt")' files=$(find "$d71h" -type f | wc -l)"; fi
+done
+# 71i — shasum alone is enough (sha256sum hidden, shasum present): long-URL name still derived
+if command -v shasum >/dev/null 2>&1; then
+  ln -sf "$(command -v shasum)" "$nosha/shasum"; _p="$(command -v perl)" && ln -sf "$_p" "$nosha/perl"
+  _s71i="$(PATH="$nosha" bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$SUT" "http://$x80/long-tail-xyz")"
+  if [[ "$_s71i" =~ -[0-9a-f]{12}$ ]]; then ok "web: #1904 — shasum -a 256 fallback derives the same kind of name"
+  else no "R71i: shasum fallback produced '$_s71i'"; fi
+  rm -f "$nosha/shasum" "$nosha/perl"
+else printf '  SKIP  R71i: shasum not available\n'; fi
 
 # NEGATIVE CONTROL — revert reg() to a blind EOF append; the trailing-prose fixture must then place the row
 # BELOW '## Structure', proving case 2's placement assertion has teeth.
@@ -1488,7 +1559,7 @@ SED
     d15m="$TMP/teeth-web-resolve/target"; mkdir -p "$d15m"
     STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'; export STUB_ROUTES
     PATH="$stubbin:$PATH" bash "$wmutant" web "http://s15.example/a" "$d15m" >/dev/null 2>"$TMP/teeth-web.err"
-    slug15m="$(echo "http://s15.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    slug15m="$(slug_of "http://s15.example/a")"
     got15m="$(origin_of "$d15m/sources/SOURCES.md" "$slug15m")"
     if [ "$got15m" = "http://s15.example/a" ]; then
       ok "teeth-web-resolve: mutant registers the typed (unresolved) URL in web mode → R1/R15 has teeth"
@@ -1652,7 +1723,7 @@ SED
   fi
 
   echo "-- teeth: probe_downloaders (#1285 item 3) — remove the startup dependency probe --"
-  if ! mutant_sed "$SUT" "$TMP/probe.MUT.sh" 's/^    probe_downloaders$/    :  # MUTANT: probe removed/'; then
+  if ! mutant_sed "$SUT" "$TMP/probe.MUT.sh" 's/^    probe_downloaders; probe_sha256$/    probe_sha256  # MUTANT: downloader probe removed/'; then
     no "teeth-probe: could not build mutant (probe_downloaders calls not found, or refused by lib/mutant.sh)"
   else
     dpr="$TMP/teeth-probe/target"; mkdir -p "$dpr"
@@ -1680,7 +1751,7 @@ SED
     no "teeth-web-atomic: could not build mutant (WPART assignment not found, or refused by lib/mutant.sh)"
   else
     dwa="$TMP/teeth-web-atomic/target"; mkdir -p "$dwa/sources/web-snapshots"
-    swa="$(echo "http://swa.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    swa="$(slug_of "http://swa.example/a")"
     fwa="$dwa/sources/web-snapshots/$swa.md"; printf 'REGISTERED-EVIDENCE\n' > "$fwa"
     STUB_ROUTES=""; export STUB_ROUTES
     PATH="$wfail:$stubbin:$PATH" bash "$TMP/web-atomic.MUT.sh" --replace web "http://swa.example/a" "$dwa" >/dev/null 2>&1
@@ -1900,7 +1971,7 @@ else
   _rc10=0
   bash "$SUT" web "file://$_empty_html" "$d10" \
     >/dev/null 2>"$TMP/err10.txt" || _rc10=$?
-  _slug10="$(echo "file://$_empty_html" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+  _slug10="$(slug_of "file://$_empty_html")"
   _dest10="$d10/sources/web-snapshots/$_slug10.md"
   _row10=false
   [ -f "$d10/sources/SOURCES.md" ] && grep -q "$_slug10" "$d10/sources/SOURCES.md" && _row10=true
@@ -1944,7 +2015,7 @@ else
       _rc10m=0
       bash "$gwmutant" web "file://$_empty_html" "$d10m" \
         >/dev/null 2>/dev/null || _rc10m=$?
-      _slug10m="$(echo "file://$_empty_html" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+      _slug10m="$(slug_of "file://$_empty_html")"
       _row10m=false
       [ -f "$d10m/sources/SOURCES.md" ] && grep -q "$_slug10m" "$d10m/sources/SOURCES.md" && _row10m=true
       if [ "$_rc10m" -eq 0 ] && $_row10m; then
@@ -2046,7 +2117,7 @@ rm -f "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$"
 # R56 — web mode follows the same policy: refuse without --replace (exit 4), keep old bytes with it.
 d56="$TMP/rr-56/target"; mkdir -p "$d56"
 STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1
-slug56="$(echo "http://s56.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug56="$(slug_of "http://s56.example/page")"
 f56="$d56/sources/web-snapshots/$slug56.md"; old12_56="$(sha12 "$f56")"
 _rc56=0; STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56=$?
 _rc56s=0; STUB_ROUTES="" STUB_DOWNLOAD_FAIL=1 STUB_WGET_FAIL=1 sut --replace web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56s=$?
@@ -2155,7 +2226,7 @@ else no "R62: rc=$_rc62/$_rc62l err='$(cat "$TMP/err62.txt")'"; fi
 # R63 — N8: web --replace SUCCEEDS: old snapshot kept under a versioned name, new content registered, rows consistent.
 d63="$TMP/rr-63/target"; mkdir -p "$d63"
 STUB_ROUTES="" sut web "http://s63.example/page" "$d63" >/dev/null 2>&1
-slug63="$(echo "http://s63.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug63="$(slug_of "http://s63.example/page")"
 f63="$d63/sources/web-snapshots/$slug63.md"; o12_63="$(sha12 "$f63")"; osum63="$(sum_of "$f63")"
 _rc63=0; STUB_ROUTES="" STUB_BODY='<p>changed upstream</p>' sut --replace web "http://s63.example/page" "$d63" >/dev/null 2>"$TMP/err63.txt" || _rc63=$?
 md63="$d63/sources/SOURCES.md"
@@ -2246,7 +2317,7 @@ else no "R67d: rc=$_rc67d files=$(find "$d67d/sources" -type f | tr '\n' ' ')"; 
 
 # R67c — web mode shares the contract.
 d67c="$TMP/rr-67c/target"; mkdir -p "$d67c/sources/web-snapshots"
-slug67c="$(echo "http://s67c.example/page" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+slug67c="$(slug_of "http://s67c.example/page")"
 _rc67c=0
 STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" web "http://s67c.example/page" "$d67c" >/dev/null 2>&1 || _rc67c=$?
@@ -2572,6 +2643,53 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/t-nolatelink/target"; rc="$(run_late_symlink "$m" "$d" "")"
     if [ "$rc" = "4" ]; then ok "teeth-nolatelink: without the re-check a late symlink is not refused with exit 5 (rc=$rc) -> R70 has teeth"
     else no "teeth-nolatelink: still exit 5 — R70 does NOT pin the install-time re-check (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1904: web_slug reverts to a plain 80-char cut -> two long URLs collide --"
+  if ! mutant_sed "$SUT" "$TMP/webslug.MUT.sh" 's/^  if \[ "\${#slug}" -le 80 \]; then printf/  if true; then slug="${slug:0:80}"; printf/'; then
+    no "teeth-webslug: could not build mutant (web_slug length guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-webslug/target"; STUB_ROUTES=""; export STUB_ROUTES
+    PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/first" "$d" >/dev/null 2>&1
+    _rcw=0; PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/second" "$d" >/dev/null 2>&1 || _rcw=$?
+    unset STUB_ROUTES
+    if [ "$_rcw" -eq 4 ]; then ok "teeth-webslug: the plain-cut mutant refuses the second long URL (rc=$_rcw) -> R71 has teeth"
+    else no "teeth-webslug: mutant still fetched both (rc=$_rcw) — R71 does NOT depend on web_slug (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1904: web_slug hash neutered (constant digest) -> middle-only-different URLs collide --"
+  if ! mutant_sed "$SUT" "$TMP/webhash.MUT.sh" 's/^  h="\$(printf .%s. "\$1" | sha256_stdin | cut -c1-12)"$/  h=aaaaaaaaaaaa  # MUTANT: constant hash/'; then
+    no "teeth-webhash: could not build mutant (web_slug hash line not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-webhash/target"; STUB_ROUTES=""; export STUB_ROUTES
+    PATH="$stubbin:$PATH" bash "$TMP/webhash.MUT.sh" web "$(printf "$mid71" 1)" "$d" >/dev/null 2>&1
+    _rch=0; PATH="$stubbin:$PATH" bash "$TMP/webhash.MUT.sh" web "$(printf "$mid71" 2)" "$d" >/dev/null 2>&1 || _rch=$?
+    unset STUB_ROUTES
+    if [ "$_rch" -eq 4 ]; then ok "teeth-webhash: constant-hash mutant refuses the second middle-only URL (rc=$_rch) -> R71e has teeth"
+    else no "teeth-webhash: mutant still fetched both (rc=$_rch) — R71e does NOT depend on the hash (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1904: web_slug length boundary moved (-le 79 / -le 81) -> R71f goes red --"
+  for _b in 79 81; do
+    if ! mutant_sed "$SUT" "$TMP/webb$_b.MUT.sh" "s/\"\${#slug}\" -le 80/\"\${#slug}\" -le $_b/"; then
+      no "teeth-webbound-$_b: could not build mutant (-le 80 guard not found, or refused by lib/mutant.sh)"
+    else
+      _m80="$(bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$TMP/webb$_b.MUT.sh" "http://$x80")"
+      _m81="$(bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$TMP/webb$_b.MUT.sh" "http://${x80}a")"
+      if [ "$_m80" != "$x80" ] || [ "${#_m81}" -ne 80 ] || ! [[ "$_m81" =~ -[0-9a-f]{12}$ ]]; then
+        ok "teeth-webbound-$_b: boundary mutant violates the 80/81 contract -> R71f has teeth"
+      else no "teeth-webbound-$_b: mutant still satisfied R71f (THEATER)"; fi
+    fi
+  done
+
+  echo "-- teeth #1904: sha256 probe removed -> a missing sha256 tool is no longer a typed exit 3 --"
+  if ! mutant_sed "$SUT" "$TMP/probesha.MUT.sh" 's/^    probe_downloaders; probe_sha256$/    probe_downloaders  # MUTANT: sha probe removed/'; then
+    no "teeth-probesha: could not build mutant (probe_sha256 calls not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-probesha/target"; mkdir -p "$d"
+    _rcs=0; PATH="$nosha" "$nosha/bash" "$TMP/probesha.MUT.sh" doc "http://sps.example/a.pdf" "$d" datasheets "ps.pdf" >/dev/null 2>&1 || _rcs=$?
+    if [ "$_rcs" -ne 3 ]; then ok "teeth-probesha: without the probe the run is not the typed exit 3 (rc=$_rcs) -> R71h has teeth"
+    else no "teeth-probesha: mutant still exited 3 — R71h does NOT depend on probe_sha256 (THEATER)"; fi
   fi
 fi
 
