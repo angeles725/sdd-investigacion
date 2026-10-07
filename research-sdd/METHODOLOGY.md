@@ -4146,8 +4146,8 @@ reading code). Golden rule: an unverified claim is not documented as fact — it
 verified first. This is the canonical shape for problem-entries inside a document-cycle block (§4); do not
 improvise a shorter form that drops root cause or verification. A problem entry missing any of the six fields
 is incomplete, not "short". The operative form is PROMPT-LOOP's DOCUMENT CYCLE step 2 PROBLEM-ENTRY MOLD (kit
-#1889) — it states the same six fields and is authoritative for the run; this paragraph carries the rationale and
-does not restate it. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
+#1889) — it states the same six fields and is authoritative for the run; this paragraph restates the fields only
+as rationale, and PROMPT-LOOP step 2 is operative. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
 delta #1.)
 
 **Pending-live registration (kit #1893).** A `[PENDING-live]` marker (retro example: the Spanish
@@ -4185,10 +4185,11 @@ produced by a delegated per-section-agent (§16 large-scale pattern) rather than
 delegation prompt commonly tells the sub-agent NOT to touch `RESEARCH-STATE.md` (to avoid a shared-state
 race). That instruction leaves the state file at its BOOTSTRAP-seeded placeholder values after authoring
 unless someone explicitly closes the loop — the driver, immediately after the sub-agent returns, is the
-one who populates the document-cycle state (covered blocks, iteration history) from what was actually
-written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an orphan
+one who populates the document-cycle state (see PROMPT-LOOP DOCUMENT CYCLE step 1 STATE OWNERSHIP) from what
+was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an orphan
 step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
-(kit #1888); this paragraph adds only the rationale. (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
+(kit #1888); this paragraph adds only the rationale.
+(Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
 
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
@@ -4331,15 +4332,16 @@ instrument class that could still answer, or reads `unblock: none — every inst
 `verify-state.sh` does not check for the `unblock:` line (doctrine first; no instrument yet).
 
 **Re-typed or newly blocked backlog rows (kit #1638; grammar §8b).** A gap whose type changes, or that becomes
-blocked, is recorded in ONE of two tool-recognised forms in the SAME edit, both counted by
-`research-sdd-status.sh` and `verify-state.sh`: (a) in place, Status `blocked (requires-<what>)` — the
-leading token `blocked`, with the `tried:` / `needs:` clauses in the Gap cell or decoration; or (b) moved out of
-the main table into `## Blocked gaps` as a `- <gap> — needs: …` bullet. A typed wall state of §21.1 written as
-`blocked-on-<reason>` (the §8b grammar form) is equally accepted: the tools match the leading token `blocked` and
-the prefix `blocked-on-`, so the two spellings are one vocabulary, not a mismatch. A Status whose leading token is
-`re-typed` / `retyped` is accepted by neither: it is WARNed about, excluded from every counter, and the row LOOKS
-counted nowhere while it sits in the main table. A re-typed gap leaves the main table, or gets one of the two
-forms above, in the same edit. The operative text is PROMPT-LOOP BOOTSTRAP's RE-TYPED / BLOCKED TRANSITION.
+blocked, is recorded in ONE of two forms in the SAME edit; both are accepted without a WARN: (a) in place, Status
+`blocked (requires-<what>)` with its `tried:` / `needs:` clauses; or (b) moved out of the main table into
+`## Blocked gaps` as a `- <gap> — needs: …` bullet. They do not count the same way. Only (b) raises `blocked_open`
+(it is derived from the `## Blocked gaps` / `## Non-investigable gaps` sections). An in-place (a) row merely
+leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` can still count it as
+CLOSED in `gaps_closed`; prefer (b). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
+WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
+the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is
+PROMPT-LOOP BOOTSTRAP's RE-TYPED / BLOCKED TRANSITION.
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
