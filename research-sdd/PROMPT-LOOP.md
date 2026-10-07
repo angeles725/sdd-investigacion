@@ -986,6 +986,12 @@ Always read first, in this order:
          the session, even though authoring was gated on it.
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
+         RE-TYPED / BLOCKED TRANSITION (kit #1638): a gap whose type changes or that becomes blocked is
+         recorded in ONE of two tool-recognised forms in the SAME edit: (a) in place, Status
+         `blocked (requires-<what>)` with its `tried:` / `needs:` clauses; or (b) moved out of the main
+         table to `## Blocked gaps` as a `- <gap> — needs: …` bullet. A Status whose leading token is
+         `re-typed` is warned about by `research-sdd-status.sh` and `verify-state.sh` and is not
+         counted (METHODOLOGY §8b).
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
        - WRITE the coverage counts with the tool, never hand-edit them: run
          `$KIT/toolbelt/research-sdd-status.sh $TARGET --sync-state` to (re)write the state envelope's
@@ -1226,6 +1232,20 @@ Always read first, in this order:
      topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
      the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
      tool). The OUTLINE IS the work-list — there is NO AUDIT-FIRST discovery and no self-feeding backlog.
+     PRE-OUTLINE SWEEP (before outlining, two cheap lookups; each can change the outline):
+       - SIBLING-CORPUS PREFLIGHT (cross-target subject, kit #1907): when the subject spans more than
+         one target (a how-to that touches several hosts or repos), grep the sibling corpora for an
+         existing deliverable of the same subject (`HOWTO-*`, `RUNBOOK*`, `hardening/`) BEFORE
+         outlining. Reuse or cite what exists; a deliverable found only mid-run forces blocks already
+         written to be redone (evidence: a tunnel how-to found at its B9 forced B6 to upgrade 3
+         `[INFER]` claims to `[CERT]`).
+       - MEMORY-ONLY FINDINGS (kit #1894): `mem_search` the target (project + topic `research/<target>/`)
+         for findings that have NO block (memory-only). Open a block for each one that the deliverable
+         will state; until that block exists the finding is undocumented, so raise
+         `undocumented_findings` in RESEARCH-STATE (a temporary state a later block must close). Never
+         cite memory directly from the deliverable, and never let such findings surface only through
+         `mem_save` conflict candidates after the deliverable is drafted. This is the intake side of
+         the HARD RULE MEMORY IS A MIRROR, NEVER A SUBSTITUTE.
      LARGE-SCALE §20 (outline > ~15 items — per-section-agent pattern): the sequential
      one-item-per-iteration model is viable up to ~10–15 sections; beyond that the driver context
      accumulates across the whole run, defeating context-lean delegation. At scale: (a) pre-extract
@@ -1238,13 +1258,36 @@ Always read first, in this order:
      This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
      changes is that N agents run in one dispatch round rather than N sequential iterations.
      (Evidence: api-openness.)
+     COMMIT EXEMPTION (kit #1887): because N blocks are produced in ONE dispatch, a single import
+     commit holding the dispatch's blocks is legitimate for a per-section-agent run — ONE-BLOCK-PER-COMMIT
+     (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
+     (step 4) before the import commit and the iteration history records `method: per-section-agent · N
+     sections`. The exemption never covers a sequential run. (The `research-sdd-archive.sh` WARN does
+     not yet honor it — tracked in #1887.)
+     STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
+     driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
+     blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
      depends on GENRE:
        - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
        - Documenting a PROCEDURE / how-to (connect the EM500, bring up a tool, a runbook step) → the evidence
          is the SESSION itself: the commands run, the GUI navigated, the outputs — PRESERVED under
          `sources/probes/` and cited `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase
-         (§12) already does. Do NOT invent a new marker; reuse the existing ones.
+         (§12) already does. Do NOT invent a new marker; reuse the existing ones (the one sanctioned
+         addition is `[PENDING-live]`, below).
+       - PROBLEM-ENTRY MOLD (kit #1889): every problem or lesson recorded inside a document-cycle block
+         uses ONE canonical shape: symptom → cause → fix → why it works → when/where (commit) →
+         verification + marker (`[CERT-*]`). A problem entry missing any element is incomplete, not
+         "short". (Evidence: six traceable, reproducible problem entries in one block used this mold.)
+       - PENDING-LIVE REGISTRATION (kit #1893): a `[PENDING-live]` marker (the retro's example was the
+         Spanish `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included (it never runs the
+         §13 gap backlog), must ALSO be registered in RESEARCH-STATE in the SAME commit, as a
+         `## Blocked gaps` bullet `- <claim> — needs: first live run`, bumping `known_gaps` with it (the bullet
+         raises `blocked_open`; METHODOLOGY's gap-counter rule otherwise trips CHECK H). A dedicated pending-validation
+         section is NOT defined yet and no tool counts one (Refs #1893). A deliverable must NOT make an
+         unvalidated mode its DEFAULT unless that bullet names the first live run as the validation.
+         (Evidence: a coexistence mode tagged pending-live in a block header, unlisted in state, shipped
+         as the kit default and failed on first real use.)
   3. AUTO-ROUTE the write destination by knowledge TYPE (the MODE decides — the user does NOT specify per
      call), PER CLAIM, not per block: one block may hold subject claims AND toolchain claims, so route
      each claim separately (the toolchain half proposed via the retro, not left only inside the block).
@@ -1261,6 +1304,22 @@ Always read first, in this order:
   4. SELF-VERIFY: run `$KIT/toolbelt/verify-block.sh <block>` and the load-bearing token-check — the SAME
      gate as NORMAL CYCLE step 5. Procedure blocks preserve their probe evidence under `sources/probes/`
      (`[CERT-hw]` / `[CERT-live]`), same as §12.
+     TARGET-DIR FOR NESTED CORPORA (kit #1905): `verify-block.sh <block> [target-dir]` resolves
+     `file:line` cites relative to target-dir, which defaults to the block's own directory. In a NESTED
+     corpus (`$TARGET/corpus/`) pass `$CORPUS` (the corpus dir) as target-dir when the block cites
+     `sources/…`; passing the target root resolves nothing (evidence: `$TARGET` → 0 of 17 cites
+     resolved, `$TARGET/corpus` → all `ok`). A near-zero resolved count on a cite-heavy block is a
+     wrong target-dir until proven otherwise, not a clean block.
+     DOCUMENT AFTER EVERY VERIFICATION OR CHANGE (kit #1890): "done" is not only a closing act. After
+     EVERY verification, fix or change made during the run, record it immediately in the block (using
+     the problem-entry mold of step 2) and mirror it (step 5) — do not batch the write-up to the end
+     of the run. A change or verification with no written trace is not done (see also METHODOLOGY §8, §18).
+     STATE SYNC PER BLOCK (kit #1899, prompt half): in the SAME commit as each block (per-section-agent
+     runs: once, in the import commit), run `$KIT/toolbelt/research-sdd-status.sh $CORPUS --sync-state
+     --focus <slug>` and `$KIT/toolbelt/verify-state.sh $CORPUS --focus <slug>` on a multi-focus corpus,
+     or `research-sdd-status.sh $CORPUS --sync-state --root` and `verify-state.sh $CORPUS` (no flag) on a
+     single plain `RESEARCH-STATE.md` (what `research-sdd-init.sh --document` creates), so the RESEARCH-STATE
+     envelope's `covered_blocks` never lags the block files and INDEX.
   5. MANDATORY ENGRAM MIRROR (non-negotiable — this is the whole point of the mode). Mirror EVERYTHING
      documented to Engram as topic pointers so the doc is always recall-findable: subject knowledge under
      `research/<target>/<topic>`, toolchain knowledge under a kit-level pointer. This exists because a real
@@ -1280,7 +1339,8 @@ Always read first, in this order:
      CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE:
        - ONE-BLOCK-PER-COMMIT and the commit-message convention (`research(<target>/<focus>): B<n>
          <slug>`) apply throughout the document cycle, not only at normal-cycle close (LOOP
-         CONTINUATION hard rule).
+         CONTINUATION hard rule). Exception: a LARGE-SCALE §20 per-section-agent dispatch may land as
+         one import commit (step 1, COMMIT EXEMPTION, kit #1887).
        - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
          NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP",
          and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
