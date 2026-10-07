@@ -604,7 +604,7 @@ Always read first, in this order:
          Never tell a writer to keep evidence in scratch only. When a writer runs a script, the prompt requires a SCRIPTS-MANIFEST row
          (script, run/step, block, sha256 of the preserved copy, sha256 of the remote copy if run remotely), preserved failed attempts, and
          RECIPE labelling for any script written after the fact (METHODOLOGY §5). An executed BUILD recipe (keys/certs/jar surgery,
-         #1639) is persisted as a runnable script in the target's `tools/` or `codegen/` in the SAME commit as its block, like probe captures. (verify-block enforcement is staged: `EPHEMERAL?` WARN by default, FAIL with `--strict-ephemeral`; FAIL-by-default planned in kit issue #1660.)
+         #1639) is persisted as a runnable script in the target's `tools/` or `codegen/` in the SAME commit as its block, like probe captures. (verify-block FAILs an ephemeral cite by default, `EPHEMERAL!`; `--ephemeral=warn` / `RSDD_STRICT_EPHEMERAL=0` opts out, kit #1660.)
          SECRETS-SENSITIVE INLINE OVERRIDE. The file-count delegation trigger and the config-artifact
          delegation variant below are OVERRIDDEN when artifacts are SECRET-BEARING (key files, shadow
          hashes, keystores, credential configs). Stay INLINE regardless of file count: a delegated sub-
