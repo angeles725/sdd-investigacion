@@ -262,8 +262,8 @@ scan_profile_file() {
 # <!-- slot:id -->...<!-- /slot --> span (the "claude" body), one per line
 # group, using the SAME marker regex render-profile.sh itself parses with,
 # so this reads the doctrine exactly as the renderer does.
-scan_source_slot_spans() {
-  python3 - "$1" <<'PYEOF'
+# The extractor program lives in a variable so the teeth can run a MUTATED copy of it (_SPAN_PY).
+SPAN_PY=$(cat <<'PYEOF'
 import re, sys
 text = open(sys.argv[1], encoding='utf-8').read()
 TOKEN_RE = re.compile(r'<!--\s*slot:([A-Za-z0-9_-]+)\s*-->|<!--\s*/slot\s*-->')
@@ -277,9 +277,15 @@ for m in TOKEN_RE.finditer(text):
         sys.stdout.write("\n")
         open_at = None
         spans += 1
+# An unclosed trailing slot is text never scanned: exit 4 (issue #1025 review).
+if open_at is not None:
+    sys.exit(4)
 # Zero spans means nothing was scanned: exit 3 so the caller cannot read the empty text as "clean".
 sys.exit(0 if spans else 3)
 PYEOF
+)
+scan_source_slot_spans() {
+  python3 -c "${_SPAN_PY:-$SPAN_PY}" "$1"
 }
 
 # scan_source_file FILE — runs scan_source_slot_spans and applies
@@ -322,6 +328,17 @@ printf '# no slot markers here\nplain text\n' > "$TMP/t2b-no-spans.md"
 scan_source_file "$TMP/t2b-no-spans.md" >/dev/null 2>&1; _t2b_rc=$?
 [ "$_t2b_rc" -eq 2 ] && ok "T2b/zero-spans: a source with no slot spans makes scan_source_file return 2 (nothing scanned is not clean)" \
   || no "T2b/zero-spans: zero-span source returned rc=$_t2b_rc (want 2) — an empty scan reads as clean"
+
+# T2c — an UNCLOSED trailing slot after a valid span is text the scanner never looked at (open_at is still
+# set at EOF): it must be rc 2, never a clean verdict for the closed span alone (issue #1025 review).
+printf '<!-- slot:a -->\nclean body\n<!-- /slot -->\n<!-- slot:b -->\nAKIA-trailing unclosed body\n' > "$TMP/t2c-unclosed.md"
+scan_source_file "$TMP/t2c-unclosed.md" >/dev/null 2>&1; _t2c_rc=$?
+[ "$_t2c_rc" -eq 2 ] && ok "T2c/unclosed-trailing-slot: an unclosed slot after a valid span makes scan_source_file return 2" \
+  || no "T2c/unclosed-trailing-slot: rc=$_t2c_rc (want 2) — the unscanned tail reads as clean"
+printf '<!-- slot:a -->\nclean body\n<!-- /slot -->\n' > "$TMP/t2c-closed.md"
+scan_source_file "$TMP/t2c-closed.md" >/dev/null 2>&1; _t2c_rc=$?
+[ "$_t2c_rc" -eq 1 ] && ok "T2c/closed-control: a fully closed clean source returns 1 (clean, nothing found)" \
+  || no "T2c/closed-control: rc=$_t2c_rc (want 1)"
 
 for f in "$SKILL" "$PROMPTLOOP"; do
   label="$(basename "$f")"
@@ -732,6 +749,21 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   else
     no "teeth-doctrine-token-in-profile-body: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
   fi
+
+  echo "-- teeth: T2b/T2c extractor guards (issue #1025) — each mutated extractor must stop returning rc 2 --"
+  # span_tooth LABEL FIXTURE OLD NEW: the real extractor returns 2 on FIXTURE; a copy with OLD→NEW must not.
+  span_tooth() {
+    local label="$1" fx="$2" old="$3" new="$4" mut real_rc mut_rc
+    mut="${SPAN_PY/"$old"/"$new"}"
+    if [ "$mut" = "$SPAN_PY" ]; then no "teeth-$label: mutation anchor not found in the extractor — dead mutant"; return; fi
+    scan_source_file "$fx" >/dev/null 2>&1; real_rc=$?
+    _SPAN_PY="$mut" scan_source_file "$fx" >/dev/null 2>&1; mut_rc=$?
+    if [ "$real_rc" -eq 2 ] && [ "$mut_rc" -ne 2 ]; then
+      ok "teeth-$label: original rc=2, mutated extractor rc=$mut_rc (guard has teeth)"
+    else no "teeth-$label: original rc=$real_rc, mutant rc=$mut_rc — no bite"; fi
+  }
+  span_tooth zero-span-exit "$TMP/t2b-no-spans.md" 'sys.exit(0 if spans else 3)' 'sys.exit(0)'
+  span_tooth unclosed-trailing "$TMP/t2c-unclosed.md" 'sys.exit(4)' 'sys.exit(0)'
 
   echo "-- teeth: T-doctrine-token-in-source-span (inject a §-token into SKILL.md's hotcore-cadence source slot body, T2 must go RED) --"
   kitSourceToken="$TMP/kitSourceToken"
