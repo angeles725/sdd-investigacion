@@ -36,6 +36,7 @@ mkbin() {
   case "$mode" in *-setsid*) ln -sf "$(type -P setsid)" "$b/setsid" ;; esac
   case "$mode" in *-ps*) ln -sf "$(type -P ps)" "$b/ps" ;; esac
   case "$mode" in *-fakeps*) printf '#!%s\necho 1\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
+  case "$mode" in *-gateps*) printf '#!%s\ni=0; while [ ! -e "$PS_GATE" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P ps)" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-slowps*) printf '#!%s\nsleep 0.3\necho 999999\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-nogh) ;; *)
     {
@@ -67,6 +68,7 @@ B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-n
 HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
 HAVE_PS=0; [ -n "$(type -P ps)" ] && HAVE_PS=1
 if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then B_WDG="$(mkbin b-wdg none-setsid-ps)"; fi
+[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATEPS="$(mkbin b-gateps none-setsid-gateps)"
 [ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; B_SLOWPS="$(mkbin b-slowps none-setsid-slowps)"; }
 
 echo "== gh-visibility.test.sh =="
@@ -313,6 +315,27 @@ c_sig_nonexit() { # LIB — the caller's restored trap does NOT exit: typed CALL
   kill -KILL "$bp" 2>/dev/null
   return "$rc"
 }
+# sigearly LIB CALL N — kit issue #1911: the signal arrives while the pgid verification is still running (the launch->trap
+# window). A gated `ps` BLOCKS the verification until the test releases it, so the signal is delivered inside that window
+# by construction (a barrier, not a sleep race). The caller must still take the group down and leave no temp files.
+sigearly() {
+  local lib="$1" call="$2" n="$3" pf="$TMP/gc-early-$3.pid" td="$TMP/td-early-$3" gate="$TMP/gate-$3" bp i rc=0; rm -f "$pf" "$gate"; mkdir -p "$td"
+  TMPDIR="$td" PS_GATE="$gate" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_GATEPS" "$BASH_BIN" -c '. "$1"; '"$call" _ "$lib" >/dev/null 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+  [ -s "$pf" ] || rc=1
+  kill -TERM "$bp" 2>/dev/null
+  : > "$gate"                                    # release the gated ps only AFTER the signal was sent
+  wait "$bp" 2>/dev/null
+  gone "$pf" || rc=1
+  sleeps_gone "$n" || rc=1
+  [ -z "$(ls -A "$td" 2>/dev/null)" ] || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+c_sig_early() { # LIB — a signal during the pgid verification (before the old trap install) still takes the group down
+  sigearly "$1" 'gh_bounded_run gh repo create o/r' $((RUNB+6)) && sigearly "$1" 'gh_visibility_probe gh o/r' $((RUNB+7))
+}
 c_gone_unverified() { # LIB — a leader that is already gone is NOT a verified group: child-only (nothing to sweep)
   local r; r="$(PATH="$B_SLOWPS" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$1" 2>&1)"
   has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "already exited" && ! has "$r" "could not verify"
@@ -328,6 +351,7 @@ if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
   c_sig "$LIB"               && ok "30 SIGTERM/SIGHUP to the caller kills the group of a watchdog-bounded gh_bounded_run and disarms the watchdog" || no "30 signal trap (bounded-run)"
   c_sig_probe "$LIB"         && ok "31 SIGTERM to the caller kills the group of a watchdog-bounded probe" || no "31 signal trap (probe)"
   command -v pgrep >/dev/null 2>&1 || no "30-33 need pgrep on the host to prove the watchdog is disarmed"
+  c_sig_early "$LIB"         && ok "36 a signal during the pgid verification (before the leader is verified) still kills the group and leaves no temp files" || no "36 signal in the launch-to-trap window"
   c_sig_subst "$LIB"         && ok "33 a signal inside \$(...) kills only that subshell, not the top-level shell; watchdog and group gone" || no "33 re-raise inside command substitution"
   c_sig_nonexit "$LIB"       && ok "35 caller trap that does not exit -> CALLER_SIGNALLED (not TIMEOUT), group and watchdog gone" || no "35 non-exiting caller trap"
   c_gone_unverified "$LIB"   && ok "34 leader already gone -> unverified -> child-only + DEGRADED note" || no "34 gone leader treated as verified"
@@ -371,10 +395,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       tooth sweep-childonly-runs c_nosweep_childonly 's/\[ -n "\$2" \] || return 0/:/'
       tooth verify-skipped       c_pgid_verify 's/_ghv_verify_group "\$pid" || {/true || {/g'
       tooth verify-no-compare    c_pgid_verify 's/\[ "\$pg" = "\$1" \] \&\& return 0/return 0/'
-      tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
-      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
-      tooth handler-no-disarm    c_sig      's/^    kill "\$4" 2>\/dev\/null || :/    :/'
-      tooth handler-no-disarm-p  c_sig_probe 's/^    kill "\$4" 2>\/dev\/null || :/    :/'
+      tooth trap-dropped         c_sig      's/^      _ghv_set_traps .*$/      :/'
+      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps .*$/      :/'
+      tooth handler-no-disarm    c_sig      's/^    \[ -z "\$_GHV_WD" \] || kill "\$_GHV_WD" 2>\/dev\/null || :.*$/    :/'
+      tooth handler-no-disarm-p  c_sig_probe 's/^    \[ -z "\$_GHV_WD" \] || kill "\$_GHV_WD" 2>\/dev\/null || :.*$/    :/'
+      # kit issue #1911: the old order — traps installed only AFTER the pgid verification — must go red on the barrier case
+      tooth trap-after-verify    c_sig_early 's/^      _ghv_set_traps .*$/      :/;s/^      _ghv_arm_watchdog "\$pid" "\$t" "\$grpflag"$/      _ghv_set_traps; _GHV_PID="$pid" _GHV_GRP="$grpflag"; _ghv_arm_watchdog "$pid" "$t" "$grpflag"/'
+      tooth handler-ignores-late-pid c_sig_early 's/^    local pid="\${_GHV_PID:-}"$/    local pid=""/;s/^    \[ -n "\$pid" \] || { \[ "\${!:-}".*$/    :/'
       tooth reraise-dollar-dollar c_sig_subst 's/kill -s "\$1" "\$BASHPID"/kill -s "$1" "$$"/'
       tooth gone-is-verified     c_gone_unverified 's/kill -0 "\$1" 2>\/dev\/null || return 2/kill -0 "$1" 2>\/dev\/null || return 0/'
       tooth gone-check-deleted   c_gone_unverified 's/^      kill -0 "\$1" 2>\/dev\/null || return 2.*$/      :/'
