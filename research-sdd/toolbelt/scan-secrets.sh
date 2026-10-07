@@ -20,10 +20,13 @@
 #   --files-from <list>  Scan EXACTLY the files in <list> (NUL-delimited absolute paths under <target-dir>; `-` =
 #                stdin) instead of walking <target-dir>: NO corpus-root narrowing, and the SAME file scope (the
 #                *.md + config name filter, vendored/decompiled/.git dirs excluded) is applied to each entry. What
-#                research-sdd-archive.sh uses so the secrets gate scans the set the archive packages (kit #1015).
+#                research-sdd-archive.sh uses: it lists every regular file under the physical target, git-ignored
+#                files included (kit #1015, #970 doctrine). Entries with `.`/`..` components, entries reached
+#                through a symlinked directory and entries whose canonical directory is outside the target are
+#                DEGRADED (exit 3), as is an unreadable in-scope entry.
 #                Three input states are told apart (§7): an ABSENT/unreadable list or a missing value → exit 2; an
-#                EMPTY list (0 bytes), an entry that does not exist, or an entry outside <target-dir> → exit 3
-#                DEGRADED; a list whose entries are all out of scope is a TYPED no-match (`file set: N listed · 0 in
+#                EMPTY list (0 bytes), an entry that does not exist or is unreadable, or an entry outside
+#                <target-dir> → exit 3 DEGRADED; a list whose entries are all out of scope is a TYPED no-match (`file set: N listed · 0 in
 #                scope`, exit 0). A listed symlink is never dereferenced (skipped and counted, parity with grep -r).
 #                Cannot be combined with --committed (history is not a file set).
 #   --committed  Scan ALL committed content reachable from HEAD: every unique file version across the full
@@ -35,6 +38,10 @@
 #                subdirectory (pathspecs would silently miss files outside the subdir). Uses -a/--text so
 #                all files are scanned, including those with NUL bytes. Uses --no-replace-objects so
 #                refs/replace cannot hide secret commits from the scan (M1).
+# OUTPUT NEVER CARRIES A SECRET VALUE: LEAK/WARN lines print path:line and the pattern label only (a verdict
+# that echoes the value would itself leak it into logs and terminals).
+# A grep read error (e.g. an unreadable file) in the secret-value or advisory scan is DEGRADED (exit 3), never
+# a clean verdict.
 # Exit: 0 = clean-in-scope (or only advisory WARN) · 1 = a high-confidence secret VALUE leaked ·
 #       2 = bad args (incl. an absent --files-from list) · 3 = degraded (--committed: git/awk unavailable, not a
 #           git repo with commits, target is not the repo root, mktemp failed, rev-list/log/cat-file failure, or 0
@@ -68,8 +75,8 @@ KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Z
 
 # Temp files — cleaned on any exit.
 _rev_obj_tmp=""; _blobs_list=""; _hc_hits_tmp=""; _adv_raw=""; _blob_tmp=""
-_adv_dedup=""; _cmsg_tmp=""; _cmsg_hits_tmp=""; _nul_tmp=""; _ff_scope=""; _ff_stdin=""
-trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_cmsg_hits_tmp" "$_nul_tmp" "$_ff_scope" "$_ff_stdin"' EXIT
+_adv_dedup=""; _cmsg_tmp=""; _cmsg_hits_tmp=""; _nul_tmp=""; _ff_scope=""; _ff_stdin=""; _sg_tmp=""
+trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_cmsg_hits_tmp" "$_nul_tmp" "$_ff_scope" "$_ff_stdin" "$_sg_tmp"' EXIT
 
 # --committed mode: probe git and awk, verify the repo has at least one commit.
 if [ "$committed" = 1 ]; then
@@ -370,6 +377,9 @@ if [ -n "$files_from" ]; then
     if [ "$_ff_rel" = "$_ff_f" ]; then
       echo "DEGRADED: --files-from entry is outside the target ($_ff_root): $_ff_f" >&2; exit 3
     fi
+    case "/$_ff_rel/" in
+      */../*|*/./*|*//*) echo "DEGRADED: --files-from entry has a '.', '..' or empty path component: $_ff_f" >&2; exit 3;;
+    esac
     if [ -L "$_ff_f" ]; then ff_nonreg=$((ff_nonreg+1)); continue; fi
     if [ ! -e "$_ff_f" ]; then
       echo "DEGRADED: --files-from entry does not exist (vanished since the list was built?): $_ff_f" >&2; exit 3
@@ -383,6 +393,15 @@ if [ -n "$files_from" ]; then
       *.md|*.env|.env*|*.conf|*.ini|*.properties|*.cfg|config.*|credentials) ;;
       *) continue;;
     esac
+    [ -r "$_ff_f" ] || { echo "DEGRADED: --files-from in-scope entry is not readable: $_ff_f" >&2; exit 3; }
+    # canonical directory must equal the literal one: no symlinked directory on the way, nothing outside the root.
+    if [ "${_ff_f%/*}" != "${_ff_lastdir:-}" ]; then
+      _ff_lastdir="${_ff_f%/*}"
+      _ff_cd="$(cd -P "$_ff_lastdir" 2>/dev/null && pwd -P)"
+      case "$_ff_cd/" in "$_ff_root"/*) _ff_lastok=1;; *) _ff_lastok=0;; esac
+      [ "$_ff_cd" = "$_ff_lastdir" ] || _ff_lastok=0
+    fi
+    [ "${_ff_lastok:-0}" = 1 ] || { echo "DEGRADED: --files-from entry is outside the target or reached through a symlinked directory: $_ff_f" >&2; exit 3; }
     printf '%s\0' "$_ff_f" >> "$_ff_scope" || { echo "DEGRADED: could not write the scan file set" >&2; exit 3; }
     ff_inscope=$((ff_inscope+1))
   done < "$_ff_in"
@@ -400,6 +419,10 @@ INCL=(--include='*.md' --include='*.env' --include='.env*' --include='*.conf' --
       --include='*.properties' --include='*.cfg' --include='config.*' --include='credentials')
 EXCL=(--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv
       --exclude-dir=decompiled --exclude-dir=vineflower --exclude-dir=procyon --exclude-dir=cfr --exclude-dir=jadx)
+
+# loc_of <path:LINE:content…> — print ONLY "path:LINE" (leftmost all-digit field ≥ 2): everything after it is
+# content that may hold a secret VALUE and is never echoed. If no line number is found, print nothing of the content.
+loc_of() { printf '%s\n' "$1" | awk -F: '{ out=$1; for (i=2;i<=NF;i++) { out=out ":" $i; if ($i ~ /^[0-9]+$/) { print out; exit } } }'; }
 
 # scope_grep <grep flags… -e PATTERN> — one place that decides WHAT the default-mode greps read: the walk of
 # $corpus (INCL/EXCL scope) or, under --files-from, exactly the pre-filtered list (-H keeps the path:line: shape
@@ -443,15 +466,24 @@ scan() {  # <label> <extended-regex>
     # Dedup + cap at 50; /dev/null fallback when probe block was skipped (e.g. teeth-deg path).
     while IFS= read -r m; do
       [ -z "$m" ] && continue
-      echo "   LEAK!   $label — ${m}"
+      echo "   LEAK!   $label — $(loc_of "$m") (value redacted)"
       rc=1; hits=$((hits+1))
     done < <(grep -aE -e "$re" "${_hc_hits_tmp:-/dev/null}" 2>/dev/null | sort -u | head -50)
   else
+    # rc captured (not process-substituted): a grep read error (rc >= 2, e.g. an unreadable file) must be DEGRADED,
+    # never a clean "(none)".
+    _sg_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot capture the scan output" >&2; exit 3; }
+    scope_grep -noIE -e "$re" > "$_sg_tmp"; _sg_rc=$?
+    if [ "$_sg_rc" -ge 2 ]; then
+      echo "DEGRADED: grep read error (rc=$_sg_rc) scanning for '$label' — an unreadable in-scope file? scan incomplete" >&2
+      exit 3
+    fi
     while IFS= read -r m; do
       [ -z "$m" ] && continue
-      echo "   LEAK!   $label — ${m}"
+      echo "   LEAK!   $label — $(loc_of "$m") (value redacted)"
       rc=1; hits=$((hits+1))
-    done < <(scope_grep -noIE -e "$re" | head -50)
+    done < <(head -50 "$_sg_tmp")
+    rm -f "$_sg_tmp"; _sg_tmp=""
   fi
 }
 scan "PEM PRIVATE KEY block"       '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----'
@@ -489,7 +521,14 @@ if [ "$committed" = 1 ]; then
   rm -f "$_adv_raw"; _adv_raw=""
 else
   _adv_dedup="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create advisory dedup temp file" >&2; exit 3; }
-  scope_grep -niIP -e "${KWID}\s*[=:]" | head -200 > "$_adv_dedup"
+  _sg_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot capture the advisory output" >&2; exit 3; }
+  scope_grep -niIP -e "${KWID}\s*[=:]" > "$_sg_tmp"; _sg_rc=$?
+  if [ "$_sg_rc" -ge 2 ]; then
+    echo "DEGRADED: grep read error (rc=$_sg_rc) in the advisory scan — an unreadable in-scope file? scan incomplete" >&2
+    exit 3
+  fi
+  head -200 "$_sg_tmp" > "$_adv_dedup"
+  rm -f "$_sg_tmp"; _sg_tmp=""
 fi
 while IFS= read -r line; do
   content="${line#*:*:}"
@@ -506,7 +545,7 @@ while IFS= read -r line; do
   if grep -qiE '^[0-9a-f]{32,64}$' <<<"$val"; then
     grep -qiE 'sha[0-9]*|md5|hash|checksum|digest|fingerprint' <<<"$content" && continue
   fi
-  echo "   WARN    $line"
+  echo "   WARN    $(loc_of "$line") (credential-looking assignment; value redacted)"
   warns=$((warns+1))
 done < "$_adv_dedup"
 rm -f "$_adv_dedup"
@@ -566,7 +605,7 @@ if [ "$committed" = 1 ]; then
   _cmsg_hits=0
   while IFS= read -r m; do
     [ -z "$m" ] && continue
-    echo "   LEAK!   [commit msg] $m"
+    echo "   LEAK!   [commit msg] line ${m%%:*} (value redacted)"
     rc=1; hits=$((hits+1)); _cmsg_hits=$((_cmsg_hits+1))
   done < <(head -20 "$_cmsg_hits_tmp")
   [ "$_cmsg_hits" -eq 0 ] && echo "   (none)"
@@ -590,7 +629,10 @@ else
   else
     scope_grep -alP -e '\x00' > "$_nul_tmp"
     _nul_rc=$?
-    if [ "$_nul_rc" -ge 2 ]; then
+    if [ "$_nul_rc" -ge 2 ] && [ -n "$files_from" ]; then
+      echo "DEGRADED: NUL-byte scan failed (rc=$_nul_rc) over the --files-from set — binary-skip detection incomplete" >&2
+      rm -f "$_nul_tmp"; _nul_tmp=""; exit 3
+    elif [ "$_nul_rc" -ge 2 ]; then
       echo "   WARN: NUL-byte scan FAILED (grep exit $_nul_rc) — binary-skip detection incomplete; inspect corpus manually."
       nulls=0
     else

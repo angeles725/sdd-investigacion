@@ -305,10 +305,13 @@ grep -qE 'blocks on disk : 1( |$|·)' <<<"$out" && ok "strict block count ignore
 
 # 15 — a failing INDEX touch must DEGRADE (honest report), never abort mid-consolidate (was: set -e killed it
 #      after CATALOG regen, dropping the whole checklist). Skipped as no-op under root (touch always succeeds).
-d="$TMP/rotouch"; mkgood "$d"; chmod 000 "$d/INDEX.md"
-out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-chmod 0644 "$d/INDEX.md" 2>/dev/null
-if [ "$rc" = 0 ] && grep -q 'archived' <<<"$out"; then
+#      (Round 2: the old fixture was `chmod 000 INDEX.md`; an unreadable in-scope *.md is now a typed DEGRADED
+#      refusal of the secrets gate, so the touch failure is simulated with a `touch` shim instead — INDEX.md stays readable.)
+d="$TMP/rotouch"; mkgood "$d"
+_real_touch="$(command -v touch)"; mkdir -p "$TMP/touchstub"
+printf '#!/bin/bash\ncase "$*" in *INDEX.md*) exit 1;; esac\nexec "%s" "$@"\n' "$_real_touch" > "$TMP/touchstub/touch"; chmod +x "$TMP/touchstub/touch"
+out="$(PATH="$TMP/touchstub:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q 'archived' <<<"$out" && grep -q 'could not touch INDEX.md' <<<"$out"; then
   ok "failing INDEX touch degrades — checklist still prints, exit 0 (no mid-abort)"
 else no "touch-fail abort: exit=$rc did not reach 'archived.' :: $out"; fi
 
@@ -751,8 +754,8 @@ else no "17p unborn secret: exit=$rc (want 3) :: $(grep -iE 'WARN|scan-secrets' 
 #       the list cannot be computed → typed ERROR + REFUSE; (2) it prints nothing → EMPTY list → typed ERROR +
 #       REFUSE (a scan that looked at nothing is not a pass); (3) it lists everything but reports "Permission
 #       denied" for an unreadable subtree → tolerated, disclosed on the verdict line + stderr WARN, exit 0.
-_real_find="$(command -v find)"; mkdir -p "$TMP/findstub-fail" "$TMP/findstub-empty" "$TMP/findstub-perm" "$TMP/findstub-other"
-for _m in fail empty perm other; do
+_real_find="$(command -v find)"; mkdir -p "$TMP/findstub-fail" "$TMP/findstub-empty" "$TMP/findstub-perm" "$TMP/findstub-other" "$TMP/findstub-silent"
+for _m in fail empty perm other silent; do
   {
     printf '#!/bin/bash\n'
     printf 'case " $* " in *" -prune -o -type f -print0 "*)\n'
@@ -761,6 +764,7 @@ for _m in fail empty perm other; do
       empty) printf '  exit 0;;\n';;
       perm)  printf '  "%s" "$@"; echo "find: ./locked: Permission denied" >&2; exit 1;;\n' "$_real_find";;
       other) printf '  "%s" "$@"; echo "find: ./x: Input/output error" >&2; exit 1;;\n' "$_real_find";;
+      silent) printf '  "%s" "$@"; exit 1;;\n' "$_real_find";;
     esac
     printf 'esac\nexec "%s" "$@"\n' "$_real_find"
   } > "$TMP/findstub-$_m/find"; chmod +x "$TMP/findstub-$_m/find"
@@ -795,6 +799,44 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 3 ] && grep -qF -- '-print0 | ' <<<"$out" && grep -qF -- 'scan-secrets.sh --files-from -' <<<"$out" && grep -qF -- 'scan-secrets.sh --committed' <<<"$out"; then
   ok "17r refusal hint (repo root): names the packaging-list scan (--files-from) AND the --committed history scan"
 else no "17r hint: exit=$rc :: $(grep -iE 'scan-secrets|print0' <<<"$out" | head -3)"; fi
+
+# 17s — (round 2, R2) an unreadable DIRECTORY stays tolerated with the typed disclosure (git add cannot read it
+#       either) — exercised with a REAL chmod-000 directory, no shim. Skipped under root.
+if [ "$(id -u)" = 0 ]; then skip "17s/17t unreadable dir/file: running as root (chmod 000 does not block root)"
+else
+  d="$TMP/unreadable-dir"; mkgood "$d"; mkdir -p "$d/locked"; printf 'x\n' > "$d/locked/inner.md"; chmod 000 "$d/locked"
+  out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+  chmod 755 "$d/locked"
+  if [ "$rc" = 0 ] && grep -qE 'scan-secrets +: ok, 1 unreadable path\(s\) not scanned' <<<"$out"; then
+    ok "17s R2: real unreadable DIRECTORY → tolerated, disclosed on the verdict line (exit 0)"
+  else no "17s unreadable dir: exit=$rc :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+  # 17t — an unreadable in-scope FILE is DEGRADED (exit 3), never `ok`: its content could hold the secret.
+  d="$TMP/unreadable-file"; mkgood "$d"; printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"; chmod 000 "$d/notes.md"
+  out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+  chmod 644 "$d/notes.md"
+  if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — scan-secrets.sh did not run cleanly \(exit 3\).*DEGRADED' <<<"$out" && ! grep -qE 'scan-secrets +: ok' <<<"$out"; then
+    ok "17t R2: unreadable in-scope FILE → REFUSED (exit 3) as a typed DEGRADED ERROR, never ok"
+  else no "17t unreadable file: exit=$rc (want 3) :: $(grep -iE 'WARN|scan-secrets' <<<"$out" | head -3)"; fi
+fi
+
+# 17u — (round 2) a find failure with an EMPTY stderr is NOT a tolerated permission error: the list's completeness
+#       is unproven → not computable → REFUSED. (Tolerance needs a non-empty stderr that is ALL "Permission denied".)
+d="$TMP/listsilent"; mkgood "$d"
+out="$(PATH="$TMP/findstub-silent:$PATH" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qE 'scan-secrets +: ERROR — the packaging list could not be computed' <<<"$out"; then
+  ok "17u find exits non-zero with empty stderr → list not computed, REFUSED (exit 3)"
+else no "17u silent find failure: exit=$rc (want 3 + typed ERROR) :: $(grep -iE 'scan-secrets' <<<"$out" | head -2)"; fi
+
+# 17v — (round 2, R1) the refusal tells the operator how to resolve a secret-store refusal: move it OUTSIDE the
+#       target directory (no override flag, no git-ignore filter). Hint paths are shell-quoted (%q): a target
+#       whose path holds a space must print as a pasteable command.
+d="$TMP/hint space"; mkgood_git_clean "$d"; printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/secret.env"; printf 'secret.env\n' > "$d/.gitignore"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qF 'OUTSIDE the target directory' <<<"$out" && grep -qF 'hint\ space' <<<"$out" && ! grep -qF -- '--files-from - '"$TMP/hint space" <<<"$out"; then
+  ok "17v R1: refusal on a gitignored secret store names the remedy (move it OUTSIDE the target); hint paths are %q-quoted"
+else no "17v remedy/quoting: exit=$rc :: $(grep -iE 'OUTSIDE|files-from' <<<"$out" | head -3)"; fi
+if grep -qF 'AKIAIOSFODNN7' <<<"$out"; then no "17v the refusal output echoes the secret VALUE"; else ok "17v the refusal output never carries the secret value"; fi
+
 
 # 17l (REMOVED, round 3): tested a corrupted `.git/index` making a dedicated `git status -z`
 # enumeration fail. That enumeration no longer exists — round 3 removed the mirror it fed, and neither
@@ -1937,6 +1979,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth(hint)" "$MUT/archive.HINT-MUTANT.sh" 's/^      echo "    \$_hint_wt   # working tree (dirty.*$/      :/' \
     && tooth "teeth(hint): packaging-list hint line removed from the refusal block (#1014.3)" 3 3 "$MUT/archive.HINT-MUTANT.sh" \
          --good-has 'scan-secrets.sh --files-from -' --bad-lacks 'scan-secrets.sh --files-from -' -- run_on_fix @SUT@ "$TMP/hintfix"
+  mk_sed "teeth(find-silent)" "$MUT/archive.FINDSILENT-MUTANT.sh" 's/^    \[ -s "\$_ss_ferr" \] || return 1$/    :/' \
+    && tooth "teeth(find-silent): empty-stderr find failure tolerated → an unproven (possibly partial) list archives (exit 0) — the non-empty-stderr proof is load-bearing" 3 0 "$MUT/archive.FINDSILENT-MUTANT.sh" \
+         --good-has 'packaging list could not be computed' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/findstub-silent:$PATH" @SUT@ "$TMP/listsilent"
+  mk_sed "teeth(remedy-hint)" "$MUT/archive.REMEDY-MUTANT.sh" 's/if \[ "\$_ss_leak" = 1 \]; then  # SS-REMEDY-HINT/if false; then/' \
+    && tooth "teeth(remedy-hint): remedy lines removed → the refusal no longer says where the secret store must go" 3 3 "$MUT/archive.REMEDY-MUTANT.sh" \
+         --good-has 'OUTSIDE the target directory' --bad-lacks 'OUTSIDE the target directory' -- run_on_fix @SUT@ "$TMP/hintfix"
+  mk_sed "teeth(hint-quote)" "$MUT/archive.HINTQUOTE-MUTANT.sh" "s/_q_phys=\"\\\$(printf '%q' \"\\\$_ss_phys\")\"/_q_phys=\"\$_ss_phys\"/" "s/_q_target=\"\\\$(printf '%q' \"\\\$target\")\"/_q_target=\"\$target\"/" \
+    && tooth "teeth(hint-quote): %q dropped → a target path with a space prints as a broken command" 3 3 "$MUT/archive.HINTQUOTE-MUTANT.sh" \
+         --good-has 'hint\\ space' --bad-lacks 'hint\\ space' -- bash @SUT@ "$TMP/hint space"
+  if [ "$(id -u)" != 0 ]; then
+    mk_sed "teeth(degraded-note)" "$MUT/archive.DEGNOTE-MUTANT.sh" "s/if \[ \"\\\$1\" = 3 \]; then printf ' — DEGRADED/if false; then printf ' — DEGRADED/" \
+      && { chmod 000 "$TMP/unreadable-file/notes.md"
+           tooth "teeth(degraded-note): DEGRADED typing removed → an unreadable in-scope file reads as a bare generic error" 3 3 "$MUT/archive.DEGNOTE-MUTANT.sh" \
+             --good-has 'DEGRADED: an unreadable in-scope file' --bad-lacks 'DEGRADED: an unreadable in-scope file' -- bash @SUT@ "$TMP/unreadable-file"
+           chmod 644 "$TMP/unreadable-file/notes.md"; }
+  fi
 fi
 
 # ==================== AR2 — --focus scopes the verify-state gate (#647) ====================

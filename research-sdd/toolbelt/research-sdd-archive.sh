@@ -157,8 +157,8 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
 # desync; verify-sources catches a broken source registry. Either non-zero blocks the close
 # (fail-closed). A linter that exits >1 (missing / not executable / bad args) is reported DISTINCTLY
 # from a real content FAIL so a broken toolchain is not mistaken for a stale mirror. The scan-secrets
-# gate (below, after verify-sources) does NOT go through gate(): it scans the archive's OWN packaging list
-# (every regular file under the physical target, via `scan-secrets.sh --files-from`, #1015 — never the
+# gate (below, after verify-sources) does NOT go through gate(): it scans a list of every regular
+# file under the physical target (via `scan-secrets.sh --files-from`, #1015 — never the
 # default-mode block-dir narrowing) and, for a git-backed repo-root target, ALSO the committed history
 # (issue #970), with git-state branching gate()'s single-target-arg shape does not cover — so it is
 # special-cased inline instead.
@@ -273,18 +273,20 @@ esac
 # resolved nested-target paths against the wrong root, followed symlinks into a /tmp copy and swallowed
 # per-file copy failures. Do not re-introduce a git-status-driven delta.
 #
-# WHAT IS SCANNED (kit issue #1015, single source of truth): the gate scans EXACTLY the file set this archive
-# packages — every regular file under the physical $target (git-ignored files included: the archive packages
-# them, so a secret in one must refuse, #970; symlinks are not packaged and `.git` is not authored content).
-# That list is computed HERE (_ss_build_list) and handed to `scan-secrets.sh --files-from`, which applies its
+# WHAT IS SCANNED (kit issue #1015): the gate scans every regular file under the physical $target, git-ignored
+# files included — the PROMPT-LOOP close gate / #970 doctrine: the working tree is read as it sits on disk, so
+# a secret in a git-ignored file refuses (symlinks are not followed and `.git` is not authored content). This
+# does NOT model what any packaging step would ship; it is a conservative whole-target read. The list is computed
+# HERE (_ss_build_list) and handed to `scan-secrets.sh --files-from`, which applies its
 # own file scope (*.md + high-risk config, vendored/decompiled trees excluded) to it. scan-secrets.sh's default
 # mode narrows to the shallowest block directory, so it is NOT used by this gate: a secret-bearing notes.md
 # outside that directory was skipped although the archive packages it. There is deliberately NO git-ignore
 # filter (it reversed #970 and its output filter was fail-open). If the list cannot be computed (find failed
 # for a reason other than an unreadable subtree) or comes out EMPTY (a target with a RESEARCH-STATE.md always
 # lists at least that file) the gate REFUSES with a typed ERROR — an unproven look is never a pass (§7). An
-# unreadable subtree is not packageable by this process either: it is counted, WARNed on stderr and disclosed
-# on the verdict line instead of refusing.
+# unreadable DIRECTORY (find: "Permission denied", and nothing else on stderr) cannot be added to git either: it
+# is counted, WARNed on stderr and disclosed on the verdict line instead of refusing. An unreadable in-scope FILE
+# or any grep read error is scan-secrets.sh exit 3 (DEGRADED) → typed ERROR + REFUSE, never `ok`.
 #   (b) `scan-secrets.sh --committed "$target"` — everything ever committed, reachable from HEAD. It REFUSES
 #       (exit 3) a SUBDIRECTORY of its repo (MAJOR3 in scan-secrets.sh), and $corpus can be a subdirectory of
 #       $target in a nested/SPLIT layout (research-sdd-init.sh runs `git init` ONCE, at $target) — so (b)
@@ -304,16 +306,18 @@ esac
 #   - ANY OTHER git failure — missing/stubbed git, "dubious ownership", a malformed global config, … — is NOT
 #     "no repo": this gate refuses loudly (F3) instead of guessing.
 _ss_phys="$(cd -P "$target" 2>/dev/null && pwd -P)"
-_ss_list=""; _ss_ferr=""; _ss_unreadable=0; _ss_wt_why=""
+_ss_list=""; _ss_ferr=""; _ss_unreadable=0; _ss_wt_why=""; _ss_leak=0
 trap 'rm -f "$_ss_list" "$_ss_ferr"' EXIT
 _ss_build_list() {  # → rc 0 list ready · 1 cannot be computed · 2 computed but EMPTY; fills _ss_list/_ss_unreadable
   _ss_unreadable=0
-  [ -n "$_ss_phys" ] || return 1
+  [ -n "$_ss_phys" ] || return 3
   _ss_list="$(mktemp)" && _ss_ferr="$(mktemp)" || return 1
   local frc
   LC_ALL=C find "$_ss_phys" \( -name .git -type d \) -prune -o -type f -print0 > "$_ss_list" 2> "$_ss_ferr"; frc=$?  # SS-PACKAGING-LIST
   if [ "$frc" -ne 0 ]; then
-    # only "Permission denied" (an unreadable subtree) is tolerated; any other find error = list not computed
+    # only "Permission denied" (an unreadable subtree) is tolerated, and only with PROOF: stderr must be non-empty
+    # and every line must be that message. Any other error — or a failure with silent stderr — = list not computed.
+    [ -s "$_ss_ferr" ] || return 1
     if grep -qv 'Permission denied' "$_ss_ferr"; then return 1; fi
     _ss_unreadable="$(grep -c 'Permission denied' "$_ss_ferr")"
     echo "WARN: scan-secrets packaging list skipped $_ss_unreadable unreadable path(s) — not packageable by this process, not scanned" >&2
@@ -325,22 +329,25 @@ _ss_wt_scan() {  # → _ss_wt_rc: scan-secrets.sh's own rc over the packaging li
   _ss_build_list; _ss_wt_rc=$?
   case "$_ss_wt_rc" in
     0) "$here/scan-secrets.sh" --files-from "$_ss_list" "$_ss_phys" >/dev/null 2>&1; _ss_wt_rc=$?;;  # SS-WT-SCAN
+    3) _ss_wt_rc=90; _ss_wt_why="the target directory could not be resolved physically (cd -P failed) — refusing rather than scanning an unknown location";;
     1) _ss_wt_rc=90; _ss_wt_why="the packaging list could not be computed (find failed) — refusing rather than scanning an unknown file set";;
     *) _ss_wt_rc=91; _ss_wt_why="the packaging list is EMPTY (no file under the target) — refusing rather than reporting a scan that looked at nothing";;
   esac
 }
+# rc 3 from the working-tree scan is DEGRADED: an unreadable in-scope file or a grep read error — never a clean scan.
+_ss_degraded_note() { if [ "$1" = 3 ]; then printf ' — DEGRADED: an unreadable in-scope file or a grep read error, scan incomplete'; fi; return 0; }
 _ss_unread_note() { if [ "$_ss_unreadable" -gt 0 ]; then printf ', %s unreadable path(s) not scanned' "$_ss_unreadable"; fi; return 0; }
 # Verdict for a working-tree-only scan (non-git / nested / unborn). $1 = context suffix for the ok/FAIL/ERROR lines.
 _ss_wt_only_verdict() {
   case "$_ss_wt_rc" in
     0) echo "    scan-secrets  : ok$1$(_ss_unread_note)";;
     1) echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree$1 (SECRETS DISCIPLINE)"
-       gate_rc=1  # scan-secrets-gate-fail
+       gate_rc=1; _ss_leak=1  # scan-secrets-gate-fail
        ;;
     90|91) echo "    scan-secrets  : ERROR — $_ss_wt_why$1"
        gate_rc=1  # scan-secrets-gate-list-error
        ;;
-    *) echo "    scan-secrets  : ERROR — scan-secrets.sh did not run cleanly (exit $_ss_wt_rc)$1"
+    *) echo "    scan-secrets  : ERROR — scan-secrets.sh did not run cleanly (exit $_ss_wt_rc)$(_ss_degraded_note "$_ss_wt_rc")$1"
        gate_rc=1  # scan-secrets-gate-run-error
        ;;
   esac
@@ -380,12 +387,12 @@ else
     fi
     if [ -n "$_ss_where" ]; then
       echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into $_ss_where (SECRETS DISCIPLINE)"
-      gate_rc=1  # scan-secrets-gate-fail
+      gate_rc=1; _ss_leak=1  # scan-secrets-gate-fail
     elif [ "$_ss_wt_rc" = 90 ] || [ "$_ss_wt_rc" = 91 ]; then
       echo "    scan-secrets  : ERROR — $_ss_wt_why"
       gate_rc=1  # scan-secrets-gate-list-error
     elif [ "$_ss_wt_rc" != 0 ] || [ "$_ss_hist_rc" != 0 ]; then
-      echo "    scan-secrets  : ERROR — did not run cleanly (working-tree rc=$_ss_wt_rc, committed-history rc=$_ss_hist_rc) — check git/awk/tr are available and \$target has at least one commit"
+      echo "    scan-secrets  : ERROR — did not run cleanly (working-tree rc=$_ss_wt_rc, committed-history rc=$_ss_hist_rc)$(_ss_degraded_note "$_ss_wt_rc") — check git/awk/tr are available and \$target has at least one commit"
       gate_rc=1  # scan-secrets-gate-run-error
     else
       echo "    scan-secrets  : ok$(_ss_unread_note)"
@@ -492,17 +499,22 @@ if [ "$gate_rc" != 0 ]; then
   else
     _hint_top_out="$(git -C "$target" rev-parse --show-toplevel 2>&1)"; _hint_top_rc=$?
     _hint_top_phys=""; [ "$_hint_top_rc" -ne 0 ] || _hint_top_phys="$(cd -P "$_hint_top_out" 2>/dev/null && pwd -P)"
-    # The packaging-list scan, as a command (what the gate runs): every regular file under the physical target.
-    _hint_wt="find $_ss_phys \\( -name .git -type d \\) -prune -o -type f -print0 | $here/scan-secrets.sh --files-from - $_ss_phys"
+    # The packaging-list scan, as a pasteable command (every path shell-quoted with %q).
+    _q_phys="$(printf '%q' "$_ss_phys")"; _q_here="$(printf '%q' "$here")"; _q_target="$(printf '%q' "$target")"
+    _hint_wt="find $_q_phys \\( -name .git -type d \\) -prune -o -type f -print0 | $_q_here/scan-secrets.sh --files-from - $_q_phys"
     if [ "$_hint_top_rc" -eq 0 ] && [ "$_hint_top_phys" = "$_ss_phys" ]; then
       echo "    $_hint_wt   # working tree (dirty/untracked/ignored — file scope: *.md + config)"
-      echo "    $here/scan-secrets.sh --committed $target   # + committed history"
+      echo "    $_q_here/scan-secrets.sh --committed $_q_target   # + committed history"
     elif [ "$_hint_top_rc" -eq 0 ]; then
-      echo "    $_hint_wt   # working tree only — target is nested inside $_hint_top_out"
+      echo "    $_hint_wt   # working tree only — target is nested inside $(printf '%q' "$_hint_top_out")"
     elif grep -qi 'not a git repository' <<<"$_hint_top_out" && [ ! -e "$target/.git" ]; then
       echo "    $_hint_wt"
     else
       echo "    git probe failed — fix git first"
+    fi
+    if [ "$_ss_leak" = 1 ]; then  # SS-REMEDY-HINT
+      echo "    A secret in a git-ignored file still refuses (the gate reads the working tree as it sits on disk): move the"
+      echo "    secret store OUTSIDE the target directory and keep only its path/structure in the corpus. There is no override."
     fi
   fi
   exit 3
