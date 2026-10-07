@@ -339,56 +339,11 @@ INCL=(--include='*.md' --include='*.env' --include='.env*' --include='*.conf' --
 EXCL=(--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv
       --exclude-dir=decompiled --exclude-dir=vineflower --exclude-dir=procyon --exclude-dir=cfr --exclude-dir=jadx)
 
-# Default mode skips files git IGNORES (kit issue #1015 fleet follow-up): a git-ignored local secret store
-# (`secretos/*.env`, `.secrets/`, `config.env`) is the compliant convention — the secret is kept OUT of the
-# repo — so scanning it is a false "leaked into authored content". TRACKED files are always scanned (even if a
-# later ignore rule matches them) and untracked-not-ignored files are scanned. The exclusion is made visible
-# as a typed count, and when git cannot say (absent, not a work tree, ls-files failed) EVERYTHING is scanned
-# and a typed note says so (§7). Implemented as an output filter over the grep -r results: _ign_set holds
-# "<target>/<relpath>" for every ignored, untracked file.
-_ign_set=""; _ign_note=""; _ign_skipped=0
-if [ "$committed" = 0 ]; then
-  _ign_set="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create git-ignore set" >&2; exit 3; }
-  trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_cmsg_hits_tmp" "$_nul_tmp" "$_ign_set"' EXIT
-  if ! command -v git >/dev/null 2>&1; then
-    _ign_note="git not found on PATH"
-  elif [ "$(git -C "$target" rev-parse --is-inside-work-tree 2>/dev/null)" != "true" ]; then
-    _ign_note="target is not inside a git work tree"
-  else
-    _ign_rel="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create git-ignore list" >&2; exit 3; }
-    if git -C "$target" ls-files -oi --exclude-standard -z > "$_ign_rel" 2>/dev/null; then
-      while IFS= read -r -d '' _ip; do
-        printf '%s/%s\n' "${target%/}" "$_ip" >> "$_ign_set"
-        _ib="${_ip##*/}"
-        case "$_ib" in *.md|*.env|.env*|*.conf|*.ini|*.properties|*.cfg|config.*|credentials) ;; *) continue ;; esac
-        case "/$_ip/" in */.git/*|*/node_modules/*|*/.venv/*|*/venv/*|*/decompiled/*|*/vineflower/*|*/procyon/*|*/cfr/*|*/jadx/*) continue ;; esac
-        _ign_skipped=$((_ign_skipped+1))
-      done < "$_ign_rel"
-    else
-      _ign_note="git ls-files failed"; : > "$_ign_set"
-    fi
-    rm -f "$_ign_rel"
-  fi
-fi
-# _drop_ignored: stdin → stdout, removes grep -r result lines whose file path is in the ignored set.
-_drop_ignored() {
-  if [ -s "${_ign_set:-}" ]; then
-    awk -v f="$_ign_set" 'BEGIN{while((getline l<f)>0)s[l]=1} {p=$0; if(match(p,/:[0-9]+:/)) p=substr(p,1,RSTART-1); if(!(p in s)) print}'
-  else
-    cat
-  fi
-}
-
 if [ "$committed" = 1 ]; then
   echo "== scan-secrets --committed: $(basename "$target") =="
   echo "-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)"
 else
   echo "== scan-secrets: $(basename "$target") =="
-  if [ -n "$_ign_note" ]; then
-    echo "-- git-ignore filter: not applied ($_ign_note) — scanning every in-scope file"
-  else
-    echo "-- skipped (git-ignored): $_ign_skipped in-scope file(s) (git-ignored local files are the compliant secret-store convention)"
-  fi
 fi
 # fixed under #1444: process substitution, no producer | grep -q pipe, so no SIGPIPE race is possible.
 if grep -qi 'live-install' < <(grep -iE "\b$(basename "$target")\b" "$KIT/TARGETS.md" 2>/dev/null); then
@@ -420,7 +375,7 @@ scan() {  # <label> <extended-regex>
       [ -z "$m" ] && continue
       echo "   LEAK!   $label — ${m}"
       rc=1; hits=$((hits+1))
-    done < <(grep -rnoIE "${INCL[@]}" "${EXCL[@]}" -e "$re" "$corpus" 2>/dev/null | _drop_ignored | head -50)
+    done < <(grep -rnoIE "${INCL[@]}" "${EXCL[@]}" -e "$re" "$corpus" 2>/dev/null | head -50)
   fi
 }
 scan "PEM PRIVATE KEY block"       '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----'
@@ -458,7 +413,7 @@ if [ "$committed" = 1 ]; then
   rm -f "$_adv_raw"; _adv_raw=""
 else
   _adv_dedup="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create advisory dedup temp file" >&2; exit 3; }
-  grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/dev/null | _drop_ignored | head -200 > "$_adv_dedup"
+  grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/dev/null | head -200 > "$_adv_dedup"
 fi
 while IFS= read -r line; do
   content="${line#*:*:}"
@@ -565,7 +520,7 @@ else
     else
       # No '|| true': grep -c exits 1 on empty file (benign, count=0); exit ≥2 (ENOMEM/SIGPIPE)
       # must surface as WARN, not collapse to a silent confident 0 — §7.
-      nulls=$(_drop_ignored < "$_nul_tmp" | grep -c .)
+      nulls=$(grep -c . < "$_nul_tmp")
       _vsec_nulls_rc=$?
       if [ "$_vsec_nulls_rc" -ge 2 ]; then
         printf '   WARN: NUL-byte count FAILED (grep exit %d) — count unavailable\n' "$_vsec_nulls_rc"

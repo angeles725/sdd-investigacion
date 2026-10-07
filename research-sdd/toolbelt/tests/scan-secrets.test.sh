@@ -201,36 +201,6 @@ printf '# Block 1\n\nclean.\n' > "$d/corpus/foo-block1.md"; printf 'plain note\n
 [ "$(runrc "$d")" = 0 ] && ok "OUTSIDE-NARROWED-ROOT negative: clean target outside the block dir → exit 0" \
   || no "outside-narrowed-root negative: exit $(runrc "$d") (want 0)"
 
-# 24d — GIT-IGNORED local secret stores (#1015 fleet follow-up): in default mode a file git ignores is the
-#       compliant convention (secrets kept OUT of the repo), so it must not fail the gate; the exclusion
-#       must be VISIBLE as a typed count (§7). The same file NOT ignored is still a leak (exit 1).
-_mkgit_ign() { # <dir> <ignore-rule-or-empty>
-  local g="$1"; mkdir -p "$g/corpus" "$g/secretos"
-  git -C "$g" init -q 2>/dev/null
-  printf '# Block 1\n\nclean.\n' > "$g/corpus/foo-block1.md"
-  printf 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$g/secretos/prod.env"
-  [ -n "$2" ] && printf '%s\n' "$2" > "$g/.gitignore"
-  return 0
-}
-d="$TMP/gitign"; _mkgit_ign "$d" 'secretos/'
-out24d="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && grep -q 'skipped (git-ignored): 1' <<<"$out24d"; then
-  ok "24d git-ignored secret store outside the corpus → exit 0 + 'skipped (git-ignored): 1'"
-else no "24d ignored secret: exit $(runrc "$d") (want 0) :: $(grep -E 'LEAK|skipped|git-ignore' <<<"$out24d" | head -3)"; fi
-d="$TMP/gitign-not"; _mkgit_ign "$d" ''
-[ "$(runrc "$d")" = 1 ] && ok "24e same secret file NOT git-ignored → exit 1 (untracked-not-ignored is still scanned)" \
-  || no "24e non-ignored untracked secret: exit $(runrc "$d") (want 1)"
-d="$TMP/gitign-tracked"; _mkgit_ign "$d" ''
-git -C "$d" add secretos/prod.env 2>/dev/null; printf 'secretos/\n' > "$d/.gitignore"
-[ "$(runrc "$d")" = 1 ] && ok "24f a TRACKED file is scanned even if a later ignore rule matches it → exit 1" \
-  || no "24f tracked-but-ignored secret: exit $(runrc "$d") (want 1)"
-d="$TMP/nongit-ign"; mkdir -p "$d/corpus" "$d/secretos"
-printf '# Block 1\n\nclean.\n' > "$d/corpus/foo-block1.md"; printf 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/secretos/prod.env"
-out24g="$(runout "$d")"
-if [ "$(runrc "$d")" = 1 ] && grep -q 'git-ignore filter: not applied' <<<"$out24g"; then
-  ok "24g non-git target: everything is scanned (exit 1) and the typed 'not applied' note is printed"
-else no "24g non-git target: exit $(runrc "$d") (want 1) :: $(grep -E 'git-ignore|LEAK' <<<"$out24g" | head -2)"; fi
-
 # 25 — NUL-scan producer failure (grep exit ≥2) must emit a SCAN-FAILURE WARN, never silently read as 0.
 #      Stubs grep so that any call carrying the '\x00' pattern exits 2 (ENOMEM-class error); all other
 #      grep calls are forwarded to the real binary so the rest of the scan still runs.
@@ -413,16 +383,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# Block 1\n\nclean.\n' > "$d_nr/corpus/foo-block1.md"; printf 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d_nr/notes.md"
   mk_sed "teeth-narrow" "$mutant_nr" 's|^corpus="\$target"$|corpus="$target/corpus"|' \
     && tooth "teeth-narrow: narrowed-root mutant misses the outside secret → whole-target scan has teeth" 1 0 "$mutant_nr" -- bash @SUT@ "$d_nr"
-
-  # #1015 follow-up: the git-ignore filter and its visible count each have a mutant.
-  echo "-- teeth: stop honoring git-ignore / drop the skipped-count line --"
-  mutant_ig="$MUT/scan-secrets.MUTANT-ign.sh"
-  mk_sed "teeth-ign" "$mutant_ig" 's/if \[ -s "\${_ign_set:-}" \]; then/if false; then/' \
-    && tooth "teeth-ign: filter-disabled mutant flags the git-ignored secret store → ignore handling has teeth" 0 1 "$mutant_ig" -- bash @SUT@ "$TMP/gitign"
-  mutant_ic="$MUT/scan-secrets.MUTANT-igncount.sh"
-  mk_sed "teeth-igncount" "$mutant_ic" 's/echo "-- skipped (git-ignored): /echo "-- ZZ (git-ignored): /' \
-    && tooth "teeth-igncount: count-line-dropped mutant loses 'skipped (git-ignored)' → visibility has teeth" 0 0 "$mutant_ic" \
-         --good-has 'skipped \(git-ignored\): 1' --bad-lacks 'skipped \(git-ignored\)' -- bash @SUT@ "$TMP/gitign"
 
   # Additional mutation control: neuter the NUL-scan rc-check; the producer-fail case must then NOT WARN.
   echo "-- teeth: neuter the _nul_rc check, expect producer exit-2 to pass silently as 0 --"
