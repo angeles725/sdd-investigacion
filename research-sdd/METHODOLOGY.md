@@ -635,7 +635,13 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 
 **Vendor SDK example tree outranks decompiled class tree.** When a vendor ships both an undecompiled SDK example tree (a `samples/` or `examples/` directory) and the binary being analyzed is also decompilable, the example tree is higher-fidelity evidence. Prefer it as primary source and cite `[CERT]` from it; fall back to the decompiled tree only for gaps the examples do not cover (unexported internals, method bodies the examples never exercise). This extends the App INSTALL precedence: a class the vendor example-ified directly carries its intent unambiguously, whereas decompilation reconstructs intent from bytecode.
 
-**Embedded cryptographic artifacts as first-class sources.** When a decompiled byte array yields a recoverable artifact — an RSA public key blob, an X.509 certificate, a pinned hash constant — treat it as a named first-class `sources/` artifact. Save it under `sources/extracted/` with a meaningful filename, compute its `sha256` and byte count, and register both in SOURCES.md (kit #1938). Cite it by path like any primary source. These are load-bearing trust roots: a future build may ship a rotated key, and a registered sha256 makes the rotation diffable across builds. (Evidence: B392/B395 — 270-byte Tridium RSA-2048 public key extracted with no kit rule; sha256 not registered, blocking cross-build comparison.)
+**Embedded cryptographic artifacts as first-class sources.** When a decompiled byte array yields a recoverable
+artifact — an RSA public key blob, an X.509 certificate, a pinned hash constant — treat it as a named
+first-class `sources/` artifact. Save it under `sources/extracted/` with a meaningful filename, compute its
+`sha256` and byte count, and register both in SOURCES.md (kit #1938). Cite it by path like any primary source.
+These are load-bearing trust roots: a future build may ship a rotated key, and a registered sha256 makes the
+rotation diffable across builds. (Evidence: B392/B395 — 270-byte Tridium RSA-2048 public key extracted with no
+kit rule; sha256 not registered, blocking cross-build comparison.)
 
 **Batch registration of official doc sections at bootstrap.** When a focus makes FIRST corpus use of an official multi-file doc section (e.g. `guides-clean/<Topic>/` with many files), register the section ONCE at bootstrap as a directory-level SOURCES.md row (path cell = the dir, sha256 of a manifest or spot file, file count noted in comments). Blocks cite specific files under the registered section. Do not defer registration until the first citing block — each would need to re-register the whole section, and a block that never does leaves the section untracked. (Evidence: hierarchy focus made first-ever corpus use of a 32-file Hierarchies section; registered ad-hoc per block rather than as a batch, losing source coherence.)
 
@@ -3203,12 +3209,14 @@ exits 0 and enforces only the built-in binary rule (`*.class` `*.jar` `*.dll` `*
 over an undeclared stub says nothing about decompiled vendor source.
 
 **Dual-use key/credential toolkits: split SECRET from PUBLIC at persist time (kit issue #1936).** Before
-committing a toolkit that handles keys or credentials, physically separate the committable PUBLIC assets
-(public-key SPKI DERs, self-issued cert/license artifacts, own-key patched jars — e.g. an `assets-public/`
-dir) from PRIVATE key material and secret VALUES (PKCS#8, `.key`, passwords). The latter stay off-repo (lab
-host, volatile scratch) and are cited by structure only (§3 SECRETS DISCIPLINE; PROMPT-LOOP SECRETS
-DISCIPLINE is the per-turn rule). A repo that was public once cannot be un-leaked: gate it with a check
-that no PKCS#8 / `.key` / secret-pattern bytes sit under a `*-toolkit/` path.
+committing a toolkit that handles keys or credentials, physically separate the PUBLIC assets (public-key SPKI
+DERs, self-issued cert/license artifacts, own-key patched jars) from PRIVATE key material and secret VALUES
+(PKCS#8, `.key`, passwords). The latter stay off-repo (lab host, volatile scratch) and are cited by structure
+only (PROMPT-LOOP SECRETS DISCIPLINE). Layer 4c of `toolbelt/ensure-remote.sh` (above) currently REFUSES any
+tracked `*.der` / `*.key` / `*.pem` and any `licenses/` or `certificates/` directory, so committing even the
+public assets is refused today: until an allow mechanism exists they stay off-repo too, cited by structure plus
+their `sha256` and byte count (§5). Proposed check (proposed; no instrument yet, kit #1936): flag PKCS#8 bytes
+or secret-pattern bytes inside files Layer 4c does not cover (non-`.key` files, jars) under a `*-toolkit/` path.
 
 **Stale-kit drift hook (kit issue #1787).** `research-sdd-init.sh --wire` also registers `$KIT/toolbelt/verify-skill-drift-hook.sh` (double-quoted path, timeout 15) under the target's SessionStart, so a target session running hooks from a shared kit checkout that is behind origin/main is told so. A bare spaced path is requoted and an absolute path that no longer exists is dropped as stale; any other working form is kept; a re-run that changes nothing writes nothing.
 
@@ -3960,7 +3968,8 @@ hard-stops, never blind.
   the NEXT version of the same target; it is not kit-general, so it stays in the target (a `promote` verdict
   at retro time, see §18, is the route into the kit if it generalises). It MUST carry an executable
   SMOKE-TEST that re-runs every tool and reports N/N: the test, not the source, proves the recipe still
-  executes (it caught a repack verify-line bug the source review missed). (kit #1935)
+  executes (it caught a repack verify-line bug the source review missed). (kit #1935; evidence: niagara-research
+  spg25 toolkit, commit `bde3bf800`, retro 2026-10-04-spg25-license-credential-toolkit.md D1)
 - **Port a target-specific tool by vendor-then-generalize, not by editing the copy blind.** To reuse a
   navigation/indexing tool built for one corpus's directory layout on a NEW target, first vendor it UNCHANGED as
   the baseline commit, then generalize in a second commit: strip every hardcoded target-name path and add a
@@ -3980,7 +3989,7 @@ hard-stops, never blind.
 - **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
-  skeletons — the §3 SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a reader
+  skeletons — the PROMPT-LOOP SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a reader
   whose default output must be redacted by hand afterwards will leak on the first forgotten run.
 - **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
@@ -3994,9 +4003,12 @@ hard-stops, never blind.
   machine-gated — the linter cannot see what the backlog does not mark.
 - **Seed a replication checklist's known unknowns as typed gaps.** A cross-version REPLICATION CHECKLIST
   that enumerates "known unknowns" for the next version leaves them invisible to `--next` and the backlog
-  while they live only as checklist prose. Seed each one at write time as a Gap-backlog row for the
-  next-version focus, typed `blocked-on-<reason>` or `requires-execution` with an `unblock:` plan (the
-  rows above). No checker enforces this today. (kit #1937)
+  while they live only as checklist prose. Seed each one at write time: an operator-blocked unknown as a
+  `## Blocked gaps` bullet (`- <gap> — needs: … · tried: … · unblock: …`, §21.1 order), because only such a
+  bullet raises `blocked_open` (an in-place `blocked-on-<reason>` row can be counted closed; kit #1915); a
+  build unknown as a Gap-backlog row with Status `requires-execution`. When the next-version focus does not
+  exist yet, seed them in the CURRENT focus with the next-version name in the gap text. No checker enforces
+  this today. (kit #1937)
 - **Artifacts in `codegen/`.** PoC source, build output, and captured round-trip diffs live under
   `$CORPUS/codegen/` and are preserved as evidence (a diff is `[CERT]` evidence like a probe capture).
   The block cites them; the code is not the deliverable, the validated finding is.
