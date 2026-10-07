@@ -160,6 +160,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_row_state >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_row_state" >&2; exit 1; }
 declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
@@ -177,6 +179,14 @@ declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_unrec_headings >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_unrec_headings" >&2; exit 1; }
+declare -F retro_grammar_canonical_heading >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_canonical_heading" >&2; exit 1; }
+declare -F retro_grammar_dup_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_dup_ids" >&2; exit 1; }
 declare -F retro_grammar_row_titles >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_row_titles" >&2; exit 1; }
 declare -F retro_grammar_title_has_identity >/dev/null 2>&1 \
@@ -540,7 +550,7 @@ _retro_open_row_titles() {
   _st="$(retro_status_from_marker_line "$_ml")"
   if retro_marker_is_partial "$_ml"; then
     _partial=1
-    _raw="$(printf '%s' "$_ml" | grep -oiE 'shipped:[^;>]*' | head -1 | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+    _raw="$(retro_marker_shipped_raw "$_ml")"
     [ -z "$_raw" ] || _shipped="$(retro_marker_shipped_ids "$_raw")"
   fi
   case "$_st" in
@@ -550,6 +560,7 @@ _retro_open_row_titles() {
   while IFS=$'\037' read -r _id _rest; do
     [ -n "$_id" ] || continue
     if [ "$_partial" -eq 1 ] && grep -qxF "$_id" <<<"$_shipped"; then continue; fi
+    if [ "$_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_ml" "$_id")" = dismissed ]; then continue; fi
     printf '%s\037%s\n' "$_id" "$_rest"
   done < <(_retro_row_titles "$f")
 }
@@ -686,10 +697,7 @@ audit_retro() {
   if retro_marker_is_partial "$_marker_line"; then
     is_partial=1
     local _shipped_raw
-    _shipped_raw="$(printf '%s' "$_marker_line" \
-      | grep -oiE 'shipped:[^;>]*' \
-      | head -1 \
-      | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+    _shipped_raw="$(retro_marker_shipped_raw "$_marker_line")"
     if [ -n "$_shipped_raw" ]; then
       shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
     fi
@@ -708,12 +716,30 @@ audit_retro() {
     _temp_depr="${_grammar_info#*$'\001'}"
     _temp_unrec="${_temp_depr#*$'\001'}"
     _unrec_found="${_temp_unrec%%$'\001'*}"
-    if [ "$_unrec_found" = "1" ]; then
+    # Kit issues #1895 #1932 #1933 #1934 #1938 #1939 (same rule as stage-retro-issues.sh): the very heading delta_info
+    # reported may carry a form the shared lib recognises (`## Delta A — …` entries, a `### Proposals` list); the file
+    # is classified only when EVERY unrecognised heading produced items. A prose heading is still reported, and
+    # items elsewhere in the file are then reconciled too.
+    local _unrec_missing="" _unrec_list _uh _alt_items _alt_heads
+    _alt_items="$(retro_grammar_alt_entry_rows "$retro_path")"
+    _alt_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
+    # delta_info reports only the FIRST unrecognised heading; every one must have produced items.
+    _unrec_list="$(retro_grammar_unrec_headings "$retro_path")" || _unrec_list=""
+    while IFS= read -r _uh; do
+      [ -n "$_uh" ] || continue
+      grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # RECONCILE_ISSUES_UNREC_ALL
+    done <<<"$_unrec_list"
+    # Fail closed (same as the seeder): an empty or failed list while delta_info saw a heading keeps the record.
+    if [ "$_unrec_found" = "1" ] && [ -z "$_unrec_list" ]; then _unrec_missing="unavailable"; fi   # RECONCILE_ISSUES_UNREC_FAILCLOSED
+    if [ "$_unrec_found" = "1" ] && [ -n "$_alt_items" ] && [ -z "$_unrec_missing" ]; then   # RECONCILE_ISSUES_ALT_HEADING_MATCH
+      :   # every unrecognised heading produced delta items: the parse below reconciles them
+    elif [ "$_unrec_found" = "1" ]; then
       echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro_path — needs manual review" >&2
+      [ -n "$_alt_items" ] || return 0
     else
       echo "empty-input: no delta section found in $retro_path" >&2
+      return 0
     fi
-    return 0
   fi
 
   # --- Determine whether any rows can be open
@@ -731,9 +757,11 @@ audit_retro() {
       echo "WARN: unrecognised review-status '$_status' in $retro_basename — treating all rows as open" >&2 ;;
   esac
 
-  # --- Parse all delta row-ids from the retro (same awk as stage-retro-issues.sh)
-  local _all_row_ids
-  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk '
+  # --- Parse all delta row-ids from the retro (the same table rules as stage-retro-issues.sh: the row-id skip
+  # rule is rg_table_id_skip in lib/retro-grammar.sh, one definition for both tools)
+  local _all_row_ids _alt_dups
+  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk "$_RG_AWK_ID_FN"'
+    function flushp() { if (pend != "") { print pend; pend = "" } }
     BEGIN { in_sec=0 }
     {
       low = tolower($0)
@@ -745,20 +773,23 @@ audit_retro() {
           low ~ /^## summary of proposed delta/ ||
           low ~ /^## summary of new deltas/ ||
           low ~ /^## delta details([[:space:]]|$)/) {
-        in_sec = 1; next
+        flushp(); in_sec = 1; next
       }
-      if (/^##[^#]/) { in_sec = 0; next }
-      if (in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/) {
+      if (/^##[^#]/) { flushp(); in_sec = 0; next }
+      if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
+      if (in_sec && /^\|/) {
         line = $0
         sub(/^\|[[:space:]]*/, "", line)
         sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
         n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
         rid = f[1]; gsub(/[[:space:]]/, "", rid)
-        if (rid ~ /^[-:]+$/) next
-        if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
-        print rid
+        if (rg_table_id_skip(rid)) next   # RECONCILE_ISSUES_ID_RULE
+        flushp(); pend = rid
+        next
       }
+      if (in_sec) flushp()
     }
+    END { flushp() }
   ')"
 
   # RECONCILE_ISSUES_ENTRY_FORM (kit issue #1332 item 2): no table rows -> the doctrine-valid
@@ -768,6 +799,28 @@ audit_retro() {
     _all_row_ids="$(retro_grammar_entry_ids "$retro_path")"
     # RECONCILE_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
     [ -z "$_all_row_ids" ] || retro_grammar_entry_warn "$retro_path" >&2
+  fi
+
+  # RECONCILE_ISSUES_ALT_FORMS (kit issues #1895 #1932 #1933 #1934 #1938 #1939): no table and no `### D<N> —` entry ->
+  # the other real fleet forms (numbered items under the heading, `## Delta <ID> —` entries, a `### Proposals`
+  # list), from the SAME shared function the seeder uses so both instruments name the same ids. Duplicate ids
+  # across two lists are refused (typed), exactly like the seeder.
+  if [ -z "$_all_row_ids" ]; then
+    _all_row_ids="$(retro_grammar_alt_entry_rows "$retro_path" | cut -d $'\037' -f1)"
+    _alt_dups="$(printf '%s\n' "$_all_row_ids" | retro_grammar_dup_ids | tr '\n' ' ')"
+    if [ -n "$_alt_dups" ]; then
+      echo "unclassifiable: delta items in $retro_path share ids (${_alt_dups% }) across two lists — needs manual review" >&2
+      return 0
+    fi
+    if [ -n "$_all_row_ids" ] && [ "$_found_field" = "1" ]; then
+      # A canonical heading that produced no items while a list elsewhere did stays reported (RECONCILE_ISSUES_ALT_CANON_HEADING).
+      local _canon_h _canon_heads
+      _canon_h="$(retro_grammar_canonical_heading "$retro_path")"
+      _canon_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
+      if [ -n "$_canon_h" ] && ! grep -qxF -- "$_canon_h" <<<"$_canon_heads"; then   # RECONCILE_ISSUES_ALT_CANON_HEADING
+        echo "unclassifiable: delta section found but it produced no items in $retro_path — needs manual review (items elsewhere in the file are reconciled)" >&2
+      fi
+    fi
   fi
 
   if [ -z "$_all_row_ids" ]; then
@@ -781,18 +834,25 @@ audit_retro() {
     # A canonical/deprecated section WAS found — not "empty" (kit issue #1111), and not a
     # declared honest zero either: typed distinctly from the found=0 empty-input case above
     # (see its comment).
-    echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro_path — needs manual review" >&2
+    echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries (nor numbered items directly under the heading, nor '## Delta <ID> —' entries) in $retro_path — needs manual review" >&2
     return 0
   fi
 
   # --- Build _open_ids: row-ids that are currently open (not shipped)
-  local _open_ids="" _rln
+  local _open_ids="" _rln _rstate
   if [ "$_has_open_rows" -eq 1 ]; then
     while IFS= read -r _rln; do
       [ -z "$_rln" ] && continue
       if [ "$is_partial" -eq 1 ]; then
-        # Skip rows in the shipped set
+        # Skip rows in the shipped set, and rows the marker resolves as DISMISSED (kit issue #1944)
         if grep -qxF "$_rln" <<<"$shipped_ids"; then
+          continue
+        fi
+        _rstate="$(retro_marker_row_state "$_marker_line" "$_rln")"
+        if [ "$_rstate" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_STATE
+          echo "unclassifiable: row $_rln of $retro_basename cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review" >&2
+          continue
+        elif [ "$_rstate" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_OPEN
           continue
         fi
       fi
@@ -994,6 +1054,11 @@ ${_rln}"
         local _orphan_why=""
         if [ "$is_partial" -eq 1 ] && grep -qxF "$_irid" <<<"$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN
           _orphan_why=" — the retro marker lists it shipped; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_ORPHAN
+          _orphan_why=" — the retro marker lists it dismissed; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_ORPHAN
+          # The marker's DISMISSED list is unreadable: whether this row is dismissed cannot be told, so NO close proposal.
+          _orphan_why=" — marker DISMISSED list malformed; cannot tell"
         elif grep -qxF "$_irid" <<<"$_all_row_ids"; then
           case "$_status" in
             applied|dismissed) _orphan_why=" — the retro review-status is ${_status}; propose closing the issue (not closed here)" ;;  # RECONCILE-STATUS-REASON

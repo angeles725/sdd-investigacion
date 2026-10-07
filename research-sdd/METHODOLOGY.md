@@ -3525,7 +3525,7 @@ judgment, not the driver's own rationalizations). The retro agent:
    convention for Spanish-language target corpora, not a migration target: no deprecation WARN), a numbered
    `## N. Proposed kit deltas` with or without a trailing parenthetical, and — as DEPRECATED forms
    that count but warn to migrate — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`. **Counter-example (NOT accepted):** `## Proposed research-sdd deltas` and `## Proposed research-sdd KIT deltas` look plausible — inserting the kit's own name reads as clarifying — but both fail: `lib/retro-grammar.sh` requires `kit` to follow `proposed` immediately; an intervening word breaks every recognised pattern. Both were observed and corrected in the real fleet (measured 2026-09-22 on 131 retros across 5 of 12 reachable registry targets). Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
-   are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
+   are INVISIBLE to the sweeper (`sweep-retros.sh`, `verify-retro.sh`; the two seeders additionally recover the forms listed below): measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
    canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
    "no new deltas", not a missing section. **Instrument (as of kit issue #436, updated #912):** `sweep-retros.sh`
@@ -3536,7 +3536,39 @@ judgment, not the driver's own rationalizations). The retro agent:
    kit-delta backlog`) or a standalone `### Proposals` sub-heading outside any canonical section — is never
    folded into `empty-input`; `sweep-retros.sh`, `stage-retro-issues.sh`, and `reconcile-issues.sh` all report
    it typed as `unclassifiable`/`non-conforming delta declaration — count by hand` instead, so it stays visible
-   for manual review rather than silently reading as nothing to do.
+   for manual review rather than silently reading as nothing to do. The seeders make one exception, below: a
+   heading that carries an item form they recognise is classified, and a heading that produces no items stays
+   `unclassifiable` even when an unrelated list elsewhere in the retro classifies.
+   **Forms each instrument accepts (kit issues #1895 #1932 #1933 #1934 #1938 #1939).** The canonical heading stays
+   mandatory for the sweeper: `sweep-retros.sh` and `verify-retro.sh` count only the canonical row table and
+   `### D<N> —` entries, and a retro in any other form still reads as non-conforming there. `stage-retro-issues.sh`
+   and `reconcile-issues.sh` additionally name the delta ids of three forms the fleet uses
+   (`retro_grammar_alt_entry_rows` in `lib/retro-grammar.sh`, consulted only when the table and `### D<N> —` forms
+   yield nothing): column-0 numbered items (`1. **Title.** prose`) directly under a canonical heading or under a
+   `### Proposals` heading, and `## Delta <ID> — [HIGH|MED|LOW —] title` H2 entries. An id is one capital letter or
+   at most 8 capitals/digits carrying a digit or a hyphen (`A`, `R1`, `SPKI-A`); table first cells follow the same
+   rule (`SPKI-A` is a row, `ID` or `ITEM-ID` as a header cell is not). A numbered item's id is its number, so two
+   lists sharing ids are refused as `unclassifiable`, never merged. Bullets, a numbered list under any other `###`
+   heading (`### Evidence`, `### Considered and rejected`) or under a non-delta heading, and prose stay
+   `unclassifiable`. The canonical table remains the doctrine; this is tolerance for the existing fleet, not a second
+   declaration form. EVERY unrecognised proposal-like heading must have produced items
+   (`retro_grammar_unrec_headings` lists them all; `delta_info` alone reports only the first), and the canonical
+   heading is the one `is_canonical_heading` matches, so a list first and a prose heading second still reports the
+   prose one. The cross-retro `regressed` identity pass (`retro_grammar_row_titles`) reads the table and
+   `### D<N> —` entry forms only; the numbered, `## Delta <ID> —` and `### Proposals` forms are not compared there.
+   A header row is dropped by position (the row directly above a separator), so a table row written directly above
+   a separator line with no header above it would be dropped too; that is not valid markdown and is not
+   supported. (Pinned by `stage-retro-issues-delta-forms.test.sh`, `reconcile-issues-delta-forms.test.sh` and
+   `retro-grammar-alt-entries.test.sh`.)
+   **Marker states for PARTIAL retros (kit issue #1944).** A PARTIAL review-status marker may resolve a row as
+   `shipped:` (done) or `DISMISSED:` (rejected, not shipped; every `DISMISSED:` segment counts, parentheticals are
+   free text, nested ones included); `DEFERRED:` rows stay open. `retro_marker_row_state` answers
+   `shipped|dismissed|open|not-partial|malformed`. The seeder skips a dismissed row with a typed
+   `no-match: dismissed (row N)` line and never seeds it; reconcile treats it as resolved and still reports an open
+   issue for it as `orphaned`. A `DISMISSED:` list with no usable id is `malformed`: the rows it leaves unresolved
+   are reported (`unclassifiable-row`) and never seeded. Reconcile reports an open issue for such a row as
+   `orphaned … — marker DISMISSED list malformed; cannot tell`, with no proposal to close it. (Pinned by `retro-status.test.sh` cases 86-105,
+   `stage-retro-issues-dismissed.test.sh` and `reconcile-issues-dismissed.test.sh`.)
    **Unclassifiable items are never only a stderr count (kit issue #1259).** `stage-retro-issues.sh` prints them as a table (`retro:line`, raw head, reason) with a typed `unclassifiable-items: N (…)` line whose zero names the state (`empty-input` / `none: N row(s) examined`). It proposes one tracking issue per retro per run (signature `Unclassifiable tracker: <target>/retros/<file>`; an OPEN tracker for the retro gets one occurrence comment per distinct item set, keyed to its checksum, and a re-run with the same set posts nothing). Under `--apply` only, the tracker is created through the same scrub, create and read-back path as delta issues. `retro-gate.sh` counts the summary's `unclassifiable=N` and points at the table. (Pinned by `stage-retro-issues-unclassifiable.test.sh` and `retro-gate.test.sh` EN3-unc-summary.)
    Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
    `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.

@@ -1622,7 +1622,7 @@ RETROEOF
 
   # Tooth H2: the surviving unclassifiable echo itself — silence it, case 63 must go quiet.
   echo "-- teeth H2: silence the unclassifiable echo; case 63 must go quiet (no unclassifiable line) --"
-  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries in $retro — needs manual review, no issue auto-staged" >&2'
+  anchor_h2='echo "unclassifiable: delta section found but contains neither row-table rows nor '"'"'### D<N> —'"'"' entries (nor numbered items directly under the heading, nor '"'"'## Delta <ID> —'"'"' entries) in $retro — needs manual review, no issue auto-staged" >&2'
   if [[ "$sut_content" == *"$anchor_h2"* ]]; then
     box_h2="$(mkbox teeth-h2)"
     retro_h2="$box_h2/rh/target-foo/retros/r-h2.md"

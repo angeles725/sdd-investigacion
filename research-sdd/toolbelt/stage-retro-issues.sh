@@ -30,8 +30,16 @@
 #   unclassifiable   a delta/canonical section (or a proposal-like heading, e.g. a hyphenated
 #                     "kit-delta" mid-heading or a standalone "### Proposals") was found but
 #                     is not in a form this parser can count/stage — needs manual review;
-#                     never conflated with empty-input, which would silently hide it
-#   no-match         delta section found; all rows shipped/applied
+#                     never conflated with empty-input, which would silently hide it.
+#                     Forms it stages (kit issues #1895 #1932 #1933 #1934 #1938 #1939): the row table
+#                     (lettered ids such as SPKI-A included), `### D<N> —` entries, and — only when those
+#                     yield nothing — column-0 numbered items under a canonical or `### Proposals` heading
+#                     and `## Delta <ID> — [PRIORITY —] title` entries. A heading that produced no items is
+#                     still reported when another list classifies; two lists sharing ids are refused.
+#                     Known gap: a header row is dropped by POSITION (the row directly above a separator), so
+#                     a data row written directly above a separator with no header (not valid markdown) is
+#                     dropped too. A PARTIAL marker's DISMISSED: ids are skipped as `no-match: dismissed`.
+#   no-match         delta section found; all rows shipped/applied/dismissed
 #
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
@@ -410,6 +418,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_row_state >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_row_state" >&2; exit 1; }
 declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
@@ -425,6 +435,14 @@ declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 declare -F retro_grammar_entry_rows >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_unrec_headings >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_unrec_headings" >&2; exit 1; }
+declare -F retro_grammar_canonical_heading >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_canonical_heading" >&2; exit 1; }
+declare -F retro_grammar_dup_ids >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_dup_ids" >&2; exit 1; }
 declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
@@ -545,10 +563,7 @@ shipped_ids=""
 # when the structured PARTIAL token was actually found.
 if retro_marker_is_partial "$_marker_line"; then
   is_partial=1
-  _shipped_raw="$(printf '%s' "$_marker_line" \
-    | grep -oiE 'shipped:[^;>]*' \
-    | head -1 \
-    | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+  _shipped_raw="$(retro_marker_shipped_raw "$_marker_line")"   # STAGE_RETRO_ISSUES_SHIPPED_RAW (kit issue #1944: one shared extraction)
   if [ -n "$_shipped_raw" ]; then
     shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
   fi
@@ -632,19 +647,39 @@ if [ "$_found_field" != "1" ]; then
   _temp_depr="${_grammar_info#*$'\001'}"
   _temp_unrec="${_temp_depr#*$'\001'}"
   _unrec_found="${_temp_unrec%%$'\001'*}"
-  if [ "$_unrec_found" = "1" ]; then
+  # Kit issues #1895 #1932 #1933 #1934 #1938 #1939: a heading the canonical grammar does not know can still carry a
+  # delta form the shared lib recognises (`## Delta A — HIGH — …` entries, a `### Proposals` numbered list). The
+  # unclassifiable record is suppressed ONLY when EVERY unrecognised heading (retro_grammar_unrec_headings) produced
+  # items; a prose heading is still recorded even when an unrelated list elsewhere in the file classifies, and
+  # that list is then parsed below (_unc_early stays empty).
+  _alt_early="$(retro_grammar_alt_entry_rows "$retro")"   # STAGE_RETRO_ISSUES_ALT_EARLY
+  _alt_heads="$(retro_grammar_alt_entry_rows "$retro" heads)"
+  # delta_info reports only the FIRST unrecognised heading; EVERY one must have produced items, else the first
+  # that did not is the one reported (a list first and a prose heading second cannot hide the prose one).
+  _unrec_missing=""
+  _unrec_list="$(retro_grammar_unrec_headings "$retro")" || _unrec_list=""
+  while IFS= read -r _uh; do
+    [ -n "$_uh" ] || continue
+    grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # STAGE_RETRO_ISSUES_UNREC_ALL
+  done <<<"$_unrec_list"
+  # Fail closed: delta_info saw an unrecognised heading but the list is empty or failed -> nothing is proven to have
+  # produced items, so the record is kept (never suppressed because "nothing was missing").
+  if [ "$_unrec_found" = "1" ] && [ -z "$_unrec_list" ]; then _unrec_missing="${_grammar_info##*$'\001'}"; _unrec_missing="${_unrec_missing:-<unrecognised heading list unavailable>}"; fi   # STAGE_RETRO_ISSUES_UNREC_FAILCLOSED
+  if [ "$_unrec_found" = "1" ] && [ -n "$_alt_early" ] && [ -z "$_unrec_missing" ]; then   # STAGE_RETRO_ISSUES_ALT_HEADING_MATCH
+    :   # every unrecognised heading produced delta items: the parse below classifies them
+  elif [ "$_unrec_found" = "1" ]; then
     echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro — needs manual review, no issue auto-staged" >&2
     # STAGE_RETRO_ISSUES_UNC_SECTION_RECORD (kit issue #1259): recorded for the table and the tracking issue; the run
     # continues to _unc_finish below (the parse is skipped) instead of exiting here.
-    _h="$(LC_ALL=C grep -m1 -iE '^#{2,4} .*(delta|proposal|propuesta)' "$retro")"
+    _h="${_unrec_missing:-$(LC_ALL=C grep -m1 -iE '^#{2,4} .*(delta|proposal|propuesta)' "$retro")}"
     _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "proposal-like heading not in a countable delta form"
-    _unc_early=1
+    [ -n "$_alt_early" ] || _unc_early=1
   else
     echo "empty-input: no delta section found in $retro" >&2
     echo "unclassifiable-items: 0 (empty-input: no delta section and no proposal-like heading)"
     exit 0
   fi
-  unset _temp_depr _temp_unrec _unrec_found _h
+  unset _temp_depr _temp_unrec _unrec_found _unrec_missing _unrec_list _uh _h
 fi
 
 # ---------------------------------------------------------------------------
@@ -655,7 +690,10 @@ retro_file="$retro"
 if [ -z "$_unc_early" ]; then
 retro_basename="$(basename "$retro")"
 
-_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
+_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_ID_FN"'
+  # pend: the last data row, held back one line so a header row (the row directly above a separator) is dropped
+  # by position and never becomes a delta (STAGE_RETRO_ISSUES_HEADER_DROP).
+  function flushp() { if (pend != "") { print pend; pend = "" } }
   BEGIN { in_sec=0 }
   {
     low = tolower($0)
@@ -667,13 +705,14 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
         low ~ /^## summary of proposed delta/ ||
         low ~ /^## summary of new deltas/ ||
         low ~ /^## delta details([[:space:]]|$)/) {
-      in_sec = 1; prev = ""; ct = 0; next
+      flushp(); in_sec = 1; prev = ""; ct = 0; next
     }
-    if (/^##[^#]/) { in_sec = 0; next }
+    if (/^##[^#]/) { flushp(); in_sec = 0; next }
     # STAGE_RETRO_ISSUES_HEADER_MAP (kit issue #1260): the row directly above a table separator is
     # that table'"'"'s HEADER. Its cells are mapped by NAME to the title/target/evidence/type/priority
     # roles; a header naming no title column leaves ct = 0 = the old positional reading (cells 2..6).
     if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
+      pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
@@ -711,18 +750,21 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk '
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
       rid = f[1]; gsub(/[[:space:]]/, "", rid)
-      if (rid ~ /^[-:]+$/) next
-      if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
+      if (rg_table_id_skip(rid)) next   # STAGE_RETRO_ISSUES_LETTERED_ID (shared rule, lib/retro-grammar.sh)
+      flushp()
       if (ct) {
-        printf "%s\037%s\037%s\037%s\037%s\037%s\n", f[1], f[ct],
-          (cg ? f[cg] : ""), (ce ? f[ce] : ""), (cy ? f[cy] : ""), (cp ? f[cp] : "")
+        pend = sprintf("%s\037%s\037%s\037%s\037%s\037%s", f[1], f[ct],
+          (cg ? f[cg] : ""), (ce ? f[ce] : ""), (cy ? f[cy] : ""), (cp ? f[cp] : ""))
       } else {
-        printf "%s\037%s\037%s\037%s\037%s\037%s\n",
+        pend = sprintf("%s\037%s\037%s\037%s\037%s\037%s",
           (n>=1 ? f[1] : ""), (n>=2 ? f[2] : ""), (n>=3 ? f[3] : ""),
-          (n>=4 ? f[4] : ""), (n>=5 ? f[5] : ""), (n>=6 ? f[6] : "")
+          (n>=4 ? f[4] : ""), (n>=5 ? f[5] : ""), (n>=6 ? f[6] : ""))
       }
+      next
     }
+    if (in_sec) flushp()
   }
+  END { flushp() }
 ')"
 
 # STAGE_RETRO_ISSUES_ENTRY_FORM (kit issue #1332 N1): no table rows -> the doctrine-valid
@@ -735,7 +777,33 @@ if [ -z "$_rows" ]; then
   [ -z "$_rows" ] || retro_grammar_entry_warn "$retro_file" >&2
 fi
 
+# Kit issues #1895 #1932 #1933 #1934 #1938 #1939: no table and no `### D<N> —` entry -> the fleet's other real
+# forms (numbered prose items under the heading, `## Delta <ID> —` entries, a `### Proposals` list), classified by
+# the shared grammar lib; the id is the item number / the delta id.
 if [ -z "$_rows" ]; then
+  _rows="$(retro_grammar_alt_entry_rows "$retro_file")"   # STAGE_RETRO_ISSUES_ALT_FALLBACK
+  if [ -n "$_rows" ]; then
+    # A numbered list restarts at 1: two lists would share ids and the signature (keyed on the id) would merge
+    # them. Typed refusal, not a silent loss (STAGE_RETRO_ISSUES_ALT_DUP_IDS).
+    _dups="$(printf '%s\n' "$_rows" | cut -d $'\037' -f1 | retro_grammar_dup_ids | tr '\n' ' ')"
+    if [ -n "$_dups" ]; then
+      echo "unclassifiable: delta items in $retro share ids (${_dups% }) across two lists — needs manual review, no issue auto-staged" >&2
+      _h="$(LC_ALL=C grep -m1 -iE '^#{2,4} .*(delta|proposal|propuesta)' "$retro")"
+      _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "delta items share ids (${_dups% }) across two lists"
+      _rows=""; _unc_early=1
+    else
+      # The first delta heading of the file must be one that produced items; else it stays unclassifiable.
+      _alt_heads="$(retro_grammar_alt_entry_rows "$retro_file" heads)"
+      _h="$(retro_grammar_canonical_heading "$retro")"
+      if [ "$_found_field" = "1" ] && [ -n "$_h" ] && ! grep -qxF -- "$_h" <<<"$_alt_heads"; then
+        echo "unclassifiable: delta section found but it produced no items in $retro — needs manual review (items elsewhere in the file are staged)" >&2
+        _unc_add section "$(_unc_line_of "$_h")" "$_h" "delta section has neither row-table rows nor '### D<N> —' entries nor numbered items"
+      fi
+    fi
+  fi
+fi
+
+if [ -z "$_rows" ] && [ -z "$_unc_early" ]; then
   # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose
   # only body content is the accepted honesty phrase (retro_grammar_has_honesty — the same
   # fail-safe purity check sweep-retros.sh's WARN-A path already uses) has genuinely nothing to
@@ -749,13 +817,14 @@ if [ -z "$_rows" ]; then
     exit 0
   fi
   # A canonical/deprecated section WAS found — this is not "empty" (kit issue #1111): the
-  # section exists but is not in the table-row form this parser can auto-stage issues from
-  # (e.g. numbered-list entries under ### sub-headings, per the Spanish-alias real fleet
-  # form), and it is not a declared honest zero either. Typed distinctly from the found=0
+  # section exists but holds none of the forms this parser can auto-stage issues from (row-table rows,
+  # `### D<N> —` entries, column-0 numbered items directly under the heading or under a `### Proposals`
+  # heading, `## Delta <ID> —` entries; a bullet list, a numbered list under another `###` heading or prose is
+  # none of them), and it is not a declared honest zero either. Typed distinctly from the found=0
   # empty-input case above.
-  echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries in $retro — needs manual review, no issue auto-staged" >&2
+  echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries (nor numbered items directly under the heading, nor '## Delta <ID> —' entries) in $retro — needs manual review, no issue auto-staged" >&2
   _h="$(LC_ALL=C grep -m1 -iE '^## .*(delta|propuesta)' "$retro")"
-  _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "delta section has neither row-table rows nor '### D<N> —' entries"
+  _unc_add section "$(_unc_line_of "$_h")" "${_h:-<heading not located>}" "delta section has neither row-table rows nor '### D<N> —' entries nor numbered items"
   _unc_early=1; _rows=""
 fi
 fi   # end of: if [ -z "$_unc_early" ]
@@ -995,7 +1064,7 @@ ensure_target_label() {
 
 # ---------------------------------------------------------------------------
 # Main loop
-open_count=0; skipped_shipped=0; skipped_wrong_kit=0
+open_count=0; skipped_shipped=0; skipped_dismissed=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0; summary_unknown_outcome=0; unclassifiable=0
 # TWO different "unknown" counters, on purpose — do not merge them:
 #   summary_unknown_outcome  feeds the summary: line's `unknown-outcome=` key (kit issue #1261, historical): rows
@@ -1465,6 +1534,18 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # (Fully applied/dismissed without PARTIAL already exited above.)
   if [ $is_partial -eq 1 ] && is_shipped "$_rid"; then
     skipped_shipped=$((skipped_shipped+1)); continue
+  # Kit issue #1944: a row the marker resolves as DISMISSED (rejected, not shipped) is closed too: never seeded.
+  elif [ $is_partial -eq 1 ]; then
+    _row_state="$(retro_marker_row_state "$_marker_line" "$_rid")"
+    if [ "$_row_state" = dismissed ]; then   # STAGE_RETRO_ISSUES_DISMISSED_SKIP
+      echo "no-match: dismissed (row $_rid)" >&2
+      skipped_shipped=$((skipped_shipped+1)); skipped_dismissed=$((skipped_dismissed+1)); continue
+    elif [ "$_row_state" = malformed ]; then   # STAGE_RETRO_ISSUES_MALFORMED_STATE (anti-silent-zero: never seeded, never dropped silently)
+      echo "unclassifiable-row: row $_rid cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review, no issue staged" >&2
+      unclassifiable=$((unclassifiable+1))
+      _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "marker DISMISSED: list is malformed (empty or only a parenthetical)"
+      continue
+    fi
   fi
 
   # Wrong-kit check: skip rows targeting a different kit
@@ -1714,7 +1795,11 @@ done <<< "$_rows"
 
 # Summary and no-match detection when all rows were shipped
 if [ "$open_count" -eq 0 ] && [ "$skipped_shipped" -gt 0 ] && [ "$skipped_wrong_kit" -eq 0 ]; then
-  echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
+  if [ "$skipped_dismissed" -gt 0 ]; then
+    echo "no-match: delta section found but all rows are shipped or dismissed (skipped: $skipped_shipped)" >&2
+  else
+    echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
+  fi
 fi
 
 _unc_report "none: $((open_count + skipped_shipped + skipped_wrong_kit + unclassifiable)) row(s) examined"

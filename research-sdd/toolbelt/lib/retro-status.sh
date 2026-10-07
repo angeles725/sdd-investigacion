@@ -34,6 +34,12 @@
 #     Kit issue #1099: a leading UTF-8 BOM on line 1 is stripped before scanning, so a marker
 #     whose position would otherwise be in scope (e.g. BOM, H1, blank, marker) is still found.
 #
+#   retro_marker_dismissed_ids <marker_line> / retro_marker_row_state <marker_line> <row_id>
+#     Kit issue #1944 — the DISMISSED-id set of a PARTIAL marker ('… shipped: #1; DISMISSED: #2
+#     (reason); DEFERRED: #7'), and the typed per-row answer shipped|dismissed|open. A dismissed
+#     row is resolved: consumers skip it as "no-match: dismissed", never seed it as open. See the
+#     function comments below for the exact grammar and edge rules.
+#
 #   retro_marker_out_of_scope <file>
 #     Kit issue #1099 — returns 0 (true) when a whole-file scan (retro_marker_line) finds a
 #     'review-status' marker that retro_marker_scope_line's leading-block scan does NOT find
@@ -498,6 +504,100 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
         printf '%s\n' "$t"
       fi
     done
+    return 0
+  }
+
+  # retro_marker_shipped_raw <marker_line>
+  #   Kit issue #1944 — the ONE extraction of the marker's 'shipped:' list, shared by retro_marker_row_state,
+  #   stage-retro-issues.sh and reconcile-issues.sh so the three can never disagree about what shipped
+  #   (their previous hand-copied grep | head | sed pipelines are replaced by this call; the text it
+  #   yields is byte-identical to theirs: FIRST 'shipped:' match, case-insensitive keyword, cut at ';' or
+  #   '>', NO parenthetical stripping). Echoes the raw list (feed it to retro_marker_shipped_ids); nothing
+  #   for an empty line or a line without the keyword. rc 0; a grep failure (rc >= 2) is reported on stderr.
+  # pipefail-audit: printf | grep reads to EOF; grep rc 1 (no match) is captured, rc >= 2 stays visible. SAFE.
+  retro_marker_shipped_raw() {
+    local line="${1:-}" grc=0
+    [ -n "$line" ] || return 0
+    {
+      printf '%s' "$line" | grep -oiE 'shipped:[^;>]*' || grc=$?
+      [ "$grc" -le 1 ] || echo "retro-status: grep failed (rc $grc) reading the shipped: list" >&2
+    } | sed -nE '1{s/^[Ss]hipped:[[:space:]]*//;p;}'
+    return 0
+  }
+
+  # retro_marker_dismissed_ids <marker_line>
+  #   Kit issue #1944 — the DISMISSED counterpart of retro_marker_shipped_ids. A PARTIAL marker may
+  #   resolve a row as DISMISSED (rejected, not shipped) with the fleet grammar
+  #     '… · shipped: #1, #3; DISMISSED: #2 (reason); DEFERRED: #7 -->'
+  #   Echoes the normalized ids of EVERY 'DISMISSED:' segment (joined before normalising, so a second
+  #   segment after a DEFERRED one counts), one per line, via the SAME normalizer as shipped ids
+  #   (retro_marker_shipped_ids: '#' strip, parenthetical drop, ranges). Rules:
+  #     - the keyword is the case-SENSITIVE uppercase token 'DISMISSED:' (like 'DEFERRED:'), not
+  #       preceded by a letter; lowercase 'dismissed:' in prose or in a parenthetical is free text.
+  #     - parenthetical annotations are removed (innermost first, so nested parentheses go) BEFORE the
+  #       marker is cut at the '-->' closer and each segment at its ';' — a ';' or a '-->' inside
+  #       "(reason; more)" can truncate nothing. Paren stripping applies to this list ONLY (the shipped
+  #       list keeps the consumers' historic extraction, retro_marker_shipped_raw).
+  #     - a segment ends at the next ';' or at the closer; a 'DEFERRED:' segment is never part of the set.
+  #   Returns nothing and rc 0 for an empty line or a line without the keyword. Returns nothing and
+  #   rc 3 (MALFORMED, kit issue #7 anti-silent-zero) when the keyword is present but no id survives
+  #   (`DISMISSED: ;`, `DISMISSED: (only a reason)`): "no dismissed ids" and "a list I could not read"
+  #   must stay distinguishable. A grep failure (rc >= 2) is reported on stderr.
+  #   RETRO_MARKER_DISMISSED_PAREN_STRIP / _KEYWORD / _JOIN / _MALFORMED: teeth anchors (#1944).
+  # pipefail-audit: printf | sed | ... and printf | grep read to EOF; grep rc 1 is captured. SAFE.
+  retro_marker_dismissed_ids() {
+    local line="${1:-}" body segs seg joined="" ids grc=0
+    [ -n "$line" ] || return 0
+    body="${line#*review-status:}"
+    # RETRO_MARKER_DISMISSED_PAREN_STRIP
+    body="$(printf '%s' "$body" | sed -E -e ':a' -e 's/[[:space:]]*\([^()]*\)//' -e 'ta')"
+    body="${body%%-->*}"
+    segs="$(printf '%s' "$body" | grep -oE '(^|[^A-Za-z])DISMISSED:[^;]*' || grc=$?; [ "$grc" -le 1 ] || echo "retro-status: grep failed (rc $grc) reading DISMISSED:" >&2)"   # RETRO_MARKER_DISMISSED_KEYWORD
+    [ -n "$segs" ] || return 0
+    while IFS= read -r seg; do
+      seg="${seg#*DISMISSED:}"
+      joined="${joined:+$joined, }$seg"   # RETRO_MARKER_DISMISSED_JOIN
+    done <<<"$segs"
+    ids="$(retro_marker_shipped_ids "$joined")"
+    [ -n "$ids" ] || return 3   # RETRO_MARKER_DISMISSED_MALFORMED
+    printf '%s\n' "$ids"
+    return 0
+  }
+
+  # retro_marker_row_state <marker_line> <row_id>
+  #   Kit issue #1944 — the ONE typed answer a consumer needs for a row of a PARTIAL retro.
+  #   PRECONDITION: the marker is PARTIAL (retro_marker_is_partial). A plain applied/dismissed status
+  #   marker closes the whole retro by its STATUS; asking its rows is answered `not-partial`, never `open`.
+  #   Echoes exactly one of:
+  #     shipped      the id is in the marker's 'shipped:' set (retro_marker_shipped_raw — the consumers' list)
+  #     dismissed    the id is in a 'DISMISSED:' set — resolved, never open; consumers skip it as
+  #                  "no-match: dismissed", never seed it and never drop it silently
+  #     open         neither (including a DEFERRED id or an unlisted id)
+  #     not-partial  the marker is not PARTIAL (precondition not met)
+  #     malformed    an empty marker line or row id, or a DISMISSED: list with no usable id (the row is not
+  #                  shipped, so whether it is dismissed cannot be told): consumers report it loudly and
+  #                  never seed it
+  #   An id in BOTH sets reads 'shipped' (it did ship). Always exit 0. Ids are compared whole-line.
+  # pipefail-audit: here-string greps over small id lists; no producer pipes. SAFE.
+  retro_marker_row_state() {
+    local line="${1:-}" rid="${2:-}" sraw sids="" dids drc=0
+    if [ -z "$line" ] || [ -z "$rid" ]; then   # RETRO_MARKER_ROW_STATE_EMPTY
+      printf 'malformed\n'; return 0
+    fi
+    retro_marker_is_partial "$line" || { printf 'not-partial\n'; return 0; }   # RETRO_MARKER_ROW_STATE_PARTIAL_GATE
+    sraw="$(retro_marker_shipped_raw "$line")"
+    [ -z "$sraw" ] || sids="$(retro_marker_shipped_ids "$sraw")"
+    # RETRO_MARKER_ROW_STATE_SHIPPED
+    if [ -n "$sids" ] && grep -qxF -- "$rid" <<<"$sids"; then
+      printf 'shipped\n'; return 0
+    fi
+    dids="$(retro_marker_dismissed_ids "$line")" || drc=$?
+    if [ "$drc" -eq 3 ]; then printf 'malformed\n'; return 0; fi
+    # RETRO_MARKER_ROW_STATE_DISMISSED
+    if [ -n "$dids" ] && grep -qxF -- "$rid" <<<"$dids"; then
+      printf 'dismissed\n'; return 0
+    fi
+    printf 'open\n'
     return 0
   }
 fi
