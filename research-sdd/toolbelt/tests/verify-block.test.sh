@@ -1738,7 +1738,7 @@ chmod +x "$XS/stubA/awk" "$XS/stubB/awk"
 for _st in A B; do
   out="$(PATH="$XS/stub$_st:$PATH" xsrun --extern-check "$XS/tgt/single.md" "$XS/tgt")"
   { grep -q 'extern-check DEGRADED  .*plain.txt:2 (line count failed)' <<<"$out" && ! grep -q 'ok extern' <<<"$out" && grep -q '== exit 1 ==' <<<"$out" \
-    && grep -q 'verified 0 of 1 absolute' <<<"$out" && grep -q '0 extern, 1 failed' <<<"$out"; } \
+    && grep -q 'verified 0 of 1 absolute' <<<"$out" && grep -q '(0 extern, 0 failed, 1 degraded)' <<<"$out"; } \
     && ok "#1906 failed line count (stub $_st) -> typed DEGRADED, exit 1, never ok/verified" || no "#1906 degraded stub $_st :: $(grep -E 'extern|exit' <<<"$out" | head -4)"
 done
 # CRLF file: 3 lines; :3 is in range, :4 is past EOF (the \r never inflates or deflates the count)
@@ -1824,13 +1824,46 @@ printf '#!/bin/bash\ncase "$*" in *NR\\>=e*) echo abc; exit 0;; esac\nexec %s "$
 chmod +x "$LC/stubA/awk" "$LC/stubB/awk"
 for _st in A B; do
   out="$(PATH="$LC/stub$_st:$PATH" lcrun "$LC/corpus/last.md" "$LC/corpus")"
-  { grep -q 'DEGRADED' <<<"$out" && grep -q 'nonl.txt:3' <<<"$out" && ! grep -qE 'ok +nonl.txt:3' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
+  { grep -q '^   linecount DEGRADED  nonl.txt:3 (line count failed)$' <<<"$out" && grep -q '(0 extern, 0 failed, 1 degraded)' <<<"$out" \
+    && grep -q 'WARN    resolved 0 of 1 — line count failed — instrument, not the cite' <<<"$out" && ! grep -q 'every cite failed' <<<"$out" && ! grep -qE 'ok +nonl.txt:3' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
     && ok "#1919 failed in-target line count (stub $_st) -> typed DEGRADED, exit 1, never ok" || no "#1919 degraded stub $_st :: $(grep -E 'nonl|DEGRADED|exit' <<<"$out" | head -4)"
 done
 # the artifact path has its own call site: a failed count there is the same typed DEGRADED
 out="$(PATH="$LC/stubA:$PATH" lcrun "$LC/corpus/art.md" "$LC/corpus/sources/probes")"
 { grep -q 'linecount DEGRADED  b1-art.txt:3 (line count failed)' <<<"$out" && ! grep -qE 'ok +b1-art.txt:3' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
   && ok "#1919 failed artifact line count -> typed DEGRADED, exit 1, never ok" || no "#1919 artifact degraded :: $(grep -E 'b1-art|DEGRADED|exit' <<<"$out" | head -4)"
+# kit #1919 round 1: a failed count on a NON-first root must not be swallowed. The first root holds a short file, the fitting
+# file lives at SOURCE_ROOT and its count fails (path-keyed stub): the cite is DEGRADED, never a RANGE! judged from the first root.
+mkdir -p "$LC/stubC"
+printf '#!/bin/bash\ncase "$*" in *NR\\>=e*srcroot*) echo 1000000; exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$LC/stubC/awk"
+chmod +x "$LC/stubC/awk"
+out="$(SOURCE_ROOT="$LC/srcroot" PATH="$LC/stubC:$PATH" lcrun "$LC/corpus/multi.md" "$LC/corpus/sub")"
+{ grep -q '^   linecount DEGRADED  f.txt:3 (line count failed)$' <<<"$out" && ! grep -q 'RANGE!' <<<"$out" && ! grep -qE 'ok +f.txt:3' <<<"$out" \
+  && grep -q '(0 extern, 0 failed, 1 degraded)' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
+  && ok "#1919 failed count at a later root with no fit -> DEGRADED (not RANGE! from the first root), counted degraded, exit 1" || no "#1919 later-root degraded :: $(grep -E 'f.txt|RANGE|resolved|exit' <<<"$out" | head -5)"
+# and when a root AFTER the failed one fits, the cite still resolves there (a failed count is not fatal if another root fits)
+mkdir -p "$LC/srcroot2"; printf 'q\nr\ns' > "$LC/srcroot2/f.txt"
+mkdir -p "$LC/stubD"; printf '#!/bin/bash\ncase "$*" in *NR\\>=e*sub/f.txt*) echo 1000000; exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$LC/stubD/awk"
+chmod +x "$LC/stubD/awk"
+out="$(SOURCE_ROOT="$LC/srcroot2" PATH="$LC/stubD:$PATH" lcrun "$LC/corpus/multi.md" "$LC/corpus/sub")"
+{ grep -qE 'ok +f.txt:3$' <<<"$out" && ! grep -q 'DEGRADED' <<<"$out" && grep -q '== exit 0 ==' <<<"$out"; } \
+  && ok "#1919 failed count at the first root, fitting file at a later root -> resolves there, no DEGRADED" || no "#1919 first-root degraded, later fit :: $(grep -E 'f.txt|DEGRADED|exit' <<<"$out" | head -4)"
+# a real unreadable in-target file (real awk, mode 000): typed DEGRADED, not a RANGE! verdict (skipped when root can read it anyway)
+printf 'a\nb\nc\n' > "$LC/corpus/unread.txt"; chmod 000 "$LC/corpus/unread.txt"
+lcblock unread.md 'Cite `unread.txt:2`. [CERT]'
+if [ ! -r "$LC/corpus/unread.txt" ]; then
+  out="$(lcrun "$LC/corpus/unread.md" "$LC/corpus")"
+  { grep -q '^   linecount DEGRADED  unread.txt:2 (line count failed)$' <<<"$out" && ! grep -q 'RANGE!' <<<"$out" && grep -q '(0 extern, 0 failed, 1 degraded)' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
+    && ok "#1919 unreadable in-target file (real awk) -> typed DEGRADED, exit 1, not RANGE!" || no "#1919 unreadable :: $(grep -E 'unread|RANGE|resolved|exit' <<<"$out" | head -4)"
+else ok "#1919 unreadable in-target file case skipped (file readable: running as root)"; fi
+chmod 644 "$LC/corpus/unread.txt"
+# the resolve-site handler is reachable only when the fit check passes and the FULL count then fails (stub keyed on e=0)
+mkdir -p "$LC/stubE"
+printf '#!/bin/bash\ncase "$*" in *"e=0 "*NR\\>=e*) echo 1000000; exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$LC/stubE/awk"
+chmod +x "$LC/stubE/awk"
+out="$(PATH="$LC/stubE:$PATH" lcrun "$LC/corpus/last.md" "$LC/corpus")"
+{ grep -q '^   linecount DEGRADED  nonl.txt:3 (line count failed)$' <<<"$out" && ! grep -qE 'ok +nonl.txt:3' <<<"$out" && grep -q '(0 extern, 0 failed, 1 degraded)' <<<"$out" && grep -q '== exit 1 ==' <<<"$out"; } \
+  && ok "#1919 fit passes but the full count fails -> typed DEGRADED at the resolve site, exit 1" || no "#1919 resolve-site degraded :: $(grep -E 'nonl|DEGRADED|resolved|exit' <<<"$out" | head -4)"
 # the two paths agree: the same unterminated file cited in-target and via --extern-check gives the same verdict
 lcblock agree.md "A \`nonl.txt:3\` B \`$LC/corpus/nonl.txt:3\`. [CERT]"
 out="$(lcrun --extern-check "$LC/corpus/agree.md" "$LC/corpus")"
@@ -2568,7 +2601,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       -- bash @SUT@ --extern-check "$XS/tgt/nonl.md" "$XS/tgt"
   fi
   # the past-EOF message carries the FULL count (the awk END branch); an off-by-one there is reported
-  if mk_sed "teeth-1906-count-full" "$MUT/xs13.sh" 's/END{print f?e:NR}/END{print f?e:NR-1}/'; then
+  if mk_sed "teeth-1906-count-full" "$MUT/xs13.sh" 's/END{print NR}/END{print NR-1}/'; then
     tooth "teeth-1906-count-full" 1 1 "$MUT/xs13.sh" --good-has 'plain.txt:31  \(file has 30 lines\)' --bad-has 'plain.txt:31  \(file has 29 lines\)' \
       -- bash @SUT@ --extern-check "$XS/tgt/past.md" "$XS/tgt"
   fi
@@ -2604,18 +2637,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       -- bash @SUT@ "$LC/corpus/art.md" "$LC/corpus/sources/probes"
   fi
   # the fit check neutered: the short first-root file pre-empts the fitting SOURCE_ROOT file again
-  if mk_sed "teeth-1919-fit" "$MUT/lc2.sh" 's/ \&\& \[ "\$end" -le "\$_vb_fit" \]; then  # BT-RANGE-FIT/; then  # BT-RANGE-FIT/'; then
+  if mk_sed "teeth-1919-fit" "$MUT/lc2.sh" 's/if \[ "\$end" -le "\$_vb_fit" \]; then  # BT-RANGE-FIT/if true; then  # BT-RANGE-FIT/'; then
     tooth "teeth-1919-fit" 0 1 "$MUT/lc2.sh" --good-has 'f.txt:3' --good-lacks 'RANGE!' --bad-has 'RANGE!  f.txt:3  \(file has 1 lines\)' \
       -- env "SOURCE_ROOT=$LC/srcroot" bash @SUT@ "$LC/corpus/multi.md" "$LC/corpus/sub"
   fi
   # a failed count at either in-target site must not read as ok (handler removed -> the stub's 1000000 reads as a huge file)
-  if mk_sed "teeth-1919-degraded-bt" "$MUT/lc3.sh" 's/ || { echo "   linecount DEGRADED.*# VB-LINECOUNT-BT/  # VB-LINECOUNT-BT/' '/# VB-LINECOUNT-STATUS/d'; then
-    tooth "teeth-1919-degraded-bt" 1 0 "$MUT/lc3.sh" --good-has 'linecount DEGRADED  nonl.txt:3' --bad-lacks 'DEGRADED' --bad-has 'nonl.txt:3' \
+  if mk_sed "teeth-1919-degraded-bt" "$MUT/lc3.sh" 's/ || { echo "   linecount DEGRADED.*# VB-LINECOUNT-BT/  # VB-LINECOUNT-BT/'; then
+    tooth "teeth-1919-degraded-bt" 1 1 "$MUT/lc3.sh" --good-has 'linecount DEGRADED  nonl.txt:3 \(line count failed\)' --bad-lacks 'DEGRADED' --bad-has 'RANGE!  nonl.txt:3' \
+      -- env "PATH=$LC/stubE:$PATH" bash @SUT@ "$LC/corpus/last.md" "$LC/corpus"
+  fi
+  if mk_sed "teeth-1919-degraded-art" "$MUT/lc4.sh" 's/ || { echo "   linecount DEGRADED.*# VB-LINECOUNT-ART/  # VB-LINECOUNT-ART/'; then
+    tooth "teeth-1919-degraded-art" 1 1 "$MUT/lc4.sh" --good-has 'linecount DEGRADED  b1-art.txt:3 \(line count failed\)' --bad-lacks 'DEGRADED' --bad-has 'RANGE!  b1-art.txt:4' \
+      -- env "PATH=$LC/stubA:$PATH" bash @SUT@ "$LC/corpus/art.md" "$LC/corpus/sources/probes"
+  fi
+  # round 1: the fit-loop flag. Removed, a failed count at a later root is swallowed and the first root's count yields RANGE!
+  if mk_sed "teeth-1919-fit-flag" "$MUT/lc5.sh" '/# BT-FIT-DEGRADED/ s/_bt_cdeg=1/: /'; then
+    tooth "teeth-1919-fit-flag" 1 1 "$MUT/lc5.sh" --good-has 'linecount DEGRADED  f.txt:3 \(line count failed\)' --good-lacks 'RANGE!' --bad-has 'RANGE!  f.txt:3  \(file has 1 lines\)' --bad-lacks 'DEGRADED' \
+      -- env "SOURCE_ROOT=$LC/srcroot" "PATH=$LC/stubC:$PATH" bash @SUT@ "$LC/corpus/multi.md" "$LC/corpus/sub"
+  fi
+  # round 1: a degraded cite is counted APART from failed (the instrument, not the cite)
+  if mk_sed "teeth-1919-degraded-count" "$MUT/lc6.sh" 's/_vb_d=\$((_vb_d+1))/_vb_f=$((_vb_f+1))/'; then
+    tooth "teeth-1919-degraded-count" 1 1 "$MUT/lc6.sh" --good-has '\(0 extern, 0 failed, 1 degraded\)' --bad-has '\(0 extern, 1 failed\)' --bad-lacks ', 1 degraded' \
       -- env "PATH=$LC/stubA:$PATH" bash @SUT@ "$LC/corpus/last.md" "$LC/corpus"
   fi
-  if mk_sed "teeth-1919-degraded-art" "$MUT/lc4.sh" 's/ || { echo "   linecount DEGRADED.*# VB-LINECOUNT-ART/  # VB-LINECOUNT-ART/' '/# VB-LINECOUNT-STATUS/d'; then
-    tooth "teeth-1919-degraded-art" 1 0 "$MUT/lc4.sh" --good-has 'linecount DEGRADED  b1-art.txt:3' --bad-lacks 'DEGRADED' --bad-has 'ok      b1-art.txt:3' \
-      -- env "PATH=$LC/stubA:$PATH" bash @SUT@ "$LC/corpus/art.md" "$LC/corpus/sources/probes"
+  if mk_sed "teeth-1919-degraded-why" "$MUT/lc7.sh" 's/if \[ "\$_vb_d" -gt 0 \]; then _p9_why=.*# VB-DEGRADED-WHY/if false; then _p9_why="x"  # VB-DEGRADED-WHY/'; then
+    tooth "teeth-1919-degraded-why" 1 1 "$MUT/lc7.sh" --good-has 'WARN    resolved 0 of 1 — line count failed — instrument, not the cite' --bad-has 'no file paths resolved' --bad-lacks 'instrument, not the cite' \
+      -- env "PATH=$LC/stubA:$PATH" bash @SUT@ "$LC/corpus/last.md" "$LC/corpus"
   fi
 fi
 
