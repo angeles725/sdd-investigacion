@@ -2535,6 +2535,42 @@ if command -v jq >/dev/null 2>&1; then
   { [ "$_rc" = 0 ] && [ -e "$d/INDEX.md" ]; } && ok "U7-l6 flagless scaffold over an existing hook: scaffold completes" || no "U7-l6 flagless scaffold: exit $_rc"
   cmp -s "$TMP/u7-l6.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-l6 flagless scaffold: existing hook byte-identical" || no "U7-l6 flagless scaffold OVERWROTE the existing hook"
   grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l6.out" && ok "U7-l6 flagless scaffold: typed 'kept:' line" || no "U7-l6 flagless scaffold: no kept: line"
+  grep -qF "stale? re-run with --force" "$TMP/u7-l6.out" && ok "U7-l6 flagless scaffold: kept line names the --force escape" || no "U7-l6 flagless scaffold: kept line lacks the --force hint"
+  # L7. the installed hook keeps the template mode (mktemp makes 0600; only the mode carry-over makes it 755)
+  d="$TMP/u7-l7"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l7 wire-only creation: installed hook mode 755" || no "U7-l7 installed hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+  # L8. no hard links (ln stub fails with a non-EEXIST error): exclusive-create fallback installs the hook, mode carried
+  _u7_noln="$TMP/u7-noln"; mkdir -p "$_u7_noln"; printf '#!/bin/sh\necho "ln: failed to create hard link: Operation not permitted" >&2\nexit 1\n' > "$_u7_noln/ln"; chmod +x "$_u7_noln/ln"
+  d="$TMP/u7-l8"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l8.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l8.out" && cmp -s "$HERE/../../templates/hook-sessionstart.sh" "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-l8 no hard links: fallback installs the full hook, reported created" || no "U7-l8 no-hard-link fallback: exit $_rc"
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l8 no hard links: fallback carries mode 755" || no "U7-l8 fallback mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+  [ -z "$(find "$d/.claude" -name '.hook.*')" ] && ok "U7-l8 no hard links: no temp file left" || no "U7-l8 fallback left a temp file"
+  # L9. ln fails AND the fallback copy fails: typed FATAL (exit 2), no kept:, no hook, no temp file — never a silent kept/wired-to-nothing
+  _u7_nocat="$TMP/u7-nocat"; mkdir -p "$_u7_nocat"; printf '#!/bin/sh\nexit 1\n' > "$_u7_nocat/cat"; chmod +x "$_u7_nocat/cat"
+  d="$TMP/u7-l9"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l9.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9.out" && grep -qF 'Operation not permitted' "$TMP/u7-l9.out"; } && ok "U7-l9 ln + fallback fail: typed FATAL with the real ln error, exit 2" || no "U7-l9 exit $_rc / no typed FATAL"
+  { ! grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9.out" && [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*')" ]; } && ok "U7-l9 ln + fallback fail: no kept:, no hook, no temp file" || no "U7-l9 left a hook/temp or printed kept:"
+  # L9b. ln fails AND the exclusive create fails with nothing at dest (the ln stub makes the hooks dir read-only): typed FATAL, never `kept:`
+  if [ "$(id -u)" = 0 ]; then echo "  SKIP  U7-l9b: running as root (a read-only dir does not stop root)"; else
+    _u7_rodir="$TMP/u7-rodir"; mkdir -p "$_u7_rodir"; printf '#!/bin/sh\nchmod a-w "$(dirname "$2")"\necho "ln: failed: Operation not permitted" >&2\nexit 1\n' > "$_u7_rodir/ln"; chmod +x "$_u7_rodir/ln"
+    d="$TMP/u7-l9b"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+    PATH="$_u7_rodir:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l9b.out" 2>&1; _rc=$?; chmod -R u+w "$d" 2>/dev/null
+    { [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.claude/hooks/research-protocol.sh (ln: " "$TMP/u7-l9b.out" && ! grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9b.out" && [ ! -e "$d/.claude/hooks/research-protocol.sh" ]; } && ok "U7-l9b ln + exclusive create fail, nothing at dest: typed FATAL, no kept:, exit 2" || no "U7-l9b exit $_rc: $(tail -2 "$TMP/u7-l9b.out" | tr '\n' ' ')"
+  fi
+  # L10. a DIRECTORY appearing at the hook path after the check: ln would drop the temp INSIDE it — must be kept, nothing left in it
+  _u7_racedir="$TMP/u7-racedir"; mkdir -p "$_u7_racedir"
+  printf '#!/bin/sh\n[ "$1" = -p ] && { a1="$2"; a2="$3"; } || { a1="$1"; a2="$2"; }\ncase "$a1" in */hook) d="$(dirname "$a2")"; case "$a2" in */.claude/hooks/*) [ -e "$d/research-protocol.sh" ] || mkdir "$d/research-protocol.sh";; esac;; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_racedir/cp"; chmod +x "$_u7_racedir/cp"
+  d="$TMP/u7-l10"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_racedir:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l10.out" 2>&1; _rc=$?
+  { grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l10.out" && ! grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l10.out"; } && ok "U7-l10 directory at the hook path: kept, not created" || no "U7-l10 directory race: wrong created/kept report (exit $_rc)"
+  [ -z "$(find "$d/.claude/hooks/research-protocol.sh" -mindepth 1 2>/dev/null)" ] && ok "U7-l10 directory at the hook path: nothing dropped inside it" || no "U7-l10 a temp/hook was left inside the directory"
+  # L11. an unusable TMPDIR at the settings.json merge (hook already present, so nothing is staged): typed FATAL exit 2, not a silent set -e exit
+  _u7_wire_target "$TMP/u7-l11" X
+  TMPDIR="$TMP/u7-l11/none" bash "$SUT" "$TMP/u7-l11" --wire >"$TMP/u7-l11.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not create a temp file for the settings.json merge' "$TMP/u7-l11.out"; } && ok "U7-l11 unusable TMPDIR at the settings merge: typed FATAL, exit 2" || no "U7-l11 settings-merge mktemp failure: exit $_rc, no typed FATAL"
 
   # I. failure paths of the fill: a failing mv (stubbed) is a typed FATAL with no temp file and no half-filled hook
   _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
@@ -3061,8 +3097,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw11/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw11/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mw11/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
     mw11="$TMP/mw11/toolbelt/init.sh"
-    # (kit #1860: the install is no-clobber (`ln`), so the mutant ALSO swaps it for `mv -f`; the empty-stage guard stages the hook late)
-    awk '/^  ln "\$tmp" "\$dest" 2>\/dev\/null \|\| rc=1$/ { print "  mv -f \"$tmp\" \"$dest\" 2>/dev/null || rc=1"; next } /if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
+    # (kit #1860: the `[ -e "$_wo_ss" ]` check is now only defence in depth — the install itself never overwrites — so the mutant
+    # must ALSO defeat the install; the install is no-clobber (`ln`), so the mutant ALSO swaps it for `mv -f`; the empty-stage guard stages the hook late)
+    awk '/^  if err="\$\(ln "\$tmp" "\$dest" 2>&1\)"; then$/ { print "  if err=\"$(mv -f \"$tmp\" \"$dest\" 2>&1)\"; then"; next } /if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
     if ! grep -q 'MUTANT: always overwrite existing ss hook' "$mw11"; then
       no "teeth MW11: could not build mutant (ss kept-check line not found)"
     else
@@ -4280,7 +4317,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     _u7t ABORT-STAGE 's/^  _rsdd_fill_hook "\$_RSDD_STAGE\/hook" || exit 2$/  _rsdd_fill_hook "$_RSDD_STAGE\/hook" || :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=4 hook=1 stop=1 settings=0 left=0' _u7t_abort
     # ...and the staging dir / temp file never outlive the run (EXIT trap)
     _u7t STAGE-CLEAN 's/^  \[ -z "\$_RSDD_STAGE" \] || rm -rf -- "\$_RSDD_STAGE"$/  :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=2 hook=0 stop=0 settings=0 left=2' _u7t_abort
-    # the existing-hook rule on the SCAFFOLD path: without the guard a hand-adapted hook (no corpus marker) is silently overwritten
+    # the existing-hook rule on the SCAFFOLD path: without the guard --subject is silently dropped (the hook is kept, exit 0) instead of REFUSED
     _u7t SCAFFOLD-REFUSE '/^  _rsdd_refuse_fill_on_existing_hook "\$target\/.claude\/hooks\/research-protocol.sh"   # scaffold path$/d' 'rc=3 changed=0 index=0' 'rc=0 changed=0 index=1' _u7t_scaf --subject Acme
     # --prefix on that path: the hook must be kept; without the keep flag the scaffold copies the template over it
     _u7t SCAFFOLD-KEEP 's/&& _rsdd_keep_hook=1$/\&\& :/' 'rc=0 changed=0 index=1' 'rc=0 changed=1 index=1' _u7t_scaf --prefix pp
@@ -4307,10 +4344,45 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
       TMPDIR="$d/none" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc fatal=$(grep -cF 'FATAL: could not create a staging directory' "$TMP/u7t.out") wrote=$([ -e "$d/.claude" ] && echo 1 || echo 0)"
     }
-    _u7t NOCLOBBER 's/^  ln "\$tmp" "\$dest" 2>\/dev\/null || rc=1$/  mv -f "$tmp" "$dest" 2>\/dev\/null || rc=1/' 'rc=0 hand=1' 'rc=0 hand=0' _u7t_race
-    _u7t STAGE-GUARD 's/^      \[ -n "\$_RSDD_STAGE" \] || _rsdd_stage_hook$/      :/' 'rc=0 created=1' 'rc=2 created=0' _u7t_gone
+    _u7t_noln() {  # <init> — ln unavailable (non-EEXIST failure): exclusive-create fallback
+      local d="$TMP/u7t/noln" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc created=$([ -s "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0) mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_nolncat() {  # <init> — ln AND the fallback copy fail
+      local d="$TMP/u7t/nolncat" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc fatal=$(grep -cF 'FATAL: could not install' "$TMP/u7t.out") exists=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
+    }
+    _u7t_modess() {  # <init> — mode of a wire-only-created hook
+      local d="$TMP/u7t/modess"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      bash "$1" "$d" --wire >/dev/null 2>&1
+      echo "mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+    }
+    _u7t_racedirr() {  # <init> — a directory appears at the hook path at the install moment
+      local d="$TMP/u7t/racedir" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_racedir:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc kept=$(grep -cF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7t.out") inside=$(find "$d/.claude/hooks/research-protocol.sh" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+    }
+    _u7t NOCLOBBER 's/^  if err="\$(ln "\$tmp" "\$dest" 2>&1)"; then$/  if err="$(mv -f "$tmp" "$dest" 2>\&1)"; then/' 'rc=0 hand=1' 'rc=0 hand=0' _u7t_race
+    # a ln failure that is NOT EEXIST and where the fallback copy fails too must be a typed FATAL, never `kept:`/wired-to-nothing
+    _u7t FALLBACK-FATAL '/fallback copy failed/s/.*/      || :/' 'rc=2 fatal=1 exists=0' 'rc=4 fatal=0 exists=1' _u7t_nolncat
+    _u7t FALLBACK-DEAD 's/^  elif ( set -C; : > "\$dest" ) 2>\/dev\/null; then$/  elif false; then/' 'rc=0 created=1 mode=755' 'rc=2 created=0 mode=' _u7t_noln
+    _u7t FALLBACK-MODE 's/^    { cat "\$tmp" > "\$dest" \&\& .*; } \\$/    { cat "$tmp" > "$dest"; } \\/' 'rc=0 created=1 mode=755' 'rc=0 created=1 mode=644' _u7t_noln
+    if [ "$(id -u)" != 0 ]; then
+      _u7t_ro() {  # <init> — ln fails, the hooks dir turns read-only: the exclusive create fails with nothing at dest
+        local d="$TMP/u7t/ro" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+        PATH="$_u7_rodir:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?; chmod -R u+w "$d" 2>/dev/null
+        echo "rc=$rc kept=$(grep -cF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7t.out")"
+      }
+      _u7t NO-DEST-FATAL '/echo "FATAL: could not install \$dest (ln: \$err)"/s/.*/  rc=1/' 'rc=2 kept=0' 'rc=1 kept=1' _u7t_ro
+    else echo "  SKIP  teeth M-1845-NO-DEST-FATAL: running as root"; fi
+    _u7t MODE-CP 's/^  cp -p "\$src" "\$tmp" ||/  cp "$src" "$tmp" ||/' 'mode=755' 'mode=600' _u7t_modess
+    _u7t EF-CHECK 's/^    if ! \[ "\$tmp" -ef "\$dest" \]; then/    if false; then/' 'rc=0 kept=1 inside=0' 'rc=0 kept=0 inside=1' _u7t_racedirr
+    # (hermetic: the empty-stage mutant points _RSDD_STAGE at a nonexistent path under $TMP, never at /hook)
+    _u7t STAGE-GUARD "s#^      \\[ -n \"\\\$_RSDD_STAGE\" \\] || _rsdd_stage_hook\$#      _RSDD_STAGE=\"$TMP/nostage\"#" 'rc=0 created=1' 'rc=2 created=0' _u7t_gone
     _u7t SUCCESS-CLEAN '/^    if \[ -n "\$_RSDD_STAGE" \]; then rm -rf -- "\$_RSDD_STAGE"; _RSDD_STAGE=""; fi$/d' 'rc=0 clean=1' 'rc=0 clean=0' _u7t_tl
-    _u7t TMPDIR-FATAL 's/^  _RSDD_STAGE="\$(mktemp -d)" || {/  _RSDD_STAGE="$(mktemp -d)" || [ -z "" ] || {/' 'rc=2 fatal=1 wrote=0' 'rc=2 fatal=0 wrote=0' _u7t_tmpd
+    _u7t TMPDIR-FATAL "s#^  _RSDD_STAGE=\"\\\$(mktemp -d)\" || {#  _RSDD_STAGE=\"$TMP/nostage\"; true || {#" 'rc=2 fatal=1 wrote=0' 'rc=2 fatal=0 wrote=0' _u7t_tmpd
     # a flag-looking value: without the check `--subject --wire` swallows --wire as the subject (exit 0, hook says "--wire")
     _u7t_tpl=""; _u7t_good="$SUT"
     _u7t FLAGVAL '/^  case "\$v" in --\*) echo "usage: \$name value/d' 'rc=2 line=[]' 'rc=0 line=[RESEARCH PROTOCOL — --wire (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject --wire

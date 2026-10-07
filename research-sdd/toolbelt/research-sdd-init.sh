@@ -329,15 +329,30 @@ _rsdd_stage_hook() {
 
 # kit issue #1860: install <src> at <dest> WITHOUT ever overwriting: copy to a same-directory temp (same filesystem, mode
 # carried), then `ln` it into place — ln refuses an existing path (EEXIST, a dangling symlink included), which is the "kept"
-# outcome (rc 1). Any other ln failure is a typed FATAL (exit 2), never reported as kept.
+# outcome (rc 1; a directory at <dest> is also kept: ln would drop the temp INSIDE it, which the -ef check detects and undoes).
+# Any other ln failure (no hard links: vfat/exFAT/SMB/FUSE/9p…) falls back to an exclusive noclobber create + copy + mode; if
+# that fails too it is a typed FATAL (exit 2) carrying the real ln error, never reported as kept.
 _rsdd_install_noclobber() {  # <src> <dest>
   local src="$1" dest="$2" tmp rc=0
   tmp="$(mktemp "$(dirname "$dest")/.hook.XXXXXX")" || { echo "FATAL: could not create a temp file beside $dest" >&2; exit 2; }
   _RSDD_FILL_TMP="$tmp"
   cp -p "$src" "$tmp" || { echo "FATAL: could not copy $src beside $dest" >&2; exit 2; }
-  ln "$tmp" "$dest" 2>/dev/null || rc=1
+  local err=""
+  if err="$(ln "$tmp" "$dest" 2>&1)"; then
+    # a directory (or a symlink to one) at <dest> makes ln create <dest>/<tmp name>: that is not an install, it is "kept"
+    if ! [ "$tmp" -ef "$dest" ]; then rm -f -- "$dest/$(basename "$tmp")"; rc=1; fi
+  elif [ -e "$dest" ] || [ -L "$dest" ]; then
+    rc=1   # EEXIST: the path appeared after the check
+  elif ( set -C; : > "$dest" ) 2>/dev/null; then
+    # no hard links here (vfat/exFAT/SMB/FUSE/9p…): exclusive create (noclobber) then fill + copy the mode; we own <dest> now
+    { cat "$tmp" > "$dest" && { chmod --reference="$tmp" "$dest" 2>/dev/null || chmod "$(stat -f %Lp "$tmp")" "$dest"; }; } \
+      || { rm -f -- "$dest" "$tmp"; _RSDD_FILL_TMP=""; echo "FATAL: could not install $dest (ln: $err; fallback copy failed)" >&2; exit 2; }
+  elif [ -e "$dest" ] || [ -L "$dest" ]; then
+    rc=1   # the exclusive create lost a race: kept
+  else
+    rm -f -- "$tmp"; _RSDD_FILL_TMP=""; echo "FATAL: could not install $dest (ln: $err)" >&2; exit 2
+  fi
   rm -f -- "$tmp"; _RSDD_FILL_TMP=""
-  if [ "$rc" = 1 ] && [ ! -e "$dest" ] && [ ! -L "$dest" ]; then echo "FATAL: could not install $dest" >&2; exit 2; fi
   return "$rc"
 }
 
@@ -988,7 +1003,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # comment above) — reading it with `cat` would otherwise feed jq an empty stdin, which is a
     # jq error (no input value), not an empty object.
     _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
-    _wo_tmp="$(mktemp)"
+    _wo_tmp="$(mktemp)" || { echo "FATAL: could not create a temp file for the settings.json merge (check TMPDIR; hooks above may already be created — re-run --wire after fixing it)" >&2; exit 2; }
     if _wo_merge_out="$(printf '%s' "$_wo_base" | _rsdd_merge_settings "$_wo_stop" "$_wo_ss" "$_wo_pk" \
         "$_wo_stop_rel" "$_wo_ss_rel" "$_wo_pk_rel" "$_wo_skip_ss" "$_RSDD_GATE_CMD" 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
@@ -1133,7 +1148,7 @@ if [ "$_rsdd_keep_hook" = 0 ]; then
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
 _rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: fill --subject/--prefix; a failed fill is a typed FATAL and the ERR trap rolls the scaffold back
 else
-  echo "kept: $target/.claude/hooks/research-protocol.sh (existing hook, not overwritten)"
+  echo "kept: $target/.claude/hooks/research-protocol.sh (existing hook, not overwritten — stale? re-run with --force)"
 fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
