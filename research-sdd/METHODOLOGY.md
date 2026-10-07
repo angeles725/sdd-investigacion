@@ -3009,15 +3009,15 @@ B64→B55). Make this a habit, not an accident:
   `[Block N] does not mention ...` comparison that carries no raw artifact path (§11). (retro: niagara5, #1213)
 - **Correction-on-absence guard.** A §14 correction that retracts or refutes a prior finding ON THE BASIS OF an absence MUST first re-verify that absence in the EXACT named artifact — never a sibling. Absence in a sibling does not prove absence in the target: B478 retracted a "no `niagarad.license.*`" claim that came from opening only `nre.jar`, not `niagarad.jar`, and the wrong correction propagated to four artifacts before revert. Because a correction propagates across the corpus, an unverified absence driving it multiplies the error; re-verify the absence in the exact named artifact, never a sibling, before issuing the correction.
 - **A dashboard menu-path cite carries its capture date.** When a block cites a vendor dashboard menu path,
-record the date it was captured and prefer a `[CERT-doc]` snapshot over an older path in a repo document. A
-mismatch is a §14 disagreement (a repo document said "Zero Trust > Networks > Tunnels" while the current doc
-says "Networking > Tunnels"; kit #1898).
+  record the date it was captured and prefer a `[CERT-doc]` snapshot over an older path in a repo document. A
+  mismatch is a §14 disagreement (a repo document said "Zero Trust > Networks > Tunnels" while the current doc
+  says "Networking > Tunnels"; kit #1898).
 - **A live throw-site line number outranks the tree line (citation rank).** A live stack trace names the
-SHIPPED line (`CoreCryptoManager.verifyCacertsSignature` at 1410) while a decompiled variant in the corpus
-places the same method at `:928` (`:958` in another variant). The live line wins, and the discrepancy is
-itself evidence of variant divergence: record it instead of silently citing the tree. Never write a
-stack-trace line number in the `filename:line` form, or the citation classifier treats it as a resolvable path
-(B139 §139.6, B140 §140.2; kit #1619).
+  SHIPPED line (`CoreCryptoManager.verifyCacertsSignature` at 1410) while a decompiled variant in the corpus
+  places the same method at `:928` (`:958` in another variant). The live line wins, and the discrepancy is
+  itself evidence of variant divergence: record it instead of silently citing the tree. Never write a
+  stack-trace line number in the `filename:line` form, or the citation classifier treats it as a resolvable path
+  (B139 §139.6, B140 §140.2; kit #1619).
 - **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
   **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
   vs the shipped binary, one version vs another) and only needs a scope note — NOT a refutation. Label it
