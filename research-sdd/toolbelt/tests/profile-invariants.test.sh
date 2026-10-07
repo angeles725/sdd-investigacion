@@ -263,6 +263,7 @@ scan_profile_file() {
 # group, using the SAME marker regex render-profile.sh itself parses with,
 # so this reads the doctrine exactly as the renderer does.
 # The extractor program lives in a variable so the teeth can run a MUTATED copy of it (_SPAN_PY).
+unset _SPAN_PY  # only a tooth may override the extractor, per call; never the ambient environment
 SPAN_PY=$(cat <<'PYEOF'
 import re, sys
 text = open(sys.argv[1], encoding='utf-8').read()
