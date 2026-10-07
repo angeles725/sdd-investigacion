@@ -54,6 +54,8 @@
 #        excludes tests/ entirely, so there is nothing left for a filter to hide)
 #   15b  an EXPLICIT tests/ directory argument is still scanned in full — default-scope exclusion
 #        is a default, not a capability limit (round 5, Opus finding 1)
+#   15c  fake kit tree: the default scope lints tests/ INFRASTRUCTURE (tests/lib/*.sh, tests/*.sh) and
+#        still prunes *.test.sh (kit issue #1033 L2); 15c2 the fixed tree is clean
 #
 # --prove-teeth: a fixture script with a logical (non -P) climbing cd must make the lint FAIL;
 # the identical fixture given -P must make it PASS — proving the checker's core distinction has
@@ -634,6 +636,31 @@ else
   no "15b explicit tests/ directory argument was not scanned (rc=$RC15B out=[$OUT15B])"
 fi
 
+# ── 15c. Default scope prunes only *.test.sh, so test INFRASTRUCTURE is linted (kit issue #1033 L2).
+#         A fake kit tree: a COPY of the SUT inside a temp toolbelt/ (the default scope resolves from the
+#         SUT's own physical location), a bad *.test.sh and a bad tests/lib/infra.sh and tests/runner.sh.
+#         The bare default run must HIT the infrastructure scripts only — the *.test.sh stays pruned.
+kit15c="$TMP/kit15c"; mkdir -p "$kit15c/toolbelt/tests/lib" "$kit15c/install"
+cp "$SUT" "$kit15c/toolbelt/verify-cd-physical.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'KIT="$(cd "$(dirname "$0")/.." && pwd)"' > "$kit15c/toolbelt/tests/lib/infra.sh"
+cp "$kit15c/toolbelt/tests/lib/infra.sh" "$kit15c/toolbelt/tests/runner.sh"
+cp "$kit15c/toolbelt/tests/lib/infra.sh" "$kit15c/toolbelt/tests/some.test.sh"
+OUT15C="$(bash "$kit15c/toolbelt/verify-cd-physical.sh" 2>&1)"; RC15C=$?
+if [ "$RC15C" -eq 1 ] && <<<"$OUT15C" grep -q 'HIT.*tests/lib/infra\.sh:2' \
+   && <<<"$OUT15C" grep -q 'HIT.*tests/runner\.sh:2' && ! <<<"$OUT15C" grep -q 'some\.test\.sh'; then
+  ok "15c default scope lints tests/ infrastructure (lib/*.sh, runner.sh) and still prunes *.test.sh (#1033 L2)"
+else
+  no "15c default scope should HIT only the infrastructure scripts (rc=$RC15C out=[$OUT15C])"
+fi
+# 15c2: the same tree with the infrastructure fixed is clean, and its compliant climbs count as seen.
+sed -i 's|cd "\$(dirname "\$0")/.." \&\& pwd|cd -P "$(dirname "$0")/.." \&\& pwd -P|' "$kit15c/toolbelt/tests/lib/infra.sh" "$kit15c/toolbelt/tests/runner.sh"
+OUT15C2="$(bash "$kit15c/toolbelt/verify-cd-physical.sh" 2>&1)"; RC15C2=$?
+if [ "$RC15C2" -eq 0 ] && <<<"$OUT15C2" grep -q 'scanned=3 files hit=0' && ! <<<"$OUT15C2" grep -q 'no-match'; then
+  ok "15c2 fixing the infrastructure makes the fake kit tree clean (exit 0, climbs seen)"
+else
+  no "15c2 fixed infrastructure should be clean (rc=$RC15C2 out=[$OUT15C2])"
+fi
+
 # ── TEETH ─────────────────────────────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: a fixture with a logical (non -P) climbing cd must FAIL; -P must PASS --"
@@ -734,6 +761,29 @@ EOF
   }
   unc_tooth open-context "$box5v" 2 's#\[ -n "\$stack" \] \&\& _CDP_OPEN=1#:#'
   unc_tooth stray-paren "$box5v" 5 's#\[ "\$c" = '"')'"' \] \&\& _CDP_OPEN=1#:#'
+  # #1033 L2: the default scope must lint tests/ infrastructure. The mutant restores the old whole-directory
+  # tests/ prune; the tooth copies whichever SUT it is handed into a fake kit tree (the default scope resolves
+  # from the SUT's own location) holding a bad tests/lib/infra.sh, so only the real SUT HITs it.
+  kitL2="$TMP/kit-l2"; mkdir -p "$kitL2/toolbelt/tests/lib"
+  printf '%s\n' '#!/usr/bin/env bash' 'KIT="$(cd "$(dirname "$0")/.." && pwd)"' > "$kitL2/toolbelt/tests/lib/infra.sh"
+  cp "$kitL2/toolbelt/tests/lib/infra.sh" "$kitL2/toolbelt/tests/bad.test.sh"
+  if mutant_chain "teeth L2: whole-tests-dir prune" "$SUT" "$TMP/l1-mut/l2-prune.sh" \
+      "s#find \"\$d\" -type f -name '\*.sh' -not .*-print 2>/dev/null#find \"\$d\" -type d -name tests -prune -o -type f -name '*.sh' -print 2>/dev/null#"; then
+    tt "teeth L2: restoring the whole-tests/ prune hides the infrastructure HIT" 1 0 "$TMP/l1-mut/l2-prune.sh" \
+      --good-has 'HIT .*tests/lib/infra\.sh:2' --bad-lacks "HIT|$CRASH_RE" \
+      -- bash -c 'cp "$1" "$2/toolbelt/verify-cd-physical.sh" && bash "$2/toolbelt/verify-cd-physical.sh" 2>&1' _ @SUT@ "$kitL2"
+  else
+    fail=$((fail+1))
+  fi
+  # ...and the converse: dropping the *.test.sh exclusion scans the suites' heredoc fixtures again.
+  if mutant_chain "teeth L2: no *.test.sh exclusion" "$SUT" "$TMP/l1-mut/l2-all.sh" \
+      "s#-not .( -path '\*/tests/\*' -name '\*.test.sh' .) ##"; then
+    tt "teeth L2: dropping the *.test.sh exclusion makes the suite a bogus HIT" 1 1 "$TMP/l1-mut/l2-all.sh" \
+      --good-lacks 'bad\.test\.sh' --bad-has 'HIT .*tests/bad\.test\.sh:2' \
+      -- bash -c 'cp "$1" "$2/toolbelt/verify-cd-physical.sh" && bash "$2/toolbelt/verify-cd-physical.sh" 2>&1' _ @SUT@ "$kitL2"
+  else
+    fail=$((fail+1))
+  fi
   l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
   l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'
   # BRE: `|` is a literal here (`\|` would be GNU alternation and match everywhere), so it is unescaped.
