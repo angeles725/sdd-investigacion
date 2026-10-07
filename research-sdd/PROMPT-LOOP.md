@@ -1649,14 +1649,24 @@ HARD RULES:
     record before/after state (and that a byte-identical revert was offered) — so an audit can tell a supervised
     write apart from a pure read at a glance.
     MECHANIZED at the close: `research-sdd-archive.sh` runs `toolbelt/scan-secrets.sh` as a fail-closed
-    GATE, TWICE: once plain (the working tree as it sits on disk — dirty, untracked AND gitignored
-    files all included, since it reads the filesystem directly) and, ONLY when the target IS a git repo
-    root, once more with `--committed` (everything ever committed, reachable from HEAD). Both calls
-    share scan-secrets.sh's own file scope — `*.md`/config files, not arbitrary source files, kit issue
-    #987 item 2. A high-confidence secret VALUE from either REFUSES the close (exit 3); dirtiness alone
-    never refuses — the close flow always leaves the tree dirty at this point. A target with no git
-    repo of its own, or nested inside a larger one, gets the working-tree scan only (history needs a
-    repo root to scan).
+    GATE. The working-tree half scans EVERY regular file under the physical target (the archive builds
+    that list itself and passes it as `--files-from`; dirty, untracked AND gitignored files are all
+    included, symlinks are not followed), never scan-secrets.sh's default-mode narrowing to the shallowest
+    block directory (kit issue #1015). The list goes through scan-secrets.sh's own file scope —
+    `*.md`/config files, not arbitrary source files, kit issue #987 item 2. When the target IS a git
+    repo root with at least one commit, the gate ALSO runs `--committed` (everything ever committed,
+    reachable from HEAD). A high-confidence secret VALUE from either REFUSES the close (exit 3); the
+    output names the path and line, never the value. Dirtiness alone never refuses — the close flow
+    always leaves the tree dirty at this point. Degraded states, all typed and never a bare `ok`: a
+    target with no git repo of its own, nested inside a larger one (compared PHYSICALLY, `pwd -P` — a
+    path through a symlink is not nested) or a repo root with NO COMMITS yet (`git init` before the first
+    corpus commit) gets the working-tree scan only plus a stderr WARN, since there is no scannable
+    history; a list that cannot be computed or is empty REFUSES; an unreadable DIRECTORY is skipped (git
+    cannot add it either) and disclosed as `ok, N unreadable path(s) not scanned`; an unreadable in-scope
+    FILE or any grep read error is DEGRADED (exit 3), never `ok`. There is no override flag and no
+    git-ignore filter: a refusal on a gitignored secret store (`.env`, `*.conf`, `credentials`) is
+    resolved by moving the secret store OUTSIDE the target directory (keep only its path and structure
+    in the corpus), not by exempting it.
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —

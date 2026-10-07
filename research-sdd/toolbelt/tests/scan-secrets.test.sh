@@ -349,6 +349,127 @@ else
   no "35 --committed log --raw fail: rc=$cm_rc35 (want 3) out=$cm_out35"
 fi
 
+# --- --files-from <list> (kit issue #1015): scan EXACTLY an explicit NUL-delimited file set -------------------
+# The archive secrets gate hands scan-secrets the file set it packages. Default mode narrows to the shallowest
+# block directory (unchanged, pinned by FF1); --files-from does not narrow and refuses empty/absent lists
+# distinctly (§7: absent-input exit 2 · empty-input exit 3 · no-match exit 0 with a typed line).
+ff_root="$TMP/ff"; mkdir -p "$ff_root/blocks" "$ff_root/other"
+printf '# Block 1\nBody.\n' > "$ff_root/blocks/t-block1.md"
+printf 'note: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/notes.md"
+printf 'clean\n' > "$ff_root/other/clean.md"
+ff_list="$TMP/ff.list"
+printf '%s\0%s\0%s\0' "$ff_root/blocks/t-block1.md" "$ff_root/notes.md" "$ff_root/other/clean.md" > "$ff_list"
+[ "$(runrc "$ff_root")" = 0 ] && ok "FF1 default mode unchanged: notes.md outside the narrowed block dir is NOT scanned (exit 0)" \
+  || no "FF1 default mode changed (exit $(runrc "$ff_root"))"
+bash "$SUT" --files-from "$ff_list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF2 --files-from scans the listed notes.md outside the block dir → exit 1" || no "FF2 files-from missed notes.md (exit $rc)"
+printf '%s\0%s\0' "$ff_root/blocks/t-block1.md" "$ff_root/other/clean.md" > "$TMP/ff-excl.list"
+bash "$SUT" --files-from "$TMP/ff-excl.list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "FF3 --files-from scans EXACTLY the list: unlisted notes.md is not read (exit 0)" || no "FF3 scanned an unlisted file (exit $rc)"
+out="$(bash "$SUT" --files-from "$TMP/no-such.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'list file not found' <<<"$out" && ok "FF4 absent list file → exit 2 (absent-input)" || no "FF4 absent list: exit $rc (want 2)"
+: > "$TMP/empty.list"
+out="$(bash "$SUT" --files-from "$TMP/empty.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED.*empty' <<<"$out" && ok "FF5 empty list → exit 3 DEGRADED naming 'empty' (empty-input, distinct from absent)" \
+  || no "FF5 empty list: exit $rc :: $(head -2 <<<"$out")"
+out="$(bash "$SUT" --files-from 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'requires a list' <<<"$out" && ok "FF6 --files-from with no value → exit 2" || no "FF6 value-less --files-from: exit $rc"
+out="$(bash "$SUT" --committed --files-from "$ff_list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && grep -qi 'cannot be combined' <<<"$out" && ok "FF7 --files-from combined with --committed → exit 2" || no "FF7 files-from+committed: exit $rc (want 2)"
+printf '%s\0' "$ff_root/gone.md" > "$TMP/ff-gone.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-gone.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED' <<<"$out" && ok "FF8 listed path that does not exist → exit 3 DEGRADED (never a silent clean)" || no "FF8 vanished entry: exit $rc"
+mkdir -p "$TMP/ff-outside"; printf 'x: AKIAIOSFODNN7EXAMPLE\n' > "$TMP/ff-outside/o.md"
+printf '%s\0' "$TMP/ff-outside/o.md" > "$TMP/ff-out.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-out.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'DEGRADED.*outside' <<<"$out" && ok "FF9 listed path outside the target → exit 3 DEGRADED" || no "FF9 outside entry: exit $rc :: $(head -2 <<<"$out")"
+mkdir -p "$ff_root/node_modules/pkg" "$ff_root/notscope"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/node_modules/pkg/v.md"; printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/notscope/s.txt"
+printf '%s\0%s\0' "$ff_root/node_modules/pkg/v.md" "$ff_root/notscope/s.txt" > "$TMP/ff-scope.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-scope.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -qE 'file set: 2 listed · 0 in scope' <<<"$out" \
+  && ok "FF10 vendored dir + out-of-scope extension are filtered by scan-secrets' own scope; zero in scope is a TYPED no-match line (exit 0)" \
+  || no "FF10 scope filter: exit $rc :: $(grep -E 'file set|LEAK' <<<"$out" | head -2)"
+printf '%s\0' "$ff_root/notes.md" | bash "$SUT" --files-from - "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF11 --files-from - reads the list from stdin" || no "FF11 stdin list: exit $rc"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/other/new
+line.md"
+printf '%s\0' "$ff_root/other/new
+line.md" > "$TMP/ff-nl.list"
+bash "$SUT" --files-from "$TMP/ff-nl.list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && ok "FF12 NUL-delimited list: a filename containing a newline is scanned (exit 1)" || no "FF12 newline filename: exit $rc"
+ln -s "$TMP/ff-outside/o.md" "$ff_root/other/link.md"
+printf '%s\0' "$ff_root/other/link.md" > "$TMP/ff-ln.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-ln.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -qE '1 skipped \(not a regular file\)' <<<"$out" \
+  && ok "FF13 a listed symlink is never dereferenced: skipped and counted (exit 0, parity with grep -r)" \
+  || no "FF13 symlink entry: exit $rc :: $(grep -E 'file set|LEAK' <<<"$out" | head -2)"
+printf 'password = Zq8xK2mP9vRt\n' > "$ff_root/other/adv.md"
+printf '%s\0' "$ff_root/other/adv.md" > "$TMP/ff-adv.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-adv.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'WARN ' <<<"$out" && ok "FF14 advisory tier works over a list: WARN, exit 0" || no "FF14 advisory over list: exit $rc"
+printf 'k: AKIAIOSFODNN7EXAMPLE\n\0\n' > "$ff_root/other/nul.md"
+printf '%s\0' "$ff_root/other/nul.md" > "$TMP/ff-nul.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-nul.list" "$ff_root" 2>&1)"
+grep -qE '1 in-scope file\(s\) contain a NUL byte' <<<"$out" && ok "FF15 NUL-byte skip report works over a list" || no "FF15 NUL report missing :: $(grep -E 'NUL|summary' <<<"$out")"
+
+# --- round-2 hardening of --files-from + output (kit #1015 review): unreadable files, read errors, redaction, path forms ---
+# FF16 — an unreadable IN-SCOPE entry must be DEGRADED (exit 3), never a clean scan that silently skipped it.
+if [ "$(id -u)" = 0 ]; then skip "FF16/FF17 unreadable-file cases: running as root (chmod 000 does not block root)"
+else
+  printf 'k: AKIAIOSFODNN7EXAMPLE\n' > "$ff_root/other/locked.md"; chmod 000 "$ff_root/other/locked.md"
+  printf '%s\0' "$ff_root/other/locked.md" > "$TMP/ff-locked.list"
+  out="$(bash "$SUT" --files-from "$TMP/ff-locked.list" "$ff_root" 2>&1)"; rc=$?
+  [ "$rc" = 3 ] && grep -qi 'DEGRADED.*not readable' <<<"$out" && ok "FF16 unreadable in-scope entry → exit 3 DEGRADED (never ok)" || no "FF16 unreadable entry: exit $rc :: $(head -2 <<<"$out")"
+  # FF17 — default mode: a grep read error (unreadable file) is DEGRADED, not a clean (none).
+  mkdir -p "$TMP/ff-def-locked"; newcorpus "$TMP/ff-def-locked"
+  printf 'x\n' > "$TMP/ff-def-locked/locked.md"; chmod 000 "$TMP/ff-def-locked/locked.md"
+  out="$(bash "$SUT" "$TMP/ff-def-locked" 2>&1)"; rc=$?
+  [ "$rc" = 3 ] && grep -qi 'DEGRADED: grep read error' <<<"$out" && ok "FF17 default mode: unreadable file → exit 3 DEGRADED (grep read error)" || no "FF17 default unreadable: exit $rc :: $(head -2 <<<"$out")"
+  chmod 644 "$ff_root/other/locked.md" "$TMP/ff-def-locked/locked.md"
+fi
+# FF18 — grep rc>=2 is DEGRADED at every site (secret scan, advisory scan; list AND default mode).
+_stub_ff="$TMP/stub-ff"; mkdir -p "$_stub_ff"
+for _flag in noIE niIP; do
+  mkdir -p "$_stub_ff/$_flag"
+  printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = "-%s" ] && exit 2; done\nexec /usr/bin/grep "$@"\n' "$_flag" > "$_stub_ff/$_flag/grep"; chmod +x "$_stub_ff/$_flag/grep"
+done
+for _flag in noIE niIP; do
+  out="$(PATH="$_stub_ff/$_flag:$PATH" bash "$SUT" --files-from "$ff_list" "$ff_root" 2>&1)"; rc=$?
+  [ "$rc" = 3 ] && grep -q 'DEGRADED: grep read error' <<<"$out" && ok "FF18 -$_flag grep rc=2 over --files-from → exit 3 DEGRADED" || no "FF18 list -$_flag: exit $rc :: $(head -2 <<<"$out")"
+  out="$(PATH="$_stub_ff/$_flag:$PATH" bash "$SUT" "$ff_root" 2>&1)"; rc=$?
+  [ "$rc" = 3 ] && grep -q 'DEGRADED: grep read error' <<<"$out" && ok "FF18 -$_flag grep rc=2 in default mode → exit 3 DEGRADED" || no "FF18 default -$_flag: exit $rc :: $(head -2 <<<"$out")"
+done
+# FF19 — OUTPUT NEVER CARRIES A SECRET VALUE (default, --files-from and --committed), only path:line + a label.
+mkdir -p "$TMP/redact"; printf 'a\n# Block\nk = AKIAIOSFODNN7EXAMPLE\npassword = Zq8xK2mP9vRt\n' > "$TMP/redact/t-block1.md"
+printf '%s\0' "$TMP/redact/t-block1.md" > "$TMP/redact.list"
+out="$(bash "$SUT" "$TMP/redact" 2>&1)"
+{ ! grep -qE 'AKIAIOSFODNN7|Zq8xK2mP9vRt' <<<"$out"; } && grep -q 'LEAK!.*t-block1.md:3' <<<"$out" && grep -q 'WARN .*t-block1.md:4' <<<"$out" \
+  && ok "FF19 default mode: LEAK/WARN lines carry path:line, never the value" || no "FF19 default redaction :: $(grep -E 'LEAK|WARN' <<<"$out" | head -3)"
+out="$(bash "$SUT" --files-from "$TMP/redact.list" "$TMP/redact" 2>&1)"
+{ ! grep -qE 'AKIAIOSFODNN7|Zq8xK2mP9vRt' <<<"$out"; } && grep -q 'LEAK!.*t-block1.md:3' <<<"$out" \
+  && ok "FF19 --files-from: no value in output" || no "FF19 list redaction :: $(grep -E 'LEAK|WARN' <<<"$out" | head -3)"
+git -C "$TMP/redact" init -q -b main; git -C "$TMP/redact" config user.email t@example.com; git -C "$TMP/redact" config user.name t
+git -C "$TMP/redact" add -A; git -C "$TMP/redact" commit -q -m "msg with ghp_0123456789abcdefghijklmnopqrstuvwxyz inside"
+out="$(bash "$SUT" --committed "$TMP/redact" 2>&1)"
+{ ! grep -qE 'AKIAIOSFODNN7|Zq8xK2mP9vRt|ghp_0123456789' <<<"$out"; } && grep -q 'LEAK!.*t-block1.md@' <<<"$out" && grep -q 'LEAK!.*\[commit msg\]' <<<"$out" \
+  && ok "FF19 --committed: file hits and commit-message hits carry no value" || no "FF19 committed redaction :: $(grep -E 'LEAK|WARN' <<<"$out" | head -4 | cut -c1-120)"
+# FF20 — path forms: '.'/'..' components, a symlinked directory in the path, a directory symlink leaving the target.
+printf '%s\0' "$ff_root/other/../notes.md" > "$TMP/ff-dotdot.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-dotdot.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi "DEGRADED.*component" <<<"$out" && ok "FF20 entry with a '..' component → exit 3 DEGRADED" || no "FF20 dotdot: exit $rc :: $(head -2 <<<"$out")"
+printf '%s\0' "$ff_root/./notes.md" > "$TMP/ff-dot.list"
+bash "$SUT" --files-from "$TMP/ff-dot.list" "$ff_root" >/dev/null 2>&1; rc=$?
+[ "$rc" = 3 ] && ok "FF20 entry with a '.' component → exit 3 DEGRADED" || no "FF20 dot: exit $rc"
+ln -s "$ff_root/other" "$ff_root/linkdir"
+printf '%s\0' "$ff_root/linkdir/clean.md" > "$TMP/ff-linkdir.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-linkdir.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'symlinked directory' <<<"$out" && ok "FF20 entry reached through a symlinked directory (inside the target) → exit 3 DEGRADED" || no "FF20 linkdir: exit $rc :: $(head -2 <<<"$out")"
+ln -s "$TMP/ff-outside" "$ff_root/outlink"
+printf '%s\0' "$ff_root/outlink/o.md" > "$TMP/ff-outlink.list"
+out="$(bash "$SUT" --files-from "$TMP/ff-outlink.list" "$ff_root" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && ok "FF20 entry whose canonical directory is OUTSIDE the target → exit 3 DEGRADED (secret not read)" || no "FF20 outlink: exit $rc"
+
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"
@@ -1771,6 +1892,63 @@ PYEOF_TR70
         --orig "$_t71_prog" -- awk -f @SUT@ "$_t73_in_trail"
     fi
   fi
+
+  # ---- --files-from teeth (#1015): each branch of the explicit-file-set mode flips a fixture when neutered ----
+  echo "-- teeth(files-from): empty/absent/outside/vanished/scope/symlink/combination branches --"
+  ff_t(){ # LABEL GOOD BAD SED-EXPR LIST [--good-has RE --bad-has RE ...]
+    local l="$1" g="$2" b="$3" e="$4" lst="$5"; shift 5
+    mk_sed "teeth($l)" "$MUT/ss.$l.sh" "$e" \
+      && tooth "teeth($l)" "$g" "$b" "$MUT/ss.$l.sh" "$@" -- bash @SUT@ --files-from "$lst" "$ff_root"
+  }
+  ff_t ff-empty 3 0 's/\[ -s "\$_ff_in" \] || { echo "DEGRADED: --files-from list is empty[^}]*}/:/' "$TMP/empty.list"
+  ff_t ff-absent 2 3 's/\[ -f "\$_ff_in" \] \&\& \[ -r "\$_ff_in" \] || {[^}]*}/:/' "$TMP/no-such.list"
+  ff_t ff-outside 3 0 's/echo "DEGRADED: --files-from entry is outside the target (\$_ff_root): \$_ff_f" >&2; exit 3/continue/' "$TMP/ff-out.list"
+  ff_t ff-vanished 3 0 's/vanished since the list was built?): \$_ff_f" >&2; exit 3/vanished): $_ff_f" >\&2; continue/' "$TMP/ff-gone.list"
+  ff_t ff-vendored 0 1 's/\*\/\.git\/\*|\*\/node_modules\/\*|/*\/.git\/*|/' "$TMP/ff-scope.list"
+  ff_t ff-name-scope 1 0 's/^      \*\.md|\*\.env|/      *.env|/' "$ff_list"
+  ff_t ff-symlink 0 1 's/if \[ -L "\$_ff_f" \]; then ff_nonreg=\$((ff_nonreg+1)); continue; fi/:/' "$TMP/ff-ln.list"
+  ff_t ff-typed-line 0 0 's/^  \[ -z "\$files_from" \] || echo "-- file set:.*$/  :/' "$TMP/ff-scope.list" \
+    --good-has 'file set: 2 listed' --bad-lacks 'file set:'
+  mk_sed "teeth(ff-combine)" "$MUT/ss.ff-combine.sh" 's/^\[ -z "\$files_from" \] || \[ "\$committed" = 0 \] || .*$/:/' \
+    && tooth "teeth(ff-combine): --files-from + --committed accepted → no longer a usage error" 2 3 "$MUT/ss.ff-combine.sh" \
+         -- bash @SUT@ --committed --files-from "$ff_list" "$ff_root"
+
+  # ---- round-2 teeth: read-error DEGRADED, unreadable entry, redaction, path forms ----
+  echo "-- teeth(files-from r2): rc capture, unreadable entry, redaction, path forms --"
+  mk_sed "teeth(ff-rc-scan)" "$MUT/ss.ff-rc-scan.sh" 's/scope_grep -noIE -e "\$re" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -noIE -e "$re" > "$_sg_tmp"; _sg_rc=0/' \
+    && tooth "teeth(ff-rc-scan): secret-scan grep rc ignored → a read error reads as a clean scan" 3 0 "$MUT/ss.ff-rc-scan.sh" \
+         --good-has 'DEGRADED: grep read error' -- env PATH="$_stub_ff/noIE:$PATH" bash @SUT@ --files-from "$ff_list" "$ff_root"
+  mk_sed "teeth(ff-rc-adv)" "$MUT/ss.ff-rc-adv.sh" 's/scope_grep -niIP -e "\${KWID}\\s\*\[=:\]" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -niIP -e "${KWID}\\s*[=:]" > "$_sg_tmp"; _sg_rc=0/' \
+    && tooth "teeth(ff-rc-adv): advisory grep rc ignored → a read error reads as a clean scan" 3 0 "$MUT/ss.ff-rc-adv.sh" \
+         --good-has 'DEGRADED: grep read error' -- env PATH="$_stub_ff/niIP:$PATH" bash @SUT@ --files-from "$TMP/ff-excl.list" "$ff_root"
+  if [ "$(id -u)" != 0 ]; then
+    chmod 000 "$ff_root/other/locked.md"
+    mk_sed "teeth(ff-unreadable)" "$MUT/ss.ff-unreadable.sh" '/in-scope entry is not readable/d' 's/scope_grep -noIE -e "\$re" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -noIE -e "$re" > "$_sg_tmp"; _sg_rc=0/' 's/scope_grep -niIP -e "\${KWID}\\s\*\[=:\]" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -niIP -e "${KWID}\\s*[=:]" > "$_sg_tmp"; _sg_rc=0/' 's/\[ "\$_nul_rc" -ge 2 \] \&\& \[ -n "\$files_from" \]/false/' \
+      && tooth "teeth(ff-unreadable): readability check removed → the unreadable entry is silently skipped" 3 0 "$MUT/ss.ff-unreadable.sh" \
+           --good-has 'not readable' -- bash @SUT@ --files-from "$TMP/ff-locked.list" "$ff_root"
+    mk_sed "teeth(ff-default-unreadable)" "$MUT/ss.ff-defunread.sh" 's/scope_grep -noIE -e "\$re" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -noIE -e "$re" > "$_sg_tmp"; _sg_rc=0/' 's/scope_grep -niIP -e "\${KWID}\\s\*\[=:\]" > "\$_sg_tmp"; _sg_rc=\$?/scope_grep -niIP -e "${KWID}\\s*[=:]" > "$_sg_tmp"; _sg_rc=0/' \
+      && { chmod 000 "$TMP/ff-def-locked/locked.md"; tooth "teeth(ff-default-unreadable): default-mode rc ignored → unreadable file reads clean" 3 0 "$MUT/ss.ff-defunread.sh" \
+           --good-has 'DEGRADED' -- bash @SUT@ "$TMP/ff-def-locked"; chmod 644 "$TMP/ff-def-locked/locked.md"; }
+    chmod 644 "$ff_root/other/locked.md"
+  fi
+  mk_sed "teeth(redact-leak)" "$MUT/ss.redact-leak.sh" 's/\$(loc_of "\$m") (value redacted)/$m/' \
+    && tooth "teeth(redact-leak): LEAK line echoes the match → the value reaches the output" 1 1 "$MUT/ss.redact-leak.sh" \
+         --good-lacks 'AKIAIOSFODNN7' --bad-has 'AKIAIOSFODNN7' -- bash @SUT@ "$TMP/redact"
+  mk_sed "teeth(redact-adv)" "$MUT/ss.redact-adv.sh" 's/\$(loc_of "\$line") (credential-looking assignment; value redacted)/$line/' \
+    && tooth "teeth(redact-adv): advisory WARN echoes the line → the value reaches the output" 1 1 "$MUT/ss.redact-adv.sh" \
+         --good-lacks 'Zq8xK2mP9vRt' --bad-has 'Zq8xK2mP9vRt' -- bash @SUT@ "$TMP/redact"
+  mk_sed "teeth(redact-cmsg)" "$MUT/ss.redact-cmsg.sh" 's/line \${m%%:\*} (value redacted)/$m/' \
+    && tooth "teeth(redact-cmsg): commit-message hit echoes the line → the value reaches the output" 1 1 "$MUT/ss.redact-cmsg.sh" \
+         --good-lacks 'ghp_0123456789' --bad-has 'ghp_0123456789' -- bash @SUT@ --committed "$TMP/redact"
+  mk_sed "teeth(ff-dotdot)" "$MUT/ss.ff-dotdot.sh" 's/\*\/\.\.\/\*|\*\/\.\/\*|\*\/\/\*)/*\/NOMATCHX\/*)/' 's/\[ "\$_ff_cd" = "\$_ff_lastdir" \] || _ff_lastok=0/:/' \
+    && tooth "teeth(ff-dotdot): '.'/'..' component check removed → the traversal entry is scanned" 3 1 "$MUT/ss.ff-dotdot.sh" \
+         --good-has "component" -- bash @SUT@ --files-from "$TMP/ff-dotdot.list" "$ff_root"
+  mk_sed "teeth(ff-symdir)" "$MUT/ss.ff-symdir.sh" 's/\[ "\$_ff_cd" = "\$_ff_lastdir" \] || _ff_lastok=0/:/' \
+    && tooth "teeth(ff-symdir): canonical==literal check removed → an entry through a symlinked directory is accepted" 3 0 "$MUT/ss.ff-symdir.sh" \
+         --good-has 'symlinked directory' -- bash @SUT@ --files-from "$TMP/ff-linkdir.list" "$ff_root"
+  mk_sed "teeth(ff-outdir)" "$MUT/ss.ff-outdir.sh" 's/\[ "\$_ff_cd" = "\$_ff_lastdir" \] || _ff_lastok=0/:/' 's/case "\$_ff_cd\/" in "\$_ff_root"\/\*) _ff_lastok=1;; \*) _ff_lastok=0;; esac/_ff_lastok=1/' \
+    && tooth "teeth(ff-outdir): both canonical checks removed → an entry in an outside directory is READ and its secret flagged" 3 1 "$MUT/ss.ff-outdir.sh" \
+         --good-has 'symlinked directory' -- bash @SUT@ --files-from "$TMP/ff-outlink.list" "$ff_root"
 
   # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
   # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
