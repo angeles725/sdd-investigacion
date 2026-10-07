@@ -3,6 +3,7 @@
 # #1277, the NO-GARBAGE rule). Contract: clean-check.v1.md (read it first).
 #
 # Usage: clean-check.sh [--target DIR] [--tmp DIR] [--stale-hours N] [--scratchpad DIR]
+#                       [--base REF] [--evidence DIR] [--backup-days N]
 #   (a) GARBAGE untracked <path>          untracked, non-ignored file in the target repo that no
 #                                         <TARGET>/.research-sdd/keep.txt glob keeps
 #   (b) GARBAGE stale-tmp <path> age=<h>h tmp.* entry directly under --tmp, older than the stale
@@ -18,10 +19,25 @@
 #                                         <TARGET>/sources/probes/**/SCRIPTS-MANIFEST.md (exact match)
 #   Scratchpad state is never a silent zero: unset -> summary `scratchpad: not set`; configured but missing
 #   -> a typed `ABSENT-SCRATCHPAD <path>` line + `scratchpad: absent`; otherwise `scratchpad: N file(s)`.
+#   Retention scans (kit #1277 slice 3) are REPORT-ONLY: typed `WARN <class> ...` lines that are counted in the
+#   summary (`warnings: N`) but are NEVER findings - they cannot change the exit code (maintainer decision 2026-10-07):
+#   (e) WARN stale-worktree <path> missing|prunable   a registered git worktree (not the main one) whose path is gone or
+#                                         that git itself marks prunable
+#   (f) WARN merged-branch <name> merged into <base>          a local branch already merged into the base
+#       WARN merged-remote-branch <remote/name> merged into <base>   a remote-tracking ref already merged into the base
+#       base = --base REF, else origin/HEAD, else local main, else master; none found -> typed ABSENT-BASE (scan skipped).
+#       The base's own branch (and its local/remote twins) and any branch checked out in a worktree (the main one
+#       included, so the branch HEAD is on) are never reported.
+#   (g) WARN stale-backup <path> age=<d>d retention=<D>d      a rollback/backup entry (name contains `rollback` or
+#                                         `backup`, case-insensitive) up to 2 levels under an `_evidence` directory
+#                                         (--evidence DIR, else every `_evidence` dir found under the target, depth <= 4)
+#                                         older than --backup-days (default 14)
+#   A retention scan that cannot run (git worktree/for-each-ref failing, an unreadable evidence dir) is a typed
+#   `DEGRADED-<SCAN> ...` line + a `degraded` summary (exit 3 when otherwise clean), never a quiet zero.
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
-# Exit: 0 clean · 1 findings · 2 usage / not a git work tree / absent dir / scan failure (every scan, manifests and probes included) ·
+# Exit: 0 clean (retention WARNs never change it) · 1 findings · 2 usage / not a git work tree / absent dir / scan failure (every scan, manifests and probes included) ·
 #       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured; or no sha256sum/shasum, the
-#         preserved-copy check was skipped: typed DEGRADED-NO-SHA256 line + a `degraded` summary, exit 3 when otherwise clean, findings still win with 1).
+#         preserved-copy check was skipped, or a retention scan could not run: typed DEGRADED-* line + a `degraded` summary, exit 3 when otherwise clean, findings still win with 1).
 # propose-never-apply: this script never deletes, moves, or writes anything.
 
 set -uo pipefail
@@ -29,14 +45,17 @@ set -uo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
 
 _err() { printf 'clean-check: ERROR: %s\n' "$1" >&2; }
-_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N] [--scratchpad DIR]\n' "${0##*/}" >&2; }
+_usage() { printf 'Usage: %s [--target DIR] [--tmp DIR] [--stale-hours N] [--scratchpad DIR] [--base REF] [--evidence DIR] [--backup-days N]\n' "${0##*/}" >&2; }
 
-TARGET=""; TMPD=""; STALE_H=24; SCRATCH_ARG=""
+TARGET=""; TMPD=""; STALE_H=24; SCRATCH_ARG=""; BASE_ARG=""; EVID_ARG=""; BACKUP_D=14
 while [ $# -gt 0 ]; do
   case "$1" in
     --target)      [ $# -ge 2 ] || { _usage; _err "--target needs a value"; exit 2; }; TARGET="$2"; shift 2 ;;
     --tmp)         [ $# -ge 2 ] || { _usage; _err "--tmp needs a value"; exit 2; }; TMPD="$2"; shift 2 ;;
     --scratchpad)  [ $# -ge 2 ] || { _usage; _err "--scratchpad needs a value"; exit 2; }; SCRATCH_ARG="$2"; shift 2 ;;
+    --base)        [ $# -ge 2 ] || { _usage; _err "--base needs a value"; exit 2; }; BASE_ARG="$2"; shift 2 ;;
+    --evidence)    [ $# -ge 2 ] || { _usage; _err "--evidence needs a value"; exit 2; }; EVID_ARG="$2"; shift 2 ;;
+    --backup-days) [ $# -ge 2 ] || { _usage; _err "--backup-days needs a value"; exit 2; }; BACKUP_D="$2"; shift 2 ;;
     --stale-hours) [ $# -ge 2 ] || { _usage; _err "--stale-hours needs a value"; exit 2; }; STALE_H="$2"; shift 2 ;;
     -h|--help)     _usage; exit 0 ;;
     *)             _usage; _err "unknown argument: $1"; exit 2 ;;
@@ -45,6 +64,8 @@ done
 # Decimal digits only, at most 9 (no arithmetic overflow); a leading zero (08, 010) is still decimal.
 case "$STALE_H" in ''|*[!0-9]*|??????????*) _usage; _err "--stale-hours must be a decimal integer of at most 9 digits: '$STALE_H'"; exit 2 ;; esac
 STALE_H=$((10#$STALE_H))
+case "$BACKUP_D" in ''|*[!0-9]*|??????????*) _usage; _err "--backup-days must be a decimal integer of at most 9 digits: '$BACKUP_D'"; exit 2 ;; esac
+BACKUP_D=$((10#$BACKUP_D))
 
 # SENTINEL-DEGRADED-PROBE: a missing dependency is a typed DEGRADED, never a quiet clean (§7).
 REQUIRED_TOOLS="git find date sort id stat"   # the single list: the probe below and the header/doc refer to it
@@ -141,7 +162,9 @@ _kept() {
   return 1
 }
 
-FINDINGS=0; DEGRADED=0
+FINDINGS=0; DEGRADED=0; WARNINGS=0; DEGRADED_WHY=""
+# _degrade <typed line> <short reason>: a scan that could not run; never a finding, never a quiet zero.
+_degrade() { printf '%s\n' "$1"; DEGRADED=1; DEGRADED_WHY="${DEGRADED_WHY:+$DEGRADED_WHY; }$2"; }
 [ "$KEEP_PRESENT" = 1 ] || printf 'ABSENT-KEEPLIST %s\n' "$KEEP_FILE"
 
 # ---- (a) untracked, non-ignored files --------------------------------------------------------
@@ -302,7 +325,7 @@ if [ -n "$SCRATCH_P" ]; then
     fi
     if [ -z "$_sha_cmd" ]; then   # CC-NO-SHA
       printf 'DEGRADED-NO-SHA256 %s\n' "preserved-copy check skipped (no sha256sum/shasum on PATH)"
-      DEGRADED=1
+      DEGRADED=1; DEGRADED_WHY="${DEGRADED_WHY:+$DEGRADED_WHY; }preserved-copy check skipped"
     fi
     for ((_i = 0; _i < _slast; _i++)); do
       _f="${_sf[$_i]}"; _b="${_f##*/}"
@@ -339,9 +362,162 @@ if [ -n "$SCRATCH_P" ]; then
   fi
 fi
 
+# ---- (e)(f)(g) retention scans: REPORT-ONLY (kit #1277 slice 3) --------------------------------
+# These emit `WARN ...` lines and bump WARNINGS only; FINDINGS (and so the exit code) is never touched.
+# A scan that cannot run is _degrade'd (typed DEGRADED-* line, exit 3 when otherwise clean), never silent.
+_warn() { printf 'WARN %s\n' "$1"; WARNINGS=$((WARNINGS + 1)); }
+
+# (e) stale worktrees. `git worktree list --porcelain` blocks (blank-line separated); the first block is the main one.
+WT_STATE="not evaluated"
+WT_CHECKED=()   # branches checked out in some worktree, the main one included (never reported as merged)
+if _wt_raw="$(git -C "$TARGET_P" worktree list --porcelain 2>/dev/null)"; then   # CC-WT-LIST
+  _wn=0; _wstale=0; _wp=""; _wprun=""; _wlock=""; _wbare=0; _wbr=""
+  _wt_flush() {
+    [ -n "$_wp" ] || return 0
+    [ -z "$_wbr" ] || WT_CHECKED+=("$_wbr")
+    if [ "$_wn" -gt 0 ] && [ "$_wbare" = 0 ]; then
+      if [ ! -e "$_wp" ]; then _warn "stale-worktree $_wp missing${_wlock:+ (locked)}"; _wstale=$((_wstale + 1))   # CC-WT-MISSING
+      elif [ -n "$_wprun" ]; then _warn "stale-worktree $_wp prunable ($_wprun)${_wlock:+ (locked)}"; _wstale=$((_wstale + 1))
+      fi
+    fi
+    _wn=$((_wn + 1)); _wp=""; _wprun=""; _wlock=""; _wbare=0; _wbr=""
+  }
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in
+      "worktree "*) _wt_flush; _wp="${_l#worktree }" ;;
+      "prunable"*)  _wprun="${_l#prunable}"; _wprun="${_wprun# }"; [ -n "$_wprun" ] || _wprun="prunable" ;;
+      "locked"*)    _wlock=1 ;;
+      "bare")       _wbare=1 ;;
+      "branch "*)   _wbr="${_l#branch }" ;;
+    esac
+  done <<<"$_wt_raw"
+  _wt_flush
+  WT_STATE="$_wn registered, $_wstale stale"
+else
+  _wmsg="$(git -C "$TARGET_P" worktree list --porcelain 2>&1 >/dev/null)"; _wmsg="${_wmsg//$'\n'/ }"
+  _degrade "DEGRADED-WORKTREE-SCAN git worktree list failed: ${_wmsg:-git exited non-zero without output}" "worktree scan failed"
+  WT_STATE="degraded"
+fi
+
+# (f) merged branches (local + remote-tracking) against the base.
+BR_STATE="not evaluated"
+_base_commit=""; _base_label=""; _base_full=""
+if [ -n "$BASE_ARG" ]; then
+  _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "${BASE_ARG}^{commit}" 2>/dev/null)" || { _err "--base ref not found or not a commit: $BASE_ARG"; exit 2; }
+  _base_label="$BASE_ARG"; _base_full="$(git -C "$TARGET_P" rev-parse --symbolic-full-name "$BASE_ARG" 2>/dev/null)"
+else
+  _sym="$(git -C "$TARGET_P" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null)"; _src=$?   # 1 = not a symbolic ref (absent)
+  if [ "$_src" -eq 0 ] && [ -n "$_sym" ] && git -C "$TARGET_P" rev-parse --verify -q "$_sym^{commit}" >/dev/null 2>&1; then
+    _base_full="$_sym"
+  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/main"
+  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/master^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/master"
+  fi
+  if [ -n "$_base_full" ]; then
+    _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "$_base_full^{commit}" 2>/dev/null)"
+    _base_label="${_base_full#refs/remotes/}"; _base_label="${_base_label#refs/heads/}"
+  fi
+fi
+if [ -z "$_base_commit" ]; then
+  printf 'ABSENT-BASE %s\n' "no --base, origin/HEAD, main or master found; merged-branch scan skipped"
+  BR_STATE="no base"
+else
+  # the base's own branch name (without refs/heads/ or refs/remotes/<remote>/), to hide its local/remote twins
+  case "$_base_full" in
+    refs/remotes/*) _bb="${_base_full#refs/remotes/}"; _bb="${_bb#*/}" ;;
+    refs/heads/*)   _bb="${_base_full#refs/heads/}" ;;
+    *)              _bb="" ;;
+  esac
+  if _bm="$(git -C "$TARGET_P" for-each-ref "--merged=$_base_commit" '--format=%(refname)' refs/heads refs/remotes 2>/dev/null)"; then   # CC-BR-LIST
+    _bl=0; _br=0
+    while IFS= read -r _r; do
+      [ -n "$_r" ] || continue
+      case "$_r" in
+        refs/heads/*)   _nm="${_r#refs/heads/}"; _bn="$_nm"; _kind="merged-branch" ;;
+        refs/remotes/*) _nm="${_r#refs/remotes/}"; _bn="${_nm#*/}"; _kind="merged-remote-branch"
+                        [ "$_bn" = "HEAD" ] && continue ;;
+        *) continue ;;
+      esac
+      [ "$_r" = "$_base_full" ] && continue
+      [ -n "$_bb" ] && [ "$_bn" = "$_bb" ] && continue
+      _chk=0; for _c in ${WT_CHECKED[@]+"${WT_CHECKED[@]}"}; do [ "$_c" = "$_r" ] && { _chk=1; break; }; done
+      [ "$_chk" = 1 ] && continue
+      _warn "$_kind $_nm merged into $_base_label"
+      if [ "$_kind" = "merged-branch" ]; then _bl=$((_bl + 1)); else _br=$((_br + 1)); fi
+    done <<<"$_bm"
+    BR_STATE="base $_base_label, $_bl local, $_br remote"
+  else
+    _bmsg="$(git -C "$TARGET_P" for-each-ref "--merged=$_base_commit" '--format=%(refname)' refs/heads refs/remotes 2>&1 >/dev/null)"; _bmsg="${_bmsg//$'\n'/ }"
+    _degrade "DEGRADED-BRANCH-SCAN git for-each-ref failed: ${_bmsg:-git exited non-zero without output}" "branch scan failed"
+    BR_STATE="degraded"
+  fi
+fi
+
+# (g) _evidence rollback-backup retention. States (§7): explicit dir absent -> ABSENT-EVIDENCE; none found -> `none found`;
+# scanned -> counts. An unreadable dir / failing find is DEGRADED-EVIDENCE-SCAN (find's own stderr is left visible).
+EV_STATE="not evaluated"
+_evdirs=()
+_ev_ok=1
+if [ -n "$EVID_ARG" ]; then
+  EVID_ARG="${EVID_ARG%/}"; [ -n "$EVID_ARG" ] || EVID_ARG="/"
+  if [ -d "$EVID_ARG" ]; then _evdirs=("$EVID_ARG")
+  else printf 'ABSENT-EVIDENCE %s\n' "$EVID_ARG"; EV_STATE="absent"; _ev_ok=0
+  fi
+else
+  _evraw=()
+  while IFS= read -r -d '' _p; do _evraw+=("$_p"); done < <(
+    find "$TARGET_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -maxdepth 4 -name .git -prune -o -type d -name _evidence -print0
+    printf 'RC=%s\0' "$?"
+  )
+  _el=$(( ${#_evraw[@]} - 1 ))
+  if [ "$_el" -ge 0 ] && [ "${_evraw[$_el]}" = "RC=0" ]; then
+    for ((_i = 0; _i < _el; _i++)); do _evdirs+=("${_evraw[$_i]}"); done
+    [ "${#_evdirs[@]}" -gt 0 ] || { EV_STATE="none found"; _ev_ok=0; }
+  else
+    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories failed under $TARGET_P" "evidence scan failed"
+    EV_STATE="degraded"; _ev_ok=0
+  fi
+fi
+if [ "$_ev_ok" = 1 ]; then
+  _evn=0; _evold=0; _evbad=0
+  for _d in "${_evdirs[@]}"; do
+    _bk=()
+    while IFS= read -r -d '' _p; do _bk+=("$_p"); done < <(
+      find "$_d" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 2 \( -iname '*rollback*' -o -iname '*backup*' \) -mmin "+$((BACKUP_D * 1440))" -print0   # CC-EV-FIND
+      printf 'RC=%s\0' "$?"
+    )
+    _bl=$(( ${#_bk[@]} - 1 ))
+    if [ "$_bl" -ge 0 ] && [ "${_bk[$_bl]}" = "RC=0" ]; then
+      _evn=$((_evn + 1))
+      if [ "$_bl" -gt 0 ]; then
+        _bs=()
+        while IFS= read -r -d '' _p; do _bs+=("$_p"); done < <(
+          printf '%s\0' "${_bk[@]:0:$_bl}" | sort -z
+          _pst=("${PIPESTATUS[@]}")
+          printf 'RC=%s\0' "$(( _pst[0] || _pst[1] ))"
+        )
+        _sl=$(( ${#_bs[@]} - 1 ))
+        if [ "$_sl" -ge 0 ] && [ "${_bs[$_sl]}" = "RC=0" ]; then
+          for ((_i = 0; _i < _sl; _i++)); do
+            _p="${_bs[$_i]}"; _m="$(_mtime "$_p")"
+            if [ -n "$_m" ]; then _age="$(( (_now - _m) / 86400 ))d"; else _age="unknown"; fi
+            _warn "stale-backup $_p age=$_age retention=${BACKUP_D}d"; _evold=$((_evold + 1))
+          done
+        else
+          _degrade "DEGRADED-EVIDENCE-SCAN sort failed ordering backups under $_d" "evidence scan failed"; _evbad=$((_evbad + 1))
+        fi
+      fi
+    else
+      _degrade "DEGRADED-EVIDENCE-SCAN find failed or was truncated under $_d" "evidence scan failed"; _evbad=$((_evbad + 1))
+    fi
+  done
+  EV_STATE="$_evn dir(s) scanned, $_evold older than ${BACKUP_D}d"
+  [ "$_evbad" -eq 0 ] || EV_STATE="$EV_STATE, $_evbad unreadable"
+fi
+
 # ---- summary ---------------------------------------------------------------------------------
 _scanned="untracked in $TARGET, tmp.* in $TMPD older than ${STALE_H}h, keep-list entries: $KEEP_N, scratchpad: $SCRATCH_STATE"
-if [ "$DEGRADED" -eq 1 ]; then _scanned="$_scanned, degraded: preserved-copy check skipped"; fi
+_scanned="$_scanned, worktrees: $WT_STATE, branches: $BR_STATE, evidence: $EV_STATE, warnings: $WARNINGS"
+if [ "$DEGRADED" -eq 1 ]; then _scanned="$_scanned, degraded: $DEGRADED_WHY"; fi
 if [ "$FINDINGS" -eq 0 ]; then
   if [ "$DEGRADED" -eq 1 ]; then   # CC-DEGRADED-EXIT: a run that could not check everything never reads as clean
     printf 'CLEAN-CHECK: degraded (%s)\n' "$_scanned"
