@@ -235,3 +235,54 @@ $ProgressPreference = 'SilentlyContinue'
 
 This adds `-OutputFormat Text` and `$ProgressPreference='SilentlyContinue'` on top of the
 `-EncodedCommand` (base64 UTF-16LE) transport already documented in §2 — it does not replace it.
+
+## 8. A machine-wide env var and a per-version JVM rule do not coexist by default `[#1900]`
+
+When a lab posture sets a **machine-wide** environment variable such as `JAVA_TOOL_OPTIONS`
+(`setx /M`), that variable is inherited by **every** JVM launch on the box — including JVMs the
+bench is trying to run under a different, per-version configuration. A bench that needs one JVM
+option set for version A and a different (or absent) one for version B cannot rely on the
+machine-wide var alone: the two rules collide.
+
+**Coexistence rule:**
+- Every tooling invocation that cares about per-version JVM behavior must clear the machine-wide
+  var for its own process first: `$env:JAVA_TOOL_OPTIONS=''` (PowerShell) before launching the JVM,
+  so the process-level environment wins over the inherited machine-wide value for that invocation.
+- A brand/version switch must explicitly **add or remove** the var as part of the switch, not
+  assume the previous value still applies.
+
+**The `setx /M ""` invalid-syntax trap.** `setx /M "JAVA_TOOL_OPTIONS" ""` does not clear the
+variable — `setx` rejects (or silently no-ops) an empty-string value depending on the exact
+invocation shape, so a script that assumes this clears the machine-wide var can leave the old
+value in place while believing it removed it. Verify the clear by reading the value back
+(`[Environment]::GetEnvironmentVariable('JAVA_TOOL_OPTIONS','Machine')`) rather than trusting the
+`setx` exit code.
+
+**Registry-vs-live-session distinction.** `setx /M` writes the machine environment to the
+registry (`HKLM\...\Environment`). A session (interactive or SSH) already running when the
+registry write happens does **not** see the new value until that session (or the service hosting
+it) restarts — `[Environment]::GetEnvironmentVariable(...,'Machine')` reads the registry directly
+and reflects the write immediately, but `$env:JAVA_TOOL_OPTIONS` in an already-open shell does not.
+Treat "I wrote the registry" and "the live process sees the new value" as two different facts, and
+verify against the live process (e.g. a fresh `powershell -EncodedCommand` invocation) rather than
+the registry read alone.
+
+Evidence: kit issue #1900 (niagara-reflow-block1.md §R1.6; `n4-boot-stderr.txt`).
+
+## 9. Live-install: JNI dependent-DLL resolution needs `PATH`, not just `-Djava.library.path` `[#1580]`
+
+When driving a live-install Windows lab over SSH to run a Java process that loads a JNI provider,
+setting `-Djava.library.path` alone is not enough if that native library has its own **dependent**
+DLLs (a DLL the JNI library itself links against). `-Djava.library.path` controls where the JVM's
+classloader looks for the library you load directly; it does not change how Windows resolves that
+library's *own* transitive DLL dependencies at OS load time — that resolution still follows the
+process `PATH`.
+
+**Fix:** set `PATH` alongside `-Djava.library.path` in the same remote invocation so the
+dependent-DLL search succeeds:
+
+```
+set PATH=%PATH%;<bin>
+```
+
+Evidence: kit issue #1580 (B1212 §1212.2, wall 5).
