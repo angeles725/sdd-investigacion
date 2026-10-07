@@ -22,6 +22,10 @@
 #   5h   the `;`-split cannot glob-expand a line holding a literal glob metacharacter (RDD
 #        R4-unquoted-split-globs)
 #   5h2  a bare `*` statement is never glob-expanded into a filename-shaped assignment (#1033)
+#   5p   a `;` inside `$( )` does not hide a bare climb — first/middle/last statement (issue #1921)
+#   5q   the -P'd `;` twin is clean and its climb counts as seen (no no-match)
+#   5r   `;` inside quotes/backticks is data; a `;` after a `#` comment is not a statement
+#   5s   nested `$( )`: the outer climbing cd is judged on its own -P, not an inner cd's
 #   5m   a later bare `cd ..` after a compliant `cd -P` climb is flagged (#1033)
 #   5n   keyword-like identifiers (`exported_dir`, `localdir`) keep their whole name (#1033)
 #   5i   climb_seen (formerly the misleadingly-named pattern_seen): an all-compliant file is NOT
@@ -285,6 +289,71 @@ if [ "$RC5O" -eq 1 ] && <<<"$OUT5O" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5O" 
   ok "5o '||' and '|' split segments: a bare climb after '||' / '|' is flagged; the all -P'd '||' chain is not"
 else
   no "5o '||'/'|' segment split wrong (rc=$RC5O out=[$OUT5O])"
+fi
+
+# ── 5p. A `;` INSIDE `$( )` must not split the statement before the cd/pwd derivation is seen
+#        (issue #1921). Edges: the `;`-form statement FIRST, MIDDLE and LAST on its line.
+box5p="$(mkbox case-semicolon-in-subst)"
+cat > "$box5p/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/.."; pwd)"; echo first
+A=1; KIT2="$(cd "$(dirname "$0")/.."; pwd)"; B=2
+A=1; KIT3="$(cd "$(dirname "$0")/.."; pwd)"
+EOF
+OUT5P="$(bash "$SUT" "$box5p" 2>&1)"; RC5P=$?
+if [ "$RC5P" -eq 1 ] && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:4'; then
+  ok "5p a ';' inside \$( ) does not hide a bare climbing cd (first, middle and last statement on the line)"
+else
+  no "5p ';'-inside-\$( ) climbing derivation was missed (rc=$RC5P out=[$OUT5P])"
+fi
+
+# ── 5q. The -P'd `;` twin is clean AND counts as a seen climb (not reported as no-match).
+box5q="$(mkbox case-semicolon-in-subst-fixed)"
+cat > "$box5q/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.."; pwd -P)"
+EOF
+OUT5Q="$(bash "$SUT" "$box5q" 2>&1)"; RC5Q=$?
+if [ "$RC5Q" -eq 0 ] && ! <<<"$OUT5Q" grep -q 'no-match\|^HIT'; then
+  ok "5q the -P'd ';'-inside-\$( ) form is clean and its climb counts as seen (no no-match)"
+else
+  no "5q -P'd ';' form wrongly flagged or reported no-match (rc=$RC5Q out=[$OUT5Q])"
+fi
+
+# ── 5r. A `;` inside double quotes, single quotes or backticks is data, not a separator; the splitter
+#        must respect nesting: a quoted `;` does not hide a bare climb, and a `;` in a trailing comment
+#        is not a statement boundary (it used to yield a false HIT from commented-out text).
+box5r="$(mkbox case-quoted-semicolons)"
+cat > "$box5r/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/;x/.." && pwd)"
+KIT2="$(cd "$(dirname "$0")"/'a;b'/.. && pwd)"
+KIT3="$(cd "`dirname "$0"`/.."; pwd)"
+X=1 # old; K4="$(cd "$(dirname "$0")/.." && pwd)"
+EOF
+OUT5R="$(bash "$SUT" "$box5r" 2>&1)"; RC5R=$?
+if [ "$RC5R" -eq 1 ] && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:4' && ! <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:5'; then
+  ok "5r quoted/backtick ';' do not hide a bare climb; a ';' after a '#' comment is not a statement"
+else
+  no "5r quote/backtick/comment handling wrong (rc=$RC5R out=[$OUT5R])"
+fi
+
+# ── 5s. Nested substitutions: the OUTER climbing cd is judged on its own text, not on an inner cd's
+#        `-P`. A bare outer climb around an inner `cd -P` is a HIT; a `cd -P` outer climb around a
+#        bare, non-climbing inner `cd` is clean.
+box5s="$(mkbox case-nested-subst)"
+cat > "$box5s/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(cd -P "$(dirname "$0")"; pwd)/.."; pwd)"
+KIT2="$(cd -P "$(cd "$(dirname "$0")"; pwd)/.."; pwd)"
+EOF
+OUT5S="$(bash "$SUT" "$box5s" 2>&1)"; RC5S=$?
+if [ "$RC5S" -eq 1 ] && <<<"$OUT5S" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5S" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5s nested \$( ): the outer climbing cd is judged on its own -P, not an inner cd's"
+else
+  no "5s nested substitution mis-attributed -P (rc=$RC5S out=[$OUT5S])"
 fi
 
 # ── 5i. climb_seen (formerly the misleadingly-named pattern_seen, kit issue #1024 round 5,
@@ -560,9 +629,19 @@ EOF
   # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
   fu_tooth export-prefix "$box5g" 3 's/(local|export|/(local|/' 1
   fu_tooth second-climb "$box5m" 2 's/^          _climb_ok=1$/          _climb_ok=1; break/'
-  fu_tooth or-pipe-split "$box5o" 2 's#_segs//||/#_segs//ZZ/#;s#_segs//|/#_segs//ZZ/#'
+  fu_tooth or-pipe-split "$box5o" 2 "s#elif \[ \"\$c\" = '|' \]; then#elif [ \"\$c\" = '@' ]; then#"
+  # #1921: each splitter property has a mutant that reverts exactly it.
+  fu_tooth semicolon-in-subst "$box5p" 2 's#if \[ "\$c" = '"';'"' \] \&\& \[ -z "\$stack" \]; then#if [ "$c" = '"';'"' ]; then#'
+  fu_tooth quote-context "$box5r" 2 's#if \[ "\$top" = d \]; then stack="\${stack%?}"; else stack+=d; fi#:#' 1
+  fu_tooth nested-mask "$box5s" 2 's#bufs\[lvl\]+='"'"'\$(…)'"'"'#bufs[lvl]+='"'"'$(cd -P x)'"'"'#'
+  if mutant_chain "teeth FU: comment-kept" "$SUT" "$TMP/l1-mut/comment-kept.sh" 's#break  \# comment: drop the rest#:#'; then
+    tt "teeth FU: a kept comment makes the commented-out derivation a bogus HIT" 1 1 "$TMP/l1-mut/comment-kept.sh" \
+      --good-lacks 'HIT .*fixed\.sh:5' --bad-has 'HIT .*fixed\.sh:5' -- bash @SUT@ "$box5r"
+  else
+    fail=$((fail+1))
+  fi
   # 5h2: the glob-expanding split (the pre-round-5 code) must bite when the box is the cwd.
-  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's/read -ra _stmts <<< "\$line"/_stmts=($line)/'; then
+  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's#local -a _stmts=("\${_CDP_PARTS\[@\]}")#local -a _stmts=(${line//;/ })#'; then
     tt "teeth FU: glob-expanding split makes the filename-shaped file a bogus HIT" 0 1 "$TMP/l1-mut/glob-split.sh" \
       --bad-has 'HIT .*fixed\.sh:2' -- bash -c 'cd "$1" && bash "$2" "$1"' _ "$box5h2" @SUT@
   else
