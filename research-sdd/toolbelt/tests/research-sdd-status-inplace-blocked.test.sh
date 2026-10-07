@@ -133,7 +133,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth() {
     local name="$1" expr="$2" fx="$3" want_gc="$4" want_kg="$5" t rc=0
     t="$(mk_tree "$name")"; rm -rf "$TMP/m"
-    if ! mutant_sed "$ST" "$t/research-sdd-status.sh" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
+    if ! mutant_sed "$TB/${TFILE:-research-sdd-status.sh}" "$t/${TFILE:-research-sdd-status.sh}" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
     "$fx"
     bash "$t/research-sdd-status.sh" "$TMP/m" --sync-state >"$TMP/m.out" 2>&1 || rc=$?
     if [ "$rc" != 0 ]; then no "teeth $name: mutant crashed rc=$rc — a crash is not a bite"; return; fi
@@ -148,7 +148,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth_out() {
     local name="$1" expr="$2" fx="$3" want_kg="$4" mode="$5" pat="$6" t rc=0 has=0
     t="$(mk_tree "$name")"; rm -rf "$TMP/m"
-    if ! mutant_sed "$ST" "$t/research-sdd-status.sh" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
+    if ! mutant_sed "$TB/${TFILE:-research-sdd-status.sh}" "$t/${TFILE:-research-sdd-status.sh}" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
     "$fx"
     bash "$t/research-sdd-status.sh" "$TMP/m" --sync-state >"$TMP/m.out" 2>&1 || rc=$?
     if [ "$rc" != 0 ]; then no "teeth $name: mutant crashed rc=$rc — a crash is not a bite"; return; fi
@@ -159,14 +159,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   tooth_out B '/printf .sync-state: WARN: %s: %d in-place blocked/ s/.*/  :/' fx_a 3 absent 'in-place blocked row'
   tooth_out K '/^      kg="\${_decl_kg}"/,+1 s/^      warn_inplace_blocked.*/      :/' fx_f 10 absent 'in-place blocked row'
-  tooth_out G 's/blocked-on-\*|blocked|blocked:|blocked,|/blocked-on-*|blocked|/; /DONE-TOKENS/ s/blocked:|blocked,|//' fx_g 3 present 'unrecognised Status token [blocked:'
+  tooth_out G '/DONE-TOKENS/ s/blocked:|blocked,|//' fx_g 3 present 'unrecognised Status token [blocked:'
   tooth_out H 's/ + \${_ipb:-0} ))" >&2/ ))" >\&2/' fx_i "" present 'in-place-blocked = 3;'
   tooth A '/INPLACE-GC-SUBTRACT/ s/ - \${_ipb:-0}//' fx_a 2 3
-  tooth C '/INPLACE-DUAL-GUARD/ s/continue/:/' fx_c 0 3
-  tooth I 's/; t="\${t%\[.:\]}"//' fx_n 0 3
-  tooth J 's/grep -iE .\^\[\[:space:\]\]\*-\[\[:space:\]\].\*needs:./grep -iE "^[[:space:]]*-[[:space:]]"/' fx_j 2 3
-  tooth D '/INPLACE-BLOCKED-TOKENS/ s/blocked-on-\*|//' fx_d 2 3
-  tooth E '/INPLACE-DUAL-ID-CASE/ s/continue/:/' fx_e 0 3
+  TFILE=lib/focus-prefix.sh tooth C '/INPLACE-DUAL-GUARD/ s/continue/:/' fx_c 0 3
+  TFILE=lib/focus-prefix.sh tooth I 's/; t="\${t%\[.:\]}"//' fx_n 0 3
+  TFILE=lib/focus-prefix.sh tooth J 's/grep -iE .\^\[\[:space:\]\]\*-\[\[:space:\]\].\*needs:./grep -iE "^[[:space:]]*-[[:space:]]"/' fx_j 2 3
+  TFILE=lib/focus-prefix.sh tooth D '/INPLACE-BLOCKED-TOKENS/ s/blocked-on-\*|//' fx_d 2 3
+  TFILE=lib/focus-prefix.sh tooth E '/INPLACE-DUAL-ID-CASE/ s/continue/:/' fx_e 0 3
   tooth F '/_gc_d=\$((/ s/ - \${_ipb:-0}//' fx_f 2 10
 fi
 echo "== $pass passed · $fail failed =="

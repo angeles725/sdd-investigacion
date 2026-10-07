@@ -4379,8 +4379,9 @@ blocked, is recorded in ONE of two forms in the SAME edit: (a) in place, Status
 leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` keeps it OUT of
 `gaps_closed` as a separate in-place-blocked bucket and prints `sync-state: WARN: … N in-place blocked row(s) …` asking
 you to move it to `## Blocked gaps`. A row that is also listed there is counted once, as (b): its Gap cell equals the
-bullet's name or shares the bullet's leading gap ID (`AB.`, `**` stripped). `verify-state.sh` does not yet mirror the
-in-place bucket, so until it does the CHECK H identity sum is short by that count (kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+bullet's name or shares the bullet's leading gap ID (`AB.`, `**` stripped). `verify-state.sh` mirrors the
+in-place bucket through the same shared helper (`lib/focus-prefix.sh`): its CHECK H identity sum adds the derived
+in-place count as a sixth term, since the envelope has no field for it (kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
 leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
 WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
 the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is

@@ -28,6 +28,7 @@ fi
 # be swallowed and every derive_focus_prefix call would silently return empty (count ALL blocks — a
 # false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
 
 _BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
@@ -195,6 +196,7 @@ _blocked_names() {                                  # one exact blocked gap NAME
 # derived investigable_open = pending (LEADING-TOKEN) backlog rows whose gap is NOT blocked. This is
 # resolve_next's NEXT-eligibility set by construction — the STOP-CRITICAL number that closes the
 # premature-STOP class: if the envelope under-declares it, verify-state FAILs → --next returns STALE.
+_blocked_body() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; }; }  # the text blocked_open is derived from (mirrors status.sh blocked_body)
 derive_investigable() {
   local sf="$1" blk gap st n=0 b hit
   blk="$(_blocked_names "$sf")"
@@ -989,9 +991,16 @@ for state in "${states[@]}"; do
   # (present-but-malformed field is already caught by the individual field-presence checks).
   _h_def=0; is_int "$e_def" && _h_def="$e_def"  # IDENTITY-DEF-ABSENT-AS-ZERO: absent OR non-integer deferred_open ⇒ 0 (CHECK F's is_int split)
   if is_int "$e_gc" && is_int "$e_kg" && is_int "$e_inv" && is_int "$e_blocked" && is_int "$e_req"; then  # IDENTITY-INT-GUARD
-    _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req ))  # IDENTITY-REQ-VAR
+    # in_place_blocked (#1915) has NO envelope field: --sync-state subtracts it from gaps_closed, so it is the one
+    # DERIVED term of the identity (same shared helper as the writer). 0 when the corpus has no such row.
+    d_ipb="$(_backlog_rows "$state" | inplace_blocked_count "$(_blocked_body "$state")")"; is_int "$d_ipb" || d_ipb=0  # INPLACE-IDENTITY-TERM
+    _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req + d_ipb ))  # IDENTITY-REQ-VAR
     if [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
-      echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=$_identity_sum — stale denominator; reconcile."
+      if [ "$d_ipb" -gt 0 ]; then
+        echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)+in_place_blocked(derived: $d_ipb open blocked backlog row(s) not in blocked_open)=$_identity_sum — stale denominator; reconcile."
+      else
+        echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=$_identity_sum — stale denominator; reconcile."
+      fi
     fi
   fi
 
