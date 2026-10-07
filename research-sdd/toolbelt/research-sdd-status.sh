@@ -1631,14 +1631,119 @@ if [ "$mode" = "--next" ]; then
   else
     mapfile -t _rd_states < <(list_state_files "$target")
   fi
+  # _rd_covers_derive <state> <declared-counter> <target> — kit issue #1640 (design accepted on the issue).
+  # The retro template carries a machine-readable column-0 `covers_through: B<n>` line (optionally scoped with
+  # ` focus=<slug>`, the RESEARCH-STATE-<slug>.md suffix). blocks_since_retro is derived as
+  # max(0, newest block id on disk − highest covers_through over the target's retros) and replaces the declared
+  # counter ONLY when LOWER. Sets _rd_eff (effective counter) and _rd_note (RETRO-DUE suffix). Every state in which
+  # the derivation cannot run is NAMED on stderr (§7): no retros / no field / malformed value / no block files /
+  # range-scoped focus / missing helper — each keeps the declared counter. Prose such as "coverage through B140" is
+  # deliberately NOT parsed (doctrine first). Called only for a counter that would fire, so legacy corpora stay quiet.
+  _rd_covers_derive() {  # RD-COVERS-DERIVE
+    local _st="$1" _decl="$2" _tg="$3" _base _slug _pfx _rng _dir _f _b _id _newest=-1 _rs _line _v
+    local _maxcov=-1 _nret=0 _nbad=0 _badlist="" _rc _rlist _rf _der=0
+    _rd_eff="$_decl"; _rd_note=""
+    _base="$(basename "$_st")"; _slug=""
+    case "$_base" in RESEARCH-STATE-*.md) _slug="${_base#RESEARCH-STATE-}"; _slug="${_slug%.md}";; esac
+    _dir="$(dirname "$_st")"
+    _pfx="$(derive_focus_prefix "$_st")"
+    if [ -z "$_pfx" ]; then
+      _rng="$(derive_focus_range "$_st" 2>/dev/null)"
+      case "$_rng" in ''|'!'*) ;; *)
+        printf 'status: WARN: covers_through not applied: range-scoped focus %s — using declared blocks_since_retro: %s\n' "$_base" "$_decl" >&2
+        return 0;; esac
+    fi
+    _rs="$here/lib/retro-status.sh"
+    if [ -f "$_rs" ]; then
+      # shellcheck source=lib/retro-status.sh
+      . "$_rs"
+    fi
+    if ! declare -F retro_is_excluded >/dev/null 2>&1; then
+      printf 'status: WARN: covers_through not applied: helper lib/retro-status.sh unavailable — using declared blocks_since_retro: %s\n' "$_decl" >&2
+      return 0
+    fi
+    # newest block id in this focus's scope (same file predicate as the on-disk block count)
+    while IFS= read -r _f; do
+      _b="$(basename "$_f")"
+      if [ -n "$_pfx" ]; then
+        [[ "$_b" =~ ^${_pfx}(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$ ]] || continue
+      else
+        [[ "$_b" =~ ^.+-(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$ ]] || continue
+      fi
+      _id="${BASH_REMATCH[2]}"
+      [ "${#_id}" -le 9 ] || continue
+      [ "$((10#$_id))" -gt "$_newest" ] && _newest=$((10#$_id))
+    done < <(find "$_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter "${_pfx}")
+    if [ "$_newest" -lt 0 ]; then
+      printf 'status: WARN: covers_through not applied: no block files found for %s — using declared blocks_since_retro: %s\n' "$_base" "$_decl" >&2
+      return 0
+    fi
+    # retros: the same enumeration predicate as the ISSUES-DUE gate / sweep-retros.sh
+    _rlist="$(find "$_tg" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' -type f 2>/dev/null | sort)"; _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+      printf 'status: WARN: covers_through not applied: retro enumeration failed (sort exit %s) — using declared blocks_since_retro: %s\n' "$_rc" "$_decl" >&2
+      return 0
+    fi
+    while IFS= read -r _rf; do
+      [ -n "$_rf" ] || continue
+      retro_is_excluded "$_rf" && continue
+      _nret=$((_nret+1))
+      while IFS= read -r _line; do
+        case "$_line" in
+          'V '*) _v="${_line#V }"
+                 if [[ "$_v" =~ ^[0-9]{1,9}$ ]]; then
+                   [ "$((10#$_v))" -gt "$_maxcov" ] && _maxcov=$((10#$_v))
+                 else _nbad=$((_nbad+1)); _badlist="$_badlist $(basename "$_rf")"; fi ;;
+          'M') _nbad=$((_nbad+1)); _badlist="$_badlist $(basename "$_rf")" ;;
+        esac
+      done < <(awk -v slug="$_slug" '
+        /^```/ { fence = !fence; next }
+        fence { next }
+        /^covers_through:/ {
+          line = $0; sub(/\r$/, "", line)
+          if (line ~ /^covers_through:[ \t]+B[0-9]+([ \t]+focus=[A-Za-z0-9._-]+)?[ \t]*$/) {
+            v = line; sub(/^covers_through:[ \t]+B/, "", v); n = v; sub(/[^0-9].*$/, "", n)
+            sl = ""; if (v ~ /focus=/) { sl = v; sub(/^.*focus=/, "", sl); sub(/[ \t]*$/, "", sl) }
+            if (sl == "" || sl == slug) print "V " n
+          } else print "M"
+        }' "$_rf")
+    done <<< "$_rlist"
+    [ "$_nbad" -gt 0 ] && printf 'status: WARN: covers_through: malformed in%s (want `covers_through: B<n>` with a number) — malformed lines ignored\n' "$_badlist" >&2
+    if [ "$_nret" -eq 0 ]; then
+      printf 'status: WARN: covers_through: absent (no retros found) — using declared blocks_since_retro: %s\n' "$_decl" >&2
+      return 0
+    fi
+    if [ "$_maxcov" -lt 0 ]; then
+      [ "$_nbad" -gt 0 ] || printf 'status: WARN: covers_through: absent in %s retro(s) — using declared blocks_since_retro: %s\n' "$_nret" "$_decl" >&2
+      return 0
+    fi
+    if [ "$_newest" -gt "$_maxcov" ]; then
+      _der=$((_newest - _maxcov))
+    elif [ "$_maxcov" -gt "$_newest" ]; then
+      printf 'status: WARN: covers_through B%s exceeds newest block B%s on disk — derived counter clamped to 0\n' "$_maxcov" "$_newest" >&2
+    fi
+    if [ "$_der" -lt "$_decl" ]; then
+      _rd_eff="$_der"
+      _rd_note=" [derived: newest block B${_newest} − covers_through B${_maxcov}; declared counter was ${_decl}]"
+      printf 'status: INFO: blocks_since_retro: %s overridden by retro coverage (covers_through B%s, newest block B%s → %s)\n' "$_decl" "$_maxcov" "$_newest" "$_der" >&2
+    fi
+    return 0
+  }
   for state in "${_rd_states[@]}"; do
     _rd_foc_file="$(dirname "$state")/FOCUSES.md"
     _read_focuses_tok_into _rd_foc_tok "$_rd_foc_file" "$(basename "$state")"
     # shellcheck disable=SC2154 # _rd_foc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
     if [ "$_rd_foc_tok" = "stopped" ] || [ "$_rd_foc_tok" = "paused" ]; then continue; fi
     _rd_bsr="$(env_get blocks_since_retro)"
+    _rd_note=""
+    # kit issue #1640: only a counter that would FIRE is cross-checked against the retro's covers_through, and
+    # the derived value replaces it only when LOWER (a stale counter cannot fire early; it can never fire later).
+    if grep -qE '^[0-9]+$' <<<"$_rd_bsr" && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then
+      _rd_covers_derive "$state" "$_rd_bsr" "$target"  # RD-COVERS-THROUGH
+      _rd_bsr="$_rd_eff"
+    fi
     if grep -qE '^[0-9]+$' <<<"$_rd_bsr" && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then  # RD-THRESHOLD-CHECK
-      echo "RETRO-DUE | ${_rd_bsr} blocks since last retro (§18 threshold: ${_rd_threshold})"
+      echo "RETRO-DUE | ${_rd_bsr} blocks since last retro (§18 threshold: ${_rd_threshold})${_rd_note}"
       exit 0
     fi
   done

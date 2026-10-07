@@ -5079,5 +5079,77 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rm -rf "$mb"
 fi
 
+# ---------------------------------------------------------------------------
+# T-1640 — covers_through: the retro's coverage line yields a PRINTED counter-reset proposal (kit issue #1640).
+# propose-never-apply (CLAUDE.md §8): the script only prints `proposed-reset: blocks_since_retro: 0`; it never edits
+# a RESEARCH-STATE file or the retro. Absent / malformed / fenced coverage lines are typed, never a silent zero.
+cv_retro_file() {  # cv_retro_file <box> <name> <extra-lines>: pending retro with one open row plus <extra-lines> (printf %b)
+  local f="$1/rh/target-foo/retros/$2"
+  { printf '<!-- review-status: pending -->\n# retro\n\n'; printf '%b' "$3"
+    printf '\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |\n'; } > "$f"
+  printf '%s' "$f"
+}
+box="$(mkbox case-1640a)"; mk_gh_stub "$box" nomatch
+retro="$(cv_retro_file "$box" r.md 'covers_through: B140\n')"; sum_before="$(cksum < "$retro")"
+run "$box" "$retro"
+if grep -qE '^proposed-reset: blocks_since_retro: 0 .*B140' <<<"$OUT" && [ "$RC" -eq 0 ]; then
+  ok "T1640a dry-run: covers_through B140 → printed 'proposed-reset: blocks_since_retro: 0' line" "(rc $RC)"
+else no "T1640a dry-run: reset proposal line" "rc=$RC out=[$OUT]"; fi
+[ "$(cksum < "$retro")" = "$sum_before" ] && ok "T1640a: propose-never-apply — the retro file is byte-identical after the run" "()" \
+  || no "T1640a: the retro file was modified" "propose-never-apply violated"
+run "$box" "$retro" --apply
+grep -qE '^proposed-reset: blocks_since_retro: 0 .*B140' <<<"$OUT" && ok "T1640a --apply: the proposal line is printed under --apply too" "()" \
+  || no "T1640a --apply: reset proposal line" "out=[$OUT]"
+
+box="$(mkbox case-1640b)"; mk_gh_stub "$box" nomatch
+retro="$(cv_retro_file "$box" r.md '# no coverage line here\n')"
+run "$box" "$retro"
+if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'covers_through: absent' <<<"$OUT"; then
+  ok "T1640b: retro without the field → no reset line, typed 'covers_through: absent' note" "()"
+else no "T1640b: absent field must be typed, not silent" "out=[$OUT]"; fi
+
+box="$(mkbox case-1640c)"; mk_gh_stub "$box" nomatch
+retro="$(cv_retro_file "$box" r.md 'covers_through: B<n>\n')"
+run "$box" "$retro"
+if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'covers_through: malformed' <<<"$OUT"; then
+  ok "T1640c: unfilled template placeholder → no reset line, typed malformed WARN" "()"
+else no "T1640c: malformed must be typed" "out=[$OUT]"; fi
+
+# list edges: valid FIRST, malformed MIDDLE, valid LAST (focus-scoped) — two proposals, one WARN, none dropped
+box="$(mkbox case-1640d)"; mk_gh_stub "$box" nomatch
+retro="$(cv_retro_file "$box" r.md 'covers_through: B140\ncovers_through: Bxx\ncovers_through: B90 focus=alpha\n')"
+run "$box" "$retro"
+n_reset="$(grep -c '^proposed-reset:' <<<"$OUT")"
+if [ "$n_reset" = 2 ] && grep -qE '^proposed-reset: .*B90.*RESEARCH-STATE-alpha\.md' <<<"$OUT" && grep -q 'covers_through: malformed' <<<"$OUT"; then
+  ok "T1640d: first + last (focus-scoped) lines both proposed, the middle malformed line warned" "()"
+else no "T1640d: list edges" "n_reset=$n_reset out=[$OUT]"; fi
+
+# a fenced example and a blockquoted mention are not coverage
+box="$(mkbox case-1640e)"; mk_gh_stub "$box" nomatch
+retro="$(cv_retro_file "$box" r.md '```\ncovers_through: B140\n```\n> covers_through: B140\n')"
+run "$box" "$retro"
+if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'covers_through: absent' <<<"$OUT"; then
+  ok "T1640e: fenced / quoted coverage lines are not read" "()"
+else no "T1640e: fence scope" "out=[$OUT]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth T1640: covers_through proposal --"
+  if stg_mutant 1640fence nomatch -e 's/^ *fence { next }$/    # MUTANT/'; then
+    retro="$(cv_retro_file "$MBOX" r.md '```\ncovers_through: B140\n```\n')"; run "$MBOX" "$retro"
+    if grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-fence teeth: fence skip removed → fenced line proposed (T1640e has teeth)" "()"
+    else no "T1640-fence teeth: mutant must flip T1640e" "THEATER: out=[$OUT]"; fi
+  fi
+  if stg_mutant 1640print nomatch -e 's/proposed-reset:/proposed-X:/'; then
+    retro="$(cv_retro_file "$MBOX" r.md 'covers_through: B140\n')"; run "$MBOX" "$retro"
+    if ! grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-print teeth: print removed → no proposal (T1640a has teeth)" "()"
+    else no "T1640-print teeth: mutant must flip T1640a" "THEATER: out=[$OUT]"; fi
+  fi
+  if stg_mutant 1640bad nomatch -e '/CV-MALFORMED-WARN/s/^/: #/'; then
+    retro="$(cv_retro_file "$MBOX" r.md 'covers_through: B<n>\n')"; run "$MBOX" "$retro"
+    if ! grep -q 'covers_through: malformed' <<<"$OUT"; then ok "T1640-bad teeth: malformed WARN removed (T1640c has teeth)" "()"
+    else no "T1640-bad teeth: mutant must flip T1640c" "THEATER: out=[$OUT]"; fi
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

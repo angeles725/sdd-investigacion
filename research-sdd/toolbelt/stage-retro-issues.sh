@@ -1489,7 +1489,45 @@ _unc_report() {
 
 # _print_summaries / _final_exit: the --apply summary lines and the exit-code policy, shared by the normal end of
 # the run and the section-level unclassifiable early finish.
+# _print_counter_reset: kit issue #1640 — the retro's machine-readable column-0 `covers_through: B<n>` line (optionally
+# ` focus=<slug>`) becomes a PRINTED proposal to reset blocks_since_retro. PROPOSE-NEVER-APPLY (CLAUDE.md §8): this script
+# never edits a RESEARCH-STATE file or the retro; the human applies the line. Not-proposed states are named (§7): no field
+# in the retro -> typed `absent` note; a malformed value -> typed WARN. Fenced / quoted / indented lines are not read, and
+# prose such as "coverage through B140" is deliberately not parsed. The grammar mirrors research-sdd-status.sh
+# (_rd_covers_derive) — keep the two in step.
+_print_counter_reset() {
+  local _cl _nv=0 _nm=0 _kind _val _slug
+  while IFS= read -r _cl; do
+    _kind="${_cl%% *}"; _val="${_cl#* }"
+    case "$_kind" in
+      V) _nv=$((_nv+1)); _slug="${_val#* }"; _val="${_val%% *}"
+         if [ "$_slug" = "-" ]; then
+           printf 'proposed-reset: blocks_since_retro: 0 (retro covers_through B%s; set it by hand in the RESEARCH-STATE envelope if no newer block exists — propose-never-apply)\n' "$_val"
+         else
+           printf 'proposed-reset: blocks_since_retro: 0 (retro covers_through B%s focus=%s; set it by hand in RESEARCH-STATE-%s.md if no newer block of that focus exists — propose-never-apply)\n' "$_val" "$_slug" "$_slug"
+         fi ;;
+      M) _nm=$((_nm+1)) ;;
+    esac
+  done < <(awk '
+    /^```/ { fence = !fence; next }
+    fence { next }
+    /^covers_through:/ {
+      line = $0; sub(/\r$/, "", line)
+      if (line ~ /^covers_through:[ \t]+B[0-9]+([ \t]+focus=[A-Za-z0-9._-]+)?[ \t]*$/) {
+        v = line; sub(/^covers_through:[ \t]+B/, "", v); n = v; sub(/[^0-9].*$/, "", n)
+        sl = "-"; if (v ~ /focus=/) { sl = v; sub(/^.*focus=/, "", sl); sub(/[ \t]*$/, "", sl) }
+        if (length(n) > 9) print "M"; else print "V " n " " sl
+      } else print "M"
+    }' "$retro_file")
+  if [ "$_nm" -gt 0 ]; then
+    echo "WARN: covers_through: malformed — ${_nm} line(s) in $(basename "$retro_file") (want \`covers_through: B<n>\` with a number) — ignored" >&2  # CV-MALFORMED-WARN
+  fi
+  if [ "$_nv" -eq 0 ] && [ "$_nm" -eq 0 ]; then
+    echo "note: covers_through: absent in $(basename "$retro_file") — no blocks_since_retro reset proposed" >&2
+  fi
+}
 _print_summaries() {
+  _print_counter_reset
   if [ $apply -eq 1 ]; then
     # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
     # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
