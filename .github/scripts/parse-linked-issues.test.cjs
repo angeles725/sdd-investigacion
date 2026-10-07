@@ -274,8 +274,11 @@ test('whichever of code span and comment opens first wins, in both directions', 
   assert.deepEqual(parseLinkedIssues('`a` <!-- Closes #1 -->'), ok());
   // Span wraps lines; a real comment after its close hides its content.
   assert.deepEqual(parseLinkedIssues('a `code\nmore` <!-- ` Closes #1 -->'), ok());
-  // A span that wraps lines may contain a comment opener.
-  assert.deepEqual(parseLinkedIssues('Use `foo\n<!-- bar` here.\n\nCloses #5'), ok(closing(5)));
+  // A span that wraps lines may contain a mid-line comment opener.
+  assert.deepEqual(parseLinkedIssues('Use `foo\nsee <!-- bar` here.\n\nCloses #5'), ok(closing(5)));
+  // A line that STARTS with `<!--` opens an HTML block, which interrupts the paragraph: no span, real
+  // comment with no `-->` hides the rest.
+  assert.deepEqual(parseLinkedIssues('Use `foo\n<!-- bar` here.\n\nCloses #5'), ok());
   // A longer run containing a shorter run and a marker.
   assert.deepEqual(parseLinkedIssues('``a `<!--` b``\n\nCloses #5'), ok(closing(5)));
 });
@@ -283,6 +286,18 @@ test('whichever of code span and comment opens first wins, in both directions', 
 test('an unmatched backtick run is literal and never opens a span across a blank line', () => {
   assert.deepEqual(parseLinkedIssues('Literal `` here.\n\nCloses #5\n\nand `code`.'), ok(closing(5)));
   assert.deepEqual(parseLinkedIssues('a `b\n\nCloses #5\n\nc `d`'), ok(closing(5)));
+});
+
+test('block starts interrupt the paragraph, so a span never reaches past them', () => {
+  // N1: the interrupting line opens a real comment; its content stays hidden.
+  assert.deepEqual(parseLinkedIssues('a `x\n<!-- `Closes #1 -->'), ok());
+  assert.deepEqual(parseLinkedIssues('a `x\n- <!-- `Closes #1 -->'), ok());
+  assert.deepEqual(parseLinkedIssues('a `x\n## <!-- `Closes #1 -->'), ok());
+  // N3: other interrupters (list item, heading, blockquote, thematic break) keep the reference visible.
+  assert.deepEqual(parseLinkedIssues('- fixes the `foo path\nCloses #5\n- see `bar`'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n## h `y`'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n> q `y`'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('a `x\nCloses #5\n---\n`y`'), ok(closing(5)));
 });
 
 test('a genuinely commented or fenced reference is still ignored next to inline-code comment markers', () => {

@@ -61,12 +61,17 @@ const MALFORMED_PATTERN = new RegExp(
 //  - comment: opened by `<!--` outside a span, closed by `-->` or EOF; may cross blank lines.
 const FENCE_OPEN = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
 
+// CommonMark block starts that interrupt a paragraph, and so end any code span still open: an HTML block
+// start (`<!--`), ATX heading, list item, blockquote, thematic break. (Indented code is out of scope.)
+const PARAGRAPH_INTERRUPT =
+  /^ {0,3}(?:<!--|#{1,6}(?:\s|$)|(?:[-+*]|\d{1,9}[.)])(?:\s|$)|>|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/;
+
 // Find a closing backtick run of exactly `n` on lines[i] from `col`, then on following lines of the same
 // paragraph. Returns {line, end} (index just after the closer) or null.
 function findSpanCloser(lines, i, col, n) {
   const runs = /`+/g;
   for (let j = i; j < lines.length; j++) {
-    if (j > i && (/^\s*$/.test(lines[j]) || FENCE_OPEN.test(lines[j]))) return null;
+    if (j > i && (/^\s*$/.test(lines[j]) || FENCE_OPEN.test(lines[j]) || PARAGRAPH_INTERRUPT.test(lines[j]))) return null;
     runs.lastIndex = j === i ? col : 0;
     for (let m = runs.exec(lines[j]); m !== null; m = runs.exec(lines[j])) {
       if (m[0].length === n) return { line: j, end: m.index + n };
