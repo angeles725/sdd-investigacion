@@ -11,11 +11,21 @@
 # where a from-memory self-report drifts. The token-check (does each [CERT] token appear in its source) still
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
-# Usage: verify-block.sh [--strict-ephemeral] <block.md> [target-dir]
+# Usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]
 #   --strict-ephemeral (or env RSDD_STRICT_EPHEMERAL=1): ephemeral-path cites FAIL (EPHEMERAL!, exit 1). WITHOUT it they are
 #       a typed WARN (EPHEMERAL?, counted and listed, exit unchanged) — the default flips to FAIL in the next minor release, kit #1207.
 #        verify-block.sh --possibility-sweep <corpus-dir>   (list existing bare feasibility verdicts; read-only)
-#   target-dir defaults to the block's own directory (file:line citations are target-relative).
+#   target-dir defaults to the block's own directory (file:line citations are target-relative). `sources/…`
+#       cites resolve against the target-dir, so for a NESTED corpus (`$TARGET/corpus/…`) pass the CORPUS ROOT as
+#       target-dir — running with the project root leaves every `sources/…` cite `extern` (kit #1905).
+#   --extern-check (kit #1906, opt-in): a cross-target corpus cites mostly files OUTSIDE the corpus by ABSOLUTE
+#       path (`/abs/file.py:12-14`); by default they are `extern` and never looked at. With the flag an absolute
+#       backticked cite whose file is a regular readable file has its END line checked against the file's line
+#       count: `ok extern` (counted resolved) or `RANGE!` + exit 1 past EOF. The file is only COUNTED — NO content
+#       is ever printed (a block is agent-authored; echoing cited files could leak secrets). A missing, non-regular
+#       or unreadable file stays a typed `extern`. A final `extern-check: verified N of A absolute backticked
+#       name.ext:N cite(s); R relative cite(s) cannot be resolved` line states what was checked; the token-check
+#       (does the line say what the block claims) still needs the agent. Without the flag: unchanged.
 #       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
@@ -88,7 +98,14 @@ pf_scan() {
 
 # --strict-ephemeral / RSDD_STRICT_EPHEMERAL=1 (kit #1207): ephemeral-path cites FAIL (EPHEMERAL!) instead of WARN (EPHEMERAL?).
 STRICT_EP=0; [ "${RSDD_STRICT_EPHEMERAL:-}" = "1" ] && STRICT_EP=1
-_vb_args=(); for _vb_a in "$@"; do if [ "$_vb_a" = "--strict-ephemeral" ]; then STRICT_EP=1; else _vb_args+=("$_vb_a"); fi; done  # VB-EP-STRICT-FLAG
+EXTERN_CHECK=0  # kit #1906: opt-in, no env form (it reads and counts files outside the target and never prints their content)
+_vb_args=(); for _vb_a in "$@"; do
+  case "$_vb_a" in
+    --strict-ephemeral) STRICT_EP=1 ;;  # VB-EP-STRICT-FLAG
+    --extern-check) EXTERN_CHECK=1 ;;  # VB-EXTERN-CHECK-FLAG
+    *) _vb_args+=("$_vb_a") ;;
+  esac
+done
 set -- ${_vb_args[@]+"${_vb_args[@]}"}
 if [ "${1:-}" = "--possibility-sweep" ]; then
   sweep_dir="${2:-}"
@@ -107,7 +124,7 @@ if [ "${1:-}" = "--possibility-sweep" ]; then
 fi
 
 block="${1:-}"
-[ -f "$block" ] || { echo "usage: verify-block.sh <block.md> [target-dir]" >&2; exit 2; }
+[ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
 # Nested-corpus fallback: for a block inside a corpus sub-directory, own-project source lives above
 # the corpus dir and does not resolve under $target. Find the git root once (bounded — one git call,
@@ -648,6 +665,7 @@ if [ -n "$probe_found" ] && [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$
 fi
 _vb_ok=0; _vb_m=0  # P9-RESOLVED-SUMMARY: ok resolutions vs. total attempted (bt + art cites)
 _vb_e=0; _vb_f=0   # P9-SPLIT: extern (file not found anywhere) vs. failed (RANGE!/MISSING!: the cite itself is wrong)
+_vb_xa=0; _vb_xr=0; _vb_xrel=0  # VB-EXTERN-CHECK counters: absolute extern cites seen / verified, relative extern cites
 # kit #973: tokens split off as non-path are listed here, visibly, and never counted in M.
 [ "$_vb_np_err" -ge 2 ] && printf '   WARN: non-path token split FAILED (grep exit %d) — ip:port / host:port tokens are counted as file cites\n' "$_vb_np_err"
 if [ -n "$_vb_np_cites" ]; then
@@ -740,6 +758,30 @@ if [ -n "$bt_cites" ]; then
       # P973-NONPATH-METHOD: `Class.method:NNN` — no root holds the file AND the name has no path and an extension
       # that is not a known file extension. Only reached for an UNRESOLVED cite, so an existing file (any extension)
       # is never reclassified and ok / RANGE! / the exit code are untouched. It was counted in M above: take it back.
+      # VB-EXTERN-CHECK (kit #1906): opt-in line-count check of an ABSOLUTE extern cite (never prints file content). Reached only for an unresolved cite and only
+      # with --extern-check, so the default verdict, counts and exit code are untouched. A path with `/` never reaches the
+      # Class.method branch below, so this cannot steal a nonpath token. In range -> ok (counted resolved, not extern);
+      # past EOF -> RANGE! + exit 1 like an in-target cite; not a readable file -> typed extern, still counted E.
+      if [ "$EXTERN_CHECK" = 1 ] && [ "${f:0:1}" = "/" ]; then
+        _vb_xa=$((_vb_xa+1))
+        if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+          echo "   extern  $c  (absolute path not found or unreadable — not script-verifiable)"; _vb_e=$((_vb_e+1)); continue
+        fi
+        # The file is only COUNTED (awk NR: an unterminated last line counts, CR is ignored); no byte of it is ever echoed.
+        # awk stops at the cited END line (`print e`), so an in-range cite does not read the rest of the file; past EOF it
+        # prints the full count. A counter that fails (non-zero status, or no number) is NEVER a verdict: typed DEGRADED, exit 1.
+        total=$(awk -v e="$end" 'NR>=e{f=1;exit} END{print f?e:NR}' "$f"); _vb_aw=$?
+        if [ "$_vb_aw" -ne 0 ] || [[ ! "$total" =~ ^[0-9]+$ ]]; then
+          echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue
+        fi
+        _vb_xr=$((_vb_xr+1))
+        if [ "$end" -gt "$total" ]; then
+          echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1)); continue
+        fi
+        if [ "$start" = "$end" ]; then echo "   ok extern $c"; else echo "   ok extern $c  (range end verified)"; fi
+        _vb_ok=$((_vb_ok+1))
+        continue
+      fi
       _vb_np_ext="${f##*.}"; _vb_np_ext="${_vb_np_ext,,}"
       # method-like: no path, ext = lower-case identifier (not digits-only, never a bare `R`/`M`), name has an upper-case letter
       _vb_np_m=0
@@ -751,6 +793,7 @@ if [ -n "$bt_cites" ]; then
         echo "   nonpath  $c  (not a file path: unknown extension '$_vb_np_ext', no such file — likely Class.method:NNN; excluded from M)"
         _vb_m=$((_vb_m-1)); _vb_np_n=$((_vb_np_n+1)); continue  # P973-NONPATH-METHOD
       fi
+      [ "$EXTERN_CHECK" = 1 ] && _vb_xrel=$((_vb_xrel+1))  # a relative extern cite: no root to read it from
       echo "   extern  $c  (not in target: beautified-temp / decompiled / snapshot — not script-verifiable)"; _vb_e=$((_vb_e+1))  # P9-VB-E-EXTERN
     fi
   done <<< "$bt_cites"
@@ -762,6 +805,8 @@ if [ -n "$short_cites" ]; then
     echo "   short   $c  (short form — file implied by context; not script-verifiable)"
   done <<< "$short_cites"
 fi
+# VB-EXTERN-CHECK-SUMMARY: with the flag, always say what was looked at — a zero read must be distinguishable from "not asked".
+[ "$EXTERN_CHECK" = 1 ] && echo "   extern-check: verified $_vb_xr of $_vb_xa absolute backticked name.ext:N cite(s); $_vb_xrel relative cite(s) cannot be resolved"
 # P9-RESOLVED-SUMMARY: print resolved N of M and WARN when N=0 and M>0 (issue #956, §7 false-negative).
 # Fires when citations were attempted but none resolved — distinct from P6 (no citations at all).
 # WARN is graded by the block's declared Type:, using the same taxonomy as P6 (P9-TYPE-PARSE-EARLY above).
