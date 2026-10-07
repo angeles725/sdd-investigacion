@@ -35,7 +35,8 @@
 #   A retention scan that cannot run (git worktree/for-each-ref failing, an unreadable evidence dir) is a typed
 #   `DEGRADED-<SCAN> ...` line + a `degraded` summary (exit 3 when otherwise clean), never a quiet zero.
 # Prints nothing else on a clean run except the final `CLEAN-CHECK: ...` summary.
-# Exit: 0 clean (retention WARNs never change it) · 1 findings · 2 usage / not a git work tree / absent dir / scan failure (every scan, manifests and probes included) ·
+# Exit: 0 clean (retention WARNs never change it) · 1 findings · 2 usage (an unresolvable --base included; checked before any scan prints) / not a git work tree / absent dir / scan failure (the
+#       untracked, tmp, block, manifest and probes scans; a failing RETENTION scan is exit 3 DEGRADED, never 2) ·
 #       3 DEGRADED (a tool named in REQUIRED_TOOLS below is missing — nothing measured; or no sha256sum/shasum, the
 #         preserved-copy check was skipped, or a retention scan could not run: typed DEGRADED-* line + a `degraded` summary, exit 3 when otherwise clean, findings still win with 1).
 # propose-never-apply: this script never deletes, moves, or writes anything.
@@ -113,6 +114,24 @@ fi
 TMPD="${TMPD%/}"; [ -n "$TMPD" ] || TMPD="/"
 [ -d "$TMPD" ] || { _err "tmp dir not found: $TMPD"; exit 2; }
 TMPD_P="$(cd -P -- "$TMPD" && pwd -P)" || { _err "cannot enter tmp dir: $TMPD"; exit 2; }
+
+# ---- base resolution (kit #1277): done HERE so a bad --base is exit 2 before any scan has printed a line ----
+_base_commit=""; _base_label=""; _base_full=""
+if [ -n "$BASE_ARG" ]; then
+  _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "${BASE_ARG}^{commit}" 2>/dev/null)" || { _err "--base ref not found or not a commit: $BASE_ARG"; exit 2; }
+  _base_label="$BASE_ARG"; _base_full="$(git -C "$TARGET_P" rev-parse --symbolic-full-name "$BASE_ARG" 2>/dev/null)"
+else
+  _sym="$(git -C "$TARGET_P" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null)"; _src=$?   # 1 = not a symbolic ref (absent)
+  if [ "$_src" -eq 0 ] && [ -n "$_sym" ] && git -C "$TARGET_P" rev-parse --verify -q "$_sym^{commit}" >/dev/null 2>&1; then
+    _base_full="$_sym"
+  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/main"
+  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/master^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/master"
+  fi
+  if [ -n "$_base_full" ]; then
+    _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "$_base_full^{commit}" 2>/dev/null)"
+    _base_label="${_base_full#refs/remotes/}"; _base_label="${_base_label#refs/heads/}"
+  fi
+fi
 
 SCRATCH_P=""
 [ -n "$SCRATCH_ARG" ] && CLEAN_CHECK_SCRATCHPAD="$SCRATCH_ARG"
@@ -370,7 +389,24 @@ _warn() { printf 'WARN %s\n' "$1"; WARNINGS=$((WARNINGS + 1)); }
 # (e) stale worktrees. `git worktree list --porcelain` blocks (blank-line separated); the first block is the main one.
 WT_STATE="not evaluated"
 WT_CHECKED=()   # branches checked out in some worktree, the main one included (never reported as merged)
-if _wt_raw="$(git -C "$TARGET_P" worktree list --porcelain 2>/dev/null)"; then   # CC-WT-LIST
+_wt_ok=0   # 1 only when the worktree list was read: WT_CHECKED is then complete
+_wl=()
+# _wt_try [-z]: read `git worktree list --porcelain [-z]` into _wl (one element per record), true only when git exited 0.
+# -z (git >= 2.36) keeps a newline inside a path whole; older git rejects it and the caller falls back to line mode.
+_wt_try() {
+  local _l _mk _last
+  _wl=()
+  if [ "${1:-}" = "-z" ]; then
+    while IFS= read -r -d '' _l; do _wl+=("$_l"); done < <(git -C "$TARGET_P" worktree list --porcelain -z 2>/dev/null; printf 'RC=%s\0' "$?")
+  else
+    while IFS= read -r _l || [ -n "$_l" ]; do _wl+=("$_l"); done < <(git -C "$TARGET_P" worktree list --porcelain 2>/dev/null; printf 'RC=%s\n' "$?")
+  fi
+  _last=$(( ${#_wl[@]} - 1 ))
+  [ "$_last" -ge 0 ] && [ "${_wl[$_last]}" = "RC=0" ] || return 1
+  unset "_wl[$_last]"
+}
+if _wt_try -z || _wt_try; then   # CC-WT-LIST
+  _wt_ok=1
   _wn=0; _wstale=0; _wp=""; _wprun=""; _wlock=""; _wbare=0; _wbr=""
   _wt_flush() {
     [ -n "$_wp" ] || return 0
@@ -382,7 +418,7 @@ if _wt_raw="$(git -C "$TARGET_P" worktree list --porcelain 2>/dev/null)"; then  
     fi
     _wn=$((_wn + 1)); _wp=""; _wprun=""; _wlock=""; _wbare=0; _wbr=""
   }
-  while IFS= read -r _l || [ -n "$_l" ]; do
+  for _l in ${_wl[@]+"${_wl[@]}"}; do
     case "$_l" in
       "worktree "*) _wt_flush; _wp="${_l#worktree }" ;;
       "prunable"*)  _wprun="${_l#prunable}"; _wprun="${_wprun# }"; [ -n "$_wprun" ] || _wprun="prunable" ;;
@@ -390,7 +426,7 @@ if _wt_raw="$(git -C "$TARGET_P" worktree list --porcelain 2>/dev/null)"; then  
       "bare")       _wbare=1 ;;
       "branch "*)   _wbr="${_l#branch }" ;;
     esac
-  done <<<"$_wt_raw"
+  done
   _wt_flush
   WT_STATE="$_wn registered, $_wstale stale"
 else
@@ -401,22 +437,7 @@ fi
 
 # (f) merged branches (local + remote-tracking) against the base.
 BR_STATE="not evaluated"
-_base_commit=""; _base_label=""; _base_full=""
-if [ -n "$BASE_ARG" ]; then
-  _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "${BASE_ARG}^{commit}" 2>/dev/null)" || { _err "--base ref not found or not a commit: $BASE_ARG"; exit 2; }
-  _base_label="$BASE_ARG"; _base_full="$(git -C "$TARGET_P" rev-parse --symbolic-full-name "$BASE_ARG" 2>/dev/null)"
-else
-  _sym="$(git -C "$TARGET_P" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null)"; _src=$?   # 1 = not a symbolic ref (absent)
-  if [ "$_src" -eq 0 ] && [ -n "$_sym" ] && git -C "$TARGET_P" rev-parse --verify -q "$_sym^{commit}" >/dev/null 2>&1; then
-    _base_full="$_sym"
-  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/main"
-  elif git -C "$TARGET_P" rev-parse --verify -q "refs/heads/master^{commit}" >/dev/null 2>&1; then _base_full="refs/heads/master"
-  fi
-  if [ -n "$_base_full" ]; then
-    _base_commit="$(git -C "$TARGET_P" rev-parse --verify -q "$_base_full^{commit}" 2>/dev/null)"
-    _base_label="${_base_full#refs/remotes/}"; _base_label="${_base_label#refs/heads/}"
-  fi
-fi
+# (the base itself was resolved, and --base validated, right after argument parsing: see "base resolution" above)
 if [ -z "$_base_commit" ]; then
   printf 'ABSENT-BASE %s\n' "no --base, origin/HEAD, main or master found; merged-branch scan skipped"
   BR_STATE="no base"
@@ -429,6 +450,8 @@ else
   esac
   if _bm="$(git -C "$TARGET_P" for-each-ref "--merged=$_base_commit" '--format=%(refname)' refs/heads refs/remotes 2>/dev/null)"; then   # CC-BR-LIST
     _bl=0; _br=0
+    # without the worktree list the checked-out exclusion is unknown, so a local WARN could be false: suppress them
+    [ "$_wt_ok" = 1 ] || printf 'INFO merged-branch scan of local branches skipped: %s\n' "worktree scan degraded, checked-out branches unknown"
     while IFS= read -r _r; do
       [ -n "$_r" ] || continue
       case "$_r" in
@@ -441,6 +464,9 @@ else
       [ -n "$_bb" ] && [ "$_bn" = "$_bb" ] && continue
       _chk=0; for _c in ${WT_CHECKED[@]+"${WT_CHECKED[@]}"}; do [ "$_c" = "$_r" ] && { _chk=1; break; }; done
       [ "$_chk" = 1 ] && continue
+      if [ "$_kind" = "merged-branch" ]; then
+        [ "$_wt_ok" = 1 ] || { continue; }
+      fi
       _warn "$_kind $_nm merged into $_base_label"
       if [ "$_kind" = "merged-branch" ]; then _bl=$((_bl + 1)); else _br=$((_br + 1)); fi
     done <<<"$_bm"
@@ -463,18 +489,36 @@ if [ -n "$EVID_ARG" ]; then
   else printf 'ABSENT-EVIDENCE %s\n' "$EVID_ARG"; EV_STATE="absent"; _ev_ok=0
   fi
 else
+  # find's stderr is captured (English, LC_ALL=C) so a failure can be attributed: an unreadable directory that is
+  # NOT under an _evidence dir only hides evidence dirs below it -> typed INFO naming it; anything else degrades.
   _evraw=()
   while IFS= read -r -d '' _p; do _evraw+=("$_p"); done < <(
-    find "$TARGET_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -maxdepth 4 -name .git -prune -o -type d -name _evidence -print0
-    printf 'RC=%s\0' "$?"
+    { _ferr="$(LC_ALL=C find "$TARGET_P" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -maxdepth 4 -name .git -prune -o -type d -name _evidence -print0 2>&1 1>&3 3>&-)"; _frc=$?; } 3>&1
+    printf 'ERR=%s\0' "$_ferr"
+    printf 'RC=%s\0' "$_frc"
   )
   _el=$(( ${#_evraw[@]} - 1 ))
-  if [ "$_el" -ge 0 ] && [ "${_evraw[$_el]}" = "RC=0" ]; then
-    for ((_i = 0; _i < _el; _i++)); do _evdirs+=("${_evraw[$_i]}"); done
-    [ "${#_evdirs[@]}" -gt 0 ] || { EV_STATE="none found"; _ev_ok=0; }
-  else
-    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories failed under $TARGET_P" "evidence scan failed"
+  _ev_fatal=0
+  if [ "$_el" -ge 1 ] && [[ "${_evraw[$_el]}" == RC=* ]] && [[ "${_evraw[$((_el - 1))]}" == ERR=* ]]; then
+    _frc="${_evraw[$_el]#RC=}"; _ferr="${_evraw[$((_el - 1))]#ERR=}"
+    for ((_i = 0; _i < _el - 1; _i++)); do _evdirs+=("${_evraw[$_i]}"); done
+    if [ "$_frc" != 0 ]; then
+      _ev_fatal=1   # an error with no readable attribution stays fatal
+      while IFS= read -r _fl; do
+        [ -n "$_fl" ] || continue
+        case "$_fl" in
+          *_evidence*) _ev_fatal=1; break ;;
+          *"Permission denied"*) _ev_fatal=0; printf 'INFO evidence-discovery skipped unreadable directory (evidence dirs below it, if any, are not scanned): %s\n' "$_fl" ;;
+          *) _ev_fatal=1; break ;;
+        esac
+      done <<<"$_ferr"
+    fi
+  else _ev_fatal=1; _ferr="no exit status recovered from find"
+  fi
+  if [ "$_ev_fatal" = 1 ]; then
+    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories failed under $TARGET_P: ${_ferr//$'\n'/ }" "evidence scan failed"
     EV_STATE="degraded"; _ev_ok=0
+  elif [ "${#_evdirs[@]}" -eq 0 ]; then EV_STATE="none found"; _ev_ok=0
   fi
 fi
 if [ "$_ev_ok" = 1 ]; then
@@ -482,7 +526,7 @@ if [ "$_ev_ok" = 1 ]; then
   for _d in "${_evdirs[@]}"; do
     _bk=()
     while IFS= read -r -d '' _p; do _bk+=("$_p"); done < <(
-      find "$_d" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 2 \( -iname '*rollback*' -o -iname '*backup*' \) -mmin "+$((BACKUP_D * 1440))" -print0   # CC-EV-FIND
+      find "$_d" ${FIND_RACE[@]+"${FIND_RACE[@]}"} -mindepth 1 -maxdepth 2 \( -iname '*rollback*' -o -iname '*backup*' \) -mmin "+$((BACKUP_D * 1440))" -print0 -prune   # CC-EV-FIND: a matched dir is reported once, its matching children are pruned
       printf 'RC=%s\0' "$?"
     )
     _bl=$(( ${#_bk[@]} - 1 ))

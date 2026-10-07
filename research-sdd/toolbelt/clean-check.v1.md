@@ -133,9 +133,16 @@ Output order: the `ABSENT-KEEPLIST` line (only when `keep.txt` is missing), then
 `DEGRADED-NO-SHA256` when they apply, `UNPRESERVED-ARTIFACT` / `UNMANIFESTED-SCRIPT` per file in
 sorted file order), then the retention section (worktree warnings or `DEGRADED-WORKTREE-SCAN`; `ABSENT-BASE` /
 branch warnings or `DEGRADED-BRANCH-SCAN`; `ABSENT-EVIDENCE` / backup warnings in sorted order or
-`DEGRADED-EVIDENCE-SCAN`), then one summary line. So a clean run with a keep-list and no retention
+`DEGRADED-EVIDENCE-SCAN`), then one summary line. So a clean run with a keep-list, a resolvable base and no retention
 warnings prints exactly one line, the summary; a clean run without a keep-list prints `ABSENT-KEEPLIST` and
-the summary.
+the summary, and one without a resolvable base also prints `ABSENT-BASE` just before it. Two typed `INFO` lines can
+precede the summary and never change the exit code: `INFO evidence-discovery skipped unreadable directory ...` (the
+`_evidence` discovery `find` could not read a directory that is not under an `_evidence` dir; the message names it, and
+`_evidence` dirs below it, if any, were not scanned) and `INFO merged-branch scan of local branches skipped ...` (the
+worktree scan degraded, so which branches are checked out is unknown and local merged-branch WARNs are suppressed rather
+than risk false ones; remote-tracking WARNs still run). A matching backup directory is reported once; backup-named
+entries inside it are not listed separately. `git worktree list --porcelain -z` is used when git supports it (2.36+),
+so a newline inside a worktree path is reported whole; older git falls back to the line form, where such a path is truncated.
 
 ```
 CLEAN-CHECK: clean (untracked in <target>, tmp.* in <tmp> older than <H>h, keep-list entries: <K>, scratchpad: <state>, worktrees: <W>, branches: <B>, evidence: <E>, warnings: <N>)
@@ -192,4 +199,4 @@ uses it to prove the filter bites without needing a second user.
   `_evidence` directory are not examined.
 - Branch merge status is git's ancestry test: a squash-merged branch is not an ancestor of the base, so it is not
   reported.
-- Worktree paths containing a newline are not handled (the porcelain format is line-based).
+- Worktree paths containing a newline are handled only when git supports `worktree list -z` (2.36+); on older git the path is truncated at the newline.

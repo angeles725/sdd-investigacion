@@ -525,6 +525,45 @@ if [ "$(id -u)" != 0 ]; then
   { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN"; } && ok "really unreadable evidence subdir -> DEGRADED-EVIDENCE-SCAN, exit 3" || no "unreadable evidence" "(rc=$RC $OUT)"
 fi
 
+# ---- review round: W1 discovery scope, W2 early --base, S4 suppressed branches, S5 pruned backups, S7 newline worktree path
+mkdir -p "$TMP/shim-evdisc" "$TMP/shim-evperm"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { echo "shim-find-diagnostic: discovery exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-evdisc/find"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { %s "$@"; echo "%s: cannot open directory other/locked: Permission denied" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" "$REALFIND" "$REALFIND" > "$TMP/shim-evperm/find"
+chmod +x "$TMP/shim-evdisc/find" "$TMP/shim-evperm/find"
+if [ "$(id -u)" != 0 ]; then
+  fresh_main; mkdir -p "$REPO/other/locked" "$REPO/.research-sdd"; printf '_evidence/\nother/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/other/locked"
+  run --target "$REPO" --tmp "$FT"
+  chmod 755 "$REPO/other/locked"
+  { [ "$RC" = 0 ] && has "INFO evidence-discovery skipped unreadable directory" && has "other/locked" && ! has "DEGRADED"; } \
+    && ok "unreadable NON-_evidence dir -> typed INFO naming the path, not DEGRADED (exit 0)" || no "unreadable non-evidence dir" "(rc=$RC $OUT)"
+  fresh_main; mkdir -p "$REPO/_evidence/t/locked" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/_evidence/t/locked"
+  run --target "$REPO" --tmp "$FT"
+  chmod 755 "$REPO/_evidence/t/locked"
+  { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "unreadable dir UNDER _evidence still degrades and names the path" || no "unreadable evidence names path" "(rc=$RC $OUT)"
+fi
+fresh_main; OUT="$(PATH="$TMP/shim-evdisc:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "discovery exploded"; } && ok "failing discovery find (unattributable error) -> DEGRADED-EVIDENCE-SCAN with the message" || no "discovery degrade" "(rc=$RC $OUT)"
+# W2: --base validated before any scan prints
+fresh_main; printf 'x\n' > "$REPO/stray.json"
+run --target "$REPO" --tmp "$FT" --base nope
+{ [ "$RC" = 2 ] && has "--base ref not found" && ! has "GARBAGE" && ! has "ABSENT-KEEPLIST" && ! has "CLEAN-CHECK"; } && ok "bad --base -> exit 2 with no partial scan output" || no "base early" "(rc=$RC $OUT)"
+# S4: degraded worktree scan -> checked-out branches unknown -> local merged-branch WARNs suppressed
+fresh_main; git -C "$REPO" branch mergedbr; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-WORKTREE-SCAN" && ! has "WARN merged-branch" && has "INFO merged-branch scan of local branches skipped"; } && ok "worktree scan degraded -> local merged-branch WARNs suppressed (typed INFO)" || no "S4 suppress" "(rc=$RC $OUT)"
+# S5: a matching backup dir and its matching children are reported once
+fresh_main; mkdir -p "$REPO/_evidence/rollback-d"; : > "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d"
+mkdir -p "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "stale-backup $REPO/_evidence/rollback-d age" && ! has "rollback-inner" && has "warnings: 1"; } && ok "matching backup dir reported once; its matching children are pruned" || no "S5 prune" "(rc=$RC $OUT)"
+# S7: a newline inside a worktree path survives (git worktree list -z)
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"; WNL="$TMP/wtnl$n/a"$'\n'"b"
+if git -C "$REPO" worktree add -q "$WNL" -b nlbr 2>/dev/null; then
+  rm -rf "$TMP/wtnl$n"
+  run --target "$REPO" --tmp "$FT"
+  { [ "$RC" = 0 ] && [[ "$OUT" == *"a"$'\n'"b missing"* ]] && has "warnings: 1"; } && ok "worktree path containing a newline is reported whole" || no "S7 newline path" "(rc=$RC $OUT)"
+else echo "  (skipped, not counted: git cannot create a worktree with a newline in its path)"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
   # Each control deletes or inverts ONE guard in a COPY of the SUT (lib/mutant.sh refuses a no-op,
@@ -711,6 +750,24 @@ KL
     --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
   mt "absent explicit --evidence dir is no longer typed" "s/printf 'ABSENT-EVIDENCE %s\\\\n' \"\\\$EVID_ARG\"; //" 0 0 \
     --good-has 'ABSENT-EVIDENCE' --bad-lacks 'ABSENT-EVIDENCE' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT" --evidence "$TMP/no-such-evidence"
+  # Review-round teeth. Worlds: NB = no base + no _evidence; PR = nested old backup dir.
+  fresh; git -C "$REPO" branch -M trunk; NB="$REPO"; NBT="$FT"
+  fresh_main; mkdir -p "$REPO/_evidence/rollback-d"; : > "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d"; PR="$REPO"; PRT="$FT"
+  mkdir -p "$PR/.research-sdd"; printf '_evidence/\n' > "$PR/.research-sdd/keep.txt"
+  mt "ABSENT-BASE line removed" "/^  printf 'ABSENT-BASE/s/.*/  :/" 0 0 \
+    --good-has 'ABSENT-BASE' --bad-lacks 'ABSENT-BASE' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "unattributable discovery find failure no longer degrades" '/^    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories/s/_degrade .*/:/' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evdisc:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "evidence: none found state lost" 's/EV_STATE="none found"/EV_STATE="not evaluated"/' 0 0 \
+    --good-has 'evidence: none found' --bad-lacks 'evidence: none found' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "backup-dir prune removed (children double-reported)" '/# CC-EV-FIND/s/ -prune//' 0 0 \
+    --good-lacks 'rollback-inner' --bad-has 'rollback-inner' -- "$BASH_BIN" @SUT@ --target "$PR" --tmp "$PRT"
+  mt "degraded worktree scan no longer suppresses local branch WARNs" 's/\[ "\$_wt_ok" = 1 \] || { continue; }/:/' 3 3 \
+    --good-lacks 'WARN merged-branch' --bad-has 'WARN merged-branch' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "unreadable non-evidence dir is no longer a typed INFO" 's/INFO evidence-discovery skipped/NOTE evidence-discovery skipped/' 0 0 \
+    --good-has 'INFO evidence-discovery' --bad-lacks 'INFO evidence-discovery' -- env "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "non-evidence unreadable dir degrades the whole run" 's/\*"Permission denied"\*) _ev_fatal=0;/*"Permission denied"*) _ev_fatal=1;/' 0 3 \
+    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
   # World R2: origin/HEAD base with a local twin of the base and a merged remote branch.
   fresh_main; R2="$REPO"; R2T="$FT"; RB2="$TMP/r2-remote.git"; git init -q --bare "$RB2"; git -C "$R2" remote add origin "$RB2"
   git -C "$R2" push -q origin main; git -C "$R2" push -q origin main:refs/heads/rdone; git -C "$R2" fetch -q origin; git -C "$R2" remote set-head origin main >/dev/null; git -C "$R2" switch -q -c other   # HEAD off main, so main is a reportable twin
