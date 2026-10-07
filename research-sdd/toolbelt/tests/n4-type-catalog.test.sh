@@ -257,6 +257,65 @@ run "$SUT" show "$ROOT/two" BFoo
 SEQ="$(grep -oE '^[a-z.]+BFoo' <<<"$OUT" | paste -sd, -)"
 [ "$SEQ" = "aa.pkg.BFoo,mm.pkg.BFoo,zz.pkg.BFoo" ] && ok "T18b ambiguous suffix hits print in sorted order" || no "T18b hit sequence [$SEQ]"
 
+# --- T19 degraded boundary (#1538 R3): PARTIAL unreadable is not degraded; EMPTY is not degraded ------------
+mkdir -p "$ROOT/partial"; cp "$FX/doc/pkg/BFoo.java" "$ROOT/partial/"
+ln -s "$ROOT/partial/nowhere" "$ROOT/partial/Dead.java"
+run "$SUT" build "$ROOT/partial" --out "$ROOT/partial.json"
+rc_is "T19a one readable + one unreadable .java is a partial read: exit 0" 0
+has "T19a the summary still counts the unreadable entry" "$OUT" 'unreadable: 1( |$)'
+lacks "T19a not reported as degraded" "$ERR" 'degraded'
+run "$SUT" show "$ROOT/partial" BFoo
+rc_is "T19b show over a partial dir exits 0" 0
+run "$SUT" build "$ROOT/empty" --out "$ROOT/empty.json"
+rc_is "T19c a dir with no .java files exits 1" 1
+lacks "T19c empty-input is not degraded" "$ERR" 'degraded'
+
+# --- T20 slot-key round trip (#1538 R3): every key _SLOT_KEYS demands is emitted by build, each is enforced ---
+cat > "$ROOT/roundtrip.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("n4mod", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+n = 0
+for root in sys.argv[2:]:
+    for t in m.build_catalog([root]).values():
+        for lab in ("properties", "actions", "topics"):
+            for it in t[lab]:
+                n += 1
+                miss = [k for k in m._SLOT_KEYS if k not in it]
+                if miss:
+                    print("MISSING", miss)
+                    sys.exit(1)
+        m._validate_catalog({"x": t})
+print("slots", n)
+PYEOF
+RT="$(PYTHONDONTWRITEBYTECODE=1 python3 -I "$ROOT/roundtrip.py" "$PY" "$FX/doc" "$FX/cfr" 2>&1)"
+has "T20a build emits every _SLOT_KEYS key on every fixture slot and validation accepts it" "$RT" '^slots [1-9][0-9]*$'
+for k in name flags flagLetters default facets; do
+  python3 -I -c '
+import json, sys
+slot = {"name": "p", "flags": 0, "flagLetters": "", "default": "", "facets": "null"}
+del slot[sys.argv[1]]
+json.dump({"a.B": {"extends": "X", "properties": [slot], "actions": [], "topics": []}}, open(sys.argv[2], "w"))
+' "$k" "$ROOT/m-no-$k.json"
+  run "$SUT" show "$ROOT/m-no-$k.json" B
+  rc_is "T20b catalog slot lacking '$k' exits 2" 2
+  lacks "T20b ($k) no traceback" "$ERR" 'Traceback'
+done
+
+# --- T21 every exception class of the catalog load is typed (#1538 R2-002) -------------------------------------
+printf '\377\376{' > "$ROOT/m-utf8.json"
+python3 -I -c 'print("[" * 200000)' > "$ROOT/m-deep.json"
+for m in utf8 deep; do
+  run "$SUT" show "$ROOT/m-$m.json" B
+  rc_is "T21 ($m) exits 2" 2
+  has "T21 ($m) typed message" "$ERR" 'cannot load catalog'
+  lacks "T21 ($m) no traceback" "$ERR" 'Traceback'
+done
+run "$SUT" show "$ROOT/no-such-catalog.json" B
+rc_is "T21 absent catalog path (OSError) exits 2" 2
+has "T21 absent catalog path typed message" "$ERR" 'cannot load catalog'
+
 # ======================== MUTATION CONTROLS — --prove-teeth ==========================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of n4_type_catalog.py must flip a specific verdict --"
@@ -264,11 +323,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUT"' EXIT
   # python mutants: MUTANT_SYNTAX=none is scoped per mutant_chain call, never exported (#1814)
+  # pyok LABEL FILE : a mutant must still compile, so a syntax-broken mutant can never read as teeth
+  pyok() {
+    python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$2" 2>/dev/null \
+      || { echo "  FAIL  $1: mutant is not valid Python"; rm -f "$2"; return 1; }
+  }
   # mp LABEL EXPR GOOD_PATTERN ARGV... : sed-mutate the .py, then require the original to match
   # GOOD_PATTERN and the mutant to LACK it (same rc 0 on both: only the verdict text flips).
   mp() {
     local label="$1" expr="$2" pat="$3" rc="${MP_RC:-0}"; shift 3
     MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" ${MP_EXPR2:+"$MP_EXPR2"} || { fail=$((fail+1)); return 1; }
+    pyok "$label" "$MUT/m_$$.py" || { fail=$((fail+1)); return 1; }
     if mutant_tooth "$label" "$rc" "$rc" "$MUT/m_$$.py" --orig "$PY" --good-has "$pat" --bad-lacks "$pat" -- python3 @SUT@ "$@"; then
       pass=$((pass+1))
     else
@@ -280,8 +345,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mx() {
     local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
     MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" || { fail=$((fail+1)); return 1; }
+    pyok "$label" "$MUT/m_$$.py" || { fail=$((fail+1)); return 1; }
+    # MX_BADHAS: the mutant's output must name the expected failure (e.g. KeyError), so rc 1 alone is never the proof
     # shellcheck disable=SC2086 # MX_PREFIX is a deliberate word-split command prefix (e.g. "timeout 5")
-    if mutant_tooth "$label" "$grc" "$brc" "$MUT/m_$$.py" --orig "$PY" -- ${MX_PREFIX:-} python3 @SUT@ "$@"; then
+    if mutant_tooth "$label" "$grc" "$brc" "$MUT/m_$$.py" --orig "$PY" ${MX_BADHAS:+--bad-has "$MX_BADHAS"} -- ${MX_PREFIX:-} python3 @SUT@ "$@"; then
       pass=$((pass+1))
     else
       fail=$((fail+1))
@@ -310,10 +377,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mx "M14 --out write error swallowed (exit 2 -> 0)" 's/cannot write %s: %s" % (args\.out, e), file=sys.stderr)/&\n            return 0/' 2 0 build "$FX/doc" --out "$ROOT/no-such-dir/c.json"
   MX_PREFIX="timeout 5" mx "M15 non-regular-file guard removed: FIFO blocks (rc 124)" 's/if not os\.path\.isfile(path):/if False:/' 0 124 build "$FIFO_DIR" --out "$ROOT/fifo.json"
   MP_RC=1 mp "M8 zero-.java guard removed: message must name the empty input" 's/if files_seen == 0:/if False:/' 'no \.java files' build "$ROOT/empty"
-  mx "M9 zero-declaration guard removed (exit 1 -> 0)" 's/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
+  mx "M9 zero-declaration guard removed (exit 1 -> 0)" '/^def _build/,$ s/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
   # the #1511 round-2 fixes
   mx "M16 degraded guard removed: all-unreadable root reads as no-match (exit 2 -> 1)" 's/if degraded:/if False:/' 2 1 build "$ROOT/allunr"
-  mx "M17 catalog shape validation removed: malformed catalog tracebacks (exit 2 -> 1)" 's/^    _validate_catalog(cat)$/    pass/' 2 1 show "$ROOT/m-nokeys.json" B
+  MX_BADHAS=KeyError mx "M17 catalog shape validation removed: malformed catalog tracebacks (exit 2 -> 1)" 's/^    _validate_catalog(cat)$/    pass/' 2 1 show "$ROOT/m-nokeys.json" B
   mp "M18 unknown tokens counted for a dropped duplicate" 's/^\( *\)continue    # a dropped duplicate.*/\1pass/' 'unknown-flag-tokens: 1 ' build "$FX/doc" "$ROOT/dupdoc"
   mp "M19 hex literal branch removed" 's/\^0\[xX\]\[0-9a-fA-F\]+\$/^NOPE$/' 'hex +flags=16 +a ' show "$ROOT/num" BNum
   mp "M20 only the first |-separated numeric token decoded" 's/for part in expr\.split("|"):/for part in expr.split("|")[:1]:/' 'multi +flags=1032 ' show "$ROOT/num" BNum
@@ -321,7 +388,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   MUTANT_SYNTAX=none mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
   if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m21.py"
-  MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" 's/^    if not cat:$/    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
+  MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" '0,/^    if not cat:$/s//    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
+  # #1538 advisories
+  mx "M23 degraded boundary widened: a PARTIAL read becomes degraded (exit 0 -> 2)" 's/stats\["read_files"\] == 0:/stats["read_files"] >= 0:/' 0 2 build "$ROOT/partial" --out "$ROOT/partial-m.json"
+  mx "M24 degraded '> 0' widened: empty input reads as degraded (exit 1 -> 2)" 's/if stats\["unreadable"\] > 0 and/if stats["unreadable"] >= 0 and/' 1 2 build "$ROOT/empty"
+  MX_BADHAS=KeyError mx "M25 first slot key (name) no longer required (exit 2 -> 1)" 's/^_SLOT_KEYS = ("name", /_SLOT_KEYS = (/' 2 1 show "$ROOT/m-no-name.json" B
+  MX_BADHAS=KeyError mx "M26 last slot key (facets) no longer required (exit 2 -> 1)" 's/^\(_SLOT_KEYS = .*\), "facets")$/\1)/' 2 1 show "$ROOT/m-no-facets.json" B
+  MX_BADHAS=RecursionError mx "M27 RecursionError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(OSError, ValueError)/' 2 1 show "$ROOT/m-deep.json" B
+  MX_BADHAS=FileNotFoundError mx "M28 OSError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(ValueError, RecursionError)/' 2 1 show "$ROOT/no-such-catalog.json" B
+  MX_BADHAS=UnicodeDecodeError mx "M29 ValueError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(OSError, RecursionError)/' 2 1 show "$ROOT/m-utf8.json" B
+  # emission side of the slot-key round trip (T20a): build stops emitting 'facets' -> the script run on the MUTANT reports it
+  MUTANT_SYNTAX=none mutant_chain "M30" "$PY" "$MUT/m30.py" 's/rec\["default"\], rec\["facets"\] = _default_and_facets/rec["default"], _unused = _default_and_facets/' || fail=$((fail+1))
+  pyok "M30" "$MUT/m30.py" || fail=$((fail+1))
+  if mutant_tooth "M30 build stops emitting the 'facets' slot key (T20a round trip must go red)" 0 1 "$MUT/m30.py" --orig "$PY" --good-has '^slots [1-9][0-9]*$' --bad-has "^MISSING .*facets" -- python3 -I "$ROOT/roundtrip.py" @SUT@ "$FX/doc" "$FX/cfr"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  rm -f "$MUT/m30.py"
+  # show-side degraded guard (T14b): without it an all-unreadable dir reads as an empty catalog (exit 1)
+  MX_BADHAS='no types catalogued' mx "M31 show-side degraded guard removed (exit 2 -> 1)" 's/^\( *\)degraded = _degraded(stats, \[args\.catalog\]).*/\1degraded = None/' 2 1 show "$ROOT/allunr" BFoo
 fi
 
 echo "== $pass passed · $fail failed =="
