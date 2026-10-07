@@ -126,6 +126,18 @@ fi
 block="${1:-}"
 [ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
+# VB-LINECOUNT (kit #1919): the ONE line counter for every cite path (artifact, backtick, --extern-check). awk NR counts an
+# UNTERMINATED last line (`wc -l` counts newline characters and was one short; CR is ignored by awk).
+# `_vb_lines FILE [END]` prints the line count; with END it stops at that line (prints END when the
+# file reaches it) so a fit check on a big file does not read the rest. A counter that fails (non-zero status, or no number)
+# prints nothing and returns 1: callers treat that as a typed DEGRADED, never as a verdict. Only COUNTS, never file content.
+_vb_lines() {
+  local _vb_lc_n _vb_lc_s
+  _vb_lc_n=$(awk -v e="${2:-0}" 'e>0&&NR>=e{f=1;exit} END{print f?e:NR}' "$1"); _vb_lc_s=$?
+  [ "$_vb_lc_s" -eq 0 ] || return 1  # VB-LINECOUNT-STATUS
+  [[ "$_vb_lc_n" =~ ^[0-9]+$ ]] || return 1  # VB-LINECOUNT-NUMERIC
+  printf '%s\n' "$_vb_lc_n"
+}
 # Nested-corpus fallback: for a block inside a corpus sub-directory, own-project source lives above
 # the corpus dir and does not resolve under $target. Find the git root once (bounded — one git call,
 # no filesystem walk) so the bt_cite loop can try it as a secondary location before declaring extern.
@@ -695,7 +707,7 @@ if [ -n "$art_cites" ]; then
     if [ ! -f "$target/$f" ]; then
       echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1; _vb_f=$((_vb_f+1))  # P9-VB-F-MISSING
     else
-      total=$(wc -l < "$target/$f")
+      total=$(_vb_lines "$target/$f") || { echo "   linecount DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue; }  # VB-LINECOUNT-ART
       # FAIL if either endpoint is past EOF or the range is reversed (start > end).
       if [ "$start" -le "$total" ] && [ "$end" -le "$total" ] && [ "$start" -le "$end" ]; then
         echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-ART
@@ -737,14 +749,16 @@ if [ -n "$bt_cites" ]; then
     for _bt_i in "${!_bt_roots[@]}"; do
       [ -f "${_bt_roots[$_bt_i]}/$f" ] || continue
       [ -z "$_bt_first" ] && { _bt_first="${_bt_roots[$_bt_i]}/$f"; _bt_first_tag="${_bt_lbl[$_bt_i]}"; }
-      if [ "$end" -le "$(wc -l < "${_bt_roots[$_bt_i]}/$f")" ]; then  # BT-RANGE-FIT
+      # a counter that fails here is not a "does not fit": it falls through to the first-existing-file branch below,
+      # whose own count fails the same way and reports the typed DEGRADED (never a verdict from a failed count).
+      if _vb_fit=$(_vb_lines "${_bt_roots[$_bt_i]}/$f" "$end") && [ "$end" -le "$_vb_fit" ]; then  # BT-RANGE-FIT
         _bt_resolve="${_bt_roots[$_bt_i]}/$f"; _bt_tag="${_bt_lbl[$_bt_i]}"; break
       fi
     done
     [ -z "$_bt_resolve" ] && [ -n "$_bt_first" ] && { _bt_resolve="$_bt_first"; _bt_tag="$_bt_first_tag"; }
     _bt_okp="ok      "; [ -n "$_bt_tag" ] && _bt_okp="ok $_bt_tag"  # TARGET-ROOT-LABEL
     if [ -f "$_bt_resolve" ]; then
-      total=$(wc -l < "$_bt_resolve")
+      total=$(_vb_lines "$_bt_resolve") || { echo "   linecount DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue; }  # VB-LINECOUNT-BT
       if [ "$end" -le "$total" ]; then
         if [ "$start" = "$end" ]; then
           echo "   $_bt_okp$c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-BT
@@ -770,10 +784,9 @@ if [ -n "$bt_cites" ]; then
         # The file is only COUNTED (awk NR: an unterminated last line counts, CR is ignored); no byte of it is ever echoed.
         # awk stops at the cited END line (`print e`), so an in-range cite does not read the rest of the file; past EOF it
         # prints the full count. A counter that fails (non-zero status, or no number) is NEVER a verdict: typed DEGRADED, exit 1.
-        total=$(awk -v e="$end" 'NR>=e{f=1;exit} END{print f?e:NR}' "$f"); _vb_aw=$?
-        if [ "$_vb_aw" -ne 0 ] || [[ ! "$total" =~ ^[0-9]+$ ]]; then
+        total=$(_vb_lines "$f" "$end") || {  # VB-LINECOUNT-EXTERN
           echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue
-        fi
+        }
         _vb_xr=$((_vb_xr+1))
         if [ "$end" -gt "$total" ]; then
           echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1)); continue
