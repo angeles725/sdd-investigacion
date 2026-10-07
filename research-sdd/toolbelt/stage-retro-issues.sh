@@ -36,7 +36,7 @@
 #                     yield nothing — column-0 numbered items under a canonical or `### Proposals` heading
 #                     and `## Delta <ID> — [PRIORITY —] title` entries. A heading that produced no items is
 #                     still reported when another list classifies; two lists sharing ids are refused.
-#   no-match         delta section found; all rows shipped/applied
+#   no-match         delta section found; all rows shipped/applied/dismissed
 #
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
@@ -415,6 +415,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_row_state >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_row_state" >&2; exit 1; }
 declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
@@ -1048,7 +1050,7 @@ ensure_target_label() {
 
 # ---------------------------------------------------------------------------
 # Main loop
-open_count=0; skipped_shipped=0; skipped_wrong_kit=0
+open_count=0; skipped_shipped=0; skipped_dismissed=0; skipped_wrong_kit=0
 skipped_dedup=0; created=0; failed=0; summary_unknown_outcome=0; unclassifiable=0
 # TWO different "unknown" counters, on purpose — do not merge them:
 #   summary_unknown_outcome  feeds the summary: line's `unknown-outcome=` key (kit issue #1261, historical): rows
@@ -1518,6 +1520,10 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   # (Fully applied/dismissed without PARTIAL already exited above.)
   if [ $is_partial -eq 1 ] && is_shipped "$_rid"; then
     skipped_shipped=$((skipped_shipped+1)); continue
+  # Kit issue #1944: a row the marker resolves as DISMISSED (rejected, not shipped) is closed too: never seeded.
+  elif [ $is_partial -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_rid")" = dismissed ]; then   # STAGE_RETRO_ISSUES_DISMISSED_SKIP
+    echo "no-match: dismissed (row $_rid)" >&2
+    skipped_shipped=$((skipped_shipped+1)); skipped_dismissed=$((skipped_dismissed+1)); continue
   fi
 
   # Wrong-kit check: skip rows targeting a different kit
@@ -1767,7 +1773,11 @@ done <<< "$_rows"
 
 # Summary and no-match detection when all rows were shipped
 if [ "$open_count" -eq 0 ] && [ "$skipped_shipped" -gt 0 ] && [ "$skipped_wrong_kit" -eq 0 ]; then
-  echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
+  if [ "$skipped_dismissed" -gt 0 ]; then
+    echo "no-match: delta section found but all rows are shipped or dismissed (skipped: $skipped_shipped)" >&2
+  else
+    echo "no-match: delta section found but all rows are shipped (skipped: $skipped_shipped)" >&2
+  fi
 fi
 
 _unc_report "none: $((open_count + skipped_shipped + skipped_wrong_kit + unclassifiable)) row(s) examined"

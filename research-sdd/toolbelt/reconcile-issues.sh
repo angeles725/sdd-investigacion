@@ -160,6 +160,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_row_state >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_row_state" >&2; exit 1; }
 declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
@@ -554,6 +556,7 @@ _retro_open_row_titles() {
   while IFS=$'\037' read -r _id _rest; do
     [ -n "$_id" ] || continue
     if [ "$_partial" -eq 1 ] && grep -qxF "$_id" <<<"$_shipped"; then continue; fi
+    if [ "$_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_ml" "$_id")" = dismissed ]; then continue; fi
     printf '%s\037%s\n' "$_id" "$_rest"
   done < <(_retro_row_titles "$f")
 }
@@ -833,8 +836,11 @@ audit_retro() {
     while IFS= read -r _rln; do
       [ -z "$_rln" ] && continue
       if [ "$is_partial" -eq 1 ]; then
-        # Skip rows in the shipped set
+        # Skip rows in the shipped set, and rows the marker resolves as DISMISSED (kit issue #1944)
         if grep -qxF "$_rln" <<<"$shipped_ids"; then
+          continue
+        fi
+        if [ "$(retro_marker_row_state "$_marker_line" "$_rln")" != open ]; then   # RECONCILE_ISSUES_DISMISSED_OPEN
           continue
         fi
       fi
@@ -1036,6 +1042,8 @@ ${_rln}"
         local _orphan_why=""
         if [ "$is_partial" -eq 1 ] && grep -qxF "$_irid" <<<"$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN
           _orphan_why=" — the retro marker lists it shipped; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_ORPHAN
+          _orphan_why=" — the retro marker lists it dismissed; propose closing the issue (not closed here)"
         elif grep -qxF "$_irid" <<<"$_all_row_ids"; then
           case "$_status" in
             applied|dismissed) _orphan_why=" — the retro review-status is ${_status}; propose closing the issue (not closed here)" ;;  # RECONCILE-STATUS-REASON
