@@ -130,7 +130,29 @@ c_id_rule() {   # ONE rule for table first cells and `## Delta <ID>` tokens
 }
 
 # check <function> <lib>: runs one check, returns its rc and prints its failure text.
-CHECKS="c_numbered c_single c_h2 c_h3 c_none c_absent c_rejected_h3 c_blank_flush c_proposed_target c_title_edges c_heads c_dups c_id_rule"
+c_unrec_all() {   # every unrecognised heading, in order; the first one is delta_info's field 5 (parity)
+  local o first f
+  o="$(unrec "$1" list-first-prose-second.md | paste -sd'|' -)"
+  [ "$o" = "### Proposals (propose-never-apply) — cheapest first|## B. Campaign-8 kit-delta backlog" ] || { echo "unrec list: [$o]"; return 1; }
+  for f in "$FIX"/*.md; do
+    first="$(unrec "$1" "$(basename "$f")" | sed -n 1p)"
+    # shellcheck disable=SC1090
+    want="$( . "$1"; info="$(retro_grammar_delta_info "$f")"; case "$info" in 0:*) printf '%s' "${info##*$'\001'}" ;; *) printf '%s' "$first" ;; esac )"
+    [ "$first" = "$want" ] || { echo "parity broken on $(basename "$f"): list-first [$first] delta_info [$want]"; return 1; }
+  done
+  return 0
+}
+# shellcheck disable=SC1090
+unrec() { ( . "$1"; retro_grammar_unrec_headings "$FIX/$2" ); }
+c_canonical_heading() {
+  local o
+  # shellcheck disable=SC1090
+  o="$( . "$1"; retro_grammar_canonical_heading "$FIX/numbered-prose.md"; retro_grammar_canonical_heading "$FIX/lessons-bullets.md"; retro_grammar_canonical_heading "$FIX/two-canonical.md" )"
+  [ "$o" = "$(printf "## Proposed kit deltas\n## Proposed kit deltas")" ] && return 0
+  echo "canonical heading: [$o]"; return 1
+}
+
+CHECKS="c_unrec_all c_canonical_heading c_numbered c_single c_h2 c_h3 c_none c_absent c_rejected_h3 c_blank_flush c_proposed_target c_title_edges c_heads c_dups c_id_rule"
 for c in $CHECKS; do
   if why="$($c "$LIB")"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -160,6 +182,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_title_edges cut-splits-utf8 'invalid UTF-8' '/ALT_CUT_BACKOFF/s/.*/        k = k/'
   tooth c_title_edges no-cap          'item2 (unclosed bold, cap on a character boundary)' '/ALT_TITLE_CAP/s/.*/        if (0) { k = 0 }/'
   tooth c_heads       heads-all       'mixed heads:' '/ALT_HEADS_UNIQ/s/.*/          if (want == "heads") { print src }/'
+  tooth c_unrec_all   unrec-first-only 'unrec list:' '/proposals?/s/) print$/) next/'
+  tooth c_canonical_heading canonical-last 'canonical heading:' 's/!done \&\& is_canonical_heading(tolower($0)) { print; done = 1 }/is_canonical_heading(tolower($0)) { print }/'
   tooth c_dups        dup-off         'dup ids:' 's/retro_grammar_dup_ids() { sort | uniq -d; }/retro_grammar_dup_ids() { sort -u; }/'
   tooth c_id_rule     id-bare-word    'ID=1/0' 's/if (tok !~ \/\[0-9-\]\/ \&\& length(tok) > 1) return 0/if (0) return 0/'
   echo "-- prove-teeth done --"

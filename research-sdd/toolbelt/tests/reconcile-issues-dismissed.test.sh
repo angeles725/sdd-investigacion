@@ -77,7 +77,12 @@ c_open_issue_reported() {   # an OPEN issue for the dismissed row 2 is still rep
   req '^orphaned: issue for row 2 .*dismissed.*propose closing'; uids '3 '; verdict
 }
 
-CHECKS="c_first c_middle c_last c_all_resolved c_open_issue_reported"
+c_malformed() {   # a DISMISSED: list with no usable id: rows not shipped are reported loudly, never listed untracked
+  local b r; b="$(mkbox "mal$1")" || return 1; r="$(mkretro "$b" 'applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: ; DEFERRED: 3' 3)"; run "$b" "$r"; MSG=""
+  uids ''; req '^unclassifiable: row 2 of r.md cannot be told shipped, dismissed or open'; req '^unclassifiable: row 3 of r.md'; forbid 'row 1 of r.md'; verdict
+}
+
+CHECKS="c_first c_middle c_last c_all_resolved c_open_issue_reported c_malformed"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -94,8 +99,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth $label: mutant breaks $chk with [$want]" "()"; fi
     MUT=()
   }
-  tooth c_middle dismissed-open 'UNTRACKED IDS: [2 3 ] != [3 ]' '/RECONCILE_ISSUES_DISMISSED_OPEN/s/!= open/= never/'
+  tooth c_middle dismissed-open 'UNTRACKED IDS: [2 3 ] != [3 ]' '/RECONCILE_ISSUES_DISMISSED_OPEN/s/= dismissed/= never/'
   tooth c_open_issue_reported orphan-reason-off 'MISSING: ^orphaned: issue for row 2 .*dismissed' '/RECONCILE_ISSUES_DISMISSED_ORPHAN/s/= dismissed/= never-dismissed/'
+  tooth c_malformed malformed-silent 'UNTRACKED IDS: [2 3 ] != []' '/RECONCILE_ISSUES_MALFORMED_STATE/s/= malformed/= never-malformed/'
   echo "-- prove-teeth done --"
 fi
 

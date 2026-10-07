@@ -511,6 +511,51 @@ if ! typeset -f retro_grammar_alt_entry_rows >/dev/null 2>&1; then
   }
 fi
 
+# retro_grammar_canonical_heading <file> — the FIRST canonical delta heading line (is_canonical_heading, the one
+# matcher every instrument shares), or nothing when the file has none. Consumers use it to ask "did THE
+# canonical heading produce items?" instead of guessing it with a looser grep (kit issue #1895 round 2).
+# pipefail-audit: defenced | awk reads to EOF (a flag, no early exit). SAFE. Returns 1 for an absent/unreadable file.
+if ! typeset -f retro_grammar_canonical_heading >/dev/null 2>&1; then
+  retro_grammar_canonical_heading() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
+      !done && is_canonical_heading(tolower($0)) { print; done = 1 }
+    '
+  }
+fi
+
+# retro_grammar_unrec_headings <file> — EVERY unrecognised delta-intent heading, one raw line each, in file
+# order: the Rule 1-3 `##` headings and the Rule 4 standalone `### Proposals` of retro_grammar_delta_info, which
+# reports only the FIRST (its field 5). For a file with NO canonical heading (the only case delta_info
+# evaluates them) the first line of this list IS delta_info's field 5; tests pin that parity. Consumers require
+# each of these headings to have produced items, so a list first and a prose heading second cannot hide the
+# prose one (METHODOLOGY section 18: a heading that produces no items stays unclassifiable).
+# pipefail-audit: defenced | awk reads to EOF. SAFE. Returns 1 for an absent/unreadable file.
+if ! typeset -f retro_grammar_unrec_headings >/dev/null 2>&1; then
+  retro_grammar_unrec_headings() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+    _RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_CANONICAL_FN"'
+      { low = tolower($0) }
+      is_canonical_heading(low) { in_sec = 1; next }
+      /^##[^#]/ {
+        in_sec = 0
+        u = 0
+        if (low ~ /^## [0-9. ]*deltas?([[:space:]]|[(]|$)/) u = 1
+        if (!u && low ~ /[ -]kit[ -]delt/ && low !~ /not[ -]+kit[ -]+delt/) u = 1
+        if (!u && low ~ /\(kit-delta/) u = 1
+        if (u) print
+        next
+      }
+      !in_sec && /^###[^#]/ {
+        if (low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) print
+        next
+      }
+    '
+  }
+fi
+
 # retro_grammar_dup_ids — reads item ids on stdin (one per line), prints the ids that occur more than once.
 # A numbered list restarts at 1, so two lists under one retro collide on the id and the issue signature
 # (keyed on the id) would silently merge them; the consumers type such a retro unclassifiable instead.

@@ -110,7 +110,16 @@ c_canon_empty() {   # canonical heading holding prose while a list elsewhere cla
   req '^unclassifiable: delta section found but it produced no items'; req '^tracked: row 1 '; req '^untracked: row 2 '; verdict
 }
 
-CHECKS="c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
+c_list_first() {   # a Proposals list first and a prose kit-delta heading second: the second is still reported
+  local b; b="$(mkbox "lf$1")" || return 1; run "$b" list-first-prose-second.md 1; MSG=""
+  req '^unclassifiable: proposal-like heading found'; req '^tracked: row 1 '; req '^untracked: row 2 '; verdict
+}
+c_two_tables() {
+  local b; b="$(mkbox "tt$1")" || return 1; run "$b" two-tables.md 2; MSG=""
+  req '^untracked: row 1 '; req '^tracked: row 2 '; req '^untracked: row 3 '; req '^untracked: row 4 '; forbid 'row (Proposed|#)'; verdict
+}
+
+CHECKS="c_list_first c_two_tables c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -133,8 +142,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_lettered   id-rule-old2     'MISSING: ^untracked: row SPKI-A ' sut '/RECONCILE_ISSUES_ID_RULE/s/.*/        if (rid ~ \/^[[:alpha:]#][^0-9]*$\/ \&\& rid !~ \/^[A-Z][0-9]\/) next/'
   tooth c_header_hyphen header-drop-off 'UNEXPECTED: row ITEM-ID' sut '/RECONCILE_ISSUES_HEADER_DROP/s/pend = ""; next/next/'
   tooth c_dup_ids    dup-check-off    'MISSING: ^unclassifiable: delta items in' sut 's/^    if \[ -n "\$_alt_dups" \]; then$/    if false; then/'
-  tooth c_mixed      heading-match-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_ALT_HEADING_MATCH/s/grep -qxF -- "\$_unrec_heading" <<<"\$_alt_heads"/true/'
+  tooth c_mixed      heading-match-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
   tooth c_canon_empty canon-heading-off 'MISSING: ^unclassifiable: delta section found but it produced no items' sut '/RECONCILE_ISSUES_ALT_CANON_HEADING/s/if \[ -n "\$_canon_h" \] \&\& ! grep -qxF -- "\$_canon_h" <<<"\$_canon_heads"; then/if false; then/'
+  tooth c_list_first unrec-all-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_UNREC_ALL/s/.*/    _unrec_missing=""/'
   tooth c_rejected_h3 h3-reset-off    'MISSING: ^tracked: row 1 ' lib '/ALT_H3_RESET/s/.*/        flush()/'
   echo "-- prove-teeth done --"
 fi

@@ -181,6 +181,10 @@ declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
 declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_unrec_headings >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_unrec_headings" >&2; exit 1; }
+declare -F retro_grammar_canonical_heading >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_canonical_heading" >&2; exit 1; }
 declare -F retro_grammar_dup_ids >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_dup_ids" >&2; exit 1; }
 declare -F retro_grammar_row_titles >/dev/null 2>&1 \
@@ -546,7 +550,7 @@ _retro_open_row_titles() {
   _st="$(retro_status_from_marker_line "$_ml")"
   if retro_marker_is_partial "$_ml"; then
     _partial=1
-    _raw="$(printf '%s' "$_ml" | grep -oiE 'shipped:[^;>]*' | head -1 | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+    _raw="$(retro_marker_shipped_raw "$_ml")"
     [ -z "$_raw" ] || _shipped="$(retro_marker_shipped_ids "$_raw")"
   fi
   case "$_st" in
@@ -693,10 +697,7 @@ audit_retro() {
   if retro_marker_is_partial "$_marker_line"; then
     is_partial=1
     local _shipped_raw
-    _shipped_raw="$(printf '%s' "$_marker_line" \
-      | grep -oiE 'shipped:[^;>]*' \
-      | head -1 \
-      | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
+    _shipped_raw="$(retro_marker_shipped_raw "$_marker_line")"
     if [ -n "$_shipped_raw" ]; then
       shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
     fi
@@ -719,12 +720,16 @@ audit_retro() {
     # reported may carry a form the shared lib recognises (`## Delta A — …` entries, a `### Proposals` list); only a
     # heading that produced items is classified. A prose heading is still reported, and items elsewhere in the file
     # are then reconciled too.
-    local _unrec_heading _alt_items _alt_heads
-    _unrec_heading="${_grammar_info##*$'\001'}"
+    local _unrec_missing="" _uh _alt_items _alt_heads
     _alt_items="$(retro_grammar_alt_entry_rows "$retro_path")"
     _alt_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
-    if [ "$_unrec_found" = "1" ] && [ -n "$_alt_items" ] && grep -qxF -- "$_unrec_heading" <<<"$_alt_heads"; then   # RECONCILE_ISSUES_ALT_HEADING_MATCH
-      :   # the reported heading produced delta items: the parse below reconciles them
+    # delta_info reports only the FIRST unrecognised heading; every one must have produced items.
+    while IFS= read -r _uh; do
+      [ -n "$_uh" ] || continue
+      grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # RECONCILE_ISSUES_UNREC_ALL
+    done <<<"$(retro_grammar_unrec_headings "$retro_path")"
+    if [ "$_unrec_found" = "1" ] && [ -n "$_alt_items" ] && [ -z "$_unrec_missing" ]; then   # RECONCILE_ISSUES_ALT_HEADING_MATCH
+      :   # every unrecognised heading produced delta items: the parse below reconciles them
     elif [ "$_unrec_found" = "1" ]; then
       echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro_path — needs manual review" >&2
       [ -n "$_alt_items" ] || return 0
@@ -807,7 +812,7 @@ audit_retro() {
     if [ -n "$_all_row_ids" ] && [ "$_found_field" = "1" ]; then
       # A canonical heading that produced no items while a list elsewhere did stays reported (RECONCILE_ISSUES_ALT_CANON_HEADING).
       local _canon_h _canon_heads
-      _canon_h="$(LC_ALL=C grep -m1 -iE '^## .*(delta|propuesta)' "$retro_path")"
+      _canon_h="$(retro_grammar_canonical_heading "$retro_path")"
       _canon_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
       if [ -n "$_canon_h" ] && ! grep -qxF -- "$_canon_h" <<<"$_canon_heads"; then   # RECONCILE_ISSUES_ALT_CANON_HEADING
         echo "unclassifiable: delta section found but it produced no items in $retro_path — needs manual review (items elsewhere in the file are reconciled)" >&2
@@ -840,7 +845,11 @@ audit_retro() {
         if grep -qxF "$_rln" <<<"$shipped_ids"; then
           continue
         fi
-        if [ "$(retro_marker_row_state "$_marker_line" "$_rln")" != open ]; then   # RECONCILE_ISSUES_DISMISSED_OPEN
+        _rstate="$(retro_marker_row_state "$_marker_line" "$_rln")"
+        if [ "$_rstate" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_STATE
+          echo "unclassifiable: row $_rln of $retro_basename cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review" >&2
+          continue
+        elif [ "$_rstate" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_OPEN
           continue
         fi
       fi

@@ -79,7 +79,12 @@ c_not_dismissed() {   # a lower-case 'dismissed:' in prose is free text: nothing
   ids '2 3 '; forbid 'no-match: dismissed'; verdict
 }
 
-CHECKS="c_first c_middle c_last c_single_all_resolved c_fleet_shape c_not_dismissed"
+c_malformed() {   # a DISMISSED: list with no usable id: the unshipped rows are typed unclassifiable-row, never seeded
+  local b r; b="$(mkbox "mal$1")" || return 1; r="$(mkretro "$b" 'applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: (only a reason)' 3)"; run "$b" "$r"; MSG=""
+  ids ''; req 'unclassifiable-row: row 2 cannot be told shipped, dismissed or open'; req 'unclassifiable-row: row 3 cannot be told'; req 'unclassifiable-items: 2'; verdict
+}
+
+CHECKS="c_first c_middle c_last c_single_all_resolved c_fleet_shape c_not_dismissed c_malformed"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -99,6 +104,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_middle  dismissed-not-skipped 'PLANNED IDS: [2 3 ] != [3 ]'   '/STAGE_RETRO_ISSUES_DISMISSED_SKIP/s/= dismissed/= never-dismissed/'
   tooth c_first   typed-line-off        'MISSING: no-match: dismissed (row 1)' 's/echo "no-match: dismissed (row \$_rid)" >&2/:/'
   tooth c_single_all_resolved summary-not-counted 'MISSING: all rows are shipped or dismissed (skipped: 2)' 's/skipped_shipped=\$((skipped_shipped+1)); skipped_dismissed=\$((skipped_dismissed+1)); continue/skipped_dismissed=$((skipped_dismissed+1)); continue/'
+  tooth c_malformed malformed-seeded 'PLANNED IDS: [2 3 ] != []' '/STAGE_RETRO_ISSUES_MALFORMED_STATE/s/= malformed/= never-malformed/'
   echo "-- prove-teeth done --"
 fi
 

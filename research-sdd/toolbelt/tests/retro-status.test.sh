@@ -1335,10 +1335,11 @@ oos=1; retro_marker_out_of_scope "$f" && oos=0
   || no "85 CRLF closed fence holding only a decoy marker → empty, not out-of-scope" "got [$got] oos_rc=$oos"
 
 # ---------------------------------------------------------------------------
-# 86-97 — DISMISSED ids in a PARTIAL marker (kit issue #1944). A row listed after 'DISMISSED:' is
+# 86-110 — DISMISSED ids in a PARTIAL marker (kit issue #1944). A row listed after 'DISMISSED:' is
 #     resolved (neither shipped nor open): retro_marker_row_state must say 'dismissed' so a consumer
 #     can skip it as "no-match: dismissed" instead of seeding it. List edges: first / middle / last
 #     / single position, plus the fleet marker shape (DISMISSED between shipped: and DEFERRED:).
+#     retro_marker_row_state answers exactly one of shipped | dismissed | open | not-partial | malformed.
 dm='<!-- review-status: applied 2026-09-05 · kit abc1234 · PARTIAL — shipped: 3; DISMISSED: #1, #4, #9, #12; DEFERRED: 7 -->'
 got="$(retro_marker_dismissed_ids "$dm" | paste -sd, -)"
 [ "$got" = "1,4,9,12" ] && ok "86 DISMISSED list → normalized ids (# stripped, order kept)" "(got '$got')" \
@@ -1379,17 +1380,83 @@ got="$(retro_marker_dismissed_ids "$pm" | paste -sd, -)"
 [ "$got" = "4,5" ] && ok "95 ';' inside a parenthetical does not truncate the list" "(got '$got')" \
                    || no "95 ';' inside a parenthetical" "got '$got'"
 
-# 96 — no DISMISSED keyword (lowercase 'dismissed:' inside prose or a parenthetical is not one) → no ids.
+# 96 — no DISMISSED keyword (lowercase 'dismissed:' inside prose or a parenthetical is not one) → no ids, rc 0.
 for np in '<!-- review-status: applied 2026-09-05 · kit abc · PARTIAL — shipped: 1 -->' \
           '<!-- review-status: applied 2026-09-05 · kit abc · PARTIAL — shipped: 1 (dismissed: 2 was dropped) -->' \
           '<!-- review-status: applied 2026-09-05 · kit abc · shipped: 1 — dismissed: 2 -->' \
           ''; do
-  got="$(retro_marker_dismissed_ids "$np")"
-  [ -z "$got" ] && ok "96 no DISMISSED keyword → no ids" "($(printf '%.40s' "$np"))" \
-                || no "96 no DISMISSED keyword → no ids" "got '$got' for '$np'"
+  got="$(retro_marker_dismissed_ids "$np")"; rc=$?
+  [ -z "$got" ] && [ "$rc" = 0 ] && ok "96 no DISMISSED keyword → no ids, rc 0" "($(printf '%.40s' "$np"))" \
+                || no "96 no DISMISSED keyword → no ids, rc 0" "got '$got' rc=$rc for '$np'"
 done
+
+# 97 — an empty row id or an empty marker line is MALFORMED input (§7: a typed answer, never a false open/dismissed).
 got="$(retro_marker_row_state "$sm" "")"
-[ "$got" = "open" ] && ok "97 empty row id → open (never a false dismissed)" "()" || no "97 empty row id" "got '$got'"
+[ "$got" = "malformed" ] && ok "97 empty row id → malformed (never open, never dismissed)" "()" || no "97 empty row id → malformed" "got '$got'"
+got="$(retro_marker_row_state "" 2)"
+[ "$got" = "malformed" ] && ok "97b empty marker line → malformed" "()" || no "97b empty marker line → malformed" "got '$got'"
+
+# 98 — precondition: row_state describes a PARTIAL marker. A plain applied/dismissed status marker is not-partial
+#      (typed), even when it carries a DISMISSED: list: the consumers close such a retro by its status instead.
+for np in '<!-- review-status: applied 2026-09-05 · kit abc · DISMISSED: #2 -->' \
+          '<!-- review-status: dismissed 2026-09-05 · all absorbed; DISMISSED: #2 -->'; do
+  got="$(retro_marker_row_state "$np" 2)"
+  [ "$got" = "not-partial" ] && ok "98 non-PARTIAL marker → not-partial" "($(printf '%.45s' "$np"))" \
+                             || no "98 non-PARTIAL marker → not-partial" "got '$got' for '$np'"
+done
+
+# 99 — EVERY DISMISSED segment is read, joined before normalising (a second segment after DEFERRED).
+mm='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: #2; DEFERRED: #7; DISMISSED: #9 -->'
+got="$(retro_marker_dismissed_ids "$mm" | paste -sd, -)"
+[ "$got" = "2,9" ] && ok "99 two DISMISSED segments → 2 and 9" "(got '$got')" || no "99 two DISMISSED segments" "got '$got'"
+got="$(for r in 2 7 9; do printf '%s=%s ' "$r" "$(retro_marker_row_state "$mm" "$r")"; done)"
+[ "$got" = "2=dismissed 7=open 9=dismissed " ] && ok "99b second segment's id is dismissed, DEFERRED stays open" "()" || no "99b second segment" "got [$got]"
+
+# 100 — nested parentheses are stripped innermost-first; a ';' inside them cannot truncate the list.
+nm='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: #2 (x (y); z), #5; DEFERRED: #7 -->'
+got="$(retro_marker_dismissed_ids "$nm" | paste -sd, -)"
+[ "$got" = "2,5" ] && ok "100 nested parentheses → 2 and 5" "(got '$got')" || no "100 nested parentheses" "got '$got'"
+
+# 101 — malformed list (§7): the keyword with an empty list or only a parenthetical is TYPED, not "no dismissed ids".
+for bm in '<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: ; DEFERRED: #7 -->' \
+          '<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: (only a reason) -->' \
+          '<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: -->'; do
+  got="$(retro_marker_dismissed_ids "$bm")"; rc=$?
+  [ -z "$got" ] && [ "$rc" = 3 ] && ok "101 DISMISSED with no usable id → rc 3, no ids" "($(printf '%.50s' "${bm#*PARTIAL}"))" \
+                                 || no "101 DISMISSED with no usable id → rc 3" "got '$got' rc=$rc for '$bm'"
+  got="$(retro_marker_row_state "$bm" 2)"
+  [ "$got" = "malformed" ] && ok "101b row not shipped under a malformed list → malformed" "()" || no "101b malformed list row state" "got '$got'"
+done
+got="$(retro_marker_row_state "$bm" 1)"
+[ "$got" = "shipped" ] && ok "101c a shipped row still reads shipped under a malformed DISMISSED list" "()" || no "101c shipped under malformed list" "got '$got'"
+
+# 102 — an id in BOTH sets reads shipped (it did ship); DISMISSED written BEFORE shipped: is still read.
+bs='<!-- review-status: applied 2026-09-05 · PARTIAL — DISMISSED: #2, #3; shipped: 2, 5 -->'
+got="$(for r in 2 3 5; do printf '%s=%s ' "$r" "$(retro_marker_row_state "$bs" "$r")"; done)"
+[ "$got" = "2=shipped 3=dismissed 5=shipped " ] && ok "102 id in both sets → shipped; DISMISSED before shipped: read" "()" || no "102 both sets / order" "got [$got]"
+
+# 103 — letter ids, hyphenated ids and numeric ranges (the normaliser is the shipped-id one).
+lm='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: D3, SPKI-A, R1 -->'
+got="$(for r in D3 SPKI-A R1 D4; do printf '%s=%s ' "$r" "$(retro_marker_row_state "$lm" "$r")"; done)"
+[ "$got" = "D3=dismissed SPKI-A=dismissed R1=dismissed D4=open " ] && ok "103 letter/hyphen ids are dismissed" "()" || no "103 letter ids" "got [$got]"
+rm_='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: D1-D3 -->'
+got="$(for r in D1 D2 D3 D4; do printf '%s=%s ' "$r" "$(retro_marker_row_state "$rm_" "$r")"; done)"
+[ "$got" = "D1=dismissed D2=dismissed D3=dismissed D4=open " ] && ok "103b range D1-D3 → D1,D2,D3 dismissed" "()" || no "103b numeric range" "got [$got]"
+
+# 104 — no spaces after the colon / commas; a '-->' inside a parenthetical reason does not close the marker early.
+ns='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED:#2,#3 -->'
+got="$(retro_marker_dismissed_ids "$ns" | paste -sd, -)"
+[ "$got" = "2,3" ] && ok "104 DISMISSED:#2,#3 without spaces → 2,3" "(got '$got')" || no "104 no-space list" "got '$got'"
+am='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: #2 (a --> b), #3 -->'
+got="$(retro_marker_dismissed_ids "$am" | paste -sd, -)"
+[ "$got" = "2,3" ] && ok "104b '-->' inside a reason does not truncate the list" "(got '$got')" || no "104b arrow in reason" "got '$got'"
+
+# 105 — retro_marker_shipped_raw: ONE extraction of the shipped: list for row_state and both consumers.
+#       First match only, parentheticals KEPT (consumer parity), cut at ';' or '>'; nothing for a line without it.
+got="$(retro_marker_shipped_raw '<!-- review-status: applied · PARTIAL — shipped: #1 (a), #3; DISMISSED: #2 -->')"
+[ "$got" = "#1 (a), #3" ] && ok "105 shipped_raw keeps parentheticals, cuts at ';'" "(got '$got')" || no "105 shipped_raw" "got '$got'"
+got="$(retro_marker_shipped_raw '<!-- review-status: pending -->')"; rc=$?
+[ -z "$got" ] && [ "$rc" = 0 ] && ok "105b shipped_raw without a shipped: list → nothing, rc 0" "()" || no "105b shipped_raw none" "got '$got' rc=$rc"
 
 # ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
@@ -1734,38 +1801,64 @@ EOF
   fence_tooth F8 "closer CR tolerance dropped (CRLF fence never closes)" "$FX/crlf.md" \
     "$(printf '<!-- review-status: applied 2026-01-01 -->\r')" 's#rest ~ /^\[ \\t\\r\]\*\$/#rest ~ /^[ \\t]*$/#'
 
-  # ── DISMISSED-id teeth (kit issue #1944). One mutant per clause of retro_marker_dismissed_ids /
-  # retro_marker_row_state, each built with the shared mutant_sed and run against the same
-  # marker its case asserts, so a mutant that differs for the wrong reason cannot pass. Each
-  # probe's good output is checked first; the mutant output must differ from it.
-  dismissed_tooth() {
-    local id="$1" label="$2" expr="$3" probe="$4" mark="$5" arg="$6" mut="$ROOT/retro-status.dism-$1.sh" good got mrc=0
+  # ── DISMISSED-id teeth (kit issue #1944). One mutant per clause of retro_marker_shipped_raw /
+  # retro_marker_dismissed_ids / retro_marker_row_state, built with the shared mutant_sed. Each tooth
+  # runs the SAME probe its case asserts and requires the SPECIFIC WRONG ANSWER the mutated clause
+  # produces (a mutant that differs for another reason cannot pass): `want` is an exact answer, or
+  # `~text` for "the output contains text".
+  export dm pm mm nm bs sm
+  export bm_empty='<!-- review-status: applied 2026-09-05 · PARTIAL — shipped: 1; DISMISSED: ; DEFERRED: #7 -->'
+  export np_marker='<!-- review-status: applied 2026-09-05 · kit abc · DISMISSED: #2 -->'
+  export lc_marker='<!-- review-status: applied 2026-09-05 · kit abc · shipped: 1 — dismissed: 2 -->'
+  export sh_marker='<!-- review-status: applied · PARTIAL — shipped: #1, #3 -->'
+  dtooth() {
+    local id="$1" label="$2" want="$3" expr="$4" snippet="$5" mut="$ROOT/retro-status.dism-$1.sh" got mrc=0
     echo "-- teeth $id: $label --"
-    good="$("$probe" "$mark" "$arg" | paste -sd, -)"
     mutant_sed "$HELPER" "$mut" "$expr" || mrc=$?
     if [ "$mrc" -ne 0 ]; then
       no "teeth $id: build mutant" "mutant_sed refused (rc $mrc) — sed expression drifted?"
       return
     fi
-    got="$("$BASH_BIN" -c '. "$1"; "$2" "$3" "$4"' _ "$mut" "$probe" "$mark" "$arg" 2>&1 | paste -sd, -)"
-    if [ "$got" != "$good" ]; then
-      ok "teeth $id: $label → mutant output differs (cases have teeth)" "(good [$good] mutant [$got])"
+    got="$("$BASH_BIN" -c '. "$1"; eval "$2"' _ "$mut" "$snippet" 2>&1)"
+    if { [ "${want:0:1}" = "~" ] && grep -qF -- "${want:1}" <<<"$got"; } || [ "$got" = "$want" ]; then
+      ok "teeth $id: $label → the specific wrong answer [$want]" "(got [$got])"
     else
-      no "teeth $id: mutant should differ from the good output" "got [$got] — DISMISSED cases are THEATER"
+      no "teeth $id: expected the wrong answer [$want]" "got [$got] — the case is THEATER or the mutant bit elsewhere"
     fi
   }
-  dismissed_tooth D1 "parenthetical strip dropped (';' inside parens truncates the list)" \
-    '/RETRO_MARKER_DISMISSED_PAREN_STRIP$/{n;s/sed -E '"'"'[^'"'"']*'"'"'/cat/;}' \
-    retro_marker_dismissed_ids "$pm" ""
-  dismissed_tooth D2 "row-state dismissed branch removed (dismissed row reads open)" \
+  dtooth D1 "parenthetical strip dropped (';' inside parens truncates the list)" '~(already' \
+    '/RETRO_MARKER_DISMISSED_PAREN_STRIP$/{n;s/| sed -E .*/| cat)"/;}' \
+    'retro_marker_dismissed_ids "$pm" | paste -sd, -'
+  dtooth D2 "row-state dismissed branch removed (dismissed row reads open)" 'open' \
     '/RETRO_MARKER_ROW_STATE_DISMISSED$/{n;s/\[ -n "\$dids" \]/false/;}' \
-    retro_marker_row_state "$dm" 4
-  dismissed_tooth D3 "keyword match made case-insensitive (prose 'dismissed:' becomes a keyword)" \
+    'retro_marker_row_state "$dm" 4'
+  dtooth D3 "keyword match made case-insensitive (prose 'dismissed:' becomes a keyword)" '~2' \
     's/grep -oE '"'"'(^|\[^A-Za-z\])DISMISSED/grep -oiE '"'"'(^|[^A-Za-z])DISMISSED/' \
-    retro_marker_dismissed_ids '<!-- review-status: applied 2026-09-05 · kit abc · shipped: 1 — dismissed: 2 -->' ""
-  dismissed_tooth D4 "segment no longer cut at ';' (DEFERRED ids leak into the dismissed set)" \
+    'retro_marker_dismissed_ids "$lc_marker"'
+  dtooth D4 "segment no longer cut at ';' (DEFERRED ids leak into the dismissed set)" 'dismissed' \
     's/DISMISSED:\[^;\]\*/DISMISSED:[^>]*/' \
-    retro_marker_row_state "$dm" 7
+    'retro_marker_row_state "$dm" 7'
+  dtooth D5 "only the LAST DISMISSED segment kept (second segment replaces the first)" '9' \
+    '/RETRO_MARKER_DISMISSED_JOIN$/s/joined=.*# RETRO/joined="$seg"   # RETRO/' \
+    'retro_marker_dismissed_ids "$mm" | paste -sd, -'
+  dtooth D6 "parentheses stripped once only (nested parentheses survive)" '~(x' \
+    '/RETRO_MARKER_DISMISSED_PAREN_STRIP$/{n;s/ -e .ta.)/)/;}' \
+    'retro_marker_dismissed_ids "$nm" | paste -sd, -'
+  dtooth D7 "PARTIAL gate removed (a non-PARTIAL marker reads its DISMISSED list)" 'dismissed' \
+    '/RETRO_MARKER_ROW_STATE_PARTIAL_GATE$/s/.*/    :/' \
+    'retro_marker_row_state "$np_marker" 2'
+  dtooth D8 "malformed list not typed (an empty DISMISSED list reads as open)" 'open' \
+    '/RETRO_MARKER_DISMISSED_MALFORMED$/s/.*/    :/' \
+    'retro_marker_row_state "$bm_empty" 2'
+  dtooth D9 "empty row id not typed" 'open' \
+    '/RETRO_MARKER_ROW_STATE_EMPTY$/s/\[ -z "\$line" \] || \[ -z "\$rid" \]/false/' \
+    'retro_marker_row_state "$sm" ""'
+  dtooth D10 "shipped branch removed (a shipped row reads open)" 'open' \
+    '/RETRO_MARKER_ROW_STATE_SHIPPED$/{n;s/\[ -n "\$sids" \]/false/;}' \
+    'retro_marker_row_state "$dm" 3'
+  dtooth D11 "shipped_raw no longer cut at '>' (the marker closer leaks into the list)" '~-->' \
+    "s/shipped:\\[^;>\\]\\*/shipped:[^;]*/" \
+    'retro_marker_shipped_raw "$sh_marker"'
 
   # ── Structural guard (kit issue #1130 finding 2): no POSIX interval expression ({m,n}) may
   # reappear inside retro_marker_line's or retro_marker_scope_line's awk match regex — that is

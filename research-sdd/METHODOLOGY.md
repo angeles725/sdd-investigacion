@@ -3551,8 +3551,23 @@ judgment, not the driver's own rationalizations). The retro agent:
    lists sharing ids are refused as `unclassifiable`, never merged. Bullets, a numbered list under any other `###`
    heading (`### Evidence`, `### Considered and rejected`) or under a non-delta heading, and prose stay
    `unclassifiable`. The canonical table remains the doctrine; this is tolerance for the existing fleet, not a second
-   declaration form. (Pinned by `stage-retro-issues-delta-forms.test.sh`, `reconcile-issues-delta-forms.test.sh` and
+   declaration form. EVERY unrecognised proposal-like heading must have produced items
+   (`retro_grammar_unrec_headings` lists them all; `delta_info` alone reports only the first), and the canonical
+   heading is the one `is_canonical_heading` matches, so a list first and a prose heading second still reports the
+   prose one. The cross-retro `regressed` identity pass (`retro_grammar_row_titles`) reads the table and
+   `### D<N> —` entry forms only; the numbered, `## Delta <ID> —` and `### Proposals` forms are not compared there.
+   A header row is dropped by position (the row directly above a separator), so a table row written directly above
+   a separator line with no header above it would be dropped too; that is not valid markdown and is not
+   supported. (Pinned by `stage-retro-issues-delta-forms.test.sh`, `reconcile-issues-delta-forms.test.sh` and
    `retro-grammar-alt-entries.test.sh`.)
+   **Marker states for PARTIAL retros (kit issue #1944).** A PARTIAL review-status marker may resolve a row as
+   `shipped:` (done) or `DISMISSED:` (rejected, not shipped; every `DISMISSED:` segment counts, parentheticals are
+   free text, nested ones included); `DEFERRED:` rows stay open. `retro_marker_row_state` answers
+   `shipped|dismissed|open|not-partial|malformed`. The seeder skips a dismissed row with a typed
+   `no-match: dismissed (row N)` line and never seeds it; reconcile treats it as resolved and still reports an open
+   issue for it as `orphaned`. A `DISMISSED:` list with no usable id is `malformed`: the rows it leaves unresolved
+   are reported (`unclassifiable-row`) and never seeded. (Pinned by `retro-status.test.sh` cases 86-105,
+   `stage-retro-issues-dismissed.test.sh` and `reconcile-issues-dismissed.test.sh`.)
    **Unclassifiable items are never only a stderr count (kit issue #1259).** `stage-retro-issues.sh` prints them as a table (`retro:line`, raw head, reason) with a typed `unclassifiable-items: N (…)` line whose zero names the state (`empty-input` / `none: N row(s) examined`). It proposes one tracking issue per retro per run (signature `Unclassifiable tracker: <target>/retros/<file>`; an OPEN tracker for the retro gets one occurrence comment per distinct item set, keyed to its checksum, and a re-run with the same set posts nothing). Under `--apply` only, the tracker is created through the same scrub, create and read-back path as delta issues. `retro-gate.sh` counts the summary's `unclassifiable=N` and points at the table. (Pinned by `stage-retro-issues-unclassifiable.test.sh` and `retro-gate.test.sh` EN3-unc-summary.)
    Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
    `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.

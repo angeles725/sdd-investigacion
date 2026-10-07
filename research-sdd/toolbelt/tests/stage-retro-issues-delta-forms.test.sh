@@ -129,7 +129,19 @@ c_titles() {
   count 7; req 'planned-issue: e.g. foo bar baz is the working title'; req 'planned-issue: See e.g. The Rules document'; req 'planned-issue: Bold title with colon'; utf8; verdict
 }
 
-CHECKS="c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
+# A Proposals list FIRST and a prose kit-delta heading SECOND: delta_info reports only the first unrecognised heading,
+# so the second must be checked on its own (every unrecognised heading has to have produced items).
+c_list_first() {
+  local b; b="$(mkbox "lf$1")" || return 1; run "$b" list-first-prose-second.md; MSG=""
+  count 2; req 'First list item'; req 'unclassifiable-items: 1'; req 'retro-level=1'; req '## B. Campaign-8 kit-delta backlog'; verdict
+}
+# Two tables in one section: a header is dropped by position, every data row of both tables is kept.
+c_two_tables() {
+  local b; b="$(mkbox "tt$1")" || return 1; run "$b" two-tables.md; MSG=""
+  count 4; req 'two-tables.md · 1'; req 'two-tables.md · 2'; req 'two-tables.md · 3'; req 'two-tables.md · 4'; forbid 'Proposed change'; req 'unclassifiable-items: 0'; verdict
+}
+
+CHECKS="c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -157,8 +169,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_numbered      no-alt-fallback   'PLANNED: 0 != 3'  sut '/STAGE_RETRO_ISSUES_ALT_FALLBACK/s/.*/  _rows=""/'
   tooth c_h2_delta      no-alt-early      'PLANNED: 0 != 3'  sut '/STAGE_RETRO_ISSUES_ALT_EARLY/s/.*/  _alt_early=""/'
   tooth c_evidence_stays_unc evidence-matched 'PLANNED: 2 != 0' lib '/ALT_NUMBERED_GATE/s/.*/      1 {/'
-  tooth c_mixed         heading-match-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_ALT_HEADING_MATCH/s/grep -qxF -- "\$_unrec_heading" <<<"\$_alt_heads"/true/'
+  tooth c_mixed         heading-match-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
   tooth c_canon_empty   canon-heading-off 'MISSING: unclassifiable-items: 1' sut 's/if \[ "\$_found_field" = "1" \] \&\& \[ -n "\$_h" \] \&\& ! grep -qxF -- "\$_h" <<<"\$_alt_heads"; then/if false; then/'
+  tooth c_list_first    unrec-all-off     'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_UNREC_ALL/s/.*/  _unrec_missing=""/'
   tooth c_rejected_h3   h3-reset-off      'PLANNED: 0 != 2'  lib '/ALT_H3_RESET/s/.*/        flush()/'
   tooth c_dup_ids       dup-check-off     'PLANNED: 4 != 0'  sut 's/^    if \[ -n "\$_dups" \]; then$/    if false; then/'
   tooth c_header_hyphen header-drop-off   'PLANNED: 2 != 1'  sut '/STAGE_RETRO_ISSUES_HEADER_DROP/s/pend = ""/pend = pend/'
