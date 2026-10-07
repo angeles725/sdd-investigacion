@@ -43,7 +43,8 @@
 #       GHV_NOTE    "" | DEGRADED: ...      typed note when group kill is unavailable (no `setsid` on PATH, or the caller
 #                                           shell has job control on, where a backgrounded setsid would fork and detach)
 #   The group (pgid == pid) is VERIFIED with `ps -o pgid=` after launch; a missing ps or a mismatch also degrades to
-#   child-only with a typed note naming the pgid. The post-bound sweep signals the group only (never a bare, possibly
+#   child-only with a typed note naming the pgid. A signal that lands BEFORE that verification (the leader may not have
+#   exec'd setsid yet, so its group does not exist) also kills the leader by pid; after it, the group only. The post-bound sweep signals the group only (never a bare, possibly
 #   recycled, pid) and is skipped in child-only mode. From BEFORE the launch until the run ends, the caller's INT/TERM/HUP
 #   traps kill the group (setsid detaches it from the terminal) and then re-raise; the caller's previous traps are restored
 #   afterwards. Remaining sub-millisecond windows (kit #1911): a signal between a fork and the assignment that records it
@@ -128,7 +129,7 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     # caller sets _GHV_GRP (the intended group mode) BEFORE the launch: a group kill of a group that does not exist yet
     # is a harmless ESRCH. _GHV_PID is recorded in the same command as the caller's `pid=$!`; _GHV_WD inside
     # _ghv_arm_watchdog right after its fork.
-    _GHV_PID="" _GHV_GRP="" _GHV_WD="" _GHV_BANG0="${!:-}"
+    _GHV_PID="" _GHV_GRP="" _GHV_WD="" _GHV_BANG0="${!:-}" _GHV_VERIFIED=""
     trap "_ghv_on_signal INT" INT
     trap "_ghv_on_signal TERM" TERM
     trap "_ghv_on_signal HUP" HUP
@@ -142,12 +143,14 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
     _GHV_SIGNALLED="$1"          # read after `wait` if the caller's restored trap does not exit
     # Group mode signals the GROUP only (kit #1854): bash reaps background children asynchronously, so a bare pid may be
     # recycled before the caller's `wait`. The one exception is the `$!` fallback below (the pid just forked, so it cannot
-    # have been recycled yet; the group may not exist yet either because setsid has not exec'd).
+    # have been recycled yet; the group may not exist yet either because setsid has not exec'd). The same holds until the
+    # group is VERIFIED (_GHV_VERIFIED): the leader is then an unreaped child that has not exec'd setsid, so the group kill
+    # gets ESRCH and, left alive, it would later run the command unbounded; a bare kill of it cannot hit a recycled pid.
     local pid="${_GHV_PID:-}" fb=""
     if [ -z "$pid" ] && [ "${!:-}" != "$_GHV_BANG0" ]; then pid="$!"; fb=1; fi   # a NEW background pid only, never a stale one
     if [ -n "$pid" ]; then
       _ghv_sig KILL "$pid" "$_GHV_GRP"   # group form when _GHV_GRP is set, else the bare pid (child-only mode)
-      [ -z "$fb" ] || kill -KILL "$pid" 2>/dev/null || :
+      if [ -n "$fb" ] || { [ -n "$_GHV_GRP" ] && [ -z "$_GHV_VERIFIED" ]; }; then kill -KILL "$pid" 2>/dev/null || :; fi
     fi
     [ -z "$_GHV_WD" ] || kill "$_GHV_WD" 2>/dev/null || :   # the watchdog's TERM trap kills its own sleep first
     # shellcheck disable=SC2086  # a space-separated list of the probe's own mktemp paths (no whitespace in mktemp names)
@@ -191,6 +194,7 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
       if [ -n "$grpflag" ] && [ -z "$_GHV_SIGNALLED" ]; then
         _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; [ -n "$_GHV_SIGNALLED" ] || _ghv_note_unverified "$vrc"; }
       fi
+      _GHV_VERIFIED=1
       wdpid=""
       if [ -z "$_GHV_SIGNALLED" ]; then _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"; fi
       wait "$pid" 2>/dev/null || rc=$?
@@ -244,6 +248,7 @@ if ! declare -F gh_bounded_run >/dev/null 2>&1; then
       if [ -n "$grpflag" ] && [ -z "$_GHV_SIGNALLED" ]; then
         _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; [ -n "$_GHV_SIGNALLED" ] || _ghv_note_unverified "$vrc"; }
       fi
+      _GHV_VERIFIED=1
       wdpid=""
       if [ -z "$_GHV_SIGNALLED" ]; then _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"; fi
       wait "$pid" 2>/dev/null || rc=$?
