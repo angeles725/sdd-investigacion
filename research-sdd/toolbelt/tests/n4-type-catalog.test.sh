@@ -257,6 +257,60 @@ run "$SUT" show "$ROOT/two" BFoo
 SEQ="$(grep -oE '^[a-z.]+BFoo' <<<"$OUT" | paste -sd, -)"
 [ "$SEQ" = "aa.pkg.BFoo,mm.pkg.BFoo,zz.pkg.BFoo" ] && ok "T18b ambiguous suffix hits print in sorted order" || no "T18b hit sequence [$SEQ]"
 
+# --- T19 degraded boundary (#1538 R3): PARTIAL unreadable is not degraded; EMPTY is not degraded ------------
+mkdir -p "$ROOT/partial"; cp "$FX/doc/pkg/BFoo.java" "$ROOT/partial/"
+ln -s "$ROOT/partial/nowhere" "$ROOT/partial/Dead.java"
+run "$SUT" build "$ROOT/partial" --out "$ROOT/partial.json"
+rc_is "T19a one readable + one unreadable .java is a partial read: exit 0" 0
+has "T19a the summary still counts the unreadable entry" "$OUT" 'unreadable: 1( |$)'
+lacks "T19a not reported as degraded" "$ERR" 'degraded'
+run "$SUT" show "$ROOT/partial" BFoo
+rc_is "T19b show over a partial dir exits 0" 0
+run "$SUT" build "$ROOT/empty" --out "$ROOT/empty.json"
+rc_is "T19c a dir with no .java files exits 1" 1
+lacks "T19c empty-input is not degraded" "$ERR" 'degraded'
+
+# --- T20 slot-key round trip (#1538 R3): every key _SLOT_KEYS demands is emitted by build, each is enforced ---
+RT="$(PYTHONDONTWRITEBYTECODE=1 python3 -I -c '
+import sys; sys.path.insert(0, sys.argv[1])
+import n4_type_catalog as m
+n = 0
+for root in sys.argv[2:]:
+    for t in m.build_catalog([root]).values():
+        m._validate_catalog({"x": t})
+        for lab in ("properties", "actions", "topics"):
+            for it in t[lab]:
+                n += 1
+                miss = [k for k in m._SLOT_KEYS if k not in it]
+                if miss: print("MISSING", miss); sys.exit(1)
+print("slots", n)
+' "$HERE/.." "$FX/doc" "$FX/cfr" 2>&1)"
+has "T20a build emits every _SLOT_KEYS key on every fixture slot and validation accepts it" "$RT" '^slots [1-9][0-9]*$'
+for k in name flags flagLetters default facets; do
+  python3 -I -c '
+import json, sys
+slot = {"name": "p", "flags": 0, "flagLetters": "", "default": "", "facets": "null"}
+del slot[sys.argv[1]]
+json.dump({"a.B": {"extends": "X", "properties": [slot], "actions": [], "topics": []}}, open(sys.argv[2], "w"))
+' "$k" "$ROOT/m-no-$k.json"
+  run "$SUT" show "$ROOT/m-no-$k.json" B
+  rc_is "T20b catalog slot lacking '$k' exits 2" 2
+  lacks "T20b ($k) no traceback" "$ERR" 'Traceback'
+done
+
+# --- T21 every exception class of the catalog load is typed (#1538 R2-002) -------------------------------------
+printf '\377\376{' > "$ROOT/m-utf8.json"
+python3 -I -c 'print("[" * 200000)' > "$ROOT/m-deep.json"
+for m in utf8 deep; do
+  run "$SUT" show "$ROOT/m-$m.json" B
+  rc_is "T21 ($m) exits 2" 2
+  has "T21 ($m) typed message" "$ERR" 'cannot load catalog'
+  lacks "T21 ($m) no traceback" "$ERR" 'Traceback'
+done
+run "$SUT" show "$ROOT/no-such-catalog.json" B
+rc_is "T21 absent catalog path (OSError) exits 2" 2
+has "T21 absent catalog path typed message" "$ERR" 'cannot load catalog'
+
 # ======================== MUTATION CONTROLS — --prove-teeth ==========================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of n4_type_catalog.py must flip a specific verdict --"
@@ -310,7 +364,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mx "M14 --out write error swallowed (exit 2 -> 0)" 's/cannot write %s: %s" % (args\.out, e), file=sys.stderr)/&\n            return 0/' 2 0 build "$FX/doc" --out "$ROOT/no-such-dir/c.json"
   MX_PREFIX="timeout 5" mx "M15 non-regular-file guard removed: FIFO blocks (rc 124)" 's/if not os\.path\.isfile(path):/if False:/' 0 124 build "$FIFO_DIR" --out "$ROOT/fifo.json"
   MP_RC=1 mp "M8 zero-.java guard removed: message must name the empty input" 's/if files_seen == 0:/if False:/' 'no \.java files' build "$ROOT/empty"
-  mx "M9 zero-declaration guard removed (exit 1 -> 0)" 's/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
+  mx "M9 zero-declaration guard removed (exit 1 -> 0)" '/^def _build/,$ s/if not cat:/if False:/' 1 0 build "$ROOT/nomatch"
   # the #1511 round-2 fixes
   mx "M16 degraded guard removed: all-unreadable root reads as no-match (exit 2 -> 1)" 's/if degraded:/if False:/' 2 1 build "$ROOT/allunr"
   mx "M17 catalog shape validation removed: malformed catalog tracebacks (exit 2 -> 1)" 's/^    _validate_catalog(cat)$/    pass/' 2 1 show "$ROOT/m-nokeys.json" B
@@ -321,7 +375,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   MUTANT_SYNTAX=none mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
   if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m21.py"
-  MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" 's/^    if not cat:$/    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
+  MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" '0,/^    if not cat:$/s//    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
+  # #1538 advisories
+  mx "M23 degraded boundary widened: a PARTIAL read becomes degraded (exit 0 -> 2)" 's/stats\["read_files"\] == 0:/stats["read_files"] >= 0:/' 0 2 build "$ROOT/partial" --out "$ROOT/partial-m.json"
+  mx "M24 degraded '> 0' widened: empty input reads as degraded (exit 1 -> 2)" 's/if stats\["unreadable"\] > 0 and/if stats["unreadable"] >= 0 and/' 1 2 build "$ROOT/empty"
+  mx "M25 first slot key (name) no longer required (exit 2 -> 1)" 's/^_SLOT_KEYS = ("name", /_SLOT_KEYS = (/' 2 1 show "$ROOT/m-no-name.json" B
+  mx "M26 last slot key (facets) no longer required (exit 2 -> 1)" 's/^\(_SLOT_KEYS = .*\), "facets")$/\1)/' 2 1 show "$ROOT/m-no-facets.json" B
+  mx "M27 RecursionError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(OSError, ValueError)/' 2 1 show "$ROOT/m-deep.json" B
+  mx "M28 OSError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(ValueError, RecursionError)/' 2 1 show "$ROOT/no-such-catalog.json" B
+  mx "M29 ValueError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(OSError, RecursionError)/' 2 1 show "$ROOT/m-utf8.json" B
 fi
 
 echo "== $pass passed · $fail failed =="
