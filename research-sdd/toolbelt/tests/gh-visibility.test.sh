@@ -344,16 +344,15 @@ c_sig_early() { # LIB — a signal during the pgid verification (before the old 
 # comparison and the `kill -0` liveness probe), but the caller's trap does NOT exit: typed CALLER_SIGNALLED and NO misleading
 # "already exited" GHV_NOTE (the verification and the watchdog arming are skipped once a signal was seen).
 c_sig_early_nx() {
-  local lib="$1" pf="$TMP/gc-enx.pid" of="$TMP/enx.out" gate="$TMP/gate-enx" slog="$TMP/enx.sleeps" bp i rc=0 n=$((RUNB+8)); rm -f "$pf" "$of" "$gate" "$slog"
-  PS_GATE="$gate" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_GATEBADPS" "$BASH_BIN" -c 'trap "echo CAUGHT" TERM; . "$1"; sleep() { printf "%s\n" "$1" >> "$2"; command sleep "$1"; }; gh_bounded_run gh repo create o/r; echo "STATE=$GHV_STATE NOTE=[$GHV_NOTE]"' _ "$lib" "$slog" >"$of" 2>&1 &
+  local lib="$1" pf="$TMP/gc-enx.pid" of="$TMP/enx.out" gate="$TMP/gate-enx" bp i rc=0 n=$((RUNB+8)); rm -f "$pf" "$of" "$gate"
+  PS_GATE="$gate" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_GATEBADPS" "$BASH_BIN" -c 'trap "echo CAUGHT" TERM; . "$1"; gh_bounded_run gh repo create o/r; echo "STATE=$GHV_STATE NOTE=[$GHV_NOTE] WD=[${GHV_WDPID-}]"' _ "$lib" >"$of" 2>&1 &
   bp=$!; i=0
   while [ ! -s "$pf" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
   [ -s "$pf" ] || rc=1
   kill -TERM "$bp" 2>/dev/null
   : > "$gate"
   wait "$bp" 2>/dev/null
-  has "$(cat "$of" 2>/dev/null)" "STATE=CALLER_SIGNALLED NOTE=[]" || rc=1
-  ! grep -qx "$n" "$slog" 2>/dev/null || rc=1    # the bound (the watchdog's own `sleep $n`) was never even started
+  has "$(cat "$of" 2>/dev/null)" "STATE=CALLER_SIGNALLED NOTE=[] WD=[]" || rc=1    # WD empty: the arm path never ran (GHV_WDPID is set by it)
   gone "$pf" || rc=1
   sleeps_gone "$n" || rc=1
   kill -KILL "$bp" 2>/dev/null
