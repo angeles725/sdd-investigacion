@@ -4372,12 +4372,15 @@ instrument class that could still answer, or reads `unblock: none — every inst
 `verify-state.sh` does not check for the `unblock:` line (doctrine first; no instrument yet).
 
 **Re-typed or newly blocked backlog rows (kit #1638; grammar §8b).** A gap whose type changes, or that becomes
-blocked, is recorded in ONE of two forms in the SAME edit; both are accepted without a WARN: (a) in place, Status
+blocked, is recorded in ONE of two forms in the SAME edit: (a) in place, Status
 `blocked (requires-<what>)` with its `tried:` / `needs:` clauses; or (b) moved out of the main table into
 `## Blocked gaps` as a `- <gap> — needs: …` bullet. They do not count the same way. Only (b) raises `blocked_open`
-(it is derived from the `## Blocked gaps` / `## Non-investigable gaps` sections). An in-place (a) row merely
-leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` can still count it as
-CLOSED in `gaps_closed`; prefer (b) (tool bucketing tracked in kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
+(it is derived from the `## Blocked gaps` / `## Non-investigable gaps` sections); prefer (b). An in-place (a) row
+leaves `investigable_open` in `research-sdd-status.sh`, and a backlog-derived `--sync-state` keeps it OUT of
+`gaps_closed` as a separate in-place-blocked bucket and prints `sync-state: WARN: … N in-place blocked row(s) …` asking
+you to move it to `## Blocked gaps`. A row that is also listed there is counted once, as (b): its Gap cell equals the
+bullet's name or shares the bullet's leading gap ID (`AB.`, `**` stripped). `verify-state.sh` does not yet mirror the
+in-place bucket, so until it does the CHECK H identity sum is short by that count (kit #1915). The `blocked-on-<reason>` spelling of §8b is the same vocabulary as (a): the
 leading token is what `research-sdd-status.sh` reads. A Status whose leading token is `re-typed` / `retyped` is
 WARNed about by both tools and is not a recognised blocked form, so the row LOOKS counted nowhere while it sits in
 the main table (it still sits inside `known_gaps`). Use form (a) or (b) in the same edit. The operative text is
