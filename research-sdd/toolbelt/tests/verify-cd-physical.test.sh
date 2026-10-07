@@ -22,6 +22,13 @@
 #   5h   the `;`-split cannot glob-expand a line holding a literal glob metacharacter (RDD
 #        R4-unquoted-split-globs)
 #   5h2  a bare `*` statement is never glob-expanded into a filename-shaped assignment (#1033)
+#   5p   a `;` inside `$( )` does not hide a bare climb — first/middle/last statement (issue #1921)
+#   5q   the -P'd `;` twin is clean and its climb counts as seen (no no-match)
+#   5r   `;` inside quotes/backticks is data; a `;` after a `#` comment is not a statement
+#   5s   nested `$( )`: the outer climbing cd is judged on its own -P, not an inner cd's
+#   5u   a `..` reaching cd through a nested substitution is still flagged (#1921 review)
+#   5v   open-quote / `$'a\'b'` / `${x//(/y}` / case-arm / case-in-`$( )` lines are UNCLASSIFIABLE (5v, 5v2)
+#   5w   splitter guards: apostrophe in double quotes, `;` inside `${ }`, backslash-escaped `;`
 #   5m   a later bare `cd ..` after a compliant `cd -P` climb is flagged (#1033)
 #   5n   keyword-like identifiers (`exported_dir`, `localdir`) keep their whole name (#1033)
 #   5i   climb_seen (formerly the misleadingly-named pattern_seen): an all-compliant file is NOT
@@ -285,6 +292,134 @@ if [ "$RC5O" -eq 1 ] && <<<"$OUT5O" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5O" 
   ok "5o '||' and '|' split segments: a bare climb after '||' / '|' is flagged; the all -P'd '||' chain is not"
 else
   no "5o '||'/'|' segment split wrong (rc=$RC5O out=[$OUT5O])"
+fi
+
+# ── 5p. A `;` INSIDE `$( )` must not split the statement before the cd/pwd derivation is seen
+#        (issue #1921). Edges: the `;`-form statement FIRST, MIDDLE and LAST on its line.
+box5p="$(mkbox case-semicolon-in-subst)"
+cat > "$box5p/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/.."; pwd)"; echo first
+A=1; KIT2="$(cd "$(dirname "$0")/.."; pwd)"; B=2
+A=1; KIT3="$(cd "$(dirname "$0")/.."; pwd)"
+EOF
+OUT5P="$(bash "$SUT" "$box5p" 2>&1)"; RC5P=$?
+if [ "$RC5P" -eq 1 ] && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5P" grep -q 'HIT.*fixed\.sh:4'; then
+  ok "5p a ';' inside \$( ) does not hide a bare climbing cd (first, middle and last statement on the line)"
+else
+  no "5p ';'-inside-\$( ) climbing derivation was missed (rc=$RC5P out=[$OUT5P])"
+fi
+
+# ── 5q. The -P'd `;` twin is clean AND counts as a seen climb (not reported as no-match).
+box5q="$(mkbox case-semicolon-in-subst-fixed)"
+cat > "$box5q/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.."; pwd -P)"
+EOF
+OUT5Q="$(bash "$SUT" "$box5q" 2>&1)"; RC5Q=$?
+if [ "$RC5Q" -eq 0 ] && ! <<<"$OUT5Q" grep -q 'no-match\|^HIT'; then
+  ok "5q the -P'd ';'-inside-\$( ) form is clean and its climb counts as seen (no no-match)"
+else
+  no "5q -P'd ';' form wrongly flagged or reported no-match (rc=$RC5Q out=[$OUT5Q])"
+fi
+
+# ── 5r. A `;` inside double quotes, single quotes or backticks is data, not a separator; the splitter
+#        must respect nesting: a quoted `;` does not hide a bare climb, and a `;` in a trailing comment
+#        is not a statement boundary (it used to yield a false HIT from commented-out text).
+box5r="$(mkbox case-quoted-semicolons)"
+cat > "$box5r/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/;x/.." && pwd)"
+KIT2="$(cd "$(dirname "$0")"/'a;b'/.. && pwd)"
+KIT3="$(cd "`dirname "$0"`/.."; pwd)"
+X=1 # old; K4="$(cd "$(dirname "$0")/.." && pwd)"
+EOF
+OUT5R="$(bash "$SUT" "$box5r" 2>&1)"; RC5R=$?
+if [ "$RC5R" -eq 1 ] && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:4' && ! <<<"$OUT5R" grep -q 'HIT.*fixed\.sh:5'; then
+  ok "5r quoted/backtick ';' do not hide a bare climb; a ';' after a '#' comment is not a statement"
+else
+  no "5r quote/backtick/comment handling wrong (rc=$RC5R out=[$OUT5R])"
+fi
+
+# ── 5s. Nested substitutions: the OUTER climbing cd is judged on its own text, not on an inner cd's
+#        `-P`. A bare outer climb around an inner `cd -P` is a HIT; a `cd -P` outer climb around a
+#        bare, non-climbing inner `cd` is clean.
+box5s="$(mkbox case-nested-subst)"
+cat > "$box5s/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(cd -P "$(dirname "$0")"; pwd)/.."; pwd)"
+KIT2="$(cd -P "$(cd "$(dirname "$0")"; pwd)/.."; pwd)"
+EOF
+OUT5S="$(bash "$SUT" "$box5s" 2>&1)"; RC5S=$?
+if [ "$RC5S" -eq 1 ] && <<<"$OUT5S" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5S" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5s nested \$( ): the outer climbing cd is judged on its own -P, not an inner cd's"
+else
+  no "5s nested substitution mis-attributed -P (rc=$RC5S out=[$OUT5S])"
+fi
+
+# ── 5u. A `..` that reaches `cd` through a NESTED substitution is still the cd's climb (#1921 review):
+#        masking the nested body must not hide it. The -P'd twin is clean.
+box5u="$(mkbox case-nested-dotdot)"
+cat > "$box5u/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+K="$(cd "$(echo "$(dirname "$0")/..")" && pwd)"
+K2="$(cd -P "$(echo "$(dirname "$0")/..")" && pwd)"
+EOF
+OUT5U="$(bash "$SUT" "$box5u" 2>&1)"; RC5U=$?
+if [ "$RC5U" -eq 1 ] && <<<"$OUT5U" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5U" grep -q 'HIT.*fixed\.sh:3'; then
+  ok "5u a '..' reaching cd through a nested substitution is flagged; the -P'd twin is not"
+else
+  no "5u nested-substitution '..' mishandled (rc=$RC5U out=[$OUT5U])"
+fi
+
+# ── 5v. Quote/substitution context left open (or a `)` that closes nothing) is a TYPED state, never a
+#        silent pass (#1921 review): reported as UNCLASSIFIABLE, counted in the summary, exit unchanged.
+box5v="$(mkbox case-unclassifiable)"
+cat > "$box5v/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+echo it's cd pwd
+x=$'a\'b'; cd pwd
+v=${x//(/y}; cd pwd
+a) K="$(cd "$(dirname "$0")/.." && pwd)" ;;
+K3="$(cd -P "$(dirname "$0")/.." && pwd)"
+EOF
+OUT5V="$(bash "$SUT" "$box5v" 2>&1)"; RC5V=$?
+if [ "$RC5V" -eq 0 ] && <<<"$OUT5V" grep -q 'UNCLASSIFIABLE .*fixed\.sh:2 ' && <<<"$OUT5V" grep -q 'UNCLASSIFIABLE .*fixed\.sh:3 ' \
+   && <<<"$OUT5V" grep -q 'UNCLASSIFIABLE .*fixed\.sh:4 ' && <<<"$OUT5V" grep -q 'UNCLASSIFIABLE .*fixed\.sh:5 ' \
+   && ! <<<"$OUT5V" grep -q 'UNCLASSIFIABLE .*fixed\.sh:6 ' && <<<"$OUT5V" grep -q 'unclassifiable=4$'; then
+  ok "5v open-quote / \$'..\\'..' / \${x//(/y} / case-arm lines are UNCLASSIFIABLE (counted, exit unchanged); a balanced line is not"
+else
+  no "5v unclassifiable handling wrong (rc=$RC5V out=[$OUT5V])"
+fi
+box5v2="$(mkbox case-unclassifiable-casesub)"
+cat > "$box5v2/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+K=$(case $x in a) cd "$(dirname "$0")/.." ;; esac; pwd)
+EOF
+OUT5V2="$(bash "$SUT" "$box5v2" 2>&1)"
+if <<<"$OUT5V2" grep -q 'UNCLASSIFIABLE .*fixed\.sh:2 '; then
+  ok "5v2 a \$(case ... a) ...;; esac) substitution is UNCLASSIFIABLE"
+else
+  no "5v2 case inside \$( ) not typed unclassifiable (out=[$OUT5V2])"
+fi
+
+# ── 5w. Splitter guards (#1921 review): an apostrophe inside double quotes is data; a `;` inside `${ }`
+#        is data; a backslash-escaped `;` is data. Each fixture still ends in a bare climb -> HIT.
+box5w="$(mkbox case-splitter-guards)"
+cat > "$box5w/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/it's/.." && pwd)"
+KIT2="$(cd ${x//;/ }"$(dirname "$0")/.." && pwd)"
+KIT3="$(cd "$(dirname "$0")"/a\;b/.. && pwd)"
+EOF
+OUT5W="$(bash "$SUT" "$box5w" 2>&1)"; RC5W=$?
+if [ "$RC5W" -eq 1 ] && <<<"$OUT5W" grep -q 'HIT.*fixed\.sh:2' && <<<"$OUT5W" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5W" grep -q 'HIT.*fixed\.sh:4'; then
+  ok "5w apostrophe in double quotes, ';' inside \${ } and a backslash-escaped ';' do not hide a bare climb"
+else
+  no "5w splitter guard case missed (rc=$RC5W out=[$OUT5W])"
 fi
 
 # ── 5i. climb_seen (formerly the misleadingly-named pattern_seen, kit issue #1024 round 5,
@@ -560,14 +695,45 @@ EOF
   # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
   fu_tooth export-prefix "$box5g" 3 's/(local|export|/(local|/' 1
   fu_tooth second-climb "$box5m" 2 's/^          _climb_ok=1$/          _climb_ok=1; break/'
-  fu_tooth or-pipe-split "$box5o" 2 's#_segs//||/#_segs//ZZ/#;s#_segs//|/#_segs//ZZ/#'
+  fu_tooth or-pipe-split "$box5o" 2 "s#elif \[ \"\$c\" = '|' \]; then#elif [ \"\$c\" = '@' ]; then#"
+  # #1921: each splitter property has a mutant that reverts exactly it.
+  fu_tooth semicolon-in-subst "$box5p" 2 's#if \[ "\$c" = '"';'"' \] \&\& \[ -z "\$stack" \]; then#if [ "$c" = '"';'"' ]; then#'
+  fu_tooth quote-context "$box5r" 2 's#if \[ "\$top" = d \]; then stack="\${stack%?}"; else stack+=d; fi#:#' 1
+  fu_tooth nested-mask "$box5s" 2 's#_cdp_open '"'"'\$(…)'"'"' #_cdp_open '"'"'$(cd -P x)'"'"' #'
+  if mutant_chain "teeth FU: comment-kept" "$SUT" "$TMP/l1-mut/comment-kept.sh" 's#break  \# comment: drop the rest#:#'; then
+    tt "teeth FU: a kept comment makes the commented-out derivation a bogus HIT" 1 1 "$TMP/l1-mut/comment-kept.sh" \
+      --good-lacks 'HIT .*fixed\.sh:5' --bad-has 'HIT .*fixed\.sh:5' -- bash @SUT@ "$box5r"
+  else
+    fail=$((fail+1))
+  fi
   # 5h2: the glob-expanding split (the pre-round-5 code) must bite when the box is the cwd.
-  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's/read -ra _stmts <<< "\$line"/_stmts=($line)/'; then
+  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's#local -a _stmts=("\${_CDP_PARTS\[@\]}")#local -a _stmts=(${line//;/ })#'; then
     tt "teeth FU: glob-expanding split makes the filename-shaped file a bogus HIT" 0 1 "$TMP/l1-mut/glob-split.sh" \
       --bad-has 'HIT .*fixed\.sh:2' -- bash -c 'cd "$1" && bash "$2" "$1"' _ "$box5h2" @SUT@
   else
     fail=$((fail+1))
   fi
+  # #1921 review: one mutant per guard / typed state.
+  fu_tooth raw-dotdot "$box5u" 2 's#\[\[ "\${_CDP_RAW\[\$_si\]}" == \*"\.\."\* \]\]#[[ "$seg" == *".."* ]]#'
+  # The unguarded apostrophe opens a bogus single-quote context: the line stays a HIT but becomes UNCLASSIFIABLE.
+  if mutant_chain "teeth FU: apostrophe-in-dq" "$SUT" "$TMP/l1-mut/apostrophe-in-dq.sh" 's# \&\& \[ "\$top" != d \]; then#; then#'; then
+    tt "teeth FU: apostrophe-in-dq guard removed makes a balanced line UNCLASSIFIABLE" 1 1 "$TMP/l1-mut/apostrophe-in-dq.sh" \
+      --good-lacks 'UNCLASSIFIABLE .*fixed\.sh:2 ' --bad-has 'UNCLASSIFIABLE .*fixed\.sh:2 ' -- bash @SUT@ "$box5w"
+  else
+    fail=$((fail+1))
+  fi
+  fu_tooth brace-context "$box5w" 3 's#if \[ "\$top" != c \]; then#if true; then#' 1
+  fu_tooth backslash-escape "$box5w" 4 's#if \[ "\$c" = '"'"'\\'"'"' \]; then#if false; then#' 1
+  unc_tooth() { # <label> <fixture-box> <line> <sed-expr>
+    if mutant_chain "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
+      tt "teeth FU: $1 reverted loses the UNCLASSIFIABLE report for line $3" 0 0 "$TMP/l1-mut/$1.sh" \
+        --good-has "UNCLASSIFIABLE .*fixed\\.sh:$3 " --bad-lacks "UNCLASSIFIABLE .*fixed\\.sh:$3 |$CRASH_RE" -- bash @SUT@ "$2"
+    else
+      fail=$((fail+1))
+    fi
+  }
+  unc_tooth open-context "$box5v" 2 's#\[ -n "\$stack" \] \&\& _CDP_OPEN=1#:#'
+  unc_tooth stray-paren "$box5v" 5 's#\[ "\$c" = '"')'"' \] \&\& _CDP_OPEN=1#:#'
   l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
   l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'
   # BRE: `|` is a literal here (`\|` would be GNU alternation and match everywhere), so it is unescaped.
