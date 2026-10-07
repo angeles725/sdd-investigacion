@@ -432,14 +432,15 @@ re-org, or a moved target can vanish the referenced tree). The within-target pre
 multi-FOCUS-within-one-target case (§16) both keep evidence inside one target; this is the cross-TARGET case.
 
 **A zero-hit literal search is a LEXICAL miss, not absence.** A cross-target / cross-corpus literal-string search
-(`corpus-nav.py find`, `rg`, any grep-for-a-fact tool) that returns nothing proves only that THAT token shape is
-absent. A prior corpus may have recorded the same fact in prose under a different shape than the code symbol.
+(a target-local `corpus-nav.py find`, `rg`, any grep-for-a-fact tool) that returns nothing proves only
+that THAT token shape is absent. A prior corpus may have recorded the same fact in prose under a different shape than the code symbol.
 Before writing "no hits ⇒ absent / new here", retry the term as hyphenated, camelCase, snake_case and spaced
 forms (`CapacityLicensing` → `capacity-licensing`, `capacity licensing`); until then record the finding as
 `[INFER]` corpus-absence, never as absence in the subject. (retro: niagara5, #1193)
 
-**Control query before trusting a zero-hit search (kit issue #1932).** A zero from `corpus-nav.py find` or
-any literal search may mean the index is empty or broken, not that the term is absent. Run a known-term
+**Control query before trusting a zero-hit search (kit issue #1932).** A zero from a target-local tool
+(e.g. niagara's `corpus-nav.py find`, not shipped by the kit) or any literal search may mean a broken index or
+matcher, not that the term is absent. Run a known-term
 control first (a term the corpus certainly contains); if the control is empty, treat the tool as unusable
 for this run and fall back to `rg` over the corpus.
 
@@ -3212,11 +3213,12 @@ over an undeclared stub says nothing about decompiled vendor source.
 committing a toolkit that handles keys or credentials, physically separate the PUBLIC assets (public-key SPKI
 DERs, self-issued cert/license artifacts, own-key patched jars) from PRIVATE key material and secret VALUES
 (PKCS#8, `.key`, passwords). The latter stay off-repo (lab host, volatile scratch) and are cited by structure
-only (PROMPT-LOOP SECRETS DISCIPLINE). Layer 4c of `toolbelt/ensure-remote.sh` (above) currently REFUSES any
-tracked `*.der` / `*.key` / `*.pem` and any `licenses/` or `certificates/` directory, so committing even the
-public assets is refused today: until an allow mechanism exists they stay off-repo too, cited by structure plus
-their `sha256` and byte count (§5). Proposed check (proposed; no instrument yet, kit #1936): flag PKCS#8 bytes
-or secret-pattern bytes inside files Layer 4c does not cover (non-`.key` files, jars) under a `*-toolkit/` path.
+only (PROMPT-LOOP SECRETS DISCIPLINE). Layer 4c of `toolbelt/ensure-remote.sh` (above) refuses to CREATE a
+remote while any `*.der` / `*.key` / `*.pem` (any depth) or a root-level `licenses/` / `certificates/` is
+tracked; it does not re-run once `origin` exists. Until an allow mechanism exists (kit #1943), keep even the
+public assets off-repo, cited by structure plus their `sha256` and byte count (§5). Proposed check
+(proposed; no instrument yet, kit #1936): flag PKCS#8 bytes or secret-pattern bytes inside files Layer 4c does
+not cover (non-`.key` files, jars) under a `*-toolkit/` path.
 
 **Stale-kit drift hook (kit issue #1787).** `research-sdd-init.sh --wire` also registers `$KIT/toolbelt/verify-skill-drift-hook.sh` (double-quoted path, timeout 15) under the target's SessionStart, so a target session running hooks from a shared kit checkout that is behind origin/main is told so. A bare spaced path is requoted and an absolute path that no longer exists is dropped as stale; any other working form is kept; a re-run that changes nothing writes nothing.
 
@@ -3968,8 +3970,9 @@ hard-stops, never blind.
   the NEXT version of the same target; it is not kit-general, so it stays in the target (a `promote` verdict
   at retro time, see §18, is the route into the kit if it generalises). It MUST carry an executable
   SMOKE-TEST that re-runs every tool and reports N/N: the test, not the source, proves the recipe still
-  executes (it caught a repack verify-line bug the source review missed). (kit #1935; evidence: niagara-research
-  spg25 toolkit, commit `bde3bf800`, retro 2026-10-04-spg25-license-credential-toolkit.md D1)
+  executes (it caught a repack verify-line bug the source review missed). (kit #1935; evidence:
+  niagara-research spg25 toolkit, commit `bde3bf800`, retro
+  2026-10-04-spg25-license-credential-toolkit.md D1)
 - **Port a target-specific tool by vendor-then-generalize, not by editing the copy blind.** To reuse a
   navigation/indexing tool built for one corpus's directory layout on a NEW target, first vendor it UNCHANGED as
   the baseline commit, then generalize in a second commit: strip every hardcoded target-name path and add a
@@ -3989,8 +3992,8 @@ hard-stops, never blind.
 - **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
-  skeletons — the PROMPT-LOOP SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a reader
-  whose default output must be redacted by hand afterwards will leak on the first forgotten run.
+  skeletons — the PROMPT-LOOP SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a
+  reader whose default output must be redacted by hand afterwards will leak on the first forgotten run.
 - **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
   in RESEARCH-STATE exactly like the investigable count.
