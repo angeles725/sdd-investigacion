@@ -98,7 +98,7 @@ pf_scan() {
 
 # --strict-ephemeral / RSDD_STRICT_EPHEMERAL=1 (kit #1207): ephemeral-path cites FAIL (EPHEMERAL!) instead of WARN (EPHEMERAL?).
 STRICT_EP=0; [ "${RSDD_STRICT_EPHEMERAL:-}" = "1" ] && STRICT_EP=1
-EXTERN_CHECK=0  # kit #1906: opt-in, no env form (it prints file content — an explicit act)
+EXTERN_CHECK=0  # kit #1906: opt-in, no env form (it reads and counts files outside the target and never prints their content)
 _vb_args=(); for _vb_a in "$@"; do
   case "$_vb_a" in
     --strict-ephemeral) STRICT_EP=1 ;;  # VB-EP-STRICT-FLAG
@@ -768,11 +768,17 @@ if [ -n "$bt_cites" ]; then
           echo "   extern  $c  (absolute path not found or unreadable — not script-verifiable)"; _vb_e=$((_vb_e+1)); continue
         fi
         # The file is only COUNTED (awk NR: an unterminated last line counts, CR is ignored); no byte of it is ever echoed.
-        _vb_xr=$((_vb_xr+1)); total=$(awk 'END{print NR}' "$f")
+        # awk stops at the cited END line (`print e`), so an in-range cite does not read the rest of the file; past EOF it
+        # prints the full count. A counter that fails (non-zero status, or no number) is NEVER a verdict: typed DEGRADED, exit 1.
+        total=$(awk -v e="$end" 'NR>=e{f=1;exit} END{print f?e:NR}' "$f"); _vb_aw=$?
+        if [ "$_vb_aw" -ne 0 ] || [[ ! "$total" =~ ^[0-9]+$ ]]; then
+          echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue
+        fi
+        _vb_xr=$((_vb_xr+1))
         if [ "$end" -gt "$total" ]; then
           echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1)); continue
         fi
-        if [ "$start" = "$end" ]; then echo "   ok extern $c"; else echo "   ok extern $c  (range end verified; file has $total lines)"; fi
+        if [ "$start" = "$end" ]; then echo "   ok extern $c"; else echo "   ok extern $c  (range end verified)"; fi
         _vb_ok=$((_vb_ok+1))
         continue
       fi

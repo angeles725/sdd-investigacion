@@ -1702,7 +1702,7 @@ out="$(xsrun --extern-check "$XS/tgt/single.md" "$XS/tgt")"
 # start != end range: end verified against the line count; flag position free
 xsblock range.md "Cite \`$XS/ext/plain.txt:3-5\`. [CERT]"
 out="$(xsrun "$XS/tgt/range.md" "$XS/tgt" --extern-check)"
-{ grep -qE 'ok extern .*plain.txt:3-5  \(range end verified; file has 30 lines\)' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+{ grep -qE 'ok extern .*plain.txt:3-5  \(range end verified\)$' <<<"$out" && ! grep -q 'file has' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
   && ok "#1906 range 3-5 verified against 30 lines (flag position free), no content" || no "#1906 range :: $(grep -E 'extern' <<<"$out" | head -3)"
 xsblock rangepast.md "Cite \`$XS/ext/plain.txt:25-31\`. [CERT]"
 out="$(xsrun --extern-check "$XS/tgt/rangepast.md" "$XS/tgt")"
@@ -1711,7 +1711,7 @@ out="$(xsrun --extern-check "$XS/tgt/rangepast.md" "$XS/tgt")"
 # past EOF single
 xsblock past.md "Cite \`$XS/ext/plain.txt:31\`. [CERT]"
 out="$(xsrun --extern-check "$XS/tgt/past.md" "$XS/tgt")"
-{ grep -q 'RANGE!  .*plain.txt:31' <<<"$out" && grep -q '0 extern, 1 failed' <<<"$out" && grep -q '== exit 1 ==' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
+{ grep -q 'RANGE!  .*plain.txt:31  (file has 30 lines)' <<<"$out" && grep -q '0 extern, 1 failed' <<<"$out" && grep -q '== exit 1 ==' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
   && ok "#1906 past-EOF absolute cite -> RANGE! + exit 1, no content" || no "#1906 past EOF :: $(grep -E 'RANGE|resolved|exit' <<<"$out" | head -3)"
 # missing / directory / relative: stay extern with a reason, exit 0
 xsblock gone.md "Gone \`$XS/ext/nope.txt:3\`, dir \`$XS/ext/dir.txt:1\`, rel \`sources/x.txt:4\`. [CERT]"
@@ -1728,6 +1728,19 @@ else
   { grep -q 'extern  .*noread.txt:1.*not found or unreadable' <<<"$out" && grep -q 'verified 0 of 1 absolute' <<<"$out" && ! grep -q "$CANARY" <<<"$out"; } \
     && ok "#1906 unreadable file stays typed extern (never read)" || no "#1906 unreadable :: $(grep -E 'extern|exit' <<<"$out" | head -3)"
 fi
+# a failed line count must NEVER read as a verdict: a counter that exits non-zero (even if it printed a number) or prints
+# a non-number is a typed DEGRADED + exit 1, the cite is not resolved and not verified (stubs wrap awk on PATH, only for the count call)
+REAL_AWK="$(command -v awk)"
+mkdir -p "$XS/stubA" "$XS/stubB"
+printf '#!/bin/bash\ncase "$*" in *NR\\>=e*) echo 1000000; exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$XS/stubA/awk"
+printf '#!/bin/bash\ncase "$*" in *NR\\>=e*) echo abc; exit 0;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$XS/stubB/awk"
+chmod +x "$XS/stubA/awk" "$XS/stubB/awk"
+for _st in A B; do
+  out="$(PATH="$XS/stub$_st:$PATH" xsrun --extern-check "$XS/tgt/single.md" "$XS/tgt")"
+  { grep -q 'extern-check DEGRADED  .*plain.txt:2 (line count failed)' <<<"$out" && ! grep -q 'ok extern' <<<"$out" && grep -q '== exit 1 ==' <<<"$out" \
+    && grep -q 'verified 0 of 1 absolute' <<<"$out" && grep -q '0 extern, 1 failed' <<<"$out"; } \
+    && ok "#1906 failed line count (stub $_st) -> typed DEGRADED, exit 1, never ok/verified" || no "#1906 degraded stub $_st :: $(grep -E 'extern|exit' <<<"$out" | head -4)"
+done
 # CRLF file: 3 lines; :3 is in range, :4 is past EOF (the \r never inflates or deflates the count)
 xsblock crlf.md "A \`$XS/ext/crlf.txt:3\` B \`$XS/ext/crlf.txt:4\`. [CERT]"
 out="$(xsrun --extern-check "$XS/tgt/crlf.md" "$XS/tgt")"
@@ -2462,7 +2475,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # LAST-line edge: line 30 of a 30-line file is in range; an off-by-one bound reports it as RANGE!
   if mk_sed "teeth-1906-last-line" "$MUT/xs5.sh" 's/if \[ "\$end" -gt "\$total" \]; then/if [ "$end" -ge "$total" ]; then/'; then
-    tooth "teeth-1906-last-line" 1 1 "$MUT/xs5.sh" --good-has 'resolved 2 of 4 \(1 extern, 1 failed\)' --bad-has 'resolved 1 of 4 \(1 extern, 2 failed\)' \
+    tooth "teeth-1906-last-line" 1 1 "$MUT/xs5.sh" --good-has 'resolved 2 of 4 \(1 extern, 1 failed\)' --bad-has 'resolved 0 of 4 \(1 extern, 3 failed\)' \
       -- bash @SUT@ --extern-check "$XS/tgt/edges.md" "$XS/tgt"
   fi
   # a range is judged by its END: neutered to the start, :25-31 reads as ok
@@ -2478,14 +2491,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # unreadable file: neutering only the readability test turns the typed extern into a verdict (skipped as root)
   if [ "$(id -u)" != 0 ] && [ ! -r "$XS/ext/noread.txt" ]; then
     if mk_sed "teeth-1906-unreadable" "$MUT/xs8.sh" 's/\[ ! -f "\$f" \] || \[ ! -r "\$f" \]/[ ! -f "$f" ]/'; then
-      tooth "teeth-1906-unreadable" 0 0 "$MUT/xs8.sh" --good-has 'noread.txt:1.*not found or unreadable' --bad-lacks 'not found or unreadable' \
+      tooth "teeth-1906-unreadable" 0 1 "$MUT/xs8.sh" --good-has 'noread.txt:1.*not found or unreadable' --bad-lacks 'not found or unreadable' \
         -- bash @SUT@ --extern-check "$XS/tgt/noread.md" "$XS/tgt"
     fi
   else echo "  SKIP  teeth-1906-unreadable (root or mode 000 still readable)"; fi
   # line counting counts an unterminated last line (wc -l would not) and ignores CR
-  if mk_sed "teeth-1906-count" "$MUT/xs9.sh" 's/total=\$(awk .END{print NR}. "\$f")/total=$(wc -l < "$f")/'; then
+  if mk_sed "teeth-1906-count" "$MUT/xs9.sh" 's/total=\$(awk .*"\$f")/total=$(wc -l < "$f")/'; then
     tooth "teeth-1906-count" 0 1 "$MUT/xs9.sh" --good-has 'ok extern .*nonl.txt:2' --bad-has 'RANGE!  .*nonl.txt:2' \
       -- bash @SUT@ --extern-check "$XS/tgt/nonl.md" "$XS/tgt"
+  fi
+  # the past-EOF message carries the FULL count (the awk END branch); an off-by-one there is reported
+  if mk_sed "teeth-1906-count-full" "$MUT/xs13.sh" 's/END{print f?e:NR}/END{print f?e:NR-1}/'; then
+    tooth "teeth-1906-count-full" 1 1 "$MUT/xs13.sh" --good-has 'plain.txt:31  \(file has 30 lines\)' --bad-has 'plain.txt:31  \(file has 29 lines\)' \
+      -- bash @SUT@ --extern-check "$XS/tgt/past.md" "$XS/tgt"
+  fi
+  # a counter that fails must not read as ok: dropping the status check (stub A prints a number but exits 2) or the
+  # numeric check (stub B exits 0 printing text) turns the DEGRADED line into `ok extern`
+  if mk_sed "teeth-1906-degraded-status" "$MUT/xs14.sh" 's/\[ "\$_vb_aw" -ne 0 \] || //'; then
+    tooth "teeth-1906-degraded-status" 1 0 "$MUT/xs14.sh" --good-has 'DEGRADED  .*plain.txt:2' --bad-lacks 'DEGRADED' --bad-has 'ok extern' \
+      -- env "PATH=$XS/stubA:$PATH" bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+  fi
+  if mk_sed "teeth-1906-degraded-numeric" "$MUT/xs15.sh" 's/ || \[\[ ! "\$total" =~ \^\[0-9\]+\$ \]\]//'; then
+    tooth "teeth-1906-degraded-numeric" 1 0 "$MUT/xs15.sh" --good-has 'DEGRADED  .*plain.txt:2' --bad-lacks 'DEGRADED' --bad-has 'ok extern' \
+      -- env "PATH=$XS/stubB:$PATH" bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   # counters: absolute seen, relative seen, verified
   if mk_sed "teeth-1906-cnt-abs" "$MUT/xs10.sh" 's/_vb_xa=\$((_vb_xa+1))/_vb_xa=$((_vb_xa+0))/'; then
