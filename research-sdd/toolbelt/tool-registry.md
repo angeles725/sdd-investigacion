@@ -127,7 +127,7 @@ a live-network probe, modifies system state, or exercises hardware. Read-only di
 | `ilspycmd` | `ILSPYCMD` → PATH → portable `$HOME/.dotnet/tools/ilspycmd` |
 | Ghidra `analyzeHeadless` | `ANALYZE_HEADLESS` → `GHIDRA_HOME` → `GHIDRA_INSTALL_DIR` → PATH → stable Homebrew `opt` → `/opt/ghidra*` |
 | `radare2` / `objdump` / `readelf` / `nm` / `strings` | in PATH |
-| `binwalk` | `/usr/bin/binwalk` |
+| `binwalk` | root-owned PATH binwalk, or explicit `RSDD_BINWALK=<abs path>` (user-owned allowed; major 2 only) |
 | `yara` (4.5.5) | in PATH |
 | `pdftotext` / `pdfinfo` / `pdffonts` / `pdftoppm` / `tesseract` (langs: `spa`,`eng`,`spa_best`) / `pandoc` | in PATH |
 | `markitdown` (0.1.7 — quick any-doc→MD, non-cited reads; see `MARKITDOWN.md`) | `~/.local/bin/markitdown` |

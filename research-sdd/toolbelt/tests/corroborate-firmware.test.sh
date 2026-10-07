@@ -76,7 +76,9 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     trap 'rm -rf "$ROOT"' EXIT
 
     run(){ "$SUT_SH" --input "$ROOT/fixture.bin" --output "$1" "${@:2}"; }
-    real_run(){ RSDD_BINWALK="$_real_bw" run "$@"; }
+    # A root-owned PATH binwalk exercises the default (root-only) branch; a user-owned one needs the explicit env.
+    if [ "$(stat -c %u "$(readlink -f "${_real_bw:-/nonexistent}")" 2>/dev/null)" = 0 ]; then real_run(){ run "$@"; }
+    else real_run(){ RSDD_BINWALK="$_real_bw" run "$@"; }; fi
     mkfake(){ mkdir -p "$ROOT/$1"; cat >"$ROOT/$1/binwalk"; chmod +x "$ROOT/$1/binwalk"; }
 
     cat >"$ROOT/fixture.c" <<C
@@ -104,6 +106,7 @@ C
 import json, sys
 d = json.load(open(sys.argv[1])); e = d['engine']
 assert d['schema'] == 'firmware-static.v1' and d['status'] == 'complete' and e['version'] == '2.3.3'
+assert e['trust'] in ('root-owned', 'user-owned-explicit'), e['trust']
 assert e['argv'] == ['engine/binwalk', '-B', '-E', '-N', 'input/firmware.bin']
 assert e['launcher']['source']['sha256'] == e['launcher']['staged']['sha256']
 assert d['isolation']['profile'] == {
@@ -273,15 +276,40 @@ SH
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["status"]=="complete" and d["engine"]["test_override"] is False and d["engine"]["version"]=="2.3.3", d["engine"]
+assert d["engine"]["trust"]=="user-owned-explicit", d["engine"]
+assert any("not root-owned" in l for l in d["limitations"]) and not any("distro Binwalk package" in l for l in d["limitations"]), d["limitations"]
 ' "$ROOT/s13/firmware-static.v1.json"; then
       ok "S13: RSDD_BINWALK selects a PATH analyzer outside /usr/bin as real evidence"
     else no "S13: RSDD_BINWALK real-analyzer selection"; fi
+
+    # S13b/c: RSDD_BINWALK is a REAL selection — used when another binwalk is first on PATH, and when PATH has none.
+    if PATH="$ROOT/v3fake:$ROOT/v2fake:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v2fake/binwalk" run "$ROOT/s13b" \
+      && PATH="/usr/bin:/bin" RSDD_BINWALK="$ROOT/v2fake/binwalk" run "$ROOT/s13c" \
+      && python3 -c '
+import json,sys
+for f in sys.argv[1:]:
+    d=json.load(open(f)); assert d["status"]=="complete" and d["engine"]["version"]=="2.3.3", f
+' "$ROOT/s13b/firmware-static.v1.json" "$ROOT/s13c/firmware-static.v1.json"; then
+      ok "S13b/c: RSDD_BINWALK is used when not first on PATH and when PATH has no binwalk"
+    else no "S13b/c: RSDD_BINWALK real selection"; fi
 
     # S14: a non-root-owned PATH analyzer without the explicit env is refused with a typed, actionable message.
     _s14_err="$(PATH="$ROOT/v2fake:/usr/bin:/bin" run "$ROOT/s14" 2>&1 >/dev/null)"; _s14_rc=$?
     if [ "$_s14_rc" -eq 2 ] && [[ "$_s14_err" == *"root-owned"* && "$_s14_err" == *"RSDD_BINWALK"* ]] && [ ! -e "$ROOT/s14" ]; then
       ok "S14: user-owned PATH analyzer without RSDD_BINWALK fails closed naming RSDD_BINWALK"
     else no "S14: untrusted PATH analyzer message (rc=$_s14_rc: $_s14_err)"; fi
+
+    # S16: a group/world-writable analyzer directory is refused even for an explicit, user-owned binwalk.
+    mkfake v2writable <<'SH'
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk v2.3.3'; exit; }
+printf '0 0x0 PNG image\n'
+SH
+    chmod 777 "$ROOT/v2writable"
+    _s16_err="$(PATH="$ROOT/v2writable:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v2writable/binwalk" run "$ROOT/s16" 2>&1 >/dev/null)"; _s16_rc=$?
+    if [ "$_s16_rc" -eq 2 ] && [[ "$_s16_err" == *"directory must be"* ]] && [ ! -e "$ROOT/s16" ]; then
+      ok "S16: analyzer in a group/world-writable directory is refused"
+    else no "S16: writable analyzer directory (rc=$_s16_rc: $_s16_err)"; fi
 
     # S15: an unsupported binwalk major is a typed refusal, not a silent mis-parse.
     _s15_err="$(PATH="$ROOT/v3fake:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v3fake/binwalk" run "$ROOT/s15" 2>&1 >/dev/null)"; _s15_rc=$?
@@ -462,26 +490,39 @@ PY
   then ok "F6: binwalk_version reads 2.x/3.x banners and ignores the usage line"
   else no "F6: binwalk_version parsing"; fi
 
-  # F7 (#1641): resolve_binwalk — PATH probe, explicit env, ownership trust.
+  # F7 (#1641): resolve_binwalk — PATH probe, explicit selection, trust rules, descriptor-level checks.
   if python3 - "$TOOLBELT" <<'PY'
 import os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
 import corroborate_firmware as fw
-with tempfile.TemporaryDirectory() as d:
+def refused(env, needle):
+    try: fw.resolve_binwalk(env)
+    except fw.FirmwareError as exc: assert needle in str(exc), (needle, str(exc)); return
+    raise SystemExit(f"accepted but must refuse ({needle}): {env}")
+with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as other:
     b = Path(d) / "binwalk"; b.write_text("#!/bin/sh\n"); b.chmod(0o755)
-    path = f"{d}:/usr/bin:/bin"
-    try: fw.resolve_binwalk({"PATH": path}); raise SystemExit("user-owned PATH binwalk accepted without RSDD_BINWALK")
-    except fw.FirmwareError as exc: assert "RSDD_BINWALK" in str(exc), exc
-    got, _ = fw.resolve_binwalk({"PATH": path, "RSDD_BINWALK": str(b)}); assert got == b.resolve(), got
-    b.chmod(0o775)
-    try: fw.resolve_binwalk({"PATH": path, "RSDD_BINWALK": str(b)}); raise SystemExit("group-writable accepted")
-    except fw.FirmwareError: pass
-    try: fw.resolve_binwalk({"PATH": "/nonexistent"}); raise SystemExit("missing accepted")
-    except fw.FirmwareError as exc: assert "missing" in str(exc), exc
+    o = Path(other) / "binwalk"; o.write_text("#!/bin/sh\n"); o.chmod(0o755)
+    path = f"{other}:{d}:/usr/bin:/bin"
+    refused({"PATH": path}, "RSDD_BINWALK")                      # default branch is root-only
+    got, _, trust, _ = fw.resolve_binwalk({"PATH": path, "RSDD_BINWALK": str(b)})
+    assert got == b.resolve() and trust == "user-owned-explicit", (got, trust)   # real selection, not first on PATH
+    got, _, _, _ = fw.resolve_binwalk({"PATH": "/nonexistent", "RSDD_BINWALK": str(b)}); assert got == b.resolve()
+    refused({"PATH": path, "RSDD_BINWALK": "binwalk"}, "absolute")
+    b.chmod(0o775); refused({"PATH": path, "RSDD_BINWALK": str(b)}, "non-writable"); b.chmod(0o755)
+    os.chmod(d, 0o777); refused({"PATH": path, "RSDD_BINWALK": str(b)}, "directory"); os.chmod(d, 0o700)
+    refused({"PATH": "/nonexistent"}, "missing")
+    cwd = os.getcwd(); os.chdir(d)
+    try: refused({"PATH": ".:/nonexistent"}, "missing"); refused({"PATH": ":/nonexistent"}, "missing")   # relative / empty entries are not searched
+    finally: os.chdir(cwd)
+    # the gate lives on the opened descriptor inside identity() and stage_file()
+    for call in (lambda: fw.identity(b, trusted_uids=frozenset({0})), lambda: fw.stage_file(b, Path(d) / "copy", "x", 0o500, trusted_uids=frozenset({0}))):
+        try: call()
+        except fw.FirmwareError as exc: assert "root-owned" in str(exc), exc
+        else: raise SystemExit("descriptor-level trust gate missing")
 print("OK: resolve_binwalk")
 PY
-  then ok "F7: resolve_binwalk probes PATH, honours RSDD_BINWALK, refuses untrusted ownership/mode"
+  then ok "F7: resolve_binwalk selects explicitly, refuses untrusted owner/mode/directory, ignores relative PATH entries"
   else no "F7: resolve_binwalk selection"; fi
 
 fi # fast | all
@@ -590,7 +631,7 @@ try: m.check_binwalk_version("3.1.0")
 except m.FirmwareError: print("VERDICT: major refused")
 else: print("VERDICT: major accepted")
 PY
-  mut_py "tooth-binwalk-trust" t4 's/^    if meta.st_uid not in trusted or meta.st_mode & 0o022:$/    if False:/' \
+  mut_py "tooth-binwalk-trust" t4 's/^    if meta.st_uid not in trusted_uids or meta.st_mode \& 0o022:$/    if False:/' \
     && _tt "tooth-binwalk-trust: ownership/mode gate removed → group-writable analyzer accepted → F7 RED (bites)" 0 0 "$_MUT/t4/corroborate_firmware.py" --orig "$SUT_PY" \
          --good-has '^VERDICT: trust refused$' --bad-has '^VERDICT: trust accepted$' --bad-lacks '^VERDICT: trust refused$' -- \
          python3 "$_MUT/h4.py" @SUT@
@@ -598,6 +639,42 @@ PY
     && _tt "tooth-binwalk-major: major gate removed → 3.1.0 accepted → F6 RED (bites)" 0 0 "$_MUT/t5/corroborate_firmware.py" --orig "$SUT_PY" \
          --good-has '^VERDICT: major refused$' --bad-has '^VERDICT: major accepted$' --bad-lacks '^VERDICT: major refused$' -- \
          python3 "$_MUT/h4.py" @SUT@
+
+  # tooth-binwalk-uids / -parent / -relative-path / -fd-gate (#1641): one harness prints each gate's verdict.
+  cat > "$_MUT/h6.py" <<'PY'
+import os, sys, importlib.util, pathlib, tempfile
+spec = importlib.util.spec_from_file_location("fw_under_test", pathlib.Path(sys.argv[1]).resolve())
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+def verdict(name, env):
+    try: m.resolve_binwalk(env)
+    except m.FirmwareError as exc: print(f"VERDICT: {name} refused"); print(f"DETAIL: {name} {'missing' if 'missing' in str(exc) else 'other'}")
+    else: print(f"VERDICT: {name} accepted")
+with tempfile.TemporaryDirectory() as d:
+    b = pathlib.Path(d) / "binwalk"; b.write_text("#!/bin/sh\n"); b.chmod(0o755)
+    verdict("default-uid", {"PATH": d + ":/usr/bin"})
+    os.chmod(d, 0o777); verdict("parent", {"PATH": d, "RSDD_BINWALK": str(b)}); os.chmod(d, 0o700)
+    cwd = os.getcwd(); os.chdir(d)
+    try: verdict("relative-path", {"PATH": ".:/nonexistent"})
+    finally: os.chdir(cwd)
+    try: m.identity(b, trusted_uids=frozenset({0})); print("VERDICT: fd-gate accepted")
+    except m.FirmwareError: print("VERDICT: fd-gate refused")
+PY
+  mut_py "tooth-binwalk-uids" t6a 's/executable("binwalk", selected, search, frozenset({0}),/executable("binwalk", selected, search, frozenset({0, os.geteuid()}),/' \
+    && _tt "tooth-binwalk-uids: default branch trusts the invoking uid → user-owned PATH binwalk accepted (bites)" 0 0 "$_MUT/t6a/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: default-uid refused$' --bad-has '^VERDICT: default-uid accepted$' --bad-lacks '^VERDICT: default-uid refused$' -- \
+         python3 "$_MUT/h6.py" @SUT@
+  mut_py "tooth-binwalk-parent" t6b 's/^    if parent.st_uid not in trusted_uids or parent.st_mode \& 0o022:$/    if False:/' \
+    && _tt "tooth-binwalk-parent: directory check removed → analyzer in a world-writable directory accepted (bites)" 0 0 "$_MUT/t6b/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: parent refused$' --bad-has '^VERDICT: parent accepted$' --bad-lacks '^VERDICT: parent refused$' -- \
+         python3 "$_MUT/h6.py" @SUT@
+  mut_py "tooth-binwalk-relative-path" t6c 's/if os.path.isabs(entry))/if True)/' \
+    && _tt "tooth-binwalk-relative-path: relative PATH entries kept → ./binwalk is searched (bites)" 0 0 "$_MUT/t6c/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^DETAIL: relative-path missing$' --bad-has '^DETAIL: relative-path other$' --bad-lacks '^DETAIL: relative-path missing$' -- \
+         python3 "$_MUT/h6.py" @SUT@
+  mut_py "tooth-binwalk-fd-gate" t6d 's/^        if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, hint)$/        pass/' \
+    && _tt "tooth-binwalk-fd-gate: identity() no longer gates on the descriptor → direct call accepts a user-owned file (bites)" 0 0 "$_MUT/t6d/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: fd-gate refused$' --bad-has '^VERDICT: fd-gate accepted$' --bad-lacks '^VERDICT: fd-gate refused$' -- \
+         python3 "$_MUT/h6.py" @SUT@
 
   echo "-- prove-teeth done --"
 fi

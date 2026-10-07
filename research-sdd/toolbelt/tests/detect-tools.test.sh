@@ -928,6 +928,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# binwalk (#1641): the probe row accepts a PATH binwalk or an explicit RSDD_BINWALK, and WARNs when the
+# major is not 2 (corroborate-firmware supports only major 2); a major-2 binwalk gets no WARN.
+BIN_BW2="$ROOT/bin-bw2"; BIN_BW3="$ROOT/bin-bw3"
+mkexec "$BIN_BW2/binwalk" 'echo "Binwalk v2.3.3"; exit 0'
+mkexec "$BIN_BW3/binwalk" 'if [ "${1:-}" = --version ]; then echo "binwalk 3.1.0"; else echo "Usage: binwalk [OPTIONS] [FILE_NAME]"; fi; exit 0'
+bw_report() { # <path-dir> [env...] — print the report with the given PATH
+  local pdir="$1"; shift
+  env "$@" RSDD_PROBE_TIMEOUT=2 PATH="$pdir:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-bw.txt" 2>/dev/null
+}
+out_bw3="$(bw_report "$BIN_BW3" X=1)"
+if grep -qE '^  binwalk +AVAILABLE +'"$BIN_BW3"'/binwalk' <<<"$out_bw3" && grep -qE '^  binwalk +WARN +binwalk 3\.1\.0: .*major 2' <<<"$out_bw3"; then
+  ok "binwalk-major: a PATH binwalk 3.x is AVAILABLE but WARNed as unsupported (major 2 only)"
+else no "binwalk-major: PATH binwalk 3.x WARN" "[$(grep -E '^  binwalk' <<<"$out_bw3" | head -3)]"; fi
+out_bw2="$(bw_report "$BIN_BW2" X=1)"
+if grep -qE '^  binwalk +AVAILABLE +'"$BIN_BW2"'/binwalk' <<<"$out_bw2" && ! grep -qE '^  binwalk +WARN' <<<"$out_bw2"; then
+  ok "binwalk-major: a PATH binwalk 2.x is AVAILABLE with no WARN"
+else no "binwalk-major: PATH binwalk 2.x" "[$(grep -E '^  binwalk' <<<"$out_bw2" | head -3)]"; fi
+out_bwx="$(bw_report "$BIN_BW2" RSDD_BINWALK="$BIN_BW3/binwalk")"
+if grep -qE '^  binwalk +WARN +binwalk 3\.1\.0' <<<"$out_bwx"; then
+  ok "binwalk-major: an explicit RSDD_BINWALK is the binary that is version-checked"
+else no "binwalk-major: RSDD_BINWALK check" "[$(grep -E '^  binwalk' <<<"$out_bwx" | head -3)]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  MUT_BW="$ROOT/detect-mut-bw.sh"
+  if mutant_chain "teeth: detect-mut-bw.sh" "$DETECT" "$MUT_BW" \
+    's/elif \[ "\${bw_ver%%\.\*}" != "2" \]; then/elif false; then/'; then
+    chmod +x "$MUT_BW"
+    out_mbw="$(RSDD_PROBE_TIMEOUT=2 PATH="$BIN_BW3:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_BW" --cache "$ROOT/cache-mbw.txt" 2>/dev/null)"
+    if ! grep -qE '^  binwalk +WARN' <<<"$out_mbw"; then
+      ok "teeth-binwalk-major: major check disabled → no WARN for 3.x — binwalk-major bites" "(WARN absent)"
+    else no "teeth-binwalk-major: mutant still WARNs" ""; fi
+  else
+    fail=$((fail+1))
+  fi
+fi
+
 # z_guard — HERMETIC-PATH-GUARD: fake objdump records its own PATH to a log.
 # After the hermetic SUT run, asserts the recorded PATH contains ONLY the fake bin
 # dir and the two standard coreutils dirs (/usr/bin, /bin); any real system dir leaks.

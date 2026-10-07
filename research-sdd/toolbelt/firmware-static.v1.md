@@ -6,8 +6,12 @@ network access, emulation, or target execution. The output path must be new and
 reside on a Linux-private filesystem.
 
 The adapter descriptor-copies the input and analyzer into a private `0700` stage,
-requires the real root-owned `/usr/bin/binwalk` and `/usr/bin/bwrap` to agree with
-PATH, and runs the staged analyzer through Bubblewrap with a read-only host and
+requires the PATH-selected `binwalk` to be root-owned, non-writable and in a non-group/world-writable
+directory (a user-owned install such as Homebrew is accepted only through an explicit absolute
+`RSDD_BINWALK`, which is used even when it is not first on PATH and is recorded as
+`engine.trust: user-owned-explicit` with a limitation line), supports only Binwalk major 2 (any other major is
+refused with a typed error), requires the root-owned `/usr/bin/bwrap` to agree with
+PATH, ignores relative PATH entries, and runs the staged analyzer through Bubblewrap with a read-only host and
 stage, private PID/network namespaces, zero capabilities, and synthetic HOME/XDG/TMP state. The only
 scan argv is `engine/binwalk -B -E -N input/firmware.bin`; user arguments,
 configuration, extraction, carving, plugins, emulation, and target execution are

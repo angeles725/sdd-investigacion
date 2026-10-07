@@ -198,7 +198,7 @@ python3 (3.9+), node (18+), bash (4+)
 ```
 bwrap, qemu-system-x86_64/arm, docker        # VM + sandbox
 tshark, capinfos, dumpcap                    # PCAP
-binwalk (must be /usr/bin/binwalk, root-owned, non-group/other-writable)
+binwalk (major 2; root-owned PATH binwalk, or an explicit user-owned RSDD_BINWALK=<abs path>)
 unblob, unsquashfs                           # firmware extraction
 r2, objdump, readelf, file, strings          # native RE
 floss, capa + rules dir                      # string/capability RE

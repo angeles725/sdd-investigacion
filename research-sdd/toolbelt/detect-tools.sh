@@ -259,10 +259,24 @@ report() {
   row "pwsh" pwsh --version "${BREW:+$BREW/bin/pwsh}"
   echo ""
   echo "[ firmware ]"
-  # binwalk MUST resolve to the root-owned /usr/bin/binwalk: corroborate_firmware.py
-  # rejects any other path (chain of custody). A brew copy is user-writable and
-  # produces evidence the wrapper will refuse.
-  row "binwalk" binwalk --help /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}"
+  # binwalk: corroborate_firmware.py selects RSDD_BINWALK (explicit absolute path) or the PATH-selected
+  # binwalk (kit issue #1641). A PATH binwalk must be root-owned and non-writable; a user-owned install
+  # (e.g. Homebrew) is accepted only through an explicit RSDD_BINWALK. Only binwalk major 2 output is
+  # supported, so binwalk_note WARNs on any other major.
+  row "binwalk" binwalk --help ${RSDD_BINWALK:+"$RSDD_BINWALK"} /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}"
+  binwalk_note() {
+    bw="${RSDD_BINWALK:-}"
+    if [ -z "$bw" ]; then bw="$(resolve binwalk /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}")" || return 0; fi
+    [ -x "$bw" ] || return 0
+    bw_out="$("$bw" --version 2>&1 </dev/null; "$bw" --help 2>&1 </dev/null)"
+    bw_ver="$(printf '%s\n' "$bw_out" | sed -n 's/.*[Bb]inwalk v\{0,1\}\([0-9][^ ]*\).*/\1/p' | head -n1)"
+    if [ -z "$bw_ver" ]; then
+      printf '  %-22s WARN        version unknown (corroborate-firmware supports only binwalk major 2)\n' "binwalk"
+    elif [ "${bw_ver%%.*}" != "2" ]; then
+      printf '  %-22s WARN        binwalk %s: corroborate-firmware supports only binwalk major 2\n' "binwalk" "$bw_ver"
+    fi
+  }
+  binwalk_note
   row "unblob" unblob --help "$HOME/.local/bin/unblob" "${BREW:+$BREW/bin/unblob}"
   row "kaitai-struct-compiler" kaitai-struct-compiler --version "${BREW:+$BREW/bin/kaitai-struct-compiler}" /usr/bin/kaitai-struct-compiler
   row "yara" yara --version "${BREW:+$BREW/bin/yara}" /usr/bin/yara

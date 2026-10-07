@@ -25,7 +25,16 @@ def canonical(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
-def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
+def require_trusted(meta: os.stat_result, resolved: Path, trusted_uids: frozenset[int], hint: str) -> None:
+    """Gate an analyzer on the DESCRIPTOR's own owner/mode (not a later path stat) and on its directory."""
+    if meta.st_uid not in trusted_uids or meta.st_mode & 0o022:
+        raise FirmwareError("Binwalk must be root-owned and non-writable" + hint)
+    parent = resolved.parent.stat()
+    if parent.st_uid not in trusted_uids or parent.st_mode & 0o022:
+        raise FirmwareError("Binwalk's directory must be root-owned (or the invoking user's for RSDD_BINWALK) and not group/world-writable")
+
+
+def identity(path: Path, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None, hint: str = "") -> tuple[Path, int, str]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try: fd = os.open(path, flags)
     except OSError as exc: raise FirmwareError(f"cannot open regular non-symlink file: {path}") from exc
@@ -34,6 +43,7 @@ def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
         if not stat.S_ISREG(before.st_mode): raise FirmwareError(f"not a regular file: {path}")
         if max_bytes is not None and before.st_size > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
         resolved = Path(f"/proc/self/fd/{fd}").resolve(); digest = hashlib.sha256(); total = 0
+        if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, hint)
         while chunk := os.read(fd, min(1024 * 1024, max_bytes - total + 1) if max_bytes is not None else 1024 * 1024):
             total += len(chunk)
             if max_bytes is not None and total > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
@@ -44,7 +54,7 @@ def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
     finally: os.close(fd)
 
 
-def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: int | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try: src = os.open(source, flags)
     except OSError as exc: raise FirmwareError("source cannot be opened safely") from exc
@@ -54,6 +64,7 @@ def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: i
         if not stat.S_ISREG(before.st_mode): raise FirmwareError("source is not a regular file")
         if max_bytes is not None and before.st_size > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
         resolved = Path(f"/proc/self/fd/{src}").resolve()
+        if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, "")
         out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             while chunk := os.read(src, min(1024 * 1024, max_bytes - total + 1) if max_bytes is not None else 1024 * 1024):
@@ -73,13 +84,23 @@ def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: i
             {"path": logical, "size": size, "sha256": copied_digest})
 
 
-def executable(name: str, configured: str, search: str) -> tuple[Path, dict[str, Any]]:
-    selected = shutil.which(name, path=search)
-    if selected is None: raise FirmwareError(f"PATH-selected {name} is missing")
-    candidate, selected_path = Path(configured).resolve(strict=True), Path(selected).resolve(strict=True)
-    if not candidate.is_file() or not os.access(candidate, os.X_OK) or not os.path.samefile(candidate, selected_path):
-        raise FirmwareError(f"configured {name} does not match PATH-selected executable")
-    resolved, size, digest = identity(candidate)
+def absolute_path(search: str) -> str:
+    """Drop empty and relative PATH entries: a relative entry resolves against the caller's cwd (#1641)."""
+    return os.pathsep.join(entry for entry in search.split(os.pathsep) if os.path.isabs(entry))
+
+
+def executable(name: str, configured: str, search: str, trusted_uids: frozenset[int] | None = None, hint: str = "",
+               must_match_path: bool = True) -> tuple[Path, dict[str, Any]]:
+    search = absolute_path(search)
+    candidate = Path(configured).resolve(strict=True)
+    if must_match_path:
+        selected = shutil.which(name, path=search)
+        if selected is None: raise FirmwareError(f"PATH-selected {name} is missing")
+        if not candidate.is_file() or not os.access(candidate, os.X_OK) or not os.path.samefile(candidate, Path(selected).resolve(strict=True)):
+            raise FirmwareError(f"configured {name} does not match PATH-selected executable")
+    elif not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise FirmwareError(f"configured {name} is not an executable file: {candidate}")
+    resolved, size, digest = identity(candidate, trusted_uids=trusted_uids, hint=hint)
     return resolved, {"path": str(resolved), "size": size, "sha256": digest}
 
 
@@ -93,17 +114,22 @@ def check_binwalk_version(version: str) -> None:
         raise FirmwareError(f"unsupported Binwalk version {version}: only major {SUPPORTED_BINWALK_MAJOR} output is supported")
 
 
-def resolve_binwalk(environ: Any) -> tuple[Path, dict[str, Any]]:
-    """Select the analyzer: test override, else RSDD_BINWALK (explicit), else the PATH-selected binwalk (#1641)."""
+def resolve_binwalk(environ: Any) -> tuple[Path, dict[str, Any], str, frozenset[int] | None]:
+    """Select the analyzer (#1641): RSDD_BINWALK_TEST_ONLY (test), else an explicit absolute RSDD_BINWALK (used
+    even when it is not first on PATH), else the PATH-selected binwalk. Returns path, record, trust label, trusted uids."""
     test_only, explicit, search = environ.get("RSDD_BINWALK_TEST_ONLY"), environ.get("RSDD_BINWALK"), environ.get("PATH", "")
-    if test_only: return executable("binwalk", test_only, search)
-    configured = explicit or shutil.which("binwalk", path=search)
-    if not configured: raise FirmwareError("PATH-selected binwalk is missing")
-    binwalk, record = executable("binwalk", configured, search)
-    meta = binwalk.stat(); trusted = {0, os.geteuid()} if explicit else {0}
-    if meta.st_uid not in trusted or meta.st_mode & 0o022:
-        raise FirmwareError("Binwalk must be root-owned and non-writable" + (" (RSDD_BINWALK: or owned by the invoking user, not group/world-writable)" if explicit else "; set RSDD_BINWALK=<path> to select a user-owned install"))
-    return binwalk, record
+    if test_only:
+        binwalk, record = executable("binwalk", test_only, search); return binwalk, record, "test-override", None
+    if explicit:
+        if not os.path.isabs(explicit): raise FirmwareError("RSDD_BINWALK must be an absolute path")
+        uids = frozenset({0, os.geteuid()})
+        binwalk, record = executable("binwalk", explicit, search, uids, " (RSDD_BINWALK: or owned by the invoking user, not group/world-writable)", must_match_path=False)
+    else:
+        selected = shutil.which("binwalk", path=absolute_path(search))
+        if selected is None: raise FirmwareError("PATH-selected binwalk is missing")
+        uids = frozenset({0})
+        binwalk, record = executable("binwalk", selected, search, frozenset({0}), "; set RSDD_BINWALK=<absolute path> to select a user-owned install")
+    return binwalk, record, ("root-owned" if os.stat(binwalk).st_uid == 0 else "user-owned-explicit"), uids
 
 
 def require_private(path: Path, mountinfo: str | None = None) -> None:
@@ -218,8 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         (stage / "input").mkdir(); (stage / "engine").mkdir()
         source_record, staged_input = stage_file(args.input, stage / "input/firmware.bin", "input/firmware.bin", 0o400, args.max_input_bytes)
         override = os.environ.get("RSDD_BINWALK_TEST_ONLY")
-        binwalk, source_binwalk = resolve_binwalk(os.environ)
-        copied_binwalk, staged_binwalk = stage_file(binwalk, stage / "engine/binwalk", "engine/binwalk", 0o500)
+        binwalk, source_binwalk, trust, binwalk_uids = resolve_binwalk(os.environ)
+        copied_binwalk, staged_binwalk = stage_file(binwalk, stage / "engine/binwalk", "engine/binwalk", 0o500, trusted_uids=binwalk_uids)
         if copied_binwalk != source_binwalk: raise FirmwareError("analyzer changed before trusted staging")
         safe_path = "/usr/bin:/bin"; bwrap, bwrap_record = executable("bwrap", os.environ.get("RSDD_BWRAP", "/usr/bin/bwrap"), safe_path)
         meta = bwrap.stat()
@@ -244,7 +270,9 @@ def main(argv: list[str] | None = None) -> int:
         signatures_out = [item for kind, item in emitted if kind == "signature"]; entropy_out = [item for kind, item in emitted if kind == "entropy"]
         write(stage / "engine/signatures.json", signatures_out); write(stage / "engine/entropy.json", entropy_out)
         limitations = ["Binwalk signatures and entropy edges are heuristic, not proof of extractability or execution behavior.",
-            "The distro Binwalk package, Python dependencies, and magic database are read-only but are not artifact-bound by this report.",
+            ("The distro Binwalk package, Python dependencies, and magic database are read-only but are not artifact-bound by this report."
+             if trust == "root-owned" else
+             "The analyzer is not root-owned (explicit RSDD_BINWALK): its installation, Python dependencies, and magic database are writable by the invoking user and are not artifact-bound by this report."),
             "Bubblewrap on WSL2 is defense in depth, not a hostile-parser security boundary; use a disposable VM for hostile firmware."]
         if override: limitations.append("RSDD_BINWALK_TEST_ONLY selected a test analyzer; this is not official Binwalk evidence.")
         status = "failed" if errors else "partial" if truncated else "complete"
@@ -259,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         (stage / "engine/manifest-spec.json").unlink(); subprocess.run([sys.executable, str(args.manifest_cli), "validate", str(manifest)], check=True)
         subprocess.run([sys.executable, str(args.manifest_cli), "verify", "--root", str(stage), str(manifest)], check=True)
         report = {"schema": SCHEMA, "status": status, "input": {"source": source_record, "staged": staged_input},
-            "isolation": {"launcher": bwrap_record, "profile": profile}, "engine": {"name": "binwalk", "version": version, "test_override": bool(override),
+            "isolation": {"launcher": bwrap_record, "profile": profile}, "engine": {"name": "binwalk", "version": version, "test_override": bool(override), "trust": trust,
             "launcher": {"source": source_binwalk, "staged": staged_binwalk}, "argv": inner, "run": {key: run_record[key] for key in ("exit_code", "signal")},
             "manifest": "engine/analysis-manifest.v1.json", "manifest_identity": json.loads(manifest.read_text())["identity"]},
             "signatures": signatures_out, "entropy": entropy_out, "counts": {"signatures_total": len(signatures), "entropy_total": len(entropy),
