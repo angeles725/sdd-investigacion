@@ -501,7 +501,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       --good-has 'note +1 correction verb' --bad-lacks 'note +1 correction verb|awk: ' -- bash @SUT@ "$TMP/cgd-unb"
   fi
   m="$TMP/vc.NOUNSCAN.sh"
-  if mk_mut "teeth: noun clause scan" "$SUT" "$m" '/else if (!noundecl(rest))/d'; then
+  if mk_mut "teeth: noun clause scan" "$SUT" "$m" '/else if ((nd = noundecl(rest)) == 2)/d' '/else if (!nd) { print "U"/d'; then
     tt "teeth: noun-clause-scan mutant turns 'Corrigendum (see [Block 33])' into a false B8→33 FAIL" 0 1 "$m" --orig "$SUT" \
       --good-has 'note +1 correction verb' --bad-has 'FAIL +B8 corrects \[Block 33\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cgn1"
     tt "teeth: noun-clause-scan mutant turns 'No corrigendum was needed for [Block 12]' into a false FAIL" 0 1 "$m" --orig "$SUT" \
