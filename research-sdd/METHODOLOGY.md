@@ -470,8 +470,9 @@ reproduction recipe: the exact commands, in order, with their arguments. "Used s
 a later session that finds neither the script nor the steps cannot recreate the result. A path under `/tmp`,
 `/var/tmp` or a session scratchpad is not a preserved path; the sha256-anchored beautified-temp view above is the
 only exception. Delegated writers are told to preserve there, never "scratch only" (PROMPT-LOOP). Part of kit #1207;
-`verify-block.sh` enforces it in stages: an ephemeral-path cite is a typed `EPHEMERAL?` WARN by default and an `EPHEMERAL!` FAIL under
-`--strict-ephemeral` / `RSDD_STRICT_EPHEMERAL=1`; making FAIL the default is planned in kit issue #1660.
+`verify-block.sh` enforces it: an ephemeral-path cite is a typed `EPHEMERAL!` FAIL by default (kit #1660); a non-evidence line
+(prose about a path the subject produces) is waived with `<!-- ephemeral-ok: <reason> -->`; `--ephemeral=warn` or
+`RSDD_STRICT_EPHEMERAL=0` downgrades the FAIL to the `EPHEMERAL?` WARN while a corpus is being cleaned.
 - **Session SCRIPTS-MANIFEST.** One per session at `sources/probes/<date>-<slug>/SCRIPTS-MANIFEST.md`: a row per script mapping script ->
   run/step -> block, with the sha256 of the preserved copy and, when it ran on a remote host, the sha256 of the copy that executed
   there (local == remote parity recorded at run time, not reconstructed).
@@ -4180,8 +4181,8 @@ asset and must not live only in block prose or session scratch space. Persist it
 target's `tools/` or `codegen/` in the SAME commit as its block, and cite that path with the block's exact
 reproduction commands. Evidence: a prior target's committed toolkit made a later lane re-derivable in minutes,
 while a four-step local build documented only in prose had to be re-assembled by hand. The operative statement is
-PROMPT-LOOP's SCRIPTS-MANIFEST / PRESERVE paragraph (kit #1639, #1207); the staged verify-block enforcement
-(`EPHEMERAL?` WARN, `--strict-ephemeral`) is described there.
+PROMPT-LOOP's SCRIPTS-MANIFEST / PRESERVE paragraph (kit #1639, #1207); the verify-block enforcement
+(`EPHEMERAL!` FAIL by default, `--ephemeral=warn` opt-out) is described there.
 
 ## 20. Document mode (CAPTURE what you already know or just did)
 

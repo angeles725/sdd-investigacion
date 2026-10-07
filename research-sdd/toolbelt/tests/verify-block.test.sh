@@ -1372,36 +1372,82 @@ if grep -q '(none — no unanchored ephemeral path cited; sha256-anchored: 0, ep
 else no "#1207: clean none line missing"; fi
 
 
-# staged enforcement (kit #1207): default = typed WARN EPHEMERAL? (exit unchanged); --strict-ephemeral / env = FAIL.
-ep_default() { # <name> <want-warns> <label>
+# kit #1660 — the staged rollout ended: the DEFAULT is FAIL (EPHEMERAL!, exit 1). The WARN (EPHEMERAL?, exit unchanged)
+# is the explicit opt-out: `--ephemeral=warn` or RSDD_STRICT_EPHEMERAL=0. Precedence: flag > env > default (FAIL).
+ep_default() { # <name> <want-fails> <label>
   local out got n
   out="$(bash "$SUT" "$TMP/ep-$1.md" 2>&1)"; got=$?
-  n="$(grep -c 'EPHEMERAL?' <<<"$out")"
-  if [ "$got" = 0 ] && [ "$n" = "$2" ] && ! grep -q 'EPHEMERAL!' <<<"$out"; then ok "$3 (default: exit 0, $n WARN)"
-  else no "$3 :: want exit 0 + $2 WARN, got $got/$n"; fi
+  n="$(grep -c 'EPHEMERAL!' <<<"$out")"
+  if [ "$got" = 1 ] && [ "$n" = "$2" ] && ! grep -q 'EPHEMERAL?' <<<"$out"; then ok "$3 (default: exit 1, $n FAIL)"
+  else no "$3 :: want exit 1 + $2 FAIL, got $got/$n"; fi
 }
-ep_default single 1 "#1207 staged: /tmp cite is a WARN by default"
-ep_default twoline 2 "#1207 staged: two cites on one line are two WARNs"
-ep_default middle 1 "#1207 staged: WARN for a cite on the MIDDLE line"
+ep_default single 1 "#1660 default: /tmp cite is a FAIL with no flag and no env"
+ep_default twoline 2 "#1660 default: two cites on one line are two FAILs"
+ep_default middle 1 "#1660 default: FAIL for a cite on the MIDDLE line"
+ep_warn() { # <label> <want-rc-expect-warn-count> <cmd...> — run with the opt-out in some form; must be WARN, exit 0
+  local label="$1" want="$2" out got n; shift 2
+  out="$("$@" 2>&1)"; got=$?
+  n="$(grep -c 'EPHEMERAL?' <<<"$out")"
+  if [ "$got" = 0 ] && [ "$n" = "$want" ] && ! grep -q 'EPHEMERAL!' <<<"$out"; then ok "$label (opt-out: exit 0, $n WARN)"
+  else no "$label :: want exit 0 + $want WARN, got $got/$n"; fi
+}
+ep_warn "#1660 opt-out: --ephemeral=warn keeps the WARN" 1 bash "$SUT" --ephemeral=warn "$TMP/ep-single.md"
+ep_warn "#1660 opt-out: --ephemeral=warn counts two cites" 2 bash "$SUT" --ephemeral=warn "$TMP/ep-twoline.md"
+ep_warn "#1660 opt-out: RSDD_STRICT_EPHEMERAL=0 keeps the WARN (escape hatch)" 1 env RSDD_STRICT_EPHEMERAL=0 bash "$SUT" "$TMP/ep-single.md"
+ep_warn "#1660 precedence: --ephemeral=warn beats RSDD_STRICT_EPHEMERAL=1" 1 env RSDD_STRICT_EPHEMERAL=1 bash "$SUT" --ephemeral=warn "$TMP/ep-single.md"
+out="$(RSDD_STRICT_EPHEMERAL=0 bash "$SUT" --strict-ephemeral "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1660 precedence: --strict-ephemeral beats RSDD_STRICT_EPHEMERAL=0" || no "#1660 precedence: flag vs env 0 (rc=$got)"
+out="$(bash "$SUT" --ephemeral=warn --strict-ephemeral "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1660 precedence: the LAST flag wins (warn then strict -> FAIL)" || no "#1660 precedence: last flag strict (rc=$got)"
+out="$(bash "$SUT" --strict-ephemeral --ephemeral=warn "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && grep -q 'EPHEMERAL?' <<<"$out"; } && ok "#1660 precedence: the LAST flag wins (strict then warn -> WARN)" || no "#1660 precedence: last flag warn (rc=$got)"
 out="$(RSDD_STRICT_EPHEMERAL=1 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
-{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=1 makes it a FAIL" || no "#1207 staged: env strict (rc=$got)"
-out="$(RSDD_STRICT_EPHEMERAL=0 bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
-{ [ "$got" = 0 ] && grep -q 'EPHEMERAL?' <<<"$out"; } && ok "#1207 staged: RSDD_STRICT_EPHEMERAL=0 keeps the WARN" || no "#1207 staged: env 0 (rc=$got)"
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1660: RSDD_STRICT_EPHEMERAL=1 still FAILs (explicit == default)" || no "#1660: env 1 (rc=$got)"
+out="$(RSDD_STRICT_EPHEMERAL=no bash "$SUT" "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out"; } && ok "#1660: only the exact value 0 opts out (RSDD_STRICT_EPHEMERAL=no stays FAIL)" || no "#1660: env junk value (rc=$got)"
+out="$(bash "$SUT" --ephemeral=bogus "$TMP/ep-single.md" 2>&1)"; got=$?
+{ [ "$got" = 2 ] && grep -q -- '--ephemeral' <<<"$out"; } && ok "#1660: an unknown --ephemeral value is a usage error (exit 2), never a silent default" || no "#1660: bogus value (rc=$got)"
+out="$(bash "$SUT" --ephemeral= "$TMP/ep-single.md" 2>&1)"; got=$?
+[ "$got" = 2 ] && ok "#1660: an empty --ephemeral= value is a usage error (exit 2)" || no "#1660: empty value (rc=$got)"
 out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
-grep -q 'ephemeral-path cites: 1 (WARN' <<<"$out" && ok "#1207 staged: summary says WARN and how to go strict" || no "#1207 staged: summary line"
+grep -q 'ephemeral-path cites: 1 (FAIL' <<<"$out" && ok "#1660: default summary says FAIL" || no "#1660: default summary line"
+out="$(bash "$SUT" "$TMP/ep-single.md" 2>&1)"
+{ grep -qF 'ephemeral-path cites: 1 (FAIL — preserve under sources/probes/b<N>/, waive a non-evidence line with <!-- ephemeral-ok: <reason> -->, or opt out with --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 while the corpus is cleaned, kit #1660)' <<<"$out"; } && ok "#1660: the FAIL summary names all three remedies (preserve, ephemeral-ok marker, opt-out)" || no "#1660: FAIL summary remedies :: $(grep 'ephemeral-path cites' <<<"$out")"
+{ grep -q -- '^-- ephemeral-path cites (kit #1207/#1660: .*RSDD_STRICT_EPHEMERAL=0.*ephemeral-ok' <<<"$out"; } && ok "#1660: the section header names the env opt-out and the marker" || no "#1660: section header :: $(grep '^-- ephemeral-path cites (' <<<"$out")"
+# a malformed RSDD_STRICT_EPHEMERAL (set to anything but exactly 0/1) must not be silent: one stderr notice, default FAIL kept
+ep_envnotice() { # <label> <value> — expects one notice on stderr naming the variable and the value, and the FAIL default
+  local out err got
+  err="$(RSDD_STRICT_EPHEMERAL="$2" bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+  out="$(RSDD_STRICT_EPHEMERAL="$2" bash "$SUT" "$TMP/ep-single.md" 2>/dev/null)"; got=$?
+  if [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out" \
+     && [ "$(grep -c 'RSDD_STRICT_EPHEMERAL' <<<"$err")" = 1 ] && grep -qF "RSDD_STRICT_EPHEMERAL='$2' is not 0 or 1" <<<"$err"
+  then ok "$1 (one stderr notice, FAIL kept)"; else no "$1 :: rc=$got err=[$err]"; fi
+}
+ep_envnotice "#1660 env: a junk value (yes) is noticed" yes
+ep_envnotice "#1660 env: an EMPTY value is noticed" ""
+ep_envnotice "#1660 env: 00 is noticed (only the exact 0 opts out)" 00
+ep_envnotice "#1660 env: a space-padded ' 0' is noticed" " 0"
+for _ev in 0 1; do
+  err="$(RSDD_STRICT_EPHEMERAL=$_ev bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+  [ -z "$err" ] && ok "#1660 env: the valid value $_ev prints no notice" || no "#1660 env: valid value $_ev noticed :: $err"
+done
+err="$(env -u RSDD_STRICT_EPHEMERAL bash "$SUT" "$TMP/ep-single.md" 2>&1 >/dev/null)"
+[ -z "$err" ] && ok "#1660 env: an unset variable prints no notice" || no "#1660 env: unset noticed :: $err"
+out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-single.md" 2>&1)"
+{ grep -q 'ephemeral-path cites: 1 (WARN' <<<"$out" && grep -q -- '--ephemeral=warn' <<<"$out"; } && ok "#1660: opt-out summary says WARN and names the opt-out in force" || no "#1660: opt-out summary line"
 # per-line marker `<!-- ephemeral-ok: <reason> -->` (mirrors `<!-- empty-digest: quoted -->`)
 ep_block mk-ok "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server <!-- ephemeral-ok: path string produced by the subject, not evidence -->"
 ep_block mk-no "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` from the server"
 ep_block mk-empty "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok: -->"
 ep_block mk-blank "So the add-on receives \`/tmp/blender_screenshot_<pid>.png\` <!-- ephemeral-ok:    -->"
 ep_block mk-other "ok \`/tmp/a.txt\` <!-- ephemeral-ok: prose -->" "bad \`/tmp/b.txt\`"
-out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"
-{ ! grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the WARN (INFO, never silent)" || no "#1207 marker: ok"
-out="$(bash "$SUT" "$TMP/ep-mk-no.md" 2>&1)"
+out="$(bash "$SUT" "$TMP/ep-mk-ok.md" 2>&1)"; got=$?
+{ [ "$got" = 0 ] && ! grep -qE 'EPHEMERAL[!?]' <<<"$out" && grep -q 'INFO    ephemeral-ok line' <<<"$out"; } && ok "#1207 marker: reasoned marker waives the finding under the DEFAULT (exit 0, INFO, never silent)" || no "#1207 marker: ok (rc=$got)"
+out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-mk-no.md" 2>&1)"
 grep -q 'EPHEMERAL?' <<<"$out" && ok "#1207 marker: same line without marker WARNs" || no "#1207 marker: no marker"
-out="$(bash "$SUT" "$TMP/ep-mk-empty.md" 2>&1)"
+out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-mk-empty.md" 2>&1)"
 { grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: empty reason -> WARN still fires + typed invalid marker" || no "#1207 marker: empty"
-out="$(bash "$SUT" "$TMP/ep-mk-blank.md" 2>&1)"
+out="$(bash "$SUT" --ephemeral=warn "$TMP/ep-mk-blank.md" 2>&1)"
 { grep -q 'EPHEMERAL?' <<<"$out" && grep -q 'invalid marker line' <<<"$out"; } && ok "#1207 marker: blank reason is invalid too" || no "#1207 marker: blank"
 out="$(bash "$SUT" --strict-ephemeral "$TMP/ep-mk-empty.md" 2>&1)"; got=$?
 { [ "$got" = 1 ] && grep -q 'EPHEMERAL!' <<<"$out" && grep -q 'invalid marker' <<<"$out"; } && ok "#1207 marker: strict + invalid marker -> FAIL" || no "#1207 marker: strict invalid (rc=$got)"
@@ -1687,7 +1733,8 @@ printf 'a\nb %s' "$CANARY" > "$XS/ext/nonl.txt"
 printf 'x %s\n' "$CANARY" > "$XS/ext/noread.txt"; chmod 000 "$XS/ext/noread.txt"
 mkdir -p "$XS/ext/dir.txt"
 xsblock(){ local f="$XS/tgt/$1"; shift; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }
-xsrun(){ bash "$SUT" "$@" 2>&1; echo "== exit $? =="; }
+# these fixtures live under mktemp /tmp (extern semantics, not ephemerality): run them under the #1660 opt-out so the cite itself is not the verdict
+xsrun(){ bash "$SUT" --ephemeral=warn "$@" 2>&1; echo "== exit $? =="; }
 xsblock single.md "Cite \`$XS/ext/plain.txt:2\`. [CERT]"
 out="$(xsrun "$XS/tgt/single.md" "$XS/tgt")"
 { grep -q 'extern  ' <<<"$out" && grep -q '1 extern, 0 failed' <<<"$out" && ! grep -q 'extern-check' <<<"$out" && ! grep -q 'ok extern' <<<"$out"; } \
@@ -2350,21 +2397,45 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-ep-strict-flag" "$MUT/epsf.sh" '/# VB-EP-STRICT-FLAG$/s/STRICT_EP=1/STRICT_EP=0/'; then
     tooth "teeth-ep-strict-flag" 1 0 "$MUT/epsf.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
+  echo "-- teeth-ep-default (#1660): the default drifts back to WARN --"
+  if mk_sed "teeth-ep-default" "$MUT/epdf.sh" '/# VB-EP-DEFAULT$/s/STRICT_EP=1;/STRICT_EP=0;/'; then
+    tooth "teeth-ep-default" 1 0 "$MUT/epdf.sh" --good-has 'EPHEMERAL!' --bad-lacks 'EPHEMERAL!' -- bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-env-optout (#1660): RSDD_STRICT_EPHEMERAL=0 is no longer honoured --"
+  if mk_sed "teeth-ep-env-optout" "$MUT/epeo.sh" '/# VB-EP-DEFAULT$/s/&& STRICT_EP=0//'; then
+    tooth "teeth-ep-env-optout" 0 1 "$MUT/epeo.sh" --good-has 'EPHEMERAL\?' --bad-has 'EPHEMERAL!' -- env RSDD_STRICT_EPHEMERAL=0 bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-warn-flag (#1660): --ephemeral=warn is no longer honoured --"
+  if mk_sed "teeth-ep-warn-flag" "$MUT/epwf.sh" '/# VB-EP-WARN-FLAG$/s/STRICT_EP=0/STRICT_EP=1/'; then
+    tooth "teeth-ep-warn-flag" 0 1 "$MUT/epwf.sh" --good-has 'EPHEMERAL\?' --bad-has 'EPHEMERAL!' -- bash @SUT@ --ephemeral=warn "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-badvalue (#1660): an unknown --ephemeral value stops being a usage error --"
+  if mk_sed "teeth-ep-badvalue" "$MUT/epbv.sh" '/# VB-EP-BADVALUE$/s/--ephemeral|--ephemeral=\*)/--ephemeral-never)/'; then
+    tooth "teeth-ep-badvalue" 2 2 "$MUT/epbv.sh" --good-has 'unknown --ephemeral value' --bad-lacks 'unknown --ephemeral value' -- bash @SUT@ --ephemeral=bogus "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-envnotice (#1660): a malformed RSDD_STRICT_EPHEMERAL stops being noticed --"
+  if mk_sed "teeth-ep-envnotice" "$MUT/epen.sh" '/# VB-EP-ENVNOTICE$/s/if \[ -n/if false \&\& [ -n/'; then
+    tooth "teeth-ep-envnotice" 1 1 "$MUT/epen.sh" --good-has "RSDD_STRICT_EPHEMERAL='yes' is not 0 or 1" --bad-lacks 'is not 0 or 1' -- env RSDD_STRICT_EPHEMERAL=yes bash @SUT@ "$TMP/ep-single.md"
+  fi
+  echo "-- teeth-ep-remedies (#1660): the FAIL summary loses its remedies --"
+  if mk_sed "teeth-ep-remedies" "$MUT/eprm.sh" 's/(FAIL — preserve under sources[^"]*"/(FAIL)"/'; then
+    tooth "teeth-ep-remedies" 1 1 "$MUT/eprm.sh" --good-has 'ephemeral-ok: <reason> -->, or opt out with --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0' --bad-lacks 'opt out with' -- bash @SUT@ "$TMP/ep-single.md"
+  fi
   echo "-- teeth-ep-warn-rc: a default WARN flips the exit code (must stay unchanged) --"
   if mk_sed "teeth-ep-warn-rc" "$MUT/epw.sh" 's/    W) echo "\$_vb_ep_text"; _vb_ep_n=\$((_vb_ep_n + 1)); continue;;/    W) echo "$_vb_ep_text"; _vb_ep_n=$((_vb_ep_n + 1)); rc=1; continue;;/'; then
-    tooth "teeth-ep-warn-rc" 0 1 "$MUT/epw.sh" --good-has 'EPHEMERAL\?' --bad-has '== exit 1 ==' -- bash @SUT@ "$TMP/ep-single.md"
+    tooth "teeth-ep-warn-rc" 0 1 "$MUT/epw.sh" --good-has 'EPHEMERAL\?' --bad-has '== exit 1 ==' -- bash @SUT@ --ephemeral=warn "$TMP/ep-single.md"
   fi
   echo "-- teeth-ep-marker: marker ignored --"
   if mk_sed "teeth-ep-marker" "$MUT/epm.sh" '/# VB-EP-MARKER$/s/index(\$0, "<!-- ephemeral-ok:")/0/'; then
-    tooth "teeth-ep-marker" 0 0 "$MUT/epm.sh" --good-lacks 'EPHEMERAL\?' --bad-has 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-ok.md"
+    tooth "teeth-ep-marker" 0 0 "$MUT/epm.sh" --good-lacks 'EPHEMERAL\?' --bad-has 'EPHEMERAL\?' -- bash @SUT@ --ephemeral=warn "$TMP/ep-mk-ok.md"
   fi
   echo "-- teeth-ep-reason: empty reason accepted as a valid waiver --"
   if mk_sed "teeth-ep-reason" "$MUT/epr.sh" '/# VB-EP-REASON$/s/if (reason != "") ok = 1/ok = 1/'; then
-    tooth "teeth-ep-reason" 0 0 "$MUT/epr.sh" --good-has 'EPHEMERAL\?' --good-has 'invalid marker' --bad-lacks 'EPHEMERAL\?' -- bash @SUT@ "$TMP/ep-mk-empty.md"
+    tooth "teeth-ep-reason" 0 0 "$MUT/epr.sh" --good-has 'EPHEMERAL\?' --good-has 'invalid marker' --bad-lacks 'EPHEMERAL\?' -- bash @SUT@ --ephemeral=warn "$TMP/ep-mk-empty.md"
   fi
   echo "-- teeth-ep-invalid-line: invalid marker no longer typed --"
   if mk_sed "teeth-ep-invalid-line" "$MUT/epi.sh" 's/if (mk > 0 \&\& !flagged\[NR\])/if (0)/'; then
-    tooth "teeth-ep-invalid-line" 0 0 "$MUT/epi.sh" --good-has 'invalid marker' --bad-lacks 'invalid marker' -- bash @SUT@ "$TMP/ep-mk-empty.md"
+    tooth "teeth-ep-invalid-line" 0 0 "$MUT/epi.sh" --good-has 'invalid marker' --bad-lacks 'invalid marker' -- bash @SUT@ --ephemeral=warn "$TMP/ep-mk-empty.md"
   fi
   echo "-- teeth-ep-norc / teeth-ep-notrailer: a failing or blind detector must read as degraded --"
   if mk_sed "teeth-ep-norc" "$MUT/eprc.sh" 's/_vb_ep_rc=\$?/_vb_ep_rc=0/'; then
@@ -2375,7 +2446,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth-ep-rc: findings no longer flip the exit code --"
   if mk_sed "teeth-ep-rc" "$MUT/eprc2.sh" 's/_vb_ep_n=\$((_vb_ep_n + 1)); rc=1/_vb_ep_n=$((_vb_ep_n + 1))/'; then
-    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
+    tooth "teeth-ep-rc" 1 0 "$MUT/eprc2.sh" --good-has 'ephemeral-path cites: 1 \(FAIL' --bad-has '== exit 0 ==' -- bash @SUT@ --strict-ephemeral "$TMP/ep-single.md"
   fi
   # kit #1207 (b) manifest teeth: sha compare off, row lookup widened, sha64 validity dropped, FAIL rc dropped.
   echo "-- teeth-mf-sha: sha256 comparison always passes --"
@@ -2419,7 +2490,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   echo "-- teeth-ep-owned: scratchpad arm also claims /tmp-owned tokens (double count) --"
   if mk_sed "teeth-ep-owned" "$MUT/epo.sh" '/# VB-EP-OWNED$/s/return 1/return 0/'; then
-    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL\)' --bad-has 'ephemeral-path cites: 2 \(FAIL\)' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
+    tooth "teeth-ep-owned" 1 1 "$MUT/epo.sh" --good-has 'ephemeral-path cites: 1 \(FAIL' --bad-has 'ephemeral-path cites: 2 \(FAIL' -- bash @SUT@ --strict-ephemeral "$TMP/ep-spad.md"
   fi
   echo "-- kit #973 teeth: non-path split, Class.method, extension list, listing, extern/failed split, hint scope --"
   # fixtures n973-*.md come from the plain #973 section above; every control pins its exact rc and an anchored line
@@ -2556,77 +2627,77 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the flag is parsed: neutered, it is swallowed and the cite stays plain extern
   if mk_sed "teeth-1906-flag" "$MUT/xs1.sh" '/# VB-EXTERN-CHECK-FLAG/ s/EXTERN_CHECK=1 ;;/: ;;/'; then
     tooth "teeth-1906-flag" 0 0 "$MUT/xs1.sh" --good-has 'ok extern .*plain.txt:2' --bad-lacks 'ok extern' --bad-has '1 extern, 0 failed' \
-      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   # the default is OFF: flipped on, a plain run would verify files and print an extern-check line
   if mk_sed "teeth-1906-default" "$MUT/xs2.sh" 's/^EXTERN_CHECK=0/EXTERN_CHECK=1/'; then
     tooth "teeth-1906-default" 0 0 "$MUT/xs2.sh" --good-lacks 'extern-check' --bad-has 'extern-check: verified 1 of 1' \
-      -- bash @SUT@ "$XS/tgt/single.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn "$XS/tgt/single.md" "$XS/tgt"
   fi
   # NEVER print file content: a mutant that prints the cited line leaks the canary
   if mk_sed "teeth-1906-no-content" "$MUT/xs3.sh" '/^        _vb_ok=\$((_vb_ok+1))$/ s/$/; sed -n "${start}p" "$f"/'; then
     tooth "teeth-1906-no-content" 0 0 "$MUT/xs3.sh" --good-lacks 'ZZCANARY' --bad-has 'ZZCANARY' \
-      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   # past EOF is a defect (exit 1); neutered, the cite reads as ok and the exit flips to 0
   if mk_sed "teeth-1906-range-rc" "$MUT/xs4.sh" '/VB-EXTERN-CHECK (kit/,/^      fi$/ s/rc=1; //'; then
     tooth "teeth-1906-range-rc" 1 0 "$MUT/xs4.sh" --good-has 'RANGE!  .*plain.txt:31' --bad-has "$EXIT0" \
-      -- bash @SUT@ --extern-check "$XS/tgt/past.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/past.md" "$XS/tgt"
   fi
   # LAST-line edge: line 30 of a 30-line file is in range; an off-by-one bound reports it as RANGE!
   if mk_sed "teeth-1906-last-line" "$MUT/xs5.sh" 's/if \[ "\$end" -gt "\$total" \]; then/if [ "$end" -ge "$total" ]; then/'; then
     tooth "teeth-1906-last-line" 1 1 "$MUT/xs5.sh" --good-has 'resolved 2 of 4 \(1 extern, 1 failed\)' --bad-has 'resolved 0 of 4 \(1 extern, 3 failed\)' \
-      -- bash @SUT@ --extern-check "$XS/tgt/edges.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/edges.md" "$XS/tgt"
   fi
   # a range is judged by its END: neutered to the start, :25-31 reads as ok
   if mk_sed "teeth-1906-range-end" "$MUT/xs6.sh" 's/if \[ "\$end" -gt "\$total" \]; then/if [ "$start" -gt "$total" ]; then/'; then
     tooth "teeth-1906-range-end" 1 0 "$MUT/xs6.sh" --good-has 'RANGE!  .*plain.txt:25-31' --bad-lacks 'RANGE!' \
-      -- bash @SUT@ --extern-check "$XS/tgt/rangepast.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/rangepast.md" "$XS/tgt"
   fi
   # missing file / directory stay extern; neutered, they are "verified"
   if mk_sed "teeth-1906-missing" "$MUT/xs7.sh" 's/if \[ ! -f "\$f" \] || \[ ! -r "\$f" \]; then/if false; then/'; then
     tooth "teeth-1906-missing" 0 1 "$MUT/xs7.sh" --good-has 'not found or unreadable' --bad-lacks 'not found or unreadable' \
-      -- bash @SUT@ --extern-check "$XS/tgt/gone.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/gone.md" "$XS/tgt"
   fi
   # unreadable file: neutering only the readability test turns the typed extern into a verdict (skipped as root)
   if [ "$(id -u)" != 0 ] && [ ! -r "$XS/ext/noread.txt" ]; then
     if mk_sed "teeth-1906-unreadable" "$MUT/xs8.sh" 's/\[ ! -f "\$f" \] || \[ ! -r "\$f" \]/[ ! -f "$f" ]/'; then
       tooth "teeth-1906-unreadable" 0 1 "$MUT/xs8.sh" --good-has 'noread.txt:1.*not found or unreadable' --bad-lacks 'not found or unreadable' \
-        -- bash @SUT@ --extern-check "$XS/tgt/noread.md" "$XS/tgt"
+        -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/noread.md" "$XS/tgt"
     fi
   else echo "  SKIP  teeth-1906-unreadable (root or mode 000 still readable)"; fi
   # line counting counts an unterminated last line (wc -l would not) and ignores CR
   if mk_sed "teeth-1906-count" "$MUT/xs9.sh" 's/_vb_lc_n=\$(awk -v e="\${2:-0}" .*"\$1");/_vb_lc_n=$(wc -l < "$1");/'; then
     tooth "teeth-1906-count" 0 1 "$MUT/xs9.sh" --good-has 'ok extern .*nonl.txt:2' --bad-has 'RANGE!  .*nonl.txt:2' \
-      -- bash @SUT@ --extern-check "$XS/tgt/nonl.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/nonl.md" "$XS/tgt"
   fi
   # the past-EOF message carries the FULL count (the awk END branch); an off-by-one there is reported
   if mk_sed "teeth-1906-count-full" "$MUT/xs13.sh" 's/END{print NR}/END{print NR-1}/'; then
     tooth "teeth-1906-count-full" 1 1 "$MUT/xs13.sh" --good-has 'plain.txt:31  \(file has 30 lines\)' --bad-has 'plain.txt:31  \(file has 29 lines\)' \
-      -- bash @SUT@ --extern-check "$XS/tgt/past.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/past.md" "$XS/tgt"
   fi
   # a counter that fails must not read as ok: dropping the status check (stub A prints a number but exits 2) or the
   # numeric check (stub B exits 0 printing text) turns the DEGRADED line into `ok extern`
   if mk_sed "teeth-1906-degraded-status" "$MUT/xs14.sh" '/# VB-LINECOUNT-STATUS/d'; then
     tooth "teeth-1906-degraded-status" 1 0 "$MUT/xs14.sh" --good-has 'DEGRADED  .*plain.txt:2' --bad-lacks 'DEGRADED' --bad-has 'ok extern' \
-      -- env "PATH=$XS/stubA:$PATH" bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+      -- env "PATH=$XS/stubA:$PATH" bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   if mk_sed "teeth-1906-degraded-numeric" "$MUT/xs15.sh" '/# VB-LINECOUNT-NUMERIC/d'; then
     tooth "teeth-1906-degraded-numeric" 1 0 "$MUT/xs15.sh" --good-has 'DEGRADED  .*plain.txt:2' --bad-lacks 'DEGRADED' --bad-has 'ok extern' \
-      -- env "PATH=$XS/stubB:$PATH" bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+      -- env "PATH=$XS/stubB:$PATH" bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   # counters: absolute seen, relative seen, verified
   if mk_sed "teeth-1906-cnt-abs" "$MUT/xs10.sh" 's/_vb_xa=\$((_vb_xa+1))/_vb_xa=$((_vb_xa+0))/'; then
     tooth "teeth-1906-cnt-abs" 1 1 "$MUT/xs10.sh" --good-has 'verified 3 of 4 absolute' --bad-has 'verified 3 of 0 absolute' \
-      -- bash @SUT@ --extern-check "$XS/tgt/edges.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/edges.md" "$XS/tgt"
   fi
   if mk_sed "teeth-1906-cnt-rel" "$MUT/xs11.sh" 's/_vb_xrel=\$((_vb_xrel+1))/_vb_xrel=$((_vb_xrel+0))/'; then
     tooth "teeth-1906-cnt-rel" 0 0 "$MUT/xs11.sh" --good-has '; 1 relative' --bad-has '; 0 relative' \
-      -- bash @SUT@ --extern-check "$XS/tgt/gone.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/gone.md" "$XS/tgt"
   fi
   if mk_sed "teeth-1906-cnt-ver" "$MUT/xs12.sh" 's/_vb_xr=\$((_vb_xr+1))/_vb_xr=$((_vb_xr+0))/'; then
     tooth "teeth-1906-cnt-ver" 0 0 "$MUT/xs12.sh" --good-has 'verified 1 of 1 absolute' --bad-has 'verified 0 of 1 absolute' \
-      -- bash @SUT@ --extern-check "$XS/tgt/single.md" "$XS/tgt"
+      -- bash @SUT@ --ephemeral=warn --extern-check "$XS/tgt/single.md" "$XS/tgt"
   fi
   echo "-- teeth-1919: one line counter for in-target cites (unterminated last line counts) --"
   # the helper reverted to `wc -l` (newline count): the unterminated last line is one short again, in every cite path
