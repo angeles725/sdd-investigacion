@@ -13,6 +13,7 @@ from lib.adapter_helpers import warn_evidence
 from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
 
 SCHEMA = "firmware-static.v1"
+SUPPORTED_BINWALK_MAJOR = "2"
 SAFE_ARGS = ["-B", "-E", "-N", "input/firmware.bin"]
 PRIVATE_FS = {"btrfs", "ext2", "ext3", "ext4", "f2fs", "jfs", "nilfs2", "overlay", "ramfs", "reiserfs", "tmpfs", "ubifs", "xfs", "zfs"}
 
@@ -80,6 +81,29 @@ def executable(name: str, configured: str, search: str) -> tuple[Path, dict[str,
         raise FirmwareError(f"configured {name} does not match PATH-selected executable")
     resolved, size, digest = identity(candidate)
     return resolved, {"path": str(resolved), "size": size, "sha256": digest}
+
+
+def binwalk_version(text: str) -> str | None:
+    match = re.search(r"\b[Bb]inwalk (?:v(\S+)|(\d\S*))", text)
+    return (match[1] or match[2]) if match else None
+
+
+def check_binwalk_version(version: str) -> None:
+    if version.split(".")[0] != SUPPORTED_BINWALK_MAJOR:
+        raise FirmwareError(f"unsupported Binwalk version {version}: only major {SUPPORTED_BINWALK_MAJOR} output is supported")
+
+
+def resolve_binwalk(environ: Any) -> tuple[Path, dict[str, Any]]:
+    """Select the analyzer: test override, else RSDD_BINWALK (explicit), else the PATH-selected binwalk (#1641)."""
+    test_only, explicit, search = environ.get("RSDD_BINWALK_TEST_ONLY"), environ.get("RSDD_BINWALK"), environ.get("PATH", "")
+    if test_only: return executable("binwalk", test_only, search)
+    configured = explicit or shutil.which("binwalk", path=search)
+    if not configured: raise FirmwareError("PATH-selected binwalk is missing")
+    binwalk, record = executable("binwalk", configured, search)
+    meta = binwalk.stat(); trusted = {0, os.geteuid()} if explicit else {0}
+    if meta.st_uid not in trusted or meta.st_mode & 0o022:
+        raise FirmwareError("Binwalk must be root-owned and non-writable" + (" (RSDD_BINWALK: or owned by the invoking user, not group/world-writable)" if explicit else "; set RSDD_BINWALK=<path> to select a user-owned install"))
+    return binwalk, record
 
 
 def require_private(path: Path, mountinfo: str | None = None) -> None:
@@ -193,10 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         candidate = parent / f".{destination.name}.stage"; candidate.mkdir(mode=0o700); stage = candidate
         (stage / "input").mkdir(); (stage / "engine").mkdir()
         source_record, staged_input = stage_file(args.input, stage / "input/firmware.bin", "input/firmware.bin", 0o400, args.max_input_bytes)
-        override = os.environ.get("RSDD_BINWALK_TEST_ONLY"); configured = override or "/usr/bin/binwalk"
-        binwalk, source_binwalk = executable("binwalk", configured, os.environ.get("PATH", ""))
-        if not override and binwalk != Path("/usr/bin/binwalk"): raise FirmwareError("real analyzer must be /usr/bin/binwalk")
-        if not override and (binwalk.stat().st_uid != 0 or binwalk.stat().st_mode & 0o022): raise FirmwareError("Binwalk must be root-owned and non-writable")
+        override = os.environ.get("RSDD_BINWALK_TEST_ONLY")
+        binwalk, source_binwalk = resolve_binwalk(os.environ)
         copied_binwalk, staged_binwalk = stage_file(binwalk, stage / "engine/binwalk", "engine/binwalk", 0o500)
         if copied_binwalk != source_binwalk: raise FirmwareError("analyzer changed before trusted staging")
         safe_path = "/usr/bin:/bin"; bwrap, bwrap_record = executable("bwrap", os.environ.get("RSDD_BWRAP", "/usr/bin/bwrap"), safe_path)
@@ -208,9 +230,14 @@ def main(argv: list[str] | None = None) -> int:
         if probe.returncode: raise FirmwareError("network-denied zero-capability isolation probe failed")
         _, version_errors = run(prefix + ["engine/binwalk", "--help"], stage, env, min(5, args.timeout_seconds), args.max_diagnostic_bytes, args.max_processes)
         if version_errors: raise FirmwareError("bounded Binwalk version probe failed: " + ",".join(version_errors))
-        match = re.search(r"Binwalk v([^\s]+)", (stage / "engine/stdout.txt").read_text(errors="replace"))
-        if not match: raise FirmwareError("Binwalk version is unavailable")
-        version = match[1]; inner = ["engine/binwalk", *SAFE_ARGS]; command = prefix + inner
+        version = binwalk_version((stage / "engine/stdout.txt").read_text(errors="replace"))
+        if version is None:  # binwalk 3.x has no version banner in --help; ask it directly
+            _, version_errors = run(prefix + ["engine/binwalk", "--version"], stage, env, min(5, args.timeout_seconds), args.max_diagnostic_bytes, args.max_processes)
+            if version_errors: raise FirmwareError("bounded Binwalk version probe failed: " + ",".join(version_errors))
+            version = binwalk_version((stage / "engine/stdout.txt").read_text(errors="replace"))
+        if version is None: raise FirmwareError("Binwalk version is unavailable")
+        if not override: check_binwalk_version(version)
+        inner = ["engine/binwalk", *SAFE_ARGS]; command = prefix + inner
         run_record, errors = run(command, stage, env, args.timeout_seconds, args.max_diagnostic_bytes, args.max_processes)
         signatures, entropy = normalized(stage / "engine/stdout.txt"); combined = [("signature", item) for item in signatures] + [("entropy", item) for item in entropy]
         emitted = combined[:args.max_findings]; truncated = len(combined) > len(emitted)

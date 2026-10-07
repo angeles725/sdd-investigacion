@@ -58,17 +58,16 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
   elif [ ! -x "$SUT_SH" ]; then
     echo "SLOW lane: SUT shell wrapper not found: $SUT_SH" >&2; _slow_skip=1
   fi
-  # S1-S3 need the REAL analyzer: the SUT only accepts /usr/bin/binwalk (corroborate_firmware.py:
-  # "real analyzer must be /usr/bin/binwalk") and S2 pins engine.version 2.3.3 (the version IS the
-  # assertion). A host without exactly that analyzer cannot run them: environmental, so a typed,
-  # counted SKIP (run-all counts "  SKIP  "), never a FAIL and never a silent pass (#1588).
-  # S4-S12 use RSDD_BINWALK_TEST_ONLY fakes and keep running.
+  # S1-S3 need the REAL analyzer: the PATH-selected binwalk (or RSDD_BINWALK, #1641) and S2 pins
+  # engine.version 2.3.3 (the version IS the assertion). A host without exactly that analyzer cannot
+  # run them: environmental, so a typed, counted SKIP (run-all counts "  SKIP  "), never a FAIL and
+  # never a silent pass (#1588). S4-S15 use RSDD_BINWALK_TEST_ONLY / RSDD_BINWALK fakes and keep running.
   _REAL_CASES=(S1 S2 S3)   # the real-binwalk cases a SKIP reports, one line each
-  _real_reason=""
-  if [ ! -x /usr/bin/binwalk ]; then
-    _real_reason="/usr/bin/binwalk not installed (SUT accepts only that path; PATH binwalk: $(command -v binwalk || echo none))"
-  elif _bw_help="$(/usr/bin/binwalk --help 2>&1)"; [[ "$_bw_help" != *"Binwalk v2.3.3"* ]]; then
-    _real_reason="/usr/bin/binwalk is not v2.3.3 (S2 pins engine.version 2.3.3)"
+  _real_reason=""; _real_bw="$(command -v binwalk || true)"
+  if [ -z "$_real_bw" ]; then
+    _real_reason="no binwalk on PATH"
+  elif _bw_help="$("$_real_bw" --help 2>&1)"; [[ "$_bw_help" != *"Binwalk v2.3.3"* ]]; then
+    _real_reason="PATH binwalk ($_real_bw) is not v2.3.3 (S2 pins engine.version 2.3.3; only binwalk major 2 is supported)"
   fi
 
   if [[ "$_slow_skip" -eq 0 ]]; then
@@ -77,6 +76,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     trap 'rm -rf "$ROOT"' EXIT
 
     run(){ "$SUT_SH" --input "$ROOT/fixture.bin" --output "$1" "${@:2}"; }
+    real_run(){ RSDD_BINWALK="$_real_bw" run "$@"; }
     mkfake(){ mkdir -p "$ROOT/$1"; cat >"$ROOT/$1/binwalk"; chmod +x "$ROOT/$1/binwalk"; }
 
     cat >"$ROOT/fixture.c" <<C
@@ -91,7 +91,7 @@ C
       for _c in "${_REAL_CASES[@]}"; do printf '  SKIP  %s real-binwalk case: %s\n' "$_c" "$_real_reason"; done
     else
       # S1: real Binwalk output is deterministic and target is never executed.
-      if run "$ROOT/a" && run "$ROOT/b" \
+      if real_run "$ROOT/a" && real_run "$ROOT/b" \
         && cmp -s "$ROOT/a/firmware-static.v1.json" "$ROOT/b/firmware-static.v1.json" \
         && cmp -s "$ROOT/a/engine/signatures.json" "$ROOT/b/engine/signatures.json" \
         && cmp -s "$ROOT/a/engine/entropy.json" "$ROOT/b/engine/entropy.json" \
@@ -255,6 +255,40 @@ assert d["input"]["source"]["sha256"]=="sha256:"+sys.argv[2]==d["input"]["staged
       ok "S12: source mutation after staging cannot change analyzed bytes"
     else no "S12: source staging mutation resistance"; fi
 
+    # S13-S15 (#1641): the real-analyzer path is a PATH probe / RSDD_BINWALK, not a fixed /usr/bin/binwalk.
+    mkfake v2fake <<'SH'
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk v2.3.3'; exit; }
+printf '0 0x0 PNG image\n'
+SH
+    mkfake v3fake <<'SH'
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Usage: binwalk [OPTIONS] [FILE_NAME]'; exit; }
+[ "$1" = --version ] && { echo 'binwalk 3.1.0'; exit; }
+printf '0 0x0 PNG image\n'
+SH
+    # S13: an explicitly selected, user-owned v2 analyzer on PATH is used and reported as real (not a test override).
+    if PATH="$ROOT/v2fake:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v2fake/binwalk" run "$ROOT/s13" \
+      && python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["status"]=="complete" and d["engine"]["test_override"] is False and d["engine"]["version"]=="2.3.3", d["engine"]
+' "$ROOT/s13/firmware-static.v1.json"; then
+      ok "S13: RSDD_BINWALK selects a PATH analyzer outside /usr/bin as real evidence"
+    else no "S13: RSDD_BINWALK real-analyzer selection"; fi
+
+    # S14: a non-root-owned PATH analyzer without the explicit env is refused with a typed, actionable message.
+    _s14_err="$(PATH="$ROOT/v2fake:/usr/bin:/bin" run "$ROOT/s14" 2>&1 >/dev/null)"; _s14_rc=$?
+    if [ "$_s14_rc" -eq 2 ] && [[ "$_s14_err" == *"root-owned"* && "$_s14_err" == *"RSDD_BINWALK"* ]] && [ ! -e "$ROOT/s14" ]; then
+      ok "S14: user-owned PATH analyzer without RSDD_BINWALK fails closed naming RSDD_BINWALK"
+    else no "S14: untrusted PATH analyzer message (rc=$_s14_rc: $_s14_err)"; fi
+
+    # S15: an unsupported binwalk major is a typed refusal, not a silent mis-parse.
+    _s15_err="$(PATH="$ROOT/v3fake:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v3fake/binwalk" run "$ROOT/s15" 2>&1 >/dev/null)"; _s15_rc=$?
+    if [ "$_s15_rc" -eq 2 ] && [[ "$_s15_err" == *"unsupported Binwalk version 3.1.0"* ]] && [ ! -e "$ROOT/s15" ]; then
+      ok "S15: binwalk 3.x is refused with a typed unsupported-version error"
+    else no "S15: unsupported major (rc=$_s15_rc: $_s15_err)"; fi
+
   fi # _slow_skip == 0
 fi # slow | all
 
@@ -408,6 +442,48 @@ PY
   then ok "F5: capped fixture: status=partial, emitted=2, total=3, truncated=True (cap-line-239 anchor)"
   else no "F5: capped fixture structural assertions"; fi
 
+  # F6 (#1641): binwalk_version parses the 2.x and 3.x banners and refuses to read the usage line as a version.
+  if python3 - "$TOOLBELT" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
+import corroborate_firmware as fw
+cases = {"Binwalk v2.3.3\nCraig": "2.3.3", "binwalk 3.1.0\n": "3.1.0",
+         "Usage: binwalk [OPTIONS] [FILE_NAME]": None, "Binwalk vfake": "fake", "": None}
+for text, want in cases.items():
+    got = fw.binwalk_version(text)
+    assert got == want, f"{text!r}: {got!r} != {want!r}"
+for version, refused in (("2.3.3", False), ("3.1.0", True), ("10.0", True)):
+    try: fw.check_binwalk_version(version)
+    except fw.FirmwareError: assert refused, f"{version} refused"
+    else: assert not refused, f"{version} accepted"
+print("OK: binwalk_version")
+PY
+  then ok "F6: binwalk_version reads 2.x/3.x banners and ignores the usage line"
+  else no "F6: binwalk_version parsing"; fi
+
+  # F7 (#1641): resolve_binwalk — PATH probe, explicit env, ownership trust.
+  if python3 - "$TOOLBELT" <<'PY'
+import os, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
+import corroborate_firmware as fw
+with tempfile.TemporaryDirectory() as d:
+    b = Path(d) / "binwalk"; b.write_text("#!/bin/sh\n"); b.chmod(0o755)
+    path = f"{d}:/usr/bin:/bin"
+    try: fw.resolve_binwalk({"PATH": path}); raise SystemExit("user-owned PATH binwalk accepted without RSDD_BINWALK")
+    except fw.FirmwareError as exc: assert "RSDD_BINWALK" in str(exc), exc
+    got, _ = fw.resolve_binwalk({"PATH": path, "RSDD_BINWALK": str(b)}); assert got == b.resolve(), got
+    b.chmod(0o775)
+    try: fw.resolve_binwalk({"PATH": path, "RSDD_BINWALK": str(b)}); raise SystemExit("group-writable accepted")
+    except fw.FirmwareError: pass
+    try: fw.resolve_binwalk({"PATH": "/nonexistent"}); raise SystemExit("missing accepted")
+    except fw.FirmwareError as exc: assert "missing" in str(exc), exc
+print("OK: resolve_binwalk")
+PY
+  then ok "F7: resolve_binwalk probes PATH, honours RSDD_BINWALK, refuses untrusted ownership/mode"
+  else no "F7: resolve_binwalk selection"; fi
+
 fi # fast | all
 
 # ---------------------------------------------------------------------------
@@ -496,6 +572,32 @@ PY
         python3 "$_MUT/h3.py" @SUT@
     fi   # a refused build was already counted once by mutant_built_or_count
   fi
+
+  # tooth-binwalk-trust / tooth-binwalk-major (#1641): the ownership/mode gate and the major-version
+  # gate each have their own mutant. The harness prints how each gate behaved on a user-owned,
+  # group-writable analyzer and on a 3.x version.
+  cat > "$_MUT/h4.py" <<'PY'
+import sys, importlib.util, pathlib, tempfile
+spec = importlib.util.spec_from_file_location("fw_under_test", pathlib.Path(sys.argv[1]).resolve())
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as d:
+    b = pathlib.Path(d) / "binwalk"; b.write_text("#!/bin/sh\n"); b.chmod(0o775)
+    try: m.resolve_binwalk({"PATH": d + ":/usr/bin", "RSDD_BINWALK": str(b)})
+    except m.FirmwareError: print("VERDICT: trust refused")
+    else: print("VERDICT: trust accepted")
+try: m.check_binwalk_version("3.1.0")
+except m.FirmwareError: print("VERDICT: major refused")
+else: print("VERDICT: major accepted")
+PY
+  mut_py "tooth-binwalk-trust" t4 's/^    if meta.st_uid not in trusted or meta.st_mode & 0o022:$/    if False:/' \
+    && _tt "tooth-binwalk-trust: ownership/mode gate removed → group-writable analyzer accepted → F7 RED (bites)" 0 0 "$_MUT/t4/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: trust refused$' --bad-has '^VERDICT: trust accepted$' --bad-lacks '^VERDICT: trust refused$' -- \
+         python3 "$_MUT/h4.py" @SUT@
+  mut_py "tooth-binwalk-major" t5 's/^    if version.split(".")\[0\] != SUPPORTED_BINWALK_MAJOR:$/    if False:/' \
+    && _tt "tooth-binwalk-major: major gate removed → 3.1.0 accepted → F6 RED (bites)" 0 0 "$_MUT/t5/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: major refused$' --bad-has '^VERDICT: major accepted$' --bad-lacks '^VERDICT: major refused$' -- \
+         python3 "$_MUT/h4.py" @SUT@
 
   echo "-- prove-teeth done --"
 fi
