@@ -126,6 +126,19 @@ fi
 block="${1:-}"
 [ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
+# VB-LINECOUNT (kit #1919): the ONE line counter for every cite path (artifact, backtick, --extern-check). awk NR counts an
+# UNTERMINATED last line (`wc -l` counts newline characters and was one short; CR is not a line terminator: CRLF counts like LF).
+# `_vb_lines FILE [END]` prints the line count; with END it stops reading at that line (prints END when the file
+# reaches it), so a fit check does not read past the cited line (a fitting cite is still counted in full afterwards, for the
+# `file has N lines` message). A counter that fails (non-zero status, or no number)
+# prints nothing and returns 1: callers treat that as a typed DEGRADED, never as a verdict. Only COUNTS, never file content.
+_vb_lines() {
+  local _vb_lc_n _vb_lc_s
+  _vb_lc_n=$(awk -v e="${2:-0}" 'e>0&&NR>=e{exit} END{print NR}' "$1"); _vb_lc_s=$?
+  [ "$_vb_lc_s" -eq 0 ] || return 1  # VB-LINECOUNT-STATUS
+  [[ "$_vb_lc_n" =~ ^[0-9]+$ ]] || return 1  # VB-LINECOUNT-NUMERIC
+  printf '%s\n' "$_vb_lc_n"
+}
 # Nested-corpus fallback: for a block inside a corpus sub-directory, own-project source lives above
 # the corpus dir and does not resolve under $target. Find the git root once (bounded — one git call,
 # no filesystem walk) so the bt_cite loop can try it as a secondary location before declaring extern.
@@ -224,7 +237,7 @@ echo "    DESIGN/synthesis block — DECLARE the block TYPE so the ratio is read
 #   (b) GENERIC backticked single-line cites — unchanged ok / RANGE! / extern; a non-artifact bare cite
 #       (foreign binary, offset) is still NOT a citation the script resolves, so prose stays false-positive free.
 #       ip:port / host:port / qualified-class tokens and unresolvable Class.method:NNN are `nonpath` (kit #973): listed, never counted
-#       in the P9 `resolved N of M (E extern, F failed)` summary; its SOURCE_ROOT hint appears only when E > 0.
+#       in the P9 `resolved N of M (E extern, F failed[, D degraded])` summary; its SOURCE_ROOT hint appears only when E > 0.
 echo "-- [CERT] file:line citation resolution --"
 rc=0
 # The EXTENSION IS OPTIONAL: ~45% of the real corpus omits it (bloque128 declares `cited as B128-triage:LINE`),
@@ -665,6 +678,7 @@ if [ -n "$probe_found" ] && [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$
 fi
 _vb_ok=0; _vb_m=0  # P9-RESOLVED-SUMMARY: ok resolutions vs. total attempted (bt + art cites)
 _vb_e=0; _vb_f=0   # P9-SPLIT: extern (file not found anywhere) vs. failed (RANGE!/MISSING!: the cite itself is wrong)
+_vb_d=0            # VB-DEGRADED (kit #1919): cites NOT judged because the line counter failed (the instrument, not the cite); exit 1, counted apart from failed
 _vb_xa=0; _vb_xr=0; _vb_xrel=0  # VB-EXTERN-CHECK counters: absolute extern cites seen / verified, relative extern cites
 # kit #973: tokens split off as non-path are listed here, visibly, and never counted in M.
 [ "$_vb_np_err" -ge 2 ] && printf '   WARN: non-path token split FAILED (grep exit %d) — ip:port / host:port tokens are counted as file cites\n' "$_vb_np_err"
@@ -695,7 +709,7 @@ if [ -n "$art_cites" ]; then
     if [ ! -f "$target/$f" ]; then
       echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1; _vb_f=$((_vb_f+1))  # P9-VB-F-MISSING
     else
-      total=$(wc -l < "$target/$f")
+      total=$(_vb_lines "$target/$f") || { echo "   linecount DEGRADED  $c (line count failed)"; rc=1; _vb_d=$((_vb_d+1)); continue; }  # VB-LINECOUNT-ART
       # FAIL if either endpoint is past EOF or the range is reversed (start > end).
       if [ "$start" -le "$total" ] && [ "$end" -le "$total" ] && [ "$start" -le "$end" ]; then
         echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-ART
@@ -733,18 +747,27 @@ if [ -n "$bt_cites" ]; then
     [ -n "$git_root" ] && [ "$git_root" != "$target" ] && { _bt_roots+=("$git_root"); _bt_lbl+=(""); }  # N-PROJECT-FALLBACK
     [ -n "$target_root" ] && { _bt_roots+=("$target_root"); _bt_lbl+=("(target-root) "); }  # TARGET-ROOT-FALLBACK
     [ -n "${SOURCE_ROOT:-}" ] && { _bt_roots+=("$SOURCE_ROOT"); _bt_lbl+=(""); }  # SOURCE_ROOT-FALLBACK
-    _bt_resolve=""; _bt_first=""; _bt_tag=""
+    _bt_resolve=""; _bt_first=""; _bt_tag=""; _bt_cdeg=0
     for _bt_i in "${!_bt_roots[@]}"; do
       [ -f "${_bt_roots[$_bt_i]}/$f" ] || continue
       [ -z "$_bt_first" ] && { _bt_first="${_bt_roots[$_bt_i]}/$f"; _bt_first_tag="${_bt_lbl[$_bt_i]}"; }
-      if [ "$end" -le "$(wc -l < "${_bt_roots[$_bt_i]}/$f")" ]; then  # BT-RANGE-FIT
-        _bt_resolve="${_bt_roots[$_bt_i]}/$f"; _bt_tag="${_bt_lbl[$_bt_i]}"; break
+      # a counter that fails here is not a "does not fit": it sets _bt_cdeg. If a LATER root fits, the cite resolves there;
+      # if none fits, the cite is DEGRADED (below) rather than judged RANGE! from another root's successful count.
+      if _vb_fit=$(_vb_lines "${_bt_roots[$_bt_i]}/$f" "$end"); then
+        if [ "$end" -le "$_vb_fit" ]; then  # BT-RANGE-FIT
+          _bt_resolve="${_bt_roots[$_bt_i]}/$f"; _bt_tag="${_bt_lbl[$_bt_i]}"; break
+        fi
+      else
+        _bt_cdeg=1  # BT-FIT-DEGRADED
       fi
     done
+    if [ -z "$_bt_resolve" ] && [ "$_bt_cdeg" = 1 ]; then
+      echo "   linecount DEGRADED  $c (line count failed)"; rc=1; _vb_d=$((_vb_d+1)); continue
+    fi
     [ -z "$_bt_resolve" ] && [ -n "$_bt_first" ] && { _bt_resolve="$_bt_first"; _bt_tag="$_bt_first_tag"; }
     _bt_okp="ok      "; [ -n "$_bt_tag" ] && _bt_okp="ok $_bt_tag"  # TARGET-ROOT-LABEL
     if [ -f "$_bt_resolve" ]; then
-      total=$(wc -l < "$_bt_resolve")
+      total=$(_vb_lines "$_bt_resolve") || { echo "   linecount DEGRADED  $c (line count failed)"; rc=1; _vb_d=$((_vb_d+1)); continue; }  # VB-LINECOUNT-BT
       if [ "$end" -le "$total" ]; then
         if [ "$start" = "$end" ]; then
           echo "   $_bt_okp$c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-BT
@@ -767,13 +790,12 @@ if [ -n "$bt_cites" ]; then
         if [ ! -f "$f" ] || [ ! -r "$f" ]; then
           echo "   extern  $c  (absolute path not found or unreadable — not script-verifiable)"; _vb_e=$((_vb_e+1)); continue
         fi
-        # The file is only COUNTED (awk NR: an unterminated last line counts, CR is ignored); no byte of it is ever echoed.
-        # awk stops at the cited END line (`print e`), so an in-range cite does not read the rest of the file; past EOF it
+        # The file is only COUNTED (awk NR: an unterminated last line counts, CR is not a line terminator); no byte of it is ever echoed.
+        # awk exits at the cited END line (NR then equals END), so an in-range cite does not read the rest of the file; past EOF it
         # prints the full count. A counter that fails (non-zero status, or no number) is NEVER a verdict: typed DEGRADED, exit 1.
-        total=$(awk -v e="$end" 'NR>=e{f=1;exit} END{print f?e:NR}' "$f"); _vb_aw=$?
-        if [ "$_vb_aw" -ne 0 ] || [[ ! "$total" =~ ^[0-9]+$ ]]; then
-          echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_f=$((_vb_f+1)); continue
-        fi
+        total=$(_vb_lines "$f" "$end") || {  # VB-LINECOUNT-EXTERN
+          echo "   extern-check DEGRADED  $c (line count failed)"; rc=1; _vb_d=$((_vb_d+1)); continue
+        }
         _vb_xr=$((_vb_xr+1))
         if [ "$end" -gt "$total" ]; then
           echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1; _vb_f=$((_vb_f+1)); continue
@@ -812,11 +834,13 @@ fi
 # WARN is graded by the block's declared Type:, using the same taxonomy as P6 (P9-TYPE-PARSE-EARLY above).
 # WARN-only: exit code is NOT changed (a finding is advisory, CLAUDE.md §8).
 if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
-  echo "   resolved $_vb_ok of $_vb_m ($_vb_e extern, $_vb_f failed)"  # P9-SPLIT
+  _p9_deg=""; [ "$_vb_d" -gt 0 ] && _p9_deg=", $_vb_d degraded"  # VB-DEGRADED-SUMMARY
+  echo "   resolved $_vb_ok of $_vb_m ($_vb_e extern, $_vb_f failed$_p9_deg)"  # P9-SPLIT
   # P9-HINT-SCOPE: SOURCE_ROOT can only help a cite whose file was NOT FOUND (extern). A RANGE!/MISSING! cite
   # already resolved its file (or names an unpreserved artifact), so a block with no extern cite gets a different cause.
   _p9_why="no file paths resolved."
-  if [ "$_vb_e" -gt 0 ]; then _p9_why="no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+  if [ "$_vb_d" -gt 0 ]; then _p9_why="line count failed — instrument, not the cite (see the DEGRADED lines above); those cites were not judged."  # VB-DEGRADED-WHY
+  elif [ "$_vb_e" -gt 0 ]; then _p9_why="no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
   elif [ "$_vb_f" -gt 0 ]; then _p9_why="every cite failed (RANGE!/MISSING!, listed above) — fix those cites; SOURCE_ROOT would not help."; fi
   if [ "$_vb_ok" -eq 0 ]; then
     # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
