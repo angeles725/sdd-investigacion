@@ -270,6 +270,23 @@ else
   no "5n keyword-like identifier was truncated by the prefix group (rc=$RC5N out=[$OUT5N])"
 fi
 
+# ── 5o. Segments also split on `||` and `|` (#1033 review): `cd -P .. || cd ..` lands on the bare
+#        climb whenever the -P'd one fails, so the bare `cd ..` must be flagged; the all -P'd twin is not.
+box5o="$(mkbox case-or-pipe-segments)"
+cat > "$box5o/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.." || cd .. && pwd)"
+K2="$(cd -P "$(dirname "$0")/.." || cd -P .. && pwd)"
+K3="$(cd -P "$(dirname "$0")/.." | cd .. && pwd)"
+EOF
+OUT5O="$(bash "$SUT" "$box5o" 2>&1)"; RC5O=$?
+if [ "$RC5O" -eq 1 ] && <<<"$OUT5O" grep -q 'HIT.*fixed\.sh:2' && ! <<<"$OUT5O" grep -q 'HIT.*fixed\.sh:3' \
+   && <<<"$OUT5O" grep -q 'HIT.*fixed\.sh:4'; then
+  ok "5o '||' and '|' split segments: a bare climb after '||' / '|' is flagged; the all -P'd '||' chain is not"
+else
+  no "5o '||'/'|' segment split wrong (rc=$RC5O out=[$OUT5O])"
+fi
+
 # ── 5i. climb_seen (formerly the misleadingly-named pattern_seen, kit issue #1024 round 5,
 #        general cleanup): a file where EVERY climbing derivation is correctly -P'd must NOT be
 #        reported as "no-match" — the construct WAS seen, it just happened to be compliant.
@@ -543,6 +560,7 @@ EOF
   # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
   fu_tooth export-prefix "$box5g" 3 's/(local|export|/(local|/' 1
   fu_tooth second-climb "$box5m" 2 's/^          _climb_ok=1$/          _climb_ok=1; break/'
+  fu_tooth or-pipe-split "$box5o" 2 's#_segs//||/#_segs//ZZ/#;s#_segs//|/#_segs//ZZ/#'
   # 5h2: the glob-expanding split (the pre-round-5 code) must bite when the box is the cwd.
   if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's/read -ra _stmts <<< "\$line"/_stmts=($line)/'; then
     tt "teeth FU: glob-expanding split makes the filename-shaped file a bogus HIT" 0 1 "$TMP/l1-mut/glob-split.sh" \

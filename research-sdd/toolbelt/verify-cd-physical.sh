@@ -215,7 +215,10 @@ _lint_scan_file() {
       # later bare `cd ..` after a compliant `cd -P ..` escape). One line is emitted per statement: the
       # first non-compliant climb wins ("climbing derivation lacks cd -P"); otherwise "ok" if at
       # least one climb was seen and all were compliant.
-      local _climb_ok=0 _climb_bad=0
+      local _climb_ok=0 _climb_bad=0 _segs
+      # Segments split on `&&`, `||` and `|` alike: `cd -P .. || cd ..` runs the bare climb whenever the
+      # -P'd one fails (kit issue #1033 review). `||` is replaced before `|` so it is not split twice.
+      _segs="${code//&&/$'\n'}"; _segs="${_segs//||/$'\n'}"; _segs="${_segs//|/$'\n'}"
       while IFS= read -r seg; do
         [[ "$seg" == *".."* ]] || continue
         [[ "$seg" =~ cd[[:space:]] || "$seg" == *'cd"'* || "$seg" == *'cd-P'* ]] || continue
@@ -225,7 +228,7 @@ _lint_scan_file() {
           _climb_bad=1
           break
         fi
-      done <<< "${code//&&/$'\n'}"
+      done <<< "$_segs"
       if [ "$_climb_bad" -eq 1 ]; then
         printf '%d\tclimbing derivation lacks cd -P\n' "$lineno"
       elif [ "$_climb_ok" -eq 1 ]; then
