@@ -51,11 +51,42 @@ const MALFORMED_PATTERN = new RegExp(
 //    unclosed comment as hiding the rest). A ``` line inside a comment is not a
 //    fence opener.
 // Text after a `-->` on the same line is visible again.
+// Inline code spans and HTML comments are tokenized together in document order (CommonMark): whichever
+// opens first wins, and the other's markers inside it are inert. Root cause of #1963: comments and code
+// spans were stripped by separate passes, so a `<!--` inside backticks was cut as a comment, unbalancing
+// the backticks, and a stray backtick then paired with a distant one and swallowed a `Closes #N` line.
+//  - code span: an atomic backtick run (not part of a longer run) closed by a run of exactly the same
+//    length, possibly on later lines of the same paragraph (never across a blank line or a fence opener).
+//    An unmatched run is literal text. A span is replaced by a single space.
+//  - comment: opened by `<!--` outside a span, closed by `-->` or EOF; may cross blank lines.
+const FENCE_OPEN = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
+
+// CommonMark block starts that interrupt a paragraph, and so end any code span still open: an HTML block
+// start (`<!--`), ATX heading, list item, blockquote, thematic break. (Indented code is out of scope.)
+const PARAGRAPH_INTERRUPT =
+  /^ {0,3}(?:<!--|#{1,6}(?:\s|$)|(?:[-+*]|0{0,8}1[.)])[ \t]+\S|(?:=+|-+)[ \t]*$|>|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/;
+
+// Find a closing backtick run of exactly `n` on lines[i] from `col`, then on following lines of the same
+// paragraph. Returns {line, end} (index just after the closer) or null.
+function findSpanCloser(lines, i, col, n) {
+  const runs = /`+/g;
+  for (let j = i; j < lines.length; j++) {
+    if (j > i && (/^\s*$/.test(lines[j]) || FENCE_OPEN.test(lines[j]) || PARAGRAPH_INTERRUPT.test(lines[j]))) return null;
+    runs.lastIndex = j === i ? col : 0;
+    for (let m = runs.exec(lines[j]); m !== null; m = runs.exec(lines[j])) {
+      if (m[0].length === n) return { line: j, end: m.index + n };
+    }
+  }
+  return null;
+}
+
 function stripHiddenText(body) {
+  const lines = String(body || '').split('\n');
   const out = [];
   let fence = null;
   let inComment = false;
-  for (const line of String(body || '').split('\n')) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (fence !== null) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
       if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
@@ -63,29 +94,43 @@ function stripHiddenText(body) {
     }
     if (!inComment) {
       // CommonMark: a backtick fence's info string may not contain backticks (that line is inline code).
-      const open = /^ {0,3}(`{3,}(?!.*`)|~{3,})/.exec(line);
+      const open = FENCE_OPEN.exec(line);
       if (open) {
         fence = open[1];
         continue;
       }
     }
     let visible = '';
-    let rest = line;
-    for (;;) {
+    let cur = line;
+    let c = 0;
+    while (c < cur.length) {
       if (inComment) {
-        const end = rest.indexOf('-->');
-        if (end === -1) break;
-        inComment = false;
-        rest = rest.slice(end + 3);
-      } else {
-        const start = rest.indexOf('<!--');
-        if (start === -1) {
-          visible += rest;
-          break;
+        const end = cur.indexOf('-->', c);
+        if (end === -1) {
+          c = cur.length;
+        } else {
+          inComment = false;
+          c = end + 3;
         }
-        visible += rest.slice(0, start);
+      } else if (cur.startsWith('<!--', c)) {
         inComment = true;
-        rest = rest.slice(start + 4);
+        c += 4;
+      } else if (cur[c] === '`') {
+        let e = c;
+        while (e < cur.length && cur[e] === '`') e++;
+        const closer = findSpanCloser(lines, i, e, e - c);
+        if (closer === null) {
+          visible += cur.slice(c, e);
+          c = e;
+        } else {
+          visible += ' ';
+          i = closer.line;
+          cur = lines[i];
+          c = closer.end;
+        }
+      } else {
+        visible += cur[c];
+        c++;
       }
     }
     if (!inComment || visible !== '' || line === '') out.push(visible);
@@ -102,8 +147,8 @@ function kindFor(keyword) {
 function parseLinkedIssues(body) {
   // GitHub web-form bodies arrive with CRLF; a fence close line ending in \r would never match.
   const normalized = String(body || '').replace(/\r\n?/g, '\n');
-  // Inline code spans (a backtick run closed by a run of the same length) are not references on GitHub.
-  const visible = stripHiddenText(normalized).replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, ' ');
+  // Inline code spans are not references on GitHub; stripHiddenText tokenizes them together with comments.
+  const visible = stripHiddenText(normalized);
   const references = [];
   const errors = [];
 
