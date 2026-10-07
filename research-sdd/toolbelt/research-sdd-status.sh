@@ -37,9 +37,14 @@
 #   --focus <slug> (with --next) scopes the STALE gate to THAT focus's verify-state only (kit #1543): defects in
 #        a legacy sibling focus no longer brick a clean active focus. --all is the explicit corpus-wide form;
 #        it is also the DEFAULT when neither --focus nor --root is given (kept unchanged on purpose: the
-#        corpus-wide gate is the safe default and single-focus output is byte-identical). --all excludes
-#        --focus/--root and requires --next (exit 2). In a multi-focus corpus the corpus-wide STALE line
-#        appends `[failing focus: a,b]` naming the focuses whose own verify-state fails.
+#        corpus-wide gate is the safe default). --all excludes --focus/--root and requires --next (exit 2).
+#        In a multi-focus corpus the corpus-wide STALE line appends `[failing focus: a,b]` naming the focuses
+#        whose own verify-state fails. Every STALE line then ends with `[first failure: <file>: <check>]` (kit
+#        #1544): the first verify-state FAIL of the same scope (for several failing focuses, the first in
+#        C-locale sort order = the first one in `[failing focus: …]`; a stale root RESEARCH-STATE.md falls back to
+#        the corpus-wide run). When verify-state printed no FAIL line the pointer is the typed
+#        `[first failure: unavailable — verify-state printed no FAIL line (rc=N)]`, never omitted.
+#        The default report's `Stop hook` line ends with `(checked: <absolute target path>)` (kit #1150 item 1).
 #   --root / --focus <slug> (with --next) also scope the NEXT/STOP verdict (and the RETRO-DUE check) to the PICKED
 #        state file (kit #1837); only the no-flag form and --all aggregate over every state file. NOT scoped: the
 #        --root STALE gate stays corpus-wide (only --focus narrows it, #1543), so an active stale sibling focus
@@ -1482,17 +1487,31 @@ if [ "$mode" = "--next" ]; then
   }
   # _stale_line: the STALE line. In a MULTI-focus corpus (corpus-wide mode) it also names the focus(es)
   # whose own verify-state fails, so the operator sees WHICH legacy focus bricks --next (kit #1543).
-  # Single-focus corpora and --focus runs print the pre-#1543 line byte-for-byte.
+  # EVERY STALE line (single-focus, --focus, multi-focus) ends with `[first failure: <file>: <check>]` (kit #1544,
+  # below); only the `[failing focus: …]` segment is multi-focus-only. The pre-#1543 prefix is unchanged.
   # kit #1544: the line also carries the FIRST failing verify-state check and the file it belongs to
   # (`[first failure: <file>: <check>]`), so the operator need not re-run the full report to find it.
   # _first_failure <verify-state args...>: first `   FAIL   ` line, prefixed by the `== verify-state: <file> (`
-  # header it sits under; prints nothing when verify-state shows no FAIL (e.g. it crashed) — never a guess.
+  # header it sits under. A FAIL line ending in ':' (e.g. "...found:") also carries the value line that follows.
+  # Truncated to ~160 BYTES on a character boundary (LC_ALL=C awk + continuation-byte back-off, so mawk and
+  # gawk agree and a multibyte char is never split). §7: when verify-state printed NO FAIL line (helper missing,
+  # degraded, crash — its stderr is dropped) the pointer is the typed `unavailable — … (rc=N)`, never omitted.
   _first_failure() {
-    local _ff_out; _ff_out="$("$here/verify-state.sh" "$@" 2>/dev/null)"
-    awk '
+    local _ff_out _ff_rc=0 _ff_line
+    _ff_out="$("$here/verify-state.sh" "$@" 2>/dev/null)" || _ff_rc=$?
+    _ff_line="$(LC_ALL=C awk '
+      function emit(  n) {
+        n=157
+        if (length(c)>160) { while (n>0 && substr(c,n+1,1) ~ /[\200-\277]/) n--; c=substr(c,1,n) "..." }
+        print (f==""?"?":f) ": " c; done=1; exit
+      }
       /^== verify-state: / { f=$0; sub(/^== verify-state: /,"",f); sub(/ \(target: .*$/,"",f); next }
-      /^   FAIL   / { c=$0; sub(/^   FAIL   /,"",c); if (length(c)>160) c=substr(c,1,157) "..."; print (f==""?"?":f) ": " c; exit }
-    ' <<<"$_ff_out"  # STALE-FIRST-FAILURE
+      pend { v=$0; sub(/^[ \t]+/,"",v); c=c " " v; emit() }
+      /^   FAIL   / { c=$0; sub(/^   FAIL   /,"",c); if (c ~ /:$/) { pend=1; next } emit() }
+      END { if (!done && pend) emit() }
+    ' <<<"$_ff_out")"  # STALE-FIRST-FAILURE
+    if [ -n "$_ff_line" ]; then printf '%s' "$_ff_line"
+    else printf 'unavailable — verify-state printed no FAIL line (rc=%s)' "$_ff_rc"; fi
   }
   _stale_line() {
     local _sl_line="STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
@@ -1505,7 +1524,10 @@ if [ "$mode" = "--next" ]; then
         "$here/verify-state.sh" "$target" --focus "$_sl_b" >/dev/null 2>&1 || { _sl_names="${_sl_names:+$_sl_names,}$_sl_b"; [ -n "$_sl_first" ] || _sl_first="$_sl_b"; }
       done
       [ -n "$_sl_names" ] && _sl_line="$_sl_line [failing focus: $_sl_names]"
-      [ -n "$_sl_first" ] && _sl_ff="$(_first_failure "$target" --focus "$_sl_first")"
+      # no focus file fails on its own (a stale ROOT RESEARCH-STATE.md, or a corpus-wide-only check): fall back
+      # to the corpus-wide run so the pointer is still named instead of silently dropped.
+      if [ -n "$_sl_first" ]; then _sl_ff="$(_first_failure "$target" --focus "$_sl_first")"
+      else _sl_ff="$(_first_failure "$target")"; fi  # STALE-ROOT-FALLBACK
     elif [ -n "$focus_slug" ]; then
       _sl_ff="$(_first_failure "$target" --focus "$focus_slug")"
     else
@@ -2072,7 +2094,7 @@ blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
-_chk_abs="$(cd "$target" 2>/dev/null && pwd)"  # kit #1150 item 1: name the directory the wiring was checked at
+_chk_abs="$(CDPATH="" cd -- "$target" 2>/dev/null && pwd)"  # kit #1150 item 1: name the directory the wiring was checked at
 echo "  Stop hook       : $(hook_stop_wiring_state "$target") (checked: ${_chk_abs:-$target})"
 echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"

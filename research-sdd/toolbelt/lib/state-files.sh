@@ -47,7 +47,7 @@ if ! declare -F list_state_files >/dev/null 2>&1; then
       -name 'RESEARCH-STATE*.md' \
       -not -name '*.template.md' \
       -not -path '*/.git/*' \
-      2>/dev/null | sort
+      2>/dev/null | LC_ALL=C sort
   }
 fi
 
