@@ -148,6 +148,104 @@ positive rule, `:365` code-only carve-out.)
 
 ---
 
+## 6. Licence files and code signing: SignTool is lossy, InPlaceSign surgery is the patch path `[#1901][#1579][#1581]`
+
+**`SignTool` re-encoding is lossy for a full licence.** Re-encoding a Niagara licence through
+`SignTool` collapses it down to the **root element only** — any nested structure the full licence
+carried is dropped on the round-trip. `SignTool` is therefore not a safe tool for patching a
+licence in place; it is a signer for a document it also silently truncates. [#1901]
+
+**Standardize InPlaceSign textual surgery as the licence-patch path instead.** Rather than
+re-encoding the whole document (lossy) or re-emitting it through the canonical writer, patch the
+licence text directly and re-sign only the signature block in place:
+
+- Edit the licence content as text (textual surgery), leaving everything the lossy re-encode would
+  have dropped untouched.
+  Evidence: `sign-run.log`. [#1901]
+
+**The bench-JRE SHA1/DSA rejection.** Signing on the bench's own JRE failed because that JRE
+rejects the licence's SHA1/DSA signature algorithm combination. **Fix:** sign on a local JDK
+instead of the bench JRE — the local JDK accepts the SHA1/DSA combination the bench JRE rejects.
+[#1901]
+
+**General rule for a signed-jar target: rebuild + push + hash-verify, never an in-place archive
+editor.** For signed-jar targets, prefer rebuilding the jar locally, pushing the rebuilt artifact,
+and verifying its hash over using any in-place archive editor. .NET's `ZipArchive.Update` API
+silently loses entries on an in-place edit; because the jar carries per-entry signature digests,
+a silently dropped entry causes a **FATAL error at class load** time, not at edit time — the
+failure surfaces far from its cause. Evidence: B1212 §1212.2, walls 2-3. [#1579]
+
+**When the target's own canonical writer is itself part of what is being verified, sign via
+in-place signature-block surgery and a fixpoint self-verify — never re-emit the file through that
+writer.** Re-emitting through the writer under test contaminates the verification: any defect in
+the writer now also affects the "known-good" artifact used to check it. Sign the artifact by
+editing its signature block directly (the same textual-surgery discipline as the licence case
+above) and confirm that the signing step is a fixpoint — a second application changes nothing more.
+Evidence: B1212 §1212.3. [#1581]
+
+## 7. Module-load oracle: direct `station.exe <name>` launch `[#1902]`
+
+**Standard oracle for "did this module load successfully": launch the station binary directly.**
+
+```
+station.exe <station-name>
+```
+
+This is the standard way to answer "does this station load without error" — no service switch
+involved, and it leaves the host's N5 posture **untouched** (it does not flip the box into or out
+of an N5-managed state). Prefer this direct launch over starting/stopping the Windows service when
+the question is purely "does the module load".
+
+**SCM env-staleness caveat for daemon-as-service boots.** When the station instead runs as a
+Windows service (via the Service Control Manager), the service process inherits the environment
+that was current **when the service was registered or last restarted by the SCM**, not the
+environment visible in a fresh interactive session. A machine-wide environment change (see
+REMOTE-POWERSHELL.md §8) made after the service last started is **not** visible to that running
+service — restart the service (or re-register it) before trusting it to reflect a just-changed
+environment variable. This caveat applies only to the service-boot path; the direct `station.exe`
+launch above always reflects the environment of the shell that launched it.
+
+Evidence: kit issue #1902 (R1.5/R1.6; `reflow-station-test4.log`).
+
+## 8. Defensive notes: config.bog and credentials.xml exposure `[#1599][#1600][#1601]`
+
+These are **defensive, authorized-lab hardening notes** — what an operator who already has local
+file-system access to a Niagara host may be able to recover from its own configuration files, and
+how to reduce that exposure. This is not a how-to for obtaining that access; it assumes it is
+already present (e.g. an authorized assessment on a host the assessor already controls) and
+describes the resulting risk and the mitigation. [#1599][#1600][#1601]
+
+**What is at risk.** A Niagara station's `config.bog` and the Workbench `credentials.xml` can both
+hold credential-related material. Depending on the configured key source, Niagara's reversible
+credential encoding (`[aes-256.2]`) can make platform-level credentials recoverable by anyone who
+already has a user-session foothold on the same host — i.e. once an attacker (or an unauthorized
+party) has a local session, the credential store can be **plaintext-equivalent** rather than a
+meaningful additional barrier. Treat both files as standard recon artifacts in a security
+assessment of the host, and treat their presence with a reversible key source as a finding in its
+own right, independent of whatever else is found on the box. [#1599][#1600]
+
+**How to reduce the exposure (mitigations, in priority order):**
+- Prefer a non-reversible / external key source for the credential store over a reversible
+  on-host key source, so that local file access alone does not yield usable credentials.
+- Treat `config.bog` and `credentials.xml` as File Integrity Monitoring (FIM) targets: an
+  unexpected modification or read-time access to either file is itself a signal worth alerting on,
+  not just a config-management concern.
+- Review PBKDF2 iteration-count hygiene on any password hash the platform maintains — a low
+  iteration count that was acceptable when it was set is a forgotten crack surface years later as
+  hardware improves; audit and raise it rather than assuming the original setting still holds.
+- Check `passwordHistory` settings — a forgotten or disabled password-history policy is an
+  overlooked crack surface in the same category: it is easy to miss during a review because it is
+  not the active credential, but a historical one that may still be guessable or reused elsewhere.
+
+Evidence: B1215 §1215.1-§1215.4.
+
+**Cross-reference (deferred):** this defensive note belongs conceptually under METHODOLOGY.md §12
+(SECRETS DISCIPLINE) alongside the live-install credential-handling guidance already there;
+METHODOLOGY.md is owned by another writer in this chain, so the cross-link from §12 to this
+section should be added when that file is next touched.
+
+---
+
 ## Self-verify
 
 | # | Claim | Marker | Evidence |
