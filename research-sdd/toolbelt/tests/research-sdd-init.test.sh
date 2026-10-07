@@ -2502,6 +2502,40 @@ if command -v jq >/dev/null 2>&1; then
   [ "$_rc" = 143 ] && ok "U7-k TERM mid-fill: exit 143" || no "U7-k TERM mid-fill: exit $_rc"
   [ -z "$(find "$d/td" -mindepth 1)" ] && [ ! -e "$d/.claude" ] && ok "U7-k TERM mid-fill: no staging/temp left, nothing written" || no "U7-k TERM mid-fill left files"
 
+  # L. kit issue #1860 follow-ups (staging TMPDIR, no-clobber install, empty stage, success cleanup, flagless keep)
+  # L1. an unusable TMPDIR fails closed: typed FATAL, exit 2, nothing written
+  d="$TMP/u7-l1"; rm -rf "$d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7-l1.settings"
+  TMPDIR="$d/no-such-tmpdir" bash "$SUT" "$d" --wire >"$TMP/u7-l1.out" 2>&1; _rc=$?
+  { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not create a staging directory' "$TMP/u7-l1.out"; } && ok "U7-l1 unusable TMPDIR: typed FATAL, exit 2" || no "U7-l1 unusable TMPDIR: exit $_rc, no typed FATAL"
+  { [ ! -e "$d/.claude/hooks" ] && cmp -s "$TMP/u7-l1.settings" "$d/.claude/settings.json"; } && ok "U7-l1 unusable TMPDIR: nothing written" || no "U7-l1 unusable TMPDIR left a half-wired state"
+  # L2. a hook created AFTER the existence check is kept, never overwritten (the cp stub plants it at the install moment)
+  _u7_race="$TMP/u7-race"; mkdir -p "$_u7_race"
+  printf '#!/bin/sh\n[ "$1" = -p ] && { a1="$2"; a2="$3"; } || { a1="$1"; a2="$2"; }\ncase "$a1" in */hook) d="$(dirname "$a2")"; case "$a2" in */.claude/hooks/*) [ -e "$d/research-protocol.sh" ] || printf "HAND-ADAPTED\\n" > "$d/research-protocol.sh";; esac;; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_race/cp"; chmod +x "$_u7_race/cp"
+  d="$TMP/u7-l2"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  PATH="$_u7_race:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l2.out" 2>&1; _rc=$?
+  [ "$_rc" = 0 ] && ok "U7-l2 hook appearing after the check: exit 0" || no "U7-l2 race: exit $_rc"
+  [ "$(cat "$d/.claude/hooks/research-protocol.sh" 2>/dev/null)" = "HAND-ADAPTED" ] && ok "U7-l2 hook appearing after the check: NOT overwritten" || no "U7-l2 race: the concurrently-created hook was overwritten"
+  { grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l2.out" && ! grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l2.out"; } && ok "U7-l2 race: reported kept, not created" || no "U7-l2 race: wrong created/kept report"
+  [ -z "$(find "$d/.claude" -name '.hook.*')" ] && ok "U7-l2 race: no temp file left" || no "U7-l2 race left a temp file"
+  # L3. the hook existed at staging time (nothing staged) and vanishes before the install: staged late, never `cp` from an empty path
+  _u7_gone="$TMP/u7-gone"; mkdir -p "$_u7_gone"
+  printf '#!/bin/sh\ncase "$1" in */hook-stop-retro-gate.sh) rm -f "$(dirname "$2")/research-protocol.sh";; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_gone/cp"; chmod +x "$_u7_gone/cp"
+  _u7_wire_target "$TMP/u7-l3" S
+  PATH="$_u7_gone:$PATH" bash "$SUT" "$TMP/u7-l3" --wire >"$TMP/u7-l3.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && [ -s "$TMP/u7-l3/.claude/hooks/research-protocol.sh" ] && grep -qF "created: $TMP/u7-l3/.claude/hooks/research-protocol.sh" "$TMP/u7-l3.out"; } && ok "U7-l3 hook vanishing after an exists-at-start check: re-staged and created, exit 0" || no "U7-l3 vanished hook: exit $_rc ($(grep -F 'cp:' "$TMP/u7-l3.out" | head -1))"
+  # L4. the staging dir is removed on the success path BEFORE the end of the run (a jq stub logs TMPDIR at every call; the last one must be empty)
+  _u7_tl="$TMP/u7-tl"; mkdir -p "$_u7_tl"
+  printf '#!/bin/sh\nfind "$TMPDIR" -mindepth 1 > "$TMPDIR/../u7-tl.last" 2>/dev/null\nexec "%s" "$@"\n' "$(command -v jq)" > "$_u7_tl/jq"; chmod +x "$_u7_tl/jq"
+  d="$TMP/u7-l4"; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"; rm -f "$d/u7-tl.last"
+  TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && [ -f "$d/u7-tl.last" ] && [ ! -s "$d/u7-tl.last" ]; } && ok "U7-l4 success path: staging dir already gone when the settings merge runs" || no "U7-l4 staging dir still present after the install (rc $_rc): $(head -2 "$d/u7-tl.last" 2>/dev/null | tr '\n' ' ')"
+  # L6. a flagless scaffold over an existing hook (no corpus marker) keeps the hook, byte for byte
+  d="$TMP/u7-l6"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7-l6.before"
+  bash "$SUT" "$d" --corpus flat >"$TMP/u7-l6.out" 2>&1; _rc=$?
+  { [ "$_rc" = 0 ] && [ -e "$d/INDEX.md" ]; } && ok "U7-l6 flagless scaffold over an existing hook: scaffold completes" || no "U7-l6 flagless scaffold: exit $_rc"
+  cmp -s "$TMP/u7-l6.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-l6 flagless scaffold: existing hook byte-identical" || no "U7-l6 flagless scaffold OVERWROTE the existing hook"
+  grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l6.out" && ok "U7-l6 flagless scaffold: typed 'kept:' line" || no "U7-l6 flagless scaffold: no kept: line"
+
   # I. failure paths of the fill: a failing mv (stubbed) is a typed FATAL with no temp file and no half-filled hook
   _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
   d="$TMP/u7-i"; rm -rf "$d"; mkdir -p "$d"
@@ -3027,8 +3061,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw11/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw11/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mw11/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
     mw11="$TMP/mw11/toolbelt/init.sh"
-    # (the #1845 staging guard `if [ ! -e "$_wo_ss" ]` is forced true too, so the create path has a staged hook to install)
-    awk '/if \[ ! -e "\$_wo_ss" \]; then/ { print "if true; then"; next } /if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
+    # (kit #1860: the install is no-clobber (`ln`), so the mutant ALSO swaps it for `mv -f`; the empty-stage guard stages the hook late)
+    awk '/^  ln "\$tmp" "\$dest" 2>\/dev\/null \|\| rc=1$/ { print "  mv -f \"$tmp\" \"$dest\" 2>/dev/null || rc=1"; next } /if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
     if ! grep -q 'MUTANT: always overwrite existing ss hook' "$mw11"; then
       no "teeth MW11: could not build mutant (ss kept-check line not found)"
     else
@@ -4221,7 +4255,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 line=[RESEARCH PROTOCOL — a\nb
     # the post-fill check: with the sed dead the typed FATAL is the only thing between a failed fill and a silently unfilled hook
     _u7t SURVIVE 's/^  sed "\${exprs\[@\]}" "\$f" > "\$tmp" ||/  cp "\$f" "\$tmp" ||/;s/if _rsdd_hook_has_placeholder "\$tmp" "\$ph"; then _rsdd_fill_abort/if false; then _rsdd_fill_abort/' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject Acme
     # wire-only creating the hook: the fill call is the only thing that applies the flag there
-    _u7t FILL-WIREONLY '/^      _rsdd_fill_hook "\$_RSDD_STAGE\/hook" /d' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_wfill "$_u7t_hd"
+    _u7t FILL-WIREONLY '/^  _rsdd_fill_hook "\$_RSDD_STAGE\/hook" /d' 'rc=0 line=[RESEARCH PROTOCOL — Acme (Research-SDD)]' 'rc=0 line=[RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)]' _u7t_wfill "$_u7t_hd"
     # validation: without it a blank subject is rendered into the hook
     _u7t VALIDATE '/^\[ "\$subject_given" = 1 \] && { _rsdd_check_flag_value/d' 'rc=2 line=[]' 'rc=0 line=[RESEARCH PROTOCOL —     (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject '   '
     # existing hook: without the refusal the flag is silently dropped (exit 0, nothing said)
@@ -4243,13 +4277,40 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     _u7t MODE 's/^  cp -p "\$f" "\$tmp" ||/  : ||/' 'rc=0 mode=755' 'rc=0 mode=600' _u7t_mode
     _u7t_tpl=""; _u7t_good="$SUT"
     # a failed wire-only fill writes NOTHING (fill happens in a staging dir before any file is created)
-    _u7t ABORT-STAGE 's/^      _rsdd_fill_hook "\$_RSDD_STAGE\/hook" || exit 2$/      _rsdd_fill_hook "$_RSDD_STAGE\/hook" || :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=4 hook=1 stop=1 settings=0 left=0' _u7t_abort
+    _u7t ABORT-STAGE 's/^  _rsdd_fill_hook "\$_RSDD_STAGE\/hook" || exit 2$/  _rsdd_fill_hook "$_RSDD_STAGE\/hook" || :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=4 hook=1 stop=1 settings=0 left=0' _u7t_abort
     # ...and the staging dir / temp file never outlive the run (EXIT trap)
     _u7t STAGE-CLEAN 's/^  \[ -z "\$_RSDD_STAGE" \] || rm -rf -- "\$_RSDD_STAGE"$/  :/' 'rc=2 hook=0 stop=0 settings=0 left=0' 'rc=2 hook=0 stop=0 settings=0 left=2' _u7t_abort
     # the existing-hook rule on the SCAFFOLD path: without the guard a hand-adapted hook (no corpus marker) is silently overwritten
-    _u7t SCAFFOLD-REFUSE '/^  _rsdd_refuse_fill_on_existing_hook "\$target\/.claude\/hooks\/research-protocol.sh"   # scaffold path$/d' 'rc=3 changed=0 index=0' 'rc=0 changed=1 index=1' _u7t_scaf --subject Acme
+    _u7t SCAFFOLD-REFUSE '/^  _rsdd_refuse_fill_on_existing_hook "\$target\/.claude\/hooks\/research-protocol.sh"   # scaffold path$/d' 'rc=3 changed=0 index=0' 'rc=0 changed=0 index=1' _u7t_scaf --subject Acme
     # --prefix on that path: the hook must be kept; without the keep flag the scaffold copies the template over it
-    _u7t SCAFFOLD-KEEP 's/then _rsdd_keep_hook=1; fi/then :; fi/' 'rc=0 changed=0 index=1' 'rc=0 changed=1 index=1' _u7t_scaf --prefix pp
+    _u7t SCAFFOLD-KEEP 's/&& _rsdd_keep_hook=1$/\&\& :/' 'rc=0 changed=0 index=1' 'rc=0 changed=1 index=1' _u7t_scaf --prefix pp
+    # kit issue #1860: the keep is flag-independent — a FLAGLESS scaffold keeps the existing hook too
+    _u7t SCAFFOLD-KEEP-FLAGLESS 's/&& _rsdd_keep_hook=1$/\&\& :/' 'rc=0 changed=0 index=1' 'rc=0 changed=1 index=1' _u7t_scaf
+    # kit issue #1860 runners + mutants: the no-clobber install, the empty-stage guard, the explicit success cleanup, the typed staging FATAL
+    _u7t_race() {  # <init> — a hook planted at the install moment (cp stub): does it survive?
+      local d="$TMP/u7t/race" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      PATH="$_u7_race:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc hand=$([ "$(cat "$d/.claude/hooks/research-protocol.sh" 2>/dev/null)" = HAND-ADAPTED ] && echo 1 || echo 0)"
+    }
+    _u7t_gone() {  # <init> — the hook vanishes between the staging check and the install
+      local d="$TMP/u7t/gone" rc; _u7_wire_target "$d" S
+      PATH="$_u7_gone:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc created=$([ -s "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
+    }
+    _u7t_tl() {  # <init> — is the staging dir already gone when the settings merge (jq stub) runs?
+      local d="$TMP/u7t/tl" rc; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"
+      TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
+      echo "rc=$rc clean=$([ -f "$d/u7-tl.last" ] && [ ! -s "$d/u7-tl.last" ] && echo 1 || echo 0)"
+    }
+    _u7t_tmpd() {  # <init> — an unusable TMPDIR: which FATAL does the operator get?
+      local d="$TMP/u7t/tmpd" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+      TMPDIR="$d/none" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      echo "rc=$rc fatal=$(grep -cF 'FATAL: could not create a staging directory' "$TMP/u7t.out") wrote=$([ -e "$d/.claude" ] && echo 1 || echo 0)"
+    }
+    _u7t NOCLOBBER 's/^  ln "\$tmp" "\$dest" 2>\/dev\/null || rc=1$/  mv -f "$tmp" "$dest" 2>\/dev\/null || rc=1/' 'rc=0 hand=1' 'rc=0 hand=0' _u7t_race
+    _u7t STAGE-GUARD 's/^      \[ -n "\$_RSDD_STAGE" \] || _rsdd_stage_hook$/      :/' 'rc=0 created=1' 'rc=2 created=0' _u7t_gone
+    _u7t SUCCESS-CLEAN '/^    if \[ -n "\$_RSDD_STAGE" \]; then rm -rf -- "\$_RSDD_STAGE"; _RSDD_STAGE=""; fi$/d' 'rc=0 clean=1' 'rc=0 clean=0' _u7t_tl
+    _u7t TMPDIR-FATAL 's/^  _RSDD_STAGE="\$(mktemp -d)" || {/  _RSDD_STAGE="$(mktemp -d)" || [ -z "" ] || {/' 'rc=2 fatal=1 wrote=0' 'rc=2 fatal=0 wrote=0' _u7t_tmpd
     # a flag-looking value: without the check `--subject --wire` swallows --wire as the subject (exit 0, hook says "--wire")
     _u7t_tpl=""; _u7t_good="$SUT"
     _u7t FLAGVAL '/^  case "\$v" in --\*) echo "usage: \$name value/d' 'rc=2 line=[]' 'rc=0 line=[RESEARCH PROTOCOL — --wire (Research-SDD)]' _u7t_fill "$_u7t_hd" --subject --wire
