@@ -34,6 +34,12 @@
 #     Kit issue #1099: a leading UTF-8 BOM on line 1 is stripped before scanning, so a marker
 #     whose position would otherwise be in scope (e.g. BOM, H1, blank, marker) is still found.
 #
+#   retro_marker_dismissed_ids <marker_line> / retro_marker_row_state <marker_line> <row_id>
+#     Kit issue #1944 — the DISMISSED-id set of a PARTIAL marker ('… shipped: #1; DISMISSED: #2
+#     (reason); DEFERRED: #7'), and the typed per-row answer shipped|dismissed|open. A dismissed
+#     row is resolved: consumers skip it as "no-match: dismissed", never seed it as open. See the
+#     function comments below for the exact grammar and edge rules.
+#
 #   retro_marker_out_of_scope <file>
 #     Kit issue #1099 — returns 0 (true) when a whole-file scan (retro_marker_line) finds a
 #     'review-status' marker that retro_marker_scope_line's leading-block scan does NOT find
@@ -498,6 +504,74 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
         printf '%s\n' "$t"
       fi
     done
+    return 0
+  }
+
+  # retro_marker_dismissed_ids <marker_line>
+  #   Kit issue #1944 — the DISMISSED counterpart of retro_marker_shipped_ids. A PARTIAL marker may
+  #   resolve a row as DISMISSED (rejected, not shipped) with the fleet grammar
+  #     '… · shipped: #1, #3; DISMISSED: #2 (reason); DEFERRED: #7 -->'
+  #   Echoes the normalized ids after the keyword 'DISMISSED:', one per line, via the SAME
+  #   normalizer as shipped ids (retro_marker_shipped_ids: '#' strip, parenthetical drop, ranges).
+  #   Rules:
+  #     - the keyword is the case-SENSITIVE uppercase token 'DISMISSED:' (like 'DEFERRED:'), not
+  #       preceded by a letter; lowercase 'dismissed:' in prose or in a parenthetical is free text.
+  #     - parenthetical annotations are removed BEFORE the segment is cut at the first ';', so a
+  #       ';' inside "(reason; more)" cannot truncate the id list.
+  #     - the segment ends at the next ';' or at the '-->' closer; a 'DEFERRED:' segment is never
+  #       part of the dismissed set.
+  #   Returns nothing (exit 0) for an empty line, a line without the keyword, or an empty list.
+  #   RETRO_MARKER_DISMISSED_PAREN_STRIP / RETRO_MARKER_DISMISSED_KEYWORD: teeth anchors (#1944).
+  # pipefail-audit: sed | grep | sed over one marker line; the final sed reads to EOF. SAFE.
+  retro_marker_dismissed_ids() {
+    local line="${1:-}"
+    [ -n "$line" ] || return 0
+    local body="$line" raw
+    body="${body#*review-status:}"
+    body="${body%%-->*}"
+    # RETRO_MARKER_DISMISSED_PAREN_STRIP
+    raw="$(printf '%s' "$body" | sed -E 's/[[:space:]]*\([^)]*\)//g' \
+      | grep -oE '(^|[^A-Za-z])DISMISSED:[^;]*' \
+      | sed -nE '1{s/^[^D]?DISMISSED:[[:space:]]*//;p;}')"   # RETRO_MARKER_DISMISSED_KEYWORD
+    [ -n "$raw" ] || return 0
+    retro_marker_shipped_ids "$raw"
+    return 0
+  }
+
+  # retro_marker_row_state <marker_line> <row_id>
+  #   Kit issue #1944 — the ONE typed answer a consumer needs for a row of a PARTIAL retro.
+  #   Echoes exactly one of:
+  #     shipped    the id is in the marker's 'shipped:' set (only read when the marker is PARTIAL,
+  #                the same gate stage-retro-issues.sh / reconcile-issues.sh apply)
+  #     dismissed  the id is in the marker's 'DISMISSED:' set — resolved, never open; consumers
+  #                skip it as "no-match: dismissed", never seed it and never drop it silently
+  #     open       neither (including a DEFERRED id, an unlisted id, an empty id or empty line)
+  #   An id in BOTH sets reads 'shipped' (it did ship); either way it is skipped, never open.
+  #   Always exit 0. Ids are compared whole-line (a prefix such as '1x' never matches '1').
+  # pipefail-audit: here-string greps over small id lists; no producer pipes. SAFE.
+  retro_marker_row_state() {
+    local line="${1:-}" rid="${2:-}"
+    if [ -z "$line" ] || [ -z "$rid" ]; then
+      printf 'open\n'; return 0
+    fi
+    if retro_marker_is_partial "$line"; then
+      local body="${line#*review-status:}" sraw sids=""
+      body="${body%%-->*}"
+      sraw="$(printf '%s' "$body" | sed -E 's/[[:space:]]*\([^)]*\)//g' \
+        | grep -oiE 'shipped:[^;]*' \
+        | sed -nE '1{s/^[Ss][Hh][Ii][Pp][Pp][Ee][Dd]:[[:space:]]*//;p;}')"
+      [ -n "$sraw" ] && sids="$(retro_marker_shipped_ids "$sraw")"
+      if [ -n "$sids" ] && grep -qxF -- "$rid" <<<"$sids"; then
+        printf 'shipped\n'; return 0
+      fi
+    fi
+    local dids
+    dids="$(retro_marker_dismissed_ids "$line")"
+    # RETRO_MARKER_ROW_STATE_DISMISSED
+    if [ -n "$dids" ] && grep -qxF -- "$rid" <<<"$dids"; then
+      printf 'dismissed\n'; return 0
+    fi
+    printf 'open\n'
     return 0
   }
 fi
