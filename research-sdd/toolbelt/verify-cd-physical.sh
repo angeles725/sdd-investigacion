@@ -67,7 +67,8 @@
 #     shape on the assignment itself); `pushd`/`popd`-based directory tracking; and an
 #     assignment that does not START its `;`-separated statement, i.e. one preceded by `&&`,
 #     `||`, `then`, `do`, `else` or `!` on the same statement (`[ -d x ] && K="$(cd ...)"`,
-#     kit issue #1033 L1). A file using any of these forms to derive a climbing kit-root path
+#     kit issue #1033 L1) — a case-arm prefix (`a) K="$(cd ...)" ;;`) is the same class: the stray `)`
+#     makes the line UNCLASSIFIABLE (reported, see below), the assignment is not analysed. A file using any of these forms to derive a climbing kit-root path
 #     gets a silent pass from this checker — grep the file by hand if one is suspected.
 #
 # RECOGNISED since kit issue #1033 L1 (formerly gaps; NOT part of the list above): a one-line
@@ -81,13 +82,21 @@
 #
 # DEFAULT SCOPE excludes tests/ (kit issue #1024 round 5, Opus finding 1): a *.test.sh suite's own
 # mutation-tooth fixtures routinely hold the UNMARKED bad pattern as literal text inside a heredoc
-# or a quoted string (proving detection, or reconstructing a "neutered" mutant) — this checker has
-# no string/heredoc-aware parser, so that literal text reads as source code to it. Excluding
+# or a quoted string (proving detection, or reconstructing a "neutered" mutant) — the scanner is
+# quote- and substitution-aware WITHIN a line (kit issue #1921) but not heredoc-aware, so heredoc
+# body text still reads as source code to it. Excluding
 # tests/ from the default (no-argument) scan keeps a bare `verify-cd-physical.sh` run clean on
 # this kit's real, shipped scripts; passing an explicit tests/ directory (or any path) as an
 # argument still scans it in full — this is a DEFAULT-SCOPE decision, not a capability limit. KNOWN
 # GAP (kit issue #1033 L2, deferred): the prune also drops tests/ infrastructure scripts (run-all.sh,
 # lib/*.sh), which hold two real bare-`cd` climbs today; prune only *.test.sh once those are fixed.
+#
+# UNCLASSIFIABLE (kit issue #1921 review): a physical line holding `cd` and `pwd` whose quote /
+# substitution context is still open at end of line, or that holds a `)` closing nothing (an
+# apostrophe in heredoc text, `$'a\'b'`, `${x//(/y}`, a case-arm pattern, a multi-line `$( )`), is
+# reported on stderr as `UNCLASSIFIABLE file:line` and counted as `unclassifiable=N` in the summary
+# line. Report-only: the exit code is unchanged and the line's statements are still analysed
+# best-effort. A nonzero count is a list to read by hand, never a proof the lines are clean.
 #
 # Anti-silent-zero (CLAUDE.md §7): absent-input (no scan directory found), empty-input (directory
 # found, no *.sh files under it), no-match (files scanned, pattern never seen at all) are printed
@@ -135,8 +144,8 @@ done < <(
       # DEFAULT SCOPE excludes tests/ — see the header comment. -path/-prune keeps this a single
       # find invocation rather than a separate filter pass.
       # DEFERRED (kit issue #1033 L2): pruning only *.test.sh would also scan tests/run-all.sh, whose
-      # lines 168 and 316 are real bare-`cd` climbs from SCRIPT_DIR (measured 2026-10-07); fix those
-      # first, then narrow this prune.
+      # the `KIT_TREE=` and `INSTALL_TESTS_DIR=` assignments are real bare-`cd` climbs from SCRIPT_DIR
+      # (measured 2026-10-07; cite by search term, the line numbers drift); fix those first, then narrow this prune.
       find "$d" -type d -name tests -prune -o -type f -name '*.sh' -print 2>/dev/null
     else
       find "$d" -type f -name '*.sh' 2>/dev/null
@@ -159,60 +168,89 @@ fi
 #         outer `cd` is judged on its own text (an inner `cd -P` cannot vouch for it).
 # A `#` at a word start in top-level code begins a comment: the rest of the text is DROPPED.
 # Unbalanced input (a $( ) spanning lines) simply ends at the end of the text — this is a line scanner.
-_CDP_PARTS=()
+_CDP_PARTS=()   # masked command text (nested substitution bodies replaced by a placeholder)
+_CDP_RAW=()     # the SAME commands, UNMASKED: nested bodies kept verbatim (parallel to _CDP_PARTS)
+_CDP_OPEN=0     # 1 when the text ended with an open context or held a stray `)` (unclassifiable)
+_CDP_B=(); _CDP_U=(); _CDP_L=0   # scan state: masked/raw buffer per code level, current level
+# _cdp_put <masked> [<raw>] — append to the current level's masked buffer, and the raw text to every
+# enclosing level's unmasked buffer.
+_cdp_put() {
+  local m="$1" r="${2-$1}" k
+  _CDP_B[_CDP_L]+="$m"
+  for ((k = 0; k <= _CDP_L; k++)); do _CDP_U[k]+="$r"; done
+}
+_cdp_emit() { _CDP_PARTS+=("${_CDP_B[_CDP_L]}"); _CDP_RAW+=("${_CDP_U[_CDP_L]}"); }
+# _cdp_sep <text> — a separator at the current level: emit the command, keep the separator text in the
+# enclosing levels' raw buffers.
+_cdp_sep() {
+  local k
+  _cdp_emit; _CDP_B[_CDP_L]=""; _CDP_U[_CDP_L]=""
+  for ((k = 0; k < _CDP_L; k++)); do _CDP_U[k]+="$1"; done
+}
+_cdp_open() { # <masked placeholder> <raw opener>
+  _cdp_put "$1" "$2"
+  _CDP_L=$((_CDP_L + 1)); _CDP_B[_CDP_L]=""; _CDP_U[_CDP_L]=""
+}
+_cdp_close() { # <raw closer>
+  local k
+  _cdp_emit; unset '_CDP_B[_CDP_L]' '_CDP_U[_CDP_L]'; _CDP_L=$((_CDP_L - 1))
+  for ((k = 0; k <= _CDP_L; k++)); do _CDP_U[k]+="$1"; done
+}
 _cdp_split() {
   local mode="$1" s="$2"
-  _CDP_PARTS=()
-  local -a bufs=("")
-  local stack="" lvl=0 i=0 n=${#s} c nx top prev=" "
+  _CDP_PARTS=(); _CDP_RAW=(); _CDP_OPEN=0; _CDP_B=(""); _CDP_U=(""); _CDP_L=0
+  local stack="" i=0 n=${#s} c nx top prev=" "
   while (( i < n )); do
     c="${s:i:1}"; nx="${s:i+1:1}"; top="${stack: -1}"
     if [ "$top" = s ]; then
-      bufs[lvl]+="$c"; [ "$c" = "'" ] && stack="${stack%?}"
+      _cdp_put "$c"; [ "$c" = "'" ] && stack="${stack%?}"
       prev="$c"; i=$((i + 1)); continue
     fi
     if [ "$c" = '\' ]; then
-      bufs[lvl]+="$c$nx"; prev="$nx"; i=$((i + 2)); continue
+      _cdp_put "$c$nx"; prev="$nx"; i=$((i + 2)); continue
     fi
     if [ "$c" = '"' ]; then
       if [ "$top" = d ]; then stack="${stack%?}"; else stack+=d; fi
-      bufs[lvl]+="$c"; prev="$c"; i=$((i + 1)); continue
+      _cdp_put "$c"; prev="$c"; i=$((i + 1)); continue
     fi
     if [ "$c" = "'" ] && [ "$top" != d ]; then
-      stack+=s; bufs[lvl]+="$c"; prev="$c"; i=$((i + 1)); continue
+      stack+=s; _cdp_put "$c"; prev="$c"; i=$((i + 1)); continue
     fi
     if [ "$c" = '$' ] && [ "$nx" = '(' ]; then
       stack+=p; i=$((i + 2)); prev="("
-      if [ "$mode" = seg ]; then bufs[lvl]+='$(…)'; lvl=$((lvl + 1)); bufs[lvl]=""; else bufs[lvl]+='$('; fi
+      if [ "$mode" = seg ]; then _cdp_open '$(…)' '$('; else _cdp_put '$('; fi
       continue
     fi
     if [ "$c" = '$' ] && [ "$nx" = '{' ]; then
-      stack+=c; bufs[lvl]+='${'; prev="{"; i=$((i + 2)); continue
+      stack+=c; _cdp_put '${'; prev="{"; i=$((i + 2)); continue
     fi
     if [ "$c" = '`' ]; then
       if [ "$top" = b ]; then
         stack="${stack%?}"
-        if [ "$mode" = seg ]; then _CDP_PARTS+=("${bufs[lvl]}"); unset 'bufs[lvl]'; lvl=$((lvl - 1)); else bufs[lvl]+="$c"; fi
+        if [ "$mode" = seg ]; then _cdp_close '`'; else _cdp_put "$c"; fi
       else
         stack+=b
-        if [ "$mode" = seg ]; then bufs[lvl]+='`…`'; lvl=$((lvl + 1)); bufs[lvl]=""; else bufs[lvl]+="$c"; fi
+        if [ "$mode" = seg ]; then _cdp_open '`…`' '`'; else _cdp_put "$c"; fi
       fi
       prev="$c"; i=$((i + 1)); continue
     fi
-    if [ "$top" = d ]; then bufs[lvl]+="$c"; prev="$c"; i=$((i + 1)); continue; fi
+    if [ "$top" = d ]; then _cdp_put "$c"; prev="$c"; i=$((i + 1)); continue; fi
     # ── CODE context (stack empty, or top is p / b / c) ──
     if [ "$c" = '(' ]; then
       stack+=p
-      if [ "$mode" = seg ]; then bufs[lvl]+='(…)'; lvl=$((lvl + 1)); bufs[lvl]=""; else bufs[lvl]+="$c"; fi
+      if [ "$mode" = seg ]; then _cdp_open '(…)' '('; else _cdp_put "$c"; fi
       prev="$c"; i=$((i + 1)); continue
     fi
     if [ "$c" = ')' ] && [ "$top" = p ]; then
       stack="${stack%?}"
-      if [ "$mode" = seg ]; then _CDP_PARTS+=("${bufs[lvl]}"); unset 'bufs[lvl]'; lvl=$((lvl - 1)); else bufs[lvl]+="$c"; fi
+      if [ "$mode" = seg ]; then _cdp_close ')'; else _cdp_put "$c"; fi
       prev="$c"; i=$((i + 1)); continue
     fi
+    # A `)` that closes nothing (case-arm pattern, `$(case … a) …;; esac)`): the scan can no longer
+    # trust its own context stack for this line — typed unclassifiable, never a silent pass.
+    [ "$c" = ')' ] && _CDP_OPEN=1
     if [ "$c" = '}' ] && [ "$top" = c ]; then
-      stack="${stack%?}"; bufs[lvl]+="$c"; prev="$c"; i=$((i + 1)); continue
+      stack="${stack%?}"; _cdp_put "$c"; prev="$c"; i=$((i + 1)); continue
     fi
     if [ "$c" = '#' ] && [ -z "$stack" ] && [[ "$prev" == [[:space:]\;] ]]; then
       break  # comment: drop the rest
@@ -220,24 +258,27 @@ _cdp_split() {
     if [ "$top" != c ]; then
       if [ "$mode" = stmt ]; then
         if [ "$c" = ';' ] && [ -z "$stack" ]; then
-          _CDP_PARTS+=("${bufs[0]}"); bufs[0]=""; prev="$c"; i=$((i + 1)); continue
+          _cdp_sep ";"; prev="$c"; i=$((i + 1)); continue
         fi
       elif [ "$c" = ';' ]; then
-        _CDP_PARTS+=("${bufs[lvl]}"); bufs[lvl]=""; prev="$c"; i=$((i + 1)); continue
+        _cdp_sep ";"; prev="$c"; i=$((i + 1)); continue
       elif [ "$c" = '&' ] && [ "$nx" = '&' ]; then
-        _CDP_PARTS+=("${bufs[lvl]}"); bufs[lvl]=""; prev="&"; i=$((i + 2)); continue
+        _cdp_sep "&&"; prev="&"; i=$((i + 2)); continue
       elif [ "$c" = '|' ]; then
-        _CDP_PARTS+=("${bufs[lvl]}"); bufs[lvl]=""; prev="|"
-        [ "$nx" = '|' ] && i=$((i + 1))
-        i=$((i + 1)); continue
+        if [ "$nx" = '|' ]; then _cdp_sep "||"; i=$((i + 1)); else _cdp_sep "|"; fi
+        prev="|"; i=$((i + 1)); continue
       fi
     fi
-    bufs[lvl]+="$c"; prev="$c"; i=$((i + 1))
+    _cdp_put "$c"; prev="$c"; i=$((i + 1))
   done
-  # Flush every still-open level, innermost first (unbalanced text ends at end of line).
-  while (( lvl >= 0 )); do
-    _CDP_PARTS+=("${bufs[lvl]}"); unset 'bufs[lvl]'; lvl=$((lvl - 1))
+  # An open context at end of text (apostrophe in a heredoc/multi-line string, `$'a\'b'`,
+  # `${x//(/y}`, a $( ) spanning lines) is typed, not silently dropped.
+  [ -n "$stack" ] && _CDP_OPEN=1
+  # Flush every still-open level, innermost first.
+  while (( _CDP_L >= 0 )); do
+    _cdp_emit; unset '_CDP_B[_CDP_L]' '_CDP_U[_CDP_L]'; _CDP_L=$((_CDP_L - 1))
   done
+  _CDP_L=0
 }
 
 # _lint_scan_file <file> — prints one "lineno<TAB>reason" line per CLIMBING, non-`-P` tainted
@@ -264,6 +305,9 @@ _lint_scan_file() {
     # before the cd/pwd derivation is seen. It also drops a `#` comment (and any `;` inside it).
     _cdp_split stmt "$line"
     local -a _stmts=("${_CDP_PARTS[@]}")
+    # Typed state (CLAUDE.md §7): the line ended with an open context or held a stray `)` — the scan
+    # could not classify it reliably. Report-only; the statements are still analysed best-effort.
+    [ "$_CDP_OPEN" -eq 1 ] && printf '%d\tunclassifiable\n' "$lineno"
 
     for stmt in "${_stmts[@]}"; do
       code="$stmt"  # _cdp_split already dropped any trailing comment
@@ -321,9 +365,14 @@ _lint_scan_file() {
       # || cd ..` runs the bare climb whenever the -P'd one fails — kit issue #1033 review), with each
       # nested `$( )` body judged as its own command and masked out of its parent (kit issue #1921), so a
       # `;` inside `$( )` neither hides a climb nor lets an inner `cd -P` vouch for an outer bare `cd ..`.
+      # The `..` test reads the UNMASKED text (a `..` that reaches `cd` through a nested substitution,
+      # `cd "$(echo "$(dirname "$0")/..")"`, is still this cd's climb); the cd/-P tests read the command's
+      # own MASKED text, so an inner `cd -P` cannot vouch for it.
       _cdp_split seg "$code"
-      for seg in "${_CDP_PARTS[@]}"; do
-        [[ "$seg" == *".."* ]] || continue
+      local _si
+      for _si in "${!_CDP_PARTS[@]}"; do
+        seg="${_CDP_PARTS[$_si]}"
+        [[ "${_CDP_RAW[$_si]}" == *".."* ]] || continue
         [[ "$seg" =~ cd[[:space:]] || "$seg" == *'cd"'* || "$seg" == *'cd-P'* ]] || continue
         if [[ "$seg" =~ cd[[:space:]]+-P([[:space:]]|\") ]]; then
           _climb_ok=1
@@ -353,11 +402,20 @@ scanned=0
 # no-match state below means "this pattern genuinely never occurs here", not "every occurrence
 # happened to be fixed".
 climb_seen=0
+# unclassifiable_count: physical lines (holding `cd` and `pwd`) whose quote/substitution context did not
+# balance — an apostrophe inside a heredoc, `$'a\'b'`, `${x//(/y}`, a case-arm `)`, a $( ) spanning
+# lines. Report-only (exit code unchanged); a nonzero count is a list to read by hand, not a pass.
+unclassifiable_count=0
 
 for f in "${files[@]}"; do
   scanned=$((scanned + 1))
   while IFS=$'\t' read -r lineno reason; do
     [ -z "${lineno:-}" ] && continue
+    if [ "$reason" = "unclassifiable" ]; then
+      unclassifiable_count=$((unclassifiable_count + 1))
+      printf 'UNCLASSIFIABLE %s:%s  quote/substitution context did not balance (heredoc text, $'"'"'..'"'"', case-arm, multi-line $( )) — read this line by hand\n' "$f" "$lineno" >&2
+      continue
+    fi
     climb_seen=1
     [ "$reason" = "ok" ] && continue  # compliant climb — counted above, not a HIT/ALLOWED
     line_text="$(sed -n "${lineno}p" "$f")"
@@ -376,7 +434,7 @@ for f in "${files[@]}"; do
   done < <(_lint_scan_file "$f")
 done
 
-printf 'verify-cd-physical: scanned=%d files hit=%d allowed=%d\n' "$scanned" "$hit_count" "$allowed_count"
+printf 'verify-cd-physical: scanned=%d files hit=%d allowed=%d unclassifiable=%d\n' "$scanned" "$hit_count" "$allowed_count" "$unclassifiable_count"
 if [ "$climb_seen" -eq 0 ]; then
   # no-match (CLAUDE.md §7): files were genuinely scanned (files=() above proved that — see the
   # empty-input check) but the pattern this checker looks for was never seen in any of them —
