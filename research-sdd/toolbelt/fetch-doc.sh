@@ -6,7 +6,7 @@
 #
 # Usage:
 #   fetch-doc.sh doc <url> <target-dir> [datasheets|manuals] [name]
-#   fetch-doc.sh web <url> <target-dir>          # page/forum -> markdown (pandoc)
+#   fetch-doc.sh web <url> <target-dir>          # page/forum -> markdown (pandoc); long URLs get a hash-suffixed name (web_slug)
 #   fetch-doc.sh ocr <pdf>                        # OCR of a scanned PDF (tesseract); --replace is ignored
 #   fetch-doc.sh --replace doc|web ...            # --replace may appear anywhere in the argument list
 #
@@ -516,6 +516,20 @@ convert_html() {
   else cp "$1" "$2"; fi
 }
 
+# web_slug <url> — snapshot file stem for web mode (#1904/#1897). The scheme-less URL with every character outside
+# [A-Za-z0-9._-] turned into "_". Slugs of <= 80 chars are returned UNCHANGED (existing short-URL names stay
+# stable). A longer slug used to be cut to its first 80 chars, so two URLs sharing that prefix collided on one
+# name; now it becomes <first 46>_<last 20>-<first 12 hex of sha256(FULL URL)> (head AND tail stay readable, the
+# hash makes the name distinct and deterministic per URL, 80 chars total). Two DIFFERENT short URLs that only
+# differ in replaced characters ("a/b" vs "a_b") still share a name; preflight_dest then REFUSES (exit 4).
+web_slug() {
+  local slug h
+  slug="$(printf '%s' "$1" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g')"
+  if [ "${#slug}" -le 80 ]; then printf '%s' "$slug"; return 0; fi
+  h="$(printf '%s' "$1" | sha256sum | cut -c1-12)"
+  printf '%s_%s-%s' "${slug:0:46}" "${slug: -20}" "$h"
+}
+
 # Main dispatch is guarded so the file can be SOURCED to unit-test reg(), resolve_permanent_redirect()
 # and fetch_and_register() in isolation (tests/fetch-doc.test.sh) without triggering a network
 # fetch. When sourced, BASH_SOURCE[0] != $0, so nothing below runs.
@@ -570,7 +584,7 @@ case "$MODE" in
     URL="${2:?url}"; TDIR="${3:?target-dir}"
     probe_downloaders
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/web-snapshots"
-    SLUG="$(echo "$URL" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    SLUG="$(web_slug "$URL")"
     DEST="$SDIR/web-snapshots/$SLUG.md"
     # Refuse BEFORE mktemp so a refusal leaves nothing behind (#1313 items 2-3).
     preflight_dest "$DEST"; sweep_stale_parts "$SDIR/web-snapshots"

@@ -1039,6 +1039,33 @@ else
   fi
 fi
 
+# 71 — #1904/#1897: web snapshot names must not collide when two URLs share a long prefix. Two URLs that
+#      agree on the first 80 slug chars used to map to ONE name (second fetch refused, names opaque). Now:
+#      distinct names (readable head+tail + 12 hex of sha256(full URL)), deterministic, short URLs unchanged.
+long71="http://s71.example/$(printf 'p%.0s' $(seq 1 90))"
+d71="$TMP/r71/target"; STUB_ROUTES=""; export STUB_ROUTES
+_rc71a=0; runchain web "$d71" "${long71}/first" || _rc71a=$?
+_rc71b=0; runchain web "$d71" "${long71}/second" || _rc71b=$?
+n71="$(find "$d71/sources/web-snapshots" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+rows71="$(grep -c 'web-snapshot' "$d71/sources/SOURCES.md" 2>/dev/null || true)"
+if [ "$_rc71a" -eq 0 ] && [ "$_rc71b" -eq 0 ] && [ "$n71" = "2" ] && [ "$rows71" = "2" ]; then
+  ok "web: #1904 — two URLs sharing an 80-char prefix get two distinct snapshots, two rows"
+else no "R71: rc=$_rc71a/$_rc71b files=$n71 rows=$rows71 :: $(cat "$TMP/runchain.err")"; fi
+# 71b — deterministic: re-fetching the SAME long URL targets the SAME name (typed refusal exit 4, not a new file)
+_rc71c=0; runchain web "$d71" "${long71}/first" || _rc71c=$?
+n71c="$(find "$d71/sources/web-snapshots" -type f -name '*.md' | wc -l | tr -d ' ')"
+if [ "$_rc71c" -eq 4 ] && [ "$n71c" = "2" ]; then ok "web: #1904 — the same long URL maps to the same name (deterministic; refused, nothing new)"
+else no "R71b: rc=$_rc71c files=$n71c"; fi
+# 71c — edge: a short URL keeps the legacy name (no hash suffix)
+d71d="$TMP/r71d/target"; runchain web "$d71d" "http://s71d.example/a" || true
+if [ -f "$d71d/sources/web-snapshots/s71d.example_a.md" ]; then ok "web: #1904 — a short URL keeps its legacy snapshot name"
+else no "R71c: legacy short name missing: $(ls "$d71d/sources/web-snapshots" 2>/dev/null)"; fi
+# 71d — edge: the name keeps the URL TAIL readable and stays within a bounded length
+tail71="$(find "$d71/sources/web-snapshots" -type f -name '*second*' | head -1)"
+if [ -n "$tail71" ] && [ "$(basename "$tail71" | wc -c)" -le 90 ]; then ok "web: #1904 — long-URL name keeps the tail ('second') and a bounded length"
+else no "R71d: tail not readable or name too long: $(ls "$d71/sources/web-snapshots")"; fi
+unset STUB_ROUTES
+
 # NEGATIVE CONTROL — revert reg() to a blind EOF append; the trailing-prose fixture must then place the row
 # BELOW '## Structure', proving case 2's placement assertion has teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -2572,6 +2599,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/t-nolatelink/target"; rc="$(run_late_symlink "$m" "$d" "")"
     if [ "$rc" = "4" ]; then ok "teeth-nolatelink: without the re-check a late symlink is not refused with exit 5 (rc=$rc) -> R70 has teeth"
     else no "teeth-nolatelink: still exit 5 — R70 does NOT pin the install-time re-check (THEATER)"; fi
+  fi
+
+  echo "-- teeth #1904: web_slug reverts to a plain 80-char cut -> two long URLs collide --"
+  if ! mutant_sed "$SUT" "$TMP/webslug.MUT.sh" 's/^  if \[ "\${#slug}" -le 80 \]; then printf/  if true; then slug="${slug:0:80}"; printf/'; then
+    no "teeth-webslug: could not build mutant (web_slug length guard not found, or refused by lib/mutant.sh)"
+  else
+    d="$TMP/t-webslug/target"; STUB_ROUTES=""; export STUB_ROUTES
+    PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/first" "$d" >/dev/null 2>&1
+    _rcw=0; PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/second" "$d" >/dev/null 2>&1 || _rcw=$?
+    unset STUB_ROUTES
+    if [ "$_rcw" -eq 4 ]; then ok "teeth-webslug: the plain-cut mutant refuses the second long URL (rc=$_rcw) -> R71 has teeth"
+    else no "teeth-webslug: mutant still fetched both (rc=$_rcw) — R71 does NOT depend on web_slug (THEATER)"; fi
   fi
 fi
 
