@@ -1273,7 +1273,8 @@ Always read first, in this order:
        - Documenting a PROCEDURE / how-to (connect the EM500, bring up a tool, a runbook step) → the evidence
          is the SESSION itself: the commands run, the GUI navigated, the outputs — PRESERVED under
          `sources/probes/` and cited `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase
-         (§12) already does. Do NOT invent a new marker; reuse the existing ones.
+         (§12) already does. Do NOT invent a new marker; reuse the existing ones (the one sanctioned
+         addition is `[PENDING-live]`, below).
        - PROBLEM-ENTRY MOLD (kit #1889): every problem or lesson recorded inside a document-cycle block
          uses ONE canonical shape: symptom → cause → fix → why it works → when/where (commit) →
          verification + marker (`[CERT-*]`). A problem entry missing any element is incomplete, not
@@ -1281,7 +1282,8 @@ Always read first, in this order:
        - PENDING-LIVE REGISTRATION (kit #1893): a `[PENDING-live]` marker (the retro's example was the
          Spanish `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included (it never runs the
          §13 gap backlog), must ALSO be registered in RESEARCH-STATE in the SAME commit, as a
-         `## Blocked gaps` bullet `- <claim> — needs: first live run`. A dedicated pending-validation
+         `## Blocked gaps` bullet `- <claim> — needs: first live run`, bumping `known_gaps` with it (the bullet
+         raises `blocked_open`; METHODOLOGY's gap-counter rule otherwise trips CHECK H). A dedicated pending-validation
          section is NOT defined yet and no tool counts one (Refs #1893). A deliverable must NOT make an
          unvalidated mode its DEFAULT unless that bullet names the first live run as the validation.
          (Evidence: a coexistence mode tagged pending-live in a block header, unlisted in state, shipped
@@ -1314,7 +1316,9 @@ Always read first, in this order:
      of the run. A change or verification with no written trace is not done (see also METHODOLOGY §8, §18).
      STATE SYNC PER BLOCK (kit #1899, prompt half): in the SAME commit as each block (per-section-agent
      runs: once, in the import commit), run `$KIT/toolbelt/research-sdd-status.sh $CORPUS --sync-state
-     --focus <slug>` and `$KIT/toolbelt/verify-state.sh $CORPUS --focus <slug>`, so the RESEARCH-STATE
+     --focus <slug>` and `$KIT/toolbelt/verify-state.sh $CORPUS --focus <slug>` on a multi-focus corpus,
+     or `research-sdd-status.sh $CORPUS --sync-state --root` and `verify-state.sh $CORPUS` (no flag) on a
+     single plain `RESEARCH-STATE.md` (what `research-sdd-init.sh --document` creates), so the RESEARCH-STATE
      envelope's `covered_blocks` never lags the block files and INDEX.
   5. MANDATORY ENGRAM MIRROR (non-negotiable — this is the whole point of the mode). Mirror EVERYTHING
      documented to Engram as topic pointers so the doc is always recall-findable: subject knowledge under
