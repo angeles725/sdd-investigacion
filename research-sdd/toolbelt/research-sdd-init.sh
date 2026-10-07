@@ -1401,7 +1401,10 @@ fi
 if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself, or re-run with --wire) --"
   echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
-  _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "false" "$_pk_cmd"
+  # kit issue #1550: name the 3rd positional (skip_ss) instead of passing a bare literal. The scaffold ships a hook that
+  # still carries the live placeholder, and the snippet is a proposal to adapt and paste, so SessionStart is always offered.
+  _print_skip_ss="false"
+  _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "$_print_skip_ss" "$_pk_cmd"
 fi
 
 _rsdd_vendor_leak_wiring

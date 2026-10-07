@@ -292,12 +292,15 @@ fi
 # assertion's own predicate actually flips to 2. This is the fixture-level mutant for a template-content
 # fix; there is no script line to mutate here.
 d2="$TMP/good-document-midrun-labelcount-negctrl"; mkdir -p "$d2"
-bash "$SUT" "$d2" --corpus flat --document >/dev/null 2>&1
-sed -i 's/Keep it honest by hand; see the note below/Keep it honest by hand; see the "Coverage metric" note below/' "$d2/RESEARCH-STATE.md"
-if [ "$(_coverage_section_label_count "$d2/RESEARCH-STATE.md")" = 2 ]; then
-  ok "  document mid-run negative control: reintroducing the other field's label makes the count assertion see 2 — the exactly-ONE guard is discriminating, not vacuously true"
+bash "$SUT" "$d2" --corpus flat --document >/dev/null 2>&1; _nc_rc=$?
+sed -i 's/Keep it honest by hand; see the note below/Keep it honest by hand; see the "Coverage metric" note below/' "$d2/RESEARCH-STATE.md" 2>/dev/null
+# kit issue #1159 (3): d2 is a FRESH --document scaffold (not a mid-run corpus), and the failure branch says which step broke.
+if [ "$_nc_rc" != 0 ] || [ ! -f "$d2/RESEARCH-STATE.md" ]; then
+  no "  document template negative control: could not build the fixture — the fresh --document scaffold failed (rc=$_nc_rc)"
+elif [ "$(_coverage_section_label_count "$d2/RESEARCH-STATE.md")" = 2 ]; then
+  ok "  document template negative control (fresh --document scaffold): reintroducing the other field's label makes the count assertion see 2 — the exactly-ONE guard is discriminating, not vacuously true"
 else
-  no "  document mid-run negative control: reintroducing the other field's label should make the count assertion see 2 (found: $(_coverage_section_label_count "$d2/RESEARCH-STATE.md")) — could not build the fixture"
+  no "  document template negative control (fresh --document scaffold): reintroducing the other field's label should make the count assertion see 2 (found: $(_coverage_section_label_count "$d2/RESEARCH-STATE.md")) — the sed anchor may have drifted from the template"
 fi
 if [ -z "$(_cm_digits "$d/RESEARCH-STATE.md")" ]; then
   ok "  document mid-run: Coverage metric line stays digit-free BEFORE --sync-state (only Outline coverage carries the ratio)"
@@ -391,8 +394,8 @@ _treesum() {
 # MUST be UNWIRED for this check: on an ALREADY-wired corpus, the wire-only repair path is idempotent
 # and writes nothing regardless of whether the rejection guard runs first — the manifest assertion
 # could never go red, even if a future edit moved the guard below the write. (Measured: with
-# M-WIRE-DOC-REJECT's guard neutered, an unwired corpus's manifest CHANGES — 4 mutant FAILs — while an
-# already-wired one's does not — only 3.) The corpus is wired for real ONLY AFTER this check, so the
+# M-WIRE-DOC-REJECT's guard neutered, an unwired corpus's manifest CHANGES while an already-wired one's
+# does not; run the mutant to see the counts, they are not recorded here.) The corpus is wired for real ONLY AFTER this check, so the
 # separate --force clobber proof further below still destroys a genuinely wired corpus.
 d="$TMP/wire-document-existing-corpus"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat >/dev/null 2>&1   # UNWIRED existing corpus — see note above for why
@@ -428,8 +431,8 @@ _wdrf_settings_before="$(cat "$d/.claude/settings.json" 2>/dev/null)"
 # --force still bypasses repair and re-scaffolds with --document honored (unchanged #1047 contract) —
 # and IS genuinely destructive to hand-adapted CORPUS content (INDEX.md, the hook), exactly as the
 # rejection message above now says. It does NOT clobber the settings.json wiring itself — that merge
-# is idempotent on an unchanged hook path, so settings.json stays byte-identical; asserted below rather
-# than claimed. Uses a distinctive sentinel (HANDWORK_1114) so no future hook-template wording could
+# is idempotent on an unchanged hook path, so the Stop entry stays registered exactly once; asserted
+# below rather than claimed. Uses a distinctive sentinel (HANDWORK_1114) so no future hook-template wording could
 # coincidentally match it.
 printf '\nHANDWORK_1114\n' >> "$d/INDEX.md"
 printf '\nHANDWORK_1114\n' >> "$d/.claude/hooks/research-protocol.sh"
@@ -444,11 +447,14 @@ if grep -qF 'HANDWORK_1114' "$d/INDEX.md" 2>/dev/null || grep -qF 'HANDWORK_1114
 else
   ok "  force-warning: --force is confirmed destructive (HANDWORK_1114 sentinel gone from both INDEX.md and the wired hook) — the rejection message's warning is accurate, not just cautious"
 fi
-_wdrf_settings_after="$(cat "$d/.claude/settings.json" 2>/dev/null)"
-if [ "$_wdrf_settings_before" = "$_wdrf_settings_after" ] && [ -n "$_wdrf_settings_before" ]; then
-  ok "  force-warning: settings.json wiring SURVIVES --force byte-identical — --force clobbers corpus content, not the wiring itself"
+# kit issue #1159 (5): assert the wiring itself (the Stop entry, registered exactly once), not the incidental byte-identity
+# of the idempotent merge — a harmless reformat of settings.json must not fail this.
+_wdrf_stop_before="$(printf '%s' "$_wdrf_settings_before" | grep -o 'retro-gate-stop\.sh' | wc -l | tr -d ' ')"
+_wdrf_stop_after="$(grep -o 'retro-gate-stop\.sh' "$d/.claude/settings.json" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$_wdrf_stop_before" = 1 ] && [ "$_wdrf_stop_after" = 1 ]; then
+  ok "  force-warning: the Stop wiring SURVIVES --force exactly once — --force clobbers corpus content, not the wiring itself"
 else
-  no "  force-warning: settings.json wiring should survive --force byte-identical (it did not, or was empty)"
+  no "  force-warning: the Stop entry should be present exactly once before and after --force (before=$_wdrf_stop_before after=$_wdrf_stop_after)"
 fi
 
 # BAD 1 — refuse over an existing INDEX
@@ -1643,9 +1649,12 @@ fi
 
 # ---- kit issue #1509: matcher-aware pkill-guard dedup; scaffold --wire reports per-hook state ------
 if command -v jq >/dev/null 2>&1; then
-  # <settings> <guard-cmd> -> number of guard registrations whose matcher COVERS the Bash tool
+  # <settings> <guard-cmd> -> number of guard registrations under a matcher that fires for Bash. kit issue #1550
+  # (R2-dup-covers-bash-predicate): the fixtures only use a closed set of matchers, so this counts the LITERAL spellings
+  # ("" / absent / "*" / "Bash") rather than re-implementing the SUT's regex predicate (a copy of it would pass vacuously
+  # if the predicate and its mirror drifted together).
   _k9_nbash() {
-    jq --arg c "$2" '[.hooks.PreToolUse[]? | select(((.matcher // "") as $m | ($m == "" or $m == "*") or (try ("Bash" | test("^(?:" + $m + ")$")) catch false))) | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null
+    jq --arg c "$2" '[.hooks.PreToolUse[]? | select((.matcher // "") | IN("", "*", "Bash")) | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null
   }
   # (a) a guard registered ONLY under a matcher that never fires for Bash (Edit) is NOT "present":
   # the wire-only repair and scaffold --wire must each register a Bash-covering entry.
@@ -1687,6 +1696,25 @@ if command -v jq >/dev/null 2>&1; then
   bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d1.out" 2>&1
   assert_grep "K1509-d fresh scaffold --wire reports the guard as registered" "PreToolUse pkill-guard hook registered in" "$TMP/1509-d1.out"
   assert_grep "K1509-d fresh scaffold --wire reports Stop as registered" "Stop hook registered in" "$TMP/1509-d1.out"
+  # (d2) kit issue #1550 R3-ss-report-branches-untested: the four SessionStart report branches of scaffold --wire.
+  # Fresh scaffold = live <SUBJECT> placeholder (skip) and no entry -> "NOT registered"; an adapted hook is kept by the scaffold.
+  assert_grep "K1550-ss skip + absent: SessionStart reported NOT registered" "skipped: SessionStart hook NOT registered" "$TMP/1509-d1.out"
+  _k9_ss_cmd() { printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"%s/.claude/hooks/research-protocol.sh"}]}]}}' "$1"; }
+  for _k9_ss in skip-present adapted-absent adapted-present; do
+    d="$TMP/1550-ss-$_k9_ss"; mkdir -p "$d/.claude/hooks"
+    case "$_k9_ss" in
+      skip-present) printf '#!/usr/bin/env bash\necho <SUBJECT> is not adapted\n' > "$d/.claude/hooks/research-protocol.sh" ;;
+      *)            printf '#!/usr/bin/env bash\necho adapted body, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh" ;;
+    esac
+    chmod +x "$d/.claude/hooks/research-protocol.sh"
+    case "$_k9_ss" in adapted-absent) ;; *) _k9_ss_cmd "$d" > "$d/.claude/settings.json" ;; esac
+    bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1550-ss-$_k9_ss.out" 2>/dev/null
+    case "$_k9_ss" in
+      skip-present)    assert_grep "K1550-ss skip + present: left as-is" "(left as-is" "$TMP/1550-ss-$_k9_ss.out" ;;
+      adapted-absent)  assert_grep "K1550-ss adapted + absent: SessionStart registered" "wired  : SessionStart hook registered in" "$TMP/1550-ss-$_k9_ss.out" ;;
+      adapted-present) assert_grep "K1550-ss adapted + present: SessionStart already wired" "wired  : SessionStart hook already wired in $d/.claude/settings.json" "$TMP/1550-ss-$_k9_ss.out" ;;
+    esac
+  done
   d="$TMP/1509-d3"; mkdir -p "$d/.claude"
   printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
   bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d3.out" 2>&1
@@ -1708,10 +1736,8 @@ if command -v jq >/dev/null 2>&1; then
   d="$TMP/1509-e"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat >"$TMP/1509-e1.out" 2>&1
   d2="$TMP/1509-e2"; mkdir -p "$d2"; : > "$d2/INDEX.md"
-  _k9_nojq="$TMP/1509-nojq-bin"; mkdir -p "$_k9_nojq"
-  for _k9_t in bash cat mktemp rm mkdir cp chmod grep sed tr dirname basename date ls ln mv head tail sort wc printf env readlink cut awk git find uname id touch cmp diff tee; do
-    _k9_p="$(command -v "$_k9_t" 2>/dev/null)"; [ -n "$_k9_p" ] && [ -x "$_k9_p" ] && ln -sf "$_k9_p" "$_k9_nojq/$_k9_t"
-  done
+  # kit issue #1550 (R2-k1496g-inconsistent-nojq-fixture): the SAME allowlist PATH helper as K1496-g and every other jq-absent case.
+  _k9_nojq="$(_u7_nojq_path)"
   PATH="$_k9_nojq" bash "$SUT" "$d2" --wire >"$TMP/1509-e2.out" 2>"$TMP/1509-e2.err"
   assert_grep "K1509-e jq-absent (allowlist PATH) reaches the degraded branch" "degraded: jq not found" "$TMP/1509-e2.err"
   # SessionStart is legitimately omitted on the wire-only path (no adapted hook), so compare the
@@ -3820,7 +3846,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (matching the full multi-sentence message would false-fail this mutant's own build step on any
   # unrelated future rewording elsewhere in the message) — back to the earlier phrase that recommended
   # --force as if it only re-scaffolded RESEARCH-STATE.md → GOOD 10's wording-pin assertions must flip.
-  echo "-- teeth proof M-FORCE-WARNING: revert the destructive-scope sentence to the misleading round-1 wording --"
+  echo "-- teeth proof M-FORCE-WARNING: revert the destructive-scope sentence to the misleading --force recommendation wording --"
   mkdir -p "$TMP/mfw/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mfw/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mfw/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mfw/templates"
   mfw_mutant="$TMP/mfw/toolbelt/init.sh"
   sed 's/--force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX\.md, RESEARCH-STATE\.md, SOURCES\.md, hooks) and clobbers hand-adapted hooks, INDEX\.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard\./pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant./' \
@@ -3992,6 +4018,33 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k99sr.out" && no "teeth M-1509-SCAFFOLD-REPORT: still reports already wired — THEATER" \
       || ok "teeth M-1509-SCAFFOLD-REPORT: wrong report without the flag — K1509-d has teeth"
   else no "teeth M-1509-SCAFFOLD-REPORT: could not build mutant"; fi
+  # M-1550-INVALID-REGEX: an invalid-regex matcher is treated as covering Bash -> the guard is never appended.
+  if _k43_build k50ir -e 's/ catch false))/ catch true))/'; then
+    d="$TMP/k43/k50ir-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
+    bash "$(_k96_inits k50ir)" "$d" --wire >/dev/null 2>&1
+    [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
+      && ok "teeth M-1550-INVALID-REGEX: an invalid regex read as covering leaves Bash unguarded — K1550-c2 has teeth" \
+      || no "teeth M-1550-INVALID-REGEX: Bash entry still added — THEATER"
+  else no "teeth M-1550-INVALID-REGEX: could not build mutant"; fi
+  # M-1550-SS-ALREADY: the adapted-and-present SessionStart branch is lost -> reported as "registered".
+  if _k43_build k50sa -e 's/elif \[ "\$_wire_has_ss" = "true" \]; then/elif false; then/'; then
+    d="$TMP/k43/k50sa-t"; mkdir -p "$d/.claude/hooks"
+    printf '#!/usr/bin/env bash\necho adapted body, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
+    _k9_ss_cmd "$d" > "$d/.claude/settings.json"
+    bash "$(_k96_inits k50sa)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sa.out" 2>&1
+    grep -qF "wired  : SessionStart hook already wired in" "$TMP/k50sa.out" && no "teeth M-1550-SS-ALREADY: still reports already wired — THEATER" \
+      || ok "teeth M-1550-SS-ALREADY: wrong report without the branch — K1550-ss adapted+present has teeth"
+  else no "teeth M-1550-SS-ALREADY: could not build mutant"; fi
+  # M-1550-SS-LEFT-ASIS: the skip-but-present wording is lost.
+  if _k43_build k50sl -e 's/(left as-is — <SUBJECT>/(left alone — <SUBJECT>/'; then
+    d="$TMP/k43/k50sl-t"; mkdir -p "$d/.claude/hooks"
+    printf '#!/usr/bin/env bash\necho <SUBJECT> is not adapted\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
+    _k9_ss_cmd "$d" > "$d/.claude/settings.json"
+    bash "$(_k96_inits k50sl)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sl.out" 2>&1
+    grep -qF "(left as-is" "$TMP/k50sl.out" && no "teeth M-1550-SS-LEFT-ASIS: wording still present — THEATER" \
+      || ok "teeth M-1550-SS-LEFT-ASIS: wording gone — K1550-ss skip+present has teeth"
+  else no "teeth M-1550-SS-LEFT-ASIS: could not build mutant"; fi
   # M-1509-MERGE-FAIL-EXIT: the scaffold --wire merge-failure exit is dropped → failure reads as success.
   if _k43_build k99mf -e 's/^if \[ "\${_wire_merge_failed:-0}" = 1 \]; then exit 4; fi$/:/'; then
     d="$TMP/k43/k99mf-t"; mkdir -p "$d/.claude"
