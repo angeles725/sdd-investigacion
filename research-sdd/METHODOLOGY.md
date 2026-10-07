@@ -147,16 +147,16 @@ taxonomy, so they were decided together:
   response you provoked) — a cached or replayed response is `[CERT-doc]` at best.
 - **When `[CERT-live]` and `[CERT-doc]` disagree, the live response wins** — then fix the doc citation and
   record the disagreement (§14). A runtime behaviour derived from code (`[CERT]`) wants a `[CERT-live]`
-  cross-check whenever a live oracle exists; the two ranks answer different questions. Dashboard menu-path cites carry their capture date, and a `[CERT-doc]` snapshot is preferred over an older path in a repo document; a mismatch is a §14 disagreement (repo said "Zero Trust > Networks > Tunnels", the current doc says "Networking > Tunnels"; kit #1898).
+  cross-check whenever a live oracle exists; the two ranks answer different questions.
 - **Numeric constants are `[CERT]` only with a fresh `file:line` grep in the same session** — a number copied
-  from a prior block inherits that block's citation, not a new `[CERT]`. A live stack-trace line number names the SHIPPED line and outranks a decompiled variant's line (`verifyCacertsSignature` at 1410 live vs `:928` / `:958` in two variants): record the divergence as evidence, do not silently cite the tree, and never write a trace line number in `filename:line` form or the citation classifier treats it as a resolvable path (B139 §139.6; kit #1619).
+  from a prior block inherits that block's citation, not a new `[CERT]`.
 - **No git, no problem — but say so:** when the subject has no version control, the file `mtime` (or the
   artifact `sha256`) is the `Subject version` stamp, declared as such.
 
 **Usage rules:**
 - Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
 - **Negative-existence claims carry the same open-it obligation as positive ones.** A negative existence claim about a named artifact ("no `com.tridium.niagarad.license.*` exists in `niagarad.jar`") is `[CERT]` ONLY if that EXACT named artifact was opened/decompiled. An agent asserting absence about an artifact it did NOT open is `[INFER]`, never `[CERT]` — the same discipline that requires a positive claim to cite the opened source applies symmetrically to absence.
-- A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor. A tool's summary row certifies only the row it prints, not its sibling fields: `[expires: never]` in a license listing was the FILE header while 148 per-feature expirations sat beneath it (B1206 §1206.4; kit #1541).
+- A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor.
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
@@ -913,7 +913,7 @@ artifact worth keeping — must be moved into the repo/corpus BEFORE the session
 in a scratchpad temp. A scratchpad is a working area, not storage: one session's dashboard source lived only
 under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it is worth citing or reusing
 later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
-the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
+the rescue to close-out. KNOWLEDGE (findings, decisions, measured values) is rescued the same way (kit #1891). A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
 investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.)
 
 ## 7b. State-envelope instruments (situational)
@@ -1894,9 +1894,19 @@ Same family as UNANIMITY: a confident number is verified by a second path. (kit 
 
 **TYPE-GATED FIELD SEMANTICS (sub-case of the rule above).** One column's meaning can depend on a discriminator/type column in the SAME row, so confirming it for one record type does NOT confirm it for the others: check each type independently before the field enters an aggregate or a display. (Evidence: `events.residual_v` is residual RMS V for `Interrupción`/`Caída`, a signed ΔV for `RVC`, a signed peak V for `Forma de onda` — three quantities under one name, found only by checking every event type.)
 
-**AGGREGATE MATCH ≠ EXAMPLE VALID (sibling of the rule above, at row level).** When cross-checking an external document against local data, a matching HEADLINE AGGREGATE (totals, counts, medians, section-level statistics) does NOT validate the document's individual WORKED EXAMPLES (specific cited rows or timestamps). Spot-check every cited example independently: locate where its exact value triple occurs in the local data, and do not assume it is correct because the surrounding aggregate matches. A plausible name and a plausible example are both unproven until checked against the answer key. (Evidence: B16 §16.2 vs §16.3 — all headline statistics matched, but the study's worked example (17/09 08:30, L2 = 63.12 A) did not: the local data at 08:30 shows 85.9 A, and the matching triple (63.06 A) occurs at 09:04, found only by searching for where the cited values occur; kit #1885.)
+**AGGREGATE MATCH ≠ EXAMPLE VALID (sibling of DECODED FIELD NAME IS A HYPOTHESIS, at row level).** When cross-checking an external document against local data, a matching HEADLINE AGGREGATE (totals, counts, medians, section-level statistics) does NOT validate the document's individual WORKED EXAMPLES (specific cited rows or timestamps). Spot-check every cited example independently: locate where its exact value triple actually occurs in the local data, and do not assume it is correct because the surrounding aggregate matches. A plausible field name and a plausible worked example are both unproven until checked against the answer key. (Evidence: B16 §16.2 vs §16.3 — the headline statistics (539 alarms, interruption durations, medians, L2 asymmetry) all matched, but the study's cited triple (17/09 08:30, point 70108 L2, 63.12 A) did not: the local data at 08:30 shows L2 = 85.9 A, stable; the matching value (63.06 A) occurs at 09:04, found only by searching the data for where the cited values occur; kit #1885.)
 
-**SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.) **The same rule binds SHIPPED DELIVERABLE CODE, not only investigator probes.** Every config-mutating command inside a deliverable script (installer, provisioning step) is followed by a read-back of the resulting state, and the step FAILS on mismatch; an exit code or an "OK" log line is never the success signal. When the read-back parses localized output, match the locale-invariant token (the value), not the translated label. (Evidence: B17 §17.3–17.4 — `netsh ... set interface name=` printed a usage error, exited 0, the script logged OK and the flag stayed `disabled`; the fix read `show interface store=persistent` and matched the value token, because the label was Spanish on that host; kit #1883.)
+**A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS.** A tool's summary line or header row is not a verdict on its sibling fields: `[expires: never]` in a license file listing reflected the FILE header expiration only, while 148 per-feature expirations sat beneath it. Read the per-item fields before certifying the whole. (Evidence: B1206 §1206.4, a §14 correction to B1204; kit #1541.)
+
+**SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.)
+
+**The same rule binds SHIPPED DELIVERABLE CODE, not only investigator probes.** Every config-mutating command
+inside a deliverable script (installer, provisioning step) is followed by a read-back of the resulting state,
+and the step FAILS on mismatch; an exit code or an "OK" log line is never the success signal. When the
+read-back parses localized output, match the locale-invariant token (the value), not the translated label.
+(Evidence: B17 §17.3–17.4 — `netsh ... set interface name=` printed a usage error, exited 0, the script logged
+OK and the flag stayed `disabled`; the fix read `show interface store=persistent` and matched the value token,
+because the label was Spanish on that host; kit #1883.)
 
 **RECOMPUTE-BLINDNESS: at least one check must read consumer state, not derived state.** When a pipeline both APPLIES and ASSUMES a transform, an analysis that recomputes the expected transform cannot detect one that is wrong — both sides agree by construction. At least one check must read the state the CONSUMER reads (the render, the export, the downstream tool output), not the state the analysis derives. A passing registration residual and coverage metric will not detect a 45 km parent offset; only the render — returning empty — will. (Source: blender-llm B44 §44.4.)
 
@@ -2382,8 +2392,9 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   → settle window → independent read-back → byte-identical restore-to-original (see backup-before-destroy
   and cross-protocol oracle rules); (c) a bare `200 OK` is NOT verification — a malformed response body
   can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
-  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient. For write commands inside shipped deliverable code, the same read-back duty applies (§11a SILENT-SKIP HAZARD; kit #1883).
-  (Evidence: panccadia B22/B23.)
+  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
+  (Evidence: panccadia B22/B23.) The same read-back duty binds write commands inside shipped deliverable code
+  (§11a SILENT-SKIP HAZARD; kit #1883).
 - **OFFENSIVE / DUAL-USE EXECUTION IS OUT OF DEFAULT SCOPE.** Building or running dual-use/offensive
   tooling to CLOSE a gap — a license or authentication BYPASS, a tamper that forces a verifier to accept
   a forged artifact, an exploit — is out of an agent's default scope. The default deliverable is the
@@ -2997,6 +3008,16 @@ B64→B55). Make this a habit, not an accident:
   it: the raw file may already hold what the prose omitted (a warning, a second field). `lint-block.sh` flags a
   `[Block N] does not mention ...` comparison that carries no raw artifact path (§11). (retro: niagara5, #1213)
 - **Correction-on-absence guard.** A §14 correction that retracts or refutes a prior finding ON THE BASIS OF an absence MUST first re-verify that absence in the EXACT named artifact — never a sibling. Absence in a sibling does not prove absence in the target: B478 retracted a "no `niagarad.license.*`" claim that came from opening only `nre.jar`, not `niagarad.jar`, and the wrong correction propagated to four artifacts before revert. Because a correction propagates across the corpus, an unverified absence driving it multiplies the error; re-verify the absence in the exact named artifact, never a sibling, before issuing the correction.
+- **A dashboard menu-path cite carries its capture date.** When a block cites a vendor dashboard menu path,
+record the date it was captured and prefer a `[CERT-doc]` snapshot over an older path in a repo document. A
+mismatch is a §14 disagreement (a repo document said "Zero Trust > Networks > Tunnels" while the current doc
+says "Networking > Tunnels"; kit #1898).
+- **A live throw-site line number outranks the tree line (citation rank).** A live stack trace names the
+SHIPPED line (`CoreCryptoManager.verifyCacertsSignature` at 1410) while a decompiled variant in the corpus
+places the same method at `:928` (`:958` in another variant). The live line wins, and the discrepancy is
+itself evidence of variant divergence: record it instead of silently citing the tree. Never write a
+stack-trace line number in the `filename:line` form, or the citation classifier treats it as a resolvable path
+(B139 §139.6, B140 §140.2; kit #1619).
 - **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
   **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
   vs the shipped binary, one version vs another) and only needs a scope note — NOT a refutation. Label it
@@ -3957,7 +3978,12 @@ hard-stops, never blind.
   (a scoped re-judgment) BEFORE the terminal verdict. This is not ceremony — a round of fixes, each with a
   green directed test, has introduced 2 NEW CRITICAL defects that only the scoped re-judgment on the delta
   caught. The fixer's own tests certify the fix they aimed at, not the new surface the fix created.
-  The re-verification scope after a fix is the FIX DELTA PLUS EVERY DOWNSTREAM STEP WHOSE PRECONDITION THE FIX CHANGED: re-run the whole pipeline end to end, not only the check that failed. A fix that changes system state can unmask a latent defect in unchanged code (B17 §17.5: once DHCP stayed on, the untouched `ipconfig /renew -Wait` blocked for over 120 s on a bench with no DHCP server; only the full rerun caught it; kit #1884).
+  The re-verification scope after a fix is the FIX DELTA PLUS EVERY DOWNSTREAM STEP WHOSE PRECONDITION THE FIX
+  CHANGED: re-run the whole pipeline end to end, not only the check that failed. A fix that changes system
+  state can unmask a latent defect in unchanged code (B17 §17.5: once DHCP stayed on, the untouched `ipconfig
+  /renew -Wait` blocked for over 120 s on a bench with no DHCP server; only the full rerun caught it; kit
+  #1884). Config-mutating commands inside the deliverable itself carry the read-back duty of §11a (SILENT-SKIP
+  HAZARD, shipped deliverable code; kit #1883).
 - **Consumer-run-before-review.** Before adversarially reviewing an applied deliverable, RUN A REAL CONSUMER
   first — a fresh agent USING the deliverable as intended (not inspecting it) — and feed its friction findings
   to the reviewers as SEED claims. A review seeded by real usage friction finds spec-gap defects that blind
