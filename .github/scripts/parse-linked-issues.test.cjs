@@ -246,3 +246,28 @@ test('comment and fence markers are inert inside each other', () => {
   assert.deepEqual(parseLinkedIssues('```\n<!-- Closes #1\n```\nCloses #9\n-->'), ok(closing(9)));
   assert.deepEqual(parseLinkedIssues('a <!-- c --> Closes #8 <!-- d -->'), ok(closing(8)));
 });
+
+// #1963: an HTML-comment marker inside an inline code span is code, not a comment. Stripping it as a comment
+// removed one half of the backtick pair, and the stray backtick then paired with a later one across lines,
+// swallowing a standalone `Closes #N` line.
+test('a comment marker inside an inline code span does not unbalance backticks and hide a later reference', () => {
+  const body = [
+    'Supersedes #1952.',
+    '',
+    '## Summary',
+    '- `verify-block.sh`: an ephemeral-path cite (`/tmp`, scratchpad) is a FAIL.',
+    '- The summary names every remedy (waive a line with `<!-- ephemeral-ok: <reason> -->`, or the opt-out).',
+    '',
+    'Closes #1660',
+    '',
+    '## Verification',
+    '- 6 new mutants; `run-all.sh -j 4` 184/184.',
+  ].join('\n');
+  assert.deepEqual(parseLinkedIssues(body), ok(closing(1660)));
+  assert.deepEqual(parseLinkedIssues('Use `<!-- x -->` here.\n\nCloses #5\n\nAnd `code` later.'), ok(closing(5)));
+});
+
+test('a genuinely commented or fenced reference is still ignored next to inline-code comment markers', () => {
+  const body = 'See `<!-- x -->`.\n<!-- Closes #1 -->\n```\nCloses #2\n```\nCloses #3';
+  assert.deepEqual(parseLinkedIssues(body), ok(closing(3)));
+});

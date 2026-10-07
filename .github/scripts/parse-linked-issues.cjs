@@ -51,6 +51,22 @@ const MALFORMED_PATTERN = new RegExp(
 //    unclosed comment as hiding the rest). A ``` line inside a comment is not a
 //    fence opener.
 // Text after a `-->` on the same line is visible again.
+// Index of the first `<!--` on this line that is not inside a same-line inline code span, else -1.
+// Root cause of #1963: stripping a `<!--` that sits inside backticks removed one half of the backtick
+// pair, so the stray backtick later paired with one on a distant line and swallowed a `Closes #N` line.
+function commentStart(text) {
+  const spans = [];
+  const span = /(`+)(?!`)[^\n]*?(?<!`)\1(?!`)/g;
+  for (let m = span.exec(text); m !== null; m = span.exec(text)) spans.push([m.index, m.index + m[0].length]);
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf('<!--', from);
+    if (at === -1) return -1;
+    if (!spans.some(([s, e]) => at > s && at < e)) return at;
+    from = at + 4;
+  }
+}
+
 function stripHiddenText(body) {
   const out = [];
   let fence = null;
@@ -78,7 +94,7 @@ function stripHiddenText(body) {
         inComment = false;
         rest = rest.slice(end + 3);
       } else {
-        const start = rest.indexOf('<!--');
+        const start = commentStart(rest);
         if (start === -1) {
           visible += rest;
           break;
