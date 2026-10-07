@@ -183,6 +183,8 @@
 # explicit window is the operator's choice and bounds C4 as given. A later commit is only the run's own
 # within RSDD_C4_AFTER_STOP_GRACE minutes (default 10) of STOP or inside the transcript span; one beyond
 # both is unwitnessed (a later session's work): `after_stop_unwitnessed=N`, C4 degraded, never fail.
+# A block committed in the SAME second as STOP counts as after STOP (git has 1 s resolution, so it cannot
+# be ordered before it; pinned by test 1017-B2).
 #
 # Output: one line per criterion — `C<n> pass|fail|n/a|degraded <evidence>` — then one
 # `SUMMARY pass=<n> fail=<n> n/a=<n> degraded=<n>` line.

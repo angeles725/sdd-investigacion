@@ -34,7 +34,7 @@ def require_trusted(meta: os.stat_result, resolved: Path, trusted_uids: frozense
         raise FirmwareError("Binwalk's directory must be root-owned (or the invoking user's for RSDD_BINWALK) and not group/world-writable")
 
 
-def identity(path: Path, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None, hint: str = "") -> tuple[Path, int, str]:
+def identity(path: Path, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None, hint: str = "", uid_sink: dict[str, int] | None = None) -> tuple[Path, int, str]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try: fd = os.open(path, flags)
     except OSError as exc: raise FirmwareError(f"cannot open regular non-symlink file: {path}") from exc
@@ -44,6 +44,7 @@ def identity(path: Path, max_bytes: int | None = None, trusted_uids: frozenset[i
         if max_bytes is not None and before.st_size > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
         resolved = Path(f"/proc/self/fd/{fd}").resolve(); digest = hashlib.sha256(); total = 0
         if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, hint)
+        if uid_sink is not None: uid_sink["uid"] = before.st_uid
         while chunk := os.read(fd, min(1024 * 1024, max_bytes - total + 1) if max_bytes is not None else 1024 * 1024):
             total += len(chunk)
             if max_bytes is not None and total > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
@@ -54,7 +55,7 @@ def identity(path: Path, max_bytes: int | None = None, trusted_uids: frozenset[i
     finally: os.close(fd)
 
 
-def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: int | None = None, trusted_uids: frozenset[int] | None = None, uid_sink: dict[str, int] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try: src = os.open(source, flags)
     except OSError as exc: raise FirmwareError("source cannot be opened safely") from exc
@@ -65,6 +66,7 @@ def stage_file(source: Path, target: Path, logical: str, mode: int, max_bytes: i
         if max_bytes is not None and before.st_size > max_bytes: raise FirmwareError("input exceeds max-input-bytes")
         resolved = Path(f"/proc/self/fd/{src}").resolve()
         if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, "")
+        if uid_sink is not None: uid_sink["uid"] = before.st_uid
         out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             while chunk := os.read(src, min(1024 * 1024, max_bytes - total + 1) if max_bytes is not None else 1024 * 1024):
@@ -90,7 +92,7 @@ def absolute_path(search: str) -> str:
 
 
 def executable(name: str, configured: str, search: str, trusted_uids: frozenset[int] | None = None, hint: str = "",
-               must_match_path: bool = True) -> tuple[Path, dict[str, Any]]:
+               must_match_path: bool = True, uid_sink: dict[str, int] | None = None) -> tuple[Path, dict[str, Any]]:
     search = absolute_path(search)
     candidate = Path(configured).resolve(strict=True)
     if must_match_path:
@@ -100,7 +102,7 @@ def executable(name: str, configured: str, search: str, trusted_uids: frozenset[
             raise FirmwareError(f"configured {name} does not match PATH-selected executable")
     elif not candidate.is_file() or not os.access(candidate, os.X_OK):
         raise FirmwareError(f"configured {name} is not an executable file: {candidate}")
-    resolved, size, digest = identity(candidate, trusted_uids=trusted_uids, hint=hint)
+    resolved, size, digest = identity(candidate, trusted_uids=trusted_uids, hint=hint, uid_sink=uid_sink)
     return resolved, {"path": str(resolved), "size": size, "sha256": digest}
 
 
@@ -117,19 +119,20 @@ def check_binwalk_version(version: str) -> None:
 def resolve_binwalk(environ: Any) -> tuple[Path, dict[str, Any], str, frozenset[int] | None]:
     """Select the analyzer (#1641): RSDD_BINWALK_TEST_ONLY (test), else an explicit absolute RSDD_BINWALK (used
     even when it is not first on PATH), else the PATH-selected binwalk. Returns path, record, trust label, trusted uids."""
+    sink: dict[str, int] = {}
     test_only, explicit, search = environ.get("RSDD_BINWALK_TEST_ONLY"), environ.get("RSDD_BINWALK"), environ.get("PATH", "")
     if test_only:
         binwalk, record = executable("binwalk", test_only, search); return binwalk, record, "test-override", None
     if explicit:
         if not os.path.isabs(explicit): raise FirmwareError("RSDD_BINWALK must be an absolute path")
         uids = frozenset({0, os.geteuid()})
-        binwalk, record = executable("binwalk", explicit, search, uids, " (RSDD_BINWALK: or owned by the invoking user, not group/world-writable)", must_match_path=False)
+        binwalk, record = executable("binwalk", explicit, search, uids, " (RSDD_BINWALK: or owned by the invoking user, not group/world-writable)", must_match_path=False, uid_sink=sink)
     else:
         selected = shutil.which("binwalk", path=absolute_path(search))
         if selected is None: raise FirmwareError("PATH-selected binwalk is missing")
         uids = frozenset({0})
-        binwalk, record = executable("binwalk", selected, search, frozenset({0}), "; set RSDD_BINWALK=<absolute path> to select a user-owned install")
-    return binwalk, record, ("root-owned" if os.stat(binwalk).st_uid == 0 else "user-owned-explicit"), uids
+        binwalk, record = executable("binwalk", selected, search, frozenset({0}), "; set RSDD_BINWALK=<absolute path> to select a user-owned install", uid_sink=sink)
+    return binwalk, record, ("root-owned" if sink["uid"] == 0 else "user-owned-explicit"), uids
 
 
 def require_private(path: Path, mountinfo: str | None = None) -> None:
@@ -245,7 +248,9 @@ def main(argv: list[str] | None = None) -> int:
         source_record, staged_input = stage_file(args.input, stage / "input/firmware.bin", "input/firmware.bin", 0o400, args.max_input_bytes)
         override = os.environ.get("RSDD_BINWALK_TEST_ONLY")
         binwalk, source_binwalk, trust, binwalk_uids = resolve_binwalk(os.environ)
-        copied_binwalk, staged_binwalk = stage_file(binwalk, stage / "engine/binwalk", "engine/binwalk", 0o500, trusted_uids=binwalk_uids)
+        stage_sink: dict[str, int] = {}
+        copied_binwalk, staged_binwalk = stage_file(binwalk, stage / "engine/binwalk", "engine/binwalk", 0o500, trusted_uids=binwalk_uids, uid_sink=stage_sink)
+        if binwalk_uids is not None: trust = "root-owned" if stage_sink["uid"] == 0 else "user-owned-explicit"  # the bytes that run
         if copied_binwalk != source_binwalk: raise FirmwareError("analyzer changed before trusted staging")
         safe_path = "/usr/bin:/bin"; bwrap, bwrap_record = executable("bwrap", os.environ.get("RSDD_BWRAP", "/usr/bin/bwrap"), safe_path)
         meta = bwrap.stat()
@@ -272,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
         limitations = ["Binwalk signatures and entropy edges are heuristic, not proof of extractability or execution behavior.",
             ("The distro Binwalk package, Python dependencies, and magic database are read-only but are not artifact-bound by this report."
              if trust == "root-owned" else
+             "The analyzer is a test override; its installation is not covered by any trust check."
+             if trust == "test-override" else
              "The analyzer is not root-owned (explicit RSDD_BINWALK): its installation, Python dependencies, and magic database are writable by the invoking user and are not artifact-bound by this report."),
             "Bubblewrap on WSL2 is defense in depth, not a hostile-parser security boundary; use a disposable VM for hostile firmware."]
         if override: limitations.append("RSDD_BINWALK_TEST_ONLY selected a test analyzer; this is not official Binwalk evidence.")

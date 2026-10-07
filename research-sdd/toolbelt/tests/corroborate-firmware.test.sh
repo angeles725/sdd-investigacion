@@ -311,6 +311,18 @@ SH
       ok "S16: analyzer in a group/world-writable directory is refused"
     else no "S16: writable analyzer directory (rc=$_s16_rc: $_s16_err)"; fi
 
+    # S17: a test-override run is not an explicit user-owned RSDD_BINWALK run: no "not root-owned" limitation.
+    if PATH="$ROOT/v2fake:/usr/bin:/bin" RSDD_BINWALK_TEST_ONLY="$ROOT/v2fake/binwalk" run "$ROOT/s17" \
+      && python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["engine"]["trust"]=="test-override", d["engine"]
+assert not any("not root-owned" in l for l in d["limitations"]), d["limitations"]
+assert any("test analyzer" in l for l in d["limitations"]), d["limitations"]
+' "$ROOT/s17/firmware-static.v1.json"; then
+      ok "S17: test-override report has the test-analyzer limitation and no false not-root-owned line"
+    else no "S17: test-override limitations"; fi
+
     # S15: an unsupported binwalk major is a typed refusal, not a silent mis-parse.
     _s15_err="$(PATH="$ROOT/v3fake:/usr/bin:/bin" RSDD_BINWALK="$ROOT/v3fake/binwalk" run "$ROOT/s15" 2>&1 >/dev/null)"; _s15_rc=$?
     if [ "$_s15_rc" -eq 2 ] && [[ "$_s15_err" == *"unsupported Binwalk version 3.1.0"* ]] && [ ! -e "$ROOT/s15" ]; then
@@ -520,6 +532,9 @@ with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as other:
         try: call()
         except fw.FirmwareError as exc: assert "root-owned" in str(exc), exc
         else: raise SystemExit("descriptor-level trust gate missing")
+    # the trust label comes from the same checked descriptor (uid_sink), not a second path stat
+    sink = {}; fw.identity(b, trusted_uids=frozenset({0, os.geteuid()}), uid_sink=sink); assert sink["uid"] == os.geteuid(), sink
+    sink = {}; fw.stage_file(b, Path(d) / "copy2", "x", 0o500, trusted_uids=frozenset({0, os.geteuid()}), uid_sink=sink); assert sink["uid"] == os.geteuid(), sink
 print("OK: resolve_binwalk")
 PY
   then ok "F7: resolve_binwalk selects explicitly, refuses untrusted owner/mode/directory, ignores relative PATH entries"
@@ -658,6 +673,8 @@ with tempfile.TemporaryDirectory() as d:
     finally: os.chdir(cwd)
     try: m.identity(b, trusted_uids=frozenset({0})); print("VERDICT: fd-gate accepted")
     except m.FirmwareError: print("VERDICT: fd-gate refused")
+    try: m.stage_file(b, pathlib.Path(d) / "staged", "x", 0o500, trusted_uids=frozenset({0})); print("VERDICT: stage-gate accepted")
+    except m.FirmwareError: print("VERDICT: stage-gate refused")
 PY
   mut_py "tooth-binwalk-uids" t6a 's/executable("binwalk", selected, search, frozenset({0}),/executable("binwalk", selected, search, frozenset({0, os.geteuid()}),/' \
     && _tt "tooth-binwalk-uids: default branch trusts the invoking uid → user-owned PATH binwalk accepted (bites)" 0 0 "$_MUT/t6a/corroborate_firmware.py" --orig "$SUT_PY" \
@@ -674,6 +691,11 @@ PY
   mut_py "tooth-binwalk-fd-gate" t6d 's/^        if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, hint)$/        pass/' \
     && _tt "tooth-binwalk-fd-gate: identity() no longer gates on the descriptor → direct call accepts a user-owned file (bites)" 0 0 "$_MUT/t6d/corroborate_firmware.py" --orig "$SUT_PY" \
          --good-has '^VERDICT: fd-gate refused$' --bad-has '^VERDICT: fd-gate accepted$' --bad-lacks '^VERDICT: fd-gate refused$' -- \
+         python3 "$_MUT/h6.py" @SUT@
+
+  mut_py "tooth-binwalk-stage-gate" t6e 's/^        if trusted_uids is not None: require_trusted(before, resolved, trusted_uids, "")$/        pass/' \
+    && _tt "tooth-binwalk-stage-gate: stage_file() no longer gates the bytes it copies → direct call accepts a user-owned file (bites)" 0 0 "$_MUT/t6e/corroborate_firmware.py" --orig "$SUT_PY" \
+         --good-has '^VERDICT: stage-gate refused$' --bad-has '^VERDICT: stage-gate accepted$' --bad-lacks '^VERDICT: stage-gate refused$' -- \
          python3 "$_MUT/h6.py" @SUT@
 
   echo "-- prove-teeth done --"

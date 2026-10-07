@@ -267,7 +267,10 @@ report() {
   binwalk_note() {
     bw="${RSDD_BINWALK:-}"
     if [ -z "$bw" ]; then bw="$(resolve binwalk /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}")" || return 0; fi
-    [ -x "$bw" ] || return 0
+    if [ ! -x "$bw" ]; then
+      [ -z "${RSDD_BINWALK:-}" ] || printf '  %-22s WARN        RSDD_BINWALK=%s is not executable; corroborate-firmware will refuse it\n' "binwalk" "$bw"
+      return 0
+    fi
     bw_out="$("$bw" --version 2>&1 </dev/null; "$bw" --help 2>&1 </dev/null)"
     bw_ver="$(printf '%s\n' "$bw_out" | sed -n 's/.*[Bb]inwalk v\{0,1\}\([0-9][^ ]*\).*/\1/p' | head -n1)"
     if [ -z "$bw_ver" ]; then

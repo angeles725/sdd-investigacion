@@ -7,7 +7,7 @@ reside on a Linux-private filesystem.
 
 The adapter descriptor-copies the input and analyzer into a private `0700` stage,
 requires the PATH-selected `binwalk` to be root-owned, non-writable and in a non-group/world-writable
-directory (a user-owned install such as Homebrew is accepted only through an explicit absolute
+directory (a user-owned install is accepted only through an explicit absolute
 `RSDD_BINWALK`, which is used even when it is not first on PATH and is recorded as
 `engine.trust: user-owned-explicit` with a limitation line), supports only Binwalk major 2 (any other major is
 refused with a typed error), requires the root-owned `/usr/bin/bwrap` to agree with

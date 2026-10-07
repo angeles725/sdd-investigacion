@@ -951,6 +951,11 @@ if grep -qE '^  binwalk +WARN +binwalk 3\.1\.0' <<<"$out_bwx"; then
   ok "binwalk-major: an explicit RSDD_BINWALK is the binary that is version-checked"
 else no "binwalk-major: RSDD_BINWALK check" "[$(grep -E '^  binwalk' <<<"$out_bwx" | head -3)]"; fi
 
+out_bwn="$(bw_report "$BIN_BW2" RSDD_BINWALK="$ROOT/no-such-binwalk")"
+if grep -qE '^  binwalk +WARN +RSDD_BINWALK=.*not executable' <<<"$out_bwn"; then
+  ok "binwalk-major: RSDD_BINWALK set but not executable is a WARN, not a silent skip"
+else no "binwalk-major: RSDD_BINWALK not executable" "[$(grep -E '^  binwalk' <<<"$out_bwn" | head -3)]"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   MUT_BW="$ROOT/detect-mut-bw.sh"
   if mutant_chain "teeth: detect-mut-bw.sh" "$DETECT" "$MUT_BW" \
