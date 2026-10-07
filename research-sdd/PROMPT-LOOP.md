@@ -216,6 +216,11 @@ Always read first, in this order:
      The init already scaffolds `$TARGET/tools/` + `$TARGET/tools/README.md` (columns: name · path · WHY —
      used/adapted/downloaded/created/updated) — do NOT recreate them. RECORD every tool acquired during the run AT THE MOMENT
      of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
+     ENGRAM-WRITABLE (kit #1903): the init also writes `$TARGET/.engram/config.json` (`project_name` from the
+     directory name; create-only). Init cannot call MCP, so the AGENT MUST call
+     `mem_session_start(directory=$TARGET)` before the first §20 mirror / `mem_save` — without it
+     `mem_save(project=<new>)` fails `unknown_project`. If init printed `WARN: engram: could not derive a
+     project_name`, write `.engram/config.json` by hand first.
   e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
@@ -1228,6 +1233,8 @@ Always read first, in this order:
   marker, and why that differs from `method: document-cycle-external`). Step e (gap-seeding) is explicitly
   skipped — this preflight is the mechanical registration and scaffolding only; it does not seed a
   discovery backlog and does not change this mode's outline-driven contract.
+  The `--document` scaffold already seeds the envelope at 0 with no Gap-backlog rows — do not hand-correct
+  those counters (kit #1886).
   1. SEED THE OUTLINE (replaces gap-discovery). Instead of uncovering gaps, seed the FULL list of
      topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
      the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
