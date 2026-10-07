@@ -280,7 +280,7 @@ esac
 # HERE (_ss_build_list) and handed to `scan-secrets.sh --files-from`, which applies its
 # own file scope (*.md + high-risk config, vendored/decompiled trees excluded) to it. scan-secrets.sh's default
 # mode narrows to the shallowest block directory, so it is NOT used by this gate: a secret-bearing notes.md
-# outside that directory was skipped although the archive packages it. There is deliberately NO git-ignore
+# outside that directory was skipped although it lies under the target. There is deliberately NO git-ignore
 # filter (it reversed #970 and its output filter was fail-open). If the list cannot be computed (find failed
 # for a reason other than an unreadable subtree) or comes out EMPTY (a target with a RESEARCH-STATE.md always
 # lists at least that file) the gate REFUSES with a typed ERROR — an unproven look is never a pass (§7). An
@@ -306,7 +306,7 @@ esac
 #   - ANY OTHER git failure — missing/stubbed git, "dubious ownership", a malformed global config, … — is NOT
 #     "no repo": this gate refuses loudly (F3) instead of guessing.
 _ss_phys="$(cd -P "$target" 2>/dev/null && pwd -P)"
-_ss_list=""; _ss_ferr=""; _ss_unreadable=0; _ss_wt_why=""; _ss_leak=0
+_ss_list=""; _ss_ferr=""; _ss_unreadable=0; _ss_wt_why=""; _ss_leak_wt=0; _ss_leak_hist=0
 trap 'rm -f "$_ss_list" "$_ss_ferr"' EXIT
 _ss_build_list() {  # → rc 0 list ready · 1 cannot be computed · 2 computed but EMPTY; fills _ss_list/_ss_unreadable
   _ss_unreadable=0
@@ -320,7 +320,7 @@ _ss_build_list() {  # → rc 0 list ready · 1 cannot be computed · 2 computed 
     [ -s "$_ss_ferr" ] || return 1
     if grep -qv 'Permission denied' "$_ss_ferr"; then return 1; fi
     _ss_unreadable="$(grep -c 'Permission denied' "$_ss_ferr")"
-    echo "WARN: scan-secrets packaging list skipped $_ss_unreadable unreadable path(s) — not packageable by this process, not scanned" >&2
+    echo "WARN: scan-secrets packaging list skipped $_ss_unreadable unreadable path(s) — unreadable by this process, not scanned" >&2
   fi
   [ -s "$_ss_list" ] || return 2
   return 0
@@ -342,7 +342,7 @@ _ss_wt_only_verdict() {
   case "$_ss_wt_rc" in
     0) echo "    scan-secrets  : ok$1$(_ss_unread_note)";;
     1) echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree$1 (SECRETS DISCIPLINE)"
-       gate_rc=1; _ss_leak=1  # scan-secrets-gate-fail
+       gate_rc=1; _ss_leak_wt=1  # scan-secrets-gate-fail
        ;;
     90|91) echo "    scan-secrets  : ERROR — $_ss_wt_why$1"
        gate_rc=1  # scan-secrets-gate-list-error
@@ -387,7 +387,9 @@ else
     fi
     if [ -n "$_ss_where" ]; then
       echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into $_ss_where (SECRETS DISCIPLINE)"
-      gate_rc=1; _ss_leak=1  # scan-secrets-gate-fail
+      gate_rc=1; _ss_leak_wt=0; _ss_leak_hist=0  # scan-secrets-gate-fail
+      [ "$_ss_wt_rc" = 1 ] && _ss_leak_wt=1
+      [ "$_ss_hist_rc" = 1 ] && _ss_leak_hist=1
     elif [ "$_ss_wt_rc" = 90 ] || [ "$_ss_wt_rc" = 91 ]; then
       echo "    scan-secrets  : ERROR — $_ss_wt_why"
       gate_rc=1  # scan-secrets-gate-list-error
@@ -500,6 +502,9 @@ if [ "$gate_rc" != 0 ]; then
     _hint_top_out="$(git -C "$target" rev-parse --show-toplevel 2>&1)"; _hint_top_rc=$?
     _hint_top_phys=""; [ "$_hint_top_rc" -ne 0 ] || _hint_top_phys="$(cd -P "$_hint_top_out" 2>/dev/null && pwd -P)"
     # The packaging-list scan, as a pasteable command (every path shell-quoted with %q).
+    if [ -z "$_ss_phys" ]; then  # SS-UNRESOLVABLE-HINT
+      echo "    target unresolvable — cd -P failed on $target, so the scan command cannot be printed; fix the path/permissions first"
+    else
     _q_phys="$(printf '%q' "$_ss_phys")"; _q_here="$(printf '%q' "$here")"; _q_target="$(printf '%q' "$target")"
     _hint_wt="find $_q_phys \\( -name .git -type d \\) -prune -o -type f -print0 | $_q_here/scan-secrets.sh --files-from - $_q_phys"
     if [ "$_hint_top_rc" -eq 0 ] && [ "$_hint_top_phys" = "$_ss_phys" ]; then
@@ -512,9 +517,14 @@ if [ "$gate_rc" != 0 ]; then
     else
       echo "    git probe failed — fix git first"
     fi
-    if [ "$_ss_leak" = 1 ]; then  # SS-REMEDY-HINT
+    fi
+    if [ "$_ss_leak_wt" = 1 ]; then  # SS-REMEDY-HINT
       echo "    A secret in a git-ignored file still refuses (the gate reads the working tree as it sits on disk): move the"
       echo "    secret store OUTSIDE the target directory and keep only its path/structure in the corpus. There is no override."
+    fi
+    if [ "$_ss_leak_hist" = 1 ]; then  # SS-HIST-HINT
+      echo "    A secret in committed history is not fixed by editing the tree: the history must be rewritten (e.g. git filter-repo),"
+      echo "    then rotate the credential. ensure-remote.sh refuses the same way."
     fi
   fi
   exit 3

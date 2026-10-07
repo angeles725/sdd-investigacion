@@ -838,6 +838,33 @@ else no "17v remedy/quoting: exit=$rc :: $(grep -iE 'OUTSIDE|files-from' <<<"$ou
 if grep -qF 'AKIAIOSFODNN7' <<<"$out"; then no "17v the refusal output echoes the secret VALUE"; else ok "17v the refusal output never carries the secret value"; fi
 
 
+# 17w — (round 3, B) the remedy depends on WHERE the leak is: a working-tree leak → move the secret store OUTSIDE the
+#       target; a history-only leak → the history must be REWRITTEN (editing the tree cannot help). 17v pins the first.
+d="$TMP/committed-deleted-secret"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qF 'history must be rewritten' <<<"$out" && ! grep -qF 'OUTSIDE the target directory' <<<"$out"; then
+  ok "17w B: history-only leak → rewrite-history remedy, NOT the move-outside-the-target line"
+else no "17w history remedy: exit=$rc :: $(grep -iE 'rewrit|OUTSIDE' <<<"$out" | head -3)"; fi
+d="$TMP/hint space"; out="$(bash "$SUT" "$d" 2>&1)"
+if grep -qF 'OUTSIDE the target directory' <<<"$out" && ! grep -qF 'history must be rewritten' <<<"$out"; then
+  ok "17w B: working-tree-only leak → move-outside line, NOT the history-rewrite line"
+else no "17w working-tree remedy :: $(grep -iE 'rewrit|OUTSIDE' <<<"$out" | head -3)"; fi
+d="$TMP/leak-both"; mkgood_git_clean "$d"; printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/old.md"; git -C "$d" add old.md; git -C "$d" commit -q -m "add old.md (secret)"
+printf 'Leaked: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qF 'history must be rewritten' <<<"$out" && grep -qF 'OUTSIDE the target directory' <<<"$out"; then
+  ok "17w B: leak in BOTH the working tree and history → both remedies printed"
+else no "17w both remedies: exit=$rc :: $(grep -iE 'rewrit|OUTSIDE' <<<"$out" | head -3)"; fi
+
+# 17x — (round 3, C) an unresolvable physical target (cd -P fails; simulated through BASH_ENV) is a typed
+#       `target unresolvable` hint, never a `find ''` command; the verdict line names the real message.
+printf 'cd(){ if [ "${1:-}" = "-P" ]; then return 1; fi; builtin cd "$@"; }\n' > "$TMP/cdfail.env"
+d="$TMP/unresolvable"; mkgood "$d"
+out="$(BASH_ENV="$TMP/cdfail.env" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qF 'the target directory could not be resolved physically' <<<"$out" && grep -qF 'target unresolvable' <<<"$out" && ! grep -qF "find '' " <<<"$out"; then
+  ok "17x C: unresolvable physical target → typed ERROR + 'target unresolvable' hint, no empty find command"
+else no "17x unresolvable target: exit=$rc :: $(grep -iE 'unresolv|resolved|find ' <<<"$out" | head -3)"; fi
+
 # 17l (REMOVED, round 3): tested a corrupted `.git/index` making a dedicated `git status -z`
 # enumeration fail. That enumeration no longer exists — round 3 removed the mirror it fed, and neither
 # (a) `scan-secrets.sh $corpus` (a plain filesystem walk, no git) nor (b) `scan-secrets.sh --committed`
@@ -1979,10 +2006,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth(hint)" "$MUT/archive.HINT-MUTANT.sh" 's/^      echo "    \$_hint_wt   # working tree (dirty.*$/      :/' \
     && tooth "teeth(hint): packaging-list hint line removed from the refusal block (#1014.3)" 3 3 "$MUT/archive.HINT-MUTANT.sh" \
          --good-has 'scan-secrets.sh --files-from -' --bad-lacks 'scan-secrets.sh --files-from -' -- run_on_fix @SUT@ "$TMP/hintfix"
+  mk_sed "teeth(hist-remedy)" "$MUT/archive.HISTREMEDY-MUTANT.sh" 's/if \[ "\$_ss_leak_hist" = 1 \]; then  # SS-HIST-HINT/if false; then/' \
+    && tooth "teeth(hist-remedy): history-rewrite line removed → a history-only leak gets no actionable remedy" 3 3 "$MUT/archive.HISTREMEDY-MUTANT.sh" \
+         --good-has 'history must be rewritten' --bad-lacks 'history must be rewritten' -- run_on_fix @SUT@ "$TMP/committed-deleted-secret"
+  mk_sed "teeth(wt-remedy-hist)" "$MUT/archive.WTREMEDYHIST-MUTANT.sh" 's/if \[ "\$_ss_leak_wt" = 1 \]; then  # SS-REMEDY-HINT/if [ "$_ss_leak_wt$_ss_leak_hist" != 00 ]; then/' \
+    && tooth "teeth(wt-remedy-hist): move-outside line printed for a history-only leak (the old any-leak behaviour)" 3 3 "$MUT/archive.WTREMEDYHIST-MUTANT.sh" \
+         --good-lacks 'OUTSIDE the target directory' --bad-has 'OUTSIDE the target directory' -- run_on_fix @SUT@ "$TMP/committed-deleted-secret"
+  mk_sed "teeth(unresolvable-hint)" "$MUT/archive.UNRESOLV-MUTANT.sh" 's/if \[ -z "\$_ss_phys" \]; then  # SS-UNRESOLVABLE-HINT/if false; then/' \
+    && tooth "teeth(unresolvable-hint): typed hint removed → an empty-path find command is printed" 3 3 "$MUT/archive.UNRESOLV-MUTANT.sh" \
+         --good-has 'target unresolvable' --bad-lacks 'target unresolvable' -- env BASH_ENV="$TMP/cdfail.env" bash @SUT@ "$TMP/unresolvable"
   mk_sed "teeth(find-silent)" "$MUT/archive.FINDSILENT-MUTANT.sh" 's/^    \[ -s "\$_ss_ferr" \] || return 1$/    :/' \
     && tooth "teeth(find-silent): empty-stderr find failure tolerated → an unproven (possibly partial) list archives (exit 0) — the non-empty-stderr proof is load-bearing" 3 0 "$MUT/archive.FINDSILENT-MUTANT.sh" \
          --good-has 'packaging list could not be computed' --bad-has "$ARCH_RE" --bad-lacks "$REFUSE_RE" -- run_on_fix PATH="$TMP/findstub-silent:$PATH" @SUT@ "$TMP/listsilent"
-  mk_sed "teeth(remedy-hint)" "$MUT/archive.REMEDY-MUTANT.sh" 's/if \[ "\$_ss_leak" = 1 \]; then  # SS-REMEDY-HINT/if false; then/' \
+  mk_sed "teeth(remedy-hint)" "$MUT/archive.REMEDY-MUTANT.sh" 's/if \[ "\$_ss_leak_wt" = 1 \]; then  # SS-REMEDY-HINT/if false; then/' \
     && tooth "teeth(remedy-hint): remedy lines removed → the refusal no longer says where the secret store must go" 3 3 "$MUT/archive.REMEDY-MUTANT.sh" \
          --good-has 'OUTSIDE the target directory' --bad-lacks 'OUTSIDE the target directory' -- run_on_fix @SUT@ "$TMP/hintfix"
   mk_sed "teeth(hint-quote)" "$MUT/archive.HINTQUOTE-MUTANT.sh" "s/_q_phys=\"\\\$(printf '%q' \"\\\$_ss_phys\")\"/_q_phys=\"\$_ss_phys\"/" "s/_q_target=\"\\\$(printf '%q' \"\\\$target\")\"/_q_target=\"\$target\"/" \
