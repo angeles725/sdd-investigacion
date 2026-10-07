@@ -36,6 +36,9 @@ mkbin() {
   case "$mode" in *-setsid*) ln -sf "$(type -P setsid)" "$b/setsid" ;; esac
   case "$mode" in *-ps*) ln -sf "$(type -P ps)" "$b/ps" ;; esac
   case "$mode" in *-fakeps*) printf '#!%s\necho 1\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
+  case "$mode" in *-gatesetsid*) rm -f "$b/setsid"; printf '#!%s\necho $$ > "$SETSID_PID"\ni=0; while [ ! -e "$SETSID_GATE" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P setsid)" > "$b/setsid"; chmod +x "$b/setsid" ;; esac
+  case "$mode" in *-gateps*) printf '#!%s\ni=0; while [ ! -e "$PS_GATE" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P ps)" > "$b/ps"; chmod +x "$b/ps" ;; esac
+  case "$mode" in *-gatebadps*) printf '#!%s\ni=0; while [ ! -e "$PS_GATE" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\necho 1\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-slowps*) printf '#!%s\nsleep 0.3\necho 999999\n' "$BASH_BIN" > "$b/ps"; chmod +x "$b/ps" ;; esac
   case "$mode" in *-nogh) ;; *)
     {
@@ -67,6 +70,9 @@ B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-n
 HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
 HAVE_PS=0; [ -n "$(type -P ps)" ] && HAVE_PS=1
 if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then B_WDG="$(mkbin b-wdg none-setsid-ps)"; fi
+[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATEPS="$(mkbin b-gateps none-setsid-gateps)"
+[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATESETSID="$(mkbin b-gatesetsid none-gatesetsid-ps)"
+[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATEBADPS="$(mkbin b-gatebadps none-setsid-gatebadps)"
 [ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; B_SLOWPS="$(mkbin b-slowps none-setsid-slowps)"; }
 
 echo "== gh-visibility.test.sh =="
@@ -313,6 +319,79 @@ c_sig_nonexit() { # LIB — the caller's restored trap does NOT exit: typed CALL
   kill -KILL "$bp" 2>/dev/null
   return "$rc"
 }
+# sigearly LIB CALL N — kit issue #1911: the signal arrives while the pgid verification is still running (the launch->trap
+# window). A gated `ps` BLOCKS the verification until the test releases it, so the signal is delivered inside that window
+# by construction (a barrier, not a sleep race). The caller must still take the group down and leave no temp files.
+sigearly() {
+  local lib="$1" call="$2" n="$3" pf="$TMP/gc-early-$3.pid" td="$TMP/td-early-$3" gate="$TMP/gate-$3" bp i rc=0; rm -f "$pf" "$gate"; mkdir -p "$td"
+  TMPDIR="$td" PS_GATE="$gate" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_GATEPS" "$BASH_BIN" -c '. "$1"; '"$call" _ "$lib" >/dev/null 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+  [ -s "$pf" ] || rc=1
+  kill -TERM "$bp" 2>/dev/null
+  : > "$gate"                                    # release the gated ps only AFTER the signal was sent
+  wait "$bp" 2>/dev/null
+  gone "$pf" || rc=1
+  sleeps_gone "$n" || rc=1
+  [ -z "$(ls -A "$td" 2>/dev/null)" ] || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+c_sig_early() { # LIB — a signal during the pgid verification (before the old trap install) still takes the group down
+  sigearly "$1" 'gh_bounded_run gh repo create o/r' $((RUNB+6)) && sigearly "$1" 'gh_visibility_probe gh o/r' $((RUNB+7))
+}
+# c_sig_early_nx LIB — same window (a gated `ps` that then answers a WRONG pgid, so the handler runs between the failed
+# comparison and the `kill -0` liveness probe), but the caller's trap does NOT exit: typed CALLER_SIGNALLED and NO misleading
+# "already exited" GHV_NOTE (the verification and the watchdog arming are skipped once a signal was seen).
+c_sig_early_nx() {
+  local lib="$1" pf="$TMP/gc-enx.pid" of="$TMP/enx.out" gate="$TMP/gate-enx" bp i rc=0 n=$((RUNB+8)); rm -f "$pf" "$of" "$gate"
+  PS_GATE="$gate" GH_GRANDCHILD=1 GH_GC_PID_FILE="$pf" RSDD_GH_TIMEOUT="$n" PATH="$B_GATEBADPS" "$BASH_BIN" -c 'trap "echo CAUGHT" TERM; . "$1"; gh_bounded_run gh repo create o/r; echo "STATE=$GHV_STATE NOTE=[$GHV_NOTE] WD=[${GHV_WDPID-}]"' _ "$lib" >"$of" 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$pf" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+  [ -s "$pf" ] || rc=1
+  kill -TERM "$bp" 2>/dev/null
+  : > "$gate"
+  wait "$bp" 2>/dev/null
+  has "$(cat "$of" 2>/dev/null)" "STATE=CALLER_SIGNALLED NOTE=[] WD=[]" || rc=1    # WD empty: the arm path never ran (GHV_WDPID is set by it)
+  gone "$pf" || rc=1
+  sleeps_gone "$n" || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+# c_sig_presetsid LIB — kit issue #1911 (review round 2): the signal arrives after the leader was forked but BEFORE it exec'd
+# setsid (a stub setsid blocks on a gate), so the leader's group does not exist yet and `kill -- -PID` gets ESRCH. The
+# not-yet-verified leader must then be killed by pid, else it later runs `setsid gh ...` unbounded after the caller died.
+c_sig_presetsid() {
+  local lib="$1" sp="$TMP/ps-setsid.pid" gate="$TMP/ps-setsid.gate" bin="$B_GATESETSID" bp i rc=0
+  rm -f "$sp" "$gate" "$bin/gh.log"
+  SETSID_PID="$sp" SETSID_GATE="$gate" GH_SLEEP=30 RSDD_GH_TIMEOUT=$((RUNB+9)) PATH="$bin" "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r' _ "$lib" >/dev/null 2>&1 &
+  bp=$!; i=0
+  while [ ! -s "$sp" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+  [ -s "$sp" ] || rc=1
+  kill -TERM "$bp" 2>/dev/null
+  wait "$bp" 2>/dev/null
+  : > "$gate"                                    # release the blocked setsid only AFTER the caller was signalled and gone
+  gone "$sp" || rc=1                             # the leader must already be dead (gone() also reaps a survivor)
+  [ ! -s "$bin/gh.log" ] || rc=1                 # and the bounded command must never have started
+  sleeps_gone $((RUNB+9)) || rc=1
+  kill -KILL "$bp" 2>/dev/null
+  return "$rc"
+}
+# --- the handler's pid sources, called DIRECTLY under a non-exiting caller TERM trap (kit issue #1911, review) -------
+# hrun LIB BODY — run BODY after sourcing the lib in a clean shell whose TERM trap only echoes (so the re-raise survives).
+hrun() { PATH="$B_WDG" "$BASH_BIN" -c 'trap "echo CAUGHT" TERM; . "$1"; '"$2" _ "$1" 2>&1; }
+c_h_stale() { # LIB — an UNRELATED background job started before the traps (stale `$!`) is never killed by the handler
+  local r; r="$(hrun "$1" 'sleep 300 & s=$!; _ghv_set_traps; _ghv_on_signal TERM >/dev/null; sleep 0.3; if kill -0 "$s" 2>/dev/null; then echo STALE=ALIVE; else echo STALE=DEAD; fi; builtin kill -KILL "$s" 2>/dev/null; wait "$s" 2>/dev/null')"
+  has "$r" "STALE=ALIVE"
+}
+c_h_fallback() { # LIB — _GHV_PID still empty (signal between fork and `pid=$!`): the NEW background job is killed via `$!`
+  local r; r="$(hrun "$1" '_ghv_set_traps; ( exec sleep 300 ) & s=$!; _ghv_on_signal TERM >/dev/null; wait "$s"; echo "FB_RC=$?"')"
+  has "$r" "FB_RC=137"
+}
+c_h_nobare() { # LIB — group mode with a known pid: the handler signals the GROUP form only (no bare-pid KILL, kit #1854)
+  local r; r="$(hrun "$1" 'KLOG=$(mktemp); kill() { printf "%s\n" "$*" >> "$KLOG"; builtin kill "$@"; }; ( exec sleep 300 ) & s=$!; _ghv_set_traps; _GHV_PID="$s" _GHV_GRP=group _GHV_VERIFIED=1; _ghv_on_signal TERM >/dev/null; builtin kill -KILL "$s" 2>/dev/null; wait "$s" 2>/dev/null; cat "$KLOG"; rm -f "$KLOG"')"
+  grep -qE '^-KILL -- -[0-9]+$' <<<"$r" && ! grep -qE '^-KILL [0-9]+$' <<<"$r"
+}
 c_gone_unverified() { # LIB — a leader that is already gone is NOT a verified group: child-only (nothing to sweep)
   local r; r="$(PATH="$B_SLOWPS" GH_OUT=x "$BASH_BIN" -c '. "$1"; gh_bounded_run gh repo create o/r >/dev/null; echo "GROUP=$GHV_GROUP NOTE=$GHV_NOTE"' _ "$1" 2>&1)"
   has "$r" "GROUP=child-only NOTE=DEGRADED" && has "$r" "already exited" && ! has "$r" "could not verify"
@@ -325,11 +404,17 @@ if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
   c_nobare "$LIB"            && ok "27 group mode: no bare-pid TERM/KILL after the leader is reaped; the sweep signals the group only" || no "27 bare-pid kill after reap"
   c_nosweep_childonly "$LIB" && ok "28 child-only mode: no post-bound sweep at all" || no "28 child-only sweep"
   c_pgid_verify "$LIB"       && ok "29 setsid but pgid unverifiable / wrong -> child-only + typed DEGRADED note naming pgid" || no "29 pgid verification"
+  command -v pgrep >/dev/null 2>&1 || no "30-36 need pgrep on the host to prove the watchdog is disarmed"
   c_sig "$LIB"               && ok "30 SIGTERM/SIGHUP to the caller kills the group of a watchdog-bounded gh_bounded_run and disarms the watchdog" || no "30 signal trap (bounded-run)"
   c_sig_probe "$LIB"         && ok "31 SIGTERM to the caller kills the group of a watchdog-bounded probe" || no "31 signal trap (probe)"
-  command -v pgrep >/dev/null 2>&1 || no "30-33 need pgrep on the host to prove the watchdog is disarmed"
   c_sig_subst "$LIB"         && ok "33 a signal inside \$(...) kills only that subshell, not the top-level shell; watchdog and group gone" || no "33 re-raise inside command substitution"
   c_sig_nonexit "$LIB"       && ok "35 caller trap that does not exit -> CALLER_SIGNALLED (not TIMEOUT), group and watchdog gone" || no "35 non-exiting caller trap"
+  c_sig_early "$LIB"         && ok "36 a signal during the pgid verification (before the leader is verified) still kills the group and leaves no temp files" || no "36 signal in the launch-to-trap window"
+  c_sig_presetsid "$LIB"     && ok "41 a signal before the leader exec'd setsid (no group yet) still kills the leader; gh never runs" || no "41 signal before setsid"
+  c_sig_early_nx "$LIB"      && ok "37 the same window with a non-exiting caller trap -> CALLER_SIGNALLED, no 'already exited' note, group gone" || no "37 early signal, non-exiting trap"
+  c_h_stale "$LIB"           && ok "38 handler: a stale \$! (unrelated earlier background job) is never killed" || no "38 stale \$! killed"
+  c_h_fallback "$LIB"        && ok "39 handler: with _GHV_PID still empty the NEW background job (\$!) is killed" || no "39 \$! fallback"
+  c_h_nobare "$LIB"          && ok "40 handler: group mode with a known pid signals the group only, never a bare pid" || no "40 bare-pid kill in group mode"
   c_gone_unverified "$LIB"   && ok "34 leader already gone -> unverified -> child-only + DEGRADED note" || no "34 gone leader treated as verified"
   c_trap_restored "$LIB"     && ok "32 the caller's own traps are restored after the run" || no "32 trap restore"
 fi
@@ -371,10 +456,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       tooth sweep-childonly-runs c_nosweep_childonly 's/\[ -n "\$2" \] || return 0/:/'
       tooth verify-skipped       c_pgid_verify 's/_ghv_verify_group "\$pid" || {/true || {/g'
       tooth verify-no-compare    c_pgid_verify 's/\[ "\$pg" = "\$1" \] \&\& return 0/return 0/'
-      tooth trap-dropped         c_sig      's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
-      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps "\$pid" "\$grpflag" "\$wdpid"$/      :/'
-      tooth handler-no-disarm    c_sig      's/^    kill "\$4" 2>\/dev\/null || :/    :/'
-      tooth handler-no-disarm-p  c_sig_probe 's/^    kill "\$4" 2>\/dev\/null || :/    :/'
+      tooth trap-dropped         c_sig      's/^      _ghv_set_traps; .*$/      :/'
+      tooth trap-dropped-probe   c_sig_probe 's/^      _ghv_set_traps; .*$/      :/'
+      tooth handler-no-disarm    c_sig      's/^    \[ -z "\$_GHV_WD" \] || kill "\$_GHV_WD" 2>\/dev\/null || :.*$/    :/'
+      tooth handler-no-disarm-p  c_sig_probe 's/^    \[ -z "\$_GHV_WD" \] || kill "\$_GHV_WD" 2>\/dev\/null || :.*$/    :/'
+      # kit issue #1911: the old order — traps installed only AFTER the pgid verification — must go red on the barrier case
+      tooth handler-bare-in-group c_h_nobare 's/^      if \[ -n "\$fb" \] || .*$/      kill -KILL "$pid" 2>\/dev\/null || :/'
+      tooth handler-no-presetsid-kill c_sig_presetsid 's/^      if \[ -n "\$fb" \] || .*$/      if [ -n "$fb" ]; then kill -KILL "$pid" 2>\/dev\/null || :; fi/'
+      tooth handler-bang-unconditional c_h_stale 's/^    if \[ -z "\$pid" \] \&\& \[ "\${!:-}" != "\$_GHV_BANG0" \]; then pid="\$!"; fb=1; fi.*$/    if [ -z "$pid" ]; then pid="$!"; fb=1; fi/'
+      tooth handler-bang-deleted c_h_fallback 's/^    if \[ -z "\$pid" \] \&\& \[ "\${!:-}" != "\$_GHV_BANG0" \]; then pid="\$!"; fb=1; fi.*$/    :/'
+      tooth verify-note-after-signal c_sig_early_nx 's/\[ -n "\$_GHV_SIGNALLED" \] || _ghv_note_unverified "\$vrc"/_ghv_note_unverified "$vrc"/g'
+      tooth arm-after-signal c_sig_early_nx 's/^      if \[ -z "\$_GHV_SIGNALLED" \]; then _ghv_arm_watchdog.*$/      _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"/'
+      tooth trap-after-verify    c_sig_early 's/^      _ghv_set_traps; .*$/      :/;s/^      if \[ -z "\$_GHV_SIGNALLED" \]; then _ghv_arm_watchdog.*$/      _ghv_set_traps; _GHV_PID="$pid" _GHV_GRP="$grpflag"; _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"/'
+      tooth handler-ignores-late-pid c_sig_early 's/^    local pid="\${_GHV_PID:-}" fb=""$/    local pid="" fb=""/;s/^    if \[ -z "\$pid" \] \&\& \[ "\${!:-}".*$/    :/'
       tooth reraise-dollar-dollar c_sig_subst 's/kill -s "\$1" "\$BASHPID"/kill -s "$1" "$$"/'
       tooth gone-is-verified     c_gone_unverified 's/kill -0 "\$1" 2>\/dev\/null || return 2/kill -0 "$1" 2>\/dev\/null || return 0/'
       tooth gone-check-deleted   c_gone_unverified 's/^      kill -0 "\$1" 2>\/dev\/null || return 2.*$/      :/'
