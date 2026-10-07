@@ -236,10 +236,12 @@ tokens_of() {
 # because the line count never changes.
 #
 # CommonMark-ish fence matching, not a bare "toggle on any ``` line" (round-3
-# review, MAJOR): a fence opens on a run of 3+ backticks OR 3+ tildes, and
+# review, MAJOR; indentation and info-string/closer rules added under #1013): a fence line may be
+# indented 0-3 spaces; a fence opens on a run of 3+ backticks OR 3+ tildes (a backtick opener whose
+# info string contains a backtick is inline code, not an opener), and
 # closes ONLY on a run of the SAME character that is AT LEAST as long as the
-# opener. A shorter or differently-charactered run while already inside a
-# fence is fence CONTENT, not a closer — e.g. a fenced ````md block that
+# opener with nothing but whitespace after it (a closing line carrying text is content). A shorter or
+# differently-charactered run while already inside a fence is fence CONTENT, not a closer — e.g. a fenced ````md block that
 # itself contains an example ``` line does not close early on that inner
 # line; it closes only on a later run of 4+ backticks. Prints the caller's
 # fence-tracking failure to stderr and exits 3 if EOF is reached still
@@ -251,14 +253,22 @@ mask_code_fences() {
   awk '
     {
       is_fence = 0
-      if (match($0, /^`+/) && RLENGTH >= 3) { ch = "`"; len = RLENGTH; is_fence = 1 }
-      else if (match($0, /^~+/) && RLENGTH >= 3) { ch = "~"; len = RLENGTH; is_fence = 1 }
+      # A fence line may be indented 0-3 spaces (CommonMark; mawk-safe, no {0,3} interval) and the run
+      # length counts only the fence characters. Opener: a backtick run whose info string contains a
+      # backtick is inline code, not a fence. Closer: nothing but whitespace may follow the run.
+      t = $0
+      if (match(t, /^ ? ? ?[^ ]/)) { sub(/^ +/, "", t) } else { t = "" }
+      rest = ""
+      if (match(t, /^`+/) && RLENGTH >= 3) { ch = "`"; len = RLENGTH; rest = substr(t, RLENGTH + 1); is_fence = 1 }
+      else if (match(t, /^~+/) && RLENGTH >= 3) { ch = "~"; len = RLENGTH; rest = substr(t, RLENGTH + 1); is_fence = 1 }
 
       if (is_fence) {
-        if (!infence) { infence = 1; fch = ch; flen = len; print; next }
-        else if (ch == fch && len >= flen) { infence = 0; print; next }
-        # else: fence-looking line of the wrong char or too short while
-        # already inside a fence — falls through, treated as content below.
+        if (!infence) {
+          if (!(ch == "`" && index(rest, "`") > 0)) { infence = 1; fch = ch; flen = len; print; next }
+        }
+        else if (ch == fch && len >= flen && rest ~ /^[ \t]*$/) { infence = 0; print; next }
+        # else: fence-looking line of the wrong char, too short, or carrying text while already
+        # inside a fence — falls through, treated as content below.
       }
 
       if (infence) { print "\x02FENCED-LINE\x02"; next }
@@ -1024,6 +1034,47 @@ sys.stdout.write(s.replace(old, new))
       ok "teeth-m4b: the same heading OUTSIDE a fence IS caught as a new orphan (rc=1) — $out"
     else
       no "teeth-m4b: heading outside a fence was NOT caught (rc=$rc, out=[$out]) — control failed, m4a's PASS would be meaningless"
+    fi
+  fi
+
+  echo "-- teeth: fence-indent-mismatch (#1013 M1: 0-3 space indented fences must pair CommonMark-style) --"
+  # Open at col 0 / close with 2 spaces, then a REAL heading, then open with 2 spaces / close at col 0.
+  # An anchor-at-column-0 parser read the indented lines as content and masked the real heading (T6 passed).
+  m="$TMP/FenceIndentMismatch.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '```text'; echo 'x'; echo '  ```'; echo "## 24. New untiered section"; echo '  ```text'; echo 'y'; echo '```'; } >> "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q '§24' <<<"$out"; then
+      ok "teeth-fence-indent-mismatch: the real '## 24.' between two mismatched-indent fences is caught (rc=1)"
+    else
+      no "teeth-fence-indent-mismatch: real heading was masked (rc=$rc, out=[$out]) — indented fences not matched"
+    fi
+  fi
+
+  echo "-- teeth: fence-closer-trailing-text (#1013 M2: a closing line carrying text is content, not a closer) --"
+  m="$TMP/FenceCloserTrailing.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '```text'; echo '```foo'; echo "## 99. Fake Phantom Section"; echo '```'; } >> "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 0 ] && ! grep -q '§99' <<<"$out"; then
+      ok "teeth-fence-closer-trailing-text: '\`\`\`foo' does not close the fence — the fenced '## 99.' stays masked (rc=0)"
+    else
+      no "teeth-fence-closer-trailing-text: trailing-text line closed the fence (rc=$rc, out=[$out])"
+    fi
+  fi
+
+  echo "-- teeth: fence-backtick-info-backtick (#1013 M2: a backtick opener whose info string has a backtick is not an opener) --"
+  m="$TMP/FenceInfoBacktick.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '```a`b'; echo "## 24. New untiered section"; } >> "$m"
+  if mk_built "$METHODOLOGY" "$m"; then
+    out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q '§24' <<<"$out"; then
+      ok "teeth-fence-backtick-info-backtick: an inline-code-looking opener is not a fence — the real '## 24.' is caught (rc=1)"
+    else
+      no "teeth-fence-backtick-info-backtick: rc=$rc out=[$out] — the invalid opener was treated as a fence"
     fi
   fi
 
