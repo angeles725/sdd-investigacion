@@ -1074,6 +1074,38 @@ if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "one block per commit (2 commits) → no ONE-BLOCK-PER-COMMIT WARN, exit 0"
 else no "one-block-clean: rc=$rc :: $(grep -i 'one-block' <<<"$out" | head -1)"; fi
 
+# mkrun_git_psa <corpus> <marker> — the `together` corpus (B1+B2 in ONE commit) plus an iteration-history row
+# whose cell records <marker> (e.g. 'method: per-section-agent · 2 sections').
+mkrun_git_psa() {
+  mkrun_git "$1" together
+  printf '| 2 | 2026-07-08 | import | B1,B2 | no · inline · %s | 0 |\n' "$2" > "$1/.psa-row"
+  awk -v rowf="$1/.psa-row" 'BEGIN{getline row < rowf} {print} index($0,"| 1 | 2026-07-07")==1{print row}' "$1/RESEARCH-STATE.md" > "$1/RESEARCH-STATE.md.new" \
+    && mv "$1/RESEARCH-STATE.md.new" "$1/RESEARCH-STATE.md"
+  rm -f "$1/.psa-row"
+}
+
+# 22a — COMMIT EXEMPTION (kit #1887): ONE import commit with 2 blocks + iteration history recording
+#       `method: per-section-agent · 2 sections` → NO WARN, exit 0, and a visible exemption note.
+d="$TMP/one-block-psa"; mkrun_git_psa "$d" 'method: per-section-agent · 2 sections'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out" && grep -qi 'exempt from ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22a per-section-agent import commit (2 blocks, marker N=2) → exempt, no WARN, note printed"
+else no "22a psa-exempt: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22b — the marker must cover the commit: N=1 < 2 blocks in one commit → still WARNs (stale/short marker).
+d="$TMP/one-block-psa-short"; mkrun_git_psa "$d" 'method: per-section-agent · 1 sections'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22b marker N=1 < 2 blocks in one commit → ONE-BLOCK-PER-COMMIT WARN still fires"
+else no "22b psa-short: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22c — a sequential run (different method text) with a multi-block commit is NOT exempt.
+d="$TMP/one-block-seq"; mkrun_git_psa "$d" 'method: sequential · 2 sections'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22c non-per-section-agent method + multi-block commit → WARN still fires (exemption never covers sequential)"
+else no "22c seq-not-exempt: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
 # mkrun_git_backlink <corpus> — a hermetic git corpus for the ONE-BLOCK-PER-COMMIT × §14 reconciliation:
 # baseline + retro (OLD dates), then B1 in its OWN commit, then ONE iteration commit that ADDS B2 (a new
 # block) AND MODIFIES B1 to add the §14 reciprocal 'corrected in B2' backlink — the exact shape the sibling
@@ -1754,6 +1786,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && { mkrun_git_rename "$TMP/teeth-rename"
          tooth "teeth: -M dropped → false WARN on rename+add under diff.renames=false → case 23b has teeth" 0 0 "$MUT/archive.NOMUTANT.sh" \
            --good-has "$ARCH_RE" --good-lacks 'ONE-BLOCK-PER-COMMIT' --bad-has 'ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-rename"; }
+
+  echo "-- teeth: neuter the #1887 exemption — the exempt fixture must WARN again --"
+  mk_sed "teeth(22a)" "$MUT/archive.PSAMUTANT.sh" 's/if \[ "\$psa_max" -ge "\${nbf:-0}" \]; then/if false; then/' \
+    && { mkrun_git_psa "$TMP/teeth-psa" 'method: per-section-agent · 2 sections'
+         tooth "teeth: exemption neutered → per-section-agent import commit WARNs → case 22a has teeth" 0 0 "$MUT/archive.PSAMUTANT.sh" \
+           --good-has "$ARCH_RE" --good-lacks 'WARN: ONE-BLOCK-PER-COMMIT' --bad-has 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa"; }
 
   echo "-- teeth: AR-VCORR — neuter the linter call (force rc 0); the one-directional corpus must stop REFUSING --"
   d="$TMP/vcorr-teeth"; mkvcorr "$d"

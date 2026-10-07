@@ -599,6 +599,22 @@ echo "    blocks on disk : $blocks · retros: $retros · iteration-history rows:
 # retro yet) whose diff touches 2+ distinct block files. PURE DETECTION — advisory WARN (exit stays 0, like
 # the codegen parity check; the MISSING-RETRO gate below now REFUSES instead of warning); it never rewrites history. Uses the corpus-wide block-file discriminator.
 multi_block_commits=""
+exempt_import_commits=""
+# COMMIT EXEMPTION (kit #1887, PROMPT-LOOP §20 large-scale): a per-section-agent run produces N blocks in ONE
+# dispatch, so ONE import commit holding them is legitimate when the iteration history records
+# `method: per-section-agent · N sections`. We take the LARGEST recorded N and exempt only a commit whose
+# added-block count is <= N (a stale/short marker never excuses a bigger commit). A sequential run records no
+# such marker and so is never exempt. The "every block individually SELF-VERIFIED" precondition is not
+# machine-checkable here; the recorded method line is the declaration the exemption keys on.
+psa_max=0
+if [ -f "$state" ]; then
+  while IFS= read -r _psa_n; do
+    [ -n "$_psa_n" ] || continue
+    [ "$_psa_n" -gt "$psa_max" ] 2>/dev/null && psa_max="$_psa_n"
+  done < <(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$state" \
+    | grep -oE 'method:[[:space:]]*per-section-agent[[:space:]]*·[[:space:]]*[0-9]+[[:space:]]*sections' \
+    | grep -oE '[0-9]+')
+fi
 if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
@@ -612,8 +628,17 @@ if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
     # from the new block, so this would count 2 ADDED block files and false-WARN a violation.
     nbf="$(git -C "$corpus" show --diff-filter=A -M --name-only --format= "$sha" 2>/dev/null \
       | block_file_filter | sort -u | wc -l | tr -d ' ')"
-    [ "${nbf:-0}" -ge 2 ] && multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
+    if [ "${nbf:-0}" -ge 2 ]; then
+      if [ "$psa_max" -ge "${nbf:-0}" ]; then
+        exempt_import_commits="${exempt_import_commits}${exempt_import_commits:+ }${sha:0:9}(${nbf} blocks)"
+      else
+        multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
+      fi
+    fi
   done < <(git -C "$corpus" log --format=%H --since="@${prior_retro_epoch:-0}" 2>/dev/null)
+fi
+if [ -n "$exempt_import_commits" ]; then
+  echo "  note: import commit(s) $exempt_import_commits exempt from ONE-BLOCK-PER-COMMIT (iteration history records method: per-section-agent · $psa_max sections; kit #1887)"
 fi
 if [ -n "$multi_block_commits" ]; then
   echo "WARN: ONE-BLOCK-PER-COMMIT violated — commit(s) landing 2+ block files this run: $multi_block_commits" >&2
