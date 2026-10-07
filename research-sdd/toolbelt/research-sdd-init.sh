@@ -21,6 +21,10 @@
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject "<phrase>"]
 #        [--force] [--wire] [--no-wire] [--scaffold] [--document]
+# ENGRAM (kit issue #1903): a scaffold also writes <target>/.engram/config.json ({"project_name": "<dir name, lowercased, non-alphanumeric runs -> ->"}),
+# CREATE-ONLY (an existing config is kept: `kept:` line; a dangling symlink at the path is refused, exit 2; a directory name with no
+# usable character is a typed `degraded:` line and no file). INIT CANNOT CALL MCP: the AGENT must call
+# mem_session_start(directory=<target>) before the first §20 mirror (mem_save), else mem_save(project=<new>) fails unknown_project.
 # HOOK PLACEHOLDERS (kit issue #1845): hook-sessionstart.sh carries three LIVE (non-comment) placeholders, listed ONCE in
 # _RSDD_HOOK_PLACEHOLDERS and shared by the fill and the guard: <SUBJECT> (filled by --subject "<phrase>", a noun phrase read
 # as "research of <phrase>"), <prefix> (filled by --prefix) and the <path to ...> primary-sources placeholder (no flag can
@@ -155,7 +159,7 @@ while [ $# -gt 0 ]; do
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject \"<phrase>\"] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject \"<phrase>\"] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; echo "       a new target is made Engram-writable (.engram/config.json, create-only); init cannot call MCP, so the AGENT must call mem_session_start(directory=<target>) before the first section-20 mirror (kit issue #1903)" >&2; exit 2; }
 # kit issue #1047: --scaffold has no effect on its own — it only opts a marker-less target INTO
 # scaffolding when paired with --wire. Reject rather than silently ignore, so a typo (or a
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
@@ -275,9 +279,10 @@ _rsdd_placeholder_value() {
 _rsdd_sed_pattern_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$|]/\\&/g'; }
 
 # kit issue #1845: the fill's temp file and the wire-only staging dir, removed by the trap below on EXIT, INT and TERM.
-_RSDD_FILL_TMP=""; _RSDD_STAGE=""
+_RSDD_FILL_TMP=""; _RSDD_STAGE=""; _RSDD_OWNED_DEST=""
 _rsdd_cleanup_tmp() {
   [ -z "$_RSDD_FILL_TMP" ] || rm -f -- "$_RSDD_FILL_TMP"
+  [ -z "$_RSDD_OWNED_DEST" ] || rm -f -- "$_RSDD_OWNED_DEST"   # kit issue #1914 review: an exclusively-created hook a signal interrupted before it was filled
   [ -z "$_RSDD_STAGE" ] || rm -rf -- "$_RSDD_STAGE"
 }
 trap '_rsdd_cleanup_tmp' EXIT
@@ -327,6 +332,17 @@ _rsdd_stage_hook() {
   _rsdd_fill_hook "$_RSDD_STAGE/hook" || exit 2
 }
 
+# kit issue #1914 review: copy <ref>'s permission bits onto <dest> on GNU AND BSD userlands. GNU `chmod --reference` first; else the
+# octal mode via GNU `stat -c %a`, then BSD `stat -f %Lp` (on GNU `stat -f` is filesystem-status, never a mode, so it is only tried
+# after `-c` failed). Any failure returns 1 — the caller turns it into the typed install FATAL.
+_rsdd_copy_mode() {  # <ref> <dest>
+  local m
+  chmod --reference="$1" "$2" 2>/dev/null && return 0
+  m="$(stat -c %a "$1" 2>/dev/null)" || m="$(stat -f %Lp "$1" 2>/dev/null)" || return 1
+  case "$m" in ''|*[!0-7]*) return 1;; esac
+  chmod "$m" "$2"
+}
+
 # kit issue #1860: install <src> at <dest> WITHOUT ever overwriting: copy to a same-directory temp (same filesystem, mode
 # carried), then `ln` it into place — ln refuses an existing path (EEXIST, a dangling symlink included), which is the "kept"
 # outcome (rc 1; a directory at <dest> is also kept: ln would drop the temp INSIDE it, which the -ef check detects and undoes).
@@ -345,8 +361,10 @@ _rsdd_install_noclobber() {  # <src> <dest>
     rc=1   # EEXIST: the path appeared after the check
   elif ( set -C; : > "$dest" ) 2>/dev/null; then
     # no hard links here (vfat/exFAT/SMB/FUSE/9p…): exclusive create (noclobber) then fill + copy the mode; we own <dest> now
-    { cat "$tmp" > "$dest" && { chmod --reference="$tmp" "$dest" 2>/dev/null || chmod "$(stat -f %Lp "$tmp")" "$dest"; }; } \
-      || { rm -f -- "$dest" "$tmp"; _RSDD_FILL_TMP=""; echo "FATAL: could not install $dest (ln: $err; fallback copy failed)" >&2; exit 2; }
+    _RSDD_OWNED_DEST="$dest"   # the trap removes it if a signal lands before the fill + mode finish (an empty hook must never read as `kept:` later)
+    { cat "$tmp" > "$dest" && _rsdd_copy_mode "$tmp" "$dest"; } \
+      || { rm -f -- "$dest" "$tmp"; _RSDD_OWNED_DEST=""; _RSDD_FILL_TMP=""; echo "FATAL: could not install $dest (ln: $err; fallback copy failed)" >&2; exit 2; }
+    _RSDD_OWNED_DEST=""   # fully installed: the trap must not remove it
   elif [ -e "$dest" ] || [ -L "$dest" ]; then
     rc=1   # the exclusive create lost a race: kept
   else
@@ -1072,7 +1090,7 @@ is_inproject() {
   for e in "$d"/*; do
     case "$(basename "$e")" in
       INDEX.md|CATALOG.md|RESEARCH-STATE*.md|HANDBOOK.md|WORKFLOW.md|*block*.md|*bloque*.md|sources|tools|retros|corpus) ;;
-      .git|.gitignore|.claude|.atl) ;;
+      .git|.gitignore|.claude|.atl|.engram) ;;   # kit issue #1903: the Engram config the scaffold itself writes is infra, never subject material
       *) found=0; break;;
     esac
   done
@@ -1116,6 +1134,7 @@ fi
 _rsdd_scaffold_paths=("$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources" "$corpus/sources/SOURCES.md"
   "$target/.claude" "$target/.claude/hooks" "$target/.claude/hooks/research-protocol.sh"
   "$target/.claude/hooks/retro-gate-stop.sh" "$target/.claude/hooks/pkill-guard.sh" "$target/retros" "$target/tools" "$target/tools/README.md")
+_rsdd_scaffold_paths+=("$target/.engram" "$target/.engram/config.json")   # kit issue #1903: the Engram config the scaffold writes
 # settings.json is written only with --wire (kit issue #1043 item 4), so only then is it a precondition.
 [ "$wire" = 1 ] && _rsdd_scaffold_paths+=("$target/.claude/settings.json")
 _rsdd_dangling_symlinks "${_rsdd_scaffold_paths[@]}" || exit 2
@@ -1151,6 +1170,22 @@ else
   echo "kept: $target/.claude/hooks/research-protocol.sh (existing hook, not overwritten — stale? re-run with --force)"
 fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
+# kit issue #1903: make the target Engram-writable. Engram reads <target>/.engram/config.json (project_name); without it
+# mem_save(project=<new>) fails unknown_project. Create-only: an existing config is never touched. The name is the directory name
+# lowercased, every run of non-alphanumerics collapsed to one `-` (edit the file to use the TARGETS.md/registry name instead).
+_eng_cfg="$target/.engram/config.json"; _eng_state=""; _eng_name=""
+if [ -e "$_eng_cfg" ] || [ -L "$_eng_cfg" ]; then
+  _eng_state="kept"
+else
+  _eng_name="$(basename "$(cd -P "$target" && pwd -P)" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')"
+  if [ -z "$_eng_name" ]; then
+    _eng_state="underivable"
+  else
+    mk "$target/.engram"
+    printf '{\n  "project_name": "%s"\n}\n' "$_eng_name" > "$_eng_cfg"
+    _eng_state="created"
+  fi
+fi
 # §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
 _rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
 cpf "$TPL/hook-stop-retro-gate.sh" "$_rg_hook"
@@ -1197,6 +1232,11 @@ echo "  target : $target"
 echo "  corpus : ${rel}"
 echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · pkill-guard hook · retros/ · tools/README.md · .gitignore"
 _rsdd_gitignore_plan
+case "$_eng_state" in
+  created)     echo "  engram : created: $_eng_cfg (project_name=$_eng_name)";;
+  kept)        echo "  engram : kept: $_eng_cfg (existing config, not overwritten)";;
+  underivable) echo "degraded: engram: could not derive a project_name from the directory name of $target — write $_eng_cfg by hand ({\"project_name\": \"<name>\"}); mem_save(project=<new>) fails unknown_project without it" >&2;;
+esac
 echo "  catalog: CATALOG.md is regenerated by research-sdd-archive.sh via the KIT generator (no per-target copy — eje #2)"
 if [ "$document" = 1 ]; then
   echo "  mode   : document-cycle scaffold (--document, kit issue #1114) — RESEARCH-STATE.md seeded from the OUTLINE-driven variant (METHODOLOGY §20), not the gap-discovery one"
@@ -1230,6 +1270,7 @@ if [ -n "$prefix" ]; then
 else
   echo "  (no --prefix given — step 5, block-file prefix, is skipped; pass --prefix to enable it)"
 fi
+echo "  6. ENGRAM (agent step — init cannot call MCP): call mem_session_start(directory=$(cd -P "$target" && pwd -P)) before the first §20 mirror (mem_save) — the config above makes the project known, the session registers it; skipping it fails mem_save(project=<new>) with unknown_project."
 echo
 if [ "$document" = 1 ]; then
   echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — its next-step/saturation verdicts are GAP-CENTRIC and NOT meaningful for this document-cycle corpus (kit issue #1152 tracks teaching status to honor method: document-cycle); the \"## Outline\" table in RESEARCH-STATE.md is this mode's real completion signal (PROMPT-LOOP DOCUMENT CYCLE step 7)."
