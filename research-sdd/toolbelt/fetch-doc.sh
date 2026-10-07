@@ -328,6 +328,25 @@ probe_downloaders() {
   fi
 }
 
+# sha256_stdin — sha256 of stdin as 64 hex chars, via sha256sum, else `shasum -a 256` (macOS/BSD); returns 127 with
+# neither (callers are guarded by probe_sha256, which runs before any write).
+sha256_stdin() {
+  if have_cmd sha256sum; then sha256sum | cut -d' ' -f1
+  elif have_cmd shasum; then shasum -a 256 | cut -d' ' -f1
+  else return 127; fi
+}
+# sha256_file <file> — sha256 of a file (see sha256_stdin).
+sha256_file() { sha256_stdin < "$1"; }
+
+# probe_sha256 — typed DEGRADED + exit 3 when no sha256 tool exists, BEFORE preflight or any write (kit CLAUDE.md §7:
+# a raw 127 from a missing tool after the bytes landed would leave an unregistered file).
+probe_sha256() {
+  if ! have_cmd sha256sum && ! have_cmd shasum; then
+    echo "fetch-doc: DEGRADED: no sha256 tool (sha256sum or shasum) is installed — cannot register evidence; nothing fetched" >&2
+    exit 3
+  fi
+}
+
 # pid_alive <pid> — positive liveness: /proc/<pid> exists (Linux) or `ps -p` finds it. NEVER `kill -0`: that
 # fails with EPERM for another user's pid, which would read as "dead". With neither /proc nor ps, assume alive.
 pid_alive() {
@@ -412,7 +431,7 @@ install_file() {
     exit 5
   fi
   if [ "$REPLACE" -eq 1 ] && [ -e "$dest" ]; then  # SENTINEL-INSTALL-REPLACE-GUARD
-    oldsha="$(sha256sum "$dest" | cut -d' ' -f1)"; newsha="$(sha256sum "$part" | cut -d' ' -f1)"
+    oldsha="$(sha256_file "$dest")"; newsha="$(sha256_file "$part")"
     if [ "$oldsha" = "$newsha" ]; then
       if has_row "$rel" "$newsha"; then
         rm -f "$part"; INSTALL_SAME=1
@@ -432,7 +451,7 @@ install_file() {
       fi
       if [ -e "$vpath" ]; then
         # A->B->A->B: the same bytes may already be archived there; anything else must NOT be destroyed or merged.
-        if [ "$(sha256sum "$vpath" | cut -d' ' -f1)" != "$oldsha" ]; then  # SENTINEL-VNAME-COMPARE
+        if [ "$(sha256_file "$vpath")" != "$oldsha" ]; then  # SENTINEL-VNAME-COMPARE
           echo "fetch-doc: REFUSED: versioned name already holds DIFFERENT bytes: $vpath — the current bytes are kept" >&2
           exit 1
         fi
@@ -522,11 +541,18 @@ convert_html() {
 # name; now it becomes <first 46>_<last 20>-<first 12 hex of sha256(FULL URL)> (head AND tail stay readable, the
 # hash makes the name distinct and deterministic per URL, 80 chars total). Two DIFFERENT short URLs that only
 # differ in replaced characters ("a/b" vs "a_b") still share a name; preflight_dest then REFUSES (exit 4).
+# The scheme is dropped from the slug but INCLUDED in the hash input (http://x and https://x get different long
+# names). LC_ALL=C keeps the slug locale-independent (byte-wise classes, no locale collation/multibyte surprises).
+# A hash that is not exactly 12 hex chars (broken sha256 tool) is a typed failure (return 3), never a bad name.
 web_slug() {
   local slug h
-  slug="$(printf '%s' "$1" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g')"
+  slug="$(printf '%s' "$1" | LC_ALL=C sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g')"
   if [ "${#slug}" -le 80 ]; then printf '%s' "$slug"; return 0; fi
-  h="$(printf '%s' "$1" | sha256sum | cut -c1-12)"
+  h="$(printf '%s' "$1" | sha256_stdin | cut -c1-12)"
+  case "$h" in
+    *[!0-9a-f]*|"") echo "fetch-doc: DEGRADED: sha256 tool returned no usable digest — cannot derive a snapshot name" >&2; return 3 ;;
+  esac
+  [ "${#h}" -eq 12 ] || { echo "fetch-doc: DEGRADED: sha256 tool returned a short digest — cannot derive a snapshot name" >&2; return 3; }
   printf '%s_%s-%s' "${slug:0:46}" "${slug: -20}" "$h"
 }
 
@@ -549,7 +575,7 @@ case "$MODE" in
     ;;
   doc)
     URL="${2:?url}"; TDIR="${3:?target-dir}"; SUB="${4:-datasheets}"
-    probe_downloaders
+    probe_downloaders; probe_sha256
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB"
     NAME="${5:-$(basename "${URL%%\?*}")}"; DEST="$SDIR/$SUB/$NAME"
     # SENTINEL-TRAP (#1285 item 2): Ctrl-C/TERM mid-download must not leave a partial file. Only
@@ -564,7 +590,7 @@ case "$MODE" in
     # SENTINEL-SIGNAL-BLOCK (#1313 N2): from here to the written row a signal must not leave new bytes without a row.
     trap '' INT TERM
     install_file "$DEST.fetchdoc-part.$$" "$DEST"
-    SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
+    SHA="$(sha256_file "$DEST")"
     # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
     # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
     # page/section from it (§5). Page-anchored extraction belongs to extract-pdf.sh, which
@@ -582,9 +608,9 @@ case "$MODE" in
     ;;
   web)
     URL="${2:?url}"; TDIR="${3:?target-dir}"
-    probe_downloaders
+    probe_downloaders; probe_sha256
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/web-snapshots"
-    SLUG="$(web_slug "$URL")"
+    SLUG="$(web_slug "$URL")" || exit $?
     DEST="$SDIR/web-snapshots/$SLUG.md"
     # Refuse BEFORE mktemp so a refusal leaves nothing behind (#1313 items 2-3).
     preflight_dest "$DEST"; sweep_stale_parts "$SDIR/web-snapshots"
@@ -610,7 +636,7 @@ case "$MODE" in
     trap '' INT TERM  # SENTINEL-SIGNAL-BLOCK (#1313 N2): see doc mode
     install_file "$WPART" "$DEST"
     rm -f "$HTML"
-    SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
+    SHA="$(sha256_file "$DEST")"
     if [ "$INSTALL_SAME" -eq 1 ]; then
       echo "OK: $URL -> $DEST  (identical snapshot already registered; no new row)"
     else
