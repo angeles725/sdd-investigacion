@@ -44,10 +44,13 @@
 #                                           shell has job control on, where a backgrounded setsid would fork and detach)
 #   The group (pgid == pid) is VERIFIED with `ps -o pgid=` after launch; a missing ps or a mismatch also degrades to
 #   child-only with a typed note naming the pgid. The post-bound sweep signals the group only (never a bare, possibly
-#   recycled, pid) and is skipped in child-only mode. While the watchdog waits, the caller's INT/TERM/HUP traps kill the
-#   group (setsid detaches it from the terminal) and then re-raise; the caller's previous traps are restored afterwards.
+#   recycled, pid) and is skipped in child-only mode. From BEFORE the launch until the run ends, the caller's INT/TERM/HUP
+#   traps kill the group (setsid detaches it from the terminal) and then re-raise; the caller's previous traps are restored
+#   afterwards. Remaining sub-millisecond windows (kit #1911): a signal between a fork and the assignment that records it
+#   is covered for the command by the handler's `$!` fallback, but one landing between the watchdog's fork and its
+#   recording leaves that watchdog to expire on its own (it signals the already-dead leader/group at the bound).
 #   If the caller is signalled while the watchdog waits and its own restored trap does NOT exit, the run reports
-#   GHV_STATE=CALLER_SIGNALLED (non-zero return; never TIMEOUT) and skips the sweep and the watchdog kill.
+#   GHV_STATE=CALLER_SIGNALLED (non-zero return; never TIMEOUT) and skips the verification, the sweep and the bound.
 #   child-only is the documented limit: a grandchild of the bounded command may outlive the kill. Callers should print
 #   GHV_NOTE when it is non-empty and the state is TIMEOUT.
 # shellcheck disable=SC2034  # GHV_* are the lib's result globals, read by the sourcing callers
@@ -116,13 +119,15 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
   # _ghv_set_traps / _ghv_restore_traps — a new session detaches the command from the terminal's
   # Ctrl-C / SIGHUP, so the caller's INT/TERM/HUP must take the group down. The previous traps are saved and restored;
   # the handler restores them first and then re-raises the signal so the caller's own disposition still applies.
-  # <pid> <group|""> <watchdog pid>: the handler also disarms the watchdog, else it would later TERM/KILL a recycled pid/pgid.
+  # The handler also disarms the watchdog, else it would later TERM/KILL a recycled pid/pgid.
   _ghv_set_traps() {
     _GHV_PT_INT="$(trap -p INT)"; _GHV_PT_TERM="$(trap -p TERM)"; _GHV_PT_HUP="$(trap -p HUP)"
     # Installed BEFORE the command is launched (kit issue #1911): a signal that lands between the launch and a later
     # install (e.g. during the up-to-2s pgid verification) would otherwise kill the caller with the group and the
-    # watchdog still alive. The handler therefore reads the state LATE-BOUND from _GHV_PID / _GHV_GRP / _GHV_WD, which
-    # the caller fills in as each becomes known.
+    # watchdog still alive. The handler therefore reads the state LATE-BOUND from _GHV_PID / _GHV_GRP / _GHV_WD. The
+    # caller sets _GHV_GRP (the intended group mode) BEFORE the launch: a group kill of a group that does not exist yet
+    # is a harmless ESRCH. _GHV_PID is recorded in the same command as the caller's `pid=$!`; _GHV_WD inside
+    # _ghv_arm_watchdog right after its fork.
     _GHV_PID="" _GHV_GRP="" _GHV_WD="" _GHV_BANG0="${!:-}"
     trap "_ghv_on_signal INT" INT
     trap "_ghv_on_signal TERM" TERM
@@ -135,13 +140,14 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
   }
   _ghv_on_signal() { # <SIG> — state from _GHV_PID / _GHV_GRP / _GHV_WD (late-bound, see _ghv_set_traps)
     _GHV_SIGNALLED="$1"          # read after `wait` if the caller's restored trap does not exit
-    # the launch may have just forked: `$!` is then the leader even if `pid=$!` has not run yet. The leader is not reaped
-    # before the caller's `wait`, so its pid (and pgid) cannot have been recycled while this handler runs.
-    local pid="${_GHV_PID:-}"
-    [ -n "$pid" ] || { [ "${!:-}" = "$_GHV_BANG0" ] || pid="$!"; }   # a NEW background pid only: never a stale one of the caller's
+    # Group mode signals the GROUP only (kit #1854): bash reaps background children asynchronously, so a bare pid may be
+    # recycled before the caller's `wait`. The one exception is the `$!` fallback below (the pid just forked, so it cannot
+    # have been recycled yet; the group may not exist yet either because setsid has not exec'd).
+    local pid="${_GHV_PID:-}" fb=""
+    if [ -z "$pid" ] && [ "${!:-}" != "$_GHV_BANG0" ]; then pid="$!"; fb=1; fi   # a NEW background pid only, never a stale one
     if [ -n "$pid" ]; then
-      _ghv_sig KILL "$pid" "$_GHV_GRP"
-      kill -KILL "$pid" 2>/dev/null || :   # the group may not exist yet (setsid not exec'd) or be unverified
+      _ghv_sig KILL "$pid" "$_GHV_GRP"   # group form when _GHV_GRP is set, else the bare pid (child-only mode)
+      [ -z "$fb" ] || kill -KILL "$pid" 2>/dev/null || :
     fi
     [ -z "$_GHV_WD" ] || kill "$_GHV_WD" 2>/dev/null || :   # the watchdog's TERM trap kills its own sleep first
     # shellcheck disable=SC2086  # a space-separated list of the probe's own mktemp paths (no whitespace in mktemp names)
@@ -157,7 +163,7 @@ if ! declare -F _ghv_resolve_bound >/dev/null 2>&1; then
   _ghv_arm_watchdog() {
     ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM; sleep "$2" & wait; _ghv_sig TERM "$1" "$3"
       sleep 2 & wait; _ghv_sig KILL "$1" "$3" ) >/dev/null 2>&1 &   # RSDD-GH-WATCHDOG-ARM
-    GHV_WDPID=$!
+    GHV_WDPID=$! _GHV_WD=$!
   }
 fi
 if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
@@ -179,20 +185,20 @@ if ! declare -F gh_visibility_probe >/dev/null 2>&1; then
       _ghv_group_mode
       if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
       _GHV_SIGNALLED=""
-      _ghv_set_traps   # BEFORE the launch (kit issue #1911): no window in which a signal finds no handler
+      _ghv_set_traps; _GHV_GRP="$grpflag"   # BEFORE the launch (kit issue #1911): no launch without a handler
       ( cd "$run_dir" && exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "${cmd[@]}" >"$outf" 2>"$err" ) &   # RSDD-GH-WATCHDOG
-      pid=$!; _GHV_PID="$pid" _GHV_GRP="$grpflag"
-      if [ -n "$grpflag" ]; then
-        _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; _ghv_note_unverified "$vrc"; }
+      pid=$! _GHV_PID=$!
+      if [ -n "$grpflag" ] && [ -z "$_GHV_SIGNALLED" ]; then
+        _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; [ -n "$_GHV_SIGNALLED" ] || _ghv_note_unverified "$vrc"; }
       fi
-      _ghv_arm_watchdog "$pid" "$t" "$grpflag"
-      wdpid="$GHV_WDPID"; _GHV_WD="$wdpid"
+      wdpid=""
+      if [ -z "$_GHV_SIGNALLED" ]; then _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"; fi
       wait "$pid" 2>/dev/null || rc=$?
       _ghv_restore_traps
       if [ -n "$_GHV_SIGNALLED" ]; then
         # the caller's own trap did not exit: group and watchdog were already handled in the handler; the group and the
         # leader are reaped, so no sweep, no watchdog kill and NO TIMEOUT mapping — a typed caller-signal state instead
-        kill "$wdpid" 2>/dev/null || :   # armed after a signal that landed during the verification
+        [ -z "$wdpid" ] || { kill "$wdpid" 2>/dev/null || :; wait "$wdpid" 2>/dev/null || :; }   # armed just before the signal
         rm -f "$outf" "$err"; _GHV_TMPFILES=""; GHV_RC="$rc"; GHV_STATE=CALLER_SIGNALLED; return 1
       fi
       kill "$wdpid" 2>/dev/null || :
@@ -232,17 +238,19 @@ if ! declare -F gh_bounded_run >/dev/null 2>&1; then
       _ghv_group_mode
       if [ "$GHV_GROUP" = setsid ]; then grp=(setsid); grpflag=group; fi
       _GHV_SIGNALLED=""
-      _ghv_set_traps   # BEFORE the launch (kit issue #1911)
+      _ghv_set_traps; _GHV_GRP="$grpflag"   # BEFORE the launch (kit issue #1911)
       ( exec ${grp[@]+"${grp[@]}"} env -u GH_REPO GH_PROMPT_DISABLED=1 "$@" ) &   # RSDD-GH-WATCHDOG-RUN
-      pid=$!; _GHV_PID="$pid" _GHV_GRP="$grpflag"
-      if [ -n "$grpflag" ]; then
-        _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; _ghv_note_unverified "$vrc"; }
+      pid=$! _GHV_PID=$!
+      if [ -n "$grpflag" ] && [ -z "$_GHV_SIGNALLED" ]; then
+        _ghv_verify_group "$pid" || { vrc=$?; grpflag=""; _GHV_GRP=""; [ -n "$_GHV_SIGNALLED" ] || _ghv_note_unverified "$vrc"; }
       fi
-      _ghv_arm_watchdog "$pid" "$t" "$grpflag"
-      wdpid="$GHV_WDPID"; _GHV_WD="$wdpid"
+      wdpid=""
+      if [ -z "$_GHV_SIGNALLED" ]; then _ghv_arm_watchdog "$pid" "$t" "$grpflag"; wdpid="$GHV_WDPID"; fi
       wait "$pid" 2>/dev/null || rc=$?
       _ghv_restore_traps
-      if [ -n "$_GHV_SIGNALLED" ]; then kill "$wdpid" 2>/dev/null || :; GHV_RC="$rc"; GHV_STATE=CALLER_SIGNALLED; return "$rc"; fi
+      if [ -n "$_GHV_SIGNALLED" ]; then
+        [ -z "$wdpid" ] || { kill "$wdpid" 2>/dev/null || :; wait "$wdpid" 2>/dev/null || :; }
+        GHV_RC="$rc"; GHV_STATE=CALLER_SIGNALLED; return "$rc"; fi
       kill "$wdpid" 2>/dev/null || :
       wait "$wdpid" 2>/dev/null || :
       if [ "$rc" = 143 ] || [ "$rc" = 137 ]; then _ghv_sweep "$pid" "$grpflag"; fi
