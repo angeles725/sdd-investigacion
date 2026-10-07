@@ -614,24 +614,37 @@ count_retyped_in_table() {
   done < <(backlog_rows 2>/dev/null)
   echo "$n"
 }
-# gap_id TEXT — leading ID token of a gap cell / bullet (`**` stripped): [A-Z0-9][A-Z0-9.-]* (e.g. `AB.`, `G54`);
-# empty when the first token is not ID-shaped (a plain word is never an ID).
-gap_id() {
-  local t="${1#"${1%%[![:space:]]*}"}"; t="${t#\*\*}"; t="${t%%[[:space:]]*}"; t="${t%\*\*}"
-  case "$t" in ''|*[!A-Z0-9.-]*) return 0 ;; esac
-  case "$t" in [A-Z0-9]*) printf '%s\n' "$t" ;; esac
+# warn_inplace_blocked FILE N — the typed actionable WARN for the in-place bucket (prints nothing when N is 0).
+# Called on every path that derives gaps_closed (backlog-derived AND declared-keep).
+warn_inplace_blocked() {
+  [ "${2:-0}" -gt 0 ] || return 0
+  printf 'sync-state: WARN: %s: %d in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.\n' "$1" "$2" >&2
 }
-# count_inplace_blocked — OPEN backlog rows whose leading Status token is `blocked` / `blocked-on-*` (the in-place
-# form of METHODOLOGY §21.1) that are NOT also listed under a Blocked-gaps section (#1915). Such a row is excluded
-# from investigable_open (DONE-TOKENS) and is not in blocked_open (section-derived, mirrored by verify-state CHECK C),
-# so without this bucket the KG-BACKLOG gaps_closed derivation counted it CLOSED (a silent false close count, §7).
+# gap_id TEXT — normalised leading ID token of a gap cell / bullet: `**` and a trailing `.`/`:` stripped, upcased
+# (`AB.`, `AB`, `ab:` all give `AB`). ID-shaped = [A-Za-z0-9][A-Za-z0-9.-]* that holds a digit or is at most 3
+# characters; empty otherwise (a plain word like `Builders` is never an ID).
+gap_id() {
+  local t="${1#"${1%%[![:space:]]*}"}"; t="${t#\*\*}"; t="${t%%[[:space:]]*}"; t="${t%\*\*}"; t="${t%[.:]}"
+  case "$t" in ''|*[!A-Za-z0-9.-]*) return 0 ;; esac
+  case "$t" in [A-Za-z0-9]*) ;; *) return 0 ;; esac
+  case "$t" in *[0-9]*) ;; *) [ "${#t}" -le 3 ] || return 0 ;; esac
+  printf '%s\n' "${t^^}"
+}
+# count_inplace_blocked — OPEN backlog rows whose leading Status token is `blocked` / `blocked:` / `blocked,` /
+# `blocked-on-*` (the in-place form of METHODOLOGY §21.1) that are NOT also listed under a Blocked-gaps section (#1915).
+# Such a row is excluded from investigable_open (DONE-TOKENS) and is not in blocked_open (section-derived, mirrored by
+# verify-state CHECK C), so without this bucket the KG-BACKLOG gaps_closed derivation counted it CLOSED (§7).
 # A typed separate bucket: subtracted from gaps_closed and named in a WARN; blocked_open is deliberately unchanged.
 # Closed rows (struck gap, ~~/✅ in the status) are skipped; `requires-execution*` has its own counter.
+# Only a bullet that blocked_open actually counts (it carries `needs:`) may suppress a row: a needs-less bullet
+# raises no bucket, so the row must stay counted here.
 count_inplace_blocked() {
-  local gap st lead tok n=0 _ipb_id _blk_ids
-  # gap IDs of the Blocked-gaps bullets: the in-place row's Gap cell and the bullet rarely share the full text
+  local gap st lead tok n=0 _ipb_id _blk_ids _blk_names _bn
+  _blk_names="$(blocked_body | grep -iE '^[[:space:]]*-[[:space:]].*needs:' | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
+    | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  # gap IDs of those bullets: the in-place row's Gap cell and the bullet rarely share the full text
   # (fleet: `AB. Builders de config … — offsets` vs `**AB. Offsets de campo …**`), so match by leading ID token.
-  _blk_ids="$(blocked_names | while IFS= read -r _bn; do gap_id "$_bn"; done)"
+  _blk_ids="$(while IFS= read -r _bn; do gap_id "$_bn"; done <<<"$_blk_names")"
   while IFS=$'\t' read -r _ gap st; do
     [ -z "$gap" ] && continue
     case "$gap" in *'~~'*) continue ;; esac
@@ -639,9 +652,9 @@ count_inplace_blocked() {
     lead="${st#\*\*}"; lead="${lead/\*\*/}"
     tok="${lead%% *}"
     case "$tok" in blocked-on-*|blocked|blocked:|blocked,) ;; *) continue ;; esac  # INPLACE-BLOCKED-TOKENS
-    is_blocked "$gap" && continue  # INPLACE-DUAL-GUARD: already counted once by the Blocked-gaps section
+    case $'\n'"$_blk_names"$'\n' in *$'\n'"$gap"$'\n'*) continue ;; esac  # INPLACE-DUAL-GUARD: already counted once by the Blocked-gaps section
     _ipb_id="$(gap_id "$gap")"
-    if [ -n "$_ipb_id" ]; then  # INPLACE-DUAL-ID: same gap ID as a Blocked-gaps bullet (IDs hold only [A-Z0-9.-], so no glob chars)
+    if [ -n "$_ipb_id" ]; then  # INPLACE-DUAL-ID: same gap ID as a counted Blocked-gaps bullet (IDs hold only [A-Z0-9.-], so no glob chars)
       case $'\n'"$_blk_ids"$'\n' in *$'\n'"$_ipb_id"$'\n'*) continue ;; esac  # INPLACE-DUAL-ID-CASE
     fi
     n=$((n+1))
@@ -1055,6 +1068,7 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     if [ "$_kg_lb" = 1 ]; then  # KG-LB-KEEP: assign the DECLARED total explicitly (a stale prose Y must not win); gaps_closed = max(declared, derived) so a real closure is not hidden
       kg="${_decl_kg}"
+      warn_inplace_blocked "$(basename "$state")" "${_ipb:-0}"  # INPLACE-BLOCKED-WARN
       _gc_d=$(( ${_dkg_total} - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} - ${_ipb:-0} )); [ "$_gc_d" -lt 0 ] && _gc_d=0
       gc="${_decl_gc}"; grep -qE '^[0-9]+$' <<<"$gc" || gc=0
       [ "$_gc_d" -gt "$gc" ] && gc="$_gc_d"
@@ -1065,10 +1079,10 @@ if [ "$mode" = "--sync-state" ]; then
        && grep -qE '^[0-9]+$' <<<"${_cm_kg:-0}" \
        && [ "${_dkg_total}" -gt "${_cm_kg:-0}" ] 2>/dev/null; then  # KG-BACKLOG-GATE
       kg="${_dkg_total}"  # KG-BACKLOG-EXCEEDS
-      # KG-BACKLOG-GC: when kg comes from backlog, gc = closed rows = kg − (io + req + bo + def).
+      # KG-BACKLOG-GC: when kg comes from backlog, gc = closed rows = kg − (io + req + bo + def + in-place blocked).
       # Coverage prose numerator is stale in this path; compute gc from the backlog rows directly.
       _gc_backlog=$(( _dkg_total - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} - ${_ipb:-0} ))  # INPLACE-GC-SUBTRACT
-      [ "${_ipb:-0}" -gt 0 ] && printf 'sync-state: WARN: %s: %d in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.\n' "$(basename "$state")" "$_ipb" >&2  # INPLACE-BLOCKED-WARN
+      warn_inplace_blocked "$(basename "$state")" "${_ipb:-0}"  # INPLACE-BLOCKED-WARN
       gc="${_gc_backlog}"  # KG-BACKLOG-GC
       if [ "$gc" -lt 0 ]; then  # GC-CLAMP (kit #983): open buckets can overlap (a requires-execution row also listed blocked)
         # Never write an invented 0 over a DECLARED value: keep the declared gaps_closed (as pick() does); 0 only when none was declared.

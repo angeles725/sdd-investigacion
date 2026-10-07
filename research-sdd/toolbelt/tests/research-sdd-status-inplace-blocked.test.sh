@@ -93,6 +93,8 @@ UNC="| high | a | b | c | d | e |"
 d="$TMP/g"; KGDECL=10 mkstate "$d" "$PEND" "$DONE" "$B1" "$UNC"
 o="$(sync_out "$d")"
 [ "$(env_val "$d" known_gaps)" = 10 ] && [ "$(env_val "$d" gaps_closed)" = 1 ] && ok "8 KG-LB-KEEP: kg=10 kept, gaps_closed=1 (row not closed)" || no "8 kg=$(env_val "$d" known_gaps) gc=$(env_val "$d" gaps_closed) (want 10/1)"
+# 8b. the keep path prints the same typed WARN (checked on THIS case's output)
+grep -q 'sync-state: WARN: .*1 in-place blocked row' <<<"$o" && ok "8b KG-LB-KEEP path prints the in-place WARN" || no "8b WARN missing on the keep path: $o"
 # 9. blocked: / blocked, are recognised DONE-TOKENS and bucketed — never "unrecognised"
 d="$TMP/h"; mkstate "$d" "$PEND" '| low | colon | web | blocked: needs tool |' '| low | comma | web | blocked, see below |'
 o="$(sync_out "$d")"
@@ -102,6 +104,19 @@ grep -q '2 in-place blocked row' <<<"$o" && [ "$(env_val "$d" gaps_closed)" = 0 
 d="$TMP/i"; mkstate "$d" --section-blocked "zzz one" --section-blocked "yyy two" "$PEND" "$B1"
 o="$(sync_out "$d")"
 grep -q 'in-place-blocked = 4;' <<<"$o" && ok "10 GC-CLAMP WARN sum includes in-place blocked (= 4)" || no "10 clamp sum wrong: $o"
+# 11. ID normalisation: trailing . / : and case are ignored on both sides
+n=0
+for pair in 'AB.|AB' 'AB|ab:' 'ab:|AB.'; do
+  n=$((n+1)); rp="${pair%%|*}"; bp="${pair##*|}"
+  d="$TMP/n$n"; mkstate "$d" --raw-bullet "**$bp Offsets de campo** (X) — needs: a decompiler" "$PEND" "$DONE" "| low | $rp Builders de config — x | web | blocked-on-tool: y |"
+  sync_out "$d" >/dev/null
+  [ "$(env_val "$d" blocked_open)" = 1 ] && [ "$(env_val "$d" gaps_closed)" = 1 ] && ok "11.$n row ID '$rp' matches bullet ID '$bp' (bo=1, gc=1)" || no "11.$n '$rp' vs '$bp': bo=$(env_val "$d" blocked_open) gc=$(env_val "$d" gaps_closed) (want 1/1)"
+done
+# 12. a bullet WITHOUT needs: is not counted by blocked_open, so it must not suppress the in-place row
+d="$TMP/j"; mkstate "$d" --raw-bullet '**AB. Offsets de campo** (X) — no clause here' "$PEND" "$DONE" "$DUALID"
+o="$(sync_out "$d")"
+[ "$(env_val "$d" blocked_open)" = 0 ] && [ "$(env_val "$d" gaps_closed)" = 1 ] && ok "12a needs-less bullet: bo=0 and the row stays in the bucket (gc=1)" || no "12a bo=$(env_val "$d" blocked_open) gc=$(env_val "$d" gaps_closed) (want 0/1)"
+grep -q '1 in-place blocked row' <<<"$o" && ok "12b WARN names the unsuppressed row" || no "12b WARN missing: $o"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
@@ -125,8 +140,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$(env_val "$TMP/m" known_gaps)" = "$want_kg" ] || { no "teeth $name: known_gaps=$(env_val "$TMP/m" known_gaps) (want $want_kg) — run did not reach the write"; return; }
     [ "$(env_val "$TMP/m" gaps_closed)" = "$want_gc" ] && ok "teeth $name: mutant yields exactly gaps_closed=$want_gc" || no "teeth $name: gaps_closed=$(env_val "$TMP/m" gaps_closed) (want mutant $want_gc) — THEATER"
   }
+  fx_g() { mkstate "$TMP/m" "$PEND" '| low | colon | web | blocked: needs tool |' '| low | comma | web | blocked, see below |'; }
+  fx_i() { mkstate "$TMP/m" --section-blocked "zzz one" --section-blocked "yyy two" "$PEND" "$B1"; }
+  fx_n() { mkstate "$TMP/m" --raw-bullet '**ab: Offsets** (X) — needs: a decompiler' "$PEND" "$DONE" '| low | AB. Builders — x | web | blocked-on-tool: y |'; }
+  fx_j() { mkstate "$TMP/m" --raw-bullet '**AB. Offsets de campo** (X) — no clause here' "$PEND" "$DONE" "$DUALID"; }
+  # tooth_out NAME SEDEXPR FIXTURE_FN WANT_KG present|absent PATTERN — mutant rc==0, known_gaps written, output text exact
+  tooth_out() {
+    local name="$1" expr="$2" fx="$3" want_kg="$4" mode="$5" pat="$6" t rc=0 has=0
+    t="$(mk_tree "$name")"; rm -rf "$TMP/m"
+    if ! mutant_sed "$ST" "$t/research-sdd-status.sh" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
+    "$fx"
+    bash "$t/research-sdd-status.sh" "$TMP/m" --sync-state >"$TMP/m.out" 2>&1 || rc=$?
+    if [ "$rc" != 0 ]; then no "teeth $name: mutant crashed rc=$rc — a crash is not a bite"; return; fi
+    if [ -n "$want_kg" ] && [ "$(env_val "$TMP/m" known_gaps)" != "$want_kg" ]; then no "teeth $name: known_gaps=$(env_val "$TMP/m" known_gaps) (want $want_kg) — run did not reach the write"; return; fi
+    grep -qF -- "$pat" "$TMP/m.out" && has=1
+    if [ "$mode" = absent ]; then [ "$has" = 0 ] && ok "teeth $name: mutant no longer prints '$pat'" || no "teeth $name: '$pat' still printed — THEATER"
+    else [ "$has" = 1 ] && ok "teeth $name: mutant prints the wrong text '$pat'" || no "teeth $name: '$pat' not printed — THEATER"; fi
+  }
+  tooth_out B '/printf .sync-state: WARN: %s: %d in-place blocked/ s/.*/  :/' fx_a 3 absent 'in-place blocked row'
+  tooth_out K '/^      kg="\${_decl_kg}"/,+1 s/^      warn_inplace_blocked.*/      :/' fx_f 10 absent 'in-place blocked row'
+  tooth_out G 's/blocked-on-\*|blocked|blocked:|blocked,|/blocked-on-*|blocked|/; /DONE-TOKENS/ s/blocked:|blocked,|//' fx_g 3 present 'unrecognised Status token [blocked:'
+  tooth_out H 's/ + \${_ipb:-0} ))" >&2/ ))" >\&2/' fx_i "" present 'in-place-blocked = 3;'
   tooth A '/INPLACE-GC-SUBTRACT/ s/ - \${_ipb:-0}//' fx_a 2 3
-  tooth C '/INPLACE-DUAL-GUARD/ s/is_blocked "\$gap" \&\& continue/:/' fx_c 0 3
+  tooth C '/INPLACE-DUAL-GUARD/ s/continue/:/' fx_c 0 3
+  tooth I 's/; t="\${t%\[.:\]}"//' fx_n 0 3
+  tooth J 's/grep -iE .\^\[\[:space:\]\]\*-\[\[:space:\]\].\*needs:./grep -iE "^[[:space:]]*-[[:space:]]"/' fx_j 2 3
   tooth D '/INPLACE-BLOCKED-TOKENS/ s/blocked-on-\*|//' fx_d 2 3
   tooth E '/INPLACE-DUAL-ID-CASE/ s/continue/:/' fx_e 0 3
   tooth F '/_gc_d=\$((/ s/ - \${_ipb:-0}//' fx_f 2 10
