@@ -1,11 +1,11 @@
 # Reason-code registry (v1)
 
 Closed table of the typed "could not look / did not look" states the toolbelt emits, each with exactly
-one continuation (the runnable next step). Kit issue #1704 (slice 1); evidence: the stop-code table in
+one continuation (the runnable next step). Kit issue #1704 (slices 1 and 2); evidence: the stop-code table in
 `sdd-mental-model-bloque31.md` (each code has exactly one continuation) and candidate 5 of
 `bloque33.md`.
 
-Slice 1 is a REGISTRY plus a coverage test. No script's emit text was changed: a code is the
+Slice 1 is a REGISTRY plus a coverage test; slice 2 extends the coverage test to the input class. No script's emit text was changed: a code is the
 normalised prefix of an emit line that already exists today. Wording changes in a script, or a new
 `degraded:` emit line, make `tests/reason-codes.test.sh` fail until this table is updated — that is the
 test working, not a flake.
@@ -96,14 +96,52 @@ string built across lines without that literal is invisible. Scanned scripts tod
 
 ## Input class
 
-Typed states of the data an instrument looked at (CLAUDE.md section 7). They are stable tokens used by
-many toolbelt scripts; slice 1 registers the names and continuations but does not scan emitters.
+Typed states of the data an instrument looked at (CLAUDE.md section 7). Slice 2 scans their emitters:
+`tests/reason-codes.test.sh` classifies every occurrence of the four tokens in the toolbelt shell scripts and
+checks the `emitters` column in both directions (see "How an input code is found" below).
 
 | code | class | emitters | meaning | continuation |
 |---|---|---|---|---|
-| `absent-input` | input | many toolbelt scripts (not enumerated in slice 1) | the file or directory was not found or not traversable | fix the path or restore the input, then re-run; do not read the result as zero |
-| `empty-input` | input | many toolbelt scripts (not enumerated in slice 1) | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
-| `unclassifiable` | input | many toolbelt scripts (not enumerated in slice 1) | items exist but the instrument could not classify them | inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate |
+| `absent-input` | input | coverage-map.sh, focus-partition-audit.sh, migrate-backlogs.sh, reconcile-issues.sh, retro-gate.sh, stage-retro-issues.sh, sweep-audits.sh, sweep-breakthroughs.sh, sweep-retros.sh, sweep-tools.sh, verify-cd-physical.sh, verify-registry.sh, verify-retro.sh, verify-tool-catalog.sh | the file or directory was not found or not traversable | fix the path or restore the input, then re-run; do not read the result as zero |
+| `empty-input` | input | coverage-map.sh, focus-partition-audit.sh, migrate-backlogs.sh, reconcile-issues.sh, score-loop-transcript.sh, stage-retro-issues.sh, sweep-audits-hook.sh, sweep-audits.sh, sweep-breakthroughs-hook.sh, sweep-breakthroughs.sh, sweep-retros.sh, sweep-tools.sh, verify-cd-physical.sh, verify-tool-catalog.sh | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
+| `unclassifiable` | input | focus-partition-audit.sh, reconcile-issues.sh, retro-gate.sh, stage-retro-issues.sh, verify-cd-physical.sh, verify-registry.sh | items exist but the instrument could not classify them | inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate |
+| `no-match` | input | coverage-map.sh, focus-partition-audit.sh, reconcile-issues.sh, stage-retro-issues.sh, sweep-breakthroughs-hook.sh, sweep-breakthroughs.sh, sweep-retros.sh, verify-cd-physical.sh, verify-registry.sh, verify-tool-catalog.sh | items exist and the instrument looked, but none satisfied the filter | confirm the filter is the intended one; widen it if a hit was expected, otherwise nothing to repair |
+
+## How an input code is found (the scan and its declared coverage)
+
+Per CLAUDE.md section 7, an audit instrument must prove the coverage of its own enumerator, so this section
+declares what the scan recognises, what it excludes and what it cannot see. The vocabulary is closed to four
+tokens: `absent-input`, `empty-input`, `unclassifiable`, `no-match`. An input-class row outside that list fails
+as "not scannable"; a new token needs the scanner and this table updated together.
+
+Traversed: every `*.sh` directly under `research-sdd/toolbelt/` and under `research-sdd/toolbelt/lib/`. An
+absent directory, zero shell files, or zero token occurrences is a typed DEGRADED (exit 2), never a clean pass.
+The test prints one `INFO  input-class coverage:` line with the file count and the per-class tallies of the run.
+
+An occurrence is a word-bounded token on a non-comment line. A hyphen or alphanumeric neighbour makes it a
+different word, so `unclassifiable-items`, `unclassifiable-row` and `unclassifiable-blocks` are NOT occurrences.
+The `\t` and `\n` escapes are blanked first, so `%d\tunclassifiable` is seen. Each occurrence gets exactly one
+class, first match wins:
+
+| class | recognised form | counts as an emitter |
+|---|---|---|
+| counter | `token=`, `$token`, `${token`, or inside `$(( ... ))` | no: a variable, not a state |
+| comment | after a trailing ` #` outside double quotes | no |
+| emit-jq | a jq state literal, `then "token"` or `else "token"` | yes |
+| consumer | the line is a matcher: `grep`, `case`, a leading `*` or `/` pattern, `= "token"` or `== "token"` | no |
+| emit-echo | the line is an `echo` / `printf` | yes |
+| emit-marker | a parenthesised marker `(token` inside a string on any other line (an emit helper call, an assignment) | yes |
+| UNCLASSIFIED | none of the above | the test FAILS and names `file:line`; resolve by adding a recognised form or a waiver |
+
+A waiver (`file|substring|reason`, in `IC_WAIVERS` in the test) marks a prose mention that only looks like an
+emission (for example the "empty-input digests" check, which is about hashes of empty input). A waiver that
+matches no occurrence fails as stale, so the list cannot become a blanket ignore.
+
+Not seen, by design: python (`*.py`; the test counts the files that mention a token and reports them as out of
+scope), a state printed by a helper whose call sites carry no marker or token, a token assembled across lines
+or from variables, and `*.sh` outside the two traversed directories. The test fails when a registry input row
+lists a script that does not emit the code (stale emitter), when a script emits a code its row does not list
+(emitter mismatch), when an emitted token has no row, and when a row's code is never emitted (stale row).
 
 ## Run-level notes that are not degraded codes
 
@@ -132,5 +170,7 @@ They are listed here so a reader of this registry finds every typed state the sc
 ## Deferred (later slices of #1704)
 
 - `degraded: migrate-backlogs: <reason>` (its script is not scanned yet).
-- Scanning the input-class emitters, and a numeric exit-code mapping.
-- Emit-text changes: a script must not be edited to fit this table in slice 1.
+- A numeric exit-code mapping.
+- Emit-text changes: a script must not be edited to fit this table.
+- Dropped by decision (maintainer, 2026-10-07): "every refusal line prints its exit command". It is not
+  deferred and will not be built.

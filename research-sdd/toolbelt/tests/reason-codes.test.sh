@@ -27,7 +27,9 @@
 # Comment lines, grep patterns (no echo/printf) and variable assignments are never emit lines.
 #
 # Usage: reason-codes.test.sh [--prove-teeth]
-#        reason-codes.test.sh --check-only REGISTRY SCRIPT_DIR   (internal: the checker alone, exit 0/1/2)
+#        reason-codes.test.sh --check-only REGISTRY SCRIPT_DIR   (internal: the degraded checker alone, exit 0/1/2)
+#        reason-codes.test.sh --check-input REGISTRY TOOLBELT_DIR (internal: the input-class scan alone, exit 0/1/2;
+#          kit issue #1704 slice 2 — the scan, its recognised forms and its waivers are declared in reason-codes.v1.md)
 # Exit: 0 all held · 1 any failure · 2 typed DEGRADED (could not look).
 set -uo pipefail
 
@@ -183,8 +185,192 @@ rc_check() {
   [ "$nfind" -eq 0 ]
 }
 
+# --- input-class scan (kit issue #1704, slice 2) -------------------------------------------------
+# The vocabulary is closed: these four tokens are the typed input states (CLAUDE.md section 7). A new token
+# needs the scanner AND the registry updated together; an input-class registry row outside this list is
+# reported "not scannable" so a row can never be added that nothing could ever verify.
+IC_TOKENS=(absent-input empty-input unclassifiable no-match)
+
+# Prose mentions that look like an emission but are not one. Each waiver is `file|substring|reason`; a
+# waiver that matches nothing is itself a finding (stale), so this list cannot rot into a blanket ignore.
+IC_WAIVERS=(
+  'verify-state.sh|document before closing as absent-input|advice text inside a WARN line, not a typed state'
+  'verify-sources.sh|empty-input digests|names the empty-input DIGEST check (a hash of empty input), a different concept'
+  'verify-block.sh|empty-input digests|names the empty-input DIGEST check (a hash of empty input), a different concept'
+  'stage-retro-issues.sh|unclassifiable tracker|scrub-refusal prose naming the tracker issue, not the state'
+  'stage-retro-issues.sh|unclassifiable item set|body text of the tracker issue, not a state emission'
+  'verify-registry.sh|unclassifiable-blocks WARN|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
+)
+
+# Classifier: one record per occurrence of a token on a non-comment line, tab separated:
+#   FILE LINENO TOKEN CLASS TEXT
+# A token is a word-bounded occurrence (a hyphen or alphanumeric neighbour makes it a different word, so
+# unclassifiable-items / -row / -blocks are NOT occurrences). `\t` / `\n` escapes are blanked first so
+# `%d\tunclassifiable` is seen. CLASS, first match wins:
+#   counter       TOKEN= , $TOKEN , ${TOKEN , or inside $(( .. )) arithmetic: a variable, not a state
+#   comment       after a trailing ` #` outside double quotes
+#   emit-jq       a jq state literal: then "TOKEN" / else "TOKEN"
+#   consumer      the line is a matcher: grep, case, a leading * or / pattern, or `= "TOKEN"` / `== "TOKEN"`
+#   emit-echo     the line is an echo/printf
+#   emit-marker   a parenthesised marker `(TOKEN` in a string on any other line (helper calls, assignments)
+#   UNCLASSIFIED  none of the above: the scanner cannot read it
+IC_AWK='
+BEGIN { re = "(^|[^A-Za-z0-9_-])(absent-input|empty-input|unclassifiable|no-match)([^A-Za-z0-9_-]|$)" }
+/^[[:space:]]*#/ { next }
+{
+  line = $0; scan = line; gsub(/\\[tn]/, "  ", scan); s = scan; off = 0   # TOOTH-IC-ESCAPE
+  while (match(s, re)) {
+    m = substr(s, RSTART, RLENGTH); rs = RSTART
+    pre = ""; if (m !~ /^[a-z]/) { pre = substr(m, 1, 1); m = substr(m, 2) }
+    post = ""; if (m ~ /[^a-z]$/) { post = substr(m, length(m)); m = substr(m, 1, length(m) - 1) }
+    pl = (pre != "" ? 1 : 0)
+    tokstart = off + rs + pl
+    off += rs + pl + length(m) - 1
+    s = substr(s, rs + pl + length(m))
+    prefix = substr(scan, 1, tokstart - 1)
+    c = ""
+    if (post == "=" || pre == "$" || pre == "{" || prefix ~ /\$\(\([^)]*$/) c = "counter"          # TOOTH-IC-COUNTER
+    if (c == "" && match(prefix, /[ \t]#/)) {
+      q = substr(prefix, 1, RSTART); n = gsub(/"/, "", q)
+      if (n % 2 == 0) c = "comment"                                                                # TOOTH-IC-COMMENT
+    }
+    if (c == "" && pre == "\"" && prefix ~ /(then|else)[ \t]+"$/) c = "emit-jq"                    # TOOTH-IC-JQ
+    if (c == "" && (scan ~ /(^|[^[:alnum:]_])grep[[:space:]]/ || scan ~ /(^|[^[:alnum:]_])case[[:space:]]/ || scan ~ /^[[:space:]]*\*/ || scan ~ /^[[:space:]]*\// || prefix ~ /=[ \t]*"?$/)) c = "consumer"   # TOOTH-IC-CONSUMER
+    if (c == "" && scan ~ /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/) c = "emit-echo"
+    if (c == "" && pre == "(") c = "emit-marker"                                                   # TOOTH-IC-MARKER
+    if (c == "") c = "UNCLASSIFIED"
+    gsub(/\t/, " ", line)
+    printf "%s\t%d\t%s\t%s\t%s\n", F, NR, m, c, line
+  }
+}'
+
+IC_REPORT=''
+# ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh. rc 0 clean · 1 findings · 2 degraded.
+# Sets IC_REPORT to the coverage declaration (what was traversed, how each occurrence was classified).
+ic_check() {
+  local reg="$1" dir="$2" rows p rel f ln tok cls txt w wf ws wr
+  local c cl em ct i n nfiles=0 nocc=0 key lst row_i e
+  local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0
+  local -a codes=() classes=() emits=() files=() usedw=() wv=()
+  local pairs=';' all='' n_uncl=0
+  nfind=0; IC_REPORT=''
+
+  # Waivers: the built-in list, or (test hook) the lines of $RC_IC_WAIVERS_FILE when that variable is set.
+  if [ -n "${RC_IC_WAIVERS_FILE:-}" ]; then
+    if [ ! -r "$RC_IC_WAIVERS_FILE" ]; then printf 'DEGRADED: waiver file unreadable: %s\n' "$RC_IC_WAIVERS_FILE"; return 2; fi
+    while IFS= read -r w || [ -n "$w" ]; do [ -n "$w" ] && wv+=("$w"); done < "$RC_IC_WAIVERS_FILE"
+  else
+    wv=("${IC_WAIVERS[@]}")
+  fi
+
+  if [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
+    printf 'DEGRADED: registry absent or unreadable: %s\n' "$reg"; return 2
+  fi
+  rows="$(awk -F'|' "$ROWS_AWK" "$reg")" || { printf 'DEGRADED: awk failed reading registry %s\n' "$reg"; return 2; }
+  if [ -z "$rows" ]; then printf 'DEGRADED: registry %s has zero parsable rows\n' "$reg"; return 2; fi
+  n=0
+  while IFS=$'\037' read -r c cl em ct; do
+    [ "$c" = "MALFORMED" ] && continue   # rc_check owns row-shape findings
+    codes[n]="$c"; classes[n]="$cl"; emits[n]="$em"; n=$((n + 1))
+  done <<<"$rows"
+
+  if [ ! -d "$dir" ]; then printf 'DEGRADED: scan directory absent: %s\n' "$dir"; return 2; fi
+  for p in "$dir"/*.sh "$dir"/lib/*.sh; do
+    [ -f "$p" ] || continue
+    if [ ! -r "$p" ]; then printf 'DEGRADED: scanned file unreadable: %s\n' "$p"; return 2; fi
+    files+=("$p")
+  done
+  if [ "${#files[@]}" -eq 0 ]; then                                          # TOOTH-IC-ZEROFILES
+    printf 'DEGRADED: no *.sh files found under %s or %s/lib (could not look)\n' "$dir" "$dir"; return 2
+  fi
+  for p in "${files[@]}"; do
+    nfiles=$((nfiles + 1))
+    rel="${p#"$dir"/}"
+    f="$(awk -v F="$rel" "$IC_AWK" "$p")" || { printf 'DEGRADED: awk failed reading %s\n' "$p"; return 2; }
+    if [ -n "$f" ]; then all="$all$f"$'\n'; fi
+  done
+  for p in "$dir"/*.py "$dir"/lib/*.py; do
+    [ -f "$p" ] || continue
+    grep -qE '(absent-input|empty-input|unclassifiable|no-match)' "$p"; i=$?
+    if [ "$i" -gt 1 ]; then printf 'DEGRADED: grep failed reading %s\n' "$p"; return 2; fi
+    if [ "$i" -eq 0 ]; then n_py=$((n_py + 1)); fi
+  done
+  if [ -z "$all" ]; then                                                     # TOOTH-IC-ZEROOCC
+    printf 'DEGRADED: found zero input-state occurrences under %s (could not look)\n' "$dir"; return 2
+  fi
+
+  while IFS=$'\t' read -r f ln tok cls txt; do
+    [ -n "$f" ] || continue
+    nocc=$((nocc + 1))
+    case "$cls" in
+      counter) n_counter=$((n_counter + 1)); continue ;;
+      comment) n_comment=$((n_comment + 1)); continue ;;
+      consumer) n_consumer=$((n_consumer + 1)); continue ;;
+    esac
+    wr=''
+    for ((i = 0; i < ${#wv[@]}; i++)); do
+      w="${wv[$i]}"; wf="${w%%|*}"; ws="${w#*|}"; ws="${ws%%|*}"
+      if [ "$wf" = "$f" ] && [[ "$txt" == *"$ws"* ]]; then wr=1; usedw[i]=1; break; fi
+    done
+    if [ -n "$wr" ]; then n_waived=$((n_waived + 1)); continue; fi
+    if [ "$cls" = "UNCLASSIFIED" ]; then
+      n_uncl=$((n_uncl + 1))
+      finding "unclassifiable input-state occurrence in $f:$ln ($tok), not a recognised emit or consumer form: $txt"   # TOOTH-IC-UNCLASS
+      continue
+    fi
+    n_emit=$((n_emit + 1))
+    case "$pairs" in *";$tok:$f;"*) ;; *) pairs="$pairs$tok:$f;" ;; esac
+  done <<<"$all"
+
+  for ((i = 0; i < ${#wv[@]}; i++)); do
+    if [ -z "${usedw[$i]:-}" ]; then finding "stale waiver (matches no occurrence): ${wv[$i]}"; fi   # TOOTH-IC-STALEWAIVER
+  done
+
+  # registry input rows the scanner could never verify
+  for ((i = 0; i < n; i++)); do
+    [ "${classes[$i]}" = "input" ] || continue
+    key=0
+    for tok in "${IC_TOKENS[@]}"; do [ "$tok" = "${codes[$i]}" ] && key=1; done
+    if [ "$key" -eq 0 ]; then finding "input-class code not scannable (not in the scanner vocabulary): ${codes[$i]}"; fi
+  done
+
+  for tok in "${IC_TOKENS[@]}"; do
+    row_i=-1
+    for ((i = 0; i < n; i++)); do
+      if [ "${codes[$i]}" = "$tok" ] && [ "${classes[$i]}" = "input" ]; then row_i=$i; fi
+    done
+    lst="$(printf '%s' "$pairs" | tr ';' '\n' | awk -F: -v t="$tok" '$1 == t {print $2}')"
+    if [ "$row_i" -lt 0 ]; then
+      if [ -n "$lst" ]; then finding "unlisted input-class code emitted: $tok (by $(printf '%s' "$lst" | tr '\n' ' '))"; fi   # TOOTH-IC-UNLISTED
+      continue
+    fi
+    if [ -z "$lst" ]; then finding "stale row: input code never emitted by a scanned script: $tok"; continue; fi   # TOOTH-IC-STALEROW
+    em="$(printf '%s' "${emits[$row_i]}" | tr -d ' ')"
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      case ",$em," in
+        *",$f,"*) ;;
+        *) finding "emitter mismatch: $f emits '$tok' but the row lists '${emits[$row_i]}'" ;;   # TOOTH-IC-EMITTER
+      esac
+    done <<<"$lst"
+    for e in $(printf '%s' "$em" | tr ',' ' '); do
+      case $'\n'"$lst"$'\n' in
+        *$'\n'"$e"$'\n'*) ;;
+        *) finding "stale emitter: row lists $e but $e never emits '$tok'" ;;   # TOOTH-IC-STALEEMIT
+      esac
+    done
+  done
+
+  IC_REPORT="scanned $nfiles shell files (*.sh and lib/*.sh); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell)"
+  [ "$nfind" -eq 0 ]
+}
+
 if [ "${1:-}" = "--check-only" ]; then
   rc_check "${2:?registry}" "${3:?script dir}"
+  exit $?
+fi
+if [ "${1:-}" = "--check-input" ]; then
+  ic_check "${2:?registry}" "${3:?toolbelt dir}"
   exit $?
 fi
 
@@ -256,6 +442,21 @@ if [ "$rc" -eq 0 ]; then
 else
   no "real registry vs real scripts"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
+
+# --- 1b. input-class scan: the real registry against the real toolbelt (kit issue #1704, slice 2) ----
+out="$(ic_check "$REGISTRY" "$TOOLBELT")"; rc=$?
+if [ "$rc" -eq 2 ]; then
+  printf '%s\n' "$out"
+  echo "DEGRADED: the input-class scan could not look — nothing was verified" >&2
+  exit 2
+fi
+if [ "$rc" -eq 0 ]; then
+  ok "real registry input rows match the scanned input-state emitters in both directions"
+else
+  no "real registry input rows vs real toolbelt"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+ic_check "$REGISTRY" "$TOOLBELT" >/dev/null 2>&1
+printf '  INFO  input-class coverage: %s\n' "$IC_REPORT"
 
 # --- 2. extraction rule on a literal fixture ---------------------------------------------------
 cat > "$tmp/extract.sh" <<'EOF'
@@ -364,6 +565,115 @@ mkfix unc_hash
 printf '\n%s' 'msg="see #2 degraded: via quoted hash"' >> "$tmp/unc_hash/scripts/research-sdd-init.sh"
 expect "a quoted ' #' before degraded: is reported unclassifiable (not read as a comment)" 1 "$tmp/unc_hash/reg.md" "$tmp/unc_hash/scripts" 'unclassifiable degraded: line in research-sdd-init.sh:[0-9]+'
 
+# --- 3b. input-class scan fixtures ------------------------------------------------------------------
+# mkifix NAME — a good registry (reg.md) + a two-file toolbelt (tb/a.sh, tb/lib/b.sh) covering every recognised
+# form: echo, printf with a \t escape, a jq state literal, a parenthesised marker, plus the non-emit classes
+# (counter, trailing comment, case matcher). The last line of each script has no trailing newline.
+mkifix() {
+  local d="$tmp/$1"
+  mkdir -p "$d/tb/lib"
+  printf '%s\n' '# comment: echo "absent-input: never emitted from a comment"' \
+    'echo "absent-input: $x not found" >&2' \
+    "printf 'subject: empty-input (0 units)\\n'" \
+    'unclassifiable=0; n=$((unclassifiable + 1))   # trailing note about absent-input' \
+    'case "$o" in *absent-input:*) : ;; esac' \
+    'echo "path: $p"' > "$d/tb/a.sh"
+  printf '%s' 'echo "x" # no trailing newline' >> "$d/tb/a.sh"
+  printf '%s\n' "jq -n '(if \$a then \"ok\" else \"no-match\" end)'" \
+    'emit C1 n/a "no rows (empty-input)"' > "$d/tb/lib/b.sh"
+  printf '%s' "printf '%d\\tunclassifiable\\n' \"\$n\"" >> "$d/tb/lib/b.sh"
+  : > "$d/waivers.txt"
+  {
+    printf '%s\n' '# fixture registry' '' \
+      '| code | class | emitters | meaning | continuation |' \
+      '|---|---|---|---|---|' \
+      '| `degraded: x` | degraded | a.sh | m0 | go |' \
+      '| `absent-input` | input | a.sh | m1 | fix the path |' \
+      '| `empty-input` | input | a.sh, lib/b.sh | m2 | confirm emptiness |' \
+      '| `unclassifiable` | input | lib/b.sh | m3 | inspect by hand |'
+    printf '%s' '| `no-match` | input | lib/b.sh | m4 | widen the filter |'
+  } > "$d/reg.md"
+}
+
+# expect_ic LABEL WANT_RC FIXTURE [GREP_RE] — run the input-class scan with the fixture's own waiver file.
+expect_ic() {
+  local label="$1" want="$2" fx="$3" re="${4:-}" out rc
+  out="$(RC_IC_WAIVERS_FILE="$tmp/$fx/waivers.txt" ic_check "$tmp/$fx/reg.md" "$tmp/$fx/tb")"; rc=$?
+  if [ "$rc" -ne "$want" ]; then
+    no "$label (rc=$rc want=$want)"; printf '%s\n' "$out" | sed 's/^/        /'; return 1
+  fi
+  if [ -n "$re" ] && ! grep -Eq -- "$re" <<<"$out"; then
+    no "$label (rc ok, output lacks /$re/)"; printf '%s\n' "$out" | sed 's/^/        /'; return 1
+  fi
+  ok "$label"
+}
+
+mkifix i_good
+expect_ic "input scan: good fixture is clean (all forms recognised, non-emit classes skipped)" 0 i_good
+
+mkifix i_unlisted
+edit "$tmp/i_unlisted/reg.md" '/`no-match`/d'
+expect_ic "input scan: emitted code with no registry row fails (unlisted)" 1 i_unlisted 'unlisted input-class code emitted: no-match'
+
+mkifix i_staleemit
+edit "$tmp/i_staleemit/reg.md" 's/| lib\/b.sh | m4 |/| lib\/b.sh, a.sh | m4 |/'
+expect_ic "input scan: a listed emitter that never emits the code fails (stale emitter)" 1 i_staleemit "stale emitter: row lists a.sh but a.sh never emits 'no-match'"
+
+mkifix i_emitter
+edit "$tmp/i_emitter/reg.md" 's/| a.sh | m1 |/| lib\/b.sh | m1 |/'
+expect_ic "input scan: an emitter missing from the row fails (emitter mismatch)" 1 i_emitter "emitter mismatch: a.sh emits 'absent-input'"
+
+# single-defect twins of the two fixtures above (the originals carry several findings at once, which a
+# mutation of one guard cannot isolate)
+mkifix i_emitter1
+edit "$tmp/i_emitter1/reg.md" 's/| a.sh, lib\/b.sh | m2 |/| lib\/b.sh | m2 |/'
+expect_ic "input scan: exactly one emitter missing from a row fails (emitter mismatch, isolated)" 1 i_emitter1 "emitter mismatch: a.sh emits 'empty-input'"
+mkifix i_stalerow1
+printf '%s\n' "jq -n '(if \$a then \"ok\" else \"x\" end)'" 'emit C1 n/a "no rows (empty-input)"' > "$tmp/i_stalerow1/tb/lib/b.sh"
+printf '%s' "printf '%d\\tunclassifiable\\n' \"\$n\"" >> "$tmp/i_stalerow1/tb/lib/b.sh"
+expect_ic "input scan: a row nothing emits fails (stale row, isolated)" 1 i_stalerow1 'stale row: input code never emitted by a scanned script: no-match'
+
+mkifix i_notscan
+printf '\n%s' '| `weird-input` | input | a.sh | w | go |' >> "$tmp/i_notscan/reg.md"
+expect_ic "input scan: an input row outside the scanner vocabulary fails (not scannable)" 1 i_notscan 'not scannable.*weird-input'
+mkifix i_norow_emit
+printf '%s\n' 'echo "ok"' > "$tmp/i_norow_emit/tb/lib/b.sh"
+expect_ic "input scan: a registry row nothing emits fails (stale row)" 1 i_norow_emit 'stale row: input code never emitted by a scanned script: no-match'
+
+mkifix i_uncl
+printf '\n%s' 'msg="the absent-input case"' >> "$tmp/i_uncl/tb/a.sh"
+expect_ic "input scan: an occurrence in no recognised form is reported, never silent" 1 i_uncl 'unclassifiable input-state occurrence in a.sh:[0-9]+ \(absent-input\)'
+
+mkifix i_waived
+printf '\n%s' 'msg="the absent-input case"' >> "$tmp/i_waived/tb/a.sh"
+printf '%s\n' 'a.sh|the absent-input case|fixture prose' > "$tmp/i_waived/waivers.txt"
+expect_ic "input scan: a waiver silences exactly its prose occurrence" 0 i_waived
+mkifix i_stalewaiver
+printf '%s\n' 'a.sh|matches nothing at all|fixture' > "$tmp/i_stalewaiver/waivers.txt"
+expect_ic "input scan: a waiver that matches nothing fails (stale waiver)" 1 i_stalewaiver 'stale waiver'
+
+mkifix i_counter
+printf '\n%s' 'echo "n=$no_match_count unclassifiable=$n unclassifiable-items: 0 unclassifiable-row: 1"' >> "$tmp/i_counter/tb/a.sh"
+expect_ic "input scan: counters and hyphen-extended compounds are not occurrences" 0 i_counter
+
+# list edges: a new emitter on the FIRST line of the first file and on the LAST line (no newline) of the last file
+mkifix i_first
+{ printf '%s\n' 'echo "unclassifiable: first line"'; cat "$tmp/i_first/tb/a.sh"; } > "$tmp/i_first/s" && mv "$tmp/i_first/s" "$tmp/i_first/tb/a.sh"
+expect_ic "input scan: an emit on the FIRST line of a file is seen" 1 i_first "emitter mismatch: a.sh emits 'unclassifiable'"
+mkifix i_last
+printf '\n%s' 'echo "no-match: last line"' >> "$tmp/i_last/tb/lib/b.sh"
+expect_ic "input scan: an emit on the LAST line (no trailing newline) is still scanned" 0 i_last
+
+mkifix i_zero
+rm -f "$tmp/i_zero/tb/a.sh" "$tmp/i_zero/tb/lib/b.sh"
+expect_ic "input scan: zero shell files -> DEGRADED rc 2" 2 i_zero 'DEGRADED: no \*\.sh files'
+mkifix i_zeroocc
+printf '%s\n' 'echo "nothing typed here"' > "$tmp/i_zeroocc/tb/a.sh"; printf '%s\n' 'true' > "$tmp/i_zeroocc/tb/lib/b.sh"
+expect_ic "input scan: files but zero occurrences -> DEGRADED rc 2" 2 i_zeroocc 'DEGRADED: found zero input-state occurrences'
+mkifix i_nodir
+rm -rf "$tmp/i_nodir/tb"
+expect_ic "input scan: absent scan directory -> DEGRADED rc 2" 2 i_nodir 'DEGRADED: scan directory absent'
+
 # --- 4. could-not-look is typed DEGRADED (rc 2), never clean ------------------------------------
 mkfix d_noreg
 expect "registry absent -> DEGRADED rc 2" 2 "$tmp/d_noreg/missing.md" "$tmp/d_noreg/scripts" 'DEGRADED: registry absent'
@@ -392,9 +702,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # as written and BAD_RC once SED_EXPR has disabled the guarded line. A refused build counts once.
   tooth() {
     local name="$1" fx="$2" good="$3" bad="$4" expr="$5" m="$tmp/mut/$1.sh" line
+    local mode="${TOOTH_MODE:---check-only}" sub="${TOOTH_SUB:-scripts}"
     mutant_chain "$name" "$SELF" "$m" "$expr" || { fail=$((fail + 1)); return 1; }
     if line="$(mutant_tooth "teeth $name" "$good" "$bad" "$m" --orig "$SELF" --bad-lacks "$CRASH" \
-        -- bash @SUT@ --check-only "$tmp/$fx/reg.md" "$tmp/$fx/scripts")"; then
+        -- bash @SUT@ "$mode" "$tmp/$fx/reg.md" "$tmp/$fx/$sub")"; then
       pass=$((pass + 1))
     else
       fail=$((fail + 1))
@@ -420,6 +731,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth cmdsub       good_sub   0 1 '/# TOOTH-CMDSUB/d'
   tooth specialsub   good_sub   0 1 '/# TOOTH-SPECIALSUB/d'
   tooth emdash-cut   good       0 1 '/# TOOTH-EMDASH/d'
+  # input-class scan teeth: the same helper, pointed at --check-input with the fixture's own (empty) waiver file
+  ictooth() { RC_IC_WAIVERS_FILE="$tmp/$2/waivers.txt" TOOTH_MODE=--check-input TOOTH_SUB=tb tooth "$@"; }
+  ictooth ic-unlisted    i_unlisted    1 0 '/# TOOTH-IC-UNLISTED/s/finding /: /'
+  ictooth ic-staleemit   i_staleemit   1 0 '/# TOOTH-IC-STALEEMIT/s/finding /: /'
+  ictooth ic-emitter     i_emitter1    1 0 '/# TOOTH-IC-EMITTER/s/finding /: /'
+  ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
+  ictooth ic-unclass     i_uncl        1 0 '/# TOOTH-IC-UNCLASS/s/finding /: /'
+  ictooth ic-stalewaiver i_stalewaiver 1 0 '/# TOOTH-IC-STALEWAIVER/s/finding /: /'
+  ictooth ic-zerofiles   i_zero        2 1 '/# TOOTH-IC-ZEROFILES/s/-eq 0/-eq -1/;/# TOOTH-IC-ZEROOCC/s/\[ -z "\$all" \]/false/'
+  ictooth ic-zeroocc     i_zeroocc     2 1 '/# TOOTH-IC-ZEROOCC/s/\[ -z "\$all" \]/false/'
+  ictooth ic-counter     i_counter     0 1 '/# TOOTH-IC-COUNTER/s/post == "=" || pre == "\$" || pre == "{" || //'
+  ictooth ic-comment     i_good        0 1 '/# TOOTH-IC-COMMENT/s/n % 2 == 0/n % 2 == 5/'
+  ictooth ic-consumer    i_good        0 1 '/# TOOTH-IC-CONSUMER/s/scan ~ \/(^|\[^\[:alnum:\]_\])case\[\[:space:\]\]\/ || //'
+  ictooth ic-jq          i_good        0 1 '/# TOOTH-IC-JQ/s/(then|else)/(thenX|elseX)/'
+  ictooth ic-escape      i_good        0 1 '/# TOOTH-IC-ESCAPE/s/\[tn\]/[zz]/'
+  ictooth ic-marker     i_good        0 1 '/# TOOTH-IC-MARKER/s/pre == "("/pre == "Z"/'
 fi
 
 echo "== $pass passed · $fail failed =="
