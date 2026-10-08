@@ -16,3 +16,10 @@
 14. The unauthenticated endpoint bypasses the check. CAL-R5-BAD
 15. The OAuth flow is ungated. CAL-R5-BAD
 16. The deauthorize step is a no-op. CAL-R5-BAD
+17. The Access policy action Bypass disables enforcement for the matched security rule. CAL-R5-CLEAR
+18. Service Auth is evaluated before Bypass when the policy decides who is authorized. CAL-R5-CLEAR
+19. A `bypass` policy lets the credentials check be skipped for the path. CAL-R5-CLEAR
+20. The Bypass action also fails open when authorization errors out. CAL-R5-BAD
+21. A caller can bypass authorization when the header is absent. CAL-R5-BAD
+22. The authentication filter bypasses the policy entirely. CAL-R5-BAD
+23. Bypassed requests reach the authorization layer unchecked. CAL-R5-BAD

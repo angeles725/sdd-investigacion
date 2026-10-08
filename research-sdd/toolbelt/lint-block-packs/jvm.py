@@ -49,6 +49,12 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
     r"fail-open", r"fails?\s+open", r"\bno-op\b", r"\bbypass(?:es|ed)?\b", r"\bungated\b",
     r"drops?\s+cx\b", r"null\s+Context", r"getPermissions\(null\)",
 ]), re.IGNORECASE)
+# Cloudflare Access names one of its policy ACTIONS "Bypass" (Allow / Block / Bypass / Service Auth): a
+# capitalised bare `Bypass` (not Bypasses/Bypassed), or a code-span `bypass` followed by policy/action/rule, names
+# that action and is not an auth-bypass finding (kit #1517 calibration, 17 FP on the cloudflare corpus). It is
+# scrubbed from the clause before the consequence match; a lower-case verb ("the check is bypassed"), the
+# verb forms and every other consequence token (fail-open, ungated, ...) still fire.
+R5_ACCESS_ACTION_RE = re.compile(r"\bBypass\b(?!es|ed)|`bypass`(?=\s+(?:policy|policies|action|rule)s?\b)")
 # "bypass"/"no-op" are common outside the permission-dispatch failure class (build flags, test-mode
 # shortcuts): require the clause to be about permissions/security, not just use one of those words.
 # `Context` (the Niagara type) and `cx` are matched case-sensitively: lower-case "context" is an
@@ -96,7 +102,7 @@ def build(api):
     return [
         ("R1", mk("R1", lambda c: R1_FEATURE_RE.search(c) and R1_VERB_RE.search(c),
                   R1_EVIDENCE_RE.search, "syntax-adoption claim without bytecode/docSource evidence")),
-        ("R5", mk("R5", lambda c: R5_CONSEQUENCE_RE.search(c) and R5_PERM_CONTEXT_RE.search(c),
+        ("R5", mk("R5", lambda c: R5_CONSEQUENCE_RE.search(R5_ACCESS_ACTION_RE.sub(" ", c)) and R5_PERM_CONTEXT_RE.search(c),
                   R5_CLEARED_RE.search, "permission consequence claim without a resolved dispatch: target",
                   quoted_skip_re=R5_GAP_REF_RE)),
         ("R7", mk("R7", R7_TRIGGER_RE.search, R7_EVIDENCE_RE.search,
