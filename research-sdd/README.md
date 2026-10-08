@@ -182,6 +182,22 @@ question>` exist in Pi (the skill alone is only reachable as `/skill:research-sd
 edited by hand is kept (the installer warns); `--force-skill` backs it up first. The installer registers
 no MCP servers for any harness.
 
+To remove what the installer deployed (kit issue #1033), use `--uninstall`. It is a dry run by default: it lists
+one typed line per artifact (`would-remove`, `absent`, or `kept (<reason>)`) and changes nothing until you add `--yes`.
+
+```bash
+"$KIT/install/research-sdd-install.sh" --uninstall --harness pi            # preview
+"$KIT/install/research-sdd-install.sh" --uninstall --yes --harness pi      # remove
+```
+
+Only artifacts the installer can prove it wrote are removed: a skill, prompt template or agent definition whose
+hash still equals its install marker, the marked launcher block in the shared prompt file (your other lines are
+kept), and a rendered profile directory holding exactly the recorded files. A hand-edited file, an unrecorded one
+or anything resolving outside the harness config root is kept and named. A second run reports `absent`. Exit 0 =
+ok, 1 = a removal failed, 2 = usage error, or no sha256 tool / python3 (ownership cannot be proven, so nothing is
+removed). `--uninstall` cannot be combined with `--verify`, `--force-skill`, `--profile` or `--dry-run` together with `--yes`, and
+`--yes` requires `--uninstall`.
+
 ---
 
 ## Removing an old OpenCode install

@@ -1197,6 +1197,10 @@ Always read first, in this order:
          exits 2 (some issue creations failed), say so — never omit the line. The hook also appends one line per
          Stop to `<target>/.claude/.rsdd-retro-gate-stops.log` (branch taken plus seeding evidence: the
          seeder's `summary:` line, or a typed skip or degraded reason); check it when seeding looks missing.
+         COVERAGE LINE (kit issue #1640): write one column-0 line `covers_through: B<n>` (newest block this retro
+         reviewed; add ` focus=<slug>`, or `focus=root`, in a multi-state corpus) from the template, and apply by hand
+         the `proposed-reset: blocks_since_retro: 0 in <state file> …` line `stage-retro-issues.sh` prints (it never
+         edits a state file; propose-never-apply, METHODOLOGY §18).
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
          triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
          project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for any other
