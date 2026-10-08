@@ -362,3 +362,32 @@ will start one. (Kit issue #1253.)
          25 JVMs on 16 threads.) Delegation multiplies this risk: every writer you add can start
          its own heavy job, so the brief states the job ceiling the writer may use.
 ```
+
+---
+
+## step3-evidence-provenance
+
+Trigger: none — this is provenance, not an operating rule. Read it only to audit where a step 3
+rule came from. Kit issue #1003 (first slice) moved the corpus-specific `(Evidence: ...)` anecdotes
+out of the OPERATIONAL PROMPT's step 3 so every iteration stops paying for them; the rules
+themselves are unchanged and still live in PROMPT-LOOP.md step 3. Each row keeps the original
+note verbatim, keyed by the rule it annotated. Two short retro pointers (`SECRETS-SENSITIVE INLINE
+OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes.
+
+| Step 3 rule | Original provenance note |
+|---|---|
+| GAP-ID VERIFY + ALREADY-COVERED PRE-CHECK | n5 waves 6-7 B69 B65-G1 vs G3, B74 B50-G7 vs G6; wave 11: 7 gaps returned ALREADY-COVERED at no re-derivation cost. |
+| REMITTANCE-RISK FLAG | apis focus API5/API6/API8. |
+| REMITTANCE-TO-EVIDENCE UPGRADE | blender-llm B10, B4 §4.2/§4.5. |
+| OPERATOR-CLASSIFICATION-FIRST | blender-llm B76 §76.5. |
+| ANNOTATION-BEFORE-DERIVATION | COB-IM2 B8, ANNOTATION-BEFORE-DERIVATION only; the originally cited commit no longer exists after that corpus's re-bootstrap. |
+| ENTRY-POINT INSTRUMENTATION PRE-CHECK | blender B6. |
+| CWD-PATH BUG FIRST | spyder commissioning. |
+| VERIFY (b) absence grep-confirm across ALL install roots | n5 B102 "pxEditor absent", refuted by an `ls` of the config home. |
+| PHYSICAL-ACTION FACTS | commissioning sweeps. |
+| API-FILTER SILENT-DECLINE EXTENSION | blender-llm B60 §60.4. |
+| NARROWING-AXES AND READ-FRACTION | blender-llm B62 §62.1–§62.3. |
+| SUBJECT-DECLARED THRESHOLD | blender-llm B63 §63.2. |
+| IDENTIFIER-GRANULARITY CHECK | blender-llm B65 §65.2. |
+| DECOMMISSIONED/BROKEN ENDPOINT SUBCASE | niagara framework-drivers-closure D2. |
+| REACHABLE ≠ REPRESENTATIVE-DEFAULT | blender B9. |
