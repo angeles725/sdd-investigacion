@@ -95,6 +95,29 @@ nq "$SUT" "$d" --queue; want "2k template comment naming the field -> absent, no
 d="$(mkd q-indent '    next_session_queue: G3')"
 nq "$SUT" "$d" --queue; want "2l indented mention is not a declaration" "NEXT | high | G1 first gap" 'queue-(absent|prose-only)'
 
+# --- 2m. closed / parked / in-progress queued gaps are KNOWN, counted by class (never queue-unknown-gap) -----------------
+CROWS=("high|G1 first gap|pending" "~~high~~|G5 struck-priority gap|~~covered~~" "high|~~G6 struck-name gap~~|covered" "deferred|G7 parked closed|✅ done" "deferred|G8 parked open|parked" "medium|G9 half done|in-progress" "—|G10 emdash closed|covered")
+mk_q "$TMP/q-cls/RESEARCH-STATE.md" 0 'next_session_queue: G5, G6, G7, G8, G9, G10' "${CROWS[@]}"
+nq "$SUT" "$TMP/q-cls" --queue
+if [ "$out" = "NEXT | high | G1 first gap" ]; then ok "2m falls back to priority order"; else no "2m want G1 fallback, got [$out] (err: $err)"; fi
+grep -q 'queue-unknown-gap' <<<"$err" && no "2m closed/parked/em-dash/struck queued gaps must be KNOWN, got [$err]" || ok "2m no queue-unknown-gap for closed-class rows"
+grep -q 'queue-exhausted.*(6 ids: 4 done, 1 deferred, 0 blocked, 1 in-progress, 0 unknown)' <<<"$err" && ok "2m counts: 4 done (struck priority, struck name, closed deferred, em-dash) · 1 deferred · 1 in-progress" || no "2m counts wrong: [$err]"
+for k in "G5:struck-priority" "G6:struck-name" "G7:closed-deferred" "G8:open-deferred" "G9:in-progress" "G10:em-dash"; do
+  mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 "next_session_queue: ${k%%:*}" "${CROWS[@]}"
+  nq "$SUT" "$TMP/q-cls1" --queue
+  if grep -q 'queue-unknown-gap' <<<"$err"; then no "2m ${k##*:}: queued ${k%%:*} reported unknown [$err]"; else ok "2m ${k##*:}: queued ${k%%:*} is known"; fi
+done
+# a queued gap that is in progress is not served (only 'pending' is)
+mk_q "$TMP/q-prog/RESEARCH-STATE.md" 0 'next_session_queue: G9, G2' "${ROWS[@]:0:1}" "medium|G9 half done|in-progress" "low|G2 later|pending"
+nq "$SUT" "$TMP/q-prog" --queue; want "2n in-progress queued gap skipped, next served" "NEXT | low | G2 later"
+
+# --- 2o. field-parser edges -------------------------------------------------------------------------------------------
+d="$(mkd q-trail 'next_session_queue: G3, G2,')"; nq "$SUT" "$d" --queue; want "2o trailing comma is malformed (like ,,)" "NEXT | high | G1 first gap" 'WARN: queue-malformed.*trailing comma'
+d="$(mkd q-dup 'next_session_queue: G3, G3, G2')"; nq "$SUT" "$d" --queue; want "2p duplicate id warned, served once" "NEXT | low | G3 third gap" 'WARN: queue-duplicate-id.*G3'
+d="$(mkd q-NONE 'next_session_queue: NONE')"; nq "$SUT" "$d" --queue; want "2q NONE is declared-empty (case-insensitive)" "NEXT | high | G1 first gap" 'INFO: queue-empty'
+d="$(mkd q-glob 'next_session_queue: G*')"; nq "$SUT" "$d" --queue; want "2r glob item is malformed, never expanded" "NEXT | high | G1 first gap" 'WARN: queue-malformed.*G\*'
+d="$(mkd q-cmt '<!-- note\nnext_session_queue: G3\n-->')"; nq "$SUT" "$d" --queue; want "2s column-0 declaration inside a multi-line HTML comment is not read" "NEXT | high | G1 first gap" 'queue-(absent|prose-only)'
+
 # --- 3. the queue never bypasses the gates ---------------------------------------------------------
 d="$(mkd q-stale 'next_session_queue: G3')"; sed -i 's/^investigable_open: .*/investigable_open: 1/' "$d/RESEARCH-STATE.md"
 nq "$SUT" "$d" --queue; case "$out" in "STALE |"*) ok "3a STALE precedes the queue -> [$out]" ;; *) no "3a want STALE, got [$out]" ;; esac
@@ -117,7 +140,7 @@ mk_q "$TMP/q-foc/RESEARCH-STATE.md" 0 'next_session_queue: G3' "${ROWS[@]}"
 mk_q "$TMP/q-foc/RESEARCH-STATE-act.md" 0 'next_session_queue: G2' "${ROWS[@]}"
 nq "$SUT" "$TMP/q-foc" --queue --focus act; want "4a --focus act reads act's own queue" "NEXT | medium | G2 second gap"
 nq "$SUT" "$TMP/q-foc" --queue --root;      want "4b --root reads the root queue" "NEXT | low | G3 third gap"
-nq "$SUT" "$TMP/q-foc" --queue;             case "$out" in "NEXT | low | G3 third gap"|"NEXT | medium | G2 second gap") ok "4c aggregate serves one focus's own queue [$out]" ;; *) no "4c aggregate got [$out]" ;; esac
+nq "$SUT" "$TMP/q-foc" --queue;             want "4c aggregate: the first active focus (act) serves its OWN queue" "NEXT | medium | G2 second gap"
 mk_q "$TMP/q-foc2/RESEARCH-STATE.md" 0 '' "${ROWS[@]}"; mk_q "$TMP/q-foc2/RESEARCH-STATE-act.md" 0 'next_session_queue: G3' "${ROWS[@]}"
 nq "$SUT" "$TMP/q-foc2" --queue --root; want "4d a sibling focus's queue does not steer the root" "NEXT | high | G1 first gap" 'queue-absent'
 
@@ -148,11 +171,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     nq "$MUT" "$TMP/q-first" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth A: queue ignored -> priority verdict -> 1a has teeth" || no "teeth A: want the priority verdict, got [$out] — THEATER/crash"; fi
   # B: pending test dropped (a covered queued gap is served) -> 2c goes red
-  if mutate B 's/^      if \[ "\$tok" = "pending" \] \&\& ! is_blocked "\$gap"; then$/      if true; then/'; then
+  if mutate B 's/^\(             closed|.*) c=\)terminal ;;$/\1serve ;;/'; then
     nq "$MUT" "$TMP/q-done" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth B: done gap served -> 2c has teeth" || no "teeth B: want the done head served, got [$out] — THEATER/crash"; fi
   # C: blocked check dropped -> 1h2 goes red
-  if mutate C 's/^      if \[ "\$tok" = "pending" \] \&\& ! is_blocked "\$gap"; then$/      if [ "$tok" = "pending" ]; then/'; then
+  if mutate C 's/pending) if is_blocked "\$gap"; then c=blocked; else c=serve; fi ;;/pending) c=serve ;;/'; then
     nq "$MUT" "$TMP/q-blk2" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth C: blocked head served -> 1h2 has teeth" || no "teeth C: want the blocked head served, got [$out] — THEATER/crash"; fi
   # D: the id-boundary guard dropped (prefix match) -> 1g goes red
@@ -175,6 +198,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutate H 's/^    _rn_out="\$(resolve_next_q)"$/    _rn_out="$(resolve_next)"/'; then
     nq "$MUT" "$TMP/q-foc" --queue --focus act
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth H: scoped path ignores the queue -> 4a has teeth" || no "teeth H: want priority verdict, got [$out] — THEATER/crash"; fi
+  # I: the closed-class rows are not requested (backlog_rows without the closed-class arg) -> struck-priority / em-dash read unknown
+  if mutate I 's/backlog_rows 1)"\$.\\n.\"/backlog_rows)"$'"'"'\\n'"'"'"/'; then
+    nq "$MUT" "$TMP/q-cls1" --queue; mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G10' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
+    grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth I: closed-class rows unread -> em-dash gap reads unknown -> 2m has teeth" || no "teeth I: mutant still knew the em-dash gap [$err]"; fi
+  # J: open deferred rows not read -> a queued parked gap reads unknown
+  if mutate J 's/if (pr!="deferred" || NF!=6) next/next/'; then
+    mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G8' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
+    grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth J: open-deferred unread -> unknown -> 2m has teeth" || no "teeth J: mutant still knew the parked gap [$err]"; fi
+  # K: in-progress counted as done -> the exhausted counts are wrong
+  if mutate K 's/^             \*) c=inprogress ;;$/             *) c=terminal ;;/'; then
+    nq "$MUT" "$TMP/q-cls" --queue
+    grep -q '5 done, 1 deferred, 0 blocked, 0 in-progress' <<<"$err" && ok "teeth K: in-progress folded into done -> 2m counts have teeth" || no "teeth K: counts unchanged [$err]"; fi
+  # L: the aggregate (no --root/--focus) call site ignores the queue -> 4c goes red
+  if mutate L 's/^      _r="\$(resolve_next_q)"$/      _r="$(resolve_next)"/'; then
+    nq "$MUT" "$TMP/q-foc" --queue
+    [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth L: aggregate call site ignores the queue -> 4c has teeth" || no "teeth L: want priority verdict, got [$out] — THEATER/crash"; fi
+  # M: declared-twice check dropped -> 2h goes red
+  if mutate M 's/-gt 1 \]; then$/-gt 99 ]; then/'; then
+    nq "$MUT" "$TMP/q-mal3" --queue
+    ! grep -q 'declared more than once' <<<"$err" && ok "teeth M: declared-twice unnoticed -> 2h has teeth" || no "teeth M: still reported [$err]"; fi
+  # N: declared-empty branch dropped -> 2b goes red
+  if mutate N "s/^  case \"\\\${val,,}\" in ''|none|'\\[\\]')/  case \"\\\${val,,}\" in 'zzz-never')/"; then
+    nq "$MUT" "$TMP/q-empty" --queue
+    ! grep -q 'queue-empty' <<<"$err" && ok "teeth N: declared-empty branch dropped -> 2b has teeth" || no "teeth N: still queue-empty [$err]"; fi
+  # O: prose detection dropped -> 2i goes red
+  if mutate O 's/tolower(\$0) ~ \/next/tolower($0) ~ \/zznever/'; then
+    nq "$MUT" "$FX/prose-only" --queue
+    ! grep -q 'queue-prose-only' <<<"$err" && ok "teeth O: prose-only detection dropped -> 2i has teeth" || no "teeth O: still prose-only [$err]"; fi
+  # P: HTML comment skip dropped from the field parser -> 2s goes red
+  if mutate P 's/c{if (\/-->\/) c=0; next} \/\^(-/\/^(-/'; then
+    nq "$MUT" "$TMP/q-cmt" --queue
+    [ "$out" = "NEXT | low | G3 third gap" ] && ok "teeth P: comment field honoured -> 2s has teeth" || no "teeth P: want the comment field honoured, got [$out]"; fi
+  # Q: duplicate-id WARN dropped -> 2p goes red
+  if mutate Q 's/if \[ "\$dup" = 1 \]; then printf/if false; then printf/'; then
+    nq "$MUT" "$TMP/q-dup" --queue
+    ! grep -q 'queue-duplicate-id' <<<"$err" && ok "teeth Q: duplicate unnoticed -> 2p has teeth" || no "teeth Q: still warned [$err]"; fi
+  # R: trailing-comma check dropped -> 2o goes red
+  if mutate R 's/^  case "\$val" in \*,) printf/  case "$val" in zzz-never) printf/'; then
+    nq "$MUT" "$TMP/q-trail" --queue
+    [ "$out" = "NEXT | low | G3 third gap" ] && ok "teeth R: trailing comma accepted -> 2o has teeth" || no "teeth R: want accepted, got [$out]"; fi
+  # S: NONE matched case-sensitively -> 2q goes red
+  if mutate S 's/case "\${val,,}" in/case "${val}" in/'; then
+    nq "$MUT" "$TMP/q-NONE" --queue
+    ! grep -q 'queue-empty' <<<"$err" && ok "teeth S: case-sensitive none -> 2q has teeth" || no "teeth S: still queue-empty [$err]"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

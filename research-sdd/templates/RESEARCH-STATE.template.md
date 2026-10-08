@@ -3,7 +3,7 @@
 > Operational state consumed by the loop (Research-SDD). Mirrored in engram
 > (`research/<target>/gaps`, `research/<target>/progress`). Visible and versionable source.
 
-<!-- OPTIONAL — when you PAUSE with a resume order in mind (METHODOLOGY §8 "Declared resume queue"), add ONE line
+<!-- OPTIONAL — when you PAUSE with a resume order in mind (METHODOLOGY §16 "Declared resume queue"), add ONE line
      here in the header (before the first `##` heading), beside the `PAUSED (…)` line, starting at column 0:
      `next_session_queue: <gap-id>, <gap-id>, ...` (the instrument reads only a line that STARTS with the field
      name, so this comment is not itself a declaration).

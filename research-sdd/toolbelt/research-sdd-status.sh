@@ -598,9 +598,9 @@ resolve_next() {
 # Reads the global $state like backlog_rows. An id matches a backlog Gap cell that equals it or starts with it followed
 # by a character that cannot continue an id (so G1 never matches G10 or G1-b).
 queue_next() {
-  local slug raw val line n=0 id ids=() rows pri gap st lead tok served="" nunk=0 ndone=0 nblk=0 found
+  local slug raw val id ids=() items=() rows pri gap st lead tok served="" cls c n=0 nunk=0 ndone=0 ndef=0 nblk=0 nprog=0 found j dup
   slug="$(basename "$state" .md)"; slug="${slug#RESEARCH-STATE}"; slug="${slug#-}"; slug="${slug:-root}"
-  raw="$(awk '/^## /{exit} /^(-[[:space:]]+)?next_session_queue:/{print}' "$state" 2>/dev/null)"
+  raw="$(awk '/^## /{exit} /<!--/{c=1} c{if (/-->/) c=0; next} /^(-[[:space:]]+)?next_session_queue:/{print}' "$state" 2>/dev/null)"
   if [ -z "$raw" ]; then
     if awk '/^## /{exit} /<!--/{c=1} c{if (/-->/) c=0; next} tolower($0) ~ /next[ _-]session[ _-]queue/{f=1} END{exit !f}' "$state" 2>/dev/null; then
       printf 'INFO: queue-prose-only [%s]: header names a next-session queue in prose but declares no `next_session_queue:` field — priority order used\n' "$slug" >&2
@@ -613,38 +613,61 @@ queue_next() {
     printf 'WARN: queue-malformed [%s]: next_session_queue declared more than once — field ignored, priority order used\n' "$slug" >&2; return 1
   fi
   val="${raw#*next_session_queue:}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
-  case "$val" in ''|none|None|'[]') printf 'INFO: queue-empty [%s]: next_session_queue is declared with no gap ids — priority order used\n' "$slug" >&2; return 1 ;; esac
-  local IFS=','; for line in $val; do
-    id="${line#"${line%%[![:space:]]*}"}"; id="${id%"${id##*[![:space:]]}"}"
+  case "${val,,}" in ''|none|'[]') printf 'INFO: queue-empty [%s]: next_session_queue is declared with no gap ids — priority order used\n' "$slug" >&2; return 1 ;; esac
+  case "$val" in *,) printf 'WARN: queue-malformed [%s]: trailing comma in next_session_queue — field ignored, priority order used\n' "$slug" >&2; return 1 ;; esac
+  IFS=',' read -r -a items <<<"$val"   # array split: no pathname expansion of the items
+  for id in "${items[@]}"; do
+    id="${id#"${id%%[![:space:]]*}"}"; id="${id%"${id##*[![:space:]]}"}"
     if ! grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' <<<"$id"; then
       printf 'WARN: queue-malformed [%s]: item [%s] is not a gap id (want G1, G2, ... comma-separated) — field ignored, priority order used\n' "$slug" "$id" >&2; return 1
     fi
+    dup=0; for j in ${ids[@]+"${ids[@]}"}; do [ "$j" = "$id" ] && dup=1; done
+    if [ "$dup" = 1 ]; then printf 'WARN: queue-duplicate-id [%s]: id [%s] is queued more than once — later occurrence ignored\n' "$slug" "$id" >&2; continue; fi
     ids+=("$id")
   done
-  unset IFS
-  rows="$(backlog_rows)"
+  # ONE parse with the closed-class rows included (deferred / ~~p~~ / em-dash, as emitted for count_all_known_gaps), plus the OPEN
+  # deferred rows that parse leaves to count_deferred: a queued gap that is closed or parked is KNOWN, never "unknown". resolve_next
+  # keeps its own backlog_rows call and output.
+  rows="$(backlog_rows 1)"$'\n'"$(awk -F'|' '{ pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || NF!=6) next
+      g=$3; s=tolower($5); gsub(/^[ \t]+|[ \t]+$/,"",g); gsub(/^[ \t]+|[ \t]+$/,"",s)
+      if (index(g,"~~") || index(s,"~~") || index(s,"✅")) next
+      print "deferred-open\t" g "\t" s }' "$state")"
   for id in "${ids[@]}"; do
-    n=$((n+1)); found=0
+    n=$((n+1)); found=0; cls=""
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
-      case "$gap" in *'~~'*) continue ;; esac
-      lead="${gap#\*\*}"; lead="${lead#\`}"
+      case "$pri" in UNCOUNTED|INVALID_PRIORITY) continue ;; esac
+      lead="$gap"
+      for _ in 1 2; do lead="${lead#\*\*}"; lead="${lead#\~\~}"; lead="${lead#\`}"; done
       case "$lead" in "$id") ;; "$id"[!A-Za-z0-9._-]*) ;; *) continue ;; esac
       found=1
       lead="${st#\*\*}"; lead="${lead/\*\*/}"; tok="${lead%% *}"
-      if [ "$tok" = "pending" ] && ! is_blocked "$gap"; then
+      case "$pri" in
+        deferred-open) c=deferred ;;
+        deferred|'~~'|—) c=terminal ;;
+        *) if [[ "$gap" == *'~~'* ]]; then c=terminal
+           else case "$tok" in
+             pending) if is_blocked "$gap"; then c=blocked; else c=serve; fi ;;
+             blocked*|requires-execution*) c=blocked ;;
+             closed|'[closed]'|covered|'[covered]'|done|'[done]'|cubierto|'[cubierto]'|'✅'*|'~~'*) c=terminal ;;
+             *) c=inprogress ;;
+           esac; fi ;;
+      esac
+      if [ "$c" = serve ]; then
         [ -n "$served" ] || served="$(printf 'NEXT | %s | %s' "$pri" "$gap")"
-        break
+        cls=serve; break
       fi
-      case "$tok" in pending|blocked*|requires-execution*) nblk=$((nblk+1)) ;; *) ndone=$((ndone+1)) ;; esac
-      break
+      [ -n "$cls" ] || cls="$c"
     done < <(printf '%s\n' "$rows")
+    case "$cls" in
+      terminal) ndone=$((ndone+1)) ;; deferred) ndef=$((ndef+1)) ;; blocked) nblk=$((nblk+1)) ;; inprogress) nprog=$((nprog+1)) ;;
+    esac
     if [ "$found" = 0 ]; then
       nunk=$((nunk+1)); printf 'WARN: queue-unknown-gap [%s]: queued id [%s] (position %s) matches no backlog row — skipped\n' "$slug" "$id" "$n" >&2
     fi
   done
   if [ -n "$served" ]; then printf '%s\n' "$served"; return 0; fi
-  printf 'INFO: queue-exhausted [%s]: next_session_queue (%s ids: %s done, %s blocked, %s unknown) has no pending gap — priority order used\n' "$slug" "${#ids[@]}" "$ndone" "$nblk" "$nunk" >&2
+  printf 'INFO: queue-exhausted [%s]: next_session_queue (%s ids: %s done, %s deferred, %s blocked, %s in-progress, %s unknown) has no pending gap — priority order used\n' "$slug" "${#ids[@]}" "$ndone" "$ndef" "$nblk" "$nprog" "$nunk" >&2
   return 1
 }
 
