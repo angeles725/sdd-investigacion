@@ -207,7 +207,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Sourced only here: a plain run never depends on the mutation helper.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   echo "-- teeth: early-bail mutant must be caught by run-all assertion --"
   CALL_LOG_T="$TMP/callT.log"; rm -f "$CALL_LOG_T"
   for s in "${CANONICAL[@]}"; do make_logging_stub "$s" 0 "$CALL_LOG_T"; done

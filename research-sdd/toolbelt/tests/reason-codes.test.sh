@@ -823,7 +823,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
     || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
   mkdir -p "$tmp/mut"
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  CRASH="$(mutant_crash_re bash py)" || exit 2
   # tooth NAME FIXTURE GOOD_RC BAD_RC SED_EXPR — the checker (--check-only) on FIXTURE must exit GOOD_RC
   # as written and BAD_RC once SED_EXPR has disabled the guarded line. A refused build counts once.
   tooth() {

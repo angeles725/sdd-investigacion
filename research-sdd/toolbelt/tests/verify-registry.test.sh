@@ -63,10 +63,9 @@ _vr_teeth_init() {
   [ -z "$_VR_TEETH_READY" ] || return 0
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  local _fn
-  for _fn in mutant_chain mutant_built mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+  # Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
+  VR_CRASH="$(mutant_crash_re bash py)" || exit 2
   _VR_TEETH_READY=1
 }
 # vr_mut LABEL KIT SED_EXPR... : build the mutant of the real SUT inside KIT's toolbelt/.
@@ -89,8 +88,6 @@ vr_run() {
     fail=$((fail+1))
   fi
 }
-# Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
-VR_CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
 # The clean verdict line, anchored at line start.
 VR_CLEAN='^Registry consistent with reality'
 

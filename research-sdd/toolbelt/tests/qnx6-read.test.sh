@@ -562,9 +562,7 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 # Shared helper (kit issue #1299): sourced ONLY on this branch, each function we call is checked.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
-for _fn in mutant_chain mutant_tooth; do
-  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_fn" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/qnx6_read.py"

@@ -429,9 +429,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_built mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_built mutant_tooth || exit 2
   # The SUT of these controls is a JSON fixture: skip the `bash -n` check (the builder below
   # round-trips through json, and a mutant that is not valid JSON crashes the checker, which the
   # --bad-lacks guard refuses to read as a bite).

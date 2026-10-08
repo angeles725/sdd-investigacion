@@ -308,9 +308,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_built mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
   MUT="$TMP/mut"; mkdir -p "$MUT"
   # A refused build counts ONE failure here and its tooth is never run.
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }

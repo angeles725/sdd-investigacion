@@ -271,9 +271,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
   # shellcheck source=lib/mutant.sh
   source "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   # The SUT is a Java file, not shell: skip the `bash -n` check. Every mutant is a one-token textual
   # substitution that mutant_chain proves applied (and applied alone: a dead stage or a byte-identical
   # result is refused); there is no cheap language-native parse for it (javac needs Ghidra's classpath),

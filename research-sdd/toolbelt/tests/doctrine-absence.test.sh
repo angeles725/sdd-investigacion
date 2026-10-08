@@ -120,9 +120,7 @@ no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail + 1)); }
 
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _fn in mutant_chain mutant_tooth mutant_cleanup_register; do
-  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_tooth mutant_cleanup_register || exit 2
 WORK="$(mktemp -d)" || { echo "FATAL: mktemp failed" >&2; exit 2; }
 mutant_cleanup_register "$WORK" || { echo "FATAL: cleanup registration refused" >&2; exit 2; }
 
@@ -302,7 +300,7 @@ else no "binary match" "rc=$rc out=$out"; fi
 # TEETH -- mutant verification (--prove-teeth only)
 # ==========================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  CRASH="$(mutant_crash_re bash py)" || exit 2
   M="$WORK/mut"; mkdir -p "$M"
   mk() { # mk NAME EXPR... -> mutant copy of the walk SUT; a refusal counts ONE failure
     local name="$1" msg; shift

@@ -1293,7 +1293,7 @@ SED
   mk_sed ED-NOTRAILER "$m" 's/ || \[ -n "\$_ed_trailer" \]; then/; then/' \
     && tooth "teeth ED-NOTRAILER: missing coverage trailer ignored" 1 0 "$m" --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env PATH="$TMP/stub-bin-ed-silent:$PATH" bash @SUT@ "$TMP/ed-clean"
   # #1608 — non-verbatim File cell WARN. Every tooth keeps both rc at 0 and discriminates on the typed line.
-  NV_ERR='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  NV_ERR="$(mutant_crash_re bash py)" || exit 2
   m="$TMP/mutants/NV-OFF.sh"
   mk_sed NV-OFF "$m" "/# NONVERBATIM-FILE-CELL\$/s/case \"\\\$_nv_cell\" in/case \"x\" in/" \
     && tooth "teeth NV-OFF: non-verbatim cell check disabled" 0 0 "$m" --good-has 'is not a verbatim in-block token' --bad-lacks "is not a verbatim in-block token|$NV_ERR" -- bash @SUT@ "$TMP/nv-prose"

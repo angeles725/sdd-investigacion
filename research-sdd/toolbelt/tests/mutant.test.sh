@@ -624,6 +624,64 @@ else no "vm tooth py: inv5 leak verdict (got [$(vm_tp inv5)])"; fi
 if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
 else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 
+# T19 -- shared suite bootstrap and crash classifier (#1576): mutant_bootstrap replaces the copied
+# `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace the ~20 copied
+# CRASH regex literals. Each class is a named, explicit piece so variants that differ in meaning stay
+# different (a suite names the classes it wants; nothing is merged silently).
+mutant_bootstrap mutant_chain mutant_tooth >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ]; then ok "bootstrap: every named helper defined -> rc 0"; else no "bootstrap: defined helpers (rc=$rc)"; fi
+mb_err="$(mutant_bootstrap mutant_chain mutant_no_such_helper_zz mutant_tooth 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$mb_err" = "FATAL: lib/mutant.sh did not define mutant_no_such_helper_zz" ]; then ok "bootstrap: a missing helper is rc 2 and named in the FATAL line"
+else no "bootstrap: missing helper (rc=$rc err=[$mb_err])"; fi
+mb_err="$(mutant_bootstrap 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && [[ "$mb_err" == *REFUSED* ]]; then ok "bootstrap: no helper names is refused (a probe that checks nothing proves nothing)"
+else no "bootstrap: empty probe list (rc=$rc err=[$mb_err])"; fi
+mb_err="$(mutant_bootstrap mutant_chain mutant_zz_last 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && [[ "$mb_err" == *mutant_zz_last* ]]; then ok "bootstrap: a missing helper in LAST position is caught"
+else no "bootstrap: last position (rc=$rc err=[$mb_err])"; fi
+mb_err="$(mutant_bootstrap mutant_zz_only 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && [[ "$mb_err" == *mutant_zz_only* ]]; then ok "bootstrap: a single missing helper is caught"
+else no "bootstrap: single element (rc=$rc err=[$mb_err])"; fi
+CRASH_BASH='integer expression expected|syntax error|unbound variable'
+cr_got="$(mutant_crash_re)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$cr_got" = "$CRASH_BASH|Traceback|ImportError|ModuleNotFoundError" ]; then ok "crash_re: no classes = the canonical bash + python set"
+else no "crash_re: default (rc=$rc got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re bash)"
+if [ "$cr_got" = "$CRASH_BASH" ]; then ok "crash_re: class bash"; else no "crash_re: class bash (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re tb)"
+if [ "$cr_got" = "Traceback" ]; then ok "crash_re: class tb"; else no "crash_re: class tb (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re imp)"
+if [ "$cr_got" = "ImportError|ModuleNotFoundError" ]; then ok "crash_re: class imp"; else no "crash_re: class imp (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re py)"
+if [ "$cr_got" = "Traceback|ImportError|ModuleNotFoundError" ]; then ok "crash_re: class py"; else no "crash_re: class py (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re cmd)"
+if [ "$cr_got" = "command not found" ]; then ok "crash_re: class cmd"; else no "crash_re: class cmd (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re awk)"
+if [ "$cr_got" = "awk: " ]; then ok "crash_re: class awk keeps its trailing space"; else no "crash_re: class awk (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re bash cmd tb awk)"
+if [ "$cr_got" = "$CRASH_BASH|command not found|Traceback|awk: " ]; then ok "crash_re: classes compose in the order given (the variant the verify-corrections suites carry)"
+else no "crash_re: composition order (got=[$cr_got])"; fi
+cr_got="$(mutant_crash_re bash nosuchclass 2>"$TMP/cr.err")"; rc=$?
+if [ "$rc" -eq 2 ] && [ -z "$cr_got" ] && grep -q 'unknown class \[nosuchclass\]' "$TMP/cr.err"; then ok "crash_re: an unknown class is rc 2 with NO output (an empty regex would match everything)"
+else no "crash_re: unknown class (rc=$rc got=[$cr_got] err=[$(cat "$TMP/cr.err")])"; fi
+cr_got="$(mutant_crash_re nosuchclass bash 2>/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && [ -z "$cr_got" ]; then ok "crash_re: an unknown class in FIRST position is refused too"
+else no "crash_re: unknown class first (rc=$rc got=[$cr_got])"; fi
+mutant_is_crash 'line 4: x: unbound variable'; rc=$?
+if [ "$rc" -eq 0 ]; then ok "is_crash: a bash crash signature is a crash"; else no "is_crash: bash signature (rc=$rc)"; fi
+mutant_is_crash 'ModuleNotFoundError: No module named x'; rc=$?
+if [ "$rc" -eq 0 ]; then ok "is_crash: a python signature is a crash (default classes)"; else no "is_crash: python signature (rc=$rc)"; fi
+mutant_is_crash 'all good, 3 findings'; rc=$?
+if [ "$rc" -eq 1 ]; then ok "is_crash: clean output is rc 1"; else no "is_crash: clean output (rc=$rc)"; fi
+mutant_is_crash 'foo: command not found'; rc=$?
+if [ "$rc" -eq 1 ]; then ok "is_crash: command-not-found is NOT a crash unless the cmd class is named"; else no "is_crash: cmd class not default (rc=$rc)"; fi
+mutant_is_crash 'foo: command not found' bash cmd; rc=$?
+if [ "$rc" -eq 0 ]; then ok "is_crash: command-not-found IS a crash when the cmd class is named"; else no "is_crash: cmd class (rc=$rc)"; fi
+mutant_is_crash 'awk: cmd. line:1: fatal' bash awk; rc=$?
+if [ "$rc" -eq 0 ]; then ok "is_crash: awk diagnostic is a crash when the awk class is named"; else no "is_crash: awk class (rc=$rc)"; fi
+mutant_is_crash 'unbound variable' bash nosuchclass 2>/dev/null; rc=$?
+if [ "$rc" -eq 2 ]; then ok "is_crash: an unknown class is rc 2, never a quiet 'not a crash'"; else no "is_crash: unknown class (rc=$rc)"; fi
+
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   SELFTEST="$HERE/mutant.test.sh"
@@ -793,6 +851,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "vm core: crash on the clean tree fails the staging control"
   teeth_case vmmutate 's|/        pass/;}|/        raise/;}|' \
     "vm core: faithful scenario runner gives 6/0"
+  # shared bootstrap probe + crash classifier (#1576)
+  teeth_case bootprobe '/^mutant_bootstrap/,/^}/s/declare -F "\$_mb_fn" >\/dev\/null 2>&1 ||/true ||/' \
+    "bootstrap: missing helper"
+  teeth_case bootrc '/^mutant_bootstrap/,/^}/s/"\$_mb_fn" >&2; return 2;/"$_mb_fn" >\&2; return 0;/' \
+    "bootstrap: missing helper"
+  teeth_case bootnone '/^mutant_bootstrap/,/^}/s/if \[ "\$#" -eq 0 \]; then/if false; then/' \
+    "bootstrap: empty probe list"
+  teeth_case bootname 's/did not define %s\\n/is absent %s\\n/' \
+    "bootstrap: missing helper"
+  teeth_case crashdefault 's/\[ "\$#" -gt 0 \] || set -- bash py/[ "$#" -gt 0 ] || set -- bash/' \
+    "crash_re: default"
+  teeth_case crashbash "s/syntax error|unbound variable' ;;/unbound variable' ;;/" \
+    "crash_re: class bash"
+  teeth_case crashimp "s/imp)  printf '%s' 'ImportError|ModuleNotFoundError'/imp)  printf '%s' 'ImportError'/" \
+    "crash_re: class imp"
+  teeth_case crashcmd "s/'command not found' ;;/'command not found ' ;;/" \
+    "crash_re: class cmd"
+  teeth_case crashawk "s/'awk: ' ;;/'awk:' ;;/" \
+    "crash_re: class awk"
+  teeth_case crashorder 's/_mc_re="\${_mc_re:+\$_mc_re|}\$_mc_part"/_mc_re="${_mc_part}${_mc_re:+|$_mc_re}"/' \
+    "crash_re: composition order"
+  teeth_case crashunknown '/^mutant_crash_re/,/^}/s/return 2; }$/continue; }/' \
+    "crash_re: unknown class"
+  teeth_case crashrc2 '/^mutant_is_crash/,/^}/s/ || return 2$/ || :/' \
+    "is_crash: unknown class"
+  teeth_case crashgrep 's/grep -qE -- "\$_mi_re" <<<"\$_mi_text"/grep -qE -- "$_mi_re" <<<""/' \
+    "is_crash: bash signature"
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

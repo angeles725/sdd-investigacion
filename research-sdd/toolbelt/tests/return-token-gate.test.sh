@@ -273,7 +273,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-RTG: each guard is load-bearing --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  RTG_CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  RTG_CRASH="$(mutant_crash_re bash py)" || exit 2
   # The tooth driver: a fresh corpus copy per run (the marker must not leak between the good and the mutant run).
   # env: RTG_TWICE=1 runs the gate twice on one copy · RTG_BETWEEN=1 moves the corpus to a new expected token between
   # the two runs · RTG_ACTIVE=true sets stop_hook_active · RTG_STOPONLY=1 drops the campaign queue · RTG_PATH replaces PATH.

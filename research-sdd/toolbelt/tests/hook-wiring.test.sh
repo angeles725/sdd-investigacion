@@ -542,7 +542,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # subshell and its state variable read), so they are not expressible as mutant_tooth argv runs.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: force the awk always-found (END { exit 0 }) — case 3 must go RED --"
   mut_wired="$ROOT/hook-wiring.MUTANT-always-wired.sh"

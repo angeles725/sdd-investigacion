@@ -265,7 +265,7 @@ mk_built() { mutant_built "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
 # tt LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...  — mutant_tooth (EXACT exit codes on the original and the mutant).
 tt() { if mutant_tooth "$@"; then teeth_pass=$((teeth_pass+1)); else teeth_fail=$((teeth_fail+1)); fi; }
 # A bad side that is only an exit code must not be a crash: these never read as a bite.
-CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
+CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
 
 # Helper: create a mutant by deleting the block between a sentinel pair. Both markers must occur exactly
 # once, so the range cannot run open-ended to EOF on a missing END marker.

@@ -87,7 +87,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   echo "-- teeth: mutate a COPY and confirm the check detects the regression --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 

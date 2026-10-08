@@ -390,7 +390,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # base tests assert on, so they are not expressible as one mutant_tooth argv without a redesign.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
 
   # ---- Tooth A: SENTINEL-IDEMPOTENT — disabling the strip-existing-block guard ----
   # Mutant: force _splice_has_existing=1 always, so the awk strip always runs.

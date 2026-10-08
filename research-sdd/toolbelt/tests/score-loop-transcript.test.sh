@@ -629,9 +629,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # is carried entirely by the anchored typed C-line asserted on each side (--good-has / --bad-has).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_tooth; do
-    declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   # mk NAME EXPR... — build $ROOT/score-loop-transcript.MUTANT-NAME.sh into $m; counts a refusal once.
   mk() {
     local name="$1"; shift
@@ -645,7 +643,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if mutant_tooth "$label" "$g" "$b" "$m" --orig "$SUT" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   # A crashing mutant must never read as a bite.
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|command not found'
+  CRASH="$(mutant_crash_re bash py cmd)" || exit 2
 
   echo "-- teeth-C1: neutralise the block-commit regex match; expect C1 to report 0 commits --"
   if mk c1 's/"\$subj" =~ \$BLOCK_COMMIT_REGEX/"$subj" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
