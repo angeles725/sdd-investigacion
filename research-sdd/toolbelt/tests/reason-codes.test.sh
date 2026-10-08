@@ -3,7 +3,7 @@
 #
 # The registry is a closed table: one row per `degraded:` class emitted today, plus the three typed
 # input classes, each row naming exactly one continuation. This suite extracts the emitted `degraded:`
-# tokens from the four scanned scripts and proves the registry and the emitters agree:
+# tokens from the five scanned scripts and proves the registry and the emitters agree:
 #
 #   - an emitted token that is not a registry code            -> FAIL (unlisted code)
 #   - a registry degraded row that no scanned script emits    -> FAIL (stale row)
@@ -446,7 +446,7 @@ echo "== reason-codes.test.sh =="
 # edit FILE SED_EXPR — in-place edit without GNU-only sed -i.
 edit() { sed "$2" "$1" > "$1.new" && mv "$1.new" "$1"; }
 
-# mkfix NAME — a good registry + four scanned scripts under $tmp/NAME. Every script ends WITHOUT a
+# mkfix NAME — a good registry + five scanned scripts under $tmp/NAME. Every script ends WITHOUT a
 # trailing newline (last-line edge) and the registry's last row has none either.
 mkfix() {
   local d="$tmp/$1"
