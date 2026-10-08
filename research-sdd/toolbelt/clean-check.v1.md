@@ -184,6 +184,9 @@ uses it to prove the filter bites without needing a second user.
 
 ## Known limits
 
+- The unreadable-directory skip recognises GNU find's C-locale `find: '<path>': Permission denied`
+  line only. BSD find prints the path unquoted, so on BSD any unreadable directory under the target
+  degrades the evidence scan (exit 3) — the safe direction.
 - A `tmp.*` entry that vanishes between readdir and stat would make `find` fail. Where `find`
   supports `-ignore_readdir_race` (GNU) the scan uses it and the race is benign; where it does not
   (BSD) the `tmp.*` scan still exits 2 loudly on such a race, and a rerun is the remedy. The
