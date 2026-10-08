@@ -397,6 +397,8 @@ tmp_scan_failed=()      # suites whose existing TMPDIR subdir could not be scann
 tmp_create_failed=()    # suites whose per-suite TMPDIR subdir could not be CREATED (they ran on the caller's TMPDIR)
 if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]; then
   export RUN_TMP_ROOT
+  # SENTINEL-KEEP-TMP-EARLY
+  [[ -n "$KEEP_TMP" ]] && echo "run-all.sh: --keep-tmp: per-run TMPDIR root kept at $RUN_TMP_ROOT" >&2
 else
   RUN_TMP_ROOT=""
   TMPDIR_DEGRADED_REASON="the per-run TMPDIR root could not be created ('mktemp -d' failed); suites ran with the caller's TMPDIR"
@@ -555,7 +557,7 @@ _parallel_gnu_ok() {
 # Attribution of a batch leak (kit issue #1491 item 1). The batch snapshot proves a leak happened
 # but not WHO. Each -j worker records its suite's [start,end] wall-clock window; the leaked path's
 # mtime (the LAST writer) falls inside the window of the suite(s) that were running at that moment,
-# so only those candidates (at most -j N of them, never the whole corpus) are re-run serially, each
+# so only those candidates (typically at most -j N of them: the union over leaked paths and windows, never the whole corpus) are re-run serially, each
 # under a per-suite timeout (RUN_ALL_ATTRIBUTION_TIMEOUT seconds, default 600, via `timeout` when
 # present). A candidate is blamed when the leaked path's signature (full-resolution mtime AND
 # content hash) changes across its re-run: mtime alone misses a suite that restores the mtime, the
@@ -918,7 +920,7 @@ if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
+  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (the suites whose recorded window matched — typically at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
   for _al in "${ATTRIBUTION_LINES[@]}"; do echo "$_al"; done
 elif [[ -n "$PARALLEL_DEGRADED_REASON" ]]; then
   echo "Parallel: DEGRADED — $PARALLEL_DEGRADED_REASON"

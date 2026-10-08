@@ -1062,6 +1062,19 @@ mkfix_leaky(){
     printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
   } > "$1"
 }
+# mkfix_late <file> — a suite that writes install/leak.MUTANT.sh about half a second into a wall-clock second and
+# exits at once: with whole-second run windows the mtime then lies PAST the floored window end, so only the
+# widened (1 s) tolerance can match it. Uses the absolute path of the real date (a PATH shim may fake %N).
+mkfix_late(){
+  { printf '#!/usr/bin/env bash\n'
+    printf 'k="$(cd "$(dirname "$0")/../.." && pwd)"\n'
+    printf 'n=$((10#$(%s +%%N))); d=$(( (1500000000 - n) %% 1000000000 ))\n' "$(command -v date)"
+    printf 'sleep "0.$(printf "%%09d" "$d")"\n'
+    printf 'printf x > "$k/install/leak.MUTANT.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+
 # mkfix_slow <file> — a passing fixture that sleeps 1s; fails loudly when the edit did not apply, so a
 # changed mkfix_sh shape cannot silently leave a fast fixture behind.
 mkfix_slow(){
@@ -1282,7 +1295,16 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
      && ! grep -qF 'no suite run window' <<<"$out"; then
     ok "-j attribution: a date without %N falls back to whole-second windows and the offender is still named"
   else no "-j no-%N date failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
-else skip_j "-j leak attribution (j6/j9/j10/j11/j12/j13/j14/j15/j16)"; fi
+  # j17 — the 1 s window widening has teeth: a write ~0.5 s into the LAST second of a whole-second window
+  #       (date without %N) lies past the floored end and is matched only by the coarse tolerance.
+  w="$(newdir j17)"; _j17kit="${w%/toolbelt/tests}"; mkdir -p "$_j17kit/install"
+  mkfix_late "$w/a-late.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+  _j17cwd="$TMP/j17-cwd"; mkdir -p "$_j17cwd"
+  out="$(cd "$_j17cwd" && PATH="$_j16bin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF 'a-late.test.sh leaked: install/leak.MUTANT.sh (new)' <<<"$out"; then
+    ok "-j attribution: a late write in a whole-second window is matched by the widened tolerance"
+  else no "-j late write failed: rc=$rc :: $(grep -iE 'attribution|leaked' <<<"$out" | tr '\n' '|')"; fi
+else skip_j "-j leak attribution (j6/j9/j10/j11/j12/j13/j14/j15/j16/j17)"; fi
 
 # j8 — progress: under -j every suite emits a stderr "started" and "done ... rc=N" line while it runs,
 #      so a hung suite (started, never done) is nameable; the aggregate block is unaffected.
@@ -1520,6 +1542,10 @@ w="$(newdir c38m)"; _c38root="$TMP/c38m-calltmp"; mkdir -p "$_c38root"
 tmpfix_leak "$w/a-leaky.test.sh" 2
 out="$(TMPDIR="$_c38root" bash "$w/run-all.sh" --keep-tmp 2>&1)"; rc=$?
 _c38mp="$(sed -n 's/^TMPDIR kept: //p' <<<"$out")"
+# S: the root is also named on stderr as soon as it exists, so an interrupted run still names it.
+_c38early="$(sed -n 's/^run-all.sh: --keep-tmp: per-run TMPDIR root kept at //p' <<<"$out")"
+if [ -n "$_c38mp" ] && [ "$_c38early" = "$_c38mp" ]; then ok "tmpdir-keep: the kept root is named on stderr at creation time too"
+else no "tmpdir --keep-tmp early line failed: early=[$_c38early] kept=[$_c38mp]"; fi
 if [ "$rc" -eq 0 ] && [ -n "$_c38mp" ] && [ -d "$_c38mp" ] && [ -n "$(ls -A "$_c38mp/1" 2>/dev/null)" ] \
    && [[ "$_c38mp" == "$_c38root"/* ]]; then
   ok "tmpdir-keep: --keep-tmp keeps the root, prints its path, and the suite's leftovers are inside"
@@ -2326,6 +2352,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-tmpd-keep: mutant still kept the root — mutation not exercised (THEATER)"; fi
     rm -rf "$_tr"
   fi
+  echo "-- teeth: drop the early --keep-tmp stderr line; it must then vanish (case 38m) --"
+  if tmpd_mut teeth-tmpd-early '/SENTINEL-KEEP-TMP-EARLY/{n;d}'; then
+    tmpfix_clean "$w/a.test.sh"
+    tmpd_run teeth-tmpd-early --keep-tmp
+    rm -rf "$_tr"
+    if ! grep -qF 'run-all.sh: --keep-tmp: per-run TMPDIR root kept at' <<<"$mout"; then ok "teeth-tmpd-early: line-less mutant never names the root early → the early line has real teeth"
+    else no "teeth-tmpd-early: mutant still prints the early line — mutation not exercised (THEATER)"; fi
+  fi
   echo "-- teeth: count leftovers by lines again; a newline-named entry must then count twice (case 38l) --"
   if tmpd_mut teeth-tmpd-count "s/-exec printf '\.%\.0s' {} +/-print/;s/^  _n=\${#_o}\$/  _n=\"\$(printf '%s\\\\n' \"\$_o\" | wc -l)\"/"; then
     { printf '#!/usr/bin/env bash\n'; printf 'touch "$TMPDIR/a\nb"\n'; printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/x.test.sh"
@@ -2372,7 +2406,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if grep -qF 'no suite run window' <<<"$mout" || grep -qF "no suite window matches" <<<"$mout"; then ok "teeth-j-datefb: fallback-less mutant loses the run windows → the whole-second fallback has real teeth"
       else no "teeth-j-datefb: mutant still attributes — mutation not exercised (THEATER)"; fi
     fi
-  else skip_j "teeth-tmpd-tmpfail / teeth-j-timeout / teeth-j-datefb"; fi
+    echo "-- teeth: never widen the whole-second window tolerance; the late write must then go unmatched (case j17) --"
+    w="$(mut_workdir teeth-j-widen)"; mkdir -p "${w%/toolbelt/tests}/install"
+    mkfix_late "$w/a-late.test.sh"; mkfix_sh "$w/b-clean.test.sh" 1 0 0
+    if ! mutant_sed "$SUT" "$w/run-all.sh" 's/_wt="\$_tol"; \[\[ "\$_ws\$_we" == \*\.\* \]\] || _wt="\$ATTR_TOL_COARSE"/_wt="$_tol"/' 2>"$w/mutant.err"; then
+      no "teeth-j-widen: could not build a valid mutant: $(cat "$w/mutant.err")"
+    else
+      mout="$(cd "$TMP" && PATH="$_j16bin:$PATH" bash "$w/run-all.sh" -j 2 2>&1)"
+      rm -f "${w%/toolbelt/tests}/install/leak.MUTANT.sh"
+      if ! grep -qF 'a-late.test.sh leaked:' <<<"$mout"; then ok "teeth-j-widen: widening-less mutant misses the late write → the 1 s tolerance has real teeth"
+      else no "teeth-j-widen: mutant still names the suite — mutation not exercised (THEATER)"; fi
+    fi
+  else skip_j "teeth-tmpd-tmpfail / teeth-j-timeout / teeth-j-datefb / teeth-j-widen"; fi
   echo "-- teeth: swallow the DEGRADED reason when the root cannot be created (case 38e) --"
   if tmpd_mut teeth-tmpd-degraded 's/^  TMPDIR_DEGRADED_REASON="the per-run TMPDIR root.*$/  :/'; then
     mkfix_sh "$w/a.test.sh" 1 0 0
