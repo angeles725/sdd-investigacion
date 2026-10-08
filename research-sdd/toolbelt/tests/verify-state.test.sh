@@ -2840,7 +2840,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # verify-state.sh to $TMP so the mutant status.sh can call it as $here/verify-state.sh).
   mkdir -p "$TMP/lib"
   cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"  # SUT sources at $(dirname $0)/lib/
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"  # SUT sources at $(dirname $0)/lib/
 
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"
@@ -5625,7 +5625,7 @@ fi
 # teeth for kit #983: the OOB-separator width record in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-OOB5: restore the OOB-separator early return → VS-OOB-5COL goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   _vo_mut="$TMP/verify-state.OOB5.MUTANT.sh"
   cp "$SUT" "$_vo_mut"
   sed -i 's/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next };/if (!in_backlog) next;/' "$_vo_mut"
@@ -5643,7 +5643,7 @@ fi
 # teeth for kit #1307: the out-of-backlog Priority-header guard in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-FINDINGS: disable the OOB-NO-PRIORITY-HEADER guard → VS-FINDINGS goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   _vf_mut="$TMP/verify-state.FINDINGS.MUTANT.sh"
   cp "$SUT" "$_vf_mut"
   sed -i '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog \&\& !tbl_ok)/if (0)/' "$_vf_mut"
@@ -5662,7 +5662,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   # _k34_canonfail <script> <target> — run <script> against <target> with the test-only `cd -P` seam
   # forcing the root canonicalization to fail.
   _k34_canonfail() {
