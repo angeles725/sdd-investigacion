@@ -1854,6 +1854,194 @@ case "$got" in
   *) no "T-627d: expected STALE, got [$got]";;
 esac
 
+# ==================== T-1640 — covers_through derives RETRO-DUE from the retro (issue #1640) ====================
+# The retro template carries a machine-readable `covers_through: B<n>` line. blocks_since_retro is derived as
+# max(0, newest block id on disk - covers_through) and replaces the declared counter ONLY when LOWER, so a stale
+# counter cannot fire early. Retros without the field keep the declared counter, with a typed stderr note.
+cv_state() {  # cv_state <dir> <bsr> <highest-block-id>: retro_due_state plus real block files 1..N-ish (first, last, middle)
+  local d="$1" bsr="$2" hi="$3"; retro_due_state "$d" "$bsr"
+  mkdir -p "$d/retros"; : > "$d/niagara5-block1.md"; : > "$d/niagara5-block9.md"; : > "$d/niagara5-block${hi}.md"
+  cv_cov "$d/RESEARCH-STATE.md" 3
+}
+cv_cov() { sed -i "s/^covered_blocks: 0/covered_blocks: $2/" "$1"; }  # envelope must match the block files on disk, or --next answers STALE
+cv_retro() { mkdir -p "$1/retros"; printf '%b' "$3" > "$1/retros/$2"; }  # cv_retro <dir> <file> <content>
+cv_next() { bash "$SUT" "$1" --next 2>"$TMP/cv.err"; }
+
+# T-1640a: the issue's case — counter 11, retro covers B140, newest block B141 → derived 1 → NEXT (no early fire)
+d="$TMP/t1640-a"; cv_state "$d" 11 141; cv_retro "$d" 2026-10-04-a.md '# Retro\n\ncovers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640a: stale counter 11 + covers_through B140 + newest B141 → NEXT";; *) no "T-1640a: got [$got]";; esac
+grep -q 'blocks_since_retro: 11 .*covers_through.*B140' "$TMP/cv.err" \
+  && ok "T-1640a: stderr names the overridden counter and the retro coverage" || no "T-1640a: no typed override note on stderr [$(cat "$TMP/cv.err")]"
+
+# T-1640b: derived HIGHER than declared (retro covers B125, newest B141 → 16 > 11) → declared counter kept → RETRO-DUE 11
+d="$TMP/t1640-b"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B125\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640b: derived 16 > declared 11 → declared counter kept";; *) no "T-1640b: got [$got]";; esac
+
+# T-1640c: boundary — derived == declared (11) → declared (RETRO-DUE); derived 10 (lower, at threshold) → NEXT
+d="$TMP/t1640-c1"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B130\n'
+got="$(cv_next "$d")"
+case "$got" in *"[derived"*) no "T-1640c1: equality must keep the declared counter, got [$got]";; "RETRO-DUE | 11 blocks"*) ok "T-1640c1: derived 11 == declared 11 → not lower → RETRO-DUE (declared kept)";; *) no "T-1640c1: got [$got]";; esac
+d="$TMP/t1640-c2"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B131\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640c2: derived 10 < declared 11, at threshold → NEXT";; *) no "T-1640c2: got [$got]";; esac
+
+# T-1640d: lower derived that STILL exceeds the threshold → RETRO-DUE reports the DERIVED count (declared 30, derived 12)
+d="$TMP/t1640-d"; cv_state "$d" 30 141; cv_retro "$d" r.md 'covers_through: B129\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 12 blocks"*) ok "T-1640d: declared 30, derived 12 → RETRO-DUE reports 12";; *) no "T-1640d: got [$got]";; esac
+
+# T-1640e: retro WITHOUT the field → declared counter, typed stderr note (never a silent fall-through)
+d="$TMP/t1640-e"; cv_state "$d" 11 141; cv_retro "$d" r.md '# Retro with no coverage line\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640e: no covers_through in any retro → declared counter";; *) no "T-1640e: got [$got]";; esac
+grep -q 'covers_through: absent' "$TMP/cv.err" && ok "T-1640e: typed 'covers_through: absent' note on stderr" || no "T-1640e: no typed absent note [$(cat "$TMP/cv.err")]"
+
+# T-1640f: no retros directory at all → declared counter, typed note (absent-input != empty != no-match)
+d="$TMP/t1640-f"; retro_due_state "$d" 11; : > "$d/niagara5-block141.md"; cv_cov "$d/RESEARCH-STATE.md" 1
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640f: no retros at all → declared counter";; *) no "T-1640f: got [$got]";; esac
+grep -q 'covers_through: absent (no retros found)' "$TMP/cv.err" && ok "T-1640f: typed 'no retros found' note" || no "T-1640f: [$(cat "$TMP/cv.err")]"
+
+# T-1640g: malformed value (the unfilled template placeholder) → declared counter + typed malformed WARN
+d="$TMP/t1640-g"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B<n>\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640g: malformed covers_through → declared counter";; *) no "T-1640g: got [$got]";; esac
+grep -q 'covers_through: malformed' "$TMP/cv.err" && ok "T-1640g: typed malformed WARN" || no "T-1640g: [$(cat "$TMP/cv.err")]"
+
+# T-1640h: list edges — the winning (highest) coverage sits FIRST, MIDDLE and LAST in sorted retro order
+for pos in first middle last; do
+  d="$TMP/t1640-h-$pos"; cv_state "$d" 11 141
+  case "$pos" in
+    first)  a='covers_through: B140\n'; b='covers_through: B100\n'; c='covers_through: B90\n' ;;
+    middle) a='covers_through: B100\n'; b='covers_through: B140\n'; c='covers_through: B90\n' ;;
+    last)   a='covers_through: B100\n'; b='covers_through: B90\n';  c='covers_through: B140\n' ;;
+  esac
+  cv_retro "$d" 2026-01-a.md "$a"; cv_retro "$d" 2026-02-b.md "$b"; cv_retro "$d" 2026-03-c.md "$c"
+  got="$(cv_next "$d")"
+  case "$got" in NEXT\ *) ok "T-1640h: highest coverage in $pos retro wins (not the newest-by-name)";; *) no "T-1640h-$pos: got [$got]";; esac
+done
+# single retro (single-element list) is the T-1640a case; a retro whose ONLY field line is the LAST line without newline:
+d="$TMP/t1640-h-eof"; cv_state "$d" 11 141; cv_retro "$d" r.md '# R\n\ncovers_through: B140'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640h: covers_through as the last line without a trailing newline is read";; *) no "T-1640h-eof: got [$got]";; esac
+
+# T-1640i: coverage beyond the newest block on disk is NEVER clamped to 0 (fail closed): declared counter kept + typed WARN
+d="$TMP/t1640-i"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B200\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640i: covers_through B200 > newest B141 → value excluded, declared counter kept";; *) no "T-1640i: got [$got]";; esac
+grep -q 'covers_through B200 in r.md exceeds newest block B141' "$TMP/cv.err" && ok "T-1640i: typed 'exceeds newest block' WARN names the retro" || no "T-1640i: [$(cat "$TMP/cv.err")]"
+# T-1640i2: an over-range value from one retro must not shadow a valid lower one from another (FIRST / LAST position)
+for pos in first last; do
+  d="$TMP/t1640-i2-$pos"; cv_state "$d" 11 141
+  if [ "$pos" = first ]; then cv_retro "$d" 2026-01-a.md 'covers_through: B999\n'; cv_retro "$d" 2026-02-b.md 'covers_through: B140\n'
+  else cv_retro "$d" 2026-01-a.md 'covers_through: B140\n'; cv_retro "$d" 2026-02-b.md 'covers_through: B999\n'; fi
+  got="$(cv_next "$d")"
+  case "$got" in NEXT\ *) ok "T-1640i2: over-range B999 ($pos) does not shadow the valid B140 → NEXT";; *) no "T-1640i2-$pos: got [$got]";; esac
+  grep -q 'covers_through B999 in 2026-0[12]-[ab].md exceeds' "$TMP/cv.err" && ok "T-1640i2: WARN per excluded retro ($pos)" || no "T-1640i2-$pos: no per-retro WARN [$(cat "$TMP/cv.err")]"
+done
+# T-1640i4: with a HIGHER declared counter the shadow is observable in the verdict: over-range B999 (first) + valid B130 → derived 11
+d="$TMP/t1640-i4"; cv_state "$d" 30 141; cv_retro "$d" 2026-01-a.md 'covers_through: B999\n'; cv_retro "$d" 2026-02-b.md 'covers_through: B130\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640i4: over-range B999 is excluded; the valid B130 still yields derived 11 (declared 30)";; *) no "T-1640i4: got [$got]";; esac
+# coverage EQUAL to the newest block is in range (derived 0)
+d="$TMP/t1640-i3"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B141\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640i3: covers_through == newest block is in range → derived 0 → NEXT";; *) no "T-1640i3: got [$got]";; esac
+
+# T-1640j: grammar scope — a fenced example, an indented/quoted mention and a kit-retro: exclude file never count
+d="$TMP/t1640-j"; cv_state "$d" 11 141
+cv_retro "$d" r1.md '# R\n\n```\ncovers_through: B140\n```\n\n> covers_through: B140\n'
+cv_retro "$d" r2.md '<!-- kit-retro: exclude -->\ncovers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640j: fenced / quoted / excluded-retro lines are not coverage";; *) no "T-1640j: got [$got]";; esac
+
+# T-1640k: no block files on disk → cannot derive → declared counter with a typed note
+d="$TMP/t1640-k"; retro_due_state "$d" 11; cv_retro "$d" r.md 'covers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640k: no block files on disk → declared counter";; *) no "T-1640k: got [$got]";; esac
+grep -q 'no block files' "$TMP/cv.err" && ok "T-1640k: typed 'no block files' note" || no "T-1640k: [$(cat "$TMP/cv.err")]"
+
+# T-1640l: per-focus scoping — `focus=<slug>` applies only to that focus's state file; prefix-filtered block ids
+d="$TMP/t1640-l"; mkdir -p "$d/retros"
+retro_due_state "$d" 11; mv "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"
+: > "$d/alpha-block141.md"; : > "$d/beta-block300.md"; cv_cov "$d/RESEARCH-STATE-alpha.md" 1
+cv_retro "$d" r.md 'covers_through: B140 focus=alpha\ncovers_through: B10 focus=beta\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640l: focus=alpha line + alpha-prefixed blocks (beta block ignored) → NEXT";; *) no "T-1640l: got [$got]";; esac
+d="$TMP/t1640-l2"; mkdir -p "$d/retros"
+retro_due_state "$d" 11; mv "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"
+: > "$d/alpha-block141.md"; cv_cov "$d/RESEARCH-STATE-alpha.md" 1
+cv_retro "$d" r.md 'covers_through: B140 focus=beta\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640l2: a focus=beta line does not cover alpha → declared counter";; *) no "T-1640l2: got [$got]";; esac
+
+# ---- T-1640 multi-focus: coverage may only lower the counter when the evidence unambiguously belongs to THIS focus ----
+cv_two() {  # cv_two <dir> <bsr-alpha> <bsr-beta>: two slugged focuses, one block each (id 141), both stale-counter states
+  local d="$1"; mkdir -p "$d/retros"
+  retro_due_state "$TMP/cv2-a" "$2"; retro_due_state "$TMP/cv2-b" "$3"
+  mv "$TMP/cv2-a/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"; mv "$TMP/cv2-b/RESEARCH-STATE.md" "$d/RESEARCH-STATE-beta.md"
+  : > "$d/alpha-block141.md"; : > "$d/beta-block141.md"
+  cv_cov "$d/RESEARCH-STATE-alpha.md" 1; cv_cov "$d/RESEARCH-STATE-beta.md" 1
+}
+# C1a: only an UNSCOPED B140 line in a two-focus corpus → ignored for both focuses → RETRO-DUE (alpha), typed note
+d="$TMP/t1640-m1"; cv_two "$d" 11 11; cv_retro "$d" r.md 'covers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640m1: unscoped B140 in a multi-focus corpus does not cover any focus";; *) no "T-1640m1: got [$got]";; esac
+grep -q 'unscoped line(s) ignored' "$TMP/cv.err" && ok "T-1640m1: typed 'unscoped line(s) ignored' WARN" || no "T-1640m1: [$(cat "$TMP/cv.err")]"
+# C1b: unscoped B140 + `focus=alpha` B140 → alpha covered, beta must STILL fire RETRO-DUE
+d="$TMP/t1640-m2"; cv_two "$d" 11 11; cv_retro "$d" r.md 'covers_through: B140\ncovers_through: B140 focus=alpha\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640m2: alpha scoped-covered, beta (unscoped line only) still gets RETRO-DUE";; *) no "T-1640m2: got [$got]";; esac
+# C1c: both focuses scoped → both covered → NEXT; root focus is scoped with focus=root
+d="$TMP/t1640-m3"; cv_two "$d" 11 11; cv_retro "$d" r.md 'covers_through: B140 focus=alpha\ncovers_through: B140 focus=beta\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640m3: every focus scoped with its own slug → NEXT";; *) no "T-1640m3: got [$got]";; esac
+d="$TMP/t1640-m4"; mkdir -p "$d/retros"; retro_due_state "$d" 11; : > "$d/alpha-block141.md"
+retro_due_state "$TMP/cv2-a" 11; mv "$TMP/cv2-a/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"
+cv_cov "$d/RESEARCH-STATE.md" 1; cv_cov "$d/RESEARCH-STATE-alpha.md" 1
+cv_retro "$d" r.md 'covers_through: B140 focus=alpha\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640m4: root + slugged corpus: focus=alpha does not cover the ROOT focus";; *) no "T-1640m4: got [$got]";; esac
+cv_retro "$d" r.md 'covers_through: B140 focus=alpha\ncovers_through: B140 focus=root\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640m4b: focus=root scopes the un-suffixed root state → both covered → NEXT";; *) no "T-1640m4b: got [$got]";; esac
+# C1d: split layout — the same slug in two directories is ambiguous → declared counter, typed WARN
+d="$TMP/t1640-m5"; mkdir -p "$d/a" "$d/b" "$d/retros"
+retro_due_state "$TMP/cv2-a" 11; retro_due_state "$TMP/cv2-b" 11
+mv "$TMP/cv2-a/RESEARCH-STATE.md" "$d/a/RESEARCH-STATE-x.md"; mv "$TMP/cv2-b/RESEARCH-STATE.md" "$d/b/RESEARCH-STATE-x.md"
+: > "$d/a/x-block141.md"; : > "$d/b/x-block141.md"; cv_cov "$d/a/RESEARCH-STATE-x.md" 1; cv_cov "$d/b/RESEARCH-STATE-x.md" 1
+cv_retro "$d" r.md 'covers_through: B140 focus=x\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640m5: duplicate slug across split directories → declared counter";; *) no "T-1640m5: got [$got]";; esac
+grep -q 'not unique' "$TMP/cv.err" && ok "T-1640m5: typed 'not unique' WARN" || no "T-1640m5: [$(cat "$TMP/cv.err")]"
+
+# n1: a SINGLE but SLUGGED state file (a corpus that shrank) must not accept an unscoped line either — only the root
+# RESEARCH-STATE.md owns unscoped evidence
+d="$TMP/t1640-n1"; mkdir -p "$d/retros"; retro_due_state "$d" 11; mv "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"
+: > "$d/alpha-block141.md"; cv_cov "$d/RESEARCH-STATE-alpha.md" 1; cv_retro "$d" r.md 'covers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640n1: unscoped line + one slugged state file → ignored, declared counter kept";; *) no "T-1640n1: got [$got]";; esac
+grep -q 'unscoped line(s) ignored' "$TMP/cv.err" && ok "T-1640n1: typed 'unscoped line(s) ignored' WARN" || no "T-1640n1: [$(cat "$TMP/cv.err")]"
+cv_retro "$d" r.md 'covers_through: B140 focus=alpha\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640n1b: the same slugged state file IS covered by its own focus=alpha line → NEXT";; *) no "T-1640n1b: got [$got]";; esac
+
+# W3: an incomplete retro enumeration (find exits non-zero on an unreadable directory) keeps the declared counter
+if [ "$(id -u)" != 0 ]; then
+  d="$TMP/t1640-w3"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B140\n'; mkdir -p "$d/retros/locked"; chmod 000 "$d/retros/locked"
+  got="$(cv_next "$d")"
+  case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640w3: find exit != 0 → declared counter kept despite a readable covering retro";; *) no "T-1640w3: got [$got]";; esac
+  grep -q 'retro enumeration incomplete (find exit' "$TMP/cv.err" && ok "T-1640w3: typed 'enumeration incomplete' WARN" || no "T-1640w3: [$(cat "$TMP/cv.err")]"
+  chmod 700 "$d/retros/locked"
+else skip "T-1640w3: root ignores directory permissions"; fi
+
+# S7: a column-0 ~~~ fence is a fence too (and a ``` line inside a ~~~ fence does not close it)
+d="$TMP/t1640-s7"; cv_state "$d" 11 141; cv_retro "$d" r.md '~~~\ncovers_through: B140\n~~~\n~~~\n```\ncovers_through: B140\n~~~\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640s7: ~~~ fenced (and a backtick fence nested inside ~~~) coverage lines are not read";; *) no "T-1640s7: got [$got]";; esac
+
 # T-IDG-A: gaps exhausted + retros with untracked deltas → ISSUES-DUE
 _kita="$TMP/kita"; mk_kit "$_kita" "untracked"
 _ta="$TMP/target-idg-a"; mkstate "$_ta" 0 "high|done gap|covered"
@@ -7557,6 +7745,54 @@ if [ "$(id -u)" != 0 ]; then
   chmod 700 "$_ro_w"
 fi
 rm -rf "$_ro_w"
+
+# ----- teeth for kit #1640 (covers_through): every mutant is a COPY of the SUT built by lib/mutant.sh -----
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
+  # t1640_tooth <name> <fixture-dir> <want-prefix-of-GOOD-run> <sed-script>: the good run must match <want>, the mutant must NOT.
+  t1640_tooth() {
+    local name="$1" dd="$2" want="$3" script="$4" m good bad
+    m="$TMP/status.T1640-$name.MUTANT.sh"
+    if ! mutant_sed "$SUT" "$m" -e "$script"; then no "teeth-1640-$name: mutant refused by mutant.sh (no-op / invalid bash)"; return; fi
+    good="$(bash "$SUT" "$dd" --next 2>/dev/null)"; bad="$(bash "$m" "$dd" --next 2>/dev/null)"
+    case "$good" in "$want"*) ;; *) no "teeth-1640-$name: the unmutated run gave [$good], want [$want…] — fixture drifted"; return;; esac
+    case "$bad" in "$want"*) no "teeth-1640-$name: mutant still returns [$bad] — THEATER";; *) ok "teeth-1640-$name: mutant returns [${bad:0:40}] instead of [$want…] → its test goes RED";; esac
+  }
+  t1640_tooth OVERRIDE-APPLIED "$TMP/t1640-a" "NEXT " 's/^      _rd_bsr="\$_rd_eff"$/      : # MUTANT/'
+  t1640_tooth LOWER-ONLY "$TMP/t1640-b" "RETRO-DUE | 11 blocks" 's/if \[ "\$_der" -lt "\$_decl" \]; then/if true; then/'
+  t1640_tooth MAX-OVER-RETROS "$TMP/t1640-h-first" "NEXT " 's/\[ "\$((10#\$_v))" -gt "\$_maxcov" \]/true/'
+  t1640_tooth FENCE-SKIP "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/^fence != "" { next }$/# MUTANT/'
+  t1640_tooth UNSCOPED-IGNORED "$TMP/t1640-m1" "RETRO-DUE | 11 blocks" 's/if \[ "\$_unsc_ok" != 1 \]; then _nunsc=/if false; then _nunsc=/'
+  cv_retro "$TMP/t1640-n1" r.md 'covers_through: B140\n'   # the n1 case ends on its focus=alpha variant; restore the unscoped retro
+  t1640_tooth UNSCOPED-ROOT-ONLY "$TMP/t1640-n1" "RETRO-DUE | 11 blocks" 's/\[ -z "\$_slug" \] \&\& _unsc_ok=1/true \&\& _unsc_ok=1/'
+  t1640_tooth OVER-RANGE-EXCLUDED "$TMP/t1640-i" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
+  t1640_tooth OVER-RANGE-NO-SHADOW "$TMP/t1640-i4" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
+  t1640_tooth EXCLUDED-RETRO "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/retro_is_excluded "\$_rf" \&\& continue  # RD-EXCLUDED-RETRO/: # MUTANT/'
+  if [ "$(id -u)" != 0 ]; then
+    chmod 000 "$TMP/t1640-w3/retros/locked"   # the w3 fixture is restored to 700 after its case; re-lock it for the tooth
+    t1640_tooth FIND-EXIT "$TMP/t1640-w3" "RETRO-DUE | 11 blocks" 's/if \[ "\$_frc" -ne 0 \]; then/if false; then/'
+    chmod 700 "$TMP/t1640-w3/retros/locked"
+  else skip "teeth-1640-FIND-EXIT: running as root — directory permissions are ignored, the unreadable-directory fixture cannot fail find"; fi
+  t1640_tooth DUP-SLUG "$TMP/t1640-m5" "RETRO-DUE | 11 blocks" 's/if \[ "\$_dups" -gt 1 \]; then/if false; then/'
+  t1640_tooth FENCE-TILDE "$TMP/t1640-s7" "RETRO-DUE | 11 blocks" 's/^\/\^(```|~~~)\//\/^```\//'
+  t1640_tooth FOCUS-SCOPE "$TMP/t1640-l2" "RETRO-DUE | 11 blocks" 's/elif \[ "\$_sl" != "\$_myslug" \]; then continue; fi/elif false; then continue; fi/'
+  # newest-block prefix filter (T-1640l: beta-block300 must not count for alpha): BOTH the file listing and the id regex lose the prefix
+  m="$TMP/status.T1640-PREFIX.MUTANT.sh"
+  if mutant_chain "T1640-PREFIX" "$SUT" "$m" 's/if \[ -n "\$_pfx" \]; then  # RD-NEWEST-PREFIX/if false; then/' 's/| block_file_filter "\${_pfx}")$/| block_file_filter "")/'; then
+    good="$(bash "$SUT" "$TMP/t1640-l" --next 2>/dev/null)"; bad="$(bash "$m" "$TMP/t1640-l" --next 2>/dev/null)"
+    case "$good" in NEXT\ *) case "$bad" in NEXT\ *) no "teeth-1640-PREFIX: mutant still derives from the right block set — THEATER";; *) ok "teeth-1640-PREFIX: foreign-prefix block counted as newest → T-1640l goes RED";; esac;; *) no "teeth-1640-PREFIX: unmutated run [$good]";; esac
+  else no "teeth-1640-PREFIX: mutant refused by mutant.sh"; fi
+  # equal derived/declared must keep the DECLARED counter (no "[derived" suffix); `-le` would claim an override
+  m="$TMP/status.T1640-BOUNDARY.MUTANT.sh"
+  if mutant_sed "$SUT" "$m" -e 's/if \[ "\$_der" -lt "\$_decl" \]; then/if [ "$_der" -le "$_decl" ]; then/'; then
+    good="$(bash "$SUT" "$TMP/t1640-c1" --next 2>/dev/null)"; bad="$(bash "$m" "$TMP/t1640-c1" --next 2>/dev/null)"
+    case "$good" in *"[derived"*) no "teeth-1640-BOUNDARY: unmutated run already claims a derivation [$good]";;
+      *) case "$bad" in *"[derived"*) ok "teeth-1640-BOUNDARY: mutant claims an override at equality → T-1640c1 goes RED";; *) no "teeth-1640-BOUNDARY: mutant still silent — THEATER";; esac;; esac
+  else no "teeth-1640-BOUNDARY: mutant refused by mutant.sh"; fi
+fi
 
 if [ "$skips" -gt 0 ]; then
   echo "== $pass passed · $fail failed · $skips skipped =="

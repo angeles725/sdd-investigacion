@@ -10,6 +10,23 @@
 > **Provenance:** base `<base sha>` · head `<head sha>` · gate-run `<AGGREGATE timestamp (UTC) + Suites run/passed line, or "none"; run-all.sh prints no run id>` · reruns `<none | each rerun of a suite/gate and why>`
 > One line, REQUIRED (kit issue #1712): the commits the run's claims were measured on and which gate run backs them. A rerun that changed a verdict is disclosed here, never silently replaced.
 
+covers_through: B<n>
+
+> **Coverage checkpoint (kit issue #1640):** replace `B<n>` with the id of the newest block this retro reviewed (e.g. `covers_through: B140`).
+> The line is machine-read, one per line at column 0, outside any code fence (``` or ~~~): `research-sdd-status.sh --next` derives
+> `blocks_since_retro` as `max(0, newest block id on disk − covers_through)` and uses it for RETRO-DUE only when it is LOWER than the
+> declared counter, so a counter left stale across a session close cannot fire early. Coverage may only ever LOWER the counter when the
+> evidence unambiguously belongs to the focus, so anything ambiguous keeps the declared counter (RETRO-DUE keeps firing):
+> - An unscoped line counts only when the corpus's single state file is the root `RESEARCH-STATE.md`; with more than one `RESEARCH-STATE*.md` file, or a lone slugged one, it is ignored. Scope every line with ` focus=<slug>`: the
+>   `RESEARCH-STATE-<slug>.md` suffix, or `focus=root` for the un-suffixed `RESEARCH-STATE.md` (e.g. `covers_through: B140 focus=alpha`).
+>   The same slug in two directories (a split layout) is ambiguous and also keeps the declared counter.
+> - A value ABOVE the newest block on disk is excluded (a typo such as `B1400` must not hide a due retro); it is never clamped to 0.
+> - `stage-retro-issues.sh` only PRINTS a `blocks_since_retro: 0` reset line naming the exact `RESEARCH-STATE` file, for a human to apply
+>   (propose-never-apply); an ambiguous line prints a WARN and no proposal.
+> After renumbering or restructuring blocks, rewrite `covers_through` so it names ids that still exist on disk.
+> Prose such as "coverage through B140" is NOT parsed; a retro without the line, or with an unfilled `B<n>`, keeps the declared counter
+> and the tools say so on stderr.
+
 <!-- Journal source: deltas in the table below may originate from session journal entries
      consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
      mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),

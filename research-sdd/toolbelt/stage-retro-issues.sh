@@ -1489,7 +1489,83 @@ _unc_report() {
 
 # _print_summaries / _final_exit: the --apply summary lines and the exit-code policy, shared by the normal end of
 # the run and the section-level unclassifiable early finish.
+# _print_counter_reset: kit issue #1640 — the retro's machine-readable column-0 `covers_through: B<n>` line (optionally
+# ` focus=<slug>`; the un-suffixed root state is `focus=root`) becomes a PRINTED proposal to reset blocks_since_retro IN A
+# NAMED RESEARCH-STATE FILE. PROPOSE-NEVER-APPLY (CLAUDE.md §8): this script never edits a RESEARCH-STATE file or the
+# retro; the human applies the line. FAIL-CLOSED: a line is proposed only when it unambiguously names one state file —
+# an unscoped line in a corpus with several state files, a focus with no state file or with several, and a corpus with
+# no state file at all each print a WARN and NO proposal. Not-proposed states are named (§7): no field in the retro ->
+# typed `absent` note; a malformed value -> typed WARN. Fenced (``` and ~~~) / quoted / indented lines are not read,
+# and prose such as "coverage through B140" is deliberately not parsed. The grammar (_CV_AWK) is byte-identical to the
+# one in research-sdd-status.sh (_rd_covers_derive); the parity test in this script's suite enforces it.
+# CV-GRAMMAR-BEGIN
+_CV_AWK='
+/^(```|~~~)/ { m = substr($0, 1, 1); if (fence == "") fence = m; else if (fence == m) fence = ""; next }
+fence != "" { next }
+/^covers_through:/ {
+  line = $0; sub(/\r$/, "", line)
+  if (line ~ /^covers_through:[ \t]+B[0-9]+([ \t]+focus=[A-Za-z0-9._-]+)?[ \t]*$/) {
+    v = line; sub(/^covers_through:[ \t]+B/, "", v); n = v; sub(/[^0-9].*$/, "", n)
+    sl = "-"; if (v ~ /focus=/) { sl = v; sub(/^.*focus=/, "", sl); sub(/[ \t]*$/, "", sl) }
+    if (length(n) > 9) print "M"; else print "V " n " " sl
+  } else print "M"
+}'
+# CV-GRAMMAR-END
+_print_counter_reset() {
+  local _cl _nv=0 _nm=0 _kind _val _slug _sfiles _nsf _sf _sfb _sfs _hit _nhit _rel _rb _cvroot _cvbest _cvraw _cvp _cvx _retro_dir_p
+  _rb="$(basename "$retro_file")"
+  _retro_dir_p="$(cd -P "$(dirname "$retro_file")" 2>/dev/null && pwd -P)"
+  # State files are counted from the TARGET ROOT (the retro's nearest registered ancestor — what research-sdd-status.sh is
+  # given as its target), not from the retro's parent dir: a split layout (target/a + target/b) must see both. The set is
+  # lib/state-files.sh list_state_files' (maxdepth 3, templates and .git excluded). An unregistered target falls back to
+  # the retro's parent-of-retros dir (_target_dir).
+  _cvroot="$_target_dir"; _cvbest=-1
+  while IFS=$'\t' read -r _cvraw _cvp; do
+    [ -n "$_cvp" ] || continue
+    _cvx="$(cd -P "$_cvp" 2>/dev/null && pwd -P)" || continue
+    case "$_retro_dir_p/" in "$_cvx"/*) [ "${#_cvx}" -gt "$_cvbest" ] && { _cvbest="${#_cvx}"; _cvroot="$_cvx"; } ;; esac
+  done < <(target_paths_pairs "$TARGETS_MD" 2>/dev/null)
+  _sfiles="$(find "$_cvroot" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | LC_ALL=C sort)"
+  _nsf="$(grep -c . <<<"$_sfiles")"
+  while IFS= read -r _cl; do
+    _kind="${_cl%% *}"; _val="${_cl#* }"
+    case "$_kind" in
+      V) _nv=$((_nv+1)); _slug="${_val#* }"; _val="${_val%% *}"
+         _hit=""; _nhit=0
+         if [ "$_slug" = "-" ]; then
+           # an unscoped line is accepted only for a lone ROOT state file (a lone slugged one still needs focus=<slug>)
+           if [ "$_nsf" -eq 1 ] && [ "$(basename "$_sfiles")" = "RESEARCH-STATE.md" ]; then _hit="$_sfiles"; _nhit=1
+           elif [ "$_nsf" -eq 0 ]; then echo "WARN: covers_through B${_val} in ${_rb}: no RESEARCH-STATE file found under $_cvroot — no reset proposed" >&2; continue
+           elif [ "$_nsf" -eq 1 ]; then echo "WARN: covers_through B${_val} in ${_rb} is unscoped but the only state file is $(basename "$_sfiles") — no reset proposed; write \`covers_through: B${_val} focus=<slug>\`" >&2; continue
+           else echo "WARN: covers_through B${_val} in ${_rb} is unscoped but the corpus has ${_nsf} state files — no reset proposed; write \`covers_through: B${_val} focus=<slug>\` (root focus: focus=root)" >&2; continue; fi
+         else
+           while IFS= read -r _sf; do
+             [ -n "$_sf" ] || continue
+             _sfb="$(basename "$_sf")"; _sfs="${_sfb#RESEARCH-STATE}"; _sfs="${_sfs#-}"; _sfs="${_sfs%.md}"
+             if [ "${_sfs:-root}" = "$_slug" ]; then _hit="$_sf"; _nhit=$((_nhit+1)); fi
+           done <<<"$_sfiles"
+           if [ "$_nhit" -ne 1 ]; then
+             echo "WARN: covers_through B${_val} focus=${_slug} in ${_rb}: $_nhit matching state file(s) under $_cvroot — no reset proposed" >&2; continue
+           fi
+         fi
+         _rel="${_hit#"$_cvroot"/}"
+         if [ "$_slug" = "-" ]; then
+           printf 'proposed-reset: blocks_since_retro: 0 in %s (retro covers_through B%s; set it by hand only if no newer block exists — propose-never-apply)\n' "$_rel" "$_val"
+         else
+           printf 'proposed-reset: blocks_since_retro: 0 in %s (retro covers_through B%s focus=%s; set it by hand only if no newer block of that focus exists — propose-never-apply)\n' "$_rel" "$_val" "$_slug"
+         fi ;;
+      M) _nm=$((_nm+1)) ;;
+    esac
+  done < <(awk "$_CV_AWK" "$retro_file")
+  if [ "$_nm" -gt 0 ]; then
+    echo "WARN: covers_through: malformed — ${_nm} line(s) in ${_rb} (want \`covers_through: B<n>\` with a number) — ignored" >&2  # CV-MALFORMED-WARN
+  fi
+  if [ "$_nv" -eq 0 ] && [ "$_nm" -eq 0 ]; then
+    echo "note: covers_through: absent in ${_rb} — no blocks_since_retro reset proposed" >&2
+  fi
+}
 _print_summaries() {
+  _print_counter_reset
   if [ $apply -eq 1 ]; then
     # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
     # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
