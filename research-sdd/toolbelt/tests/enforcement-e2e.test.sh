@@ -412,7 +412,7 @@ MUT_STAT_KIT="$ROOT/mutstatkit/toolbelt"
 mkdir -p "$MUT_STAT_KIT/lib"
 # kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally at
 # the top (before any mode dispatch), so the R3 mutant needs it alongside the libs it already had.
-for _l in focus-prefix.sh state-files.sh block-files.sh hook-wiring.sh; do
+for _l in focus-prefix.sh state-files.sh block-files.sh hook-wiring.sh blocked-rows.sh; do
   cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
 done
 # verify-state.sh is invoked by status's STALE gate. Without it (rc=127) the mutant answered STALE for

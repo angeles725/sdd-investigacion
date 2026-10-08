@@ -319,7 +319,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   mk_tree(){ local d="$TMP/mut-$1"; mkdir -p "$d/lib"
     cp "$TOOLBELT/check-gap-drift.sh" "$TOOLBELT/verify-state.sh" "$d/"
-    cp "$TOOLBELT/lib/gap-rows.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/state-files.sh" "$d/lib/"; printf '%s' "$d"; }
+    cp "$TOOLBELT/lib/gap-rows.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$d/lib/"; printf '%s' "$d"; }
   # tooth <name> <file> <sed-expr> <fixture> <rc GOOD gives> <needle GOOD prints> [tool args...]
   # The mutant must change the exit code or lose the needle; either proves the assertion bites.
   tooth(){ local name="$1" file="$2" expr="$3" fx="$4" grc="$5" needle="$6"; shift 6

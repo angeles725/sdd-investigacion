@@ -21,10 +21,11 @@
 #   2. `## Child gaps surfaced at close`: multi-line bullet entries; an entry counts ONCE when `needs:`
 #      appears on its bullet line or on a continuation line before the next blank line / bullet.
 #   3. (#913) a child-gap entry whose BULLET line carries a closed marker does not count, even when it
-#      keeps a `needs:` clause for the record. Closed markers: `~~` (struck), `✅`, the uppercase words
-#      `CERRADO` / `CLOSED`, and a bracketed `[closed]` / `[cerrado]` in any case. The match is on the
-#      bullet line only and uppercase-only for the bare words, so prose such as "not closed" in an OPEN
-#      entry never closes it. Standard blocked sections are unaffected: an entry listed there is blocked
+#      keeps a `needs:` clause for the record. Closed markers: `~~` striking the whole entry (it must open
+#      the bullet content: `- ~~G9 …`, `- **~~G9 …`; a partial strike mid-line closes nothing), `✅`, the
+#      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP` and `ENCLOSED` are not the word, and a
+#      preceding `NOT` / `NO` negates it), and a bracketed `[closed]` / `[cerrado]` in any case. The match
+#      is on the bullet line only, so prose such as "not closed" in an OPEN entry never closes it. Standard blocked sections are unaffected: an entry listed there is blocked
 #      by definition (a closed gap leaves them, METHODOLOGY §21.1).
 
 blocked_rows_section() {   # FILE HEADING
@@ -46,9 +47,22 @@ blocked_open_count() {     # FILE
   _d1="$(blocked_rows_body "$_f" | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"  # RSDD-PROSE-BLOCKED-ANCHOR
   # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
   _d2="$(blocked_rows_section "$_f" '## Child gaps surfaced at close' | awk '
+    function has_word(s, w,   t, pre, bef, aft) {            # whole-word match; NOT/NO before it negates
+      t = s
+      while (match(t, w)) {
+        pre = substr(t, 1, RSTART - 1); bef = substr(t, RSTART - 1, 1); aft = substr(t, RSTART + RLENGTH, 1)
+        if (RSTART == 1) bef = ""
+        if (bef !~ /[A-Za-z0-9_-]/ && aft !~ /[A-Za-z0-9_-]/ && pre !~ /(^|[^A-Za-z0-9])(NOT|NO)[^A-Za-z0-9]*$/) return 1
+        t = substr(t, RSTART + RLENGTH)
+      }
+      return 0
+    }
     function is_closed(s) {                                  # CHILD-CLOSED-MARKER (#913)
-      if (s ~ /~~|✅|CERRADO|CLOSED/) return 1
-      return (tolower(s) ~ /\[(closed|cerrado)\]/)
+      if (s ~ /^[[:space:]]*-[[:space:]]+(\*\*)?~~/) return 1   # CLOSED-STRIKE
+      if (index(s, "✅")) return 1                            # CLOSED-TICK
+      if (has_word(s, "CERRADO")) return 1                    # CLOSED-CERRADO
+      if (has_word(s, "CLOSED")) return 1                     # CLOSED-WORD
+      return (tolower(s) ~ /\[(closed|cerrado)\]/)            # CLOSED-BRACKET
     }
     BEGIN { n=0; ib=0; done=0; cl=0 }
     /^[[:space:]]*$/ { ib=0; done=0; cl=0; next }

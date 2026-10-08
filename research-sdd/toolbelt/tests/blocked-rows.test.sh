@@ -129,10 +129,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-3: a sticky closed flag hides the open entry that follows a closed one" 0 0 "$MD/t3.sh" --orig "$LIB" \
          --good-has '^1$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$FIX/child-closed-first-then-open.expect1.md"
 
-  # TOOTH-4: each closed marker is load-bearing — drop the struck-through one and the markers fixture counts.
-  mk "TOOTH-4 mutant build" "$LIB" "$MD/t4.sh" 's#/~~|✅|CERRADO|CLOSED/#/✅|CERRADO|CLOSED/#' \
-    && tt "TOOTH-4: dropping the ~~ marker makes a struck entry count" 0 0 "$MD/t4.sh" --orig "$LIB" \
-         --good-has '^0$' --bad-has '^[1-9]' -- "${COUNT_ARGV[@]}" "$FIX/child-closed-markers-all.expect0.md"
+  # TOOTH-4a..4e: each closed-marker branch is load-bearing -- delete ONE branch and a fixture relying on it counts.
+  # Marker lines in the lib carry a CLOSED-* sentinel; the bracket branch is the function's final return.
+  tb4() { # LABEL SENTINEL|BRACKET FIXTURE
+    if [ "$2" = BRACKET ]; then
+      mk "$1 mutant build" "$LIB" "$MD/$1.sh" 's/return (tolower(s) ~ .*CLOSED-BRACKET$/return 0/'
+    else
+      mk "$1 mutant build" "$LIB" "$MD/$1.sh" "/# $2\$/d"
+    fi && tt "$1: dropping the $2 branch makes a closed entry count" 0 0 "$MD/$1.sh" --orig "$LIB" \
+         --good-has '^0$' --bad-has '^[1-9]' -- "${COUNT_ARGV[@]}" "$3"
+  }
+  tb4 TOOTH-4a CLOSED-STRIKE  "$FIX/child-closed-markers-all.expect0.md"
+  tb4 TOOTH-4b CLOSED-TICK    "$FIX/child-closed-markers-all.expect0.md"
+  tb4 TOOTH-4c CLOSED-CERRADO "$FIX/child-closed-single-keeps-needs.expect0.md"
+  tb4 TOOTH-4d CLOSED-WORD    "$FIX/child-closed-markers-all.expect0.md"
+  tb4 TOOTH-4e BRACKET        "$FIX/child-closed-markers-all.expect0.md"
+  # TOOTH-4f: the whole-word/negation guard -- without it NOT CLOSED falsely closes an open entry.
+  mk "TOOTH-4f mutant build" "$LIB" "$MD/t4f.sh" 's/if (bef !~ .* return 1$/return 1/' \
+    && tt "TOOTH-4f: without the boundary/negation guard a false closure hides an open entry" 0 0 "$MD/t4f.sh" --orig "$LIB" \
+         --good-has '^1$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$FIX/child-open-not-closed.expect1.md"
 
   # TOOTH-5: the `## Blocked /` family is part of the body (METHODOLOGY §21.1).
   mk "TOOTH-5 mutant build" "$LIB" "$MD/t5.sh" "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" \
