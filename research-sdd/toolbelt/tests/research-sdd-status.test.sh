@@ -3785,10 +3785,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
-  # sed mutation: add '; break' after _r="$(resolve_next)" so only apple is ever checked.
+  # sed mutation: add '; break' after _r="$(resolve_next)" / _r="$(resolve_next_q)" (kit #1614 renamed the --next call) so only apple is ever checked.
   echo "-- teeth: break-after-first mutant returns STOP on mf-false-stop fixture; multi-focus scan has real teeth --"
   mf_mutant="$TMP/status.MF-MUTANT.sh"
-  sed 's/_r="\$(resolve_next)"/_r="$(resolve_next)"; break/' "$SUT" > "$mf_mutant"
+  sed -E 's/_r="\$\((resolve_next(_q)?)\)"/_r="$(\1)"; break/' "$SUT" > "$mf_mutant"
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   mgot_mf="$(bash "$mf_mutant" "$TMP/mf-false-stop" --next 2>/dev/null)"
   if [ "$mgot_mf" = "STOP | read-only-investigable exhausted (0)" ]; then

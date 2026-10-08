@@ -110,6 +110,7 @@ Always read first, in this order:
       exists → $CORPUS=$TARGET/corpus/; else if $TARGET/INDEX.md exists → $CORPUS=$TARGET; else neither → BOOTSTRAP.
       Check the corpus/ path FIRST — else a nested corpus reads as "missing" and BOOTSTRAP duplicates it.)
   6. RESOLVE THE NEXT GAP mechanically — do NOT eyeball the backlog: `$KIT/toolbelt/research-sdd-status.sh $TARGET --next`
+     (when the state header declares `next_session_queue:` — a resumed PAUSED corpus — add `--queue`; METHODOLOGY §16)
      returns one line — `NEXT | <priority> | <gap>` (investigate it),
      `STOP | <reason>` (§8 exhaustion; when reason contains `[issue-coverage: unverified]`, issue coverage
      could NOT be verified — see below; treat as complete with unconfirmed coverage, advisory not a hard block;
