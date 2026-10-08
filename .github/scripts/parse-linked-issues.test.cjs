@@ -329,3 +329,28 @@ test('CommonMark indented code blocks hide references; list content and lazy con
   // Once the list has ended, the indented block is code again.
   assert.deepEqual(parseLinkedIssues('- item\n\nIntro.\n\n    Closes #5'), ok());
 });
+
+test('indented code: empty list markers, closed blocks, thematic breaks, paragraph ordinals and blockquotes', () => {
+  // Fail-closed: an empty list marker still opens an item, so its indented content stays visible.
+  assert.deepEqual(parseLinkedIssues('-\n  foo\n\n    Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('1.\n   foo\n\n    Closes #5'), ok(closing(5)));
+  // An indented line right after a heading, thematic break, closing fence or comment block is code.
+  assert.deepEqual(parseLinkedIssues('## H\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('---\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('```\nx\n```\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('<!-- x -->\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('<!--\nx\n-->\n    Closes #5'), ok());
+  // A thematic break is not a list item.
+  assert.deepEqual(parseLinkedIssues('* * *\n\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('- - -\n\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('***\n\n    Closes #5'), ok());
+  // A non-interrupting `2.` inside a paragraph does not open a list.
+  assert.deepEqual(parseLinkedIssues('text\n2. foo\n\n    Closes #5'), ok());
+  // Blockquote indented code.
+  assert.deepEqual(parseLinkedIssues('> a\n>\n>     Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('>     Closes #5'), ok());
+  // Guards: blockquote lazy continuation, list item inside a blockquote, paragraph bullet stay visible.
+  assert.deepEqual(parseLinkedIssues('> a\n>     Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('> - a\n>\n>     Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('text\n- foo\n\n    Closes #5'), ok(closing(5)));
+});

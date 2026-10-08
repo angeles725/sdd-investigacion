@@ -81,7 +81,19 @@ function findSpanCloser(lines, i, col, n) {
 }
 
 // A list-item start (up to 3 spaces indent). While inside a list, indented lines are item content, not code.
-const LIST_ITEM_START = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+\S/;
+// An empty marker (`-` alone) also starts an item. A thematic break (`* * *`) is not an item.
+const LIST_ITEM_START = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
+const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
+// Item starts that may interrupt a paragraph: a bullet or `1.` with content (CommonMark).
+const INTERRUPTING_ITEM = /^ {0,3}(?:[-+*]|0{0,8}1[.)])[ \t]+\S/;
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+
+// Content of a line with its leading blockquote markers removed (`>` plus one optional space).
+function blockContent(line) {
+  let t = line;
+  for (let m = /^ {0,3}> ?/.exec(t); m !== null; m = /^ {0,3}> ?/.exec(t)) t = t.slice(m[0].length);
+  return t;
+}
 
 // Column width of a line's leading whitespace, with tab stops of 4.
 function indentWidth(line) {
@@ -101,11 +113,15 @@ function stripHiddenText(body) {
   let inComment = false;
   let inList = false;
   let inCode = false;
+  let closed = false; // previous line closed a non-paragraph block (heading, break, fence, comment)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (fence !== null) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+        fence = null;
+        closed = true;
+      }
       continue;
     }
     if (!inComment) {
@@ -113,22 +129,28 @@ function stripHiddenText(body) {
       const open = FENCE_OPEN.exec(line);
       if (open) {
         fence = open[1];
+        closed = false;
         continue;
       }
     }
+    const wasInComment = inComment;
+    const content = blockContent(line);
     if (!inComment) {
-      // Indented code block (CommonMark): 4+ columns (tab = 4) at document start or right after a blank
-      // line, outside a list item's content. A 4-space line directly after a paragraph line is a lazy
-      // continuation and stays visible. Emit an empty line so line structure is preserved.
-      const startsBlock = i === 0 || inCode || /^\s*$/.test(lines[i - 1]);
-      if (line.trim() !== '') {
-        if (LIST_ITEM_START.test(line)) {
-          inList = true;
-        } else if (startsBlock && indentWidth(line) < 2) {
+      // Indented code block (CommonMark): 4+ columns (tab = 4) at document start, after a blank line, or
+      // after a line that closed a non-paragraph block, outside a list item's content. A 4-space line
+      // directly after a paragraph line is a lazy continuation and stays visible. Blockquote markers are
+      // stripped first. Emit an empty line so line structure is preserved.
+      const startsBlock = i === 0 || inCode || closed || /^\s*$/.test(blockContent(lines[i - 1]));
+      if (content.trim() !== '') {
+        if (LIST_ITEM_START.test(content) && !THEMATIC_BREAK.test(content)) {
+          if (startsBlock || inList || INTERRUPTING_ITEM.test(content)) inList = true;
+        } else if (startsBlock && indentWidth(content) < 2) {
           inList = false;
         }
-        inCode = startsBlock && !inList && indentWidth(line) >= 4 && !LIST_ITEM_START.test(line);
+        inCode =
+          startsBlock && !inList && indentWidth(content) >= 4 && !LIST_ITEM_START.test(content);
         if (inCode) {
+          closed = false;
           out.push('');
           continue;
         }
@@ -167,6 +189,10 @@ function stripHiddenText(body) {
         c++;
       }
     }
+    closed =
+      ATX_HEADING.test(content) ||
+      THEMATIC_BREAK.test(content) ||
+      ((wasInComment || /^ {0,3}<!--/.test(line)) && !inComment && line.trimEnd().endsWith('-->'));
     if (!inComment || visible !== '' || line === '') out.push(visible);
   }
   return out.join('\n');
