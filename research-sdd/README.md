@@ -195,7 +195,7 @@ hash still equals its install marker, the marked launcher block in the shared pr
 kept), and a rendered profile directory holding exactly the recorded files. A hand-edited file, an unrecorded one
 or anything resolving outside the harness config root is kept and named. A second run reports `absent`. Exit 0 =
 ok, 1 = a removal failed, 2 = usage error, or no sha256 tool / python3 (ownership cannot be proven, so nothing is
-removed). `--uninstall` cannot be combined with `--verify`, `--dry-run`, `--force-skill` or `--profile`, and
+removed). `--uninstall` cannot be combined with `--verify`, `--force-skill`, `--profile` or `--dry-run` together with `--yes`, and
 `--yes` requires `--uninstall`.
 
 ---
