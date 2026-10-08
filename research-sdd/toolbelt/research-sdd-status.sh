@@ -23,6 +23,10 @@
 #        NEXT | <priority> | <gap>     — investigate this gap next
 #        STOP | read-only-investigable exhausted (0)                                     — all gaps closed, issue coverage verified (0 untracked)
 #        STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]  — exhausted; coverage unverifiable (specific cause on stderr)
+#        (either STOP form, kit #1959) ... [backlog-unreadable: N rows] — N backlog rows were UNCOUNTED by the parser (near-miss heading,
+#              no-Priority-header table, non-tier priority, malformed row); the exhaustion is NOT confirmed. Appended last, after any
+#              [issue-coverage: unverified]; non-terminal — --emit-token answers `unavailable` for it instead of a STOP: campaign token.
+#              Counted over the files the verdict covers (picked file under --root/--focus, else every non-skipped file).
 #        ISSUES-DUE | <count> untracked delta(s) in <retro> — first retro with untracked deltas found (early-exit:
 #              remaining retros NOT probed); seed: stage-retro-issues.sh <retro> --apply
 #        (aggregate probing budget: _IDG_AGGREGATE_BUDGET_SECS env var, default 60s — exceeded before all-clean confirmed → unverified marker)
@@ -140,6 +144,7 @@ if [ "$emit_token" = 1 ]; then
       printf 'return-token: next: %s\n' "$_et_gap"  # ET-NEXT-MAP
       exit 0 ;;
     "STOP | "*)
+      case "$_et_verdict" in *"[backlog-unreadable: "*) _et_unavail "STOP carries [backlog-unreadable: N rows] — unread backlog rows must be reconciled before any STOP: campaign token" ;; esac  # ET-BU-NONTERMINAL
       _et_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
       # shellcheck source=lib/state-files.sh
       . "$_et_here/lib/state-files.sh" 2>/dev/null
@@ -1189,7 +1194,26 @@ fi
 
 # _stop_exhausted — single source of truth for the exhausted-investigable STOP message.
 # Both issues_due_gate and the --focus arm use this to prevent literal drift.
-_stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)\n'; }
+_stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)%s\n' "$_BU_SUFFIX"; }  # BU-STOP-EXHAUSTED
+
+# _BU_SUFFIX (kit #1959): the inline ` [backlog-unreadable: N rows]` qualifier every `--next` exhausted STOP appends
+# when the backlog parser left N rows UNCOUNTED (near-miss heading, no-Priority-header table, non-tier priority token,
+# malformed row — count_uncounted_rows, the number --sync-state treats as a lower bound). Empty when N=0, so a clean
+# backlog prints the bare STOP unchanged. _bu_compute STATE... sums the uncounted rows of exactly the state files the
+# verdict covers (the picked file when --root/--focus scopes, else every non-skipped file the aggregate walked) and sets
+# _BU_SUFFIX. It swaps the global $state that backlog_rows reads and restores it.
+_BU_SUFFIX=""
+_bu_compute() {
+  local _bu_saved="$state" _bu_total=0 _bu_n _bu_f
+  for _bu_f in "$@"; do
+    state="$_bu_f"; _bu_n="$(count_uncounted_rows)"
+    case "$_bu_n" in ''|*[!0-9]*) _bu_n=0 ;; esac
+    _bu_total=$(( _bu_total + _bu_n ))  # BU-SUM
+  done
+  state="$_bu_saved"
+  _BU_SUFFIX=""; [ "$_bu_total" -gt 0 ] && _BU_SUFFIX=" [backlog-unreadable: ${_bu_total} rows]"
+  return 0
+}
 
 # --- ISSUES-DUE gate (--next terminal) ---------------------------------------------------------
 # When the NEXT-resolution loop yields STOP (no investigable gaps), probe each retro under
@@ -1476,7 +1500,7 @@ issues_due_gate() {
   # R4-DEGRADED: distinguish unverified-coverage (degraded or timeout) from verified-clean.
   # Untracked wins over unverified (ISSUES-DUE already returned above when >0).
   if [ "$_idg_had_unverified" -gt 0 ]; then
-    printf 'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]\n'  # IDG-UNVERIFIED-MARKER
+    printf 'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]%s\n' "$_BU_SUFFIX"  # IDG-UNVERIFIED-MARKER
     terminal_clean_warn  # TC-WARN-CALL-UNVERIFIED
     return
   fi
@@ -1789,7 +1813,7 @@ fence != "" { next }
     # Scanning $corpus alone was the C3 false-STOP root cause one directory level up: alpha (stopped)
     # sorted first → corpus=alpha → aggregation never reached beta (active) → false STOP.
     mapfile -t _next_states < <(list_state_files "$target")
-    _nxt_skip_gaps=0
+    _nxt_skip_gaps=0; _nxt_walked=()
     : # IDG-PREC-SENTINEL (teeth-IDG-precedence: replace with 'issues_due_gate; exit 0' to verify gate fires AFTER resolve_next)
     for state in "${_next_states[@]}"; do
       _nxt_foc_slug="$(basename "$state" .md)"; _nxt_foc_slug="${_nxt_foc_slug#RESEARCH-STATE-}"
@@ -1803,18 +1827,22 @@ fence != "" { next }
         [ "${_nxt_skip_d_inv:-0}" != "0" ] && _nxt_skip_gaps=$(( _nxt_skip_gaps + 1 ))
         continue
       fi
+      _nxt_walked+=("$state")
       _r="$(resolve_next)"
       case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
     done
     if [ "$_nxt_skip_gaps" -gt 0 ]; then
       echo "STOP | no active focus (${_nxt_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
     else
+      _bu_compute ${_nxt_walked[@]+"${_nxt_walked[@]}"}  # BU-WALKED
       issues_due_gate
     fi
   else
     _rn_out="$(resolve_next)"
     case "$_rn_out" in
-      "STOP | read-only-investigable exhausted (0)") issues_due_gate ;;  # IDG-FOCUS-GATE
+      "STOP | read-only-investigable exhausted (0)")
+        _bu_compute "$_ns_pick"  # BU-SCOPE
+        issues_due_gate ;;  # IDG-FOCUS-GATE
       *) printf '%s\n' "$_rn_out" ;;
     esac
   fi
