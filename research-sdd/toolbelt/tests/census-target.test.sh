@@ -636,6 +636,28 @@ grep -q 'WARNING: 1 of 3' <<<"$out1" && grep -q 'Audit cross-check: OK' <<<"$out
 grep -q 'Audit cross-check: OK' <<<"$out4" \
   && ok "76 a '---' directly under a list item is a thematic break, not a setext heading" || no "76 list item rule" "$(grep 'Audit cross-check' <<<"$out4")"
 
+# 77..81 — Review fixes (kit #2007). 77: fence lines and fenced content stay blank lines, so a paragraph
+#      line, a fence and a '---' never become adjacent (false setext heading = false closure). 78: a
+#      table row directly above '---' is not a setext title. 79: an empty '#' / '##' ends a section.
+#      80: a heading directly above '---' is not re-wrapped. 81: a '---' under a block quote, stays a thematic break.
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\nPara\n```\ncode\n```\n---\n\n.ccc claimed after the fence\n' > "$TMP/st-fencesetext.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n---\n\n.ccc claimed after the rule\n' > "$TMP/st-tablerule.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n##\n\n.ccc mentioned here only\n' > "$TMP/st-emptyh2.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n#\n\n.ccc mentioned here only\n' > "$TMP/st-emptyh1.md"
+printf '# state\n\n## Gap-backlog\n---\n| high | G1 .aaa .bbb .ccc | x |\n' > "$TMP/st-headrule.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n> note\n---\n\n.ccc claimed after the quote\n' > "$TMP/st-quoterule.md"
+out1="$(xrun "$TMP/st-fencesetext.md")"; out2="$(xrun "$TMP/st-tablerule.md")"
+grep -q 'Audit cross-check: OK' <<<"$out1" \
+  && ok "77 'Para' + fenced block + '---' is not a setext heading (fence lines stay blank)" || no "77 fence adjacency" "$(grep 'Audit cross-check' <<<"$out1")"
+grep -q 'Audit cross-check: OK' <<<"$out2" \
+  && ok "78 a table row directly above '---' is not a setext title (the Gap-backlog claims survive)" || no "78 table row setext" "$(grep 'Audit cross-check' <<<"$out2")"
+out1="$(xrun "$TMP/st-emptyh2.md")"; out2="$(xrun "$TMP/st-emptyh1.md")"
+grep -q 'WARNING: 1 of 3' <<<"$out1" && grep -q 'WARNING: 1 of 3' <<<"$out2" \
+  && ok "79 an empty '##' / '#' line ends a section (.ccc below it is out of scope)" || no "79 empty heading" "$(grep 'Audit cross-check' <<<"$out1") | $(grep 'Audit cross-check' <<<"$out2")"
+out1="$(xrun "$TMP/st-headrule.md")"; out2="$(xrun "$TMP/st-quoterule.md")"
+grep -q 'Audit cross-check: OK' <<<"$out1" && grep -q 'Audit cross-check: OK' <<<"$out2" \
+  && ok "80 '---' under a heading or under a block quote is a thematic break, not a setext underline" || no "80 setext title exclusions" "$(grep 'Audit cross-check' <<<"$out1") | $(grep 'Audit cross-check' <<<"$out2")"
+
 # ---------------------------------------------------------------------------
 # TEETH: mutate the awk threshold comparison to make EVERY type starred, then assert a
 # sub-threshold type (1 file, well below count=5) is STILL not starred on the original SUT.
@@ -922,7 +944,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth-xcheck-comment-heading: comment stripping neutered → headings inside a comment read as sections (no DEGRADED); SUT is DEGRADED" 0 0 "$mutant_cmt" \
          --good-has 'Audit cross-check: DEGRADED' --bad-lacks 'Audit cross-check: DEGRADED' -- bash @SUT@ "$xt" --state "$TMP/st-cmthead.md"
   mutant_fence="$MUT/census-target.XFENCE-MUTANT.sh"
-  mk_sed "teeth-xcheck-fence" "$mutant_fence" 's/fence = !fence; next/fence = fence; next/' \
+  mk_sed "teeth-xcheck-fence" "$mutant_fence" 's/fence = !fence; print ""; next/fence = fence; print ""; next/' \
     && tooth "teeth-xcheck-fence: fence tracking neutered → example text in a fenced block claims .ccc; SUT does not" 0 0 "$mutant_fence" \
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-fence.md"
   mutant_lead="$MUT/census-target.XLEAD-MUTANT.sh"
@@ -1089,6 +1111,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth-xcheck-indent" "$mutant_indent" 's/if (s ~ \/\^ ? ? ?##?(\[\[:space:\]\]|\$)\/)/if (s ~ \/^##?([[:space:]]|$)\/)/' \
     && tooth "teeth-xcheck-indent: indented ATX recognition removed → '  ## Notes' no longer ends the section; SUT ends it" 0 0 "$mutant_indent" \
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-indent3.md"
+  mutant_fenceb="$MUT/census-target.XFENCEB-MUTANT.sh"
+  mk_sed "teeth-xcheck-fence-blank" "$mutant_fenceb" 's/print (fence ? "" : out)/if (!fence) print out/' 's/print ""; next/next/' \
+    && tooth "teeth-xcheck-fence-blank: fence lines dropped instead of blanked → 'Para' + fence + '---' becomes a setext heading and closes the section; SUT keeps the claim" 0 0 "$mutant_fenceb" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-fencesetext.md"
+  mutant_trow="$MUT/census-target.XTROW-MUTANT.sh"
+  mk_sed "teeth-xcheck-tablerow" "$mutant_trow" 's/ \&\& L\[n - 1\] !~ \/\^ ? ? ?[\\]|\//\//' \
+    && tooth "teeth-xcheck-tablerow: table-row guard removed → '| row |' above '---' becomes a heading and closes the section; SUT keeps the claims" 0 0 "$mutant_trow" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-tablerule.md"
+  mutant_emptyh="$MUT/census-target.XEMPTYH-MUTANT.sh"
+  mk_sed "teeth-xcheck-emptyheading" "$mutant_emptyh" 's/ if (s ~ \/\^##?\$\/) s = s " ";//' \
+    && tooth "teeth-xcheck-emptyheading: empty-heading padding removed → a bare '##' / '#' no longer ends the section; SUT ends it" 0 0 "$mutant_emptyh" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-emptyh2.md" \
+    && tooth "teeth-xcheck-emptyheading-h1: same mutant, bare '#' line" 0 0 "$mutant_emptyh" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-emptyh1.md"
+  mutant_gh="$MUT/census-target.XGH-MUTANT.sh"
+  mk_sed "teeth-xcheck-setext-heading" "$mutant_gh" 's/ \&\& !H\[n - 1\] \&\& / \&\& /' \
+    && tooth "teeth-xcheck-setext-heading: heading guard removed → '## Gap-backlog' + '---' is re-wrapped and no section starts; SUT keeps it" 0 0 "$mutant_gh" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-headrule.md"
+  mutant_gq="$MUT/census-target.XGQ-MUTANT.sh"
+  mk_sed "teeth-xcheck-setext-quote" "$mutant_gq" 's/ \&\& L\[n - 1\] !~ \/\^ ? ? ?>\///' \
+    && tooth "teeth-xcheck-setext-quote: block-quote guard removed → '> note' above '---' becomes a heading and closes the section; SUT keeps it" 0 0 "$mutant_gq" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-quoterule.md"
   mutant_indent4="$MUT/census-target.XINDENT4-MUTANT.sh"
   mk_sed "teeth-xcheck-indent4" "$mutant_indent4" 's/if (s ~ \/\^ ? ? ?##?(\[\[:space:\]\]|\$)\/)/if (s ~ \/^ *##?([[:space:]]|$)\/)/' \
     && tooth "teeth-xcheck-indent4: 4+ space indent accepted → a code-indented '    ## Notes' ends the section; SUT keeps the claim" 0 0 "$mutant_indent4" \
