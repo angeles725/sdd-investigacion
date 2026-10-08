@@ -144,10 +144,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tb4 TOOTH-4c CLOSED-CERRADO "$FIX/child-closed-single-keeps-needs.expect0.md"
   tb4 TOOTH-4d CLOSED-WORD    "$FIX/child-closed-markers-all.expect0.md"
   tb4 TOOTH-4e BRACKET        "$FIX/child-closed-markers-all.expect0.md"
-  # TOOTH-4f: the whole-word/negation guard -- without it NOT CLOSED falsely closes an open entry.
-  mk "TOOTH-4f mutant build" "$LIB" "$MD/t4f.sh" 's/if (bef !~ .* return 1$/return 1/' \
-    && tt "TOOTH-4f: without the boundary/negation guard a false closure hides an open entry" 0 0 "$MD/t4f.sh" --orig "$LIB" \
-         --good-has '^1$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$FIX/child-open-not-closed.expect1.md"
+  # TOOTH-4f..4k: the word guard has independent parts; each gets its own mutant and its own fixture(s), and the
+  # boundary check is paired (closed-loop AND enclosed) so neither side of it is covered by a single case.
+  # (sed uses '#' delimiters; '&' is escaped.)
+  tg() { # LABEL SED-EXPR WHAT GOOD-RE BAD-RE FIXTURE
+    mk "$1 mutant build" "$LIB" "$MD/$1.sh" "$2" \
+      && tt "$1: $3" 0 0 "$MD/$1.sh" --orig "$LIB" --good-has "$4" --bad-has "$5" -- "${COUNT_ARGV[@]}" "$6"
+  }
+  BND='s#if (bef !~ /\[A-Za-z0-9_-\]/ \&\& aft !~ /\[A-Za-z0-9_-\]/ \&\& #if (#'
+  tg TOOTH-4f1 "$BND" "without the boundary check CLOSED-LOOP falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-closed-loop.expect1.md"
+  tg TOOTH-4f2 "$BND" "without the boundary check ENCLOSED falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-enclosed.expect1.md"
+  tg TOOTH-4g 's# \&\& !negated(substr(s, 1, pos - 1))##' "without the negation check NOT CLOSED falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-not-closed.expect1.md"
+  tg TOOTH-4h 's#k < 2; k++#k < 1; k++#' "a negation window of one word lets NOT YET CLOSED close" '^1$' '^0$' "$FIX/child-open-not-yet-closed.expect1.md"
+  tg TOOTH-4i 's#w == "NO" ||#w ~ /NO$/ ||#' "a suffix match on NO makes X-NO CLOSED negate (whole-word token lost)" '^0$' '^1$' "$FIX/child-closed-id-ending-no.expect0.md"
+  tg TOOTH-4j 's# || w == "NEVER"##' "without NEVER in the negation set NEVER CLOSED closes" '^1$' '^0$' "$FIX/child-open-never-closed.expect1.md"
+  tg TOOTH-4k 's#bef = (pos > 1) ? substr(s, pos - 1, 1)#bef = (RSTART > 1) ? substr(t, RSTART - 1, 1)#' "re-anchoring the preceding char at RSTART==1 after a rejected match makes CLOSEDCLOSED close" '^1$' '^0$' "$FIX/child-open-repeated-closedclosed.expect1.md"
 
   # TOOTH-5: the `## Blocked /` family is part of the body (METHODOLOGY §21.1).
   mk "TOOTH-5 mutant build" "$LIB" "$MD/t5.sh" "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" \

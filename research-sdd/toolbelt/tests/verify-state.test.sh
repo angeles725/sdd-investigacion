@@ -2963,7 +2963,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   BRLIB="$HERE/../lib/blocked-rows.sh"
   libmut() {
     local name="$1" expr="$2" fix="$3" rc
-    if ! sed "$expr" "$BRLIB" > "$TMP/lib/blocked-rows.sh" || cmp -s "$BRLIB" "$TMP/lib/blocked-rows.sh"; then
+    # bash -n refuses a syntax-broken mutant (#2011): it would otherwise exit 1 via the consumer's 'failed to define'
+    # guard and read as a caught mutation.
+    if ! sed "$expr" "$BRLIB" > "$TMP/lib/blocked-rows.sh" || cmp -s "$BRLIB" "$TMP/lib/blocked-rows.sh" \
+       || ! bash -n "$TMP/lib/blocked-rows.sh" 2>/dev/null; then
       cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "BUILD-FAIL"; return 0
     fi
     cp "$SUT" "$TMP/verify-state.$name.sh"

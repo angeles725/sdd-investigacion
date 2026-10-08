@@ -24,7 +24,8 @@
 #      keeps a `needs:` clause for the record. Closed markers: `~~` striking the whole entry (it must open
 #      the bullet content: `- ~~G9 …`, `- **~~G9 …`; a partial strike mid-line closes nothing), `✅`, the
 #      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP` and `ENCLOSED` are not the word, and a
-#      preceding `NOT` / `NO` negates it), and a bracketed `[closed]` / `[cerrado]` in any case. The match
+#      `NOT` / `NO` / `NEVER` within the two words before it negates it, as in `NOT YET CLOSED`; those are whole
+#      words too, so `X-NO CLOSED` is not negated, and `CLOSEDCLOSED` is not the word), and a bracketed `[closed]` / `[cerrado]` in any case. The match
 #      is on the bullet line only, so prose such as "not closed" in an OPEN entry never closes it. Standard blocked sections are unaffected: an entry listed there is blocked
 #      by definition (a closed gap leaves them, METHODOLOGY §21.1).
 
@@ -47,13 +48,23 @@ blocked_open_count() {     # FILE
   _d1="$(blocked_rows_body "$_f" | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"  # RSDD-PROSE-BLOCKED-ANCHOR
   # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
   _d2="$(blocked_rows_section "$_f" '## Child gaps surfaced at close' | awk '
-    function has_word(s, w,   t, pre, bef, aft) {            # whole-word match; NOT/NO before it negates
-      t = s
+    function negated(pre,   p, k, w) {                       # NEGATION-WINDOW: NOT/NO/NEVER in the 2 words before
+      p = pre
+      for (k = 0; k < 2; k++) {
+        if (!match(p, /[A-Za-z0-9_-]+[^A-Za-z0-9_-]*$/)) return 0
+        w = substr(p, RSTART, RLENGTH); sub(/[^A-Za-z0-9_-]+$/, "", w)
+        if (w == "NOT" || w == "NO" || w == "NEVER") return 1      # whole word, same boundary set as bef/aft
+        p = substr(p, 1, RSTART - 1)
+      }
+      return 0
+    }
+    function has_word(s, w,   t, off, pos, rl, bef, aft) {  # whole-word match; negated by NOT/NO/NEVER just before
+      t = s; off = 0
       while (match(t, w)) {
-        pre = substr(t, 1, RSTART - 1); bef = substr(t, RSTART - 1, 1); aft = substr(t, RSTART + RLENGTH, 1)
-        if (RSTART == 1) bef = ""
-        if (bef !~ /[A-Za-z0-9_-]/ && aft !~ /[A-Za-z0-9_-]/ && pre !~ /(^|[^A-Za-z0-9])(NOT|NO)[^A-Za-z0-9]*$/) return 1
-        t = substr(t, RSTART + RLENGTH)
+        pos = off + RSTART; rl = RLENGTH                     # RESCAN-OFFSET: position in the ORIGINAL string
+        bef = (pos > 1) ? substr(s, pos - 1, 1) : ""; aft = substr(s, pos + rl, 1)
+        if (bef !~ /[A-Za-z0-9_-]/ && aft !~ /[A-Za-z0-9_-]/ && !negated(substr(s, 1, pos - 1))) return 1
+        off = pos + rl - 1; t = substr(s, off + 1)           # keep the real preceding char after a rejected match
       }
       return 0
     }
