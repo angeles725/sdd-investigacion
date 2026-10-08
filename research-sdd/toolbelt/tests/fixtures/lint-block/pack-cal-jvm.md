@@ -13,3 +13,6 @@
 11. The auth filter fails open. CAL-R5-BAD
 12. The authz gate is a no-op. CAL-R5-BAD
 13. The census shows records/sealed adoption across the corpus. CAL-R1-BAD
+14. The unauthenticated endpoint bypasses the check. CAL-R5-BAD
+15. The OAuth flow is ungated. CAL-R5-BAD
+16. The deauthorize step is a no-op. CAL-R5-BAD

@@ -55,7 +55,7 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 # ordinary English word ("in the test context") and must not make a clause permission-scoped; the
 # phrase "null context" / "null-context" (the permission-bypass idiom) stays in scope in any case.
 R5_PERM_CONTEXT_RE = re.compile(
-    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth(?:n|z)?\b|\bauthenticat\w*|\bauthoris\w*|\bauthoriz\w*|\bnull[\s-]+context\b)"
+    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bo?auth\d?\b|\bauthn\b|\bauthz\b|\b(?:un|de)?(?:authenticat|authoriz|authoris)\w*|\bnull[\s-]+context\b)"
     r"|\bContext\b|\bcx\b")
 # Clearing forms: a resolved `dispatch:` clause, or an inline `cited-absence:` clause (the override was
 # searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").

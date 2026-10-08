@@ -389,7 +389,7 @@ run --pack jvm "$FX/pack-cal-jvm.md"
 want="$(lines_of CAL-R1-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R1 "$OUT" "$FX/pack-cal-jvm.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24a R1: 'var-length', 'for each' and 'sealed envelope' (English prose) are not syntax-adoption features; \`var\`, the var keyword, sealed interfaces and for-each still are ($want)" || no "24a R1 prose false positives (want=[$want] got=[$got])"
 want="$(lines_of CAL-R5-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R5 "$OUT" "$FX/pack-cal-jvm.md")"
-[ "$got" = "$want" ] && [ -n "$want" ] && ok "24b R5: 'authored' is not permission scope; authentication, authorization, auth and authz still are ($want)" || no "24b R5 auth breadth (want=[$want] got=[$got])"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24b R5: 'authored' is not permission scope; authentication, authorization, unauthenticated, deauthorize, OAuth, auth and authz still are ($want)" || no "24b R5 auth breadth (want=[$want] got=[$got])"
 run --pack multi-version "$FX/pack-cal-r8.md"
 want="$(lines_of CAL-R8-BAD "$FX/pack-cal-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-cal-r8.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24c R8: a negated ('not new in N5'), question ('Is ... N5-only?') or 'whether' clause is not an attribution claim; affirmative claims still flag ($want)" || no "24c R8 negation/question (want=[$want] got=[$got])"
@@ -760,7 +760,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth CR1 lint-block-packs/jvm.py 's#r"`var`", r"\\bvar\\s+(?:keyword|declarations?|inference)\\b", #r"\\bvar\\b", #' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
   ptooth CR2 lint-block-packs/jvm.py 's#r"\\bsealed\\s+(?:classes|class|interfaces|interface|hierarch\\w\*|types?)\\b",#r"\\bsealed\\b",#' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
   ptooth CR3 lint-block-packs/jvm.py 's#r"for-each", #r"for-each", r"for\\s+each", #' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
-  ptooth CR4 lint-block-packs/jvm.py 's#|\\bauth(?:n|z)?\\b|\\bauthenticat\\w\*|\\bauthoris\\w\*|\\bauthoriz\\w\*#|\\bauth\\w*\\b#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR4 lint-block-packs/jvm.py 's#|\\bo?auth\\d?\\b|\\bauthn\\b|\\bauthz\\b|\\b(?:un|de)?(?:authenticat|authoriz|authoris)\\w\*#|\\bauth\\w*\\b#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR17 lint-block-packs/jvm.py 's#|\\b(?:un|de)?(?:authenticat|authoriz|authoris)\\w\*#|\\bauthenticat\\w*|\\bauthoriz\\w*|\\bauthoris\\w*#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
   ptooth CR5 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and not R8_NEGATION_RE.search(before):#if True:#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR6 lint-block-packs/multi-version.py 's#(?:is|are|was|were|does|did)#(?:xx)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR7 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and #if #' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
