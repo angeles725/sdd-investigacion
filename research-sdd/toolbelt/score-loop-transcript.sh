@@ -42,6 +42,11 @@
 #       when no campaign queue was ever declared (kit issue #1107 — see KNOWN LIMIT (3) below).
 #       degraded when research-sdd-status.sh is missing, fails, or reports `STALE` (its own state
 #       is not trustworthy enough to answer "0 open"), or on an unrecognized transcript shape.
+#       Also degraded (kit issue #1995) when the `--next` STOP is QUALIFIED — `[issue-coverage: unverified]`,
+#       `[backlog-unreadable: N rows|unverified]`, `no active focus (...)`, or any form other than the bare
+#       `read-only-investigable exhausted (0)` (`outline fully covered (a/b)` is also whitelisted, defensively: --next
+#       cannot reach it): the qualifier is named in the evidence and replaces ONLY the pass / n-a outcomes — a
+#       commit after STOP and a declared non-empty queue still fail, outranking the qualifier.
 #       KNOWN LIMIT (three-part): (1) the RETURN CONTRACT this token belongs to is defined by
 #       PROMPT-LOOP.md's orchestrated `/loop` mode ONLY — an interactive chat session has no
 #       reason to ever emit a literal `STOP:` line, so C4 is meaningful only for a run driven in
@@ -840,8 +845,23 @@ c4() {
     return
   fi
 
-  local zero_open=0
-  [[ "$status_next" =~ ^STOP\  ]] && zero_open=1
+  local zero_open=0 stop_qualifier=""
+  if [[ "$status_next" =~ ^STOP\  ]]; then
+    zero_open=1
+    # Kit #1995: only the two CLEAN terminal forms read as a zero-open exhaustion. Anything else after
+    # `STOP | ` is qualified (`[issue-coverage: unverified]`, `[backlog-unreadable: ...]`, `no active focus (...)`)
+    # or unknown, and is named in a typed degraded result instead of scoring `pass` (CLAUDE.md §7).
+    local next_line="${status_next%%$'\n'*}" stop_rest brackets
+    stop_rest="${next_line#STOP | }"  # SLT-STOP-CLASSIFY
+    if [[ "$stop_rest" == "read-only-investigable exhausted (0)" || "$stop_rest" =~ ^outline\ fully\ covered\ \([0-9]+/[0-9]+\)$ ]]; then
+      :
+    else
+      brackets="$(grep -oE '\[[^]]*\]' <<<"$stop_rest" | paste -sd' ' -)"
+      if [[ "$stop_rest" == "no active focus"* ]]; then stop_qualifier="no active focus${brackets:+ $brackets}"
+      elif [[ -n "$brackets" ]]; then stop_qualifier="$brackets"
+      else stop_qualifier="unrecognized STOP form: $(cut -c1-80 <<<"$stop_rest")"; fi
+    fi
+  fi
 
   # declared_queue: was a REAL per-focus queue line ("pending=N active=N ...") ever emitted?
   # That shape (campaign_status_block's queue-bearing branch) is the ONLY one that can answer
@@ -902,12 +922,18 @@ c4() {
   [[ "$unwitnessed" -eq 0 ]] || unwitnessed_note=" after_stop_unwitnessed=$unwitnessed"
 
   if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 && "$unwitnessed" -gt 0 ]]; then
-    emit C4 degraded "STOP honored inside the transcript but${unwitnessed_note}: block commit(s) landed more than ${C4_GRACE_MIN} min after STOP and outside the transcript span — cannot attribute them to this run"
+    emit C4 degraded "STOP honored inside the transcript but${unwitnessed_note}: block commit(s) landed more than ${C4_GRACE_MIN} min after STOP and outside the transcript span — cannot attribute them to this run${stop_qualifier:+; STOP is also qualified: $stop_qualifier}"
   elif [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
     if [[ "$declared_queue" -eq 0 ]]; then
       # KNOWN LIMIT (kit issue #1107): "campaign queue empty" is unverifiable with no queue to
       # inspect — reporting pass here would be true only by construction, never by evidence.
-      emit C4 n/a "no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)"
+      if [[ -n "$stop_qualifier" ]]; then
+        emit C4 degraded "STOP is qualified — not a clean zero-open exhaustion: $stop_qualifier (no campaign queue declared; 0 block commits after STOP)"  # SLT-STOP-QUALIFIED
+      else
+        emit C4 n/a "no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)"
+      fi
+    elif [[ "$empty_queue" -eq 1 && -n "$stop_qualifier" ]]; then
+      emit C4 degraded "STOP is qualified — not a clean zero-open exhaustion: $stop_qualifier (stop token present; campaign queue empty; 0 block commits after STOP)"  # SLT-STOP-QUALIFIED
     elif [[ "$empty_queue" -eq 1 ]]; then
       emit C4 pass "STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP"
     else
