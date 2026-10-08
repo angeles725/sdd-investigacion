@@ -242,7 +242,7 @@ else
 fi
 echo "-- ratio -- [INFER]/[CERT*] = $infer/$cert_total = $ratio"
 # P9-TYPE-PARSE-EARLY: parse Type: token once, shared by P6 (zero-citation WARN) and P9 (resolved-N-of-M WARN).
-# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied
+# Grammar (closed, §4): see _VB_TYPES_CITE / _VB_TYPES_NOCITE below.
 # Strip is ORDER-INDEPENDENT: leading spaces, asterisks, backticks removed in any combination — see P6-TYPE-STRIP.
 _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
 _type_token=""
@@ -253,20 +253,33 @@ if [ -n "$_type_raw" ]; then
   _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
   _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z0-9-]*')  # P1418-TYPE-DIGITS
 fi
+# The closed Type grammar is defined ONCE here (#1993): the ratio line, P6 and P9 all classify through
+# _type_class, so the three can no longer drift apart. NOCITE types are expected to carry no file:line cites.
+_VB_TYPES_NOCITE="synthesis capture document absence-centred decision design-applied"  # VB-TYPE-LIST-NOCITE
+_VB_TYPES_CITE="standard evidence mixed collaborative audit"  # VB-TYPE-LIST-CITE
+_VB_TYPES_PIPE="${_VB_TYPES_CITE// / | } | ${_VB_TYPES_NOCITE// / | }"
+_type_class="unknown"  # nocite | cite | unknown (absent, empty and unrecognised all stay 'unknown'; _type_raw tells them apart)
+if [ -n "$_type_token" ]; then
+  case " $_VB_TYPES_NOCITE " in *" $_type_token "*) _type_class="nocite" ;; esac
+  case " $_VB_TYPES_CITE " in *" $_type_token "*) _type_class="cite" ;; esac
+fi
+# One display-name fallback for every unrecognised-Type message: the token, else the cleaned raw value (uppercase /
+# non-conformant), with the closing ** and trailing punctuation stripped.
+_type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # TYPE-DISPLAY
 # Ratio-line Type reading (#1993): absent / unrecognised / recognised are three distinct states; the
 # "DECLARE the block TYPE" clause is dropped ONLY for a recognised Type (VB-RATIO-TYPE-HINT).
-case "$_type_token" in
-  standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied)
-    _ratio_type_line="   declared Type: $_type_token"; _ratio_tail="; read it against the declared Type, §11)" ;;
-  *)
-    if [ -n "$_type_raw" ]; then
-      _ratio_type_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"
-      _ratio_type_line="   unrecognised Type '$_ratio_type_name'"
-    else
-      _ratio_type_line="   no Type declared"
-    fi
-    _ratio_tail=" — DECLARE the block TYPE so the ratio is read right, §11)" ;;
-esac
+if [ "$_type_class" != "unknown" ]; then  # VB-RATIO-CLASS
+  _ratio_type_line="   declared Type: $_type_token"; _ratio_tail="; read it against the declared Type, §11)"
+else
+  if [ -z "$_type_raw" ]; then  # VB-RATIO-ABSENT
+    _ratio_type_line="   no blockquote Type: line found"
+  elif [ -z "$_type_warn_name" ]; then  # VB-RATIO-EMPTY
+    _ratio_type_line="   empty Type: line"
+  else
+    _ratio_type_line="   unrecognised Type '$_type_warn_name'"
+  fi
+  _ratio_tail=" — DECLARE the block TYPE so the ratio is read right, §11)"
+fi
 echo "$_ratio_type_line"
 echo "   (>~0.5 in an EVIDENCE block signals investigable evidence nearly exhausted; EXPECTED and healthy in a"
 echo "    DESIGN/synthesis block${_ratio_tail}"  # VB-RATIO-TYPE-HINT
@@ -682,21 +695,20 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
       # Type: already parsed above (P9-TYPE-PARSE-EARLY); _type_raw/_type_token/_type_stripped are set.
       # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
       # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
-      case "$_type_token" in
-        synthesis|capture|document|absence-centred|decision|design-applied)  # P6-TYPE-CLASSIFY
+      case "$_type_class" in
+        nocite)  # P6-TYPE-CLASSIFY
           echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
           ;;
-        standard|evidence|mixed|collaborative|audit)
+        cite)
           echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
           ;;
         *)
           if [ -n "$_type_raw" ]; then  # P6-TYPE-UNRECOGNISED
             # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
-            _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
-            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."
+            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: $_VB_TYPES_PIPE."
           else
             echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
-            echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."
+            echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: $_VB_TYPES_PIPE."
           fi
           ;;
       esac
@@ -881,20 +893,19 @@ if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
     if [ "$cert_total" -gt 0 ] && [ "$code_cert_total" -eq 0 ]; then  # P9-DOC-GRADE-GUARD: mirror P6-CERT-ZERO-CITE-WARN/P6-DOC-AWARE-SUPPRESS
       echo "   INFO    resolved 0 of $_vb_m — doc-grade markers only; file:line citations not expected."
     else
-      case "$_type_token" in
-        synthesis|capture|document|absence-centred|decision|design-applied)  # P9-TYPE-CLASSIFY
+      case "$_type_class" in
+        nocite)  # P9-TYPE-CLASSIFY
           echo "   INFO    resolved 0 of $_vb_m — expected for declared type $_type_token."
           ;;
-        standard|evidence|mixed|collaborative|audit)
+        cite)
           echo "   WARN    resolved 0 of $_vb_m — $_p9_why"
           ;;
         *)
           if [ -n "$_type_raw" ]; then  # P9-TYPE-UNRECOGNISED
-            _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P9-TYPE-DISPLAY
             echo "   WARN    resolved 0 of $_vb_m — unrecognised Type: '$_type_warn_name'; $_p9_why"
           else
             echo "   WARN    resolved 0 of $_vb_m — $_p9_why"
-            echo "   HINT    Declare a Type: token to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision | design-applied."  # P9-NO-TYPE-HINT
+            echo "   HINT    Declare a Type: token to grade this WARN: $_VB_TYPES_PIPE."  # P9-NO-TYPE-HINT
           fi
           ;;
       esac

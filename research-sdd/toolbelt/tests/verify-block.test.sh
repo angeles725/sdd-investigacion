@@ -1917,10 +1917,6 @@ out="$(lcrun --extern-check "$LC/corpus/agree.md" "$LC/corpus")"
 { grep -qE 'ok +nonl.txt:3$' <<<"$out" && grep -q 'ok extern .*nonl.txt:3$' <<<"$out"; } \
   && ok "#1919 in-target and --extern-check agree on an unterminated last line" || no "#1919 agree :: $(grep -E 'nonl|RANGE' <<<"$out" | head -4)"
 
-# NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
-# empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
-# original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
-# '== exit N ==' line, so a mutant that crashed mid-run cannot read as teeth). Kit issues #943, #1299.
 # #1993 — the ratio section prints the parsed Type and drops the "DECLARE the block TYPE" clause ONLY for a
 # recognised Type; an absent Type and an unrecognised Type stay distinguishable and keep the clause.
 t93(){ { echo "# Block — t"; echo; [ -n "$2" ] && { echo "> $2"; echo; }; echo "---"; echo; echo "A [CERT]. B [INFER]."; } > "$TMP/$1.md"; run "$TMP/$1.md"; }
@@ -1929,10 +1925,10 @@ out="$(t93 t93a '**Type:** document')"
 { grep -q '^   declared Type: document$' <<<"$out" && ! grep -q "$DECL" <<<"$out" && grep -q -- '-- ratio --' <<<"$out"; } \
   && ok "#1993 recognised Type: 'declared Type: document' printed, DECLARE hint dropped" || no "#1993 recognised :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
 out="$(t93 t93b '')"
-{ grep -q '^   no Type declared$' <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'unrecognised Type' <<<"$out"; } \
-  && ok "#1993 absent Type: 'no Type declared' printed, DECLARE hint kept" || no "#1993 absent :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
+{ grep -q '^   no blockquote Type: line found$' <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'unrecognised Type' <<<"$out"; } \
+  && ok "#1993 absent Type: 'no blockquote Type: line found' printed, DECLARE hint kept" || no "#1993 absent :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
 out="$(t93 t93c 'Type: Bogus')"
-{ grep -qE "^   unrecognised Type 'Bogus'$" <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'no Type declared' <<<"$out"; } \
+{ grep -qE "^   unrecognised Type 'Bogus'$" <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'no blockquote Type' <<<"$out"; } \
   && ok "#1993 unrecognised Type: named, DECLARE hint kept, distinct from absent" || no "#1993 unrecognised :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
 out="$(t93 t93d 'Type: bogus-thing')"
 grep -qE "^   unrecognised Type 'bogus-thing'$" <<<"$out" \
@@ -1945,6 +1941,26 @@ out="$(t93 t93f '')"
 grep -q 'HINT    Declare a Type: token' <<<"$out" \
   && ok "#1993 P6 absent-Type HINT still fires after the parse move" || no "#1993 P6 hint regression"
 
+out="$(t93 t93g '**Type:**')"
+{ grep -q '^   empty Type: line$' <<<"$out" && ! grep -q "unrecognised Type ''" <<<"$out" && grep -q "$DECL" <<<"$out"; } \
+  && ok "#1993 empty 'Type:' line: distinct 'empty Type: line' state, DECLARE hint kept" || no "#1993 empty :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
+# the closed list is defined once in the SUT; read it from there so the test cannot drift from it (anti-silent-zero: non-empty)
+VBT="$(sed -n 's/^_VB_TYPES_\(NOCITE\|CITE\)="\(.*\)"  # VB-TYPE-LIST-.*/\2/p' "$SUT" | tr '\n' ' ')"
+nvbt=0; vbt_bad=""
+for tk in $VBT; do
+  nvbt=$((nvbt+1))
+  o1="$(t93 "t93r$nvbt" "**Type:** $tk")"
+  { echo "# Block — t"; echo; echo "> **Type:** $tk"; echo; echo "---"; echo; echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$TMP/t93p9-$nvbt.md"
+  o2="$(run "$TMP/t93p9-$nvbt.md")"
+  grep -q "^   declared Type: $tk\$" <<<"$o1" && ! grep -q "$DECL" <<<"$o1" && ! grep -qi 'unrecognised' <<<"$o1$o2" || vbt_bad="$vbt_bad $tk"
+done
+{ [ "$nvbt" -ge 11 ] && [ -z "$vbt_bad" ]; } \
+  && ok "#1993 all $nvbt recognised Types: ratio 'declared Type:', no DECLARE hint, no unrecognised WARN in ratio/P6/P9" || no "#1993 type list ($nvbt read) bad:$vbt_bad"
+
+# NEGATIVE CONTROLS — every mutant is a COPY of the SUT under $MUT built by lib/mutant.sh, which REFUSES an
+# empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
+# original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
+# '== exit N ==' line, so a mutant that crashed mid-run cannot read as teeth). Kit issues #943, #1299.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -2055,7 +2071,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   vbtype(){ local f="$1" typeline="$2"; shift 2; { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; printf '%s\n' "$typeline"; echo; echo "---"; echo; printf '%s\n' "$@"; } > "$f"; }
 
   echo "-- teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis block must revert to WARN --"
-  if mk_sed "teeth-p6-type-classify" "$MUT/type.sh" '/# P6-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/'; then
+  if mk_sed "teeth-p6-type-classify" "$MUT/type.sh" '/# P6-TYPE-CLASSIFY/ s/nocite)/NOTYPE_MATCH)/'; then
     vbtype "$TMP/p6-type-teeth.md" '> **Type:** synthesis' "## Summary [CERT]" "The module is initialized via [Block 5]. [CERT]"
     tooth "teeth-p6-type-classify" 0 0 "$MUT/type.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
       --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-teeth.md"
@@ -2076,7 +2092,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth-p6-type-display: null display-name fallback; uppercase token must print '' (not named) --"
-  if mk_sed "teeth-p6-type-display" "$MUT/tdisp.sh" '/# P6-TYPE-DISPLAY/ s/.*/        _type_warn_name=$_type_token  # P6-TYPE-DISPLAY [NEUTERED]/'; then
+  if mk_sed "teeth-p6-type-display" "$MUT/tdisp.sh" '/# TYPE-DISPLAY/ s/.*/_type_warn_name=$_type_token  # TYPE-DISPLAY [NEUTERED]/'; then
     vbtype "$TMP/p6-type-disp-teeth.md" '> **Type:** GAP-CLOSING SWEEP — special form' "## Finding [CERT]" "The method is defined. [CERT]"
     tooth "teeth-p6-type-display" 0 0 "$MUT/tdisp.sh" --good-has "WARN.*GAP-CLOSING" --good-lacks "token ''" \
       --bad-has "token ''" --bad-lacks "WARN.*GAP-CLOSING" -- bash @SUT@ "$TMP/p6-type-disp-teeth.md"
@@ -2116,21 +2132,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth-p6-type-classify-decision: remove decision from P6-TYPE-CLASSIFY; block must revert to WARN --"
-  if mk_sed "teeth-p6-type-classify-decision" "$MUT/tdec.sh" '/# P6-TYPE-CLASSIFY/ s/|decision//'; then
+  if mk_sed "teeth-p6-type-classify-decision" "$MUT/tdec.sh" '/# VB-TYPE-LIST-NOCITE/ s/ decision//'; then
     vbtype "$TMP/p6-type-decision-teeth.md" '> **Type:** decision' "## Decision [CERT]" "Chose approach A over B. [CERT]"
     tooth "teeth-p6-type-classify-decision" 0 0 "$MUT/tdec.sh" --good-has 'INFO.*declared type' --good-lacks "WARN.*$NOCITE" \
       --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-decision-teeth.md"
   fi
 
   echo "-- teeth-p6-type-classify-design-applied: remove design-applied from P6-TYPE-CLASSIFY; block must revert to unrecognised WARN --"
-  if mk_sed "teeth-p6-type-classify-design-applied" "$MUT/tda6.sh" '/# P6-TYPE-CLASSIFY/ s/|design-applied//'; then
+  if mk_sed "teeth-p6-type-classify-design-applied" "$MUT/tda6.sh" '/# VB-TYPE-LIST-NOCITE/ s/ design-applied//'; then
     vbtype "$TMP/p6-type-da-teeth.md" '> **Type:** design-applied' "## Delivery [CERT]" "The layer is wired. [CERT]"
     tooth "teeth-p6-type-classify-design-applied" 0 0 "$MUT/tda6.sh" --good-has 'INFO.*declared type design-applied' --good-lacks "WARN.*$NOCITE" \
       --bad-has "WARN.*$NOCITE" --bad-lacks 'INFO.*declared type' -- bash @SUT@ "$TMP/p6-type-da-teeth.md"
   fi
 
   echo "-- teeth-p9-type-classify-design-applied: remove design-applied from P9-TYPE-CLASSIFY; extern cite must revert to WARN --"
-  if mk_sed "teeth-p9-type-classify-design-applied" "$MUT/tda9.sh" '/# P9-TYPE-CLASSIFY/ s/|design-applied//'; then
+  if mk_sed "teeth-p9-type-classify-design-applied" "$MUT/tda9.sh" '/# VB-TYPE-LIST-NOCITE/ s/ design-applied//'; then
     vbtype "$TMP/p9-type-da-teeth.md" '> **Type:** design-applied' "As seen in \`NonExistent.java:10\`. \`[CERT]\`"
     tooth "teeth-p9-type-classify-design-applied" 0 0 "$MUT/tda9.sh" --good-has 'INFO.*resolved 0 of' --good-lacks 'WARN.*resolved 0 of' \
       --bad-has 'WARN.*resolved 0 of' --bad-lacks 'INFO.*resolved' -- bash @SUT@ "$TMP/p9-type-da-teeth.md"
@@ -2174,7 +2190,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth-p9-type-classify: neuter P9-TYPE-CLASSIFY; synthesis+extern must revert to WARN --"
-  if mk_sed "teeth-p9-type-classify" "$MUT/p9tc.sh" '/# P9-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/'; then
+  if mk_sed "teeth-p9-type-classify" "$MUT/p9tc.sh" '/# P9-TYPE-CLASSIFY/ s/nocite)/NOTYPE_MATCH)/'; then
     vbtype "$TMP/p9-type-classify-teeth.md" '> **Type:** synthesis' "As seen in \`NonExistent.java:10\`. \`[CERT]\`"
     tooth "teeth-p9-type-classify" 0 0 "$MUT/p9tc.sh" --good-has 'INFO.*resolved' --good-lacks 'WARN.*resolved 0 of' \
       --bad-has 'WARN.*resolved 0 of' --bad-lacks 'INFO.*resolved' -- bash @SUT@ "$TMP/p9-type-classify-teeth.md"
@@ -2765,6 +2781,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     sed -i 's/^> Method:/> **Type:** document\n> Method:/' "$TMP/t93-teeth.md"
     tooth "teeth-1993" 0 0 "$MUT/t93.sh" --good-has 'declared Type: document' --good-lacks 'DECLARE the block TYPE' --bad-has 'DECLARE the block TYPE' \
       -- bash @SUT@ "$TMP/t93-teeth.md"
+  fi
+
+  echo "-- teeth-1993-absent: flip VB-RATIO-ABSENT; a block with no Type line must stop reading as 'no blockquote Type: line found' --"
+  if mk_sed "teeth-1993-absent" "$MUT/t93a.sh" '/# VB-RATIO-ABSENT/ s/-z/-n/'; then
+    vbfix "$TMP/t93-absent.md" "A [CERT]. B [INFER]."
+    tooth "teeth-1993-absent" 0 0 "$MUT/t93a.sh" --good-has 'no blockquote Type: line found' --bad-lacks 'no blockquote Type: line found' \
+      -- bash @SUT@ "$TMP/t93-absent.md"
+  fi
+  echo "-- teeth-1993-empty: flip VB-RATIO-EMPTY; an empty 'Type:' must stop reading as 'empty Type: line' --"
+  if mk_sed "teeth-1993-empty" "$MUT/t93e.sh" '/# VB-RATIO-EMPTY/ s/-z/-n/'; then
+    vbtype "$TMP/t93-empty.md" '> **Type:**' "A [CERT]. B [INFER]."
+    tooth "teeth-1993-empty" 0 0 "$MUT/t93e.sh" --good-has '^   empty Type: line$' --bad-lacks 'empty Type: line' --bad-has "unrecognised Type ''" \
+      -- bash @SUT@ "$TMP/t93-empty.md"
+  fi
+  echo "-- teeth-1993-unrec: flip VB-RATIO-EMPTY the other way; a named unrecognised Type must keep its name --"
+  if mk_sed "teeth-1993-unrec" "$MUT/t93u.sh" '/# VB-RATIO-EMPTY/ s/-z "\$_type_warn_name"/-n "$_type_warn_name"/'; then
+    vbtype "$TMP/t93-unrec.md" '> **Type:** bogus-kind' "A [CERT]. B [INFER]."
+    tooth "teeth-1993-unrec" 0 0 "$MUT/t93u.sh" --good-has "unrecognised Type 'bogus-kind'" --bad-lacks "unrecognised Type 'bogus-kind'" --bad-has 'empty Type: line' \
+      -- bash @SUT@ "$TMP/t93-unrec.md"
+  fi
+  echo "-- teeth-1993-class: invert VB-RATIO-CLASS; a recognised token must stop reading as 'declared Type:' --"
+  if mk_sed "teeth-1993-class" "$MUT/t93c.sh" '/# VB-RATIO-CLASS/ s/!=/==/'; then
+    vbtype "$TMP/t93-class.md" '> **Type:** document' "A [CERT]. B [INFER]."
+    tooth "teeth-1993-class" 0 0 "$MUT/t93c.sh" --good-has 'declared Type: document' --good-lacks 'unrecognised Type' --bad-lacks 'declared Type: document' --bad-has "unrecognised Type 'document'" \
+      -- bash @SUT@ "$TMP/t93-class.md"
+  fi
+  echo "-- teeth-1993-list: drop 'audit' from the single list; the ratio line must stop declaring it --"
+  if mk_sed "teeth-1993-list" "$MUT/t93l.sh" '/# VB-TYPE-LIST-CITE/ s/ audit//'; then
+    vbtype "$TMP/t93-list.md" '> **Type:** audit' "A [CERT]. B [INFER]."
+    tooth "teeth-1993-list" 0 0 "$MUT/t93l.sh" --good-has 'declared Type: audit' --bad-lacks 'declared Type: audit' --bad-has "unrecognised Type 'audit'" \
+      -- bash @SUT@ "$TMP/t93-list.md"
   fi
 
 fi
