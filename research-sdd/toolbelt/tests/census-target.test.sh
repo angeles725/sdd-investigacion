@@ -379,7 +379,7 @@ grep -q 'Audit cross-check: not run' <<<"$out" \
   && ok "32 no --state → 'not run' line (the gap is visible)" || no "32 not-run line" "$(grep 'cross-check' <<<"$out")"
 [ "$(code "$xt" --state)" = 2 ] && ok "33 --state without a value → exit 2" || no "33 --state w/o value: got $(code "$xt" --state)"
 
-# 34..45 — Claim hygiene (Opus review of #1984): a claim must be a standalone type token in
+# 34..46 — Claim hygiene (Opus review of #1984): a claim must be a standalone type token in
 # live prose. HTML comments (template text), fenced blocks and filenames-in-prose do not claim;
 # types of <= 2 characters need their leading dot; INHERITED is read only from the Dismissed
 # section; a heading inside a comment is not a section.
@@ -409,11 +409,11 @@ mkst "$TMP/st-fname.md" "| high | G1 see notes.aaa and RESEARCH-STATE.bbb and x.
 out="$(xrun "$TMP/st-fname.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 3 of 3' <<<"$w" \
   && ok "37 filename-in-prose (notes.aaa, RESEARCH-STATE.bbb, x.ccc.map) claims nothing" || no "37 filename leak" "$w"
-# 38 — sentence-final dot still claims ('.aaa.'), a bare 3+-char word claims ('bbb'), and a path segment does not ('dir/ccc').
-mkst "$TMP/st-tok.md" "| high | G1 reads the .aaa. Also bbb files; dir/ccc | x |" "- .zzz — dismissed: irrelevant"
+# 38 — sentence-final dot still claims ('.aaa.'), a dotted '.bbb' claims, and a path segment does not ('dir/ccc').
+mkst "$TMP/st-tok.md" "| high | G1 reads the .aaa. Also .bbb files; dir/ccc | x |" "- .zzz — dismissed: irrelevant"
 out="$(xrun "$TMP/st-tok.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w" \
-  && ok "38 '.aaa.' and bare 'bbb' claim; path segment 'dir/ccc' does not" || no "38 token forms" "$w"
+  && ok "38 '.aaa.' and '.bbb' claim; path segment 'dir/ccc' does not" || no "38 token forms" "$w"
 # 39 — types of <= 2 characters need the leading dot: bare 'c' / 'js' words do not claim .c / .js.
 sh2="$TMP/xcheck-short"; mkdir -p "$sh2"
 for i in 1 2 3 4 5; do printf 'x\n' > "$sh2/a${i}.c"; printf 'x\n' > "$sh2/b${i}.js"; done
@@ -453,6 +453,86 @@ mkst "$TMP/st-trail.md" "| high | G1 bundles/app.bbb .ccc and then .aaa.map | x 
 out="$(xrun "$TMP/st-trail.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 2 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" && grep -q '\.bbb' <<<"$w" && ! grep -q '\.ccc' <<<"$w" \
   && ok "46 compound '.aaa.map' and 'app.bbb' claim nothing; standalone .ccc does" || no "46 trailing boundary" "$w"
+
+# 47..57 — State edge cases (kit #1986, follow-up to #1984). A type is CLAIMED only when written
+# with its leading dot, inside a backtick span, or as the head of a Dismissed bullet; a bare prose
+# word never claims (so 'XML parser' / 'log' in gap prose cannot close .xml / .log). Compound
+# types are claimed by their full dotted name, a literal '<!--' inside a backtick span is not a
+# comment opener, a level-1 heading ends a section.
+# 47 — bare prose words (no dot, no backticks, not a Dismissed bullet head) claim nothing.
+mkst "$TMP/st-bare.md" "| high | G1 reads aaa and bbb files, also ccc | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-bare.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "47 bare prose words (aaa bbb ccc) do not claim" || no "47 bare words claim" "$(grep 'Audit cross-check' <<<"$out")"
+# 48 — a backtick span claims bare types; a path inside a span does not.
+mkst "$TMP/st-tick.md" "| high | G1 reads \`aaa\` and \`bbb\` plus \`dir/ccc\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-tick.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w"; wrc=$?
+mkst "$TMP/st-tick2.md" "| high | G1 reads \`c\` and \`js\` | x |" "- .zzz — dismissed: irrelevant"
+out2="$(bash "$SUT" "$sh2" --state "$TMP/st-tick2.md" 2>&1)"
+grep -q 'Audit cross-check: OK' <<<"$out2" && [ "$wrc" = 0 ] \
+  && ok "48 backtick span claims bare types (also 1-2 char); a path inside a span does not" || no "48 backtick claims" "$w | $(grep 'Audit cross-check' <<<"$out2")"
+# 49 — the head of a Dismissed bullet claims (bare, comma/slash list); a bare bullet head in the
+#      Gap-backlog does not, and a non-head word ('parser ccc') does not.
+mkst "$TMP/st-head.md" "- ccc — a backlog bullet with a bare head" "- aaa, bbb — dismissed: fixtures
+- parser ccc — dismissed? (ccc is not the head)"
+out="$(xrun "$TMP/st-head.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w" \
+  && ok "49 Dismissed bullet head claims (list); backlog bare head and non-head word do not" || no "49 bullet head" "$w"
+# 50 — other head forms: slash list with a colon, **bold**.
+mkst "$TMP/st-head2.md" "| high | G1 x | x |" "- aaa/bbb: dismissed
+- **ccc** — dismissed"
+out="$(xrun "$TMP/st-head2.md")"
+grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "50 Dismissed bullet head forms (a/b list, **bold**) all claim" || no "50 head forms" "$(grep 'Audit cross-check' <<<"$out")"
+# 51 — a compound type is claimed by its full dotted name (the starred type is the LAST segment);
+#      the compound does not claim its first segment, and a filename 'x.tar.gz' still claims nothing.
+cp_="$TMP/xcheck-comp"; mkdir -p "$cp_"
+for i in 1 2 3 4 5; do printf 'x\n' > "$cp_/a${i}.gz"; printf 'x\n' > "$cp_/b${i}.tar"; done
+mkst "$TMP/st-comp.md" "| high | G1 unpack .tar.gz | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-comp-fn.md" "| high | G1 unpack x.tar.gz | x |" "- .zzz — dismissed: irrelevant"
+out1="$(bash "$SUT" "$cp_" --state "$TMP/st-comp.md" 2>&1)"; out2="$(bash "$SUT" "$cp_" --state "$TMP/st-comp-fn.md" 2>&1)"
+w1="$(xline "$out1")"; w2="$(xline "$out2")"
+grep -q 'WARNING: 1 of 2' <<<"$w1" && grep -q '\.tar' <<<"$w1" && ! grep -q '\.gz' <<<"$w1" && grep -q 'WARNING: 2 of 2' <<<"$w2" \
+  && ok "51 '.tar.gz' claims .gz (not .tar); filename 'x.tar.gz' claims nothing" || no "51 compound" "$w1 | $w2"
+# 52 — a literal '<!--' inside a backtick span is not a comment opener: the later '-->' must not
+#      swallow the Dismissed heading.
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb, write `<!--` to open a comment | x |\n\n## Dismissed file types\n\n- .ccc — dismissed: fixtures\n\n## Notes\n\nthe closer is -->\n' > "$TMP/st-ticked-open.md"
+out="$(xrun "$TMP/st-ticked-open.md")"
+grep -q 'Audit cross-check: OK' <<<"$out" && ! grep -qi 'unterminated' <<<"$out" \
+  && ok "52 '<!--' inside backticks does not swallow the next section" || no "52 backticked opener" "$(grep -i 'Audit cross-check\|unterminated' <<<"$out")"
+# 53 — a REAL unterminated comment hides the rest of the file: the verdict discloses it.
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n<!-- forgot to close\n\n## Dismissed file types\n\n- .ccc — dismissed: fixtures\n' > "$TMP/st-unterm.md"
+out="$(xrun "$TMP/st-unterm.md")"
+grep -q 'WARNING: 1 of 3' <<<"$out" && grep -qi 'note: .*unterminated HTML comment' <<<"$out" \
+  && ok "53 unterminated HTML comment is disclosed (text after it was ignored)" || no "53 unterminated comment" "$(grep -i 'Audit cross-check\|note' <<<"$out")"
+# 54 — a level-1 heading ends the section: a mention under '# Appendix' does not close .ccc.
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n# Appendix\n\n.ccc mentioned here only\n' > "$TMP/st-h1.md"
+out="$(xrun "$TMP/st-h1.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "54 level-1 heading ends the section (Appendix mention does not claim)" || no "54 h1 boundary" "$(grep 'Audit cross-check' <<<"$out")"
+# 55 — the level-1 heading also ends the Dismissed section for the INHERITED declaration.
+printf '# state\n\n## Gap-backlog\n\n| high | G1 x | x |\n\n## Dismissed file types\n\n- .zzz — dismissed: irrelevant\n\n# Appendix\n\n- none — census inherited from the parent corpus (elsewhere)\n' > "$TMP/st-h1inh.md"
+out="$(xrun "$TMP/st-h1inh.md")"
+grep -q 'Audit cross-check: WARNING' <<<"$out" && ! grep -q 'Audit cross-check: INHERITED' <<<"$out" \
+  && ok "55 INHERITED declaration after a level-1 heading is not honoured" || no "55 h1 inherited" "$(grep 'Audit cross-check' <<<"$out")"
+# 56 — a path-like token inside a backtick span claims nothing (bare 'bbb' after a dot is not a claim).
+mkst "$TMP/st-spanfn.md" "| high | G1 \`notes.aaa\` \`RESEARCH-STATE.bbb\` \`x.ccc.map\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spanfn.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "56 filenames inside backtick spans claim nothing" || no "56 span filenames" "$w"
+# 58 — a bare token inside a span claims nothing when it touches a path separator ('aaa\', 'b/bbb',
+#      'x/ccc/y' are directories): the acceptance sweep found a span 'db\' closing .db.
+mkst "$TMP/st-spansep.md" "| high | G1 dirs \`aaa\\\` \`b/bbb\` \`x/ccc/y\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spansep.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "58 bare token touching a path separator inside a span claims nothing" || no "58 span path separator" "$w"
+# 57 — an UNPAIRED backtick is not a span: a real comment after it is still stripped (its types
+#      must not leak as claims — that would be a false closure).
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa it`s odd <!-- template: .bbb .ccc --> | x |\n\n## Dismissed file types\n\n- .zzz — dismissed: irrelevant\n' > "$TMP/st-unpaired.md"
+out="$(xrun "$TMP/st-unpaired.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 2 of 3' <<<"$w" \
+  && ok "57 unpaired backtick does not shield a real HTML comment (no false closure)" || no "57 unpaired backtick" "$(grep 'Audit cross-check' <<<"$out")"
 
 # ---------------------------------------------------------------------------
 # TEETH: mutate the awk threshold comparison to make EVERY type starred, then assert a
@@ -745,20 +825,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-fence.md"
   mutant_lead="$MUT/census-target.XLEAD-MUTANT.sh"
   mk_sed "teeth-xcheck-lead" "$mutant_lead" "s/^_lead=.*/_lead='(^|.)'/" \
-    && tooth "teeth-xcheck-lead: leading boundary dropped → 'xaaa' claims .aaa; SUT does not" 0 0 "$mutant_lead" \
-         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bound.md"
-  mutant_leaddot="$MUT/census-target.XLEADDOT-MUTANT.sh"
-  mk_sed "teeth-xcheck-leaddot" "$mutant_leaddot" 's/^_lead=.*/_lead='"'"'(^|[^[:alnum:]_\/-])'"'"'/' \
-    && tooth "teeth-xcheck-leaddot: '.' dropped from the leading class → 'RESEARCH-STATE.bbb' claims bare bbb; SUT does not" 0 0 "$mutant_leaddot" \
+    && tooth "teeth-xcheck-lead: leading boundary dropped → 'notes.aaa' claims .aaa; SUT does not" 0 0 "$mutant_lead" \
          --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-fname.md"
+  mutant_leaddot="$MUT/census-target.XLEADDOT-MUTANT.sh"
+  mk_sed "teeth-xcheck-leaddot" "$mutant_leaddot" 's/^_slead=.*/_slead='"'"'(^|[^[:alnum:]_\/\\\\-])'"'"'/' \
+    && tooth "teeth-xcheck-leaddot: '.' dropped from the leading class → backticked 'RESEARCH-STATE.bbb' claims bare bbb; SUT does not" 0 0 "$mutant_leaddot" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spanfn.md"
   mutant_trail="$MUT/census-target.XTRAIL-MUTANT.sh"
   mk_sed "teeth-xcheck-trail" "$mutant_trail" "s/^_trail=.*/_trail='(.|\$)'/" \
     && tooth "teeth-xcheck-trail: trailing boundary dropped → '.aaa.map' claims .aaa; SUT does not" 0 0 "$mutant_trail" \
          --good-has 'WARNING: 2 of 3' --bad-lacks 'WARNING: 2 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-trail.md"
-  mutant_short="$MUT/census-target.XSHORT-MUTANT.sh"
-  mk_sed "teeth-xcheck-short" "$mutant_short" 's/-le 2 \]; then _dot/-le 0 ]; then _dot/' \
-    && tooth "teeth-xcheck-short: leading-dot rule for 1-2 char types dropped → bare 'c' / 'js' claim; SUT does not" 0 0 "$mutant_short" \
-         --good-has 'WARNING: 2 of 2' --bad-lacks 'WARNING: 2 of 2' -- bash @SUT@ "$sh2" --state "$TMP/st-short-bad.md"
+  mutant_bare="$MUT/census-target.XBARE-MUTANT.sh"
+  mk_sed "teeth-xcheck-bare" "$mutant_bare" 's/\${_seg}\\\.\${_re}\${_trail}" <<<"\$_claims"/${_seg}\\.?${_re}${_trail}" <<<"$_claims"/' \
+    && tooth "teeth-xcheck-bare: leading-dot requirement dropped → bare prose words 'aaa bbb ccc' claim; SUT does not" 0 0 "$mutant_bare" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bare.md"
+  mutant_span="$MUT/census-target.XSPAN-MUTANT.sh"
+  mk_sed "teeth-xcheck-span" "$mutant_span" 's/^_spans=.*/_spans=""/' \
+    && tooth "teeth-xcheck-span: backtick-span claims removed → \`c\` / \`js\` no longer claim; SUT accepts them" 0 0 "$mutant_span" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$sh2" --state "$TMP/st-tick2.md"
+  mutant_head="$MUT/census-target.XHEAD-MUTANT.sh"
+  mk_sed "teeth-xcheck-head" "$mutant_head" 's/grep -qixF -- "\$_e" <<<"\$_heads"/grep -qixF -- "$_e" <<<""/' \
+    && tooth "teeth-xcheck-head: Dismissed bullet-head claims removed → '- aaa/bbb:' no longer claims; SUT does" 0 0 "$mutant_head" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-head2.md"
+  mutant_headlist="$MUT/census-target.XHEADLIST-MUTANT.sh"
+  mk_sed "teeth-xcheck-headlist" "$mutant_headlist" 's/\[,\/&\]\[\[:space:\]\]\*\[\*`_\]\*/[;][[:space:]]*[*`_]*/' \
+    && tooth "teeth-xcheck-headlist: list separators dropped → only the first head token claims ('aaa, bbb' loses bbb); SUT keeps both" 0 0 "$mutant_headlist" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-head.md"
+  mutant_spansep="$MUT/census-target.XSPANSEP-MUTANT.sh"
+  mk_sed "teeth-xcheck-spansep" "$mutant_spansep" "s/^_strail=.*/_strail='(.|\$)'/" \
+    && tooth "teeth-xcheck-spansep: span trailing path-separator guard dropped → a directory 'aaa\\' inside a span claims .aaa; SUT does not" 0 0 "$mutant_spansep" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spansep.md"
+  mutant_comp="$MUT/census-target.XCOMP-MUTANT.sh"
+  mk_sed "teeth-xcheck-compound" "$mutant_comp" "s/^    _seg=.*/    _seg=''/" \
+    && tooth "teeth-xcheck-compound: compound-segment prefix removed → '.tar.gz' no longer claims .gz; SUT does" 0 0 "$mutant_comp" \
+         --good-has 'WARNING: 1 of 2' --bad-lacks 'WARNING: 1 of 2' -- bash @SUT@ "$cp_" --state "$TMP/st-comp.md"
+  mutant_tickopen="$MUT/census-target.XTICKOPEN-MUTANT.sh"
+  mk_sed "teeth-xcheck-tickopen" "$mutant_tickopen" 's/if (b > 0 \&\& (i == 0 || b < i)) {/if (0) {/' \
+    && tooth "teeth-xcheck-tickopen: backtick-span awareness removed → a backticked '<!--' swallows the Dismissed section; SUT does not" 0 0 "$mutant_tickopen" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-ticked-open.md"
+  mutant_unpaired="$MUT/census-target.XUNPAIRED-MUTANT.sh"
+  mk_sed "teeth-xcheck-unpaired" "$mutant_unpaired" 's/if (c == 0) { out = out substr(line, 1, b); line = substr(line, b + 1) }/if (c == 0) { out = out line; line = "" }/' \
+    && tooth "teeth-xcheck-unpaired: an unpaired backtick shields the rest of the line → a real comment leaks its types as claims; SUT strips it" 0 0 "$mutant_unpaired" \
+         --good-has 'WARNING: 2 of 3' --bad-lacks 'WARNING: 2 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-unpaired.md"
+  mutant_unterm="$MUT/census-target.XUNTERM-MUTANT.sh"
+  mk_sed "teeth-xcheck-unterm" "$mutant_unterm" 's/_unterminated=yes; _live/_unterminated=no; _live/' \
+    && tooth "teeth-xcheck-unterm: unterminated-comment disclosure removed → mutant stays silent; SUT notes it" 0 0 "$mutant_unterm" \
+         --good-has 'unterminated HTML comment' --bad-lacks 'unterminated HTML comment' -- bash @SUT@ "$xt" --state "$TMP/st-unterm.md"
+  mutant_h1="$MUT/census-target.XH1-MUTANT.sh"
+  mk_sed "teeth-xcheck-h1" "$mutant_h1" 's/\/\^#\[\[:space:\]\]\/ || //' \
+    && tooth "teeth-xcheck-h1: level-1 heading no longer ends a section → an Appendix mention claims .ccc; SUT does not" 0 0 "$mutant_h1" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-h1.md"
+  mutant_h1inh="$MUT/census-target.XH1INH-MUTANT.sh"
+  mk_sed "teeth-xcheck-h1inh" "$mutant_h1inh" 's/\/\^#\[\[:space:\]\]\/ || //g' \
+    && tooth "teeth-xcheck-h1inh: level-1 heading no longer ends the Dismissed section → INHERITED read from an Appendix; SUT does not" 0 0 "$mutant_h1inh" \
+         --good-has 'Audit cross-check: WARNING' --bad-lacks 'Audit cross-check: WARNING' -- bash @SUT@ "$xt" --state "$TMP/st-h1inh.md"
   mutant_case="$MUT/census-target.XCASE-MUTANT.sh"
   mk_sed "teeth-xcheck-case" "$mutant_case" 's/grep -qiE -- "\${_lead}/grep -qE -- "${_lead}/' \
     && tooth "teeth-xcheck-case: case folding dropped → '.BBB' no longer claims .bbb; SUT folds case" 0 0 "$mutant_case" \
