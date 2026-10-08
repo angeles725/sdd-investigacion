@@ -20,3 +20,17 @@ The null Context path bypasses the check.
 5. The null Context path is ungated (cited-absence: TODO). R5Q-PLACEHOLDER-BAD
 
 6. The null Context path is ungated (dispatch: ?). R5Q-DISPATCH-EMPTY-BAD
+
+7. The null Context path is ungated (dispatch: unresolved). R5Q-UNRESOLVED-BAD
+
+8. The null Context path is ungated (cited-absence: pending). R5Q-PENDING-BAD
+
+9. The null Context path is ungated (dispatch: ---). R5Q-DASHES-BAD
+
+10. The null Context path is ungated (cited-absence: ...). R5Q-ELLIPSIS-BAD
+
+> **Finding:** the null Context path is ungated, closing the gap. R5Q-GAPWORD-BAD
+
+> **Finding:** G7 shows the null Context path is ungated. R5Q-BAREG-BAD
+
+> See block 12 for the earlier view: the null Context path is ungated. R5Q-SEEBLOCK-QUOTED

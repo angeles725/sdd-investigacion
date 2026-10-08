@@ -378,9 +378,9 @@ LINT_BLOCK_PACKS_DIR="$TMP/pk-noniter" run --audit --pack demo "$FX/pack-single.
 
 # 23. R5 (kit #1548 / #1607): quoted gap text is skipped; an inline cited-absence form clears
 run --pack jvm "$FX/pack-r5-quote.md"
-want="$(grep -nE 'R5Q-(BAD|MIXED-BAD|NOABSENCE-BAD|CALLOUT-BAD|EMPTY-BAD|PLACEHOLDER-BAD|DISPATCH-EMPTY-BAD)' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R5 "$OUT" "$FX/pack-r5-quote.md")"
+want="$(grep -nE 'R5Q-[A-Z-]*BAD' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R5 "$OUT" "$FX/pack-r5-quote.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "23a R5: unit made only of '>' blockquote lines (gap-text restatement) is skipped; a mixed quoted/unquoted unit, plain prose and a clause without cited absence still flag; an inline cited-absence clears ($want)" || no "23a R5 blockquote / cited-absence (want=[$want] got=[$got])"
-grep -qE 'r5-quoted-skipped=2( |$)' <<< "$OUT" && ok "23b SUMMARY proves the skip (r5-quoted-skipped=2): only the two gap-referencing quoted units were skipped; a block's own '> Finding:' callout, empty / placeholder cited-absence and dispatch clauses still flag" || no "23b r5-quoted-skipped (out=[$OUT])"
+grep -qE 'r5-quoted-skipped=3( |$)' <<< "$OUT" && ok "23b SUMMARY proves the skip (r5-quoted-skipped=3): only the two gap-referencing quoted units were skipped; a block's own '> Finding:' callout, empty / placeholder cited-absence and dispatch clauses still flag" || no "23b r5-quoted-skipped (out=[$OUT])"
 run --pack jvm "$FX/pack-single.md"
 grep -qE 'r5-quoted-skipped=0( |$)' <<< "$OUT" && ok "23c the skip counter is printed even when it is 0 (a bare absence cannot be read as 'looked, none')" || no "23c zero counter (out=[$OUT])"
 
@@ -394,9 +394,9 @@ run --pack multi-version "$FX/pack-cal-r8.md"
 want="$(lines_of CAL-R8-BAD "$FX/pack-cal-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-cal-r8.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24c R8: a negated ('not new in N5'), question ('Is ... N5-only?') or 'whether' clause is not an attribution claim; affirmative claims still flag ($want)" || no "24c R8 negation/question (want=[$want] got=[$got])"
 run --pack native-binary "$FX/pack-cal-r9.md"
-want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R9 "$OUT" "$FX/pack-cal-r9.md")"
+want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-|PARENT-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"; got="$(reported R9 "$OUT" "$FX/pack-cal-r9.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24d R9: a heading claim is judged over its whole section: an evidence-less body and an empty body flag at the heading, an evidence-bearing body clears; paragraph and row claims still flag ($want)" || no "24d R9 heading-only (want=[$want] got=[$got])"
-grep -qE 'r9-triggers=5( |$)' <<< "$OUT" && ok "24e SUMMARY counts the heading claims as R9 triggers (r9-triggers=5: 3 headings, 1 paragraph, 1 row)" || no "24e r9-triggers (out=[$OUT])"
+grep -qE 'r9-triggers=6( |$)' <<< "$OUT" && ok "24e SUMMARY counts the heading claims as R9 triggers (r9-triggers=6: 4 headings, 1 paragraph, 1 row)" || no "24e r9-triggers (out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -739,7 +739,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth M6 lint-block-packs/multi-version.py 's#4\\.15(?!\\d)#4\\.15#' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth N11 lint-block-packs/native-binary.py 's#(?=\[0-9A-Fa-f\]\*\\d)##' "$FX/pack-adv-r9.md" R9 ADV-R9-BAD native-binary
   # kit #1548 / #1607: quoted-gap skip and inline cited-absence
-  r5q_want="$(grep -nE 'R5Q-(BAD|MIXED-BAD|NOABSENCE-BAD|CALLOUT-BAD|EMPTY-BAD|PLACEHOLDER-BAD|DISPATCH-EMPTY-BAD)' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
+  r5q_want="$(grep -nE 'R5Q-[A-Z-]*BAD' "$FX/pack-r5-quote.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
   if tooth_build RQ1 lint_block.py 's#if quoted_skip_re is not None and u.quoted and#if False and u.quoted and#'; then
     mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
     [ "$got" = "$r5q_want" ] && no "teeth RQ1: quoted skip disabled but R5 set unchanged [$got] — THEATER" || ok "teeth RQ1: quoted skip disabled -> R5 reports [$got] instead of [$r5q_want] -> case 23a has teeth"
@@ -750,7 +750,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if tooth_build RQ3 lint_block.py 's#doc.cov\[qkey\] += 1#pass#'; then
     mrun --pack jvm "$FX/pack-r5-quote.md"
-    grep -qE 'r5-quoted-skipped=2( |$)' <<< "$MOUT" && no "teeth RQ3: skip counter dropped but SUMMARY still shows 2 — THEATER" || ok "teeth RQ3: skip counter dropped -> r5-quoted-skipped=2 vanishes -> case 23b has teeth"
+    grep -qE 'r5-quoted-skipped=3( |$)' <<< "$MOUT" && no "teeth RQ3: skip counter dropped but SUMMARY still shows 3 — THEATER" || ok "teeth RQ3: skip counter dropped -> r5-quoted-skipped=3 vanishes -> case 23b has teeth"
   fi
   if tooth_build RQ4 lint_block.py 's#doc.cov\[qkey\] += 0#pass#'; then
     mrun --pack jvm "$FX/pack-single.md"
@@ -767,31 +767,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth CR7 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and #if #' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR10 lint-block-packs/multi-version.py 's#R8_WHETHER_RE.search(before)#R8_WHETHER_RE.search(clause)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR11 lint-block-packs/jvm.py 's#r"\\brecords?\\s\*/\\s\*sealed\\b", ##' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
-  cal_r9_want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
+  cal_r9_want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-|PARENT-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
   if tooth_build CR8 lint-block-packs/native-binary.py 's#text = section_text(doc, u)#text = u.text#'; then
     mrun --pack native-binary "$FX/pack-cal-r9.md"; got="$(reported R9 "$MOUT" "$FX/pack-cal-r9.md")"
     [ "$got" = "$cal_r9_want" ] && no "teeth CR8: heading judged on its own text but R9 set unchanged [$got] — THEATER" || ok "teeth CR8: heading judged on its own text -> R9 reports [$got] instead of [$cal_r9_want] -> case 24d has teeth"
   fi
-  if tooth_build CR9 lint-block-packs/native-binary.py 's#if hl <= lvl:#if False:#'; then
+  if tooth_build CR9 lint-block-packs/native-binary.py 's#h.kind == "heading" and h.line > heading.line#False#'; then
     mrun --pack native-binary "$FX/pack-cal-r9.md"; got="$(reported R9 "$MOUT" "$FX/pack-cal-r9.md")"
     [ "$got" = "$cal_r9_want" ] && no "teeth CR9: section end ignores the next heading but R9 set unchanged [$got] — THEATER" || ok "teeth CR9: section runs past the next heading -> R9 reports [$got] -> case 24d has teeth"
   fi
   # positional R8 filters and R5 clearing content (kit #1548 review round)
-  ptooth CR12 lint-block-packs/multi-version.py 's#if is_question or R8_QUESTION_OPEN_RE#if "?" in clause or R8_QUESTION_OPEN_RE#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR12 lint-block-packs/multi-version.py 's#if part\[2\] or R8_QUESTION_OPEN_RE#if "?" in clause or R8_QUESTION_OPEN_RE#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR13 lint-block-packs/multi-version.py 's#not(?!\\s+(?:only|just|merely|simply|solely)\\b)#not#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR14 lint-block-packs/multi-version.py 's#\\bwhether\\b(?!\\s+or\\s+not\\b)#\\bwhether\\b#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR15 lint-block-packs/multi-version.py 's#\.rsplit(",", 1)\[-1\]##' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR16 lint-block-packs/multi-version.py 's#before = clause\[start:t.start()\]#before = clause[:t.start()]#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR18 lint-block-packs/multi-version.py 's#fine = spans_of(clause, R8_QUESTION_END_RE)#fine = spans_of(clause, R8_SENTENCE_END_RE)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR19 lint-block-packs/multi-version.py 's#|\[()\]##' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR20 lint-block-packs/multi-version.py "s#isn't it|aren't they|doesn't it|don't they|right|no#xx#" "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   r5q_bad_want="$r5q_want"
-  if tooth_build RQ5 lint-block-packs/jvm.py 's#R5_GAP_REF_RE = re.compile(r"#R5_GAP_REF_RE = re.compile(r".|#'; then
+  if tooth_build RQ5 lint-block-packs/jvm.py 's#r"^\\s\*Gap\\b|#r".|#'; then
     mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
     [ "$got" = "$r5q_bad_want" ] && no "teeth RQ5: any blockquote skipped but R5 set unchanged [$got] — THEATER" || ok "teeth RQ5: every quoted unit skipped -> own '> Finding:' callout vanishes ([$got]) -> case 23a has teeth"
   fi
-  if tooth_build RQ6 lint-block-packs/jvm.py 's#(?!(?:todo|tbd|tba|xxx|n/?a|none|\\?+)(?!\\w))##'; then
+  if tooth_build RQ6 lint-block-packs/jvm.py 's#todo|tbd|tba|tbc|xxx|##'; then
     mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
     [ "$got" = "$r5q_bad_want" ] && no "teeth RQ6: placeholder content accepted but R5 set unchanged [$got] — THEATER" || ok "teeth RQ6: placeholder reject removed -> TODO / ? clear R5 ([$got]) -> case 23a has teeth"
   fi
-  if tooth_build RQ7 lint-block-packs/jvm.py 's#\\S{3,}#\\S*#'; then
+  if tooth_build RQ8 lint-block-packs/jvm.py 's#nil|null|unknown|unresolved|#nil|null|#;s#pending|unclear#unclear#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_bad_want" ] && no "teeth RQ8: unresolved/pending accepted but R5 set unchanged [$got] — THEATER" || ok "teeth RQ8: unresolved/pending placeholders accepted -> they clear R5 ([$got]) -> case 23a has teeth"
+  fi
+  if tooth_build RQ9 lint-block-packs/jvm.py 's#(?=\\S\*\[A-Za-z0-9\]{3,})##'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_bad_want" ] && no "teeth RQ9: alphanumeric requirement dropped but R5 set unchanged [$got] — THEATER" || ok "teeth RQ9: '---' / '...' accepted as content -> they clear R5 ([$got]) -> case 23a has teeth"
+  fi
+  if tooth_build RQ10 lint-block-packs/jvm.py 's#\^\\s\*Gap\\b|#\\bgaps?\\b|#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_bad_want" ] && no "teeth RQ10: bare word gap qualifies but R5 set unchanged [$got] — THEATER" || ok "teeth RQ10: plain 'gap' in prose skips a callout -> R5 reports [$got] -> case 23a has teeth"
+  fi
+  if tooth_build RQ11 lint-block-packs/jvm.py 's#\\bG\\d+\\s\*:#\\bG\\d+\\b#'; then
+    mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
+    [ "$got" = "$r5q_bad_want" ] && no "teeth RQ11: bare G7 qualifies but R5 set unchanged [$got] — THEATER" || ok "teeth RQ11: bare 'G7' in prose skips a callout -> R5 reports [$got] -> case 23a has teeth"
+  fi
+  if tooth_build RQ7 lint-block-packs/jvm.py 's#\\S{3,}#\\S*#;s#(?=\\S\*\[A-Za-z0-9\]{3,})##'; then
     mrun --pack jvm "$FX/pack-r5-quote.md"; got="$(reported R5 "$MOUT" "$FX/pack-r5-quote.md")"
     [ "$got" = "$r5q_bad_want" ] && no "teeth RQ7: empty clearing clause accepted but R5 set unchanged [$got] — THEATER" || ok "teeth RQ7: content requirement dropped -> empty cited-absence clears R5 ([$got]) -> case 23a has teeth"
   fi

@@ -4,8 +4,9 @@
       file name, or the words PE32 / ELF / Mach-O / "PE binary|file|image|header|section" /
       Authenticode) whose paragraph, list item or table row lacks any of: the binary's sha256 (64 hex),
       an address anchor (`0x` + 3 or more hex digits, or VA/RVA/offset followed by hex), and two
-      distinct instruments from the allowlist below. A heading claim is judged over its whole section (up
-      to the next heading of the same or higher level): evidence-bearing body clears, empty body fires.
+      distinct instruments from the allowlist below. A heading claim is judged over its own body (up to the
+      first following heading of any level; a child section never clears its parent): evidence-bearing
+      body clears, empty body fires.
 
 Trigger is per clause; the requirement is per UNIT because the sha256 / address / instruments of one
 claim routinely sit in neighbouring sentences or cells. [CERT-doc] / [CERT-web] / [INFER] make no byte
@@ -56,18 +57,14 @@ def instruments(text):
 
 def build(api):
     def section_text(doc, heading):
-        """The heading plus every unit under it up to the next heading of the same or a higher level.
+        """The heading plus its OWN body: every unit up to the first following heading of any level.
 
         A heading claim ("## 3.1 - [CERT] foo.dll is Authenticode-signed") keeps its sha256 / address /
-        instruments in the body below it, so it is judged over that whole section (kit #1548). A heading
+        instruments in the body below it, so it is judged over that body (kit #1548). A heading
         with no body is judged on its own text and therefore fires."""
-        lvl = len(heading.text) - len(heading.text.lstrip("#"))
         end = None
         for h in doc.units:
-            if h.kind != "heading" or h.line <= heading.line:
-                continue
-            hl = len(h.text) - len(h.text.lstrip("#"))
-            if hl <= lvl:
+            if h.kind == "heading" and h.line > heading.line:
                 end = h.line
                 break
         return " ".join(x.text for x in doc.units

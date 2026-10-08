@@ -61,11 +61,17 @@ R5_PERM_CONTEXT_RE = re.compile(
 # searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").
 # The clause needs real content (3+ non-space characters, not a placeholder): an empty "dispatch:" or
 # "cited-absence: TODO" proves nothing.
+# The first token must also hold an alphanumeric run of 3+ chars ("---", "..." clear nothing) and must not
+# be a placeholder (TODO, unresolved, pending, unknown, ...).
 R5_CLEARED_RE = re.compile(
-    r"(?:dispatch|cited-absence):\s*(?!(?:todo|tbd|tba|xxx|n/?a|none|\?+)(?!\w))\S{3,}", re.IGNORECASE)
-# A quoted unit is skipped only when it restates a gap or another block (gap id, "gap", block link/ref);
-# a block's own `> Finding:` callout carries none of these and is still judged.
-R5_GAP_REF_RE = re.compile(r"\bG\d+\b|\bgaps?\b|\bsee\s+block\b|\[Block\s*\d+\]|\bblock\d+\.md\b", re.IGNORECASE)
+    r"(?:dispatch|cited-absence):\s*(?!(?:todo|tbd|tba|tbc|xxx|n/?a|none|nil|null|unknown|unresolved|"
+    r"pending|unclear|missing|fixme|wip|\?+)(?!\w))(?=\S*[A-Za-z0-9]{3,})\S{3,}", re.IGNORECASE)
+# A quoted unit is skipped only when it carries an EXPLICIT restatement marker: a unit opening with "Gap",
+# a gap id with a colon ("G7:" / "B34-G6"), "gap G7", "see block", a "[Block n]" ref or a blockN.md link.
+# The plain word "gap" or a bare "G7" in prose does not qualify: a block's own `> Finding:` callout is judged.
+R5_GAP_REF_RE = re.compile(
+    r"^\s*Gap\b|\bG\d+\s*:|\bB\d+-G\d+\b|\bgap\s+G\d+|\bsee\s+block\b|\[Block\s*\d+\]|\bblock\d+\.md\b",
+    re.IGNORECASE)
 
 R7_TRIGGER_RE = re.compile("|".join([
     r"\b(?:dead|unused|unreferenced)\s+constants?\b",

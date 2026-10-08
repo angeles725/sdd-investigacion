@@ -37,29 +37,40 @@ R8_WHETHER_RE = re.compile(r"\bwhether\b(?!\s+or\s+not\b)", re.IGNORECASE)
 # splitter consumed its "?".
 R8_QUESTION_OPEN_RE = re.compile(r"^\s*(?:(?:\d+\.|[-*])\s+)?(?:is|are|was|were|does|did)\b", re.IGNORECASE)
 R8_SENTENCE_END_RE = re.compile(r"\?|[;.!](?=\s)")
+# Question scope is finer than sentence scope: a parenthesised aside "(did 4.14 ship it?)" and a tag
+# question ", isn't it?" are questions ABOUT the claim, not the claim, so the claim before them stays.
+R8_QUESTION_END_RE = re.compile(
+    r"\?|[;.!](?=\s)|[()]|,(?=\s*(?:isn't it|aren't they|doesn't it|don't they|right|no)\s*\?)", re.IGNORECASE)
 
 
-def sentence_spans(clause):
-    """[(start, end, ends_with_question)] covering the clause, split at ? ; . ! boundaries."""
+def spans_of(clause, end_re):
+    """[(start, end, ends_with_question)] covering the clause, split at the boundaries of `end_re`."""
     spans, start = [], 0
-    for m in R8_SENTENCE_END_RE.finditer(clause):
+    for m in end_re.finditer(clause):
         spans.append((start, m.start(), m.group(0) == "?"))
         start = m.end()
     spans.append((start, len(clause), False))
     return spans
 
 
+def span_at(spans, pos):
+    for start, end, is_question in spans:
+        if start <= pos < max(end, start + 1):
+            return start, end, is_question
+    return None
+
+
 def is_r8_claim(clause):
     if not R8_SURFACE_RE.search(clause):
         return False
-    spans = sentence_spans(clause)
+    sentences = spans_of(clause, R8_SENTENCE_END_RE)
+    fine = spans_of(clause, R8_QUESTION_END_RE)
     for t in R8_TRIGGER_RE.finditer(clause):
-        for start, end, is_question in spans:
-            if start <= t.start() < max(end, start + 1):
-                break
-        else:
+        sent, part = span_at(sentences, t.start()), span_at(fine, t.start())
+        if sent is None or part is None:
             continue
-        if is_question or R8_QUESTION_OPEN_RE.search(clause[start:end]):
+        start, end, _ = sent
+        if part[2] or R8_QUESTION_OPEN_RE.search(clause[start:end]):
             continue
         before = clause[start:t.start()].rsplit(",", 1)[-1]
         if not R8_WHETHER_RE.search(before) and not R8_NEGATION_RE.search(before):

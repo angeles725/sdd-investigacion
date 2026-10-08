@@ -16,3 +16,9 @@ Evidence: sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
 
 ## 3.3 — [CERT] other.so is an ELF shared object CAL-R9-EMPTY-BAD
 ## 3.4 — Notes without any binary claim
+
+## 4.1 — [CERT] a.dll is Authenticode-signed CAL-R9-PARENT-BAD
+
+### 4.1.1 — b.dll details
+
+Evidence for b.dll only: sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, read with readelf and objdump at offset 1a2b3c.

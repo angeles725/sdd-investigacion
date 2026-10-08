@@ -15,3 +15,7 @@
 13. Is the `foo` jar new in N5? CAL-R8-CLEAR
 14. CAL-R8-BAD Whether CI ships it is unclear, the `foo` package is new in N5.
 15. CAL-R8-BAD Whether the jar ships is unclear; the `foo` package is new in N5.
+16. CAL-R8-BAD The `foo` module is new in N5 (did 4.14 ship it?).
+17. CAL-R8-BAD The `foo.jar` package is new in N5, isn't it?
+18. CAL-R8-BAD The `foo` jar is new in N5, right?
+19. Is the `foo` jar new in N5 (or is it older)? CAL-R8-CLEAR
