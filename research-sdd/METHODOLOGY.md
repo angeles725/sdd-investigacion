@@ -8,7 +8,8 @@
 
 This document is the method contract. The operational engine is [`PROMPT-LOOP.md`](PROMPT-LOOP.md);
 the tools, [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md); the subjects,
-[`TARGETS.md`](TARGETS.md).
+[`TARGETS.md`](TARGETS.md). Bare corpus-pointer `(Evidence: ...)` notes live in
+[`docs/METHODOLOGY-PROVENANCE.md`](docs/METHODOLOGY-PROVENANCE.md), keyed by the label of the rule they annotate.
 
 ---
 
@@ -520,7 +521,7 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
   fidelity evidence. Cite the shape named in `toolbelt/java-decompile-fidelity.v1.md` (some constructs have none: `[INFER]`).
   `decompile-java.sh` prints a `CLASSFILE major=… lvt=… classes=… resugar_risk=…` header on stderr (kit #1205), and `corroborate-java.sh` carries `class_facts[]`; record the `major` in the claim. If the header reads `unknown`, read it from `javap -v`. (kit #1204)
 - **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
-  - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`. (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.)
+  - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`.
 - **Compile-time constant inlining caps dead-constant censuses.** javac inlines `static final` compile-time
   constants at every use site (JLS §13.1, §13.4.9), so a bytecode or decompiled-code census for dead constants,
   unused fields or shadow literals cannot tell an inlined reference from a duplicated literal. Such a census stays
@@ -832,9 +833,9 @@ entropy PLUS zero binwalk signatures across the whole image** ⇒ encrypted is t
 verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and the gap becomes a blocked
 child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
 
-**JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not. (Evidence: B139 §139.1/§139.2.)
+**JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not.
 
-**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). Needs JDK 9+ (unified `-Xlog`). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it. (Evidence: B139 §139.2, 11 runs.)
+**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). Needs JDK 9+ (unified `-Xlog`). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it.
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
@@ -1915,7 +1916,7 @@ Same family as UNANIMITY: a confident number is verified by a second path. (kit 
 
 **AGGREGATE MATCH ≠ EXAMPLE VALID (sibling of DECODED FIELD NAME IS A HYPOTHESIS, at row level).** When cross-checking an external document against local data, a matching HEADLINE AGGREGATE (totals, counts, medians, section-level statistics) does NOT validate the document's individual WORKED EXAMPLES (specific cited rows or timestamps). Spot-check every cited example independently: locate where its exact value triple actually occurs in the local data, and do not assume it is correct because the surrounding aggregate matches. A plausible field name and a plausible worked example are both unproven until checked against the answer key. (Evidence: B16 §16.2 vs §16.3 — the headline statistics (539 alarms, interruption durations, medians, L2 asymmetry) all matched, but the study's cited triple (17/09 08:30, point 70108 L2, 63.12 A) did not: the local data at 08:30 shows L2 = 85.9 A, stable; the matching value (63.06 A) occurs at 09:04, found only by searching the data for where the cited values occur; kit #1885.)
 
-**A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS.** A tool's summary line or header row is not a verdict on its sibling fields: `[expires: never]` in a license file listing reflected the FILE header expiration only, while 148 per-feature expirations sat beneath it. Read the per-item fields before certifying the whole. (Evidence: B1206 §1206.4, a §14 correction to B1204; kit #1541.)
+**A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS.** A tool's summary line or header row is not a verdict on its sibling fields: `[expires: never]` in a license file listing reflected the FILE header expiration only, while 148 per-feature expirations sat beneath it. Read the per-item fields before certifying the whole.
 
 **SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.)
 
@@ -2279,7 +2280,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   unpack or copy-to-disk stays static. Before running any such installer: (a) snapshot the current
   environment state (installed packages, PATH, relevant config dirs, service list); (b) treat the
   run as a §12 mutation. A silent installer that initializes undocumented runtime state is precisely
-  the case this rule protects against. (Evidence: niagara-research (licensing-deepdive focus))
+  the case this rule protects against.
 - **Hash-verify every artifact deployed to a live system before interpreting its behaviour.** A license file, JAR, module or config copied
   onto a live system is `sha256`-compared with its source (not byte size alone: a corruption can keep the size) BEFORE any verdict about
   the system's response. Example: a corrupted `scp` left a 1291 B license where the source was 805 B, and the failure was misread as a
@@ -2291,7 +2292,6 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   citation referring to the now-changed subject to that snapshot, making the version boundary
   explicit; (c) issue new evidence from the post-mutation state as distinct, version-tagged claims.
   Mixing pre- and post-mutation evidence under the same citation is an evidence-integrity violation.
-  (Evidence: blender-llm B6)
 - **Supervised, not loop-blind.** Each interaction with the live system is deliberate; the orchestrator
   reviews before the next step. No `/loop` self-pacing against hardware. The DELEGATE / MODEL-TIER rules
   (PROMPT-LOOP) govern the static loop's HEAVY SWEEPS, not this phase: narrow live probes and a live
@@ -2335,7 +2335,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   when communication happened." Checklist: (1) start the capture tool; (2) confirm a known-good
   baseline event appears in its output (a heartbeat, a test packet, a log line); (3) only then send
   the stimulus under test. A window where the capture was unconfirmed at the moment of stimulus
-  yields no `[CERT-hw]`-grade evidence. (Evidence: blender-llm B6)
+  yields no `[CERT-hw]`-grade evidence.
 - **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: **(0) passive
   capture** — redirect the vendor's own client or driver through a **file-backed sink** and capture
   the genuine datastream byte-for-byte; no custom protocol client is written and no byte is sent to
@@ -2356,7 +2356,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   The UNPRIVILEGED rungs — local file-backed sink + `strace -e trace=connect` census +
   `ss -tnp` PID attribution — are the STRONGER instruments, not the degraded ones: they observe
   the unencrypted data before TLS wraps it and attribute traffic to an exact PID without elevated
-  privilege. (Evidence: blender b6 retro d1)
+  privilege.
 - **A live install that CAN mutate is verified without ever mutating production.** When the target accepts
   writes (a station, a controller, a tenant API), credentials come from a mode-600 file OUTSIDE the repo
   and are never echoed, and verification uses a scratch object, a dry-run surface, or rung (1) discovery —
@@ -2374,7 +2374,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   is not available, fall back to the dry-run/scratch-object approach above with the existing credential;
   do not treat ephemeral-principal creation as a universal prerequisite or a blocking requirement.
 - **Live-write hygiene: identity before, persistence after, runner shape, double-first.** Five rules for
-  a run that writes a live subject (Evidence: niagara n4 agent-mcp am20 and live-runs retros).
+  a run that writes a live subject.
   **(1) Identity gate.** Before the FIRST live write, read the live subject's identity (name, version,
   host) and compare it with the name the operator authorized; on a mismatch, stop and re-confirm. An
   operator who authorized "PRUEBAS / localhost" was answered by a station named `LLM`; only a pre-write
@@ -2402,7 +2402,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   peer-relayed summary ("they said it was OK"), a contextual inference, or a standing grant from a
   prior session does not authorize a new write. Go back to the operator directly if the
   authorization chain is ambiguous or indirect. A write under fresh authorization still enters the
-  invasiveness ladder at its lowest applicable rung — do not skip (0)–(1). (Evidence: panccadia-3d-viewer)
+  invasiveness ladder at its lowest applicable rung — do not skip (0)–(1).
 - **Before an operator-requested STOP of a live service, enumerate its relaunchers.** Loop wrappers, boot
   triggers and watchdog/scheduled tasks will restart the service and undo the stop. List them from the live
   system (and from corpus recall of how the service is supervised), disable them in dependency order
@@ -2415,8 +2415,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   → settle window → independent read-back → byte-identical restore-to-original (see backup-before-destroy
   and cross-protocol oracle rules); (c) a bare `200 OK` is NOT verification — a malformed response body
   can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
-  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
-  (Evidence: panccadia B22/B23.) The same read-back duty binds write commands inside shipped deliverable code
+  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient. The same read-back duty binds write commands inside shipped deliverable code
   (§11a SILENT-SKIP HAZARD; kit #1883).
 - **OFFENSIVE / DUAL-USE EXECUTION IS OUT OF DEFAULT SCOPE.** Building or running dual-use/offensive
   tooling to CLOSE a gap — a license or authentication BYPASS, a tamper that forces a verifier to accept
@@ -2550,7 +2549,6 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   Corollary: an auto-revert rescue must be verified to exist (read it back; abort if absent) AND its
   target state must itself be safe under live conditions — reverting to DHCP on a two-DHCP-server
   segment can land in a different failure, not the intended safe state.
-  (Evidence: computadoras B16 §16.20, B25 §25.3/§25.6/§25.7.)
 - **Security-remediation write — the fix STAYS APPLIED, not reverted.** The invasiveness ladder's rung (2)
   reversible-write recipe ends with a byte-identical RESTORE — correct for a PROBE. A permanent,
   user-authorized REMOVAL of a discovered live vulnerability (deleting a leftover/malicious flow, closing an
@@ -2565,12 +2563,11 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   device; (b) compare against the document's stated firmware version; (c) if they differ, treat the
   key mapping as unconfirmed and enumerate the live menu before acting. A mismatch that goes
   undetected can trigger a different action than intended, including an irreversible one.
-  (Evidence: niagara-research (jace9000 focus))
 - **Pre-interaction mutation map — classify READ-ONLY vs mutating keys before live interaction.**
   Before any menu-driven or command-driven interaction with a live system, map which operations are
   read-only and which mutate state ON THIS FIRMWARE. Produce a per-key (READ / MUTATING /
   IRREVERSIBLE) table from the live menu before acting; classify any key whose type is uncertain as
-  MUTATING for escalation purposes. (Evidence: niagara-research (jace9000 focus))
+  MUTATING for escalation purposes.
 - **Device identity ≠ program identity.** A checksum/version identifies the loaded PROGRAM, not the physical
   UNIT. Confirming you are on the BENCH and not PRODUCTION is out-of-band (who plugged in what), never
   inferred from the program you read. Do this BEFORE any write — a prior session wrote to PRODUCTION
@@ -2609,7 +2606,6 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   tool's test is genuinely equivalent (same endpoint, same credentials, same operation); (2) if
   equivalent and it passes, isolate the client-side delta between your probe and the vendor tool;
   (3) only after ruling out client-side differences escalate to device or network diagnosis.
-  (Evidence: fluke-177x-datos)
 - **Live empirical sweep can outperform static parser reversal.** When a live system is available,
   probing candidate field offsets or protocol values EMPIRICALLY can pin the answer faster than
   reversing the full parser — especially when the format has many optional or variable-length
@@ -2694,7 +2690,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   Name this as a distinct failure class: when a probe fails with a path error in a cross-host
   invocation, classify it as a path-namespace mismatch before diagnosing device or network state.
   Resolution: translate the path to the target host's namespace before passing it — use the
-  Windows→WSL (`wslpath -u`) or WSL→Windows (`wslpath -w`) converter. (Evidence: blender-llm B7–B9)
+  Windows→WSL (`wslpath -u`) or WSL→Windows (`wslpath -w`) converter.
 - **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
   from **Windows** PowerShell — not inside WSL; for USB targets, hand off the device via `usbipd-win`
   bind/attach/detach — see `DYNAMIC-SETUP.md §1b`) is a prerequisite; verify connectivity before probing.
@@ -4218,7 +4214,7 @@ hard-stops, never blind.
 - **Regenerate and token-check before any visual judgment pass.** Before capturing screenshots or computing pixel diffs on a §19 build deliverable, regenerate the artifact fresh from the current source and confirm the fix token is present in the served bytes (`rg <new-token> <served.html>` or equivalent). An artifact whose filename does not change between builds is indistinguishable from a stale one without checking its content — a stale artifact absorbs the visual comparison and the fix is declared failing when it was never tested. This is the §11 "Verify the edit landed" discipline applied to build artifacts: it is a prerequisite for the visual pass, not a verification step, and must run before screenshots are captured or pixel diffs are computed. (Evidence: nave-panccadia B38 — the v8 HTML was generated BEFORE the v8 code changes; `rg nominal_width` returned zero hits in the served file; the fix was never served, never evaluated.)
 - **Pixel-diff attribution requires an isolated control.** A pixel diff proves THAT something changed, not WHAT changed it. Before attributing a rendered-image delta to a specific cause, ISOLATE the variable: compare the candidate build against a no-op/without-the-change build that is otherwise identical. Without an isolated control, a pixel diff is correlation, not attribution — other simultaneous variables (dependency version, renderer state, font loading) can produce the same diff. Distinct from the regenerate-and-token-check rule above (which proves the browser received new bytes) and from the external-oracle rule (which verifies the result through an independent channel): this rule is about not asserting a CAUSE for a visual change without eliminating competing causes. (Evidence: nave-panccadia v9 build retro, `retros/2026-08-05-v9-build-run.md` D17 / B38 — a 1,018-pixel diff attributed to a midpoint dedup was actually a same-commit door-template change.)
 - **Multi-artifact co-registration: validate through a label-independent channel.** When aligning two artifacts by deriving a transform from labeled landmarks, a transform that fits the landmarks is necessary but not sufficient — the landmarks constrain a family of solutions, and the correct one is not guaranteed. VALIDATE the alignment through a LABEL-INDEPENDENT channel: compare content or geometry overlap in regions the landmarks did not constrain, and run NEGATIVE CONTROLS — pairs that SHOULD fail alignment — to confirm the method has discriminatory power. A spurious fit (the transform satisfies the landmarks but misaligns the content) is undetectable without an independent check. (The §11 negative-control and known-answer-attribution rules applied to a registration transform; the new obligation here is the label-independent channel. Evidence: COB-IM2 B4 §4.3–4.4 — `coregister.py`, commit `9cc0bd3`: the correct offset beats no-offset and wrong-offset controls by 1–2 orders of magnitude.)
-- **Offline/zero-network verification for self-contained visual deliverables.** For an assembled self-contained visual deliverable (e.g. a single HTML build), VERIFY it is truly offline: (a) grep the assembled artifact for external `fetch`/`import()`/XHR/remote-URL references and confirm zero are present; (b) confirm the deliverable renders correctly with the network disabled. This verifies the assembly step actually inlined all dependencies rather than leaving live references. A deliverable mechanically proven offline this way is `[CERT-hw]`; one merely asserted offline is `[INFER]`. The concrete build recipe and network-isolation procedure for design3d tool deliverables live in the design3d skill, not here. (Evidence: COB-IM2 B11 §11.3 — commit `99b84cb`, `qa-render-offline.png` from a byte-identical offline build.)
+- **Offline/zero-network verification for self-contained visual deliverables.** For an assembled self-contained visual deliverable (e.g. a single HTML build), VERIFY it is truly offline: (a) grep the assembled artifact for external `fetch`/`import()`/XHR/remote-URL references and confirm zero are present; (b) confirm the deliverable renders correctly with the network disabled. This verifies the assembly step actually inlined all dependencies rather than leaving live references. A deliverable mechanically proven offline this way is `[CERT-hw]`; one merely asserted offline is `[INFER]`. The concrete build recipe and network-isolation procedure for design3d tool deliverables live in the design3d skill, not here.
 
 - **Generate for lookup, not for exposure.** When a deliverable surface can be generated from introspection
   (e.g. an operator catalog, a symbol table, a schema dump), measure the consumer's budget before shipping the
@@ -4437,7 +4433,6 @@ permanently anchored in the corpus?" Yes → block mode. "Is this a procedural s
 decision, or an applied-work note?" → daily-log mode (Engram journal entry + §18 retro candidate).
 Forcing procedural steps into corpus blocks inflates block counts with non-evidence and degrades
 `verify-block.sh` signal; discarding them without a journal entry loses the §18 retro thread.
-(Evidence: niagara-research/retros/2026-09-01-research-sdd-journal-mode-retro.md J2)
 
 ## 21. Wall protocol (blocked-artifact handling)
 
