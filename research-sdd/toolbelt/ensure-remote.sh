@@ -18,6 +18,8 @@
 #      security/licenses/certificates/keystore/keyring dirs) — the binary/opaque types scan-secrets.sh can
 #      never see because it only opens *.md/config text files. The content scan (4b) covers ALL committed
 #      history reachable from HEAD (files across all commits + commit messages) via scan-secrets --committed.
+#      4c has an explicit ALLOW list for deliberately committed PUBLIC assets: `.research-sdd/secret-files.conf`
+#      (`allow <path-glob>`); allowed paths are reported, stale entries flagged, private keys never allowable.
 #   5. CREATE THEN VERIFY visibility BEFORE ANY PUSH — after create, read back `visibility`; if it is not
 #      PRIVATE, attempt one forced `--visibility private` and re-read; if STILL not private, HARD ABORT:
 #      warn loudly, remove the origin remote, and exit non-zero WITHOUT pushing. The push step is textually
@@ -170,7 +172,91 @@ if ! _tracked_raw="$(git -C "$target" ls-files -z -- \
   echo "REFUSED: could not enumerate tracked files (git ls-files failed) — cannot verify no secret is tracked." >&2
   exit 7
 fi
-tracked_secrets="$(printf '%s' "$_tracked_raw" | tr '\n' ' ')"
+
+# 4c ALLOW LIST (kit issue #1943). A dual-use corpus can deliberately commit PUBLIC key/licence artifacts (public-key
+# SPKI DERs, self-issued certs). `<target>/.research-sdd/secret-files.conf` lists them, one `allow <path-glob>` per
+# line (`#` comments and blank lines ignored). The glob is matched against the refused tracked path the way git's
+# default pathspec does (`*` crosses `/`). Rules, none silent (§7):
+#   * allow is per path/glob — a blanket glob (only `*` `?` `/`), an absolute path or a `..` component is MALFORMED;
+#   * a malformed line is a typed config error naming file:line (exit 2) — nothing is created or pushed;
+#   * every allowed path is REPORTED as an `ALLOWED:` line; an entry matching no refused path is `STALE:` (non-fatal);
+#   * private-key material is NEVER allowable even when listed: PEM `PRIVATE KEY` armour, DER PKCS#8 / PKCS#1 / SEC1
+#     (version-0/1 INTEGER right after the outer SEQUENCE; an SPKI starts with a second SEQUENCE instead) and the
+#     keystore/identity file types (id_rsa*, *.p12, *.pfx, *.jks, *.keystore) refuse with exit 5; an allowed path
+#     that cannot be read cannot be verified and fails closed (exit 7). Scope is unchanged: only what the patterns
+#     above refuse can be allowed (a NESTED licenses/ or certificates/ directory is not refused, so needs no entry).
+# rsdd_private_key_file FILE: 0 = private key material · 1 = no private-key marker · 2 = could not be read.
+rsdd_private_key_file() {
+  local rc h rest
+  grep -aEq -- 'PRIVATE KEY( BLOCK)?-----' "$1" 2>/dev/null; rc=$?
+  case "$rc" in 0) return 0;; 1) :;; *) return 2;; esac
+  h="$(od -An -tx1 -N16 -- "$1" 2>/dev/null | tr -d ' \n')" || return 2
+  [ "${h:0:2}" = 30 ] || return 1
+  case "${h:2:2}" in 81) rest="${h:6}";; 82) rest="${h:8}";; 83) rest="${h:10}";; 84) rest="${h:12}";; *) rest="${h:4}";; esac
+  case "$rest" in 020100*|020101*) return 0;; esac
+  return 1
+}
+allow_globs=(); allow_lines=(); allow_hit=()
+allow_conf="$target/.research-sdd/secret-files.conf"
+allow_rel=".research-sdd/secret-files.conf"
+if [ -e "$allow_conf" ] || [ -L "$allow_conf" ]; then
+  if [ ! -f "$allow_conf" ] || [ ! -r "$allow_conf" ]; then
+    echo "REFUSED: $allow_rel exists but is not a readable regular file — cannot read the allow list." >&2; exit 7
+  fi
+  _ln=0
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _ln=$((_ln+1)); _l="${_l%$'\r'}"
+    read -r _kw _g _extra <<<"$_l"
+    case "$_kw" in ''|'#'*) continue;; esac
+    _why=""
+    if [ "$_kw" != allow ]; then _why="unknown directive '$_kw'"
+    elif [ -z "$_g" ]; then _why="'allow' needs a path glob"
+    elif [ -n "$_extra" ]; then _why="exactly one path glob per line (got extra text)"
+    elif [ -z "$(printf '%s' "$_g" | tr -d '*?/')" ]; then _why="blanket glob '$_g' (allow must name a path or a narrow pattern)"
+    else
+      case "/$_g/" in //*) _why="absolute path '$_g' (use a path relative to the corpus root)";; esac
+      case "/$_g/" in */../*) _why="'..' component in '$_g'";; esac
+    fi
+    if [ -n "$_why" ]; then
+      echo "REFUSED: $allow_rel:$_ln: $_why — expected 'allow <path-glob>'." >&2
+      exit 2
+    fi
+    allow_globs+=("$_g"); allow_lines+=("$_ln"); allow_hit+=(0)
+  done < "$allow_conf"
+fi
+
+unallowed=""; priv_bad=""; unreadable=""
+while IFS= read -r _p; do
+  [ -n "$_p" ] || continue
+  _m=-1
+  for _i in "${!allow_globs[@]}"; do
+    # shellcheck disable=SC2053  # the unquoted right side is the glob
+    if [[ $_p == ${allow_globs[$_i]} ]]; then allow_hit[_i]=1; [ "$_m" -ge 0 ] || _m=$_i; fi
+  done
+  if [ "$_m" -lt 0 ]; then unallowed="$unallowed $_p"; continue; fi
+  case "${_p##*/}" in
+    id_rsa*|*.p12|*.pfx|*.jks|*.keystore) priv_bad="$priv_bad $_p"; continue;;
+  esac
+  _rc=0; if [ -f "$target/$_p" ] && [ -r "$target/$_p" ]; then rsdd_private_key_file "$target/$_p" || _rc=$?; else _rc=2; fi
+  case "$_rc" in
+    0) priv_bad="$priv_bad $_p";;
+    1) echo "ALLOWED: $_p ($allow_rel:${allow_lines[$_m]} allow ${allow_globs[$_m]})";;
+    *) unreadable="$unreadable $_p";;
+  esac
+done <<<"$_tracked_raw"
+for _i in "${!allow_globs[@]}"; do
+  [ "${allow_hit[$_i]}" = 1 ] || echo "STALE: $allow_rel:${allow_lines[$_i]} 'allow ${allow_globs[$_i]}' matches no refused tracked path — remove it." >&2
+done
+if [ -n "${priv_bad// }" ]; then
+  echo "REFUSED: allowed path(s) contain private key material or are keystore/identity files:$priv_bad" >&2
+  echo "         a private key can never be allowed — untrack it (git rm --cached) and cite it by structure + sha256." >&2
+  exit 5
+fi
+if [ -n "${unreadable// }" ]; then
+  echo "REFUSED: allowed path(s) could not be read, so no private-key check was possible:$unreadable" >&2
+  exit 7
+fi
+tracked_secrets="${unallowed# }"
 if [ -n "${tracked_secrets// }" ]; then
   echo "REFUSED: secret-bearing file(s) are git-TRACKED and would be pushed: $tracked_secrets" >&2
   echo "         scan-secrets.sh cannot see these binary types. Untrack them first:" >&2

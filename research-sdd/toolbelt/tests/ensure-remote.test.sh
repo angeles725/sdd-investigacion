@@ -29,7 +29,7 @@ SUT="$HERE/../ensure-remote.sh"
 
 # --- resolve real binaries ONCE, before we restrict the PATH ----------------
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
-CORE_UTILS=(dirname basename tr sed grep tail mktemp cat rm env sleep)   # every external cmd the covered paths invoke
+CORE_UTILS=(dirname basename tr sed grep tail mktemp cat rm env sleep od)   # every external cmd the covered paths invoke
 CORE_PATHS=()
 for u in "${CORE_UTILS[@]}"; do
   p="$(type -P "$u")"; [ -n "$p" ] || { echo "FATAL: required coreutil '$u' not on PATH" >&2; exit 2; }
@@ -319,7 +319,10 @@ fi
 #     (research-sdd-init.sh:152) succeeds without `permission denied` / ENOEXEC.
 #     The existing cases 1-12 all invoke via "$BASH_BIN" "$box/ensure-remote.sh" and
 #     therefore cannot catch a missing exec bit — this case pins the tracked mode.
-if [ -x "$SUT" ]; then
+# sut_is_exec is the SAME predicate teeth 4 mutates against (kit issue #1576: tooth 4 used to re-test `chmod`
+# with an inline [ -x ], so a regression in case 13's own predicate could not turn it red).
+sut_is_exec() { [ -x "$1" ]; }
+if sut_is_exec "$SUT"; then
   ok "13 SUT is directly executable (tracked git mode must be 100755)"
 else
   no "13 SUT is directly executable (tracked git mode must be 100755)" \
@@ -661,6 +664,160 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 27+ — kit issue #1943: LAYER 4c explicit ALLOW list (<target>/.research-sdd/secret-files.conf, `allow <glob>`).
+#   Allowed matches are REPORTED (never silent), an entry that matches nothing is STALE, a malformed line is a
+#   typed config error (exit 2), and private-key bytes inside an allowed path are NEVER allowable (exit 5).
+CONF_REL=".research-sdd/secret-files.conf"
+nl=$'\n'
+# put_conf BOX LINE... — write the allow list (one argument per line).
+put_conf() { local box="$1"; shift; mkdir -p "$box/target/.research-sdd"; printf '%s\n' "$@" > "$box/target/$CONF_REL"; }
+# put_pub BOX REL KIND — fixture bytes at REL under the target.
+#   KIND: spki | pkcs8 | pkcs8s | sec1 | pkcs1 | pempub | pempriv | pemenc
+put_pub() {
+  local box="$1" rel="$2" kind="$3"; mkdir -p "$(dirname "$box/target/$rel")"
+  case "$kind" in
+    spki)    printf '\x30\x82\x01\x22\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00\x03\x82' > "$box/target/$rel";;
+    pkcs8)   printf '\x30\x82\x04\xbd\x02\x01\x00\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01' > "$box/target/$rel";;
+    pkcs8s)  printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20' > "$box/target/$rel";;
+    sec1)    printf '\x30\x77\x02\x01\x01\x04\x20\x11\x22\x33' > "$box/target/$rel";;
+    pkcs1)   printf '\x30\x82\x04\xa4\x02\x01\x00\x02\x82\x01\x01\x00' > "$box/target/$rel";;
+    pempub)  printf -- '-----BEGIN PUBLIC KEY-----\nMFkwEwYH\n-----END PUBLIC KEY-----\n' > "$box/target/$rel";;
+    pempriv) printf -- '-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----\n' > "$box/target/$rel";;
+    pemenc)  printf -- '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFH\n-----END ENCRYPTED PRIVATE KEY-----\n' > "$box/target/$rel";;
+  esac
+}
+outl() { tr '\n' '|' <<<"$OUT"; }
+
+# 27 — SINGLE allowed public key: exits 0, pushes, and the allow is REPORTED as a typed ALLOWED line.
+reset_ctl; GIT_TRACKED_SECRETS="pub.der"
+box="$(mkbox c27-allow-single)"; put_conf "$box" "allow pub.der"; put_pub "$box" pub.der spki
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && has_call "$box" 'git .* push' && grep -q '^ALLOWED: pub.der ' <<<"$OUT"; then
+  ok "27 single allowed public DER -> push, ALLOWED line reported" "(exit $RC)"
+else no "27 single allowed public DER -> push, ALLOWED line reported" "exit=$RC out=[$(outl)]"; fi
+
+# 28 — list edges (FIRST / MIDDLE / LAST / ALL) over three tracked secret-type files. Each un-allowed position is
+#      refused (exit 5, no push) and named; the other two are still reported ALLOWED.
+files=(a.der dir/b.pem c.key)
+for pos in 0 1 2; do
+  reset_ctl; GIT_TRACKED_SECRETS="${files[0]}${nl}${files[1]}${nl}${files[2]}"
+  box="$(mkbox c28-edge-$pos)"; lines=()
+  for i in 0 1 2; do
+    put_pub "$box" "${files[$i]}" pempub
+    [ "$i" = "$pos" ] || lines+=("allow ${files[$i]}")
+  done
+  put_conf "$box" "${lines[@]}"
+  run "$box" "$box/target" --yes
+  want="${files[$pos]}"
+  if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && grep -q "^REFUSED: .*${want}" <<<"$OUT" \
+     && [ "$(grep -c '^ALLOWED: ' <<<"$OUT")" = 2 ]; then
+    ok "28 only position $pos un-allowed -> refuse 5 naming ${want}, 2 ALLOWED" "(exit $RC)"
+  else no "28 only position $pos un-allowed -> refuse 5 naming ${want}, 2 ALLOWED" "exit=$RC out=[$(outl)]"; fi
+done
+reset_ctl; GIT_TRACKED_SECRETS="${files[0]}${nl}${files[1]}${nl}${files[2]}"
+box="$(mkbox c28-edge-all)"
+for f in "${files[@]}"; do put_pub "$box" "$f" pempub; done
+put_conf "$box" "allow a.der" "allow dir/b.pem" "allow c.key"
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && has_call "$box" 'git .* push' && [ "$(grep -c '^ALLOWED: ' <<<"$OUT")" = 3 ]; then
+  ok "28 all three allowed -> push, 3 ALLOWED lines" "(exit $RC)"
+else no "28 all three allowed -> push, 3 ALLOWED lines" "exit=$RC out=[$(outl)]"; fi
+
+# 29 — allow is per path/glob, never a blanket: one allowed file leaves an unrelated tracked secret refused.
+reset_ctl; GIT_TRACKED_SECRETS="pub.der${nl}other.pem"
+box="$(mkbox c29-not-blanket)"; put_conf "$box" "allow pub.der"; put_pub "$box" pub.der spki; put_pub "$box" other.pem pempub
+run "$box" "$box/target" --yes
+if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && grep -q '^REFUSED: .*other.pem' <<<"$OUT" && ! grep -q '^REFUSED: .*pub.der' <<<"$OUT"; then
+  ok "29 unrelated tracked secret stays refused (allow is not a blanket)" "(exit $RC)"
+else no "29 unrelated tracked secret stays refused (allow is not a blanket)" "exit=$RC out=[$(outl)]"; fi
+
+# 30 — STALE entries (FIRST / MIDDLE / LAST / SINGLE position) are reported once, never fatal, never silent.
+for spec in "first:allow gone1.der|allow pub.der" "middle:allow pub.der|allow gone1.der|allow pub.der" \
+            "last:allow pub.der|allow gone1.der" "single:allow gone1.der"; do
+  lab="${spec%%:*}"; body="${spec#*:}"; IFS='|' read -r -a conflines <<<"$body"
+  reset_ctl; GIT_TRACKED_SECRETS="pub.der"
+  [ "$lab" = single ] && GIT_TRACKED_SECRETS=""
+  box="$(mkbox c30-stale-$lab)"; put_conf "$box" "${conflines[@]}"; put_pub "$box" pub.der spki
+  run "$box" "$box/target" --yes
+  if [ "$RC" = 0 ] && grep -q '^STALE: .*gone1.der' <<<"$OUT" && [ "$(grep -c '^STALE: ' <<<"$OUT")" = 1 ]; then
+    ok "30 stale allow entry ($lab) reported once, run continues" "(exit $RC)"
+  else no "30 stale allow entry ($lab) reported once, run continues" "exit=$RC out=[$(outl)]"; fi
+done
+
+# 31 — MALFORMED lines are typed config errors (exit 2, line number named, NO repo create), at FIRST / MIDDLE / LAST / SINGLE.
+bad31=0; n31=0
+for bad in "allow" "deny x.der" "allow a.der b.der" "allow *" "allow **/*" "allow ../x.der" "allow /abs/x.der" "frob"; do
+  for where in first middle last single; do
+    reset_ctl; GIT_TRACKED_SECRETS="pub.der"; n31=$((n31+1))
+    box="$(mkbox "c31-$where-${bad//[^a-z]/_}")"; put_pub "$box" pub.der spki
+    case "$where" in
+      first)  put_conf "$box" "$bad" "allow pub.der" "# c"; ln_no=1;;
+      middle) put_conf "$box" "allow pub.der" "$bad" "# c"; ln_no=2;;
+      last)   put_conf "$box" "# c" "allow pub.der" "$bad"; ln_no=3;;
+      single) put_conf "$box" "$bad"; ln_no=1;;
+    esac
+    run "$box" "$box/target" --yes
+    if [ "$RC" = 2 ] && grep -q "secret-files.conf:$ln_no: " <<<"$OUT" && ! has_call "$box" 'repo create'; then :; else
+      bad31=$((bad31+1)); no "31 malformed '$bad' ($where) -> exit 2 naming line $ln_no, no create" "exit=$RC out=[$(outl)]"
+    fi
+  done
+done
+[ "$bad31" = 0 ] && ok "31 malformed lines (8 shapes x first/middle/last/single = $n31) -> exit 2 naming the line, no repo create"
+
+# 32 — a private key can NEVER be allowed: PEM private (plain + encrypted), DER PKCS#8 (long + short), SEC1, PKCS#1.
+for kind in pempriv pemenc pkcs8 pkcs8s sec1 pkcs1; do
+  reset_ctl; GIT_TRACKED_SECRETS="k.der"
+  box="$(mkbox c32-priv-$kind)"; put_conf "$box" "allow k.der"; put_pub "$box" k.der "$kind"
+  run "$box" "$box/target" --yes
+  if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && grep -q '^REFUSED: .*private key' <<<"$OUT" && ! grep -q '^ALLOWED: k.der' <<<"$OUT"; then
+    ok "32 private key ($kind) in an allowed path -> refuse 5, never ALLOWED" "(exit $RC)"
+  else no "32 private key ($kind) in an allowed path -> refuse 5, never ALLOWED" "exit=$RC out=[$(outl)]"; fi
+done
+# 32b — a private key in the LAST of several allowed files still refuses (list edge).
+reset_ctl; GIT_TRACKED_SECRETS="a.der${nl}b.der${nl}c.der"
+box="$(mkbox c32-priv-last)"; put_conf "$box" "allow *.der"
+put_pub "$box" a.der spki; put_pub "$box" b.der spki; put_pub "$box" c.der pkcs8
+run "$box" "$box/target" --yes
+if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && grep -q '^REFUSED: .*c.der' <<<"$OUT"; then
+  ok "32b private key in the LAST allowed file -> refuse 5" "(exit $RC)"
+else no "32b private key in the LAST allowed file -> refuse 5" "exit=$RC out=[$(outl)]"; fi
+
+# 33 — an allowed path that cannot be read (listed by git, absent on disk) cannot be verified -> fail closed, exit 7.
+reset_ctl; GIT_TRACKED_SECRETS="ghost.der"
+box="$(mkbox c33-unreadable)"; put_conf "$box" "allow ghost.der"
+run "$box" "$box/target" --yes
+if [ "$RC" = 7 ] && ! has_call "$box" 'git .* push'; then
+  ok "33 allowed path unreadable -> fail closed 7, no push" "(exit $RC)"
+else no "33 allowed path unreadable -> fail closed 7, no push" "exit=$RC out=[$(outl)]"; fi
+
+# 34 — comments/blank lines accepted; glob crosses '/' like git's pathspec; a root licenses/ dir is allowable too.
+reset_ctl; GIT_TRACKED_SECRETS="licenses/lic.txt${nl}deep/x/pub.der"
+box="$(mkbox c34-globs)"; put_conf "$box" "# public assets" "" "allow licenses/*" "   allow   *.der   "
+put_pub "$box" licenses/lic.txt pempub; put_pub "$box" deep/x/pub.der spki
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && [ "$(grep -c '^ALLOWED: ' <<<"$OUT")" = 2 ]; then
+  ok "34 comments/blanks/globs accepted (licenses/*, *.der)" "(exit $RC)"
+else no "34 comments/blanks/globs accepted (licenses/*, *.der)" "exit=$RC out=[$(outl)]"; fi
+
+# 35 — a comments-only allow list allows nothing: the tracked secret is still refused.
+reset_ctl; GIT_TRACKED_SECRETS="pub.der"
+box="$(mkbox c35-empty-conf)"; put_conf "$box" "# nothing allowed"; put_pub "$box" pub.der spki
+run "$box" "$box/target" --yes
+if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push'; then
+  ok "35 comments-only allow list allows nothing -> refuse 5" "(exit $RC)"
+else no "35 comments-only allow list allows nothing -> refuse 5" "exit=$RC out=[$(outl)]"; fi
+
+# 36 — keystore / identity file TYPES hold private keys by construction: never allowable, whatever their bytes.
+for nm in store.p12 id.pfx app.jks my.keystore id_rsa; do
+  reset_ctl; GIT_TRACKED_SECRETS="$nm"
+  box="$(mkbox "c36-$nm")"; put_conf "$box" "allow $nm"; put_pub "$box" "$nm" pempub
+  run "$box" "$box/target" --yes
+  if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && grep -q "^REFUSED: .*${nm}" <<<"$OUT"; then
+    ok "36 keystore/identity type ($nm) is never allowable -> refuse 5" "(exit $RC)"
+  else no "36 keystore/identity type ($nm) is never allowable -> refuse 5" "exit=$RC out=[$(outl)]"; fi
+done
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -753,10 +910,12 @@ fi
   tmp_sut="$(mktemp)"
   cp "$SUT" "$tmp_sut"
   chmod -x "$tmp_sut"
-  if [ ! -x "$tmp_sut" ]; then
-    ok "teeth4: non-exec mutant fails [ -x ] — case 13 has teeth"
+  # Control: the unmutated copy must satisfy case 13's predicate (the predicate can say yes), AND the stripped copy
+  # must make that SAME predicate say no (it can say no). Both halves use sut_is_exec, not an inline test.
+  if sut_is_exec "$SUT" && ! sut_is_exec "$tmp_sut"; then
+    ok "teeth4: case 13's predicate passes the real SUT and rejects the non-exec mutant — case 13 has teeth"
   else
-    no "teeth4: non-exec mutant still executable — case 13 is THEATER"
+    no "teeth4: case 13's predicate cannot tell exec from non-exec — case 13 is THEATER"
   fi
   rm -f "$tmp_sut"
 
@@ -1041,6 +1200,48 @@ fi'
     if [ "$RCX" != 0 ]; then ok "teeth27: a shared knob cuts the 3 s create (exit $RCX) — case 22g has teeth"
     else no "teeth27: create still completes under the mutant — case 22g is THEATER"; fi
   fi
+
+  # teeth 40-49 (kit issue #1943) — each mutant removes ONE rule of the Layer-4c allow list; the case that pins that
+  # rule must now be VIOLATED. tooth_allow LABEL ORIG NEW TRACKED FILEKIND CONF... -> RC/OUT/box of the mutant run.
+  tooth_allow() {
+    local lab="$1" orig="$2" new="$3" tracked="$4" kind="$5" f; shift 5
+    if [[ "$content" != *"$orig"* ]]; then no "$lab: build mutant" "anchor not found — SUT drifted?"; return 1; fi
+    teeth_box "$lab" "$orig" "$new"; box="$TBOX"
+    GIT_TRACKED_SECRETS="$tracked"; put_conf "$box" "$@"
+    for f in $tracked; do put_pub "$box" "$f" "$kind"; done
+    run "$box" "$box/target" --yes; return 0
+  }
+  echo "-- teeth 40-49: remove one allow-list rule at a time, expect the pinning case to go red --"
+  tooth_allow teeth40-allow-never-matches 'if [[ $_p == ${allow_globs[$_i]} ]]; then' 'if false; then' pub.der spki "allow pub.der" \
+    && { [ "$RC" != 0 ] && ok "teeth40: allow that never matches -> allowed file refused — case 27 has teeth" \
+         || no "teeth40: mutant still pushes (rc=$RC) — case 27 is THEATER"; }
+  tooth_allow teeth41-pem-check-off "grep -aEq -- 'PRIVATE KEY( BLOCK)?-----'" "grep -aEq -- 'NEVER-MATCHES-xyz'" k.der pempriv "allow k.der" \
+    && { [ "$RC" = 0 ] && ok "teeth41: PEM private-key check off -> a PEM private key is pushed — case 32 has teeth" \
+         || no "teeth41: mutant still refuses (rc=$RC) — case 32 (PEM) is THEATER"; }
+  tooth_allow teeth42-der-check-off '020100*|020101*) return 0;; esac' '020100*|020101*) return 1;; esac' k.der pkcs8 "allow k.der" \
+    && { [ "$RC" = 0 ] && ok "teeth42: DER PKCS#8 check off -> a DER private key is pushed — case 32 has teeth" \
+         || no "teeth42: mutant still refuses (rc=$RC) — case 32 (DER) is THEATER"; }
+  tooth_allow teeth43-stale-silent '[ "${allow_hit[$_i]}" = 1 ] ||' 'true ||' pub.der spki "allow gone1.der" \
+    && { ! grep -q '^STALE: ' <<<"$OUT" && ok "teeth43: stale reporting off -> no STALE line — case 30 has teeth" \
+         || no "teeth43: mutant still reports STALE — case 30 is THEATER"; }
+  tooth_allow teeth44-malformed-accepted 'if [ -n "$_why" ]; then' 'if false; then' pub.der spki "deny pub.der" \
+    && { [ "$RC" != 2 ] && ok "teeth44: malformed line accepted -> no exit 2 — case 31 has teeth" \
+         || no "teeth44: mutant still exits 2 — case 31 is THEATER"; }
+  tooth_allow teeth45-blanket-accepted "elif [ -z \"\$(printf '%s' \"\$_g\" | tr -d '*?/')\" ]; then" 'elif false; then' pub.der spki "allow *" \
+    && { [ "$RC" != 2 ] && ok "teeth45: blanket glob accepted -> no exit 2 — case 31 (allow *) has teeth" \
+         || no "teeth45: mutant still exits 2 — case 31 (allow *) is THEATER"; }
+  tooth_allow teeth46-allowed-silent '1) echo "ALLOWED:' '1) : "ALLOWED:' pub.der spki "allow pub.der" \
+    && { ! grep -q '^ALLOWED: ' <<<"$OUT" && ok "teeth46: ALLOWED reporting off -> silent allow — case 27 has teeth" \
+         || no "teeth46: mutant still reports ALLOWED — case 27 is THEATER"; }
+  tooth_allow teeth47-unreadable-open '*) unreadable="$unreadable $_p";;' '*) :;;' ghost.der none "allow ghost.der" \
+    && { [ "$RC" = 0 ] && ok "teeth47: unreadable allowed path passes -> pushed unverified — case 33 has teeth" \
+         || no "teeth47: mutant still fails closed (rc=$RC) — case 33 is THEATER"; }
+  tooth_allow teeth48-blanket-allow 'unallowed="$unallowed $_p"; continue; fi' ': ; continue; fi' $'pub.der\nother.pem' spki "allow pub.der" \
+    && { [ "$RC" = 0 ] && ok "teeth48: un-allowed tracked secret ignored -> pushed — case 29 has teeth" \
+         || no "teeth48: mutant still refuses (rc=$RC) — case 29 is THEATER"; }
+  tooth_allow teeth49-keystore-name 'id_rsa*|*.p12|*.pfx|*.jks|*.keystore) priv_bad=' 'id_rsa*|NEVER-xyz) priv_bad=' store.p12 pempub "allow store.p12" \
+    && { [ "$RC" = 0 ] && ok "teeth49: keystore type check off -> a .p12 is pushed — case 36 has teeth" \
+         || no "teeth49: mutant still refuses (rc=$RC) — case 36 is THEATER"; }
 fi
 
 echo "== $pass passed · $fail failed =="
