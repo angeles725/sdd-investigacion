@@ -202,7 +202,7 @@ fi
 # A type is CLAIMED only by a deliberate form (kit #1986): (1) its leading dot in live prose
 # ('.js'; a compound '.tar.gz' claims its LAST segment 'gz', never 'tar'), (2) a backtick span
 # whose WHOLE trimmed content is a type token or a list of them ('.pdf', 'pdf', '.jpg, .png',
-# 'jpg/png', '.tar.gz'; spans pair per line), or (3) the head of a '## Dismissed file types'
+# '.jpg/.png' (a slash list needs every item dotted), '.tar.gz'; spans pair per line), or (3) the head of a '## Dismissed file types'
 # bullet. A bare prose word never claims ("XML parser" does not close .xml). Prose tokens are
 # standalone: not preceded by an alphanumeric, '_', '.', '/' or '-' (so 'notes.js', 'a/js' and
 # 'non-js' claim nothing), not followed by an alphanumeric or '_' or by '.'+alphanumeric (so

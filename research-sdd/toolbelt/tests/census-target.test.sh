@@ -522,7 +522,7 @@ out="$(xrun "$TMP/st-spanfn.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 3 of 3' <<<"$w" \
   && ok "56 filenames inside backtick spans claim nothing" || no "56 span filenames" "$w"
 # 58..61 — Span claims (kit #1986 review): a span claims only when its WHOLE trimmed content is a
-#      type token or a list of them ('.pdf', 'pdf', '.jpg, .png', 'jpg/png', '.tar.gz' -> gz).
+#      type token or a list of them ('.pdf', 'pdf', '.jpg, .png', '.jpg/.png', '.tar.gz' -> gz).
 #      Refusal shapes: a path-touching token ('aaa\'), a hyphenated token ('bbb-lib'), words
 #      separated by spaces ('ccc -d', 'git log'). One fixture per shape, the other types dotted.
 mkst "$TMP/st-spansep.md" "| high | G1 .bbb .ccc, dir \`aaa\\\` | x |" "- .zzz — dismissed: irrelevant"
