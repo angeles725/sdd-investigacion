@@ -44,7 +44,7 @@ Packs (kit #1365 item 1): `--pack NAME` (repeatable, comma lists and `--pack=NAM
 `lint-block-packs/NAME.py` next to this file (override the directory with LINT_BLOCK_PACKS_DIR). A pack
 registers per-target rules under the reserved ids; without --pack the run is the generic core only. A
 pack that is unknown, malformed, empty or colliding exits 2 with nothing linted. SUMMARY then ends with
-`packs=<names> r<N>-triggers=<count>...` (how many claim clauses each pack rule actually looked at).
+`packs=<names> r<N>-triggers=<count>...` (how many claim clauses each pack rule actually looked at); child-gap adds `r4-unscoped=<n>` (gap bullets outside any judged section).
 Shipped: jvm (R1 R5 R7), multi-version (R8), native-binary (R9), child-gap (R4). Not shipped: R2 (see RESERVED_PACK_RULE_IDS).
 
 Modes
@@ -656,7 +656,7 @@ def main(argv):
         pack_trigger_fields = " ".join(f"{r.lower()}-triggers={cov[r.lower() + '_triggers']}" for r in PACK_RULE_IDS)
         pack_cov = f" packs={','.join(LOADED_PACKS)} {pack_trigger_fields}"
     for k in sorted(cov):
-        if LOADED_PACKS and k.endswith("_quoted_skipped"):
+        if LOADED_PACKS and k.endswith(("_quoted_skipped", "_unscoped")):
             pack_cov += f" {k.replace('_', '-')}={cov[k]}"
     crashed_cov = f" crashed={crashed}" if crashed else ""
     inspected = (f"selfverify-sections={cov['selfverify_sections']} cert-hw-live-items={cov['cert_hw_live_items']} "

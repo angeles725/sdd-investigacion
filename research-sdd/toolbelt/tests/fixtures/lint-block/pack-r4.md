@@ -23,7 +23,7 @@ Prose before the bullets is not a bullet and is never judged: 40 words.
   only. measured-by: methods decoded (baseline 3).
 - **B61-G12** (low) — no figures: BNumericPoint:79 read on 2026-09-21 in [Block 12] under v2 of N5 and 4.15, section §61.3, B60-G2.
   coverage-check: `rg -il "numeric" block*.md` → [Block 3] only.
-- **B61-G13** (low) — prose-only clause naming a doc reference. coverage-check: T10 state in odd/tasks/x.md says unresolved today.
+- **B61-G13** (low) — prose-only clause naming a doc reference. coverage-check: T10 state in odd/tasks/x.md says the gate is wired today.
 
 ```text
 - B61-G91 (low) — a fenced bullet is quoted material and is never judged.
