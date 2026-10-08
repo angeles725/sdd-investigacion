@@ -501,9 +501,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+    && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
+    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth/mutant_cleanup_register ($HERE/lib/mutant.sh)" >&2; exit 2; }
   MUT="$(mktemp -d)"
-  trap 'rm -rf "$ROOT" ${MUT:+"$MUT"}' EXIT
+  mutant_cleanup_register "$MUT"   # chained onto the suite's own EXIT trap (ROOT cleanup), never replacing it
   # Thin counting wrappers over the shared helpers: they print their own FAIL/PASS lines and never touch
   # this suite's counters, so the caller counts.
   # mk_sed LABEL OUT EXPR...  build $OUT from $SUT, one sed stage per EXPR (each must apply on its own).

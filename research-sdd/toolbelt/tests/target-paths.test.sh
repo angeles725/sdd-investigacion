@@ -508,7 +508,8 @@ else no "teeth TNR-3: locate exact unreadable-file guard block in LIB" "anchor m
 if _r="$(blk "$LIB" 'if [ -z "$pairs" ]; then' '=    fi')"; then
   if mk "teeth TNR-4" "$M-4.sh" "${_r}d"; then
     tnr_tt "teeth TNR-4: empty-pairs-guard mutant flips case 19c (has teeth)" 1 2 "$M-4.sh" "$TN19c" "$(mkretro "$N/middle")" "$ROOT" \
-      --good-has 'no registered target paths parsed' --bad-lacks 'no registered target paths parsed'
+      --good-has 'no registered target paths parsed' --good-lacks "$RTERR" \
+      --bad-lacks "no registered target paths parsed|$RTERR"
   fi
 else no "teeth TNR-4: locate exact empty-pairs guard block in LIB" "anchor missing or ambiguous — LIB drifted?"; fi
 # TNR-5: ignore the name cell, always use the basename (cases 15 / 16c).

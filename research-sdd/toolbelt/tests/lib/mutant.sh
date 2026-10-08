@@ -382,3 +382,134 @@ mutant_tooth() {
   fi
   return "$rc"
 }
+
+# ── Shared VM-executor tooth kit (kit issue #1576) ───────────────────────────────────────────────
+# detonate-exec.test.sh and trace-exec.test.sh prove the SHARED run_vm source (lib/vm_boot_core.py)
+# with the same three real-SUT mutants and the same focused `--tooth` scenario runner; only the
+# executor names differ. Both halves live here, parameterised by those names, so the two suites can
+# no longer drift apart.
+#
+#   mutant_vm_tooth_py_src            prints the Python source of `_tooth_run(name, plan_flags, mod, cls)`.
+#                                     The suite exports it as RSDD_TOOTH_PY and its embedded python
+#                                     does `exec(os.environ["RSDD_TOOTH_PY"], globals())` (the scenario
+#                                     body needs the suite's own cli / _shims / _elf / _GOOD_ARGV /
+#                                     tempfile / json / Path / os, so it runs in the suite's globals).
+#                                     plan_flags is a callable(elf_path) -> list of `plan` CLI flags.
+#   mutant_vm_core_teeth EXEC HERE SELF SUT_EXEC MUT
+#                                     the bash --prove-teeth section: stage a mini-tree, run the
+#                                     unmutated staging control for the three scenarios, then build and
+#                                     run the three mutants (run_dir identity reuse, BaseException path
+#                                     no longer reaps run_dir, a second orphaned run_dir). EXEC is the
+#                                     executor stem (`detonate` | `trace`: lib/<EXEC>_exec.py,
+#                                     <EXEC>_plan.py), HERE the suite's tests dir, SELF the suite
+#                                     script (re-invoked as `bash SELF --tooth <scenario> <exec.py>`),
+#                                     SUT_EXEC the original lib/<EXEC>_exec.py, MUT a temp root. It
+#                                     prints its own PASS/FAIL lines and reports through the globals
+#                                     MVC_PASS / MVC_FAIL (the caller adds them to its own counters).
+mutant_vm_tooth_py_src() {
+  cat <<'PY'
+def _tooth_run(name, plan_flags, mod, cls):
+    import glob as _g, shutil as _sh, uuid as _u, importlib as _il
+    import docker_common as _dc_t; from gate import GateError as _GE_t
+    _ex_t = _il.import_module(mod)
+    made = []
+    def _cleanup():
+        for _d in made: _sh.rmtree(_d, ignore_errors=True)
+    if name == "red11":
+        # RED11 body run twice with TOOTH_UUID set: a SUT that reuses a run_dir identity
+        # hands back a dir that the second run already finds in its before-set.
+        _uid = _u.uuid4().hex; verdict = "fresh"
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+            for _i in (1, 2):
+                before = set(_g.glob("/tmp/rsdd/rsdd-*"))
+                r = cli("plan", *plan_flags(elf), "--output", str(tmp / f"out{_i}"), "--allow-exec",
+                        xe={"PATH": p, "RSDD_EXEC_EXECUTOR": "", "TOOTH_UUID": _uid})
+                try: sl = json.loads(r.stdout).get("serial_log", "")
+                except Exception: sl = ""
+                if r.returncode != 0 or not sl:
+                    _cleanup(); print(f"TOOTH_RED11=error:rc={r.returncode}"); return
+                rd = str(Path(sl).parent); made.append(rd)
+                if rd in before or not Path(rd).exists(): verdict = "preexisting"
+        _cleanup(); print(f"TOOTH_RED11={verdict}"); return
+    if name in ("inv5", "alloc"):
+        # INV5-earlyfail body: pre_boot GateError (sentinel absent) after the run_dir allocation.
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td); p = _shims(tmp)
+            _plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+            _old = os.environ.get("PATH", ""); os.environ["PATH"] = p
+            _orig = _dc_t.make_run_subdir
+            def _track(run_uuid, root=_dc_t._DEFAULT_RSDD_ROOT):
+                rd = _orig(run_uuid, root); made.append(rd); return rd
+            _dc_t.make_run_subdir = _track
+            try:
+                raised = None
+                try: getattr(_ex_t, cls)(tmp / "out").evaluate(_plan)
+                except Exception as e: raised = e
+            finally:
+                os.environ["PATH"] = _old; _dc_t.make_run_subdir = _orig
+        if not (isinstance(raised, _GE_t) and "not found in planned_argv" in str(raised)):
+            _cleanup(); print(f"TOOTH_{name.upper()}=error:{type(raised).__name__}"); return
+        if name == "alloc":
+            n = len(made); _cleanup(); print(f"TOOTH_ALLOC={n}"); return
+        leaked = [d for d in made if Path(d).exists()]
+        _cleanup(); print("TOOTH_INV5=" + ("leaked" if leaked else "reaped")); return
+    print(f"TOOTH_ERROR=unknown scenario {name}")
+PY
+}
+
+mutant_vm_core_teeth() {
+  local ex="$1" here="$2" self="$3" sut_exec="$4" mut="$5"
+  local crash='Traceback|ImportError|ModuleNotFoundError|SyntaxError'
+  local core="$here/../lib/vm_boot_core.py" s o rc k
+  MVC_PASS=0; MVC_FAIL=0
+  # stage NAME: copy lib/*.py and the top-level modules into $mut/NAME/
+  _mvc_stage() {
+    mkdir -p "$mut/$1/lib" && cp "$here/../lib/"*.py "$mut/$1/lib/" && cp "$here/../"*.py "$mut/$1/" \
+      && [ -f "$mut/$1/lib/${ex}_exec.py" ] && [ -f "$mut/$1/${ex}_plan.py" ] && [ -f "$mut/$1/lib/vm_boot_core.py" ]
+  }
+  # build LABEL NAME SED-EXPR: stage, mutate vm_boot_core.py (a dead anchor makes mutant_chain refuse),
+  # then compile() it. A failure is counted ONCE here; the caller then skips the tooth.
+  _mvc_build() {
+    if ! _mvc_stage "$2"; then echo "  FAIL  $1: staging the mini-tree failed"; MVC_FAIL=$((MVC_FAIL+1)); return 1; fi
+    if ! MUTANT_SYNTAX=none mutant_chain "$1" "$core" "$mut/$2/lib/vm_boot_core.py" "$3"; then MVC_FAIL=$((MVC_FAIL+1)); return 1; fi
+    if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$mut/$2/lib/vm_boot_core.py"; then
+      echo "  FAIL  $1: mutant does not compile"; MVC_FAIL=$((MVC_FAIL+1)); return 1
+    fi
+  }
+  _mvc_tt() { if mutant_tooth "$@"; then MVC_PASS=$((MVC_PASS+1)); else MVC_FAIL=$((MVC_FAIL+1)); fi; }
+  # Staging control: the UNMUTATED staged tree must give the good verdicts on every scenario, else a
+  # staging gap (missing import) would make each mutant "bite" by crashing.
+  if _mvc_stage clean; then
+    for s in red11:fresh inv5:reaped alloc:1; do
+      o="$(bash "$self" --tooth "${s%%:*}" "$mut/clean/lib/${ex}_exec.py" 2>&1)"; rc=$?
+      k="$(tr '[:lower:]' '[:upper:]' <<<"${s%%:*}")"
+      if [ "$rc" -eq 0 ] && grep -qE "^TOOTH_${k}=${s##*:}\$" <<<"$o" && ! grep -qE "$crash" <<<"$o"; then
+        echo "  PASS  teeth-staging-control-${s%%:*}: unmutated staged tree gives TOOTH_${k}=${s##*:}"; MVC_PASS=$((MVC_PASS+1))
+      else
+        echo "  FAIL  teeth-staging-control-${s%%:*}: rc=$rc output=[$o]"; MVC_FAIL=$((MVC_FAIL+1))
+      fi
+    done
+  else
+    echo "  FAIL  teeth-staging-control: staging the clean mini-tree failed"; MVC_FAIL=$((MVC_FAIL+1))
+  fi
+  # mutant 1 — run_dir identity: run_vm hands out a caller-chosen (reusable) run_dir identity.
+  if _mvc_build teeth-mut-red11 red11 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    run_dir = _dc.make_run_subdir(__import__("os").environ.get("TOOTH_UUID") or uuid.uuid4().hex)|'; then
+    _mvc_tt teeth-mut-red11 0 0 "$mut/red11/lib/${ex}_exec.py" --orig "$sut_exec" \
+      --good-has '^TOOTH_RED11=fresh$' --good-lacks "$crash" \
+      --bad-has '^TOOTH_RED11=preexisting$' --bad-lacks "$crash" -- bash "$self" --tooth red11 @SUT@
+  fi
+  # mutant 2 — cleanup: the BaseException path no longer reaps run_dir (INV-5 directory half).
+  if _mvc_build teeth-mut-inv5 inv5 '/^    except BaseException:$/{n;s/^        shutil\.rmtree(run_dir, ignore_errors=True)$/        pass/;}'; then
+    _mvc_tt teeth-mut-inv5 0 0 "$mut/inv5/lib/${ex}_exec.py" --orig "$sut_exec" \
+      --good-has '^TOOTH_INV5=reaped$' --good-lacks "$crash" \
+      --bad-has '^TOOTH_INV5=leaked$' --bad-lacks "$crash" -- bash "$self" --tooth inv5 @SUT@
+  fi
+  # mutant 3 — single allocation: run_vm allocates a second, orphaned run_dir.
+  if _mvc_build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    _dc.make_run_subdir(uuid.uuid4().hex)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)|'; then
+    _mvc_tt teeth-mut-alloc 0 0 "$mut/alloc/lib/${ex}_exec.py" --orig "$sut_exec" \
+      --good-has '^TOOTH_ALLOC=1$' --good-lacks "$crash" \
+      --bad-has '^TOOTH_ALLOC=2$' --bad-lacks "$crash" -- bash "$self" --tooth alloc @SUT@
+  fi
+  unset -f _mvc_stage _mvc_build _mvc_tt
+}
