@@ -4421,7 +4421,7 @@ attempt is terminal and opens no loop) — the next untried rung — so the wall
 is executed and its measured result cited (§3). `refused` is never laundered: its owner is whoever holds the
 authorization. `not-buildable` stays the ONLY state that means *stop asking*: its plan names a different
 instrument class that could still answer, or reads `unblock: none — every instrument class tried (<list>)`.
-`verify-state.sh` does not check for the `unblock:` line (doctrine first; no instrument yet).
+`verify-state.sh` WARNs (advisory, never a FAIL; kit #1361) on three shapes: a `## Blocked gaps` / `## Non-investigable gaps` / `## Blocked /` entry that carries `needs:` but no `unblock:` (an entry is the bullet plus its deeper-indented sub-bullets and continuation lines); an open Gap-backlog row whose Status leads with a wall state (`blocked-on-*`, `blocked`, `unavailable`, `refused`, `not-extracted`, `not-buildable`; never `transport-timeout-succeeded`) and has no `unblock:`, unless a Blocked-gaps bullet is linked to it by exact name or shared leading gap ID; and an entry with `unblock:` placed before `needs:`. The check is presence- and order-only: it does not judge the route/owner/cost content, and a helper failure prints a typed `degraded` line, never a zero.
 
 **Re-typed or newly blocked backlog rows (kit #1638; grammar §8b).** A gap whose type changes, or that becomes
 blocked, is recorded in ONE of two forms in the SAME edit: (a) in place, Status

@@ -237,7 +237,7 @@ Always read first, in this order:
      `pending` row; one that needs a tool/access/build is a typed `blocked-on-<reason>`/`requires-execution` row
      with an `unblock:` plan (METHODOLOGY §21.1), never silently dropped. The stretch is an ambition record, not
      evidence or a coverage claim: unexecuted routes toward it stay [INFER]/proposed (§3). It is the reference
-     for the pre-STOP POSSIBILITY AUDIT (step 7; METHODOLOGY §8c). `verify-state.sh` does not parse the section.
+     for the pre-STOP POSSIBILITY AUDIT (step 7; METHODOLOGY §8c). `verify-state.sh` only WARNs when a PRESENT `## Stretch goal` section lacks its `realistic:` or `stretch:` line; an absent section is silent and the content is never judged (kit #1361).
      CROSS-VERSION REPLICATION (kit #1937): the replication checklist's enumerated "known unknowns" are seeded as typed backlog gaps (`blocked-on-<reason>` / `requires-execution` with an `unblock:` plan) for the next-version focus, not left as checklist prose; see METHODOLOGY (kit #1937).
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (or `deferred` for a parked gap; not

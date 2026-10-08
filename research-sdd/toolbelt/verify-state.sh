@@ -29,6 +29,7 @@ fi
 # false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_blocked_count" >&2; exit 1; }
+declare -F inplace_gap_id >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_gap_id" >&2; exit 1; }
 declare -F focus_range_block_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
 _BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
@@ -314,37 +315,57 @@ derive_missing_tried() {
 }
 # kit #1361 item 2 (METHODOLOGY §21.1): every recorded wall ends with `unblock: <route> · owner: <who> · cost: <estimate>`.
 # derive_missing_unblock counts wall ENTRIES in the blocked sections (same three headings as blocked_open) that carry
-# `needs:` but no `unblock:` anywhere in the entry. An entry = a bullet line plus its continuation lines, ended by a
-# blank line, the next bullet or the end of input; so a plan on a continuation line counts and a plan on the NEXT
-# bullet is never credited to the previous one. END flushes the last entry (no trailing newline / last-bullet edge).
+# `needs:` but no `unblock:` anywhere in the entry. PRESENCE-ONLY on the first count; the second printed count is the
+# ORDER finding (the doctrine places `unblock:` AFTER `needs:`/`tried:`; an entry whose `unblock:` comes first).
+# Prints "<missing> <misordered>". Entry boundaries (W5): an entry is a bullet (or, absent a bullet, a paragraph) plus
+# everything indented deeper than that bullet — indented sub-bullets (`  - tried:` / `  - unblock:`) belong to the
+# parent. A bullet at the same or a shallower indent starts a new entry, so a plan on the NEXT bullet is never credited
+# to the previous one. A blank line ends a paragraph entry; inside a bullet entry it is a loose-list gap that ends the
+# entry only when the next non-blank line is not indented deeper than the bullet. END flushes the last entry.
 derive_missing_unblock() {
   { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
   | awk '
-    function flush() { if (need && !unb) miss++; need=0; unb=0 }
-    BEGIN { miss=0; need=0; unb=0 }
-    /^[[:space:]]*$/ { flush(); next }
-    /^[[:space:]]*-[[:space:]]/ { flush() }
-    { l=tolower($0); if (l ~ /needs:/) need=1; if (l ~ /unblock:/) unb=1 }
-    END { flush(); print miss+0 }
+    function flush() { if (need && !unb) miss++; else if (need && unb && upos < npos) ord++; need=0; unb=0; npos=0; upos=0; open=0; pend=0 }
+    function ind(s) { match(s, /^[ \t]*/); return RLENGTH }
+    BEGIN { miss=0; ord=0; need=0; unb=0; open=0; pend=0 }
+    /^[[:space:]]*$/ { if (open) { if (isb) pend=1; else flush() } ; next }
+    {
+      i=ind($0); bul=($0 ~ /^[ \t]*-[ \t]/)
+      if (open && ((bul && i<=bi) || (pend && i<=bi))) flush()
+      pend=0
+      if (!open) { open=1; isb=bul; bi=i }
+      l=tolower($0)
+      if (!need && (k=index(l,"needs:"))) { need=1; npos=NR*100000+k }
+      if (!unb && (k=index(l,"unblock:"))) { unb=1; upos=NR*100000+k }
+    }
+    END { flush(); print miss+0, ord+0 }
   '
 }
-# kit #1361 item 2: wall-typed rows of the Gap-backlog table (Status = last cell, starting blocked-on-* / blocked (...) /
-# not-buildable / refused) that end without `unblock:`. Closed (struck-through) rows and rows whose Status points at the
-# `## Blocked gaps` bullet (which carries the plan) are skipped. Only rows inside the backlog section are read, so
-# wall words in a block-log table elsewhere are never counted.
+# kit #1361 item 2: wall-typed OPEN rows of the Gap-backlog (rows come from _backlog_rows, the mirrored parser: Status
+# located by table shape a[4]/a[5], `**` stripped, malformed / escaped-pipe rows WARN there) that end without `unblock:`.
+# Wall vocabulary = METHODOLOGY §21.1 states except transport-timeout-succeeded (which records NO wall): leading token
+# blocked-on-* / blocked / unavailable / refused / not-extracted / not-buildable. Closed rows (struck gap, `~~`/`✅` in
+# Status) are skipped, and a row is exempt when it is linked BY NAME to a `## Blocked gaps` bullet that carries `needs:`
+# (exact Gap text or shared leading gap ID — the inplace_blocked_count rule), because that bullet holds the plan.
+# stdin: the _backlog_rows stream ("priority<TAB>gap<TAB>status", status already lowercased). $1: the blocked-section text.
 derive_missing_unblock_rows() {
-  _section "$1" '## Gap-backlog' | awk -F'|' '
-    BEGIN { miss=0 }
-    /^[[:space:]]*\|/ {
-      n=NF-1; if (n<4) next
-      p=$2; gsub(/^[ \t]+|[ \t]+$/,"",p); if (p ~ /^~~/) next
-      s=$(NF-1); gsub(/^[ \t]+|[ \t]+$/,"",s); l=tolower(s)
-      if (l !~ /^(blocked-on-|blocked \(|not-buildable|refused)/) next
-      if (l ~ /unblock:/ || l ~ /blocked gaps/ || l ~ /§ *blocked/) next
-      miss++
-    }
-    END { print miss+0 }
-  '
+  local gap st tok n=0 _id _names _ids _bn
+  _names="$(printf '%s\n' "$1" | grep -iE '^[[:space:]]*-[[:space:]].*needs:' | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
+    | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  _ids="$(while IFS= read -r _bn; do inplace_gap_id "$_bn"; done <<<"$_names")"
+  while IFS=$'\t' read -r _ gap st; do
+    [ -z "$gap" ] && continue
+    case "$gap" in *'~~'*) continue ;; esac  # ROW-CLOSED-GAP
+    case "$st" in *'~~'*|*'✅'*) continue ;; esac  # ROW-CLOSED-STATUS
+    tok="${st%% *}"
+    case "$tok" in blocked-on-*|blocked|blocked:|blocked,|unavailable|refused|not-extracted|not-buildable) ;; *) continue ;; esac  # ROW-WALL-VOCAB
+    case "$st" in *'unblock:'*) continue ;; esac
+    case $'\n'"$_names"$'\n' in *$'\n'"$gap"$'\n'*) continue ;; esac  # ROW-NAME-LINK
+    _id="$(inplace_gap_id "$gap")"
+    if [ -n "$_id" ]; then case $'\n'"$_ids"$'\n' in *$'\n'"$_id"$'\n'*) continue ;; esac; fi  # ROW-ID-LINK
+    n=$((n+1))
+  done
+  echo "$n"
 }
 # kit #1361 item 2 (PROMPT-LOOP BOOTSTRAP, STRETCH GOAL): a PRESENT `## Stretch goal` section must carry `realistic:` and
 # `stretch:` lines. Prints the missing line names space-separated; prints nothing when complete; prints "absent" when
@@ -1073,18 +1094,35 @@ for state in "${states[@]}"; do
   fi
 
   # kit #1361 item 2: wall entries without an `unblock:` plan (METHODOLOGY §21.1) and a malformed `## Stretch goal`.
-  # WARN-only findings — they never change the exit code (doctrine landed after most corpora were written).
-  d_missing_unblock="$(derive_missing_unblock "$state")"
-  if [ "${d_missing_unblock:-0}" -gt 0 ]; then  # UNBLOCK-BULLET-WARN
-    echo "   WARN   $d_missing_unblock blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>) — a wall is a waypoint; METHODOLOGY §21.1."
+  # WARN-only findings — they never change the exit code (doctrine landed after most corpora were written). A check
+  # whose helper fails (awk error) prints a typed `degraded` line instead of a confident zero (CLAUDE.md §7).
+  # The unblock: findings are PRESENCE checks plus one ORDER check (unblock: after needs:/tried:); they do not
+  # judge the quality of the route/owner/cost triple.
+  if _mu="$(derive_missing_unblock "$state")" && [[ "$_mu" =~ ^[0-9]+\ [0-9]+$ ]]; then  # UNBLOCK-TYPED
+    d_missing_unblock="${_mu%% *}"; d_unblock_order="${_mu##* }"
+    if [ "$d_missing_unblock" -gt 0 ]; then  # UNBLOCK-BULLET-WARN
+      echo "   WARN   $d_missing_unblock blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1."
+    fi
+    if [ "$d_unblock_order" -gt 0 ]; then  # UNBLOCK-ORDER-WARN
+      echo "   WARN   $d_unblock_order blocked gap(s) with unblock: placed before needs: — the plan goes AFTER needs:/tried: (METHODOLOGY §21.1)."
+    fi
+  else
+    echo "   degraded   unblock-check: could not evaluate the blocked sections for an unblock: line (helper output: '${_mu:-}') — measurement invalid, NOT a zero."
   fi
-  d_missing_unblock_rows="$(derive_missing_unblock_rows "$state")"
-  if [ "${d_missing_unblock_rows:-0}" -gt 0 ]; then  # UNBLOCK-ROW-WARN
-    echo "   WARN   $d_missing_unblock_rows wall backlog row(s) missing an unblock: plan at the end of the Status cell (or a pointer to its ## Blocked gaps bullet) — METHODOLOGY §21.1."
+  _br_rows="$(_backlog_rows "$state" || :)"  # _backlog_rows returns 1 by construction on a backlog with no rows (its last test); that is the empty-input state, not a failure
+  if _mr="$(printf '%s\n' "$_br_rows" | derive_missing_unblock_rows "$(_blocked_body "$state")")" && is_int "$_mr"; then  # UNBLOCK-ROW-TYPED
+    if [ "$_mr" -gt 0 ]; then  # UNBLOCK-ROW-WARN
+      echo "   WARN   $_mr wall backlog row(s) missing an unblock: plan at the end of the Status cell (presence-only check; a row linked by name or gap ID to a ## Blocked gaps bullet is exempt) — METHODOLOGY §21.1."
+    fi
+  else
+    echo "   degraded   unblock-check: could not evaluate the wall backlog rows for an unblock: plan (helper output: '${_mr:-}') — measurement invalid, NOT a zero."
   fi
-  d_stretch_missing="$(derive_stretch_missing "$state")"
-  if [ -n "$d_stretch_missing" ] && [ "$d_stretch_missing" != absent ]; then  # STRETCH-WARN
-    echo "   WARN   ## Stretch goal section present but missing ${d_stretch_missing// / and } line(s) — add them per the PROMPT-LOOP BOOTSTRAP template (kit #1268)."
+  if d_stretch_missing="$(derive_stretch_missing "$state")"; then  # STRETCH-TYPED
+    if [ -n "$d_stretch_missing" ] && [ "$d_stretch_missing" != absent ]; then  # STRETCH-WARN
+      echo "   WARN   ## Stretch goal section present but missing ${d_stretch_missing// / and } line(s) — add them per the PROMPT-LOOP BOOTSTRAP template (kit #1268)."
+    fi
+  else
+    echo "   degraded   stretch-check: could not evaluate the ## Stretch goal section (helper failed) — measurement invalid, NOT a zero."
   fi
 
   # ENVELOPE CHECK G — undocumented_findings: value validation then threshold gates.
