@@ -1,7 +1,7 @@
 # Reason-code registry (v1)
 
 Closed table of the typed "could not look / did not look" states the toolbelt emits, each with exactly
-one continuation (the runnable next step). Kit issue #1704 (slices 1 and 2); evidence: the stop-code table in
+one continuation (the runnable next step). Kit issue #1704 (slices 1-3); evidence: the stop-code table in
 `sdd-mental-model-bloque31.md` (each code has exactly one continuation) and candidate 5 of
 `bloque33.md`.
 
@@ -38,7 +38,8 @@ that adds the prefix itself (its call sites carry no literal) is NOT reported, b
 contains the literal. Only a line that starts with a comment is excluded; a ` #` before the token (trailing
 comment, or inside a quoted string) is still reported. The scan is line-based; a `degraded: ` hidden in a
 string built across lines without that literal is invisible. Scanned scripts today:
-`research-sdd-status.sh`, `reconcile-issues.sh`, `stage-retro-issues.sh`, `research-sdd-init.sh`.
+`research-sdd-status.sh`, `reconcile-issues.sh`, `stage-retro-issues.sh`, `research-sdd-init.sh`,
+`migrate-backlogs.sh` (added by slice 3; a reason after `degraded: migrate-backlogs:` is part of the code).
 
 ## Columns
 
@@ -93,6 +94,18 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: iconv is missing or unusable` | degraded | stage-retro-issues.sh | iconv is unavailable, so title length is counted without validating the encoding | install iconv (glibc or libiconv) and re-run; a non-UTF-8 title may otherwise be over-refused |
 | `degraded: jq not found on PATH` | degraded | research-sdd-init.sh | jq is absent, so settings.json cannot be wired | install jq, then re-run `research-sdd-init.sh --wire` |
 | `degraded: jq failed on` | degraded | research-sdd-init.sh | jq failed on the settings file; success is not reported | fix the settings.json syntax, then re-run `research-sdd-init.sh --wire` |
+| `degraded: migrate-backlogs: required tool '<v>' not found` | degraded | migrate-backlogs.sh | a required tool (awk, diff or mktemp) is absent, so no proposal can be computed | install the named tool, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: cannot find helper` | degraded | migrate-backlogs.sh | the shared state-file helper `lib/state-files.sh` next to the script is missing, so state files cannot be listed | re-install or update the kit so the helper sits beside `migrate-backlogs.sh` under `lib/`, then re-run |
+| `degraded: migrate-backlogs: helper <v> failed to define list_state_files` | degraded | migrate-backlogs.sh | the state-file helper loaded but did not define `list_state_files`, so state files cannot be listed | re-install or update the kit so `lib/state-files.sh` is intact, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: mktemp failed` | degraded | migrate-backlogs.sh | no scratch directory could be created, so no proposal is computed | free disk or TMPDIR space, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: cannot read` | degraded | migrate-backlogs.sh | a state or FOCUSES file found by the scan is unreadable, so its proposal was not computed | fix the file permissions, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: awk failed on` | degraded | migrate-backlogs.sh | awk failed on a state or FOCUSES file, so its proposal was not computed | run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: diff failed (status <v>) on` | degraded | migrate-backlogs.sh | diff exited with status 2 or higher (trouble, not a difference) for a file, so its proposal was not computed | run `diff` by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: <v> is not readable/traversable` | degraded | migrate-backlogs.sh | the target directory cannot be read or entered, so absent cannot be told from unreadable | fix the target path or its permissions, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: find failed while scanning <v> (unreadable subdirectory?)` | degraded | migrate-backlogs.sh | find reported an error while scanning the target, so unreadable cannot be told from absent | fix the permissions of the unreadable subdirectory, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)` | degraded | migrate-backlogs.sh | the state-file scan failed; this is NOT the same as no state files | run the scan by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)` | degraded | migrate-backlogs.sh | the FOCUSES.md scan failed, so the document-focus check has no verdict | run `find` for FOCUSES.md by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
+| `degraded: migrate-backlogs: awk failed reading` | degraded | migrate-backlogs.sh | awk failed reading a FOCUSES.md, so the document-focus check was not computed | run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh` |
 
 ## Input class
 
@@ -180,10 +193,17 @@ They are listed here so a reader of this registry finds every typed state the sc
   leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
   prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
-## Deferred (later slices of #1704)
+## Deferral ledger (kit issue #1704 closes with slice 3)
 
-- `degraded: migrate-backlogs: <reason>` (its script is not scanned yet).
-- A numeric exit-code mapping.
-- Emit-text changes: a script must not be edited to fit this table.
+Nothing remains scheduled. Every item below is settled; reopen only on the stated trigger.
+
+- `degraded: migrate-backlogs: <reason>`: DONE in slice 3. `migrate-backlogs.sh` is a scanned script; its
+  twelve reasons are degraded rows above and the coverage test checks them in both directions. Its input-class
+  emissions were already covered by slice 2.
+- A numeric exit-code mapping: WON'T BUILD unless a consumer asks (decision recorded in the slice 3 commit).
+  No consumer has asked for one, and a registry-wide mapping would be an
+  unverified table. Trigger to reopen: a named consumer that needs to branch on a code.
+- Emit-text changes: OUT OF SCOPE for good. A script must not be edited to fit this table; the table follows the
+  emit text, and the test fails when they drift.
 - Dropped by decision (maintainer, 2026-10-07): "every refusal line prints its exit command". It is not
   deferred and will not be built.
