@@ -32,8 +32,14 @@ A28) are not numbers. SUMMARY `r4-triggers=` counts the bullets inspected. Waive
 import re
 
 SECTION_RE = re.compile(r"child[- ]gaps?", re.IGNORECASE)
-EXCLUDED_TITLE_RE = re.compile(r"\bclosed\b|\bresolved\b|\bno\s+child[- ]gaps?\b", re.IGNORECASE)
-LABEL_RE = re.compile(r"^\s*(?:open\s+)?child[- ]gaps?(?:\s+(?:opened|surfaced|named))?\s*:?\s*$", re.IGNORECASE)
+# Excluded (nothing open to judge): a title that ENDS in closed / resolved ("Child gaps (all closed)") but not
+# "not (yet) closed", one that STARTS with closed / resolved ("Closed child gaps") or with "No child gaps"
+# (after an optional section number). "Child gaps opened (none resolved yet)" stays judged.
+EXCLUDED_TITLE_RE = re.compile(
+    r"^[\W\d]*(?:no\s+child[- ]gaps?|closed|resolved)\b|(?<!not )(?<!not yet )\b(?:closed|resolved)\W*$",
+    re.IGNORECASE)
+SETEXT_UNDERLINE_RE = re.compile(r"^\s*(?:=+|-{2,})\s*$")
+LABEL_RE = re.compile(r"^\s*(?:[-*+]\s+)?(?:open\s+)?child[- ]gaps?(?:\s+(?:opened|surfaced|named))?\s*:?\s*$", re.IGNORECASE)
 BULLET_RE = re.compile(r"^(\s*)[-*+]\s+\(?(B\d+-G\d+)\b")
 ANY_ITEM_RE = re.compile(r"^(\s*)(?:\d+\.|[-*+])\s+")
 HEADING_LINE_RE = re.compile(r"^\s*(#{1,6})(?:\s+(.*))?$")
@@ -43,7 +49,7 @@ MEASURED_RE = re.compile(r"`?measured-by:`?", re.IGNORECASE)
 RESULT_SEP_RE = re.compile(r"->|→")
 CODE_START_RE = re.compile(r"`([^`]+)`")  # a query written as a code span; match() anchors it at the clause start
 # A clause body ends at its sentence end: . ! ? followed by whitespace and a capital / code / bracket, or EOL.
-SENTENCE_END_RE = re.compile(r"[.!?](?=\s+[A-Z`\[(]|\s*$)")
+SENTENCE_END_RE = re.compile(r"[.!?](?=\s+[A-Z`\[(0-9]|\s*$)|;")
 PLACEHOLDER_RE = re.compile(
     r"^(?:todo|tbd|tba|tbc|xxx|n/?a|none|nil|null|unknown|unresolved|pending|missing|fixme|wip|\?+)\W*$",
     re.IGNORECASE)
@@ -191,9 +197,19 @@ def make_rule(api):
                     excluded = level
                 i += 1
                 continue
+            underlined = (i < n and (i + 1) not in doc.fenced and bool(raw.strip())
+                          and not ANY_ITEM_RE.match(raw) and SETEXT_UNDERLINE_RE.match(doc.lines[i]) is not None)
+            if underlined and scope is not None and scope[0] == "label":
+                scope = None   # a setext heading ends a label-started section
+                i += 2
+                continue
             if scope is None and LABEL_RE.match(raw):
-                scope = ("label", None)
-                i += 1
+                if underlined:
+                    scope = ("h", 1 if doc.lines[i].lstrip().startswith("=") else 2)  # a setext heading
+                    i += 2
+                else:
+                    scope = ("label", None)
+                    i += 1
                 continue
             m = BULLET_RE.match(raw)
             if not m:

@@ -21,3 +21,5 @@
   - measured-by: jars counted by `unzip -l`.
 - **B65-G16** (low) — R4-BAD a nested placeholder clause.
   - coverage-check: TBD
+- **B65-G17** (low) — R4-BAD a semicolon ends the clause. coverage-check: `rg -il x block*.md` → none; the decoder drops 40 frames.
+- **B65-G18** (low) — R4-BAD a digit-led sentence ends the clause. coverage-check: `rg -il x block*.md` → none. 40 frames drop per second.

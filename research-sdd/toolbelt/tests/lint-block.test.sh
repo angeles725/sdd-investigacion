@@ -425,8 +425,14 @@ grep -qE 'r4-unscoped' <<< "$OUT" && no "26d r4-unscoped printed without the chi
 run --pack child-gap "$FX/pack-r4-clause.md"
 want="$(lines_of R4- "$FX/pack-r4-clause.md")"; got="$(reported R4 "$OUT" "$FX/pack-r4-clause.md")"
 [ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && ok "27a R4 clause grammar flags exactly ($want): padded placeholders, a number in trailing prose, trailing prose as the result, 12.5% / 2.5x / 3k, a figure inside [Block N, ...], pending / missing / tbd results, a nested placeholder; the ASCII arrow, a real prose clause, versions / refs, and nested clauses clear" || no "27a R4 clauses (rc=$RC want=[$want] got=[$got] out=[$OUT])"
-grep -qE 'r4-triggers=16( |$)' <<< "$OUT" && grep -qE 'r4-unscoped=0( |$)' <<< "$OUT" && ok "27b SUMMARY counts the 16 bullets and no unscoped bullet" || no "27b clause counters (out=[$OUT])"
+grep -qE 'r4-triggers=18( |$)' <<< "$OUT" && grep -qE 'r4-unscoped=0( |$)' <<< "$OUT" && ok "27b SUMMARY counts the 18 bullets and no unscoped bullet" || no "27b clause counters (out=[$OUT])"
 grep -qE 'child gap B65-G2: MALFORMED .*placeholder' <<< "$OUT" && grep -qE 'child gap B65-G5: MEASURE - states 247' <<< "$OUT" && grep -qE 'child gap B65-G6: MALFORMED .*no result' <<< "$OUT" && grep -qE 'child gap B65-G7: MEASURE - states 12.5%' <<< "$OUT" && grep -qE 'child gap B65-G9: MEASURE - states 3k' <<< "$OUT" && ok "27c messages name the state and the figure (247, 12.5%, 3k)" || no "27c messages (out=[$OUT])"
+
+# 28. R4 round 2 (kit #1214 review): anchored heading exclusion, list-item label, setext end; ';' / digit-led clause ends (27a, 27c)
+run --pack child-gap "$FX/pack-r4-scope2.md"
+want="$(lines_of R4- "$FX/pack-r4-scope2.md")"; got="$(reported R4 "$OUT" "$FX/pack-r4-scope2.md")"
+[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && ok "28a 'Child gaps opened (none resolved yet)' and '### Gaps not yet closed' stay judged, a '- Child gaps opened:' list-item label starts a section ($want); 'No child gaps' is excluded and a setext heading ends a label section" || no "28a R4 scope2 (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+grep -qE 'r4-triggers=3( |$)' <<< "$OUT" && grep -qE 'r4-unscoped=2( |$)' <<< "$OUT" && ok "28b SUMMARY counts 3 judged bullets and 2 unscoped (the excluded heading and the post-setext bullet)" || no "28b scope2 counters (out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -928,6 +934,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mrun --pack child-gap "$FX/pack-r4-scope.md"
     grep -qE 'r4-unscoped=4( |$)' <<< "$MOUT" && no "teeth G26: mutant still reports r4-unscoped=4 — THEATER" || ok "teeth G26: unscoped counter neutered -> a gap outside every judged section reads clean -> case 26b has teeth"
   fi
+  # round 2: ';' / digit-led clause ends, anchored heading exclusion, list-item label, setext end
+  ptooth G27 lint-block-packs/child-gap.py 's#^SENTENCE_END_RE = .*#SENTENCE_END_RE = re.compile(r"[.!?](?=\\s+[A-Z`\\[(0-9]|\\s*$)")#' "$FX/pack-r4-clause.md" R4 R4- child-gap
+  ptooth G28 lint-block-packs/child-gap.py 's#^SENTENCE_END_RE = .*#SENTENCE_END_RE = re.compile(r"[.!?](?=\\s+[A-Z`\\[(]|\\s*$)|;")#' "$FX/pack-r4-clause.md" R4 R4- child-gap
+  ptooth G29 lint-block-packs/child-gap.py 's#(?<!not )(?<!not yet )##' "$FX/pack-r4-scope2.md" R4 R4- child-gap
+  ptooth G30 lint-block-packs/child-gap.py 's#\\b(?:closed|resolved)\\W\*\$",#\\b(?:closed|resolved)\\b",#' "$FX/pack-r4-scope2.md" R4 R4- child-gap
+  ptooth G31 lint-block-packs/child-gap.py 's#(?:\[-\*+\]\\s+)?##' "$FX/pack-r4-scope2.md" R4 R4- child-gap
+  ptooth G32 lint-block-packs/child-gap.py 's#^            if underlined and scope is not None and scope\[0\] == "label":#            if False:#' "$FX/pack-r4-scope2.md" R4 R4- child-gap
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
     mrun --audit "$FX/corpus-empty"
