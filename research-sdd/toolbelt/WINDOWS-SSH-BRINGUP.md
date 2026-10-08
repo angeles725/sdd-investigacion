@@ -139,6 +139,47 @@ channel unprotected for ~1 minute); B24 §24.5.
 
 ---
 
+## 6. Hung `sshd`: `Get-Service` reports Running (watchdog pattern)
+
+On Windows OpenSSH benches `Get-Service sshd` can report `Running` while the daemon accepts the TCP
+connection and never sends its banner. Service status cannot tell hung from alive, so a status check is
+not a health check.
+
+**Pattern.** Probe what a client sees: open a TCP connection to port 22 and read the SSH banner
+(`SSH-2.0-...`) with a timeout (about 8 s). On a connect failure, a banner timeout or a banner that does
+not start with `SSH-`, run `Restart-Service sshd` and append a line to a log (`sshd HUNG ... RECOVERED`
+or `... RESTART FAILED`). Run it periodically as a scheduled task under `SYSTEM`. The task's installation
+is itself verified before you rely on it: register, read back with `Get-ScheduledTask`, and abort if
+absent (see section 5).
+
+**Reference snippet (reference only, NOT a shipped tool).** The kit ships no watchdog script; adapt and
+test this on the bench before trusting it.
+
+```powershell
+$log = 'C:\ProgramData\watchdog\sshd-watchdog.log'
+function Test-SshBanner {
+    $c = New-Object Net.Sockets.TcpClient
+    try {
+        $iar = $c.BeginConnect('127.0.0.1', 22, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne(8000)) { return $false }
+        $c.EndConnect($iar)
+        $s = $c.GetStream(); $s.ReadTimeout = 8000
+        $buf = New-Object byte[] 64; $n = $s.Read($buf, 0, 64)
+        return ($n -gt 0 -and [Text.Encoding]::ASCII.GetString($buf, 0, $n).StartsWith('SSH-'))
+    } catch { return $false } finally { $c.Close() }
+}
+if (-not (Test-SshBanner)) {
+    Restart-Service sshd -ErrorAction Stop
+    Add-Content $log "$(Get-Date -Format o) sshd HUNG ... restarted"
+}
+```
+
+**Provenance.** The probed original (`watchdog-servicios.ps1` v2) lives only on bench `pruebas-01`; on its
+first run (2026-10-07) it detected and recovered a hung `sshd`. This section is the pattern, not that
+file. (Kit #1961.)
+
+---
+
 ## Scars summary
 
 | # | Scar | Silent failure mode | Fix |
@@ -148,6 +189,7 @@ channel unprotected for ~1 minute); B24 §24.5.
 | 3 | Service registration copied across machines | Service fails to start on target | Re-register per machine using the feature installer |
 | 4 | `sc.exe create` on a pending-delete sshd | Service never registered, returns success | Wait for clean deletion; use `Add-WindowsCapability` |
 | 5 | Safety-net task assumed not verified | Risky step runs unprotected | Register → read back → abort if absent |
+| 6 | `sshd` hung while `Get-Service` says Running | Service status lies; SSH banner never arrives | Watchdog: TCP connect + banner read with timeout, `Restart-Service sshd` on failure (§6) |
 
 ---
 
