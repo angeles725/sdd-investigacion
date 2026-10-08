@@ -241,8 +241,35 @@ else
   ratio="n/a (no CERT markers)"
 fi
 echo "-- ratio -- [INFER]/[CERT*] = $infer/$cert_total = $ratio"
+# P9-TYPE-PARSE-EARLY: parse Type: token once, shared by P6 (zero-citation WARN) and P9 (resolved-N-of-M WARN).
+# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied
+# Strip is ORDER-INDEPENDENT: leading spaces, asterisks, backticks removed in any combination — see P6-TYPE-STRIP.
+_type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
+_type_token=""
+_type_stripped=""
+if [ -n "$_type_raw" ]; then
+  _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
+  _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
+  _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
+  _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z0-9-]*')  # P1418-TYPE-DIGITS
+fi
+# Ratio-line Type reading (#1993): absent / unrecognised / recognised are three distinct states; the
+# "DECLARE the block TYPE" clause is dropped ONLY for a recognised Type (VB-RATIO-TYPE-HINT).
+case "$_type_token" in
+  standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied)
+    _ratio_type_line="   declared Type: $_type_token"; _ratio_tail="; read it against the declared Type, §11)" ;;
+  *)
+    if [ -n "$_type_raw" ]; then
+      _ratio_type_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"
+      _ratio_type_line="   unrecognised Type '$_ratio_type_name'"
+    else
+      _ratio_type_line="   no Type declared"
+    fi
+    _ratio_tail=" — DECLARE the block TYPE so the ratio is read right, §11)" ;;
+esac
+echo "$_ratio_type_line"
 echo "   (>~0.5 in an EVIDENCE block signals investigable evidence nearly exhausted; EXPECTED and healthy in a"
-echo "    DESIGN/synthesis block — DECLARE the block TYPE so the ratio is read right, §11)"
+echo "    DESIGN/synthesis block${_ratio_tail}"  # VB-RATIO-TYPE-HINT
 
 # 3. Citation resolution — `file:line` tokens (target-relative).
 # Two passes with DIFFERENT teeth:
@@ -632,18 +659,7 @@ if [ -n "$synth_refs" ]; then
   done <<< "$synth_refs"
   synth_found=1
 fi
-# P9-TYPE-PARSE-EARLY: parse Type: token once, shared by P6 (zero-citation WARN) and P9 (resolved-N-of-M WARN).
-# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision|design-applied
-# Strip is ORDER-INDEPENDENT: leading spaces, asterisks, backticks removed in any combination — see P6-TYPE-STRIP.
-_type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
-_type_token=""
-_type_stripped=""
-if [ -n "$_type_raw" ]; then
-  _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
-  _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
-  _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
-  _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z0-9-]*')  # P1418-TYPE-DIGITS
-fi
+# (Type: token parsed once, earlier — see P9-TYPE-PARSE-EARLY in the ratio section; shared by the ratio line, P6 and P9.)
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6-NONRESOLVABLE-SUPPRESS: when the only citations present are recognized non-resolvable forms
   # (jar archive entries and/or [BNNN] block back-references), the gate is not blind — it identified

@@ -1921,6 +1921,30 @@ out="$(lcrun --extern-check "$LC/corpus/agree.md" "$LC/corpus")"
 # empty, byte-identical, syntax-broken or live-tree mutant. Each control asserts the GOOD verdict on the
 # original (rc + output) AND the SPECIFIC BAD verdict on the mutant (rc + output, plus the end-of-run
 # '== exit N ==' line, so a mutant that crashed mid-run cannot read as teeth). Kit issues #943, #1299.
+# #1993 — the ratio section prints the parsed Type and drops the "DECLARE the block TYPE" clause ONLY for a
+# recognised Type; an absent Type and an unrecognised Type stay distinguishable and keep the clause.
+t93(){ { echo "# Block — t"; echo; [ -n "$2" ] && { echo "> $2"; echo; }; echo "---"; echo; echo "A [CERT]. B [INFER]."; } > "$TMP/$1.md"; run "$TMP/$1.md"; }
+DECL='DECLARE the block TYPE'
+out="$(t93 t93a '**Type:** document')"
+{ grep -q '^   declared Type: document$' <<<"$out" && ! grep -q "$DECL" <<<"$out" && grep -q -- '-- ratio --' <<<"$out"; } \
+  && ok "#1993 recognised Type: 'declared Type: document' printed, DECLARE hint dropped" || no "#1993 recognised :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
+out="$(t93 t93b '')"
+{ grep -q '^   no Type declared$' <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'unrecognised Type' <<<"$out"; } \
+  && ok "#1993 absent Type: 'no Type declared' printed, DECLARE hint kept" || no "#1993 absent :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
+out="$(t93 t93c 'Type: Bogus')"
+{ grep -qE "^   unrecognised Type 'Bogus'$" <<<"$out" && grep -q "$DECL" <<<"$out" && ! grep -q 'no Type declared' <<<"$out"; } \
+  && ok "#1993 unrecognised Type: named, DECLARE hint kept, distinct from absent" || no "#1993 unrecognised :: $(grep -A3 -e '-- ratio' <<<"$out" | head -4)"
+out="$(t93 t93d 'Type: bogus-thing')"
+grep -qE "^   unrecognised Type 'bogus-thing'$" <<<"$out" \
+  && ok "#1993 lower-case unrecognised token is named" || no "#1993 lowercase unrecognised :: $(grep -A1 -e '-- ratio' <<<"$out" | head -2)"
+# downstream P6 / P9 outputs are unchanged by moving the parse
+out="$(t93 t93e '**Type:** standard')"
+grep -q '^   declared Type: standard$' <<<"$out" && grep -q 'WARN    \[CERT\] markers present' <<<"$out" \
+  && ok "#1993 P6 WARN for a declared 'standard' Type still fires after the parse move" || no "#1993 P6 regression :: $(grep -E 'WARN|declared' <<<"$out" | head -3)"
+out="$(t93 t93f '')"
+grep -q 'HINT    Declare a Type: token' <<<"$out" \
+  && ok "#1993 P6 absent-Type HINT still fires after the parse move" || no "#1993 P6 hint regression"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -2040,7 +2064,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must stop naming itself --"
   if mk_sed "teeth-p6-type-unrecognised" "$MUT/unrec.sh" '/# P6-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/'; then
     vbtype "$TMP/p6-unrec-teeth.md" '> **Type:** experimental-new-type' "## Result [CERT]" "The flag is always set. [CERT]"
-    tooth "teeth-p6-type-unrecognised" 0 0 "$MUT/unrec.sh" --good-has "experimental-new-type" --bad-lacks "experimental-new-type" \
+    tooth "teeth-p6-type-unrecognised" 0 0 "$MUT/unrec.sh" --good-has "WARN.*experimental-new-type" --bad-lacks "WARN.*experimental-new-type" \
       --bad-has "$NOCITE" -- bash @SUT@ "$TMP/p6-unrec-teeth.md"
   fi
 
@@ -2054,8 +2078,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-p6-type-display: null display-name fallback; uppercase token must print '' (not named) --"
   if mk_sed "teeth-p6-type-display" "$MUT/tdisp.sh" '/# P6-TYPE-DISPLAY/ s/.*/        _type_warn_name=$_type_token  # P6-TYPE-DISPLAY [NEUTERED]/'; then
     vbtype "$TMP/p6-type-disp-teeth.md" '> **Type:** GAP-CLOSING SWEEP — special form' "## Finding [CERT]" "The method is defined. [CERT]"
-    tooth "teeth-p6-type-display" 0 0 "$MUT/tdisp.sh" --good-has 'GAP-CLOSING' --good-lacks "token ''" \
-      --bad-has "token ''" --bad-lacks 'GAP-CLOSING' -- bash @SUT@ "$TMP/p6-type-disp-teeth.md"
+    tooth "teeth-p6-type-display" 0 0 "$MUT/tdisp.sh" --good-has "WARN.*GAP-CLOSING" --good-lacks "token ''" \
+      --bad-has "token ''" --bad-lacks "WARN.*GAP-CLOSING" -- bash @SUT@ "$TMP/p6-type-disp-teeth.md"
   fi
 
   echo "-- teeth-p6-wording: strip 'synthesis / REMITTANCE' phrase from P6 WARN --"
@@ -2160,7 +2184,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-p9-type-unrecognised" "$MUT/p9tu.sh" '/# P9-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P9-TYPE-UNRECOGNISED [NEUTERED]/'; then
     vbtype "$TMP/p9-type-unrec-teeth.md" '> **Type:** experimental-pnine' "The method \`NonExistent.java:10\`. \`[CERT]\`"
     tooth "teeth-p9-type-unrecognised" 0 0 "$MUT/p9tu.sh" --good-has 'WARN.*experimental-pnine' \
-      --bad-lacks 'experimental-pnine' --bad-has 'WARN.*resolved 0 of' -- bash @SUT@ "$TMP/p9-type-unrec-teeth.md"
+      --bad-lacks "WARN.*experimental-pnine" --bad-has 'WARN.*resolved 0 of' -- bash @SUT@ "$TMP/p9-type-unrec-teeth.md"
   fi
 
   echo "-- teeth-p9-range-ok: neuter P9-VB-OK-RANGE; range-resolved cite must count as 0 --"
@@ -2735,6 +2759,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth "teeth-1919-degraded-why" 1 1 "$MUT/lc7.sh" --good-has 'WARN    resolved 0 of 1 — line count failed — instrument, not the cite' --bad-has 'no file paths resolved' --bad-lacks 'instrument, not the cite' \
       -- env "PATH=$LC/stubA:$PATH" bash @SUT@ "$LC/corpus/last.md" "$LC/corpus"
   fi
+  echo "-- teeth-1993: neuter VB-RATIO-TYPE-HINT; a declared Type must again print the DECLARE clause --"
+  if mk_sed "teeth-1993" "$MUT/t93.sh" 's/DESIGN\/synthesis block\${_ratio_tail}"  # VB-RATIO-TYPE-HINT/DESIGN\/synthesis block — DECLARE the block TYPE so the ratio is read right, §11)"  # VB-RATIO-TYPE-HINT/'; then
+    vbfix "$TMP/t93-teeth.md" "A [CERT]. B [INFER]."
+    sed -i 's/^> Method:/> **Type:** document\n> Method:/' "$TMP/t93-teeth.md"
+    tooth "teeth-1993" 0 0 "$MUT/t93.sh" --good-has 'declared Type: document' --good-lacks 'DECLARE the block TYPE' --bad-has 'DECLARE the block TYPE' \
+      -- bash @SUT@ "$TMP/t93-teeth.md"
+  fi
+
 fi
 
 echo "== $pass passed · $fail failed =="
