@@ -372,10 +372,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # R: bound shorter than vt -> a verify finishing inside the bound can be reported timed out.
   _mk "R" "$SUT" "$MB/m-r.sh" 's/vmax=\$((vt \* vper))/vmax=$((vt * 4))/' \
     && _tt "teeth: bound shorter than vt -> a verify within the bound is reported timed out" 0 0 "$MB/m-r.sh" \
-       --good-has '^0$' --bad-lacks "$_CRASH|^0$" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "STUB_VERIFY_SLEEP=1.2" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
+       --good-has '^0$' --bad-lacks "$_CRASH|^0$" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=2" "STUB_VERIFY_SLEEP=1.8" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
        "$BASH_BIN" -c 'bash "$1" "$2" 2>/dev/null | grep -c "timed out"; :' _ "$SB/decode.sh" @SUT@
-  # (R's verify takes 1.2 s: the probe's five samples add 0.5 s before the poll count starts, so the mutant's 4 polls end at ~0.9 s,
-  # while the real bound ends at ~1.5 s.)
+  # (R's verify takes 1.8 s under vt=2: the probe's five samples add 0.5 s before the poll count starts, so the mutant's 8 polls end at
+  # ~1.3 s (0.5 s below the verify) while the real bound ends at ~2.5 s (0.7 s above it).)
   # S: the done marker IS written, but the hook neither waits for nor kills the watchdog (distinct from L, which also drops the marker).
   # The watchdog then notices the marker within one poll, i.e. AFTER the hook returned. Deterministic, no pgrep: shim S rejects the
   # 0.1 probe (so the watchdog polls with an integer `sleep 1`, still mid-poll when the 0.3 s verify ends) and records its caller's
