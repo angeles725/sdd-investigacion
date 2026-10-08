@@ -434,6 +434,155 @@ printf 'x\n' > "$SP/gone.dat"; rm -f "$REPO/notes/b1.md"
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { [ "$RC" = 0 ] && has "blocks-missing-on-disk: 1"; } && ok "#1207: deleted tracked block skipped and counted (no abort)" || no "missing block" "(rc=$RC $OUT)"
 
+# ---- kit #1277 slice 3: report-only retention scans (worktrees, merged branches, _evidence backups) --------
+GIT=(git -c user.name=t -c user.email=t@example.invalid)
+fresh_main() { fresh; git -C "$REPO" branch -M main; }
+# ---- clean repo: nothing to report, summary names the new states, exit 0
+fresh_main
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && [ "$(lines)" -le 2 ] && has "warnings: 0" && has "evidence: none found" && has "branches: base main, 0 local, 0 remote"; } \
+  && ok "retention: clean repo -> exit 0, summary states each scan, warnings: 0" || no "retention clean" "(rc=$RC $OUT)"
+# ---- merged branches
+fresh_main; git -C "$REPO" branch mergedbr; git -C "$REPO" switch -q -c wip; printf 'w\n' > "$REPO/w.txt"; git -C "$REPO" add w.txt; "${GIT[@]}" -C "$REPO" commit -q -m w; git -C "$REPO" switch -q main
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "WARN merged-branch mergedbr merged into main"; } && ok "merged local branch -> WARN line, exit code unchanged (0)" || no "merged branch" "(rc=$RC $OUT)"
+{ ! has "merged-branch wip" && ! has "merged-branch main"; } && ok "unmerged branch and the base itself are never reported" || no "merged false positive" "($OUT)"
+fresh_main; git -C "$REPO" switch -q -c cur
+run --target "$REPO" --tmp "$FT" --base main
+{ [ "$RC" = 0 ] && ! has "merged-branch cur"; } && ok "the branch HEAD is on is never reported as merged" || no "current branch reported" "(rc=$RC $OUT)"
+fresh_main; git -C "$REPO" branch livewt; WTL="$TMP/wt-live-$n"; git -C "$REPO" worktree add -q "$WTL" livewt
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && ! has "merged-branch livewt" && ! has "stale-worktree"; } && ok "a branch checked out in a live worktree is not reported; live worktree not stale" || no "worktree-checked-out branch" "(rc=$RC $OUT)"
+fresh_main; run --target "$REPO" --tmp "$FT" --base nope
+{ [ "$RC" = 2 ] && has "--base ref not found"; } && ok "unknown --base -> exit 2" || no "bad base" "(rc=$RC $OUT)"
+fresh; git -C "$REPO" branch -M trunk
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "ABSENT-BASE" && has "branches: no base"; } && ok "no resolvable base -> typed ABSENT-BASE, scan skipped, exit 0" || no "absent base" "(rc=$RC $OUT)"
+run --target "$REPO" --tmp "$FT" --base trunk
+{ [ "$RC" = 0 ] && ! has "ABSENT-BASE" && has "base trunk"; } && ok "--base names the base explicitly" || no "explicit base" "(rc=$RC $OUT)"
+# remote-tracking refs
+fresh_main; RB="$TMP/remote$n.git"; git init -q --bare "$RB"; git -C "$REPO" remote add origin "$RB"; git -C "$REPO" push -q origin main; git -C "$REPO" push -q origin main:refs/heads/rdone
+git -C "$REPO" fetch -q origin; git -C "$REPO" remote set-head origin main >/dev/null
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "WARN merged-remote-branch origin/rdone merged into origin/main"; } && ok "merged remote-tracking ref -> WARN line (base = origin/HEAD)" || no "merged remote" "(rc=$RC $OUT)"
+{ ! has "origin/main merged" && ! has "origin/HEAD" && ! has "merged-branch main"; } && ok "base twins (origin/main, origin/HEAD, local main) are never reported" || no "base twin reported" "($OUT)"
+# ---- stale worktrees
+fresh_main; WTG="$TMP/wt-gone-$n"; git -C "$REPO" worktree add -q "$WTG" -b gonebr; rm -rf "$WTG"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "WARN stale-worktree" && has "wt-gone-$n missing"; } && ok "worktree whose path is gone -> WARN stale-worktree ... missing, exit 0" || no "stale worktree" "(rc=$RC $OUT)"
+has "worktrees: 2 registered, 1 stale" && ok "summary counts registered and stale worktrees" || no "worktree summary" "($OUT)"
+fresh_main; WTK="$TMP/wt-locked-$n"; git -C "$REPO" worktree add -q --lock "$WTK" -b lockedbr; rm -rf "$WTK"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "stale-worktree $WTK missing (locked)"; } && ok "locked worktree with a missing path is still reported (git does not mark it prunable)" || no "locked missing" "(rc=$RC $OUT)"
+fresh_main; WTB="$TMP/wt-broken-$n"; git -C "$REPO" worktree add -q "$WTB" -b brokenbr; rm "$WTB/.git"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "stale-worktree $WTB prunable (gitdir file"; } && ok "worktree git marks prunable (path exists) -> WARN ... prunable (<git's reason>)" || no "prunable worktree" "(rc=$RC $OUT)"
+# ---- _evidence backups
+fresh_main; mkdir -p "$REPO/_evidence/t1" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+: > "$REPO/_evidence/t1/rollback-old.tar"; ago 480 "$REPO/_evidence/t1/rollback-old.tar"
+: > "$REPO/_evidence/t1/ROLLBACK-new.tar"; : > "$REPO/_evidence/t1/notes-old.txt"; ago 480 "$REPO/_evidence/t1/notes-old.txt"
+mkdir -p "$REPO/_evidence/t1/Backup-dir"; ago 480 "$REPO/_evidence/t1/Backup-dir"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "WARN stale-backup $REPO/_evidence/t1/rollback-old.tar age=20d retention=14d" && has "stale-backup $REPO/_evidence/t1/Backup-dir"; } && ok "old rollback/backup entries -> WARN stale-backup with age and retention, exit 0" || no "stale backup" "(rc=$RC $OUT)"
+{ ! has "ROLLBACK-new" && ! has "notes-old"; } && ok "young backups and non-backup names are not reported" || no "backup false positive" "($OUT)"
+run --target "$REPO" --tmp "$FT" --backup-days 30
+{ [ "$RC" = 0 ] && ! has "stale-backup" && has "0 older than 30d"; } && ok "--backup-days overrides the retention age" || no "backup-days" "(rc=$RC $OUT)"
+run --target "$REPO" --tmp "$FT" --backup-days abc; [ "$RC" = 2 ] && ok "non-numeric --backup-days -> exit 2" || no "bad backup-days" "(rc=$RC)"
+EV2="$TMP/ev-explicit-$n"; mkdir -p "$EV2/x"; : > "$EV2/x/my-backup.sql"; ago 480 "$EV2/x/my-backup.sql"
+run --target "$REPO" --tmp "$FT" --evidence "$EV2"
+{ [ "$RC" = 0 ] && has "stale-backup $EV2/x/my-backup.sql" && ! has "t1/rollback-old"; } && ok "--evidence DIR scans only that directory" || no "explicit evidence" "(rc=$RC $OUT)"
+run --target "$REPO" --tmp "$FT" --evidence "$TMP/no-such-evidence"
+{ [ "$RC" = 0 ] && has "ABSENT-EVIDENCE $TMP/no-such-evidence" && has "evidence: absent"; } && ok "explicit --evidence dir missing -> typed ABSENT-EVIDENCE (not a silent zero)" || no "absent evidence" "(rc=$RC $OUT)"
+# WARNs never turn a clean run into findings, and never hide a real finding
+printf 'x\n' > "$REPO/stray.json"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 1 ] && has "GARBAGE untracked stray.json" && has "stale-backup" && has "1 finding(s)"; } && ok "WARN lines coexist with a real finding: exit 1, count unchanged by WARNs" || no "warn+finding" "(rc=$RC $OUT)"
+# ---- read-only
+fresh_main; git -C "$REPO" branch mergedbr; mkdir -p "$REPO/_evidence/t"; : > "$REPO/_evidence/t/rollback.tar"; ago 480 "$REPO/_evidence/t/rollback.tar"; printf '_evidence/\n' > "$REPO/.gitignore"
+before="$(snapshot)"; brefs="$(git -C "$REPO" for-each-ref | cksum)"
+run --target "$REPO" --tmp "$FT"
+{ [ "$before" = "$(snapshot)" ] && [ "$brefs" = "$(git -C "$REPO" for-each-ref | cksum)" ] && has "merged-branch mergedbr" && has "stale-backup"; } && ok "retention scans delete nothing (files, branches, worktrees untouched)" || no "retention not read-only" "($OUT)"
+# ---- DEGRADED retention scans (shimmed git / find)
+mkdir -p "$TMP/shim-wtfail" "$TMP/shim-brfail" "$TMP/shim-evfail"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = worktree ] && { echo "shim-git-diagnostic: worktree exploded" >&2; exit 1; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-wtfail/git"
+printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = for-each-ref ] && { echo "shim-git-diagnostic: for-each-ref exploded" >&2; exit 1; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-brfail/git"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -iname ] && { echo "shim-find-diagnostic: evidence find exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-evfail/find"
+chmod +x "$TMP/shim-wtfail/git" "$TMP/shim-brfail/git" "$TMP/shim-evfail/find"
+fresh_main; mkdir -p "$REPO/_evidence/t" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-WORKTREE-SCAN" && has "worktree exploded" && has "CLEAN-CHECK: degraded" && has "worktree scan failed"; } && ok "failing git worktree -> typed DEGRADED-WORKTREE-SCAN, exit 3 (not clean)" || no "worktree degraded" "(rc=$RC $OUT)"
+OUT="$(PATH="$TMP/shim-brfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-BRANCH-SCAN" && has "for-each-ref exploded" && has "CLEAN-CHECK: degraded"; } && ok "failing git for-each-ref -> typed DEGRADED-BRANCH-SCAN, exit 3" || no "branch degraded" "(rc=$RC $OUT)"
+OUT="$(PATH="$TMP/shim-evfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "evidence find exploded" && has "CLEAN-CHECK: degraded"; } && ok "failing evidence find -> typed DEGRADED-EVIDENCE-SCAN, exit 3" || no "evidence degraded" "(rc=$RC $OUT)"
+printf 'x\n' > "$REPO/stray.json"
+OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "DEGRADED-WORKTREE-SCAN" && has "GARBAGE untracked stray.json"; } && ok "degraded retention scan + real finding -> findings still win (exit 1)" || no "degraded+finding" "(rc=$RC $OUT)"
+if [ "$(id -u)" != 0 ]; then
+  fresh_main; mkdir -p "$REPO/_evidence/t/locked" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/_evidence/t/locked"
+  run --target "$REPO" --tmp "$FT"
+  chmod 755 "$REPO/_evidence/t/locked"
+  { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN"; } && ok "really unreadable evidence subdir -> DEGRADED-EVIDENCE-SCAN, exit 3" || no "unreadable evidence" "(rc=$RC $OUT)"
+fi
+
+# ---- review round: W1 discovery scope, W2 early --base, S4 suppressed branches, S5 pruned backups, S7 newline worktree path
+mkdir -p "$TMP/shim-evdisc" "$TMP/shim-evperm"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { echo "shim-find-diagnostic: discovery exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-evdisc/find"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { %s "$@"; echo "$SHIM_ERR_LINE" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" "$REALFIND" > "$TMP/shim-evperm/find"
+chmod +x "$TMP/shim-evdisc/find" "$TMP/shim-evperm/find"
+if [ "$(id -u)" != 0 ]; then
+  fresh_main; mkdir -p "$REPO/other/locked" "$REPO/.research-sdd"; printf '_evidence/\nother/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/other/locked"
+  run --target "$REPO" --tmp "$FT"
+  chmod 755 "$REPO/other/locked"
+  { [ "$RC" = 0 ] && has "INFO evidence-discovery skipped unreadable directory" && has "other/locked" && ! has "DEGRADED"; } \
+    && ok "unreadable NON-_evidence dir -> typed INFO naming the path, not DEGRADED (exit 0)" || no "unreadable non-evidence dir" "(rc=$RC $OUT)"
+  fresh_main; mkdir -p "$REPO/_evidence/t/locked" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/_evidence/t/locked"
+  run --target "$REPO" --tmp "$FT"
+  chmod 755 "$REPO/_evidence/t/locked"
+  { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "unreadable dir UNDER _evidence still degrades and names the path" || no "unreadable evidence names path" "(rc=$RC $OUT)"
+fi
+fresh_main; OUT="$(PATH="$TMP/shim-evdisc:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "discovery exploded"; } && ok "failing discovery find (unattributable error) -> DEGRADED-EVIDENCE-SCAN with the message" || no "discovery degrade" "(rc=$RC $OUT)"
+# round 2: summary counts skipped dirs; classification is anchored and relative to the target
+evperm() { OUT="$(SHIM_ERR_LINE="$1" PATH="$TMP/shim-evperm:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?; }
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && has "evidence: none found, 1 unreadable dir(s) skipped"; } && ok "skipped unreadable dir -> summary says so, never a bare 'none found'" || no "none found suffix" "(rc=$RC $OUT)"
+fresh_main; mkdir -p "$REPO/_evidence/t" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "1 dir(s) scanned, 0 older than 14d, 1 unreadable dir(s) skipped"; } && ok "skip suffix also on a run that found evidence dirs" || no "scanned suffix" "(rc=$RC $OUT)"
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/Permission denied': No such file or directory"
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN"; } && ok "a non-permission error on a dir named 'Permission denied' is not skipped (anchored match)" || no "anchor" "(rc=$RC $OUT)"
+evperm "find: '$REPO/_evidence/t/locked': Permission denied"
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "permission error under an _evidence dir degrades (root-independent)" || no "evidence arm" "(rc=$RC $OUT)"
+CE="$TMP/case_evidence_$n/_evidence"; mkdir -p "$CE"; REPO_SAVE="$REPO"; REPO="$CE/repo"; mkdir -p "$REPO"; git -C "$REPO" init -q; git -C "$REPO" branch -M main 2>/dev/null
+mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+"${GIT[@]}" -C "$REPO" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$REPO" commit -q -m i 2>/dev/null
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && ! has "DEGRADED"; } && ok "a target path containing '_evidence' as a substring does not misclassify" || no "target path substring" "(rc=$RC $OUT)"
+REPO="$REPO_SAVE"
+# W2: --base validated before any scan prints
+fresh_main; printf 'x\n' > "$REPO/stray.json"
+run --target "$REPO" --tmp "$FT" --base nope
+{ [ "$RC" = 2 ] && has "--base ref not found" && ! has "GARBAGE" && ! has "ABSENT-KEEPLIST" && ! has "CLEAN-CHECK"; } && ok "bad --base -> exit 2 with no partial scan output" || no "base early" "(rc=$RC $OUT)"
+# S4: degraded worktree scan -> checked-out branches unknown -> local merged-branch WARNs suppressed
+fresh_main; git -C "$REPO" branch mergedbr; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
+{ [ "$RC" = 3 ] && has "DEGRADED-WORKTREE-SCAN" && ! has "WARN merged-branch" && has "INFO merged-branch scan of local branches skipped"; } && ok "worktree scan degraded -> local merged-branch WARNs suppressed (typed INFO)" || no "S4 suppress" "(rc=$RC $OUT)"
+# S5: a matching backup dir and its matching children are reported once
+fresh_main; mkdir -p "$REPO/_evidence/rollback-d"; : > "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d"
+mkdir -p "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && has "stale-backup $REPO/_evidence/rollback-d age" && ! has "rollback-inner" && has "warnings: 1"; } && ok "matching backup dir reported once; its matching children are pruned" || no "S5 prune" "(rc=$RC $OUT)"
+# S7: a newline inside a worktree path survives (git worktree list -z)
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"; WNL="$TMP/wtnl$n/a"$'\n'"b"
+if git -C "$REPO" worktree add -q "$WNL" -b nlbr 2>/dev/null; then
+  rm -rf "$TMP/wtnl$n"
+  run --target "$REPO" --tmp "$FT"
+  { [ "$RC" = 0 ] && [[ "$OUT" == *"a"$'\n'"b missing"* ]] && has "warnings: 1"; } && ok "worktree path containing a newline is reported whole" || no "S7 newline path" "(rc=$RC $OUT)"
+else echo "  (skipped, not counted: git cannot create a worktree with a newline in its path)"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
   # Each control deletes or inverts ONE guard in a COPY of the SUT (lib/mutant.sh refuses a no-op,
@@ -506,8 +655,8 @@ KL
     --good-has 'stale-tmp' --bad-has 'find failed' -- env "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$RT"
   mt "git failure no longer detected (RC marker ignored, untracked scan)" '/git ls-files failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
     --good-has 'git ls-files failed' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "find failure no longer detected (RC marker ignored, tmp scan)" '/find failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
-    --good-has 'find failed' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
+  mt "find failure no longer detected (RC marker ignored, tmp scan)" '/find failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 3 \
+    --good-has 'find failed' --bad-lacks 'find failed' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
   fresh; ST="$FT"; : > "$ST/tmp.a"; : > "$ST/tmp.b"; ago 48 "$ST/tmp.a"; ago 48 "$ST/tmp.b"
   mt "sort failure no longer detected (RC marker ignored, sort step)" '/sort failed/s/"\${_sorted\[\$_slast\]}" = "RC=0"/"x" = "x"/' 2 1 \
     --good-has 'sort failed' -- env "PATH=$TMP/shim-sort:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ST"
@@ -591,6 +740,70 @@ KL
     --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-benign:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
   mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/\[ "\$_other" -eq 0 \]/true/' 2 1 \
     --good-has 'find failed' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-hard:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
+
+  # kit #1277 slice 3 teeth: the report-only retention scans.
+  # World R: merged branch, live + gone worktrees, old + young rollback backups, an old non-backup file.
+  fresh_main; R="$REPO"; RT="$FT"; mkdir -p "$R/_evidence/t1" "$R/.research-sdd"; printf '_evidence/\n' > "$R/.research-sdd/keep.txt"
+  git -C "$R" branch mergedbr; git -C "$R" branch livewt; git -C "$R" worktree add -q "$TMP/rw-live" livewt
+  git -C "$R" worktree add -q "$TMP/rw-gone" -b gonebr; rm -rf "$TMP/rw-gone"
+  git -C "$R" worktree add -q --lock "$TMP/rw-locked" -b lockedbr; rm -rf "$TMP/rw-locked"   # locked + missing: git does NOT mark it prunable
+  git -C "$R" worktree add -q "$TMP/rw-broken" -b brokenbr; rm "$TMP/rw-broken/.git"          # path exists, git marks it prunable
+  : > "$R/_evidence/t1/rollback-old.tar"; ago 480 "$R/_evidence/t1/rollback-old.tar"; : > "$R/_evidence/t1/ROLLBACK-new.tar"
+  mt "stale worktree detection (missing path) removed" '/# CC-WT-MISSING/s/\[ ! -e "\$_wp" \]/false/' 0 0 \
+    --good-has 'rw-locked missing \(locked\)' --bad-lacks 'rw-locked missing' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "git's prunable marker no longer reported" 's/elif \[ -n "\$_wprun" \]/elif false/' 0 0 \
+    --good-has 'rw-broken prunable \(gitdir file' --bad-lacks 'rw-broken prunable' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "branches checked out in a worktree are reported as merged" 's/\[ "\$_chk" = 1 \] && continue/:/' 0 0 \
+    --good-lacks 'merged-branch livewt' --bad-has 'merged-branch livewt' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "backup retention age filter removed" '/# CC-EV-FIND/s/ -mmin "+\$((BACKUP_D \* 1440))"//' 0 0 \
+    --good-lacks 'ROLLBACK-new' --bad-has 'ROLLBACK-new' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "backup retention default changed from 14 days" 's/BACKUP_D=14$/BACKUP_D=30/' 0 0 \
+    --good-has 'stale-backup' --bad-lacks 'stale-backup' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "a WARN is counted as a finding (exit code changes)" '/^_warn()/s/WARNINGS=\$((WARNINGS + 1))/FINDINGS=$((FINDINGS + 1))/' 0 1 \
+    --good-has 'WARN merged-branch mergedbr' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "failed worktree list no longer degrades the run" '/^  _degrade "DEGRADED-WORKTREE-SCAN/s/.*/  :/' 3 0 \
+    --good-has 'DEGRADED-WORKTREE-SCAN' --bad-lacks 'DEGRADED-WORKTREE-SCAN' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "failed branch listing no longer degrades the run" '/^    _degrade "DEGRADED-BRANCH-SCAN/s/.*/    :/' 3 0 \
+    --good-has 'DEGRADED-BRANCH-SCAN' --bad-lacks 'DEGRADED-BRANCH-SCAN' -- env "PATH=$TMP/shim-brfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "failed evidence find no longer degrades the run" '/^      _degrade "DEGRADED-EVIDENCE-SCAN find failed or was truncated/s/_degrade .*/:; _evbad=$((_evbad + 1))/' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  mt "absent explicit --evidence dir is no longer typed" "s/printf 'ABSENT-EVIDENCE %s\\\\n' \"\\\$EVID_ARG\"; //" 0 0 \
+    --good-has 'ABSENT-EVIDENCE' --bad-lacks 'ABSENT-EVIDENCE' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT" --evidence "$TMP/no-such-evidence"
+  # Review-round teeth. Worlds: NB = no base + no _evidence; PR = nested old backup dir.
+  fresh; git -C "$REPO" branch -M trunk; NB="$REPO"; NBT="$FT"
+  fresh_main; mkdir -p "$REPO/_evidence/rollback-d"; : > "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d"; PR="$REPO"; PRT="$FT"
+  mkdir -p "$PR/.research-sdd"; printf '_evidence/\n' > "$PR/.research-sdd/keep.txt"
+  mt "ABSENT-BASE line removed" "/^  printf 'ABSENT-BASE/s/.*/  :/" 0 0 \
+    --good-has 'ABSENT-BASE' --bad-lacks 'ABSENT-BASE' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "unattributable discovery find failure no longer degrades" '/^    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories/s/_degrade .*/:/' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evdisc:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "evidence: none found state lost" 's/EV_STATE="none found"/EV_STATE="not evaluated"/' 0 0 \
+    --good-has 'evidence: none found' --bad-lacks 'evidence: none found' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "backup-dir prune removed (children double-reported)" '/# CC-EV-FIND/s/ -prune//' 0 0 \
+    --good-lacks 'rollback-inner' --bad-has 'rollback-inner' -- "$BASH_BIN" @SUT@ --target "$PR" --tmp "$PRT"
+  mt "degraded worktree scan no longer suppresses local branch WARNs" 's/\[ "\$_wt_ok" = 1 \] || { continue; }/:/' 3 3 \
+    --good-lacks 'WARN merged-branch' --bad-has 'WARN merged-branch' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
+  CEW="$TMP/case_evidence_w/_evidence/repo"; mkdir -p "$CEW/.research-sdd"; git -C "$CEW" init -q; git -C "$CEW" branch -M main 2>/dev/null; printf '# none\n' > "$CEW/.research-sdd/keep.txt"
+  "${GIT[@]}" -C "$CEW" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$CEW" commit -q -m i 2>/dev/null
+  mt "skipped non-evidence dir degrades the run" 's/\*) _ev_fatal=0; _ev_unread/*) _ev_fatal=1; _ev_unread/' 0 3 \
+    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "skip count missing from the summary (quiet none found)" 's/\[ "\$_ev_unread" -eq 0 \] || _ev_sfx=/: || _ev_sfx=/' 0 0 \
+    --good-has 'none found, 1 unreadable dir\(s\) skipped' --bad-lacks 'unreadable dir\(s\) skipped' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "_evidence safety arm removed (permission error under _evidence skipped)" '/CC-EV-ARM/d' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/_evidence/t/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "Permission denied match no longer anchored to the line end" 's/\[\[ "\$_fl" == "\$_pre"\*"\$_suf" \]\]/[[ "$_fl" == "$_pre"* ]]/' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/Permission denied': No such file or directory" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "classification no longer relative to the target (case_evidence in the target path)" 's/; _fp="\${_fp#"\$TARGET_P"\/}"//' 0 3 \
+    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$CEW/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$CEW" --tmp "$NBT"
+  # World R2: origin/HEAD base with a local twin of the base and a merged remote branch.
+  fresh_main; R2="$REPO"; R2T="$FT"; RB2="$TMP/r2-remote.git"; git init -q --bare "$RB2"; git -C "$R2" remote add origin "$RB2"
+  git -C "$R2" push -q origin main; git -C "$R2" push -q origin main:refs/heads/rdone; git -C "$R2" fetch -q origin; git -C "$R2" remote set-head origin main >/dev/null; git -C "$R2" switch -q -c other   # HEAD off main, so main is a reportable twin
+  mt "the base's local twin is reported as merged" 's/\[ -n "\$_bb" \] && \[ "\$_bn" = "\$_bb" \] && continue/:/' 0 0 \
+    --good-lacks 'merged-branch main' --bad-has 'merged-branch main' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
+  mt "origin/HEAD alias is reported as a merged remote branch" 's/\[ "\$_bn" = "HEAD" \] && continue/:/' 0 0 \
+    --good-lacks 'origin/HEAD merged' --bad-has 'origin/HEAD merged' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
+  mt "origin/HEAD no longer chosen as the base" 's/refs\/remotes\/origin\/HEAD/refs\/remotes\/origin\/NOHEAD/' 0 0 \
+    --good-has 'merged-remote-branch origin/rdone merged into origin/main' --bad-lacks 'merged into origin/main' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
 fi
 
 echo "== $pass passed · $fail failed =="
