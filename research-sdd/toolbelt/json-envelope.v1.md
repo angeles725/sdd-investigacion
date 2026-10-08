@@ -177,9 +177,11 @@ answer, and a missing target is an operational failure (rc 1, no stdout), not a 
 `counts`: `blocked` (`1` when the verdict is `block`, else `0`), `degraded_check` (`1` when the change set was
 decided by the mtime fallback because the session-start sha was absent or unresolvable, else `0`), `unverified`
 (`1` when the verdict was reached without a check the gate normally makes: `verify-retro.sh` absent so the
-retro was not verified (`branch` `no-verifier`, an allow), the nested-worktree probe failed, or a directory-symlink
-scan was skipped or incomplete; else `0`; each case also prints its typed stderr WARN). An allow with
-`unverified:1` is NOT a clean pass. A `degraded` envelope has `counts:{}`.
+retro was not verified (`branch` `no-verifier`, an allow), the nested-worktree probe failed (any non-zero rc,
+including rc 3, an incomplete traversal), or a directory-symlink scan was skipped, timed out or incomplete; else
+`0`; each case also prints its typed stderr WARN, except rc 3, whose WARN comes from the lib). A directory link
+that is deliberately skipped because it resolves to `/`, `$HOME` or an ancestor of the target is a safety skip,
+not a failed check: it prints its WARN but does not set `unverified`. An allow with `unverified:1` is NOT a clean pass. A `degraded` envelope has `counts:{}`.
 
 Process differences from the default mode, all in `--json` only: usage error (anything other than one `<target>`
 beside the flag) is rc 2, target not found / a missing or incomplete helper lib / a failed envelope build is rc 1

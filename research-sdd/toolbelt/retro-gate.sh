@@ -500,8 +500,8 @@ _nw_rc=$?
 # printed (possibly none), so worktree copies may be COUNTED — a false BLOCK, recoverable — and
 # never skipped; the probe's failure can never turn into an allow.
 # SENTINEL-NW-PROBE-FAIL-START
+if [ "$_nw_rc" -ne 0 ]; then _unverified=1; fi   # --json counts.unverified: rc 3 (incomplete traversal) too
 if [ "$_nw_rc" -ne 0 ] && [ "$_nw_rc" -ne 3 ]; then
-  _unverified=1
   printf 'retro-gate: WARN: nested-worktree probe failed (rc=%s) for %s — worktree copies may be counted\n' \
     "$_nw_rc" "$(basename "$TARGET")" >&2
 fi

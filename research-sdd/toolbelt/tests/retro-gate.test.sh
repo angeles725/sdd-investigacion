@@ -2568,6 +2568,37 @@ OUT="$(printf '%s' "$(mkjson j14c-sess false)" | PF_RC=5 PATH="$FAIL_AUTH_GH_DIR
 if jshape && [ "$(jitem .verdict)|$(<<<"$OUT" jq -r .counts.unverified)" = "block|1" ]; then
   ok "#1711 J14c: failed nested-worktree probe → counts.unverified 1"
 else no "#1711 J14c: wrong envelope (rc=$RC): $OUT"; fi
+# J14d: rc 3 (incomplete traversal) is the realistic probe failure and may hide worktree copies → unverified 1,
+# but its WARN stays the lib's (the gate adds none).
+mkjt "$ROOT/tj14d" j14d-sess block
+OUT="$(printf '%s' "$(mkjson j14d-sess false)" | PF_RC=3 PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$PFKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14d" 2>"$ROOT/j14d.err")"; RC=$?
+if jshape && [ "$(<<<"$OUT" jq -r .counts.unverified)" = 1 ] && ! grep -q 'nested-worktree probe failed' "$ROOT/j14d.err"; then
+  ok "#1711 J14d: nested-worktree probe rc 3 → counts.unverified 1, no gate-level duplicate WARN"
+else no "#1711 J14d: wrong envelope (rc=$RC): $OUT"; fi
+
+# J15: the Part C (directory-symlink) failures each set counts.unverified, via the S8-S15 stubs.
+# jstub <script> <stubdir> <target> <sid> → OUT RC ERR (--json).
+jstub() {
+  local errf="$ROOT/jstub_err.$$"
+  rm -f "$3"/.claude/.rsdd-retro-blocked-"$4" 2>/dev/null
+  OUT="$(printf '%s' "$(mkjson "$4" false)" | PATH="$2:$PATH" "$BASH_BIN" "$1" --json "$3" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+T_j15a="$ROOT/t-j15a"; mkgit "$T_j15a"; mksessionfile "$T_j15a" j15a-sess "202609050800"; ln -s "$S15_EXT" "$T_j15a/corpus-a"
+T_j15b="$ROOT/t-j15b"; mkgit "$T_j15b"; mksessionfile "$T_j15b" j15b-sess "202609050800"; ln -s "$S1_EXT" "$T_j15b/corpus"
+T_j15c="$ROOT/t-j15c"; mkgit "$T_j15c"; mksessionfile "$T_j15c" j15c-sess "202609050800"; ln -s "$S2_EXT" "$T_j15c/corpus"
+jstub "$SUT" "$STUB_NOMKTEMP" "$T_j15a" j15a-sess
+if jshape && [ "$(<<<"$OUT" jq -r .counts.unverified)" = 1 ] && <<<"$ERR" grep -q 'directory-symlink scan skipped'; then
+  ok "#1711 J15a: scratch file unavailable (scan skipped) → counts.unverified 1"
+else no "#1711 J15a: wrong envelope (rc=$RC): $OUT"; fi
+jstub "$SUT" "$STUB_TO124" "$T_j15b" j15b-sess
+if jshape && [ "$(<<<"$OUT" jq -r .counts.unverified)" = 1 ] && <<<"$ERR" grep -q 'directory-symlink scan timed out'; then
+  ok "#1711 J15b: fallback enumeration timeout → counts.unverified 1"
+else no "#1711 J15b: wrong envelope (rc=$RC): $OUT"; fi
+jstub "$SUT" "$STUB_TOINNER" "$T_j15c" j15c-sess
+if jshape && [ "$(<<<"$OUT" jq -r .counts.unverified)" = 1 ] && <<<"$ERR" grep -q 'directory-symlink walk incomplete'; then
+  ok "#1711 J15c: failing inner walk → counts.unverified 1"
+else no "#1711 J15c: wrong envelope (rc=$RC): $OUT"; fi
 
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
@@ -4067,10 +4098,23 @@ jc_default()  { jm_run "$1" "$ROOT/ja/tj1" j1-sess false; ! <<<"$OUT" grep -qF '
 jc_capability()  { OUT="$(printf '%s' "$(mkjson j13-sess false)" | PATH="$OLDJQ:$PATH" "$BASH_BIN" "$1" --json "$ROOT/tj13" 2>/dev/null)"; RC=$?; [ "$RC" -ne 3 ]; }
 jc_unv_nov()     { cp "$1" "$NVKIT/toolbelt/retro-gate.sh"; rm -f "$ROOT/tj14/.claude/.rsdd-retro-blocked-j14-sess"
   OUT="$(printf '%s' "$(mkjson j14-sess false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$NVKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14" 2>/dev/null)"; RC=$?
-  [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
-jc_unv_probe()   { cp "$1" "$PFKIT/toolbelt/retro-gate.sh"; rm -f "$ROOT/tj14c/.claude/.rsdd-retro-blocked-j14c-sess"
-  OUT="$(printf '%s' "$(mkjson j14c-sess false)" | PF_RC=5 PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$PFKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14c" 2>/dev/null)"; RC=$?
-  [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
+  local r=0; [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ] || r=1
+  cp "$SUT" "$NVKIT/toolbelt/retro-gate.sh"   # restore: the kit must not keep the mutant after the tooth
+  [ "$r" -eq 0 ]; }
+# jc_unv_pf <rc> <target> <sid>: the mutant runs inside PFKIT (probe stub returning <rc>); PFKIT is restored after.
+jc_unv_pf() {
+  cp "$1" "$PFKIT/toolbelt/retro-gate.sh"; rm -f "$3"/.claude/.rsdd-retro-blocked-"$4"
+  OUT="$(printf '%s' "$(mkjson "$4" false)" | PF_RC="$2" PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$PFKIT/toolbelt/retro-gate.sh" --json "$3" 2>/dev/null)"; RC=$?
+  local r=0; [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ] || r=1
+  cp "$SUT" "$PFKIT/toolbelt/retro-gate.sh"
+  [ "$r" -eq 0 ]
+}
+jc_unv_probe()   { jc_unv_pf "$1" 5 "$ROOT/tj14c" j14c-sess; }
+jc_unv_probe3()  { jc_unv_pf "$1" 3 "$ROOT/tj14d" j14d-sess; }
+# jc_unv_stub <stubdir> <target> <sid> <script>: Part C stub cases (the mutant is the script run directly).
+jc_unv_mktemp()  { jstub "$1" "$STUB_NOMKTEMP" "$T_j15a" j15a-sess; [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
+jc_unv_to124()   { jstub "$1" "$STUB_TO124" "$T_j15b" j15b-sess; [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
+jc_unv_inner()   { jstub "$1" "$STUB_TOINNER" "$T_j15c" j15c-sess; [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
 j_tooth "j-block-envelope-dropped (block site prints nothing under --json)" \
   's/^    _emit_envelope block .*$/    :/' jc_block
 j_tooth "j-block-flag-dropped (block verdict loses its reason and counts.blocked)" \
@@ -4102,7 +4146,15 @@ j_tooth "j-capability-probe-dropped (an old jq is no longer degraded up front)" 
 j_tooth "j-unverified-no-verifier-dropped (verify-retro.sh absent no longer counted)" \
   's/_STOP_BRANCH="no-verifier"; _unverified=1/_STOP_BRANCH="no-verifier"/' jc_unv_nov
 j_tooth "j-unverified-probe-dropped (failed nested-worktree probe no longer counted)" \
-  's/^  _unverified=1$/  :/' jc_unv_probe
+  's/^if \[ "\$_nw_rc" -ne 0 \]; then _unverified=1; fi/:/' jc_unv_probe
+j_tooth "j-unverified-probe-rc3-excluded (rc 3 incomplete traversal no longer counted)" \
+  's/^if \[ "\$_nw_rc" -ne 0 \]; then _unverified=1; fi/if [ "$_nw_rc" -ne 0 ] \&\& [ "$_nw_rc" -ne 3 ]; then _unverified=1; fi/' jc_unv_probe3
+j_tooth "j-unverified-mktemp-dropped (Part C scan skipped no longer counted)" \
+  's/_dl_cands=(); _dl_skip=1; _unverified=1/_dl_cands=(); _dl_skip=1/' jc_unv_mktemp
+j_tooth "j-unverified-timeout-dropped (Part C enumeration timeout/failure no longer counted)" \
+  's/^    if \[ "\$_dl_rc" -ne 0 \]; then _unverified=1; fi$/    :/' jc_unv_to124
+j_tooth "j-unverified-inner-walk-dropped (Part C incomplete walk no longer counted)" \
+  '/^    if \[ "\$_dl_rc" -ne 0 \]; then$/{n;s/^      _unverified=1$/      :/}' jc_unv_inner
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently
