@@ -329,7 +329,7 @@ fi
 #     Code runs project hooks from) ONLY when the command contains no 'cd' and the word is the
 #     command itself or its first argument (word 1 or 2: 'x.sh' or 'bash x.sh'). Words are split
 #     quote-aware, so '"/my tools/retro-gate.sh"' is one word; interpreter prefixes and trailing
-#     arguments are tolerated. Everything else is 'unverifiable': a variable that is not a leading
+#     arguments are tolerated. Everything else is 'unverifiable' (including a word starting with '-', a ':' before the first '/', a '~' inside double quotes, and the word after a '-c' shell flag): a variable that is not a leading
 #     resolvable one, '~user/p', a backslash, glob characters, a bare command name (no '/'), a
 #     single-quoted '$'/'~', an unterminated quote, a relative path after 'cd', an empty HOME.
 #     NOT checked: the executable bit (a fork-free awk cannot test it; 'bash x.sh' needs none), the
@@ -352,16 +352,20 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
       function pfx(s, pat) { return substr(s, 1, length(pat) + 1) == pat "/" }
       # resolve(w, hascd): a word of the command that mentions retro-gate -> "ok"/"miss"/"unver".
       # "miss" is a firm claim, emitted only when the path was resolved unambiguously.
-      function resolve(w, hascd, widx,   tok, r, ln) {
+      function resolve(w, hascd, widx, prev,   tok, r, ln) {
         tok = w
         if (index(tok, "\047") > 0 && tok ~ /[$~]/) return "unver"   # single-quoted: the shell would not expand it
+        if (prev ~ /^-[a-zA-Z]*c$/) return "unver"   # a shell -c payload: the shell re-parses it
         gsub(/["\047]/, "", tok)
+        if (substr(tok, 1, 1) == "-") return "unver"   # an option (--cfg=/x/retro-gate.json), not a script path
+        if (index(w, "\"") > 0 && substr(tok, 1, 1) == "~") return "unver"   # no tilde expansion inside double quotes
         if (pfx(tok, "${CLAUDE_PROJECT_DIR}")) tok = tgt substr(tok, 22)
         else if (pfx(tok, "$CLAUDE_PROJECT_DIR")) tok = tgt substr(tok, 20)
         else if (home != "" && pfx(tok, "${HOME}")) tok = home substr(tok, 8)
         else if (home != "" && pfx(tok, "$HOME")) tok = home substr(tok, 6)
         else if (home != "" && substr(tok, 1, 2) == "~/") tok = home substr(tok, 2)
         if (tok ~ /[$`*?\\]/ || substr(tok, 1, 1) == "~" || index(tok, "/") == 0) return "unver"
+        if (index(tok, ":") > 0 && index(tok, ":") < index(tok, "/")) return "unver"   # scheme or drive prefix (C:/x), not a local path
         if (substr(tok, 1, 1) != "/") {
           if (hascd) return "unver"          # relative to a directory the command itself changed
           if (widx > 2) return "unver"       # a relative word past the command/interpreter slots may be a fragment or an argument
@@ -372,7 +376,7 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
       }
       # check(line, pos): classify every retro-gate word of the JSON string that contains pos.
       # Returns the index of the closing quote (so the scanner can skip the string), or 0.
-      function check(line, pos,   s, e, k, cmd, n, c, q, w, hascd, any, widx) {
+      function check(line, pos,   s, e, k, cmd, n, c, q, w, hascd, any, widx, prev) {
         s = 0
         for (k = pos - 1; k >= 1; k--) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { s = k; break }
         e = 0
@@ -383,12 +387,13 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
         gsub(/\\"/, "\"", cmd)
         hascd = (cmd ~ /(^|[ \t;&|(])cd[ \t]/)
         # quote-aware split: whitespace inside a quoted span does not end a word
-        n = length(cmd); q = ""; w = ""; any = 0; widx = 0
+        n = length(cmd); q = ""; w = ""; any = 0; widx = 0; prev = ""
         for (k = 1; k <= n + 1; k++) {
           c = (k <= n) ? substr(cmd, k, 1) : " "
           if (q == "" && (c == " " || c == "\t")) {
             if (w != "") widx++
-            if (w != "" && index(w, "retro-gate") > 0) { any = 1; res[resn++] = resolve(w, hascd, widx) }
+            if (w != "" && index(w, "retro-gate") > 0) { any = 1; res[resn++] = resolve(w, hascd, widx, prev) }
+            if (w != "") prev = w
             w = ""
             continue
           }
@@ -396,7 +401,7 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
           else if (q != "" && c == q) q = ""
           w = w c
         }
-        if (q != "") { unver++; return e }   # unterminated quote: the command could not be split reliably
+        if (q != "") { unver++; resn = 0; return e }   # unterminated quote: the command could not be split reliably
         if (!any) unver++
         for (k = 0; k < resn; k++) { if (res[k] == "ok") okc++; else if (res[k] == "miss") miss++; else unver++ }
         resn = 0

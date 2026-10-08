@@ -508,6 +508,27 @@ assert_script_state "25t one unresolvable + one present → present (any present
 wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"/nope2/retro-gate-b.sh"}]}]}}'
 assert_script_state "25u every entry firmly absent → missing" "$d" "missing"
 
+# --- 26 — kit issue #1157 round 3: shapes whose word is not a plain script path.
+d="$ROOT/t26a"; mkdir -p "$d"
+wire_settings "$d" "$(st 'bash -c \"/nope/retro-gate-stop.sh && echo ok\"')"
+assert_script_state "26a word after 'bash -c' is a re-parsed payload → unverifiable (not missing)" "$d" "unverifiable"
+wire_settings "$d" "$(st 'sh -lc /nope/retro-gate-stop.sh')"
+assert_script_state "26a' word after 'sh -lc' → unverifiable" "$d" "unverifiable"
+wire_settings "$d" "$(st 'bash /nope/retro-gate-stop.sh -c')"
+assert_script_state "26a'' '-c' AFTER the script is an ordinary argument → missing" "$d" "missing"
+d="$ROOT/t26b"; mkdir -p "$d"
+wire_settings "$d" "$(st 'tool --cfg=/nope/retro-gate.json')"
+assert_script_state "26b option word '--cfg=/x/retro-gate.json' → unverifiable" "$d" "unverifiable"
+d="$ROOT/t26c"; mkdir -p "$d"
+wire_settings "$d" "$(st 'C:/nope/retro-gate-stop.sh')"
+assert_script_state "26c ':' before the first '/' (C:/x) → unverifiable" "$d" "unverifiable"
+d="$ROOT/t26d"; mkdir -p "$d"
+wire_settings "$d" "$(st "bash \\\"$TL/hk/retro-gate-stop.sh\\\"")"
+HOME="$fh" assert_script_state "26d '~/p' inside double quotes is not expanded → unverifiable" "$d" "unverifiable"
+d="$ROOT/t26e"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"'"$fh"'/hk/retro-gate-stop.sh \"unterminated"},{"command":"/nope/retro-gate-b.sh"}]}]}}'
+assert_script_state "26e unterminated quote in entry 1 leaves no stale result for entry 2 → unverifiable" "$d" "unverifiable"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -855,6 +876,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   script_tooth "any-present-wins dropped" 's/if (okc > 0) exit 0/if (0) exit 0/' "$ROOT/t24i" "present" "case 24i"
   wire_settings "$ROOT/t25s2" '{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"retro-gate-b"}]}]}}'
   script_tooth "unresolvable-beats-missing dropped" 's/if (unver > 0) exit 5/if (0) exit 5/' "$ROOT/t25s2" "unverifiable" "case 25s"
+
+  echo "-- teeth (round 3): -c payload, option word, drive/scheme prefix, quoted tilde, stale result --"
+  wire_settings "$ROOT/t26n1" "$(st 'bash -c \"/nope/retro-gate-stop.sh && echo ok\"')"
+  script_tooth "-c payload guard dropped" 's/if (prev ~ \/^-\[a-zA-Z\]\*c\$\/) return "unver"/if (0) return "unver"/' "$ROOT/t26n1" "unverifiable" "case 26a"
+  script_tooth "option-word guard dropped" 's/if (substr(tok, 1, 1) == "-") return "unver"/if (0) return "unver"/' "$ROOT/t26b" "unverifiable" "case 26b"
+  wire_settings "$ROOT/t26s2" "$(st 'C:/nope/retro-gate-stop.sh')"
+  script_tooth "colon-prefix guard dropped" 's/if (index(tok, ":") > 0 \&\& index(tok, ":") < index(tok, "\/")) return "unver"/if (0) return "unver"/' "$ROOT/t26s2" "unverifiable" "case 26c"
+  wire_settings "$ROOT/t26s3" "$(st "bash \\\"$TL/hk/retro-gate-stop.sh\\\"")"
+  HOME="$fh" script_tooth "quoted-tilde guard dropped" 's/if (index(w, "\\"") > 0 \&\& substr(tok, 1, 1) == "~") return "unver"/if (0) return "unver"/' "$ROOT/t26s3" "unverifiable" "case 26d"
+  script_tooth "stale-result reset dropped" 's/if (q != "") { unver++; resn = 0; return e }/if (q != "") { unver++; return e }/' "$ROOT/t26e" "unverifiable" "case 26e"
 
   echo "-- teeth: collapse the degraded arm into missing — case 24m must go RED --"
   mut_deg="$ROOT/hook-wiring.MUTANT-script-degraded.sh"
