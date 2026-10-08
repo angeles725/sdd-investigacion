@@ -191,34 +191,75 @@ rc_check() {
 # reported "not scannable" so a row can never be added that nothing could ever verify.
 IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 
-# Prose mentions that look like an emission but are not one. Each waiver is `file|substring|reason`; a
-# waiver that matches nothing is itself a finding (stale), so this list cannot rot into a blanket ignore.
+# Prose mentions that look like an emission but are not one. Each waiver is `file|substring|count|reason` and
+# silences exactly `count` occurrences on lines of `file` containing `substring`. Fewer matches (stale) or more
+# (a new real emission now hiding behind the substring) are both findings, so the list cannot become a blanket
+# ignore and cannot swallow a later emission. Line numbers are not used: they drift with every edit.
 IC_WAIVERS=(
-  'verify-state.sh|document before closing as absent-input|advice text inside a WARN line, not a typed state'
-  'verify-sources.sh|empty-input digests|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-block.sh|empty-input digests|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'stage-retro-issues.sh|unclassifiable tracker|scrub-refusal prose naming the tracker issue, not the state'
-  'stage-retro-issues.sh|unclassifiable item set|body text of the tracker issue, not a state emission'
-  'verify-registry.sh|unclassifiable-blocks WARN|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
+  'verify-state.sh|document before closing as absent-input|1|advice text inside a WARN line, not a typed state'
+  'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
+  'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
+  'stage-retro-issues.sh|unclassifiable tracker|6|scrub-refusal prose naming the tracker issue, not the state'
+  'stage-retro-issues.sh|unclassifiable item set|1|body text of the tracker issue, not a state emission'
+  'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:
 #   FILE LINENO TOKEN CLASS TEXT
 # A token is a word-bounded occurrence (a hyphen or alphanumeric neighbour makes it a different word, so
 # unclassifiable-items / -row / -blocks are NOT occurrences). `\t` / `\n` escapes are blanked first so
-# `%d\tunclassifiable` is seen. CLASS, first match wins:
+# `%d\tunclassifiable` is seen. Each line is also MASKED with a small quote-state machine (single quotes,
+# double quotes with backslash escapes, a ` #` outside both starts a comment): quoted characters become Q and the
+# comment tail becomes C, so "is this outside quotes" questions are answered on the mask. CLASS, first match wins:
 #   counter       TOKEN= , $TOKEN , ${TOKEN , or inside $(( .. )) arithmetic: a variable, not a state
-#   comment       after a trailing ` #` outside double quotes
+#   comment       the token sits in a trailing comment (outside BOTH quote kinds)
 #   emit-jq       a jq state literal: then "TOKEN" / else "TOKEN"
-#   consumer      the line is a matcher: grep, case, a leading * or / pattern, or `= "TOKEN"` / `== "TOKEN"`
+#   consumer      the token is the argument of a matcher:
+#                   - an UNQUOTED grep/egrep/fgrep or case command (command position) earlier on the line
+#                   - ==, != or =~ immediately before it (shell [[ ]] / jq tests)
+#                   - a single = before it, only when an unquoted [ or [[ opens earlier on the line
+#                   - a case-pattern line (starts with *, the token before the closing paren)
+#                   - an awk pattern line (starts with /, the token before the closing slash, then { or end)
 #   emit-echo     the line is an echo/printf
-#   emit-marker   a parenthesised marker `(TOKEN` in a string on any other line (helper calls, assignments)
+#   emit-assign   an assignment: x=TOKEN, x="TOKEN", jq .f = "TOKEN"
+#   emit-marker   a parenthesised marker `(TOKEN` in a string on any other line (helper calls)
 #   UNCLASSIFIED  none of the above: the scanner cannot read it
 IC_AWK='
-BEGIN { re = "(^|[^A-Za-z0-9_-])(absent-input|empty-input|unclassifiable|no-match)([^A-Za-z0-9_-]|$)" }
+BEGIN {
+  re = "(^|[^A-Za-z0-9_-])(absent-input|empty-input|unclassifiable|no-match)([^A-Za-z0-9_-]|$)"
+  q_assign = "=[ \t]*[\"\047]?$"
+  q_eq = "(==|!=|=~)[ \t]*[\"\047]?$"
+  q_brk = "[^=!<>][ \t]=[ \t]*[\"\047]?$"
+  re_br = "(^|[^[:alnum:]_])\\[\\[?[ \t]"
+  cmdre = "(^|[;&|({!]|[[:space:]](if|then|elif|while|until|do)[[:space:]])[[:space:]]*"
+  re_grep = cmdre "(grep|egrep|fgrep)[[:space:]]"
+  re_case = cmdre "case[[:space:]]"
+}
+function mask(p,   i, n, ch, st, out, prev) {
+  n = length(p); st = ""; out = ""; prev = " "
+  for (i = 1; i <= n; i++) {
+    ch = substr(p, i, 1)
+    if (st == "s") {
+      if (ch == "\047") { st = ""; out = out ch } else out = out "Q"
+    } else if (st == "d") {
+      if (ch == "\\") { out = out "Q"; if (i < n) { out = out "Q"; i++ } }
+      else if (ch == "\"") { st = ""; out = out ch }
+      else out = out "Q"
+    } else {
+      if (ch == "\\") { out = out ch; if (i < n) { out = out substr(p, i + 1, 1); i++ } }
+      else if (ch == "\047") { st = "s"; out = out ch }   # TOOTH-IC-SQ
+      else if (ch == "\"") { st = "d"; out = out ch }   # TOOTH-IC-DQ
+      else if (ch == "#" && prev ~ /[ \t]/) { while (i <= n) { out = out "C"; i++ } break }   # TOOTH-IC-HASH
+      else out = out ch
+    }
+    prev = ch
+  }
+  return out
+}
 /^[[:space:]]*#/ { next }
 {
   line = $0; scan = line; gsub(/\\[tn]/, "  ", scan); s = scan; off = 0   # TOOTH-IC-ESCAPE
+  mk = mask(scan)
   while (match(s, re)) {
     m = substr(s, RSTART, RLENGTH); rs = RSTART
     pre = ""; if (m !~ /^[a-z]/) { pre = substr(m, 1, 1); m = substr(m, 2) }
@@ -228,16 +269,23 @@ BEGIN { re = "(^|[^A-Za-z0-9_-])(absent-input|empty-input|unclassifiable|no-matc
     off += rs + pl + length(m) - 1
     s = substr(s, rs + pl + length(m))
     prefix = substr(scan, 1, tokstart - 1)
+    mp = substr(mk, 1, tokstart - 1)
     c = ""
-    if (post == "=" || pre == "$" || pre == "{" || prefix ~ /\$\(\([^)]*$/) c = "counter"          # TOOTH-IC-COUNTER
-    if (c == "" && match(prefix, /[ \t]#/)) {
-      q = substr(prefix, 1, RSTART); n = gsub(/"/, "", q)
-      if (n % 2 == 0) c = "comment"                                                                # TOOTH-IC-COMMENT
-    }
-    if (c == "" && pre == "\"" && prefix ~ /(then|else)[ \t]+"$/) c = "emit-jq"                    # TOOTH-IC-JQ
-    if (c == "" && (scan ~ /(^|[^[:alnum:]_])grep[[:space:]]/ || scan ~ /(^|[^[:alnum:]_])case[[:space:]]/ || scan ~ /^[[:space:]]*\*/ || scan ~ /^[[:space:]]*\// || prefix ~ /=[ \t]*"?$/)) c = "consumer"   # TOOTH-IC-CONSUMER
+    if (post == "=") c = "counter"   # TOOTH-IC-CTR-EQ
+    if (c == "" && pre == "$") c = "counter"   # TOOTH-IC-CTR-DOLLAR
+    if (c == "" && pre == "{") c = "counter"   # TOOTH-IC-CTR-BRACE
+    if (c == "" && prefix ~ /\$\(\([^)]*$/) c = "counter"   # TOOTH-IC-CTR-ARITH
+    if (c == "" && substr(mk, tokstart, 1) == "C") c = "comment"   # TOOTH-IC-COMMENT
+    if (c == "" && pre == "\"" && prefix ~ /(then|else)[ \t]+"$/) c = "emit-jq"   # TOOTH-IC-JQ
+    if (c == "" && mp ~ re_grep) c = "consumer"   # TOOTH-IC-CONS-GREP
+    if (c == "" && mp ~ re_case) c = "consumer"   # TOOTH-IC-CONS-CASE
+    if (c == "" && prefix ~ q_eq) c = "consumer"   # TOOTH-IC-CONS-EQ
+    if (c == "" && prefix ~ q_brk && mp ~ re_br) c = "consumer"   # TOOTH-IC-CONS-BRK
+    if (c == "" && prefix ~ /^[[:space:]]*\*/ && prefix !~ /\)/ && scan ~ /\)/) c = "consumer"   # TOOTH-IC-CONS-STAR
+    if (c == "" && prefix ~ /^[[:space:]]*\// && prefix !~ /\{/ && scan ~ /\/[[:space:]]*(\{|$)/) c = "consumer"   # TOOTH-IC-CONS-SLASH
     if (c == "" && scan ~ /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/) c = "emit-echo"
-    if (c == "" && pre == "(") c = "emit-marker"                                                   # TOOTH-IC-MARKER
+    if (c == "" && prefix ~ q_assign) c = "emit-assign"   # TOOTH-IC-ASSIGN
+    if (c == "" && pre == "(") c = "emit-marker"   # TOOTH-IC-MARKER
     if (c == "") c = "UNCLASSIFIED"
     gsub(/\t/, " ", line)
     printf "%s\t%d\t%s\t%s\t%s\n", F, NR, m, c, line
@@ -310,7 +358,7 @@ ic_check() {
     wr=''
     for ((i = 0; i < ${#wv[@]}; i++)); do
       w="${wv[$i]}"; wf="${w%%|*}"; ws="${w#*|}"; ws="${ws%%|*}"
-      if [ "$wf" = "$f" ] && [[ "$txt" == *"$ws"* ]]; then wr=1; usedw[i]=1; break; fi
+      if [ "$wf" = "$f" ] && [[ "$txt" == *"$ws"* ]]; then wr=1; usedw[i]=$(( ${usedw[$i]:-0} + 1 )); break; fi
     done
     if [ -n "$wr" ]; then n_waived=$((n_waived + 1)); continue; fi
     if [ "$cls" = "UNCLASSIFIED" ]; then
@@ -323,7 +371,10 @@ ic_check() {
   done <<<"$all"
 
   for ((i = 0; i < ${#wv[@]}; i++)); do
-    if [ -z "${usedw[$i]:-}" ]; then finding "stale waiver (matches no occurrence): ${wv[$i]}"; fi   # TOOTH-IC-STALEWAIVER
+    w="${wv[$i]}"; ws="${w#*|}"; ws="${ws#*|}"; ws="${ws%%|*}"   # the count field
+    wr="${usedw[$i]:-0}"
+    if [ "$wr" -eq 0 ]; then finding "stale waiver (matches no occurrence): $w"; fi   # TOOTH-IC-STALEWAIVER
+    if [ "$wr" -ne 0 ] && [ "$wr" -ne "$ws" ]; then finding "waiver matched $wr occurrence(s), expected $ws (a new emission may be hiding behind it): $w"; fi   # TOOTH-IC-WAIVERCOUNT
   done
 
   # registry input rows the scanner could never verify
@@ -362,6 +413,7 @@ ic_check() {
   done
 
   IC_REPORT="scanned $nfiles shell files (*.sh and lib/*.sh); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell)"
+  printf 'COVERAGE: %s\n' "$IC_REPORT"
   [ "$nfind" -eq 0 ]
 }
 
@@ -455,8 +507,7 @@ if [ "$rc" -eq 0 ]; then
 else
   no "real registry input rows vs real toolbelt"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
-ic_check "$REGISTRY" "$TOOLBELT" >/dev/null 2>&1
-printf '  INFO  input-class coverage: %s\n' "$IC_REPORT"
+printf '  INFO  input-class coverage: %s\n' "$(printf '%s\n' "$out" | sed -n 's/^COVERAGE: //p')"
 
 # --- 2. extraction rule on a literal fixture ---------------------------------------------------
 cat > "$tmp/extract.sh" <<'EOF'
@@ -572,12 +623,23 @@ expect "a quoted ' #' before degraded: is reported unclassifiable (not read as a
 mkifix() {
   local d="$tmp/$1"
   mkdir -p "$d/tb/lib"
-  printf '%s\n' '# comment: echo "absent-input: never emitted from a comment"' \
-    'echo "absent-input: $x not found" >&2' \
-    "printf 'subject: empty-input (0 units)\\n'" \
-    'unclassifiable=0; n=$((unclassifiable + 1))   # trailing note about absent-input' \
-    'case "$o" in *absent-input:*) : ;; esac' \
-    'echo "path: $p"' > "$d/tb/a.sh"
+  cat > "$d/tb/a.sh" <<'FIXEOF'
+# comment: echo "absent-input: never emitted from a comment"
+echo "absent-input: $x not found" >&2
+printf 'subject: empty-input (0 units)\n'
+unclassifiable=0; n=$((unclassifiable + 1))   # trailing note about absent-input
+[ "$unclassifiable" -gt 0 ] || :
+x="${unclassifiable}"
+grep -q 'no-match' "$f"
+case "$o" in *unclassifiable:*) : ;; esac
+jq -e '.state == "no-match"' "$f" >/dev/null
+[ "$s" = "unclassifiable" ] || :
+*no-match:*) : ;;
+/^INFO: no-match/ { next }
+st=empty-input
+jq '.state = "empty-input"' "$f"
+echo "path: $p"
+FIXEOF
   printf '%s' 'echo "x" # no trailing newline' >> "$d/tb/a.sh"
   printf '%s\n' "jq -n '(if \$a then \"ok\" else \"no-match\" end)'" \
     'emit C1 n/a "no rows (empty-input)"' > "$d/tb/lib/b.sh"
@@ -646,11 +708,34 @@ expect_ic "input scan: an occurrence in no recognised form is reported, never si
 
 mkifix i_waived
 printf '\n%s' 'msg="the absent-input case"' >> "$tmp/i_waived/tb/a.sh"
-printf '%s\n' 'a.sh|the absent-input case|fixture prose' > "$tmp/i_waived/waivers.txt"
-expect_ic "input scan: a waiver silences exactly its prose occurrence" 0 i_waived
+printf '%s\n' 'a.sh|the absent-input case|1|fixture prose' > "$tmp/i_waived/waivers.txt"
+expect_ic "input scan: a waiver with the right count silences its prose occurrence" 0 i_waived
 mkifix i_stalewaiver
-printf '%s\n' 'a.sh|matches nothing at all|fixture' > "$tmp/i_stalewaiver/waivers.txt"
+printf '%s\n' 'a.sh|matches nothing at all|1|fixture' > "$tmp/i_stalewaiver/waivers.txt"
 expect_ic "input scan: a waiver that matches nothing fails (stale waiver)" 1 i_stalewaiver 'stale waiver'
+# a second, genuine emission that happens to contain the waived substring must not be swallowed
+mkifix i_waivercount
+printf '\n%s\n%s' 'msg="the absent-input case"' 'echo "unclassifiable: the absent-input case"' >> "$tmp/i_waivercount/tb/a.sh"
+printf '%s\n' 'a.sh|the absent-input case|1|fixture prose' > "$tmp/i_waivercount/waivers.txt"
+expect_ic "input scan: a waiver matching more occurrences than its count fails (cannot swallow a new emission)" 1 i_waivercount 'waiver matched [0-9]+ occurrence\(s\), expected 1'
+
+# hazards: lines that LOOK like consumers/comments/counters but are emissions. a.sh is not a listed emitter of
+# `unclassifiable` or `no-match`, so each line must surface as an emitter mismatch.
+# haz NAME LINE TOKEN
+haz() {
+  mkifix "$1"
+  printf '\n%s' "$2" >> "$tmp/$1/tb/a.sh"
+  expect_ic "input scan: emission not mistaken for a non-emit — $2" 1 "$1" "emitter mismatch: a.sh emits '$3'"
+}
+haz h_eqmsg   'echo "state=no-match"' no-match
+haz h_grepmsg "printf 'no-match: grep found 0 rows\\n'" no-match
+haz h_casemsg 'echo "unclassifiable: in this case x"' unclassifiable
+haz h_jqassign "jq '.state = \"no-match\"' \"\$f\"" no-match
+haz h_shassign 'st=no-match' no-match
+haz h_slash "/usr/bin/printf 'no-match: x\\n'" no-match
+haz h_star '*) echo "no-match: x" ;;' no-match
+haz h_sqhash "echo 'item #3 unclassifiable'" unclassifiable
+haz h_dqhash 'echo "item #3 unclassifiable"' unclassifiable
 
 mkifix i_counter
 printf '\n%s' 'echo "n=$no_match_count unclassifiable=$n unclassifiable-items: 0 unclassifiable-row: 1"' >> "$tmp/i_counter/tb/a.sh"
@@ -739,11 +824,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
   ictooth ic-unclass     i_uncl        1 0 '/# TOOTH-IC-UNCLASS/s/finding /: /'
   ictooth ic-stalewaiver i_stalewaiver 1 0 '/# TOOTH-IC-STALEWAIVER/s/finding /: /'
-  ictooth ic-zerofiles   i_zero        2 1 '/# TOOTH-IC-ZEROFILES/s/-eq 0/-eq -1/;/# TOOTH-IC-ZEROOCC/s/\[ -z "\$all" \]/false/'
+  # ic-zerofiles mutates TWO guards on purpose: with only the zero-files guard off, the scan still reaches the
+  # zero-occurrences guard and exits 2 for the same input, so the mutant would be indistinguishable. Disabling
+  # both lets the empty scan fall through to the row checks (stale rows), which is the observable difference.
+  ictooth ic-zerofiles  i_zero        2 1 '/# TOOTH-IC-ZEROFILES/s/-eq 0/-eq -1/;/# TOOTH-IC-ZEROOCC/s/\[ -z "\$all" \]/false/'
   ictooth ic-zeroocc     i_zeroocc     2 1 '/# TOOTH-IC-ZEROOCC/s/\[ -z "\$all" \]/false/'
-  ictooth ic-counter     i_counter     0 1 '/# TOOTH-IC-COUNTER/s/post == "=" || pre == "\$" || pre == "{" || //'
-  ictooth ic-comment     i_good        0 1 '/# TOOTH-IC-COMMENT/s/n % 2 == 0/n % 2 == 5/'
-  ictooth ic-consumer    i_good        0 1 '/# TOOTH-IC-CONSUMER/s/scan ~ \/(^|\[^\[:alnum:\]_\])case\[\[:space:\]\]\/ || //'
+  ictooth ic-waivercount i_waivercount 1 0 '/# TOOTH-IC-WAIVERCOUNT/s/finding /: /'
+  # one tooth per counter alternative: each fixture line below is caught by exactly that alternative
+  ictooth ic-ctr-eq      i_good        0 1 '/# TOOTH-IC-CTR-EQ/s/post == "="/post == "ZZ"/'
+  ictooth ic-ctr-dollar  i_good        0 1 '/# TOOTH-IC-CTR-DOLLAR/s/pre == "\$"/pre == "ZZ"/'
+  ictooth ic-ctr-brace   i_good        0 1 '/# TOOTH-IC-CTR-BRACE/s/pre == "{"/pre == "ZZ"/'
+  ictooth ic-ctr-arith   i_good        0 1 '/# TOOTH-IC-CTR-ARITH/s/prefix ~ \//prefix ~ \/ZZ/'
+  ictooth ic-comment     i_good        0 1 '/# TOOTH-IC-COMMENT/s/== "C"/== "ZZ"/'
+  ictooth ic-hash        i_good        0 1 '/# TOOTH-IC-HASH/s/ch == "#"/ch == "ZZ"/'
+  # one tooth per consumer alternative (positive: the line must stay a non-emit)
+  ictooth ic-cons-grep   i_good        0 1 '/# TOOTH-IC-CONS-GREP/s/mp ~ re_grep/mp ~ "ZZ"/'
+  ictooth ic-cons-case   i_good        0 1 '/# TOOTH-IC-CONS-CASE/s/mp ~ re_case/mp ~ "ZZ"/'
+  ictooth ic-cons-eq     i_good        0 1 '/# TOOTH-IC-CONS-EQ/s/prefix ~ q_eq/prefix ~ "ZZ"/'
+  ictooth ic-cons-brk    i_good        0 1 '/# TOOTH-IC-CONS-BRK/s/prefix ~ q_brk/prefix ~ "ZZ"/'
+  ictooth ic-cons-star   i_good        0 1 '/# TOOTH-IC-CONS-STAR/s/prefix ~ \/^\[\[:space:\]\]\*\\\*\//prefix ~ \/ZZ\//'
+  ictooth ic-cons-slash  i_good        0 1 '/# TOOTH-IC-CONS-SLASH/s/prefix ~ \/^\[\[:space:\]\]\*\\\/\//prefix ~ \/ZZ\//'
+  ictooth ic-assign      i_good        0 1 '/# TOOTH-IC-ASSIGN/s/prefix ~ q_assign/prefix ~ "ZZ"/'
+  # negative: the over-broad consumer/comment rules this scanner used to have, reintroduced one at a time,
+  # must make the matching hazard fixture go clean (rc 1 -> 0), proving the hazard fixtures bite
+  ictooth ic-haz-grep    h_grepmsg     1 0 '/# TOOTH-IC-CONS-GREP/s|mp ~ re_grep|scan ~ /grep[[:space:]]/|'
+  ictooth ic-haz-case    h_casemsg     1 0 '/# TOOTH-IC-CONS-CASE/s|mp ~ re_case|scan ~ /case[[:space:]]/|'
+  ictooth ic-haz-eq      h_eqmsg       1 0 '/# TOOTH-IC-CONS-EQ/s|prefix ~ q_eq|prefix ~ q_assign|'
+  ictooth ic-haz-shassign h_shassign   1 0 '/# TOOTH-IC-CONS-EQ/s|prefix ~ q_eq|prefix ~ q_assign|'
+  ictooth ic-haz-jqassign h_jqassign   1 0 '/# TOOTH-IC-CONS-BRK/s/ && mp ~ re_br/ \&\& 1/'
+  ictooth ic-haz-slash   h_slash       1 0 '/# TOOTH-IC-CONS-SLASH/s/(\\{|\$)/(.|$)/'
+  ictooth ic-haz-star    h_star        1 0 '/# TOOTH-IC-CONS-STAR/s/prefix !~ \/\\)\//1/'
+  ictooth ic-haz-sqhash  h_sqhash      1 0 '/# TOOTH-IC-SQ/s/st = "s"/st = ""/'
+  ictooth ic-haz-dqhash  h_dqhash      1 0 '/# TOOTH-IC-DQ/s/st = "d"/st = ""/'
   ictooth ic-jq          i_good        0 1 '/# TOOTH-IC-JQ/s/(then|else)/(thenX|elseX)/'
   ictooth ic-escape      i_good        0 1 '/# TOOTH-IC-ESCAPE/s/\[tn\]/[zz]/'
   ictooth ic-marker     i_good        0 1 '/# TOOTH-IC-MARKER/s/pre == "("/pre == "Z"/'

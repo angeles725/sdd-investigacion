@@ -120,22 +120,30 @@ The test prints one `INFO  input-class coverage:` line with the file count and t
 
 An occurrence is a word-bounded token on a non-comment line. A hyphen or alphanumeric neighbour makes it a
 different word, so `unclassifiable-items`, `unclassifiable-row` and `unclassifiable-blocks` are NOT occurrences.
-The `\t` and `\n` escapes are blanked first, so `%d\tunclassifiable` is seen. Each occurrence gets exactly one
-class, first match wins:
+The `\t` and `\n` escapes are blanked first, so `%d\tunclassifiable` is seen. Each line is then masked with a
+small quote-state machine: single-quoted and double-quoted text (with backslash escapes) is blanked, and a ` #`
+outside BOTH quote kinds starts a comment. "Unquoted" below means unquoted in that mask. Each occurrence gets
+exactly one class, first match wins:
 
 | class | recognised form | counts as an emitter |
 |---|---|---|
 | counter | `token=`, `$token`, `${token`, or inside `$(( ... ))` | no: a variable, not a state |
-| comment | after a trailing ` #` outside double quotes | no |
+| comment | the token sits in a trailing comment (outside single and double quotes, so `echo 'item #3 absent-input'` is not one) | no |
 | emit-jq | a jq state literal, `then "token"` or `else "token"` | yes |
-| consumer | the line is a matcher: `grep`, `case`, a leading `*` or `/` pattern, `= "token"` or `== "token"` | no |
-| emit-echo | the line is an `echo` / `printf` | yes |
-| emit-marker | a parenthesised marker `(token` inside a string on any other line (an emit helper call, an assignment) | yes |
+| consumer | the token is the argument of a matcher: an UNQUOTED `grep`/`egrep`/`fgrep` or `case` at command position earlier on the line; `==`, `!=` or `=~` immediately before it; a single `=` before it only when an unquoted `[` or `[[` opens earlier on the line; a case-pattern line (starts with `*`, the token before the closing paren); an awk pattern line (starts with `/`, the token before the closing slash, followed by `{` or end of line) | no |
+| emit-echo | the line is an `echo` / `printf` (so `echo "state=no-match"` and `printf 'no-match: grep found 0 rows'` are emissions) | yes |
+| emit-assign | an assignment: `x=token`, `x="token"`, or jq `.f = "token"` | yes |
+| emit-marker | a parenthesised marker `(token` inside a string on any other line (an emit helper call) | yes |
 | UNCLASSIFIED | none of the above | the test FAILS and names `file:line`; resolve by adding a recognised form or a waiver |
 
-A waiver (`file|substring|reason`, in `IC_WAIVERS` in the test) marks a prose mention that only looks like an
-emission (for example the "empty-input digests" check, which is about hashes of empty input). A waiver that
-matches no occurrence fails as stale, so the list cannot become a blanket ignore.
+`grep` or `case` inside a double-quoted command substitution is masked with the rest of the quoted text, so a
+matcher written there is not recognised as one (it surfaces as an emit or UNCLASSIFIED, never as a silent skip).
+
+A waiver (`file|substring|count|reason`, in `IC_WAIVERS` in the test) marks a prose mention that only looks like
+an emission (for example the "empty-input digests" check, which is about hashes of empty input). It silences
+exactly `count` occurrences on lines of that file containing the substring. Fewer matches fail as stale; more
+matches fail too, because a new real emission would otherwise hide behind the substring. Line numbers are not
+used, since they drift.
 
 Not seen, by design: python (`*.py`; the test counts the files that mention a token and reports them as out of
 scope), a state printed by a helper whose call sites carry no marker or token, a token assembled across lines
