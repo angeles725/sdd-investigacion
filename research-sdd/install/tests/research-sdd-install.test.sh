@@ -2867,6 +2867,106 @@ if [ "$URC" = 2 ] && grep -Fq 'uninstall harness=pi status=degraded' <<<"$UOUT" 
   ok "UN14: without any sha256 tool --uninstall --yes is degraded (exit 2) and removes nothing"
 else no "UN14: no-hash-tool run wrong (rc=$URC) :: $UOUT"; fi
 
+# UN15 — a launcher block the exact-pair parser cannot read (CRLF endings; start marker whose end was deleted)
+#        is NOT absent: it is kept (modified) and the bundle record survives so it can still be proven later.
+uh="$TMP/un15-home"; mkdir -p "$uh"; _uinst "$uh" pi
+sed 's/$/\r/' "$uh/.pi/agent/AGENTS.md" > "$uh/.pi/agent/AGENTS.md.crlf" && mv "$uh/.pi/agent/AGENTS.md.crlf" "$uh/.pi/agent/AGENTS.md"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && grep -q 'research-sdd:start' "$uh/.pi/agent/AGENTS.md" && [ -f "$uh/.pi/agent/research-sdd/.installed-bundle-state" ] \
+   && _uhas 'kept (modified)  '"$uh"'/.pi/agent/AGENTS.md  [launcher block]  (malformed/CRLF marker)' && ! _uhas 'absent  '"$uh"'/.pi/agent/AGENTS.md'; then
+  ok "UN15a: a CRLF launcher block is kept (modified) (malformed/CRLF marker), exit 0, and the bundle record is kept"
+else no "UN15a: CRLF block mishandled (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un15b-home"; mkdir -p "$uh"; _uinst "$uh" pi
+grep -v 'research-sdd:end' "$uh/.pi/agent/AGENTS.md" > "$uh/.pi/agent/AGENTS.md.noend"; mv "$uh/.pi/agent/AGENTS.md.noend" "$uh/.pi/agent/AGENTS.md"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && grep -q 'research-sdd:start' "$uh/.pi/agent/AGENTS.md" && [ -f "$uh/.pi/agent/research-sdd/.installed-bundle-state" ] \
+   && _uhas 'kept (modified)  '"$uh"'/.pi/agent/AGENTS.md  [launcher block]  (malformed/CRLF marker)'; then
+  ok "UN15b: a start marker with its end deleted is kept (modified), exit 0, and the bundle record is kept"
+else no "UN15b: end-less block mishandled (rc=$URC) :: $(_uflat)"; fi
+
+# UN16 — containment: a symlinked parent directory must never let rm/rmdir act outside <config_root>.
+uh="$TMP/un16-home"; mkdir -p "$uh"; _uinst "$uh" pi
+out16="$TMP/un16-outside"; mkdir -p "$out16/prompts-real"
+mv "$uh/.pi/agent/skills/research-sdd" "$out16/skill-dir"; ln -s "$out16/skill-dir" "$uh/.pi/agent/skills/research-sdd"
+cp -R "$uh/.pi/agent/prompts/." "$out16/prompts-real/"; rm -rf "$uh/.pi/agent/prompts"; ln -s "$out16/prompts-real" "$uh/.pi/agent/prompts"
+out16_before="$(_utree "$out16")"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && [ "$out16_before" = "$(_utree "$out16")" ] && [ -f "$out16/skill-dir/SKILL.md" ] && [ -f "$out16/prompts-real/research-sdd.md" ] \
+   && _uhas 'kept (outside config root)  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md' && _uhas 'kept (outside config root)  '"$uh"'/.pi/agent/prompts/research-sdd.md'; then
+  ok "UN16a: files reached through a symlinked skills/research-sdd or prompts dir are kept (outside config root); the outside tree is untouched"
+else no "UN16a: containment failed (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un16b-home"; mkdir -p "$uh"; _uinst "$uh" pi
+mv "$uh/.pi/agent/skills" "$out16/skills-real"; rm -f "$out16/skills-real/research-sdd/SKILL.md"; ln -s "$out16/skills-real" "$uh/.pi/agent/skills"
+_urun "$uh" --harness pi --yes
+if [ -d "$out16/skills-real/research-sdd" ] && _uhas 'kept (outside config root)  '"$uh"'/.pi/agent/skills/research-sdd  [directory]'; then
+  ok "UN16b: an empty installer dir behind a symlinked skills/ is not rmdir'd — kept (outside config root)"
+else no "UN16b: rmdir escaped the root (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un16c-home"; mkdir -p "$uh"; _uinst "$uh" pi
+mkdir -p "$TMP/un16c-real"; mv "$uh/.pi/agent/AGENTS.md" "$TMP/un16c-real/AGENTS.md"; ln -s "$TMP/un16c-real/AGENTS.md" "$uh/.pi/agent/AGENTS.md"
+c16="$(cksum < "$TMP/un16c-real/AGENTS.md")"
+_urun "$uh" --harness pi --yes
+if [ -L "$uh/.pi/agent/AGENTS.md" ] && [ "$c16" = "$(cksum < "$TMP/un16c-real/AGENTS.md")" ] && _uhas 'kept (symlink)  '"$uh"'/.pi/agent/AGENTS.md  [launcher block]'; then
+  ok "UN16c: a symlinked prompt file is never written through — kept (symlink), link and target unchanged"
+else no "UN16c: symlinked prompt file mishandled (rc=$URC) :: $(_uflat)"; fi
+
+# UN17 — --home needs a non-empty value; neither form may fall back to the real $HOME or spin.
+uh="$TMP/un17-home"; mkdir -p "$uh"; _uinst "$uh" pi; before="$(_utree "$uh")"
+UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$SUT" --uninstall --yes --harness pi --home "" 2>&1)"; URC=$?
+if [ "$URC" = 2 ] && grep -Fq -- '--home requires' <<<"$UOUT" && [ -z "$(find "$UN_FAKEHOME" -type f)" ]; then ok "UN17a: --home \"\" → usage error, exit 2, the fallback \$HOME untouched"
+else no "UN17a: empty --home rc=$URC :: $UOUT"; fi
+UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$SUT" --uninstall --harness pi --home 2>&1)"; URC=$?
+if [ "$URC" = 2 ] && grep -Fq -- '--home requires' <<<"$UOUT"; then ok "UN17b: --home as the last argument → usage error, exit 2 (no endless loop)"
+else no "UN17b: trailing --home rc=$URC (124 = hung) :: $UOUT"; fi
+UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$SUT" --harness pi --home "" 2>&1)"; URC=$?
+[ "$URC" = 2 ] && [ -z "$(find "$UN_FAKEHOME" -type f)" ] && ok "UN17c: an empty --home is rejected for a plain install too" || no "UN17c: install with empty --home rc=$URC :: $UOUT"
+
+# UN18 — a hash tool that FAILS on a file is not a verdict of modification: kept (unverifiable).
+uh="$TMP/un18-home"; mkdir -p "$uh"; _uinst "$uh" pi
+UN_SHIM="$TMP/un18-shim"; mkdir -p "$UN_SHIM"; printf '#!/bin/sh\nexit 1\n' > "$UN_SHIM/sha256sum"; chmod +x "$UN_SHIM/sha256sum"
+before="$(_utree "$uh")"
+UOUT="$(PATH="$UN_SHIM:$PATH" HOME="$UN_FAKEHOME" bash "$SUT" --uninstall --yes --home "$uh" --harness pi 2>&1)"; URC=$?
+if [ "$URC" = 0 ] && [ "$before" = "$(_utree "$uh")" ] && grep -Fq 'kept (unverifiable)  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md' <<<"$UOUT" \
+   && ! grep -Fq 'kept (modified)' <<<"$UOUT"; then
+  ok "UN18a: a failing hash tool → kept (unverifiable), never kept (modified); nothing removed"
+else no "UN18a: failing hash tool mishandled (rc=$URC) :: $(printf '%s' "$UOUT" | tr '\n' '|')"; fi
+if [ "$(id -u)" != 0 ]; then
+  uh="$TMP/un18b-home"; mkdir -p "$uh"; _uinst "$uh" pi; rm -f "$uh/.pi/agent/skills/research-sdd/SKILL.md"
+  chmod a-w "$uh/.pi/agent/skills"
+  _urun "$uh" --harness pi --yes
+  chmod u+w "$uh/.pi/agent/skills"
+  if _uhas 'kept (rmdir failed: ' && [ -d "$uh/.pi/agent/skills/research-sdd" ] && ! _uhas 'kept (not empty)  '"$uh"'/.pi/agent/skills/research-sdd'; then
+    ok "UN18b: an rmdir that fails for a reason other than non-empty is typed kept (rmdir failed: <reason>)"
+  else no "UN18b: rmdir failure mis-typed (rc=$URC) :: $(_uflat)"; fi
+else echo "  SKIP  UN18b: running as root — a read-only directory does not stop rmdir"; fi
+
+# UN19 — python3 (needed for the containment realpath) is part of the degraded probe, dry-run AND apply.
+uh="$TMP/un19-home"; mkdir -p "$uh"; _uinst "$uh" pi; before="$(_utree "$uh")"
+UN_BIN19="$TMP/un19-bin"; mkdir -p "$UN_BIN19"
+for _t in dirname basename awk sed cat mktemp rm mkdir find sort cmp paste tr cp mv grep head sha256sum readlink rmdir; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$UN_BIN19/$_t"
+done
+for _m in "" "--yes"; do
+  # shellcheck disable=SC2086
+  UOUT="$(PATH="$UN_BIN19" HOME="$UN_FAKEHOME" "$BASH" "$SUT" --uninstall $_m --home "$uh" --harness pi 2>&1)"; URC=$?
+  if [ "$URC" = 2 ] && grep -Fq 'uninstall harness=pi status=degraded reason=python3' <<<"$UOUT" && [ "$before" = "$(_utree "$uh")" ]; then
+    ok "UN19: without python3 --uninstall ${_m:-(dry-run)} is degraded (exit 2) and removes nothing"
+  else no "UN19: no-python3 run (${_m:-dry-run}) wrong (rc=$URC) :: $UOUT"; fi
+done
+
+# UN20 — a render dir is removed only if EVERY entry is explained: an unrecorded FIFO, empty subdir or foreign symlink keeps it.
+for _k in fifo emptydir foreignlink; do
+  uh="$TMP/un20-$_k-home"; mkdir -p "$uh"; _uinst "$uh" pi general
+  rd="$uh/.pi/agent/research-sdd/profile/general"
+  case "$_k" in
+    fifo) mkfifo "$rd/odd-fifo" ;;
+    emptydir) mkdir "$rd/empty-subdir" ;;
+    foreignlink) ln -s /etc/hostname "$rd/foreign-link" ;;
+  esac
+  _urun "$uh" --harness pi --yes
+  if [ -d "$rd" ] && _uhas "kept (modified)  $rd  [rendered profile]"; then ok "UN20: an unrecorded $_k inside the render dir keeps it (kept (modified))"
+  else no "UN20: $_k not detected (rc=$URC) :: $(_uflat)"; fi
+done
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: --uninstall mutants must break the dry-run / ownership / keep-the-record assertions --"
   UM1="$MKI/research-sdd-install.MUTANT-un-alwaysapply.$$.sh"
@@ -2878,7 +2978,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth: always-apply mutant still kept the files — UN1 is THEATER"; fi
 
   UM2="$MKI/research-sdd-install.MUTANT-un-nomarker.$$.sh"
-  mutant_sed "$SUT" "$UM2" 's/elif _rsdd_marker_matches_deployed "\$marker" "\$path"; then st="proven"/elif true; then st="proven"/' \
+  mutant_sed "$SUT" "$UM2" 's/elif \[ "\$rec" = "\$act" \]; then st="proven"/elif true; then st="proven"/' \
     || no "teeth: UM2 could not be built"
   uh="$TMP/um2-home"; mkdir -p "$uh"; _uinst "$uh" pi; printf '\nmy delta\n' >> "$uh/.pi/agent/skills/research-sdd/SKILL.md"
   HOME="$UN_FAKEHOME" bash "$UM2" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
@@ -2908,6 +3008,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   HOME="$UN_FAKEHOME" bash "$UM5" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
   if [ ! -e "$uh/.pi/agent/research-sdd/.installed-bundle-state" ]; then ok "teeth: record-always-removed mutant loses the proof while a file is kept → the keep-the-record check has teeth"
   else no "teeth: mutant still kept the record — UN4's record assertion is THEATER"; fi
+
+  UM6="$MKI/research-sdd-install.MUTANT-un-crlfabsent.$$.sh"
+  mutant_sed "$SUT" "$UM6" 's/0) _rsdd_u_report "kept (modified)" "\$pf" "launcher block" "malformed\/CRLF marker" ;;/0) _rsdd_u_report absent "$pf" "launcher block" ;;/' \
+    || no "teeth: UM6 could not be built"
+  uh="$TMP/um6-home"; mkdir -p "$uh"; _uinst "$uh" pi
+  sed 's/$/\r/' "$uh/.pi/agent/AGENTS.md" > "$uh/.pi/agent/AGENTS.md.crlf" && mv "$uh/.pi/agent/AGENTS.md.crlf" "$uh/.pi/agent/AGENTS.md"
+  HOME="$UN_FAKEHOME" bash "$UM6" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/research-sdd/.installed-bundle-state" ]; then ok "teeth: CRLF-as-absent mutant deletes the record under an unparsed block → the malformed/CRLF check has teeth"
+  else no "teeth: CRLF-as-absent mutant still kept the record — UN15 is THEATER"; fi
+
+  UM7="$MKI/research-sdd-install.MUTANT-un-nocontain.$$.sh"
+  mutant_sed "$SUT" "$UM7" 's/"\$r"|"\$r"\/\*) return 0 ;;/*) return 0 ;;/' \
+    || no "teeth: UM7 could not be built"
+  uh="$TMP/um7-home"; mkdir -p "$uh"; _uinst "$uh" pi
+  mkdir -p "$TMP/um7-out"; mv "$uh/.pi/agent/skills/research-sdd" "$TMP/um7-out/skill-dir"; ln -s "$TMP/um7-out/skill-dir" "$uh/.pi/agent/skills/research-sdd"
+  HOME="$UN_FAKEHOME" bash "$UM7" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$TMP/um7-out/skill-dir/SKILL.md" ]; then ok "teeth: containment-less mutant deletes a file outside the root through a symlinked dir → the realpath check has teeth"
+  else no "teeth: containment-less mutant left the outside file — UN16 is THEATER"; fi
+
+  UM8="$MKI/research-sdd-install.MUTANT-un-nohomecheck.$$.sh"
+  mutant_sed "$SUT" "$UM8" '/^      --home)$/,/home="\$2"/s/if \[ \$# -lt 2 \] || \[ -z "\${2:-}" \]; then/if false; then/' \
+    || no "teeth: UM8 could not be built"
+  UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$UM8" --uninstall --harness pi --home "" 2>&1)"; URC=$?
+  if [ "$URC" != 2 ]; then ok "teeth: home-check-less mutant accepts --home \"\" (rc=$URC) → the empty --home check has teeth"
+  else no "teeth: home-check-less mutant still exits 2 — UN17 is THEATER"; fi
 fi
 
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.

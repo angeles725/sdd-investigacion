@@ -62,10 +62,19 @@
 #                   would-remove | removed | absent | failed
 #                   kept (modified)   the file/block/dir differs from what the installer recorded (hand-edit or extra file)
 #                   kept (unproven)   no marker/record vouches for it (the user's own file, or state already gone)
+#                   kept (unverifiable)   a hash could not be computed, so ownership is neither proven nor disproven
+#                   kept (outside config root)   a parent directory is a symlink that resolves outside <config_root>
+#                   kept (symlink)   a symlinked prompt file is never written through during uninstall
 #                   kept (not a regular file) · kept (unreadable) · kept (not empty) · kept (in use)
+#                   kept (rmdir failed: <reason>)
+#                 A launcher block whose markers are malformed or CRLF-terminated is reported kept (modified), and
+#                 the bundle record is kept with it. A render dir holding any unrecorded entry (extra file, empty
+#                 subdir, FIFO, a symlink that is not a kit-view link) is kept (modified).
 #                 then a per-harness summary line. A second run reports absent. --harness scopes it (default all);
-#                 nothing outside <config_root> is touched. Exit: 0 ok · 1 a removal failed · 2 usage error, or
-#                 degraded (no sha256 tool: ownership cannot be proven, so nothing is removed).
+#                 every removal and rmdir is checked to resolve inside <config_root> (realpath), so nothing outside
+#                 it is touched. Exit: 0 ok · 1 a removal failed · 2 usage error, or degraded (no sha256 tool or no
+#                 python3, in dry-run and apply alike: ownership/containment cannot be proven, so nothing is removed).
+#                 --home needs a non-empty value (an empty or missing one is a usage error, exit 2).
 #                 --yes requires --uninstall; --uninstall cannot be combined with --verify, --dry-run --yes,
 #                 --force-skill or --profile (usage error, exit 2).
 #   --yes         confirm the removal --uninstall would otherwise only list
@@ -836,7 +845,22 @@ _rsdd_verify_one() {
 # profile dir only when every regular file in it is a recorded member with an unchanged hash. Everything
 # else is KEPT with a typed reason (CLAUDE.md §7: an unverifiable file is neither "removed" nor "absent").
 # Dry-run is the default (propose-never-apply, §8): nothing is written unless apply=1 (--yes).
-_U_REMOVED=0; _U_KEPT=0; _U_ABSENT=0; _U_FAILED=0; _U_LAST=""
+_U_REMOVED=0; _U_KEPT=0; _U_ABSENT=0; _U_FAILED=0; _U_LAST=""; _U_ROOT=""
+
+# _rsdd_u_contained <path> — 0 iff the REAL (symlink-resolved) parent directory of <path> sits inside the
+# real <config_root> (_U_ROOT); 1 outside; 2 could not resolve. A symlinked parent dir (skills/research-sdd,
+# prompts, agents, ...) would otherwise let rm / rmdir act outside the install root (same realpath rule as
+# _rsdd_clean_profile_dir; python3 is probed up front so 2 is only a late failure).
+_rsdd_u_contained() {
+  local p r
+  p="$(_rsdd_realpath_m "$(dirname -- "$1")")" || return 2
+  r="$(_rsdd_realpath_m "$_U_ROOT")" || return 2
+  [ -n "$p" ] && [ -n "$r" ] || return 2
+  case "$p" in
+    "$r"|"$r"/*) return 0 ;;
+  esac
+  return 1
+}
 
 # _rsdd_u_report <status> <path> <kind> [note] — print the ONE typed line and count it.
 _rsdd_u_report() {
@@ -852,7 +876,11 @@ _rsdd_u_report() {
 
 # _rsdd_u_remove <path> <kind> <apply> — delete one proven file (or only report it in dry-run).
 _rsdd_u_remove() {
-  if [ "$3" != 1 ]; then _rsdd_u_report would-remove "$1" "$2"
+  local c=0
+  _rsdd_u_contained "$1" || c=$?
+  if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$1" "$2"
+  elif [ "$c" != 0 ]; then _rsdd_u_report "kept (unverifiable)" "$1" "$2" "could not resolve the parent directory"
+  elif [ "$3" != 1 ]; then _rsdd_u_report would-remove "$1" "$2"
   elif rm -f -- "$1"; then _rsdd_u_report removed "$1" "$2"
   else _rsdd_u_report failed "$1" "$2"; fi
 }
@@ -865,13 +893,15 @@ _rsdd_u_state() {
 
 # _rsdd_u_file <path> <marker> <kind> <apply> — one deployed file, judged against its marker.
 _rsdd_u_file() {
-  local path="$1" marker="$2" kind="$3" apply="$4" st
+  local path="$1" marker="$2" kind="$3" apply="$4" st rec act
+  rec="$(_rsdd_marker_field "$marker" sha256 2>/dev/null)" || rec=""
   if [ -L "$path" ]; then st="kept (not a regular file)"
   elif [ ! -e "$path" ]; then st="absent"
   elif [ ! -f "$path" ]; then st="kept (not a regular file)"
   elif [ ! -r "$path" ]; then st="kept (unreadable)"
-  elif [ -z "$(_rsdd_marker_field "$marker" sha256 2>/dev/null)" ]; then st="kept (unproven)"
-  elif _rsdd_marker_matches_deployed "$marker" "$path"; then st="proven"
+  elif [ -z "$rec" ]; then st="kept (unproven)"
+  elif ! act="$(_rsdd_sha256_file "$path")"; then st="kept (unverifiable)"
+  elif [ "$rec" = "$act" ]; then st="proven"
   else st="kept (modified)"; fi
   if [ "$st" = proven ]; then _rsdd_u_remove "$path" "$kind" "$apply"; else _rsdd_u_report "$st" "$path" "$kind"; fi
 }
@@ -891,18 +921,35 @@ _rsdd_u_recsha() {
 
 # _rsdd_u_launcher <h> <home> <apply> <record> — the marked launcher block inside the SHARED prompt file.
 _rsdd_u_launcher() {
-  local h="$1" home="$2" apply="$3" record="$4" root pf rel recorded cur remaining aw tmp="" note=""
+  local h="$1" home="$2" apply="$3" record="$4" root pf rel recorded cur remaining aw tmp="" note="" g c
   root="$(rsdd_field "$h" config_root "$home")"
   pf="$(rsdd_field "$h" prompt_file "$home")"
   rel="${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
+  # A symlinked prompt file is the user's own indirection (the splice writes THROUGH it on install); uninstall
+  # never writes through a link or removes one.
+  if [ -L "$pf" ]; then _rsdd_u_report "kept (symlink)" "$pf" "launcher block"; return 0; fi
   if [ ! -e "$pf" ]; then _rsdd_u_report absent "$pf" "launcher block"; return 0; fi
   if [ ! -f "$pf" ]; then _rsdd_u_report "kept (not a regular file)" "$pf" "launcher block"; return 0; fi
   if [ ! -r "$pf" ]; then _rsdd_u_report "kept (unreadable)" "$pf" "launcher block"; return 0; fi
-  if ! _rsdd_section_text "$pf" >/dev/null; then _rsdd_u_report absent "$pf" "launcher block"; return 0; fi
+  if ! _rsdd_section_text "$pf" >/dev/null; then
+    # No exact start..end pair parsed. If the start marker is still there (substring match, so a CR before
+    # the newline does not hide it) the block exists but is malformed / CRLF: keep it AND the record, so it
+    # can still be proven later. Only a file with no start marker at all is genuinely absent.
+    g=0; grep -Fq -- '<!-- research-sdd:start -->' "$pf" || g=$?
+    case "$g" in
+      0) _rsdd_u_report "kept (modified)" "$pf" "launcher block" "malformed/CRLF marker" ;;
+      1) _rsdd_u_report absent "$pf" "launcher block" ;;
+      *) _rsdd_u_report "kept (unreadable)" "$pf" "launcher block" ;;
+    esac
+    return 0
+  fi
   recorded="$(_rsdd_u_recsha "$record" "$rel")" || recorded=""
   if [ -z "$recorded" ]; then _rsdd_u_report "kept (unproven)" "$pf" "launcher block"; return 0; fi
-  cur="$(_rsdd_member_hash "$root" "$rel")" || cur=""
+  if ! cur="$(_rsdd_member_hash "$root" "$rel")" || [ -z "$cur" ]; then _rsdd_u_report "kept (unverifiable)" "$pf" "launcher block"; return 0; fi
   if [ "$cur" != "$recorded" ]; then _rsdd_u_report "kept (modified)" "$pf" "launcher block"; return 0; fi
+  c=0; _rsdd_u_contained "$pf" || c=$?
+  if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$pf" "launcher block"; return 0; fi
+  if [ "$c" != 0 ]; then _rsdd_u_report "kept (unverifiable)" "$pf" "launcher block" "could not resolve the parent directory"; return 0; fi
   # Same well-formed-pair rule as _rsdd_splice_file: drop the FIRST start..end pair, keep every other line.
   remaining="$(awk -v start='<!-- research-sdd:start -->' -v end='<!-- research-sdd:end -->' '
     BEGIN { done=0; inblk=0; orphan=0 }
@@ -920,12 +967,12 @@ _rsdd_u_launcher() {
   if [ "$aw" = 3 ]; then _rsdd_u_report "kept (modified)" "$pf" "launcher block" "malformed marker"; return 0; fi
   [ -n "${remaining//[[:space:]]/}" ] || note="the prompt file holds nothing else and is removed with it"
   if [ "$apply" != 1 ]; then _rsdd_u_report would-remove "$pf" "launcher block" "$note"; return 0; fi
-  if [ -n "$note" ] && [ ! -L "$pf" ]; then
+  if [ -n "$note" ]; then
     if rm -f -- "$pf"; then _rsdd_u_report removed "$pf" "launcher block" "$note"; else _rsdd_u_report failed "$pf" "launcher block"; fi
     return 0
   fi
-  # Preserved content back through the same write-back the splice uses (a symlinked prompt file is written THROUGH).
-  if tmp="$(mktemp)" && { if [ -n "$note" ]; then : > "$tmp"; else printf '%s\n' "$remaining" > "$tmp"; fi; } && _rsdd_write_back "$tmp" "$pf"; then
+  # Preserved content back via the splice's write-back (the prompt file is a regular file here: links were kept above).
+  if tmp="$(mktemp)" && printf '%s\n' "$remaining" > "$tmp" && _rsdd_write_back "$tmp" "$pf"; then
     _rsdd_u_report removed "$pf" "launcher block"
   else
     [ -z "$tmp" ] || rm -f -- "$tmp"
@@ -935,7 +982,7 @@ _rsdd_u_launcher() {
 
 # _rsdd_u_profiles <h> <home> <apply> <record> — rendered profile dirs under <config_root>/research-sdd/profile.
 _rsdd_u_profiles() {
-  local h="$1" home="$2" apply="$3" record="$4" root pdir rec_profile entries d name files f rel rsha asha bad
+  local h="$1" home="$2" apply="$3" record="$4" root pdir rec_profile entries d name files f rel rsha asha bad unver odd links tgt c
   root="$(rsdd_field "$h" config_root "$home")"
   pdir="$root/research-sdd/profile"
   rec_profile="$(_rsdd_marker_field "$record" profile 2>/dev/null)" || rec_profile=""
@@ -949,15 +996,38 @@ _rsdd_u_profiles() {
       _rsdd_u_report "kept (unproven)" "$d" "rendered profile"; continue
     fi
     if ! files="$(find "$d" -type f 2>/dev/null)"; then _rsdd_u_report "kept (unreadable)" "$d" "rendered profile"; continue; fi
-    bad=""
+    bad=""; unver=""
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       rel="${f#"$root"/}"
       rsha="$(_rsdd_u_recsha "$record" "$rel")" || rsha=""
-      asha="$(_rsdd_sha256_file "$f")" || asha=""
+      if ! asha="$(_rsdd_sha256_file "$f")"; then unver="$unver $rel"; continue; fi
       if [ -z "$rsha" ] || [ "$rsha" != "$asha" ]; then bad="$bad $rel"; fi
     done <<<"$files"
+    # Every NON-regular entry must be explainable too: a symlink only as a kit-view link (target ends with its
+    # own relative path, as _rsdd_link_missing_entries creates it); an empty subdir, FIFO, socket or device is
+    # never installer output.
+    if ! odd="$(find "$d" -mindepth 1 ! -type f ! -type d ! -type l -print 2>/dev/null; find "$d" -mindepth 1 -type d -empty 2>/dev/null)"; then
+      _rsdd_u_report "kept (unreadable)" "$d" "rendered profile"; continue
+    fi
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      bad="$bad ${f#"$root"/}"
+    done <<<"$odd"
+    if ! links="$(find "$d" -mindepth 1 -type l 2>/dev/null)"; then _rsdd_u_report "kept (unreadable)" "$d" "rendered profile"; continue; fi
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      tgt="$(readlink -- "$f")" || tgt=""
+      case "$tgt" in
+        /*"/${f#"$d"/}") ;;
+        *) bad="$bad ${f#"$root"/}" ;;
+      esac
+    done <<<"$links"
+    if [ -n "$unver" ]; then _rsdd_u_report "kept (unverifiable)" "$d" "rendered profile" "could not hash:$unver"; continue; fi
     if [ -n "$bad" ]; then _rsdd_u_report "kept (modified)" "$d" "rendered profile" "differs from the record:$bad"; continue; fi
+    c=0; _rsdd_u_contained "$d" || c=$?
+    if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$d" "rendered profile"; continue; fi
+    if [ "$c" != 0 ]; then _rsdd_u_report "kept (unverifiable)" "$d" "rendered profile" "could not resolve the parent directory"; continue; fi
     if [ "$apply" != 1 ]; then _rsdd_u_report would-remove "$d" "rendered profile"
     elif _rsdd_clean_profile_dir "$d" "$root"; then _rsdd_u_report removed "$d" "rendered profile"
     else _rsdd_u_report failed "$d" "rendered profile"; fi
@@ -966,7 +1036,7 @@ _rsdd_u_profiles() {
 
 # uninstall_one <h> <home> <apply> — one harness. Returns 0 clean, 1 a removal failed, 2 degraded.
 uninstall_one() {
-  local h="$1" home="$2" apply="$3" root record tmpl skill an names m n d rec_ok=0 verb
+  local h="$1" home="$2" apply="$3" root record tmpl skill an names m n d rec_ok=0 verb c err
   root="$(rsdd_field "$h" config_root "$home")"
   record="$root/research-sdd/.installed-bundle-state"
   if [ "$apply" = 1 ]; then verb=removed; printf 'uninstall harness=%s mode=apply\n' "$h"
@@ -975,6 +1045,13 @@ uninstall_one() {
     printf 'uninstall harness=%s status=degraded reason=no sha256 tool (sha256sum, shasum and python3 all absent): ownership cannot be proven, nothing removed\n' "$h"
     return 2
   fi
+  # python3 resolves the real paths the containment check needs; without it (in dry-run too, so the listing is
+  # truthful) no removal could be proven to stay inside <config_root>.
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf 'uninstall harness=%s status=degraded reason=python3 not found: cannot prove that removals stay inside %s, nothing removed\n' "$h" "$root"
+    return 2
+  fi
+  _U_ROOT="$root"
   _U_REMOVED=0; _U_KEPT=0; _U_ABSENT=0; _U_FAILED=0
 
   skill="$(rsdd_field "$h" skill_path "$home")"
@@ -1013,8 +1090,12 @@ uninstall_one() {
   if [ "$apply" = 1 ]; then
     for d in "$root/research-sdd/profile" "$root/skills/research-sdd" "$root/research-sdd"; do
       { [ -d "$d" ] && [ ! -L "$d" ]; } || continue
-      if rmdir "$d" 2>/dev/null; then _rsdd_u_report removed "$d" "empty directory"
-      else _rsdd_u_report "kept (not empty)" "$d" "directory"; fi
+      c=0; _rsdd_u_contained "$d" || c=$?
+      if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$d" "directory"; continue; fi
+      if [ "$c" != 0 ]; then _rsdd_u_report "kept (unverifiable)" "$d" "directory" "could not resolve the parent directory"; continue; fi
+      if err="$(rmdir "$d" 2>&1)"; then _rsdd_u_report removed "$d" "empty directory"
+      elif [[ "$err" == *"not empty"* ]]; then _rsdd_u_report "kept (not empty)" "$d" "directory"
+      else _rsdd_u_report "kept (rmdir failed: ${err##*: })" "$d" "directory"; fi
     done
   else
     printf '  note  installer directories left empty (research-sdd/profile, skills/research-sdd, research-sdd) are removed with --yes\n'
@@ -1214,8 +1295,16 @@ main() {
     case "$1" in
       --uninstall)   uninstall=1; shift ;;
       --yes)         yes=1; shift ;;
-      --harness)     harness="${2:-}"; shift 2 ;;
-      --home)        home="${2:-}"; shift 2 ;;
+      --harness)
+        if [ $# -lt 2 ]; then echo "research-sdd-install: --harness requires a value" >&2; usage >&2; return 2; fi
+        harness="$2"; shift 2 ;;
+      --home)
+        # An empty value would make rsdd_field build "/<rel>" paths or fall back to the real $HOME; a missing one
+        # made `shift 2` fail and the loop spin forever. Both are usage errors.
+        if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+          echo "research-sdd-install: --home requires a non-empty directory value" >&2; usage >&2; return 2
+        fi
+        home="$2"; shift 2 ;;
       --dry-run)     dry=1; shift ;;
       --force-skill) force=1; shift ;;
       --verify)      verify=1; shift ;;
