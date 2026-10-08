@@ -24,8 +24,8 @@
 #           name as a standalone token (case-insensitive; 'notes.js' / 'x.js.map' claim nothing)
 #           written in a deliberate form (kit #1986): with its leading dot in prose ('.js';
 #           '.tar.gz' claims 'gz'); as a backtick span whose WHOLE content is a type token or a
-#           list of them ('`.pdf`', '`jpg/png`', '`.jpg, .png`'; '`java -jar`', '`js-yaml`' and
-#           '`db\`' claim nothing); or as the head of a Dismissed bullet (a dotted head claims
+#           list of them ('`.pdf`', '`.jpg/.png`', '`.jpg, .png`'; a '/' list needs every item
+#           dotted; '`bin/sh`', '`java -jar`', '`js-yaml`', '`db/`' and '`db\`' claim nothing); or as the head of a Dismissed bullet (a dotted head claims
 #           its last segment; a head without a dot claims only in list shape, '- jpg, png —
 #           reason', and with >= 3 characters, so '- Lock files' claims nothing). A bare prose
 #           word never claims.
@@ -155,7 +155,8 @@ _stars=$(printf '%s\n' "$_hist" | awk 'NF >= 4 && $NF == "*" { e = ""; for (i = 
 # opener (backticks pair per line); an unpaired backtick is not a span, so it can never hide a
 # real comment (a leaked template comment would be a false closure). A comment still open at EOF
 # is reported out-of-band through a flag file, never through the text stream.
-_uflag=$(mktemp)
+_ucouldnot=no
+_uflag=$(mktemp) || { _uflag=/dev/null; _ucouldnot=yes; }
 _live=$(awk -v uflag="$_uflag" '
   { line = $0; out = ""
     while (length(line) > 0) {
@@ -176,7 +177,7 @@ _live=$(awk -v uflag="$_uflag" '
   END { if (inc) print "unterminated" > uflag }' "$STATE")
 _unterminated=no
 [ -s "$_uflag" ] && _unterminated=yes
-rm -f "$_uflag"
+[ "$_uflag" = /dev/null ] || rm -f "$_uflag"
 # Claim text = the two sections that can close the obligation (any other section is out of scope).
 # A level-1 or level-2 heading ends a section; '###' and deeper stay inside it.
 _claims=$(awk '/^#[[:space:]]/ || /^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+(Gap-backlog|Dismissed file types)/) } p' <<<"$_live")
@@ -186,6 +187,7 @@ _has_dismissed=no; grep -qE '^##[[:space:]]+Dismissed file types' <<<"$_live" &&
 if [ "$_has_backlog" = no ] && [ "$_has_dismissed" = no ]; then
   echo "Audit cross-check: DEGRADED — state has neither a '## Gap-backlog' nor a '## Dismissed file types' section outside comments and fenced blocks (${STATE}); no claim could be read"
   [ "$_unterminated" = yes ] && echo "   note: state has an unterminated HTML comment ('<!--' with no '-->'); every line after it was ignored"
+  [ "$_ucouldnot" = yes ] && echo "   note: unterminated-comment check: could not verify (no temp file)"
   exit 0
 fi
 if [ -z "$_stars" ]; then
@@ -215,26 +217,28 @@ _cand_re='^([^[:space:],/\&:]+)(.*)$'
 _add_dotted() { local t="${1#.}"; _claimed="${_claimed}${t##*.}"$'\n'; }
 _add_bare() { _claimed="${_claimed}${1}"$'\n'; }
 # _parse_list <text>: split a leading list of type tokens ('a, b/c & d'). Sets _items (a token that
-# is not a valid type token ends the list and is recorded as '!'), _rest (text after the list,
+# is not a valid type token, or a separator not followed by a valid token, is recorded as '!' and
+# ends the list; _seps holds the separator that preceded each item), _rest (text after the list,
 # leading spaces removed) and _term=1 when the list is followed by EOL, an em dash, ':' , '--' or
 # ' - '. Token delimiters: whitespace , / & : (an em dash is spaced first). A hyphenated, dotless
 # compound ('pdf.js', 'tar.gz') or path-touching token ('db\') is invalid.
 _parse_list() {
-  local rest="${1//—/ — }" item
-  _items=(); _term=0
+  local rest="${1//—/ — }" item sep=""
+  _items=(); _seps=(); _term=0
   while :; do
     rest="${rest#"${rest%%[![:space:]*\`~]*}"}"
     if [[ "$rest" =~ $_cand_re ]]; then
       item="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
     else
+      [ -n "$sep" ] && _items+=("!")
       break
     fi
     while [[ "$item" == *[\*\`~] ]]; do item="${item%?}"; done
     if ! [[ "$item" =~ $_tok_re ]]; then _items+=("!"); break; fi
-    _items+=("$item")
+    _items+=("$item"); _seps+=("$sep"); sep=""
     rest="${rest#"${rest%%[![:space:]]*}"}"
     case "$rest" in
-      [,/\&]*) rest="${rest:1}"; continue;;
+      [,/\&]*) sep="${rest:0:1}"; rest="${rest:1}"; continue;;
     esac
     break
   done
@@ -246,8 +250,16 @@ _parse_list() {
 while IFS= read -r _sp; do
   [ -n "$_sp" ] || continue
   _parse_list "$_sp"
-  [ -z "$_rest" ] && [ "${#_items[@]}" -gt 0 ] || continue
-  [[ " ${_items[*]} " == *" ! "* ]] && continue
+  [ -z "$_rest" ] || continue
+  [ "${#_items[@]}" -gt 0 ] || continue
+  [[ " ${_items[*]} " == *" ! "* ]] && continue  # SENTINEL-SPAN-BANG
+  # A '/'-joined list in a span ('src/js', 'bin/sh') is a path unless every item is dotted
+  # ('.jpg/.png'); ',' and '&' lists are not restricted.
+  _slash_ok=1
+  if [[ "${_seps[*]}" == */* ]]; then
+    for _it in "${_items[@]}"; do [[ "$_it" == .* ]] || _slash_ok=0; done
+  fi
+  [ "$_slash_ok" = 1 ] || continue
   for _it in "${_items[@]}"; do
     if [[ "$_it" == .* ]]; then _add_dotted "$_it"; else _add_bare "$_it"; fi
   done
@@ -260,6 +272,7 @@ while IFS= read -r _hl; do
   _hl=$(sed -nE 's/^[[:space:]]*[-*+][[:space:]]+(.*)$/\1/p' <<<"$_hl")
   [ -n "$_hl" ] || continue
   _parse_list "$_hl"
+  [[ " ${_items[*]} " == *" ! "* ]] && continue  # SENTINEL-HEAD-BANG
   _n=${#_items[@]}
   for ((_i = 0; _i < _n; _i++)); do
     _it="${_items[_i]}"
@@ -295,4 +308,5 @@ else
 fi
 [ "$_has_dismissed" = no ] && echo "   note: state has no '## Dismissed file types' section"
 [ "$_unterminated" = yes ] && echo "   note: state has an unterminated HTML comment ('<!--' with no '-->'); every line after it was ignored, so a claim there was NOT read"
+[ "$_ucouldnot" = yes ] && echo "   note: unterminated-comment check: could not verify (no temp file)"
 exit 0

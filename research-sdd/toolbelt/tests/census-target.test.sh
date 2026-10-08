@@ -454,7 +454,7 @@ out="$(xrun "$TMP/st-trail.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 2 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" && grep -q '\.bbb' <<<"$w" && ! grep -q '\.ccc' <<<"$w" \
   && ok "46 compound '.aaa.map' and 'app.bbb' claim nothing; standalone .ccc does" || no "46 trailing boundary" "$w"
 
-# 47..66 — State edge cases (kit #1986, follow-up to #1984). A type is CLAIMED only when written
+# 47..70 — State edge cases (kit #1986, follow-up to #1984). A type is CLAIMED only when written
 # with its leading dot, inside a backtick span, or as the head of a Dismissed bullet; a bare prose
 # word never claims (so 'XML parser' / 'log' in gap prose cannot close .xml / .log). Compound
 # types are claimed by their full dotted name, a literal '<!--' inside a backtick span is not a
@@ -464,14 +464,14 @@ mkst "$TMP/st-bare.md" "| high | G1 reads aaa and bbb files, also ccc | x |" "- 
 out="$(xrun "$TMP/st-bare.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 3 of 3' <<<"$w" \
   && ok "47 bare prose words (aaa bbb ccc) do not claim" || no "47 bare words claim" "$(grep 'Audit cross-check' <<<"$out")"
-# 48 — a backtick span claims bare types; a hyphenated token inside a span does not.
-mkst "$TMP/st-tick.md" "| high | G1 reads \`aaa\` and \`bbb\` plus \`x-ccc\` | x |" "- .zzz — dismissed: irrelevant"
+# 48 — a backtick span claims bare types; a slash-joined path inside a span does not.
+mkst "$TMP/st-tick.md" "| high | G1 reads \`aaa\` and \`bbb\` plus \`dir/ccc\` | x |" "- .zzz — dismissed: irrelevant"
 out="$(xrun "$TMP/st-tick.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w"; wrc=$?
 mkst "$TMP/st-tick2.md" "| high | G1 reads \`c\` and \`js\` | x |" "- .zzz — dismissed: irrelevant"
 out2="$(bash "$SUT" "$sh2" --state "$TMP/st-tick2.md" 2>&1)"
 grep -q 'Audit cross-check: OK' <<<"$out2" && [ "$wrc" = 0 ] \
-  && ok "48 backtick span claims bare types (also 1-2 char); a hyphenated token does not" || no "48 backtick claims" "$w | $(grep 'Audit cross-check' <<<"$out2")"
+  && ok "48 backtick span claims bare types (also 1-2 char); a slash-joined path does not" || no "48 backtick claims" "$w | $(grep 'Audit cross-check' <<<"$out2")"
 # 49 — the head of a Dismissed bullet claims (bare, comma/slash list); a bare bullet head in the
 #      Gap-backlog does not, and a non-head word ('parser ccc') does not.
 mkst "$TMP/st-head.md" "- ccc — a backlog bullet with a bare head" "- aaa, bbb — dismissed: fixtures
@@ -537,12 +537,12 @@ mkst "$TMP/st-spanword.md" "| high | G1 .aaa .bbb, run \`ccc -d\` and \`git log\
 out="$(xrun "$TMP/st-spanword.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
   && ok "60 span 'ccc -d' (words separated by spaces) claims nothing" || no "60 span words" "$w"
-mkst "$TMP/st-spanlist.md" "| high | G1 \`aaa/bbb\` and \`.ccc, .zzz\` | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-spanlist.md" "| high | G1 \`.aaa/.bbb\` and \`.ccc, .zzz\` | x |" "- .zzz — dismissed: irrelevant"
 out="$(xrun "$TMP/st-spanlist.md")"
 mkst "$TMP/st-spancomp.md" "| high | G1 unpack \`.tar.gz\` | x |" "- .zzz — dismissed: irrelevant"
 out2="$(bash "$SUT" "$cp_" --state "$TMP/st-spancomp.md" 2>&1)"; w2="$(xline "$out2")"
 grep -q 'Audit cross-check: OK' <<<"$out" && grep -q 'WARNING: 1 of 2' <<<"$w2" && grep -q 'types: \.tar$' <<<"$w2" \
-  && ok "61 span lists ('aaa/bbb', '.ccc, .zzz') claim every item; span '.tar.gz' claims gz only" || no "61 span lists" "$(grep 'Audit cross-check' <<<"$out") | $w2"
+  && ok "61 span lists ('.aaa/.bbb', '.ccc, .zzz') claim every item; span '.tar.gz' claims gz only" || no "61 span lists" "$(grep 'Audit cross-check' <<<"$out") | $w2"
 # 62..63 — Dismissed head, dotted forms (kit #1986 review B1): the head token ends only at a
 #      boundary, a dotted compound claims its LAST segment, a dotless dotted name claims nothing.
 mkst "$TMP/st-hcomp.md" "| high | G1 x | x |" "- .tar.gz — 5 files — dismissed: archives"
@@ -574,6 +574,26 @@ mkst "$TMP/st-hshapes2.md" "| high | G1 x | x |" "- aaa: dismissed
 out2="$(xrun "$TMP/st-hshapes2.md")"
 grep -q 'Audit cross-check: OK' <<<"$out" && grep -q 'Audit cross-check: OK' <<<"$out2" \
   && ok "66 list-shape heads claim: bold list, ' - ', ':' terminator, bare EOL list" || no "66 head shapes" "$(grep 'Audit cross-check' <<<"$out") | $(grep 'Audit cross-check' <<<"$out2")"
+# 67..70 — Round-2 review (kit #1986): a '/'-joined list in a SPAN claims only when every item is
+#      dotted ('.aaa/.bbb'); 'dir/bbb', 'b/bbb', 'x/ccc/y', 'bin/sh' are paths. A separator must be
+#      followed by a valid token ('db/', 'jpg,' and '- db/ - directory' claim nothing), and a span
+#      list holding an invalid token ('aaa, pdf.js') claims nothing at all.
+mkst "$TMP/st-spanslash.md" "| high | G1 .aaa, dirs \`dir/bbb\` \`b/bbb\` \`x/ccc/y\` \`bin/sh\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spanslash.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 2 of 3' <<<"$w" && grep -q '\.bbb' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "67 slash-joined spans ('dir/bbb', 'x/ccc/y') are paths and claim nothing" || no "67 span slash paths" "$w"
+mkst "$TMP/st-trailsep.md" "| high | G1 dirs \`aaa/\` and \`bbb,\` | x |" "- ccc/ — directory"
+out="$(xrun "$TMP/st-trailsep.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "68 trailing separators (span 'aaa/', 'bbb,'; head 'ccc/ —') claim nothing" || no "68 trailing separator" "$w"
+mkst "$TMP/st-spanmixed.md" "| high | G1 .bbb .ccc, run \`aaa, pdf.js\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spanmixed.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" \
+  && ok "69 span list with an invalid token ('aaa, pdf.js') claims nothing (not even aaa)" || no "69 span mixed list" "$w"
+mkst "$TMP/st-spandots.md" "| high | G1 \`.aaa/.bbb\` \`.ccc & .zzz\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spandots.md")"
+grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "70 dotted slash list and '&' list in spans still claim every item" || no "70 span dotted slash" "$(grep 'Audit cross-check' <<<"$out")"
 # 57 — an UNPAIRED backtick is not a span: a real comment after it is still stripped (its types
 #      must not leak as claims — that would be a false closure).
 printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa it`s odd <!-- template: .bbb .ccc --> | x |\n\n## Dismissed file types\n\n- .zzz — dismissed: irrelevant\n' > "$TMP/st-unpaired.md"
@@ -883,7 +903,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth-xcheck-bare: leading-dot requirement dropped → bare prose words 'aaa bbb ccc' claim; SUT does not" 0 0 "$mutant_bare" \
          --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bare.md"
   mutant_span="$MUT/census-target.XSPAN-MUTANT.sh"
-  mk_sed "teeth-xcheck-span" "$mutant_span" 's/\[ -z "\$_rest" \] && \[ "\${#_items\[@\]}" -gt 0 \] || continue/continue/' \
+  mk_sed "teeth-xcheck-span" "$mutant_span" 's/\[ -z "\$_rest" \] || continue/continue/' \
     && tooth "teeth-xcheck-span: backtick-span claims removed → \`c\` / \`js\` no longer claim; SUT accepts them" 0 0 "$mutant_span" \
          --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$sh2" --state "$TMP/st-tick2.md"
   mutant_head="$MUT/census-target.XHEAD-MUTANT.sh"
@@ -891,11 +911,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tooth "teeth-xcheck-head: Dismissed bullet-head claims removed → '- aaa/bbb:' no longer claims; SUT does" 0 0 "$mutant_head" \
          --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-head2.md"
   mutant_headlist="$MUT/census-target.XHEADLIST-MUTANT.sh"
-  mk_sed "teeth-xcheck-headlist" "$mutant_headlist" 's/\[,\/\\&\]\*) rest/[#]*) rest/' \
+  mk_sed "teeth-xcheck-headlist" "$mutant_headlist" 's/\[,\/\\&\]\*) sep/[#]*) sep/' \
     && tooth "teeth-xcheck-headlist: list separators dropped → only the first head token claims ('aaa, bbb' loses bbb); SUT keeps both" 0 0 "$mutant_headlist" \
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-head.md"
   mutant_spansep="$MUT/census-target.XSPANSEP-MUTANT.sh"
-  mk_sed "teeth-xcheck-spansep" "$mutant_spansep" "s/^_cand_re=.*/_cand_re='^([[:alnum:]_.]+)(.*)\$'/" 's/\[ -z "\$_rest" \] && //' \
+  mk_sed "teeth-xcheck-spansep" "$mutant_spansep" "s/^_cand_re=.*/_cand_re='^([[:alnum:]_.]+)(.*)\$'/" 's/\[ -z "\$_rest" \] || continue//' \
     && tooth "teeth-xcheck-spansep: whole-content rule dropped → span 'aaa\\' claims .aaa; SUT does not" 0 0 "$mutant_spansep" \
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spansep.md" \
     && tooth "teeth-xcheck-spanhyph: whole-content rule dropped → span 'bbb-lib' claims .bbb; SUT does not" 0 0 "$mutant_spansep" \
@@ -906,6 +926,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth-xcheck-compound" "$mutant_comp" "s/^    _seg=.*/    _seg=''/" \
     && tooth "teeth-xcheck-compound: compound-segment prefix removed → '.tar.gz' no longer claims .gz; SUT does" 0 0 "$mutant_comp" \
          --good-has 'WARNING: 1 of 2' --bad-lacks 'WARNING: 1 of 2' -- bash @SUT@ "$cp_" --state "$TMP/st-comp.md"
+  mutant_rest="$MUT/census-target.XREST-MUTANT.sh"
+  mk_sed "teeth-xcheck-rest" "$mutant_rest" 's/\[ -z "\$_rest" \] || continue//' \
+    && tooth "teeth-xcheck-rest: leftover-text check removed (single edit) → span 'ccc -d' claims .ccc; SUT does not" 0 0 "$mutant_rest" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spanword.md"
+  mutant_slash="$MUT/census-target.XSLASH-MUTANT.sh"
+  mk_sed "teeth-xcheck-slash" "$mutant_slash" 's/\[ "\$_slash_ok" = 1 \] || continue//' \
+    && tooth "teeth-xcheck-slash: span slash-list rule removed → 'dir/bbb', 'x/ccc/y' claim their segments; SUT does not" 0 0 "$mutant_slash" \
+         --good-has 'WARNING: 2 of 3' --bad-lacks 'WARNING: 2 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spanslash.md"
+  mutant_trailsep="$MUT/census-target.XTRAILSEP-MUTANT.sh"
+  mk_sed "teeth-xcheck-trailsep" "$mutant_trailsep" 's/\[ -n "\$sep" \] && _items+=("!")/:/' \
+    && tooth "teeth-xcheck-trailsep: trailing-separator guard removed → span 'aaa/' / 'bbb,' claim; SUT does not" 0 0 "$mutant_trailsep" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-trailsep.md"
+  mutant_hbang="$MUT/census-target.XHBANG-MUTANT.sh"
+  mk_sed "teeth-xcheck-hbang" "$mutant_hbang" '/SENTINEL-HEAD-BANG$/d' \
+    && tooth "teeth-xcheck-hbang: head list-with-invalid-token guard removed → '- ccc/ —' closes ccc; SUT does not" 0 0 "$mutant_hbang" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-trailsep.md"
+  mutant_smixed="$MUT/census-target.XSMIXED-MUTANT.sh"
+  mk_sed "teeth-xcheck-smixed" "$mutant_smixed" '/SENTINEL-SPAN-BANG$/d' \
+    && tooth "teeth-xcheck-smixed: span '!' refusal removed → 'aaa, pdf.js' claims .aaa; SUT claims nothing" 0 0 "$mutant_smixed" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spanmixed.md"
   mutant_hlast="$MUT/census-target.XHLAST-MUTANT.sh"
   mk_sed "teeth-xcheck-hlast" "$mutant_hlast" 's/\${t##\*\.}/${t%%.*}/' \
     && tooth "teeth-xcheck-hlast: dotted compound claims its FIRST segment → '- .tar.gz' closes tar; SUT closes gz" 0 0 "$mutant_hlast" \
