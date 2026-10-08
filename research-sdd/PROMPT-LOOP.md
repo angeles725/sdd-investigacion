@@ -119,7 +119,7 @@ Always read first, in this order:
      `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
      --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`,
      `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
-     retro as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
+     retro (or write it inline when a coordinator forbids delegation, §18) as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
      RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. `--next` emits RETRO-DUE automatically once
      `blocks_since_retro` crosses the §18 threshold (kit issue #627 — landed); trust the emitted
      state, no manual threshold check is needed), or
@@ -185,7 +185,8 @@ Always read first, in this order:
      `toolbelt/sweep-retros.sh` derives its ENTIRE scan list from TARGETS.md, so an unregistered target's
      `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js — unregistered focus). Keep that row a
      LIVING MIRROR, not a one-time write: when a run-STOP or a §14 correction changes a fact mirrored there
-     (block / run / retro / file counts), REFRESH the row as part of closing that run or correction —
+     (block / run / retro / file counts), PROPOSE the row refresh as part of closing that run or correction
+     (the supervisor applies it; a run never edits TARGETS.md — METHODOLOGY §18 propose-never-apply, kit #1992) —
      three.js's row went stale at "21 md / 3 runs" while the corpus grew to 32 blocks / 5 runs.
      Keep that refreshed row to ONE scannable line (name · path · maturity · artifact · language);
      run-by-run narrative goes in the target's detail `###` section, never crammed into the master
@@ -1287,8 +1288,9 @@ Always read first, in this order:
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
      blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
-     MID-RUN OUTLINE ADDITIONS (kit #1989): a coordinator may add work mid-run. Append it as a new outline item
-     `O<n>` marked "added by coordinator" in the outline AND in the iteration history. When the addition changes
+     MID-RUN OUTLINE ADDITIONS (kit #1989): a coordinator may add work mid-run. Append a new outline row with the
+     next integer `#` (the status tooling reads integer `#` cells only); put "added by coordinator" in the item text AND
+     in the iteration history, and bump `Outline items total` and the `Outline coverage` denominator. When the addition changes
      CODE an earlier block cites (but not the cited text), prefer a dated addendum section in that block over a
      new block; no §14 correction is needed because nothing the block cites became false.
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
@@ -1370,7 +1372,7 @@ Always read first, in this order:
          and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
          the same way even without formal outline completion: emit the retro when the batch closes, do
          not wait for the operator to ask (hilton B19-B24 had none until demanded).
-       - TARGETS.md row refresh (propose-never-apply, CLAUDE.md §8; kit #1992): a delegated or kit-read-only run
+       - TARGETS.md row refresh (propose-never-apply, METHODOLOGY §18; kit #1992): a run never edits TARGETS.md; it
          PROPOSES the new row values (block count, run facts) in its final return and in the retro; the
          supervisor (human) applies the refresh.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
@@ -1501,7 +1503,7 @@ HARD RULES:
     accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
     server refused version X". Re-derive by an independent method or a targeted counter-probe before
     treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.) For aggregates, the cheapest form is
-    the CONCENTRATION CHECK (METHODOLOGY §11a): flag a series with ~50 %+ of its period on one day beside the
+    the CONCENTRATION CHECK (METHODOLOGY §11a, kit #1988): flag a series with ~50 %+ of its period on one day beside the
     headline delta, or resolve it first.
   - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
     data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
@@ -1779,7 +1781,7 @@ HARD RULES:
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
     Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
     BOOTSTRAP commits the language in the TARGETS.md row (BOOTSTRAP step b). A mid-run switch is
-    a structured override: PROPOSE the TARGETS.md row refresh (the supervisor applies it; propose-never-apply)
+    a structured override: PROPOSE the TARGETS.md row refresh (the supervisor applies it; propose-never-apply, kit #1992)
     and note the transition block number and
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77

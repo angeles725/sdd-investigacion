@@ -259,7 +259,7 @@ them and are canonical when they do:
 | `<corpus>/sources/` | preserved external evidence + `SOURCES.md` registry (§5) | BOOTSTRAP |
 | `<corpus>/sources/extracted/<basename>/` | text extracted from a preserved binary source (PDF, CHM) | on demand |
 | `<corpus>/sources/probes/<name>/` | full evidence of an out-of-tree §19 deliverable | on demand |
-| `<corpus>/sources/notes/` | context notes (coordination, relays without a preserved body); cited as context, never `[CERT-*]` | on demand |
+| `<corpus>/sources/notes/` | context notes (coordination, relays without a preserved body); cited as context, never `[CERT-*]` (kit #1990) | on demand |
 | `<corpus>/audits/` | §13 audit reports | on demand |
 | `<corpus>/codegen/` | §19 build/PoC artifacts and round-trip evidence | on demand |
 | `<corpus>/` root | `INDEX.md`, `CATALOG.md`, `RESEARCH-STATE.md`, and the blocks | BOOTSTRAP |
@@ -1975,7 +1975,7 @@ Source: n5 long-run-throughput retro #4.)
 
 **PLAUSIBILITY BAND AS FILTER, NOT ONLY AS GATE.** A plausibility band applied at GATE time catches impossibilities after they have been selected. The same band applied at SELECTION time prevents the impossible value from entering the pipeline. Where a population defines a plausible range, apply the range at selection so the instrument never chooses the outlier; keep the gate as a second line for values that arrive by other routes. (Source: blender-llm B42 §42.5 — the same outlier lesson paid three times across B21 `dimensions`, B28 29,475 fpm, and B40 18.31 m before being applied as a filter.)
 
-**CONCENTRATION CHECK BEFORE ANY PERIOD-OVER-PERIOD HEADLINE.** Before reporting a period (month) total and its delta, compute each series' share of the period that falls on its single largest day (or sub-period). A series above ~50 % is a data-event candidate: flag it next to the headline, or resolve it (what happened that day, what the neighbouring readings say) before the headline is written. It is the cheapest form of RE-MEASURE A DRAMATIC POSITIVE (PROMPT-LOOP HARD RULES) for aggregates: a delta that one day produces is a statement about that day, not about the period. (Evidence: hilton-bms B29 §29.3 — gas +345.2 % was 95.6 % one day, 2026-09-07, with two meters reading 0 around it; without that day the month flips from +13.7 % to about −16.2 %, and the PDF, the 4R review and 8/8 tests all passed it. Kit issue #1988.)
+**CONCENTRATION CHECK BEFORE ANY PERIOD-OVER-PERIOD HEADLINE (kit #1988).** Before reporting a period (month) total and its delta, compute each series' share of the period that falls on its single largest day (or sub-period). A series above ~50 % is a data-event candidate: flag it next to the headline, or resolve it (what happened that day, what the neighbouring readings say) before the headline is written. It is the cheapest form of RE-MEASURE A DRAMATIC POSITIVE (PROMPT-LOOP HARD RULES) for aggregates: a delta that one day produces is a statement about that day, not about the period. (Evidence: hilton-bms B29 §29.3 — gas +345.2 % was 95.6 % one day, 2026-09-07, with two meters reading 0 around it; without that day the month flips from +13.7 % to about −16.2 %, and the PDF, the 4R review and 8/8 tests all passed it.)
 
 **A RATIO IS ONLY A FINDING WHEN BOTH SIDES ARE THE SAME QUANTITY.** Before reporting a ratio as a finding, name the unit and the semantics of numerator and denominator and confirm they match. A ratio whose denominator is a setpoint rather than a capacity tells a different story. When semantics are unclear, say so instead of reporting a number whose meaning cannot be confirmed. (Source: blender-llm B66 §66.4 — diffusers/VAV = 1.67 reported as imbalance; denominator was PRIMARY FLOW setpoint, not capacity; against MAX FLOW the ratio was 0.79 and within range.)
 
@@ -3573,7 +3573,7 @@ procedural rather than block-worthy, AS IT IS RESOLVED (§4/§20 template, §8 c
 those entries and the journal to extract reusable kit deltas — it does not author the original record.
 
 **What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
-judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a coordinator/operator instruction that forbids delegation wins over this default. The retro may then be written inline, but its header MUST say `Method: inline (coordinator forbade delegation)` so the reader discounts its self-review (the independent-judgment guarantee above is absent). The retro agent:
+judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a coordinator/operator instruction that forbids delegation wins over this default. The retro may then be written inline, but its header MUST say `Method: inline (coordinator forbade delegation)` so the reader discounts its self-review (the independent-judgment guarantee above is absent). The retro (agent or inline driver):
 
 1. **Reads the current kit FIRST** — `$KIT/PROMPT-LOOP.md` + `$KIT/METHODOLOGY.md` — and DEDUPES. It proposes
    only what is genuinely new; a lesson the kit already encodes is noted as "already covered", not re-proposed. **Exception: a lesson that RECURS after being written as prose is not "already covered"** — if the run violated an existing rule, the retro proposes a check, tool or recorded step (and says so in the delta row), not more prose.
@@ -4355,10 +4355,10 @@ unless someone explicitly closes the loop — the driver, immediately after the 
 one who populates the document-cycle state (see PROMPT-LOOP DOCUMENT CYCLE step 1 STATE OWNERSHIP) from what
 was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an
 orphan step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
-(kit #1888); this paragraph adds only the rationale. Mid-run outline additions by a coordinator (new `O<n>` items,
-or a dated addendum in an earlier block when the changed code is not the text it cites) are legal and follow
-PROMPT-LOOP DOCUMENT CYCLE step 1 (kit #1989).
+(kit #1888); this paragraph adds only the rationale.
 (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
+
+**Mid-run outline additions by a coordinator are legal (kit #1989).** Append a new row with the next integer `#`, put "added by coordinator" in the item text and in the iteration history, and bump `Outline items total` and the `Outline coverage` denominator. When the addition changes code an earlier block cites but not the cited text, prefer a dated addendum section in that block over a new block (no §14 correction). Operative statement: PROMPT-LOOP DOCUMENT CYCLE step 1. (Source: investigacion/hilton-bms/retros/2026-10-07-energeticos-b27-b32.md delta #2.)
 
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
