@@ -1180,9 +1180,9 @@ fi
 #     --backptr=high (default) prints a per-line `BACKPTR?` only for the HIGH-CONFIDENCE shape (the correction act within 25
 #     characters of a keyword cite: `[Block N]` / `Block N` / `Bloque N`); every other candidate is ONE count line
 #     (`N low-confidence candidate(s)`). --backptr=all lists them all; --backptr=off skips the section.
-#     MEASURED PRECISION (hand-classified sample of the DEFAULT output on the real fleet): 2026-10-07, 1390 real blocks, default mode: 43 per-line candidates, all 43
-#     hand-classified, 33 true corrections lacking a pointer = 77% (the previous design printed 207 lines at roughly 55%); a further 162
-#     low-confidence candidates are counted, not listed.
+#     MEASURED PRECISION (hand-classified sample of the DEFAULT output on the real fleet): 2026-10-07, 1390 real blocks, default mode: 50 per-line candidates, all 50
+#     hand-classified, 38 true corrections lacking a pointer = 76% (the first design printed 207 lines at roughly 55%); the low-confidence
+#     candidates are counted, not listed. Cost: the section roughly doubles a run (200 blocks: 30 s with --backptr=off, 64-78 s by default).
 #     Enumerated cite forms (~/niagara-research + ~/niagara5-research, 1404 files of which 14 are lint fixtures): `[Block N]` ·
 #     `Block N` · `Bloque N` · `blockN` / `bloqueN` · `BN` · `Block RN` / `Bloque RN`; a BARE `RN` counts only when the checked
 #     block's H1 is `# Block R<n>`. TWO SERIES coexist in one corpus (niagara-reflow-block5 `# Block R5` vs
@@ -1194,7 +1194,7 @@ fi
 #     Sentences: paragraphs end at a blank line, a heading, a list item or a table row; fenced code is skipped; a paragraph
 #     is split at `. ` / `! ` / `? ` / `; `.
 #     NOT a correction act by THIS block (each narrowing came from classifying the fleet sweep by hand; each has a tooth and each
-#     suppressed sentence is COUNTED in the summary as skipped: neg · self · passive · noun · corrector · far · list):
+#     suppressed sentence is COUNTED in the summary as skipped: neg · self · passive · noun · list; corrector and far count each dropped CITE):
 #     the bare adjective "correct" / "correctly" / "correcto", the noun "corrigendum" (noun), negations ("No §14 correction",
 #     "Nothing here refutes", "corrects nothing"; "not only/just corrects" is NOT a negation) (neg), self-corrections (self), a
 #     third-party correction narrated passively ("was corrected") (passive), the CORRECTOR itself ("corrected by B96" /
@@ -1252,7 +1252,7 @@ _vb_bp_pairs() {
       low = blank(low, "corrigend[a-z]*")   # BP-CORRIGEND: the NOUN "corrigendum" labels a correction note, it is not a correction act (fleet sweep, kit #1962)
       if (low !~ VERB) { c_noun++; return }
       low = blank(low, "[^a-z](no|not a|without|ninguna?)[[:space:]]+(§14[ -]?[a-z]*[[:space:]]+)?([^[:space:]]+[[:space:]]+)?([^[:space:]]+[[:space:]]+)?(correction|correcci.n|refut[a-z]*)")   # BP-NEG: "No §14 correction" asserts the absence
-      low = blank(neuter(low, "[^a-z]not (only|just|merely)"), "[^a-z](nothing|without|never|rather than|instead of|not|no|nada)[[:space:]]+([a-z]+[[:space:]]+)?(here[[:space:]]+)?(correct|refut|supersed|corrig)[a-z]*")   # BP-NEG2: "Nothing here refutes", "without correcting"; "not only corrects" is untouched
+      low = blank(neuter(low, "[^a-z]not (only|just|merely)"), "[^a-z](nothing|without|never|rather than|instead of|not|no|nada)[[:space:]]+([a-z]+[[:space:]]+)?(here[[:space:]]+)?(correct|refut|supersed|corrig)[a-z]*")   # BP-NEG2: "Nothing here refutes", "without correcting"; neuter() first overwrites the boundary character and the "no" of "not only/just/merely" with xxx (same length), so the "not" alternative cannot match there and the correcting verb after it survives
       low = blank(low, "(correct|refut|supersed|corrig)[a-z]*[[:space:]]+(nothing|nada|no[[:space:]]+(earlier|prior|previous))")   # BP-NEG3: "corrects nothing in B21"
       if (low !~ VERB) { c_neg++; return }
       low = blank(low, "self-correct[a-z]*|auto-?correc[a-z]*")   # BP-SELF: a block correcting ITSELF corrects no earlier block
@@ -1278,7 +1278,7 @@ _vb_bp_pairs() {
         ser = (tok ~ /R[0-9]+$/) ? "R" : "N"
         # the CORRECTOR, not the corrected: "corrected by B96" / "corregido en [Block 11]" name the block that fixed it
         ctx = substr(low, (cs > 40 ? cs - 40 : 1), (cs > 40 ? 40 : cs - 1))
-        if (ctx ~ /(corrected|refuted|superseded|corregid[oa]s?|refutad[oa]s?|supersedid[oa]s?)[[:space:]]+(by|in|en|por)[[:space:]]*[\[(*]*$/) { cdrop++; continue }   # BP-CORRECTOR
+        if (ctx ~ /(corrected|refuted|superseded|corregid[oa]s?|refutad[oa]s?|supersedid[oa]s?)[[:space:]]+(by|in|en|por)[[:space:]]*[\[(*]*$/) { c_corr++; continue }   # BP-CORRECTOR: counted per dropped cite
         # proximity: the nearest correction act, in characters between it and the cite
         mg = 99999; n = low; bvs = 0; bvl = 0
         while (match(n, VERB)) {
@@ -1287,7 +1287,7 @@ _vb_bp_pairs() {
           if (gap < mg) { mg = gap; bvs = vs; bvl = vl }
           n = substr(n, RSTART + RLENGTH)
         }
-        if (mg > 60) { fdrop++; continue }   # BP-PROXIMITY: a verb further away belongs to another clause of a long sentence
+        if (mg > 60) { c_far++; continue }   # BP-PROXIMITY: a verb further away belongs to another clause of a long sentence
         # HIGH confidence = a keyword cite with the act within 25 characters AND the act BEFORE the cite ("Corrección al Bloque 28", "corrects
         # [Block 5]"), or AFTER it only as a list-item tail ("[Block 21] — corregido en …"). An act after the cite otherwise belongs to the
         # cite ("[Block 95] §95.9 correction", "[Block 790] §14 corrections", "[Block 476] … supersedes it"): the cite is the corrector.
@@ -1299,14 +1299,18 @@ _vb_bp_pairs() {
         if (!(key in k)) { nd++; k[key] = nd; ds[nd] = ser; dn[nd] = num; dc[nd] = conf }
         else if (conf == "high") dc[k[key]] = "high"
       }
-      if (nd == 0) { if (cdrop > 0) c_corr++; else if (fdrop > 0) c_far++; return }
+      if (nd == 0) return
       # a sentence naming 3+ distinct blocks, or 2 under a "Connects" / "Related" lead or with 2+ " · " separators, is a cross-reference list
       # ("Connects [B1] · [B2] · ... corrected"), not a correction of a specific block: skipped and COUNTED (fleet sweep, kit #1962).
       if (nd >= 3 || (nd >= 2 && (low ~ /connects|conecta|related|see also/ || gsub(/ · /, "&", sent) >= 2))) { listed++; return }   # BP-LIST
       for (i = 1; i <= nd; i++) {
         if (ds[i] == selfser && dn[i] >= self) { fwd++; continue }   # BP-FORWARD: same series only; R5 and 5 are different blocks
         key = ds[i] SUBSEP dn[i]
-        if (!(key in seen)) { seen[key] = 1; ex = sent; gsub(/[\t"]+/, " ", ex); gsub(/^[[:space:]]+/, "", ex); print "C\t" firstline "\t" ds[i] "\t" dn[i] "\t" dc[i] "\t" substr(ex, 1, 110) }
+        # one record per (series, block) for the WHOLE block: confidence is the MAX over its sentences (a later high-confidence sentence upgrades
+        # an earlier low one, and then also supplies the line and excerpt); emitted in first-seen order at END
+        ex = sent; gsub(/[\t"]+/, " ", ex); gsub(/^[[:space:]]+/, "", ex); ex = substr(ex, 1, 110)
+        if (!(key in seen)) { seen[key] = ++ne; eline[ne] = firstline; eser[ne] = ds[i]; enum[ne] = dn[i]; econf[ne] = dc[i]; eex[ne] = ex }
+        else if (dc[i] == "high" && econf[seen[key]] != "high") { econf[seen[key]] = "high"; eline[seen[key]] = firstline; eex[seen[key]] = ex }   # BP-MAXCONF
       }
     }
     /^```/ { fence = !fence; flush(); next }
@@ -1315,7 +1319,7 @@ _vb_bp_pairs() {
     /^#/ { flush(); if (!hseen) { hseen = 1; if ($0 ~ /^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9]/) rmode = 1 }; para = $0; firstline = NR; flush(); next }
     /^[[:space:]]*([-*+]|[0-9]+[.)]|\|)/ { flush(); para = $0; firstline = NR; next }
     { if (para == "") firstline = NR; para = (para == "" ? $0 : para " " $0) }
-    END { flush(); print "S\t" (nsent + 0) "\t" (fwd + 0) "\t" (listed + 0) "\t" (c_neg + 0) "\t" (c_self + 0) "\t" (c_passive + 0) "\t" (c_noun + 0) "\t" (c_corr + 0) "\t" (c_far + 0) "\t" (rmode + 0) }
+    END { flush(); for (i = 1; i <= ne; i++) print "C\t" eline[i] "\t" eser[i] "\t" enum[i] "\t" econf[i] "\t" eex[i]; print "S\t" (nsent + 0) "\t" (fwd + 0) "\t" (listed + 0) "\t" (c_neg + 0) "\t" (c_self + 0) "\t" (c_passive + 0) "\t" (c_noun + 0) "\t" (c_corr + 0) "\t" (c_far + 0) "\t" (rmode + 0) }
   ' "$block"
 }
 # _vb_bp_fser <file>: prints R when the file H1 is `# Block R<n>` (the R series), else N; rc 2 when the file cannot be read.
@@ -1428,7 +1432,8 @@ else
       notfound) _vb_bp_i=$((_vb_bp_i+1)) ;; degraded) _vb_bp_d=$((_vb_bp_d+1)) ;;
     esac
     # default (high): per-line output only for the high-confidence shape; every other candidate is counted, never dropped
-    if [ "$BACKPTR_MODE" = all ] || [ "$_vb_bp_conf" = high ]; then echo "$_vb_bp_msg"
+    # not-found / ambiguous / degraded are typed non-verdicts: printed as their own lines in EVERY mode, whatever the confidence
+    if [ "$BACKPTR_MODE" = all ] || [ "$_vb_bp_conf" = high ] || { [ "$_vb_bp_state" != missing ] && [ "$_vb_bp_state" != ok ]; }; then echo "$_vb_bp_msg"   # BP-TYPED
     elif [ "$_vb_bp_state" = missing ]; then _vb_bp_low=$((_vb_bp_low+1)); fi
   done <<<"$_vb_bp_pairs_out"
   _vb_bp_skipped="forward=$_vb_bp_fw neg=$_vb_bp_sn self=$_vb_bp_ss passive=$_vb_bp_sp noun=$_vb_bp_so corrector=$_vb_bp_sc far=$_vb_bp_sf list=$_vb_bp_sl"

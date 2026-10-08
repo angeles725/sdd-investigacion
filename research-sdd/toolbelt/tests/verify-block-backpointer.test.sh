@@ -339,6 +339,34 @@ o1="$(run "$c/x-block11.md")"; o2="$(run "$c/x-block12.md")"
 if [ "$(warns "$o1")" = 0 ] && [ "$(warns "$o2")" = 0 ] && grep -q 'neg=1' <<<"$o1" && grep -q 'neg=1' <<<"$o2"; then ok "'no … correction' with intervening words and 'rather than correcting' are negations (neg counted)"
 else no "wider negations: o1=$(warns "$o1") o2=$(warns "$o2")"; fi
 
+# 31 — corrector / far are counted PER DROPPED CITE even when the sentence also keeps a cite.
+c="$TMP/c31"; mkdir -p "$c"
+for n in 3 5; do mkblk "$c/x-block$n.md" "$n" "Plain."; done
+mkblk "$c/x-block11.md" 11 "This corrects [Block 5] outright, corrected by [Block 3] too."
+o1="$(run "$c/x-block11.md")"
+if [ "$(warns "$o1")" = 1 ] && grep -qE 'corrector=1' <<<"$o1"; then ok "a corrector cite dropped beside a kept cite is still counted (corrector=1)"
+else no "per-cite corrector count :: $(grep -i back-pointer <<<"$o1")"; fi
+mkblk "$c/x-block12.md" 12 "We refute [Block 5] here and then go on at considerable length about the unrelated lab bench setup and wiring, see B3."
+o2="$(run "$c/x-block12.md")"
+if [ "$(warns "$o2")" = 1 ] && grep -qE 'far=1' <<<"$o2"; then ok "a far cite dropped beside a kept cite is still counted (far=1)"
+else no "per-cite far count :: $(grep -i back-pointer <<<"$o2")"; fi
+
+# 32 — confidence is the MAX per (series, block) over the whole block: a later high sentence upgrades an earlier low one.
+c="$TMP/c32"; mkdir -p "$c"
+mkblk "$c/x-block5.md" 5 "Plain."
+mkblk "$c/x-block11.md" 11 "We refute the idea in B5 here." "" "Later on, this corrects [Block 5] outright."
+o1="$(rund "$c/x-block11.md")"
+if [ "$(warns "$o1")" = 1 ] && ! grep -q 'low-confidence' <<<"$o1"; then ok "a later high-confidence sentence upgrades an earlier low one (one listed line, no low count)"
+else no "max confidence :: $(grep -i back-pointer <<<"$o1")"; fi
+
+# 33 — typed states are printed as their own lines in EVERY mode, even for a low-confidence cite.
+c="$TMP/c33"; mkdir -p "$c"
+mkblk "$c/a-block5.md" 5 "Plain."; mkblk "$c/b-bloque5.md" 5 "Plain."
+mkblk "$c/x-block11.md" 11 "We refute the idea in B9 here." "" "We refute the idea in B5 here."
+o1="$(rund "$c/x-block11.md")"
+if grep -qE '^ +INFO +backptr: line [0-9]+ cites block 9 ' <<<"$o1" && grep -qE '^ +BACKPTR-AMBIGUOUS +line [0-9]+: block 5 ' <<<"$o1"; then ok "not-found / ambiguous low-confidence cites still print their own lines in default mode"
+else no "typed states in default mode :: $(grep -i backptr <<<"$o1")"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
@@ -393,6 +421,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth gain BP-SERIES series "$TMP/c23/n-block11.md" '/# BP-SERIES/ s/!= "\$_vb_bp_ser"/!= "$_vb_bp_fs"/' '^ +BACKPTR-AMBIGUOUS'
   teeth gain BP-CONF confdir "$TMP/c29/x-block11.md" '/# BP-CONF/ s/(before ||/(1 ||/' '^ +BACKPTR\? ' -
   teeth gain BP-NEG negwide "$TMP/c30/x-block11.md" '/# BP-NEG:/ s/(\[^\[:space:]]+\[\[:space:]]+)?(\[^\[:space:]]+\[\[:space:]]+)?(correction/(correction/' '^ +BACKPTR\? '
+  teeth gain BP-MAXCONF maxconf "$TMP/c32/x-block11.md" '/# BP-MAXCONF/ { s/dc\[i\] == "high" \&\&/0 \&\&/ }' 'low-confidence candidate' -
+  teeth lose BP-TYPED typed "$TMP/c33/x-block11.md" '/# BP-TYPED/ s/ || { \[ "\$_vb_bp_state" != missing \] \&\& \[ "\$_vb_bp_state" != ok \]; }//' '^ +INFO +backptr: line' -
   teeth lose BP-CONF conf "$TMP/c26/x-block11.md" '/# BP-CONF/ s/mg <= 25/mg <= 0/' '^ +BACKPTR\? .*block 5' -
   if ls "$TMP/c27t" >/dev/null 2>&1; then echo "  (teeth-scanbad skipped: this process can list a mode-111 directory)"
   else teeth gain BP-SCANBAD scanbad "$TMP/c27b/x-block11.md" '/# BP-SCANBAD/ s/scanbad" = 1/scanbad" = 99/' '^ +INFO +backptr: line' - "$TMP/c27t"; fi
