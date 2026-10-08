@@ -34,6 +34,14 @@
 #        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
+#   --queue (with --next; kit #1614) honours the operator-declared lane: a `next_session_queue: G1, G2` line in the
+#        state file's header (before its first `## ` heading) names gap ids in order, and --next returns the FIRST one that is
+#        still pending and not blocked (`NEXT | <priority> | <gap>`, same line shape). It only chooses AMONG eligible
+#        gaps: STALE and RETRO-DUE precede it, and ISSUES-DUE still fires at the terminal STOP. One queue per state file
+#        (per focus). Typed stderr notes, never a silent zero: `INFO: queue-absent`, `INFO: queue-empty` (declared, no ids),
+#        `INFO: queue-exhausted` (every id done/blocked -> normal priority order), `WARN: queue-unknown-gap <id>` (not in
+#        the backlog, skipped loudly), `WARN: queue-malformed` (field ignored -> priority order), `INFO: queue-prose-only`
+#        (a prose `NEXT SESSION QUEUE` header without the field). Without --queue the output is byte-identical.
 #   --emit-token (with --next; kit #1706) appends ONE line `return-token: <token>` after the normal output, mapped from
 #        the same verdict (NEXT → `next: <gap>`; STOP → `STOP: campaign — <reason>` only for a single state file with no
 #        `## Campaign queue`; the count is corpus-wide, NOT narrowed by --focus/--root — kit #1726). The verdict line is
@@ -66,6 +74,7 @@ mode="status"
 focus_slug=""
 emit_token=0       # --emit-token: with --next, append the literal RETURN CONTRACT token line (kit #1706)
 all_flag=0         # --all: explicit corpus-wide --next (kit #1543); same as the default when no --focus/--root is given
+queue_flag=0       # --queue: with --next, serve the first pending gap of the state file's declared next_session_queue (kit #1614)
 root_flag=0        # --root: target the un-suffixed RESEARCH-STATE.md (kit #906)
 only_list=""       # --only: comma-separated owned counters --sync-state may rewrite (kit #911)
 only_set=0
@@ -77,6 +86,7 @@ while [ $# -gt 0 ]; do
     --root) root_flag=1; shift ;;
     --all) all_flag=1; shift ;;
     --emit-token) emit_token=1; shift ;;
+    --queue) queue_flag=1; shift ;;
     --only)
       only_list="${2-}"; only_set=1
       case "$only_list" in *[[:space:]]*) echo "usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)" >&2; exit 2 ;; esac
@@ -98,7 +108,7 @@ while [ $# -gt 0 ]; do
       { grep -qE '^[0-9]+$' <<<"$stall_minutes" && [ "$stall_minutes" -ne 0 ]; } \
         || { echo "usage: --stall-minutes requires a positive integer" >&2; exit 2; }
       shift 2 ;;
-    *) echo "usage: research-sdd-status.sh <target-dir> [--next [--all] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
+    *) echo "usage: research-sdd-status.sh <target-dir> [--next [--all] [--queue] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]" >&2; exit 2 ;;
   esac
 done
 # only_has <counter>: true when this counter WILL be written (no --only, or named in it).
@@ -108,6 +118,7 @@ only_has() { [ "$only_set" = 0 ] && return 0; case ",$only_list," in *",$1,"*) r
 [ "$all_flag" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --all requires --next" >&2; exit 2; }
 [ "$all_flag" = 1 ] && { [ "$root_flag" = 1 ] || [ -n "$focus_slug" ]; } && { echo "usage: --all is corpus-wide and excludes --focus/--root" >&2; exit 2; }
 [ "$emit_token" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --emit-token requires --next" >&2; exit 2; }
+[ "$queue_flag" = 1 ] && [ "$mode" != "--next" ] && { echo "usage: --queue requires --next" >&2; exit 2; }
 
 # --emit-token (kit #1706): print the normal --next output, then ONE literal `return-token: <token>` line mapped from the
 # SAME verdict (this script re-runs itself without the flag, so the verdict is the one --next computes and the no-flag
@@ -579,6 +590,68 @@ resolve_next() {
   # on the hand-authored `## Stop control` prose (which --sync-state never rewrites and verify-state never
   # gates): reading that prose here would resurrect the stale-mirror class the envelope was built to kill.
   echo "STOP | read-only-investigable exhausted (0)"
+}
+
+# queue_next — kit #1614. Serve the first pending, non-blocked gap of THIS state file's declared `next_session_queue`
+# (header zone = lines before the first `## ` heading). rc 0 + one NEXT line on stdout when served; rc 1 otherwise, with
+# a typed note on stderr saying WHY (the caller then falls back to resolve_next, so a queue never blocks the loop).
+# Reads the global $state like backlog_rows. An id matches a backlog Gap cell that equals it or starts with it followed
+# by a character that cannot continue an id (so G1 never matches G10 or G1-b).
+queue_next() {
+  local slug raw val line n=0 id ids=() rows pri gap st lead tok served="" nunk=0 ndone=0 nblk=0 found
+  slug="$(basename "$state" .md)"; slug="${slug#RESEARCH-STATE}"; slug="${slug#-}"; slug="${slug:-root}"
+  raw="$(awk '/^## /{exit} /^(-[[:space:]]+)?next_session_queue:/{print}' "$state" 2>/dev/null)"
+  if [ -z "$raw" ]; then
+    if awk '/^## /{exit} /<!--/{c=1} c{if (/-->/) c=0; next} tolower($0) ~ /next[ _-]session[ _-]queue/{f=1} END{exit !f}' "$state" 2>/dev/null; then
+      printf 'INFO: queue-prose-only [%s]: header names a next-session queue in prose but declares no `next_session_queue:` field — priority order used\n' "$slug" >&2
+    else
+      printf 'INFO: queue-absent [%s]: no next_session_queue field in the header — priority order used\n' "$slug" >&2
+    fi
+    return 1
+  fi
+  if [ "$(printf '%s\n' "$raw" | wc -l)" -gt 1 ]; then
+    printf 'WARN: queue-malformed [%s]: next_session_queue declared more than once — field ignored, priority order used\n' "$slug" >&2; return 1
+  fi
+  val="${raw#*next_session_queue:}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
+  case "$val" in ''|none|None|'[]') printf 'INFO: queue-empty [%s]: next_session_queue is declared with no gap ids — priority order used\n' "$slug" >&2; return 1 ;; esac
+  local IFS=','; for line in $val; do
+    id="${line#"${line%%[![:space:]]*}"}"; id="${id%"${id##*[![:space:]]}"}"
+    if ! grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' <<<"$id"; then
+      printf 'WARN: queue-malformed [%s]: item [%s] is not a gap id (want G1, G2, ... comma-separated) — field ignored, priority order used\n' "$slug" "$id" >&2; return 1
+    fi
+    ids+=("$id")
+  done
+  unset IFS
+  rows="$(backlog_rows)"
+  for id in "${ids[@]}"; do
+    n=$((n+1)); found=0
+    while IFS=$'\t' read -r pri gap st; do
+      [ -z "$gap" ] && continue
+      case "$gap" in *'~~'*) continue ;; esac
+      lead="${gap#\*\*}"; lead="${lead#\`}"
+      case "$lead" in "$id") ;; "$id"[!A-Za-z0-9._-]*) ;; *) continue ;; esac
+      found=1
+      lead="${st#\*\*}"; lead="${lead/\*\*/}"; tok="${lead%% *}"
+      if [ "$tok" = "pending" ] && ! is_blocked "$gap"; then
+        [ -n "$served" ] || served="$(printf 'NEXT | %s | %s' "$pri" "$gap")"
+        break
+      fi
+      case "$tok" in pending|blocked*|requires-execution*) nblk=$((nblk+1)) ;; *) ndone=$((ndone+1)) ;; esac
+      break
+    done < <(printf '%s\n' "$rows")
+    if [ "$found" = 0 ]; then
+      nunk=$((nunk+1)); printf 'WARN: queue-unknown-gap [%s]: queued id [%s] (position %s) matches no backlog row — skipped\n' "$slug" "$id" "$n" >&2
+    fi
+  done
+  if [ -n "$served" ]; then printf '%s\n' "$served"; return 0; fi
+  printf 'INFO: queue-exhausted [%s]: next_session_queue (%s ids: %s done, %s blocked, %s unknown) has no pending gap — priority order used\n' "$slug" "${#ids[@]}" "$ndone" "$nblk" "$nunk" >&2
+  return 1
+}
+
+# resolve_next_q — resolve_next, preferring the declared queue when --queue was given (kit #1614).
+resolve_next_q() {
+  if [ "$queue_flag" = 1 ]; then queue_next && return 0; fi
+  resolve_next
 }
 
 # --- envelope seeder (--sync-state) --------------------------------------------------------------
@@ -1834,7 +1907,7 @@ fence != "" { next }
         [ "${_nxt_skip_d_inv:-0}" != "0" ] && _nxt_skip_gaps=$(( _nxt_skip_gaps + 1 ))
         continue
       fi
-      _r="$(resolve_next)"
+      _r="$(resolve_next_q)"
       case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
     done
     # kit #1959 W1: the qualifier counts EVERY state file, skipped (stopped/paused) ones included — a paused focus whose
@@ -1846,7 +1919,7 @@ fence != "" { next }
       issues_due_gate
     fi
   else
-    _rn_out="$(resolve_next)"
+    _rn_out="$(resolve_next_q)"
     case "$_rn_out" in
       "STOP | read-only-investigable exhausted (0)")
         _bu_compute "$_ns_pick"  # BU-SCOPE

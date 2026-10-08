@@ -3,6 +3,13 @@
 > Operational state consumed by the loop (Research-SDD). Mirrored in engram
 > (`research/<target>/gaps`, `research/<target>/progress`). Visible and versionable source.
 
+<!-- OPTIONAL — when you PAUSE with a resume order in mind (METHODOLOGY §8 "Declared resume queue"), add ONE line
+     here in the header (before the first `##` heading), beside the `PAUSED (…)` line, starting at column 0:
+     `next_session_queue: <gap-id>, <gap-id>, ...` (the instrument reads only a line that STARTS with the field
+     name, so this comment is not itself a declaration).
+     `research-sdd-status.sh <corpus> --next --queue` then serves the first queued gap still pending. It never
+     bypasses STALE / RETRO-DUE / ISSUES-DUE; one queue per focus. Remove the line when the pause ends. -->
+
 <!-- State envelope (research-state.v1) — ported from gentle-ai's verify-result/v1. The prose sections below
      are the human-readable MIRROR. Seed/refresh it MECHANICALLY — never hand-edit the ints — with:
        research-sdd-status.sh <corpus> --sync-state
