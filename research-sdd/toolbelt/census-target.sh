@@ -25,11 +25,18 @@
 #           written in a deliberate form (kit #1986): with its leading dot in prose ('.js';
 #           '.tar.gz' claims 'gz'); as a backtick span whose WHOLE content is a type token or a
 #           list of them ('`.pdf`', '`.jpg/.png`', '`.jpg, .png`'; a '/' list needs every item
-#           dotted; '`bin/sh`', '`java -jar`', '`js-yaml`', '`db/`' and '`db\`' claim nothing); or as the head of a Dismissed bullet (a dotted head claims
-#           its last segment; a head without a dot claims only in list shape, '- jpg, png —
-#           reason', and with >= 3 characters, so '- Lock files' claims nothing). A bare prose
-#           word never claims.
-#           '(no ext)' for extensionless files. A level-1 or level-2 heading ends a section.
+#           dotted; '`bin/sh`', '`java -jar`', '`js-yaml`', '`db/`' and '`db\`' claim nothing;
+#           a multi-item list with a dotless item under 3 characters, '`R&D`' / '`x, y`', claims
+#           nothing, while a single-token span '`c`' still does; backticks pair PER LINE, so a
+#           span wrapped over two lines claims nothing — multi-line pairing is deliberately not
+#           attempted, it would widen claims); or as the head of a Dismissed bullet (a dotted head
+#           claims its last segment; a head without a dot claims only in list shape, '- jpg, png —
+#           reason', and with >= 3 characters, so '- Lock files' claims nothing; a '/' head list
+#           with a dotless item of 4+ characters is a path and claims nothing: '- vendor/xml —
+#           ...', while '- jpg/png' still claims). A bare prose word never claims.
+#           '(no ext)' for extensionless files. A level-1 or level-2 heading ends a section
+#           (ATX '# '/'## ' indented 0-3 spaces, or a setext title over '===' / '---' directly
+#           below a non-blank paragraph line; a '---' after a blank line is a thematic break).
 #           --state '' exits 2. A gap that
 #           encompasses a type without naming it ("all images") is reported as a WARNING and
 #           must be confirmed by hand — the instrument reports what it matched, not what a
@@ -171,15 +178,41 @@ _live=$(awk -v uflag="$_uflag" '
         else { out = out substr(line, 1, i - 1); line = substr(line, i + 4); inc = 1 }
       }
     }
-    if (out ~ /^[[:space:]]*(```|~~~)/) { fence = !fence; next }
-    if (!fence) print out
+    # Fence lines and fenced content stay as BLANK lines (like stripped comments), never dropped: a
+    # dropped fence would make the lines around it adjacent and could turn a paragraph line plus a
+    # '---' into a false setext heading (kit #2007).
+    if (out ~ /^[[:space:]]*(```|~~~)/) { fence = !fence; print ""; next }
+    print (fence ? "" : out)
   }
   END { if (inc) print "unterminated" > uflag }' "$STATE")
 _unterminated=no
 [ -s "$_uflag" ] && _unterminated=yes
 [ "$_uflag" = /dev/null ] || rm -f "$_uflag"
+# Heading normalisation (kit #2007): a 1-3-space-indented ATX heading ('  ## Notes') and a setext
+# heading ('Title' over '====' = level 1, over '----' = level 2) end/strip a section exactly like a
+# column-0 '# ' / '## ' line, so they are rewritten to that canonical form here and every consumer
+# below stays unchanged. A setext underline needs a non-blank paragraph line directly above it (a
+# '---' after a blank line is a thematic break, not a heading) that is not already a heading, a
+# list item, a block quote or a table row (CommonMark: those start another block); only the line directly above
+# is the title (no multi-line paragraph titles). An empty '#' / '##' line is a heading too.
+_live=$(awk '
+  { L[NR] = $0 }
+  END {
+    for (n = 1; n <= NR; n++) {
+      s = L[n]
+      if (s ~ /^ ? ? ?##?([[:space:]]|$)/) { sub(/^ +/, "", s); if (s ~ /^##?$/) s = s " "; L[n] = s; H[n] = 1; continue }
+      if (n > 1 && s ~ /^ ? ? ?(=+|-+)[[:space:]]*$/ && L[n - 1] !~ /^[[:space:]]*$/ && !H[n - 1] && !D[n - 1] \
+          && L[n - 1] !~ /^ ? ? ?([-*+]|[0-9]+[.)])([[:space:]]|$)/ && L[n - 1] !~ /^ ? ? ?>/ \
+          && L[n - 1] !~ /^ ? ? ?\|/) {  # SENTINEL-SETEXT
+        t = L[n - 1]; sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
+        L[n - 1] = ((s ~ /^ ? ? ?=/) ? "# " : "## ") t; H[n - 1] = 1; D[n] = 1
+      }
+    }
+    for (n = 1; n <= NR; n++) if (!D[n]) print L[n]
+  }' <<<"$_live")
 # Claim text = the two sections that can close the obligation (any other section is out of scope).
-# A level-1 or level-2 heading ends a section; '###' and deeper stay inside it.
+# A level-1 or level-2 heading ends a section; '###' and deeper stay inside it (indented and setext
+# headings were normalised to this column-0 form above, kit #2007).
 _claims=$(awk '/^#[[:space:]]/ || /^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+(Gap-backlog|Dismissed file types)/) } p' <<<"$_live")
 _dismissed=$(awk '/^#[[:space:]]/ || /^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+Dismissed file types/) } p' <<<"$_live")
 _has_backlog=no; grep -qE '^##[[:space:]]+Gap-backlog' <<<"$_live" && _has_backlog=yes
@@ -260,6 +293,15 @@ while IFS= read -r _sp; do
     for _it in "${_items[@]}"; do [[ "$_it" == .* ]] || _slash_ok=0; done
   fi
   [ "$_slash_ok" = 1 ] || continue
+  # A multi-item list ('R&D', 'x, y') refuses wholly when a bare (dotless) item is under 3
+  # characters (kit #2007); a single-token span ('c', 'js') is exact and still claims.
+  _short_ok=1
+  if [ "${#_items[@]}" -gt 1 ]; then
+    # '!' (an invalid item) is exempt: the list is refused on its own below, and exempting it keeps the
+    # short-item guard independently mutable (the 'smixed' mutant stays meaningful).
+    for _it in "${_items[@]}"; do [[ "$_it" == .* || "$_it" == "!" ]] || [ "${#_it}" -ge 3 ] || _short_ok=0; done  # SENTINEL-SPAN-SHORT
+  fi
+  [ "$_short_ok" = 1 ] || continue
   for _it in "${_items[@]}"; do
     if [[ "$_it" == .* ]]; then _add_dotted "$_it"; else _add_bare "$_it"; fi
   done
@@ -273,6 +315,13 @@ while IFS= read -r _hl; do
   [ -n "$_hl" ] || continue
   _parse_list "$_hl"
   [[ " ${_items[*]} " == *" ! "* ]] && continue  # SENTINEL-HEAD-BANG
+  # A '/' list whose bare (dotless) item has 4+ characters is a path ('vendor/xml'): the whole list
+  # claims nothing (kit #2007); 'jpg/png' and 'bbb/ccc' (<= 3 characters) still claim.
+  _hpath=0
+  if [[ "${_seps[*]}" == */* ]]; then
+    for _it in "${_items[@]}"; do [[ "$_it" == .* ]] || [ "${#_it}" -lt 4 ] || _hpath=1; done  # SENTINEL-HEAD-PATH
+  fi
+  [ "$_hpath" = 0 ] || continue
   _n=${#_items[@]}
   for ((_i = 0; _i < _n; _i++)); do
     _it="${_items[_i]}"
