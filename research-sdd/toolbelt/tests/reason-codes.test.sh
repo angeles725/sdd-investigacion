@@ -38,7 +38,7 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver loc
 REGISTRY="$HERE/../reason-codes.v1.md"
 TOOLBELT="$HERE/.."
 
-SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh)
+SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh)
 REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
 # The extraction rule as an awk program (kept in one place; teeth mutate individual lines of it).
@@ -461,6 +461,9 @@ mkfix() {
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' >> "$d/scripts/reconcile-issues.sh"
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' > "$d/scripts/stage-retro-issues.sh"
   printf '%s' 'echo "degraded: jq failed on $f — refusing"' > "$d/scripts/research-sdd-init.sh"
+  printf '%s\n' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' \
+    'echo "degraded: migrate-backlogs: cannot read $f — proposal not computed" >&2' > "$d/scripts/migrate-backlogs.sh"
+  printf '%s' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' >> "$d/scripts/migrate-backlogs.sh"
   {
     printf '%s\n' '# fixture registry' '' \
       '| code | class | emitters | meaning | continuation |' \
@@ -471,6 +474,8 @@ mkfix() {
       '| `degraded: --issues-cache file not readable:` | degraded | reconcile-issues.sh | m4 | pass a readable file |' \
       '| `degraded: gh not found on PATH` | degraded | reconcile-issues.sh, stage-retro-issues.sh | m5 | install gh |' \
       '| `degraded: jq failed on` | degraded | research-sdd-init.sh | m6 | fix settings.json |' \
+      '| `degraded: migrate-backlogs: mktemp failed` | degraded | migrate-backlogs.sh | m10 | free TMPDIR space |' \
+      '| `degraded: migrate-backlogs: cannot read` | degraded | migrate-backlogs.sh | m11 | fix the permissions |' \
       '| `absent-input` | input | many | m7 | fix the path |' \
       '| `empty-input` | input | many | m8 | confirm emptiness |'
     printf '%s' '| `unclassifiable` | input | many | m9 | inspect by hand |'
@@ -556,6 +561,30 @@ expect "unlisted code on the LAST line (no trailing newline) fails" 1 "$tmp/unl_
 mkfix unl_single
 printf '%s' 'echo "degraded: only unknown one"' > "$tmp/unl_single/scripts/stage-retro-issues.sh"
 expect "unlisted code in a single-line script fails" 1 "$tmp/unl_single/reg.md" "$tmp/unl_single/scripts" 'unlisted code emitted by stage-retro-issues.sh: degraded: only unknown one'
+
+# migrate-backlogs.sh is a scanned script (kit issue #1704 slice 3): the same guards apply to it
+mkfix unl_mb
+printf '\n%s' 'echo "degraded: migrate-backlogs: brand new reason" >&2' >> "$tmp/unl_mb/scripts/migrate-backlogs.sh"
+expect "unlisted migrate-backlogs code fails" 1 "$tmp/unl_mb/reg.md" "$tmp/unl_mb/scripts" 'unlisted code emitted by migrate-backlogs.sh: degraded: migrate-backlogs: brand new reason'
+# a registry with no migrate-backlogs rows and a script that emits one: only the SCRIPTS membership catches it
+mkfix mb_scanned
+grep -v 'migrate-backlogs' "$tmp/mb_scanned/reg.md" > "$tmp/mb_scanned/r" && mv "$tmp/mb_scanned/r" "$tmp/mb_scanned/reg.md"
+printf '%s' 'echo "degraded: migrate-backlogs: only reason" >&2' > "$tmp/mb_scanned/scripts/migrate-backlogs.sh"
+expect "a script missing from the scanned list would hide its codes: scanned, so unlisted fails" 1 "$tmp/mb_scanned/reg.md" "$tmp/mb_scanned/scripts" 'unlisted code emitted by migrate-backlogs.sh'
+mkfix stale_mb
+edit "$tmp/stale_mb/reg.md" 's/^| `absent-input`/| `degraded: migrate-backlogs: ghost reason` | degraded | migrate-backlogs.sh | g | go |\
+| `absent-input`/'
+expect "registered migrate-backlogs code that is never emitted fails (stale row)" 1 "$tmp/stale_mb/reg.md" "$tmp/stale_mb/scripts" 'stale row: degraded code never emitted by a scanned script: degraded: migrate-backlogs: ghost reason'
+mkfix mb_emitter
+printf '\n%s' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' >> "$tmp/mb_emitter/scripts/reconcile-issues.sh"
+edit "$tmp/mb_emitter/reg.md" 's/| migrate-backlogs.sh | m10 |/| reconcile-issues.sh | m10 |/'
+expect "migrate-backlogs code whose row lists another emitter fails" 1 "$tmp/mb_emitter/reg.md" "$tmp/mb_emitter/scripts" 'emitter mismatch: migrate-backlogs.sh emits'
+mkfix mb_absent
+rm -f "$tmp/mb_absent/scripts/migrate-backlogs.sh"
+expect "migrate-backlogs.sh absent -> DEGRADED rc 2 (not a clean pass)" 2 "$tmp/mb_absent/reg.md" "$tmp/mb_absent/scripts" 'DEGRADED: scanned script absent or unreadable: .*migrate-backlogs.sh'
+mkfix mb_zero
+printf '%s\n' '# degraded: only in a comment' 'echo "no typed state here"' > "$tmp/mb_zero/scripts/migrate-backlogs.sh"
+expect "migrate-backlogs.sh with zero extracted emit lines -> DEGRADED rc 2" 2 "$tmp/mb_zero/reg.md" "$tmp/mb_zero/scripts" 'DEGRADED: extracted zero degraded emit lines from migrate-backlogs.sh'
 
 # empty continuation: first row, middle row, last row, single-row registry
 mkfix cont_first
@@ -821,6 +850,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth unclass      unc_cont   1 0 '/# TOOTH-UNCLASS/s/finding /: /'
   tooth unclass-hash unc_hash   1 0 '/^  p = index(\$0, "degraded: "); if (!p) next/a\
   c = index($0, " #"); if (c \&\& c < p) next'
+  tooth mb-unlisted   unl_mb     1 0 '/# TOOTH-UNLISTED/s/finding /: /'
+  tooth mb-stale      stale_mb   1 0 '/# TOOTH-STALE/s/finding /: /'
+  tooth mb-scanned    mb_scanned    1 0 '/^SCRIPTS=(/s/ migrate-backlogs.sh)/)/'
+  tooth mb-emitter    mb_emitter 1 0 '/# TOOTH-EMITTER/s/finding /: /'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
   tooth comment-skip commented  0 1 '/# TOOTH-COMMENT/d'
