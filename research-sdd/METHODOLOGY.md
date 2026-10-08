@@ -684,6 +684,8 @@ gaps and declared coverage complete without ever running a census. It never open
 databases (450 MB), 161 Visio diagrams (76 MB), or 144 compiled DDC programs — file types that a
 three-second census would have put on the radar.
 
+**Plugin/extension-hosting targets: record load channels per entry point.** When the target hosts installable plugins or extensions, record from the start, per entry point, which runtime extension/plugin channels load (for a SPA, the main app, a config app and a preview each load plugins through different paths, and a zero-reference grep in one entry's chunk says nothing about the others). This is a generic coverage-matrix axis, not a SPA-only checklist. (Source: kit #1960.)
+
 **Threshold for audit obligation.** A file type is starred (*) when it meets either threshold:
 `--threshold-count N` (default 5 files) OR `--threshold-mb M` (default 1 MB aggregate). Every
 starred type must be either (a) claimed by a pending or covered gap in the backlog, or (b)
@@ -829,6 +831,8 @@ verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and t
 child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
 
 **JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not. (Evidence: B139 §139.1/§139.2.)
+
+**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). Needs JDK 9+ (unified `-Xlog`). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it. (Evidence: B139 §139.2, 11 runs.)
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
@@ -2731,6 +2735,13 @@ changes for §12b:
   is installed locally and the hardware is physically present. (Evidence: niagara-research
   ColdRoomPan module build: operator observed refrigerant behavior via Workbench trend charts —
   initially tagged `[CERT-hw]`, corrected to `[CERT-live]`.) (Closes #633)
+- **Operator console as live-UI oracle (kit #1958).** For a seam observable only through a UI (no HTTP exchange the
+  driver can capture), the operator is the oracle. The driver hands over ONE exact action: the URL, the numbered steps,
+  and which console/DOM/log line to capture. The operator's pasted console or DOM output is preserved verbatim under
+  `sources/probes/` as a timestamped file marked `operator-pasted` (who pasted, when, which action it answers) and the
+  block cites that file as `[CERT-live]`. Driver-captured and operator-pasted UI/console output are both `[CERT-live]` in this frame (the tier follows the marker table, not the capture mode); operator-pasted versus driver-captured is a provenance note, not a tier change. The
+  block that requests the action names the question it decides, so the pasted answer settles one verdict. (Evidence:
+  three uses in the niagara reflow R14-R16 runs, each deciding the verdict.)
 
 **Honesty note.** First exercised on computadoras B23–B25 (Cloudflare tunnel API: GET/PUT tunnel
 configurations, connector status reads, Access app + service-token creation). One caveat the run
@@ -3228,7 +3239,8 @@ not cover (non-`.key` files, jars) under a `*-toolkit/` path.
 scratchpad, or `<target>/.../_evidence/<task>/`; never loose in a repo or worktree root or in `/tmp`. A rollback
 backup carries a retention note and is deleted once its task's results are merged. A tool or test that makes a
 temp dir removes it (trap/tearDown) and its suite asserts no leftover; `run-all.sh` enforces the latter by
-reporting `TMPDIR leftovers: N` per run (`--require-clean-tmp` makes it a gate). Before closing a focus or campaign
+reporting `TMPDIR leftovers: N` per run (`--require-clean-tmp` makes it a gate; `--keep-tmp` keeps the per-run temp root for
+inspection and prints `TMPDIR kept: <path>`, or a typed `TMPDIR kept: none (...)` when no root existed). Before closing a focus or campaign
 (§8 STOP), run [`toolbelt/clean-check.sh`](toolbelt/clean-check.sh) `--target <target>` (kit issue #1277, contract
 `toolbelt/clean-check.v1.md`). It lists untracked, non-ignored files that no `<TARGET>/.research-sdd/keep.txt`
 glob keeps (`GARBAGE untracked`) and stale user-owned `tmp.*` entries (`GARBAGE stale-tmp`); it deletes and
@@ -3244,8 +3256,30 @@ the script is missing or exits 2/3 (a non-git corpus is exit 2). It is a loud WA
 decided slice 1 as report-only and no gate was decided, so stdout, the verdict, `--emit-token` and the exit code
 are unchanged and a close can still proceed over a WARN. Honoring it is the loop's step: resolve or keep-list
 every finding before declaring STOP. The run is bounded by `timeout` (`RSDD_STATUS_CLEAN_CHECK_TIMEOUT` seconds, an integer >= 1, default 20, anything else falls back to 20 with a WARN; a TERM-ignoring run is killed 5 s later; a timeout or a missing `timeout`/`gtimeout` is a typed `unverifiable` WARN). `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. A non-terminal verdict (`NEXT`,
-`ISSUES-DUE`, `STOP | no active focus`) does not run the check. Not built: stale worktrees, merged branches and
-`_evidence` retention scans (see `clean-check.v1.md` known limits) and a hard gate.
+`ISSUES-DUE`, `STOP | no active focus`) does not run the check.
+
+Retention scans (kit issue #1277 slice 3, report-only; maintainer decision 2026-10-07). `clean-check.sh` also prints
+typed `WARN` lines, counted in the summary as `warnings: N` and never added to the finding count, so WARNs never
+change the exit code: `WARN stale-worktree <path> missing|prunable (...)` (a registered non-main worktree whose
+path is gone or that git marks prunable), `WARN merged-branch <name> merged into <base>` and
+`WARN merged-remote-branch <remote/name> merged into <base>` (refs already merged into the base), and
+`WARN stale-backup <path> age=<d>d retention=<D>d` (an entry named `*rollback*` / `*backup*`, 1-2 levels below an
+`_evidence` directory, older than the retention age). Flags: `--base REF` (default `origin/HEAD`, else `main`, else
+`master`; an unresolvable REF is exit 2), `--evidence DIR` (scan exactly that directory; default every `_evidence`
+directory up to 4 levels below the target), `--backup-days N` (default 14). Absent, empty and degraded stay distinct
+(§7): `ABSENT-BASE`, `ABSENT-EVIDENCE`, `evidence: none found`, and `DEGRADED-WORKTREE-SCAN` /
+`DEGRADED-BRANCH-SCAN` / `DEGRADED-EVIDENCE-SCAN` (summary `degraded: ...`, exit 3 when otherwise clean). A hard
+gate is explicitly NOT adopted: the maintainer decided on 2026-10-07 to keep the instrument report-only. Known
+noise: a branch freshly created at the base tip counts as "merged". Operator action, per WARN, is by hand:
+`git worktree prune` or remove the stale worktree, delete a merged branch you no longer need, and delete a stale
+rollback backup once its task's results are merged.
+
+Two doctrine-only rules that no instrument checks (kit issue #1277). (1) Every rollback backup written under
+`_evidence` carries a RETENTION note (a one-line `RETENTION.txt` beside it, or the retention date in the
+directory name) saying when it may be deleted; a backup without one is not a deliverable, and `stale-backup` is the
+reminder that it outlived its task. (2) Tool output files such as `assess-*.json` must be written to the session
+scratchpad, never loose in the worktrees root (`<repo-parent>/<repo-name>-worktrees/`); no scan covers that
+directory, so an operator closing a campaign lists it by hand and deletes any stray `assess-*.json` left there.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
