@@ -169,8 +169,13 @@ function Test-SshBanner {
     } catch { return $false } finally { $c.Close() }
 }
 if (-not (Test-SshBanner)) {
-    Restart-Service sshd -ErrorAction Stop
-    Add-Content $log "$(Get-Date -Format o) sshd HUNG ... restarted"
+    New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+    try {
+        Restart-Service sshd -ErrorAction Stop
+        Add-Content $log "$(Get-Date -Format o) sshd HUNG ... RECOVERED"
+    } catch {
+        Add-Content $log "$(Get-Date -Format o) sshd HUNG ... RESTART FAILED: $($_.Exception.Message)"
+    }
 }
 ```
 

@@ -832,7 +832,7 @@ child needing the running device or device-bound key. (Source: 2026-08-30-jace80
 
 **JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not. (Evidence: B139 §139.1/§139.2.)
 
-**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it. (Evidence: B139 §139.2, 11 runs.)
+**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). Needs JDK 9+ (unified `-Xlog`). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it. (Evidence: B139 §139.2, 11 runs.)
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
@@ -2739,7 +2739,7 @@ changes for §12b:
   driver can capture), the operator is the oracle. The driver hands over ONE exact action: the URL, the numbered steps,
   and which console/DOM/log line to capture. The operator's pasted console or DOM output is preserved verbatim under
   `sources/probes/` as a timestamped file marked `operator-pasted` (who pasted, when, which action it answers) and the
-  block cites that file as `[CERT-live]`. `[CERT-hw]` is earned only when the driver captured the output directly. The
+  block cites that file as `[CERT-live]`. Driver-captured and operator-pasted UI/console output are both `[CERT-live]` in this frame (the tier follows the marker table, not the capture mode); operator-pasted versus driver-captured is a provenance note, not a tier change. The
   block that requests the action names the question it decides, so the pasted answer settles one verdict. (Evidence:
   three uses in the niagara reflow R14-R16 runs, each deciding the verdict.)
 
