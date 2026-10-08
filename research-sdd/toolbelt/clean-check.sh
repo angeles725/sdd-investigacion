@@ -498,19 +498,24 @@ else
     printf 'RC=%s\0' "$_frc"
   )
   _el=$(( ${#_evraw[@]} - 1 ))
-  _ev_fatal=0
+  _ev_fatal=0; _ev_unread=0
   if [ "$_el" -ge 1 ] && [[ "${_evraw[$_el]}" == RC=* ]] && [[ "${_evraw[$((_el - 1))]}" == ERR=* ]]; then
     _frc="${_evraw[$_el]#RC=}"; _ferr="${_evraw[$((_el - 1))]#ERR=}"
     for ((_i = 0; _i < _el - 1; _i++)); do _evdirs+=("${_evraw[$_i]}"); done
     if [ "$_frc" != 0 ]; then
       _ev_fatal=1   # an error with no readable attribution stays fatal
+      _pre="find: '"; _suf="': Permission denied"   # C-locale find shape, anchored at both ends
       while IFS= read -r _fl; do
         [ -n "$_fl" ] || continue
-        case "$_fl" in
-          *_evidence*) _ev_fatal=1; break ;;
-          *"Permission denied"*) _ev_fatal=0; printf 'INFO evidence-discovery skipped unreadable directory (evidence dirs below it, if any, are not scanned): %s\n' "$_fl" ;;
-          *) _ev_fatal=1; break ;;
-        esac
+        if [[ "$_fl" == "$_pre"*"$_suf" ]]; then
+          _fp="${_fl#"$_pre"}"; _fp="${_fp%"$_suf"}"; _fp="${_fp#"$TARGET_P"/}"   # classify below the target only
+          case "/$_fp/" in
+            */_evidence/*) _ev_fatal=1; break ;;   # CC-EV-ARM: under an _evidence dir (whole path component): fatal
+            *) _ev_fatal=0; _ev_unread=$((_ev_unread + 1))
+               printf 'INFO evidence-discovery skipped unreadable directory (evidence dirs below it, if any, are not scanned): %s\n' "$_fl" ;;
+          esac
+        else _ev_fatal=1; break
+        fi
       done <<<"$_ferr"
     fi
   else _ev_fatal=1; _ferr="no exit status recovered from find"
@@ -520,6 +525,8 @@ else
     EV_STATE="degraded"; _ev_ok=0
   elif [ "${#_evdirs[@]}" -eq 0 ]; then EV_STATE="none found"; _ev_ok=0
   fi
+  _ev_sfx=""; [ "$_ev_unread" -eq 0 ] || _ev_sfx=", $_ev_unread unreadable dir(s) skipped"   # §7: a skip is never a quiet "none found"
+  [ "$_ev_ok" = 1 ] || { [ "$EV_STATE" != "none found" ] || EV_STATE="none found$_ev_sfx"; }
 fi
 if [ "$_ev_ok" = 1 ]; then
   _evn=0; _evold=0; _evbad=0
@@ -556,6 +563,7 @@ if [ "$_ev_ok" = 1 ]; then
   done
   EV_STATE="$_evn dir(s) scanned, $_evold older than ${BACKUP_D}d"
   [ "$_evbad" -eq 0 ] || EV_STATE="$EV_STATE, $_evbad unreadable"
+  EV_STATE="$EV_STATE${_ev_sfx:-}"
 fi
 
 # ---- summary ---------------------------------------------------------------------------------

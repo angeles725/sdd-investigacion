@@ -138,7 +138,7 @@ warnings prints exactly one line, the summary; a clean run without a keep-list p
 the summary, and one without a resolvable base also prints `ABSENT-BASE` just before it. Two typed `INFO` lines can
 precede the summary and never change the exit code: `INFO evidence-discovery skipped unreadable directory ...` (the
 `_evidence` discovery `find` could not read a directory that is not under an `_evidence` dir; the message names it, and
-`_evidence` dirs below it, if any, were not scanned) and `INFO merged-branch scan of local branches skipped ...` (the
+`_evidence` dirs below it, if any, were not scanned; the summary's `evidence:` field then carries `, N unreadable dir(s) skipped`, so it never reads as a bare `none found`. The match is the C-locale `find: '<path>': Permission denied` shape anchored at both ends, classified on the path below the target with `_evidence` as a whole path component; anything else, or any such error under an `_evidence` dir, degrades) and `INFO merged-branch scan of local branches skipped ...` (the
 worktree scan degraded, so which branches are checked out is unknown and local merged-branch WARNs are suppressed rather
 than risk false ones; remote-tracking WARNs still run). A matching backup directory is reported once; backup-named
 entries inside it are not listed separately. `git worktree list --porcelain -z` is used when git supports it (2.36+),

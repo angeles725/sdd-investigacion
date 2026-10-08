@@ -528,7 +528,7 @@ fi
 # ---- review round: W1 discovery scope, W2 early --base, S4 suppressed branches, S5 pruned backups, S7 newline worktree path
 mkdir -p "$TMP/shim-evdisc" "$TMP/shim-evperm"
 printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { echo "shim-find-diagnostic: discovery exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-evdisc/find"
-printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { %s "$@"; echo "%s: cannot open directory other/locked: Permission denied" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" "$REALFIND" "$REALFIND" > "$TMP/shim-evperm/find"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = _evidence ] && { %s "$@"; echo "$SHIM_ERR_LINE" >&2; exit 1; }; done\nexec %s "$@"\n' "$REALFIND" "$REALFIND" > "$TMP/shim-evperm/find"
 chmod +x "$TMP/shim-evdisc/find" "$TMP/shim-evperm/find"
 if [ "$(id -u)" != 0 ]; then
   fresh_main; mkdir -p "$REPO/other/locked" "$REPO/.research-sdd"; printf '_evidence/\nother/\n' > "$REPO/.research-sdd/keep.txt"; chmod 000 "$REPO/other/locked"
@@ -543,6 +543,25 @@ if [ "$(id -u)" != 0 ]; then
 fi
 fresh_main; OUT="$(PATH="$TMP/shim-evdisc:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "discovery exploded"; } && ok "failing discovery find (unattributable error) -> DEGRADED-EVIDENCE-SCAN with the message" || no "discovery degrade" "(rc=$RC $OUT)"
+# round 2: summary counts skipped dirs; classification is anchored and relative to the target
+evperm() { OUT="$(SHIM_ERR_LINE="$1" PATH="$TMP/shim-evperm:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?; }
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && has "evidence: none found, 1 unreadable dir(s) skipped"; } && ok "skipped unreadable dir -> summary says so, never a bare 'none found'" || no "none found suffix" "(rc=$RC $OUT)"
+fresh_main; mkdir -p "$REPO/_evidence/t" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "1 dir(s) scanned, 0 older than 14d, 1 unreadable dir(s) skipped"; } && ok "skip suffix also on a run that found evidence dirs" || no "scanned suffix" "(rc=$RC $OUT)"
+fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+evperm "find: '$REPO/Permission denied': No such file or directory"
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN"; } && ok "a non-permission error on a dir named 'Permission denied' is not skipped (anchored match)" || no "anchor" "(rc=$RC $OUT)"
+evperm "find: '$REPO/_evidence/t/locked': Permission denied"
+{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "permission error under an _evidence dir degrades (root-independent)" || no "evidence arm" "(rc=$RC $OUT)"
+CE="$TMP/case_evidence_$n/_evidence"; mkdir -p "$CE"; REPO_SAVE="$REPO"; REPO="$CE/repo"; mkdir -p "$REPO"; git -C "$REPO" init -q; git -C "$REPO" branch -M main 2>/dev/null
+mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
+"${GIT[@]}" -C "$REPO" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$REPO" commit -q -m i 2>/dev/null
+evperm "find: '$REPO/other/locked': Permission denied"
+{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && ! has "DEGRADED"; } && ok "a target path containing '_evidence' as a substring does not misclassify" || no "target path substring" "(rc=$RC $OUT)"
+REPO="$REPO_SAVE"
 # W2: --base validated before any scan prints
 fresh_main; printf 'x\n' > "$REPO/stray.json"
 run --target "$REPO" --tmp "$FT" --base nope
@@ -764,10 +783,18 @@ KL
     --good-lacks 'rollback-inner' --bad-has 'rollback-inner' -- "$BASH_BIN" @SUT@ --target "$PR" --tmp "$PRT"
   mt "degraded worktree scan no longer suppresses local branch WARNs" 's/\[ "\$_wt_ok" = 1 \] || { continue; }/:/' 3 3 \
     --good-lacks 'WARN merged-branch' --bad-has 'WARN merged-branch' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "unreadable non-evidence dir is no longer a typed INFO" 's/INFO evidence-discovery skipped/NOTE evidence-discovery skipped/' 0 0 \
-    --good-has 'INFO evidence-discovery' --bad-lacks 'INFO evidence-discovery' -- env "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "non-evidence unreadable dir degrades the whole run" 's/\*"Permission denied"\*) _ev_fatal=0;/*"Permission denied"*) _ev_fatal=1;/' 0 3 \
-    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  CEW="$TMP/case_evidence_w/_evidence/repo"; mkdir -p "$CEW/.research-sdd"; git -C "$CEW" init -q; git -C "$CEW" branch -M main 2>/dev/null; printf '# none\n' > "$CEW/.research-sdd/keep.txt"
+  "${GIT[@]}" -C "$CEW" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$CEW" commit -q -m i 2>/dev/null
+  mt "skipped non-evidence dir degrades the run" 's/\*) _ev_fatal=0; _ev_unread/*) _ev_fatal=1; _ev_unread/' 0 3 \
+    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "skip count missing from the summary (quiet none found)" 's/\[ "\$_ev_unread" -eq 0 \] || _ev_sfx=/: || _ev_sfx=/' 0 0 \
+    --good-has 'none found, 1 unreadable dir\(s\) skipped' --bad-lacks 'unreadable dir\(s\) skipped' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "_evidence safety arm removed (permission error under _evidence skipped)" '/CC-EV-ARM/d' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/_evidence/t/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "Permission denied match no longer anchored to the line end" 's/\[\[ "\$_fl" == "\$_pre"\*"\$_suf" \]\]/[[ "$_fl" == "$_pre"* ]]/' 3 0 \
+    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/Permission denied': No such file or directory" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
+  mt "classification no longer relative to the target (case_evidence in the target path)" 's/; _fp="\${_fp#"\$TARGET_P"\/}"//' 0 3 \
+    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$CEW/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$CEW" --tmp "$NBT"
   # World R2: origin/HEAD base with a local twin of the base and a merged remote branch.
   fresh_main; R2="$REPO"; R2T="$FT"; RB2="$TMP/r2-remote.git"; git init -q --bare "$RB2"; git -C "$R2" remote add origin "$RB2"
   git -C "$R2" push -q origin main; git -C "$R2" push -q origin main:refs/heads/rdone; git -C "$R2" fetch -q origin; git -C "$R2" remote set-head origin main >/dev/null; git -C "$R2" switch -q -c other   # HEAD off main, so main is a reportable twin
