@@ -26,7 +26,7 @@ _usage() { printf 'Usage: %s [--json] <target>\n' "$(basename "$0")" >&2; }
 # SENTINEL-JSON-ARGS-START
 # --json is recognised in any position; everything else is a positional. Without it the argument
 # handling is exactly the pre-#1711 one (exactly one <target>, every failure exits 0 — hook contract).
-_ENV_JSON=0; _ERR_RC=0; _pos=()
+_ENV_JSON=0; _ERR_RC=0; _unverified=0; _pos=()
 for _a in "$@"; do
   if [ "$_a" = "--json" ]; then _ENV_JSON=1; else _pos+=("$_a"); fi
 done
@@ -411,11 +411,11 @@ _emit_envelope() {
     --arg verdict "$verdict" --arg branch "${_STOP_BRANCH:-unclassified}" \
     --arg target "$(basename "$TARGET")" --arg sid "$_session_id" --arg mode "$mode" \
     --arg retro "$retro" --argjson has_reason "$has_reason" --argjson blocked "$blocked" \
-    --argjson degraded "$degraded" '
+    --argjson degraded "$degraded" --argjson unverified "$_unverified" '
     def nn: if . == "" then null else . end;
     . as $reason
     | {schema:"research-sdd.retro-gate/v1", state:"ok", reason:null,
-       counts:{blocked:$blocked, degraded_check:$degraded},
+       counts:{blocked:$blocked, degraded_check:$degraded, unverified:$unverified},
        items:[{kind:"verdict", verdict:$verdict, branch:$branch, target:$target,
                session_id:($sid|nn), check_mode:($mode|nn), newest_retro:($retro|nn),
                reason:(if $has_reason == 1 then $reason else null end)}]}' 2>/dev/null)" && [ -n "$out" ] || {
@@ -444,6 +444,20 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 # SENTINEL-JQ-PROBE-END
+
+# SENTINEL-JSON-CAPABILITY-START
+# --json builds its envelope with --arg/--argjson (jq >= 1.5): probe the CAPABILITY, so an old jq is a
+# typed degraded result up front (rc 3), never a late rc 1 after the gate already ran. Default mode
+# does not use --argjson and is not probed (byte-identical behaviour).
+if [ "$_ENV_JSON" -eq 1 ] && ! jq -n --argjson x 1 '$x' >/dev/null 2>&1; then
+  _STOP_BRANCH="degraded"
+  printf 'retro-gate: state=allow branch=degraded (jq lacks --argjson — cannot build the envelope) target=%s\n' \
+    "$(basename "$TARGET")" >&2
+  printf 'DEGRADED: jq lacks --argjson (jq >= 1.5 required)\n' >&2
+  printf '{"schema":"research-sdd.retro-gate/v1","state":"degraded","reason":"jq lacks --argjson (jq >= 1.5 required)","counts":{},"items":[]}\n'
+  exit 3
+fi
+# SENTINEL-JSON-CAPABILITY-END
 
 # ── Read stdin JSON ───────────────────────────────────────────────────────────
 _json=$(cat)
@@ -487,6 +501,7 @@ _nw_rc=$?
 # never skipped; the probe's failure can never turn into an allow.
 # SENTINEL-NW-PROBE-FAIL-START
 if [ "$_nw_rc" -ne 0 ] && [ "$_nw_rc" -ne 3 ]; then
+  _unverified=1
   printf 'retro-gate: WARN: nested-worktree probe failed (rc=%s) for %s — worktree copies may be counted\n' \
     "$_nw_rc" "$(basename "$TARGET")" >&2
 fi
@@ -636,7 +651,7 @@ if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
   if [ -z "$_dl_of" ]; then
     printf 'retro-gate: WARN: directory-symlink scan skipped: cannot create a scratch file (mktemp failed) for %s — symlinked research directories not scanned\n' \
       "$(basename "$TARGET")" >&2
-    _dl_cands=(); _dl_skip=1
+    _dl_cands=(); _dl_skip=1; _unverified=1
   fi
   # SENTINEL-DIRLINK-SCRATCH-END
   if [ "$_dl_skip" -eq 1 ]; then :
@@ -648,6 +663,7 @@ if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
     done < <(grep -z '^120000 ' "$_dl_f1" | sed -z 's/^[^\t]*\t//'; cat "$_dl_f2")
   else
     _dl_find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print0
+    if [ "$_dl_rc" -ne 0 ]; then _unverified=1; fi
     if [ "$_dl_rc" -eq 124 ]; then
       printf 'retro-gate: WARN: directory-symlink scan timed out after %ss for %s — symlinked research directories not scanned\n' \
         "$_dl_timeout" "$(basename "$TARGET")" >&2
@@ -679,6 +695,7 @@ if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
     _dl_find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' -not -path '*/.git/*' -print0
     # SENTINEL-DIRLINK-WALK-WARN-START
     if [ "$_dl_rc" -ne 0 ]; then
+      _unverified=1
       printf 'retro-gate: WARN: directory-symlink walk incomplete (rc=%s) under %s — research behind it may be missed\n' \
         "$_dl_rc" "${_lnk#"$TARGET"/}" >&2
     fi
@@ -860,7 +877,7 @@ else
     _block_reason="§18 retro pending for $(basename "$TARGET"): $(basename "$_newest_retro") is non-conforming. Fix it (from $KIT/templates/retro.template.md) — missing elements: $_vr_out"
   else
     # verify-retro.sh absent → allow (cannot verify; log degraded)
-    _STOP_BRANCH="no-verifier"
+    _STOP_BRANCH="no-verifier"; _unverified=1
     printf 'retro-gate: state=allow branch=no-verifier (verify-retro.sh absent) target=%s\n' \
       "$(basename "$TARGET")" >&2
     _verdict_allow "$_check_mode" "$(basename "$_newest_retro")" ""

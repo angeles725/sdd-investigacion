@@ -2539,6 +2539,36 @@ if [ "$RC" -eq 1 ] && [ -z "$OUT" ] && grep -q 'envelope build failed' "$J12_ERR
   ok "#1711 J12: envelope build failure → rc 1, empty stdout, message on stderr"
 else no "#1711 J12: want rc 1/empty/message, got rc=$RC out=[$OUT] err=[$(cat "$J12_ERRF")]"; fi
 
+# J13: a jq without --argjson (the capability, not just presence) → typed degraded up front, rc 3 — never a
+# late rc 1 after the gate ran. The shim answers --argjson with exit 5 and otherwise defers to the real jq.
+mkjt "$ROOT/tj13" j13-sess block
+OLDJQ="$ROOT/oldjq"; mkdir -p "$OLDJQ"
+printf '#!/bin/sh\ncase " $* " in *" --argjson "*) exit 5 ;; esac\nexec %s "$@"\n' "$(command -v jq)" > "$OLDJQ/jq"; chmod +x "$OLDJQ/jq"
+J13_ERRF="$ROOT/j13err"
+OUT="$(printf '%s' "$(mkjson j13-sess false)" | PATH="$OLDJQ:$PATH" "$BASH_BIN" "$SUT" --json "$ROOT/tj13" 2>"$J13_ERRF")"; RC=$?
+if jshape && [ "$RC" -eq 3 ] && [ "$(<<<"$OUT" jq -r .state)" = degraded ] && grep -q '^DEGRADED: jq lacks --argjson' "$J13_ERRF"; then
+  ok "#1711 J13: jq without --argjson → degraded envelope, rc 3, DEGRADED: line"
+else no "#1711 J13: want degraded rc 3, got rc=$RC out=[$OUT] err=[$(cat "$J13_ERRF")]"; fi
+[ ! -f "$ROOT/tj13/.claude/.rsdd-retro-blocked-j13-sess" ] \
+  && ok "#1711 J13b: the capability probe fires before the gate runs (no block-once state written)" || no "#1711 J13b: gate ran before the capability probe"
+
+# J14: unverified allows are visible in counts — verify-retro.sh absent (no-verifier) and a failed
+# nested-worktree probe. A clean conforming allow keeps unverified 0 (J4 pins the whole counts shape).
+NVKIT="$ROOT/nvkit"; mkdir -p "$NVKIT"; cp -R "$FKIT/toolbelt" "$NVKIT/toolbelt"; cp "$SUT" "$NVKIT/toolbelt/retro-gate.sh"; rm -f "$NVKIT/toolbelt/verify-retro.sh"
+mkjt "$ROOT/tj14" j14-sess good
+OUT="$(printf '%s' "$(mkjson j14-sess false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$NVKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14" 2>/dev/null)"; RC=$?
+if jshape && [ "$(jitem .branch)|$(jitem .verdict)|$(<<<"$OUT" jq -r .counts.unverified)" = "no-verifier|allow|1" ]; then
+  ok "#1711 J14a: verify-retro.sh absent → allow item with counts.unverified 1"
+else no "#1711 J14a: wrong envelope (rc=$RC): $OUT"; fi
+mkjt "$ROOT/tj4b" j4b-sess good
+jrun "$ROOT/tj4b" "$(mkjson j4b-sess false)" --json
+[ "$(<<<"$OUT" jq -r .counts.unverified)" = 0 ] && ok "#1711 J14b: a verified conforming allow has counts.unverified 0" || no "#1711 J14b: unverified not 0: $OUT"
+mkjt "$ROOT/tj14c" j14c-sess block
+OUT="$(printf '%s' "$(mkjson j14c-sess false)" | PF_RC=5 PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$PFKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14c" 2>/dev/null)"; RC=$?
+if jshape && [ "$(jitem .verdict)|$(<<<"$OUT" jq -r .counts.unverified)" = "block|1" ]; then
+  ok "#1711 J14c: failed nested-worktree probe → counts.unverified 1"
+else no "#1711 J14c: wrong envelope (rc=$RC): $OUT"; fi
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -4016,10 +4046,13 @@ j_tooth() {
   local name="$1" expr="$2" fn="$3" m="$FMUT/toolbelt/retro-gate.sh" mrc
   mutant_sed "$SUT" "$m" "$expr"; mrc=$?
   if [ "$mrc" -ne 0 ]; then no "TOOTH $name: mutant refused by lib/mutant.sh (rc=$mrc) — tooth not built"; return; fi
+  # Baseline: the case must report "fine" on the REAL script. A case that already misbehaves there (a
+  # missing fixture, a wrong path) would let every mutant "bite" for the wrong reason (vacuous tooth).
+  if "$fn" "$SUT"; then no "TOOTH $name: baseline — the case already misbehaves on the real SUT (vacuous tooth)"; return; fi
   if "$fn" "$m"; then ok "TOOTH $name: mutant misbehaves (RED as expected)"; else no "TOOTH $name: mutant behaved like the real SUT — no teeth"; fi
 }
-jc_block()    { jm_run "$1" "$ROOT/tj1b" j1-sess false --json; ! jshape || [ "$(jitem .verdict)" != block ]; }
-jc_counts()   { jm_run "$1" "$ROOT/tj1b" j1-sess false --json; [ "$(<<<"$OUT" jq -r .counts.blocked 2>/dev/null)" != 1 ] || [ "$(jitem .reason)" = null ]; }
+jc_block()   { jm_run "$1" "$ROOT/jb/tj1" j1-sess false --json; ! jshape || [ "$(jitem .verdict)" != block ]; }
+jc_counts()   { jm_run "$1" "$ROOT/jb/tj1" j1-sess false --json; [ "$(<<<"$OUT" jq -r .counts.blocked 2>/dev/null)" != 1 ] || [ "$(jitem .reason)" = null ]; }
 jc_loop()     { jm_run "$1" "$ROOT/tj5" j5-sess true --json; ! jshape; }
 jc_once()     { touch "$ROOT/tj6/.claude/.rsdd-retro-blocked-j6-sess"; OUT="$(printf '%s' "$(mkjson j6-sess false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$1" --json "$ROOT/tj6" 2>/dev/null)"; ! jshape; }
 jc_nochange() { jm_run "$1" "$ROOT/tj7" j7-sess false --json; ! jshape; }
@@ -4031,6 +4064,13 @@ jc_degraded_rc()  { OUT="$(printf '%s' "$(mkjson j9-sess false)" | PATH="$NOJQ_P
 jc_degraded_env() { OUT="$(printf '%s' "$(mkjson j9-sess false)" | PATH="$NOJQ_PATH" "$BASH_BIN" "$1" --json "$ROOT/tj9" 2>/dev/null)"; RC=$?; ! jshape || [ "$(<<<"$OUT" jq -r .state)" != degraded ]; }
 jc_buildfail()    { OUT="$(printf '%s' "$(mkjson j12-sess false)" | PATH="$JQSHIM:$PATH" "$BASH_BIN" "$1" --json "$ROOT/tj12" 2>/dev/null)"; RC=$?; [ "$RC" -ne 1 ]; }
 jc_default()  { jm_run "$1" "$ROOT/ja/tj1" j1-sess false; ! <<<"$OUT" grep -qF '"decision":"block"'; }
+jc_capability()  { OUT="$(printf '%s' "$(mkjson j13-sess false)" | PATH="$OLDJQ:$PATH" "$BASH_BIN" "$1" --json "$ROOT/tj13" 2>/dev/null)"; RC=$?; [ "$RC" -ne 3 ]; }
+jc_unv_nov()     { cp "$1" "$NVKIT/toolbelt/retro-gate.sh"; rm -f "$ROOT/tj14/.claude/.rsdd-retro-blocked-j14-sess"
+  OUT="$(printf '%s' "$(mkjson j14-sess false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$NVKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14" 2>/dev/null)"; RC=$?
+  [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
+jc_unv_probe()   { cp "$1" "$PFKIT/toolbelt/retro-gate.sh"; rm -f "$ROOT/tj14c/.claude/.rsdd-retro-blocked-j14c-sess"
+  OUT="$(printf '%s' "$(mkjson j14c-sess false)" | PF_RC=5 PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$PFKIT/toolbelt/retro-gate.sh" --json "$ROOT/tj14c" 2>/dev/null)"; RC=$?
+  [ "$(<<<"$OUT" jq -r .counts.unverified 2>/dev/null)" != 1 ]; }
 j_tooth "j-block-envelope-dropped (block site prints nothing under --json)" \
   's/^    _emit_envelope block .*$/    :/' jc_block
 j_tooth "j-block-flag-dropped (block verdict loses its reason and counts.blocked)" \
@@ -4057,6 +4097,12 @@ j_tooth "j-build-failure-swallowed (failed jq build exits 0)" \
   's/\(envelope build failed (jq).*\); exit 1$/\1; exit 0/' jc_buildfail
 j_tooth "j-default-mode-lost (default mode no longer prints the hook decision)" \
   's/^    printf .{"decision":"block","reason":"%s"}\\n. "\$_reason_esc"$/    :/' jc_default
+j_tooth "j-capability-probe-dropped (an old jq is no longer degraded up front)" \
+  '/SENTINEL-JSON-CAPABILITY-START/,/SENTINEL-JSON-CAPABILITY-END/d' jc_capability
+j_tooth "j-unverified-no-verifier-dropped (verify-retro.sh absent no longer counted)" \
+  's/_STOP_BRANCH="no-verifier"; _unverified=1/_STOP_BRANCH="no-verifier"/' jc_unv_nov
+j_tooth "j-unverified-probe-dropped (failed nested-worktree probe no longer counted)" \
+  's/^  _unverified=1$/  :/' jc_unv_probe
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 # When the live tree is not under git the guard cannot run: that used to drop ONE case silently
