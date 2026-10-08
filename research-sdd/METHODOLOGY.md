@@ -684,6 +684,8 @@ gaps and declared coverage complete without ever running a census. It never open
 databases (450 MB), 161 Visio diagrams (76 MB), or 144 compiled DDC programs — file types that a
 three-second census would have put on the radar.
 
+**Plugin/extension-hosting targets: record load channels per entry point.** When the target hosts installable plugins or extensions, record from the start, per entry point, which runtime extension/plugin channels load (for a SPA, the main app, a config app and a preview each load plugins through different paths, and a zero-reference grep in one entry's chunk says nothing about the others). This is a generic coverage-matrix axis, not a SPA-only checklist. (Source: kit #1960.)
+
 **Threshold for audit obligation.** A file type is starred (*) when it meets either threshold:
 `--threshold-count N` (default 5 files) OR `--threshold-mb M` (default 1 MB aggregate). Every
 starred type must be either (a) claimed by a pending or covered gap in the backlog, or (b)
@@ -829,6 +831,8 @@ verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and t
 child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
 
 **JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not. (Evidence: B139 §139.1/§139.2.)
+
+**Precedence oracle: `-Xlog:class+load=info` (kit #1617).** A shadow/precedence question ("does my copy win over the shipped one?") needs no behaviour replacement: run the product once with `-Xlog:class+load=info` and read the `source:` field the VM prints for each loaded class (a `file:…/shipped.jar` versus your shadow directory). One flag, no fake classes, no mutation of the artifact under test; one run per container answers it. (Evidence: B139 §139.2, 11 runs.)
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
@@ -2731,6 +2735,13 @@ changes for §12b:
   is installed locally and the hardware is physically present. (Evidence: niagara-research
   ColdRoomPan module build: operator observed refrigerant behavior via Workbench trend charts —
   initially tagged `[CERT-hw]`, corrected to `[CERT-live]`.) (Closes #633)
+- **Operator console as live-UI oracle (kit #1958).** For a seam observable only through a UI (no HTTP exchange the
+  driver can capture), the operator is the oracle. The driver hands over ONE exact action: the URL, the numbered steps,
+  and which console/DOM/log line to capture. The operator's pasted console or DOM output is preserved verbatim under
+  `sources/probes/` as a timestamped file marked `operator-pasted` (who pasted, when, which action it answers) and the
+  block cites that file as `[CERT-live]`. `[CERT-hw]` is earned only when the driver captured the output directly. The
+  block that requests the action names the question it decides, so the pasted answer settles one verdict. (Evidence:
+  three uses in the niagara reflow R14-R16 runs, each deciding the verdict.)
 
 **Honesty note.** First exercised on computadoras B23–B25 (Cloudflare tunnel API: GET/PUT tunnel
 configurations, connector status reads, Access app + service-token creation). One caveat the run
@@ -3228,7 +3239,8 @@ not cover (non-`.key` files, jars) under a `*-toolkit/` path.
 scratchpad, or `<target>/.../_evidence/<task>/`; never loose in a repo or worktree root or in `/tmp`. A rollback
 backup carries a retention note and is deleted once its task's results are merged. A tool or test that makes a
 temp dir removes it (trap/tearDown) and its suite asserts no leftover; `run-all.sh` enforces the latter by
-reporting `TMPDIR leftovers: N` per run (`--require-clean-tmp` makes it a gate). Before closing a focus or campaign
+reporting `TMPDIR leftovers: N` per run (`--require-clean-tmp` makes it a gate; `--keep-tmp` keeps the per-run temp root for
+inspection and prints `TMPDIR kept: <path>`, or a typed `TMPDIR kept: none (...)` when no root existed). Before closing a focus or campaign
 (§8 STOP), run [`toolbelt/clean-check.sh`](toolbelt/clean-check.sh) `--target <target>` (kit issue #1277, contract
 `toolbelt/clean-check.v1.md`). It lists untracked, non-ignored files that no `<TARGET>/.research-sdd/keep.txt`
 glob keeps (`GARBAGE untracked`) and stale user-owned `tmp.*` entries (`GARBAGE stale-tmp`); it deletes and
