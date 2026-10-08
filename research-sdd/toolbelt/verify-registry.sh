@@ -153,6 +153,7 @@ if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_h
 # shellcheck source=lib/hook-wiring.sh
 . "$_vr_hw_lib"
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
+declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
 unset _vr_hw_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -337,7 +338,22 @@ for p in $paths; do
   _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
-    if [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
+    # REGISTERED-NEVER-LOADED (kit issue #1157): 'wired' / 'wired-off-root' are a TEXT match on the
+    # settings file; they say nothing about whether the registered script exists. Ask the separate
+    # script-resolution question (lib/hook-wiring.sh hook_stop_script_state) and surface a script that
+    # cannot load as its OWN finding kind, before the off-root wording (a missing script is the
+    # stronger fact: the hook cannot fire from ANY launch directory). 'unverifiable' (bare command
+    # name, unresolved variable) makes no claim and stays silent; 'degraded' is surfaced, never zero.
+    _vr_script_state=""
+    case "$_vr_hook_state" in wired|wired-off-root) _vr_script_state="$(hook_stop_script_state "$p")" ;; esac
+    if [ "$_vr_script_state" = "degraded" ]; then  # HOOK-SCRIPT-DEGRADED-CHECK
+      _vr_finding hook-script-degraded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but the script-resolution check degraded (awk unavailable or failed); whether the hook can load is unknown, not confirmed (propose-never-apply)."
+      attention=$((attention + 1))
+    fi
+    if [ "$_vr_script_state" = "missing" ]; then  # HOOK-NEVER-LOADED-CHECK
+      _vr_finding hook-registered-never-loaded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json but EVERY registered retro-gate command names a script that does not exist (one present entry would let it load), so the hook can never load (registered-never-loaded; checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected; executable bit and launch directory are not checked); restore the script or refresh the row (propose-never-apply)."
+      attention=$((attention + 1))
+    elif [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
       _vr_finding hook-off-root WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook is expected to fire only for a session launched in exactly that directory (observed Claude Code behavior, not a cited spec; kit issue #1134). Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
@@ -382,9 +398,15 @@ for p in $paths; do
   _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+no([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
   if [ -n "$_vr_hook_no_claim" ]; then
     _vr_hook_state2="$(hook_stop_wiring_state "$p")"
+    # A registration whose script does not exist (kit issue #1157) is consistent with 'hook no': no
+    # usable hook exists. Only a registration that CAN load contradicts the row.
+    _vr_script_state2=""
+    [ "$_vr_hook_state2" = "wired" ] && _vr_script_state2="$(hook_stop_script_state "$p")"
     if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
+     if [ "$_vr_script_state2" != "missing" ]; then  # HOOK-REVERSE-SCRIPT-GUARD
       _vr_finding hook-wired-contradiction WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply)."
       attention=$((attention + 1))
+     fi
     fi
   fi
 

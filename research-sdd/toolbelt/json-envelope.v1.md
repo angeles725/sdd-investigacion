@@ -102,6 +102,8 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `hook-unwired` | row claims `hook yes` but the Stop hook is not wired at the checked path |
 | `hook-off-root` | row claims `hook yes`; wired, but the path is not its own git root |
 | `hook-wired-contradiction` | row claims `hook no` but the Stop hook is wired |
+| `hook-registered-never-loaded` | row claims `hook yes`; the Stop hook is registered but every registered retro-gate command names a script that does not exist, so it can never load |
+| `hook-script-degraded` | row claims `hook yes`; the script-resolution check could not run (awk unavailable or failed), so loadability is unknown |
 | `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
 | `nc-no-count` | `nc` row without a claimed `N md` count |
 | `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |
